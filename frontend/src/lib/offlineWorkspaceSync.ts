@@ -213,7 +213,8 @@ function defaultSettings(): OfflineSyncSettings {
   const mobile = typeof window !== "undefined"
     && Boolean((window as any).Capacitor?.isNativePlatform?.());
   return {
-    enabled: nativeRemote,
+    // 离线同步属于显式能力：所有平台首次使用默认关闭，仅在用户主动开启后运行。
+    enabled: false,
     workspaceMode: "all",
     workspaceIds: [],
     attachmentMode: nativeRemote ? "all" : "images",

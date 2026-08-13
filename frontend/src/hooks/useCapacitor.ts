@@ -5,6 +5,7 @@ import { SplashScreen } from "@capacitor/splash-screen";
 import { StatusBar, Style } from "@capacitor/status-bar";
 import { Keyboard } from "@capacitor/keyboard";
 import { Haptics, ImpactStyle, NotificationType } from "@capacitor/haptics";
+import { consumeMobileBack } from "@/lib/mobileBackNavigation";
 
 const ENABLE_NATIVE_HAPTICS = false;
 
@@ -50,7 +51,7 @@ if (typeof document !== "undefined") {
 
 /**
  * P0: Android 返回键处理
- * 按层级依次关闭：编辑器 → 侧边栏 → 确认退出
+ * 唯一的原生 backButton 监听，按层级依次关闭：浮层 → 侧边栏 → 编辑器 → 确认退出。
  */
 export function useBackButton({
   mobileView,
@@ -65,26 +66,33 @@ export function useBackButton({
 }) {
   // 用于双击返回退出的时间戳
   const lastBackPress = useRef(0);
+  const stateRef = useRef({ mobileView, mobileSidebarOpen, onBackToList, onCloseSidebar });
+  stateRef.current = { mobileView, mobileSidebarOpen, onBackToList, onCloseSidebar };
 
   useEffect(() => {
     // HarmonyOS: back button handled by ArkTS WebViewPage.onBackPress()
     if (isHarmonyWebView()) return;
     if (!isNativePlatform()) return;
 
-    const handler = CapApp.addListener("backButton", ({ canGoBack }) => {
-      // 层级 1：侧边栏打开 → 关闭侧边栏
-      if (mobileSidebarOpen) {
-        onCloseSidebar();
+    const handler = CapApp.addListener("backButton", () => {
+      // 层级 1-2：全屏 Viewer、Modal / Sheet 等浮层只消费自身一层。
+      if (consumeMobileBack()) return;
+
+      const current = stateRef.current;
+
+      // 层级 3：侧边栏打开 → 关闭侧边栏
+      if (current.mobileSidebarOpen) {
+        current.onCloseSidebar();
         return;
       }
 
-      // 层级 2：编辑器视图 → 返回笔记列表
-      if (mobileView === "editor") {
-        onBackToList();
+      // 层级 4：编辑器视图 → 返回笔记列表
+      if (current.mobileView === "editor") {
+        current.onBackToList();
         return;
       }
 
-      // 层级 3：已经在列表视图 → 双击退出 App
+      // 层级 5：已经在列表视图 → 双击退出 App
       const now = Date.now();
       if (now - lastBackPress.current < 2000) {
         CapApp.exitApp();
@@ -98,7 +106,7 @@ export function useBackButton({
     return () => {
       handler.then((h) => h.remove());
     };
-  }, [mobileView, mobileSidebarOpen, onBackToList, onCloseSidebar]);
+  }, []);
 }
 
 /**

@@ -1,6 +1,10 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { FileText, FileCode, FileType2 } from "lucide-react";
+import {
+  cancelNewNoteTitleFocus,
+  requestNewNoteTitleFocus,
+} from "@/lib/noteTitleFocus";
 
 export type NoteType = "normal" | "markdown" | "word";
 
@@ -92,8 +96,10 @@ export default function CreateNoteMenu({ onPick, onClose, anchorRef }: CreateNot
             onClick={(e) => {
               e.preventDefault();
               e.stopPropagation();
+              const focusRequestId = it.id === "word" ? null : requestNewNoteTitleFocus();
               onClose();
               void Promise.resolve(onPick(it.id)).catch((err) => {
+                if (focusRequestId !== null) cancelNewNoteTitleFocus(focusRequestId);
                 console.error("Failed to handle create note menu pick:", err);
               });
             }}

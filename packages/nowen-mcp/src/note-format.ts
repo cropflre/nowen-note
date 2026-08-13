@@ -66,8 +66,10 @@ export function buildUpdateNotePayload(params: {
     contentFormat?: NoteContentFormat;
     version: number;
     syncToYjs?: boolean;
+    writeSource: "mcp";
   } = {
     version: params.currentNote.version || 1,
+    writeSource: "mcp",
   };
 
   if (params.title !== undefined) {

@@ -85,6 +85,7 @@ const ALLOWED_VIDEO_MIMES = new Set([
   "video/mp4",
   "video/webm",
   "video/quicktime",
+  "video/3gpp",
 ]);
 
 // 相对时间显示
@@ -128,6 +129,8 @@ interface PendingMedia {
   /** 本地预览（blob:），上传成功后保留此预览（无需重新拉远端图） */
   previewUrl: string;
   mimeType?: string;
+  /** 保留原始文件，上传失败后可直接重试，不必重新选择。 */
+  file?: File;
   status: "uploading" | "ready" | "error";
   errorMessage?: string;
 }
@@ -146,6 +149,103 @@ function mediaTypeForFile(file: File): "image" | "video" | null {
   if (ALLOWED_IMAGE_MIMES.has(mime)) return "image";
   if (ALLOWED_VIDEO_MIMES.has(mime)) return "video";
   return null;
+}
+
+type DiaryMediaPickerSource = "image-library" | "camera" | "video-library" | "record";
+
+function normalizePickedMediaFile(file: File): File {
+  if (file.type) return file;
+  const extension = file.name.split(".").pop()?.toLowerCase() || "";
+  const mimeType = extension === "png" ? "image/png"
+    : extension === "jpg" || extension === "jpeg" ? "image/jpeg"
+    : extension === "gif" ? "image/gif"
+    : extension === "webp" ? "image/webp"
+    : extension === "bmp" ? "image/bmp"
+    : extension === "mp4" || extension === "m4v" ? "video/mp4"
+    : extension === "webm" ? "video/webm"
+    : extension === "mov" ? "video/quicktime"
+    : extension === "3gp" || extension === "3gpp" ? "video/3gpp"
+    : "";
+  return mimeType
+    ? new File([file], file.name, { type: mimeType, lastModified: file.lastModified })
+    : file;
+}
+
+function openDiaryMediaPicker(
+  source: DiaryMediaPickerSource,
+  onFiles: (files: File[]) => void,
+  onUnavailable: () => void,
+): void {
+  if (typeof document === "undefined") {
+    onUnavailable();
+    return;
+  }
+  const input = document.createElement("input");
+  const imageSource = source === "image-library" || source === "camera";
+  input.type = "file";
+  input.accept = imageSource ? "image/*" : "video/*";
+  input.multiple = source === "image-library";
+  if (source === "camera" || source === "record") input.setAttribute("capture", "environment");
+  input.style.position = "fixed";
+  input.style.left = "-9999px";
+  input.style.opacity = "0";
+  input.style.pointerEvents = "none";
+
+  const cleanup = () => input.remove();
+  input.onchange = () => {
+    const files = Array.from(input.files || []).map(normalizePickedMediaFile);
+    cleanup();
+    if (files.length > 0) onFiles(files);
+  };
+  input.oncancel = cleanup;
+  document.body.appendChild(input);
+  try {
+    input.click();
+  } catch {
+    cleanup();
+    onUnavailable();
+  }
+}
+
+function uploadPendingDiaryMedia(
+  item: PendingMedia,
+  setItems: React.Dispatch<React.SetStateAction<PendingMedia[]>>,
+  onError: (error: unknown) => void,
+): void {
+  if (!item.file) return;
+  setItems((previous) => previous.map((candidate) => (
+    candidate.localKey === item.localKey
+      ? { ...candidate, status: "uploading", errorMessage: undefined }
+      : candidate
+  )));
+  api.diaryImages.upload(item.file)
+    .then((result) => {
+      setItems((previous) => previous.map((candidate) => (
+        candidate.localKey === item.localKey
+          ? {
+              ...candidate,
+              id: result.id,
+              type: result.type,
+              mimeType: result.mimeType,
+              status: "ready" as const,
+              errorMessage: undefined,
+            }
+          : candidate
+      )));
+    })
+    .catch((error) => {
+      console.error("Diary media upload failed:", error);
+      setItems((previous) => previous.map((candidate) => (
+        candidate.localKey === item.localKey
+          ? {
+              ...candidate,
+              status: "error" as const,
+              errorMessage: error instanceof Error ? error.message : "upload failed",
+            }
+          : candidate
+      )));
+      onError(error);
+    });
 }
 
 function MoreMediaMenu({
@@ -340,10 +440,6 @@ function ComposeBox({ onPost }: { onPost: () => void }) {
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const moodRef = useRef<HTMLDivElement>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const cameraInputRef = useRef<HTMLInputElement>(null);
-  const videoInputRef = useRef<HTMLInputElement>(null);
-  const recordInputRef = useRef<HTMLInputElement>(null);
   // dragOver/Leave 计数：浏览器会在子元素切换时狂抛 enter/leave 事件，
   // 直接 setState 会闪烁。用计数器保证只有真正离开容器才隐藏高亮。
   const dragCounterRef = useRef(0);
@@ -447,43 +543,38 @@ function ComposeBox({ onPost }: { onPost: () => void }) {
         type,
         previewUrl: URL.createObjectURL(file),
         mimeType: file.type,
+        file,
         status: "uploading",
       }));
       setPendingMedia((prev) => [...prev, ...newItems]);
 
       // 并发上传；每个媒体独立处理结果（部分失败不影响其他项）
-      newItems.forEach((item, idx) => {
-        const { file } = accepted[idx];
-        api.diaryImages
-          .upload(file)
-          .then((res) => {
-            setPendingMedia((prev) =>
-              prev.map((p) =>
-                p.localKey === item.localKey
-                  ? { ...p, id: res.id, type: res.type, mimeType: res.mimeType, status: "ready" as const }
-                  : p,
-              ),
-            );
-          })
-          .catch((err) => {
-            console.error("Diary media upload failed:", err);
-            toast.error(err?.message || t("diary.media.uploadFailed"));
-            setPendingMedia((prev) =>
-              prev.map((p) =>
-                p.localKey === item.localKey
-                  ? {
-                      ...p,
-                      status: "error" as const,
-                      errorMessage: err?.message || "upload failed",
-                    }
-                  : p,
-              ),
-            );
-          });
-      });
+      newItems.forEach((item) => uploadPendingDiaryMedia(
+        item,
+        setPendingMedia,
+        (error) => toast.error(error instanceof Error ? error.message : t("diary.media.uploadFailed")),
+      ));
     },
     [t],
   );
+
+  const retryMedia = useCallback((localKey: string) => {
+    const item = pendingMediaRef.current.find((candidate) => candidate.localKey === localKey);
+    if (!item?.file || item.status !== "error") return;
+    uploadPendingDiaryMedia(
+      item,
+      setPendingMedia,
+      (error) => toast.error(error instanceof Error ? error.message : t("diary.media.uploadFailed")),
+    );
+  }, [t]);
+
+  const chooseMedia = useCallback((source: DiaryMediaPickerSource) => {
+    openDiaryMediaPicker(
+      source,
+      (files) => { void addFiles(files); },
+      () => toast.error(t("diary.media.pickerFailed", { defaultValue: "无法打开系统媒体选择器" })),
+    );
+  }, [addFiles, t]);
 
   // 移除一个媒体：未上传成功的直接丢；已上传成功的同时调后端 DELETE 释放服务端文件
   const removeMedia = useCallback((localKey: string) => {
@@ -503,14 +594,6 @@ function ComposeBox({ onPost }: { onPost: () => void }) {
       });
     }
   }, []);
-
-  // 文件选择
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files || []);
-    void addFiles(files);
-    // 清空 value，下次选同一张图也能触发 change
-    e.target.value = "";
-  };
 
   // 粘贴：从剪贴板里抓出图片文件
   const handlePaste = (e: React.ClipboardEvent) => {
@@ -572,6 +655,7 @@ function ComposeBox({ onPost }: { onPost: () => void }) {
   const canSubmit =
     !posting &&
     !hasPendingUploads &&
+    !hasErrorMedia &&
     (text.trim().length > 0 || readyMedia.length > 0);
 
   const handlePost = async () => {
@@ -628,6 +712,7 @@ function ComposeBox({ onPost }: { onPost: () => void }) {
 
   return (
     <div
+      data-nowen-media-owner="diary"
       className={cn(
         "relative z-0 bg-app-surface/60 backdrop-blur-sm rounded-2xl border border-app-border shadow-sm transition-all",
         isDragging && "ring-2 ring-accent-primary/50 border-accent-primary/40",
@@ -706,12 +791,15 @@ function ComposeBox({ onPost }: { onPost: () => void }) {
                 )}
                 {/* 上传失败遮罩 */}
                 {media.status === "error" && (
-                  <div
-                    className="absolute inset-0 bg-red-500/60 flex items-center justify-center text-[10px] text-white text-center px-1"
+                  <button
+                    type="button"
+                    onClick={() => retryMedia(media.localKey)}
+                    className="absolute inset-0 bg-red-500/60 flex flex-col items-center justify-center gap-0.5 text-[10px] text-white text-center px-1"
                     title={media.errorMessage}
                   >
-                    {t("diary.uploadFailed")}
-                  </div>
+                    <span>{t("diary.uploadFailed")}</span>
+                    <span className="font-medium underline underline-offset-2">{t("diary.media.retry")}</span>
+                  </button>
                 )}
                 {/* 删除按钮 */}
                 <button
@@ -833,7 +921,8 @@ function ComposeBox({ onPost }: { onPost: () => void }) {
 
           {/* 图片按钮：达到上限就禁用 */}
           <button
-            onClick={() => fileInputRef.current?.click()}
+            type="button"
+            onClick={() => chooseMedia("image-library")}
             disabled={remainingImageSlots <= 0}
             className={cn(
               "flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-xs transition-all",
@@ -861,40 +950,9 @@ function ComposeBox({ onPost }: { onPost: () => void }) {
           <MoreMediaMenu
             cameraDisabled={remainingImageSlots <= 0}
             videoDisabled={remainingVideoSlots <= 0}
-            onCamera={() => cameraInputRef.current?.click()}
-            onVideo={() => videoInputRef.current?.click()}
-            onRecord={() => recordInputRef.current?.click()}
-          />
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/png,image/jpeg,image/gif,image/webp,image/bmp"
-            multiple
-            className="hidden"
-            onChange={handleFileChange}
-          />
-          <input
-            ref={cameraInputRef}
-            type="file"
-            accept="image/*"
-            capture="environment"
-            className="hidden"
-            onChange={handleFileChange}
-          />
-          <input
-            ref={videoInputRef}
-            type="file"
-            accept="video/mp4,video/webm,video/quicktime"
-            className="hidden"
-            onChange={handleFileChange}
-          />
-          <input
-            ref={recordInputRef}
-            type="file"
-            accept="video/*"
-            capture="environment"
-            className="hidden"
-            onChange={handleFileChange}
+            onCamera={() => chooseMedia("camera")}
+            onVideo={() => chooseMedia("video-library")}
+            onRecord={() => chooseMedia("record")}
           />
         </div>
 
@@ -1301,10 +1359,6 @@ function DiaryEditor({
   imagesRef.current = images;
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const moodRef = useRef<HTMLDivElement>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const cameraInputRef = useRef<HTMLInputElement>(null);
-  const videoInputRef = useRef<HTMLInputElement>(null);
-  const recordInputRef = useRef<HTMLInputElement>(null);
 
   // 自动调整高度
   const autoResize = useCallback(() => {
@@ -1419,41 +1473,37 @@ function DiaryEditor({
         type: mediaType,
         previewUrl: URL.createObjectURL(f),
         mimeType: f.type,
+        file: f,
         status: "uploading" as const,
       }));
       setImages((prev) => [...prev, ...newItems]);
 
-      newItems.forEach((it, idx) => {
-        const file = accepted[idx].file;
-        api.diaryImages
-          .upload(file)
-          .then((res) => {
-            setImages((prev) =>
-              prev.map((p) =>
-                p.localKey === it.localKey
-                  ? { ...p, id: res.id, type: res.type, mimeType: res.mimeType, status: "ready" as const }
-                  : p,
-              ),
-            );
-          })
-          .catch((err) => {
-            console.error("Diary media upload failed:", err);
-            setImages((prev) =>
-              prev.map((p) =>
-                p.localKey === it.localKey
-                  ? {
-                      ...p,
-                      status: "error" as const,
-                      errorMessage: err?.message || "upload failed",
-                    }
-                  : p,
-              ),
-            );
-          });
-      });
+      newItems.forEach((pending) => uploadPendingDiaryMedia(
+        pending,
+        setImages,
+        (error) => toast.error(error instanceof Error ? error.message : t("diary.media.uploadFailed")),
+      ));
     },
     [t],
   );
+
+  const retryMedia = useCallback((localKey: string) => {
+    const pending = imagesRef.current.find((candidate) => candidate.localKey === localKey);
+    if (!pending?.file || pending.status !== "error") return;
+    uploadPendingDiaryMedia(
+      pending,
+      setImages,
+      (error) => toast.error(error instanceof Error ? error.message : t("diary.media.uploadFailed")),
+    );
+  }, [t]);
+
+  const chooseMedia = useCallback((source: DiaryMediaPickerSource) => {
+    openDiaryMediaPicker(
+      source,
+      (files) => { void addFiles(files); },
+      () => toast.error(t("diary.media.pickerFailed", { defaultValue: "无法打开系统媒体选择器" })),
+    );
+  }, [addFiles, t]);
 
   // 移除图片：仅本地移除；真正删除（连同盘上文件）由后端在 save 时根据差集处理
   const removeImage = useCallback((localKey: string) => {
@@ -1469,12 +1519,6 @@ function DiaryEditor({
     }
   }, []);
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files || []);
-    void addFiles(files);
-    e.target.value = "";
-  };
-
   const hasPendingUploads = images.some((p) => p.status === "uploading");
   const hasErrorImages = images.some((p) => p.status === "error");
   const readyMedia = images
@@ -1485,6 +1529,7 @@ function DiaryEditor({
   const canSave =
     !saving &&
     !hasPendingUploads &&
+    !hasErrorImages &&
     (text.trim().length > 0 || readyMedia.length > 0);
 
   const handleSave = async () => {
@@ -1527,6 +1572,7 @@ function DiaryEditor({
 
   return (
     <motion.div
+      data-nowen-media-owner="diary"
       initial={{ opacity: 0, y: 4 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.18 }}
@@ -1585,12 +1631,15 @@ function DiaryEditor({
                   </div>
                 )}
                 {img.status === "error" && (
-                  <div
-                    className="absolute inset-0 bg-red-500/60 flex items-center justify-center text-[10px] text-white text-center px-1"
+                  <button
+                    type="button"
+                    onClick={() => retryMedia(img.localKey)}
+                    className="absolute inset-0 bg-red-500/60 flex flex-col items-center justify-center gap-0.5 text-[10px] text-white text-center px-1"
                     title={img.errorMessage}
                   >
-                    {t("diary.uploadFailed")}
-                  </div>
+                    <span>{t("diary.uploadFailed")}</span>
+                    <span className="font-medium underline underline-offset-2">{t("diary.media.retry")}</span>
+                  </button>
                 )}
                 <button
                   onClick={() => removeImage(img.localKey)}
@@ -1704,7 +1753,8 @@ function DiaryEditor({
 
           {/* 图片按钮 */}
           <button
-            onClick={() => fileInputRef.current?.click()}
+            type="button"
+            onClick={() => chooseMedia("image-library")}
             disabled={remainingSlots <= 0}
             className={cn(
               "flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-xs transition-all",
@@ -1730,41 +1780,9 @@ function DiaryEditor({
           <MoreMediaMenu
             cameraDisabled={remainingSlots <= 0}
             videoDisabled={remainingVideoSlots <= 0}
-            onCamera={() => cameraInputRef.current?.click()}
-            onVideo={() => videoInputRef.current?.click()}
-            onRecord={() => recordInputRef.current?.click()}
-          />
-
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/png,image/jpeg,image/gif,image/webp,image/bmp"
-            multiple
-            className="hidden"
-            onChange={handleFileChange}
-          />
-          <input
-            ref={cameraInputRef}
-            type="file"
-            accept="image/*"
-            capture="environment"
-            className="hidden"
-            onChange={handleFileChange}
-          />
-          <input
-            ref={videoInputRef}
-            type="file"
-            accept="video/mp4,video/webm,video/quicktime"
-            className="hidden"
-            onChange={handleFileChange}
-          />
-          <input
-            ref={recordInputRef}
-            type="file"
-            accept="video/*"
-            capture="environment"
-            className="hidden"
-            onChange={handleFileChange}
+            onCamera={() => chooseMedia("camera")}
+            onVideo={() => chooseMedia("video-library")}
+            onRecord={() => chooseMedia("record")}
           />
         </div>
 
@@ -2267,7 +2285,7 @@ export default function DiaryCenter() {
   const groupedItems = groupByDate(items, t);
 
   return (
-    <div className="flex-1 flex flex-col h-full overflow-hidden bg-app-bg">
+    <div className="flex min-h-0 flex-1 flex-col h-full overflow-hidden bg-app-bg">
       {/* 全屏日历视图（移动端或点击日历卡片时） */}
       {calendarOpen ? (
         <SayCalendarView
@@ -2285,10 +2303,10 @@ export default function DiaryCenter() {
           }}
         />
       ) : (
-        <div className="flex-1 flex overflow-hidden">
-          <div className="flex-1 flex justify-center overflow-hidden">
+        <div className="flex min-h-0 flex-1 overflow-hidden">
+          <div className="flex min-h-0 flex-1 justify-center overflow-hidden">
           {/* 左侧：主内容区 */}
-          <ScrollArea className="flex-1 max-w-[760px]" ref={scrollRef}>
+          <ScrollArea className="h-full min-h-0 flex-1 max-w-[760px]" ref={scrollRef}>
             <div className="px-4 lg:px-6 py-6 space-y-5">
               {/* 顶部标题 + 统计 */}
               <div className="flex items-center justify-between">

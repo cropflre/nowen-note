@@ -35,6 +35,8 @@ import { taskMetadataMigration } from "./taskMetadataMigration.js";
 import { taskTimePlanningMigration } from "./taskTimePlanningMigration.js";
 import { taskInboxMigration } from "./taskInboxMigration.js";
 import { workspaceJournalsMigration } from "./workspaceJournalsMigration.js";
+import { noteTemplatesMigration } from "./noteTemplatesMigration.js";
+import { taskReminderTimezoneMigration } from "./taskReminderTimezoneMigration.js";
 
 export type { Migration } from "./migrations.impl.js";
 
@@ -326,6 +328,8 @@ export const MIGRATIONS: Migration[] = [
   taskTimePlanningCanonicalMigration,
   taskInboxCanonicalMigration,
   workspaceJournalsMigration,
+  noteTemplatesMigration,
+  taskReminderTimezoneMigration,
 ].sort((a, b) => a.version - b.version);
 
 export const CURRENT_SCHEMA_VERSION: number = MIGRATIONS.reduce(

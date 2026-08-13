@@ -5,6 +5,9 @@
 const path = require("path");
 const os = require("os");
 const fs = require("fs");
+const {
+  verifySyncNotificationUi,
+} = require("../scripts/verify-sync-notification-ui.cjs");
 
 // ===== 打包前校验：better-sqlite3 原生模块必须已 rebuild 为 Electron ABI + 目标平台 =====
 // 防止忘记 `npm run rebuild:native` 就打包，或在 Linux 上为 Win 目标编出 Linux .so，
@@ -370,6 +373,7 @@ module.exports = {
   // 打包前自动校验原生模块，避免漏跑 rebuild:native 导致安装后崩溃
   beforeBuild() {
     checkNativeModule();
+    verifySyncNotificationUi();
     return true; // 返回 true 表示继续打包
   },
   directories: {

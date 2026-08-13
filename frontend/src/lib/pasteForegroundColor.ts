@@ -5,13 +5,6 @@ export interface RgbColor {
   a: number;
 }
 
-export interface RiskyForegroundColorReport {
-  total: number;
-  dark: number;
-  light: number;
-  colors: string[];
-}
-
 const NAMED_COLORS: Readonly<Record<string, [number, number, number]>> = Object.freeze({
   black: [0, 0, 0], white: [255, 255, 255], silver: [192, 192, 192], gray: [128, 128, 128],
   grey: [128, 128, 128], maroon: [128, 0, 0], red: [255, 0, 0], purple: [128, 0, 128],
@@ -141,61 +134,5 @@ export function normalizeLegacyFontColors(html: string): string {
     for (const child of Array.from(font.childNodes)) span.appendChild(child);
     font.replaceWith(span);
   });
-  return doc.body.innerHTML;
-}
-
-export function analyzeRiskyForegroundColors(html: string): RiskyForegroundColorReport {
-  const report: RiskyForegroundColorReport = { total: 0, dark: 0, light: 0, colors: [] };
-  if (!html || typeof DOMParser === "undefined") return report;
-  const doc = new DOMParser().parseFromString(html, "text/html");
-  const samples = new Set<string>();
-
-  doc.body.querySelectorAll<HTMLElement>("[style]").forEach((element) => {
-    const raw = element.style.getPropertyValue("color").trim();
-    if (!raw) return;
-    const parsed = parseCssForegroundColor(raw);
-    if (!parsed || parsed.a <= 0.05) return;
-    const average = (parsed.r + parsed.g + parsed.b) / 3;
-    if (average < 50) {
-      report.total += 1;
-      report.dark += 1;
-      samples.add(raw);
-    } else if (average > 200) {
-      report.total += 1;
-      report.light += 1;
-      samples.add(raw);
-    }
-  });
-
-  doc.body.querySelectorAll("font[color]").forEach((element) => {
-    const raw = element.getAttribute("color")?.trim() || "";
-    const parsed = parseCssForegroundColor(raw);
-    if (!parsed || parsed.a <= 0.05) return;
-    const average = (parsed.r + parsed.g + parsed.b) / 3;
-    if (average < 50) {
-      report.total += 1;
-      report.dark += 1;
-      samples.add(raw);
-    } else if (average > 200) {
-      report.total += 1;
-      report.light += 1;
-      samples.add(raw);
-    }
-  });
-
-  report.colors = Array.from(samples).slice(0, 8);
-  return report;
-}
-
-/** Remove only explicit foreground colors; all other markup and inline styles are preserved. */
-export function stripExplicitForegroundColors(html: string): string {
-  if (!html || typeof DOMParser === "undefined") return html;
-  const doc = new DOMParser().parseFromString(html, "text/html");
-  doc.body.querySelectorAll<HTMLElement>("[style]").forEach((element) => {
-    if (!element.style.getPropertyValue("color")) return;
-    element.style.removeProperty("color");
-    if (!element.getAttribute("style")?.trim()) element.removeAttribute("style");
-  });
-  doc.body.querySelectorAll("font[color]").forEach((element) => element.removeAttribute("color"));
   return doc.body.innerHTML;
 }

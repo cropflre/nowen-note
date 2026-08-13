@@ -217,7 +217,7 @@ export default function TaskQuickCaptureBridge() {
         sourceTitle: source.sourceTitle,
         excerpt: source.text,
       });
-      if (supportsCleanTitle && parsed.reminderOffsets.length) {
+      if (parsed.reminderOffsets.length) {
         await Promise.all(parsed.reminderOffsets.map((offset) =>
           api.createTaskReminder(result.task.id, offset).catch(() => null),
         ));

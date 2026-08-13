@@ -23,6 +23,7 @@ import { useApp, useAppActions } from "@/store/AppContext";
 import { api, withSudo, getCurrentWorkspace, setCurrentWorkspace, getBaseUrl } from "@/lib/api";
 import { emitKnowledgeTreeRefresh } from "@/lib/workspaceRefreshBridge";
 import { toast } from "@/lib/toast";
+import { storeAuthTokens } from "@/lib/authSession";
 import { scheduleObjectUrlRevocation } from "@/lib/reliableExportDownloadBridge";
 import {
   chooseDesktopDataDir,
@@ -111,6 +112,11 @@ function persistImportFormat(key: string, value: ImportTargetContentFormat): voi
 function isMarkdownImportSource(source?: string): boolean {
   const value = String(source || "").toLowerCase();
   return !value || value === "md" || value === "markdown" || value === "siyuan";
+}
+
+function isSiyuanNativePackageFilename(filename: string): boolean {
+  // 浏览器重复下载通常会把 foo.sy.zip 重命名为 foo.sy (1).zip。
+  return /\.sy(?:\s*\(\d+\))?\.zip$/i.test(filename);
 }
 
 /** 各 scope 下允许的二级 Tab 集合（顺序即展示顺序） */
@@ -268,7 +274,7 @@ function DesktopDataSafetyCard() {
     const res = await resetDesktopLocalAuth();
     setResetting(false);
     if (res.ok && res.token) {
-      localStorage.setItem("nowen-token", res.token);
+      storeAuthTokens({ token: res.token, refreshToken: res.refreshToken ?? null });
       setMessage("本地自动登录已恢复，正在刷新。");
       window.setTimeout(() => window.location.reload(), 400);
     } else {
@@ -549,13 +555,13 @@ export default function DataManager() {
     setIsDragOver(false);
   }, []);
 
-  const handleDrop = useCallback(async (e: React.DragEvent) => {
+  const handleDrop = async (e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
     setIsDragOver(false);
     const files = e.dataTransfer.files;
     await processFiles(files);
-  }, []);
+  };
 
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
@@ -633,12 +639,11 @@ export default function DataManager() {
     setServerSiyuanFile(null);
     let result: ImportFileInfo[] = [];
     const fileArray = Array.from(files);
-    const zipFile = fileArray.find((f) => f.name.endsWith(".zip"));
+    const zipFile = fileArray.find((f) => f.name.toLowerCase().endsWith(".zip"));
 
     try {
       if (zipFile) {
-        const lowerZipName = zipFile.name.toLowerCase();
-        const isSiyuanSyZip = lowerZipName.endsWith(".sy.zip");
+        const isSiyuanSyZip = isSiyuanNativePackageFilename(zipFile.name);
         if (activeImportMethod === "siyuan" && isSiyuanSyZip) {
           // .sy 是结构化块数据，富文本能保留更多结构，按来源切换推荐默认值。
           recommendSiyuanImportContentFormat("tiptap-json");
@@ -701,6 +706,13 @@ export default function DataManager() {
         setNotesImportNotice(null);
         // 散文件默认开启 per-file：以文件名作为笔记本名，而非统一落到「导入的笔记」
         setPerFileNotebook(true);
+      }
+      if (result.length === 0) {
+        throw new Error(
+          activeImportMethod === "siyuan"
+            ? t("dataManager.siyuanImportNoSupportedNotes")
+            : t("dataManager.importNoSupportedNotes"),
+        );
       }
     } catch (err: any) {
       // PDF 专用错误标志：超大 / 无文本层 / 其他解析失败
@@ -772,12 +784,34 @@ export default function DataManager() {
             targetNotebookId: safeNotebookId || undefined,
             workspaceId: effectiveWorkspaceId,
             contentFormat: siyuanImportContentFormat,
+            onProgress: (job) => setImportProgress({
+              phase: "uploading",
+              current: job.status === "completed" ? 1 : 0,
+              total: 1,
+              message: job.message,
+            }),
           });
+          const parsedNotes = imported.stats?.parsedNotes ?? imported.stats?.syFiles ?? 0;
+          const createdNotes = imported.stats?.createdNotes ?? imported.count ?? 0;
+          const createdFolders = imported.stats?.createdFolders ?? imported.createdFolderIds?.length ?? 0;
+          const importedAssets = imported.stats?.createdAttachments ?? imported.stats?.importedAssets ?? 0;
+          const failedNotes = imported.stats?.failedNotes ?? Math.max(0, parsedNotes - createdNotes);
+          if (!imported.success || createdNotes <= 0 || createdNotes !== imported.count || failedNotes > 0) {
+            throw new Error(
+              `已成功解析 ${parsedNotes} 篇思源文档，但 ${createdNotes} 篇写入成功，${failedNotes} 篇失败`,
+            );
+          }
           setImportProgress({
             phase: "done",
-            current: imported.count,
-            total: imported.count,
-            message: t("dataManager.importSuccessCount", { count: imported.count }),
+            current: createdNotes,
+            total: parsedNotes,
+            message: t("dataManager.siyuanImportCompletedStats", {
+              parsed: parsedNotes,
+              created: createdNotes,
+              folders: createdFolders,
+              assets: importedAssets,
+              failed: failedNotes,
+            }),
           });
           const noticeMessages: string[] = [];
           if (imported.warnings?.length) {
@@ -791,7 +825,7 @@ export default function DataManager() {
           if (noticeMessages.length) {
             setNotesImportNotice({ kind: "siyuan", messages: noticeMessages });
           }
-          return { success: true, count: imported.count };
+          return { success: imported.success, count: createdNotes };
         })()
         : await importNotes(
           importFiles,
@@ -833,20 +867,16 @@ export default function DataManager() {
         workspaceName: targetName,
         count: result.count,
       });
-      // 仅当目标 scope 与全局一致时，才需要刷新侧边栏的笔记本列表（否则
-      // refresh 拿到的还是侧边栏 ws 的，不会看到导入的笔记本）。
-      if (scopeMatchesGlobal) {
-        api.getNotebooks().then(actions.setNotebooks).catch(console.error);
-        // 同步触发 NoteList 重拉当前视图笔记。
-        // 后端虽然会通过 WebSocket 广播 "notes:imported" 触发刷新，但
-        // 1) 用户处于离线/弱网恢复期时 ws 可能尚未重连；
-        // 2) 浏览器在背景标签页限频时 ws 消息可能延迟数秒到达；
-        // 此时用户回到主界面会看到"导入成功 toast 已弹，但笔记列表是旧的"
-        // 的错觉。这里在 HTTP 调用的 happy path 里补一次显式 refresh，把
-        // ws 当作"加固通道"而不是"唯一通道"。
-        actions.refreshNotes();
-        emitKnowledgeTreeRefresh("notes-imported-http");
+      // 成功态对应的是目标空间中的真实持久化结果，因此完成后直接切到目标空间展示。
+      if (!scopeMatchesGlobal) {
+        setCurrentWorkspace(effectiveWorkspaceId);
+        window.dispatchEvent(new CustomEvent("nowen:workspace-changed", {
+          detail: { workspaceId: effectiveWorkspaceId },
+        }));
       }
+      api.getNotebooks().then(actions.setNotebooks).catch(console.error);
+      actions.refreshNotes();
+      emitKnowledgeTreeRefresh("notes-imported-http");
       setTimeout(() => {
         setImportFiles([]);
         setImportProgress(null);
@@ -1640,13 +1670,22 @@ export default function DataManager() {
                               disabled={!scopeMatchesGlobal}
                               className="w-full text-sm rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 px-3 py-1.5 outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-500 disabled:opacity-60 disabled:cursor-not-allowed"
                             >
-                              <option value="">{t('dataManager.autoCreateNotebook')}</option>
+                              <option value="">
+                                {serverSiyuanFile
+                                  ? t('dataManager.siyuanAutoRestoreStructure')
+                                  : t('dataManager.autoCreateNotebook')}
+                              </option>
                               {scopeMatchesGlobal && state.notebooks.map((nb) => (
                                 <option key={nb.id} value={nb.id}>
                                   {nb.icon} {nb.name}
                                 </option>
                               ))}
                             </select>
+                            {serverSiyuanFile && (!scopeMatchesGlobal || !selectedNotebookId) && (
+                              <p className="text-[11px] mt-1.5 leading-relaxed text-zinc-400 dark:text-zinc-500">
+                                {t('dataManager.siyuanAutoRestoreStructureHint')}
+                              </p>
+                            )}
                             {hasZip && zipMetaHint && (
                               <p className="text-[11px] mt-1.5 leading-relaxed">
                                 {zipMetaHint.kind === "matched" ? (
@@ -3956,7 +3995,7 @@ function BackupSection() {
               </div>
             )}
 
-            {/* 保留数量：从写死 10 → 可配置，默认 15。手动+自动两条路径都会触发清理 */}
+            {/* 保留数量只约束 db-only；任意备份创建完成后都会顺带执行同一清理规则 */}
             <div className="flex items-center gap-3">
               <label className="text-xs text-zinc-600 dark:text-zinc-400 whitespace-nowrap">
                 {t("dataManager.backup.keepCountLabel")}
@@ -3971,7 +4010,6 @@ function BackupSection() {
                   if (Number.isFinite(n)) setAutoKeepCount(Math.max(1, Math.min(100, Math.round(n))));
                 }}
                 className="w-20 px-2 py-1 text-xs text-right rounded border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-800 text-zinc-800 dark:text-zinc-200"
-                disabled={!autoEnabled}
               />
               <span className="text-[11px] text-zinc-400">
                 {t("dataManager.backup.keepCountHint")}

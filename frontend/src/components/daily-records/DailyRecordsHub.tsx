@@ -22,6 +22,7 @@ import {
 import { resolveJournalScope, type JournalScope } from "@/lib/journalScope";
 import { toast } from "@/lib/toast";
 import { cn } from "@/lib/utils";
+import "@/components/daily-records/daily-records-mobile.css";
 
 const VIEW_OPTIONS: Array<{
   key: DailyRecordsView;
@@ -73,40 +74,53 @@ export default function DailyRecordsHub() {
   const activeWorkspaceId = workspaceId && workspaceId !== "personal" ? workspaceId : null;
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-app-bg" data-daily-records-hub="">
-      <header className="shrink-0 border-b border-app-border bg-app-surface/80 px-4 pt-4 backdrop-blur lg:px-6">
-        <div className="mx-auto w-full max-w-[1320px]">
-          <div className="flex flex-wrap items-end justify-between gap-3">
-            <div>
+    <div
+      className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-app-bg"
+      data-daily-records-hub=""
+    >
+      <header
+        className="shrink-0 border-b border-app-border bg-app-surface/80 px-0 pt-3 backdrop-blur sm:px-4 sm:pt-4 lg:px-6"
+        data-daily-records-header=""
+      >
+        <div className="mx-auto w-full max-w-[1320px] px-4 sm:px-0">
+          <div className="flex flex-col items-stretch gap-3 sm:flex-row sm:items-end sm:justify-between">
+            <div className="min-w-0">
               <h1 className="text-xl font-bold tracking-tight text-tx-primary">每日记录</h1>
               <p className="mt-0.5 text-xs text-tx-tertiary">瞬间负责捕获，日记负责整理</p>
             </div>
-            <nav className="flex items-center gap-1 rounded-xl bg-app-hover/60 p-1" aria-label="每日记录视图">
+            <nav
+              className="grid w-full grid-cols-3 items-center gap-1 rounded-xl bg-app-hover/60 p-1 sm:flex sm:w-auto"
+              aria-label="每日记录视图"
+              data-daily-records-views=""
+            >
               {VIEW_OPTIONS.map(({ key, label, icon: Icon }) => (
                 <button
                   key={key}
                   type="button"
                   onClick={() => setView(key)}
                   className={cn(
-                    "flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-all",
+                    "flex min-h-10 min-w-0 items-center justify-center gap-1.5 rounded-lg px-2 text-xs font-medium transition-all sm:min-h-0 sm:px-3 sm:py-1.5",
                     view === key
                       ? "bg-app-surface text-accent-primary shadow-sm"
                       : "text-tx-tertiary hover:text-tx-primary",
                   )}
                   aria-current={view === key ? "page" : undefined}
                 >
-                  <Icon size={14} />
-                  {label}
+                  <Icon size={14} className="shrink-0" />
+                  <span className="truncate">{label}</span>
                 </button>
               ))}
             </nav>
           </div>
 
-          <div className="mt-4 flex gap-2 overflow-x-auto pb-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          <div
+            className="-mx-4 mt-3 flex snap-x snap-mandatory gap-2 overflow-x-auto px-4 pb-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:mx-0 sm:mt-4 sm:px-0"
+            data-daily-records-shortcuts=""
+          >
             <button
               type="button"
               onClick={() => selectJournalDate(relativeLocalDateKey(0))}
-              className="flex shrink-0 items-center gap-1.5 rounded-lg border border-app-border bg-app-surface px-3 py-2 text-xs font-medium text-tx-primary hover:border-accent-primary/40 hover:bg-app-hover"
+              className="flex min-h-10 shrink-0 snap-start items-center gap-1.5 rounded-lg border border-app-border bg-app-surface px-3 py-2 text-xs font-medium text-tx-primary hover:border-accent-primary/40 hover:bg-app-hover"
             >
               <BookOpen size={14} className="text-accent-primary" />
               今天日记
@@ -114,7 +128,7 @@ export default function DailyRecordsHub() {
             <button
               type="button"
               onClick={() => void copyCurrentTime()}
-              className="flex shrink-0 items-center gap-1.5 rounded-lg border border-app-border bg-app-surface px-3 py-2 text-xs text-tx-secondary hover:border-accent-primary/40 hover:bg-app-hover"
+              className="flex min-h-10 shrink-0 snap-start items-center gap-1.5 rounded-lg border border-app-border bg-app-surface px-3 py-2 text-xs text-tx-secondary hover:border-accent-primary/40 hover:bg-app-hover"
             >
               <Clock3 size={14} className="text-accent-primary" />
               现在
@@ -129,13 +143,13 @@ export default function DailyRecordsHub() {
                 key={item.label}
                 type="button"
                 onClick={() => selectJournalDate(relativeLocalDateKey(item.offset))}
-                className="flex shrink-0 items-center gap-1.5 rounded-lg border border-app-border bg-app-surface px-3 py-2 text-xs text-tx-secondary hover:border-accent-primary/40 hover:bg-app-hover"
+                className="flex min-h-10 shrink-0 snap-start items-center gap-1.5 rounded-lg border border-app-border bg-app-surface px-3 py-2 text-xs text-tx-secondary hover:border-accent-primary/40 hover:bg-app-hover"
               >
                 <CalendarDays size={14} className="text-accent-primary" />
                 {item.label}
               </button>
             ))}
-            <label className="flex shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border border-app-border bg-app-surface px-3 py-2 text-xs text-tx-secondary hover:border-accent-primary/40 hover:bg-app-hover">
+            <label className="flex min-h-10 shrink-0 snap-start cursor-pointer items-center gap-1.5 rounded-lg border border-app-border bg-app-surface px-3 py-2 text-xs text-tx-secondary hover:border-accent-primary/40 hover:bg-app-hover">
               <CalendarDays size={14} className="text-accent-primary" />
               选择日期
               <input
@@ -150,7 +164,11 @@ export default function DailyRecordsHub() {
       </header>
 
       {view === "moments" && (
-        <div ref={momentRootRef} className="contents">
+        <div
+          ref={momentRootRef}
+          className="flex min-h-0 min-w-0 flex-1 overflow-hidden"
+          data-daily-records-moments=""
+        >
           <DiaryCenterImpl />
           <DiaryExperienceBridge rootRef={momentRootRef} />
         </div>

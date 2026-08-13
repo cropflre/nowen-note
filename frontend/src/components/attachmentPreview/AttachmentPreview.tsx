@@ -15,6 +15,7 @@ import { cn } from "@/lib/utils";
 import AttachmentTextPreview from "./AttachmentTextPreview";
 import AttachmentMediaPreview from "./AttachmentMediaPreview";
 import AttachmentPdfPreview from "./AttachmentPdfPreview";
+import { detectAttachmentPreviewKind } from "@/lib/attachmentOpenStrategy";
 
 // docx 解析器有 ~80KB 的运行时（fflate + 自研 OOXML 解析），与图片/视频路径无关
 // → 懒加载，避免首屏体积。
@@ -31,68 +32,6 @@ interface Props {
   imgMaxHeightClass?: string;
 }
 
-const DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
-
-// 视频/音频扩展名白名单——刻意与 AttachmentMediaPreview 内的 NATIVE_*_EXTS 保持一致，
-// 这里多收 mov/mkv/avi 是为了"先进视频分支再统一降级"，让用户看到的是
-// 媒体预览组件给出的"不支持 + 下载"提示，而不是 AttachmentPreview 的"未知类型"占位。
-const VIDEO_EXTS = new Set(["mp4", "webm", "ogg", "ogv", "m4v", "mov", "mkv", "avi"]);
-const AUDIO_EXTS = new Set(["mp3", "wav", "ogg", "oga", "aac", "m4a", "flac"]);
-
-function getExt(filename: string): string {
-  const idx = filename.lastIndexOf(".");
-  if (idx < 0) return "";
-  return filename.slice(idx + 1).toLowerCase();
-}
-
-/** 决定走哪种预览。优先级：image > svg > video > audio > pdf > docx > text/code > 不支持。 */
-type PreviewKind = "image" | "svg" | "video" | "audio" | "pdf" | "docx" | "text" | "unsupported";
-
-function detectKind(mime: string, filename: string): PreviewKind {
-  const m = (mime || "").toLowerCase();
-  const ext = getExt(filename);
-
-  // SVG 走文本预览（sanitize 后内联），不走 <img>，避免 SVG 内的 <script> 风险
-  if (m === "image/svg+xml" || ext === "svg") return "svg";
-  if (m.startsWith("image/")) return "image";
-  if (m.startsWith("video/")) return "video";
-  if (m.startsWith("audio/")) return "audio";
-  // 扩展名兜底：很多上传链路（剪藏 / 旧导入 / 直传）只透传 application/octet-stream，
-  // 不嗅探内容；这里按扩展名再补一刀，让 mp4/m4a 等常见格式仍能进 video/audio 分支。
-  // 真不被浏览器原生支持的（mkv/avi/mov-HEVC 等）由 AttachmentMediaPreview 内部
-  // 的 isNativelySupported 二次判断后降级为"下载提示"，不会黑屏。
-  if (VIDEO_EXTS.has(ext)) return "video";
-  if (AUDIO_EXTS.has(ext)) return "audio";
-  // PDF：走浏览器内置 viewer（iframe），扩展名兜底是因为有些后端只给 octet-stream
-  if (m === "application/pdf" || ext === "pdf") return "pdf";
-  if (m === DOCX_MIME || ext === "docx") return "docx";
-
-  // 文本类：MIME 前缀或常见代码扩展名
-  if (m.startsWith("text/")) return "text";
-  if (
-    m === "application/json" ||
-    m === "application/xml" ||
-    m === "application/javascript" ||
-    m === "application/x-yaml" ||
-    m === "application/x-sh"
-  ) return "text";
-
-  // 按扩展名兜底（很多代码文件 MIME 是 application/octet-stream）
-  const TEXT_EXTS = new Set([
-    "txt", "md", "markdown", "json", "xml", "yaml", "yml", "toml", "ini", "conf", "log",
-    "csv", "tsv",
-    "js", "mjs", "cjs", "ts", "tsx", "jsx",
-    "py", "java", "c", "h", "cpp", "cc", "cxx", "hpp",
-    "cs", "go", "rs", "rb", "php", "swift", "kt", "kts",
-    "sh", "bash", "zsh", "ps1", "sql",
-    "html", "htm", "css", "scss", "less",
-    "dockerfile",
-  ]);
-  if (TEXT_EXTS.has(ext)) return "text";
-
-  return "unsupported";
-}
-
 export default function AttachmentPreview({
   url,
   filename,
@@ -101,7 +40,7 @@ export default function AttachmentPreview({
   heightClass,
   imgMaxHeightClass,
 }: Props) {
-  const kind = detectKind(mimeType, filename);
+  const kind = detectAttachmentPreviewKind(mimeType, filename);
 
   if (kind === "image") {
     return (

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   ArrowUpRight,
   Brush,
@@ -18,12 +18,15 @@ import {
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { toast } from "@/lib/toast";
+import { registerMobileBackHandler } from "@/lib/mobileBackNavigation";
 import {
   exportCanvasToBlob,
+  fitCanvasToViewport,
   loadImageAsBitmap,
   renderImageEditorCropOverlay,
   renderImageEditorDraft,
   renderImageEditorOperations,
+  type ImageEditRotation,
 } from "./imageCanvas";
 import {
   canStartEditorPointer,
@@ -54,8 +57,10 @@ type ImageEditDialogProps = {
   open: boolean;
   src: string;
   filename?: string;
+  initialRotation?: ImageEditRotation;
+  initialFlipX?: boolean;
   onClose: () => void;
-  onSave: (blob: Blob) => Promise<void>;
+  onSave: (blob: Blob) => Promise<boolean>;
 };
 
 type ImageEditorTool = ImageEditorPointerTool | "text" | "crop";
@@ -122,8 +127,16 @@ function ToolButton({
   );
 }
 
-export default function ImageEditDialog({ open, src, onClose, onSave }: ImageEditDialogProps) {
+export default function ImageEditDialog({
+  open,
+  src,
+  initialRotation = 0,
+  initialFlipX = false,
+  onClose,
+  onSave,
+}: ImageEditDialogProps) {
   const { t } = useTranslation();
+  const viewportRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const draftCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const cropOverlayRef = useRef<HTMLCanvasElement | null>(null);
@@ -148,10 +161,17 @@ export default function ImageEditDialog({ open, src, onClose, onSave }: ImageEdi
   const [mosaicWidth, setMosaicWidth] = useState(36);
   const [fontSize, setFontSize] = useState(36);
   const [viewScale, setViewScale] = useState(1);
+  const [viewportSize, setViewportSize] = useState({ width: 0, height: 0 });
+  const [canvasSize, setCanvasSize] = useState<{ width: number; height: number } | null>(null);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const textDraftPosition = textDraft ? `${textDraft.point.x}:${textDraft.point.y}` : null;
+  const fittedCanvasSize = canvasSize
+    ? fitCanvasToViewport(canvasSize.width, canvasSize.height, viewportSize.width, viewportSize.height)
+    : null;
+  const fittedCanvasWidth = fittedCanvasSize?.width ?? 0;
+  const fittedCanvasHeight = fittedCanvasSize?.height ?? 0;
 
   const cancelTransientEdit = useCallback(() => {
     if (draftFrameRef.current !== null) {
@@ -180,6 +200,7 @@ export default function ImageEditDialog({ open, src, onClose, onSave }: ImageEdi
     setLoading(true);
     setError(null);
     setSourceImage(null);
+    setCanvasSize(null);
     setHistory(createEditorHistory());
     setActiveTool(null);
     cancelTransientEdit();
@@ -211,6 +232,40 @@ export default function ImageEditDialog({ open, src, onClose, onSave }: ImageEdi
     };
   }, [cancelTransientEdit, open, resetViewScale, src, t]);
 
+  useLayoutEffect(() => {
+    if (!open) return;
+    const viewport = viewportRef.current;
+    if (!viewport) return;
+    const updateSize = (width: number, height: number) => {
+      setViewportSize((current) => (
+        Math.abs(current.width - width) < 0.5 && Math.abs(current.height - height) < 0.5
+          ? current
+          : { width, height }
+      ));
+    };
+    const measure = () => {
+      const style = window.getComputedStyle(viewport);
+      const horizontalPadding = (Number.parseFloat(style.paddingLeft) || 0) + (Number.parseFloat(style.paddingRight) || 0);
+      const verticalPadding = (Number.parseFloat(style.paddingTop) || 0) + (Number.parseFloat(style.paddingBottom) || 0);
+      updateSize(
+        Math.max(0, viewport.clientWidth - horizontalPadding),
+        Math.max(0, viewport.clientHeight - verticalPadding),
+      );
+    };
+    measure();
+    if (typeof ResizeObserver === "undefined") {
+      window.addEventListener("resize", measure);
+      return () => window.removeEventListener("resize", measure);
+    }
+    const observer = new ResizeObserver((entries) => {
+      const rect = entries[0]?.contentRect;
+      if (rect) updateSize(rect.width, rect.height);
+      else measure();
+    });
+    observer.observe(viewport);
+    return () => observer.disconnect();
+  }, [open]);
+
   useEffect(() => {
     if (!open) setSourceImage(null);
   }, [open]);
@@ -229,6 +284,7 @@ export default function ImageEditDialog({ open, src, onClose, onSave }: ImageEdi
       const nextCanvas = renderImageEditorOperations({
         image: sourceImage,
         operations: history.operations,
+        initialTransform: { rotate: initialRotation, flipX: initialFlipX },
       });
       const canvas = canvasRef.current;
       canvas.width = nextCanvas.width;
@@ -237,13 +293,25 @@ export default function ImageEditDialog({ open, src, onClose, onSave }: ImageEdi
       if (!context) throw new Error("CANVAS_CONTEXT_UNAVAILABLE");
       context.clearRect(0, 0, canvas.width, canvas.height);
       context.drawImage(nextCanvas, 0, 0);
+      setCanvasSize((current) => (
+        current?.width === canvas.width && current.height === canvas.height
+          ? current
+          : { width: canvas.width, height: canvas.height }
+      ));
       if (draftCanvasRef.current) renderDraftForDisplay(canvas, draftCanvasRef.current, null);
       setError(null);
     } catch (err) {
       console.error("Image edit render failed:", err);
       setError(t("tiptap.imageEditRenderFailed", { defaultValue: "图片渲染失败" }));
     }
-  }, [history.operations, sourceImage, t]);
+  }, [history.operations, initialFlipX, initialRotation, sourceImage, t]);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    const draft = draftCanvasRef.current;
+    if (!canvas || !draft || !fittedCanvasWidth || !fittedCanvasHeight) return;
+    renderDraftForDisplay(canvas, draft, pointerOperationRef.current);
+  }, [fittedCanvasHeight, fittedCanvasWidth, viewScale]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -255,7 +323,7 @@ export default function ImageEditDialog({ open, src, onClose, onSave }: ImageEdi
       height: rect.height,
       pixelRatio: Math.min(window.devicePixelRatio || 1, 2),
     });
-  }, [cropRect, history.operations, sourceImage]);
+  }, [cropRect, fittedCanvasHeight, fittedCanvasWidth, history.operations, sourceImage, viewScale]);
 
   useEffect(() => {
     if (!textDraftPosition) return;
@@ -301,6 +369,15 @@ export default function ImageEditDialog({ open, src, onClose, onSave }: ImageEdi
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [cancelTransientEdit, cropRect, draftActive, handleRedo, handleUndo, open, textDraft]);
+
+  useEffect(() => {
+    if (!open) return;
+    return registerMobileBackHandler("modal", () => {
+      if (textDraft || cropRect || draftActive) cancelTransientEdit();
+      else if (!saving) onClose();
+      return true;
+    });
+  }, [cancelTransientEdit, cropRect, draftActive, onClose, open, saving, textDraft]);
 
   const selectTool = useCallback((tool: ImageEditorTool) => {
     cancelTransientEdit();
@@ -529,17 +606,20 @@ export default function ImageEditDialog({ open, src, onClose, onSave }: ImageEdi
     if (!sourceImage || saving) return;
     setSaving(true);
     try {
-      const canvas = renderImageEditorOperations({ image: sourceImage, operations: history.operations });
+      const canvas = renderImageEditorOperations({
+        image: sourceImage,
+        operations: history.operations,
+        initialTransform: { rotate: initialRotation, flipX: initialFlipX },
+      });
       const blob = await exportCanvasToBlob(canvas);
-      await onSave(blob);
-      onClose();
+      if (await onSave(blob)) onClose();
     } catch (err) {
       console.error("Image edit save failed:", err);
       toast.error(t("tiptap.imageEditSaveFailed", { defaultValue: "图片保存失败" }));
     } finally {
       setSaving(false);
     }
-  }, [history.operations, onClose, onSave, saving, sourceImage, t]);
+  }, [history.operations, initialFlipX, initialRotation, onClose, onSave, saving, sourceImage, t]);
 
   if (!open) return null;
 
@@ -597,17 +677,22 @@ export default function ImageEditDialog({ open, src, onClose, onSave }: ImageEdi
           </div>
         </div>
 
-        <div className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden bg-app-surface p-3 md:p-6">
+        <div ref={viewportRef} className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden bg-app-surface p-3 md:p-6">
           {loading ? (
             <div className="text-sm text-tx-secondary">{t("common.loading", { defaultValue: "加载中..." })}</div>
           ) : error ? (
             <div className="max-w-sm rounded-lg border border-app-border bg-app-elevated p-4 text-center text-sm text-tx-secondary">
               {error}
             </div>
-          ) : (
+          ) : sourceImage ? (
             <div
-              className="relative inline-flex max-h-full max-w-full overflow-hidden rounded border border-app-border bg-white shadow-sm"
-              style={{ transform: `scale(${viewScale})`, transformOrigin: "center" }}
+              className={`relative shrink-0 overflow-hidden rounded bg-white shadow-sm ring-1 ring-inset ring-app-border ${fittedCanvasSize ? "opacity-100" : "opacity-0"}`}
+              style={{
+                width: `${fittedCanvasSize?.width ?? 1}px`,
+                height: `${fittedCanvasSize?.height ?? 1}px`,
+                transform: `scale(${viewScale})`,
+                transformOrigin: "center",
+              }}
             >
               <canvas
                 ref={canvasRef}
@@ -615,7 +700,7 @@ export default function ImageEditDialog({ open, src, onClose, onSave }: ImageEdi
                 onPointerMove={handlePointerMove}
                 onPointerUp={finishPointerEdit}
                 onPointerCancel={cancelPointerEdit}
-                className={`block max-h-full max-w-full touch-none select-none ${cursorClass}`}
+                className={`block h-full w-full touch-none select-none ${cursorClass}`}
                 aria-label={toolLabel("imageEditCanvas", "图片编辑画布")}
               />
               <canvas
@@ -674,7 +759,7 @@ export default function ImageEditDialog({ open, src, onClose, onSave }: ImageEdi
                 </div>
               )}
             </div>
-          )}
+          ) : null}
         </div>
 
         <div className="shrink-0 border-t border-app-border bg-app-elevated px-2 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] md:px-3">

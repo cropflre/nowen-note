@@ -45,6 +45,7 @@ import {
   saveThreeColumnFolderScopeMode,
   type ThreeColumnFolderScopeMode,
 } from "@/lib/threeColumnFolderContents";
+import { isRootDocumentNotebookId } from "@/lib/rootDocumentCreatePolicy";
 // "导入 Word 文档" 走 dynamic import（见 createNoteInNotebook），减少首屏 bundle 体积。
 
 /* ===== 排序模式 ===== */
@@ -1356,6 +1357,7 @@ export default function NoteList() {
   const [unlockedFolderIds, setUnlockedFolderIds] = useState<Set<string>>(
     loadUnlockedFolderIds,
   );
+  const [folderPasswordSessionRevision, setFolderPasswordSessionRevision] = useState(0);
 
   useEffect(() => {
     const onLayoutChanged = (event: Event) => {
@@ -1394,7 +1396,10 @@ export default function NoteList() {
   const currentFolderOnly = showThreeColumnFolderContents && folderScopeMode === "current";
 
   useEffect(() => {
-    const syncUnlockedFolders = () => setUnlockedFolderIds(loadUnlockedFolderIds());
+    const syncUnlockedFolders = () => {
+      setUnlockedFolderIds(loadUnlockedFolderIds());
+      setFolderPasswordSessionRevision((current) => current + 1);
+    };
     window.addEventListener(KNOWLEDGE_TREE_PASSWORD_SESSION_CHANGED_EVENT, syncUnlockedFolders);
     return () => window.removeEventListener(KNOWLEDGE_TREE_PASSWORD_SESSION_CHANGED_EVENT, syncUnlockedFolders);
   }, []);
@@ -1439,9 +1444,28 @@ export default function NoteList() {
     () => hideLockedFolderDescendants(folderTreeNodes, unlockedFolderIds),
     [folderTreeNodes, unlockedFolderIds],
   );
+  const selectedKnowledgeTreeParentId = useMemo((): string | null | undefined => {
+    if (state.selectedKnowledgeTreeParentId !== undefined) {
+      return state.selectedKnowledgeTreeParentId;
+    }
+
+    const selectedFolder = visibleFolderTreeNodes.find((node) => (
+      node.nodeType === "folder"
+      && node.resourceType === "notebook"
+      && node.resourceId === state.selectedNotebookId
+    ));
+    if (selectedFolder) return selectedFolder.id;
+
+    if (isRootDocumentNotebookId(state.selectedNotebookId)) return null;
+    return undefined;
+  }, [state.selectedKnowledgeTreeParentId, state.selectedNotebookId, visibleFolderTreeNodes]);
   const threeColumnFolderContents = useMemo(
-    () => buildThreeColumnFolderContents(visibleFolderTreeNodes, state.selectedNotebookId),
-    [state.selectedNotebookId, visibleFolderTreeNodes],
+    () => buildThreeColumnFolderContents(
+      visibleFolderTreeNodes,
+      state.selectedNotebookId,
+      selectedKnowledgeTreeParentId,
+    ),
+    [selectedKnowledgeTreeParentId, state.selectedNotebookId, visibleFolderTreeNodes],
   );
   const visibleChildFolders = showThreeColumnFolderContents
     ? threeColumnFolderContents.childFolders
@@ -1532,6 +1556,7 @@ export default function NoteList() {
   const notesQueryKey = useMemo(() => JSON.stringify({
     viewMode: state.viewMode,
     selectedNotebookId: state.selectedNotebookId,
+    selectedKnowledgeTreeParentId,
     // RV1: 排序确保 A+B 和 B+A 产生相同 queryKey
     selectedTagIds: [...state.selectedTagIds].sort(),
     searchQuery: state.searchQuery,
@@ -1539,15 +1564,20 @@ export default function NoteList() {
     sortBy: sortPref.by,
     sortDir: sortPref.dir,
     folderScope: currentFolderOnly ? "current" : "recursive",
+    unlockedFolderIds: [...unlockedFolderIds].sort(),
+    folderPasswordSessionRevision,
   }), [
     state.viewMode,
     state.selectedNotebookId,
+    selectedKnowledgeTreeParentId,
     state.selectedTagIds,
     state.searchQuery,
     dateFilter,
     sortPref.by,
     sortPref.dir,
     currentFolderOnly,
+    unlockedFolderIds,
+    folderPasswordSessionRevision,
   ]);
 
   const fetchNotes = useCallback(async () => {
@@ -1567,10 +1597,12 @@ export default function NoteList() {
       };
       if (state.viewMode === "notebook" && state.selectedNotebookId) {
         const params: Record<string, string> = {
-        notebookId: state.selectedNotebookId,
-        ...(currentFolderOnly ? { includeDescendants: "0" } : {}),
-        ...sortParams,
-      };
+          ...(selectedKnowledgeTreeParentId !== undefined
+            ? { treeParentId: selectedKnowledgeTreeParentId || "root" }
+            : { notebookId: state.selectedNotebookId }),
+          ...(currentFolderOnly ? { includeDescendants: "0" } : {}),
+          ...sortParams,
+        };
         if (dateFilter) { params.dateFrom = dateFilter; params.dateTo = dateFilter; }
         notes = await api.getNotes(params);
       } else if (state.viewMode === "favorites") {
@@ -1636,7 +1668,7 @@ export default function NoteList() {
         actions.setLoading(false);
       }
     }
-  }, [actions, notesQueryKey, state.viewMode, state.selectedNotebookId, state.searchQuery, state.selectedTagIds, dateFilter, sortPref.by, sortPref.dir, currentFolderOnly, t]);
+  }, [actions, notesQueryKey, state.viewMode, state.selectedNotebookId, selectedKnowledgeTreeParentId, state.searchQuery, state.selectedTagIds, dateFilter, sortPref.by, sortPref.dir, currentFolderOnly, t]);
 
   useEffect(() => {
     void fetchNotes();
@@ -1680,10 +1712,12 @@ export default function NoteList() {
     const fetcher = async (): Promise<NoteListItem[]> => {
       if (state.viewMode === "notebook" && state.selectedNotebookId) {
         return api.getNotes({
-        notebookId: state.selectedNotebookId,
-        ...(currentFolderOnly ? { includeDescendants: "0" } : {}),
-        ...sortParams,
-      });
+          ...(selectedKnowledgeTreeParentId !== undefined
+            ? { treeParentId: selectedKnowledgeTreeParentId || "root" }
+            : { notebookId: state.selectedNotebookId }),
+          ...(currentFolderOnly ? { includeDescendants: "0" } : {}),
+          ...sortParams,
+        });
       }
       if (state.viewMode === "favorites") {
         return api.getNotes({ isFavorite: "1", ...sortParams });
@@ -1706,11 +1740,14 @@ export default function NoteList() {
     showCalendar,
     state.viewMode,
     state.selectedNotebookId,
+    selectedKnowledgeTreeParentId,
     state.selectedTagIds,
     sortPref.by,
     sortPref.dir,
     state.notesRefreshToken,
     currentFolderOnly,
+    unlockedFolderIds,
+    folderPasswordSessionRevision,
   ]);
 
   // 按本地日期聚合每日笔记数：YYYY-MM-DD → count。
@@ -2471,6 +2508,7 @@ export default function NoteList() {
               icon: <Download size={14} />,
               children: [
                 { id: "export_md", label: t("noteList.exportAsMarkdown") || "Markdown", icon: <Download size={14} /> },
+                { id: "export_md_zip", label: t("noteList.exportAsMarkdownZip") || "Markdown + 附件（ZIP）", icon: <Download size={14} /> },
                 { id: "export_pdf", label: t("noteList.exportAsPDF") || "PDF", icon: <Printer size={14} /> },
                 { id: "export_png", label: t("note.exportAsPng") || "图片 PNG", icon: <ImageIcon size={14} /> },
                 { id: "export_jpg", label: t("note.exportAsJpg") || "图片 JPG", icon: <ImageIcon size={14} /> },
@@ -2527,13 +2565,16 @@ export default function NoteList() {
         }
         break;
       }
-      case "export_md": {
+      case "export_md":
+      case "export_md_zip": {
         // 单笔记导出：锁定态允许（只读操作，不涉及修改）。
-        // exportSingleNote 内部会按是否含图决定下 .md 还是 .zip。
+        // 显式 ZIP 入口即使没有附件也保持 .zip；原 Markdown 行为继续兼容自动打包。
         haptic.light();
         const toastId = toast.info(t('export.exportingNote', { name: targetNote.title }), 0);
         try {
-          const ok = await exportSingleNote(targetId);
+          const ok = await exportSingleNote(targetId, {
+            forceZip: actionId === "export_md_zip",
+          });
           toast.dismiss(toastId);
           if (ok) {
             toast.success(t('export.exportComplete'));
@@ -3229,7 +3270,13 @@ export default function NoteList() {
       </header>
 
       {/* Desktop Header */}
-      <div className="hidden md:flex items-center justify-between gap-2 px-4 py-3 border-b border-app-border relative z-40">
+      <div
+        className={cn(
+          "hidden md:flex items-center justify-between gap-2 px-4 py-3 border-b border-app-border relative z-40",
+          layoutMode === "three-column" && "flex-wrap",
+        )}
+        data-note-workspace-layout={layoutMode}
+      >
         <div className="flex min-w-0 items-center gap-2">
           <FileText size={16} className="text-accent-primary" />
           <h2 className="min-w-0 truncate text-sm font-medium text-tx-primary">{viewTitles[state.viewMode]}</h2>

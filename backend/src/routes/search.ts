@@ -19,6 +19,7 @@ import {
   markSearchIndexRebuilt,
   rebuildNormalizedSearchFts,
   repairSearchContentText,
+  extractSearchableText,
 } from "../lib/searchIndex";
 
 const app = new Hono();
@@ -189,6 +190,11 @@ function ensureSearchSqlFunctions(db: Database.Database): void {
     "nowen_search_normalize",
     { deterministic: true },
     (value: unknown) => normalizeSearchText(value === null || value === undefined ? "" : String(value)),
+  );
+  db.function(
+    "nowen_search_content",
+    { deterministic: true },
+    (content: unknown, contentFormat: unknown) => extractSearchableText(content, contentFormat),
   );
   registeredSearchDatabases.add(db as object);
 }
@@ -372,7 +378,10 @@ function fetchLiteralTermCandidates(
         AND nb.isDeleted = 0
         AND (
 instr(nowen_search_normalize(COALESCE(n.title, '')), ?) > 0
-OR instr(nowen_search_normalize(COALESCE(n.contentText, '')), ?) > 0
+OR instr(nowen_search_normalize(nowen_search_content(
+  COALESCE(n.content, ''),
+  COALESCE(n.contentFormat, 'tiptap-json')
+)), ?) > 0
         )
       ORDER BY n.updatedAt DESC, n.id ASC
       LIMIT ? OFFSET ?
@@ -402,7 +411,10 @@ function shouldUseLiteralFallback(
   const normalized = normalizeSearchText(term);
   const tokens = normalized.match(/[\p{L}\p{N}_]+/gu) || [];
   const tokenizerPreservesTerm = tokens.length === 1 && tokens[0] === normalized;
-  return normalized.length < 3 || hasHanText(normalized) || !tokenizerPreservesTerm;
+  return ftsCandidateCount === 0
+    || normalized.length < 3
+    || hasHanText(normalized)
+    || !tokenizerPreservesTerm;
 }
 
 function intersectCandidateSets(sets: Set<string>[]): Set<string> {
@@ -521,7 +533,10 @@ function fetchCandidateRows(
       n.notebookId,
       n.workspaceId,
       n.title,
-      COALESCE(n.contentText, '') AS contentText,
+      nowen_search_content(
+        COALESCE(n.content, ''),
+        COALESCE(n.contentFormat, 'tiptap-json')
+      ) AS contentText,
       n.updatedAt,
       CASE WHEN EXISTS(
         SELECT 1 FROM favorites f WHERE f.noteId = n.id AND f.userId = ?

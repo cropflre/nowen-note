@@ -6,6 +6,7 @@ import { useApp, useAppActions } from "@/store/AppContext";
 import { usesFunctionalNoteList } from "@/lib/unifiedTreeOnlyLayout";
 
 export const MOBILE_DRAWER_SEARCH_BLUR_DELAY_MS = 160;
+export const MOBILE_NOTE_CARD_TOUCH_RELEASE_DELAY_MS = 240;
 
 export function isMobileDrawerViewport(width: number): boolean {
   return Number.isFinite(width) && width < 768;
@@ -32,6 +33,42 @@ export function shouldCloseDrawerAfterSearchBlur(
   activeElement: Element | null,
 ): boolean {
   return value.trim().length > 0 && activeElement !== input;
+}
+
+/**
+ * Resolve the rendered note card from any title/preview/meta descendant.
+ *
+ * NoteCard intentionally has no extra runtime state. Its existing `group` root plus the
+ * stable `.note-card-title` marker is enough to identify the card without coupling this
+ * touch guard to NoteList's large render tree.
+ */
+export function getNoteCardSelectionRoot(target: EventTarget | null): HTMLElement | null {
+  let cursor: Element | null = null;
+  if (target instanceof Element) {
+    cursor = target;
+  } else if (typeof Node !== "undefined" && target instanceof Node) {
+    cursor = target.parentElement;
+  }
+
+  while (cursor) {
+    if (
+      cursor instanceof HTMLElement
+      && cursor.classList.contains("group")
+      && cursor.querySelector(".note-card-title")
+    ) {
+      return cursor;
+    }
+    cursor = cursor.parentElement;
+  }
+  return null;
+}
+
+export function shouldSuppressNoteCardSelection(
+  target: EventTarget | null,
+  activeTouchCard: HTMLElement | null,
+): boolean {
+  if (!activeTouchCard) return false;
+  return getNoteCardSelectionRoot(target) === activeTouchCard;
 }
 
 function findMobileRailRoot(button: HTMLButtonElement): HTMLElement | null {
@@ -203,6 +240,61 @@ export default function MobileDrawerUxBridge() {
       clearBlurTimer();
     };
   }, [actions]);
+
+  useEffect(() => {
+    // Android/iOS browsers may begin a native text selection just before dispatching the
+    // long-press contextmenu event. NoteList deliberately does not preventDefault touchstart/
+    // touchmove because those events also power scrolling, pull-to-refresh and touch sorting.
+    // Instead, remember only the card that received the current touch and cancel `selectstart`
+    // for that card. Mouse selection on desktop remains untouched.
+    let activeTouchCard: HTMLElement | null = null;
+    let releaseTimer: number | null = null;
+
+    const clearReleaseTimer = () => {
+      if (releaseTimer == null) return;
+      window.clearTimeout(releaseTimer);
+      releaseTimer = null;
+    };
+
+    const handleTouchStart = (event: TouchEvent) => {
+      clearReleaseTimer();
+      activeTouchCard = getNoteCardSelectionRoot(event.target);
+    };
+
+    const handleSelectStart = (event: Event) => {
+      if (!shouldSuppressNoteCardSelection(event.target, activeTouchCard)) return;
+      event.preventDefault();
+    };
+
+    const handleContextMenu = (event: MouseEvent) => {
+      if (!shouldSuppressNoteCardSelection(event.target, activeTouchCard)) return;
+      // Defensive cleanup for WebViews that created a range before honoring selectstart.
+      window.getSelection()?.removeAllRanges();
+    };
+
+    const scheduleTouchRelease = () => {
+      clearReleaseTimer();
+      releaseTimer = window.setTimeout(() => {
+        activeTouchCard = null;
+        releaseTimer = null;
+      }, MOBILE_NOTE_CARD_TOUCH_RELEASE_DELAY_MS);
+    };
+
+    document.addEventListener("touchstart", handleTouchStart, true);
+    document.addEventListener("selectstart", handleSelectStart, true);
+    document.addEventListener("contextmenu", handleContextMenu, true);
+    document.addEventListener("touchend", scheduleTouchRelease, true);
+    document.addEventListener("touchcancel", scheduleTouchRelease, true);
+
+    return () => {
+      document.removeEventListener("touchstart", handleTouchStart, true);
+      document.removeEventListener("selectstart", handleSelectStart, true);
+      document.removeEventListener("contextmenu", handleContextMenu, true);
+      document.removeEventListener("touchend", scheduleTouchRelease, true);
+      document.removeEventListener("touchcancel", scheduleTouchRelease, true);
+      clearReleaseTimer();
+    };
+  }, []);
 
   useEffect(() => {
     const annotate = () => annotateMobileDrawerControls(document);

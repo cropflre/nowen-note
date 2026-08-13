@@ -55,6 +55,7 @@ export function requestKnowledgeTreeFolderOpen(node: KnowledgeTreeNode): void {
 export function buildThreeColumnFolderContents(
   nodes: KnowledgeTreeNode[],
   selectedNotebookId: string | null | undefined,
+  selectedKnowledgeTreeParentId?: string | null,
 ): ThreeColumnFolderContents {
   const empty: ThreeColumnFolderContents = {
     selectedFolder: null,
@@ -62,15 +63,19 @@ export function buildThreeColumnFolderContents(
     directNoteCount: 0,
     totalNoteCount: 0,
   };
-  if (!selectedNotebookId) return empty;
-
   const activeNodes = nodes.filter((node) => !node.isDeleted);
-  const selectedFolder = activeNodes.find((node) => (
-    node.nodeType === "folder"
-    && node.resourceType === "notebook"
-    && node.resourceId === selectedNotebookId
-  ));
-  if (!selectedFolder) return empty;
+  const hasExplicitTreeParent = selectedKnowledgeTreeParentId !== undefined;
+  const selectedFolder = hasExplicitTreeParent
+      ? selectedKnowledgeTreeParentId === null
+      ? null
+      : activeNodes.find((node) => node.id === selectedKnowledgeTreeParentId) || null
+    : activeNodes.find((node) => (
+        node.nodeType === "folder"
+        && node.resourceType === "notebook"
+        && node.resourceId === selectedNotebookId
+      )) || null;
+  if (!hasExplicitTreeParent && !selectedFolder) return empty;
+  if (selectedKnowledgeTreeParentId !== null && hasExplicitTreeParent && !selectedFolder) return empty;
 
   const childrenByParent = new Map<string | null, KnowledgeTreeNode[]>();
   for (const node of activeNodes) {
@@ -106,7 +111,8 @@ export function buildThreeColumnFolderContents(
     return total;
   };
 
-  const directChildren = childrenByParent.get(selectedFolder.id) || [];
+  const selectedParentId = selectedFolder?.id || null;
+  const directChildren = childrenByParent.get(selectedParentId) || [];
   const directNoteCount = directChildren.filter((node) => (
     node.nodeType !== "folder" && node.resourceType === "note"
   )).length;
@@ -124,6 +130,8 @@ export function buildThreeColumnFolderContents(
     selectedFolder,
     childFolders,
     directNoteCount,
-    totalNoteCount: countDescendantNotes(selectedFolder.id),
+    totalNoteCount: selectedFolder
+      ? countDescendantNotes(selectedFolder.id)
+      : directNoteCount + childFolders.reduce((total, folder) => total + folder.totalNoteCount, 0),
   };
 }

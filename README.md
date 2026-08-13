@@ -30,18 +30,18 @@
 
 > **NAS 远程连接登录**：支持部署到 **绿联 NAS（UGOS / UGOS Pro）** 和 **飞牛 NAS（fnOS）**。部署完成后，可在 Web、桌面端或 Android 客户端中，通过局域网 IP、IPv6 地址或已配置 HTTPS 的公网域名远程连接并登录。
 
-## v1.4.5 已发布
+## v1.4.10 已发布
 
-本次版本重点完成了 **完整离线工作区、可靠保存与恢复、每日记录、任务效率工作台、三栏布局、批注协作和导入体验升级**。
+v1.4.10 聚焦 **编辑效率、移动端媒体稳定性、离线附件恢复、知识树体验与任务提醒可靠性**，并继续补齐模板、导入导出和桌面端细节。
 
-- 笔记可以提前缓存到本地，断网后继续打开和编辑，恢复网络后自动同步。
-- Markdown / Yjs 只有真正持久化后才显示保存成功，刷新、切换笔记和服务重启前的未确认修改可继续恢复。
-- 原“说说”升级为统一的“每日记录”，整合瞬间、日历、个人日记和工作区共享日记。
-- 任务中心新增 My Day、标签、保存视图、时间规划、Inbox、全局快速捕获和离线任务。
-- Web 与 Electron 新增标准、三栏、专注三种笔记工作区布局。
-- AI 问答、划词批注、小米云后台导入、IPv6 NAS 连接和图片密集笔记切换体验得到增强。
+- 标题录入新增重复前缀提示，长标题支持自动换行；Markdown 查找替换进一步优化，并新增“当前目录笔记搜索”。
+- 知识树支持拖拽调整节点层级；加密目录中的笔记不会泄露到不应展示的位置。
+- 图片预览新增旋转与独立复原，富文本粘贴默认保留文字颜色与跨笔记格式；桌面端增加原生文本右键菜单，并可用系统默认程序打开本地办公附件。
+- Android / 移动端强化图片、视频上传文件身份与 multipart 上传稳定性，并将图片和视频入口加入紧凑工具栏。
+- 离线附件增加损坏 Blob 校验、隔离与恢复信号，避免异常离线缓存污染在线渲染；离线同步默认关闭，由用户主动启用。
+- 任务提醒补齐创建端时区、全天截止和 PostgreSQL Schema 一致性；同时修复备份保留、思源导入和 Markdown 附件 ZIP 往返导入等问题。
 
-查看：[v1.4.5 Release](https://github.com/cropflre/nowen-note/releases) · [完整更新日志](./CHANGELOG.md)
+查看：[v1.4.10 Release](https://github.com/cropflre/nowen-note/releases/tag/v1.4.10) · [完整更新日志](./CHANGELOG.md)
 
 ## 为什么选择 Nowen Note
 
@@ -56,18 +56,19 @@
 
 | 模块 | 当前能力 |
 | --- | --- |
-| **统一知识树** | 文件夹、富文本与 Markdown 文档混合组织；支持根目录文档、无限层级、拖拽排序、统一创建菜单、全部展开 / 收起、筛选搜索、数量统计、回收站和共享目录。 |
-| **富文本与 Markdown** | Tiptap 3、CodeMirror 6、格式互转、实时预览与分屏、大纲、斜杠命令、表格、代码块、KaTeX、Mermaid、脚注、Callout、媒体嵌入、评论和版本历史。 |
-| **可靠保存与离线工作区** | Yjs 持久化确认、未确认修改补传、IndexedDB 草稿恢复、富文本串行版本保存；支持个人空间、共享目录和工作区离线副本，以及正文 / 图片 / 全附件缓存策略。 |
-| **知识组织与检索** | 彩色标签、收藏、置顶、全文搜索、文内查找替换、双向链接、块引用、反向链接、知识图谱，以及“全部笔记”固定入口。 |
+| **统一知识树** | 文件夹、富文本与 Markdown 文档混合组织；支持根目录文档、无限层级、拖拽排序与层级调整、统一创建菜单、全部展开 / 收起、筛选搜索、数量统计、回收站和共享目录；三栏布局可展示子文件夹与层级范围。 |
+| **富文本与 Markdown** | Tiptap 3、CodeMirror 6、格式互转、实时预览与分屏、大纲、斜杠命令、表格、代码块、KaTeX、Mermaid、脚注、Callout、媒体嵌入、跨笔记格式粘贴、标题重复前缀提示、评论和版本历史。 |
+| **可靠保存与离线工作区** | Yjs 持久化确认、未确认修改补传、IndexedDB 草稿恢复、富文本串行版本保存；支持个人空间、共享目录和工作区离线副本，并针对误冲突、重复副本和格式转换状态做保护；离线附件支持损坏 Blob 校验、隔离与恢复。 |
+| **性能与加载** | 工作区、编辑器、任务、日记、文件管理、AI 等功能按需加载；静态资源支持缓存验证、Gzip / Brotli 预压缩，减少首屏依赖和重复传输。 |
+| **知识组织与检索** | 彩色标签、收藏、置顶、全文搜索、当前目录笔记搜索、文内查找替换、双向链接、块引用、反向链接、知识图谱，以及“全部笔记”固定入口。 |
 | **AI 能力** | OpenAI 兼容接口、通义千问、Gemini、DeepSeek、豆包与 Ollama；支持续写、改写、翻译、标题与标签生成、总结、Embedding 索引和 RAG 知识问答。 |
 | **每日记录** | 统一“瞬间 / 日历 / 日记”入口，支持短内容、心情、图片、视频、AI 周报 / 月报、自然日期命令、日记实体归档、历史目录整理和工作区共享日记。 |
-| **任务与习惯** | 树形任务、列表、看板、日历、甘特图 / 时间轴、依赖关系、重复规则、提醒和模板；新增 My Day、标签、保存视图、预估时长、时间块、Inbox、快速捕获及离线任务 / 习惯。 |
-| **协作、权限与分享** | Yjs + WebSocket 实时协作、工作区角色、钉钉式权限管理、目录级 ACL、所有权转移、分享密码与有效期、访客评论、公开知识空间，以及富文本 / Markdown 划词批注。 |
-| **导入、导出与迁移** | 支持 Markdown、Word / DOCX、网页 URL、微信公众号、SingleFile HTML、思源、Obsidian、小米笔记等；支持选择导入为 Markdown 或富文本，并提供后台任务、进度、重试和远程图片本地化。 |
-| **附件与存储** | 本地附件按 `YYYY/MM` 归档；支持缩略图、引用检查、孤儿扫描 / 清理、已有附件复用，以及本地磁盘、S3、R2、MinIO。 |
+| **任务与习惯** | 树形任务、列表、看板、日历、甘特图 / 时间轴、依赖关系、重复规则、提醒和模板；支持 My Day、标签、保存视图、预估时长、时间块、Inbox、快速捕获、离线任务 / 习惯，以及 Android 原生任务提醒调度，并补齐创建端时区、全天截止与服务端解析一致性。 |
+| **协作、权限与分享** | Yjs + WebSocket 实时协作、工作区角色、目录级 ACL、Restricted 受限模式、显式允许 / 拒绝规则、权限继承、所有权转移、分享密码与有效期、访客评论、公开知识空间，以及富文本 / Markdown 划词批注。 |
+| **导入、导出与迁移** | 支持 Markdown、Word / DOCX、网页 URL、微信公众号、SingleFile HTML、思源、Obsidian、小米笔记等；支持选择导入为 Markdown 或富文本，并提供后台任务、进度、重试、远程图片本地化和 Markdown 图片 / 脚注导出。 |
+| **附件与存储** | 本地附件按 `YYYY/MM` 归档；支持缩略图、引用检查、孤儿扫描 / 清理、已有附件复用、手动上传文件保护，以及本地磁盘、S3、R2、MinIO，并强化移动端图片 / 视频文件身份与 multipart 上传稳定性。 |
 | **备份与恢复** | 本地自动备份、完整 ZIP、邮件备份、凭据加密的 WebDAV 远程备份、Docker 在线升级前备份与失败回滚检查。 |
-| **多端访问** | Web、Electron（Windows / macOS / Linux）、Android、iOS 工程、HarmonyOS 工程，以及 Docker / NAS 部署；支持绿联 UGOS、飞牛 fnOS，客户端可通过 IPv4、IPv6 或域名远程连接并登录 NAS 服务。 |
+| **多端访问** | Web、Electron（Windows / macOS / Linux）、Android、iOS 工程、HarmonyOS 工程，以及 Docker / NAS 部署；支持绿联 UGOS、飞牛 fnOS，客户端可通过 IPv4、IPv6 或域名远程连接并登录 NAS 服务；Android 支持应用内图片手势预览。 |
 | **开放能力** | OpenAPI 3.0、TypeScript SDK、CLI、Webhook、插件系统、Personal API Token、MCP Server 和浏览器剪藏扩展。 |
 
 ## AI 问答与隐私
@@ -91,55 +92,35 @@ Nowen Note 支持 MCP Server，可让 Claude Code、Cursor、VS Code 等 AI 客�
 
 当前正式可用方式为源码构建：安装 Node.js 20+，构建 `packages/nowen-mcp`，在 Nowen Note 创建 restricted Personal API Token，再把 `dist/scoped-entry.js` 的绝对路径配置到客户端。
 
-## v1.4.5 重点更新
+## v1.4.10 重点更新
 
-### 离线同步与数据安全
+### 编辑器与检索
 
-- 完整缓存全部可访问笔记，不再局限于曾经打开过的内容。
-- 支持个人空间、共享目录和工作区离线副本。
-- 支持仅正文、仅图片或全部附件三种缓存策略。
-- 断网编辑、刷新前未确认修改和 IndexedDB 本地修改会自动补传。
-- Markdown 保存状态细分为等待上传、保存中、已保存和失败。
-- 修复服务重启后 Markdown 首次编辑回退、旧 ACK 清理新草稿和富文本并发保存覆盖问题。
-- 补齐历史知识树数据库迁移，并修复部分 v1.2.x 数据升级时因遗留会话外键导致容器反复重启的问题。
+- 标题录入新增重复前缀警示：输入过程中即可发现与现有标题的重复前缀，确认后恢复正常标题样式；超长标题会根据编辑区域自动换行。
+- Markdown 查找 / 替换继续优化，搜索面板在窄宽度下可正确换行，并新增当前目录范围的笔记搜索。
+- 富文本跨笔记复制默认保留格式与文字颜色，减少粘贴后重新排版的成本。
 
-### 每日记录与日记
+### 图片、附件与移动端
 
-- 原“说说”升级为统一“每日记录”。
-- 新增瞬间、日历、日记三种视图。
-- 支持 `/现在`、`/昨天`、`/今天`、`/明天`、`/后天`、`/本周一`、`/下周一` 和日期选择命令。
-- 富文本和 Markdown 都可创建或跳转日期日记。
-- 自动建立和修复“日记 / 年 / 月 / 日期”实体目录。
-- 支持历史日记整理、旧空目录清理和撤销恢复。
-- 支持个人日记与工作区共享日记范围切换。
+- 图片查看器加入旋转和独立复原操作，并修复全屏预览后的旋转状态保持问题。
+- 移动端图片 / 视频上传保留原始 File 身份，稳定 DataTransfer、上传队列、进度映射与 multipart 上传链路，同时校验视频实际字节大小。
+- 紧凑移动工具栏加入图片和视频入口，短屏设备上的笔记菜单与设置页关闭按钮也进一步适配。
+- 离线附件增加 Blob 有效性校验、损坏缓存隔离和恢复信号，异常离线数据不会继续污染在线渲染。
 
-### 任务效率工作台
+### 知识树、模板与导入导出
 
-- 新增 My Day 今日计划。
-- 新增任务标签和保存视图。
-- 新增预估时长、个人时间块和日程冲突提示。
-- 新增个人 Inbox 和全局快速捕获。
-- 支持 `Ctrl/⌘ + Shift + A` 创建任务，也可将编辑器选中文本捕获为任务。
-- 任务和习惯支持离线读取、创建、修改、完成、删除及联网后自动重放。
+- 知识树支持拖拽改变节点层级，并继续收紧加密目录内容的展示边界。
+- 笔记模板支持保存模板、从模板新建、移动端入口和应用内保存弹窗，同时保护模板附件不被清理任务误删。
+- 修复 Markdown 附件 ZIP 往返导入，完善思源导入的拖拽识别、恢复目录持久化和无响应提示。
 
-### 界面与协作
+### 任务、备份与桌面体验
 
-- Web 与 Electron 新增标准、三栏、专注三种布局。
-- 新账号首次登录自动创建中英文使用指南，老账号不会被插入示例数据。
-- 富文本和 Markdown 均支持选中文字添加批注，并在右侧线程面板中回复、解决和定位讨论。
-- AI 问答新增停止生成、复制、编辑、重新生成、删除消息和脚注式引用。
-- 文件夹支持自动锁定，并可取消密码保护。
+- 任务提醒补齐创建端时区、服务端解析、全天截止语义和 PostgreSQL 字段 / 迁移一致性，快速捕获与普通创建保持相同行为。
+- 备份保留策略统一 db-only 清理逻辑，并持久化停用配置，减少自动与手动备份行为差异。
+- 桌面编辑器新增原生文本右键菜单；本地 Office 等附件可直接交给系统默认程序打开。
+- 下载页增强 GitHub Release 资产回退与平台分组，国内 / 网络受限场景下更容易找到正确安装包。
 
-### 导入、性能与客户端
-
-- 小米云导入改为后台任务，支持 SSE 实时进度、页面恢复、取消和仅重试失败项。
-- 普通 Markdown、思源和 Obsidian 可以选择导入为 Markdown 或富文本。
-- 思源 Markdown 中的远程图片可本地化到附件系统。
-- 图片密集型富文本笔记启用更早的视口优化，减少笔记切换等待。
-- Windows 和 Android 客户端支持通过 IPv6 字面量连接 NAS。
-- 修复日历 ICS 时间语义、全天任务、知识树标题刷新、中文输入法和思维导图几何错位等问题。
-
-完整记录请查看 [CHANGELOG.md](./CHANGELOG.md)。
+完整记录请查看 [CHANGELOG.md](./CHANGELOG.md) 和 [v1.4.10 Release](https://github.com/cropflre/nowen-note/releases/tag/v1.4.10)。
 
 ## 截图
 
@@ -218,10 +199,10 @@ docker compose up -d
 需要固定当前稳定版本时：
 
 ```bash
-NOWEN_IMAGE_TAG=v1.4.5 docker compose up -d
+NOWEN_IMAGE_TAG=v1.4.10 docker compose up -d
 ```
 
-> v1.4.5 包含旧数据库迁移兼容修复。升级后建议检查登录、笔记编辑、附件、任务、每日记录和备份功能。镜像回滚不等于数据库回滚，生产环境必须保留独立备份。
+> v1.4.10 重点改善标题与 Markdown 编辑、知识树层级拖拽、移动端媒体上传、离线附件恢复和跨时区任务提醒。升级后建议重点检查登录、笔记编辑、图片 / 视频上传、离线附件、任务提醒、模板、导入导出和备份。镜像回滚不等于数据库回滚，生产环境必须保留独立备份。
 
 ### Docker 在线升级（可选）
 
@@ -230,7 +211,7 @@ NOWEN_IMAGE_TAG=v1.4.5 docker compose up -d
 ```bash
 cp .env.example .env
 printf '\nNOWEN_UPDATER_TOKEN=%s\n' "$(openssl rand -hex 32)" >> .env
-NOWEN_IMAGE_TAG=v1.4.5 docker compose --profile updater up -d
+NOWEN_IMAGE_TAG=v1.4.10 docker compose --profile updater up -d
 ```
 
 启用后，管理员可在「设置 → 关于 → 版本信息」执行升级前检查、完整备份、升级、健康验证和失败回滚。
@@ -246,7 +227,7 @@ docker run -d \
   -p 3001:3001 \
   -e TZ=Asia/Shanghai \
   -v /opt/nowen-note/data:/app/data \
-  cropflre/nowen-note:v1.4.5
+  cropflre/nowen-note:v1.4.10
 ```
 
 ## 数据、备份与配置
@@ -297,7 +278,7 @@ docker run -d \
 | --- | --- | --- |
 | **Web / Docker** | Docker Hub 或源码构建 | 推荐部署方式；镜像可构建 `amd64`、`arm64` 或多架构版本 |
 | **Windows / macOS / Linux** | [GitHub Releases](https://github.com/cropflre/nowen-note/releases) 或 `npm run electron:build` | Electron 客户端可连接远程服务，也可使用本地后端 |
-| **Android** | Releases APK 或在 `frontend/` 下使用 Capacitor 构建 | 正式维护；支持系统分享导入、Markdown 导入、沉浸式编辑、移动端知识树，以及远程连接 NAS 服务登录 |
+| **Android** | Releases APK 或在 `frontend/` 下使用 Capacitor 构建 | 正式维护；支持系统分享导入、Markdown 导入、沉浸式编辑、移动端知识树、图片手势预览、系统原生任务提醒，以及远程连接 NAS 服务登录 |
 | **iOS** | Capacitor 工程与 GitHub Actions / TestFlight 流程 | 需要 Apple 签名与开发者账号，详见 [iOS 发布指南](./docs/iOS-Release.md) |
 | **HarmonyOS** | 使用 DevEco Studio 打开 [`nowen-harmony/`](./nowen-harmony/) | ArkTS + ArkWeb MVP；部分原生能力仍在完善 |
 | **fnOS** | Releases 中的 `.fpk` | 支持飞牛 NAS 安装；当前 `.fpk` 主要面向 x86_64，部署后可通过局域网或公网地址远程连接登录 |
@@ -344,6 +325,8 @@ cd frontend
 npm run cap:build
 npx cap open android
 ```
+
+> Capacitor 8 的 Android 发布工具链要求 Node.js 22+；日常 Web / Electron 开发仍可使用项目当前 Node.js 20+ 基线。
 
 iOS：
 
@@ -435,8 +418,8 @@ npm run build:all
     <th>支付宝赞赏</th>
   </tr>
   <tr>
-    <td align="center"><img src="./frontend/public/weixin.jpg" alt="微信赞赏码" width="260" /></td>
-    <td align="center"><img src="./frontend/public/zhifubao.png" alt="支付宝赞赏码" width="260" /></td>
+    <td align="center"><img src="./frontend/src/assets/sponsor/weixin.jpg" alt="微信赞赏码" width="260" /></td>
+    <td align="center"><img src="./frontend/src/assets/sponsor/zhifubao.png" alt="支付宝赞赏码" width="260" /></td>
   </tr>
 </table>
 

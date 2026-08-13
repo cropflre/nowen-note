@@ -26,7 +26,7 @@ const https = require("https");
 let setupWin = null;
 
 /**
- * 探测 URL 是否可达（GET /api/health 优先，失败则 GET / 兜底）。
+ * 探测 URL 是否为可直连的 Nowen Note（严格校验 GET <path>/api/health）。
  * 主进程探测可避免 renderer 的 mixed-content / CORS / 自签证书问题。
  *
  * @param {string} url 形如 "http://192.168.1.10:3000"
@@ -45,6 +45,7 @@ function probeUrl(url) {
     }
 
     const lib = parsed.protocol === "https:" ? https : http;
+    const pathPrefix = parsed.pathname.replace(/\/+$/, "");
     const tryPath = (p, cb) => {
       const req = lib.request(
         {
@@ -57,9 +58,19 @@ function probeUrl(url) {
           rejectUnauthorized: false,
         },
         (res) => {
-          // 任何 < 500 都视为"可达"——/api/health 应是 200，但兜底页可能 200/302/404 都算 alive
-          res.resume();
-          cb({ ok: res.statusCode < 500, status: res.statusCode });
+          let body = "";
+          res.setEncoding("utf8");
+          res.on("data", (chunk) => { if (body.length < 4096) body += chunk; });
+          res.on("end", () => {
+            let payload = null;
+            try { payload = JSON.parse(body); } catch { /* 门户 HTML / 反代错误 */ }
+            const ok = res.statusCode >= 200 && res.statusCode < 300 && payload?.status === "ok";
+            cb({
+              ok,
+              status: res.statusCode,
+              error: ok ? undefined : "未检测到 Nowen Note API；该地址可能仍是 NAS 门户或反代路径不正确",
+            });
+          });
         }
       );
       req.on("error", (e) => cb({ ok: false, error: e.message }));
@@ -70,11 +81,7 @@ function probeUrl(url) {
       req.end();
     };
 
-    // 先试 /api/health；不通就试 /
-    tryPath("/api/health", (r1) => {
-      if (r1.ok) return resolve(r1);
-      tryPath("/", (r2) => resolve(r2.ok ? r2 : r1));
-    });
+    tryPath(`${pathPrefix}/api/health`, resolve);
   });
 }
 

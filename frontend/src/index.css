@@ -835,6 +835,17 @@ body.density-compact {
 .ProseMirror [data-indent="7"] { margin-left: 14rem !important; }
 .ProseMirror [data-indent="8"] { margin-left: 16rem !important; }
 
+/* 分享页复用编辑器的块级缩进契约。data-indent 只接受 1-8，
+ * 写入端和渲染端均通过 normalizeIndentValue 归一化。 */
+.shared-note-content [data-indent="1"] { margin-left: 2rem !important; }
+.shared-note-content [data-indent="2"] { margin-left: 4rem !important; }
+.shared-note-content [data-indent="3"] { margin-left: 6rem !important; }
+.shared-note-content [data-indent="4"] { margin-left: 8rem !important; }
+.shared-note-content [data-indent="5"] { margin-left: 10rem !important; }
+.shared-note-content [data-indent="6"] { margin-left: 12rem !important; }
+.shared-note-content [data-indent="7"] { margin-left: 14rem !important; }
+.shared-note-content [data-indent="8"] { margin-left: 16rem !important; }
+
 .ProseMirror th,
 .ProseMirror td {
   position: relative;

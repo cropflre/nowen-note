@@ -297,12 +297,13 @@ backupsRouter.delete("/:filename", (c) => {
 });
 
 // ===== POST /api/backups/auto =====
-// body: { enabled: boolean, intervalHours?: number }
+// body: { enabled: boolean, intervalHours?: number, mode?, dailyAt?, keepCount?, email*? }
 //   - enabled=false: 立即停止；intervalHours 仍会被持久化为"下次启用时使用的值"
 //   - enabled=true:  以 intervalHours（缺省 24）启动并持久化
+//   - keepCount:     只控制 db-only 保留数量；full 不参与自动清理
 //
 // 持久化由 BackupManager.startAutoBackup / stopAutoBackup 内部完成，
-// 写入 system_settings 表的 backup:auto 键。重启后 BackupManager 构造时会读它。
+// 写入 system_settings 表的 backup:auto 键。重启后启动钩子会读取并恢复完整配置。
 backupsRouter.post("/auto", async (c) => {
   const denied = requireBackupSudo(c);
   if (denied) return denied;
@@ -333,7 +334,7 @@ backupsRouter.post("/auto", async (c) => {
     dailyAt = "03:00";
   }
 
-  // keepCount 范围 1~100，缺省 15。前端通常会传 15；旧客户端不传时也走 15。
+  // keepCount 范围 1~100。启用时缺省 15；停用时若旧客户端未传则保留当前值。
   let keepCount = Number(body.keepCount);
   if (!Number.isFinite(keepCount)) keepCount = 15;
   keepCount = Math.max(1, Math.min(100, Math.round(keepCount)));
@@ -345,8 +346,29 @@ backupsRouter.post("/auto", async (c) => {
   }
 
   if (body.enabled === false) {
-    manager.stopAutoBackup({ persist: true, intervalHours: interval });
-    return c.json({ success: true, message: "自动备份已停止", enabled: false, intervalHours: interval });
+    manager.stopAutoBackup({
+      persist: true,
+      config: {
+        intervalHours: interval,
+        ...(body.mode !== undefined ? { mode } : {}),
+        ...(body.dailyAt !== undefined ? { dailyAt } : {}),
+        ...(body.keepCount !== undefined ? { keepCount } : {}),
+        ...(body.emailOnSuccess !== undefined ? { emailOnSuccess } : {}),
+        ...(body.emailTo !== undefined ? { emailTo } : {}),
+      },
+    });
+    const status = manager.getHealth();
+    return c.json({
+      success: true,
+      message: "自动备份已停止，备份保留设置已保存",
+      enabled: false,
+      intervalHours: status.autoBackupIntervalHours,
+      mode: status.autoBackupMode,
+      dailyAt: status.autoBackupDailyAt,
+      keepCount: status.autoBackupKeepCount,
+      emailOnSuccess: status.autoBackupEmailOnSuccess,
+      emailTo: status.autoBackupEmailTo,
+    });
   }
 
   manager.startAutoBackup(

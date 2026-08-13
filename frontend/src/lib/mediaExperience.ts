@@ -1,4 +1,5 @@
 import { isVideoFile } from "@/lib/mediaUploadService";
+import { rememberMediaUploadDispatchFiles } from "@/lib/mediaUploadLifecycle";
 
 export type MediaKind = "image" | "video";
 export type MediaItemStatus = "ready" | "uploading" | "success" | "error";
@@ -54,13 +55,30 @@ export function prepareMediaFiles(files: Iterable<File>): PreparedMediaFile[] {
   });
 }
 
+/**
+ * Android WebView 把 File 放进 DataTransfer 后，编辑器收到的可能是新的 File 包装对象。
+ * 上传队列不能依赖对象引用相等，使用浏览器能稳定提供的文件元数据做本次会话指纹。
+ */
+export function mediaFileFingerprint(
+  file: Pick<Blob, "size" | "type"> & { name?: string; lastModified?: number },
+): string {
+  return [
+    file.name || "",
+    Number.isFinite(file.size) ? file.size : 0,
+    (file.type || "").toLowerCase(),
+    Number.isFinite(file.lastModified) ? file.lastModified : 0,
+  ].join("\u0000");
+}
+
 export function formatMediaBytes(bytes: number): string {
   if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
+  // UI 使用 KB / MB / GB 文案，因此按十进制单位展示，与 Android / iOS / Windows
+  // 文件管理器的常见显示口径一致。旧实现用 1024 除数但仍标成 MB，会造成大小观感偏差。
   const units = ["B", "KB", "MB", "GB"];
   let value = bytes;
   let index = 0;
-  while (value >= 1024 && index < units.length - 1) {
-    value /= 1024;
+  while (value >= 1000 && index < units.length - 1) {
+    value /= 1000;
     index += 1;
   }
   const digits = index === 0 || value >= 10 ? 0 : 1;
@@ -132,6 +150,11 @@ export function dispatchMediaFilesToEditor(
   if (!files.length || typeof document === "undefined") return false;
   const target = options?.target || findActiveEditorDropTarget(document);
   if (!target) return false;
+
+  // 保存相册/文件选择器返回的原始 File。Android WebView 的 DataTransfer 可能重新包装
+  // File，真正上传时由 mediaUploadLifecycle 映射回来，使移动端上传面板状态不会卡在“等待”。
+  rememberMediaUploadDispatchFiles(files);
+
   const coords = getEditorDropCoordinates(target, options?.near || null);
   const transfer = makeDataTransfer(files);
 

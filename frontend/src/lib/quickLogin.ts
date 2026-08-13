@@ -48,6 +48,7 @@ type BiometricModule = typeof import("@aparajita/capacitor-biometric-auth");
 
 /** Secure storage 中保存 token 的 key（用专属前缀避免与其他业务冲突） */
 const SS_TOKEN_KEY = "nowen.quickLogin.token";
+const SS_REFRESH_TOKEN_KEY = "nowen.quickLogin.refreshToken";
 /** Secure storage 中保存"开关已开"标记的 key */
 const SS_ENABLED_KEY = "nowen.quickLogin.enabled";
 /** Secure storage 中保存关联的服务器 URL（防止换服务器后用旧 token 串台） */
@@ -199,6 +200,7 @@ export async function getQuickLoginUsername(): Promise<string | null> {
  */
 export async function enableQuickLogin(params: {
   token: string;
+  refreshToken?: string;
   serverUrl: string; // 允许空字符串（Web 端同源），但客户端模式下应非空
   username: string;
 }): Promise<{ ok: boolean; error?: string }> {
@@ -244,6 +246,7 @@ export async function enableQuickLogin(params: {
   // 写入安全存储。任意一项失败都视为整体失败并回滚。
   try {
     await ss.SecureStorage.set(SS_TOKEN_KEY, params.token);
+    await ss.SecureStorage.set(SS_REFRESH_TOKEN_KEY, params.refreshToken || "");
     await ss.SecureStorage.set(SS_SERVER_URL_KEY, params.serverUrl || "");
     await ss.SecureStorage.set(SS_USERNAME_KEY, params.username || "");
     await ss.SecureStorage.set(SS_ENABLED_KEY, true);
@@ -252,6 +255,7 @@ export async function enableQuickLogin(params: {
     // 回滚
     try {
       await ss.SecureStorage.remove(SS_TOKEN_KEY);
+      await ss.SecureStorage.remove(SS_REFRESH_TOKEN_KEY);
       await ss.SecureStorage.remove(SS_SERVER_URL_KEY);
       await ss.SecureStorage.remove(SS_USERNAME_KEY);
       await ss.SecureStorage.remove(SS_ENABLED_KEY);
@@ -268,6 +272,7 @@ export async function disableQuickLogin(): Promise<void> {
   if (!ss) return;
   try {
     await ss.SecureStorage.remove(SS_TOKEN_KEY);
+    await ss.SecureStorage.remove(SS_REFRESH_TOKEN_KEY);
     await ss.SecureStorage.remove(SS_SERVER_URL_KEY);
     await ss.SecureStorage.remove(SS_USERNAME_KEY);
     await ss.SecureStorage.remove(SS_ENABLED_KEY);
@@ -298,6 +303,7 @@ export type QuickLoginAttemptResult =
   | {
       ok: true;
       token: string;
+      refreshToken?: string;
       serverUrl: string;
       username: string;
     }
@@ -366,11 +372,14 @@ export async function attemptQuickLogin(): Promise<QuickLoginAttemptResult> {
 
   // 认证通过 → 取出凭据
   let token: string | null = null;
+  let refreshToken: string | undefined;
   let serverUrl = "";
   let username = "";
   try {
     const t = await ss.SecureStorage.get(SS_TOKEN_KEY);
     if (typeof t === "string" && t) token = t;
+    const r = await ss.SecureStorage.get(SS_REFRESH_TOKEN_KEY);
+    if (typeof r === "string" && r) refreshToken = r;
     const s = await ss.SecureStorage.get(SS_SERVER_URL_KEY);
     if (typeof s === "string") serverUrl = s;
     const u = await ss.SecureStorage.get(SS_USERNAME_KEY);
@@ -385,7 +394,7 @@ export async function attemptQuickLogin(): Promise<QuickLoginAttemptResult> {
     return { ok: false, reason: "not_enabled" };
   }
 
-  return { ok: true, token, serverUrl, username };
+  return { ok: true, token, refreshToken, serverUrl, username };
 }
 
 // ============================================================================

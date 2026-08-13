@@ -200,6 +200,8 @@ export interface NoteListItem {
   userId: string;
   notebookId: string;
   workspaceId: string | null;   // Phase 1 新增
+  /** 统一知识树中的直属父节点；null 表示根目录。仅列表接口保证返回。 */
+  treeParentId?: string | null;
   title: string;
   contentText: string;
   /** 内容格式：tiptap-json | markdown | html。用于区分原生 Markdown 笔记与富文本笔记 */

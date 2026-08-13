@@ -41,6 +41,19 @@ export function isImageReplaceTargetNode(
   return node?.type?.name === "image";
 }
 
+/** 编辑结果已经包含原节点的旋转/翻转，因此替换节点时必须清除外层变换。 */
+export function buildEditedImageAttrs(current: ImageNodeAttrs, nextSrc: string): ImageNodeAttrs {
+  return {
+    src: nextSrc,
+    alt: current.alt ?? null,
+    title: current.title ?? null,
+    width: current.width ?? null,
+    height: null,
+    rotation: 0,
+    flipX: false,
+  };
+}
+
 export function shouldKeepImageActionsOpenOnBlur(
   selection: unknown,
 ): boolean {

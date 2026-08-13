@@ -1,6 +1,9 @@
 import { api, getServerUrl } from "./api";
 import { toast } from "./toast";
-import { emitMediaUploadLifecycle } from "./mediaUploadLifecycle";
+import {
+  emitMediaUploadLifecycle,
+  resolveMediaUploadLifecycleFile,
+} from "./mediaUploadLifecycle";
 import {
   isElectronFullLocalRuntime,
   shouldRejectRemoteOffline,
@@ -119,9 +122,11 @@ export async function uploadAndInsertImage(
   insertFn: (url: string, filename: string) => void,
   source: "editor" | "markdown" | "paste" | "drag-drop" = "editor",
 ): Promise<void> {
+  const lifecycleFile = resolveMediaUploadLifecycleFile(file);
+
   emitMediaUploadLifecycle({
     phase: "start",
-    file,
+    file: lifecycleFile,
     filename,
     mediaType: "image",
   });
@@ -133,7 +138,7 @@ export async function uploadAndInsertImage(
       insertFn(result.url, result.filename || filename);
       emitMediaUploadLifecycle({
         phase: "success",
-        file,
+        file: lifecycleFile,
         filename,
         mediaType: "image",
         result,
@@ -144,7 +149,7 @@ export async function uploadAndInsertImage(
     const message = result.error || "图片上传失败";
     emitMediaUploadLifecycle({
       phase: "error",
-      file,
+      file: lifecycleFile,
       filename,
       mediaType: "image",
       error: message,
@@ -155,7 +160,7 @@ export async function uploadAndInsertImage(
     const message = error?.message || "图片上传失败";
     emitMediaUploadLifecycle({
       phase: "error",
-      file,
+      file: lifecycleFile,
       filename,
       mediaType: "image",
       error: message,

@@ -95,21 +95,27 @@ describe("androidNativeHttpBridge", () => {
     expect(browserFetch).toHaveBeenCalledTimes(1);
   });
 
-  it("keeps mutations on the existing fetch path", async () => {
-    browserFetch.mockResolvedValueOnce(new Response("{}", {
+  it("routes JSON API mutations through CapacitorHttp", async () => {
+    capacitorState.request.mockResolvedValueOnce({
       status: 200,
       headers: { "content-type": "application/json" },
-    }));
+      data: { id: "nb-1", name: "Work" },
+    });
     cleanup = installAndroidNativeHttpBridge();
 
-    await fetch("https://note.example.com/api/notebooks", {
+    const response = await fetch("https://note.example.com/api/notebooks", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name: "Work" }),
     });
 
-    expect(capacitorState.request).not.toHaveBeenCalled();
-    expect(browserFetch).toHaveBeenCalledTimes(1);
+    await expect(response.json()).resolves.toEqual({ id: "nb-1", name: "Work" });
+    expect(capacitorState.request).toHaveBeenCalledWith(expect.objectContaining({
+      url: "https://note.example.com/api/notebooks",
+      method: "POST",
+      data: { name: "Work" },
+    }));
+    expect(browserFetch).not.toHaveBeenCalled();
   });
 
   it("keeps binary API reads on the existing fetch path", async () => {
@@ -132,7 +138,7 @@ describe("androidNativeHttpBridge", () => {
     expect(browserFetch).toHaveBeenCalledTimes(1);
   });
 
-  it("does not install outside Android native runtime", () => {
+  it("does not install outside native Capacitor runtime", () => {
     capacitorState.platform = "web";
 
     cleanup = installAndroidNativeHttpBridge();

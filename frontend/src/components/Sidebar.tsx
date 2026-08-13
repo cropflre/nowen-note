@@ -6,7 +6,7 @@ import { useTranslation } from "react-i18next";
 import KnowledgeTreePanel, {
   FOCUS_KNOWLEDGE_TREE_EVENT,
   KNOWLEDGE_TREE_CHANGED_EVENT,
-} from "@/components/KnowledgeTreePanel";
+} from "@/components/KnowledgeTreeCreateMenuRuntime";
 import MobileKnowledgeTreePanel from "@/components/MobileKnowledgeTreePanel";
 import { OPEN_KNOWLEDGE_TREE_EVENT } from "@/components/KnowledgeTreeDrawer";
 import TagColorPopover from "@/components/TagColorPopover";

@@ -17,4 +17,21 @@ describe("applySayMarkdownAction", () => {
     const result = applySayMarkdownAction("one\ntwo", 0, 7, "orderedList");
     expect(result.text).toBe("1. one\n2. two");
   });
+
+  it("uses localized inline placeholders when there is no selection", () => {
+    const result = applySayMarkdownAction("", 0, 0, "bold", {
+      text: "text",
+      content: "content",
+    });
+    expect(result.text).toBe("**text**");
+    expect(result.text.slice(result.selectionStart, result.selectionEnd)).toBe("text");
+  });
+
+  it("uses localized block placeholders for empty list actions", () => {
+    const result = applySayMarkdownAction("", 0, 0, "taskList", {
+      text: "text",
+      content: "content",
+    });
+    expect(result.text).toBe("- [ ] content");
+  });
 });

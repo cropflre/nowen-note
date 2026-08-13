@@ -25,7 +25,6 @@ import { ThemeProvider } from "@/components/ThemeProvider";
 import { useSiteSettings } from "@/hooks/useSiteSettings";
 import { UserPreferencesProvider, useUserPreferences } from "@/hooks/useUserPreferences";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { ConfirmProvider } from "@/components/ui/confirm";
 import Toaster from "@/components/Toaster";
 import { User } from "@/types";
 import { getServerUrl, setServerUrl, clearServerUrl, broadcastLogout, initializeServerUrlFromRuntime } from "@/lib/api";
@@ -44,13 +43,22 @@ import {
   shortcutMatchesEvent,
 } from "@/lib/shortcutRegistry";
 import CommandPalette from "@/components/common/CommandPalette";
-import OfflineIndicator from "@/components/common/OfflineIndicator";
+import OfflineSyncRuntime from "@/components/OfflineSyncRuntime";
 import UpdateNotifier from "@/components/common/UpdateNotifier";
 import FolderSyncScheduler from "@/components/FolderSyncScheduler";
 import NoteWorkspaceLayoutController from "@/components/NoteWorkspaceLayoutController";
 import { PhaseAPerfProfiler } from "@/components/PhaseAPerfProfiler";
 import { isAccountLoginHistorySupported, saveAccountLoginHistory } from "@/lib/accountLoginHistory";
 import SidebarSearchExperienceBridge from "@/components/SidebarSearchExperienceBridge";
+import { stripServerBasePath } from "@/lib/serverUrl";
+import {
+  clearAuthTokens,
+  fetchWithAuthRefresh,
+  getAccessToken,
+  getRefreshToken,
+  refreshAccessToken,
+  storeAuthTokens,
+} from "@/lib/authSession";
 
 const AUTH_USER_CACHE_PREFIX = "nowen-auth-user:";
 
@@ -134,8 +142,19 @@ function loadCachedAuthUser(scope: string, token: string): User | null {
 
 function isVerifyNetworkFailure(err: any): boolean {
   return err?.networkLike === true
+    || err?.name === "RefreshUnavailableError"
     || err?.name === "AbortError"
     || err instanceof TypeError;
+}
+
+function getTokenExpiresAt(token: string): number | null {
+  try {
+    const encoded = token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/");
+    const payload = JSON.parse(atob(encoded.padEnd(Math.ceil(encoded.length / 4) * 4, "=")));
+    return typeof payload?.exp === "number" ? payload.exp * 1000 : null;
+  } catch {
+    return null;
+  }
 }
 
 function isNativeClientRuntime(): boolean {
@@ -486,13 +505,15 @@ function AppLayout() {
   const handleBackToList = useCallback(() => {
     actions.setMobileView("list");
   }, [actions]);
-  const ignoreSidebarBack = useCallback(() => {}, []);
+  const handleCloseSidebar = useCallback(() => {
+    actions.setMobileSidebar(false);
+  }, [actions]);
 
   useBackButton({
     mobileView: state.mobileView,
-    mobileSidebarOpen: false,
+    mobileSidebarOpen: state.mobileSidebarOpen,
     onBackToList: handleBackToList,
-    onCloseSidebar: ignoreSidebarBack,
+    onCloseSidebar: handleCloseSidebar,
   });
 
   // P2: 状态栏与主题同步
@@ -767,7 +788,7 @@ function AppLayout() {
           />
         </div>
       ) : isDiaryView ? (
-        <div className="flex-1 flex flex-col">
+        <div className="flex-1 min-h-0 min-w-0 flex flex-col overflow-hidden">
           <MobileTopBar />
           <DiaryCenter />
         </div>
@@ -820,8 +841,8 @@ function AppLayout() {
         onClose={() => setCommandPaletteOpen(false)}
       />
 
-      {/* 离线状态 + 待同步指示器 */}
-      <PhaseAPerfProfiler id="OfflineIndicator"><OfflineIndicator /></PhaseAPerfProfiler>
+      {/* 无 UI 的网络探活、离线队列重放与同步后数据刷新 */}
+      <OfflineSyncRuntime />
 
       {/* 服务端版本升级提示（前端 bundle 与服务端不一致时） */}
       <UpdateNotifier />
@@ -885,7 +906,7 @@ function AuthGate() {
     || !!getServerUrl();
 
   const checkAuth = useCallback(() => {
-    const token = localStorage.getItem("nowen-token");
+    const token = getAccessToken();
     if (!token) {
       setIsAuthenticated(false);
       return;
@@ -914,10 +935,10 @@ function AuthGate() {
     const timer = setTimeout(() => controller.abort(), 8000);
 
     // /me 经过服务端完整的 session 校验；旧版 /auth/verify 不检查已撤销 jti。
-    fetch(`${baseUrl}/me`, {
+    fetchWithAuthRefresh(`${baseUrl}/me`, {
       headers: { Authorization: `Bearer ${token}` },
       signal: controller.signal,
-    })
+    }, baseUrl)
       .then(async (res) => {
         if (res.ok) return res.json();
         let body: any = {};
@@ -945,7 +966,7 @@ function AuthGate() {
       })
       .then((data) => {
         const verifiedUser = data as User;
-        saveCachedAuthUser(authScope, token, verifiedUser);
+        saveCachedAuthUser(authScope, getAccessToken() || token, verifiedUser);
         setUser(verifiedUser);
         setIsAuthenticated(true);
       })
@@ -995,7 +1016,7 @@ function AuthGate() {
     //     原先 "isClientMode && !getServerUrl()" 会直接 return，零登录代码永远走不到。
     const desktopApi = (window as any).nowenDesktop;
     const existingToken = (() => {
-      try { return localStorage.getItem("nowen-token"); } catch { return null; }
+      return getAccessToken();
     })();
     // D-1：桌面端"切换到云端"开关。
     //   用户在 NavRail 点击云端入口后会写 nowen-prefer-cloud=1，
@@ -1006,11 +1027,11 @@ function AuthGate() {
     })();
     if (!existingToken && !preferCloud && desktopApi?.isDesktop && desktopApi?.getLocalAuth) {
       let cancelled = false;
-      desktopApi.getLocalAuth().then((auth: { token: string; user: User } | null) => {
+      desktopApi.getLocalAuth().then((auth: { token: string; refreshToken?: string; user: User } | null) => {
         if (cancelled) return;
         if (auth?.token) {
           try {
-            localStorage.setItem("nowen-token", auth.token);
+            storeAuthTokens({ token: auth.token, refreshToken: auth.refreshToken ?? null });
             // 桌面端首启把 origin 当作 serverUrl 落盘，让后续同源 API 调用顺利通过
             if (!getServerUrl() && window.location.origin.startsWith("http")) {
               setServerUrl(window.location.origin);
@@ -1047,6 +1068,60 @@ function AuthGate() {
     checkAuth();
   }, [checkAuth, isClientMode]);
 
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    let cancelled = false;
+    let timer: number | undefined;
+
+    const schedule = () => {
+      if (cancelled) return;
+      if (timer) window.clearTimeout(timer);
+      const token = getAccessToken();
+      const expiresAt = token ? getTokenExpiresAt(token) : null;
+      const delay = expiresAt ? Math.max(0, expiresAt - Date.now() - 60_000) : 0;
+      timer = window.setTimeout(renew, Math.min(delay, 2_147_000_000));
+    };
+
+    const renew = async () => {
+      if (cancelled) return;
+      const serverUrl = getServerUrl();
+      const baseUrl = serverUrl ? `${serverUrl}/api` : "/api";
+      try {
+        const token = await refreshAccessToken(baseUrl);
+        if (!token) return;
+        schedule();
+      } catch (error: any) {
+        if (error?.terminal) {
+          await broadcastLogout("refresh_rejected");
+          if (!cancelled) {
+            setUser(null);
+            setIsAuthenticated(false);
+          }
+          return;
+        }
+        if (!cancelled) timer = window.setTimeout(renew, 60_000);
+      }
+    };
+
+    const onVisible = () => {
+      if (document.visibilityState !== "visible") return;
+      const token = getAccessToken();
+      const expiresAt = token ? getTokenExpiresAt(token) : null;
+      if (!expiresAt || expiresAt - Date.now() <= 60_000) void renew();
+      else schedule();
+    };
+
+    schedule();
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", onVisible);
+    return () => {
+      cancelled = true;
+      if (timer) window.clearTimeout(timer);
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", onVisible);
+    };
+  }, [isAuthenticated]);
+
   // L10: 多标签页登录态同步
   //
   //   同一浏览器里开了多个 tab 时，常见的诉求：
@@ -1079,12 +1154,12 @@ function AuthGate() {
         }
       } else if (ev.key === "nowen-logout-broadcast") {
         // 其他 tab 主动登出 → 本 tab 也清本地 token 并回登录页
-        try { localStorage.removeItem("nowen-token"); } catch {}
+        clearAuthTokens();
         setIsAuthenticated(false);
         setUser(null);
       } else if (ev.key === "nowen-auth-changed") {
         // 其他 tab 改密/改用户名成功 → 本 tab 也清 token 回登录页重新验证
-        try { localStorage.removeItem("nowen-token"); } catch {}
+        clearAuthTokens();
         setIsAuthenticated(false);
         setUser(null);
       } else if (ev.key === "nowen-server-url") {
@@ -1119,11 +1194,12 @@ function AuthGate() {
   // 桌面端 / 移动端把每次已确认的登录态写入安全历史。仅保存 token，绝不保存密码。
   useEffect(() => {
     if (!user?.id || !isAccountLoginHistorySupported()) return;
-    const token = localStorage.getItem("nowen-token") || "";
+    const token = getAccessToken() || "";
+    const refreshToken = getRefreshToken() || undefined;
     const serverUrl = getServerUrl()
       || (window.location.origin.startsWith("http") ? window.location.origin : "");
     if (!token || !serverUrl) return;
-    void saveAccountLoginHistory({ serverUrl, token, user })
+    void saveAccountLoginHistory({ serverUrl, token, refreshToken, user })
       .then((result) => {
         if (!result.ok) console.warn("[App] save account login history failed:", result.error);
       })
@@ -1295,15 +1371,13 @@ function App() {
   //   早期正则写成 [A-Za-z0-9]+，碰到含 `-` / `_` 的 token 时匹配失败，
   //   App 直接落到 AuthGate 分支 → 未登录用户被导到登录页，
   //   被误诊为"可评论分享触发登录"。如果再次收紧此正则，请同步约束 token 生成。
-  const path = window.location.pathname;
+  const path = stripServerBasePath(window.location.pathname, getServerUrl());
   const shareMatch = path.match(/^\/share\/([A-Za-z0-9_-]+)$/);
   if (shareMatch) {
     return (
       <ThemeProvider>
-        <ConfirmProvider>
-          <SharedNoteView shareToken={shareMatch[1]} />
-          <Toaster />
-        </ConfirmProvider>
+        <SharedNoteView shareToken={shareMatch[1]} />
+        <Toaster />
       </ThemeProvider>
     );
   }
@@ -1312,10 +1386,8 @@ function App() {
   if (notebookShareMatch) {
     return (
       <ThemeProvider>
-        <ConfirmProvider>
-          <NotebookShareJoinView token={notebookShareMatch[1]} />
-          <Toaster />
-        </ConfirmProvider>
+        <NotebookShareJoinView token={notebookShareMatch[1]} />
+        <Toaster />
       </ThemeProvider>
     );
   }
@@ -1323,10 +1395,8 @@ function App() {
   return (
     <ThemeProvider>
       <UserPreferencesProvider>
-        <ConfirmProvider>
-          <AuthGate />
-          <Toaster />
-        </ConfirmProvider>
+        <AuthGate />
+        <Toaster />
       </UserPreferencesProvider>
     </ThemeProvider>
   );

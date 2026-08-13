@@ -13,6 +13,9 @@
  *   - Presence 走服务端权威（Hub 汇总后广播），客户端只发 intent
  */
 
+import { clearAuthTokens } from "@/lib/authSession";
+import { inferBrowserServerBaseUrl, normalizeServerBaseUrl } from "@/lib/serverUrl";
+
 type Listener = (payload: any) => void;
 
 const WS_PATH = "/ws";
@@ -53,7 +56,8 @@ class RealtimeClient {
     const token = localStorage.getItem("nowen-token");
     if (!token) return null;
 
-    const serverUrl = localStorage.getItem("nowen-server-url");
+    const serverUrl = normalizeServerBaseUrl(localStorage.getItem("nowen-server-url"))
+      || inferBrowserServerBaseUrl();
     let origin: string;
     if (serverUrl) {
       origin = serverUrl.replace(/\/+$/, "");
@@ -126,7 +130,7 @@ class RealtimeClient {
           if (typeof window !== "undefined") {
             // L10: 广播给其他 tab 一起下线（这里避免 import api.ts 产生循环依赖，手动内联 broadcast）
             try {
-              localStorage.removeItem("nowen-token");
+              clearAuthTokens();
               localStorage.setItem("nowen-logout-broadcast", `${Date.now()}|force-logout`);
               localStorage.removeItem("nowen-logout-broadcast");
             } catch {}

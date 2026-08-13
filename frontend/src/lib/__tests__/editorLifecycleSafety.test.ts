@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import { resolveEditorLifecycleSave } from "@/lib/editorLifecycleSafety";
 
 describe("editor lifecycle save safety", () => {
-  it("flushes pending content even when the title is unchanged", () => {
+  it("Case 2: flushes pending image/content immediately when the user switches notes", () => {
+    // Image insertion is a document transaction, so Tiptap has a pending content debounce here.
+    // The before-note-switch lifecycle path must force the latest editor JSON out immediately.
     expect(resolveEditorLifecycleSave({
       hasPendingContent: true,
       title: "Title",

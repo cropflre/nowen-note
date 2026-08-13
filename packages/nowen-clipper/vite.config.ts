@@ -1,5 +1,25 @@
-import { defineConfig } from "vite";
+import { defineConfig, type Plugin } from "vite";
 import { resolve } from "path";
+
+/**
+ * Manifest V3 的 content_scripts 与 scripting.executeScript(files) 都按经典脚本执行。
+ * 一旦 Rollup 把共享依赖拆成 import，content.js 会在 listener 注册前直接语法失败。
+ */
+function assertStandaloneContentScript(): Plugin {
+  return {
+    name: "assert-standalone-content-script",
+    generateBundle(_options, bundle) {
+      const content = bundle["content.js"];
+      if (!content || content.type !== "chunk") return;
+      if (content.imports.length > 0 || content.dynamicImports.length > 0) {
+        this.error(`content.js 必须是可直接注入的单文件，禁止依赖其他 chunk：${[
+          ...content.imports,
+          ...content.dynamicImports,
+        ].join(", ")}`);
+      }
+    },
+  };
+}
 
 /**
  * Vite 配置：MV3 扩展的多入口构建。
@@ -8,6 +28,7 @@ import { resolve } from "path";
  * 再挂载 Issue #217 的统一速记/剪藏流水线。
  */
 export default defineConfig({
+  plugins: [assertStandaloneContentScript()],
   build: {
     outDir: "dist",
     emptyOutDir: true,

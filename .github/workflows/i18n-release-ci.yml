@@ -1,0 +1,72 @@
+name: I18n Release CI
+
+on:
+  pull_request:
+    paths:
+      - "frontend/src/i18n/**"
+      - "frontend/src/lib/dateTime.ts"
+      - "frontend/src/components/EditorErrorBoundary.tsx"
+      - "frontend/src/components/MembersPanel.tsx"
+      - "frontend/src/components/attachmentDetail/AttachmentDetailDrawer.tsx"
+      - "frontend/src/components/SettingsModal.tsx"
+      - "frontend/src/components/SecuritySettings.tsx"
+      - "frontend/src/components/DataManager.tsx"
+      - "frontend/src/components/YoudaoImport.tsx"
+      - "frontend/src/components/MiCloudImport.tsx"
+      - "frontend/src/components/LanDiscoveryPanel.tsx"
+      - "frontend/src/components/DownloadPanel.tsx"
+      - "frontend/src/components/TokenUsageStats.tsx"
+      - "frontend/src/components/LargeRichTextSafeViewer.tsx"
+      - "frontend/src/components/LargeMarkdownSafeEditor.tsx"
+      - "frontend/src/components/NoteWorkspaceLayoutController.tsx"
+      - "frontend/src/components/EditorSplitView.tsx"
+      - "frontend/src/components/diary/SayMarkdownToolbar.tsx"
+      - "frontend/src/components/diary/__tests__/SayMarkdownToolbar.test.ts"
+      - ".github/workflows/i18n-release-ci.yml"
+  push:
+    branches: [main, release/v1.4.6]
+    paths:
+      - "frontend/src/i18n/**"
+      - "frontend/src/lib/dateTime.ts"
+      - "frontend/src/components/EditorErrorBoundary.tsx"
+      - "frontend/src/components/MembersPanel.tsx"
+      - "frontend/src/components/attachmentDetail/AttachmentDetailDrawer.tsx"
+      - "frontend/src/components/SettingsModal.tsx"
+      - "frontend/src/components/SecuritySettings.tsx"
+      - "frontend/src/components/DataManager.tsx"
+      - "frontend/src/components/YoudaoImport.tsx"
+      - "frontend/src/components/MiCloudImport.tsx"
+      - "frontend/src/components/LanDiscoveryPanel.tsx"
+      - "frontend/src/components/DownloadPanel.tsx"
+      - "frontend/src/components/TokenUsageStats.tsx"
+      - "frontend/src/components/LargeRichTextSafeViewer.tsx"
+      - "frontend/src/components/LargeMarkdownSafeEditor.tsx"
+      - "frontend/src/components/NoteWorkspaceLayoutController.tsx"
+      - "frontend/src/components/EditorSplitView.tsx"
+      - "frontend/src/components/diary/SayMarkdownToolbar.tsx"
+      - "frontend/src/components/diary/__tests__/SayMarkdownToolbar.test.ts"
+      - ".github/workflows/i18n-release-ci.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  frontend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - name: I18n release regression tests
+        run: npm run test:run -- src/i18n/__tests__/releaseI18nCoverage.test.ts src/components/__tests__/EditorErrorBoundary.test.ts src/components/diary/__tests__/SayMarkdownToolbar.test.ts
+      - name: Frontend typecheck
+        if: always()
+        run: npx tsc -b

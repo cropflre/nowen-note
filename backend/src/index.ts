@@ -13,6 +13,7 @@ import { verifyLoginToken, getCachedAuthUser, setCachedAuthUser } from "./lib/au
 import knowledgeTreeRouter from "./routes/knowledge-tree";
 import notebooksRouter from "./routes/notebooks";
 import notesRouter from "./routes/notes";
+import noteTemplatesRouter from "./routes/note-templates";
 import offlineSyncRouter from "./routes/offline-sync";
 import blocksRouter from "./routes/blocks";
 import tagsRouter from "./routes/tags";
@@ -460,6 +461,9 @@ app.use("/api/*", async (c, next) => {
     if (sess.revokedAt) {
       return c.json({ error: "该会话已被下线", code: "SESSION_REVOKED" }, 401);
     }
+    if (sess.expiresAt && Date.parse(sess.expiresAt) <= Date.now()) {
+      return c.json({ error: "登录已超过 30 天，请重新登录", code: "SESSION_EXPIRED" }, 401);
+    }
     touchSessionLastSeen(payload.jti);
   }
 
@@ -476,6 +480,7 @@ app.use("/api/*", enforceApiTokenAccess);
 app.route("/api/knowledge-tree/", knowledgeTreeRouter);
 app.route("/api/notebooks", notebooksRouter);
 app.route("/api/notes", notesRouter);
+app.route("/api/note-templates", noteTemplatesRouter);
 app.route("/api/offline-sync", offlineSyncRouter);
 app.route("/api/blocks", blocksRouter);
 app.route("/api/tags", tagsRouter);

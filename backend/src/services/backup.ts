@@ -101,7 +101,7 @@ const FAILURE_DEGRADE_THRESHOLD = 3;
  *                       重启不会立即触发（避免运维半夜重启抖一次备份）。
  *
  *   - keepCount：自动清理保留的 db-only 备份数量。范围 1~100，默认 15。
- *                只清理 db-only（filename 含 "db-only"），full 不动；
+ *                只清理 type="db-only" 的备份，full 不动；
  *                由"自动备份完成"和"手动备份完成"两条路径共同触发，
  *                避免旧版本"只在 tick 里清理"导致手动产物无限堆积。
  *
@@ -780,28 +780,35 @@ export class BackupManager {
    *
    * 给 index.ts 启动钩子使用：
    *   const cfg = mgr.readEffectiveAutoConfig();
-   *   if (cfg.enabled) mgr.startAutoBackup(cfg.intervalHours, { persist: false });
+   *   if (cfg.enabled) mgr.startAutoBackup(cfg, { persist: false });
    */
   readEffectiveAutoConfig(): AutoBackupConfig {
     const fromDb = this.loadAutoConfigFromDb();
-    if (fromDb) return fromDb;
+    let config = fromDb;
+    if (!config) {
+      const envEnabledRaw = (process.env.BACKUP_AUTO_ENABLED || "").toLowerCase();
+      const envEnabled = envEnabledRaw === ""
+        ? true
+        : !["false", "0", "no", "off"].includes(envEnabledRaw);
+      let envInterval = Number(process.env.BACKUP_AUTO_INTERVAL_HOURS);
+      if (!Number.isFinite(envInterval) || envInterval < 1) envInterval = 24;
+      if (envInterval > 720) envInterval = 720;
+      config = {
+        enabled: envEnabled,
+        intervalHours: envInterval,
+        mode: "interval",
+        dailyAt: "03:00",
+        keepCount: KEEP_COUNT_DEFAULT,
+        emailOnSuccess: false,
+        emailTo: "",
+      };
+    }
 
-    const envEnabledRaw = (process.env.BACKUP_AUTO_ENABLED || "").toLowerCase();
-    const envEnabled = envEnabledRaw === ""
-      ? true
-      : !["false", "0", "no", "off"].includes(envEnabledRaw);
-    let envInterval = Number(process.env.BACKUP_AUTO_INTERVAL_HOURS);
-    if (!Number.isFinite(envInterval) || envInterval < 1) envInterval = 24;
-    if (envInterval > 720) envInterval = 720;
-    return {
-      enabled: envEnabled,
-      intervalHours: envInterval,
-      mode: "interval",
-      dailyAt: "03:00",
-      keepCount: KEEP_COUNT_DEFAULT,
-      emailOnSuccess: false,
-      emailTo: "",
-    };
+    // 调度关闭时也必须加载 retention 状态；手动创建备份仍会使用 keepCount。
+    this.autoBackupConfig = { ...config };
+    this.autoBackupIntervalHours = config.intervalHours;
+    this.autoBackupMode = config.mode === "daily" ? "daily" : "interval";
+    return config;
   }
 
   /** 从 system_settings 加载历史健康指标到内存。 */
@@ -1652,16 +1659,13 @@ export class BackupManager {
   /**
    * 一次自动备份的实际执行体。两种调度模式共用。
    *   1. 产 db-only 备份；
-   *   2. 按 keepCount 清理多余 db-only；
+   *   2. createBackup() 统一按 keepCount 清理多余 db-only；
    *   3. emailOnSuccess && SMTP ready → 发邮件（失败仅记日志，不影响备份成功）。
    */
   private async runAutoTick(): Promise<void> {
     try {
       const info = await this.createBackup({ type: "db-only", description: "自动备份" });
       console.log(`[Backup] 自动备份完成: ${info.filename}`);
-
-      // 保留策略：手动备份也会调用 pruneDbOnly()，这里再触发一次属正常冗余
-      this.pruneDbOnly();
 
       // 自动发邮件：动态 import 避免循环依赖，且 SMTP 没启用直接 skip
       const cfg = this.autoBackupConfig;
@@ -1678,9 +1682,8 @@ export class BackupManager {
   /**
    * 清理多余的 db-only 备份。
    *
-   * 由两条路径触发：
-   *   - 自动 tick 完成后
-   *   - 手动 createBackup() 完成后（在 createBackup 末尾调用，避免手动产物无限堆积）
+   * 统一由 createBackup() 成功后触发，覆盖自动/手动及 full/db-only 创建路径；
+   * 创建 full 时只会顺带清理超量 db-only，不会删除任何 full。
    *
    * 仅清理 db-only；full 类型由管理员手动管理，避免误删大体积归档。
    */
@@ -1688,7 +1691,7 @@ export class BackupManager {
     try {
       const keep = this.autoBackupConfig.keepCount ?? KEEP_COUNT_DEFAULT;
       const all = this.listBackups();
-      const dbOnly = all.filter((b) => b.filename.includes("db-only"));
+      const dbOnly = all.filter((backup) => backup.type === "db-only");
       if (dbOnly.length > keep) {
         for (const old of dbOnly.slice(keep)) {
           this.deleteBackup(old.filename);
@@ -1760,8 +1763,13 @@ export class BackupManager {
    *
    * @param opts.persist        是否写持久化（路由触发为 true，内部 stopAutoBackup() 调用为 false）
    * @param opts.intervalHours  停用时仍记录上次的间隔，方便下次"启用"时复用同样的频率
+   * @param opts.config         停用时一并保存的完整设置，尤其是手动备份仍会使用的 keepCount
    */
-  stopAutoBackup(opts: { persist?: boolean; intervalHours?: number } = {}): void {
+  stopAutoBackup(opts: {
+    persist?: boolean;
+    intervalHours?: number;
+    config?: Partial<Omit<AutoBackupConfig, "enabled">>;
+  } = {}): void {
     if (this.autoBackupTimer) {
       // 同时兼容 setInterval 和 setTimeout 两种 timer：clearTimeout 在 Node 内部
       // 等价于 clearInterval（都是 clear unref 的句柄），但显式两次更稳。
@@ -1771,13 +1779,19 @@ export class BackupManager {
     }
     this.autoBackupNextRunAt = null;
     if (opts.persist) {
-      // 复用上次完整配置，只把 enabled 翻为 false——这样下次"启用"时
-      // 用户的 mode/dailyAt/keepCount/邮件设置都还在。
+      // 停用调度时仍保存完整配置，因为 keepCount 同时约束手动创建的 db-only。
       this.autoBackupConfig = {
         ...this.autoBackupConfig,
+        ...opts.config,
         enabled: false,
-        intervalHours: opts.intervalHours ?? this.autoBackupConfig.intervalHours ?? this.autoBackupIntervalHours,
+        intervalHours:
+          opts.config?.intervalHours
+          ?? opts.intervalHours
+          ?? this.autoBackupConfig.intervalHours
+          ?? this.autoBackupIntervalHours,
       };
+      this.autoBackupIntervalHours = this.autoBackupConfig.intervalHours;
+      this.autoBackupMode = this.autoBackupConfig.mode === "daily" ? "daily" : "interval";
       this.persistAutoConfig(this.autoBackupConfig);
     }
   }

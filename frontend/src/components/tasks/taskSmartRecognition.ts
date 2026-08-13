@@ -187,6 +187,9 @@ const EN_MONTH_NAME_PATTERN = "jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|
 
 const MAX_REPEAT_INTERVAL = 999;
 const MAX_ADVANCE_MINUTES = 60 * 24 * 365;
+// Date-only tasks keep their all-day deadline semantics. "提醒我" uses an
+// offset from next local midnight instead of fabricating a dueAt at 08:30.
+const DEFAULT_DATE_ONLY_REMINDER_OFFSET_MINUTES = 15 * 60 + 30;
 
 export function parseTaskQuickAdd(input: string, now = new Date()): TaskQuickAddParseResult {
     const raw = input || "";
@@ -275,9 +278,12 @@ export function parseTaskQuickAdd(input: string, now = new Date()): TaskQuickAdd
         reminderOffsets.push(0, advanceSpec.offsetMinutes);
         consumedRanges.push(advanceSpec.range);
         if (dueReminderSpec) consumedRanges.push(dueReminderSpec.range);
-    } else if (dueReminderSpec && taskPatch.dueAt) {
-        reminderOffsets.push(0);
+    } else if (dueReminderSpec && (taskPatch.dueDate || taskPatch.dueAt)) {
+        reminderOffsets.push(taskPatch.dueAt ? 0 : DEFAULT_DATE_ONLY_REMINDER_OFFSET_MINUTES);
         consumedRanges.push(dueReminderSpec.range);
+    }
+    if (hasFutureDueAt(taskPatch, now) && reminderOffsets.length === 0) {
+        reminderOffsets.push(0);
     }
 
     const cleanTitle = cleanupTitle(removeRanges(raw, consumedRanges));
@@ -288,6 +294,10 @@ export function parseTaskQuickAdd(input: string, now = new Date()): TaskQuickAdd
         reminderOffsets: sortUniqueOffsets(reminderOffsets),
         recognizedRanges: mergeRanges(consumedRanges),
     };
+}
+
+function hasFutureDueAt(taskPatch: Partial<Task>, now: Date): boolean {
+    return !!taskPatch.dueAt && new Date(taskPatch.dueAt).getTime() > now.getTime();
 }
 
 function parseTimeSpec(text: string, protectedRanges: MatchRange[]): TimeSpec | null {

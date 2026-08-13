@@ -25,6 +25,7 @@ import {
 } from "@/lib/rememberLogin";
 import type { User as AuthUser } from "@/types";
 import { isUgreenRemoteAccessUrl, openUgreenRemoteWorkspace } from "@/lib/ugreenRemoteAccess";
+import { clearAuthTokens, storeAuthTokens } from "@/lib/authSession";
 
 interface LoginPageProps {
   onLogin: (token: string, user: any) => void;
@@ -45,11 +46,6 @@ function isMobileNativeClientRuntime(): boolean {
   } catch {
     return false;
   }
-}
-
-function storeLoginToken(token: string) {
-  localStorage.setItem("nowen-token", token);
-  try { window.dispatchEvent(new CustomEvent("nowen:token-changed")); } catch { }
 }
 
 export default function LoginPage({ onLogin, onAccountLogin, isClientMode = false, onDisconnect }: LoginPageProps) {
@@ -390,7 +386,7 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
           email: email.trim() || undefined,
           displayName: displayName.trim() || undefined,
         }, baseUrl || undefined);
-        storeLoginToken(data.token);
+        storeAuthTokens({ token: data.token, refreshToken: data.refreshToken ?? null });
         onLogin(data.token, data.user);
         return;
       }
@@ -425,7 +421,7 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
       }
 
       await persistRememberedLogin(baseUrl || "");
-      storeLoginToken(data.token);
+      storeAuthTokens({ token: data.token, refreshToken: data.refreshToken ?? null });
       onLogin(data.token, data.user);
     } catch (err: any) {
       const message = err?.message || String(err || t("auth.networkError"));
@@ -491,7 +487,7 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
       }
 
       await persistRememberedLogin(baseUrl || "");
-      storeLoginToken(data.token);
+      storeAuthTokens({ token: data.token, refreshToken: data.refreshToken ?? null });
       onLogin(data.token, data.user);
     } catch (err: any) {
       setError(err?.message || t("auth.networkError"));
@@ -510,7 +506,7 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
 
   const handleDisconnect = () => {
     clearServerUrl();
-    localStorage.removeItem("nowen-token");
+    clearAuthTokens();
     setServerParts({ protocol: "http", host: "", port: "", path: "" });
     setServerStatus("idle");
     setUsername("");

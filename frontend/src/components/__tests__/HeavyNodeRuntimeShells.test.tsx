@@ -140,6 +140,41 @@ describe("heavy node runtime shells", () => {
     }
   });
 
+  it("marks only rich-text Mermaid code blocks for borderless preview chrome", async () => {
+    setActiveEditorRuntimeDecision("mermaid-inline-note", lightweightDecision());
+    const host = document.createElement("div");
+    host.innerHTML = `
+      <div class="ProseMirror">
+        <div class="code-block-wrapper">
+          <div class="code-block-toolbar">toolbar</div>
+          <div class="mermaid-preview-host"><div data-mermaid-test-mount></div></div>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(host);
+    const mount = host.querySelector<HTMLElement>("[data-mermaid-test-mount]");
+    const wrapper = host.querySelector<HTMLElement>(".code-block-wrapper");
+    if (!mount || !wrapper) throw new Error("Mermaid inline preview fixture is incomplete");
+    const root = createRoot(mount);
+
+    try {
+      await act(async () => {
+        root.render(
+          <MermaidView
+            source={"flowchart TD\n  A --> B"}
+            debounceMs={0}
+          />,
+        );
+      });
+
+      expect(wrapper.dataset.nowenMermaidInlinePreview).toBe("true");
+    } finally {
+      await act(async () => root.unmount());
+      expect(wrapper.hasAttribute("data-nowen-mermaid-inline-preview")).toBe(false);
+      host.remove();
+    }
+  });
+
   it("keeps block math behind a source placeholder until explicitly rendered", async () => {
     setActiveEditorRuntimeDecision("math-note", lightweightDecision());
     const editor = new Editor({

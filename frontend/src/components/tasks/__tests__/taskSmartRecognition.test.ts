@@ -195,6 +195,7 @@ describe("taskSmartRecognition - date/time", () => {
 
         expect(parsed.taskPatch.dueDate).toBe("2026-03-06");
         expect(parsed.taskPatch.dueAt).toBe("2026-03-06T09:00");
+        expect(parsed.reminderOffsets).toEqual([]);
         expect(parsed.cleanTitle).toBe("exam");
         expect(parsed.recognizedRanges.map((range) => "Mar. 6, 2026 9am exam".slice(range.start, range.end))).toEqual([
             "Mar. 6, 2026",
@@ -379,6 +380,23 @@ describe("taskSmartRecognition - repeat", () => {
 });
 
 describe("taskSmartRecognition - reminders and cleanup", () => {
+    it("creates an at-due reminder only for recognized time deadlines", () => {
+        const now = dt("2026-07-08T10:00:00");
+
+        const dateOnly = parseTaskQuickAdd("明天 提交报告", now);
+        expect(dateOnly.taskPatch.dueDate).toBe("2026-07-09");
+        expect(dateOnly.reminderOffsets).toEqual([]);
+
+        const dateOnlyWithReminder = parseTaskQuickAdd("明天 提醒我 提交报告", now);
+        expect(dateOnlyWithReminder.taskPatch.dueDate).toBe("2026-07-09");
+        expect(dateOnlyWithReminder.taskPatch.dueAt).toBeUndefined();
+        expect(dateOnlyWithReminder.reminderOffsets).toEqual([930]);
+
+        const dateAndTime = parseTaskQuickAdd("明天下午3点 开会", now);
+        expect(dateAndTime.taskPatch.dueAt).toBe("2026-07-09T15:00");
+        expect(dateAndTime.reminderOffsets).toEqual([0]);
+    });
+
     it("creates due reminder + advance reminder", () => {
         const now = dt("2026-07-08T10:00:00");
         const parsed = parseTaskQuickAdd("今天下午3点 开会，提前3小时", now);

@@ -7,6 +7,11 @@ import { syncNoteLinks } from "../lib/noteLinks";
 import { rebuildBlockAuthorityStore } from "../lib/blockAuthorityStore";
 import { rebuildYjsSubdocumentsIfEnabled } from "../services/yjs-subdocuments";
 import {
+  reportTransientPersistedImageSource,
+  stabilizePersistedNoteContent,
+  TransientPersistedImageSourceError,
+} from "../lib/noteContentAttachmentIdentity";
+import {
   ensureNoteIndexed,
   getNoteBlock,
   getNoteBlocks,
@@ -271,6 +276,7 @@ async function performWrite(c: any, action: "create" | "update" | "delete" | "mo
     const mutation = note.contentFormat === "tiptap-json"
       ? mutateTiptap(note.content, action, body)
       : mutateMarkdown(note, action, body);
+    mutation.content = stabilizePersistedNoteContent(mutation.content, note.contentFormat);
     const db = getDb();
     const contentText = plainTextFromNoteContent(mutation.content, note.contentFormat);
     const nextVersion = note.version + 1;
@@ -300,6 +306,13 @@ async function performWrite(c: any, action: "create" | "update" | "delete" | "mo
     logAudit(userId, "note", `block_${action}`, result, { targetType: "note", targetId: noteId });
     return c.json(result, action === "create" ? 201 : 200);
   } catch (cause) {
+    if (cause instanceof TransientPersistedImageSourceError) {
+      reportTransientPersistedImageSource(cause, { operation: "blockWrite", noteId, userId });
+      return c.json({
+        error: "图片仍是临时地址，数据库已保留上一份有效内容",
+        code: "TRANSIENT_IMAGE_SOURCE",
+      }, 400);
+    }
     const code = cause instanceof Error ? cause.message : String(cause);
     if (code === "BLOCK_NOT_FOUND") return c.json({ error: "块不存在", code }, 404);
     if (code === "BLOCK_MOVE_PARENT_MISMATCH") {

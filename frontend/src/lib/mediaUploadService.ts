@@ -1,5 +1,8 @@
 import { api } from "@/lib/api";
-import { emitMediaUploadLifecycle } from "@/lib/mediaUploadLifecycle";
+import {
+  emitMediaUploadLifecycle,
+  resolveMediaUploadLifecycleFile,
+} from "@/lib/mediaUploadLifecycle";
 
 const VIDEO_EXTENSIONS = new Set(["mp4", "webm", "ogg", "ogv", "m4v", "mov"]);
 
@@ -47,15 +50,32 @@ export async function uploadMediaAttachment({
   file,
   source = "editor",
 }: MediaUploadOptions): Promise<MediaUploadResult> {
+  const lifecycleFile = resolveMediaUploadLifecycleFile(file);
+
   emitMediaUploadLifecycle({
     phase: "start",
-    file,
+    file: lifecycleFile,
     filename: file.name,
     mediaType: "video",
   });
 
   try {
     const uploaded = await api.attachments.upload(noteId, file);
+
+    // 移动端 multipart 一旦被 WebView / native HTTP bridge 错误序列化，后端仍有
+    // 可能收到一个“合法但字节不完整”的 File。此时绝不能继续把坏附件写进正文。
+    // 服务端响应的 size 来自实际收到的 File.size，与选择器拿到的本地字节数必须一致。
+    if (
+      file.size > 0
+      && Number.isFinite(uploaded.size)
+      && uploaded.size > 0
+      && uploaded.size !== file.size
+    ) {
+      throw new Error(
+        `视频上传校验失败：本地 ${file.size} 字节，服务端 ${uploaded.size} 字节，请重新上传`,
+      );
+    }
+
     const result: MediaUploadResult = {
       attachmentId: uploaded.id,
       url: uploaded.url,
@@ -67,7 +87,7 @@ export async function uploadMediaAttachment({
     };
     emitMediaUploadLifecycle({
       phase: "success",
-      file,
+      file: lifecycleFile,
       filename: file.name,
       mediaType: "video",
       result,
@@ -76,7 +96,7 @@ export async function uploadMediaAttachment({
   } catch (error: any) {
     emitMediaUploadLifecycle({
       phase: "error",
-      file,
+      file: lifecycleFile,
       filename: file.name,
       mediaType: "video",
       error: error?.message || "视频上传失败",

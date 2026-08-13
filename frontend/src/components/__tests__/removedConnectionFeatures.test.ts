@@ -49,7 +49,7 @@ describe("已移除的连接与迁移功能", () => {
   it("版本冲突不再出现在数据管理同步卡片中", () => {
     const dataManagerSource = readSource("src/components/DataManager.tsx");
     const editorSource = readSource("src/components/EditorPane.tsx");
-    const indicatorSource = readSource("src/components/common/OfflineIndicator.tsx");
+    const syncRuntimeSource = readSource("src/components/OfflineSyncRuntime.tsx");
     const syncEngineSource = readSource("src/lib/syncEngine.ts");
 
     expect(dataManagerSource).not.toContain("待处理冲突");
@@ -58,9 +58,10 @@ describe("已移除的连接与迁移功能", () => {
     expect(dataManagerSource).toContain("summary.pending - summary.versionConflicts");
     expect(editorSource).not.toContain("offlineQueue:conflict");
     expect(editorSource).not.toContain("offlineVersionConflict");
-    expect(indicatorSource).not.toContain("处理冲突");
-    expect(indicatorSource).not.toContain("请选择保留此设备内容");
-    expect(indicatorSource).not.toContain("NOTE_CONFLICT_AUTO_RESOLVED_EVENT");
+    expect(fs.existsSync(path.resolve(process.cwd(), "src/components/common/OfflineIndicator.tsx"))).toBe(false);
+    expect(syncRuntimeSource).not.toContain("处理冲突");
+    expect(syncRuntimeSource).not.toContain("请选择保留此设备内容");
+    expect(syncRuntimeSource).not.toContain("NOTE_CONFLICT_AUTO_RESOLVED_EVENT");
     expect(editorSource).toContain("NOTE_CONFLICT_AUTO_RESOLVED_EVENT");
     expect(editorSource).toContain("handleAutoResolvedConflict");
     expect(editorSource).toContain("persistPendingConflictSnapshot");

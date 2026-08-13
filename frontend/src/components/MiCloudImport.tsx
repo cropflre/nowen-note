@@ -23,7 +23,7 @@ import { useApp, useAppActions } from "@/store/AppContext";
 import { api } from "@/lib/api";
 
 export default function MiCloudImport() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { state } = useApp();
   const actions = useAppActions();
 
@@ -49,17 +49,25 @@ export default function MiCloudImport() {
       setPhase("importing");
       setMessage(
         job.status === "cancelling"
-          ? `正在取消导入，已处理 ${job.processed} / ${job.total}`
-          : `正在导入 ${job.processed} / ${job.total}，成功 ${job.succeeded}，失败 ${job.failed}`,
+          ? t("miCloud.progressCancelling", {
+              processed: job.processed,
+              total: job.total,
+            })
+          : t("miCloud.progressRunning", {
+              processed: job.processed,
+              total: job.total,
+              succeeded: job.succeeded,
+              failed: job.failed,
+            }),
       );
     }
-  }, []);
+  }, [t]);
 
   const finishImport = useCallback((result: MiCloudImportResult) => {
     setImportedCount(result.count);
     if (result.cancelled) {
       setPhase(notes.length > 0 ? "ready" : "idle");
-      setMessage(`导入已取消，已成功导入 ${result.count} 条`);
+      setMessage(t("miCloud.cancelledSummary", { count: result.count }));
       return;
     }
 
@@ -187,24 +195,27 @@ export default function MiCloudImport() {
     try {
       const job = await cancelMiCloudImport(importJob.id);
       applyProgress(job);
-      setMessage(`正在取消导入，已处理 ${job.processed} / ${job.total}`);
+      setMessage(t("miCloud.progressCancelling", {
+        processed: job.processed,
+        total: job.total,
+      }));
     } catch (error: any) {
-      setMessage(error.message || "取消导入失败");
+      setMessage(error.message || t("miCloud.cancelFailed"));
     }
-  }, [importJob, applyProgress]);
+  }, [importJob, applyProgress, t]);
 
   const handleRetryFailed = useCallback(async () => {
     if (!importJob || importJob.failed === 0) return;
     setPhase("importing");
-    setMessage(`正在重试 ${importJob.failed} 条失败项...`);
+    setMessage(t("miCloud.retryingFailed", { count: importJob.failed }));
     try {
       const result = await retryFailedMiCloudImport(importJob.id, getMiCookie(), applyProgress);
       finishImport(result);
     } catch (error: any) {
       setPhase("error");
-      setMessage(error.message || "重试失败项失败");
+      setMessage(error.message || t("miCloud.retryFailedFailed"));
     }
-  }, [importJob, applyProgress, finishImport]);
+  }, [importJob, applyProgress, finishImport, t]);
 
   const toggleNote = (rowKey: string) => {
     setNotes((previous) =>
@@ -221,7 +232,7 @@ export default function MiCloudImport() {
 
   const formatDate = (timestamp: number) => {
     if (!timestamp) return "";
-    return new Date(timestamp).toLocaleDateString("zh-CN", {
+    return new Date(timestamp).toLocaleDateString(i18n.resolvedLanguage || i18n.language, {
       year: "numeric",
       month: "2-digit",
       day: "2-digit",
@@ -232,10 +243,12 @@ export default function MiCloudImport() {
     <div className="rounded-lg border border-orange-200 dark:border-orange-800/40 bg-orange-50/60 dark:bg-orange-950/20 p-3 space-y-2">
       <div className="flex items-center justify-between text-xs">
         <span className="font-medium text-zinc-700 dark:text-zinc-300">
-          {importJob.status === "cancelling" ? "正在取消" : "后台导入任务"}
+          {importJob.status === "cancelling"
+            ? t("miCloud.cancellingLabel")
+            : t("miCloud.backgroundTask")}
         </span>
         <span className="text-zinc-500 dark:text-zinc-400">
-          {importJob.processed} / {importJob.total}（{progressPercent}%）
+          {importJob.processed} / {importJob.total} ({progressPercent}%)
         </span>
       </div>
       <div className="h-2 overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-700">
@@ -246,8 +259,13 @@ export default function MiCloudImport() {
       </div>
       <div className="flex items-center justify-between gap-3 text-xs text-zinc-500 dark:text-zinc-400">
         <span>
-          成功 {importJob.succeeded} · 失败 {importJob.failed}
-          {importJob.currentExternalId ? ` · 当前 ${importJob.currentExternalId}` : ""}
+          {t("miCloud.progressStats", {
+            succeeded: importJob.succeeded,
+            failed: importJob.failed,
+          })}
+          {importJob.currentExternalId
+            ? ` · ${t("miCloud.currentItem", { id: importJob.currentExternalId })}`
+            : ""}
         </span>
         {(importJob.status === "queued" || importJob.status === "running" || importJob.status === "cancelling") && (
           <button
@@ -257,7 +275,9 @@ export default function MiCloudImport() {
             className="inline-flex items-center gap-1 text-red-500 hover:text-red-600 disabled:opacity-50"
           >
             <XCircle size={13} />
-            {importJob.status === "cancelling" ? "取消中" : "取消导入"}
+            {importJob.status === "cancelling"
+              ? t("miCloud.cancellingAction")
+              : t("miCloud.cancelAction")}
           </button>
         )}
       </div>
@@ -268,7 +288,7 @@ export default function MiCloudImport() {
           className="inline-flex items-center gap-1 text-xs font-medium text-orange-600 hover:text-orange-700"
         >
           <RotateCcw size={13} />
-          重试 {importJob.failed} 条失败项
+          {t("miCloud.retryFailedAction", { count: importJob.failed })}
         </button>
       )}
     </div>
@@ -519,7 +539,10 @@ export default function MiCloudImport() {
                 <>
                   <Loader2 className="w-4 h-4 mr-2 animate-spin" />
                   {importJob
-                    ? `正在导入 ${importJob.processed} / ${importJob.total}`
+                    ? t("miCloud.progressButton", {
+                        processed: importJob.processed,
+                        total: importJob.total,
+                      })
                     : t("miCloud.importing", { count: selectedCount })}
                 </>
               ) : phase === "done" ? (

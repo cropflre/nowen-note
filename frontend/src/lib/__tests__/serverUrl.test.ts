@@ -1,5 +1,12 @@
 import { describe, it, expect } from "vitest";
-import { normalizeServerBaseUrl, isValidServerUrl, buildServerUrl, parseServerUrl, isLoopbackServerHostname } from "../serverUrl";
+import {
+  buildServerUrl,
+  inferBrowserServerBaseUrl,
+  isLoopbackServerHostname,
+  isValidServerUrl,
+  normalizeServerBaseUrl,
+  parseServerUrl,
+} from "../serverUrl";
 
 // =====================================================================
 //  normalizeServerBaseUrl
@@ -206,6 +213,32 @@ describe("API endpoint construction", () => {
   it("为外部 HTTP 服务正确拼出 /api/health", () => {
     const baseUrl = normalizeServerBaseUrl("http://note.nowen.cn");
     expect(`${baseUrl}/api/health`).toBe("http://note.nowen.cn/api/health");
+  });
+});
+
+describe("inferBrowserServerBaseUrl", () => {
+  it("不会把公共空间路由误判为服务器路径前缀", () => {
+    expect(inferBrowserServerBaseUrl({
+      protocol: "https:",
+      origin: "https://notes.example.com",
+      pathname: "/public",
+    })).toBe("");
+  });
+
+  it("不会把公共知识库 token 误判为服务器路径前缀", () => {
+    expect(inferBrowserServerBaseUrl({
+      protocol: "https:",
+      origin: "https://notes.example.com",
+      pathname: "/public/zQpvkHFX2h7-XSMJTFC8_CEWKQ8A5teOsaKC5SRmF80",
+    })).toBe("");
+  });
+
+  it("保留公共知识库路由之前的反向代理路径前缀", () => {
+    expect(inferBrowserServerBaseUrl({
+      protocol: "https:",
+      origin: "https://notes.example.com",
+      pathname: "/nowen/public/demo-token",
+    })).toBe("https://notes.example.com/nowen");
   });
 });
 

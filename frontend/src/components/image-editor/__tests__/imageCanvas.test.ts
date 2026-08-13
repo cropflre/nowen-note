@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   exportCanvasToBlob,
+  fitCanvasToViewport,
   renderImageToCanvas,
   type ImageEditTransform,
 } from "../imageCanvas";
@@ -53,6 +54,20 @@ describe("imageCanvas", () => {
 
     expect(canvas.width).toBe(640);
     expect(canvas.height).toBe(320);
+  });
+
+  it("fits canvas with one shared scale so the aspect ratio cannot stretch", () => {
+    const landscape = fitCanvasToViewport(1920, 1080, 900, 500);
+    expect(landscape).not.toBeNull();
+    if (!landscape) throw new Error("expected fitted canvas size");
+    expect(landscape.width).toBeCloseTo(888.89, 2);
+    expect(landscape.height).toBe(500);
+    expect(landscape.width / landscape.height).toBeCloseTo(1920 / 1080, 5);
+    expect(fitCanvasToViewport(600, 1200, 900, 500)).toEqual({
+      width: 250,
+      height: 500,
+      scale: 500 / 1200,
+    });
   });
 
   it("renders flip transforms without throwing", () => {

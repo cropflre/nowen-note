@@ -10,6 +10,7 @@
  * 暴露：
  *   - StrikeMarkdownRules：删除线 `~~text~~` input/paste rule
  *   - HighlightMarkdownRules：高亮 `==text==` input/paste rule
+ *   - InternalRichTextPasteHandler：优先保留 Tiptap/ProseMirror 内部复制的富文本格式
  *   - BilibiliVideoPasteHandler：粘贴独立 B 站视频 URL 时直接插入视频节点
  *   - MarkdownPasteHandler：纯文本粘贴时检测是否是 markdown，是的话用项目里
  *       已经装好的 `marked` 渲染成 HTML 再让 ProseMirror 走 HTML 解析路径，
@@ -23,6 +24,7 @@
 import { Extension } from "@tiptap/react";
 import { markInputRule, markPasteRule, InputRule } from "@tiptap/core";
 import { Plugin, PluginKey } from "@tiptap/pm/state";
+import { DOMParser as ProseMirrorDOMParser } from "@tiptap/pm/model";
 import { parseVideoUrl } from "@/components/VideoExtension";
 import { markdownToHtml } from "@/lib/contentFormat";
 import { sanitizeForPaste } from "@/lib/sanitizeHtml";
@@ -265,6 +267,77 @@ export const TaskListMarkdownRule = Extension.create({
 });
 
 /* -------------------------------------------------------------------------- */
+/*  Tiptap / ProseMirror 内部富文本粘贴                                       */
+/* -------------------------------------------------------------------------- */
+
+const INTERNAL_RICH_TEXT_PASTE_KEY = new PluginKey("internalRichTextPaste");
+
+export function isInternalProseMirrorHtml(html: string): boolean {
+  return /\bdata-pm-slice\s*=/i.test(html || "");
+}
+
+/**
+ * Nowen Note 内部复制时，ProseMirror 会在 text/html 通道写入 data-pm-slice。
+ * TiptapEditor 的自定义 handlePaste 会优先用 text/plain 猜 Markdown / 代码，
+ * 因而整篇 A → B 复制时可能在真正的 HTML 富文本分支之前 return，造成格式丢失。
+ *
+ * 这里和 BilibiliVideoPasteHandler 一样，在 DOM paste 阶段只接管明确的
+ * ProseMirror 内部富文本。外部网页 / VS Code / Word 等来源继续走原有粘贴链路。
+ */
+export const InternalRichTextPasteHandler = Extension.create({
+  name: "internalRichTextPaste",
+  addProseMirrorPlugins() {
+    return [
+      new Plugin({
+        key: INTERNAL_RICH_TEXT_PASTE_KEY,
+        props: {
+          handleDOMEvents: {
+            paste: (view, rawEvent) => {
+              const event = rawEvent as ClipboardEvent;
+              const clipboard = event.clipboardData;
+              if (!clipboard || !view.editable) return false;
+
+              // 粘贴目标在代码块内时仍沿用主编辑器的纯文本语义。
+              const $from = view.state.selection.$from;
+              for (let depth = $from.depth; depth >= 0; depth--) {
+                if ($from.node(depth).type.spec.code) return false;
+              }
+
+              const rawHtml = clipboard.getData("text/html") || "";
+              if (!isInternalProseMirrorHtml(rawHtml)) return false;
+
+              try {
+                const sanitized = sanitizeForPaste(rawHtml);
+                const dom = document.createElement("div");
+                dom.innerHTML = sanitized;
+
+                // 粘贴出的块是新内容，不能把 A 笔记的块身份复制到 B 笔记；
+                // 去掉 blockId 后由现有 BlockIdExtension 自动生成新的稳定 ID。
+                dom.querySelectorAll("[data-block-id]").forEach((element) => {
+                  element.removeAttribute("data-block-id");
+                });
+
+                const parser = view.someProp("clipboardParser", (value: any) => value)
+                  || ProseMirrorDOMParser.fromSchema(view.state.schema);
+                const slice = parser.parseSlice(dom, { preserveWhitespace: false });
+                if (!slice || slice.content.size === 0) return false;
+
+                view.dispatch(view.state.tr.replaceSelection(slice).scrollIntoView());
+                event.preventDefault();
+                return true;
+              } catch (error) {
+                console.warn("[internal-rich-text-paste] insert failed", error);
+                return false;
+              }
+            },
+          },
+        },
+      }),
+    ];
+  },
+});
+
+/* -------------------------------------------------------------------------- */
 /*  B 站视频链接粘贴：独立 URL → video 节点                                    */
 /* -------------------------------------------------------------------------- */
 
@@ -484,6 +557,7 @@ export const MarkdownEnhancements = [
   HighlightMarkdownRules,
   LinkMarkdownRule,
   TaskListMarkdownRule,
+  InternalRichTextPasteHandler,
   BilibiliVideoPasteHandler,
   MarkdownPasteHandler,
 ];

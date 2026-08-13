@@ -7,18 +7,31 @@ vi.mock("@/lib/toast", () => ({
 }));
 
 import {
+  acquireAttachmentRenderUrl,
   extractAttachmentId,
+  getAttachmentRenderSource,
+  getPersistentAttachmentUrl,
   mergeSignedAttachmentUrl,
   registerAttachmentAccessUrls,
+  registerOfflineAttachmentBlob,
   rememberAttachmentApiOrigin,
   resetAttachmentAccessStateForTests,
   resolveAttachmentAccessUrl,
+  unregisterOfflineAttachmentObjectUrl,
 } from "@/lib/noteAttachmentAccessBridge";
 
 const ATTACHMENT_ID = "123e4567-e89b-42d3-a456-426614174216";
 
 describe("noteAttachmentAccessBridge", () => {
   beforeEach(() => {
+    Object.defineProperty(URL, "createObjectURL", {
+      configurable: true,
+      value: vi.fn(() => "blob:https://notes.example.com/default"),
+    });
+    Object.defineProperty(URL, "revokeObjectURL", {
+      configurable: true,
+      value: vi.fn(),
+    });
     resetAttachmentAccessStateForTests();
     window.history.replaceState({}, "", "/note/test");
   });
@@ -109,5 +122,62 @@ describe("noteAttachmentAccessBridge", () => {
       "not-a-uuid": "https://api.example.com/api/attachments/not-a-uuid?sig=x",
       [ATTACHMENT_ID]: `/api/attachments/${ATTACHMENT_ID}`,
     })).toBe(0);
+  });
+
+  it("keeps an offline render URL alive until the mounted consumer releases it", () => {
+    const revokeObjectUrl = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => undefined);
+    vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:https://notes.example.com/offline-a");
+    const signed = `/api/attachments/${ATTACHMENT_ID}?exp=2000000000&sig=server-value&scope=v2.scope`;
+    registerAttachmentAccessUrls({ [ATTACHMENT_ID]: signed }, "https://notes.example.com/api/notes/note-1");
+    const objectUrl = registerOfflineAttachmentBlob(ATTACHMENT_ID, new Blob(["image"]));
+    const release = acquireAttachmentRenderUrl(objectUrl!);
+
+    unregisterOfflineAttachmentObjectUrl(ATTACHMENT_ID);
+
+    expect(resolveAttachmentAccessUrl(`/api/attachments/${ATTACHMENT_ID}`)).toContain("sig=server-value");
+    expect(revokeObjectUrl).not.toHaveBeenCalledWith(objectUrl);
+
+    release();
+    expect(revokeObjectUrl).toHaveBeenCalledWith(objectUrl);
+  });
+
+  it("publishes a replacement object URL before revoking the leased previous URL", () => {
+    const createObjectUrl = vi.spyOn(URL, "createObjectURL")
+      .mockReturnValueOnce("blob:https://notes.example.com/offline-old")
+      .mockReturnValueOnce("blob:https://notes.example.com/offline-new");
+    const revokeObjectUrl = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => undefined);
+    const oldUrl = registerOfflineAttachmentBlob(ATTACHMENT_ID, new Blob(["old"]))!;
+    const releaseOldUrl = acquireAttachmentRenderUrl(oldUrl);
+
+    const newUrl = registerOfflineAttachmentBlob(ATTACHMENT_ID, new Blob(["replacement-image"]))!;
+
+    expect(createObjectUrl).toHaveBeenCalledTimes(2);
+    expect(resolveAttachmentAccessUrl(`/api/attachments/${ATTACHMENT_ID}`)).toBe(newUrl);
+    expect(revokeObjectUrl).not.toHaveBeenCalledWith(oldUrl);
+
+    releaseOldUrl();
+    expect(revokeObjectUrl).toHaveBeenCalledWith(oldUrl);
+  });
+
+  it("recovers persistent identity from both active and retired object URLs", () => {
+    vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:https://notes.example.com/offline-a");
+    const objectUrl = registerOfflineAttachmentBlob(ATTACHMENT_ID, new Blob(["image"]))!;
+
+    expect(getPersistentAttachmentUrl(objectUrl)).toBe(`/api/attachments/${ATTACHMENT_ID}`);
+    unregisterOfflineAttachmentObjectUrl(ATTACHMENT_ID);
+    expect(getPersistentAttachmentUrl(objectUrl)).toBe(`/api/attachments/${ATTACHMENT_ID}`);
+  });
+
+  it("reports render-source diagnostics without exposing note content", () => {
+    vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:https://notes.example.com/offline-a");
+    registerOfflineAttachmentBlob(ATTACHMENT_ID, new Blob(["image"]));
+
+    expect(getAttachmentRenderSource(`/api/attachments/${ATTACHMENT_ID}`)).toMatchObject({
+      attachmentId: ATTACHMENT_ID,
+      persistentSrc: `/api/attachments/${ATTACHMENT_ID}`,
+      resolvedSrc: "blob:https://notes.example.com/offline-a",
+      offlineObjectUrlHit: true,
+      signedUrlPresent: false,
+    });
   });
 });

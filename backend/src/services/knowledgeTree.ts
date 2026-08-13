@@ -23,3 +23,9 @@ export {
 export { listKnowledgeTree } from "./knowledgeTreeListing.js";
 export { listSharedKnowledgeTree } from "./sharedKnowledgeTreeListing.js";
 export { restoreKnowledgeNode } from "./knowledgeTreeRestore.js";
+
+export {
+  deleteKnowledgeNodesBatch,
+  moveKnowledgeNodesBatch,
+  reduceKnowledgeTreeSelection,
+} from "./knowledgeTreeBatch.js";

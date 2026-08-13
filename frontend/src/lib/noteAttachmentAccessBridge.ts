@@ -7,11 +7,54 @@ const ATTACHMENT_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a
 const ACCESS_QUERY_KEYS = new Set(["exp", "sig", "scope"]);
 const accessUrls = new Map<string, string>();
 const offlineObjectUrls = new Map<string, string>();
+const offlineObjectBlobMetadata = new Map<string, { size: number; type: string }>();
+const objectUrlAttachmentIds = new Map<string, string>();
+const offlineObjectUrlEntries = new Map<string, {
+  id: string;
+  url: string;
+  leases: number;
+  retired: boolean;
+}>();
+const accessStateListeners = new Set<() => void>();
+let accessStateRevision = 0;
+
+function notifyAttachmentAccessChanged(): void {
+  accessStateRevision += 1;
+  for (const listener of accessStateListeners) listener();
+}
+
+/**
+ * Editor NodeViews keep the stable attachment id in their document node, while this bridge owns
+ * the short-lived render URL. Subscribe to the bridge so a late access refresh can re-resolve the
+ * same persisted node instead of leaving the first unauthorized image request in an error state.
+ */
+export function subscribeAttachmentAccess(listener: () => void): () => void {
+  accessStateListeners.add(listener);
+  return () => accessStateListeners.delete(listener);
+}
+
+export function getAttachmentAccessSnapshot(): number {
+  return accessStateRevision;
+}
+
 if (typeof window !== "undefined") {
   window.addEventListener("nowen:offline-attachments-removed", (event) => {
     const ids = (event as CustomEvent<{ ids?: string[] }>).detail?.ids || [];
-    for (const id of ids) revokeOfflineObjectUrl(id);
-    if (ids.length > 0) queueDomScan();
+    for (const id of ids) retireOfflineObjectUrl(id);
+    if (ids.length > 0) {
+      notifyAttachmentAccessChanged();
+      queueDomScan();
+    }
+  });
+  window.addEventListener("pagehide", () => {
+    forceRevokeAllOfflineObjectUrls();
+  });
+  window.addEventListener("nowen:server-url-changed", () => {
+    resetAttachmentAccessForSessionChange();
+  });
+  window.addEventListener("nowen:token-changed", (event) => {
+    const authenticated = (event as CustomEvent<{ authenticated?: boolean }>).detail?.authenticated;
+    if (authenticated === false) resetAttachmentAccessForSessionChange();
   });
 }
 let attachmentApiOrigin = "";
@@ -172,43 +215,132 @@ export function registerAttachmentAccessUrls(
   if (sourceUrl) rememberAttachmentApiOrigin(sourceUrl);
 
   let count = 0;
+  let changed = false;
   for (const [id, url] of Object.entries(urls)) {
     if (!ATTACHMENT_ID_RE.test(id) || typeof url !== "string" || !url.includes("sig=")) continue;
     const normalized = normalizeRegisteredAccessUrl(id, url, sourceUrl);
     if (!normalized) continue;
+    if (accessUrls.get(id) !== normalized) changed = true;
     accessUrls.set(id, normalized);
     count += 1;
   }
+  if (changed) notifyAttachmentAccessChanged();
   if (count > 0) queueDomScan();
   return count;
 }
 
 
-function revokeOfflineObjectUrl(id: string): void {
+function revokeOfflineObjectUrlEntry(entry: {
+  id: string;
+  url: string;
+  leases: number;
+  retired: boolean;
+}): void {
+  offlineObjectUrlEntries.delete(entry.url);
+  try { URL.revokeObjectURL(entry.url); } catch { /* ignore unavailable URL API */ }
+}
+
+function collectRetiredOfflineObjectUrls(): void {
+  for (const entry of offlineObjectUrlEntries.values()) {
+    if (entry.retired && entry.leases === 0) revokeOfflineObjectUrlEntry(entry);
+  }
+}
+
+function retireOfflineObjectUrl(id: string): boolean {
   const current = offlineObjectUrls.get(id);
-  if (!current) return;
+  if (!current) return false;
   offlineObjectUrls.delete(id);
-  try { URL.revokeObjectURL(current); } catch { /* ignore unavailable URL API */ }
+  offlineObjectBlobMetadata.delete(id);
+  const entry = offlineObjectUrlEntries.get(current);
+  if (entry) entry.retired = true;
+  return true;
+}
+
+function forceRevokeAllOfflineObjectUrls(): void {
+  offlineObjectUrls.clear();
+  offlineObjectBlobMetadata.clear();
+  for (const entry of [...offlineObjectUrlEntries.values()]) revokeOfflineObjectUrlEntry(entry);
+  objectUrlAttachmentIds.clear();
+}
+
+function resetAttachmentAccessForSessionChange(): void {
+  const changed = accessUrls.size > 0 || offlineObjectUrls.size > 0 || !!attachmentApiOrigin;
+  accessUrls.clear();
+  attachmentApiOrigin = "";
+  for (const id of [...offlineObjectUrls.keys()]) retireOfflineObjectUrl(id);
+  // 服务器或账号边界变化后，旧会话的 blob → attachmentId 不能映射到新作用域。
+  objectUrlAttachmentIds.clear();
+  if (changed) notifyAttachmentAccessChanged();
+  queueDomScan();
+}
+
+/**
+ * 将运行时 URL 还原为正文可持久化的附件身份。反向映射在 URL revoke 后仍保留到
+ * 页面会话结束，避免已污染的临时节点在保存时失去最后一个可靠 attachmentId。
+ */
+export function getPersistentAttachmentUrl(value: string | null | undefined): string | null {
+  const directId = extractAttachmentId(value);
+  const mappedId = value ? objectUrlAttachmentIds.get(value) : undefined;
+  const id = directId || mappedId;
+  return id ? `/api/attachments/${id}` : null;
+}
+
+/**
+ * NodeView 对当前 Object URL 建立租约。旧 URL 先退出 active map 并通知消费者，
+ * 只有最后一个消费者完成切换并释放租约后才真正 revoke。
+ */
+export function acquireAttachmentRenderUrl(value: string): () => void {
+  const entry = offlineObjectUrlEntries.get(value);
+  if (!entry) {
+    collectRetiredOfflineObjectUrls();
+    return () => undefined;
+  }
+  entry.leases += 1;
+  collectRetiredOfflineObjectUrls();
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    entry.leases = Math.max(0, entry.leases - 1);
+    collectRetiredOfflineObjectUrls();
+  };
 }
 
 export function registerOfflineAttachmentBlob(id: string, blob: Blob): string | null {
   if (!ATTACHMENT_ID_RE.test(id) || typeof URL === "undefined" || typeof URL.createObjectURL !== "function") {
     return null;
   }
-  revokeOfflineObjectUrl(id);
+  // 重复 hydrate 读出的 Blob 实例可能不同，但相同 attachmentId/size/type 仍是同一缓存实体，
+  // 不应反复制造 URL。若缓存实体确实变化，则先建立新 URL，再退休旧 URL。
+  const current = offlineObjectUrls.get(id);
+  const metadata = { size: blob.size, type: blob.type };
+  const previousMetadata = offlineObjectBlobMetadata.get(id);
+  if (
+    current
+    && previousMetadata?.size === metadata.size
+    && previousMetadata.type === metadata.type
+  ) return current;
   const url = URL.createObjectURL(blob);
+  if (current) retireOfflineObjectUrl(id);
   offlineObjectUrls.set(id, url);
+  offlineObjectBlobMetadata.set(id, metadata);
+  objectUrlAttachmentIds.set(url, id);
+  offlineObjectUrlEntries.set(url, { id, url, leases: 0, retired: false });
+  notifyAttachmentAccessChanged();
   queueDomScan();
   return url;
 }
 
 export function unregisterOfflineAttachmentObjectUrl(id: string): void {
-  revokeOfflineObjectUrl(id);
+  const existed = retireOfflineObjectUrl(id);
+  if (existed) notifyAttachmentAccessChanged();
   queueDomScan();
 }
 
 export function clearOfflineAttachmentObjectUrls(): void {
-  for (const id of [...offlineObjectUrls.keys()]) revokeOfflineObjectUrl(id);
+  const hadEntries = offlineObjectUrls.size > 0;
+  for (const id of [...offlineObjectUrls.keys()]) retireOfflineObjectUrl(id);
+  if (hadEntries) notifyAttachmentAccessChanged();
   queueDomScan();
 }
 
@@ -225,16 +357,18 @@ export async function hydrateOfflineAttachmentsForNote(noteId: string): Promise<
 }
 
 export function resolveAttachmentAccessUrl(raw: string): string {
-  const id = extractAttachmentId(raw);
+  const persistent = getPersistentAttachmentUrl(raw);
+  const id = persistent ? extractAttachmentId(persistent) : null;
   if (!id) return raw;
   const offline = offlineObjectUrls.get(id);
   if (offline) return offline;
   const signed = accessUrls.get(id);
-  if (signed) return mergeSignedAttachmentUrl(raw, signed);
+  const stableSource = extractAttachmentId(raw) ? raw : persistent!;
+  if (signed) return mergeSignedAttachmentUrl(stableSource, signed);
 
   // 旧正文可能已被污染为 http://127.0.0.1:3001/api/attachments/...
   // 即使签名映射尚未返回，只要本会话已经观察到真实 API origin，就先修正 host。
-  const parsed = asAbsoluteUrl(raw);
+  const parsed = asAbsoluteUrl(stableSource);
   if (
     parsed
     && attachmentApiOrigin
@@ -243,16 +377,52 @@ export function resolveAttachmentAccessUrl(raw: string): string {
   ) {
     return moveUrlToOrigin(parsed, attachmentApiOrigin).toString();
   }
-  return raw;
+  return stableSource;
+}
+
+export interface AttachmentRenderSource {
+  attachmentId: string | null;
+  persistentSrc: string;
+  resolvedSrc: string;
+  offlineObjectUrlHit: boolean;
+  signedUrlPresent: boolean;
+  accessStateRevision: number;
+}
+
+export function getAttachmentRenderSource(raw: string | null | undefined): AttachmentRenderSource {
+  const original = raw || "";
+  const persistent = getPersistentAttachmentUrl(original) || original;
+  const attachmentId = extractAttachmentId(persistent);
+  const offlineUrl = attachmentId ? offlineObjectUrls.get(attachmentId) : undefined;
+  return {
+    attachmentId,
+    persistentSrc: persistent,
+    resolvedSrc: resolveAttachmentAccessUrl(original),
+    offlineObjectUrlHit: !!offlineUrl,
+    signedUrlPresent: !!(attachmentId && accessUrls.has(attachmentId)),
+    accessStateRevision,
+  };
+}
+
+/** 仅在当前 active offline URL 加载失败时移除它，让订阅者回退到签名/网络 URL。 */
+export function invalidateOfflineAttachmentRenderUrl(value: string): boolean {
+  const entry = offlineObjectUrlEntries.get(value);
+  if (!entry || entry.retired || offlineObjectUrls.get(entry.id) !== value) return false;
+  retireOfflineObjectUrl(entry.id);
+  notifyAttachmentAccessChanged();
+  queueDomScan();
+  return true;
 }
 
 /** 测试隔离；生产代码无需调用。 */
 export function resetAttachmentAccessStateForTests(): void {
+  const hadEntries = accessUrls.size > 0 || offlineObjectUrls.size > 0 || !!attachmentApiOrigin;
   accessUrls.clear();
-  clearOfflineAttachmentObjectUrls();
+  forceRevokeAllOfflineObjectUrls();
   attachmentApiOrigin = "";
   scanQueued = false;
   lastDeniedToastAt = 0;
+  if (hadEntries) notifyAttachmentAccessChanged();
 }
 
 function isEditableDocumentElement(element: Element): boolean {
@@ -346,6 +516,13 @@ function requestUrl(input: RequestInfo | URL): URL | null {
 
 function requestMethod(input: RequestInfo | URL, init?: RequestInit): string {
   return (init?.method || (input instanceof Request ? input.method : "GET")).toUpperCase();
+}
+
+function apiBaseFromRequestUrl(url: URL): string {
+  const marker = "/api/";
+  const index = url.pathname.indexOf(marker);
+  const prefix = index >= 0 ? url.pathname.slice(0, index) : "";
+  return `${url.origin}${prefix}/api`;
 }
 
 function requestHeaders(input: RequestInfo | URL, init?: RequestInit): Headers {
@@ -468,12 +645,12 @@ export function installNoteAttachmentAccessBridge(): void {
 
     let accessPromise: Promise<void> | null = null;
     if (method === "GET" && noteMatch && url.searchParams.get("slim") !== "1") {
-      const accessUrl = new URL("/api/attachments/access/urls", url.origin);
+      const accessUrl = new URL(`${apiBaseFromRequestUrl(url)}/attachments/access/urls`);
       accessUrl.searchParams.set("noteId", decodeURIComponent(noteMatch[1]));
       accessPromise = fetchAccessUrls(originalFetch, accessUrl, authHeaders(input, init), credentials);
     } else if (method === "GET" && shareMatch) {
       // 必须在正文接口自增 viewCount 之前签发，否则 maxViews=1 的首次访问会立即失效。
-      const accessUrl = new URL("/api/attachments/share-access", url.origin);
+      const accessUrl = new URL(`${apiBaseFromRequestUrl(url)}/attachments/share-access`);
       accessUrl.searchParams.set("token", decodeURIComponent(shareMatch[1]));
       const headers = authHeaders(input, init);
       if (!headers.has("X-Share-Session")) headers.set("X-Share-Session", getShareSessionId());

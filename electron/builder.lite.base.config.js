@@ -21,6 +21,9 @@
  */
 const path = require("path");
 const os = require("os");
+const {
+  verifySyncNotificationUi,
+} = require("../scripts/verify-sync-notification-ui.cjs");
 
 // full 配置里的环境变量 / 路径策略保持一致（产物可外迁到 %TEMP%，避免 IDE 监听锁）
 const OUT_DIR = process.env.NOWEN_BUILD_OUT
@@ -53,6 +56,7 @@ module.exports = {
           `请先运行 npm run build:frontend（或通过 scripts/build-lite.mjs 统一触发）`,
       );
     }
+    verifySyncNotificationUi(path.dirname(feDist));
     return true;
   },
 

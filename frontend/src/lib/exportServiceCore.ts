@@ -1337,11 +1337,13 @@ export async function exportNotebook(
 // - 若笔记含 data:image 内嵌图，默认打成 zip（md + assets/）；
 // - 否则仅下载 .md；
 // - 通过 options.inlineImages = true 可强制内嵌（始终下载 .md）。
+// - 通过 options.forceZip = true 可由用户主动生成 zip，即使笔记没有附件。
 export async function exportSingleNote(
   noteId: string,
-  options?: { inlineImages?: boolean }
+  options?: { inlineImages?: boolean; forceZip?: boolean }
 ): Promise<boolean> {
   const inlineImages = !!options?.inlineImages;
+  const forceZip = options?.forceZip === true;
   try {
     const note = await api.getNote(noteId);
     const td = createTurndown();
@@ -1381,8 +1383,8 @@ export async function exportSingleNote(
     const safeTitle = sanitizeFilename(note.title);
     const hasServerAssets = extractedImages.length > 0 || /\/api\/attachments\//i.test(markdown);
 
-    if (!inlineImages && hasServerAssets) {
-      // 单篇含附件时也交给后端流式打包，避免 Blob 下载被 Chrono 等扩展卡在完成状态。
+    if (!inlineImages && (forceZip || hasServerAssets)) {
+      // 显式 ZIP 或单篇含附件时交给后端流式打包，避免 Blob 下载被扩展卡在完成状态。
       const created = await api.createMarkdownExportJob([{
         id: note.id,
         title: note.title,

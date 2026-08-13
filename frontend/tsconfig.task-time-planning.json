@@ -4,6 +4,7 @@
     "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.task-time-planning.tsbuildinfo"
   },
   "include": [
+    "src/vite-env.d.ts",
     "src/lunar-javascript.d.ts",
     "src/components/TaskCenter.tsx",
     "src/components/tasks/TaskTimePlanner.tsx",

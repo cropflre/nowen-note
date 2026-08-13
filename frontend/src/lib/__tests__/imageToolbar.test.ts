@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  buildEditedImageAttrs,
   buildReplacedImageAttrs,
   getImageCopySource,
   getImageDownloadFilename,
@@ -101,6 +102,26 @@ describe("imageToolbar", () => {
         { width: 1200, height: 800 },
       ),
     ).toEqual({ top: 432, left: 360 });
+  });
+
+  it("bakes edited bitmap transforms and keeps only the user layout width", () => {
+    expect(buildEditedImageAttrs({
+      src: "/api/attachments/old",
+      alt: "示例图",
+      title: "图片标题",
+      width: 700,
+      height: 525,
+      rotation: 90,
+      flipX: true,
+    }, "/api/attachments/new")).toEqual({
+      src: "/api/attachments/new",
+      alt: "示例图",
+      title: "图片标题",
+      width: 700,
+      height: null,
+      rotation: 0,
+      flipX: false,
+    });
   });
 
   it("keeps mobile image actions open when blur only dismisses the keyboard", () => {

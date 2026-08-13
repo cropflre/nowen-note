@@ -8,7 +8,7 @@
  *   不引入额外基础设施（CDN / 镜像同步）即可显著改善国内体验。
  *
  * 数据源：
- *   - /api/releases/latest（后端代理 GitHub API，60s 缓存）。
+ *   - /api/releases/latest（后端代理 GitHub API，带成功缓存和失败时旧数据回退）。
  *   - 该接口返回的 assets[].browserDownloadUrl 形如
  *       https://github.com/cropflre/nowen-note/releases/download/v1.1.7/Nowen-Note-1.1.7.apk
  *     前端只做"在这条 URL 前面拼一段加速代理"的字符串变换，不再二次请求 GitHub。
@@ -40,8 +40,8 @@ import {
   Download,
   Monitor,
   Smartphone,
+  Apple,
   HardDrive,
-  Globe,
   Container,
   RefreshCw,
   Copy,
@@ -84,19 +84,25 @@ function isGiteeSupported(filename: string): boolean {
   return GITEE_SUPPORTED_EXTS.some((ext) => lower.endsWith(ext));
 }
 
-/** 资产分类：按文件名做映射，未识别归为 other 不展示，避免把 .yml/.blockmap 这种暴露给用户。 */
+/** 资产分类：只依据文件名和扩展名判断，不绑定具体版本号。 */
 type AssetCategory =
   | "win-setup"     // Windows 安装版（NSIS）
   | "win-portable"  // Windows 便携版
-  | "mac"           // macOS dmg / zip
+  | "android"       // Android APK
+  | "mac-arm64"     // macOS Apple Silicon
+  | "mac-x64"       // macOS Intel
+  | "mac"           // macOS 未识别架构
+  | "ios"           // iOS IPA
   | "linux-app"     // Linux AppImage
   | "linux-deb"     // Linux deb
   | "linux-rpm"     // Linux rpm
-  | "android"       // APK
+  | "linux-tar"     // Linux tar.gz / tgz
   | "fpk"           // 飞牛 NAS
   | "upk"           // 绿联 NAS
   | "clipper"       // 浏览器扩展 zip（nowen-clipper）
   | "other";
+
+type PlatformCategory = "windows" | "android" | "macos" | "ios" | "linux" | "other";
 
 interface Asset {
   name: string;
@@ -107,21 +113,69 @@ interface Asset {
 /** 文件名 → 分类。命名规则与 scripts/release.sh / build-fpk.mjs / build-upk.mjs 一致。 */
 function categorize(name: string): AssetCategory {
   const lower = name.toLowerCase();
-  if (lower.endsWith(".exe")) {
+  if (lower.endsWith(".exe") || lower.endsWith(".msi")) {
     if (lower.includes("portable")) return "win-portable";
     return "win-setup"; // 默认归为安装版（Setup / nsis）
   }
-  if (lower.endsWith(".dmg") || lower.endsWith(".pkg")) return "mac";
+  if (lower.endsWith(".apk")) return "android";
+  // clipper 浏览器扩展：发布脚本里包名形如 nowen-clipper-x.y.z.zip。
+  if (lower.startsWith("nowen-clipper") && lower.endsWith(".zip")) return "clipper";
+  if (lower.endsWith(".ipa") || (lower.includes("ios") && lower.endsWith(".zip"))) return "ios";
+  if (
+    lower.endsWith(".dmg") ||
+    lower.endsWith(".pkg") ||
+    ((
+      lower.includes("mac") ||
+      lower.includes("darwin") ||
+      lower.includes("osx") ||
+      (lower.startsWith("nowen-note") && /(?:arm64|aarch64|x64|x86_64|amd64|intel)/.test(lower))
+    ) && lower.endsWith(".zip"))
+  ) {
+    if (/(?:arm64|aarch64|apple[._ -]?silicon)/.test(lower)) return "mac-arm64";
+    if (/(?:x64|x86_64|amd64|intel)/.test(lower)) return "mac-x64";
+    return "mac";
+  }
   if (lower.endsWith(".appimage")) return "linux-app";
   if (lower.endsWith(".deb")) return "linux-deb";
   if (lower.endsWith(".rpm")) return "linux-rpm";
-  if (lower.endsWith(".apk")) return "android";
+  if (lower.endsWith(".tar.gz") || lower.endsWith(".tgz")) return "linux-tar";
   if (lower.endsWith(".fpk")) return "fpk";
   if (lower.endsWith(".upk")) return "upk";
-  // clipper 浏览器扩展：发布脚本里包名形如 nowen-clipper-x.y.z.zip
-  if (lower.startsWith("nowen-clipper") && lower.endsWith(".zip")) return "clipper";
   return "other";
 }
+
+/** 自动更新元数据不是给用户手动下载的安装包，不放入“其他”分组。 */
+function isUserDownloadAsset(name: string): boolean {
+  const lower = name.toLowerCase();
+  return !lower.endsWith(".blockmap") && !/^latest(?:-[a-z0-9-]+)?\.ya?ml$/.test(lower);
+}
+
+function platformOf(category: AssetCategory): PlatformCategory {
+  if (category === "win-setup" || category === "win-portable") return "windows";
+  if (category === "android") return "android";
+  if (category === "mac-arm64" || category === "mac-x64" || category === "mac") return "macos";
+  if (category === "ios") return "ios";
+  if (category.startsWith("linux-")) return "linux";
+  return "other";
+}
+
+const CATEGORY_PRIORITY: AssetCategory[] = [
+  "win-setup",
+  "win-portable",
+  "android",
+  "mac-arm64",
+  "mac-x64",
+  "mac",
+  "ios",
+  "linux-app",
+  "linux-deb",
+  "linux-rpm",
+  "linux-tar",
+  "fpk",
+  "upk",
+  "clipper",
+  "other",
+];
 
 /** 字节数转人类可读 */
 function formatSize(bytes: number): string {
@@ -158,30 +212,49 @@ function resolveDownloadUrl(
   )}`;
 }
 
-/** 分组顺序与图标映射 —— 影响在面板里的展示顺序。
+/** 平台分组顺序与图标映射 —— 不受 GitHub assets 原始顺序影响。
  *  icon 直接用 lucide-react 自己导出的 LucideIcon，避免手写窄签名（{size:number}）
  *  与库里 size: string|number 不兼容导致 TS2322（更新 @types/react / lucide-react 后会触发）。
  */
-const GROUP_ORDER: Array<{
-  category: AssetCategory;
+const PLATFORM_ORDER: Array<{
+  category: PlatformCategory;
   icon: LucideIcon;
-  /** i18n key 后缀，最终 key 形如 download.group.<key> */
-  i18nKey: string;
 }> = [
-  { category: "win-setup", icon: Monitor, i18nKey: "winSetup" },
-  { category: "win-portable", icon: Monitor, i18nKey: "winPortable" },
-  { category: "mac", icon: Monitor, i18nKey: "mac" },
-  { category: "linux-app", icon: Monitor, i18nKey: "linuxApp" },
-  { category: "linux-deb", icon: Monitor, i18nKey: "linuxDeb" },
-  { category: "linux-rpm", icon: Monitor, i18nKey: "linuxRpm" },
-  { category: "android", icon: Smartphone, i18nKey: "android" },
-  { category: "fpk", icon: HardDrive, i18nKey: "fpk" },
-  { category: "upk", icon: HardDrive, i18nKey: "upk" },
-  { category: "clipper", icon: Globe, i18nKey: "clipper" },
+  { category: "windows", icon: Monitor },
+  { category: "android", icon: Smartphone },
+  { category: "macos", icon: Apple },
+  { category: "ios", icon: Smartphone },
+  { category: "linux", icon: Monitor },
+  { category: "other", icon: HardDrive },
 ];
+
+const GITHUB_RELEASE_URL = "https://github.com/cropflre/nowen-note/releases/latest";
 
 const DOCKER_RUN_COMMAND =
   "docker run -d --name nowen-note -p 3001:3001 -v ~/nowen-data:/app/data cropflre/nowen-note:latest";
+
+async function copyText(value: string): Promise<boolean> {
+  try {
+    await navigator.clipboard.writeText(value);
+    return true;
+  } catch {
+    // 非 HTTPS 页面可能无法使用 Clipboard API，退回浏览器的同步复制能力。
+  }
+
+  try {
+    const textarea = document.createElement("textarea");
+    textarea.value = value;
+    textarea.style.position = "fixed";
+    textarea.style.opacity = "0";
+    document.body.appendChild(textarea);
+    textarea.select();
+    const copied = document.execCommand("copy");
+    textarea.remove();
+    return copied;
+  } catch {
+    return false;
+  }
+}
 
 export default function DownloadPanel() {
   const { t } = useTranslation();
@@ -199,6 +272,7 @@ export default function DownloadPanel() {
   const [activeMirror, setActiveMirror] = useState<string>("");
 
   const [copied, setCopied] = useState(false);
+  const [copiedLink, setCopiedLink] = useState<string | null>(null);
 
   // 加载 release
   useEffect(() => {
@@ -211,18 +285,19 @@ export default function DownloadPanel() {
         if (cancelled) return;
         if (!r.available) {
           setErrMsg(r.reason || "unavailable");
-          setAssets([]);
           return;
         }
         setVersion(r.version);
         setTag(r.tag || (r.version ? `v${r.version}` : ""));
         setHtmlUrl(r.htmlUrl);
         setAssets(
-          (r.assets || []).map((a) => ({
-            name: a.name,
-            size: a.size,
-            browserDownloadUrl: a.browserDownloadUrl,
-          })),
+          (r.assets || [])
+            .filter((a) => isUserDownloadAsset(a.name))
+            .map((a) => ({
+              name: a.name,
+              size: a.size,
+              browserDownloadUrl: a.browserDownloadUrl,
+            })),
         );
       })
       .catch((e) => {
@@ -236,26 +311,40 @@ export default function DownloadPanel() {
     };
   }, [reloadTick]);
 
-  // 资产分组
+  // 资产先按平台分组，再按安装类型、CPU 架构和文件名稳定排序。
   const grouped = useMemo(() => {
-    const map = new Map<AssetCategory, Asset[]>();
+    const map = new Map<PlatformCategory, Array<{ asset: Asset; category: AssetCategory }>>();
     for (const a of assets) {
       const cat = categorize(a.name);
-      if (cat === "other") continue;
-      if (!map.has(cat)) map.set(cat, []);
-      map.get(cat)!.push(a);
+      const platform = platformOf(cat);
+      if (!map.has(platform)) map.set(platform, []);
+      map.get(platform)!.push({ asset: a, category: cat });
+    }
+    for (const items of map.values()) {
+      items.sort((left, right) => {
+        const priority = CATEGORY_PRIORITY.indexOf(left.category) - CATEGORY_PRIORITY.indexOf(right.category);
+        if (priority !== 0) return priority;
+        return left.asset.name.localeCompare(right.asset.name, undefined, {
+          numeric: true,
+          sensitivity: "base",
+        });
+      });
     }
     return map;
   }, [assets]);
 
+  const releaseUrl = htmlUrl || GITHUB_RELEASE_URL;
+
+  const handleCopyLink = async (url: string) => {
+    if (!(await copyText(url))) return;
+    setCopiedLink(url);
+    setTimeout(() => setCopiedLink((current) => (current === url ? null : current)), 1500);
+  };
+
   const handleCopyDocker = async () => {
-    try {
-      await navigator.clipboard.writeText(DOCKER_RUN_COMMAND);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    } catch {
-      /* 复制失败忽略：用户可手动选中 */
-    }
+    if (!(await copyText(DOCKER_RUN_COMMAND))) return;
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
   };
 
   const activeMirrorSource = useMemo<MirrorSource | null>(() => {
@@ -289,18 +378,16 @@ export default function DownloadPanel() {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          {htmlUrl && (
-            <a
-              href={htmlUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center gap-1 px-2.5 py-1.5 rounded-md text-xs text-zinc-600 dark:text-zinc-300 hover:bg-zinc-200/60 dark:hover:bg-zinc-700/40 transition-colors"
-              title={t("download.viewOnGithub", { defaultValue: "在 GitHub 查看完整 release" })}
-            >
-              <ExternalLink size={12} />
-              GitHub
-            </a>
-          )}
+          <a
+            href={releaseUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-1 px-2.5 py-1.5 rounded-md text-xs text-zinc-600 dark:text-zinc-300 hover:bg-zinc-200/60 dark:hover:bg-zinc-700/40 transition-colors"
+            title={t("download.viewOnGithub", { defaultValue: "在 GitHub 查看完整 release" })}
+          >
+            <ExternalLink size={12} />
+            GitHub
+          </a>
           <button
             type="button"
             onClick={() => setReloadTick((v) => v + 1)}
@@ -321,7 +408,7 @@ export default function DownloadPanel() {
           <div className="text-xs text-zinc-600 dark:text-zinc-400 leading-relaxed">
             {t("download.proxyTip", {
               defaultValue:
-                "海外用户建议用 GitHub 直连；国内用户如下载缓慢，可切换「加速下载」——这些是社区公共代理，可用性会随时间变化，请按需轮换尝试。",
+                "国内网络无法直接下载时，可切换上方加速源；若加速源不可用，可打开或复制每个文件的 GitHub 原始链接。",
             })}
           </div>
         </div>
@@ -374,22 +461,37 @@ export default function DownloadPanel() {
             {t("download.unavailable", { defaultValue: "无法获取最新版本信息" })}
           </div>
           <div className="text-xs text-amber-700/80 dark:text-amber-400/80 break-all">{errMsg}</div>
-          <a
-            href="https://github.com/cropflre/nowen-note/releases/latest"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1 text-xs text-amber-800 dark:text-amber-200 hover:underline"
-          >
-            <ExternalLink size={12} />
-            {t("download.openGithubManually", { defaultValue: "前往 GitHub Releases 手动选择" })}
-          </a>
+          <div className="text-xs text-amber-800/80 dark:text-amber-200/80 break-all select-all">
+            {releaseUrl}
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <a
+              href={releaseUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 text-xs text-amber-800 dark:text-amber-200 hover:underline"
+            >
+              <ExternalLink size={12} />
+              {t("download.openGithubManually", { defaultValue: "前往 GitHub Releases 手动选择" })}
+            </a>
+            <button
+              type="button"
+              onClick={() => handleCopyLink(releaseUrl)}
+              className="inline-flex items-center gap-1 text-xs text-amber-800 dark:text-amber-200 hover:underline"
+            >
+              {copiedLink === releaseUrl ? <Check size={12} /> : <Copy size={12} />}
+              {copiedLink === releaseUrl
+                ? t("download.copied", { defaultValue: "已复制" })
+                : t("download.copyLink", { defaultValue: "复制链接" })}
+            </button>
+          </div>
         </div>
       )}
 
       {/* 资产分组列表 */}
-      {!errMsg && (
+      {assets.length > 0 && (
         <div className="space-y-3">
-          {GROUP_ORDER.map((g) => {
+          {PLATFORM_ORDER.map((g) => {
             const items = grouped.get(g.category);
             if (!items || items.length === 0) return null;
             const Icon = g.icon;
@@ -401,13 +503,13 @@ export default function DownloadPanel() {
                 <div className="flex items-center gap-2 px-4 py-2.5 border-b border-zinc-200/60 dark:border-zinc-800/60">
                   <Icon size={14} className="text-zinc-500 dark:text-zinc-400" />
                   <span className="text-sm font-medium text-zinc-700 dark:text-zinc-200">
-                    {t(`download.group.${g.i18nKey}`, {
-                      defaultValue: defaultGroupLabel(g.category),
+                    {t(`download.platform.${g.category}`, {
+                      defaultValue: defaultPlatformLabel(g.category),
                     })}
                   </span>
                 </div>
                 <div className="divide-y divide-zinc-200/60 dark:divide-zinc-800/60">
-                  {items.map((a) => {
+                  {items.map(({ asset: a, category }) => {
                     // Gitee 不支持当前文件时（如 .fpk/.upk/.dmg/.AppImage），
                     // 自动回落到 GitHub 直连，避免用户点了 404。
                     const effectiveMirror =
@@ -420,10 +522,15 @@ export default function DownloadPanel() {
                     return (
                       <div
                         key={a.name}
-                        className="flex items-center justify-between gap-3 px-4 py-2.5"
+                        className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-4 py-2.5"
                       >
                         <div className="flex-1 min-w-0">
-                          <div className="text-sm text-zinc-800 dark:text-zinc-200 font-mono truncate">
+                          <div className="text-sm font-medium text-zinc-800 dark:text-zinc-200">
+                            {t(`download.asset.${category}`, {
+                              defaultValue: defaultAssetLabel(category),
+                            })}
+                          </div>
+                          <div className="text-xs text-zinc-500 dark:text-zinc-400 font-mono truncate mt-0.5" title={a.name}>
                             {a.name}
                           </div>
                           <div className="flex items-center gap-2 mt-0.5">
@@ -444,18 +551,41 @@ export default function DownloadPanel() {
                             )}
                           </div>
                         </div>
-                        <a
-                          href={url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="flex items-center gap-1 px-3 py-1.5 rounded-md bg-accent-primary text-white text-xs font-medium hover:opacity-90 shrink-0"
-                          download
-                        >
-                          <Download size={12} />
-                          {effectiveMirror
-                            ? t("download.btnAccelerated", { defaultValue: "加速下载" })
-                            : t("download.btnDownload", { defaultValue: "下载" })}
-                        </a>
+                        <div className="flex flex-wrap items-center gap-1.5 shrink-0">
+                          <a
+                            href={url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex items-center gap-1 px-3 py-1.5 rounded-md bg-accent-primary text-white text-xs font-medium hover:opacity-90"
+                            download
+                          >
+                            <Download size={12} />
+                            {effectiveMirror
+                              ? t("download.btnAccelerated", { defaultValue: "加速下载" })
+                              : t("download.btnDownload", { defaultValue: "下载" })}
+                          </a>
+                          <a
+                            href={a.browserDownloadUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex items-center gap-1 px-2.5 py-1.5 rounded-md border border-zinc-200 dark:border-zinc-700 text-xs text-zinc-600 dark:text-zinc-300 hover:bg-zinc-200/40 dark:hover:bg-zinc-700/40"
+                            title={a.browserDownloadUrl}
+                          >
+                            <ExternalLink size={12} />
+                            {t("download.originalLink", { defaultValue: "原始链接" })}
+                          </a>
+                          <button
+                            type="button"
+                            onClick={() => handleCopyLink(a.browserDownloadUrl)}
+                            className="flex items-center gap-1 px-2.5 py-1.5 rounded-md border border-zinc-200 dark:border-zinc-700 text-xs text-zinc-600 dark:text-zinc-300 hover:bg-zinc-200/40 dark:hover:bg-zinc-700/40"
+                            title={a.browserDownloadUrl}
+                          >
+                            {copiedLink === a.browserDownloadUrl ? <Check size={12} /> : <Copy size={12} />}
+                            {copiedLink === a.browserDownloadUrl
+                              ? t("download.copied", { defaultValue: "已复制" })
+                              : t("download.copyLink", { defaultValue: "复制链接" })}
+                          </button>
+                        </div>
                       </div>
                     );
                   })}
@@ -463,14 +593,21 @@ export default function DownloadPanel() {
               </div>
             );
           })}
-          {/* 没有任何已知分类资产时（极端情况），引导用户去 GitHub */}
-          {grouped.size === 0 && !loading && (
-            <div className="p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 text-sm text-zinc-500 dark:text-zinc-400">
-              {t("download.noAssets", {
-                defaultValue: "本次发布没有可识别的客户端安装包，请在 GitHub Releases 查看。",
-              })}
-            </div>
-          )}
+        </div>
+      )}
+
+      {!loading && assets.length === 0 && !errMsg && (
+        <div className="p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 text-sm text-zinc-500 dark:text-zinc-400 space-y-2">
+          <div>{t("download.noAssets", { defaultValue: "本次发布没有可用的下载资产，请在 GitHub Releases 查看。" })}</div>
+          <a
+            href={releaseUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1 hover:underline"
+          >
+            <ExternalLink size={12} />
+            {t("download.openGithubManually", { defaultValue: "前往 GitHub Releases 手动选择" })}
+          </a>
         </div>
       )}
 
@@ -518,28 +655,55 @@ export default function DownloadPanel() {
 }
 
 /** 没有 i18n 命中时的回退文案（中文优先，符合主要受众） */
-function defaultGroupLabel(c: AssetCategory): string {
+function defaultPlatformLabel(c: PlatformCategory): string {
+  switch (c) {
+    case "windows":
+      return "Windows";
+    case "android":
+      return "Android";
+    case "macos":
+      return "macOS";
+    case "ios":
+      return "iOS";
+    case "linux":
+      return "Linux";
+    case "other":
+      return "其他";
+  }
+}
+
+function defaultAssetLabel(c: AssetCategory): string {
   switch (c) {
     case "win-setup":
       return "Windows 安装版";
     case "win-portable":
       return "Windows 便携版（免安装）";
-    case "mac":
-      return "macOS";
-    case "linux-app":
-      return "Linux · AppImage";
-    case "linux-deb":
-      return "Linux · Debian / Ubuntu (.deb)";
-    case "linux-rpm":
-      return "Linux · RHEL / Fedora (.rpm)";
     case "android":
       return "Android APK";
+    case "mac-arm64":
+      return "Apple Silicon (arm64)";
+    case "mac-x64":
+      return "Intel (x64)";
+    case "mac":
+      return "macOS 安装包";
+    case "ios":
+      return "iOS 安装包";
+    case "linux-app":
+      return "AppImage";
+    case "linux-deb":
+      return "Debian / Ubuntu (.deb)";
+    case "linux-rpm":
+      return "RHEL / Fedora (.rpm)";
+    case "linux-tar":
+      return "Linux 压缩包 (tar.gz)";
     case "fpk":
       return "飞牛 NAS (.fpk)";
     case "upk":
       return "绿联 NAS (.upk)";
     case "clipper":
       return "浏览器扩展（剪藏）";
+    case "other":
+      return "其他文件";
     default:
       return "";
   }

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 
-import KnowledgeTreePanel from "@/components/KnowledgeTreePanel";
+import KnowledgeTreePanel from "@/components/KnowledgeTreeCreateMenuRuntime";
 import KnowledgeTreeSortButton from "@/components/KnowledgeTreeSortButton";
 import TaskQuickCaptureBridge from "@/components/tasks/TaskQuickCaptureBridge";
 import {

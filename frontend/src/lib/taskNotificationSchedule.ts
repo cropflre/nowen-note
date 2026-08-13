@@ -10,6 +10,7 @@ export interface TaskReminderScheduleItem {
   dueDate: string | null;
   snoozedUntil: string | null;
   offsetMinutes: number;
+  timezoneOffsetMinutes?: number | null;
 }
 
 export type ScheduledTaskReminder = TaskReminderScheduleItem & {
@@ -29,15 +30,19 @@ function parseDate(value: string | null | undefined): Date | null {
 }
 
 /**
- * Resolve the notification time in the device timezone.
- *
- * All-day dueDate values intentionally use the device's local end-of-day rather
- * than the server timezone. This keeps a self-hosted server in another timezone
- * from moving an Android reminder to the previous or next day.
+ * Resolve the notification time without letting a self-hosted server timezone
+ * reinterpret a floating task dueAt. New reminders carry the creator device's
+ * timezone offset and therefore trust the backend's absolute reminderAt. Legacy
+ * reminders keep the historical device-local calculation for compatibility.
  */
 export function resolveTaskReminderDate(item: TaskReminderScheduleItem): Date | null {
   const snoozed = parseDate(item.snoozedUntil);
   if (snoozed) return snoozed;
+
+  if (item.timezoneOffsetMinutes !== null && item.timezoneOffsetMinutes !== undefined) {
+    const resolved = parseDate(item.reminderAt);
+    if (resolved) return resolved;
+  }
 
   const dueAt = parseDate(item.dueAt);
   if (dueAt) {
@@ -90,12 +95,6 @@ export function selectSchedulableTaskReminders(
     .slice(0, maxItems);
 }
 
-/**
- * Persist evidence that a reminder was successfully handed to the native OS.
- * Previous due entries are retained briefly so an app foreground sync performed
- * after the reminder time cannot erase the proof before the backend scanner is
- * acknowledged.
- */
 export function mergeTaskReminderScheduleHistory(
   history: TaskReminderScheduleHistory,
   scheduled: ScheduledTaskReminder[],

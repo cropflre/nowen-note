@@ -26,6 +26,7 @@ RUN ROLLUP_VER=$(node -e "try{const l=require('./package-lock.json');const v=(l.
 
 COPY frontend/ .
 COPY scripts/precompress-frontend.mjs /app/scripts/precompress-frontend.mjs
+COPY scripts/verify-sync-notification-ui.cjs /app/scripts/verify-sync-notification-ui.cjs
 # Web/Docker 产物生成 .br/.gz；Electron 与 Capacitor 继续使用普通 build，避免安装包重复携带压缩副本。
 RUN npm run build:web
 

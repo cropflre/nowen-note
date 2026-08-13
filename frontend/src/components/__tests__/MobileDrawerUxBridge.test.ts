@@ -4,10 +4,12 @@ import { beforeEach, describe, expect, it } from "vitest";
 import {
   ANDROID_DRAWER_SAFE_AREA_CSS,
   annotateMobileDrawerControls,
+  getNoteCardSelectionRoot,
   getSidebarSearchInput,
   isMobileDrawerViewport,
   shouldCloseDrawerAfterSearchBlur,
   shouldCloseDrawerOnSearchEnter,
+  shouldSuppressNoteCardSelection,
 } from "@/components/MobileDrawerUxBridge";
 
 describe("MobileDrawerUxBridge helpers", () => {
@@ -75,5 +77,29 @@ describe("MobileDrawerUxBridge helpers", () => {
     expect(document.querySelector("#note-header")?.hasAttribute("data-mobile-safe-topbar")).toBe(true);
     expect(document.querySelector("#rail")?.hasAttribute("data-mobile-drawer-rail")).toBe(true);
     expect(document.querySelector("#close")?.hasAttribute("data-mobile-drawer-close")).toBe(true);
+  });
+
+  it("targets only the touched note card when suppressing mobile long-press selection", () => {
+    document.body.innerHTML = `
+      <div id="card" class="group">
+        <div>
+          <h3 class="note-card-title"><span id="title-child">标题</span></h3>
+          <p id="preview">正文预览</p>
+        </div>
+      </div>
+      <div id="other" class="group"><span id="unrelated">其他内容</span></div>
+    `;
+
+    const card = document.querySelector<HTMLElement>("#card")!;
+    const titleChild = document.querySelector("#title-child")!;
+    const preview = document.querySelector("#preview")!;
+    const unrelated = document.querySelector("#unrelated")!;
+
+    expect(getNoteCardSelectionRoot(titleChild)).toBe(card);
+    expect(getNoteCardSelectionRoot(preview)).toBe(card);
+    expect(getNoteCardSelectionRoot(unrelated)).toBeNull();
+    expect(shouldSuppressNoteCardSelection(preview, card)).toBe(true);
+    expect(shouldSuppressNoteCardSelection(unrelated, card)).toBe(false);
+    expect(shouldSuppressNoteCardSelection(preview, null)).toBe(false);
   });
 });

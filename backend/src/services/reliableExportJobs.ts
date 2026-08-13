@@ -280,6 +280,25 @@ function replaceAttachmentUrl(markdown: string, attachmentId: string, replacemen
   );
 }
 
+function removeTransientResourceUrls(markdown: string): { markdown: string; removed: number } {
+  let removed = 0;
+  const withoutMarkdownUrls = markdown.replace(
+    /(!?\[[^\]]*\]\(\s*)<?(?:blob:|file:)[^)\s>]+>?(?=\s*(?:["'][^"']*["'])?\s*\))/gi,
+    (_match, prefix: string) => {
+      removed += 1;
+      return prefix;
+    },
+  );
+  const withoutHtmlUrls = withoutMarkdownUrls.replace(
+    /(\b(?:src|href)\s*=\s*)(["'])(?:blob:|file:)[^"']*\2/gi,
+    (_match, prefix: string, quote: string) => {
+      removed += 1;
+      return `${prefix}${quote}${quote}`;
+    },
+  );
+  return { markdown: withoutHtmlUrls, removed };
+}
+
 async function readAttachment(row: AttachmentRow): Promise<Buffer | null> {
   const storage = getAttachmentStorageInfo();
   if (storage.driver === "local") {
@@ -356,7 +375,15 @@ async function buildArchive(
     let suffix = 2;
     while (usedNotePaths.has(`${zipPrefix}${noteName}.md`)) noteName = `${baseName}_${suffix++}`;
     usedNotePaths.add(`${zipPrefix}${noteName}.md`);
-    let markdown = note.markdown;
+    const sanitized = removeTransientResourceUrls(note.markdown);
+    let markdown = sanitized.markdown;
+    if (sanitized.removed > 0) {
+      warnings.push({
+        type: "transient_resource_url_removed",
+        noteId: note.id,
+        count: sanitized.removed,
+      });
+    }
 
     for (const attachmentId of attachmentIdsInMarkdown(markdown)) {
       const row = getAttachment.get(attachmentId, job.userId, note.id) as AttachmentRow | undefined;

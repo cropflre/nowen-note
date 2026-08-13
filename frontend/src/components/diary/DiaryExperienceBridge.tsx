@@ -157,6 +157,83 @@ function elevateOpenDiaryPopovers(
   });
 }
 
+function markDiaryResponsiveRegions(container: HTMLElement): void {
+  const heading = container.querySelector("h1");
+  const header = heading?.closest<HTMLElement>(".justify-between");
+  if (header) {
+    header.dataset.diarySectionHeader = "true";
+    if (header.parentElement) header.parentElement.dataset.diaryContent = "true";
+  }
+
+  const searchInput = Array.from(
+    container.querySelectorAll<HTMLInputElement>('input[type="text"]'),
+  ).find((candidate) => !candidate.closest('[data-diary-ai-report="true"]'));
+
+  if (searchInput?.parentElement) {
+    const search = searchInput.parentElement;
+    search.dataset.diarySearch = "true";
+
+    const mediaRow = search.parentElement;
+    if (mediaRow) {
+      mediaRow.dataset.diaryMediaFilters = "true";
+      mediaRow.parentElement?.setAttribute("data-diary-filters", "true");
+
+      const timeRow = mediaRow.previousElementSibling;
+      if (timeRow instanceof HTMLElement) {
+        timeRow.dataset.diaryTimeFilters = "true";
+        if (timeRow.firstElementChild instanceof HTMLElement) {
+          timeRow.firstElementChild.dataset.diaryTimeScroller = "true";
+        }
+      }
+
+      const mediaSegment = Array.from(mediaRow.children).find((child) => {
+        return child instanceof HTMLElement
+          && child !== search
+          && child.tagName === "DIV"
+          && child.querySelectorAll(":scope > button").length >= 4;
+      });
+      if (mediaSegment instanceof HTMLElement) {
+        mediaSegment.dataset.diaryMediaSegment = "true";
+      }
+    }
+  }
+
+  container
+    .querySelectorAll<HTMLTextAreaElement>('textarea[data-nowen-diary-enhanced="true"]')
+    .forEach((textarea) => {
+      const shell = textarea.closest<HTMLElement>(".rounded-2xl");
+      if (!shell) return;
+      shell.dataset.diaryEditorShell = "true";
+      shell.dataset.diaryEditorKind = textarea.autofocus ? "edit" : "compose";
+
+      const actionBar = Array.from(shell.children).find((child) => {
+        return child instanceof HTMLElement && child.classList.contains("justify-between");
+      });
+      if (actionBar instanceof HTMLElement) {
+        actionBar.dataset.diaryEditorActions = "true";
+      }
+    });
+
+  container.querySelectorAll<HTMLElement>(".group").forEach((group) => {
+    const card = group.firstElementChild;
+    const body = card?.firstElementChild;
+    if (!(card instanceof HTMLElement) || !(body instanceof HTMLElement)) return;
+    if (!card.classList.contains("rounded-xl")) return;
+    if (!card.querySelector(".markdown-body, img, video")) return;
+
+    group.dataset.diaryCard = "true";
+    body.dataset.diaryCardBody = "true";
+    if (group.parentElement) group.parentElement.dataset.diaryDayItems = "true";
+
+    const actionRow = Array.from(body.children).find((child) => {
+      return child instanceof HTMLElement && child.classList.contains("border-t");
+    });
+    if (actionRow instanceof HTMLElement) {
+      actionRow.dataset.diaryCardActions = "true";
+    }
+  });
+}
+
 export default function DiaryExperienceBridge({
   rootRef,
 }: DiaryExperienceBridgeProps) {
@@ -190,6 +267,8 @@ export default function DiaryExperienceBridge({
       record.host.remove();
       enhancersRef.current.delete(textarea);
     });
+
+    markDiaryResponsiveRegions(container);
 
     if (!reportButtonHostRef.current?.isConnected) {
       const heading = container.querySelector("h1");

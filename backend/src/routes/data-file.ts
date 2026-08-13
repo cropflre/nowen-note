@@ -512,6 +512,7 @@ app.post("/cleanup-orphans", (c) => {
       // 手动上传的受保护文件仍保留 DB 行，因此其 path 会自然进入 knownPaths，不会
       // 被磁盘孤儿扫描误删。
       const rows = db.prepare("SELECT path FROM attachments").all() as { path: string }[];
+      const templateRows = db.prepare("SELECT path FROM note_template_attachments").all() as { path: string }[];
       const taskRows = taskAttachmentsRepository.listAllPaths();
       const knownPaths = new Set<string>();
       for (const r of rows) {
@@ -519,6 +520,9 @@ app.post("/cleanup-orphans", (c) => {
       }
       for (const p of taskRows) {
         if (p) knownPaths.add(p);
+      }
+      for (const r of templateRows) {
+        if (r?.path) knownPaths.add(r.path);
       }
       // 递归扫描目录（兼容 YYYY/MM/uuid.ext 子目录结构）
       const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.[a-z0-9]+$/i;

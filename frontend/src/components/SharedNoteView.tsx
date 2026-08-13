@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
-import { Globe, Lock, AlertCircle, Loader2, FileText, MessageCircle, Send, RefreshCw, Edit3, Check, UserCircle2, ListTree, X, Plus, Minus, RotateCcw } from "lucide-react";
+import { Globe, Lock, AlertCircle, Loader2, FileText, MessageCircle, Send, RefreshCw, Edit3, Check, UserCircle2, ListTree, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { api, resolveAttachmentUrl } from "@/lib/api";
 import { ShareInfo, SharedNoteContent, ShareComment, Note } from "@/types";
@@ -18,6 +18,8 @@ import MermaidView from "@/components/MermaidView";
 import { isMermaidLang, renderMermaid } from "@/lib/mermaidRenderer";
 import { renderKatex } from "@/lib/katexRenderer";
 import { projectMarkdownForUser } from "@/lib/markdownUserContent";
+import { normalizeIndentValue } from "@/lib/codeBlockIndent";
+import FullscreenImageViewer, { type FullscreenImageItem } from "@/components/FullscreenImageViewer";
 
 // 分享页独立的 lowlight 实例（与编辑器保持一致的 common 语法集合）
 const sharedLowlight = createLowlight(common);
@@ -125,8 +127,10 @@ export default function SharedNoteView({ shareToken }: SharedNoteViewProps) {
   const [activeOutlineId, setActiveOutlineId] = useState<string>("");
   const [isDesktopOutlineOpen, setIsDesktopOutlineOpen] = useState(true);
   const [isMobileOutlineOpen, setIsMobileOutlineOpen] = useState(false);
-  const [lightboxImage, setLightboxImage] = useState<{ src: string; alt?: string } | null>(null);
-  const [lightboxScale, setLightboxScale] = useState(1);
+  const [imageViewer, setImageViewer] = useState<{
+    images: FullscreenImageItem[];
+    initialIndex: number;
+  } | null>(null);
   const isReadOnlyContent = !(isEditing && (content?.permission === "edit" || content?.permission === "edit_auth"));
   const sharedMarkdownForDisplay = useMemo(
   () => content && detectFormat(content.content) === "md"
@@ -134,17 +138,6 @@ export default function SharedNoteView({ shareToken }: SharedNoteViewProps) {
     : "",
   [content?.content],
 );
-
-  // Lightbox Esc 关闭 + 滚动锁 + 缩放
-  useEffect(() => {
-    if (!lightboxImage) return;
-    setLightboxScale(1);
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") { setLightboxImage(null); setLightboxScale(1); } };
-    window.addEventListener("keydown", onKey);
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => { window.removeEventListener("keydown", onKey); document.body.style.overflow = prev; };
-  }, [lightboxImage]);
 
   // DOM 后处理 + DEBUG：统一给分享页正文图片补 width style
   useEffect(() => {
@@ -814,7 +807,18 @@ export default function SharedNoteView({ shareToken }: SharedNoteViewProps) {
     const img = target.closest("img") as HTMLImageElement | null;
     if (img && img.closest(".shared-note-content")) {
       e.preventDefault();
-      setLightboxImage({ src: img.currentSrc || img.src, alt: img.alt || "" });
+      const root = img.closest(".shared-note-content");
+      const elements = Array.from(root?.querySelectorAll<HTMLImageElement>("img") || []);
+      const images = elements
+        .map<FullscreenImageItem>((item) => ({
+          src: item.currentSrc || item.src || item.getAttribute("src") || "",
+          alt: item.alt || "",
+        }))
+        .filter((item) => !!item.src);
+      setImageViewer({
+        images: images.length ? images : [{ src: img.currentSrc || img.src, alt: img.alt || "" }],
+        initialIndex: Math.max(0, elements.indexOf(img)),
+      });
       return;
     }
 
@@ -1505,70 +1509,19 @@ export default function SharedNoteView({ shareToken }: SharedNoteViewProps) {
         </div>
       )}
 
-      {/* 图片预览 Lightbox（支持缩放） */}
-      {lightboxImage && (() => {
-        const clamp = (v: number) => Math.max(0.25, Math.min(4, Number(v.toFixed(2))));
-        return (
-          <div
-            className="fixed inset-0 z-[150] bg-black/80 flex items-center justify-center overflow-auto"
-            onClick={() => { setLightboxImage(null); setLightboxScale(1); }}
-            onWheel={(e) => {
-              if (!e.ctrlKey && !e.metaKey) return;
-              e.preventDefault();
-              setLightboxScale((v) => clamp(v * (e.deltaY > 0 ? 0.9 : 1.1)));
-            }}
-          >
-            {/* 缩放控件 */}
-            <div className="absolute top-3 right-3 flex items-center gap-1.5 z-10">
-              <button
-                onClick={(e) => { e.stopPropagation(); setLightboxScale((v) => clamp(v - 0.25)); }}
-                className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center"
-                aria-label="缩小"
-              >
-                <Minus size={16} />
-              </button>
-              <span className="text-white/80 text-xs min-w-[40px] text-center select-none">
-                {Math.round(lightboxScale * 100)}%
-              </span>
-              <button
-                onClick={(e) => { e.stopPropagation(); setLightboxScale((v) => clamp(v + 0.25)); }}
-                className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center"
-                aria-label="放大"
-              >
-                <Plus size={16} />
-              </button>
-              <button
-                onClick={(e) => { e.stopPropagation(); setLightboxScale(1); }}
-                className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center"
-                aria-label="重置"
-              >
-                <RotateCcw size={14} />
-              </button>
-              <button
-                onClick={(e) => { e.stopPropagation(); setLightboxImage(null); setLightboxScale(1); }}
-                className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center"
-                aria-label="关闭"
-              >
-                <X size={16} />
-              </button>
-            </div>
-            <img
-              src={lightboxImage.src}
-              alt={lightboxImage.alt || ""}
-              className="max-w-[92vw] max-h-[88vh] object-contain select-none"
-              style={{
-                transform: `scale(${lightboxScale})`,
-                transformOrigin: "center center",
-                transition: "transform 0.1s ease-out",
-              }}
-              onClick={(e) => e.stopPropagation()}
-              draggable={false}
-            />
-          </div>
-        );
-      })()}
+      <FullscreenImageViewer
+        open={!!imageViewer}
+        images={imageViewer?.images}
+        initialIndex={imageViewer?.initialIndex || 0}
+        onClose={() => setImageViewer(null)}
+      />
     </div>
   );
+}
+
+export function renderSharedIndentAttribute(node: any): string {
+  const indent = normalizeIndentValue(node?.attrs?.indent);
+  return indent > 0 ? ` data-indent="${indent}"` : "";
 }
 
 /**
@@ -1609,7 +1562,7 @@ function renderContent(content: string): string {
 }
 
 /** 简单的 Tiptap JSON → HTML 渲染器 */
-function renderTiptapJSON(doc: any): string {
+export function renderTiptapJSON(doc: any): string {
   if (!doc.content) return "";
   // 预扫文档：建立 footnote identifier → 显示序号映射，供 renderNode 同步读取
   _footnoteOrderMap = computeFootnoteOrderFromTiptap(doc);
@@ -1839,20 +1792,20 @@ function renderNode(node: any): string {
     case "paragraph": {
       const inner = renderChildren(node);
       // Tiptap 空段落渲染为空 <p>，保留段落间距
-      return `<p>${inner || "<br/>"}</p>`;
+      return `<p${renderSharedIndentAttribute(node)}>${inner || "<br/>"}</p>`;
     }
     case "heading": {
       const level = node.attrs?.level || 1;
-      return `<h${level}>${renderChildren(node)}</h${level}>`;
+      return `<h${level}${renderSharedIndentAttribute(node)}>${renderChildren(node)}</h${level}>`;
     }
     case "bulletList":
-      return `<ul>${renderChildren(node)}</ul>`;
+      return `<ul${renderSharedIndentAttribute(node)}>${renderChildren(node)}</ul>`;
     case "orderedList":
-      return `<ol>${renderChildren(node)}</ol>`;
+      return `<ol${renderSharedIndentAttribute(node)}>${renderChildren(node)}</ol>`;
     case "listItem":
       return `<li>${renderChildren(node)}</li>`;
     case "taskList":
-      return `<ul class="task-list">${renderChildren(node)}</ul>`;
+      return `<ul class="task-list"${renderSharedIndentAttribute(node)}>${renderChildren(node)}</ul>`;
     case "taskItem": {
       const checked = node.attrs?.checked ? "checked" : "";
       return `<li class="task-item"><input type="checkbox" ${checked} disabled />${renderChildren(node)}</li>`;
@@ -1893,7 +1846,7 @@ function renderNode(node: any): string {
       return `<div class="shared-footnote-def" id="fn-${encId}" data-footnote-def="${encId}" data-footnote-order="${order}"><span class="shared-footnote-def-marker"><a href="#fnref-${encId}" class="shared-footnote-back" data-footnote-back="${encId}" title="跳回">↩</a><span class="shared-footnote-def-index">${order || "?"}.</span></span><span class="shared-footnote-def-content">${escapeHtml(content)}</span></div>`;
     }
     case "blockquote":
-      return `<blockquote>${renderChildren(node)}</blockquote>`;
+      return `<blockquote${renderSharedIndentAttribute(node)}>${renderChildren(node)}</blockquote>`;
     case "horizontalRule":
       return "<hr />";
     case "image": {
@@ -2021,7 +1974,7 @@ function renderCodeBlock(node: any): string {
   const highlighted = highlightCode(codeText, langLabel);
 
   return `
-<div class="shared-code-block">
+<div class="shared-code-block"${renderSharedIndentAttribute(node)}>
   <div class="shared-code-toolbar">
     <div class="shared-code-toolbar-left">
       <span class="shared-code-dots">

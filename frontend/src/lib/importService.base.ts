@@ -13,6 +13,7 @@ import TaskItem from "@tiptap/extension-task-item";
 import { Table, TableHeader, TableCell } from "@tiptap/extension-table";
 import { TableRowWithHeight } from "@/components/extensions/TableRowResizable";
 import TextAlign from "@tiptap/extension-text-align";
+import { IndentExtension } from "@/lib/codeBlockIndent";
 import { common, createLowlight } from "lowlight";
 import { TextStyleKit } from "@/components/FontSizeExtension";
 import { Video as VideoExtension } from "@/components/VideoExtension";
@@ -78,6 +79,10 @@ export const tiptapExtensions = [
   // TextAlign：必须与 TiptapEditor 对齐，否则 repairTiptapJson round-trip
   // 时段落/标题的 textAlign 属性会被 schema 静默过滤掉，刷新后段落对齐丢失。
   TextAlign.configure({ types: ["heading", "paragraph"] }),
+  // Tab/工具栏产生的块级视觉缩进必须进入 schema。缺少该扩展时，
+  // repairTiptapJson 的 JSON → HTML → JSON round-trip 会静默删除 attrs.indent，
+  // 表现为刷新后缩进消失。
+  IndentExtension,
   // TextStyle + Color + FontSize：与编辑器保持一致，否则导入近来的
   // 带颜色/字号的 HTML 会被 generateJSON schema-filter 掉
   ...TextStyleKit,
@@ -146,6 +151,8 @@ export interface ImportOptions {
    * to the rich-text TipTap JSON format. Non-Markdown sources ignore this.
    */
   targetContentFormat?: ImportTargetContentFormat;
+  /** Round-trip 数据包预检时展示的目标目录名称。 */
+  targetLabel?: string;
 }
 
 export type ImportProgress = {

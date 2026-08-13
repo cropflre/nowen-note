@@ -183,10 +183,14 @@ test("download=1 keeps video attachments as forced downloads", async () => {
   assert.match(downloadRes.headers.get("content-disposition") || "", /^attachment;/);
 });
 
-test("pre-JWT X-User-Id spoofing is rejected", async () => {
+test("pre-JWT X-User-Id spoofing is rejected without revealing attachment existence", async () => {
   const uploaded = await uploadVideo({ seed: 26 });
   const response = await app.request(`/attachments/${uploaded.id}`, {
     headers: { "X-User-Id": USER_ID },
   });
-  assert.equal(response.status, 401);
+  assert.equal(response.status, 404);
+  assert.deepEqual(await response.json(), {
+    error: "附件不存在",
+    code: "ATTACHMENT_NOT_FOUND",
+  });
 });

@@ -1,0 +1,58 @@
+name: Attachment Cache Contract CI
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - release/v1.4.6
+    paths:
+      - "backend/src/lib/attachment-etag.ts"
+      - "backend/src/lib/attachment-signed-url.ts"
+      - "backend/src/routes/attachments-core.ts"
+      - "backend/src/routes/attachments.ts"
+      - "backend/tests/attachment-cache-contract.test.ts"
+      - "backend/tests/attachment-signed-url-window.test.ts"
+      - "backend/tests/attachment-shared-access.test.ts"
+      - "backend/tests/attachments-inline-video.test.ts"
+      - ".github/workflows/attachment-cache-contract-ci.yml"
+  pull_request:
+    paths:
+      - "backend/src/lib/attachment-etag.ts"
+      - "backend/src/lib/attachment-signed-url.ts"
+      - "backend/src/routes/attachments-core.ts"
+      - "backend/src/routes/attachments.ts"
+      - "backend/tests/attachment-cache-contract.test.ts"
+      - "backend/tests/attachment-signed-url-window.test.ts"
+      - "backend/tests/attachment-shared-access.test.ts"
+      - "backend/tests/attachments-inline-video.test.ts"
+      - ".github/workflows/attachment-cache-contract-ci.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - name: Backend typecheck
+        run: npm run build:tsc -- --pretty false
+      - name: Attachment cache, authorization and media contracts
+        run: >-
+          node --import tsx --import ./tests/setup-db-isolation.ts --test
+          tests/attachment-cache-contract.test.ts
+          tests/attachment-signed-url-window.test.ts
+          tests/attachment-shared-access.test.ts
+          tests/attachments-inline-video.test.ts

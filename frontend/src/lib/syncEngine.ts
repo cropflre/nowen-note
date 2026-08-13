@@ -28,6 +28,10 @@ import { offlineQueueFetch } from "@/lib/offlineQueueFetch";
 import { resolveQueuedNoteConflicts } from "@/lib/conflictResolution";
 import type { Note, User } from "@/types";
 import {
+  reportTransientNoteImageSource,
+  stabilizeNoteMutationPayload,
+} from "@/lib/noteContentPersistence";
+import {
   setOfflineSyncUser,
   stopOfflineWorkspaceSync,
   syncOfflineWorkspace,
@@ -381,8 +385,15 @@ export async function cacheNoteContent(note: Note): Promise<void> {
     });
     return;
   }
+  let stableNote: Note;
   try {
-    await putNote({ ...note, __detailCached: true });
+    stableNote = stabilizeNoteMutationPayload(note);
+  } catch (error) {
+    reportTransientNoteImageSource(error, { operation: "cacheNoteContent", noteId: note.id });
+    return;
+  }
+  try {
+    await putNote({ ...stableNote, __detailCached: true });
   } catch (error) {
     console.warn("[syncEngine] cacheNoteContent failed:", error);
   }

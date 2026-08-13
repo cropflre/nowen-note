@@ -6,6 +6,10 @@ import { syncReferences as syncAttachmentReferences } from "../lib/attachmentRef
 import { siyuanSyToMarkdown, type SiyuanNode } from "../lib/siyuanSyParser";
 import { siyuanSyToTiptapJson } from "../lib/siyuanTiptapConverter";
 import {
+    synchronizeLegacyNotebookHierarchy,
+    synchronizeLegacyNoteHierarchy,
+} from "./legacyKnowledgeHierarchy";
+import {
     deleteAttachmentObject,
     getUploadMonthPath,
     writeAttachmentObject,
@@ -26,6 +30,8 @@ export interface SiyuanPackageImportResult {
     notebookId: string;
     notebookIds: string[];
     notes: Array<{ id: string; title: string; notebookId: string; version: number }>;
+    createdNoteIds: string[];
+    createdFolderIds: string[];
     workspaceId: string | null;
     warnings: string[];
     stats: {
@@ -35,6 +41,11 @@ export interface SiyuanPackageImportResult {
         importedAssets: number;
         unresolvedAssets: number;
         unsupportedNodes: Record<string, number>;
+        parsedNotes: number;
+        createdNotes: number;
+        createdFolders: number;
+        createdAttachments: number;
+        failedNotes: number;
     };
 }
 
@@ -206,6 +217,12 @@ function uniqueSorted(values: Iterable<string>): string[] {
     return Array.from(new Set(Array.from(values).map((value) => value.trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b));
 }
 
+function chunks<T>(values: T[], size: number): T[][] {
+    const result: T[][] = [];
+    for (let index = 0; index < values.length; index += size) result.push(values.slice(index, index + size));
+    return result;
+}
+
 function normalizeAssetRef(ref: string): string[] {
     const raw = trimAssetRef(ref);
     if (!raw || /^(https?:|data:|\/\/)/i.test(raw)) return [];
@@ -292,7 +309,9 @@ function getBoxIdForDoc(value: string, boxNames: Map<string, string>): string | 
     const directMatch = parts.slice(0, syFileIndex).find((part) => boxNames.has(part));
     if (directMatch) return directMatch;
     if (parts.length >= 3 && /^data(?:[-_/]|\d|$)/i.test(parts[0])) return parts[1];
-    return parts[0];
+    // 根目录下只有单个 .sy 文件时，parts[0] 是文件名而不是可恢复的目录。
+    // 此时返回 undefined，让调用方统一落入「导入的思源笔记」fallback。
+    return parts.length > 1 ? parts[0] : undefined;
 }
 
 function buildSiyuanNotebookPath(value: string, docById: Map<string, SiyuanDocIndex>, boxNames: Map<string, string>): string[] {
@@ -675,6 +694,7 @@ export async function importSiyuanPackageFromZipFile(
         }
 
         const notebookIds = new Set<string>();
+        const createdNotebookIds = new Set<string>();
         const importedNotes: Array<{ id: string; title: string; notebookId: string; version: number }> = [];
         const nbCache = new Map<string, string>();
 
@@ -728,12 +748,27 @@ export async function importSiyuanPackageFromZipFile(
                     continue;
                 }
                 const existing = findChild.get(params.userId, seg, parentId, params.workspaceId) as { id: string } | undefined;
+                let hierarchyReason: "create" | "metadata" = "metadata";
                 if (existing) {
                     currentId = existing.id;
                 } else {
                     currentId = uuid();
-                    insertNotebook.run(currentId, params.userId, parentId, seg, "📥", params.workspaceId);
+                    const inserted = insertNotebook.run(currentId, params.userId, parentId, seg, "📥", params.workspaceId);
+                    if (inserted.changes !== 1) {
+                        throw new Error(`思源目录创建失败：${seg}`);
+                    }
+                    createdNotebookIds.add(currentId);
+                    hierarchyReason = "create";
                 }
+                // 自动创建路径不能只写 notebooks。目录节点必须和业务记录在同一事务内同步，
+                // 且同步服务会按 notebooks.parentId 递归保证完整父级链和正确 scopeKey。
+                synchronizeLegacyNotebookHierarchy({
+                    db,
+                    notebookId: currentId,
+                    actorUserId: params.userId,
+                    reason: hierarchyReason,
+                    parentMode: "resource",
+                });
                 nbCache.set(childKey, currentId);
                 parentId = currentId;
             }
@@ -749,7 +784,7 @@ export async function importSiyuanPackageFromZipFile(
                 notebookIds.add(notebookId);
                 const createdAt = note.updatedAt || now;
                 const updatedAt = note.updatedAt || createdAt;
-                insertNote.run(
+                const inserted = insertNote.run(
                     note.id,
                     params.userId,
                     notebookId,
@@ -761,6 +796,9 @@ export async function importSiyuanPackageFromZipFile(
                     updatedAt,
                     params.workspaceId,
                 );
+                if (inserted.changes !== 1) {
+                    throw new Error(`思源笔记写入失败：${note.title}`);
+                }
                 for (const attachment of note.attachments) {
                     insertAttachment.run(
                         attachment.id,
@@ -791,17 +829,64 @@ export async function importSiyuanPackageFromZipFile(
                     insertNoteTag.run(note.id, existing.id);
                 }
                 syncAttachmentReferences(db, note.id, note.content);
+                // 导入与普通新建笔记共用同一知识树同步契约，不能只依赖历史触发器。
+                synchronizeLegacyNoteHierarchy({
+                    db,
+                    noteId: note.id,
+                    actorUserId: params.userId,
+                    reason: "create",
+                    parentMode: "resource",
+                });
                 importedNotes.push({ id: note.id, title: note.title, notebookId, version: 1 });
+            }
+
+            if (importedNotes.length === 0) {
+                throw new Error(`已成功解析 ${docs.length} 篇思源文档，但 0 篇写入成功`);
+            }
+
+            // 提交前核对业务表与知识树节点；任何缺失都会让整个事务回滚。
+            let persistedVisibleNotes = 0;
+            for (const batch of chunks(importedNotes.map((note) => note.id), 400)) {
+                const placeholders = batch.map(() => "?").join(", ");
+                const verified = db.prepare(`
+                    SELECT COUNT(DISTINCT note.id) AS count
+                    FROM notes note
+                    JOIN notebooks notebook ON notebook.id = note.notebookId
+                    JOIN knowledge_tree_nodes note_node
+                      ON note_node.resourceType = 'note' AND note_node.resourceId = note.id
+                    JOIN knowledge_tree_nodes notebook_node
+                      ON notebook_node.resourceType = 'notebook' AND notebook_node.resourceId = notebook.id
+                    WHERE note.id IN (${placeholders})
+                      AND note.userId = ?
+                      AND note.workspaceId IS ?
+                      AND note.contentFormat = ?
+                      AND note.isTrashed = 0
+                      AND notebook.isDeleted = 0
+                      AND note_node.isDeleted = 0
+                      AND notebook_node.isDeleted = 0
+                      AND note_node.parentId = notebook_node.id
+                `).get(...batch, params.userId, params.workspaceId, targetContentFormat) as { count: number };
+                persistedVisibleNotes += Number(verified.count) || 0;
+            }
+            if (persistedVisibleNotes !== importedNotes.length) {
+                throw new Error(
+                    `已成功解析 ${docs.length} 篇思源文档，但仅 ${persistedVisibleNotes} 篇完成写入并进入目录树`,
+                );
             }
         });
         tx();
 
+        const createdNoteIds = importedNotes.map((note) => note.id);
+        const createdFolderIds = Array.from(createdNotebookIds);
+
         return {
-            success: true,
-            count: importedNotes.length,
+            success: importedNotes.length === docs.length,
+            count: createdNoteIds.length,
             notebookId: importedNotes[0]?.notebookId || params.targetNotebookId || "",
             notebookIds: Array.from(notebookIds),
             notes: importedNotes,
+            createdNoteIds,
+            createdFolderIds,
             workspaceId: params.workspaceId,
             warnings: uniqueSorted(warnings),
             stats: {
@@ -811,6 +896,11 @@ export async function importSiyuanPackageFromZipFile(
                 importedAssets,
                 unresolvedAssets,
                 unsupportedNodes,
+                parsedNotes: docs.length,
+                createdNotes: createdNoteIds.length,
+                createdFolders: createdFolderIds.length,
+                createdAttachments: importedAssets,
+                failedNotes: Math.max(0, docs.length - createdNoteIds.length),
             },
         };
     } catch (err) {

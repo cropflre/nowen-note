@@ -74,7 +74,15 @@ export function listKnowledgeTree(input: {
     .map((row) => ({
       ...row,
       parentId: row.parentId?.startsWith(ROOT_DOCUMENT_NODE_PREFIX) ? null : row.parentId,
-      access: resolveKnowledgeNodeAccess(row.id, input.userId, db),
+      // includeDeleted is an explicit recycle-bin/history view. Evaluate the
+      // tombstone with its original ACL instead of making the flag ineffective.
+      // Ordinary tree reads keep includeDeleted=false and still hide tombstones.
+      access: resolveKnowledgeNodeAccess(
+        row.id,
+        input.userId,
+        db,
+        { includeDeleted: input.includeDeleted === true },
+      ),
     }))
     .filter((row) => row.access.capabilities.canView);
 

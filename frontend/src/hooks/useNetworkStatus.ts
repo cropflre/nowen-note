@@ -48,7 +48,11 @@ export function shouldSignalRecoveredOfflineChanges({
     && flushSucceeded;
 }
 
-export function useNetworkStatus() {
+export interface UseNetworkStatusOptions {
+  signalRecovery?: boolean;
+}
+
+export function useNetworkStatus({ signalRecovery = true }: UseNetworkStatusOptions = {}) {
   const initialOnline = navigator.onLine;
   const initialQueueLength = getQueueLength();
   const [isOnline, setIsOnline] = useState(initialOnline);
@@ -200,7 +204,7 @@ export function useNetworkStatus() {
     const pendingAfter = getQueueLength();
     setPendingCount(pendingAfter);
 
-    if (shouldSignalRecoveredOfflineChanges({
+    if (signalRecovery && shouldSignalRecoveredOfflineChanges({
       wasActuallyOffline: wasActuallyOffline || pendingBefore > 0,
       pendingBefore,
       pendingAfter,
@@ -211,7 +215,7 @@ export function useNetworkStatus() {
     }
 
     return flushSucceeded;
-  }, [doFlush, markOffline, probe, showRecoverySignal]);
+  }, [doFlush, markOffline, probe, showRecoverySignal, signalRecovery]);
 
   useEffect(() => {
     mountedRef.current = true;

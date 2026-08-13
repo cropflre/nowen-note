@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { FlipHorizontal, RotateCcw, RotateCw } from "lucide-react";
+import { FlipHorizontal, RotateCcw, RotateCw, Scan } from "lucide-react";
 import {
   getPersistentImageTransform,
   normalizeImageFlipX,
@@ -23,7 +23,6 @@ interface ImageTarget {
   wrapper: HTMLElement;
   rotation: ImageRotation;
   flipX: boolean;
-  desktopToolbar: HTMLElement | null;
   mobileSheet: HTMLElement | null;
 }
 
@@ -42,23 +41,6 @@ function isCoarsePointer(): boolean {
   return typeof window !== "undefined" && window.matchMedia?.("(pointer: coarse)")?.matches === true;
 }
 
-function findDesktopImageToolbar(): HTMLElement | null {
-  const expected = isEnglishUi()
-    ? ["View large image", "Download image"]
-    : ["查看大图", "下载图片"];
-  const candidates = Array.from(document.querySelectorAll<HTMLElement>("div.fixed.z-50.flex.items-center"));
-  const translatedMatch = candidates.find((candidate) => {
-    const titles = Array.from(candidate.querySelectorAll<HTMLButtonElement>("button[title]"))
-      .map((button) => button.title.trim());
-    return expected.every((label) => titles.includes(label));
-  });
-  if (translatedMatch) return translatedMatch;
-  // Fallback for custom translations: image toolbar has six direct actions plus one size menu.
-  return candidates.find((candidate) =>
-    candidate.querySelectorAll(":scope > button, :scope > div.relative > button").length === 7,
-  ) || null;
-}
-
 function findCompactMobileSheet(): HTMLElement | null {
   return document.querySelector<HTMLElement>('[data-nowen-image-transform-slot="true"]');
 }
@@ -70,7 +52,7 @@ export function findImageTransformWrapper(dom: HTMLElement | null): HTMLElement 
     || dom.closest<HTMLElement>(".resizable-image-wrapper");
 }
 
-function selectedImageTarget(): Omit<ImageTarget, "desktopToolbar" | "mobileSheet"> | null {
+function selectedImageTarget(): Omit<ImageTarget, "mobileSheet"> | null {
   const editorDom = document.querySelector<HTMLElement>('.ProseMirror[contenteditable="true"]');
   const editor = (editorDom as (HTMLElement & { editor?: TiptapEditorLike }) | null)?.editor;
   if (!editor?.state || !editor?.view) return null;
@@ -254,26 +236,6 @@ export function updateImageAttributesAt(
   return true;
 }
 
-function positionDesktopToolbar(toolbar: HTMLElement, wrapper: HTMLElement): void {
-  const rect = wrapper.getBoundingClientRect();
-  const width = toolbar.getBoundingClientRect().width || 400;
-  const height = toolbar.getBoundingClientRect().height || 40;
-  const margin = 8;
-  const gap = 8;
-  const above = rect.top - height - gap;
-  const top = above >= margin
-    ? above
-    : Math.min(rect.bottom + gap, window.innerHeight - height - margin);
-  const left = Math.max(
-    margin,
-    Math.min(rect.left + rect.width / 2 - width / 2, window.innerWidth - width - margin),
-  );
-  const nextTop = `${Math.round(top)}px`;
-  const nextLeft = `${Math.round(left)}px`;
-  if (toolbar.style.top !== nextTop) toolbar.style.top = nextTop;
-  if (toolbar.style.left !== nextLeft) toolbar.style.left = nextLeft;
-}
-
 function TransformButton({
   label,
   active,
@@ -321,11 +283,9 @@ export default function EditorImageTransformBridge() {
     allowImageResizeThroughMobileBackdrop();
     const next: ImageTarget = {
       ...selected,
-      desktopToolbar: findDesktopImageToolbar(),
       mobileSheet: findCompactMobileSheet(),
     };
     applyImageTransformLayout(next.wrapper, next.rotation, next.flipX);
-    if (next.desktopToolbar) positionDesktopToolbar(next.desktopToolbar, next.wrapper);
     const previous = targetRef.current;
     const changed = !previous
       || previous.editor !== next.editor
@@ -333,7 +293,6 @@ export default function EditorImageTransformBridge() {
       || previous.wrapper !== next.wrapper
       || previous.rotation !== next.rotation
       || previous.flipX !== next.flipX
-      || previous.desktopToolbar !== next.desktopToolbar
       || previous.mobileSheet !== next.mobileSheet;
     targetRef.current = next;
     if (changed) setTarget(next);
@@ -443,8 +402,8 @@ export default function EditorImageTransformBridge() {
   }, [reconcile]);
 
   const labels = useMemo(() => isEnglishUi()
-    ? { left: "Rotate left 90°", right: "Rotate right 90°", flip: "Flip horizontally", group: "Rotate and flip" }
-    : { left: "向左旋转 90°", right: "向右旋转 90°", flip: "水平翻转", group: "旋转与翻转" }, []);
+    ? { left: "Rotate left 90°", right: "Rotate right 90°", flip: "Flip horizontally", reset: "Reset transform", group: "Rotate and flip" }
+    : { left: "向左旋转 90°", right: "向右旋转 90°", flip: "水平翻转", reset: "复原变换", group: "旋转与翻转" }, []);
 
   if (!target) return null;
 
@@ -456,27 +415,19 @@ export default function EditorImageTransformBridge() {
     const current = targetRef.current?.editor.state.selection?.node?.attrs?.flipX;
     update({ flipX: !normalizeImageFlipX(current) });
   };
-
-  const desktopPortal = target.desktopToolbar ? createPortal(
-    <>
-      <div className="mx-0.5 h-4 w-px shrink-0 bg-app-border" aria-hidden="true" />
-      <TransformButton label={labels.left} onClick={() => rotate(-90)}><RotateCcw size={14} /></TransformButton>
-      <TransformButton label={labels.right} onClick={() => rotate(90)}><RotateCw size={14} /></TransformButton>
-      <TransformButton label={labels.flip} active={target.flipX} onClick={flip}><FlipHorizontal size={14} /></TransformButton>
-    </>,
-    target.desktopToolbar,
-  ) : null;
+  const reset = () => update({ rotation: 0, flipX: false });
 
   const mobilePortal = target.mobileSheet ? createPortal(
     <div className="mt-2" data-nowen-editor-image-transforms="true" role="group" aria-label={labels.group}>
-      <div className="grid grid-cols-3 gap-1.5">
+      <div className="grid grid-cols-4 gap-1.5">
         <TransformButton mobile label={labels.left} onClick={() => rotate(-90)}><RotateCcw size={14} />{isEnglishUi() ? "Left" : "左转"}</TransformButton>
         <TransformButton mobile label={labels.right} onClick={() => rotate(90)}><RotateCw size={14} />{isEnglishUi() ? "Right" : "右转"}</TransformButton>
         <TransformButton mobile label={labels.flip} active={target.flipX} onClick={flip}><FlipHorizontal size={14} />{isEnglishUi() ? "Flip" : "翻转"}</TransformButton>
+        <TransformButton mobile label={labels.reset} onClick={reset}><Scan size={14} />{isEnglishUi() ? "Reset" : "复原"}</TransformButton>
       </div>
     </div>,
     target.mobileSheet,
   ) : null;
 
-  return <>{desktopPortal}{mobilePortal}</>;
+  return mobilePortal;
 }

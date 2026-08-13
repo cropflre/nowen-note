@@ -27,6 +27,15 @@ describe("task notification schedule", () => {
     expect(resolveTaskReminderDate(item())?.toISOString()).toBe("2030-01-01T09:00:00.000Z");
   });
 
+  it("trusts server reminderAt when creator timezone is recorded", () => {
+    expect(resolveTaskReminderDate(item({
+      reminderAt: "2030-01-01T01:00:00.000Z",
+      dueAt: "2030-01-01T09:00",
+      offsetMinutes: 0,
+      timezoneOffsetMinutes: -480,
+    }))?.toISOString()).toBe("2030-01-01T01:00:00.000Z");
+  });
+
   it("uses snoozedUntil as the authoritative schedule", () => {
     expect(resolveTaskReminderDate(item({ snoozedUntil: "2030-01-02T08:00:00.000Z" }))?.toISOString())
       .toBe("2030-01-02T08:00:00.000Z");

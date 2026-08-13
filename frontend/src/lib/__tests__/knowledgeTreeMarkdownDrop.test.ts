@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   findKnowledgeTreeDropRow,
+  formatMarkdownImportFailures,
   hasExternalFilePayload,
   isMarkdownDropFile,
   isWordDropFile,
@@ -100,6 +101,13 @@ describe("knowledgeTreeMarkdownDrop", () => {
     expect(pickerElement.accept).toContain(".markdown");
     expect(pickerElement.multiple).toBe(true);
     expect(files.map((file) => file.name)).toEqual(["a.md", "b.markdown"]);
+  });
+
+  it("summarizes multiple isolated import failures", () => {
+    expect(formatMarkdownImportFailures([
+      { name: "损坏.md", reason: "读取失败" },
+      { name: "过大.markdown", reason: "文件过大" },
+    ])).toBe("损坏.md：读取失败；过大.markdown：文件过大");
   });
 
   it("resolves a drop row only inside an embedded knowledge tree", () => {

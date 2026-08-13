@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback } from "react";
+import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Sparkles, PenLine, RefreshCw, Shrink, Expand, Languages,
@@ -13,6 +13,10 @@ import { cn } from "@/lib/utils";
 import { extractFinalAnswer } from "@/lib/aiOutput";
 import { buildAiContext } from "@/lib/aiContextBuilder";
 import { toast } from "@/lib/toast";
+import {
+  projectMarkdownForUser,
+  restoreInternalMarkdownMarkers,
+} from "@/lib/markdownUserContent";
 
 type AIAction = "continue" | "rewrite" | "polish" | "shorten" | "expand" | "translate_en" | "translate_zh" | "summarize" | "explain" | "fix_grammar" | "format_markdown" | "format_code" | "custom";
 
@@ -66,6 +70,18 @@ export default function AIWritingAssistant({
   const resultRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const customInputRef = useRef<HTMLTextAreaElement>(null);
+  const visibleSelectedText = useMemo(
+    () => projectMarkdownForUser(selectedText),
+    [selectedText],
+  );
+  const visibleFullText = useMemo(
+    () => projectMarkdownForUser(fullText),
+    [fullText],
+  );
+  const visibleResult = useMemo(
+    () => projectMarkdownForUser(result),
+    [result],
+  );
 
   const actions: { id: AIAction; icon: React.ElementType; label: string; group: string }[] = [
     { id: "continue", icon: ArrowRight, label: t("ai.actionContinue"), group: "write" },
@@ -108,16 +124,16 @@ export default function AIWritingAssistant({
     setShowCustomInput(false);
 
     try {
-      const ctx = buildAiContext({ action, selectedText, contentText: fullText, maxInputTokens: 1800, question: action === "custom" ? prompt : undefined });
+      const ctx = buildAiContext({ action, selectedText: visibleSelectedText, contentText: visibleFullText, maxInputTokens: 1800, question: action === "custom" ? prompt : undefined });
       const editActions = new Set(["polish", "rewrite", "shorten", "expand", "fix_grammar", "format_markdown", "format_code"]);
-      if (!selectedText && editActions.has(action) && ctx.truncated) {
+      if (!visibleSelectedText && editActions.has(action) && ctx.truncated) {
         toast.info(t("ai.noteTooLongSelectFirst") || "当前笔记较长，建议先选中一段文字处理，或使用分段处理全文。");
       } else if (ctx.notice) {
         toast.info(ctx.notice);
       }
       await api.aiChat(
         action,
-        selectedText,
+        visibleSelectedText,
         ctx.promptText,
         (chunk) => {
           setResult(prev => prev + chunk);
@@ -129,7 +145,7 @@ export default function AIWritingAssistant({
     } finally {
       setIsLoading(false);
     }
-  }, [selectedText, fullText, t]);
+  }, [visibleSelectedText, visibleFullText, t]);
 
   const handleCustomSubmit = useCallback(() => {
     if (!customPrompt.trim()) return;
@@ -232,18 +248,18 @@ export default function AIWritingAssistant({
   }, [onClose]);
 
   const handleCopy = () => {
-    navigator.clipboard.writeText(result);
+    navigator.clipboard.writeText(visibleResult);
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
   };
 
   const handleInsert = () => {
-    onInsert(result);
+    onInsert(visibleResult);
     onClose();
   };
 
   const handleReplace = () => {
-    onReplace(result);
+    onReplace(restoreInternalMarkdownMarkers(selectedText, visibleResult));
     onClose();
   };
 
@@ -274,10 +290,10 @@ export default function AIWritingAssistant({
       </div>
 
       {/* 选中文本预览 */}
-      {selectedText && !result && !isLoading && (
+      {visibleSelectedText && !result && !isLoading && (
         <div className="px-3 py-2 border-b border-zinc-100 dark:border-zinc-800">
           <p className="text-[10px] text-zinc-400 dark:text-zinc-500 mb-1">{t("ai.selectedText")}</p>
-          <p className="text-xs text-zinc-600 dark:text-zinc-400 line-clamp-3 leading-relaxed">{selectedText}</p>
+          <p className="text-xs text-zinc-600 dark:text-zinc-400 line-clamp-3 leading-relaxed">{visibleSelectedText}</p>
         </div>
       )}
 
@@ -451,7 +467,7 @@ export default function AIWritingAssistant({
           )}
           <div className="text-sm text-zinc-800 dark:text-zinc-200 leading-relaxed whitespace-pre-wrap">
             {/* 流式输出完成时清洗 <think>...</think> 推理内容 */}
-            {isLoading ? result : extractFinalAnswer(result)}
+            {isLoading ? visibleResult : extractFinalAnswer(visibleResult)}
             {isLoading && result && (
               <span className="inline-block w-1.5 h-4 bg-accent-primary/60 animate-pulse ml-0.5 align-middle rounded-sm" />
             )}

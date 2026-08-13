@@ -6,16 +6,9 @@
  *
  * 设计要点：
  *   - 组件自管 detail 加载：传入 attachmentId，内部通过 api.files.get 拉数据。
- *     调用方零负担，不必再维护 detail/loading state。
- *   - 副作用回调（onAfterDelete / onAfterRename）只用于「通知」调用方
- *     做列表刷新等额外动作；删除/重命名的网络请求与 toast 都由本组件完成。
- *   - 删除按钮默认隐藏（编辑器场景一般不应直接删，避免破图）；
- *     FileManager 显式传 showDelete={true} 才会出现。
- *   - 跳转笔记按钮可选；不传 onJumpToNote 时，引用列表项变为只读展示。
- *   - docx「上传新版本」等扩展动作，通过 extraHeaderActions 插槽注入；
- *     避免本组件感知具体业务。
- *
- * 拆分自旧版 FileManager.DetailDrawer + MetaRow（原文件 ~360 行）。
+ *   - 副作用回调只用于通知调用方刷新列表等附加动作。
+ *   - 删除按钮默认隐藏，FileManager 显式开启。
+ *   - 跳转笔记按钮可选；不传时引用列表只读展示。
  */
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
@@ -31,6 +24,7 @@ import {
   Minimize2,
   ShieldCheck,
 } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { api, resolveAttachmentUrl } from "@/lib/api";
 import { FileDetail } from "@/types";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -48,10 +42,6 @@ import {
 } from "@/lib/imageHostFormats";
 import AttachmentPreview from "@/components/attachmentPreview/AttachmentPreview";
 
-// ---------------------------------------------------------------------------
-// 工具函数：人类可读大小 / 本地时间格式化（与 FileManager 保持一致）
-// ---------------------------------------------------------------------------
-
 function humanSize(bytes: number): string {
   if (!bytes || bytes < 0) return "0 B";
   const units = ["B", "KB", "MB", "GB", "TB"];
@@ -66,8 +56,6 @@ function humanSize(bytes: number): string {
 
 function formatLocalTime(s: string): string {
   if (!s) return "";
-  // SQLite 的 datetime('now') 返回 "YYYY-MM-DD HH:mm:ss"（UTC，不带 Z），
-  // 直接 new Date() 会当本地时间解析 → 显示晚 8h。显式拼 Z 再格式化。
   const iso = s.includes("T") ? s : s.replace(" ", "T") + "Z";
   const d = new Date(iso);
   if (isNaN(d.getTime())) return s;
@@ -75,56 +63,17 @@ function formatLocalTime(s: string): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-// ---------------------------------------------------------------------------
-// Props
-// ---------------------------------------------------------------------------
-
 export interface AttachmentDetailDrawerProps {
-  /** 要展示的附件 id；为 null 时组件自身不渲染（由调用方控制 mount/unmount）。 */
   attachmentId: string | null;
-  /** 关闭抽屉。 */
   onClose: () => void;
-
-  /** 跳转到引用此附件的笔记。不传则隐藏跳转按钮，仅展示笔记标题。 */
   onJumpToNote?: (noteId: string) => void;
-
-  /**
-   * 删除成功后的回调。组件本身已完成网络请求 + toast + 关闭抽屉，
-   * 调用方只需要在这里做「从列表里剔除该 id / 刷新统计」等附加动作。
-   */
   onAfterDelete?: (id: string) => void;
-  /**
-   * 重命名成功后的回调。同上，只用于通知调用方同步列表里的 filename。
-   */
   onAfterRename?: (id: string, newFilename: string) => void;
-
-  /**
-   * 是否显示「删除文件」按钮。默认 false——
-   * 编辑器场景里附件可能就是当前笔记自己引用的，删了就破图，所以默认禁掉；
-   * 文件管理中心需要显式打开。
-   */
   showDelete?: boolean;
-
-  /** 图床模式：外链分享区块用更醒目的紫色高亮。仅 FileManager 用得到。 */
   isImageHostMode?: boolean;
-
-  /**
-   * 抽屉头部右侧额外动作槽位。
-   * 例：docx 场景塞「上传新版本」按钮；其他场景留空。
-   */
   extraHeaderActions?: React.ReactNode;
-
-  /**
-   * 自定义预览区域。不传则走默认 AttachmentPreview。
-   * 例：docx 场景需要走 DocxAttachmentPreview（带"上传新版本"），
-   *     由调用方传一个使用了 detail 的 ReactNode 渲染函数。
-   */
   renderPreview?: (detail: FileDetail, expanded: boolean) => React.ReactNode;
 }
-
-// ---------------------------------------------------------------------------
-// 主组件
-// ---------------------------------------------------------------------------
 
 export default function AttachmentDetailDrawer({
   attachmentId,
@@ -137,10 +86,9 @@ export default function AttachmentDetailDrawer({
   extraHeaderActions,
   renderPreview,
 }: AttachmentDetailDrawerProps) {
-  // ---- detail 加载（A1：组件自管） ----
+  const { t } = useTranslation();
   const [detail, setDetail] = useState<FileDetail | null>(null);
   const [loading, setLoading] = useState(false);
-  // 用 ref 保存最新的请求 id，避免快速切换时旧请求覆盖新数据
   const reqIdRef = useRef(0);
 
   useEffect(() => {
@@ -159,24 +107,19 @@ export default function AttachmentDetailDrawer({
       .catch((err: any) => {
         if (reqIdRef.current !== myReq) return;
         console.error("[AttachmentDetailDrawer] load failed:", err);
-        toast.error(err?.message || "加载文件详情失败");
-        // 加载失败：直接关掉抽屉，避免停在永远 loading 的 UI
+        toast.error(err?.message || t("attachmentDetail.loadFailed"));
         onClose();
       })
       .finally(() => {
         if (reqIdRef.current === myReq) setLoading(false);
       });
-  }, [attachmentId, onClose]);
+  }, [attachmentId, onClose, t]);
 
-  // ---- 重命名 ----
   const [renaming, setRenaming] = useState(false);
   const [renameDraft, setRenameDraft] = useState("");
   const [renameSubmitting, setRenameSubmitting] = useState(false);
-
-  // ---- 放大态 ----
   const [expanded, setExpanded] = useState(false);
 
-  // 切换不同附件时重置局部 UI 态
   useEffect(() => {
     setRenaming(false);
     setRenameDraft("");
@@ -199,7 +142,7 @@ export default function AttachmentDetailDrawer({
     if (!detail) return;
     const next = renameDraft.trim();
     if (!next) {
-      toast.error("文件名不能为空");
+      toast.error(t("attachmentDetail.filenameRequired"));
       return;
     }
     if (next === detail.filename) {
@@ -211,19 +154,18 @@ export default function AttachmentDetailDrawer({
       const res = await api.files.rename(detail.id, next);
       const finalName = res.filename;
       setDetail((prev) => (prev ? { ...prev, filename: finalName } : prev));
-      if (!res.unchanged) toast.success("已重命名");
+      if (!res.unchanged) toast.success(t("attachmentDetail.renamed"));
       setRenaming(false);
       setRenameDraft("");
       onAfterRename?.(detail.id, finalName);
     } catch (err: any) {
       console.error("[AttachmentDetailDrawer] rename failed:", err);
-      toast.error(err?.message || "重命名失败");
+      toast.error(err?.message || t("attachmentDetail.renameFailed"));
     } finally {
       setRenameSubmitting(false);
     }
-  }, [detail, renameDraft, cancelRename, onAfterRename]);
+  }, [detail, renameDraft, cancelRename, onAfterRename, t]);
 
-  // ---- 复制外链 ----
   const copySnippet = useCallback(
     async (format: ImageHostFormat) => {
       if (!detail) return;
@@ -231,18 +173,14 @@ export default function AttachmentDetailDrawer({
       const snippet = formatImageHostSnippet(format, full, detail.filename);
       const ok = await copyText(snippet);
       if (ok) {
-        toast.success(`已复制 ${imageHostFormatLabel(format)}`);
+        toast.success(t("attachmentDetail.copiedFormat", { format: imageHostFormatLabel(format) }));
       } else {
-        toast.error("复制失败，请检查浏览器剪贴板权限");
+        toast.error(t("attachmentDetail.copyFailed"));
       }
     },
-    [detail],
+    [detail, t],
   );
 
-  // ---- 下载 ----
-  // 同源场景走原生 <a download>，同步触发，避免"第一次点击丢失用户手势"导致下载被拦截。
-  // 跨源场景由 downloadAttachment 内部回退到 fetch+blob，保留原 filename。
-  // 保留 200ms 视觉反馈防连点；不再用 await fetch 阻塞 UI。
   const [downloading, setDownloading] = useState(false);
   const handleDownload = useCallback(async () => {
     if (!detail || downloading) return;
@@ -251,39 +189,39 @@ export default function AttachmentDetailDrawer({
       await downloadAttachment(resolveAttachmentUrl(detail.url), detail.filename);
     } catch (err: any) {
       console.error("[AttachmentDetailDrawer] download failed:", err);
-      toast.error(`下载失败: ${err?.message || "未知错误"}`);
+      toast.error(t("attachmentDetail.downloadFailed", {
+        error: err?.message || t("common.unknownError"),
+      }));
     } finally {
-      // 200ms 后复位，给按钮一个轻微的"按下"反馈
       setTimeout(() => setDownloading(false), 200);
     }
-  }, [detail, downloading]);
+  }, [detail, downloading, t]);
 
-  // ---- 删除（带二次确认） ----
   const handleDelete = useCallback(async () => {
     if (!detail) return;
     const isProtectedManualUpload = Boolean(
       (detail as FileDetail & { isAutoCleanupProtected?: boolean }).isAutoCleanupProtected,
     );
     const ok = await confirmDialog({
-      title: "确定要删除此文件吗？",
+      title: t("attachmentDetail.deleteConfirmTitle"),
       description: isProtectedManualUpload
-        ? "这是受保护的手动上传文件，不会被系统自动清理。确认后将由你主动永久删除，该操作不可撤销。"
-        : "删除后，引用该文件的笔记里将显示为破图 / 失效链接。该操作不可撤销。",
-      confirmText: "删除",
+        ? t("attachmentDetail.protectedDeleteDescription")
+        : t("attachmentDetail.deleteDescription"),
+      confirmText: t("attachmentDetail.delete"),
       danger: true,
     });
     if (!ok) return;
     try {
       await api.files.remove(detail.id);
-      toast.success("已删除");
+      toast.success(t("attachmentDetail.deleted"));
       const id = detail.id;
       onClose();
       onAfterDelete?.(id);
     } catch (err: any) {
       console.error("[AttachmentDetailDrawer] delete failed:", err);
-      toast.error(err?.message || "删除失败");
+      toast.error(err?.message || t("attachmentDetail.deleteFailed"));
     }
-  }, [detail, onClose, onAfterDelete]);
+  }, [detail, onClose, onAfterDelete, t]);
 
   const isAutoCleanupProtected = Boolean(
     (detail as (FileDetail & { isAutoCleanupProtected?: boolean }) | null)?.isAutoCleanupProtected,
@@ -293,7 +231,6 @@ export default function AttachmentDetailDrawer({
 
   return (
     <>
-      {/* 遮罩 */}
       <motion.div
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
@@ -301,7 +238,6 @@ export default function AttachmentDetailDrawer({
         className="fixed inset-0 z-40 bg-zinc-900/40 backdrop-blur-sm"
         onClick={onClose}
       />
-      {/* 抽屉 */}
       <motion.div
         initial={{ x: "100%" }}
         animate={{ x: 0 }}
@@ -314,41 +250,38 @@ export default function AttachmentDetailDrawer({
             : "w-full sm:w-[480px] md:w-[520px]",
         )}
       >
-        {/* Drawer header */}
         <div
           className="flex items-center justify-between px-4 py-3 border-b border-app-border shrink-0"
           style={{ paddingTop: "calc(var(--safe-area-top) + 4px)" }}
         >
-          <h3 className="text-sm font-semibold text-tx-primary">文件详情</h3>
+          <h3 className="text-sm font-semibold text-tx-primary">{t("attachmentDetail.title")}</h3>
           <div className="flex items-center gap-1">
             {extraHeaderActions}
             <button
               className="hidden sm:inline-flex p-1.5 rounded-md text-tx-tertiary hover:text-tx-primary hover:bg-app-hover"
               onClick={() => setExpanded((v) => !v)}
-              title={expanded ? "还原宽度" : "放大查看（适合 docx 等文档）"}
+              title={expanded ? t("attachmentDetail.restoreWidth") : t("attachmentDetail.expandWidth")}
             >
               {expanded ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
             </button>
             <button
               className="p-1.5 rounded-md text-tx-tertiary hover:text-tx-primary hover:bg-app-hover"
               onClick={onClose}
-              aria-label="关闭"
+              aria-label={t("attachmentDetail.close")}
             >
               <X size={16} />
             </button>
           </div>
         </div>
 
-        {/* Drawer body */}
         <ScrollArea className="flex-1 min-h-0">
           {loading || !detail ? (
             <div className="flex items-center justify-center py-20 text-tx-tertiary">
               <Loader2 size={16} className="animate-spin mr-2" />
-              加载中…
+              {t("attachmentDetail.loading")}
             </div>
           ) : (
             <div className="p-3 md:p-4 space-y-4 md:space-y-5">
-              {/* 预览区 */}
               <div className="rounded-lg border border-app-border bg-app-bg overflow-hidden">
                 {renderPreview ? (
                   renderPreview(detail, expanded)
@@ -369,17 +302,16 @@ export default function AttachmentDetailDrawer({
                   <ShieldCheck size={16} className="mt-0.5 shrink-0 text-emerald-600" />
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-1.5 text-xs font-semibold text-emerald-700 dark:text-emerald-400">
-                      <span>手动上传</span>
-                      <span className="rounded bg-emerald-500/12 px-1.5 py-0.5 text-[10px]">受保护</span>
+                      <span>{t("attachmentDetail.manualUpload")}</span>
+                      <span className="rounded bg-emerald-500/12 px-1.5 py-0.5 text-[10px]">{t("attachmentDetail.protected")}</span>
                     </div>
                     <div className="mt-0.5 text-[11px] leading-4 text-tx-secondary">
-                      此文件不会被“清理附件”自动删除，即使当前没有任何笔记引用；只有你主动删除时才会移除。
+                      {t("attachmentDetail.protectedHint")}
                     </div>
                   </div>
                 </div>
               )}
 
-              {/* 外链分享区块：图床模式高亮，普通模式紧凑展示 */}
               {(() => {
                 const fullUrl = resolveAttachmentUrl(detail.url);
                 return (
@@ -402,10 +334,10 @@ export default function AttachmentDetailDrawer({
                           isImageHostMode ? "text-indigo-500" : "text-tx-secondary",
                         )}
                       >
-                        外链分享
+                        {t("attachmentDetail.shareLink")}
                       </span>
                       <span className="text-[10px] text-tx-tertiary ml-auto">
-                        无需登录即可访问
+                        {t("attachmentDetail.publicAccess")}
                       </span>
                     </div>
                     <input
@@ -428,7 +360,7 @@ export default function AttachmentDetailDrawer({
                           )}
                         >
                           <Copy size={11} />
-                          复制 {imageHostFormatLabel(fmt)}
+                          {t("attachmentDetail.copyFormat", { format: imageHostFormatLabel(fmt) })}
                         </button>
                       ))}
                     </div>
@@ -436,10 +368,9 @@ export default function AttachmentDetailDrawer({
                 );
               })()}
 
-              {/* 元信息 */}
               <div className="space-y-2 text-xs">
                 <MetaRow
-                  label="文件名"
+                  label={t("attachmentDetail.filename")}
                   value={
                     renaming ? (
                       <div className="flex items-center gap-1.5">
@@ -467,7 +398,7 @@ export default function AttachmentDetailDrawer({
                           onClick={() => void submitRename()}
                           disabled={renameSubmitting || !renameDraft.trim()}
                         >
-                          {renameSubmitting ? <Loader2 size={12} className="animate-spin" /> : "保存"}
+                          {renameSubmitting ? <Loader2 size={12} className="animate-spin" /> : t("attachmentDetail.save")}
                         </Button>
                         <Button
                           size="sm"
@@ -476,7 +407,7 @@ export default function AttachmentDetailDrawer({
                           onClick={cancelRename}
                           disabled={renameSubmitting}
                         >
-                          取消
+                          {t("attachmentDetail.cancel")}
                         </Button>
                       </div>
                     ) : (
@@ -487,25 +418,25 @@ export default function AttachmentDetailDrawer({
                           className="shrink-0 text-[11px] text-accent-primary hover:underline"
                           onClick={startRename}
                         >
-                          重命名
+                          {t("attachmentDetail.rename")}
                         </button>
                       </div>
                     )
                   }
                 />
-                <MetaRow label="类型" value={<code className="text-[11px]">{detail.mimeType || "-"}</code>} />
-                <MetaRow label="大小" value={humanSize(detail.size)} />
-                <MetaRow label="上传时间" value={formatLocalTime(detail.createdAt)} />
+                <MetaRow label={t("attachmentDetail.type")} value={<code className="text-[11px]">{detail.mimeType || "-"}</code>} />
+                <MetaRow label={t("attachmentDetail.size")} value={humanSize(detail.size)} />
+                <MetaRow label={t("attachmentDetail.uploadedAt")} value={formatLocalTime(detail.createdAt)} />
                 {detail.hash && (
                   <MetaRow
-                    label="哈希"
+                    label={t("attachmentDetail.hash")}
                     value={
                       <code
                         className="text-[10px] text-tx-tertiary break-all select-all cursor-pointer"
-                        title="SHA-256；点击复制"
+                        title={t("attachmentDetail.hashTitle")}
                         onClick={async () => {
                           const ok = await copyText(detail.hash || "");
-                          if (ok) toast.success("已复制 hash");
+                          if (ok) toast.success(t("attachmentDetail.hashCopied"));
                         }}
                       >
                         {detail.hash}
@@ -514,7 +445,7 @@ export default function AttachmentDetailDrawer({
                   />
                 )}
                 <MetaRow
-                  label="下载链接"
+                  label={t("attachmentDetail.downloadLink")}
                   value={
                     <a
                       href={resolveAttachmentUrl(detail.url)}
@@ -529,20 +460,18 @@ export default function AttachmentDetailDrawer({
                 />
               </div>
 
-              {/* 反向引用 */}
               <div>
                 <div className="flex items-center justify-between mb-2">
-                  <h4 className="text-xs font-semibold text-tx-primary">引用此文件的笔记</h4>
-                  <span className="text-[10px] text-tx-tertiary">{detail.references.length} 条</span>
+                  <h4 className="text-xs font-semibold text-tx-primary">{t("attachmentDetail.referencedNotes")}</h4>
+                  <span className="text-[10px] text-tx-tertiary">{t("attachmentDetail.referenceCount", { count: detail.references.length })}</span>
                 </div>
                 {detail.references.length === 0 ? (
                   <div className="text-xs text-tx-tertiary py-4 text-center border border-dashed border-app-border rounded-md">
-                    没有笔记引用该文件
+                    {t("attachmentDetail.noReferences")}
                   </div>
                 ) : (
                   <ul className="space-y-1">
                     {detail.references.map((ref) => {
-                      // 不传 onJumpToNote 时退化为只读条目；保持视觉一致但不可点。
                       const clickable = !!onJumpToNote;
                       const Tag = clickable ? "button" : "div";
                       return (
@@ -564,12 +493,12 @@ export default function AttachmentDetailDrawer({
                             <span className="text-sm">{ref.notebookIcon || "📄"}</span>
                             <div className="flex-1 min-w-0">
                               <div className="text-xs text-tx-primary truncate flex items-center gap-1.5">
-                                <span className="truncate">{ref.title || "(无标题)"}</span>
+                                <span className="truncate">{ref.title || t("attachmentDetail.untitled")}</span>
                                 {ref.isPrimary && (
-                                  <span className="shrink-0 text-[9px] px-1 py-px rounded bg-accent-primary/15 text-accent-primary">主</span>
+                                  <span className="shrink-0 text-[9px] px-1 py-px rounded bg-accent-primary/15 text-accent-primary">{t("attachmentDetail.primary")}</span>
                                 )}
                                 {ref.isTrashed === 1 && (
-                                  <span className="shrink-0 text-[9px] px-1 py-px rounded bg-orange-500/15 text-orange-500">回收站</span>
+                                  <span className="shrink-0 text-[9px] px-1 py-px rounded bg-orange-500/15 text-orange-500">{t("attachmentDetail.trash")}</span>
                                 )}
                               </div>
                               <div className="text-[10px] text-tx-tertiary truncate">
@@ -587,7 +516,6 @@ export default function AttachmentDetailDrawer({
                 )}
               </div>
 
-              {/* 操作按钮区：下载 + （可选）删除 */}
               <div className="pt-3 border-t border-app-border space-y-2 pb-4" style={{ paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 16px)" }}>
                 <Button
                   variant="default"
@@ -596,11 +524,8 @@ export default function AttachmentDetailDrawer({
                   onClick={handleDownload}
                   disabled={downloading}
                 >
-                  {/* 不在 downloading 时切图标——同源场景下载是同步触发的，
-                      200ms 内切换 Loader2 → Download 反而造成"按钮抖一下"的视觉闪烁。
-                      靠 disabled 防连点已经够了。 */}
                   <Download size={14} className="mr-1" />
-                  下载文件
+                  {t("attachmentDetail.downloadFile")}
                 </Button>
                 {showDelete && (
                   <Button
@@ -610,7 +535,7 @@ export default function AttachmentDetailDrawer({
                     onClick={handleDelete}
                   >
                     <Trash2 size={14} className="mr-1" />
-                    删除文件
+                    {t("attachmentDetail.deleteFile")}
                   </Button>
                 )}
               </div>

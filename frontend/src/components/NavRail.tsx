@@ -164,13 +164,12 @@ export default function NavRail({ variant = "desktop" }: { variant?: "desktop" |
     const result = await switchDesktopToFull();
     if (result?.ok !== false) return;
 
-    clearQueue();
-    clearLocalIdMap();
-    await broadcastLogout("switch_to_local");
-    try {
-      clearServerUrl();
-      localStorage.removeItem("nowen-token");
-      localStorage.removeItem("nowen-prefer-cloud");
+      clearQueue();
+      clearLocalIdMap();
+      await broadcastLogout("switch_to_local");
+      try {
+        clearServerUrl();
+        localStorage.removeItem("nowen-prefer-cloud");
       localStorage.removeItem("nowen-offline-queue");
       localStorage.removeItem("nowen-offline-id-map");
     } catch {

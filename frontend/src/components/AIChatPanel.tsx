@@ -32,7 +32,7 @@ import { useTranslation } from "react-i18next";
 import { confirm as confirmDialog } from "@/components/ui/confirm";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { api } from "@/lib/api";
+import { api, resolveAttachmentUrl } from "@/lib/api";
 import { withAbortableAiFetch } from "@/lib/abortableAiAsk";
 import { cn } from "@/lib/utils";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -668,7 +668,7 @@ export default function AIChatPanel({ onClose, onNavigateToNote }: {
   const handleReferenceClick = (reference: ChatReference) => {
     const isAttachment = reference.kind === "attachment" && reference.attachmentId;
     if (isAttachment && reference.attachmentId) {
-      window.open(`/api/attachments/${reference.attachmentId}?download=1`, "_blank");
+      window.open(resolveAttachmentUrl(`/api/attachments/${reference.attachmentId}?download=1`), "_blank");
     } else if (onNavigateToNote) {
       onNavigateToNote(reference.id);
     }

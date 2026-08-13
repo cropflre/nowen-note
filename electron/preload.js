@@ -69,6 +69,17 @@ contextBridge.exposeInMainWorld("nowenDesktop", {
     return ipcRenderer.invoke("app:open-data-dir");
   },
 
+  /** 仅按附件 ID 请求主进程使用系统默认程序打开；renderer 不接触物理路径。 */
+  attachments: {
+    openWithSystem(attachmentId) {
+      if (typeof attachmentId !== "string"
+        || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(attachmentId)) {
+        return Promise.resolve({ ok: false, error: "INVALID_ATTACHMENT_ID" });
+      }
+      return ipcRenderer.invoke("attachment:open-with-system", { attachmentId });
+    },
+  },
+
   /** 查看桌面端 IndexedDB 离线缓存位置。 */
   getOfflineStorageInfo() {
     return ipcRenderer.invoke("app:get-offline-storage-info");
@@ -176,6 +187,29 @@ contextBridge.exposeInMainWorld("nowenDesktop", {
   isDesktop: true,
   platform: process.platform,
   /**
+   * 通过主进程网络栈发送 JSON API 请求，避免 file:// renderer 的跨域预检
+   * 被第三方反向代理拒绝。仅允许 http(s) /api 请求，主进程会再次校验。
+   */
+  http: {
+    requestJson(payload) {
+      if (!payload || typeof payload !== "object") {
+        return Promise.resolve({ ok: false, error: "INVALID_REQUEST" });
+      }
+      const safe = {
+        url: typeof payload.url === "string" ? payload.url.slice(0, 4096) : "",
+        method: typeof payload.method === "string" ? payload.method.slice(0, 16) : "GET",
+        headers: {},
+        body: typeof payload.body === "string" ? payload.body : undefined,
+      };
+      if (payload.headers && typeof payload.headers === "object" && !Array.isArray(payload.headers)) {
+        for (const [name, value] of Object.entries(payload.headers)) {
+          if (typeof value === "string") safe.headers[String(name).slice(0, 256)] = value.slice(0, 16_384);
+        }
+      }
+      return ipcRenderer.invoke("client:http-json", safe);
+    },
+  },
+  /**
    * Lite-only 发行版标识：通过 additionalArguments 传递。
    * true 表示这份安装包里没有打包 backend，无法切回 full 模式，前端应隐藏
    * "切回本地模式"等入口，登录页默认强制客户端模式。
@@ -256,6 +290,7 @@ contextBridge.exposeInMainWorld("nowenDesktop", {
       if (typeof payload.displayName === "string") safe.displayName = payload.displayName.slice(0, 256);
       if (typeof payload.avatarUrl === "string") safe.avatarUrl = payload.avatarUrl.slice(0, 2048);
       if (typeof payload.token === "string") safe.token = payload.token.slice(0, 16384);
+      if (typeof payload.refreshToken === "string") safe.refreshToken = payload.refreshToken.slice(0, 16384);
       if (typeof payload.lastUsedAt === "number") safe.lastUsedAt = payload.lastUsedAt;
       return ipcRenderer.invoke("account-history:save", safe);
     },

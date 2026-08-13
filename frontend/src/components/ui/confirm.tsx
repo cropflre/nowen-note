@@ -14,8 +14,8 @@
  *
  * 3. **零 Provider 入侵**：函数式 API（导出的 confirm/prompt）通过 module
  *    级 dispatcher 派发，组件内可以直接 `import { confirm } from "@/components/ui/confirm"`
- *    使用。但仍然要在 App 顶层挂一次 <ConfirmProvider />，否则会回退到
- *    浏览器原生（保底，避免逻辑彻底中断）。
+ *    使用。ConfirmProvider 在应用根节点统一挂载；挂载完成前的调用会排队，
+ *    不回退浏览器原生弹窗。
  *
  * 4. **样式与产品深浅色一致**：复用 app 设计 token（app-surface / accent-primary
  *    / tx-* 等）。危险操作（danger: true）按钮用红色，并默认聚焦在"取消"。
@@ -99,17 +99,14 @@ type Dispatcher = {
 
 let dispatcher: Dispatcher | null = null;
 let nextId = 1;
-// 在 Provider 还没挂载时短暂排队的 pending（理论上 Provider 应该最早挂载，
-// 这里只是兜底；超时仍未挂载会回退到浏览器原生）。
-const pending: Array<{ item: Omit<StackItem, "id">; bind: (id: number) => void }> = [];
+// Provider 尚未挂载时先排队，根节点就绪后统一交给应用内弹窗处理。
+const pending: Array<Omit<StackItem, "id">> = [];
 
 function setDispatcher(d: Dispatcher | null) {
   dispatcher = d;
   if (d) {
     while (pending.length) {
-      const { item, bind } = pending.shift()!;
-      const id = d.push(item);
-      bind(id);
+      d.push(pending.shift()!);
     }
   }
 }
@@ -127,25 +124,7 @@ export function confirm(options: ConfirmOptions): Promise<boolean> {
       dispatcher.push(item);
       return;
     }
-    // 兜底：100ms 内还没 Provider 就回退到原生
-    let bound = false;
-    const bind = (_id: number) => {
-      bound = true;
-    };
-    pending.push({ item, bind });
-    setTimeout(() => {
-      if (!bound && !dispatcher) {
-        // 移出队列并回退原生
-        const idx = pending.findIndex((p) => p.item === item);
-        if (idx >= 0) pending.splice(idx, 1);
-        const fallback = window.confirm(
-          [options.title, typeof options.description === "string" ? options.description : ""]
-            .filter(Boolean)
-            .join("\n\n"),
-        );
-        resolve(fallback);
-      }
-    }, 100);
+    pending.push(item);
   });
 }
 
@@ -159,24 +138,7 @@ export function prompt(options: PromptOptions): Promise<string | null> {
       dispatcher.push(item);
       return;
     }
-    let bound = false;
-    const bind = (_id: number) => {
-      bound = true;
-    };
-    pending.push({ item, bind });
-    setTimeout(() => {
-      if (!bound && !dispatcher) {
-        const idx = pending.findIndex((p) => p.item === item);
-        if (idx >= 0) pending.splice(idx, 1);
-        const fallback = window.prompt(
-          [options.title, typeof options.description === "string" ? options.description : ""]
-            .filter(Boolean)
-            .join("\n\n"),
-          options.defaultValue ?? "",
-        );
-        resolve(fallback);
-      }
-    }, 100);
+    pending.push(item);
   });
 }
 
@@ -191,21 +153,7 @@ export function choose(options: ChoiceOptions): Promise<string | null> {
       dispatcher.push(item);
       return;
     }
-    let bound = false;
-    const bind = (_id: number) => { bound = true; };
-    pending.push({ item, bind });
-    setTimeout(() => {
-      if (!bound && !dispatcher) {
-        const idx = pending.findIndex((entry) => entry.item === item);
-        if (idx >= 0) pending.splice(idx, 1);
-        const fallback = window.confirm(
-          [options.title, typeof options.description === "string" ? options.description : ""]
-            .filter(Boolean)
-            .join("\n\n"),
-        );
-        resolve(fallback ? options.choices[0]?.value ?? null : null);
-      }
-    }, 100);
+    pending.push(item);
   });
 }
 

@@ -2,9 +2,18 @@ export * from "./api.impl";
 
 import { api as baseApi, getBaseUrl, getCurrentWorkspace, getServerUrl } from "./api.impl";
 import { invalidateNotebooks } from "./notebookInvalidation";
-import { registerAttachmentAccessUrls } from "./noteAttachmentAccessBridge";
+import {
+  getPersistentAttachmentUrl,
+  registerAttachmentAccessUrls,
+} from "./noteAttachmentAccessBridge";
+import {
+  reportTransientNoteImageSource,
+  stabilizeNoteMutationPayload,
+} from "./noteContentPersistence";
 import { getProgressiveSearchExtraDelayMs } from "./searchRequestPolicy";
 import { installTaskOfflineApi } from "./taskOfflineApi";
+import { emitTaskReminderScheduleChanged } from "./taskNotificationSchedule";
+import { toast } from "./toast";
 import {
   fetchJsonWithUploadDeadline,
   isElectronFullLocalRuntime,
@@ -12,6 +21,7 @@ import {
   UploadRequestError,
 } from "./uploadRequest";
 import type { Note, SearchResult, Task } from "@/types";
+import { fetchWithAuthRefresh, getAccessToken } from "./authSession";
 
 export type TaskActivityEvent = {
   id: string;
@@ -51,8 +61,8 @@ type EnhancedApi = typeof baseApi & {
 };
 
 async function authenticatedJson<T>(path: string, init?: RequestInit): Promise<T> {
-  const token = localStorage.getItem("nowen-token");
-  const response = await fetch(`${getBaseUrl()}${path}`, {
+  const token = getAccessToken();
+  const response = await fetchWithAuthRefresh(`${getBaseUrl()}${path}`, {
     ...init,
     headers: {
       "Content-Type": "application/json",
@@ -60,7 +70,7 @@ async function authenticatedJson<T>(path: string, init?: RequestInit): Promise<T
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...(init?.headers || {}),
     },
-  });
+  }, getBaseUrl());
   const text = await response.text();
   let payload: any = null;
   if (text) {
@@ -127,6 +137,7 @@ let activeSearchController: AbortController | null = null;
 let activeSearchDelayTimer: ReturnType<typeof setTimeout> | null = null;
 let rejectActiveDelayedSearch: ((reason: unknown) => void) | null = null;
 let activeSearchSequence = 0;
+let lastReminderFailureToastAt = 0;
 
 function createSearchAbortError(): Error {
   if (typeof DOMException !== "undefined") {
@@ -172,9 +183,6 @@ function executeSearch(
     signal: controller.signal,
   }).catch((error) => {
     if ((error as { name?: string })?.name === "AbortError") throw error;
-    // Keep Android/native compatibility: api.impl's request wrapper can fall back to
-    // CapacitorHttp when WebView fetch is unavailable. This path is only used after the
-    // cancellable fetch itself has failed, never for an intentionally aborted stale request.
     return baseApi.search(normalized);
   }).finally(() => {
     options.signal?.removeEventListener("abort", abortFromCaller);
@@ -184,15 +192,6 @@ function executeSearch(
   });
 }
 
-/**
- * SearchCenter already debounces input by 180 ms, but requests that crossed that boundary used
- * to continue after the next keystroke. With synchronous better-sqlite3, obsolete M/MT literal
- * scans could therefore make the final MTU query wait several seconds on a low-power NAS.
- *
- * Latest-query-wins cancellation handles requests already in flight. One/two-character Latin
- * fragments receive an additional 420 ms grace period, so ordinary progressive typing never
- * sends them; when the user intentionally pauses on C or AI, the short query still executes.
- */
 api.search = ((q: string, options: SearchRequestOptions = {}) => {
   const normalized = q.trim();
   const sequence = ++activeSearchSequence;
@@ -238,9 +237,6 @@ api.search = ((q: string, options: SearchRequestOptions = {}) => {
   });
 }) as EnhancedApi["search"];
 
-// Multipart attachment uploads intentionally bypass api.impl's JSON request() wrapper. Give the
-// Nowen attachment target a hard deadline and a real AbortController so an unreachable NAS can no
-// longer leave the editor lifecycle stuck in "uploading" indefinitely.
 api.attachments.upload = (async (noteId: string, file: File) => {
   if (isExplicitlyOffline() && !isDesktopFullLocalUploadRuntime()) {
     throw offlineUploadError("当前处于离线状态，图片尚未上传；请恢复网络后重试");
@@ -264,7 +260,9 @@ api.attachments.upload = (async (noteId: string, file: File) => {
     },
   );
   registerAttachmentAccessUrls(payload.accessUrls, fullUrl);
-  return payload;
+  const stableUrl = getPersistentAttachmentUrl(payload.url)
+    || getPersistentAttachmentUrl(`/api/attachments/${payload.id}`);
+  return stableUrl ? { ...payload, url: stableUrl } : payload;
 }) as typeof baseApi.attachments.upload;
 
 const nativeMoveNotebook = baseApi.moveNotebook.bind(baseApi);
@@ -310,10 +308,16 @@ api.restoreTaskCompletedAt = (taskId: string, completedAt: string) =>
   });
 
 api.createNoteConfirmed = async (data: Partial<Note>) => {
-  const payload: Partial<Note> & { id: string } = {
-    ...data,
-    id: data.id || generateConfirmedNoteId(),
-  };
+  let payload: Partial<Note> & { id: string };
+  try {
+    payload = stabilizeNoteMutationPayload({
+      ...data,
+      id: data.id || generateConfirmedNoteId(),
+    });
+  } catch (error) {
+    reportTransientNoteImageSource(error, { operation: "createNoteConfirmed" });
+    throw error;
+  }
   const created = await confirmedNoteJson<Note>("/notes", {
     method: "POST",
     body: JSON.stringify(payload),
@@ -323,15 +327,21 @@ api.createNoteConfirmed = async (data: Partial<Note>) => {
 };
 
 api.updateNoteConfirmed = async (id: string, data: Partial<Note>) => {
+  let payload: Partial<Note>;
+  try {
+    payload = stabilizeNoteMutationPayload(data);
+  } catch (error) {
+    reportTransientNoteImageSource(error, { operation: "updateNoteConfirmed", noteId: id });
+    throw error;
+  }
   const updated = await confirmedNoteJson<Note>(`/notes/${encodeURIComponent(id)}`, {
     method: "PUT",
-    body: JSON.stringify(data),
+    body: JSON.stringify(payload),
   });
   void import("@/lib/syncEngine").then((module) => module.cacheNoteContent(updated)).catch(() => {});
   return updated;
 };
 
-// Preserve real completion time when a caller (notably task backup import) supplies it.
 const nativeCreateTask = baseApi.createTask.bind(baseApi);
 api.createTask = (async (data: Partial<Task>) => {
   const created = await nativeCreateTask(data);
@@ -350,8 +360,6 @@ api.createTask = (async (data: Partial<Task>) => {
   }
 }) as typeof baseApi.createTask;
 
-// Statistics only render the current year. Bound the collection request when callers
-// omit a range so long-lived workspaces do not download their entire check-in history.
 const nativeGetHabitCheckinLog = baseApi.getHabitCheckinLog.bind(baseApi);
 api.getHabitCheckinLog = ((params?: {
   from?: string;
@@ -370,5 +378,40 @@ installTaskOfflineApi(api, {
   getServerUrl,
   getWorkspaceId: getCurrentWorkspace,
 });
+
+api.createTaskReminder = (async (taskId: string, offsetMinutes: number) => {
+  let lastError: unknown;
+  const timezoneOffsetMinutes = new Date().getTimezoneOffset();
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const reminder = await authenticatedJson<Awaited<ReturnType<typeof baseApi.createTaskReminder>>>(
+        `/task-reminders/${encodeURIComponent(taskId)}`,
+        {
+          method: "POST",
+          body: JSON.stringify({ offsetMinutes, timezoneOffsetMinutes }),
+        },
+      );
+      emitTaskReminderScheduleChanged();
+      return reminder;
+    } catch (error) {
+      lastError = error;
+      const status = (error as { status?: number })?.status;
+      const retryable = status === undefined || status >= 500;
+      if (attempt === 0 && retryable) {
+        await new Promise((resolve) => setTimeout(resolve, 120));
+        continue;
+      }
+      break;
+    }
+  }
+
+  const now = Date.now();
+  if (now - lastReminderFailureToastAt > 2_000) {
+    lastReminderFailureToastAt = now;
+    toast.error("任务已创建，但提醒创建失败，请在提醒中心检查");
+  }
+  if (lastError instanceof Error) throw lastError;
+  throw new Error("Task reminder creation failed");
+}) as typeof baseApi.createTaskReminder;
 
 export { api };

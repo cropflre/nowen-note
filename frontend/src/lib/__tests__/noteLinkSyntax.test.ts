@@ -14,6 +14,12 @@ describe("note link syntax", () => {
   });
   it("detects an active CodeMirror wiki query", () => {
     expect(detectActiveWikiNoteQuery("文字 [[目标|别名", 20, 3)).toEqual({ query: "目标|别名", from: 6, to: 20 });
+    expect(detectActiveWikiNoteQuery("文字 【【目标|别名", 20, 3)).toEqual({ query: "目标|别名", from: 6, to: 20 });
+  });
+  it("uses the latest wiki trigger and stops after either closing bracket pair", () => {
+    expect(detectActiveWikiNoteQuery("[[旧 【【新", 7, 0)).toEqual({ query: "新", from: 4, to: 7 });
+    expect(detectActiveWikiNoteQuery("【【目标】】", 6, 0)).toBeNull();
+    expect(detectActiveWikiNoteQuery("[[目标]]", 6, 0)).toBeNull();
   });
   it("preprocesses links and embeds but preserves fenced code", () => {
     const md = `[[note:${ID}]]\n\n![[note:${ID}#blk:blk_target]]\n\n\`\`\`md\n[[note:${ID}]]\n\`\`\``;

@@ -154,6 +154,40 @@ export function normalizeServerBaseUrl(input: string | null | undefined): string
   return `${protocol}://${url.host}${pathPrefix}`;
 }
 
+/**
+ * Web 端被部署在反向代理子路径时，从当前页面地址推断 serverBaseUrl。
+ * 原生客户端与 Electron 使用显式服务器地址，不走这里。
+ */
+export function inferBrowserServerBaseUrl(
+  locationLike: Pick<Location, "protocol" | "origin" | "pathname"> | null =
+    typeof window !== "undefined" ? window.location : null,
+): string {
+  if (!locationLike || !/^https?:$/.test(locationLike.protocol)) return "";
+
+  let pathname = locationLike.pathname.replace(/\/+$/, "");
+  const routeSuffix = pathname.match(/\/(?:share|notebook-share)\/[A-Za-z0-9_-]+$/)?.[0]
+    || pathname.match(/\/public(?:\/[^/]+)?$/)?.[0]
+    || pathname.match(/\/login$/)?.[0]
+    || "";
+  if (routeSuffix) pathname = pathname.slice(0, -routeSuffix.length);
+  if (!pathname || pathname === "/") return "";
+  return normalizeServerBaseUrl(`${locationLike.origin}${pathname}`);
+}
+
+/** 把浏览器 pathname 转换为去除反代前缀后的应用内路由。 */
+export function stripServerBasePath(pathname: string, serverBaseUrl: string): string {
+  if (!serverBaseUrl) return pathname || "/";
+  try {
+    const basePath = new URL(serverBaseUrl).pathname.replace(/\/+$/, "");
+    if (!basePath || basePath === "/") return pathname || "/";
+    if (pathname === basePath) return "/";
+    if (pathname.startsWith(`${basePath}/`)) return pathname.slice(basePath.length) || "/";
+  } catch {
+    // 无效地址交给调用方按原路径处理。
+  }
+  return pathname || "/";
+}
+
 export function isValidServerUrl(input: string | null | undefined): boolean {
   return normalizeServerBaseUrl(input) !== "";
 }

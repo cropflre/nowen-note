@@ -44,7 +44,7 @@ type RoundTripImportFile = ImportFileInfo & {
   __nowenPackageKind?: string;
 };
 
-interface PackageManifestPreview {
+export interface PackageManifestPreview {
   format?: string;
   formatVersion?: number;
   packageKind?: string;
@@ -59,22 +59,50 @@ interface PackageManifestPreview {
 
 const HTML_IMPORT_SOURCES = new Set(["html", "xiaomi", "oppo", "vivo", "oneplus"]);
 
+export function parseRoundTripPackageManifest(source: string): PackageManifestPreview | null {
+  let manifest: PackageManifestPreview;
+  try {
+    manifest = JSON.parse(source) as PackageManifestPreview;
+  } catch {
+    return null;
+  }
+  if (manifest?.format !== "nowen-package") return null;
+  if (![1, 2].includes(Number(manifest.formatVersion))) {
+    throw new Error(`不支持的 Nowen 数据包版本：${String(manifest.formatVersion ?? "未知")}`);
+  }
+  return manifest;
+}
+
 async function readRoundTripManifest(file: File): Promise<PackageManifestPreview | null> {
+  let source: string;
   try {
     const JSZip = (await import("jszip")).default;
     const zip = await JSZip.loadAsync(file);
     const entry = zip.file("manifest.json");
     if (!entry) return null;
-    const manifest = JSON.parse(await entry.async("string")) as PackageManifestPreview;
-    if (
-      manifest?.format !== "nowen-package" ||
-      manifest?.app !== "nowen-note" ||
-      ![1, 2].includes(Number(manifest.formatVersion))
-    ) return null;
-    return manifest;
+    source = await entry.async("string");
   } catch {
     return null;
   }
+  return parseRoundTripPackageManifest(source);
+}
+
+export function createRoundTripPackageImportFile(
+  file: File,
+  manifest: PackageManifestPreview,
+): ImportFileInfo {
+  const title = file.name.replace(/(?:\.nowen)?\.zip$/i, "") || "Nowen 数据包";
+  return {
+    name: file.name,
+    title,
+    content: "",
+    size: file.size,
+    selected: true,
+    source: "nowen-package",
+    __nowenRoundTripPackage: file,
+    __nowenPackageVersion: Number(manifest.formatVersion),
+    __nowenPackageKind: manifest.packageKind || "nowen",
+  } as RoundTripImportFile;
 }
 
 /**
@@ -104,18 +132,7 @@ export async function readMarkdownFromZipWithMeta(
   const manifest = await readRoundTripManifest(file);
   if (!manifest) return readMarkdownFromZipWithMetaBase(file);
 
-  const title = file.name.replace(/(?:\.nowen)?\.zip$/i, "") || "Nowen 数据包";
-  const packageEntry: RoundTripImportFile = {
-    name: file.name,
-    title,
-    content: "",
-    size: file.size,
-    selected: true,
-    source: "nowen-package",
-    __nowenRoundTripPackage: file,
-    __nowenPackageVersion: Number(manifest.formatVersion),
-    __nowenPackageKind: manifest.packageKind || "nowen",
-  };
+  const packageEntry = createRoundTripPackageImportFile(file, manifest);
   const meta = {
     version: String(manifest.formatVersion || ""),
     app: "nowen-note",
@@ -167,7 +184,7 @@ export async function importNotes(
     });
     const decision = await requestRoundTripImportReview(copyPreview, {
       fileName: file.name,
-      targetLabel: targetLabel(options?.workspaceId),
+      targetLabel: options?.targetLabel || targetLabel(options?.workspaceId),
       source: "shared-import",
       initialStrategy: "copy",
       loadPreview: (strategy) => submitRoundTripPackage(file, {

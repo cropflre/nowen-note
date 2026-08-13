@@ -22,7 +22,14 @@ export interface RenderImageEditorOperationsOptions {
   image: CanvasImageSource;
   operations: ImageEditorOperation[];
   draftOperation?: ImageEditorOperation | null;
+  initialTransform?: Partial<ImageEditTransform>;
   maxEdge?: number;
+}
+
+export interface ContainedCanvasSize {
+  width: number;
+  height: number;
+  scale: number;
 }
 
 const DEFAULT_MAX_EDGE = 4096;
@@ -77,6 +84,31 @@ export function renderImageToCanvas(options: RenderImageToCanvasOptions): HTMLCa
   ctx.drawImage(image, -drawSize.width / 2, -drawSize.height / 2, drawSize.width, drawSize.height);
   ctx.restore();
   return canvas;
+}
+
+/** 使用单一缩放比例把 Canvas 放进编辑区域，避免宽高被分别约束后拉伸。 */
+export function fitCanvasToViewport(
+  imageWidth: number,
+  imageHeight: number,
+  availableWidth: number,
+  availableHeight: number,
+): ContainedCanvasSize | null {
+  if (
+    !Number.isFinite(imageWidth)
+    || !Number.isFinite(imageHeight)
+    || !Number.isFinite(availableWidth)
+    || !Number.isFinite(availableHeight)
+    || imageWidth <= 0
+    || imageHeight <= 0
+    || availableWidth <= 0
+    || availableHeight <= 0
+  ) return null;
+  const scale = Math.min(availableWidth / imageWidth, availableHeight / imageHeight, 1);
+  return {
+    width: imageWidth * scale,
+    height: imageHeight * scale,
+    scale,
+  };
 }
 
 function createCanvas(width: number, height: number): HTMLCanvasElement {
@@ -316,9 +348,14 @@ function cropCanvas(canvas: HTMLCanvasElement, rect: ImageCropRect): HTMLCanvasE
 export function renderImageEditorOperations(
   options: RenderImageEditorOperationsOptions,
 ): HTMLCanvasElement {
+  const initialTransform = options.initialTransform;
   let canvas = renderImageToCanvas({
     image: options.image,
-    transform: { rotate: 0, flipX: false, flipY: false },
+    transform: {
+      rotate: normalizeRotation(initialTransform?.rotate ?? 0),
+      flipX: initialTransform?.flipX === true,
+      flipY: initialTransform?.flipY === true,
+    },
     maxEdge: options.maxEdge,
   });
   const operations = options.draftOperation
@@ -358,7 +395,8 @@ export async function loadImageAsBitmap(src: string): Promise<HTMLImageElement |
   }
   if (typeof createImageBitmap === "function") {
     try {
-      return await createImageBitmap(blob);
+      // 与浏览器 <img> 保持相同的 EXIF Orientation 语义，避免手机照片宽高交换或二次旋转。
+      return await createImageBitmap(blob, { imageOrientation: "from-image" });
     } catch {
       // Safari 等环境可能没有完整 ImageBitmap 支持，继续走 img fallback。
     }

@@ -1,3 +1,5 @@
+import { inferBrowserServerBaseUrl } from "@/lib/serverUrl";
+
 export type PublicWebOriginSource = "settings" | "environment" | "build" | "current" | "relative";
 export type PublicWebOriginRisk = "none" | "verify" | "private-network" | "localhost" | "protected-gateway";
 
@@ -153,7 +155,8 @@ export function resolvePublicWebOrigin(options: PublicWebOriginOptions = {}): Pu
 
   const current = normalizePublicWebOrigin(
     options.currentOrigin ??
-      (typeof window !== "undefined" ? window.location.origin : ""),
+      (inferBrowserServerBaseUrl()
+        || (typeof window !== "undefined" ? window.location.origin : "")),
   );
   if (current) {
     // A current-origin fallback may be an intranet, VPN or authenticated gateway even when the

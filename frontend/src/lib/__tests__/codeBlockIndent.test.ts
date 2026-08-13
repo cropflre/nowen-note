@@ -7,6 +7,7 @@ import {
   IndentExtension,
   resolveIndentTargets,
 } from "@/lib/codeBlockIndent";
+import { repairTiptapJson } from "@/lib/tiptapSchemaRepair";
 
 const editors: Editor[] = [];
 
@@ -189,4 +190,24 @@ describe("code block indent commands", () => {
     expect(changeIndent(editor, 1)).toBe(false);
     expect(editor.state.doc.nodeAt(codePos)?.attrs.indent).toBe(0);
   });
+
+  it("preserves visual indent through the refresh schema-repair round trip", () => {
+    const repaired = repairTiptapJson({
+      type: "doc",
+      content: [
+        { type: "paragraph", attrs: { indent: 1 }, content: [{ type: "text", text: "one" }] },
+        { type: "heading", attrs: { level: 2, indent: 2 }, content: [{ type: "text", text: "two" }] },
+        {
+          type: "blockquote",
+          attrs: { indent: 3 },
+          content: [{ type: "paragraph", content: [{ type: "text", text: "three" }] }],
+        },
+      ],
+    }) as any;
+
+    expect(repaired.content[0].attrs.indent).toBe(1);
+    expect(repaired.content[1].attrs.indent).toBe(2);
+    expect(repaired.content[2].attrs.indent).toBe(3);
+  });
+
 });

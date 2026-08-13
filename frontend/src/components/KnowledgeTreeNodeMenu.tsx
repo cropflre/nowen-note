@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type RefObject } from "react";
 import {
   ArrowLeftRight,
   Download,
+  FileArchive,
   FileCode,
   FilePlus,
   FileText,
@@ -10,6 +11,7 @@ import {
   FolderPlus,
   Image as ImageIcon,
   Link2,
+  LayoutTemplate,
   Lock,
   LockKeyhole,
   MoreHorizontal,
@@ -33,9 +35,10 @@ import ContextMenu, { type ContextMenuItem } from "@/components/ContextMenu";
 import EmojiIconPicker from "@/components/EmojiPicker";
 import NotebookShareDialog from "@/components/NotebookShareDialog";
 import ShareModal from "@/components/ShareModal";
-import { confirm } from "@/components/ui/confirm";
+import { confirm, prompt } from "@/components/ui/confirm";
 import {
   importMarkdownIntoKnowledgeTree,
+  importMarkdownZipIntoKnowledgeTree,
   importWeChatArticleIntoKnowledgeTree,
   importWordIntoKnowledgeTree,
 } from "@/components/knowledgeTreeImport";
@@ -54,6 +57,7 @@ import {
   getNoteFormatConversionTarget,
   requestActiveNoteFormatConversion,
 } from "@/lib/noteFormatConversion";
+import { noteTemplatesApi } from "@/lib/noteTemplatesApi";
 import { toast } from "@/lib/toast";
 import { useApp, useAppActions } from "@/store/AppContext";
 import type { Notebook } from "@/types";
@@ -88,6 +92,7 @@ function separator(id: string): ContextMenuItem {
 function exportChildren(): ContextMenuItem[] {
   return [
     { id: "export_note_md", label: "Markdown", icon: <Download size={14} /> },
+    { id: "export_note_md_zip", label: "Markdown + 附件（ZIP）", icon: <Download size={14} /> },
     { id: "export_note_pdf", label: "PDF", icon: <Printer size={14} /> },
     { id: "export_note_png", label: "PNG", icon: <ImageIcon size={14} /> },
     { id: "export_note_jpg", label: "JPG", icon: <ImageIcon size={14} /> },
@@ -105,7 +110,8 @@ function createChildren(): ContextMenuItem[] {
 
 function importChildren(): ContextMenuItem[] {
   return [
-    { id: "import_markdown", label: "Markdown 文件", icon: <FileCode size={14} /> },
+    { id: "import_markdown", label: "Markdown", icon: <FileCode size={14} /> },
+    { id: "import_markdown_zip", label: "Markdown + 附件（ZIP）", icon: <FileArchive size={14} /> },
     { id: "import_word", label: "Word 文档", icon: <FileType2 size={14} /> },
     { id: "import_url", label: "公众号文章", icon: <Link2 size={14} /> },
   ];
@@ -166,6 +172,18 @@ export function buildKnowledgeTreeNodeMenuItems(
         disabled: !note || note.isLocked === 1,
       },
     );
+  }
+
+  if (isDocument && capabilities.canEdit) {
+    if (!isOwned) items.push(separator("sep-note-template"));
+    items.push({
+      id: "save_as_template",
+      label: "保存为模板",
+      icon: <LayoutTemplate size={14} />,
+      disabled: !note
+        || note.isLocked === 1
+        || (note.contentFormat !== "markdown" && note.contentFormat !== "tiptap-json"),
+    });
   }
 
   const management: ContextMenuItem[] = [];
@@ -335,6 +353,20 @@ export default function KnowledgeTreeNodeMenu({
     actions.refreshNotebooks();
   };
 
+  const importMarkdownZip = async () => {
+    if (!node) return;
+    const imported = await importMarkdownZipIntoKnowledgeTree({
+      parent: node,
+      nodes,
+      fallbackNotebookId: state.activeNote?.notebookId || state.selectedNotebookId,
+    });
+    if (!imported) return;
+    openLoadedNote(imported);
+    await onReload();
+    actions.refreshNotes();
+    actions.refreshNotebooks();
+  };
+
   const importUrl = async () => {
     if (!node) return;
     const imported = await importWeChatArticleIntoKnowledgeTree({
@@ -419,6 +451,25 @@ export default function KnowledgeTreeNodeMenu({
     toast.success(`已转换为${targetLabel}`);
   };
 
+  const saveAsTemplate = async () => {
+    if (!node || node.resourceType !== "note") return;
+    const current = note || await api.getNote(node.resourceId);
+    const name = await prompt({
+      title: "保存为模板",
+      description: "模板会保存当前笔记内容和本地附件的独立快照。",
+      defaultValue: current.title || node.title,
+      confirmText: "保存",
+      validate: (value) => {
+        const length = value.trim().length;
+        if (length === 0) return "模板名称不能为空";
+        return length > 200 ? "模板名称不能超过 200 个字符" : null;
+      },
+    });
+    if (name == null) return;
+    await noteTemplatesApi.createFromNote(current.id, name.trim());
+    toast.success("已保存为模板");
+  };
+
   const exportFolder = async () => {
     if (!node || node.resourceType !== "notebook") return;
     const { ids, names } = descendantNotebookResources(node, nodes);
@@ -443,8 +494,10 @@ export default function KnowledgeTreeNodeMenu({
     const noteId = node.resourceId;
     const toastId = toast.info(`正在导出“${node.title}”…`, 0);
     try {
-      if (actionId === "export_note_md") {
-        const ok = await exportSingleNote(noteId);
+      if (actionId === "export_note_md" || actionId === "export_note_md_zip") {
+        const ok = await exportSingleNote(noteId, {
+          forceZip: actionId === "export_note_md_zip",
+        });
         if (!ok) throw new Error("导出失败");
       } else if (actionId === "export_note_pdf") {
         const result = await exportSingleNoteAsPDF(noteId);
@@ -486,6 +539,7 @@ export default function KnowledgeTreeNodeMenu({
       "new_markdown",
       "new_folder",
       "import_markdown",
+      "import_markdown_zip",
       "import_word",
       "import_url",
       "export_folder",
@@ -504,12 +558,14 @@ export default function KnowledgeTreeNodeMenu({
         case "new_markdown": onCreate(node, "markdown"); break;
         case "new_folder": onCreate(node, "folder"); break;
         case "import_markdown": await importMarkdown(); break;
+        case "import_markdown_zip": await importMarkdownZip(); break;
         case "import_word": await importWord(); break;
         case "import_url": await importUrl(); break;
         case "toggle_pin": await patchNote({ isPinned: note?.isPinned === 1 ? 0 : 1 }); break;
         case "toggle_favorite": await patchNote({ isFavorite: note?.isFavorite === 1 ? 0 : 1 }); break;
         case "toggle_lock": await patchNote({ isLocked: note?.isLocked === 1 ? 0 : 1 }); break;
         case "convert_format": await convertFormat(); break;
+        case "save_as_template": await saveAsTemplate(); break;
         case "rename": await onRename(node); break;
         case "move": onMove(node); break;
         case "permissions": onPermissions(node); break;

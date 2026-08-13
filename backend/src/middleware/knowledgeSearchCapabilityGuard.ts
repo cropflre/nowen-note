@@ -1,5 +1,10 @@
 import type { Context, Next } from "hono";
 
+import { getDb } from "../db/schema.js";
+import {
+  canViewNoteThroughFolderPasswords,
+  resolveUnlockedFolderNodeIds,
+} from "../lib/knowledgeTreePasswordAccess.js";
 import {
   hasKnowledgeCapability,
   resolveResourceKnowledgeAccess,
@@ -26,13 +31,20 @@ export async function enforceKnowledgeSearchVisibility(c: Context, next: Next): 
   if (!Array.isArray(payload)) return;
 
   const userId = c.req.header("X-User-Id") || "";
+  const db = getDb();
+  const unlockedFolderNodeIds = resolveUnlockedFolderNodeIds(
+    db,
+    userId,
+    c.req.header("X-Folder-Unlock-Tokens"),
+  );
   const filtered = payload.filter((row) => {
     const noteId = row && typeof row === "object" && typeof (row as any).id === "string"
       ? (row as any).id
       : "";
     if (!noteId) return false;
     const access = resolveResourceKnowledgeAccess("note", noteId, userId);
-    return hasKnowledgeCapability(access, "canView");
+    return hasKnowledgeCapability(access, "canView")
+      && canViewNoteThroughFolderPasswords(db, noteId, unlockedFolderNodeIds);
   });
 
   if (filtered.length === payload.length) return;

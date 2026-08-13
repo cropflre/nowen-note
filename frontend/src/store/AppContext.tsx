@@ -49,6 +49,8 @@ interface AppState {
   activeNote: Note | null;
   tags: Tag[];
   selectedNotebookId: string | null;
+  /** 三栏知识树当前层：undefined 表示沿用旧 notebook 选择，null 表示知识树根目录。 */
+  selectedKnowledgeTreeParentId: string | null | undefined;
   selectedTagId: string | null;          // 已废弃，保留兼容；优先使用 selectedTagIds
   selectedTagIds: string[];              // TAG-FILTER-MULTI-01: 多标签联合筛选
   viewMode: ViewMode;
@@ -88,6 +90,7 @@ type Action =
   | { type: "SET_ACTIVE_NOTE"; payload: Note | null }
   | { type: "SET_TAGS"; payload: Tag[] }
   | { type: "SET_SELECTED_NOTEBOOK"; payload: string | null }
+  | { type: "SET_SELECTED_KNOWLEDGE_TREE_PARENT"; payload: string | null | undefined }
   | { type: "SET_SELECTED_TAG"; payload: string | null }
   | { type: "SET_SELECTED_TAGS"; payload: string[] }        // TAG-FILTER-MULTI-01
   | { type: "TOGGLE_SELECTED_TAG"; payload: string }        // TAG-FILTER-MULTI-01
@@ -198,6 +201,7 @@ const initialState: AppState = {
   activeNote: null,
   tags: [],
   selectedNotebookId: null,
+  selectedKnowledgeTreeParentId: undefined,
   selectedTagId: null,
   selectedTagIds: [],
   viewMode: "all",
@@ -255,7 +259,13 @@ function reducer(state: AppState, action: Action): AppState {
     case "SET_TAGS":
       return { ...state, tags: action.payload };
     case "SET_SELECTED_NOTEBOOK":
-      return { ...state, selectedNotebookId: action.payload };
+      return {
+        ...state,
+        selectedNotebookId: action.payload,
+        selectedKnowledgeTreeParentId: undefined,
+      };
+    case "SET_SELECTED_KNOWLEDGE_TREE_PARENT":
+      return { ...state, selectedKnowledgeTreeParentId: action.payload };
     case "SET_SELECTED_TAG": {
       // 兼容旧调用：同步更新 selectedTagId + selectedTagIds
       const id = action.payload;
@@ -536,6 +546,10 @@ export function useAppActions() {
     setActiveNote: (v: Note | null) => dispatch({ type: "SET_ACTIVE_NOTE", payload: v }),
     setTags: (v: Tag[]) => dispatch({ type: "SET_TAGS", payload: v }),
     setSelectedNotebook: (v: string | null) => dispatch({ type: "SET_SELECTED_NOTEBOOK", payload: v }),
+    setSelectedKnowledgeTreeParent: (v: string | null | undefined) => dispatch({
+      type: "SET_SELECTED_KNOWLEDGE_TREE_PARENT",
+      payload: v,
+    }),
     setSelectedTag: (v: string | null) => dispatch({ type: "SET_SELECTED_TAG", payload: v }),
     setSelectedTags: (v: string[]) => dispatch({ type: "SET_SELECTED_TAGS", payload: v }),
     toggleSelectedTag: (v: string) => dispatch({ type: "TOGGLE_SELECTED_TAG", payload: v }),

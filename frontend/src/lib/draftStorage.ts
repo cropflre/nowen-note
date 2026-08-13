@@ -1,3 +1,8 @@
+import {
+  reportTransientNoteImageSource,
+  stabilizeNoteContentForPersistence,
+} from "@/lib/noteContentPersistence";
+
 const DRAFT_KEY_PREFIX = "nowen-draft-";
 const DRAFT_INDEX_KEY = "nowen-draft-index";
 const MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
@@ -126,17 +131,28 @@ function removeDraftNow(noteId: string): void {
 
 export function saveDraft(draft: NoteDraft): void {
   if (!draft.noteId || draft.noteId.startsWith("local-")) return;
-  // A new editor snapshot invalidates any delayed cleanup created by an older ACK.
-  cancelPendingClear(draft.noteId);
-  const merged = mergeDraft(readRawDraft(draft.noteId), draft);
+  let stableDraft = draft;
   try {
-    localStorage.setItem(keyOf(draft.noteId), JSON.stringify(merged));
-    addToIndex(draft.noteId);
+    const content = stabilizeNoteContentForPersistence(
+      draft.content,
+      draft.editorMode === "tiptap" ? "tiptap-json" : "markdown",
+    );
+    if (content !== draft.content) stableDraft = { ...draft, content };
+  } catch (error) {
+    reportTransientNoteImageSource(error, { operation: "saveDraft", noteId: draft.noteId });
+    return;
+  }
+  // A new editor snapshot invalidates any delayed cleanup created by an older ACK.
+  cancelPendingClear(stableDraft.noteId);
+  const merged = mergeDraft(readRawDraft(stableDraft.noteId), stableDraft);
+  try {
+    localStorage.setItem(keyOf(stableDraft.noteId), JSON.stringify(merged));
+    addToIndex(stableDraft.noteId);
   } catch (error) {
     try {
       pruneOldest();
-      localStorage.setItem(keyOf(draft.noteId), JSON.stringify(merged));
-      addToIndex(draft.noteId);
+      localStorage.setItem(keyOf(stableDraft.noteId), JSON.stringify(merged));
+      addToIndex(stableDraft.noteId);
     } catch {
       console.warn("[draftStorage] saveDraft failed:", error);
     }

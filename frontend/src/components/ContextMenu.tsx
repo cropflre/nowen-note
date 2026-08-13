@@ -44,6 +44,10 @@ interface ContextMenuProps {
   header?: string;
 }
 
+const contextMenuRowClassName =
+  "w-full h-9 flex items-center gap-2 px-3 text-sm transition-colors duration-150 ease-out";
+const contextMenuIconClassName = "w-4 h-4 flex items-center justify-center shrink-0";
+
 function buildNotebookTree(notebooks: Notebook[]): Notebook[] {
   const map = new Map<string, Notebook>();
   const roots: Notebook[] = [];
@@ -336,6 +340,7 @@ export default function ContextMenu({
           icon: <Download size={14} />,
           children: [
             { id: "export_md", label: t("noteList.exportAsMarkdown") || "Markdown", icon: <Download size={14} /> },
+            { id: "export_md_zip", label: t("noteList.exportAsMarkdownZip") || "Markdown + 附件（ZIP）", icon: <Download size={14} /> },
             { id: "export_pdf", label: t("noteList.exportAsPDF") || "PDF", icon: <Printer size={14} /> },
             { id: "export_png", label: t("note.exportAsPng") || "PNG", icon: <ImageIcon size={14} /> },
             { id: "export_jpg", label: t("note.exportAsJpg") || "JPG", icon: <ImageIcon size={14} /> },
@@ -487,10 +492,12 @@ export default function ContextMenu({
 
     closeOwnerMenu();
 
-    if (actionId === "export_md") {
+    if (actionId === "export_md" || actionId === "export_md_zip") {
       const toastId = toast.info(t("export.exportingNote", { name: header || t("common.untitledNote") }), 0);
       try {
-        const ok = await exportSingleNote(currentTargetId);
+        const ok = await exportSingleNote(currentTargetId, {
+          forceZip: actionId === "export_md_zip",
+        });
         toast.dismiss(toastId);
         ok ? toast.success(t("export.exportComplete")) : toast.error(t("export.exportFailed", { error: "" }));
       } catch (err: any) {
@@ -590,7 +597,10 @@ export default function ContextMenu({
             zIndex: 100,
             animation: "contextMenuIn 0.12s ease-out",
           }}
-          className="w-48 max-h-[calc(100dvh-16px)] overflow-y-auto overscroll-contain sm:max-h-none sm:overflow-visible backdrop-blur-xl bg-white/90 dark:bg-zinc-900/90 rounded-[12px] shadow-lg shadow-black/[0.08] dark:shadow-black/30 border border-black/[0.06] dark:border-white/[0.08] py-1 select-none"
+          className={cn(
+            "w-48 max-h-[calc(100dvh-16px)] overflow-y-auto overscroll-contain sm:max-h-none sm:overflow-visible backdrop-blur-xl bg-white/90 dark:bg-zinc-900/90 rounded-[12px] shadow-lg shadow-black/[0.08] dark:shadow-black/30 border border-black/[0.06] dark:border-white/[0.08] py-1 select-none",
+            activeSubmenu && "max-sm:w-max max-sm:min-w-[13.5rem] max-sm:max-w-[calc(100vw-16px)]",
+          )}
         >
           {header && (
             <div className="px-3 py-1.5 text-[11px] font-medium text-tx-tertiary border-b border-black/[0.06] dark:border-white/[0.08] mb-0.5 truncate">
@@ -606,10 +616,13 @@ export default function ContextMenu({
                   e.stopPropagation();
                   setSubmenuParentId(null);
                 }}
-                className="w-full flex items-center gap-2 px-3 py-2 text-sm font-medium text-zinc-700 dark:text-zinc-300 hover:bg-black/[0.04] dark:hover:bg-white/[0.06]"
+                className={cn(
+                  contextMenuRowClassName,
+                  "font-medium text-zinc-700 dark:text-zinc-300 hover:bg-black/[0.04] dark:hover:bg-white/[0.06]",
+                )}
               >
-                <ChevronLeft size={14} className="text-tx-tertiary" />
-                {activeSubmenu.label}
+                <ChevronLeft size={14} className="text-tx-tertiary shrink-0" />
+                <span className="truncate whitespace-nowrap">{activeSubmenu.label}</span>
               </button>
               <div className="h-px bg-black/[0.06] dark:bg-white/[0.08] mx-2 mb-1" />
               {activeSubmenu.children?.map((child) => (
@@ -624,13 +637,13 @@ export default function ContextMenu({
                     if (!child.disabled) void handleSpecialInlineNoteAction(child.id);
                   }}
                   className={cn(
-                    "w-full flex items-center gap-2 px-3 py-2 text-sm transition-colors duration-150 ease-out",
+                    contextMenuRowClassName,
                     child.disabled && "opacity-40 cursor-not-allowed",
                     "text-zinc-700 dark:text-zinc-300 hover:bg-black/[0.04] dark:hover:bg-white/[0.06] hover:text-tx-primary",
                   )}
                 >
-                  {child.icon && <span className="w-4 h-4 flex items-center justify-center">{child.icon}</span>}
-                  {child.label}
+                  {child.icon && <span className={contextMenuIconClassName}>{child.icon}</span>}
+                  <span className="truncate whitespace-nowrap">{child.label}</span>
                 </button>
               ))}
             </div>
@@ -663,17 +676,18 @@ export default function ContextMenu({
                     if (!item.disabled) setSubmenuParentId(item.id);
                   }}
                   className={cn(
-                    "w-full flex items-center justify-between gap-2 px-3 py-2 text-sm transition-colors duration-150 ease-out",
+                    contextMenuRowClassName,
+                    "justify-between",
                     item.disabled && "opacity-40 cursor-not-allowed",
                     submenuParentId === item.id && "bg-black/[0.04] dark:bg-white/[0.06]",
                     "text-zinc-700 dark:text-zinc-300 hover:bg-black/[0.04] dark:hover:bg-white/[0.06] hover:text-tx-primary",
                   )}
                 >
-                  <span className="flex items-center gap-2">
-                    {item.icon && <span className="w-4 h-4 flex items-center justify-center">{item.icon}</span>}
-                    {item.label}
+                  <span className="flex items-center gap-2 min-w-0">
+                    {item.icon && <span className={contextMenuIconClassName}>{item.icon}</span>}
+                    <span className="truncate whitespace-nowrap">{item.label}</span>
                   </span>
-                  <ChevronRight size={12} className="text-tx-tertiary" />
+                  <ChevronRight size={12} className="text-tx-tertiary shrink-0" />
                 </button>
                 {submenuParentId === item.id && (
                   <div
@@ -684,7 +698,7 @@ export default function ContextMenu({
                         ? { right: "calc(100% + 4px)" }
                         : { left: "calc(100% + 4px)" }),
                     }}
-                    className="absolute w-40 max-h-[calc(100dvh-16px)] overflow-y-auto overscroll-contain backdrop-blur-xl bg-white/90 dark:bg-zinc-900/90 rounded-[12px] shadow-lg shadow-black/[0.08] dark:shadow-black/30 border border-black/[0.06] dark:border-white/[0.08] py-1 z-[101]"
+                    className="absolute w-max min-w-[13.5rem] max-w-[calc(100vw-16px)] max-h-[calc(100dvh-16px)] overflow-y-auto overscroll-contain backdrop-blur-xl bg-white/90 dark:bg-zinc-900/90 rounded-[12px] shadow-lg shadow-black/[0.08] dark:shadow-black/30 border border-black/[0.06] dark:border-white/[0.08] py-1 z-[101]"
                     onMouseEnter={() => {
                       if (submenuCloseTimer.current) clearTimeout(submenuCloseTimer.current);
                     }}
@@ -704,13 +718,13 @@ export default function ContextMenu({
                           if (!child.disabled) void handleSpecialInlineNoteAction(child.id);
                         }}
                         className={cn(
-                          "w-full flex items-center gap-2 px-3 py-1.5 text-xs transition-colors duration-150 ease-out",
+                          contextMenuRowClassName,
                           child.disabled && "opacity-40 cursor-not-allowed",
                           "text-zinc-700 dark:text-zinc-300 hover:bg-black/[0.04] dark:hover:bg-white/[0.06] hover:text-tx-primary",
                         )}
                       >
-                        {child.icon && <span className="w-3.5 h-3.5 flex items-center justify-center">{child.icon}</span>}
-                        {child.label}
+                        {child.icon && <span className={contextMenuIconClassName}>{child.icon}</span>}
+                        <span className="truncate whitespace-nowrap">{child.label}</span>
                       </button>
                     ))}
                   </div>
@@ -726,15 +740,15 @@ export default function ContextMenu({
                   if (!item.disabled) void handleSpecialInlineNoteAction(item.id);
                 }}
                 className={cn(
-                  "w-full flex items-center gap-2 px-3 py-2 text-sm transition-colors duration-150 ease-out",
+                  contextMenuRowClassName,
                   item.disabled && "opacity-40 cursor-not-allowed",
                   item.danger
                     ? "text-red-600 dark:text-red-400 hover:bg-red-50/60 dark:hover:bg-red-900/20"
                     : "text-zinc-700 dark:text-zinc-300 hover:bg-black/[0.04] dark:hover:bg-white/[0.06] hover:text-tx-primary",
                 )}
               >
-                {item.icon && <span className="w-4 h-4 flex items-center justify-center">{item.icon}</span>}
-                {item.label}
+                {item.icon && <span className={contextMenuIconClassName}>{item.icon}</span>}
+                <span className="truncate whitespace-nowrap">{item.label}</span>
               </button>
               ),
             )}

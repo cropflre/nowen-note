@@ -1,3 +1,5 @@
+import i18n from "../i18n";
+
 /**
  * 统一时间解析与本地输入转换工具。
  *
@@ -68,6 +70,10 @@ function resolveLocalOffsetMinutes(
     parts.minute,
     parts.second,
   ).getTimezoneOffset();
+}
+
+function getAppLocale(): string | undefined {
+  return i18n.resolvedLanguage || i18n.language || undefined;
 }
 
 /**
@@ -152,7 +158,7 @@ export function localDateRangeToUtcSqlBounds(
   };
 }
 
-/** 解析后端时间并格式化为本地时间字符串。 */
+/** 解析后端时间并按当前应用语言格式化为本地时间字符串。 */
 export function formatServerTime(
   ts: string | undefined | null,
   options?: Intl.DateTimeFormatOptions,
@@ -160,15 +166,16 @@ export function formatServerTime(
 ): string {
   const date = parseServerTime(ts);
   if (!date) return fallback ?? ts ?? "";
-  return options ? date.toLocaleString(undefined, options) : date.toLocaleString();
+  const locale = getAppLocale();
+  return options ? date.toLocaleString(locale, options) : date.toLocaleString(locale);
 }
 
-/** 解析后端时间并格式化为本地日期字符串。 */
+/** 解析后端时间并按当前应用语言格式化为本地日期字符串。 */
 export function formatServerDate(
   ts: string | undefined | null,
   options?: Intl.DateTimeFormatOptions,
 ): string {
   const date = parseServerTime(ts);
   if (!date) return ts ?? "";
-  return date.toLocaleDateString(undefined, options);
+  return date.toLocaleDateString(getAppLocale(), options);
 }

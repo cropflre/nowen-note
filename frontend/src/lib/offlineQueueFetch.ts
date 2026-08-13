@@ -3,6 +3,10 @@
  * the normal API wrapper so a failed replay cannot enqueue itself again.
  */
 import { getBaseUrl } from "@/lib/api";
+import {
+  reportTransientNoteImageSource,
+  stabilizeNoteMutationPayload,
+} from "@/lib/noteContentPersistence";
 
 function getToken(): string | null {
   return localStorage.getItem("nowen-token");
@@ -15,6 +19,19 @@ export async function offlineQueueFetch(
 ): Promise<{ ok: boolean; status: number; data?: any }> {
   const token = getToken();
   const fullUrl = `${getBaseUrl()}${url}`;
+  let stableBody = body;
+  if (body) {
+    try {
+      stableBody = stabilizeNoteMutationPayload(body);
+    } catch (error) {
+      reportTransientNoteImageSource(error, { operation: "replayOfflineQueue", url });
+      return {
+        ok: false,
+        status: 400,
+        data: { code: "TRANSIENT_IMAGE_SOURCE", error: "离线队列包含无法恢复的临时图片地址" },
+      };
+    }
+  }
 
   const response = await fetch(fullUrl, {
     method,
@@ -22,7 +39,7 @@ export async function offlineQueueFetch(
       "Content-Type": "application/json",
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
-    body: body ? JSON.stringify(body) : undefined,
+    body: stableBody ? JSON.stringify(stableBody) : undefined,
   });
 
   let data: any;

@@ -17,6 +17,7 @@ import {
 import {
   capabilitiesToLegacyPermission,
   resolveResourceKnowledgeAccess,
+  resolveResourceKnowledgeAccessForTombstone,
 } from "../services/knowledgeCapabilities";
 import {
   aclQueryRepository,

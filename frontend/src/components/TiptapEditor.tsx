@@ -1,4 +1,6 @@
 import React, { forwardRef, lazy, Suspense, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
+import { Capacitor } from "@capacitor/core";
+import { Keyboard } from "@capacitor/keyboard";
 import { sanitizeForPaste } from "@/lib/sanitizeHtml";
 import { createPortal } from "react-dom";
 import { useEditor, Editor, EditorContent, Extension, ReactNodeViewRenderer } from "@tiptap/react";
@@ -16,6 +18,7 @@ import Placeholder from "@tiptap/extension-placeholder";
 import Image from "@tiptap/extension-image";
 import ResizableImageView from "./ResizableImageView";
 import ImageEditDialog from "@/components/image-editor/ImageEditDialog";
+import FullscreenImageViewer, { type FullscreenImageItem } from "@/components/FullscreenImageViewer";
 import { editedImageBlobToFile, isSvgImageSource } from "@/components/image-editor/imageEditService";
 import { TableGridPicker, TableResizeDialog } from "./TableGridPicker";
 import { CodeBlock, type CodeBlockOptions } from "@tiptap/extension-code-block";
@@ -53,6 +56,7 @@ import { CellSelection } from "@tiptap/pm/tables";
 import { markdownToSimpleHtml } from "@/lib/importService";
 import { repairTiptapJson } from "@/lib/tiptapSchemaRepair";
 import { markdownToHtml as mdToFullHtml, detectFormat as detectContentFormat, tiptapJsonToMarkdown } from "@/lib/contentFormat";
+import { findInternalMarkdownMarkerRanges } from "@/lib/markdownUserContent";
 import { shouldEmitTitleUpdate, shouldSkipTitleChange, shouldSyncTitleValue } from "@/lib/titleIme";
 import { resolveEditorLifecycleSave } from "@/lib/editorLifecycleSafety";
 import { api, resolveAttachmentUrl } from "@/lib/api";
@@ -62,6 +66,7 @@ import {
   isInlineVideoAttachment,
 } from "@/lib/existingAttachmentInsert";
 import {
+  buildEditedImageAttrs,
   buildReplacedImageAttrs,
   getImageCopySource,
   getImageDownloadFilename,
@@ -75,19 +80,23 @@ import { extractRtfImagesAsync } from "@/lib/rtfImageWorkerClient";
 import { replaceDataUrlImagesWithAttachments } from "@/lib/rtfImageUploader";
 import { shouldLocalizeUrl } from "@/lib/remoteImageLocalizer";
 import {
-  analyzeRiskyForegroundColors,
+  normalizeTiptapAttachmentSources,
+  reportTransientNoteImageSource,
+  stabilizeNoteContentForPersistence,
+} from "@/lib/noteContentPersistence";
+import {
   normalizeLegacyFontColors,
-  stripExplicitForegroundColors,
 } from "@/lib/pasteForegroundColor";
 import {
   Bold, Italic, Underline as UnderlineIcon, Strikethrough,
   List, ListOrdered, Heading1, Heading2, Heading3, Heading4, Heading5, Heading6,
   Quote, ImagePlus, Film, Paperclip, CheckSquare, Highlighter, Minus, Undo, Redo,
-  Code, FileCode, Sparkles, X, ZoomIn, ZoomOut, RotateCcw,
+  Code, FileCode, Sparkles, X,
   Indent, Outdent, AlignLeft, AlignCenter, AlignRight, Trash2,
   FileType, Check, AlertCircle, Info, ArrowUp, Copy, Link as LinkIcon,
   ExternalLink, Unlink2, Workflow, Sigma, BookOpen, Download, Phone,
   Type, Palette, Eraser, Paintbrush, ChevronDown, Search, Upload, FolderSearch, ClipboardPlus,
+  FlipHorizontal, MoreHorizontal, RotateCcw, RotateCw, Scan,
   // 表格气泡菜单图标
   Rows3, Columns3, Merge, Split, Heading, Network,
 } from "lucide-react";
@@ -100,20 +109,24 @@ import {
 } from "@/lib/tiptapEditorScrollLayout";
 import { resolveEditorBubbleKind, type BubbleSelectionKind } from "@/lib/editorBubbleSelection";
 import { toast } from "@/lib/toast";
+import { decideAttachmentPrimaryAction, detectAttachmentPreviewKind } from "@/lib/attachmentOpenStrategy";
 import { copyText } from "@/lib/clipboard";
 import { openTaskQuickCapture } from "@/lib/taskInboxApi";
 import { saveAs } from "file-saver";
 import { findTextAction, type TextAction } from "@/lib/textActions";
-import { choose as chooseDialog, prompt as promptDialog } from "@/components/ui/confirm";
-import { Note, Tag, type FileItem } from "@/types";
+import { prompt as promptDialog } from "@/components/ui/confirm";
+import { normalizeImageFlipX, normalizeImageRotation, type ImageRotation } from "@/lib/imageNodeTransformBootstrap";
+import { registerMobileBackHandler } from "@/lib/mobileBackNavigation";
+import { Note, Tag, type FileDetail, type FileItem } from "@/types";
 import TagInput from "@/components/TagInput";
 import AIWritingAssistant from "@/components/AIWritingAssistant";
 import type { NoteEditorHandle, NoteEditorHeading, NoteEditorProps } from "@/components/editors/types";
 import type { FormatMenuPayload } from "@/lib/desktopBridge";
-import { sendFormatState } from "@/lib/desktopBridge";
+import { openDesktopAttachmentWithSystem, sendFormatState } from "@/lib/desktopBridge";
 import { SlashCommandsMenu, getDefaultSlashCommands, createSlashExtension, createSlashEventHandlers } from "@/components/SlashCommands";
 import { NoteLinkMenu, type NoteSearchResult, type NoteLinkBlockItem, type NoteLinkSelectionOptions } from "@/components/NoteLinkExtension";
 import { NoteLinkHoverPreview } from "@/components/NoteLinkPreview";
+import { detectActiveWikiNoteQuery } from "@/lib/noteLinkSyntax";
 import { BlockEmbedExtension } from "@/components/BlockEmbedExtension";
 import { consumeBlockNavigation, subscribeBlockNavigation } from "@/lib/blockNavigation";
 import { MarkdownEnhancements } from "@/components/MarkdownEnhancements";
@@ -992,9 +1005,10 @@ interface ToolbarButtonProps {
   children: React.ReactNode;
   title?: string;
   compact?: boolean;
+  className?: string;
 }
 
-function ToolbarButton({ onClick, isActive, disabled, children, title, compact }: ToolbarButtonProps) {
+function ToolbarButton({ onClick, isActive, disabled, children, title, compact, className }: ToolbarButtonProps) {
   return (
     <button
       type="button"
@@ -1007,7 +1021,8 @@ function ToolbarButton({ onClick, isActive, disabled, children, title, compact }
         isActive
           ? "bg-accent-primary/20 text-accent-primary"
           : "text-tx-secondary hover:bg-app-hover hover:text-tx-primary",
-        disabled && "opacity-30 cursor-not-allowed"
+        disabled && "opacity-30 cursor-not-allowed",
+        className,
       )}
     >
       {children}
@@ -1490,6 +1505,39 @@ type TiptapEditorProps = NoteEditorProps & {
   useParentScrollContainer?: boolean;
 };
 
+type EditorImageTarget = {
+  imagePos: number;
+  originalSrc: string;
+  filename: string;
+  rotation: ImageRotation;
+  flipX: boolean;
+};
+
+type ImageViewerState = {
+  images: FullscreenImageItem[];
+  targets: Array<EditorImageTarget | null>;
+  initialIndex: number;
+};
+
+function resolveEditorImageTargetPosition(
+  editor: Editor,
+  target: Pick<EditorImageTarget, "imagePos" | "originalSrc">,
+): number | null {
+  const preferred = editor.state.doc.nodeAt(target.imagePos);
+  if (
+    isImageReplaceTargetNode(preferred)
+    && String(preferred.attrs.src || "") === target.originalSrc
+  ) return target.imagePos;
+
+  const matches: number[] = [];
+  editor.state.doc.descendants((node, pos) => {
+    if (node.type.name === "image" && String(node.attrs.src || "") === target.originalSrc) {
+      matches.push(pos);
+    }
+  });
+  return matches.length === 1 ? matches[0] : null;
+}
+
 function extractHeadings(editor: any): NoteEditorHeading[] {
   const headings: NoteEditorHeading[] = [];
   const doc = editor.state.doc;
@@ -1549,7 +1597,7 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
     useParentScrollContainer,
     !presentationMode,
   );
-  const titleRef = useRef<HTMLInputElement>(null);
+  const titleRef = useRef<HTMLTextAreaElement>(null);
   const debounceTimer = useRef<NodeJS.Timeout | null>(null);
   const derivedTimer = useRef<NodeJS.Timeout | null>(null);
   const analysisControllerRef = useRef<TiptapAnalysisController | null>(null);
@@ -1578,26 +1626,20 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
   const [showAI, setShowAI] = useState(false);
   const [aiSelectedText, setAiSelectedText] = useState("");
   const [aiPosition, setAiPosition] = useState<{ top: number; left: number } | undefined>();
-  // 内嵌附件预览：点编辑器里 📎 附件链接 → 右侧抽屉显示附件详情。
+  // 附件详情：内联可预览附件进入右侧抽屉；桌面本地办公附件优先交给系统程序打开。
   // 采用 attachmentId 走 api.files.get 拿完整详情（包含外链分享 / 重命名 / 引用列表），
   // 与文件管理抽屉体验一致。
-  // - id：从 /api/attachments/<uuid> 抠出。
-  // - isDocx：docx 走中转渲染（支持上传新版本）；其他走默认 AttachmentPreview。
   const [attachmentPreview, setAttachmentPreview] = useState<
-    { id: string; isDocx: boolean; filename: string } | null
-  >(null);  // 图片预览状态
+    { id: string; isDocx: boolean } | null
+  >(null);
   const [attachmentLibraryOpen, setAttachmentLibraryOpen] = useState(false);
   const attachmentLibraryAnchorRef = useRef<AsyncInsertAnchor | null>(null);
-  const [previewImage, setPreviewImage] = useState<string | null>(null);
-  const [imageZoom, setImageZoom] = useState(1);
-  const [imageDrag, setImageDrag] = useState({ x: 0, y: 0 });
-  const [isDragging, setIsDragging] = useState(false);
+  const [imageViewer, setImageViewer] = useState<ImageViewerState | null>(null);
   // 编辑器是否聚焦 —— 用来控制移动端浮动工具栏是否显示
   // （未聚焦时键盘其实已经收起，这里是双重保险：避免聚焦到标题栏时误显示）
 
   // 移动端软键盘是否弹起；用于在原生 + 键盘弹起时隐藏顶部工具栏（走底部浮动工具栏）
 
-  const dragStart = useRef({ x: 0, y: 0, imgX: 0, imgY: 0 });
   const { t, i18n } = useTranslation();
 
   // ---------- 选区气泡菜单（划词弹出） ----------
@@ -1616,8 +1658,11 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
   const [imageEditDialog, setImageEditDialog] = useState<{
     open: boolean;
     src: string;
+    originalSrc: string;
     filename: string;
     imagePos: number;
+    initialRotation: ImageRotation;
+    initialFlipX: boolean;
   } | null>(null);
   // 光标在表格内时的表格操作气泡（合并/拆分/增删行列等）
   // 与文本/图片气泡互斥：选中图片或选中非空文本时不显示表格气泡
@@ -1672,7 +1717,63 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
   // hover 关闭延迟定时器：用户从链接移到气泡上时给一个缓冲，避免穿过空隙时闪烁
   const linkHoverCloseTimer = useRef<NodeJS.Timeout | null>(null);
 
-  // 笔记引用搜索菜单状态（[[ 触发）
+  const showAttachmentDetail = useCallback((detail: FileDetail) => {
+    setLinkBubble((current) => (current.open ? { ...current, open: false } : current));
+    setAttachmentPreview({
+      id: detail.id,
+      isDocx: detectAttachmentPreviewKind(detail.mimeType, detail.filename) === "docx",
+    });
+  }, []);
+
+  const loadAndShowAttachmentDetail = useCallback(async (attachmentId: string) => {
+    try {
+      showAttachmentDetail(await api.files.get(attachmentId));
+    } catch (error: any) {
+      toast.error(error?.message || "附件详情加载失败");
+    }
+  }, [showAttachmentDetail]);
+
+  const openAttachmentPrimaryAction = useCallback(async (attachmentId: string) => {
+    setLinkBubble((current) => (current.open ? { ...current, open: false } : current));
+    let detail: FileDetail;
+    try {
+      detail = await api.files.get(attachmentId);
+    } catch (error: any) {
+      toast.error(error?.message || "附件信息加载失败");
+      return;
+    }
+
+    if (decideAttachmentPrimaryAction(detail.mimeType, detail.filename) !== "desktop-default") {
+      showAttachmentDetail(detail);
+      return;
+    }
+
+    let result;
+    try {
+      result = await openDesktopAttachmentWithSystem(attachmentId);
+    } catch (error: any) {
+      showAttachmentDetail(detail);
+      toast.error(`无法调用系统默认程序，已打开附件详情：${error?.message || "桌面桥接调用失败"}`);
+      return;
+    }
+    if (result.ok) {
+      toast.success("已使用系统默认程序打开附件");
+      return;
+    }
+
+    showAttachmentDetail(detail);
+    if (["NOT_DESKTOP", "NOT_FULL_MODE", "STORAGE_NOT_LOCAL"].includes(result.error || "")) return;
+    const message = result.error === "ATTACHMENT_FILE_NOT_FOUND"
+      ? "本地附件文件不存在，已打开详情，可尝试下载或检查存储配置"
+      : result.error === "PATH_OUTSIDE_ATTACHMENTS_ROOT" || result.error === "INVALID_ATTACHMENT_PATH"
+        ? "附件路径安全校验失败，已阻止打开并显示附件详情"
+        : result.error === "OPEN_FAILED"
+          ? `系统默认程序打开失败：${result.message || "请检查文件关联"}`
+          : `无法使用系统默认程序打开附件：${result.message || result.error || "未知错误"}`;
+    toast.error(message);
+  }, [showAttachmentDetail]);
+
+  // 笔记引用搜索菜单状态（[[ / 【【 触发）
   const [noteLinkMenu, setNoteLinkMenu] = useState<{
     open: boolean;
     position: { top: number; left: number };
@@ -1988,19 +2089,9 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
           //   StarterKit 默认 Link mark 只保留 href / target / rel / class，
           //   data-attachment / data-size / download 等自定义属性会在 parse/serialize
           //   阶段被丢弃，因此只能依赖 href 模式。
-          // 命中后阻止浏览器默认下载，改为右侧抽屉内联预览：
-          //   - .docx → DocxAttachmentPreview（自研 OOXML 渲染，支持"上传新版本"）
-          //   - 其他  → AttachmentPreview（图片 / 视频 / 文本 / 代码 等）
-          // 不支持的格式由 AttachmentPreview 内部显示"该格式不支持内联预览"占位 + 下载兜底。
+          // 命中后阻止浏览器默认下载，交给统一附件策略决定预览、系统程序打开或详情 fallback。
           const attachmentMatch = /^\/api\/attachments\/[0-9a-fA-F-]{36}/.test(href);
           if (attachmentMatch) {
-            // 文件名优先取 download，没有则尝试从链接文字"📎 文件名 (大小)"里抠
-            let fname = anchor.getAttribute("download") || "";
-            if (!fname) {
-              const txt = anchor.textContent || "";
-              const m = txt.match(/📎\s*(.+?)\s*\([^)]*\)\s*$/);
-              fname = m ? m[1] : txt.replace(/^📎\s*/, "");
-            }
             // 从 /api/attachments/<uuid> 中抠 id；regex 已在 attachmentMatch 处验过。
             const idMatch = href.match(/\/api\/attachments\/([0-9a-fA-F-]{36})/);
             const attachmentId = idMatch ? idMatch[1] : "";
@@ -2008,14 +2099,7 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
               return false;
             }
             event.preventDefault();
-            // 打开右侧文件详情抽屉时，同步关闭 hover/caret 触发的链接气泡，
-            // 避免气泡（路径预览 + 下载/链接/取消链接）与抽屉同屏并存造成视觉干扰。
-            setLinkBubble(b => (b.open ? { ...b, open: false } : b));
-            setAttachmentPreview({
-              id: attachmentId,
-              filename: fname,
-              isDocx: /\.docx$/i.test(fname),
-            });
+            void openAttachmentPrimaryAction(attachmentId);
             return true;
           }
           if (/^(mailto:|tel:|sms:)/i.test(href)) {
@@ -2210,8 +2294,8 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
           }
 
           const text = event.clipboardData?.getData("text/plain") || "";
-          // 先把旧式 <font color> 转为 span style，再进入统一 XSS 清洗。
-          // 这样既能检测固定前景色，也能在用户选择“保留原颜色”时继续由 TextStyleKit 承载。
+          // 先把旧式 <font color> 转为 span style，再进入统一 XSS 清洗，
+          // 保留原始视觉颜色并由 TextStyleKit 承载。
           const rawHtml = event.clipboardData?.getData("text/html") || "";
           const html = sanitizeForPaste(normalizeLegacyFontColors(rawHtml));
 
@@ -2547,43 +2631,6 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
               }
             };
 
-            const colorRisk = analyzeRiskyForegroundColors(htmlForParse);
-            if (colorRisk.total > 0) {
-              const pasteAnchor = captureAsyncInsertAnchor(view);
-              asyncInsertAnchorsRef.current.add(pasteAnchor);
-              void chooseDialog({
-                title: t("tiptap.pasteColorRiskTitle", { defaultValue: "检测到可能影响主题阅读的文字颜色" }),
-                description: t("tiptap.pasteColorRiskDescription", {
-                  defaultValue: "粘贴内容中有 {{count}} 处固定文字颜色（偏黑 {{dark}} 处、偏白 {{light}} 处）。切换深色或浅色主题后，这些文字可能与背景融为一体。",
-                  count: colorRisk.total,
-                  dark: colorRisk.dark,
-                  light: colorRisk.light,
-                }),
-                cancelText: t("common.cancel"),
-                choices: [
-                  {
-                    value: "keep",
-                    label: t("tiptap.pasteColorKeepAndPaste", { defaultValue: "保留原颜色并粘贴" }),
-                    variant: "outline",
-                  },
-                  {
-                    value: "strip",
-                    label: t("tiptap.pasteColorRemoveAndPaste", { defaultValue: "移除文字颜色并粘贴" }),
-                    variant: "default",
-                  },
-                ],
-              }).then((choice) => {
-                if (!choice || view.isDestroyed) return;
-                if (!restoreAsyncInsertAnchor(view, pasteAnchor)) return;
-                insertPreparedHtml(choice === "strip"
-                  ? stripExplicitForegroundColors(htmlForParse)
-                  : htmlForParse);
-              }).finally(() => {
-                releaseAsyncInsertAnchor(asyncInsertAnchorsRef.current, pasteAnchor);
-              });
-              return true;
-            }
-
             insertPreparedHtml(htmlForParse);
             return true;
           }
@@ -2738,28 +2785,28 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
         }
       }, 150);
 
-      // 检测 [[ 触发笔记搜索菜单
+      // 检测 [[ / 【【 触发笔记搜索菜单
       const { state } = editor;
       const { selection } = state;
       const { $from } = selection;
       const textBefore = $from.parent.textContent.slice(0, $from.parentOffset);
 
-      // 查找最近的 [[ 触发
-      const triggerIndex = textBefore.lastIndexOf("[[");
-      if (triggerIndex !== -1) {
-        const query = textBefore.slice(triggerIndex + 2);
-        // 计算 [[ 在文档中的位置
-        const triggerDocPos = $from.pos - ($from.parentOffset - triggerIndex);
+      const activeWiki = detectActiveWikiNoteQuery(
+        textBefore,
+        $from.pos,
+        $from.pos - $from.parentOffset,
+      );
+      if (activeWiki) {
         // 计算菜单位置
         const coords = editor.view.coordsAtPos($from.pos);
         setNoteLinkMenu({
           open: true,
           position: { top: coords.bottom + 8, left: coords.left },
-          query,
-          triggerFrom: triggerDocPos,
+          query: activeWiki.query,
+          triggerFrom: activeWiki.from,
         });
       } else {
-        // 没有 [[ 触发，关闭菜单
+        // 没有活动的双链触发，关闭菜单
         if (noteLinkMenu.open) {
           setNoteLinkMenu(prev => ({ ...prev, open: false }));
         }
@@ -2775,7 +2822,8 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
           noteRef.current.id,
           editor,
         )) return;
-        const json = JSON.stringify(editor.getJSON());
+        const json = serializeEditorContentForPersistence(editor, scheduledNoteId);
+        if (!json) return;
         const plainTextStartedAt = performance.now();
         const text = getEditorPlainTextForSave(editor, analysisCacheRef.current);
         recordPhaseAPerfEvent({ type: "tiptap-plain-text", durationMs: performance.now() - plainTextStartedAt });
@@ -2794,6 +2842,40 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
       recordPhaseAPerfEvent({ type: "tiptap-on-update", durationMs: performance.now() - onUpdateStartedAt });
     },
   });
+
+  useEffect(() => {
+    if (!isMobile || !imageBubble.open) return;
+    const editorDom = editor?.view.dom;
+    const previousInputMode = editorDom?.getAttribute("inputmode") ?? null;
+    editorDom?.setAttribute("inputmode", "none");
+    if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+    editorDom?.blur();
+    const hideKeyboard = () => {
+      if (Capacitor.isNativePlatform()) void Keyboard.hide().catch(() => {});
+    };
+    hideKeyboard();
+    const timers = [80, 260].map((delay) => window.setTimeout(hideKeyboard, delay));
+    const close = () => setImageBubble((current) => ({ ...current, open: false }));
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      close();
+    };
+    window.addEventListener("keydown", onKeyDown, true);
+    const unregisterBack = registerMobileBackHandler("sheet", () => {
+      close();
+      return true;
+    });
+    return () => {
+      timers.forEach((timer) => window.clearTimeout(timer));
+      window.removeEventListener("keydown", onKeyDown, true);
+      unregisterBack();
+      if (editorDom) {
+        if (previousInputMode === null) editorDom.removeAttribute("inputmode");
+        else editorDom.setAttribute("inputmode", previousInputMode);
+      }
+    };
+  }, [editor, imageBubble.open, isMobile]);
 
   useEffect(() => {
     analysisControllerRef.current?.destroy();
@@ -2886,7 +2968,8 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
       clearTimeout(debounceTimer.current);
       debounceTimer.current = null;
     }
-    const json = JSON.stringify(editor.getJSON());
+    const json = serializeEditorContentForPersistence(editor, noteRef.current.id);
+    if (!json) return;
     const text = getEditorPlainTextForSave(editor, analysisCacheRef.current);
     const title = isTitleComposingRef.current
       ? noteRef.current.title
@@ -3103,7 +3186,8 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
           onUpdateRef.current({ title, _noteId: noteRef.current.id });
           return;
         }
-        const json = JSON.stringify(editor.getJSON());
+        const json = serializeEditorContentForPersistence(editor, noteRef.current.id);
+        if (!json) return;
         const text = getEditorPlainTextForSave(editor, analysisCacheRef.current);
         lastEmittedTitleRef.current = title;
         onUpdateRef.current({
@@ -3129,8 +3213,10 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
       },
       getSnapshot: () => {
         if (!editor) return null;
+        const content = serializeEditorContentForPersistence(editor, noteRef.current.id);
+        if (!content) return null;
         return {
-          content: JSON.stringify(editor.getJSON()),
+          content,
           contentText: getEditorPlainTextForSave(editor, analysisCacheRef.current),
           title: titleRef.current?.value || noteRef.current.title,
         };
@@ -3334,6 +3420,14 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
     }
   }, [note.title]);
 
+  // 标题改为多行 textarea 后，根据实际内容高度自动撑开；同时覆盖标题相同但切换笔记的场景。
+  useEffect(() => {
+    const el = titleRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight}px`;
+  }, [note.id, note.title]);
+
   // 组件卸载时清理 debounce timer
   useEffect(() => {
     const revisionGuard = editorRevisionGuardRef.current;
@@ -3355,18 +3449,46 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
     };
   }, []);
 
-  // 图片点击预览事件监听
-  //
-  // 行为分流（解决"点图片立即放大、调不出 ResizableImageView 的尺寸手柄"问题）：
-  //   - 只读态（!editable）：保持原行为，单击图片即弹 Lightbox 预览，符合阅读期望。
-  //   - 编辑态：
-  //       * 单击  → 让 ProseMirror 选中图片节点，ResizableImageView 显示四角手柄。
-  //                 这里只需"不打开预览"即可（选中由 ProseMirror 默认行为完成）。
-  //       * 双击  → 打开 Lightbox 预览原图，相当于显式"我要看大图"的意图，
-  //                 不会和拖动手柄改尺寸的操作互相干扰。
-  //
-  // 注意：handle 元素位于图片右下角等四角处，使用 pointer-events:auto 但
-  //   onMouseDown 会 stopPropagation，所以拖手柄时不会冒泡到这里触发预览。
+  const openImageViewer = useCallback((targetSrc: string, targetAlt = "", targetPos?: number) => {
+    if (!editor || !targetSrc) return;
+    const images: FullscreenImageItem[] = [];
+    const targets: EditorImageTarget[] = [];
+    editor.state.doc.descendants((node, pos) => {
+      if (node.type.name !== "image") return;
+      const imageSrc = typeof node.attrs.src === "string" ? node.attrs.src : "";
+      if (!imageSrc) return;
+      const attrs = node.attrs as ImageNodeAttrs;
+      const filename = getImageDownloadFilename(attrs);
+      images.push({
+        src: resolveAttachmentUrl(imageSrc),
+        alt: typeof node.attrs.alt === "string" ? node.attrs.alt : "",
+        filename,
+        rotation: normalizeImageRotation(attrs.rotation),
+        flipX: normalizeImageFlipX(attrs.flipX),
+      });
+      targets.push({
+        imagePos: pos,
+        originalSrc: imageSrc,
+        filename,
+        rotation: normalizeImageRotation(attrs.rotation),
+        flipX: normalizeImageFlipX(attrs.flipX),
+      });
+    });
+    const resolvedTarget = resolveAttachmentUrl(targetSrc);
+    const positionIndex = typeof targetPos === "number"
+      ? targets.findIndex((target) => target.imagePos === targetPos)
+      : -1;
+    const sourceIndex = images.findIndex((item) => item.src === targetSrc || item.src === resolvedTarget);
+    const initialIndex = Math.max(0, positionIndex >= 0 ? positionIndex : sourceIndex);
+    setImageViewer({
+      images: images.length ? images : [{ src: resolvedTarget, alt: targetAlt }],
+      targets: images.length ? targets : [null],
+      initialIndex,
+    });
+  }, [editor]);
+
+  // 编辑态单击只选中图片，双击直达 Viewer；只读态单击直接查看。
+  // 四角 resize handle 会拦截事件，不会误触发预览。
   useEffect(() => {
     if (!editor) return;
 
@@ -3376,25 +3498,21 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
     };
 
     const openPreview = (img: HTMLImageElement) => {
-      const src = img.src;
+      const src = img.currentSrc || img.src || img.getAttribute("src") || "";
       if (!src) return;
-      setPreviewImage(src);
-      setImageZoom(1);
-      setImageDrag({ x: 0, y: 0 });
+      let pos: number | undefined;
+      try { pos = editor.view.posAtDOM(img, 0); } catch { /* 使用 URL 匹配兜底 */ }
+      openImageViewer(src, img.alt || "", pos);
     };
 
-    // 单击：仅在只读态下打开预览；编辑态保留给 ProseMirror 做节点选择。
     const handleClick = (e: MouseEvent) => {
       if (!isEditorImage(e.target)) return;
-      if (editor.isEditable) return; // 编辑态：让出单击给"选中→出手柄"
+      if (editable) return;
       openPreview(e.target as HTMLImageElement);
     };
 
-    // 双击：编辑态下显式"打开大图预览"。只读态此时已经走 click 了，
-    // 不必重复处理（双击在只读态会被 click 先消费一次但行为一致）。
-    const handleDblClick = (e: MouseEvent) => {
+    const handleDoubleClick = (e: MouseEvent) => {
       if (!isEditorImage(e.target)) return;
-      if (!editor.isEditable) return;
       e.preventDefault();
       e.stopPropagation();
       openPreview(e.target as HTMLImageElement);
@@ -3402,41 +3520,12 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
 
     const editorDom = editor.view.dom;
     editorDom.addEventListener("click", handleClick);
-    editorDom.addEventListener("dblclick", handleDblClick);
+    editorDom.addEventListener("dblclick", handleDoubleClick);
     return () => {
       editorDom.removeEventListener("click", handleClick);
-      editorDom.removeEventListener("dblclick", handleDblClick);
+      editorDom.removeEventListener("dblclick", handleDoubleClick);
     };
-  }, [editor]);
-
-  // 图片预览滚轮缩放
-  const handlePreviewWheel = useCallback((e: React.WheelEvent) => {
-    e.preventDefault();
-    setImageZoom(prev => {
-      const delta = e.deltaY > 0 ? -0.1 : 0.1;
-      return Math.max(0.1, Math.min(5, prev + delta));
-    });
-  }, []);
-
-  // 图片预览拖拽
-  const handlePreviewMouseDown = useCallback((e: React.MouseEvent) => {
-    if (e.button !== 0) return;
-    e.preventDefault();
-    setIsDragging(true);
-    dragStart.current = { x: e.clientX, y: e.clientY, imgX: imageDrag.x, imgY: imageDrag.y };
-  }, [imageDrag]);
-
-  const handlePreviewMouseMove = useCallback((e: React.MouseEvent) => {
-    if (!isDragging) return;
-    setImageDrag({
-      x: dragStart.current.imgX + (e.clientX - dragStart.current.x),
-      y: dragStart.current.imgY + (e.clientY - dragStart.current.y),
-    });
-  }, [isDragging]);
-
-  const handlePreviewMouseUp = useCallback(() => {
-    setIsDragging(false);
-  }, []);
+  }, [editor, editable, openImageViewer]);
 
   const getSelectedImageAttrs = useCallback((): ImageNodeAttrs | null => {
     if (!editor || !editor.isActive("image")) return null;
@@ -3447,10 +3536,12 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
     const attrs = getSelectedImageAttrs();
     const src = typeof attrs?.src === "string" ? attrs.src : "";
     if (!src) return;
-    setPreviewImage(resolveAttachmentUrl(src));
-    setImageZoom(1);
-    setImageDrag({ x: 0, y: 0 });
-  }, [getSelectedImageAttrs]);
+    openImageViewer(
+      src,
+      typeof attrs?.alt === "string" ? attrs.alt : "",
+      editor?.state.selection.from,
+    );
+  }, [editor, getSelectedImageAttrs, openImageViewer]);
 
   const handleDownloadSelectedImage = useCallback(async () => {
     const attrs = getSelectedImageAttrs();
@@ -3470,6 +3561,16 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
       toast.error(t("tiptap.imageDownloadFailed", { defaultValue: "图片下载失败" }));
     }
   }, [getSelectedImageAttrs, t]);
+
+  const handleViewerDownload = useCallback(async (item: FullscreenImageItem) => {
+    const filename = item.filename || "nowen-image.png";
+    if (isAndroidNative() || item.src.startsWith("data:") || item.src.startsWith("blob:")) {
+      await saveImageBlobSource(item.src, filename);
+      toast.success(t("tiptap.imageDownloadSuccess", { defaultValue: "图片已保存" }));
+      return;
+    }
+    await downloadAttachment(item.src, filename);
+  }, [t]);
 
   const handleLocalizeSelectedImage = useCallback(async () => {
     if (!editor || localizingSelectedImage) return;
@@ -3595,35 +3696,93 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
     setImageBubble((b) => (b.open ? { ...b, open: false } : b));
   }, [editor]);
 
-  const handleEditSelectedImage = useCallback(() => {
-    if (!editor) return;
+  const openImageEditorTarget = useCallback((target: EditorImageTarget) => {
+    if (!editor || !editable) return;
     const currentNote = noteRef.current;
     if (!currentNote?.id) {
       toast.error(t("tiptap.imageEditOpenFailed", { defaultValue: "无法编辑图片" }));
       return;
     }
-    const attrs = getSelectedImageAttrs();
-    const src = typeof attrs?.src === "string" ? attrs.src : "";
-    if (!src) return;
-    if (isSvgImageSource(src)) {
+    const imagePos = resolveEditorImageTargetPosition(editor, target);
+    if (imagePos == null) {
+      toast.error(t("tiptap.imageReplaceTargetChanged", { defaultValue: "原图片位置已变化，请重新选择图片后编辑" }));
+      return;
+    }
+    const node = editor.state.doc.nodeAt(imagePos);
+    if (!isImageReplaceTargetNode(node)) {
+      toast.error(t("tiptap.imageReplaceTargetChanged", { defaultValue: "原图片位置已变化，请重新选择图片后编辑" }));
+      return;
+    }
+    const attrs = node.attrs as ImageNodeAttrs;
+    const originalSrc = String(attrs.src || "");
+    if (!originalSrc) return;
+    if (isSvgImageSource(originalSrc)) {
       toast.info(t("tiptap.imageEditSvgUnsupported", { defaultValue: "SVG 暂不支持编辑" }));
       return;
     }
     setImageEditDialog({
       open: true,
-      src: resolveAttachmentUrl(src),
-      filename: getImageDownloadFilename(attrs ?? {}),
-      imagePos: editor.state.selection.from,
+      src: resolveAttachmentUrl(originalSrc),
+      originalSrc,
+      filename: getImageDownloadFilename(attrs),
+      imagePos,
+      initialRotation: normalizeImageRotation(attrs.rotation),
+      initialFlipX: normalizeImageFlipX(attrs.flipX),
     });
     setImageBubble((b) => (b.open ? { ...b, open: false } : b));
-  }, [editor, getSelectedImageAttrs, t]);
+  }, [editable, editor, t]);
+
+  const handleEditSelectedImage = useCallback(() => {
+    if (!editor) return;
+    const selection = editor.state.selection;
+    if (!(selection instanceof NodeSelection) || selection.node.type.name !== "image") return;
+    const attrs = selection.node.attrs as ImageNodeAttrs;
+    const originalSrc = String(attrs.src || "");
+    if (!originalSrc) return;
+    openImageEditorTarget({
+      imagePos: selection.from,
+      originalSrc,
+      filename: getImageDownloadFilename(attrs),
+      rotation: normalizeImageRotation(attrs.rotation),
+      flipX: normalizeImageFlipX(attrs.flipX),
+    });
+  }, [editor, openImageEditorTarget]);
+
+  const handleRotateSelectedImage = useCallback((delta: -90 | 90) => {
+    if (!editor) return;
+    const attrs = getSelectedImageAttrs();
+    editor.chain().focus().updateAttributes("image", {
+      rotation: normalizeImageRotation(normalizeImageRotation(attrs?.rotation) + delta),
+    }).run();
+  }, [editor, getSelectedImageAttrs]);
+
+  const handleFlipSelectedImage = useCallback(() => {
+    if (!editor) return;
+    const attrs = getSelectedImageAttrs();
+    editor.chain().focus().updateAttributes("image", {
+      flipX: !normalizeImageFlipX(attrs?.flipX),
+    }).run();
+  }, [editor, getSelectedImageAttrs]);
+
+  const handleResetSelectedImageTransform = useCallback(() => {
+    if (!editor) return;
+    editor.chain().focus().updateAttributes("image", { rotation: 0, flipX: false }).run();
+  }, [editor]);
 
   const handleSaveEditedImage = useCallback(async (blob: Blob) => {
-    if (!editor || !imageEditDialog) return;
+    if (!editor || !imageEditDialog) return false;
     const currentNote = noteRef.current;
     if (!currentNote?.id) {
       toast.error(t("tiptap.imageEditSaveFailed", { defaultValue: "图片保存失败" }));
       throw new Error("missing note id");
+    }
+    const targetIdentity = {
+      imagePos: imageEditDialog.imagePos,
+      originalSrc: imageEditDialog.originalSrc,
+    };
+    if (resolveEditorImageTargetPosition(editor, targetIdentity) == null) {
+      toast.error(t("tiptap.imageReplaceTargetChanged", { defaultValue: "原图片位置已变化，请重新选择图片后编辑" }));
+      return false;
     }
     toast.info(t("tiptap.imageEditUploading", { defaultValue: "正在保存编辑后的图片..." }));
     const file = editedImageBlobToFile(blob, imageEditDialog.filename);
@@ -3631,18 +3790,26 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
     if (res.category !== "image") {
       throw new Error("uploaded file is not an image");
     }
-    const targetNode = editor.state.doc.nodeAt(imageEditDialog.imagePos);
+    if (editor.isDestroyed) return false;
+    const targetPos = resolveEditorImageTargetPosition(editor, targetIdentity);
+    if (targetPos == null) {
+      toast.error(t("tiptap.imageReplaceTargetChanged", { defaultValue: "原图片位置已变化，请重新选择图片后替换" }));
+      return false;
+    }
+    const targetNode = editor.state.doc.nodeAt(targetPos);
     if (!isImageReplaceTargetNode(targetNode)) {
       toast.error(t("tiptap.imageReplaceTargetChanged", { defaultValue: "原图片位置已变化，请重新选择图片后替换" }));
-      return;
+      return false;
     }
-    editor
-      .chain()
-      .focus()
-      .setNodeSelection(imageEditDialog.imagePos)
-      .updateAttributes("image", buildReplacedImageAttrs(targetNode.attrs as ImageNodeAttrs, res.url))
-      .run();
+    let transaction = editor.state.tr.setNodeMarkup(
+      targetPos,
+      undefined,
+      buildEditedImageAttrs(targetNode.attrs as ImageNodeAttrs, res.url),
+    );
+    try { transaction = transaction.setSelection(NodeSelection.create(transaction.doc, targetPos)); } catch {}
+    editor.view.dispatch(transaction.scrollIntoView());
     toast.success(t("tiptap.imageEditSaveSuccess", { defaultValue: "图片已保存" }));
+    return true;
   }, [editor, imageEditDialog, t]);
 
   const handleSetSelectedImageSize = useCallback((ratio: number | null) => {
@@ -4798,11 +4965,14 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
   const insertWithMarkdownDetect = useCallback((text: string, from: number, to: number) => {
     if (!editor) return;
     const view = editor.view;
+    const hasInternalBlockMarkers = findInternalMarkdownMarkerRanges(text).length > 0;
 
-    if (looksLikeMarkdown(text)) {
+    if (hasInternalBlockMarkers || looksLikeMarkdown(text)) {
       // 直接转换为富文本 HTML 后插入，一步到位
       try {
-        const convertedHtml = markdownToSimpleHtml(text);
+        const convertedHtml = hasInternalBlockMarkers
+          ? mdToFullHtml(text) || markdownToSimpleHtml(text)
+          : markdownToSimpleHtml(text);
         const parser = ProseMirrorDOMParser.fromSchema(view.state.schema);
         const tempDiv = document.createElement("div");
         tempDiv.innerHTML = convertedHtml;
@@ -4870,11 +5040,7 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
       aiSelectedText,
       aiPosition?.top || 0,
       attachmentPreview?.id || "",
-      previewImage || "",
-      imageZoom,
-      imageDrag.x,
-      imageDrag.y,
-      isDragging,
+      imageViewer?.images[imageViewer.initialIndex]?.src || "",
       selectedTextAction,
       bubble.open,
       imageBubble.open,
@@ -5054,7 +5220,13 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
           <ToolbarButton compact onClick={() => toggleBulletListSmart(editor)} isActive={activeListType === "bulletList"} title={t('tiptap.bulletList')}>
             <List size={16} />
           </ToolbarButton>
-          <ToolbarButton compact onClick={() => setMobileToolbarExpanded((value) => !value)} isActive={mobileToolbarExpanded} title={t('common.more')}>
+          <ToolbarButton compact onClick={handleImageUpload} title={t('tiptap.insertImage')}>
+            <ImagePlus size={16} />
+          </ToolbarButton>
+          <ToolbarButton compact onClick={handleVideoUpload} title={t('tiptap.uploadLocalVideo')}>
+            <Film size={16} />
+          </ToolbarButton>
+          <ToolbarButton compact className="ml-auto" onClick={() => setMobileToolbarExpanded((value) => !value)} isActive={mobileToolbarExpanded} title={t('common.more')}>
             <ChevronDown size={16} className={cn("transition-transform", mobileToolbarExpanded && "rotate-180")} />
           </ToolbarButton>
         </div>
@@ -5419,17 +5591,26 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
         data-mobile-editor-title=""
         className={cn("px-4 md:px-8 pb-0", compactMobileEditing ? "pt-2" : "pt-3 md:pt-6")}
       >
-        <input
+        <textarea
           ref={titleRef}
+          rows={1}
           defaultValue={note.title}
           onBlur={handleTitleBlur}
           onCompositionStart={handleTitleCompositionStart}
           onCompositionEnd={handleTitleCompositionEnd}
+          onInput={(event) => {
+            const el = event.currentTarget;
+            el.style.height = "auto";
+            el.style.height = `${el.scrollHeight}px`;
+          }}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" && !isTitleComposingRef.current) event.preventDefault();
+          }}
           placeholder={t('tiptap.titlePlaceholder')}
           spellCheck={false}
           readOnly={!editable}
           className={cn(
-            "w-full bg-transparent text-xl md:text-2xl font-bold text-tx-primary placeholder:text-tx-tertiary focus:outline-none no-focus-ring",
+            "w-full resize-none overflow-hidden break-words bg-transparent text-xl md:text-2xl font-bold text-tx-primary placeholder:text-tx-tertiary focus:outline-none no-focus-ring",
             compactMobileEditing && "text-lg leading-7",
             !editable && "cursor-default"
           )}
@@ -5635,19 +5816,28 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
             {linkBubble.href}
           </a>
           <div className="w-px h-4 bg-app-border mx-0.5" />
-          {/* 附件链接（href 形如 /api/attachments/<id>）展示「下载」按钮——
-             点击链接文本本身已在 handleDOMEvents.click 里走内联预览抽屉，
-             所以气泡里只补强"下载到本地"这个明确动作。普通 http(s) 链接
+          {/* 附件链接提供明确的详情与下载次级操作；普通 http(s) 链接
              保留"打开链接"在新标签页打开。 */}
           {/^\/api\/attachments\//.test(linkBubble.href) ? (
-            <ToolbarButton
-              onClick={() => {
-                void downloadAttachment(linkBubble.href, linkBubble.filename || "");
-              }}
-              title={t('tiptap.linkDownload')}
-            >
-              <Download size={14} />
-            </ToolbarButton>
+            <>
+              <ToolbarButton
+                onClick={() => {
+                  const id = linkBubble.href.match(/\/api\/attachments\/([0-9a-fA-F-]{36})/)?.[1];
+                  if (id) void loadAndShowAttachmentDetail(id);
+                }}
+                title="查看附件详情"
+              >
+                <Info size={14} />
+              </ToolbarButton>
+              <ToolbarButton
+                onClick={() => {
+                  void downloadAttachment(linkBubble.href, linkBubble.filename || "");
+                }}
+                title={t('tiptap.linkDownload')}
+              >
+                <Download size={14} />
+              </ToolbarButton>
+            </>
           ) : (
             <ToolbarButton
               onClick={() => openLinkUrl(linkBubble.href)}
@@ -5692,18 +5882,6 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
           <ToolbarButton title={t("tiptap.imageViewLarge")} onClick={handlePreviewSelectedImage}>
             <ExternalLink size={14} />
           </ToolbarButton>
-          <ToolbarButton title={t("tiptap.imageDownload")} onClick={() => { void handleDownloadSelectedImage(); }}>
-            <Download size={14} />
-          </ToolbarButton>
-          {selectedImageCanLocalize && (
-            <ToolbarButton
-              title={t("tiptap.imageLocalize", { defaultValue: "转存为附件" })}
-              disabled={localizingSelectedImage}
-              onClick={() => { void handleLocalizeSelectedImage(); }}
-            >
-              <Paperclip size={14} />
-            </ToolbarButton>
-          )}
           <ToolbarButton
             title={t("tiptap.imageReplace")}
             disabled={replacingImage}
@@ -5711,29 +5889,65 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
           >
             <Upload size={14} />
           </ToolbarButton>
-          <ToolbarButton title={t("tiptap.imageCopyAddress")} onClick={() => { void handleCopySelectedImageSrc(); }}>
-            <Copy size={14} />
-          </ToolbarButton>
-          <ToolbarButton title={t("tiptap.imageDelete")} onClick={handleDeleteSelectedImage}>
-            <Trash2 size={14} />
-          </ToolbarButton>
           <ToolbarButton title={t("tiptap.imageEditComingSoon")} onClick={handleEditSelectedImage}>
             <Palette size={14} />
           </ToolbarButton>
-          <div className="w-px h-4 bg-app-border mx-0.5" />
+          <ToolbarButton title={t("tiptap.imageDownload")} onClick={() => { void handleDownloadSelectedImage(); }}>
+            <Download size={14} />
+          </ToolbarButton>
           <div className="relative">
             <ToolbarButton
-              title={t("tiptap.imageMoreSizes")}
+              title={t("common.more", { defaultValue: "更多" })}
               isActive={imageSizeMenuOpen}
               onClick={() => setImageSizeMenuOpen((v) => !v)}
             >
-              <ChevronDown size={14} />
+              <MoreHorizontal size={14} />
             </ToolbarButton>
             {imageSizeMenuOpen && (
               <div
-                className="absolute right-0 top-full mt-1 z-50 min-w-32 rounded-lg border border-app-border bg-app-elevated p-1 shadow-lg"
+                className="absolute right-0 top-full mt-1 z-50 w-56 rounded-xl border border-app-border bg-app-elevated p-1.5 shadow-xl"
                 data-popover
               >
+                <div className="px-2 pb-1 pt-0.5 text-[10px] font-medium text-tx-tertiary">图片变换（写入笔记）</div>
+                <div className="grid grid-cols-4 gap-1">
+                  <button
+                    type="button"
+                    title="向左旋转 90°"
+                    aria-label="向左旋转 90°"
+                    className="flex h-9 items-center justify-center rounded-lg text-tx-secondary hover:bg-app-hover hover:text-tx-primary"
+                    onClick={() => handleRotateSelectedImage(-90)}
+                  >
+                    <RotateCcw size={15} />
+                  </button>
+                  <button
+                    type="button"
+                    title="向右旋转 90°"
+                    aria-label="向右旋转 90°"
+                    className="flex h-9 items-center justify-center rounded-lg text-tx-secondary hover:bg-app-hover hover:text-tx-primary"
+                    onClick={() => handleRotateSelectedImage(90)}
+                  >
+                    <RotateCw size={15} />
+                  </button>
+                  <button
+                    type="button"
+                    title="水平翻转"
+                    aria-label="水平翻转"
+                    className="flex h-9 items-center justify-center rounded-lg text-tx-secondary hover:bg-app-hover hover:text-tx-primary"
+                    onClick={handleFlipSelectedImage}
+                  >
+                    <FlipHorizontal size={15} />
+                  </button>
+                  <button
+                    type="button"
+                    title="恢复图片变换"
+                    aria-label="恢复图片变换"
+                    className="flex h-9 items-center justify-center rounded-lg text-tx-secondary hover:bg-app-hover hover:text-tx-primary"
+                    onClick={handleResetSelectedImageTransform}
+                  >
+                    <Scan size={15} />
+                  </button>
+                </div>
+                <div className="my-1 h-px bg-app-border" />
                 {IMAGE_SIZE_PRESETS.map((s) => (
                   <button
                     key={s.key}
@@ -5751,6 +5965,34 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
                   onClick={() => handleSetSelectedImageSize(null)}
                 >
                   {t("tiptap.imageSizeOriginal")}
+                </button>
+                <div className="my-1 h-px bg-app-border" />
+                {selectedImageCanLocalize && (
+                  <button
+                    type="button"
+                    disabled={localizingSelectedImage}
+                    className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-tx-secondary hover:bg-app-hover hover:text-tx-primary disabled:opacity-40"
+                    onClick={() => { void handleLocalizeSelectedImage(); }}
+                  >
+                    <Paperclip size={14} />
+                    {t("tiptap.imageLocalize", { defaultValue: "转存为附件" })}
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-tx-secondary hover:bg-app-hover hover:text-tx-primary"
+                  onClick={() => { void handleCopySelectedImageSrc(); }}
+                >
+                  <Copy size={14} />
+                  {t("tiptap.imageCopyAddress")}
+                </button>
+                <button
+                  type="button"
+                  className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-red-500 hover:bg-red-500/10"
+                  onClick={handleDeleteSelectedImage}
+                >
+                  <Trash2 size={14} />
+                  {t("tiptap.imageDelete")}
                 </button>
               </div>
             )}
@@ -5774,21 +6016,12 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
               <X size={16} />
             </button>
           </div>
-          <div className="grid grid-cols-4 gap-2">
+          <div className="grid grid-cols-5 gap-1.5">
             {[
               { key: "view", label: t("tiptap.imageViewLarge"), icon: ExternalLink, action: handlePreviewSelectedImage },
-              { key: "download", label: t("tiptap.imageDownload"), icon: Download, action: () => { void handleDownloadSelectedImage(); } },
-              ...(selectedImageCanLocalize ? [{
-                key: "localize",
-                label: t("tiptap.imageLocalize", { defaultValue: "转存为附件" }),
-                icon: Paperclip,
-                action: () => { void handleLocalizeSelectedImage(); },
-                disabled: localizingSelectedImage,
-              }] : []),
               { key: "replace", label: t("tiptap.imageReplace"), icon: Upload, action: handleReplaceSelectedImage, disabled: replacingImage },
-              { key: "copy", label: t("tiptap.imageCopyAddress"), icon: Copy, action: () => { void handleCopySelectedImageSrc(); } },
-              { key: "delete", label: t("tiptap.imageDelete"), icon: Trash2, action: handleDeleteSelectedImage },
               { key: "edit", label: t("tiptap.imageEdit"), icon: Palette, action: handleEditSelectedImage },
+              { key: "download", label: t("tiptap.imageDownload"), icon: Download, action: () => { void handleDownloadSelectedImage(); } },
             ].map((item) => {
               const Icon = item.icon;
               return (
@@ -5797,36 +6030,77 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
                   type="button"
                   disabled={item.disabled}
                   onClick={item.action}
-                  className="flex min-h-16 flex-col items-center justify-center gap-1 rounded-lg border border-app-border bg-app-surface px-1.5 py-2 text-xs text-tx-secondary active:bg-app-hover disabled:opacity-40"
+                  className="flex h-12 min-w-0 flex-col items-center justify-center gap-0.5 rounded-lg border border-app-border bg-app-surface px-0.5 text-[10px] text-tx-secondary active:bg-app-hover disabled:opacity-40"
                 >
-                  <Icon size={18} />
-                  <span className="leading-tight">{item.label}</span>
+                  <Icon size={16} />
+                  <span className="max-w-full truncate leading-tight">{item.label}</span>
                 </button>
               );
             })}
+            <button
+              type="button"
+              onClick={() => setImageSizeMenuOpen((value) => !value)}
+              aria-expanded={imageSizeMenuOpen}
+              className={`flex h-12 min-w-0 flex-col items-center justify-center gap-0.5 rounded-lg border px-0.5 text-[10px] active:bg-app-hover ${imageSizeMenuOpen ? "border-accent-primary bg-accent-primary/10 text-accent-primary" : "border-app-border bg-app-surface text-tx-secondary"}`}
+            >
+              <MoreHorizontal size={16} />
+              {t("common.more", { defaultValue: "更多" })}
+            </button>
           </div>
-          <div className="mt-3">
-            <div className="mb-1.5 text-xs font-medium text-tx-tertiary">{t("tiptap.imageMoreSizes")}</div>
-            <div className="grid grid-cols-5 gap-2">
-              {IMAGE_SIZE_PRESETS.map((s) => (
+          {imageSizeMenuOpen && (
+            <div className="mt-2 rounded-xl border border-app-border bg-app-hover/40 p-2">
+              <div className="mb-1.5 text-[10px] font-medium text-tx-tertiary">{t("tiptap.imageMoreSizes")}</div>
+              <div className="flex gap-1.5 overflow-x-auto hide-scrollbar">
+                {IMAGE_SIZE_PRESETS.map((s) => (
+                  <button
+                    key={s.key}
+                    type="button"
+                    className="h-8 shrink-0 rounded-lg border border-app-border bg-app-surface px-2.5 text-[11px] text-tx-secondary active:bg-app-hover"
+                    onClick={() => handleSetSelectedImageSize(s.ratio)}
+                  >
+                    {t(s.labelKey)}
+                  </button>
+                ))}
                 <button
-                  key={s.key}
                   type="button"
-                  className="h-9 rounded-lg border border-app-border text-xs text-tx-secondary active:bg-app-hover"
-                  onClick={() => handleSetSelectedImageSize(s.ratio)}
+                  className="h-8 shrink-0 rounded-lg border border-app-border bg-app-surface px-2.5 text-[11px] text-tx-secondary active:bg-app-hover"
+                  onClick={() => handleSetSelectedImageSize(null)}
                 >
-                  {t(s.labelKey)}
+                  {t("tiptap.imageSizeOriginal")}
                 </button>
-              ))}
-              <button
-                type="button"
-                className="h-9 rounded-lg border border-app-border text-xs text-tx-secondary active:bg-app-hover"
-                onClick={() => handleSetSelectedImageSize(null)}
-              >
-                {t("tiptap.imageSizeOriginal")}
-              </button>
+              </div>
+              <div data-nowen-image-transform-slot="true" />
+              <div className="mt-2 grid grid-cols-2 gap-1.5">
+                {selectedImageCanLocalize && (
+                  <button
+                    type="button"
+                    disabled={localizingSelectedImage}
+                    onClick={() => { void handleLocalizeSelectedImage(); }}
+                    className="flex h-9 items-center justify-center gap-1.5 rounded-lg border border-app-border bg-app-surface text-[11px] text-tx-secondary active:bg-app-hover disabled:opacity-40"
+                  >
+                    <Paperclip size={14} />
+                    {t("tiptap.imageLocalize", { defaultValue: "转存为附件" })}
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => { void handleCopySelectedImageSrc(); }}
+                  className="flex h-9 items-center justify-center gap-1.5 rounded-lg border border-app-border bg-app-surface text-[11px] text-tx-secondary active:bg-app-hover"
+                >
+                  <Copy size={14} />
+                  {t("tiptap.imageCopyAddress")}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleDeleteSelectedImage}
+                  className="flex h-9 items-center justify-center gap-1.5 rounded-lg border border-red-500/20 bg-red-500/10 text-[11px] text-red-500 active:bg-red-500/20"
+                >
+                  <Trash2 size={14} />
+                  {t("tiptap.imageDelete")}
+                </button>
+              </div>
             </div>
-          </div>
+          )}
         </div>
       )}
 
@@ -6235,125 +6509,25 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
           open={imageEditDialog.open}
           src={imageEditDialog.src}
           filename={imageEditDialog.filename}
+          initialRotation={imageEditDialog.initialRotation}
+          initialFlipX={imageEditDialog.initialFlipX}
           onClose={() => setImageEditDialog(null)}
           onSave={handleSaveEditedImage}
         />
       )}
 
-      {/* 图片预览 Lightbox */}
-      <AnimatePresence>
-        {previewImage && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.2 }}
-            className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm"
-            onClick={(e) => { if (e.target === e.currentTarget) { setPreviewImage(null); } }}
-            onWheel={handlePreviewWheel}
-            onMouseMove={handlePreviewMouseMove}
-            onMouseUp={handlePreviewMouseUp}
-            onMouseLeave={handlePreviewMouseUp}
-          >
-            {/* 桌面端：顶部工具栏 */}
-            <div className="hidden md:flex absolute top-4 right-4 items-center gap-2 z-10">
-              <button
-                onClick={() => setImageZoom(prev => Math.min(5, prev + 0.25))}
-                className="p-2 rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors"
-                title="放大"
-              >
-                <ZoomIn size={18} />
-              </button>
-              <button
-                onClick={() => setImageZoom(prev => Math.max(0.1, prev - 0.25))}
-                className="p-2 rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors"
-                title="缩小"
-              >
-                <ZoomOut size={18} />
-              </button>
-              <button
-                onClick={() => { setImageZoom(1); setImageDrag({ x: 0, y: 0 }); }}
-                className="p-2 rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors"
-                title="重置"
-              >
-                <RotateCcw size={18} />
-              </button>
-              <span className="text-white/70 text-xs font-mono min-w-[3rem] text-center">
-                {Math.round(imageZoom * 100)}%
-              </span>
-              <button
-                onClick={() => setPreviewImage(null)}
-                className="p-2 rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors"
-                title="关闭"
-              >
-                <X size={18} />
-              </button>
-            </div>
-
-            {/* 移动端：顶部只保留关闭按钮 */}
-            <button
-              onClick={(e) => { e.stopPropagation(); setPreviewImage(null); setImageZoom(1); setImageDrag({ x: 0, y: 0 }); }}
-              className="md:hidden fixed right-4 z-[120] w-11 h-11 rounded-full bg-black/50 hover:bg-black/70 backdrop-blur text-white flex items-center justify-center transition-colors"
-              style={{ top: "calc(env(safe-area-inset-top, 0px) + 12px)" }}
-              title="关闭"
-            >
-              <X size={20} />
-            </button>
-
-            {/* 移动端：底部缩放工具栏 */}
-            <div
-              className="md:hidden fixed left-1/2 z-[120] flex items-center gap-2 px-4 py-2.5 rounded-full bg-black/55 backdrop-blur border border-white/10 text-white shadow-lg"
-              style={{ bottom: "calc(env(safe-area-inset-bottom, 0px) + 16px)", transform: "translateX(-50%)" }}
-              onClick={(e) => e.stopPropagation()}
-            >
-              <button
-                onClick={() => setImageZoom(prev => Math.max(0.1, prev - 0.25))}
-                className="w-11 h-11 flex items-center justify-center rounded-full hover:bg-white/10 transition-colors"
-                title="缩小"
-              >
-                <ZoomOut size={20} />
-              </button>
-              <button
-                onClick={() => { setImageZoom(1); setImageDrag({ x: 0, y: 0 }); }}
-                className="w-11 h-11 flex items-center justify-center rounded-full hover:bg-white/10 transition-colors"
-                title="重置"
-              >
-                <RotateCcw size={18} />
-              </button>
-              <span className="text-white/80 text-sm font-mono min-w-[48px] text-center select-none">
-                {Math.round(imageZoom * 100)}%
-              </span>
-              <button
-                onClick={() => setImageZoom(prev => Math.min(5, prev + 0.25))}
-                className="w-11 h-11 flex items-center justify-center rounded-full hover:bg-white/10 transition-colors"
-                title="放大"
-              >
-                <ZoomIn size={20} />
-              </button>
-            </div>
-
-            {/* 图片
-                注意：缩放/平移交给 framer-motion 的独立 transform 通道（scale/x/y）来驱动，
-                不能再写 style.transform 字符串——motion 会接管 transform 并覆盖外部 style，
-                导致 100% 的数字一直在变但 DOM 上 transform 永远停在入场动画终态。
-                入场仅用 opacity 做淡入，初始 scale 用当前 imageZoom 防止抖动。 */}
-            <motion.img
-              src={previewImage}
-              alt="preview"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1, scale: imageZoom, x: imageDrag.x, y: imageDrag.y }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: isDragging ? 0 : 0.15 }}
-              className="max-w-[90vw] max-h-[90vh] object-contain select-none"
-              style={{
-                cursor: isDragging ? 'grabbing' : 'grab',
-              }}
-              onMouseDown={handlePreviewMouseDown}
-              draggable={false}
-            />
-          </motion.div>
-        )}
-      </AnimatePresence>
+      <FullscreenImageViewer
+        open={!!imageViewer}
+        images={imageViewer?.images}
+        initialIndex={imageViewer?.initialIndex || 0}
+        canEdit={editable}
+        onEdit={(_, index) => {
+          const target = imageViewer?.targets[index];
+          if (target) openImageEditorTarget(target);
+        }}
+        onDownload={handleViewerDownload}
+        onClose={() => setImageViewer(null)}
+      />
 
       {/* AI Writing Assistant */}
       <AnimatePresence>
@@ -6606,7 +6780,14 @@ function parseContent(content: string): any {
         // 不会立刻报错，但任何后续 transaction 都会触发 contentMatchAt 崩溃。
         // 这里走一遍 headless Editor 的 schema fixup 兜底，~10-20ms 切笔记
         // 时一次开销，用户无感。详见 tiptapSchemaRepair.ts 顶部注释。
-        return removeEmptyParagraphsBeforeImages(repairTiptapJson(parsed));
+        let persistentDocument = parsed;
+        try {
+          persistentDocument = normalizeTiptapAttachmentSources(parsed);
+        } catch (error) {
+          // 无可靠 attachmentId 的历史 blob 仍允许打开以便诊断，但后续保存边界会拒绝覆盖。
+          reportTransientNoteImageSource(error, { operation: "parseTiptapContent" });
+        }
+        return removeEmptyParagraphsBeforeImages(repairTiptapJson(persistentDocument));
       }
       // 是合法 JSON 但不是 Tiptap doc → 当 MD / 纯文本继续往下走
     } catch {
@@ -6654,4 +6835,13 @@ function parseContent(content: string): any {
     type: "doc",
     content: [{ type: "paragraph", content: [{ type: "text", text: content }] }],
   };
+}
+
+function serializeEditorContentForPersistence(editor: Editor, noteId: string): string | null {
+  try {
+    return stabilizeNoteContentForPersistence(JSON.stringify(editor.getJSON()), "tiptap-json");
+  } catch (error) {
+    reportTransientNoteImageSource(error, { operation: "serializeTiptapContent", noteId });
+    return null;
+  }
 }

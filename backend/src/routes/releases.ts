@@ -10,6 +10,7 @@ const router = new Hono();
 const GITHUB_OWNER = process.env.NOWEN_RELEASE_OWNER || "cropflre";
 const GITHUB_REPO = process.env.NOWEN_RELEASE_REPO || "nowen-note";
 const GITHUB_API = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/releases/latest`;
+const GITHUB_LATEST_RELEASE_URL = `https://github.com/${GITHUB_OWNER}/${GITHUB_REPO}/releases/latest`;
 const GITHUB_TOKEN = (process.env.NOWEN_GITHUB_TOKEN || process.env.GITHUB_TOKEN || "").trim();
 const CACHE_TTL_MS = parseTtl(process.env.NOWEN_RELEASE_CACHE_MS, 15 * 60_000);
 const FAIL_CACHE_TTL_MS = parseTtl(process.env.NOWEN_RELEASE_FAIL_CACHE_MS, 5 * 60_000);
@@ -116,6 +117,85 @@ async function fetchLatestFromGitHub(): Promise<LatestRelease | "not-modified"> 
   }
 }
 
+/**
+ * GitHub REST API 触发公共限额时，从官方 Release 页面恢复真实资产列表。
+ * expanded_assets 是 Release 页面自身使用的公开片段，不消耗 REST API 配额；
+ * 这里只接受当前仓库的 /releases/download/ 链接，绝不根据版本号猜文件名。
+ */
+async function fetchLatestFromReleasePage(): Promise<LatestRelease> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+  const headers = {
+    "User-Agent": `${GITHUB_OWNER}-${GITHUB_REPO}-server`,
+    Accept: "text/html",
+  };
+
+  try {
+    const releaseResponse = await fetch(GITHUB_LATEST_RELEASE_URL, {
+      signal: controller.signal,
+      headers,
+      redirect: "follow",
+    });
+    if (!releaseResponse.ok) {
+      throw new Error(`GitHub Release page ${releaseResponse.status} ${releaseResponse.statusText}`);
+    }
+
+    const releaseUrl = new URL(releaseResponse.url);
+    const tagMarker = "/releases/tag/";
+    const tagIndex = releaseUrl.pathname.indexOf(tagMarker);
+    if (releaseUrl.hostname !== "github.com" || tagIndex < 0) {
+      throw new Error("GitHub Release page did not resolve to a release tag");
+    }
+    const encodedTag = releaseUrl.pathname.slice(tagIndex + tagMarker.length).replace(/\/$/, "");
+    const tag = decodeURIComponent(encodedTag);
+    if (!tag) throw new Error("GitHub Release page returned an empty tag");
+
+    const assetsResponse = await fetch(
+      `https://github.com/${GITHUB_OWNER}/${GITHUB_REPO}/releases/expanded_assets/${encodeURIComponent(tag)}`,
+      { signal: controller.signal, headers },
+    );
+    if (!assetsResponse.ok) {
+      throw new Error(`GitHub assets page ${assetsResponse.status} ${assetsResponse.statusText}`);
+    }
+
+    const html = await assetsResponse.text();
+    const repoPathPrefix = `/${GITHUB_OWNER}/${GITHUB_REPO}/releases/download/`;
+    const seen = new Set<string>();
+    const assets: ReleaseAsset[] = [];
+    for (const match of html.matchAll(/href="([^"]*\/releases\/download\/[^"]+)"/g)) {
+      const href = match[1].replace(/&amp;/g, "&");
+      const assetUrl = new URL(href, "https://github.com");
+      if (assetUrl.hostname !== "github.com" || !assetUrl.pathname.startsWith(repoPathPrefix)) continue;
+      const encodedName = assetUrl.pathname.split("/").pop() || "";
+      const name = decodeURIComponent(encodedName);
+      if (!name || seen.has(assetUrl.href)) continue;
+      seen.add(assetUrl.href);
+      assets.push({
+        name,
+        size: 0,
+        contentType: "application/octet-stream",
+        browserDownloadUrl: assetUrl.href,
+      });
+    }
+    if (assets.length === 0) throw new Error("GitHub assets page returned no downloadable assets");
+
+    return {
+      available: true,
+      tag,
+      version: tag.replace(/^v/, ""),
+      name: tag,
+      htmlUrl: releaseUrl.href,
+      publishedAt: "",
+      prerelease: false,
+      draft: false,
+      body: "",
+      assets,
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function refreshLatestRelease(): Promise<LatestReleasePayload> {
   const now = Date.now();
   try {
@@ -123,17 +203,26 @@ async function refreshLatestRelease(): Promise<LatestReleasePayload> {
     const payload = result === "not-modified" ? lastSuccess!.payload : result;
     current = { at: now, ttl: CACHE_TTL_MS, payload };
     return payload;
-  } catch (error) {
-    if (lastSuccess) {
-      current = { at: now, ttl: FAIL_CACHE_TTL_MS, payload: lastSuccess.payload };
-      return lastSuccess.payload;
+  } catch (apiError) {
+    try {
+      const payload = await fetchLatestFromReleasePage();
+      lastSuccess = { payload, etag: null };
+      current = { at: now, ttl: CACHE_TTL_MS, payload };
+      return payload;
+    } catch (pageError) {
+      if (lastSuccess) {
+        current = { at: now, ttl: FAIL_CACHE_TTL_MS, payload: lastSuccess.payload };
+        return lastSuccess.payload;
+      }
+      const apiReason = apiError instanceof Error ? apiError.message : String(apiError);
+      const pageReason = pageError instanceof Error ? pageError.message : String(pageError);
+      const payload: ReleaseUnavailable = {
+        available: false,
+        reason: `${apiReason}; Release page fallback failed: ${pageReason}`,
+      };
+      current = { at: now, ttl: FAIL_CACHE_TTL_MS, payload };
+      return payload;
     }
-    const payload: ReleaseUnavailable = {
-      available: false,
-      reason: error instanceof Error ? error.message : String(error),
-    };
-    current = { at: now, ttl: FAIL_CACHE_TTL_MS, payload };
-    return payload;
   }
 }
 

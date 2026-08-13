@@ -34,6 +34,7 @@ import { Table, TableHeader, TableCell } from "@tiptap/extension-table";
 // 与主编辑器对齐：TableRow 用扩展过 height 属性的版本（schema 兼容版，不带拖拽 plugin）
 import { TableRowWithHeight } from "@/components/extensions/TableRowResizable";
 import TextAlign from "@tiptap/extension-text-align";
+import { IndentExtension } from "@/lib/codeBlockIndent";
 import { common, createLowlight } from "lowlight";
 import TurndownService from "turndown";
 import { parser as baseMdParser } from "@lezer/markdown";
@@ -187,6 +188,9 @@ export function getTiptapExtensions() {
     // `textAlign` 属性会被 Tiptap schema 过滤掉 → Turndown 拿不到 style
     // → RTE→MD 时段落对齐被静默丢失。markdownToTiptapJSON 反向也靠它识别 align 属性。
     TextAlign.configure({ types: ["heading", "paragraph"] }),
+    // 与主编辑器和 schema repair 对齐，避免格式转换读取 Tiptap JSON 时
+    // attrs.indent 被 schema 过滤。
+    IndentExtension,
     // BLOCK-ID-01: heading blockId 属性，与 TiptapEditor 对齐
     // 避免 generateHTML/generateJSON 时 blockId 被 schema 过滤
     BlockIdAttrs,

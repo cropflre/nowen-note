@@ -13,6 +13,83 @@ import type {
 } from "../repositories/taskReminderOperationsRepository";
 
 const taskReminders = new Hono();
+const MAX_REMINDER_OFFSET_MINUTES = 60 * 24 * 365;
+const MIN_TIMEZONE_OFFSET_MINUTES = -14 * 60;
+const MAX_TIMEZONE_OFFSET_MINUTES = 14 * 60;
+
+function normalizeTimezoneOffsetMinutes(value: unknown): number | null {
+  if (value === null || value === undefined || value === "") return null;
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed)) return null;
+  if (parsed < MIN_TIMEZONE_OFFSET_MINUTES || parsed > MAX_TIMEZONE_OFFSET_MINUTES) return null;
+  return parsed;
+}
+
+function parseFloatingLocalDateTime(value: string, timezoneOffsetMinutes: number | null): number {
+  if (timezoneOffsetMinutes === null) return new Date(value).getTime();
+  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?$/.exec(value);
+  if (!match) return Number.NaN;
+  const [, year, month, day, hour, minute, second = "0"] = match;
+  return Date.UTC(
+    Number(year),
+    Number(month) - 1,
+    Number(day),
+    Number(hour),
+    Number(minute),
+    Number(second),
+  ) + timezoneOffsetMinutes * 60_000;
+}
+
+function resolveDueAnchorMs(row: {
+  dueAt?: string | null;
+  dueDate?: string | null;
+  timezoneOffsetMinutes?: number | null;
+}): number | null {
+  const timezoneOffsetMinutes = normalizeTimezoneOffsetMinutes(row.timezoneOffsetMinutes);
+  if (row.dueAt) {
+    const dueMs = parseFloatingLocalDateTime(row.dueAt, timezoneOffsetMinutes);
+    return Number.isFinite(dueMs) ? dueMs : null;
+  }
+  if (!row.dueDate) return null;
+
+  // Legacy reminders had no creator timezone and historically used 23:59:59 in
+  // the server timezone. Preserve that behavior so upgrades do not move them.
+  if (timezoneOffsetMinutes === null) {
+    const dueMs = new Date(`${row.dueDate}T23:59:59`).getTime();
+    return Number.isFinite(dueMs) ? dueMs : null;
+  }
+
+  // New all-day reminders anchor at the next local midnight. This keeps dueDate
+  // as an all-day deadline while allowing an integer offset (930 => 08:30).
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(row.dueDate);
+  if (!match) return null;
+  const [, year, month, day] = match;
+  return Date.UTC(Number(year), Number(month) - 1, Number(day) + 1, 0, 0, 0)
+    + timezoneOffsetMinutes * 60_000;
+}
+
+function resolveReminderAtMs(row: {
+  dueAt?: string | null;
+  dueDate?: string | null;
+  snoozedUntil?: string | null;
+  offsetMinutes?: number | null;
+  timezoneOffsetMinutes?: number | null;
+}): number | null {
+  if (row.snoozedUntil) {
+    const snoozeMs = new Date(row.snoozedUntil).getTime();
+    return Number.isFinite(snoozeMs) ? snoozeMs : null;
+  }
+  const dueMs = resolveDueAnchorMs(row);
+  if (dueMs === null) return null;
+  const offsetMinutes = Number(row.offsetMinutes || 0);
+  if (!Number.isFinite(offsetMinutes)) return null;
+  return dueMs - offsetMinutes * 60_000;
+}
+
+function canReadReminderTask(task: { userId: string; workspaceId: string | null }, userId: string): boolean {
+  if (task.workspaceId) return getUserWorkspaceRole(task.workspaceId, userId) !== null;
+  return task.userId === userId;
+}
 
 function resolveScope(
   c: Context,
@@ -251,8 +328,7 @@ function collectPendingReminders(
     const reminderMs = dueMs - row.offsetMinutes * 60_000;
 
     if (row.snoozedUntil) {
-      const snoozeMs = new Date(row.snoozedUntil).getTime();
-      if (snoozeMs > now) continue;
+      if (reminderMs > now) continue;
       pending.push({
         reminderId: row.reminderId,
         taskId: row.taskId,
@@ -269,7 +345,7 @@ function collectPendingReminders(
     if (reminderMs > now) continue;
     if (row.lastNotifiedAt) {
       const lastNotifiedMs = new Date(row.lastNotifiedAt).getTime();
-      if (lastNotifiedMs >= reminderMs) continue;
+      if (Number.isFinite(lastNotifiedMs) && lastNotifiedMs >= reminderMs) continue;
     }
 
     pending.push({

@@ -169,7 +169,7 @@ function readForm(): Partial<NowenClipperConfig> {
   const aiTasks: AIEnhanceTasks = {};
   document.querySelectorAll<HTMLInputElement>('.ai-tasks-grid input[data-task]').forEach((element) => {
     const key = element.dataset.task as keyof AIEnhanceTasks;
-    if (element.checked) aiTasks[key] = true;
+    aiTasks[key] = element.checked;
   });
 
   const maxInputChars = clampInt(input("aiMaxInputChars").value, 6000, 1000, 12000);

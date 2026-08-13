@@ -45,7 +45,9 @@ import {
   indentWithTab,
 } from "@codemirror/commands";
 import {
+  search,
   searchKeymap,
+  openSearchPanel,
   highlightSelectionMatches,
 } from "@codemirror/search";
 import {
@@ -88,6 +90,7 @@ import {
   Minus,
   Quote,
   Redo,
+  Search,
   Sparkles,
   Strikethrough,
   Table2,
@@ -197,6 +200,23 @@ function isMobileMarkdownViewport(): boolean {
     && window.matchMedia("(max-width: 639px)").matches;
 }
 
+function markdownSearchPhrases(language?: string) {
+  const isChinese = (language || "").toLowerCase().startsWith("zh");
+  return EditorState.phrases.of(isChinese ? {
+    Find: "查找",
+    Replace: "替换",
+    next: "下一个",
+    previous: "上一个",
+    all: "全部",
+    "match case": "区分大小写",
+    regexp: "正则",
+    "by word": "全词匹配",
+    replace: "替换",
+    "replace all": "全部替换",
+    close: "关闭",
+  } : {});
+}
+
 // ---------------------------------------------------------------------------
 // ��������С��ť + �ָ���
 // ---------------------------------------------------------------------------
@@ -206,9 +226,10 @@ interface ToolbarButtonProps {
   disabled?: boolean;
   children: React.ReactNode;
   title?: string;
+  className?: string;
 }
 
-function ToolbarButton({ onClick, disabled, children, title }: ToolbarButtonProps) {
+function ToolbarButton({ onClick, disabled, children, title, className }: ToolbarButtonProps) {
   return (
     <button
       type="button"
@@ -220,6 +241,7 @@ function ToolbarButton({ onClick, disabled, children, title }: ToolbarButtonProp
         "p-1.5 rounded-md transition-colors",
         "text-tx-secondary hover:bg-app-hover hover:text-tx-primary",
         disabled && "opacity-30 cursor-not-allowed",
+        className,
       )}
     >
       {children}
@@ -264,6 +286,234 @@ const nowenMdHighlight = HighlightStyle.define([
 ]);
 
 /** �༭�� DOM �������⣨���� / �ߴ� / ��ɫ�� */
+const searchPanelTheme = EditorView.theme({
+  ".cm-panels": {
+    color: "var(--color-text-primary, #111827)",
+    backgroundColor: "transparent",
+  },
+  ".cm-panels-top": {
+    borderBottom: "1px solid var(--color-border, #e5e7eb)",
+  },
+  ".cm-panel.cm-search": {
+    position: "relative",
+    display: "flex",
+    alignItems: "center",
+    flexWrap: "wrap",
+    columnGap: "8px",
+    rowGap: "10px",
+    padding: "12px 54px 12px 16px",
+    backgroundColor: "var(--color-elevated, #ffffff)",
+    boxShadow: "0 8px 24px rgba(15, 23, 42, 0.06)",
+    fontSize: "13px",
+    lineHeight: "1",
+  },
+  ".cm-panel.cm-search label": {
+    position: "relative",
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    minHeight: "34px",
+    margin: "0",
+    padding: "0 11px",
+    border: "1px solid var(--color-border, #e5e7eb)",
+    borderRadius: "999px",
+    color: "var(--color-text-secondary, #6b7280)",
+    backgroundColor: "var(--color-bg, #ffffff)",
+    whiteSpace: "nowrap",
+    cursor: "pointer",
+    userSelect: "none",
+    transition: "border-color 140ms ease, background-color 140ms ease, color 140ms ease, box-shadow 140ms ease",
+  },
+  ".cm-panel.cm-search label:hover": {
+    color: "var(--color-text-primary, #111827)",
+    borderColor: "var(--color-accent-primary, #3b82f6)",
+    backgroundColor: "var(--color-hover, #f3f4f6)",
+  },
+  ".cm-panel.cm-search label:has(input:checked)": {
+    color: "var(--color-accent-primary, #3b82f6)",
+    borderColor: "var(--color-accent-primary, #3b82f6)",
+    backgroundColor: "var(--color-active, #e0e7ff)",
+    boxShadow: "inset 0 0 0 1px rgba(59, 130, 246, 0.08)",
+  },
+  ".cm-panel.cm-search label:has(input:focus-visible)": {
+    boxShadow: "0 0 0 3px rgba(59, 130, 246, 0.18)",
+  },
+  ".cm-panel.cm-search input[type=text]": {
+    boxSizing: "border-box",
+    flex: "0 1 260px",
+    width: "clamp(190px, 24vw, 260px)",
+    height: "36px",
+    margin: "0",
+    padding: "0 12px",
+    border: "1px solid var(--color-border, #e5e7eb)",
+    borderRadius: "10px",
+    outline: "none",
+    appearance: "none",
+    color: "var(--color-text-primary, #111827)",
+    backgroundColor: "var(--color-bg, #ffffff)",
+    font: "inherit",
+    lineHeight: "normal",
+    transition: "border-color 140ms ease, box-shadow 140ms ease, background-color 140ms ease",
+  },
+  ".cm-panel.cm-search input[type=text]::placeholder": {
+    color: "var(--color-text-tertiary, #9ca3af)",
+  },
+  ".cm-panel.cm-search input[type=text]:focus": {
+    borderColor: "var(--color-accent-primary, #3b82f6)",
+    backgroundColor: "var(--color-elevated, #ffffff)",
+    boxShadow: "0 0 0 3px rgba(59, 130, 246, 0.16)",
+  },
+  ".cm-panel.cm-search button": {
+    boxSizing: "border-box",
+    minHeight: "34px",
+    margin: "0",
+    padding: "0 12px",
+    border: "1px solid var(--color-border, #e5e7eb)",
+    borderRadius: "9px",
+    appearance: "none",
+    color: "var(--color-text-secondary, #6b7280)",
+    backgroundColor: "var(--color-bg, #ffffff)",
+    backgroundImage: "none",
+    font: "inherit",
+    fontWeight: "500",
+    lineHeight: "1",
+    cursor: "pointer",
+    boxShadow: "0 1px 2px rgba(15, 23, 42, 0.04)",
+    transition: "transform 120ms ease, background-color 140ms ease, color 140ms ease, border-color 140ms ease, box-shadow 140ms ease",
+  },
+  ".cm-panel.cm-search button:hover": {
+    color: "var(--color-text-primary, #111827)",
+    borderColor: "var(--color-accent-primary, #3b82f6)",
+    backgroundColor: "var(--color-hover, #f3f4f6)",
+    boxShadow: "0 3px 8px rgba(15, 23, 42, 0.08)",
+  },
+  ".cm-panel.cm-search button:active": {
+    transform: "translateY(1px)",
+    boxShadow: "none",
+  },
+  ".cm-panel.cm-search button:focus-visible": {
+    outline: "none",
+    borderColor: "var(--color-accent-primary, #3b82f6)",
+    boxShadow: "0 0 0 3px rgba(59, 130, 246, 0.16)",
+  },
+  ".cm-panel.cm-search input[name=search]": {
+    order: "1",
+  },
+  ".cm-panel.cm-search button[name=prev]": {
+    order: "2",
+  },
+  ".cm-panel.cm-search button[name=next]": {
+    order: "3",
+  },
+  ".cm-panel.cm-search button[name=select]": {
+    order: "4",
+    color: "var(--color-accent-primary, #3b82f6)",
+    backgroundColor: "var(--color-active, #e0e7ff)",
+    borderColor: "transparent",
+  },
+  ".cm-panel.cm-search label:has(input[name=case])": {
+    order: "5",
+  },
+  ".cm-panel.cm-search label:has(input[name=re])": {
+    order: "6",
+  },
+  ".cm-panel.cm-search label:has(input[name=word])": {
+    order: "7",
+  },
+  ".cm-panel.cm-search input[name=replace]": {
+    order: "9",
+  },
+  ".cm-panel.cm-search button[name=replace]": {
+    order: "10",
+    color: "var(--color-accent-primary, #3b82f6)",
+  },
+  ".cm-panel.cm-search button[name=replaceAll]": {
+    order: "11",
+    color: "#ffffff",
+    borderColor: "var(--color-accent-primary, #3b82f6)",
+    backgroundColor: "var(--color-accent-primary, #3b82f6)",
+    boxShadow: "0 3px 8px rgba(59, 130, 246, 0.2)",
+  },
+  ".cm-panel.cm-search button[name=replaceAll]:hover": {
+    color: "#ffffff",
+    backgroundColor: "var(--color-accent-primary, #3b82f6)",
+    boxShadow: "0 5px 12px rgba(59, 130, 246, 0.28)",
+  },
+  ".cm-panel.cm-search button[name=close]": {
+    position: "absolute",
+    top: "12px",
+    right: "14px",
+    width: "34px",
+    minWidth: "34px",
+    height: "34px",
+    padding: "0",
+    borderColor: "transparent",
+    borderRadius: "50%",
+    color: "var(--color-text-tertiary, #9ca3af)",
+    backgroundColor: "transparent",
+    boxShadow: "none",
+    fontSize: "20px",
+    fontWeight: "400",
+    lineHeight: "1",
+  },
+  ".cm-panel.cm-search button[name=close]:hover": {
+    color: "var(--color-text-primary, #111827)",
+    borderColor: "transparent",
+    backgroundColor: "var(--color-hover, #f3f4f6)",
+    boxShadow: "none",
+  },
+  ".cm-panel.cm-search input[type=checkbox]": {
+    position: "absolute",
+    width: "1px",
+    height: "1px",
+    margin: "0",
+    opacity: "0",
+    pointerEvents: "none",
+  },
+  ".cm-panel.cm-search br": {
+    order: "8",
+    display: "flex",
+    flexBasis: "100%",
+    width: "100%",
+    height: "1px",
+    margin: "0",
+    border: "0",
+    backgroundColor: "var(--color-border, #e5e7eb)",
+  },
+  ".cm-searchMatch": {
+    borderRadius: "3px",
+    backgroundColor: "rgba(59, 130, 246, 0.16)",
+    boxShadow: "inset 0 -1px 0 rgba(59, 130, 246, 0.55)",
+  },
+  ".cm-searchMatch.cm-searchMatch-selected": {
+    backgroundColor: "rgba(245, 158, 11, 0.26)",
+    boxShadow: "inset 0 -2px 0 rgba(245, 158, 11, 0.78)",
+  },
+  "@media (max-width: 760px)": {
+    ".cm-panel.cm-search": {
+      columnGap: "6px",
+      rowGap: "8px",
+      padding: "10px 46px 10px 10px",
+    },
+    ".cm-panel.cm-search input[type=text]": {
+      flexBasis: "100%",
+      width: "100%",
+      maxWidth: "none",
+    },
+    ".cm-panel.cm-search button[name=prev], .cm-panel.cm-search button[name=next], .cm-panel.cm-search button[name=select]": {
+      flex: "1 1 auto",
+    },
+    ".cm-panel.cm-search label": {
+      flex: "1 1 auto",
+      padding: "0 9px",
+    },
+    ".cm-panel.cm-search button[name=close]": {
+      top: "11px",
+      right: "8px",
+    },
+  },
+});
+
 const baseTheme = EditorView.theme({
   "&": {
     height: "100%",
@@ -400,7 +650,7 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
   yDoc,
   awareness,
 }, ref) {
-  const { t: tr } = useTranslation();
+  const { t: tr, i18n } = useTranslation();
   const { prefs: userPrefs } = useUserPreferences();
   const { visible: keyboardVisible } = useKeyboardVisible();
   const compactMobileEditing = editable
@@ -415,7 +665,7 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
   const previewRootRef = useRef<HTMLDivElement | null>(null);
   const splitContainerRef = useRef<HTMLDivElement | null>(null);
   const viewRef = useRef<EditorView | null>(null);
-  const titleRef = useRef<HTMLInputElement | null>(null);
+  const titleRef = useRef<HTMLTextAreaElement | null>(null);
   const isTitleComposingRef = useRef(false);
   const lastEmittedTitleRef = useRef(note.title);
 
@@ -478,6 +728,7 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
   // �����л��õ� Compartment
   const themeCompartmentRef = useRef(new Compartment());
   const editableCompartmentRef = useRef(new Compartment());
+  const searchPhraseCompartmentRef = useRef(new Compartment());
 
   // ���һ�δ��� pointer ʱ���������"ѡ�����ݴ������� Android ϵͳ���Ʋ˵�"�߼�
   const lastTouchAtRef = useRef<number>(0);
@@ -1108,6 +1359,7 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
         rectangularSelection(),
         crosshairCursor(),
         highlightActiveLine(),
+        search({ top: true }),
         highlightSelectionMatches(),
         EditorView.lineWrapping,
         ...internalMarkdownMarkerExtensions,
@@ -1126,6 +1378,8 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
         baseTheme,
         themeCompartmentRef.current.of(isDarkMode() ? oneDark : []),
         editableCompartmentRef.current.of(EditorView.editable.of(editable)),
+        searchPhraseCompartmentRef.current.of(markdownSearchPhrases(i18n.resolvedLanguage || i18n.language)),
+        searchPanelTheme,
 
         // ��ݼ�������Ĭ�� keymap ע�ᣬ��֤ Mod-s ���� chrome �̣�
         saveKeymap,
@@ -1403,6 +1657,14 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
     }
   }, [note.title]);
 
+  // 标题改为多行 textarea 后，根据实际内容高度自动撑开；同时覆盖标题相同但切换笔记的场景。
+  useEffect(() => {
+    const el = titleRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight}px`;
+  }, [note.id, note.title]);
+
   // ---------- editable ����ͬ�� ----------
 
   useEffect(() => {
@@ -1561,7 +1823,7 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
   }, []);
 
   const handleTitleKeyDown = useCallback(
-    (e: React.KeyboardEvent<HTMLInputElement>) => {
+    (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
       if (e.key === "Enter") {
         e.preventDefault();
         viewRef.current?.focus();
@@ -1627,6 +1889,37 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
     fn(v);
   }, []);
 
+  const openMarkdownSearch = useCallback(() => {
+    const revealSearch = () => {
+      const view = viewRef.current;
+      if (!view) return;
+      openSearchPanel(view);
+    };
+
+    if (viewModeRef.current === "preview") {
+      setMarkdownViewMode("source");
+      requestAnimationFrame(revealSearch);
+      return;
+    }
+    revealSearch();
+  }, [setMarkdownViewMode]);
+
+  useEffect(() => {
+    const handler = () => openMarkdownSearch();
+    window.addEventListener("nowen:open-search", handler);
+    return () => window.removeEventListener("nowen:open-search", handler);
+  }, [openMarkdownSearch]);
+
+  useEffect(() => {
+    const view = viewRef.current;
+    if (!view) return;
+    view.dispatch({
+      effects: searchPhraseCompartmentRef.current.reconfigure(
+        markdownSearchPhrases(i18n.resolvedLanguage || i18n.language),
+      ),
+    });
+  }, [i18n.language, i18n.resolvedLanguage]);
+
   const iconSize = 15;
 
   const handleNoteLinkSelect = useCallback((
@@ -1684,7 +1977,7 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
         <>
           <div
             data-markdown-mobile-toolbar="compact"
-            className="sticky top-0 z-20 flex items-center gap-0.5 overflow-x-auto border-b border-app-border bg-app-surface/95 px-2 py-1.5 backdrop-blur md:hidden"
+            className="sticky top-0 z-20 flex min-w-0 flex-nowrap items-center gap-0.5 overflow-x-auto touch-pan-x border-b border-app-border bg-app-surface/95 px-2 py-1.5 backdrop-blur md:hidden [&>button]:shrink-0 [&>button]:p-1"
           >
             <ToolbarButton onClick={() => withView((view) => undo(view))} title={tr("tiptap.undo") || "撤销"}>
               <Undo size={16} />
@@ -1692,15 +1985,15 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
             <ToolbarButton onClick={() => withView((view) => redo(view))} title={tr("tiptap.redo") || "重做"}>
               <Redo size={16} />
             </ToolbarButton>
+            <ToolbarButton onClick={openMarkdownSearch} title="查找与替换">
+              <Search size={16} />
+            </ToolbarButton>
             <ToolbarDivider />
-            <ToolbarButton onClick={() => setMarkdownViewMode("source")} title={tr("markdown.view.source") || "源码"}>
-              <FileCode size={16} />
-            </ToolbarButton>
-            <ToolbarButton onClick={() => setMarkdownViewMode("preview")} title={tr("markdown.view.preview") || "预览"}>
-              <Eye size={16} />
-            </ToolbarButton>
             <ToolbarButton onClick={() => withView((view) => toggleHeading(view, 1))} title={tr("tiptap.heading1") || "一级标题"}>
               <Heading1 size={16} />
+            </ToolbarButton>
+            <ToolbarButton onClick={() => withView((view) => toggleHeading(view, 2))} title={tr("tiptap.heading2") || "二级标题"}>
+              <Heading2 size={16} />
             </ToolbarButton>
             <ToolbarButton onClick={() => withView((view) => toggleWrap(view, "**"))} title={tr("tiptap.bold") || "加粗"}>
               <Bold size={16} />
@@ -1708,7 +2001,13 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
             <ToolbarButton onClick={() => withView((view) => toggleBulletList(view))} title={tr("tiptap.bulletList") || "无序列表"}>
               <List size={16} />
             </ToolbarButton>
-            <ToolbarButton onClick={() => setMobileToolbarExpanded((value) => !value)} title={tr("common.more") || "更多"}>
+            <ToolbarButton onClick={triggerImagePicker} title={tr("tiptap.insertImage") || "插入图片"}>
+              <ImagePlus size={16} />
+            </ToolbarButton>
+            <ToolbarButton onClick={triggerVideoPicker} title={tr("tiptap.uploadLocalVideo") || "插入本地视频"}>
+              <Film size={16} />
+            </ToolbarButton>
+            <ToolbarButton className="ml-auto" onClick={() => setMobileToolbarExpanded((value) => !value)} title={tr("common.more") || "更多"}>
               <ChevronDown size={16} className={cn("transition-transform", mobileToolbarExpanded && "rotate-180")} />
             </ToolbarButton>
           </div>
@@ -1729,9 +2028,15 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
           </ToolbarButton>
           <ToolbarButton
             onClick={() => withView((v) => redo(v))}
-            title={tr("tiptap.redo") || "����"}
+            title={tr("tiptap.redo") || "重做"}
           >
             <Redo size={iconSize} />
+          </ToolbarButton>
+          <ToolbarButton
+            onClick={openMarkdownSearch}
+            title="查找与替换"
+          >
+            <Search size={iconSize} />
           </ToolbarButton>
 
           {/* MARKDOWN-MOBILE-PREVIEW-01: 预览入口前置，避免被横向工具栏遮挡。 */}
@@ -1975,18 +2280,24 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
         data-markdown-mobile-title=""
         className={cn("px-4 md:px-8 pb-2", compactMobileEditing ? "pt-2" : "pt-3 md:pt-6")}
       >
-        <input
+        <textarea
           ref={titleRef}
+          rows={1}
           defaultValue={note.title}
           placeholder={tr("tiptap.titlePlaceholder") || "�ޱ���"}
           onBlur={handleTitleBlur}
           onCompositionStart={handleTitleCompositionStart}
           onCompositionEnd={handleTitleCompositionEnd}
+          onInput={(event) => {
+            const el = event.currentTarget;
+            el.style.height = "auto";
+            el.style.height = `${el.scrollHeight}px`;
+          }}
           onKeyDown={handleTitleKeyDown}
           spellCheck={false}
           readOnly={!editable}
           className={cn(
-            "w-full bg-transparent outline-none text-xl md:text-3xl font-bold text-tx-primary placeholder:text-tx-tertiary/60",
+            "w-full resize-none overflow-hidden break-words bg-transparent outline-none text-xl md:text-3xl font-bold text-tx-primary placeholder:text-tx-tertiary/60",
             compactMobileEditing && "text-lg leading-7",
           )}
         />

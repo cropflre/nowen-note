@@ -1,8 +1,19 @@
 import { api } from "@/lib/api";
 import {
+  createRoundTripPackageImportFile,
+  importNotes,
+  parseRoundTripPackageManifest,
+  type PackageManifestPreview,
+} from "@/lib/importService";
+import {
   knowledgeTreeApi,
   type KnowledgeTreeNode,
 } from "@/lib/knowledgeTreeApi";
+import {
+  getKnowledgeTreeExpansionScope,
+  getKnowledgeTreeExpansionSnapshot,
+  saveKnowledgeTreeExpansion,
+} from "@/lib/knowledgeTreeExpansion";
 import { toast } from "@/lib/toast";
 
 const TREE_SELECTOR = '[data-nowen-knowledge-tree="embedded"]';
@@ -13,6 +24,27 @@ const TREE_CHANGED_EVENT = "nowen:knowledge-tree-changed";
 export const MAX_MARKDOWN_DROP_FILES = 100;
 export const MAX_MARKDOWN_DROP_FILE_SIZE = 20 * 1024 * 1024;
 export const MAX_MARKDOWN_DROP_TOTAL_SIZE = 100 * 1024 * 1024;
+export const MAX_MARKDOWN_ZIP_FILE_SIZE = 512 * 1024 * 1024;
+const MAX_MARKDOWN_ZIP_ENTRIES = 2_000;
+const MAX_MARKDOWN_ZIP_ASSET_BYTES = 512 * 1024 * 1024;
+
+type ImportedMarkdownNote = Awaited<ReturnType<typeof api.getNote>>;
+
+export interface MarkdownBatchImportFailure {
+  name: string;
+  reason: string;
+}
+
+export interface MarkdownBatchImportResult {
+  imported: ImportedMarkdownNote[];
+  failures: MarkdownBatchImportFailure[];
+  importedCount?: number;
+  cancelled?: boolean;
+}
+
+export function markdownBatchImportedCount(result: MarkdownBatchImportResult): number {
+  return result.importedCount ?? result.imported.length;
+}
 
 let installed = false;
 let importing = false;
@@ -24,6 +56,10 @@ export function isMarkdownDropFile(file: Pick<File, "name">): boolean {
 
 export function isWordDropFile(file: Pick<File, "name">): boolean {
   return /\.docx$/i.test(String(file.name || "").trim());
+}
+
+export function isMarkdownZipDropFile(file: Pick<File, "name">): boolean {
+  return /\.zip$/i.test(String(file.name || "").trim());
 }
 
 export function markdownDropTitle(fileName: string): string {
@@ -47,7 +83,7 @@ export function markdownFilesFromDataTransfer(dataTransfer: Pick<DataTransfer, "
 
 export function knowledgeTreeFilesFromDataTransfer(dataTransfer: Pick<DataTransfer, "files">): File[] {
   return Array.from(dataTransfer.files || []).filter((file) => (
-    isMarkdownDropFile(file) || isWordDropFile(file)
+    isMarkdownDropFile(file) || isMarkdownZipDropFile(file) || isWordDropFile(file)
   ));
 }
 
@@ -66,6 +102,33 @@ export function pickMarkdownFiles(): Promise<File[]> {
     input.onchange = () => {
       settled = true;
       const files = Array.from(input.files || []).filter(isMarkdownDropFile);
+      cleanup();
+      resolve(files);
+    };
+    input.oncancel = () => {
+      if (settled) return;
+      cleanup();
+      resolve([]);
+    };
+    input.click();
+  });
+}
+
+/** 打开系统文件选择器，选择 Markdown + 附件 ZIP。 */
+export function pickMarkdownZipFiles(): Promise<File[]> {
+  return new Promise((resolve) => {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = ".zip,application/zip";
+    input.multiple = true;
+    input.style.display = "none";
+    document.body.appendChild(input);
+
+    let settled = false;
+    const cleanup = () => input.remove();
+    input.onchange = () => {
+      settled = true;
+      const files = Array.from(input.files || []).filter(isMarkdownZipDropFile);
       cleanup();
       resolve(files);
     };
@@ -187,6 +250,399 @@ export function parseMarkdownImportDocument(source: string): MarkdownImportDocum
   };
 }
 
+interface MarkdownZipDocument {
+  path: string;
+  fileName: string;
+  imported: MarkdownImportDocument;
+  assetPaths: string[];
+}
+
+interface MarkdownZipEntry {
+  name: string;
+  dir: boolean;
+  unsafeOriginalName?: string;
+  async(type: "string"): Promise<string>;
+  async(type: "blob"): Promise<Blob>;
+}
+
+interface MarkdownZipArchive {
+  kind: "markdown";
+  entries: Map<string, MarkdownZipEntry>;
+  documents: MarkdownZipDocument[];
+}
+
+interface NowenPackageZipArchive {
+  kind: "nowen-package";
+  manifest: PackageManifestPreview;
+}
+
+type InspectedMarkdownZipArchive = MarkdownZipArchive | NowenPackageZipArchive;
+
+export interface MarkdownZipImportTarget {
+  parentId: string | null;
+  targetNotebookId?: string;
+  workspaceId?: string;
+  targetLabel?: string;
+}
+
+interface MarkdownLinkDestination {
+  start: number;
+  end: number;
+  zipPath: string;
+}
+
+function normalizeZipEntryPath(rawPath: string): string {
+  const unified = String(rawPath || "").normalize("NFC").replace(/\\/g, "/");
+  if (!unified || unified.includes("\0")) throw new Error("ZIP 包含无效路径");
+  if (unified.startsWith("/") || /^[A-Za-z]:\//.test(unified)) {
+    throw new Error(`ZIP 包含绝对路径：${rawPath}`);
+  }
+  const segments = unified.split("/").filter((segment) => segment && segment !== ".");
+  if (segments.some((segment) => segment === "..")) {
+    throw new Error(`ZIP 包含不安全路径：${rawPath}`);
+  }
+  return segments.join("/");
+}
+
+function decodeZipReferencePath(rawPath: string): string {
+  try {
+    return decodeURIComponent(rawPath).normalize("NFC");
+  } catch {
+    throw new Error(`附件路径编码无效：${rawPath}`);
+  }
+}
+
+function resolveZipReferencePath(markdownPath: string, rawTarget: string): string | null {
+  const target = rawTarget.trim();
+  if (!target || target.startsWith("#")) return null;
+  if (/^(?:blob|file):/i.test(target) || /^[A-Za-z]:[\\/]/.test(target)) {
+    throw new Error(`不支持临时或本地磁盘附件路径：${target}`);
+  }
+  if (/^\/?api\/attachments\//i.test(target)) {
+    throw new Error(`ZIP 中仍包含服务器附件地址：${target}`);
+  }
+  if (/^(?:https?:)?\/\//i.test(target)) {
+    if (/\/api\/attachments\//i.test(target)) {
+      throw new Error(`ZIP 中仍包含服务器附件地址：${target}`);
+    }
+    return null;
+  }
+  if (/^[A-Za-z][A-Za-z0-9+.-]*:/i.test(target)) return null;
+  if (target.startsWith("/")) throw new Error(`ZIP 中包含绝对附件路径：${target}`);
+
+  const pathOnly = target.split(/[?#]/, 1)[0].replace(/\\/g, "/");
+  const decoded = decodeZipReferencePath(pathOnly);
+  const targetSegments = decoded.split("/").filter((segment) => segment && segment !== ".");
+  if (targetSegments.some((segment) => segment === "..")) {
+    throw new Error(`不支持包含 .. 的附件路径：${target}`);
+  }
+  const baseSegments = markdownPath.split("/").slice(0, -1);
+  return [...baseSegments, ...targetSegments].join("/");
+}
+
+function markdownDestinationCandidates(inner: string): Array<{ start: number; end: number }> {
+  const leading = inner.length - inner.trimStart().length;
+  const trimmed = inner.trim();
+  if (!trimmed) return [];
+  if (trimmed.startsWith("<")) {
+    const closing = trimmed.indexOf(">");
+    if (closing > 1) return [{ start: leading + 1, end: leading + closing }];
+  }
+
+  const candidates = [{ start: leading, end: leading + trimmed.length }];
+  const withTitle = trimmed.match(/^(\S+)(\s+(?:"[^"]*"|'[^']*'|\([^)]*\)))$/);
+  if (withTitle) candidates.unshift({ start: leading, end: leading + withTitle[1].length });
+  return candidates;
+}
+
+function locateMarkdownDestination(
+  inner: string,
+  markdownPath: string,
+  entries: ReadonlyMap<string, MarkdownZipEntry>,
+): MarkdownLinkDestination | null {
+  let fallback: MarkdownLinkDestination | null = null;
+  for (const candidate of markdownDestinationCandidates(inner)) {
+    const rawTarget = inner.slice(candidate.start, candidate.end);
+    const zipPath = resolveZipReferencePath(markdownPath, rawTarget);
+    if (!zipPath) return null;
+    const resolved = { ...candidate, zipPath };
+    if (entries.has(zipPath)) return resolved;
+    fallback ||= resolved;
+  }
+  return fallback;
+}
+
+function isRequiredPackagedAsset(zipPath: string, isImage: boolean): boolean {
+  if (isImage) return true;
+  if (/(?:^|\/)(?:assets?|images?|files?)\//i.test(zipPath)) return true;
+  const extension = zipPath.split("/").pop()?.match(/\.([^.]+)$/)?.[1]?.toLowerCase();
+  return Boolean(extension && !["md", "markdown", "html", "htm"].includes(extension));
+}
+
+function transformMarkdownZipReferences(
+  markdown: string,
+  markdownPath: string,
+  entries: ReadonlyMap<string, MarkdownZipEntry>,
+  replacements?: ReadonlyMap<string, string>,
+): { content: string; assetPaths: string[] } {
+  const assetPaths = new Set<string>();
+  const linkPattern = /(!?\[[^\]\r\n]*\])\(([^)\r\n]+)\)/g;
+  const content = markdown.replace(linkPattern, (fullMatch, prefix: string, inner: string) => {
+    const destination = locateMarkdownDestination(inner, markdownPath, entries);
+    if (!destination) return fullMatch;
+    const entry = entries.get(destination.zipPath);
+    const isImage = prefix.startsWith("!");
+    if (!entry || entry.dir) {
+      if (isRequiredPackagedAsset(destination.zipPath, isImage)) {
+        throw new Error(`缺少附件：${destination.zipPath}`);
+      }
+      return fullMatch;
+    }
+    if (/\.(?:md|markdown)$/i.test(destination.zipPath)) return fullMatch;
+
+    assetPaths.add(destination.zipPath);
+    const replacement = replacements?.get(destination.zipPath);
+    if (!replacement) return fullMatch;
+    const nextInner = `${inner.slice(0, destination.start)}${replacement}${inner.slice(destination.end)}`;
+    return `${prefix}(${nextInner})`;
+  });
+  return { content, assetPaths: Array.from(assetPaths) };
+}
+
+function mimeTypeForZipAsset(fileName: string): string {
+  const extension = fileName.split(".").pop()?.toLowerCase() || "";
+  const byExtension: Record<string, string> = {
+    png: "image/png",
+    jpg: "image/jpeg",
+    jpeg: "image/jpeg",
+    gif: "image/gif",
+    webp: "image/webp",
+    svg: "image/svg+xml",
+    bmp: "image/bmp",
+    avif: "image/avif",
+    ico: "image/x-icon",
+    pdf: "application/pdf",
+    zip: "application/zip",
+    txt: "text/plain",
+    csv: "text/csv",
+    json: "application/json",
+    doc: "application/msword",
+    docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    xls: "application/vnd.ms-excel",
+    xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    ppt: "application/vnd.ms-powerpoint",
+    pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    mp3: "audio/mpeg",
+    wav: "audio/wav",
+    mp4: "video/mp4",
+    webm: "video/webm",
+  };
+  return byExtension[extension] || "application/octet-stream";
+}
+
+async function readMarkdownZip(file: File): Promise<InspectedMarkdownZipArchive> {
+  const JSZip = (await import("jszip")).default;
+  const zip = await JSZip.loadAsync(file);
+  const manifestEntry = zip.file("manifest.json");
+  if (manifestEntry) {
+    const manifest = parseRoundTripPackageManifest(await manifestEntry.async("string"));
+    // Markdown round-trip 包同时包含给用户阅读的 Markdown 与 notes/* 私有正文。
+    // 必须在枚举 Markdown 前整体分流，避免重复导入并保留服务端附件 ID 重映射契约。
+    if (manifest) return { kind: "nowen-package", manifest };
+  }
+
+  if (file.size > MAX_MARKDOWN_ZIP_FILE_SIZE) {
+    throw new Error(`ZIP 超过 ${formatBytes(MAX_MARKDOWN_ZIP_FILE_SIZE)} 限制`);
+  }
+  const zipEntries = Object.values(zip.files);
+  if (zipEntries.length > MAX_MARKDOWN_ZIP_ENTRIES) {
+    throw new Error(`ZIP 条目超过 ${MAX_MARKDOWN_ZIP_ENTRIES} 个限制`);
+  }
+
+  const entries = new Map<string, MarkdownZipEntry>();
+  for (const entry of zipEntries) {
+    const originalPath = entry.unsafeOriginalName || entry.name;
+    const normalizedPath = normalizeZipEntryPath(originalPath);
+    if (!normalizedPath || entry.dir) continue;
+    if (entries.has(normalizedPath)) throw new Error(`ZIP 包含重复路径：${normalizedPath}`);
+    entries.set(normalizedPath, entry);
+  }
+
+  const markdownEntries = Array.from(entries.entries()).filter(([entryPath]) => /\.(?:md|markdown)$/i.test(entryPath));
+  if (markdownEntries.length === 0) throw new Error("ZIP 中没有 Markdown 文件，格式不受支持");
+  if (markdownEntries.length > MAX_MARKDOWN_DROP_FILES) {
+    throw new Error(`ZIP 中 Markdown 文件超过 ${MAX_MARKDOWN_DROP_FILES} 个限制`);
+  }
+
+  const documents: MarkdownZipDocument[] = [];
+  for (const [entryPath, entry] of markdownEntries) {
+    const source = (await entry.async("string")).replace(/^\uFEFF/, "");
+    if (new Blob([source]).size > MAX_MARKDOWN_DROP_FILE_SIZE) {
+      throw new Error(`${entryPath} 超过 ${formatBytes(MAX_MARKDOWN_DROP_FILE_SIZE)} 限制`);
+    }
+    const imported = parseMarkdownImportDocument(source);
+    const references = transformMarkdownZipReferences(imported.content, entryPath, entries);
+    documents.push({
+      path: entryPath,
+      fileName: entryPath.split("/").pop() || entryPath,
+      imported,
+      assetPaths: references.assetPaths,
+    });
+  }
+  return { kind: "markdown", entries, documents };
+}
+
+function normalizeMarkdownZipImportTarget(
+  target: string | null | MarkdownZipImportTarget,
+): MarkdownZipImportTarget {
+  return typeof target === "object" && target !== null
+    ? target
+    : { parentId: target };
+}
+
+async function importNowenPackageZip(
+  file: File,
+  manifest: PackageManifestPreview,
+  target: MarkdownZipImportTarget,
+): Promise<MarkdownBatchImportResult> {
+  if (target.parentId && !target.targetNotebookId) {
+    throw new Error("Nowen 数据包只能导入到目录节点，不能导入到文档节点");
+  }
+
+  let progressMessage = "Nowen 数据包导入失败";
+  const packageEntry = createRoundTripPackageImportFile(file, manifest);
+  const result = await importNotes(
+    [packageEntry],
+    target.targetNotebookId,
+    (progress) => { progressMessage = progress.message; },
+    {
+      workspaceId: target.workspaceId,
+      targetLabel: target.targetLabel,
+    },
+  );
+  if (!result.success) {
+    if (progressMessage.startsWith("已取消导入")) {
+      return { imported: [], failures: [], importedCount: 0, cancelled: true };
+    }
+    throw new Error(progressMessage.replace(/^导入失败：/, "") || "Nowen 数据包导入失败");
+  }
+  if (result.count <= 0) throw new Error("Nowen 数据包未创建任何笔记");
+
+  window.dispatchEvent(new CustomEvent(TREE_CHANGED_EVENT, {
+    detail: { reason: "roundtrip-markdown-package-imported", imported: result.count },
+  }));
+  return { imported: [], failures: [], importedCount: result.count };
+}
+
+async function importMarkdownZipDocument(
+  document: MarkdownZipDocument,
+  archive: MarkdownZipArchive,
+  parentId: string | null,
+  extractedBytes: { value: number },
+): Promise<ImportedMarkdownNote> {
+  const title = document.imported.title || markdownDropTitle(document.fileName);
+  const isRichText = document.imported.targetFormat === "tiptap-json";
+  const uploadedIds: string[] = [];
+  let createdNode: KnowledgeTreeNode | null = null;
+
+  try {
+    createdNode = await knowledgeTreeApi.create({
+      parentId,
+      nodeType: isRichText ? "note" : "markdown",
+      title,
+    });
+    const replacements = new Map<string, string>();
+    for (const assetPath of document.assetPaths) {
+      const entry = archive.entries.get(assetPath);
+      if (!entry) throw new Error(`缺少附件：${assetPath}`);
+      const blob = await entry.async("blob");
+      extractedBytes.value += blob.size;
+      if (extractedBytes.value > MAX_MARKDOWN_ZIP_ASSET_BYTES) {
+        throw new Error(`ZIP 附件累计超过 ${formatBytes(MAX_MARKDOWN_ZIP_ASSET_BYTES)} 限制`);
+      }
+      const fileName = assetPath.split("/").pop() || "attachment";
+      const file = new File([blob], fileName, { type: mimeTypeForZipAsset(fileName) });
+      const uploaded = await api.attachments.upload(createdNode.resourceId, file);
+      uploadedIds.push(uploaded.id);
+      const stableUrl = /^\/?api\/attachments\//i.test(uploaded.url)
+        ? uploaded.url.startsWith("/") ? uploaded.url : `/${uploaded.url}`
+        : `/api/attachments/${uploaded.id}`;
+      replacements.set(assetPath, stableUrl);
+    }
+
+    const rewritten = transformMarkdownZipReferences(
+      document.imported.content,
+      document.path,
+      archive.entries,
+      replacements,
+    ).content;
+    const content = isRichText
+      ? JSON.stringify((await import("@/lib/contentFormat")).markdownToTiptapJSON(rewritten))
+      : rewritten;
+    const createdNote = await api.getNote(createdNode.resourceId);
+    return await api.updateNoteConfirmed(createdNode.resourceId, {
+      title,
+      content,
+      contentFormat: document.imported.targetFormat,
+      version: createdNote.version,
+    });
+  } catch (error) {
+    await Promise.allSettled(uploadedIds.map((attachmentId) => api.attachments.remove(attachmentId)));
+    if (createdNode) await knowledgeTreeApi.remove(createdNode.id, "subtree").catch(() => undefined);
+    throw error;
+  }
+}
+
+export async function importMarkdownZipFileIntoKnowledgeTree(
+  file: File,
+  targetInput: string | null | MarkdownZipImportTarget,
+): Promise<MarkdownBatchImportResult> {
+  const archive = await readMarkdownZip(file);
+  const target = normalizeMarkdownZipImportTarget(targetInput);
+  if (archive.kind === "nowen-package") {
+    return importNowenPackageZip(file, archive.manifest, target);
+  }
+  const imported: ImportedMarkdownNote[] = [];
+  const failures: MarkdownBatchImportFailure[] = [];
+  const extractedBytes = { value: 0 };
+
+  for (const document of archive.documents) {
+    try {
+      imported.push(await importMarkdownZipDocument(document, archive, target.parentId, extractedBytes));
+    } catch (error) {
+      failures.push({ name: document.path, reason: errorMessage(error) });
+    }
+  }
+  return { imported, failures, importedCount: imported.length };
+}
+
+export async function importMarkdownZipFilesIntoKnowledgeTree(
+  files: Iterable<File>,
+  target: string | null | MarkdownZipImportTarget,
+): Promise<MarkdownBatchImportResult> {
+  const imported: ImportedMarkdownNote[] = [];
+  const failures: MarkdownBatchImportFailure[] = [];
+  let importedCount = 0;
+  let cancelled = false;
+  for (const file of Array.from(files).filter(isMarkdownZipDropFile)) {
+    try {
+      const result = await importMarkdownZipFileIntoKnowledgeTree(file, target);
+      imported.push(...result.imported);
+      importedCount += markdownBatchImportedCount(result);
+      failures.push(...result.failures);
+      cancelled ||= result.cancelled === true;
+    } catch (error) {
+      failures.push({ name: file.name, reason: errorMessage(error) });
+    }
+  }
+  return {
+    imported,
+    failures,
+    importedCount,
+    cancelled: cancelled && importedCount === 0 && failures.length === 0,
+  };
+}
+
 export async function importMarkdownFileIntoKnowledgeTree(
   file: File,
   parentId: string | null,
@@ -218,6 +674,58 @@ export async function importMarkdownFileIntoKnowledgeTree(
     }
     throw error;
   }
+}
+
+export async function importMarkdownFilesIntoKnowledgeTree(
+  files: Iterable<File>,
+  parentId: string | null,
+): Promise<MarkdownBatchImportResult> {
+  const selected = Array.from(files).filter(isMarkdownDropFile);
+  const imported: ImportedMarkdownNote[] = [];
+  const failures: MarkdownBatchImportFailure[] = [];
+  let acceptedBytes = 0;
+
+  for (const [index, file] of selected.entries()) {
+    if (index >= MAX_MARKDOWN_DROP_FILES) {
+      failures.push({
+        name: file.name,
+        reason: `单次最多导入 ${MAX_MARKDOWN_DROP_FILES} 个 Markdown 文件`,
+      });
+      continue;
+    }
+    if (file.size > MAX_MARKDOWN_DROP_FILE_SIZE) {
+      failures.push({
+        name: file.name,
+        reason: `文件超过 ${formatBytes(MAX_MARKDOWN_DROP_FILE_SIZE)} 限制`,
+      });
+      continue;
+    }
+    if (acceptedBytes + file.size > MAX_MARKDOWN_DROP_TOTAL_SIZE) {
+      failures.push({
+        name: file.name,
+        reason: `本次累计大小超过 ${formatBytes(MAX_MARKDOWN_DROP_TOTAL_SIZE)} 限制`,
+      });
+      continue;
+    }
+    acceptedBytes += file.size;
+
+    try {
+      imported.push(await importMarkdownFileIntoKnowledgeTree(file, parentId));
+    } catch (error) {
+      failures.push({ name: file.name, reason: errorMessage(error) });
+    }
+  }
+
+  return { imported, failures };
+}
+
+export function formatMarkdownImportFailures(
+  failures: readonly MarkdownBatchImportFailure[],
+  limit = 3,
+): string {
+  const visible = failures.slice(0, limit).map(({ name, reason }) => `${name}：${reason}`);
+  const omitted = failures.length - visible.length;
+  return `${visible.join("；")}${omitted > 0 ? `；另有 ${omitted} 个失败` : ""}`;
 }
 
 async function importWordFileIntoKnowledgeTree(
@@ -260,20 +768,12 @@ function emitTreeChanged(targetNodeId: string, imported: number): void {
   }));
 }
 
-function expandTargetAfterRefresh(targetNodeId: string, attempt = 0): void {
-  window.setTimeout(() => {
-    const activeTrees = Array.from(document.querySelectorAll<HTMLElement>(
-      `${TREE_SELECTOR}[data-sidebar-surface-active="true"]`,
-    ));
-    const rows = activeTrees.flatMap((tree) => Array.from(tree.querySelectorAll<HTMLElement>(TREE_NODE_SELECTOR)));
-    const row = rows.find((candidate) => candidate.dataset.knowledgeTreeNodeId === targetNodeId);
-    const toggle = row?.querySelector<HTMLButtonElement>('button[aria-label="展开"]');
-    if (toggle) {
-      toggle.click();
-      return;
-    }
-    if (attempt < 4) expandTargetAfterRefresh(targetNodeId, attempt + 1);
-  }, attempt === 0 ? 120 : 180);
+function expandImportedTarget(target: KnowledgeTreeNode): void {
+  if (target.nodeType !== "folder") return;
+  const scope = getKnowledgeTreeExpansionScope();
+  const expanded = new Set(getKnowledgeTreeExpansionSnapshot(scope).expandedNodeIds);
+  expanded.add(target.id);
+  saveKnowledgeTreeExpansion(scope, expanded);
 }
 
 async function handleKnowledgeTreeFileDrop(row: HTMLElement, dataTransfer: DataTransfer): Promise<void> {
@@ -284,16 +784,7 @@ async function handleKnowledgeTreeFileDrop(row: HTMLElement, dataTransfer: DataT
 
   if (!nodeId) return;
   if (supportedFiles.length === 0) {
-    toast.warning("这里只支持拖入 .md、.markdown 或 .docx 文件");
-    return;
-  }
-  if (supportedFiles.length > MAX_MARKDOWN_DROP_FILES) {
-    toast.error(`单次最多拖入 ${MAX_MARKDOWN_DROP_FILES} 个文档`);
-    return;
-  }
-  const totalSize = supportedFiles.reduce((sum, file) => sum + file.size, 0);
-  if (totalSize > MAX_MARKDOWN_DROP_TOTAL_SIZE) {
-    toast.error(`本次文件总大小超过 ${formatBytes(MAX_MARKDOWN_DROP_TOTAL_SIZE)} 限制`);
+    toast.warning("这里只支持拖入 .md、.markdown、Markdown 附件 ZIP 或 .docx 文件");
     return;
   }
   if (importing) {
@@ -305,7 +796,13 @@ async function handleKnowledgeTreeFileDrop(row: HTMLElement, dataTransfer: DataT
   const progressToast = toast.info(`正在导入 ${supportedFiles.length} 个文档…`, 0);
   let target: KnowledgeTreeNode | null = null;
   let successCount = 0;
-  const failures: Array<{ file: string; reason: string }> = [];
+  const failures: MarkdownBatchImportFailure[] = supportedFiles
+    .slice(MAX_MARKDOWN_DROP_FILES)
+    .map((file) => ({
+      name: file.name,
+      reason: `单次最多导入 ${MAX_MARKDOWN_DROP_FILES} 个文档`,
+    }));
+  const filesToImport = supportedFiles.slice(0, MAX_MARKDOWN_DROP_FILES);
 
   try {
     const resolvedTarget = await resolveTargetNode(nodeId);
@@ -315,46 +812,64 @@ async function handleKnowledgeTreeFileDrop(row: HTMLElement, dataTransfer: DataT
       throw new Error("你没有在该目录下创建文档的权限");
     }
 
-    for (const file of supportedFiles) {
+    const markdownFiles = filesToImport.filter(isMarkdownDropFile);
+    const markdownZipFiles = filesToImport.filter(isMarkdownZipDropFile);
+    const wordFiles = filesToImport.filter(isWordDropFile);
+    const markdownResult = await importMarkdownFilesIntoKnowledgeTree(markdownFiles, target.id);
+    successCount += markdownResult.imported.length;
+    failures.push(...markdownResult.failures);
+
+    const markdownZipResult = await importMarkdownZipFilesIntoKnowledgeTree(markdownZipFiles, {
+      parentId: target.id,
+      targetNotebookId: target.resourceType === "notebook" ? target.resourceId : undefined,
+      workspaceId: target.workspaceId || "personal",
+      targetLabel: target.title,
+    });
+    successCount += markdownBatchImportedCount(markdownZipResult);
+    failures.push(...markdownZipResult.failures);
+    if (markdownZipResult.cancelled && successCount === 0 && failures.length === 0) {
+      toast.info("已取消导入，未写入任何数据");
+      return;
+    }
+
+    for (const file of wordFiles) {
       try {
-        if (isMarkdownDropFile(file)) {
-          await importMarkdownFileIntoKnowledgeTree(file, target.id);
-        } else {
-          await importWordFileIntoKnowledgeTree(file, target, resolvedTarget.nodes);
-        }
+        await importWordFileIntoKnowledgeTree(file, target, resolvedTarget.nodes);
         successCount += 1;
       } catch (error) {
-        failures.push({ file: file.name, reason: errorMessage(error) });
+        failures.push({ name: file.name, reason: errorMessage(error) });
       }
     }
 
     if (successCount > 0) {
+      expandImportedTarget(target);
       emitTreeChanged(target.id, successCount);
-      expandTargetAfterRefresh(target.id);
     }
   } catch (error) {
-    failures.push({ file: "", reason: errorMessage(error) });
+    failures.push({ name: "导入", reason: errorMessage(error) });
   } finally {
     importing = false;
     toast.dismiss(progressToast);
   }
 
-  if (successCount === supportedFiles.length) {
+  if (failures.length === 0 && successCount > 0) {
     const skippedHint = skippedCount > 0 ? `，已忽略 ${skippedCount} 个不支持的文件` : "";
     toast.success(`已将 ${successCount} 个文档导入“${target?.title || "目标目录"}”${skippedHint}`);
     return;
   }
 
-  const firstFailure = failures[0];
   if (successCount > 0) {
     toast.warning(
-      `已导入 ${successCount} 个，失败 ${failures.length} 个${firstFailure ? `：${firstFailure.file || "导入"} ${firstFailure.reason}` : ""}`,
-      6000,
+      `成功导入 ${successCount} 个文件，${failures.length} 个失败：${formatMarkdownImportFailures(failures)}`,
+      8000,
     );
     return;
   }
 
-  toast.error(firstFailure?.reason || "文档导入失败", 6000);
+  toast.error(
+    failures.length > 0 ? formatMarkdownImportFailures(failures) : "文档导入失败",
+    8000,
+  );
 }
 
 export function installKnowledgeTreeMarkdownDrop(): () => void {

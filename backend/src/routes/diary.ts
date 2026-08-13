@@ -94,12 +94,14 @@ const ALLOWED_DIARY_VIDEO_MIMES = new Set([
   "video/mp4",
   "video/webm",
   "video/quicktime",
+  "video/3gpp",
 ]);
 
 const DIARY_VIDEO_MIME_TO_EXT: Record<string, string> = {
   "video/mp4": "mp4",
   "video/webm": "webm",
   "video/quicktime": "mov",
+  "video/3gpp": "3gp",
 };
 
 type DiaryMediaType = "image" | "video";

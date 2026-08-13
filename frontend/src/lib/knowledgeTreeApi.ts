@@ -163,6 +163,13 @@ export const knowledgeTreeApi = {
     });
   },
 
+  batchMove(nodeIds: string[], input: { parentId: string | null }) {
+    return request<{ success: true; nodeIds: string[]; nodes: KnowledgeTreeNode[] }>("/batch/move", {
+      method: "PUT",
+      body: JSON.stringify({ nodeIds, ...input }),
+    });
+  },
+
   reorder(items: Array<{ id: string; sortOrder: number }>) {
     return request<{ success: true; updated: number }>("/reorder", {
       method: "PUT",
@@ -175,6 +182,13 @@ export const knowledgeTreeApi = {
       `/nodes/${encodeURIComponent(nodeId)}?mode=${mode}`,
       { method: "DELETE" },
     );
+  },
+
+  batchRemove(nodeIds: string[]) {
+    return request<{ success: true; nodeIds: string[]; affectedNodeIds: string[] }>("/batch/delete", {
+      method: "POST",
+      body: JSON.stringify({ nodeIds }),
+    });
   },
 
   restore(nodeId: string, includeSubtree = true) {

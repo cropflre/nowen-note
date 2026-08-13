@@ -67,19 +67,23 @@ export function applySidebarSearchExperience(root: ParentNode = document): boole
       filterSurface.dataset.treeFilterSurface = "true";
       changed = true;
     }
-    if (treeFilter.placeholder !== "筛选目录与文档…") {
-      treeFilter.placeholder = "筛选目录与文档…";
+    const contentScope = treeFilter.dataset.searchScope === "content";
+    const placeholder = contentScope ? "搜索笔记标题与正文…" : "筛选目录与文档…";
+    const ariaLabel = contentScope ? "搜索笔记标题与正文" : "筛选当前目录中的文件夹与文档";
+    const title = contentScope ? "搜索笔记标题与正文" : "仅筛选当前内容树，不搜索笔记正文";
+    if (treeFilter.placeholder !== placeholder) {
+      treeFilter.placeholder = placeholder;
       changed = true;
     }
-    if (treeFilter.getAttribute("aria-label") !== "筛选当前目录中的文件夹与文档") {
-      treeFilter.setAttribute("aria-label", "筛选当前目录中的文件夹与文档");
+    if (treeFilter.getAttribute("aria-label") !== ariaLabel) {
+      treeFilter.setAttribute("aria-label", ariaLabel);
       changed = true;
     }
-    if (treeFilter.title !== "仅筛选当前内容树，不搜索笔记正文") {
-      treeFilter.title = "仅筛选当前内容树，不搜索笔记正文";
+    if (treeFilter.title !== title) {
+      treeFilter.title = title;
       changed = true;
     }
-    if (treeFilter.dataset.searchScope !== "tree") {
+    if (!treeFilter.dataset.searchScope) {
       treeFilter.dataset.searchScope = "tree";
       changed = true;
     }

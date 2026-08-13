@@ -20,6 +20,7 @@ export interface TaskReminderRecord {
   taskId: string;
   userId: string;
   offsetMinutes: number;
+  timezoneOffsetMinutes: number | null;
   enabled: number;
   snoozedUntil: string | null;
   lastNotifiedAt: string | null;
@@ -65,11 +66,12 @@ export const taskRemindersRepository = {
     taskId: string;
     userId: string;
     offsetMinutes: number;
+    timezoneOffsetMinutes?: number | null;
   }): void {
     const db = getDb();
     db.prepare(
-      "INSERT INTO task_reminders (id, taskId, userId, offsetMinutes, enabled) VALUES (?, ?, ?, ?, 1)"
-    ).run(input.id, input.taskId, input.userId, input.offsetMinutes);
+      "INSERT INTO task_reminders (id, taskId, userId, offsetMinutes, timezoneOffsetMinutes, enabled) VALUES (?, ?, ?, ?, ?, 1)"
+    ).run(input.id, input.taskId, input.userId, input.offsetMinutes, input.timezoneOffsetMinutes ?? null);
   },
 
   /**
@@ -190,8 +192,15 @@ export const taskRemindersRepository = {
     const crypto = require("crypto");
     const rId = crypto.randomUUID();
     db.prepare(
-      "INSERT INTO task_reminders (id, taskId, userId, offsetMinutes, enabled, lastNotifiedAt, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, NULL, datetime('now'), datetime('now'))"
-    ).run(rId, newTaskId, sourceReminder.userId, sourceReminder.offsetMinutes, sourceReminder.enabled);
+      "INSERT INTO task_reminders (id, taskId, userId, offsetMinutes, timezoneOffsetMinutes, enabled, lastNotifiedAt, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?, NULL, datetime('now'), datetime('now'))"
+    ).run(
+      rId,
+      newTaskId,
+      sourceReminder.userId,
+      sourceReminder.offsetMinutes,
+      sourceReminder.timezoneOffsetMinutes ?? null,
+      sourceReminder.enabled,
+    );
   },
 
   async listByTaskIdAsync(taskId: string, userId: string): Promise<TaskReminderRecord[]> {
@@ -213,10 +222,11 @@ export const taskRemindersRepository = {
     taskId: string;
     userId: string;
     offsetMinutes: number;
+    timezoneOffsetMinutes?: number | null;
   }): Promise<void> {
     await getAdapter().execute(
-      "INSERT INTO task_reminders (id, taskId, userId, offsetMinutes, enabled) VALUES (?, ?, ?, ?, 1)",
-      [input.id, input.taskId, input.userId, input.offsetMinutes],
+      "INSERT INTO task_reminders (id, taskId, userId, offsetMinutes, timezoneOffsetMinutes, enabled) VALUES (?, ?, ?, ?, ?, 1)",
+      [input.id, input.taskId, input.userId, input.offsetMinutes, input.timezoneOffsetMinutes ?? null],
     );
   },
 
@@ -296,8 +306,15 @@ export const taskRemindersRepository = {
     const crypto = require("crypto");
     const rId = crypto.randomUUID();
     await getAdapter().execute(
-      "INSERT INTO task_reminders (id, taskId, userId, offsetMinutes, enabled, lastNotifiedAt, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, NULL, datetime('now'), datetime('now'))",
-      [rId, newTaskId, sourceReminder.userId, sourceReminder.offsetMinutes, sourceReminder.enabled],
+      "INSERT INTO task_reminders (id, taskId, userId, offsetMinutes, timezoneOffsetMinutes, enabled, lastNotifiedAt, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?, NULL, datetime('now'), datetime('now'))",
+      [
+        rId,
+        newTaskId,
+        sourceReminder.userId,
+        sourceReminder.offsetMinutes,
+        sourceReminder.timezoneOffsetMinutes ?? null,
+        sourceReminder.enabled,
+      ],
     );
   },
 };

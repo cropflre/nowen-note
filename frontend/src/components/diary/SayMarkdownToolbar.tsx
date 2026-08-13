@@ -6,6 +6,7 @@ import {
   Eye,
   List,
   ListOrdered,
+  MoreHorizontal,
   Pencil,
   Quote,
 } from "lucide-react";
@@ -27,20 +28,31 @@ export interface SayMarkdownEditResult {
   selectionEnd: number;
 }
 
+export interface SayMarkdownPlaceholders {
+  text: string;
+  content: string;
+}
+
+const DEFAULT_PLACEHOLDERS: SayMarkdownPlaceholders = {
+  text: "文本",
+  content: "内容",
+};
+
 function wrapSelection(
   text: string,
   start: number,
   end: number,
   prefix: string,
-  suffix = prefix,
+  suffix: string,
+  placeholder: string,
 ): SayMarkdownEditResult {
   const selected = text.slice(start, end);
-  const placeholder = selected || "文本";
-  const inserted = `${prefix}${placeholder}${suffix}`;
+  const fallback = selected || placeholder;
+  const inserted = `${prefix}${fallback}${suffix}`;
   return {
     text: text.slice(0, start) + inserted + text.slice(end),
     selectionStart: start + prefix.length,
-    selectionEnd: start + prefix.length + placeholder.length,
+    selectionEnd: start + prefix.length + fallback.length,
   };
 }
 
@@ -49,11 +61,12 @@ function prefixSelectedLines(
   start: number,
   end: number,
   prefixForIndex: (index: number) => string,
+  placeholder: string,
 ): SayMarkdownEditResult {
   const lineStart = text.lastIndexOf("\n", Math.max(0, start - 1)) + 1;
   const nextBreak = text.indexOf("\n", end);
   const lineEnd = nextBreak === -1 ? text.length : nextBreak;
-  const block = text.slice(lineStart, lineEnd) || "内容";
+  const block = text.slice(lineStart, lineEnd) || placeholder;
   const replaced = block
     .split("\n")
     .map((line, index) => `${prefixForIndex(index)}${line}`)
@@ -70,20 +83,21 @@ export function applySayMarkdownAction(
   start: number,
   end: number,
   action: SayMarkdownAction,
+  placeholders: SayMarkdownPlaceholders = DEFAULT_PLACEHOLDERS,
 ): SayMarkdownEditResult {
   switch (action) {
     case "bold":
-      return wrapSelection(text, start, end, "**");
+      return wrapSelection(text, start, end, "**", "**", placeholders.text);
     case "inlineCode":
-      return wrapSelection(text, start, end, "`");
+      return wrapSelection(text, start, end, "`", "`", placeholders.text);
     case "bulletList":
-      return prefixSelectedLines(text, start, end, () => "- ");
+      return prefixSelectedLines(text, start, end, () => "- ", placeholders.content);
     case "orderedList":
-      return prefixSelectedLines(text, start, end, (index) => `${index + 1}. `);
+      return prefixSelectedLines(text, start, end, (index) => `${index + 1}. `, placeholders.content);
     case "taskList":
-      return prefixSelectedLines(text, start, end, () => "- [ ] ");
+      return prefixSelectedLines(text, start, end, () => "- [ ] ", placeholders.content);
     case "quote":
-      return prefixSelectedLines(text, start, end, () => "> ");
+      return prefixSelectedLines(text, start, end, () => "> ", placeholders.content);
   }
 }
 
@@ -112,6 +126,10 @@ export default function SayMarkdownToolbar({
       textarea.selectionStart ?? value.length,
       textarea.selectionEnd ?? value.length,
       action,
+      {
+        text: t("diary.markdownTextPlaceholder"),
+        content: t("diary.markdownContentPlaceholder"),
+      },
     );
     onChange(result.text);
     requestAnimationFrame(() => {
@@ -120,67 +138,119 @@ export default function SayMarkdownToolbar({
       next.focus();
       next.setSelectionRange(result.selectionStart, result.selectionEnd);
     });
-  }, [mode, onChange, textareaRef, value]);
+  }, [mode, onChange, t, textareaRef, value]);
 
   const actions: Array<{
     action: SayMarkdownAction;
     label: string;
     icon: React.ReactNode;
+    mobilePrimary?: boolean;
   }> = [
-    { action: "bold", label: t("diary.markdownBold", { defaultValue: "加粗" }), icon: <Bold size={14} /> },
-    { action: "bulletList", label: t("diary.markdownBulletList", { defaultValue: "无序列表" }), icon: <List size={14} /> },
-    { action: "orderedList", label: t("diary.markdownOrderedList", { defaultValue: "有序列表" }), icon: <ListOrdered size={14} /> },
-    { action: "taskList", label: t("diary.markdownTaskList", { defaultValue: "任务列表" }), icon: <CheckSquare size={14} /> },
-    { action: "quote", label: t("diary.markdownQuote", { defaultValue: "引用" }), icon: <Quote size={14} /> },
-    { action: "inlineCode", label: t("diary.markdownInlineCode", { defaultValue: "行内代码" }), icon: <Code2 size={14} /> },
+    { action: "bold", label: t("diary.markdownBold"), icon: <Bold size={14} />, mobilePrimary: true },
+    { action: "bulletList", label: t("diary.markdownBulletList"), icon: <List size={14} />, mobilePrimary: true },
+    { action: "taskList", label: t("diary.markdownTaskList"), icon: <CheckSquare size={14} />, mobilePrimary: true },
+    { action: "orderedList", label: t("diary.markdownOrderedList"), icon: <ListOrdered size={14} /> },
+    { action: "quote", label: t("diary.markdownQuote"), icon: <Quote size={14} /> },
+    { action: "inlineCode", label: t("diary.markdownInlineCode"), icon: <Code2 size={14} /> },
   ];
+  const secondaryActions = actions.filter((item) => !item.mobilePrimary);
+
+  const actionButtonClass = (mobilePrimary?: boolean) => cn(
+    "grid h-10 w-10 shrink-0 place-items-center rounded-lg text-tx-tertiary transition-colors sm:h-7 sm:w-7 sm:rounded-md",
+    !mobilePrimary && "hidden sm:grid",
+    mode === "write"
+      ? "hover:bg-app-hover hover:text-tx-primary"
+      : "cursor-not-allowed opacity-40",
+  );
 
   return (
-    <div className="mt-2 flex items-center gap-1 overflow-x-auto border-t border-app-border/40 pt-2">
-      {actions.map((item) => (
-        <button
-          key={item.action}
-          type="button"
-          disabled={mode !== "write"}
-          title={item.label}
-          aria-label={item.label}
-          onMouseDown={(event) => {
-            event.preventDefault();
-            apply(item.action);
-          }}
-          className={cn(
-            "grid h-7 w-7 shrink-0 place-items-center rounded-md text-tx-tertiary transition-colors",
-            mode === "write"
-              ? "hover:bg-app-hover hover:text-tx-primary"
-              : "cursor-not-allowed opacity-40",
-          )}
+    <div
+      className="mt-2 border-t border-app-border/40 pt-2"
+      data-diary-markdown-toolbar=""
+    >
+      <div className="flex min-w-0 items-center justify-between gap-2">
+        <div className="flex min-w-0 items-center gap-1">
+          {actions.map((item) => (
+            <button
+              key={item.action}
+              type="button"
+              disabled={mode !== "write"}
+              title={item.label}
+              aria-label={item.label}
+              onMouseDown={(event) => {
+                event.preventDefault();
+                apply(item.action);
+              }}
+              className={actionButtonClass(item.mobilePrimary)}
+            >
+              {item.icon}
+            </button>
+          ))}
+
+          <details className="relative shrink-0 sm:hidden">
+            <summary
+              className={cn(
+                "grid h-10 w-10 cursor-pointer list-none place-items-center rounded-lg text-tx-tertiary transition-colors [&::-webkit-details-marker]:hidden",
+                mode === "write"
+                  ? "hover:bg-app-hover hover:text-tx-primary"
+                  : "pointer-events-none opacity-40",
+              )}
+              title={t("diary.media.more")}
+              aria-label={t("diary.media.more")}
+            >
+              <MoreHorizontal size={16} />
+            </summary>
+            <div className="absolute left-0 top-full z-50 mt-2 w-36 rounded-xl border border-app-border bg-app-elevated p-1.5 shadow-lg">
+              {secondaryActions.map((item) => (
+                <button
+                  key={item.action}
+                  type="button"
+                  disabled={mode !== "write"}
+                  onMouseDown={(event) => {
+                    event.preventDefault();
+                    apply(item.action);
+                    event.currentTarget.closest("details")?.removeAttribute("open");
+                  }}
+                  className="flex min-h-10 w-full items-center gap-2 rounded-lg px-3 text-xs text-tx-secondary transition-colors hover:bg-app-hover hover:text-tx-primary disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  {item.icon}
+                  <span>{item.label}</span>
+                </button>
+              ))}
+            </div>
+          </details>
+        </div>
+
+        <div
+          className="flex shrink-0 items-center rounded-lg bg-app-hover/60 p-0.5"
+          data-diary-markdown-mode=""
         >
-          {item.icon}
-        </button>
-      ))}
-      <div className="mx-1 h-4 w-px shrink-0 bg-app-border" />
-      <button
-        type="button"
-        onClick={() => onModeChange("write")}
-        className={cn(
-          "flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-[11px] transition-colors",
-          mode === "write" ? "bg-app-hover text-tx-primary" : "text-tx-tertiary hover:text-tx-secondary",
-        )}
-      >
-        <Pencil size={12} />
-        {t("diary.markdownWrite", { defaultValue: "编辑" })}
-      </button>
-      <button
-        type="button"
-        onClick={() => onModeChange("preview")}
-        className={cn(
-          "flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-[11px] transition-colors",
-          mode === "preview" ? "bg-app-hover text-tx-primary" : "text-tx-tertiary hover:text-tx-secondary",
-        )}
-      >
-        <Eye size={12} />
-        {t("diary.markdownPreview", { defaultValue: "预览" })}
-      </button>
+          <button
+            type="button"
+            onClick={() => onModeChange("write")}
+            title={t("diary.markdownWrite")}
+            className={cn(
+              "flex h-9 items-center gap-1 rounded-md px-2 text-[11px] transition-colors sm:h-auto sm:py-1",
+              mode === "write" ? "bg-app-surface text-tx-primary shadow-sm" : "text-tx-tertiary hover:text-tx-secondary",
+            )}
+          >
+            <Pencil size={12} />
+            <span>{t("diary.markdownWrite")}</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => onModeChange("preview")}
+            title={t("diary.markdownPreview")}
+            className={cn(
+              "flex h-9 items-center gap-1 rounded-md px-2 text-[11px] transition-colors sm:h-auto sm:py-1",
+              mode === "preview" ? "bg-app-surface text-tx-primary shadow-sm" : "text-tx-tertiary hover:text-tx-secondary",
+            )}
+          >
+            <Eye size={12} />
+            <span>{t("diary.markdownPreview")}</span>
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

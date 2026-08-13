@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { isExternalHttpLink, normalizeExternalHref, prepareSharedMarkdownForDisplay } from "../SharedNoteView";
+import {
+  isExternalHttpLink,
+  normalizeExternalHref,
+  prepareSharedMarkdownForDisplay,
+  renderTiptapJSON,
+} from "../SharedNoteView";
 
 describe("SharedNoteView shared content links", () => {
   it("classifies only external http links for new-tab behavior", () => {
@@ -46,4 +51,26 @@ describe("SharedNoteView shared content links", () => {
     expect(projected).not.toContain(standaloneId);
     expect(projected).toContain(`^${codeId}`);
   });
+
+  it("keeps Tiptap visual indent in shared HTML", () => {
+    const html = renderTiptapJSON({
+      type: "doc",
+      content: [
+        { type: "paragraph", attrs: { indent: 1 }, content: [{ type: "text", text: "one" }] },
+        { type: "heading", attrs: { level: 2, indent: 2 }, content: [{ type: "text", text: "two" }] },
+        {
+          type: "blockquote",
+          attrs: { indent: 3 },
+          content: [{ type: "paragraph", content: [{ type: "text", text: "three" }] }],
+        },
+        { type: "codeBlock", attrs: { language: null, indent: 4 }, content: [{ type: "text", text: "four" }] },
+      ],
+    });
+
+    expect(html).toContain('<p data-indent="1">one</p>');
+    expect(html).toContain('<h2 data-indent="2">two</h2>');
+    expect(html).toContain('<blockquote data-indent="3">');
+    expect(html).toContain('class="shared-code-block" data-indent="4"');
+  });
+
 });
