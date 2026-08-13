@@ -18,6 +18,7 @@ import createMeRuntimeRouter from "./routes/me-runtime";
 import createWorkspacesRuntimeRouter from "./routes/workspaces-runtime";
 import createNotebooksRuntimeRouter from "./routes/notebooks-runtime";
 import createTagsRuntimeRouter from "./routes/tags-runtime";
+import createAttachmentsRuntimeRouter, { handleAttachmentDownloadRuntime } from "./routes/attachments-runtime";
 import userPreferencesSyncRoutes from "./routes/user-preferences-sync";
 import createBackupsRuntimeRouter from "./routes/backups-runtime";
 import createNotesRuntimeRouter from "./routes/notes-runtime";
@@ -114,6 +115,10 @@ app.get("/api/health", async (c) => {
         "GET /api/workspaces",
         "GET /api/notebooks (personal/workspace recursive counts)",
         "GET /api/tags (personal/workspace scope)",
+        "GET /api/attachments/:id (signed/Bearer, Range/ETag)",
+        "GET /api/attachments/access/urls (user signed URLs)",
+        "POST /api/attachments (upload/dedup)",
+        "DELETE /api/attachments/:id",
         "GET /api/notes",
         "POST /api/notes",
         "GET /api/notes/trash/summary",
@@ -164,6 +169,7 @@ app.get("/api/health", async (c) => {
         "note deletion webhooks",
         "PostgreSQL weighted full-text search for note titles and content",
         "tag and attachment search with Unicode-safe literal fallback",
+        "signed user attachment upload/read/revoke/dedup across local and S3 storage",
         "search health diagnostics and administrator index rebuild",
         "PostgreSQL custom-format pg_dump database backups",
         "database-independent backup manifests with table counts and checksums",
@@ -301,6 +307,12 @@ app.route("/api/notebooks", createNotebooksRuntimeRouter(adapter));
 app.use("/api/tags", authenticateApiRequest);
 app.use("/api/tags/*", authenticateApiRequest);
 app.route("/api/tags", createTagsRuntimeRouter(adapter));
+
+app.get("/api/attachments/:id", (c) => handleAttachmentDownloadRuntime(c, adapter));
+
+app.use("/api/attachments", authenticateApiRequest);
+app.use("/api/attachments/*", authenticateApiRequest);
+app.route("/api/attachments", createAttachmentsRuntimeRouter(adapter));
 
 app.use("/api/notes", authenticateApiRequest);
 app.use("/api/notes/*", authenticateApiRequest);
