@@ -1,46 +1,101 @@
 {
   "version": 1,
-  "note": "Short-lived issue-owned allowances introduced by newly synchronized mainline files. Move entries into the primary exception registry or remove them when their Repository boundary lands.",
+  "note": "Short-lived issue-owned allowances introduced by newly synchronized mainline files. Exact ceilings describe default-SQLite-only drift; PostgreSQL runtime-only routes keep hard Repository/Adapter boundaries. Remove entries as #249/#251/#253 land.",
   "files": {
+    "lib/knowledgeTreeNoteScope.ts": {
+      "owner": "#249",
+      "reason": "Main introduced synchronous note-scope helpers for the default SQLite knowledge-tree surface. PostgreSQL runtime-only uses dedicated knowledge-tree repositories and does not load this helper.",
+      "counts": { "better-sqlite3": 1, "prepare-call": 3 }
+    },
+    "lib/knowledgeTreePasswordAccess.ts": {
+      "owner": "#249",
+      "reason": "Main introduced synchronous folder-password visibility helpers for legacy routes. PostgreSQL runtime-only implements unlock/password access through its dedicated knowledge-tree repositories and does not load this helper.",
+      "counts": { "better-sqlite3": 1, "prepare-call": 2 }
+    },
+    "middleware/api-token-resource-scope.ts": {
+      "owner": "#249",
+      "reason": "Main added one additional synchronous token-resource lookup to the default runtime guard. PostgreSQL runtime-only does not mount the legacy token route/guard; request-time token resource enforcement remains the #249 async boundary task.",
+      "counts": { "getDb-call": 6, "prepare-call": 3 }
+    },
+    "middleware/knowledgeCapabilityGuard.ts": {
+      "owner": "#249",
+      "reason": "Main introduced a default-runtime synchronous knowledge capability guard. PostgreSQL knowledge-tree runtime performs capability checks through adapter-backed repositories and does not mount this middleware.",
+      "counts": { "getDb-call": 2 }
+    },
+    "middleware/knowledgeSearchCapabilityGuard.ts": {
+      "owner": "#249",
+      "reason": "Main introduced a synchronous search capability guard for the default SQLite runtime. PostgreSQL search runtime has its own adapter-backed access path and does not mount this middleware.",
+      "counts": { "getDb-call": 1 }
+    },
+    "routes/auth.ts": {
+      "owner": "#248",
+      "reason": "Main expanded the default SQLite auth route after the reviewed baseline. PostgreSQL runtime-only authenticates directly through DatabaseAdapter users/user_sessions queries and does not mount routes/auth.ts; full cross-driver auth route parity remains #248 work.",
+      "counts": { "getDb-call": 23, "prepare-call": 24, "transaction-call": 1 }
+    },
+    "routes/data-file.ts": {
+      "owner": "#253",
+      "reason": "Main added one SQLite metadata statement to the legacy data-file administration/recovery route. PostgreSQL runtime-only exposes dedicated PostgreSQL backup/restore routes instead; cross-driver destructive data-file recovery remains #253.",
+      "counts": { "better-sqlite3": 1, "db-exec-call": 1, "getDb-call": 7, "pragma": 3, "prepare-call": 16, "sqlite-file-runtime": 10, "sqlite-master": 1, "transaction-call": 2 }
+    },
+    "routes/knowledge-tree.ts": {
+      "owner": "#249",
+      "reason": "Main expanded the legacy unified knowledge-tree route after sync. PostgreSQL runtime-only mounts knowledge-tree-runtime.ts and knowledge-tree-surfaces-runtime.ts backed by dedicated repositories, so the additional SQLite route accesses remain isolated under #249.",
+      "counts": { "getDb-call": 5, "prepare-call": 15, "transaction-call": 2 }
+    },
+    "routes/notes.ts": {
+      "owner": "#249",
+      "reason": "Main added further statements to the default SQLite notes route. PostgreSQL runtime-only mounts notes-runtime.ts for the migrated note surface; remaining legacy note operations must move as the complete #249 transaction boundary.",
+      "counts": { "getDb-call": 13, "prepare-call": 36, "sqlite-file-runtime": 1, "transaction-call": 5 }
+    },
+    "services/knowledgeCapabilitiesResolver.ts": {
+      "owner": "#249",
+      "reason": "Main expanded synchronous capability resolution in the default runtime. PostgreSQL knowledge-tree routes use adapter-backed permission repositories and do not evaluate this legacy resolver.",
+      "counts": { "better-sqlite3": 1, "getDb-call": 3, "prepare-call": 4 }
+    },
+    "services/knowledgeTreeBatch.ts": {
+      "owner": "#249",
+      "reason": "Main introduced batch move/delete helpers around the synchronous SQLite knowledge-tree transaction. PostgreSQL runtime-only has dedicated structure/lifecycle mutation repositories; batch parity must be implemented atomically under #249.",
+      "counts": { "better-sqlite3": 1, "getDb-call": 3, "prepare-call": 3, "transaction-call": 2 }
+    },
+    "services/noteTemplates.ts": {
+      "owner": "#249",
+      "reason": "Main introduced note templates with synchronous note, attachment and knowledge-tree transactions. PostgreSQL schema parity includes template tables, but PostgreSQL runtime-only does not expose the template route yet; service migration remains a #249 runtime feature batch.",
+      "counts": { "better-sqlite3": 1, "getDb-call": 4, "prepare-call": 16, "transaction-call": 2 }
+    },
+    "services/siyuanImportJobs.ts": {
+      "owner": "#251",
+      "reason": "Main introduced durable SiYuan import jobs backed by the default SQLite database. Import execution is not mounted in PostgreSQL runtime-only and must migrate with the checkpointed cross-driver import pipeline under #251.",
+      "counts": { "getDb-call": 10 }
+    },
+    "services/siyuanPackageImportLegacyCore.ts": {
+      "owner": "#251",
+      "reason": "Main added one statement to the legacy SiYuan bulk-import transaction. PostgreSQL runtime-only does not expose this importer; the complete import transaction remains owned by #251 rather than being partially converted.",
+      "counts": { "getDb-call": 2, "prepare-call": 10, "transaction-call": 1 }
+    },
     "routes/task-day-plans.ts": {
       "owner": "#249",
       "reason": "Main introduced the Task My Day route after the reviewed direct-access snapshot. PostgreSQL runtime-only does not mount this SQLite route yet; its user/workspace/task transaction boundary must migrate with the remaining task repositories under #249.",
-      "counts": {
-        "db-exec-call": 1,
-        "getDb-call": 6,
-        "prepare-call": 6
-      }
+      "counts": { "db-exec-call": 1, "getDb-call": 6, "prepare-call": 6 }
     },
     "routes/task-inbox.ts": {
       "owner": "#249",
       "reason": "Main introduced personal task Inbox and quick capture after the reviewed direct-access snapshot. PostgreSQL runtime-only does not mount this SQLite route yet; migrate Inbox membership and capture transactions through shared repositories under #249.",
-      "counts": {
-        "getDb-call": 11
-      }
+      "counts": { "getDb-call": 11 }
     },
     "routes/task-metadata.ts": {
       "owner": "#249",
       "reason": "Main introduced task labels and saved views after the reviewed direct-access snapshot. PostgreSQL runtime-only does not mount this SQLite route yet; migrate its label, assignment and saved-view transactions through shared repositories under #249.",
-      "counts": {
-        "getDb-call": 27,
-        "prepare-call": 2,
-        "transaction-call": 1
-      }
+      "counts": { "getDb-call": 27, "prepare-call": 2, "transaction-call": 1 }
     },
     "routes/task-time-blocks.ts": {
       "owner": "#249",
       "reason": "Main introduced task estimates and personal time blocks after the reviewed direct-access snapshot. PostgreSQL runtime-only does not mount this SQLite route yet; migrate its task estimate and time-block lifecycle through shared repositories under #249.",
-      "counts": {
-        "getDb-call": 10
-      }
+      "counts": { "getDb-call": 10 }
     },
     "services/workspace-deletion.ts": {
       "owner": "#249",
       "reason": "Main extracted workspace deletion hierarchy transfer into a SQLite service after the reviewed snapshot. PostgreSQL runtime-only does not mount the legacy workspace deletion route; migrate the transfer transaction through a shared repository under #249.",
-      "counts": {
-        "better-sqlite3": 1,
-        "prepare-call": 5
-      }
+      "counts": { "better-sqlite3": 1, "prepare-call": 5 }
     }
   }
 }
