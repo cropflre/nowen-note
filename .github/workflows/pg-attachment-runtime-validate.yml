@@ -1,0 +1,141 @@
+name: Validate PostgreSQL attachment HTTP runtime
+
+on:
+  push:
+    branches: [pg-validation-runtime-batch]
+    paths:
+      - ".github/workflows/pg-attachment-runtime-validate.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  attachments:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: nowen
+          POSTGRES_PASSWORD: nowen_ci_password
+          POSTGRES_DB: nowen_note_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U nowen -d nowen_note_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      TEST_PG_DATABASE_URL: postgres://nowen:nowen_ci_password@127.0.0.1:5432/nowen_note_test
+      DATABASE_URL: postgres://nowen:nowen_ci_password@127.0.0.1:5432/nowen_note_test
+      DB_DRIVER: postgres
+      JWT_SECRET: pg-attachment-runtime-test-secret-please-change
+      ATTACHMENT_SIGNING_SECRET: pg-attachment-signing-secret-please-change
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: pg-migration-unified
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - name: Install backend dependencies
+        working-directory: backend
+        run: npm ci --no-audit --no-fund
+      - name: TypeScript before mount
+        working-directory: backend
+        run: npm run build:tsc -- --noEmit
+      - name: Database-free attachment signature core
+        working-directory: backend
+        run: node --import tsx --test --test-concurrency=1 tests/attachment-signed-url-core.test.ts
+      - name: PostgreSQL attachment storage primitives
+        working-directory: backend
+        run: node --import tsx --test --test-concurrency=1 tests/attachment-storage-http-runtime-pg.test.ts
+      - name: Real PostgreSQL attachment HTTP lifecycle
+        working-directory: backend
+        run: node --import tsx --test --test-concurrency=1 tests/attachments-runtime-pg.test.ts
+      - name: Existing note-transfer attachment staging regression
+        working-directory: backend
+        run: node --import tsx --test --test-concurrency=1 tests/note-transfer-attachment-staging-runtime-pg.test.ts
+      - name: Mount validated attachment runtime
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path("backend/src/index.postgres-runtime.ts")
+          text = path.read_text()
+
+          import_marker = 'import createTagsRuntimeRouter from "./routes/tags-runtime";\n'
+          import_lines = (
+              'import createAttachmentsRuntimeRouter, { handleAttachmentDownloadRuntime } from "./routes/attachments-runtime";\n'
+          )
+          if 'handleAttachmentDownloadRuntime' not in text:
+              if import_marker not in text:
+                  raise SystemExit("tags runtime import marker missing")
+              text = text.replace(import_marker, import_marker + import_lines, 1)
+
+          # Signed native <img>/<video> requests must resolve before JWT middleware.
+          route_marker = 'app.route("/api/tags", createTagsRuntimeRouter(adapter));\n\n'
+          route_lines = '''app.get("/api/attachments/:id", (c) => handleAttachmentDownloadRuntime(c, adapter));
+
+          app.use("/api/attachments", authenticateApiRequest);
+          app.use("/api/attachments/*", authenticateApiRequest);
+          app.route("/api/attachments", createAttachmentsRuntimeRouter(adapter));
+
+          '''.replace('          ', '')
+          if 'app.get("/api/attachments/:id"' not in text:
+              if route_marker not in text:
+                  raise SystemExit("tags route marker missing")
+              text = text.replace(route_marker, route_marker + route_lines, 1)
+
+          migrated_marker = '        "GET /api/tags (personal/workspace scope)",\n'
+          migrated_lines = migrated_marker + (
+              '        "GET /api/attachments/:id (signed/Bearer, Range/ETag)",\n'
+              '        "GET /api/attachments/access/urls (user signed URLs)",\n'
+              '        "POST /api/attachments (upload/dedup)",\n'
+              '        "DELETE /api/attachments/:id",\n'
+          )
+          if '"GET /api/attachments/:id (signed/Bearer, Range/ETag)"' not in text:
+              if migrated_marker not in text:
+                  raise SystemExit("tags migrated route marker missing")
+              text = text.replace(migrated_marker, migrated_lines, 1)
+
+          capability_marker = '        "tag and attachment search with Unicode-safe literal fallback",\n'
+          capability_line = capability_marker + '        "signed user attachment upload/read/revoke/dedup across local and S3 storage",\n'
+          if '"signed user attachment upload/read/revoke/dedup across local and S3 storage"' not in text:
+              if capability_marker not in text:
+                  raise SystemExit("attachment capability marker missing")
+              text = text.replace(capability_marker, capability_line, 1)
+
+          path.write_text(text)
+          PY
+      - name: TypeScript after mount
+        working-directory: backend
+        run: npm run build:tsc -- --noEmit
+      - name: PostgreSQL P0 startup and attachment regression
+        working-directory: backend
+        run: |
+          node --import tsx --test --test-concurrency=1 tests/auth-runtime-pg.test.ts
+          node --import tsx --test --test-concurrency=1 tests/settings-runtime-pg.test.ts
+          node --import tsx --test --test-concurrency=1 tests/postgres-startup-surfaces-pg.test.ts
+          node --import tsx --test --test-concurrency=1 tests/postgres-sync-bootstrap-surfaces-pg.test.ts
+          node --import tsx --test --test-concurrency=1 tests/attachments-runtime-pg.test.ts
+      - name: Build production bundle
+        working-directory: backend
+        run: npm run build
+      - name: Commit validated attachment mount
+        shell: bash
+        run: |
+          if git diff --quiet -- backend/src/index.postgres-runtime.ts; then
+            echo "attachment runtime already mounted"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add backend/src/index.postgres-runtime.ts
+          git commit -m "feat(pg): mount signed attachment runtime"
+          git push origin HEAD:pg-migration-unified
