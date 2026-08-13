@@ -1,0 +1,214 @@
+name: Validate PostgreSQL Task Automation Notifications
+
+on:
+  push:
+    branches: [pg-task-automation-notifications-validation-20260813]
+    paths:
+      - "backend/src/services/task-automation-delivery-runtime.ts"
+      - "backend/src/db/postgres/migrations/0059_task_automation_delivery_runtime.sql"
+      - "backend/tests/task-automation-delivery-runtime-pg.test.ts"
+      - ".github/workflows/pg-task-automation-notifications-validation.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: nowen
+          POSTGRES_PASSWORD: nowen
+          POSTGRES_DB: nowen_note_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U nowen -d nowen_note_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      TEST_PG_DATABASE_URL: postgresql://nowen:nowen@127.0.0.1:5432/nowen_note_test
+      DATABASE_URL: postgresql://nowen:nowen@127.0.0.1:5432/nowen_note_test
+      DB_DRIVER: postgres
+      JWT_SECRET: pg-task-automation-validation-secret
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Apply automation integration candidate
+        shell: bash
+        run: |
+          cat > backend/src/routes/task-reminder-delivery-runtime.ts <<'EOF'
+          import { Hono } from "hono";
+
+          import type { TaskAutomationDeliveryRuntime } from "../services/task-automation-delivery-runtime";
+          import type { TaskReminderDeliveryRuntime } from "../services/task-reminder-delivery-runtime";
+
+          export function createTaskReminderDeliveryRuntimeRouter(
+            runtime: TaskReminderDeliveryRuntime,
+            automationRuntime?: TaskAutomationDeliveryRuntime,
+          ) {
+            const app = new Hono();
+
+            app.get("/recent", async (c) => {
+              const userId = c.req.header("X-User-Id") || "";
+              if (!userId) return c.json({ error: "Unauthorized", code: "UNAUTHENTICATED" }, 401);
+              const rawSince = Number(c.req.query("since") || "0");
+              const since = Number.isFinite(rawSince) && rawSince >= 0 ? rawSince : 0;
+              const [reminders, automation] = await Promise.all([
+                runtime.listRecent(userId, since),
+                automationRuntime ? automationRuntime.listRecent(userId, since) : Promise.resolve([]),
+              ]);
+              return c.json({
+                reminders: [...reminders, ...automation]
+                  .sort((a, b) => a.triggeredAt - b.triggeredAt)
+                  .slice(0, 200),
+              });
+            });
+
+            app.post("/recent/ack", async (c) => {
+              const userId = c.req.header("X-User-Id") || "";
+              if (!userId) return c.json({ error: "Unauthorized", code: "UNAUTHENTICATED" }, 401);
+              const body = await c.req.json<Record<string, unknown>>().catch(() => ({} as Record<string, unknown>));
+              const reminderIds = Array.isArray(body.reminderIds)
+                ? body.reminderIds.filter((id): id is string => typeof id === "string" && id.length > 0).slice(0, 200)
+                : [];
+              if (reminderIds.length === 0) return c.json({ success: true, acked: 0 });
+              const [reminderAcked, automationAcked] = await Promise.all([
+                runtime.acknowledge(userId, reminderIds),
+                automationRuntime ? automationRuntime.acknowledge(userId, reminderIds) : Promise.resolve(0),
+              ]);
+              return c.json({ success: true, acked: reminderAcked + automationAcked });
+            });
+
+            return app;
+          }
+
+          export default createTaskReminderDeliveryRuntimeRouter;
+          EOF
+
+          python3 <<'PY'
+          from pathlib import Path
+
+          schema = Path('backend/src/db/postgres/schema.base.sql')
+          s = schema.read_text()
+          marker = '''CREATE TABLE IF NOT EXISTS task_reminder_scanner_leases (
+              name TEXT PRIMARY KEY,
+              "ownerId" TEXT NOT NULL,
+              "leaseUntil" TIMESTAMPTZ NOT NULL,
+              "updatedAt" TIMESTAMPTZ NOT NULL DEFAULT NOW()
+          );
+          '''
+          block = marker + '''
+          CREATE TABLE IF NOT EXISTS task_automation_delivery_state (
+              "deliveryId" TEXT PRIMARY KEY,
+              "taskId" TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+              "userId" TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+              "taskTitle" TEXT NOT NULL DEFAULT '',
+              type TEXT NOT NULL CHECK (type IN ('dependency_ready', 'overdue_daily')),
+              "scheduledFor" TIMESTAMPTZ NOT NULL,
+              "triggeredAt" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+              "ackedAt" TIMESTAMPTZ,
+              "createdAt" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+              "updatedAt" TIMESTAMPTZ NOT NULL DEFAULT NOW()
+          );
+
+          CREATE INDEX IF NOT EXISTS idx_task_automation_delivery_user_pending
+              ON task_automation_delivery_state("userId", "triggeredAt")
+              WHERE "ackedAt" IS NULL;
+
+          CREATE INDEX IF NOT EXISTS idx_task_automation_delivery_task_type
+              ON task_automation_delivery_state("taskId", type);
+          '''
+          if 'CREATE TABLE IF NOT EXISTS task_automation_delivery_state' not in s:
+              if marker not in s: raise SystemExit('schema automation marker missing')
+              schema.write_text(s.replace(marker, block, 1))
+
+          index = Path('backend/src/index.postgres-runtime.ts')
+          s = index.read_text()
+          import_anchor = 'import { createTaskReminderDeliveryRuntime } from "./services/task-reminder-delivery-runtime";\n'
+          auto_import = 'import { createTaskAutomationDeliveryRuntime } from "./services/task-automation-delivery-runtime";\n'
+          if auto_import not in s:
+              if import_anchor not in s: raise SystemExit('index automation import marker missing')
+              s = s.replace(import_anchor, import_anchor + auto_import, 1)
+          instantiate_anchor = 'const reminderDelivery = createTaskReminderDeliveryRuntime(adapter);\nreminderDelivery.start();\n'
+          instantiate = instantiate_anchor + 'const taskAutomationDelivery = createTaskAutomationDeliveryRuntime(adapter);\ntaskAutomationDelivery.start();\n'
+          if 'const taskAutomationDelivery = createTaskAutomationDeliveryRuntime(adapter);' not in s:
+              if instantiate_anchor not in s: raise SystemExit('index automation instantiate marker missing')
+              s = s.replace(instantiate_anchor, instantiate, 1)
+          old_mount = 'app.route("/api/task-reminders", createTaskReminderDeliveryRuntimeRouter(reminderDelivery));'
+          new_mount = 'app.route("/api/task-reminders", createTaskReminderDeliveryRuntimeRouter(reminderDelivery, taskAutomationDelivery));'
+          if new_mount not in s:
+              if old_mount not in s: raise SystemExit('index automation mount marker missing')
+              s = s.replace(old_mount, new_mount, 1)
+          shutdown_anchor = '    await reminderDelivery.shutdown();\n'
+          shutdown = shutdown_anchor + '    await taskAutomationDelivery.shutdown();\n'
+          if 'await taskAutomationDelivery.shutdown();' not in s:
+              if shutdown_anchor not in s: raise SystemExit('index automation shutdown marker missing')
+              s = s.replace(shutdown_anchor, shutdown, 1)
+          index.write_text(s)
+
+          test = Path('backend/tests/postgres-migrations.test.ts')
+          s = test.read_text()
+          if '"0059_task_automation_delivery_runtime"' not in s:
+              s = s.replace('  "0058_task_reminder_delivery_runtime",\n', '  "0058_task_reminder_delivery_runtime",\n  "0059_task_automation_delivery_runtime",\n', 1)
+          if '    "task_automation_delivery_state",' not in s:
+              s = s.replace('    "task_reminder_delivery_state",\n', '    "task_reminder_delivery_state",\n    "task_automation_delivery_state",\n', 1)
+          if '    "idx_task_automation_delivery_user_pending",' not in s:
+              s = s.replace('    "idx_task_reminder_delivery_user_pending",\n', '    "idx_task_reminder_delivery_user_pending",\n    "idx_task_automation_delivery_user_pending",\n    "idx_task_automation_delivery_task_type",\n', 1)
+          test.write_text(s)
+          PY
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: npm ci --no-audit --no-fund
+      - name: TypeScript check
+        working-directory: backend
+        run: npm run build:tsc -- --noEmit
+      - name: Task core regression
+        working-directory: backend
+        run: node --import tsx --test --test-concurrency=1 tests/task-core-runtime-pg.test.ts
+      - name: Task phase 2 regression
+        working-directory: backend
+        run: node --import tsx --test --test-concurrency=1 tests/task-module-phase2-runtime-pg.test.ts
+      - name: Task templates regression
+        working-directory: backend
+        run: node --import tsx --test --test-concurrency=1 tests/task-templates-runtime-pg.test.ts
+      - name: Durable reminder regression
+        working-directory: backend
+        run: node --import tsx --test --test-concurrency=1 tests/task-reminder-delivery-runtime-pg.test.ts
+      - name: Automation notification lifecycle
+        working-directory: backend
+        run: node --import tsx --test --test-concurrency=1 tests/task-automation-delivery-runtime-pg.test.ts
+      - name: PostgreSQL migration regression
+        working-directory: backend
+        run: node --import tsx --test --test-concurrency=1 tests/postgres-migrations.test.ts
+      - name: Production bundle regression
+        working-directory: backend
+        run: npm run build
+
+      - name: Commit validated integration files
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            backend/src/routes/task-reminder-delivery-runtime.ts \
+            backend/src/index.postgres-runtime.ts \
+            backend/src/db/postgres/schema.base.sql \
+            backend/tests/postgres-migrations.test.ts
+          if git diff --cached --quiet; then
+            echo "No integration patch changes to commit"
+          else
+            git commit -m "feat(pg): integrate durable task automation notifications"
+            git push origin HEAD:pg-task-automation-notifications-validation-20260813
+          fi
