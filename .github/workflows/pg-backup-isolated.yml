@@ -40,12 +40,12 @@ jobs:
           node-version: 20
           cache: npm
           cache-dependency-path: backend/package-lock.json
-      - name: Install PostgreSQL client tools
+      - name: Install PostgreSQL 16 client tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y postgresql-client
-          pg_dump --version
-          pg_restore --version
+          sudo apt-get install -y postgresql-client-16
+          pg_dump --version | grep -E 'PostgreSQL\) 16\.'
+          pg_restore --version | grep -E 'PostgreSQL\) 16\.'
       - name: Install backend dependencies
         working-directory: backend
         run: npm ci --no-audit --no-fund
