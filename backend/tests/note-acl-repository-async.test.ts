@@ -75,9 +75,13 @@ test("deleteByUserAndWorkspaceAsync removes acl entries in workspace", async () 
   seedBase();
   const wsId = "ws-acl";
   getDb().prepare("INSERT OR IGNORE INTO workspaces (id, name, ownerId) VALUES (?, ?, ?)").run(wsId, "WS", USER_ID);
-  // Create a note in the workspace
+  // Create a scope-consistent notebook and note in the workspace.
+  const notebookWs = "nb-ws-acl";
+  getDb().prepare("INSERT OR IGNORE INTO notebooks (id, userId, name, workspaceId) VALUES (?, ?, ?, ?)")
+    .run(notebookWs, USER_ID, "WS NB", wsId);
   const noteWs = "note-ws-acl";
-  getDb().prepare("INSERT OR IGNORE INTO notes (id, userId, notebookId, title, workspaceId) VALUES (?, ?, ?, ?, ?)").run(noteWs, USER_ID, "nb-acl", "WS Note", wsId);
+  getDb().prepare("INSERT OR IGNORE INTO notes (id, userId, notebookId, title, workspaceId) VALUES (?, ?, ?, ?, ?)")
+    .run(noteWs, USER_ID, notebookWs, "WS Note", wsId);
   // Create another user with ACL on that note
   const user2 = "user-acl2";
   getDb().prepare("INSERT OR IGNORE INTO users (id, username, passwordHash) VALUES (?, ?, ?)").run(user2, user2, "hash");
