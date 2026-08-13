@@ -1,0 +1,125 @@
+name: Validate and Promote PostgreSQL Task Templates Runtime
+
+on:
+  push:
+    branches: [pg-task-templates-validation-20260813]
+    paths:
+      - ".github/workflows/pg-task-templates-promote.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: nowen
+          POSTGRES_PASSWORD: nowen
+          POSTGRES_DB: nowen_note_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U nowen -d nowen_note_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      TEST_PG_DATABASE_URL: postgresql://nowen:nowen@127.0.0.1:5432/nowen_note_test
+      DATABASE_URL: postgresql://nowen:nowen@127.0.0.1:5432/nowen_note_test
+      DB_DRIVER: postgres
+      JWT_SECRET: pg-task-templates-promote-ci-secret-please-change
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - name: Install backend dependencies
+        run: cd backend && npm ci --no-audit --no-fund
+      - name: Revalidate isolated candidate
+        run: |
+          cd backend
+          npm run build:tsc -- --noEmit
+          node --import tsx --test --test-concurrency=1 tests/task-core-repository-pg.test.ts tests/task-core-runtime-pg.test.ts
+          node --import tsx --test --test-concurrency=1 tests/task-module-phase2-runtime-pg.test.ts
+          node --import tsx --test --test-concurrency=1 tests/task-templates-runtime-pg.test.ts
+          node --import tsx --test --test-concurrency=1 tests/postgres-migrations.test.ts
+          npm run build
+      - name: Build mounted candidate on latest PostgreSQL branch
+        run: |
+          mkdir -p /tmp/pg-task-templates
+          cp backend/src/routes/task-templates-runtime.ts /tmp/pg-task-templates/task-templates-runtime.ts
+          cp backend/tests/task-templates-runtime-pg.test.ts /tmp/pg-task-templates/task-templates-runtime-pg.test.ts
+          cp .github/workflows/pg-task-runtime.yml /tmp/pg-task-templates/pg-task-runtime.yml
+
+          git fetch origin pg-migration-unified
+          BASE_SHA="$(git rev-parse origin/pg-migration-unified)"
+          echo "BASE_SHA=$BASE_SHA" >> "$GITHUB_ENV"
+          git checkout -B pg-task-templates-promote origin/pg-migration-unified
+
+          cp /tmp/pg-task-templates/task-templates-runtime.ts backend/src/routes/task-templates-runtime.ts
+          cp /tmp/pg-task-templates/task-templates-runtime-pg.test.ts backend/tests/task-templates-runtime-pg.test.ts
+          cp /tmp/pg-task-templates/pg-task-runtime.yml .github/workflows/pg-task-runtime.yml
+
+          node <<'NODE'
+          const fs = require('node:fs');
+          const path = 'backend/src/index.postgres-runtime.ts';
+          let source = fs.readFileSync(path, 'utf8');
+
+          const importAnchor = 'import createTasksRuntimeRouter from "./routes/tasks-runtime";';
+          const importLine = 'import createTaskTemplatesRuntimeRouter from "./routes/task-templates-runtime";';
+          if (!source.includes(importLine)) {
+            if (!source.includes(importAnchor)) throw new Error('task runtime import anchor not found');
+            source = source.replace(importAnchor, `${importAnchor}\n${importLine}`);
+          }
+
+          const routeAnchor = 'app.route("/api/tasks", createTasksRuntimeRouter(adapter));';
+          const routeBlock = `${routeAnchor}\n\napp.use("/api/task-templates", authenticateApiRequest);\napp.use("/api/task-templates/*", authenticateApiRequest);\napp.route("/api/task-templates", createTaskTemplatesRuntimeRouter(adapter));`;
+          if (!source.includes('app.route("/api/task-templates", createTaskTemplatesRuntimeRouter(adapter));')) {
+            if (!source.includes(routeAnchor)) throw new Error('task runtime route anchor not found');
+            source = source.replace(routeAnchor, routeBlock);
+          }
+
+          const readyAnchor = '        "DELETE /api/tasks/:id",';
+          if (!source.includes('        "GET /api/task-templates",')) {
+            if (!source.includes(readyAnchor)) throw new Error('readyRoutes task anchor not found');
+            source = source.replace(readyAnchor, `${readyAnchor}\n        "GET /api/task-templates",\n        "POST /api/task-templates",\n        "PUT /api/task-templates/:id",\n        "DELETE /api/task-templates/:id",\n        "POST /api/task-templates/:id/apply",`);
+          }
+
+          fs.writeFileSync(path, source);
+          NODE
+
+          git add backend/src/routes/task-templates-runtime.ts \
+            backend/tests/task-templates-runtime-pg.test.ts \
+            backend/src/index.postgres-runtime.ts \
+            .github/workflows/pg-task-runtime.yml
+          git diff --check
+      - name: Validate mounted candidate on latest PostgreSQL branch
+        run: |
+          cd backend
+          npm run build:tsc -- --noEmit
+          node --import tsx --test --test-concurrency=1 tests/task-core-repository-pg.test.ts tests/task-core-runtime-pg.test.ts
+          node --import tsx --test --test-concurrency=1 tests/task-module-phase2-runtime-pg.test.ts
+          node --import tsx --test --test-concurrency=1 tests/task-templates-runtime-pg.test.ts
+          node --import tsx --test --test-concurrency=1 tests/postgres-migrations.test.ts
+          npm run build
+      - name: Promote verified Task Templates runtime
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "feat(pg): expose task templates runtime"
+
+          git fetch origin pg-migration-unified
+          CURRENT_SHA="$(git rev-parse origin/pg-migration-unified)"
+          if [ "$CURRENT_SHA" != "$BASE_SHA" ]; then
+            echo "pg-migration-unified moved from $BASE_SHA to $CURRENT_SHA; refusing stale promotion"
+            exit 1
+          fi
+          git push origin HEAD:pg-migration-unified
