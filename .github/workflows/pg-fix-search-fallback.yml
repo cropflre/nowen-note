@@ -1,0 +1,57 @@
+name: Fix bounded search fallback
+
+on:
+  push:
+    branches: [pg-migration-unified]
+    paths:
+      - ".github/workflows/pg-fix-search-fallback.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: pg-migration-unified
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - name: Install backend dependencies
+        working-directory: backend
+        run: npm ci --no-audit --no-fund
+      - name: Fix literal fallback policy
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path("backend/src/routes/search.ts")
+          text = path.read_text()
+          old = '''  return ftsCandidateCount === 0\n    || normalized.length < 3\n    || hasHanText(normalized)\n    || !tokenizerPreservesTerm;'''
+          new = '''  // A tokenizer-safe long term with zero FTS hits is an authoritative miss.\n  // Falling back to a full-body literal scan in that case turns ordinary misses\n  // into O(document body) work and defeats the bounded candidate pipeline.\n  return normalized.length < 3\n    || hasHanText(normalized)\n    || !tokenizerPreservesTerm;'''
+          if old not in text:
+              raise SystemExit("search fallback block not found")
+          path.write_text(text.replace(old, new, 1))
+          PY
+      - name: TypeScript and search regression
+        working-directory: backend
+        run: |
+          npm run build:tsc -- --noEmit
+          node --import tsx --test --test-concurrency=1 tests/search-experience.test.ts
+      - name: Commit verified search fix
+        shell: bash
+        run: |
+          set -euo pipefail
+          git rm .github/workflows/pg-fix-search-fallback.yml
+          git add backend/src/routes/search.ts
+          git diff --check
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "fix(search): avoid literal scans for indexed misses"
+          git push origin HEAD:pg-migration-unified
