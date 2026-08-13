@@ -32,6 +32,7 @@ const EXPECTED_MIGRATIONS = [
   "0024_sqlite_postgres_migration_rollback",
   "0025_sqlite_postgres_nonempty_recovery",
   "0026_notes_full_text_search",
+  "0057_task_reminder_runtime_parity",
 ];
 
 test("PG migrations bootstrap an empty database and are idempotent", { skip }, async () => {
@@ -176,6 +177,8 @@ test("PG migrations bootstrap an empty database and are idempotent", { skip }, a
     ["sqlite_postgres_migration_runs", "targetWasEmpty"],
     ["sqlite_postgres_migration_table_checkpoints", "lastCursor"],
     ["sqlite_postgres_migration_table_checkpoints", "primaryKeyColumns"],
+    ["task_reminders", "timezoneOffsetMinutes"],
+    ["task_reminders", "updatedAt"],
   ];
   const columnRows = await pool.query<{ table_name: string; column_name: string }>(
     `SELECT table_name, column_name
