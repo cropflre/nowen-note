@@ -23,6 +23,7 @@ import createTaskTemplatesRuntimeRouter from "./routes/task-templates-runtime";
 import createTaskProjectsRuntimeRouter from "./routes/task-projects-runtime";
 import createTaskDependenciesRuntimeRouter from "./routes/task-dependencies-runtime";
 import createTaskRemindersRuntimeRouter from "./routes/task-reminders-runtime";
+import createTaskReminderDeliveryRuntimeRouter from "./routes/task-reminder-delivery-runtime";
 import createAttachmentsRuntimeRouter, { handleAttachmentDownloadRuntime } from "./routes/attachments-runtime";
 import userPreferencesSyncRoutes from "./routes/user-preferences-sync";
 import createBackupsRuntimeRouter from "./routes/backups-runtime";
@@ -38,10 +39,13 @@ import { createNoteTransferOrchestrationRuntime } from "./services/note-transfer
 import { createPostgresRealtimeRuntime } from "./services/postgres-realtime-runtime";
 import { createPostgresYjsCompactionRuntime } from "./services/postgres-yjs-compaction-runtime";
 import { createPostgresYjsSubdocumentWebsocketRuntime } from "./services/postgres-yjs-subdocuments-websocket-runtime";
+import { createTaskReminderDeliveryRuntime } from "./services/task-reminder-delivery-runtime";
 
 const app = new Hono();
 const port = Number(process.env.PORT) || 3001;
 const adapter = getDatabaseAdapter();
+const reminderDelivery = createTaskReminderDeliveryRuntime(adapter);
+reminderDelivery.start();
 const hub = createPostgresRealtimeRuntime(adapter);
 const subdocumentWs = createPostgresYjsSubdocumentWebsocketRuntime(adapter, {
   publishMutation: hub.publishMutation,
@@ -148,6 +152,8 @@ app.get("/api/health", async (c) => {
         "DELETE /api/task-dependencies/:id",
         "GET /api/task-reminders/overview",
         "GET /api/task-reminders/schedule",
+        "GET /api/task-reminders/recent (durable pending delivery)",
+        "POST /api/task-reminders/recent/ack (delivery ACK)",
         "GET/POST /api/task-reminders/:taskId",
         "PUT/DELETE /api/task-reminders/:reminderId",
         "GET /api/attachments/:id (signed/Bearer, Range/ETag)",
@@ -363,6 +369,7 @@ app.route("/api/task-dependencies", createTaskDependenciesRuntimeRouter(adapter)
 
 app.use("/api/task-reminders", authenticateApiRequest);
 app.use("/api/task-reminders/*", authenticateApiRequest);
+app.route("/api/task-reminders", createTaskReminderDeliveryRuntimeRouter(reminderDelivery));
 app.route("/api/task-reminders", createTaskRemindersRuntimeRouter(adapter));
 
 app.get("/api/attachments/:id", (c) => handleAttachmentDownloadRuntime(c, adapter));
@@ -434,6 +441,7 @@ async function gracefulShutdown(signal: string): Promise<void> {
 
   try {
     await transferOrchestration.shutdown();
+    await reminderDelivery.shutdown();
     await transferMoveDeletion.shutdown();
     await transferEffects.shutdown();
     await yjsCompaction.close();

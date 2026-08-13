@@ -33,6 +33,7 @@ const EXPECTED_MIGRATIONS = [
   "0025_sqlite_postgres_nonempty_recovery",
   "0026_notes_full_text_search",
   "0057_task_reminder_runtime_parity",
+  "0058_task_reminder_delivery_runtime",
 ];
 
 test("PG migrations bootstrap an empty database and are idempotent", { skip }, async () => {
@@ -77,6 +78,8 @@ test("PG migrations bootstrap an empty database and are idempotent", { skip }, a
     "postgres_migration_state",
     "roundtrip_import_batches",
     "roundtrip_import_links",
+    "task_reminder_delivery_state",
+    "task_reminder_scanner_leases",
     "sqlite_postgres_migration_batch_checkpoints",
     "sqlite_postgres_migration_runs",
     "sqlite_postgres_migration_row_changes",
@@ -141,6 +144,7 @@ test("PG migrations bootstrap an empty database and are idempotent", { skip }, a
     "idx_sqlite_pg_migration_runs_source",
     "idx_sqlite_pg_migration_tables_claim",
     "idx_tags_search_vector",
+    "idx_task_reminder_delivery_user_pending",
   ];
   const indexRows = await pool.query<{ indexname: string }>(
     `SELECT indexname
