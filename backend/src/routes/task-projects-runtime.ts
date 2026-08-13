@@ -22,10 +22,6 @@ interface TaskProjectWithStats extends TaskProjectRow {
   progress: number | string;
 }
 
-function normalizeProject<T extends TaskProjectRow>(row: T): T {
-  return row;
-}
-
 function normalizeProjectStats(row: TaskProjectWithStats) {
   return {
     ...row,
@@ -80,7 +76,7 @@ export function createTaskProjectsRuntimeRouter(adapter: DatabaseAdapter) {
       return c.json({ error: "Insufficient permissions to create project", code: "FORBIDDEN" }, 403);
     }
 
-    const body = await c.req.json<Record<string, unknown>>().catch(() => ({}));
+    const body = await c.req.json<Record<string, unknown>>().catch(() => ({} as Record<string, unknown>));
     const name = typeof body.name === "string" && body.name.trim() ? body.name.trim().slice(0, 200) : "Untitled";
     const icon = typeof body.icon === "string" ? body.icon.slice(0, 100) : "folder";
     const color = typeof body.color === "string" ? body.color.slice(0, 64) : "#6366f1";
@@ -98,10 +94,10 @@ export function createTaskProjectsRuntimeRouter(adapter: DatabaseAdapter) {
   app.put("/reorder/batch", async (c) => {
     const userId = c.req.header("X-User-Id") || "";
     if (!userId) return c.json({ error: "Unauthorized", code: "UNAUTHENTICATED" }, 401);
-    const body = await c.req.json<Record<string, unknown>>().catch(() => ({}));
-    const rawItems = Array.isArray(body.items) ? body.items.slice(0, 100) : [];
+    const body = await c.req.json<Record<string, unknown>>().catch(() => ({} as Record<string, unknown>));
+    const rawItems: unknown[] = Array.isArray(body.items) ? body.items.slice(0, 100) : [];
     if (rawItems.length === 0) return c.json({ error: "items required", code: "BAD_REQUEST" }, 400);
-    const items = rawItems.map((raw, index) => {
+    const items = rawItems.map((raw: unknown, index: number) => {
       const item = raw && typeof raw === "object" ? raw as Record<string, unknown> : {};
       return {
         id: typeof item.id === "string" ? item.id : "",
@@ -140,7 +136,7 @@ export function createTaskProjectsRuntimeRouter(adapter: DatabaseAdapter) {
     if (!(await access.canManageOwnedResource(existing, userId))) {
       return c.json({ error: "Forbidden", code: "FORBIDDEN" }, 403);
     }
-    const body = await c.req.json<Record<string, unknown>>().catch(() => ({}));
+    const body = await c.req.json<Record<string, unknown>>().catch(() => ({} as Record<string, unknown>));
     const name = body.name === undefined ? existing.name : String(body.name).trim().slice(0, 200);
     if (!name) return c.json({ error: "Project name is required", code: "BAD_REQUEST" }, 400);
     const icon = body.icon === undefined ? existing.icon : (body.icon === null ? null : String(body.icon).slice(0, 100));
