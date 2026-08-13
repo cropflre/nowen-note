@@ -7,16 +7,22 @@ on:
       - "backend/src/routes/notebooks-runtime.ts"
       - "backend/src/routes/tags-runtime.ts"
       - "backend/src/repositories/tagsRepository.ts"
+      - "backend/src/repositories/noteTagsRepository.ts"
+      - "backend/src/db/postgres/migrations/0012_tag_scope_unique_names.sql"
       - "backend/src/index.postgres-runtime.ts"
       - "backend/tests/postgres-sync-bootstrap-surfaces-pg.test.ts"
+      - "backend/tests/tags-runtime-write-pg.test.ts"
       - ".github/workflows/pg-sync-bootstrap-surfaces.yml"
   pull_request:
     paths:
       - "backend/src/routes/notebooks-runtime.ts"
       - "backend/src/routes/tags-runtime.ts"
       - "backend/src/repositories/tagsRepository.ts"
+      - "backend/src/repositories/noteTagsRepository.ts"
+      - "backend/src/db/postgres/migrations/0012_tag_scope_unique_names.sql"
       - "backend/src/index.postgres-runtime.ts"
       - "backend/tests/postgres-sync-bootstrap-surfaces-pg.test.ts"
+      - "backend/tests/tags-runtime-write-pg.test.ts"
       - ".github/workflows/pg-sync-bootstrap-surfaces.yml"
   workflow_dispatch:
 
@@ -56,7 +62,11 @@ jobs:
         run: npm ci --no-audit --no-fund
       - name: TypeScript check
         run: npm run build:tsc -- --noEmit
+      - name: PostgreSQL migration bootstrap and idempotency
+        run: node --import tsx --test --test-concurrency=1 tests/postgres-migrations.test.ts
       - name: PostgreSQL notebook and tag bootstrap surfaces
         run: node --import tsx --test --test-concurrency=1 tests/postgres-sync-bootstrap-surfaces-pg.test.ts
+      - name: PostgreSQL tag write lifecycle
+        run: node --import tsx --test --test-concurrency=1 tests/tags-runtime-write-pg.test.ts
       - name: Build production backend bundle
         run: npm run build
