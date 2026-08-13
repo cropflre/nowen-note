@@ -1,0 +1,117 @@
+name: Validate PostgreSQL task core repository foundation v3
+
+on:
+  push:
+    branches: [pg-validation-runtime-batch]
+    paths:
+      - ".github/workflows/pg-task-core-repository-validate-v3.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  tasks:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: nowen
+          POSTGRES_PASSWORD: nowen_ci_password
+          POSTGRES_DB: nowen_note_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U nowen -d nowen_note_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      TEST_PG_DATABASE_URL: postgres://nowen:nowen_ci_password@127.0.0.1:5432/nowen_note_test
+      DATABASE_URL: postgres://nowen:nowen_ci_password@127.0.0.1:5432/nowen_note_test
+      DB_DRIVER: postgres
+      JWT_SECRET: pg-task-core-test-secret-please-change
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: pg-migration-unified
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - name: Install backend dependencies
+        working-directory: backend
+        run: npm ci --no-audit --no-fund
+      - name: Fix repository adapter contracts
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+
+          path = Path("backend/src/repositories/taskCoreRepository.ts")
+          text = path.read_text()
+
+          text, import_count = re.subn(
+              r'import type \{\s*DatabaseAdapter,\s*DatabaseDriver,\s*\} from "\.\./db/adapters/types";\s*',
+              'import type { DatabaseAdapter } from "../db/adapters/types";\nimport type { DatabaseDialect } from "../db/dialect";\n',
+              text,
+              count=1,
+          )
+          if import_count != 1:
+              raise SystemExit(f"task repository import replacement count={import_count}")
+          text = text.replace("DatabaseDriver", "DatabaseDialect")
+
+          pattern = re.compile(
+              r'''    async reorder\(items: Array<\{ id: string; sortOrder: number \}>\): Promise<void> \{\n'''
+              r'''      await adapter\.transaction\(async \(tx\) => \{\n'''
+              r'''        for \(const item of items\) \{\n'''
+              r'''          await tx\.execute\(\n'''
+              r'''            'UPDATE tasks SET "sortOrder" = \?, "updatedAt" = CURRENT_TIMESTAMP WHERE id = \?',\n'''
+              r'''            \[item\.sortOrder, item\.id\],\n'''
+              r'''          \);\n'''
+              r'''        \}\n'''
+              r'''      \}\);\n'''
+              r'''    \},'''
+          )
+          replacement = '''    async reorder(items: Array<{ id: string; sortOrder: number }>): Promise<void> {
+              if (items.length === 0) return;
+              await adapter.executeStatements(items.map((item) => ({
+                sql: 'UPDATE tasks SET "sortOrder" = ?, "updatedAt" = CURRENT_TIMESTAMP WHERE id = ?',
+                params: [item.sortOrder, item.id],
+                requireChanges: 1,
+              })));
+            },'''
+          text, reorder_count = pattern.subn(replacement, text, count=1)
+          if reorder_count != 1:
+              raise SystemExit(f"task repository reorder replacement count={reorder_count}")
+
+          path.write_text(text)
+          PY
+      - name: TypeScript
+        working-directory: backend
+        run: npm run build:tsc -- --noEmit
+      - name: PostgreSQL task core repository lifecycle
+        working-directory: backend
+        run: node --import tsx --test --test-concurrency=1 tests/task-core-repository-pg.test.ts
+      - name: PostgreSQL migration regression
+        working-directory: backend
+        run: node --import tsx --test --test-concurrency=1 tests/postgres-migrations.test.ts
+      - name: Production bundle regression
+        working-directory: backend
+        run: npm run build
+      - name: Commit verified adapter contract fix
+        shell: bash
+        run: |
+          if git diff --quiet -- backend/src/repositories/taskCoreRepository.ts; then
+            echo "task repository adapter contracts already fixed"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add backend/src/repositories/taskCoreRepository.ts
+          git commit -m "fix(pg): align task repository with database adapter contracts"
+          git push origin HEAD:pg-migration-unified
