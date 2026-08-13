@@ -224,6 +224,42 @@ test("PostgreSQL task module phase 2 preserves projects, dependencies and remind
     });
     assert.equal(ownerCannotEditOthersReminder.status, 403, "reminders are per-user even for workspace owners");
 
+    const recurringTaskResponse = await app.request("http://runtime/tasks", {
+      method: "POST",
+      headers: headers(OWNER, true),
+      body: JSON.stringify({
+        title: "Timezone recurrence",
+        dueDate: "2028-01-01",
+        repeatRule: "daily",
+        repeatInterval: 1,
+        repeatEndCount: 2,
+      }),
+    });
+    assert.equal(recurringTaskResponse.status, 201);
+    const recurringTask = await body<any>(recurringTaskResponse);
+    const recurringReminderResponse = await app.request(`http://runtime/task-reminders/${recurringTask.id}`, {
+      method: "POST",
+      headers: headers(OWNER, true),
+      body: JSON.stringify({ offsetMinutes: 510, timezoneOffsetMinutes: -480 }),
+    });
+    assert.equal(recurringReminderResponse.status, 201);
+    const recurringToggle = await app.request(`http://runtime/tasks/${recurringTask.id}/toggle`, {
+      method: "PATCH",
+      headers: headers(OWNER),
+    });
+    assert.equal(recurringToggle.status, 200);
+    const generatedTask = (await body<any>(recurringToggle)).generatedTask;
+    assert.ok(generatedTask?.id);
+    const copiedTimezone = await pool.query(
+      `SELECT "offsetMinutes", "timezoneOffsetMinutes"
+         FROM task_reminders
+        WHERE "taskId" = $1 AND "userId" = $2`,
+      [generatedTask.id, OWNER],
+    );
+    assert.equal(copiedTimezone.rowCount, 1);
+    assert.equal(copiedTimezone.rows[0].offsetMinutes, 510);
+    assert.equal(copiedTimezone.rows[0].timezoneOffsetMinutes, -480, "recurrence must preserve reminder timezone offset");
+
     await pool.query(
       `UPDATE workspaces SET "enabledFeatures" = '{"tasks":false}' WHERE id = $1`,
       [WORKSPACE],
