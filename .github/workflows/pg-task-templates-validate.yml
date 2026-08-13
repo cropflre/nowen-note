@@ -1,0 +1,57 @@
+name: Validate PostgreSQL Task Templates Runtime
+
+on:
+  push:
+    branches: [pg-task-templates-validation-20260813]
+    paths:
+      - "backend/src/routes/task-templates-runtime.ts"
+      - "backend/tests/task-templates-runtime-pg.test.ts"
+      - ".github/workflows/pg-task-templates-validate.yml"
+  workflow_dispatch:
+
+jobs:
+  task-templates:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: nowen
+          POSTGRES_PASSWORD: nowen
+          POSTGRES_DB: nowen_note_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U nowen -d nowen_note_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      TEST_PG_DATABASE_URL: postgresql://nowen:nowen@127.0.0.1:5432/nowen_note_test
+      DATABASE_URL: postgresql://nowen:nowen@127.0.0.1:5432/nowen_note_test
+      DB_DRIVER: postgres
+      JWT_SECRET: pg-task-templates-ci-secret-please-change
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - name: Install backend dependencies
+        run: npm ci --no-audit --no-fund
+      - name: TypeScript check
+        run: npm run build:tsc -- --noEmit
+      - name: Task core regression
+        run: node --import tsx --test --test-concurrency=1 tests/task-core-repository-pg.test.ts tests/task-core-runtime-pg.test.ts
+      - name: Task phase 2 regression
+        run: node --import tsx --test --test-concurrency=1 tests/task-module-phase2-runtime-pg.test.ts
+      - name: Task templates runtime
+        run: node --import tsx --test --test-concurrency=1 tests/task-templates-runtime-pg.test.ts
+      - name: PostgreSQL migration regression
+        run: node --import tsx --test --test-concurrency=1 tests/postgres-migrations.test.ts
+      - name: Production bundle regression
+        run: npm run build
