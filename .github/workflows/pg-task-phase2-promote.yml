@@ -1,0 +1,155 @@
+name: Validate and Promote PostgreSQL Task Module Phase 2
+
+on:
+  push:
+    branches: [pg-task-phase2-validation-20260813]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  promote:
+    runs-on: ubuntu-22.04
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: nowen
+          POSTGRES_PASSWORD: nowen
+          POSTGRES_DB: nowen_note_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U nowen -d nowen_note_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      TEST_PG_DATABASE_URL: postgresql://nowen:nowen@127.0.0.1:5432/nowen_note_test
+      DATABASE_URL: postgresql://nowen:nowen@127.0.0.1:5432/nowen_note_test
+      DB_DRIVER: postgres
+      JWT_SECRET: pg-task-phase2-promote-secret-please-change
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: pg-task-phase2-validation-20260813
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - name: Install backend dependencies
+        run: cd backend && npm ci --no-audit --no-fund
+      - name: Validate isolated Phase 2 candidate
+        run: |
+          cd backend
+          npm run build:tsc -- --noEmit
+          node --import tsx --test --test-concurrency=1 tests/task-core-repository-pg.test.ts
+          node --import tsx --test --test-concurrency=1 tests/task-core-runtime-pg.test.ts
+          node --import tsx --test --test-concurrency=1 tests/task-module-phase2-runtime-pg.test.ts
+          node --import tsx --test --test-concurrency=1 tests/postgres-migrations.test.ts
+      - name: Build mounted candidate on latest PostgreSQL branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin pg-migration-unified pg-task-phase2-validation-20260813
+          git checkout -B pg-migration-unified origin/pg-migration-unified
+          git checkout origin/pg-task-phase2-validation-20260813 -- \
+            backend/src/services/task-module-access-runtime.ts \
+            backend/src/services/task-recurrence-runtime.ts \
+            backend/src/routes/task-projects-runtime.ts \
+            backend/src/routes/task-dependencies-runtime.ts \
+            backend/src/routes/task-reminders-runtime.ts \
+            backend/src/db/postgres/migrations/0057_task_reminder_runtime_parity.sql \
+            backend/tests/task-module-phase2-runtime-pg.test.ts \
+            backend/tests/postgres-migrations.test.ts \
+            .github/workflows/pg-task-runtime.yml
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("backend/src/index.postgres-runtime.ts")
+          text = path.read_text()
+
+          import_anchor = 'import createTasksRuntimeRouter from "./routes/tasks-runtime";\n'
+          import_lines = (
+              'import createTaskProjectsRuntimeRouter from "./routes/task-projects-runtime";\n'
+              'import createTaskDependenciesRuntimeRouter from "./routes/task-dependencies-runtime";\n'
+              'import createTaskRemindersRuntimeRouter from "./routes/task-reminders-runtime";\n'
+          )
+          if 'createTaskProjectsRuntimeRouter' not in text:
+              if import_anchor not in text:
+                  raise SystemExit("Task Phase 2 import anchor missing")
+              text = text.replace(import_anchor, import_anchor + import_lines, 1)
+
+          health_anchor = '        "DELETE /api/tasks/:id",\n'
+          health_lines = (
+              '        "GET/POST /api/task-projects (personal/workspace scope)",\n'
+              '        "PUT/DELETE /api/task-projects/:id",\n'
+              '        "PUT /api/task-projects/reorder/batch",\n'
+              '        "GET/POST /api/task-dependencies",\n'
+              '        "DELETE /api/task-dependencies/:id",\n'
+              '        "GET /api/task-reminders/overview",\n'
+              '        "GET /api/task-reminders/schedule",\n'
+              '        "GET/POST /api/task-reminders/:taskId",\n'
+              '        "PUT/DELETE /api/task-reminders/:reminderId",\n'
+          )
+          if '"GET/POST /api/task-projects (personal/workspace scope)"' not in text:
+              if health_anchor not in text:
+                  raise SystemExit("Task Phase 2 health anchor missing")
+              text = text.replace(health_anchor, health_anchor + health_lines, 1)
+
+          mount_anchor = 'app.route("/api/tasks", createTasksRuntimeRouter(adapter));\n\n'
+          mounts = (
+              'app.use("/api/task-projects", authenticateApiRequest);\n'
+              'app.use("/api/task-projects/*", authenticateApiRequest);\n'
+              'app.route("/api/task-projects", createTaskProjectsRuntimeRouter(adapter));\n\n'
+              'app.use("/api/task-dependencies", authenticateApiRequest);\n'
+              'app.use("/api/task-dependencies/*", authenticateApiRequest);\n'
+              'app.route("/api/task-dependencies", createTaskDependenciesRuntimeRouter(adapter));\n\n'
+              'app.use("/api/task-reminders", authenticateApiRequest);\n'
+              'app.use("/api/task-reminders/*", authenticateApiRequest);\n'
+              'app.route("/api/task-reminders", createTaskRemindersRuntimeRouter(adapter));\n\n'
+          )
+          if 'app.route("/api/task-projects", createTaskProjectsRuntimeRouter(adapter));' not in text:
+              if mount_anchor not in text:
+                  raise SystemExit("Task Phase 2 mount anchor missing")
+              text = text.replace(mount_anchor, mount_anchor + mounts, 1)
+
+          path.write_text(text)
+          PY
+          git diff --check
+      - name: Validate mounted candidate on latest PostgreSQL branch
+        run: |
+          cd backend
+          npm run build:tsc -- --noEmit
+          node --import tsx --test --test-concurrency=1 tests/task-core-repository-pg.test.ts
+          node --import tsx --test --test-concurrency=1 tests/task-core-runtime-pg.test.ts
+          node --import tsx --test --test-concurrency=1 tests/task-module-phase2-runtime-pg.test.ts
+          node --import tsx --test --test-concurrency=1 tests/postgres-migrations.test.ts
+          npm run build
+      - name: Promote verified Task Phase 2 runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            backend/src/services/task-module-access-runtime.ts \
+            backend/src/services/task-recurrence-runtime.ts \
+            backend/src/routes/task-projects-runtime.ts \
+            backend/src/routes/task-dependencies-runtime.ts \
+            backend/src/routes/task-reminders-runtime.ts \
+            backend/src/db/postgres/migrations/0057_task_reminder_runtime_parity.sql \
+            backend/src/index.postgres-runtime.ts \
+            backend/tests/task-module-phase2-runtime-pg.test.ts \
+            backend/tests/postgres-migrations.test.ts \
+            .github/workflows/pg-task-runtime.yml
+          git diff --cached --check
+          if git diff --cached --quiet; then
+            echo "Task Phase 2 runtime already promoted"
+            exit 0
+          fi
+          git commit -m "feat(pg): expose task projects dependencies and reminders"
+          git push origin HEAD:pg-migration-unified
