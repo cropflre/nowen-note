@@ -13,6 +13,7 @@ import {
 } from "./db/runtime";
 import { verifyLoginToken } from "./lib/auth-security";
 import createAuthRuntimeRouter from "./routes/auth-runtime";
+import createSettingsRuntimeRouter from "./routes/settings-runtime";
 import createBackupsRuntimeRouter from "./routes/backups-runtime";
 import createNotesRuntimeRouter from "./routes/notes-runtime";
 import createNoteTransfersRuntimeRouter from "./routes/note-transfers-runtime";
@@ -100,6 +101,8 @@ app.get("/api/health", async (c) => {
         "GET /api/auth/sessions",
         "DELETE /api/auth/sessions/:id",
         "DELETE /api/auth/sessions",
+        "GET /api/settings (public site bootstrap)",
+        "PUT /api/settings (authenticated; admin guard for system settings)",
         "GET /api/notes",
         "POST /api/notes",
         "GET /api/notes/trash/summary",
@@ -266,6 +269,8 @@ async function authenticateApiRequest(c: Context, next: Next) {
 }
 
 app.route("/api/auth", createAuthRuntimeRouter(adapter));
+
+app.route("/api/settings", createSettingsRuntimeRouter(adapter));
 
 app.use("/api/notes", authenticateApiRequest);
 app.use("/api/notes/*", authenticateApiRequest);
