@@ -26,18 +26,27 @@ jobs:
       - name: Install backend dependencies
         working-directory: backend
         run: npm ci --no-audit --no-fund
-      - name: Fix literal fallback policy
+      - name: Fix bounded fallback and coherent edit fixture
         shell: bash
         run: |
           python - <<'PY'
           from pathlib import Path
-          path = Path("backend/src/routes/search.ts")
-          text = path.read_text()
+
+          route = Path("backend/src/routes/search.ts")
+          text = route.read_text()
           old = '''  return ftsCandidateCount === 0\n    || normalized.length < 3\n    || hasHanText(normalized)\n    || !tokenizerPreservesTerm;'''
           new = '''  // A tokenizer-safe long term with zero FTS hits is an authoritative miss.\n  // Falling back to a full-body literal scan in that case turns ordinary misses\n  // into O(document body) work and defeats the bounded candidate pipeline.\n  return normalized.length < 3\n    || hasHanText(normalized)\n    || !tokenizerPreservesTerm;'''
           if old not in text:
               raise SystemExit("search fallback block not found")
-          path.write_text(text.replace(old, new, 1))
+          route.write_text(text.replace(old, new, 1))
+
+          test_path = Path("backend/tests/search-experience.test.ts")
+          text = test_path.read_text()
+          old = '''  db().prepare("UPDATE notes SET contentText = ?, updatedAt = datetime('now') WHERE id = ?")\n    .run("after unique-new-keyword", MUTABLE_NOTE_ID);'''
+          new = '''  db().prepare("UPDATE notes SET content = ?, contentText = ?, contentFormat = 'markdown', updatedAt = datetime('now') WHERE id = ?")\n    .run("after unique-new-keyword", "after unique-new-keyword", MUTABLE_NOTE_ID);'''
+          if old not in text:
+              raise SystemExit("mutable search fixture block not found")
+          test_path.write_text(text.replace(old, new, 1))
           PY
       - name: TypeScript and search regression
         working-directory: backend
@@ -49,9 +58,9 @@ jobs:
         run: |
           set -euo pipefail
           git rm .github/workflows/pg-fix-search-fallback.yml
-          git add backend/src/routes/search.ts
+          git add backend/src/routes/search.ts backend/tests/search-experience.test.ts
           git diff --check
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -m "fix(search): avoid literal scans for indexed misses"
+          git commit -m "fix(search): keep indexed misses and edit fixtures coherent"
           git push origin HEAD:pg-migration-unified
