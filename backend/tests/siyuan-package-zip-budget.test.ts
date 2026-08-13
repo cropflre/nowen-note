@@ -111,7 +111,7 @@ test("rejects siyuan packages whose total uncompressed size exceeds the budget",
   await assertBudgetRejected(zipPath);
 });
 
-test("siyuan package route returns 413 when zip budgets are exceeded", async () => {
+test("siyuan package route records an async failure when zip budgets are exceeded", async () => {
   const zipPath = await writeZip("route-budget.zip", {
     "a.sy": "{}",
     "assets/big.bin": new Uint8Array([1, 2, 3, 4, 5]),
@@ -126,7 +126,24 @@ test("siyuan package route returns 413 when zip budgets are exceeded", async () 
   });
 
   const text = await res.text();
-  assert.equal(res.status, 413, text);
-  const payload = JSON.parse(text) as { code?: string };
-  assert.equal(payload.code, "SIYUAN_ZIP_BUDGET_EXCEEDED");
+  assert.equal(res.status, 202, text);
+  const accepted = JSON.parse(text) as { job: { id: string }; reused: boolean };
+  assert.equal(accepted.reused, false);
+
+  let finalJob: { status: string; error: string | null } | null = null;
+  for (let attempt = 0; attempt < 200; attempt += 1) {
+    const poll = await app.request(`/export/import/siyuan-package/jobs/${accepted.job.id}`, {
+      headers: { "X-User-Id": "zip-budget-user" },
+    });
+    const pollText = await poll.text();
+    assert.equal(poll.status, 200, pollText);
+    const payload = JSON.parse(pollText) as { job: { status: string; error: string | null } };
+    finalJob = payload.job;
+    if (["completed", "failed"].includes(finalJob.status)) break;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+
+  assert.ok(finalJob, "missing Siyuan import job result");
+  assert.equal(finalJob.status, "failed");
+  assert.match(finalJob.error || "", /思源资源文件过大|超出限制|文件数量过多|\.sy 文件过多/);
 });
