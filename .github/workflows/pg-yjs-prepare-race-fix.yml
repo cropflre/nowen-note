@@ -1,0 +1,94 @@
+name: Validate PostgreSQL Yjs prepare concurrency fix
+
+on:
+  push:
+    branches: [pg-validation-runtime-batch]
+    paths:
+      - ".github/workflows/pg-yjs-prepare-race-fix.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: nowen
+          POSTGRES_PASSWORD: nowen_ci_password
+          POSTGRES_DB: nowen_note_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U nowen -d nowen_note_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      TEST_PG_DATABASE_URL: postgres://nowen:nowen_ci_password@127.0.0.1:5432/nowen_note_test
+      DATABASE_URL: postgres://nowen:nowen_ci_password@127.0.0.1:5432/nowen_note_test
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: pg-migration-unified
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - name: Install backend dependencies
+        working-directory: backend
+        run: npm ci --no-audit --no-fund
+      - name: Serialize prepare per note
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path("backend/src/services/postgres-yjs-subdocuments-runtime.ts")
+          text = path.read_text()
+          marker = '''export function createPostgresYjsSubdocumentRuntime(\n  adapter: DatabaseAdapter,\n): PostgresYjsSubdocumentRuntime {\n  async function readRows(noteId: string): Promise<SectionRow[]> {'''
+          replacement = '''export function createPostgresYjsSubdocumentRuntime(\n  adapter: DatabaseAdapter,\n): PostgresYjsSubdocumentRuntime {\n  // Preparing an unmaterialized note is a read-plan-delete-insert sequence. Multiple\n  // websocket clients can join the same note at once, so serialize prepares per note\n  // inside this runtime instance. Different notes remain fully concurrent, and queued\n  // callers still execute with their own maxBlocks value.\n  const prepareTails = new Map<string, Promise<void>>();\n\n  async function readRows(noteId: string): Promise<SectionRow[]> {'''
+          if marker not in text:
+              raise SystemExit("runtime factory marker not found")
+          text = text.replace(marker, replacement, 1)
+
+          old = '''  async function prepare(noteId: string, maxBlocks = 250): Promise<PostgresYjsSubdocumentManifest | null> {'''
+          new = '''  async function prepareOnce(noteId: string, maxBlocks = 250): Promise<PostgresYjsSubdocumentManifest | null> {'''
+          if old not in text:
+              raise SystemExit("prepare function marker not found")
+          text = text.replace(old, new, 1)
+
+          marker = '''  async function getState(noteId: string, sectionId: string) {'''
+          wrapper = '''  async function prepare(\n    noteId: string,\n    maxBlocks = 250,\n  ): Promise<PostgresYjsSubdocumentManifest | null> {\n    const previous = prepareTails.get(noteId) ?? Promise.resolve();\n    let release: () => void = () => {};\n    const current = new Promise<void>((resolve) => {\n      release = resolve;\n    });\n    const tail = previous.then(() => current, () => current);\n    prepareTails.set(noteId, tail);\n\n    await previous.catch(() => undefined);\n    try {\n      return await prepareOnce(noteId, maxBlocks);\n    } finally {\n      release();\n      if (prepareTails.get(noteId) === tail) prepareTails.delete(noteId);\n    }\n  }\n\n  async function getState(noteId: string, sectionId: string) {'''
+          if marker not in text:
+              raise SystemExit("getState marker not found")
+          path.write_text(text.replace(marker, wrapper, 1))
+          PY
+      - name: TypeScript
+        working-directory: backend
+        run: npm run build:tsc -- --noEmit
+      - name: Repeat concurrent websocket join regression
+        working-directory: backend
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 8); do
+            echo "Yjs websocket concurrency attempt ${attempt}/8"
+            node --import tsx --test --test-concurrency=1 tests/postgres-yjs-subdocuments-websocket-pg.test.ts
+          done
+      - name: Commit verified runtime fix
+        shell: bash
+        run: |
+          set -euo pipefail
+          git add backend/src/services/postgres-yjs-subdocuments-runtime.ts
+          git diff --check
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "fix(pg): serialize concurrent Yjs subdocument prepares"
+          git fetch origin pg-migration-unified
+          git rebase origin/pg-migration-unified
+          git push origin HEAD:pg-migration-unified
