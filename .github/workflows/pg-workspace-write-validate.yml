@@ -1,0 +1,115 @@
+name: Validate PostgreSQL workspace write runtime
+
+on:
+  push:
+    branches: [pg-validation-runtime-batch]
+    paths:
+      - ".github/workflows/pg-workspace-write-validate.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  workspaces:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: nowen
+          POSTGRES_PASSWORD: nowen_ci_password
+          POSTGRES_DB: nowen_note_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U nowen -d nowen_note_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      TEST_PG_DATABASE_URL: postgres://nowen:nowen_ci_password@127.0.0.1:5432/nowen_note_test
+      DATABASE_URL: postgres://nowen:nowen_ci_password@127.0.0.1:5432/nowen_note_test
+      DB_DRIVER: postgres
+      JWT_SECRET: pg-workspace-write-test-secret-please-change
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: pg-migration-unified
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - name: Install backend dependencies
+        working-directory: backend
+        run: npm ci --no-audit --no-fund
+      - name: Wire workspace realtime and runtime capability list
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path("backend/src/index.postgres-runtime.ts")
+          text = path.read_text()
+          old = 'app.route("/api/workspaces", createWorkspacesRuntimeRouter(adapter));'
+          new = '''app.route("/api/workspaces", createWorkspacesRuntimeRouter(adapter, {
+            publishToUser: hub.publishToUser,
+          }));'''
+          if old in text:
+              text = text.replace(old, new, 1)
+          elif new not in text:
+              raise SystemExit("workspace route marker missing")
+
+          marker = '        "GET /api/workspaces",\n'
+          workspace_lines = marker + (
+              '        "POST /api/workspaces",\n'
+              '        "GET /api/workspaces/:id",\n'
+              '        "PUT /api/workspaces/:id",\n'
+          )
+          if '"POST /api/workspaces"' not in text:
+              if marker not in text:
+                  raise SystemExit("workspace capability marker missing")
+              text = text.replace(marker, workspace_lines, 1)
+
+          tag_marker = '        "GET /api/tags (personal/workspace scope)",\n'
+          tag_lines = tag_marker + (
+              '        "POST /api/tags",\n'
+              '        "PUT /api/tags/:id",\n'
+              '        "DELETE /api/tags/:id",\n'
+              '        "POST/DELETE /api/tags/note/:noteId/tag/:tagId",\n'
+          )
+          if '"POST /api/tags"' not in text:
+              if tag_marker not in text:
+                  raise SystemExit("tag capability marker missing")
+              text = text.replace(tag_marker, tag_lines, 1)
+
+          path.write_text(text)
+          PY
+      - name: TypeScript
+        working-directory: backend
+        run: npm run build:tsc -- --noEmit
+      - name: PostgreSQL workspace write lifecycle
+        working-directory: backend
+        run: node --import tsx --test --test-concurrency=1 tests/workspaces-runtime-write-pg.test.ts
+      - name: PostgreSQL tag write regression
+        working-directory: backend
+        run: node --import tsx --test --test-concurrency=1 tests/tags-runtime-write-pg.test.ts
+      - name: PostgreSQL authenticated startup regression
+        working-directory: backend
+        run: node --import tsx --test --test-concurrency=1 tests/postgres-startup-surfaces-pg.test.ts
+      - name: Build production bundle
+        working-directory: backend
+        run: npm run build
+      - name: Commit validated workspace realtime wiring
+        shell: bash
+        run: |
+          if git diff --quiet -- backend/src/index.postgres-runtime.ts; then
+            echo "workspace runtime wiring already current"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add backend/src/index.postgres-runtime.ts
+          git commit -m "feat(pg): expose workspace and tag write surfaces"
+          git push origin HEAD:pg-migration-unified
