@@ -18,6 +18,7 @@ import createMeRuntimeRouter from "./routes/me-runtime";
 import createWorkspacesRuntimeRouter from "./routes/workspaces-runtime";
 import createNotebooksRuntimeRouter from "./routes/notebooks-runtime";
 import createTagsRuntimeRouter from "./routes/tags-runtime";
+import createTasksRuntimeRouter from "./routes/tasks-runtime";
 import createAttachmentsRuntimeRouter, { handleAttachmentDownloadRuntime } from "./routes/attachments-runtime";
 import userPreferencesSyncRoutes from "./routes/user-preferences-sync";
 import createBackupsRuntimeRouter from "./routes/backups-runtime";
@@ -122,6 +123,15 @@ app.get("/api/health", async (c) => {
         "PUT /api/tags/:id",
         "DELETE /api/tags/:id",
         "POST/DELETE /api/tags/note/:noteId/tag/:tagId",
+        "GET /api/tasks (personal/workspace scope and filters)",
+        "GET /api/tasks/stats/summary",
+        "GET /api/tasks/:id (children included)",
+        "POST /api/tasks",
+        "PUT /api/tasks/:id (status/completion + recurrence)",
+        "PATCH /api/tasks/:id/toggle (recurrence-safe)",
+        "PUT /api/tasks/reorder/batch",
+        "POST /api/tasks/batch (complete/delete)",
+        "DELETE /api/tasks/:id",
         "GET /api/attachments/:id (signed/Bearer, Range/ETag)",
         "GET /api/attachments/access/urls (user signed URLs)",
         "POST /api/attachments (upload/dedup)",
@@ -316,6 +326,10 @@ app.route("/api/notebooks", createNotebooksRuntimeRouter(adapter));
 app.use("/api/tags", authenticateApiRequest);
 app.use("/api/tags/*", authenticateApiRequest);
 app.route("/api/tags", createTagsRuntimeRouter(adapter));
+
+app.use("/api/tasks", authenticateApiRequest);
+app.use("/api/tasks/*", authenticateApiRequest);
+app.route("/api/tasks", createTasksRuntimeRouter(adapter));
 
 app.get("/api/attachments/:id", (c) => handleAttachmentDownloadRuntime(c, adapter));
 
