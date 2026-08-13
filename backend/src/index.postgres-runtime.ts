@@ -14,6 +14,9 @@ import {
 import { verifyLoginToken } from "./lib/auth-security";
 import createAuthRuntimeRouter from "./routes/auth-runtime";
 import createSettingsRuntimeRouter from "./routes/settings-runtime";
+import createMeRuntimeRouter from "./routes/me-runtime";
+import createWorkspacesRuntimeRouter from "./routes/workspaces-runtime";
+import userPreferencesSyncRoutes from "./routes/user-preferences-sync";
 import createBackupsRuntimeRouter from "./routes/backups-runtime";
 import createNotesRuntimeRouter from "./routes/notes-runtime";
 import createNoteTransfersRuntimeRouter from "./routes/note-transfers-runtime";
@@ -103,6 +106,10 @@ app.get("/api/health", async (c) => {
         "DELETE /api/auth/sessions",
         "GET /api/settings (public site bootstrap)",
         "PUT /api/settings (authenticated; admin guard for system settings)",
+        "GET /api/me",
+        "GET /api/user-preferences",
+        "PUT/PATCH /api/user-preferences",
+        "GET /api/workspaces",
         "GET /api/notes",
         "POST /api/notes",
         "GET /api/notes/trash/summary",
@@ -271,6 +278,17 @@ async function authenticateApiRequest(c: Context, next: Next) {
 app.route("/api/auth", createAuthRuntimeRouter(adapter));
 
 app.route("/api/settings", createSettingsRuntimeRouter(adapter));
+
+app.use("/api/me", authenticateApiRequest);
+app.route("/api/me", createMeRuntimeRouter(adapter));
+
+app.use("/api/user-preferences", authenticateApiRequest);
+app.use("/api/user-preferences/*", authenticateApiRequest);
+app.route("/api/user-preferences", userPreferencesSyncRoutes);
+
+app.use("/api/workspaces", authenticateApiRequest);
+app.use("/api/workspaces/*", authenticateApiRequest);
+app.route("/api/workspaces", createWorkspacesRuntimeRouter(adapter));
 
 app.use("/api/notes", authenticateApiRequest);
 app.use("/api/notes/*", authenticateApiRequest);
