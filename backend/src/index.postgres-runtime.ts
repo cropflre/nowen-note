@@ -40,12 +40,15 @@ import { createPostgresRealtimeRuntime } from "./services/postgres-realtime-runt
 import { createPostgresYjsCompactionRuntime } from "./services/postgres-yjs-compaction-runtime";
 import { createPostgresYjsSubdocumentWebsocketRuntime } from "./services/postgres-yjs-subdocuments-websocket-runtime";
 import { createTaskReminderDeliveryRuntime } from "./services/task-reminder-delivery-runtime";
+import { createTaskAutomationDeliveryRuntime } from "./services/task-automation-delivery-runtime";
 
 const app = new Hono();
 const port = Number(process.env.PORT) || 3001;
 const adapter = getDatabaseAdapter();
 const reminderDelivery = createTaskReminderDeliveryRuntime(adapter);
 reminderDelivery.start();
+const taskAutomationDelivery = createTaskAutomationDeliveryRuntime(adapter);
+taskAutomationDelivery.start();
 const hub = createPostgresRealtimeRuntime(adapter);
 const subdocumentWs = createPostgresYjsSubdocumentWebsocketRuntime(adapter, {
   publishMutation: hub.publishMutation,
@@ -369,7 +372,7 @@ app.route("/api/task-dependencies", createTaskDependenciesRuntimeRouter(adapter)
 
 app.use("/api/task-reminders", authenticateApiRequest);
 app.use("/api/task-reminders/*", authenticateApiRequest);
-app.route("/api/task-reminders", createTaskReminderDeliveryRuntimeRouter(reminderDelivery));
+app.route("/api/task-reminders", createTaskReminderDeliveryRuntimeRouter(reminderDelivery, taskAutomationDelivery));
 app.route("/api/task-reminders", createTaskRemindersRuntimeRouter(adapter));
 
 app.get("/api/attachments/:id", (c) => handleAttachmentDownloadRuntime(c, adapter));
@@ -442,6 +445,7 @@ async function gracefulShutdown(signal: string): Promise<void> {
   try {
     await transferOrchestration.shutdown();
     await reminderDelivery.shutdown();
+    await taskAutomationDelivery.shutdown();
     await transferMoveDeletion.shutdown();
     await transferEffects.shutdown();
     await yjsCompaction.close();
