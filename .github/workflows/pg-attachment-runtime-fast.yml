@@ -1,0 +1,54 @@
+name: PostgreSQL attachment runtime fast validation
+
+on:
+  push:
+    branches: [pg-validation-runtime-batch]
+    paths:
+      - ".github/workflows/pg-attachment-runtime-fast.yml"
+
+jobs:
+  attachments:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: nowen
+          POSTGRES_PASSWORD: nowen_ci_password
+          POSTGRES_DB: nowen_note_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U nowen -d nowen_note_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      TEST_PG_DATABASE_URL: postgres://nowen:nowen_ci_password@127.0.0.1:5432/nowen_note_test
+      DATABASE_URL: postgres://nowen:nowen_ci_password@127.0.0.1:5432/nowen_note_test
+      DB_DRIVER: postgres
+      JWT_SECRET: pg-attachment-runtime-test-secret-please-change
+      ATTACHMENT_SIGNING_SECRET: pg-attachment-signing-secret-please-change
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: pg-migration-unified
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - name: Install backend dependencies
+        run: npm ci --no-audit --no-fund
+      - name: TypeScript
+        run: npm run build:tsc -- --noEmit
+      - name: Attachment signature core
+        run: node --import tsx --test --test-concurrency=1 tests/attachment-signed-url-core.test.ts
+      - name: Attachment storage primitives
+        run: node --import tsx --test --test-concurrency=1 tests/attachment-storage-http-runtime-pg.test.ts
+      - name: Attachment HTTP lifecycle
+        run: node --import tsx --test --test-concurrency=1 tests/attachments-runtime-pg.test.ts
