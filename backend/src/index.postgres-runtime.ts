@@ -12,6 +12,7 @@ import {
   getDatabaseRuntimeStatus,
 } from "./db/runtime";
 import { verifyLoginToken } from "./lib/auth-security";
+import createAuthRuntimeRouter from "./routes/auth-runtime";
 import createBackupsRuntimeRouter from "./routes/backups-runtime";
 import createNotesRuntimeRouter from "./routes/notes-runtime";
 import createNoteTransfersRuntimeRouter from "./routes/note-transfers-runtime";
@@ -88,6 +89,17 @@ app.get("/api/health", async (c) => {
       mode: "postgres-runtime-only",
       businessRoutesReady: false,
       migratedRoutes: [
+        "GET /api/auth/register/config",
+        "PUT /api/auth/register/config",
+        "POST /api/auth/register",
+        "POST /api/auth/login",
+        "POST /api/auth/2fa/verify",
+        "POST /api/auth/refresh",
+        "POST /api/auth/logout",
+        "GET /api/auth/verify",
+        "GET /api/auth/sessions",
+        "DELETE /api/auth/sessions/:id",
+        "DELETE /api/auth/sessions",
         "GET /api/notes",
         "POST /api/notes",
         "GET /api/notes/trash/summary",
@@ -252,6 +264,8 @@ async function authenticateApiRequest(c: Context, next: Next) {
   if (payload.jti) c.req.raw.headers.set("X-Session-Id", payload.jti);
   await next();
 }
+
+app.route("/api/auth", createAuthRuntimeRouter(adapter));
 
 app.use("/api/notes", authenticateApiRequest);
 app.use("/api/notes/*", authenticateApiRequest);
