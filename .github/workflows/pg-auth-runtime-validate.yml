@@ -1,0 +1,96 @@
+name: Validate PostgreSQL authentication runtime
+
+on:
+  push:
+    branches: [pg-validation-runtime-batch]
+    paths:
+      - ".github/workflows/pg-auth-runtime-validate.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  auth:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: nowen
+          POSTGRES_PASSWORD: nowen_ci_password
+          POSTGRES_DB: nowen_note_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U nowen -d nowen_note_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      TEST_PG_DATABASE_URL: postgres://nowen:nowen_ci_password@127.0.0.1:5432/nowen_note_test
+      DATABASE_URL: postgres://nowen:nowen_ci_password@127.0.0.1:5432/nowen_note_test
+      JWT_SECRET: pg-auth-runtime-test-secret-please-change
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: pg-migration-unified
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - name: Install backend dependencies
+        working-directory: backend
+        run: npm ci --no-audit --no-fund
+      - name: Mount validated auth runtime
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path("backend/src/index.postgres-runtime.ts")
+          text = path.read_text()
+          import_marker = 'import { verifyLoginToken } from "./lib/auth-security";\n'
+          import_line = 'import createAuthRuntimeRouter from "./routes/auth-runtime";\n'
+          if import_line not in text:
+              if import_marker not in text:
+                  raise SystemExit("auth import marker missing")
+              text = text.replace(import_marker, import_marker + import_line, 1)
+
+          route_marker = 'app.use("/api/notes", authenticateApiRequest);\n'
+          route_line = 'app.route("/api/auth", createAuthRuntimeRouter(adapter));\n\n'
+          if route_line not in text:
+              if route_marker not in text:
+                  raise SystemExit("notes route marker missing")
+              text = text.replace(route_marker, route_line + route_marker, 1)
+
+          migrated_marker = '      migratedRoutes: [\n'
+          migrated_lines = '''      migratedRoutes: [\n        "GET /api/auth/register/config",\n        "PUT /api/auth/register/config",\n        "POST /api/auth/register",\n        "POST /api/auth/login",\n        "POST /api/auth/2fa/verify",\n        "POST /api/auth/refresh",\n        "POST /api/auth/logout",\n        "GET /api/auth/verify",\n        "GET /api/auth/sessions",\n        "DELETE /api/auth/sessions/:id",\n        "DELETE /api/auth/sessions",\n'''
+          if '"POST /api/auth/login"' not in text:
+              if migrated_marker not in text:
+                  raise SystemExit("migratedRoutes marker missing")
+              text = text.replace(migrated_marker, migrated_lines, 1)
+          path.write_text(text)
+          PY
+      - name: TypeScript
+        working-directory: backend
+        run: npm run build:tsc -- --noEmit
+      - name: Real PostgreSQL authentication lifecycle
+        working-directory: backend
+        run: node --import tsx --test --test-concurrency=1 tests/auth-runtime-pg.test.ts
+      - name: Build production bundle
+        working-directory: backend
+        run: npm run build
+      - name: Commit validated auth mount
+        shell: bash
+        run: |
+          set -euo pipefail
+          git add backend/src/index.postgres-runtime.ts
+          git diff --check
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "feat(pg): mount PostgreSQL authentication runtime"
+          git fetch origin pg-migration-unified
+          git rebase origin/pg-migration-unified
+          git push origin HEAD:pg-migration-unified
