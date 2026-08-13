@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   backup:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     services:
       postgres:
@@ -40,10 +40,10 @@ jobs:
           node-version: 20
           cache: npm
           cache-dependency-path: backend/package-lock.json
-      - name: Install PostgreSQL 16 client tools
+      - name: Install PostgreSQL client tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y postgresql-client-16
+          sudo apt-get install -y postgresql-client
           pg_dump --version | grep -E 'PostgreSQL\) 16\.'
           pg_restore --version | grep -E 'PostgreSQL\) 16\.'
       - name: Install backend dependencies
