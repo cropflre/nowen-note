@@ -1,0 +1,82 @@
+name: PostgreSQL focused migration gates
+
+on:
+  push:
+    branches: [pg-migration-unified]
+    paths:
+      - ".github/workflows/pg-focused-gates.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  focused:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: nowen
+          POSTGRES_PASSWORD: nowen_ci_password
+          POSTGRES_DB: nowen_note_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U nowen -d nowen_note_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      TEST_PG_DATABASE_URL: postgres://nowen:nowen_ci_password@127.0.0.1:5432/nowen_note_test
+      DATABASE_URL: postgres://nowen:nowen_ci_password@127.0.0.1:5432/nowen_note_test
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: pg-migration-unified
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - name: Install backend dependencies
+        working-directory: backend
+        run: npm ci --no-audit --no-fund
+      - name: TypeScript
+        working-directory: backend
+        run: npm run build:tsc -- --noEmit
+      - name: SQLite direct-access boundary
+        working-directory: backend
+        run: npm run audit:sqlite-boundaries
+      - name: PostgreSQL schema parity
+        working-directory: backend
+        run: npm run audit:pg-schema-parity
+      - name: Migration executor, recovery, and scale drill regressions
+        working-directory: backend
+        run: >-
+          node --import tsx --test --test-concurrency=1
+          tests/postgres-migrations.test.ts
+          tests/sqlite-postgres-migration-runtime-pg.test.ts
+          tests/sqlite-postgres-rollback-runtime-pg.test.ts
+          tests/sqlite-postgres-nonempty-recovery-runtime-pg.test.ts
+          tests/sqlite-postgres-scale-drill-runtime-pg.test.ts
+      - name: CLI help contracts
+        working-directory: backend
+        run: |
+          npm run migrate:sqlite-to-postgres -- --help
+          npm run migrate:sqlite-to-postgres:drill -- --help
+      - name: Production bundle
+        working-directory: backend
+        run: |
+          npm run build
+          test -f dist/postgres/migrations/0023_sqlite_postgres_migration_runs.sql
+          test -f dist/postgres/migrations/0024_sqlite_postgres_migration_rollback.sql
+          test -f dist/postgres/migrations/0025_sqlite_postgres_nonempty_recovery.sql
+      - name: Remove focused gate workflow after success
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/pg-focused-gates.yml
+          git commit -m "ci(pg): remove focused migration gate"
+          git push origin HEAD:pg-migration-unified
