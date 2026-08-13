@@ -1,8 +1,11 @@
-import type { AISettings } from "./ai-client";
+import type { DatabaseAdapter } from "../db/adapters/types";
 import {
+  createUserAISettingsRepository,
   userAISettingsRepository,
   type UserAISettingEntry,
+  type UserAISetting,
 } from "../repositories/userAISettingsRepository";
+import type { AISettings } from "./ai-client";
 
 export const GUARDED_USER_AI_KEYS = [
   "ai_provider",
@@ -48,15 +51,7 @@ function validateEntries(entries: UserAISettingEntry[]): void {
   if (invalid) throw new Error(`Unsupported user AI setting key: ${invalid.key}`);
 }
 
-export function getUserAISetting(userId: string, key: string): string {
-  requireUserId(userId);
-  if (!isAllowedKey(key)) throw new Error(`Unsupported user AI setting key: ${key}`);
-  return userAISettingsRepository.get(userId, key)?.value || "";
-}
-
-export function getUserAISettings(userId: string): AISettings {
-  requireUserId(userId);
-  const rows = userAISettingsRepository.getMany(userId, [...GUARDED_USER_AI_KEYS]);
+function buildAISettings(rows: Pick<UserAISetting, "key" | "value">[]): AISettings {
   const settings: AISettings = { ...AI_DEFAULTS };
   for (const row of rows) {
     (settings as unknown as Record<string, string>)[row.key] = row.value;
@@ -73,6 +68,35 @@ export function getUserAISettings(userId: string): AISettings {
     );
   }
   return settings;
+}
+
+export function getUserAISetting(userId: string, key: string): string {
+  requireUserId(userId);
+  if (!isAllowedKey(key)) throw new Error(`Unsupported user AI setting key: ${key}`);
+  return userAISettingsRepository.get(userId, key)?.value || "";
+}
+
+export function getUserAISettings(userId: string): AISettings {
+  requireUserId(userId);
+  const rows = userAISettingsRepository.getMany(userId, [...GUARDED_USER_AI_KEYS]);
+  return buildAISettings(rows);
+}
+
+/**
+ * Adapter-backed variant for async runtimes (notably PostgreSQL runtime-only).
+ * Supplying the adapter is intentional: it prevents an async route from falling
+ * through the legacy synchronous getDb()/SQLite path.
+ */
+export async function getUserAISettingsAsync(
+  userId: string,
+  adapter?: DatabaseAdapter,
+): Promise<AISettings> {
+  requireUserId(userId);
+  const repository = adapter
+    ? createUserAISettingsRepository(adapter, "CURRENT_TIMESTAMP")
+    : userAISettingsRepository;
+  const rows = await repository.getManyAsync(userId, [...GUARDED_USER_AI_KEYS]);
+  return buildAISettings(rows);
 }
 
 export function setUserAISetting(userId: string, key: string, value: string): void {
