@@ -25,6 +25,7 @@ import {
 } from "@/lib/noteImageExportTables";
 import { isMermaidLang, renderMermaid } from "@/lib/mermaidRenderer";
 import { sanitizeSvg } from "@/lib/sanitizeHtml";
+import { rasterizeMermaidSvgForExport } from "@/lib/mermaidExportRaster";
 
 const EXPORT_WIDTH = 794;
 const EXPORT_HORIZONTAL_PADDING = 56;
@@ -224,9 +225,9 @@ function codeBlockLanguage(element: HTMLElement): string {
 
 /**
  * The editor renders Mermaid at runtime, but image export starts from serialized note HTML.
- * Materialize Mermaid code blocks into sanitized, self-contained SVG data images before
- * syntax highlighting and before html2canvas clones the export DOM. Invalid diagrams keep
- * their original source so one bad block never aborts the whole note export.
+ * Materialize Mermaid code blocks into browser-rasterized PNG data images before syntax
+ * highlighting and before html2canvas clones the export DOM. Invalid diagrams keep their
+ * original source so one bad block never aborts the whole note export.
  */
 async function renderMermaidCodeBlocks(root: ParentNode): Promise<void> {
   const blocks = Array.from(root.querySelectorAll("pre > code")) as HTMLElement[];
@@ -258,13 +259,26 @@ async function renderMermaidCodeBlocks(root: ParentNode): Promise<void> {
       continue;
     }
 
+    let raster;
+    try {
+      raster = await rasterizeMermaidSvgForExport(svg, EXPORT_CONTENT_WIDTH);
+    } catch (error) {
+      console.warn(
+        "[note-image-export] Mermaid SVG rasterization failed; keeping source code in exported image.",
+        error,
+      );
+      continue;
+    }
+
     const figure = document.createElement("figure");
     figure.className = "nowen-note-image-export-mermaid";
     figure.setAttribute("data-nowen-mermaid-export", "rendered");
 
     const image = document.createElement("img");
-    image.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+    image.src = raster.dataUri;
     image.alt = "Mermaid diagram";
+    image.width = Math.max(1, Math.round(raster.width));
+    image.height = Math.max(1, Math.round(raster.height));
     image.setAttribute("data-nowen-mermaid-export-image", "true");
     figure.appendChild(image);
 
