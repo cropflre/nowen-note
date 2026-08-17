@@ -5,6 +5,7 @@ import {
   projectMarkdownForUser,
   sanitizeMarkdownClipboardText,
 } from "@/lib/markdownUserContent";
+import { markdownSelectionWrapExtension } from "@/lib/markdownSelectionWrap";
 
 function buildMarkerDecorations(markdown: string): DecorationSet {
   const builder = new RangeSetBuilder<Decoration>();
@@ -63,8 +64,14 @@ const cleanClipboard = EditorView.domEventHandlers({
   },
 });
 
+/**
+ * Shared CodeMirror extensions used by both the normal Markdown editor and the
+ * large-document safe editor. Keeping selection wrapping here guarantees the same
+ * typing behavior when a note crosses the large-document runtime threshold.
+ */
 export const internalMarkdownMarkerExtensions: Extension[] = [
   markerField,
   markerTheme,
   cleanClipboard,
+  markdownSelectionWrapExtension,
 ];
