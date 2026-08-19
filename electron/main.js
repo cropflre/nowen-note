@@ -13,7 +13,7 @@ const { initLogger, getLogDir } = require("./logger");
 const { createRendererRecoveryGate } = require("./renderer-recovery");
 const { handleArgv, setupMacOpenFile, flushPending } = require("./fileAssoc");
 const { registerDiscoveryIpc, shutdown: shutdownDiscovery } = require("./discovery");
-const { setSettingsPath, readSettings, writeSettings } = require("./settings");
+const { setSettingsPath, readSettings, writeSettings, shouldUseLocalRuntime } = require("./settings");
 const { openSetupWindow } = require("./setupWindow");
 const { openLocalAttachmentWithSystem } = require("./attachment-open");
 const { registerTextContextMenu } = require("./text-context-menu");
@@ -58,6 +58,10 @@ let backendPort = 0;
 // 当前运行模式快照（在 ready 时读 settings.json 后赋值）
 let currentMode = "full";   // "full" | "lite"
 let currentRemoteUrl = "";  // lite 模式下的远端 URL
+// Local-first 运行时快照（Phase 1）：桌面端的目标终态是恒为 "local"。
+// 现阶段它由 settings.js 从 legacy mode 派生，因此语义与 currentMode 完全等价：
+//   full → local，lite → remote（Lite 迁移完成前不得为 local）。
+let currentRuntime = "local"; // "local" | "remote"
 let currentHideMenuBar = false; // Windows/Linux 是否隐藏菜单栏
 let currentRendererSession = null;
 let currentOfflineCacheDir = "";
@@ -981,17 +985,21 @@ function createWindow() {
   }, 10000);
   startupRevealTimer.unref?.();
 
-  // 根据当前模式决定 API 目标：
-  //   full → 本机后端 http://127.0.0.1:{backendPort}
-  //   lite → 用户在 setup 窗里选择并写入 settings.json 的 remoteUrl
+  // 根据当前运行时决定 API 目标：
+  //   runtime=local  → 本机后端 http://127.0.0.1:{backendPort}
+  //   runtime=remote → 用户在 setup 窗里选择并写入 settings.json 的 remoteUrl
+  //
+  // Phase 1 起改用 runtime 而非 mode 判定。当前 runtime 由 legacy mode 派生
+  // （full→local，lite→remote），因此本次改造行为完全等价；等 Lite 迁移能力
+  // 就绪后，Lite 用户迁移完成即自然走 localhost，无需再改这里。
   //
   // 重要：桌面客户端永远加载本地 frontend/dist，而不是远端服务器页面。
   // 这样服务端即使开启「API-only / 关闭网页端」也不会影响 PC 客户端。
   const developmentBackendUrl = getDevelopmentBackendUrl();
-  const targetUrl =
-    currentMode === "lite" && currentRemoteUrl
-      ? currentRemoteUrl
-      : developmentBackendUrl || `http://127.0.0.1:${backendPort}`;
+  const useRemoteRuntime = currentRuntime === "remote" && currentRemoteUrl;
+  const targetUrl = useRemoteRuntime
+    ? currentRemoteUrl
+    : developmentBackendUrl || `http://127.0.0.1:${backendPort}`;
   const frontendIndex = path.join(getFrontendDist(), "index.html");
   const frontendIndexExists = fs.existsSync(frontendIndex);
   const preloadExists = fs.existsSync(preloadPath);
@@ -999,7 +1007,7 @@ function createWindow() {
     `[main-window] resourcesPath=${process.resourcesPath || ""} ` +
       `frontendIndex=${frontendIndex} exists=${frontendIndexExists} ` +
       `preload=${preloadPath} exists=${preloadExists} ` +
-      `targetUrl=${targetUrl} mode=${currentMode} packaged=${app.isPackaged}` +
+      `targetUrl=${targetUrl} mode=${currentMode} runtime=${currentRuntime} packaged=${app.isPackaged}` +
       (developmentBackendUrl ? " devBackend=external" : "")
   );
   const loadApplicationSurface = () => {
@@ -2161,6 +2169,7 @@ app.whenReady().then(async () => {
   let settings = readSettings();
   currentMode = settings.mode;
   currentRemoteUrl = settings.remoteUrl;
+  currentRuntime = shouldUseLocalRuntime(settings) ? "local" : "remote";
   currentHideMenuBar = !!settings.hideMenuBar;
 
   await promptDataDirOnFirstRunIfNeeded();
@@ -2172,6 +2181,7 @@ app.whenReady().then(async () => {
   settings = readSettings();
   currentMode = settings.mode;
   currentRemoteUrl = settings.remoteUrl;
+  currentRuntime = shouldUseLocalRuntime(settings) ? "local" : "remote";
   currentHideMenuBar = !!settings.hideMenuBar;
 
   // 主窗口可使用用户指定的持久化会话目录；离线 IndexedDB 与必要的
@@ -2184,7 +2194,9 @@ app.whenReady().then(async () => {
   if (liteOnly && currentMode !== "lite") {
     console.log("[Electron] lite-only build detected, forcing mode=lite");
     currentMode = "lite";
-    writeSettings({ mode: "lite", remoteUrl: currentRemoteUrl });
+    currentRuntime = shouldUseLocalRuntime(writeSettings({ mode: "lite", remoteUrl: currentRemoteUrl }))
+      ? "local"
+      : "remote";
   }
 
   // Lite-only 首启没有服务器地址：立刻弹 setup 窗口
@@ -2198,11 +2210,13 @@ app.whenReady().then(async () => {
       return;
     }
     currentRemoteUrl = r.url;
-    writeSettings({ mode: "lite", remoteUrl: r.url });
+    currentRuntime = shouldUseLocalRuntime(writeSettings({ mode: "lite", remoteUrl: r.url }))
+      ? "local"
+      : "remote";
   }
 
   console.log(
-    `[Electron] mode=${currentMode}${liteOnly ? " (lite-only build)" : ""}` +
+    `[Electron] mode=${currentMode} runtime=${currentRuntime}${liteOnly ? " (lite-only build)" : ""}` +
       (currentMode === "lite" ? ` remoteUrl=${currentRemoteUrl}` : "")
   );
 
