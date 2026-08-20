@@ -462,6 +462,17 @@ module.exports = {
       to: "frontend/dist",
       filter: ["**/*"],
     },
+    // Clipper Native Messaging 宿主必须在 asar **之外**。
+    // 浏览器按清单里的 path 直接 spawn 这个文件，而 asar 是虚拟归档，
+    // 外部进程无法从中执行脚本 —— 留在 asar 内会导致剪藏永远唤不起 Desktop。
+    {
+      from: "electron/clipper-native-host.js",
+      to: "clipper/clipper-native-host.js",
+    },
+    {
+      from: "electron/clipper-host.js",
+      to: "clipper/clipper-host.js",
+    },
   ],
   win: {
     target: [

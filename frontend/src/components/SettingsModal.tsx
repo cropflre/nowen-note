@@ -13,6 +13,7 @@ import TokenManagement from "@/components/TokenManagement";
 import DataManager from "@/components/DataManager";
 import FolderSyncSettings from "@/components/settings/FolderSyncSettings";
 import OfflineSyncSettings from "@/components/settings/OfflineSyncSettings";
+import SyncSettingsTab from "@/components/settings/SyncSettingsTab";
 import ShortcutSettingsPanel from "@/components/settings/ShortcutSettingsPanel";
 import AISettingsPanel from "@/components/AISettingsPanel";
 import UserManagement from "@/components/UserManagement";
@@ -44,7 +45,7 @@ import {
   type MobileKnowledgeTreeViewMode,
 } from "@/lib/mobileKnowledgeTreeViewMode";
 
-type TabId = "appearance" | "switches" | "shortcuts" | "ai" | "security" | "tokens" | "data" | "offlineSync" | "folderSync" | "users" | "workspaces" | "download" | "about";
+type TabId = "appearance" | "switches" | "shortcuts" | "ai" | "security" | "tokens" | "data" | "sync" | "offlineSync" | "folderSync" | "users" | "workspaces" | "download" | "about";
 
 interface SettingsModalProps {
   onClose: () => void;
@@ -1557,6 +1558,10 @@ const SettingsModal = React.forwardRef<HTMLDivElement, SettingsModalProps>(
     //     （personalExport/Import Enabled），由管理员集中控制。
     //   组件内部也做了一层防御性闸门，防止用户从深链绕过这里直达 admin-only 区域。
     { id: "data" as const, label: t('settings.dataManagement'), icon: Database },
+    // 「同步」：Local-first 多设备同步（Sync V2）。产品层只呈现
+    // 「不同步，仅此设备」/「我的 Nowen Server」，不暴露 Full/Lite/SQLite 概念。
+    // Flag 关闭时组件内部会自行降级为一句说明，不需要在这里做条件渲染。
+    { id: "sync" as const, label: "同步", icon: RefreshCw },
     { id: "offlineSync" as const, label: "离线同步", icon: CloudDownload },
     // 「文件夹同步」：桌面端专属，Phase B 只做配置 CRUD
     ...((window as any).nowenDesktop?.isDesktop ? [{ id: "folderSync" as const, label: t('folderSync.title'), icon: FolderSync }] : []),
@@ -1745,6 +1750,7 @@ const SettingsModal = React.forwardRef<HTMLDivElement, SettingsModalProps>(
                   {/* data tab 对所有用户可见：DataManager 内部会按 isAdmin 自动分流
                        —— 管理员看到完整三 scope；普通用户只看"个人空间"的导出/导入。 */}
                   {activeTab === "data" && <DataManager />}
+                  {activeTab === "sync" && <SyncSettingsTab />}
                   {activeTab === "offlineSync" && <OfflineSyncSettings />}
                   {activeTab === "folderSync" && <FolderSyncSettings />}
                   {activeTab === "download" && <DownloadPanel />}

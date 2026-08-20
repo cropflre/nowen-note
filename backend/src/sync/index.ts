@@ -213,3 +213,22 @@ export {
   missingCapabilities,
 } from "./entities";
 export type { EntityCapability } from "./entities";
+
+// --- 运行时接线 ---
+
+export {
+  clearRemoteCredential,
+  createRemoteClientForProfile,
+  getRemoteCredential,
+  hasRemoteCredential,
+  saveRemoteCredential,
+} from "./credentials";
+
+export {
+  getActiveEngine,
+  getActiveEngineInfo,
+  notifyNetworkOnline,
+  reconcileSyncEngine,
+  stopSyncEngine,
+  triggerSyncNow,
+} from "./runtime";

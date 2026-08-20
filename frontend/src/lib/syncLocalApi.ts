@@ -122,11 +122,75 @@ export function connectSyncServer(input: {
   serverUrl: string;
   name?: string;
   remoteUserId?: string;
-}): Promise<{ mode: SyncMode; profile: SyncProfileSummary; deviceId: string }> {
+  /**
+   * 远端访问令牌。
+   *
+   * 不传时后端只保存服务器信息、不写凭据，引擎会停在"等待授权"状态。
+   * 这允许 UI 分两步走：先填地址，再登录换 token。
+   */
+  token?: string;
+}): Promise<{
+  mode: SyncMode;
+  profile: SyncProfileSummary;
+  deviceId: string;
+  authorized: boolean;
+  engineRunning: boolean;
+  message: string;
+}> {
   return request("/settings/server", {
     method: "POST",
     body: JSON.stringify(input),
   });
+}
+
+/** 同步引擎实时状态，供状态指示器轮询（比 diagnostics 轻量得多）。 */
+export interface SyncEngineSnapshot {
+  running: boolean;
+  state: "disabled" | "idle" | "syncing" | "offline" | "error" | "conflict";
+  phase?: "pushing" | "pulling" | "applying" | null;
+  pendingCount?: number;
+  conflictCount?: number;
+  lastPushAt?: string | null;
+  lastPullAt?: string | null;
+  lastError?: string | null;
+  /** 恒为 true：本地永远是权威数据源，UI 不应因同步异常显示"保存失败"。 */
+  localAuthoritative: boolean;
+}
+
+export function fetchSyncEngineStatus(): Promise<SyncEngineSnapshot> {
+  return request<SyncEngineSnapshot>("/engine");
+}
+
+/**
+ * 立即同步一次。
+ *
+ * engineRunning=false 不是错误：用户可能选择了"仅此设备"，
+ * 此时笔记已保存在本机（RULE 2）。
+ */
+export function triggerSyncNow(): Promise<{
+  engineRunning: boolean;
+  status?: SyncEngineSnapshot;
+  message?: string;
+}> {
+  return request("/sync-now", { method: "POST" });
+}
+
+/**
+ * 探测 Sync V2 是否可用。
+ *
+ * 用于决定是否显示同步入口。Flag 关闭是默认状态，不该显示任何
+ * 同步相关 UI，也不该弹错误。
+ */
+export async function probeSyncV2Available(): Promise<boolean> {
+  try {
+    await fetchSyncSettings();
+    return true;
+  } catch (error) {
+    if (error instanceof SyncV2DisabledError) return false;
+    // 其他错误（网络、500）说明端点存在但出了问题，
+    // 仍应显示入口，让用户能看到诊断信息。
+    return true;
+  }
 }
 
 /** 关闭同步。本地数据一个字都不会删除。 */

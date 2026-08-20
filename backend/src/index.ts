@@ -74,6 +74,7 @@ import { setSyncBroadcaster } from "./sync/notify";
 import { resetChangeFeedSuppression } from "./sync/suppression";
 import { recoverInflightMutations } from "./sync/outbox";
 import { recoverStuckUploads } from "./sync/attachments";
+import { reconcileSyncEngine, stopSyncEngine } from "./sync/runtime";
 import { getYjsStats } from "./services/yjs";
 import { initWebhookTables } from "./services/webhook";
 import { initAuditTables } from "./services/audit";
@@ -869,6 +870,13 @@ if (isLocalFirstSyncV2Enabled()) {
     resetChangeFeedSuppression(db);
     recoverInflightMutations(db);
     recoverStuckUploads(db);
+
+    // 按数据库里的 SyncProfile 状态决定是否启动引擎。
+    // 必须放在崩溃恢复之后：否则引擎可能先取到仍标记为 inflight 的条目。
+    //
+    // 返回 null 是正常情况（用户选择"仅此设备"、尚未授权），不是错误。
+    // 用户之后在设置页连接服务器时路由会再次 reconcile，无需重启应用。
+    reconcileSyncEngine(db);
   } catch (error) {
     console.warn("[sync-v2] startup recovery skipped:", (error as Error)?.message || error);
   }
@@ -902,6 +910,10 @@ async function gracefulShutdown(signal: string) {
     process.exit(1);
   }, 3000);
   try {
+    // 先停同步引擎：它可能正在 push，避免它再排下一轮把关停拖长。
+    // 已标记 inflight 的条目由下次启动的 recoverInflightMutations 复位，
+    // 重复推送由 mutationId 幂等保证安全，不会产生重复数据。
+    try { stopSyncEngine(); } catch { /* ignore */ }
     await shutdownRealtime();
   } catch (e) {
     console.warn("[shutdown] failed:", e);

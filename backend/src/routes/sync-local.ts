@@ -25,6 +25,18 @@ import {
   setProfileEnabled,
 } from "../sync/profile";
 import { ensureDevice } from "../sync/device";
+import {
+  clearRemoteCredential,
+  hasRemoteCredential,
+  saveRemoteCredential,
+} from "../sync/credentials";
+import {
+  getActiveEngine,
+  getActiveEngineInfo,
+  reconcileSyncEngine,
+  stopSyncEngine,
+  triggerSyncNow,
+} from "../sync/runtime";
 import { SyncError, isSyncErrorCode } from "../sync/errors";
 import { SYNC_PERSONAL_SCOPE_KEY } from "../sync/constants";
 import { logSyncInfo } from "../sync/log";
@@ -92,6 +104,10 @@ app.get("/settings", (c) => {
     mode: active ? "server" : "device-only",
     activeProfile: active,
     profiles,
+    // 区分"已配置服务器"与"真在同步"：用户可能填了地址但还没登录，
+    // 或 token 已过期。UI 需要据此显示不同引导。
+    authorized: active ? hasRemoteCredential(active.id) : false,
+    engineRunning: getActiveEngine() !== null,
   });
 });
 
@@ -107,7 +123,12 @@ app.post("/settings/server", async (c) => {
   if (denied) return denied;
 
   const db = getDb();
-  let body: { serverUrl?: unknown; name?: unknown; remoteUserId?: unknown };
+  let body: {
+    serverUrl?: unknown;
+    name?: unknown;
+    remoteUserId?: unknown;
+    token?: unknown;
+  };
   try {
     body = await c.req.json();
   } catch {
@@ -119,6 +140,7 @@ app.post("/settings/server", async (c) => {
     return c.json({ error: "服务器地址必须以 http(s):// 开头", code: "INVALID_PAYLOAD" }, 400);
   }
   const remoteUserId = typeof body.remoteUserId === "string" ? body.remoteUserId.trim() : null;
+  const token = typeof body.token === "string" ? body.token.trim() : "";
 
   try {
     const run = db.transaction(() => {
@@ -148,10 +170,26 @@ app.post("/settings/server", async (c) => {
     });
 
     const { profile, device } = run();
+
+    // 凭据落在事务之外：它是设备本地文件，不参与数据库事务。
+    // 只有显式传了 token 才写，避免"仅改名字"的请求把已有凭据清掉。
+    if (token && profile) {
+      saveRemoteCredential({
+        profileId: profile.id,
+        serverUrl: profile.serverUrl,
+        token,
+        remoteUserId,
+      });
+    }
+
     logSyncInfo("settings.server-connected", {
       profileId: profile?.id,
       deviceId: device.id,
     });
+
+    // 立即让引擎跟随新配置，用户不需要重启应用。
+    // 未授权时返回 null，属正常情况 —— 本地读写始终可用。
+    const engine = reconcileSyncEngine(db);
 
     return c.json({
       mode: "server",
@@ -162,6 +200,12 @@ app.post("/settings/server", async (c) => {
         enabled: profile.enabled === 1,
       },
       deviceId: device.id,
+      authorized: profile ? hasRemoteCredential(profile.id) : false,
+      engineRunning: engine !== null,
+      // 未授权时明确告知 UI 该引导用户登录，而不是让它以为同步已就绪。
+      message: engine
+        ? "已连接，正在同步。"
+        : "已保存服务器信息，等待登录授权后开始同步。",
     });
   } catch (error) {
     return errorResponse(c, error);
@@ -180,18 +224,91 @@ app.post("/settings/disable", (c) => {
 
   const db = getDb();
   const pendingBefore = countPendingMutations(db);
+
+  // 先停引擎，再改数据库状态：反过来的话引擎可能在这中间又启动一轮。
+  stopSyncEngine();
+
+  const disabledIds: string[] = [];
   const run = db.transaction(() => {
     for (const profile of listProfiles(db)) {
-      if (profile.enabled === 1) disableProfile(db, profile.id);
+      if (profile.enabled === 1) {
+        disableProfile(db, profile.id);
+        disabledIds.push(profile.id);
+      }
     }
   });
   run();
+
+  // 清远端凭据：关闭同步后不该继续持有可用 token。
+  // 只清凭据 —— 本地笔记、附件、未同步 Outbox、冲突记录一个字都不动。
+  for (const id of disabledIds) {
+    try { clearRemoteCredential(id); } catch { /* 凭据文件缺失不影响关闭 */ }
+  }
 
   return c.json({
     mode: "device-only",
     // 回传保留数量，让 UI 能明确告诉用户"数据都还在"。
     retainedPendingMutations: pendingBefore,
     message: "已停止同步，此设备中的全部笔记仍完整保留。",
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 手动触发与引擎状态
+// ---------------------------------------------------------------------------
+
+/**
+ * 立即同步一次。
+ *
+ * 引擎未运行时返回 200 + engineRunning=false，而不是错误状态码：
+ * "没有开启同步"不是失败，用户的本地保存早已成功（RULE 2）。
+ */
+app.post("/sync-now", async (c) => {
+  const denied = guard(c);
+  if (denied) return denied;
+
+  try {
+    const status = await triggerSyncNow();
+    if (!status) {
+      return c.json({
+        engineRunning: false,
+        message: "当前未开启同步，笔记已保存在此设备。",
+      });
+    }
+    return c.json({ engineRunning: true, status });
+  } catch (error) {
+    return errorResponse(c, error);
+  }
+});
+
+/**
+ * 引擎实时状态，供状态指示器轮询。
+ *
+ * 刻意与 /diagnostics 分开：这个端点要足够轻量以便高频轮询，
+ * 不做任何统计查询。
+ */
+app.get("/engine", (c) => {
+  const denied = guard(c);
+  if (denied) return denied;
+
+  const engine = getActiveEngine();
+  const info = getActiveEngineInfo();
+  if (!engine || !info) {
+    return c.json({
+      running: false,
+      state: "disabled",
+      // 关闭同步时本地依旧是可信的，UI 应显示"已保存"而非任何异常措辞。
+      localAuthoritative: true,
+    });
+  }
+  return c.json({
+    // 先展开 getStatus()：它自带 profileId / deviceId，
+    // 下面的显式字段以运行时管理器为准，避免两处不一致。
+    ...engine.getStatus(),
+    running: true,
+    profileId: info.profileId,
+    deviceId: info.deviceId,
+    localAuthoritative: true,
   });
 });
 
@@ -239,6 +356,11 @@ app.get("/diagnostics", (c) => {
     pendingMutations: countPendingMutations(db),
     conflictCount: countUnresolvedConflicts(db),
     pendingSample: pending,
+    // 引擎运行时状态：用户报"改了半天没同步"时，
+    // 首先要能区分是引擎没跑、没授权，还是推送失败。
+    engineRunning: getActiveEngine() !== null,
+    engineStatus: getActiveEngine()?.getStatus() ?? null,
+    authorized: active ? hasRemoteCredential(active.id) : false,
   });
 });
 

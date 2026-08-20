@@ -212,6 +212,19 @@ export async function listNotebooks(
   cfg: NowenClipperConfig,
   workspaceId: string | null = null,
 ): Promise<NotebookSummary[]> {
+  // 与 importNote 一致的分流：无服务器配置时读本机笔记本，
+  // 否则弹窗里的笔记本下拉会是空的，用户无法选择保存位置。
+  if ((!cfg.serverUrl || !cfg.token) && !workspaceId) {
+    const { ensureDesktopReady, listLocalNotebooks } = await import("./localChannel");
+    const ready = await ensureDesktopReady();
+    // Desktop 不可用时返回空列表而不是抛错：用户仍应能剪藏
+    // （saveClipLocalFirst 会走 Pending Queue 暂存）。
+    if (!ready.ok) return [];
+    // 本地接口返回 { items: [...] }，与远端的裸数组形状不同，
+    // 这里做一次归一，让调用方无需区分通道。
+    const local = await listLocalNotebooks(ready.runtime);
+    return (local?.items ?? []) as NotebookSummary[];
+  }
   const scope = workspaceId ? encodeURIComponent(workspaceId) : "personal";
   return requestJson(cfg, `/notebooks?workspaceId=${scope}`);
 }
@@ -220,6 +233,52 @@ export async function importNote(
   cfg: NowenClipperConfig,
   payload: ImportNotePayload,
 ): Promise<ImportResponse> {
+  // Local-first 分流（Phase 8 接线）。
+  //
+  // 未配置服务器（或未登录）时走 Desktop 本地通道：
+  //   Extension → Native Messaging 发现 Desktop → localhost HTTP → 本地 SQLite
+  //
+  // 这样"没有 NAS、没有服务器"的桌面用户也能剪藏。
+  // Clipper 不关心用户是否开启了同步 —— 开启后由 Desktop 的 Outbox 负责上传。
+  //
+  // 已配置服务器时保持原行为完全不变：直连远端，不引入额外延迟。
+  // 工作区剪藏也一律走远端 —— Sync V2 第一版不支持工作区离线数据，
+  // 走本地通道会把团队内容错误地存成个人笔记。
+  const useLocalChannel = !cfg.serverUrl || !cfg.token;
+  if (useLocalChannel && !payload.workspaceId) {
+    // 动态 import：已配置服务器的用户不该为本地通道付出包体与初始化成本。
+    const { saveClipLocalFirst } = await import("./localChannel");
+    const result = await saveClipLocalFirst({
+      title: payload.title,
+      content: payload.content,
+      contentText: payload.contentText,
+      contentFormat: payload.contentFormat,
+      notebookId: payload.notebookId,
+      notebookName: payload.notebookName,
+    });
+
+    if (!result.ok) {
+      // 已暂存到扩展 IndexedDB，Desktop 可用时自动 flush。
+      // 抛出而非静默返回：调用方需要把"已暂存，稍后自动保存"告诉用户，
+      // 否则用户会以为剪藏丢了。
+      throw new NowenApiError(0, "CLIP_QUEUED_LOCALLY", result.message);
+    }
+
+    // 拼成与远端一致的形状，让 5 处调用方无需区分通道。
+    return {
+      success: true,
+      count: 1,
+      notebookId: payload.notebookId || "",
+      notebookIds: payload.notebookId ? [payload.notebookId] : [],
+      notes: [{
+        id: result.noteId,
+        title: payload.title,
+        notebookId: payload.notebookId || "",
+      }],
+      workspaceId: null,
+    };
+  }
+
   const body: Record<string, unknown> = {
     notes: [
       {

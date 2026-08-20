@@ -13,6 +13,7 @@ import { useApp, useAppActions, SyncStatus } from "@/store/AppContext";
 import { api } from "@/lib/api";
 import { parseMermaidMindmap, normalizeMindMapData } from "@/lib/mindmapTransform";
 import { cn } from "@/lib/utils";
+import SyncStatusBadge from "@/components/SyncStatusBadge";
 import {
   applyEditorUpdateToNote,
   PREPARE_EDITOR_SPLIT_CLOSE_EVENT,
@@ -2570,6 +2571,11 @@ const moveToTrash = useCallback(async () => {
           <div className="shrink-0">
             <SyncIndicator syncStatus={syncStatus} lastSyncedAt={lastSyncedAt} onManualSync={handleManualSync} />
           </div>
+          {/* 多设备同步状态：与上面的"保存状态"分开显示。
+              本地写入成功就是"已保存"，同步失败只叫"等待同步"，
+              绝不能让一次网络抖动显示成"保存失败"。
+              一切正常或未开启同步时该组件不渲染，不占空间。 */}
+          <SyncStatusBadge />
         </div>
         {/* �� 2 �У����� + �ղ� + ���� */}
         <div className={cn("flex items-center gap-1", compactMobileEditing ? "px-2 py-1" : "px-3 pb-2 pt-0.5")}>

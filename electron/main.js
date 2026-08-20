@@ -582,6 +582,18 @@ async function startBackend() {
     console.warn("[Electron] publish clipper runtime failed:", e?.message || e);
   }
 
+  // 注册 Native Messaging 清单，让浏览器扩展能发现并唤起本机 Desktop。
+  //
+  // 每次启动都注册而不是只在安装时做一次：便携版与 AppImage 的可执行
+  // 路径会随目录移动而变化，清单里的旧路径会让浏览器拉起不存在的程序。
+  //
+  // 失败只降级剪藏（用户需先手动打开 Desktop），绝不影响应用启动。
+  try {
+    registerClipperNativeHost();
+  } catch (e) {
+    console.warn("[Electron] register clipper native host failed:", e?.message || e);
+  }
+
   // 轮询健康端点，确认服务真正就绪
   try {
     await waitForBackendReady(backendPort, 30000);
@@ -592,6 +604,62 @@ async function startBackend() {
     }
     throw e;
   }
+}
+
+/**
+ * 注册 Clipper Native Messaging 宿主。
+ *
+ * 浏览器按清单里的 path 拉起宿主进程，所以 path 必须指向一个
+ * **不依赖 Electron API** 的可执行入口。
+ *
+ * 打包后：应用自带的 Electron 可执行文件 + ELECTRON_RUN_AS_NODE 环境变量
+ * 无法通过清单传递，因此改为让清单直接指向宿主脚本，
+ * 由系统 node 或随包分发的 node 执行。
+ *
+ * 开发态：直接用当前 node 可执行 + 脚本路径，方便本地联调。
+ *
+ * allowedExtensionIds 从环境变量读取，未配置时留空 ——
+ * 空列表意味着暂无扩展获得授权，比写死一个错误 ID 更安全。
+ */
+function registerClipperNativeHost() {
+  // 打包态必须用 asar 外的副本：浏览器 spawn 的是真实文件路径，
+  // 而 asar 是虚拟归档，外部进程无法从中执行脚本。
+  // 这两份由 builder.base.config.js 的 extraResources 复制到 resources/clipper/。
+  const hostScript = app.isPackaged
+    ? path.join(process.resourcesPath, "clipper", "clipper-native-host.js")
+    : path.join(__dirname, "clipper-native-host.js");
+
+  // 清单的 path 必须指向可直接执行的文件。.js 本身不可执行，
+  // 因此生成一个平台启动器（Windows 用 .cmd，其他平台用 sh 脚本），
+  // 由它带上 Electron 自带的 node 运行时去跑宿主脚本 ——
+  // 这样用户机器上没装 Node 也能剪藏。
+  const executablePath = clipperHost.ensureHostLauncher({
+    dir: getUserDataPath(),
+    hostScript,
+    nodeExecutable: process.execPath,
+    // ELECTRON_RUN_AS_NODE 让 Electron 可执行退化为纯 node，
+    // 避免宿主进程意外拉起一个 GUI 窗口。
+    runAsNode: true,
+    // Desktop 未运行时宿主要能把它拉起来。
+    // 打包态与开发态 process.execPath 都指向可启动应用的可执行文件，
+    // 因此无需分支。
+    desktopExecutable: process.execPath,
+  });
+
+  const ids = (process.env.NOWEN_CLIPPER_EXTENSION_IDS || "")
+    .split(",")
+    .map((id) => id.trim())
+    .filter(Boolean);
+
+  const result = clipperHost.ensureNativeHostRegistered({
+    executablePath,
+    allowedExtensionIds: ids,
+  });
+  console.log(
+    `[Electron] clipper native host: installed=${result.installed.length}` +
+      ` failed=${result.failed.length}`
+  );
+  return result;
 }
 
 function stopBackend() {
