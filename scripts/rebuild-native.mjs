@@ -221,7 +221,14 @@ async function main() {
   const bsBuildDir = path.join(bsRoot, "build");
   const bsPrebuildsDir = path.join(bsRoot, "prebuilds");
   const nodFile = path.join(bsBuildDir, "Release", "better_sqlite3.node");
+  const shadowingNodeFile = path.join(bsBuildDir, "better_sqlite3.node");
   const stampPath = path.join(bsBuildDir, "Release", ".electron-abi.json");
+  // bindings 会先加载 build 根目录下的产物；普通 Node rebuild 留下的文件会遮蔽
+  // 已校验的 Electron Release 产物，必须在判断是否可复用前移除。
+  if (fs.existsSync(shadowingNodeFile)) {
+    console.log(`[rebuild-native] 清理遮蔽 Electron 产物的原生模块：${shadowingNodeFile}`);
+    rimrafSync(shadowingNodeFile);
+  }
   const existingStamp = readJsonIfExists(stampPath);
   const existingDetected = fs.existsSync(nodFile)
     ? detectNodeFilePlatform(nodFile)
