@@ -1,114 +1,38 @@
 from pathlib import Path
-import re
 
 zh = Path('README.md')
 en = Path('README.en.md')
 zh_text = zh.read_text(encoding='utf-8')
 en_text = en.read_text(encoding='utf-8')
 
-zh_intro = '''## v1.4.16 已发布
+zh_text = zh_text.replace(
+    '查看：[v1.4.16 Release](https://github.com/cropflre/nowen-note/releases/tag/v1.4.16) · [完整更新日志](./CHANGELOG.md)\n## 为什么选择 Nowen Note',
+    '查看：[v1.4.16 Release](https://github.com/cropflre/nowen-note/releases/tag/v1.4.16) · [完整更新日志](./CHANGELOG.md)\n\n## 为什么选择 Nowen Note',
+)
+zh_text = zh_text.replace(
+    '完整记录请查看 [CHANGELOG.md](./CHANGELOG.md) 和 [v1.4.16 Release](https://github.com/cropflre/nowen-note/releases/tag/v1.4.16)。\n## 截图',
+    '完整记录请查看 [CHANGELOG.md](./CHANGELOG.md) 和 [v1.4.16 Release](https://github.com/cropflre/nowen-note/releases/tag/v1.4.16)。\n\n## 截图',
+)
+zh_text = zh_text.replace(
+    '> v1.4.16 重点改善移动端图片与媒体操作、大型完整备份恢复、笔记切换稳定性和导出兼容性。升级后建议重点检查移动端图片复制 / 剪切 / 粘贴、视频播放、完整备份恢复、快速切换笔记以及 Markdown + 附件 ZIP / Mermaid 图片导出。镜像回滚不等于数据库回滚，生产环境必须保留独立备份。',
+    '> v1.4.16 重点改善笔记切换稳定性、视频首次打开与 Android / 局域网附件授权、Markdown / 代码块编辑细节，以及桌面客户端签名与发布完整性。升级后建议重点检查快速切换笔记、首次视频播放、Android 连接 NAS / 局域网视频、代码块全选和分享链接复制。镜像回滚不等于数据库回滚，生产环境必须保留独立备份。',
+)
 
-v1.4.16 聚焦 **笔记切换稳定性、视频附件授权、Markdown / 代码块编辑体验与桌面发布链路**，继续提升 Nowen Note 在多端编辑、局域网媒体访问和桌面客户端分发场景下的可靠性。
+en_text = en_text.replace(
+    'See the [v1.4.16 Release](https://github.com/cropflre/nowen-note/releases/tag/v1.4.16) and the [full changelog](./CHANGELOG.md).\n## Connect AI clients to Nowen Note',
+    'See the [v1.4.16 Release](https://github.com/cropflre/nowen-note/releases/tag/v1.4.16) and the [full changelog](./CHANGELOG.md).\n\n## Connect AI clients to Nowen Note',
+)
+en_text = en_text.replace(
+    'See [CHANGELOG.md](./CHANGELOG.md) and the [v1.4.16 Release](https://github.com/cropflre/nowen-note/releases/tag/v1.4.16) for complete details.\n## Screenshots',
+    'See [CHANGELOG.md](./CHANGELOG.md) and the [v1.4.16 Release](https://github.com/cropflre/nowen-note/releases/tag/v1.4.16) for complete details.\n\n## Screenshots',
+)
+en_text = en_text.replace(
+    '> v1.4.16 focuses on mobile image/media workflows, large full-backup recovery, note-switch stability, and export compatibility. After upgrading, verify mobile image copy/cut/paste, video playback, full-backup restore, rapid note switching, and Markdown + attachment ZIP / Mermaid image exports. Rolling back an image does not roll back the database.',
+    '> v1.4.16 focuses on note-switch stability, first-open video authorization, Android/LAN attachment access, Markdown/code-block editing details, and desktop signing/release integrity. After upgrading, verify rapid note switching, first video playback, Android video access to NAS/LAN services, code-block select-all behavior, and share-link copying. Rolling back an image does not roll back the database.',
+)
 
-- **笔记切换更稳定**：阻止旧富文本保存回执在快速切换后重新抢回激活笔记，并补充“提交后迟到回执”回归覆盖。
-- **视频首次打开更可靠**：首次进入包含视频的笔记前会提前准备附件签名，减少播放器先启动、授权尚未就绪导致的首次加载失败。
-- **Android / 局域网视频授权修复**：局域网附件授权改用原生 HTTP 链路，改善 Android 客户端访问 NAS / 局域网服务时的视频加载稳定性。
-- **编辑器细节修复**：优化代码块全选快捷键逻辑，并重新清理历史 Markdown 块标记，减少旧内容残留标记对编辑体验的影响。
-- **桌面发布链路增强**：完善 Windows SignPath 测试 / 正式签名、Authenticode 严格校验、签名后更新元数据，以及 macOS 双架构产物完整性检查。
-- **分享兼容性**：修复 Edge 浏览器分享链接复制兼容性，并补充剪贴板回归测试。
-
-查看：[v1.4.16 Release](https://github.com/cropflre/nowen-note/releases/tag/v1.4.16) · [完整更新日志](./CHANGELOG.md)
-'''
-
-zh_highlights = '''## v1.4.16 重点更新
-
-### 笔记切换与编辑稳定性
-
-- 快速切换笔记后，旧富文本保存回执不会再把上一条笔记重新设为当前激活笔记。
-- 新增“提交后迟到保存回执”回归测试，继续收紧笔记切换竞态边界。
-- 优化代码块全选快捷键逻辑，减少代码块与整篇文档选择行为冲突。
-- 重新清理历史 Markdown 块标记，降低旧数据残留标记对当前编辑与渲染的影响。
-
-### 视频、Android 与局域网访问
-
-- 首次打开包含视频附件的笔记前会先准备附件签名，避免播放器早于授权信息初始化。
-- Android / 局域网附件授权改用原生 HTTP 链路，提升 NAS、局域网 IP 等场景的视频访问稳定性。
-- 为“首次打开前附件授权准备”和“Android 局域网附件授权”补充回归测试。
-
-### 桌面客户端发布与分发
-
-- Windows 正式发布链路接入并强化 SignPath 签名，包括测试签名、正式签名配置校验和 Authenticode 严格验证。
-- 补充签名后 Windows 更新元数据重建 / 刷新流程，确保发布产物与自动更新元数据一致。
-- 强化 macOS 发版产物完整性门禁，并兼容双架构压缩包的发布与校验。
-- Release 说明进一步明确桌面平台矩阵，降低不同系统下载与安装时的歧义。
-
-### 分享兼容性
-
-- 修复 Edge 浏览器分享链接复制兼容性，并增加剪贴板兼容性回归测试。
-
-完整记录请查看 [CHANGELOG.md](./CHANGELOG.md) 和 [v1.4.16 Release](https://github.com/cropflre/nowen-note/releases/tag/v1.4.16)。
-'''
-
-en_intro = '''## v1.4.16 is available
-
-v1.4.16 focuses on **safer note switching, video attachment authorization, Markdown/code-block editing, and desktop release reliability**, improving multi-client editing, LAN media access, and desktop distribution.
-
-- **Safer note switching:** stale rich-text save acknowledgements can no longer reclaim the active note after a rapid switch, with regression coverage for late acknowledgements after commit.
-- **More reliable first video open:** attachment signatures are prepared before opening notes with video so playback does not start before authorization is ready.
-- **Android / LAN video authorization fix:** LAN attachment authorization now uses the native HTTP path, improving video access when Android connects to NAS or LAN-hosted services.
-- **Editor fixes:** code-block select-all shortcut handling is refined and historical Markdown block markers are cleaned again to reduce legacy marker interference.
-- **Desktop release hardening:** Windows SignPath test/production signing, strict Authenticode verification, post-sign update metadata, and macOS dual-architecture artifact integrity checks are strengthened.
-- **Sharing compatibility:** Edge share-link copying is fixed with clipboard regression coverage.
-
-See the [v1.4.16 Release](https://github.com/cropflre/nowen-note/releases/tag/v1.4.16) and the [full changelog](./CHANGELOG.md).
-'''
-
-en_highlights = '''## Recent highlights
-
-### v1.4.16 · 2026-08-19
-
-#### Note switching and editor stability
-
-- Late rich-text save acknowledgements no longer reactivate the previous note after a rapid switch.
-- Regression coverage now locks down the late-acknowledgement path after a committed switch.
-- Code-block select-all shortcut behavior is refined to reduce conflicts between block-level and document-level selection.
-- Historical Markdown block markers are cleaned again so legacy markers are less likely to affect current editing or rendering.
-
-#### Video, Android, and LAN access
-
-- Attachment signatures are prepared before opening notes containing video, reducing first-open playback failures caused by authorization not being ready yet.
-- Android/LAN attachment authorization now uses the native HTTP path for more reliable NAS and LAN media access.
-- Regression tests cover authorization preparation before first open and Android LAN attachment authorization.
-
-#### Desktop release and distribution
-
-- Windows release signing is hardened around SignPath test/production signing, configuration validation, and strict Authenticode verification.
-- Post-sign Windows update metadata is rebuilt/refreshed so signed artifacts and update metadata stay consistent.
-- macOS release integrity gates now cover complete and dual-architecture downloadable artifacts.
-- Release notes more clearly document the desktop platform matrix.
-
-#### Sharing compatibility
-
-- Edge share-link copying compatibility is fixed with clipboard regression coverage.
-
-See [CHANGELOG.md](./CHANGELOG.md) and the [v1.4.16 Release](https://github.com/cropflre/nowen-note/releases/tag/v1.4.16) for complete details.
-'''
-
-zh_text, n = re.subn(r'## v1\.4\.14 已发布\n.*?(?=\n## 为什么选择 Nowen Note)', zh_intro.rstrip(), zh_text, count=1, flags=re.S)
-if n != 1:
-    raise SystemExit('README.md release intro section not found')
-zh_text, n = re.subn(r'## v1\.4\.14 重点更新\n.*?(?=\n## 截图)', zh_highlights.rstrip(), zh_text, count=1, flags=re.S)
-if n != 1:
-    raise SystemExit('README.md highlights section not found')
-zh_text = zh_text.replace('v1.4.14', 'v1.4.16')
-
-en_text, n = re.subn(r'## v1\.4\.14 is available\n.*?(?=\n## Connect AI clients to Nowen Note)', en_intro.rstrip(), en_text, count=1, flags=re.S)
-if n != 1:
-    raise SystemExit('README.en.md release intro section not found')
-en_text, n = re.subn(r'## Recent highlights\n.*?(?=\n## Screenshots)', en_highlights.rstrip(), en_text, count=1, flags=re.S)
-if n != 1:
-    raise SystemExit('README.en.md highlights section not found')
-en_text = en_text.replace('v1.4.14', 'v1.4.16')
+if 'v1.4.14' in zh_text or 'v1.4.14' in en_text:
+    raise SystemExit('README still contains v1.4.14 current-version references')
 
 zh.write_text(zh_text, encoding='utf-8')
 en.write_text(en_text, encoding='utf-8')
