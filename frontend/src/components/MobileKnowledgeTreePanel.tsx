@@ -946,7 +946,6 @@ export default function MobileKnowledgeTreePanel({
     const updatedAt = formatUpdatedAt(node.updatedAt);
     const actionVisibility = variant === "mobile" ? "flex" : "hidden group-hover:flex";
     const effectiveActionVisibility = multiSelectMode ? "hidden" : actionVisibility;
-    const rowActionVisibility = actionVisibility;
     const desktopHoverHidden = variant === "desktop" ? "[@media(hover:hover)]:group-hover:hidden" : "";
     const firstLevelNoteCount = parentId === null && depth === 0 && !showPath && node.nodeType === "folder" && !node.sharedRootId && isFolderUnlocked(node, unlockedFolderIds)
       ? firstLevelNoteCounts.get(node.id) ?? 0

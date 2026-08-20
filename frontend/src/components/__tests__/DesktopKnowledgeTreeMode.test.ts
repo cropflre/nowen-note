@@ -57,7 +57,8 @@ describe("desktop knowledge tree browsing mode", () => {
 
   it("reveals quick-browse row actions only on hover outside mobile", () => {
     expect(quickPanelSource).toContain('const actionVisibility = variant === "mobile" ? "flex" : "hidden group-hover:flex";');
-    expect(quickPanelSource.match(/actionVisibility/g)?.length).toBeGreaterThanOrEqual(3);
+    expect(quickPanelSource).toContain('const effectiveActionVisibility = multiSelectMode ? "hidden" : actionVisibility;');
+    expect(quickPanelSource.match(/effectiveActionVisibility/g)?.length).toBeGreaterThanOrEqual(3);
   });
 
   it("keeps desktop quick-browse hover rows limited to create and more actions", () => {

@@ -271,7 +271,7 @@ export default function KnowledgeTreePermissionsDialog({ node, onClose, onChange
         role="dialog"
         aria-modal="true"
         aria-labelledby="knowledge-tree-permissions-title"
-        className="flex h-[100dvh] w-full flex-col overflow-hidden border-app-border bg-app-surface shadow-2xl sm:h-auto sm:max-h-[88vh] sm:max-w-[720px] sm:max-w-[760px] sm:rounded-2xl sm:border"
+        className="flex h-[100dvh] w-full flex-col overflow-hidden border-app-border bg-app-surface shadow-2xl sm:h-auto sm:max-h-[88vh] sm:max-w-[760px] sm:rounded-2xl sm:border"
       >
         <header className="flex shrink-0 items-start gap-3 border-b border-app-border px-4 py-4 sm:px-6 sm:py-5">
           <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-accent-primary/10 text-accent-primary">

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Bookmark,
   BookmarkPlus,
@@ -222,45 +222,67 @@ export function TaskMetadataWorkspace({ children }: { children: React.ReactNode 
   const [editingColor, setEditingColor] = useState(COLORS[0]);
   const [taskQuery, setTaskQuery] = useState("");
   const [assigningTaskId, setAssigningTaskId] = useState<string | null>(null);
+  const metadataLoadGenerationRef = useRef(0);
+  const tasksLoadGenerationRef = useRef(0);
 
   const smartActive = hasTaskSavedViewFilters(filters);
   const filterCount = countTaskSavedViewFilters(filters);
 
   const loadMetadata = useCallback(async () => {
+    const generation = ++metadataLoadGenerationRef.current;
     setLoadingMetadata(true);
     try {
       const [metadata, projectRows] = await Promise.all([
         getTaskMetadata(),
         api.getTaskProjects(),
       ]);
+      if (generation !== metadataLoadGenerationRef.current) return;
       setSnapshot(metadata);
       setProjects(projectRows);
     } catch (error) {
+      if (generation !== metadataLoadGenerationRef.current) return;
       console.error("task metadata load failed", error);
       toast.error(copy.loadFailed);
     } finally {
-      setLoadingMetadata(false);
+      if (generation === metadataLoadGenerationRef.current) setLoadingMetadata(false);
     }
   }, [copy.loadFailed]);
 
   const loadTasks = useCallback(async () => {
     if (loadingTasks) return;
+    const generation = ++tasksLoadGenerationRef.current;
     setLoadingTasks(true);
     try {
-      setTasks(await api.getTasks("all"));
+      const rows = await api.getTasks("all");
+      if (generation !== tasksLoadGenerationRef.current) return;
+      setTasks(rows);
       setTasksLoaded(true);
     } catch (error) {
+      if (generation !== tasksLoadGenerationRef.current) return;
       console.error("task metadata task load failed", error);
       toast.error(copy.loadFailed);
       setTasksLoaded(true);
     } finally {
-      setLoadingTasks(false);
+      if (generation === tasksLoadGenerationRef.current) setLoadingTasks(false);
     }
   }, [copy.loadFailed, loadingTasks]);
 
   useEffect(() => { void loadMetadata(); }, [loadMetadata]);
   useEffect(() => {
     const onWorkspaceChanged = () => {
+      tasksLoadGenerationRef.current += 1;
+      setSnapshot(emptySnapshot());
+      setTasks([]);
+      setProjects([]);
+      setFilters(emptyFilters());
+      setActiveViewId(null);
+      setFilterOpen(false);
+      setLabelDialog(false);
+      setAssignDialog(false);
+      setViewDialog(false);
+      setTaskQuery("");
+      setAssigningTaskId(null);
+      setLoadingTasks(false);
       setTasksLoaded(false);
       void loadMetadata();
     };

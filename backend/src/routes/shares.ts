@@ -9,6 +9,9 @@ import { resolveNotePermission, hasPermission } from "../middleware/acl";
 import { broadcastNoteUpdated, broadcastToUser } from "../services/realtime";
 import { yDestroyDoc } from "../services/yjs";
 import { syncReferences as syncAttachmentReferences } from "../lib/attachmentRefs";
+import { syncNoteBlocks } from "../lib/noteBlocks";
+import { rebuildBlockAuthorityStore } from "../lib/blockAuthorityStore";
+import { rebuildYjsSubdocumentsIfEnabled } from "../services/yjs-subdocuments";
 import { logAudit } from "../services/audit";
 import { noteVersionsRepository, shareCommentsRepository, noteYsnapshotsRepository, noteYupdatesRepository } from "../repositories";
 import { resolveEffectiveNoteCapabilities } from "../services/share-capabilities";
@@ -663,7 +666,23 @@ sharesRouter.post("/note/:noteId/versions/:versionId/restore", (c) => {
       WHERE id = ?
     `).run(version.title, version.content, version.contentText, version.contentFormat || "tiptap-json", noteId);
 
-    syncAttachmentReferences(db, noteId, version.content);
+    const restoredContent = version.content || "";
+    const restoredContentFormat = version.contentFormat || "tiptap-json";
+    syncAttachmentReferences(db, noteId, restoredContent);
+    if (["tiptap-json", "markdown"].includes(restoredContentFormat)) {
+      // 恢复可见内容后补齐内部 Block ID，保证索引、权威存储与正文使用同一份规范化内容。
+      const synced = syncNoteBlocks(db, noteId, restoredContent, restoredContentFormat);
+      if (synced.changed) {
+        db.prepare("UPDATE notes SET content = ?, contentText = ? WHERE id = ?")
+          .run(synced.content, synced.contentText, noteId);
+      }
+      rebuildBlockAuthorityStore(db, noteId, synced.content, restoredContentFormat, {
+        noteVersion: note.version + 1,
+        operationType: "version-restore",
+        operationJson: { versionId },
+      });
+      rebuildYjsSubdocumentsIfEnabled(db, noteId, synced.content, restoredContentFormat);
+    }
     noteYupdatesRepository.deleteByNoteId(noteId);
     noteYsnapshotsRepository.deleteByNoteId(noteId);
 

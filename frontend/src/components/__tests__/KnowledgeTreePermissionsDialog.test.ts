@@ -22,7 +22,8 @@ describe("KnowledgeTreePermissionsDialog", () => {
     expect(dialogSource).toContain('role="dialog"');
     expect(dialogSource).toContain('aria-modal="true"');
     expect(dialogSource).toContain('data-knowledge-tree-permissions-dialog="true"');
-    expect(dialogSource).toContain("sm:max-w-[720px]");
+    expect(dialogSource).toContain("sm:max-w-[760px]");
+    expect(dialogSource).not.toContain("sm:max-w-[720px]");
   });
 
   it("supports member search, direct role changes and inheritance restoration", () => {
