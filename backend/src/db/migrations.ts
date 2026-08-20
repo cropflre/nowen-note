@@ -37,6 +37,7 @@ import { taskInboxMigration } from "./taskInboxMigration.js";
 import { workspaceJournalsMigration } from "./workspaceJournalsMigration.js";
 import { noteTemplatesMigration } from "./noteTemplatesMigration.js";
 import { taskReminderTimezoneMigration } from "./taskReminderTimezoneMigration.js";
+import { syncV2LocalStateMigration } from "./syncV2LocalStateMigration.js";
 
 export type { Migration } from "./migrations.impl.js";
 
@@ -330,6 +331,7 @@ export const MIGRATIONS: Migration[] = [
   workspaceJournalsMigration,
   noteTemplatesMigration,
   taskReminderTimezoneMigration,
+  syncV2LocalStateMigration,
 ].sort((a, b) => a.version - b.version);
 
 export const CURRENT_SCHEMA_VERSION: number = MIGRATIONS.reduce(

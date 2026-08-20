@@ -1,16 +1,17 @@
 /**
  * Local-first + Optional Sync（Sync V2）统一入口。
  *
- * Phase 0 只提供契约与基础设施，不含任何运行时同步行为：
- * - flag：总开关，默认关闭，关闭时必须保持 Offline Sync V1 行为不变；
- * - types：本地表行 / 协议 / 引擎状态的共享结构；
- * - constants：路径、表名、退避节奏；
- * - errors：错误分类与可重试判定；
- * - context：outbox 抑制上下文（防同步回环）；
- * - log：结构化安全日志。
+ * Phase 0 提供契约与基础设施：
+ * - flag / types / constants / errors / context / log。
  *
- * 后续 Phase 在此目录内补 device / profile / outbox / push / pull / apply /
- * conflict / engine，均不得绕过本模块另立一套契约。
+ * Phase 2 追加本地同步状态的读写层（migration v81 建表）：
+ * - outbox：mutation 入队，强制与业务写入同事务；
+ * - device：稳定 deviceId；
+ * - profile：同步关系与拉取游标；
+ * - conflict：三方内容台账。
+ *
+ * 仍未实现真实同步行为（push / pull / apply / engine 在后续 Phase）。
+ * 所有能力在 Flag 关闭时均不被调用，现有用户完全无感。
  */
 
 export { isLocalFirstSyncV2Enabled } from "./flag";
@@ -79,3 +80,44 @@ export {
   logSyncWarn,
 } from "./log";
 export type { SyncLogFields } from "./log";
+
+// --- Phase 2：本地同步状态读写层 ---
+
+export {
+  countPendingMutations,
+  enqueueMutation,
+  listPendingMutations,
+  markMutationFailed,
+  markMutationInflight,
+  markMutationSynced,
+  recoverInflightMutations,
+  withMutation,
+} from "./outbox";
+export type { EnqueueMutationInput } from "./outbox";
+
+export { ensureDevice, getDevice, touchDevice } from "./device";
+export type { EnsureDeviceInput } from "./device";
+
+export {
+  advanceSyncState,
+  createProfile,
+  disableProfile,
+  findProfileByServer,
+  getProfile,
+  getSyncState,
+  listProfiles,
+  recordSyncError,
+  resetSyncState,
+  setProfileEnabled,
+  setProfileRemoteUser,
+} from "./profile";
+export type { CreateProfileInput } from "./profile";
+
+export {
+  countUnresolvedConflicts,
+  getConflict,
+  listUnresolvedConflicts,
+  recordConflict,
+  resolveConflict,
+} from "./conflict";
+export type { RecordConflictInput } from "./conflict";
