@@ -13,6 +13,7 @@ public class MainActivity extends BridgeActivity {
     registerPlugin(ShareImportPlugin.class);
     registerPlugin(NativePrintPlugin.class);
     registerPlugin(EditorPerformancePlugin.class);
+    registerPlugin(AttachmentMediaPlugin.class);
     super.onCreate(savedInstanceState);
 
     // Keep Android WebView's native long-press selection / ActionMode path enabled.
@@ -21,7 +22,6 @@ public class MainActivity extends BridgeActivity {
     if (getBridge() != null) {
       WebView webView = getBridge().getWebView();
       if (webView != null) {
-        getBridge().setWebViewClient(new NowenBridgeWebViewClient(getBridge()));
         webView.setLongClickable(true);
         webView.setHapticFeedbackEnabled(true);
       }

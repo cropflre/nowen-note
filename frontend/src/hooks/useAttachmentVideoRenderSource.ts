@@ -1,5 +1,5 @@
-import { useEffect, useSyncExternalStore } from "react";
-import { Capacitor } from "@capacitor/core";
+import { useEffect, useState, useSyncExternalStore } from "react";
+import { Capacitor, registerPlugin } from "@capacitor/core";
 
 import { resolveAttachmentUrl } from "@/lib/api";
 import {
@@ -16,7 +16,33 @@ export type AttachmentVideoRenderSource = {
   renderKey: string;
 };
 
-const ANDROID_MEDIA_PROXY_PATH = "/_nowen_attachment_media";
+type AndroidAttachmentPreparation = {
+  attachmentId: string;
+  url: string;
+};
+
+interface AttachmentMediaPlugin {
+  prepare(options: AndroidAttachmentPreparation): Promise<{ uri: string; size: number }>;
+}
+
+const AttachmentMedia = registerPlugin<AttachmentMediaPlugin>("AttachmentMedia");
+
+export function getAndroidAttachmentVideoPreparation(
+  resolvedSrc: string,
+  platform = Capacitor.getPlatform(),
+): AndroidAttachmentPreparation | null {
+  if (!resolvedSrc || platform !== "android") return null;
+
+  try {
+    const source = new URL(resolvedSrc);
+    const match = source.pathname.match(/^\/api\/attachments\/([0-9a-fA-F-]{36})$/);
+    if (source.protocol !== "http:" || !match) return null;
+    if (!["exp", "sig", "scope"].every((key) => source.searchParams.has(key))) return null;
+    return { attachmentId: match[1], url: source.toString() };
+  } catch {
+    return null;
+  }
+}
 
 export function toAndroidAttachmentVideoUrl(
   resolvedSrc: string,
@@ -34,23 +60,22 @@ export function toAndroidAttachmentVideoUrl(
     return resolvedSrc;
   }
 
-  if (page.protocol !== "https:" || source.protocol !== "http:") return resolvedSrc;
   if (!/^\/api\/attachments\/[0-9a-fA-F-]{36}$/.test(source.pathname)) return resolvedSrc;
 
-  // An unsigned attachment URL would only produce a transient 401 before note priming finishes.
-  // Keep the media element idle until the signed access map triggers the next render.
-  if (!["exp", "sig", "scope"].every((key) => source.searchParams.has(key))) return "";
+  const signed = ["exp", "sig", "scope"].every((key) => source.searchParams.has(key));
+  if (page.protocol === "https:" && source.origin === page.origin && !signed) return "";
+  if (page.protocol !== "https:" || source.protocol !== "http:") return resolvedSrc;
 
-  const proxy = new URL(ANDROID_MEDIA_PROXY_PATH, page.origin);
-  proxy.searchParams.set("url", source.toString());
-  return proxy.toString();
+  // Clear-text Android attachments are prepared asynchronously as app-local files below.
+  // Keep <video> idle for both the unsigned priming window and the native download window.
+  return "";
 }
 
 /**
  * 视频附件保持稳定 attachmentId，运行时跟随 signed/offline 地址变化重新解析播放源。
  *
- * Android 上不能像图片一样把整段视频 fetch 成 Blob，否则几十 MB 视频会失去 Range/206
- * 流式播放并显著增加内存占用；这里只更新 <video src>，继续交给浏览器按字节范围读取。
+ * Android 局域网 HTTP 视频由原生层流式写入应用缓存，再通过 Capacitor 本地文件地址播放。
+ * 这样既绕过 mixed-content，也避免把几十 MB 视频作为 Blob 放进 JS 内存。
  */
 export function useAttachmentVideoRenderSource(
   rawSrc: string | null | undefined,
@@ -67,7 +92,43 @@ export function useAttachmentVideoRenderSource(
   const resolvedSrc = rawSrc && enabled
     ? resolveAttachmentUrl(rawSrc)
     : "";
-  const renderSrc = toAndroidAttachmentVideoUrl(resolvedSrc);
+  const preparation = getAndroidAttachmentVideoPreparation(resolvedSrc);
+  const preparationKey = preparation
+    ? `${preparation.attachmentId}\n${preparation.url}`
+    : "";
+  const preparationAttachmentId = preparation?.attachmentId ?? "";
+  const preparationUrl = preparation?.url ?? "";
+  const [prepared, setPrepared] = useState({ key: "", src: "" });
+
+  useEffect(() => {
+    if (!enabled || !preparationKey) return;
+    let cancelled = false;
+    setPrepared({ key: preparationKey, src: "" });
+    AttachmentMedia.prepare({
+      attachmentId: preparationAttachmentId,
+      url: preparationUrl,
+    })
+      .then((result) => {
+        if (cancelled) return;
+        if (!result?.uri) throw new Error("Android video cache did not return a file URI");
+        setPrepared({ key: preparationKey, src: Capacitor.convertFileSrc(result.uri) });
+      })
+      .catch((error: unknown) => {
+        if (cancelled) return;
+        console.error("[attachment-video-render] Android local preparation failed", {
+          attachmentId: preparationAttachmentId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        setPrepared({ key: preparationKey, src: "" });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [enabled, preparationAttachmentId, preparationKey, preparationUrl]);
+
+  const renderSrc = preparation
+    ? (prepared.key === preparationKey ? prepared.src : "")
+    : toAndroidAttachmentVideoUrl(resolvedSrc);
 
   useEffect(() => (
     enabled && renderSrc
