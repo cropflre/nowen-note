@@ -43,6 +43,7 @@ v1.4.16 focuses on **safer note switching, video attachment authorization, Markd
 - **Sharing compatibility:** Edge share-link copying is fixed with clipboard regression coverage.
 
 See the [v1.4.16 Release](https://github.com/cropflre/nowen-note/releases/tag/v1.4.16) and the [full changelog](./CHANGELOG.md).
+
 ## Connect AI clients to Nowen Note
 
 Nowen Note includes a supported MCP Server. Claude Code, Cursor, VS Code, and other compatible AI clients can search, read, create, and update notes within the permissions granted by your account and token.
@@ -112,6 +113,7 @@ The currently supported distribution is a source build: install Node.js 20+, bui
 - Edge share-link copying compatibility is fixed with clipboard regression coverage.
 
 See [CHANGELOG.md](./CHANGELOG.md) and the [v1.4.16 Release](https://github.com/cropflre/nowen-note/releases/tag/v1.4.16) for complete details.
+
 ## Screenshots
 
 ### Desktop
@@ -195,7 +197,7 @@ To pin the current stable release:
 NOWEN_IMAGE_TAG=v1.4.16 docker compose up -d
 ```
 
-> v1.4.16 focuses on mobile image/media workflows, large full-backup recovery, note-switch stability, and export compatibility. After upgrading, verify mobile image copy/cut/paste, video playback, full-backup restore, rapid note switching, and Markdown + attachment ZIP / Mermaid image exports. Rolling back an image does not roll back the database.
+> v1.4.16 focuses on note-switch stability, first-open video authorization, Android/LAN attachment access, Markdown/code-block editing details, and desktop signing/release integrity. After upgrading, verify rapid note switching, first video playback, Android video access to NAS/LAN services, code-block select-all behavior, and share-link copying. Rolling back an image does not roll back the database.
 
 ### Managed Docker updates (optional)
 
