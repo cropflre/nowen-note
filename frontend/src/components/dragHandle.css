@@ -1,0 +1,392 @@
+/* ===== Tiptap DragHandle（@tiptap/extension-drag-handle-react）=====
+ * <DragHandle> 组件内部用 floating-ui 定位外层元素（position/top/left 由组件
+ * inline 设置）。这里只提供视觉样式；外层 className 由组件 props.className
+ * 传入（"tiptap-drag-handle"），grip 图标用 .tiptap-drag-handle__grip。
+ */
+.tiptap-drag-handle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  padding: 0 2px;
+  width: auto;
+  height: 24px;
+  border-radius: 4px;
+  background-color: var(--color-hover);
+  color: var(--color-text-secondary);
+  cursor: grab;
+  transition: background-color 0.15s ease-in-out;
+  user-select: none;
+}
+
+.tiptap-drag-handle:hover {
+  background-color: var(--color-active);
+  color: var(--color-text-primary);
+}
+
+.tiptap-drag-handle:active {
+  cursor: grabbing;
+}
+
+/* 折叠块（details 系列节点）上不显示全局拖拽柄：鼠标在折叠块内时，
+ * TiptapEditor 的 onNodeChange 会给该元素加此 class，直接隐藏（display:none
+ * 不受插件内部 visibility 切换影响，确保 6 点圆点不会贴在折叠块 “>” 旁）。 */
+.tiptap-drag-handle--hidden {
+  display: none !important;
+}
+
+/* 手柄本体即“点击打斜杠菜单 / 拖拽移动区块”的入口：
+ * pointer-events 恢复为 auto 才能收到 click；纯点击（无位移）触发 click，
+ * 按下并拖动则走父元素 draggable=true 的原生拖拽，两者不冲突。 */
+.tiptap-drag-handle__grip {
+  display: flex;
+  pointer-events: auto;
+  cursor: grab;
+}
+
+/* 拖拽进行中：防止文本被选中干扰 */
+.editor-dragging-active * {
+  cursor: grabbing !important;
+}
+
+/* ===== Emoji 候选浮层（@tiptap/extension-emoji 的自定义 suggestion.render）=====
+ * 由 TiptapEditor 中的 ReactRenderer 渲染，挂在 document.body 下的 fixed 容器里。
+ */
+.emoji-suggestion-popup {
+  position: fixed;
+}
+
+.emoji-suggestion {
+  position: relative;
+  max-height: 280px;
+  overflow-y: auto;
+  min-width: 224px;
+  padding: 4px;
+  background: var(--color-elevated);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  font-size: 14px;
+  color: var(--color-text-primary);
+}
+
+.emoji-suggestion__item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 4px 8px;
+  border: none;
+  background: transparent;
+  border-radius: 6px;
+  cursor: pointer;
+  text-align: left;
+  color: inherit;
+}
+
+.emoji-suggestion__item.is-selected,
+.emoji-suggestion__item:hover {
+  background: var(--color-hover);
+}
+
+.emoji-suggestion__emoji {
+  font-size: 18px;
+  line-height: 1;
+}
+
+.emoji-suggestion__name {
+  color: var(--color-text-secondary);
+}
+
+.emoji-suggestion--empty {
+  padding: 8px;
+  color: var(--color-text-tertiary);
+}
+
+/* ===== 可折叠块 Details（@tiptap/extension-details）=====
+ *
+ * 真实 DOM 结构（来自扩展源码 addNodeView）：
+ *   div[data-type="details"]          ← 外层容器（.is-open 类 = 展开态）
+ *     ├─ button[type=button]           ← 折叠切换按钮（默认为空！已通过
+ *     │                                 renderToggleButton 注入 SVG 箭头）
+ *     └─ div                          ← contentDOM 容器
+ *          ├─ summary                 ← DetailsSummary（content:text*，纯文本标题行）
+ *          └─ div[data-type="detailsContent"][hidden]  ← 正文（content:block+）
+ *               └─ div                ← DetailsContent 的 contentDOM
+ *                    ├─ <p>...</p>
+ *                    ├─ <p>...</p>
+ *                    └─ ...
+ *
+ * 折叠机制：点击 button → toggleDetailsContent() →
+ *   ① 外层切换 .is-open 类
+ *   ② 向 detailsContent 派发 toggleDetailsContent 事件 →
+ *      DetailsContent 的 node view 监听该事件 → toggle hidden 属性
+ *   关闭时 hidden 存在 → 浏览器默认 display:none + 我们显式兜底 */
+
+div[data-type="details"] {
+  display: flex;
+  flex-direction: row;
+  gap: 6px;
+  margin: 8px 0;
+  padding: 10px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-surface);
+  min-height: 32px;
+}
+
+/* 折叠按钮：确保有足够点击区域，箭头由 renderToggleButton 注入 */
+div[data-type="details"] > button {
+  flex: 0 0 auto;
+  align-self: flex-start;
+  margin-top: 1px;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 0.12s ease, color 0.12s ease;
+}
+
+div[data-type="details"] > button:hover {
+  background-color: var(--color-hover);
+  color: var(--color-text-primary);
+}
+
+/* SVG 箭头：折叠时朝右（chevron），展开时旋转 90° 朝下 */
+div[data-type="details"] > button svg {
+  transition: transform 0.15s ease;
+}
+
+div[data-type="details"].is-open > button svg {
+  transform: rotate(90deg);
+}
+
+/* 内容区域：标题 + 正文垂直排列 */
+div[data-type="details"] > div {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+/* 标题行（DetailsSummary → 渲染为 <summary>）：加粗、可编辑 */
+div[data-type="details"] summary {
+  font-weight: 600;
+  font-size: 0.95em;
+  outline: none;
+  cursor: text;
+  color: inherit;
+  line-height: 1.5;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  /* 隐藏浏览器给 <summary> 的默认 ::marker（小圆点/三角形），
+   * 否则折叠块标题行左侧会出现一个像无序列表 bullet 一样的标记。 */
+  list-style: none;
+}
+
+/* 标题占位提示（空摘要时显示伪内容） */
+div[data-type="details"] summary:empty::before {
+  content: "标题…";
+  color: var(--color-text-tertiary);
+}
+
+/* 折叠态：正文隐藏（hidden 属性是主要机制，display:none 是兜底） */
+div[data-type="details"] [data-type="detailsContent"][hidden] {
+  display: none !important;
+}
+
+/* 展开态的正文区域 */
+div[data-type="details"].is-open [data-type="detailsContent"] {
+  padding-top: 4px;
+  border-top: 1px solid var(--color-border);
+  margin-top: 4px;
+}
+
+/* ===== 分栏（自研 ColumnsExtension，替代 tiptap-extension-multi-column）=====
+ * 栏宽用 flex 等比分布（flex:1 1 0），随意加栏即等宽新增，不再依赖会被 flex
+ * 容器压缩/拉伸的 colWidth 像素值。视觉语言与代码块/表格/折叠块一致：
+ * --color-surface 底 + --color-border 边框，hover/聚焦变 --color-hover + accent。
+ * 颜色全走项目 CSS 变量，深浅色由 .dark 类自动切换。 */
+.prosemirror-column-container {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  width: 100%;
+  gap: 12px;
+  margin: 16px 0;
+}
+
+.prosemirror-column-container .prosemirror-column {
+  position: relative;
+  box-sizing: border-box; /* 让 colWidth 含 padding+border，宽度可预期 */
+  flex: 1 1 0; /* 等比分栏：所有栏均分容器宽度 */
+  min-width: 0; /* 允许收缩，避免多栏时溢出 */
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  padding: 12px;
+  /* 不在列上裁切，让拖拽柄能伸到栏间 gap；内容裁切交给 contentDOM */
+  overflow: visible;
+}
+
+.prosemirror-column-container.has-focus .prosemirror-column,
+.prosemirror-column-container:hover .prosemirror-column {
+  background-color: var(--color-hover);
+  border-color: var(--color-accent-primary);
+}
+
+/* 列宽拖拽：竖条柄由 gridResizingPlugin 的 decoration widget 自动挂载在列间，
+ * 样式见下方 .grid-resize-handle 规则。 */
+/* 内容容器：裁切内部内容到圆角（列本身 overflow:visible 让柄能伸到 gap） */
+.prosemirror-column .prosemirror-column-content {
+  height: 100%;
+  overflow: hidden;
+}
+
+/* 拖拽进行中：编辑器级光标变 ↔（col-resize）。
+ * 列宽拖拽由 ColumnsExtension 内置的 gridResizingPlugin 处理：
+ *   命中"某列右缘 ±4px"即抓住该列，拖动只改这一列（其余列 flex 自动吸收）。
+ * 视觉竖条由 .grid-resize-handle widget 提供（见上方样式）。 */
+.resize-cursor {
+  cursor: col-resize;
+}
+
+/* 栏间竖条拖拽柄（对齐语雀：细色条落在两栏 gap 中间，可拖拽调宽）。
+ * 由 gridResizingPlugin 的 Decoration.widget 在鼠标靠近列右缘时自动挂载。
+ * widget 默认渲染在列的文档位置（= 列内容左端），所以用 position:absolute
+ * 强行定位到列右缘（.prosemirror-column 已有 position:relative），
+ * right 负值伸进两栏 12px gap 正中间。 */
+.grid-resize-handle {
+  position: absolute;
+  right: -13px; /* 柄宽12px、gap12px：让柄正好填满 gap（左缘贴栏1右边框、
+                * 右缘贴栏2左边框），不压任何一列。相对于 padding 缘 = padding(12)+border(1)=13 */
+  top: 12px;
+  bottom: 12px;
+  width: 12px; /* 命中区宽（易抓取） */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: auto;
+  cursor: col-resize;
+}
+
+/* 视觉竖条：3px 宽，居中落在命中区正中 */
+.grid-resize-handle::before {
+  content: "";
+  display: block;
+  width: 3px;
+  height: 100%;
+  border-radius: 2px;
+  background-color: var(--color-accent-primary, #e74c3c);
+  opacity: 0.45;
+  transition: opacity 0.15s ease, background-color 0.15s ease;
+}
+
+/* hover / 拖拽中 → 竖条加深 */
+.grid-resize-handle:hover::before,
+.resize-cursor .grid-resize-handle::before {
+  opacity: 0.8;
+}
+
+/* 隐藏社区插件原有的加号按钮（本项目另由 ColumnToolbar 提供加列） */
+.grid-resize-handle .circle-button,
+.grid-resize-handle .plus {
+  display: none;
+}
+
+/* 拖拽调整过的列：关闭等比 flex，按 colWidth 像素定宽 */
+.prosemirror-column[data-resized="true"] {
+  flex: 0 0 auto;
+}
+/* ===== 高亮块（自研 CalloutExtension，样式对齐语雀高亮块卡片）=====
+ * 语雀特征：整体浅色背景块（非侧边条）、圆角 10px、内边距舒适、
+ * emoji 图标在左上角、内容区富文本自由排版、可被嵌入折叠/分栏。
+ * 4 种类型（info/warning/success/danger）走 data-callout-type 切换浅色底，
+ * 深色模式用 .dark 下的低透明度同色系底。 */
+/* ===== 高亮块 Callout（对齐语雀：浅色底 + 圆角 + 细边框）===== */
+div[data-type="callout"] {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  margin: 12px 0;
+  padding: 14px 16px;
+  /* 左上角给绝对定位的色圆点触发器留空间 */
+  padding-left: 24px;
+  border-radius: 8px;
+  /* 语雀有可见边框（截图可见浅色实线边框） */
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  box-sizing: border-box;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+/* 框外顶部居中悬浮调色按钮（CalloutView：与分栏微圆点同款观感）。
+   显隐完全交给 CSS：悬停块或按钮时显示；打开选色器（.is-open）时保持显示。
+   这样鼠标从块移向按钮的途中（含按钮与块之间的空隙）按钮不会消失，保证可点击。 */
+.callout-color-trigger {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease, background-color 0.15s ease, color 0.15s ease;
+  outline: none !important;
+  -webkit-appearance: none !important;
+  appearance: none !important;
+  padding: 0 !important;
+  cursor: pointer;
+}
+div[data-type="callout"]:hover .callout-color-trigger,
+div[data-type="callout"]:focus-within .callout-color-trigger,
+.callout-color-trigger.is-open {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* 三角形桥接热区：悬浮按钮（顶点）与块顶边（底边）构成等腰三角形，
+   鼠标在此三角形内移动时 .callout-nodeview 保持 :hover，按钮不消失。
+   clip-path 会限制 pointer-events 的命中区域——只有三角形内部才算命中。 */
+div[data-type="callout"]::after {
+  content: "";
+  position: absolute;
+  top: -28px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 40px;
+  height: 28px;
+  clip-path: polygon(50% 0%, 0% 100%, 100% 100%);
+}
+
+/* 内容区占满剩余空间 */
+div[data-type="callout"] .prosemirror-callout-content {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+div[data-type="callout"] .prosemirror-callout-content > *:first-child { margin-top: 0; }
+div[data-type="callout"] .prosemirror-callout-content > *:last-child { margin-bottom: 0; }
+
+/* ===== 9 色配色（light 模式：底色 + 微妙边框色）===== */
+div[data-type="callout"][data-callout-type="gray"]   { background-color: #f7f8fa; border-color: rgba(0, 0, 0, 0.10); }
+div[data-type="callout"][data-callout-type="blue"]   { background-color: #eef3fb; border-color: rgba(59, 130, 246, 0.20); }
+div[data-type="callout"][data-callout-type="cyan"]   { background-color: #e6f7fa; border-color: rgba(6, 182, 212, 0.20); }
+div[data-type="callout"][data-callout-type="green"]  { background-color: #e8f6ee; border-color: rgba(34, 197, 94, 0.20); }
+div[data-type="callout"][data-callout-type="yellow"] { background-color: #fdf6e3; border-color: rgba(245, 158, 11, 0.20); }
+div[data-type="callout"][data-callout-type="orange"] { background-color: #fef3e6; border-color: rgba(249, 115, 22, 0.20); }
+div[data-type="callout"][data-callout-type="red"]    { background-color: #fdeeee; border-color: rgba(239, 68, 68, 0.20); }
+div[data-type="callout"][data-callout-type="pink"]   { background-color: #fef0f3; border-color: rgba(236, 72, 153, 0.20); }
+div[data-type="callout"][data-callout-type="purple"] { background-color: #f3f0fc; border-color: rgba(139, 92, 246, 0.20); }
+
+/* ===== 深色模式（底色 + 边框）===== */
+.dark div[data-type="callout"][data-callout-type="gray"]   { background-color: rgba(150, 150, 150, 0.16); border-color: rgba(255, 255, 255, 0.08); }
+.dark div[data-type="callout"][data-callout-type="blue"]   { background-color: rgba(59, 130, 246, 0.16); border-color: rgba(59, 130, 246, 0.25); }
+.dark div[data-type="callout"][data-callout-type="cyan"]   { background-color: rgba(6, 182, 212, 0.16); border-color: rgba(6, 182, 212, 0.25); }
+.dark div[data-type="callout"][data-callout-type="green"]  { background-color: rgba(34, 197, 94, 0.16); border-color: rgba(34, 197, 94, 0.25); }
+.dark div[data-type="callout"][data-callout-type="yellow"] { background-color: rgba(245, 158, 11, 0.16); border-color: rgba(245, 158, 11, 0.25); }
+.dark div[data-type="callout"][data-callout-type="orange"] { background-color: rgba(249, 115, 22, 0.16); border-color: rgba(249, 115, 22, 0.25); }
+.dark div[data-type="callout"][data-callout-type="red"]    { background-color: rgba(239, 68, 68, 0.16); border-color: rgba(239, 68, 68, 0.25); }
+.dark div[data-type="callout"][data-callout-type="pink"]   { background-color: rgba(236, 72, 153, 0.16); border-color: rgba(236, 72, 153, 0.25); }
+.dark div[data-type="callout"][data-callout-type="purple"] { background-color: rgba(139, 92, 246, 0.16); border-color: rgba(139, 92, 246, 0.25); }

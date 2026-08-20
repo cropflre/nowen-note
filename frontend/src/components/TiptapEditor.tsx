@@ -3,7 +3,14 @@ import { Capacitor } from "@capacitor/core";
 import { Keyboard } from "@capacitor/keyboard";
 import { sanitizeForPaste } from "@/lib/sanitizeHtml";
 import { createPortal } from "react-dom";
-import { useEditor, Editor, EditorContent, Extension, ReactNodeViewRenderer } from "@tiptap/react";
+import { useEditor, Editor, EditorContent, Extension, ReactNodeViewRenderer, ReactRenderer } from "@tiptap/react";
+import { Details, DetailsSummary, DetailsContent } from "@tiptap/extension-details";
+import { Emoji, emojis } from "@tiptap/extension-emoji";
+import { DragHandle } from "@tiptap/extension-drag-handle-react";
+import { ColumnsExtension } from "@/components/extensions/ColumnsExtension";
+import { CalloutExtension } from "@/components/extensions/CalloutExtension";
+import { EmojiSuggestionList } from "./EmojiSuggestionList";
+import "./dragHandle.css";
 import { Plugin, PluginKey } from "prosemirror-state";
 
 // 懒加载 docx 内联预览：office 解析器（fflate + 自研 OOXML parser）有几十 KB，
@@ -21,6 +28,7 @@ import ImageEditDialog from "@/components/image-editor/ImageEditDialog";
 import FullscreenImageViewer, { type FullscreenImageItem } from "@/components/FullscreenImageViewer";
 import { editedImageBlobToFile, isSvgImageSource } from "@/components/image-editor/imageEditService";
 import { TableGridPicker, TableResizeDialog } from "./TableGridPicker";
+import { ColumnToolbar } from "./ColumnToolbar";
 import { CodeBlock, type CodeBlockOptions } from "@tiptap/extension-code-block";
 import Underline from "@tiptap/extension-underline";
 import Highlight from "@tiptap/extension-highlight";
@@ -125,6 +133,7 @@ import type { NoteEditorHandle, NoteEditorHeading, NoteEditorProps } from "@/com
 import type { FormatMenuPayload } from "@/lib/desktopBridge";
 import { openDesktopAttachmentWithSystem, sendFormatState } from "@/lib/desktopBridge";
 import { SlashCommandsMenu, getDefaultSlashCommands, createSlashExtension, createSlashEventHandlers } from "@/components/SlashCommands";
+import { getSlashEditorId } from "@/components/extensions/SlashCommandExtension";
 import { NoteLinkMenu, type NoteSearchResult, type NoteLinkBlockItem, type NoteLinkSelectionOptions } from "@/components/NoteLinkExtension";
 import { NoteLinkHoverPreview } from "@/components/NoteLinkPreview";
 import { detectActiveWikiNoteQuery } from "@/lib/noteLinkSyntax";
@@ -1806,6 +1815,15 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
 
   // 斜杠命令事件处理器（稳定引用）
   const slashHandlers = useRef(createSlashEventHandlers());
+  // 拖拽手柄当前所指的区块位置（由 DragHandle 的 onNodeChange 回传），
+  // 点击手柄时把斜杠菜单定位/作用到该区块，而不是光标所在的其它区块。
+  const dragHandlePosRef = useRef<number | null>(null);
+  // 当拖拽目标为折叠块（details 系列节点）时隐藏全局 6 点拖拽柄。
+  // 用 React state 控制（而非手动 classList.toggle），因为 DragHandleReact 内部
+  // 有 useEffect(() => { element.className = className }, [className])，
+  // 每次 className prop 变化时会直接覆盖 element.className，手动添加的 class 会被抹掉。
+  // 走 React state → className prop → 官方渲染流水线，才能保证隐藏 class 不被覆盖。
+  const [hideDragHandle, setHideDragHandle] = useState(false);
   const slashExtension = useRef(
     createSlashExtension(
       slashHandlers.current.onActivate,
@@ -2064,6 +2082,93 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
       // parseHTML 同时识别 <iframe> / <video>，让剪藏过来的视频内容也能落到此节点。
       VideoExtension,
       BlockEmbedExtension,
+      // —— 以下为 Tiptap v3 免费开源 Pro 拓展（2025-06 起 MIT）——
+      // 折叠块（<details> 语义）：Details 容器 + DetailsSummary 标题 + DetailsContent 正文
+      // renderToggleButton 给空 button 注入一个 SVG 箭头（默认 button 无任何内容，
+      // 用户找不到折叠控件）。箭头方向由 CSS 依据父级 .is-open 类旋转实现，
+      // 不依赖字体字形，避免某些字体下渲染成豆腐块。
+      Details.configure({
+        renderToggleButton: ({ element }) => {
+          element.setAttribute("aria-label", "展开 / 收起");
+          // 用 path 画 chevron（单条连续线，无中间顶点，避免 linecap=round 产生黑点）
+          element.innerHTML =
+            '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="butt" stroke-linejoin="miter"><path d="M9 6l6 6-6 6"></path></svg>';
+          element.style.display = "flex";
+          element.style.alignItems = "center";
+          element.style.justifyContent = "center";
+          element.style.color = "inherit";
+        },
+      }),
+      DetailsSummary,
+      DetailsContent,
+      // 分栏（自研 ColumnsExtension，替代社区包 tiptap-extension-multi-column）：
+      // 注册 column 与 column_container 两个节点，栏数由 ColumnToolbar 的 +/⋯ 浮层
+      // 自由增减（≤6）。无内置插入命令，由斜杠菜单的“插入分栏”项经 insertContent 插入。
+      ColumnsExtension,
+      // 高亮块（自研 CalloutExtension，参考 Umo Editor 开源实现）：div[data-type="callout"]
+      // 静态渲染（icon + 内容），:::callout 输入规则 + insertCallout 命令 + Enter 空块跳出。
+      CalloutExtension,
+      // Emoji：用 `:` 触发候选（内置 emojis 数据集），自定义轻量浮层替代 tippy
+      // 注意：@tiptap/extension-emoji 的默认 suggestion 只带了 char/command/allow，
+      // 并没有 items 过滤器——缺省情况下 suggestion 的 items 返回空数组，
+      // 导致永远“无匹配表情”。这里必须自己提供 items 从 emojis 数据集里按
+      // name / shortcodes / tags 过滤并截断，renderer 才能拿到候选。
+      Emoji.configure({
+        suggestion: {
+          items: ({ query }: { query: string }) => {
+            const q = (query || "").toLowerCase().trim();
+            if (!q) {
+              // 空查询：返回一组常用 emoji 子集（覆盖表情/手势/自然/物品/符号等
+              // 多类别）。emojis 数据集共 1949 个，这里先给常用子集，继续输入
+              // 即可在全部 1949 个里按 name/shortcodes/tags 搜索。
+              const popular = new Set<string>([
+                // 表情
+                "grinning", "smile", "slightly_smiling_face", "laughing", "blush",
+                "wink", "heart_eyes", "kissing_heart", "yum", "thinking_face",
+                "sleepy", "tired_face", "cry", "sob", "angry", "rage", "scream",
+                "innocent", "stuck_out_tongue", "sunglasses", "smirk", "relieved",
+                "disappointed", "worried", "sweat_smile", "rofl", "joy",
+                "rolling_on_the_floor_laughing", "mask", "cool", "star_struck",
+                "partying_face", "exploding_head", "zany_face", "woozy_face",
+                // 手势 / 人
+                "wave", "raised_hand", "ok_hand", "thumbsup", "thumbsdown",
+                "punch", "fist", "v", "crossed_fingers", "pray", "hands", "clap",
+                "muscle", "point_up", "point_right", "open_hands", "raised_hands",
+                "facepalm", "handshake",
+                // 心 / 符号
+                "heart", "broken_heart", "two_hearts", "heartpulse",
+                "sparkling_heart", "gift", "balloon", "tada", "fire", "star",
+                "sparkles", "zap", "warning", "white_check_mark", "x",
+                "heavy_check_mark", "heavy_plus_sign", "arrow_right", "arrow_left",
+                "recycle", "lock", "key", "bell", "bulb", "eyes", "speaker",
+                "microphone", "music", "notes", "link", "paperclip", "envelope",
+                // 自然 / 食物
+                "sun", "moon", "cloud", "rain", "snowflake", "earth_africa",
+                "earth_americas", "pizza", "burger", "fries", "apple", "banana",
+                "grapes", "watermelon", "coffee", "tea", "beer", "wine", "cookie",
+                "candy", "cake",
+                // 物品 / 科技
+                "book", "books", "pen", "pencil", "computer", "keyboard", "phone",
+                "camera", "car", "airplane", "rocket", "wrench", "hammer", "gear",
+                "calendar", "alarm_clock", "100", "email", "iphone", "tv",
+              ]);
+              return emojis.filter((e) => popular.has(e.name));
+            }
+            return emojis
+              .filter((item) => {
+                return (
+                  (item.name && item.name.toLowerCase().includes(q)) ||
+                  (item.shortcodes &&
+                    item.shortcodes.some((s: string) => s.toLowerCase().includes(q))) ||
+                  (item.tags &&
+                    item.tags.some((t: string) => t.toLowerCase().includes(q)))
+                );
+              })
+              .slice(0, 200);
+          },
+          render: () => createEmojiSuggestionRenderer(),
+        },
+      }),
     ],
     content: initialEditorContent,
     editable,
@@ -6273,6 +6378,15 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
         );
       })()}
 
+      {/* 分栏（multi-column）语雀式操作浮层：栏上方 ⋯ 删除、栏间上方 + 加列（≤6）。
+          移动端无 hover，不渲染。 */}
+      {editable && !isMobile && (
+        <ColumnToolbar
+          editor={editor}
+          editable={editable}
+        />
+      )}
+
       {/* 调整表格尺寸对话框 */}
       <TableResizeDialog
         open={resizeDialog.open}
@@ -6309,6 +6423,121 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
       >
         <EditorContent editor={editor} />
       <NoteLinkHoverPreview root={editor.view.dom} />
+      {editor && (
+        <DragHandle
+          editor={editor}
+          className={hideDragHandle ? "tiptap-drag-handle tiptap-drag-handle--hidden" : "tiptap-drag-handle"}
+          // 分栏跟随（对齐语雀）：用 nested 模式让 column 节点本身成为拖拽目标，
+          // 而非顶层块 column_container。这样鼠标在栏1/栏2时 targetNode 不同，
+          // 拖拽柄会随鼠标所在的栏重新定位到该栏左侧。
+          // - edgeDetection:'none' 避免靠近栏左缘时因边缘扣分把 column 排除（否则
+          //   在左缘处所有候选分数归零、无拖拽柄）。
+          // - prioritizeColumn 规则：仅在 column 内部时惩罚非 column 节点，使 column 胜出；
+          //   不在 column 内（普通段落/标题/列表）不受影响，保持原拖拽体验。
+          // - hideDragHandle state（className 条件渲染）：当 onNodeChange 报告目标为
+          //   details 系列节点时，通过 React state → className prop → DragHandleReact 内部
+          //   useEffect(() => { element.className = className }, [className]) 设置隐藏 class。
+          //   这比手动 classList.toggle 可靠，因为后者会被上述 useEffect 的 className 覆盖抹掉。
+          nested={{
+            edgeDetection: "none",
+            rules: [
+              {
+                id: "prioritizeColumn",
+                evaluate: ({ node, $pos, depth }: any) => {
+                  let inColumn = false;
+                  for (let d = depth; d >= 1; d--) {
+                    if ($pos.node(d).type.name === "column") {
+                      inColumn = true;
+                      break;
+                    }
+                  }
+                  if (!inColumn) return 0;
+                  return node.type.name === "column" ? 0 : 600;
+                },
+              },
+              {
+                // 修复：高亮块（callout）内部段落与 callout 容器同分时，段落因层级
+                // 更深会"抢走"拖拽柄 → 柄出现在高亮块内容里（图2），鼠标移到容器
+                // 边缘时又跳回外侧（图1），"会移动、不稳定"。该规则与 prioritizeColumn
+                // 对称：命中 callout 时非 callout 节点扣 600，callout 容器始终胜出 →
+                // 柄固定在 callout 左缘，不随鼠标在内容/边缘跳动。
+                id: "prioritizeCallout",
+                evaluate: ({ node, $pos, depth }: any) => {
+                  let inCallout = false;
+                  for (let d = depth; d >= 1; d--) {
+                    if ($pos.node(d).type.name === "callout") {
+                      inCallout = true;
+                      break;
+                    }
+                  }
+                  if (!inCallout) return 0;
+                  return node.type.name === "callout" ? 0 : 600;
+                },
+              },
+              {
+                // 折叠块（details）：与 prioritizeColumn / prioritizeCallout 对称。
+                // 命中 details 祖先时，details 容器保持满分 1000，内部节点扣 600。
+                // 效果：鼠标在折叠块任意位置（summary行/内容区/padding），柄稳定在 details
+                // 容器左缘——不会跳到内部段落、不会掉到相邻块、不会贴在 ">" 旁。
+                // 分栏内仍由 prioritizeColumn 保证 column 胜出（column 不扣分、details 扣 600）。
+                id: "prioritizeDetails",
+                evaluate: ({ node, $pos, depth }: any) => {
+                  let inDetails = false;
+                  for (let d = depth; d >= 1; d--) {
+                    if ($pos.node(d).type.name === "details") {
+                      inDetails = true;
+                      break;
+                    }
+                  }
+                  if (!inDetails) return 0;
+                  return node.type.name === "details" ? 0 : 600;
+                },
+              },
+            ],
+          }}
+          onNodeChange={({ node, pos }: { node: any; editor: Editor; pos: number }) => {
+            dragHandlePosRef.current = pos;
+            // 仅当评分胜出者为 detailsSummary（">" 行）时隐藏柄。
+            // prioritizeDetails 规则已保证 detailsSummary 不会胜出（内部节点扣 600），
+            // 正常情况此条件始终为 false。此处仅作为极端情况的安全网。
+            const name: string = node?.type?.name ?? "";
+            setHideDragHandle(name === "detailsSummary");
+          }}
+        >
+          {/* 整个手柄点击 = 打开斜杠快速添加菜单（与行首输入 “/” 完全等价）。
+              手柄父元素 draggable=true，纯点击（无位移）会正常触发 click，不会
+              误触拖拽；按下并拖动则走原生拖拽移动区块。 */}
+          <span
+            className="tiptap-drag-handle__grip"
+            contentEditable={false}
+            title="点击添加内容 / 拖拽移动区块"
+            onClick={(e) => {
+              e.preventDefault();
+              if (!editor) return;
+              const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+              // 把光标移到手柄所指区块，确保后续命令作用到正确的块
+              const pos = dragHandlePosRef.current ?? editor.state.selection.from;
+              editor.commands.setTextSelection(pos + 1);
+              // 复用斜杠菜单的激活通道，from 设为当前光标使选择项后删除区间为空，
+              // 不会误删原有内容。
+              slashHandlers.current.onActivate(
+                "",
+                { top: rect.bottom + 4, left: rect.right + 8, from: pos + 1 },
+                getSlashEditorId(editor),
+              );
+            }}
+          >
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+              <circle cx="5" cy="3" r="1.4" />
+              <circle cx="11" cy="3" r="1.4" />
+              <circle cx="5" cy="8" r="1.4" />
+              <circle cx="11" cy="8" r="1.4" />
+              <circle cx="5" cy="13" r="1.4" />
+              <circle cx="11" cy="13" r="1.4" />
+            </svg>
+          </span>
+        </DragHandle>
+      )}
       </div>
 
       {/* 附件内嵌预览：复用 AttachmentDetailDrawer
@@ -6786,6 +7015,58 @@ function parseContent(content: string): any {
     type: "doc",
     content: [{ type: "paragraph", content: [{ type: "text", text: content }] }],
   };
+}
+
+/**
+ * Emoji 候选浮层渲染器（替代 @tiptap/extension-emoji 默认的 tippy 浮层）。
+ * 由 Emoji 扩展的 suggestion.render 调用；浮层本身用 ReactRenderer 渲染
+ * EmojiSuggestionList，挂载到 document.body 的 fixed 容器，键盘事件经 ref 转发。
+ */
+function createEmojiSuggestionRenderer() {
+  let component: ReactRenderer | null = null
+  let popup: HTMLDivElement | null = null
+
+  const updatePosition = (
+    clientRect: (() => DOMRect | null) | null | undefined
+  ) => {
+    if (!popup || !clientRect) return
+    const rect = clientRect()
+    if (!rect) return
+    popup.style.left = `${rect.left}px`
+    popup.style.top = `${rect.bottom + 6}px`
+  }
+
+  return {
+    onStart: (props: any) => {
+      component = new ReactRenderer(EmojiSuggestionList, {
+        props,
+        editor: props.editor,
+      })
+      popup = document.createElement('div')
+      popup.className = 'emoji-suggestion-popup'
+      popup.style.position = 'fixed'
+      popup.style.zIndex = '60'
+      popup.appendChild(component.element)
+      document.body.appendChild(popup)
+      updatePosition(props.clientRect)
+    },
+    onUpdate: (props: any) => {
+      component?.updateProps(props)
+      updatePosition(props.clientRect)
+    },
+    onKeyDown: (props: any) => {
+      if (props.event.key === 'Escape') {
+        popup?.remove()
+        component?.destroy()
+        return true
+      }
+      return (component?.ref as any)?.onKeyDown(props) ?? false
+    },
+    onExit: () => {
+      popup?.remove()
+      component?.destroy()
+    },
+  }
 }
 
 function serializeEditorContentForPersistence(editor: Editor, noteId: string): string | null {

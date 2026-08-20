@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback, forwardRef, useImperativeHandle } from "react";
 import { Editor } from "@tiptap/react";
+import { TextSelection } from "@tiptap/pm/state";
 import {
   deactivateSlashCommands,
   getSlashEditorId,
@@ -8,8 +9,9 @@ export { createSlashExtension } from "@/components/extensions/SlashCommandExtens
 import {
   Heading1, Heading2, Heading3, Heading4, Heading5, Heading6, List, ListOrdered, CheckSquare,
   Quote, FileCode, Minus, ImagePlus, Sparkles,
-  Bold, Italic, Highlighter, Table2,
-  Strikethrough, Code, Link as LinkIcon, Workflow, Sigma, BookOpen, Film, FolderSearch
+  Bold, Italic, Highlighter, Table2, ChevronDown,
+  Strikethrough, Code, Link as LinkIcon, Workflow, Sigma, BookOpen, Film, FolderSearch,
+  Columns2, Info
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useTranslation } from "react-i18next";
@@ -292,6 +294,50 @@ export function getDefaultSlashCommands(
       category: t("slash.catFormat"),
       keywords: ["code", "codeblock", "代码", "代码块"],
       action: (editor) => editor.chain().focus().toggleCodeBlock().run(),
+    },
+    {
+      // 可折叠块（Tiptap v3 免费开源 Pro 拓展 Details）：Details 容器 + Summary 标题 + Content 正文
+      id: "details",
+      label: "可折叠块",
+      description: "插入一个可折叠的内容区块（点击标题展开/收起）",
+      icon: <ChevronDown size={16} />,
+      category: t("slash.catFormat"),
+      keywords: ["details", "折叠", "可折叠", "collapse", "折叠块", "折叠内容"],
+      action: (editor) => editor.chain().focus().setDetails().run(),
+    },
+    {
+      // 高亮块（自研 CalloutExtension，参考 Umo Editor）：div[data-type="callout"]，
+      // 左上角 emoji 可点击 → 弹出样式选择器切换配色。栏内插入走 safeInsertContainerInColumn 安全路径。
+      id: "callout",
+      label: "高亮块",
+      description: "插入高亮提示块；点击左上角图标可切换信息/警告/危险/成功配色",
+      icon: <Info size={16} />,
+      category: t("slash.catFormat"),
+      keywords: ["callout", "高亮", "高亮块", "提示", "警告", "标注", "highlight", "info", "note"],
+      action: (editor) => editor.chain().focus().insertCallout({ type: "blue" }).run(),
+    },
+    {
+      // 分栏（自研 ColumnsExtension）：栏数随意——插入默认两栏，运行时用栏间上方
+      // 的 + 自由加栏（最多 6）、用 ⋯ 删栏，栏宽自动等比分配。
+      id: "insert-columns",
+      label: "分栏",
+      description: "插入左右两栏，可在栏间用 + 自由增减栏数",
+      icon: <Columns2 size={16} />,
+      category: t("slash.catFormat"),
+      keywords: ["columns", "column", "分栏", "多栏", "布局", "并排"],
+      action: (editor) => {
+        editor
+          .chain()
+          .focus()
+          .insertContent({
+            type: "column_container",
+            content: [
+              { type: "column", content: [{ type: "paragraph" }] },
+              { type: "column", content: [{ type: "paragraph" }] },
+            ],
+          })
+          .run();
+      },
     },
     {
       // mermaid 流程图：本质是 codeBlock + language=mermaid，CodeBlockView
@@ -600,6 +646,161 @@ export const SlashCommandsMenu = forwardRef<SlashCommandsRef, SlashCommandsProps
       slashFrom.current = 0;
     }, []);
 
+    /**
+     * 安全地在 column 节点内切换块类型。
+     *
+     * 问题：Tiptap 的 toggleCodeBlock / setBlockType 等命令内部使用 ProseMirror lift 操作，
+     * 不理解 column_container > column 嵌套结构，会把整个 column 节点从容器中"提"出来，
+     * 导致分栏解体（兄弟栏消失或被踢到 doc 级别）。
+     *
+     * 解决：直接用 tr.replaceWith 把当前 textblock 节点替换为目标类型，不触发任何 lift。
+     */
+    const safeToggleBlockTypeInColumn = useCallback(
+      (editor: Editor, targetTypeName: string, explicitFrom?: number) => {
+        const { state, view } = editor;
+        // 优先用斜杠菜单激活时传入的 from（即拖拽柄所在栏的位置），
+        // 避免依赖 editor.state.selection.from —— 在浮层打开/选择期间该值可能漂移，
+        // 导致“鼠标在栏1、操作却落在栏2”。
+        const anchor = explicitFrom != null && explicitFrom > 0 ? explicitFrom : state.selection.from;
+        const $from = state.doc.resolve(anchor);
+
+      // 向上查找是否在 column 节点内
+      let inColumn = false;
+      for (let d = $from.depth; d > 0; d--) {
+        if ($from.node(d).type.name === "column") { inColumn = true; break; }
+      }
+      if (!inColumn) return false;
+
+      const targetType = state.schema.nodes[targetTypeName];
+      if (!targetType) return false;
+
+      // 找到光标所在或包含光标的 textblock 节点
+      let targetDepth = $from.depth;
+      let currentNode = $from.node(targetDepth);
+
+      if (!currentNode.isTextblock) {
+        // 光标不在 textblock 内（如在 column 上），向下搜索最近的 textblock
+        let found = false;
+        const maxPos = Math.min($from.after(targetDepth), state.doc.content.size);
+        for (let p = $from.start(targetDepth); p < maxPos; p++) {
+          const resolved = state.doc.resolve(p);
+          if (resolved.parent.isTextblock && resolved.parent !== currentNode) {
+            targetDepth = resolved.depth;
+            currentNode = resolved.parent;
+            found = true;
+            break;
+          }
+        }
+        if (!found) return false;
+      }
+      if (targetDepth === 0 && !$from.node(0).isTextblock) return false;
+
+      // before/after 包含节点本身的位置标记，确保整个节点被替换
+      const blockStart = $from.before(targetDepth);
+      const blockEnd = $from.after(targetDepth);
+
+      // 切换方向：当前是目标类型则切回 paragraph，否则切到目标类型
+      const newTypeName = currentNode.type.name === targetTypeName ? "paragraph" : targetTypeName;
+      const newNodeType = state.schema.nodes[newTypeName];
+      if (!newNodeType) return false;
+
+      // 内容处理：codeBlock 的 content 是 [paragraph(...)]，切回 paragraph 时需展开
+      let newContent = currentNode.content;
+      if (newTypeName === "paragraph" && currentNode.type.name === targetTypeName) {
+        if (newContent.childCount === 1 && newContent.firstChild?.type.name === "paragraph") {
+          newContent = newContent.firstChild.content;
+        }
+      }
+
+      const newNode = newNodeType.create({}, newContent);
+      const tr = state.tr.replaceWith(blockStart, blockEnd, newNode);
+      try {
+        tr.setSelection(TextSelection.create(tr.doc, Math.min(blockStart + 1, tr.doc.content.size - 1)));
+      } catch { /* selection 在非文本节点可能失败，忽略 */ }
+      view.dispatch(tr);
+      return true;
+    }, []);
+
+    /**
+     * 安全地在 column 节点内插入容器类节点（如 details 折叠块）。
+     *
+     * 问题：setDetails / setBlockQuote 等命令内部使用 state.selection 确定插入位置，
+     * 在分栏嵌套结构中 selection 可能漂移到其他栏（尤其是通过拖拽柄打开斜杠菜单时，
+     * dragHandlePosRef 已随鼠标移动更新到别的栏），导致"在栏1插入却出现在栏2"。
+     *
+     * 解决：用显式传入的 from 位置解析目标栏，直接用 tr.insert 在该位置插入容器节点。
+     */
+    const safeInsertContainerInColumn = useCallback(
+      (editor: Editor, containerTypeName: string, explicitFrom?: number) => {
+        const { state, view } = editor;
+        const anchor = explicitFrom != null && explicitFrom > 0 ? explicitFrom : state.selection.from;
+        const $from = state.doc.resolve(anchor);
+
+        // 向上查找是否在 column 节点内
+        let inColumn = false;
+        let columnDepth = -1;
+        for (let d = $from.depth; d > 0; d--) {
+          if ($from.node(d).type.name === "column") {
+            inColumn = true;
+            columnDepth = d;
+            break;
+          }
+        }
+        if (!inColumn) return false;
+
+        const containerType = state.schema.nodes[containerTypeName];
+        if (!containerType) return false;
+
+        // 找到光标所在 textblock 的位置范围
+        let targetDepth = $from.depth;
+        let currentNode = $from.node(targetDepth);
+        if (!currentNode.isTextblock) {
+          // 向下搜索最近的 textblock
+          let found = false;
+          const maxPos = Math.min($from.after(targetDepth), state.doc.content.size);
+          for (let p = $from.start(targetDepth); p < maxPos; p++) {
+            const resolved = state.doc.resolve(p);
+            if (resolved.parent.isTextblock && resolved.parent !== currentNode) {
+              targetDepth = resolved.depth;
+              currentNode = resolved.parent;
+              found = true;
+              break;
+            }
+          }
+          if (!found) return false;
+        }
+
+        const blockStart = $from.before(targetDepth);
+        const blockEnd = $from.after(targetDepth);
+
+        // 构建容器节点内容：把当前 textblock 内容包进容器
+        // details 节点的结构是 [detailsSummary, detailsContent[...原内容]]
+        let containerNode;
+        if (containerTypeName === "details") {
+          const summaryType = state.schema.nodes["detailsSummary"];
+          const contentType = state.schema.nodes["detailsContent"];
+          if (!summaryType || !contentType) return false;
+
+          const contentFragment = currentNode.content;
+          containerNode = containerType.create({}, [
+            summaryType.create(),
+            contentType.create(contentFragment.childCount > 0 ? [contentFragment.toJSON()] : []),
+          ]);
+        } else {
+          // 通用容器：用当前节点作为唯一子节点
+          containerNode = containerType.create({}, [currentNode]);
+        }
+
+        const tr = state.tr.replaceWith(blockStart, blockEnd, containerNode);
+        try {
+          // 光标定位到 detailsSummary 内（即 "> " 后面）
+          tr.setSelection(TextSelection.create(tr.doc, Math.min(blockStart + 2, tr.doc.content.size - 1)));
+        } catch { /* ignore */ }
+        view.dispatch(tr);
+        return true;
+      }, [],
+    );
+
     const handleSelect = useCallback((item: SlashCommandItem) => {
       if (!editor) return;
       const from = slashFrom.current;
@@ -616,6 +817,53 @@ export const SlashCommandsMenu = forwardRef<SlashCommandsRef, SlashCommandsProps
       } else {
         editor.commands.focus();
       }
+
+      // 特殊处理 A：在 column 节点内的块类型切换命令需要走安全路径，
+      // 避免 toggleCodeBlock / toggleHeading 等的 lift 操作破坏分栏结构。
+      const blockTypeActions = new Set(["codeBlock", "heading1", "heading2", "heading3",
+        "heading4", "heading5", "heading6", "blockquote"]);
+      // 特殊处理 B：容器类插入命令（details 折叠块、callout 高亮块等）在 column 内也需要
+      // 安全路径，否则 setDetails 内部读 state.selection 可能漂移到其他栏 → "栏1插入却出现在栏2"。
+      const containerInsertActions: Record<string, string> = {
+        details: "details",       // 可折叠块
+        callout: "callout",       // 高亮块（自研）
+      };
+
+      // 从 item.action 推断目标类型名（简单启发式：检查 action 源码中的命令名）
+      const actionStr = item.action.toString();
+      let needsSafePath = false;
+      let targetTypeName = "";
+      let needsContainerPath = false;
+      let containerTypeName = "";
+
+      for (const bt of blockTypeActions) {
+        if (actionStr.includes(bt) || actionStr.includes(bt.replace(/^\w/, c => c.toUpperCase()))) {
+          needsSafePath = true;
+          targetTypeName = bt === "heading1" ? "heading"
+            : bt === "blockquote" ? "blockQuote"
+            : bt === "codeBlock" ? "codeBlock" : bt;
+          break;
+        }
+      }
+      if (!needsSafePath) {
+        for (const [key, typeName] of Object.entries(containerInsertActions)) {
+          if (actionStr.includes(key) || actionStr.includes(key.replace(/^\w/, c => c.toUpperCase()))) {
+            needsContainerPath = true;
+            containerTypeName = typeName;
+            break;
+          }
+        }
+      }
+
+      const effectiveFrom = from > 0 ? from : undefined;
+
+      if (needsSafePath && safeToggleBlockTypeInColumn(editor, targetTypeName, effectiveFrom)) {
+        return; // 已用安全路径处理完毕（块类型切换）
+      }
+      if (needsContainerPath && safeInsertContainerInColumn(editor, containerTypeName, effectiveFrom)) {
+        return; // 已用安全路径处理完毕（容器插入）
+      }
+
       item.action(editor);
     }, [editor, resetLocalState]);
 

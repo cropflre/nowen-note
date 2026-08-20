@@ -20,6 +20,13 @@ import { Video as VideoExtension } from "@/components/VideoExtension";
 import { MathInline, MathBlock } from "@/components/MathExtensions";
 import { FootnoteReference, FootnoteDefinition } from "@/components/FootnoteExtensions";
 import { BlockEmbedExtension } from "@/components/BlockEmbedExtension";
+// 分栏、折叠块、表情：必须与 TiptapEditor 对齐，否则 repairTiptapJson 的
+// JSON → HTML → JSON round-trip 会因 schema 不认识 column/column_container/details/emoji
+// 节点而将其丢弃，表现为"保存后刷新笔记内容全部消失"。
+import { Details, DetailsSummary, DetailsContent } from "@tiptap/extension-details";
+import { Emoji } from "@tiptap/extension-emoji";
+import { ColumnsExtension } from "@/components/extensions/ColumnsExtension";
+import { CalloutExtension } from "@/components/extensions/CalloutExtension";
 
 // BLOCK-ID-01-RV1: heading blockId 扩展（与 TiptapEditor / contentFormat 对齐）
 // 只声明 attrs，不带 appendTransaction plugin
@@ -102,6 +109,25 @@ export const tiptapExtensions = [
   // BLOCK-ID-01-RV1: heading blockId 属性，与 TiptapEditor / contentFormat 对齐
   // 避免 schema 修复时 blockId 被过滤掉
   BlockIdAttrs,
+  // 折叠块（Details）：与编辑器对齐，repair round-trip 不可缺。
+  // 注意：Details 节点的 content 表达式是 'detailsSummary detailsContent'，
+  // 这两个是独立扩展，必须一起注册，否则 schema 构建会因找不到
+  // 'detailsSummary' 节点而抛错，repairTiptapJson 走到 catch 返回空 doc。
+  Details.configure({
+    renderToggleButton: () => {
+      const button = document.createElement("button");
+      button.type = "button";
+      return button;
+    },
+  }),
+  DetailsSummary,
+  DetailsContent,
+  // 表情（Emoji）：与编辑器对齐，repair round-trip 不可缺
+  Emoji,
+  // 分栏（ColumnsExtension）：与编辑器对齐，repair round-trip 不可缺
+  ColumnsExtension,
+  // 高亮块（CalloutExtension）：与编辑器对齐，repair round-trip 不可缺
+  CalloutExtension,
 ];
 
 export interface ImportFileInfo {
