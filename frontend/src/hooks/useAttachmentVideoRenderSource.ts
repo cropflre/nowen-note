@@ -34,7 +34,7 @@ export function useAttachmentVideoRenderSource(
 
   const source = getAttachmentRenderSource(rawSrc);
   const renderSrc = rawSrc && enabled
-    ? resolveAttachmentUrl(source.persistentSrc)
+    ? resolveAttachmentUrl(rawSrc)
     : "";
 
   useEffect(() => (
