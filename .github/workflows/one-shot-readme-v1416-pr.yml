@@ -1,0 +1,30 @@
+name: One-shot README v1.4.16 PR
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  update-readmes:
+    if: github.head_ref == 'docs/readme-v1.4.16' && github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          ref: docs/readme-v1.4.16
+
+      - name: Update README release docs
+        run: python scripts/one-shot-readme-v1416.py
+
+      - name: Commit README changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add README.md README.en.md
+          git commit -m "docs: 更新 v1.4.16 发版文档"
+          git push origin HEAD:docs/readme-v1.4.16
