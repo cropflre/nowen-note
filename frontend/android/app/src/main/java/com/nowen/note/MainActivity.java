@@ -21,6 +21,7 @@ public class MainActivity extends BridgeActivity {
     if (getBridge() != null) {
       WebView webView = getBridge().getWebView();
       if (webView != null) {
+        getBridge().setWebViewClient(new NowenBridgeWebViewClient(getBridge()));
         webView.setLongClickable(true);
         webView.setHapticFeedbackEnabled(true);
       }

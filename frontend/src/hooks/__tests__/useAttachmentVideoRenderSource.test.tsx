@@ -32,7 +32,10 @@ vi.mock("@/lib/api", () => ({
   ),
 }));
 
-import { useAttachmentVideoRenderSource } from "../useAttachmentVideoRenderSource";
+import {
+  toAndroidAttachmentVideoUrl,
+  useAttachmentVideoRenderSource,
+} from "../useAttachmentVideoRenderSource";
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean })
   .IS_REACT_ACT_ENVIRONMENT = true;
@@ -64,6 +67,36 @@ afterEach(async () => {
 });
 
 describe("useAttachmentVideoRenderSource", () => {
+  it("proxies signed clear-text Android media through the same-origin native stream", () => {
+    const signed = `http://192.168.1.171:3001${PERSISTED_SRC}?exp=123&sig=signed&scope=user`;
+    const proxied = new URL(toAndroidAttachmentVideoUrl(signed, "android", "https://localhost"));
+
+    expect(proxied.origin).toBe("https://localhost");
+    expect(proxied.pathname).toBe("/_nowen_attachment_media");
+    expect(proxied.searchParams.get("url")).toBe(signed);
+  });
+
+  it("waits for a signature instead of issuing an unsigned Android media request", () => {
+    expect(toAndroidAttachmentVideoUrl(
+      `http://192.168.1.171:3001${PERSISTED_SRC}?inline=1`,
+      "android",
+      "https://localhost",
+    )).toBe("");
+  });
+
+  it("keeps web, HTTPS and non-attachment media URLs unchanged", () => {
+    const signedHttp = `http://192.168.1.171:3001${PERSISTED_SRC}?exp=1&sig=s&scope=user`;
+    const signedHttps = signedHttp.replace("http://", "https://");
+
+    expect(toAndroidAttachmentVideoUrl(signedHttp, "web", "https://localhost")).toBe(signedHttp);
+    expect(toAndroidAttachmentVideoUrl(signedHttps, "android", "https://localhost")).toBe(signedHttps);
+    expect(toAndroidAttachmentVideoUrl(
+      "http://192.168.1.171:3001/public/video.mp4",
+      "android",
+      "https://localhost",
+    )).toBe("http://192.168.1.171:3001/public/video.mp4");
+  });
+
   it("switches to a late signed URL without downloading the whole video as a blob", async () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch");
 

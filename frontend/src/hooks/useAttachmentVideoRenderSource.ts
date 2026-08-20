@@ -1,4 +1,5 @@
 import { useEffect, useSyncExternalStore } from "react";
+import { Capacitor } from "@capacitor/core";
 
 import { resolveAttachmentUrl } from "@/lib/api";
 import {
@@ -14,6 +15,36 @@ export type AttachmentVideoRenderSource = {
   renderSrc: string;
   renderKey: string;
 };
+
+const ANDROID_MEDIA_PROXY_PATH = "/_nowen_attachment_media";
+
+export function toAndroidAttachmentVideoUrl(
+  resolvedSrc: string,
+  platform = Capacitor.getPlatform(),
+  pageOrigin = typeof window !== "undefined" ? window.location.origin : "",
+): string {
+  if (!resolvedSrc || platform !== "android" || !pageOrigin) return resolvedSrc;
+
+  let source: URL;
+  let page: URL;
+  try {
+    source = new URL(resolvedSrc);
+    page = new URL(pageOrigin);
+  } catch {
+    return resolvedSrc;
+  }
+
+  if (page.protocol !== "https:" || source.protocol !== "http:") return resolvedSrc;
+  if (!/^\/api\/attachments\/[0-9a-fA-F-]{36}$/.test(source.pathname)) return resolvedSrc;
+
+  // An unsigned attachment URL would only produce a transient 401 before note priming finishes.
+  // Keep the media element idle until the signed access map triggers the next render.
+  if (!["exp", "sig", "scope"].every((key) => source.searchParams.has(key))) return "";
+
+  const proxy = new URL(ANDROID_MEDIA_PROXY_PATH, page.origin);
+  proxy.searchParams.set("url", source.toString());
+  return proxy.toString();
+}
 
 /**
  * 视频附件保持稳定 attachmentId，运行时跟随 signed/offline 地址变化重新解析播放源。
@@ -33,9 +64,10 @@ export function useAttachmentVideoRenderSource(
   );
 
   const source = getAttachmentRenderSource(rawSrc);
-  const renderSrc = rawSrc && enabled
+  const resolvedSrc = rawSrc && enabled
     ? resolveAttachmentUrl(rawSrc)
     : "";
+  const renderSrc = toAndroidAttachmentVideoUrl(resolvedSrc);
 
   useEffect(() => (
     enabled && renderSrc
