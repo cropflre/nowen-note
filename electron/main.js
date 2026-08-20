@@ -14,6 +14,7 @@ const { createRendererRecoveryGate } = require("./renderer-recovery");
 const { handleArgv, setupMacOpenFile, flushPending } = require("./fileAssoc");
 const { registerDiscoveryIpc, shutdown: shutdownDiscovery } = require("./discovery");
 const { setSettingsPath, readSettings, writeSettings, shouldUseLocalRuntime } = require("./settings");
+const clipperHost = require("./clipper-host");
 const { openSetupWindow } = require("./setupWindow");
 const { openLocalAttachmentWithSystem } = require("./attachment-open");
 const { registerTextContextMenu } = require("./text-context-menu");
@@ -572,6 +573,15 @@ async function startBackend() {
     backendProcess = null;
   });
 
+  // Clipper Native Host 需要知道本次 Backend 的端口。
+  // 端口每次启动都不同，因此必须落盘；未配对时 token 为空。
+  try {
+    clipperHost.setRuntimeDir(userDataPath);
+    clipperHost.publishRuntime({ port: backendPort, token: "" });
+  } catch (e) {
+    console.warn("[Electron] publish clipper runtime failed:", e?.message || e);
+  }
+
   // 轮询健康端点，确认服务真正就绪
   try {
     await waitForBackendReady(backendPort, 30000);
@@ -585,6 +595,8 @@ async function startBackend() {
 }
 
 function stopBackend() {
+  // 先清理 Clipper 运行时文件：否则扩展会连到已失效的端口并长时间等待。
+  try { clipperHost.clearRuntime(); } catch { /* ignore */ }
   if (backendProcess) {
     const proc = backendProcess;
     backendProcess = null;

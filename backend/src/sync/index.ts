@@ -121,3 +121,95 @@ export {
   resolveConflict,
 } from "./conflict";
 export type { RecordConflictInput } from "./conflict";
+
+// --- Phase 3：Change Feed V2 与服务端 apply ---
+
+export {
+  isChangeFeedSuppressed,
+  resetChangeFeedSuppression,
+  runChangeFeedSuppressed,
+} from "./suppression";
+
+export { applyMutation, applyWithoutFeed } from "./apply";
+export type { ApplyMutationInput, ApplyMutationResult } from "./apply";
+
+// --- Phase 4：Desktop Sync Engine ---
+
+export { SyncRemoteClient } from "./remote";
+export type {
+  FetchLike,
+  PushMutationPayload,
+  PushResultItem,
+  RemoteChanges,
+  RemoteCredentials,
+  RemotePlan,
+  RemotePushResult,
+  RemoteSnapshotPage,
+} from "./remote";
+
+export {
+  coalesceMutations,
+  isLocalMutationApplied,
+  markLocalMutationApplied,
+} from "./push";
+export type { CoalescedMutation } from "./push";
+
+export { applyRemoteChanges } from "./applyLocal";
+export type {
+  ApplyLocalOptions,
+  ApplyLocalResult,
+  RemoteEntityPayload,
+} from "./applyLocal";
+
+export { SyncEngine } from "./engine";
+export type { SyncEngineOptions, SyncEngineStatus } from "./engine";
+
+// --- Phase 5-12 ---
+
+export {
+  applyConflictResolution,
+  fillRemotePayload,
+  forkConflictVersion,
+  toConflictDetail,
+} from "./resolve";
+export type {
+  ConflictDetail,
+  ConflictResolution,
+  ResolveConflictInput,
+} from "./resolve";
+
+export { notifySyncChanged, setSyncBroadcaster } from "./notify";
+export type { SyncChangedNotice, UserBroadcaster } from "./notify";
+
+export {
+  isLocallyReadable,
+  listPendingDownloads,
+  listPendingUploads,
+  markAttachmentDownloaded,
+  markUploadFailed,
+  markUploaded,
+  markUploading,
+  nextUploadDelayMs,
+  promoteLocalAttachments,
+  recoverStuckUploads,
+  registerLocalAttachment,
+  registerRemoteAttachment,
+  summarizeAttachmentSync,
+} from "./attachments";
+export type {
+  AttachmentSyncRow,
+  AttachmentSyncStatus,
+  AttachmentSyncSummary,
+} from "./attachments";
+
+export {
+  PLANNED_SYNC_ENTITIES,
+  SYNC_ENTITY_CAPABILITIES,
+  WORKSPACE_OFFLINE_BLOCKERS,
+  assertEntitySyncReady,
+  assertPersonalScopeOnly,
+  isEntitySyncReady,
+  isWorkspaceOfflineEditingEnabled,
+  missingCapabilities,
+} from "./entities";
+export type { EntityCapability } from "./entities";

@@ -15,6 +15,9 @@ import notebooksRouter from "./routes/notebooks";
 import notesRouter from "./routes/notes";
 import noteTemplatesRouter from "./routes/note-templates";
 import offlineSyncRouter from "./routes/offline-sync";
+import syncV2Router from "./routes/sync-v2";
+import syncLocalRouter from "./routes/sync-local";
+import clipperLocalRouter from "./routes/clipper-local";
 import blocksRouter from "./routes/blocks";
 import tagsRouter from "./routes/tags";
 import searchRouter from "./routes/search";
@@ -65,7 +68,12 @@ import { getDb, closeDb } from "./db/schema";
 import { userSessionsRepository } from "./repositories";
 import { generateOpenAPISpec } from "./services/openapi";
 import { getBackupManager } from "./services/backup";
-import { attachRealtimeServer, getRealtimeStats, shutdownRealtime } from "./services/realtime";
+import { attachRealtimeServer, broadcastToUser, getRealtimeStats, shutdownRealtime } from "./services/realtime";
+import { isLocalFirstSyncV2Enabled } from "./sync/flag";
+import { setSyncBroadcaster } from "./sync/notify";
+import { resetChangeFeedSuppression } from "./sync/suppression";
+import { recoverInflightMutations } from "./sync/outbox";
+import { recoverStuckUploads } from "./sync/attachments";
 import { getYjsStats } from "./services/yjs";
 import { initWebhookTables } from "./services/webhook";
 import { initAuditTables } from "./services/audit";
@@ -485,6 +493,13 @@ app.route("/api/notebooks", notebooksRouter);
 app.route("/api/notes", notesRouter);
 app.route("/api/note-templates", noteTemplatesRouter);
 app.route("/api/offline-sync", offlineSyncRouter);
+// Sync V2（Local-first）。与 V1 并存：V1 服务已发布客户端，不做任何改动。
+// 路由内部有 Feature Flag 守卫，未启用时返回 404。
+app.route("/api/sync/v2", syncV2Router);
+// 本地同步管理（同步设置 / 冲突中心 / 诊断），仅供 Desktop renderer 通过 localhost 调用。
+app.route("/api/sync/local", syncLocalRouter);
+// Clipper 本地通道：浏览器扩展经 127.0.0.1 保存到本机，无需服务器。
+app.route("/api/local/clipper", clipperLocalRouter);
 app.route("/api/blocks", blocksRouter);
 app.route("/api/tags", tagsRouter);
 app.route("/api/search", searchRouter);
@@ -835,6 +850,29 @@ console.log(`📖 OpenAPI 文档: http://localhost:${port}/api/openapi.json`);
 const server = serve({ fetch: app.fetch, port });
 // serve() 签名在不同版本返回不同对象；实际运行时是 http.Server
 attachRealtimeServer(server as unknown as import("http").Server);
+
+// ---- Sync V2 运行时接线（Phase 6 + Phase 9）----
+//
+// 只在 Flag 开启时接线，关闭状态下这段完全不产生副作用。
+if (isLocalFirstSyncV2Enabled()) {
+  // Phase 6：把实时通知能力注入 sync 模块。用注入而非直接 import，
+  // 是为了让 sync 在没有 WebSocket 的环境（CLI / 测试 / 迁移脚本）里也能工作。
+  setSyncBroadcaster((userId, message) => {
+    broadcastToUser(userId, message as never);
+  });
+
+  // 崩溃恢复：上次进程若在抑制窗口或上传中途被强杀，
+  // 开关会卡在 1、附件会卡在 uploading，之后永远不再同步。
+  // 启动复位是唯一可靠的兜底。
+  try {
+    const db = getDb();
+    resetChangeFeedSuppression(db);
+    recoverInflightMutations(db);
+    recoverStuckUploads(db);
+  } catch (error) {
+    console.warn("[sync-v2] startup recovery skipped:", (error as Error)?.message || error);
+  }
+}
 console.log(`🛰  WebSocket endpoint: ws://localhost:${port}/ws`);
 
 // mDNS 广播：让同局域网内的桌面/移动客户端免输入发现本实例。

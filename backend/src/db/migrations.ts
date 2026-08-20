@@ -38,6 +38,8 @@ import { workspaceJournalsMigration } from "./workspaceJournalsMigration.js";
 import { noteTemplatesMigration } from "./noteTemplatesMigration.js";
 import { taskReminderTimezoneMigration } from "./taskReminderTimezoneMigration.js";
 import { syncV2LocalStateMigration } from "./syncV2LocalStateMigration.js";
+import { syncChangesV2Migration } from "./syncChangesV2Migration.js";
+import { attachmentSyncStateMigration } from "./attachmentSyncStateMigration.js";
 
 export type { Migration } from "./migrations.impl.js";
 
@@ -332,6 +334,8 @@ export const MIGRATIONS: Migration[] = [
   noteTemplatesMigration,
   taskReminderTimezoneMigration,
   syncV2LocalStateMigration,
+  syncChangesV2Migration,
+  attachmentSyncStateMigration,
 ].sort((a, b) => a.version - b.version);
 
 export const CURRENT_SCHEMA_VERSION: number = MIGRATIONS.reduce(

@@ -73,15 +73,17 @@ function seedProfile(db: Database.Database) {
 // 迁移本身
 // ---------------------------------------------------------------------------
 
-test("v81 是迁移链上唯一的新版本，且未修改任何已发布迁移", () => {
+test("v81 正确注册到迁移链且版本号无冲突", () => {
   assert.equal(syncV2LocalStateMigration.version, 81);
 
   const versions = MIGRATIONS.map((m) => m.version);
   // 版本号不得重复：重复会让迁移链在部分用户机器上乱序执行。
   assert.equal(new Set(versions).size, versions.length);
-  // v81 必须是最大版本，说明是追加而非插队。
-  assert.equal(Math.max(...versions), 81);
+  // 只断言 v81 存在且唯一。不锁定"最大版本"，否则后续每加一条迁移
+  // 都会误报失败——这正是 migration-task-version-compatibility 踩过的坑。
   assert.equal(versions.filter((v) => v === 81).length, 1);
+  // v81 之前的版本必须都已存在，确认是追加而非插队。
+  assert.ok(versions.includes(80), "v81 应追加在既有链尾之后");
 });
 
 test("迁移可重复执行（IF NOT EXISTS），升级中断后重跑不报错", () => {
@@ -111,11 +113,19 @@ test("六张同步表全部建立且初始为空，对现有用户无感", () =>
   }
 });
 
-test("迁移不安装任何触发器，不影响既有写入路径", () => {
+test("v81 的六张状态表上不挂触发器，本地状态只由代码显式写入", () => {
   const db = freshDb();
-  const triggers = db.prepare(
-    "SELECT name FROM sqlite_master WHERE type='trigger' AND name LIKE 'sync_%'",
-  ).all();
+  // v82 的 Change Feed 触发器名为 sync_v2_*，挂在业务表上，与此处无关。
+  // 这里要确认的是：v81 建的状态表自身没有隐式触发器，
+  // 否则 Outbox 的写入时机将不可控。
+  const triggers = db.prepare(`
+    SELECT name, tbl_name FROM sqlite_master
+    WHERE type = 'trigger'
+      AND tbl_name IN (
+        'sync_profiles', 'sync_devices', 'sync_state',
+        'sync_outbox', 'sync_applied_mutations', 'sync_conflicts'
+      )
+  `).all();
   assert.deepEqual(triggers, []);
 });
 
