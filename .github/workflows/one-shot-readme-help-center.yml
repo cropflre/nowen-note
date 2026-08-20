@@ -18,70 +18,39 @@ jobs:
         with:
           ref: docs/help-center-link
 
-      - name: Update website links
+      - name: Replace legacy nowen.cn docs links
         shell: python
         run: |
           from pathlib import Path
 
-          replacements = {
-              Path('README.md'): [
-                  (
-                      '    <a href="http://nowen.cn/">官方网站</a> ·\n',
-                      '    <a href="https://cropflre.github.io/">官方网站 / 帮助中心</a> ·\n'
-                      '    <a href="http://nowen.cn/">nowen.cn（维护中）</a> ·\n',
-                  ),
-                  (
-                      '- 官方网站：<http://nowen.cn/>\n',
-                      '- 当前官方网站 / 帮助中心：<https://cropflre.github.io/>\n'
-                      '- 后续官网：<http://nowen.cn/>（维护中）\n',
-                  ),
-                  (
-                      '> 演示账号仅用于体验，数据可能被定期重置。请勿存放敏感或重要内容。\n',
-                      '> `nowen.cn` 仍在维护中。当前请以 <https://cropflre.github.io/> 作为 Nowen 官方帮助与使用文档入口。\n\n'
-                      '> 演示账号仅用于体验，数据可能被定期重置。请勿存放敏感或重要内容。\n',
-                  ),
-                  (
-                      '## 文档导航\n\n- [教程与帮助中心](./docs/tutorials/README.md)\n',
-                      '## 文档导航\n\n- [Nowen 官方帮助中心](https://cropflre.github.io/#/note)\n'
-                      '- [仓库内教程索引](./docs/tutorials/README.md)\n',
-                  ),
-              ],
-              Path('README.en.md'): [
-                  (
-                      '    <a href="http://nowen.cn/">Official Website</a> ·\n',
-                      '    <a href="https://cropflre.github.io/">Official Website / Help Center</a> ·\n'
-                      '    <a href="http://nowen.cn/">nowen.cn (Under Maintenance)</a> ·\n',
-                  ),
-                  (
-                      '- Website: <http://nowen.cn/>\n',
-                      '- Current website / help center: <https://cropflre.github.io/>\n'
-                      '- Future website: <http://nowen.cn/> (under maintenance)\n',
-                  ),
-                  (
-                      '> The demo is reset periodically. Do not store private or important data in it.\n',
-                      '> `nowen.cn` is still under maintenance. For now, use <https://cropflre.github.io/> as the official Nowen help and documentation entry.\n\n'
-                      '> The demo is reset periodically. Do not store private or important data in it.\n',
-                  ),
-                  (
-                      '## Documentation\n\n- [MCP Server installation and usage](./docs/tutorials/mcp.en.md)\n',
-                      '## Documentation\n\n- [Nowen official help center](https://cropflre.github.io/#/note)\n'
-                      '- [MCP Server installation and usage](./docs/tutorials/mcp.en.md)\n',
-                  ),
-              ],
-          }
+          path = Path('README.en.md')
+          text = path.read_text(encoding='utf-8')
+          replacements = [
+              (
+                  '- [Feature documentation](http://nowen.cn/docs/nowen-note-features)\n',
+                  '- [Feature overview](https://cropflre.github.io/#/note)\n',
+              ),
+              (
+                  '- [Installation and troubleshooting](http://nowen.cn/docs/nowen-note-help)\n',
+                  '- [Installation and troubleshooting](https://cropflre.github.io/#/note/faq)\n',
+              ),
+              (
+                  '- [API documentation](http://nowen.cn/docs/nowen-note-api)\n',
+                  '- [API documentation](https://cropflre.github.io/#/note/api)\n',
+              ),
+          ]
 
-          for path, pairs in replacements.items():
-              text = path.read_text(encoding='utf-8')
-              for old, new in pairs:
-                  if old not in text:
-                      raise SystemExit(f'Expected text not found in {path}: {old!r}')
-                  text = text.replace(old, new, 1)
-              path.write_text(text, encoding='utf-8')
+          for old, new in replacements:
+              if old not in text:
+                  raise SystemExit(f'Expected text not found: {old!r}')
+              text = text.replace(old, new, 1)
+
+          path.write_text(text, encoding='utf-8')
 
       - name: Commit README changes
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add README.md README.en.md
-          git commit -m "docs: 更新官网与帮助中心入口"
+          git add README.en.md
+          git commit -m "docs: 替换英文 README 旧官网文档链接"
           git push origin HEAD:docs/help-center-link
