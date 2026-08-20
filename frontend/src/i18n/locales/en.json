@@ -2297,7 +2297,9 @@
     "feedbackAction": "Send email",
     "feedbackQqGroup": "Join the QQ feedback group",
     "feedbackQqGroupDesc": "Scan to join the nowen development group, or search by group number.",
-    "feedbackQqGroupNumber": "QQ group: {{number}}"
+    "feedbackQqGroupNumber": "QQ group: {{number}}",
+    "communityQrTitle": "Nowen Open Source Lab",
+    "communityQrDesc": "Scan to follow the official account for the latest Nowen updates."
   },
   "whatsNew": {
     "title": "What's New",

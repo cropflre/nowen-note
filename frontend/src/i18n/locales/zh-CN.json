@@ -2460,7 +2460,9 @@
     "feedbackAction": "发送邮件",
     "feedbackQqGroup": "加入 QQ 群反馈",
     "feedbackQqGroupDesc": "扫码加入 nowen 开发群，也可搜索群号加入。",
-    "feedbackQqGroupNumber": "QQ群：{{number}}"
+    "feedbackQqGroupNumber": "QQ群：{{number}}",
+    "communityQrTitle": "Nowen 开源实验室",
+    "communityQrDesc": "扫码关注公众号，获取 Nowen 最新动态。"
   },
   "whatsNew": {
     "title": "更新日志",

@@ -6,6 +6,7 @@ import { useTranslation } from "react-i18next";
 import wechatSponsorQr from "@/assets/sponsor/weixin.jpg";
 import alipaySponsorQr from "@/assets/sponsor/zhifubao.png";
 import qqGroupQr from "@/assets/feedback/qq-group.jpg";
+import communityQr from "@/assets/community/nowen-lab-wechat.jpg";
 import ThemeToggle from "@/components/ThemeToggle";
 import SkinSwitcher from "@/components/SkinSwitcher";
 import SecuritySettings from "@/components/SecuritySettings";
@@ -466,6 +467,25 @@ function AboutPanel() {
           <ExternalLink size={12} />
           {t('about.github')}
         </a>
+      </div>
+
+      {/* Nowen 开源实验室公众号 */}
+      <div className="flex items-center justify-between gap-4 p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-800/30">
+        <div className="min-w-0">
+          <div className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
+            {t('about.communityQrTitle')}
+          </div>
+          <div className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
+            {t('about.communityQrDesc')}
+          </div>
+        </div>
+        <img
+          src={communityQr}
+          alt={t('about.communityQrTitle')}
+          className="w-28 h-28 object-contain rounded-lg bg-white p-1 shrink-0"
+          loading="lazy"
+          draggable={false}
+        />
       </div>
 
       {/* 更新日志 */}
