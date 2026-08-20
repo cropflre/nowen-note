@@ -55,7 +55,7 @@ describe("androidNativeHttpBridge", () => {
     expect(capacitorState.request).toHaveBeenCalledWith(expect.objectContaining({
       url: "https://note.example.com/api/auth/verify",
       method: "GET",
-      headers: expect.objectContaining({ Authorization: "Bearer token-1" }),
+      headers: expect.objectContaining({ authorization: "Bearer token-1" }),
       responseType: "text",
     }));
     expect(browserFetch).not.toHaveBeenCalled();

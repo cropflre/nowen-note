@@ -391,7 +391,7 @@ const WindowedTiptapEditor = forwardRef<NoteEditorHandle, WindowedTiptapEditorPr
       if (!frame) return;
       const hostRect = host.getBoundingClientRect();
       const frameRect = frame.getBoundingClientRect();
-      host.scrollTo({
+      host.scrollTo?.({
         top: Math.max(0, host.scrollTop + frameRect.top - hostRect.top),
         behavior: "smooth",
       });

@@ -1,6 +1,5 @@
 import crypto from "node:crypto";
 import { getDb } from "../db/schema";
-import { syncNoteBlocks } from "../lib/noteBlocks";
 import { scanRemoteImages } from "../lib/remote-image-localization";
 import {
     downloadRemoteImage,
@@ -112,8 +111,6 @@ async function runWithConcurrency<T>(
  */
 function normalizeImportedMarkdownNote(noteId: string): NoteRow | undefined {
     const current = readNote(noteId);
-    if (!current || current.contentFormat !== "markdown") return current;
-    syncNoteBlocks(getDb(), current.id, current.content || "", current.contentFormat);
     return readNote(noteId);
 }
 

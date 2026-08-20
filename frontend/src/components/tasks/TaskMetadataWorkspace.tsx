@@ -260,6 +260,14 @@ export function TaskMetadataWorkspace({ children }: { children: React.ReactNode 
 
   useEffect(() => { void loadMetadata(); }, [loadMetadata]);
   useEffect(() => {
+    const onWorkspaceChanged = () => {
+      setTasksLoaded(false);
+      void loadMetadata();
+    };
+    window.addEventListener("nowen:workspace-changed", onWorkspaceChanged);
+    return () => window.removeEventListener("nowen:workspace-changed", onWorkspaceChanged);
+  }, [loadMetadata]);
+  useEffect(() => {
     if (smartActive && !tasksLoaded && !loadingTasks) void loadTasks();
   }, [loadTasks, loadingTasks, smartActive, tasksLoaded]);
 

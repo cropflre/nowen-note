@@ -115,12 +115,15 @@ test("mode move is rejected", () => {
 test("source must be personal and owned by actor", () => {
   seedUsersAndWorkspaces();
   seedPersonalNotebookTree();
-  getDb().prepare("UPDATE notebooks SET workspaceId = ? WHERE id = ?").run(WS, "nb-root");
-  assert.throws(() => copy(), /source notebook must be in personal workspace/);
-
+  assert.throws(
+    () => getDb().prepare("UPDATE notebooks SET workspaceId = ? WHERE id = ?").run(WS, "nb-root"),
+    (err: any) => err?.code === "SQLITE_CONSTRAINT_TRIGGER",
+  );
   resetDb();
   seedUsersAndWorkspaces();
   seedPersonalNotebookTree();
+  getDb().prepare("DELETE FROM notes").run();
+  getDb().prepare("DELETE FROM notebooks WHERE id <> ?").run("nb-root");
   getDb().prepare("UPDATE notebooks SET userId = ? WHERE id = ?").run(OTHER, "nb-root");
   assert.throws(
     () => copy(),

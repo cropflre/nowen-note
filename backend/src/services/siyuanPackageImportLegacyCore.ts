@@ -711,6 +711,7 @@ export async function importSiyuanPackageFromZipFile(
             const rewritten = rewriteAssetRefs(markdown, urlMap);
             const finalContent = targetContentFormat === "markdown"
                 ? rewriteMarkdownAttachmentRender(rewritten, urlMimeMap)
+                    .replace(/\s+\^blk_[A-Za-z0-9_-]{6,}/g, "")
                 : siyuanSyToTiptapJson(doc.ast, { resolveAssetUrl: (raw) => resolveAssetUrl(urlMap, raw) });
             notePlans.push({
                 id: noteId,

@@ -89,6 +89,19 @@ async function writeFixtureZip(name: string) {
   });
 }
 
+async function waitForImportJob(jobId: string): Promise<any> {
+  const deadline = Date.now() + 10_000;
+  while (Date.now() < deadline) {
+    const res = await app.request(`/export/import/siyuan-package/jobs/${jobId}`, {
+      headers: { "X-User-Id": USER_ID },
+    });
+    const payload = await res.json() as { job: any };
+    if (payload.job.status === "completed" || payload.job.status === "failed") return payload.job;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  throw new Error(`思源导入任务超时：${jobId}`);
+}
+
 function db() {
   return getDb();
 }
@@ -171,7 +184,7 @@ test.after(async () => {
       fs.rmSync(tmpDir, { recursive: true, force: true });
       return;
     } catch (err: any) {
-      if (err?.code !== "EBUSY") throw err;
+      if (err?.code !== "EBUSY" && err?.code !== "ENOTEMPTY") throw err;
       if (i === 4) return;
       await new Promise((resolve) => setTimeout(resolve, 50));
     }
@@ -249,8 +262,11 @@ test("route import matches service behavior for target notebook and workspace wr
   );
 
   const textBody = await res.text();
-  assert.equal(res.status, 201, textBody);
-  const result = JSON.parse(textBody) as {
+  assert.equal(res.status, 202, textBody);
+  const queued = JSON.parse(textBody) as { job: { id: string } };
+  const job = await waitForImportJob(queued.job.id);
+  assert.equal(job.status, "completed", job.error || "导入任务未完成");
+  const result = job.result as {
     success: boolean;
     count: number;
     notebookId: string;

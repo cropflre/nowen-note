@@ -436,7 +436,7 @@ export default function MobileKnowledgeTreePanel({
     && (node.sharedRootId || null) === (selectedNodes[0].sharedRootId || null)
   ));
   const byId = useMemo(() => new Map(visibleNodes.map((node) => [node.id, node])), [visibleNodes]);
-  const firstLevelNoteCounts = useMemo(() => buildFirstLevelNoteCounts(visibleNodes), [visibleNodes]);
+  const firstLevelNoteCounts = useMemo(() => buildFirstLevelNoteCounts(nodes), [nodes]);
 
   const clearSelection = useCallback(() => {
     selectionAnchorRef.current = null;
@@ -495,6 +495,7 @@ export default function MobileKnowledgeTreePanel({
   const rootOwned = useMemo(() => currentChildren.filter((node) => !node.sharedRootId), [currentChildren]);
   const rootShared = useMemo(() => currentChildren.filter((node) => Boolean(node.sharedRootId)), [currentChildren]);
   const ownedNoteCount = useMemo(() => countOwnedNotes(nodes), [nodes]);
+  const ownedNotebookCount = useMemo(() => nodes.filter((node) => node.nodeType === "folder" && !node.sharedRootId).length, [nodes]);
 
   const activateNote = useCallback((
     note: Awaited<ReturnType<typeof api.getNote>>,
@@ -943,7 +944,9 @@ export default function MobileKnowledgeTreePanel({
     const hasChildren = node.childCount > 0 || nodes.some((candidate) => candidate.parentId === node.id);
     const path = showPath ? buildMobileKnowledgeTreePath(node, nodes) : "";
     const updatedAt = formatUpdatedAt(node.updatedAt);
-    const actionVisibility = multiSelectMode ? "hidden" : variant === "mobile" ? "flex" : "hidden group-hover:flex";
+    const actionVisibility = variant === "mobile" ? "flex" : "hidden group-hover:flex";
+    const effectiveActionVisibility = multiSelectMode ? "hidden" : actionVisibility;
+    const rowActionVisibility = actionVisibility;
     const desktopHoverHidden = variant === "desktop" ? "[@media(hover:hover)]:group-hover:hidden" : "";
     const firstLevelNoteCount = parentId === null && depth === 0 && !showPath && node.nodeType === "folder" && !node.sharedRootId && isFolderUnlocked(node, unlockedFolderIds)
       ? firstLevelNoteCounts.get(node.id) ?? 0
@@ -1049,7 +1052,7 @@ export default function MobileKnowledgeTreePanel({
             className={cn(
               "shrink-0 items-center justify-center text-tx-tertiary hover:bg-app-active hover:text-tx-primary",
               variant === "mobile" ? "h-9 w-9 rounded-lg" : "h-7 w-7 rounded-md",
-              actionVisibility,
+              effectiveActionVisibility,
             )}
             aria-label={`在“${node.title}”下新建内容`}
             aria-haspopup="menu"
@@ -1067,7 +1070,7 @@ export default function MobileKnowledgeTreePanel({
           className={cn(
             "mr-1 shrink-0 items-center justify-center text-tx-tertiary hover:bg-app-active hover:text-tx-primary",
             variant === "mobile" ? "h-9 w-9 rounded-lg" : "h-7 w-7 rounded-md",
-            actionVisibility,
+            effectiveActionVisibility,
           )}
           aria-label={`更多：${node.title}`}
         >
@@ -1109,10 +1112,10 @@ export default function MobileKnowledgeTreePanel({
               {variant !== "mobile" && (
                 <span
                   className="min-w-4 rounded-full bg-app-hover px-1.5 text-center leading-4"
-                  aria-label={`当前空间共 ${ownedNoteCount} 条笔记`}
+                  aria-label={`当前空间共 ${ownedNotebookCount} 个笔记本`}
                   data-mobile-knowledge-tree-notebook-count=""
                 >
-                  {ownedNoteCount}
+                  {ownedNotebookCount}
                 </span>
               )}
             </div>
@@ -1211,7 +1214,8 @@ export default function MobileKnowledgeTreePanel({
               data-mobile-knowledge-tree-search=""
               data-search-scope={searchScope}
             />
-            {variant === "desktop" && !compactToolbar && (
+            {variant === "desktop" && (
+              !compactToolbar && (
               !query ? (
                 <kbd
                   aria-label="快捷键 Ctrl+K"
@@ -1220,6 +1224,7 @@ export default function MobileKnowledgeTreePanel({
                   Ctrl K
                 </kbd>
               ) : null
+              )
             )}
             {query && (
               <button

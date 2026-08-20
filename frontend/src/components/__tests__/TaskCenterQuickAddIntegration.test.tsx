@@ -614,12 +614,12 @@ describe("TaskCenter quick-add integration", () => {
         });
 
         await vi.waitFor(() => {
-            expect(apiMocks.getHabitCheckinLog).toHaveBeenCalledTimes(2);
             expect(apiMocks.statsCenterProps.at(-1)).toMatchObject({
                 tasks: [expect.objectContaining({ id: "task-new" })],
                 habits: [expect.objectContaining({ id: "habit-new" })],
                 checkins: [expect.objectContaining({ id: "check-new" })],
             });
         });
+        expect(apiMocks.getHabitCheckinLog).toHaveBeenCalledTimes(2);
     });
 });

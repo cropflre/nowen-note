@@ -138,7 +138,7 @@ function isJsonApiRequest(input: FetchInput, init: FetchInit | undefined, url: U
   if (/json/i.test(contentType) || /json/i.test(accept)) return true;
 
   // 这些启动阶段请求直接通过 fetch 发出，不一定携带 JSON header。
-  return /(?:^|\/)api\/(?:auth\/(?:login|refresh|2fa\/verify|register(?:\/config)?)|settings|health|version)\/?$/.test(url.pathname);
+  return /(?:^|\/)api\/(?:auth\/(?:login|verify|refresh|2fa\/verify|register(?:\/config)?)|settings|health|version)\/?$/.test(url.pathname);
 }
 
 /**

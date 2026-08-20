@@ -170,6 +170,11 @@ export class NoteTransferError extends Error {
   readonly status: number;
   readonly details?: Record<string, unknown>;
 
+  static [Symbol.hasInstance](value: unknown): boolean {
+    return value instanceof Error && (value as Error).name === "NoteTransferError"
+      && typeof (value as { code?: unknown }).code === "string";
+  }
+
   constructor(code: string, message: string, status = 400, details?: Record<string, unknown>) {
     super(message);
     this.name = "NoteTransferError";

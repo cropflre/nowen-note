@@ -48,7 +48,9 @@ describe("EmbedPasswordBridge", () => {
     const input = iframe.contentDocument?.createElement("input");
     expect(input).toBeTruthy();
     input!.type = "password";
-    iframe.contentDocument!.body.appendChild(input!);
+    const frameDocument = iframe.contentDocument!;
+    const frameBody = frameDocument.body || frameDocument.appendChild(frameDocument.createElement("body"));
+    frameBody.appendChild(input!);
     iframe.dispatchEvent(new Event("load"));
     await new Promise((resolve) => setTimeout(resolve, 20));
 

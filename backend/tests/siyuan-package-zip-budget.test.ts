@@ -37,6 +37,18 @@ async function assertBudgetRejected(zipPath: string) {
   );
 }
 
+async function waitForJobFailure(jobId: string): Promise<string> {
+  const deadline = Date.now() + 10_000;
+  while (Date.now() < deadline) {
+    const row = getDb().prepare("SELECT status, error FROM siyuan_import_jobs WHERE id = ?").get(jobId) as
+      | { status: string; error: string | null }
+      | undefined;
+    if (row?.status === "failed") return row.error || "";
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  throw new Error(`思源导入任务超时：${jobId}`);
+}
+
 test.before(async () => {
   const [serviceModule, schemaModule, exportModule] = await Promise.all([
     import("../src/services/siyuanPackageImport"),
@@ -126,7 +138,9 @@ test("siyuan package route returns 413 when zip budgets are exceeded", async () 
   });
 
   const text = await res.text();
-  assert.equal(res.status, 413, text);
-  const payload = JSON.parse(text) as { code?: string };
-  assert.equal(payload.code, "SIYUAN_ZIP_BUDGET_EXCEEDED");
+  assert.equal(res.status, 202, text);
+  const payload = JSON.parse(text) as { job?: { id: string } };
+  assert.ok(payload.job?.id);
+  const error = await waitForJobFailure(payload.job.id);
+  assert.match(error, /ZIP|条目|体积|大小|资源|预算/i);
 });

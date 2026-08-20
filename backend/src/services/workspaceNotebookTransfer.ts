@@ -424,6 +424,10 @@ export function copyPersonalNotebookToWorkspace(input: CopyPersonalNotebookInput
             let targetTag = targetWorkspaceId
               ? (selectTargetTag.get(actorUserId, tag.name, targetWorkspaceId) as TagRow | undefined)
               : (selectPersonalTargetTag.get(actorUserId, tag.name) as TagRow | undefined);
+            if (!targetTag && targetWorkspaceId) {
+              targetTag = selectPersonalTargetTag.get(actorUserId, tag.name) as TagRow | undefined;
+              if (targetTag) warnings.push(`tag_reused_due_unique_constraint:${tag.name}`);
+            }
             if (!targetTag) {
               const newTagId = uuid();
               try {

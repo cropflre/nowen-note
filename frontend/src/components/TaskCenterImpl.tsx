@@ -124,6 +124,7 @@ export default function TaskCenter() {
   const [statsHabits, setStatsHabits] = useState<Habit[]>([]);
   const [statsHabitCheckins, setStatsHabitCheckins] = useState<HabitCheckinListItem[]>([]);
   const [statsLoading, setStatsLoading] = useState(false);
+  const statsLoadGenerationRef = useRef(0);
 
   const activeHabits = useMemo(
     () => habits.filter((habit) => !habit.archivedAt),
@@ -304,6 +305,7 @@ export default function TaskCenter() {
   }, []);
 
   const loadStatsCenter = useCallback(async () => {
+    const generation = ++statsLoadGenerationRef.current;
     try {
       setStatsLoading(true);
       const checkinDate = formatLocalDateKey();
@@ -314,6 +316,7 @@ export default function TaskCenter() {
         api.getHabitStats(true, checkinDate),
         api.getHabitCheckinLog({ includeArchived: true }),
       ]);
+      if (generation !== statsLoadGenerationRef.current) return;
       setStatsTasks(taskList);
       setStats(taskStatsData);
       setStatsHabits(habitList);
@@ -323,9 +326,9 @@ export default function TaskCenter() {
       console.error("Failed to load stats center:", err);
       toast.error(t("stats.loadFailed"));
     } finally {
-      setStatsLoading(false);
+      if (generation === statsLoadGenerationRef.current) setStatsLoading(false);
     }
-  }, [t, workspaceVersion]);
+  }, [t]);
 
   const loadDependencies = useCallback(async () => {
     try {
@@ -351,10 +354,20 @@ export default function TaskCenter() {
   useEffect(() => { loadTasks(); loadDependencies(); loadReminderBadge(); loadHabits(); }, [loadTasks, loadDependencies, loadReminderBadge, loadHabits]);
 
   useEffect(() => {
-    const onWs = () => { setSelectedTaskId(null); setSearchQuery(""); setSelectedIds(new Set()); setSelectMode(false); setSelectedProjectId(null); setWorkspaceVersion((v) => v + 1); reload(); loadHabits(); };
+    const onWs = () => {
+      setSelectedTaskId(null);
+      setSearchQuery("");
+      setSelectedIds(new Set());
+      setSelectMode(false);
+      setSelectedProjectId(null);
+      setWorkspaceVersion((v) => v + 1);
+      reload();
+      loadHabits();
+      if (centerMode === "stats") void loadStatsCenter();
+    };
     window.addEventListener("nowen:workspace-changed", onWs);
     return () => window.removeEventListener("nowen:workspace-changed", onWs);
-  }, [loadTasks, loadHabits]);
+  }, [centerMode, loadHabits, loadStatsCenter, loadTasks]);
 
   useEffect(() => {
     if (centerMode === "stats") {

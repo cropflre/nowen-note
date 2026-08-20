@@ -575,6 +575,7 @@ export async function createNowenPackageExport(params: ExportParams): Promise<{
 
   for (const note of notes) {
     const prepared = preparedById.get(note.id);
+    const effectiveTitle = packageKind === "markdown" && prepared ? prepared.title : note.title;
     const sourceFormat = note.contentFormat || "tiptap-json";
     const effectiveFormat = packageKind === "markdown" ? "markdown" : sourceFormat;
     let privateContent = packageKind === "markdown" ? prepared!.markdown : (note.content || "");
@@ -694,7 +695,7 @@ export async function createNowenPackageExport(params: ExportParams): Promise<{
     const meta = {
       id: note.id,
       notebookId: note.notebookId,
-      title: note.title,
+      title: effectiveTitle,
       contentFormat: effectiveFormat,
       sourceContentFormat: sourceFormat,
       contentFile: contentFileName,
@@ -717,14 +718,14 @@ export async function createNowenPackageExport(params: ExportParams): Promise<{
     if (includeHumanReadableTree) {
       const folder = layout === "flat" ? "" : (pathById.get(note.notebookId) || "未分类");
       const prefix = folder ? `${folder}/` : "";
-      const baseName = sanitizeSegment(note.title);
+      const baseName = sanitizeSegment(effectiveTitle);
       let fileName = `${baseName}.md`;
       let index = 2;
       while (humanUsedNotePaths.has(`${prefix}${fileName}`)) fileName = `${baseName} (${index++}).md`;
       humanUsedNotePaths.add(`${prefix}${fileName}`);
       const frontmatter = [
         "---",
-        `title: ${JSON.stringify(note.title)}`,
+        `title: ${JSON.stringify(effectiveTitle)}`,
         `contentFormat: ${JSON.stringify("markdown")}`,
         `sourceContentFormat: ${JSON.stringify(sourceFormat)}`,
         `sourceId: ${JSON.stringify(note.id)}`,

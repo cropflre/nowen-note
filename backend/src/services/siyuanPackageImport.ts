@@ -56,7 +56,7 @@ const CONF_RE = /(^|\/)\.siyuan\/conf\.json$/i;
 const SORT_RE = /(^|\/)\.siyuan\/sort\.json$/i;
 const CUSTOM_ICON_ENTRY_RE = /(^|\/)emojis\/.+\.(?:svg|png|jpe?g|gif|webp|bmp|ico|avif)$/i;
 const CUSTOM_ICON_REF_RE = /\.(?:svg|png|jpe?g|gif|webp|bmp|ico|avif)(?:[?#].*)?$/i;
-const FIDELITY_NODE_TYPES = new Set(["NodeInlineHTML"]);
+const FIDELITY_NODE_TYPES = new Set(["NodeInlineHTML", "NodeHTMLBlock"]);
 const DEFAULT_MAX_ZIP_ENTRIES = 50_000;
 const DEFAULT_MAX_SY_FILES = 20_000;
 const DEFAULT_MAX_SINGLE_SY_BYTES = 20 * 1024 * 1024;
@@ -271,7 +271,13 @@ function normalizeTitle(ast: SiyuanNode, fallback: string): string {
 }
 
 function containsFidelityNode(node: SiyuanNode): boolean {
-    return FIDELITY_NODE_TYPES.has(node.Type) || (node.Children || []).some(containsFidelityNode);
+    if (node.Type === "NodeHTMLBlock") {
+        const raw = String(node.Data || node.Properties?.Data || "");
+        if (/<(?:iframe|script|mark)\b/i.test(raw)) return true;
+    } else if (node.Type === "NodeInlineHTML") {
+        return true;
+    }
+    return (node.Children || []).some(containsFidelityNode);
 }
 
 function resolveBoxId(docPath: string, boxIds: Iterable<string>): string {

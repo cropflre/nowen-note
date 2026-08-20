@@ -165,7 +165,8 @@ export default function NoteTabsBar() {
   const actions = useAppActions();
   const { loadNote, cancelNoteLoad } = useNoteLoader();
   const { t } = useTranslation();
-  const { openNoteTabs, activeNote, noteLoading, noteLoadingState } = state;
+  const { openNoteTabs, activeNote, noteLoading } = state;
+  const noteLoadingState = state.noteLoadingState ?? { pendingNoteId: null };
   const [contextMenu, setContextMenu] = useState<TabContextMenuState>(null);
   const [createMenu, setCreateMenu] = useState<CreateMenuState>(null);
   const [createNotebookMenu, setCreateNotebookMenu] = useState<CreateNotebookMenuState>(null);

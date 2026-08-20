@@ -37,6 +37,11 @@ const mocks = vi.hoisted(() => ({
   },
   actions: {
     setNoteLoading: vi.fn(),
+    beginNoteLoad: vi.fn(),
+    showNoteLoad: vi.fn(),
+    markNoteLoadSlow: vi.fn(),
+    finishNoteLoad: vi.fn(),
+    failNoteLoad: vi.fn(),
     setActiveNote: vi.fn(),
     setMobileView: vi.fn(),
     openNoteTab: vi.fn(),

@@ -41,6 +41,8 @@ import { syncV2LocalStateMigration } from "./syncV2LocalStateMigration.js";
 import { syncChangesV2Migration } from "./syncChangesV2Migration.js";
 import { attachmentSyncStateMigration } from "./attachmentSyncStateMigration.js";
 import { attachmentSyncAutoRegisterMigration } from "./attachmentSyncAutoRegisterMigration.js";
+import { knowledgeTreeScopeTriggerRepairMigration } from "./knowledgeTreeScopeTriggerRepairMigration.js";
+import { apiTokenUsageMigration } from "./apiTokenUsageMigration.js";
 
 export type { Migration } from "./migrations.impl.js";
 
@@ -338,6 +340,8 @@ export const MIGRATIONS: Migration[] = [
   syncChangesV2Migration,
   attachmentSyncStateMigration,
   attachmentSyncAutoRegisterMigration,
+  knowledgeTreeScopeTriggerRepairMigration,
+  apiTokenUsageMigration,
 ].sort((a, b) => a.version - b.version);
 
 export const CURRENT_SCHEMA_VERSION: number = MIGRATIONS.reduce(

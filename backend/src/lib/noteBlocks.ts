@@ -129,10 +129,11 @@ function parseTiptap(noteId: string, content: string): {
   };
 
   visit(doc.content, null, []);
+  const normalizedContent = changed ? JSON.stringify(doc) : content.trim();
   return {
-    normalizedContent: changed ? JSON.stringify(doc) : content,
+    normalizedContent,
     candidates,
-    changed,
+    changed: changed || normalizedContent !== content,
   };
 }
 

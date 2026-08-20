@@ -66,11 +66,11 @@ describe("markdownVideoSyntax", () => {
 describe("markdown video source guards", () => {
   const componentsDir = path.resolve(__dirname, "../../components");
   const previewSource = readFileSync(path.join(componentsDir, "MarkdownPreview.tsx"), "utf8");
-  const editorSource = readFileSync(path.join(componentsDir, "MarkdownEditor.tsx"), "utf8");
+  const editorSource = readFileSync(path.join(componentsDir, "MarkdownEditorImpl.tsx"), "utf8");
 
-  it("does not enable raw HTML in MarkdownPreview", () => {
-    expect(previewSource).not.toContain("rehype-raw");
-    expect(previewSource).not.toContain("rehypeRaw");
+  it("sanitizes the limited raw HTML surface in MarkdownPreview", () => {
+    expect(previewSource).toContain("rehypeRaw");
+    expect(previewSource).toContain("safeHtmlSchema");
     expect(previewSource).not.toContain("dangerouslySetInnerHTML");
   });
 

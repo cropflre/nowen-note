@@ -61,6 +61,7 @@ type RuntimeState = {
   runningJobs: Set<string>;
   scheduledJobs: Set<string>;
   schemaReady: boolean;
+  schemaDb?: unknown;
 };
 
 const runtimeGlobals = globalThis as typeof globalThis & {
@@ -75,8 +76,9 @@ runtime.scheduledJobs ||= new Set<string>();
 const STALE_RUNNING_JOB_MINUTES = 10;
 
 function ensureSchema(): void {
-  if (runtime.schemaReady) return;
-  getDb().exec(`
+  const db = getDb();
+  if (runtime.schemaReady && runtime.schemaDb === db) return;
+  db.exec(`
     CREATE TABLE IF NOT EXISTS siyuan_import_jobs (
       id TEXT PRIMARY KEY,
       requestId TEXT NOT NULL,
@@ -109,15 +111,16 @@ function ensureSchema(): void {
     CREATE INDEX IF NOT EXISTS idx_siyuan_import_jobs_user_status
       ON siyuan_import_jobs(userId, status, createdAt);
   `);
-  const columns = new Set((getDb().prepare("PRAGMA table_info(siyuan_import_jobs)").all() as Array<{ name: string }>)
+  const columns = new Set((db.prepare("PRAGMA table_info(siyuan_import_jobs)").all() as Array<{ name: string }>)
     .map((column) => column.name));
   if (!columns.has("progressCurrent")) {
-    getDb().exec("ALTER TABLE siyuan_import_jobs ADD COLUMN progressCurrent INTEGER");
+    db.exec("ALTER TABLE siyuan_import_jobs ADD COLUMN progressCurrent INTEGER");
   }
   if (!columns.has("progressTotal")) {
-    getDb().exec("ALTER TABLE siyuan_import_jobs ADD COLUMN progressTotal INTEGER");
+    db.exec("ALTER TABLE siyuan_import_jobs ADD COLUMN progressTotal INTEGER");
   }
   runtime.schemaReady = true;
+  runtime.schemaDb = db;
 }
 
 function readRow(jobId: string): SiyuanImportJobRow | undefined {

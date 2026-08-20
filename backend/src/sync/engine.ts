@@ -4,7 +4,7 @@ import {
   SYNC_PUSH_MAX_MUTATIONS,
   syncRetryDelayMs,
 } from "./constants";
-import { SyncError, isRetryableSyncError, isSyncErrorCode } from "./errors";
+import { isRetryableSyncError, isSyncErrorCode } from "./errors";
 import { logSyncError, logSyncInfo, logSyncWarn } from "./log";
 import {
   advanceSyncState,
@@ -278,7 +278,7 @@ export class SyncEngine {
    * 同步失败只是"等待同步"，绝不是"保存失败"。
    */
   private handleCycleError(error: any): void {
-    const code = error instanceof SyncError && isSyncErrorCode(error.code)
+    const code = isSyncErrorCode(error?.code)
       ? error.code
       : "SERVER_ERROR";
     this.lastError = code;

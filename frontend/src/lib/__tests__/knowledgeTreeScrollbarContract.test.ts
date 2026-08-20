@@ -1,8 +1,9 @@
 import { readFileSync } from "node:fs";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 const sidebarSource = readFileSync(
-  new URL("../../components/Sidebar.tsx", import.meta.url),
+  path.resolve(process.cwd(), "src/components/Sidebar.tsx"),
   "utf8",
 );
 

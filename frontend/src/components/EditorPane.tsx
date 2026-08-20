@@ -2680,14 +2680,6 @@ const moveToTrash = useCallback(async () => {
                     <Star size={15} className={cn(activeNote.isFavorite ? "text-amber-400 fill-amber-400" : "text-tx-tertiary")} />
                     <span>{activeNote.isFavorite ? t('editor.unfavoriteTooltip') : t('editor.favoriteTooltip')}</span>
                   </button>
-                  <button
-                    onClick={() => { toggleLock(); setShowMobileMenu(false); }}
-                    disabled={isTrashed}
-                    className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-tx-secondary active:bg-app-hover transition-colors disabled:opacity-40"
-                  >
-                    {effectiveLocked ? <Lock size={15} className="text-orange-500" /> : <Unlock size={15} className="text-tx-tertiary" />}
-                    <span>{effectiveLocked ? t('editor.unlockTooltip') : t('editor.lockTooltip')}</span>
-                  </button>
                   <div className="h-px bg-app-border mx-2 my-0.5" />
                   <button
                     onClick={() => { togglePin(); setShowMobileMenu(false); }}

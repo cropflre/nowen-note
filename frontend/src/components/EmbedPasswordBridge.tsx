@@ -47,6 +47,7 @@ async function copySecret(password: string): Promise<boolean> {
     input.setAttribute("readonly", "");
     input.style.position = "fixed";
     input.style.opacity = "0";
+    if (!document.body) return false;
     document.body.appendChild(input);
     input.select();
     const copied = document.execCommand?.("copy") ?? false;

@@ -490,7 +490,7 @@ export function KnowledgeTreePanel({
     && node.scopeKey === selectedNodes[0].scopeKey
     && (node.sharedRootId || null) === (selectedNodes[0].sharedRootId || null)
   ));
-  const firstLevelNoteCounts = useMemo(() => buildFirstLevelNoteCounts(visibleNodes), [visibleNodes]);
+  const firstLevelNoteCounts = useMemo(() => buildFirstLevelNoteCounts(nodes), [nodes]);
   const filteredNodes = useMemo(() => filterKnowledgeTreeNodes(visibleNodes, query), [visibleNodes, query]);
   const children = useMemo(() => buildChildren(filteredNodes), [filteredNodes]);
   const effectiveExpanded = query.trim() ? new Set(filteredNodes.map((node) => node.id)) : expanded;
@@ -1158,7 +1158,8 @@ export function KnowledgeTreePanel({
       )
     );
     const selected = selectedNodeIds.has(node.id);
-    const actionVisibility = multiSelectMode ? "hidden" : variant === "mobile" ? "flex" : "hidden group-hover:flex";
+    const actionVisibility = variant === "mobile" ? "flex" : "hidden group-hover:flex";
+    const effectiveActionVisibility = multiSelectMode ? "hidden" : actionVisibility;
     const firstLevelNoteCount = depth === 0 && node.nodeType === "folder" && !node.sharedRootId && isFolderUnlocked(node, unlockedFolderIds)
       ? firstLevelNoteCounts.get(node.id) ?? 0
       : null;
@@ -1303,7 +1304,7 @@ export function KnowledgeTreePanel({
                 event.stopPropagation();
                 startInlineCreate(node, "note");
               }}
-              className={cn("h-6 w-6 items-center justify-center rounded text-tx-tertiary hover:bg-app-active", actionVisibility)}
+              className={cn("h-6 w-6 items-center justify-center rounded text-tx-tertiary hover:bg-app-active", effectiveActionVisibility)}
               title="新建文档"
               aria-label={`在“${node.title}”下新建文档`}
             >
@@ -1317,7 +1318,7 @@ export function KnowledgeTreePanel({
               const rect = event.currentTarget.getBoundingClientRect();
               openMenuAt(rect.right, rect.bottom + 4, node.id, "knowledge-node");
             }}
-            className={cn("h-6 w-6 items-center justify-center rounded text-tx-tertiary hover:bg-app-active", actionVisibility)}
+            className={cn("h-6 w-6 items-center justify-center rounded text-tx-tertiary hover:bg-app-active", effectiveActionVisibility)}
             title="更多"
           ><MoreHorizontal size={14} /></button>
         </div>
@@ -1335,6 +1336,7 @@ export function KnowledgeTreePanel({
   const ownedRoots = rootNodes.filter((node) => !node.sharedRootId);
   const sharedRoots = rootNodes.filter((node) => Boolean(node.sharedRootId));
   const ownedNoteCount = countOwnedNotes(nodes);
+  const ownedNotebookCount = nodes.filter((node) => node.nodeType === "folder" && !node.sharedRootId).length;
   const currentSortMode = loadKnowledgeTreeSortMode();
   const hasRootDraft = draft?.parentId === null;
   const compactToolbar = variant === "mobile"
@@ -1598,10 +1600,10 @@ export function KnowledgeTreePanel({
                   {variant !== "mobile" && (
                     <span
                       className="min-w-4 rounded-full bg-app-hover px-1.5 text-center leading-4"
-                      aria-label={`当前空间共 ${ownedNoteCount} 条笔记`}
+                      aria-label={`当前空间共 ${ownedNotebookCount} 个笔记本`}
                       data-knowledge-tree-notebook-count=""
                     >
-                      {ownedNoteCount}
+                      {ownedNotebookCount}
                     </span>
                   )}
                 </div>

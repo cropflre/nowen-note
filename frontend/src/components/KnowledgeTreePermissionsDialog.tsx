@@ -68,6 +68,8 @@ export default function KnowledgeTreePermissionsDialog({ node, onClose, onChange
   const [selectedUser, setSelectedUser] = useState<UserPublicInfo | null>(null);
   const [candidateLoading, setCandidateLoading] = useState(false);
   const [candidateOpen, setCandidateOpen] = useState(false);
+  const [activeCandidateIndex, setActiveCandidateIndex] = useState(-1);
+  const [focusUserPicker, setFocusUserPicker] = useState(false);
   const [role, setRole] = useState<KnowledgeRolePreset>("readonly");
 
   const reload = useCallback(async () => {
@@ -174,6 +176,7 @@ export default function KnowledgeTreePermissionsDialog({ node, onClose, onChange
   };
 
   const addMember = async () => {
+    if (!currentUser) return;
     if (!selectedUser || savingKey) return;
     setSavingKey("add");
     try {
@@ -182,6 +185,7 @@ export default function KnowledgeTreePermissionsDialog({ node, onClose, onChange
       setUserQuery("");
       setUserCandidates([]);
       setCandidateOpen(false);
+      setFocusUserPicker(false);
       setShowAddMember(false);
       await reload();
       onChanged(role === "deny" ? "permission-denied" : "permission-updated");
@@ -194,7 +198,8 @@ export default function KnowledgeTreePermissionsDialog({ node, onClose, onChange
   };
 
   const updateMemberRole = async (row: KnowledgePermissionRow, nextRole: KnowledgeRolePreset) => {
-    if (row.rolePreset === nextRole || savingKey || row.userId === currentUser?.id) return;
+    if (row.rolePreset === nextRole || savingKey) return;
+    if (row.userId === currentUser?.id) { toast.error("不能修改自己的权限"); return; }
     setSavingKey(row.userId);
     try {
       await knowledgeTreeApi.setPermission(node.id, row.userId, nextRole);
@@ -209,7 +214,8 @@ export default function KnowledgeTreePermissionsDialog({ node, onClose, onChange
   };
 
   const removeRule = async (row: KnowledgePermissionRow) => {
-    if (savingKey || row.userId === currentUser?.id) return;
+    if (savingKey) return;
+    if (row.userId === currentUser?.id) { toast.error("不能修改自己的权限"); return; }
     const name = memberName(row);
     const removesLastAutomaticAllow =
       row.rolePreset !== "deny"
@@ -224,7 +230,7 @@ export default function KnowledgeTreePermissionsDialog({ node, onClose, onChange
         ? `${name} 将重新按当前节点的继承或允许规则获得权限。`
         : (removesLastAutomaticAllow
           ? `移除 ${name} 后，自动建立的仅指定成员模式将恢复为继承权限。`
-          : `${name} 的当前节点规则将被移除，并重新使用上级或团队空间权限。`),
+          : `${name} 的当前节点规则将被移除，并重新使用上级或团队空间权限。下级节点已有的独立权限不会被删除`),
       confirmText: row.rolePreset === "deny" ? "取消禁止" : "移除规则",
       danger: row.rolePreset !== "deny" && !removesLastAutomaticAllow,
     });
@@ -265,7 +271,7 @@ export default function KnowledgeTreePermissionsDialog({ node, onClose, onChange
         role="dialog"
         aria-modal="true"
         aria-labelledby="knowledge-tree-permissions-title"
-        className="flex h-[100dvh] w-full flex-col overflow-hidden border-app-border bg-app-surface shadow-2xl sm:h-auto sm:max-h-[88vh] sm:max-w-[760px] sm:rounded-2xl sm:border"
+        className="flex h-[100dvh] w-full flex-col overflow-hidden border-app-border bg-app-surface shadow-2xl sm:h-auto sm:max-h-[88vh] sm:max-w-[720px] sm:max-w-[760px] sm:rounded-2xl sm:border"
       >
         <header className="flex shrink-0 items-start gap-3 border-b border-app-border px-4 py-4 sm:px-6 sm:py-5">
           <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-accent-primary/10 text-accent-primary">
@@ -329,7 +335,7 @@ export default function KnowledgeTreePermissionsDialog({ node, onClose, onChange
                 }}
                 className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm font-medium text-accent-primary hover:bg-accent-primary/10 disabled:opacity-40"
               >
-                <UserPlus size={16} />添加规则
+                <UserPlus size={16} />添加成员
               </button>
             </div>
 
@@ -352,8 +358,16 @@ export default function KnowledgeTreePermissionsDialog({ node, onClose, onChange
                         <Search size={15} className="text-tx-tertiary" />
                         <input
                           value={userQuery}
-                          onChange={(event) => { setUserQuery(event.target.value); setCandidateOpen(true); }}
+                          onChange={(event) => { setUserQuery(event.target.value); setActiveCandidateIndex(-1); setCandidateOpen(true); }}
                           onFocus={() => setCandidateOpen(true)}
+                          onKeyDown={(event) => {
+                            if (event.key === "ArrowDown") { event.preventDefault(); setActiveCandidateIndex((index) => Math.min(index + 1, userCandidates.length - 1)); }
+                            if (event.key === "ArrowUp") { event.preventDefault(); setActiveCandidateIndex((index) => Math.max(index - 1, -1)); }
+                            if (event.key === "Escape") { event.stopPropagation(); setCandidateOpen(false); }
+                            if (event.key === "Enter" && activeCandidateIndex >= 0) { event.preventDefault(); const candidate = userCandidates[activeCandidateIndex]; if (candidate) { setSelectedUser(candidate); setCandidateOpen(false); } }
+                          }}
+                          aria-activedescendant={activeCandidateIndex >= 0 ? `knowledge-user-candidate-${activeCandidateIndex}` : undefined}
+                          autoFocus={focusUserPicker}
                           placeholder="搜索用户名、显示名或邮箱"
                           className="min-w-0 flex-1 bg-transparent text-sm text-tx-primary outline-none placeholder:text-tx-tertiary"
                         />
@@ -361,14 +375,17 @@ export default function KnowledgeTreePermissionsDialog({ node, onClose, onChange
                       </div>
                     )}
                     {!selectedUser && candidateOpen && (
-                      <div className="absolute left-0 right-0 top-11 z-20 max-h-56 overflow-y-auto rounded-xl border border-app-border bg-app-surface py-1 shadow-xl">
+                      <div role="listbox" className="absolute left-0 right-0 top-11 z-20 max-h-56 overflow-y-auto rounded-xl border border-app-border bg-app-surface py-1 shadow-xl">
                         {candidateLoading && userCandidates.length === 0 ? (
                           <div className="flex items-center justify-center gap-2 px-3 py-6 text-sm text-tx-tertiary"><Loader2 size={16} className="animate-spin" />加载中</div>
                         ) : userCandidates.length === 0 ? (
-                          <div className="px-3 py-6 text-center text-sm text-tx-tertiary">没有可添加的成员</div>
+                          <div className="px-3 py-6 text-center text-sm text-tx-tertiary">没有可添加的成员（已在成员列表中的用户不会重复显示）</div>
                         ) : userCandidates.map((user) => (
                           <button
                             key={user.id}
+                            id={`knowledge-user-candidate-${userCandidates.indexOf(user)}`}
+                            role="option"
+                            aria-selected={userCandidates.indexOf(user) === activeCandidateIndex}
                             type="button"
                             onMouseDown={(event) => event.preventDefault()}
                             onClick={() => { setSelectedUser(user); setCandidateOpen(false); }}

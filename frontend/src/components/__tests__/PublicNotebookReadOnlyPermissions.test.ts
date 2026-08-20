@@ -30,11 +30,9 @@ describe("shared note read-only permissions", () => {
   it("keeps the split editor read-only and ignores stale update callbacks", () => {
     expect(splitViewSource).toContain('import { canWriteNote } from "@/lib/notePermissions";');
     expect(splitViewSource).toContain(
-      "const editable = !!note && canWriteNote(note) && !note.isLocked && !note.isTrashed;",
+      "const editable = !!note && canWriteNote(note) && note.id === noteId && !readOnly && state.activeNote?.id !== noteId && !note.isLocked && !note.isTrashed && !loadingState.pendingNoteId;",
     );
-    expect(splitViewSource).toContain(
-      "if (!current || !canWriteNote(current) || (data._noteId && data._noteId !== current.id)) return;",
-    );
+    expect(splitViewSource).toMatch(/readOnly\s*\|\|[\s\S]*!canWriteNote\(current\)/);
   });
 
   it("uses a chrome-free Tiptap presentation mode on public pages", () => {

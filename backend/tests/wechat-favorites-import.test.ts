@@ -73,9 +73,17 @@ test.beforeEach(() => {
   db.prepare("DELETE FROM notebooks").run();
 });
 
-test.after(() => {
+test.after(async () => {
   closeDb();
-  fs.rmSync(tmpDir, { recursive: true, force: true });
+  for (let i = 0; i < 20; i++) {
+    try {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+      return;
+    } catch (err: any) {
+      if (err?.code !== "EBUSY" && err?.code !== "ENOTEMPTY") throw err;
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+  }
 });
 
 test("adapter groups WeChatDataAnalysis favorite archive messages by favorite id", () => {

@@ -15,9 +15,6 @@ import { resolveEffectiveNoteCapabilities } from "../services/share-capabilities
 import { parseShareManagementQuery, queryShareManagement } from "../services/share-management";
 import { consumeShareViewSession, findSingleShareByToken, installSingleShareGuard, resetShareViewSessions } from "../services/single-share-access";
 import { checkCredentialAttempt, getClientIp as getCredentialClientIp, hashClientIp, recordCredentialFailure, recordCredentialSuccess } from "../lib/share-credential-rate-limit";
-import { syncNoteBlocks } from "../lib/noteBlocks";
-import { rebuildBlockAuthorityStore } from "../lib/blockAuthorityStore";
-import { rebuildYjsSubdocumentsIfEnabled } from "../services/yjs-subdocuments";
 
 // H3: 使用密码学安全的随机源生成分享 token。
 //     原实现用 Math.random()，理论上可被预测；改用 crypto.randomBytes。
@@ -667,19 +664,6 @@ sharesRouter.post("/note/:noteId/versions/:versionId/restore", (c) => {
     `).run(version.title, version.content, version.contentText, version.contentFormat || "tiptap-json", noteId);
 
     syncAttachmentReferences(db, noteId, version.content);
-    if (["tiptap-json", "markdown"].includes(version.contentFormat || "tiptap-json")) {
-      const synced = syncNoteBlocks(db, noteId, version.content || "", version.contentFormat || "tiptap-json");
-      if (synced.changed) {
-        db.prepare("UPDATE notes SET content = ?, contentText = ? WHERE id = ?")
-          .run(synced.content, synced.contentText, noteId);
-      }
-      rebuildBlockAuthorityStore(db, noteId, synced.content, version.contentFormat || "tiptap-json", {
-        noteVersion: note.version + 1,
-        operationType: "version-restore",
-        operationJson: { versionId },
-      });
-      rebuildYjsSubdocumentsIfEnabled(db, noteId, synced.content, version.contentFormat || "tiptap-json");
-    }
     noteYupdatesRepository.deleteByNoteId(noteId);
     noteYsnapshotsRepository.deleteByNoteId(noteId);
 

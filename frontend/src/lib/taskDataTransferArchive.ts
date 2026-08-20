@@ -497,7 +497,8 @@ export async function importTaskArchive(
       try {
         const entry = preview.archive.zip.file(attachment.path);
         if (!entry) throw new Error("压缩包中缺少图片文件");
-        const blob = await entry.async("blob");
+        const bytes = await entry.async("uint8array");
+        const blob = new Blob([bytes], { type: attachment.mimeType || "application/octet-stream" });
         if (blob.size !== attachment.size || blob.size > 50 * 1024 * 1024) {
           throw new Error("图片大小校验失败");
         }

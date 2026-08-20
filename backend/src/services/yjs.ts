@@ -426,6 +426,7 @@ function releaseRoom(noteId: string) {
       room.doc.destroy();
       rooms.delete(noteId);
     }, ROOM_IDLE_TIMEOUT_MS);
+    room.idleTimer.unref?.();
   }
 }
 
@@ -805,6 +806,7 @@ export function yReplaceContentAsUpdate(
         room!.doc.destroy();
         rooms.delete(noteId);
       }, ROOM_IDLE_TIMEOUT_MS);
+      room.idleTimer.unref?.();
     }
   }
 }

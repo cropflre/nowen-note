@@ -35,10 +35,11 @@ export const noteLinksRepository = {
         FROM note_links nl
         JOIN notes n ON n.id = nl.sourceNoteId
         WHERE nl.targetNoteId = ?
+          AND nl.userId = ?
           AND n.isTrashed = 0
         ORDER BY n.updatedAt DESC
         LIMIT ?
-      `).all(targetNoteId, limit) as BacklinkItem[];
+      `).all(targetNoteId, _userId, limit) as BacklinkItem[];
     } catch (error) {
       console.warn("[noteLinksRepository.getBacklinks] failed:", error instanceof Error ? error.message : error);
       return [];
@@ -62,7 +63,7 @@ export const noteLinksRepository = {
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
     `);
     db.transaction(() => {
-      db.prepare("DELETE FROM note_links WHERE sourceNoteId = ?").run(sourceNoteId);
+      db.prepare("DELETE FROM note_links WHERE sourceNoteId = ? AND userId = ?").run(sourceNoteId, userId);
       for (const link of validEntries) {
         insert.run(
           uuid(), userId, sourceNoteId, link.targetNoteId, link.targetBlockId,
@@ -82,7 +83,7 @@ export const noteLinksRepository = {
     const check = db.prepare("SELECT id FROM notes WHERE id = ?");
     for (const link of links) if (check.get(link.targetNoteId)) validEntries.push(link);
     await getAdapter().executeStatements([
-      { sql: "DELETE FROM note_links WHERE sourceNoteId = ?", params: [sourceNoteId] },
+      { sql: "DELETE FROM note_links WHERE sourceNoteId = ? AND userId = ?", params: [sourceNoteId, userId] },
       ...validEntries.map((link) => ({
         sql: `INSERT OR IGNORE INTO note_links (
                 id, userId, sourceNoteId, targetNoteId, targetBlockId, sourceBlockId,

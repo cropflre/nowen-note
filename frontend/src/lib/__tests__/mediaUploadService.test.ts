@@ -39,7 +39,7 @@ describe("mediaUploadService", () => {
 
     const result = await uploadMediaAttachment({
       noteId: "note-1",
-      file: new File(["video"], "clip.mp4", { type: "video/mp4" }),
+      file: new File(["video-data!!"], "clip.mp4", { type: "video/mp4" }),
       source: "paste",
     });
 

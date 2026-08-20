@@ -9,7 +9,13 @@ import { ensureNormalizedSearchFts } from "../lib/searchIndex.js";
 const DB_PATH = process.env.DB_PATH || path.join(process.env.ELECTRON_USER_DATA || path.join(process.cwd(), "data"), "nowen-note.db");
 assertSafeTestDatabasePath(DB_PATH);
 
-let db: Database.Database;
+const DB_REGISTRY_KEY = Symbol.for("nowen-note.sqlite-database-registry");
+const globalState = globalThis as typeof globalThis & {
+  [DB_REGISTRY_KEY]?: Map<string, Database.Database>;
+};
+const dbRegistry = globalState[DB_REGISTRY_KEY] || new Map<string, Database.Database>();
+globalState[DB_REGISTRY_KEY] = dbRegistry;
+let db: Database.Database | undefined;
 
 /**
  * 返回当前 SQLite 数据库文件的绝对路径。
@@ -33,25 +39,30 @@ export function getDbPath(): string {
  * 调用后下次 getDb() 会重新打开。
  */
 export function closeDb(): void {
-  if (db) {
+  const current = db || dbRegistry.get(DB_PATH);
+  if (current) {
     try {
       // TRUNCATE 模式：把 -wal 内的事务全部 checkpoint 进 .db，并把 -wal 截断到 0；
       // 之后冷拷贝 .db 单文件就是完整的一致性快照。
-      db.pragma("wal_checkpoint(TRUNCATE)");
+      current.pragma("wal_checkpoint(TRUNCATE)");
     } catch { /* ignore：实例已损坏或只读时不阻塞关停 */ }
-    try { db.close(); } catch { /* ignore */ }
-    // @ts-expect-error: 允许重新打开
+    try { current.close(); } catch { /* ignore */ }
+    dbRegistry.delete(DB_PATH);
     db = undefined;
   }
 }
 
 export function getDb(): Database.Database {
   if (!db) {
+    db = dbRegistry.get(DB_PATH);
+    if (db) return db;
+
     const dir = path.dirname(DB_PATH);
     if (!fs.existsSync(dir)) {
       fs.mkdirSync(dir, { recursive: true });
     }
     db = new Database(DB_PATH);
+    dbRegistry.set(DB_PATH, db);
     db.pragma("journal_mode = WAL");
     db.pragma("foreign_keys = ON");
     // ---- P1 加固 PRAGMA ----
@@ -108,7 +119,7 @@ export function getDb(): Database.Database {
     } catch (e) {
       // 让进程启动失败：迁移失败比"看似能跑"安全得多。
       try { db.close(); } catch { /* ignore */ }
-      // @ts-expect-error: 允许重新打开
+      dbRegistry.delete(DB_PATH);
       db = undefined;
       throw e;
     }

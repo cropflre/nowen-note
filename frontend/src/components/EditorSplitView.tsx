@@ -445,14 +445,7 @@ function SplitEditorPane({
   }, [actions, loadPrimaryNote, t]);
 
   const title = note?.id === noteId ? note.title : tabMeta?.title || t("editorTabs.noTitle");
-  const editable = !!note
-    && note.id === noteId
-    && !readOnly
-    && state.activeNote?.id !== noteId
-    && canWriteNote(note)
-    && !note.isLocked
-    && !note.isTrashed
-    && !loadingState.pendingNoteId;
+  const editable = !!note && canWriteNote(note) && note.id === noteId && !readOnly && state.activeNote?.id !== noteId && !note.isLocked && !note.isTrashed && !loadingState.pendingNoteId;
 
   return (
     <section className="flex h-full min-h-0 min-w-0 flex-col bg-app-bg">

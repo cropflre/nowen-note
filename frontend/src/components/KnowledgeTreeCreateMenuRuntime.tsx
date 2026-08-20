@@ -305,7 +305,7 @@ export function KnowledgeTreeCreateDropdown({
         );
       })}
       <p className="border-t border-app-border px-2.5 pb-1 pt-2 text-[10px] text-tx-tertiary">
-        也可将 .md 或 Markdown 附件 ZIP 拖拽到目录树导入
+        也可将 .md 文件拖拽到目录树导入（或 Markdown 附件 ZIP）
       </p>
     </div>,
     document.body,
@@ -432,9 +432,7 @@ export function KnowledgeTreePanel(props: KnowledgeTreePanelProps) {
   return (
     <>
       <div ref={rootRef} className="contents" onClickCapture={handleClickCapture}>
-        <KnowledgeTreePanelBase
-          {...props}
-          createRequest={createRequest}
+        <KnowledgeTreePanelBase {...props} createRequest={createRequest}
           importRequest={importRequest}
           templateCreateRequest={templateCreateRequest}
           showAllNotesToolbar={showAllNotesEntry}
