@@ -7,7 +7,8 @@
   </p>
   <p>
     <a href="./README.md">简体中文</a> ·
-    <a href="http://nowen.cn/">Official Website</a> ·
+    <a href="https://cropflre.github.io/">Official Website / Help Center</a> ·
+    <a href="http://nowen.cn/">nowen.cn (Under Maintenance)</a> ·
     <a href="http://note.nowen.cn/">Live Demo</a> ·
     <a href="https://github.com/cropflre/nowen-note/releases">Downloads</a> ·
     <a href="./docs/tutorials/README.md">Tutorials</a> ·
@@ -128,10 +129,13 @@ See [CHANGELOG.md](./CHANGELOG.md) and the [v1.4.14 Release](https://github.com/
 
 ## Website and demo
 
-- Website: <http://nowen.cn/>
+- Current website / help center: <https://cropflre.github.io/>
+- Future website: <http://nowen.cn/> (under maintenance)
 - Demo: <http://note.nowen.cn/>
 - Username: `demo`
 - Password: `demo123456`
+
+> `nowen.cn` is still under maintenance. For now, use <https://cropflre.github.io/> as the official Nowen help and documentation entry.
 
 > The demo is reset periodically. Do not store private or important data in it.
 
@@ -357,6 +361,7 @@ nowen-note/
 
 ## Documentation
 
+- [Nowen official help center](https://cropflre.github.io/#/note)
 - [MCP Server installation and usage](./docs/tutorials/mcp.en.md)
 - [MCP Server 中文安装教程](./docs/tutorials/mcp.md)
 - [Tutorial center](./docs/tutorials/README.md)
