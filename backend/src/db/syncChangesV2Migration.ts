@@ -104,6 +104,25 @@ export const syncChangesV2Migration: Migration = {
         FROM sync_v2_suppression WHERE id = 1;
     `);
 
+    // 触发器安装委托给 installSyncChangesV2Triggers()，
+    // 供 v90 重建 sync_changes_v2 后装回（DROP TABLE 会让触发器悬空）。
+    installSyncChangesV2Triggers(db);
+  },
+};
+
+
+/**
+ * 安装（或重建）Change Feed 的核心实体触发器。
+ *
+ * 抽成独立函数供 v90 复用：v90 需要重建 sync_changes_v2 以扩展
+ * entityType 的 CHECK 约束，而 DROP TABLE 会让这些触发器变成悬空引用
+ * （之后任何笔记写入都报 "no such table: main.sync_changes_v2"）。
+ *
+ * 幂等：全部 DDL 带 DROP IF EXISTS，可反复执行。
+ */
+export function installSyncChangesV2Triggers(
+  db: Parameters<Migration["up"]>[0],
+): void {
     // --- notebook ---
     db.exec(`
       DROP TRIGGER IF EXISTS sync_v2_notebooks_insert;
@@ -303,5 +322,4 @@ export const syncChangesV2Migration: Migration = {
         FROM notes n WHERE n.id = OLD.noteId AND n.workspaceId IS NULL;
       END;
     `);
-  },
-};
+}

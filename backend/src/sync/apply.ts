@@ -328,6 +328,219 @@ function applyAttachment(db: Database.Database, input: ApplyMutationInput): numb
   return null;
 }
 
+// ---------------------------------------------------------------------------
+// 阶段 J：其余个人实体
+// ---------------------------------------------------------------------------
+
+/**
+ * 任务：可变结构化对象。
+ *
+ * 冲突策略与 note 不同 —— tasks 表没有 version 列，用 updatedAt 作逻辑版本。
+ * 但**不做时间戳大小比较**：两台设备的系统时钟可能相差几分钟，
+ * 按时间判定"谁更新"会让慢钟设备的修改被永久吞掉。
+ * 因此只要双方 updatedAt 不同就判冲突，交给用户决定。
+ */
+function applyTask(db: Database.Database, input: ApplyMutationInput): number | null {
+  if (input.operation === "delete") {
+    // 子任务通过 parentId 的 CASCADE 一并删除，与本地删除语义一致。
+    db.prepare("DELETE FROM tasks WHERE id = ? AND userId = ?")
+      .run(input.entityId, input.userId);
+    return null;
+  }
+
+  const p = input.payload || {};
+  const existing = db.prepare(
+    "SELECT updatedAt FROM tasks WHERE id = ? AND userId = ?",
+  ).get(input.entityId, input.userId) as { updatedAt: string } | undefined;
+
+  if (existing) {
+    // baseVersion 在 task 上承载的是"客户端看到的 updatedAt 哈希"没有意义，
+    // 因此直接比对 updatedAt 字符串：不一致说明双方各自改过。
+    const clientBase = typeof p.baseUpdatedAt === "string" ? p.baseUpdatedAt : null;
+    if (clientBase !== null && clientBase !== existing.updatedAt) {
+      throw new SyncError("VERSION_CONFLICT", "任务在服务端已被修改");
+    }
+  }
+
+  db.prepare(`
+    INSERT INTO tasks (
+      id, userId, title, isCompleted, completedAt, priority, dueDate,
+      noteId, parentId, sortOrder, createdAt, updatedAt
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')), datetime('now'))
+    ON CONFLICT(id) DO UPDATE SET
+      title = excluded.title,
+      isCompleted = excluded.isCompleted,
+      completedAt = excluded.completedAt,
+      priority = excluded.priority,
+      dueDate = excluded.dueDate,
+      noteId = excluded.noteId,
+      parentId = excluded.parentId,
+      sortOrder = excluded.sortOrder,
+      updatedAt = datetime('now')
+  `).run(
+    input.entityId,
+    input.userId,
+    typeof p.title === "string" ? p.title : "",
+    p.isCompleted ? 1 : 0,
+    typeof p.completedAt === "string" ? p.completedAt : null,
+    Number.isFinite(p.priority as number) ? Number(p.priority) : 2,
+    typeof p.dueDate === "string" ? p.dueDate : null,
+    // noteId / parentId 指向可能尚未同步的实体：置 null 而不是报错，
+    // 否则一条孤儿引用会让整个任务永远同步不过去。关系会在对端补齐后自然修复。
+    typeof p.noteId === "string" && noteExists(db, p.noteId, input.userId) ? p.noteId : null,
+    typeof p.parentId === "string" && taskExists(db, p.parentId, input.userId) ? p.parentId : null,
+    Number.isFinite(p.sortOrder as number) ? Number(p.sortOrder) : 0,
+    typeof p.createdAt === "string" ? p.createdAt : null,
+  );
+  return null;
+}
+
+function noteExists(db: Database.Database, id: string, userId: string): boolean {
+  return !!db.prepare("SELECT 1 FROM notes WHERE id = ? AND userId = ?").get(id, userId);
+}
+
+function taskExists(db: Database.Database, id: string, userId: string): boolean {
+  return !!db.prepare("SELECT 1 FROM tasks WHERE id = ? AND userId = ?").get(id, userId);
+}
+
+/**
+ * 任务提醒：依附于 task 的时间型实体。
+ *
+ * 不参与版本冲突：一条提醒就是 (taskId, offsetMinutes, enabled) 三元组，
+ * 两端各自设置同一提醒时结果相同。
+ *
+ * lastNotifiedAt **不同步** —— 那是"这台设备有没有弹过通知"的本机状态，
+ * 同步过来会让另一台设备漏掉提醒。
+ */
+function applyTaskReminder(db: Database.Database, input: ApplyMutationInput): number | null {
+  if (input.operation === "delete") {
+    db.prepare("DELETE FROM task_reminders WHERE id = ? AND userId = ?")
+      .run(input.entityId, input.userId);
+    return null;
+  }
+
+  const p = input.payload || {};
+  const taskId = typeof p.taskId === "string" ? p.taskId : "";
+  if (!taskId || !taskExists(db, taskId, input.userId)) {
+    // 提醒无法脱离任务存在：明确报缺依赖，让客户端在 task 同步后重试。
+    throw new SyncError("MISSING_DEPENDENCY", "提醒所属任务尚未同步");
+  }
+
+  db.prepare(`
+    INSERT INTO task_reminders (id, taskId, userId, offsetMinutes, enabled, createdAt)
+    VALUES (?, ?, ?, ?, ?, COALESCE(?, datetime('now')))
+    ON CONFLICT(id) DO UPDATE SET
+      offsetMinutes = excluded.offsetMinutes,
+      enabled = excluded.enabled
+  `).run(
+    input.entityId,
+    taskId,
+    input.userId,
+    Number.isFinite(p.offsetMinutes as number) ? Number(p.offsetMinutes) : 30,
+    p.enabled === false ? 0 : 1,
+    typeof p.createdAt === "string" ? p.createdAt : null,
+  );
+  return null;
+}
+
+/**
+ * 说说 / 日记：追加型记录。
+ *
+ * 表里只有 createdAt 没有 updatedAt —— 这类内容发布后极少修改。
+ * 因此用幂等 upsert 而不做冲突检测：同 ID 就是同一条记录。
+ *
+ * images / media 是 JSON 数组字符串，元素指向 diary_attachments。
+ * 那些附件的二进制走独立通道（与 attachments 同理），
+ * 此处只同步引用关系。
+ */
+function applyDiary(db: Database.Database, input: ApplyMutationInput): number | null {
+  if (input.operation === "delete") {
+    db.prepare("DELETE FROM diaries WHERE id = ? AND userId = ?")
+      .run(input.entityId, input.userId);
+    return null;
+  }
+
+  const p = input.payload || {};
+  const asJsonArray = (value: unknown): string => {
+    if (typeof value === "string") {
+      // 已是 JSON 字符串：校验可解析，坏数据一律退化为空数组，
+      // 否则前端 JSON.parse 会直接抛错把整个列表打崩。
+      try {
+        const parsed = JSON.parse(value);
+        return Array.isArray(parsed) ? value : "[]";
+      } catch {
+        return "[]";
+      }
+    }
+    return Array.isArray(value) ? JSON.stringify(value) : "[]";
+  };
+
+  db.prepare(`
+    INSERT INTO diaries (id, userId, contentText, mood, images, media, createdAt)
+    VALUES (?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')))
+    ON CONFLICT(id) DO UPDATE SET
+      contentText = excluded.contentText,
+      mood = excluded.mood,
+      images = excluded.images,
+      media = excluded.media
+  `).run(
+    input.entityId,
+    input.userId,
+    typeof p.contentText === "string" ? p.contentText : "",
+    typeof p.mood === "string" ? p.mood : "",
+    asJsonArray(p.images),
+    asJsonArray(p.media),
+    typeof p.createdAt === "string" ? p.createdAt : null,
+  );
+  return null;
+}
+
+/**
+ * 思维导图：版本化文档。
+ *
+ * data 是整份图的 JSON。这类实体**必须**防覆盖：
+ * 盲目写入会让另一台设备上新增的整个分支瞬间消失，而且无法恢复。
+ *
+ * 与 note 一样用 baseUpdatedAt 比对，不一致即冲突。
+ */
+function applyMindmap(db: Database.Database, input: ApplyMutationInput): number | null {
+  if (input.operation === "delete") {
+    db.prepare("DELETE FROM mindmaps WHERE id = ? AND userId = ?")
+      .run(input.entityId, input.userId);
+    return null;
+  }
+
+  const p = input.payload || {};
+  const existing = db.prepare(
+    "SELECT updatedAt FROM mindmaps WHERE id = ? AND userId = ?",
+  ).get(input.entityId, input.userId) as { updatedAt: string } | undefined;
+
+  if (existing) {
+    const clientBase = typeof p.baseUpdatedAt === "string" ? p.baseUpdatedAt : null;
+    // 与 note 同一原则：**缺少 base 也判冲突**。
+    // 客户端不知道自己在覆盖什么，宁可报冲突也不盲目覆盖整份导图。
+    if (clientBase === null || clientBase !== existing.updatedAt) {
+      throw new SyncError("VERSION_CONFLICT", "思维导图在服务端已被修改");
+    }
+  }
+
+  db.prepare(`
+    INSERT INTO mindmaps (id, userId, workspaceId, title, data, createdAt, updatedAt)
+    VALUES (?, ?, NULL, ?, ?, COALESCE(?, datetime('now')), datetime('now'))
+    ON CONFLICT(id) DO UPDATE SET
+      title = excluded.title,
+      data = excluded.data,
+      updatedAt = datetime('now')
+  `).run(
+    input.entityId,
+    input.userId,
+    typeof p.title === "string" ? p.title : "无标题导图",
+    typeof p.data === "string" ? p.data : JSON.stringify(p.data ?? {}),
+    typeof p.createdAt === "string" ? p.createdAt : null,
+  );
+  return null;
+}
+
 const APPLIERS: Record<SyncEntityType, (db: Database.Database, input: ApplyMutationInput) => number | null> = {
   notebook: applyNotebook,
   note: applyNote,
@@ -335,6 +548,10 @@ const APPLIERS: Record<SyncEntityType, (db: Database.Database, input: ApplyMutat
   note_tag: applyNoteTag,
   favorite: applyFavorite,
   attachment: applyAttachment,
+  task: applyTask,
+  task_reminder: applyTaskReminder,
+  diary: applyDiary,
+  mindmap: applyMindmap,
 };
 
 /**

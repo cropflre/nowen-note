@@ -26,11 +26,20 @@ import { getActiveProfile } from "./profile";
 import { createBlobClientForProfile, createRemoteClientForProfile } from "./credentials";
 import { promoteLocalAttachments } from "./attachments";
 import { isBootstrapReady } from "./bootstrap";
+import { SyncRealtimeSubscription } from "./realtime";
+import { getRemoteCredential } from "./credentials";
 
 interface ActiveEngine {
   engine: SyncEngine;
   profileId: string;
   deviceId: string;
+  /**
+   * 远端变更通知订阅（阶段 L）。
+   *
+   * 只用于"尽快触发同步"，不是数据来源。连接失败或消息丢失时
+   * 引擎的周期 Pull 仍然保证最终一致。
+   */
+  realtime: SyncRealtimeSubscription | null;
 }
 
 let active: ActiveEngine | null = null;
@@ -54,8 +63,14 @@ export function getActiveEngineInfo(): { profileId: string; deviceId: string } |
  */
 export function stopSyncEngine(): void {
   if (!active) return;
-  const { engine, profileId, deviceId } = active;
+  const { engine, profileId, deviceId, realtime } = active;
   active = null;
+  // 先断订阅再停引擎：反过来的话订阅可能在这中间又触发一轮同步。
+  try {
+    realtime?.stop();
+  } catch {
+    /* 订阅断开失败不影响引擎停止 */
+  }
   try {
     engine.stop();
   } catch (error) {
@@ -170,7 +185,39 @@ export function reconcileSyncEngine(
     intervalMs: options.intervalMs,
   });
 
-  active = { engine, profileId: enabled.id, deviceId: device.id };
+  // 订阅远端变更通知（阶段 L）。
+  //
+  // 建立订阅**不是**同步正确性的前提：它只是把"其他设备改了东西"的
+  // 感知延迟从一个周期缩短到几乎实时。因此任何失败都只记日志，
+  // 绝不阻止引擎启动 —— 周期 Pull 始终是兜底的事实来源。
+  let realtime: SyncRealtimeSubscription | null = null;
+  const credential = getRemoteCredential(enabled.id);
+  if (credential) {
+    try {
+      realtime = new SyncRealtimeSubscription({
+        serverUrl: enabled.serverUrl,
+        token: credential.token,
+        // 收到通知只触发同步，不做任何 apply ——
+        // Change Feed 才是数据来源（第二十八条）。
+        onNotice: () => {
+          try {
+            engine.notifyNetworkOnline();
+          } catch {
+            /* 引擎已停止时忽略 */
+          }
+        },
+      });
+      realtime.start();
+    } catch (error) {
+      logSyncWarn("runtime.realtime-failed", {
+        profileId: enabled.id,
+        errorCode: (error as Error)?.name || "UNKNOWN",
+      });
+      realtime = null;
+    }
+  }
+
+  active = { engine, profileId: enabled.id, deviceId: device.id, realtime };
   engine.start();
   logSyncInfo("runtime.started", { profileId: enabled.id, deviceId: device.id });
   return engine;

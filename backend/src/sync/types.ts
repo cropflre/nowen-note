@@ -20,12 +20,24 @@
  * 每次扩张都必须补齐 Local CRUD → Outbox → Push → Change Feed → Pull → Apply → Conflict 全链路。
  */
 export const SYNC_ENTITY_TYPES = [
+  // 第一版：个人知识库核心
   "notebook",
   "note",
   "tag",
   "note_tag",
   "favorite",
   "attachment",
+  // 阶段 J：其余个人数据。
+  //
+  // 每类的冲突策略不同，不能一律套用 note 的 baseVersion 逻辑：
+  //   task           可变结构化对象 —— 有 updatedAt 可比，字段级差异都算冲突
+  //   task_reminder  时间型附属实体 —— 依附 task，用确定性 upsert
+  //   diary          追加型记录     —— 只有 createdAt，内容极少被改
+  //   mindmap        版本化文档     —— data 是整份 JSON，必须防覆盖
+  "task",
+  "task_reminder",
+  "diary",
+  "mindmap",
 ] as const;
 
 export type SyncEntityType = (typeof SYNC_ENTITY_TYPES)[number];

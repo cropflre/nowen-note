@@ -386,10 +386,33 @@ test("一条冲突不影响同批次其他 mutation 落库", async () => {
 // ---------------------------------------------------------------------------
 
 test("拒绝越界实体，防止范围失控", async () => {
+  // 用 workspace 而非 task：task 已在阶段 J 纳入完整链路。
+  // 工作区实体仍未纳入 —— ACL / 成员变更 / 离线权限撤销需单独设计（阶段 K），
+  // 贸然放行会把团队内容当个人数据同步出去。
   const r = await push([{
-    mutationId: randomUUID(), entityType: "task", entityId: "t1", operation: "upsert",
+    mutationId: randomUUID(), entityType: "workspace", entityId: "w1", operation: "upsert",
   }]);
   assert.equal(r.json.results[0].code, "INVALID_PAYLOAD");
+});
+
+test("已纳入的个人实体不再被误判为越界", async () => {
+  for (const entityType of ["task", "diary", "mindmap"]) {
+    const r = await push([{
+      mutationId: randomUUID(),
+      entityType,
+      entityId: randomUUID(),
+      operation: "upsert",
+      payload: entityType === "mindmap"
+        ? { title: "t", data: "{}" }
+        : { title: "t", contentText: "t" },
+    }]);
+    // 可能因缺依赖等原因失败，但绝不该是"实体类型不合法"
+    assert.notEqual(
+      r.json.results[0].code,
+      "INVALID_PAYLOAD",
+      `${entityType} 应已纳入同步范围`,
+    );
+  }
 });
 
 test("缺少 deviceId 时拒绝整个 push", async () => {

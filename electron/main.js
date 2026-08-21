@@ -1422,6 +1422,42 @@ function showStartupError(err) {
 //     重启是最干净也最快的方式（< 2s）。
 //   - 切换前清登录态：调用方决定（switchToLite 接受 url 后清，switchToFull 也清）
 //     —— 用户的需求是"切换服务器 = 清空登录态"。
+/**
+ * 只清远端会话凭据，**不动任何权威数据**（阶段 F）。
+ *
+ * Local-first 之后"切换同步服务器"与"切换数据源"是两件完全不同的事：
+ *   - 数据源永远是本机 Embedded Backend + SQLite，切服务器不改变它；
+ *   - 需要失效的只有远端登录态。
+ *
+ * 因此这里刻意**不清** localstorage / indexdb / cachestorage：
+ * 它们承载 renderer 的离线缓存与草稿，清掉会让用户看到"内容突然消失"
+ * （即便 SQLite 里数据完好，UI 也要重新加载一遍，未提交的编辑器状态会丢）。
+ *
+ * 真正的凭据在 cookies 与本机 credentials 文件里，清这两处就够了。
+ *
+ * 旧的 clearWebStorage 只保留给 Legacy Full/Lite 模式切换 ——
+ * 那条路径确实要切换 renderer 的数据源，必须清干净。
+ */
+async function clearRemoteSessionOnly() {
+  try {
+    const rendererSession = currentRendererSession || session.defaultSession;
+    await rendererSession.clearStorageData({ storages: ["cookies"] });
+    console.log("[sync-switch] remote session cleared (local data untouched)");
+  } catch (e) {
+    console.warn("[sync-switch] clear remote session failed:", e?.message || e);
+  }
+  try { clearCredentials(); } catch { /* ignore */ }
+}
+
+/**
+ * 清空 renderer 存储。
+ *
+ * **仅供 Legacy Full/Lite 模式切换使用** —— 那条路径会改变 renderer 的
+ * API baseUrl，旧缓存属于另一个数据源，必须清掉。
+ *
+ * Local-first 的同步服务器切换请用 clearRemoteSessionOnly()：
+ * 切服务器不改变数据源，清本地缓存只会让用户以为数据丢了。
+ */
 async function clearWebStorage() {
   // 清掉默认 session 的 cookie / localStorage / IndexedDB / cache，
   // 这样切到新服务器后是全新登录态。
@@ -1988,6 +2024,97 @@ function registerAppIpc() {
     });
     setTimeout(() => relaunchApp(), 150);
     return { ok: true, path: targetPath, restarting: true };
+  });
+
+  // ---- Lite → Local 迁移（阶段 E）----
+  //
+  // renderer 侧持有远端 token（Lite 模式下它就是用这个 token 直连服务器的），
+  // 迁移必须把 token 交给 Embedded Backend 才能下载数据。
+  //
+  // 走 IPC 而不是让 renderer 直接 fetch 本地后端：迁移过程中
+  // renderer 的 API baseUrl 还指向远端，直接 fetch localhost 会被
+  // 它自己的请求封装改写掉 baseUrl。
+  ipcMain.removeHandler("sync:start-lite-migration");
+  ipcMain.handle("sync:start-lite-migration", async (event, payload) => {
+    // SEC-ELECTRON-01-B：高权限 IPC 来源校验（与既有敏感 IPC 一致）。
+    const reject = assertMainWindowSender(event);
+    if (reject) return reject;
+    const serverUrl = String(payload?.serverUrl || "").slice(0, 2048);
+    const token = String(payload?.token || "").slice(0, 8192);
+    if (!/^https?:\/\//i.test(serverUrl) || !token) {
+      return { ok: false, error: "invalid-params" };
+    }
+
+    // Lite 模式下 Backend 可能还没启动（lite 不启后端），先确保它在跑。
+    if (!backendPort) {
+      try {
+        await startBackend();
+      } catch (e) {
+        return { ok: false, error: `backend-start-failed: ${e?.message || e}` };
+      }
+    }
+
+    // Lite 用户此前从未有过本地账号（数据都在远端），
+    // 迁移目标用户就是这个本机账号，必须先建立它。
+    if (!localAuthCache) {
+      try {
+        localAuthCache = await ensureLocalAccount();
+      } catch (e) {
+        return { ok: false, error: `local-account-failed: ${e?.message || e}` };
+      }
+    }
+    if (!localAuthCache?.token) {
+      return { ok: false, error: "local-account-unavailable" };
+    }
+
+    try {
+      const res = await fetch(
+        `http://127.0.0.1:${backendPort}/api/sync/local/lite-migration`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${localAuthCache.token}`,
+          },
+          body: JSON.stringify({ serverUrl, token }),
+        },
+      );
+      const data = await res.json().catch(() => ({}));
+
+      // 只有迁移真正完成才写 settings ——
+      // 提前写会让下次启动切到一个不完整的本地库，那正是最要避免的事故。
+      if (data?.stage === "complete") {
+        const next = writeSettings({ liteMigrationStatus: "complete" });
+        currentRuntime = shouldUseLocalRuntime(next) ? "local" : "remote";
+        console.log("[lite-migration] complete, runtime =", currentRuntime);
+      } else {
+        // 记录中间状态供 UI 显示；非 complete 时 deriveRuntimeFields
+        // 会继续强制 runtime=remote，用户照旧用 Lite。
+        writeSettings({
+          liteMigrationStatus: data?.stage === "failed" ? "failed" : "running",
+        });
+      }
+      return { ok: res.ok, status: res.status, progress: data };
+    } catch (e) {
+      return { ok: false, error: e?.message || String(e) };
+    }
+  });
+
+  ipcMain.removeHandler("sync:lite-migration-progress");
+  ipcMain.handle("sync:lite-migration-progress", async (event) => {
+    const reject = assertMainWindowSender(event);
+    if (reject) return reject;
+    if (!backendPort) return { ok: true, progress: { stage: "pending" } };
+    if (!localAuthCache?.token) return { ok: true, progress: { stage: "pending" } };
+    try {
+      const res = await fetch(
+        `http://127.0.0.1:${backendPort}/api/sync/local/lite-migration`,
+        { headers: { Authorization: `Bearer ${localAuthCache.token}` } },
+      );
+      return { ok: res.ok, progress: await res.json().catch(() => ({})) };
+    } catch (e) {
+      return { ok: false, error: e?.message || String(e) };
+    }
   });
 
   ipcMain.removeHandler("app:get-data-dir-info");

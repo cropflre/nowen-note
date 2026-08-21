@@ -290,3 +290,8 @@ export type { BlobClientOptions, BlobTransferResult } from "./blob";
 export { markBootstrapReady } from "./bootstrap";
 export { createBlobClientForProfile } from "./credentials";
 export { classifyHttpStatus } from "./errors";
+
+// --- 阶段 L：远端变更通知订阅 ---
+
+export { SyncRealtimeSubscription } from "./realtime";
+export type { RealtimeSubscriptionOptions } from "./realtime";

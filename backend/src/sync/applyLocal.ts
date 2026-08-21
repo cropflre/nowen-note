@@ -245,6 +245,157 @@ function applyAttachmentLocal(db: Database.Database, item: RemoteEntityPayload, 
   );
 }
 
+// ---------------------------------------------------------------------------
+// 阶段 J：其余个人实体的本地应用（下行）
+// ---------------------------------------------------------------------------
+//
+// 这一组与 apply.ts 里的服务端版本成对存在，缺任何一半都算"只做了单向"。
+// 本地版本不做版本冲突检测 —— 冲突判定发生在 Push 时（服务端返回
+// VERSION_CONFLICT），Pull 阶段的职责是把已确定的远端状态落库。
+// 但引擎在 applyRemoteChanges 之前会检查该实体是否还有未推送的本地修改，
+// 有则转入冲突而不覆盖（RULE 3）。
+
+function applyTaskLocal(db: Database.Database, item: RemoteEntityPayload, userId: string): void {
+  if (item.operation === "delete") {
+    db.prepare("DELETE FROM tasks WHERE id = ? AND userId = ?").run(item.entityId, userId);
+    return;
+  }
+  const p = item.payload || {};
+  // noteId / parentId 若指向本地尚不存在的实体则置 null：
+  // 外键会拒绝写入，导致整条任务永远同步不下来。
+  const noteId = typeof p.noteId === "string"
+    && db.prepare("SELECT 1 FROM notes WHERE id = ?").get(p.noteId) ? p.noteId : null;
+  const parentId = typeof p.parentId === "string"
+    && db.prepare("SELECT 1 FROM tasks WHERE id = ?").get(p.parentId) ? p.parentId : null;
+
+  db.prepare(`
+    INSERT INTO tasks (
+      id, userId, title, isCompleted, completedAt, priority, dueDate,
+      noteId, parentId, sortOrder, createdAt, updatedAt
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+              COALESCE(?, datetime('now')), COALESCE(?, datetime('now')))
+    ON CONFLICT(id) DO UPDATE SET
+      title = excluded.title,
+      isCompleted = excluded.isCompleted,
+      completedAt = excluded.completedAt,
+      priority = excluded.priority,
+      dueDate = excluded.dueDate,
+      noteId = excluded.noteId,
+      parentId = excluded.parentId,
+      sortOrder = excluded.sortOrder,
+      updatedAt = excluded.updatedAt
+  `).run(
+    item.entityId,
+    userId,
+    str(p.title, ""),
+    p.isCompleted ? 1 : 0,
+    p.completedAt ?? null,
+    num(p.priority) || 2,
+    p.dueDate ?? null,
+    noteId,
+    parentId,
+    num(p.sortOrder),
+    p.createdAt ?? null,
+    // 保留远端 updatedAt 而不是写 now()：
+    // 它是下一次 Push 的 baseUpdatedAt 依据，改写会导致误判冲突。
+    p.updatedAt ?? null,
+  );
+}
+
+function applyTaskReminderLocal(
+  db: Database.Database,
+  item: RemoteEntityPayload,
+  userId: string,
+): void {
+  if (item.operation === "delete") {
+    db.prepare("DELETE FROM task_reminders WHERE id = ? AND userId = ?")
+      .run(item.entityId, userId);
+    return;
+  }
+  const p = item.payload || {};
+  const taskId = typeof p.taskId === "string" ? p.taskId : "";
+  // 任务还没同步下来：跳过而不是报错。下一轮 Pull 会重新带上这条提醒
+  // （Change Feed 是幂等的），届时任务已存在。
+  if (!taskId || !db.prepare("SELECT 1 FROM tasks WHERE id = ?").get(taskId)) return;
+
+  db.prepare(`
+    INSERT INTO task_reminders (id, taskId, userId, offsetMinutes, enabled, createdAt)
+    VALUES (?, ?, ?, ?, ?, COALESCE(?, datetime('now')))
+    ON CONFLICT(id) DO UPDATE SET
+      offsetMinutes = excluded.offsetMinutes,
+      enabled = excluded.enabled
+  `).run(
+    item.entityId,
+    taskId,
+    userId,
+    num(p.offsetMinutes) || 30,
+    p.enabled === false ? 0 : 1,
+    p.createdAt ?? null,
+  );
+  // lastNotifiedAt 刻意不同步：它是"本机是否已弹过通知"的状态，
+  // 从别的设备同步过来会让本机漏掉提醒。
+}
+
+function applyDiaryLocal(db: Database.Database, item: RemoteEntityPayload, userId: string): void {
+  if (item.operation === "delete") {
+    db.prepare("DELETE FROM diaries WHERE id = ? AND userId = ?").run(item.entityId, userId);
+    return;
+  }
+  const p = item.payload || {};
+  const asJsonArray = (value: unknown): string => {
+    if (typeof value === "string") {
+      try {
+        return Array.isArray(JSON.parse(value)) ? value : "[]";
+      } catch {
+        return "[]";
+      }
+    }
+    return Array.isArray(value) ? JSON.stringify(value) : "[]";
+  };
+
+  db.prepare(`
+    INSERT INTO diaries (id, userId, contentText, mood, images, media, createdAt)
+    VALUES (?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')))
+    ON CONFLICT(id) DO UPDATE SET
+      contentText = excluded.contentText,
+      mood = excluded.mood,
+      images = excluded.images,
+      media = excluded.media
+  `).run(
+    item.entityId,
+    userId,
+    str(p.contentText, ""),
+    str(p.mood, ""),
+    asJsonArray(p.images),
+    asJsonArray(p.media),
+    p.createdAt ?? null,
+  );
+}
+
+function applyMindmapLocal(db: Database.Database, item: RemoteEntityPayload, userId: string): void {
+  if (item.operation === "delete") {
+    db.prepare("DELETE FROM mindmaps WHERE id = ? AND userId = ?").run(item.entityId, userId);
+    return;
+  }
+  const p = item.payload || {};
+  db.prepare(`
+    INSERT INTO mindmaps (id, userId, workspaceId, title, data, createdAt, updatedAt)
+    VALUES (?, ?, NULL, ?, ?, COALESCE(?, datetime('now')), COALESCE(?, datetime('now')))
+    ON CONFLICT(id) DO UPDATE SET
+      title = excluded.title,
+      data = excluded.data,
+      updatedAt = excluded.updatedAt
+  `).run(
+    item.entityId,
+    userId,
+    str(p.title, "无标题导图"),
+    typeof p.data === "string" ? p.data : JSON.stringify(p.data ?? {}),
+    p.createdAt ?? null,
+    // 同 task：保留远端 updatedAt 作为下次 Push 的 base。
+    p.updatedAt ?? null,
+  );
+}
+
 const LOCAL_APPLIERS: Record<
   SyncEntityType,
   (db: Database.Database, item: RemoteEntityPayload, userId: string) => void
@@ -255,6 +406,10 @@ const LOCAL_APPLIERS: Record<
   note_tag: (db, item) => applyNoteTagLocal(db, item),
   favorite: applyFavoriteLocal,
   attachment: applyAttachmentLocal,
+  task: applyTaskLocal,
+  task_reminder: applyTaskReminderLocal,
+  diary: applyDiaryLocal,
+  mindmap: applyMindmapLocal,
 };
 
 /**

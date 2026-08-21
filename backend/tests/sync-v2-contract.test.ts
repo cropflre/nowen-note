@@ -41,23 +41,37 @@ test("开关拒绝模糊取值，避免配置拼写意外开启改造路径", ()
   assert.equal(isLocalFirstSyncV2Enabled("2"), false);
 });
 
-test("第一版同步实体范围锁定个人空间六类，防止越界扩张", () => {
+test("同步实体范围锁定已实现完整链路的十类，防止越界扩张", () => {
+  // 断言精确列表而非"至少包含"：新增实体必须同时补齐服务端 apply、
+  // 本地 apply、Change Feed 触发器、Outbox 触发器与 CHECK 约束，
+  // 只改这个数组会让链路某一环静默失败。改这里就必须回答"七环节都做了吗"。
   assert.deepEqual([...SYNC_ENTITY_TYPES], [
+    // 第一版：个人知识库核心
     "notebook",
     "note",
     "tag",
     "note_tag",
     "favorite",
     "attachment",
+    // 阶段 J：其余个人数据
+    "task",
+    "task_reminder",
+    "diary",
+    "mindmap",
   ]);
 });
 
-test("实体类型守卫拒绝未纳入第一版的实体", () => {
+test("实体类型守卫只接受已实现完整链路的实体", () => {
   assert.equal(isSyncEntityType("note"), true);
   assert.equal(isSyncEntityType("attachment"), true);
-  assert.equal(isSyncEntityType("task"), false);
-  assert.equal(isSyncEntityType("diary"), false);
+  // task 已在阶段 J 纳入（完整七环节链路）
+  assert.equal(isSyncEntityType("task"), true);
+  assert.equal(isSyncEntityType("mindmap"), true);
+  // 工作区实体仍未纳入：ACL / 成员变更 / 权限撤销需单独设计（阶段 K）
   assert.equal(isSyncEntityType("workspace"), false);
+  assert.equal(isSyncEntityType("habit"), false);
+  assert.equal(isSyncEntityType("diary"), true, "diary 已在阶段 J 纳入");
+  // 大小写敏感：'Note' 不是合法实体类型，避免协议里出现两种写法
   assert.equal(isSyncEntityType("Note"), false);
   assert.equal(isSyncEntityType(undefined), false);
   assert.equal(isSyncEntityType(null), false);

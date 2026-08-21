@@ -44,6 +44,7 @@ import { attachmentSyncAutoRegisterMigration } from "./attachmentSyncAutoRegiste
 import { syncOutboxCaptureMigration } from "./syncOutboxCaptureMigration.js";
 import { syncIdentityAndOutboxMigration } from "./syncIdentityAndOutboxMigration.js";
 import { syncBootstrapMigration } from "./syncBootstrapMigration.js";
+import { syncPersonalEntitiesMigration } from "./syncPersonalEntitiesMigration.js";
 import { knowledgeTreeScopeTriggerRepairMigration } from "./knowledgeTreeScopeTriggerRepairMigration.js";
 import { apiTokenUsageMigration } from "./apiTokenUsageMigration.js";
 
@@ -346,6 +347,7 @@ export const MIGRATIONS: Migration[] = [
   syncOutboxCaptureMigration,
   syncIdentityAndOutboxMigration,
   syncBootstrapMigration,
+  syncPersonalEntitiesMigration,
   knowledgeTreeScopeTriggerRepairMigration,
   apiTokenUsageMigration,
 ].sort((a, b) => a.version - b.version);

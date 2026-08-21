@@ -369,13 +369,24 @@ test("删除笔记的 mutation 不因业务行消失而被级联清除", () => {
 test("拒绝越界实体类型与非法操作，防止范围失控", () => {
   const db = freshDb();
   const { profile, device } = seedProfile(db);
+  // 用 workspace 而非 task：task 已在阶段 J 纳入完整链路（v90 扩展了 CHECK）。
+  // 工作区实体仍未纳入，ACL 与离线权限撤销需单独设计。
   assert.throws(() => enqueueMutation(db, {
-    entityType: "task" as never,
-    entityId: "task-1",
+    entityType: "workspace" as never,
+    entityId: "ws-1",
     operation: "upsert",
     deviceId: device.id,
     profileId: profile.id,
   }), /CHECK/i);
+
+  // 反向确认：已纳入的实体不该被 CHECK 拦住
+  assert.doesNotThrow(() => enqueueMutation(db, {
+    entityType: "task",
+    entityId: "task-ok",
+    operation: "upsert",
+    deviceId: device.id,
+    profileId: profile.id,
+  }));
 
   assert.throws(() => enqueueMutation(db, {
     entityType: "note",
