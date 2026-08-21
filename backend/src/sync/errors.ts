@@ -17,6 +17,10 @@ export const SYNC_ERROR_CODES = [
   "SYNC_RESET_REQUIRED",
   /** 远端凭据失效：同步暂停，本地读写不受影响。 */
   "AUTH_EXPIRED",
+  /** 工作区访问权已撤销，不可重试，需停止该作用域同步。 */
+  "ACCESS_REVOKED",
+  /** 当前角色不允许写入该作用域，不可重试，需调整权限后再操作。 */
+  "SCOPE_FORBIDDEN",
   /** 请求结构不合法（缺字段、实体越界、mutation 超限等）。 */
   "INVALID_PAYLOAD",
   /** 引用的父实体不存在（例如 note 指向未同步的 notebook）。 */

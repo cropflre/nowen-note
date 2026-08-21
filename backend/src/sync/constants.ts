@@ -22,6 +22,7 @@ export const SYNC_V2_BLOB_PATH = `${SYNC_V2_BASE_PATH}/blob`;
 
 /** Sync V2 端点（相对 SYNC_V2_BASE_PATH）。 */
 export const SYNC_V2_ROUTES = {
+  scopes: "/scopes",
   plan: "/plan",
   push: "/push",
   changes: "/changes",
@@ -52,6 +53,9 @@ export const SYNC_TABLES = {
  * 届时复用 V1 的 scope / accessFingerprint 思路。
  */
 export const SYNC_PERSONAL_SCOPE_KEY = "personal";
+
+/** 工作区同步作用域键前缀。 */
+export const SYNC_WORKSPACE_SCOPE_PREFIX = "workspace:";
 
 /**
  * 退避重试节奏（毫秒）。
