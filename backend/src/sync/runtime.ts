@@ -23,7 +23,7 @@ import { isLocalFirstSyncV2Enabled } from "./flag";
 import { logSyncInfo, logSyncWarn } from "./log";
 import { ensureDevice } from "./device";
 import { getActiveProfile } from "./profile";
-import { createRemoteClientForProfile } from "./credentials";
+import { createBlobClientForProfile, createRemoteClientForProfile } from "./credentials";
 import { promoteLocalAttachments } from "./attachments";
 import { isBootstrapReady } from "./bootstrap";
 
@@ -157,12 +157,16 @@ export function reconcileSyncEngine(
     return null;
   }
 
+  // 附件二进制通道与元数据通道使用同一凭据但独立参数。
+  const blobClient = createBlobClientForProfile(enabled.id, enabled.serverUrl);
+
   const engine = new SyncEngine({
     db,
     profileId: enabled.id,
     deviceId: device.id,
     userId,
     client,
+    blobClient,
     intervalMs: options.intervalMs,
   });
 

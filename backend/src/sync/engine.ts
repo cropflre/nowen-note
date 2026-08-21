@@ -4,7 +4,12 @@ import {
   SYNC_PUSH_MAX_MUTATIONS,
   syncRetryDelayMs,
 } from "./constants";
-import { isRetryableSyncError, isSyncErrorCode } from "./errors";
+import { SyncError, isRetryableSyncError, isSyncErrorCode } from "./errors";
+import {
+  pullAttachmentBlobs,
+  pushAttachmentBlobs,
+  type SyncBlobClient,
+} from "./blob";
 import { logSyncError, logSyncInfo, logSyncWarn } from "./log";
 import {
   advanceSyncState,
@@ -68,6 +73,13 @@ export interface SyncEngineOptions {
   deviceId: string;
   userId: string;
   client: SyncRemoteClient;
+  /**
+   * 附件二进制通道客户端。
+   *
+   * 可选：缺失时元数据同步照常工作，只是附件二进制不传输。
+   * 这样部署在受限环境（无对象存储/带宽紧张）也能先跑起正文同步。
+   */
+  blobClient?: SyncBlobClient | null;
   /** 周期同步间隔；0 表示只在被显式触发时同步。 */
   intervalMs?: number;
   /** 允许测试注入定时器控制。 */
@@ -105,6 +117,7 @@ export class SyncEngine {
   private readonly deviceId: string;
   private readonly userId: string;
   private readonly client: SyncRemoteClient;
+  private readonly blobClient: SyncBlobClient | null;
   private readonly intervalMs: number;
   private readonly scheduler: NonNullable<SyncEngineOptions["scheduler"]>;
 
@@ -114,6 +127,7 @@ export class SyncEngine {
     this.deviceId = options.deviceId;
     this.userId = options.userId;
     this.client = options.client;
+    this.blobClient = options.blobClient ?? null;
     this.intervalMs = options.intervalMs ?? DEFAULT_INTERVAL_MS;
     this.scheduler = options.scheduler ?? {
       setTimeout: (fn, ms) => setTimeout(fn, ms),
@@ -241,6 +255,9 @@ export class SyncEngine {
     try {
       await this.runPush();
       await this.runPull();
+      // 附件二进制放在最后：它耗时最长且不影响正文一致性。
+      // 放前面会让一个 20MB 的附件把笔记同步整轮拖住。
+      await this.runBlobs();
 
       this.state = "idle";
       this.lastError = null;
@@ -319,6 +336,30 @@ export class SyncEngine {
   // -------------------------------------------------------------------------
   // Push
   // -------------------------------------------------------------------------
+
+  /**
+   * 传输附件二进制。
+   *
+   * 与元数据分开且**失败不抛出**：附件传不上去不该让整轮同步进入 error 状态，
+   * 用户的笔记正文已经同步成功了。失败只累加 retryCount，下轮继续。
+   *
+   * blobClient 缺失（未配置或测试未注入）时静默跳过，
+   * 保证元数据同步在任何情况下都能独立工作。
+   */
+  private async runBlobs(): Promise<void> {
+    if (!this.blobClient) return;
+    this.phase = "applying";
+    try {
+      await pushAttachmentBlobs(this.db, this.blobClient);
+      await pullAttachmentBlobs(this.db, this.blobClient);
+    } catch (error) {
+      // 只记日志：附件是次要通道，不能污染整轮同步的状态判定。
+      logSyncWarn("engine.blob-cycle-failed", {
+        profileId: this.profileId,
+        errorCode: error instanceof SyncError ? error.code : "SERVER_ERROR",
+      });
+    }
+  }
 
   private async runPush(): Promise<void> {
     this.phase = "pushing";

@@ -264,3 +264,29 @@ export type {
   BootstrapStatus,
   ReconcilePlan,
 } from "./bootstrap";
+
+// --- 阶段 E/H：Lite 迁移与附件二进制 ---
+
+export {
+  getLiteMigrationProgress,
+  isLiteMigrationComplete,
+  resetLiteMigration,
+  runLiteMigration,
+} from "./liteMigration";
+export type {
+  LiteMigrationOptions,
+  LiteMigrationProgress,
+  LiteMigrationStage,
+  LiteVerification,
+} from "./liteMigration";
+
+export {
+  SyncBlobClient,
+  pullAttachmentBlobs,
+  pushAttachmentBlobs,
+} from "./blob";
+export type { BlobClientOptions, BlobTransferResult } from "./blob";
+
+export { markBootstrapReady } from "./bootstrap";
+export { createBlobClientForProfile } from "./credentials";
+export { classifyHttpStatus } from "./errors";

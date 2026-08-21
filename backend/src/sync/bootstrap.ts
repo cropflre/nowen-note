@@ -126,6 +126,28 @@ function setStatus(
   db.prepare(`UPDATE sync_profiles SET ${sets.join(", ")} WHERE id = ?`).run(args);
 }
 
+/**
+ * 直接把 Profile 标记为基线就绪并落定游标。
+ *
+ * 供 Lite 迁移使用：那条路径刚把远端数据完整下载到本地，
+ * 两端此刻定义上一致，再跑一次全量对账等于重新下载一遍。
+ *
+ * 普通场景不要用这个 —— 必须走 runBootstrap 的完整对账，
+ * 否则会跳过冲突检测。
+ */
+export function markBootstrapReady(
+  db: Database.Database,
+  profileId: string,
+  sequence: number,
+): void {
+  const run = db.transaction(() => {
+    setStatus(db, profileId, "ready", { cursor: null, sequence, error: null });
+    // 同时推进同步游标：否则增量引擎会从 0 开始重新拉取全部变更。
+    advanceSyncState(db, profileId, sequence);
+  });
+  run();
+}
+
 // ---------------------------------------------------------------------------
 // 本地状态快照（用于对账与上传）
 // ---------------------------------------------------------------------------

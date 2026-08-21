@@ -55,6 +55,26 @@ export function registerLocalAttachment(
     VALUES (?, ?, ?, 0, datetime('now'))
     ON CONFLICT(attachmentId) DO UPDATE SET
       profileId = COALESCE(excluded.profileId, attachment_sync_state.profileId),
+      -- 只把 local 提升为 pending，其余状态一律不动。
+      --
+      -- 为什么需要这条提升：v84 的触发器会在 INSERT INTO attachments 时先建好
+      -- 状态行，此时若尚无 active profile 则为 local。之后调用方带着 profileId
+      -- 再次登记（例如附件路由在事务内显式登记、或刚开启同步）时，
+      -- 如果不提升状态，这个附件会永远停在 local 而从不进入上传队列 ——
+      -- 表现为其他设备上永久破图，且没有任何错误提示。
+      --
+      -- 为什么只提升 local：
+      --   synced   已上传完成，重置会导致无意义的重复上传；
+      --   uploading 正在传输中，改状态会让本轮结果写回时状态错乱；
+      --   failed   已有 retryCount 记录，重置会丢失重试历史；
+      --   remoteOnly=1 的行是"远端已有待下载"，误判成待上传会把空文件推回服务器。
+      status = CASE
+        WHEN attachment_sync_state.status = 'local'
+          AND attachment_sync_state.remoteOnly = 0
+          AND excluded.profileId IS NOT NULL
+        THEN 'pending'
+        ELSE attachment_sync_state.status
+      END,
       updatedAt = datetime('now')
   `).run(attachmentId, profileId, profileId ? "pending" : "local");
 }

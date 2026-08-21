@@ -16,6 +16,7 @@ import notesRouter from "./routes/notes";
 import noteTemplatesRouter from "./routes/note-templates";
 import offlineSyncRouter from "./routes/offline-sync";
 import syncV2Router from "./routes/sync-v2";
+import syncV2BlobRouter from "./routes/sync-v2-blob";
 import syncLocalRouter from "./routes/sync-local";
 import clipperLocalRouter from "./routes/clipper-local";
 import blocksRouter from "./routes/blocks";
@@ -496,6 +497,8 @@ app.route("/api/note-templates", noteTemplatesRouter);
 app.route("/api/offline-sync", offlineSyncRouter);
 // Sync V2（Local-first）。与 V1 并存：V1 服务已发布客户端，不做任何改动。
 // 路由内部有 Feature Flag 守卫，未启用时返回 404。
+// 附件二进制通道必须先挂载：/api/sync/v2 下的 :param 路由会吞掉 /blob/xxx。
+app.route("/api/sync/v2/blob", syncV2BlobRouter);
 app.route("/api/sync/v2", syncV2Router);
 // 本地同步管理（同步设置 / 冲突中心 / 诊断），仅供 Desktop renderer 通过 localhost 调用。
 app.route("/api/sync/local", syncLocalRouter);

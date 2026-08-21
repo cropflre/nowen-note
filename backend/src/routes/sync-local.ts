@@ -32,6 +32,13 @@ import {
   runBootstrap,
 } from "../sync/bootstrap";
 import {
+  getLiteMigrationProgress,
+  resetLiteMigration,
+  runLiteMigration,
+} from "../sync/liteMigration";
+import { SyncRemoteClient } from "../sync/remote";
+import { SyncBlobClient } from "../sync/blob";
+import {
   clearRemoteCredential,
   createRemoteClientForProfile,
   hasRemoteCredential,
@@ -403,6 +410,99 @@ app.post("/bootstrap/reset", (c) => {
   return c.json({
     ...getBootstrapProgress(db, active.id),
     message: "已重置同步对账状态，本地数据完整保留。",
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Legacy Lite → Local 迁移（阶段 E）
+// ---------------------------------------------------------------------------
+
+/**
+ * 触发（或续跑）Lite 数据本地化迁移。
+ *
+ * 需要客户端提供远端地址与访问令牌 —— Lite 用户的凭据原本存在 renderer 侧，
+ * 迁移时必须交给 Embedded Backend 才能下载数据。
+ *
+ * 幂等且可断点续跑。失败时保持非 complete 状态，
+ * Electron 会据此让用户继续用旧的 Lite 方式工作。
+ */
+app.post("/lite-migration", async (c) => {
+  const denied = guard(c);
+  if (denied) return denied;
+
+  const db = getDb();
+  let body: { serverUrl?: unknown; token?: unknown };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "请求体不是合法 JSON", code: "INVALID_PAYLOAD" }, 400);
+  }
+
+  const serverUrl = typeof body.serverUrl === "string" ? body.serverUrl.trim() : "";
+  const token = typeof body.token === "string" ? body.token.trim() : "";
+  if (!/^https?:\/\//i.test(serverUrl)) {
+    return c.json({ error: "服务器地址必须以 http(s):// 开头", code: "INVALID_PAYLOAD" }, 400);
+  }
+  if (!token) {
+    return c.json({ error: "缺少远端访问令牌", code: "AUTH_EXPIRED" }, 401);
+  }
+
+  const userId = c.req.header("X-User-Id") as string;
+  const normalized = serverUrl.replace(/\/+$/, "");
+
+  try {
+    const progress = await runLiteMigration({
+      db,
+      remoteUrl: normalized,
+      userId,
+      client: new SyncRemoteClient({ serverUrl: normalized, token }),
+      blobClient: new SyncBlobClient({
+        serverUrl: normalized,
+        credential: { serverUrl: normalized, token },
+      }),
+    });
+
+    // 迁移成功后保存凭据并启动引擎，用户无需再手动连接一次。
+    if (progress.stage === "complete" && progress.profileId) {
+      saveRemoteCredential({
+        profileId: progress.profileId,
+        serverUrl: normalized,
+        token,
+      });
+      const engine = reconcileSyncEngine(db);
+      return c.json({ ...progress, engineRunning: engine !== null });
+    }
+    return c.json({ ...progress, engineRunning: false });
+  } catch (error) {
+    return c.json(
+      {
+        ...getLiteMigrationProgress(db),
+        error: error instanceof Error ? error.message.slice(0, 200) : "SERVER_ERROR",
+      },
+      500,
+    );
+  }
+});
+
+/** 迁移进度，供 UI 显示当前阶段与失败原因。 */
+app.get("/lite-migration", (c) => {
+  const denied = guard(c);
+  if (denied) return denied;
+  return c.json(getLiteMigrationProgress(getDb()));
+});
+
+/**
+ * 重置迁移状态以便重试。
+ *
+ * 只清进度，**已下载的笔记与附件全部保留** —— 它们是正确数据，
+ * 重跑时 upsert 会自然覆盖，重新下载一遍纯属浪费用户带宽。
+ */
+app.post("/lite-migration/reset", (c) => {
+  const denied = guard(c);
+  if (denied) return denied;
+  return c.json({
+    ...resetLiteMigration(getDb()),
+    message: "已重置迁移状态，已下载的数据完整保留。",
   });
 });
 

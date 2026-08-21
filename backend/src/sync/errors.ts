@@ -25,6 +25,19 @@ export const SYNC_ERROR_CODES = [
   "NETWORK_UNAVAILABLE",
   /** 服务端内部错误，属于可重试类别。 */
   "SERVER_ERROR",
+  /**
+   * 内容校验失败（附件 hash 不匹配）。
+   *
+   * 不可重试：重传同一份坏内容只会一直失败，需要人工或上游修正。
+   */
+  "VALIDATION_FAILED",
+  /**
+   * 远端元数据已存在但二进制尚未上传。
+   *
+   * 不是错误，只是"还没准备好"。下一轮同步自然重试，
+   * 因此不能据此把本地记录删掉。
+   */
+  "BLOB_NOT_READY",
 ] as const;
 
 export type SyncErrorCode = (typeof SYNC_ERROR_CODES)[number];
@@ -42,7 +55,27 @@ export function isSyncErrorCode(value: unknown): value is SyncErrorCode {
  * 重复提交同样会失败。这些都不该无脑轮询，但对应的 Outbox 条目仍然保留。
  */
 export function isRetryableSyncError(code: SyncErrorCode): boolean {
-  return code === "NETWORK_UNAVAILABLE" || code === "SERVER_ERROR";
+  // BLOB_NOT_READY 可重试：对端上传完成后自然成功。
+  // VALIDATION_FAILED 刻意不可重试：重传同一份坏内容只会一直失败，
+  // 无限重试还会掩盖真正的数据损坏问题。
+  return (
+    code === "NETWORK_UNAVAILABLE"
+    || code === "SERVER_ERROR"
+    || code === "BLOB_NOT_READY"
+  );
+}
+
+/**
+ * 把 HTTP 状态码映射到同步错误分类。
+ *
+ * 404 归为 SERVER_ERROR 而非"数据不存在"：它通常意味着远端未启用 Sync V2
+ * 或路由未挂载，属于配置/部署问题，重试是合理的。
+ */
+export function classifyHttpStatus(status: number): SyncErrorCode {
+  if (status === 401 || status === 403) return "AUTH_EXPIRED";
+  if (status === 400 || status === 413 || status === 415) return "INVALID_PAYLOAD";
+  if (status >= 500 || status === 404) return "SERVER_ERROR";
+  return "SERVER_ERROR";
 }
 
 export class SyncError extends Error {

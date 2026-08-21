@@ -18,6 +18,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 import { SyncRemoteClient } from "./remote";
+import { SyncBlobClient } from "./blob";
 import type { RemoteCredentials } from "./remote";
 
 const DATA_DIR = process.env.ELECTRON_USER_DATA || path.join(process.cwd(), "data");
@@ -123,4 +124,26 @@ export function createRemoteClientForProfile(
     token: stored.token,
   };
   return new SyncRemoteClient(credentials);
+}
+
+/**
+ * 构造附件二进制通道客户端。
+ *
+ * 与 createRemoteClientForProfile 分开而不是合成一个对象：
+ * 两条通道的超时、并发、重试语义完全不同（JSON 请求秒级，附件可能要一分钟），
+ * 混在一起会让其中一方被迫接受另一方的参数。
+ */
+export function createBlobClientForProfile(
+  profileId: string,
+  serverUrl: string,
+): SyncBlobClient | null {
+  const stored = getRemoteCredential(profileId);
+  if (!stored) return null;
+  return new SyncBlobClient({
+    serverUrl: serverUrl.replace(/\/+$/, ""),
+    credential: {
+      serverUrl: serverUrl.replace(/\/+$/, ""),
+      token: stored.token,
+    },
+  });
 }

@@ -12,6 +12,14 @@
  */
 export const SYNC_V2_BASE_PATH = "/api/sync/v2";
 
+/**
+ * 附件二进制通道路径（阶段 H）。
+ *
+ * 与 metadata 分离：metadata 走 push/pull 的 JSON 协议，
+ * 二进制走这里的裸字节流。base64 会膨胀 33%，而附件是同步流量的主要来源。
+ */
+export const SYNC_V2_BLOB_PATH = `${SYNC_V2_BASE_PATH}/blob`;
+
 /** Sync V2 端点（相对 SYNC_V2_BASE_PATH）。 */
 export const SYNC_V2_ROUTES = {
   plan: "/plan",
