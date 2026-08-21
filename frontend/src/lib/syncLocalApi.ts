@@ -1,4 +1,5 @@
 import { getBaseUrl } from "@/lib/api";
+import { fetchWithAuthRefresh, getAccessToken } from "@/lib/authSession";
 
 /**
  * Sync V2 本地管理 API 客户端（Phase 7）。
@@ -83,14 +84,17 @@ export class SyncV2DisabledError extends Error {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${getBaseUrl()}/sync/local${path}`, {
+  const baseUrl = getBaseUrl();
+  const token = getAccessToken();
+  const response = await fetchWithAuthRefresh(`${baseUrl}/sync/local${path}`, {
     ...init,
     headers: {
       ...(init?.body ? { "Content-Type": "application/json" } : {}),
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...(init?.headers || {}),
     },
     cache: "no-store",
-  });
+  }, baseUrl);
 
   if (response.status === 404) {
     let code = "";

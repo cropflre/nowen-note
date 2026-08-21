@@ -73,6 +73,7 @@ let ugreenWorkspaceWindow = null;
 let localAuthCache = null;  // { token: string, user: object } | null
 
 const MAIN_WINDOW_RELOAD_URL = "nowen-reload://main";
+const PREFERRED_BACKEND_PORT = 57892;
 
 // ---------- 单实例锁（防止多开损坏 SQLite） ----------
 const gotTheLock = app.requestSingleInstanceLock();
@@ -337,16 +338,33 @@ function findNodeExecutable() {
   return { cmd: process.execPath, useElectron: true };
 }
 
-// ---------- 动态获取空闲端口 ----------
+// ---------- 优先使用固定端口；冲突时动态获取空闲端口 ----------
 function getFreePort() {
   return new Promise((resolve, reject) => {
-    const srv = net.createServer();
-    srv.unref();
-    srv.on("error", reject);
-    srv.listen(0, "127.0.0.1", () => {
-      const { port } = srv.address();
-      srv.close(() => resolve(port));
-    });
+    const tryListen = (port, allowFallback) => {
+      const srv = net.createServer();
+      srv.unref();
+      srv.once("error", (error) => {
+        if (allowFallback && (error?.code === "EADDRINUSE" || error?.code === "EACCES")) {
+          console.warn(
+            `[Electron] Preferred backend port ${PREFERRED_BACKEND_PORT} is unavailable (${error.code}); using a random free port instead.`
+          );
+          tryListen(0, false);
+          return;
+        }
+        reject(error);
+      });
+      srv.listen(port, "127.0.0.1", () => {
+        const address = srv.address();
+        const selectedPort = typeof address === "object" && address ? address.port : 0;
+        srv.close((error) => {
+          if (error) reject(error);
+          else resolve(selectedPort);
+        });
+      });
+    };
+
+    tryListen(PREFERRED_BACKEND_PORT, true);
   });
 }
 
@@ -574,7 +592,7 @@ async function startBackend() {
   });
 
   // Clipper Native Host 需要知道本次 Backend 的端口。
-  // 端口每次启动都不同，因此必须落盘；未配对时 token 为空。
+  // 首选端口被占用时会动态回退，因此仍须落盘实际端口；未配对时 token 为空。
   try {
     clipperHost.setRuntimeDir(userDataPath);
     clipperHost.publishRuntime({ port: backendPort, token: "" });

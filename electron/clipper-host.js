@@ -65,8 +65,8 @@ function runtimeFilePath() {
 /**
  * 写入运行时连接信息。
  *
- * Backend 端口每次启动都不同（动态取空闲端口），所以必须落盘让
- * Native Host 能找到当前实例。原子写避免读到半截 JSON。
+ * Backend 优先使用固定端口，但冲突时会动态回退，所以必须落盘让
+ * Native Host 找到当前实例的实际端口。原子写避免读到半截 JSON。
  */
 function publishRuntime({ port, token }) {
   currentPort = port;
