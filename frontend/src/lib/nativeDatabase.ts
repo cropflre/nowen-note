@@ -623,7 +623,6 @@ async function ensureConnectionsConsistent(
     const result = await state.connection.checkConnectionsConsistency();
     if (result.result === true) return;
   } catch (error) {
-    state.databases.clear();
     throw error;
   }
 
