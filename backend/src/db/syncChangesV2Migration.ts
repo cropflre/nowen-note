@@ -123,12 +123,20 @@ export const syncChangesV2Migration: Migration = {
 export function installSyncChangesV2Triggers(
   db: Parameters<Migration["up"]>[0],
 ): void {
+    const outboxColumns = db.prepare("PRAGMA table_info(sync_outbox)").all() as Array<{ name: string }>;
+    // v91 以 scopeKey 列作为作用域触发器的启用标记。v82/v90 重装时该列尚不存在，
+    // 必须继续保持个人空间行为，避免旧客户端收到无法处理的工作区变更。
+    const scopeAware = outboxColumns.some((column) => column.name === "scopeKey");
+    const directScopeCondition = (alias: "NEW" | "OLD") =>
+      scopeAware ? "1 = 1" : `${alias}.workspaceId IS NULL`;
+    const noteScopeCondition = scopeAware ? "" : "AND n.workspaceId IS NULL";
+
     // --- notebook ---
     db.exec(`
       DROP TRIGGER IF EXISTS sync_v2_notebooks_insert;
       CREATE TRIGGER sync_v2_notebooks_insert
       AFTER INSERT ON notebooks
-      WHEN NEW.workspaceId IS NULL
+      WHEN ${directScopeCondition("NEW")}
         AND (SELECT enabled FROM sync_v2_should_log) = 1
       BEGIN
         INSERT INTO sync_changes_v2 (entityType, entityId, noteId, userId, workspaceId, operation, version)
@@ -138,17 +146,21 @@ export function installSyncChangesV2Triggers(
       DROP TRIGGER IF EXISTS sync_v2_notebooks_update;
       CREATE TRIGGER sync_v2_notebooks_update
       AFTER UPDATE ON notebooks
-      WHEN NEW.workspaceId IS NULL
-        AND (SELECT enabled FROM sync_v2_should_log) = 1
+      WHEN (SELECT enabled FROM sync_v2_should_log) = 1
       BEGIN
         INSERT INTO sync_changes_v2 (entityType, entityId, noteId, userId, workspaceId, operation, version)
-        VALUES ('notebook', NEW.id, NULL, NEW.userId, NEW.workspaceId, 'upsert', NULL);
+        SELECT 'notebook', OLD.id, NULL, OLD.userId, OLD.workspaceId, 'delete', NULL
+        WHERE (${scopeAware ? "OLD.workspaceId IS NOT NEW.workspaceId OR OLD.userId IS NOT NEW.userId" : "OLD.workspaceId IS NULL AND (NEW.workspaceId IS NOT NULL OR OLD.userId IS NOT NEW.userId)"});
+
+        INSERT INTO sync_changes_v2 (entityType, entityId, noteId, userId, workspaceId, operation, version)
+        SELECT 'notebook', NEW.id, NULL, NEW.userId, NEW.workspaceId, 'upsert', NULL
+        WHERE ${directScopeCondition("NEW")};
       END;
 
       DROP TRIGGER IF EXISTS sync_v2_notebooks_delete;
       CREATE TRIGGER sync_v2_notebooks_delete
       BEFORE DELETE ON notebooks
-      WHEN OLD.workspaceId IS NULL
+      WHEN ${directScopeCondition("OLD")}
         AND (SELECT enabled FROM sync_v2_should_log) = 1
       BEGIN
         INSERT INTO sync_changes_v2 (entityType, entityId, noteId, userId, workspaceId, operation, version)
@@ -161,7 +173,7 @@ export function installSyncChangesV2Triggers(
       DROP TRIGGER IF EXISTS sync_v2_notes_insert;
       CREATE TRIGGER sync_v2_notes_insert
       AFTER INSERT ON notes
-      WHEN NEW.workspaceId IS NULL
+      WHEN ${directScopeCondition("NEW")}
         AND (SELECT enabled FROM sync_v2_should_log) = 1
       BEGIN
         INSERT INTO sync_changes_v2 (entityType, entityId, noteId, userId, workspaceId, operation, version)
@@ -171,31 +183,44 @@ export function installSyncChangesV2Triggers(
       DROP TRIGGER IF EXISTS sync_v2_notes_update;
       CREATE TRIGGER sync_v2_notes_update
       AFTER UPDATE ON notes
-      WHEN NEW.workspaceId IS NULL
-        AND (SELECT enabled FROM sync_v2_should_log) = 1
+      WHEN (SELECT enabled FROM sync_v2_should_log) = 1
       BEGIN
         INSERT INTO sync_changes_v2 (entityType, entityId, noteId, userId, workspaceId, operation, version)
-        VALUES ('note', NEW.id, NEW.id, NEW.userId, NEW.workspaceId, 'upsert', NEW.version);
+        SELECT 'note', OLD.id, OLD.id, OLD.userId, OLD.workspaceId, 'delete', OLD.version
+        WHERE (${scopeAware ? "OLD.workspaceId IS NOT NEW.workspaceId OR OLD.userId IS NOT NEW.userId" : "OLD.workspaceId IS NULL AND (NEW.workspaceId IS NOT NULL OR OLD.userId IS NOT NEW.userId)"});
+
+        INSERT INTO sync_changes_v2 (entityType, entityId, noteId, userId, workspaceId, operation, version)
+        SELECT 'note', NEW.id, NEW.id, NEW.userId, NEW.workspaceId, 'upsert', NEW.version
+        WHERE ${directScopeCondition("NEW")};
       END;
 
-      -- 笔记被移出个人空间（转入 workspace 或换 owner）时，
-      -- 必须在原作用域留下 tombstone，否则订阅原作用域的客户端会永久保留
-      -- 一份已无权访问的副本。
       DROP TRIGGER IF EXISTS sync_v2_notes_scope_move;
-      CREATE TRIGGER sync_v2_notes_scope_move
+
+      DROP TRIGGER IF EXISTS sync_v2_notes_children_scope_move;
+      ${scopeAware ? `CREATE TRIGGER sync_v2_notes_children_scope_move
       AFTER UPDATE OF userId, workspaceId ON notes
-      WHEN OLD.workspaceId IS NULL
-        AND (OLD.userId != NEW.userId OR NEW.workspaceId IS NOT NULL)
+      WHEN (OLD.workspaceId IS NOT NEW.workspaceId OR OLD.userId IS NOT NEW.userId)
         AND (SELECT enabled FROM sync_v2_should_log) = 1
       BEGIN
+        -- 关系与附件的作用域由所属笔记决定；父笔记移动时必须同步搬迁。
         INSERT INTO sync_changes_v2 (entityType, entityId, noteId, userId, workspaceId, operation, version)
-        VALUES ('note', OLD.id, OLD.id, OLD.userId, OLD.workspaceId, 'delete', OLD.version);
-      END;
+        SELECT 'note_tag', OLD.id || ':' || nt.tagId, OLD.id, OLD.userId, OLD.workspaceId, 'delete', NULL
+        FROM note_tags nt WHERE nt.noteId = OLD.id;
+        INSERT INTO sync_changes_v2 (entityType, entityId, noteId, userId, workspaceId, operation, version)
+        SELECT 'note_tag', NEW.id || ':' || nt.tagId, NEW.id, NEW.userId, NEW.workspaceId, 'upsert', NULL
+        FROM note_tags nt WHERE nt.noteId = NEW.id;
+        INSERT INTO sync_changes_v2 (entityType, entityId, noteId, userId, workspaceId, operation, version)
+        SELECT 'attachment', a.id, OLD.id, a.userId, OLD.workspaceId, 'delete', NULL
+        FROM attachments a WHERE a.noteId = OLD.id;
+        INSERT INTO sync_changes_v2 (entityType, entityId, noteId, userId, workspaceId, operation, version)
+        SELECT 'attachment', a.id, NEW.id, a.userId, NEW.workspaceId, 'upsert', NULL
+        FROM attachments a WHERE a.noteId = NEW.id;
+      END;` : ""}
 
       DROP TRIGGER IF EXISTS sync_v2_notes_delete;
       CREATE TRIGGER sync_v2_notes_delete
       BEFORE DELETE ON notes
-      WHEN OLD.workspaceId IS NULL
+      WHEN ${directScopeCondition("OLD")}
         AND (SELECT enabled FROM sync_v2_should_log) = 1
       BEGIN
         INSERT INTO sync_changes_v2 (entityType, entityId, noteId, userId, workspaceId, operation, version)
@@ -208,7 +233,7 @@ export function installSyncChangesV2Triggers(
       DROP TRIGGER IF EXISTS sync_v2_tags_insert;
       CREATE TRIGGER sync_v2_tags_insert
       AFTER INSERT ON tags
-      WHEN NEW.workspaceId IS NULL
+      WHEN ${directScopeCondition("NEW")}
         AND (SELECT enabled FROM sync_v2_should_log) = 1
       BEGIN
         INSERT INTO sync_changes_v2 (entityType, entityId, noteId, userId, workspaceId, operation, version)
@@ -218,17 +243,21 @@ export function installSyncChangesV2Triggers(
       DROP TRIGGER IF EXISTS sync_v2_tags_update;
       CREATE TRIGGER sync_v2_tags_update
       AFTER UPDATE ON tags
-      WHEN NEW.workspaceId IS NULL
-        AND (SELECT enabled FROM sync_v2_should_log) = 1
+      WHEN (SELECT enabled FROM sync_v2_should_log) = 1
       BEGIN
         INSERT INTO sync_changes_v2 (entityType, entityId, noteId, userId, workspaceId, operation, version)
-        VALUES ('tag', NEW.id, NULL, NEW.userId, NEW.workspaceId, 'upsert', NULL);
+        SELECT 'tag', OLD.id, NULL, OLD.userId, OLD.workspaceId, 'delete', NULL
+        WHERE (${scopeAware ? "OLD.workspaceId IS NOT NEW.workspaceId OR OLD.userId IS NOT NEW.userId" : "OLD.workspaceId IS NULL AND (NEW.workspaceId IS NOT NULL OR OLD.userId IS NOT NEW.userId)"});
+
+        INSERT INTO sync_changes_v2 (entityType, entityId, noteId, userId, workspaceId, operation, version)
+        SELECT 'tag', NEW.id, NULL, NEW.userId, NEW.workspaceId, 'upsert', NULL
+        WHERE ${directScopeCondition("NEW")};
       END;
 
       DROP TRIGGER IF EXISTS sync_v2_tags_delete;
       CREATE TRIGGER sync_v2_tags_delete
       BEFORE DELETE ON tags
-      WHEN OLD.workspaceId IS NULL
+      WHEN ${directScopeCondition("OLD")}
         AND (SELECT enabled FROM sync_v2_should_log) = 1
       BEGIN
         INSERT INTO sync_changes_v2 (entityType, entityId, noteId, userId, workspaceId, operation, version)
@@ -248,7 +277,7 @@ export function installSyncChangesV2Triggers(
         INSERT INTO sync_changes_v2 (entityType, entityId, noteId, userId, workspaceId, operation, version)
         SELECT 'note_tag', NEW.noteId || ':' || NEW.tagId, NEW.noteId,
                n.userId, n.workspaceId, 'upsert', NULL
-        FROM notes n WHERE n.id = NEW.noteId AND n.workspaceId IS NULL;
+        FROM notes n WHERE n.id = NEW.noteId ${noteScopeCondition};
       END;
 
       DROP TRIGGER IF EXISTS sync_v2_note_tags_delete;
@@ -259,7 +288,7 @@ export function installSyncChangesV2Triggers(
         INSERT INTO sync_changes_v2 (entityType, entityId, noteId, userId, workspaceId, operation, version)
         SELECT 'note_tag', OLD.noteId || ':' || OLD.tagId, OLD.noteId,
                n.userId, n.workspaceId, 'delete', NULL
-        FROM notes n WHERE n.id = OLD.noteId AND n.workspaceId IS NULL;
+        FROM notes n WHERE n.id = OLD.noteId ${noteScopeCondition};
       END;
     `);
 
@@ -269,7 +298,7 @@ export function installSyncChangesV2Triggers(
       DROP TRIGGER IF EXISTS sync_v2_favorites_insert;
       CREATE TRIGGER sync_v2_favorites_insert
       AFTER INSERT ON favorites
-      WHEN NEW.workspaceId IS NULL
+      WHEN ${directScopeCondition("NEW")}
         AND (SELECT enabled FROM sync_v2_should_log) = 1
       BEGIN
         INSERT INTO sync_changes_v2 (entityType, entityId, noteId, userId, workspaceId, operation, version)
@@ -277,10 +306,26 @@ export function installSyncChangesV2Triggers(
                 NEW.userId, NEW.workspaceId, 'upsert', NULL);
       END;
 
+      DROP TRIGGER IF EXISTS sync_v2_favorites_update;
+      CREATE TRIGGER sync_v2_favorites_update
+      AFTER UPDATE ON favorites
+      WHEN (SELECT enabled FROM sync_v2_should_log) = 1
+      BEGIN
+        INSERT INTO sync_changes_v2 (entityType, entityId, noteId, userId, workspaceId, operation, version)
+        SELECT 'favorite', OLD.userId || ':' || OLD.noteId, OLD.noteId,
+               OLD.userId, OLD.workspaceId, 'delete', NULL
+        WHERE (${scopeAware ? "OLD.workspaceId IS NOT NEW.workspaceId OR OLD.userId IS NOT NEW.userId OR OLD.noteId IS NOT NEW.noteId" : "OLD.workspaceId IS NULL AND (NEW.workspaceId IS NOT NULL OR OLD.userId IS NOT NEW.userId OR OLD.noteId IS NOT NEW.noteId)"});
+
+        INSERT INTO sync_changes_v2 (entityType, entityId, noteId, userId, workspaceId, operation, version)
+        SELECT 'favorite', NEW.userId || ':' || NEW.noteId, NEW.noteId,
+               NEW.userId, NEW.workspaceId, 'upsert', NULL
+        WHERE ${directScopeCondition("NEW")};
+      END;
+
       DROP TRIGGER IF EXISTS sync_v2_favorites_delete;
       CREATE TRIGGER sync_v2_favorites_delete
       AFTER DELETE ON favorites
-      WHEN OLD.workspaceId IS NULL
+      WHEN ${directScopeCondition("OLD")}
         AND (SELECT enabled FROM sync_v2_should_log) = 1
       BEGIN
         INSERT INTO sync_changes_v2 (entityType, entityId, noteId, userId, workspaceId, operation, version)
@@ -299,7 +344,7 @@ export function installSyncChangesV2Triggers(
       BEGIN
         INSERT INTO sync_changes_v2 (entityType, entityId, noteId, userId, workspaceId, operation, version)
         SELECT 'attachment', NEW.id, NEW.noteId, NEW.userId, n.workspaceId, 'upsert', NULL
-        FROM notes n WHERE n.id = NEW.noteId AND n.workspaceId IS NULL;
+        FROM notes n WHERE n.id = NEW.noteId ${noteScopeCondition};
       END;
 
       DROP TRIGGER IF EXISTS sync_v2_attachments_update;
@@ -308,8 +353,15 @@ export function installSyncChangesV2Triggers(
       WHEN (SELECT enabled FROM sync_v2_should_log) = 1
       BEGIN
         INSERT INTO sync_changes_v2 (entityType, entityId, noteId, userId, workspaceId, operation, version)
+        SELECT 'attachment', OLD.id, OLD.noteId, OLD.userId, n.workspaceId, 'delete', NULL
+        FROM notes n
+        WHERE n.id = OLD.noteId
+          ${noteScopeCondition}
+          AND (${scopeAware ? "OLD.noteId IS NOT NEW.noteId OR OLD.userId IS NOT NEW.userId OR n.workspaceId IS NOT (SELECT workspaceId FROM notes WHERE id = NEW.noteId)" : "OLD.noteId IS NOT NEW.noteId OR OLD.userId IS NOT NEW.userId"});
+
+        INSERT INTO sync_changes_v2 (entityType, entityId, noteId, userId, workspaceId, operation, version)
         SELECT 'attachment', NEW.id, NEW.noteId, NEW.userId, n.workspaceId, 'upsert', NULL
-        FROM notes n WHERE n.id = NEW.noteId AND n.workspaceId IS NULL;
+        FROM notes n WHERE n.id = NEW.noteId ${noteScopeCondition};
       END;
 
       DROP TRIGGER IF EXISTS sync_v2_attachments_delete;
@@ -319,7 +371,7 @@ export function installSyncChangesV2Triggers(
       BEGIN
         INSERT INTO sync_changes_v2 (entityType, entityId, noteId, userId, workspaceId, operation, version)
         SELECT 'attachment', OLD.id, OLD.noteId, OLD.userId, n.workspaceId, 'delete', NULL
-        FROM notes n WHERE n.id = OLD.noteId AND n.workspaceId IS NULL;
+        FROM notes n WHERE n.id = OLD.noteId ${noteScopeCondition};
       END;
     `);
 }

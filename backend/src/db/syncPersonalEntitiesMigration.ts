@@ -12,8 +12,8 @@
 //   Change Feed 闸门：sync_v2_should_log
 //   Outbox 闸门：    sync_v2_should_enqueue（含 active profile + bootstrap ready）
 //
-// 范围仍限个人空间。mindmaps 有 workspaceId 列，需显式过滤；
-// tasks / task_reminders / diaries 没有该列，本身就是纯个人数据。
+// v2 已为 tasks / diaries 增加 workspaceId，mindmaps 建表时也带该列；
+// task_reminders 没有冗余列，作用域必须从所属 task 推导。
 
 import type { Migration } from "./migrations.impl.js";
 import { installSyncChangesV2Triggers } from "./syncChangesV2Migration.js";
@@ -23,13 +23,13 @@ import { installSyncOutboxCaptureTriggers } from "./syncOutboxCaptureMigration.j
 const ENTITY_TABLES: Array<{
   table: string;
   entityType: string;
-  /** 该表是否有 workspaceId 列（决定是否需要 scope 过滤）。 */
-  hasWorkspace: boolean;
+  /** direct 读取本行；task 通过 taskId 从 tasks 推导。 */
+  scopeSource: "direct" | "task";
 }> = [
-  { table: "tasks", entityType: "task", hasWorkspace: false },
-  { table: "task_reminders", entityType: "task_reminder", hasWorkspace: false },
-  { table: "diaries", entityType: "diary", hasWorkspace: false },
-  { table: "mindmaps", entityType: "mindmap", hasWorkspace: true },
+  { table: "tasks", entityType: "task", scopeSource: "direct" },
+  { table: "task_reminders", entityType: "task_reminder", scopeSource: "task" },
+  { table: "diaries", entityType: "diary", scopeSource: "direct" },
+  { table: "mindmaps", entityType: "mindmap", scopeSource: "direct" },
 ];
 
 /**
@@ -41,7 +41,7 @@ const ENTITY_TABLES: Array<{
  * 统一带上 baseUpdatedAt：那是冲突检测的依据。
  * 对 UPDATE 用 OLD.updatedAt —— 它正是"本次修改所基于的版本"。
  */
-function payloadExpr(entityType: string, alias: "NEW" | "OLD", baseAlias?: "OLD"): string {
+function payloadExpr(entityType: string, alias: string, baseAlias?: string): string {
   const base = baseAlias
     ? `'baseUpdatedAt', ${baseAlias}.updatedAt,`
     : "";
@@ -61,7 +61,8 @@ function payloadExpr(entityType: string, alias: "NEW" | "OLD", baseAlias?: "OLD"
         'createdAt', ${alias}.createdAt,
         'updatedAt', ${alias}.updatedAt,
         ${base}
-        'userId', ${alias}.userId
+        'userId', ${alias}.userId,
+        'workspaceId', ${alias}.workspaceId
       )`;
     case "task_reminder":
       // lastNotifiedAt 刻意不进 payload：本机通知状态不该同步，
@@ -72,7 +73,8 @@ function payloadExpr(entityType: string, alias: "NEW" | "OLD", baseAlias?: "OLD"
         'offsetMinutes', ${alias}.offsetMinutes,
         'enabled', ${alias}.enabled,
         'createdAt', ${alias}.createdAt,
-        'userId', ${alias}.userId
+        'userId', ${alias}.userId,
+        'workspaceId', (SELECT workspaceId FROM tasks WHERE id = ${alias}.taskId)
       )`;
     case "diary":
       return `json_object(
@@ -82,7 +84,8 @@ function payloadExpr(entityType: string, alias: "NEW" | "OLD", baseAlias?: "OLD"
         'images', ${alias}.images,
         'media', ${alias}.media,
         'createdAt', ${alias}.createdAt,
-        'userId', ${alias}.userId
+        'userId', ${alias}.userId,
+        'workspaceId', ${alias}.workspaceId
       )`;
     case "mindmap":
       return `json_object(
@@ -92,21 +95,232 @@ function payloadExpr(entityType: string, alias: "NEW" | "OLD", baseAlias?: "OLD"
         'createdAt', ${alias}.createdAt,
         'updatedAt', ${alias}.updatedAt,
         ${base}
-        'userId', ${alias}.userId
+        'userId', ${alias}.userId,
+        'workspaceId', ${alias}.workspaceId
       )`;
     default:
       throw new Error(`[migrations] v90 未知实体类型: ${entityType}`);
   }
 }
 
-/** 个人空间过滤条件。 */
-function scopeCondition(alias: "NEW" | "OLD", hasWorkspace: boolean): string {
-  return hasWorkspace ? `${alias}.workspaceId IS NULL` : "1 = 1";
+function workspaceExpr(alias: "NEW" | "OLD", scopeSource: "direct" | "task"): string {
+  return scopeSource === "direct"
+    ? `${alias}.workspaceId`
+    : `(SELECT workspaceId FROM tasks WHERE id = ${alias}.taskId)`;
 }
 
 /** diary / task_reminder 没有 updatedAt，不能构造 baseUpdatedAt。 */
 function hasUpdatedAt(entityType: string): boolean {
   return entityType === "task" || entityType === "mindmap";
+}
+
+/**
+ * 安装阶段 J 四类实体的 Change Feed / Outbox 触发器。
+ *
+ * v90 调用时 sync_outbox 尚无 scopeKey，只捕获个人空间；v91 重建后再次调用，
+ * 自动切换为工作区感知 SQL。这样历史迁移顺序不需要回写旧版本号。
+ */
+export function installSyncPersonalEntitiesTriggers(
+  db: Parameters<Migration["up"]>[0],
+): void {
+  const outboxColumns = db.prepare("PRAGMA table_info(sync_outbox)").all() as Array<{ name: string }>;
+  const scopeAware = outboxColumns.some((column) => column.name === "scopeKey");
+  const scopeColumn = scopeAware ? ", scopeKey" : "";
+  const scopeValue = (workspaceId: string) => scopeAware
+    ? `, CASE WHEN ${workspaceId} IS NULL THEN 'personal' ELSE 'workspace:' || ${workspaceId} END`
+    : "";
+
+  for (const { table, entityType, scopeSource } of ENTITY_TABLES) {
+    const exists = db.prepare(
+      "SELECT 1 FROM sqlite_master WHERE type='table' AND name = ?",
+    ).get(table);
+    if (!exists) continue;
+
+    const newWorkspace = workspaceExpr("NEW", scopeSource);
+    const oldWorkspace = workspaceExpr("OLD", scopeSource);
+    const newScopeCondition = scopeAware ? "1 = 1" : `${newWorkspace} IS NULL`;
+    const oldScopeCondition = scopeAware ? "1 = 1" : `${oldWorkspace} IS NULL`;
+    const scopeChanged = scopeSource === "direct"
+      ? `OLD.workspaceId IS NOT NEW.workspaceId OR OLD.userId IS NOT NEW.userId`
+      : `OLD.taskId IS NOT NEW.taskId OR OLD.userId IS NOT NEW.userId OR ${oldWorkspace} IS NOT ${newWorkspace}`;
+    const oldDeleteCondition = scopeAware
+      ? scopeChanged
+      : `${oldWorkspace} IS NULL AND (${scopeChanged})`;
+    const baseArg = hasUpdatedAt(entityType) ? "OLD" : undefined;
+
+    db.exec(`
+      DROP TRIGGER IF EXISTS sync_v2_${table}_feed_insert;
+      CREATE TRIGGER sync_v2_${table}_feed_insert
+      AFTER INSERT ON ${table}
+      WHEN ${newScopeCondition}
+        AND (SELECT enabled FROM sync_v2_should_log) = 1
+      BEGIN
+        INSERT INTO sync_changes_v2 (
+          entityType, entityId, operation, userId, workspaceId, changedAt
+        ) VALUES (
+          '${entityType}', NEW.id, 'upsert', NEW.userId, ${newWorkspace}, datetime('now')
+        );
+      END;
+
+      DROP TRIGGER IF EXISTS sync_v2_${table}_feed_update;
+      CREATE TRIGGER sync_v2_${table}_feed_update
+      AFTER UPDATE ON ${table}
+      WHEN (SELECT enabled FROM sync_v2_should_log) = 1
+      BEGIN
+        INSERT INTO sync_changes_v2 (
+          entityType, entityId, operation, userId, workspaceId, changedAt
+        )
+        SELECT '${entityType}', OLD.id, 'delete', OLD.userId, ${oldWorkspace}, datetime('now')
+        WHERE ${oldDeleteCondition};
+
+        INSERT INTO sync_changes_v2 (
+          entityType, entityId, operation, userId, workspaceId, changedAt
+        )
+        SELECT '${entityType}', NEW.id, 'upsert', NEW.userId, ${newWorkspace}, datetime('now')
+        WHERE ${newScopeCondition};
+      END;
+
+      DROP TRIGGER IF EXISTS sync_v2_${table}_feed_delete;
+      CREATE TRIGGER sync_v2_${table}_feed_delete
+      AFTER DELETE ON ${table}
+      WHEN ${oldScopeCondition}
+        AND (SELECT enabled FROM sync_v2_should_log) = 1
+      BEGIN
+        INSERT INTO sync_changes_v2 (
+          entityType, entityId, operation, userId, workspaceId, changedAt
+        ) VALUES (
+          '${entityType}', OLD.id, 'delete', OLD.userId, ${oldWorkspace}, datetime('now')
+        );
+      END;
+
+      DROP TRIGGER IF EXISTS sync_outbox_${table}_insert;
+      CREATE TRIGGER sync_outbox_${table}_insert
+      AFTER INSERT ON ${table}
+      WHEN ${newScopeCondition}
+        AND (SELECT enabled FROM sync_v2_should_enqueue) = 1
+      BEGIN
+        INSERT INTO sync_outbox (
+          id, mutationId, profileId${scopeColumn}, deviceId, entityType, entityId,
+          operation, baseVersion, payload, status, retryCount, createdAt
+        ) VALUES (
+          lower(hex(randomblob(16))), lower(hex(randomblob(16))),
+          (SELECT profileId FROM sync_v2_outbox_target)${scopeValue(newWorkspace)},
+          (SELECT deviceId FROM sync_v2_local_device),
+          '${entityType}', NEW.id, 'upsert', NULL,
+          ${payloadExpr(entityType, "NEW")},
+          'pending', 0, datetime('now')
+        );
+      END;
+
+      DROP TRIGGER IF EXISTS sync_outbox_${table}_update;
+      CREATE TRIGGER sync_outbox_${table}_update
+      AFTER UPDATE ON ${table}
+      WHEN (SELECT enabled FROM sync_v2_should_enqueue) = 1
+      BEGIN
+        INSERT INTO sync_outbox (
+          id, mutationId, profileId${scopeColumn}, deviceId, entityType, entityId,
+          operation, baseVersion, payload, status, retryCount, createdAt
+        )
+        SELECT lower(hex(randomblob(16))), lower(hex(randomblob(16))),
+          (SELECT profileId FROM sync_v2_outbox_target)${scopeValue(oldWorkspace)},
+          (SELECT deviceId FROM sync_v2_local_device),
+          '${entityType}', OLD.id, 'delete', NULL, NULL,
+          'pending', 0, datetime('now')
+        WHERE ${oldDeleteCondition};
+
+        INSERT INTO sync_outbox (
+          id, mutationId, profileId${scopeColumn}, deviceId, entityType, entityId,
+          operation, baseVersion, payload, status, retryCount, createdAt
+        )
+        SELECT lower(hex(randomblob(16))), lower(hex(randomblob(16))),
+          (SELECT profileId FROM sync_v2_outbox_target)${scopeValue(newWorkspace)},
+          (SELECT deviceId FROM sync_v2_local_device),
+          '${entityType}', NEW.id, 'upsert', NULL,
+          ${payloadExpr(entityType, "NEW", baseArg)},
+          'pending', 0, datetime('now')
+        WHERE ${newScopeCondition};
+      END;
+
+      DROP TRIGGER IF EXISTS sync_outbox_${table}_delete;
+      CREATE TRIGGER sync_outbox_${table}_delete
+      AFTER DELETE ON ${table}
+      WHEN ${oldScopeCondition}
+        AND (SELECT enabled FROM sync_v2_should_enqueue) = 1
+      BEGIN
+        INSERT INTO sync_outbox (
+          id, mutationId, profileId${scopeColumn}, deviceId, entityType, entityId,
+          operation, baseVersion, payload, status, retryCount, createdAt
+        ) VALUES (
+          lower(hex(randomblob(16))), lower(hex(randomblob(16))),
+          (SELECT profileId FROM sync_v2_outbox_target)${scopeValue(oldWorkspace)},
+          (SELECT deviceId FROM sync_v2_local_device),
+          '${entityType}', OLD.id, 'delete', NULL, NULL,
+          'pending', 0, datetime('now')
+        );
+      END;
+    `);
+  }
+
+  db.exec("DROP TRIGGER IF EXISTS sync_v2_tasks_reminders_scope_move;");
+  db.exec("DROP TRIGGER IF EXISTS sync_outbox_tasks_reminders_scope_move;");
+  if (!scopeAware) return;
+
+  const hasTasks = db.prepare(
+    "SELECT 1 FROM sqlite_master WHERE type='table' AND name='tasks'",
+  ).get();
+  const hasReminders = db.prepare(
+    "SELECT 1 FROM sqlite_master WHERE type='table' AND name='task_reminders'",
+  ).get();
+  if (!hasTasks || !hasReminders) return;
+
+  db.exec(`
+    CREATE TRIGGER sync_v2_tasks_reminders_scope_move
+    AFTER UPDATE OF userId, workspaceId ON tasks
+    WHEN (OLD.workspaceId IS NOT NEW.workspaceId OR OLD.userId IS NOT NEW.userId)
+      AND (SELECT enabled FROM sync_v2_should_log) = 1
+    BEGIN
+      INSERT INTO sync_changes_v2 (entityType, entityId, operation, userId, workspaceId, changedAt)
+      SELECT 'task_reminder', r.id, 'delete', r.userId, OLD.workspaceId, datetime('now')
+      FROM task_reminders r WHERE r.taskId = OLD.id;
+      INSERT INTO sync_changes_v2 (entityType, entityId, operation, userId, workspaceId, changedAt)
+      SELECT 'task_reminder', r.id, 'upsert', r.userId, NEW.workspaceId, datetime('now')
+      FROM task_reminders r WHERE r.taskId = NEW.id;
+    END;
+
+    CREATE TRIGGER sync_outbox_tasks_reminders_scope_move
+    AFTER UPDATE OF userId, workspaceId ON tasks
+    WHEN (OLD.workspaceId IS NOT NEW.workspaceId OR OLD.userId IS NOT NEW.userId)
+      AND (SELECT enabled FROM sync_v2_should_enqueue) = 1
+    BEGIN
+      INSERT INTO sync_outbox (
+        id, mutationId, profileId, scopeKey, deviceId, entityType, entityId,
+        operation, baseVersion, payload, status, retryCount, createdAt
+      )
+      SELECT lower(hex(randomblob(16))), lower(hex(randomblob(16))),
+        (SELECT profileId FROM sync_v2_outbox_target),
+        CASE WHEN OLD.workspaceId IS NULL THEN 'personal' ELSE 'workspace:' || OLD.workspaceId END,
+        (SELECT deviceId FROM sync_v2_local_device),
+        'task_reminder', r.id, 'delete', NULL, NULL, 'pending', 0, datetime('now')
+      FROM task_reminders r WHERE r.taskId = OLD.id;
+
+      INSERT INTO sync_outbox (
+        id, mutationId, profileId, scopeKey, deviceId, entityType, entityId,
+        operation, baseVersion, payload, status, retryCount, createdAt
+      )
+      SELECT lower(hex(randomblob(16))), lower(hex(randomblob(16))),
+        (SELECT profileId FROM sync_v2_outbox_target),
+        CASE WHEN NEW.workspaceId IS NULL THEN 'personal' ELSE 'workspace:' || NEW.workspaceId END,
+        (SELECT deviceId FROM sync_v2_local_device),
+        'task_reminder', r.id, 'upsert', NULL,
+        json_object(
+          'id', r.id, 'taskId', r.taskId, 'offsetMinutes', r.offsetMinutes,
+          'enabled', r.enabled, 'createdAt', r.createdAt, 'userId', r.userId,
+          'workspaceId', NEW.workspaceId
+        ),
+        'pending', 0, datetime('now')
+      FROM task_reminders r WHERE r.taskId = NEW.id;
+    END;
+  `);
 }
 
 export const syncPersonalEntitiesMigration: Migration = {
@@ -344,113 +558,6 @@ export const syncPersonalEntitiesMigration: Migration = {
     `);
 
     // ---- 第二步：为新实体装触发器 ----
-    for (const { table, entityType, hasWorkspace } of ENTITY_TABLES) {
-      // 表可能不存在（例如 mindmaps 由更晚的迁移创建但顺序已保证在前）。
-      // 保险起见跳过缺失表，避免整条迁移链在老库上失败。
-      const exists = db.prepare(
-        "SELECT 1 FROM sqlite_master WHERE type='table' AND name = ?",
-      ).get(table);
-      if (!exists) continue;
-
-      const baseArg = hasUpdatedAt(entityType) ? ("OLD" as const) : undefined;
-
-      // ---------- Change Feed（下行）----------
-      db.exec(`
-        DROP TRIGGER IF EXISTS sync_v2_${table}_feed_insert;
-        CREATE TRIGGER sync_v2_${table}_feed_insert
-        AFTER INSERT ON ${table}
-        WHEN ${scopeCondition("NEW", hasWorkspace)}
-          AND (SELECT enabled FROM sync_v2_should_log) = 1
-        BEGIN
-          INSERT INTO sync_changes_v2 (entityType, entityId, operation, userId, changedAt)
-          VALUES ('${entityType}', NEW.id, 'upsert', NEW.userId, datetime('now'));
-        END;
-
-        DROP TRIGGER IF EXISTS sync_v2_${table}_feed_update;
-        CREATE TRIGGER sync_v2_${table}_feed_update
-        AFTER UPDATE ON ${table}
-        WHEN ${scopeCondition("NEW", hasWorkspace)}
-          AND (SELECT enabled FROM sync_v2_should_log) = 1
-        BEGIN
-          INSERT INTO sync_changes_v2 (entityType, entityId, operation, userId, changedAt)
-          VALUES ('${entityType}', NEW.id, 'upsert', NEW.userId, datetime('now'));
-        END;
-
-        DROP TRIGGER IF EXISTS sync_v2_${table}_feed_delete;
-        CREATE TRIGGER sync_v2_${table}_feed_delete
-        AFTER DELETE ON ${table}
-        WHEN ${scopeCondition("OLD", hasWorkspace)}
-          AND (SELECT enabled FROM sync_v2_should_log) = 1
-        BEGIN
-          INSERT INTO sync_changes_v2 (entityType, entityId, operation, userId, changedAt)
-          VALUES ('${entityType}', OLD.id, 'delete', OLD.userId, datetime('now'));
-        END;
-      `);
-
-      // ---------- Outbox（上行）----------
-      //
-      // INSERT 不带 baseUpdatedAt：新建时没有"上一版本"。
-      // 若服务端已存在同 ID（两端各自创建），会判冲突 —— 这是正确的。
-      db.exec(`
-        DROP TRIGGER IF EXISTS sync_outbox_${table}_insert;
-        CREATE TRIGGER sync_outbox_${table}_insert
-        AFTER INSERT ON ${table}
-        WHEN ${scopeCondition("NEW", hasWorkspace)}
-          AND (SELECT enabled FROM sync_v2_should_enqueue) = 1
-        BEGIN
-          INSERT INTO sync_outbox (
-            id, mutationId, profileId, deviceId, entityType, entityId,
-            operation, baseVersion, payload, status, retryCount, createdAt
-          ) VALUES (
-            lower(hex(randomblob(16))),
-            lower(hex(randomblob(16))),
-            (SELECT profileId FROM sync_v2_active_profile),
-            (SELECT deviceId FROM sync_v2_local_device),
-            '${entityType}', NEW.id, 'upsert', NULL,
-            ${payloadExpr(entityType, "NEW")},
-            'pending', 0, datetime('now')
-          );
-        END;
-
-        DROP TRIGGER IF EXISTS sync_outbox_${table}_update;
-        CREATE TRIGGER sync_outbox_${table}_update
-        AFTER UPDATE ON ${table}
-        WHEN ${scopeCondition("NEW", hasWorkspace)}
-          AND (SELECT enabled FROM sync_v2_should_enqueue) = 1
-        BEGIN
-          INSERT INTO sync_outbox (
-            id, mutationId, profileId, deviceId, entityType, entityId,
-            operation, baseVersion, payload, status, retryCount, createdAt
-          ) VALUES (
-            lower(hex(randomblob(16))),
-            lower(hex(randomblob(16))),
-            (SELECT profileId FROM sync_v2_active_profile),
-            (SELECT deviceId FROM sync_v2_local_device),
-            '${entityType}', NEW.id, 'upsert', NULL,
-            ${payloadExpr(entityType, "NEW", baseArg)},
-            'pending', 0, datetime('now')
-          );
-        END;
-
-        DROP TRIGGER IF EXISTS sync_outbox_${table}_delete;
-        CREATE TRIGGER sync_outbox_${table}_delete
-        AFTER DELETE ON ${table}
-        WHEN ${scopeCondition("OLD", hasWorkspace)}
-          AND (SELECT enabled FROM sync_v2_should_enqueue) = 1
-        BEGIN
-          INSERT INTO sync_outbox (
-            id, mutationId, profileId, deviceId, entityType, entityId,
-            operation, baseVersion, payload, status, retryCount, createdAt
-          ) VALUES (
-            lower(hex(randomblob(16))),
-            lower(hex(randomblob(16))),
-            (SELECT profileId FROM sync_v2_active_profile),
-            (SELECT deviceId FROM sync_v2_local_device),
-            '${entityType}', OLD.id, 'delete', NULL, NULL,
-            'pending', 0, datetime('now')
-          );
-        END;
-      `);
-    }
+    installSyncPersonalEntitiesTriggers(db);
   },
 };

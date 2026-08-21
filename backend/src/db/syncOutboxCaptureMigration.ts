@@ -89,10 +89,25 @@ export function installSyncOutboxCaptureTriggers(db: Parameters<Migration["up"]>
         LIMIT 1;
     `);
 
-    // 本机安装级设备身份。
-    // 阶段 B 会用 sync_device_identity 替换这个视图的实现，届时语义不变。
-    db.exec(`
-      DROP VIEW IF EXISTS sync_v2_local_device;
+    // 本机安装级设备身份。v87 尚无新表时回退到 sync_devices；v88 之后
+    // 优先读取 sync_device_identity，确保后续迁移重装触发器不会退回旧身份源。
+    const hasDeviceIdentity = Boolean(db.prepare(`
+      SELECT 1 FROM sqlite_master
+      WHERE type = 'table' AND name = 'sync_device_identity'
+    `).get());
+    db.exec("DROP VIEW IF EXISTS sync_v2_local_device;");
+    db.exec(hasDeviceIdentity ? `
+      CREATE VIEW sync_v2_local_device AS
+        SELECT deviceId FROM (
+          SELECT deviceId, 0 AS priority, createdAt
+            FROM sync_device_identity WHERE singletonKey = 1
+          UNION ALL
+          SELECT id AS deviceId, 1 AS priority, createdAt
+            FROM sync_devices
+        )
+        ORDER BY priority ASC, createdAt ASC
+        LIMIT 1;
+    ` : `
       CREATE VIEW sync_v2_local_device AS
         SELECT id AS deviceId FROM sync_devices
         ORDER BY createdAt ASC, rowid ASC
@@ -119,6 +134,16 @@ export function installSyncOutboxCaptureTriggers(db: Parameters<Migration["up"]>
     const profileId = `(SELECT profileId FROM sync_v2_outbox_target)`;
     const deviceId = `(SELECT deviceId FROM sync_v2_local_device)`;
     const gate = `(SELECT enabled FROM sync_v2_should_enqueue) = 1`;
+    const outboxColumns = db.prepare("PRAGMA table_info(sync_outbox)").all() as Array<{ name: string }>;
+    // v87/v90 执行时 scopeKey 尚不存在，必须继续生成旧版个人空间 SQL；
+    // v91 重建表后再次调用本函数，才启用完整的作用域列与工作区捕获。
+    const scopeAware = outboxColumns.some((column) => column.name === "scopeKey");
+    const scopeColumn = scopeAware ? ", scopeKey" : "";
+    const scopeValue = (workspaceId: string) => scopeAware
+      ? `, CASE WHEN ${workspaceId} IS NULL THEN 'personal' ELSE 'workspace:' || ${workspaceId} END`
+      : "";
+    const directScopeCondition = (alias: "NEW" | "OLD") =>
+      scopeAware ? "1 = 1" : `${alias}.workspaceId IS NULL`;
 
     // --- notebook ---
     // payload 字段与 backend/src/sync/apply.ts applyNotebook 期望的一致。
@@ -133,20 +158,21 @@ export function installSyncOutboxCaptureTriggers(db: Parameters<Migration["up"]>
       'isExpanded', ${ref}.isExpanded,
       'isDeleted', ${ref}.isDeleted,
       'deletedAt', ${ref}.deletedAt,
-      'createdAt', ${ref}.createdAt
+      'createdAt', ${ref}.createdAt,
+      'workspaceId', ${ref}.workspaceId
     )`;
 
     db.exec(`
       DROP TRIGGER IF EXISTS sync_outbox_notebooks_insert;
       CREATE TRIGGER sync_outbox_notebooks_insert
       AFTER INSERT ON notebooks
-      WHEN NEW.workspaceId IS NULL AND ${gate}
+      WHEN ${directScopeCondition("NEW")} AND ${gate}
       BEGIN
         INSERT INTO sync_outbox (
-          id, mutationId, profileId, deviceId, entityType, entityId,
+          id, mutationId, profileId${scopeColumn}, deviceId, entityType, entityId,
           operation, baseVersion, payload, status, retryCount, createdAt
         ) VALUES (
-          ${mutationId}, ${mutationId}, ${profileId}, ${deviceId},
+          ${mutationId}, ${mutationId}, ${profileId}${scopeValue("NEW.workspaceId")}, ${deviceId},
           'notebook', NEW.id, 'upsert', NULL, ${notebookPayload("NEW")},
           'pending', 0, datetime('now')
         );
@@ -155,28 +181,37 @@ export function installSyncOutboxCaptureTriggers(db: Parameters<Migration["up"]>
       DROP TRIGGER IF EXISTS sync_outbox_notebooks_update;
       CREATE TRIGGER sync_outbox_notebooks_update
       AFTER UPDATE ON notebooks
-      WHEN NEW.workspaceId IS NULL AND ${gate}
+      WHEN ${gate}
       BEGIN
         INSERT INTO sync_outbox (
-          id, mutationId, profileId, deviceId, entityType, entityId,
+          id, mutationId, profileId${scopeColumn}, deviceId, entityType, entityId,
           operation, baseVersion, payload, status, retryCount, createdAt
-        ) VALUES (
-          ${mutationId}, ${mutationId}, ${profileId}, ${deviceId},
+        )
+        SELECT ${mutationId}, ${mutationId}, ${profileId}${scopeValue("OLD.workspaceId")}, ${deviceId},
+          'notebook', OLD.id, 'delete', NULL, NULL,
+          'pending', 0, datetime('now')
+        WHERE (${scopeAware ? "OLD.workspaceId IS NOT NEW.workspaceId OR OLD.userId IS NOT NEW.userId" : "OLD.workspaceId IS NULL AND (NEW.workspaceId IS NOT NULL OR OLD.userId IS NOT NEW.userId)"});
+
+        INSERT INTO sync_outbox (
+          id, mutationId, profileId${scopeColumn}, deviceId, entityType, entityId,
+          operation, baseVersion, payload, status, retryCount, createdAt
+        )
+        SELECT ${mutationId}, ${mutationId}, ${profileId}${scopeValue("NEW.workspaceId")}, ${deviceId},
           'notebook', NEW.id, 'upsert', NULL, ${notebookPayload("NEW")},
           'pending', 0, datetime('now')
-        );
+        WHERE ${directScopeCondition("NEW")};
       END;
 
       DROP TRIGGER IF EXISTS sync_outbox_notebooks_delete;
       CREATE TRIGGER sync_outbox_notebooks_delete
       BEFORE DELETE ON notebooks
-      WHEN OLD.workspaceId IS NULL AND ${gate}
+      WHEN ${directScopeCondition("OLD")} AND ${gate}
       BEGIN
         INSERT INTO sync_outbox (
-          id, mutationId, profileId, deviceId, entityType, entityId,
+          id, mutationId, profileId${scopeColumn}, deviceId, entityType, entityId,
           operation, baseVersion, payload, status, retryCount, createdAt
         ) VALUES (
-          ${mutationId}, ${mutationId}, ${profileId}, ${deviceId},
+          ${mutationId}, ${mutationId}, ${profileId}${scopeValue("OLD.workspaceId")}, ${deviceId},
           'notebook', OLD.id, 'delete', NULL, NULL,
           'pending', 0, datetime('now')
         );
@@ -200,20 +235,21 @@ export function installSyncOutboxCaptureTriggers(db: Parameters<Migration["up"]>
       'trashedAt', ${ref}.trashedAt,
       'sortOrder', ${ref}.sortOrder,
       'version', ${ref}.version,
-      'createdAt', ${ref}.createdAt
+      'createdAt', ${ref}.createdAt,
+      'workspaceId', ${ref}.workspaceId
     )`;
 
     db.exec(`
       DROP TRIGGER IF EXISTS sync_outbox_notes_insert;
       CREATE TRIGGER sync_outbox_notes_insert
       AFTER INSERT ON notes
-      WHEN NEW.workspaceId IS NULL AND ${gate}
+      WHEN ${directScopeCondition("NEW")} AND ${gate}
       BEGIN
         INSERT INTO sync_outbox (
-          id, mutationId, profileId, deviceId, entityType, entityId,
+          id, mutationId, profileId${scopeColumn}, deviceId, entityType, entityId,
           operation, baseVersion, payload, status, retryCount, createdAt
         ) VALUES (
-          ${mutationId}, ${mutationId}, ${profileId}, ${deviceId},
+          ${mutationId}, ${mutationId}, ${profileId}${scopeValue("NEW.workspaceId")}, ${deviceId},
           'note', NEW.id, 'upsert', NULL, ${notePayload("NEW")},
           'pending', 0, datetime('now')
         );
@@ -222,28 +258,88 @@ export function installSyncOutboxCaptureTriggers(db: Parameters<Migration["up"]>
       DROP TRIGGER IF EXISTS sync_outbox_notes_update;
       CREATE TRIGGER sync_outbox_notes_update
       AFTER UPDATE ON notes
-      WHEN NEW.workspaceId IS NULL AND ${gate}
+      WHEN ${gate}
       BEGIN
         INSERT INTO sync_outbox (
-          id, mutationId, profileId, deviceId, entityType, entityId,
+          id, mutationId, profileId${scopeColumn}, deviceId, entityType, entityId,
           operation, baseVersion, payload, status, retryCount, createdAt
-        ) VALUES (
-          ${mutationId}, ${mutationId}, ${profileId}, ${deviceId},
+        )
+        SELECT ${mutationId}, ${mutationId}, ${profileId}${scopeValue("OLD.workspaceId")}, ${deviceId},
+          'note', OLD.id, 'delete', OLD.version, NULL,
+          'pending', 0, datetime('now')
+        WHERE (${scopeAware ? "OLD.workspaceId IS NOT NEW.workspaceId OR OLD.userId IS NOT NEW.userId" : "OLD.workspaceId IS NULL AND (NEW.workspaceId IS NOT NULL OR OLD.userId IS NOT NEW.userId)"});
+
+        INSERT INTO sync_outbox (
+          id, mutationId, profileId${scopeColumn}, deviceId, entityType, entityId,
+          operation, baseVersion, payload, status, retryCount, createdAt
+        )
+        SELECT ${mutationId}, ${mutationId}, ${profileId}${scopeValue("NEW.workspaceId")}, ${deviceId},
           'note', NEW.id, 'upsert', OLD.version, ${notePayload("NEW")},
           'pending', 0, datetime('now')
-        );
+        WHERE ${directScopeCondition("NEW")};
       END;
+
+      DROP TRIGGER IF EXISTS sync_outbox_notes_children_scope_move;
+      ${scopeAware ? `CREATE TRIGGER sync_outbox_notes_children_scope_move
+      AFTER UPDATE OF userId, workspaceId ON notes
+      WHEN (OLD.workspaceId IS NOT NEW.workspaceId OR OLD.userId IS NOT NEW.userId)
+        AND ${gate}
+      BEGIN
+        -- note_tag 与 attachment 的作用域来自所属笔记，父笔记移动时成对写旧删新增。
+        INSERT INTO sync_outbox (
+          id, mutationId, profileId, scopeKey, deviceId, entityType, entityId,
+          operation, baseVersion, payload, status, retryCount, createdAt
+        )
+        SELECT ${mutationId}, ${mutationId}, ${profileId},
+          CASE WHEN OLD.workspaceId IS NULL THEN 'personal' ELSE 'workspace:' || OLD.workspaceId END,
+          ${deviceId}, 'note_tag', OLD.id || ':' || nt.tagId, 'delete', NULL, NULL,
+          'pending', 0, datetime('now')
+        FROM note_tags nt WHERE nt.noteId = OLD.id;
+        INSERT INTO sync_outbox (
+          id, mutationId, profileId, scopeKey, deviceId, entityType, entityId,
+          operation, baseVersion, payload, status, retryCount, createdAt
+        )
+        SELECT ${mutationId}, ${mutationId}, ${profileId},
+          CASE WHEN NEW.workspaceId IS NULL THEN 'personal' ELSE 'workspace:' || NEW.workspaceId END,
+          ${deviceId}, 'note_tag', NEW.id || ':' || nt.tagId, 'upsert', NULL,
+          json_object('noteId', NEW.id, 'tagId', nt.tagId, 'workspaceId', NEW.workspaceId),
+          'pending', 0, datetime('now')
+        FROM note_tags nt WHERE nt.noteId = NEW.id;
+        INSERT INTO sync_outbox (
+          id, mutationId, profileId, scopeKey, deviceId, entityType, entityId,
+          operation, baseVersion, payload, status, retryCount, createdAt
+        )
+        SELECT ${mutationId}, ${mutationId}, ${profileId},
+          CASE WHEN OLD.workspaceId IS NULL THEN 'personal' ELSE 'workspace:' || OLD.workspaceId END,
+          ${deviceId}, 'attachment', a.id, 'delete', NULL, NULL,
+          'pending', 0, datetime('now')
+        FROM attachments a WHERE a.noteId = OLD.id;
+        INSERT INTO sync_outbox (
+          id, mutationId, profileId, scopeKey, deviceId, entityType, entityId,
+          operation, baseVersion, payload, status, retryCount, createdAt
+        )
+        SELECT ${mutationId}, ${mutationId}, ${profileId},
+          CASE WHEN NEW.workspaceId IS NULL THEN 'personal' ELSE 'workspace:' || NEW.workspaceId END,
+          ${deviceId}, 'attachment', a.id, 'upsert', NULL,
+          json_object(
+            'id', a.id, 'noteId', a.noteId, 'filename', a.filename,
+            'mimeType', a.mimeType, 'size', a.size, 'hash', a.hash,
+            'workspaceId', NEW.workspaceId
+          ),
+          'pending', 0, datetime('now')
+        FROM attachments a WHERE a.noteId = NEW.id;
+      END;` : ""}
 
       DROP TRIGGER IF EXISTS sync_outbox_notes_delete;
       CREATE TRIGGER sync_outbox_notes_delete
       BEFORE DELETE ON notes
-      WHEN OLD.workspaceId IS NULL AND ${gate}
+      WHEN ${directScopeCondition("OLD")} AND ${gate}
       BEGIN
         INSERT INTO sync_outbox (
-          id, mutationId, profileId, deviceId, entityType, entityId,
+          id, mutationId, profileId${scopeColumn}, deviceId, entityType, entityId,
           operation, baseVersion, payload, status, retryCount, createdAt
         ) VALUES (
-          ${mutationId}, ${mutationId}, ${profileId}, ${deviceId},
+          ${mutationId}, ${mutationId}, ${profileId}${scopeValue("OLD.workspaceId")}, ${deviceId},
           'note', OLD.id, 'delete', OLD.version, NULL,
           'pending', 0, datetime('now')
         );
@@ -255,20 +351,21 @@ export function installSyncOutboxCaptureTriggers(db: Parameters<Migration["up"]>
       'id', ${ref}.id,
       'name', ${ref}.name,
       'color', ${ref}.color,
-      'createdAt', ${ref}.createdAt
+      'createdAt', ${ref}.createdAt,
+      'workspaceId', ${ref}.workspaceId
     )`;
 
     db.exec(`
       DROP TRIGGER IF EXISTS sync_outbox_tags_insert;
       CREATE TRIGGER sync_outbox_tags_insert
       AFTER INSERT ON tags
-      WHEN NEW.workspaceId IS NULL AND ${gate}
+      WHEN ${directScopeCondition("NEW")} AND ${gate}
       BEGIN
         INSERT INTO sync_outbox (
-          id, mutationId, profileId, deviceId, entityType, entityId,
+          id, mutationId, profileId${scopeColumn}, deviceId, entityType, entityId,
           operation, baseVersion, payload, status, retryCount, createdAt
         ) VALUES (
-          ${mutationId}, ${mutationId}, ${profileId}, ${deviceId},
+          ${mutationId}, ${mutationId}, ${profileId}${scopeValue("NEW.workspaceId")}, ${deviceId},
           'tag', NEW.id, 'upsert', NULL, ${tagPayload("NEW")},
           'pending', 0, datetime('now')
         );
@@ -277,28 +374,37 @@ export function installSyncOutboxCaptureTriggers(db: Parameters<Migration["up"]>
       DROP TRIGGER IF EXISTS sync_outbox_tags_update;
       CREATE TRIGGER sync_outbox_tags_update
       AFTER UPDATE ON tags
-      WHEN NEW.workspaceId IS NULL AND ${gate}
+      WHEN ${gate}
       BEGIN
         INSERT INTO sync_outbox (
-          id, mutationId, profileId, deviceId, entityType, entityId,
+          id, mutationId, profileId${scopeColumn}, deviceId, entityType, entityId,
           operation, baseVersion, payload, status, retryCount, createdAt
-        ) VALUES (
-          ${mutationId}, ${mutationId}, ${profileId}, ${deviceId},
+        )
+        SELECT ${mutationId}, ${mutationId}, ${profileId}${scopeValue("OLD.workspaceId")}, ${deviceId},
+          'tag', OLD.id, 'delete', NULL, NULL,
+          'pending', 0, datetime('now')
+        WHERE (${scopeAware ? "OLD.workspaceId IS NOT NEW.workspaceId OR OLD.userId IS NOT NEW.userId" : "OLD.workspaceId IS NULL AND (NEW.workspaceId IS NOT NULL OR OLD.userId IS NOT NEW.userId)"});
+
+        INSERT INTO sync_outbox (
+          id, mutationId, profileId${scopeColumn}, deviceId, entityType, entityId,
+          operation, baseVersion, payload, status, retryCount, createdAt
+        )
+        SELECT ${mutationId}, ${mutationId}, ${profileId}${scopeValue("NEW.workspaceId")}, ${deviceId},
           'tag', NEW.id, 'upsert', NULL, ${tagPayload("NEW")},
           'pending', 0, datetime('now')
-        );
+        WHERE ${directScopeCondition("NEW")};
       END;
 
       DROP TRIGGER IF EXISTS sync_outbox_tags_delete;
       CREATE TRIGGER sync_outbox_tags_delete
       BEFORE DELETE ON tags
-      WHEN OLD.workspaceId IS NULL AND ${gate}
+      WHEN ${directScopeCondition("OLD")} AND ${gate}
       BEGIN
         INSERT INTO sync_outbox (
-          id, mutationId, profileId, deviceId, entityType, entityId,
+          id, mutationId, profileId${scopeColumn}, deviceId, entityType, entityId,
           operation, baseVersion, payload, status, retryCount, createdAt
         ) VALUES (
-          ${mutationId}, ${mutationId}, ${profileId}, ${deviceId},
+          ${mutationId}, ${mutationId}, ${profileId}${scopeValue("OLD.workspaceId")}, ${deviceId},
           'tag', OLD.id, 'delete', NULL, NULL,
           'pending', 0, datetime('now')
         );
@@ -312,22 +418,25 @@ export function installSyncOutboxCaptureTriggers(db: Parameters<Migration["up"]>
     // 同一条关系在两端各自建立时结果相同，不存在"谁覆盖谁"。
     //
     // note_tags 表本身没有 workspaceId 列，作用域由所属 note 决定。
-    const noteTagScope = (ref: string) =>
-      `(SELECT 1 FROM notes n WHERE n.id = ${ref}.noteId AND n.workspaceId IS NULL)`;
+    const noteWorkspace = (ref: string) =>
+      `(SELECT n.workspaceId FROM notes n WHERE n.id = ${ref}.noteId)`;
+    const noteExistsInScope = (ref: string) => scopeAware
+      ? `(SELECT 1 FROM notes n WHERE n.id = ${ref}.noteId)`
+      : `(SELECT 1 FROM notes n WHERE n.id = ${ref}.noteId AND n.workspaceId IS NULL)`;
 
     db.exec(`
       DROP TRIGGER IF EXISTS sync_outbox_note_tags_insert;
       CREATE TRIGGER sync_outbox_note_tags_insert
       AFTER INSERT ON note_tags
-      WHEN ${gate} AND ${noteTagScope("NEW")} IS NOT NULL
+      WHEN ${gate} AND ${noteExistsInScope("NEW")} IS NOT NULL
       BEGIN
         INSERT INTO sync_outbox (
-          id, mutationId, profileId, deviceId, entityType, entityId,
+          id, mutationId, profileId${scopeColumn}, deviceId, entityType, entityId,
           operation, baseVersion, payload, status, retryCount, createdAt
         ) VALUES (
-          ${mutationId}, ${mutationId}, ${profileId}, ${deviceId},
+          ${mutationId}, ${mutationId}, ${profileId}${scopeValue(noteWorkspace("NEW"))}, ${deviceId},
           'note_tag', NEW.noteId || ':' || NEW.tagId, 'upsert', NULL,
-          json_object('noteId', NEW.noteId, 'tagId', NEW.tagId),
+          json_object('noteId', NEW.noteId, 'tagId', NEW.tagId, 'workspaceId', ${noteWorkspace("NEW")}),
           'pending', 0, datetime('now')
         );
       END;
@@ -335,13 +444,13 @@ export function installSyncOutboxCaptureTriggers(db: Parameters<Migration["up"]>
       DROP TRIGGER IF EXISTS sync_outbox_note_tags_delete;
       CREATE TRIGGER sync_outbox_note_tags_delete
       BEFORE DELETE ON note_tags
-      WHEN ${gate} AND ${noteTagScope("OLD")} IS NOT NULL
+      WHEN ${gate} AND ${noteExistsInScope("OLD")} IS NOT NULL
       BEGIN
         INSERT INTO sync_outbox (
-          id, mutationId, profileId, deviceId, entityType, entityId,
+          id, mutationId, profileId${scopeColumn}, deviceId, entityType, entityId,
           operation, baseVersion, payload, status, retryCount, createdAt
         ) VALUES (
-          ${mutationId}, ${mutationId}, ${profileId}, ${deviceId},
+          ${mutationId}, ${mutationId}, ${profileId}${scopeValue(noteWorkspace("OLD"))}, ${deviceId},
           'note_tag', OLD.noteId || ':' || OLD.tagId, 'delete', NULL, NULL,
           'pending', 0, datetime('now')
         );
@@ -354,29 +463,54 @@ export function installSyncOutboxCaptureTriggers(db: Parameters<Migration["up"]>
       DROP TRIGGER IF EXISTS sync_outbox_favorites_insert;
       CREATE TRIGGER sync_outbox_favorites_insert
       AFTER INSERT ON favorites
-      WHEN NEW.workspaceId IS NULL AND ${gate}
+      WHEN ${directScopeCondition("NEW")} AND ${gate}
       BEGIN
         INSERT INTO sync_outbox (
-          id, mutationId, profileId, deviceId, entityType, entityId,
+          id, mutationId, profileId${scopeColumn}, deviceId, entityType, entityId,
           operation, baseVersion, payload, status, retryCount, createdAt
         ) VALUES (
-          ${mutationId}, ${mutationId}, ${profileId}, ${deviceId},
+          ${mutationId}, ${mutationId}, ${profileId}${scopeValue("NEW.workspaceId")}, ${deviceId},
           'favorite', NEW.userId || ':' || NEW.noteId, 'upsert', NULL,
-          json_object('noteId', NEW.noteId),
+          json_object('noteId', NEW.noteId, 'workspaceId', NEW.workspaceId),
           'pending', 0, datetime('now')
         );
+      END;
+
+      DROP TRIGGER IF EXISTS sync_outbox_favorites_update;
+      CREATE TRIGGER sync_outbox_favorites_update
+      AFTER UPDATE ON favorites
+      WHEN ${gate}
+      BEGIN
+        INSERT INTO sync_outbox (
+          id, mutationId, profileId${scopeColumn}, deviceId, entityType, entityId,
+          operation, baseVersion, payload, status, retryCount, createdAt
+        )
+        SELECT ${mutationId}, ${mutationId}, ${profileId}${scopeValue("OLD.workspaceId")}, ${deviceId},
+          'favorite', OLD.userId || ':' || OLD.noteId, 'delete', NULL, NULL,
+          'pending', 0, datetime('now')
+        WHERE (${scopeAware ? "OLD.workspaceId IS NOT NEW.workspaceId OR OLD.userId IS NOT NEW.userId OR OLD.noteId IS NOT NEW.noteId" : "OLD.workspaceId IS NULL AND (NEW.workspaceId IS NOT NULL OR OLD.userId IS NOT NEW.userId OR OLD.noteId IS NOT NEW.noteId)"});
+
+        INSERT INTO sync_outbox (
+          id, mutationId, profileId${scopeColumn}, deviceId, entityType, entityId,
+          operation, baseVersion, payload, status, retryCount, createdAt
+        )
+        SELECT ${mutationId}, ${mutationId}, ${profileId}${scopeValue("NEW.workspaceId")}, ${deviceId},
+          'favorite', NEW.userId || ':' || NEW.noteId, 'upsert', NULL,
+          json_object('noteId', NEW.noteId, 'workspaceId', NEW.workspaceId),
+          'pending', 0, datetime('now')
+        WHERE ${directScopeCondition("NEW")};
       END;
 
       DROP TRIGGER IF EXISTS sync_outbox_favorites_delete;
       CREATE TRIGGER sync_outbox_favorites_delete
       BEFORE DELETE ON favorites
-      WHEN OLD.workspaceId IS NULL AND ${gate}
+      WHEN ${directScopeCondition("OLD")} AND ${gate}
       BEGIN
         INSERT INTO sync_outbox (
-          id, mutationId, profileId, deviceId, entityType, entityId,
+          id, mutationId, profileId${scopeColumn}, deviceId, entityType, entityId,
           operation, baseVersion, payload, status, retryCount, createdAt
         ) VALUES (
-          ${mutationId}, ${mutationId}, ${profileId}, ${deviceId},
+          ${mutationId}, ${mutationId}, ${profileId}${scopeValue("OLD.workspaceId")}, ${deviceId},
           'favorite', OLD.userId || ':' || OLD.noteId, 'delete', NULL, NULL,
           'pending', 0, datetime('now')
         );
@@ -394,20 +528,21 @@ export function installSyncOutboxCaptureTriggers(db: Parameters<Migration["up"]>
       'filename', ${ref}.filename,
       'mimeType', ${ref}.mimeType,
       'size', ${ref}.size,
-      'hash', ${ref}.hash
+      'hash', ${ref}.hash,
+      'workspaceId', ${noteWorkspace(ref)}
     )`;
 
     db.exec(`
       DROP TRIGGER IF EXISTS sync_outbox_attachments_insert;
       CREATE TRIGGER sync_outbox_attachments_insert
       AFTER INSERT ON attachments
-      WHEN NEW.workspaceId IS NULL AND ${gate}
+      WHEN ${gate} AND ${noteExistsInScope("NEW")} IS NOT NULL
       BEGIN
         INSERT INTO sync_outbox (
-          id, mutationId, profileId, deviceId, entityType, entityId,
+          id, mutationId, profileId${scopeColumn}, deviceId, entityType, entityId,
           operation, baseVersion, payload, status, retryCount, createdAt
         ) VALUES (
-          ${mutationId}, ${mutationId}, ${profileId}, ${deviceId},
+          ${mutationId}, ${mutationId}, ${profileId}${scopeValue(noteWorkspace("NEW"))}, ${deviceId},
           'attachment', NEW.id, 'upsert', NULL, ${attachmentPayload("NEW")},
           'pending', 0, datetime('now')
         );
@@ -416,28 +551,38 @@ export function installSyncOutboxCaptureTriggers(db: Parameters<Migration["up"]>
       DROP TRIGGER IF EXISTS sync_outbox_attachments_update;
       CREATE TRIGGER sync_outbox_attachments_update
       AFTER UPDATE ON attachments
-      WHEN NEW.workspaceId IS NULL AND ${gate}
+      WHEN ${gate}
       BEGIN
         INSERT INTO sync_outbox (
-          id, mutationId, profileId, deviceId, entityType, entityId,
+          id, mutationId, profileId${scopeColumn}, deviceId, entityType, entityId,
           operation, baseVersion, payload, status, retryCount, createdAt
-        ) VALUES (
-          ${mutationId}, ${mutationId}, ${profileId}, ${deviceId},
+        )
+        SELECT ${mutationId}, ${mutationId}, ${profileId}${scopeValue(noteWorkspace("OLD"))}, ${deviceId},
+          'attachment', OLD.id, 'delete', NULL, NULL,
+          'pending', 0, datetime('now')
+        WHERE ${noteExistsInScope("OLD")} IS NOT NULL
+          AND (${scopeAware ? `OLD.noteId IS NOT NEW.noteId OR OLD.userId IS NOT NEW.userId OR ${noteWorkspace("OLD")} IS NOT ${noteWorkspace("NEW")}` : "OLD.noteId IS NOT NEW.noteId OR OLD.userId IS NOT NEW.userId"});
+
+        INSERT INTO sync_outbox (
+          id, mutationId, profileId${scopeColumn}, deviceId, entityType, entityId,
+          operation, baseVersion, payload, status, retryCount, createdAt
+        )
+        SELECT ${mutationId}, ${mutationId}, ${profileId}${scopeValue(noteWorkspace("NEW"))}, ${deviceId},
           'attachment', NEW.id, 'upsert', NULL, ${attachmentPayload("NEW")},
           'pending', 0, datetime('now')
-        );
+        WHERE ${noteExistsInScope("NEW")} IS NOT NULL;
       END;
 
       DROP TRIGGER IF EXISTS sync_outbox_attachments_delete;
       CREATE TRIGGER sync_outbox_attachments_delete
       BEFORE DELETE ON attachments
-      WHEN OLD.workspaceId IS NULL AND ${gate}
+      WHEN ${gate} AND ${noteExistsInScope("OLD")} IS NOT NULL
       BEGIN
         INSERT INTO sync_outbox (
-          id, mutationId, profileId, deviceId, entityType, entityId,
+          id, mutationId, profileId${scopeColumn}, deviceId, entityType, entityId,
           operation, baseVersion, payload, status, retryCount, createdAt
         ) VALUES (
-          ${mutationId}, ${mutationId}, ${profileId}, ${deviceId},
+          ${mutationId}, ${mutationId}, ${profileId}${scopeValue(noteWorkspace("OLD"))}, ${deviceId},
           'attachment', OLD.id, 'delete', NULL, NULL,
           'pending', 0, datetime('now')
         );
