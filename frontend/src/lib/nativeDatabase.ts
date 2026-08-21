@@ -363,6 +363,7 @@ async function hashAccountId(accountId: string): Promise<string> {
 
 class NativeDatabaseImpl implements NativeDatabase {
   private queue: Promise<void> = Promise.resolve();
+  private transactionActive = false;
   private closing = false;
   private closed = false;
   private closePromise?: Promise<void>;
@@ -439,12 +440,26 @@ class NativeDatabaseImpl implements NativeDatabase {
 
   transaction<T>(work: (tx: NativeDatabase) => Promise<T>): Promise<T> {
     this.assertAcceptingWork();
-    return this.enqueue(() =>
-      this.withImmediateTransaction(() => work(this.createTransactionView())),
-    );
+    return this.enqueue(async () => {
+      const transactionView = this.createTransactionView();
+      this.transactionActive = true;
+      try {
+        return await this.withImmediateTransaction(async () => {
+          try {
+            return await work(transactionView.database);
+          } finally {
+            transactionView.deactivate();
+          }
+        });
+      } finally {
+        transactionView.deactivate();
+        this.transactionActive = false;
+      }
+    });
   }
 
   close(): Promise<void> {
+    this.assertOuterHandleAvailable();
     if (this.closed) return Promise.resolve();
     if (this.closePromise) return this.closePromise;
 
@@ -470,8 +485,17 @@ class NativeDatabaseImpl implements NativeDatabase {
   }
 
   private assertAcceptingWork(): void {
+    this.assertOuterHandleAvailable();
     if (this.closed) throw new Error("原生数据库连接已关闭");
     if (this.closing) throw new Error("原生数据库连接正在关闭");
+  }
+
+  private assertOuterHandleAvailable(): void {
+    if (this.transactionActive) {
+      throw new Error(
+        "原生数据库事务执行期间不能使用外层句柄；请改用事务回调传入的 tx",
+      );
+    }
   }
 
   private enqueue<T>(work: () => Promise<T>): Promise<T> {
@@ -501,16 +525,40 @@ class NativeDatabaseImpl implements NativeDatabase {
     return (result.values ?? []) as T[];
   }
 
-  private createTransactionView(): NativeDatabase {
+  private createTransactionView(): {
+    database: NativeDatabase;
+    deactivate: () => void;
+  } {
+    let active = true;
+    const assertActive = () => {
+      if (!active) {
+        throw new Error(
+          "原生数据库事务视图已失效；只能在 transaction 回调执行期间使用 tx",
+        );
+      }
+    };
+
     return {
-      run: (sql, values = []) => this.runDirect(sql, values),
-      query: <T>(sql: string, values: unknown[] = []) =>
-        this.queryDirect<T>(sql, values),
-      transaction: async () => {
-        throw new Error("原生数据库不支持嵌套事务");
+      database: {
+        run: (sql, values = []) => {
+          assertActive();
+          return this.runDirect(sql, values);
+        },
+        query: <T>(sql: string, values: unknown[] = []) => {
+          assertActive();
+          return this.queryDirect<T>(sql, values);
+        },
+        transaction: async () => {
+          assertActive();
+          throw new Error("原生数据库不支持嵌套事务；请继续使用当前 tx");
+        },
+        close: async () => {
+          assertActive();
+          throw new Error("不能从事务视图关闭原生数据库");
+        },
       },
-      close: async () => {
-        throw new Error("不能从事务视图关闭原生数据库");
+      deactivate: () => {
+        active = false;
       },
     };
   }
@@ -545,29 +593,101 @@ class NativeDatabaseImpl implements NativeDatabase {
   }
 }
 
+async function ensureConnectionsConsistent(
+  state: NativeDatabaseGlobalState,
+): Promise<void> {
+  try {
+    const result = await state.connection.checkConnectionsConsistency();
+    if (result.result === true) return;
+  } catch (error) {
+    state.databases.clear();
+    throw error;
+  }
+
+  // v8 会在返回 false 时清空 JS 连接字典并移除不一致的原生连接。
+  state.databases.clear();
+}
+
+async function cleanupFailedConnection(
+  state: NativeDatabaseGlobalState,
+  dbName: string,
+  raw?: SQLiteDBConnection,
+): Promise<void> {
+  let tracked = false;
+  try {
+    tracked = (await state.connection.isConnection(dbName, false)).result === true;
+    if (tracked) {
+      await state.connection.closeConnection(dbName, false);
+      return;
+    }
+  } catch {
+    // closeConnection 失败时继续尝试关闭原生句柄并校验连接字典。
+  }
+
+  if (raw) {
+    try {
+      await raw.close();
+    } catch {
+      // 继续执行一致性检查；该 API 会清理 JS/Native 不一致连接。
+    }
+  }
+
+  try {
+    const consistency = await state.connection.checkConnectionsConsistency();
+    if (consistency.result !== true) {
+      state.databases.clear();
+      return;
+    }
+  } catch {
+    state.databases.clear();
+    return;
+  }
+
+  try {
+    tracked = (await state.connection.isConnection(dbName, false)).result === true;
+  } catch {
+    tracked = true;
+  }
+  if (!tracked) return;
+
+  // 公共 API 无法单独移除一个仍被 JS 字典持有的坏句柄，只能最后兜底全关。
+  try {
+    await state.connection.closeAllConnections();
+  } catch {
+    // 已穷尽 v8 提供的公开清理 API，保留原始初始化错误。
+  }
+  state.databases.clear();
+}
+
 async function createDatabase(
   dbName: string,
   accountHash: string,
   state: NativeDatabaseGlobalState,
   cacheEntry: CachedDatabase,
 ): Promise<NativeDatabaseImpl> {
-  const hasConnection = await state.connection.isConnection(dbName, false);
-  const raw = hasConnection.result
-    ? await state.connection.retrieveConnection(dbName, false)
-    : await state.connection.createConnection(
-        dbName,
-        false,
-        "no-encryption",
-        SCHEMA_VERSION,
-        false,
-      );
+  let raw: SQLiteDBConnection | undefined;
+  try {
+    const hasConnection = await state.connection.isConnection(dbName, false);
+    raw = hasConnection.result
+      ? await state.connection.retrieveConnection(dbName, false)
+      : await state.connection.createConnection(
+          dbName,
+          false,
+          "no-encryption",
+          SCHEMA_VERSION,
+          false,
+        );
 
-  const isOpen = await raw.isDBOpen();
-  if (!isOpen.result) await raw.open();
+    const isOpen = await raw.isDBOpen();
+    if (!isOpen.result) await raw.open();
 
-  const database = new NativeDatabaseImpl(dbName, raw, state, cacheEntry);
-  await database.initialize(accountHash);
-  return database;
+    const database = new NativeDatabaseImpl(dbName, raw, state, cacheEntry);
+    await database.initialize(accountHash);
+    return database;
+  } catch (error) {
+    await cleanupFailedConnection(state, dbName, raw);
+    throw error;
+  }
 }
 
 export async function openNativeDatabase(accountId: string): Promise<NativeDatabase> {
@@ -580,6 +700,8 @@ export async function openNativeDatabase(accountId: string): Promise<NativeDatab
   const state = getGlobalState();
 
   while (true) {
+    await ensureConnectionsConsistent(state);
+
     const cached = state.databases.get(dbName);
     if (cached) {
       if (cached.closePromise) {
@@ -599,19 +721,10 @@ export async function openNativeDatabase(accountId: string): Promise<NativeDatab
     state.databases.set(dbName, cacheEntry);
 
     try {
-      const database = await cacheEntry.openPromise;
-      return database;
+      return await cacheEntry.openPromise;
     } catch (error) {
       if (state.databases.get(dbName) === cacheEntry) {
         state.databases.delete(dbName);
-      }
-      const hasConnection = await state.connection.isConnection(dbName, false);
-      if (hasConnection.result) {
-        try {
-          await state.connection.closeConnection(dbName, false);
-        } catch {
-          // 保留原始初始化错误；下次打开仍会重新建立连接。
-        }
       }
       throw error;
     }
