@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import type Database from "better-sqlite3";
 
-import { getUserWorkspaceRole, type WorkspaceRole } from "../middleware/acl";
+import type { WorkspaceRole } from "../middleware/acl";
 import {
   SYNC_PERSONAL_SCOPE_KEY,
   SYNC_WORKSPACE_SCOPE_PREFIX,
@@ -28,25 +28,41 @@ function sha256(value: string): string {
   return createHash("sha256").update(value).digest("hex");
 }
 
-export function workspaceScopeKey(workspaceId: string): string {
+function validateWorkspaceId(workspaceId: string): string {
   const normalizedId = workspaceId.trim();
   if (!normalizedId) throw new SyncError("INVALID_PAYLOAD", "工作区 ID 不能为空");
+  if (
+    normalizedId.includes(SYNC_WORKSPACE_SCOPE_PREFIX)
+    || /[\s\u0000-\u001f\u007f]/u.test(normalizedId)
+  ) {
+    throw new SyncError("INVALID_PAYLOAD", "工作区 ID 格式不合法");
+  }
+  return normalizedId;
+}
+
+export function workspaceScopeKey(workspaceId: string): string {
+  const normalizedId = validateWorkspaceId(workspaceId);
   return `${SYNC_WORKSPACE_SCOPE_PREFIX}${normalizedId}`;
 }
 
-export function parseSyncScopeKey(scopeKey?: string | null): {
+export function parseSyncScopeKey(scopeKey: string | null | undefined): {
   scopeKey: string;
   workspaceId: string | null;
 } {
-  const normalizedKey = scopeKey?.trim() || SYNC_PERSONAL_SCOPE_KEY;
+  if (scopeKey === null || scopeKey === undefined) {
+    return { scopeKey: SYNC_PERSONAL_SCOPE_KEY, workspaceId: null };
+  }
+  const normalizedKey = scopeKey.trim();
+  if (!normalizedKey) throw new SyncError("INVALID_PAYLOAD", "同步作用域不能为空");
   if (normalizedKey === SYNC_PERSONAL_SCOPE_KEY) {
     return { scopeKey: SYNC_PERSONAL_SCOPE_KEY, workspaceId: null };
   }
   if (!normalizedKey.startsWith(SYNC_WORKSPACE_SCOPE_PREFIX)) {
     throw new SyncError("INVALID_PAYLOAD", "同步作用域格式不合法");
   }
-  const workspaceId = normalizedKey.slice(SYNC_WORKSPACE_SCOPE_PREFIX.length).trim();
-  if (!workspaceId) throw new SyncError("INVALID_PAYLOAD", "工作区 ID 不能为空");
+  const workspaceId = validateWorkspaceId(
+    normalizedKey.slice(SYNC_WORKSPACE_SCOPE_PREFIX.length),
+  );
   return { scopeKey: workspaceScopeKey(workspaceId), workspaceId };
 }
 
@@ -75,7 +91,8 @@ function workspaceAccessFingerprint(db: Database.Database, workspaceId: string):
   `).all(workspaceId);
   const notebookMembers = db.prepare(`
     SELECT m.id, m.notebookId, m.userId, m.role, m.status,
-           m.allowDownload, m.allowReshare, m.source, m.sourceId, m.updatedAt
+           m.allowDownload, m.allowReshare, m.source, m.sourceId,
+           m.invitedBy, m.createdAt, m.updatedAt
     FROM notebook_members m
     JOIN notebooks n ON n.id = m.notebookId
     WHERE n.workspaceId = ?
@@ -143,7 +160,14 @@ export function resolveAuthorizedScope(
     FROM workspaces
     WHERE id = ?
   `).get(parsed.workspaceId) as WorkspaceRow | undefined;
-  const role = workspace ? getUserWorkspaceRole(parsed.workspaceId, userId) : null;
+  const member = workspace
+    ? db.prepare(`
+        SELECT role
+        FROM workspace_members
+        WHERE workspaceId = ? AND userId = ?
+      `).get(parsed.workspaceId, userId) as { role: WorkspaceRole } | undefined
+    : undefined;
+  const role = member?.role ?? null;
   if (!workspace || !role) {
     throw new SyncError("ACCESS_REVOKED", "工作区不存在或访问权已撤销");
   }
