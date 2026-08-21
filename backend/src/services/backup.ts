@@ -23,6 +23,7 @@
  */
 
 import fs from "fs";
+import { markSyncNeedsReconcile } from "../sync/bootstrap";
 import path from "path";
 import crypto from "crypto";
 import os from "os";
@@ -1204,21 +1205,49 @@ export class BackupManager {
     const isZip = buf.length >= 2 && buf[0] === 0x50 && buf[1] === 0x4b;
 
     try {
+      let result: RestoreResult;
       if (isZip) {
-        return await this.restoreFromZip(buf, !!opts.dryRun);
-      }
-      // 嗅探 JSON 全量备份（旧格式）
-      try {
-        const text = buf.toString("utf-8");
-        const obj = JSON.parse(text);
-        if (obj && obj.data && obj.version) {
-          return await this.restoreFromLegacyJson(obj, !!opts.dryRun);
+        result = await this.restoreFromZip(buf, !!opts.dryRun);
+      } else {
+        // 嗅探 JSON 全量备份（旧格式）
+        let legacy: RestoreResult | null = null;
+        try {
+          const text = buf.toString("utf-8");
+          const obj = JSON.parse(text);
+          if (obj && obj.data && obj.version) {
+            legacy = await this.restoreFromLegacyJson(obj, !!opts.dryRun);
+          }
+        } catch {
+          /* 不是 JSON，落到 db-only */
         }
-      } catch {
-        /* 不是 JSON，落到 db-only */
+        // 否则视为 db-only 快照：替换 DB 文件
+        result = legacy ?? await this.restoreFromDbOnly(filePath, !!opts.dryRun);
       }
-      // 否则视为 db-only 快照：替换 DB 文件
-      return await this.restoreFromDbOnly(filePath, !!opts.dryRun);
+
+      // 阶段 N：恢复成功后同步游标不再可信。
+      //
+      // 备份里的 sync_state 记录的是"备份那一刻已拉到哪个序号"。
+      // 恢复之后本地内容退回到过去，但服务端序号仍在前进 ——
+      // 沿用旧游标会让引擎认为"备份后到现在的远端变更都已应用"，
+      // 从而永久丢失这段时间其他设备的所有修改。
+      //
+      // 因此强制回到 needs_reconcile，下次同步走完整 Bootstrap 对账。
+      // 对账会逐实体比对而不是盲目覆盖，因此恢复旧备份**不会**把
+      // 服务端的新数据冲掉（第二十条）。
+      if (result.success && !opts.dryRun) {
+        try {
+          markSyncNeedsReconcile();
+        } catch (error) {
+          // 标记失败不能让恢复被判为失败 —— 数据已经恢复好了。
+          // 但要留下明确警告，否则用户可能在游标错误的状态下继续同步。
+          console.warn(
+            "[backup] 恢复成功但同步状态标记失败，请手动重置同步对账:",
+            (error as Error)?.message || error,
+          );
+        }
+      }
+
+      return result;
     } catch (err) {
       return { success: false, error: err instanceof Error ? err.message : String(err) };
     }

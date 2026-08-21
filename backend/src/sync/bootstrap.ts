@@ -42,6 +42,7 @@ import type Database from "better-sqlite3";
 import { SYNC_PERSONAL_SCOPE_KEY, SYNC_SNAPSHOT_PAGE_SIZE } from "./constants";
 import { SyncError } from "./errors";
 import { logSyncInfo, logSyncWarn } from "./log";
+import { getDb } from "../db/schema";
 import { recordConflict } from "./conflict";
 import { advanceSyncState } from "./profile";
 import { runWithOutboxSuppressed } from "./context";
@@ -124,6 +125,60 @@ function setStatus(
   if (status === "ready") sets.push("bootstrapReadyAt = datetime('now')");
   args.push(profileId);
   db.prepare(`UPDATE sync_profiles SET ${sets.join(", ")} WHERE id = ?`).run(args);
+}
+
+/**
+ * 把所有 Profile 标记为需要重新对账（阶段 N）。
+ *
+ * 用于恢复备份之后：本地内容退回到过去，但服务端序号仍在前进，
+ * 沿用旧游标会让引擎误以为"这段时间的远端变更都已应用"，
+ * 从而永久丢失其他设备在这期间的全部修改。
+ *
+ * 只重置对账进度与游标，**不动任何业务数据、不动 Outbox、不动冲突台账** ——
+ * 恢复出来的笔记是用户明确要的，未推送的修改也必须保留。
+ *
+ * 用独立函数而非直接调 resetBootstrap：这里要处理"所有 Profile"，
+ * 而且必须能在没有 sync 表的老库上安全降级（备份可能来自更早版本）。
+ */
+export function markSyncNeedsReconcile(db: Database.Database = getDb()): number {
+  // 表可能不存在（备份来自 v88 之前）：静默跳过而不是抛错，
+  // 否则恢复流程会因为一个可选功能而失败。
+  const hasTable = db.prepare(`
+    SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'sync_profiles'
+  `).get();
+  if (!hasTable) return 0;
+
+  const run = db.transaction(() => {
+    const result = db.prepare(`
+      UPDATE sync_profiles
+         SET bootstrapStatus = 'pending',
+             bootstrapCursor = NULL,
+             bootstrapSequence = NULL,
+             bootstrapReadyAt = NULL,
+             bootstrapError = '恢复备份后需要重新对账',
+             updatedAt = datetime('now')
+    `).run();
+
+    // 游标归零：下次同步从头对账。
+    // 不删除 sync_state 行，保留 lastSyncAt 等诊断信息。
+    try {
+      db.prepare(`
+        UPDATE sync_state
+           SET lastSequence = 0,
+               lastError = '恢复备份后需要重新对账'
+      `).run();
+    } catch {
+      /* sync_state 可能不存在于更老的备份 */
+    }
+
+    return result.changes;
+  });
+
+  const changed = run();
+  if (changed > 0) {
+    logSyncWarn("bootstrap.needs-reconcile", { pendingCount: changed });
+  }
+  return changed;
 }
 
 /**

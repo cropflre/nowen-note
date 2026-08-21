@@ -8,9 +8,12 @@ import { Hono } from "hono";
 const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "nowen-sync-v2-disabled-"));
 process.env.DB_PATH = path.join(tmpDir, "test.db");
 process.env.ELECTRON_USER_DATA = tmpDir;
-// 关键：本文件**不**设置 NOWEN_LOCAL_FIRST_SYNC_V2，
-// 验证默认状态下 Sync V2 对外完全不可见。
-delete process.env.NOWEN_LOCAL_FIRST_SYNC_V2;
+// 阶段 P 起 Sync V2 默认**开启**（链路已完整，Local-first 是默认架构），
+// 因此这里必须显式停用才能验证 kill switch 的行为。
+//
+// 本文件验证的是"运维紧急停用后 V2 对外完全不可见"：
+// 不存在半启用状态，且已发布客户端走的 V1 完全不受影响。
+process.env.NOWEN_LOCAL_FIRST_SYNC_V2 = "0";
 
 let app: Hono;
 let closeDb: () => void;
@@ -42,7 +45,7 @@ async function probe(method: string, route: string, body?: unknown) {
   return { status: response.status, json: await response.json() as any };
 }
 
-test("Flag 关闭时全部 V2 端点返回 404，不存在半启用状态", async () => {
+test("显式停用时全部 V2 端点返回 404，不存在半启用状态", async () => {
   const probes = await Promise.all([
     probe("GET", "/api/sync/v2/plan"),
     probe("GET", "/api/sync/v2/changes?after=0"),

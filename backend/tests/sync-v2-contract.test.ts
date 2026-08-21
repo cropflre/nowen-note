@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { isLocalFirstSyncV2Enabled } from "../src/sync/flag";
+import {
+  isLocalFirstSyncV2Enabled,
+  isLocalFirstSyncV2ExplicitlyDisabled,
+} from "../src/sync/flag";
 import {
   SYNC_ENTITY_TYPES,
   SYNC_OPERATIONS,
@@ -24,21 +27,36 @@ import {
 } from "../src/sync/context";
 import { formatSyncLog } from "../src/sync/log";
 
-test("Sync V2 开关默认关闭，仅显式 1/true 才启用", () => {
-  assert.equal(isLocalFirstSyncV2Enabled(undefined), false);
-  assert.equal(isLocalFirstSyncV2Enabled(""), false);
-  assert.equal(isLocalFirstSyncV2Enabled("0"), false);
+test("Sync V2 默认开启，仅显式 0/false 才停用（阶段 P）", () => {
+  // 链路已完整，Local-first 是桌面端默认架构。
+  // 继续默认关闭会让正式版用户看到"当前版本尚未开启多设备同步"，
+  // 而功能其实已发布 —— 那是把内部开发状态泄漏给了用户。
+  assert.equal(isLocalFirstSyncV2Enabled(undefined), true, "未配置时必须默认开启");
   assert.equal(isLocalFirstSyncV2Enabled("1"), true);
   assert.equal(isLocalFirstSyncV2Enabled("true"), true);
+
+  // 保留紧急停用能力：线上发现数据安全问题时运维需要能立刻止损。
+  assert.equal(isLocalFirstSyncV2Enabled("0"), false);
+  assert.equal(isLocalFirstSyncV2Enabled("false"), false);
 });
 
-test("开关拒绝模糊取值，避免配置拼写意外开启改造路径", () => {
-  assert.equal(isLocalFirstSyncV2Enabled("TRUE"), false);
-  assert.equal(isLocalFirstSyncV2Enabled("True"), false);
-  assert.equal(isLocalFirstSyncV2Enabled("yes"), false);
-  assert.equal(isLocalFirstSyncV2Enabled("on"), false);
-  assert.equal(isLocalFirstSyncV2Enabled(" 1"), false);
-  assert.equal(isLocalFirstSyncV2Enabled("2"), false);
+test("停用值严格匹配，避免拼写导致意外停用已发布功能", () => {
+  // 空字符串必须视为"未配置"：docker-compose 里写了 KEY= 但没给值很常见，
+  // 把它当停用会让一批部署静默失去同步能力。
+  assert.equal(isLocalFirstSyncV2Enabled(""), true);
+  // 这些都不是约定的停用值，一律按开启处理 ——
+  // 宁可功能可用，也不要因为一个拼写让用户的同步无声消失。
+  assert.equal(isLocalFirstSyncV2Enabled("no"), true);
+  assert.equal(isLocalFirstSyncV2Enabled("off"), true);
+  assert.equal(isLocalFirstSyncV2Enabled("FALSE"), true);
+  assert.equal(isLocalFirstSyncV2Enabled("disabled"), true);
+});
+
+test("能区分显式停用与默认开启，便于诊断配置问题", () => {
+  assert.equal(isLocalFirstSyncV2ExplicitlyDisabled("0"), true);
+  assert.equal(isLocalFirstSyncV2ExplicitlyDisabled("false"), true);
+  assert.equal(isLocalFirstSyncV2ExplicitlyDisabled(undefined), false);
+  assert.equal(isLocalFirstSyncV2ExplicitlyDisabled("1"), false);
 });
 
 test("同步实体范围锁定已实现完整链路的十类，防止越界扩张", () => {
