@@ -23,6 +23,7 @@ interface CachedDatabase {
 interface NativeDatabaseGlobalState {
   connection: SQLiteConnection;
   databases: Map<string, CachedDatabase>;
+  lifecycleQueue: Promise<void>;
 }
 
 type NativeDatabaseGlobal = typeof globalThis & {
@@ -336,9 +337,26 @@ function getGlobalState(): NativeDatabaseGlobalState {
     root.__nowenNoteNativeDatabaseState = {
       connection: new SQLiteConnection(CapacitorSQLite),
       databases: new Map(),
+      lifecycleQueue: Promise.resolve(),
     };
+  } else if (!root.__nowenNoteNativeDatabaseState.lifecycleQueue) {
+    // HMR 可能保留旧版全局对象；清掉旧适配器缓存后复用插件连接字典。
+    root.__nowenNoteNativeDatabaseState.databases.clear();
+    root.__nowenNoteNativeDatabaseState.lifecycleQueue = Promise.resolve();
   }
   return root.__nowenNoteNativeDatabaseState;
+}
+
+function runConnectionLifecycle<T>(
+  state: NativeDatabaseGlobalState,
+  work: () => Promise<T>,
+): Promise<T> {
+  const scheduled = state.lifecycleQueue.then(work, work);
+  state.lifecycleQueue = scheduled.then(
+    () => undefined,
+    () => undefined,
+  );
+  return scheduled;
 }
 
 async function hashAccountId(accountId: string): Promise<string> {
@@ -464,9 +482,14 @@ class NativeDatabaseImpl implements NativeDatabase {
     if (this.closePromise) return this.closePromise;
 
     this.closing = true;
-    const closeWork = this.enqueue(async () => {
-      await this.state.connection.closeConnection(this.dbName, false);
-    });
+    const closeWork = this.enqueue(() =>
+      runConnectionLifecycle(this.state, async () => {
+        // 一致性重置后旧句柄可能已被新实例替代，不能误关新连接。
+        if (this.state.databases.get(this.dbName) !== this.cacheEntry) return;
+        await this.state.connection.closeConnection(this.dbName, false);
+        this.state.databases.delete(this.dbName);
+      }),
+    );
 
     this.closePromise = closeWork.then(
       () => {
@@ -613,50 +636,30 @@ async function cleanupFailedConnection(
   dbName: string,
   raw?: SQLiteDBConnection,
 ): Promise<void> {
-  let tracked = false;
   try {
-    tracked = (await state.connection.isConnection(dbName, false)).result === true;
-    if (tracked) {
+    if ((await state.connection.isConnection(dbName, false)).result === true) {
       await state.connection.closeConnection(dbName, false);
       return;
     }
   } catch {
-    // closeConnection 失败时继续尝试关闭原生句柄并校验连接字典。
+    // 只继续清理当前 dbName，不影响其他账号的健康连接。
   }
 
   if (raw) {
     try {
       await raw.close();
     } catch {
-      // 继续执行一致性检查；该 API 会清理 JS/Native 不一致连接。
+      // 继续尝试通过连接管理器移除当前连接。
     }
   }
 
   try {
-    const consistency = await state.connection.checkConnectionsConsistency();
-    if (consistency.result !== true) {
-      state.databases.clear();
-      return;
+    if ((await state.connection.isConnection(dbName, false)).result === true) {
+      await state.connection.closeConnection(dbName, false);
     }
   } catch {
-    state.databases.clear();
-    return;
+    // v8 没有“只删 JS 字典项”的 API；禁止为一个坏连接关闭其他账号。
   }
-
-  try {
-    tracked = (await state.connection.isConnection(dbName, false)).result === true;
-  } catch {
-    tracked = true;
-  }
-  if (!tracked) return;
-
-  // 公共 API 无法单独移除一个仍被 JS 字典持有的坏句柄，只能最后兜底全关。
-  try {
-    await state.connection.closeAllConnections();
-  } catch {
-    // 已穷尽 v8 提供的公开清理 API，保留原始初始化错误。
-  }
-  state.databases.clear();
 }
 
 async function createDatabase(
@@ -690,6 +693,33 @@ async function createDatabase(
   }
 }
 
+type OpenDecision =
+  | { kind: "open"; openPromise: Promise<NativeDatabaseImpl> }
+  | { kind: "close"; closePromise: Promise<void> }
+  | {
+      kind: "create";
+      cacheEntry: CachedDatabase;
+      resolve: (database: NativeDatabaseImpl) => void;
+      reject: (error: unknown) => void;
+    };
+
+function createOpenDecision(): Extract<OpenDecision, { kind: "create" }> {
+  let resolve!: (database: NativeDatabaseImpl) => void;
+  let reject!: (error: unknown) => void;
+  const openPromise = new Promise<NativeDatabaseImpl>((onResolve, onReject) => {
+    resolve = onResolve;
+    reject = onReject;
+  });
+  // 创建任务会在生命周期队列内完成，先挂拒绝处理避免短暂未观察的 rejection。
+  void openPromise.catch(() => undefined);
+  return {
+    kind: "create",
+    cacheEntry: { openPromise },
+    resolve,
+    reject,
+  };
+}
+
 export async function openNativeDatabase(accountId: string): Promise<NativeDatabase> {
   if (!Capacitor.isNativePlatform()) {
     throw new Error("原生数据库只能在 Android 或 iOS 运行时打开");
@@ -700,33 +730,58 @@ export async function openNativeDatabase(accountId: string): Promise<NativeDatab
   const state = getGlobalState();
 
   while (true) {
-    await ensureConnectionsConsistent(state);
-
-    const cached = state.databases.get(dbName);
-    if (cached) {
-      if (cached.closePromise) {
-        await cached.closePromise;
-        continue;
-      }
-      return cached.openPromise;
-    }
-
-    const cacheEntry = {} as CachedDatabase;
-    cacheEntry.openPromise = createDatabase(
-      dbName,
-      accountHash,
+    const decision = await runConnectionLifecycle<OpenDecision>(
       state,
-      cacheEntry,
-    );
-    state.databases.set(dbName, cacheEntry);
+      async () => {
+        await ensureConnectionsConsistent(state);
 
-    try {
-      return await cacheEntry.openPromise;
-    } catch (error) {
-      if (state.databases.get(dbName) === cacheEntry) {
-        state.databases.delete(dbName);
-      }
-      throw error;
+        const cached = state.databases.get(dbName);
+        if (cached?.closePromise) {
+          return { kind: "close", closePromise: cached.closePromise };
+        }
+        if (cached) {
+          return { kind: "open", openPromise: cached.openPromise };
+        }
+
+        const createDecision = createOpenDecision();
+        state.databases.set(dbName, createDecision.cacheEntry);
+        return createDecision;
+      },
+    );
+
+    if (decision.kind === "close") {
+      // close 自身也需要生命周期锁，必须释放当前临界区后再等待。
+      await decision.closePromise;
+      continue;
     }
+    if (decision.kind === "open") {
+      // 同 dbName single-flight：锁外等待唯一的 openPromise。
+      return decision.openPromise;
+    }
+
+    await runConnectionLifecycle(state, async () => {
+      if (state.databases.get(dbName) !== decision.cacheEntry) {
+        decision.reject(new Error("原生数据库连接状态已变化，请重新打开"));
+        return;
+      }
+
+      try {
+        const database = await createDatabase(
+          dbName,
+          accountHash,
+          state,
+          decision.cacheEntry,
+        );
+        decision.resolve(database);
+      } catch (error) {
+        if (state.databases.get(dbName) === decision.cacheEntry) {
+          state.databases.delete(dbName);
+        }
+        decision.reject(error);
+      }
+    });
+
+    // 创建过程持有生命周期锁，但不在锁内等待自己登记的 openPromise。
+    return decision.cacheEntry.openPromise;
   }
 }
