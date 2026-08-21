@@ -140,6 +140,11 @@ export function installSyncPersonalEntitiesTriggers(
     const oldWorkspace = workspaceExpr("OLD", scopeSource);
     const newScopeCondition = scopeAware ? "1 = 1" : `${newWorkspace} IS NULL`;
     const oldScopeCondition = scopeAware ? "1 = 1" : `${oldWorkspace} IS NULL`;
+    // reminder 普通删除时父 task 仍存在，可在这里准确推导 Scope；父 task 级联删除时
+    // 父行已不可见，本触发器必须跳过，交给 tasks 的 BEFORE DELETE 专用触发器记录。
+    const deleteScopeCondition = scopeSource === "task"
+      ? `${oldScopeCondition} AND EXISTS (SELECT 1 FROM tasks WHERE id = OLD.taskId)`
+      : oldScopeCondition;
     const scopeChanged = scopeSource === "direct"
       ? `OLD.workspaceId IS NOT NEW.workspaceId OR OLD.userId IS NOT NEW.userId`
       : `OLD.taskId IS NOT NEW.taskId OR OLD.userId IS NOT NEW.userId OR ${oldWorkspace} IS NOT ${newWorkspace}`;
@@ -183,7 +188,7 @@ export function installSyncPersonalEntitiesTriggers(
       DROP TRIGGER IF EXISTS sync_v2_${table}_feed_delete;
       CREATE TRIGGER sync_v2_${table}_feed_delete
       AFTER DELETE ON ${table}
-      WHEN ${oldScopeCondition}
+      WHEN ${deleteScopeCondition}
         AND (SELECT enabled FROM sync_v2_should_log) = 1
       BEGIN
         INSERT INTO sync_changes_v2 (
@@ -244,7 +249,7 @@ export function installSyncPersonalEntitiesTriggers(
       DROP TRIGGER IF EXISTS sync_outbox_${table}_delete;
       CREATE TRIGGER sync_outbox_${table}_delete
       AFTER DELETE ON ${table}
-      WHEN ${oldScopeCondition}
+      WHEN ${deleteScopeCondition}
         AND (SELECT enabled FROM sync_v2_should_enqueue) = 1
       BEGIN
         INSERT INTO sync_outbox (
@@ -263,7 +268,8 @@ export function installSyncPersonalEntitiesTriggers(
 
   db.exec("DROP TRIGGER IF EXISTS sync_v2_tasks_reminders_scope_move;");
   db.exec("DROP TRIGGER IF EXISTS sync_outbox_tasks_reminders_scope_move;");
-  if (!scopeAware) return;
+  db.exec("DROP TRIGGER IF EXISTS sync_v2_tasks_reminders_scope_delete;");
+  db.exec("DROP TRIGGER IF EXISTS sync_outbox_tasks_reminders_scope_delete;");
 
   const hasTasks = db.prepare(
     "SELECT 1 FROM sqlite_master WHERE type='table' AND name='tasks'",
@@ -272,6 +278,40 @@ export function installSyncPersonalEntitiesTriggers(
     "SELECT 1 FROM sqlite_master WHERE type='table' AND name='task_reminders'",
   ).get();
   if (!hasTasks || !hasReminders) return;
+
+  const parentDeleteScopeCondition = scopeAware ? "1 = 1" : "OLD.workspaceId IS NULL";
+  db.exec(`
+    -- FK 级联发生前由父 task 固定 reminder 的旧 Scope；级联后的 reminder
+    -- AFTER DELETE 因父行不可见而跳过，确保每条删除只生成一次。
+    CREATE TRIGGER sync_v2_tasks_reminders_scope_delete
+    BEFORE DELETE ON tasks
+    WHEN ${parentDeleteScopeCondition}
+      AND (SELECT enabled FROM sync_v2_should_log) = 1
+    BEGIN
+      INSERT INTO sync_changes_v2 (entityType, entityId, operation, userId, workspaceId, changedAt)
+      SELECT 'task_reminder', r.id, 'delete', r.userId, OLD.workspaceId, datetime('now')
+      FROM task_reminders r WHERE r.taskId = OLD.id;
+    END;
+
+    CREATE TRIGGER sync_outbox_tasks_reminders_scope_delete
+    BEFORE DELETE ON tasks
+    WHEN ${parentDeleteScopeCondition}
+      AND (SELECT enabled FROM sync_v2_should_enqueue) = 1
+    BEGIN
+      INSERT INTO sync_outbox (
+        id, mutationId, profileId${scopeColumn}, deviceId, entityType, entityId,
+        operation, baseVersion, payload, status, retryCount, createdAt
+      )
+      SELECT lower(hex(randomblob(16))), lower(hex(randomblob(16))),
+        (SELECT profileId FROM sync_v2_outbox_target)${scopeValue("OLD.workspaceId")},
+        (SELECT deviceId FROM sync_v2_local_device),
+        'task_reminder', r.id, 'delete', NULL, NULL, 'pending', 0, datetime('now')
+      FROM task_reminders r WHERE r.taskId = OLD.id;
+    END;
+  `);
+
+  // v90 没有 scopeKey，只需父删除的个人空间兼容触发器；跨 Scope 移动由 v91 启用。
+  if (!scopeAware) return;
 
   db.exec(`
     CREATE TRIGGER sync_v2_tasks_reminders_scope_move
