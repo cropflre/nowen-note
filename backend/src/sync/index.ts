@@ -49,6 +49,7 @@ export {
   SYNC_CHANGES_PAGE_SIZE,
   SYNC_LOG_PREFIX,
   SYNC_PERSONAL_SCOPE_KEY,
+  SYNC_WORKSPACE_SCOPE_PREFIX,
   SYNC_PUSH_MAX_MUTATIONS,
   SYNC_RETRY_BACKOFF_MS,
   SYNC_SNAPSHOT_MAX_PAGE_SIZE,
@@ -58,6 +59,14 @@ export {
   SYNC_V2_ROUTES,
   syncRetryDelayMs,
 } from "./constants";
+
+export {
+  listAuthorizedScopes,
+  parseSyncScopeKey,
+  resolveAuthorizedScope,
+  workspaceScopeKey,
+} from "./scope";
+export type { SyncScopeAccessStatus, SyncScopeDescriptor } from "./scope";
 
 export {
   SYNC_ERROR_CODES,

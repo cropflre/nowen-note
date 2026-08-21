@@ -14,7 +14,7 @@ export interface SyncScopeDescriptor {
   scopeKey: string;
   workspaceId: string | null;
   role: WorkspaceRole | null;
-  access: SyncScopeAccessStatus;
+  canWrite: boolean;
   accessFingerprint: string;
 }
 
@@ -31,6 +31,9 @@ function sha256(value: string): string {
 function validateWorkspaceId(workspaceId: string): string {
   const normalizedId = workspaceId.trim();
   if (!normalizedId) throw new SyncError("INVALID_PAYLOAD", "工作区 ID 不能为空");
+  if (normalizedId.length > 128) {
+    throw new SyncError("INVALID_PAYLOAD", "工作区 ID 长度不能超过 128 个字符");
+  }
   if (
     normalizedId.includes(SYNC_WORKSPACE_SCOPE_PREFIX)
     || /[\s\u0000-\u001f\u007f]/u.test(normalizedId)
@@ -42,7 +45,11 @@ function validateWorkspaceId(workspaceId: string): string {
 
 export function workspaceScopeKey(workspaceId: string): string {
   const normalizedId = validateWorkspaceId(workspaceId);
-  return `${SYNC_WORKSPACE_SCOPE_PREFIX}${normalizedId}`;
+  const scopeKey = `${SYNC_WORKSPACE_SCOPE_PREFIX}${normalizedId}`;
+  if (scopeKey.length > 160) {
+    throw new SyncError("INVALID_PAYLOAD", "同步作用域键长度不能超过 160 个字符");
+  }
+  return scopeKey;
 }
 
 export function parseSyncScopeKey(scopeKey: string | null | undefined): {
@@ -66,8 +73,24 @@ export function parseSyncScopeKey(scopeKey: string | null | undefined): {
   return { scopeKey: workspaceScopeKey(workspaceId), workspaceId };
 }
 
-function canWrite(role: WorkspaceRole): boolean {
+function canWriteWorkspaceScope(role: WorkspaceRole): boolean {
   return role === "owner" || role === "admin" || role === "editor";
+}
+
+function isWorkspaceRole(role: unknown): role is WorkspaceRole {
+  return role === "owner"
+    || role === "admin"
+    || role === "editor"
+    || role === "commenter"
+    || role === "viewer";
+}
+
+function tableExists(db: Database.Database, tableName: string): boolean {
+  return Boolean(db.prepare(`
+    SELECT 1
+    FROM sqlite_master
+    WHERE type = 'table' AND name = ?
+  `).get(tableName));
 }
 
 function workspaceAccessFingerprint(db: Database.Database, workspaceId: string): string {
@@ -98,9 +121,60 @@ function workspaceAccessFingerprint(db: Database.Database, workspaceId: string):
     WHERE n.workspaceId = ?
     ORDER BY m.notebookId, m.userId, m.id
   `).all(workspaceId);
+  const hasKnowledgeTreeNodes = tableExists(db, "knowledge_tree_nodes");
+  const knowledgeTreeNodes = hasKnowledgeTreeNodes
+    ? db.prepare(`
+        SELECT id, userId, workspaceId, scopeKey, parentId, nodeType,
+               resourceType, resourceId, isDeleted, updatedAt
+        FROM knowledge_tree_nodes
+        WHERE workspaceId = ?
+        ORDER BY id
+      `).all(workspaceId)
+    : [];
+  const knowledgeTreeAcl = hasKnowledgeTreeNodes && tableExists(db, "knowledge_tree_acl")
+    ? db.prepare(`
+        SELECT a.nodeId, a.userId, a.rolePreset,
+               a.canView, a.canComment, a.canCreate, a.canEdit, a.canDelete,
+               a.canMove, a.canDownload, a.canReshare, a.canManageMembers,
+               a.grantedBy, a.createdAt, a.updatedAt
+        FROM knowledge_tree_acl a
+        JOIN knowledge_tree_nodes n ON n.id = a.nodeId
+        WHERE n.workspaceId = ?
+        ORDER BY a.nodeId, a.userId
+      `).all(workspaceId)
+    : [];
+  const knowledgeTreeAccessPolicies = hasKnowledgeTreeNodes
+    && tableExists(db, "knowledge_tree_access_policies")
+    ? db.prepare(`
+        SELECT p.nodeId, p.accessMode, p.isExplicit, p.updatedBy,
+               p.createdAt, p.updatedAt
+        FROM knowledge_tree_access_policies p
+        JOIN knowledge_tree_nodes n ON n.id = p.nodeId
+        WHERE n.workspaceId = ?
+        ORDER BY p.nodeId
+      `).all(workspaceId)
+    : [];
+  const knowledgeTreeDenials = hasKnowledgeTreeNodes
+    && tableExists(db, "knowledge_tree_denials")
+    ? db.prepare(`
+        SELECT d.nodeId, d.userId, d.deniedBy, d.createdAt, d.updatedAt
+        FROM knowledge_tree_denials d
+        JOIN knowledge_tree_nodes n ON n.id = d.nodeId
+        WHERE n.workspaceId = ?
+        ORDER BY d.nodeId, d.userId
+      `).all(workspaceId)
+    : [];
 
-  // notebook 成员与 note ACL 已覆盖当前有效权限面；知识树权限待字段契约明确后纳入。
-  return sha256(JSON.stringify({ workspace, members, noteAcl, notebookMembers }));
+  return sha256(JSON.stringify({
+    workspace,
+    members,
+    noteAcl,
+    notebookMembers,
+    knowledgeTreeNodes,
+    knowledgeTreeAcl,
+    knowledgeTreeAccessPolicies,
+    knowledgeTreeDenials,
+  }));
 }
 
 function descriptorForWorkspace(
@@ -112,7 +186,7 @@ function descriptorForWorkspace(
     scopeKey: workspaceScopeKey(workspace.id),
     workspaceId: workspace.id,
     role,
-    access: canWrite(role) ? "write" : "read",
+    canWrite: canWriteWorkspaceScope(role),
     accessFingerprint: workspaceAccessFingerprint(db, workspace.id),
   };
 }
@@ -125,7 +199,7 @@ export function listAuthorizedScopes(
     scopeKey: SYNC_PERSONAL_SCOPE_KEY,
     workspaceId: null,
     role: null,
-    access: "write",
+    canWrite: true,
     accessFingerprint: sha256(`personal:${userId}`),
   };
   const rows = db.prepare(`
@@ -134,8 +208,13 @@ export function listAuthorizedScopes(
     JOIN workspaces w ON w.id = wm.workspaceId
     WHERE wm.userId = ?
     ORDER BY w.id
-  `).all(userId) as Array<WorkspaceRow & { role: WorkspaceRole }>;
-  return [personal, ...rows.map((row) => descriptorForWorkspace(db, row, row.role))];
+  `).all(userId) as Array<WorkspaceRow & { role: unknown }>;
+  return [
+    personal,
+    ...rows
+      .filter((row): row is WorkspaceRow & { role: WorkspaceRole } => isWorkspaceRole(row.role))
+      .map((row) => descriptorForWorkspace(db, row, row.role)),
+  ];
 }
 
 export function resolveAuthorizedScope(
@@ -150,7 +229,7 @@ export function resolveAuthorizedScope(
       scopeKey: SYNC_PERSONAL_SCOPE_KEY,
       workspaceId: null,
       role: null,
-      access: "write",
+      canWrite: true,
       accessFingerprint: sha256(`personal:${userId}`),
     };
   }
@@ -165,13 +244,14 @@ export function resolveAuthorizedScope(
         SELECT role
         FROM workspace_members
         WHERE workspaceId = ? AND userId = ?
-      `).get(parsed.workspaceId, userId) as { role: WorkspaceRole } | undefined
+      `).get(parsed.workspaceId, userId) as { role: unknown } | undefined
     : undefined;
-  const role = member?.role ?? null;
+  const role = isWorkspaceRole(member?.role) ? member.role : null;
   if (!workspace || !role) {
     throw new SyncError("ACCESS_REVOKED", "工作区不存在或访问权已撤销");
   }
-  if (access === "write" && !canWrite(role)) {
+  if (access === "write" && !canWriteWorkspaceScope(role)) {
+    // Workspace 角色只是粗粒度 gate；mutation 仍必须逐实体调用现有权限解析，不能以此替代 ACL。
     throw new SyncError("SCOPE_FORBIDDEN", "当前角色不允许写入该工作区");
   }
   return descriptorForWorkspace(db, workspace, role);
