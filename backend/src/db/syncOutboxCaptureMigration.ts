@@ -58,10 +58,18 @@ import type { Migration } from "./migrations.impl.js";
  * INSERT 时没有"上一版本"，baseVersion 留 NULL —— 服务端对不存在的实体
  * 不做版本检查；若实体已存在于服务端则会判冲突，这是正确的（两端各自创建了同 ID）。
  */
-export const syncOutboxCaptureMigration: Migration = {
-  version: 87,
-  name: "sync-v2-outbox-capture",
-  up: (db) => {
+/**
+ * 安装（或重建）Outbox 捕获触发器与配套视图。
+ *
+ * 抽成独立函数供 v88 复用：v88 需要重建 sync_outbox 表以施加 NOT NULL，
+ * 而 DROP TABLE 会让这些触发器变成悬空引用（之后任何业务写入都会报
+ * "no such table: main.sync_outbox"）。因此 v88 的流程是
+ * 卸触发器 → 重建表 → 调用本函数装回。
+ *
+ * 幂等：全部 DDL 都带 DROP IF EXISTS / IF NOT EXISTS，可反复执行。
+ */
+export function installSyncOutboxCaptureTriggers(db: Parameters<Migration["up"]>[0]): void {
+  {
     // 当前启用的 Profile，且必须已完成 bootstrap。
     // bootstrapStatus 列可能尚未存在（阶段 D 才添加），用 pragma 探测后决定视图定义，
     // 避免在旧库上创建引用不存在列的视图。
@@ -435,5 +443,11 @@ export const syncOutboxCaptureMigration: Migration = {
         );
       END;
     `);
-  },
+  }
+}
+
+export const syncOutboxCaptureMigration: Migration = {
+  version: 87,
+  name: "sync-v2-outbox-capture",
+  up: installSyncOutboxCaptureTriggers,
 };

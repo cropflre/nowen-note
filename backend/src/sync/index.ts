@@ -232,3 +232,17 @@ export {
   stopSyncEngine,
   triggerSyncNow,
 } from "./runtime";
+
+// --- 阶段 A/B/C：身份与队列语义 ---
+
+export {
+  disableAllProfiles,
+  getActiveProfile,
+  switchActiveProfile,
+} from "./profile";
+
+export {
+  ensureInstallationDevice,
+  getInstallationDeviceId,
+  listProfileDevices,
+} from "./device";

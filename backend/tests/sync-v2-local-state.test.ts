@@ -324,19 +324,30 @@ test("按创建顺序推送，保证先父后子的因果顺序", () => {
   assert.deepEqual(rows.map((r) => r.entityId), order);
 });
 
-test("关闭同步期间产生的 mutation（profileId 为空）在开启后一并补传", () => {
+test("profileId 为空的 mutation 被拒绝：仅此设备模式不产生同步队列", () => {
   const db = freshDb();
   const { profile, device } = seedProfile(db);
-  enqueueMutation(db, {
-    entityType: "note",
-    entityId: "note-offline-period",
-    operation: "upsert",
-    deviceId: device.id,
-    profileId: null,
-  });
-  const rows = listPendingMutations(db, 10, profile.id);
-  assert.equal(rows.length, 1);
-  assert.equal(rows[0].entityId, "note-offline-period");
+
+  // 早期实现允许 profileId=null 并在开启同步后"补传"，那等于把一段
+  // 历史操作流 replay 到服务器上。正确模型是首次开启同步由
+  // Bootstrap/Reconcile 按当前最终状态建立基线（见 migration v88）。
+  assert.throws(
+    () => enqueueMutation(db, {
+      entityType: "note",
+      entityId: "note-offline-period",
+      operation: "upsert",
+      deviceId: device.id,
+      // @ts-expect-error 故意传 null 以验证运行时守卫
+      profileId: null,
+    }),
+    /profileId/,
+  );
+
+  assert.equal(
+    listPendingMutations(db, 10, profile.id).length,
+    0,
+    "被拒绝的 mutation 不得留下任何痕迹",
+  );
 });
 
 test("删除笔记的 mutation 不因业务行消失而被级联清除", () => {
@@ -408,8 +419,15 @@ test("deviceId 反复调用保持稳定，不会被当成多台新设备", () =>
   const second = ensureDevice(db, { profileId: profile.id, deviceName: "本机", platform: "win32" });
   assert.equal(first.id, second.id);
 
-  const count = db.prepare("SELECT COUNT(*) AS c FROM sync_devices").get() as { c: number };
+  const count = db.prepare(
+    "SELECT COUNT(*) AS c FROM sync_profile_devices",
+  ).get() as { c: number };
   assert.equal(count.c, 1);
+  // 安装级身份表也只应有一行（单例）
+  const identity = db.prepare(
+    "SELECT COUNT(*) AS c FROM sync_device_identity",
+  ).get() as { c: number };
+  assert.equal(identity.c, 1);
 });
 
 test("设备改名不改变 deviceId", () => {
@@ -421,13 +439,23 @@ test("设备改名不改变 deviceId", () => {
   assert.equal(renamed.deviceName, "新名");
 });
 
-test("不同 Profile 拥有各自独立的设备关系", () => {
+test("不同 Profile 共享同一安装级 deviceId，但 membership 各自独立", () => {
   const db = freshDb();
   const a = createProfile(db, { name: "A", serverUrl: "http://a.test" });
   const b = createProfile(db, { name: "B", serverUrl: "http://b.test" });
   const da = ensureDevice(db, { profileId: a.id });
   const dbv = ensureDevice(db, { profileId: b.id });
-  assert.notEqual(da.id, dbv.id);
+
+  // 设备是物理安装实例，与连哪个服务器无关（阶段 B）。
+  // 旧实现按 profileId 生成 deviceId，导致同一台机器被记成多台设备，
+  // 使 Push 幂等归属与冲突来源判定失效。
+  assert.equal(da.id, dbv.id);
+  assert.notEqual(da.profileId, dbv.profileId, "membership 仍按 Profile 区分");
+
+  const rows = db.prepare(
+    "SELECT COUNT(*) AS c FROM sync_profile_devices",
+  ).get() as { c: number };
+  assert.equal(rows.c, 2, "两条 membership 指向同一个 deviceId");
 });
 
 test("touchDevice 记录最近通信时间，供诊断展示", () => {
@@ -435,7 +463,7 @@ test("touchDevice 记录最近通信时间，供诊断展示", () => {
   const { device } = seedProfile(db);
   assert.equal(device.lastSeenAt, null);
   touchDevice(db, device.id);
-  const row = db.prepare("SELECT lastSeenAt FROM sync_devices WHERE id = ?")
+  const row = db.prepare("SELECT lastSeenAt FROM sync_profile_devices WHERE deviceId = ?")
     .get(device.id) as { lastSeenAt: string | null };
   assert.ok(row.lastSeenAt);
 });

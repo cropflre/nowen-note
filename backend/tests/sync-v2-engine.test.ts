@@ -121,6 +121,8 @@ function resetSyncTables(): void {
     DELETE FROM sync_outbox;
     DELETE FROM sync_applied_mutations;
     DELETE FROM sync_state;
+    DELETE FROM sync_profile_devices;
+    DELETE FROM sync_device_identity;
     DELETE FROM sync_devices;
     DELETE FROM sync_profiles;
     DELETE FROM sync_changes_v2;
@@ -158,7 +160,7 @@ function createEngine(options: { intervalMs?: number } = {}): Harness {
     name: "测试服务器",
     serverUrl: "http://sync.test",
   });
-  sync.setProfileEnabled(db, profile.id, true);
+  sync.switchActiveProfile(db, profile.id);
   const remote = new FakeRemote();
   const scheduler = new ManualScheduler();
 

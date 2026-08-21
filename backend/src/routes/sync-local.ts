@@ -17,14 +17,14 @@ import {
 } from "../sync/resolve";
 import {
   createProfile,
-  disableProfile,
+  disableAllProfiles,
   findProfileByServer,
   getProfile,
   getSyncState,
   listProfiles,
-  setProfileEnabled,
+  switchActiveProfile,
 } from "../sync/profile";
-import { ensureDevice } from "../sync/device";
+import { ensureDevice, getInstallationDeviceId } from "../sync/device";
 import {
   clearRemoteCredential,
   hasRemoteCredential,
@@ -155,13 +155,10 @@ app.post("/settings/server", async (c) => {
         remoteUserId,
       });
 
-      // 切换服务器：停用其他 Profile，但**绝不删除**它们的任何数据。
-      for (const other of listProfiles(db)) {
-        if (other.id !== profile.id && other.enabled === 1) {
-          disableProfile(db, other.id);
-        }
-      }
-      setProfileEnabled(db, profile.id, true);
+      // 切换服务器：switchActiveProfile 在事务内先全部停用再启用目标，
+      // 保证"最多一个 active"这个不变量在任何时刻都成立。
+      // 只改同步开关，**绝不删除**任何 Profile 的数据。
+      switchActiveProfile(db, profile.id);
       const device = ensureDevice(db, {
         profileId: profile.id,
         platform: process.platform,
@@ -228,16 +225,8 @@ app.post("/settings/disable", (c) => {
   // 先停引擎，再改数据库状态：反过来的话引擎可能在这中间又启动一轮。
   stopSyncEngine();
 
-  const disabledIds: string[] = [];
-  const run = db.transaction(() => {
-    for (const profile of listProfiles(db)) {
-      if (profile.enabled === 1) {
-        disableProfile(db, profile.id);
-        disabledIds.push(profile.id);
-      }
-    }
-  });
-  run();
+  // 事务内停用全部 Profile，返回被停用的 ID 供清理凭据。
+  const disabledIds = disableAllProfiles(db);
 
   // 清远端凭据：关闭同步后不该继续持有可用 token。
   // 只清凭据 —— 本地笔记、附件、未同步 Outbox、冲突记录一个字都不动。
@@ -330,7 +319,7 @@ app.get("/diagnostics", (c) => {
   const active = listProfiles(db).find((profile) => profile.enabled === 1) || null;
   const state = active ? getSyncState(db, active.id, SYNC_PERSONAL_SCOPE_KEY) : null;
   const device = active
-    ? db.prepare("SELECT id, deviceName, platform, lastSeenAt FROM sync_devices WHERE profileId = ? LIMIT 1")
+    ? db.prepare("SELECT deviceId AS id, deviceName, platform, lastSeenAt FROM sync_profile_devices WHERE profileId = ? LIMIT 1")
       .get(active.id) as { id: string; lastSeenAt: string | null } | undefined
     : undefined;
 
@@ -432,7 +421,7 @@ app.post("/conflicts/:id/resolve", async (c) => {
 
   const deviceId = typeof body.deviceId === "string" && body.deviceId.trim()
     ? body.deviceId.trim()
-    : (db.prepare("SELECT id FROM sync_devices LIMIT 1").get() as { id?: string } | undefined)?.id;
+    : getInstallationDeviceId(db) ?? undefined;
   if (!deviceId) {
     return c.json({ error: "尚未建立同步设备身份", code: "INVALID_PAYLOAD" }, 400);
   }
@@ -479,7 +468,7 @@ app.post("/conflicts/:id/fork", async (c) => {
   const side = body.side === "remote" ? "remote" : "local";
   const deviceId = typeof body.deviceId === "string" && body.deviceId.trim()
     ? body.deviceId.trim()
-    : (db.prepare("SELECT id FROM sync_devices LIMIT 1").get() as { id?: string } | undefined)?.id;
+    : getInstallationDeviceId(db) ?? undefined;
   if (!deviceId) {
     return c.json({ error: "尚未建立同步设备身份", code: "INVALID_PAYLOAD" }, 400);
   }

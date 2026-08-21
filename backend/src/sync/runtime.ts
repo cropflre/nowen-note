@@ -22,7 +22,7 @@ import type { SyncEngineStatus } from "./engine";
 import { isLocalFirstSyncV2Enabled } from "./flag";
 import { logSyncInfo, logSyncWarn } from "./log";
 import { ensureDevice } from "./device";
-import { listProfiles } from "./profile";
+import { getActiveProfile } from "./profile";
 import { createRemoteClientForProfile } from "./credentials";
 import { promoteLocalAttachments } from "./attachments";
 
@@ -88,7 +88,9 @@ export function reconcileSyncEngine(
     return null;
   }
 
-  const enabled = listProfiles(db).find((p) => p.enabled === 1) || null;
+  // getActiveProfile 依赖 v88 的 partial unique index 保证唯一性，
+  // 不再需要在应用层扫描全部 Profile 找"第一个 enabled"。
+  const enabled = getActiveProfile(db);
 
   // 用户关闭了同步，或切走了 Profile：停掉现有引擎。
   if (!enabled) {

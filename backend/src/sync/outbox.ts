@@ -28,8 +28,14 @@ export interface EnqueueMutationInput {
   entityId: string;
   operation: SyncOperation;
   deviceId: string;
-  /** 尚未绑定同步关系时为空：关闭同步期间也要记录变更，开启后才能补传。 */
-  profileId?: string | null;
+  /**
+   * 必填：mutation 必须明确归属于某个同步关系。
+   *
+   * "仅此设备"模式下**不产生任何 Outbox 条目** —— 本地 CRUD 写完本地库就结束。
+   * 首次开启同步不是 replay 历史操作流，而是由 Bootstrap/Reconcile 按
+   * 当前最终状态建立基线，之后才产生增量 mutation。
+   */
+  profileId: string;
   /** 冲突检测依据；delete 与关系型实体可省略。 */
   baseVersion?: number | null;
   /** 结构化载荷，内部序列化为 JSON；delete 可省略。 */
@@ -57,6 +63,13 @@ export function enqueueMutation(
   if (!input.deviceId) {
     throw new Error("[sync-v2] enqueueMutation 需要稳定的 deviceId");
   }
+  if (!input.profileId) {
+    // 早失败胜过写入一条无法投递的孤儿条目：
+    // 没有 active profile 意味着用户处于"仅此设备"，此时不该有 mutation。
+    throw new Error(
+      "[sync-v2] enqueueMutation 需要 profileId；仅此设备模式不应产生 Outbox 条目",
+    );
+  }
 
   const mutationId = input.mutationId || randomUUID();
   const payload = input.payload == null ? null : JSON.stringify(input.payload);
@@ -69,7 +82,7 @@ export function enqueueMutation(
   `).run(
     randomUUID(),
     mutationId,
-    input.profileId ?? null,
+    input.profileId,
     input.deviceId,
     input.entityType,
     input.entityId,
@@ -106,13 +119,18 @@ export function withMutation<T>(
  *
  * 顺序很重要：先建 notebook 再建其中的 note，乱序会让服务端因缺少父实体而拒绝。
  * failed 条目一并取出，因为它们不是终态，只是暂时推不上去。
+ *
+ * profileId 严格过滤：Profile A 的 mutation 绝不能被推向 Profile B 的服务器。
+ * 早期实现有 `OR profileId IS NULL` 的补传分支，会把"仅此设备"期间的
+ * 历史操作在开启同步后全部 replay —— 那不是正确模型（见 v88 迁移说明）。
  */
 export function listPendingMutations(
   db: Database.Database,
   limit: number,
   profileId?: string | null,
 ): SyncOutboxRow[] {
-  if (profileId === undefined) {
+  if (profileId === undefined || profileId === null) {
+    // 不限定 Profile：仅供诊断与统计使用，Push 路径必须传 profileId。
     return db.prepare(`
       SELECT * FROM ${SYNC_TABLES.outbox}
       WHERE status IN ('pending', 'failed')
@@ -121,12 +139,10 @@ export function listPendingMutations(
     `).all(limit) as SyncOutboxRow[];
   }
 
-  // profileId 为 null 的条目是"关闭同步期间产生的变更"，
-  // 开启同步后必须一并补传，否则这段时间的修改会永久留在本机。
   return db.prepare(`
     SELECT * FROM ${SYNC_TABLES.outbox}
     WHERE status IN ('pending', 'failed')
-      AND (profileId = ? OR profileId IS NULL)
+      AND profileId = ?
     ORDER BY createdAt ASC, rowid ASC
     LIMIT ?
   `).all(profileId, limit) as SyncOutboxRow[];

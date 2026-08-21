@@ -80,6 +80,17 @@ export function findProfileByServer(
   return (row as SyncProfileRow | undefined) || null;
 }
 
+/**
+ * 底层开关，**不保证唯一性**。
+ *
+ * 生产代码不应直接用它启用 Profile —— 请用 switchActiveProfile()。
+ * 单独启用会绕过"最多一个 active"的业务不变量；数据库层的
+ * idx_sync_profiles_single_active（v88）会挡住第二个 enabled=1，
+ * 表现为 SQLITE_CONSTRAINT_UNIQUE，而不是静默出现两个 active。
+ *
+ * 保留导出是为了：停用（enabled=false 永远安全）、迁移脚本、测试。
+ * @internal
+ */
 export function setProfileEnabled(
   db: Database.Database,
   profileId: string,
@@ -90,6 +101,72 @@ export function setProfileEnabled(
     SET enabled = ?, updatedAt = datetime('now')
     WHERE id = ?
   `).run(enabled ? 1 : 0, profileId);
+}
+
+/**
+ * 切换当前唯一的 Active Profile。
+ *
+ * 这是**生产代码启用 Profile 的唯一入口**。
+ *
+ * 事务内先全部停用再启用目标，顺序不可颠倒：先启用会让
+ * 数据库瞬间存在两个 enabled=1，直接触发 partial unique index 冲突。
+ *
+ * 事务保证不会出现"停了旧的但没启新的"或"两个同时 active"的中间态；
+ * 任何一步失败则整体回滚，同步关系维持原状。
+ *
+ * 只改同步开关 —— 本地笔记、附件、未推送的 Outbox、冲突记录一个字都不删。
+ */
+export function switchActiveProfile(
+  db: Database.Database,
+  profileId: string,
+): SyncProfileRow {
+  const run = db.transaction(() => {
+    const target = getProfile(db, profileId);
+    if (!target) {
+      throw new Error(`[sync-v2] switchActiveProfile: Profile ${profileId} 不存在`);
+    }
+    // 含目标自身一并停用：避免"目标已启用"时 UPDATE 无实际变化，
+    // 后续启用语句反而与索引冲突。
+    db.prepare(`
+      UPDATE ${SYNC_TABLES.profiles}
+      SET enabled = 0, updatedAt = datetime('now')
+      WHERE enabled = 1
+    `).run();
+    setProfileEnabled(db, profileId, true);
+    return getProfile(db, profileId) as SyncProfileRow;
+  });
+  return run();
+}
+
+/**
+ * 停用全部 Profile，即回到"仅此设备"。
+ *
+ * 返回被停用的 Profile ID，供调用方清理对应的远端凭据。
+ */
+export function disableAllProfiles(db: Database.Database): string[] {
+  const run = db.transaction(() => {
+    const active = db.prepare(
+      `SELECT id FROM ${SYNC_TABLES.profiles} WHERE enabled = 1`,
+    ).all() as Array<{ id: string }>;
+    db.prepare(`
+      UPDATE ${SYNC_TABLES.profiles}
+      SET enabled = 0, updatedAt = datetime('now')
+      WHERE enabled = 1
+    `).run();
+    return active.map((r) => r.id);
+  });
+  return run();
+}
+
+/** 当前唯一的 Active Profile；"仅此设备"时为 null。 */
+export function getActiveProfile(db: Database.Database): SyncProfileRow | null {
+  const row = db.prepare(`
+    SELECT * FROM ${SYNC_TABLES.profiles}
+    WHERE enabled = 1
+    ORDER BY updatedAt DESC
+    LIMIT 1
+  `).get() as SyncProfileRow | undefined;
+  return row || null;
 }
 
 /** 首次授权成功后回填远端用户身份。 */
