@@ -7,7 +7,7 @@ import {
   countPendingMutations,
   listPendingMutations,
 } from "../src/sync/outbox";
-import { createProfile, setProfileEnabled } from "../src/sync/profile";
+import { createProfile, switchActiveProfile } from "../src/sync/profile";
 import { ensureDevice } from "../src/sync/device";
 import { runWithOutboxSuppressed } from "../src/sync/context";
 import { runChangeFeedSuppressed } from "../src/sync/suppression";
@@ -33,6 +33,8 @@ function resetAll(): void {
   d.exec(`
     DELETE FROM sync_outbox;
     DELETE FROM sync_state;
+    DELETE FROM sync_profile_devices;
+    DELETE FROM sync_device_identity;
     DELETE FROM sync_devices;
     DELETE FROM sync_profiles;
     DELETE FROM note_tags;
@@ -48,11 +50,20 @@ function resetAll(): void {
   `).run(USER_ID, USER_ID);
 }
 
-/** 建立"已开启同步"状态：有 enabled profile + 本机设备。 */
+/**
+ * 建立"已开启同步且基线已建立"状态。
+ *
+ * 三个条件缺一不可（v87 闸门 + v89 闸门）：
+ * enabled profile + 本机设备 + bootstrapStatus='ready'。
+ * 基线未建立时触发器刻意不写 Outbox，避免推送半成品。
+ */
 function enableSync(): { profileId: string; deviceId: string } {
   const d = db();
   const profile = createProfile(d, { name: "测试服务器", serverUrl: "http://sync.test" });
-  setProfileEnabled(d, profile.id, true);
+  switchActiveProfile(d, profile.id);
+  d.prepare(
+    "UPDATE sync_profiles SET bootstrapStatus = 'ready', bootstrapReadyAt = datetime('now') WHERE id = ?",
+  ).run(profile.id);
   const device = ensureDevice(d, { profileId: profile.id, platform: "win32" });
   return { profileId: profile.id, deviceId: device.id };
 }

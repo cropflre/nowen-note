@@ -25,6 +25,7 @@ import { ensureDevice } from "./device";
 import { getActiveProfile } from "./profile";
 import { createRemoteClientForProfile } from "./credentials";
 import { promoteLocalAttachments } from "./attachments";
+import { isBootstrapReady } from "./bootstrap";
 
 interface ActiveEngine {
   engine: SyncEngine;
@@ -141,6 +142,19 @@ export function reconcileSyncEngine(
       profileId: enabled.id,
       errorCode: (error as Error)?.name || "UNKNOWN",
     });
+  }
+
+  // Bootstrap 前置闸门：基线未建立时不启动增量引擎。
+  //
+  // 首次开启同步必须先由 Bootstrap/Reconcile 按当前最终状态对账
+  // （见 sync/bootstrap.ts）。在此之前 v87 的触发器也不写 Outbox
+  // （闸门条件含 bootstrapStatus='ready'），因此不会有半成品 mutation 被推送。
+  //
+  // Bootstrap 由 /api/sync/local/bootstrap 显式触发并可断点续跑，
+  // 不在 reconcile 里同步执行 —— 那会让启动阻塞在一次全量下载上。
+  if (!isBootstrapReady(db, enabled.id)) {
+    logSyncInfo("runtime.awaiting-bootstrap", { profileId: enabled.id });
+    return null;
   }
 
   const engine = new SyncEngine({

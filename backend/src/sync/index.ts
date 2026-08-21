@@ -246,3 +246,21 @@ export {
   getInstallationDeviceId,
   listProfileDevices,
 } from "./device";
+
+// --- 阶段 D：Bootstrap / Reconcile ---
+
+export {
+  getBootstrapProgress,
+  isBootstrapReady,
+  isLocalEmpty,
+  readLocalState,
+  reconcile,
+  resetBootstrap,
+  runBootstrap,
+} from "./bootstrap";
+export type {
+  BootstrapOptions,
+  BootstrapProgress,
+  BootstrapStatus,
+  ReconcilePlan,
+} from "./bootstrap";

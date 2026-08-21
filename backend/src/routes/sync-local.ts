@@ -19,6 +19,7 @@ import {
   createProfile,
   disableAllProfiles,
   findProfileByServer,
+  getActiveProfile,
   getProfile,
   getSyncState,
   listProfiles,
@@ -26,7 +27,13 @@ import {
 } from "../sync/profile";
 import { ensureDevice, getInstallationDeviceId } from "../sync/device";
 import {
+  getBootstrapProgress,
+  resetBootstrap,
+  runBootstrap,
+} from "../sync/bootstrap";
+import {
   clearRemoteCredential,
+  createRemoteClientForProfile,
   hasRemoteCredential,
   saveRemoteCredential,
 } from "../sync/credentials";
@@ -298,6 +305,104 @@ app.get("/engine", (c) => {
     profileId: info.profileId,
     deviceId: info.deviceId,
     localAuthoritative: true,
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Bootstrap / Reconcile（阶段 D）
+// ---------------------------------------------------------------------------
+
+/**
+ * 触发（或续跑）首次同步对账。
+ *
+ * 幂等且可断点续跑：网络中断或应用被强杀后再调一次即可从当前阶段继续。
+ * 失败不影响任何本地业务数据 —— 最差情况只是同步没建立起来。
+ */
+app.post("/bootstrap", async (c) => {
+  const denied = guard(c);
+  if (denied) return denied;
+
+  const db = getDb();
+  const active = getActiveProfile(db);
+  if (!active) {
+    return c.json(
+      { error: "尚未选择同步服务器", code: "SYNC_V2_NO_PROFILE" },
+      400,
+    );
+  }
+
+  const client = createRemoteClientForProfile(active.id, active.serverUrl);
+  if (!client) {
+    return c.json(
+      { error: "尚未完成登录授权，无法开始同步对账", code: "AUTH_EXPIRED" },
+      401,
+    );
+  }
+
+  const userId = c.req.header("X-User-Id") as string;
+  const device = ensureDevice(db, { profileId: active.id, platform: process.platform });
+
+  try {
+    const progress = await runBootstrap({
+      db,
+      profileId: active.id,
+      deviceId: device.id,
+      userId,
+      client,
+    });
+    // 基线建立完成后立刻启动增量引擎，用户无需重启应用。
+    const engine = progress.status === "ready" ? reconcileSyncEngine(db) : null;
+    return c.json({ ...progress, engineRunning: engine !== null });
+  } catch (error) {
+    // 失败时把当前阶段回传给 UI，便于显示"在哪一步失败了、可否重试"。
+    return c.json(
+      {
+        ...getBootstrapProgress(db, active.id),
+        error: error instanceof Error ? error.message.slice(0, 200) : "SERVER_ERROR",
+      },
+      500,
+    );
+  }
+});
+
+/** 对账进度，供设置页显示当前阶段与失败原因。 */
+app.get("/bootstrap", (c) => {
+  const denied = guard(c);
+  if (denied) return denied;
+
+  const db = getDb();
+  const active = getActiveProfile(db);
+  if (!active) {
+    return c.json({ status: "pending", mode: "device-only" });
+  }
+  return c.json({
+    ...getBootstrapProgress(db, active.id),
+    profileId: active.id,
+    serverUrl: active.serverUrl,
+  });
+});
+
+/**
+ * 重置对账状态以便重新建立基线。
+ *
+ * 用于恢复备份之后（旧游标不再可信）或用户手动重试。
+ * 只清对账进度，**不动本地业务数据、不动 Outbox、不动冲突台账**。
+ */
+app.post("/bootstrap/reset", (c) => {
+  const denied = guard(c);
+  if (denied) return denied;
+
+  const db = getDb();
+  const active = getActiveProfile(db);
+  if (!active) {
+    return c.json({ error: "尚未选择同步服务器", code: "SYNC_V2_NO_PROFILE" }, 400);
+  }
+  // 先停引擎：重置后 bootstrapStatus 不再是 ready，引擎不该继续跑。
+  stopSyncEngine();
+  resetBootstrap(db, active.id);
+  return c.json({
+    ...getBootstrapProgress(db, active.id),
+    message: "已重置同步对账状态，本地数据完整保留。",
   });
 });
 

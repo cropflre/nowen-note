@@ -61,6 +61,19 @@ function makeProfile(name: string, url: string) {
   return createProfile(db(), { name, serverUrl: url });
 }
 
+/**
+ * 标记基线已建立。
+ *
+ * v89 的闸门要求 bootstrapStatus='ready' 才写 Outbox。凡是要验证
+ * "触发器确实产生了 mutation" 的用例都需要先置位，否则测的是闸门
+ * 而不是捕获逻辑（Bootstrap 本身有独立测试文件）。
+ */
+function markReady(profileId: string): void {
+  db().prepare(
+    "UPDATE sync_profiles SET bootstrapStatus = 'ready', bootstrapReadyAt = datetime('now') WHERE id = ?",
+  ).run(profileId);
+}
+
 function createNote(notebookId: string, id = randomUUID()): string {
   db().prepare(`
     INSERT INTO notes (
@@ -162,6 +175,7 @@ test("A: disableAllProfiles 停用全部但不删除任何本地数据", () => {
   const d = db();
   const a = makeProfile("A", "http://a.test");
   switchActiveProfile(d, a.id);
+  markReady(a.id);
   ensureDevice(d, { profileId: a.id, platform: "win32" });
   const nb = createNotebook();
   const note = createNote(nb);
@@ -353,6 +367,7 @@ test("C: 开启同步后业务 CRUD 产生的条目都带 profileId", () => {
   const d = db();
   const a = makeProfile("A", "http://a.test");
   switchActiveProfile(d, a.id);
+  markReady(a.id);
   ensureDevice(d, { profileId: a.id, platform: "win32" });
 
   createNote(createNotebook());
@@ -412,6 +427,7 @@ test("C: 删除 Profile 时其队列条目级联清除，业务数据不受影�
   const d = db();
   const a = makeProfile("A", "http://a.test");
   switchActiveProfile(d, a.id);
+  markReady(a.id);
   ensureDevice(d, { profileId: a.id, platform: "win32" });
   const nb = createNotebook();
   const note = createNote(nb);
