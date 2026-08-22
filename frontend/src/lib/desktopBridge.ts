@@ -84,12 +84,29 @@ export interface AppInfo {
   platform: string;
   arch: string;
   mode?: "full" | "lite";
+  runtime?: "local" | "remote";
   hideMenuBar?: boolean;
   // SEC-ELECTRON-01-C: 敏感字段可选，由 getDiagnosticsInfo 获取
   userData?: string;
   logDir?: string;
   backendPort?: number;
   remoteUrl?: string;
+}
+
+export interface LiteMigrationProgress {
+  stage: "pending" | "auth_required" | "preparing" | "downloading" | "applying" | "attachments" | "verifying" | "switching" | "complete" | "failed";
+  downloaded?: number;
+  applied?: number;
+  attachmentsDone?: number;
+  attachmentsPending?: number;
+  error?: string | null;
+}
+
+export interface LiteMigrationResult {
+  ok: boolean;
+  status?: number;
+  progress?: LiteMigrationProgress;
+  error?: string;
 }
 
 /** SEC-ELECTRON-01-C: 诊断信息（敏感字段，仅在需要时获取） */
@@ -332,6 +349,8 @@ interface NowenDesktopAPI {
   getLocalAuth?: () => Promise<{ token: string; refreshToken?: string; user: unknown } | null>;
   clearLocalAuth?: () => Promise<{ ok: boolean }>;
   resetLocalAuth?: () => Promise<{ ok: boolean; token?: string; refreshToken?: string; user?: unknown; error?: string }>;
+  startLiteMigration?: (serverUrl: string, token: string) => Promise<LiteMigrationResult>;
+  getLiteMigrationProgress?: () => Promise<LiteMigrationResult>;
   isDesktop: true;
   platform: string;
   /**
@@ -452,6 +471,18 @@ export async function getAppInfo(): Promise<AppInfo | null> {
   const bridge = getBridge();
   if (!bridge) return null;
   return bridge.getAppInfo();
+}
+
+export async function startLiteMigration(serverUrl: string, token: string): Promise<LiteMigrationResult> {
+  const bridge = getBridge();
+  if (!bridge?.startLiteMigration) return { ok:false,error:"当前桌面端不支持数据本地化迁移" };
+  return bridge.startLiteMigration(serverUrl,token);
+}
+
+export async function getLiteMigrationProgress(): Promise<LiteMigrationResult> {
+  const bridge = getBridge();
+  if (!bridge?.getLiteMigrationProgress) return { ok:false,error:"当前桌面端不支持数据本地化迁移" };
+  return bridge.getLiteMigrationProgress();
 }
 
 /** 获取 full 模式内置本地账号会话；非桌面端或 lite 模式返回 null。 */

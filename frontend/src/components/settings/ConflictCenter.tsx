@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { AlertTriangle, GitCompare, Loader2 } from "lucide-react";
+import { AlertTriangle, GitCompare, Loader2, Merge } from "lucide-react";
 import {
   fetchConflictDetail,
   fetchConflicts,
@@ -72,6 +72,19 @@ export function ConflictCenter({
     } finally {
       setBusy(false);
     }
+  };
+
+  const handleManualResolve = async (id: string, mergedPayload: Record<string, unknown>) => {
+    setBusy(true);
+    setError(null);
+    try {
+      await resolveConflict(id,{resolution:"manual",mergedPayload,deviceId:deviceId ?? undefined});
+      setSelected(null);
+      await reload();
+      onResolved?.();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally { setBusy(false); }
   };
 
   const handleFork = async (id: string, side: "local" | "remote") => {
@@ -161,6 +174,11 @@ export function ConflictCenter({
               >
                 保留服务器
               </button>
+              <button type="button" disabled={busy}
+                onClick={() => { void openDetail(item.id); }}
+                className="inline-flex items-center gap-1 rounded border px-2 py-1 hover:bg-accent disabled:opacity-50">
+                <Merge className="h-3.5 w-3.5" />手动合并
+              </button>
               {item.entityType === "note" ? (
                 <button
                   type="button"
@@ -185,7 +203,8 @@ export function ConflictCenter({
       ) : null}
 
       {selected ? (
-        <ConflictDiff detail={selected} onClose={() => setSelected(null)} />
+        <ConflictDiff detail={selected} busy={busy} onClose={() => setSelected(null)}
+          onManual={(payload) => handleManualResolve(selected.id,payload)} />
       ) : null}
     </section>
   );
@@ -199,15 +218,41 @@ export function ConflictCenter({
  */
 function ConflictDiff({
   detail,
+  busy,
   onClose,
+  onManual,
 }: {
   detail: ConflictDetail;
+  busy: boolean;
   onClose: () => void;
+  onManual: (payload:Record<string,unknown>) => Promise<void>;
 }) {
+  const [editing,setEditing] = useState(false);
+  const [draft,setDraft] = useState("");
+  const [draftError,setDraftError] = useState<string|null>(null);
   const preview = (value: unknown): string => {
     if (value === undefined || value === null) return "—";
     const text = typeof value === "string" ? value : JSON.stringify(value);
     return text.length > 200 ? `${text.slice(0, 200)}…` : text;
+  };
+
+  const beginManual = () => {
+    setDraft(JSON.stringify({...detail.remote,...detail.local},null,2));
+    setDraftError(null);
+    setEditing(true);
+  };
+
+  const submitManual = async () => {
+    try {
+      const payload = JSON.parse(draft) as unknown;
+      if (!payload || Array.isArray(payload) || typeof payload !== "object") {
+        throw new Error("合并结果必须是 JSON 对象");
+      }
+      setDraftError(null);
+      await onManual(payload as Record<string,unknown>);
+    } catch (reason) {
+      setDraftError(reason instanceof Error ? reason.message : "JSON 格式不正确");
+    }
   };
 
   return (
@@ -241,6 +286,23 @@ function ConflictDiff({
           </tbody>
         </table>
       )}
+      {editing ? <div className="mt-3 space-y-2 border-t pt-3">
+        <p className="font-medium">编辑最终合并结果</p>
+        <p className="text-muted-foreground">已用本机字段覆盖服务器字段作为初稿。可直接修改任意字段，保存后会作为一个新版本同步。</p>
+        <textarea value={draft} onChange={(event) => setDraft(event.target.value)} spellCheck={false}
+          className="min-h-56 w-full resize-y rounded border bg-background p-2 font-mono text-xs outline-none focus:ring-2 focus:ring-ring" />
+        {draftError ? <p className="text-destructive">{draftError}</p> : null}
+        <div className="flex gap-2">
+          <button type="button" disabled={busy} onClick={() => { void submitManual(); }}
+            className="rounded bg-primary px-2.5 py-1.5 text-primary-foreground disabled:opacity-50">
+            {busy ? "正在保存…" : "保存合并结果"}
+          </button>
+          <button type="button" disabled={busy} onClick={() => setEditing(false)} className="rounded border px-2.5 py-1.5">取消</button>
+        </div>
+      </div> : <button type="button" onClick={beginManual}
+        className="mt-3 inline-flex items-center gap-1 rounded border px-2.5 py-1.5 hover:bg-accent">
+        <Merge className="h-3.5 w-3.5" />手动编辑并合并
+      </button>}
     </div>
   );
 }

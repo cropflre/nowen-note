@@ -54,6 +54,11 @@ import {
 import { SyncError, isSyncErrorCode } from "../sync/errors";
 import { SYNC_PERSONAL_SCOPE_KEY } from "../sync/constants";
 import { logSyncInfo } from "../sync/log";
+import {
+  buildWorkspaceScopeExport,
+  copyWorkspaceScopeToPersonal,
+  listWorkspaceScopeStates,
+} from "../sync/workspaceScopes";
 
 /**
  * 本地同步管理 API（Phase 5 + Phase 7）。
@@ -530,6 +535,7 @@ app.get("/diagnostics", (c) => {
 
   // 待同步条目只回传统计与实体标识，不含 payload。
   const pending = listPendingMutations(db, 20, active?.id ?? null).map((row) => ({
+    scopeKey: row.scopeKey,
     entityType: row.entityType,
     entityId: row.entityId,
     operation: row.operation,
@@ -547,14 +553,80 @@ app.get("/diagnostics", (c) => {
     localCursor: state?.lastSequence ?? 0,
     lastSyncAt: state?.lastSyncAt ?? null,
     lastError: state?.lastError ?? null,
-    pendingMutations: countPendingMutations(db),
-    conflictCount: countUnresolvedConflicts(db),
+    pendingMutations: active ? countPendingMutations(db,active.id) : 0,
+    conflictCount: active ? countUnresolvedConflicts(db,active.id) : 0,
     pendingSample: pending,
     // 引擎运行时状态：用户报"改了半天没同步"时，
     // 首先要能区分是引擎没跑、没授权，还是推送失败。
     engineRunning: getActiveEngine() !== null,
     engineStatus: getActiveEngine()?.getStatus() ?? null,
     authorized: active ? hasRemoteCredential(active.id) : false,
+    scopes: active
+      ? listWorkspaceScopeStates(db, active.id).map((scope) => ({
+        ...scope,
+        pendingMutations: countPendingMutations(db, active.id, scope.scopeKey),
+        conflictCount: Number((db.prepare(`
+          SELECT COUNT(*) AS count FROM sync_conflicts
+          WHERE profileId = ? AND scopeKey = ? AND status = 'unresolved'
+        `).get(active.id, scope.scopeKey) as { count: number } | undefined)?.count || 0),
+      }))
+      : [],
+  });
+});
+
+app.get("/scopes", (c) => {
+  const denied = guard(c);
+  if (denied) return denied;
+  const db = getDb();
+  const active = getActiveProfile(db);
+  if (!active) return c.json({ items: [] });
+  return c.json({
+    items: listWorkspaceScopeStates(db, active.id).map((scope) => ({
+      ...scope,
+      pendingMutations: countPendingMutations(db, active.id, scope.scopeKey),
+      conflictCount: Number((db.prepare(`
+        SELECT COUNT(*) AS count FROM sync_conflicts
+        WHERE profileId = ? AND scopeKey = ? AND status = 'unresolved'
+      `).get(active.id, scope.scopeKey) as { count: number } | undefined)?.count || 0),
+    })),
+  });
+});
+
+app.get("/scopes/:scopeKey/export", (c) => {
+  const denied = guard(c);
+  if (denied) return denied;
+  const db = getDb();
+  const active = getActiveProfile(db);
+  const scopeKey = decodeURIComponent(c.req.param("scopeKey"));
+  const scope = active
+    ? listWorkspaceScopeStates(db, active.id).find((item) => item.scopeKey === scopeKey)
+    : null;
+  if (!scope?.workspaceId) {
+    return c.json({ error: "工作区 Scope 不存在", code: "INVALID_PAYLOAD" }, 404);
+  }
+  return c.json(buildWorkspaceScopeExport(db, scope.workspaceId));
+});
+
+app.post("/scopes/:scopeKey/copy-to-personal", (c) => {
+  const denied = guard(c);
+  if (denied) return denied;
+  const db = getDb();
+  const active = getActiveProfile(db);
+  const scopeKey = decodeURIComponent(c.req.param("scopeKey"));
+  const scope = active
+    ? listWorkspaceScopeStates(db, active.id).find((item) => item.scopeKey === scopeKey)
+    : null;
+  if (!scope?.workspaceId) {
+    return c.json({ error: "工作区 Scope 不存在", code: "INVALID_PAYLOAD" }, 404);
+  }
+  if (scope.accessStatus !== "access_revoked") {
+    return c.json({ error: "仅撤权后的本地副本需要恢复", code: "INVALID_PAYLOAD" }, 409);
+  }
+  const userId = c.req.header("X-User-Id") as string;
+  return c.json({
+    scopeKey,
+    copied: copyWorkspaceScopeToPersonal(db, scope.workspaceId, userId),
+    message: "已复制到个人空间，原工作区本地副本仍保留。",
   });
 });
 
@@ -567,7 +639,8 @@ app.get("/conflicts", (c) => {
   if (denied) return denied;
 
   const db = getDb();
-  const rows = listUnresolvedConflicts(db);
+  const active = getActiveProfile(db);
+  const rows = active ? listUnresolvedConflicts(db,active.id) : [];
   return c.json({
     total: rows.length,
     items: rows.map((row) => {
@@ -593,7 +666,8 @@ app.get("/conflicts/:id", (c) => {
   if (denied) return denied;
 
   const db = getDb();
-  const row = getConflict(db, c.req.param("id"));
+  const active = getActiveProfile(db);
+  const row = active ? getConflict(db,c.req.param("id"),active.id) : null;
   if (!row) return c.json({ error: "冲突不存在", code: "INVALID_PAYLOAD" }, 404);
   return c.json(toConflictDetail(row));
 });
@@ -611,6 +685,10 @@ app.post("/conflicts/:id/resolve", async (c) => {
 
   const db = getDb();
   const userId = c.req.header("X-User-Id") as string;
+  const active = getActiveProfile(db);
+  if (!active || !getConflict(db,c.req.param("id"),active.id)) {
+    return c.json({ error: "冲突不存在", code: "INVALID_PAYLOAD" }, 404);
+  }
 
   let body: { resolution?: unknown; mergedPayload?: unknown; deviceId?: unknown };
   try {
@@ -643,7 +721,7 @@ app.post("/conflicts/:id/resolve", async (c) => {
     });
     return c.json({
       ...result,
-      remainingConflicts: countUnresolvedConflicts(db),
+      remainingConflicts: countUnresolvedConflicts(db,active.id),
     });
   } catch (error) {
     return errorResponse(c, error);
@@ -662,6 +740,10 @@ app.post("/conflicts/:id/fork", async (c) => {
 
   const db = getDb();
   const userId = c.req.header("X-User-Id") as string;
+  const active = getActiveProfile(db);
+  if (!active || !getConflict(db,c.req.param("id"),active.id)) {
+    return c.json({ error: "冲突不存在", code: "INVALID_PAYLOAD" }, 404);
+  }
 
   let body: { side?: unknown; deviceId?: unknown };
   try {

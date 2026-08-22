@@ -17,6 +17,7 @@ import crypto from "node:crypto";
 import type Database from "better-sqlite3";
 
 import { SYNC_V2_BLOB_PATH } from "./constants";
+import { parseSyncScopeKey } from "./scope";
 import { SyncError, classifyHttpStatus } from "./errors";
 import { logSyncInfo, logSyncWarn } from "./log";
 import type { RemoteCredentials } from "./remote";
@@ -76,8 +77,8 @@ export class SyncBlobClient {
     this.fetchImpl = options.fetchImpl ?? fetch;
   }
 
-  private url(attachmentId: string): string {
-    return `${this.base}${SYNC_V2_BLOB_PATH}/${encodeURIComponent(attachmentId)}`;
+  private url(attachmentId: string, scopeKey: string): string {
+    return `${this.base}${SYNC_V2_BLOB_PATH}/${encodeURIComponent(attachmentId)}?scopeKey=${encodeURIComponent(scopeKey)}`;
   }
 
   private headers(extra?: Record<string, string>): Record<string, string> {
@@ -90,11 +91,12 @@ export class SyncBlobClient {
   private async request(
     attachmentId: string,
     init: RequestInit,
+    scopeKey = "personal",
   ): Promise<Response> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.timeoutMs);
     try {
-      return await this.fetchImpl(this.url(attachmentId), {
+      return await this.fetchImpl(this.url(attachmentId, scopeKey), {
         ...init,
         signal: controller.signal,
       });
@@ -111,22 +113,31 @@ export class SyncBlobClient {
   }
 
   /** 探测远端是否已有该二进制，避免重复上传（hash 去重下很常见）。 */
-  async exists(attachmentId: string): Promise<boolean> {
-    const res = await this.request(attachmentId, { method: "HEAD", headers: this.headers() });
+  async exists(attachmentId: string, scopeKey = "personal"): Promise<boolean> {
+    const res = await this.request(
+      attachmentId,
+      { method: "HEAD", headers: this.headers() },
+      scopeKey,
+    );
     if (res.status === 200) return true;
     if (res.status === 404) return false;
     throw new SyncError(classifyHttpStatus(res.status), `HEAD 失败: ${res.status}`);
   }
 
   /** 上传二进制。幂等：重复上传只是覆盖同一内容。 */
-  async upload(attachmentId: string, buffer: Buffer, mimeType?: string): Promise<void> {
+  async upload(
+    attachmentId: string,
+    buffer: Buffer,
+    mimeType?: string,
+    scopeKey = "personal",
+  ): Promise<void> {
     const res = await this.request(attachmentId, {
       method: "PUT",
       headers: this.headers({
         "Content-Type": mimeType || "application/octet-stream",
       }),
       body: new Uint8Array(buffer),
-    });
+    }, scopeKey);
     if (res.ok) return;
 
     const text = await res.text().catch(() => "");
@@ -138,8 +149,15 @@ export class SyncBlobClient {
   }
 
   /** 下载二进制。 */
-  async download(attachmentId: string): Promise<{ buffer: Buffer; hash: string | null }> {
-    const res = await this.request(attachmentId, { method: "GET", headers: this.headers() });
+  async download(
+    attachmentId: string,
+    scopeKey = "personal",
+  ): Promise<{ buffer: Buffer; hash: string | null }> {
+    const res = await this.request(
+      attachmentId,
+      { method: "GET", headers: this.headers() },
+      scopeKey,
+    );
     if (res.status === 409) {
       // 对端还没上传：这不是错误，只是还没准备好。
       throw new SyncError("BLOB_NOT_READY", "远端附件二进制尚未就绪");
@@ -180,12 +198,13 @@ interface AttachmentMetaRow {
   filename: string | null;
   hash: string | null;
   size: number | null;
+  workspaceId: string | null;
 }
 
 function loadMeta(db: Database.Database, attachmentId: string): AttachmentMetaRow | undefined {
   return db.prepare(`
-    SELECT id, path, mimeType, filename, hash, size
-      FROM attachments WHERE id = ?
+    SELECT a.id, a.path, a.mimeType, a.filename, a.hash, a.size, n.workspaceId
+      FROM attachments a JOIN notes n ON n.id = a.noteId WHERE a.id = ?
   `).get(attachmentId) as AttachmentMetaRow | undefined;
 }
 
@@ -198,9 +217,10 @@ function loadMeta(db: Database.Database, attachmentId: string): AttachmentMetaRo
 export async function pushAttachmentBlobs(
   db: Database.Database,
   client: SyncBlobClient,
-  options: { batchSize?: number; concurrency?: number } = {},
+  options: { batchSize?: number; concurrency?: number; scopeKey?: string } = {},
 ): Promise<BlobTransferResult> {
-  const rows = listPendingUploads(db, options.batchSize ?? DEFAULT_BATCH);
+  const expectedWorkspace = parseSyncScopeKey(options.scopeKey || "personal").workspaceId;
+  const rows = listPendingUploads(db,options.batchSize ?? DEFAULT_BATCH,expectedWorkspace);
   const result: BlobTransferResult = { uploaded: 0, downloaded: 0, failed: 0, skipped: 0 };
   if (rows.length === 0) return result;
 
@@ -212,11 +232,15 @@ export async function pushAttachmentBlobs(
       result.skipped += 1;
       return;
     }
+    if (meta.workspaceId !== expectedWorkspace) {
+      result.skipped += 1;
+      return;
+    }
 
     markUploading(db, row.attachmentId);
     try {
       // 先探测：hash 去重下服务端常已有同一份内容，省去整个上传。
-      if (await client.exists(row.attachmentId)) {
+      if (await client.exists(row.attachmentId, options.scopeKey)) {
         markUploaded(db, row.attachmentId);
         result.skipped += 1;
         return;
@@ -230,7 +254,12 @@ export async function pushAttachmentBlobs(
         return;
       }
 
-      await client.upload(row.attachmentId, buffer, meta.mimeType || undefined);
+      await client.upload(
+        row.attachmentId,
+        buffer,
+        meta.mimeType || undefined,
+        options.scopeKey,
+      );
       markUploaded(db, row.attachmentId);
       result.uploaded += 1;
     } catch (error) {
@@ -258,9 +287,10 @@ export async function pushAttachmentBlobs(
 export async function pullAttachmentBlobs(
   db: Database.Database,
   client: SyncBlobClient,
-  options: { batchSize?: number; concurrency?: number } = {},
+  options: { batchSize?: number; concurrency?: number; scopeKey?: string } = {},
 ): Promise<BlobTransferResult> {
-  const rows = listPendingDownloads(db, options.batchSize ?? DEFAULT_BATCH);
+  const expectedWorkspace = parseSyncScopeKey(options.scopeKey || "personal").workspaceId;
+  const rows = listPendingDownloads(db,options.batchSize ?? DEFAULT_BATCH,expectedWorkspace);
   const result: BlobTransferResult = { uploaded: 0, downloaded: 0, failed: 0, skipped: 0 };
   if (rows.length === 0) return result;
 
@@ -270,9 +300,13 @@ export async function pullAttachmentBlobs(
       result.skipped += 1;
       return;
     }
+    if (meta.workspaceId !== expectedWorkspace) {
+      result.skipped += 1;
+      return;
+    }
 
     try {
-      const { buffer, hash } = await client.download(row.attachmentId);
+      const { buffer, hash } = await client.download(row.attachmentId, options.scopeKey);
 
       // 完整性校验：元数据带 hash 就必须对得上。
       // 宁可重试也不写入损坏内容 —— 坏文件无法自愈，而重试是免费的。

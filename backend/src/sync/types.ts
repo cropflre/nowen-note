@@ -15,19 +15,18 @@
 // ---------------------------------------------------------------------------
 
 /**
- * 第一版同步实体范围，严格限定个人空间核心笔记数据。
- * Task / Diary / MindMap / Workspace 等在后续 Phase 单独接入，
- * 每次扩张都必须补齐 Local CRUD → Outbox → Push → Change Feed → Pull → Apply → Conflict 全链路。
+ * Sync V2 支持的完整实体范围。Scope 由独立字段承载；每类实体都必须
+ * 补齐 Local CRUD → Outbox → Push → Change Feed → Pull → Apply → Conflict 全链路。
  */
 export const SYNC_ENTITY_TYPES = [
-  // 第一版：个人知识库核心
+  // 知识库核心
   "notebook",
   "note",
   "tag",
   "note_tag",
   "favorite",
   "attachment",
-  // 阶段 J：其余个人数据。
+  // 结构化扩展数据（个人空间与工作区共用同一实体协议）。
   //
   // 每类的冲突策略不同，不能一律套用 note 的 baseVersion 逻辑：
   //   task           可变结构化对象 —— 有 updatedAt 可比，字段级差异都算冲突
@@ -108,6 +107,9 @@ export interface SyncStateRow {
   lastSequence: number;
   lastSyncAt: string | null;
   lastError: string | null;
+  accessFingerprint?: string | null;
+  accessStatus?: "active" | "replan_required" | "access_revoked";
+  accessChangedAt?: string | null;
 }
 
 /**
@@ -123,7 +125,8 @@ export interface SyncOutboxRow {
   id: string;
   mutationId: string;
   /** 尚未绑定同步关系时为空，便于关闭同步期间仍然记录变更 */
-  profileId: string | null;
+  profileId: string;
+  scopeKey: string;
   deviceId: string;
   entityType: SyncEntityType;
   entityId: string;
@@ -151,6 +154,7 @@ export type SyncConflictStatus = "unresolved" | "resolved";
 export interface SyncConflictRow {
   id: string;
   profileId: string;
+  scopeKey: string;
   entityType: SyncEntityType;
   entityId: string;
   localVersion: number | null;
@@ -184,6 +188,8 @@ export type SyncEnginePhase = "pushing" | "pulling" | "applying";
 
 /** GET /api/sync/v2/plan */
 export interface SyncPlanResponse {
+  scopeKey: string;
+  accessFingerprint: string;
   serverSequence: number;
   /** 服务端仍可增量供给的最小序号，游标早于此值需回退到 snapshot */
   minAvailableSequence: number;
@@ -202,6 +208,7 @@ export interface SyncMutation {
 
 /** POST /api/sync/v2/push */
 export interface SyncPushRequest {
+  scopeKey: string;
   deviceId: string;
   mutations: SyncMutation[];
 }
@@ -215,12 +222,27 @@ export interface SyncChangeItem {
 
 /** GET /api/sync/v2/changes?after= */
 export interface SyncChangesResponse {
+  scopeKey: string;
+  accessFingerprint: string;
   serverSequence: number;
   items: SyncChangeItem[];
 }
 
 /** POST /api/sync/v2/ack */
 export interface SyncAckRequest {
+  scopeKey: string;
   deviceId: string;
   sequence: number;
+}
+
+export interface SyncWorkspaceScopeRow {
+  profileId: string;
+  scopeKey: string;
+  workspaceId: string | null;
+  workspaceName: string | null;
+  role: string | null;
+  canWrite: 0 | 1;
+  accessFingerprint: string;
+  accessStatus: "active" | "replan_required" | "access_revoked";
+  updatedAt: string;
 }

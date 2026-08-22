@@ -33,6 +33,15 @@ import { recordConflict } from "./conflict";
 import { countUnresolvedConflicts } from "./conflict";
 import type { SyncRemoteClient } from "./remote";
 import type { SyncEnginePhase, SyncEngineState } from "./types";
+import type { SyncScopeDescriptor } from "./scope";
+import {
+  listWorkspaceScopeStates,
+  markWorkspaceScopeActive,
+  markWorkspaceScopeRevoked,
+  refreshWorkspaceScopeStates,
+} from "./workspaceScopes";
+import { runWithOutboxSuppressed } from "./context";
+import { runChangeFeedSuppressed } from "./suppression";
 
 /**
  * Desktop Sync Engine。
@@ -65,6 +74,7 @@ export interface SyncEngineStatus {
   lastPullAt: string | null;
   lastError: string | null;
   retryCount: number;
+  scopes: ReturnType<typeof listWorkspaceScopeStates>;
 }
 
 export interface SyncEngineOptions {
@@ -200,7 +210,7 @@ export class SyncEngine {
   // -------------------------------------------------------------------------
 
   getStatus(): SyncEngineStatus {
-    const conflicts = countUnresolvedConflicts(this.db);
+    const conflicts = countUnresolvedConflicts(this.db,this.profileId);
     const cursor = getSyncState(this.db, this.profileId, SYNC_PERSONAL_SCOPE_KEY);
     return {
       // 有未解决冲突时对外呈现 conflict，让用户知道需要介入；
@@ -211,12 +221,13 @@ export class SyncEngine {
       deviceId: this.deviceId,
       localCursor: cursor?.lastSequence ?? 0,
       remoteSequence: this.remoteSequence,
-      pendingMutations: countPendingMutations(this.db),
+      pendingMutations: countPendingMutations(this.db,this.profileId),
       conflictCount: conflicts,
       lastPushAt: this.lastPushAt,
       lastPullAt: this.lastPullAt,
       lastError: this.lastError,
       retryCount: this.retryCount,
+      scopes: listWorkspaceScopeStates(this.db, this.profileId),
     };
   }
 
@@ -253,11 +264,33 @@ export class SyncEngine {
     const startedAt = Date.now();
 
     try {
-      await this.runPush();
-      await this.runPull();
-      // 附件二进制放在最后：它耗时最长且不影响正文一致性。
-      // 放前面会让一个 20MB 的附件把笔记同步整轮拖住。
-      await this.runBlobs();
+      const descriptors = await this.client.listScopes();
+      const states = refreshWorkspaceScopeStates(this.db,this.profileId,descriptors,this.userId);
+      for (const descriptor of descriptors) {
+        const local = states.find((item) => item.scopeKey === descriptor.scopeKey);
+        if (!local || local.accessStatus === "access_revoked") continue;
+        try {
+          if (local.accessStatus === "replan_required") {
+            await this.runSnapshotRebuild(descriptor);
+            markWorkspaceScopeActive(
+              this.db,
+              this.profileId,
+              descriptor.scopeKey,
+              descriptor.accessFingerprint,
+            );
+          }
+          await this.runPush(descriptor);
+          await this.runPull(descriptor);
+          // 附件二进制放在最后：它耗时最长且不影响正文一致性。
+          await this.runBlobs(descriptor);
+        } catch (error: any) {
+          if (error?.code === "ACCESS_REVOKED" || error?.code === "SCOPE_FORBIDDEN") {
+            markWorkspaceScopeRevoked(this.db,this.profileId,descriptor.scopeKey,this.userId);
+            continue;
+          }
+          throw error;
+        }
+      }
 
       this.state = "idle";
       this.lastError = null;
@@ -266,8 +299,8 @@ export class SyncEngine {
         profileId: this.profileId,
         deviceId: this.deviceId,
         durationMs: Date.now() - startedAt,
-        pendingCount: countPendingMutations(this.db),
-        conflictCount: countUnresolvedConflicts(this.db),
+        pendingCount: countPendingMutations(this.db,this.profileId),
+        conflictCount: countUnresolvedConflicts(this.db,this.profileId),
       });
       this.scheduleNextAfterSuccess();
     } catch (error: any) {
@@ -308,7 +341,7 @@ export class SyncEngine {
       logSyncInfo("engine.offline", {
         profileId: this.profileId,
         retryCount: this.retryCount,
-        pendingCount: countPendingMutations(this.db),
+        pendingCount: countPendingMutations(this.db,this.profileId),
       });
       this.scheduleNext(syncRetryDelayMs(this.retryCount));
       return;
@@ -346,12 +379,12 @@ export class SyncEngine {
    * blobClient 缺失（未配置或测试未注入）时静默跳过，
    * 保证元数据同步在任何情况下都能独立工作。
    */
-  private async runBlobs(): Promise<void> {
+  private async runBlobs(scope: SyncScopeDescriptor): Promise<void> {
     if (!this.blobClient) return;
     this.phase = "applying";
     try {
-      await pushAttachmentBlobs(this.db, this.blobClient);
-      await pullAttachmentBlobs(this.db, this.blobClient);
+      await pushAttachmentBlobs(this.db, this.blobClient, { scopeKey: scope.scopeKey });
+      await pullAttachmentBlobs(this.db, this.blobClient, { scopeKey: scope.scopeKey });
     } catch (error) {
       // 只记日志：附件是次要通道，不能污染整轮同步的状态判定。
       logSyncWarn("engine.blob-cycle-failed", {
@@ -361,10 +394,15 @@ export class SyncEngine {
     }
   }
 
-  private async runPush(): Promise<void> {
+  private async runPush(scope: SyncScopeDescriptor): Promise<void> {
     this.phase = "pushing";
 
-    const rows = listPendingMutations(this.db, SYNC_PUSH_MAX_MUTATIONS, this.profileId);
+    const rows = listPendingMutations(
+      this.db,
+      SYNC_PUSH_MAX_MUTATIONS,
+      this.profileId,
+      scope.scopeKey,
+    );
     if (rows.length === 0) return;
 
     const batch = coalesceMutations(rows);
@@ -380,6 +418,7 @@ export class SyncEngine {
       response = await this.client.push(
         this.deviceId,
         batch.map(({ supersededIds: _ignored, ...payload }) => payload),
+        scope.scopeKey,
       );
     } catch (error) {
       // 请求失败（断网、超时、服务端异常）时必须把 inflight 退回 pending。
@@ -405,7 +444,9 @@ export class SyncEngine {
       }
 
       if (result.code === "VERSION_CONFLICT") {
-        this.recordPushConflict(result.mutationId, result.serverVersion, rows);
+        this.recordPushConflict(
+          result.mutationId,result.serverVersion,result.serverPayload,rows,scope.scopeKey,
+        );
         // 冲突条目出队：它已经转入冲突台账，继续重试只会反复失败。
         // 本地内容仍在库里，两个版本都可恢复。
         markMutationSynced(this.db, result.mutationId);
@@ -429,13 +470,14 @@ export class SyncEngine {
   /**
    * 把 push 冲突落入冲突台账。
    *
-   * 必须同时保留本地 payload 与服务端版本号，否则用户无法恢复其中一方。
-   * 服务端完整内容会在随后的 Pull 中拿到，届时补齐 remotePayload。
+   * 必须同时保留本地 payload 与服务端当前内容，否则用户无法恢复其中一方。
    */
   private recordPushConflict(
     mutationId: string,
     serverVersion: number | undefined,
+    serverPayload: Record<string,unknown> | undefined,
     rows: ReturnType<typeof listPendingMutations>,
+    scopeKey: string,
   ): void {
     const source = rows.find((row) => row.mutationId === mutationId);
     if (!source) return;
@@ -449,13 +491,13 @@ export class SyncEngine {
 
     recordConflict(this.db, {
       profileId: this.profileId,
+      scopeKey,
       entityType: source.entityType,
       entityId: source.entityId,
       localVersion: source.baseVersion,
       remoteVersion: serverVersion ?? null,
       localPayload,
-      // 远端内容随后由 Pull 补齐；此处至少保证本地一方不丢。
-      remotePayload: serverVersion === undefined ? null : { version: serverVersion },
+      remotePayload: serverPayload ?? (serverVersion === undefined ? null : {version:serverVersion}),
     });
 
     logSyncWarn("engine.conflict", {
@@ -470,13 +512,13 @@ export class SyncEngine {
   // Pull + Apply + ACK
   // -------------------------------------------------------------------------
 
-  private async runPull(): Promise<void> {
+  private async runPull(scope: SyncScopeDescriptor): Promise<void> {
     this.phase = "pulling";
 
-    const cursor = getSyncState(this.db, this.profileId, SYNC_PERSONAL_SCOPE_KEY);
+    const cursor = getSyncState(this.db, this.profileId, scope.scopeKey);
     let after = cursor?.lastSequence ?? 0;
 
-    const changes = await this.client.changes(after);
+    const changes = await this.client.changes(after, undefined, scope.scopeKey);
     this.remoteSequence = changes.serverSequence;
     this.lastPullAt = new Date().toISOString();
 
@@ -487,37 +529,41 @@ export class SyncEngine {
         profileId: this.profileId,
         pullSequence: after,
       });
-      resetSyncState(this.db, this.profileId, SYNC_PERSONAL_SCOPE_KEY);
-      await this.runSnapshotRebuild();
+      resetSyncState(this.db, this.profileId, scope.scopeKey);
+      await this.runSnapshotRebuild(scope);
       return;
     }
 
     if (changes.items.length === 0) {
       // 无变更也要推进游标，避免下次重复扫描同一段序号。
-      advanceSyncState(this.db, this.profileId, changes.nextSequence, SYNC_PERSONAL_SCOPE_KEY);
-      await this.client.ack(this.deviceId, changes.nextSequence);
+      advanceSyncState(this.db, this.profileId, changes.nextSequence, scope.scopeKey);
+      await this.client.ack(this.deviceId, changes.nextSequence, scope.scopeKey);
       return;
     }
 
     // Change Feed 只给"哪些实体变了"，完整内容通过 snapshot 单点拉取。
     // 这样协议不必在 feed 里塞正文，也避免历史变更累积成巨大响应。
     this.phase = "applying";
-    const payloads = await this.fetchEntityPayloads(changes.items);
-    const result = applyRemoteChanges(this.db, payloads, { userId: this.userId });
+    const payloads = await this.fetchEntityPayloads(changes.items, scope);
+    const result = applyRemoteChanges(this.db,payloads,{
+      userId:this.userId,scopeKey:scope.scopeKey,workspaceId:scope.workspaceId,
+    });
+    this.restoreParentLinks(payloads,scope);
 
     for (const conflict of result.pendingConflicts) {
       // 本地有未推送修改，远端也变了：登记冲突，两侧都保留。
       recordConflict(this.db, {
         profileId: this.profileId,
+        scopeKey: scope.scopeKey,
         entityType: conflict.entityType,
         entityId: conflict.entityId,
         remotePayload: conflict.payload ?? null,
-        localPayload: this.readLocalSnapshot(conflict),
+        localPayload: this.readLocalSnapshot(conflict, scope),
       });
     }
 
-    advanceSyncState(this.db, this.profileId, changes.nextSequence, SYNC_PERSONAL_SCOPE_KEY);
-    await this.client.ack(this.deviceId, changes.nextSequence);
+    advanceSyncState(this.db, this.profileId, changes.nextSequence, scope.scopeKey);
+    await this.client.ack(this.deviceId, changes.nextSequence, scope.scopeKey);
 
     logSyncInfo("engine.pull-applied", {
       profileId: this.profileId,
@@ -538,6 +584,7 @@ export class SyncEngine {
    */
   private async fetchEntityPayloads(
     items: Array<{ entityType: string; entityId: string; operation: string }>,
+    scope: SyncScopeDescriptor,
   ): Promise<RemoteEntityPayload[]> {
     const deletions: RemoteEntityPayload[] = [];
     const wanted = new Set<string>();
@@ -561,7 +608,7 @@ export class SyncEngine {
     let cursor: string | null = null;
     let guard = 0;
     do {
-      const page = await this.client.snapshot(cursor, 0);
+      const page = await this.client.snapshot(cursor, 0, undefined, scope.scopeKey);
       for (const entry of page.items) {
         const key = `${entry.entityType}\u0000${entry.entityId}`;
         if (!wanted.has(key)) continue;
@@ -585,12 +632,17 @@ export class SyncEngine {
   }
 
   /** 读取本地当前内容，作为冲突的 local 一方留存。 */
-  private readLocalSnapshot(item: RemoteEntityPayload): Record<string, unknown> | null {
+  private readLocalSnapshot(
+    item: RemoteEntityPayload,
+    scope: SyncScopeDescriptor,
+  ): Record<string, unknown> | null {
     if (item.entityType !== "note") return null;
     const row = this.db.prepare(`
       SELECT id, title, content, contentText, version, updatedAt
-      FROM notes WHERE id = ? AND userId = ?
-    `).get(item.entityId, this.userId) as Record<string, unknown> | undefined;
+      FROM notes WHERE id = ? AND workspaceId IS ? AND (? IS NOT NULL OR userId = ?)
+    `).get(item.entityId, scope.workspaceId, scope.workspaceId, this.userId) as
+      | Record<string, unknown>
+      | undefined;
     return row || null;
   }
 
@@ -600,16 +652,36 @@ export class SyncEngine {
    * 只在服务端明确要求 reset 时执行。逐页应用，
    * 期间同样抑制 Outbox，避免把远端内容当成本地修改推回去。
    */
-  private async runSnapshotRebuild(): Promise<void> {
+  private async runSnapshotRebuild(scope: SyncScopeDescriptor): Promise<void> {
     this.phase = "applying";
     let cursor: string | null = null;
     let snapshotSequence = 0;
     let guard = 0;
     let applied = 0;
+    const seen = new Map<string,Set<string>>();
+    const parentLinks:RemoteEntityPayload[] = [];
 
     do {
-      const page = await this.client.snapshot(cursor, snapshotSequence);
+      const page = await this.client.snapshot(
+        cursor,
+        snapshotSequence,
+        undefined,
+        scope.scopeKey,
+      );
       if (snapshotSequence === 0) snapshotSequence = page.snapshotSequence;
+      for (const entry of page.items) {
+        const ids=seen.get(entry.entityType) || new Set<string>();
+        ids.add(entry.entityId);
+        seen.set(entry.entityType,ids);
+        if (entry.entityType === "notebook" || entry.entityType === "task") {
+          parentLinks.push({
+            entityType:entry.entityType,
+            entityId:entry.entityId,
+            operation:"upsert",
+            payload:entry.payload,
+          });
+        }
+      }
 
       const result = applyRemoteChanges(
         this.db,
@@ -619,7 +691,7 @@ export class SyncEngine {
           operation: "upsert" as const,
           payload: entry.payload,
         })),
-        { userId: this.userId },
+        { userId:this.userId,scopeKey:scope.scopeKey,workspaceId:scope.workspaceId },
       );
       applied += result.applied;
 
@@ -627,14 +699,68 @@ export class SyncEngine {
       guard += 1;
     } while (cursor && guard < 1000);
 
+    if (cursor) throw new SyncError("SERVER_ERROR","Snapshot 分页超过安全上限");
+    this.restoreParentLinks(parentLinks,scope);
+    if (scope.workspaceId) this.pruneWorkspaceSnapshot(scope,seen);
+
     // 重建完成后游标落在 snapshot 时间点，之后继续增量。
-    advanceSyncState(this.db, this.profileId, snapshotSequence, SYNC_PERSONAL_SCOPE_KEY);
-    await this.client.ack(this.deviceId, snapshotSequence);
+    advanceSyncState(this.db, this.profileId, snapshotSequence, scope.scopeKey);
+    await this.client.ack(this.deviceId, snapshotSequence, scope.scopeKey);
 
     logSyncInfo("engine.snapshot-rebuilt", {
       profileId: this.profileId,
       pullSequence: snapshotSequence,
       applyCount: applied,
     });
+  }
+
+  private restoreParentLinks(items:RemoteEntityPayload[],scope:SyncScopeDescriptor):void {
+    const links=items.filter((item)=>item.operation === "upsert"
+      && (item.entityType === "notebook" || item.entityType === "task")
+      && typeof item.payload?.parentId === "string");
+    if (!links.length) return;
+    runWithOutboxSuppressed(()=>runChangeFeedSuppressed(this.db,()=>this.db.transaction(()=>{
+      for(const item of links){
+        const table=item.entityType === "notebook" ? "notebooks" : "tasks";
+        const parentId=String(item.payload!.parentId);
+        const parent=this.db.prepare(`SELECT 1 FROM ${table} WHERE id=? AND workspaceId IS ?`)
+          .get(parentId,scope.workspaceId);
+        if(parent)this.db.prepare(`UPDATE ${table} SET parentId=? WHERE id=? AND workspaceId IS ?`)
+          .run(parentId,item.entityId,scope.workspaceId);
+      }
+    })()));
+  }
+
+  private pruneWorkspaceSnapshot(scope:SyncScopeDescriptor,seen:Map<string,Set<string>>):void {
+    const removeMissing=(table:string,entityType:string,extra="")=>{
+      const ids=[...(seen.get(entityType) || [])];
+      const placeholders=ids.map(()=>"?").join(",");
+      this.db.prepare(`DELETE FROM ${table} WHERE workspaceId=?
+        ${ids.length ? `AND id NOT IN (${placeholders})` : ""}
+        AND NOT EXISTS (SELECT 1 FROM sync_outbox o WHERE o.profileId=? AND o.scopeKey=?
+          AND o.entityType=? AND o.entityId=${table}.id AND o.status IN ('pending','inflight','failed'))
+        ${extra}`).run(scope.workspaceId,...ids,this.profileId,scope.scopeKey,entityType);
+    };
+    const removeComposite=(table:string,entityType:string,idSql:string,scopeSql:string)=>{
+      const ids=[...(seen.get(entityType) || [])];
+      const placeholders=ids.map(()=>"?").join(",");
+      this.db.prepare(`DELETE FROM ${table} WHERE ${scopeSql}
+        ${ids.length ? `AND (${idSql}) NOT IN (${placeholders})` : ""}
+        AND NOT EXISTS (SELECT 1 FROM sync_outbox o WHERE o.profileId=? AND o.scopeKey=?
+          AND o.entityType=? AND o.entityId=(${idSql}) AND o.status IN ('pending','inflight','failed'))`)
+        .run(scope.workspaceId,...ids,this.profileId,scope.scopeKey,entityType);
+    };
+    runWithOutboxSuppressed(()=>runChangeFeedSuppressed(this.db,()=>this.db.transaction(()=>{
+      removeMissing("attachments","attachment");
+      removeComposite("favorites","favorite","favorites.userId || ':' || favorites.noteId","favorites.workspaceId=?");
+      removeComposite("note_tags","note_tag","note_tags.noteId || ':' || note_tags.tagId","note_tags.noteId IN (SELECT id FROM notes WHERE workspaceId=?)");
+      removeComposite("task_reminders","task_reminder","task_reminders.id","task_reminders.taskId IN (SELECT id FROM tasks WHERE workspaceId=?)");
+      removeMissing("tasks","task");
+      removeMissing("diaries","diary");
+      removeMissing("mindmaps","mindmap");
+      removeMissing("notes","note");
+      removeMissing("notebooks","notebook","AND NOT EXISTS (SELECT 1 FROM notes n WHERE n.notebookId=notebooks.id)");
+      removeMissing("tags","tag","AND NOT EXISTS (SELECT 1 FROM note_tags nt WHERE nt.tagId=tags.id)");
+    })()));
   }
 }

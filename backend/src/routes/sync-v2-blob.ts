@@ -30,6 +30,11 @@ import {
   readAttachmentObject,
   writeAttachmentObject,
 } from "../services/attachment-storage";
+import { resolveAuthorizedScope, type SyncScopeDescriptor } from "../sync/scope";
+import {
+  hasKnowledgeCapability,
+  resolveResourceKnowledgeAccess,
+} from "../services/knowledgeCapabilities";
 
 const app = new Hono();
 
@@ -38,6 +43,7 @@ const MAX_BLOB_SIZE = 100 * 1024 * 1024;
 
 interface AttachmentRow {
   id: string;
+  noteId: string;
   userId: string;
   workspaceId: string | null;
   path: string;
@@ -74,10 +80,12 @@ function guard(c: any): Response | null {
 function loadOwnedAttachment(
   attachmentId: string,
   userId: string,
+  scope: SyncScopeDescriptor,
+  write = false,
 ): { row?: AttachmentRow; error?: { message: string; code: string; status: 403 | 404 } } {
   const row = getDb()
     .prepare(`
-      SELECT id, userId, workspaceId, path, size, mimeType, filename, hash
+      SELECT id, noteId, userId, workspaceId, path, size, mimeType, filename, hash
         FROM attachments WHERE id = ?
     `)
     .get(attachmentId) as AttachmentRow | undefined;
@@ -85,18 +93,18 @@ function loadOwnedAttachment(
   if (!row) {
     return { error: { message: "附件不存在", code: "NOT_FOUND", status: 404 } };
   }
-  if (row.userId !== userId) {
-    // 不区分"不存在"与"不属于你"，避免用 ID 探测他人附件是否存在。
+  if (row.workspaceId !== scope.workspaceId) {
     return { error: { message: "附件不存在", code: "NOT_FOUND", status: 404 } };
   }
-  if (row.workspaceId) {
-    return {
-      error: {
-        message: "工作区附件暂不支持二进制同步",
-        code: "WORKSPACE_NOT_SUPPORTED",
-        status: 403,
-      },
-    };
+  if (!scope.workspaceId && row.userId !== userId) {
+    return { error: { message: "附件不存在", code: "NOT_FOUND", status: 404 } };
+  }
+  if (scope.workspaceId) {
+    const access = resolveResourceKnowledgeAccess("note", row.noteId, userId, getDb());
+    const allowed = hasKnowledgeCapability(access, write ? "canEdit" : "canView");
+    if (!allowed) {
+      return { error: { message: "附件不存在", code: "NOT_FOUND", status: 404 } };
+    }
   }
   return { row };
 }
@@ -132,7 +140,10 @@ app.on("HEAD", "/:attachmentId", async (c) => {
   if (denied) return denied;
 
   const userId = c.req.header("X-User-Id") as string;
-  const { row, error } = loadOwnedAttachment(c.req.param("attachmentId"), userId);
+  let scope: SyncScopeDescriptor;
+  try { scope = resolveAuthorizedScope(getDb(), userId, c.req.query("scopeKey")); }
+  catch { return c.body(null, 403); }
+  const { row, error } = loadOwnedAttachment(c.req.param("attachmentId"), userId, scope);
   if (error) return c.body(null, error.status);
 
   const exists = await blobExists(row!.path);
@@ -161,7 +172,10 @@ app.put("/:attachmentId", async (c) => {
 
   const userId = c.req.header("X-User-Id") as string;
   const attachmentId = c.req.param("attachmentId");
-  const { row, error } = loadOwnedAttachment(attachmentId, userId);
+  let scope: SyncScopeDescriptor;
+  try { scope = resolveAuthorizedScope(getDb(), userId, c.req.query("scopeKey"), "write"); }
+  catch { return c.json({ error: "工作区权限不足", code: "SCOPE_FORBIDDEN" }, 403); }
+  const { row, error } = loadOwnedAttachment(attachmentId, userId, scope, true);
   if (error) {
     return c.json({ error: error.message, code: error.code }, error.status);
   }
@@ -222,8 +236,8 @@ app.put("/:attachmentId", async (c) => {
   getDb().prepare(`
     UPDATE attachments
        SET path = ?, size = ?, hash = COALESCE(hash, ?)
-     WHERE id = ? AND userId = ?
-  `).run(relPath, buffer.length, actualHash, attachmentId, userId);
+     WHERE id = ?
+  `).run(relPath, buffer.length, actualHash, attachmentId);
 
   logSyncInfo("blob.uploaded", { entityId: attachmentId });
   return c.json({ attachmentId, size: buffer.length, hash: actualHash, stored: true });
@@ -245,7 +259,10 @@ app.get("/:attachmentId", async (c) => {
 
   const userId = c.req.header("X-User-Id") as string;
   const attachmentId = c.req.param("attachmentId");
-  const { row, error } = loadOwnedAttachment(attachmentId, userId);
+  let scope: SyncScopeDescriptor;
+  try { scope = resolveAuthorizedScope(getDb(), userId, c.req.query("scopeKey")); }
+  catch { return c.json({ error: "工作区权限不足", code: "SCOPE_FORBIDDEN" }, 403); }
+  const { row, error } = loadOwnedAttachment(attachmentId, userId, scope);
   if (error) {
     return c.json({ error: error.message, code: error.code }, error.status);
   }

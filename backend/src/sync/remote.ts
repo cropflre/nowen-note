@@ -1,5 +1,10 @@
-import { SYNC_V2_BASE_PATH, SYNC_V2_ROUTES } from "./constants";
+import {
+  SYNC_PERSONAL_SCOPE_KEY,
+  SYNC_V2_BASE_PATH,
+  SYNC_V2_ROUTES,
+} from "./constants";
 import { SyncError } from "./errors";
+import type { SyncScopeDescriptor } from "./scope";
 import type {
   SyncChangeItem,
   SyncEntityType,
@@ -22,6 +27,8 @@ export interface RemoteCredentials {
 }
 
 export interface RemotePlan {
+  scopeKey: string;
+  accessFingerprint: string;
   serverSequence: number;
   minAvailableSequence: number;
   resetRequired: boolean;
@@ -31,6 +38,8 @@ export interface RemotePlan {
 }
 
 export interface RemoteChanges {
+  scopeKey: string;
+  accessFingerprint: string;
   serverSequence: number;
   nextSequence: number;
   hasMore: boolean;
@@ -39,6 +48,8 @@ export interface RemoteChanges {
 }
 
 export interface RemoteSnapshotPage {
+  scopeKey: string;
+  accessFingerprint: string;
   snapshotSequence: number;
   hasMore: boolean;
   nextCursor: string | null;
@@ -64,10 +75,13 @@ export interface PushResultItem {
   version?: number;
   code?: string;
   serverVersion?: number;
+  serverPayload?: Record<string, unknown>;
   error?: string;
 }
 
 export interface RemotePushResult {
+  scopeKey: string;
+  accessFingerprint: string;
   serverSequence: number;
   results: PushResultItem[];
 }
@@ -147,6 +161,12 @@ export class SyncRemoteClient {
     }
 
     if (!response.ok) {
+      let payload: any = null;
+      try { payload = await response.json(); } catch { /* 非 JSON 错误响应 */ }
+      const remoteCode = typeof payload?.code === "string" ? payload.code : "";
+      if (remoteCode === "ACCESS_REVOKED" || remoteCode === "SCOPE_FORBIDDEN") {
+        throw new SyncError(remoteCode, payload?.error || remoteCode);
+      }
       if (response.status === 401 || response.status === 403) {
         throw new SyncError("AUTH_EXPIRED", `远端拒绝访问（${response.status}）`);
       }
@@ -163,22 +183,37 @@ export class SyncRemoteClient {
     }
   }
 
-  plan(after: number): Promise<RemotePlan> {
+  listScopes(): Promise<SyncScopeDescriptor[]> {
+    return this.request<{ items: SyncScopeDescriptor[] }>(SYNC_V2_ROUTES.scopes, {
+      method: "GET",
+    }).then((response) => response.items);
+  }
+
+  plan(after: number, scopeKey = SYNC_PERSONAL_SCOPE_KEY): Promise<RemotePlan> {
     return this.request<RemotePlan>(SYNC_V2_ROUTES.plan, {
       method: "GET",
-      query: `?after=${encodeURIComponent(String(after))}`,
+      query: `?scopeKey=${encodeURIComponent(scopeKey)}&after=${encodeURIComponent(String(after))}`,
     });
   }
 
-  changes(after: number, limit?: number): Promise<RemoteChanges> {
-    const query = limit
-      ? `?after=${encodeURIComponent(String(after))}&limit=${limit}`
-      : `?after=${encodeURIComponent(String(after))}`;
+  changes(
+    after: number,
+    limit?: number,
+    scopeKey = SYNC_PERSONAL_SCOPE_KEY,
+  ): Promise<RemoteChanges> {
+    const params = new URLSearchParams({ scopeKey, after: String(after) });
+    if (limit) params.set("limit", String(limit));
+    const query = `?${params.toString()}`;
     return this.request<RemoteChanges>(SYNC_V2_ROUTES.changes, { method: "GET", query });
   }
 
-  snapshot(cursor: string | null, snapshotSequence: number, limit?: number): Promise<RemoteSnapshotPage> {
-    const params = new URLSearchParams();
+  snapshot(
+    cursor: string | null,
+    snapshotSequence: number,
+    limit?: number,
+    scopeKey = SYNC_PERSONAL_SCOPE_KEY,
+  ): Promise<RemoteSnapshotPage> {
+    const params = new URLSearchParams({ scopeKey });
     if (cursor) params.set("cursor", cursor);
     if (snapshotSequence > 0) params.set("snapshotSequence", String(snapshotSequence));
     if (limit) params.set("limit", String(limit));
@@ -186,17 +221,27 @@ export class SyncRemoteClient {
     return this.request<RemoteSnapshotPage>(SYNC_V2_ROUTES.snapshot, { method: "GET", query });
   }
 
-  push(deviceId: string, mutations: PushMutationPayload[]): Promise<RemotePushResult> {
+  push(
+    deviceId: string,
+    mutations: PushMutationPayload[],
+    scopeKey = SYNC_PERSONAL_SCOPE_KEY,
+  ): Promise<RemotePushResult> {
     return this.request<RemotePushResult>(SYNC_V2_ROUTES.push, {
       method: "POST",
-      body: { deviceId, mutations },
+      query: `?scopeKey=${encodeURIComponent(scopeKey)}`,
+      body: { scopeKey, deviceId, mutations },
     });
   }
 
-  ack(deviceId: string, sequence: number): Promise<{ lastSequence: number }> {
-    return this.request<{ lastSequence: number }>(SYNC_V2_ROUTES.ack, {
+  ack(
+    deviceId: string,
+    sequence: number,
+    scopeKey = SYNC_PERSONAL_SCOPE_KEY,
+  ): Promise<{ lastSequence: number; accessFingerprint: string }> {
+    return this.request<{ lastSequence: number; accessFingerprint: string }>(SYNC_V2_ROUTES.ack, {
       method: "POST",
-      body: { deviceId, sequence },
+      query: `?scopeKey=${encodeURIComponent(scopeKey)}`,
+      body: { scopeKey, deviceId, sequence },
     });
   }
 }

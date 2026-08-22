@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type Database from "better-sqlite3";
-import { SYNC_TABLES } from "./constants";
+import { SYNC_PERSONAL_SCOPE_KEY, SYNC_TABLES } from "./constants";
 import type {
   SyncConflictRow,
   SyncEntityType,
@@ -17,6 +17,7 @@ import type {
 
 export interface RecordConflictInput {
   profileId: string;
+  scopeKey?: string;
   entityType: SyncEntityType;
   entityId: string;
   localVersion?: number | null;
@@ -50,14 +51,15 @@ export function recordConflict(
   const id = randomUUID();
   db.prepare(`
     INSERT INTO ${SYNC_TABLES.conflicts} (
-      id, profileId, entityType, entityId,
+      id, profileId, scopeKey, entityType, entityId,
       localVersion, remoteVersion,
       basePayload, localPayload, remotePayload,
       status, createdAt, resolvedAt
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'unresolved', datetime('now'), NULL)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'unresolved', datetime('now'), NULL)
   `).run(
     id,
     input.profileId,
+    input.scopeKey ?? SYNC_PERSONAL_SCOPE_KEY,
     input.entityType,
     input.entityId,
     input.localVersion ?? null,
@@ -74,13 +76,15 @@ export function recordConflict(
 export function listUnresolvedConflicts(
   db: Database.Database,
   profileId?: string,
+  scopeKey?: string,
 ): SyncConflictRow[] {
   if (profileId) {
     return db.prepare(`
       SELECT * FROM ${SYNC_TABLES.conflicts}
       WHERE profileId = ? AND status = 'unresolved'
+        ${scopeKey ? "AND scopeKey = ?" : ""}
       ORDER BY createdAt ASC
-    `).all(profileId) as SyncConflictRow[];
+    `).all(...(scopeKey ? [profileId, scopeKey] : [profileId])) as SyncConflictRow[];
   }
   return db.prepare(`
     SELECT * FROM ${SYNC_TABLES.conflicts}
@@ -89,19 +93,29 @@ export function listUnresolvedConflicts(
   `).all() as SyncConflictRow[];
 }
 
-export function countUnresolvedConflicts(db: Database.Database): number {
+export function countUnresolvedConflicts(
+  db: Database.Database,
+  profileId?: string,
+  scopeKey?: string,
+): number {
   const row = db.prepare(`
     SELECT COUNT(*) AS count FROM ${SYNC_TABLES.conflicts} WHERE status = 'unresolved'
-  `).get() as { count: number } | undefined;
+      ${profileId ? "AND profileId = ?" : ""}
+      ${profileId && scopeKey ? "AND scopeKey = ?" : ""}
+  `).get(...(profileId ? (scopeKey ? [profileId,scopeKey] : [profileId]) : [])) as
+    | { count: number }
+    | undefined;
   return Number(row?.count || 0);
 }
 
 export function getConflict(
   db: Database.Database,
   conflictId: string,
+  profileId?: string,
 ): SyncConflictRow | null {
-  const row = db.prepare(`SELECT * FROM ${SYNC_TABLES.conflicts} WHERE id = ?`)
-    .get(conflictId) as SyncConflictRow | undefined;
+  const row = db.prepare(`SELECT * FROM ${SYNC_TABLES.conflicts} WHERE id = ?
+    ${profileId ? "AND profileId = ?" : ""}`)
+    .get(...(profileId ? [conflictId,profileId] : [conflictId])) as SyncConflictRow | undefined;
   return row || null;
 }
 

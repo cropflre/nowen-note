@@ -29,6 +29,8 @@ export interface ApplyMutationInput {
   operation: SyncOperation;
   baseVersion?: number;
   payload?: Record<string, unknown>;
+  /** 已授权 Scope 对应的 workspaceId；null 表示个人空间。 */
+  workspaceId?: string | null;
 }
 
 export interface ApplyMutationResult {
@@ -37,6 +39,7 @@ export interface ApplyMutationResult {
   version?: number;
   code?: string;
   serverVersion?: number;
+  serverPayload?: Record<string, unknown>;
 }
 
 function str(value: unknown, fallback = ""): string {
@@ -50,6 +53,10 @@ function num(value: unknown, fallback = 0): number {
 
 function bit(value: unknown): number {
   return value ? 1 : 0;
+}
+
+function workspaceIdOf(input: ApplyMutationInput): string | null {
+  return input.workspaceId ?? null;
 }
 
 /** 查台账：已处理过的 mutation 直接返回首次结果。 */
@@ -95,8 +102,8 @@ function applyNotebook(db: Database.Database, input: ApplyMutationInput): number
     // 而删除笔记本不应意味着销毁其中的内容。
     db.prepare(`
       UPDATE notebooks SET isDeleted = 1, deletedAt = datetime('now'), updatedAt = datetime('now')
-      WHERE id = ? AND userId = ? AND workspaceId IS NULL
-    `).run(input.entityId, input.userId);
+      WHERE id = ? AND workspaceId IS ? AND (? IS NOT NULL OR userId = ?)
+    `).run(input.entityId, workspaceIdOf(input), workspaceIdOf(input), input.userId);
     return null;
   }
 
@@ -105,7 +112,7 @@ function applyNotebook(db: Database.Database, input: ApplyMutationInput): number
     INSERT INTO notebooks (
       id, userId, parentId, name, description, icon, color,
       sortOrder, isExpanded, isDeleted, deletedAt, createdAt, updatedAt, workspaceId
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')), datetime('now'), NULL)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')), datetime('now'), ?)
     ON CONFLICT(id) DO UPDATE SET
       parentId = excluded.parentId,
       name = excluded.name,
@@ -117,7 +124,8 @@ function applyNotebook(db: Database.Database, input: ApplyMutationInput): number
       isDeleted = excluded.isDeleted,
       deletedAt = excluded.deletedAt,
       updatedAt = datetime('now')
-    WHERE notebooks.userId = excluded.userId
+    WHERE notebooks.workspaceId IS excluded.workspaceId
+      AND (excluded.workspaceId IS NOT NULL OR notebooks.userId = excluded.userId)
   `).run(
     input.entityId,
     input.userId,
@@ -131,31 +139,35 @@ function applyNotebook(db: Database.Database, input: ApplyMutationInput): number
     bit(p.isDeleted),
     p.deletedAt ?? null,
     p.createdAt ?? null,
+    workspaceIdOf(input),
   );
   return null;
 }
 
 function applyTag(db: Database.Database, input: ApplyMutationInput): number | null {
   if (input.operation === "delete") {
-    db.prepare("DELETE FROM tags WHERE id = ? AND userId = ? AND workspaceId IS NULL")
-      .run(input.entityId, input.userId);
+    db.prepare(`DELETE FROM tags WHERE id = ? AND workspaceId IS ?
+      AND (? IS NOT NULL OR userId = ?)`)
+      .run(input.entityId, workspaceIdOf(input), workspaceIdOf(input), input.userId);
     return null;
   }
 
   const p = input.payload || {};
   db.prepare(`
     INSERT INTO tags (id, userId, name, color, createdAt, workspaceId)
-    VALUES (?, ?, ?, ?, COALESCE(?, datetime('now')), NULL)
+    VALUES (?, ?, ?, ?, COALESCE(?, datetime('now')), ?)
     ON CONFLICT(id) DO UPDATE SET
       name = excluded.name,
       color = excluded.color
-    WHERE tags.userId = excluded.userId
+    WHERE tags.workspaceId IS excluded.workspaceId
+      AND (excluded.workspaceId IS NOT NULL OR tags.userId = excluded.userId)
   `).run(
     input.entityId,
     input.userId,
     str(p.name, "未命名标签"),
     str(p.color, "#58a6ff"),
     p.createdAt ?? null,
+    workspaceIdOf(input),
   );
   return null;
 }
@@ -168,16 +180,20 @@ function applyTag(db: Database.Database, input: ApplyMutationInput): number | nu
  */
 function applyNote(db: Database.Database, input: ApplyMutationInput): number | null {
   const existing = db.prepare(`
-    SELECT version FROM notes WHERE id = ? AND userId = ? AND workspaceId IS NULL
-  `).get(input.entityId, input.userId) as { version: number } | undefined;
+    SELECT version FROM notes WHERE id = ? AND workspaceId IS ?
+      AND (? IS NOT NULL OR userId = ?)
+  `).get(input.entityId, workspaceIdOf(input), workspaceIdOf(input), input.userId) as
+    | { version: number }
+    | undefined;
 
   if (input.operation === "delete") {
     if (!existing) return null; // 已不存在：delete 天然幂等
     if (input.baseVersion !== undefined && existing.version !== input.baseVersion) {
       throw new SyncError("VERSION_CONFLICT", `服务端版本 ${existing.version}`);
     }
-    db.prepare("DELETE FROM notes WHERE id = ? AND userId = ?")
-      .run(input.entityId, input.userId);
+    db.prepare(`DELETE FROM notes WHERE id = ? AND workspaceId IS ?
+      AND (? IS NOT NULL OR userId = ?)`)
+      .run(input.entityId, workspaceIdOf(input), workspaceIdOf(input), input.userId);
     return null;
   }
 
@@ -194,7 +210,7 @@ function applyNote(db: Database.Database, input: ApplyMutationInput): number | n
         notebookId = ?, title = ?, content = ?, contentText = ?, contentFormat = ?,
         isPinned = ?, isFavorite = ?, isLocked = ?, isArchived = ?, isTrashed = ?,
         trashedAt = ?, sortOrder = ?, version = ?, updatedAt = datetime('now')
-      WHERE id = ? AND userId = ? AND workspaceId IS NULL
+      WHERE id = ? AND workspaceId IS ? AND (? IS NOT NULL OR userId = ?)
     `).run(
       str(p.notebookId),
       str(p.title, "无标题笔记"),
@@ -210,6 +226,8 @@ function applyNote(db: Database.Database, input: ApplyMutationInput): number | n
       num(p.sortOrder),
       nextVersion,
       input.entityId,
+      workspaceIdOf(input),
+      workspaceIdOf(input),
       input.userId,
     );
     return nextVersion;
@@ -222,12 +240,13 @@ function applyNote(db: Database.Database, input: ApplyMutationInput): number | n
       id, userId, notebookId, workspaceId, title, content, contentText, contentFormat,
       isPinned, isFavorite, isLocked, isArchived, isTrashed, trashedAt,
       version, sortOrder, createdAt, updatedAt
-    ) VALUES (?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
               COALESCE(?, datetime('now')), datetime('now'))
   `).run(
     input.entityId,
     input.userId,
     str(p.notebookId),
+    workspaceIdOf(input),
     str(p.title, "无标题笔记"),
     str(p.content, "{}"),
     str(p.contentText),
@@ -254,8 +273,9 @@ function applyNoteTag(db: Database.Database, input: ApplyMutationInput): number 
 
   // 校验笔记归属：不能通过关系表把别人的笔记挂上自己的标签。
   const owned = db.prepare(`
-    SELECT 1 FROM notes WHERE id = ? AND userId = ? AND workspaceId IS NULL
-  `).get(noteId, input.userId);
+    SELECT 1 FROM notes WHERE id = ? AND workspaceId IS ?
+      AND (? IS NOT NULL OR userId = ?)
+  `).get(noteId, workspaceIdOf(input), workspaceIdOf(input), input.userId);
   if (!owned) throw new SyncError("MISSING_DEPENDENCY", "笔记不存在或无权访问");
 
   if (input.operation === "delete") {
@@ -263,8 +283,9 @@ function applyNoteTag(db: Database.Database, input: ApplyMutationInput): number 
     return null;
   }
 
-  const tagOwned = db.prepare("SELECT 1 FROM tags WHERE id = ? AND userId = ?")
-    .get(tagId, input.userId);
+  const tagOwned = db.prepare(`SELECT 1 FROM tags WHERE id = ? AND workspaceId IS ?
+    AND (? IS NOT NULL OR userId = ?)`)
+    .get(tagId, workspaceIdOf(input), workspaceIdOf(input), input.userId);
   if (!tagOwned) throw new SyncError("MISSING_DEPENDENCY", "标签不存在或无权访问");
 
   db.prepare("INSERT OR IGNORE INTO note_tags (noteId, tagId) VALUES (?, ?)")
@@ -279,8 +300,9 @@ function applyFavorite(db: Database.Database, input: ApplyMutationInput): number
   const noteId = input.entityId.slice(separator + 1);
 
   const owned = db.prepare(`
-    SELECT 1 FROM notes WHERE id = ? AND userId = ? AND workspaceId IS NULL
-  `).get(noteId, input.userId);
+    SELECT 1 FROM notes WHERE id = ? AND workspaceId IS ?
+      AND (? IS NOT NULL OR userId = ?)
+  `).get(noteId, workspaceIdOf(input), workspaceIdOf(input), input.userId);
   if (!owned) throw new SyncError("MISSING_DEPENDENCY", "笔记不存在或无权访问");
 
   if (input.operation === "delete") {
@@ -291,8 +313,8 @@ function applyFavorite(db: Database.Database, input: ApplyMutationInput): number
 
   db.prepare(`
     INSERT OR IGNORE INTO favorites (userId, noteId, workspaceId, createdAt)
-    VALUES (?, ?, NULL, datetime('now'))
-  `).run(input.userId, noteId);
+    VALUES (?, ?, ?, datetime('now'))
+  `).run(input.userId, noteId, workspaceIdOf(input));
   return null;
 }
 
@@ -301,30 +323,44 @@ function applyFavorite(db: Database.Database, input: ApplyMutationInput): number
  *
  * 二进制走独立 upload/download：把文件内容塞进 mutation 会让
  * push 请求体不可控，且上传失败时不应阻塞元数据同步。
- * 因此这里不接受 upsert 创建——附件必须先通过上传接口落地，
- * 只处理 delete 与已存在记录的元数据更新。
+ * 元数据先通过 push 创建，二进制随后通过 blob PUT 落地。
+ * path 在二进制到达前为空字符串，避免产生“先传文件但没有引用”的孤儿对象。
  */
 function applyAttachment(db: Database.Database, input: ApplyMutationInput): number | null {
   if (input.operation === "delete") {
-    db.prepare("DELETE FROM attachments WHERE id = ? AND userId = ?")
-      .run(input.entityId, input.userId);
+    db.prepare(`DELETE FROM attachments WHERE id = ? AND noteId IN (
+      SELECT id FROM notes WHERE workspaceId IS ? AND (? IS NOT NULL OR userId = ?)
+    )`).run(input.entityId, workspaceIdOf(input), workspaceIdOf(input), input.userId);
     return null;
   }
 
-  const existing = db.prepare("SELECT 1 FROM attachments WHERE id = ? AND userId = ?")
-    .get(input.entityId, input.userId);
-  if (!existing) {
-    throw new SyncError(
-      "MISSING_DEPENDENCY",
-      "附件二进制尚未上传，元数据无法先行同步",
-    );
-  }
-
   const p = input.payload || {};
+  const noteId = typeof p.noteId === "string" ? p.noteId : "";
+  if (!noteId || !noteExists(db, noteId, input)) {
+    throw new SyncError("MISSING_DEPENDENCY", "附件所属笔记不存在或无权访问");
+  }
   db.prepare(`
-    UPDATE attachments SET filename = COALESCE(?, filename)
-    WHERE id = ? AND userId = ?
-  `).run(typeof p.filename === "string" ? p.filename : null, input.entityId, input.userId);
+    INSERT INTO attachments (
+      id, noteId, userId, filename, mimeType, size, path, createdAt, workspaceId, hash
+    ) VALUES (?, ?, ?, ?, ?, ?, '', COALESCE(?, datetime('now')), ?, ?)
+    ON CONFLICT(id) DO UPDATE SET
+      noteId = excluded.noteId,
+      filename = excluded.filename,
+      mimeType = excluded.mimeType,
+      size = excluded.size,
+      workspaceId = excluded.workspaceId,
+      hash = COALESCE(excluded.hash, attachments.hash)
+  `).run(
+    input.entityId,
+    noteId,
+    input.userId,
+    typeof p.filename === "string" ? p.filename : "attachment",
+    typeof p.mimeType === "string" ? p.mimeType : "application/octet-stream",
+    Number.isFinite(Number(p.size)) ? Math.max(0, Number(p.size)) : 0,
+    typeof p.createdAt === "string" ? p.createdAt : null,
+    workspaceIdOf(input),
+    typeof p.hash === "string" ? p.hash : null,
+  );
   return null;
 }
 
@@ -343,15 +379,27 @@ function applyAttachment(db: Database.Database, input: ApplyMutationInput): numb
 function applyTask(db: Database.Database, input: ApplyMutationInput): number | null {
   if (input.operation === "delete") {
     // 子任务通过 parentId 的 CASCADE 一并删除，与本地删除语义一致。
-    db.prepare("DELETE FROM tasks WHERE id = ? AND userId = ?")
-      .run(input.entityId, input.userId);
+    db.prepare(`DELETE FROM tasks WHERE id = ? AND workspaceId IS ?
+      AND (? IS NOT NULL OR userId = ?)`)
+      .run(input.entityId, workspaceIdOf(input), workspaceIdOf(input), input.userId);
     return null;
   }
 
   const p = input.payload || {};
+  const requestedNoteId = typeof p.noteId === "string" ? p.noteId : null;
+  const requestedParentId = typeof p.parentId === "string" ? p.parentId : null;
+  if (requestedNoteId && !noteExists(db,requestedNoteId,input)) {
+    throw new SyncError("MISSING_DEPENDENCY", "任务关联的笔记尚未同步");
+  }
+  if (requestedParentId && !taskExists(db,requestedParentId,input)) {
+    throw new SyncError("MISSING_DEPENDENCY", "父任务尚未同步");
+  }
   const existing = db.prepare(
-    "SELECT updatedAt FROM tasks WHERE id = ? AND userId = ?",
-  ).get(input.entityId, input.userId) as { updatedAt: string } | undefined;
+    `SELECT updatedAt FROM tasks WHERE id = ? AND workspaceId IS ?
+      AND (? IS NOT NULL OR userId = ?)`,
+  ).get(input.entityId, workspaceIdOf(input), workspaceIdOf(input), input.userId) as
+    | { updatedAt: string }
+    | undefined;
 
   if (existing) {
     // baseVersion 在 task 上承载的是"客户端看到的 updatedAt 哈希"没有意义，
@@ -365,8 +413,8 @@ function applyTask(db: Database.Database, input: ApplyMutationInput): number | n
   db.prepare(`
     INSERT INTO tasks (
       id, userId, title, isCompleted, completedAt, priority, dueDate,
-      noteId, parentId, sortOrder, createdAt, updatedAt
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')), datetime('now'))
+      noteId, parentId, sortOrder, createdAt, updatedAt, workspaceId
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')), datetime('now'), ?)
     ON CONFLICT(id) DO UPDATE SET
       title = excluded.title,
       isCompleted = excluded.isCompleted,
@@ -385,22 +433,25 @@ function applyTask(db: Database.Database, input: ApplyMutationInput): number | n
     typeof p.completedAt === "string" ? p.completedAt : null,
     Number.isFinite(p.priority as number) ? Number(p.priority) : 2,
     typeof p.dueDate === "string" ? p.dueDate : null,
-    // noteId / parentId 指向可能尚未同步的实体：置 null 而不是报错，
-    // 否则一条孤儿引用会让整个任务永远同步不过去。关系会在对端补齐后自然修复。
-    typeof p.noteId === "string" && noteExists(db, p.noteId, input.userId) ? p.noteId : null,
-    typeof p.parentId === "string" && taskExists(db, p.parentId, input.userId) ? p.parentId : null,
+    requestedNoteId,
+    requestedParentId,
     Number.isFinite(p.sortOrder as number) ? Number(p.sortOrder) : 0,
     typeof p.createdAt === "string" ? p.createdAt : null,
+    workspaceIdOf(input),
   );
   return null;
 }
 
-function noteExists(db: Database.Database, id: string, userId: string): boolean {
-  return !!db.prepare("SELECT 1 FROM notes WHERE id = ? AND userId = ?").get(id, userId);
+function noteExists(db: Database.Database, id: string, input: ApplyMutationInput): boolean {
+  return !!db.prepare(`SELECT 1 FROM notes WHERE id = ? AND workspaceId IS ?
+    AND (? IS NOT NULL OR userId = ?)`)
+    .get(id, workspaceIdOf(input), workspaceIdOf(input), input.userId);
 }
 
-function taskExists(db: Database.Database, id: string, userId: string): boolean {
-  return !!db.prepare("SELECT 1 FROM tasks WHERE id = ? AND userId = ?").get(id, userId);
+function taskExists(db: Database.Database, id: string, input: ApplyMutationInput): boolean {
+  return !!db.prepare(`SELECT 1 FROM tasks WHERE id = ? AND workspaceId IS ?
+    AND (? IS NOT NULL OR userId = ?)`)
+    .get(id, workspaceIdOf(input), workspaceIdOf(input), input.userId);
 }
 
 /**
@@ -421,7 +472,7 @@ function applyTaskReminder(db: Database.Database, input: ApplyMutationInput): nu
 
   const p = input.payload || {};
   const taskId = typeof p.taskId === "string" ? p.taskId : "";
-  if (!taskId || !taskExists(db, taskId, input.userId)) {
+  if (!taskId || !taskExists(db, taskId, input)) {
     // 提醒无法脱离任务存在：明确报缺依赖，让客户端在 task 同步后重试。
     throw new SyncError("MISSING_DEPENDENCY", "提醒所属任务尚未同步");
   }
@@ -455,8 +506,9 @@ function applyTaskReminder(db: Database.Database, input: ApplyMutationInput): nu
  */
 function applyDiary(db: Database.Database, input: ApplyMutationInput): number | null {
   if (input.operation === "delete") {
-    db.prepare("DELETE FROM diaries WHERE id = ? AND userId = ?")
-      .run(input.entityId, input.userId);
+    db.prepare(`DELETE FROM diaries WHERE id = ? AND workspaceId IS ?
+      AND (? IS NOT NULL OR userId = ?)`)
+      .run(input.entityId, workspaceIdOf(input), workspaceIdOf(input), input.userId);
     return null;
   }
 
@@ -476,8 +528,8 @@ function applyDiary(db: Database.Database, input: ApplyMutationInput): number | 
   };
 
   db.prepare(`
-    INSERT INTO diaries (id, userId, contentText, mood, images, media, createdAt)
-    VALUES (?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')))
+    INSERT INTO diaries (id, userId, contentText, mood, images, media, createdAt, workspaceId)
+    VALUES (?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')), ?)
     ON CONFLICT(id) DO UPDATE SET
       contentText = excluded.contentText,
       mood = excluded.mood,
@@ -491,6 +543,7 @@ function applyDiary(db: Database.Database, input: ApplyMutationInput): number | 
     asJsonArray(p.images),
     asJsonArray(p.media),
     typeof p.createdAt === "string" ? p.createdAt : null,
+    workspaceIdOf(input),
   );
   return null;
 }
@@ -505,15 +558,19 @@ function applyDiary(db: Database.Database, input: ApplyMutationInput): number | 
  */
 function applyMindmap(db: Database.Database, input: ApplyMutationInput): number | null {
   if (input.operation === "delete") {
-    db.prepare("DELETE FROM mindmaps WHERE id = ? AND userId = ?")
-      .run(input.entityId, input.userId);
+    db.prepare(`DELETE FROM mindmaps WHERE id = ? AND workspaceId IS ?
+      AND (? IS NOT NULL OR userId = ?)`)
+      .run(input.entityId, workspaceIdOf(input), workspaceIdOf(input), input.userId);
     return null;
   }
 
   const p = input.payload || {};
   const existing = db.prepare(
-    "SELECT updatedAt FROM mindmaps WHERE id = ? AND userId = ?",
-  ).get(input.entityId, input.userId) as { updatedAt: string } | undefined;
+    `SELECT updatedAt FROM mindmaps WHERE id = ? AND workspaceId IS ?
+      AND (? IS NOT NULL OR userId = ?)`,
+  ).get(input.entityId, workspaceIdOf(input), workspaceIdOf(input), input.userId) as
+    | { updatedAt: string }
+    | undefined;
 
   if (existing) {
     const clientBase = typeof p.baseUpdatedAt === "string" ? p.baseUpdatedAt : null;
@@ -526,7 +583,7 @@ function applyMindmap(db: Database.Database, input: ApplyMutationInput): number 
 
   db.prepare(`
     INSERT INTO mindmaps (id, userId, workspaceId, title, data, createdAt, updatedAt)
-    VALUES (?, ?, NULL, ?, ?, COALESCE(?, datetime('now')), datetime('now'))
+    VALUES (?, ?, ?, ?, ?, COALESCE(?, datetime('now')), datetime('now'))
     ON CONFLICT(id) DO UPDATE SET
       title = excluded.title,
       data = excluded.data,
@@ -534,6 +591,7 @@ function applyMindmap(db: Database.Database, input: ApplyMutationInput): number 
   `).run(
     input.entityId,
     input.userId,
+    workspaceIdOf(input),
     typeof p.title === "string" ? p.title : "无标题导图",
     typeof p.data === "string" ? p.data : JSON.stringify(p.data ?? {}),
     typeof p.createdAt === "string" ? p.createdAt : null,

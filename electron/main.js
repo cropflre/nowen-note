@@ -1917,6 +1917,7 @@ function registerAppIpc() {
       platform: process.platform,
       arch: process.arch,
       mode: currentMode,
+      runtime: currentRuntime,
       hideMenuBar: currentHideMenuBar,
     };
   });

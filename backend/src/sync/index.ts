@@ -1,17 +1,8 @@
 /**
  * Local-first + Optional Sync（Sync V2）统一入口。
  *
- * Phase 0 提供契约与基础设施：
- * - flag / types / constants / errors / context / log。
- *
- * Phase 2 追加本地同步状态的读写层（migration v81 建表）：
- * - outbox：mutation 入队，强制与业务写入同事务；
- * - device：稳定 deviceId；
- * - profile：同步关系与拉取游标；
- * - conflict：三方内容台账。
- *
- * 仍未实现真实同步行为（push / pull / apply / engine 在后续 Phase）。
- * 所有能力在 Flag 关闭时均不被调用，现有用户完全无感。
+ * 统一导出协议、Outbox、Bootstrap、引擎、附件、冲突与多 Scope 权限能力。
+ * 所有能力在 Flag 关闭时均不被调用，兼容既有部署。
  */
 
 export { isLocalFirstSyncV2Enabled } from "./flag";

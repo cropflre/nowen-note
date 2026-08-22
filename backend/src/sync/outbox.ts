@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type Database from "better-sqlite3";
-import { SYNC_TABLES } from "./constants";
+import { SYNC_PERSONAL_SCOPE_KEY, SYNC_TABLES } from "./constants";
 import { isOutboxSuppressed } from "./context";
 import type {
   SyncEntityType,
@@ -36,6 +36,8 @@ export interface EnqueueMutationInput {
    * 当前最终状态建立基线，之后才产生增量 mutation。
    */
   profileId: string;
+  /** mutation 创建时固定所属 Scope，跨 Scope 移动会生成 delete + upsert。 */
+  scopeKey?: string;
   /** 冲突检测依据；delete 与关系型实体可省略。 */
   baseVersion?: number | null;
   /** 结构化载荷，内部序列化为 JSON；delete 可省略。 */
@@ -76,13 +78,14 @@ export function enqueueMutation(
 
   db.prepare(`
     INSERT INTO ${SYNC_TABLES.outbox} (
-      id, mutationId, profileId, deviceId, entityType, entityId,
+      id, mutationId, profileId, scopeKey, deviceId, entityType, entityId,
       operation, baseVersion, payload, status, retryCount, createdAt
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', 0, datetime('now'))
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', 0, datetime('now'))
   `).run(
     randomUUID(),
     mutationId,
     input.profileId,
+    input.scopeKey ?? SYNC_PERSONAL_SCOPE_KEY,
     input.deviceId,
     input.entityType,
     input.entityId,
@@ -128,6 +131,7 @@ export function listPendingMutations(
   db: Database.Database,
   limit: number,
   profileId?: string | null,
+  scopeKey?: string,
 ): SyncOutboxRow[] {
   if (profileId === undefined || profileId === null) {
     // 不限定 Profile：仅供诊断与统计使用，Push 路径必须传 profileId。
@@ -137,6 +141,16 @@ export function listPendingMutations(
       ORDER BY createdAt ASC, rowid ASC
       LIMIT ?
     `).all(limit) as SyncOutboxRow[];
+  }
+
+  if (scopeKey) {
+    return db.prepare(`
+      SELECT * FROM ${SYNC_TABLES.outbox}
+      WHERE status IN ('pending', 'failed')
+        AND profileId = ? AND scopeKey = ?
+      ORDER BY createdAt ASC, rowid ASC
+      LIMIT ?
+    `).all(profileId, scopeKey, limit) as SyncOutboxRow[];
   }
 
   return db.prepare(`
@@ -149,11 +163,20 @@ export function listPendingMutations(
 }
 
 /** 统计待同步条目，供设置页诊断信息展示。 */
-export function countPendingMutations(db: Database.Database): number {
+export function countPendingMutations(
+  db: Database.Database,
+  profileId?: string,
+  scopeKey?: string,
+): number {
+  const where = profileId
+    ? ` AND profileId = ?${scopeKey ? " AND scopeKey = ?" : ""}`
+    : "";
+  const params = profileId ? (scopeKey ? [profileId, scopeKey] : [profileId]) : [];
   const row = db.prepare(`
     SELECT COUNT(*) AS count FROM ${SYNC_TABLES.outbox}
     WHERE status IN ('pending', 'failed')
-  `).get() as { count: number } | undefined;
+    ${where}
+  `).get(...params) as { count: number } | undefined;
   return Number(row?.count || 0);
 }
 

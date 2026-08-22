@@ -3,26 +3,13 @@ import type { Note, NoteListItem, Notebook, Tag } from "@/types";
 /**
  * LocalRepository 抽象层（Phase 10）。
  *
- * 为什么先做抽象、不直接换存储：
- *
- * 当前的 localStore.ts 是 **Remote-first + Offline Cache**——
- * IndexedDB 里的 schema 名字就叫 NowenCacheSchema，offlineRead.ts 的
- * withFallback() 也是"先请求服务器，失败才读本地"。
- * 把它改个名字宣布成 Local-first 是自欺欺人：权威数据仍在远端，
- * 断网时能读到什么完全取决于之前缓存过什么。
- *
- * 真正的改造顺序应该是：
+ * 改造顺序：
  *   1. UI 依赖 Repository 接口（本文件）
  *   2. 底层实现从 Cache 换成真正的本地数据库
  *   3. Sync Engine 负责与远端对账
  *
- * 先做第 1 步的好处是：换底层时 UI 一行不用改，
- * 而且可以逐模块灰度，不必一次性重构整个前端。
- *
- * 关于移动端存储方案：**刻意不在此引入任何新依赖**。
- * Capacitor 的 SQLite 插件需要改原生工程与构建配置，
- * 必须结合项目当前的 Capacitor 版本真实评估后再定，
- * 不能为了让方案文档好看就先把库加进来。
+ * Android / iOS 现在由 Native SQLite 实现本接口；Web 仍可继续使用既有
+ * Remote-first + IndexedDB Cache 路径，两者不会互相冒充权威数据源。
  */
 
 // ---------------------------------------------------------------------------
@@ -34,6 +21,10 @@ export interface NoteQuery {
   tagId?: string;
   /** 全文关键词；实现方可退化为标题匹配。 */
   keyword?: string;
+  /** 只返回收藏笔记。 */
+  favoriteOnly?: boolean;
+  /** 只返回回收站笔记；与 includeTrashed 的“包含”语义不同。 */
+  trashedOnly?: boolean;
   includeTrashed?: boolean;
   includeArchived?: boolean;
   limit?: number;
@@ -133,7 +124,7 @@ export interface SyncRepository {
  * UI 只依赖这个接口。底层可以是：
  * - 当前的 IndexedDB Cache（过渡实现）
  * - 桌面端的 Local HTTP API → Embedded Backend → SQLite
- * - 未来移动端的 Native 本地数据库
+ * - 移动端的 Native SQLite 本地数据库
  *
  * 三者对 UI 完全等价。
  */

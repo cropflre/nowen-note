@@ -17,7 +17,6 @@ import {
   type SyncDiagnostics,
   type SyncSettingsResponse,
 } from "@/lib/syncLocalApi";
-import { ConflictCenter } from "@/components/settings/ConflictCenter";
 
 /**
  * 同步设置（Phase 7）。
@@ -205,13 +204,7 @@ export function SyncSettingsPanel() {
       </section>
 
       {mode === "server" && diagnostics ? (
-        <>
-          <ConflictCenter
-            deviceId={diagnostics.deviceId}
-            onResolved={() => { void reload(); }}
-          />
-          <SyncDiagnosticsPanel diagnostics={diagnostics} onRefresh={reload} />
-        </>
+        <SyncDiagnosticsPanel diagnostics={diagnostics} onRefresh={reload} />
       ) : null}
     </div>
   );

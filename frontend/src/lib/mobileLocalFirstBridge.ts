@@ -1,0 +1,200 @@
+import { api } from "./api";
+import { newLocalId } from "./localRepository";
+import type { NativeLocalRepository } from "./nativeLocalRepository";
+import type { Note, Notebook, Tag, Workspace } from "@/types";
+
+let installed = false;
+
+/** 将核心 UI 门面切换到 Native Repository；非核心 API 继续访问服务器。 */
+export function installMobileLocalFirstBridge(repository: NativeLocalRepository): () => void {
+  if (installed) return () => undefined;
+  installed = true;
+  const target = api as any;
+  const originals = {
+    getWorkspaces: target.getWorkspaces,
+    getNotebooks: target.getNotebooks,
+    createNotebook: target.createNotebook,
+    updateNotebook: target.updateNotebook,
+    deleteNotebook: target.deleteNotebook,
+    reorderNotebooks: target.reorderNotebooks,
+    moveNotebook: target.moveNotebook,
+    getNotes: target.getNotes,
+    getNote: target.getNote,
+    getNoteSlim: target.getNoteSlim,
+    createNote: target.createNote,
+    createNoteConfirmed: target.createNoteConfirmed,
+    updateNote: target.updateNote,
+    updateNoteConfirmed: target.updateNoteConfirmed,
+    deleteNote: target.deleteNote,
+    duplicateNote: target.duplicateNote,
+    reorderNotes: target.reorderNotes,
+    getTrashSummary: target.getTrashSummary,
+    emptyTrash: target.emptyTrash,
+    getTags: target.getTags,
+    createTag: target.createTag,
+    updateTag: target.updateTag,
+    deleteTag: target.deleteTag,
+    addTagToNote: target.addTagToNote,
+    removeTagFromNote: target.removeTagFromNote,
+    getNotesWithTag: target.getNotesWithTag,
+    getNotesWithTags: target.getNotesWithTags,
+    search: target.search,
+    searchNotes: target.searchNotes,
+    attachmentUpload: target.attachments.upload,
+    attachmentUrlFor: target.attachments.urlFor,
+    attachmentRemove: target.attachments.remove,
+  };
+
+  target.getWorkspaces = async (): Promise<Workspace[]> => repository.listWorkspaces();
+
+  target.getNotebooks = async (workspaceId?: string): Promise<Notebook[]> =>
+    repository.listNotebooksForWorkspace(workspaceId);
+  target.createNotebook = async (data: Partial<Notebook>): Promise<Notebook> => {
+    const id = data.id || newLocalId();
+    await repository.notebooks.create({ ...data, id });
+    return (await repository.notebooks.get(id))!;
+  };
+  target.updateNotebook = async (id: string, data: Partial<Notebook>): Promise<Notebook> => {
+    await repository.notebooks.update(id, data);
+    return (await repository.notebooks.get(id))!;
+  };
+  target.deleteNotebook = async (id: string) => {
+    await repository.notebooks.remove(id);
+    return { success: true };
+  };
+  target.reorderNotebooks = async (items:Array<{id:string;sortOrder:number}>) => {
+    await repository.reorderNotebooks(items);return {success:true};
+  };
+  target.moveNotebook = async (id:string,data:{parentId?:string|null;sortOrder?:number}) => {
+    await repository.notebooks.update(id,data);return (await repository.notebooks.get(id))!;
+  };
+
+  target.getNotes = async (params: Record<string, string> = {}) => repository.listNotesForWorkspace(params.workspaceId, {
+    notebookId: params.notebookId,
+    tagId: params.tagId,
+    keyword: params.q || params.keyword,
+    favoriteOnly: params.isFavorite === "1" || params.isFavorite === "true",
+    trashedOnly: params.isTrashed === "1" || params.isTrashed === "true",
+    includeTrashed: params.includeTrashed === "true" || params.isTrashed === "true",
+    includeArchived: params.includeArchived === "true",
+    limit: params.limit ? Number(params.limit) : undefined,
+    offset: params.offset ? Number(params.offset) : undefined,
+  });
+  target.getNote = async (id: string): Promise<Note> => {
+    const note = await repository.notes.get(id);
+    if (!note) throw new Error("笔记不存在");
+    return note;
+  };
+  target.getNoteSlim = target.getNote;
+  target.createNote = async (data: Partial<Note>): Promise<Note> => {
+    const id = data.id || newLocalId();
+    await repository.notes.create({ ...data, id });
+    return (await repository.notes.get(id))!;
+  };
+  target.updateNote = async (id: string, data: Partial<Note>): Promise<Note> => {
+    await repository.notes.update(id, data);
+    return (await repository.notes.get(id))!;
+  };
+  target.deleteNote = async (id: string) => {
+    await repository.notes.remove(id);
+    return { success: true };
+  };
+  target.createNoteConfirmed = target.createNote;
+  target.updateNoteConfirmed = target.updateNote;
+  target.duplicateNote = async (id:string) => repository.duplicateNote(id);
+  target.reorderNotes = async (items:Array<{id:string;sortOrder:number}>) => {
+    await repository.reorderNotes(items);return {success:true};
+  };
+  target.getTrashSummary = async () => repository.trashSummary();
+  target.emptyTrash = async () => repository.emptyTrash();
+
+  target.getTags = async (workspaceId?:string): Promise<Tag[]> => repository.listTagsForWorkspace(workspaceId);
+  target.createTag = async (data: Partial<Tag>): Promise<Tag> => {
+    const id = data.id || newLocalId();
+    await repository.tags.create({ ...data, id });
+    return (await repository.tags.list()).find((tag) => tag.id === id)!;
+  };
+  target.updateTag = async (id: string, data: Partial<Tag>): Promise<Tag> => {
+    await repository.tags.update(id, data);
+    return (await repository.tags.list()).find((tag) => tag.id === id)!;
+  };
+  target.deleteTag = async (id: string) => {
+    await repository.tags.remove(id);
+    return { success: true };
+  };
+  target.addTagToNote = async (noteId: string, tagId: string) => {
+    await repository.tags.attach(noteId, tagId);
+    return { success: true };
+  };
+  target.removeTagFromNote = async (noteId: string, tagId: string) => {
+    await repository.tags.detach(noteId, tagId);
+    return { success: true };
+  };
+  target.getNotesWithTag = async (tagId: string, params: Record<string, string> = {}) =>
+    repository.listNotesForWorkspace(params.workspaceId,{tagId,limit:params.limit?Number(params.limit):undefined});
+  target.getNotesWithTags = async (tagIds:string[],params:Record<string,string>={}) =>
+    repository.listNotesWithTags(tagIds,params.workspaceId,params.limit?Number(params.limit):undefined);
+  target.search = async (query:string) => repository.searchNotes(query);
+  target.searchNotes = async (query:string,limit=10) => (await repository.searchNotes(query,limit)).map(({id,title,notebookId,updatedAt})=>({id,title,notebookId,updatedAt}));
+
+  target.attachments.upload = async (noteId: string, file: File) => {
+    const id = newLocalId();
+    const record = await repository.attachments.save({
+      id,
+      noteId,
+      filename: file.name,
+      mimeType: file.type || "application/octet-stream",
+      blob: file,
+    });
+    const url = await repository.attachments.resolveUrl(id);
+    return {
+      ...record,
+      url: url || `/api/attachments/${id}`,
+      category: record.mimeType.startsWith("image/") ? "image" : "file",
+    };
+  };
+  target.attachments.urlFor = (id: string) =>
+    repository.getCachedAttachmentUrl(id) || originals.attachmentUrlFor(id);
+  target.attachments.remove = async (id: string) => {
+    await repository.attachments.remove(id);
+    return { success: true };
+  };
+
+  return () => {
+    Object.assign(target, {
+      getWorkspaces: originals.getWorkspaces,
+      getNotebooks: originals.getNotebooks,
+      createNotebook: originals.createNotebook,
+      updateNotebook: originals.updateNotebook,
+      deleteNotebook: originals.deleteNotebook,
+      reorderNotebooks: originals.reorderNotebooks,
+      moveNotebook: originals.moveNotebook,
+      getNotes: originals.getNotes,
+      getNote: originals.getNote,
+      getNoteSlim: originals.getNoteSlim,
+      createNote: originals.createNote,
+      createNoteConfirmed: originals.createNoteConfirmed,
+      updateNote: originals.updateNote,
+      updateNoteConfirmed: originals.updateNoteConfirmed,
+      deleteNote: originals.deleteNote,
+      duplicateNote: originals.duplicateNote,
+      reorderNotes: originals.reorderNotes,
+      getTrashSummary: originals.getTrashSummary,
+      emptyTrash: originals.emptyTrash,
+      getTags: originals.getTags,
+      createTag: originals.createTag,
+      updateTag: originals.updateTag,
+      deleteTag: originals.deleteTag,
+      addTagToNote: originals.addTagToNote,
+      removeTagFromNote: originals.removeTagFromNote,
+      getNotesWithTag: originals.getNotesWithTag,
+      getNotesWithTags: originals.getNotesWithTags,
+      search: originals.search,
+      searchNotes: originals.searchNotes,
+    });
+    target.attachments.upload = originals.attachmentUpload;
+    target.attachments.urlFor = originals.attachmentUrlFor;
+    target.attachments.remove = originals.attachmentRemove;
+    installed = false;
+  };
+}

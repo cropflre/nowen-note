@@ -30,6 +30,8 @@ export interface RemoteEntityPayload {
 export interface ApplyLocalOptions {
   /** 本地用户 id（桌面端为本机账号）。 */
   userId: string;
+  scopeKey?: string;
+  workspaceId?: string | null;
 }
 
 export interface ApplyLocalResult {
@@ -62,29 +64,37 @@ function hasPendingLocalChange(
   db: Database.Database,
   entityType: SyncEntityType,
   entityId: string,
+  scopeKey: string,
 ): boolean {
   const row = db.prepare(`
     SELECT 1 AS hit FROM sync_outbox
-    WHERE entityType = ? AND entityId = ? AND status IN ('pending', 'inflight', 'failed')
+    WHERE entityType = ? AND entityId = ? AND scopeKey = ?
+      AND status IN ('pending', 'inflight', 'failed')
     LIMIT 1
-  `).get(entityType, entityId) as { hit: number } | undefined;
+  `).get(entityType, entityId, scopeKey) as { hit: number } | undefined;
   return !!row;
 }
 
-function applyNotebookLocal(db: Database.Database, item: RemoteEntityPayload, userId: string): void {
+function applyNotebookLocal(db: Database.Database, item: RemoteEntityPayload, options: ApplyLocalOptions): void {
+  const { userId, workspaceId = null } = options;
   if (item.operation === "delete") {
     db.prepare(`
       UPDATE notebooks SET isDeleted = 1, deletedAt = datetime('now'), updatedAt = datetime('now')
-      WHERE id = ? AND userId = ?
-    `).run(item.entityId, userId);
+      WHERE id = ? AND workspaceId IS ? AND (? IS NOT NULL OR userId = ?)
+    `).run(item.entityId,workspaceId,workspaceId,userId);
     return;
   }
   const p = item.payload || {};
+  const parentId = typeof p.parentId === "string"
+    && db.prepare("SELECT 1 FROM notebooks WHERE id = ? AND workspaceId IS ?")
+      .get(p.parentId,workspaceId)
+    ? p.parentId
+    : null;
   db.prepare(`
     INSERT INTO notebooks (
       id, userId, parentId, name, description, icon, color,
       sortOrder, isExpanded, isDeleted, deletedAt, createdAt, updatedAt, workspaceId
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')), datetime('now'), NULL)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')), datetime('now'), ?)
     ON CONFLICT(id) DO UPDATE SET
       parentId = excluded.parentId,
       name = excluded.name,
@@ -99,7 +109,7 @@ function applyNotebookLocal(db: Database.Database, item: RemoteEntityPayload, us
   `).run(
     item.entityId,
     userId,
-    p.parentId ?? null,
+    parentId,
     str(p.name, "未命名笔记本"),
     p.description ?? null,
     str(p.icon, "📒"),
@@ -109,18 +119,21 @@ function applyNotebookLocal(db: Database.Database, item: RemoteEntityPayload, us
     bit(p.isDeleted),
     p.deletedAt ?? null,
     p.createdAt ?? null,
+    workspaceId,
   );
 }
 
-function applyTagLocal(db: Database.Database, item: RemoteEntityPayload, userId: string): void {
+function applyTagLocal(db: Database.Database, item: RemoteEntityPayload, options: ApplyLocalOptions): void {
+  const { userId, workspaceId = null } = options;
   if (item.operation === "delete") {
-    db.prepare("DELETE FROM tags WHERE id = ? AND userId = ?").run(item.entityId, userId);
+    db.prepare("DELETE FROM tags WHERE id = ? AND workspaceId IS ? AND (? IS NOT NULL OR userId = ?)")
+      .run(item.entityId,workspaceId,workspaceId,userId);
     return;
   }
   const p = item.payload || {};
   db.prepare(`
     INSERT INTO tags (id, userId, name, color, createdAt, workspaceId)
-    VALUES (?, ?, ?, ?, COALESCE(?, datetime('now')), NULL)
+    VALUES (?, ?, ?, ?, COALESCE(?, datetime('now')), ?)
     ON CONFLICT(id) DO UPDATE SET name = excluded.name, color = excluded.color
   `).run(
     item.entityId,
@@ -128,12 +141,15 @@ function applyTagLocal(db: Database.Database, item: RemoteEntityPayload, userId:
     str(p.name, "未命名标签"),
     str(p.color, "#58a6ff"),
     p.createdAt ?? null,
+    workspaceId,
   );
 }
 
-function applyNoteLocal(db: Database.Database, item: RemoteEntityPayload, userId: string): void {
+function applyNoteLocal(db: Database.Database, item: RemoteEntityPayload, options: ApplyLocalOptions): void {
+  const { userId, workspaceId = null } = options;
   if (item.operation === "delete") {
-    db.prepare("DELETE FROM notes WHERE id = ? AND userId = ?").run(item.entityId, userId);
+    db.prepare("DELETE FROM notes WHERE id = ? AND workspaceId IS ? AND (? IS NOT NULL OR userId = ?)")
+      .run(item.entityId,workspaceId,workspaceId,userId);
     return;
   }
   const p = item.payload || {};
@@ -142,7 +158,7 @@ function applyNoteLocal(db: Database.Database, item: RemoteEntityPayload, userId
       id, userId, notebookId, workspaceId, title, content, contentText, contentFormat,
       isPinned, isFavorite, isLocked, isArchived, isTrashed, trashedAt,
       version, sortOrder, createdAt, updatedAt
-    ) VALUES (?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
               COALESCE(?, datetime('now')), datetime('now'))
     ON CONFLICT(id) DO UPDATE SET
       notebookId = excluded.notebookId,
@@ -163,6 +179,7 @@ function applyNoteLocal(db: Database.Database, item: RemoteEntityPayload, userId
     item.entityId,
     userId,
     str(p.notebookId),
+    workspaceId,
     str(p.title, "无标题笔记"),
     str(p.content, "{}"),
     str(p.contentText),
@@ -179,25 +196,29 @@ function applyNoteLocal(db: Database.Database, item: RemoteEntityPayload, userId
   );
 }
 
-function applyNoteTagLocal(db: Database.Database, item: RemoteEntityPayload): void {
+function applyNoteTagLocal(db: Database.Database, item: RemoteEntityPayload, options: ApplyLocalOptions): void {
+  const { workspaceId = null } = options;
   const separator = item.entityId.lastIndexOf(":");
   if (separator <= 0) return;
   const noteId = item.entityId.slice(0, separator);
   const tagId = item.entityId.slice(separator + 1);
 
   if (item.operation === "delete") {
-    db.prepare("DELETE FROM note_tags WHERE noteId = ? AND tagId = ?").run(noteId, tagId);
+    db.prepare(`DELETE FROM note_tags WHERE noteId = ? AND tagId = ? AND noteId IN (
+      SELECT id FROM notes WHERE workspaceId IS ?
+    )`).run(noteId,tagId,workspaceId);
     return;
   }
   // 父实体可能还没拉下来（分页顺序或部分失败）；此时跳过，
   // 下一轮 Pull 会重新带上这条变更。硬插会违反外键。
-  const ready = db.prepare("SELECT 1 FROM notes WHERE id = ?").get(noteId)
-    && db.prepare("SELECT 1 FROM tags WHERE id = ?").get(tagId);
+  const ready = db.prepare("SELECT 1 FROM notes WHERE id = ? AND workspaceId IS ?").get(noteId,workspaceId)
+    && db.prepare("SELECT 1 FROM tags WHERE id = ? AND workspaceId IS ?").get(tagId,workspaceId);
   if (!ready) return;
   db.prepare("INSERT OR IGNORE INTO note_tags (noteId, tagId) VALUES (?, ?)").run(noteId, tagId);
 }
 
-function applyFavoriteLocal(db: Database.Database, item: RemoteEntityPayload, userId: string): void {
+function applyFavoriteLocal(db: Database.Database, item: RemoteEntityPayload, options: ApplyLocalOptions): void {
+  const { userId, workspaceId = null } = options;
   const separator = item.entityId.lastIndexOf(":");
   if (separator <= 0) return;
   const noteId = item.entityId.slice(separator + 1);
@@ -206,11 +227,11 @@ function applyFavoriteLocal(db: Database.Database, item: RemoteEntityPayload, us
     db.prepare("DELETE FROM favorites WHERE userId = ? AND noteId = ?").run(userId, noteId);
     return;
   }
-  if (!db.prepare("SELECT 1 FROM notes WHERE id = ?").get(noteId)) return;
+  if (!db.prepare("SELECT 1 FROM notes WHERE id = ? AND workspaceId IS ?").get(noteId,workspaceId)) return;
   db.prepare(`
     INSERT OR IGNORE INTO favorites (userId, noteId, workspaceId, createdAt)
-    VALUES (?, ?, NULL, datetime('now'))
-  `).run(userId, noteId);
+    VALUES (?, ?, ?, datetime('now'))
+  `).run(userId,noteId,workspaceId);
 }
 
 /**
@@ -219,19 +240,23 @@ function applyFavoriteLocal(db: Database.Database, item: RemoteEntityPayload, us
  * 二进制单独下载，因此这里只维护记录。path 使用占位值并标记为待下载——
  * 远端不会（也不应该）把服务器文件路径告诉客户端。
  */
-function applyAttachmentLocal(db: Database.Database, item: RemoteEntityPayload, userId: string): void {
+function applyAttachmentLocal(db: Database.Database, item: RemoteEntityPayload, options: ApplyLocalOptions): void {
+  const { userId, workspaceId = null } = options;
   if (item.operation === "delete") {
-    db.prepare("DELETE FROM attachments WHERE id = ? AND userId = ?").run(item.entityId, userId);
+    db.prepare("DELETE FROM attachments WHERE id = ? AND workspaceId IS ? AND (? IS NOT NULL OR userId = ?)")
+      .run(item.entityId,workspaceId,workspaceId,userId);
     return;
   }
   const p = item.payload || {};
   const noteId = str(p.noteId);
-  if (!noteId || !db.prepare("SELECT 1 FROM notes WHERE id = ?").get(noteId)) return;
+  if (!noteId || !db.prepare("SELECT 1 FROM notes WHERE id = ? AND workspaceId IS ?").get(noteId,workspaceId)) return;
 
   db.prepare(`
-    INSERT INTO attachments (id, noteId, userId, filename, mimeType, size, path, createdAt)
-    VALUES (?, ?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')))
-    ON CONFLICT(id) DO UPDATE SET filename = excluded.filename
+    INSERT INTO attachments (id, noteId, userId, filename, mimeType, size, path, createdAt, workspaceId, hash)
+    VALUES (?, ?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')), ?, ?)
+    ON CONFLICT(id) DO UPDATE SET
+      noteId=excluded.noteId,filename=excluded.filename,mimeType=excluded.mimeType,
+      size=excluded.size,workspaceId=excluded.workspaceId,hash=COALESCE(excluded.hash,attachments.hash)
   `).run(
     item.entityId,
     noteId,
@@ -242,6 +267,8 @@ function applyAttachmentLocal(db: Database.Database, item: RemoteEntityPayload, 
     // 二进制尚未下载，用可识别的占位；下载完成后由附件服务改写。
     `pending-sync:${item.entityId}`,
     p.createdAt ?? null,
+    workspaceId,
+    typeof p.hash === "string" ? p.hash : null,
   );
 }
 
@@ -255,25 +282,27 @@ function applyAttachmentLocal(db: Database.Database, item: RemoteEntityPayload, 
 // 但引擎在 applyRemoteChanges 之前会检查该实体是否还有未推送的本地修改，
 // 有则转入冲突而不覆盖（RULE 3）。
 
-function applyTaskLocal(db: Database.Database, item: RemoteEntityPayload, userId: string): void {
+function applyTaskLocal(db: Database.Database, item: RemoteEntityPayload, options: ApplyLocalOptions): void {
+  const { userId, workspaceId = null } = options;
   if (item.operation === "delete") {
-    db.prepare("DELETE FROM tasks WHERE id = ? AND userId = ?").run(item.entityId, userId);
+    db.prepare("DELETE FROM tasks WHERE id = ? AND workspaceId IS ? AND (? IS NOT NULL OR userId = ?)")
+      .run(item.entityId,workspaceId,workspaceId,userId);
     return;
   }
   const p = item.payload || {};
   // noteId / parentId 若指向本地尚不存在的实体则置 null：
   // 外键会拒绝写入，导致整条任务永远同步不下来。
   const noteId = typeof p.noteId === "string"
-    && db.prepare("SELECT 1 FROM notes WHERE id = ?").get(p.noteId) ? p.noteId : null;
+    && db.prepare("SELECT 1 FROM notes WHERE id = ? AND workspaceId IS ?").get(p.noteId,workspaceId) ? p.noteId : null;
   const parentId = typeof p.parentId === "string"
-    && db.prepare("SELECT 1 FROM tasks WHERE id = ?").get(p.parentId) ? p.parentId : null;
+    && db.prepare("SELECT 1 FROM tasks WHERE id = ? AND workspaceId IS ?").get(p.parentId,workspaceId) ? p.parentId : null;
 
   db.prepare(`
     INSERT INTO tasks (
       id, userId, title, isCompleted, completedAt, priority, dueDate,
-      noteId, parentId, sortOrder, createdAt, updatedAt
+      noteId, parentId, sortOrder, createdAt, updatedAt, workspaceId
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-              COALESCE(?, datetime('now')), COALESCE(?, datetime('now')))
+              COALESCE(?, datetime('now')), COALESCE(?, datetime('now')), ?)
     ON CONFLICT(id) DO UPDATE SET
       title = excluded.title,
       isCompleted = excluded.isCompleted,
@@ -299,24 +328,27 @@ function applyTaskLocal(db: Database.Database, item: RemoteEntityPayload, userId
     // 保留远端 updatedAt 而不是写 now()：
     // 它是下一次 Push 的 baseUpdatedAt 依据，改写会导致误判冲突。
     p.updatedAt ?? null,
+    workspaceId,
   );
 }
 
 function applyTaskReminderLocal(
   db: Database.Database,
   item: RemoteEntityPayload,
-  userId: string,
+  options: ApplyLocalOptions,
 ): void {
+  const { userId, workspaceId = null } = options;
   if (item.operation === "delete") {
-    db.prepare("DELETE FROM task_reminders WHERE id = ? AND userId = ?")
-      .run(item.entityId, userId);
+    db.prepare(`DELETE FROM task_reminders WHERE id = ? AND taskId IN (
+      SELECT id FROM tasks WHERE workspaceId IS ?
+    )`).run(item.entityId,workspaceId);
     return;
   }
   const p = item.payload || {};
   const taskId = typeof p.taskId === "string" ? p.taskId : "";
   // 任务还没同步下来：跳过而不是报错。下一轮 Pull 会重新带上这条提醒
   // （Change Feed 是幂等的），届时任务已存在。
-  if (!taskId || !db.prepare("SELECT 1 FROM tasks WHERE id = ?").get(taskId)) return;
+  if (!taskId || !db.prepare("SELECT 1 FROM tasks WHERE id = ? AND workspaceId IS ?").get(taskId,workspaceId)) return;
 
   db.prepare(`
     INSERT INTO task_reminders (id, taskId, userId, offsetMinutes, enabled, createdAt)
@@ -336,9 +368,11 @@ function applyTaskReminderLocal(
   // 从别的设备同步过来会让本机漏掉提醒。
 }
 
-function applyDiaryLocal(db: Database.Database, item: RemoteEntityPayload, userId: string): void {
+function applyDiaryLocal(db: Database.Database, item: RemoteEntityPayload, options: ApplyLocalOptions): void {
+  const { userId, workspaceId = null } = options;
   if (item.operation === "delete") {
-    db.prepare("DELETE FROM diaries WHERE id = ? AND userId = ?").run(item.entityId, userId);
+    db.prepare("DELETE FROM diaries WHERE id = ? AND workspaceId IS ? AND (? IS NOT NULL OR userId = ?)")
+      .run(item.entityId,workspaceId,workspaceId,userId);
     return;
   }
   const p = item.payload || {};
@@ -354,8 +388,8 @@ function applyDiaryLocal(db: Database.Database, item: RemoteEntityPayload, userI
   };
 
   db.prepare(`
-    INSERT INTO diaries (id, userId, contentText, mood, images, media, createdAt)
-    VALUES (?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')))
+    INSERT INTO diaries (id, userId, contentText, mood, images, media, createdAt, workspaceId)
+    VALUES (?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')), ?)
     ON CONFLICT(id) DO UPDATE SET
       contentText = excluded.contentText,
       mood = excluded.mood,
@@ -369,18 +403,21 @@ function applyDiaryLocal(db: Database.Database, item: RemoteEntityPayload, userI
     asJsonArray(p.images),
     asJsonArray(p.media),
     p.createdAt ?? null,
+    workspaceId,
   );
 }
 
-function applyMindmapLocal(db: Database.Database, item: RemoteEntityPayload, userId: string): void {
+function applyMindmapLocal(db: Database.Database, item: RemoteEntityPayload, options: ApplyLocalOptions): void {
+  const { userId, workspaceId = null } = options;
   if (item.operation === "delete") {
-    db.prepare("DELETE FROM mindmaps WHERE id = ? AND userId = ?").run(item.entityId, userId);
+    db.prepare("DELETE FROM mindmaps WHERE id = ? AND workspaceId IS ? AND (? IS NOT NULL OR userId = ?)")
+      .run(item.entityId,workspaceId,workspaceId,userId);
     return;
   }
   const p = item.payload || {};
   db.prepare(`
     INSERT INTO mindmaps (id, userId, workspaceId, title, data, createdAt, updatedAt)
-    VALUES (?, ?, NULL, ?, ?, COALESCE(?, datetime('now')), COALESCE(?, datetime('now')))
+    VALUES (?, ?, ?, ?, ?, COALESCE(?, datetime('now')), COALESCE(?, datetime('now')))
     ON CONFLICT(id) DO UPDATE SET
       title = excluded.title,
       data = excluded.data,
@@ -388,6 +425,7 @@ function applyMindmapLocal(db: Database.Database, item: RemoteEntityPayload, use
   `).run(
     item.entityId,
     userId,
+    workspaceId,
     str(p.title, "无标题导图"),
     typeof p.data === "string" ? p.data : JSON.stringify(p.data ?? {}),
     p.createdAt ?? null,
@@ -398,12 +436,12 @@ function applyMindmapLocal(db: Database.Database, item: RemoteEntityPayload, use
 
 const LOCAL_APPLIERS: Record<
   SyncEntityType,
-  (db: Database.Database, item: RemoteEntityPayload, userId: string) => void
+  (db: Database.Database, item: RemoteEntityPayload, options: ApplyLocalOptions) => void
 > = {
   notebook: applyNotebookLocal,
   note: applyNoteLocal,
   tag: applyTagLocal,
-  note_tag: (db, item) => applyNoteTagLocal(db, item),
+  note_tag: applyNoteTagLocal,
   favorite: applyFavoriteLocal,
   attachment: applyAttachmentLocal,
   task: applyTaskLocal,
@@ -424,11 +462,12 @@ export function applyRemoteChanges(
   options: ApplyLocalOptions,
 ): ApplyLocalResult {
   const result: ApplyLocalResult = { applied: 0, skipped: 0, pendingConflicts: [] };
+  const scopeKey = options.scopeKey || (options.workspaceId ? `workspace:${options.workspaceId}` : "personal");
 
   const run = db.transaction(() => {
     for (const item of items) {
       // 本地有未推送的修改 → 不覆盖，交冲突流程。
-      if (hasPendingLocalChange(db, item.entityType, item.entityId)) {
+      if (hasPendingLocalChange(db,item.entityType,item.entityId,scopeKey)) {
         result.pendingConflicts.push(item);
         result.skipped += 1;
         continue;
@@ -438,7 +477,7 @@ export function applyRemoteChanges(
         result.skipped += 1;
         continue;
       }
-      applier(db, item, options.userId);
+      applier(db,item,{...options,scopeKey,workspaceId:options.workspaceId ?? null});
       result.applied += 1;
     }
   });

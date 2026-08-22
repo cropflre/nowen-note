@@ -6,8 +6,8 @@
 // "只有当 Desktop Local-first / Sync V2 / Lite Migration / Clipper Local /
 // Mobile Local-first 全部稳定后才允许逐步删除""禁止提前删除兼容代码"。
 //
-// 当前 Lite 迁移尚未实现真实数据搬迁、Mobile 只做了抽象层，
-// 此刻删除 legacy 会让两类用户直接失联：
+// 当前 Lite 迁移和 Mobile Native 实现已经具备，但尚未经过发布后的稳定性
+// 观察与存量客户端迁移确认。此刻删除 legacy 仍会让两类用户直接失联：
 //   - 已发布的 Lite-only 安装包用户（他们的数据在远端，本地库是空的）
 //   - 尚未完成迁移的 Lite 用户（切到 local 会看到空知识库）
 //
@@ -35,7 +35,7 @@ export const CLEANUP_PRECONDITIONS = {
   /** Lite → Local 的真实数据搬迁与完整性校验 */
   liteMigrationShipped: false,
   clipperLocalShipped: false,
-  /** Mobile 换成真正的本地数据库（当前只有抽象层） */
+  /** Mobile Native 本地数据库已实现，并完成发布与存量数据迁移验证 */
   mobileLocalFirstShipped: false,
 } as const;
 
@@ -79,8 +79,8 @@ export const LEGACY_CLEANUP_PLAN: CleanupItem[] = [
   {
     target: "localStore.ts / offlineRead.ts 的 Cache 语义",
     location: "frontend/src/lib/localStore.ts, offlineRead.ts",
-    precondition: "LocalRepository 已切到真正的本地数据库实现",
-    risk: "移动端失去离线读取能力（当前它仍是唯一的离线数据来源）",
+    precondition: "Mobile Native 已稳定发布，Web 端也不再依赖 Cache fallback",
+    risk: "Web/旧移动端失去断网缓存与升级迁移来源",
   },
   {
     target: "Clipper 的 serverUrl + token 直连远端路径",

@@ -1,6 +1,7 @@
 import "./lib/runtimeCompatibility";
 import React from "react";
 import ReactDOM from "react-dom/client";
+import { initializeMobileLocalFirstRuntime } from "./lib/mobileLocalFirstRuntime";
 import "./lib/androidCompat";
 import "./lib/noteTransferRefreshBridge";
 import "./lib/workspaceRefreshBridge";
@@ -142,6 +143,7 @@ function resolvePublicNotebookRoute(): { matched: boolean; token?: string } {
 
 const publicRoute = resolvePublicNotebookRoute();
 
+function renderApplication() {
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <SiteSettingsProvider>
@@ -178,3 +180,6 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
     </SiteSettingsProvider>
   </React.StrictMode>,
 );
+}
+
+void initializeMobileLocalFirstRuntime().finally(renderApplication);

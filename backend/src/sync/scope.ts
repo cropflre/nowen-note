@@ -3,16 +3,22 @@ import type Database from "better-sqlite3";
 
 import type { WorkspaceRole } from "../middleware/acl";
 import {
+  hasKnowledgeCapability,
+  resolveResourceKnowledgeAccess,
+} from "../services/knowledgeCapabilities";
+import {
   SYNC_PERSONAL_SCOPE_KEY,
   SYNC_WORKSPACE_SCOPE_PREFIX,
 } from "./constants";
 import { SyncError } from "./errors";
+import type { SyncEntityType, SyncOperation } from "./types";
 
 export type SyncScopeAccessStatus = "read" | "write";
 
 export interface SyncScopeDescriptor {
   scopeKey: string;
   workspaceId: string | null;
+  workspaceName: string | null;
   role: WorkspaceRole | null;
   canWrite: boolean;
   accessFingerprint: string;
@@ -185,6 +191,7 @@ function descriptorForWorkspace(
   return {
     scopeKey: workspaceScopeKey(workspace.id),
     workspaceId: workspace.id,
+    workspaceName: workspace.name,
     role,
     canWrite: canWriteWorkspaceScope(role),
     accessFingerprint: workspaceAccessFingerprint(db, workspace.id),
@@ -198,6 +205,7 @@ export function listAuthorizedScopes(
   const personal: SyncScopeDescriptor = {
     scopeKey: SYNC_PERSONAL_SCOPE_KEY,
     workspaceId: null,
+    workspaceName: null,
     role: null,
     canWrite: true,
     accessFingerprint: sha256(`personal:${userId}`),
@@ -228,6 +236,7 @@ export function resolveAuthorizedScope(
     return {
       scopeKey: SYNC_PERSONAL_SCOPE_KEY,
       workspaceId: null,
+      workspaceName: null,
       role: null,
       canWrite: true,
       accessFingerprint: sha256(`personal:${userId}`),
@@ -255,4 +264,68 @@ export function resolveAuthorizedScope(
     throw new SyncError("SCOPE_FORBIDDEN", "当前角色不允许写入该工作区");
   }
   return descriptorForWorkspace(db, workspace, role);
+}
+
+/** 对 Workspace Push 做逐实体 ACL 校验；Scope 角色只是一层粗粒度 gate。 */
+export function assertSyncMutationAccess(
+  db: Database.Database,
+  userId: string,
+  descriptor: SyncScopeDescriptor,
+  input: {
+    entityType: SyncEntityType;
+    entityId: string;
+    operation: SyncOperation;
+    payload?: Record<string, unknown>;
+  },
+): void {
+  if (!descriptor.workspaceId) return;
+  if (!descriptor.canWrite) {
+    throw new SyncError("SCOPE_FORBIDDEN", "当前角色不允许写入该工作区");
+  }
+  const requireCapability = (
+    resourceType: "note" | "notebook",
+    resourceId: string,
+    capability: "canCreate" | "canEdit" | "canDelete",
+  ) => {
+    const access = resolveResourceKnowledgeAccess(resourceType, resourceId, userId, db);
+    if (!hasKnowledgeCapability(access, capability)) {
+      throw new SyncError("SCOPE_FORBIDDEN", `缺少 ${capability} 权限`);
+    }
+  };
+  const payload = input.payload || {};
+  if (input.entityType === "notebook") {
+    const existing = db.prepare("SELECT id FROM notebooks WHERE id = ? AND workspaceId = ?")
+      .get(input.entityId, descriptor.workspaceId);
+    if (existing) {
+      requireCapability("notebook", input.entityId, input.operation === "delete" ? "canDelete" : "canEdit");
+    } else if (typeof payload.parentId === "string" && payload.parentId) {
+      requireCapability("notebook", payload.parentId, "canCreate");
+    }
+    return;
+  }
+  if (input.entityType === "note") {
+    const existing = db.prepare("SELECT id FROM notes WHERE id = ? AND workspaceId = ?")
+      .get(input.entityId, descriptor.workspaceId);
+    if (existing) {
+      requireCapability("note", input.entityId, input.operation === "delete" ? "canDelete" : "canEdit");
+    } else if (typeof payload.notebookId === "string" && payload.notebookId) {
+      requireCapability("notebook", payload.notebookId, "canCreate");
+    }
+    return;
+  }
+  let noteId: string | null = null;
+  if (input.entityType === "attachment") {
+    noteId = typeof payload.noteId === "string" ? payload.noteId : null;
+    if (!noteId) {
+      const row = db.prepare("SELECT noteId FROM attachments WHERE id = ?").get(input.entityId) as
+        | { noteId: string }
+        | undefined;
+      noteId = row?.noteId ?? null;
+    }
+  } else if (input.entityType === "note_tag") {
+    noteId = typeof payload.noteId === "string" ? payload.noteId : input.entityId.split(":", 1)[0];
+  } else if (input.entityType === "favorite") {
+    noteId = typeof payload.noteId === "string" ? payload.noteId : input.entityId.split(":").at(-1) || null;
+  }
+  if (noteId) requireCapability("note", noteId, "canEdit");
 }

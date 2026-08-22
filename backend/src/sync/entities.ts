@@ -138,54 +138,28 @@ export function assertEntitySyncReady(entityType: string): void {
 }
 
 // ---------------------------------------------------------------------------
-// Phase 12：Workspace 边界
+// Workspace 离线能力
 // ---------------------------------------------------------------------------
 
 /**
- * Workspace（团队）离线编辑的阻塞项。
- *
- * 第一版明确**不开放**。这不是排期问题，而是每一项都能独立造成
- * 数据泄漏或数据丢失，必须单独设计：
- *
- * - 成员被移出 Workspace 后，其设备上已下载的内容如何处理；
- * - 角色变化（编辑→只读）时，本地未推送的修改是否还能上传；
- * - 权限撤销与本地缓存的时序：撤销先到还是编辑先到；
- * - 共享文件夹的附件下载权限独立于笔记权限；
- * - Yjs 协同与离线 mutation 的语义冲突；
- * - 离线期间被删除的共享笔记，恢复网络后是删本地还是报冲突。
- *
- * 现有 Offline Workspace Sync（V1）的 accessFingerprint / scope 机制
- * 已经处理了"权限变化导致缓存失效"，接入时应优先复用而非重造。
+ * v1.5.0 已通过独立 Scope 游标、权限指纹、逐实体 ACL、撤权冻结、
+ * 本地副本导出/复制和待推送保护关闭原有阻塞项。保留导出仅为兼容
+ * 依赖旧版能力探测的调用方。
  */
-export const WORKSPACE_OFFLINE_BLOCKERS = [
-  "member-removal-local-data",
-  "role-downgrade-pending-mutations",
-  "permission-revocation-ordering",
-  "shared-folder-attachment-acl",
-  "yjs-vs-offline-mutation",
-  "offline-delete-of-shared-note",
-] as const;
+export const WORKSPACE_OFFLINE_BLOCKERS = [] as const;
 
 /**
  * Workspace 是否允许离线编辑。
  *
- * 恒为 false。保留成函数而不是常量，是为了将来接入时
- * 有一个明确的、可被测试覆盖的开关点，而不是散落各处的 if。
+ * 保留成函数以兼容既有能力探测入口。
  */
 export function isWorkspaceOfflineEditingEnabled(): boolean {
-  return false;
+  return true;
 }
 
 /**
- * 拒绝 Workspace 作用域的同步请求。
- *
- * 显式拒绝而非静默按个人空间处理——后者会让客户端
- * 误以为工作区数据已经同步，这比直接报错危险得多。
+ * @deprecated v1.5.0 起 Workspace 已由 Scope 层授权，此兼容入口不再拦截。
  */
-export function assertPersonalScopeOnly(workspaceId: string | null | undefined): void {
-  if (workspaceId && workspaceId !== "personal") {
-    throw new Error(
-      "[sync-v2] 第一版仅支持个人空间同步；Workspace 离线协作待后续 Phase 单独设计",
-    );
-  }
+export function assertPersonalScopeOnly(_workspaceId: string | null | undefined): void {
+  // Scope 授权由 resolveAuthorizedScope / assertSyncMutationAccess 统一执行。
 }

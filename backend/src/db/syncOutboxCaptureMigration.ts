@@ -39,7 +39,7 @@ import type { Migration } from "./migrations.impl.js";
  *    首次开启同步不能 replay 历史，必须先由 Bootstrap/Reconcile 建立基线；
  *    基线建立前的写入由 Bootstrap 自己处理，不能进 Outbox。
  *    该列由后续 Bootstrap 迁移添加，此处用 COALESCE 兼容尚未添加的情况。
- * 4. 仅个人空间（workspaceId IS NULL）—— Sync V2 第一版范围。
+ * 4. v87 初始仅个人空间；v91 重装同组触发器后按 workspaceId 写入独立 Scope。
  *
  * ## deviceId 来源
  *

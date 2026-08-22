@@ -145,7 +145,14 @@ export function promoteLocalAttachments(
 export function listPendingUploads(
   db: Database.Database,
   limit: number,
+  workspaceId?: string | null,
 ): AttachmentSyncRow[] {
+  if (workspaceId !== undefined) {
+    return db.prepare(`SELECT s.* FROM attachment_sync_state s
+      JOIN attachments a ON a.id=s.attachmentId JOIN notes n ON n.id=a.noteId
+      WHERE s.status IN ('pending','failed') AND s.remoteOnly=0 AND n.workspaceId IS ?
+      ORDER BY s.retryCount ASC,s.updatedAt ASC LIMIT ?`).all(workspaceId,limit) as AttachmentSyncRow[];
+  }
   return db.prepare(`
     SELECT * FROM attachment_sync_state
     WHERE status IN ('pending', 'failed') AND remoteOnly = 0
@@ -158,7 +165,14 @@ export function listPendingUploads(
 export function listPendingDownloads(
   db: Database.Database,
   limit: number,
+  workspaceId?: string | null,
 ): AttachmentSyncRow[] {
+  if (workspaceId !== undefined) {
+    return db.prepare(`SELECT s.* FROM attachment_sync_state s
+      JOIN attachments a ON a.id=s.attachmentId JOIN notes n ON n.id=a.noteId
+      WHERE s.remoteOnly=1 AND n.workspaceId IS ?
+      ORDER BY s.retryCount ASC,s.updatedAt ASC LIMIT ?`).all(workspaceId,limit) as AttachmentSyncRow[];
+  }
   return db.prepare(`
     SELECT * FROM attachment_sync_state
     WHERE remoteOnly = 1

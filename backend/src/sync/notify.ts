@@ -1,5 +1,6 @@
 import type Database from "better-sqlite3";
 import { logSyncInfo } from "./log";
+import { parseSyncScopeKey, resolveAuthorizedScope } from "./scope";
 
 /**
  * Sync V2 实时通知（Phase 6）。
@@ -18,6 +19,8 @@ import { logSyncInfo } from "./log";
 
 export interface SyncChangedNotice {
   type: "sync.changed";
+  scopeKey: string;
+  accessFingerprint: string;
   sequence: number;
 }
 
@@ -42,21 +45,40 @@ export function setSyncBroadcaster(fn: UserBroadcaster | null): void {
  * 不携带任何业务内容，因此无需担心权限过滤——
  * 客户端拿着自己的凭据去 /changes，服务端照常按 userId 隔离。
  */
-export function notifySyncChanged(db: Database.Database, userId: string): void {
+export function notifySyncChanged(
+  db: Database.Database,
+  userId: string,
+  scopeKey = "personal",
+): void {
   if (!broadcaster) return;
-
-  const row = db.prepare(
-    "SELECT MAX(sequence) AS sequence FROM sync_changes_v2 WHERE userId = ?",
-  ).get(userId) as { sequence: number | null } | undefined;
+  const parsed = parseSyncScopeKey(scopeKey);
+  const row = parsed.workspaceId
+    ? db.prepare("SELECT MAX(sequence) AS sequence FROM sync_changes_v2 WHERE workspaceId = ?")
+      .get(parsed.workspaceId) as { sequence: number | null } | undefined
+    : db.prepare(`
+        SELECT MAX(sequence) AS sequence FROM sync_changes_v2
+        WHERE userId = ? AND workspaceId IS NULL
+      `).get(userId) as { sequence: number | null } | undefined;
   const sequence = Number(row?.sequence || 0);
   if (sequence <= 0) return;
 
-  const notice: SyncChangedNotice = { type: "sync.changed", sequence };
-  try {
-    broadcaster(userId, notice);
-  } catch {
-    // 通知失败不影响同步正确性：周期性 Pull 会补上。
-    return;
+  const recipients = parsed.workspaceId
+    ? (db.prepare("SELECT userId FROM workspace_members WHERE workspaceId = ?")
+      .all(parsed.workspaceId) as Array<{ userId: string }>).map((row) => row.userId)
+    : [userId];
+  for (const recipient of recipients) {
+    try {
+      const accessFingerprint = resolveAuthorizedScope(db, recipient, scopeKey).accessFingerprint;
+      const notice: SyncChangedNotice = {
+        type: "sync.changed",
+        scopeKey,
+        accessFingerprint,
+        sequence,
+      };
+      broadcaster(recipient, notice);
+    } catch {
+      // 通知失败或成员已撤权不影响正确性：周期性 Pull 会补上。
+    }
   }
 
   logSyncInfo("realtime.notified", { pullSequence: sequence });

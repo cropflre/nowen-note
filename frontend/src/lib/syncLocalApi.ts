@@ -38,6 +38,7 @@ export interface SyncDiagnostics {
   pendingMutations: number;
   conflictCount: number;
   pendingSample: Array<{
+    scopeKey?: string;
     entityType: string;
     entityId: string;
     operation: string;
@@ -46,6 +47,21 @@ export interface SyncDiagnostics {
     lastError: string | null;
     createdAt: string;
   }>;
+  scopes?: SyncScopeStatus[];
+}
+
+export interface SyncScopeStatus {
+  profileId: string;
+  scopeKey: string;
+  workspaceId: string | null;
+  workspaceName: string | null;
+  role: string | null;
+  canWrite: 0 | 1;
+  accessFingerprint: string;
+  accessStatus: "active" | "replan_required" | "access_revoked";
+  pendingMutations: number;
+  conflictCount: number;
+  updatedAt: string;
 }
 
 export interface ConflictSummary {
@@ -83,7 +99,15 @@ export class SyncV2DisabledError extends Error {
   }
 }
 
+export type SyncLocalAdminAdapter = <T>(path:string,init?:RequestInit)=>Promise<T>;
+let nativeAdminAdapter:SyncLocalAdminAdapter|null=null;
+
+export function setSyncLocalAdminAdapter(adapter:SyncLocalAdminAdapter|null):void {
+  nativeAdminAdapter=adapter;
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  if(nativeAdminAdapter)return nativeAdminAdapter<T>(path,init);
   const baseUrl = getBaseUrl();
   const token = getAccessToken();
   const response = await fetchWithAuthRefresh(`${baseUrl}/sync/local${path}`, {
@@ -208,6 +232,23 @@ export function disableSync(): Promise<{
 
 export function fetchSyncDiagnostics(): Promise<SyncDiagnostics> {
   return request<SyncDiagnostics>("/diagnostics");
+}
+
+export function fetchSyncScopes(): Promise<{ items: SyncScopeStatus[] }> {
+  return request("/scopes");
+}
+
+export function exportSyncScope(scopeKey: string): Promise<Record<string, unknown>> {
+  return request(`/scopes/${encodeURIComponent(scopeKey)}/export`);
+}
+
+export function copySyncScopeToPersonal(scopeKey: string): Promise<{
+  copied: { notebooks: number; notes: number; attachments: number; tasks: number };
+  message: string;
+}> {
+  return request(`/scopes/${encodeURIComponent(scopeKey)}/copy-to-personal`, {
+    method: "POST",
+  });
 }
 
 export function fetchConflicts(): Promise<{ total: number; items: ConflictSummary[] }> {

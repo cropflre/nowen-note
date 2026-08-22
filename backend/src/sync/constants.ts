@@ -47,10 +47,7 @@ export const SYNC_TABLES = {
 } as const;
 
 /**
- * 个人空间作用域键。
- *
- * 第一版只同步个人知识库，Workspace 作用域在 Phase 12 单独设计，
- * 届时复用 V1 的 scope / accessFingerprint 思路。
+ * 个人空间作用域键；工作区使用 workspace:<id>。
  */
 export const SYNC_PERSONAL_SCOPE_KEY = "personal";
 

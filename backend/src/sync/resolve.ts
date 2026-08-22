@@ -63,6 +63,10 @@ function parse(raw: string | null): Record<string, unknown> | null {
   }
 }
 
+function workspaceIdFromScope(scopeKey:string):string|null {
+  return scopeKey.startsWith("workspace:") ? scopeKey.slice("workspace:".length) : null;
+}
+
 /**
  * 计算两侧差异字段。
  *
@@ -151,8 +155,16 @@ export function applyConflictResolution(
 
   const local = parse(row.localPayload);
   const remote = parse(row.remotePayload);
+  const workspaceId=workspaceIdFromScope(row.scopeKey);
+  const applyOptions={userId:input.userId,scopeKey:row.scopeKey,workspaceId};
 
   const run = db.transaction(() => {
+    // 冲突台账已经接管该实体；旧 Outbox 不能继续重放，否则“保留服务器”
+    // 会被旧本机版本再次覆盖，“手动合并”也会多推一个过期 mutation。
+    db.prepare(`DELETE FROM ${SYNC_TABLES.outbox}
+      WHERE profileId=? AND scopeKey=? AND entityType=? AND entityId=?
+        AND status IN ('pending','inflight','failed')`)
+      .run(row.profileId,row.scopeKey,row.entityType,row.entityId);
     if (input.resolution === "keep-remote") {
       // 采用服务端版本：写入本地并抑制 Outbox
       // （这是远端内容，不该被当成本地修改再推回去）。
@@ -165,7 +177,7 @@ export function applyConflictResolution(
           operation: "upsert",
           payload: remote,
         }],
-        { userId: input.userId },
+        applyOptions,
       );
       resolveConflict(db, row.id);
       return;
@@ -190,8 +202,13 @@ export function applyConflictResolution(
         operation: "upsert",
         payload,
       }],
-      { userId: input.userId },
+      applyOptions,
     );
+
+    const outboundPayload = (row.entityType === "task" || row.entityType === "mindmap")
+      && typeof remote?.updatedAt === "string"
+      ? {...payload,baseUpdatedAt:remote.updatedAt}
+      : payload;
 
     enqueueMutation(db, {
       entityType: row.entityType,
@@ -199,8 +216,9 @@ export function applyConflictResolution(
       operation: "upsert",
       deviceId: input.deviceId,
       profileId: row.profileId,
+      scopeKey:row.scopeKey,
       baseVersion: row.remoteVersion ?? undefined,
-      payload,
+      payload:outboundPayload,
       mutationId: randomUUID(),
     });
 
@@ -246,17 +264,19 @@ export function forkConflictVersion(
   const newId = randomUUID();
   const title = typeof payload.title === "string" ? payload.title : "无标题笔记";
   const suffix = input.side === "local" ? "本机版本" : "服务器版本";
+  const workspaceId=workspaceIdFromScope(row.scopeKey);
 
   const run = db.transaction(() => {
     db.prepare(`
       INSERT INTO notes (
         id, userId, notebookId, workspaceId, title, content, contentText, contentFormat,
         version, sortOrder, createdAt, updatedAt
-      ) VALUES (?, ?, ?, NULL, ?, ?, ?, ?, 1, 0, datetime('now'), datetime('now'))
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, 0, datetime('now'), datetime('now'))
     `).run(
       newId,
       input.userId,
       typeof payload.notebookId === "string" ? payload.notebookId : "",
+      workspaceId,
       `${title}（${suffix}）`,
       typeof payload.content === "string" ? payload.content : "{}",
       typeof payload.contentText === "string" ? payload.contentText : "",
@@ -270,7 +290,8 @@ export function forkConflictVersion(
       operation: "upsert",
       deviceId: input.deviceId,
       profileId: row.profileId,
-      payload: { ...payload, id: newId, title: `${title}（${suffix}）`, version: 1 },
+      scopeKey:row.scopeKey,
+      payload: { ...payload,id:newId,workspaceId,title:`${title}（${suffix}）`,version:1 },
     });
   });
 
