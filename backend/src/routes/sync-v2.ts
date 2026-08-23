@@ -150,6 +150,11 @@ function requestScope(
   db: Database.Database,
   access: "read" | "write" = "read",
 ): SyncScopeDescriptor {
+  // 旧客户端曾尝试传 workspaceId。新协议只接受 scopeKey；静默忽略会把
+  // 工作区请求误当 personal，存在跨 Scope 写入/ACK 的数据安全风险。
+  if (c.req.query("workspaceId") !== undefined) {
+    throw new SyncError("INVALID_PAYLOAD", "请使用 scopeKey=workspace:<id> 指定工作区同步作用域");
+  }
   return resolveAuthorizedScope(
     db,
     c.req.header("X-User-Id") as string,

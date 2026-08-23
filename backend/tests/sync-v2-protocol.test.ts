@@ -430,10 +430,10 @@ test("超出单批上限时拒绝，避免打爆服务端事务", async () => {
   assert.equal(r.json.code, "INVALID_PAYLOAD");
 });
 
-test("第一版显式拒绝 workspace 作用域，而不是静默按个人空间处理", async () => {
+test("旧 workspaceId 参数被拒绝，不得静默按 personal Scope 处理", async () => {
   const r = await call("GET", "/api/sync/v2/plan?workspaceId=ws-1");
   assert.equal(r.response.status, 400);
-  assert.equal(r.json.code, "SYNC_V2_SCOPE_UNSUPPORTED");
+  assert.equal(r.json.code, "INVALID_PAYLOAD");
 });
 
 test("缺少用户身份时拒绝访问", async () => {

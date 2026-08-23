@@ -23,6 +23,7 @@ import {
   getProfile,
   getSyncState,
   listProfiles,
+  setProfileRemoteUser,
   switchActiveProfile,
 } from "../sync/profile";
 import { ensureDevice, getInstallationDeviceId } from "../sync/device";
@@ -117,6 +118,13 @@ app.get("/settings", (c) => {
     createdAt: profile.createdAt,
   }));
   const active = profiles.find((profile) => profile.enabled) || null;
+  const engine = getActiveEngine();
+  const credentialPresent = active ? hasRemoteCredential(active.id) : false;
+  const authorizationState = !credentialPresent
+    ? "missing"
+    : engine?.getStatus().lastError === "AUTH_EXPIRED"
+      ? "expired"
+      : "ready";
 
   return c.json({
     // mode 只用于 UI 展示，不是数据源开关。
@@ -125,8 +133,9 @@ app.get("/settings", (c) => {
     profiles,
     // 区分"已配置服务器"与"真在同步"：用户可能填了地址但还没登录，
     // 或 token 已过期。UI 需要据此显示不同引导。
-    authorized: active ? hasRemoteCredential(active.id) : false,
-    engineRunning: getActiveEngine() !== null,
+    authorized: authorizationState === "ready",
+    authorizationState,
+    engineRunning: engine !== null,
   });
 });
 
@@ -196,6 +205,9 @@ app.post("/settings/server", async (c) => {
         token,
         remoteUserId,
       });
+      // 同一 Profile 重新授权时，旧引擎仍持有构造时的旧 token。
+      // 必须重建，不能只调用幂等的 reconcileSyncEngine。
+      stopSyncEngine();
     }
 
     logSyncInfo("settings.server-connected", {
@@ -222,6 +234,146 @@ app.post("/settings/server", async (c) => {
       message: engine
         ? "已连接，正在同步。"
         : "已保存服务器信息，等待登录授权后开始同步。",
+    });
+  } catch (error) {
+    return errorResponse(c, error);
+  }
+});
+
+/**
+ * 使用远端账号登录并建立同步授权。
+ *
+ * renderer 只把账号信息交给 localhost；由 Embedded Backend 请求远端登录，
+ * 密码不写数据库、不写凭据文件、不进入日志。成功后只持久化访问 Token。
+ * 2FA 分两步完成：第一步返回短期 ticket，第二步用 code 换 Token。
+ */
+app.post("/settings/server/login", async (c) => {
+  const denied = guard(c);
+  if (denied) return denied;
+
+  let body: {
+    serverUrl?: unknown;
+    username?: unknown;
+    password?: unknown;
+    ticket?: unknown;
+    code?: unknown;
+  };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "请求体不是合法 JSON", code: "INVALID_PAYLOAD" }, 400);
+  }
+
+  const serverUrl = typeof body.serverUrl === "string"
+    ? body.serverUrl.trim().replace(/\/+$/, "")
+    : "";
+  if (!/^https?:\/\//i.test(serverUrl)) {
+    return c.json({ error: "服务器地址必须以 http(s):// 开头", code: "INVALID_PAYLOAD" }, 400);
+  }
+
+  const ticket = typeof body.ticket === "string" ? body.ticket.trim() : "";
+  const code = typeof body.code === "string" ? body.code.trim() : "";
+  const username = typeof body.username === "string" ? body.username.trim() : "";
+  const password = typeof body.password === "string" ? body.password : "";
+  if (ticket ? !code : (!username || !password)) {
+    return c.json({ error: ticket ? "请输入双重验证代码" : "请输入账号和密码", code: "INVALID_PAYLOAD" }, 400);
+  }
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 10_000);
+  let response: Response;
+  let payload: any;
+  try {
+    const endpoint = ticket ? "/api/auth/2fa/verify" : "/api/auth/login";
+    response = await fetch(`${serverUrl}${endpoint}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(ticket ? { ticket, code } : { username, password }),
+      signal: controller.signal,
+    });
+    payload = await response.json().catch(() => ({}));
+  } catch (error) {
+    const message = (error as Error)?.name === "AbortError"
+      ? "连接远端服务器超时"
+      : "无法连接远端服务器";
+    return c.json({ error: message, code: "NETWORK_UNAVAILABLE" }, 502);
+  } finally {
+    clearTimeout(timer);
+  }
+
+  if (!response.ok) {
+    const message = typeof payload?.error === "string"
+      ? payload.error.slice(0, 200)
+      : `远端登录失败（HTTP ${response.status}）`;
+    const status = response.status >= 400 && response.status < 500 ? response.status : 502;
+    return c.json({ error: message, code: payload?.code || "AUTH_EXPIRED" }, status as any);
+  }
+
+  const requiresTwoFactor = payload?.requires2FA
+    || payload?.requiresTwoFactor
+    || payload?.twoFactorRequired;
+  if (requiresTwoFactor && typeof payload?.ticket === "string" && payload.ticket) {
+    return c.json({
+      requiresTwoFactor: true,
+      ticket: payload.ticket,
+      username: typeof payload.username === "string" ? payload.username : username,
+    });
+  }
+
+  const token = typeof payload?.token === "string" ? payload.token.trim() : "";
+  const remoteUserId = typeof payload?.user?.id === "string" ? payload.user.id.trim() : "";
+  if (!token || !remoteUserId) {
+    return c.json({ error: "远端登录响应缺少 Token 或用户身份", code: "INVALID_PAYLOAD" }, 502);
+  }
+
+  const db = getDb();
+  try {
+    const configured = db.transaction(() => {
+      let profile = findProfileByServer(db, serverUrl, remoteUserId);
+      if (!profile) {
+        const pending = findProfileByServer(db, serverUrl, null);
+        if (pending) {
+          setProfileRemoteUser(db, pending.id, remoteUserId);
+          profile = getProfile(db, pending.id);
+        }
+      }
+      if (!profile) {
+        profile = createProfile(db, {
+          name: new URL(serverUrl).host,
+          serverUrl,
+          remoteUserId,
+        });
+      }
+      switchActiveProfile(db, profile.id);
+      const device = ensureDevice(db, { profileId: profile.id, platform: process.platform });
+      return { profile, device };
+    })();
+
+    saveRemoteCredential({
+      profileId: configured.profile.id,
+      serverUrl,
+      token,
+      remoteUserId,
+    });
+
+    // 重新登录必须让运行时丢弃旧 client，下一次启动才会使用新 Token。
+    stopSyncEngine();
+    const engine = reconcileSyncEngine(db);
+    return c.json({
+      mode: "server",
+      profile: {
+        id: configured.profile.id,
+        name: configured.profile.name,
+        serverUrl: configured.profile.serverUrl,
+        enabled: true,
+      },
+      deviceId: configured.device.id,
+      authorized: true,
+      engineRunning: engine !== null,
+      bootstrapRequired: engine === null,
+      message: engine
+        ? "登录授权成功，同步引擎已运行。"
+        : "登录授权成功，正在准备首次同步。",
     });
   } catch (error) {
     return errorResponse(c, error);

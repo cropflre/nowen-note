@@ -278,8 +278,11 @@ function createNativeAdminAdapter(
     : [];
   return async<T>(path:string,init?:RequestInit):Promise<T>=>{
     const method=(init?.method||"GET").toUpperCase();
-    const active=(await db.query<{enabled:number;createdAt:string}>("SELECT enabled,createdAt FROM sync_profiles WHERE id=?",[profileId]))[0];
-    if(path==="/settings"&&method==="GET")return {mode:active?.enabled===1?"server":"device-only",activeProfile:active?.enabled===1?{id:profileId,name:"当前账号",serverUrl,enabled:true,createdAt:active.createdAt}:null,profiles:active?[{id:profileId,name:"当前账号",serverUrl,enabled:active.enabled===1,createdAt:active.createdAt}]:[]} as T;
+    const active=(await db.query<{enabled:number;createdAt:string;authStatus:string}>("SELECT enabled,createdAt,authStatus FROM sync_profiles WHERE id=?",[profileId]))[0];
+    if(path==="/settings"&&method==="GET"){
+      const authorized=active?.authStatus==="ready";
+      return {mode:active?.enabled===1?"server":"device-only",activeProfile:active?.enabled===1?{id:profileId,name:"当前账号",serverUrl,enabled:true,createdAt:active.createdAt}:null,profiles:active?[{id:profileId,name:"当前账号",serverUrl,enabled:active.enabled===1,createdAt:active.createdAt}]:[],authorized,authorizationState:authorized?"ready":"expired",engineRunning:active?.enabled===1&&authorized} as T;
+    }
     if(path==="/settings/disable"&&method==="POST"){
       const count=(await db.query<{count:number}>("SELECT COUNT(*) AS count FROM sync_outbox WHERE profileId=?",[profileId]))[0]?.count||0;
       await db.run("UPDATE sync_profiles SET enabled=0,updatedAt=? WHERE id=?",[now(),profileId]);engine.stop();

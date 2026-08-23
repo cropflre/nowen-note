@@ -47,6 +47,10 @@ function resetAll(): void {
     DELETE FROM note_tags;
     DELETE FROM favorites;
     DELETE FROM attachments;
+    DELETE FROM task_reminders;
+    DELETE FROM tasks;
+    DELETE FROM diaries;
+    DELETE FROM mindmaps;
     DELETE FROM notes;
     DELETE FROM tags;
     DELETE FROM notebooks;
@@ -270,6 +274,47 @@ test("readLocalState 的附件 payload 不含服务器路径", () => {
   assert.equal(items[0].payload?.filename, "图.png");
 });
 
+test("readLocalState 完整覆盖 10 类同步实体", () => {
+  resetAll();
+  const notebookId = makeNotebook();
+  const noteId = makeNote(notebookId);
+  const taskId = randomUUID();
+  const reminderId = randomUUID();
+  const diaryId = randomUUID();
+  const mindmapId = randomUUID();
+  db().prepare(`
+    INSERT INTO tasks (id, userId, title, workspaceId, createdAt, updatedAt)
+    VALUES (?, ?, '任务', NULL, datetime('now'), datetime('now'))
+  `).run(taskId, USER_ID);
+  db().prepare(`
+    INSERT INTO task_reminders (id, taskId, userId, offsetMinutes, enabled, createdAt)
+    VALUES (?, ?, ?, 15, 1, datetime('now'))
+  `).run(reminderId, taskId, USER_ID);
+  db().prepare(`
+    INSERT INTO diaries (id, userId, workspaceId, contentText, mood, images, media, createdAt)
+    VALUES (?, ?, NULL, '记录', '好', '[]', '[]', datetime('now'))
+  `).run(diaryId, USER_ID);
+  db().prepare(`
+    INSERT INTO mindmaps (id, userId, workspaceId, title, data, createdAt, updatedAt)
+    VALUES (?, ?, NULL, '导图', '{}', datetime('now'), datetime('now'))
+  `).run(mindmapId, USER_ID);
+  db().prepare("INSERT INTO tags (id, userId, name, workspaceId) VALUES ('tag-10', ?, '标签', NULL)").run(USER_ID);
+  db().prepare("INSERT INTO note_tags (noteId, tagId) VALUES (?, 'tag-10')").run(noteId);
+  db().prepare("INSERT INTO favorites (userId, noteId, workspaceId) VALUES (?, ?, NULL)").run(USER_ID, noteId);
+  db().prepare(`
+    INSERT INTO attachments (id, noteId, userId, filename, mimeType, size, path)
+    VALUES ('attachment-10', ?, ?, 'a.txt', 'text/plain', 1, 'a.txt')
+  `).run(noteId, USER_ID);
+
+  const types: SyncEntityType[] = [
+    "notebook", "tag", "note", "note_tag", "favorite", "attachment",
+    "task", "task_reminder", "diary", "mindmap",
+  ];
+  for (const type of types) {
+    assert.ok(readLocalState(db(), USER_ID, type).length > 0, `${type} 未进入 Desktop Bootstrap 本地基线`);
+  }
+});
+
 test("isLocalEmpty 正确区分空库与有数据", () => {
   resetAll();
   assert.equal(isLocalEmpty(db(), USER_ID), true);
@@ -458,6 +503,28 @@ test("verifying 阶段补齐 snapshot 窗口期的服务端增量，sequence 不
     "游标必须落在收敛点，而不是 snapshot 时刻",
   );
   assert.ok(remote.ackCalls.includes(105));
+});
+
+test("verifying 缺少 upsert payload 时失败且不推进游标或 ACK", async () => {
+  resetAll();
+  const ids = seedProfile();
+  const remote = new FakeRemote();
+  remote.planSequence = 10;
+  remote.snapshotPages.push({
+    snapshotSequence: 10, hasMore: false, nextCursor: null, items: [],
+  });
+  remote.changesQueue.push({
+    serverSequence: 11, nextSequence: 11, hasMore: false, resetRequired: false,
+    items: [{ sequence: 11, entityType: "mindmap", entityId: "missing-map", operation: "upsert" }],
+  });
+  remote.snapshotPages.push({
+    snapshotSequence: 11, hasMore: false, nextCursor: null, items: [],
+  });
+
+  await assert.rejects(() => run(remote, ids), /禁止推进同步游标/);
+  assert.equal(getSyncState(db(), ids.profileId), null);
+  assert.deepEqual(remote.ackCalls, []);
+  assert.equal(getBootstrapProgress(db(), ids.profileId).status, "failed");
 });
 
 // ===========================================================================

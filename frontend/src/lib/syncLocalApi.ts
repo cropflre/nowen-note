@@ -25,6 +25,9 @@ export interface SyncSettingsResponse {
   mode: SyncMode;
   activeProfile: SyncProfileSummary | null;
   profiles: SyncProfileSummary[];
+  authorized: boolean;
+  authorizationState: "missing" | "ready" | "expired";
+  engineRunning: boolean;
 }
 
 export interface SyncDiagnostics {
@@ -169,6 +172,52 @@ export function connectSyncServer(input: {
     method: "POST",
     body: JSON.stringify(input),
   });
+}
+
+export type SyncServerLoginResult =
+  | {
+      requiresTwoFactor: true;
+      ticket: string;
+      username: string;
+    }
+  | {
+      requiresTwoFactor?: false;
+      mode: SyncMode;
+      profile: SyncProfileSummary;
+      deviceId: string;
+      authorized: true;
+      engineRunning: boolean;
+      bootstrapRequired: boolean;
+      message: string;
+    };
+
+/** 登录远端账号；密码只用于本次请求，后端仅持久化换得的 Token。 */
+export function loginSyncServer(input: {
+  serverUrl: string;
+  username?: string;
+  password?: string;
+  ticket?: string;
+  code?: string;
+}): Promise<SyncServerLoginResult> {
+  return request("/settings/server/login", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export interface SyncBootstrapProgress {
+  status: "pending" | "preparing" | "pulling" | "reconciling" | "pushing" | "verifying" | "ready" | "failed";
+  sequence: number | null;
+  cursor: string | null;
+  error: string | null;
+  pulled: number;
+  pushed: number;
+  conflicts: number;
+  engineRunning?: boolean;
+}
+
+export function startSyncBootstrap(): Promise<SyncBootstrapProgress> {
+  return request("/bootstrap", { method: "POST" });
 }
 
 /** 同步引擎实时状态，供状态指示器轮询（比 diagnostics 轻量得多）。 */

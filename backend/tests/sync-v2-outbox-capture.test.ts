@@ -287,10 +287,10 @@ test("抑制结束后本地写入重新进入 Outbox", () => {
 });
 
 // ---------------------------------------------------------------------------
-// 作用域：工作区数据不进第一版同步
+// 作用域：工作区数据进入独立 Scope
 // ---------------------------------------------------------------------------
 
-test("工作区笔记不进入 Outbox（Sync V2 第一版只覆盖个人空间）", () => {
+test("工作区笔记进入独立 workspace Scope Outbox", () => {
   resetAll();
   const { profileId } = enableSync();
   const d = db();
@@ -310,11 +310,10 @@ test("工作区笔记不进入 Outbox（Sync V2 第一版只覆盖个人空间�
     ) VALUES (?, ?, ?, 'ws1', 'T', '{}', 'x', 'richtext', 1, 0, datetime('now'), datetime('now'))
   `).run(randomUUID(), USER_ID, nbId);
 
-  assert.equal(
-    listPendingMutations(d, 10, profileId).length,
-    0,
-    "工作区离线编辑涉及 ACL 与权限撤销，不在第一版协议内",
-  );
+  const rows = listPendingMutations(d, 10, profileId);
+  assert.equal(rows.length, 2, "工作区笔记本和笔记都必须进入 Outbox");
+  assert.ok(rows.every((row) => row.scopeKey === "workspace:ws1"));
+  assert.deepEqual(rows.map((row) => row.entityType), ["notebook", "note"]);
 });
 
 // ---------------------------------------------------------------------------

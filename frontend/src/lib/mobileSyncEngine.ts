@@ -55,6 +55,10 @@ function isCoreEntityType(value:RemoteEntityType):value is EntityType {
     || value === "note_tag" || value === "favorite" || value === "attachment";
 }
 
+function syncFailure(code:string,message:string):Error&{code:string}{
+  return Object.assign(new Error(message),{code});
+}
+
 export class MobileSyncEngine {
   private running = false;
   private rerun = false;
@@ -387,6 +391,10 @@ export class MobileSyncEngine {
         cursor=page.nextCursor;
       } while(cursor&&wanted.size);
     }
+    if(wanted.size)throw syncFailure(
+      "SERVER_ERROR",
+      `Snapshot 未返回 ${wanted.size} 个 Change Feed upsert payload，禁止推进同步游标`,
+    );
     await this.applyEntries(scope,[...entries,...deletes],false);
     await this.advance(scope,changes.nextSequence);
   }

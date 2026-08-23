@@ -425,7 +425,7 @@ test("mindmap base 匹配时正常写入", () => {
   assert.equal(row.data, '{"root":2}');
 });
 
-test("mindmap 工作区导图不进个人同步范围", () => {
+test("mindmap 工作区导图进入独立 workspace Scope", () => {
   resetAll();
   enableSync();
   const id = randomUUID();
@@ -434,9 +434,14 @@ test("mindmap 工作区导图不进个人同步范围", () => {
     VALUES (?, ?, 'ws-1', '团队导图', '{}', datetime('now'), datetime('now'))
   `).run(id, USER_ID);
 
-  // Sync V2 第一版不支持工作区，混进来会把团队内容当个人数据同步
-  assert.equal(outboxFor("mindmap").length, 0, "工作区导图不得进个人 Outbox");
-  assert.equal(feedFor("mindmap").length, 0, "工作区导图不得进个人 Change Feed");
+  const outbox = db().prepare(`
+    SELECT scopeKey FROM sync_outbox WHERE entityType = 'mindmap' AND entityId = ?
+  `).all(id) as Array<{ scopeKey: string }>;
+  const feed = db().prepare(`
+    SELECT workspaceId FROM sync_changes_v2 WHERE entityType = 'mindmap' AND entityId = ?
+  `).all(id) as Array<{ workspaceId: string | null }>;
+  assert.deepEqual(outbox, [{ scopeKey: "workspace:ws-1" }]);
+  assert.deepEqual(feed, [{ workspaceId: "ws-1" }]);
 });
 
 // ===========================================================================

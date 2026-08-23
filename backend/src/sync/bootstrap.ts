@@ -89,6 +89,10 @@ const BOOTSTRAP_ENTITY_ORDER: SyncEntityType[] = [
   "note_tag",
   "favorite",
   "attachment",
+  "task",
+  "task_reminder",
+  "diary",
+  "mindmap",
 ];
 
 /** 每批上传的实体数，避免一次把整个知识库塞进一个请求。 */
@@ -289,6 +293,57 @@ export function readLocalState(
         FROM attachments WHERE userId = ? AND workspaceId IS NULL
       `).all(userId) as Array<Record<string, unknown>>).map((r) => ({
         entityType: "attachment" as const,
+        operation: "upsert" as const,
+        entityId: String(r.id),
+        payload: r,
+      }));
+
+    case "task":
+      return (db.prepare(`
+        SELECT id, title, isCompleted, completedAt, priority, dueDate,
+               noteId, parentId, sortOrder, createdAt, updatedAt
+        FROM tasks WHERE userId = ? AND workspaceId IS NULL
+        ORDER BY createdAt ASC
+      `).all(userId) as Array<Record<string, unknown>>).map((r) => ({
+        entityType: "task" as const,
+        operation: "upsert" as const,
+        entityId: String(r.id),
+        payload: r,
+      }));
+
+    case "task_reminder":
+      return (db.prepare(`
+        SELECT r.id, r.taskId, r.offsetMinutes, r.enabled, r.createdAt
+        FROM task_reminders r
+        JOIN tasks t ON t.id = r.taskId
+        WHERE r.userId = ? AND t.workspaceId IS NULL
+        ORDER BY r.createdAt ASC
+      `).all(userId) as Array<Record<string, unknown>>).map((r) => ({
+        entityType: "task_reminder" as const,
+        operation: "upsert" as const,
+        entityId: String(r.id),
+        payload: r,
+      }));
+
+    case "diary":
+      return (db.prepare(`
+        SELECT id, contentText, mood, images, media, createdAt
+        FROM diaries WHERE userId = ? AND workspaceId IS NULL
+        ORDER BY createdAt ASC
+      `).all(userId) as Array<Record<string, unknown>>).map((r) => ({
+        entityType: "diary" as const,
+        operation: "upsert" as const,
+        entityId: String(r.id),
+        payload: r,
+      }));
+
+    case "mindmap":
+      return (db.prepare(`
+        SELECT id, title, data, createdAt, updatedAt
+        FROM mindmaps WHERE userId = ? AND workspaceId IS NULL
+        ORDER BY createdAt ASC
+      `).all(userId) as Array<Record<string, unknown>>).map((r) => ({
+        entityType: "mindmap" as const,
         operation: "upsert" as const,
         entityId: String(r.id),
         payload: r,
@@ -656,6 +711,13 @@ export async function runBootstrap(
         snapCursor = page.nextCursor;
         if (!page.hasMore || wantedUpserts.size === 0) break;
       }
+    }
+
+    if (wantedUpserts.size > 0) {
+      throw new SyncError(
+        "SERVER_ERROR",
+        `Snapshot 未返回 ${wantedUpserts.size} 个 Change Feed upsert payload，禁止推进同步游标`,
+      );
     }
 
     const windowItems = [...windowUpserts, ...pendingDeletes];

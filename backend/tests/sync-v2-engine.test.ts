@@ -33,6 +33,18 @@ class FakeRemote {
   ackCalls: number[] = [];
   failWith: Error | null = null;
 
+  async listScopes() {
+    if (this.failWith) throw this.failWith;
+    return [{
+      scopeKey: "personal",
+      workspaceId: null,
+      workspaceName: null,
+      role: "owner",
+      canWrite: true,
+      accessFingerprint: "personal:owner",
+    }];
+  }
+
   async plan() {
     if (this.failWith) throw this.failWith;
     return {
@@ -121,6 +133,7 @@ function resetSyncTables(): void {
     DELETE FROM sync_outbox;
     DELETE FROM sync_applied_mutations;
     DELETE FROM sync_state;
+    DELETE FROM sync_workspace_scopes;
     DELETE FROM sync_profile_devices;
     DELETE FROM sync_device_identity;
     DELETE FROM sync_devices;
@@ -161,6 +174,20 @@ function createEngine(options: { intervalMs?: number } = {}): Harness {
     serverUrl: "http://sync.test",
   });
   sync.switchActiveProfile(db, profile.id);
+  // Engine 的增量单元测试从一个已完成 Scope 规划的 Profile 开始。
+  // 首次 replan / snapshot 重建由下方 resetRequired 专门覆盖；若不预置，
+  // 每个用例的第一轮都会先消费 FakeRemote 的 snapshot/ACK 队列。
+  db.prepare(`
+    INSERT INTO sync_workspace_scopes (
+      profileId, scopeKey, workspaceId, workspaceName, role, canWrite,
+      accessFingerprint, accessStatus, updatedAt
+    ) VALUES (?, 'personal', NULL, NULL, 'owner', 1, 'personal:owner', 'active', datetime('now'))
+  `).run(profile.id);
+  db.prepare(`
+    INSERT INTO sync_state (
+      profileId, scopeKey, lastSequence, accessFingerprint, accessStatus, accessChangedAt
+    ) VALUES (?, 'personal', 0, 'personal:owner', 'active', datetime('now'))
+  `).run(profile.id);
   const remote = new FakeRemote();
   const scheduler = new ManualScheduler();
 
@@ -528,6 +555,27 @@ test("无变更时也推进游标并 ACK，避免重复扫描", async () => {
 
   assert.equal(sync.getSyncState(db, profileId)?.lastSequence, 42);
   assert.deepEqual(remote.ackCalls, [42]);
+});
+
+test("Change Feed upsert 缺少 Snapshot payload 时不推进游标或 ACK", async () => {
+  resetSyncTables();
+  const db = getDb();
+  const { engine, remote, profileId } = createEngine();
+  remote.serverSequence = 43;
+  remote.changesQueue.push({
+    serverSequence: 43, nextSequence: 43, hasMore: false, resetRequired: false,
+    items: [{ sequence: 43, entityType: "note", entityId: "missing-note", operation: "upsert" }],
+  });
+  remote.snapshotPages.push({
+    snapshotSequence: 43, hasMore: false, nextCursor: null, items: [],
+  });
+
+  const status = await engine.syncOnce();
+
+  assert.equal(status.state, "error");
+  assert.equal(status.lastError, "SERVER_ERROR");
+  assert.equal(sync.getSyncState(db, profileId)?.lastSequence ?? 0, 0);
+  assert.deepEqual(remote.ackCalls, []);
 });
 
 test("hasMore 时安排立即续拉，不等下个周期", async () => {

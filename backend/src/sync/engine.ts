@@ -626,6 +626,13 @@ export class SyncEngine {
       if (wanted.size === 0) break;
     } while (cursor && guard < 1000);
 
+    if (wanted.size > 0) {
+      throw new SyncError(
+        "SERVER_ERROR",
+        `Snapshot 未返回 ${wanted.size} 个 Change Feed upsert payload，禁止推进同步游标`,
+      );
+    }
+
     // 先应用 upsert 再应用 delete：
     // 同一轮里若既有创建又有删除，删除应当是最终状态。
     return [...upserts, ...deletions];
