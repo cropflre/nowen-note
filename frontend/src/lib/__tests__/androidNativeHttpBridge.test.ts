@@ -26,6 +26,8 @@ describe("androidNativeHttpBridge", () => {
   let browserFetch: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
+    localStorage.clear();
+    delete (window as any).Capacitor;
     capacitorState.native = true;
     capacitorState.platform = "android";
     capacitorState.request.mockReset();
@@ -143,6 +145,20 @@ describe("androidNativeHttpBridge", () => {
 
     expect(capacitorState.request).not.toHaveBeenCalled();
     expect(browserFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("blocks every API transport while Android is in unsigned local mode", async () => {
+    (window as any).Capacitor = {
+      isNativePlatform: () => true,
+      getPlatform: () => "android",
+      platform: "android",
+    };
+    cleanup = installAndroidNativeHttpBridge();
+
+    await expect(fetch("https://note.example.com/api/attachments/file-1/download"))
+      .rejects.toMatchObject({ code: "MOBILE_LOCAL_ONLY" });
+    expect(capacitorState.request).not.toHaveBeenCalled();
+    expect(browserFetch).not.toHaveBeenCalled();
   });
 
   it("does not intercept non-API resources", async () => {

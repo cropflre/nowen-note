@@ -1,5 +1,5 @@
 import { Capacitor, type PluginListenerHandle } from "@capacitor/core";
-import { getCurrentWorkspace, getServerUrl, SERVER_URL_CHANGED_EVENT } from "./api.impl";
+import { getCurrentWorkspace, getServerUrl, setCurrentWorkspace, SERVER_URL_CHANGED_EVENT } from "./api.impl";
 import { getAccessToken } from "./authSession";
 import {
   getAllNotebooks,
@@ -19,6 +19,13 @@ import { newLocalId, setLocalRepository } from "./localRepository";
 import { clearQueue, getQueue } from "./offlineQueue";
 import { setSyncLocalAdminAdapter, SYNC_CONFLICT_ENTITY_TYPES } from "./syncLocalApi";
 import type { NativeLocalRepository } from "./nativeLocalRepository";
+import {
+  MOBILE_LOCAL_ACCOUNT_ID,
+  MOBILE_LOCAL_MODE_CHANGED_EVENT,
+  MOBILE_LOCAL_USER_ID,
+  MobileLocalModeRemoteRequestError,
+  isMobileLocalMode,
+} from "./mobileLocalMode";
 
 const MIGRATION_KEY = "indexeddbMigrationV1";
 const QUEUE_MIGRATION_KEY = "legacyOfflineQueueMigrationV1";
@@ -29,7 +36,7 @@ const TOKEN_PREFIX = "nowen.localFirst.token.";
 interface RuntimeHandle {
   identity: string;
   db: NativeDatabase;
-  engine: MobileSyncEngine;
+  engine?: MobileSyncEngine;
   restoreBridge: () => void;
   removeListeners: Array<() => Promise<void> | void>;
 }
@@ -357,11 +364,71 @@ function createNativeAdminAdapter(
   };
 }
 
+function createDeviceOnlyAdminAdapter(repository: NativeLocalRepository) {
+  return async <T>(path: string, init?: RequestInit): Promise<T> => {
+    const method = (init?.method || "GET").toUpperCase();
+    if (path === "/settings" && method === "GET") {
+      return {
+        mode: "device-only",
+        activeProfile: null,
+        profiles: [],
+        authorized: false,
+        authorizationState: "missing",
+        engineRunning: false,
+      } as T;
+    }
+    if (path === "/settings/disable" && method === "POST") {
+      return {
+        mode: "device-only",
+        retainedPendingMutations: 0,
+        message: "当前已是设备本地模式。",
+      } as T;
+    }
+    if (path === "/engine") {
+      return {
+        running: false,
+        state: "disabled",
+        pendingCount: 0,
+        conflictCount: 0,
+        lastError: null,
+        localAuthoritative: true,
+      } as T;
+    }
+    if (path === "/sync-now" && method === "POST") {
+      return { engineRunning: false, message: "登录账号后才能同步。" } as T;
+    }
+    if (path === "/diagnostics") {
+      return {
+        profileId: null,
+        serverUrl: null,
+        deviceId: null,
+        lastSeenAt: null,
+        localCursor: 0,
+        lastSyncAt: null,
+        lastError: null,
+        pendingMutations: 0,
+        conflictCount: 0,
+        pendingSample: [],
+      } as T;
+    }
+    if (path === "/scopes") return { items: [] } as T;
+    if (path === "/conflicts") return { total: 0, items: [] } as T;
+    if (new URL(path, "http://localhost").pathname === "/conflicts/history") {
+      return { total: 0, limit: 20, offset: 0, hasMore: false, items: [] } as T;
+    }
+    const exportMatch = path.match(/^\/scopes\/([^/]+)\/export$/);
+    if (exportMatch && method === "GET") {
+      return await repository.exportWorkspaceScope(decodeURIComponent(exportMatch[1])) as T;
+    }
+    throw new MobileLocalModeRemoteRequestError(`/sync/local${path}`);
+  };
+}
+
 async function disposeActive(): Promise<void> {
   const current = active;
   active = null;
   if (!current) return;
-  current.engine.stop();
+  current.engine?.stop();
   for (const remove of current.removeListeners) await remove();
   current.restoreBridge();
   setLocalRepository(null);
@@ -371,6 +438,37 @@ async function disposeActive(): Promise<void> {
 
 async function configureRuntime(): Promise<void> {
   if (!Capacitor.isNativePlatform()) return;
+  if (isMobileLocalMode()) {
+    const identity = `local\n${MOBILE_LOCAL_ACCOUNT_ID}`;
+    if (active?.identity === identity) return;
+    await disposeActive();
+    setCurrentUser(MOBILE_LOCAL_USER_ID);
+    setCurrentWorkspace("personal");
+    const db = await openNativeDatabase(MOBILE_LOCAL_ACCOUNT_ID);
+    let restoreBridge: () => void = () => undefined;
+    try {
+      const attachmentStore = await createNativeAttachmentStore(MOBILE_LOCAL_ACCOUNT_ID);
+      const repository = createNativeLocalRepository({
+        db,
+        attachments: attachmentStore,
+        accountId: MOBILE_LOCAL_ACCOUNT_ID,
+        userId: MOBILE_LOCAL_USER_ID,
+        getScopeKey: () => "personal",
+      });
+      await repository.warmAttachmentUrls();
+      setLocalRepository(repository);
+      setSyncLocalAdminAdapter(createDeviceOnlyAdminAdapter(repository));
+      restoreBridge = installMobileLocalFirstBridge(repository);
+      active = { identity, db, restoreBridge, removeListeners: [] };
+    } catch (error) {
+      restoreBridge();
+      setLocalRepository(null);
+      setSyncLocalAdminAdapter(null);
+      await db.close().catch(() => undefined);
+      throw error;
+    }
+    return;
+  }
   const token = getAccessToken();
   const userId = token ? decodeUserId(token) : null;
   const serverUrl = getServerUrl().replace(/\/+$/, "");
@@ -446,6 +544,7 @@ export async function initializeMobileLocalFirstRuntime(): Promise<void> {
     globalListenersInstalled = true;
     window.addEventListener("nowen:token-changed",scheduleConfigure);
     window.addEventListener(SERVER_URL_CHANGED_EVENT,scheduleConfigure);
+    window.addEventListener(MOBILE_LOCAL_MODE_CHANGED_EVENT,scheduleConfigure);
   }
   scheduleConfigure();
   await lifecycle;

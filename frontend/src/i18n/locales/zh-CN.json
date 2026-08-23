@@ -53,6 +53,8 @@
     "serverHint": "选择协议、填写主机和端口（端口可留空走默认值）",
     "serverRequired": "请输入服务器地址",
     "resetServer": "清除服务器配置",
+    "continueLocal": "继续使用本地模式",
+    "localModeNote": "本地笔记只保存在此设备；登录账号后才会连接服务器并同步。",
     "clientNote": "请确保服务器已启动且网络可达，客户端通过 HTTP 连接到服务器",
     "ugreenAccess": {
       "title": "此地址需要绿联认证",
@@ -183,6 +185,7 @@
     "noTags": "暂无标签",
     "settings": "设置",
     "logout": "退出登录",
+    "loginAndSync": "登录并同步",
     "accountMenu": "账号",
     "currentLocalAccount": "当前：本地账号",
     "currentCloudAccount": "当前：云端账号",
