@@ -99,7 +99,8 @@ describe("downloadAttachment", () => {
     vi.spyOn(window.navigator, "userAgent", "get").mockReturnValue(
       "Mozilla/5.0 (Linux; Android 15; Mobile) AppleWebKit/537.36",
     );
-    const fetchMock = vi.fn(async () => new Response(new Blob(["attachment"]), { status: 200 }));
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) =>
+      new Response(new Blob(["attachment"]), { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);
     Object.defineProperty(URL, "createObjectURL", {
       configurable: true,
