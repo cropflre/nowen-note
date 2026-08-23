@@ -50,6 +50,7 @@ import urlImportRouter from "./routes/url-import";
 
 import aiRouter from "./routes/ai";
 import pluginsRouter from "./routes/plugins";
+import pluginExecutionsRouter from "./routes/plugin-executions";
 import webhooksRouter from "./routes/webhooks";
 import auditRouter from "./routes/audit";
 import backupsRouter, { handleFullBackupJobDownload } from "./routes/backups";
@@ -521,6 +522,7 @@ app.route("/api/journals", journalsRouter);
 app.route("/api/url-import", urlImportRouter);
 app.route("/api/ai", aiRouter);
 app.route("/api/plugins", pluginsRouter);
+app.route("/api/plugin-executions", pluginExecutionsRouter);
 app.route("/api/webhooks", webhooksRouter);
 app.route("/api/audit", auditRouter);
 app.route("/api/backups", backupsRouter);

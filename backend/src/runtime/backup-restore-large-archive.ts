@@ -10,6 +10,7 @@ import {
   getDbPath,
 } from "../db/schema.js";
 import { BackupManager, type RestoreResult } from "../services/backup.js";
+import { quarantineRestoredPlugins } from "../plugins/pluginService.js";
 
 const unzipper = require("unzipper");
 
@@ -419,8 +420,10 @@ async function restoreZipStreaming(
   const stagingRoot = path.join(manager.dataDir, `.nowen-restore-staging-${restoreId}`);
   const stagedAttachments = path.join(stagingRoot, "attachments");
   const stagedFonts = path.join(stagingRoot, "fonts");
-  const stagedPlugins = path.join(stagingRoot, "plugins");
+  const hasInstalledLayout = directory.files.some((entry) => normalizeZipPath(entry.path).startsWith("plugins/installed/"));
+  const stagedPlugins = path.join(stagingRoot, hasInstalledLayout ? "plugins-installed" : "plugins-legacy");
   const stagedSecret = path.join(stagingRoot, ".jwt_secret");
+  const stagedPluginSecretKey = path.join(stagingRoot, ".plugin_secret_key");
 
   try {
     // All archive IO happens before the current database or live file directories are touched.
@@ -429,12 +432,14 @@ async function restoreZipStreaming(
 
     const attachmentCount = await extractDirectoryStreaming(directory, "attachments", stagedAttachments);
     const fontCount = await extractDirectoryStreaming(directory, "fonts", stagedFonts);
-    const pluginCount = await extractDirectoryStreaming(directory, "plugins", stagedPlugins);
+    const pluginCount = await extractDirectoryStreaming(directory, hasInstalledLayout ? "plugins/installed" : "plugins", stagedPlugins);
 
     const secretEntry = findZipEntry(directory, ".jwt_secret");
     if (secretEntry) {
       await streamEntryToFile(secretEntry, stagedSecret);
     }
+    const pluginSecretKeyEntry = findZipEntry(directory, ".plugin_secret_key");
+    if (pluginSecretKeyEntry) await streamEntryToFile(pluginSecretKeyEntry, stagedPluginSecretKey);
 
     const curDbPath = getDbPath();
     const safetyBak = curDbPath + `.before-restore.${Date.now()}.bak`;
@@ -453,7 +458,7 @@ async function restoreZipStreaming(
       replaceDirectoriesFromStaging([
         { stagedDir: stagedAttachments, destDir: path.join(manager.dataDir, "attachments") },
         { stagedDir: stagedFonts, destDir: path.join(manager.dataDir, "fonts") },
-        { stagedDir: stagedPlugins, destDir: path.join(manager.dataDir, "plugins") },
+        { stagedDir: stagedPlugins, destDir: hasInstalledLayout ? path.join(manager.dataDir, "plugins", "installed") : path.join(manager.dataDir, "plugins") },
       ], restoreId);
     } catch (error) {
       rollbackDb(curDbPath, safetyBak, error);
@@ -472,6 +477,17 @@ async function restoreZipStreaming(
         );
       }
     }
+
+    if (pluginSecretKeyEntry && fs.existsSync(stagedPluginSecretKey)) {
+      const target = path.join(manager.dataDir, ".plugin_secret_key");
+      fs.copyFileSync(stagedPluginSecretKey, target);
+      try { fs.chmodSync(target, 0o600); } catch { /* Windows */ }
+    } else {
+      try { getDb().prepare("DELETE FROM plugin_secrets").run(); } catch { /* old backup */ }
+    }
+
+    // 流式大备份与普通恢复遵守同一供应链边界：恢复代码进入 quarantine，授权清零。
+    quarantineRestoredPlugins();
 
     const stats: Record<string, number> = {
       attachments: attachmentCount,

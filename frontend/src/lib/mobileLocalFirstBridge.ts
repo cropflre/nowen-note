@@ -2,6 +2,7 @@ import { api } from "./api";
 import { newLocalId } from "./localRepository";
 import type { NativeLocalRepository } from "./nativeLocalRepository";
 import type { Note, Notebook, Tag, Workspace } from "@/types";
+import { isMobileLocalMode } from "./mobileLocalMode";
 
 let installed = false;
 
@@ -149,12 +150,12 @@ export function installMobileLocalFirstBridge(repository: NativeLocalRepository)
     const url = await repository.attachments.resolveUrl(id);
     return {
       ...record,
-      url: url || `/api/attachments/${id}`,
+      url: url || (isMobileLocalMode() ? "about:blank" : `/api/attachments/${id}`),
       category: record.mimeType.startsWith("image/") ? "image" : "file",
     };
   };
   target.attachments.urlFor = (id: string) =>
-    repository.getCachedAttachmentUrl(id) || originals.attachmentUrlFor(id);
+    repository.getCachedAttachmentUrl(id) || (isMobileLocalMode() ? "about:blank" : originals.attachmentUrlFor(id));
   target.attachments.remove = async (id: string) => {
     await repository.attachments.remove(id);
     return { success: true };

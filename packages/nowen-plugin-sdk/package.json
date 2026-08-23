@@ -1,0 +1,12 @@
+{
+  "name": "@nowen/plugin-sdk",
+  "version": "1.0.0",
+  "description": "Types and helpers for Nowen Extension Platform V1",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": { ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" } },
+  "files": ["dist", "README.md"],
+  "scripts": { "build": "tsc", "test": "npm run build" },
+  "devDependencies": { "typescript": "^5.7.3" }
+}

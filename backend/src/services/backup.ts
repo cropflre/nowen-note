@@ -32,6 +32,7 @@ import Database from "better-sqlite3";
 import { closeDb, getDb, getDbSchemaVersion } from "../db/schema.js";
 import { noteVersionsRepository } from "../repositories";
 import { createBackupFilename, createFullBackupArchive, hashFileSha256 } from "./backup-archive.js";
+import { quarantineRestoredPlugins } from "../plugins/pluginService.js";
 
 // ===== 常量 =====
 
@@ -1235,6 +1236,8 @@ export class BackupManager {
       // 对账会逐实体比对而不是盲目覆盖，因此恢复旧备份**不会**把
       // 服务端的新数据冲掉（第二十条）。
       if (result.success && !opts.dryRun) {
+        // 恢复包中的第三方代码永不自动启用：迁入 quarantine，并清空所有授权。
+        quarantineRestoredPlugins();
         try {
           markSyncNeedsReconcile();
         } catch (error) {
@@ -1383,12 +1386,13 @@ export class BackupManager {
     const stagingRoot = path.join(this.dataDir, `.nowen-restore-staging-${restoreId}`);
     const stagedAttDir = path.join(stagingRoot, "attachments");
     const stagedFontsDir = path.join(stagingRoot, "fonts");
-    const stagedPluginsDir = path.join(stagingRoot, "plugins");
+    const hasInstalledLayout = Object.keys(zip.files).some((name) => name.startsWith("plugins/installed/"));
+    const stagedPluginsDir = path.join(stagingRoot, hasInstalledLayout ? "plugins-installed" : "plugins-legacy");
 
     // 先解压到 staging，避免失败时直接清空正式附件/字体/插件目录。
     const attCount = await extractDirFromZip(zip, "attachments", stagedAttDir);
     const fntCount = await extractDirFromZip(zip, "fonts", stagedFontsDir);
-    const plgCount = await extractDirFromZip(zip, "plugins", stagedPluginsDir);
+    const plgCount = await extractDirFromZip(zip, hasInstalledLayout ? "plugins/installed" : "plugins", stagedPluginsDir);
 
     const curDbPath = getDbPath();
     const safetyBak = curDbPath + `.before-restore.${Date.now()}.bak`;
@@ -1408,7 +1412,7 @@ export class BackupManager {
       replaceDirectoriesFromStaging([
         { stagedDir: stagedAttDir, destDir: path.join(this.dataDir, "attachments") },
         { stagedDir: stagedFontsDir, destDir: path.join(this.dataDir, "fonts") },
-        { stagedDir: stagedPluginsDir, destDir: path.join(this.dataDir, "plugins") },
+        { stagedDir: stagedPluginsDir, destDir: hasInstalledLayout ? path.join(this.dataDir, "plugins", "installed") : path.join(this.dataDir, "plugins") },
       ], restoreId);
     } catch (e) {
       rollbackDb(curDbPath, safetyBak, e);
@@ -1431,6 +1435,16 @@ export class BackupManager {
       } catch (e) {
         console.warn("[Backup] .jwt_secret 恢复失败，已保留当前密钥:", e instanceof Error ? e.message : e);
       }
+    }
+
+    const pluginSecretKeyEntry = zip.file(".plugin_secret_key");
+    if (pluginSecretKeyEntry) {
+      const pluginSecretKeyPath = path.join(this.dataDir, ".plugin_secret_key");
+      fs.writeFileSync(pluginSecretKeyPath, await pluginSecretKeyEntry.async("nodebuffer"));
+      try { fs.chmodSync(pluginSecretKeyPath, 0o600); } catch { /* Windows */ }
+    } else {
+      // 没有配套密钥的密文不可恢复；显式清空，避免误用当前机器的另一把密钥。
+      try { getDb().prepare("DELETE FROM plugin_secrets").run(); } catch { /* 老备份没有插件表 */ }
     }
 
     const stats: Record<string, number> = {

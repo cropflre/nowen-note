@@ -584,6 +584,23 @@ export class NowenApiClient {
     return this.request("/api/plugins");
   }
 
+  /** 获取 AI/MCP 可发现的已启用 Plugin Actions。 */
+  async listPluginActions(): Promise<any[]> {
+    return this.request("/api/plugins/actions");
+  }
+
+  /** 按稳定的 pluginId + actionId 协议执行。 */
+  async executePluginAction(pluginId: string, actionId: string, input: Record<string, any>): Promise<any> {
+    return this.request(`/api/plugins/${encodeURIComponent(pluginId)}/actions/${encodeURIComponent(actionId)}/execute`, {
+      method: "POST",
+      body: { input },
+    });
+  }
+
+  async getPluginExecution(executionId: string): Promise<any> {
+    return this.request(`/api/plugin-executions/${encodeURIComponent(executionId)}`);
+  }
+
   /** 执行插件 */
   async executePlugin(name: string, params: Record<string, any>): Promise<any> {
     return this.request("/api/plugins/" + name + "/execute", {

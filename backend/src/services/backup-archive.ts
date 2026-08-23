@@ -69,7 +69,8 @@ export async function createFullBackupArchive(options: FullBackupArchiveOptions)
   const files: FullBackupFileStats = {
     attachments: addDirectory(archive, path.join(options.dataDir, "attachments"), "attachments"),
     fonts: addDirectory(archive, path.join(options.dataDir, "fonts"), "fonts"),
-    plugins: addDirectory(archive, path.join(options.dataDir, "plugins"), "plugins"),
+    // 只备份正式安装包；runtime、quarantine 和 plugins-dev 都是临时/未信任状态。
+    plugins: addDirectory(archive, path.join(options.dataDir, "plugins", "installed"), "plugins/installed"),
   };
 
   const secretPath = path.join(options.dataDir, ".jwt_secret");
@@ -80,6 +81,13 @@ export async function createFullBackupArchive(options: FullBackupArchiveOptions)
     hasSecret = true;
   } catch {
     // 密钥不存在或不可读时保持旧行为：跳过该文件，并在 meta.json 中明确标记。
+  }
+  const pluginSecretKeyPath = path.join(options.dataDir, ".plugin_secret_key");
+  try {
+    fs.accessSync(pluginSecretKeyPath, fs.constants.R_OK);
+    archive.file(pluginSecretKeyPath, { name: ".plugin_secret_key" });
+  } catch {
+    // 尚未配置任何插件连接时该密钥可能不存在。
   }
   archive.append(JSON.stringify(options.buildMeta(files, hasSecret), null, 2), { name: "meta.json" });
 

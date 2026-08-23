@@ -38,6 +38,8 @@ interface LoginPageProps {
   /** 是否为客户端模式（Electron / Android / 曾配置过服务器地址） */
   isClientMode?: boolean;
   onDisconnect?: () => void;
+  /** Android 账号登录页返回设备本地模式。 */
+  onContinueLocal?: () => void;
 }
 
 type Mode = "login" | "register";
@@ -53,7 +55,7 @@ function isMobileNativeClientRuntime(): boolean {
   }
 }
 
-export default function LoginPage({ onLogin, onAccountLogin, isClientMode = false, onDisconnect }: LoginPageProps) {
+export default function LoginPage({ onLogin, onAccountLogin, isClientMode = false, onDisconnect, onContinueLocal }: LoginPageProps) {
   const { t } = useTranslation();
   const { siteConfig } = useSiteSettings();
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
@@ -915,6 +917,21 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
             </>
             )}
           </form>
+
+          {!isTwoFactorStep && onContinueLocal && (
+            <div className="mt-4 border-t border-zinc-100 pt-4 dark:border-zinc-800">
+              <button
+                type="button"
+                onClick={onContinueLocal}
+                className="w-full rounded-xl border border-zinc-200 bg-white px-4 py-2.5 text-sm font-medium text-zinc-700 transition-colors hover:border-indigo-300 hover:text-indigo-600 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:border-indigo-500/50 dark:hover:text-indigo-300"
+              >
+                {t("auth.continueLocal")}
+              </button>
+              <p className="mt-2 text-center text-[11px] leading-5 text-zinc-400 dark:text-zinc-500">
+                {t("auth.localModeNote")}
+              </p>
+            </div>
+          )}
 
           {!isTwoFactorStep && <p className="text-center text-xs text-zinc-400 dark:text-zinc-600 mt-6">
             {isRegister ? t("auth.registerHint") : (hasUsers ? null : t("auth.defaultCredentials"))}

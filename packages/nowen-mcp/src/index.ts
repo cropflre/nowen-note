@@ -667,13 +667,13 @@ server.tool(
 // ==================== 插件工具 ====================
 
 server.tool(
-  "nowen_list_plugins",
-  "获取 Nowen Note 中已加载的插件列表，每个插件声明了它支持的能力（action）",
+  "nowen_list_plugin_actions",
+  "发现 Nowen Note 中已启用的插件 Action 及其输入结构",
   {},
   async () => {
     try {
-      const plugins = await api.listPlugins();
-      return { content: [{ type: "text" as const, text: JSON.stringify(plugins, null, 2) }] };
+      const actions = await api.listPluginActions();
+      return { content: [{ type: "text" as const, text: JSON.stringify(actions, null, 2) }] };
     } catch (err: any) {
       return { content: [{ type: "text" as const, text: `错误: ${err.message}` }], isError: true };
     }
@@ -681,18 +681,30 @@ server.tool(
 );
 
 server.tool(
-  "nowen_execute_plugin",
-  "执行 Nowen Note 中指定名称的插件，传入参数并获取处理结果",
+  "nowen_execute_plugin_action",
+  "按 pluginId 和 actionId 执行已授权的 Nowen 插件 Action",
   {
-    pluginName: z.string().describe("插件名称"),
-    params: z.record(z.any()).describe("传给插件的参数对象"),
+    pluginId: z.string().describe("Manifest 中稳定的插件 ID"),
+    actionId: z.string().describe("Manifest 中稳定的 Action ID"),
+    input: z.record(z.any()).describe("符合 Action input schema 的参数对象"),
   },
-  async ({ pluginName, params }) => {
+  async ({ pluginId, actionId, input }) => {
     try {
-      const result = await api.executePlugin(pluginName, params);
-      if (result.text) {
-        return { content: [{ type: "text" as const, text: result.text }] };
-      }
+      const result = await api.executePluginAction(pluginId, actionId, input);
+      return { content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }] };
+    } catch (err: any) {
+      return { content: [{ type: "text" as const, text: `错误: ${err.message}` }], isError: true };
+    }
+  }
+);
+
+server.tool(
+  "nowen_get_plugin_execution",
+  "查询一次插件 Action 的执行状态、错误和截断日志",
+  { executionId: z.string().describe("执行 ID") },
+  async ({ executionId }) => {
+    try {
+      const result = await api.getPluginExecution(executionId);
       return { content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }] };
     } catch (err: any) {
       return { content: [{ type: "text" as const, text: `错误: ${err.message}` }], isError: true };

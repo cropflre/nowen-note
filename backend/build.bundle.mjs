@@ -20,7 +20,7 @@
 import { build } from "esbuild";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { rmSync, mkdirSync, statSync } from "node:fs";
+import { rmSync, mkdirSync, statSync, copyFileSync } from "node:fs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const outdir = join(__dirname, "dist");
@@ -69,6 +69,12 @@ await build({
     "unsupported-require-call": "silent",
   },
 });
+
+// PluginRunner 使用独立 Node 子进程；它不能被折叠进主进程 bundle。
+copyFileSync(
+  join(__dirname, "src", "plugins", "runner-child.mjs"),
+  join(outdir, "runner-child.mjs"),
+);
 
 const ms = Date.now() - start;
 const bundleBytes = statSync(outfile).size;

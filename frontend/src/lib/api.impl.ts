@@ -61,11 +61,16 @@ import {
   getRefreshToken,
   storeAuthTokens,
 } from "@/lib/authSession";
+import { isMobileLocalMode, MobileLocalModeRemoteRequestError } from "@/lib/mobileLocalMode";
 
 // 本模块所有显式携带 Authorization 的请求共享同一套 401 刷新与单飞锁；
 // 公共请求不带 Authorization，authSession 会原样透传。
-const fetch: typeof globalThis.fetch = (input, init) =>
-  fetchWithAuthRefresh(input, init, getBaseUrl());
+const fetch: typeof globalThis.fetch = (input, init) => {
+  if (isMobileLocalMode()) {
+    return Promise.reject(new MobileLocalModeRemoteRequestError(String(input)));
+  }
+  return fetchWithAuthRefresh(input, init, getBaseUrl());
+};
 
 function protectNoteMutationPayload<T extends Partial<Note>>(
   data: T,
@@ -739,6 +744,9 @@ interface RequestOptions extends RequestInit {
 }
 
 async function request<T>(url: string, options?: RequestOptions): Promise<T> {
+  if (isMobileLocalMode()) {
+    throw new MobileLocalModeRemoteRequestError(url);
+  }
   const token = getToken();
   const { sudoToken, _skipOfflineQueue, ...restOptions } = options || {};
   const fullUrl = `${getBaseUrl()}${url}`;

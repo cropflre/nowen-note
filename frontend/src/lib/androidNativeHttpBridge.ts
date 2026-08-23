@@ -1,4 +1,5 @@
 import { Capacitor, CapacitorHttp } from "@capacitor/core";
+import { isMobileLocalMode, MobileLocalModeRemoteRequestError } from "./mobileLocalMode";
 
 const BRIDGE_FLAG = "__nowenAndroidNativeHttpBridgeInstalled";
 const DEFAULT_NATIVE_TIMEOUT_MS = 30_000;
@@ -230,6 +231,16 @@ export function installAndroidNativeHttpBridge(
   const nativeTimeoutMs = Math.max(1000, options.nativeTimeoutMs ?? DEFAULT_NATIVE_TIMEOUT_MS);
 
   const bridgedFetch: FetchFn = async (input, init) => {
+    if (isMobileLocalMode()) {
+      try {
+        const url = new URL(getRequestUrl(input), window.location.href);
+        if (/(?:^|\/)api(?:\/|$)/.test(url.pathname)) {
+          throw new MobileLocalModeRemoteRequestError(url.pathname);
+        }
+      } catch (error) {
+        if (error instanceof MobileLocalModeRemoteRequestError) throw error;
+      }
+    }
     if (!shouldUseAndroidNativeHttp(input, init)) {
       return originalFetch(input, init);
     }

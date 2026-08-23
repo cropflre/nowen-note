@@ -28,6 +28,7 @@ import {
   type UserPreferencePatch,
   type UserPreferences,
 } from "@/lib/userPreferenceAccountCache";
+import { isMobileLocalMode, MOBILE_LOCAL_USER_ID } from "@/lib/mobileLocalMode";
 
 export type {
   CodeBlockThemeId,
@@ -67,6 +68,7 @@ const UserPreferencesContext = createContext<UserPreferencesContextValue>({
 
 function currentIdentity(): { token: string; userId: string } | null {
   try {
+    if (isMobileLocalMode()) return { token: "device-local", userId: MOBILE_LOCAL_USER_ID };
     const token = localStorage.getItem("nowen-token") || "";
     const userId = decodeUserIdFromToken(token);
     return token && userId ? { token, userId } : null;
@@ -235,6 +237,11 @@ export function UserPreferencesProvider({ children }: { children: React.ReactNod
       return;
     }
 
+    if (isMobileLocalMode()) {
+      resetForIdentity(identity.userId);
+      return;
+    }
+
     const { userId } = identity;
     const cachedAtStart = resetForIdentity(userId);
 
@@ -317,7 +324,8 @@ export function UserPreferencesProvider({ children }: { children: React.ReactNod
       if (!identity) return next;
 
       const existing = readAccountPreferenceCache(localStorage, identity.userId);
-      const pending: UserPreferencePatch = {
+      const localOnly = isMobileLocalMode();
+      const pending: UserPreferencePatch = localOnly ? {} : {
         ...(existing?.pending || pendingRef.current),
         [key]: value,
       };
@@ -332,7 +340,7 @@ export function UserPreferencesProvider({ children }: { children: React.ReactNod
       activeUserIdRef.current = identity.userId;
       revisionRef.current = cache.revision;
       pendingRef.current = pending;
-      void persistPatch(identity.userId, { [key]: value } as UserPreferencePatch);
+      if (!localOnly) void persistPatch(identity.userId, { [key]: value } as UserPreferencePatch);
       return next;
     });
   }, [persistPatch]);

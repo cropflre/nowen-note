@@ -53,6 +53,8 @@
     "serverHint": "Pick a protocol and enter host and port (port is optional)",
     "serverRequired": "Server address is required",
     "resetServer": "Clear server config",
+    "continueLocal": "Continue in local mode",
+    "localModeNote": "Local notes stay on this device. Sign in only when you want to connect and sync.",
     "clientNote": "Make sure the server is running and reachable from this device",
     "ugreenAccess": {
       "title": "UGREEN authentication required",
@@ -178,6 +180,7 @@
     "noTags": "No tags",
     "settings": "Settings",
     "logout": "Logout",
+    "loginAndSync": "Sign in and sync",
     "accountMenu": "Account",
     "currentLocalAccount": "Current: local account",
     "currentCloudAccount": "Current: cloud account",

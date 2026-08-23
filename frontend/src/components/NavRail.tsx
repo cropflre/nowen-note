@@ -5,6 +5,7 @@ import {
   FolderOpen,
   ListTodo,
   Link2,
+  LogIn,
   LogOut,
   NotebookPen,
   PanelLeft,
@@ -34,6 +35,7 @@ import {
 import { clearLocalIdMap, clearQueue, getQueueLength } from "@/lib/offlineQueue";
 import { AccountLoginHistoryDialog } from "@/components/AccountLoginHistory";
 import { isAccountLoginHistorySupported } from "@/lib/accountLoginHistory";
+import { isMobileLocalMode, requestMobileAccountLogin } from "@/lib/mobileLocalMode";
 
 type NavGroup = "workspace" | "modules" | "tools";
 
@@ -71,6 +73,7 @@ export default function NavRail({ variant = "desktop" }: { variant?: "desktop" |
   const effectiveMode = variant === "mobile" ? "icon" : railMode;
   const showLabel = effectiveMode === "label";
   const isMobile = variant === "mobile";
+  const localDeviceMode = isMobileLocalMode();
 
   const [features, setFeatures] = useState<WorkspaceFeatures | null>(null);
   const [showSettings, setShowSettings] = useState(false);
@@ -136,7 +139,10 @@ export default function NavRail({ variant = "desktop" }: { variant?: "desktop" |
     && (usingDesktopLiteMode || !isLoopbackUrl(serverUrl) || (!!currentOrigin && normalizeUrl(serverUrl) !== normalizeUrl(currentOrigin)));
   const canSwitchBackToLocal = isDesktopApp() && (usingRemoteServer || usingDesktopLiteMode);
 
-  const items = features ? NAV_CONFIG.filter((item) => !item.feature || features[item.feature] !== false) : NAV_CONFIG;
+  const availableItems = features ? NAV_CONFIG.filter((item) => !item.feature || features[item.feature] !== false) : NAV_CONFIG;
+  const items = localDeviceMode
+    ? availableItems.filter((item) => item.mode === "favorites" || item.mode === "trash")
+    : availableItems;
 
   const handleClick = useCallback((mode: ViewMode) => {
     actions.setViewMode(mode);
@@ -189,6 +195,11 @@ export default function NavRail({ variant = "desktop" }: { variant?: "desktop" |
     }
     window.location.reload();
   }, [canSwitchBackToLocal]);
+
+  const handleAccountLogin = useCallback(() => {
+    requestMobileAccountLogin();
+    window.location.reload();
+  }, []);
 
   const railWidthClass = showLabel ? "w-16" : "w-12";
   const itemBaseClass = showLabel
@@ -272,7 +283,7 @@ export default function NavRail({ variant = "desktop" }: { variant?: "desktop" |
         {showLabel && <span className="text-[10px] leading-none mt-0.5 max-w-full truncate px-1">{t("sidebar.settings")}</span>}
       </button>
 
-      {isAccountLoginHistorySupported() && (
+      {!localDeviceMode && isAccountLoginHistorySupported() && (
         <button
           data-mobile-drawer-rail-item=""
           onClick={() => setLoginHistoryOpen(true)}
@@ -298,16 +309,29 @@ export default function NavRail({ variant = "desktop" }: { variant?: "desktop" |
         </button>
       )}
 
-      <button
-        data-mobile-drawer-rail-item=""
-        onClick={handleLogout}
-        title={showLabel ? undefined : t("sidebar.logout")}
-        aria-label={t("sidebar.logout")}
-        className={cn(itemBaseClass, "text-tx-tertiary hover:text-accent-danger hover:bg-accent-danger/10")}
-      >
-        <LogOut size={16} />
-        {showLabel && <span className="text-[10px] leading-none mt-0.5 max-w-full truncate px-1">{t("sidebar.logout")}</span>}
-      </button>
+      {localDeviceMode ? (
+        <button
+          data-mobile-drawer-rail-item=""
+          onClick={handleAccountLogin}
+          title={showLabel ? undefined : t("sidebar.loginAndSync")}
+          aria-label={t("sidebar.loginAndSync")}
+          className={cn(itemBaseClass, "text-tx-tertiary hover:bg-app-hover hover:text-accent-primary")}
+        >
+          <LogIn size={16} />
+          {showLabel && <span className="text-[10px] leading-none mt-0.5 max-w-full truncate px-1">{t("sidebar.loginAndSync")}</span>}
+        </button>
+      ) : (
+        <button
+          data-mobile-drawer-rail-item=""
+          onClick={handleLogout}
+          title={showLabel ? undefined : t("sidebar.logout")}
+          aria-label={t("sidebar.logout")}
+          className={cn(itemBaseClass, "text-tx-tertiary hover:text-accent-danger hover:bg-accent-danger/10")}
+        >
+          <LogOut size={16} />
+          {showLabel && <span className="text-[10px] leading-none mt-0.5 max-w-full truncate px-1">{t("sidebar.logout")}</span>}
+        </button>
+      )}
 
       <AnimatePresence>{showSettings && <SettingsModal onClose={() => setShowSettings(false)} />}</AnimatePresence>
       <AccountLoginHistoryDialog open={loginHistoryOpen} onClose={() => setLoginHistoryOpen(false)} />

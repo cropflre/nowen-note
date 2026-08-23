@@ -60,6 +60,13 @@ import {
   refreshAccessToken,
   storeAuthTokens,
 } from "@/lib/authSession";
+import {
+  completeMobileAccountLogin,
+  continueMobileLocalMode,
+  getMobileLocalUser,
+  isAndroidNativeRuntime,
+  isMobileLocalMode,
+} from "@/lib/mobileLocalMode";
 
 const AUTH_USER_CACHE_PREFIX = "nowen-auth-user:";
 
@@ -905,7 +912,13 @@ function AuthGate() {
   const checkAuth = useCallback(() => {
     const token = getAccessToken();
     if (!token) {
-      setIsAuthenticated(false);
+      if (isMobileLocalMode()) {
+        setUser(getMobileLocalUser());
+        setIsAuthenticated(true);
+      } else {
+        setUser(null);
+        setIsAuthenticated(false);
+      }
       return;
     }
 
@@ -1040,14 +1053,14 @@ function AuthGate() {
           return;
         }
         // 主进程没给 token（lite 模式 / ensureLocalAccount 失败）→ 退回原有判定
-        if (isClientMode && !getServerUrl()) {
+        if (isClientMode && !getServerUrl() && !isMobileLocalMode()) {
           setIsAuthenticated(false);
         } else {
           checkAuth();
         }
       }).catch(() => {
         if (cancelled) return;
-        if (isClientMode && !getServerUrl()) {
+        if (isClientMode && !getServerUrl() && !isMobileLocalMode()) {
           setIsAuthenticated(false);
         } else {
           checkAuth();
@@ -1058,7 +1071,7 @@ function AuthGate() {
 
     // 非桌面端 / 已有 token：走原有逻辑
     // 客户端模式但没有服务器地址：直接显示登录页（含服务器输入框）
-    if (isClientMode && !getServerUrl()) {
+    if (isClientMode && !getServerUrl() && !isMobileLocalMode()) {
       setIsAuthenticated(false);
       return;
     }
@@ -1066,7 +1079,7 @@ function AuthGate() {
   }, [checkAuth, isClientMode]);
 
   useEffect(() => {
-    if (!isAuthenticated) return;
+    if (!isAuthenticated || isMobileLocalMode()) return;
     let cancelled = false;
     let timer: number | undefined;
 
@@ -1182,7 +1195,7 @@ function AuthGate() {
   // 任何登录入口（密码 / 快速登录 / 桌面零登录）最终都会落到 setUser，
   // 这里集中接管，避免每个入口都重复挂钩。失败不阻塞 UI。
   useEffect(() => {
-    if (!user?.id) return;
+    if (!user?.id || isMobileLocalMode()) return;
     void syncBootstrap(user).catch((e) => {
       console.warn("[App] syncBootstrap failed:", e);
     });
@@ -1225,6 +1238,7 @@ function AuthGate() {
   };
 
   const handleLogin = (token: string, userData: User) => {
+    completeMobileAccountLogin();
     saveCachedAuthUser(getAuthCacheScope(getServerUrl()), token, userData);
     setUser(userData);
     setActiveToken(token);
@@ -1262,6 +1276,11 @@ function AuthGate() {
   const handlePasswordLogin = (token: string, userData: User) => {
     setJustPasswordLogin(true);
     handleLogin(token, userData);
+  };
+
+  const handleContinueLocal = () => {
+    continueMobileLocalMode();
+    window.location.reload();
   };
 
   // 加载中
@@ -1303,6 +1322,7 @@ function AuthGate() {
         onAccountLogin={handleLogin}
         isClientMode={isClientMode}
         onDisconnect={isClientMode ? handleDisconnect : undefined}
+        onContinueLocal={isAndroidNativeRuntime() ? handleContinueLocal : undefined}
       />
     );
   }
