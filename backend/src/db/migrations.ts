@@ -49,6 +49,7 @@ import { syncWorkspaceScopeMigration } from "./syncWorkspaceScopeMigration.js";
 import { knowledgeTreeScopeTriggerRepairMigration } from "./knowledgeTreeScopeTriggerRepairMigration.js";
 import { knowledgeTreeRuntimeTriggerRepairMigration } from "./knowledgeTreeRuntimeTriggerRepairMigration.js";
 import { apiTokenUsageMigration } from "./apiTokenUsageMigration.js";
+import { pluginPlatformMigration } from "./pluginPlatformMigration.js";
 
 export type { Migration } from "./migrations.impl.js";
 
@@ -354,6 +355,7 @@ export const MIGRATIONS: Migration[] = [
   knowledgeTreeScopeTriggerRepairMigration,
   apiTokenUsageMigration,
   knowledgeTreeRuntimeTriggerRepairMigration,
+  pluginPlatformMigration,
 ].sort((a, b) => a.version - b.version);
 
 export const CURRENT_SCHEMA_VERSION: number = MIGRATIONS.reduce(

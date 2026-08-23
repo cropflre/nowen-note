@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { Palette, Shield, Database, X, Settings, Camera, Save, Loader2, Trash2, Upload, Type, Check, ChevronDown, Globe, Bot, Users, Info, ExternalLink, Heart, Sparkles, RefreshCw, ZoomIn, Key, Keyboard, Building2, BookOpen, ToggleLeft, Download, FolderSync, Mail } from "lucide-react";
+import { Palette, Shield, Database, X, Settings, Camera, Save, Loader2, Trash2, Upload, Type, Check, ChevronDown, Globe, Bot, Users, Info, ExternalLink, Heart, Sparkles, RefreshCw, ZoomIn, Key, Keyboard, Building2, BookOpen, ToggleLeft, Download, FolderSync, Mail, Puzzle } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import wechatSponsorQr from "@/assets/sponsor/weixin.jpg";
 import alipaySponsorQr from "@/assets/sponsor/zhifubao.png";
@@ -15,6 +15,7 @@ import DataManager from "@/components/DataManager";
 import FolderSyncSettings from "@/components/settings/FolderSyncSettings";
 import SyncSettingsTab from "@/components/settings/SyncSettingsTab";
 import ShortcutSettingsPanel from "@/components/settings/ShortcutSettingsPanel";
+import PluginSettingsTab from "@/components/settings/plugins/PluginSettingsTab";
 import AISettingsPanel from "@/components/AISettingsPanel";
 import UserManagement from "@/components/UserManagement";
 import WorkspaceManagement from "@/components/WorkspaceManagement";
@@ -46,7 +47,7 @@ import {
   type MobileKnowledgeTreeViewMode,
 } from "@/lib/mobileKnowledgeTreeViewMode";
 
-type TabId = "appearance" | "switches" | "shortcuts" | "ai" | "security" | "tokens" | "data" | "sync" | "folderSync" | "users" | "workspaces" | "download" | "about";
+type TabId = "appearance" | "switches" | "shortcuts" | "ai" | "plugins" | "security" | "tokens" | "data" | "sync" | "folderSync" | "users" | "workspaces" | "download" | "about";
 
 interface SettingsModalProps {
   onClose: () => void;
@@ -1585,6 +1586,7 @@ const SettingsModal = React.forwardRef<HTMLDivElement, SettingsModalProps>(
     { id: "switches" as const, label: t('settings.switches'), icon: ToggleLeft },
     ...(shortcutSurface !== "android" ? [{ id: "shortcuts" as const, label: "快捷键", icon: Keyboard }] : []),
     { id: "ai" as const, label: t('settings.ai'), icon: Bot },
+    { id: "plugins" as const, label: "插件", icon: Puzzle },
     { id: "security" as const, label: t('settings.security'), icon: Shield },
     // 【个人访问令牌】任意登录用户都可管理自己的 token；与 security 同为"账号安全"类别，
     // 不需要 isAdmin 判定。
@@ -1783,6 +1785,7 @@ const SettingsModal = React.forwardRef<HTMLDivElement, SettingsModalProps>(
             {activeTab === "switches" && <SwitchesPanel />}
             {activeTab === "shortcuts" && shortcutSurface !== "android" && <ShortcutSettingsPanel />}
             {activeTab === "ai" && <AISettingsPanel />}
+            {activeTab === "plugins" && <PluginSettingsTab isAdmin={isAdmin} />}
             {activeTab === "security" && <SecuritySettings />}
             {activeTab === "tokens" && <TokenManagement />}
                   {activeTab === "users" && isAdmin && <UserManagement currentUserId={currentUser?.id ?? null} />}
