@@ -1,5 +1,5 @@
 import { getDb } from "../db/schema.js";
-import { PLUGIN_PERMISSIONS, type PluginManifestV1, type PluginPermission } from "./types.js";
+import { PLUGIN_PERMISSIONS, type PluginManifest, type PluginPermission } from "./types.js";
 
 const knownPermissions = new Set<string>(PLUGIN_PERMISSIONS);
 
@@ -13,20 +13,34 @@ export interface PermissionRow {
 }
 
 export class PluginPermissions {
-  initialize(manifest: PluginManifestV1): void {
+  initialize(manifest: PluginManifest, options: { preserveExistingGrants?: boolean } = {}): void {
     const db = getDb();
-    const insert = db.prepare(`
+    const resetInsert = db.prepare(`
       INSERT INTO plugin_permissions (pluginId, permission, configJson, granted)
       VALUES (?, ?, ?, 0)
       ON CONFLICT(pluginId, permission) DO UPDATE SET configJson=excluded.configJson, granted=0, grantedBy=NULL, grantedAt=NULL
     `);
+    const preservingInsert = db.prepare(`
+      INSERT INTO plugin_permissions (pluginId, permission, configJson, granted)
+      VALUES (?, ?, ?, 0)
+      ON CONFLICT(pluginId, permission) DO UPDATE SET configJson=excluded.configJson
+    `);
     const transaction = db.transaction(() => {
-      db.prepare("DELETE FROM plugin_permissions WHERE pluginId=?").run(manifest.id);
+      if (!options.preserveExistingGrants) {
+        db.prepare("DELETE FROM plugin_permissions WHERE pluginId=?").run(manifest.id);
+      } else if (manifest.permissions.length === 0) {
+        db.prepare("DELETE FROM plugin_permissions WHERE pluginId=?").run(manifest.id);
+      } else {
+        const placeholders = manifest.permissions.map(() => "?").join(",");
+        db.prepare(`DELETE FROM plugin_permissions WHERE pluginId=? AND permission NOT IN (${placeholders})`)
+          .run(manifest.id, ...manifest.permissions);
+      }
       for (const permission of manifest.permissions) {
         const config = permission === "external:fetch"
           ? { hosts: manifest.permissionConfig?.externalFetchHosts || [] }
           : {};
-        insert.run(manifest.id, permission, JSON.stringify(config));
+        (options.preserveExistingGrants ? preservingInsert : resetInsert)
+          .run(manifest.id, permission, JSON.stringify(config));
       }
     });
     transaction();

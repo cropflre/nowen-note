@@ -33,6 +33,7 @@ import { closeDb, getDb, getDbSchemaVersion } from "../db/schema.js";
 import { noteVersionsRepository } from "../repositories";
 import { createBackupFilename, createFullBackupArchive, hashFileSha256 } from "./backup-archive.js";
 import { quarantineRestoredPlugins } from "../plugins/pluginService.js";
+import { quarantineRestoredAutomations } from "../automation/recovery.js";
 
 // ===== 常量 =====
 
@@ -1238,6 +1239,7 @@ export class BackupManager {
       if (result.success && !opts.dryRun) {
         // 恢复包中的第三方代码永不自动启用：迁入 quarantine，并清空所有授权。
         quarantineRestoredPlugins();
+        quarantineRestoredAutomations();
         try {
           markSyncNeedsReconcile();
         } catch (error) {

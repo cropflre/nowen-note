@@ -609,6 +609,20 @@ export class NowenApiClient {
     });
   }
 
+  // ==================== 自动化 ====================
+
+  async listWorkflows(): Promise<any[]> {
+    return this.request("/api/automations");
+  }
+
+  async runWorkflow(workflowId: string): Promise<any> {
+    return this.request(`/api/automations/${encodeURIComponent(workflowId)}/run`, { method: "POST" });
+  }
+
+  async getWorkflowRun(runId: string): Promise<any> {
+    return this.request(`/api/automations/runs/${encodeURIComponent(runId)}`);
+  }
+
   // ==================== Webhook ====================
 
   /** 获取 Webhook 列表 */

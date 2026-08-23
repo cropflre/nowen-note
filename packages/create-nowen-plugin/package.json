@@ -1,7 +1,7 @@
 {
   "name": "create-nowen-plugin",
-  "version": "1.0.0",
-  "description": "Create a Nowen Extension Platform V1 plugin",
+  "version": "2.0.0",
+  "description": "Create a Nowen Extension Platform V1.1 plugin",
   "type": "module",
   "bin": { "create-nowen-plugin": "bin/create-nowen-plugin.mjs" },
   "files": ["bin", "README.md"],

@@ -2,9 +2,10 @@ import { fork, type ChildProcess } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import type { ExecutionLogTail } from "./logs.js";
-import type { HostCall, PluginExecutionContext, PluginExecutionResult, PluginRegistryRecord } from "./types.js";
+import type { HostCall, PluginExecutionContext, PluginExecutionResult, PluginProgress, PluginRegistryRecord } from "./types.js";
 
 type HostCallHandler = (context: PluginExecutionContext, call: HostCall) => Promise<unknown>;
+type ProgressHandler = (executionId: string, progress: PluginProgress) => void;
 
 interface PendingExecution {
   context: PluginExecutionContext;
@@ -42,6 +43,7 @@ export class PluginRunner {
   constructor(
     private readonly record: PluginRegistryRecord,
     private readonly hostCallHandler: HostCallHandler,
+    private readonly progressHandler: ProgressHandler = () => undefined,
   ) {}
 
   private ensureChild(): Promise<void> {
@@ -54,11 +56,27 @@ export class PluginRunner {
         stdio: ["ignore", "ignore", "ignore", "ipc"],
       });
       this.child = child;
+      child.unref();
+      child.channel?.unref();
       const startupTimer = setTimeout(() => reject(new Error("插件 Worker 启动超时")), 5000);
       child.on("message", (message: any) => {
+        if (message?.type === "booted") {
+          child.send({
+            type: "preflight",
+            mainPath: path.resolve(this.record.installedPath, this.record.main),
+            actions: (JSON.parse(this.record.manifestJson).actions || []).map((action: { id: string }) => action.id),
+          });
+          return;
+        }
         if (message?.type === "ready") {
           clearTimeout(startupTimer);
           resolve();
+          return;
+        }
+        if (message?.type === "preflight-error") {
+          clearTimeout(startupTimer);
+          const error = Object.assign(new Error(message.error?.message || "插件 Preflight 失败"), { code: message.error?.code || "PLUGIN_PREFLIGHT_FAILED" });
+          void this.terminate().finally(() => reject(error));
           return;
         }
         void this.handleMessage(message);
@@ -80,6 +98,14 @@ export class PluginRunner {
 
   private async handleMessage(message: any): Promise<void> {
     if (!message || typeof message !== "object") return;
+    if (message.type === "progress" && message.executionId) {
+      this.progressHandler(String(message.executionId), {
+        current: message.current,
+        total: message.total,
+        message: message.message,
+      });
+      return;
+    }
     const pending = this.pending.get(String(message.executionId || ""));
     if (message.type === "log" && pending) {
       pending.logs.add(message.level || "info", message.message || "");
@@ -128,6 +154,10 @@ export class PluginRunner {
     });
     this.queue = task.catch(() => undefined);
     return task;
+  }
+
+  async preflight(): Promise<void> {
+    await this.ensureChild();
   }
 
   cancel(executionId: string): boolean {

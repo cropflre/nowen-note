@@ -7,6 +7,7 @@ import {
   Maximize2,
   Minimize2,
   Search as SearchIcon,
+  Puzzle,
   X,
 } from "lucide-react";
 import { useApp, useAppActions } from "@/store/AppContext";
@@ -22,6 +23,7 @@ import {
 import type { SearchResult } from "@/types";
 import SearchCenter from "@/components/SearchCenter";
 import MobileDrawerUxBridge from "@/components/MobileDrawerUxBridge";
+import { pluginApi } from "@/lib/pluginApi";
 
 export interface CommandPaletteProps {
   open: boolean;
@@ -54,6 +56,7 @@ export default function CommandPalette({ open, onClose }: CommandPaletteProps) {
   const [results, setResults] = useState<SearchResult[]>([]);
   const [loading, setLoading] = useState(false);
   const [activeIdx, setActiveIdx] = useState(0);
+  const [pluginContributions, setPluginContributions] = useState<Array<{ pluginId: string; commands?: Array<{ id: string; title: string; action: string; category?: string }>; menus?: Array<{ location: string; command: string }> }>>([]);
 
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
@@ -106,7 +109,15 @@ export default function CommandPalette({ open, onClose }: CommandPaletteProps) {
       });
     }
 
-    return commands.map((command) => {
+    const declared = pluginContributions.flatMap((contribution) => {
+      const paletteIds = new Set((contribution.menus || []).filter((menu) => menu.location === "commandPalette").map((menu) => menu.command));
+      return (contribution.commands || []).filter((command) => paletteIds.has(command.id)).map((command): WorkspaceCommand => ({
+        id: command.id, label: command.title, description: command.category ? `插件 · ${command.category}` : `插件 · ${contribution.pluginId}`,
+        keywords: ["插件", contribution.pluginId, command.category || ""], icon: <Puzzle size={16} />,
+        run: () => { void pluginApi.execute(contribution.pluginId, command.action, state.activeNote ? { noteId: state.activeNote.id } : {}).catch((error) => window.alert(error instanceof Error ? error.message : String(error))); },
+      }));
+    });
+    return [...commands, ...declared].map((command) => {
       const shortcut = formatShortcutForCommand(command.id, shortcutPlatform, shortcutSurface);
       return shortcut ? { ...command, shortcut } : command;
     });
@@ -115,6 +126,7 @@ export default function CommandPalette({ open, onClose }: CommandPaletteProps) {
     state.activeNote,
     state.editorFullscreen,
     state.editorSplit,
+    pluginContributions,
     shortcutPlatform,
     shortcutSurface,
   ]);
@@ -139,6 +151,7 @@ export default function CommandPalette({ open, onClose }: CommandPaletteProps) {
     setResults([]);
     setActiveIdx(0);
     requestAnimationFrame(() => inputRef.current?.focus());
+    void pluginApi.contributions().then((rows) => setPluginContributions(rows as typeof pluginContributions)).catch(() => setPluginContributions([]));
   }, [open]);
 
   useEffect(() => {

@@ -1,8 +1,11 @@
 import crypto from "node:crypto";
 import path from "node:path";
+import { Readable } from "node:stream";
 import JSZip from "jszip";
 import { parsePluginManifest } from "./manifest.js";
-import type { PluginManifestV1 } from "./types.js";
+import type { PluginManifest } from "./types.js";
+
+const unzipper = require("unzipper") as { Parse(options: { forceStream: true }): NodeJS.ReadWriteStream };
 
 export const PACKAGE_LIMITS = {
   compressedBytes: 20 * 1024 * 1024,
@@ -15,8 +18,13 @@ export const PACKAGE_LIMITS = {
 
 export interface ValidatedPluginPackage {
   zip: JSZip;
-  manifest: PluginManifestV1;
+  manifest: PluginManifest;
   checksum: string;
+  fileCount: number;
+  extractedBytes: number;
+}
+
+interface StreamValidationResult {
   fileCount: number;
   extractedBytes: number;
 }
@@ -48,16 +56,56 @@ function isForbidden(name: string): boolean {
     || /\.(exe|dll|so|dylib|bat|cmd|ps1|sh|com|msi)$/i.test(lower);
 }
 
+async function validateArchiveStream(bytes: Buffer): Promise<StreamValidationResult> {
+  let fileCount = 0;
+  let extractedBytes = 0;
+  const archive = Readable.from(bytes).pipe(unzipper.Parse({ forceStream: true })) as unknown as AsyncIterable<any> & { destroy(error?: Error): void };
+  try {
+    for await (const entry of archive) {
+      const normalized = normalizeEntryName(String(entry.path || ""));
+      const directory = entry.type === "Directory" || String(entry.path || "").endsWith("/");
+      const mode = Number(entry.vars?.externalFileAttributes || 0) >>> 16;
+      if (entry.type === "SymbolicLink" || (mode & 0o170000) === 0o120000) {
+        throw new Error(`插件包禁止符号链接: ${normalized}`);
+      }
+      if (!directory) {
+        fileCount += 1;
+        if (fileCount > PACKAGE_LIMITS.files) throw new Error(`插件包文件数量不能超过 ${PACKAGE_LIMITS.files}`);
+        if (isForbidden(normalized)) throw new Error(`插件包包含禁止文件: ${normalized}`);
+        const declared = Number(entry.vars?.uncompressedSize || 0);
+        const compressed = Number(entry.vars?.compressedSize || 0);
+        if (declared > PACKAGE_LIMITS.extractedBytes) throw new Error("插件 ZIP 条目超过 50MB");
+        if (declared > 1024 * 1024 && compressed > 0 && declared / compressed > 200) {
+          throw new Error(`插件 ZIP 压缩比异常: ${normalized}`);
+        }
+      }
+      let entryBytes = 0;
+      for await (const chunk of entry as AsyncIterable<Buffer>) {
+        entryBytes += chunk.length;
+        extractedBytes += chunk.length;
+        if (entryBytes > PACKAGE_LIMITS.extractedBytes || extractedBytes > PACKAGE_LIMITS.extractedBytes) {
+          throw new Error("插件解压后超过 50MB");
+        }
+      }
+    }
+  } catch (error) {
+    archive.destroy(error as Error);
+    throw error;
+  }
+  if (fileCount === 0) throw new Error("插件包不能为空");
+  return { fileCount, extractedBytes };
+}
+
 export async function validatePluginPackage(bytes: Buffer): Promise<ValidatedPluginPackage> {
   if (bytes.length === 0 || bytes.length > PACKAGE_LIMITS.compressedBytes) {
     throw new Error("插件包必须大于 0 且不超过 20MB");
   }
+  const streamed = await validateArchiveStream(bytes);
   const zip = await JSZip.loadAsync(bytes, { checkCRC32: true, createFolders: false });
   const files = Object.values(zip.files).filter((file) => !file.dir);
   if (files.length === 0 || files.length > PACKAGE_LIMITS.files) {
     throw new Error(`插件包文件数量必须在 1-${PACKAGE_LIMITS.files} 之间`);
   }
-  let extractedBytes = 0;
   for (const file of Object.values(zip.files)) {
     // JSZip 会把 ../ 自动清洗掉，但保留 unsafeOriginalName；必须检查原始名，
     // 否则校验层会看见安全名而遗漏上传包本身的 Zip Slip 意图。
@@ -65,11 +113,6 @@ export async function validatePluginPackage(bytes: Buffer): Promise<ValidatedPlu
     const normalized = normalizeEntryName(originalName);
     if (isSymlink(file)) throw new Error(`插件包禁止符号链接: ${normalized}`);
     if (!file.dir && isForbidden(normalized)) throw new Error(`插件包包含禁止文件: ${normalized}`);
-    if (!file.dir) {
-      const data = await file.async("uint8array");
-      extractedBytes += data.byteLength;
-      if (extractedBytes > PACKAGE_LIMITS.extractedBytes) throw new Error("插件解压后超过 50MB");
-    }
   }
   const manifestFile = zip.file("manifest.json");
   if (!manifestFile) throw new Error("插件包根目录缺少 manifest.json");
@@ -85,11 +128,19 @@ export async function validatePluginPackage(bytes: Buffer): Promise<ValidatedPlu
   const main = normalizeEntryName(manifest.main);
   if (!zip.file(main)) throw new Error(`插件入口不存在: ${manifest.main}`);
   if (!main.endsWith(".mjs") && !main.endsWith(".js")) throw new Error("插件入口必须是已构建的 ESM JavaScript");
+  for (const asset of [manifest.icon, ...(manifest.screenshots || [])].filter((value): value is string => Boolean(value))) {
+    const normalized = normalizeEntryName(asset);
+    if (!zip.file(normalized)) throw new Error(`Manifest 资源不存在: ${asset}`);
+  }
+  if (manifest.apiVersion === 2) for (const template of manifest.contributes?.automationTemplates || []) {
+    const normalized = normalizeEntryName(template.file);
+    if (!zip.file(normalized)) throw new Error(`Automation Template 不存在: ${template.file}`);
+  }
   return {
     zip,
     manifest,
     checksum: crypto.createHash("sha256").update(bytes).digest("hex"),
-    fileCount: files.length,
-    extractedBytes,
+    fileCount: streamed.fileCount,
+    extractedBytes: streamed.extractedBytes,
   };
 }

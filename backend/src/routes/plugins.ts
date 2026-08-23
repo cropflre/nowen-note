@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { bodyLimit } from "hono/body-limit";
 import crypto from "node:crypto";
 import { isSystemAdmin, requireAdmin } from "../middleware/acl.js";
 import { getPluginService } from "../plugins/pluginService.js";
@@ -23,8 +24,32 @@ pluginsRouter.get("/", (c) => {
 });
 
 pluginsRouter.get("/actions", (c) => c.json(getPluginService().listActions()));
+pluginsRouter.get("/contributions", (c) => c.json(getPluginService().contributions()));
+pluginsRouter.get("/ecosystem/sources", (c) => c.json(getPluginService().ecosystem.listSources()));
+pluginsRouter.put("/ecosystem/sources", requireAdmin, async (c) => {
+  try { return c.json(getPluginService().ecosystem.upsertSource(await c.req.json())); } catch (error) { return errorResponse(c, error); }
+});
+pluginsRouter.get("/ecosystem/catalog", async (c) => {
+  try { return c.json(await getPluginService().ecosystem.index(String(c.req.query("source") || "official-v2"))); } catch (error) { return errorResponse(c, error); }
+});
+pluginsRouter.post("/ecosystem/install", requireAdmin, async (c) => {
+  try { const body = await c.req.json() as any; return c.json({ success: true, plugin: await getPluginService().installFromEcosystem(String(body.sourceId || "official-v2"), String(body.pluginId || ""), body.version, userId(c)) }, 201); } catch (error) { return errorResponse(c, error); }
+});
+pluginsRouter.get("/ecosystem/updates", requireAdmin, async (c) => {
+  try { return c.json(await getPluginService().checkUpdates(String(c.req.query("source") || "official-v2"))); } catch (error) { return errorResponse(c, error); }
+});
+pluginsRouter.post("/ecosystem/update", requireAdmin, async (c) => {
+  try { const body = await c.req.json() as any; return c.json({ success: true, plugin: await getPluginService().applyUpdate(String(body.sourceId || "official-v2"), String(body.pluginId || ""), body.version, userId(c), body.confirmed === true) }); } catch (error) { return errorResponse(c, error); }
+});
+pluginsRouter.get("/policy", requireAdmin, (c) => c.json(getPluginService().policy.get()));
+pluginsRouter.put("/policy", requireAdmin, async (c) => {
+  try { return c.json(getPluginService().policy.set(await c.req.json(), userId(c))); } catch (error) { return errorResponse(c, error); }
+});
 
-pluginsRouter.post("/install", requireAdmin, async (c) => {
+pluginsRouter.post("/install", requireAdmin, bodyLimit({
+  maxSize: 21 * 1024 * 1024,
+  onError: (c) => c.json({ error: "插件上传请求不能超过 21MB", code: "PLUGIN_UPLOAD_TOO_LARGE" }, 413),
+}), async (c) => {
   try {
     const body = await c.req.parseBody();
     const upload = body.file;
@@ -54,6 +79,56 @@ pluginsRouter.post("/dev/load", requireAdmin, async (c) => {
   } catch (error) {
     return errorResponse(c, error);
   }
+});
+
+pluginsRouter.get("/registry/sources", (c) => c.json(getPluginService().community.listSources()));
+pluginsRouter.put("/registry/sources", requireAdmin, async (c) => {
+  try {
+    const body = await c.req.json() as { sources?: Array<{ id: string; name: string; url: string }> };
+    return c.json(getPluginService().community.setSources(Array.isArray(body.sources) ? body.sources : []));
+  } catch (error) { return errorResponse(c, error); }
+});
+pluginsRouter.get("/registry/catalog", async (c) => {
+  try { return c.json(await getPluginService().community.catalog(c.req.query("source") || "official")); }
+  catch (error) { return errorResponse(c, error); }
+});
+pluginsRouter.post("/registry/install", requireAdmin, async (c) => {
+  try {
+    const body = await c.req.json() as { sourceId?: string; pluginId?: string; version?: string };
+    const plugin = await getPluginService().installFromRegistry(
+      String(body.sourceId || "official"), String(body.pluginId || ""), body.version, userId(c),
+    );
+    return c.json({ success: true, plugin }, 201);
+  } catch (error) { return errorResponse(c, error); }
+});
+
+pluginsRouter.get("/:id/connections", (c) => {
+  try { return c.json(getPluginService().connections(c.req.param("id"), userId(c))); }
+  catch (error) { return errorResponse(c, error); }
+});
+pluginsRouter.get("/:id/settings", (c) => {
+  try { return c.json(getPluginService().getSettings(c.req.param("id"), userId(c))); } catch (error) { return errorResponse(c, error); }
+});
+pluginsRouter.put("/:id/settings", async (c) => {
+  try { return c.json(getPluginService().setSettings(c.req.param("id"), userId(c), await c.req.json())); } catch (error) { return errorResponse(c, error); }
+});
+pluginsRouter.post("/:id/automation-templates/:templateId/install", async (c) => {
+  try { return c.json({ success: true, workflow: await getPluginService().installAutomationTemplate(c.req.param("id"), c.req.param("templateId"), userId(c)) }, 201); } catch (error) { return errorResponse(c, error); }
+});
+pluginsRouter.put("/:id/update-policy", requireAdmin, async (c) => {
+  try { const body = await c.req.json() as any; return c.json(getPluginService().setUpdatePolicy(c.req.param("id"), body.policy, body.pinnedVersion)); } catch (error) { return errorResponse(c, error); }
+});
+
+pluginsRouter.get("/:id/versions", requireAdmin, (c) => {
+  try { return c.json(getPluginService().listVersions(c.req.param("id"))); }
+  catch (error) { return errorResponse(c, error); }
+});
+
+pluginsRouter.post("/:id/rollback", requireAdmin, async (c) => {
+  try {
+    const body = await c.req.json().catch(() => ({})) as { version?: string };
+    return c.json({ success: true, plugin: await getPluginService().rollback(c.req.param("id"), body.version) });
+  } catch (error) { return errorResponse(c, error); }
 });
 
 pluginsRouter.get("/:id", (c) => {
