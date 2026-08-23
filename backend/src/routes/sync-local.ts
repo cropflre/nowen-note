@@ -6,10 +6,14 @@ import {
   listPendingMutations,
 } from "../sync/outbox";
 import {
+  countResolvedConflicts,
   countUnresolvedConflicts,
   getConflict,
+  listResolvedConflicts,
   listUnresolvedConflicts,
+  reopenConflict,
 } from "../sync/conflict";
+import { isSyncEntityType } from "../sync/types";
 import {
   applyConflictResolution,
   forkConflictVersion,
@@ -813,6 +817,56 @@ app.get("/conflicts", (c) => {
   });
 });
 
+app.get("/conflicts/history", (c) => {
+  const denied = guard(c);
+  if (denied) return denied;
+
+  const db = getDb();
+  const active = getActiveProfile(db);
+  const requestedLimit = Number(c.req.query("limit") || 50);
+  const requestedOffset = Number(c.req.query("offset") || 0);
+  const requestedEntityType = c.req.query("entityType") || undefined;
+  if (requestedEntityType && !isSyncEntityType(requestedEntityType)) {
+    return c.json({ error: "不支持的冲突实体类型", code: "INVALID_PAYLOAD" }, 400);
+  }
+  const limit = Math.max(1, Math.min(200, Math.trunc(requestedLimit) || 50));
+  const offset = Math.max(0, Math.trunc(requestedOffset) || 0);
+  const total = active
+    ? countResolvedConflicts(db, active.id, undefined, requestedEntityType)
+    : 0;
+  const rows = active
+    ? listResolvedConflicts(
+      db,
+      active.id,
+      undefined,
+      limit,
+      offset,
+      requestedEntityType,
+    )
+    : [];
+  return c.json({
+    total,
+    limit,
+    offset,
+    hasMore: offset + rows.length < total,
+    items: rows.map((row) => {
+      const detail = toConflictDetail(row);
+      return {
+        id: detail.id,
+        entityType: detail.entityType,
+        entityId: detail.entityId,
+        localVersion: detail.localVersion,
+        remoteVersion: detail.remoteVersion,
+        createdAt: detail.createdAt,
+        resolvedAt: detail.resolvedAt,
+        diffFields: detail.diffFields,
+        localTitle: typeof detail.local?.title === "string" ? detail.local.title : null,
+        remoteTitle: typeof detail.remote?.title === "string" ? detail.remote.title : null,
+      };
+    }),
+  });
+});
+
 app.get("/conflicts/:id", (c) => {
   const denied = guard(c);
   if (denied) return denied;
@@ -878,6 +932,29 @@ app.post("/conflicts/:id/resolve", async (c) => {
   } catch (error) {
     return errorResponse(c, error);
   }
+});
+
+app.post("/conflicts/:id/reopen", (c) => {
+  const denied = guard(c);
+  if (denied) return denied;
+
+  const db = getDb();
+  const active = getActiveProfile(db);
+  const row = active ? getConflict(db, c.req.param("id"), active.id) : null;
+  if (!row) return c.json({ error: "冲突不存在", code: "INVALID_PAYLOAD" }, 404);
+
+  const reopened = row.status === "unresolved"
+    ? false
+    : reopenConflict(db, row.id, active?.id);
+  return c.json({
+    conflictId: row.id,
+    reopened,
+    alreadyOpen: row.status === "unresolved",
+    remainingConflicts: countUnresolvedConflicts(db, active?.id),
+    message: reopened
+      ? "已重新放回冲突中心，请重新选择要采用的版本。"
+      : "该冲突已经在待处理列表中。",
+  });
 });
 
 /**

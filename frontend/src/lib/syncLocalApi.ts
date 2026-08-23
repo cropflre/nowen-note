@@ -13,6 +13,19 @@ import { fetchWithAuthRefresh, getAccessToken } from "@/lib/authSession";
 
 export type SyncMode = "device-only" | "server";
 
+export const SYNC_CONFLICT_ENTITY_TYPES = [
+  "notebook",
+  "note",
+  "tag",
+  "note_tag",
+  "favorite",
+  "attachment",
+  "task",
+  "task_reminder",
+  "diary",
+  "mindmap",
+] as const;
+
 export interface SyncProfileSummary {
   id: string;
   name: string;
@@ -85,6 +98,18 @@ export interface ConflictDetail extends ConflictSummary {
   base: Record<string, unknown> | null;
   local: Record<string, unknown> | null;
   remote: Record<string, unknown> | null;
+}
+
+export interface ResolvedConflictSummary extends ConflictSummary {
+  resolvedAt: string;
+}
+
+export interface ResolvedConflictPage {
+  total: number;
+  limit: number;
+  offset: number;
+  hasMore: boolean;
+  items: ResolvedConflictSummary[];
 }
 
 export type ConflictResolution = "keep-local" | "keep-remote" | "manual";
@@ -304,6 +329,17 @@ export function fetchConflicts(): Promise<{ total: number; items: ConflictSummar
   return request("/conflicts");
 }
 
+export function fetchResolvedConflicts(
+  options: { limit?: number; offset?: number; entityType?: string } = {},
+): Promise<ResolvedConflictPage> {
+  const params = new URLSearchParams({
+    limit: String(options.limit ?? 20),
+    offset: String(options.offset ?? 0),
+  });
+  if (options.entityType) params.set("entityType", options.entityType);
+  return request(`/conflicts/history?${params.toString()}`);
+}
+
 export function fetchConflictDetail(id: string): Promise<ConflictDetail> {
   return request<ConflictDetail>(`/conflicts/${encodeURIComponent(id)}`);
 }
@@ -319,6 +355,18 @@ export function resolveConflict(
   return request(`/conflicts/${encodeURIComponent(id)}/resolve`, {
     method: "POST",
     body: JSON.stringify(input),
+  });
+}
+
+export function reopenConflict(id: string): Promise<{
+  conflictId: string;
+  reopened: boolean;
+  alreadyOpen: boolean;
+  remainingConflicts: number;
+  message: string;
+}> {
+  return request(`/conflicts/${encodeURIComponent(id)}/reopen`, {
+    method: "POST",
   });
 }
 

@@ -91,7 +91,7 @@ describe("desktop knowledge tree browsing mode", () => {
 
   it("uses tighter spacing for the mobile recursive tree", () => {
     expect(treePanelSource).toContain('const treeIndent = variant === "mobile" ? 12 : 16;');
-    expect(treePanelSource).toContain('variant === "mobile" ? "h-6 w-4" : "h-7 w-5"');
-    expect(treePanelSource).toContain('variant === "mobile" ? "gap-1 py-0.5 text-[11px] leading-4" : "gap-1.5 py-1.5 text-xs"');
+    expect(treePanelSource).toContain('variant === "mobile" ? "h-8 w-5" : "h-7 w-5"');
+    expect(treePanelSource).toContain('variant === "mobile" ? "gap-1.5 py-1 text-[13px] leading-5" : "gap-1.5 py-1.5 text-xs"');
   });
 });

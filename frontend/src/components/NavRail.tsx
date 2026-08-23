@@ -2,8 +2,6 @@ import React, { useCallback, useEffect, useState } from "react";
 import {
   BrainCircuit,
   CloudOff,
-  Columns2,
-  Columns3,
   FolderOpen,
   ListTodo,
   Link2,
@@ -16,7 +14,6 @@ import {
   Star,
   Trash2,
   UsersRound,
-  X,
 } from "lucide-react";
 import { AnimatePresence } from "framer-motion";
 import { useTranslation } from "react-i18next";
@@ -25,7 +22,7 @@ import { api, broadcastLogout, clearServerUrl, getCurrentWorkspace, getServerUrl
 import { ViewMode, WorkspaceFeatures } from "@/types";
 import { cn } from "@/lib/utils";
 import SettingsModal from "@/components/SettingsModal";
-import { RailMode, useRailMode } from "@/hooks/useRailMode";
+import { useRailMode } from "@/hooks/useRailMode";
 import {
   clearDesktopLocalAuth,
   getAppInfo,
@@ -70,8 +67,8 @@ export default function NavRail({ variant = "desktop" }: { variant?: "desktop" |
   const { t } = useTranslation();
   const { state } = useApp();
   const actions = useAppActions();
-  const [railMode, setRailMode] = useRailMode();
-  const effectiveMode: RailMode = variant === "mobile" && railMode === "hidden" ? "icon" : railMode;
+  const [railMode] = useRailMode();
+  const effectiveMode = variant === "mobile" ? "icon" : railMode;
   const showLabel = effectiveMode === "label";
   const isMobile = variant === "mobile";
 
@@ -224,8 +221,6 @@ export default function NavRail({ variant = "desktop" }: { variant?: "desktop" |
   };
 
   const groups: NavGroup[] = ["workspace", "modules", "tools"];
-  const mobileNextMode: RailMode = effectiveMode === "label" ? "icon" : "label";
-  const MobileSwitchIcon = effectiveMode === "label" ? Columns2 : Columns3;
   return (
     <div
       className={cn(
@@ -236,26 +231,7 @@ export default function NavRail({ variant = "desktop" }: { variant?: "desktop" |
       style={{ paddingTop: "calc(var(--safe-area-top) + 4px)", paddingBottom: "8px" }}
     >
       {isMobile ? (
-        <>
-          <button
-            data-mobile-drawer-rail-item=""
-            onClick={() => actions.setMobileSidebar(false)}
-            title={t("common.close")}
-            aria-label={t("common.close")}
-            className="w-10 h-10 rounded-lg flex items-center justify-center text-tx-tertiary hover:bg-app-hover hover:text-tx-primary transition-colors"
-          >
-            <X size={16} />
-          </button>
-          <button
-            data-mobile-drawer-rail-item=""
-            onClick={() => setRailMode(mobileNextMode)}
-            title={t(`sidebar.railMode.switchTo.${mobileNextMode}`)}
-            aria-label={t(`sidebar.railMode.switchTo.${mobileNextMode}`)}
-            className="w-10 h-10 rounded-lg flex items-center justify-center text-tx-tertiary hover:bg-app-hover hover:text-tx-primary transition-colors"
-          >
-            <MobileSwitchIcon size={16} />
-          </button>
-        </>
+        <div className="h-10 w-10 shrink-0" aria-hidden />
       ) : (
         <button
           data-mobile-drawer-rail-item=""

@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { ChevronDown, ChevronRight, PanelLeft, Tags, Trash2, X } from "lucide-react";
+import { ChevronDown, ChevronRight, PanelLeft, PanelTopClose, PanelTopOpen, Tags, Trash2, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import KnowledgeTreePanel, {
@@ -12,6 +12,7 @@ import { OPEN_KNOWLEDGE_TREE_EVENT } from "@/components/KnowledgeTreeDrawer";
 import TagColorPopover from "@/components/TagColorPopover";
 import WorkspaceSwitcher from "@/components/WorkspaceSwitcher";
 import { useRailMode, nextRailMode } from "@/hooks/useRailMode";
+import { useMobileSidebarControlsCollapsed } from "@/hooks/useMobileSidebarControlsCollapsed";
 import { useSiteSettings } from "@/hooks/useSiteSettings";
 import { api } from "@/lib/api";
 import { refreshKnowledgeTreeScrollbars } from "@/lib/knowledgeTreeScrollbarBridge";
@@ -85,6 +86,7 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
   const { t } = useTranslation();
   const { siteConfig } = useSiteSettings();
   const [railMode, setRailMode] = useRailMode();
+  const [mobileControlsCollapsed, setMobileControlsCollapsed] = useMobileSidebarControlsCollapsed();
   const rootRef = useRef<HTMLDivElement>(null);
   const tagLongPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const tagLongPressFired = useRef(false);
@@ -229,8 +231,21 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
         className="flex shrink-0 items-center justify-between border-b border-app-border px-4 py-3"
         style={{ paddingTop: "calc(var(--safe-area-top) + 12px)" }}
       >
-        <span className="min-w-0 truncate text-sm font-semibold">{siteConfig.title || "nowen-note"}</span>
-        {variant === "desktop" && (
+        <div className="flex min-w-0 items-center gap-1">
+          {variant === "mobile" && (
+            <button
+              type="button"
+              onClick={() => setMobileControlsCollapsed(!mobileControlsCollapsed)}
+              title={t(mobileControlsCollapsed ? "sidebar.expandMobileControls" : "sidebar.collapseMobileControls")}
+              aria-label={t(mobileControlsCollapsed ? "sidebar.expandMobileControls" : "sidebar.collapseMobileControls")}
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-tx-tertiary transition-colors hover:bg-app-hover hover:text-tx-primary"
+            >
+              {mobileControlsCollapsed ? <PanelTopOpen size={16} /> : <PanelTopClose size={16} />}
+            </button>
+          )}
+          <span className="min-w-0 truncate text-sm font-semibold">{siteConfig.title || "nowen-note"}</span>
+        </div>
+        {variant === "desktop" ? (
           <button
             type="button"
             onClick={() => setRailMode(nextRailMode(railMode))}
@@ -240,12 +255,24 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
           >
             <PanelLeft size={16} />
           </button>
+        ) : (
+          <button
+            type="button"
+            onClick={() => actions.setMobileSidebar(false)}
+            title={t("common.close")}
+            aria-label={t("common.close")}
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-tx-tertiary transition-colors hover:bg-app-hover hover:text-tx-primary"
+          >
+            <X size={16} />
+          </button>
         )}
       </header>
 
-      <div className="shrink-0 px-3 py-2">
-        <WorkspaceSwitcher />
-      </div>
+      {(variant !== "mobile" || !mobileControlsCollapsed) && (
+        <div className="shrink-0 px-3 py-2">
+          <WorkspaceSwitcher />
+        </div>
+      )}
 
       <section className="flex min-h-0 flex-1 flex-col border-t border-app-border/60">
         {variant === "desktop" && (

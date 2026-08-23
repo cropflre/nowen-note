@@ -93,6 +93,61 @@ export function listUnresolvedConflicts(
   `).all() as SyncConflictRow[];
 }
 
+/** 已解决历史：最近处理的排在前面，供冲突中心回看和重新选择。 */
+export function listResolvedConflicts(
+  db: Database.Database,
+  profileId?: string,
+  scopeKey?: string,
+  limit = 50,
+  offset = 0,
+  entityType?: SyncEntityType,
+): SyncConflictRow[] {
+  const safeLimit = Math.max(1, Math.min(200, Math.trunc(limit) || 50));
+  const safeOffset = Math.max(0, Math.trunc(offset) || 0);
+  if (profileId) {
+    return db.prepare(`
+      SELECT * FROM ${SYNC_TABLES.conflicts}
+      WHERE profileId = ? AND status = 'resolved'
+        ${scopeKey ? "AND scopeKey = ?" : ""}
+        ${entityType ? "AND entityType = ?" : ""}
+      ORDER BY resolvedAt DESC, createdAt DESC, id DESC
+      LIMIT ? OFFSET ?
+    `).all(...(scopeKey
+      ? [profileId, scopeKey, ...(entityType ? [entityType] : []), safeLimit, safeOffset]
+      : [profileId, ...(entityType ? [entityType] : []), safeLimit, safeOffset])) as SyncConflictRow[];
+  }
+  return db.prepare(`
+    SELECT * FROM ${SYNC_TABLES.conflicts}
+    WHERE status = 'resolved'
+      ${entityType ? "AND entityType = ?" : ""}
+    ORDER BY resolvedAt DESC, createdAt DESC, id DESC
+    LIMIT ? OFFSET ?
+  `).all(...(entityType
+    ? [entityType, safeLimit, safeOffset]
+    : [safeLimit, safeOffset])) as SyncConflictRow[];
+}
+
+/** 已解决历史总数：与列表使用完全相同的 Profile、Scope 和实体筛选。 */
+export function countResolvedConflicts(
+  db: Database.Database,
+  profileId?: string,
+  scopeKey?: string,
+  entityType?: SyncEntityType,
+): number {
+  const row = db.prepare(`
+    SELECT COUNT(*) AS count FROM ${SYNC_TABLES.conflicts}
+    WHERE status = 'resolved'
+      ${profileId ? "AND profileId = ?" : ""}
+      ${profileId && scopeKey ? "AND scopeKey = ?" : ""}
+      ${entityType ? "AND entityType = ?" : ""}
+  `).get(...[
+    ...(profileId ? [profileId] : []),
+    ...(profileId && scopeKey ? [scopeKey] : []),
+    ...(entityType ? [entityType] : []),
+  ]) as { count: number } | undefined;
+  return Number(row?.count || 0);
+}
+
 export function countUnresolvedConflicts(
   db: Database.Database,
   profileId?: string,
@@ -131,4 +186,24 @@ export function resolveConflict(db: Database.Database, conflictId: string): void
     SET status = 'resolved', resolvedAt = datetime('now')
     WHERE id = ?
   `).run(conflictId);
+}
+
+/**
+ * 撤销“已处理”状态，让用户重新选择版本。
+ *
+ * 这里只重新打开台账，不回滚当前业务数据，也不删除该实体后来产生的 Outbox。
+ * 自动回滚会误删用户在解决冲突后的新修改，风险高于保留现状并显式重选。
+ */
+export function reopenConflict(
+  db: Database.Database,
+  conflictId: string,
+  profileId?: string,
+): boolean {
+  const result = db.prepare(`
+    UPDATE ${SYNC_TABLES.conflicts}
+    SET status = 'unresolved', resolvedAt = NULL
+    WHERE id = ? AND status = 'resolved'
+      ${profileId ? "AND profileId = ?" : ""}
+  `).run(...(profileId ? [conflictId, profileId] : [conflictId]));
+  return result.changes > 0;
 }

@@ -46,6 +46,7 @@ import {
 } from "@/components/knowledgeTreeImport";
 import { choose, confirm, prompt } from "@/components/ui/confirm";
 import { useContextMenu } from "@/hooks/useContextMenu";
+import { useMobileSidebarControlsCollapsed } from "@/hooks/useMobileSidebarControlsCollapsed";
 import { api } from "@/lib/api";
 import { noteTemplatesApi } from "@/lib/noteTemplatesApi";
 import { affectedKnowledgeNoteIds } from "@/lib/knowledgeTreeDeleteReconcile";
@@ -242,6 +243,8 @@ export default function MobileKnowledgeTreePanel({
 } = {}) {
   const { state } = useApp();
   const actions = useAppActions();
+  const [mobileControlsCollapsed] = useMobileSidebarControlsCollapsed();
+  const controlsCollapsed = variant === "mobile" && mobileControlsCollapsed;
   const [workspaceSurface] = useState(() => detectNoteWorkspaceSurface());
   const rootRef = useRef<HTMLElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
@@ -990,11 +993,20 @@ export default function MobileKnowledgeTreePanel({
           {nodeIcon(node)}
           <span className="min-w-0 flex-1">
             <span className="flex min-w-0 items-center gap-1.5">
-              <span className={cn("min-w-0 flex-1 truncate", variant === "mobile" ? "text-sm" : "text-xs")}>{node.title}</span>
+              <span className={cn("min-w-0 truncate", variant === "mobile" ? "text-[15px]" : "text-xs")}>{node.title}</span>
+              {variant === "mobile" && firstLevelNoteCount !== null && (
+                <span
+                  className="shrink-0 text-[10px] tabular-nums text-tx-tertiary"
+                  aria-label={`“${node.title}”下共 ${firstLevelNoteCount} 条笔记`}
+                  data-mobile-knowledge-tree-first-level-note-count=""
+                >
+                  {firstLevelNoteCount}
+                </span>
+              )}
               {node.nodeType === "folder" && node.isPasswordProtected === 1 && (
                 <LockKeyhole size={12} className="shrink-0 text-tx-tertiary" aria-label="密码保护" />
               )}
-              {firstLevelNoteCount !== null && (
+              {variant !== "mobile" && firstLevelNoteCount !== null && (
                 <span
                   className="min-w-4 shrink-0 rounded-full bg-app-hover px-1.5 text-center text-[10px] leading-4 tabular-nums text-tx-tertiary transition-opacity [@media(hover:hover)]:group-hover:opacity-0"
                   aria-label={`“${node.title}”下共 ${firstLevelNoteCount} 条笔记`}
@@ -1106,7 +1118,13 @@ export default function MobileKnowledgeTreePanel({
       <>
         {(draft || rootOwned.length > 0) && (
           <section data-mobile-knowledge-tree-section="owned">
-            <div className="flex items-center justify-between px-3 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-wider text-tx-tertiary">
+            <div
+              className={cn(
+                "flex items-center justify-between px-3 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-wider text-tx-tertiary",
+                controlsCollapsed && "hidden",
+              )}
+              data-mobile-knowledge-tree-section-heading=""
+            >
               <span>当前空间</span>
               {variant !== "mobile" && (
                 <span
@@ -1144,7 +1162,7 @@ export default function MobileKnowledgeTreePanel({
       data-nowen-desktop-knowledge-tree={variant === "desktop" ? "quick-navigation" : undefined}
       data-knowledge-tree-compact-toolbar={compactToolbar ? "true" : "false"}
     >
-      <div className={cn("px-2 pb-2", variant === "mobile" && "pt-2")}>
+      <div className={cn("px-2 pb-2", variant === "mobile" && "pt-2", controlsCollapsed && "hidden")}>
         <div className={cn("grid grid-cols-2 bg-app-hover/70", variant === "mobile" ? "rounded-xl p-1" : "rounded-lg p-0.5")} role="tablist" aria-label="内容浏览方式">
           <button
             type="button"
@@ -1177,6 +1195,7 @@ export default function MobileKnowledgeTreePanel({
 
       <div className={cn(
         "flex",
+        controlsCollapsed && "hidden",
         variant === "mobile"
           ? "items-center gap-1 px-3 pb-1.5"
           : compactToolbar
@@ -1317,7 +1336,7 @@ export default function MobileKnowledgeTreePanel({
         )}
       </div>
 
-      {compactToolbar && (
+      {!controlsCollapsed && compactToolbar && (
         <KnowledgeTreeDropdownMenu
           open={mobileActionsOpen}
           anchor={mobileActionsButtonRef.current}
@@ -1362,7 +1381,7 @@ export default function MobileKnowledgeTreePanel({
         />
       )}
 
-      {view === "browse" && !query && (
+      {view === "browse" && !query && (!controlsCollapsed || currentFolder) && (
         <div className="flex min-h-10 items-center gap-1 border-y border-app-border/60 px-2 py-1.5" data-mobile-knowledge-tree-breadcrumb="">
           {currentFolder ? (
             <button type="button" onClick={goBack} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-tx-secondary hover:bg-app-hover" aria-label="返回上一级">
@@ -1390,7 +1409,10 @@ export default function MobileKnowledgeTreePanel({
       )}
 
       <div
-        className="relative min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain px-1 pb-3"
+        className={cn(
+          "relative min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain px-1 pb-3",
+          controlsCollapsed && "pt-1.5",
+        )}
         data-swipe-blocker="knowledge-tree-scroll"
         onClick={(event) => {
           const target = event.target as HTMLElement;

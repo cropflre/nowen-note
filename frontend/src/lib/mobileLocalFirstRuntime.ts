@@ -17,7 +17,7 @@ import { openNativeDatabase, type NativeDatabase } from "./nativeDatabase";
 import { createNativeLocalRepository } from "./nativeLocalRepository";
 import { newLocalId, setLocalRepository } from "./localRepository";
 import { clearQueue, getQueue } from "./offlineQueue";
-import { setSyncLocalAdminAdapter } from "./syncLocalApi";
+import { setSyncLocalAdminAdapter, SYNC_CONFLICT_ENTITY_TYPES } from "./syncLocalApi";
 import type { NativeLocalRepository } from "./nativeLocalRepository";
 
 const MIGRATION_KEY = "indexeddbMigrationV1";
@@ -311,6 +311,25 @@ function createNativeAdminAdapter(
       const rows=await db.query<{id:string;entityType:string;entityId:string;localVersion:number|null;remoteVersion:number|null;localPayload:string|null;remotePayload:string|null;createdAt:string}>("SELECT * FROM sync_conflicts WHERE profileId=? AND status='unresolved' ORDER BY createdAt",[profileId]);
       return {total:rows.length,items:rows.map((row)=>{const local=json(row.localPayload),remote=json(row.remotePayload);return {id:row.id,entityType:row.entityType,entityId:row.entityId,localVersion:row.localVersion,remoteVersion:row.remoteVersion,createdAt:row.createdAt,diffFields:diff(local,remote),localTitle:typeof local?.title==="string"?local.title:null,remoteTitle:typeof remote?.title==="string"?remote.title:null};})} as T;
     }
+    const historyUrl=new URL(path,"http://localhost");
+    if(historyUrl.pathname==="/conflicts/history"&&method==="GET"){
+      const requestedLimit=Number(historyUrl.searchParams.get("limit")||20);
+      const requestedOffset=Number(historyUrl.searchParams.get("offset")||0);
+      const limit=Math.max(1,Math.min(200,Math.trunc(requestedLimit)||20));
+      const offset=Math.max(0,Math.trunc(requestedOffset)||0);
+      const entityType=historyUrl.searchParams.get("entityType")||null;
+      if(entityType&&!(SYNC_CONFLICT_ENTITY_TYPES as readonly string[]).includes(entityType))throw new Error("不支持的冲突实体类型");
+      const where=entityType
+        ? "profileId=? AND status='resolved' AND entityType=?"
+        : "profileId=? AND status='resolved'";
+      const params=entityType?[profileId,entityType]:[profileId];
+      const total=(await db.query<{count:number}>(`SELECT COUNT(*) AS count FROM sync_conflicts WHERE ${where}`,params))[0]?.count||0;
+      const rows=await db.query<{id:string;entityType:string;entityId:string;localVersion:number|null;remoteVersion:number|null;localPayload:string|null;remotePayload:string|null;createdAt:string;resolvedAt:string}>(
+        `SELECT * FROM sync_conflicts WHERE ${where} ORDER BY resolvedAt DESC,createdAt DESC,id DESC LIMIT ? OFFSET ?`,
+        [...params,limit,offset],
+      );
+      return {total,limit,offset,hasMore:offset+rows.length<total,items:rows.map((row)=>{const local=json(row.localPayload),remote=json(row.remotePayload);return {id:row.id,entityType:row.entityType,entityId:row.entityId,localVersion:row.localVersion,remoteVersion:row.remoteVersion,createdAt:row.createdAt,resolvedAt:row.resolvedAt,diffFields:diff(local,remote),localTitle:typeof local?.title==="string"?local.title:null,remoteTitle:typeof remote?.title==="string"?remote.title:null};})} as T;
+    }
     const conflictMatch=path.match(/^\/conflicts\/([^/]+)$/);
     if(conflictMatch&&method==="GET"){
       const id=decodeURIComponent(conflictMatch[1]);const row=(await db.query<any>("SELECT * FROM sync_conflicts WHERE id=?",[id]))[0];if(!row)throw new Error("冲突不存在");
@@ -318,6 +337,16 @@ function createNativeAdminAdapter(
     }
     const resolveMatch=path.match(/^\/conflicts\/([^/]+)\/resolve$/);
     if(resolveMatch&&method==="POST"){const body=parseBody(init);await engine.resolveLocalConflict(decodeURIComponent(resolveMatch[1]),body.resolution as any,body.mergedPayload as Record<string,unknown>|undefined);const remaining=(await db.query<{count:number}>("SELECT COUNT(*) AS count FROM sync_conflicts WHERE profileId=? AND status='unresolved'",[profileId]))[0]?.count||0;return {conflictId:decodeURIComponent(resolveMatch[1]),resolution:body.resolution,remainingConflicts:remaining} as T;}
+    const reopenMatch=path.match(/^\/conflicts\/([^/]+)\/reopen$/);
+    if(reopenMatch&&method==="POST"){
+      const conflictId=decodeURIComponent(reopenMatch[1]);
+      const existing=(await db.query<{status:string}>("SELECT status FROM sync_conflicts WHERE id=? AND profileId=?",[conflictId,profileId]))[0];
+      if(!existing)throw new Error("冲突不存在");
+      const reopened=existing.status==="resolved";
+      if(reopened)await db.run("UPDATE sync_conflicts SET status='unresolved',resolvedAt=NULL WHERE id=? AND profileId=? AND status='resolved'",[conflictId,profileId]);
+      const remaining=(await db.query<{count:number}>("SELECT COUNT(*) AS count FROM sync_conflicts WHERE profileId=? AND status='unresolved'",[profileId]))[0]?.count||0;
+      return {conflictId,reopened,alreadyOpen:!reopened,remainingConflicts:remaining,message:reopened?"已重新放回冲突中心，请重新选择要采用的版本。":"该冲突已在待处理列表中。"} as T;
+    }
     const forkMatch=path.match(/^\/conflicts\/([^/]+)\/fork$/);
     if(forkMatch&&method==="POST"){const body=parseBody(init);return {noteId:await engine.forkLocalConflict(decodeURIComponent(forkMatch[1]),body.side as "local"|"remote")} as T;}
     const exportMatch=path.match(/^\/scopes\/([^/]+)\/export$/);

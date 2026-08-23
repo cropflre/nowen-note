@@ -23,10 +23,11 @@ describe("mobile knowledge tree mode switch contract", () => {
   it("keeps browser and Android tree mode visibly compact", () => {
     expect(compactCssSource).toMatch(/--nowen-mobile-tree-root-folder-row-height:\s*\d+px/);
     expect(compactCssSource).toMatch(/--nowen-mobile-tree-folder-row-height:\s*\d+px/);
-    expect(compactCssSource).toContain("--nowen-mobile-tree-note-row-height: 16px");
+    expect(compactCssSource).toContain("--nowen-mobile-tree-note-row-height: 28px");
     expect(compactCssSource).toMatch(/\[data-knowledge-tree-node-id\]\s*\{[\s\S]*min-height:\s*var\(--nowen-mobile-tree-note-row-height\)\s*!important/);
     expect(compactCssSource).toContain("font-size: 11px !important");
     expect(compactCssSource).toContain("touch-action: manipulation");
+    expect(compactCssSource).toContain("--nowen-mobile-tree-action-width: 30px");
   });
 
   it("exposes one clear tree-mode switch in Settings", () => {

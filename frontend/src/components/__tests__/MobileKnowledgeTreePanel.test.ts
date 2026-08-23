@@ -48,4 +48,11 @@ describe("MobileKnowledgeTreePanel product contract", () => {
     expect(helperSource).toContain("return [...pinnedDocuments, ...openedDocuments, ...fallbackDocuments]");
     expect(helperSource).toContain('return "updated-desc"');
   });
+
+  it("keeps mobile first-level note counts beside the title while retaining desktop badges", () => {
+    expect(mobileSource).toContain('variant !== "mobile" && firstLevelNoteCount !== null');
+    expect(mobileSource).toContain("{firstLevelNoteCount}");
+    expect(mobileSource).toContain("data-mobile-knowledge-tree-first-level-note-count");
+    expect(mobileSource).toContain("{(showPath || updatedAt) && (");
+  });
 });

@@ -23,6 +23,7 @@ import AuthorStoryModal from "@/components/AuthorStoryModal";
 import DownloadPanel from "@/components/DownloadPanel";
 import { useSiteSettings, BUILTIN_FONTS, getBuiltinFontName } from "@/hooks/useSiteSettings";
 import { useUserPreferences } from "@/hooks/useUserPreferences";
+import { useMobileRailHidden } from "@/hooks/useMobileRailHidden";
 import { api } from "@/lib/api";
 import { isDesktop, checkForUpdates, onUpdaterStatus, getReleaseChannel, isPortableDesktop, getAppInfo, setDesktopHideMenuBar as setDesktopHideMenuBarPreference, type UpdaterPayload } from "@/lib/desktopBridge";
 import { CustomFont } from "@/types";
@@ -753,6 +754,7 @@ function SwitchesPanel() {
   const [mobileKnowledgeTreeCompact, setMobileKnowledgeTreeCompact] = useState(
     () => loadMobileKnowledgeTreeCompact(),
   );
+  const [mobileRailHidden, setMobileRailHidden] = useMobileRailHidden();
   const [desktopKnowledgeTreeMode, setDesktopKnowledgeTreeMode] = useState<DesktopKnowledgeTreeViewMode>(
     () => loadDesktopKnowledgeTreeViewMode(),
   );
@@ -949,6 +951,26 @@ function SwitchesPanel() {
             </div>
           </label>
         ))}
+
+        <label
+          data-settings-switch="mobile-rail-hidden"
+          className="flex items-start gap-2.5 px-3 py-2.5 cursor-pointer hover:bg-white/60 dark:hover:bg-zinc-900/25 transition-colors"
+        >
+          <input
+            type="checkbox"
+            checked={mobileRailHidden}
+            onChange={(event) => setMobileRailHidden(event.target.checked)}
+            className="mt-0.5 w-3.5 h-3.5 accent-indigo-600 cursor-pointer"
+          />
+          <div className="flex-1 min-w-0">
+            <div className="text-xs font-medium text-zinc-800 dark:text-zinc-200 leading-none">
+              {t("settings.mobileRailHidden")}
+            </div>
+            <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-1 leading-snug">
+              {t("settings.mobileRailHiddenDesc")}
+            </p>
+          </div>
+        </label>
 
         <label
           data-settings-switch="mobile-knowledge-tree"

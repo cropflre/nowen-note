@@ -114,10 +114,13 @@ export {
 export type { CreateProfileInput } from "./profile";
 
 export {
+  countResolvedConflicts,
   countUnresolvedConflicts,
   getConflict,
+  listResolvedConflicts,
   listUnresolvedConflicts,
   recordConflict,
+  reopenConflict,
   resolveConflict,
 } from "./conflict";
 export type { RecordConflictInput } from "./conflict";

@@ -141,6 +141,10 @@
         "hidden": "Switch to: hide nav rail"
       }
     },
+    "showMobileRail": "Show shortcuts",
+    "hideMobileRail": "Hide shortcuts",
+    "expandMobileControls": "Expand tree controls",
+    "collapseMobileControls": "Collapse tree controls",
     "exportNotebookAsMarkdown": "Export as Markdown",
     "deleteNotebook": "Delete Notebook",
     "moveNotebook": "Move to...",
@@ -662,8 +666,10 @@
     "switchesDesc": "Manage feature switches and default behavior in one place",
     "mobileKnowledgeTreeMode": "Use tree view on mobile",
     "mobileKnowledgeTreeModeDesc": "When enabled, use the expandable tree. When disabled, show recent documents first and browse folders one level at a time under All.",
+    "mobileRailHidden": "Hide shortcuts on mobile by default",
+    "mobileRailHiddenDesc": "Hide the left shortcut icons when opening the tree so content fills the screen. You can reveal them from the title bar.",
     "mobileKnowledgeTreeCompact": "Compact mobile tree",
-    "mobileKnowledgeTreeCompactDesc": "Off by default to match desktop spacing. Turn it on to reduce row height and show more items at once.",
+    "mobileKnowledgeTreeCompactDesc": "Keep the compact font size while adding safer row and action spacing to reduce accidental taps.",
     "desktopKnowledgeTreeMode": "Use quick browse on desktop",
     "desktopKnowledgeTreeModeDesc": "When enabled, browse Recent and All. When disabled, use the expandable tree with drag-and-drop organization.",
     "themeMode": "Theme Mode",

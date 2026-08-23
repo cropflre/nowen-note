@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import Sidebar from "@/components/Sidebar";
 import NavRail from "@/components/NavRail";
 import { useRailMode } from "@/hooks/useRailMode";
+import { useMobileRailHidden } from "@/hooks/useMobileRailHidden";
 import NoteList from "@/components/NoteList";
 import EditorPane from "@/components/EditorPane";
 import EditorSplitView from "@/components/EditorSplitView";
@@ -378,6 +379,7 @@ function AppLayout() {
   // 约束：主侧栏折叠时强制显示 Rail（即便偏好是 hidden），
   // 否则用户会陷入"既无 Rail 又无主侧栏"的死局，找不到任何导航入口。
   const [railMode] = useRailMode();
+  const [mobileRailHidden] = useMobileRailHidden();
   const railVisible = railMode !== "hidden" || state.sidebarCollapsed;
   const isTaskView = state.viewMode === "tasks";
   const isMindMapView = state.viewMode === "mindmaps";
@@ -699,12 +701,7 @@ function AppLayout() {
 
   return (
     <div className="flex h-[100dvh] w-screen bg-app-bg overflow-hidden transition-colors duration-200">
-      {/* ===== 移动端：抽屉式侧边栏 =====
-          v16 P3 后续：与桌面端对齐，抽屉内部也拆成 NavRail + Sidebar 双栏。
-          - NavRail variant="mobile"：48/64px，顶部含关闭 X 与图标/文字模式切换；
-                                       不接受 hidden 模式（抽屉里没意义）。
-          - Sidebar variant="mobile"：主区只渲染 WorkspaceSwitcher + 搜索 + 笔记本 + 标签。
-          抽屉总宽 max-w 从 340 → 380：Rail 约占 48-64px，主区保持 ~320px 与改造前持平。 */}
+      {/* 移动端目录使用全屏抽屉；快捷栏是独立偏好，默认隐藏以扩大内容区。 */}
       <AnimatePresence>
         {state.mobileSidebarOpen && (
           <>
@@ -722,16 +719,16 @@ function AppLayout() {
               animate={{ x: 0 }}
               exit={{ x: "-100%" }}
               transition={{ type: "spring", bounce: 0, duration: 0.35 }}
-              className="fixed inset-y-0 left-0 z-50 w-[88%] max-w-[380px] md:hidden shadow-2xl flex overflow-hidden"
+              className="fixed inset-y-0 left-0 z-50 flex w-screen max-w-none overflow-hidden shadow-2xl md:hidden"
               // 底部避让 home indicator / 手势栏：抽屉容器统一处理，
               // 内部 NavRail / Sidebar 不再各自加 safe-area-bottom，避免重复 padding。
               // 顶部状态栏避让仍由 NavRail / Sidebar Header 各自的 paddingTop 处理
               // （桌面端两者也复用，写在子组件里更通用）。
               style={{ paddingBottom: 'var(--safe-area-bottom)' }}
             >
-              <NavRail variant="mobile" />
+              {!mobileRailHidden && <NavRail variant="mobile" />}
               <div className="flex-1 min-w-0 overflow-hidden">
-                <Sidebar />
+                <Sidebar variant="mobile" />
               </div>
             </motion.div>
           </>

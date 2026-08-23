@@ -141,6 +141,10 @@
         "hidden": "切换为：隐藏导航栏"
       }
     },
+    "showMobileRail": "显示快捷栏",
+    "hideMobileRail": "隐藏快捷栏",
+    "expandMobileControls": "展开目录工具区",
+    "collapseMobileControls": "折叠目录工具区",
     "exportNotebookAsMarkdown": "导出为 Markdown",
     "deleteNotebook": "删除笔记本",
     "moveNotebook": "移动至...",
@@ -679,8 +683,10 @@
     "switchesDesc": "集中管理功能开关和默认行为",
     "mobileKnowledgeTreeMode": "移动端使用树形目录",
     "mobileKnowledgeTreeModeDesc": "开启后使用可展开的树形目录；关闭时优先展示最近文档，并通过“全部”逐层浏览。",
+    "mobileRailHidden": "移动端默认隐藏快捷栏",
+    "mobileRailHiddenDesc": "打开目录时隐藏左侧快捷图标，让目录铺满屏幕；可从标题栏随时展开。",
     "mobileKnowledgeTreeCompact": "移动端目录树紧凑模式",
-    "mobileKnowledgeTreeCompactDesc": "默认关闭并使用与桌面端一致的舒适间距；开启后缩小目录行高，适合一次浏览更多内容。",
+    "mobileKnowledgeTreeCompactDesc": "保持紧凑字体不变，并使用更易点按的行距和按钮间距，在显示更多内容的同时减少误触。",
     "desktopKnowledgeTreeMode": "桌面端使用快捷浏览",
     "desktopKnowledgeTreeModeDesc": "开启后提供“最近 / 全部”的快捷入口；关闭时使用支持展开、拖拽整理的树形目录。",
     "themeMode": "主题模式",

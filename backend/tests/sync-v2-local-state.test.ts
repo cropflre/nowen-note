@@ -28,8 +28,10 @@ import {
 import {
   countUnresolvedConflicts,
   getConflict,
+  listResolvedConflicts,
   listUnresolvedConflicts,
   recordConflict,
+  reopenConflict,
   resolveConflict,
 } from "../src/sync/conflict";
 import { runWithOutboxSuppressed } from "../src/sync/context";
@@ -633,6 +635,15 @@ test("解决冲突只改状态，历史版本继续保留以便反悔", () => {
   assert.deepEqual(JSON.parse(row?.localPayload as string), { content: "本机" });
   assert.deepEqual(JSON.parse(row?.remotePayload as string), { content: "服务器" });
   assert.equal(listUnresolvedConflicts(db, profile.id).length, 0);
+  assert.equal(listResolvedConflicts(db, profile.id).length, 1);
+
+  assert.equal(reopenConflict(db, id, profile.id), true);
+  const reopened = getConflict(db, id, profile.id);
+  assert.equal(reopened?.status, "unresolved");
+  assert.equal(reopened?.resolvedAt, null);
+  assert.equal(listResolvedConflicts(db, profile.id).length, 0);
+  assert.equal(listUnresolvedConflicts(db, profile.id).length, 1);
+  assert.equal(reopenConflict(db, id, profile.id), false, "重复撤销应保持幂等");
 });
 
 test("同一实体可反复冲突，不会因唯一约束丢失后续冲突", () => {

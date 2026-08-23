@@ -42,6 +42,7 @@ import {
 } from "@/components/knowledgeTreeImport";
 import { choose, confirm, prompt } from "@/components/ui/confirm";
 import { useContextMenu } from "@/hooks/useContextMenu";
+import { useMobileSidebarControlsCollapsed } from "@/hooks/useMobileSidebarControlsCollapsed";
 import { api } from "@/lib/api";
 import { affectedKnowledgeNoteIds } from "@/lib/knowledgeTreeDeleteReconcile";
 import {
@@ -300,6 +301,8 @@ export function KnowledgeTreePanel({
 }: KnowledgeTreePanelProps) {
   const { state } = useApp();
   const actions = useAppActions();
+  const [mobileControlsCollapsed] = useMobileSidebarControlsCollapsed();
+  const controlsCollapsed = variant === "mobile" && mobileControlsCollapsed;
   const threeColumnFolderNavigation = usesThreeColumnFolderNavigation({
     mode: layoutMode,
     noteListCollapsed: state.noteListCollapsed,
@@ -1168,7 +1171,7 @@ export function KnowledgeTreePanel({
         <div
           className={cn(
             "group relative flex min-w-0 items-center text-tx-secondary hover:bg-app-hover hover:text-tx-primary",
-            variant === "mobile" ? "rounded-sm" : "rounded-md",
+            variant === "mobile" ? "gap-0.5 rounded-sm" : "rounded-md",
             active && "bg-app-active text-tx-primary",
             selected && "bg-accent-primary/10 text-tx-primary ring-1 ring-inset ring-accent-primary/25",
             treeDropTarget?.nodeId === node.id && treeDropTarget.placement === "before"
@@ -1239,7 +1242,7 @@ export function KnowledgeTreePanel({
             onClick={() => hasChildren && void toggleDisclosure(node)}
             className={cn(
               "flex shrink-0 items-center justify-center text-tx-tertiary",
-              variant === "mobile" ? "h-6 w-4" : "h-7 w-5",
+              variant === "mobile" ? "h-8 w-5" : "h-7 w-5",
             )}
             aria-label={isExpanded ? "折叠" : "展开"}
           >
@@ -1250,7 +1253,7 @@ export function KnowledgeTreePanel({
             onClick={(event) => handleNodeSelection(event, node)}
             className={cn(
               "flex min-w-0 flex-1 items-center text-left",
-              variant === "mobile" ? "gap-1 py-0.5 text-[11px] leading-4" : "gap-1.5 py-1.5 text-xs",
+              variant === "mobile" ? "gap-1.5 py-1 text-[13px] leading-5" : "gap-1.5 py-1.5 text-xs",
             )}
             title={node.title}
           >
@@ -1263,11 +1266,22 @@ export function KnowledgeTreePanel({
               </span>
             )}
             {nodeIcon(node)}
-            <span className="min-w-0 flex-1 truncate">{node.title}</span>
+            <span className="flex min-w-0 flex-1 items-center gap-1">
+              <span className="min-w-0 truncate">{node.title}</span>
+              {variant === "mobile" && firstLevelNoteCount !== null && (
+                <span
+                  className="shrink-0 text-[10px] tabular-nums text-tx-tertiary"
+                  aria-label={`“${node.title}”下共 ${firstLevelNoteCount} 条笔记`}
+                  data-knowledge-tree-first-level-note-count=""
+                >
+                  {firstLevelNoteCount}
+                </span>
+              )}
+            </span>
             {node.nodeType === "folder" && node.isPasswordProtected === 1 && (
               <LockKeyhole size={11} className="shrink-0 text-tx-tertiary" aria-label="密码保护" />
             )}
-            {firstLevelNoteCount !== null && (
+            {variant !== "mobile" && firstLevelNoteCount !== null && (
               <span
                 className="min-w-4 shrink-0 rounded-full bg-app-hover px-1.5 text-center text-[10px] leading-4 tabular-nums text-tx-tertiary transition-opacity [@media(hover:hover)]:group-hover:opacity-0"
                 aria-label={`“${node.title}”下共 ${firstLevelNoteCount} 条笔记`}
@@ -1304,7 +1318,11 @@ export function KnowledgeTreePanel({
                 event.stopPropagation();
                 startInlineCreate(node, "note");
               }}
-              className={cn("h-6 w-6 items-center justify-center rounded text-tx-tertiary hover:bg-app-active", effectiveActionVisibility)}
+              className={cn(
+                "items-center justify-center rounded text-tx-tertiary hover:bg-app-active",
+                variant === "mobile" ? "h-8 w-8" : "h-6 w-6",
+                effectiveActionVisibility,
+              )}
               title="新建文档"
               aria-label={`在“${node.title}”下新建文档`}
             >
@@ -1318,7 +1336,11 @@ export function KnowledgeTreePanel({
               const rect = event.currentTarget.getBoundingClientRect();
               openMenuAt(rect.right, rect.bottom + 4, node.id, "knowledge-node");
             }}
-            className={cn("h-6 w-6 items-center justify-center rounded text-tx-tertiary hover:bg-app-active", effectiveActionVisibility)}
+            className={cn(
+              "items-center justify-center rounded text-tx-tertiary hover:bg-app-active",
+              variant === "mobile" ? "h-8 w-8" : "h-6 w-6",
+              effectiveActionVisibility,
+            )}
             title="更多"
           ><MoreHorizontal size={14} /></button>
         </div>
@@ -1421,6 +1443,7 @@ export function KnowledgeTreePanel({
     >
       <div className={cn(
         "flex",
+        controlsCollapsed && "hidden",
         variant === "mobile"
           ? "flex-col items-stretch gap-0.5 px-3 pb-1.5 pt-2"
           : compactToolbar
@@ -1516,7 +1539,7 @@ export function KnowledgeTreePanel({
         ) : null}
       </div>
 
-      {compactToolbar && (
+      {!controlsCollapsed && compactToolbar && (
         <KnowledgeTreeDropdownMenu
           open={mobileActionsOpen}
           anchor={mobileActionsButtonRef.current}
@@ -1554,7 +1577,10 @@ export function KnowledgeTreePanel({
       )}
 
       <div
-        className="relative min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain px-1 pb-3"
+        className={cn(
+          "relative min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain px-1 pb-3",
+          controlsCollapsed && "pt-1.5",
+        )}
         data-swipe-blocker="knowledge-tree-scroll"
         onClick={(event) => {
           const target = event.target as HTMLElement;
@@ -1595,7 +1621,13 @@ export function KnowledgeTreePanel({
           <>
             {(ownedRoots.length > 0 || hasRootDraft) && (
               <div data-knowledge-tree-section="owned">
-                <div className="flex items-center justify-between px-2 pb-1 pt-1 text-[10px] font-semibold uppercase tracking-wider text-tx-tertiary">
+                <div
+                  className={cn(
+                    "flex items-center justify-between px-2 pb-1 pt-1 text-[10px] font-semibold uppercase tracking-wider text-tx-tertiary",
+                    controlsCollapsed && "hidden",
+                  )}
+                  data-knowledge-tree-section-heading=""
+                >
                   <span>当前空间</span>
                   {variant !== "mobile" && (
                     <span
