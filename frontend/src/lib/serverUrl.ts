@@ -58,6 +58,33 @@ export function isLoopbackServerHostname(hostname: string): boolean {
   return normalized === "localhost" || normalized === "::1" || normalized.startsWith("127.");
 }
 
+/** 判断显式主机名是否属于本机或局域网；公共域名/IP 不应触发 mDNS 发现。 */
+export function isLanServerHostname(hostname: string): boolean {
+  const normalized = removeIpv6Brackets(hostname).trim().replace(/\.$/, "").toLowerCase();
+  if (!normalized) return false;
+  if (isLoopbackServerHostname(normalized)) return true;
+  if (normalized.endsWith(".local")) return true;
+
+  const ipv4 = normalized.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+  if (ipv4) {
+    const octets = ipv4.slice(1).map(Number);
+    if (octets.some((value) => value > 255)) return false;
+    const [a, b] = octets;
+    return a === 10
+      || (a === 100 && b >= 64 && b <= 127)
+      || (a === 169 && b === 254)
+      || (a === 172 && b >= 16 && b <= 31)
+      || (a === 192 && b === 168);
+  }
+
+  if (normalized.includes(":")) {
+    return /^f[cd][0-9a-f]{2}:/.test(normalized) || /^fe[89ab][0-9a-f]:/.test(normalized);
+  }
+
+  // 无点的单标签主机名通常由局域网 DNS/hosts 解析，例如 nas、nowen-note。
+  return !normalized.includes(".");
+}
+
 function authorityFromInput(value: string): string {
   const withoutScheme = value.replace(/^https?:\/\//i, "");
   const boundary = withoutScheme.search(/[/?#]/);

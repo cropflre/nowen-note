@@ -9,6 +9,34 @@ export const KNOWLEDGE_TREE_SCOPE_TRIGGER_REPAIR_SCHEMA_VERSION = 85;
  */
 export function ensureKnowledgeTreeScopeAwareTriggers(db: Database.Database): void {
   db.exec(`
+    DROP TRIGGER IF EXISTS knowledge_tree_notebooks_ai;
+    CREATE TRIGGER knowledge_tree_notebooks_ai
+    AFTER INSERT ON notebooks
+    BEGIN
+      INSERT OR IGNORE INTO knowledge_tree_nodes (
+        id, userId, workspaceId, scopeKey, parentId, nodeType, resourceType,
+        resourceId, sortOrder, isExpanded, isDeleted, deletedAt, createdAt, updatedAt
+      ) VALUES (
+        'notebook:' || NEW.id,
+        NEW.userId,
+        NEW.workspaceId,
+        CASE WHEN NEW.workspaceId IS NULL THEN 'personal:' || NEW.userId ELSE 'workspace:' || NEW.workspaceId END,
+        CASE
+          WHEN NEW.parentId IS NULL THEN NULL
+          WHEN EXISTS (
+            SELECT 1 FROM notebooks parent
+            WHERE parent.id = NEW.parentId
+              AND COALESCE(parent.workspaceId, '') = COALESCE(NEW.workspaceId, '')
+              AND (NEW.workspaceId IS NOT NULL OR parent.userId = NEW.userId)
+              AND parent.isDeleted = 0
+          ) THEN 'notebook:' || NEW.parentId
+          ELSE NULL
+        END,
+        'folder', 'notebook', NEW.id, COALESCE(NEW.sortOrder, 0), COALESCE(NEW.isExpanded, 1),
+        COALESCE(NEW.isDeleted, 0), NEW.deletedAt, NEW.createdAt, NEW.updatedAt
+      );
+    END;
+
     DROP TRIGGER IF EXISTS knowledge_tree_notebooks_parent_au;
     CREATE TRIGGER knowledge_tree_notebooks_parent_au
     AFTER UPDATE OF parentId, workspaceId ON notebooks

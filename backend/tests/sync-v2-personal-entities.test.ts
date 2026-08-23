@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import test from "node:test";
 
 import { getDb } from "../src/db/schema";
+import { ensureKnowledgeTreeTables } from "../src/db/knowledgeTreeMigration";
 import { applyMutation } from "../src/sync/apply";
 import { applyRemoteChanges } from "../src/sync/applyLocal";
 import { createProfile, switchActiveProfile } from "../src/sync/profile";
@@ -113,6 +114,50 @@ test("四类个人实体已纳入同步实体范围", () => {
       `${t} 未纳入 SYNC_ENTITY_TYPES`,
     );
   }
+});
+
+test("首次同步可写入已删除根容器下的笔记和子目录", () => {
+  resetAll();
+  const d = db();
+  // 复现运行期首次访问知识树：历史 base helper 会重建触发器，最终必须仍由
+  // scope-aware 版本接管，不能覆盖 v85/v92 的修复。
+  ensureKnowledgeTreeTables(d);
+  const rootId = "__nowen_root_documents__:personal:remote-user";
+  d.prepare(`
+    INSERT INTO notebooks (id, userId, name, isDeleted, deletedAt, createdAt, updatedAt)
+    VALUES (?, ?, '__NOWEN_ROOT_DOCUMENTS__', 1, datetime('now'), datetime('now'), datetime('now'))
+  `).run(rootId, USER_ID);
+
+  const noteId = randomUUID();
+  const childId = randomUUID();
+  assert.doesNotThrow(() => applyRemoteChanges(d, [
+    {
+      entityType: "note",
+      entityId: noteId,
+      operation: "upsert",
+      payload: { notebookId: rootId, title: "远端根文档", content: "{}" },
+    },
+    {
+      entityType: "notebook",
+      entityId: childId,
+      operation: "upsert",
+      payload: { parentId: rootId, name: "远端回收站目录", isDeleted: true },
+    },
+  ], { userId: USER_ID }));
+
+  const note = d.prepare("SELECT notebookId FROM notes WHERE id = ?").get(noteId) as { notebookId: string };
+  const child = d.prepare("SELECT parentId FROM notebooks WHERE id = ?").get(childId) as { parentId: string };
+  assert.equal(note.notebookId, rootId, "业务表仍保留根文档容器关系");
+  assert.equal(child.parentId, rootId, "业务表仍保留已删除父子关系");
+
+  const projected = d.prepare(`
+    SELECT resourceType, parentId FROM knowledge_tree_nodes
+    WHERE resourceId IN (?, ?) ORDER BY resourceType
+  `).all(childId, noteId) as Array<{ resourceType: string; parentId: string | null }>;
+  assert.deepEqual(projected, [
+    { resourceType: "note", parentId: null },
+    { resourceType: "notebook", parentId: null },
+  ]);
 });
 
 // ===========================================================================

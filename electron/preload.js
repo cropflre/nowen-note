@@ -379,6 +379,14 @@ contextBridge.exposeInMainWorld("nowenDesktop", {
     return ipcRenderer.invoke("desktop:get-local-auth");
   },
 
+  getLocalLoginHint() {
+    return ipcRenderer.invoke("desktop:get-local-login-hint");
+  },
+
+  completeLocalLoginHint(payload) {
+    return ipcRenderer.invoke("desktop:complete-local-login-hint", payload);
+  },
+
   /**
    * Lite → Local 数据本地化迁移（阶段 E）。
    *

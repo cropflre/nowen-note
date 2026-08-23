@@ -722,7 +722,8 @@ function stopBackendForMigration(timeoutMs = 2000) {
 // 设计：
 //   - full 模式下，backend 起来后向自身 localhost:port 走一遍 /auth/login；
 //     用户名固定为 "desktop"，密码用 userData/.local_account_secret 持久化的 32B base64。
-//   - 第一次启动找不到用户 → 直接 POST /auth/register 创建（首个用户自动成为 admin）。
+//   - 第一次启动找不到用户，或存量 desktop 账号不是管理员 → 通过桌面专用受保护接口
+//     创建/升级为 admin，避免被 seed 阶段已创建的 admin 账号挤成普通用户。
 //   - 拿到 token 后缓存在主进程，preload 通过 ipcMain "desktop:get-local-auth" 暴露给前端。
 //   - 失败不抛：renderer 拿不到 localAuth 就走原本的登录页，相当于"零登录"功能未生效。
 //
@@ -749,6 +750,10 @@ function getLocalAccountSecret() {
     console.error("[Electron] write .local_account_secret failed:", e?.message || e);
   }
   return secret;
+}
+
+function getLocalLoginServerUrl() {
+  return backendPort > 0 ? `http://127.0.0.1:${backendPort}` : "";
 }
 
 // 简易 JSON POST：只在 127.0.0.1:backendPort 上用，5s 超时
@@ -786,6 +791,22 @@ function localApiRequest(pathname, body, extraHeaders = {}) {
   });
 }
 
+async function provisionLocalAdminAccount(username, password) {
+  const response = await localApiRequest(
+    "/auth/desktop/reset-local",
+    { username, password },
+    { "X-Nowen-Desktop-Secret": password },
+  );
+  if (response.status !== 200 || !response.data?.token || response.data?.user?.role !== "admin") {
+    return null;
+  }
+  return {
+    token: response.data.token,
+    refreshToken: response.data.refreshToken,
+    user: response.data.user,
+  };
+}
+
 async function ensureLocalAccount() {
   if (currentMode !== "full") return null;
   if (!backendPort) return null;
@@ -796,35 +817,28 @@ async function ensureLocalAccount() {
   // 先尝试登录
   try {
     const r = await localApiRequest("/auth/login", { username, password });
-    if (r.status === 200 && r.data?.token) {
-      console.log("[Electron] local desktop account login OK");
+    if (r.status === 200 && r.data?.token && r.data?.user?.role === "admin") {
+      console.log("[Electron] local desktop admin login OK");
       return { token: r.data.token, refreshToken: r.data.refreshToken, user: r.data.user };
     }
-    // 401：密码错或用户存在但密码对不上；404 / 400：用户不存在 → 走注册
+    if (r.status === 200 && r.data?.token) {
+      console.warn("[Electron] local desktop account is not admin; promoting it");
+    }
   } catch (e) {
     console.warn("[Electron] local login failed:", e?.message || e);
   }
 
-  // 注册（首个用户自动 admin；后续用户也能注册成功 —— 即使关闭注册开关，
-  //   首启路径上注册开关本身就是默认开的，且我们要的就是"开箱即用"）
+  // 后端启动时 seed 已经会创建 admin，因此不能走普通注册接口：普通注册只会得到 user。
+  // 桌面专用接口受随机本机 secret 保护，负责创建或升级专用 desktop 管理员账号。
   try {
-    const r = await localApiRequest("/auth/register", {
-      username,
-      password,
-      displayName: "本机用户",
-    });
-    if ((r.status === 200 || r.status === 201) && r.data?.token) {
-      console.log("[Electron] local desktop account registered");
-      return { token: r.data.token, refreshToken: r.data.refreshToken, user: r.data.user };
+    const account = await provisionLocalAdminAccount(username, password);
+    if (account) {
+      console.log("[Electron] local desktop admin account provisioned");
+      return account;
     }
-    // 409：用户名已存在（说明密码被人改了或 secret 文件丢了），
-    //   不去暴力重置，让用户在登录页手动处理
-    console.warn(
-      "[Electron] local register failed: status=" + r.status +
-        " err=" + (r.data?.error || ""),
-    );
+    console.warn("[Electron] local desktop admin provisioning failed");
   } catch (e) {
-    console.warn("[Electron] local register error:", e?.message || e);
+    console.warn("[Electron] local desktop admin provisioning error:", e?.message || e);
   }
   return null;
 }
@@ -834,16 +848,12 @@ async function resetLocalAccountAuth() {
   if (!backendPort) return { ok: false, error: "backend-not-ready" };
   const password = getLocalAccountSecret();
   try {
-    const r = await localApiRequest(
-      "/auth/desktop/reset-local",
-      { username: "desktop", password },
-      { "X-Nowen-Desktop-Secret": password },
-    );
-    if (r.status === 200 && r.data?.token) {
-      localAuthCache = { token: r.data.token, refreshToken: r.data.refreshToken, user: r.data.user };
-      return { ok: true, token: r.data.token, refreshToken: r.data.refreshToken, user: r.data.user };
+    const account = await provisionLocalAdminAccount("desktop", password);
+    if (account) {
+      localAuthCache = account;
+      return { ok: true, ...account };
     }
-    return { ok: false, error: r.data?.error || `status=${r.status}` };
+    return { ok: false, error: "local-admin-provisioning-failed" };
   } catch (e) {
     return { ok: false, error: e?.message || String(e) };
   }
@@ -2204,7 +2214,47 @@ ipcMain.handle("task:notify-permission", () => {
     // SEC-ELECTRON-01-B: 高权限 IPC 来源校验
     const reject = assertMainWindowSender(event);
     if (reject) return reject;
+    if (localAuthCache && !readSettings().localLoginHintDismissed) {
+      writeSettings({ localLoginHintDismissed: true });
+    }
     return localAuthCache;
+  });
+
+  // Full 本地模式首次手动登录提示。密码只在尚未成功登录时返回给受信任主窗口；
+  // renderer 确认本地 desktop 账号登录成功后，settings.json 会永久关闭提示。
+  ipcMain.removeHandler("desktop:get-local-login-hint");
+  ipcMain.handle("desktop:get-local-login-hint", (event) => {
+    const reject = assertMainWindowSender(event);
+    if (reject) return reject;
+    const serverUrl = getLocalLoginServerUrl();
+    if (currentMode !== "full" || currentRuntime !== "local" || !serverUrl) return null;
+    if (readSettings().localLoginHintDismissed) return null;
+    return {
+      serverUrl,
+      username: "desktop",
+      password: getLocalAccountSecret(),
+      role: "admin",
+    };
+  });
+
+  ipcMain.removeHandler("desktop:complete-local-login-hint");
+  ipcMain.handle("desktop:complete-local-login-hint", (event, payload) => {
+    const reject = assertMainWindowSender(event);
+    if (reject) return reject;
+    const expectedServerUrl = getLocalLoginServerUrl();
+    const serverUrl = String(payload?.serverUrl || "").replace(/\/+$/, "").toLowerCase();
+    const username = String(payload?.username || "").trim();
+    if (
+      currentMode !== "full"
+      || currentRuntime !== "local"
+      || !expectedServerUrl
+      || serverUrl !== expectedServerUrl.toLowerCase()
+      || username !== "desktop"
+    ) {
+      return { ok: false, reason: "not-local-desktop-login" };
+    }
+    writeSettings({ localLoginHintDismissed: true });
+    return { ok: true };
   });
 
   // Phase A: 切换到云账号时 renderer 调这个清掉本地缓存，避免下次启动又被自动登录。

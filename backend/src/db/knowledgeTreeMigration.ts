@@ -6,6 +6,7 @@ import {
 } from "./knowledgeTreeMigrationCore.js";
 import { ensureKnowledgeTreeLegacySync } from "./knowledgeTreeLegacySyncMigration.js";
 import { ensureKnowledgeTreeStructuralGuard } from "./knowledgeTreeStructuralGuardMigration.js";
+import { ensureKnowledgeTreeScopeAwareTriggers } from "./knowledgeTreeScopeTriggerRepairMigration.js";
 
 export { KNOWLEDGE_TREE_SCHEMA_VERSION };
 
@@ -24,6 +25,9 @@ export function ensureKnowledgeTreeTables(db: Database.Database): void {
   ensureBaseKnowledgeTreeTables(db);
   ensureKnowledgeTreeLegacySync(db);
   ensureKnowledgeTreeStructuralGuard(db);
+  // base helper 会重建历史版 notes/notebooks 触发器；scope-aware 修复必须最后安装，
+  // 否则运行期首次访问知识树会把 v85 的修复覆盖掉。
+  ensureKnowledgeTreeScopeAwareTriggers(db);
   initializedConnections.add(db);
 }
 

@@ -111,6 +111,16 @@
       "removeConfirm": "删除 {{username}} 的登录历史？",
       "removeFailed": "删除登录历史失败"
     },
+    "localDesktopLogin": {
+      "title": "本机管理员登录信息",
+      "description": "这是当前桌面端内置服务的管理员登录信息，登录成功后将自动隐藏。",
+      "address": "登录地址",
+      "username": "账号",
+      "password": "密码",
+      "role": "身份",
+      "roleAdmin": "管理员",
+      "fillButton": "一键填入本机账号"
+    },
     "demoBanner": {
       "title": "这是体验环境",
       "desc": "您可以使用体验账号 {{username}} / {{password}} 登录，数据可能会被定期清理。",

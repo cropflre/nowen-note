@@ -47,6 +47,7 @@ import { syncBootstrapMigration } from "./syncBootstrapMigration.js";
 import { syncPersonalEntitiesMigration } from "./syncPersonalEntitiesMigration.js";
 import { syncWorkspaceScopeMigration } from "./syncWorkspaceScopeMigration.js";
 import { knowledgeTreeScopeTriggerRepairMigration } from "./knowledgeTreeScopeTriggerRepairMigration.js";
+import { knowledgeTreeRuntimeTriggerRepairMigration } from "./knowledgeTreeRuntimeTriggerRepairMigration.js";
 import { apiTokenUsageMigration } from "./apiTokenUsageMigration.js";
 
 export type { Migration } from "./migrations.impl.js";
@@ -352,6 +353,7 @@ export const MIGRATIONS: Migration[] = [
   syncWorkspaceScopeMigration,
   knowledgeTreeScopeTriggerRepairMigration,
   apiTokenUsageMigration,
+  knowledgeTreeRuntimeTriggerRepairMigration,
 ].sort((a, b) => a.version - b.version);
 
 export const CURRENT_SCHEMA_VERSION: number = MIGRATIONS.reduce(

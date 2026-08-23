@@ -69,4 +69,26 @@ describe("已移除的连接与迁移功能", () => {
     expect(editorSource).toContain("preserveNoteSyncConflictSnapshot");
     expect(syncEngineSource).not.toContain("请在同步状态面板处理");
   });
+
+  it("删除完整离线副本功能但保留断网写入和旧客户端兼容", () => {
+    const settingsSource = readSource("src/components/SettingsModal.tsx");
+    const runtimeSource = readSource("src/components/OfflineSyncRuntime.tsx");
+    const networkSource = readSource("src/hooks/useNetworkStatus.ts");
+    const syncEngineSource = readSource("src/lib/syncEngine.ts");
+    const backendSource = fs.readFileSync(
+      path.resolve(process.cwd(), "../backend/src/index.ts"),
+      "utf8",
+    );
+
+    expect(settingsSource).not.toContain("OfflineSyncSettings");
+    expect(settingsSource).not.toContain('id: "offlineSync"');
+    expect(fs.existsSync(path.resolve(process.cwd(), "src/components/settings/OfflineSyncSettings.tsx"))).toBe(false);
+    expect(fs.existsSync(path.resolve(process.cwd(), "src/lib/offlineWorkspaceSync.ts"))).toBe(false);
+    expect(runtimeSource).not.toContain("offlineWorkspaceSync");
+    expect(networkSource).not.toContain("offlineWorkspaceSync");
+    expect(networkSource).toContain("syncNow");
+    expect(syncEngineSource).toContain('from "@/lib/offlineQueue"');
+    expect(syncEngineSource).not.toContain("offlineWorkspaceSync");
+    expect(backendSource).toContain('app.route("/api/offline-sync", offlineSyncRouter)');
+  });
 });

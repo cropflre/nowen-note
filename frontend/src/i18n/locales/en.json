@@ -111,6 +111,16 @@
       "removeConfirm": "Remove login history for {{username}}?",
       "removeFailed": "Failed to remove login history"
     },
+    "localDesktopLogin": {
+      "title": "Local administrator sign-in",
+      "description": "Use this administrator account for the desktop's embedded service. It disappears after a successful sign-in.",
+      "address": "Address",
+      "username": "Account",
+      "password": "Password",
+      "role": "Role",
+      "roleAdmin": "Administrator",
+      "fillButton": "Fill local account"
+    },
     "demoBanner": {
       "title": "Demo environment",
       "desc": "Try it out with the demo account {{username}} / {{password}}. Data may be reset periodically.",

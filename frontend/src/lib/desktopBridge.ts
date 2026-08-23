@@ -347,6 +347,8 @@ interface NowenDesktopAPI {
     migrate?: (targetPath: string) => Promise<DataDirMigrationResult>;
   };
   getLocalAuth?: () => Promise<{ token: string; refreshToken?: string; user: unknown } | null>;
+  getLocalLoginHint?: () => Promise<DesktopLocalLoginHint | null>;
+  completeLocalLoginHint?: (payload: { serverUrl: string; username: string }) => Promise<{ ok: boolean; reason?: string }>;
   clearLocalAuth?: () => Promise<{ ok: boolean }>;
   resetLocalAuth?: () => Promise<{ ok: boolean; token?: string; refreshToken?: string; user?: unknown; error?: string }>;
   startLiteMigration?: (serverUrl: string, token: string) => Promise<LiteMigrationResult>;
@@ -473,6 +475,13 @@ export async function getAppInfo(): Promise<AppInfo | null> {
   return bridge.getAppInfo();
 }
 
+export interface DesktopLocalLoginHint {
+  serverUrl: string;
+  username: string;
+  password: string;
+  role: "admin";
+}
+
 export async function startLiteMigration(serverUrl: string, token: string): Promise<LiteMigrationResult> {
   const bridge = getBridge();
   if (!bridge?.startLiteMigration) return { ok:false,error:"当前桌面端不支持数据本地化迁移" };
@@ -490,6 +499,23 @@ export async function getDesktopLocalAuth(): Promise<{ token: string; user: unkn
   const bridge = getBridge();
   if (!bridge?.getLocalAuth) return null;
   return bridge.getLocalAuth();
+}
+
+/** 获取 Full 桌面端尚未使用的本地登录信息；成功登录后主进程返回 null。 */
+export async function getDesktopLocalLoginHint(): Promise<DesktopLocalLoginHint | null> {
+  const bridge = getBridge();
+  if (!bridge?.getLocalLoginHint) return null;
+  return bridge.getLocalLoginHint();
+}
+
+/** 确认本地 desktop 账号已登录成功，并持久化关闭明文登录提示。 */
+export async function completeDesktopLocalLoginHint(
+  serverUrl: string,
+  username: string,
+): Promise<{ ok: boolean; reason?: string }> {
+  const bridge = getBridge();
+  if (!bridge?.completeLocalLoginHint) return { ok: false, reason: "not-supported" };
+  return bridge.completeLocalLoginHint({ serverUrl, username });
 }
 
 /** SEC-ELECTRON-01-C: 获取诊断信息（敏感字段，仅在诊断/关于页面调用） */

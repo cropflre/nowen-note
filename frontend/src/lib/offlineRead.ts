@@ -156,7 +156,7 @@ function matchesActiveWorkspace(value: { workspaceId?: string | null }): boolean
  *
  * 历史实现保存离线附件时曾使用 `blob.size || attachment.size`。如果某次下载得到
  * 0 字节 Blob，它会被伪装成 manifest 的正常大小并长期命中。这里用 Blob 自身的
- * 实际字节数重新校验，发现坏缓存就删除并重新排队，不再污染当前图片渲染。
+ * 实际字节数重新校验，发现坏缓存就删除，后续在线渲染回退到服务端资源。
  */
 async function hydrateValidatedOfflineAttachments(noteId: string): Promise<number> {
   const records = await getOfflineAttachmentsByNote(noteId);

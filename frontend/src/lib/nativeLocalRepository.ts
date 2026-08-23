@@ -302,7 +302,7 @@ export class NativeLocalRepository implements LocalRepository {
     await this.db.transaction(async(tx)=>{
       for(const row of notebooks){
         const id=notebookMap.get(String(row.id))!;const createdAt=now();
-        const payload={...row,id,scopeKey:"personal",workspaceId:null,userId:this.userId,
+        const payload: Record<string, unknown> & { id: string }={...row,id,scopeKey:"personal",workspaceId:null,userId:this.userId,
           parentId:row.parentId?notebookMap.get(String(row.parentId))||null:null,
           name:`${String(row.name||"工作区副本")}（本地副本）`,createdAt,updatedAt:createdAt};
         await tx.run(`INSERT INTO notebooks (id,scopeKey,workspaceId,userId,parentId,name,description,icon,color,sortOrder,isExpanded,isDeleted,deletedAt,createdAt,updatedAt)
@@ -311,13 +311,13 @@ export class NativeLocalRepository implements LocalRepository {
       }
       for(const row of tags){
         const id=tagMap.get(String(row.id))!;const createdAt=now();
-        const payload={...row,id,scopeKey:"personal",workspaceId:null,userId:this.userId,name:`${String(row.name||"标签")}（副本 ${id.slice(0,6)}）`,createdAt,updatedAt:createdAt};
+        const payload: Record<string, unknown> & { id: string }={...row,id,scopeKey:"personal",workspaceId:null,userId:this.userId,name:`${String(row.name||"标签")}（副本 ${id.slice(0,6)}）`,createdAt,updatedAt:createdAt};
         await tx.run("INSERT INTO tags (id,scopeKey,workspaceId,userId,name,color,createdAt,updatedAt) VALUES (?,?,?,?,?,?,?,?)",[id,"personal",null,this.userId,payload.name,payload.color,createdAt,createdAt]);
         await this.enqueue(tx,"tag",id,"upsert",payload,undefined,"personal");
       }
       for(const row of notes){
         const id=noteMap.get(String(row.id))!;const notebookId=notebookMap.get(String(row.notebookId));if(!notebookId)continue;const createdAt=now();
-        const payload={...row,id,scopeKey:"personal",workspaceId:null,userId:this.userId,notebookId,title:`${String(row.title||"无标题笔记")}（工作区副本）`,version:1,createdAt,updatedAt:createdAt};
+        const payload: Record<string, unknown> & { id: string }={...row,id,scopeKey:"personal",workspaceId:null,userId:this.userId,notebookId,title:`${String(row.title||"无标题笔记")}（工作区副本）`,version:1,createdAt,updatedAt:createdAt};
         await tx.run(`INSERT INTO notes (id,scopeKey,workspaceId,userId,notebookId,title,content,contentText,contentFormat,isPinned,isFavorite,isLocked,isArchived,isTrashed,trashedAt,version,sortOrder,createdAt,updatedAt)
           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,[id,"personal",null,this.userId,notebookId,payload.title,payload.content,payload.contentText,payload.contentFormat,payload.isPinned,payload.isFavorite,payload.isLocked,payload.isArchived,payload.isTrashed,payload.trashedAt,1,payload.sortOrder,createdAt,createdAt]);
         await this.enqueue(tx,"note",id,"upsert",payload,undefined,"personal");

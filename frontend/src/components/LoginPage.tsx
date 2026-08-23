@@ -10,7 +10,7 @@ import {
   setServerUrl,
   testServerConnection,
 } from "@/lib/api";
-import { buildServerUrl, parseServerUrl, type ServerAddressParts } from "@/lib/serverUrl";
+import { buildServerUrl, isLanServerHostname, parseServerUrl, type ServerAddressParts } from "@/lib/serverUrl";
 import ServerAddressInput from "@/components/ServerAddressInput";
 import LanDiscoveryPanel from "@/components/LanDiscoveryPanel";
 import { useKeyboardLayout } from "@/hooks/useCapacitor";
@@ -26,6 +26,11 @@ import {
 import type { User as AuthUser } from "@/types";
 import { isUgreenRemoteAccessUrl, openUgreenRemoteWorkspace } from "@/lib/ugreenRemoteAccess";
 import { clearAuthTokens, storeAuthTokens } from "@/lib/authSession";
+import {
+  completeDesktopLocalLoginHint,
+  getDesktopLocalLoginHint,
+  type DesktopLocalLoginHint,
+} from "@/lib/desktopBridge";
 
 interface LoginPageProps {
   onLogin: (token: string, user: any) => void;
@@ -84,6 +89,7 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
   const [isLoading, setIsLoading] = useState(false);
   const [isAuthorizingUgreen, setIsAuthorizingUgreen] = useState(false);
   const [error, setError] = useState("");
+  const [localLoginHint, setLocalLoginHint] = useState<DesktopLocalLoginHint | null>(null);
   const pendingReauthRef = useRef<{ serverUrl: string; username: string } | null>(null);
   const pendingUgreenLoginRef = useRef(false);
 
@@ -94,6 +100,18 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
   const isDesktopClient = !!(window as any).nowenDesktop?.isDesktop;
   const isNativeMobileClient = isMobileNativeClientRuntime() && !isDesktopClient;
   const isMobileUgreenAddress = isNativeMobileClient && isUgreenRemoteAccessUrl(buildServerUrl(serverParts));
+  const showLanDiscovery = !serverParts.host.trim() || isLanServerHostname(serverParts.host);
+
+  useEffect(() => {
+    if (!isClientMode || !isDesktopClient) return;
+    let cancelled = false;
+    void getDesktopLocalLoginHint().then((hint) => {
+      if (!cancelled) setLocalLoginHint(hint);
+    }).catch(() => {
+      if (!cancelled) setLocalLoginHint(null);
+    });
+    return () => { cancelled = true; };
+  }, [isClientMode, isDesktopClient]);
 
   useEffect(() => {
     const desktop = (window as any).nowenDesktop;
@@ -358,6 +376,40 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
     }
   };
 
+  const completeLocalLoginHintIfMatched = async (baseUrl: string, loginUsername: string) => {
+    const hint = localLoginHint;
+    if (!hint) return;
+    const normalizedBaseUrl = baseUrl.replace(/\/+$/, "").toLowerCase();
+    const normalizedHintUrl = hint.serverUrl.replace(/\/+$/, "").toLowerCase();
+    if (normalizedBaseUrl !== normalizedHintUrl || loginUsername.trim() !== hint.username) return;
+    try {
+      const result = await completeDesktopLocalLoginHint(baseUrl, loginUsername.trim());
+      if (result.ok) setLocalLoginHint(null);
+    } catch {
+      // 登录本身已经成功；提示状态写入失败不能阻断用户进入工作台。
+    }
+  };
+
+  const fillLocalLoginHint = () => {
+    if (!localLoginHint) return;
+    pendingReauthRef.current = null;
+    setMode("login");
+    setLoginStep("password");
+    setServerParts(parseServerUrl(localLoginHint.serverUrl));
+    setServerStatus("ok");
+    setServerUrl(localLoginHint.serverUrl);
+    localStorage.setItem("nowen-server-url-last", localLoginHint.serverUrl);
+    setUsername(localLoginHint.username);
+    setPassword(localLoginHint.password);
+    setError("");
+  };
+
+  const handleAccountSwitched = (token: string, switchedUser: AuthUser) => {
+    const baseUrl = getServerUrl() || buildServerUrl(serverParts);
+    void completeLocalLoginHintIfMatched(baseUrl, switchedUser.username || "");
+    (onAccountLogin || onLogin)(token, switchedUser);
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
@@ -387,6 +439,7 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
           displayName: displayName.trim() || undefined,
         }, baseUrl || undefined);
         storeAuthTokens({ token: data.token, refreshToken: data.refreshToken ?? null });
+        await completeLocalLoginHintIfMatched(baseUrl || "", data.user?.username || username.trim());
         onLogin(data.token, data.user);
         return;
       }
@@ -422,6 +475,7 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
 
       await persistRememberedLogin(baseUrl || "");
       storeAuthTokens({ token: data.token, refreshToken: data.refreshToken ?? null });
+      await completeLocalLoginHintIfMatched(baseUrl || "", data.user?.username || username.trim());
       onLogin(data.token, data.user);
     } catch (err: any) {
       const message = err?.message || String(err || t("auth.networkError"));
@@ -488,6 +542,7 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
 
       await persistRememberedLogin(baseUrl || "");
       storeAuthTokens({ token: data.token, refreshToken: data.refreshToken ?? null });
+      await completeLocalLoginHintIfMatched(baseUrl || "", data.user?.username || twoFactorUsername || username.trim());
       onLogin(data.token, data.user);
     } catch (err: any) {
       setError(err?.message || t("auth.networkError"));
@@ -582,7 +637,7 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
             <AccountLoginHistoryList
               className="mb-5"
               title={t("auth.loginHistory.recentAccounts")}
-              onSwitched={(token, switchedUser) => (onAccountLogin || onLogin)(token, switchedUser)}
+              onSwitched={handleAccountSwitched}
               onRequiresReauth={handleHistoryReauth}
             />
           )}
@@ -607,6 +662,48 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
             </button>
           </div>
           )}
+
+          <AnimatePresence>
+            {!isTwoFactorStep && !isRegister && localLoginHint && (
+              <motion.div
+                data-desktop-local-login-hint
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: "auto" }}
+                exit={{ opacity: 0, height: 0 }}
+                className="mb-5 overflow-hidden rounded-xl border border-indigo-200 bg-indigo-50/70 p-3.5 dark:border-indigo-500/25 dark:bg-indigo-500/10"
+              >
+                <div className="mb-2.5">
+                  <p className="text-sm font-medium text-indigo-800 dark:text-indigo-200">{t("auth.localDesktopLogin.title")}</p>
+                  <p className="mt-0.5 text-[11px] leading-4 text-indigo-600/80 dark:text-indigo-300/70">{t("auth.localDesktopLogin.description")}</p>
+                </div>
+                <dl className="space-y-1.5 text-xs">
+                  <div className="flex gap-2">
+                    <dt className="w-14 flex-shrink-0 text-indigo-500 dark:text-indigo-400">{t("auth.localDesktopLogin.address")}</dt>
+                    <dd className="min-w-0 break-all font-mono text-zinc-700 dark:text-zinc-200">{localLoginHint.serverUrl}</dd>
+                  </div>
+                  <div className="flex gap-2">
+                    <dt className="w-14 flex-shrink-0 text-indigo-500 dark:text-indigo-400">{t("auth.localDesktopLogin.username")}</dt>
+                    <dd className="min-w-0 break-all font-mono text-zinc-700 dark:text-zinc-200">{localLoginHint.username}</dd>
+                  </div>
+                  <div className="flex gap-2">
+                    <dt className="w-14 flex-shrink-0 text-indigo-500 dark:text-indigo-400">{t("auth.localDesktopLogin.password")}</dt>
+                    <dd className="min-w-0 break-all font-mono text-zinc-700 dark:text-zinc-200">{localLoginHint.password}</dd>
+                  </div>
+                  <div className="flex gap-2">
+                    <dt className="w-14 flex-shrink-0 text-indigo-500 dark:text-indigo-400">{t("auth.localDesktopLogin.role")}</dt>
+                    <dd className="min-w-0 text-zinc-700 dark:text-zinc-200">{t("auth.localDesktopLogin.roleAdmin")}</dd>
+                  </div>
+                </dl>
+                <button
+                  type="button"
+                  onClick={fillLocalLoginHint}
+                  className="mt-3 w-full rounded-lg border border-indigo-200 bg-white/80 px-3 py-2 text-xs font-medium text-indigo-700 transition-colors hover:bg-white dark:border-indigo-500/30 dark:bg-indigo-950/30 dark:text-indigo-200 dark:hover:bg-indigo-950/50"
+                >
+                  {t("auth.localDesktopLogin.fillButton")}
+                </button>
+              </motion.div>
+            )}
+          </AnimatePresence>
 
           <form ref={formRef} onSubmit={isTwoFactorStep ? handleTwoFactorSubmit : handleSubmit} className="space-y-4">
             {isTwoFactorStep ? (
@@ -672,13 +769,15 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
                     rightSlot={serverStatusIcon()}
                   />
                   <p className="text-xs text-zinc-400 dark:text-zinc-500">{t("auth.serverHint")}</p>
-                  <LanDiscoveryPanel
-                    currentHostIsEmpty={!serverParts.host.trim()}
-                    onSelect={(next) => {
-                      setServerParts(next);
-                      setServerStatus("idle");
-                    }}
-                  />
+                  {showLanDiscovery && (
+                    <LanDiscoveryPanel
+                      currentHostIsEmpty={!serverParts.host.trim()}
+                      onSelect={(next) => {
+                        setServerParts(next);
+                        setServerStatus("idle");
+                      }}
+                    />
+                  )}
                 </motion.div>
               )}
             </AnimatePresence>

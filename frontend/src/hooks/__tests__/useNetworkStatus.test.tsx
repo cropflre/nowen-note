@@ -2,6 +2,8 @@ import React, { act, useEffect } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+(globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
+
 const mocks = vi.hoisted(() => ({
   queueLength: 0,
   queueSubscribers: new Set<(count: number) => void>(),
@@ -154,7 +156,7 @@ describe("useNetworkStatus recovery semantics", () => {
     expect(snapshot?.wasOffline).toBe(false);
   });
 
-  it("stays silent when the network recovers without offline edits", async () => {
+  it("refreshes once without showing a recovery signal when reconnecting without offline edits", async () => {
     setOnline(false);
     await act(async () => {
       window.dispatchEvent(new Event("offline"));
@@ -169,7 +171,7 @@ describe("useNetworkStatus recovery semantics", () => {
 
     expect(snapshot?.isOnline).toBe(true);
     expect(snapshot?.wasOffline).toBe(false);
-    expect(mocks.syncNow).not.toHaveBeenCalled();
+    expect(mocks.syncNow).toHaveBeenCalledTimes(1);
   });
 
   it("does not signal success when syncNow returns ok=false", async () => {

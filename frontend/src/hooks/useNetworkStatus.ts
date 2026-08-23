@@ -23,7 +23,6 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { getBaseUrl } from "@/lib/api";
 import { getQueueLength, subscribe } from "@/lib/offlineQueue";
 import { syncNow } from "@/lib/syncEngine";
-import { syncOfflineChangesIfDue } from "@/lib/offlineWorkspaceSync";
 
 const PROBE_INTERVAL = 30_000;
 const PROBE_TIMEOUT = 3_000;
@@ -188,11 +187,9 @@ export function useNetworkStatus({ signalRecovery = true }: UseNetworkStatusOpti
     const pendingBefore = recoveryPendingCountRef.current;
     const queueLength = getQueueLength();
     if (queueLength === 0) {
-      // Even without local writes, the server may have changed on another device.
-      // A real reconnection forces a delta pull; steady probes respect the user interval.
-      void syncOfflineChangesIfDue(wasActuallyOffline).catch((error) => {
-        console.warn("[useNetworkStatus] offline workspace delta pull failed", error);
-      });
+      // 即使没有本地待提交修改，真实断线重连后也要通过现有同步引擎刷新服务端变化。
+      // 稳态探活不触发，避免每 30 秒重复拉取。
+      if (wasActuallyOffline) void doFlush(true);
       if (wasActuallyOffline) recoveryPendingCountRef.current = 0;
       setPendingCount(0);
       return true;

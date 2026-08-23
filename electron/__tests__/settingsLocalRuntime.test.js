@@ -38,7 +38,16 @@ test("全新安装默认 full，等价于 runtime=local 且不开启同步", () 
     assert.equal(value.syncEnabled, false);
     assert.equal(value.activeSyncProfileId, null);
     assert.equal(value.liteMigrationStatus, "none");
+    assert.equal(value.localLoginHintDismissed, false);
     assert.equal(settings.shouldUseLocalRuntime(value), true);
+  });
+});
+
+test("本地登录提示在成功后持久化关闭", () => {
+  withTempSettings(undefined, (dir) => {
+    settings.writeSettings({ localLoginHintDismissed: true });
+    settings.setSettingsPath(dir);
+    assert.equal(settings.readSettings().localLoginHintDismissed, true);
   });
 });
 

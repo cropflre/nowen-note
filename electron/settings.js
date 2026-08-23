@@ -10,6 +10,7 @@
 //   mode:        "full" | "lite"          // full=自带后端；lite=连远端
 //   remoteUrl:   string                    // lite 模式下的远端基础 URL（例：http://192.168.1.10:3000）
 //   hideMenuBar: boolean                   // Windows/Linux 是否隐藏原生菜单栏（Alt 可临时唤出）
+//   localLoginHintDismissed: boolean       // 本地默认账号成功登录后不再展示明文登录提示
 //   offlineCacheDir: string                // 自定义 renderer 离线缓存目录；空字符串表示默认目录
 //   offlineCacheMigrationSource: string    // 更换目录后，仅供下一次启动迁移使用
 //   windowState: object | null              // 主窗口正常坐标、尺寸和最大化状态
@@ -35,6 +36,7 @@ const DEFAULT_SETTINGS = Object.freeze({
   mode: "full",
   remoteUrl: "",
   hideMenuBar: true,
+  localLoginHintDismissed: false,
   offlineCacheDir: "",
   offlineCacheMigrationSource: "",
   windowState: null,
@@ -139,6 +141,9 @@ function normalize(raw) {
     }
     if (typeof raw.hideMenuBar === "boolean") {
       out.hideMenuBar = raw.hideMenuBar;
+    }
+    if (typeof raw.localLoginHintDismissed === "boolean") {
+      out.localLoginHintDismissed = raw.localLoginHintDismissed;
     }
     if (typeof raw.offlineCacheDir === "string" && path.isAbsolute(raw.offlineCacheDir)) {
       out.offlineCacheDir = path.resolve(raw.offlineCacheDir);

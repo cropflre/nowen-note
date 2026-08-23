@@ -309,8 +309,7 @@ export function copyWorkspaceScopeToPersonal(
 
     for (const table of ["diaries", "mindmaps"] as const) {
       if (!tableExists(db, table)) continue;
-      const rows = db.prepare(`SELECT * FROM ${table} WHERE workspaceId = ?`).all(workspaceId)
-        as Array<Record<string, unknown>>;
+      const rows = db.prepare(`SELECT * FROM ${table} WHERE workspaceId = ?`).all(workspaceId) as Array<Record<string, unknown>>;
       for (const row of rows) insertDynamic(db, table, row, {
         id: randomUUID(), userId, workspaceId: null,
         createdAt: new Date().toISOString(),

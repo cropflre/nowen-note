@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   buildServerUrl,
   inferBrowserServerBaseUrl,
+  isLanServerHostname,
   isLoopbackServerHostname,
   isValidServerUrl,
   normalizeServerBaseUrl,
@@ -296,5 +297,17 @@ describe("IPv6 server URL support", () => {
     expect(isLoopbackServerHostname("::1")).toBe(true);
     expect(isLoopbackServerHostname("[::1]")).toBe(true);
     expect(isLoopbackServerHostname(ipv6)).toBe(false);
+  });
+
+  it("distinguishes LAN hosts from public server addresses", () => {
+    expect(isLanServerHostname("127.0.0.1")).toBe(true);
+    expect(isLanServerHostname("192.168.1.20")).toBe(true);
+    expect(isLanServerHostname("172.20.0.5")).toBe(true);
+    expect(isLanServerHostname("nas.local")).toBe(true);
+    expect(isLanServerHostname("nowen-note")).toBe(true);
+    expect(isLanServerHostname("[fd12:3456::1]")).toBe(true);
+    expect(isLanServerHostname("note.nowen.cn")).toBe(false);
+    expect(isLanServerHostname("8.8.8.8")).toBe(false);
+    expect(isLanServerHostname("240e:1234::1")).toBe(false);
   });
 });
