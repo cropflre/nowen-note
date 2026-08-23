@@ -12,6 +12,69 @@
 
 <!-- ADD_NEW_HERE -->
 
+## v1.4.16 - 2026-08-19
+
+### 🐛 修复
+
+- **笔记切换**: 阻止旧富文本回执抢回激活笔记 (20bbee8)
+- **视频**: 首次打开笔记前准备附件签名 (33f39ad)
+- **视频**: 局域网附件授权改用原生 HTTP (ac25076)
+- 优化代码块全选快捷键逻辑 (fc47cc3)
+- 重新清理历史 Markdown 块标记 (c9dd1d0)
+
+### ✅ 测试
+
+- **笔记切换**: 覆盖提交后的迟到保存回执 (dd1931a)
+- **视频**: 覆盖 Android 局域网附件授权 (7330555)
+- **视频**: 覆盖首次打开前附件授权准备 (e8ded10)
+
+### 📌 杂项
+
+- 补充 SignPath 测试签名配置回归测试 (414272c)
+- 完善 SignPath 测试签名配置 (4d2c2eb)
+- 补充 SignPath OSS 水印限制回归测试 (7a1016e)
+- 同步修复 Lite SignPath OSS Artifact Configuration (be46cfe)
+- 修复 SignPath OSS Artifact Configuration 水印限制 (c2447c0)
+- 纳入 SignPath 发布链路回归测试 (a237006)
+- 迁移 SignPath 代码签名公开政策 (8616da5)
+- 补充 SignPath Artifact Configuration 回归测试 (415199f)
+- 更新 SignPath 正式发布链路契约测试 (83ccfb8)
+- 补充 Windows SignPath 签名验证回归测试 (4e8ea92)
+- 补充 SignPath 正式发布配置回归测试 (3bcf305)
+- 强制正式 Release 汇总 SignPath 已签名 Windows 产物 (1f41b90)
+- 迁移 SignPath Windows 正式签名流水线 (8fcef19)
+- 接入 Lite SignPath Windows 发布者动态注入 (a7fdcda)
+- 接入 SignPath Windows 发布者动态注入 (c02a4fd)
+- 迁移本地 Windows 发布守门入口 (ea35bdb)
+- 迁移本地未签名 Windows 发布守门规则 (0b53b58)
+- 迁移 Windows 签名后更新元数据刷新入口 (bd101d0)
+- 迁移签名后 Windows 更新元数据重建逻辑 (6cf9a58)
+- 迁移 Windows 签名验证入口 (ef03283)
+- 迁移 Windows 签名信息导出脚本 (acb2724)
+- 迁移 Windows Authenticode 严格校验器 (6e2bc2e)
+- 迁移 SignPath 发布配置检查入口 (fcb3beb)
+- 迁移 SignPath 正式发布配置校验 (8f5d29a)
+- 迁移 SignPath Windows Lite 产物配置 (504938b)
+- 迁移 SignPath Windows Full 产物配置 (67fe3d2)
+- 更新 SignPath 手动测试签名契约 (67dec7a)
+- 确保手动构建始终执行 SignPath 测试签名 (837978e)
+- 补充 SignPath 测试签名工作流契约 (56fc631)
+- 接入 SignPath Windows 测试签名链路 (6fa6441)
+- 补充 macOS 双架构压缩包发布校验 (ae7cbc0)
+- 兼容 macOS 双架构手动下载包校验 (1afc0da)
+- 补充 macOS 手动下载压缩包识别 (5d7b164)
+- 补充桌面平台 Release 说明回归测试 (528268d)
+- 在 Release 说明中明确桌面平台矩阵 (886c3e2)
+- 将发版发布者契约纳入更新发布测试 (a79f7b1)
+- 补充 macOS 发版完整性回归测试 (cb2baca)
+- 强化 macOS 发版产物完整性门禁 (60ac8e6)
+- 修复完整桌面发版漏传 macOS 产物 (2e656e6)
+- 新增 macOS 发版产物完整性校验 (b63e715)
+- 补充 Markdown 选区符号包裹回归测试 (#726) (3e7eb95)
+- 优化 Markdown 选区符号包裹输入链路 (#726) (769ede8)
+- 补充分享管理剪贴板兼容性回归测试 (f3f2a43)
+- 修复 Edge 分享链接复制兼容性 (a26cf31)
+
 ## v1.4.15 - 2026-08-18
 
 ### 🐛 修复

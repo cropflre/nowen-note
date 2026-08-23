@@ -7,7 +7,8 @@
   </p>
   <p>
     <a href="./README.md">简体中文</a> ·
-    <a href="http://nowen.cn/">Official Website</a> ·
+    <a href="https://cropflre.github.io/">Official Website / Help Center</a> ·
+    <a href="http://nowen.cn/">nowen.cn (Under Maintenance)</a> ·
     <a href="http://note.nowen.cn/">Live Demo</a> ·
     <a href="https://github.com/cropflre/nowen-note/releases">Downloads</a> ·
     <a href="./docs/tutorials/README.md">Tutorials</a> ·
@@ -30,18 +31,18 @@
 
 > **Remote NAS connection and sign-in:** Nowen Note supports deployment on **UGREEN NAS (UGOS / UGOS Pro)** and **Feiniu NAS (fnOS)**. After deployment, connect and sign in from the web, desktop, or Android client using a LAN IP address, an IPv6 address, or a public domain secured with HTTPS.
 
-## v1.4.14 is available
+## v1.4.16 is available
 
-v1.4.14 focuses on **mobile image and media workflows, large-backup recovery, safer note switching, export compatibility, and mobile polish**, improving reliability on phones, NAS deployments, and large datasets.
+v1.4.16 focuses on **safer note switching, video attachment authorization, Markdown/code-block editing, and desktop release reliability**, improving multi-client editing, LAN media access, and desktop distribution.
 
-- **Copy, cut, and paste images on mobile:** rich-text image nodes can be safely copied or moved within the same note while preserving size, rotation, flip state, and other node attributes. A cut operation will not remove the source image until a valid destination is chosen.
-- **More resilient video playback:** video nodes follow refreshed signed attachment URLs and can rebuild the player when a signature arrives late or changes, reducing “video failed to load” failures in Android/WebView scenarios.
-- **Large-backup recovery hardened:** large full backups support streamed restore, with startup guards, production-entry validation, regression coverage, and a TypeScript fix that keeps backend Docker builds passing strict checks.
-- **Safer note switching:** stale activation requests, stale save acknowledgements, and commit races no longer allow the previous note to overwrite or replace the current note during rapid switching.
-- **Export and rendering fixes:** team-workspace root documents are included in single-note Markdown + attachment ZIP export, while Mermaid diagrams are rendered and rasterized correctly for image exports.
-- **Mobile UX polish:** file-detail secondary information is collapsed by default, context menus stay inside the viewport, long-press no longer selects note-list text, and permission sharing/public-space navigation is more reliable.
+- **Safer note switching:** stale rich-text save acknowledgements can no longer reclaim the active note after a rapid switch, with regression coverage for late acknowledgements after commit.
+- **More reliable first video open:** attachment signatures are prepared before opening notes with video so playback does not start before authorization is ready.
+- **Android / LAN video authorization fix:** LAN attachment authorization now uses the native HTTP path, improving video access when Android connects to NAS or LAN-hosted services.
+- **Editor fixes:** code-block select-all shortcut handling is refined and historical Markdown block markers are cleaned again to reduce legacy marker interference.
+- **Desktop release hardening:** Windows SignPath test/production signing, strict Authenticode verification, post-sign update metadata, and macOS dual-architecture artifact integrity checks are strengthened.
+- **Sharing compatibility:** Edge share-link copying is fixed with clipboard regression coverage.
 
-See the [v1.4.14 Release](https://github.com/cropflre/nowen-note/releases/tag/v1.4.14) and the [full changelog](./CHANGELOG.md).
+See the [v1.4.16 Release](https://github.com/cropflre/nowen-note/releases/tag/v1.4.16) and the [full changelog](./CHANGELOG.md).
 
 ## Connect AI clients to Nowen Note
 
@@ -85,32 +86,33 @@ The currently supported distribution is a source build: install Node.js 20+, bui
 
 ## Recent highlights
 
-### v1.4.14 · 2026-08-18
+### v1.4.16 · 2026-08-19
 
-#### Mobile images and media
+#### Note switching and editor stability
 
-- Rich-text image nodes now support copy, cut, and paste on mobile so images can be rearranged inside the same note without re-uploading attachments.
-- Image moves preserve size, rotation, flip state, and other node attributes; a pending cut keeps the original image until a valid destination is selected.
-- Video nodes re-resolve playback URLs when signed attachment access changes and rebuild the player after signature refreshes.
-- Image action UI remains anchored to the selected image while scrolling, and rotating an image keeps the node selected for follow-up operations.
-- File-detail external-share and metadata sections are collapsed by default on mobile so preview content gets priority.
+- Late rich-text save acknowledgements no longer reactivate the previous note after a rapid switch.
+- Regression coverage now locks down the late-acknowledgement path after a committed switch.
+- Code-block select-all shortcut behavior is refined to reduce conflicts between block-level and document-level selection.
+- Historical Markdown block markers are cleaned again so legacy markers are less likely to affect current editing or rendering.
 
-#### Stability, backup, and note switching
+#### Video, Android, and LAN access
 
-- Large full-backup archives can be restored through a streamed path with startup guards, production-entry validation, and regression coverage.
-- Fixed the TypeScript `this` annotation in the streamed restore implementation so backend Docker builds pass strict type checking.
-- Fixed stale activation, stale save acknowledgement, and note-switch commit races that could make the previous note reappear or overwrite the current selection.
-- The browser clipper now renews login sessions automatically to reduce clipping interruptions after long-running sessions.
+- Attachment signatures are prepared before opening notes containing video, reducing first-open playback failures caused by authorization not being ready yet.
+- Android/LAN attachment authorization now uses the native HTTP path for more reliable NAS and LAN media access.
+- Regression tests cover authorization preparation before first open and Android LAN attachment authorization.
 
-#### Export, Markdown, and mobile polish
+#### Desktop release and distribution
 
-- Team-workspace root documents are now included in single-note Markdown + attachment ZIP export selection.
-- Mermaid diagrams are rendered and rasterized before PNG/JPG-style image capture so exported images do not lose diagrams.
-- Markdown syntax markers can automatically wrap selected text, reducing manual paired-marker editing.
-- Fixed mobile permission sharing and public-space navigation, long-press text selection in the note list, and context menus escaping short viewports.
-- Expanded mobile toolbars can scroll fully and keep their top layout stable when the software keyboard opens.
+- Windows release signing is hardened around SignPath test/production signing, configuration validation, and strict Authenticode verification.
+- Post-sign Windows update metadata is rebuilt/refreshed so signed artifacts and update metadata stay consistent.
+- macOS release integrity gates now cover complete and dual-architecture downloadable artifacts.
+- Release notes more clearly document the desktop platform matrix.
 
-See [CHANGELOG.md](./CHANGELOG.md) and the [v1.4.14 Release](https://github.com/cropflre/nowen-note/releases/tag/v1.4.14) for complete details.
+#### Sharing compatibility
+
+- Edge share-link copying compatibility is fixed with clipboard regression coverage.
+
+See [CHANGELOG.md](./CHANGELOG.md) and the [v1.4.16 Release](https://github.com/cropflre/nowen-note/releases/tag/v1.4.16) for complete details.
 
 ## Screenshots
 
@@ -128,10 +130,13 @@ See [CHANGELOG.md](./CHANGELOG.md) and the [v1.4.14 Release](https://github.com/
 
 ## Website and demo
 
-- Website: <http://nowen.cn/>
+- Current website / help center: <https://cropflre.github.io/>
+- Future website: <http://nowen.cn/> (under maintenance)
 - Demo: <http://note.nowen.cn/>
 - Username: `demo`
 - Password: `demo123456`
+
+> `nowen.cn` is still under maintenance. For now, use <https://cropflre.github.io/> as the official Nowen help and documentation entry.
 
 > The demo is reset periodically. Do not store private or important data in it.
 
@@ -189,10 +194,10 @@ docker compose up -d
 To pin the current stable release:
 
 ```bash
-NOWEN_IMAGE_TAG=v1.4.14 docker compose up -d
+NOWEN_IMAGE_TAG=v1.4.16 docker compose up -d
 ```
 
-> v1.4.14 focuses on mobile image/media workflows, large full-backup recovery, note-switch stability, and export compatibility. After upgrading, verify mobile image copy/cut/paste, video playback, full-backup restore, rapid note switching, and Markdown + attachment ZIP / Mermaid image exports. Rolling back an image does not roll back the database.
+> v1.4.16 focuses on note-switch stability, first-open video authorization, Android/LAN attachment access, Markdown/code-block editing details, and desktop signing/release integrity. After upgrading, verify rapid note switching, first video playback, Android video access to NAS/LAN services, code-block select-all behavior, and share-link copying. Rolling back an image does not roll back the database.
 
 ### Managed Docker updates (optional)
 
@@ -201,7 +206,7 @@ Managed updates only support the official [`docker-compose.yml`](./docker-compos
 ```bash
 cp .env.example .env
 printf '\nNOWEN_UPDATER_TOKEN=%s\n' "$(openssl rand -hex 32)" >> .env
-NOWEN_IMAGE_TAG=v1.4.14 docker compose --profile updater up -d
+NOWEN_IMAGE_TAG=v1.4.16 docker compose --profile updater up -d
 ```
 
 Administrators can then run preflight checks, create a full backup, update, verify health, and roll back the image from Settings → About → Version.
@@ -219,7 +224,7 @@ docker run -d \
   -p 3001:3001 \
   -e TZ=Asia/Shanghai \
   -v /opt/nowen-note/data:/app/data \
-  cropflre/nowen-note:v1.4.14
+  cropflre/nowen-note:v1.4.16
 ```
 
 ## Data, backups, and configuration
@@ -357,12 +362,13 @@ nowen-note/
 
 ## Documentation
 
+- [Nowen official help center](https://cropflre.github.io/#/note)
 - [MCP Server installation and usage](./docs/tutorials/mcp.en.md)
 - [MCP Server 中文安装教程](./docs/tutorials/mcp.md)
 - [Tutorial center](./docs/tutorials/README.md)
-- [Feature documentation](http://nowen.cn/docs/nowen-note-features)
-- [Installation and troubleshooting](http://nowen.cn/docs/nowen-note-help)
-- [API documentation](http://nowen.cn/docs/nowen-note-api)
+- [Feature overview](https://cropflre.github.io/#/note)
+- [Installation and troubleshooting](https://cropflre.github.io/#/note/faq)
+- [API documentation](https://cropflre.github.io/#/note/api)
 - [Deployment guide](./docs/deployment.md)
 - [Docker update and recovery](./docs/docker-online-update.md)
 - [WebDAV backup](./docs/webdav-backup.md)

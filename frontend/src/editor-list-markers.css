@@ -38,3 +38,31 @@
 .shared-note-content ul ul ul ul ul ul ul ul ul {
   --nowen-ul-marker-top: 0.25em;
 }
+
+/*
+ * Completed task visual state.
+ *
+ * Keep task status inside the editor node attributes and only change the
+ * presentation layer. This avoids modifying markdown content, sync payloads,
+ * and import/export behavior.
+ */
+.ProseMirror li.task-item[data-checked="true"] > div,
+.ProseMirror li.task-item[data-checked="true"] > p,
+.shared-note-content li.task-item[data-checked="true"] > div,
+.shared-note-content li.task-item[data-checked="true"] > p {
+  color: var(--muted-foreground);
+  text-decoration: line-through;
+  text-decoration-color: currentColor;
+  opacity: 0.72;
+  transition: color 0.15s ease, opacity 0.15s ease, text-decoration-color 0.15s ease;
+}
+
+/* Support Tiptap task item implementations where the checked state is on the input. */
+.ProseMirror li.task-item:has(input[type="checkbox"]:checked) > div,
+.ProseMirror li.task-item:has(input[type="checkbox"]:checked) > p,
+.shared-note-content li.task-item:has(input[type="checkbox"]:checked) > div,
+.shared-note-content li.task-item:has(input[type="checkbox"]:checked) > p {
+  color: var(--muted-foreground);
+  text-decoration: line-through;
+  opacity: 0.72;
+}

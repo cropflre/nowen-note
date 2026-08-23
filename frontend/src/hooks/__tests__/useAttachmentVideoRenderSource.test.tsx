@@ -8,7 +8,20 @@ const fixture = vi.hoisted(() => ({
   revision: 0,
   listener: null as (() => void) | null,
   signedUrl: "",
+  platform: "web",
   acquire: vi.fn(() => vi.fn()),
+  prepareNative: vi.fn(async () => ({
+    uri: "file:///data/user/0/com.nowen.note/cache/attachment-video/video.mp4",
+    size: 1024,
+  })),
+}));
+
+vi.mock("@capacitor/core", () => ({
+  Capacitor: {
+    getPlatform: () => fixture.platform,
+    convertFileSrc: (uri: string) => `local:${uri}`,
+  },
+  registerPlugin: () => ({ prepare: fixture.prepareNative }),
 }));
 
 vi.mock("@/lib/noteAttachmentAccessBridge", () => ({
@@ -32,7 +45,11 @@ vi.mock("@/lib/api", () => ({
   ),
 }));
 
-import { useAttachmentVideoRenderSource } from "../useAttachmentVideoRenderSource";
+import {
+  getAndroidAttachmentVideoPreparation,
+  toAndroidAttachmentVideoUrl,
+  useAttachmentVideoRenderSource,
+} from "../useAttachmentVideoRenderSource";
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean })
   .IS_REACT_ACT_ENVIRONMENT = true;
@@ -51,7 +68,9 @@ beforeEach(() => {
   fixture.revision = 0;
   fixture.listener = null;
   fixture.signedUrl = "";
+  fixture.platform = "web";
   fixture.acquire.mockClear();
+  fixture.prepareNative.mockClear();
   host = document.createElement("div");
   document.body.appendChild(host);
   root = createRoot(host);
@@ -64,6 +83,53 @@ afterEach(async () => {
 });
 
 describe("useAttachmentVideoRenderSource", () => {
+  it("prepares signed clear-text Android media as an app-local file", () => {
+    const signed = `http://192.168.1.171:3001${PERSISTED_SRC}?exp=123&sig=signed&scope=user`;
+
+    expect(getAndroidAttachmentVideoPreparation(signed, "android")).toEqual({
+      attachmentId: "123e4567-e89b-42d3-a456-426614174216",
+      url: signed,
+    });
+    expect(toAndroidAttachmentVideoUrl(signed, "android", "https://localhost")).toBe("");
+  });
+
+  it("waits for a signature instead of issuing an unsigned Android media request", () => {
+    expect(toAndroidAttachmentVideoUrl(
+      `http://192.168.1.171:3001${PERSISTED_SRC}?inline=1`,
+      "android",
+      "https://localhost",
+    )).toBe("");
+  });
+
+  it("keeps web, HTTPS and non-attachment media URLs unchanged", () => {
+    const signedHttp = `http://192.168.1.171:3001${PERSISTED_SRC}?exp=1&sig=s&scope=user`;
+    const signedHttps = signedHttp.replace("http://", "https://");
+
+    expect(toAndroidAttachmentVideoUrl(signedHttp, "web", "https://localhost")).toBe(signedHttp);
+    expect(toAndroidAttachmentVideoUrl(signedHttps, "android", "https://localhost")).toBe(signedHttps);
+    expect(toAndroidAttachmentVideoUrl(
+      "http://192.168.1.171:3001/public/video.mp4",
+      "android",
+      "https://localhost",
+    )).toBe("http://192.168.1.171:3001/public/video.mp4");
+  });
+
+  it("waits for the Android native cache and then renders its local file", async () => {
+    fixture.platform = "android";
+    fixture.signedUrl = `http://192.168.1.171:3001${PERSISTED_SRC}?exp=123&sig=signed&scope=user`;
+
+    await act(async () => {
+      root.render(<Probe />);
+    });
+
+    expect(fixture.prepareNative).toHaveBeenCalledWith({
+      attachmentId: "123e4567-e89b-42d3-a456-426614174216",
+      url: fixture.signedUrl,
+    });
+    expect(host.querySelector("video")?.getAttribute("src"))
+      .toBe("local:file:///data/user/0/com.nowen.note/cache/attachment-video/video.mp4");
+  });
+
   it("switches to a late signed URL without downloading the whole video as a blob", async () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch");
 

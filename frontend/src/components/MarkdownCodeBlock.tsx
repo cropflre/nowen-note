@@ -5,6 +5,7 @@ import { instrumentPhaseALowlight } from "@/lib/phaseAPerfDiagnostics";
 import { isPlainTextLanguage } from "@/lib/codeBlockHighlightPlugin";
 import { copyText } from "@/lib/clipboard";
 import { cn } from "@/lib/utils";
+import "@/markdown-code-highlight.css";
 
 const lowlight = instrumentPhaseALowlight(createCodeBlockLowlight());
 
@@ -101,7 +102,7 @@ export function MarkdownCodeBlock({ className, children }: MarkdownCodeBlockProp
         </button>
       </div>
       <pre className="max-w-full overflow-x-auto p-4 text-sm leading-6 [tab-size:2]">
-        <code className={cn("font-mono text-tx-primary", className)}>{highlighted}</code>
+        <code className={cn("nowen-code-highlight font-mono text-tx-primary", className)}>{highlighted}</code>
       </pre>
     </div>
   );
