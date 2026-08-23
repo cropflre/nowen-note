@@ -57,14 +57,14 @@ export function restoreUntitledTitleForBlur(field: TitleField, noteTitle: string
 }
 
 function collectTitleFields(root: HTMLElement): TitleField[] {
-  const fields = Array.from(root.querySelectorAll<HTMLTextAreaElement>(
+  const fields: TitleField[] = Array.from(root.querySelectorAll<HTMLTextAreaElement>(
     "[data-mobile-editor-title] textarea, [data-markdown-mobile-title] textarea",
   ));
 
   // 大型 Markdown 会切到 LargeMarkdownSafeEditor，它保留独立 input，但没有 data-title。
   if (root.querySelector("[data-large-markdown-source], [data-large-markdown-preview]")) {
     root.querySelectorAll<HTMLInputElement>("input.text-2xl.font-bold.text-tx-primary").forEach((field) => {
-      if (!fields.includes(field as never)) fields.push(field as never);
+      if (!fields.includes(field)) fields.push(field);
     });
   }
   return fields;
