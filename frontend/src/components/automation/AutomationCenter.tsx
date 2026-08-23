@@ -1,0 +1,55 @@
+import { useEffect, useMemo, useState } from "react";
+import { ChevronDown, CircleStop, Clock3, GitBranch, Loader2, Play, Plus, RefreshCw, Trash2, Zap } from "lucide-react";
+import { automationApi, type AutomationRun, type AutomationStep, type AutomationWorkflow } from "@/lib/automationApi";
+import { pluginApi, type PluginAction } from "@/lib/pluginApi";
+
+const eventOptions = ["note.created", "note.updated", "task.created", "task.completed", "attachment.created", "diary.created", "mindmap.created"];
+type ActionOption = PluginAction & { pluginId: string; actionId: string };
+
+function RunHistory({ workflow }: { workflow: AutomationWorkflow }) {
+  const [runs, setRuns] = useState<AutomationRun[]>([]);
+  useEffect(() => { void automationApi.runs(workflow.id).then(setRuns); }, [workflow.id]);
+  return <div className="mt-3 border-t border-zinc-200 pt-3 dark:border-zinc-800"><p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-400">最近运行</p>{runs.length ? <div className="space-y-1">{runs.slice(0, 5).map((run) => <div key={run.id} className="flex items-center justify-between rounded-md bg-zinc-50 px-2 py-1.5 text-xs dark:bg-zinc-900"><span>{new Date(run.createdAt).toLocaleString()}</span><span className={run.status === "completed" ? "text-emerald-600" : run.status === "failed" ? "text-red-600" : "text-amber-600"}>{run.status}{run.errorCode ? ` · ${run.errorCode}` : ""}</span></div>)}</div> : <p className="text-xs text-zinc-400">尚无执行记录</p>}</div>;
+}
+
+export default function AutomationCenter() {
+  const [workflows, setWorkflows] = useState<AutomationWorkflow[]>([]);
+  const [actions, setActions] = useState<ActionOption[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [editing, setEditing] = useState(false);
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const [name, setName] = useState("新笔记处理");
+  const [triggerType, setTriggerType] = useState<"event" | "schedule" | "webhook" | "manual">("event");
+  const [eventType, setEventType] = useState("note.created");
+  const [cron, setCron] = useState("0 8 * * *");
+  const [timezone, setTimezone] = useState(Intl.DateTimeFormat().resolvedOptions().timeZone || "Asia/Shanghai");
+  const [steps, setSteps] = useState<AutomationStep[]>([]);
+  const [credentials, setCredentials] = useState<{ token: string; secret?: string } | null>(null);
+  const refresh = async () => { setLoading(true); try { setWorkflows(await automationApi.list()); setActions(await pluginApi.actions()); } finally { setLoading(false); } };
+  useEffect(() => { void refresh(); }, []);
+  const actionGroups = useMemo(() => new Map(actions.map((action) => [`${action.pluginId}:${action.actionId}`, action])), [actions]);
+  const addStep = (type: AutomationStep["type"]) => {
+    const id = `${type}-${steps.length + 1}`;
+    const first = actions[0];
+    const step: AutomationStep = type === "action" ? { id, type, pluginId: first?.pluginId || "", actionId: first?.actionId || "", input: {} }
+      : type === "condition" ? { id, type, if: { left: "{{event.data.title}}", operator: "contains", right: "日报" } }
+        : type === "delay" ? { id, type, seconds: 60 }
+          : type === "transform" ? { id, type, output: { resourceId: "{{event.resource.id}}" } }
+            : { id, type, reason: "流程结束" };
+    setSteps((current) => [...current, step]);
+  };
+  const save = async () => {
+    const trigger = triggerType === "event" ? { type: "event", event: eventType } : triggerType === "schedule" ? { type: "schedule", cron, timezone } : triggerType === "webhook" ? { type: "webhook", requireSignature: true } : { type: "manual" };
+    const created = await automationApi.create({ name, description: "由自动化中心创建", definition: { version: 1, trigger, steps }, ignoreSync: true, ignoreBulk: true });
+    setCredentials(created.webhookCredentials || null); setEditing(false); setSteps([]); await refresh();
+  };
+  return <div className="space-y-5">
+    <div className="relative overflow-hidden rounded-2xl border border-indigo-200 bg-gradient-to-br from-indigo-50 via-white to-cyan-50 p-5 dark:border-indigo-950 dark:from-indigo-950/30 dark:via-zinc-950 dark:to-cyan-950/20">
+      <div className="absolute right-5 top-4 font-mono text-5xl font-black text-indigo-100 dark:text-indigo-950">EVENT → ACTION</div>
+      <div className="relative flex items-start justify-between gap-4"><div><p className="text-[11px] font-bold uppercase tracking-[0.22em] text-indigo-600">Automation rail</p><h2 className="mt-1 text-xl font-bold">自动化中心</h2><p className="mt-1 max-w-xl text-sm text-zinc-500">事件进入一条可审计的执行轨道；每一步都记录、可重试、可停止，工作区权限始终按工作流所有者检查。</p></div><button onClick={() => setEditing(true)} className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-2 text-xs font-semibold text-white"><Plus size={14}/>新建流程</button></div>
+    </div>
+    {credentials && <div className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900 dark:bg-amber-950/30 dark:text-amber-200"><strong>Webhook 凭据只显示一次：</strong><div className="mt-1 break-all font-mono">token: {credentials.token}{credentials.secret ? <><br/>secret: {credentials.secret}</> : null}</div><button className="mt-2 underline" onClick={() => setCredentials(null)}>我已保存</button></div>}
+    {loading ? <div className="flex items-center gap-2 py-12 text-sm text-zinc-500"><Loader2 className="animate-spin" size={16}/>加载自动化</div> : workflows.length ? <div className="space-y-3">{workflows.map((workflow) => <div key={workflow.id} className="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-950"><div className="flex items-start justify-between gap-3"><div className="flex gap-3"><div className="mt-0.5 rounded-lg bg-indigo-50 p-2 text-indigo-600 dark:bg-indigo-950/50"><Zap size={17}/></div><div><h3 className="font-semibold">{workflow.name}</h3><p className="mt-0.5 text-xs text-zinc-500">{workflow.triggerType}{workflow.schedule?.nextRunAt ? ` · 下次 ${new Date(workflow.schedule.nextRunAt).toLocaleString()}` : ""}</p></div></div><div className="flex gap-1.5"><button onClick={async()=>{await automationApi.enable(workflow.id,!workflow.enabled);await refresh();}} className={`rounded-md px-2.5 py-1.5 text-xs ${workflow.enabled ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950" : "bg-zinc-100 text-zinc-500 dark:bg-zinc-900"}`}>{workflow.enabled ? "运行中" : "已停用"}</button><button onClick={async()=>{await automationApi.run(workflow.id);setExpanded(workflow.id);}} className="rounded-md border p-1.5"><Play size={13}/></button><button onClick={()=>setExpanded(expanded===workflow.id?null:workflow.id)} className="rounded-md border p-1.5"><ChevronDown size={13}/></button><button onClick={async()=>{if(confirm(`删除 ${workflow.name}？`)){await automationApi.remove(workflow.id);await refresh();}}} className="rounded-md border p-1.5 text-red-600"><Trash2 size={13}/></button></div></div>{expanded===workflow.id&&<><div className="mt-4 flex items-center gap-2 overflow-x-auto">{workflow.definition.steps.map((step,index)=><div key={step.id} className="flex items-center gap-2"><div className="min-w-32 rounded-lg border px-3 py-2 text-xs"><span className="text-zinc-400">{index+1}</span><p className="font-medium">{step.type}{step.type==="action"?` · ${String(step.actionId)}`:""}</p></div>{index<workflow.definition.steps.length-1&&<span className="text-indigo-400">→</span>}</div>)}</div><RunHistory workflow={workflow}/></>}</div>)}</div> : <div className="rounded-xl border border-dashed py-12 text-center text-sm text-zinc-500">还没有自动化。先把一个事件连接到插件动作。</div>}
+    {editing && <div className="fixed inset-0 z-[10002] flex items-center justify-center bg-black/60 p-4"><div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-white p-5 shadow-2xl dark:bg-zinc-950"><div className="flex items-center justify-between"><h3 className="text-lg font-bold">建立执行轨道</h3><button onClick={()=>setEditing(false)}>×</button></div><label className="mt-4 block text-xs font-medium">名称<input value={name} onChange={e=>setName(e.target.value)} className="mt-1 w-full rounded-lg border bg-transparent px-3 py-2"/></label><div className="mt-4 grid gap-2 sm:grid-cols-2"><label className="text-xs">触发方式<select value={triggerType} onChange={e=>setTriggerType(e.target.value as typeof triggerType)} className="mt-1 w-full rounded-lg border bg-transparent px-3 py-2"><option value="event">Nowen 事件</option><option value="schedule">定时</option><option value="webhook">Webhook</option><option value="manual">仅手动</option></select></label>{triggerType==="event"&&<label className="text-xs">事件<select value={eventType} onChange={e=>setEventType(e.target.value)} className="mt-1 w-full rounded-lg border bg-transparent px-3 py-2">{eventOptions.map(event=><option key={event}>{event}</option>)}</select></label>}{triggerType==="schedule"&&<><label className="text-xs">Cron<input value={cron} onChange={e=>setCron(e.target.value)} className="mt-1 w-full rounded-lg border bg-transparent px-3 py-2"/></label><label className="text-xs">时区<input value={timezone} onChange={e=>setTimezone(e.target.value)} className="mt-1 w-full rounded-lg border bg-transparent px-3 py-2"/></label></>}</div><div className="mt-5 space-y-2"><p className="text-xs font-semibold uppercase tracking-wider text-zinc-400">步骤</p>{steps.map((step,index)=><div key={step.id} className="flex items-center gap-2 rounded-lg border p-3"><span className="font-mono text-xs text-zinc-400">{index+1}</span><span className="rounded bg-zinc-100 px-2 py-1 text-xs dark:bg-zinc-900">{step.type}</span>{step.type==="action"&&<select value={`${step.pluginId}:${step.actionId}`} onChange={e=>{const [pluginId,...rest]=e.target.value.split(":");const actionId=rest.join(":");setSteps(s=>s.map(x=>x.id===step.id?{...x,pluginId,actionId}:x));}} className="min-w-0 flex-1 rounded border bg-transparent px-2 py-1.5 text-xs">{[...actionGroups].map(([key,action])=><option key={key} value={key}>{action.pluginId} · {action.name}</option>)}</select>} {step.type==="delay"&&<input type="number" value={Number(step.seconds)} onChange={e=>setSteps(s=>s.map(x=>x.id===step.id?{...x,seconds:Number(e.target.value)}:x))} className="w-24 rounded border bg-transparent px-2 py-1 text-xs"/>}<button onClick={()=>setSteps(s=>s.filter(x=>x.id!==step.id))} className="ml-auto text-red-500"><Trash2 size={13}/></button></div>)}</div><div className="mt-3 flex flex-wrap gap-2">{([["action",Play],["condition",GitBranch],["delay",Clock3],["transform",RefreshCw],["stop",CircleStop]] as const).map(([type,Icon])=><button key={type} onClick={()=>addStep(type)} className="inline-flex items-center gap-1 rounded-md border px-2 py-1.5 text-xs"><Icon size={12}/>{type}</button>)}</div><div className="mt-5 flex justify-end gap-2"><button onClick={()=>setEditing(false)} className="rounded-lg border px-3 py-2 text-sm">取消</button><button disabled={!steps.length} onClick={save} className="rounded-lg bg-indigo-600 px-3 py-2 text-sm text-white disabled:opacity-40">保存为停用状态</button></div></div></div>}
+  </div>;
+}

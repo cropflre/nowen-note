@@ -10,3 +10,9 @@
 6. 用 `examples/plugins/hello-nowen` 验证最小包，再运行 `npm run pack`。
 
 信任标记分为 Official、Verified 和 Community。Verified 只是审核标记，不会把 Node 子进程变成安全沙箱。
+
+## Registry 提交
+
+开发者发布 GitHub Release（或其他稳定 HTTPS 下载），用 `npx nowen-plugin pack` 生成插件包与 SHA256，然后向 Registry 仓库提交单个插件条目。Registry CI 应下载包并执行 checksum、Manifest、权限、Nowen 版本、源码仓库、License 和 Package Validator 检查。
+
+Developer 等级只用于本地目录，不能从远程 Registry 声明。

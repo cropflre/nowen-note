@@ -11,6 +11,7 @@ import {
 } from "../db/schema.js";
 import { BackupManager, type RestoreResult } from "../services/backup.js";
 import { quarantineRestoredPlugins } from "../plugins/pluginService.js";
+import { quarantineRestoredAutomations } from "../automation/recovery.js";
 
 const unzipper = require("unzipper");
 
@@ -488,6 +489,7 @@ async function restoreZipStreaming(
 
     // 流式大备份与普通恢复遵守同一供应链边界：恢复代码进入 quarantine，授权清零。
     quarantineRestoredPlugins();
+    quarantineRestoredAutomations();
 
     const stats: Record<string, number> = {
       attachments: attachmentCount,

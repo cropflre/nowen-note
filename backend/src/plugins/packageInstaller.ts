@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { PluginPermissions } from "./permissions.js";
 import { PluginRegistry } from "./registry.js";
-import { validatePluginPackage } from "./packageValidator.js";
+import { validatePluginPackage, type ValidatedPluginPackage } from "./packageValidator.js";
 import type { PluginRegistryRecord, PluginSource, PluginTrustLevel } from "./types.js";
 
 export function getPluginRoot(): string {
@@ -41,7 +41,18 @@ export class PluginPackageInstaller {
   ) {}
 
   async install(bytes: Buffer, installedBy: string): Promise<PluginRegistryRecord> {
-    const validated = await validatePluginPackage(bytes);
+    return this.installValidated(await this.inspect(bytes), installedBy);
+  }
+
+  inspect(bytes: Buffer): Promise<ValidatedPluginPackage> {
+    return validatePluginPackage(bytes);
+  }
+
+  async installValidated(
+    validated: ValidatedPluginPackage,
+    installedBy: string,
+    provenance: { source?: PluginSource; trustLevel?: PluginTrustLevel; publisherKeyId?: string; signature?: string; signatureState?: "unsigned" | "verified"; artifactUrl?: string } = {},
+  ): Promise<PluginRegistryRecord> {
     const root = getPluginRoot();
     const quarantineRoot = path.join(root, "quarantine");
     const destination = path.join(quarantineRoot, validated.manifest.id, validated.manifest.version);
@@ -51,12 +62,16 @@ export class PluginPackageInstaller {
       await extract(validated.zip, destination);
       const record = this.registry.upsert({
         manifest: validated.manifest,
-        source: "package",
-        trustLevel: "community",
+        source: provenance.source || "package",
+        trustLevel: provenance.trustLevel || "community",
         status: "quarantined",
         checksum: validated.checksum,
         installedPath: destination,
         installedBy,
+        publisherKeyId: provenance.publisherKeyId,
+        signature: provenance.signature,
+        signatureState: provenance.signatureState,
+        artifactUrl: provenance.artifactUrl,
       });
       this.permissions.initialize(validated.manifest);
       return record;
@@ -100,7 +115,10 @@ export class PluginPackageInstaller {
   removeFiles(record: PluginRegistryRecord): void {
     if (record.source === "dev") return;
     const root = getPluginRoot();
-    assertInside(root, record.installedPath);
-    if (fs.existsSync(record.installedPath)) fs.rmSync(record.installedPath, { recursive: true, force: true });
+    for (const bucket of ["installed", "quarantine"]) {
+      const pluginRoot = path.join(root, bucket, record.id);
+      assertInside(root, pluginRoot);
+      if (fs.existsSync(pluginRoot)) fs.rmSync(pluginRoot, { recursive: true, force: true });
+    }
   }
 }

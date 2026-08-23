@@ -40,3 +40,9 @@ export default definePlugin({
 - 完整备份只包含 `plugins/installed`。恢复后所有插件进入 quarantine，授权清零；`plugins/runtime`、`plugins-dev`、执行日志不进入备份。
 
 参见 [Manifest V1](./manifest-v1.md)、[权限与 Host API](./permissions.md) 和 [社区贡献指南](./community.md)。
+
+V1.1 增加版本升级/回滚、Preflight、进度与重启恢复、强类型 SDK/CLI、连接配置和开放 Registry。参见 [Community Ready V1.1](./community-ready-v1.1.md) 与 [Registry V1](./registry-v1.md)。
+
+V1.2 增加持久事件账本、工作流、时区调度、签名 Webhook、重试/幂等/死信、自动化中心与 MCP 工具。参见 [Event & Automation V1.2](./automation-v1.2.md)。
+
+V2 增加 Publisher/Registry 双重签名、QuickJS/WASM 沙箱、不可变多版本更新、安全公告、企业策略、声明式 UI/Automation 模板和独立 Marketplace 服务。参见 [Extension Platform V2](./extension-platform-v2.md) 与 [GitHub Actions 发布模板](./plugin-publish-action.yml)。

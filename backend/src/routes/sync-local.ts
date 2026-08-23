@@ -829,10 +829,11 @@ app.get("/conflicts/history", (c) => {
   if (requestedEntityType && !isSyncEntityType(requestedEntityType)) {
     return c.json({ error: "不支持的冲突实体类型", code: "INVALID_PAYLOAD" }, 400);
   }
+  const entityType = requestedEntityType && isSyncEntityType(requestedEntityType) ? requestedEntityType : undefined;
   const limit = Math.max(1, Math.min(200, Math.trunc(requestedLimit) || 50));
   const offset = Math.max(0, Math.trunc(requestedOffset) || 0);
   const total = active
-    ? countResolvedConflicts(db, active.id, undefined, requestedEntityType)
+    ? countResolvedConflicts(db, active.id, undefined, entityType)
     : 0;
   const rows = active
     ? listResolvedConflicts(
@@ -841,7 +842,7 @@ app.get("/conflicts/history", (c) => {
       undefined,
       limit,
       offset,
-      requestedEntityType,
+      entityType,
     )
     : [];
   return c.json({

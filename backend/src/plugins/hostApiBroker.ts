@@ -1,4 +1,3 @@
-import crypto from "node:crypto";
 import dns from "node:dns/promises";
 import net from "node:net";
 import { getDb } from "../db/schema.js";
@@ -6,14 +5,15 @@ import {
   getUserWorkspaceRole,
   hasPermission,
   hasRole,
-  canManageResource,
   resolveNotePermission,
   resolveNotebookPermission,
 } from "../middleware/acl.js";
 import { ensureMindmapSchema } from "../lib/mindmap-schema.js";
+import { ApplicationCommandGateway } from "../services/applicationCommandGateway.js";
 import { PluginPermissions } from "./permissions.js";
+import { PluginRegistry } from "./registry.js";
 import { PluginSecrets } from "./secrets.js";
-import type { HostCall, PluginExecutionContext, PluginPermission } from "./types.js";
+import type { HostCall, PluginExecutionContext, PluginManifest, PluginPermission } from "./types.js";
 
 type JsonObject = Record<string, any>;
 
@@ -58,6 +58,8 @@ export class HostApiBroker {
   constructor(
     private readonly permissions = new PluginPermissions(),
     private readonly secrets = new PluginSecrets(),
+    private readonly commands = new ApplicationCommandGateway(),
+    private readonly registry = new PluginRegistry(),
   ) {}
 
   async call(context: PluginExecutionContext, call: HostCall): Promise<unknown> {
@@ -73,15 +75,28 @@ export class HostApiBroker {
       case "mindmaps": return this.mindmaps(context, operation, args);
       case "storage": return this.storage(context, operation, args);
       case "external": return this.external(context, operation, args);
+      case "runtime": return this.runtime(context, operation);
       default: throw Object.assign(new Error(`未知 Host API: ${call.method}`), { code: "HOST_METHOD_NOT_FOUND" });
     }
+  }
+
+  private runtime(context: PluginExecutionContext, operation: string): unknown {
+    if (operation !== "capabilities") throw new Error(`未知 runtime 操作: ${operation}`);
+    const record = this.registry.get(context.pluginId);
+    return {
+      apiVersion: record?.apiVersion || 1, runtime: record?.runtime || "node-action",
+      platform: process.env.ELECTRON_USER_DATA ? "desktop-full" : "server",
+      hostApis: ["notes", "notebooks", "tags", "tasks", "attachments", "diary", "mindmaps", "storage", "external"],
+      notes: { read: 2, write: 2 }, notebooks: { read: 1, write: 1 }, tasks: { read: 1, write: 1 },
+      automation: 1, workspace: 1, declarativeContributions: 1,
+    };
   }
 
   private require(context: PluginExecutionContext, permission: PluginPermission): void {
     this.permissions.require(context.pluginId, permission);
   }
 
-  private notes(context: PluginExecutionContext, operation: string, args: JsonObject): unknown {
+  private async notes(context: PluginExecutionContext, operation: string, args: JsonObject): Promise<unknown> {
     const db = getDb();
     if (operation === "get") {
       this.require(context, "notes:read");
@@ -100,11 +115,13 @@ export class HostApiBroker {
       const notebookId = requireString(args.notebookId, "notebookId");
       const access = resolveNotebookPermission(notebookId, context.userId);
       if (!hasPermission(access.permission, "write")) forbidden("无权在该笔记本创建笔记");
-      const id = crypto.randomUUID();
-      const content = typeof args.content === "string" ? args.content : "";
-      db.prepare(`INSERT INTO notes (id,userId,notebookId,title,content,contentText,contentFormat,workspaceId,createdAt,updatedAt)
-        VALUES (?,?,?,?,?,?,?,?,?,?)`).run(id, context.userId, notebookId, String(args.title || "无标题笔记"), content, String(args.contentText ?? content), String(args.contentFormat || "markdown"), access.workspaceId, new Date().toISOString(), new Date().toISOString());
-      return { id };
+      const created = await this.commands.createNote(context.userId, {
+        notebookId,
+        title: String(args.title || "无标题笔记"),
+        content: typeof args.content === "string" ? args.content : undefined,
+        contentFormat: typeof args.contentFormat === "string" ? args.contentFormat : "markdown",
+      }, context);
+      return { id: created.id, version: created.version };
     }
     if (operation === "update") {
       this.require(context, "notes:write");
@@ -112,14 +129,19 @@ export class HostApiBroker {
       if (!hasPermission(resolveNotePermission(id, context.userId).permission, "write")) forbidden("无权修改该笔记");
       const current = db.prepare("SELECT title,content,contentText,contentFormat,version FROM notes WHERE id=?").get(id) as JsonObject | undefined;
       if (!current) throw new Error("笔记不存在");
-      db.prepare("UPDATE notes SET title=?,content=?,contentText=?,contentFormat=?,version=version+1,updatedAt=? WHERE id=?")
-        .run(args.title ?? current.title, args.content ?? current.content, args.contentText ?? current.contentText, args.contentFormat ?? current.contentFormat, new Date().toISOString(), id);
-      return { id, version: Number(current.version || 0) + 1 };
+      const updated = await this.commands.updateNote(context.userId, id, {
+        ...(args.title !== undefined ? { title: args.title } : {}),
+        ...(args.content !== undefined ? { content: args.content } : {}),
+        ...(args.contentFormat !== undefined ? { contentFormat: args.contentFormat } : {}),
+        version: Number(current.version || 0),
+        writeSource: "plugin-host-api",
+      }, context);
+      return { id, version: updated.version };
     }
     throw new Error(`未知 notes 操作: ${operation}`);
   }
 
-  private notebooks(context: PluginExecutionContext, operation: string, args: JsonObject): unknown {
+  private async notebooks(context: PluginExecutionContext, operation: string, args: JsonObject): Promise<unknown> {
     const db = getDb();
     if (operation === "get") {
       this.require(context, "notebooks:read");
@@ -137,15 +159,19 @@ export class HostApiBroker {
       const workspaceId = typeof args.workspaceId === "string" && args.workspaceId ? args.workspaceId : null;
       if (!allowedWorkspace(workspaceId, context.userId, true)) forbidden("无权在该工作区创建笔记本");
       if (args.parentId && !hasPermission(resolveNotebookPermission(String(args.parentId), context.userId).permission, "write")) forbidden("无权使用该父笔记本");
-      const id = crypto.randomUUID();
-      db.prepare(`INSERT INTO notebooks (id,userId,parentId,name,description,icon,color,workspaceId,createdAt,updatedAt)
-        VALUES (?,?,?,?,?,?,?,?,?,?)`).run(id, context.userId, args.parentId || null, requireString(args.name, "name"), String(args.description || ""), String(args.icon || "📒"), args.color || null, workspaceId, new Date().toISOString(), new Date().toISOString());
-      return { id };
+      const created = await this.commands.createNotebook(context.userId, {
+        workspaceId,
+        parentId: args.parentId || null,
+        name: requireString(args.name, "name"),
+        icon: String(args.icon || "📒"),
+        color: args.color || null,
+      }, context);
+      return { id: created.id };
     }
     throw new Error(`未知 notebooks 操作: ${operation}`);
   }
 
-  private tags(context: PluginExecutionContext, operation: string, args: JsonObject): unknown {
+  private async tags(context: PluginExecutionContext, operation: string, args: JsonObject): Promise<unknown> {
     const db = getDb();
     if (operation === "list") {
       this.require(context, "tags:read");
@@ -156,24 +182,25 @@ export class HostApiBroker {
       this.require(context, "tags:write");
       const workspaceId = typeof args.workspaceId === "string" && args.workspaceId ? args.workspaceId : null;
       if (!allowedWorkspace(workspaceId, context.userId, true)) forbidden("无权在该工作区创建标签");
-      const id = crypto.randomUUID();
-      db.prepare("INSERT INTO tags (id,userId,name,color,workspaceId,createdAt) VALUES (?,?,?,?,?,?)")
-        .run(id, context.userId, requireString(args.name, "name"), String(args.color || "#58a6ff"), workspaceId, new Date().toISOString());
-      return { id };
+      const created = await this.commands.createTag(context.userId, {
+        workspaceId,
+        name: requireString(args.name, "name"),
+        color: String(args.color || "#58a6ff"),
+      }, context);
+      return { id: created.id };
     }
     if (operation === "addToNote" || operation === "removeFromNote") {
       this.require(context, "tags:write");
       const noteId = requireString(args.noteId, "noteId");
       const tagId = requireString(args.tagId, "tagId");
       if (!hasPermission(resolveNotePermission(noteId, context.userId).permission, "write")) forbidden("无权修改该笔记标签");
-      if (operation === "addToNote") db.prepare("INSERT OR IGNORE INTO note_tags(noteId,tagId) VALUES (?,?)").run(noteId, tagId);
-      else db.prepare("DELETE FROM note_tags WHERE noteId=? AND tagId=?").run(noteId, tagId);
+      await this.commands.setNoteTag(context.userId, noteId, tagId, operation === "addToNote", context);
       return { success: true };
     }
     throw new Error(`未知 tags 操作: ${operation}`);
   }
 
-  private tasks(context: PluginExecutionContext, operation: string, args: JsonObject): unknown {
+  private async tasks(context: PluginExecutionContext, operation: string, args: JsonObject): Promise<unknown> {
     const db = getDb();
     if (operation === "get") {
       this.require(context, "tasks:read");
@@ -190,19 +217,19 @@ export class HostApiBroker {
       this.require(context, "tasks:write");
       const workspaceId = typeof args.workspaceId === "string" && args.workspaceId ? args.workspaceId : null;
       if (!allowedWorkspace(workspaceId, context.userId, true)) forbidden("无权在该工作区创建任务");
-      const id = crypto.randomUUID();
-      db.prepare(`INSERT INTO tasks (id,userId,title,isCompleted,priority,dueDate,noteId,workspaceId,createdAt,updatedAt)
-        VALUES (?,?,?,?,?,?,?,?,?,?)`).run(id, context.userId, requireString(args.title, "title"), 0, Number(args.priority) || 2, args.dueDate || null, args.noteId || null, workspaceId, new Date().toISOString(), new Date().toISOString());
-      return { id };
+      const created = await this.commands.createTask(context.userId, workspaceId, {
+        ...args,
+        title: requireString(args.title, "title"),
+      }, context);
+      return { id: created.id };
     }
     if (operation === "update") {
       this.require(context, "tasks:write");
       const id = requireString(args.id ?? args.taskId, "taskId");
       const current = db.prepare("SELECT * FROM tasks WHERE id=?").get(id) as JsonObject | undefined;
       if (!current || (current.userId !== context.userId && !allowedWorkspace(current.workspaceId, context.userId, true))) forbidden("无权修改该任务");
-      db.prepare("UPDATE tasks SET title=?,isCompleted=?,priority=?,dueDate=?,updatedAt=? WHERE id=?")
-        .run(args.title ?? current.title, args.isCompleted === undefined ? current.isCompleted : (args.isCompleted ? 1 : 0), args.priority ?? current.priority, args.dueDate ?? current.dueDate, new Date().toISOString(), id);
-      return { id };
+      const updated = await this.commands.updateTask(context.userId, id, args, context);
+      return { id: updated.task?.id || id };
     }
     throw new Error(`未知 tasks 操作: ${operation}`);
   }
@@ -222,7 +249,7 @@ export class HostApiBroker {
     throw new Error(`未知 attachments 操作: ${operation}`);
   }
 
-  private diary(context: PluginExecutionContext, operation: string, args: JsonObject): unknown {
+  private async diary(context: PluginExecutionContext, operation: string, args: JsonObject): Promise<unknown> {
     const db = getDb();
     if (operation === "get") {
       this.require(context, "diary:read");
@@ -239,16 +266,20 @@ export class HostApiBroker {
     if (operation === "create") {
       this.require(context, "diary:write");
       const workspaceId = typeof args.workspaceId === "string" && args.workspaceId ? args.workspaceId : null;
-      if (!allowedWorkspace(workspaceId, context.userId)) forbidden("无权在该工作区创建日记");
-      const id = crypto.randomUUID();
-      db.prepare("INSERT INTO diaries(id,userId,workspaceId,contentText,mood,images,media,createdAt) VALUES (?,?,?,?,?,'[]','[]',?)")
-        .run(id, context.userId, workspaceId, String(args.contentText || ""), String(args.mood || ""), new Date().toISOString());
-      return { id };
+      if (!allowedWorkspace(workspaceId, context.userId, true)) forbidden("无权在该工作区创建日记");
+      const created = await this.commands.createDiary(context.userId, workspaceId, {
+        contentText: String(args.contentText || ""),
+        mood: String(args.mood || ""),
+        media: Array.isArray(args.media) ? args.media : [],
+        images: Array.isArray(args.images) ? args.images : [],
+        ...(args.createdAt ? { createdAt: args.createdAt } : {}),
+      }, context);
+      return { id: created.id };
     }
     throw new Error(`未知 diary 操作: ${operation}`);
   }
 
-  private mindmaps(context: PluginExecutionContext, operation: string, args: JsonObject): unknown {
+  private async mindmaps(context: PluginExecutionContext, operation: string, args: JsonObject): Promise<unknown> {
     ensureMindmapSchema();
     const db = getDb();
     if (operation === "get") {
@@ -265,22 +296,19 @@ export class HostApiBroker {
     if (operation === "create") {
       this.require(context, "mindmaps:write");
       const workspaceId = typeof args.workspaceId === "string" && args.workspaceId ? args.workspaceId : null;
-      if (!allowedWorkspace(workspaceId, context.userId)) forbidden("无权在该工作区创建思维导图");
-      const id = crypto.randomUUID();
+      if (!allowedWorkspace(workspaceId, context.userId, true)) forbidden("无权在该工作区创建思维导图");
       const title = String(args.title || "无标题导图");
       const data = args.data ?? { root: { id: "root", text: title, children: [] } };
-      db.prepare("INSERT INTO mindmaps(id,userId,workspaceId,title,data) VALUES (?,?,?,?,?)")
-        .run(id, context.userId, workspaceId, title, typeof data === "string" ? data : JSON.stringify(data));
-      return { id };
+      const created = await this.commands.createMindmap(context.userId, workspaceId, { title, data }, context);
+      return { id: created.id };
     }
     if (operation === "update") {
       this.require(context, "mindmaps:write");
       const id = requireString(args.id ?? args.mindmapId, "mindmapId");
       const row = db.prepare("SELECT * FROM mindmaps WHERE id=?").get(id) as JsonObject | undefined;
-      if (!row || !canManageResource(row.userId, row.workspaceId, context.userId)) forbidden("无权修改该思维导图");
-      db.prepare("UPDATE mindmaps SET title=?,data=?,updatedAt=? WHERE id=?")
-        .run(args.title ?? row.title, args.data === undefined ? row.data : (typeof args.data === "string" ? args.data : JSON.stringify(args.data)), new Date().toISOString(), id);
-      return { id };
+      if (!row || (row.userId !== context.userId && !allowedWorkspace(row.workspaceId, context.userId, true))) forbidden("无权修改该思维导图");
+      const updated = await this.commands.updateMindmap(context.userId, id, args, context);
+      return { id: updated.id || id };
     }
     throw new Error(`未知 mindmaps 操作: ${operation}`);
   }
@@ -331,7 +359,15 @@ export class HostApiBroker {
     }
     if (args.connection) {
       this.require(context, "secrets:use");
-      headers.set("Authorization", `Bearer ${this.secrets.get(context.pluginId, context.userId, String(args.connection))}`);
+      const connectionId = String(args.connection);
+      const record = this.registry.get(context.pluginId);
+      const manifest = record ? JSON.parse(record.manifestJson) as PluginManifest : undefined;
+      const connection = manifest?.connections?.find((item) => item.id === connectionId);
+      if (!connection) forbidden(`Manifest 未声明 Connection: ${connectionId}`, "INVALID_ARGUMENT");
+      const secret = this.secrets.get(context.pluginId, context.userId, connectionId);
+      if (connection.type === "bearer") headers.set("Authorization", `Bearer ${secret}`);
+      else if (connection.type === "api-key-header") headers.set(connection.headerName || "X-API-Key", secret);
+      else headers.set("Authorization", `Basic ${Buffer.from(secret, "utf8").toString("base64")}`);
     }
     const response = await fetch(url, {
       method: String(args.method || "GET").toUpperCase(),

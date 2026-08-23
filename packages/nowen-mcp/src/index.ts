@@ -712,6 +712,43 @@ server.tool(
   }
 );
 
+// ==================== 自动化工具 ====================
+
+server.tool(
+  "nowen_list_workflows",
+  "列出当前用户可管理的 Nowen 自动化工作流及其启用状态",
+  {},
+  async () => {
+    try {
+      const workflows = await api.listWorkflows();
+      return { content: [{ type: "text" as const, text: JSON.stringify(workflows.map((item) => ({ id: item.id, name: item.name, enabled: item.enabled, trigger: item.trigger })), null, 2) }] };
+    } catch (err: any) { return { content: [{ type: "text" as const, text: `错误: ${err.message}` }], isError: true }; }
+  },
+);
+
+server.tool(
+  "nowen_run_workflow",
+  "手动运行一个已存在的 Nowen 工作流；不会创建或长期启用工作流",
+  { workflowId: z.string().describe("工作流 ID") },
+  async ({ workflowId }) => {
+    try {
+      const run = await api.runWorkflow(workflowId);
+      return { content: [{ type: "text" as const, text: JSON.stringify(run, null, 2) }] };
+    } catch (err: any) { return { content: [{ type: "text" as const, text: `错误: ${err.message}` }], isError: true }; }
+  },
+);
+
+server.tool(
+  "nowen_get_workflow_run",
+  "查询 Nowen 工作流运行状态和每一步的持久化记录",
+  { runId: z.string().describe("工作流运行 ID") },
+  async ({ runId }) => {
+    try {
+      return { content: [{ type: "text" as const, text: JSON.stringify(await api.getWorkflowRun(runId), null, 2) }] };
+    } catch (err: any) { return { content: [{ type: "text" as const, text: `错误: ${err.message}` }], isError: true }; }
+  },
+);
+
 // ==================== Webhook 工具 ====================
 
 server.tool(

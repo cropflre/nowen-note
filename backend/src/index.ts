@@ -51,6 +51,8 @@ import urlImportRouter from "./routes/url-import";
 import aiRouter from "./routes/ai";
 import pluginsRouter from "./routes/plugins";
 import pluginExecutionsRouter from "./routes/plugin-executions";
+import automationsRouter from "./routes/automations";
+import automationWebhookRouter from "./automation/webhookTrigger";
 import webhooksRouter from "./routes/webhooks";
 import auditRouter from "./routes/audit";
 import backupsRouter, { handleFullBackupJobDownload } from "./routes/backups";
@@ -85,6 +87,8 @@ import { startEmbeddingWorker, stopEmbeddingWorker } from "./services/embedding-
 import { initVecStore, reindexAllVectors, isVecAvailable } from "./services/vec-store";
 import { startCalendarExportScheduler, stopCalendarExportScheduler } from "./services/calendar-export";
 import { DEFAULT_NATIVE_CORS_ORIGINS, resolveCorsOrigin, resolveCorsOrigins } from "./lib/cors-policy";
+import { automationEventCaptureMiddleware } from "./automation/eventCapture";
+import { automationRuntime } from "./automation/runtime";
 import {
   createStaticAssetHeaders,
   isStaticAssetNotModified,
@@ -342,6 +346,9 @@ app.get("/api/task-attachments/:id", handleDownloadTaskAttachment);
 //   /api/diary/*）注册得**更早**，否则会被 JWT 中间件拦截。
 app.get("/api/diary/attachments/:id", handleDownloadDiaryImage);
 
+// 高熵 capability token + 可选 HMAC，自身完成鉴权；外部系统不会携带 Nowen JWT。
+app.route("/api/automation/webhooks", automationWebhookRouter);
+
 // JWT 鉴权中间件：保护所有 /api/* 路由（auth 和 health 已在上方注册，不受影响）
 //
 // 安全加固（C3）：
@@ -489,6 +496,7 @@ app.use("/api/*", async (c, next) => {
 // API Token scopes + notebook resource scope enforcement.
 // JWT login requests pass through unchanged.
 app.use("/api/*", enforceApiTokenAccess);
+app.use("/api/*", automationEventCaptureMiddleware);
 
 // API 路由（受 JWT 保护）
 app.route("/api/knowledge-tree/", knowledgeTreeRouter);
@@ -523,6 +531,7 @@ app.route("/api/url-import", urlImportRouter);
 app.route("/api/ai", aiRouter);
 app.route("/api/plugins", pluginsRouter);
 app.route("/api/plugin-executions", pluginExecutionsRouter);
+app.route("/api/automations", automationsRouter);
 app.route("/api/webhooks", webhooksRouter);
 app.route("/api/audit", auditRouter);
 app.route("/api/backups", backupsRouter);
@@ -839,6 +848,12 @@ try {
   console.warn("[init] startEmbeddingWorker failed:", e);
 }
 
+try {
+  automationRuntime.start();
+} catch (e) {
+  console.warn("[init] automation runtime failed:", e);
+}
+
 // 启动日历 ICS S3 镜像定时导出
 //   - CALENDAR_EXPORT_TIMER_DISABLED=1 可关闭
 //   - NODE_ENV=test 时不启动
@@ -915,6 +930,7 @@ async function gracefulShutdown(signal: string) {
     process.exit(1);
   }, 3000);
   try {
+    automationRuntime.stop();
     // 先停同步引擎：它可能正在 push，避免它再排下一轮把关停拖长。
     // 已标记 inflight 的条目由下次启动的 recoverInflightMutations 复位，
     // 重复推送由 mutationId 幂等保证安全，不会产生重复数据。

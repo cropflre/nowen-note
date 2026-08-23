@@ -4,6 +4,7 @@ import { ExecutionLogTail } from "./logs.js";
 import { PACKAGE_LIMITS } from "./packageValidator.js";
 import { PluginRegistry } from "./registry.js";
 import { PluginRunner } from "./runner.js";
+import { SandboxRunner } from "./sandboxRunner.js";
 import type { HostApiBroker } from "./hostApiBroker.js";
 import type { PluginExecutionContext, PluginExecutionResult } from "./types.js";
 
@@ -27,20 +28,37 @@ function jsonSize(value: unknown): number {
 }
 
 export class PluginExecutionManager {
-  private readonly runners = new Map<string, PluginRunner>();
+  private readonly runners = new Map<string, PluginRunner | SandboxRunner>();
   private readonly cancelledBeforeStart = new Set<string>();
 
   constructor(
     private readonly broker: HostApiBroker,
     private readonly registry = new PluginRegistry(),
-  ) {}
+  ) {
+    this.recoverInterruptedExecutions();
+  }
 
-  private runner(pluginId: string): PluginRunner {
+  private recoverInterruptedExecutions(): void {
+    const finishedAt = new Date().toISOString();
+    getDb().prepare(`UPDATE plugin_executions
+      SET status='failed',finishedAt=?,errorCode='HOST_RESTARTED',errorMessage='Nowen 重启，排队任务未执行'
+      WHERE status='queued'`).run(finishedAt);
+    getDb().prepare(`UPDATE plugin_executions
+      SET status='interrupted',finishedAt=?,errorCode='HOST_RESTARTED',errorMessage='Nowen 重启，运行中的任务已中断'
+      WHERE status='running'`).run(finishedAt);
+  }
+
+  private runner(pluginId: string): PluginRunner | SandboxRunner {
     const existing = this.runners.get(pluginId);
     if (existing) return existing;
     const record = this.registry.get(pluginId);
     if (!record) throw new Error("插件不存在");
-    const runner = new PluginRunner(record, (context, call) => this.broker.call(context, call));
+    const Runner = record.runtime === "sandbox-js" ? SandboxRunner : PluginRunner;
+    const runner = new Runner(
+      record,
+      (context, call) => this.broker.call(context, call),
+      (executionId, progress) => this.updateProgress(executionId, progress),
+    );
     this.runners.set(pluginId, runner);
     return runner;
   }
@@ -53,6 +71,7 @@ export class PluginExecutionManager {
     actionInput: Record<string, unknown>;
     timeoutMs: number;
     executionId?: string;
+    executionContext?: Omit<PluginExecutionContext, "executionId" | "pluginId" | "actionId" | "userId" | "workspaceId">;
   }): Promise<{ executionId: string; result: PluginExecutionResult }> {
     const inputBytes = jsonSize(input.actionInput);
     if (inputBytes > PACKAGE_LIMITS.inputBytes) throw Object.assign(new Error("Action input 超过 256KB"), { code: "PLUGIN_INPUT_TOO_LARGE" });
@@ -64,6 +83,7 @@ export class PluginExecutionManager {
       actionId: input.actionId,
       userId: input.userId,
       workspaceId: input.workspaceId || null,
+      ...(input.executionContext || {}),
     };
     getDb().prepare(`INSERT INTO plugin_executions
       (id,pluginId,actionId,userId,workspaceId,status,startedAt,inputBytes,outputBytes,logTail)
@@ -85,6 +105,7 @@ export class PluginExecutionManager {
       const finishedAt = new Date();
       getDb().prepare(`UPDATE plugin_executions SET status='completed',finishedAt=?,durationMs=?,outputBytes=?,logTail=? WHERE id=?`)
         .run(finishedAt.toISOString(), finishedAt.getTime() - startedAt.getTime(), outputBytes, JSON.stringify(logs.toArray()), executionId);
+      getDb().prepare(`UPDATE plugin_registry SET probationRemaining=MAX(0,probationRemaining-1),probationVersion=CASE WHEN probationRemaining<=1 THEN NULL ELSE probationVersion END WHERE id=? AND probationVersion=version`).run(input.pluginId);
       return { executionId, result };
     } catch (error) {
       const coded = error as Error & { code?: string };
@@ -93,6 +114,13 @@ export class PluginExecutionManager {
       getDb().prepare(`UPDATE plugin_executions SET status=?,finishedAt=?,durationMs=?,errorCode=?,errorMessage=?,logTail=? WHERE id=?`)
         .run(coded.code === "PLUGIN_CANCELLED" ? "cancelled" : "failed", finishedAt.toISOString(), finishedAt.getTime() - startedAt.getTime(), coded.code || "PLUGIN_EXECUTION_FAILED", coded.message.slice(0, 2000), JSON.stringify(logs.toArray()), executionId);
       if (coded.code === "PLUGIN_TIMEOUT") this.registry.setStatus(input.pluginId, "error", coded.message);
+      const probation = this.registry.get(input.pluginId);
+      if (probation && probation.probationVersion === probation.version && probation.previousVersion) {
+        const previousVersion = probation.previousVersion;
+        await this.restart(input.pluginId);
+        this.registry.switchVersion(input.pluginId, previousVersion);
+        getDb().prepare("UPDATE plugin_registry SET status='disabled',probationVersion=NULL,probationRemaining=0,autoRollbackReason=?,lastError=? WHERE id=?").run(coded.message.slice(0, 1000), "新版本试运行失败，已自动回滚并禁用", input.pluginId);
+      }
       throw Object.assign(coded, { executionId });
     } finally {
       release();
@@ -117,6 +145,9 @@ export class PluginExecutionManager {
     if (!row?.pluginId) return false;
     if (row.status === "queued") {
       this.cancelledBeforeStart.add(executionId);
+      getDb().prepare(`UPDATE plugin_executions
+        SET status='cancelled',finishedAt=?,errorCode='PLUGIN_CANCELLED',errorMessage='插件执行已取消'
+        WHERE id=? AND status='queued'`).run(new Date().toISOString(), executionId);
       return true;
     }
     return this.runners.get(row.pluginId)?.cancel(executionId) || false;
@@ -126,6 +157,19 @@ export class PluginExecutionManager {
     const runner = this.runners.get(pluginId);
     if (runner) await runner.terminate();
     this.runners.delete(pluginId);
+  }
+
+  async preflight(pluginId: string): Promise<void> {
+    await this.runner(pluginId).preflight();
+  }
+
+  private updateProgress(executionId: string, progress: { current?: number; total?: number; message?: string }): void {
+    const current = Number.isFinite(progress.current) ? Math.max(0, Math.floor(progress.current!)) : null;
+    const total = Number.isFinite(progress.total) ? Math.max(0, Math.floor(progress.total!)) : null;
+    getDb().prepare(`UPDATE plugin_executions
+      SET progressCurrent=?,progressTotal=?,progressMessage=?
+      WHERE id=? AND status='running'`)
+      .run(current, total, progress.message?.slice(0, 500) || null, executionId);
   }
 
   async shutdown(pluginId: string): Promise<void> {
