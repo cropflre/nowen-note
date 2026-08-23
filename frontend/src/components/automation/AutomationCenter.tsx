@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Activity, CalendarClock, ChevronDown, CircleStop, Clock3, GitBranch, Loader2, Play, Plus, RefreshCw, Trash2, Webhook, Zap } from "lucide-react";
+import { ChevronDown, CircleStop, Clock3, GitBranch, Loader2, Play, Plus, RefreshCw, Trash2, Zap } from "lucide-react";
 import { automationApi, type AutomationRun, type AutomationStep, type AutomationWorkflow } from "@/lib/automationApi";
 import { pluginApi, type PluginAction } from "@/lib/pluginApi";
 
