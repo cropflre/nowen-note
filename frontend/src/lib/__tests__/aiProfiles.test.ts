@@ -49,6 +49,20 @@ describe("aiProfiles client", () => {
     );
   });
 
+  it("tests a saved profile with a non-empty JSON request body", async () => {
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
+      success: true,
+      message: "连接成功",
+    }), { status: 200, headers: { "content-type": "application/json" } }));
+
+    await aiProfiles.test("lm-studio");
+
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("https://note.example.com/api/user-preferences/ai-profiles/lm-studio/test");
+    expect(init.method).toBe("POST");
+    expect(init.body).toBe("{}");
+  });
+
   it("sends unsaved profile fields when discovering models", async () => {
     fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
       models: [{ id: "qwen-plus", name: "qwen-plus" }],

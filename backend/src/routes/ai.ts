@@ -14,7 +14,7 @@ import {
 import { getUserWorkspaceRole } from "../middleware/acl";
 import { callAIChat, callAIChatStream, extractTextFromChatCompletion, sanitizeError, type AISettings } from "../services/ai-client";
 import { aiCustomPromptsRepository } from "../repositories";
-import { getUserAISettings, setGuardedUserAISettings } from "../services/user-ai-settings";
+import { getUserAISettings, isManualAIEnabled, setGuardedUserAISettings } from "../services/user-ai-settings";
 import {
   discoverEmbeddingModels,
   embeddingDiscoveryErrorBody,
@@ -144,7 +144,7 @@ function resolveKnowledgeScope(
 // ===== AI 设置管理 =====
 
 // 不需要 API Key 的 Provider
-const NO_KEY_PROVIDERS = ["ollama"];
+const NO_KEY_PROVIDERS = ["ollama", "lmstudio"];
 
 function getAISettings(c: any): AISettings {
   return getUserAISettings(c.req.header("X-User-Id")!);
@@ -213,6 +213,14 @@ ai.post("/embeddings/test", async (c) => {
 
 // ===== AI 连接测试 =====
 ai.post("/test", async (c) => {
+  const userId = c.req.header("X-User-Id")!;
+  if (!isManualAIEnabled(userId)) {
+    return c.json({
+      success: false,
+      error: "手动 AI 配置已关闭，请先在 AI 设置顶部开启后再测试连接",
+      code: "AI_CONFIG_DISABLED",
+    }, 409);
+  }
   const settings = getAISettings(c);
   if (!settings.ai_api_url) {
     return c.json({ success: false, error: "未配置 API 地址" }, 400);

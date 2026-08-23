@@ -3385,7 +3385,10 @@ export const api = {
       body: JSON.stringify(data),
     }),
   testAIConnection: () =>
-    request<{ success: boolean; message?: string; error?: string }>("/ai/test", { method: "POST" }),
+    request<{ success: boolean; message?: string; error?: string }>("/ai/test", {
+      method: "POST",
+      body: JSON.stringify({}),
+    }),
   getAIModels: () =>
     request<{ models: { id: string; name: string }[] }>("/ai/models"),
   aiChat: async (action: string, text: string, context?: string, onChunk?: (chunk: string) => void, customPrompt?: string): Promise<string> => {

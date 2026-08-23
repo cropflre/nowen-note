@@ -3,8 +3,10 @@ import { Hono } from "hono";
 import { getDb } from "../db/schema";
 import { hasPermission, resolveNotePermission } from "../middleware/acl";
 import { broadcastToUser } from "../services/realtime";
+import { callAIChat, sanitizeError, type AISettings } from "../services/ai-client";
 import {
   getUserAISetting,
+  isManualAIEnabled,
   setGuardedUserAISettings,
   setUserAISettings,
 } from "../services/user-ai-settings";
@@ -118,6 +120,7 @@ interface AIProfile {
 const AI_PROFILES_KEY = "ai_profiles_v1";
 const AI_ACTIVE_PROFILE_KEY = "ai_active_profile_id";
 const MAX_AI_PROFILES = 30;
+const NO_KEY_AI_PROVIDERS = new Set(["ollama", "lmstudio"]);
 
 function normalizeProfile(input: unknown, base?: AIProfile, touchUpdatedAt = true): AIProfile {
   const raw = input && typeof input === "object" ? input as Record<string, unknown> : {};
@@ -223,6 +226,42 @@ function modelEndpoint(apiUrl: string): string {
   return /\/models$/i.test(base) ? base : `${base}/models`;
 }
 
+function profileAISettings(profile: AIProfile): AISettings {
+  return {
+    ai_provider: profile.provider,
+    ai_api_url: profile.apiUrl,
+    ai_api_key: profile.apiKey,
+    ai_model: profile.model,
+    ai_embedding_profile_id: "",
+    ai_embedding_url: "",
+    ai_embedding_key: "",
+    ai_embedding_model: "",
+  };
+}
+
+function profileConnectionFailure(error: unknown, profile: AIProfile): { code: string; error: string } {
+  const reason = error as { message?: unknown; cause?: { code?: unknown; message?: unknown } };
+  const detail = sanitizeError([
+    reason?.message,
+    reason?.cause?.code,
+    reason?.cause?.message,
+  ].filter(Boolean).join(" "));
+  const unreachable = /fetch failed|ECONNREFUSED|ECONNRESET|ENETUNREACH|EHOSTUNREACH|ETIMEDOUT|timeout|aborted/i.test(detail);
+  if (!unreachable) {
+    return { code: "AI_UPSTREAM_ERROR", error: detail || "AI 服务连接失败" };
+  }
+
+  let host = profile.apiUrl;
+  try { host = new URL(profile.apiUrl).host; } catch { /* normalizeProfile 已验证 URL */ }
+  const isLMStudio = profile.provider === "lmstudio" || /:1234(?:\/|$)/.test(profile.apiUrl);
+  return {
+    code: "AI_UPSTREAM_UNREACHABLE",
+    error: isLMStudio
+      ? `Nowen Note 服务端无法连接 LM Studio（${host}）。请在 LM Studio 开启 Serve on Local Network，并放行防火墙 1234 端口；如果 Nowen Note 部署在另一台设备，不能填写 localhost。`
+      : `Nowen Note 服务端无法连接 AI 服务（${host}），请检查服务地址、监听网卡和防火墙。`,
+  };
+}
+
 function extractModels(data: any): Array<{ id: string; name: string }> {
   const rows = Array.isArray(data)
     ? data
@@ -305,7 +344,7 @@ app.post("/ai-profiles/discover-models", async (c) => {
   }
 
   if (!profile.apiUrl) return c.json({ error: "请先填写 AI API 地址", models: [] }, 400);
-  if (profile.provider !== "ollama" && !profile.apiKey) {
+  if (!NO_KEY_AI_PROVIDERS.has(profile.provider) && !profile.apiKey) {
     return c.json({ error: "请先填写 API Key", models: [] }, 400);
   }
 
@@ -335,7 +374,7 @@ app.post("/ai-profiles/discover-models", async (c) => {
       if (models.length > 0) return c.json({ models, source: endpoint });
       failures.push("接口返回成功，但没有可识别的模型列表");
     } catch (error) {
-      failures.push((error as Error)?.message || "模型接口请求失败");
+      failures.push(profileConnectionFailure(error, profile).error);
     }
   }
 
@@ -343,6 +382,35 @@ app.post("/ai-profiles/discover-models", async (c) => {
     error: failures.filter(Boolean).join("；") || "无法获取模型列表",
     models: [],
   }, 502);
+});
+
+app.post("/ai-profiles/:profileId/test", async (c) => {
+  const userId = c.req.header("X-User-Id")!;
+  const profileId = c.req.param("profileId");
+  const profile = ensureAIProfiles(userId).profiles.find((item) => item.id === profileId);
+  if (!profile) return c.json({ success: false, error: "AI 配置不存在", code: "AI_PROFILE_NOT_FOUND" }, 404);
+  if (!profile.apiUrl) return c.json({ success: false, error: "请先填写 AI API 地址", code: "AI_API_URL_REQUIRED" }, 400);
+  if (!profile.model) return c.json({ success: false, error: "请先选择或填写模型名称", code: "AI_MODEL_REQUIRED" }, 400);
+  if (!NO_KEY_AI_PROVIDERS.has(profile.provider) && !profile.apiKey) {
+    return c.json({ success: false, error: "请先填写 API Key", code: "AI_API_KEY_REQUIRED" }, 400);
+  }
+
+  try {
+    const text = await callAIChat(profileAISettings(profile), [{ role: "user", content: "Hi" }], {
+      max_tokens: 10,
+      timeout_ms: 15_000,
+    });
+    const runtimeEnabled = isManualAIEnabled(userId);
+    return c.json({
+      success: true,
+      message: runtimeEnabled
+        ? (text ? "连接成功" : "连接成功（模型未返回可展示文本）")
+        : "连接成功；请开启顶部「手动 AI 配置」后使用 AI 助手",
+      ...(text ? { preview: text.slice(0, 100) } : {}),
+    });
+  } catch (error) {
+    return c.json({ success: false, ...profileConnectionFailure(error, profile) }, 502);
+  }
 });
 
 app.put("/ai-profiles/:profileId/activate", (c) => {

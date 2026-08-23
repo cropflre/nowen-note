@@ -14,7 +14,6 @@ import {
   Trash2,
   Zap,
 } from "lucide-react";
-import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import {
   aiProfiles,
@@ -40,6 +39,7 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
   { id: "gemini", name: "Google Gemini", desc: "Gemini OpenAI 兼容接口", url: "https://generativelanguage.googleapis.com/v1beta/openai", defaultModel: "gemini-2.0-flash", needsKey: true, color: "from-blue-500 to-cyan-500" },
   { id: "deepseek", name: "DeepSeek", desc: "DeepSeek 官方接口", url: "https://api.deepseek.com/v1", defaultModel: "deepseek-chat", needsKey: true, color: "from-sky-500 to-indigo-500" },
   { id: "doubao", name: "豆包（火山引擎）", desc: "火山方舟 OpenAI 兼容接口", url: "https://ark.cn-beijing.volces.com/api/v3", defaultModel: "doubao-1.5-pro-32k", needsKey: true, color: "from-orange-500 to-pink-500" },
+  { id: "lmstudio", name: "LM Studio", desc: "本地或局域网 OpenAI 兼容服务", url: "http://127.0.0.1:1234/v1", defaultModel: "", needsKey: false, color: "from-cyan-500 to-blue-600" },
   { id: "ollama", name: "Ollama", desc: "本地或局域网模型", url: "http://localhost:11434/v1", defaultModel: "qwen2.5:7b", needsKey: false, color: "from-zinc-500 to-zinc-700" },
   { id: "custom", name: "自定义 API", desc: "任意 OpenAI 兼容服务", url: "", defaultModel: "", needsKey: true, color: "from-purple-500 to-indigo-500" },
 ];
@@ -270,7 +270,7 @@ export default function AISettingsPanel() {
         const activated = await aiProfiles.activate(saved.profile.id);
         nextActiveId = activated.activeProfileId;
       }
-      const result = await api.testAIConnection();
+      const result = await aiProfiles.test(saved.profile.id);
       await loadProfiles(saved.profile.id);
       emitAIProfilesChanged(nextActiveId);
       setMessage({

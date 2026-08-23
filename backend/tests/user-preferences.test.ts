@@ -266,3 +266,71 @@ test("discovers Ollama models through the native tags endpoint without an API ke
     globalThis.fetch = originalFetch;
   }
 });
+
+test("tests a saved LM Studio profile while the manual AI runtime is disabled", async () => {
+  writeSetting("ai_manual_enabled", "false");
+  const created = await requestJson("POST", "/user-preferences/ai-profiles", {
+    name: "LAN LM Studio",
+    provider: "lmstudio",
+    apiUrl: "http://192.168.0.111:1234/v1",
+    apiKey: "",
+    model: "lmstudio-community/qwen3.5-9b",
+    activate: true,
+  });
+  const profileId = created.json.profile.id as string;
+  assert.equal(created.status, 201);
+  assert.equal(readSetting("ai_api_url"), "", "disabled runtime must remain empty");
+
+  const originalFetch = globalThis.fetch;
+  let requestedUrl = "";
+  let requestedBody: any = null;
+  let requestedAuth = "";
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    requestedUrl = String(input);
+    requestedBody = JSON.parse(String(init?.body || "{}"));
+    requestedAuth = new Headers(init?.headers).get("authorization") || "";
+    return new Response(JSON.stringify({
+      choices: [{ message: { content: "OK" } }],
+    }), { status: 200, headers: { "content-type": "application/json" } });
+  }) as typeof fetch;
+
+  try {
+    const result = await requestJson("POST", `/user-preferences/ai-profiles/${profileId}/test`, {});
+    assert.equal(result.status, 200);
+    assert.equal(result.json.success, true);
+    assert.match(result.json.message, /开启顶部.*手动 AI 配置/);
+    assert.equal(requestedUrl, "http://192.168.0.111:1234/v1/chat/completions");
+    assert.equal(requestedBody.model, "lmstudio-community/qwen3.5-9b");
+    assert.equal(requestedBody.stream, false);
+    assert.equal(requestedAuth, "");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("returns actionable LAN diagnostics when the Nowen server cannot reach LM Studio", async () => {
+  const created = await requestJson("POST", "/user-preferences/ai-profiles", {
+    name: "Offline LM Studio",
+    provider: "lmstudio",
+    apiUrl: "http://192.168.0.111:1234/v1",
+    apiKey: "",
+    model: "local-model",
+  });
+  const profileId = created.json.profile.id as string;
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () => {
+    const failure = new TypeError("fetch failed") as TypeError & { cause?: { code: string; message: string } };
+    failure.cause = { code: "ECONNREFUSED", message: "connect ECONNREFUSED 192.168.0.111:1234" };
+    throw failure;
+  }) as typeof fetch;
+
+  try {
+    const result = await requestJson("POST", `/user-preferences/ai-profiles/${profileId}/test`, {});
+    assert.equal(result.status, 502);
+    assert.equal(result.json.code, "AI_UPSTREAM_UNREACHABLE");
+    assert.match(result.json.error, /Serve on Local Network/);
+    assert.match(result.json.error, /1234/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

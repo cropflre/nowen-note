@@ -69,6 +69,15 @@ export const aiProfiles = {
       method: "PUT",
     }),
 
+  test: (profileId: string) =>
+    request<{ success: boolean; message?: string; error?: string; code?: string; preview?: string }>(
+      `/${encodeURIComponent(profileId)}/test`,
+      {
+        method: "POST",
+        body: JSON.stringify({}),
+      },
+    ),
+
   discoverModels: (draft: AIProfileDraft, profileId?: string) =>
     request<{ models: AIModelOption[]; source?: string }>("/discover-models", {
       method: "POST",
