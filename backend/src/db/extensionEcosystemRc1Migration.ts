@@ -1,4 +1,3 @@
-import { existsSync } from "node:fs";
 import type { Migration } from "./migrations.impl.js";
 
 function hasColumn(db: any, table: string, column: string): boolean {
@@ -36,15 +35,15 @@ function backfillLifecycleState(db: any): void {
   const now = new Date().toISOString();
 
   for (const record of records) {
-    const installedPathExists = record.installedPath.length > 0 && existsSync(record.installedPath);
+    const hasInstalledPath = record.installedPath.trim().length > 0;
     const lifecycleState = record.status === "quarantined"
       ? "installed"
       : record.status === "enabled"
         && record.probationVersion === record.version
         && record.probationRemaining > 0
-        && installedPathExists
+        && hasInstalledPath
         ? "probation"
-        : record.status === "enabled" && installedPathExists
+        : record.status === "enabled" && hasInstalledPath
           ? "stable"
           : "disabled";
     const previousStableVersion = lifecycleState === "probation"

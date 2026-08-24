@@ -1,38 +1,172 @@
 -- Extension Ecosystem V2 RC1 生命周期与供应链状态。
--- 在扩展平台基础结构之后执行；本脚本可安全重复执行。
+-- 本文件自包含仓库内缺失的扩展平台 PostgreSQL 基础结构，并可安全重复执行。
+
+CREATE TABLE IF NOT EXISTS plugin_registry (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  version TEXT NOT NULL,
+  "apiVersion" INTEGER NOT NULL,
+  runtime TEXT NOT NULL,
+  main TEXT NOT NULL,
+  source TEXT NOT NULL,
+  "trustLevel" TEXT NOT NULL,
+  status TEXT NOT NULL,
+  checksum TEXT NOT NULL,
+  "manifestJson" TEXT NOT NULL,
+  "installedPath" TEXT NOT NULL,
+  "installedBy" TEXT,
+  "installedAt" TIMESTAMPTZ NOT NULL,
+  "updatedAt" TIMESTAMPTZ NOT NULL,
+  "lastError" TEXT,
+  "previousVersion" TEXT,
+  publisher TEXT,
+  "signatureState" TEXT NOT NULL DEFAULT 'unsigned',
+  "advisoryState" TEXT NOT NULL DEFAULT 'unknown',
+  "updatePolicy" TEXT NOT NULL DEFAULT 'manual',
+  "pinnedVersion" TEXT,
+  "probationVersion" TEXT,
+  "probationRemaining" INTEGER NOT NULL DEFAULT 0,
+  "autoRollbackReason" TEXT
+);
 
 ALTER TABLE plugin_registry
-  ADD COLUMN IF NOT EXISTS "lifecycleState" TEXT NOT NULL DEFAULT 'disabled'
-    CHECK ("lifecycleState" IN (
-      'installed', 'preflight', 'probation', 'stable',
-      'rollback_pending', 'rolling_back', 'disabled'
-    )),
-  ADD COLUMN IF NOT EXISTS "previousStableVersion" TEXT,
-  ADD COLUMN IF NOT EXISTS "activeOperationId" TEXT,
-  ADD COLUMN IF NOT EXISTS "stateUpdatedAt" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  ADD COLUMN IF NOT EXISTS "nodeRuntimeConfirmedAt" TIMESTAMPTZ,
-  ADD COLUMN IF NOT EXISTS "nodeRuntimeConfirmedBy" TEXT;
+  ADD COLUMN IF NOT EXISTS "previousVersion" TEXT,
+  ADD COLUMN IF NOT EXISTS publisher TEXT,
+  ADD COLUMN IF NOT EXISTS "signatureState" TEXT NOT NULL DEFAULT 'unsigned',
+  ADD COLUMN IF NOT EXISTS "advisoryState" TEXT NOT NULL DEFAULT 'unknown',
+  ADD COLUMN IF NOT EXISTS "updatePolicy" TEXT NOT NULL DEFAULT 'manual',
+  ADD COLUMN IF NOT EXISTS "pinnedVersion" TEXT,
+  ADD COLUMN IF NOT EXISTS "probationVersion" TEXT,
+  ADD COLUMN IF NOT EXISTS "probationRemaining" INTEGER NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS "autoRollbackReason" TEXT;
 
-UPDATE plugin_registry
-SET
-  "lifecycleState" = CASE
-    WHEN status = 'quarantined' THEN 'installed'
-    WHEN status = 'enabled'
-      AND "probationVersion" = version
-      AND "probationRemaining" > 0
-      AND NULLIF(BTRIM("installedPath"), '') IS NOT NULL THEN 'probation'
-    WHEN status = 'enabled'
-      AND NULLIF(BTRIM("installedPath"), '') IS NOT NULL THEN 'stable'
-    ELSE 'disabled'
-  END,
-  "previousStableVersion" = CASE
-    WHEN status = 'enabled'
-      AND "probationVersion" = version
-      AND "probationRemaining" > 0 THEN "previousVersion"
-    ELSE NULL
-  END,
-  "stateUpdatedAt" = COALESCE("stateUpdatedAt", "updatedAt", NOW())
-WHERE "stateUpdatedAt" IS NULL;
+CREATE TABLE IF NOT EXISTS plugin_sources (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  "indexUrl" TEXT NOT NULL,
+  official BOOLEAN NOT NULL DEFAULT FALSE,
+  enabled BOOLEAN NOT NULL DEFAULT TRUE,
+  "registryKeyId" TEXT,
+  "registryPublicKey" TEXT,
+  "createdAt" TIMESTAMPTZ NOT NULL,
+  "updatedAt" TIMESTAMPTZ NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS plugin_versions (
+  "pluginId" TEXT NOT NULL REFERENCES plugin_registry(id) ON DELETE CASCADE,
+  version TEXT NOT NULL,
+  "manifestJson" TEXT NOT NULL,
+  checksum TEXT NOT NULL,
+  "installedPath" TEXT NOT NULL,
+  source TEXT NOT NULL,
+  "trustLevel" TEXT NOT NULL,
+  status TEXT NOT NULL,
+  "installedAt" TIMESTAMPTZ NOT NULL,
+  "verifiedAt" TIMESTAMPTZ,
+  "publisherKeyId" TEXT,
+  signature TEXT,
+  "signatureState" TEXT NOT NULL DEFAULT 'unsigned',
+  "artifactUrl" TEXT,
+  PRIMARY KEY ("pluginId", version)
+);
+
+ALTER TABLE plugin_versions
+  ADD COLUMN IF NOT EXISTS "publisherKeyId" TEXT,
+  ADD COLUMN IF NOT EXISTS signature TEXT,
+  ADD COLUMN IF NOT EXISTS "signatureState" TEXT NOT NULL DEFAULT 'unsigned',
+  ADD COLUMN IF NOT EXISTS "artifactUrl" TEXT;
+
+CREATE INDEX IF NOT EXISTS idx_plugin_versions_installed
+  ON plugin_versions("pluginId", "installedAt" DESC);
+
+INSERT INTO plugin_versions (
+  "pluginId", version, "manifestJson", checksum, "installedPath",
+  source, "trustLevel", status, "installedAt", "verifiedAt"
+)
+SELECT
+  id, version, "manifestJson", checksum, "installedPath",
+  source, "trustLevel", status, "installedAt",
+  CASE WHEN status = 'enabled' THEN "updatedAt" ELSE NULL END
+FROM plugin_registry
+ON CONFLICT ("pluginId", version) DO NOTHING;
+
+DO $$
+DECLARE
+  lifecycle_was_missing BOOLEAN;
+BEGIN
+  SELECT NOT EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_schema = current_schema()
+      AND table_name = 'plugin_registry'
+      AND column_name = 'lifecycleState'
+  ) INTO lifecycle_was_missing;
+
+  ALTER TABLE plugin_registry
+    ADD COLUMN IF NOT EXISTS "lifecycleState" TEXT NOT NULL DEFAULT 'disabled'
+      CHECK ("lifecycleState" IN (
+        'installed', 'preflight', 'probation', 'stable',
+        'rollback_pending', 'rolling_back', 'disabled'
+      )),
+    ADD COLUMN IF NOT EXISTS "previousStableVersion" TEXT,
+    ADD COLUMN IF NOT EXISTS "activeOperationId" TEXT,
+    ADD COLUMN IF NOT EXISTS "stateUpdatedAt" TIMESTAMPTZ,
+    ADD COLUMN IF NOT EXISTS "nodeRuntimeConfirmedAt" TIMESTAMPTZ,
+    ADD COLUMN IF NOT EXISTS "nodeRuntimeConfirmedBy" TEXT;
+
+  IF lifecycle_was_missing THEN
+    UPDATE plugin_registry
+    SET
+      "lifecycleState" = CASE
+        WHEN status = 'quarantined' THEN 'installed'
+        WHEN status = 'enabled'
+          AND "probationVersion" = version
+          AND "probationRemaining" > 0
+          AND NULLIF(BTRIM("installedPath"), '') IS NOT NULL THEN 'probation'
+        WHEN status = 'enabled'
+          AND NULLIF(BTRIM("installedPath"), '') IS NOT NULL THEN 'stable'
+        ELSE 'disabled'
+      END,
+      "previousStableVersion" = CASE
+        WHEN status = 'enabled'
+          AND "probationVersion" = version
+          AND "probationRemaining" > 0
+          AND NULLIF(BTRIM("installedPath"), '') IS NOT NULL THEN "previousVersion"
+        ELSE NULL
+      END,
+      "stateUpdatedAt" = COALESCE("updatedAt", NOW());
+  END IF;
+
+  UPDATE plugin_registry
+  SET "stateUpdatedAt" = COALESCE("updatedAt", NOW())
+  WHERE "stateUpdatedAt" IS NULL;
+
+  ALTER TABLE plugin_registry
+    ALTER COLUMN "stateUpdatedAt" SET DEFAULT NOW(),
+    ALTER COLUMN "stateUpdatedAt" SET NOT NULL;
+END
+$$;
+
+CREATE OR REPLACE FUNCTION set_plugin_registry_rc1_state_updated_at()
+RETURNS TRIGGER AS $$
+BEGIN
+  IF TG_OP = 'INSERT' THEN
+    IF NEW."stateUpdatedAt" IS NULL THEN
+      NEW."stateUpdatedAt" := NOW();
+    END IF;
+  ELSIF NEW."lifecycleState" IS DISTINCT FROM OLD."lifecycleState"
+    AND NEW."stateUpdatedAt" IS NOT DISTINCT FROM OLD."stateUpdatedAt" THEN
+    NEW."stateUpdatedAt" := NOW();
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS plugin_registry_rc1_state_timestamp ON plugin_registry;
+CREATE TRIGGER plugin_registry_rc1_state_timestamp
+BEFORE INSERT OR UPDATE OF "lifecycleState" ON plugin_registry
+FOR EACH ROW
+EXECUTE FUNCTION set_plugin_registry_rc1_state_updated_at();
 
 CREATE TABLE IF NOT EXISTS plugin_update_operations (
   id TEXT PRIMARY KEY,
