@@ -24,17 +24,38 @@ export class PluginRegistry {
     installedBy: string | null;
     publisherKeyId?: string | null;
     signature?: string | null;
-    signatureState?: "unsigned" | "verified";
+    signatureState?: string;
     artifactUrl?: string | null;
+    nodeRuntimeConfirmedBy?: string | null;
   }): PluginRegistryRecord {
     const timestamp = now();
+    const confirmedAt = input.nodeRuntimeConfirmedBy ? timestamp : null;
     getDb().prepare(`
       INSERT INTO plugin_registry (
         id, name, version, apiVersion, runtime, main, source, trustLevel, status,
-        checksum, manifestJson, installedPath, installedBy, installedAt, updatedAt, lastError,publisher,signatureState,updatePolicy
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL,?,?,?)
+        checksum, manifestJson, installedPath, installedBy, installedAt, updatedAt, lastError,
+        publisher, signatureState, updatePolicy, nodeRuntimeConfirmedAt, nodeRuntimeConfirmedBy
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         previousVersion=CASE WHEN plugin_registry.version<>excluded.version THEN plugin_registry.version ELSE plugin_registry.previousVersion END,
+        nodeRuntimeConfirmedAt=CASE
+          WHEN excluded.nodeRuntimeConfirmedAt IS NOT NULL THEN excluded.nodeRuntimeConfirmedAt
+          WHEN plugin_registry.apiVersion=excluded.apiVersion
+            AND plugin_registry.runtime=excluded.runtime
+            AND COALESCE(plugin_registry.publisher,'')=COALESCE(excluded.publisher,'')
+            AND plugin_registry.trustLevel=excluded.trustLevel
+          THEN plugin_registry.nodeRuntimeConfirmedAt
+          ELSE NULL
+        END,
+        nodeRuntimeConfirmedBy=CASE
+          WHEN excluded.nodeRuntimeConfirmedBy IS NOT NULL THEN excluded.nodeRuntimeConfirmedBy
+          WHEN plugin_registry.apiVersion=excluded.apiVersion
+            AND plugin_registry.runtime=excluded.runtime
+            AND COALESCE(plugin_registry.publisher,'')=COALESCE(excluded.publisher,'')
+            AND plugin_registry.trustLevel=excluded.trustLevel
+          THEN plugin_registry.nodeRuntimeConfirmedBy
+          ELSE NULL
+        END,
         name=excluded.name, version=excluded.version, apiVersion=excluded.apiVersion,
         runtime=excluded.runtime, main=excluded.main, source=excluded.source,
         trustLevel=excluded.trustLevel, status=excluded.status, checksum=excluded.checksum,
@@ -48,6 +69,7 @@ export class PluginRegistry {
       JSON.stringify(input.manifest), input.installedPath, input.installedBy,
       timestamp, timestamp, input.manifest.apiVersion === 2 ? input.manifest.publisher : null, input.signatureState || "unsigned",
       input.manifest.runtime === "sandbox-js" && input.trustLevel === "official" ? "automatic" : "manual",
+      confirmedAt, input.nodeRuntimeConfirmedBy || null,
     );
     getDb().prepare(`INSERT INTO plugin_versions
       (pluginId,version,manifestJson,checksum,installedPath,source,trustLevel,status,installedAt,verifiedAt,publisherKeyId,signature,signatureState,artifactUrl)
@@ -98,13 +120,22 @@ export class PluginRegistry {
     const current = this.get(id);
     if (!target || !current) throw Object.assign(new Error("插件版本不存在"), { code: "PLUGIN_VERSION_NOT_FOUND" });
     const manifest = JSON.parse(target.manifestJson) as PluginManifest;
+    const currentManifest = JSON.parse(current.manifestJson) as PluginManifest;
+    const sameRuntimeBoundary = currentManifest.apiVersion === manifest.apiVersion
+      && currentManifest.runtime === manifest.runtime
+      && (currentManifest.apiVersion === 2 ? currentManifest.publisher : null) === (manifest.apiVersion === 2 ? manifest.publisher : null)
+      && current.trustLevel === target.trustLevel;
     getDb().prepare(`UPDATE plugin_registry SET
       name=?,version=?,apiVersion=?,runtime=?,main=?,source=?,trustLevel=?,status='quarantined',
-      checksum=?,manifestJson=?,installedPath=?,previousVersion=?,updatedAt=?,lastError=NULL
+      checksum=?,manifestJson=?,installedPath=?,previousVersion=?,publisher=?,signatureState=?,advisoryState='unknown',
+      nodeRuntimeConfirmedAt=?,nodeRuntimeConfirmedBy=?,updatedAt=?,lastError=NULL
       WHERE id=?`).run(
         manifest.name, manifest.version, manifest.apiVersion, manifest.runtime, manifest.main,
         target.source, target.trustLevel, target.checksum, target.manifestJson, target.installedPath,
-        current.version, now(), id,
+        current.version, manifest.apiVersion === 2 ? manifest.publisher : null, target.signatureState || "unsigned",
+        sameRuntimeBoundary ? current.nodeRuntimeConfirmedAt : null,
+        sameRuntimeBoundary ? current.nodeRuntimeConfirmedBy : null,
+        now(), id,
       );
     return this.get(id)!;
   }

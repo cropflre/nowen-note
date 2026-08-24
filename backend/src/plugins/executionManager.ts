@@ -1,6 +1,8 @@
 import crypto from "node:crypto";
 import { getDb } from "../db/schema.js";
 import { ExecutionLogTail } from "./logs.js";
+import { compatibilityInputFromRecord } from "./extensionCompatibility.js";
+import { ExtensionPolicy } from "./extensionPolicy.js";
 import { PACKAGE_LIMITS } from "./packageValidator.js";
 import { PluginRegistry } from "./registry.js";
 import { PluginRunner } from "./runner.js";
@@ -34,6 +36,7 @@ export class PluginExecutionManager {
   constructor(
     private readonly broker: HostApiBroker,
     private readonly registry = new PluginRegistry(),
+    private readonly policy = new ExtensionPolicy(),
   ) {
     this.recoverInterruptedExecutions();
   }
@@ -49,11 +52,12 @@ export class PluginExecutionManager {
   }
 
   private runner(pluginId: string): PluginRunner | SandboxRunner {
-    const existing = this.runners.get(pluginId);
-    if (existing) return existing;
     const record = this.registry.get(pluginId);
     if (!record) throw new Error("插件不存在");
-    const Runner = record.runtime === "sandbox-js" ? SandboxRunner : PluginRunner;
+    const resolvedRuntime = this.policy.assertAllowed(compatibilityInputFromRecord(record));
+    const existing = this.runners.get(pluginId);
+    if (existing) return existing;
+    const Runner = resolvedRuntime === "sandbox-js" ? SandboxRunner : PluginRunner;
     const runner = new Runner(
       record,
       (context, call) => this.broker.call(context, call),

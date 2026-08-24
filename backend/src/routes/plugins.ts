@@ -11,11 +11,21 @@ function userId(c: any): string {
 }
 
 function errorResponse(c: any, error: unknown) {
-  const coded = error as Error & { code?: string; executionId?: string };
+  const coded = error as Error & { code?: string; executionId?: string; confirmationRequired?: boolean };
   const status = coded.code === "PLUGIN_NOT_FOUND" || coded.code === "PLUGIN_ACTION_NOT_FOUND" ? 404
     : coded.code === "RESOURCE_FORBIDDEN" || coded.code === "PLUGIN_PERMISSION_DENIED" ? 403
-      : coded.code === "PLUGIN_TIMEOUT" ? 408 : 400;
-  return c.json({ success: false, error: coded.message || String(error), code: coded.code || "PLUGIN_ERROR", executionId: coded.executionId }, status as any);
+      : coded.code === "PLUGIN_TIMEOUT" ? 408
+        : coded.code === "PLUGIN_NODE_RUNTIME_CONFIRMATION_REQUIRED" ? 409
+          : 400;
+  return c.json({
+    success: false,
+    error: coded.message || String(error),
+    code: coded.code || "PLUGIN_ERROR",
+    executionId: coded.executionId,
+    ...(coded.code === "PLUGIN_NODE_RUNTIME_CONFIRMATION_REQUIRED" && coded.confirmationRequired
+      ? { confirmNodeRuntimeAllowed: true }
+      : {}),
+  }, status as any);
 }
 
 pluginsRouter.get("/", (c) => {
@@ -55,7 +65,8 @@ pluginsRouter.post("/install", requireAdmin, bodyLimit({
     const upload = body.file;
     if (!(upload instanceof File)) return c.json({ error: "请上传 file 字段中的 .nowen-plugin 文件" }, 400);
     if (!upload.name.endsWith(".nowen-plugin")) return c.json({ error: "文件扩展名必须是 .nowen-plugin" }, 400);
-    const record = await getPluginService().install(Buffer.from(await upload.arrayBuffer()), userId(c));
+    const confirmNodeRuntime = body.confirmNodeRuntime === "true";
+    const record = await getPluginService().install(Buffer.from(await upload.arrayBuffer()), userId(c), confirmNodeRuntime);
     return c.json({ success: true, plugin: record }, 201);
   } catch (error) {
     return errorResponse(c, error);
@@ -73,8 +84,12 @@ pluginsRouter.put("/developer-mode", requireAdmin, async (c) => {
 
 pluginsRouter.post("/dev/load", requireAdmin, async (c) => {
   try {
-    const body = await c.req.json() as { directory?: string };
-    const plugin = await getPluginService().loadDevelopmentDirectory(String(body.directory || ""), userId(c));
+    const body = await c.req.json() as { directory?: string; confirmNodeRuntime?: boolean };
+    const plugin = await getPluginService().loadDevelopmentDirectory(
+      String(body.directory || ""),
+      userId(c),
+      body.confirmNodeRuntime === true,
+    );
     return c.json({ success: true, plugin }, 201);
   } catch (error) {
     return errorResponse(c, error);

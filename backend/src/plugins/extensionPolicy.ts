@@ -1,5 +1,11 @@
 import { getDb } from "../db/schema.js";
-import type { PluginManifest, PluginTrustLevel } from "./types.js";
+import {
+  assertExtensionCompatibility,
+  resolveExtensionCompatibility,
+  type ExtensionCompatibilityInput,
+  type ExtensionCompatibilityResult,
+  type ExtensionRunner,
+} from "./extensionCompatibility.js";
 
 export interface ExtensionPolicyDocument {
   allowOfficial: boolean;
@@ -12,19 +18,51 @@ export interface ExtensionPolicyDocument {
 }
 
 const DEFAULT_POLICY: ExtensionPolicyDocument = {
-  allowOfficial: true, allowVerified: true, allowCommunity: true, allowNodeRuntime: true,
+  allowOfficial: true, allowVerified: true, allowCommunity: true, allowNodeRuntime: false,
   allowedPublishers: [], allowedExtensions: [], blockedExtensions: [],
 };
 
+const LEGACY_DEFAULT_POLICY: ExtensionPolicyDocument = {
+  ...DEFAULT_POLICY,
+  allowNodeRuntime: true,
+};
+
+function isLegacyUnmodifiedDefault(value: unknown): boolean {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as ExtensionPolicyDocument;
+  return Object.keys(LEGACY_DEFAULT_POLICY).every((key) => {
+    const expected = LEGACY_DEFAULT_POLICY[key as keyof ExtensionPolicyDocument];
+    const actual = candidate[key as keyof ExtensionPolicyDocument];
+    return Array.isArray(expected)
+      ? Array.isArray(actual) && actual.length === 0
+      : actual === expected;
+  });
+}
+
 export class ExtensionPolicy {
   get(): ExtensionPolicyDocument {
-    const row = getDb().prepare("SELECT policyJson FROM plugin_policy WHERE id='default'").get() as { policyJson: string } | undefined;
+    const db = getDb();
+    const row = db.prepare("SELECT policyJson,updatedBy FROM plugin_policy WHERE id='default'").get() as { policyJson: string; updatedBy: string | null } | undefined;
     if (!row) return DEFAULT_POLICY;
-    try { return { ...DEFAULT_POLICY, ...JSON.parse(row.policyJson) }; } catch { return DEFAULT_POLICY; }
+    try {
+      const parsed = JSON.parse(row.policyJson) as unknown;
+      if (row.updatedBy === null && isLegacyUnmodifiedDefault(parsed)) {
+        const timestamp = new Date().toISOString();
+        db.prepare("UPDATE plugin_policy SET policyJson=?,updatedBy=?,updatedAt=? WHERE id='default' AND updatedBy IS NULL")
+          .run(JSON.stringify(DEFAULT_POLICY), "system:rc1-secure-default", timestamp);
+        return { ...DEFAULT_POLICY };
+      }
+      return { ...DEFAULT_POLICY, ...(parsed as Partial<ExtensionPolicyDocument>) };
+    } catch {
+      return { ...DEFAULT_POLICY };
+    }
   }
 
   set(input: Partial<ExtensionPolicyDocument>, actor: string): ExtensionPolicyDocument {
     const policy = { ...this.get(), ...input };
+    for (const key of ["allowOfficial", "allowVerified", "allowCommunity", "allowNodeRuntime"] as const) {
+      if (typeof policy[key] !== "boolean") throw new Error(`${key} 必须是布尔值`);
+    }
     for (const key of ["allowedPublishers", "allowedExtensions", "blockedExtensions"] as const) {
       if (!Array.isArray(policy[key]) || policy[key].some((value) => typeof value !== "string")) throw new Error(`${key} 必须是字符串数组`);
       policy[key] = [...new Set(policy[key])];
@@ -35,15 +73,11 @@ export class ExtensionPolicy {
     return policy;
   }
 
-  assertAllowed(manifest: PluginManifest, trust: PluginTrustLevel, source: "package" | "registry" | "dev" | "restore" | "official"): void {
-    const policy = this.get();
-    if (policy.blockedExtensions.includes(manifest.id)) throw Object.assign(new Error("插件被企业策略阻止"), { code: "PLUGIN_POLICY_DENIED" });
-    if (policy.allowedExtensions.length && !policy.allowedExtensions.includes(manifest.id)) throw Object.assign(new Error("插件不在企业允许列表"), { code: "PLUGIN_POLICY_DENIED" });
-    if (manifest.apiVersion === 2 && policy.allowedPublishers.length && !policy.allowedPublishers.includes(manifest.publisher)) throw Object.assign(new Error("Publisher 不在企业允许列表"), { code: "PLUGIN_POLICY_DENIED" });
-    if (trust === "official" && !policy.allowOfficial || trust === "verified" && !policy.allowVerified || trust === "community" && !policy.allowCommunity) throw Object.assign(new Error("当前信任等级被企业策略禁用"), { code: "PLUGIN_POLICY_DENIED" });
-    if (manifest.runtime === "node-action" && !policy.allowNodeRuntime) throw Object.assign(new Error("企业策略禁止 Node Runtime"), { code: "PLUGIN_POLICY_DENIED" });
-    if (manifest.apiVersion === 2 && source === "registry" && trust === "community" && manifest.runtime !== "sandbox-js") {
-      throw Object.assign(new Error("社区 V2 插件必须使用 sandbox-js"), { code: "PLUGIN_POLICY_DENIED" });
-    }
+  resolve(input: ExtensionCompatibilityInput): ExtensionCompatibilityResult {
+    return resolveExtensionCompatibility(input, this.get());
+  }
+
+  assertAllowed(input: ExtensionCompatibilityInput): ExtensionRunner {
+    return assertExtensionCompatibility(this.resolve(input));
   }
 }

@@ -1,9 +1,11 @@
 import fs from "node:fs";
 import path from "node:path";
 import { getDb } from "../db/schema.js";
+import { isSystemAdmin } from "../middleware/acl.js";
 import { HostApiBroker } from "./hostApiBroker.js";
 import { CommunityRegistry } from "./communityRegistry.js";
 import { EcosystemRegistry } from "./ecosystemRegistry.js";
+import { compatibilityInputFromRecord, type ExtensionCompatibilityInput } from "./extensionCompatibility.js";
 import { ExtensionPolicy } from "./extensionPolicy.js";
 import { PluginExecutionManager } from "./executionManager.js";
 import { nowenVersionSatisfies, validateActionInput } from "./manifest.js";
@@ -26,7 +28,7 @@ export class PluginService {
   readonly ecosystem = new EcosystemRegistry();
   readonly policy = new ExtensionPolicy();
   readonly broker = new HostApiBroker(this.permissions, this.secrets);
-  readonly executions = new PluginExecutionManager(this.broker, this.registry);
+  readonly executions = new PluginExecutionManager(this.broker, this.registry, this.policy);
 
   constructor() {
     // 开发目录每次服务重启都要重新确认，不能继承上次的 enabled/granted 状态。
@@ -121,7 +123,15 @@ export class PluginService {
       const oldHosts = new Set(current.permissionConfig?.externalFetchHosts || []);
       const addedHosts = (candidate.permissionConfig?.externalFetchHosts || []).filter((host) => !oldHosts.has(host));
       const currentVersion = this.registry.getVersion(record.id, record.version);
-      const confirmationRequired = added.length > 0 || addedHosts.length > 0 || current.apiVersion !== candidate.apiVersion || current.runtime !== candidate.runtime || Boolean(currentVersion?.publisherKeyId && currentVersion.publisherKeyId !== candidate.publisherKeyId);
+      const candidateTrust = extension.trustLevel || "community";
+      const currentPublisher = current.apiVersion === 2 ? current.publisher : null;
+      const confirmationRequired = added.length > 0
+        || addedHosts.length > 0
+        || current.apiVersion !== candidate.apiVersion
+        || current.runtime !== candidate.runtime
+        || currentPublisher !== extension.publisher
+        || record.trustLevel !== candidateTrust
+        || Boolean(currentVersion?.publisherKeyId && currentVersion.publisherKeyId !== candidate.publisherKeyId);
       getDb().prepare(`INSERT INTO plugin_update_state(pluginId,availableVersion,permissionDiffJson,checkedAt) VALUES (?,?,?,?)
         ON CONFLICT(pluginId) DO UPDATE SET availableVersion=excluded.availableVersion,permissionDiffJson=excluded.permissionDiffJson,checkedAt=excluded.checkedAt,lastError=NULL`)
         .run(record.id, candidate.version, JSON.stringify({ added, addedHosts }), new Date().toISOString());
@@ -154,32 +164,64 @@ export class PluginService {
     return this.get(pluginId);
   }
 
-  async install(bytes: Buffer, installedBy: string): Promise<Record<string, unknown>> {
+  async install(bytes: Buffer, installedBy: string, confirmNodeRuntime = false): Promise<Record<string, unknown>> {
     const candidate = await this.installer.inspect(bytes);
-    this.policy.assertAllowed(candidate.manifest, "community", "package");
-    if (this.registry.get(candidate.manifest.id)) await this.executions.shutdown(candidate.manifest.id);
-    return this.publicRecord(await this.installer.installValidated(candidate, installedBy));
+    const existing = this.registry.get(candidate.manifest.id);
+    const inheritedConfirmation = existing
+      ? this.canInheritNodeRuntimeConfirmation(existing, candidate.manifest, "community")
+      : false;
+    const confirmedBy = this.nodeRuntimeConfirmationActor(candidate.manifest, installedBy, confirmNodeRuntime);
+    this.policy.assertAllowed(this.candidateCompatibility(
+      candidate.manifest,
+      "package",
+      "community",
+      "unsigned",
+      Boolean(confirmedBy || inheritedConfirmation),
+    ));
+    if (existing) await this.executions.shutdown(candidate.manifest.id);
+    return this.publicRecord(await this.installer.installValidated(candidate, installedBy, {
+      nodeRuntimeConfirmedBy: confirmedBy,
+    }));
   }
 
-  async loadDevelopmentDirectory(directory: string, installedBy: string): Promise<Record<string, unknown>> {
+  async loadDevelopmentDirectory(
+    directory: string,
+    installedBy: string,
+    confirmNodeRuntime = false,
+  ): Promise<Record<string, unknown>> {
     if (!this.isDeveloperModeAvailable()) throw new Error("当前部署形态不支持本地开发插件");
     if (!this.isDeveloperModeEnabled()) throw new Error("请先启用插件开发者模式");
-    const record = await this.installer.loadDevelopmentDirectory(directory, installedBy);
-    this.policy.assertAllowed(manifestOf(record), "developer", "dev");
+    const validated = await this.installer.inspectDevelopmentDirectory(directory);
+    const existing = this.registry.get(validated.manifest.id);
+    const inheritedConfirmation = existing
+      ? this.canInheritNodeRuntimeConfirmation(existing, validated.manifest, "developer")
+      : false;
+    const confirmedBy = this.nodeRuntimeConfirmationActor(validated.manifest, installedBy, confirmNodeRuntime);
+    this.policy.assertAllowed(this.candidateCompatibility(
+      validated.manifest,
+      "dev",
+      "developer",
+      "unsigned",
+      Boolean(confirmedBy || inheritedConfirmation),
+    ));
+    if (existing) await this.executions.shutdown(validated.manifest.id);
+    const record = this.installer.loadDevelopmentDirectory(validated, installedBy, confirmedBy);
     return this.publicRecord(record);
   }
 
   async installFromRegistry(sourceId: string, pluginId: string, version: string | undefined, installedBy: string): Promise<Record<string, unknown>> {
     const artifact = await this.community.download(sourceId, pluginId, version);
     const validated = await this.installer.inspect(artifact.bytes);
-    this.policy.assertAllowed(validated.manifest, artifact.plugin.trustLevel || "community", "registry");
+    const trust = artifact.plugin.trustLevel || "community";
+    this.policy.assertAllowed(this.candidateCompatibility(validated.manifest, "registry", trust, "unsigned", false));
     if (validated.manifest.id !== artifact.plugin.id || validated.manifest.version !== artifact.version.version) {
       throw Object.assign(new Error("Registry 元数据与插件 Manifest 不一致"), { code: "REGISTRY_MANIFEST_MISMATCH" });
     }
     if (this.registry.get(pluginId)) await this.executions.shutdown(pluginId);
     return this.publicRecord(await this.installer.installValidated(validated, installedBy, {
       source: "registry",
-      trustLevel: artifact.plugin.trustLevel || "community",
+      trustLevel: trust,
+      signatureState: "unsigned",
     }));
   }
 
@@ -190,7 +232,7 @@ export class PluginService {
       throw Object.assign(new Error("签名元数据与 V2 Manifest 不一致"), { code: "REGISTRY_MANIFEST_MISMATCH" });
     }
     const trust = artifact.extension.trustLevel || "community";
-    this.policy.assertAllowed(validated.manifest, trust, "registry");
+    this.policy.assertAllowed(this.candidateCompatibility(validated.manifest, "registry", trust, "verified", false));
     const existing = this.registry.get(pluginId);
     if (existing && validated.manifest.version.localeCompare(existing.version, undefined, { numeric: true }) < 0) throw Object.assign(new Error("Registry 安装拒绝降级；请使用已验证版本回滚"), { code: "PLUGIN_DOWNGRADE_DENIED" });
     if (existing) {
@@ -234,10 +276,7 @@ export class PluginService {
     let record = this.requireRecord(pluginId);
     const manifest = manifestOf(record);
     this.assertDependencies(record.id, manifest);
-    this.policy.assertAllowed(manifest, record.trustLevel, record.source);
-    const security = getDb().prepare("SELECT state,action FROM plugin_security_state WHERE pluginId=? AND version=?").get(pluginId, record.version) as { state: string; action: string } | undefined;
-    if (security && ["revoked", "malicious"].includes(security.state)) throw Object.assign(new Error("插件版本已被安全公告撤销"), { code: "PLUGIN_ADVISORY_BLOCKED" });
-    if (manifest.apiVersion === 2 && (record.source === "registry" || record.source === "restore") && record.signatureState !== "verified") throw Object.assign(new Error("V2 插件需要从可信 Registry 重新验证后才能启用"), { code: "PLUGIN_SIGNATURE_INVALID" });
+    this.policy.assertAllowed(compatibilityInputFromRecord(record));
     if (!this.permissions.allDeclaredGranted(pluginId)) throw new Error("必须先确认并授予插件声明的全部权限");
     if (!fs.existsSync(record.installedPath)) throw new Error("插件目录不存在");
     record = this.installer.moveToInstalled(record);
@@ -350,6 +389,7 @@ export class PluginService {
 
   private publicRecord(record: PluginRegistryRecord): Record<string, unknown> {
     const manifest = manifestOf(record);
+    const compatibility = this.policy.resolve(compatibilityInputFromRecord(record));
     const previous = record.previousVersion ? this.registry.getVersion(record.id, record.previousVersion) : undefined;
     const previousManifest = previous ? JSON.parse(previous.manifestJson) as PluginManifest : undefined;
     const previousPermissions = new Set(previousManifest?.permissions || []);
@@ -384,6 +424,9 @@ export class PluginService {
       screenshots: manifest.screenshots || [],
       signatureState: record.signatureState || "unsigned",
       advisoryState: record.advisoryState || "unknown",
+      nodeRuntimeConfirmedAt: record.nodeRuntimeConfirmedAt || null,
+      nodeRuntimeConfirmedBy: record.nodeRuntimeConfirmedBy || null,
+      compatibility,
       updatePolicy: record.updatePolicy || "manual",
       pinnedVersion: record.pinnedVersion || null,
       probationRemaining: record.probationRemaining || 0,
@@ -401,6 +444,48 @@ export class PluginService {
     if (!record) throw Object.assign(new Error("插件不存在"), { code: "PLUGIN_NOT_FOUND" });
     return record;
   }
+
+  private candidateCompatibility(
+    manifest: PluginManifest,
+    source: ExtensionCompatibilityInput["source"],
+    trustLevel: ExtensionCompatibilityInput["trustLevel"],
+    signatureState: string,
+    nodeRuntimeConfirmed: boolean,
+  ): ExtensionCompatibilityInput {
+    return {
+      manifest,
+      source,
+      trustLevel,
+      signatureState,
+      advisoryState: "unknown",
+      nodeRuntimeConfirmed,
+    };
+  }
+
+  private nodeRuntimeConfirmationActor(
+    manifest: PluginManifest,
+    actor: string,
+    requested: boolean,
+  ): string | null {
+    if (!requested || manifest.apiVersion !== 2 || manifest.runtime !== "node-action") return null;
+    if (!isSystemAdmin(actor)) {
+      throw Object.assign(new Error("仅当前认证管理员可确认 Node Runtime"), { code: "RESOURCE_FORBIDDEN" });
+    }
+    return actor;
+  }
+
+  private canInheritNodeRuntimeConfirmation(
+    current: PluginRegistryRecord,
+    manifest: PluginManifest,
+    trustLevel: ExtensionCompatibilityInput["trustLevel"],
+  ): boolean {
+    if (!current.nodeRuntimeConfirmedAt || !current.nodeRuntimeConfirmedBy) return false;
+    const previous = manifestOf(current);
+    return previous.apiVersion === manifest.apiVersion
+      && previous.runtime === manifest.runtime
+      && (previous.apiVersion === 2 ? previous.publisher : null) === (manifest.apiVersion === 2 ? manifest.publisher : null)
+      && current.trustLevel === trustLevel;
+  }
 }
 
 let singleton: PluginService | null = null;
@@ -415,8 +500,17 @@ export function quarantineRestoredPlugins(): void {
   if (tables.length < 2) return;
   const dataDir = process.env.ELECTRON_USER_DATA || path.join(process.cwd(), "data");
   const records = db.prepare("SELECT id,version FROM plugin_registry").all() as Array<{ id: string; version: string }>;
+  const registryColumns = new Set((db.prepare("PRAGMA table_info(plugin_registry)").all() as Array<{ name: string }>).map((column) => column.name));
+  const rc1Assignments = [
+    registryColumns.has("nodeRuntimeConfirmedAt") ? "nodeRuntimeConfirmedAt=NULL" : null,
+    registryColumns.has("nodeRuntimeConfirmedBy") ? "nodeRuntimeConfirmedBy=NULL" : null,
+    registryColumns.has("lifecycleState") ? "lifecycleState='installed'" : null,
+    registryColumns.has("previousStableVersion") ? "previousStableVersion=NULL" : null,
+    registryColumns.has("activeOperationId") ? "activeOperationId=NULL" : null,
+    registryColumns.has("stateUpdatedAt") ? "stateUpdatedAt=?" : null,
+  ].filter((assignment): assignment is string => Boolean(assignment));
   db.transaction(() => {
-    const update = db.prepare("UPDATE plugin_registry SET status='quarantined',source='restore',signatureState='needs-revalidation',advisoryState='unknown',installedPath=?,lastError='恢复后需要重新校验签名、安全公告与权限',updatedAt=? WHERE id=?");
+    const update = db.prepare(`UPDATE plugin_registry SET status='quarantined',source='restore',signatureState='needs-revalidation',advisoryState='unknown',${rc1Assignments.length ? `${rc1Assignments.join(",")},` : ""}installedPath=?,lastError='恢复后需要重新校验签名、安全公告与权限',updatedAt=? WHERE id=?`);
     for (const record of records) {
       const restored = path.join(dataDir, "plugins", "installed", record.id, record.version);
       const quarantined = path.join(dataDir, "plugins", "quarantine", record.id, record.version);
@@ -425,7 +519,8 @@ export function quarantineRestoredPlugins(): void {
         if (fs.existsSync(quarantined)) fs.rmSync(quarantined, { recursive: true, force: true });
         fs.renameSync(restored, quarantined);
       }
-      update.run(quarantined, new Date().toISOString(), record.id);
+      const timestamp = new Date().toISOString();
+      update.run(...(registryColumns.has("stateUpdatedAt") ? [timestamp] : []), quarantined, timestamp, record.id);
     }
     db.prepare("UPDATE plugin_permissions SET granted=0,grantedBy=NULL,grantedAt=NULL").run();
     const hasVersions = db.prepare("SELECT 1 AS ok FROM sqlite_master WHERE type='table' AND name='plugin_versions'").get();

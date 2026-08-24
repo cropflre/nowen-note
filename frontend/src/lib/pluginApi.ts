@@ -29,6 +29,11 @@ export interface InstalledPlugin {
   publisher?: string | null;
   signatureState?: string;
   advisoryState?: string;
+  nodeRuntimeConfirmedAt?: string | null;
+  nodeRuntimeConfirmedBy?: string | null;
+  compatibility?:
+    | { allowed: true; runner: "node-action" | "sandbox-js" }
+    | { allowed: false; code: string; reason: string; confirmationRequired?: true };
   updatePolicy?: "manual" | "notify" | "automatic";
   pinnedVersion?: string | null;
   probationRemaining?: number;
@@ -69,7 +74,11 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
     },
   }, getBaseUrl());
   const payload = await response.json().catch(() => ({}));
-  if (!response.ok) throw Object.assign(new Error(payload.error || `HTTP ${response.status}`), { code: payload.code, status: response.status });
+  if (!response.ok) throw Object.assign(new Error(payload.error || `HTTP ${response.status}`), {
+    code: payload.code,
+    status: response.status,
+    confirmNodeRuntimeAllowed: payload.confirmNodeRuntimeAllowed === true,
+  });
   return payload as T;
 }
 
@@ -78,9 +87,10 @@ export const pluginApi = {
   actions: () => request<Array<PluginAction & { pluginId: string; actionId: string }>>("/api/plugins/actions"),
   contributions: () => request<Array<Record<string, unknown>>>("/api/plugins/contributions"),
   get: (id: string) => request<InstalledPlugin>(`/api/plugins/${encodeURIComponent(id)}`),
-  install: (file: File) => {
+  install: (file: File, confirmNodeRuntime = false) => {
     const form = new FormData();
     form.append("file", file);
+    if (confirmNodeRuntime) form.append("confirmNodeRuntime", "true");
     return request<{ success: true; plugin: InstalledPlugin }>("/api/plugins/install", { method: "POST", body: form });
   },
   grant: (id: string, granted: string[]) => request(`/api/plugins/${encodeURIComponent(id)}/permissions`, { method: "PUT", body: JSON.stringify({ granted }) }),
@@ -101,7 +111,7 @@ export const pluginApi = {
   installFromRegistry: (sourceId: string, pluginId: string, version?: string) => request("/api/plugins/registry/install", { method: "POST", body: JSON.stringify({ sourceId, pluginId, version }) }),
   getDeveloperMode: () => request<{ enabled: boolean; available: boolean }>("/api/plugins/developer-mode"),
   setDeveloperMode: (enabled: boolean) => request<{ enabled: boolean }>("/api/plugins/developer-mode", { method: "PUT", body: JSON.stringify({ enabled }) }),
-  loadDevelopment: (directory: string) => request("/api/plugins/dev/load", { method: "POST", body: JSON.stringify({ directory }) }),
+  loadDevelopment: (directory: string, confirmNodeRuntime = false) => request("/api/plugins/dev/load", { method: "POST", body: JSON.stringify({ directory, confirmNodeRuntime }) }),
   checkUpdates: (source = "official-v2") => request<PluginUpdate[]>(`/api/plugins/ecosystem/updates?source=${encodeURIComponent(source)}`),
   applyUpdate: (sourceId: string, pluginId: string, version: string, confirmed = false) => request("/api/plugins/ecosystem/update", { method: "POST", body: JSON.stringify({ sourceId, pluginId, version, confirmed }) }),
   setUpdatePolicy: (id: string, policy: "manual" | "notify" | "automatic", pinnedVersion?: string | null) => request(`/api/plugins/${encodeURIComponent(id)}/update-policy`, { method: "PUT", body: JSON.stringify({ policy, pinnedVersion }) }),
