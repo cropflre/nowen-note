@@ -1,0 +1,44 @@
+name: Extension Registry Production
+
+on:
+  pull_request:
+    paths:
+      - "packages/nowen-extension-registry/**"
+      - ".github/workflows/extension-registry-ci.yml"
+  push:
+    branches:
+      - main
+      - "release/**"
+    paths:
+      - "packages/nowen-extension-registry/**"
+      - ".github/workflows/extension-registry-ci.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  registry-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: packages/nowen-extension-registry
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: packages/nowen-extension-registry/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Production hardening regression
+        run: npm test

@@ -1,6 +1,7 @@
 import type { DatabaseSync } from "node:sqlite";
 import { getConnInfo } from "@hono/node-server/conninfo";
 import type { Context, Next } from "hono";
+import { registryRuntimeMetrics } from "../observability/metrics.js";
 
 interface BucketPolicy {
   capacity: number;
@@ -12,7 +13,25 @@ const POLICIES = {
   ip: { capacity: 120, refillPerSecond: 2 },
   account: { capacity: 300, refillPerSecond: 5 },
   publisher: { capacity: 120, refillPerSecond: 2 },
+  authIp: { capacity: 60, refillPerSecond: 0.5 },
+  publishIp: { capacity: 20, refillPerSecond: 1 / 120 },
+  communityWriteIp: { capacity: 120, refillPerSecond: 2 },
+  telemetryIp: { capacity: 240, refillPerSecond: 4 },
+  adminWriteIp: { capacity: 30, refillPerSecond: 0.5 },
 } satisfies Record<string, BucketPolicy>;
+
+export type RateLimitScope = keyof typeof POLICIES;
+
+export interface RateLimitDecision {
+  allowed: boolean;
+  retryAfterSeconds: number;
+  remaining: number;
+}
+
+export interface RouteAbusePolicy {
+  scope: RateLimitScope;
+  cost: number;
+}
 
 export interface PublishLimits {
   maxArtifactBytes: number;
@@ -24,28 +43,36 @@ export interface PublishLimits {
 export class RateLimiter {
   constructor(private readonly db: DatabaseSync) {}
 
-  consume(scope: keyof typeof POLICIES, id: string, cost = 1): boolean {
+  consumeDetailed(scope: RateLimitScope, id: string, cost = 1): RateLimitDecision {
     const policy = POLICIES[scope];
+    if (!Number.isFinite(cost) || cost <= 0 || cost > policy.capacity) throw new Error("rate limit cost is invalid");
     const key = `${scope}:${id}`;
     const now = Date.now();
     this.db.exec("BEGIN IMMEDIATE");
     try {
       const row = this.db.prepare("SELECT tokens,updatedAt FROM rate_limit_buckets WHERE bucketKey=?").get(key) as { tokens: number; updatedAt: number } | undefined;
-      const replenished = row ? Math.min(policy.capacity, row.tokens + Math.max(0, now - row.updatedAt) / 1_000 * policy.refillPerSecond) : policy.capacity;
-      if (replenished < cost) {
-        this.db.prepare(`INSERT INTO rate_limit_buckets(bucketKey,tokens,updatedAt) VALUES (?,?,?)
-          ON CONFLICT(bucketKey) DO UPDATE SET tokens=excluded.tokens,updatedAt=excluded.updatedAt`).run(key, replenished, now);
-        this.db.exec("COMMIT");
-        return false;
-      }
+      const replenished = row
+        ? Math.min(policy.capacity, row.tokens + Math.max(0, now - row.updatedAt) / 1_000 * policy.refillPerSecond)
+        : policy.capacity;
+      const allowed = replenished >= cost;
+      const nextTokens = allowed ? replenished - cost : replenished;
       this.db.prepare(`INSERT INTO rate_limit_buckets(bucketKey,tokens,updatedAt) VALUES (?,?,?)
-        ON CONFLICT(bucketKey) DO UPDATE SET tokens=excluded.tokens,updatedAt=excluded.updatedAt`).run(key, replenished - cost, now);
+        ON CONFLICT(bucketKey) DO UPDATE SET tokens=excluded.tokens,updatedAt=excluded.updatedAt`).run(key, nextTokens, now);
       this.db.exec("COMMIT");
-      return true;
+      const deficit = Math.max(0, cost - replenished);
+      return {
+        allowed,
+        retryAfterSeconds: allowed ? 0 : Math.max(1, Math.ceil(deficit / policy.refillPerSecond)),
+        remaining: Math.max(0, Math.floor(nextTokens)),
+      };
     } catch (error) {
       this.db.exec("ROLLBACK");
       throw error;
     }
+  }
+
+  consume(scope: RateLimitScope, id: string, cost = 1): boolean {
+    return this.consumeDetailed(scope, id, cost).allowed;
   }
 
   assertPublishAvailable(publisherId: string, artifactBytes: number, limits: PublishLimits): void {
@@ -98,13 +125,49 @@ export function resolveClientIp(c: Context, trustedProxies: ReadonlySet<string>)
   return chain[chain.length - 1] || direct;
 }
 
+/** Fixed-cardinality route classes used only for abuse protection; no route parameters are persisted. */
+export function abusePolicyForRequest(method: string, path: string): RouteAbusePolicy | null {
+  if (method === "OPTIONS" || path === "/health" || path.startsWith("/health/")) return null;
+  if (path.startsWith("/oauth/") || method === "POST" && path === "/v2/admin/session") return { scope: "authIp", cost: 1 };
+  if (method === "POST" && path === "/v2/publish") return { scope: "publishIp", cost: 1 };
+  if (method === "POST" && path === "/v2/telemetry") return { scope: "telemetryIp", cost: 1 };
+  if (method === "POST" && path.startsWith("/v2/admin/")) return { scope: "adminWriteIp", cost: 1 };
+  if (method !== "GET" && method !== "HEAD" && path.startsWith("/v2/")) return { scope: "communityWriteIp", cost: 1 };
+  return null;
+}
+
+function rateLimitedResponse(c: Context, scope: RateLimitScope, retryAfterSeconds: number): Response {
+  registryRuntimeMetrics.recordRateLimited(scope);
+  c.header("Retry-After", String(Math.max(1, retryAfterSeconds)));
+  c.header("X-RateLimit-Scope", scope);
+  return c.json({ error: "rate limit exceeded", code: "REGISTRY_RATE_LIMITED" }, 429);
+}
+
 export function rateLimitMiddleware(limiter: RateLimiter, trustedProxies: ReadonlySet<string>) {
   return async (c: Context, next: Next): Promise<Response | void> => {
-    const ip = resolveClientIp(c, trustedProxies);
-    if (!limiter.consume("global", "registry") || !limiter.consume("ip", ip)) {
-      c.header("Retry-After", "1");
-      return c.json({ error: "rate limit exceeded" }, 429);
+    const startedAt = Date.now();
+    const method = c.req.method.toUpperCase();
+    const path = c.req.path;
+    try {
+      const healthOrPreflight = method === "OPTIONS" || path === "/health" || path.startsWith("/health/");
+      if (!healthOrPreflight) {
+        const ip = resolveClientIp(c, trustedProxies);
+        const global = limiter.consumeDetailed("global", "registry");
+        if (!global.allowed) return rateLimitedResponse(c, "global", global.retryAfterSeconds);
+        const byIp = limiter.consumeDetailed("ip", ip);
+        if (!byIp.allowed) return rateLimitedResponse(c, "ip", byIp.retryAfterSeconds);
+        const abuse = abusePolicyForRequest(method, path);
+        if (abuse) {
+          const route = limiter.consumeDetailed(abuse.scope, ip, abuse.cost);
+          if (!route.allowed) return rateLimitedResponse(c, abuse.scope, route.retryAfterSeconds);
+        }
+      }
+      await next();
+      registryRuntimeMetrics.recordRequest(method, path, c.res.status || 200, Date.now() - startedAt);
+      return undefined;
+    } catch (error) {
+      registryRuntimeMetrics.recordRequest(method, path, 500, Date.now() - startedAt);
+      throw error;
     }
-    return next();
   };
 }

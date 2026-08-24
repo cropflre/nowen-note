@@ -3,7 +3,13 @@
   "version": "2.0.0",
   "private": true,
   "type": "module",
-  "scripts": { "dev": "tsx watch src/index.ts", "start": "tsx src/index.ts", "typecheck": "tsc --noEmit" },
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "start": "tsx src/index.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test test/*.test.ts",
+    "check": "npm run typecheck && npm test"
+  },
   "dependencies": { "@aws-sdk/client-s3": "^3.883.0", "@hono/node-server": "^1.13.7", "hono": "^4.6.15", "jszip": "^3.10.1", "zod": "^3.24.1" },
   "devDependencies": { "@types/node": "^22.10.5", "tsx": "^4.19.2", "typescript": "^5.7.3" },
   "engines": { "node": ">=22.5" },
