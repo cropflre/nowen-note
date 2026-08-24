@@ -1,0 +1,99 @@
+import crypto from "node:crypto";
+import path from "node:path";
+
+export type RegistryEnvironment = "development" | "production";
+
+export interface RegistryConfig {
+  environment: RegistryEnvironment;
+  port: number;
+  dataRoot: string;
+  publicUrl: URL;
+  signingPrivateKey: string;
+  sessionSecret: string;
+  githubClientId: string;
+  githubClientSecret: string;
+  githubCallbackUrl: URL;
+  allowedOrigins: ReadonlySet<string>;
+  trustedProxies: ReadonlySet<string>;
+  sessionTtlSeconds: number;
+}
+
+const DEVELOPMENT_DEFAULTS = {
+  publicUrl: "http://localhost:4310",
+  sessionSecret: "development-only-session-secret-change-me",
+  githubClientId: "development-github-client-id",
+  githubClientSecret: "development-github-client-secret",
+  githubCallbackUrl: "http://localhost:4310/oauth/github/callback",
+  allowedOrigins: "http://localhost:4310,http://localhost:5173",
+  trustedProxies: "127.0.0.1,::1",
+} as const;
+
+function required(env: NodeJS.ProcessEnv, name: string, developmentDefault?: string): string {
+  const value = env[name]?.trim();
+  if (value) return value;
+  if (env.REGISTRY_ENV === "development" && developmentDefault !== undefined) return developmentDefault;
+  throw new Error(`${name} is required`);
+}
+
+function parsePositiveInteger(raw: string | undefined, fallback: number, name: string): number {
+  const value = raw === undefined ? fallback : Number(raw);
+  if (!Number.isSafeInteger(value) || value <= 0) throw new Error(`${name} must be a positive integer`);
+  return value;
+}
+
+function parseUrl(raw: string, name: string, production: boolean): URL {
+  const value = new URL(raw);
+  if (!/^https?:$/.test(value.protocol)) throw new Error(`${name} must use http or https`);
+  if (production && value.protocol !== "https:") throw new Error(`${name} must use https in production`);
+  return value;
+}
+
+function parseList(raw: string, name: string): ReadonlySet<string> {
+  const values = raw.split(",").map((value) => value.trim()).filter(Boolean);
+  if (values.length === 0) throw new Error(`${name} must contain at least one value`);
+  return new Set(values);
+}
+
+export function loadRegistryConfig(env: NodeJS.ProcessEnv = process.env): RegistryConfig {
+  const environment = env.REGISTRY_ENV === "development" ? "development" : "production";
+  if (env.REGISTRY_ENV && env.REGISTRY_ENV !== "development" && env.REGISTRY_ENV !== "production") {
+    throw new Error("REGISTRY_ENV must be development or production");
+  }
+  const production = environment === "production";
+  const publicUrl = parseUrl(required(env, "REGISTRY_PUBLIC_URL", DEVELOPMENT_DEFAULTS.publicUrl), "REGISTRY_PUBLIC_URL", production);
+  const callback = parseUrl(required(env, "GITHUB_OAUTH_CALLBACK_URL", DEVELOPMENT_DEFAULTS.githubCallbackUrl), "GITHUB_OAUTH_CALLBACK_URL", production);
+  const allowedOrigins = parseList(required(env, "REGISTRY_ALLOWED_ORIGINS", DEVELOPMENT_DEFAULTS.allowedOrigins), "REGISTRY_ALLOWED_ORIGINS");
+  for (const origin of allowedOrigins) {
+    const parsed = parseUrl(origin, "REGISTRY_ALLOWED_ORIGINS", production);
+    if (parsed.origin !== origin) throw new Error("REGISTRY_ALLOWED_ORIGINS entries must be origins without paths");
+  }
+  let signingPrivateKey = env.REGISTRY_SIGNING_PRIVATE_KEY?.trim().replace(/\\n/g, "\n") || "";
+  if (!signingPrivateKey && environment === "development") signingPrivateKey = crypto.generateKeyPairSync("ed25519").privateKey.export({ type: "pkcs8", format: "pem" }).toString();
+  if (!signingPrivateKey) throw new Error("REGISTRY_SIGNING_PRIVATE_KEY is required");
+  try {
+    crypto.createPrivateKey(signingPrivateKey);
+  } catch {
+    throw new Error("REGISTRY_SIGNING_PRIVATE_KEY must be a valid private key");
+  }
+  const sessionSecret = required(env, "REGISTRY_SESSION_SECRET", DEVELOPMENT_DEFAULTS.sessionSecret);
+  if (production && sessionSecret.length < 32) throw new Error("REGISTRY_SESSION_SECRET must contain at least 32 characters in production");
+
+  const trustedProxies = parseList(required(env, "REGISTRY_TRUSTED_PROXIES", DEVELOPMENT_DEFAULTS.trustedProxies), "REGISTRY_TRUSTED_PROXIES");
+  if (trustedProxies.has("*")) throw new Error("REGISTRY_TRUSTED_PROXIES cannot contain a wildcard");
+  if (production && callback.origin !== publicUrl.origin) throw new Error("GITHUB_OAUTH_CALLBACK_URL must use the REGISTRY_PUBLIC_URL origin");
+
+  return Object.freeze({
+    environment,
+    port: parsePositiveInteger(env.PORT, 4310, "PORT"),
+    dataRoot: path.resolve(env.REGISTRY_DATA?.trim() || "data"),
+    publicUrl,
+    signingPrivateKey,
+    sessionSecret,
+    githubClientId: required(env, "GITHUB_CLIENT_ID", DEVELOPMENT_DEFAULTS.githubClientId),
+    githubClientSecret: required(env, "GITHUB_CLIENT_SECRET", DEVELOPMENT_DEFAULTS.githubClientSecret),
+    githubCallbackUrl: callback,
+    allowedOrigins,
+    trustedProxies,
+    sessionTtlSeconds: parsePositiveInteger(env.REGISTRY_SESSION_TTL_SECONDS, 7 * 24 * 60 * 60, "REGISTRY_SESSION_TTL_SECONDS"),
+  });
+}
