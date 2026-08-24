@@ -1,5 +1,3 @@
-\set ON_ERROR_STOP on
-
 -- Extension Ecosystem V2 RC1 生命周期与供应链状态。
 -- 本文件自包含仓库内缺失的扩展平台 PostgreSQL 基础结构，并可安全重复执行。
 
