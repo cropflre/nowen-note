@@ -202,18 +202,17 @@ export class PluginService {
     if (!this.isDeveloperModeEnabled()) throw new Error("请先启用插件开发者模式");
     const validated = await this.installer.inspectDevelopmentDirectory(directory);
     const existing = this.registry.get(validated.manifest.id);
-    const inheritedConfirmation = existing
-      ? this.canInheritNodeRuntimeConfirmation(existing, validated.manifest, "developer")
-      : false;
+    if (existing) {
+      throw Object.assign(new Error("开发插件 ID 已存在，请先卸载后重新加载"), { code: "PLUGIN_DEV_RELOAD_REQUIRES_UNINSTALL" });
+    }
     const confirmedBy = this.nodeRuntimeConfirmationActor(validated.manifest, installedBy, confirmNodeRuntime);
     this.policy.assertAllowed(this.candidateCompatibility(
       validated.manifest,
       "dev",
       "developer",
       "unsigned",
-      Boolean(confirmedBy || inheritedConfirmation),
+      Boolean(confirmedBy),
     ));
-    if (existing) await this.executions.shutdown(validated.manifest.id);
     const record = this.installer.loadDevelopmentDirectory(validated, installedBy, confirmedBy);
     return this.publicRecord(record);
   }
@@ -278,7 +277,7 @@ export class PluginService {
 
   async enable(pluginId: string): Promise<Record<string, unknown>> {
     let record = this.requireRecord(pluginId);
-    if (record.activeOperationId) {
+    if (record.activeOperationId && record.lifecycleState !== "probation") {
       throw Object.assign(new Error("插件正在更新，暂时不能启用"), { code: "PLUGIN_UPDATE_IN_PROGRESS" });
     }
     const manifest = manifestOf(record);
@@ -289,6 +288,11 @@ export class PluginService {
     record = this.installer.moveToInstalled(record);
     await this.executions.restart(pluginId);
     try {
+      if (record.lifecycleState === "probation") {
+        await this.executions.preflight(pluginId);
+        this.registry.setStatus(pluginId, "enabled");
+        return this.get(pluginId);
+      }
       if (record.lifecycleState === "installed") this.lifecycle.beginInstalledPreflight(pluginId);
       await this.executions.preflight(pluginId);
       const afterPreflight = this.registry.get(pluginId)!;
@@ -296,17 +300,23 @@ export class PluginService {
         this.lifecycle.activateInstalled(pluginId);
       } else {
         this.registry.setStatus(pluginId, "enabled");
-        this.registry.markCurrentVersion(pluginId, "enabled", true);
+        this.registry.markCurrentVersion(pluginId, "stable", true);
       }
       return this.get(pluginId);
     } catch (error) {
       const coded = error as Error & { code?: string };
       const failed = this.registry.get(pluginId);
       if (failed?.lifecycleState === "preflight" || failed?.lifecycleState === "probation") {
-        this.lifecycle.rollback(pluginId, coded.message, coded.code || "PLUGIN_PREFLIGHT_FAILED");
+        this.executions.suspendForUpdate(pluginId);
+        try {
+          this.lifecycle.rollback(pluginId, coded.message, coded.code || "PLUGIN_PREFLIGHT_FAILED");
+          await this.executions.restart(pluginId);
+        } finally {
+          this.executions.resumeAfterUpdate(pluginId);
+        }
       } else {
         this.registry.setStatus(pluginId, "error", coded.message);
-        this.registry.markCurrentVersion(pluginId, "error", false);
+        if (failed?.lifecycleState !== "stable") this.registry.markCurrentVersion(pluginId, "error", false);
       }
       throw Object.assign(coded, { code: coded.code || "PLUGIN_PREFLIGHT_FAILED" });
     }
@@ -330,9 +340,8 @@ export class PluginService {
     if (record.activeOperationId && record.lifecycleState !== "probation") {
       throw Object.assign(new Error("插件正在更新，暂时不能禁用"), { code: "PLUGIN_UPDATE_IN_PROGRESS" });
     }
-    await this.executions.shutdown(pluginId);
-    if (record.lifecycleState === "probation") this.lifecycle.stabilizeWithoutProbation(pluginId);
     this.registry.setStatus(pluginId, "disabled");
+    await this.executions.shutdown(pluginId);
     return this.get(pluginId);
   }
 

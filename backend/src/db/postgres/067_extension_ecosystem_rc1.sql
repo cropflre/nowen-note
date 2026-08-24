@@ -176,8 +176,9 @@ CREATE TABLE IF NOT EXISTS plugin_update_operations (
   "fromVersion" TEXT,
   "targetVersion" TEXT NOT NULL,
   stage TEXT NOT NULL CHECK (stage IN (
-    'downloaded', 'verified', 'staged', 'switching',
-    'probation', 'stable', 'failed', 'rolled_back'
+    'downloaded', 'verified', 'staged', 'preflight', 'switching',
+    'probation', 'rollback_pending', 'rolling_back',
+    'stable', 'failed', 'rolled_back'
   )),
   "targetChecksum" TEXT,
   "stagingPath" TEXT,
@@ -195,7 +196,10 @@ CREATE INDEX IF NOT EXISTS idx_plugin_update_operations_plugin_time
   ON plugin_update_operations("pluginId", "createdAt" DESC);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_plugin_update_operations_active_plugin
   ON plugin_update_operations("pluginId")
-  WHERE stage IN ('downloaded', 'verified', 'staged', 'switching', 'probation');
+  WHERE stage IN (
+    'downloaded', 'verified', 'staged', 'preflight', 'switching',
+    'probation', 'rollback_pending', 'rolling_back'
+  );
 
 CREATE TABLE IF NOT EXISTS plugin_registry_metadata_state (
   "sourceId" TEXT PRIMARY KEY REFERENCES plugin_sources(id) ON DELETE CASCADE,

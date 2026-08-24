@@ -12,12 +12,32 @@ const ALLOWED_TRANSITIONS: Readonly<Record<PluginLifecycleState, readonly Plugin
   disabled: [],
 });
 
+const ALLOWED_OPERATION_TRANSITIONS: Readonly<Record<PluginUpdateStage, readonly PluginUpdateStage[]>> = Object.freeze({
+  downloaded: ["verified", "failed"],
+  verified: ["staged", "failed"],
+  staged: ["preflight", "rollback_pending", "failed"],
+  preflight: ["switching", "rollback_pending", "failed"],
+  switching: ["probation", "rollback_pending", "failed"],
+  probation: ["stable", "rollback_pending", "failed"],
+  rollback_pending: ["rolling_back", "failed"],
+  rolling_back: ["rolled_back", "failed"],
+  stable: [],
+  failed: [],
+  rolled_back: [],
+});
+
 function now(): string {
   return new Date().toISOString();
 }
 
 function lifecycleError(from: PluginLifecycleState, to: PluginLifecycleState): Error {
   return Object.assign(new Error(`插件生命周期不允许从 ${from} 转换到 ${to}`), {
+    code: "PLUGIN_LIFECYCLE_INVALID_TRANSITION",
+  });
+}
+
+function operationTransitionError(from: PluginUpdateStage, to: PluginUpdateStage): Error {
+  return Object.assign(new Error(`插件更新阶段不允许从 ${from} 转换到 ${to}`), {
     code: "PLUGIN_LIFECYCLE_INVALID_TRANSITION",
   });
 }
@@ -31,6 +51,7 @@ interface UpdateOperationRecord {
   pluginId: string;
   fromVersion: string | null;
   targetVersion: string;
+  targetChecksum: string | null;
   stage: PluginUpdateStage;
 }
 
@@ -44,10 +65,13 @@ export class PluginLifecycle {
       const record = this.requirePlugin(pluginId);
       const operation = this.requireOperation(operationId, pluginId);
       const target = this.requireVersion(pluginId, operation.targetVersion);
-      if (operation.stage !== "staged" || target.status !== "installed") {
-        throw lifecycleError("installed", "preflight");
+      if (operation.stage !== "staged") throw operationTransitionError(operation.stage, "preflight");
+      if (!operation.targetChecksum || operation.targetChecksum !== target.checksum) {
+        throw Object.assign(new Error("候选插件版本校验和与更新操作不一致"), { code: "PLUGIN_VERSION_COORDINATE_CONFLICT" });
       }
-      assertPluginLifecycleTransition("installed", "preflight");
+      if (!fs.existsSync(target.installedPath)) {
+        throw Object.assign(new Error("候选插件版本文件不存在"), { code: "PLUGIN_VERSION_FILES_MISSING" });
+      }
       const timestamp = now();
       const previousStableVersion = record.lifecycleState === "stable" && fs.existsSync(record.installedPath)
         ? record.version
@@ -55,8 +79,7 @@ export class PluginLifecycle {
       db.prepare(`UPDATE plugin_registry SET
         previousStableVersion=?,activeOperationId=?,stateUpdatedAt=?,updatedAt=?
         WHERE id=?`).run(previousStableVersion, operationId, timestamp, timestamp, pluginId);
-      db.prepare("UPDATE plugin_versions SET status='preflight' WHERE pluginId=? AND version=?")
-        .run(pluginId, target.version);
+      this.transitionOperationInTransaction(operationId, "preflight", timestamp);
     })();
   }
 
@@ -71,21 +94,21 @@ export class PluginLifecycle {
     db.transaction(() => {
       const current = this.requirePlugin(pluginId);
       const operation = this.requireOperation(operationId, pluginId);
-      const target = this.requireVersion(pluginId, operation.targetVersion);
-      if (current.activeOperationId !== operationId || operation.stage !== "staged" || target.status !== "preflight") {
-        throw lifecycleError("preflight", "probation");
+      if (current.activeOperationId !== operationId || operation.stage !== "preflight") {
+        throw operationTransitionError(operation.stage, "switching");
       }
-      db.prepare("UPDATE plugin_update_operations SET stage='switching',updatedAt=? WHERE id=?")
-        .run(now(), operationId);
+      this.transitionOperationInTransaction(operationId, "switching", now());
     })();
     db.transaction(() => {
       const current = this.requirePlugin(pluginId);
       const operation = this.requireOperation(operationId, pluginId);
       const target = this.requireVersion(pluginId, operation.targetVersion);
-      if (current.activeOperationId !== operationId || operation.stage !== "switching" || target.status !== "preflight") {
-        throw lifecycleError("preflight", "probation");
+      if (current.activeOperationId !== operationId || operation.stage !== "switching") {
+        throw operationTransitionError(operation.stage, "probation");
       }
-      assertPluginLifecycleTransition("preflight", "probation");
+      if (!operation.targetChecksum || operation.targetChecksum !== target.checksum) {
+        throw Object.assign(new Error("候选插件版本校验和与更新操作不一致"), { code: "PLUGIN_VERSION_COORDINATE_CONFLICT" });
+      }
       if (!fs.existsSync(target.installedPath)) {
         throw Object.assign(new Error("候选插件版本文件不存在"), { code: "PLUGIN_VERSION_FILES_MISSING" });
       }
@@ -95,8 +118,7 @@ export class PluginLifecycle {
         name=?,version=?,apiVersion=?,runtime=?,main=?,source=?,trustLevel=?,checksum=?,manifestJson=?,installedPath=?,
         previousVersion=?,previousStableVersion=?,publisher=?,signatureState=?,advisoryState='unknown',
         lifecycleState='probation',activeOperationId=?,stateUpdatedAt=?,probationVersion=?,probationRemaining=?,
-        nodeRuntimeConfirmedAt=COALESCE(?,nodeRuntimeConfirmedAt),
-        nodeRuntimeConfirmedBy=COALESCE(?,nodeRuntimeConfirmedBy),autoRollbackReason=NULL,updatedAt=?,lastError=NULL
+        nodeRuntimeConfirmedAt=?,nodeRuntimeConfirmedBy=?,autoRollbackReason=NULL,updatedAt=?,lastError=NULL
         WHERE id=?`).run(
           manifest.name,
           manifest.version,
@@ -109,7 +131,7 @@ export class PluginLifecycle {
           target.manifestJson,
           target.installedPath,
           current.version,
-          current.version,
+          current.previousStableVersion,
           manifest.apiVersion === 2 ? manifest.publisher : null,
           target.signatureState || "unsigned",
           operationId,
@@ -121,8 +143,7 @@ export class PluginLifecycle {
           timestamp,
           pluginId,
         );
-      db.prepare("UPDATE plugin_update_operations SET stage='probation',updatedAt=? WHERE id=?")
-        .run(timestamp, operationId);
+      this.transitionOperationInTransaction(operationId, "probation", timestamp);
       db.prepare("UPDATE plugin_versions SET status='probation' WHERE pluginId=? AND version=?")
         .run(pluginId, target.version);
     })();
@@ -174,28 +195,7 @@ export class PluginLifecycle {
       db.prepare("UPDATE plugin_versions SET status='stable',verifiedAt=? WHERE pluginId=? AND version=?")
         .run(timestamp, pluginId, record.version);
       if (record.activeOperationId) {
-        db.prepare("UPDATE plugin_update_operations SET stage='stable',updatedAt=?,completedAt=? WHERE id=?")
-          .run(timestamp, timestamp, record.activeOperationId);
-      }
-    })();
-  }
-
-  stabilizeWithoutProbation(pluginId: string): void {
-    const db = getDb();
-    db.transaction(() => {
-      const record = this.requirePlugin(pluginId);
-      if (record.lifecycleState !== "probation") throw lifecycleError(record.lifecycleState, "stable");
-      assertPluginLifecycleTransition("probation", "stable");
-      const timestamp = now();
-      db.prepare(`UPDATE plugin_registry SET
-        lifecycleState='stable',previousStableVersion=NULL,activeOperationId=NULL,
-        probationVersion=NULL,probationRemaining=0,stateUpdatedAt=?,updatedAt=?,lastError=NULL
-        WHERE id=?`).run(timestamp, timestamp, pluginId);
-      db.prepare("UPDATE plugin_versions SET status='stable',verifiedAt=? WHERE pluginId=? AND version=?")
-        .run(timestamp, pluginId, record.version);
-      if (record.activeOperationId) {
-        db.prepare("UPDATE plugin_update_operations SET stage='stable',updatedAt=?,completedAt=? WHERE id=?")
-          .run(timestamp, timestamp, record.activeOperationId);
+        this.transitionOperationInTransaction(record.activeOperationId, "stable", timestamp);
       }
     })();
   }
@@ -205,63 +205,102 @@ export class PluginLifecycle {
    */
   rollback(pluginId: string, reason: string, errorCode = "PLUGIN_PROBATION_FAILED"): PluginRegistryRecord {
     const db = getDb();
-    db.transaction(() => {
-      const current = this.requirePlugin(pluginId);
-      const operationId = current.activeOperationId;
-      const operation = operationId ? this.requireOperation(operationId, pluginId) : null;
-      const candidate = operation ? this.getVersion(pluginId, operation.targetVersion) : undefined;
-      if (candidate?.status === "preflight" && current.version !== candidate.version) {
-        assertPluginLifecycleTransition("preflight", "rollback_pending");
-        db.prepare("UPDATE plugin_versions SET status='rollback_pending' WHERE pluginId=? AND version=?")
-          .run(pluginId, candidate.version);
-        assertPluginLifecycleTransition("rollback_pending", "rolling_back");
-        db.prepare("UPDATE plugin_versions SET status='rolling_back' WHERE pluginId=? AND version=?")
-          .run(pluginId, candidate.version);
+    const initial = this.requirePlugin(pluginId);
+    const operationId = initial.activeOperationId;
+    const operation = operationId ? this.requireOperation(operationId, pluginId) : null;
+    const candidate = operation ? this.getVersion(pluginId, operation.targetVersion) : undefined;
+
+    if (operation && candidate && initial.version !== candidate.version
+      && ["preflight", "switching", "rollback_pending", "rolling_back"].includes(operation.stage)) {
+      if (operation.stage === "preflight" || operation.stage === "switching") {
+        db.transaction(() => this.transitionOperationInTransaction(operationId!, "rollback_pending", now()))();
+      }
+      const pending = this.requireOperation(operationId!, pluginId);
+      if (pending.stage === "rollback_pending") {
+        db.transaction(() => this.transitionOperationInTransaction(operationId!, "rolling_back", now()))();
+      }
+      db.transaction(() => {
+        const current = this.requirePlugin(pluginId);
+        const target = this.requireVersion(pluginId, operation.targetVersion);
         const timestamp = now();
         if (current.lifecycleState === "stable" && fs.existsSync(current.installedPath)) {
-          assertPluginLifecycleTransition("rolling_back", "stable");
           db.prepare(`UPDATE plugin_registry SET
             previousStableVersion=NULL,activeOperationId=NULL,stateUpdatedAt=?,updatedAt=?,lastError=NULL
             WHERE id=?`).run(timestamp, timestamp, pluginId);
-          db.prepare("UPDATE plugin_versions SET status='rolled_back' WHERE pluginId=? AND version=?")
-            .run(pluginId, candidate.version);
-          this.finishOperation(operationId!, "rolled_back", timestamp, errorCode, reason);
+          if (target.status !== "stable") {
+            db.prepare("UPDATE plugin_versions SET status='rolled_back' WHERE pluginId=? AND version=?")
+              .run(pluginId, target.version);
+          }
+          this.transitionOperationInTransaction(operationId!, "rolled_back", timestamp, errorCode, reason);
           return;
         }
-        assertPluginLifecycleTransition("rolling_back", "disabled");
         db.prepare(`UPDATE plugin_registry SET
           lifecycleState='disabled',status='disabled',previousStableVersion=NULL,activeOperationId=NULL,
           probationVersion=NULL,probationRemaining=0,autoRollbackReason=?,lastError=?,stateUpdatedAt=?,updatedAt=?
           WHERE id=?`).run(reason.slice(0, 1000), "回滚版本不可用，插件已禁用", timestamp, timestamp, pluginId);
-        db.prepare("UPDATE plugin_versions SET status='failed' WHERE pluginId=? AND version=?")
-          .run(pluginId, candidate.version);
-        this.finishOperation(operationId!, "failed", timestamp, errorCode, reason);
-        return;
-      }
-      if (current.lifecycleState !== "preflight" && current.lifecycleState !== "probation") {
-        throw lifecycleError(current.lifecycleState, "rollback_pending");
-      }
-      const timestamp = now();
-      this.transitionInTransaction(pluginId, "rollback_pending", timestamp);
-      this.transitionInTransaction(pluginId, "rolling_back", timestamp);
-      const rollingBack = this.requirePlugin(pluginId);
-      const previousVersion = rollingBack.previousStableVersion || rollingBack.previousVersion;
+        if (target.status !== "stable") {
+          db.prepare("UPDATE plugin_versions SET status='failed' WHERE pluginId=? AND version=?")
+            .run(pluginId, target.version);
+        }
+        this.transitionOperationInTransaction(operationId!, "failed", timestamp, errorCode, reason);
+      })();
+      return this.requirePlugin(pluginId);
+    }
+
+    const beforeRollback = this.requirePlugin(pluginId);
+    if (beforeRollback.lifecycleState === "preflight" || beforeRollback.lifecycleState === "probation") {
+      db.transaction(() => {
+        const current = this.requirePlugin(pluginId);
+        const timestamp = now();
+        this.transitionInTransaction(pluginId, "rollback_pending", timestamp);
+        if (current.activeOperationId) {
+          this.transitionOperationInTransaction(current.activeOperationId, "rollback_pending", timestamp);
+        }
+      })();
+    } else if (beforeRollback.lifecycleState !== "rollback_pending" && beforeRollback.lifecycleState !== "rolling_back") {
+      throw lifecycleError(beforeRollback.lifecycleState, "rollback_pending");
+    }
+    const beforeRollingBack = this.requirePlugin(pluginId);
+    if (beforeRollingBack.lifecycleState === "rollback_pending") {
+      db.transaction(() => {
+        const current = this.requirePlugin(pluginId);
+        const timestamp = now();
+        this.transitionInTransaction(pluginId, "rolling_back", timestamp);
+        if (current.activeOperationId) {
+          this.transitionOperationInTransaction(current.activeOperationId, "rolling_back", timestamp);
+        }
+      })();
+    }
+    db.transaction(() => {
+      const current = this.requirePlugin(pluginId);
+      const previousVersion = current.previousStableVersion;
       const previous = previousVersion ? this.getVersion(pluginId, previousVersion) : undefined;
-      const rollingBackOperationId = rollingBack.activeOperationId;
-      if (!previous || !fs.existsSync(previous.installedPath)) {
-        assertPluginLifecycleTransition("rolling_back", "disabled");
+      const timestamp = now();
+      if (!previous || previous.status !== "stable" || !previous.verifiedAt || !fs.existsSync(previous.installedPath)) {
+        this.transitionInTransaction(pluginId, "disabled", timestamp);
         db.prepare(`UPDATE plugin_registry SET
-          lifecycleState='disabled',status='disabled',activeOperationId=NULL,probationVersion=NULL,
-          probationRemaining=0,autoRollbackReason=?,lastError=?,stateUpdatedAt=?,updatedAt=?
+          lifecycleState='disabled',status='disabled',previousStableVersion=NULL,activeOperationId=NULL,
+          probationVersion=NULL,probationRemaining=0,autoRollbackReason=?,lastError=?,stateUpdatedAt=?,updatedAt=?
           WHERE id=?`).run(reason.slice(0, 1000), "回滚版本不可用，插件已禁用", timestamp, timestamp, pluginId);
-        if (rollingBackOperationId) this.finishOperation(rollingBackOperationId, "failed", timestamp, errorCode, reason);
+        db.prepare("UPDATE plugin_versions SET status='failed' WHERE pluginId=? AND version=? AND status<>'stable'")
+          .run(pluginId, current.version);
+        if (current.activeOperationId) {
+          this.transitionOperationInTransaction(current.activeOperationId, "failed", timestamp, errorCode, reason);
+        }
         return;
       }
       const manifest = JSON.parse(previous.manifestJson) as PluginManifest;
-      assertPluginLifecycleTransition("rolling_back", "stable");
+      const currentManifest = JSON.parse(current.manifestJson) as PluginManifest;
+      const sameRuntimeBoundary = currentManifest.apiVersion === manifest.apiVersion
+        && currentManifest.runtime === manifest.runtime
+        && (currentManifest.apiVersion === 2 ? currentManifest.publisher : null)
+          === (manifest.apiVersion === 2 ? manifest.publisher : null)
+        && current.trustLevel === previous.trustLevel;
+      this.transitionInTransaction(pluginId, "stable", timestamp);
       db.prepare(`UPDATE plugin_registry SET
         name=?,version=?,apiVersion=?,runtime=?,main=?,source=?,trustLevel=?,status='enabled',checksum=?,
         manifestJson=?,installedPath=?,previousVersion=?,previousStableVersion=NULL,publisher=?,signatureState=?,
+        nodeRuntimeConfirmedAt=?,nodeRuntimeConfirmedBy=?,
         lifecycleState='stable',activeOperationId=NULL,probationVersion=NULL,probationRemaining=0,
         autoRollbackReason=?,lastError=NULL,stateUpdatedAt=?,updatedAt=?
         WHERE id=?`).run(
@@ -278,36 +317,72 @@ export class PluginLifecycle {
           current.version === previous.version ? current.previousVersion : current.version,
           manifest.apiVersion === 2 ? manifest.publisher : null,
           previous.signatureState || "unsigned",
+          sameRuntimeBoundary ? current.nodeRuntimeConfirmedAt : null,
+          sameRuntimeBoundary ? current.nodeRuntimeConfirmedBy : null,
           reason.slice(0, 1000),
           timestamp,
           timestamp,
           pluginId,
         );
+      db.prepare("UPDATE plugin_versions SET status='rolled_back' WHERE pluginId=? AND version=? AND status<>'stable'")
+        .run(pluginId, current.version);
       db.prepare("UPDATE plugin_versions SET status='stable',verifiedAt=COALESCE(verifiedAt,?) WHERE pluginId=? AND version=?")
         .run(timestamp, pluginId, previous.version);
-      if (rollingBackOperationId) this.finishOperation(rollingBackOperationId, "rolled_back", timestamp, errorCode, reason);
+      if (current.activeOperationId) {
+        this.transitionOperationInTransaction(current.activeOperationId, "rolled_back", timestamp, errorCode, reason);
+      }
     })();
     return this.requirePlugin(pluginId);
   }
 
   recoverStable(pluginId: string, operationId: string): void {
-    const db = getDb();
-    db.transaction(() => {
-      const record = this.requirePlugin(pluginId);
-      const timestamp = now();
-      if (record.activeOperationId === operationId) {
-        this.rollback(pluginId, "Nowen 启动时恢复未完成的插件更新", "PLUGIN_UPDATE_INTERRUPTED");
-        return;
+    const record = this.requirePlugin(pluginId);
+    const operation = this.requireOperation(operationId, pluginId);
+    if (record.activeOperationId === operationId
+      && record.lifecycleState === "probation"
+      && record.version === operation.targetVersion
+      && fs.existsSync(record.installedPath)) {
+      if (operation.stage === "switching") {
+        getDb().transaction(() => this.transitionOperationInTransaction(operationId, "probation", now()))();
       }
-      db.prepare("UPDATE plugin_registry SET activeOperationId=NULL,updatedAt=? WHERE id=? AND activeOperationId=?")
-        .run(timestamp, pluginId, operationId);
-      this.finishOperation(operationId, "rolled_back", timestamp, "PLUGIN_UPDATE_INTERRUPTED", "更新在切换前中断");
-    })();
+      return;
+    }
+    if (record.activeOperationId === operationId) {
+      this.rollback(pluginId, "Nowen 启动时恢复未完成的插件更新", "PLUGIN_UPDATE_INTERRUPTED");
+      return;
+    }
+    this.markOperationFailed(operationId, "PLUGIN_UPDATE_INTERRUPTED", "更新在绑定 active operation 前中断");
   }
 
   markOperationFailed(operationId: string, errorCode: string, message: string): void {
-    const timestamp = now();
-    this.finishOperation(operationId, "failed", timestamp, errorCode, message);
+    const db = getDb();
+    db.transaction(() => {
+      const operation = db.prepare("SELECT * FROM plugin_update_operations WHERE id=?")
+        .get(operationId) as UpdateOperationRecord | undefined;
+      if (!operation || operation.stage === "failed" || operation.stage === "stable" || operation.stage === "rolled_back") return;
+      this.transitionOperationInTransaction(operationId, "failed", now(), errorCode, message);
+    })();
+  }
+
+  disableAfterRecoveryFailure(pluginId: string, operationId: string, errorCode: string, message: string): void {
+    const db = getDb();
+    db.transaction(() => {
+      const timestamp = now();
+      const record = db.prepare("SELECT * FROM plugin_registry WHERE id=?").get(pluginId) as PluginRegistryRecord | undefined;
+      if (record) {
+        db.prepare(`UPDATE plugin_registry SET
+          lifecycleState='disabled',status='disabled',previousStableVersion=NULL,activeOperationId=NULL,
+          probationVersion=NULL,probationRemaining=0,autoRollbackReason=?,lastError=?,stateUpdatedAt=?,updatedAt=?
+          WHERE id=?`).run(message.slice(0, 1000), "启动恢复失败，插件已禁用", timestamp, timestamp, pluginId);
+        db.prepare("UPDATE plugin_versions SET status='failed' WHERE pluginId=? AND version=? AND status<>'stable'")
+          .run(pluginId, record.version);
+      }
+      const operation = db.prepare("SELECT * FROM plugin_update_operations WHERE id=?")
+        .get(operationId) as UpdateOperationRecord | undefined;
+      if (operation && operation.stage !== "stable" && operation.stage !== "failed" && operation.stage !== "rolled_back") {
+        this.transitionOperationInTransaction(operationId, "failed", timestamp, errorCode, message);
+      }
+    })();
   }
 
   private transitionInTransaction(pluginId: string, to: PluginLifecycleState, timestamp: string): void {
@@ -317,10 +392,29 @@ export class PluginLifecycle {
       .run(to, timestamp, timestamp, pluginId);
   }
 
-  private finishOperation(operationId: string, stage: "failed" | "rolled_back", timestamp: string, errorCode: string, message: string): void {
-    getDb().prepare(`UPDATE plugin_update_operations SET
-      stage=?,errorCode=?,errorMessage=?,updatedAt=?,completedAt=? WHERE id=?`)
-      .run(stage, errorCode, message.slice(0, 2000), timestamp, timestamp, operationId);
+  transitionOperation(operationId: string, to: PluginUpdateStage): void {
+    getDb().transaction(() => this.transitionOperationInTransaction(operationId, to, now()))();
+  }
+
+  private transitionOperationInTransaction(
+    operationId: string,
+    to: PluginUpdateStage,
+    timestamp: string,
+    errorCode: string | null = null,
+    message: string | null = null,
+  ): void {
+    const db = getDb();
+    const operation = db.prepare("SELECT * FROM plugin_update_operations WHERE id=?")
+      .get(operationId) as UpdateOperationRecord | undefined;
+    if (!operation) throw Object.assign(new Error("插件更新操作不存在"), { code: "PLUGIN_UPDATE_OPERATION_NOT_FOUND" });
+    if (!ALLOWED_OPERATION_TRANSITIONS[operation.stage]?.includes(to)) {
+      throw operationTransitionError(operation.stage, to);
+    }
+    const terminal = to === "stable" || to === "failed" || to === "rolled_back";
+    db.prepare(`UPDATE plugin_update_operations SET
+      stage=?,errorCode=?,errorMessage=?,stagingPath=CASE WHEN ? THEN NULL ELSE stagingPath END,
+      updatedAt=?,completedAt=? WHERE id=?`)
+      .run(to, errorCode, message?.slice(0, 2000) || null, terminal ? 1 : 0, timestamp, terminal ? timestamp : null, operationId);
   }
 
   private requirePlugin(pluginId: string): PluginRegistryRecord {

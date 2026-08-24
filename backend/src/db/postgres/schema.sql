@@ -177,3 +177,4 @@ EXECUTE FUNCTION clear_task_inbox_after_completion();
 
 -- 扩展生态 RC1 依赖基础结构和用户表，必须在主 Schema 完成后应用。
 \ir 067_extension_ecosystem_rc1.sql
+\ir 068_plugin_update_lifecycle.sql

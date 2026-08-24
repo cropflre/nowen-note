@@ -101,6 +101,9 @@ export class PluginPackageInstaller {
       nodeRuntimeConfirmedBy?: string | null;
     } = {},
   ): Promise<PluginRegistryRecord> {
+    if (this.registry.get(validated.manifest.id)) {
+      throw Object.assign(new Error("已有插件必须通过更新协调器安装"), { code: "PLUGIN_UPDATE_COORDINATOR_REQUIRED" });
+    }
     const operationId = crypto.randomUUID();
     let stagingPath: string | null = null;
     try {
@@ -151,14 +154,14 @@ export class PluginPackageInstaller {
     const versionsRoot = path.join(getPluginRoot(), "versions");
     const destination = path.join(versionsRoot, manifest.id, manifest.version);
     assertInside(versionsRoot, destination);
-    if (fs.existsSync(destination)) {
-      const existing = this.registry.getVersion(manifest.id, manifest.version);
-      const integrity = readPackageIntegrity(destination);
-      const verifiedOrphan = !existing
-        && integrity?.id === manifest.id
+    const existing = this.registry.getVersion(manifest.id, manifest.version);
+    const destinationExists = fs.existsSync(destination);
+    if (existing || destinationExists) {
+      const integrity = destinationExists ? readPackageIntegrity(destination) : null;
+      const integrityMatches = integrity?.id === manifest.id
         && integrity.version === manifest.version
         && integrity.checksum === checksum;
-      if ((!existing || existing.checksum !== checksum) && !verifiedOrphan) {
+      if (!destinationExists || !existing || existing.checksum !== checksum || !integrityMatches) {
         throw Object.assign(new Error("相同插件坐标对应不同内容"), { code: "PLUGIN_VERSION_COORDINATE_CONFLICT" });
       }
       this.removeStaging(stagingPath);
@@ -173,6 +176,20 @@ export class PluginPackageInstaller {
     const stagingRoot = path.join(getPluginRoot(), "staging");
     assertInside(stagingRoot, stagingPath);
     if (fs.existsSync(stagingPath)) fs.rmSync(stagingPath, { recursive: true, force: true });
+  }
+
+  removeUnregisteredVersion(manifest: PluginManifest, checksum: string): void {
+    this.removeUnregisteredVersionCoordinate(manifest.id, manifest.version, checksum);
+  }
+
+  removeUnregisteredVersionCoordinate(pluginId: string, version: string, checksum: string): void {
+    if (this.registry.getVersion(pluginId, version)) return;
+    const versionsRoot = path.join(getPluginRoot(), "versions");
+    const destination = path.join(versionsRoot, pluginId, version);
+    assertInside(versionsRoot, destination);
+    const integrity = readPackageIntegrity(destination);
+    if (integrity?.id !== pluginId || integrity.version !== version || integrity.checksum !== checksum) return;
+    if (fs.existsSync(destination)) fs.rmSync(destination, { recursive: true, force: true });
   }
 
   async inspectDevelopmentDirectory(directory: string): Promise<ValidatedDevelopmentPlugin> {
@@ -200,6 +217,9 @@ export class PluginPackageInstaller {
     nodeRuntimeConfirmedBy: string | null = null,
   ): PluginRegistryRecord {
     const { absolute, manifest, checksum } = validated;
+    if (this.registry.get(manifest.id)) {
+      throw Object.assign(new Error("开发插件 ID 已存在，请先卸载后重新加载"), { code: "PLUGIN_DEV_RELOAD_REQUIRES_UNINSTALL" });
+    }
     const record = this.registry.upsert({
       manifest,
       source: "dev",

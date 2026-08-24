@@ -57,16 +57,21 @@ export class PluginUpdateCoordinator {
     }
 
     let stagingPath: string | null = null;
+    let installedPath: string | null = null;
+    let suspended = false;
     try {
-      this.setStage(operationId, "verified");
+      this.lifecycle.transitionOperation(operationId, "verified");
       stagingPath = await this.installer.stageValidated(validated, operationId);
-      const installedPath = this.installer.commitStaged(stagingPath, validated.manifest, validated.checksum);
+      getDb().prepare("UPDATE plugin_update_operations SET stagingPath=?,updatedAt=? WHERE id=? AND stage='verified'")
+        .run(stagingPath, timestamp(), operationId);
+      const committedPath = this.installer.commitStaged(stagingPath, validated.manifest, validated.checksum);
+      installedPath = committedPath;
       stagingPath = null;
       getDb().transaction(() => {
         this.registry.registerVersion({
           manifest: validated.manifest,
           checksum: validated.checksum,
-          installedPath,
+          installedPath: committedPath,
           source: provenance.source || "package",
           trustLevel: provenance.trustLevel || "community",
           status: "installed",
@@ -75,41 +80,37 @@ export class PluginUpdateCoordinator {
           signatureState: provenance.signatureState,
           artifactUrl: provenance.artifactUrl,
         });
-        getDb().prepare("UPDATE plugin_update_operations SET stage='staged',stagingPath=NULL,updatedAt=? WHERE id=?")
-          .run(timestamp(), operationId);
+        this.lifecycle.transitionOperation(operationId, "staged");
+        getDb().prepare("UPDATE plugin_update_operations SET stagingPath=NULL WHERE id=?").run(operationId);
       })();
 
       this.executions.suspendForUpdate(current.id);
-      try {
-        await this.executions.shutdown(current.id);
-        this.lifecycle.beginPreflight(current.id, operationId);
-        const candidate = this.registry.recordForVersion(current.id, validated.manifest.version, {
-          nodeRuntimeConfirmedBy: provenance.nodeRuntimeConfirmedBy,
-        });
-        await this.executions.preflightCandidate(candidate);
-        this.permissions.initialize(validated.manifest, { preserveExistingGrants: true });
-        const activated = this.lifecycle.activateCandidate(current.id, operationId, 5, {
-          confirmedAt: candidate.nodeRuntimeConfirmedAt,
-          confirmedBy: candidate.nodeRuntimeConfirmedBy,
-        });
-        if (current.status !== "enabled") {
-          this.lifecycle.stabilizeWithoutProbation(current.id);
-          return this.registry.get(current.id)!;
-        }
-        return activated;
-      } finally {
-        this.executions.resumeAfterUpdate(current.id);
-      }
+      suspended = true;
+      await this.executions.shutdown(current.id);
+      this.lifecycle.beginPreflight(current.id, operationId);
+      const candidate = this.registry.recordForVersion(current.id, validated.manifest.version, {
+        nodeRuntimeConfirmedBy: provenance.nodeRuntimeConfirmedBy,
+      });
+      await this.executions.preflightCandidate(candidate);
+      this.permissions.initialize(validated.manifest, { preserveExistingGrants: true });
+      return this.lifecycle.activateCandidate(current.id, operationId, 5, {
+        confirmedAt: candidate.nodeRuntimeConfirmedAt,
+        confirmedBy: candidate.nodeRuntimeConfirmedBy,
+      });
     } catch (error) {
       if (stagingPath && fs.existsSync(stagingPath)) this.installer.removeStaging(stagingPath);
       const coded = error as Error & { code?: string };
       const record = this.registry.get(current.id);
       if (record?.activeOperationId === operationId) {
         this.lifecycle.rollback(current.id, coded.message, coded.code || "PLUGIN_UPDATE_FAILED");
+        await this.executions.restart(current.id);
       } else {
         this.lifecycle.markOperationFailed(operationId, coded.code || "PLUGIN_UPDATE_FAILED", coded.message);
       }
+      if (installedPath) this.installer.removeUnregisteredVersion(validated.manifest, validated.checksum);
       throw error;
+    } finally {
+      if (suspended) this.executions.resumeAfterUpdate(current.id);
     }
   }
 
@@ -119,61 +120,58 @@ export class PluginUpdateCoordinator {
     if (!current || !target || current.version === target.version) {
       throw Object.assign(new Error("没有可回滚版本"), { code: "PLUGIN_VERSION_NOT_FOUND" });
     }
+    if (target.status !== "stable" || !target.verifiedAt) {
+      throw Object.assign(new Error("只能切换到已验证的 stable 历史版本"), { code: "PLUGIN_VERSION_NOT_VERIFIED_STABLE" });
+    }
     if (!fs.existsSync(target.installedPath)) {
       throw Object.assign(new Error("回滚版本文件不存在"), { code: "PLUGIN_VERSION_FILES_MISSING" });
     }
     const operationId = crypto.randomUUID();
     const createdAt = timestamp();
+    let operationCreated = false;
     try {
       getDb().transaction(() => {
         getDb().prepare(`INSERT INTO plugin_update_operations
           (id,pluginId,fromVersion,targetVersion,stage,targetChecksum,requestedBy,createdAt,updatedAt)
-          VALUES (?,?,?,?,'staged',?,?,?,?)`)
+          VALUES (?,?,?,?,'downloaded',?,?,?,?)`)
           .run(operationId, pluginId, current.version, targetVersion, target.checksum, requestedBy, createdAt, createdAt);
-        getDb().prepare("UPDATE plugin_versions SET status='installed' WHERE pluginId=? AND version=?")
-          .run(pluginId, targetVersion);
       })();
+      operationCreated = true;
+      this.lifecycle.transitionOperation(operationId, "verified");
+      this.lifecycle.transitionOperation(operationId, "staged");
     } catch (error) {
       const coded = error as Error;
       if (coded.message.includes("UNIQUE constraint failed")) {
         throw Object.assign(new Error("该插件已有未完成的更新操作"), { code: "PLUGIN_UPDATE_IN_PROGRESS" });
       }
+      if (operationCreated) this.lifecycle.markOperationFailed(operationId, "PLUGIN_ROLLBACK_PREPARE_FAILED", coded.message);
       throw error;
     }
+    let suspended = false;
     try {
       this.executions.suspendForUpdate(pluginId);
-      try {
-        await this.executions.shutdown(pluginId);
-        this.lifecycle.beginPreflight(pluginId, operationId);
-        const candidate = this.registry.recordForVersion(pluginId, targetVersion);
-        await this.executions.preflightCandidate(candidate);
-        this.permissions.initialize(JSON.parse(target.manifestJson), { preserveExistingGrants: true });
-        const activated = this.lifecycle.activateCandidate(pluginId, operationId, 5, {
-          confirmedAt: candidate.nodeRuntimeConfirmedAt,
-          confirmedBy: candidate.nodeRuntimeConfirmedBy,
-        });
-        if (current.status !== "enabled") {
-          this.lifecycle.stabilizeWithoutProbation(pluginId);
-          return this.registry.get(pluginId)!;
-        }
-        return activated;
-      } finally {
-        this.executions.resumeAfterUpdate(pluginId);
-      }
+      suspended = true;
+      await this.executions.shutdown(pluginId);
+      this.lifecycle.beginPreflight(pluginId, operationId);
+      const candidate = this.registry.recordForVersion(pluginId, targetVersion);
+      await this.executions.preflightCandidate(candidate);
+      this.permissions.initialize(JSON.parse(target.manifestJson), { preserveExistingGrants: true });
+      return this.lifecycle.activateCandidate(pluginId, operationId, 5, {
+        confirmedAt: candidate.nodeRuntimeConfirmedAt,
+        confirmedBy: candidate.nodeRuntimeConfirmedBy,
+      });
     } catch (error) {
       const coded = error as Error & { code?: string };
       const record = this.registry.get(pluginId);
       if (record?.activeOperationId === operationId) {
         this.lifecycle.rollback(pluginId, coded.message, coded.code || "PLUGIN_ROLLBACK_FAILED");
+        await this.executions.restart(pluginId);
       } else {
         this.lifecycle.markOperationFailed(operationId, coded.code || "PLUGIN_ROLLBACK_FAILED", coded.message);
       }
       throw error;
+    } finally {
+      if (suspended) this.executions.resumeAfterUpdate(pluginId);
     }
-  }
-
-  private setStage(operationId: string, stage: "verified"): void {
-    getDb().prepare("UPDATE plugin_update_operations SET stage=?,updatedAt=? WHERE id=?")
-      .run(stage, timestamp(), operationId);
   }
 }

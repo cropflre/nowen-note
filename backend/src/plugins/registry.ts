@@ -193,31 +193,6 @@ export class PluginRegistry {
       .run(status, verified ? now() : null, id, id);
   }
 
-  switchVersion(id: string, version: string): PluginRegistryRecord {
-    const target = this.getVersion(id, version);
-    const current = this.get(id);
-    if (!target || !current) throw Object.assign(new Error("插件版本不存在"), { code: "PLUGIN_VERSION_NOT_FOUND" });
-    const manifest = JSON.parse(target.manifestJson) as PluginManifest;
-    const currentManifest = JSON.parse(current.manifestJson) as PluginManifest;
-    const sameRuntimeBoundary = currentManifest.apiVersion === manifest.apiVersion
-      && currentManifest.runtime === manifest.runtime
-      && (currentManifest.apiVersion === 2 ? currentManifest.publisher : null) === (manifest.apiVersion === 2 ? manifest.publisher : null)
-      && current.trustLevel === target.trustLevel;
-    getDb().prepare(`UPDATE plugin_registry SET
-      name=?,version=?,apiVersion=?,runtime=?,main=?,source=?,trustLevel=?,status='quarantined',
-      checksum=?,manifestJson=?,installedPath=?,previousVersion=?,publisher=?,signatureState=?,advisoryState='unknown',
-      nodeRuntimeConfirmedAt=?,nodeRuntimeConfirmedBy=?,updatedAt=?,lastError=NULL
-      WHERE id=?`).run(
-        manifest.name, manifest.version, manifest.apiVersion, manifest.runtime, manifest.main,
-        target.source, target.trustLevel, target.checksum, target.manifestJson, target.installedPath,
-        current.version, manifest.apiVersion === 2 ? manifest.publisher : null, target.signatureState || "unsigned",
-        sameRuntimeBoundary ? current.nodeRuntimeConfirmedAt : null,
-        sameRuntimeBoundary ? current.nodeRuntimeConfirmedBy : null,
-        now(), id,
-      );
-    return this.get(id)!;
-  }
-
   remove(id: string): void {
     getDb().prepare("DELETE FROM plugin_registry WHERE id = ?").run(id);
   }

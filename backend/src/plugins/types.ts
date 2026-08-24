@@ -29,8 +29,11 @@ export type PluginUpdateStage =
   | "downloaded"
   | "verified"
   | "staged"
+  | "preflight"
   | "switching"
   | "probation"
+  | "rollback_pending"
+  | "rolling_back"
   | "stable"
   | "failed"
   | "rolled_back";

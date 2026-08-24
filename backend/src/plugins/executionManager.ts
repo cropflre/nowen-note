@@ -9,7 +9,7 @@ import { PluginLifecycle } from "./pluginLifecycle.js";
 import { PluginRunner } from "./runner.js";
 import { SandboxRunner } from "./sandboxRunner.js";
 import type { HostApiBroker } from "./hostApiBroker.js";
-import type { PluginExecutionContext, PluginExecutionResult, PluginRegistryRecord } from "./types.js";
+import type { PluginExecutionContext, PluginExecutionResult, PluginManifest, PluginRegistryRecord } from "./types.js";
 
 const MAX_GLOBAL_CONCURRENCY = 2;
 let activeGlobalExecutions = 0;
@@ -30,10 +30,20 @@ function jsonSize(value: unknown): number {
   return Buffer.byteLength(JSON.stringify(value), "utf8");
 }
 
+function actionSchemaDigest(record: PluginRegistryRecord, actionId: string): string {
+  const manifest = JSON.parse(record.manifestJson) as PluginManifest;
+  const action = manifest.actions.find((candidate) => candidate.id === actionId);
+  if (!action) throw Object.assign(new Error("Action 不存在"), { code: "PLUGIN_ACTION_NOT_FOUND" });
+  return crypto.createHash("sha256").update(JSON.stringify(action)).digest("hex");
+}
+
 export class PluginExecutionManager {
   private readonly runners = new Map<string, PluginRunner | SandboxRunner>();
+  private readonly runnerBindings = new Map<string, { version: string; checksum: string }>();
   private readonly cancelledBeforeStart = new Set<string>();
   private readonly suspendedForUpdate = new Set<string>();
+  private readonly probationActive = new Set<string>();
+  private readonly probationWaiters = new Map<string, Array<() => void>>();
 
   constructor(
     private readonly broker: HostApiBroker,
@@ -54,7 +64,11 @@ export class PluginExecutionManager {
       WHERE status='running'`).run(finishedAt);
   }
 
-  private runner(pluginId: string, allowPreflight = false): PluginRunner | SandboxRunner {
+  private runner(
+    pluginId: string,
+    allowPreflight = false,
+    expected?: { version: string; checksum: string },
+  ): PluginRunner | SandboxRunner {
     const record = this.registry.get(pluginId);
     if (!record) throw new Error("插件不存在");
     if (!allowPreflight && this.suspendedForUpdate.has(pluginId)) {
@@ -70,9 +84,18 @@ export class PluginExecutionManager {
       && !(allowPreflight && record.lifecycleState === "preflight")) {
       throw Object.assign(new Error(`插件生命周期当前为 ${record.lifecycleState}`), { code: "PLUGIN_LIFECYCLE_NOT_EXECUTABLE" });
     }
+    if (expected && (record.version !== expected.version || record.checksum !== expected.checksum)) {
+      throw Object.assign(new Error("插件在排队期间已切换版本"), { code: "PLUGIN_VERSION_CHANGED_WHILE_QUEUED" });
+    }
     const resolvedRuntime = this.policy.assertAllowed(compatibilityInputFromRecord(record));
     const existing = this.runners.get(pluginId);
-    if (existing) return existing;
+    if (existing) {
+      const binding = this.runnerBindings.get(pluginId);
+      if (!binding || binding.version !== record.version || binding.checksum !== record.checksum) {
+        throw Object.assign(new Error("插件 Runner 与当前版本不一致"), { code: "PLUGIN_RUNNER_STALE" });
+      }
+      return existing;
+    }
     const Runner = resolvedRuntime === "sandbox-js" ? SandboxRunner : PluginRunner;
     const runner = new Runner(
       record,
@@ -80,7 +103,49 @@ export class PluginExecutionManager {
       (executionId, progress) => this.updateProgress(executionId, progress),
     );
     this.runners.set(pluginId, runner);
+    this.runnerBindings.set(pluginId, { version: record.version, checksum: record.checksum });
     return runner;
+  }
+
+  private async acquireProbationSlot(pluginId: string): Promise<() => void> {
+    if (this.probationActive.has(pluginId)) {
+      await new Promise<void>((resolve) => {
+        const waiters = this.probationWaiters.get(pluginId) || [];
+        waiters.push(resolve);
+        this.probationWaiters.set(pluginId, waiters);
+      });
+    } else {
+      this.probationActive.add(pluginId);
+    }
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      const waiters = this.probationWaiters.get(pluginId);
+      const next = waiters?.shift();
+      if (next) {
+        next();
+      } else {
+        this.probationWaiters.delete(pluginId);
+        this.probationActive.delete(pluginId);
+      }
+    };
+  }
+
+  private assertQueuedBinding(
+    pluginId: string,
+    actionId: string,
+    queued: { version: string; checksum: string; actionDigest: string },
+  ): PluginRegistryRecord {
+    const current = this.registry.get(pluginId);
+    if (!current) throw Object.assign(new Error("插件不存在"), { code: "PLUGIN_NOT_FOUND" });
+    if (current.version !== queued.version || current.checksum !== queued.checksum) {
+      throw Object.assign(new Error("插件在排队期间已切换版本"), { code: "PLUGIN_VERSION_CHANGED_WHILE_QUEUED" });
+    }
+    if (actionSchemaDigest(current, actionId) !== queued.actionDigest) {
+      throw Object.assign(new Error("Action schema 在排队期间已变化"), { code: "PLUGIN_ACTION_SCHEMA_CHANGED" });
+    }
+    return current;
   }
 
   async execute(input: {
@@ -95,6 +160,13 @@ export class PluginExecutionManager {
   }): Promise<{ executionId: string; result: PluginExecutionResult }> {
     const inputBytes = jsonSize(input.actionInput);
     if (inputBytes > PACKAGE_LIMITS.inputBytes) throw Object.assign(new Error("Action input 超过 256KB"), { code: "PLUGIN_INPUT_TOO_LARGE" });
+    const queuedRecord = this.registry.get(input.pluginId);
+    if (!queuedRecord) throw Object.assign(new Error("插件不存在"), { code: "PLUGIN_NOT_FOUND" });
+    const queuedBinding = {
+      version: queuedRecord.version,
+      checksum: queuedRecord.checksum,
+      actionDigest: actionSchemaDigest(queuedRecord, input.actionId),
+    };
     const executionId = input.executionId || crypto.randomUUID();
     let startedAt = new Date();
     const context: PluginExecutionContext = {
@@ -111,13 +183,26 @@ export class PluginExecutionManager {
       .run(executionId, input.pluginId, input.actionId, input.userId, context.workspaceId, startedAt.toISOString(), inputBytes);
     const logs = new ExecutionLogTail();
     const release = await acquireGlobalSlot();
+    let releaseProbation: (() => void) | null = null;
+    let boundRecord: PluginRegistryRecord | null = null;
+    let executionStarted = false;
     try {
       if (this.cancelledBeforeStart.delete(executionId)) {
         throw Object.assign(new Error("插件执行已取消"), { code: "PLUGIN_CANCELLED" });
       }
+      const beforeProbationLock = this.assertQueuedBinding(input.pluginId, input.actionId, queuedBinding);
+      if (beforeProbationLock.lifecycleState === "probation") {
+        releaseProbation = await this.acquireProbationSlot(input.pluginId);
+      }
+      if (this.cancelledBeforeStart.delete(executionId)) {
+        throw Object.assign(new Error("插件执行已取消"), { code: "PLUGIN_CANCELLED" });
+      }
+      boundRecord = this.assertQueuedBinding(input.pluginId, input.actionId, queuedBinding);
+      const runner = this.runner(input.pluginId, false, queuedBinding);
       startedAt = new Date();
       getDb().prepare("UPDATE plugin_executions SET status='running',startedAt=? WHERE id=?").run(startedAt.toISOString(), executionId);
-      const result = await this.runner(input.pluginId).execute(context, input.actionInput, input.timeoutMs, logs);
+      executionStarted = true;
+      const result = await runner.execute(context, input.actionInput, input.timeoutMs, logs);
       const outputBytes = jsonSize(result);
       if (outputBytes > PACKAGE_LIMITS.outputBytes) {
         throw Object.assign(new Error("Action output 超过 1MB"), { code: "PLUGIN_OUTPUT_TOO_LARGE" });
@@ -133,14 +218,28 @@ export class PluginExecutionManager {
       const finishedAt = new Date();
       getDb().prepare(`UPDATE plugin_executions SET status=?,finishedAt=?,durationMs=?,errorCode=?,errorMessage=?,logTail=? WHERE id=?`)
         .run(coded.code === "PLUGIN_CANCELLED" ? "cancelled" : "failed", finishedAt.toISOString(), finishedAt.getTime() - startedAt.getTime(), coded.code || "PLUGIN_EXECUTION_FAILED", coded.message.slice(0, 2000), JSON.stringify(logs.toArray()), executionId);
-      if (coded.code === "PLUGIN_TIMEOUT") this.registry.setStatus(input.pluginId, "error", coded.message);
       const probation = this.registry.get(input.pluginId);
-      if (probation?.lifecycleState === "probation") {
-        await this.restart(input.pluginId);
-        this.lifecycle.rollback(input.pluginId, coded.message, coded.code || "PLUGIN_EXECUTION_FAILED");
+      const shouldRollbackProbation = executionStarted
+        && coded.code !== "PLUGIN_CANCELLED"
+        && boundRecord?.lifecycleState === "probation"
+        && probation?.lifecycleState === "probation"
+        && probation.status === "enabled"
+        && probation.version === boundRecord.version
+        && probation.checksum === boundRecord.checksum;
+      if (shouldRollbackProbation) {
+        this.suspendForUpdate(input.pluginId);
+        try {
+          this.lifecycle.rollback(input.pluginId, coded.message, coded.code || "PLUGIN_EXECUTION_FAILED");
+          await this.restart(input.pluginId);
+        } finally {
+          this.resumeAfterUpdate(input.pluginId);
+        }
+      } else if (coded.code === "PLUGIN_TIMEOUT") {
+        this.registry.setStatus(input.pluginId, "error", coded.message);
       }
       throw Object.assign(coded, { executionId });
     } finally {
+      releaseProbation?.();
       release();
     }
   }
@@ -175,6 +274,7 @@ export class PluginExecutionManager {
     const runner = this.runners.get(pluginId);
     if (runner) await runner.terminate();
     this.runners.delete(pluginId);
+    this.runnerBindings.delete(pluginId);
   }
 
   async preflight(pluginId: string): Promise<void> {
