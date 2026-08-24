@@ -53,6 +53,7 @@ import { pluginPlatformMigration } from "./pluginPlatformMigration.js";
 import { pluginPlatformV11Migration } from "./pluginPlatformV11Migration.js";
 import { automationPlatformMigration } from "./automationPlatformMigration.js";
 import { extensionEcosystemMigration } from "./extensionEcosystemMigration.js";
+import { extensionEcosystemRc1Migration } from "./extensionEcosystemRc1Migration.js";
 
 export type { Migration } from "./migrations.impl.js";
 
@@ -362,6 +363,7 @@ export const MIGRATIONS: Migration[] = [
   pluginPlatformV11Migration,
   automationPlatformMigration,
   extensionEcosystemMigration,
+  extensionEcosystemRc1Migration,
 ].sort((a, b) => a.version - b.version);
 
 export const CURRENT_SCHEMA_VERSION: number = MIGRATIONS.reduce(

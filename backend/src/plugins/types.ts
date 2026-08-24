@@ -17,6 +17,34 @@ export type PluginPermission = typeof PLUGIN_PERMISSIONS[number];
 export type PluginStatus = "quarantined" | "disabled" | "enabled" | "error" | "incompatible";
 export type PluginSource = "package" | "official" | "registry" | "dev" | "restore";
 export type PluginTrustLevel = "official" | "verified" | "community" | "developer";
+export type PluginLifecycleState =
+  | "installed"
+  | "preflight"
+  | "probation"
+  | "stable"
+  | "rollback_pending"
+  | "rolling_back"
+  | "disabled";
+export type PluginUpdateStage =
+  | "downloaded"
+  | "verified"
+  | "staged"
+  | "switching"
+  | "probation"
+  | "stable"
+  | "failed"
+  | "rolled_back";
+
+export interface RegistryMetadataState {
+  sourceId: string;
+  highestSeenSequence: number;
+  documentDigest: string;
+  generatedAt: string;
+  expiresAt: string;
+  verifiedAt: string;
+  signerKeyId: string;
+  documentJson: string;
+}
 
 export interface PluginConnectionManifest {
   id: string;
@@ -141,6 +169,12 @@ export interface PluginRegistryRecord {
   probationVersion?: string | null;
   probationRemaining?: number;
   autoRollbackReason?: string | null;
+  lifecycleState: PluginLifecycleState;
+  previousStableVersion: string | null;
+  activeOperationId: string | null;
+  stateUpdatedAt: string;
+  nodeRuntimeConfirmedAt: string | null;
+  nodeRuntimeConfirmedBy: string | null;
 }
 
 export interface PluginVersionRecord {
