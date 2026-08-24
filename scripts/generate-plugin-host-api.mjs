@@ -16,36 +16,36 @@ const PLUGIN_PERMISSIONS = new Set([
   "external:fetch", "secrets:use",
 ]);
 
-const SDK_SIGNATURES = new Map([
-  ["notes.get", "get(input: { noteId: string }): Promise<Note | null>;"],
-  ["notes.list", "list(input?: { limit?: number }): Promise<NoteSummary[]>;"],
-  ["notes.create", "create(input: { notebookId: string; title?: string; content?: string; contentFormat?: \"markdown\" | \"html\" | \"tiptap-json\" }): Promise<{ id: string; version?: number }>;"],
-  ["notes.update", "update(input: { noteId: string; title?: string; content?: string; contentFormat?: \"markdown\" | \"html\" | \"tiptap-json\" }): Promise<{ id: string; version: number }>;"],
-  ["notebooks.get", "get(input: { notebookId: string }): Promise<Notebook | null>;"],
-  ["notebooks.list", "list(): Promise<Notebook[]>;"],
-  ["notebooks.create", "create(input: { name: string; workspaceId?: string | null; parentId?: string | null; icon?: string; color?: string | null }): Promise<{ id: string }>;"],
-  ["tags.list", "list(): Promise<Tag[]>;"],
-  ["tags.create", "create(input: { name: string; color?: string; workspaceId?: string | null }): Promise<{ id: string }>;"],
-  ["tags.addToNote", "addToNote(input: { noteId: string; tagId: string }): Promise<{ success: true }>;"],
-  ["tags.removeFromNote", "removeFromNote(input: { noteId: string; tagId: string }): Promise<{ success: true }>;"],
-  ["tasks.get", "get(input: { taskId: string }): Promise<Task>;"],
-  ["tasks.list", "list(input?: { limit?: number }): Promise<Task[]>;"],
-  ["tasks.create", "create(input: { title: string; workspaceId?: string | null; description?: string; priority?: number; dueDate?: string | null; noteId?: string | null }): Promise<{ id: string }>;"],
-  ["tasks.update", "update(input: { taskId: string; title?: string; description?: string; isCompleted?: boolean; priority?: number; dueDate?: string | null }): Promise<{ id: string }>;"],
-  ["attachments.get", "get(input: { attachmentId: string }): Promise<Attachment>;"],
-  ["attachments.list", "list(input?: { limit?: number }): Promise<Attachment[]>;"],
-  ["diary.get", "get(input: { diaryId: string }): Promise<DiaryEntry>;"],
-  ["diary.list", "list(input?: { limit?: number }): Promise<DiaryEntry[]>;"],
-  ["diary.create", "create(input: { workspaceId?: string | null; contentText: string; mood?: string; createdAt?: string }): Promise<{ id: string }>;"],
-  ["mindmaps.get", "get(input: { mindmapId: string }): Promise<Mindmap>;"],
-  ["mindmaps.list", "list(input?: { limit?: number }): Promise<Mindmap[]>;"],
-  ["mindmaps.create", "create(input: { workspaceId?: string | null; title?: string; data?: unknown }): Promise<{ id: string }>;"],
-  ["mindmaps.update", "update(input: { mindmapId: string; title?: string; data?: unknown }): Promise<{ id: string }>;"],
-  ["storage.get", "get(input: { key: string; scopeType?: \"user\" | \"workspace\"; scopeId?: string }): Promise<unknown>;"],
-  ["storage.set", "set(input: { key: string; value: unknown; scopeType?: \"user\" | \"workspace\"; scopeId?: string }): Promise<{ success: true }>;"],
-  ["storage.delete", "delete(input: { key: string; scopeType?: \"user\" | \"workspace\"; scopeId?: string }): Promise<{ success: true }>;"],
-  ["external.fetch", "fetch(input: { url: string; method?: string; headers?: Record<string, string>; body?: unknown; connection?: string }): Promise<{ status: number; ok: boolean; headers: { \"content-type\": string | null }; body: string }>;"],
-  ["runtime.capabilities", "capabilities(): Promise<RuntimeCapabilities>;"],
+const SDK_METHODS = new Map([
+  ["notes.get", { permission: "notes:read", signature: "get(input: { noteId: string }): Promise<Note | null>;" }],
+  ["notes.list", { permission: "notes:read", signature: "list(input?: { limit?: number }): Promise<NoteSummary[]>;" }],
+  ["notes.create", { permission: "notes:write", signature: "create(input: { notebookId: string; title?: string; content?: string; contentFormat?: \"markdown\" | \"html\" | \"tiptap-json\" }): Promise<{ id: string; version?: number }>;" }],
+  ["notes.update", { permission: "notes:write", signature: "update(input: { noteId: string; title?: string; content?: string; contentFormat?: \"markdown\" | \"html\" | \"tiptap-json\" }): Promise<{ id: string; version: number }>;" }],
+  ["notebooks.get", { permission: "notebooks:read", signature: "get(input: { notebookId: string }): Promise<Notebook | null>;" }],
+  ["notebooks.list", { permission: "notebooks:read", signature: "list(): Promise<Notebook[]>;" }],
+  ["notebooks.create", { permission: "notebooks:write", signature: "create(input: { name: string; workspaceId?: string | null; parentId?: string | null; icon?: string; color?: string | null }): Promise<{ id: string }>;" }],
+  ["tags.list", { permission: "tags:read", signature: "list(): Promise<Tag[]>;" }],
+  ["tags.create", { permission: "tags:write", signature: "create(input: { name: string; color?: string; workspaceId?: string | null }): Promise<{ id: string }>;" }],
+  ["tags.addToNote", { permission: "tags:write", signature: "addToNote(input: { noteId: string; tagId: string }): Promise<{ success: true }>;" }],
+  ["tags.removeFromNote", { permission: "tags:write", signature: "removeFromNote(input: { noteId: string; tagId: string }): Promise<{ success: true }>;" }],
+  ["tasks.get", { permission: "tasks:read", signature: "get(input: { taskId: string }): Promise<Task>;" }],
+  ["tasks.list", { permission: "tasks:read", signature: "list(input?: { limit?: number }): Promise<Task[]>;" }],
+  ["tasks.create", { permission: "tasks:write", signature: "create(input: { title: string; workspaceId?: string | null; description?: string; priority?: number; dueDate?: string | null; noteId?: string | null }): Promise<{ id: string }>;" }],
+  ["tasks.update", { permission: "tasks:write", signature: "update(input: { taskId: string; title?: string; description?: string; isCompleted?: boolean; priority?: number; dueDate?: string | null }): Promise<{ id: string }>;" }],
+  ["attachments.get", { permission: "attachments:read", signature: "get(input: { attachmentId: string }): Promise<Attachment>;" }],
+  ["attachments.list", { permission: "attachments:read", signature: "list(input?: { limit?: number }): Promise<Attachment[]>;" }],
+  ["diary.get", { permission: "diary:read", signature: "get(input: { diaryId: string }): Promise<DiaryEntry>;" }],
+  ["diary.list", { permission: "diary:read", signature: "list(input?: { limit?: number }): Promise<DiaryEntry[]>;" }],
+  ["diary.create", { permission: "diary:write", signature: "create(input: { workspaceId?: string | null; contentText: string; mood?: string; createdAt?: string }): Promise<{ id: string }>;" }],
+  ["mindmaps.get", { permission: "mindmaps:read", signature: "get(input: { mindmapId: string }): Promise<Mindmap>;" }],
+  ["mindmaps.list", { permission: "mindmaps:read", signature: "list(input?: { limit?: number }): Promise<Mindmap[]>;" }],
+  ["mindmaps.create", { permission: "mindmaps:write", signature: "create(input: { workspaceId?: string | null; title?: string; data?: unknown }): Promise<{ id: string }>;" }],
+  ["mindmaps.update", { permission: "mindmaps:write", signature: "update(input: { mindmapId: string; title?: string; data?: unknown }): Promise<{ id: string }>;" }],
+  ["storage.get", { permission: "plugin-storage:read", signature: "get(input: { key: string; scopeType?: \"user\" | \"workspace\"; scopeId?: string }): Promise<unknown>;" }],
+  ["storage.set", { permission: "plugin-storage:write", signature: "set(input: { key: string; value: unknown; scopeType?: \"user\" | \"workspace\"; scopeId?: string }): Promise<{ success: true }>;" }],
+  ["storage.delete", { permission: "plugin-storage:write", signature: "delete(input: { key: string; scopeType?: \"user\" | \"workspace\"; scopeId?: string }): Promise<{ success: true }>;" }],
+  ["external.fetch", { permission: "external:fetch", signature: "fetch(input: { url: string; method?: string; headers?: Record<string, string>; body?: unknown; connection?: string }): Promise<{ status: number; ok: boolean; headers: { \"content-type\": string | null }; body: string }>;" }],
+  ["runtime.capabilities", { permission: null, signature: "capabilities(): Promise<RuntimeCapabilities>;" }],
 ]);
 
 const INTERFACE_NAMES = {
@@ -69,10 +69,20 @@ function isObject(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
+function compareCodePoints(left, right) {
+  const leftPoints = [...left].map((character) => character.codePointAt(0));
+  const rightPoints = [...right].map((character) => character.codePointAt(0));
+  const length = Math.min(leftPoints.length, rightPoints.length);
+  for (let index = 0; index < length; index += 1) {
+    if (leftPoints[index] !== rightPoints[index]) return leftPoints[index] - rightPoints[index];
+  }
+  return leftPoints.length - rightPoints.length;
+}
+
 function requireExactKeys(value, expected, location) {
   if (!isObject(value)) fail(`${location} 必须是对象`);
-  const actual = Object.keys(value).sort();
-  const wanted = [...expected].sort();
+  const actual = Object.keys(value).sort(compareCodePoints);
+  const wanted = [...expected].sort(compareCodePoints);
   if (actual.length !== wanted.length || actual.some((key, index) => key !== wanted[index])) {
     fail(`${location} 字段必须严格为 ${wanted.join(", ")}`);
   }
@@ -109,15 +119,19 @@ function validateContract(value) {
     }
     if (entry.maxArgsBytes !== HOST_CALL_ARGS_BYTES) fail(`${entry.method} 参数预算必须是 256KB`);
     if (entry.maxResultBytes !== HOST_CALL_RESULT_BYTES) fail(`${entry.method} 结果预算必须是 1MB`);
-    if (!SDK_SIGNATURES.has(entry.method)) fail(`${entry.method} 缺少 SDK 类型签名`);
+    const sdkMethod = SDK_METHODS.get(entry.method);
+    if (!sdkMethod) fail(`${entry.method} 缺少 SDK 类型签名`);
+    if (entry.permission !== sdkMethod.permission) {
+      fail(`${entry.method} 权限必须是 ${sdkMethod.permission === null ? "null" : sdkMethod.permission}`);
+    }
   }
-  for (const method of SDK_SIGNATURES.keys()) {
+  for (const method of SDK_METHODS.keys()) {
     if (!methods.has(method)) fail(`SDK 类型签名 ${method} 不在合同中`);
   }
   if (methods.has("storage.list")) fail("storage.list 未由 Broker 实现，禁止写入合同");
   return {
     ...value,
-    methods: [...value.methods].sort((left, right) => left.method.localeCompare(right.method, "en")),
+    methods: [...value.methods].sort((left, right) => compareCodePoints(left.method, right.method)),
   };
 }
 
@@ -129,21 +143,21 @@ function renderBackend(contract) {
   const permissions = [...new Set([
     ...contract.methods.map((entry) => entry.permission).filter(Boolean),
     ...contract.combinationPermissions,
-  ])].sort((left, right) => left.localeCompare(right, "en"));
-  return `${generatedHeader()}import type { PluginPermission } from "./types.js";\nimport type { HostApiContractEntry } from "./hostApiContract.js";\n\nexport const HOST_API_CONTRACT_VERSION = ${contract.contractVersion} as const;\n\nexport const HOST_API_BUDGETS = ${JSON.stringify(contract.budgets, null, 2)} as const;\n\nexport const HOST_API_CONTRACT = ${JSON.stringify(contract.methods, null, 2)} as const satisfies readonly HostApiContractEntry[];\n\nexport const V2_COMBINATION_PLUGIN_PERMISSIONS = ${JSON.stringify(contract.combinationPermissions, null, 2)} as const satisfies readonly PluginPermission[];\n\nexport const V2_SUPPORTED_PLUGIN_PERMISSIONS = ${JSON.stringify(permissions, null, 2)} as const satisfies readonly PluginPermission[];\n`;
+  ])].sort(compareCodePoints);
+  return `${generatedHeader()}import type { PluginPermission } from "./types.js";\nimport type { HostApiContractEntry } from "./hostApiContract.js";\n\nfunction deepFreeze<T>(value: T): T {\n  if (value && typeof value === "object" && !Object.isFrozen(value)) {\n    for (const nested of Object.values(value)) deepFreeze(nested);\n    Object.freeze(value);\n  }\n  return value;\n}\n\nexport const HOST_API_CONTRACT_VERSION = ${contract.contractVersion} as const;\n\nexport const HOST_API_BUDGETS = deepFreeze(${JSON.stringify(contract.budgets, null, 2)} as const);\n\nexport const HOST_API_CONTRACT = deepFreeze(${JSON.stringify(contract.methods, null, 2)} as const) satisfies readonly HostApiContractEntry[];\n\nexport const V2_COMBINATION_PLUGIN_PERMISSIONS = deepFreeze(${JSON.stringify(contract.combinationPermissions, null, 2)} as const) satisfies readonly PluginPermission[];\n\nexport const V2_SUPPORTED_PLUGIN_PERMISSIONS = deepFreeze(${JSON.stringify(permissions, null, 2)} as const) satisfies readonly PluginPermission[];\n`;
 }
 
 function renderSdk(contract) {
   const permissions = [...new Set([
     ...contract.methods.map((entry) => entry.permission).filter(Boolean),
     ...contract.combinationPermissions,
-  ])].sort((left, right) => left.localeCompare(right, "en"));
+  ])].sort(compareCodePoints);
   const methods = contract.methods.map((entry) => entry.method);
   const grouped = new Map();
   for (const entry of contract.methods) {
     const [namespace] = entry.method.split(".");
     if (!grouped.has(namespace)) grouped.set(namespace, []);
-    grouped.get(namespace).push(SDK_SIGNATURES.get(entry.method));
+    grouped.get(namespace).push(SDK_METHODS.get(entry.method).signature);
   }
   const interfaces = Object.entries(INTERFACE_NAMES).map(([namespace, interfaceName]) => {
     const signatures = grouped.get(namespace);
@@ -153,7 +167,7 @@ function renderSdk(contract) {
   const hostProperties = Object.entries(INTERFACE_NAMES)
     .map(([namespace, interfaceName]) => `  ${namespace}: ${interfaceName};`)
     .join("\n");
-  return `${generatedHeader()}import type { Attachment, DiaryEntry, Mindmap, Note, Notebook, NoteSummary, Tag, Task } from "./index.js";\n\nexport type PluginHostRuntime = "node-action" | "sandbox-js";\nexport type HostApiPermission = ${permissions.map((permission) => JSON.stringify(permission)).join(" | ")};\nexport type HostApiMethod = ${methods.map((method) => JSON.stringify(method)).join(" | ")};\n\nexport interface HostApiContractEntry {\n  method: HostApiMethod;\n  sinceApiVersion: 1 | 2;\n  permission: HostApiPermission | null;\n  runtimes: readonly PluginHostRuntime[];\n  maxArgsBytes: number;\n  maxResultBytes: number;\n}\n\nexport interface HostApiBudgets {\n  readonly ipcMessageBytes: number;\n  readonly hostCallArgsBytes: number;\n  readonly hostCallResultBytes: number;\n}\n\nexport const HOST_API_CONTRACT_VERSION = ${contract.contractVersion} as const;\nexport const HOST_API_BUDGETS: HostApiBudgets = Object.freeze(${JSON.stringify(contract.budgets, null, 2)});\nexport const HOST_API_CONTRACT: readonly HostApiContractEntry[] = Object.freeze(${JSON.stringify(contract.methods, null, 2)});\n\nexport interface RuntimeCapabilities {\n  apiVersion: number;\n  runtime: PluginHostRuntime;\n  platform: "server" | "desktop-full";\n  contractVersion: number;\n  budgets: HostApiBudgets;\n  methods: readonly HostApiContractEntry[];\n  hostApis: string[];\n  notes?: { read: number; write: number };\n  notebooks?: { read: number; write: number };\n  tasks?: { read: number; write: number };\n  automation?: number;\n  workspace?: number;\n  declarativeContributions?: number;\n}\n\n${interfaces}\n\nexport interface PluginProgress { current?: number; total?: number; message?: string }\nexport type PluginProgressCallback = (input: PluginProgress) => void;\n\nexport interface NowenHostApi {\n${hostProperties}\n  progress: PluginProgressCallback;\n}\n`;
+  return `${generatedHeader()}import type { Attachment, DiaryEntry, Mindmap, Note, Notebook, NoteSummary, Tag, Task } from "./index.js";\n\nfunction deepFreeze<T>(value: T): T {\n  if (value && typeof value === "object" && !Object.isFrozen(value)) {\n    for (const nested of Object.values(value)) deepFreeze(nested);\n    Object.freeze(value);\n  }\n  return value;\n}\n\nexport type PluginHostRuntime = "node-action" | "sandbox-js";\nexport type HostApiPermission = ${permissions.map((permission) => JSON.stringify(permission)).join(" | ")};\nexport type HostApiMethod = ${methods.map((method) => JSON.stringify(method)).join(" | ")};\n\nexport interface HostApiContractEntry {\n  method: HostApiMethod;\n  sinceApiVersion: 1 | 2;\n  permission: HostApiPermission | null;\n  runtimes: readonly PluginHostRuntime[];\n  maxArgsBytes: number;\n  maxResultBytes: number;\n}\n\nexport interface HostApiBudgets {\n  readonly ipcMessageBytes: number;\n  readonly hostCallArgsBytes: number;\n  readonly hostCallResultBytes: number;\n}\n\nexport const HOST_API_CONTRACT_VERSION = ${contract.contractVersion} as const;\nexport const HOST_API_BUDGETS: HostApiBudgets = deepFreeze(${JSON.stringify(contract.budgets, null, 2)});\nexport const HOST_API_CONTRACT: readonly HostApiContractEntry[] = deepFreeze(${JSON.stringify(contract.methods, null, 2)});\n\nexport interface RuntimeCapabilities {\n  apiVersion: number;\n  runtime: PluginHostRuntime;\n  platform: "server" | "desktop-full";\n  contractVersion: number;\n  budgets: HostApiBudgets;\n  methods: readonly HostApiContractEntry[];\n  hostApis: string[];\n  notes?: { read: number; write: number };\n  notebooks?: { read: number; write: number };\n  tasks?: { read: number; write: number };\n  automation?: number;\n  workspace?: number;\n  declarativeContributions?: number;\n}\n\n${interfaces}\n\nexport interface PluginProgress { current?: number; total?: number; message?: string }\nexport type PluginProgressCallback = (input: PluginProgress) => void;\n\nexport interface NowenHostApi {\n${hostProperties}\n  progress: PluginProgressCallback;\n}\n`;
 }
 
 function renderMarkdown(contract) {

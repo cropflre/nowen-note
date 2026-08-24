@@ -20,7 +20,7 @@ globalThis.nowen = Object.freeze({
  attachments:{get:a=>__call('attachments.get',a),list:a=>__call('attachments.list',a)},
  diary:{get:a=>__call('diary.get',a),list:a=>__call('diary.list',a),create:a=>__call('diary.create',a)},
  mindmaps:{get:a=>__call('mindmaps.get',a),list:a=>__call('mindmaps.list',a),create:a=>__call('mindmaps.create',a),update:a=>__call('mindmaps.update',a)},
- storage:{get:a=>__call('storage.get',a),set:a=>__call('storage.set',a),delete:a=>__call('storage.delete',a),list:a=>__call('storage.list',a)},
+ storage:{get:a=>__call('storage.get',a),set:a=>__call('storage.set',a),delete:a=>__call('storage.delete',a)},
  external:{fetch:a=>__call('external.fetch',a)}, runtime:{capabilities:()=>__call('runtime.capabilities',{})},
  progress:(value)=>__nowenProgress(JSON.stringify(value || {}))
 });`;

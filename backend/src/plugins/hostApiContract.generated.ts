@@ -2,15 +2,23 @@
 import type { PluginPermission } from "./types.js";
 import type { HostApiContractEntry } from "./hostApiContract.js";
 
+function deepFreeze<T>(value: T): T {
+  if (value && typeof value === "object" && !Object.isFrozen(value)) {
+    for (const nested of Object.values(value)) deepFreeze(nested);
+    Object.freeze(value);
+  }
+  return value;
+}
+
 export const HOST_API_CONTRACT_VERSION = 1 as const;
 
-export const HOST_API_BUDGETS = {
+export const HOST_API_BUDGETS = deepFreeze({
   "ipcMessageBytes": 2097152,
   "hostCallArgsBytes": 262144,
   "hostCallResultBytes": 1048576
-} as const;
+} as const);
 
-export const HOST_API_CONTRACT = [
+export const HOST_API_CONTRACT = deepFreeze([
   {
     "method": "attachments.get",
     "sinceApiVersion": 1,
@@ -330,13 +338,13 @@ export const HOST_API_CONTRACT = [
     "maxArgsBytes": 262144,
     "maxResultBytes": 1048576
   }
-] as const satisfies readonly HostApiContractEntry[];
+] as const) satisfies readonly HostApiContractEntry[];
 
-export const V2_COMBINATION_PLUGIN_PERMISSIONS = [
+export const V2_COMBINATION_PLUGIN_PERMISSIONS = deepFreeze([
   "secrets:use"
-] as const satisfies readonly PluginPermission[];
+] as const) satisfies readonly PluginPermission[];
 
-export const V2_SUPPORTED_PLUGIN_PERMISSIONS = [
+export const V2_SUPPORTED_PLUGIN_PERMISSIONS = deepFreeze([
   "attachments:read",
   "diary:read",
   "diary:write",
@@ -354,4 +362,4 @@ export const V2_SUPPORTED_PLUGIN_PERMISSIONS = [
   "tags:write",
   "tasks:read",
   "tasks:write"
-] as const satisfies readonly PluginPermission[];
+] as const) satisfies readonly PluginPermission[];

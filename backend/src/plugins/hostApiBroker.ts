@@ -35,15 +35,24 @@ function argsObject(args: unknown): JsonObject {
   return args as JsonObject;
 }
 
-function requireJsonBudget(value: unknown, maxBytes: number, code: "HOST_ARGS_TOO_LARGE" | "HOST_RESULT_TOO_LARGE", label: string): void {
+function requireJsonBudget(
+  value: unknown,
+  maxBytes: number,
+  sizeErrorCode: "HOST_ARGS_TOO_LARGE" | "HOST_RESULT_TOO_LARGE",
+  serializationErrorCode: "INVALID_ARGUMENT" | "PLUGIN_ERROR",
+  label: string,
+): void {
   let serialized: string | undefined;
   try {
     serialized = JSON.stringify(value);
   } catch {
-    throw Object.assign(new Error(`${label}必须是可序列化 JSON`), { code: "INVALID_ARGUMENT" });
+    throw Object.assign(new Error(`${label}必须是可序列化 JSON`), { code: serializationErrorCode });
   }
-  if (serialized !== undefined && Buffer.byteLength(serialized, "utf8") > maxBytes) {
-    throw Object.assign(new Error(`${label}超过 ${maxBytes} 字节限制`), { code });
+  if (serialized === undefined) {
+    throw Object.assign(new Error(`${label}必须是可序列化 JSON`), { code: serializationErrorCode });
+  }
+  if (Buffer.byteLength(serialized, "utf8") > maxBytes) {
+    throw Object.assign(new Error(`${label}超过 ${maxBytes} 字节限制`), { code: sizeErrorCode });
   }
 }
 
@@ -93,7 +102,7 @@ export class HostApiBroker {
       : this.permissions.require(context.pluginId, contract.permission);
     const [namespace, operation] = call.method.split(".");
     const args = argsObject(call.args ?? {});
-    requireJsonBudget(args, contract.maxArgsBytes, "HOST_ARGS_TOO_LARGE", "Host API 参数");
+    requireJsonBudget(args, contract.maxArgsBytes, "HOST_ARGS_TOO_LARGE", "INVALID_ARGUMENT", "Host API 参数");
     let result: unknown;
     switch (namespace) {
       case "notes": result = await this.notes(context, operation, args); break;
@@ -108,7 +117,7 @@ export class HostApiBroker {
       case "runtime": result = this.runtime(context, operation); break;
       default: throw createHostMethodNotFound(call.method);
     }
-    requireJsonBudget(result, contract.maxResultBytes, "HOST_RESULT_TOO_LARGE", "Host API 结果");
+    requireJsonBudget(result, contract.maxResultBytes, "HOST_RESULT_TOO_LARGE", "PLUGIN_ERROR", "Host API 结果");
     return result;
   }
 
@@ -117,9 +126,9 @@ export class HostApiBroker {
     const record = this.registry.get(context.pluginId);
     const apiVersion = record?.apiVersion === 2 ? 2 : 1;
     const runtime: HostRuntime = record?.runtime === "sandbox-js" ? "sandbox-js" : "node-action";
-    const supportedMethods = HOST_API_CONTRACT.filter(
+    const supportedMethods = Object.freeze(HOST_API_CONTRACT.filter(
       (entry) => apiVersion >= entry.sinceApiVersion && entry.runtimes.includes(runtime),
-    );
+    ));
     return {
       apiVersion, runtime,
       platform: process.env.ELECTRON_USER_DATA ? "desktop-full" : "server",

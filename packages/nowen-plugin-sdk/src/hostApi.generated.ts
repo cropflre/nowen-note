@@ -1,6 +1,14 @@
 // 此文件由 scripts/generate-plugin-host-api.mjs 根据 packages/nowen-plugin-sdk/host-api-contract.json 生成，请勿手动修改。
 import type { Attachment, DiaryEntry, Mindmap, Note, Notebook, NoteSummary, Tag, Task } from "./index.js";
 
+function deepFreeze<T>(value: T): T {
+  if (value && typeof value === "object" && !Object.isFrozen(value)) {
+    for (const nested of Object.values(value)) deepFreeze(nested);
+    Object.freeze(value);
+  }
+  return value;
+}
+
 export type PluginHostRuntime = "node-action" | "sandbox-js";
 export type HostApiPermission = "attachments:read" | "diary:read" | "diary:write" | "external:fetch" | "mindmaps:read" | "mindmaps:write" | "notebooks:read" | "notebooks:write" | "notes:read" | "notes:write" | "plugin-storage:read" | "plugin-storage:write" | "secrets:use" | "tags:read" | "tags:write" | "tasks:read" | "tasks:write";
 export type HostApiMethod = "attachments.get" | "attachments.list" | "diary.create" | "diary.get" | "diary.list" | "external.fetch" | "mindmaps.create" | "mindmaps.get" | "mindmaps.list" | "mindmaps.update" | "notebooks.create" | "notebooks.get" | "notebooks.list" | "notes.create" | "notes.get" | "notes.list" | "notes.update" | "runtime.capabilities" | "storage.delete" | "storage.get" | "storage.set" | "tags.addToNote" | "tags.create" | "tags.list" | "tags.removeFromNote" | "tasks.create" | "tasks.get" | "tasks.list" | "tasks.update";
@@ -21,12 +29,12 @@ export interface HostApiBudgets {
 }
 
 export const HOST_API_CONTRACT_VERSION = 1 as const;
-export const HOST_API_BUDGETS: HostApiBudgets = Object.freeze({
+export const HOST_API_BUDGETS: HostApiBudgets = deepFreeze({
   "ipcMessageBytes": 2097152,
   "hostCallArgsBytes": 262144,
   "hostCallResultBytes": 1048576
 });
-export const HOST_API_CONTRACT: readonly HostApiContractEntry[] = Object.freeze([
+export const HOST_API_CONTRACT: readonly HostApiContractEntry[] = deepFreeze([
   {
     "method": "attachments.get",
     "sinceApiVersion": 1,
