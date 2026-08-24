@@ -8,7 +8,7 @@ const IPC_MESSAGE_BYTES = 2 * 1024 * 1024;
 const HOST_CALL_ARGS_BYTES = 256 * 1024;
 const HOST_CALL_RESULT_BYTES = 1024 * 1024;
 const RUNTIMES = new Set(["node-action", "sandbox-js"]);
-const PERMISSIONS = new Set([
+const PLUGIN_PERMISSIONS = new Set([
   "notes:read", "notes:write", "notebooks:read", "notebooks:write",
   "tags:read", "tags:write", "tasks:read", "tasks:write",
   "attachments:read", "attachments:write", "diary:read", "diary:write",
@@ -85,12 +85,10 @@ function validateContract(value) {
   if (value.budgets.ipcMessageBytes !== IPC_MESSAGE_BYTES) fail("IPC 预算必须是 2MB");
   if (value.budgets.hostCallArgsBytes !== HOST_CALL_ARGS_BYTES) fail("Host Call 参数预算必须是 256KB");
   if (value.budgets.hostCallResultBytes !== HOST_CALL_RESULT_BYTES) fail("Host Call 结果预算必须是 1MB");
-  if (!Array.isArray(value.combinationPermissions)) fail("combinationPermissions 必须是数组");
-  const combinationPermissions = new Set();
-  for (const permission of value.combinationPermissions) {
-    if (!PERMISSIONS.has(permission)) fail(`未知组合权限 ${String(permission)}`);
-    if (combinationPermissions.has(permission)) fail(`重复组合权限 ${permission}`);
-    combinationPermissions.add(permission);
+  if (!Array.isArray(value.combinationPermissions)
+    || value.combinationPermissions.length !== 1
+    || value.combinationPermissions[0] !== "secrets:use") {
+    fail("combinationPermissions 必须严格等于 [\"secrets:use\"]");
   }
   if (!Array.isArray(value.methods) || value.methods.length === 0) fail("methods 必须是非空数组");
   const methods = new Set();
@@ -100,7 +98,8 @@ function validateContract(value) {
     if (methods.has(entry.method)) fail(`重复 method ${entry.method}`);
     methods.add(entry.method);
     if (entry.sinceApiVersion !== 1 && entry.sinceApiVersion !== 2) fail(`${entry.method} 的 sinceApiVersion 只能是 1 或 2`);
-    if (entry.permission !== null && !PERMISSIONS.has(entry.permission)) fail(`${entry.method} 使用未知权限 ${String(entry.permission)}`);
+    if (entry.permission !== null && !PLUGIN_PERMISSIONS.has(entry.permission)) fail(`${entry.method} 使用未知权限 ${String(entry.permission)}`);
+    if (entry.permission === "attachments:write") fail(`${entry.method} 不得使用 V2 不支持的 attachments:write`);
     if (!Array.isArray(entry.runtimes) || entry.runtimes.length === 0) fail(`${entry.method} 的 runtimes 必须是非空数组`);
     const runtimes = new Set();
     for (const runtime of entry.runtimes) {
@@ -131,7 +130,7 @@ function renderBackend(contract) {
     ...contract.methods.map((entry) => entry.permission).filter(Boolean),
     ...contract.combinationPermissions,
   ])].sort((left, right) => left.localeCompare(right, "en"));
-  return `${generatedHeader()}import type { PluginPermission } from "./types.js";\nimport type { HostApiContractEntry } from "./hostApiContract.js";\n\nexport const HOST_API_CONTRACT_VERSION = ${contract.contractVersion} as const;\n\nexport const HOST_API_BUDGETS = ${JSON.stringify(contract.budgets, null, 2)} as const;\n\nexport const HOST_API_CONTRACT = ${JSON.stringify(contract.methods, null, 2)} as const satisfies readonly HostApiContractEntry[];\n\nexport const V2_SUPPORTED_PLUGIN_PERMISSIONS = ${JSON.stringify(permissions, null, 2)} as const satisfies readonly PluginPermission[];\n`;
+  return `${generatedHeader()}import type { PluginPermission } from "./types.js";\nimport type { HostApiContractEntry } from "./hostApiContract.js";\n\nexport const HOST_API_CONTRACT_VERSION = ${contract.contractVersion} as const;\n\nexport const HOST_API_BUDGETS = ${JSON.stringify(contract.budgets, null, 2)} as const;\n\nexport const HOST_API_CONTRACT = ${JSON.stringify(contract.methods, null, 2)} as const satisfies readonly HostApiContractEntry[];\n\nexport const V2_COMBINATION_PLUGIN_PERMISSIONS = ${JSON.stringify(contract.combinationPermissions, null, 2)} as const satisfies readonly PluginPermission[];\n\nexport const V2_SUPPORTED_PLUGIN_PERMISSIONS = ${JSON.stringify(permissions, null, 2)} as const satisfies readonly PluginPermission[];\n`;
 }
 
 function renderSdk(contract) {

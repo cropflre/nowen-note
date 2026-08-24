@@ -2,6 +2,7 @@ import {
   HOST_API_BUDGETS,
   HOST_API_CONTRACT,
   HOST_API_CONTRACT_VERSION,
+  V2_COMBINATION_PLUGIN_PERMISSIONS,
   V2_SUPPORTED_PLUGIN_PERMISSIONS,
 } from "./hostApiContract.generated.js";
 import type { PluginPermission } from "./types.js";
@@ -21,6 +22,7 @@ export {
   HOST_API_BUDGETS,
   HOST_API_CONTRACT,
   HOST_API_CONTRACT_VERSION,
+  V2_COMBINATION_PLUGIN_PERMISSIONS,
   V2_SUPPORTED_PLUGIN_PERMISSIONS,
 };
 
@@ -28,6 +30,7 @@ const methods = new Map<string, HostApiContractEntry>(
   HOST_API_CONTRACT.map((entry) => [entry.method, entry]),
 );
 const v2SupportedPermissions = new Set<PluginPermission>(V2_SUPPORTED_PLUGIN_PERMISSIONS);
+const v2CombinationPermissions = new Set<PluginPermission>(V2_COMBINATION_PLUGIN_PERMISSIONS);
 
 function hostMethodError(method: string, code: "HOST_METHOD_NOT_FOUND" | "HOST_METHOD_UNSUPPORTED", message: string): Error {
   return Object.assign(new Error(`${message}: ${method}`), { code });
@@ -50,6 +53,15 @@ export function requireHostMethod(
 
 export function isV2SupportedPluginPermission(permission: string): permission is PluginPermission {
   return v2SupportedPermissions.has(permission as PluginPermission);
+}
+
+export function requireV2CombinationPermission(permission: string): PluginPermission {
+  if (!v2CombinationPermissions.has(permission as PluginPermission)) {
+    throw Object.assign(new Error(`Plugin API V2 组合权限未在合同中声明: ${permission}`), {
+      code: "HOST_METHOD_UNSUPPORTED",
+    });
+  }
+  return permission as PluginPermission;
 }
 
 export function createHostMethodNotFound(method: string): Error {

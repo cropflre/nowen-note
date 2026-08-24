@@ -332,6 +332,10 @@ export const HOST_API_CONTRACT = [
   }
 ] as const satisfies readonly HostApiContractEntry[];
 
+export const V2_COMBINATION_PLUGIN_PERMISSIONS = [
+  "secrets:use"
+] as const satisfies readonly PluginPermission[];
+
 export const V2_SUPPORTED_PLUGIN_PERMISSIONS = [
   "attachments:read",
   "diary:read",

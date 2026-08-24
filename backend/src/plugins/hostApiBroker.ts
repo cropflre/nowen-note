@@ -16,12 +16,13 @@ import {
   HOST_API_CONTRACT,
   HOST_API_CONTRACT_VERSION,
   requireHostMethod,
+  requireV2CombinationPermission,
   type HostRuntime,
 } from "./hostApiContract.js";
-import { PluginPermissions } from "./permissions.js";
+import { PluginPermissions, type PermissionRow } from "./permissions.js";
 import { PluginRegistry } from "./registry.js";
 import { PluginSecrets } from "./secrets.js";
-import type { HostCall, PluginExecutionContext, PluginManifest, PluginPermission } from "./types.js";
+import type { HostCall, PluginExecutionContext, PluginManifest } from "./types.js";
 
 type JsonObject = Record<string, any>;
 
@@ -87,6 +88,9 @@ export class HostApiBroker {
     const apiVersion = record?.apiVersion === 2 ? 2 : 1;
     const runtime: HostRuntime = record?.runtime === "sandbox-js" ? "sandbox-js" : "node-action";
     const contract = requireHostMethod(call.method, apiVersion, runtime);
+    const methodPermission = contract.permission === null
+      ? null
+      : this.permissions.require(context.pluginId, contract.permission);
     const [namespace, operation] = call.method.split(".");
     const args = argsObject(call.args ?? {});
     requireJsonBudget(args, contract.maxArgsBytes, "HOST_ARGS_TOO_LARGE", "Host API 参数");
@@ -100,7 +104,7 @@ export class HostApiBroker {
       case "diary": result = await this.diary(context, operation, args); break;
       case "mindmaps": result = await this.mindmaps(context, operation, args); break;
       case "storage": result = this.storage(context, operation, args); break;
-      case "external": result = await this.external(context, operation, args); break;
+      case "external": result = await this.external(context, operation, args, methodPermission); break;
       case "runtime": result = this.runtime(context, operation); break;
       default: throw createHostMethodNotFound(call.method);
     }
@@ -128,26 +132,19 @@ export class HostApiBroker {
     };
   }
 
-  private require(context: PluginExecutionContext, permission: PluginPermission): void {
-    this.permissions.require(context.pluginId, permission);
-  }
-
   private async notes(context: PluginExecutionContext, operation: string, args: JsonObject): Promise<unknown> {
     const db = getDb();
     if (operation === "get") {
-      this.require(context, "notes:read");
       const id = requireString(args.id ?? args.noteId, "noteId");
       if (!hasPermission(resolveNotePermission(id, context.userId).permission, "read")) forbidden("无权读取该笔记");
       return db.prepare("SELECT id, notebookId, title, content, contentText, contentFormat, workspaceId, version, createdAt, updatedAt FROM notes WHERE id=? AND isTrashed=0").get(id) || null;
     }
     if (operation === "list") {
-      this.require(context, "notes:read");
       const limit = Math.max(1, Math.min(100, Number(args.limit) || 50));
       const rows = db.prepare("SELECT id, notebookId, title, contentText, contentFormat, workspaceId, version, createdAt, updatedAt FROM notes WHERE isTrashed=0 ORDER BY updatedAt DESC LIMIT 500").all() as JsonObject[];
       return rows.filter((row) => hasPermission(resolveNotePermission(row.id, context.userId).permission, "read")).slice(0, limit);
     }
     if (operation === "create") {
-      this.require(context, "notes:write");
       const notebookId = requireString(args.notebookId, "notebookId");
       const access = resolveNotebookPermission(notebookId, context.userId);
       if (!hasPermission(access.permission, "write")) forbidden("无权在该笔记本创建笔记");
@@ -160,7 +157,6 @@ export class HostApiBroker {
       return { id: created.id, version: created.version };
     }
     if (operation === "update") {
-      this.require(context, "notes:write");
       const id = requireString(args.id ?? args.noteId, "noteId");
       if (!hasPermission(resolveNotePermission(id, context.userId).permission, "write")) forbidden("无权修改该笔记");
       const current = db.prepare("SELECT title,content,contentText,contentFormat,version FROM notes WHERE id=?").get(id) as JsonObject | undefined;
@@ -180,18 +176,15 @@ export class HostApiBroker {
   private async notebooks(context: PluginExecutionContext, operation: string, args: JsonObject): Promise<unknown> {
     const db = getDb();
     if (operation === "get") {
-      this.require(context, "notebooks:read");
       const id = requireString(args.id ?? args.notebookId, "notebookId");
       if (!hasPermission(resolveNotebookPermission(id, context.userId).permission, "read")) forbidden("无权读取该笔记本");
       return db.prepare("SELECT id,parentId,name,description,icon,color,workspaceId,createdAt,updatedAt FROM notebooks WHERE id=? AND isDeleted=0").get(id) || null;
     }
     if (operation === "list") {
-      this.require(context, "notebooks:read");
       const rows = db.prepare("SELECT id,parentId,name,description,icon,color,workspaceId,createdAt,updatedAt FROM notebooks WHERE isDeleted=0 ORDER BY sortOrder,name").all() as JsonObject[];
       return rows.filter((row) => hasPermission(resolveNotebookPermission(row.id, context.userId).permission, "read"));
     }
     if (operation === "create") {
-      this.require(context, "notebooks:write");
       const workspaceId = typeof args.workspaceId === "string" && args.workspaceId ? args.workspaceId : null;
       if (!allowedWorkspace(workspaceId, context.userId, true)) forbidden("无权在该工作区创建笔记本");
       if (args.parentId && !hasPermission(resolveNotebookPermission(String(args.parentId), context.userId).permission, "write")) forbidden("无权使用该父笔记本");
@@ -210,12 +203,10 @@ export class HostApiBroker {
   private async tags(context: PluginExecutionContext, operation: string, args: JsonObject): Promise<unknown> {
     const db = getDb();
     if (operation === "list") {
-      this.require(context, "tags:read");
       const rows = db.prepare("SELECT id,name,color,workspaceId,createdAt FROM tags WHERE userId=? OR workspaceId IS NOT NULL ORDER BY name").all(context.userId) as JsonObject[];
       return rows.filter((row) => !row.workspaceId || allowedWorkspace(row.workspaceId, context.userId));
     }
     if (operation === "create") {
-      this.require(context, "tags:write");
       const workspaceId = typeof args.workspaceId === "string" && args.workspaceId ? args.workspaceId : null;
       if (!allowedWorkspace(workspaceId, context.userId, true)) forbidden("无权在该工作区创建标签");
       const created = await this.commands.createTag(context.userId, {
@@ -226,7 +217,6 @@ export class HostApiBroker {
       return { id: created.id };
     }
     if (operation === "addToNote" || operation === "removeFromNote") {
-      this.require(context, "tags:write");
       const noteId = requireString(args.noteId, "noteId");
       const tagId = requireString(args.tagId, "tagId");
       if (!hasPermission(resolveNotePermission(noteId, context.userId).permission, "write")) forbidden("无权修改该笔记标签");
@@ -239,18 +229,15 @@ export class HostApiBroker {
   private async tasks(context: PluginExecutionContext, operation: string, args: JsonObject): Promise<unknown> {
     const db = getDb();
     if (operation === "get") {
-      this.require(context, "tasks:read");
       const row = db.prepare("SELECT * FROM tasks WHERE id=?").get(requireString(args.id ?? args.taskId, "taskId")) as JsonObject | undefined;
       if (!row || (row.userId !== context.userId && !allowedWorkspace(row.workspaceId, context.userId))) forbidden("无权读取该任务");
       return row;
     }
     if (operation === "list") {
-      this.require(context, "tasks:read");
       const rows = db.prepare("SELECT * FROM tasks ORDER BY updatedAt DESC LIMIT 500").all() as JsonObject[];
       return rows.filter((row) => row.userId === context.userId || allowedWorkspace(row.workspaceId, context.userId)).slice(0, Math.max(1, Math.min(100, Number(args.limit) || 50)));
     }
     if (operation === "create") {
-      this.require(context, "tasks:write");
       const workspaceId = typeof args.workspaceId === "string" && args.workspaceId ? args.workspaceId : null;
       if (!allowedWorkspace(workspaceId, context.userId, true)) forbidden("无权在该工作区创建任务");
       const created = await this.commands.createTask(context.userId, workspaceId, {
@@ -260,7 +247,6 @@ export class HostApiBroker {
       return { id: created.id };
     }
     if (operation === "update") {
-      this.require(context, "tasks:write");
       const id = requireString(args.id ?? args.taskId, "taskId");
       const current = db.prepare("SELECT * FROM tasks WHERE id=?").get(id) as JsonObject | undefined;
       if (!current || (current.userId !== context.userId && !allowedWorkspace(current.workspaceId, context.userId, true))) forbidden("无权修改该任务");
@@ -272,7 +258,6 @@ export class HostApiBroker {
 
   private attachments(context: PluginExecutionContext, operation: string, args: JsonObject): unknown {
     const db = getDb();
-    this.require(context, "attachments:read");
     if (operation === "get") {
       const row = db.prepare("SELECT id,noteId,filename,mimeType,size,createdAt FROM attachments WHERE id=?").get(requireString(args.id ?? args.attachmentId, "attachmentId")) as JsonObject | undefined;
       if (!row || !hasPermission(resolveNotePermission(row.noteId, context.userId).permission, "read")) forbidden("无权读取该附件");
@@ -288,19 +273,16 @@ export class HostApiBroker {
   private async diary(context: PluginExecutionContext, operation: string, args: JsonObject): Promise<unknown> {
     const db = getDb();
     if (operation === "get") {
-      this.require(context, "diary:read");
       const row = db.prepare("SELECT id,userId,workspaceId,contentText,mood,images,media,createdAt FROM diaries WHERE id=?")
         .get(requireString(args.id ?? args.diaryId, "diaryId")) as JsonObject | undefined;
       if (!row || (row.userId !== context.userId && !allowedWorkspace(row.workspaceId, context.userId))) forbidden("无权读取该日记");
       return row;
     }
     if (operation === "list") {
-      this.require(context, "diary:read");
       const rows = db.prepare("SELECT id,userId,workspaceId,contentText,mood,images,media,createdAt FROM diaries ORDER BY createdAt DESC LIMIT 500").all() as JsonObject[];
       return rows.filter((row) => row.userId === context.userId || allowedWorkspace(row.workspaceId, context.userId)).slice(0, Math.max(1, Math.min(100, Number(args.limit) || 50)));
     }
     if (operation === "create") {
-      this.require(context, "diary:write");
       const workspaceId = typeof args.workspaceId === "string" && args.workspaceId ? args.workspaceId : null;
       if (!allowedWorkspace(workspaceId, context.userId, true)) forbidden("无权在该工作区创建日记");
       const created = await this.commands.createDiary(context.userId, workspaceId, {
@@ -319,18 +301,15 @@ export class HostApiBroker {
     ensureMindmapSchema();
     const db = getDb();
     if (operation === "get") {
-      this.require(context, "mindmaps:read");
       const row = db.prepare("SELECT * FROM mindmaps WHERE id=?").get(requireString(args.id ?? args.mindmapId, "mindmapId")) as JsonObject | undefined;
       if (!row || (row.userId !== context.userId && !allowedWorkspace(row.workspaceId, context.userId))) forbidden("无权读取该思维导图");
       return row;
     }
     if (operation === "list") {
-      this.require(context, "mindmaps:read");
       const rows = db.prepare("SELECT id,userId,workspaceId,title,starred,folderId,createdAt,updatedAt FROM mindmaps ORDER BY updatedAt DESC LIMIT 500").all() as JsonObject[];
       return rows.filter((row) => row.userId === context.userId || allowedWorkspace(row.workspaceId, context.userId)).slice(0, Math.max(1, Math.min(100, Number(args.limit) || 50)));
     }
     if (operation === "create") {
-      this.require(context, "mindmaps:write");
       const workspaceId = typeof args.workspaceId === "string" && args.workspaceId ? args.workspaceId : null;
       if (!allowedWorkspace(workspaceId, context.userId, true)) forbidden("无权在该工作区创建思维导图");
       const title = String(args.title || "无标题导图");
@@ -339,7 +318,6 @@ export class HostApiBroker {
       return { id: created.id };
     }
     if (operation === "update") {
-      this.require(context, "mindmaps:write");
       const id = requireString(args.id ?? args.mindmapId, "mindmapId");
       const row = db.prepare("SELECT * FROM mindmaps WHERE id=?").get(id) as JsonObject | undefined;
       if (!row || (row.userId !== context.userId && !allowedWorkspace(row.workspaceId, context.userId, true))) forbidden("无权修改该思维导图");
@@ -357,13 +335,11 @@ export class HostApiBroker {
     const key = requireString(args.key, "key");
     if (Buffer.byteLength(key) > 200) throw new Error("storage key 过长");
     if (operation === "get") {
-      this.require(context, "plugin-storage:read");
       const row = db.prepare("SELECT value FROM plugin_storage WHERE pluginId=? AND scopeType=? AND scopeId=? AND key=?")
         .get(context.pluginId, scopeType, scopeId, key) as { value: string } | undefined;
       return row ? JSON.parse(row.value) : null;
     }
     if (operation === "set") {
-      this.require(context, "plugin-storage:write");
       const value = JSON.stringify(args.value);
       if (Buffer.byteLength(value) > 256 * 1024) throw new Error("plugin storage value 超过 256KB");
       db.prepare(`INSERT INTO plugin_storage(pluginId,scopeType,scopeId,key,value,updatedAt) VALUES (?,?,?,?,?,?)
@@ -372,7 +348,6 @@ export class HostApiBroker {
       return { success: true };
     }
     if (operation === "delete") {
-      this.require(context, "plugin-storage:write");
       db.prepare("DELETE FROM plugin_storage WHERE pluginId=? AND scopeType=? AND scopeId=? AND key=?")
         .run(context.pluginId, scopeType, scopeId, key);
       return { success: true };
@@ -380,12 +355,19 @@ export class HostApiBroker {
     throw createHostMethodNotFound(`storage.${operation}`);
   }
 
-  private async external(context: PluginExecutionContext, operation: string, args: JsonObject): Promise<unknown> {
+  private async external(
+    context: PluginExecutionContext,
+    operation: string,
+    args: JsonObject,
+    methodPermission: PermissionRow | null,
+  ): Promise<unknown> {
     if (operation !== "fetch") throw createHostMethodNotFound(`external.${operation}`);
-    const permission = this.permissions.require(context.pluginId, "external:fetch");
+    if (!methodPermission) {
+      throw Object.assign(new Error("external.fetch 合同缺少方法权限"), { code: "HOST_METHOD_UNSUPPORTED" });
+    }
     const url = new URL(requireString(args.url, "url"));
     if (url.protocol !== "https:") forbidden("external.fetch 只允许 HTTPS", "EXTERNAL_FETCH_DENIED");
-    const config = JSON.parse(permission.configJson || "{}") as { hosts?: string[] };
+    const config = JSON.parse(methodPermission.configJson || "{}") as { hosts?: string[] };
     if (!config.hosts?.includes(url.hostname)) forbidden(`Host 未在插件白名单: ${url.hostname}`, "EXTERNAL_FETCH_DENIED");
     await assertPublicHost(url.hostname);
     const headers = new Headers();
@@ -394,7 +376,7 @@ export class HostApiBroker {
       headers.set(name, String(value));
     }
     if (args.connection) {
-      this.require(context, "secrets:use");
+      this.permissions.require(context.pluginId, requireV2CombinationPermission("secrets:use"));
       const connectionId = String(args.connection);
       const record = this.registry.get(context.pluginId);
       const manifest = record ? JSON.parse(record.manifestJson) as PluginManifest : undefined;
