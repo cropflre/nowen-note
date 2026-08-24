@@ -10,9 +10,11 @@ import { ExtensionPolicy } from "./extensionPolicy.js";
 import { PluginExecutionManager } from "./executionManager.js";
 import { nowenVersionSatisfies, validateActionInput } from "./manifest.js";
 import { PluginPackageInstaller } from "./packageInstaller.js";
+import { PluginLifecycle } from "./pluginLifecycle.js";
 import { PluginPermissions } from "./permissions.js";
 import { PluginRegistry } from "./registry.js";
 import { PluginSecrets } from "./secrets.js";
+import { PluginUpdateCoordinator } from "./pluginUpdateCoordinator.js";
 import type { PluginManifest, PluginRegistryRecord } from "./types.js";
 
 function manifestOf(record: PluginRegistryRecord): PluginManifest {
@@ -28,7 +30,15 @@ export class PluginService {
   readonly ecosystem = new EcosystemRegistry();
   readonly policy = new ExtensionPolicy();
   readonly broker = new HostApiBroker(this.permissions, this.secrets);
-  readonly executions = new PluginExecutionManager(this.broker, this.registry, this.policy);
+  readonly lifecycle = new PluginLifecycle();
+  readonly executions = new PluginExecutionManager(this.broker, this.registry, this.policy, this.lifecycle);
+  readonly updates = new PluginUpdateCoordinator(
+    this.executions,
+    this.registry,
+    this.installer,
+    this.permissions,
+    this.lifecycle,
+  );
 
   constructor() {
     // 开发目录每次服务重启都要重新确认，不能继承上次的 enabled/granted 状态。
@@ -178,8 +188,7 @@ export class PluginService {
       "unsigned",
       Boolean(confirmedBy || inheritedConfirmation),
     ));
-    if (existing) await this.executions.shutdown(candidate.manifest.id);
-    return this.publicRecord(await this.installer.installValidated(candidate, installedBy, {
+    return this.publicRecord(await this.updates.installUpdate(candidate, installedBy, {
       nodeRuntimeConfirmedBy: confirmedBy,
     }));
   }
@@ -217,8 +226,7 @@ export class PluginService {
     if (validated.manifest.id !== artifact.plugin.id || validated.manifest.version !== artifact.version.version) {
       throw Object.assign(new Error("Registry 元数据与插件 Manifest 不一致"), { code: "REGISTRY_MANIFEST_MISMATCH" });
     }
-    if (this.registry.get(pluginId)) await this.executions.shutdown(pluginId);
-    return this.publicRecord(await this.installer.installValidated(validated, installedBy, {
+    return this.publicRecord(await this.updates.installUpdate(validated, installedBy, {
       source: "registry",
       trustLevel: trust,
       signatureState: "unsigned",
@@ -235,11 +243,7 @@ export class PluginService {
     this.policy.assertAllowed(this.candidateCompatibility(validated.manifest, "registry", trust, "verified", false));
     const existing = this.registry.get(pluginId);
     if (existing && validated.manifest.version.localeCompare(existing.version, undefined, { numeric: true }) < 0) throw Object.assign(new Error("Registry 安装拒绝降级；请使用已验证版本回滚"), { code: "PLUGIN_DOWNGRADE_DENIED" });
-    if (existing) {
-      await this.executions.shutdown(pluginId);
-      if (existing.source === "restore" && existing.version === validated.manifest.version && fs.existsSync(existing.installedPath)) fs.rmSync(existing.installedPath, { recursive: true, force: true });
-    }
-    return this.publicRecord(await this.installer.installValidated(validated, installedBy, {
+    return this.publicRecord(await this.updates.installUpdate(validated, installedBy, {
       source: "registry", trustLevel: trust, publisherKeyId: artifact.version.publisherKeyId,
       signature: artifact.version.signature, signatureState: "verified", artifactUrl: artifact.version.artifactUrl,
     }));
@@ -274,6 +278,9 @@ export class PluginService {
 
   async enable(pluginId: string): Promise<Record<string, unknown>> {
     let record = this.requireRecord(pluginId);
+    if (record.activeOperationId) {
+      throw Object.assign(new Error("插件正在更新，暂时不能启用"), { code: "PLUGIN_UPDATE_IN_PROGRESS" });
+    }
     const manifest = manifestOf(record);
     this.assertDependencies(record.id, manifest);
     this.policy.assertAllowed(compatibilityInputFromRecord(record));
@@ -282,15 +289,25 @@ export class PluginService {
     record = this.installer.moveToInstalled(record);
     await this.executions.restart(pluginId);
     try {
+      if (record.lifecycleState === "installed") this.lifecycle.beginInstalledPreflight(pluginId);
       await this.executions.preflight(pluginId);
-      this.registry.setStatus(pluginId, "enabled");
-      this.registry.markCurrentVersion(pluginId, "enabled", true);
-      if (record.previousVersion && record.version !== record.previousVersion) getDb().prepare("UPDATE plugin_registry SET probationVersion=?,probationRemaining=5,autoRollbackReason=NULL WHERE id=?").run(record.version, pluginId);
+      const afterPreflight = this.registry.get(pluginId)!;
+      if (afterPreflight.lifecycleState === "preflight") {
+        this.lifecycle.activateInstalled(pluginId);
+      } else {
+        this.registry.setStatus(pluginId, "enabled");
+        this.registry.markCurrentVersion(pluginId, "enabled", true);
+      }
       return this.get(pluginId);
     } catch (error) {
       const coded = error as Error & { code?: string };
-      this.registry.setStatus(pluginId, "error", coded.message);
-      this.registry.markCurrentVersion(pluginId, "error", false);
+      const failed = this.registry.get(pluginId);
+      if (failed?.lifecycleState === "preflight" || failed?.lifecycleState === "probation") {
+        this.lifecycle.rollback(pluginId, coded.message, coded.code || "PLUGIN_PREFLIGHT_FAILED");
+      } else {
+        this.registry.setStatus(pluginId, "error", coded.message);
+        this.registry.markCurrentVersion(pluginId, "error", false);
+      }
       throw Object.assign(coded, { code: coded.code || "PLUGIN_PREFLIGHT_FAILED" });
     }
   }
@@ -309,8 +326,12 @@ export class PluginService {
   }
 
   async disable(pluginId: string): Promise<Record<string, unknown>> {
-    this.requireRecord(pluginId);
+    const record = this.requireRecord(pluginId);
+    if (record.activeOperationId && record.lifecycleState !== "probation") {
+      throw Object.assign(new Error("插件正在更新，暂时不能禁用"), { code: "PLUGIN_UPDATE_IN_PROGRESS" });
+    }
     await this.executions.shutdown(pluginId);
+    if (record.lifecycleState === "probation") this.lifecycle.stabilizeWithoutProbation(pluginId);
     this.registry.setStatus(pluginId, "disabled");
     return this.get(pluginId);
   }
@@ -318,6 +339,7 @@ export class PluginService {
   async reload(pluginId: string): Promise<Record<string, unknown>> {
     const record = this.requireRecord(pluginId);
     if (record.status !== "enabled") throw new Error("只有已启用插件可以重新加载");
+    if (record.activeOperationId) throw Object.assign(new Error("插件正在更新，暂时不能重新加载"), { code: "PLUGIN_UPDATE_IN_PROGRESS" });
     await this.executions.restart(pluginId);
     await this.executions.preflight(pluginId);
     return this.get(pluginId);
@@ -347,25 +369,7 @@ export class PluginService {
     const current = this.requireRecord(pluginId);
     const targetVersion = requestedVersion || current.previousVersion;
     if (!targetVersion || targetVersion === current.version) throw Object.assign(new Error("没有可回滚版本"), { code: "PLUGIN_VERSION_NOT_FOUND" });
-    await this.executions.shutdown(pluginId);
-    const switched = this.registry.switchVersion(pluginId, targetVersion);
-    if (!fs.existsSync(switched.installedPath)) {
-      this.registry.setStatus(pluginId, "error", "回滚版本文件不存在");
-      throw Object.assign(new Error("回滚版本文件不存在"), { code: "PLUGIN_VERSION_FILES_MISSING" });
-    }
-    const manifest = manifestOf(switched);
-    this.permissions.initialize(manifest, { preserveExistingGrants: true });
-    if (!this.permissions.allDeclaredGranted(pluginId)) return this.get(pluginId);
-    try {
-      await this.executions.preflight(pluginId);
-      this.registry.setStatus(pluginId, "enabled");
-      this.registry.markCurrentVersion(pluginId, "enabled", true);
-      return this.get(pluginId);
-    } catch (error) {
-      const coded = error as Error & { code?: string };
-      this.registry.setStatus(pluginId, "error", coded.message);
-      throw coded;
-    }
+    return this.publicRecord(await this.updates.activateExistingVersion(pluginId, targetVersion, "manual-rollback"));
   }
 
   async execute(
@@ -407,6 +411,10 @@ export class PluginService {
       updatedAt: record.updatedAt,
       lastError: record.lastError,
       previousVersion: record.previousVersion,
+      previousStableVersion: record.previousStableVersion || null,
+      lifecycleState: record.lifecycleState,
+      activeOperationId: record.activeOperationId || null,
+      stateUpdatedAt: record.stateUpdatedAt,
       versions: this.listVersions(record.id),
       permissionDiff: previousManifest ? {
         added: manifest.permissions.filter((permission) => !previousPermissions.has(permission)),

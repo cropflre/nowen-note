@@ -5,10 +5,11 @@ import { compatibilityInputFromRecord } from "./extensionCompatibility.js";
 import { ExtensionPolicy } from "./extensionPolicy.js";
 import { PACKAGE_LIMITS } from "./packageValidator.js";
 import { PluginRegistry } from "./registry.js";
+import { PluginLifecycle } from "./pluginLifecycle.js";
 import { PluginRunner } from "./runner.js";
 import { SandboxRunner } from "./sandboxRunner.js";
 import type { HostApiBroker } from "./hostApiBroker.js";
-import type { PluginExecutionContext, PluginExecutionResult } from "./types.js";
+import type { PluginExecutionContext, PluginExecutionResult, PluginRegistryRecord } from "./types.js";
 
 const MAX_GLOBAL_CONCURRENCY = 2;
 let activeGlobalExecutions = 0;
@@ -32,11 +33,13 @@ function jsonSize(value: unknown): number {
 export class PluginExecutionManager {
   private readonly runners = new Map<string, PluginRunner | SandboxRunner>();
   private readonly cancelledBeforeStart = new Set<string>();
+  private readonly suspendedForUpdate = new Set<string>();
 
   constructor(
     private readonly broker: HostApiBroker,
     private readonly registry = new PluginRegistry(),
     private readonly policy = new ExtensionPolicy(),
+    private readonly lifecycle = new PluginLifecycle(),
   ) {
     this.recoverInterruptedExecutions();
   }
@@ -51,9 +54,22 @@ export class PluginExecutionManager {
       WHERE status='running'`).run(finishedAt);
   }
 
-  private runner(pluginId: string): PluginRunner | SandboxRunner {
+  private runner(pluginId: string, allowPreflight = false): PluginRunner | SandboxRunner {
     const record = this.registry.get(pluginId);
     if (!record) throw new Error("插件不存在");
+    if (!allowPreflight && this.suspendedForUpdate.has(pluginId)) {
+      throw Object.assign(new Error("插件正在切换版本"), { code: "PLUGIN_UPDATE_IN_PROGRESS" });
+    }
+    if (!allowPreflight && record.activeOperationId && record.lifecycleState !== "probation") {
+      throw Object.assign(new Error("插件正在验证候选版本"), { code: "PLUGIN_UPDATE_IN_PROGRESS" });
+    }
+    if (!allowPreflight && record.status !== "enabled") {
+      throw Object.assign(new Error(`插件当前状态为 ${record.status}`), { code: "PLUGIN_NOT_ENABLED" });
+    }
+    if (record.lifecycleState !== "stable" && record.lifecycleState !== "probation"
+      && !(allowPreflight && record.lifecycleState === "preflight")) {
+      throw Object.assign(new Error(`插件生命周期当前为 ${record.lifecycleState}`), { code: "PLUGIN_LIFECYCLE_NOT_EXECUTABLE" });
+    }
     const resolvedRuntime = this.policy.assertAllowed(compatibilityInputFromRecord(record));
     const existing = this.runners.get(pluginId);
     if (existing) return existing;
@@ -109,7 +125,7 @@ export class PluginExecutionManager {
       const finishedAt = new Date();
       getDb().prepare(`UPDATE plugin_executions SET status='completed',finishedAt=?,durationMs=?,outputBytes=?,logTail=? WHERE id=?`)
         .run(finishedAt.toISOString(), finishedAt.getTime() - startedAt.getTime(), outputBytes, JSON.stringify(logs.toArray()), executionId);
-      getDb().prepare(`UPDATE plugin_registry SET probationRemaining=MAX(0,probationRemaining-1),probationVersion=CASE WHEN probationRemaining<=1 THEN NULL ELSE probationVersion END WHERE id=? AND probationVersion=version`).run(input.pluginId);
+      this.lifecycle.completeProbationExecution(input.pluginId);
       return { executionId, result };
     } catch (error) {
       const coded = error as Error & { code?: string };
@@ -119,11 +135,9 @@ export class PluginExecutionManager {
         .run(coded.code === "PLUGIN_CANCELLED" ? "cancelled" : "failed", finishedAt.toISOString(), finishedAt.getTime() - startedAt.getTime(), coded.code || "PLUGIN_EXECUTION_FAILED", coded.message.slice(0, 2000), JSON.stringify(logs.toArray()), executionId);
       if (coded.code === "PLUGIN_TIMEOUT") this.registry.setStatus(input.pluginId, "error", coded.message);
       const probation = this.registry.get(input.pluginId);
-      if (probation && probation.probationVersion === probation.version && probation.previousVersion) {
-        const previousVersion = probation.previousVersion;
+      if (probation?.lifecycleState === "probation") {
         await this.restart(input.pluginId);
-        this.registry.switchVersion(input.pluginId, previousVersion);
-        getDb().prepare("UPDATE plugin_registry SET status='disabled',probationVersion=NULL,probationRemaining=0,autoRollbackReason=?,lastError=? WHERE id=?").run(coded.message.slice(0, 1000), "新版本试运行失败，已自动回滚并禁用", input.pluginId);
+        this.lifecycle.rollback(input.pluginId, coded.message, coded.code || "PLUGIN_EXECUTION_FAILED");
       }
       throw Object.assign(coded, { executionId });
     } finally {
@@ -164,7 +178,30 @@ export class PluginExecutionManager {
   }
 
   async preflight(pluginId: string): Promise<void> {
-    await this.runner(pluginId).preflight();
+    await this.runner(pluginId, true).preflight();
+  }
+
+  async preflightCandidate(record: PluginRegistryRecord): Promise<void> {
+    const resolvedRuntime = this.policy.assertAllowed(compatibilityInputFromRecord(record));
+    const Runner = resolvedRuntime === "sandbox-js" ? SandboxRunner : PluginRunner;
+    const runner = new Runner(
+      record,
+      (context, call) => this.broker.call(context, call),
+      () => undefined,
+    );
+    try {
+      await runner.preflight();
+    } finally {
+      await runner.terminate();
+    }
+  }
+
+  suspendForUpdate(pluginId: string): void {
+    this.suspendedForUpdate.add(pluginId);
+  }
+
+  resumeAfterUpdate(pluginId: string): void {
+    this.suspendedForUpdate.delete(pluginId);
   }
 
   private updateProgress(executionId: string, progress: { current?: number; total?: number; message?: string }): void {

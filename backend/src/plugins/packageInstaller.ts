@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import crypto from "node:crypto";
 import { PluginPermissions } from "./permissions.js";
 import { PluginRegistry } from "./registry.js";
 import { validatePluginPackage, type ValidatedPluginPackage } from "./packageValidator.js";
@@ -37,6 +38,20 @@ function normalizeCompatibilityValidationError(error: unknown): never {
     throw Object.assign(coded, { code: "PLUGIN_API_RUNTIME_INCOMPATIBLE" });
   }
   throw coded;
+}
+
+const PACKAGE_INTEGRITY_FILE = ".nowen-package.json";
+
+function readPackageIntegrity(directory: string): { id?: string; version?: string; checksum?: string } | null {
+  try {
+    return JSON.parse(fs.readFileSync(path.join(directory, PACKAGE_INTEGRITY_FILE), "utf8")) as {
+      id?: string;
+      version?: string;
+      checksum?: string;
+    };
+  } catch {
+    return null;
+  }
 }
 
 async function extract(zip: Awaited<ReturnType<typeof validatePluginPackage>>["zip"], destination: string): Promise<void> {
@@ -86,13 +101,12 @@ export class PluginPackageInstaller {
       nodeRuntimeConfirmedBy?: string | null;
     } = {},
   ): Promise<PluginRegistryRecord> {
-    const root = getPluginRoot();
-    const quarantineRoot = path.join(root, "quarantine");
-    const destination = path.join(quarantineRoot, validated.manifest.id, validated.manifest.version);
-    assertInside(quarantineRoot, destination);
-    if (fs.existsSync(destination)) throw new Error("相同插件版本已存在，请先卸载");
+    const operationId = crypto.randomUUID();
+    let stagingPath: string | null = null;
     try {
-      await extract(validated.zip, destination);
+      stagingPath = await this.stageValidated(validated, operationId);
+      const destination = this.commitStaged(stagingPath, validated.manifest, validated.checksum);
+      stagingPath = null;
       const record = this.registry.upsert({
         manifest: validated.manifest,
         source: provenance.source || "package",
@@ -110,9 +124,55 @@ export class PluginPackageInstaller {
       this.permissions.initialize(validated.manifest);
       return record;
     } catch (error) {
-      try { if (fs.existsSync(destination)) fs.rmSync(destination, { recursive: true, force: true }); } catch { /* best effort */ }
+      try { if (stagingPath) this.removeStaging(stagingPath); } catch { /* 尽力清理未完成 staging */ }
       throw error;
     }
+  }
+
+  async stageValidated(validated: ValidatedPluginPackage, operationId: string): Promise<string> {
+    const stagingRoot = path.join(getPluginRoot(), "staging");
+    const destination = path.join(stagingRoot, operationId);
+    assertInside(stagingRoot, destination);
+    if (fs.existsSync(destination)) {
+      throw Object.assign(new Error("插件更新 staging 已存在"), { code: "PLUGIN_UPDATE_STAGING_EXISTS" });
+    }
+    await extract(validated.zip, destination);
+    fs.writeFileSync(path.join(destination, PACKAGE_INTEGRITY_FILE), JSON.stringify({
+      id: validated.manifest.id,
+      version: validated.manifest.version,
+      checksum: validated.checksum,
+    }), { encoding: "utf8", flag: "wx" });
+    return destination;
+  }
+
+  commitStaged(stagingPath: string, manifest: PluginManifest, checksum: string): string {
+    const stagingRoot = path.join(getPluginRoot(), "staging");
+    assertInside(stagingRoot, stagingPath);
+    const versionsRoot = path.join(getPluginRoot(), "versions");
+    const destination = path.join(versionsRoot, manifest.id, manifest.version);
+    assertInside(versionsRoot, destination);
+    if (fs.existsSync(destination)) {
+      const existing = this.registry.getVersion(manifest.id, manifest.version);
+      const integrity = readPackageIntegrity(destination);
+      const verifiedOrphan = !existing
+        && integrity?.id === manifest.id
+        && integrity.version === manifest.version
+        && integrity.checksum === checksum;
+      if ((!existing || existing.checksum !== checksum) && !verifiedOrphan) {
+        throw Object.assign(new Error("相同插件坐标对应不同内容"), { code: "PLUGIN_VERSION_COORDINATE_CONFLICT" });
+      }
+      this.removeStaging(stagingPath);
+      return destination;
+    }
+    fs.mkdirSync(path.dirname(destination), { recursive: true });
+    fs.renameSync(stagingPath, destination);
+    return destination;
+  }
+
+  removeStaging(stagingPath: string): void {
+    const stagingRoot = path.join(getPluginRoot(), "staging");
+    assertInside(stagingRoot, stagingPath);
+    if (fs.existsSync(stagingPath)) fs.rmSync(stagingPath, { recursive: true, force: true });
   }
 
   async inspectDevelopmentDirectory(directory: string): Promise<ValidatedDevelopmentPlugin> {
@@ -157,13 +217,20 @@ export class PluginPackageInstaller {
   moveToInstalled(record: PluginRegistryRecord): PluginRegistryRecord {
     if (record.source === "dev") return record;
     const root = getPluginRoot();
-    const installedRoot = path.join(root, "installed");
-    const destination = path.join(installedRoot, record.id, record.version);
-    assertInside(installedRoot, destination);
+    const versionsRoot = path.join(root, "versions");
+    const destination = path.join(versionsRoot, record.id, record.version);
+    assertInside(versionsRoot, destination);
     if (path.resolve(record.installedPath) !== path.resolve(destination)) {
       fs.mkdirSync(path.dirname(destination), { recursive: true });
-      if (fs.existsSync(destination)) fs.rmSync(destination, { recursive: true, force: true });
-      fs.renameSync(record.installedPath, destination);
+      if (fs.existsSync(destination)) {
+        const existing = this.registry.getVersion(record.id, record.version);
+        if (!existing || existing.checksum !== record.checksum) {
+          throw Object.assign(new Error("相同插件坐标对应不同内容"), { code: "PLUGIN_VERSION_COORDINATE_CONFLICT" });
+        }
+        fs.rmSync(record.installedPath, { recursive: true, force: true });
+      } else {
+        fs.renameSync(record.installedPath, destination);
+      }
       this.registry.setPath(record.id, destination);
     }
     return this.registry.get(record.id)!;
@@ -172,7 +239,7 @@ export class PluginPackageInstaller {
   removeFiles(record: PluginRegistryRecord): void {
     if (record.source === "dev") return;
     const root = getPluginRoot();
-    for (const bucket of ["installed", "quarantine"]) {
+    for (const bucket of ["versions", "installed", "quarantine"]) {
       const pluginRoot = path.join(root, bucket, record.id);
       assertInside(root, pluginRoot);
       if (fs.existsSync(pluginRoot)) fs.rmSync(pluginRoot, { recursive: true, force: true });

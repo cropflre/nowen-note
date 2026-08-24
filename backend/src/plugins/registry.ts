@@ -30,12 +30,15 @@ export class PluginRegistry {
   }): PluginRegistryRecord {
     const timestamp = now();
     const confirmedAt = input.nodeRuntimeConfirmedBy ? timestamp : null;
-    getDb().prepare(`
+    const db = getDb();
+    db.transaction(() => {
+    db.prepare(`
       INSERT INTO plugin_registry (
         id, name, version, apiVersion, runtime, main, source, trustLevel, status,
         checksum, manifestJson, installedPath, installedBy, installedAt, updatedAt, lastError,
-        publisher, signatureState, updatePolicy, nodeRuntimeConfirmedAt, nodeRuntimeConfirmedBy
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?)
+        publisher, signatureState, updatePolicy, lifecycleState, stateUpdatedAt,
+        nodeRuntimeConfirmedAt, nodeRuntimeConfirmedBy
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, 'installed', ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         previousVersion=CASE WHEN plugin_registry.version<>excluded.version THEN plugin_registry.version ELSE plugin_registry.previousVersion END,
         nodeRuntimeConfirmedAt=CASE
@@ -61,7 +64,8 @@ export class PluginRegistry {
         trustLevel=excluded.trustLevel, status=excluded.status, checksum=excluded.checksum,
         manifestJson=excluded.manifestJson, installedPath=excluded.installedPath,
         installedBy=excluded.installedBy, updatedAt=excluded.updatedAt, lastError=NULL,
-        publisher=excluded.publisher,signatureState=excluded.signatureState
+        publisher=excluded.publisher,signatureState=excluded.signatureState,
+        lifecycleState='installed',activeOperationId=NULL,stateUpdatedAt=excluded.stateUpdatedAt
     `).run(
       input.manifest.id, input.manifest.name, input.manifest.version,
       input.manifest.apiVersion, input.manifest.runtime, input.manifest.main,
@@ -69,7 +73,7 @@ export class PluginRegistry {
       JSON.stringify(input.manifest), input.installedPath, input.installedBy,
       timestamp, timestamp, input.manifest.apiVersion === 2 ? input.manifest.publisher : null, input.signatureState || "unsigned",
       input.manifest.runtime === "sandbox-js" && input.trustLevel === "official" ? "automatic" : "manual",
-      confirmedAt, input.nodeRuntimeConfirmedBy || null,
+      timestamp, confirmedAt, input.nodeRuntimeConfirmedBy || null,
     );
     getDb().prepare(`INSERT INTO plugin_versions
       (pluginId,version,manifestJson,checksum,installedPath,source,trustLevel,status,installedAt,verifiedAt,publisherKeyId,signature,signatureState,artifactUrl)
@@ -81,7 +85,81 @@ export class PluginRegistry {
       .run(input.manifest.id, input.manifest.version, JSON.stringify(input.manifest), input.checksum,
         input.installedPath, input.source, input.trustLevel, input.status, timestamp,
         input.publisherKeyId || null, input.signature || null, input.signatureState || "unsigned", input.artifactUrl || null);
+    })();
     return this.get(input.manifest.id)!;
+  }
+
+  registerVersion(input: {
+    manifest: PluginManifest;
+    checksum: string;
+    installedPath: string;
+    source: PluginSource;
+    trustLevel: PluginTrustLevel;
+    status: string;
+    publisherKeyId?: string | null;
+    signature?: string | null;
+    signatureState?: string;
+    artifactUrl?: string | null;
+  }): PluginVersionRecord {
+    const existing = this.getVersion(input.manifest.id, input.manifest.version);
+    if (existing && existing.checksum !== input.checksum) {
+      throw Object.assign(new Error("相同插件坐标对应不同内容"), { code: "PLUGIN_VERSION_COORDINATE_CONFLICT" });
+    }
+    getDb().prepare(`INSERT INTO plugin_versions
+      (pluginId,version,manifestJson,checksum,installedPath,source,trustLevel,status,installedAt,verifiedAt,publisherKeyId,signature,signatureState,artifactUrl)
+      VALUES (?,?,?,?,?,?,?,?,?,NULL,?,?,?,?)
+      ON CONFLICT(pluginId,version) DO UPDATE SET
+        manifestJson=excluded.manifestJson,installedPath=excluded.installedPath,source=excluded.source,
+        trustLevel=excluded.trustLevel,status=excluded.status,publisherKeyId=excluded.publisherKeyId,
+        signature=excluded.signature,signatureState=excluded.signatureState,artifactUrl=excluded.artifactUrl`)
+      .run(
+        input.manifest.id,
+        input.manifest.version,
+        JSON.stringify(input.manifest),
+        input.checksum,
+        input.installedPath,
+        input.source,
+        input.trustLevel,
+        input.status,
+        now(),
+        input.publisherKeyId || null,
+        input.signature || null,
+        input.signatureState || "unsigned",
+        input.artifactUrl || null,
+      );
+    return this.getVersion(input.manifest.id, input.manifest.version)!;
+  }
+
+  recordForVersion(
+    id: string,
+    version: string,
+    options: { nodeRuntimeConfirmedBy?: string | null } = {},
+  ): PluginRegistryRecord {
+    const current = this.get(id);
+    const target = this.getVersion(id, version);
+    if (!current || !target) throw Object.assign(new Error("插件版本不存在"), { code: "PLUGIN_VERSION_NOT_FOUND" });
+    const manifest = JSON.parse(target.manifestJson) as PluginManifest;
+    const sameRuntimeBoundary = current.apiVersion === manifest.apiVersion
+      && current.runtime === manifest.runtime
+      && (current.apiVersion === 2 ? current.publisher : null) === (manifest.apiVersion === 2 ? manifest.publisher : null)
+      && current.trustLevel === target.trustLevel;
+    return {
+      ...current,
+      name: manifest.name,
+      version: target.version,
+      apiVersion: manifest.apiVersion,
+      runtime: manifest.runtime,
+      main: manifest.main,
+      source: target.source,
+      trustLevel: target.trustLevel,
+      checksum: target.checksum,
+      manifestJson: target.manifestJson,
+      installedPath: target.installedPath,
+      publisher: manifest.apiVersion === 2 ? manifest.publisher : null,
+      signatureState: target.signatureState || "unsigned",
+      nodeRuntimeConfirmedAt: options.nodeRuntimeConfirmedBy ? now() : sameRuntimeBoundary ? current.nodeRuntimeConfirmedAt : null,
+      nodeRuntimeConfirmedBy: options.nodeRuntimeConfirmedBy || (sameRuntimeBoundary ? current.nodeRuntimeConfirmedBy : null),
+    };
   }
 
   setStatus(id: string, status: PluginStatus, lastError: string | null = null): void {

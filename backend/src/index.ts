@@ -89,6 +89,7 @@ import { startCalendarExportScheduler, stopCalendarExportScheduler } from "./ser
 import { DEFAULT_NATIVE_CORS_ORIGINS, resolveCorsOrigin, resolveCorsOrigins } from "./lib/cors-policy";
 import { automationEventCaptureMiddleware } from "./automation/eventCapture";
 import { automationRuntime } from "./automation/runtime";
+import { recoverPluginUpdates } from "./plugins/pluginUpdateRecovery";
 import {
   createStaticAssetHeaders,
   isStaticAssetNotModified,
@@ -129,6 +130,15 @@ app.use("*", compress());
 // 初始化数据库
 getDb();
 seedDatabase();
+try {
+  const recovery = recoverPluginUpdates();
+  if (recovery.recovered > 0 || recovery.disabled > 0) {
+    console.log(`[plugins] 更新恢复完成：recovered=${recovery.recovered}, disabled=${recovery.disabled}`);
+  }
+} catch (error) {
+  console.error("[plugins] 更新恢复失败，插件执行服务不会提前启动:", error);
+  throw error;
+}
 
 // 提前创建 webhooks / audit_logs 表。
 // 这两张表原本是"路由被访问时懒初始化"，但 notes/notebooks/tasks 等路由会在写操作中
