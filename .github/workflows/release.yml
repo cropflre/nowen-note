@@ -44,6 +44,21 @@ jobs:
           node-version: "22"
           cache: "npm"
 
+      - name: Compile Official Registry trust roots
+        if: github.event_name == 'push'
+        shell: bash
+        env:
+          NOWEN_OFFICIAL_REGISTRY_TRUST_ROOTS_JSON: ${{ vars.NOWEN_OFFICIAL_REGISTRY_TRUST_ROOTS_JSON }}
+        run: |
+          if [ -z "$NOWEN_OFFICIAL_REGISTRY_TRUST_ROOTS_JSON" ]; then
+            echo "NOWEN_OFFICIAL_REGISTRY_TRUST_ROOTS_JSON is required for release tags" >&2
+            exit 1
+          fi
+          trust_root_input="$RUNNER_TEMP/nowen-official-registry-trust-roots.json"
+          printf '%s' "$NOWEN_OFFICIAL_REGISTRY_TRUST_ROOTS_JSON" > "$trust_root_input"
+          node scripts/generate-official-registry-trust-roots.mjs --input "$trust_root_input"
+          node scripts/verify-extension-ecosystem-rc1.mjs
+
       - name: Resolve package version
         id: package_version
         shell: bash
