@@ -40,6 +40,7 @@ interface QueuedExecution {
 
 const CHILD_BOOT_TIMEOUT_MS = 5_000;
 const CANCEL_GRACE_MS = 300;
+const FORCE_EXIT_WAIT_MS = 1_000;
 
 function sandboxChildPath(): string {
   const candidates = [
@@ -70,6 +71,25 @@ function codedError(code: string, message: string): Error {
   return Object.assign(new Error(message), { code });
 }
 
+function runnerTerminatedError(): Error {
+  return codedError("PLUGIN_CANCELLED", "QuickJS Sandbox Runner 已终止");
+}
+
+function waitForChildExit(child: ChildProcess, timeoutMs: number): Promise<boolean> {
+  if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve(true);
+  return new Promise<boolean>((resolve) => {
+    const onExit = () => {
+      clearTimeout(timer);
+      resolve(true);
+    };
+    const timer = setTimeout(() => {
+      child.off("exit", onExit);
+      resolve(false);
+    }, timeoutMs);
+    child.once("exit", onExit);
+  });
+}
+
 function operationError(payload: SandboxErrorPayload, cancellationReason: CancellationReason | null): Error {
   if (cancellationReason === "timeout") return codedError("PLUGIN_TIMEOUT", "插件 Sandbox 执行超时");
   if (cancellationReason === "cancel") return codedError("PLUGIN_CANCELLED", "插件执行已取消");
@@ -91,6 +111,8 @@ export class SandboxRunner {
   private active: PendingOperation<unknown> | null = null;
   private queue: Promise<unknown> = Promise.resolve();
   private readonly queuedExecutions = new Map<string, QueuedExecution>();
+  private terminated = false;
+  private terminationPromise: Promise<void> | null = null;
 
   constructor(
     private readonly record: PluginRegistryRecord,
@@ -119,8 +141,10 @@ export class SandboxRunner {
   }
 
   private async ensureChild(): Promise<void> {
+    if (this.terminated) throw runnerTerminatedError();
     if (this.child?.connected && this.bootPromise) {
       await this.bootPromise;
+      if (this.terminated) throw runnerTerminatedError();
       return;
     }
 
@@ -146,7 +170,10 @@ export class SandboxRunner {
       try {
         const message = validateSandboxMessage(rawMessage, "child-to-supervisor");
         if (message.type === "booted") clearTimeout(startupTimer);
-        void this.handleMessage(child, message);
+        void this.handleMessage(child, message).catch((error) => {
+          const normalized = normalizeSandboxError(error);
+          this.invalidateChild(child, codedError(normalized.code, normalized.message), true);
+        });
       } catch (error) {
         clearTimeout(startupTimer);
         this.invalidateChild(child, codedError("PLUGIN_PROTOCOL_INVALID", normalizeSandboxError(error).message), true);
@@ -166,6 +193,7 @@ export class SandboxRunner {
     });
 
     await this.bootPromise;
+    if (this.terminated) throw runnerTerminatedError();
   }
 
   private async send(child: ChildProcess, rawMessage: SandboxMessage): Promise<void> {
@@ -213,6 +241,7 @@ export class SandboxRunner {
       return;
     }
     if (message.type === "progress") {
+      if (pending.cancellationReason) return;
       if (pending.kind !== "execute" || ++pending.progressEvents > SANDBOX_PROTOCOL_LIMITS.progressEvents) {
         this.invalidateChild(child, codedError("PLUGIN_PROTOCOL_LIMIT_EXCEEDED", "Sandbox 进度事件超过限制"), true);
         return;
@@ -268,6 +297,7 @@ export class SandboxRunner {
     pending: PendingOperation<unknown>,
     message: Extract<SandboxMessage, { type: "host-call" }>,
   ): Promise<void> {
+    if (pending.cancellationReason || this.terminated) return;
     if (pending.kind !== "execute" || !pending.methods.has(message.method)) {
       this.invalidateChild(child, codedError("PLUGIN_PROTOCOL_METHOD_UNSUPPORTED", "Sandbox 调用了未授权的 Host API 方法"), true);
       return;
@@ -339,8 +369,14 @@ export class SandboxRunner {
     const rejectBoot = this.bootReject;
     this.bootResolve = null;
     this.bootReject = null;
-    rejectBoot?.(error);
-    if (this.active) this.settleOperation(this.active, undefined, error);
+    const active = this.active;
+    const effectiveError = active?.cancellationReason
+      ? operationError(normalizeSandboxError(error), active.cancellationReason)
+      : this.terminated
+        ? runnerTerminatedError()
+        : error;
+    rejectBoot?.(effectiveError);
+    if (active) this.settleOperation(active, undefined, effectiveError);
     if (kill && !child.killed) child.kill("SIGKILL");
   }
 
@@ -369,6 +405,7 @@ export class SandboxRunner {
     timeoutMs: number,
     messageFactory: (methods: string[]) => SandboxMessage,
   ): Promise<T> {
+    if (this.terminated) return Promise.reject(runnerTerminatedError());
     return new Promise<T>((resolve, reject) => {
       const methods = this.methods();
       const pending: PendingOperation<T> = {
@@ -404,31 +441,46 @@ export class SandboxRunner {
     timeoutMs: number,
     _logs: ExecutionLogTail,
   ): Promise<PluginExecutionResult> {
+    if (this.terminated) return Promise.reject(runnerTerminatedError());
     const queued = { cancelled: false };
     this.queuedExecutions.set(context.executionId, queued);
     return this.enqueue(async () => {
-      this.queuedExecutions.delete(context.executionId);
-      if (queued.cancelled) throw codedError("PLUGIN_CANCELLED", "插件执行已取消");
-      await this.ensureChild();
-      const { source, filename } = this.source();
-      return this.runOperation<PluginExecutionResult>("execute", context, timeoutMs, (methods) => ({
-        type: "execute",
-        executionId: context.executionId,
-        source,
-        filename,
-        actionId: context.actionId,
-        methods,
-        input,
-        context,
-        timeoutMs,
-      }));
+      try {
+        if (this.terminated) throw runnerTerminatedError();
+        if (queued.cancelled) throw codedError("PLUGIN_CANCELLED", "插件执行已取消");
+        await this.ensureChild();
+        if (this.terminated) throw runnerTerminatedError();
+        if (queued.cancelled) throw codedError("PLUGIN_CANCELLED", "插件执行已取消");
+        const { source, filename } = this.source();
+        if (this.terminated) throw runnerTerminatedError();
+        if (queued.cancelled) throw codedError("PLUGIN_CANCELLED", "插件执行已取消");
+        const operation = this.runOperation<PluginExecutionResult>("execute", context, timeoutMs, (methods) => ({
+          type: "execute",
+          executionId: context.executionId,
+          source,
+          filename,
+          actionId: context.actionId,
+          methods,
+          input,
+          context,
+          timeoutMs,
+        }));
+        this.queuedExecutions.delete(context.executionId);
+        return await operation;
+      } finally {
+        this.queuedExecutions.delete(context.executionId);
+      }
     });
   }
 
   preflight(): Promise<void> {
+    if (this.terminated) return Promise.reject(runnerTerminatedError());
     return this.enqueue(async () => {
+      if (this.terminated) throw runnerTerminatedError();
       await this.ensureChild();
+      if (this.terminated) throw runnerTerminatedError();
       const { source, filename } = this.source();
+      if (this.terminated) throw runnerTerminatedError();
       const executionId = `preflight-${crypto.randomUUID()}`;
       const context: PluginExecutionContext = {
         executionId,
@@ -463,28 +515,26 @@ export class SandboxRunner {
   }
 
   async terminate(): Promise<void> {
-    const child = this.child;
-    if (!child) return;
-    if (this.active) this.requestCancellation(this.active, "cancel");
-    try {
-      await this.send(child, { type: "shutdown" });
-    } catch {
-      // IPC 已断开时直接结束进程。
+    this.terminated = true;
+    for (const queued of this.queuedExecutions.values()) queued.cancelled = true;
+    if (this.terminationPromise) {
+      await this.terminationPromise;
+      return;
     }
-    await new Promise<void>((resolve) => {
-      if (child.exitCode !== null || child.signalCode !== null) {
-        resolve();
-        return;
-      }
-      const force = setTimeout(() => {
-        if (!child.killed) child.kill("SIGKILL");
-        resolve();
-      }, CANCEL_GRACE_MS);
-      child.once("exit", () => {
-        clearTimeout(force);
-        resolve();
-      });
+    this.terminationPromise = this.terminateChild();
+    await this.terminationPromise;
+  }
+
+  private async terminateChild(): Promise<void> {
+    const child = this.child;
+    if (this.active) this.requestCancellation(this.active, "cancel");
+    if (!child) return;
+    void this.send(child, { type: "shutdown" }).catch(() => {
+      this.invalidateChild(child, runnerTerminatedError(), true);
     });
+    const exitedGracefully = await waitForChildExit(child, CANCEL_GRACE_MS);
+    if (!exitedGracefully && child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
+    if (!exitedGracefully) await waitForChildExit(child, FORCE_EXIT_WAIT_MS);
     if (child === this.child) {
       this.invalidateChild(child, codedError("PLUGIN_CANCELLED", "QuickJS Sandbox 已关闭"), true);
     }
