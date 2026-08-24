@@ -1,0 +1,61 @@
+name: Extension Ecosystem V2 RC1
+
+on:
+  pull_request:
+    paths:
+      - "backend/src/plugins/**"
+      - "backend/tests/extension-platform-v2.test.ts"
+      - "backend/tests/extension-ecosystem-rc1.test.ts"
+      - "packages/nowen-plugin-sdk/**"
+      - "scripts/generate-plugin-host-api.mjs"
+      - "scripts/generate-official-registry-trust-roots.mjs"
+      - "scripts/verify-extension-ecosystem-rc1.mjs"
+      - "scripts/tests/official-registry-trust-roots.test.mjs"
+      - ".github/workflows/extension-ecosystem-rc1-ci.yml"
+  push:
+    branches:
+      - main
+      - "release/**"
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: read
+
+jobs:
+  rc1-security:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Validate Official Registry trust-root tooling
+        run: node --test scripts/tests/official-registry-trust-roots.test.mjs
+
+      - name: Verify Host API generated contract
+        run: node scripts/generate-plugin-host-api.mjs --check
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: npm ci
+
+      - name: Run Extension V2 security regression
+        working-directory: backend
+        run: |
+          npx tsx --test tests/extension-platform-v2.test.ts
+          npx tsx --test tests/extension-ecosystem-rc1.test.ts
+
+      - name: Typecheck backend
+        working-directory: backend
+        run: npm run build:tsc
+
+      - name: Enforce production Official Registry root on release tags
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: node scripts/verify-extension-ecosystem-rc1.mjs
