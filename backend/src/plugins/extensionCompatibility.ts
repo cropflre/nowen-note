@@ -45,6 +45,17 @@ export function resolveExtensionCompatibility(
   const signatureState = input.signatureState.trim().toLowerCase();
   const advisoryState = input.advisoryState.trim().toLowerCase();
 
+  const validTrustSource = input.source === "dev"
+    ? input.trustLevel === "developer"
+    : input.source === "package"
+      ? input.trustLevel === "community"
+      : input.source === "official"
+        ? input.trustLevel === "official"
+        : input.trustLevel !== "developer";
+  if (!validTrustSource) {
+    return denied("PLUGIN_TRUST_SOURCE_INVALID", "插件来源与信任等级不匹配");
+  }
+
   if (INVALID_SIGNATURE_STATES.has(signatureState)) {
     return denied("PLUGIN_SIGNATURE_INVALID", "插件签名无效或已被撤销");
   }
@@ -131,9 +142,9 @@ export function compatibilityInputFromRecord(record: PluginRegistryRecord): Exte
     FROM plugin_security_state
     WHERE pluginId = ? AND version = ?
   `).get(record.id, record.version) as { state?: string; severity?: string } | undefined;
-  const advisoryState = security?.severity === "critical"
+  const advisoryState = security?.severity?.trim().toLowerCase() === "critical"
     ? "critical"
-    : security?.state || record.advisoryState || "unknown";
+    : (security?.state || record.advisoryState || "unknown").trim().toLowerCase();
   return {
     manifest: JSON.parse(record.manifestJson) as PluginManifest,
     source: record.source,
