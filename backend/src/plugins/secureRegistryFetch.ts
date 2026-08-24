@@ -122,7 +122,7 @@ async function resolvePinned(hostname: string): Promise<PinnedAddress[]> {
     if (!isPublicAddress(hostname)) throw codedError("Registry 禁止访问非公网地址", "REGISTRY_URL_DENIED");
     return [{ address: hostname, family: literal as 4 | 6 }];
   }
-  let addresses: Awaited<ReturnType<typeof dns.lookup>>;
+  let addresses: Array<{ address: string; family: number }>;
   try {
     addresses = await dns.lookup(hostname, { all: true, verbatim: true });
   } catch {
