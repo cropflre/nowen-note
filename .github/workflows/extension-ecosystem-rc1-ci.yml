@@ -15,6 +15,7 @@ on:
       - "scripts/verify-extension-ecosystem-rc1.mjs"
       - "scripts/tests/official-registry-trust-roots.test.mjs"
       - ".github/workflows/extension-ecosystem-rc1-ci.yml"
+      - ".github/workflows/release.yml"
   push:
     branches:
       - main
@@ -61,6 +62,20 @@ jobs:
       - name: Typecheck backend
         working-directory: backend
         run: npm run build:tsc
+
+      - name: Compile production Official Registry root on release tags
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        env:
+          NOWEN_OFFICIAL_REGISTRY_TRUST_ROOTS_JSON: ${{ vars.NOWEN_OFFICIAL_REGISTRY_TRUST_ROOTS_JSON }}
+        run: |
+          if [ -z "$NOWEN_OFFICIAL_REGISTRY_TRUST_ROOTS_JSON" ]; then
+            echo "NOWEN_OFFICIAL_REGISTRY_TRUST_ROOTS_JSON is required for release tags" >&2
+            exit 1
+          fi
+          trust_root_input="$RUNNER_TEMP/nowen-official-registry-trust-roots.json"
+          printf '%s' "$NOWEN_OFFICIAL_REGISTRY_TRUST_ROOTS_JSON" > "$trust_root_input"
+          node scripts/generate-official-registry-trust-roots.mjs --input "$trust_root_input"
 
       - name: Enforce production Official Registry root on release tags
         if: startsWith(github.ref, 'refs/tags/v')
