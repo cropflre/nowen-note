@@ -2,9 +2,10 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import { REGISTRY_OPERATION_LEASE_MIGRATION_VERSION } from "../db/operationLeaseMigration.js";
 
 export const REGISTRY_BACKUP_FORMAT = 1;
-export const SUPPORTED_REGISTRY_SCHEMA_VERSION = 6;
+export const SUPPORTED_REGISTRY_SCHEMA_VERSION = REGISTRY_OPERATION_LEASE_MIGRATION_VERSION;
 
 export interface RegistryBackupManifest {
   format: 1;
@@ -68,6 +69,8 @@ export async function createRegistryBackup(options: {
 }): Promise<{ databasePath: string; manifestPath: string; manifest: RegistryBackupManifest }> {
   const sourceDbPath = path.resolve(options.sourceDbPath);
   const outputDirectory = path.resolve(options.outputDirectory);
+  const sourceStat = await fs.promises.stat(sourceDbPath).catch(() => null);
+  if (!sourceStat?.isFile()) throw new Error("registry backup source database does not exist or is not a regular file");
   await fs.promises.mkdir(outputDirectory, { recursive: true, mode: 0o700 });
   const base = backupName();
   const databasePath = path.join(outputDirectory, `${base}.sqlite`);
