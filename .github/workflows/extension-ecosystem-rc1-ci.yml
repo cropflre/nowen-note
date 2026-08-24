@@ -6,6 +6,9 @@ on:
       - "backend/src/plugins/**"
       - "backend/tests/extension-platform-v2.test.ts"
       - "backend/tests/extension-ecosystem-rc1.test.ts"
+      - "backend/tests/extension-registry-supply-chain-e2e.test.ts"
+      - "backend/tests/extension-sandbox-attack-matrix.test.ts"
+      - "backend/tests/plugin-update-recovery-matrix.test.ts"
       - "packages/nowen-plugin-sdk/**"
       - "scripts/generate-plugin-host-api.mjs"
       - "scripts/generate-official-registry-trust-roots.mjs"
@@ -51,6 +54,9 @@ jobs:
         run: |
           npx tsx --test tests/extension-platform-v2.test.ts
           npx tsx --test tests/extension-ecosystem-rc1.test.ts
+          npx tsx --test tests/extension-registry-supply-chain-e2e.test.ts
+          npx tsx --test tests/extension-sandbox-attack-matrix.test.ts
+          npx tsx --test tests/plugin-update-recovery-matrix.test.ts
 
       - name: Typecheck backend
         working-directory: backend

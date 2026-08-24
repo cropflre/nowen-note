@@ -1,9 +1,8 @@
 import crypto from "node:crypto";
-import dns from "node:dns/promises";
-import net from "node:net";
 import { getDb } from "../db/schema.js";
 import { nowenVersionSatisfies } from "./manifest.js";
 import { PACKAGE_LIMITS } from "./packageValidator.js";
+import { secureRegistryFetch } from "./secureRegistryFetch.js";
 import type { PluginTrustLevel } from "./types.js";
 
 export interface RegistrySource { id: string; name: string; url: string; official?: boolean }
@@ -22,47 +21,8 @@ const DEFAULT_SOURCE: RegistrySource = {
 };
 const SETTINGS_KEY = "plugins:registrySources";
 
-function privateAddress(address: string): boolean {
-  if (net.isIPv4(address)) {
-    const [a, b] = address.split(".").map(Number);
-    return a === 0 || a === 10 || a === 127 || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168);
-  }
-  const value = address.toLowerCase();
-  return value === "::" || value === "::1" || value.startsWith("fc") || value.startsWith("fd") || value.startsWith("fe80:");
-}
-
-async function validateRemoteUrl(value: string): Promise<URL> {
-  const url = new URL(value);
-  if (url.protocol !== "https:") throw Object.assign(new Error("Registry 只允许 HTTPS"), { code: "REGISTRY_URL_DENIED" });
-  if (url.hostname === "localhost" || (net.isIP(url.hostname) && privateAddress(url.hostname))) throw new Error("Registry 禁止访问私有网络");
-  const addresses = await dns.lookup(url.hostname, { all: true });
-  if (!addresses.length || addresses.some((item) => privateAddress(item.address))) throw new Error("Registry 地址解析到私有网络");
-  return url;
-}
-
 export async function safeRegistryFetch(urlValue: string, maxBytes: number): Promise<Buffer> {
-  let url = await validateRemoteUrl(urlValue);
-  for (let redirects = 0; redirects <= 3; redirects += 1) {
-    const response = await fetch(url, { redirect: "manual", signal: AbortSignal.timeout(20_000) });
-    if (response.status >= 300 && response.status < 400) {
-      const location = response.headers.get("location");
-      if (!location || redirects === 3) throw new Error("Registry 重定向无效或过多");
-      url = await validateRemoteUrl(new URL(location, url).href);
-      continue;
-    }
-    if (!response.ok || !response.body) throw new Error(`Registry 请求失败: HTTP ${response.status}`);
-    const declared = Number(response.headers.get("content-length") || 0);
-    if (declared > maxBytes) throw Object.assign(new Error("Registry 响应超过大小限制"), { code: "REGISTRY_PAYLOAD_TOO_LARGE" });
-    const chunks: Buffer[] = [];
-    let total = 0;
-    for await (const chunk of response.body as AsyncIterable<Uint8Array>) {
-      total += chunk.byteLength;
-      if (total > maxBytes) throw Object.assign(new Error("Registry 响应超过大小限制"), { code: "REGISTRY_PAYLOAD_TOO_LARGE" });
-      chunks.push(Buffer.from(chunk));
-    }
-    return Buffer.concat(chunks);
-  }
-  throw new Error("Registry 请求失败");
+  return secureRegistryFetch(urlValue, maxBytes);
 }
 
 export function validateRegistryCatalog(value: unknown): RegistryPlugin[] {
