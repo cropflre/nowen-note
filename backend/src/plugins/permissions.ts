@@ -1,7 +1,8 @@
 import { getDb } from "../db/schema.js";
+import { isV2SupportedPluginPermission } from "./hostApiContract.js";
 import { PLUGIN_PERMISSIONS, type PluginManifest, type PluginPermission } from "./types.js";
 
-const knownPermissions = new Set<string>(PLUGIN_PERMISSIONS);
+const legacyPermissions = new Set<string>(PLUGIN_PERMISSIONS);
 
 export interface PermissionRow {
   pluginId: string;
@@ -14,6 +15,9 @@ export interface PermissionRow {
 
 export class PluginPermissions {
   initialize(manifest: PluginManifest, options: { preserveExistingGrants?: boolean } = {}): void {
+    if (manifest.apiVersion === 2 && manifest.permissions.some((permission) => !isV2SupportedPluginPermission(permission))) {
+      throw new Error("Plugin API V2 Manifest 包含合同未支持的权限");
+    }
     const db = getDb();
     const resetInsert = db.prepare(`
       INSERT INTO plugin_permissions (pluginId, permission, configJson, granted)
@@ -52,7 +56,12 @@ export class PluginPermissions {
   }
 
   replaceGrants(pluginId: string, requested: string[], grantedBy: string): PermissionRow[] {
-    if (requested.some((permission) => !knownPermissions.has(permission))) {
+    const record = getDb().prepare("SELECT apiVersion FROM plugin_registry WHERE id=?")
+      .get(pluginId) as { apiVersion: number } | undefined;
+    const permissionSupported = record?.apiVersion === 2
+      ? isV2SupportedPluginPermission
+      : (permission: string): permission is PluginPermission => legacyPermissions.has(permission);
+    if (requested.some((permission) => !permissionSupported(permission))) {
       throw new Error("包含未知插件权限");
     }
     const declared = new Set(this.list(pluginId).map((row) => row.permission));

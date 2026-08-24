@@ -10,6 +10,14 @@ import {
 } from "../middleware/acl.js";
 import { ensureMindmapSchema } from "../lib/mindmap-schema.js";
 import { ApplicationCommandGateway } from "../services/applicationCommandGateway.js";
+import {
+  createHostMethodNotFound,
+  HOST_API_BUDGETS,
+  HOST_API_CONTRACT,
+  HOST_API_CONTRACT_VERSION,
+  requireHostMethod,
+  type HostRuntime,
+} from "./hostApiContract.js";
 import { PluginPermissions } from "./permissions.js";
 import { PluginRegistry } from "./registry.js";
 import { PluginSecrets } from "./secrets.js";
@@ -24,6 +32,18 @@ function forbidden(message: string, code = "RESOURCE_FORBIDDEN"): never {
 function argsObject(args: unknown): JsonObject {
   if (!args || typeof args !== "object" || Array.isArray(args)) throw new Error("Host API 参数必须是对象");
   return args as JsonObject;
+}
+
+function requireJsonBudget(value: unknown, maxBytes: number, code: "HOST_ARGS_TOO_LARGE" | "HOST_RESULT_TOO_LARGE", label: string): void {
+  let serialized: string | undefined;
+  try {
+    serialized = JSON.stringify(value);
+  } catch {
+    throw Object.assign(new Error(`${label}必须是可序列化 JSON`), { code: "INVALID_ARGUMENT" });
+  }
+  if (serialized !== undefined && Buffer.byteLength(serialized, "utf8") > maxBytes) {
+    throw Object.assign(new Error(`${label}超过 ${maxBytes} 字节限制`), { code });
+  }
 }
 
 function requireString(value: unknown, name: string): string {
@@ -63,30 +83,46 @@ export class HostApiBroker {
   ) {}
 
   async call(context: PluginExecutionContext, call: HostCall): Promise<unknown> {
+    const record = this.registry.get(context.pluginId);
+    const apiVersion = record?.apiVersion === 2 ? 2 : 1;
+    const runtime: HostRuntime = record?.runtime === "sandbox-js" ? "sandbox-js" : "node-action";
+    const contract = requireHostMethod(call.method, apiVersion, runtime);
     const [namespace, operation] = call.method.split(".");
-    const args = argsObject(call.args || {});
+    const args = argsObject(call.args ?? {});
+    requireJsonBudget(args, contract.maxArgsBytes, "HOST_ARGS_TOO_LARGE", "Host API 参数");
+    let result: unknown;
     switch (namespace) {
-      case "notes": return this.notes(context, operation, args);
-      case "notebooks": return this.notebooks(context, operation, args);
-      case "tags": return this.tags(context, operation, args);
-      case "tasks": return this.tasks(context, operation, args);
-      case "attachments": return this.attachments(context, operation, args);
-      case "diary": return this.diary(context, operation, args);
-      case "mindmaps": return this.mindmaps(context, operation, args);
-      case "storage": return this.storage(context, operation, args);
-      case "external": return this.external(context, operation, args);
-      case "runtime": return this.runtime(context, operation);
-      default: throw Object.assign(new Error(`未知 Host API: ${call.method}`), { code: "HOST_METHOD_NOT_FOUND" });
+      case "notes": result = await this.notes(context, operation, args); break;
+      case "notebooks": result = await this.notebooks(context, operation, args); break;
+      case "tags": result = await this.tags(context, operation, args); break;
+      case "tasks": result = await this.tasks(context, operation, args); break;
+      case "attachments": result = this.attachments(context, operation, args); break;
+      case "diary": result = await this.diary(context, operation, args); break;
+      case "mindmaps": result = await this.mindmaps(context, operation, args); break;
+      case "storage": result = this.storage(context, operation, args); break;
+      case "external": result = await this.external(context, operation, args); break;
+      case "runtime": result = this.runtime(context, operation); break;
+      default: throw createHostMethodNotFound(call.method);
     }
+    requireJsonBudget(result, contract.maxResultBytes, "HOST_RESULT_TOO_LARGE", "Host API 结果");
+    return result;
   }
 
   private runtime(context: PluginExecutionContext, operation: string): unknown {
-    if (operation !== "capabilities") throw new Error(`未知 runtime 操作: ${operation}`);
+    if (operation !== "capabilities") throw createHostMethodNotFound(`runtime.${operation}`);
     const record = this.registry.get(context.pluginId);
+    const apiVersion = record?.apiVersion === 2 ? 2 : 1;
+    const runtime: HostRuntime = record?.runtime === "sandbox-js" ? "sandbox-js" : "node-action";
+    const supportedMethods = HOST_API_CONTRACT.filter(
+      (entry) => apiVersion >= entry.sinceApiVersion && entry.runtimes.includes(runtime),
+    );
     return {
-      apiVersion: record?.apiVersion || 1, runtime: record?.runtime || "node-action",
+      apiVersion, runtime,
       platform: process.env.ELECTRON_USER_DATA ? "desktop-full" : "server",
-      hostApis: ["notes", "notebooks", "tags", "tasks", "attachments", "diary", "mindmaps", "storage", "external"],
+      contractVersion: HOST_API_CONTRACT_VERSION,
+      budgets: HOST_API_BUDGETS,
+      methods: supportedMethods,
+      hostApis: [...new Set(supportedMethods.map((entry) => entry.method.split(".")[0]))],
       notes: { read: 2, write: 2 }, notebooks: { read: 1, write: 1 }, tasks: { read: 1, write: 1 },
       automation: 1, workspace: 1, declarativeContributions: 1,
     };
@@ -138,7 +174,7 @@ export class HostApiBroker {
       }, context);
       return { id, version: updated.version };
     }
-    throw new Error(`未知 notes 操作: ${operation}`);
+    throw createHostMethodNotFound(`notes.${operation}`);
   }
 
   private async notebooks(context: PluginExecutionContext, operation: string, args: JsonObject): Promise<unknown> {
@@ -168,7 +204,7 @@ export class HostApiBroker {
       }, context);
       return { id: created.id };
     }
-    throw new Error(`未知 notebooks 操作: ${operation}`);
+    throw createHostMethodNotFound(`notebooks.${operation}`);
   }
 
   private async tags(context: PluginExecutionContext, operation: string, args: JsonObject): Promise<unknown> {
@@ -197,7 +233,7 @@ export class HostApiBroker {
       await this.commands.setNoteTag(context.userId, noteId, tagId, operation === "addToNote", context);
       return { success: true };
     }
-    throw new Error(`未知 tags 操作: ${operation}`);
+    throw createHostMethodNotFound(`tags.${operation}`);
   }
 
   private async tasks(context: PluginExecutionContext, operation: string, args: JsonObject): Promise<unknown> {
@@ -231,7 +267,7 @@ export class HostApiBroker {
       const updated = await this.commands.updateTask(context.userId, id, args, context);
       return { id: updated.task?.id || id };
     }
-    throw new Error(`未知 tasks 操作: ${operation}`);
+    throw createHostMethodNotFound(`tasks.${operation}`);
   }
 
   private attachments(context: PluginExecutionContext, operation: string, args: JsonObject): unknown {
@@ -246,7 +282,7 @@ export class HostApiBroker {
       const rows = db.prepare("SELECT id,noteId,filename,mimeType,size,createdAt FROM attachments ORDER BY createdAt DESC LIMIT 500").all() as JsonObject[];
       return rows.filter((row) => hasPermission(resolveNotePermission(row.noteId, context.userId).permission, "read")).slice(0, Math.max(1, Math.min(100, Number(args.limit) || 50)));
     }
-    throw new Error(`未知 attachments 操作: ${operation}`);
+    throw createHostMethodNotFound(`attachments.${operation}`);
   }
 
   private async diary(context: PluginExecutionContext, operation: string, args: JsonObject): Promise<unknown> {
@@ -276,7 +312,7 @@ export class HostApiBroker {
       }, context);
       return { id: created.id };
     }
-    throw new Error(`未知 diary 操作: ${operation}`);
+    throw createHostMethodNotFound(`diary.${operation}`);
   }
 
   private async mindmaps(context: PluginExecutionContext, operation: string, args: JsonObject): Promise<unknown> {
@@ -310,7 +346,7 @@ export class HostApiBroker {
       const updated = await this.commands.updateMindmap(context.userId, id, args, context);
       return { id: updated.id || id };
     }
-    throw new Error(`未知 mindmaps 操作: ${operation}`);
+    throw createHostMethodNotFound(`mindmaps.${operation}`);
   }
 
   private storage(context: PluginExecutionContext, operation: string, args: JsonObject): unknown {
@@ -341,11 +377,11 @@ export class HostApiBroker {
         .run(context.pluginId, scopeType, scopeId, key);
       return { success: true };
     }
-    throw new Error(`未知 storage 操作: ${operation}`);
+    throw createHostMethodNotFound(`storage.${operation}`);
   }
 
   private async external(context: PluginExecutionContext, operation: string, args: JsonObject): Promise<unknown> {
-    if (operation !== "fetch") throw new Error(`未知 external 操作: ${operation}`);
+    if (operation !== "fetch") throw createHostMethodNotFound(`external.${operation}`);
     const permission = this.permissions.require(context.pluginId, "external:fetch");
     const url = new URL(requireString(args.url, "url"));
     if (url.protocol !== "https:") forbidden("external.fetch 只允许 HTTPS", "EXTERNAL_FETCH_DENIED");

@@ -1,5 +1,6 @@
 import path from "node:path";
 import { z } from "zod";
+import { isV2SupportedPluginPermission } from "./hostApiContract.js";
 import { NOWEN_VERSION, PLUGIN_PERMISSIONS, type PluginActionManifest, type PluginManifest, type PluginManifestV1, type PluginManifestV2 } from "./types.js";
 
 const inputFieldSchema = z.object({
@@ -111,6 +112,17 @@ export const pluginManifestV2Schema = z.object({
   extensionDependencies: z.record(z.string().min(1).max(100)).optional(),
 }).strict().superRefine((manifest, ctx) => {
   if (!manifest.id.startsWith(`${manifest.publisher}.`)) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["id"], message: "插件 ID 必须位于 Publisher namespace" });
+  for (const [index, permission] of manifest.permissions.entries()) {
+    if (!isV2SupportedPluginPermission(permission)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["permissions", index],
+        message: permission === "attachments:write"
+          ? "Plugin API V2 不支持 attachments:write"
+          : `Plugin API V2 不支持权限 ${permission}`,
+      });
+    }
+  }
   if (new Set(manifest.actions.map((action) => action.id)).size !== manifest.actions.length) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["actions"], message: "Action id 不能重复" });
   const actionIds = new Set(manifest.actions.map((action) => action.id));
   for (const command of manifest.contributes?.commands || []) if (!actionIds.has(command.action)) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["contributes", "commands"], message: `Command Action 不存在: ${command.action}` });
