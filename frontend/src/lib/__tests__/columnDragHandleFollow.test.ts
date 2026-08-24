@@ -10,7 +10,7 @@ import type { DragHandleRule, RuleContext } from "@tiptap/extension-drag-handle"
 
 /**
  * 验证 nested 拖拽柄规则集：
- *  1. prioritizeColumn：column 节点胜出，柄随栏移动（对齐语雀）
+ *  1. prioritizeColumn：column 节点胜出，柄随栏移动
  *  2. prioritizeDetails：details 容器优先（与 prioritizeColumn/prioritizeCallout 对称），
  *     内部节点扣 600 → 柄稳定在折叠块左缘，不跳到相邻块、不在 ">" 旁。
  *     分栏内仍由 prioritizeColumn 保证 column 胜出（details 在栏内被 prioritizeColumn 再扣 600）。

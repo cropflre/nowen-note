@@ -126,7 +126,7 @@ const Callout = Node.create({
   },
 
   addInputRules() {
-    // 对齐语雀：输入 ::: 回车 → 默认蓝色高亮块；
+    // 输入 ::: 回车 → 默认蓝色高亮块；
     // :::blue / :::green / :::yellow / :::red 等回车 → 对应类型高亮块。
     const ruleFor = (keyword: string, calloutType: CalloutType) =>
       wrappingInputRule({

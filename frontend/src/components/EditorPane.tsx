@@ -1,6 +1,7 @@
 import React, { useCallback, useRef, useState, useEffect, useMemo } from "react";
+import { createPortal } from "react-dom";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
-import { Star, Pin, Trash2, Cloud, RefreshCw, Check, Loader2, ChevronLeft, FolderInput, ChevronRight, ChevronDown, X, ListTree, Lock, Unlock, Tag as TagIcon, Type, MoreHorizontal, Share2, History, MessageCircle, FileCode, FileText, Eye, Pencil, PanelLeft, Paperclip, Search, Sparkles, Network, Maximize2, Minimize2, Image, Link2, Printer, Scissors } from "lucide-react";
+import { Star, Pin, Trash2, Cloud, RefreshCw, Check, Loader2, ChevronLeft, FolderInput, ChevronRight, ChevronDown, X, ListTree, Lock, Unlock, Tag as TagIcon, Type, MoreHorizontal, Share2, History, MessageCircle, FileCode, FileText, Eye, Pencil, PanelLeft, PanelLeftClose, Paperclip, Search, Sparkles, Network, Maximize2, Minimize2, Image, Link2, Printer, Scissors, Download, FileType2, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import TiptapEditor from "@/components/TiptapEditor";
@@ -24,7 +25,9 @@ import { Tag, Notebook, MindMapData, MindMapNode, type Note } from "@/types";
 import { useTranslation } from "react-i18next";
 import { haptic } from "@/hooks/useCapacitor";
 import { toast } from "@/lib/toast";
-import { exportNoteAsImage, printNote } from "@/lib/exportService";
+import { exportNoteAsImage, exportSingleNote, exportSingleNoteAsPDF, printNote } from "@/lib/exportService";
+import KnowledgeTreePermissionsDialog from "@/components/KnowledgeTreePermissionsDialog";
+import { knowledgeTreeApi, type KnowledgeTreeNode } from "@/lib/knowledgeTreeApi";
 import { subscribeOpenInternalNoteLink } from "@/lib/blockNavigation";
 
 import { extractFinalAnswer, parseAiTags } from "@/lib/aiOutput";
@@ -170,6 +173,25 @@ export default function EditorPane({
   const effectiveLocked = !!activeNote?.isLocked || isViewLocked || isTrashed || noteSwitchPending;
   const canEditActiveNote = canWriteNote(activeNote);
   const showDesktopOutline = showOutline && !state.editorFullscreen;
+
+  // 布局模式切换（原悬浮按钮已删除，入口移到 ⋯ More 菜单）。
+  // 复用 NoteWorkspaceLayoutController 的自动折叠/持久化逻辑：
+  // 切换 noteListCollapsed 时它会自动记录用户偏好，无需在此 persist。
+  const currentLayout: "standard" | "three-column" | "focus" = state.editorFullscreen
+    ? "focus"
+    : state.noteListCollapsed
+      ? "standard"
+      : "three-column";
+  const selectLayout = (mode: "standard" | "three-column" | "focus") => {
+    if (mode === "focus") {
+      if (!state.editorFullscreen) actions.setEditorFullscreen(true);
+    } else {
+      if (state.editorFullscreen) actions.setEditorFullscreen(false);
+      const wantCollapsed = mode === "standard";
+      if (state.noteListCollapsed !== wantCollapsed) actions.toggleNoteListCollapsed();
+    }
+    setShowDesktopMoreMenu(false);
+  };
   const compactMobileEditing = keyboardVisible && canEditActiveNote && !effectiveLocked;
 
   const handleOutlineResizeStart = useCallback((event: React.MouseEvent) => {
@@ -240,6 +262,13 @@ export default function EditorPane({
 
   const [showMobileMenu, setShowMobileMenu] = useState(false);
   const [showDesktopMoreMenu, setShowDesktopMoreMenu] = useState(false);
+  // 导出三级菜单（桌面端更多菜单内的级联子菜单）
+  const [exportSubmenuOpen, setExportSubmenuOpen] = useState(false);
+  const [exportSubmenuPos, setExportSubmenuPos] = useState<{ top: number; left: number } | null>(null);
+  const exportTriggerRef = useRef<HTMLButtonElement>(null);
+  const exportCloseTimer = useRef<number | null>(null);
+  // 成员与权限对话框（当前笔记对应的知识树节点）
+  const [permissionsNode, setPermissionsNode] = useState<KnowledgeTreeNode | null>(null);
   const [showMobileMoveMenu, setShowMobileMoveMenu] = useState(false);
   const [showMobileOutline, setShowMobileOutline] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
@@ -1977,6 +2006,126 @@ export default function EditorPane({
       toast.error(t("note.printFailed"));
     }
   }, [activeNote, t]);
+
+  const handleExportMarkdown = useCallback(async (forceZip: boolean) => {
+    if (!activeNote) return;
+    const toastId = toast.info(t("export.exportingNote", { name: activeNote.title || t("common.untitledNote") }), 0);
+    try {
+      const ok = await exportSingleNote(activeNote.id, { forceZip });
+      toast.dismiss(toastId);
+      ok ? toast.success(t("export.exportComplete")) : toast.error(t("export.exportFailed", { error: "" }));
+    } catch (err: any) {
+      toast.dismiss(toastId);
+      toast.error(err?.message || t("export.exportFailed", { error: String(err) }));
+    }
+  }, [activeNote, t]);
+
+  const handleExportPDF = useCallback(async () => {
+    if (!activeNote) return;
+    const toastId = toast.info(t("export.exportingNote", { name: activeNote.title || t("common.untitledNote") }), 0);
+    try {
+      const res = await exportSingleNoteAsPDF(activeNote.id);
+      toast.dismiss(toastId);
+      if (res.ok && (res.mode === "desktop" || res.mode === "web")) {
+        toast.success(t("export.exportComplete"));
+      } else if (!res.ok && res.mode !== "canceled") {
+        toast.error(t("export.exportFailed", { error: (res as { error?: string }).error || "" }));
+      }
+    } catch (err: any) {
+      toast.dismiss(toastId);
+      toast.error(err?.message || t("export.exportFailed", { error: String(err) }));
+    }
+  }, [activeNote, t]);
+
+  const handleExportWord = useCallback(async () => {
+    if (!activeNote) return;
+    const toastId = toast.info(t("export.exportingNote", { name: activeNote.title || t("common.untitledNote") }), 0);
+    try {
+      const { exportNoteAsDocx, downloadDocxBlob } = await import("@/lib/wordNoteService");
+      const title = activeNote.title || t("common.untitledNote") || "未命名笔记";
+      const blob = await exportNoteAsDocx(activeNote.content || "", title);
+      await downloadDocxBlob(blob, title);
+      toast.dismiss(toastId);
+      toast.success(t("export.exportComplete"));
+    } catch (err: any) {
+      toast.dismiss(toastId);
+      toast.error(err?.message || t("export.exportFailed", { error: String(err) }));
+    }
+  }, [activeNote, t]);
+
+  // 主菜单关闭时一并收起导出子菜单
+  useEffect(() => {
+    if (!showDesktopMoreMenu) {
+      setExportSubmenuOpen(false);
+      setExportSubmenuPos(null);
+      if (exportCloseTimer.current) {
+        window.clearTimeout(exportCloseTimer.current);
+        exportCloseTimer.current = null;
+      }
+    }
+  }, [showDesktopMoreMenu]);
+
+  // 导出级联子菜单：悬停/点击展开，移出后延迟收起
+  const openExportSubmenu = useCallback(() => {
+    if (exportCloseTimer.current) {
+      window.clearTimeout(exportCloseTimer.current);
+      exportCloseTimer.current = null;
+    }
+    const btn = exportTriggerRef.current;
+    if (!btn) return;
+    const r = btn.getBoundingClientRect();
+    // 子菜单出现在主菜单左侧（主菜单本身已在屏幕右侧）
+    setExportSubmenuPos({ top: r.top, left: Math.max(8, r.left - 8 - 256) });
+    setExportSubmenuOpen(true);
+  }, []);
+
+  const scheduleCloseExportSubmenu = useCallback(() => {
+    if (exportCloseTimer.current) window.clearTimeout(exportCloseTimer.current);
+    exportCloseTimer.current = window.setTimeout(() => {
+      setExportSubmenuOpen(false);
+      setExportSubmenuPos(null);
+    }, 160);
+  }, []);
+
+  const cancelCloseExportSubmenu = useCallback(() => {
+    if (exportCloseTimer.current) {
+      window.clearTimeout(exportCloseTimer.current);
+      exportCloseTimer.current = null;
+    }
+  }, []);
+
+  const closeAllMenus = useCallback(() => {
+    setExportSubmenuOpen(false);
+    setExportSubmenuPos(null);
+    setShowDesktopMoreMenu(false);
+  }, []);
+
+  // 打开当前笔记的「成员与权限」
+  const openPermissionsForCurrentNote = useCallback(async () => {
+    if (!activeNote) return;
+    setShowDesktopMoreMenu(false);
+    const toastId = toast.info("正在加载成员与权限…", 0);
+    try {
+      const [owned, shared] = await Promise.all([
+        knowledgeTreeApi.list(),
+        knowledgeTreeApi.listShared(),
+      ]);
+      const nodes = [...(owned?.nodes ?? []), ...(shared?.nodes ?? [])];
+      const found = nodes.find(
+        (n) => n.resourceType === "note" && n.resourceId === activeNote.id && n.isDeleted !== 1,
+      );
+      toast.dismiss(toastId);
+      if (!found) {
+        toast.error("未找到笔记对应的知识树节点");
+        return;
+      }
+      setPermissionsNode(found);
+    } catch (e: any) {
+      toast.dismiss(toastId);
+      toast.error(e?.message || "读取成员与权限失败");
+    }
+  }, [activeNote]);
+
 const moveToTrash = useCallback(async () => {
     // ������������Ự�����ʼǲ�����������վ������"�������ʼ�"����ɾ��
     if (!activeNote || activeNote.isLocked || activeNote.isTrashed || viewLockedIdsRef.current.has(activeNote.id)) return;
@@ -2424,17 +2573,7 @@ const moveToTrash = useCallback(async () => {
         {/* ����˿�̬��ҲҪ����"չ���ʼ��б�"��ڣ�����һ���۵�+��ѡ�бʼǣ�������Ļ
             ��ֻʣ NavRail���û��Ҳ����κλص��б��ķ�ʽ��ͼƬ�������� bug����
             ���ɾ��Զ�λ�����Ͻǣ������ƻ�ԭ�����еĿ�̬�Ӿ��� */}
-        {state.noteListCollapsed && (
-          <button
-            type="button"
-            onClick={() => actions.toggleNoteListCollapsed()}
-            title={t("common.expandList")}
-            aria-label={t("common.expandList")}
-            className="hidden md:flex absolute top-3 left-3 z-10 p-1.5 rounded-md text-tx-tertiary hover:bg-app-hover hover:text-tx-secondary transition-colors"
-          >
-            <PanelLeft size={16} />
-          </button>
-        )}
+        {/* 移除"展开笔记列表"悬浮按钮，用户可通过侧栏/快捷键恢复 */}
         {/* �ƶ��ˣ��������ذ�ť + ��ʾ��
             ������ԭ��̬�� `hidden md:flex` �����ݲ��������ƶ����е� editor ��ͼ��
             ���� activeNote ʱ��ĻһƬ�հף��û��Ҳ����ص��б�����ڣ�ϵͳ���ؼ�
@@ -2867,6 +3006,27 @@ const moveToTrash = useCallback(async () => {
                   )}
                   <div className="h-px bg-app-border mx-2 my-0.5" />
                   <button
+                    onClick={() => { setShowMobileMenu(false); handleExportMarkdown(false); }}
+                    className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-tx-secondary active:bg-app-hover transition-colors"
+                  >
+                    <Download size={15} className="text-tx-tertiary" />
+                    <span>{t("noteList.exportAsMarkdown") || "Markdown"}</span>
+                  </button>
+                  <button
+                    onClick={() => { setShowMobileMenu(false); handleExportMarkdown(true); }}
+                    className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-tx-secondary active:bg-app-hover transition-colors"
+                  >
+                    <Download size={15} className="text-tx-tertiary" />
+                    <span>{t("noteList.exportAsMarkdownZip") || "Markdown + 附件（ZIP）"}</span>
+                  </button>
+                  <button
+                    onClick={() => { setShowMobileMenu(false); handleExportPDF(); }}
+                    className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-tx-secondary active:bg-app-hover transition-colors"
+                  >
+                    <FileText size={15} className="text-tx-tertiary" />
+                    <span>{t("noteList.exportAsPDF") || "PDF"}</span>
+                  </button>
+                  <button
                     onClick={() => { setShowMobileMenu(false); handlePrintNote(); }}
                     className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-tx-secondary active:bg-app-hover transition-colors"
                   >
@@ -2887,6 +3047,13 @@ const moveToTrash = useCallback(async () => {
                   >
                     <Image size={15} className="text-tx-tertiary" />
                     <span>{t("note.exportAsJpg")}</span>
+                  </button>
+                  <button
+                    onClick={() => { setShowMobileMenu(false); handleExportWord(); }}
+                    className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-tx-secondary active:bg-app-hover transition-colors"
+                  >
+                    <FileType2 size={15} className="text-tx-tertiary" />
+                    <span>{t("noteList.exportAsWord") || "Word"}</span>
                   </button>
                   <div className="h-px bg-app-border mx-2 my-0.5" />
                   {/* ɾ���ʼ� */}
@@ -2975,18 +3142,8 @@ const moveToTrash = useCallback(async () => {
         <div className="flex min-w-0 flex-1 items-center gap-1.5">
           {/* �ʼ��б����۵�ʱ���������ṩ��չ������ť��δ�۵�ʱ���ء�
               ����������м��࣬�����ڡ���˭���б���ס�ˡ������֪��һ�ۿ����� */}
-          {state.noteListCollapsed && (
-            <button
-              type="button"
-              onClick={() => actions.toggleNoteListCollapsed()}
-              title={t("common.expandList")}
-              aria-label={t("common.expandList")}
-              className="p-1 rounded-md text-tx-tertiary hover:bg-app-hover hover:text-tx-secondary transition-colors shrink-0"
-            >
-              <PanelLeft size={15} />
-            </button>
-          )}
-          <div className="relative min-w-0 flex-1">
+          {/* 移除"展开笔记列表"按钮，用户可通过侧栏/快捷键恢复 */}
+          <div className="relative shrink min-w-0 max-w-[300px]">
           <button
             onClick={() => setShowMoveDropdown(!showMoveDropdown)}
             className="flex min-w-0 max-w-full items-center gap-1 overflow-hidden text-xs text-tx-tertiary hover:text-tx-secondary transition-colors rounded-md px-1.5 py-1 hover:bg-app-hover"
@@ -3099,6 +3256,26 @@ const moveToTrash = useCallback(async () => {
             </>
           )}
           </div>
+          {/* 台头标题（桌面端）：紧跟面包屑右侧，与版本/更新时间同行。
+              必须在左区 div 内部（不作为 header 的独立 flex 子元素，
+              否则会被 flex 推到右上角）。左区是 items-center，标题用
+              items-baseline 与元信息基线对齐。 */}
+          <span className="flex min-w-0 items-baseline gap-2 ml-1">
+            <span
+              className="min-w-0 flex-1 truncate text-base font-normal text-tx-primary"
+              title={activeNote.title || t('editor.untitled')}
+            >
+              {activeNote.title || t('editor.untitled')}
+            </span>
+            <button
+              type="button"
+              onClick={() => { setShowVersionHistory(true); }}
+              className="shrink-0 overflow-hidden text-ellipsis text-[11px] text-tx-tertiary hover:text-accent-primary hover:underline cursor-pointer bg-transparent border-none p-0 hidden lg:inline"
+              title={t('editor.versionHistory')}
+            >
+              {t('tiptap.version')}{activeNote.version} · {new Date(activeNote.updatedAt + "Z").toLocaleString()}
+            </button>
+          </span>
           {collabYDoc && (
             <span
               className="inline-flex shrink-0 items-center gap-1 rounded border border-accent-primary/20 bg-accent-primary/5 px-1.5 py-0.5 text-[10px] font-medium text-accent-primary"
@@ -3168,19 +3345,6 @@ const moveToTrash = useCallback(async () => {
             <Share2 size={14} className="text-emerald-500" />
           </Button>
 
-          <Button
-            variant="ghost" size="icon" className="relative h-7 w-7 shrink-0"
-            onClick={() => setShowBacklinksPanel(true)}
-            title="反向链接"
-          >
-            <Link2 size={14} className="text-emerald-500" />
-            {!backlinksLoading && backlinksCount !== null && backlinksCount > 0 && (
-              <span className="absolute -right-0.5 -top-0.5 flex h-[14px] min-w-[14px] items-center justify-center rounded-full bg-emerald-500 px-0.5 text-[9px] leading-none text-white">
-                {backlinksCount > 99 ? "99+" : backlinksCount}
-              </span>
-            )}
-          </Button>
-
           {noteIsHtml && (
             <Button
               variant="ghost"
@@ -3195,25 +3359,6 @@ const moveToTrash = useCallback(async () => {
                 : <Eye size={14} className="text-blue-500" />}
             </Button>
           )}
-
-          <div className="flex shrink-0 items-center gap-0.5 rounded-lg bg-violet-500/5 px-1 py-0.5 dark:bg-violet-500/10">
-            <Button
-              variant="ghost" size="icon" className="h-7 w-7 rounded-md"
-              onClick={handleAITitle}
-              disabled={aiTitleLoading || !activeNote.contentText || effectiveLocked}
-              title={t('editor.aiGenerateTitle')}
-            >
-              {aiTitleLoading ? <Loader2 size={14} className="animate-spin text-violet-500" /> : <Type size={14} className="text-violet-500" />}
-            </Button>
-            <Button
-              variant="ghost" size="icon" className="h-7 w-7 rounded-md"
-              onClick={handleAITags}
-              disabled={aiTagsLoading || !activeNote.contentText || effectiveLocked}
-              title={t('editor.aiSuggestTags')}
-            >
-              {aiTagsLoading ? <Loader2 size={14} className="animate-spin text-violet-500" /> : <TagIcon size={14} className="text-violet-500" />}
-            </Button>
-          </div>
 
           {/* 全屏 */}
           <Button
@@ -3270,23 +3415,7 @@ const moveToTrash = useCallback(async () => {
             </button>
           )}
 
-          {!state.editorFullscreen && (
-            <Button
-              data-editor-outline-toggle="desktop-toolbar"
-              variant="ghost"
-              size="icon"
-              className={cn(
-                "h-7 w-7 shrink-0",
-                showDesktopOutline && "bg-accent-primary/10 text-accent-primary",
-              )}
-              onClick={() => setShowOutline((open) => !open)}
-              title={showDesktopOutline ? t('editor.hideOutline') : t('editor.showOutline')}
-              aria-label={showDesktopOutline ? t('editor.hideOutline') : t('editor.showOutline')}
-              aria-pressed={showDesktopOutline}
-            >
-              <ListTree size={14} />
-            </Button>
-          )}
+          {/* 大纲切换已移至 ⋯ More 二级菜单（移除操作按钮组的 ListTree 按钮） */}
 
           <div data-editor-more-menu="desktop" className="relative shrink-0" ref={desktopMoreMenuRef}>
             <Button
@@ -3306,7 +3435,7 @@ const moveToTrash = useCallback(async () => {
                   animate={{ opacity: 1, scale: 1, y: 0 }}
                   exit={{ opacity: 0, scale: 0.96, y: -4 }}
                   transition={{ duration: 0.12 }}
-                  className="absolute right-0 top-full z-50 mt-1 w-72 overflow-hidden rounded-lg border border-app-border bg-app-elevated py-1 shadow-xl"
+                  className="absolute right-0 top-full z-50 mt-1 w-72 overflow-y-auto max-h-[80vh] rounded-lg border border-app-border bg-app-elevated py-1 shadow-xl"
                 >
                   <div className="px-3 py-2 border-b border-app-border">
                     <div className="flex items-center justify-between gap-2 text-[11px] text-tx-tertiary">
@@ -3343,6 +3472,52 @@ const moveToTrash = useCallback(async () => {
                     </button>
                   )}
 
+                  {/* 布局模式切换（原悬浮按钮已删除，入口移到此处） */}
+                  <div className="px-3 py-2">
+                    <div className="mb-1.5 flex items-center gap-1.5 text-[11px] font-medium text-tx-tertiary">
+                      <PanelLeftClose size={13} />
+                      <span>布局模式</span>
+                    </div>
+                    <div className="grid grid-cols-3 gap-1">
+                      <button
+                        type="button"
+                        onClick={() => selectLayout("standard")}
+                        className={cn(
+                          "rounded-md px-2 py-1.5 text-xs transition-colors",
+                          currentLayout === "standard"
+                            ? "bg-accent-primary/10 text-accent-primary"
+                            : "text-tx-secondary hover:bg-app-hover",
+                        )}
+                      >
+                        标准
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => selectLayout("three-column")}
+                        className={cn(
+                          "rounded-md px-2 py-1.5 text-xs transition-colors",
+                          currentLayout === "three-column"
+                            ? "bg-accent-primary/10 text-accent-primary"
+                            : "text-tx-secondary hover:bg-app-hover",
+                        )}
+                      >
+                        三栏
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => selectLayout("focus")}
+                        className={cn(
+                          "rounded-md px-2 py-1.5 text-xs transition-colors",
+                          currentLayout === "focus"
+                            ? "bg-accent-primary/10 text-accent-primary"
+                            : "text-tx-secondary hover:bg-app-hover",
+                        )}
+                      >
+                        专注
+                      </button>
+                    </div>
+                  </div>
+
                   <div className="h-px bg-app-border mx-2 my-0.5" />
                   <button
                     onClick={() => { setShowVersionHistory(true); setShowDesktopMoreMenu(false); }}
@@ -3358,28 +3533,55 @@ const moveToTrash = useCallback(async () => {
                     <MessageCircle size={15} className="text-blue-500" />
                     <span>{t('editor.noteComments')}</span>
                   </button>
+                  {/* 大纲切换 */}
+                  <button
+                    onClick={() => {
+                      setShowOutline((open) => !open);
+                      setShowDesktopMoreMenu(false);
+                    }}
+                    className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-tx-secondary hover:bg-app-hover transition-colors"
+                  >
+                    <ListTree size={15} className="text-tx-tertiary" />
+                    <span>{showDesktopOutline ? t('editor.hideOutline') : t('editor.showOutline')}</span>
+                  </button>
+                  {/* 反向链接 BACKLINKS-02 */}
+                  <button
+                    onClick={() => {
+                      setShowBacklinksPanel(true);
+                      setShowDesktopMoreMenu(false);
+                    }}
+                    className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-tx-secondary hover:bg-app-hover transition-colors"
+                  >
+                    <Link2 size={15} className="text-emerald-500" />
+                    <span>反向链接</span>
+                    {!backlinksLoading && backlinksCount !== null && backlinksCount > 0 && (
+                      <span className="ml-auto text-xs text-tx-tertiary">{backlinksCount}</span>
+                    )}
+                  </button>
 
                   <div className="h-px bg-app-border mx-2 my-0.5" />
+                  {/* 成员与权限 */}
                   <button
-                    onClick={() => { handlePrintNote(); setShowDesktopMoreMenu(false); }}
+                    onClick={openPermissionsForCurrentNote}
                     className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-tx-secondary hover:bg-app-hover transition-colors"
                   >
-                    <Printer size={15} className="text-tx-tertiary" />
-                    <span>{t("note.print")}</span>
+                    <ShieldCheck size={15} className="text-tx-tertiary" />
+                    <span>成员与权限</span>
                   </button>
+
+                  <div className="h-px bg-app-border mx-2 my-0.5" />
+                  {/* 导出（三级级联子菜单：悬停/点击展开格式列表） */}
                   <button
-                    onClick={() => { handleExportNoteImage("png"); setShowDesktopMoreMenu(false); }}
+                    ref={exportTriggerRef}
+                    type="button"
+                    onClick={openExportSubmenu}
+                    onMouseEnter={openExportSubmenu}
+                    onMouseLeave={scheduleCloseExportSubmenu}
                     className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-tx-secondary hover:bg-app-hover transition-colors"
                   >
-                    <Image size={15} className="text-tx-tertiary" />
-                    <span>{t("note.exportAsPng")}</span>
-                  </button>
-                  <button
-                    onClick={() => { handleExportNoteImage("jpg"); setShowDesktopMoreMenu(false); }}
-                    className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-tx-secondary hover:bg-app-hover transition-colors"
-                  >
-                    <Image size={15} className="text-tx-tertiary" />
-                    <span>{t("note.exportAsJpg")}</span>
+                    <Download size={15} className="text-tx-tertiary" />
+                    <span>导出</span>
+                    <ChevronLeft size={14} className="ml-auto text-tx-tertiary" />
                   </button>
 
                   {noteIsHtml && (
@@ -3414,6 +3616,30 @@ const moveToTrash = useCallback(async () => {
                   >
                     {aiMermaidLoading ? <Loader2 size={15} className="animate-spin text-violet-500" /> : <Network size={15} className="text-violet-500" />}
                     <span>{t('editor.aiGenMindMap') || "AI 思维导图"}</span>
+                  </button>
+                  {/* AI 生成标题 */}
+                  <button
+                    onClick={() => {
+                      handleAITitle();
+                      setShowDesktopMoreMenu(false);
+                    }}
+                    disabled={aiTitleLoading || !activeNote.contentText || effectiveLocked}
+                    className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-tx-secondary hover:bg-app-hover transition-colors disabled:opacity-40"
+                  >
+                    {aiTitleLoading ? <Loader2 size={15} className="animate-spin text-violet-500" /> : <Type size={15} className="text-violet-500" />}
+                    <span>{t('editor.aiGenerateTitle')}</span>
+                  </button>
+                  {/* AI 推荐标签 */}
+                  <button
+                    onClick={() => {
+                      handleAITags();
+                      setShowDesktopMoreMenu(false);
+                    }}
+                    disabled={aiTagsLoading || !activeNote.contentText || effectiveLocked}
+                    className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-tx-secondary hover:bg-app-hover transition-colors disabled:opacity-40"
+                  >
+                    {aiTagsLoading ? <Loader2 size={15} className="animate-spin text-violet-500" /> : <TagIcon size={15} className="text-violet-500" />}
+                    <span>{t('editor.aiSuggestTags')}</span>
                   </button>
 
                   <div className="h-px bg-app-border mx-2 my-0.5" />
@@ -3611,6 +3837,84 @@ const moveToTrash = useCallback(async () => {
             actions.setLastSynced(new Date().toISOString());
           }}
           onClose={() => setShowVersionHistory(false)}
+        />
+      )}
+
+      {/* 导出级联子菜单（三级菜单）：通过 portal 渲染到 body，避免被主菜单 overflow 裁切 */}
+      {exportSubmenuOpen && exportSubmenuPos && createPortal(
+        <div
+          role="menu"
+          className="fixed z-[60] w-64 rounded-lg border border-app-border bg-app-elevated py-1 shadow-xl"
+          style={{ top: exportSubmenuPos.top, left: exportSubmenuPos.left }}
+          onMouseEnter={cancelCloseExportSubmenu}
+          onMouseLeave={scheduleCloseExportSubmenu}
+        >
+          <button
+            role="menuitem"
+            onClick={() => { handleExportMarkdown(false); closeAllMenus(); }}
+            className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-tx-secondary hover:bg-app-hover transition-colors"
+          >
+            <Download size={15} className="text-tx-tertiary" />
+            <span>{t("noteList.exportAsMarkdown") || "Markdown"}</span>
+          </button>
+          <button
+            role="menuitem"
+            onClick={() => { handleExportMarkdown(true); closeAllMenus(); }}
+            className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-tx-secondary hover:bg-app-hover transition-colors"
+          >
+            <Download size={15} className="text-tx-tertiary" />
+            <span>{t("noteList.exportAsMarkdownZip") || "Markdown + 附件（ZIP）"}</span>
+          </button>
+          <button
+            role="menuitem"
+            onClick={() => { handleExportPDF(); closeAllMenus(); }}
+            className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-tx-secondary hover:bg-app-hover transition-colors"
+          >
+            <FileText size={15} className="text-tx-tertiary" />
+            <span>{t("noteList.exportAsPDF") || "PDF"}</span>
+          </button>
+          <button
+            role="menuitem"
+            onClick={() => { handlePrintNote(); closeAllMenus(); }}
+            className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-tx-secondary hover:bg-app-hover transition-colors"
+          >
+            <Printer size={15} className="text-tx-tertiary" />
+            <span>{t("note.print")}</span>
+          </button>
+          <button
+            role="menuitem"
+            onClick={() => { handleExportNoteImage("png"); closeAllMenus(); }}
+            className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-tx-secondary hover:bg-app-hover transition-colors"
+          >
+            <Image size={15} className="text-tx-tertiary" />
+            <span>{t("note.exportAsPng")}</span>
+          </button>
+          <button
+            role="menuitem"
+            onClick={() => { handleExportNoteImage("jpg"); closeAllMenus(); }}
+            className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-tx-secondary hover:bg-app-hover transition-colors"
+          >
+            <Image size={15} className="text-tx-tertiary" />
+            <span>{t("note.exportAsJpg")}</span>
+          </button>
+          <button
+            role="menuitem"
+            onClick={() => { handleExportWord(); closeAllMenus(); }}
+            className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-tx-secondary hover:bg-app-hover transition-colors"
+          >
+            <FileType2 size={15} className="text-tx-tertiary" />
+            <span>{t("noteList.exportAsWord") || "Word"}</span>
+          </button>
+        </div>,
+        document.body,
+      )}
+
+      {/* 成员与权限对话框 */}
+      {permissionsNode && (
+        <KnowledgeTreePermissionsDialog
+          node={permissionsNode}
+          onClose={() => setPermissionsNode(null)}
+          onChanged={() => { actions.refreshNotes(); }}
         />
       )}
 

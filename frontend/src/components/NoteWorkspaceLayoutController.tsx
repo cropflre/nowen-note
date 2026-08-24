@@ -237,7 +237,10 @@ export default function NoteWorkspaceLayoutController() {
     setOpen(false);
   };
 
+  // 仅删除"收起侧栏后出现的悬浮按钮"（无 portalTarget 时的 document.body fallback）。
+  // 侧边栏 header 内的布局模式按钮（portalTarget 存在时）保留不变。
   if (!showLayoutControl) return null;
+  if (!portalTarget) return null;
 
   const trigger = (
     <button
@@ -270,12 +273,7 @@ export default function NoteWorkspaceLayoutController() {
 
   return (
     <>
-      {portalTarget
-        ? createPortal(trigger, portalTarget)
-        : createPortal(
-          <div className="fixed right-3 top-2 z-[70] hidden md:block">{trigger}</div>,
-          document.body,
-        )}
+      {createPortal(trigger, portalTarget)}
       {open && createPortal(
         <div
           ref={menuRef}

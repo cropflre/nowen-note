@@ -259,7 +259,7 @@ div[data-type="details"].is-open [data-type="detailsContent"] {
   cursor: col-resize;
 }
 
-/* 栏间竖条拖拽柄（对齐语雀：细色条落在两栏 gap 中间，可拖拽调宽）。
+/* 栏间竖条拖拽柄（细色条落在两栏 gap 中间，可拖拽调宽）。
  * 由 gridResizingPlugin 的 Decoration.widget 在鼠标靠近列右缘时自动挂载。
  * widget 默认渲染在列的文档位置（= 列内容左端），所以用 position:absolute
  * 强行定位到列右缘（.prosemirror-column 已有 position:relative），
@@ -306,12 +306,12 @@ div[data-type="details"].is-open [data-type="detailsContent"] {
 .prosemirror-column[data-resized="true"] {
   flex: 0 0 auto;
 }
-/* ===== 高亮块（自研 CalloutExtension，样式对齐语雀高亮块卡片）=====
- * 语雀特征：整体浅色背景块（非侧边条）、圆角 10px、内边距舒适、
+/* ===== 高亮块（自研 CalloutExtension，浅色底卡片样式）=====
+ * 特征：整体浅色背景块（非侧边条）、圆角 10px、内边距舒适、
  * emoji 图标在左上角、内容区富文本自由排版、可被嵌入折叠/分栏。
  * 4 种类型（info/warning/success/danger）走 data-callout-type 切换浅色底，
  * 深色模式用 .dark 下的低透明度同色系底。 */
-/* ===== 高亮块 Callout（对齐语雀：浅色底 + 圆角 + 细边框）===== */
+/* ===== 高亮块 Callout（浅色底 + 圆角 + 细边框）===== */
 div[data-type="callout"] {
   display: flex;
   flex-direction: row;
@@ -321,7 +321,7 @@ div[data-type="callout"] {
   /* 左上角给绝对定位的色圆点触发器留空间 */
   padding-left: 24px;
   border-radius: 8px;
-  /* 语雀有可见边框（截图可见浅色实线边框） */
+  /* 有可见边框（截图可见浅色实线边框） */
   border: 1px solid rgba(0, 0, 0, 0.08);
   box-sizing: border-box;
   transition: background-color 0.15s ease, border-color 0.15s ease;

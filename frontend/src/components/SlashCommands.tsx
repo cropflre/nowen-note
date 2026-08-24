@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback, forwardRef, useImperativeHandle } from "react";
+import React, { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo, forwardRef, useImperativeHandle } from "react";
 import { Editor } from "@tiptap/react";
 import { TextSelection } from "@tiptap/pm/state";
 import {
@@ -11,13 +11,20 @@ import {
   Quote, FileCode, Minus, ImagePlus, Sparkles,
   Bold, Italic, Highlighter, Table2, ChevronDown,
   Strikethrough, Code, Link as LinkIcon, Workflow, Sigma, BookOpen, Film, FolderSearch,
-  Columns2, Info
+  Columns2, Info, Type, Trash2, Copy, ClipboardPaste, Scissors, Plus, Repeat, ChevronRight, ArrowLeft
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useTranslation } from "react-i18next";
+import {
+  convertBlock, deleteBlock, cutBlock, copyBlock, pasteBlock, addBelowBlock,
+  addBlockBelow,
+  getBlockTypeAt, type BlockTarget,
+} from "@/components/blockMenuActions";
+import { toast } from "@/lib/toast";
 import { nextFootnoteIdentifier } from "@/components/FootnoteExtensions";
 import { prompt as promptDialog } from "@/components/ui/confirm";
 import { getDailyRecordSlashCommands } from "@/components/daily-records/dailyRecordSlashCommands";
+import type { AddBelowType } from "@/components/blockMenuActions";
 
 export interface SlashCommandItem {
   id: string;
@@ -25,8 +32,16 @@ export interface SlashCommandItem {
   description: string;
   icon: React.ReactNode;
   category: string;
+  /** 分类标识（语言无关，用于"在下方添加"面板的分类排序）。 */
+  categoryKey?: "headings" | "lists" | "format" | "inline" | "insert" | "ai" | "daily";
   keywords: string[];
   action: (editor: Editor) => void;
+  /**
+   * 「在下方添加」子菜单专用：有此标签的项在二级菜单里被选中时，
+   * 走 addBlockBelow（空段落替换 / 非空在下方插入新节点），而不是直接执行 action。
+   * 没有此标签的项（内联标记、媒体、AI 等）保留原 action 行为。
+   */
+  addBelowType?: AddBelowType;
 }
 
 interface SlashMenuProps {
@@ -34,17 +49,71 @@ interface SlashMenuProps {
   items: SlashCommandItem[];
   query: string;
   position: { top: number; left: number };
+  /** 触发源（拖拽柄 / 光标）视口坐标；存在时用真实渲染尺寸做精确就近定位。 */
+  trigger?: { top: number; bottom: number; left: number; right: number };
+  /** 当前块位置（来自 `/` 或拖拽柄），块操作作用于此。 */
+  from: number;
   onSelect: (item: SlashCommandItem) => void;
   onClose: () => void;
+  /** 「在下方添加」后回调：在指定位置重新打开插入面板。 */
+  onAddBelow: (newPos: number) => void;
+  /** insert 模式只显示插入列表（用于「在下方添加」后的二次打开）。 */
+  mode?: "full" | "insert";
 }
 
-function SlashMenu({ editor, items, query, position, onSelect, onClose }: SlashMenuProps) {
+// 主菜单 6 项（扁平菜单，3 区用分割线隔离）：转化为 / 复制 / 剪切 / 粘贴 / 删除 / 在下方添加
+// 注意：「复制」= 写入系统剪贴板（不改文档）；「粘贴」= 读取剪贴板插入到点击块所在行。
+type MainAction = "delete" | "copy" | "cut" | "paste";
+const MAIN_ITEMS: { id: string; labelKey: string; icon: React.ReactNode; hasChevron: boolean; goView?: "convert" | "addBelow"; action?: MainAction; dividerAfter?: boolean }[] = [
+  { id: "convert", labelKey: "slash.convertTitle", icon: <Repeat size={16} />, hasChevron: true, goView: "convert", dividerAfter: true },
+  { id: "copy", labelKey: "slash.actionCopy", icon: <Copy size={16} />, hasChevron: false, action: "copy" },
+  { id: "cut", labelKey: "slash.actionCut", icon: <Scissors size={16} />, hasChevron: false, action: "cut" },
+  { id: "paste", labelKey: "slash.actionPaste", icon: <ClipboardPaste size={16} />, hasChevron: false, action: "paste" },
+  { id: "delete", labelKey: "slash.actionDelete", icon: <Trash2 size={16} />, hasChevron: false, action: "delete", dividerAfter: true },
+  { id: "addBelow", labelKey: "slash.actionAddBelow", icon: <Plus size={16} />, hasChevron: true, goView: "addBelow" },
+];
+
+// 「在下方添加」面板的分类展示顺序（更好用的放前面）：
+// 格式 / 内联样式 / 插入 / AI 助手 / 列表 / 标题 / 日期与日记
+const SLASH_CATEGORY_RANK: Record<string, number> = {
+  format: 0, inline: 1, insert: 2, ai: 3, lists: 4, headings: 5, daily: 6,
+};
+
+// 「转化为」目标列表（布局：H1-H6 横排 / 正文+列表一行4个 / 高亮+引用+代码 / 分栏+折叠）
+const CONVERT_TARGETS: { target: BlockTarget; labelKey: string; icon: React.ReactNode }[] = [
+  { target: { type: "paragraph" }, labelKey: "slash.convert.paragraph", icon: <Type size={16} /> },
+  { target: { type: "heading", level: 1 }, labelKey: "slash.convert.heading1", icon: <Heading1 size={16} /> },
+  { target: { type: "heading", level: 2 }, labelKey: "slash.convert.heading2", icon: <Heading2 size={16} /> },
+  { target: { type: "heading", level: 3 }, labelKey: "slash.convert.heading3", icon: <Heading3 size={16} /> },
+  { target: { type: "heading", level: 4 }, labelKey: "slash.convert.heading4", icon: <Heading4 size={16} /> },
+  { target: { type: "heading", level: 5 }, labelKey: "slash.convert.heading5", icon: <Heading5 size={16} /> },
+  { target: { type: "heading", level: 6 }, labelKey: "slash.convert.heading6", icon: <Heading6 size={16} /> },
+  { target: { type: "bulletList" }, labelKey: "slash.convert.bulletList", icon: <List size={16} /> },
+  { target: { type: "orderedList" }, labelKey: "slash.convert.orderedList", icon: <ListOrdered size={16} /> },
+  { target: { type: "taskList" }, labelKey: "slash.convert.taskList", icon: <CheckSquare size={16} /> },
+  { target: { type: "callout" }, labelKey: "slash.convert.callout", icon: <Info size={16} /> },
+  { target: { type: "blockquote" }, labelKey: "slash.convert.blockquote", icon: <Quote size={16} /> },
+  { target: { type: "codeBlock" }, labelKey: "slash.convert.codeBlock", icon: <FileCode size={16} /> },
+  { target: { type: "columns" }, labelKey: "slash.convert.columns", icon: <Columns2 size={16} /> },
+  { target: { type: "details" }, labelKey: "slash.convert.details", icon: <ChevronDown size={16} /> },
+];
+
+function SlashMenu({
+  editor, items, query, position, trigger, from, onSelect, onClose, onAddBelow, mode = "full",
+}: SlashMenuProps) {
+  const { t } = useTranslation();
+  type View = "main" | "convert" | "addBelow";
+  const [view, setView] = useState<View>("main");
   const [selectedIndex, setSelectedIndex] = useState(0);
   const menuRef = useRef<HTMLDivElement>(null);
   const itemRefs = useRef<(HTMLButtonElement | null)[]>([]);
+  // 真实渲染后的菜单位置（先用估算定位，渲染后按真实尺寸修正，避免出现“离触发源很远”）
+  const [pos, setPos] = useState(position);
 
-  // 根据搜索词过滤命令
-  const filteredItems = items.filter((item) => {
+  const currentType = useMemo(() => (from > 0 ? getBlockTypeAt(editor, from) : null), [editor, from]);
+
+  // 过滤插入项
+  const filteredItems = useMemo(() => items.filter((item) => {
     if (!query) return true;
     const q = query.toLowerCase();
     return (
@@ -53,133 +122,395 @@ function SlashMenu({ editor, items, query, position, onSelect, onClose }: SlashM
       item.keywords.some((kw) => kw.toLowerCase().includes(q)) ||
       item.id.toLowerCase().includes(q)
     );
-  });
+  }), [items, query]);
 
-  // 按分类分组
-  const categories = Array.from(new Set(filteredItems.map((i) => i.category)));
+  // 「在下方添加」面板的分类展示顺序：稳定排序（同分类保持 items 原有相对顺序）
+  const categoryRankOf = useCallback((item: SlashCommandItem) => {
+    const key = item.categoryKey ?? (item.category === "日期与日记" ? "daily" : "");
+    return SLASH_CATEGORY_RANK[key] ?? 99;
+  }, []);
+  const orderedItems = useMemo(() => {
+    const withRank = filteredItems.map((item, i) => ({ item, i, rank: categoryRankOf(item) }));
+    withRank.sort((a, b) => a.rank - b.rank || a.i - b.i);
+    return withRank.map((x) => x.item);
+  }, [filteredItems, categoryRankOf]);
 
+  // query 非空时自动跳到「在下方添加」子面板（方便直接搜索插入项）
   useEffect(() => {
-    setSelectedIndex(0);
-  }, [query]);
+    if (mode === "insert" || query.trim().length > 0) setView("addBelow");
+    else setView("main");
+  }, [query, mode]);
+
+  useEffect(() => { setSelectedIndex(0); }, [query, view, mode]);
+
+  // 真实尺寸精确就近定位：菜单渲染后测量宽高，紧贴触发源（右下方优先，
+  // 溢出翻左/翻上，最后按真实尺寸夹紧到视口）。用 useLayoutEffect 保证
+  // 修正发生在绘制前，用户看不到“估算 → 修正”的跳变。
+  useLayoutEffect(() => {
+    if (!menuRef.current) return;
+    const mw = menuRef.current.offsetWidth;
+    const mh = menuRef.current.offsetHeight;
+    if (mw === 0 || mh === 0) return;
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const margin = 8;
+    let top = position.top;
+    let left = position.left;
+    if (trigger) {
+      left = trigger.right + 4; // 紧贴触发源右侧
+      top = trigger.bottom + 4; // 紧贴触发源下方
+      if (left + mw > vw - margin) left = trigger.left - 4 - mw; // 右侧放不下 → 翻左
+      if (top + mh > vh - margin) top = trigger.top - 4 - mh;    // 下方放不下 → 翻上
+    }
+    left = Math.max(margin, Math.min(left, vw - mw - margin));
+    top = Math.max(margin, Math.min(top, vh - mh - margin));
+    setPos({ top, left });
+  }, [position, trigger, view, mode, query]);
 
   // 滚动选中项到可见区域
   useEffect(() => {
     const el = itemRefs.current[selectedIndex];
-    if (el) {
-      el.scrollIntoView({ block: "nearest" });
-    }
+    if (el) el.scrollIntoView({ block: "nearest" });
   }, [selectedIndex]);
 
-  // 键盘事件。捕获后停止继续传到 ProseMirror，避免 Enter/Escape 同时
-  // 被菜单和编辑器处理，造成命令执行两次或额外插入段落。
+  // `/` 触发时先删掉 `/查询词`（拖拽柄触发时 range 为空，不删）
+  // 删除「/查询词」：仅当 from 处确实是斜杠字符时才删（输入 / 激活）。
+  // 拖拽柄 / 工具栏「+」打开时 from 处不是 /，自动跳过，避免误删正文。
+  // 不能用 query 非空判断：用户只打 / 不输查询（query=""）时也必须删掉 /，
+  // 否则转化/在下方添加后残留一个孤立的 / 字符。
+  const deleteSlashRange = useCallback(() => {
+    if (!editor || from <= 0) return;
+    try {
+      const $from = editor.state.doc.resolve(from);
+      const ch = $from.parent.textBetween($from.parentOffset, $from.parentOffset + 1, undefined, "\ufffc");
+      if (ch !== "/") return;
+    } catch {
+      return;
+    }
+    const to = editor.state.selection.from;
+    if (to > from) {
+      editor.chain().focus().deleteRange({ from, to }).run();
+    } else {
+      // 空查询：光标紧跟 / 之后（to === from + 1），删掉单个 / 字符
+      editor.chain().focus().deleteRange({ from, to: from + 1 }).run();
+    }
+  }, [editor, from]);
+
+  // 快捷块操作：删除 / 复制 / 剪切 / 粘贴
+  const runBlockAction = useCallback(async (action: MainAction) => {
+    if (!editor) return;
+    deleteSlashRange();
+    // from 兜底：激活时传入的位置可能为 0/-1（拖拽柄异常），此时用当前光标
+    const target = from > 0 ? from : editor.state.selection.from;
+    if (action === "delete") {
+      deleteBlock(editor, target);
+    } else if (action === "copy") {
+      const ok = await copyBlock(editor, target);
+      onClose();
+      if (ok) toast.success(t("slash.blockCopied", { defaultValue: "已复制块到剪贴板" }));
+      else toast.error(t("slash.blockCopyFailed", { defaultValue: "复制失败" }));
+      return;
+    } else if (action === "paste") {
+      const ok = await pasteBlock(editor, target);
+      onClose();
+      if (ok) toast.success(t("slash.blockPasted", { defaultValue: "已粘贴" }));
+      else toast.error(t("slash.blockPasteFailed", { defaultValue: "粘贴失败，请检查剪贴板权限或内容" }));
+      return;
+    } else {
+      void cutBlock(editor, target);
+    }
+    onClose();
+  }, [editor, from, onClose, deleteSlashRange, t]);
+
+  const runConvert = useCallback((target: BlockTarget) => {
+    if (!editor) return;
+    // 无条件调用：内部会判断 from 处是否真有 / 再删（见 deleteSlashRange 注释）
+    deleteSlashRange();
+    convertBlock(editor, target, from);
+    onClose();
+  }, [editor, from, onClose, deleteSlashRange]);
+
+  // 「在下方添加」二级菜单选中：addBelowType 走 addBlockBelow（空段落替换 / 否则下方插入），否则原 action
+  const runAddBelowItem = useCallback((item: SlashCommandItem) => {
+    if (!editor) return;
+    // 无条件调用：内部会判断 from 处是否真有 / 再删（见 deleteSlashRange 注释）
+    deleteSlashRange();
+    if (item.addBelowType) addBlockBelow(editor, item.addBelowType, from);
+    else item.action(editor);
+    onClose();
+  }, [editor, from, onClose, deleteSlashRange]);
+
+  // 主菜单项点击
+  const handleMainSelect = useCallback((m: typeof MAIN_ITEMS[number]) => {
+    if (m.goView) setView(m.goView);
+    else if (m.action) runBlockAction(m.action);
+  }, [runBlockAction]);
+
+  // 键盘事件
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      const isImeComposing = e.isComposing || editor.view.composing;
-      if (isImeComposing) {
-        // 组合态回车只负责确认输入法候选词。阻止它继续传到 ProseMirror，
-        // 避免额外插入段落；组合结束后的下一次回车再执行菜单命令。
+      if (e.isComposing || editor.view.composing) {
         if (e.key === "Enter") e.stopPropagation();
         return;
       }
+      if (view === "convert") {
+        const n = CONVERT_TARGETS.length;
+        if (e.key === "ArrowDown" || e.key === "ArrowRight") {
+          e.preventDefault(); e.stopPropagation(); setSelectedIndex(p => (p + 1) % n);
+        } else if (e.key === "ArrowUp" || e.key === "ArrowLeft") {
+          e.preventDefault(); e.stopPropagation(); setSelectedIndex(p => (p - 1 + n) % n);
+        } else if (e.key === "Enter") {
+          e.preventDefault(); e.stopPropagation();
+          const t2 = CONVERT_TARGETS[selectedIndex]; if (t2) runConvert(t2.target);
+        } else if (e.key === "Escape") {
+          e.preventDefault(); e.stopPropagation(); setView("main");
+        }
+        return;
+      }
+      if (view === "addBelow") {
+        if (orderedItems.length === 0) {
+          if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); onClose(); }
+          return;
+        }
+        const n = orderedItems.length;
+        if (e.key === "ArrowDown") {
+          e.preventDefault(); e.stopPropagation(); setSelectedIndex(p => (p + 1) % n);
+        } else if (e.key === "ArrowUp") {
+          e.preventDefault(); e.stopPropagation(); setSelectedIndex(p => (p - 1 + n) % n);
+        } else if (e.key === "Enter") {
+          e.preventDefault(); e.stopPropagation();
+          const it = orderedItems[selectedIndex]; if (it) runAddBelowItem(it);
+        } else if (e.key === "Escape") {
+          e.preventDefault(); e.stopPropagation();
+          // 搜索时直接关闭菜单（带 query 返回主菜单无意义）；非搜索则回主菜单
+          if (query.trim().length > 0) onClose(); else setView("main");
+        }
+        return;
+      }
+      // main
+      const n = MAIN_ITEMS.length;
       if (e.key === "ArrowDown") {
-        e.preventDefault();
-        e.stopPropagation();
-        if (filteredItems.length > 0) {
-          setSelectedIndex((prev) => (prev + 1) % filteredItems.length);
-        }
+        e.preventDefault(); e.stopPropagation(); setSelectedIndex(p => (p + 1) % n);
       } else if (e.key === "ArrowUp") {
-        e.preventDefault();
-        e.stopPropagation();
-        if (filteredItems.length > 0) {
-          setSelectedIndex((prev) => (prev - 1 + filteredItems.length) % filteredItems.length);
-        }
+        e.preventDefault(); e.stopPropagation(); setSelectedIndex(p => (p - 1 + n) % n);
       } else if (e.key === "Enter") {
-        e.preventDefault();
-        e.stopPropagation();
-        if (filteredItems[selectedIndex]) {
-          onSelect(filteredItems[selectedIndex]);
-        }
+        e.preventDefault(); e.stopPropagation();
+        handleMainSelect(MAIN_ITEMS[selectedIndex]);
       } else if (e.key === "Escape") {
-        e.preventDefault();
-        e.stopPropagation();
-        onClose();
+        e.preventDefault(); e.stopPropagation(); onClose();
       }
     };
-
     document.addEventListener("keydown", handleKeyDown, true);
     return () => document.removeEventListener("keydown", handleKeyDown, true);
-  }, [editor, filteredItems, selectedIndex, onSelect, onClose]);
+  }, [editor, view, selectedIndex, orderedItems, query, runConvert, runAddBelowItem, handleMainSelect, onClose]);
 
-  // 点击外部关闭。使用 pointerdown capture，让鼠标、触控笔和触屏路径一致。
+  // 点击外部关闭
   useEffect(() => {
     const handlePointerDown = (e: PointerEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        onClose();
-      }
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) onClose();
     };
     document.addEventListener("pointerdown", handlePointerDown, true);
     return () => document.removeEventListener("pointerdown", handlePointerDown, true);
   }, [onClose]);
 
-  if (filteredItems.length === 0) {
-    return (
-      <div
-        ref={menuRef}
-        className="fixed z-[60] w-[280px] bg-app-elevated border border-app-border rounded-xl shadow-2xl p-3"
-        style={{ top: position.top, left: position.left }}
+  // 与 app 现有下拉菜单统一：rounded-lg + border-app-border + bg-app-elevated + shadow-xl
+  const containerClass =
+    "fixed z-[60] bg-app-elevated border border-app-border rounded-lg py-1 shadow-xl";
+
+  // 行样式与 app 菜单一致：px-3 py-2 text-sm，选中/悬停都是 bg-app-hover
+  const rowClass = (idx: number) => cn(
+    "w-full flex items-center gap-2.5 px-3 py-2 text-left text-sm transition-colors",
+    idx === selectedIndex
+      ? "bg-app-hover text-tx-primary"
+      : "text-tx-secondary hover:bg-app-hover",
+  );
+
+  // 子面板顶栏（返回 + 标题），对齐 EditorPane 菜单头
+  const subHeader = (title: string) => (
+    <div className="flex items-center gap-1.5 px-3 py-2 border-b border-app-border">
+      <button
+        className="p-0.5 -ml-0.5 rounded hover:bg-app-hover text-tx-tertiary"
+        onClick={() => setView("main")}
+        title={t("slash.back")}
       >
-        <p className="text-xs text-tx-tertiary text-center py-2">无匹配命令</p>
+        <ArrowLeft size={15} />
+      </button>
+      <span className="text-[11px] font-medium text-tx-tertiary">{title}</span>
+    </div>
+  );
+
+  // 转化为子面板（H1-H6 横排 / 正文+列表+引用 纯图标一行5个 / 块类型 一行4个）
+  if (view === "convert") {
+    const headingTargets = CONVERT_TARGETS.filter(t => t.target.type === "heading");
+    // 纯图标行：正文 / 无序 / 有序 / 任务 / 引用（图标即可区分，不放文字）
+    const iconRowTargets = CONVERT_TARGETS.filter(t => ["paragraph", "bulletList", "orderedList", "taskList", "blockquote"].includes(t.target.type));
+    // 底部块类型行：高亮 / 代码 / 分栏 / 折叠（图标+文字）
+    const blockRowTargets = CONVERT_TARGETS.filter(t => ["callout", "codeBlock", "columns", "details"].includes(t.target.type));
+
+    const gridItemClass = (globalIdx: number, disabled: boolean) => cn(
+      "flex-1 flex items-center gap-2 px-2.5 py-1.5 rounded text-[13px] transition-colors [&_svg]:w-[15px] [&_svg]:h-[15px]",
+      disabled
+        ? "opacity-40 cursor-not-allowed text-tx-tertiary"
+        : globalIdx === selectedIndex
+          ? "bg-app-hover text-tx-primary"
+          : "text-tx-secondary hover:bg-app-hover",
+    );
+    const renderGridButton = (tgt: typeof CONVERT_TARGETS[number]) => {
+      const globalIdx = CONVERT_TARGETS.indexOf(tgt);
+      const disabled =
+        currentType != null &&
+        currentType.type === tgt.target.type &&
+        (tgt.target.type !== "heading" || currentType.level === tgt.target.level);
+      return (
+        <button
+          key={tgt.labelKey}
+          ref={(el) => { itemRefs.current[globalIdx] = el; }}
+          disabled={disabled}
+          title={t(tgt.labelKey)}
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => runConvert(tgt.target)}
+          onMouseEnter={() => setSelectedIndex(globalIdx)}
+          className={gridItemClass(globalIdx, disabled)}
+        >
+          <span className="shrink-0">{tgt.icon}</span>
+          <span>{t(tgt.labelKey)}</span>
+        </button>
+      );
+    };
+
+    return (
+      <div ref={menuRef} className={cn(containerClass, "w-56")} style={{ top: pos.top, left: pos.left }}>
+        {subHeader(t("slash.convertTitle"))}
+        {/* 第1行：H1-H6 横排（flex-1 均匀平铺整行） */}
+        <div className="flex items-center gap-0.5 px-2 pt-2 pb-1.5">
+          {headingTargets.map((tgt) => {
+            const globalIdx = CONVERT_TARGETS.indexOf(tgt);
+            const disabled = currentType?.type === "heading" && currentType.level === tgt.target.level;
+            return (
+              <button
+                key={tgt.labelKey}
+                ref={(el) => { itemRefs.current[globalIdx] = el; }}
+                disabled={disabled}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => runConvert(tgt.target)}
+                onMouseEnter={() => setSelectedIndex(globalIdx)}
+                className={cn(
+                  "flex-1 flex items-center justify-center h-9 rounded text-[13px] transition-colors",
+                  disabled
+                    ? "opacity-40 cursor-not-allowed text-tx-tertiary"
+                    : globalIdx === selectedIndex
+                      ? "bg-app-hover text-tx-primary font-medium"
+                      : "text-tx-secondary hover:bg-app-hover",
+                )}
+              >
+                H{tgt.target.level ?? 1}
+              </button>
+            );
+          })}
+        </div>
+        {/* 第2行：正文 / 无序 / 有序 / 任务 / 引用 —— 纯图标，flex-1 均匀平铺 */}
+        <div className="flex items-center gap-0.5 px-2 pb-1.5">
+          {iconRowTargets.map((tgt) => {
+            const globalIdx = CONVERT_TARGETS.indexOf(tgt);
+            const disabled =
+              currentType != null && currentType.type === tgt.target.type;
+            return (
+              <button
+                key={tgt.labelKey}
+                ref={(el) => { itemRefs.current[globalIdx] = el; }}
+                disabled={disabled}
+                title={t(tgt.labelKey)}
+                aria-label={t(tgt.labelKey)}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => runConvert(tgt.target)}
+                onMouseEnter={() => setSelectedIndex(globalIdx)}
+                className={cn(
+                  "flex-1 flex items-center justify-center h-9 rounded transition-colors [&_svg]:w-[15px] [&_svg]:h-[15px]",
+                  disabled
+                    ? "opacity-40 cursor-not-allowed text-tx-tertiary"
+                    : globalIdx === selectedIndex
+                      ? "bg-app-hover text-tx-primary"
+                      : "text-tx-secondary hover:bg-app-hover",
+                )}
+              >
+                {tgt.icon}
+              </button>
+            );
+          })}
+        </div>
+        {/* 第3行：高亮块 / 代码块（flex-1 均匀平铺） */}
+        <div className="flex items-center gap-0.5 px-2 pb-1.5">
+          {blockRowTargets.slice(0, 2).map(renderGridButton)}
+        </div>
+        {/* 第4行：分栏 / 折叠块（flex-1 均匀平铺） */}
+        <div className="flex items-center gap-0.5 px-2 pb-1.5">
+          {blockRowTargets.slice(2).map(renderGridButton)}
+        </div>
       </div>
     );
   }
 
-  let flatIndex = 0;
-
-  return (
-    <div
-      ref={menuRef}
-      className="fixed z-[60] w-[280px] max-h-[320px] overflow-y-auto bg-app-elevated border border-app-border rounded-xl shadow-2xl py-1.5"
-      style={{ top: position.top, left: position.left }}
-    >
-      {categories.map((cat) => {
-        const catItems = filteredItems.filter((i) => i.category === cat);
-        return (
-          <div key={cat}>
-            <div className="px-3 pt-2 pb-1">
-              <span className="text-[10px] font-medium text-tx-tertiary uppercase tracking-wider">{cat}</span>
+  // 在下方添加子面板（app 菜单风格分类列表）
+  if (view === "addBelow") {
+    if (orderedItems.length === 0) {
+      return (
+        <div ref={menuRef} className={cn(containerClass, "w-[260px] p-3")} style={{ top: pos.top, left: pos.left }}>
+          <p className="text-xs text-tx-tertiary text-center py-2">{t("slash.noMatch")}</p>
+        </div>
+      );
+    }
+    const showBack = query.trim().length === 0 && mode !== "insert";
+    let lastCategory: string | null = null;
+    return (
+      <div ref={menuRef} className={cn(containerClass, "w-[280px] max-h-[360px] overflow-y-auto")} style={{ top: pos.top, left: pos.left }}>
+        {showBack && subHeader(t("slash.addBelowTitle"))}
+        {orderedItems.map((item, idx) => {
+          const showHeader = item.category !== lastCategory;
+          lastCategory = item.category;
+          return (
+            <div key={item.id}>
+              {showHeader && (
+                <div className="px-3 pt-2 pb-1"><span className="text-[11px] text-tx-tertiary">{item.category}</span></div>
+              )}
+              <button
+                ref={(el) => { itemRefs.current[idx] = el; }}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => runAddBelowItem(item)}
+                onMouseEnter={() => setSelectedIndex(idx)}
+                className={rowClass(idx)}
+              >
+                <span className="shrink-0 text-tx-tertiary">{item.icon}</span>
+                <div className="flex-1 min-w-0">
+                  <div className="truncate">{item.label}</div>
+                  <div className="text-[11px] text-tx-tertiary truncate">{item.description}</div>
+                </div>
+              </button>
             </div>
-            {catItems.map((item) => {
-              const idx = flatIndex++;
-              return (
-                <button
-                  key={item.id}
-                  ref={(el) => { itemRefs.current[idx] = el; }}
-                  onMouseDown={(e) => e.preventDefault()}
-                  onClick={() => onSelect(item)}
-                  onMouseEnter={() => setSelectedIndex(idx)}
-                  className={cn(
-                    "w-full flex items-center gap-3 px-3 py-2 text-left transition-colors",
-                    idx === selectedIndex
-                      ? "bg-accent-primary/10 text-accent-primary"
-                      : "text-tx-secondary hover:bg-app-hover"
-                  )}
-                >
-                  <div className={cn(
-                    "w-8 h-8 rounded-lg flex items-center justify-center shrink-0 transition-colors",
-                    idx === selectedIndex ? "bg-accent-primary/15" : "bg-app-hover"
-                  )}>
-                    {item.icon}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm font-medium truncate">{item.label}</div>
-                    <div className="text-[10px] text-tx-tertiary truncate">{item.description}</div>
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-        );
-      })}
+          );
+        })}
+      </div>
+    );
+  }
+
+  // 主菜单：5 项扁平，3 区用分割线隔离
+  return (
+    <div ref={menuRef} className={cn(containerClass, "w-56")} style={{ top: pos.top, left: pos.left }}>
+      {MAIN_ITEMS.map((m, idx) => (
+        <React.Fragment key={m.id}>
+          <button
+            ref={(el) => { itemRefs.current[idx] = el; }}
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => handleMainSelect(m)}
+            onMouseEnter={() => setSelectedIndex(idx)}
+            className={rowClass(idx)}
+          >
+            <span className="shrink-0 text-tx-tertiary">{m.icon}</span>
+            <span className="flex-1">{t(m.labelKey)}</span>
+            {m.hasChevron && <ChevronRight size={14} className="text-tx-tertiary" />}
+          </button>
+          {m.dividerAfter && <div className="mx-2 my-1 border-t border-app-border" />}
+        </React.Fragment>
+      ))}
     </div>
   );
 }
@@ -200,8 +531,10 @@ export function getDefaultSlashCommands(
       description: t("slash.heading1Desc"),
       icon: <Heading1 size={16} />,
       category: t("slash.catHeadings"),
+      categoryKey: "headings",
       keywords: ["h1", "heading", "title", "标题", "一级"],
       action: (editor) => editor.chain().focus().toggleHeading({ level: 1 }).run(),
+      addBelowType: "heading1",
     },
     {
       id: "heading2",
@@ -209,8 +542,10 @@ export function getDefaultSlashCommands(
       description: t("slash.heading2Desc"),
       icon: <Heading2 size={16} />,
       category: t("slash.catHeadings"),
+      categoryKey: "headings",
       keywords: ["h2", "heading", "subtitle", "标题", "二级"],
       action: (editor) => editor.chain().focus().toggleHeading({ level: 2 }).run(),
+      addBelowType: "heading2",
     },
     {
       id: "heading3",
@@ -218,8 +553,10 @@ export function getDefaultSlashCommands(
       description: t("slash.heading3Desc"),
       icon: <Heading3 size={16} />,
       category: t("slash.catHeadings"),
+      categoryKey: "headings",
       keywords: ["h3", "heading", "标题", "三级"],
       action: (editor) => editor.chain().focus().toggleHeading({ level: 3 }).run(),
+      addBelowType: "heading3",
     },
     {
       id: "heading4",
@@ -227,8 +564,10 @@ export function getDefaultSlashCommands(
       description: t("slash.heading4Desc"),
       icon: <Heading4 size={16} />,
       category: t("slash.catHeadings"),
+      categoryKey: "headings",
       keywords: ["h4", "heading", "标题", "四级"],
       action: (editor) => editor.chain().focus().toggleHeading({ level: 4 }).run(),
+      addBelowType: "heading4",
     },
     {
       id: "heading5",
@@ -236,8 +575,10 @@ export function getDefaultSlashCommands(
       description: t("slash.heading5Desc"),
       icon: <Heading5 size={16} />,
       category: t("slash.catHeadings"),
+      categoryKey: "headings",
       keywords: ["h5", "heading", "标题", "五级"],
       action: (editor) => editor.chain().focus().toggleHeading({ level: 5 }).run(),
+      addBelowType: "heading5",
     },
     {
       id: "heading6",
@@ -245,8 +586,10 @@ export function getDefaultSlashCommands(
       description: t("slash.heading6Desc"),
       icon: <Heading6 size={16} />,
       category: t("slash.catHeadings"),
+      categoryKey: "headings",
       keywords: ["h6", "heading", "标题", "六级"],
       action: (editor) => editor.chain().focus().toggleHeading({ level: 6 }).run(),
+      addBelowType: "heading6",
     },
     // 列表
     {
@@ -255,8 +598,10 @@ export function getDefaultSlashCommands(
       description: t("slash.bulletListDesc"),
       icon: <List size={16} />,
       category: t("slash.catLists"),
+      categoryKey: "lists",
       keywords: ["ul", "bullet", "list", "无序", "列表"],
       action: (editor) => editor.chain().focus().toggleBulletList().run(),
+      addBelowType: "bulletList",
     },
     {
       id: "orderedList",
@@ -264,8 +609,10 @@ export function getDefaultSlashCommands(
       description: t("slash.orderedListDesc"),
       icon: <ListOrdered size={16} />,
       category: t("slash.catLists"),
+      categoryKey: "lists",
       keywords: ["ol", "ordered", "number", "有序", "编号", "列表"],
       action: (editor) => editor.chain().focus().toggleOrderedList().run(),
+      addBelowType: "orderedList",
     },
     {
       id: "taskList",
@@ -273,8 +620,10 @@ export function getDefaultSlashCommands(
       description: t("slash.taskListDesc"),
       icon: <CheckSquare size={16} />,
       category: t("slash.catLists"),
+      categoryKey: "lists",
       keywords: ["todo", "task", "checkbox", "待办", "任务", "复选"],
       action: (editor) => editor.chain().focus().toggleTaskList().run(),
+      addBelowType: "taskList",
     },
     // 格式
     {
@@ -283,8 +632,10 @@ export function getDefaultSlashCommands(
       description: t("slash.blockquoteDesc"),
       icon: <Quote size={16} />,
       category: t("slash.catFormat"),
+      categoryKey: "format",
       keywords: ["quote", "blockquote", "引用"],
       action: (editor) => editor.chain().focus().toggleBlockquote().run(),
+      addBelowType: "blockquote",
     },
     {
       id: "codeBlock",
@@ -292,8 +643,10 @@ export function getDefaultSlashCommands(
       description: t("slash.codeBlockDesc"),
       icon: <FileCode size={16} />,
       category: t("slash.catFormat"),
+      categoryKey: "format",
       keywords: ["code", "codeblock", "代码", "代码块"],
       action: (editor) => editor.chain().focus().toggleCodeBlock().run(),
+      addBelowType: "codeBlock",
     },
     {
       // 可折叠块（Tiptap v3 免费开源 Pro 拓展 Details）：Details 容器 + Summary 标题 + Content 正文
@@ -302,8 +655,10 @@ export function getDefaultSlashCommands(
       description: "插入一个可折叠的内容区块（点击标题展开/收起）",
       icon: <ChevronDown size={16} />,
       category: t("slash.catFormat"),
+      categoryKey: "format",
       keywords: ["details", "折叠", "可折叠", "collapse", "折叠块", "折叠内容"],
       action: (editor) => editor.chain().focus().setDetails().run(),
+      addBelowType: "details",
     },
     {
       // 高亮块（自研 CalloutExtension，参考 Umo Editor）：div[data-type="callout"]，
@@ -313,17 +668,20 @@ export function getDefaultSlashCommands(
       description: "插入高亮提示块；点击左上角图标可切换信息/警告/危险/成功配色",
       icon: <Info size={16} />,
       category: t("slash.catFormat"),
+      categoryKey: "format",
       keywords: ["callout", "高亮", "高亮块", "提示", "警告", "标注", "highlight", "info", "note"],
       action: (editor) => editor.chain().focus().insertCallout({ type: "blue" }).run(),
+      addBelowType: "callout",
     },
     {
       // 分栏（自研 ColumnsExtension）：栏数随意——插入默认两栏，运行时用栏间上方
       // 的 + 自由加栏（最多 6）、用 ⋯ 删栏，栏宽自动等比分配。
       id: "insert-columns",
-      label: "分栏",
+      label: "分栏块",
       description: "插入左右两栏，可在栏间用 + 自由增减栏数",
       icon: <Columns2 size={16} />,
       category: t("slash.catFormat"),
+      categoryKey: "format",
       keywords: ["columns", "column", "分栏", "多栏", "布局", "并排"],
       action: (editor) => {
         editor
@@ -338,6 +696,7 @@ export function getDefaultSlashCommands(
           })
           .run();
       },
+      addBelowType: "columns",
     },
     {
       // mermaid 流程图：本质是 codeBlock + language=mermaid，CodeBlockView
@@ -348,6 +707,7 @@ export function getDefaultSlashCommands(
       description: t("slash.mermaidDesc"),
       icon: <Workflow size={16} />,
       category: t("slash.catFormat"),
+      categoryKey: "format",
       keywords: ["mermaid", "flowchart", "diagram", "graph", "流程", "流程图", "图表"],
       action: (editor) => {
         const sample = "graph TD\n  A[开始] --> B{判断}\n  B -->|是| C[继续]\n  B -->|否| D[结束]";
@@ -361,6 +721,7 @@ export function getDefaultSlashCommands(
           })
           .run();
       },
+      addBelowType: "mermaid",
     },
     {
       // LaTeX 数学公式（块级）：插入一个空的 mathBlock 节点，自动进入编辑态
@@ -371,6 +732,7 @@ export function getDefaultSlashCommands(
       description: t("slash.mathDesc"),
       icon: <Sigma size={16} />,
       category: t("slash.catFormat"),
+      categoryKey: "format",
       keywords: ["math", "latex", "katex", "formula", "equation", "公式", "数学", "方程"],
       action: (editor) => {
         editor
@@ -382,6 +744,7 @@ export function getDefaultSlashCommands(
           })
           .run();
       },
+      addBelowType: "math",
     },
     {
       // 脚注：在光标处插入 ref，并在文档末尾追加配对的 def。
@@ -391,6 +754,7 @@ export function getDefaultSlashCommands(
       description: t("slash.footnoteDesc"),
       icon: <BookOpen size={16} />,
       category: t("slash.catFormat"),
+      categoryKey: "format",
       keywords: ["footnote", "fn", "脚注", "注释", "注解"],
       action: (editor) => {
         const id = nextFootnoteIdentifier(editor);
@@ -422,8 +786,10 @@ export function getDefaultSlashCommands(
       description: t("slash.horizontalRuleDesc"),
       icon: <Minus size={16} />,
       category: t("slash.catFormat"),
+      categoryKey: "format",
       keywords: ["hr", "divider", "separator", "分割线", "横线"],
       action: (editor) => editor.chain().focus().setHorizontalRule().run(),
+      addBelowType: "horizontalRule",
     },
     // 内联格式
     {
@@ -432,6 +798,7 @@ export function getDefaultSlashCommands(
       description: t("slash.boldDesc"),
       icon: <Bold size={16} />,
       category: t("slash.catInline"),
+      categoryKey: "inline",
       keywords: ["bold", "strong", "加粗", "粗体"],
       action: (editor) => editor.chain().focus().toggleBold().run(),
     },
@@ -441,6 +808,7 @@ export function getDefaultSlashCommands(
       description: t("slash.italicDesc"),
       icon: <Italic size={16} />,
       category: t("slash.catInline"),
+      categoryKey: "inline",
       keywords: ["italic", "em", "斜体"],
       action: (editor) => editor.chain().focus().toggleItalic().run(),
     },
@@ -450,6 +818,7 @@ export function getDefaultSlashCommands(
       description: t("slash.highlightDesc"),
       icon: <Highlighter size={16} />,
       category: t("slash.catInline"),
+      categoryKey: "inline",
       keywords: ["highlight", "mark", "高亮", "标记"],
       action: (editor) => editor.chain().focus().toggleHighlight().run(),
     },
@@ -459,6 +828,7 @@ export function getDefaultSlashCommands(
       description: t("slash.strikeDesc"),
       icon: <Strikethrough size={16} />,
       category: t("slash.catInline"),
+      categoryKey: "inline",
       keywords: ["strike", "strikethrough", "del", "删除", "删除线", "横线"],
       action: (editor) => editor.chain().focus().toggleStrike().run(),
     },
@@ -468,6 +838,7 @@ export function getDefaultSlashCommands(
       description: t("slash.inlineCodeDesc"),
       icon: <Code size={16} />,
       category: t("slash.catInline"),
+      categoryKey: "inline",
       keywords: ["code", "inline", "monospace", "行内", "代码"],
       action: (editor) => editor.chain().focus().toggleCode().run(),
     },
@@ -477,6 +848,7 @@ export function getDefaultSlashCommands(
       description: t("slash.linkDesc"),
       icon: <LinkIcon size={16} />,
       category: t("slash.catInline"),
+      categoryKey: "inline",
       keywords: ["link", "url", "hyperlink", "链接", "超链接"],
       action: (editor) => {
         // 已有选区：把选中文本变成链接；无选区：弹输入框获取 URL，
@@ -542,6 +914,7 @@ export function getDefaultSlashCommands(
       description: t("slash.imageDesc"),
       icon: <ImagePlus size={16} />,
       category: t("slash.catInsert"),
+      categoryKey: "insert",
       keywords: ["image", "picture", "photo", "图片", "插图"],
       action: () => onImageUpload?.(),
     },
@@ -551,6 +924,7 @@ export function getDefaultSlashCommands(
       description: t("slash.attachmentLibraryDesc"),
       icon: <FolderSearch size={16} />,
       category: t("slash.catInsert"),
+      categoryKey: "insert",
       keywords: ["fj", "attachment", "file", "library", "附件", "文件", "文件管理"],
       action: () => onAttachmentLibrary?.(),
     },
@@ -562,6 +936,7 @@ export function getDefaultSlashCommands(
       description: t("slash.videoDesc") || "插入 B 站 / YouTube / mp4 等视频链接",
       icon: <Film size={16} />,
       category: t("slash.catInsert"),
+      categoryKey: "insert",
       keywords: ["video", "movie", "bilibili", "youtube", "mp4", "视频", "记录片"],
       action: (editor) => {
         void (async () => {
@@ -587,8 +962,10 @@ export function getDefaultSlashCommands(
       description: t("slash.tableDesc"),
       icon: <Table2 size={16} />,
       category: t("slash.catInsert"),
+      categoryKey: "insert",
       keywords: ["table", "grid", "表格"],
       action: (editor) => editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run(),
+      addBelowType: "table",
     },
     // AI
     {
@@ -597,6 +974,7 @@ export function getDefaultSlashCommands(
       description: t("slash.aiDesc"),
       icon: <Sparkles size={16} className="text-violet-500" />,
       category: t("slash.catAI"),
+      categoryKey: "ai",
       keywords: ["ai", "assistant", "智能", "助手", "写作"],
       action: () => onAIAssistant?.(),
     },
@@ -617,6 +995,10 @@ interface SlashActivateDetail {
   top: number;
   left: number;
   from: number;
+  /** "insert" 模式下只显示插入列表（用于「在下方添加」后二次打开）。 */
+  mode?: "full" | "insert";
+  /** 触发源（拖拽柄 / 光标）的视口坐标，供菜单用真实尺寸精确就近定位。 */
+  trigger?: { top: number; bottom: number; left: number; right: number };
   sourceId?: string;
 }
 
@@ -633,6 +1015,8 @@ export const SlashCommandsMenu = forwardRef<SlashCommandsRef, SlashCommandsProps
     const [isActive, setIsActive] = useState(false);
     const [query, setQuery] = useState("");
     const [position, setPosition] = useState({ top: 0, left: 0 });
+    const [trigger, setTrigger] = useState<SlashActivateDetail["trigger"]>(undefined);
+    const [mode, setMode] = useState<"full" | "insert">("full");
     const slashFrom = useRef(0);
     const editorId = editor ? getSlashEditorId(editor) : null;
 
@@ -643,6 +1027,8 @@ export const SlashCommandsMenu = forwardRef<SlashCommandsRef, SlashCommandsProps
     const resetLocalState = useCallback(() => {
       setIsActive(false);
       setQuery("");
+      setMode("full");
+      setTrigger(undefined);
       slashFrom.current = 0;
     }, []);
 
@@ -872,6 +1258,23 @@ export const SlashCommandsMenu = forwardRef<SlashCommandsRef, SlashCommandsProps
       deactivateSlashCommands(editor);
     }, [editor, resetLocalState]);
 
+    // 「在下方添加」后：在当前块下方插入空段落，并在该位置以 insert 模式重新打开菜单，
+    // 让用户直接进入「下方快速插入其余块」流程。
+    const handleAddBelow = useCallback((newPos: number) => {
+      if (!editor || !editorId) return;
+      try {
+        const coords = editor.view.coordsAtPos(Math.min(newPos, editor.state.doc.content.size - 1));
+        const trigger = { top: coords.top, bottom: coords.bottom, left: coords.left, right: coords.right };
+        createSlashEventHandlers().onActivate(
+          "",
+          { top: coords.bottom + 4, left: coords.left, from: newPos, mode: "insert", trigger },
+          editorId,
+        );
+      } catch {
+        /* 坐标计算失败时忽略，菜单保持关闭 */
+      }
+    }, [editor, editorId]);
+
     // 事件按 editor id 隔离，分屏或多编辑器同时挂载时，只有来源编辑器
     // 对应的菜单会响应，避免重复菜单和重复命令执行。
     useEffect(() => {
@@ -883,7 +1286,9 @@ export const SlashCommandsMenu = forwardRef<SlashCommandsRef, SlashCommandsProps
         if (!detail || !isOwnEvent(detail.sourceId)) return;
         setIsActive(true);
         setQuery(detail.query);
+        setMode(detail.mode ?? "full");
         setPosition({ top: detail.top, left: detail.left });
+        setTrigger(detail.trigger);
         slashFrom.current = detail.from;
       };
       const handleDeactivate = (event: Event) => {
@@ -916,8 +1321,12 @@ export const SlashCommandsMenu = forwardRef<SlashCommandsRef, SlashCommandsProps
         items={items}
         query={query}
         position={position}
+        trigger={trigger}
+        from={slashFrom.current}
+        mode={mode}
         onSelect={handleSelect}
         onClose={handleClose}
+        onAddBelow={handleAddBelow}
       />
     );
   }
@@ -929,7 +1338,7 @@ export function createSlashEventHandlers() {
   return {
     onActivate: (
       query: string,
-      pos: { top: number; left: number; from: number },
+      pos: { top: number; left: number; from: number; mode?: "full" | "insert"; trigger?: { top: number; bottom: number; left: number; right: number } },
       sourceId?: string,
     ) => {
       window.dispatchEvent(new CustomEvent<SlashActivateDetail>("slash-activate", {

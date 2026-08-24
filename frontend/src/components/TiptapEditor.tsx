@@ -104,8 +104,8 @@ import {
   Indent, Outdent, AlignLeft, AlignCenter, AlignRight, Trash2,
   FileType, Check, AlertCircle, Info, ArrowUp, Copy, Link as LinkIcon,
   ExternalLink, Unlink2, Workflow, Sigma, BookOpen, Download, Phone,
-  Type, Palette, Eraser, Paintbrush, ChevronDown, Search, Upload, FolderSearch, ClipboardPlus,
-  MoreHorizontal,
+  Type, Palette, Eraser, Paintbrush, ChevronDown, ChevronUp, Search, Upload, FolderSearch, ClipboardPlus,
+  MoreHorizontal, Plus,
   // 表格气泡菜单图标
   Rows3, Columns3, Merge, Split, Heading, Network,
 } from "lucide-react";
@@ -1027,7 +1027,7 @@ function ToolbarButton({ onClick, isActive, disabled, children, title, compact, 
       disabled={disabled}
       title={title}
       className={cn(
-        compact ? "shrink-0 p-1 rounded-md transition-colors" : "shrink-0 p-1.5 rounded-md transition-colors",
+        compact ? "shrink-0 p-1 rounded-full transition-colors" : "shrink-0 p-1.5 rounded-full transition-colors",
         isActive
           ? "bg-accent-primary/20 text-accent-primary"
           : "text-tx-secondary hover:bg-app-hover hover:text-tx-primary",
@@ -1042,6 +1042,103 @@ function ToolbarButton({ onClick, isActive, disabled, children, title, compact, 
 
 function ToolbarDivider() {
   return <div className="h-5 w-px shrink-0 bg-app-border mx-1" />;
+}
+
+interface ToolbarMenuItem {
+  key: string;
+  label: string;
+  icon: React.ReactNode;
+  onClick: () => void;
+  disabled?: boolean;
+}
+
+/**
+ * 「更多」折叠菜单：收纳低频工具栏功能，保持主工具栏简洁。
+ * - fixed 定位（绕过工具栏 overflow-x-auto 裁切），右对齐按钮展开
+ * - 点击外部 / 点击菜单项执行后关闭
+ * - 与 ColorPopover 同款弹层模式；L2 简洁工具栏与 L4 Ribbon 共用
+ */
+function MoreToolbarMenu({ items, iconSize = 15, title = "更多" }: { items: ToolbarMenuItem[]; iconSize?: number; title?: string }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement | null>(null);
+  const btnRef = useRef<HTMLButtonElement | null>(null);
+  const popRef = useRef<HTMLDivElement | null>(null);
+  const [pos, setPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
+
+  useEffect(() => {
+    if (!open || !btnRef.current) return;
+    const update = () => {
+      const btnEl = btnRef.current;
+      if (!btnEl) return;
+      const r = btnEl.getBoundingClientRect();
+      const POP_W = 208; // w-52
+      let left = r.right - POP_W;
+      if (left < 8) left = 8;
+      setPos({ top: r.bottom + 4, left });
+    };
+    update();
+    window.addEventListener("resize", update);
+    window.addEventListener("scroll", update, true);
+    return () => {
+      window.removeEventListener("resize", update);
+      window.removeEventListener("scroll", update, true);
+    };
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onInteract = (e: MouseEvent) => {
+      const t = e.target as Node;
+      if (ref.current?.contains(t)) return;
+      if (popRef.current?.contains(t)) return;
+      if ((t as Element)?.closest?.("[data-popover]")) return;
+      setOpen(false);
+    };
+    document.addEventListener("mousedown", onInteract, true);
+    return () => document.removeEventListener("mousedown", onInteract, true);
+  }, [open]);
+
+  return (
+    <div ref={ref} className="relative" onMouseDown={(e) => e.preventDefault()}>
+      <button
+        ref={btnRef}
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        title={title}
+        className={cn(
+          "p-1.5 rounded-full transition-colors flex items-center gap-0.5",
+          open
+            ? "bg-accent-primary/20 text-accent-primary"
+            : "text-tx-secondary hover:bg-app-hover hover:text-tx-primary",
+        )}
+      >
+        <MoreHorizontal size={iconSize} />
+      </button>
+      {open && createPortal(
+        <div
+          ref={popRef}
+          style={{ position: "fixed", top: pos.top, left: pos.left }}
+          className="z-[100] w-52 py-1.5 rounded-lg shadow-lg bg-app-elevated border border-app-border"
+          data-popover=""
+          onMouseDown={(e) => e.preventDefault()}
+        >
+          {items.map((item) => (
+            <button
+              key={item.key}
+              type="button"
+              disabled={item.disabled}
+              onClick={() => { item.onClick(); setOpen(false); }}
+              className="w-full flex items-center gap-2.5 px-3 py-1.5 text-[13px] text-tx-secondary hover:bg-app-hover hover:text-tx-primary transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+            >
+              <span className="flex items-center justify-center w-5 shrink-0">{item.icon}</span>
+              <span className="truncate">{item.label}</span>
+            </button>
+          ))}
+        </div>,
+        document.body,
+      )}
+    </div>
+  );
 }
 
 /**
@@ -1069,7 +1166,9 @@ function FontSizePopover({ editor, iconSize = 15, compact = false }: FontSizePop
   useEffect(() => {
     if (!open || !btnRef.current) return;
     const update = () => {
-      const r = btnRef.current!.getBoundingClientRect();
+      const btnEl = btnRef.current;
+      if (!btnEl) return;
+      const r = btnEl.getBoundingClientRect();
       const POP_W = 176; // w-44
       let left = r.left;
       if (left + POP_W > window.innerWidth - 8) left = window.innerWidth - POP_W - 8;
@@ -1231,7 +1330,9 @@ function LineHeightPopover({ editor, iconSize = 15, compact = false }: LineHeigh
   useEffect(() => {
     if (!open || !btnRef.current) return;
     const update = () => {
-      const r = btnRef.current!.getBoundingClientRect();
+      const btnEl = btnRef.current;
+      if (!btnEl) return;
+      const r = btnEl.getBoundingClientRect();
       const POP_W = 180;
       let left = r.left;
       if (left + POP_W > window.innerWidth - 8) left = window.innerWidth - POP_W - 8;
@@ -1356,7 +1457,9 @@ function ColorPopover({ editor, iconSize = 15, compact = false }: ColorPopoverPr
   useEffect(() => {
     if (!open || !btnRef.current) return;
     const update = () => {
-      const r = btnRef.current!.getBoundingClientRect();
+      const btnEl = btnRef.current;
+      if (!btnEl) return;
+      const r = btnEl.getBoundingClientRect();
       const POP_W = 224; // w-56
       let left = r.left;
       if (left + POP_W > window.innerWidth - 8) left = window.innerWidth - POP_W - 8;
@@ -1581,6 +1684,27 @@ function getEditorPlainTextForSave(
   return getEditorPlainText(editor);
 }
 
+/**
+ * 词数统计专用纯文本：遍历 doc 只累加 text 节点文本，
+ * 跳过图片/附件/视频/分割线/数学块/脚注等媒体与装饰叶子，
+ * 保证"只统计英文/中文/标点符号，不统计图片等"。
+ * hardBreak 折算为空格，避免跨行英文单词被错误合并成一个词。
+ */
+function getEditorStatsText(editor: any): string {
+  try {
+    let out = "";
+    editor.state.doc.descendants((node: any) => {
+      if (node.isText) { out += node.text ?? ""; return false; }
+      if (node.type.name === "hardBreak") { out += " "; return false; }
+      if (node.isLeaf) return false; // 媒体/装饰叶子不统计
+      return true; // 结构节点（段落/标题/列表/表格/callout 等）继续递归
+    });
+    return out;
+  } catch {
+    return editor.getText();
+  }
+}
+
 type WordStats = { chars: number; charsNoSpace: number; words: number };
 type WordStatsHandle = { update: (stats: WordStats) => void };
 
@@ -1694,6 +1818,21 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
   const { visible: keyboardVisible } = useKeyboardVisible();
   const compactMobileEditing = isMobile && editable && keyboardVisible;
   const [mobileToolbarExpanded, setMobileToolbarExpanded] = useState(false);
+  // 桌面工具栏折叠：宽度 < 阈值时折叠成"..."图标，避免窄屏按钮挤换行。
+  // 用户可点击 toggle 强制覆盖自动行为（manualOverride=null 时跟随 auto）。
+  const [desktopToolbarAutoCollapsed, setDesktopToolbarAutoCollapsed] = useState(true);
+  const [desktopToolbarOverride, setDesktopToolbarOverride] = useState<boolean | null>(null);
+  const desktopToolbarCollapsed = desktopToolbarOverride ?? desktopToolbarAutoCollapsed;
+  useEffect(() => {
+    const check = () => {
+      // 桌面工具栏宽度 < 阈值时折叠（避免窄屏 flex-wrap 换行难看）
+      // lg 断点 (1024px) 为参照——工具栏约 900px 起开始挤
+      setDesktopToolbarAutoCollapsed(window.innerWidth < 1024);
+    };
+    check();
+    window.addEventListener("resize", check);
+    return () => window.removeEventListener("resize", check);
+  }, []);
   useEffect(() => {
     setMobileToolbarExpanded(false);
   }, [keyboardVisible, isMobile, note.id]);
@@ -2884,7 +3023,7 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
           const derivedText = getEditorPlainText(editor);
           recordPhaseAPerfEvent({ type: "tiptap-plain-text", durationMs: performance.now() - plainTextStartedAt });
           const wordStatsStartedAt = performance.now();
-          wordStatsDisplayRef.current?.update(computeStats(derivedText));
+          wordStatsDisplayRef.current?.update(computeStats(getEditorStatsText(editor)));
           recordPhaseAPerfEvent({ type: "tiptap-word-stats", durationMs: performance.now() - wordStatsStartedAt });
           const headingsStartedAt = performance.now();
           onHeadingsChangeRef.current?.(extractHeadings(editor));
@@ -3486,7 +3625,7 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
         }
       }
       if (!queueTiptapAnalysis(editor)) {
-        wordStatsDisplayRef.current?.update(computeStats(getEditorPlainText(editor)));
+        wordStatsDisplayRef.current?.update(computeStats(getEditorStatsText(editor)));
         onHeadingsChange?.(extractHeadings(editor));
       }
     }
@@ -3921,6 +4060,26 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
       publishEditorEditable(editor);
     }
   }, [editor, editable]);
+
+  // 工具栏最左侧 "+"：直接打开「在下方添加」二级菜单（mode="insert" 跳过主菜单，
+  // 直接进 addBelow 子面板，分类展示可插入块类型）。
+  // 与拖拽柄 grip 点击等价：定位到光标所在块，用户即可搜索/选择要插入的块类型。
+  const openSlashInsert = useCallback(() => {
+    if (!editor) return;
+    const from = editor.state.selection.from;
+    const coords = editor.view.coordsAtPos(from);
+    slashHandlers.current.onActivate(
+      "",
+      {
+        top: coords.bottom + 4,
+        left: coords.left,
+        from,
+        mode: "insert",
+        trigger: { top: coords.top, bottom: coords.bottom, left: coords.left, right: coords.right },
+      },
+      getSlashEditorId(editor),
+    );
+  }, [editor, slashHandlers]);
 
   // ---------- 链接编辑：弹项目统一 prompt 弹窗，工具栏 & 链接气泡共用 ----------
   // 抽成共享回调避免两处重复 ~40 行 prompt + 解析 + apply 逻辑。
@@ -5101,6 +5260,11 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
 
   // 回到顶部 + sticky 工具栏阴影：合用一个滚动监听器避免重复订阅
   const scrollContainerRef = useRef<HTMLElement | null>(null);
+  // 拖拽柄滚动跟随：记录鼠标最近一次在编辑区内的视口坐标。
+  // 滚动时鼠标坐标不变但下方文档滚动，用该坐标派发合成 mousemove，
+  // 让 drag-handle 插件按"鼠标当前所在块"重新定位柄（跟随滚动而非一刀切消失）。
+  // mouseleave 时清空，鼠标不在编辑区内则滚动只隐藏柄。
+  const dragHandleMouseRef = useRef<{ x: number; y: number } | null>(null);
   const setScrollContainerRef = useCallback((content: HTMLDivElement | null) => {
     scrollContainerRef.current = resolveTiptapEditorScrollContainer(
       content,
@@ -5176,15 +5340,83 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
   }, [note.id]);
   useEffect(() => {
     const el = scrollContainerRef.current;
-    if (!el) return;
+    if (!el || !editor) return;
+    // 跟踪鼠标在编辑区内的坐标（滚动跟随要用）；离开编辑区即清空
+    const onMouseMove = (e: MouseEvent) => {
+      dragHandleMouseRef.current = { x: e.clientX, y: e.clientY };
+    };
+    const onMouseLeave = () => {
+      dragHandleMouseRef.current = null;
+    };
+    el.addEventListener("mousemove", onMouseMove, { passive: true });
+    el.addEventListener("mouseleave", onMouseLeave);
+    // rAF 节流：高频滚动时把"重置+合成 mousemove"合并到每帧一次
+    let scrollRaf = 0;
     const onScroll = () => {
       const top = el.scrollTop;
       setShowBackToTop(top > 240);
       setToolbarShadow(top > 4);
+      // 拖拽柄滚动跟随：drag-handle 插件只在 mousemove 时定位/隐藏、不监听滚动，
+      // 滚轮滚动后柄会残留在旧的屏幕坐标。这里在滚动时按鼠标当前位置刷新柄：
+      //  - 鼠标不在编辑区内（拖滚动条/键盘滚动）→ 直接隐藏，避免残留
+      //  - 鼠标在编辑区内 → 先重置插件内部 current 状态并隐藏，再派发合成 mousemove，
+      //    让插件按当前鼠标坐标重新 find + 定位 + 显示：
+      //      鼠标下仍是同一块 → 柄重新定位跟随滚动，保持显示
+      //      鼠标下变成别的块 → 显示那个块的柄
+      //      鼠标下是空白    → 保持隐藏
+      if (scrollRaf) return;
+      scrollRaf = requestAnimationFrame(() => {
+        scrollRaf = 0;
+        const handle = el.querySelector<HTMLElement>(".tiptap-drag-handle");
+        if (!handle) return;
+        const mp = dragHandleMouseRef.current;
+        if (!mp) {
+          handle.style.visibility = "hidden";
+          handle.style.pointerEvents = "none";
+          return;
+        }
+        editor.view.dispatch(editor.state.tr.setMeta("hideDragHandle", true));
+        editor.view.dom.dispatchEvent(
+          new MouseEvent("mousemove", { clientX: mp.x, clientY: mp.y, bubbles: true, cancelable: true }),
+        );
+        // 遮挡检测：等插件异步 reposition + showHandle 完成后（双 rAF），
+        // 在柄矩形内采 5 个点（中心 + 4 角），任一被【编辑器外】的元素盖住就隐藏。
+        // 关键：只对外部浮层敏感（浮在编辑区上方的标签/chip/其他浮层盖住柄中心或
+        // 边角 → 柄与其争抢视觉层级不合理）。编辑器内容区内的元素（块文本、行距
+        // 空白、上一行块）不算遮挡——柄本来就浮在块内容左缘之上，否则 4 角必然
+        // 命中块内元素导致滚动后柄总被误杀。
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            if (handle.style.visibility === "hidden") return;
+            const r = handle.getBoundingClientRect();
+            if (r.width === 0) return;
+            const pts: [number, number][] = [
+              [r.left + r.width / 2, r.top + r.height / 2],
+              [r.left + 1, r.top + 1],
+              [r.left + r.width - 1, r.top + 1],
+              [r.left + 1, r.top + r.height - 1],
+              [r.left + r.width - 1, r.top + r.height - 1],
+            ];
+            for (const [x, y] of pts) {
+              const topEl = document.elementFromPoint(x, y);
+              if (!topEl || topEl === handle || handle.contains(topEl)) continue;
+              if (el.contains(topEl)) continue; // 编辑器内容区内的元素不视为遮挡
+              handle.style.visibility = "hidden";
+              handle.style.pointerEvents = "none";
+              return;
+            }
+          });
+        });
+      });
     };
     el.addEventListener("scroll", onScroll, { passive: true });
     onScroll();
-    return () => el.removeEventListener("scroll", onScroll);
+    return () => {
+      if (scrollRaf) cancelAnimationFrame(scrollRaf);
+      el.removeEventListener("mousemove", onMouseMove);
+      el.removeEventListener("mouseleave", onMouseLeave);
+      el.removeEventListener("scroll", onScroll);
+    };
   }, [editor]);
   const scrollToTop = useCallback(() => {
     const el = scrollContainerRef.current;
@@ -5330,13 +5562,27 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
           ref={outlineToolbarRef}
           data-mobile-editor-toolbar="expanded"
           className={cn(
-            "editor-toolbar-scroll-fade hide-scrollbar z-30 flex-nowrap items-center gap-0.5 overflow-x-auto touch-pan-x border-b border-app-border bg-app-elevated px-3 py-2 transition-shadow duration-200 md:sticky md:top-0 md:z-20 md:flex md:flex-wrap md:overflow-visible md:touch-auto md:bg-app-surface/95 md:px-4 md:backdrop-blur md:supports-[backdrop-filter]:bg-app-surface/70",
+            "z-30 flex items-center border-b border-app-border bg-app-elevated px-3 py-2 transition-shadow duration-200 md:sticky md:top-0 md:z-20 md:touch-auto md:bg-app-surface/95 md:px-4 md:backdrop-blur md:supports-[backdrop-filter]:bg-app-surface/70",
             mobileToolbarExpanded
-              ? "flex max-md:max-h-[38vh] max-md:flex-wrap max-md:overflow-y-auto max-md:shadow-xl"
+              ? "flex max-md:max-h-[38vh] max-md:shadow-xl"
               : "hidden md:flex",
             toolbarShadow && "shadow-[0_2px_8px_-2px_rgba(0,0,0,0.08)] dark:shadow-[0_2px_8px_-2px_rgba(0,0,0,0.4)]",
           )}
         >
+        {/* 按钮容器：负责移动端横向滚动 / 桌面折叠单行裁剪 / 展开两行换行；折叠按钮为其兄弟节点，永不被裁切 */}
+        <div className={cn(
+          "flex flex-1 items-center gap-0.5 editor-toolbar-scroll-fade hide-scrollbar",
+          mobileToolbarExpanded
+            ? "max-md:flex-wrap max-md:overflow-y-auto"
+            : "max-md:flex-nowrap max-md:overflow-x-auto max-md:touch-pan-x",
+          desktopToolbarCollapsed
+            ? "md:flex-nowrap md:overflow-hidden"
+            : "md:flex-wrap md:overflow-visible",
+        )}>
+        <ToolbarButton onClick={openSlashInsert} title={t('tiptap.insertBlock', { defaultValue: '添加内容' })}>
+          <Plus size={iconSize} className="text-accent-primary" />
+        </ToolbarButton>
+        <ToolbarDivider />
         <ToolbarButton onClick={() => editor.chain().focus().undo().run()} disabled={!editor.can().undo()} title={t('tiptap.undo')}>
           <Undo size={iconSize} />
         </ToolbarButton>
@@ -5499,14 +5745,14 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
         <ToolbarButton onClick={handleImageUpload} title={t('tiptap.insertImage')}>
           <ImagePlus size={iconSize} />
         </ToolbarButton>
+        <ToolbarButton onClick={handleVideoUpload} title={t('tiptap.uploadLocalVideo')}>
+          <Film size={iconSize} />
+        </ToolbarButton>
         <ToolbarButton onClick={handleImageUrlInsert} title={t('tiptap.insertImageUrl')}>
           <ExternalLink size={iconSize} />
         </ToolbarButton>
         <ToolbarButton onClick={handleVideoUrlInsert} title={t('tiptap.insertVideoLink')}>
-          <Film size={iconSize} />
-        </ToolbarButton>
-        <ToolbarButton onClick={handleVideoUpload} title={t('tiptap.uploadLocalVideo')}>
-          <Upload size={iconSize} />
+          <ExternalLink size={iconSize} />
         </ToolbarButton>
         <ToolbarButton
           onClick={handleAttachmentUpload}
@@ -5521,6 +5767,9 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
           <FolderSearch size={iconSize} />
         </ToolbarButton>
         <TableGridPicker iconSize={iconSize} onPick={insertTable} />
+
+        <ToolbarDivider />
+
         <ToolbarButton onClick={insertMermaid} title={t('tiptap.insertMermaid')}>
           <Workflow size={iconSize} />
         </ToolbarButton>
@@ -5666,7 +5915,23 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
             </ToolbarButton>
           </>
         )}
+
+        </div>
+
+        {/* 折叠按钮（仅桌面窄屏）：折叠态 v 展开两行，展开态 ^ 恢复单行；宽屏不显示 */}
+        {desktopToolbarAutoCollapsed && (
+          <ToolbarButton
+            compact
+            className="ml-auto shrink-0 self-start hidden md:flex"
+            onClick={() => setDesktopToolbarOverride(desktopToolbarCollapsed ? false : null)}
+            title={desktopToolbarCollapsed ? "展开工具栏" : "折叠工具栏"}
+          >
+            {desktopToolbarCollapsed ? <ChevronDown size={iconSize} /> : <ChevronUp size={iconSize} />}
+          </ToolbarButton>
+        )}
       </div>
+
+      {/* 折叠态已移除：改为同容器内 flex-nowrap/flex-wrap 切换 */}
       </>
       )}
 
@@ -5711,20 +5976,6 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
             !editable && "cursor-default"
           )}
         />
-        <div
-          data-mobile-editor-metadata=""
-          className={cn("flex items-center flex-wrap gap-x-3 gap-y-0.5 mt-2 text-[10px] text-tx-tertiary", compactMobileEditing && "hidden")}
-        >
-          <span>{t('tiptap.version')}{note.version}</span>
-          <span className="max-md:hidden">·</span>
-          <span>{t('tiptap.updatedAt')}{new Date(note.updatedAt + "Z").toLocaleString()}</span>
-          <span className="max-md:hidden">·</span>
-          <WordStatsDisplay
-            ref={wordStatsDisplayRef}
-            wordsLabel={t('tiptap.words')}
-            charsLabel={t('tiptap.chars')}
-          />
-        </div>
       </div>
       )}
 
@@ -6378,7 +6629,7 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
         );
       })()}
 
-      {/* 分栏（multi-column）语雀式操作浮层：栏上方 ⋯ 删除、栏间上方 + 加列（≤6）。
+      {/* 分栏（multi-column）操作浮层：栏上方 ⋯ 删除、栏间上方 + 加列（≤6）。
           移动端无 hover，不渲染。 */}
       {editable && !isMobile && (
         <ColumnToolbar
@@ -6427,7 +6678,7 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
         <DragHandle
           editor={editor}
           className={hideDragHandle ? "tiptap-drag-handle tiptap-drag-handle--hidden" : "tiptap-drag-handle"}
-          // 分栏跟随（对齐语雀）：用 nested 模式让 column 节点本身成为拖拽目标，
+          // 分栏跟随：用 nested 模式让 column 节点本身成为拖拽目标，
           // 而非顶层块 column_container。这样鼠标在栏1/栏2时 targetNode 不同，
           // 拖拽柄会随鼠标所在的栏重新定位到该栏左侧。
           // - edgeDetection:'none' 避免靠近栏左缘时因边缘扣分把 column 排除（否则
@@ -6442,6 +6693,11 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
             edgeDetection: "none",
             rules: [
               {
+                // 分栏：栏（column）容器本身不显示拖拽柄，柄显示在栏内的块上。
+                // 在 column 内时惩罚 column 节点（+600），让内部 paragraph/列表等块（0 分）胜出；
+                // 与 callout / details 规则对称（它们也各自惩罚内部节点）。
+                // 配合嵌套 tie-break（同分优先更深层），即使 column_container 同为 0 分，
+                // 也会选到更深的栏内块，避免柄出现在整个分栏或单栏上。
                 id: "prioritizeColumn",
                 evaluate: ({ node, $pos, depth }: any) => {
                   let inColumn = false;
@@ -6452,7 +6708,8 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
                     }
                   }
                   if (!inColumn) return 0;
-                  return node.type.name === "column" ? 0 : 600;
+                  // column 容器扣分；栏内块（paragraph 等）不扣分 → 栏内块胜出。
+                  return node.type.name === "column" ? 600 : 0;
                 },
               },
               {
@@ -6515,14 +6772,26 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
               e.preventDefault();
               if (!editor) return;
               const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-              // 把光标移到手柄所指区块，确保后续命令作用到正确的块
-              const pos = dragHandlePosRef.current ?? editor.state.selection.from;
+              // 把光标移到手柄所指区块，确保后续命令作用到正确的块。
+              // dragHandlePosRef 可能是 -1（插件隐藏时的占位值），
+              // 必须用 >0 判断而不是 ?? 兜底，否则 from=0 会让块操作全部静默失败。
+              const rawPos = dragHandlePosRef.current;
+              // 拖拽柄库返回的 pos 是节点 before 位置（$pos.before(depth)）：
+              //   - -1 = 柄隐藏占位 → 回退到光标位置
+              //   -  0 = 合法（首个块的 before 位置就是 0）→ 必须采用！
+              //     旧代码用 rawPos > 0 把 0 排除，导致点「首个块」的柄时 from 落到
+              //     光标所在的其他块 → 转换/在下方添加作用错块（表现为下移一行/失效）。
+              const pos = rawPos != null && rawPos >= 0 ? rawPos : editor.state.selection.from;
               editor.commands.setTextSelection(pos + 1);
-              // 复用斜杠菜单的激活通道，from 设为当前光标使选择项后删除区间为空，
-              // 不会误删原有内容。
+              // 把触发源 rect 一并传给菜单，菜单渲染后用真实尺寸精确紧贴定位
               slashHandlers.current.onActivate(
                 "",
-                { top: rect.bottom + 4, left: rect.right + 8, from: pos + 1 },
+                {
+                  top: rect.bottom + 4,
+                  left: rect.right + 4,
+                  from: pos + 1,
+                  trigger: { top: rect.top, bottom: rect.bottom, left: rect.left, right: rect.right },
+                },
                 getSlashEditorId(editor),
               );
             }}
@@ -6588,6 +6857,20 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
               : undefined
           }
         />
+      )}
+
+      {/* 左下角词数/字符数状态栏：只统计英文/中文/标点，不含图片/附件等媒体 */}
+      {!compactMobileEditing && scrollLayout.ownsViewportOverlay && (
+        <div
+          className="absolute left-3 md:left-5 z-20 hidden md:flex items-center gap-1 text-[11px] text-tx-tertiary/70 pointer-events-none select-none rounded bg-app-surface/70 backdrop-blur-sm px-1.5 py-0.5"
+          style={{ bottom: "calc(0.75rem + var(--keyboard-height, 0px))" }}
+        >
+          <WordStatsDisplay
+            ref={wordStatsDisplayRef}
+            wordsLabel={t('tiptap.words')}
+            charsLabel={t('tiptap.chars')}
+          />
+        </div>
       )}
 
       {/* 回到顶部按钮：滚动超过阈值后显示在编辑区右下角 */}

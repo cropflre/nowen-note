@@ -1,8 +1,8 @@
 /**
  * 高亮块（Callout）类型元数据 —— 单一事实来源。
  *
- * 对齐语雀高亮块配色：10 色色板（灰/蓝/青/绿/黄/橙/红/粉/紫），选色器为横排圆角色块行
- * （与语雀截图一致：当前项 ✓ 标记，无文字标签）。
+ * 高亮块配色：10 色色板（灰/蓝/青/绿/黄/橙/红/粉/紫），选色器为横排圆角色块行
+ * （当前项 ✓ 标记，无文字标签）。
  *
  * swatch 颜色与 dragHandle.css 里 div[data-type="callout"][data-callout-type=...] 的底色完全一致，
  * 选择器里的色块就是块本身的颜色（所见即所得）。
@@ -28,7 +28,7 @@ export interface CalloutTypeMeta {
   swatchDark: string;
 }
 
-/** 对齐语雀 10 色高亮块色板（顺序 = 选色器展示顺序） */
+/** 10 色高亮块色板（顺序 = 选色器展示顺序） */
 export const CALLOUT_TYPE_META: Record<CalloutType, CalloutTypeMeta> = {
   gray: {
     label: "默认",

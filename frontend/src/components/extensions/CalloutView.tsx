@@ -1,7 +1,7 @@
 /**
  * CalloutNodeView —— 高亮块的交互式 NodeView。
  *
- * 对齐语雀：
+ * 交互设计：
  *   - 块本身：浅色底 + 圆角 + 细边框
  *   - 切换颜色的入口 **不在框内**：悬停/选中高亮块时，在框外顶部居中浮出一个
  *     调色板按钮（与分栏 ColumnToolbar 的微圆点悬浮按钮同款：16px 圆点、
@@ -45,7 +45,7 @@ export function CalloutNodeView({ node, updateAttributes, editor }: NodeViewProp
     const btn = btnRef.current;
     if (!btn) return;
     const rect = btn.getBoundingClientRect();
-    // 弹层放在按钮上方（对齐语雀：选色器浮在块上方）
+    // 弹层放在按钮上方（选色器浮在块上方）
     const top = Math.max(8, rect.top - 8 - SWATCH_SIZE - 8);
     const left = Math.min(
       Math.max(8, rect.left - (POPUP_WIDTH / 2) + (rect.width / 2)),
@@ -131,7 +131,7 @@ export function CalloutNodeView({ node, updateAttributes, editor }: NodeViewProp
         </button>
       )}
 
-      {/* 语雀风格选色器：横排圆角色块行 */}
+      {/* 选色器：横排圆角色块行 */}
       {open && editable && pos &&
         createPortal(
           <div

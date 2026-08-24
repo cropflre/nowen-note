@@ -28,7 +28,6 @@ import {
   chainCommands,
   newlineInCode,
   createParagraphNear,
-  splitBlock,
 } from "@tiptap/pm/commands";
 import { liftTarget, canSplit } from "@tiptap/pm/transform";
 
@@ -64,13 +63,69 @@ const liftEmptyBlockInColumn = (state: any, dispatch?: any): boolean => {
   return true;
 };
 
+/**
+ * Backspace 拦截：光标位于 column_container **之后**的兄弟文本块开头时，
+ * 默认 ProseMirror deleteBarrier 会把该块「包成一栏」追加进容器（2栏→3栏，
+ * 即用户反馈的"删除到头给分栏加一栏"）。
+ * 这里改为：把当前块内容并入容器**最后一栏**的末尾，再删除当前块——
+ * 符合"光标回到分栏内"的直觉，且不新增列。
+ */
+export function backspaceFromAfterColumn(state: any, dispatch?: any): boolean {
+  const { $cursor } = state.selection;
+  if (!$cursor || $cursor.parentOffset !== 0) return false;
+  const depth = $cursor.depth;
+  if (depth < 1) return false;
+  const textblock = $cursor.node(depth);
+  if (!textblock || !textblock.isTextblock) return false;
+
+  const parent = $cursor.node(depth - 1);
+  // 注意：index(depth) 是光标位置在 depth 层节点内的索引；
+  // 当前文本块在父节点中的索引要用 index(depth - 1)。
+  const idx = $cursor.index(depth - 1);
+  if (idx <= 0) return false;
+  const prev = parent.child(idx - 1);
+  if (prev.type.name !== "column_container") return false;
+
+  const lastCol = prev.lastChild;
+  if (!lastCol || lastCol.childCount === 0) return false;
+  let target = lastCol.lastChild;
+  while (target && !target.isTextblock) target = target.lastChild;
+  if (!target) return false;
+
+  // 位置计算（均为删除前的绝对位置，删除发生在这些位置之后，无需映射）：
+  //   当前块起点 = 容器结束位置；容器闭标签 1 位 → 最后一栏结束 = blockStart - 1；
+  //   栏内最后一个 textblock 的闭标签 1 位 → 其内容末尾 = blockStart - 3
+  //   （column content 为 block+，最后一个子节点必然是 textblock，直接 -3 成立）
+  const blockStart = $cursor.before(depth);
+  const blockEnd = $cursor.after(depth);
+  const targetEnd = blockStart - 3;
+
+  const content = textblock.content;
+  const tr = state.tr;
+  tr.delete(blockStart, blockEnd);
+  try {
+    if (content.size > 0) {
+      tr.insert(targetEnd, content);
+    }
+    tr.setSelection(TextSelection.create(tr.doc, targetEnd + content.size));
+  } catch {
+    /* 目标非文本块等边界情况，仅做合并不设光标 */
+  }
+  if (dispatch) dispatch(tr.scrollIntoView());
+  return true;
+}
+
 const columnsKeymap = keymap({
+  // 注意：Tiptap 的插件顺序是扩展数组的反序，本 keymap 的 Enter 会先于
+  // nowenKeyboard / 列表扩展执行。因此这里【绝不能】以 splitBlock 兜底——
+  // 否则列表项内回车会走 splitBlock 把段落拆在 li 内部（新行没有圆点/复选框）。
+  // 只处理分栏特例，其余一律 return false 交给下层 keymap（列表 splitListItem 等）。
   Enter: chainCommands(
     newlineInCode,
     createParagraphNear,
-    liftEmptyBlockInColumn,
-    splitBlock
+    liftEmptyBlockInColumn
   ),
+  Backspace: backspaceFromAfterColumn,
   "Mod-a": (state, dispatch) => {
     const { $from } = state.selection;
     const found = findParentColumn($from);
@@ -289,7 +344,7 @@ function gridResizingPlugin(options?: { handleWidth?: number; columnMinWidth?: n
         if (pluginState && pluginState.activeHandle > -1) {
           return { class: "resize-cursor" };
         }
-        return {};
+        return { class: "" };
       },
       handleDOMEvents: {
         mousemove: (view, event) => handleMouseMove(view, event, handleWidth),
