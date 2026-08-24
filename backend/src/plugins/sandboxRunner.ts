@@ -229,7 +229,13 @@ export class SandboxRunner {
         this.invalidateChild(child, codedError("PLUGIN_PROTOCOL_INVALID", "Sandbox ready 消息不属于 Preflight"), true);
         return;
       }
-      if (message.ok) this.settleOperation(pending, undefined);
+      if (pending.cancellationReason) {
+        this.settleOperation(
+          pending,
+          undefined,
+          operationError({ code: "PLUGIN_PREFLIGHT_FAILED", message: "Sandbox Preflight 已取消" }, pending.cancellationReason),
+        );
+      } else if (message.ok) this.settleOperation(pending, undefined);
       else this.settleOperation(pending, undefined, operationError(message.error!, pending.cancellationReason));
       return;
     }
@@ -238,7 +244,15 @@ export class SandboxRunner {
         this.invalidateChild(child, codedError("PLUGIN_PROTOCOL_INVALID", "Sandbox 执行结果不属于 Execute"), true);
         return;
       }
-      this.settleOperation(pending, message.result);
+      if (pending.cancellationReason) {
+        this.settleOperation(
+          pending,
+          undefined,
+          operationError({ code: "PLUGIN_SANDBOX_FAILED", message: "Sandbox 执行已取消" }, pending.cancellationReason),
+        );
+      } else {
+        this.settleOperation(pending, message.result);
+      }
       return;
     }
     if (message.type === "execution-error") {
