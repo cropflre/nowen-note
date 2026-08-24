@@ -311,6 +311,7 @@ const LINUX_HOMEPAGE =
 //   - better-sqlite3            原生 .node 模块
 //   - sqlite-vec / sqlite-vec-{platform}-{arch}  平台二进制 .so/.dll/.dylib
 //   - bonjour-service           涉及 multicast-dns 的动态行为，传递依赖较深
+//   - quickjs-emscripten        Sandbox 子进程运行时动态加载 JS/WASM 解释器
 // 其他业务依赖已全部 inline 进 bundle，运行时不再需要。
 //
 // 我们用"白名单顶层目录"的方式精准保留这些包及其运行时传递依赖。
@@ -334,6 +335,10 @@ const BACKEND_KEEP_PACKAGES = [
   "dns-packet",
   "@leichtgewicht",        // 整个 scope (含 ip-codec)
   "thunky",
+  // QuickJS Sandbox 子进程 + 运行时 JS/WASM 依赖
+  "quickjs-emscripten",
+  "quickjs-emscripten-core",
+  "@jitl",                 // 整个 scope（WASM variants + FFI types）
 ];
 
 // 生成 electron-builder filter 规则（路径相对 from 目录，即 backend/node_modules 根）

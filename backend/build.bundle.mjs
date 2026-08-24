@@ -70,10 +70,15 @@ await build({
   },
 });
 
-// PluginRunner 使用独立 Node 子进程；它不能被折叠进主进程 bundle。
+// 两类插件 Runner 都使用独立 Node 子进程，不能被折叠进主进程 bundle：
+// runner-child 负责可信 Node Action，sandbox-child 负责 QuickJS Sandbox。
 copyFileSync(
   join(__dirname, "src", "plugins", "runner-child.mjs"),
   join(outdir, "runner-child.mjs"),
+);
+copyFileSync(
+  join(__dirname, "src", "plugins", "sandbox-child.mjs"),
+  join(outdir, "sandbox-child.mjs"),
 );
 
 const ms = Date.now() - start;
