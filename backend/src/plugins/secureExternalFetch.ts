@@ -69,6 +69,26 @@ interface Cidr {
 const MAX_CNAME_DEPTH = 16;
 const REDIRECT_STATUS = new Set([301, 302, 303, 307, 308]);
 const SENSITIVE_HEADERS = new Set(["authorization", "cookie", "proxy-authorization"]);
+const PROXY_ROUTING_HEADERS = [
+  "cf-connecting-ip",
+  "client-ip",
+  "fastly-client-ip",
+  "forwarded",
+  "true-client-ip",
+  "via",
+  "x-client-ip",
+  "x-cluster-client-ip",
+  "x-forwarded-for",
+  "x-forwarded-host",
+  "x-forwarded-port",
+  "x-forwarded-proto",
+  "x-forwarded-server",
+  "x-original-forwarded-for",
+  "x-original-host",
+  "x-original-url",
+  "x-real-ip",
+  "x-rewrite-url",
+] as const;
 const BLOCKED_REQUEST_HEADERS = new Set([
   "accept-encoding",
   "connection",
@@ -83,6 +103,7 @@ const BLOCKED_REQUEST_HEADERS = new Set([
   "transfer-encoding",
   "upgrade",
   ...SENSITIVE_HEADERS,
+  ...PROXY_ROUTING_HEADERS,
 ]);
 const BLOCKED_TRUSTED_HEADERS = new Set([
   "accept-encoding",
@@ -97,6 +118,7 @@ const BLOCKED_TRUSTED_HEADERS = new Set([
   "trailer",
   "transfer-encoding",
   "upgrade",
+  ...PROXY_ROUTING_HEADERS,
 ]);
 const METHOD_TOKEN = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/;
 const HEADER_NAME_TOKEN = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/;
@@ -174,8 +196,11 @@ const NON_PUBLIC_IPV4 = [
   cidr("172.16.0.0", 12),
   cidr("192.0.0.0", 24),
   cidr("192.0.2.0", 24),
+  cidr("192.31.196.0", 24),
+  cidr("192.52.193.0", 24),
   cidr("192.88.99.0", 24),
   cidr("192.168.0.0", 16),
+  cidr("192.175.48.0", 24),
   cidr("198.18.0.0", 15),
   cidr("198.51.100.0", 24),
   cidr("203.0.113.0", 24),
@@ -183,7 +208,43 @@ const NON_PUBLIC_IPV4 = [
   cidr("240.0.0.0", 4),
 ];
 
-const GLOBAL_UNICAST_IPV6 = cidr("2000::", 3);
+// IANA IPv6 全球单播分配表（2025-10-10）：未列出的前缀一律按保留空间拒绝。
+const ALLOCATED_GLOBAL_UNICAST_IPV6 = [
+  cidr("2001:200::", 23),
+  cidr("2001:400::", 23),
+  cidr("2001:600::", 23),
+  cidr("2001:800::", 22),
+  cidr("2001:c00::", 23),
+  cidr("2001:e00::", 23),
+  cidr("2001:1200::", 23),
+  cidr("2001:1400::", 22),
+  cidr("2001:1800::", 23),
+  cidr("2001:1a00::", 23),
+  cidr("2001:1c00::", 22),
+  cidr("2001:2000::", 19),
+  cidr("2001:4000::", 23),
+  cidr("2001:4200::", 23),
+  cidr("2001:4400::", 23),
+  cidr("2001:4600::", 23),
+  cidr("2001:4800::", 23),
+  cidr("2001:4a00::", 23),
+  cidr("2001:4c00::", 23),
+  cidr("2001:5000::", 20),
+  cidr("2001:8000::", 19),
+  cidr("2001:a000::", 20),
+  cidr("2001:b000::", 20),
+  cidr("2003::", 18),
+  cidr("2400::", 12),
+  cidr("2410::", 12),
+  cidr("2600::", 12),
+  cidr("2610::", 23),
+  cidr("2620::", 23),
+  cidr("2630::", 12),
+  cidr("2800::", 12),
+  cidr("2a00::", 12),
+  cidr("2a10::", 12),
+  cidr("2c00::", 12),
+];
 const NON_PUBLIC_IPV6 = [
   cidr("2001::", 23),
   cidr("2001:db8::", 32),
@@ -201,8 +262,8 @@ function isPublicAddress(address: string): boolean {
     const embedded = ipv6.slice(12);
     return !NON_PUBLIC_IPV4.some((range) => matchesCidr(embedded, range));
   }
-  // 仅允许已分配的全局单播空间；NAT64、ULA、链路本地、多播和其他保留前缀默认拒绝。
-  return matchesCidr(ipv6, GLOBAL_UNICAST_IPV6)
+  // 正向允许 IANA 已分配空间；NAT64、ULA、链路本地、多播及未登记空间默认拒绝。
+  return ALLOCATED_GLOBAL_UNICAST_IPV6.some((range) => matchesCidr(ipv6, range))
     && !NON_PUBLIC_IPV6.some((range) => matchesCidr(ipv6, range));
 }
 
