@@ -1,5 +1,9 @@
+\set ON_ERROR_STOP on
+
 -- Extension Ecosystem V2 RC1 生命周期与供应链状态。
 -- 本文件自包含仓库内缺失的扩展平台 PostgreSQL 基础结构，并可安全重复执行。
+
+BEGIN;
 
 CREATE TABLE IF NOT EXISTS plugin_registry (
   id TEXT PRIMARY KEY,
@@ -326,3 +330,5 @@ CREATE INDEX IF NOT EXISTS idx_plugin_registry_lifecycle_recovery
 CREATE INDEX IF NOT EXISTS idx_plugin_registry_active_operation
   ON plugin_registry("activeOperationId")
   WHERE "activeOperationId" IS NOT NULL;
+
+COMMIT;
