@@ -1,39 +1,101 @@
 import crypto from "node:crypto";
 import { getDb } from "../db/schema.js";
 import { nowenVersionSatisfies } from "./manifest.js";
+import {
+  OFFICIAL_REGISTRY_TRUST_ROOTS,
+  officialTrustRootsFor,
+  RESERVED_OFFICIAL_REGISTRY_SOURCE_IDS,
+} from "./officialRegistryTrustRoots.js";
 import { PACKAGE_LIMITS } from "./packageValidator.js";
 import { safeRegistryFetch } from "./communityRegistry.js";
-import { verifyArtifactSignature, verifySignedDocument } from "./signatures.js";
+import { RegistryMetadataGuard, type GuardedRegistryDocument } from "./registryMetadataGuard.js";
+import { RegistryTrust, type RegistryRootRotation } from "./registryTrust.js";
+import { SecurityAdvisoryService, type SecurityAdvisory } from "./securityAdvisoryService.js";
+import { isEd25519PublicKey, verifyArtifactSignature } from "./signatures.js";
 import type { PluginTrustLevel } from "./types.js";
 
-export interface EcosystemSource { id: string; name: string; indexUrl: string; official: boolean; enabled: boolean; registryKeyId: string; registryPublicKey: string }
+export interface EcosystemSource { id: string; name: string; indexUrl: string; official: boolean; enabled: boolean; registryKeyId: string | null; registryPublicKey: string | null }
 export interface EcosystemVersion { version: string; apiVersion: 2; runtime: "sandbox-js" | "node-action"; artifactUrl: string; sha256: string; publisherKeyId: string; signature: string; nowen: string; permissions: string[]; permissionConfig?: { externalFetchHosts?: string[] }; platforms?: string[]; runtimePlatform?: string[]; uiPlatform?: string[]; channel?: string; publishedAt?: string }
 export interface EcosystemExtension { id: string; publisher: string; name: string; description?: string; trustLevel?: PluginTrustLevel; versions: EcosystemVersion[] }
-export interface EcosystemIndex { protocolVersion: 2; generatedAt: string; publishers: Array<{ publisher: string; keyId: string; publicKey: string; state: "active" | "revoked"; validFrom?: string; validUntil?: string }>; extensions: EcosystemExtension[]; advisories?: Array<{ id: string; extensionId: string; versions: string[]; state: "vulnerable" | "revoked" | "malicious"; severity: string; title: string; action?: "warn" | "disable" }>; signature: string }
+export interface EcosystemIndex extends GuardedRegistryDocument {
+  protocolVersion: 2;
+  rootRotations?: RegistryRootRotation[];
+  publishers: Array<{ publisher: string; keyId: string; publicKey: string; state: "active" | "revoked"; validFrom?: string; validUntil?: string }>;
+  extensions: EcosystemExtension[];
+  advisories?: SecurityAdvisory[];
+}
 
 function sha256(bytes: Buffer): string { return crypto.createHash("sha256").update(bytes).digest("hex"); }
 
 export class EcosystemRegistry {
+  readonly advisories = new SecurityAdvisoryService();
+  private readonly trust = new RegistryTrust();
+  private readonly metadataGuard = new RegistryMetadataGuard();
+
   listSources(): EcosystemSource[] {
-    return (getDb().prepare("SELECT * FROM plugin_sources ORDER BY official DESC,name").all() as any[]).map((row) => ({ ...row, official: Boolean(row.official), enabled: Boolean(row.enabled) }));
+    const official = new Map<string, EcosystemSource>();
+    for (const root of OFFICIAL_REGISTRY_TRUST_ROOTS) {
+      if (!official.has(root.sourceId)) official.set(root.sourceId, {
+        id: root.sourceId,
+        name: root.sourceName,
+        indexUrl: root.indexUrl,
+        official: true,
+        enabled: true,
+        registryKeyId: null,
+        registryPublicKey: null,
+      });
+    }
+    const custom = (getDb().prepare("SELECT * FROM plugin_sources ORDER BY name").all() as any[])
+      .filter((row) => !Boolean(row.official) && !RESERVED_OFFICIAL_REGISTRY_SOURCE_IDS.has(row.id))
+      .map((row) => ({ ...row, official: false, enabled: Boolean(row.enabled) } as EcosystemSource));
+    return [...official.values(), ...custom];
   }
 
-  upsertSource(source: Omit<EcosystemSource, "enabled"> & { enabled?: boolean }): EcosystemSource[] {
-    if (!/^https:\/\//.test(source.indexUrl) || !source.registryPublicKey.includes("PUBLIC KEY")) throw new Error("V2 Registry 必须配置 HTTPS 与 Ed25519 公钥");
+  upsertSource(source: Omit<EcosystemSource, "enabled" | "official"> & { enabled?: boolean; official?: boolean }): EcosystemSource[] {
+    if (source.official || RESERVED_OFFICIAL_REGISTRY_SOURCE_IDS.has(source.id)) {
+      throw Object.assign(new Error("Official Registry 配置与公钥只能随客户端编译发布"), { code: "OFFICIAL_REGISTRY_OVERRIDE_DENIED" });
+    }
+    if (!/^https:\/\//.test(source.indexUrl) || !source.registryKeyId || !source.registryPublicKey || !isEd25519PublicKey(source.registryPublicKey)) {
+      throw Object.assign(new Error("Custom Registry 必须配置 HTTPS 与管理员 pinned Ed25519 公钥"), { code: "CUSTOM_REGISTRY_PIN_REQUIRED" });
+    }
     const at = new Date().toISOString();
-    getDb().prepare(`INSERT INTO plugin_sources(id,name,indexUrl,official,enabled,registryKeyId,registryPublicKey,createdAt,updatedAt)
-      VALUES (?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name,indexUrl=excluded.indexUrl,official=excluded.official,enabled=excluded.enabled,registryKeyId=excluded.registryKeyId,registryPublicKey=excluded.registryPublicKey,updatedAt=excluded.updatedAt`)
-      .run(source.id, source.name, source.indexUrl, source.official ? 1 : 0, source.enabled === false ? 0 : 1, source.registryKeyId, source.registryPublicKey, at, at);
+    const db = getDb();
+    const existing = db.prepare("SELECT registryKeyId,registryPublicKey,official FROM plugin_sources WHERE id=?").get(source.id) as {
+      registryKeyId: string | null; registryPublicKey: string | null; official: number;
+    } | undefined;
+    if (existing?.official) throw Object.assign(new Error("Official Registry 配置不可由 API 修改"), { code: "OFFICIAL_REGISTRY_OVERRIDE_DENIED" });
+    db.transaction(() => {
+      if (existing && (existing.registryKeyId !== source.registryKeyId || existing.registryPublicKey !== source.registryPublicKey)) {
+        // 管理员显式重新 pin 时丢弃旧信任链和旧签名缓存，避免跨根继承信任。
+        this.advisories.resetSource(source.id, at);
+        db.prepare("DELETE FROM plugin_registry_metadata_state WHERE sourceId=?").run(source.id);
+        db.prepare("DELETE FROM plugin_registry_root_chain WHERE sourceId=?").run(source.id);
+        db.prepare("DELETE FROM plugin_trust_records WHERE sourceId=?").run(source.id);
+        db.prepare("DELETE FROM marketplace_cache WHERE sourceId=?").run(source.id);
+      }
+      db.prepare(`INSERT INTO plugin_sources(id,name,indexUrl,official,enabled,registryKeyId,registryPublicKey,createdAt,updatedAt)
+        VALUES (?,?,?,0,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name,indexUrl=excluded.indexUrl,
+        official=0,enabled=excluded.enabled,registryKeyId=excluded.registryKeyId,registryPublicKey=excluded.registryPublicKey,updatedAt=excluded.updatedAt`)
+        .run(source.id, source.name, source.indexUrl, source.enabled === false ? 0 : 1, source.registryKeyId, source.registryPublicKey, at, at);
+    })();
     return this.listSources();
   }
 
   async index(sourceId: string): Promise<EcosystemIndex> {
+    if (RESERVED_OFFICIAL_REGISTRY_SOURCE_IDS.has(sourceId) && officialTrustRootsFor(sourceId).length === 0) {
+      throw Object.assign(new Error("Official Registry 未编译信任根，已安全禁用"), { code: "OFFICIAL_REGISTRY_TRUST_ROOT_MISSING" });
+    }
     const source = this.listSources().find((item) => item.id === sourceId && item.enabled);
     if (!source) throw Object.assign(new Error("V2 Registry Source 不存在或已禁用"), { code: "REGISTRY_SOURCE_NOT_FOUND" });
+    this.trust.assertSourceConfigured(source);
     const parsed = JSON.parse((await safeRegistryFetch(source.indexUrl, 4 * 1024 * 1024)).toString("utf8")) as EcosystemIndex;
-    if (parsed.protocolVersion !== 2 || !Array.isArray(parsed.publishers) || !Array.isArray(parsed.extensions) || !parsed.signature || !verifySignedDocument(parsed as any, parsed.signature, source.registryPublicKey)) {
-      throw Object.assign(new Error("V2 Registry 元数据签名无效"), { code: "REGISTRY_SIGNATURE_INVALID" });
+    if (parsed.protocolVersion !== 2 || !Array.isArray(parsed.publishers) || !Array.isArray(parsed.extensions)
+      || parsed.rootRotations !== undefined && !Array.isArray(parsed.rootRotations)
+      || parsed.advisories !== undefined && !Array.isArray(parsed.advisories)) {
+      throw Object.assign(new Error("V2 Registry 元数据结构无效"), { code: "REGISTRY_METADATA_INVALID" });
     }
+    const trust = this.trust.resolve(source, parsed.signerKeyId, parsed.rootRotations || []);
+    const verifiedMetadata = this.metadataGuard.validate(sourceId, parsed, trust.signer.publicKey);
     const extensionIds = new Set<string>();
     for (const extension of parsed.extensions) {
       if (extensionIds.has(extension.id) || !extension.id.startsWith(`${extension.publisher}.`)) throw Object.assign(new Error("Registry extension namespace 或 ID 重复"), { code: "REGISTRY_METADATA_INVALID" });
@@ -50,19 +112,31 @@ export class EcosystemRegistry {
           if (replacement && (replacement.sha256 !== version.sha256 || replacement.signature !== version.signature)) throw Object.assign(new Error(`Registry 试图覆盖不可变版本: ${extension.id}@${version.version}`), { code: "REGISTRY_IMMUTABILITY_VIOLATION" });
         }
       }
-      getDb().prepare(`INSERT INTO marketplace_cache(sourceId,extensionId,metadataJson,fetchedAt) VALUES (?,?,?,?)
-        ON CONFLICT(sourceId,extensionId) DO UPDATE SET metadataJson=excluded.metadataJson,fetchedAt=excluded.fetchedAt`).run(sourceId, extension.id, JSON.stringify(extension), new Date().toISOString());
     }
-    const now = Date.now();
+    const now = new Date().toISOString();
     const db = getDb();
-    const putKey = db.prepare(`INSERT INTO plugin_trust_records(sourceId,publisher,keyId,publicKey,state,validFrom,validUntil,revokedAt,updatedAt)
-      VALUES (?,?,?,?,?,?,?,?,?) ON CONFLICT(sourceId,keyId) DO UPDATE SET publisher=excluded.publisher,publicKey=excluded.publicKey,state=excluded.state,validFrom=excluded.validFrom,validUntil=excluded.validUntil,revokedAt=excluded.revokedAt,updatedAt=excluded.updatedAt`);
-    for (const key of parsed.publishers) putKey.run(sourceId, key.publisher, key.keyId, key.publicKey, key.state, key.validFrom || null, key.validUntil || null, key.state === "revoked" ? new Date().toISOString() : null, new Date().toISOString());
-    for (const advisory of parsed.advisories || []) for (const version of advisory.versions) db.prepare(`INSERT INTO plugin_security_state(pluginId,version,state,severity,advisoryId,title,action,checkedAt)
-      VALUES (?,?,?,?,?,?,?,?) ON CONFLICT(pluginId,version) DO UPDATE SET state=excluded.state,severity=excluded.severity,advisoryId=excluded.advisoryId,title=excluded.title,action=excluded.action,checkedAt=excluded.checkedAt`)
-      .run(advisory.extensionId, version, advisory.state, advisory.severity, advisory.id, advisory.title, advisory.action || "warn", new Date(now).toISOString());
-    db.prepare(`UPDATE plugin_registry SET status='disabled',advisoryState=(SELECT state FROM plugin_security_state WHERE pluginId=plugin_registry.id AND version=plugin_registry.version),lastError='安全公告已自动禁用该版本',updatedAt=?
-      WHERE EXISTS (SELECT 1 FROM plugin_security_state WHERE pluginId=plugin_registry.id AND version=plugin_registry.version AND state IN ('revoked','malicious') AND action='disable')`).run(new Date().toISOString());
+    db.transaction(() => {
+      // fetch 与写入之间可能有并发刷新，必须在同一事务内重新执行防降级检查。
+      this.metadataGuard.assertCurrent(verifiedMetadata);
+      if (source.official) {
+        db.prepare(`INSERT INTO plugin_sources(id,name,indexUrl,official,enabled,registryKeyId,registryPublicKey,createdAt,updatedAt)
+          VALUES (?,?,?,1,1,NULL,NULL,?,?)
+          ON CONFLICT(id) DO UPDATE SET name=excluded.name,indexUrl=excluded.indexUrl,official=1,enabled=1,
+          registryKeyId=NULL,registryPublicKey=NULL,updatedAt=excluded.updatedAt`)
+          .run(source.id, source.name, source.indexUrl, now, now);
+      }
+      this.trust.persist(sourceId, trust, now);
+      this.metadataGuard.persist(verifiedMetadata, now);
+      const putExtension = db.prepare(`INSERT INTO marketplace_cache(sourceId,extensionId,metadataJson,fetchedAt) VALUES (?,?,?,?)
+        ON CONFLICT(sourceId,extensionId) DO UPDATE SET metadataJson=excluded.metadataJson,fetchedAt=excluded.fetchedAt`);
+      for (const extension of parsed.extensions) putExtension.run(sourceId, extension.id, JSON.stringify(extension), now);
+      const putKey = db.prepare(`INSERT INTO plugin_trust_records(sourceId,publisher,keyId,publicKey,state,validFrom,validUntil,revokedAt,updatedAt)
+        VALUES (?,?,?,?,?,?,?,?,?) ON CONFLICT(sourceId,keyId) DO UPDATE SET publisher=excluded.publisher,publicKey=excluded.publicKey,state=excluded.state,validFrom=excluded.validFrom,validUntil=excluded.validUntil,revokedAt=excluded.revokedAt,updatedAt=excluded.updatedAt`);
+      for (const key of parsed.publishers) putKey.run(sourceId, key.publisher, key.keyId, key.publicKey, key.state,
+        key.validFrom || null, key.validUntil || null, key.state === "revoked" ? now : null, now);
+    })();
+    this.metadataGuard.assertCurrent(verifiedMetadata);
+    this.advisories.apply(sourceId, parsed.advisories || [], [trust.signer]);
     return parsed;
   }
 

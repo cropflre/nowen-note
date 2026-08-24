@@ -40,7 +40,10 @@ pluginsRouter.put("/ecosystem/sources", requireAdmin, async (c) => {
   try { return c.json(getPluginService().ecosystem.upsertSource(await c.req.json())); } catch (error) { return errorResponse(c, error); }
 });
 pluginsRouter.get("/ecosystem/catalog", async (c) => {
-  try { return c.json(await getPluginService().ecosystem.index(String(c.req.query("source") || "official-v2"))); } catch (error) { return errorResponse(c, error); }
+  try { return c.json(await getPluginService().ecosystemCatalog(String(c.req.query("source") || "official-v2"))); } catch (error) { return errorResponse(c, error); }
+});
+pluginsRouter.get("/ecosystem/advisories", requireAdmin, (c) => {
+  try { return c.json(getPluginService().securityAdvisories(c.req.query("source") || undefined)); } catch (error) { return errorResponse(c, error); }
 });
 pluginsRouter.post("/ecosystem/install", requireAdmin, async (c) => {
   try { const body = await c.req.json() as any; return c.json({ success: true, plugin: await getPluginService().installFromEcosystem(String(body.sourceId || "official-v2"), String(body.pluginId || ""), body.version, userId(c)) }, 201); } catch (error) { return errorResponse(c, error); }

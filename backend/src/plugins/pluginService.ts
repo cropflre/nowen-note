@@ -123,7 +123,9 @@ export class PluginService {
   }
 
   async checkUpdates(sourceId: string): Promise<Array<Record<string, unknown>>> {
-    const index = await this.ecosystem.index(sourceId); const updates: Array<Record<string, unknown>> = [];
+    const index = await this.ecosystem.index(sourceId);
+    await this.enforceCriticalAdvisories();
+    const updates: Array<Record<string, unknown>> = [];
     for (const record of this.registry.list()) {
       const extension = index.extensions.find((item) => item.id === record.id); if (!extension) continue;
       const candidate = [...extension.versions].sort((a, b) => b.version.localeCompare(a.version, undefined, { numeric: true }))[0];
@@ -234,6 +236,7 @@ export class PluginService {
 
   async installFromEcosystem(sourceId: string, pluginId: string, version: string | undefined, installedBy: string): Promise<Record<string, unknown>> {
     const artifact = await this.ecosystem.download(sourceId, pluginId, version);
+    await this.enforceCriticalAdvisories();
     const validated = await this.installer.inspect(artifact.bytes);
     if (validated.manifest.apiVersion !== 2 || validated.manifest.id !== artifact.extension.id || validated.manifest.publisher !== artifact.extension.publisher || validated.manifest.version !== artifact.version.version) {
       throw Object.assign(new Error("签名元数据与 V2 Manifest 不一致"), { code: "REGISTRY_MANIFEST_MISMATCH" });
@@ -268,6 +271,16 @@ export class PluginService {
 
   isDeveloperModeAvailable(): boolean {
     return process.env.NODE_ENV !== "production" || Boolean(process.env.ELECTRON_USER_DATA);
+  }
+
+  async ecosystemCatalog(sourceId: string): Promise<Awaited<ReturnType<EcosystemRegistry["index"]>>> {
+    const index = await this.ecosystem.index(sourceId);
+    await this.enforceCriticalAdvisories();
+    return index;
+  }
+
+  securityAdvisories(sourceId?: string): Array<Record<string, unknown>> {
+    return this.ecosystem.advisories.list(sourceId);
   }
 
   grantPermissions(pluginId: string, grants: string[], grantedBy: string): Record<string, unknown> {
@@ -398,6 +411,11 @@ export class PluginService {
     const validated = validateActionInput(action, input);
     const timeoutMs = action.execution === "background" ? 30_000 : 10_000;
     return this.executions.execute({ pluginId, actionId, userId, workspaceId, actionInput: validated, timeoutMs, executionId, executionContext });
+  }
+
+  private async enforceCriticalAdvisories(): Promise<void> {
+    const disabled = this.registry.list().filter((record) => record.status === "disabled" && record.advisoryState === "critical");
+    await Promise.all(disabled.map((record) => this.executions.shutdown(record.id)));
   }
 
   private publicRecord(record: PluginRegistryRecord): Record<string, unknown> {

@@ -11,6 +11,19 @@ export function artifactDigest(bytes: Buffer): Buffer {
   return crypto.createHash("sha256").update(bytes).digest();
 }
 
+export function documentDigest(document: Record<string, unknown>): string {
+  return crypto.createHash("sha256").update(canonicalJson(document)).digest("hex");
+}
+
+export function isEd25519PublicKey(publicKey: string): boolean {
+  try {
+    const key = crypto.createPublicKey(publicKey);
+    return key.type === "public" && key.asymmetricKeyType === "ed25519";
+  } catch {
+    return false;
+  }
+}
+
 export function verifyEd25519(data: Buffer | string, signature: string, publicKey: string): boolean {
   try { return crypto.verify(null, Buffer.isBuffer(data) ? data : Buffer.from(data), publicKey, Buffer.from(signature, "base64")); }
   catch { return false; }
