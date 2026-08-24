@@ -1,5 +1,3 @@
-import dns from "node:dns/promises";
-import net from "node:net";
 import { getDb } from "../db/schema.js";
 import {
   getUserWorkspaceRole,
@@ -21,6 +19,7 @@ import {
 } from "./hostApiContract.js";
 import { PluginPermissions, type PermissionRow } from "./permissions.js";
 import { PluginRegistry } from "./registry.js";
+import { secureExternalFetch, type ExternalFetchRequest } from "./secureExternalFetch.js";
 import { PluginSecrets } from "./secrets.js";
 import type { HostCall, PluginExecutionContext, PluginManifest } from "./types.js";
 
@@ -65,23 +64,6 @@ function allowedWorkspace(workspaceId: string | null, userId: string, write = fa
   if (!workspaceId) return true;
   const role = getUserWorkspaceRole(workspaceId, userId);
   return write ? hasRole(role, "editor") : role !== null;
-}
-
-function isPrivateAddress(address: string): boolean {
-  if (net.isIPv4(address)) {
-    const [a, b] = address.split(".").map(Number);
-    return a === 10 || a === 127 || a === 0 || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168);
-  }
-  const lower = address.toLowerCase();
-  return lower === "::1" || lower === "::" || lower.startsWith("fc") || lower.startsWith("fd") || lower.startsWith("fe80:");
-}
-
-async function assertPublicHost(hostname: string): Promise<void> {
-  if (hostname === "localhost" || net.isIP(hostname) && isPrivateAddress(hostname)) forbidden("禁止访问本机或私有网络", "EXTERNAL_FETCH_DENIED");
-  const addresses = await dns.lookup(hostname, { all: true });
-  if (addresses.length === 0 || addresses.some((item) => isPrivateAddress(item.address))) {
-    forbidden("目标解析到私有网络", "EXTERNAL_FETCH_DENIED");
-  }
 }
 
 export class HostApiBroker {
@@ -374,16 +356,13 @@ export class HostApiBroker {
     if (!methodPermission) {
       throw Object.assign(new Error("external.fetch 合同缺少方法权限"), { code: "HOST_METHOD_UNSUPPORTED" });
     }
-    const url = new URL(requireString(args.url, "url"));
-    if (url.protocol !== "https:") forbidden("external.fetch 只允许 HTTPS", "EXTERNAL_FETCH_DENIED");
-    const config = JSON.parse(methodPermission.configJson || "{}") as { hosts?: string[] };
-    if (!config.hosts?.includes(url.hostname)) forbidden(`Host 未在插件白名单: ${url.hostname}`, "EXTERNAL_FETCH_DENIED");
-    await assertPublicHost(url.hostname);
-    const headers = new Headers();
-    for (const [name, value] of Object.entries(args.headers || {})) {
-      if (/^(authorization|cookie|proxy-authorization)$/i.test(name)) continue;
-      headers.set(name, String(value));
+    let config: { hosts?: string[] };
+    try {
+      config = JSON.parse(methodPermission.configJson || "{}") as { hosts?: string[] };
+    } catch {
+      forbidden("external.fetch 白名单配置无效", "EXTERNAL_FETCH_DENIED");
     }
+    const trustedHeaders: Record<string, string> = {};
     if (args.connection) {
       this.permissions.require(context.pluginId, requireV2CombinationPermission("secrets:use"));
       const connectionId = String(args.connection);
@@ -392,21 +371,23 @@ export class HostApiBroker {
       const connection = manifest?.connections?.find((item) => item.id === connectionId);
       if (!connection) forbidden(`Manifest 未声明 Connection: ${connectionId}`, "INVALID_ARGUMENT");
       const secret = this.secrets.get(context.pluginId, context.userId, connectionId);
-      if (connection.type === "bearer") headers.set("Authorization", `Bearer ${secret}`);
-      else if (connection.type === "api-key-header") headers.set(connection.headerName || "X-API-Key", secret);
-      else headers.set("Authorization", `Basic ${Buffer.from(secret, "utf8").toString("base64")}`);
+      if (connection.type === "bearer") trustedHeaders.Authorization = `Bearer ${secret}`;
+      else if (connection.type === "api-key-header") trustedHeaders[connection.headerName || "X-API-Key"] = secret;
+      else trustedHeaders.Authorization = `Basic ${Buffer.from(secret, "utf8").toString("base64")}`;
     }
-    const response = await fetch(url, {
-      method: String(args.method || "GET").toUpperCase(),
-      headers,
-      body: args.body === undefined ? undefined : (typeof args.body === "string" ? args.body : JSON.stringify(args.body)),
-      redirect: "manual",
-      signal: AbortSignal.timeout(15_000),
+    return await secureExternalFetch({
+      url: requireString(args.url, "url"),
+      method: typeof args.method === "string" ? args.method : undefined,
+      headers: args.headers && typeof args.headers === "object" && !Array.isArray(args.headers)
+        ? args.headers as ExternalFetchRequest["headers"]
+        : undefined,
+      body: args.body,
+      trustedHeaders,
+    }, {
+      allowedHosts: Array.isArray(config.hosts) ? config.hosts.filter((host): host is string => typeof host === "string") : [],
+      timeoutMs: 10_000,
+      maxRedirects: 5,
+      maxResponseBytes: 2 * 1024 * 1024,
     });
-    const contentLength = Number(response.headers.get("content-length") || 0);
-    if (contentLength > 1024 * 1024) throw new Error("external.fetch 响应超过 1MB");
-    const body = await response.text();
-    if (Buffer.byteLength(body, "utf8") > 1024 * 1024) throw new Error("external.fetch 响应超过 1MB");
-    return { status: response.status, ok: response.ok, headers: { "content-type": response.headers.get("content-type") }, body };
   }
 }
