@@ -6,6 +6,7 @@ export interface OfficialRegistryTrustRoot {
   algorithm: "Ed25519";
   publicKey: string;
   sequence: number;
+  state: "active" | "revoked";
   validFrom: string;
   validUntil: string;
 }

@@ -46,9 +46,12 @@ export class PluginService {
     db.prepare("UPDATE plugin_registry SET status='quarantined',lastError='开发插件重启后需要重新确认',updatedAt=? WHERE source='dev'")
       .run(new Date().toISOString());
     db.prepare("UPDATE plugin_permissions SET granted=0,grantedBy=NULL,grantedAt=NULL WHERE pluginId IN (SELECT id FROM plugin_registry WHERE source='dev')").run();
+    this.ecosystem.advisories.refreshDerivedState();
     if (process.env.NODE_ENV !== "test") {
       const timer = setInterval(() => { void this.runAutomaticUpdates().catch(() => undefined); }, 6 * 60 * 60 * 1000);
       timer.unref();
+      const advisoryTimer = setInterval(() => this.ecosystem.advisories.refreshDerivedState(Date.now(), false), 60 * 1000);
+      advisoryTimer.unref();
     }
   }
 
@@ -128,7 +131,11 @@ export class PluginService {
     const updates: Array<Record<string, unknown>> = [];
     for (const record of this.registry.list()) {
       const extension = index.extensions.find((item) => item.id === record.id); if (!extension) continue;
-      const candidate = [...extension.versions].sort((a, b) => b.version.localeCompare(a.version, undefined, { numeric: true }))[0];
+      const candidates = [...extension.versions]
+        .sort((a, b) => b.version.localeCompare(a.version, undefined, { numeric: true }))
+        .map((version) => ({ version, advisory: this.ecosystem.advisories.versionStatus(extension.id, version.version) }));
+      const evaluated = candidates.find((item) => !item.advisory.blocked);
+      const candidate = evaluated?.version;
       if (!candidate || candidate.version.localeCompare(record.version, undefined, { numeric: true }) <= 0 || record.pinnedVersion) continue;
       const current = manifestOf(record); const oldPermissions = new Set(current.permissions);
       const added = candidate.permissions.filter((permission) => !oldPermissions.has(permission as any));
@@ -147,7 +154,14 @@ export class PluginService {
       getDb().prepare(`INSERT INTO plugin_update_state(pluginId,availableVersion,permissionDiffJson,checkedAt) VALUES (?,?,?,?)
         ON CONFLICT(pluginId) DO UPDATE SET availableVersion=excluded.availableVersion,permissionDiffJson=excluded.permissionDiffJson,checkedAt=excluded.checkedAt,lastError=NULL`)
         .run(record.id, candidate.version, JSON.stringify({ added, addedHosts }), new Date().toISOString());
-      updates.push({ pluginId: record.id, currentVersion: record.version, availableVersion: candidate.version, permissionDiff: { added, addedHosts }, confirmationRequired });
+      updates.push({
+        pluginId: record.id,
+        currentVersion: record.version,
+        availableVersion: candidate.version,
+        advisoryState: evaluated!.advisory.state,
+        permissionDiff: { added, addedHosts },
+        confirmationRequired,
+      });
     }
     return updates;
   }
@@ -242,13 +256,28 @@ export class PluginService {
       throw Object.assign(new Error("签名元数据与 V2 Manifest 不一致"), { code: "REGISTRY_MANIFEST_MISMATCH" });
     }
     const trust = artifact.extension.trustLevel || "community";
-    this.policy.assertAllowed(this.candidateCompatibility(validated.manifest, "registry", trust, "verified", false));
+    const advisoryStatus = this.ecosystem.advisories.assertInstallAllowed(pluginId, validated.manifest.version);
+    this.policy.assertAllowed(this.candidateCompatibility(
+      validated.manifest,
+      "registry",
+      trust,
+      "verified",
+      false,
+      advisoryStatus.state,
+    ));
     const existing = this.registry.get(pluginId);
     if (existing && validated.manifest.version.localeCompare(existing.version, undefined, { numeric: true }) < 0) throw Object.assign(new Error("Registry 安装拒绝降级；请使用已验证版本回滚"), { code: "PLUGIN_DOWNGRADE_DENIED" });
-    return this.publicRecord(await this.updates.installUpdate(validated, installedBy, {
+    const installed = await this.updates.installUpdate(validated, installedBy, {
       source: "registry", trustLevel: trust, publisherKeyId: artifact.version.publisherKeyId,
       signature: artifact.version.signature, signatureState: "verified", artifactUrl: artifact.version.artifactUrl,
-    }));
+    });
+    try {
+      this.ecosystem.advisories.markInstalledVersionStatus(installed.id, installed.version);
+    } catch (error) {
+      await this.enforceCriticalAdvisories();
+      throw error;
+    }
+    return this.publicRecord(this.registry.get(installed.id)!);
   }
 
   connections(pluginId: string, userId: string): Array<Record<string, unknown>> {
@@ -289,6 +318,7 @@ export class PluginService {
   }
 
   async enable(pluginId: string): Promise<Record<string, unknown>> {
+    this.ecosystem.advisories.refreshDerivedState(Date.now(), false);
     let record = this.requireRecord(pluginId);
     if (record.activeOperationId && record.lifecycleState !== "probation") {
       throw Object.assign(new Error("插件正在更新，暂时不能启用"), { code: "PLUGIN_UPDATE_IN_PROGRESS" });
@@ -354,6 +384,7 @@ export class PluginService {
       throw Object.assign(new Error("插件正在更新，暂时不能禁用"), { code: "PLUGIN_UPDATE_IN_PROGRESS" });
     }
     this.registry.setStatus(pluginId, "disabled");
+    getDb().prepare("UPDATE plugin_registry SET advisoryAutoDisabled=0 WHERE id=?").run(pluginId);
     await this.executions.shutdown(pluginId);
     return this.get(pluginId);
   }
@@ -414,7 +445,8 @@ export class PluginService {
   }
 
   private async enforceCriticalAdvisories(): Promise<void> {
-    const disabled = this.registry.list().filter((record) => record.status === "disabled" && record.advisoryState === "critical");
+    const disabled = this.registry.list().filter((record) => record.status === "disabled"
+      && ["critical", "revoked", "malicious"].includes(record.advisoryState || ""));
     await Promise.all(disabled.map((record) => this.executions.shutdown(record.id)));
   }
 
@@ -486,13 +518,14 @@ export class PluginService {
     trustLevel: ExtensionCompatibilityInput["trustLevel"],
     signatureState: string,
     nodeRuntimeConfirmed: boolean,
+    advisoryState: ExtensionCompatibilityInput["advisoryState"] = "unknown",
   ): ExtensionCompatibilityInput {
     return {
       manifest,
       source,
       trustLevel,
       signatureState,
-      advisoryState: "unknown",
+      advisoryState,
       nodeRuntimeConfirmed,
     };
   }

@@ -136,17 +136,23 @@ export class EcosystemRegistry {
         key.validFrom || null, key.validUntil || null, key.state === "revoked" ? now : null, now);
     })();
     this.metadataGuard.assertCurrent(verifiedMetadata);
-    this.advisories.apply(sourceId, parsed.advisories || [], [trust.signer]);
+    this.advisories.apply(sourceId, parsed.advisories || [], trust.chain);
     return parsed;
   }
 
-  async download(sourceId: string, extensionId: string, requestedVersion?: string): Promise<{ bytes: Buffer; extension: EcosystemExtension; version: EcosystemVersion }> {
+  async download(sourceId: string, extensionId: string, requestedVersion?: string): Promise<{
+    bytes: Buffer;
+    extension: EcosystemExtension;
+    version: EcosystemVersion;
+    advisoryStatus: ReturnType<SecurityAdvisoryService["versionStatus"]>;
+  }> {
     const index = await this.index(sourceId);
     const extension = index.extensions.find((item) => item.id === extensionId);
     if (!extension) throw Object.assign(new Error("Registry 中不存在该插件"), { code: "REGISTRY_PLUGIN_NOT_FOUND" });
     const versions = [...extension.versions].sort((a, b) => b.version.localeCompare(a.version, undefined, { numeric: true }));
     const version = versions.find((item) => item.version === requestedVersion) || (!requestedVersion ? versions[0] : undefined);
     if (!version) throw Object.assign(new Error("插件版本不存在"), { code: "PLUGIN_INCOMPATIBLE" });
+    this.advisories.assertInstallAllowed(extensionId, version.version);
     const platform = process.env.ELECTRON_USER_DATA ? "desktop-full" : "server";
     const runtimePlatforms = version.runtimePlatform || version.platforms;
     if (!nowenVersionSatisfies(version.nowen) || runtimePlatforms?.length && !runtimePlatforms.includes(platform)) throw Object.assign(new Error("插件与当前 Nowen/Runtime 平台不兼容"), { code: "PLUGIN_INCOMPATIBLE" });
@@ -156,6 +162,7 @@ export class EcosystemRegistry {
     const bytes = await safeRegistryFetch(version.artifactUrl, PACKAGE_LIMITS.compressedBytes);
     if (sha256(bytes) !== version.sha256.toLowerCase()) throw Object.assign(new Error("插件 SHA256 不匹配"), { code: "REGISTRY_CHECKSUM_MISMATCH" });
     if (!verifyArtifactSignature(bytes, version.signature, key.publicKey)) throw Object.assign(new Error("插件 Publisher 签名无效"), { code: "PLUGIN_SIGNATURE_INVALID" });
-    return { bytes, extension, version };
+    const advisoryStatus = this.advisories.assertInstallAllowed(extensionId, version.version);
+    return { bytes, extension, version, advisoryStatus };
   }
 }

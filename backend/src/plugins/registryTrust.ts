@@ -30,6 +30,7 @@ export interface TrustedRegistryKey {
   validFrom: string;
   validUntil: string;
   parentKeyId: string | null;
+  state: "active" | "superseded" | "revoked";
   signature: string | null;
   documentJson: string;
 }
@@ -57,6 +58,7 @@ function rootFromOfficial(root: OfficialRegistryTrustRoot): TrustedRegistryKey {
     validFrom: root.validFrom,
     validUntil: root.validUntil,
     parentKeyId: null,
+    state: root.state,
     signature: null,
     documentJson: JSON.stringify(root),
   };
@@ -75,7 +77,7 @@ function assertRootFormat(root: TrustedRegistryKey): void {
 
 function assertActiveRoot(root: TrustedRegistryKey, now: number): void {
   assertRootFormat(root);
-  if (Date.parse(root.validFrom) > now + MAX_CLOCK_SKEW_MS || Date.parse(root.validUntil) <= now) {
+  if (root.state !== "active" || Date.parse(root.validFrom) > now + MAX_CLOCK_SKEW_MS || Date.parse(root.validUntil) <= now) {
     throw codedError(`Registry 根不在有效期内: ${root.keyId}`, "REGISTRY_TRUST_ROOT_EXPIRED");
   }
 }
@@ -103,6 +105,7 @@ function validateRotation(rotation: RegistryRootRotation, parent: TrustedRegistr
     validFrom: rotation.validFrom,
     validUntil: rotation.validUntil,
     parentKeyId: rotation.parentKeyId,
+    state: "active",
     signature: rotation.signature,
     documentJson: JSON.stringify(rotation),
   };
@@ -148,6 +151,7 @@ export class RegistryTrust {
         validFrom: "1970-01-01T00:00:00.000Z",
         validUntil: "9999-12-31T23:59:59.999Z",
         parentKeyId: null,
+        state: "active",
         signature: null,
         documentJson: JSON.stringify({ keyId: source.registryKeyId, algorithm: "Ed25519", publicKey: source.registryPublicKey }),
       }];
@@ -157,10 +161,10 @@ export class RegistryTrust {
     const chain = [...anchors].sort((a, b) => a.sequence - b.sequence);
     let current = chain[chain.length - 1];
 
-    const stored = getDb().prepare(`SELECT keyId,sequence,parentKeyId,publicKey,validFrom,validUntil,signature,documentJson
+    const stored = getDb().prepare(`SELECT keyId,sequence,parentKeyId,publicKey,state,validFrom,validUntil,signature,documentJson
       FROM plugin_registry_root_chain WHERE sourceId=? AND parentKeyId IS NOT NULL ORDER BY sequence`).all(source.id) as Array<{
       keyId: string; sequence: number; parentKeyId: string; publicKey: string; validFrom: string;
-      validUntil: string; signature: string; documentJson: string;
+      validUntil: string; state: "active" | "superseded" | "revoked"; signature: string; documentJson: string;
     }>;
     for (const row of stored) {
       if (row.sequence <= current.sequence) continue;
@@ -171,6 +175,10 @@ export class RegistryTrust {
       if (accepted.keyId !== row.keyId || accepted.sequence !== row.sequence || accepted.publicKey !== row.publicKey) {
         throw codedError("已保存的 Registry 根链内容不一致", "REGISTRY_ROOT_CHAIN_CORRUPT");
       }
+      if (!["active", "superseded", "revoked"].includes(row.state)) {
+        throw codedError("已保存的 Registry 根状态无效", "REGISTRY_ROOT_CHAIN_CORRUPT");
+      }
+      accepted.state = row.state;
       chain.push(accepted);
       current = accepted;
     }
@@ -184,6 +192,7 @@ export class RegistryTrust {
         }
         continue;
       }
+      assertActiveRoot(current, now);
       const accepted = validateRotation(rotation, current, now);
       if (chain.some((root) => root.keyId === accepted.keyId)) {
         throw codedError("Registry 根轮换复用了已有 key ID", "REGISTRY_ROOT_ROTATION_INVALID");
@@ -196,23 +205,28 @@ export class RegistryTrust {
     if (current.keyId !== signerKeyId) {
       throw codedError("Registry 文档签名者不是当前 active root", "REGISTRY_SIGNER_NOT_ACTIVE");
     }
+    for (const root of chain) {
+      if (root.state !== "revoked") root.state = root.keyId === current.keyId ? "active" : "superseded";
+    }
     return { signer: current, chain };
   }
 
   persist(sourceId: string, resolution: RegistryTrustResolution, now = new Date().toISOString()): void {
     const put = getDb().prepare(`INSERT INTO plugin_registry_root_chain(
       sourceId,keyId,sequence,parentKeyId,publicKey,state,validFrom,validUntil,signedByKeyId,signature,documentJson,verifiedAt,createdAt,updatedAt
-    ) VALUES (?,?,?,?,?,'active',?,?,?,?,?,?,?,?)
+    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
     ON CONFLICT(sourceId,keyId) DO UPDATE SET
       sequence=excluded.sequence,parentKeyId=excluded.parentKeyId,publicKey=excluded.publicKey,
-      state=excluded.state,validFrom=excluded.validFrom,validUntil=excluded.validUntil,
+      state=CASE WHEN plugin_registry_root_chain.state='revoked' THEN 'revoked' ELSE excluded.state END,
+      validFrom=excluded.validFrom,validUntil=excluded.validUntil,
       signedByKeyId=excluded.signedByKeyId,signature=excluded.signature,documentJson=excluded.documentJson,
       verifiedAt=excluded.verifiedAt,updatedAt=excluded.updatedAt`);
     for (const root of resolution.chain) {
-      put.run(sourceId, root.keyId, root.sequence, root.parentKeyId, root.publicKey,
+      const state = root.state === "revoked" ? "revoked" : root.keyId === resolution.signer.keyId ? "active" : "superseded";
+      put.run(sourceId, root.keyId, root.sequence, root.parentKeyId, root.publicKey, state,
         root.validFrom, root.validUntil, root.parentKeyId, root.signature, root.documentJson, now, now, now);
     }
-    getDb().prepare("UPDATE plugin_registry_root_chain SET state='superseded',updatedAt=? WHERE sourceId=? AND keyId<>?")
+    getDb().prepare("UPDATE plugin_registry_root_chain SET state='superseded',updatedAt=? WHERE sourceId=? AND keyId<>? AND state<>'revoked'")
       .run(now, sourceId, resolution.signer.keyId);
   }
 }

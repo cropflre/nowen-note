@@ -52,7 +52,7 @@ export class RegistryMetadataGuard {
     }
 
     const digest = documentDigest(document);
-    this.assertSequenceAndDigest(sourceId, document.sequence, digest);
+    this.assertSequenceAndDigest(sourceId, document.sequence, digest, document.generatedAt);
     return {
       sourceId,
       sequence: document.sequence,
@@ -78,18 +78,21 @@ export class RegistryMetadataGuard {
         verifiedAt, metadata.signerKeyId, metadata.documentJson);
   }
 
-  assertCurrent(metadata: Pick<VerifiedRegistryMetadata, "sourceId" | "sequence" | "digest">): void {
-    this.assertSequenceAndDigest(metadata.sourceId, metadata.sequence, metadata.digest);
+  assertCurrent(metadata: Pick<VerifiedRegistryMetadata, "sourceId" | "sequence" | "digest" | "generatedAt">): void {
+    this.assertSequenceAndDigest(metadata.sourceId, metadata.sequence, metadata.digest, metadata.generatedAt);
   }
 
-  private assertSequenceAndDigest(sourceId: string, sequence: number, digest: string): void {
-    const previous = getDb().prepare(`SELECT highestSeenSequence,documentDigest FROM plugin_registry_metadata_state WHERE sourceId=?`)
-      .get(sourceId) as { highestSeenSequence: number; documentDigest: string } | undefined;
+  private assertSequenceAndDigest(sourceId: string, sequence: number, digest: string, generatedAt: string): void {
+    const previous = getDb().prepare(`SELECT highestSeenSequence,documentDigest,generatedAt FROM plugin_registry_metadata_state WHERE sourceId=?`)
+      .get(sourceId) as { highestSeenSequence: number; documentDigest: string; generatedAt: string } | undefined;
     if (previous && sequence < previous.highestSeenSequence) {
       throw codedError("Registry 元数据 sequence 回退", "REGISTRY_METADATA_ROLLBACK");
     }
     if (previous && sequence === previous.highestSeenSequence && digest !== previous.documentDigest) {
       throw codedError("Registry 元数据同 sequence 内容发生变化", "REGISTRY_METADATA_EQUIVOCATION");
+    }
+    if (previous && sequence > previous.highestSeenSequence && Date.parse(generatedAt) < Date.parse(previous.generatedAt)) {
+      throw codedError("Registry 元数据 sequence 前进但 generatedAt 倒退", "REGISTRY_METADATA_TIME_ROLLBACK");
     }
   }
 }

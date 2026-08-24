@@ -55,6 +55,7 @@ import { automationPlatformMigration } from "./automationPlatformMigration.js";
 import { extensionEcosystemMigration } from "./extensionEcosystemMigration.js";
 import { extensionEcosystemRc1Migration } from "./extensionEcosystemRc1Migration.js";
 import { pluginUpdateLifecycleMigration } from "./pluginUpdateLifecycleMigration.js";
+import { extensionAdvisoryFreshnessMigration } from "./extensionAdvisoryFreshnessMigration.js";
 
 export type { Migration } from "./migrations.impl.js";
 
@@ -366,6 +367,7 @@ export const MIGRATIONS: Migration[] = [
   extensionEcosystemMigration,
   extensionEcosystemRc1Migration,
   pluginUpdateLifecycleMigration,
+  extensionAdvisoryFreshnessMigration,
 ].sort((a, b) => a.version - b.version);
 
 export const CURRENT_SCHEMA_VERSION: number = MIGRATIONS.reduce(
