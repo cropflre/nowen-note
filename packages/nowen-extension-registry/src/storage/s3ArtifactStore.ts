@@ -5,12 +5,21 @@ import {
   GetObjectCommand,
   HeadBucketCommand,
   HeadObjectCommand,
+  ListObjectsV2Command,
   PutObjectCommand,
   S3Client,
   type S3ClientConfig,
 } from "@aws-sdk/client-s3";
-import type { ArtifactStore } from "./artifactStore.js";
-import { artifactKeyForDigest, assertArtifactKey, assertSha256, assertStagedKey, createStagedKey } from "./artifactStore.js";
+import type { ArtifactListPrefix, ArtifactStore, ArtifactStoreEntry } from "./artifactStore.js";
+import {
+  artifactKeyForDigest,
+  assertArtifactKey,
+  assertArtifactListPrefix,
+  assertRemovableArtifactKey,
+  assertSha256,
+  assertStagedKey,
+  createStagedKey,
+} from "./artifactStore.js";
 
 export interface S3ArtifactStoreOptions {
   region: string;
@@ -136,9 +145,38 @@ export class S3ArtifactStore implements ArtifactStore {
     }
   }
 
+  async *list(prefix: ArtifactListPrefix): AsyncIterable<ArtifactStoreEntry> {
+    assertArtifactListPrefix(prefix);
+    const namespace = this.prefix ? `${this.prefix}/` : "";
+    let continuationToken: string | undefined;
+    do {
+      const response = await this.client.send(new ListObjectsV2Command({
+        Bucket: this.bucket,
+        Prefix: this.objectKey(prefix),
+        ContinuationToken: continuationToken,
+      }));
+      for (const object of response.Contents || []) {
+        if (!object.Key || !object.Key.startsWith(namespace)) continue;
+        const key = object.Key.slice(namespace.length);
+        if (!key.startsWith(prefix)) continue;
+        yield {
+          key,
+          sizeBytes: Number(object.Size || 0),
+          ...(object.LastModified ? { lastModifiedAt: object.LastModified.toISOString() } : {}),
+        };
+      }
+      continuationToken = response.IsTruncated ? response.NextContinuationToken : undefined;
+    } while (continuationToken);
+  }
+
+  async remove(key: string): Promise<void> {
+    assertRemovableArtifactKey(key);
+    await this.client.send(new DeleteObjectCommand({ Bucket: this.bucket, Key: this.objectKey(key) }));
+  }
+
   async removeStaged(stagedKey: string): Promise<void> {
     assertStagedKey(stagedKey);
-    await this.client.send(new DeleteObjectCommand({ Bucket: this.bucket, Key: this.objectKey(stagedKey) }));
+    await this.remove(stagedKey);
   }
 
   async health(): Promise<{ ok: boolean; detail?: string }> {

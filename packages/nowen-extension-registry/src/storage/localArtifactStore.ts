@@ -1,8 +1,16 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import type { ArtifactStore } from "./artifactStore.js";
-import { artifactKeyForDigest, assertArtifactKey, assertSha256, assertStagedKey, createStagedKey } from "./artifactStore.js";
+import type { ArtifactListPrefix, ArtifactStore, ArtifactStoreEntry } from "./artifactStore.js";
+import {
+  artifactKeyForDigest,
+  assertArtifactKey,
+  assertArtifactListPrefix,
+  assertRemovableArtifactKey,
+  assertSha256,
+  assertStagedKey,
+  createStagedKey,
+} from "./artifactStore.js";
 
 async function fileDigest(filePath: string): Promise<{ sha256: string; sizeBytes: number }> {
   const hash = crypto.createHash("sha256");
@@ -48,7 +56,6 @@ export class LocalArtifactStore implements ArtifactStore {
     const finalPath = this.resolveArtifact(finalKey);
     await fs.promises.mkdir(path.dirname(finalPath), { recursive: true });
     try {
-      // 硬链接提交保证并发发布时不会覆盖已存在的内容寻址对象。
       await fs.promises.link(stagedPath, finalPath);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
@@ -75,8 +82,21 @@ export class LocalArtifactStore implements ArtifactStore {
     }
   }
 
+  async *list(prefix: ArtifactListPrefix): AsyncIterable<ArtifactStoreEntry> {
+    assertArtifactListPrefix(prefix);
+    const directory = path.join(this.root, ...prefix.slice(0, -1).split("/"));
+    yield* this.walk(directory, prefix.slice(0, -1));
+  }
+
+  async remove(key: string): Promise<void> {
+    assertRemovableArtifactKey(key);
+    const resolved = key.startsWith("staging/") ? this.resolveStaged(key) : this.resolveArtifact(key);
+    await fs.promises.rm(resolved, { force: true });
+  }
+
   async removeStaged(stagedKey: string): Promise<void> {
-    await fs.promises.rm(this.resolveStaged(stagedKey), { force: true });
+    assertStagedKey(stagedKey);
+    await this.remove(stagedKey);
   }
 
   async health(): Promise<{ ok: boolean; detail?: string }> {
@@ -91,6 +111,28 @@ export class LocalArtifactStore implements ArtifactStore {
       return { ok: false, detail: (error as Error).message };
     } finally {
       await fs.promises.rm(probe, { force: true }).catch(() => undefined);
+    }
+  }
+
+  private async *walk(directory: string, relativeDirectory: string): AsyncIterable<ArtifactStoreEntry> {
+    let entries: fs.Dirent[];
+    try {
+      entries = await fs.promises.readdir(directory, { withFileTypes: true });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+      throw error;
+    }
+    for (const entry of entries) {
+      if (entry.isSymbolicLink()) continue;
+      const fullPath = path.join(directory, entry.name);
+      const relative = `${relativeDirectory}/${entry.name}`.replace(/\\/g, "/");
+      if (entry.isDirectory()) {
+        yield* this.walk(fullPath, relative);
+        continue;
+      }
+      if (!entry.isFile()) continue;
+      const stat = await fs.promises.stat(fullPath);
+      yield { key: relative, sizeBytes: stat.size, lastModifiedAt: stat.mtime.toISOString() };
     }
   }
 

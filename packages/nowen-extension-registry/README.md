@@ -18,6 +18,43 @@ Health probes are split for orchestration:
 
 The Registry applies persistent SQLite token buckets globally and per client IP/account/publisher. Authentication, publish, admin-write, community-write and telemetry routes additionally receive fixed-cardinality abuse budgets. Health probes and CORS preflight are exempt so load balancers cannot accidentally take the service out of rotation because of user traffic.
 
+## Backup, restore, and artifact GC
+
+Registry metadata is backed up with SQLite `VACUUM INTO`, producing a consistent snapshot even when WAL mode is enabled. Every backup has a sidecar manifest containing the SHA-256, byte size, schema version, index sequence and active root identifier. Verification runs `integrity_check`, `foreign_key_check`, schema compatibility and artifact metadata consistency checks.
+
+```bash
+# Online-safe metadata snapshot.
+npm run maintenance -- backup --output /backups/nowen-registry
+
+# Verify before moving or restoring a backup.
+npm run maintenance -- verify \
+  --database /backups/nowen-registry/registry-....sqlite \
+  --manifest /backups/nowen-registry/registry-....manifest.json
+
+# Dry-run restore verification. This does not modify registry.db.
+npm run maintenance -- restore \
+  --database /backups/nowen-registry/registry-....sqlite \
+  --manifest /backups/nowen-registry/registry-....manifest.json
+
+# Actual restore. STOP all Registry instances first. The command refuses a target
+# with WAL/SHM files and preserves the previous DB as registry.db.pre-restore-*.
+npm run maintenance -- restore \
+  --database /backups/nowen-registry/registry-....sqlite \
+  --manifest /backups/nowen-registry/registry-....manifest.json \
+  --apply
+```
+
+Artifact binaries live outside the metadata backup when S3-compatible storage is used. Back up the bucket/object-store independently according to the provider's durability policy. The Registry backup contains immutable SHA-256 coordinates needed to validate those objects after recovery.
+
+Artifact garbage collection is conservative and dry-run by default. It preserves every object referenced by `extension_versions`, reports stale staging objects and unreferenced content-addressed objects, and requires `--apply` before deleting anything. The default grace period is 24 hours and deletion is capped per run.
+
+```bash
+npm run maintenance -- gc
+npm run maintenance -- gc --grace-hours 72 --max-delete 500 --apply
+```
+
+GC and publishing are coordinated through cross-process SQLite operation leases. Existing publishes prevent destructive GC from starting, and active GC makes new publishes fail temporarily with `503 REGISTRY_MAINTENANCE_BUSY`. Expired leases are automatically discarded after process crashes.
+
 Run local verification with:
 
 ```bash
@@ -25,4 +62,4 @@ npm ci
 npm run check
 ```
 
-`Extension Registry Production` CI runs the Registry TypeScript check and production-hardening regression suite independently from the main Nowen backend.
+`Extension Registry Production` CI runs the Registry TypeScript check, production-hardening tests, backup/restore verification and artifact-GC regression suite independently from the main Nowen backend.

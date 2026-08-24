@@ -1,8 +1,18 @@
+export type ArtifactListPrefix = "staging/" | "sha256/";
+
+export interface ArtifactStoreEntry {
+  key: string;
+  sizeBytes: number;
+  lastModifiedAt?: string;
+}
+
 export interface ArtifactStore {
   stage(operationId: string, bytes: Buffer): Promise<string>;
   commit(stagedKey: string, sha256: string): Promise<string>;
   read(key: string): Promise<ReadableStream<Uint8Array> | NodeJS.ReadableStream>;
   exists(key: string): Promise<boolean>;
+  list(prefix: ArtifactListPrefix): AsyncIterable<ArtifactStoreEntry>;
+  remove(key: string): Promise<void>;
   removeStaged(stagedKey: string): Promise<void>;
   health(): Promise<{ ok: boolean; detail?: string }>;
 }
@@ -26,6 +36,15 @@ export function assertArtifactKey(key: string): void {
 
 export function assertStagedKey(key: string): void {
   if (!STAGED_KEY_PATTERN.test(key)) throw new Error("staged artifact key is invalid");
+}
+
+export function assertArtifactListPrefix(prefix: string): asserts prefix is ArtifactListPrefix {
+  if (prefix !== "staging/" && prefix !== "sha256/") throw new Error("artifact list prefix is invalid");
+}
+
+export function assertRemovableArtifactKey(key: string): void {
+  if (key.startsWith("staging/")) assertStagedKey(key);
+  else assertArtifactKey(key);
 }
 
 export function createStagedKey(operationId: string, nonce: string): string {

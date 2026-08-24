@@ -3,6 +3,11 @@ import type { DatabaseSync } from "node:sqlite";
 import { Hono, type Context } from "hono";
 import type { RegistryConfig } from "../config.js";
 import { withImmediateTransaction } from "../db/transaction.js";
+import {
+  RegistryMaintenanceBusyError,
+  RegistryOperationLeaseManager,
+  type RegistryOperationLeaseHandle,
+} from "../maintenance/operationLease.js";
 import type { ArtifactStore } from "../storage/artifactStore.js";
 import type { AuditLog } from "../security/audit.js";
 import { safeLog } from "../security/audit.js";
@@ -40,13 +45,16 @@ const publishLimits = {
 export function createPublishRoutes(dependencies: PublishRouteDependencies): Hono {
   const { db, config, sessions, limiter, audit, artifactStore } = dependencies;
   const app = new Hono();
+  const operationLeases = new RegistryOperationLeaseManager(db);
 
   app.post("/", async (c) => {
     let stagedKey: string | undefined;
+    let publishLease: RegistryOperationLeaseHandle | undefined;
     try {
       const contentType = c.req.header("content-type") || "";
       if (!/^multipart\/form-data(?:\s*;|$)/i.test(contentType)) return c.json({ error: "multipart/form-data is required" }, 415);
       const developerId = requireDeveloper(c, sessions, limiter);
+      publishLease = operationLeases.acquirePublish(`developer:${developerId}:${crypto.randomUUID()}`);
       const form = await c.req.parseBody();
       const artifact = form.artifact;
       if (!(artifact instanceof File)) throw new Error("artifact is required");
@@ -61,6 +69,7 @@ export function createPublishRoutes(dependencies: PublishRouteDependencies): Hon
       limiter.assertPublishAvailable(manifest.publisher, artifact.size, publishLimits);
 
       const bytes = Buffer.from(await artifact.arrayBuffer());
+      publishLease = operationLeases.renew(publishLease);
       const artifactDigest = crypto.createHash("sha256").update(bytes).digest("hex");
       if (signed.sha256 !== artifactDigest || typeof signed.keyId !== "string" || typeof signed.signature !== "string") {
         throw new Error("artifact checksum or signature envelope is invalid");
@@ -84,11 +93,13 @@ export function createPublishRoutes(dependencies: PublishRouteDependencies): Hon
       const findings = ["child_process", "process.env", "require(", "node:fs"].filter((needle) => source.includes(needle));
       if (manifest.runtime === "sandbox-js" && findings.length) throw new Error(`sandbox static scan rejected: ${findings.join(",")}`);
       limiter.consumePublish(manifest.publisher, bytes.length, publishLimits);
+      publishLease = operationLeases.renew(publishLease);
 
       const operationId = crypto.randomUUID();
       stagedKey = await artifactStore.stage(operationId, bytes);
       const artifactKey = await artifactStore.commit(stagedKey, artifactDigest);
       stagedKey = undefined;
+      publishLease = operationLeases.renew(publishLease);
       const at = new Date().toISOString();
       withImmediateTransaction(db, () => {
         const extensionChange = db.prepare(`INSERT INTO extensions(id,publisherId,name,description,repository,license,createdAt,updatedAt) VALUES (?,?,?,?,?,?,?,?)
@@ -118,11 +129,16 @@ export function createPublishRoutes(dependencies: PublishRouteDependencies): Hon
       });
       return c.json({ extensionId: manifest.id, version: manifest.version, sha256: artifactDigest, scan: "passed" }, 201);
     } catch (error) {
+      if (error instanceof RegistryMaintenanceBusyError) {
+        c.header("Retry-After", "5");
+        return c.json({ error: error.message, code: "REGISTRY_MAINTENANCE_BUSY" }, 503);
+      }
       return c.json({ error: (error as Error).message }, 400);
     } finally {
       if (stagedKey) {
         await artifactStore.removeStaged(stagedKey).catch((error) => safeLog("warn", "registry.artifact_stage_cleanup_failed", { error: (error as Error).message }));
       }
+      operationLeases.release(publishLease);
     }
   });
 
