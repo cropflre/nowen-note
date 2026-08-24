@@ -3,6 +3,20 @@ import path from "node:path";
 
 export type RegistryEnvironment = "development" | "production";
 
+export type ArtifactStorageConfig =
+  | { driver: "local"; root: string }
+  | {
+    driver: "s3";
+    region: string;
+    bucket: string;
+    prefix: string;
+    endpoint?: string;
+    forcePathStyle: boolean;
+    accessKeyId: string;
+    secretAccessKey: string;
+    sessionToken?: string;
+  };
+
 export interface RegistryConfig {
   environment: RegistryEnvironment;
   port: number;
@@ -15,6 +29,13 @@ export interface RegistryConfig {
   signingPrivateKey: crypto.KeyObject;
   signingPublicKey: crypto.KeyObject;
   signingPublicKeyPem: string;
+  initialRoot: {
+    keyId: string;
+    sequence: 0;
+    publicKey: string;
+    validFrom: string;
+    validUntil: string;
+  };
   configuredRootRotations: readonly Record<string, unknown>[];
   metadataTtlSeconds: number;
   sessionSecret: string;
@@ -24,6 +45,8 @@ export interface RegistryConfig {
   allowedOrigins: ReadonlySet<string>;
   trustedProxies: ReadonlySet<string>;
   sessionTtlSeconds: number;
+  artifactStorage: ArtifactStorageConfig;
+  artifactCdnBaseUrl?: URL;
 }
 
 const DEVELOPMENT_DEFAULTS = {
@@ -76,11 +99,84 @@ function parseRootRotations(raw: string | undefined): readonly Record<string, un
   return parsed as Record<string, unknown>[];
 }
 
+function loadInitialRoot(
+  env: NodeJS.ProcessEnv,
+  environment: RegistryEnvironment,
+  signer: { keyId: string; sequence: number; publicKey: string; validFrom: string; validUntil: string },
+): RegistryConfig["initialRoot"] {
+  const configured = ["REGISTRY_INITIAL_ROOT_KEY_ID", "REGISTRY_INITIAL_ROOT_PUBLIC_KEY", "REGISTRY_INITIAL_ROOT_VALID_FROM", "REGISTRY_INITIAL_ROOT_VALID_UNTIL"]
+    .some((name) => Boolean(env[name]?.trim()));
+  if (!configured && environment === "development" && signer.sequence === 0) {
+    return { keyId: signer.keyId, sequence: 0, publicKey: signer.publicKey, validFrom: signer.validFrom, validUntil: signer.validUntil };
+  }
+  const keyId = required(env, "REGISTRY_INITIAL_ROOT_KEY_ID");
+  const publicKeyRaw = required(env, "REGISTRY_INITIAL_ROOT_PUBLIC_KEY").replace(/\\n/g, "\n");
+  const validFrom = parseTimestamp(required(env, "REGISTRY_INITIAL_ROOT_VALID_FROM"), "REGISTRY_INITIAL_ROOT_VALID_FROM");
+  const validUntil = parseTimestamp(required(env, "REGISTRY_INITIAL_ROOT_VALID_UNTIL"), "REGISTRY_INITIAL_ROOT_VALID_UNTIL");
+  if (Date.parse(validUntil) <= Date.parse(validFrom)) throw new Error("REGISTRY initial root validity window is invalid");
+  let publicKey: crypto.KeyObject;
+  try { publicKey = crypto.createPublicKey(publicKeyRaw); }
+  catch { throw new Error("REGISTRY_INITIAL_ROOT_PUBLIC_KEY must be a valid public key"); }
+  if (publicKey.asymmetricKeyType !== "ed25519") throw new Error("REGISTRY_INITIAL_ROOT_PUBLIC_KEY must be Ed25519");
+  return {
+    keyId,
+    sequence: 0,
+    publicKey: publicKey.export({ type: "spki", format: "pem" }).toString(),
+    validFrom,
+    validUntil,
+  };
+}
+
 function parseUrl(raw: string, name: string, production: boolean): URL {
   const value = new URL(raw);
   if (!/^https?:$/.test(value.protocol)) throw new Error(`${name} must use http or https`);
   if (production && value.protocol !== "https:") throw new Error(`${name} must use https in production`);
   return value;
+}
+
+function parseBaseUrl(raw: string, name: string, production: boolean): URL {
+  const value = parseUrl(raw, name, production);
+  if (value.username || value.password || value.search || value.hash) throw new Error(`${name} cannot contain credentials, query, or fragment`);
+  value.pathname = `${value.pathname.replace(/\/+$/g, "")}/`;
+  return value;
+}
+
+function parseBoolean(raw: string | undefined, fallback: boolean, name: string): boolean {
+  if (raw === undefined) return fallback;
+  if (raw === "true") return true;
+  if (raw === "false") return false;
+  throw new Error(`${name} must be true or false`);
+}
+
+function loadArtifactStorage(env: NodeJS.ProcessEnv, environment: RegistryEnvironment, dataRoot: string): ArtifactStorageConfig {
+  const configuredDriver = env.REGISTRY_ARTIFACT_STORE?.trim();
+  if (configuredDriver && configuredDriver !== "local" && configuredDriver !== "s3") throw new Error("REGISTRY_ARTIFACT_STORE must be local or s3");
+  const driver: "local" | "s3" = configuredDriver === "local" ? "local" : configuredDriver === "s3" ? "s3" : environment === "development" ? "local" : "s3";
+  if (driver === "local") {
+    if (environment !== "development") throw new Error("local artifact storage is only allowed with REGISTRY_ENV=development");
+    return { driver, root: path.resolve(env.REGISTRY_LOCAL_ARTIFACT_ROOT?.trim() || path.join(dataRoot, "artifacts")) };
+  }
+  const region = required(env, "REGISTRY_S3_REGION");
+  const bucket = required(env, "REGISTRY_S3_BUCKET");
+  if (!/^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/.test(bucket)) throw new Error("REGISTRY_S3_BUCKET is invalid");
+  const prefix = (env.REGISTRY_S3_PREFIX || "").trim().replace(/^\/+|\/+$/g, "");
+  if (prefix.split("/").some((segment) => segment === "." || segment === "..")) throw new Error("REGISTRY_S3_PREFIX is invalid");
+  const endpoint = env.REGISTRY_S3_ENDPOINT?.trim();
+  const endpointUrl = endpoint ? parseUrl(endpoint, "REGISTRY_S3_ENDPOINT", environment === "production") : undefined;
+  const accessKeyId = required(env, "AWS_ACCESS_KEY_ID");
+  const secretAccessKey = required(env, "AWS_SECRET_ACCESS_KEY");
+  const sessionToken = env.AWS_SESSION_TOKEN?.trim();
+  return {
+    driver,
+    region,
+    bucket,
+    prefix,
+    ...(endpointUrl ? { endpoint: endpointUrl.toString() } : {}),
+    forcePathStyle: parseBoolean(env.REGISTRY_S3_FORCE_PATH_STYLE, Boolean(endpointUrl), "REGISTRY_S3_FORCE_PATH_STYLE"),
+    accessKeyId,
+    secretAccessKey,
+    ...(sessionToken ? { sessionToken } : {}),
+  };
 }
 
 function parseList(raw: string, name: string): ReadonlySet<string> {
@@ -95,6 +191,7 @@ export function loadRegistryConfig(env: NodeJS.ProcessEnv = process.env): Regist
     throw new Error("REGISTRY_ENV must be development or production");
   }
   const production = environment === "production";
+  const dataRoot = path.resolve(env.REGISTRY_DATA?.trim() || "data");
   const publicUrl = parseUrl(required(env, "REGISTRY_PUBLIC_URL", DEVELOPMENT_DEFAULTS.publicUrl), "REGISTRY_PUBLIC_URL", production);
   const callback = parseUrl(required(env, "GITHUB_OAUTH_CALLBACK_URL", DEVELOPMENT_DEFAULTS.githubCallbackUrl), "GITHUB_OAUTH_CALLBACK_URL", production);
   const allowedOrigins = parseList(required(env, "REGISTRY_ALLOWED_ORIGINS", DEVELOPMENT_DEFAULTS.allowedOrigins), "REGISTRY_ALLOWED_ORIGINS");
@@ -126,18 +223,28 @@ export function loadRegistryConfig(env: NodeJS.ProcessEnv = process.env): Regist
   if (trustedProxies.has("*")) throw new Error("REGISTRY_TRUSTED_PROXIES cannot contain a wildcard");
   if (production && callback.origin !== publicUrl.origin) throw new Error("GITHUB_OAUTH_CALLBACK_URL must use the REGISTRY_PUBLIC_URL origin");
 
+  const signerKeyId = required(env, "REGISTRY_SIGNER_KEY_ID", DEVELOPMENT_DEFAULTS.signerKeyId);
+  const initialRoot = loadInitialRoot(env, environment, {
+    keyId: signerKeyId,
+    sequence: signerSequence,
+    publicKey: signingPublicKeyPem,
+    validFrom: signerValidFrom,
+    validUntil: signerValidUntil,
+  });
+
   return Object.freeze({
     environment,
     port: parsePositiveInteger(env.PORT, 4310, "PORT"),
-    dataRoot: path.resolve(env.REGISTRY_DATA?.trim() || "data"),
+    dataRoot,
     publicUrl,
-    signerKeyId: required(env, "REGISTRY_SIGNER_KEY_ID", DEVELOPMENT_DEFAULTS.signerKeyId),
+    signerKeyId,
     signerSequence,
     signerValidFrom,
     signerValidUntil,
     signingPrivateKey,
     signingPublicKey,
     signingPublicKeyPem,
+    initialRoot,
     configuredRootRotations: parseRootRotations(env.REGISTRY_ROOT_ROTATIONS_JSON),
     metadataTtlSeconds: parsePositiveInteger(env.REGISTRY_METADATA_TTL_SECONDS, 60 * 60, "REGISTRY_METADATA_TTL_SECONDS"),
     sessionSecret,
@@ -147,5 +254,9 @@ export function loadRegistryConfig(env: NodeJS.ProcessEnv = process.env): Regist
     allowedOrigins,
     trustedProxies,
     sessionTtlSeconds: parsePositiveInteger(env.REGISTRY_SESSION_TTL_SECONDS, 7 * 24 * 60 * 60, "REGISTRY_SESSION_TTL_SECONDS"),
+    artifactStorage: loadArtifactStorage(env, environment, dataRoot),
+    ...(env.REGISTRY_ARTIFACT_CDN_BASE_URL?.trim()
+      ? { artifactCdnBaseUrl: parseBaseUrl(env.REGISTRY_ARTIFACT_CDN_BASE_URL.trim(), "REGISTRY_ARTIFACT_CDN_BASE_URL", production) }
+      : {}),
   });
 }

@@ -12,10 +12,16 @@ function requestBudget(c: Context): number {
 export function enforceRequestBodyBudget() {
   return async (c: Context, next: Next): Promise<Response | void> => {
     const body = c.req.raw.body;
-    if (!body) return next();
-    if (c.req.method === "GET" || c.req.method === "HEAD") return c.json({ error: "request body is not allowed" }, 400);
-    const budget = requestBudget(c);
     const declaredRaw = c.req.header("content-length");
+    const bodyForbidden = c.req.method === "GET" || c.req.method === "HEAD" || c.req.method === "OPTIONS";
+    if (bodyForbidden) {
+      if (c.req.header("transfer-encoding") || body || (declaredRaw !== undefined && declaredRaw !== "0")) {
+        return c.json({ error: "request body is not allowed" }, 400);
+      }
+      return next();
+    }
+    if (!body) return next();
+    const budget = requestBudget(c);
     let declared: number | null = null;
     if (declaredRaw !== undefined) {
       if (!/^\d+$/.test(declaredRaw)) return c.json({ error: "invalid Content-Length" }, 400);

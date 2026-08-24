@@ -168,6 +168,50 @@ const migrations: readonly Migration[] = [
       CREATE INDEX registry_root_chain_sequence_idx ON registry_root_chain(sequence,keyId);
     `,
   },
+  {
+    version: 5,
+    name: "immutable_artifact_storage",
+    sql: `
+      ALTER TABLE extension_versions RENAME TO extension_versions_legacy_v4;
+      CREATE TABLE extension_versions(
+        extensionId TEXT NOT NULL,
+        version TEXT NOT NULL,
+        apiVersion INTEGER NOT NULL,
+        runtime TEXT NOT NULL,
+        manifestJson TEXT NOT NULL,
+        artifactKey TEXT NOT NULL,
+        sha256 TEXT NOT NULL,
+        sizeBytes INTEGER NOT NULL CHECK(sizeBytes>=0),
+        publisherKeyId TEXT NOT NULL,
+        signature TEXT NOT NULL,
+        scanState TEXT NOT NULL,
+        scanReportJson TEXT NOT NULL,
+        publishedAt TEXT NOT NULL,
+        PRIMARY KEY(extensionId,version),
+        CHECK(artifactKey = 'sha256/' || substr(sha256,1,2) || '/' || sha256 || '.nowen-plugin')
+      );
+      INSERT INTO extension_versions(extensionId,version,apiVersion,runtime,manifestJson,artifactKey,sha256,sizeBytes,publisherKeyId,signature,scanState,scanReportJson,publishedAt)
+        SELECT extensionId,version,apiVersion,runtime,manifestJson,
+          'sha256/' || substr(sha256,1,2) || '/' || sha256 || '.nowen-plugin',sha256,
+          COALESCE((SELECT sizeBytes FROM artifact_objects WHERE artifact_objects.sha256=extension_versions_legacy_v4.sha256),0),
+          publisherKeyId,signature,scanState,scanReportJson,publishedAt
+        FROM extension_versions_legacy_v4;
+      DROP TABLE extension_versions_legacy_v4;
+
+      ALTER TABLE registry_mirrors RENAME TO registry_mirrors_legacy_v4;
+      CREATE TABLE registry_mirrors(
+        id TEXT PRIMARY KEY,
+        baseUrl TEXT NOT NULL,
+        enabled INTEGER NOT NULL DEFAULT 1,
+        priority INTEGER NOT NULL DEFAULT 100,
+        createdAt TEXT NOT NULL,
+        updatedAt TEXT NOT NULL
+      );
+      INSERT INTO registry_mirrors(id,baseUrl,enabled,priority,createdAt,updatedAt)
+        SELECT id,baseUrl,enabled,priority,createdAt,updatedAt FROM registry_mirrors_legacy_v4;
+      DROP TABLE registry_mirrors_legacy_v4;
+    `,
+  },
 ];
 
 export function runRegistryMigrations(db: DatabaseSync): void {

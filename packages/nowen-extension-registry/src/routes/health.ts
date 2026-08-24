@@ -1,14 +1,13 @@
 import crypto from "node:crypto";
-import fs from "node:fs";
-import path from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import { Hono, type Context } from "hono";
 import type { RegistryConfig } from "../config.js";
+import type { ArtifactStore } from "../storage/artifactStore.js";
 
-export function createHealthRoutes(db: DatabaseSync, config: RegistryConfig): Hono {
+export function createHealthRoutes(db: DatabaseSync, config: RegistryConfig, artifactStore: ArtifactStore): Hono {
   const app = new Hono();
-  const handler = (c: Context) => {
-    const components = {
+  const handler = async (c: Context) => {
+    const components: Record<"database" | "artifactStore" | "signer", { ok: boolean; detail?: string }> = {
       database: { ok: false, detail: "unavailable" },
       artifactStore: { ok: false, detail: "unavailable" },
       signer: { ok: false, detail: "unavailable" },
@@ -17,11 +16,7 @@ export function createHealthRoutes(db: DatabaseSync, config: RegistryConfig): Ho
       db.prepare("SELECT 1").get();
       components.database = { ok: true, detail: "ready" };
     } catch {}
-    try {
-      const artifactRoot = path.join(config.dataRoot, "artifacts");
-      fs.accessSync(artifactRoot, fs.constants.R_OK | fs.constants.W_OK);
-      components.artifactStore = { ok: true, detail: "ready" };
-    } catch {}
+    components.artifactStore = await artifactStore.health();
     try {
       const probe = crypto.randomBytes(32);
       const signature = crypto.sign(null, probe, config.signingPrivateKey);

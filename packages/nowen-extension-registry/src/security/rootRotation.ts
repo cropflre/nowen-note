@@ -71,7 +71,7 @@ function parseRotation(value: Record<string, unknown>): RegistryRootRotation {
 
 function verifyRotation(value: RegistryRootRotation, parent: RootRow, now: number): void {
   assertKeyDates(value.validFrom, value.validUntil, now);
-  if (value.parentKeyId !== parent.keyId || value.sequence <= parent.sequence
+  if (value.parentKeyId !== parent.keyId || value.sequence !== parent.sequence + 1
     || Date.parse(value.validFrom) < Date.parse(parent.validFrom)
     || Date.parse(value.validFrom) > Date.parse(parent.validUntil)) throw new Error("Registry root rotation does not extend the active parent");
   const { signature, ...unsigned } = value;
@@ -101,15 +101,17 @@ export class RegistryRootManager {
     withImmediateTransaction(this.db, () => {
       let rows = this.db.prepare("SELECT * FROM registry_root_chain WHERE state<>'pending' ORDER BY sequence,keyId").all() as unknown as RootRow[];
       if (rows.length === 0) {
-        assertActiveKeyWindow(this.config.signerValidFrom, this.config.signerValidUntil, now);
+        const initial = this.config.initialRoot;
+        assertKeyDates(initial.validFrom, initial.validUntil, now);
+        if (initial.sequence !== 0) throw new Error("Registry initial root sequence must be zero");
         const at = new Date(now).toISOString();
         const anchor = {
-          keyId: this.config.signerKeyId,
-          sequence: this.config.signerSequence,
+          keyId: initial.keyId,
+          sequence: 0,
           algorithm: "Ed25519",
-          publicKey: this.config.signingPublicKeyPem,
-          validFrom: this.config.signerValidFrom,
-          validUntil: this.config.signerValidUntil,
+          publicKey: initial.publicKey,
+          validFrom: initial.validFrom,
+          validUntil: initial.validUntil,
         };
         this.db.prepare(`INSERT INTO registry_root_chain(keyId,parentKeyId,sequence,algorithm,publicKey,validFrom,validUntil,signature,state,documentJson,createdAt,updatedAt)
           VALUES (?,NULL,?,'Ed25519',?,?,?,?, 'active',?,?,?)`).run(
@@ -123,6 +125,11 @@ export class RegistryRootManager {
       if (anchors.length !== 1) throw new Error("Registry root chain must contain exactly one anchor");
       let current = anchors[0]!;
       if (current.algorithm !== "Ed25519" || crypto.createPublicKey(current.publicKey).asymmetricKeyType !== "ed25519") throw new Error("Stored Registry anchor is invalid");
+      const initial = this.config.initialRoot;
+      if (current.sequence !== 0 || current.keyId !== initial.keyId || current.validFrom !== initial.validFrom
+        || current.validUntil !== initial.validUntil || !samePublicKey(current.publicKey, initial.publicKey)) {
+        throw new Error("Persisted Registry anchor does not match the configured initial trust root");
+      }
       assertKeyDates(current.validFrom, current.validUntil, now);
       const established = rows.filter((row) => row.parentKeyId !== null).sort((left, right) => left.sequence - right.sequence);
       for (const row of established) {
@@ -142,7 +149,7 @@ export class RegistryRootManager {
           }
           continue;
         }
-        assertActiveKeyWindow(current.validFrom, current.validUntil, now);
+        assertKeyDates(current.validFrom, current.validUntil, now);
         verifyRotation(rotation, current, now);
         const pending = this.db.prepare("SELECT * FROM registry_root_chain WHERE keyId=?").get(rotation.keyId) as unknown as RootRow | undefined;
         if (pending && (pending.state !== "pending" || documentDigest(JSON.parse(pending.documentJson) as Record<string, unknown>) !== documentDigest(rotation))) {

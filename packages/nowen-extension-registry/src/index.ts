@@ -1,5 +1,4 @@
 import crypto from "node:crypto";
-import fs from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { serve } from "@hono/node-server";
@@ -7,22 +6,26 @@ import { Hono, type Context } from "hono";
 import { loadRegistryConfig } from "./config.js";
 import { withImmediateTransaction } from "./db/transaction.js";
 import { createAdminRoutes } from "./routes/admin.js";
+import { artifactDownloadUrl, createArtifactRoutes } from "./routes/artifacts.js";
 import { createHealthRoutes } from "./routes/health.js";
 import { createOAuthRoutes } from "./routes/oauth.js";
+import { createPublishRoutes } from "./routes/publish.js";
 import { openRegistry } from "./schema.js";
 import { AuditLog, safeLog } from "./security/audit.js";
 import { enforceRequestBodyBudget } from "./security/bodyBudget.js";
 import { requireCookieWriteProtection } from "./security/csrf.js";
-import { parseRegistryManifestV2 } from "./security/manifestV2.js";
-import { REGISTRY_PACKAGE_LIMITS, validateRegistryPackage } from "./security/packageValidation.js";
+import { assertPublisherKeyWindow, normalizePublisherKey } from "./security/publisherKeys.js";
 import { RateLimiter, rateLimitMiddleware, resolveClientIp } from "./security/rateLimit.js";
 import { RegistryRootManager } from "./security/rootRotation.js";
 import { SessionService } from "./security/session.js";
-import { canonicalJson, documentDigest, signDocument } from "./security/signing.js";
+import { documentDigest, signDocument } from "./security/signing.js";
+import { LocalArtifactStore } from "./storage/localArtifactStore.js";
+import { S3ArtifactStore } from "./storage/s3ArtifactStore.js";
 
 const config = loadRegistryConfig();
-const artifactRoot = path.join(config.dataRoot, "artifacts");
-fs.mkdirSync(artifactRoot, { recursive: true });
+const artifactStore = config.artifactStorage.driver === "local"
+  ? new LocalArtifactStore(config.artifactStorage.root)
+  : new S3ArtifactStore(config.artifactStorage);
 const db = openRegistry(path.join(config.dataRoot, "registry.db"));
 const sessions = new SessionService(db, config.sessionSecret, config.sessionTtlSeconds);
 const limiter = new RateLimiter(db);
@@ -32,7 +35,13 @@ rootManager.initialize();
 const app = new Hono();
 const now = () => new Date().toISOString();
 
-const digest = (bytes: Buffer) => crypto.createHash("sha256").update(bytes).digest();
+function normalizeMirrorBaseUrl(raw: string): string {
+  const value = new URL(raw);
+  if (!/^https?:$/.test(value.protocol) || (config.environment === "production" && value.protocol !== "https:")) throw new Error("Registry mirror base URL is invalid");
+  if (value.username || value.password || value.search || value.hash) throw new Error("Registry mirror base URL cannot contain credentials, query, or fragment");
+  value.pathname = `${value.pathname.replace(/\/+$/g, "")}/`;
+  return value.toString();
+}
 
 function developer(c: Context): string {
   const identity = sessions.authenticate(c);
@@ -62,21 +71,24 @@ app.use("*", async (c, next) => {
     c.header("Access-Control-Allow-Credentials", "true");
     c.header("Vary", "Origin");
   }
-  if (c.req.method === "OPTIONS") {
-    c.header("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
-    c.header("Access-Control-Allow-Headers", "Content-Type,Authorization,X-CSRF-Token,X-TOTP-Code");
-    return c.body(null, 204);
-  }
   await next();
   safeLog("info", "registry.request", { requestId, method: c.req.method, path: c.req.path, status: c.res.status, durationMs: Date.now() - startedAt });
 });
 app.use("*", rateLimitMiddleware(limiter, config.trustedProxies));
-app.use("*", requireCookieWriteProtection(config.allowedOrigins, sessions, (c) => sessions.authenticate(c)));
 app.use("*", enforceRequestBodyBudget());
+app.use("*", requireCookieWriteProtection(config.allowedOrigins, sessions, (c) => sessions.authenticate(c)));
+app.use("*", async (c, next) => {
+  if (c.req.method !== "OPTIONS") return next();
+  c.header("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
+  c.header("Access-Control-Allow-Headers", "Content-Type,Authorization,X-CSRF-Token,X-TOTP-Code");
+  return c.body(null, 204);
+});
 
-app.route("/health", createHealthRoutes(db, config));
+app.route("/health", createHealthRoutes(db, config, artifactStore));
 app.route("/oauth", createOAuthRoutes(db, config, sessions, audit));
 app.route("/v2/admin", createAdminRoutes(db, config, sessions, limiter, audit, rootManager));
+app.route("/v2/publish", createPublishRoutes({ db, config, sessions, limiter, audit, artifactStore }));
+app.route("/v2/artifacts", createArtifactRoutes(db, config, artifactStore));
 
 app.post("/v2/publishers", async (c) => {
   try {
@@ -100,12 +112,14 @@ app.post("/v2/publishers/:id/keys", async (c) => {
     const publisherId = c.req.param("id");
     member(publisherId, developerId);
     const body = await c.req.json() as { id?: string; publicKey?: string; validUntil?: string };
-    if (!body.id || !body.publicKey) throw new Error("key id and public key are required");
+    if (!body.id || !body.publicKey || !body.validUntil) throw new Error("key id, public key and validUntil are required");
     const keyId = body.id;
-    const publicKey = body.publicKey;
-    if (crypto.createPublicKey(publicKey).asymmetricKeyType !== "ed25519") throw new Error("publisher public key must be Ed25519");
+    const publicKey = normalizePublisherKey(body.publicKey);
+    const validFrom = now();
+    const validUntil = body.validUntil;
+    assertPublisherKeyWindow({ validFrom, validUntil }, Date.now(), true);
     transaction(() => {
-      db.prepare("INSERT INTO publisher_keys(id,publisherId,publicKey,validFrom,validUntil) VALUES (?,?,?,?,?)").run(keyId, publisherId, publicKey, now(), body.validUntil || null);
+      db.prepare("INSERT INTO publisher_keys(id,publisherId,publicKey,validFrom,validUntil) VALUES (?,?,?,?,?)").run(keyId, publisherId, publicKey, validFrom, validUntil);
       audit.append({ actorType: "developer", actorId: developerId, action: "publisher_key.create", targetType: "publisher_key", targetId: keyId, metadata: { publisherId }, ipAddress: resolveClientIp(c, config.trustedProxies) });
     });
     return c.json({ id: keyId }, 201);
@@ -127,59 +141,6 @@ app.post("/v2/publishers/:id/keys/:key/revoke", (c) => {
   } catch (error) { return c.json({ error: (error as Error).message }, 400); }
 });
 
-app.post("/v2/publish", async (c) => {
-  try {
-    const contentType = c.req.header("content-type") || "";
-    if (!/^multipart\/form-data(?:\s*;|$)/i.test(contentType)) return c.json({ error: "multipart/form-data is required" }, 415);
-    const developerId = developer(c);
-    const form = await c.req.parseBody();
-    const artifact = form.artifact;
-    if (!(artifact instanceof File)) throw new Error("artifact is required");
-    const multipartManifest = JSON.parse(String(form.manifest || "{}")) as unknown;
-    const manifest = parseRegistryManifestV2(multipartManifest);
-    const signed = JSON.parse(String(form.signature || "{}")) as Record<string, any>;
-    member(manifest.publisher, developerId);
-    if (artifact.size <= 0 || artifact.size > REGISTRY_PACKAGE_LIMITS.compressedBytes) throw new Error("artifact must be between 1 byte and 20MB");
-    const existing = db.prepare("SELECT publisherId,trustLevel FROM extensions WHERE id=?").get(manifest.id) as { publisherId: string; trustLevel: string } | undefined;
-    if (existing && existing.publisherId !== manifest.publisher) throw new Error("existing extension belongs to a different publisher");
-    const trustLevel = existing?.trustLevel || "community";
-    if (trustLevel === "community" && manifest.runtime !== "sandbox-js") throw new Error("Community extensions must use sandbox-js runtime");
-    const publishLimits = { maxArtifactBytes: REGISTRY_PACKAGE_LIMITS.compressedBytes, cooldownSeconds: 60, dailyCount: 20, dailyBytes: 100 * 1024 * 1024 };
-    limiter.assertPublishAvailable(manifest.publisher, artifact.size, publishLimits);
-    const bytes = Buffer.from(await artifact.arrayBuffer());
-    const sha256 = digest(bytes).toString("hex");
-    if (typeof signed.sha256 !== "string" || signed.sha256 !== sha256 || typeof signed.keyId !== "string" || typeof signed.signature !== "string") throw new Error("artifact checksum or signature envelope is invalid");
-    const key = db.prepare("SELECT publicKey FROM publisher_keys WHERE id=? AND publisherId=? AND state='active' AND (validUntil IS NULL OR validUntil>?)").get(signed.keyId, manifest.publisher, now()) as { publicKey: string } | undefined;
-    if (!key) throw new Error("publisher signing key is unavailable");
-    const publisherPublicKey = crypto.createPublicKey(key.publicKey);
-    if (publisherPublicKey.asymmetricKeyType !== "ed25519" || !crypto.verify(null, digest(bytes), publisherPublicKey, Buffer.from(signed.signature, "base64"))) throw new Error("publisher signature invalid");
-    if (db.prepare("SELECT 1 FROM extension_versions WHERE extensionId=? AND version=?").get(manifest.id, manifest.version)) throw new Error("immutable version already exists");
-    const validated = await validateRegistryPackage(bytes);
-    if (canonicalJson(multipartManifest) !== canonicalJson(validated.embeddedManifest)) throw new Error("multipart manifest must exactly match embedded manifest.json");
-    const mainFile = validated.zip.file(validated.manifest.main);
-    if (!mainFile) throw new Error("manifest main entry is missing from artifact");
-    const source = await mainFile.async("string");
-    const findings = ["child_process", "process.env", "require(", "node:fs"].filter((needle) => source.includes(needle));
-    if (manifest.runtime === "sandbox-js" && findings.length) throw new Error(`sandbox static scan rejected: ${findings.join(",")}`);
-    limiter.consumePublish(manifest.publisher, bytes.length, publishLimits);
-    const extensionDir = path.join(artifactRoot, manifest.id);
-    fs.mkdirSync(extensionDir, { recursive: true });
-    const artifactPath = path.join(extensionDir, `${manifest.version}.nowen-plugin`);
-    fs.writeFileSync(artifactPath, bytes, { flag: "wx" });
-    const artifactUrl = new URL(`/v2/artifacts/${manifest.id}/${manifest.version}`, config.publicUrl).toString();
-    const at = now();
-    transaction(() => {
-      const extensionChange = db.prepare(`INSERT INTO extensions(id,publisherId,name,description,repository,license,createdAt,updatedAt) VALUES (?,?,?,?,?,?,?,?)
-        ON CONFLICT(id) DO UPDATE SET name=excluded.name,description=excluded.description,repository=excluded.repository,license=excluded.license,updatedAt=excluded.updatedAt
-        WHERE extensions.publisherId=excluded.publisherId`).run(manifest.id, manifest.publisher, manifest.name, manifest.description || "", manifest.repository, manifest.license, at, at);
-      if (extensionChange.changes !== 1) throw new Error("existing extension belongs to a different publisher");
-      db.prepare(`INSERT INTO extension_versions(extensionId,version,apiVersion,runtime,manifestJson,artifactPath,artifactUrl,sha256,publisherKeyId,signature,scanState,scanReportJson,publishedAt) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(manifest.id, manifest.version, 2, manifest.runtime, JSON.stringify(validated.manifest), artifactPath, artifactUrl, sha256, signed.keyId, signed.signature, "passed", JSON.stringify({ files: validated.names.length, extractedBytes: validated.extractedBytes, staticFindings: findings }), at);
-      audit.append({ actorType: "developer", actorId: developerId, action: "extension.publish", targetType: "extension_version", targetId: `${manifest.id}@${manifest.version}`, metadata: { publisherId: manifest.publisher, sha256, sizeBytes: bytes.length }, ipAddress: resolveClientIp(c, config.trustedProxies) });
-    });
-    return c.json({ extensionId: manifest.id, version: manifest.version, sha256, scan: "passed" }, 201);
-  } catch (error) { return c.json({ error: (error as Error).message }, 400); }
-});
-
 app.get("/v2/index.json", (c) => {
   const signed = transaction(() => {
     db.prepare(`INSERT INTO registry_metadata_sequence(documentType,sequence) VALUES ('index',0)
@@ -188,8 +149,18 @@ app.get("/v2/index.json", (c) => {
     const sequenceRow = db.prepare("SELECT sequence FROM registry_metadata_sequence WHERE documentType='index'").get() as { sequence: number };
     const generatedAt = now();
     const expiresAt = new Date(Date.parse(generatedAt) + config.metadataTtlSeconds * 1_000).toISOString();
-    const publishers = db.prepare(`SELECT publisherId AS publisher,id AS keyId,publicKey,state,validFrom,validUntil
-      FROM publisher_keys ORDER BY publisherId,id`).all();
+    const publishers = (db.prepare(`SELECT publisherId AS publisher,id AS keyId,publicKey,state,validFrom,validUntil,revokedAt
+      FROM publisher_keys ORDER BY publisherId,id`).all() as Array<Record<string, unknown>>).map((publisher) => {
+        if (typeof publisher.validFrom !== "string" || (typeof publisher.validUntil !== "string" && publisher.validUntil !== null)) throw new Error("publisher key validity metadata is invalid");
+        assertPublisherKeyWindow({ validFrom: publisher.validFrom, validUntil: publisher.validUntil }, Date.now(), publisher.state === "active");
+        if (typeof publisher.publicKey !== "string") throw new Error("publisher public key metadata is invalid");
+        const publicKey = normalizePublisherKey(publisher.publicKey);
+        const { revokedAt, ...metadata } = publisher;
+        if (metadata.state === "active" && revokedAt !== null) throw new Error("active publisher key cannot have revokedAt");
+        if (metadata.state === "revoked" && (typeof revokedAt !== "string" || !Number.isFinite(Date.parse(revokedAt)))) throw new Error("revoked publisher key metadata is invalid");
+        if (metadata.state !== "active" && metadata.state !== "revoked") throw new Error("publisher key state is invalid");
+        return { ...metadata, publicKey };
+      });
     const extensionRows = db.prepare("SELECT * FROM extensions WHERE listed=1 ORDER BY id").all() as Array<Record<string, any>>;
     const extensions = extensionRows.map((extension) => ({
       id: extension.id,
@@ -197,11 +168,12 @@ app.get("/v2/index.json", (c) => {
       name: extension.name,
       description: extension.description,
       trustLevel: extension.trustLevel,
-      versions: (db.prepare(`SELECT version,apiVersion,runtime,artifactUrl,sha256,publisherKeyId,signature,publishedAt,manifestJson
+      versions: (db.prepare(`SELECT version,apiVersion,runtime,artifactKey,sha256,sizeBytes,publisherKeyId,signature,publishedAt,manifestJson
         FROM extension_versions WHERE extensionId=? ORDER BY publishedAt DESC,version DESC`).all(extension.id) as Array<Record<string, any>>)
         .map(({ manifestJson, ...version }) => {
           const manifest = JSON.parse(manifestJson);
-          return { ...version, nowen: manifest.engines.nowen, permissions: manifest.permissions, permissionConfig: manifest.permissionConfig, platforms: manifest.platforms, runtimePlatform: manifest.runtimePlatform, uiPlatform: manifest.uiPlatform };
+          const artifactUrl = artifactDownloadUrl(config, extension.id, version.version, version.artifactKey);
+          return { ...version, artifactUrl, nowen: manifest.engines.nowen, permissions: manifest.permissions, permissionConfig: manifest.permissionConfig, platforms: manifest.platforms, runtimePlatform: manifest.runtimePlatform, uiPlatform: manifest.uiPlatform };
         }),
     }));
     const advisories = (db.prepare(`SELECT id,sequence,pluginId,affectedVersionRange,issuedAt,expiresAt,severity,action,state,replaces,title,detailsUrl,signerKeyId,signature
@@ -222,7 +194,9 @@ app.get("/v2/index.json", (c) => {
       signature: advisory.signature,
     }));
     const rootRotations = rootManager.listPublishedRotations();
-    const content = { protocolVersion: 2, sequence: sequenceRow.sequence, generatedAt, expiresAt, signerKeyId: config.signerKeyId, rootRotations, publishers, extensions, advisories };
+    const mirrors = (db.prepare("SELECT id,baseUrl,priority FROM registry_mirrors WHERE enabled=1 ORDER BY priority,id").all() as Array<{ id: string; baseUrl: string; priority: number }>)
+      .map((mirror) => ({ id: mirror.id, baseUrl: normalizeMirrorBaseUrl(mirror.baseUrl), priority: mirror.priority }));
+    const content = { protocolVersion: 2, sequence: sequenceRow.sequence, generatedAt, expiresAt, signerKeyId: config.signerKeyId, rootRotations, mirrors, publishers, extensions, advisories };
     const metadataDigest = documentDigest(content);
     const unsigned = { ...content, digest: metadataDigest };
     const document = { ...unsigned, signature: signDocument(unsigned, config.signingPrivateKey) };
@@ -235,7 +209,6 @@ app.get("/v2/index.json", (c) => {
 });
 
 app.get("/v2/extensions/:id", (c) => { const extension = db.prepare("SELECT * FROM extensions WHERE id=? AND listed=1").get(c.req.param("id")); return extension ? c.json(extension) : c.json({ error: "not found" }, 404); });
-app.get("/v2/artifacts/:id/:version", (c) => { const row = db.prepare("SELECT artifactPath FROM extension_versions WHERE extensionId=? AND version=?").get(c.req.param("id"), c.req.param("version")) as { artifactPath: string } | undefined; if (!row) return c.json({ error: "not found" }, 404); return new Response(fs.readFileSync(row.artifactPath), { headers: { "Content-Type": "application/zip", "Cache-Control": "public,max-age=31536000,immutable" } }); });
 
 app.post("/v2/extensions/:id/reviews", async (c) => {
   try {
