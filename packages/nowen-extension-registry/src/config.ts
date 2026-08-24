@@ -8,7 +8,10 @@ export interface RegistryConfig {
   port: number;
   dataRoot: string;
   publicUrl: URL;
-  signingPrivateKey: string;
+  signerKeyId: string;
+  signingPrivateKey: crypto.KeyObject;
+  signingPublicKey: crypto.KeyObject;
+  metadataTtlSeconds: number;
   sessionSecret: string;
   githubClientId: string;
   githubClientSecret: string;
@@ -26,6 +29,7 @@ const DEVELOPMENT_DEFAULTS = {
   githubCallbackUrl: "http://localhost:4310/oauth/github/callback",
   allowedOrigins: "http://localhost:4310,http://localhost:5173",
   trustedProxies: "127.0.0.1,::1",
+  signerKeyId: "development-registry-ed25519",
 } as const;
 
 function required(env: NodeJS.ProcessEnv, name: string, developmentDefault?: string): string {
@@ -67,14 +71,18 @@ export function loadRegistryConfig(env: NodeJS.ProcessEnv = process.env): Regist
     const parsed = parseUrl(origin, "REGISTRY_ALLOWED_ORIGINS", production);
     if (parsed.origin !== origin) throw new Error("REGISTRY_ALLOWED_ORIGINS entries must be origins without paths");
   }
-  let signingPrivateKey = env.REGISTRY_SIGNING_PRIVATE_KEY?.trim().replace(/\\n/g, "\n") || "";
-  if (!signingPrivateKey && environment === "development") signingPrivateKey = crypto.generateKeyPairSync("ed25519").privateKey.export({ type: "pkcs8", format: "pem" }).toString();
-  if (!signingPrivateKey) throw new Error("REGISTRY_SIGNING_PRIVATE_KEY is required");
+  let signingPrivateKeyPem = env.REGISTRY_SIGNING_PRIVATE_KEY?.trim().replace(/\\n/g, "\n") || "";
+  if (!signingPrivateKeyPem && environment === "development") signingPrivateKeyPem = crypto.generateKeyPairSync("ed25519").privateKey.export({ type: "pkcs8", format: "pem" }).toString();
+  if (!signingPrivateKeyPem) throw new Error("REGISTRY_SIGNING_PRIVATE_KEY is required");
+  let signingPrivateKey: crypto.KeyObject;
   try {
-    crypto.createPrivateKey(signingPrivateKey);
+    signingPrivateKey = crypto.createPrivateKey(signingPrivateKeyPem);
   } catch {
     throw new Error("REGISTRY_SIGNING_PRIVATE_KEY must be a valid private key");
   }
+  if (signingPrivateKey.asymmetricKeyType !== "ed25519") throw new Error("REGISTRY_SIGNING_PRIVATE_KEY must be an Ed25519 private key");
+  const signingPublicKey = crypto.createPublicKey(signingPrivateKey);
+  if (signingPublicKey.asymmetricKeyType !== "ed25519") throw new Error("REGISTRY signing public key must be Ed25519");
   const sessionSecret = required(env, "REGISTRY_SESSION_SECRET", DEVELOPMENT_DEFAULTS.sessionSecret);
   if (production && sessionSecret.length < 32) throw new Error("REGISTRY_SESSION_SECRET must contain at least 32 characters in production");
 
@@ -87,7 +95,10 @@ export function loadRegistryConfig(env: NodeJS.ProcessEnv = process.env): Regist
     port: parsePositiveInteger(env.PORT, 4310, "PORT"),
     dataRoot: path.resolve(env.REGISTRY_DATA?.trim() || "data"),
     publicUrl,
+    signerKeyId: required(env, "REGISTRY_SIGNER_KEY_ID", DEVELOPMENT_DEFAULTS.signerKeyId),
     signingPrivateKey,
+    signingPublicKey,
+    metadataTtlSeconds: parsePositiveInteger(env.REGISTRY_METADATA_TTL_SECONDS, 60 * 60, "REGISTRY_METADATA_TTL_SECONDS"),
     sessionSecret,
     githubClientId: required(env, "GITHUB_CLIENT_ID", DEVELOPMENT_DEFAULTS.githubClientId),
     githubClientSecret: required(env, "GITHUB_CLIENT_SECRET", DEVELOPMENT_DEFAULTS.githubClientSecret),

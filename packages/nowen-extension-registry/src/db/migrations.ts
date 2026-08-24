@@ -120,6 +120,32 @@ const migrations: readonly Migration[] = [
       );
     `,
   },
+  {
+    version: 3,
+    name: "signed_security_advisories",
+    sql: `
+      ALTER TABLE security_advisories RENAME TO security_advisories_legacy_v2;
+      CREATE TABLE security_advisories(
+        id TEXT PRIMARY KEY,
+        sequence INTEGER UNIQUE NOT NULL,
+        pluginId TEXT NOT NULL,
+        affectedVersionRange TEXT NOT NULL,
+        issuedAt TEXT NOT NULL,
+        expiresAt TEXT NOT NULL,
+        severity TEXT NOT NULL CHECK(severity IN ('critical','high','medium','low')),
+        action TEXT NOT NULL CHECK(action IN ('disable','recommend','warn','info')),
+        state TEXT NOT NULL CHECK(state IN ('active','withdrawn')),
+        replaces TEXT,
+        title TEXT NOT NULL,
+        detailsUrl TEXT,
+        signerKeyId TEXT NOT NULL,
+        signature TEXT NOT NULL,
+        createdAt TEXT NOT NULL,
+        updatedAt TEXT NOT NULL
+      );
+      CREATE INDEX security_advisories_plugin_idx ON security_advisories(pluginId,state,sequence);
+    `,
+  },
 ];
 
 export function runRegistryMigrations(db: DatabaseSync): void {

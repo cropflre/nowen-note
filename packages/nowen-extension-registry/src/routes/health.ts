@@ -23,8 +23,10 @@ export function createHealthRoutes(db: DatabaseSync, config: RegistryConfig): Ho
       components.artifactStore = { ok: true, detail: "ready" };
     } catch {}
     try {
-      if (!config.signingPrivateKey) throw new Error("not configured");
-      crypto.createPrivateKey(config.signingPrivateKey);
+      const probe = crypto.randomBytes(32);
+      const signature = crypto.sign(null, probe, config.signingPrivateKey);
+      const derivedPublicKey = crypto.createPublicKey(config.signingPrivateKey);
+      if (derivedPublicKey.asymmetricKeyType !== "ed25519" || !crypto.verify(null, probe, derivedPublicKey, signature)) throw new Error("signer probe failed");
       components.signer = { ok: true, detail: "ready" };
     } catch {}
     const ok = components.database.ok && components.artifactStore.ok && components.signer.ok;

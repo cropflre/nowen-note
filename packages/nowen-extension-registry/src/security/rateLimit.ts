@@ -48,17 +48,23 @@ export class RateLimiter {
     }
   }
 
-  consumePublish(publisherId: string, artifactBytes: number, limits: PublishLimits): void {
+  assertPublishAvailable(publisherId: string, artifactBytes: number, limits: PublishLimits): void {
     if (artifactBytes <= 0 || artifactBytes > limits.maxArtifactBytes) throw new Error(`artifact exceeds ${limits.maxArtifactBytes} bytes`);
+    const now = new Date();
+    const day = now.toISOString().slice(0, 10);
+    const row = this.db.prepare("SELECT publishCount,artifactBytes,lastPublishedAt FROM publisher_quotas WHERE publisherId=? AND day=?").get(publisherId, day) as { publishCount: number; artifactBytes: number; lastPublishedAt: string | null } | undefined;
+    this.validatePublishQuota(row, artifactBytes, limits, now);
+  }
+
+  consumePublish(publisherId: string, artifactBytes: number, limits: PublishLimits): void {
+    this.assertPublishAvailable(publisherId, artifactBytes, limits);
     if (!this.consume("publisher", publisherId, 10)) throw new Error("publisher rate limit exceeded");
     const now = new Date();
     const day = now.toISOString().slice(0, 10);
     this.db.exec("BEGIN IMMEDIATE");
     try {
       const row = this.db.prepare("SELECT publishCount,artifactBytes,lastPublishedAt FROM publisher_quotas WHERE publisherId=? AND day=?").get(publisherId, day) as { publishCount: number; artifactBytes: number; lastPublishedAt: string | null } | undefined;
-      if (row?.lastPublishedAt && now.getTime() - Date.parse(row.lastPublishedAt) < limits.cooldownSeconds * 1_000) throw new Error("publisher publish cooldown is active");
-      if ((row?.publishCount || 0) + 1 > limits.dailyCount) throw new Error("publisher daily publish quota exceeded");
-      if ((row?.artifactBytes || 0) + artifactBytes > limits.dailyBytes) throw new Error("publisher daily artifact quota exceeded");
+      this.validatePublishQuota(row, artifactBytes, limits, now);
       this.db.prepare(`INSERT INTO publisher_quotas(publisherId,day,publishCount,artifactBytes,lastPublishedAt) VALUES (?,?,1,?,?)
         ON CONFLICT(publisherId,day) DO UPDATE SET publishCount=publishCount+1,artifactBytes=artifactBytes+excluded.artifactBytes,lastPublishedAt=excluded.lastPublishedAt`).run(publisherId, day, artifactBytes, now.toISOString());
       this.db.exec("COMMIT");
@@ -66,6 +72,17 @@ export class RateLimiter {
       this.db.exec("ROLLBACK");
       throw error;
     }
+  }
+
+  private validatePublishQuota(
+    row: { publishCount: number; artifactBytes: number; lastPublishedAt: string | null } | undefined,
+    artifactBytes: number,
+    limits: PublishLimits,
+    now: Date,
+  ): void {
+    if (row?.lastPublishedAt && now.getTime() - Date.parse(row.lastPublishedAt) < limits.cooldownSeconds * 1_000) throw new Error("publisher publish cooldown is active");
+    if ((row?.publishCount || 0) + 1 > limits.dailyCount) throw new Error("publisher daily publish quota exceeded");
+    if ((row?.artifactBytes || 0) + artifactBytes > limits.dailyBytes) throw new Error("publisher daily artifact quota exceeded");
   }
 }
 

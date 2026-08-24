@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import type { Context } from "hono";
+import { withImmediateTransaction } from "../db/transaction.js";
 
 export const SESSION_COOKIE = "nowen_registry_session";
 
@@ -13,6 +14,7 @@ export interface SessionIdentity {
   viaCookie: boolean;
 }
 export interface IssuedSession {
+  sessionId: string;
   token: string;
   csrfToken: string;
   expiresAt: string;
@@ -54,14 +56,15 @@ export class SessionService {
     if (Boolean(identity.developerId) === Boolean(identity.adminUserId)) throw new Error("session identity must contain exactly one actor");
     const token = randomToken();
     const csrfToken = randomToken();
+    const sessionId = crypto.randomUUID();
     const createdAt = new Date();
     const expiresAt = new Date(createdAt.getTime() + this.ttlSeconds * 1000).toISOString();
     this.db.prepare(`INSERT INTO sessions(id,tokenHash,csrfHash,developerId,adminUserId,expiresAt,lastUsedAt,revokedAt,rotatedFrom,createdAt)
       VALUES (?,?,?,?,?,?,?,?,?,?)`).run(
-      crypto.randomUUID(), digest(this.secret, token), digest(this.secret, csrfToken), identity.developerId || null,
+      sessionId, digest(this.secret, token), digest(this.secret, csrfToken), identity.developerId || null,
       identity.adminUserId || null, expiresAt, createdAt.toISOString(), null, rotatedFrom || null, createdAt.toISOString(),
     );
-    return { token, csrfToken, expiresAt };
+    return { sessionId, token, csrfToken, expiresAt };
   }
 
   authenticate(c: Context): SessionIdentity {
@@ -83,23 +86,24 @@ export class SessionService {
     return actual.length === expected.length && crypto.timingSafeEqual(actual, expected);
   }
 
-  rotate(c: Context): IssuedSession {
+  rotate(c: Context, onRotated?: (previous: SessionIdentity, issued: IssuedSession) => void): IssuedSession {
     const current = this.authenticate(c);
-    this.db.exec("BEGIN IMMEDIATE");
-    try {
+    return withImmediateTransaction(this.db, () => {
       const revoked = this.db.prepare("UPDATE sessions SET revokedAt=? WHERE id=? AND revokedAt IS NULL").run(new Date().toISOString(), current.sessionId);
       if (revoked.changes !== 1) throw new Error("session already revoked");
       const issued = this.issue({ developerId: current.developerId || undefined, adminUserId: current.adminUserId || undefined }, current.sessionId);
-      this.db.exec("COMMIT");
+      onRotated?.(current, issued);
       return issued;
-    } catch (error) {
-      this.db.exec("ROLLBACK");
-      throw error;
-    }
+    });
   }
 
-  revoke(c: Context): void {
+  revoke(c: Context, onRevoked?: (current: SessionIdentity) => void): SessionIdentity {
     const current = this.authenticate(c);
-    this.db.prepare("UPDATE sessions SET revokedAt=? WHERE id=? AND revokedAt IS NULL").run(new Date().toISOString(), current.sessionId);
+    return withImmediateTransaction(this.db, () => {
+      const revoked = this.db.prepare("UPDATE sessions SET revokedAt=? WHERE id=? AND revokedAt IS NULL").run(new Date().toISOString(), current.sessionId);
+      if (revoked.changes !== 1) throw new Error("session already revoked");
+      onRevoked?.(current);
+      return current;
+    });
   }
 }
