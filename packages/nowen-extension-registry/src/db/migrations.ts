@@ -146,6 +146,28 @@ const migrations: readonly Migration[] = [
       CREATE INDEX security_advisories_plugin_idx ON security_advisories(pluginId,state,sequence);
     `,
   },
+  {
+    version: 4,
+    name: "registry_root_rotation_chain",
+    sql: `
+      CREATE TABLE registry_root_chain(
+        keyId TEXT PRIMARY KEY,
+        parentKeyId TEXT,
+        sequence INTEGER UNIQUE NOT NULL,
+        algorithm TEXT NOT NULL CHECK(algorithm='Ed25519'),
+        publicKey TEXT NOT NULL,
+        validFrom TEXT NOT NULL,
+        validUntil TEXT NOT NULL,
+        signature TEXT,
+        state TEXT NOT NULL CHECK(state IN ('active','superseded','pending','revoked')),
+        documentJson TEXT NOT NULL,
+        createdAt TEXT NOT NULL,
+        updatedAt TEXT NOT NULL
+      );
+      CREATE UNIQUE INDEX registry_root_chain_active_idx ON registry_root_chain(state) WHERE state='active';
+      CREATE INDEX registry_root_chain_sequence_idx ON registry_root_chain(sequence,keyId);
+    `,
+  },
 ];
 
 export function runRegistryMigrations(db: DatabaseSync): void {

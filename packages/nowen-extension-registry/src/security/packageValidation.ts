@@ -1,5 +1,6 @@
 import path from "node:path";
 import JSZip from "jszip";
+import { parseRegistryManifestV2, type RegistryManifestV2 } from "./manifestV2.js";
 
 export const REGISTRY_PACKAGE_LIMITS = Object.freeze({
   compressedBytes: 20 * 1024 * 1024,
@@ -13,6 +14,7 @@ export const REGISTRY_PACKAGE_LIMITS = Object.freeze({
 export interface ValidatedRegistryPackage {
   zip: JSZip;
   embeddedManifest: Record<string, unknown>;
+  manifest: RegistryManifestV2;
   names: string[];
   extractedBytes: number;
 }
@@ -103,5 +105,17 @@ export async function validateRegistryPackage(bytes: Buffer): Promise<ValidatedR
     throw new Error("embedded manifest.json is invalid JSON");
   }
   if (!embeddedManifest || typeof embeddedManifest !== "object" || Array.isArray(embeddedManifest)) throw new Error("embedded manifest.json must be an object");
-  return { zip, embeddedManifest: embeddedManifest as Record<string, unknown>, names, extractedBytes: total.value };
+  const manifest = parseRegistryManifestV2(embeddedManifest);
+  const main = normalizeEntryName(manifest.main);
+  if (!zip.file(main)) throw new Error(`manifest main entry is missing: ${manifest.main}`);
+  if (!main.endsWith(".js") && !main.endsWith(".mjs")) throw new Error("manifest main must be built JavaScript");
+  for (const asset of [manifest.icon, ...(manifest.screenshots || [])].filter((value): value is string => Boolean(value))) {
+    const normalized = normalizeEntryName(asset);
+    if (!zip.file(normalized)) throw new Error(`manifest asset is missing: ${asset}`);
+  }
+  for (const template of manifest.contributes?.automationTemplates || []) {
+    const normalized = normalizeEntryName(template.file);
+    if (!zip.file(normalized)) throw new Error(`automation template is missing: ${template.file}`);
+  }
+  return { zip, embeddedManifest: embeddedManifest as Record<string, unknown>, manifest, names, extractedBytes: total.value };
 }

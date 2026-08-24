@@ -11,9 +11,12 @@ import { createHealthRoutes } from "./routes/health.js";
 import { createOAuthRoutes } from "./routes/oauth.js";
 import { openRegistry } from "./schema.js";
 import { AuditLog, safeLog } from "./security/audit.js";
+import { enforceRequestBodyBudget } from "./security/bodyBudget.js";
 import { requireCookieWriteProtection } from "./security/csrf.js";
+import { parseRegistryManifestV2 } from "./security/manifestV2.js";
 import { REGISTRY_PACKAGE_LIMITS, validateRegistryPackage } from "./security/packageValidation.js";
 import { RateLimiter, rateLimitMiddleware, resolveClientIp } from "./security/rateLimit.js";
+import { RegistryRootManager } from "./security/rootRotation.js";
 import { SessionService } from "./security/session.js";
 import { canonicalJson, documentDigest, signDocument } from "./security/signing.js";
 
@@ -24,6 +27,8 @@ const db = openRegistry(path.join(config.dataRoot, "registry.db"));
 const sessions = new SessionService(db, config.sessionSecret, config.sessionTtlSeconds);
 const limiter = new RateLimiter(db);
 const audit = new AuditLog(db);
+const rootManager = new RegistryRootManager(db, config, audit);
+rootManager.initialize();
 const app = new Hono();
 const now = () => new Date().toISOString();
 
@@ -67,10 +72,11 @@ app.use("*", async (c, next) => {
 });
 app.use("*", rateLimitMiddleware(limiter, config.trustedProxies));
 app.use("*", requireCookieWriteProtection(config.allowedOrigins, sessions, (c) => sessions.authenticate(c)));
+app.use("*", enforceRequestBodyBudget());
 
 app.route("/health", createHealthRoutes(db, config));
 app.route("/oauth", createOAuthRoutes(db, config, sessions, audit));
-app.route("/v2/admin", createAdminRoutes(db, config, sessions, limiter, audit));
+app.route("/v2/admin", createAdminRoutes(db, config, sessions, limiter, audit, rootManager));
 
 app.post("/v2/publishers", async (c) => {
   try {
@@ -125,25 +131,14 @@ app.post("/v2/publish", async (c) => {
   try {
     const contentType = c.req.header("content-type") || "";
     if (!/^multipart\/form-data(?:\s*;|$)/i.test(contentType)) return c.json({ error: "multipart/form-data is required" }, 415);
-    const contentLengthRaw = c.req.header("content-length");
-    if (!contentLengthRaw) return c.json({ error: "Content-Length is required" }, 411);
-    const contentLength = Number(contentLengthRaw);
-    if (!Number.isSafeInteger(contentLength) || contentLength <= 0) return c.json({ error: "invalid Content-Length" }, 400);
-    if (contentLength > REGISTRY_PACKAGE_LIMITS.multipartBytes) return c.json({ error: "multipart body exceeds 21MB" }, 413);
     const developerId = developer(c);
     const form = await c.req.parseBody();
     const artifact = form.artifact;
     if (!(artifact instanceof File)) throw new Error("artifact is required");
-    const manifest = JSON.parse(String(form.manifest || "{}")) as Record<string, any>;
+    const multipartManifest = JSON.parse(String(form.manifest || "{}")) as unknown;
+    const manifest = parseRegistryManifestV2(multipartManifest);
     const signed = JSON.parse(String(form.signature || "{}")) as Record<string, any>;
-    if (typeof manifest.publisher !== "string" || !/^[a-z0-9][a-z0-9-]{1,63}$/.test(manifest.publisher)) throw new Error("invalid publisher id");
     member(manifest.publisher, developerId);
-    if (manifest.apiVersion !== 2 || typeof manifest.id !== "string" || !/^[a-z0-9]+(?:[.-][a-z0-9]+)+$/.test(manifest.id)
-      || !manifest.id.startsWith(`${manifest.publisher}.`) || typeof manifest.version !== "string"
-      || !/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.test(manifest.version)
-      || typeof manifest.main !== "string" || !/^[0-9A-Za-z._/-]+$/.test(manifest.main) || manifest.main.includes("..")
-      || path.posix.isAbsolute(manifest.main) || !manifest.repository || !manifest.license
-      || manifest.runtime !== "sandbox-js" && manifest.runtime !== "node-action") throw new Error("invalid V2 manifest");
     if (artifact.size <= 0 || artifact.size > REGISTRY_PACKAGE_LIMITS.compressedBytes) throw new Error("artifact must be between 1 byte and 20MB");
     const existing = db.prepare("SELECT publisherId,trustLevel FROM extensions WHERE id=?").get(manifest.id) as { publisherId: string; trustLevel: string } | undefined;
     if (existing && existing.publisherId !== manifest.publisher) throw new Error("existing extension belongs to a different publisher");
@@ -160,8 +155,8 @@ app.post("/v2/publish", async (c) => {
     if (publisherPublicKey.asymmetricKeyType !== "ed25519" || !crypto.verify(null, digest(bytes), publisherPublicKey, Buffer.from(signed.signature, "base64"))) throw new Error("publisher signature invalid");
     if (db.prepare("SELECT 1 FROM extension_versions WHERE extensionId=? AND version=?").get(manifest.id, manifest.version)) throw new Error("immutable version already exists");
     const validated = await validateRegistryPackage(bytes);
-    if (canonicalJson(manifest) !== canonicalJson(validated.embeddedManifest)) throw new Error("multipart manifest must exactly match embedded manifest.json");
-    const mainFile = validated.zip.file(manifest.main);
+    if (canonicalJson(multipartManifest) !== canonicalJson(validated.embeddedManifest)) throw new Error("multipart manifest must exactly match embedded manifest.json");
+    const mainFile = validated.zip.file(validated.manifest.main);
     if (!mainFile) throw new Error("manifest main entry is missing from artifact");
     const source = await mainFile.async("string");
     const findings = ["child_process", "process.env", "require(", "node:fs"].filter((needle) => source.includes(needle));
@@ -178,7 +173,7 @@ app.post("/v2/publish", async (c) => {
         ON CONFLICT(id) DO UPDATE SET name=excluded.name,description=excluded.description,repository=excluded.repository,license=excluded.license,updatedAt=excluded.updatedAt
         WHERE extensions.publisherId=excluded.publisherId`).run(manifest.id, manifest.publisher, manifest.name, manifest.description || "", manifest.repository, manifest.license, at, at);
       if (extensionChange.changes !== 1) throw new Error("existing extension belongs to a different publisher");
-      db.prepare(`INSERT INTO extension_versions(extensionId,version,apiVersion,runtime,manifestJson,artifactPath,artifactUrl,sha256,publisherKeyId,signature,scanState,scanReportJson,publishedAt) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(manifest.id, manifest.version, 2, manifest.runtime, JSON.stringify(validated.embeddedManifest), artifactPath, artifactUrl, sha256, signed.keyId, signed.signature, "passed", JSON.stringify({ files: validated.names.length, extractedBytes: validated.extractedBytes, staticFindings: findings }), at);
+      db.prepare(`INSERT INTO extension_versions(extensionId,version,apiVersion,runtime,manifestJson,artifactPath,artifactUrl,sha256,publisherKeyId,signature,scanState,scanReportJson,publishedAt) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(manifest.id, manifest.version, 2, manifest.runtime, JSON.stringify(validated.manifest), artifactPath, artifactUrl, sha256, signed.keyId, signed.signature, "passed", JSON.stringify({ files: validated.names.length, extractedBytes: validated.extractedBytes, staticFindings: findings }), at);
       audit.append({ actorType: "developer", actorId: developerId, action: "extension.publish", targetType: "extension_version", targetId: `${manifest.id}@${manifest.version}`, metadata: { publisherId: manifest.publisher, sha256, sizeBytes: bytes.length }, ipAddress: resolveClientIp(c, config.trustedProxies) });
     });
     return c.json({ extensionId: manifest.id, version: manifest.version, sha256, scan: "passed" }, 201);
@@ -226,7 +221,8 @@ app.get("/v2/index.json", (c) => {
       signerKeyId: advisory.signerKeyId,
       signature: advisory.signature,
     }));
-    const content = { protocolVersion: 2, sequence: sequenceRow.sequence, generatedAt, expiresAt, signerKeyId: config.signerKeyId, publishers, extensions, advisories };
+    const rootRotations = rootManager.listPublishedRotations();
+    const content = { protocolVersion: 2, sequence: sequenceRow.sequence, generatedAt, expiresAt, signerKeyId: config.signerKeyId, rootRotations, publishers, extensions, advisories };
     const metadataDigest = documentDigest(content);
     const unsigned = { ...content, digest: metadataDigest };
     const document = { ...unsigned, signature: signDocument(unsigned, config.signingPrivateKey) };

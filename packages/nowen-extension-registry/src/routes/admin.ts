@@ -5,6 +5,7 @@ import type { RegistryConfig } from "../config.js";
 import { withImmediateTransaction } from "../db/transaction.js";
 import { AuditLog } from "../security/audit.js";
 import { RateLimiter } from "../security/rateLimit.js";
+import type { RegistryRootManager } from "../security/rootRotation.js";
 import { SessionService, clearSessionCookie, sessionCookie } from "../security/session.js";
 import { documentDigest, signDocument } from "../security/signing.js";
 import { decryptSecret, verifyTotp } from "../security/totp.js";
@@ -46,7 +47,14 @@ export function hashAdminPassword(password: string): string {
   return `scrypt$16384$8$1$${salt.toString("base64")}$${digest.toString("base64")}`;
 }
 
-export function createAdminRoutes(db: DatabaseSync, config: RegistryConfig, sessions: SessionService, limiter: RateLimiter, audit: AuditLog): Hono {
+export function createAdminRoutes(
+  db: DatabaseSync,
+  config: RegistryConfig,
+  sessions: SessionService,
+  limiter: RateLimiter,
+  audit: AuditLog,
+  rootManager: RegistryRootManager,
+): Hono {
   const app = new Hono();
 
   app.post("/session", async (c) => {
@@ -151,6 +159,27 @@ export function createAdminRoutes(db: DatabaseSync, config: RegistryConfig, sess
         return signed;
       });
       return c.json(advisory, 201);
+    } catch (error) {
+      return c.json({ error: (error as Error).message }, 400);
+    }
+  });
+
+  app.post("/root-rotations", async (c) => {
+    try {
+      const identity = sessions.authenticate(c);
+      if (!identity.adminUserId) return c.json({ error: "admin session required" }, 403);
+      const totpRow = db.prepare("SELECT secretCiphertext,secretIv,secretTag FROM admin_totp WHERE adminUserId=? AND enabled=1").get(identity.adminUserId) as { secretCiphertext: string; secretIv: string; secretTag: string } | undefined;
+      const code = c.req.header("x-totp-code") || "";
+      if (!totpRow || !verifyTotp(decryptSecret(totpRow.secretCiphertext, totpRow.secretIv, totpRow.secretTag, config.sessionSecret), code)) return c.json({ error: "current TOTP required" }, 403);
+      const body = await c.req.json() as { keyId?: string; publicKey?: string; validFrom?: string; validUntil?: string };
+      if (!body.keyId || !body.publicKey || !body.validFrom || !body.validUntil) throw new Error("root rotation keyId, publicKey and validity window are required");
+      const rotation = rootManager.generatePending({
+        keyId: body.keyId,
+        publicKey: body.publicKey,
+        validFrom: body.validFrom,
+        validUntil: body.validUntil,
+      }, identity.adminUserId);
+      return c.json({ state: "pending", rotation }, 201);
     } catch (error) {
       return c.json({ error: (error as Error).message }, 400);
     }

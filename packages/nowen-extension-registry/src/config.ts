@@ -9,8 +9,13 @@ export interface RegistryConfig {
   dataRoot: string;
   publicUrl: URL;
   signerKeyId: string;
+  signerSequence: number;
+  signerValidFrom: string;
+  signerValidUntil: string;
   signingPrivateKey: crypto.KeyObject;
   signingPublicKey: crypto.KeyObject;
+  signingPublicKeyPem: string;
+  configuredRootRotations: readonly Record<string, unknown>[];
   metadataTtlSeconds: number;
   sessionSecret: string;
   githubClientId: string;
@@ -30,6 +35,9 @@ const DEVELOPMENT_DEFAULTS = {
   allowedOrigins: "http://localhost:4310,http://localhost:5173",
   trustedProxies: "127.0.0.1,::1",
   signerKeyId: "development-registry-ed25519",
+  signerSequence: "0",
+  signerValidFrom: "1970-01-01T00:00:00.000Z",
+  signerValidUntil: "9999-12-31T23:59:59.999Z",
 } as const;
 
 function required(env: NodeJS.ProcessEnv, name: string, developmentDefault?: string): string {
@@ -43,6 +51,29 @@ function parsePositiveInteger(raw: string | undefined, fallback: number, name: s
   const value = raw === undefined ? fallback : Number(raw);
   if (!Number.isSafeInteger(value) || value <= 0) throw new Error(`${name} must be a positive integer`);
   return value;
+}
+
+function parseNonNegativeInteger(raw: string, name: string): number {
+  const value = Number(raw);
+  if (!Number.isSafeInteger(value) || value < 0) throw new Error(`${name} must be a non-negative integer`);
+  return value;
+}
+
+function parseTimestamp(raw: string, name: string): string {
+  if (!Number.isFinite(Date.parse(raw))) throw new Error(`${name} must be an ISO timestamp`);
+  return raw;
+}
+
+function parseRootRotations(raw: string | undefined): readonly Record<string, unknown>[] {
+  if (!raw?.trim()) return [];
+  if (raw.length > 256 * 1024) throw new Error("REGISTRY_ROOT_ROTATIONS_JSON exceeds 256KB");
+  let parsed: unknown;
+  try { parsed = JSON.parse(raw); }
+  catch { throw new Error("REGISTRY_ROOT_ROTATIONS_JSON must be valid JSON"); }
+  if (!Array.isArray(parsed) || parsed.length > 32 || parsed.some((item) => !item || typeof item !== "object" || Array.isArray(item))) {
+    throw new Error("REGISTRY_ROOT_ROTATIONS_JSON must be an array of at most 32 objects");
+  }
+  return parsed as Record<string, unknown>[];
 }
 
 function parseUrl(raw: string, name: string, production: boolean): URL {
@@ -83,6 +114,11 @@ export function loadRegistryConfig(env: NodeJS.ProcessEnv = process.env): Regist
   if (signingPrivateKey.asymmetricKeyType !== "ed25519") throw new Error("REGISTRY_SIGNING_PRIVATE_KEY must be an Ed25519 private key");
   const signingPublicKey = crypto.createPublicKey(signingPrivateKey);
   if (signingPublicKey.asymmetricKeyType !== "ed25519") throw new Error("REGISTRY signing public key must be Ed25519");
+  const signingPublicKeyPem = signingPublicKey.export({ type: "spki", format: "pem" }).toString();
+  const signerSequence = parseNonNegativeInteger(required(env, "REGISTRY_SIGNER_SEQUENCE", DEVELOPMENT_DEFAULTS.signerSequence), "REGISTRY_SIGNER_SEQUENCE");
+  const signerValidFrom = parseTimestamp(required(env, "REGISTRY_SIGNER_VALID_FROM", DEVELOPMENT_DEFAULTS.signerValidFrom), "REGISTRY_SIGNER_VALID_FROM");
+  const signerValidUntil = parseTimestamp(required(env, "REGISTRY_SIGNER_VALID_UNTIL", DEVELOPMENT_DEFAULTS.signerValidUntil), "REGISTRY_SIGNER_VALID_UNTIL");
+  if (Date.parse(signerValidUntil) <= Date.parse(signerValidFrom)) throw new Error("REGISTRY signer validity window is invalid");
   const sessionSecret = required(env, "REGISTRY_SESSION_SECRET", DEVELOPMENT_DEFAULTS.sessionSecret);
   if (production && sessionSecret.length < 32) throw new Error("REGISTRY_SESSION_SECRET must contain at least 32 characters in production");
 
@@ -96,8 +132,13 @@ export function loadRegistryConfig(env: NodeJS.ProcessEnv = process.env): Regist
     dataRoot: path.resolve(env.REGISTRY_DATA?.trim() || "data"),
     publicUrl,
     signerKeyId: required(env, "REGISTRY_SIGNER_KEY_ID", DEVELOPMENT_DEFAULTS.signerKeyId),
+    signerSequence,
+    signerValidFrom,
+    signerValidUntil,
     signingPrivateKey,
     signingPublicKey,
+    signingPublicKeyPem,
+    configuredRootRotations: parseRootRotations(env.REGISTRY_ROOT_ROTATIONS_JSON),
     metadataTtlSeconds: parsePositiveInteger(env.REGISTRY_METADATA_TTL_SECONDS, 60 * 60, "REGISTRY_METADATA_TTL_SECONDS"),
     sessionSecret,
     githubClientId: required(env, "GITHUB_CLIENT_ID", DEVELOPMENT_DEFAULTS.githubClientId),
