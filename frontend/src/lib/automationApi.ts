@@ -23,13 +23,13 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 }
 
 export const automationApi = {
-  list: () => request<AutomationWorkflow[]>("/api/automations"),
-  create: (body: Record<string, unknown>) => request<AutomationWorkflow & { webhookCredentials?: { token: string; secret?: string } }>("/api/automations", { method: "POST", body: JSON.stringify(body) }),
-  update: (id: string, body: Record<string, unknown>) => request<AutomationWorkflow>(`/api/automations/${id}`, { method: "PUT", body: JSON.stringify(body) }),
-  remove: (id: string) => request(`/api/automations/${id}`, { method: "DELETE" }),
-  enable: (id: string, enabled: boolean) => request<AutomationWorkflow>(`/api/automations/${id}/${enabled ? "enable" : "disable"}`, { method: "POST" }),
-  run: (id: string) => request<AutomationRun>(`/api/automations/${id}/run`, { method: "POST" }),
-  runs: (id: string) => request<AutomationRun[]>(`/api/automations/${id}/runs`),
-  runDetail: (id: string) => request<AutomationRun & { steps: Array<Record<string, unknown>> }>(`/api/automations/runs/${id}`),
-  cancel: (id: string) => request<AutomationRun>(`/api/automations/runs/${id}/cancel`, { method: "POST" }),
+  list: () => request<AutomationWorkflow[]>("/automations"),
+  create: (body: Record<string, unknown>) => request<AutomationWorkflow & { webhookCredentials?: { token: string; secret?: string } }>("/automations", { method: "POST", body: JSON.stringify(body) }),
+  update: (id: string, body: Record<string, unknown>) => request<AutomationWorkflow>(`/automations/${id}`, { method: "PUT", body: JSON.stringify(body) }),
+  remove: (id: string) => request(`/automations/${id}`, { method: "DELETE" }),
+  enable: (id: string, enabled: boolean) => request<AutomationWorkflow>(`/automations/${id}/${enabled ? "enable" : "disable"}`, { method: "POST" }),
+  run: (id: string) => request<AutomationRun>(`/automations/${id}/run`, { method: "POST" }),
+  runs: (id: string) => request<AutomationRun[]>(`/automations/${id}/runs`),
+  runDetail: (id: string) => request<AutomationRun & { steps: Array<Record<string, unknown>> }>(`/automations/runs/${id}`),
+  cancel: (id: string) => request<AutomationRun>(`/automations/runs/${id}/cancel`, { method: "POST" }),
 };
