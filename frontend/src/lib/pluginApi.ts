@@ -59,8 +59,26 @@ export interface InstalledPlugin {
 export interface PluginVersion { version: string; checksum: string; source: string; trustLevel: string; status: string; installedAt: string; verifiedAt?: string | null }
 export interface PluginConnection { id: string; name: string; type: "bearer" | "api-key-header" | "basic"; headerName?: string; description?: string; configured?: boolean }
 export interface PluginExecution { id: string; actionId: string; status: string; durationMs?: number | null; errorMessage?: string | null; progressCurrent?: number | null; progressTotal?: number | null; progressMessage?: string | null }
-export interface RegistrySource { id: string; name: string; url: string; official?: boolean }
-export interface RegistryPlugin { id: string; name: string; description?: string; category?: string; keywords?: string[]; latestVersion: string; trustLevel?: string; repository?: string }
+export interface RegistrySource {
+  id: string;
+  name: string;
+  indexUrl: string;
+  official: boolean;
+  enabled: boolean;
+  registryKeyId: string | null;
+  registryPublicKey: string | null;
+}
+export interface RegistryPlugin {
+  id: string;
+  publisher: string;
+  name: string;
+  description?: string;
+  category?: string;
+  keywords?: string[];
+  latestVersion: string;
+  trustLevel?: string;
+  repository?: string;
+}
 export interface PluginUpdate { pluginId: string; currentVersion: string; availableVersion: string; permissionDiff: { added: string[] }; confirmationRequired: boolean }
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
@@ -105,10 +123,17 @@ export const pluginApi = {
   connections: (id: string) => request<PluginConnection[]>(`/plugins/${encodeURIComponent(id)}/connections`),
   setConnection: (id: string, name: string, value: string) => request(`/plugins/${encodeURIComponent(id)}/secrets/${encodeURIComponent(name)}`, { method: "PUT", body: JSON.stringify({ value }) }),
   removeConnection: (id: string, name: string) => request(`/plugins/${encodeURIComponent(id)}/secrets/${encodeURIComponent(name)}`, { method: "DELETE" }),
-  registrySources: () => request<RegistrySource[]>("/plugins/registry/sources"),
-  setRegistrySources: (sources: RegistrySource[]) => request<RegistrySource[]>("/plugins/registry/sources", { method: "PUT", body: JSON.stringify({ sources }) }),
-  registryCatalog: (source = "official") => request<RegistryPlugin[]>(`/plugins/registry/catalog?source=${encodeURIComponent(source)}`),
-  installFromRegistry: (sourceId: string, pluginId: string, version?: string) => request("/plugins/registry/install", { method: "POST", body: JSON.stringify({ sourceId, pluginId, version }) }),
+  registrySources: () => request<RegistrySource[]>("/plugins/ecosystem/sources"),
+  setRegistrySource: (source: Pick<RegistrySource, "id" | "name" | "indexUrl" | "registryKeyId" | "registryPublicKey"> & { enabled?: boolean }) => request<RegistrySource[]>("/plugins/ecosystem/sources", { method: "PUT", body: JSON.stringify(source) }),
+  registryCatalog: async (source = "official-v2") => {
+    const index = await request<{ extensions: Array<Omit<RegistryPlugin, "latestVersion"> & { versions: Array<{ version: string }> }> }>(`/plugins/ecosystem/catalog?source=${encodeURIComponent(source)}`);
+    return index.extensions.map((extension) => ({
+      ...extension,
+      latestVersion: [...extension.versions]
+        .sort((left, right) => right.version.localeCompare(left.version, undefined, { numeric: true }))[0]?.version || "",
+    }));
+  },
+  installFromRegistry: (sourceId: string, pluginId: string, version?: string) => request("/plugins/ecosystem/install", { method: "POST", body: JSON.stringify({ sourceId, pluginId, version }) }),
   getDeveloperMode: () => request<{ enabled: boolean; available: boolean }>("/plugins/developer-mode"),
   setDeveloperMode: (enabled: boolean) => request<{ enabled: boolean }>("/plugins/developer-mode", { method: "PUT", body: JSON.stringify({ enabled }) }),
   loadDevelopment: (directory: string, confirmNodeRuntime = false) => request("/plugins/dev/load", { method: "POST", body: JSON.stringify({ directory, confirmNodeRuntime }) }),

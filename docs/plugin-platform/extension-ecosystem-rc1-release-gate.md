@@ -18,6 +18,8 @@ Extension Ecosystem V2 的 Official Registry 使用随 Nowen 发布包编译的 
 
 这个变量不是 Secret；真正的 Registry Root 私钥和 Publisher 私钥仍必须只存在于离线签名环境或受保护 CI Secret/HSM 中。
 
+Public Beta 的官方 Index 是 `https://cropflre.github.io/nowen-plugin-registry/v2/index.json`。静态 Registry 仓库通过 GitHub Pages 发布签名后的 `dist/`，Registry 私钥只配置为该仓库的 `NOWEN_REGISTRY_SIGNING_PRIVATE_KEY` Secret。
+
 ## 生成生产信任根
 
 发布前准备一个仅包含公开信息的 JSON，例如：
