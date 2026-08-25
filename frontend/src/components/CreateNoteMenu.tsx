@@ -1,12 +1,12 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { FileText, FileCode, FileType2 } from "lucide-react";
+import { FileText, FileCode, FileType2, CloudDownload } from "lucide-react";
 import {
   cancelNewNoteTitleFocus,
   requestNewNoteTitleFocus,
 } from "@/lib/noteTitleFocus";
 
-export type NoteType = "normal" | "markdown" | "word";
+export type NoteType = "normal" | "markdown" | "word" | "yuque";
 
 export interface CreateNoteMenuProps {
   onPick: (type: NoteType) => void | Promise<void>;
@@ -71,6 +71,12 @@ export default function CreateNoteMenu({ onPick, onClose, anchorRef }: CreateNot
       desc: "选择 .docx 转为可编辑笔记",
       icon: <FileType2 size={14} />,
     },
+    {
+      id: "yuque" as NoteType,
+      label: "从 Yuque 导入",
+      desc: "通过 Token 批量导入云端文档",
+      icon: <CloudDownload size={14} />,
+    },
   ];
 
   return createPortal(
@@ -96,7 +102,8 @@ export default function CreateNoteMenu({ onPick, onClose, anchorRef }: CreateNot
             onClick={(e) => {
               e.preventDefault();
               e.stopPropagation();
-              const focusRequestId = it.id === "word" ? null : requestNewNoteTitleFocus();
+              const focusRequestId =
+                it.id === "word" || it.id === "yuque" ? null : requestNewNoteTitleFocus();
               onClose();
               void Promise.resolve(onPick(it.id)).catch((err) => {
                 if (focusRequestId !== null) cancelNewNoteTitleFocus(focusRequestId);

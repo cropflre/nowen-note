@@ -33,7 +33,7 @@ export const CODE_BLOCK_THEMES: CodeBlockThemeMeta[] = [
   { id: "solarized-light", label: "Solarized Light", preview: { bg: "#fdf6e3", fg: "#586e75", accent: "#b58900" } },
 ];
 
-export const DEFAULT_CODE_BLOCK_THEME: CodeBlockThemeId = "github-dark";
+export const DEFAULT_CODE_BLOCK_THEME: CodeBlockThemeId = "github-light";
 
 const STORAGE_KEY = "nowen.codeBlockTheme";
 

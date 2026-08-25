@@ -46,6 +46,7 @@ import YoudaoImport from "@/components/YoudaoImport";
 import ObsidianImport from "@/components/ObsidianImport";
 import WeChatFavoritesImport from "@/components/WeChatFavoritesImport";
 import UrlImport from "@/components/UrlImport";
+import YuqueImport from "@/components/YuqueImport";
 import RemoteImageLocalizationPanel from "@/components/RemoteImageLocalizationPanel";
 import {
   IMPORT_METHOD_GROUPS,
@@ -1032,6 +1033,13 @@ export default function DataManager() {
       desc: t("dataManager.importMethodUrlDesc"),
       tag: t("dataManager.importMethodUrlTag"),
       iconClass: "text-blue-600 dark:text-blue-400",
+    },
+    yuque: {
+      icon: BookOpen,
+      label: t("dataManager.importMethodYuque"),
+      desc: t("dataManager.importMethodYuqueDesc"),
+      tag: t("dataManager.importMethodYuqueTag"),
+      iconClass: "text-sky-600 dark:text-sky-400",
     },
     nowen: {
       icon: Package,
@@ -2061,6 +2069,7 @@ export default function DataManager() {
               {!personalImportLocked && activeImportMethod === "obsidian" && <ObsidianImport />}
               {!personalImportLocked && activeImportMethod === "wechat-favorites" && <WeChatFavoritesImport />}
               {!personalImportLocked && activeImportMethod === "youdao" && <YoudaoImport />}
+              {!personalImportLocked && activeImportMethod === "yuque" && <YuqueImport />}
             </div>
           </div>
         </section>

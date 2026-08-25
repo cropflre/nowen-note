@@ -11,7 +11,7 @@ export interface SlashPluginState {
 
 export type SlashActivateHandler = (
   query: string,
-  position: { top: number; left: number; from: number; trigger?: { top: number; bottom: number; left: number; right: number } },
+  position: { top: number; left: number; from: number; trigger?: { top: number; bottom: number; left: number; right: number }; centerVertically?: boolean },
   sourceId?: string,
 ) => void;
 export type SlashDeactivateHandler = (sourceId?: string) => void;
@@ -282,7 +282,7 @@ export function createSlashExtension(
 
                 if (!previous.active && current.active) {
                   const pos = getMenuPosition(view);
-                  onActivate(current.query, { top: pos.top, left: pos.left, from: current.from, trigger: pos.trigger }, sourceId);
+                  onActivate(current.query, { top: pos.top, left: pos.left, from: current.from, trigger: pos.trigger, centerVertically: true }, sourceId);
                   return;
                 }
                 if (previous.active && !current.active) {

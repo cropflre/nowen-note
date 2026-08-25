@@ -1818,21 +1818,44 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
   const { visible: keyboardVisible } = useKeyboardVisible();
   const compactMobileEditing = isMobile && editable && keyboardVisible;
   const [mobileToolbarExpanded, setMobileToolbarExpanded] = useState(false);
-  // 桌面工具栏折叠：宽度 < 阈值时折叠成"..."图标，避免窄屏按钮挤换行。
-  // 用户可点击 toggle 强制覆盖自动行为（manualOverride=null 时跟随 auto）。
-  const [desktopToolbarAutoCollapsed, setDesktopToolbarAutoCollapsed] = useState(true);
-  const [desktopToolbarOverride, setDesktopToolbarOverride] = useState<boolean | null>(null);
-  const desktopToolbarCollapsed = desktopToolbarOverride ?? desktopToolbarAutoCollapsed;
+  const [toolbarExpanded, setToolbarExpanded] = useState(false);
+  const toolbarExpandedRef = useRef(false);
+
+
+  // 工具栏按钮容器在"单行模式"下是否溢出（scrollWidth > clientWidth）。
+  // 仅溢出时显示折叠/展开按钮。
+  // 展开态也持续测量：临时强制 nowrap 取内容真实宽度，窗口够宽时自动收起并隐藏按钮。
+  const [toolbarHasOverflow, setToolbarHasOverflow] = useState(false);
   useEffect(() => {
-    const check = () => {
-      // 桌面工具栏宽度 < 阈值时折叠（避免窄屏 flex-wrap 换行难看）
-      // lg 断点 (1024px) 为参照——工具栏约 900px 起开始挤
-      setDesktopToolbarAutoCollapsed(window.innerWidth < 1024);
+    const el = toolbarButtonsRef.current;
+    if (!el) return;
+    const measure = () => {
+      // 展开态（flex-wrap）下 scrollWidth 会被容器宽度截断，无法反映真实内容宽度。
+      // 临时强制 nowrap + overflow-hidden 测量，用完立即恢复。
+      const wasWrapped = el.style.flexWrap !== '';
+      const wasOverflow = el.style.overflow !== '';
+      const prevFlexWrap = el.style.flexWrap;
+      const prevOverflow = el.style.overflow;
+      el.style.flexWrap = 'nowrap';
+      el.style.overflow = 'hidden';
+      const overflowing = el.scrollWidth > el.clientWidth + 1;
+      // 恢复原始样式（CSS class 会重新接管）
+      if (wasWrapped) el.style.flexWrap = prevFlexWrap; else el.style.flexWrap = '';
+      if (wasOverflow) el.style.overflow = prevOverflow; else el.style.overflow = '';
+      setToolbarHasOverflow(overflowing);
+      // 窗口已够宽、不再溢出 → 自动收起展开态
+      if (!overflowing && toolbarExpandedRef.current) {
+        setToolbarExpanded(false);
+      }
     };
-    check();
-    window.addEventListener("resize", check);
-    return () => window.removeEventListener("resize", check);
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    measure();
+    return () => observer.disconnect();
   }, []);
+  useEffect(() => {
+    toolbarExpandedRef.current = toolbarExpanded;
+  }, [toolbarExpanded]);
   useEffect(() => {
     setMobileToolbarExpanded(false);
   }, [keyboardVisible, isMobile, note.id]);
@@ -2004,6 +2027,7 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
 
   const editorScrollRef = useRef<HTMLDivElement | null>(null);
   const outlineToolbarRef = useRef<HTMLDivElement | null>(null);
+  const toolbarButtonsRef = useRef<HTMLDivElement | null>(null);
   const outlineScrollRequestRef = useRef(0);
   // 防止 setContent 触发 onUpdate 导致无限循环
   const isSettingContent = useRef(false);
@@ -2161,6 +2185,18 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
                 : undefined,
             }),
           ];
+        },
+        addAttributes() {
+          return {
+            ...this.parent?.(),
+            // 代码块标题：工具栏"请输入代码块名称"输入框持久化到节点属性
+            title: {
+              default: null,
+              parseHTML: (el) => el.getAttribute("data-title") || null,
+              renderHTML: (attrs) =>
+                attrs.title ? { "data-title": attrs.title } : {},
+            },
+          };
         },
         addNodeView() {
           return ReactNodeViewRenderer(CodeBlockView);
@@ -4053,6 +4089,16 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
     setImageSizeMenuOpen(false);
   }, [editor]);
 
+  // 图片为 inline 节点，居中/对齐走「块级 text-align」——与主工具栏对齐按钮
+  // 用同一套 setTextAlign 接口（作用于图片所在的 paragraph），序列化/分享页天然兼容。
+  const handleSetSelectedImageAlign = useCallback(
+    (align: "left" | "center" | "right") => {
+      if (!editor) return;
+      editor.chain().focus().setTextAlign(align).run();
+    },
+    [editor],
+  );
+
   // 动态切换编辑器的可编辑状态
   useEffect(() => {
     if (editor) {
@@ -5570,14 +5616,14 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
           )}
         >
         {/* 按钮容器：负责移动端横向滚动 / 桌面折叠单行裁剪 / 展开两行换行；折叠按钮为其兄弟节点，永不被裁切 */}
-        <div className={cn(
-          "flex flex-1 items-center gap-0.5 editor-toolbar-scroll-fade hide-scrollbar",
+        <div ref={toolbarButtonsRef} className={cn(
+          "flex flex-1 items-center gap-0.5 editor-toolbar-scroll-fade hide-scrollbar [&>*]:shrink-0",
           mobileToolbarExpanded
             ? "max-md:flex-wrap max-md:overflow-y-auto"
             : "max-md:flex-nowrap max-md:overflow-x-auto max-md:touch-pan-x",
-          desktopToolbarCollapsed
-            ? "md:flex-nowrap md:overflow-hidden"
-            : "md:flex-wrap md:overflow-visible",
+          toolbarExpanded
+            ? "md:flex-wrap md:overflow-visible"
+            : "md:flex-nowrap md:overflow-hidden",
         )}>
         <ToolbarButton onClick={openSlashInsert} title={t('tiptap.insertBlock', { defaultValue: '添加内容' })}>
           <Plus size={iconSize} className="text-accent-primary" />
@@ -5666,7 +5712,6 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
           <Strikethrough size={iconSize} />
         </ToolbarButton>
         <FontSizePopover editor={editor} iconSize={iconSize} />
-        <LineHeightPopover editor={editor} iconSize={iconSize} />
         <ColorPopover editor={editor} iconSize={iconSize} />
         <ToolbarButton
           onClick={toggleFormatPainter}
@@ -5727,15 +5772,6 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
           <Quote size={iconSize} />
         </ToolbarButton>
 
-        <ToolbarDivider />
-
-        <ToolbarButton
-          onClick={toggleCodeBlockStrict}
-          isActive={editor.isActive("codeBlock")}
-          title={t('tiptap.codeBlock')}
-        >
-          <FileCode size={iconSize} />
-        </ToolbarButton>
         <ToolbarButton
           onClick={() => editor.chain().focus().setHorizontalRule().run()}
           title={t('tiptap.horizontalRule')}
@@ -5918,15 +5954,16 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
 
         </div>
 
-        {/* 折叠按钮（仅桌面窄屏）：折叠态 v 展开两行，展开态 ^ 恢复单行；宽屏不显示 */}
-        {desktopToolbarAutoCollapsed && (
+        {/* 折叠按钮（桌面）：仅当工具栏按钮容器溢出（scrollWidth > clientWidth）时显示。
+            宽度足够容纳所有按钮时自动隐藏，不需要折叠功能。 */}
+        {toolbarHasOverflow && (
           <ToolbarButton
             compact
             className="ml-auto shrink-0 self-start hidden md:flex"
-            onClick={() => setDesktopToolbarOverride(desktopToolbarCollapsed ? false : null)}
-            title={desktopToolbarCollapsed ? "展开工具栏" : "折叠工具栏"}
+            onClick={() => setToolbarExpanded((v) => !v)}
+            title={toolbarExpanded ? "折叠工具栏" : "展开工具栏"}
           >
-            {desktopToolbarCollapsed ? <ChevronDown size={iconSize} /> : <ChevronUp size={iconSize} />}
+            {toolbarExpanded ? <ChevronUp size={iconSize} /> : <ChevronDown size={iconSize} />}
           </ToolbarButton>
         )}
       </div>
@@ -6069,7 +6106,6 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
           </ToolbarButton>
           {/* 字号 + 颜色 / 背景色：选区气泡同步暴露，移动端常用 */}
           <FontSizePopover editor={editor} iconSize={14} compact />
-          <LineHeightPopover editor={editor} iconSize={14} compact />
           <ColorPopover editor={editor} iconSize={14} compact />
           <ToolbarButton
             onClick={() => editor.chain().focus().toggleCode().run()}
@@ -6085,13 +6121,6 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
             title={t('tiptap.link')}
           >
             <LinkIcon size={14} />
-          </ToolbarButton>
-          <ToolbarButton
-            onClick={toggleCodeBlockStrict}
-            isActive={editor.isActive("codeBlock")}
-            title={t('tiptap.codeBlock')}
-          >
-            <FileCode size={14} />
           </ToolbarButton>
           {/* 清除全部 inline 文本格式（Mod-Shift-X 同等效果） */}
           <ToolbarButton
@@ -6242,6 +6271,29 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
           <ToolbarButton title={t("tiptap.imageDownload")} onClick={() => { void handleDownloadSelectedImage(); }}>
             <Download size={14} />
           </ToolbarButton>
+          <div className="mx-0.5 h-4 w-px shrink-0 bg-app-border" aria-hidden="true" />
+          <ToolbarButton
+            title={t("tiptap.imageAlignLeft")}
+            isActive={editor.isActive({ textAlign: "left" })}
+            onClick={() => handleSetSelectedImageAlign("left")}
+          >
+            <AlignLeft size={14} />
+          </ToolbarButton>
+          <ToolbarButton
+            title={t("tiptap.imageAlignCenter")}
+            isActive={editor.isActive({ textAlign: "center" })}
+            onClick={() => handleSetSelectedImageAlign("center")}
+          >
+            <AlignCenter size={14} />
+          </ToolbarButton>
+          <ToolbarButton
+            title={t("tiptap.imageAlignRight")}
+            isActive={editor.isActive({ textAlign: "right" })}
+            onClick={() => handleSetSelectedImageAlign("right")}
+          >
+            <AlignRight size={14} />
+          </ToolbarButton>
+          <div className="mx-0.5 h-4 w-px shrink-0 bg-app-border" aria-hidden="true" />
           <div className="relative">
             <ToolbarButton
               title={t("common.more", { defaultValue: "更多" })}
@@ -6356,6 +6408,28 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
           </div>
           {imageSizeMenuOpen && (
             <div className="mt-2 rounded-xl border border-app-border bg-app-hover/40 p-2">
+              <div className="mb-1.5 text-[10px] font-medium text-tx-tertiary">{t("tiptap.imageAlign")}</div>
+              <div className="mb-2 grid grid-cols-3 gap-1.5">
+                {([
+                  { key: "left", label: t("tiptap.imageAlignLeft"), icon: AlignLeft },
+                  { key: "center", label: t("tiptap.imageAlignCenter"), icon: AlignCenter },
+                  { key: "right", label: t("tiptap.imageAlignRight"), icon: AlignRight },
+                ] as const).map((item) => {
+                  const Icon = item.icon;
+                  const active = editor.isActive({ textAlign: item.key });
+                  return (
+                    <button
+                      key={item.key}
+                      type="button"
+                      onClick={() => handleSetSelectedImageAlign(item.key)}
+                      className={`flex h-9 min-w-0 items-center justify-center gap-1 rounded-lg border text-[11px] active:bg-app-hover ${active ? "border-accent-primary bg-accent-primary/10 text-accent-primary" : "border-app-border bg-app-surface text-tx-secondary"}`}
+                    >
+                      <Icon size={14} />
+                      <span className="max-w-full truncate">{item.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
               <div className="mb-1.5 text-[10px] font-medium text-tx-tertiary">{t("tiptap.imageMoreSizes")}</div>
               <div className="flex gap-1.5 overflow-x-auto hide-scrollbar">
                 {IMAGE_SIZE_PRESETS.map((s) => (
@@ -6669,15 +6743,15 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
           所有格式化命令。 */}
       <div
         ref={setScrollContainerRef}
-        className={cn(scrollLayout.content, "px-4 md:px-8 pb-12")}
+        className={cn(scrollLayout.content, "px-6 md:px-12 pb-12")}
         style={{ paddingBottom: "calc(3rem + var(--keyboard-height, 0px) + var(--outline-scroll-reserve, 0px))" }}
       >
         <EditorContent editor={editor} />
       <NoteLinkHoverPreview root={editor.view.dom} />
       {editor && (
         <DragHandle
-          editor={editor}
-          className={hideDragHandle ? "tiptap-drag-handle tiptap-drag-handle--hidden" : "tiptap-drag-handle"}
+            editor={editor}
+            className={hideDragHandle ? "tiptap-drag-handle tiptap-drag-handle--hidden" : "tiptap-drag-handle"}
           // 分栏跟随：用 nested 模式让 column 节点本身成为拖拽目标，
           // 而非顶层块 column_container。这样鼠标在栏1/栏2时 targetNode 不同，
           // 拖拽柄会随鼠标所在的栏重新定位到该栏左侧。
@@ -6755,13 +6829,62 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
           onNodeChange={({ node, pos }: { node: any; editor: Editor; pos: number }) => {
             dragHandlePosRef.current = pos;
             // 仅当评分胜出者为 detailsSummary（">" 行）时隐藏柄。
-            // prioritizeDetails 规则已保证 detailsSummary 不会胜出（内部节点扣 600），
+            // prioritizeDetails 规则保证 detailsSummary 不会胜出（内部节点扣 600），
             // 正常情况此条件始终为 false。此处仅作为极端情况的安全网。
             const name: string = node?.type?.name ?? "";
             setHideDragHandle(name === "detailsSummary");
+            // 拖拽柄默认贴块顶；设计上应竖直居中对齐块中心（标题/多行块尤为明显）。
+            // DragHandle 插件会在滚动/光标移动/resize 时重写 inline top，故用
+            // MutationObserver 持续监听 style 变化并重新居中，而非只设一次
+            // （一次性赋值会被插件下次定位立即覆盖）。
+            try {
+              const root = editor.view.dom.parentElement;
+              if (!root) return;
+              const handle = root.querySelector(
+                ".tiptap-drag-handle:not(.tiptap-drag-handle--hidden)",
+              ) as HTMLElement | null;
+              if (!handle) return;
+              // 取当前块的 DOM（domAtPos 定位到光标节点，向上找块级元素）
+              const domAtPos = editor.view.domAtPos(pos);
+              const rawNode = domAtPos.node;
+              const blockEl = (
+                rawNode.nodeType === Node.TEXT_NODE ? rawNode.parentElement : (rawNode as HTMLElement)
+              )?.closest(
+                "p, h1, h2, h3, h4, h5, h6, li, blockquote, pre, div[data-type], ul, ol, table",
+              ) as HTMLElement | null;
+              if (!blockEl) return;
+              // 居中：读插件刚写的 top，加 (块高-柄高)/2 偏移。
+              // 关键：本函数会在 MutationObserver 监听自身 style 变化时再次触发，
+              // 若不在写入后用标志位拦截，会陷入「写入→触发→再写」的无限漂移（表现为柄/块一抽一抽）。
+              // 用 applying 标志位挡掉「我们自己这次写入」触发的回调，下次插件真改 top 时再正常居中。
+              let applying = false;
+              const centerHandle = () => {
+                if (applying) return;
+                applying = true;
+                const blockH = blockEl.clientHeight;
+                const handleH = handle.clientHeight || 24;
+                const currentTop = parseFloat(handle.style.top) || 0;
+                handle.style.top = `${currentTop + (blockH - handleH) / 2}px`;
+                // 下一帧再放开，避免本次写入触发的 MutationObserver 回调再次进入
+                requestAnimationFrame(() => {
+                  applying = false;
+                });
+              };
+              // 立即执行一次
+              centerHandle();
+              // 同一 handle 只挂一个 observer：进入新块时先断开旧 observer
+              // （旧闭包捕获的是上一块的 blockEl，不重连会居中到错误块）
+              const existing = (handle as any)._nowenCenterObserver as MutationObserver | undefined;
+              if (existing) existing.disconnect();
+              const observer = new MutationObserver(centerHandle);
+              observer.observe(handle, { attributes: true, attributeFilter: ["style"] });
+              (handle as any)._nowenCenterObserver = observer;
+            } catch {
+              /* 居中失败不影响块柄正常显示 */
+            }
           }}
         >
-          {/* 整个手柄点击 = 打开斜杠快速添加菜单（与行首输入 “/” 完全等价）。
+          {/* 整个手柄点击 = 打开斜杠快速添加菜单（与行首输入 "/" 完全等价）。
               手柄父元素 draggable=true，纯点击（无位移）会正常触发 click，不会
               误触拖拽；按下并拖动则走原生拖拽移动区块。 */}
           <span
@@ -6791,6 +6914,7 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
                   left: rect.right + 4,
                   from: pos + 1,
                   trigger: { top: rect.top, bottom: rect.bottom, left: rect.left, right: rect.right },
+                  centerVertically: true,
                 },
                 getSlashEditorId(editor),
               );

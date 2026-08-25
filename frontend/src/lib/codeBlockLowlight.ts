@@ -3,6 +3,11 @@ import maxscript from "@/lib/codeBlockLanguages/maxscript";
 
 const commonRegistry = common as Record<string, LanguageFn>;
 const EXPLICIT_ONLY_LANGUAGES = new Set(["maxscript"]);
+// 导入来源（如云端导出）常用 highlight.js 未收录的别名：shell→bash、sh→bash
+const LANGUAGE_ALIASES: Record<string, string> = {
+  shell: "bash",
+  sh: "bash",
+};
 
 /**
  * Extend lowlight's shared `common` registry before editor-level instances are created.
@@ -13,6 +18,11 @@ const EXPLICIT_ONLY_LANGUAGES = new Set(["maxscript"]);
  */
 export function installCodeBlockLanguages(): Record<string, LanguageFn> {
   if (!commonRegistry.maxscript) commonRegistry.maxscript = maxscript;
+  for (const [alias, target] of Object.entries(LANGUAGE_ALIASES)) {
+    if (!commonRegistry[alias] && commonRegistry[target]) {
+      commonRegistry[alias] = commonRegistry[target];
+    }
+  }
   return commonRegistry;
 }
 

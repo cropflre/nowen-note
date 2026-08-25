@@ -218,6 +218,47 @@ body {
   pointer-events: none;
 }
 
+.ProseMirror h1,
+.ProseMirror h2,
+.ProseMirror h3,
+.ProseMirror h4,
+.ProseMirror h5,
+.ProseMirror h6 {
+  position: relative;
+}
+
+/* 标题等级标记（H1-H6）：一直显示在标题左侧 gutter 区域、半透明、
+ * 用 ::before 绝对定位到内容框左侧（拖拽柄左边），不参与编辑/选择/复制。
+ * 与 DragHandle 完全无关。 */
+.ProseMirror h1::before { content: "H1"; }
+.ProseMirror h2::before { content: "H2"; }
+.ProseMirror h3::before { content: "H3"; }
+.ProseMirror h4::before { content: "H4"; }
+.ProseMirror h5::before { content: "H5"; }
+.ProseMirror h6::before { content: "H6"; }
+
+.ProseMirror h1::before,
+.ProseMirror h2::before,
+.ProseMirror h3::before,
+.ProseMirror h4::before,
+.ProseMirror h5::before,
+.ProseMirror h6::before {
+  display: inline-block;
+  position: absolute;
+  left: -3em;             /* 推到内容框左侧 gutter 里，在拖拽柄左边（进一步避开遮挡） */
+  top: 50%;              /* 垂直居中：相对标题块高度 */
+  transform: translate(-10%, -50%);  /* 左移自身宽度 + 上移半高，实现左上角对齐到标题左侧中心 */
+  font-size: 12px;       /* 固定字号：H1-H6 统一大小，不随标题层级缩放 */
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  color: var(--color-text-tertiary);
+  opacity: 0.45;
+  user-select: none;
+  -webkit-user-select: none;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
 .ProseMirror h1 {
   font-size: 1.75rem;
   font-weight: 700;
@@ -246,6 +287,22 @@ body {
   margin: var(--pm-p-margin, 0) 0;
   line-height: var(--pm-p-line-height, 1.6);
   color: var(--pm-text);
+}
+
+/* 标题与列表项显式文本光标：悬停时显示 I-beam，避免被更高优先级规则（如 li:not(...)）覆盖后不显示 */
+.ProseMirror h1,
+.ProseMirror h2,
+.ProseMirror h3,
+.ProseMirror h4,
+.ProseMirror h5,
+.ProseMirror h6,
+.ProseMirror ul > li,
+.ProseMirror ol > li,
+.ProseMirror li.task-item,
+.ProseMirror li[data-type="taskItem"],
+.ProseMirror ul[data-type="taskList"] > li,
+.ProseMirror ol[data-type="taskList"] > li {
+  cursor: text !important;
 }
 
 .ProseMirror ul {
@@ -644,10 +701,20 @@ html[data-code-theme="solarized-light"] {
   color: inherit !important;
 }
 
-/* 宸ュ叿鏍?& 閫夋嫨鍣紙閰嶅悎 CodeBlockView 鐨勮涔?class锛?*/
+/* 代码块工具栏 */
 .ProseMirror .code-block-toolbar {
   background: var(--code-toolbar-bg);
   border-color: var(--code-border) !important;
+}
+
+/* 代码块标题输入框 */
+.ProseMirror .code-block-title-input::placeholder {
+  color: var(--code-muted);
+  opacity: 0.7;
+}
+.ProseMirror .code-block-title-input:focus {
+  outline: none;
+  box-shadow: none;
 }
 
 .ProseMirror .code-block-tool-btn {
@@ -752,7 +819,7 @@ html[data-code-theme="solarized-light"] {
 .ProseMirror table {
   border-collapse: collapse;
   margin: 0;
-  width: auto;
+  width: 100%;
   max-width: 100%;
   table-layout: fixed;
   border-radius: 6px;
@@ -955,7 +1022,7 @@ body.density-compact {
   display: flex !important;
   flex-direction: row !important;
   flex-wrap: nowrap !important;
-  align-items: flex-start !important; /* 鍨傜洿灞呬腑瀵归綈锛屼娇澶嶉€夋涓庡崟琛屾枃瀛楁按骞冲眳涓?*/
+  align-items: center !important; /* 垂直居中：复选框与首行文字自然对齐 */
   gap: 0.5rem;
   margin: 0.375rem 0;
   border-radius: 6px;
@@ -964,11 +1031,14 @@ body.density-compact {
   list-style: none !important;
 }
 
-/* 纭繚浠诲姟椤瑰唴閮ㄦ钀戒笉浜х敓棰濆鎹㈣ */
-.ProseMirror li[data-type="taskItem"] > div > p {
+/* 任务列表内部段落：block 填满宽度 + 修正光标 */
+.ProseMirror li[data-type="taskItem"] > div > p,
+.ProseMirror li.task-item > div > p,
+.ProseMirror ul[data-type="taskList"] > li > div > p {
   margin: 0 !important;
-  display: inline-block;
-  vertical-align: middle;
+  display: block;
+  width: 100%;
+  cursor: text !important;
 }
 
 .ProseMirror li[data-type="taskItem"]:hover {
@@ -981,20 +1051,29 @@ body.density-compact {
   flex: 0 0 auto !important; /* 涓嶅弬涓庝几缂╋紝鍗犺嚜韬搴?*/
   align-items: center;
   justify-content: center;
-  /* 复选框对齐首行：li 已改 flex-start，这里用 margin-top 把 18px 复选框
-     光学下沉到首行文字中心（line-height 1.6 × 16px ≈ 25.6px，(25.6-18)/2≈4px） */
-  margin: 4px 0 0;
+  /* 复选框与文字已通过父级 align-items:center 对齐，无需额外 margin 补偿 */
+  margin: 0;
   cursor: pointer;
   user-select: none;
   vertical-align: middle;
 }
 
 /* 鏂囨湰鑺傜偣 wrapper 鈥斺€?鍗犳嵁鍓╀綑绌洪棿浣嗕笉鎹㈠埌涓嬩竴琛?*/
-.ProseMirror li[data-type="taskItem"] > div {
+.ProseMirror li[data-type="taskItem"] > div,
+.ProseMirror li.task-item > div,
+.ProseMirror ul[data-type="taskList"] > li > div {
   flex: 1 1 auto !important;
   min-width: 0 !important;
   display: block !important;
   line-height: 1.6;
+  cursor: text !important;
+}
+
+/* 任务列表内容区：所有子元素强制文本光标（兜底行内 mark/span 等覆盖） */
+.ProseMirror li[data-type="taskItem"] > div *,
+.ProseMirror li.task-item > div *,
+.ProseMirror ul[data-type="taskList"] > li > div * {
+  cursor: text !important;
 }
 
 /* ===== 鑷畾涔?Checkbox 鏍稿績鏍峰紡 ===== */

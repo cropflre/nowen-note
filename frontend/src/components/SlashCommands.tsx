@@ -51,6 +51,8 @@ interface SlashMenuProps {
   position: { top: number; left: number };
   /** 触发源（拖拽柄 / 光标）视口坐标；存在时用真实渲染尺寸做精确就近定位。 */
   trigger?: { top: number; bottom: number; left: number; right: number };
+  /** 拖拽柄来源的菜单：竖直方向尽量居中于屏幕（水平仍贴触发源）。 */
+  centerVertically?: boolean;
   /** 当前块位置（来自 `/` 或拖拽柄），块操作作用于此。 */
   from: number;
   onSelect: (item: SlashCommandItem) => void;
@@ -99,7 +101,7 @@ const CONVERT_TARGETS: { target: BlockTarget; labelKey: string; icon: React.Reac
 ];
 
 function SlashMenu({
-  editor, items, query, position, trigger, from, onSelect, onClose, onAddBelow, mode = "full",
+  editor, items, query, position, trigger, from, onSelect, onClose, onAddBelow, mode = "full", centerVertically,
 }: SlashMenuProps) {
   const { t } = useTranslation();
   type View = "main" | "convert" | "addBelow";
@@ -143,6 +145,10 @@ function SlashMenu({
 
   useEffect(() => { setSelectedIndex(0); }, [query, view, mode]);
 
+  // 「在下方添加」子面板是宽菜单（w-[260/280px]），需要按真实宽度重新贴边定位；
+  // 而主菜单与「转化为」二级菜单同为 w-56，必须共用同一 top-left，故切到
+  // 二级菜单时不再重算定位（否则会因二级菜单更高被重新夹紧/翻转，导致突然下移）。
+  const isWideView = view === "addBelow";
   // 真实尺寸精确就近定位：菜单渲染后测量宽高，紧贴触发源（右下方优先，
   // 溢出翻左/翻上，最后按真实尺寸夹紧到视口）。用 useLayoutEffect 保证
   // 修正发生在绘制前，用户看不到“估算 → 修正”的跳变。
@@ -158,14 +164,28 @@ function SlashMenu({
     let left = position.left;
     if (trigger) {
       left = trigger.right + 4; // 紧贴触发源右侧
-      top = trigger.bottom + 4; // 紧贴触发源下方
       if (left + mw > vw - margin) left = trigger.left - 4 - mw; // 右侧放不下 → 翻左
-      if (top + mh > vh - margin) top = trigger.top - 4 - mh;    // 下方放不下 → 翻上
+      if (centerVertically) {
+        // 拖拽柄来源的菜单：水平贴柄（right+4，见上）。
+        // 竖直方向两个约束平衡：
+        //   1. 菜单与拖拽柄视觉上必须连在一起（不能脱节）
+        //   2. 在满足 1 的前提下，尽量往屏幕竖直中心靠
+        const handleCenter = (trigger.top + trigger.bottom) / 2;
+        const screenCenter = vh / 2;
+        // 允许菜单中心偏离柄中心的范围（= 半个菜单高 + 小间距）
+        // → 菜单始终与柄有重叠或紧邻，不会脱节
+        const maxDrift = mh / 2 + 16;
+        let menuCenter = Math.max(handleCenter - maxDrift, Math.min(handleCenter + maxDrift, screenCenter));
+        top = menuCenter - mh / 2;
+      } else {
+        top = trigger.bottom + 4; // 紧贴触发源下方
+        if (top + mh > vh - margin) top = trigger.top - 4 - mh; // 下方放不下 → 翻上
+      }
     }
     left = Math.max(margin, Math.min(left, vw - mw - margin));
     top = Math.max(margin, Math.min(top, vh - mh - margin));
     setPos({ top, left });
-  }, [position, trigger, view, mode, query]);
+  }, [position, trigger, isWideView]);
 
   // 滚动选中项到可见区域
   useEffect(() => {
@@ -999,6 +1019,8 @@ interface SlashActivateDetail {
   mode?: "full" | "insert";
   /** 触发源（拖拽柄 / 光标）的视口坐标，供菜单用真实尺寸精确就近定位。 */
   trigger?: { top: number; bottom: number; left: number; right: number };
+  /** 拖拽柄来源的菜单：竖直方向尽量居中于屏幕（水平仍贴触发源）。 */
+  centerVertically?: boolean;
   sourceId?: string;
 }
 
@@ -1012,11 +1034,13 @@ interface SlashQueryDetail extends SlashScopedDetail {
 
 export const SlashCommandsMenu = forwardRef<SlashCommandsRef, SlashCommandsProps>(
   function SlashCommandsMenu({ editor, items }, ref) {
-    const [isActive, setIsActive] = useState(false);
-    const [query, setQuery] = useState("");
-    const [position, setPosition] = useState({ top: 0, left: 0 });
-    const [trigger, setTrigger] = useState<SlashActivateDetail["trigger"]>(undefined);
-    const [mode, setMode] = useState<"full" | "insert">("full");
+  const [isActive, setIsActive] = useState(false);
+  const [query, setQuery] = useState("");
+  const [position, setPosition] = useState({ top: 0, left: 0 });
+  const [trigger, setTrigger] = useState<SlashActivateDetail["trigger"]>(undefined);
+  const [mode, setMode] = useState<"full" | "insert">("full");
+  // 拖拽柄来源的菜单请求竖直居中（其他来源如 / 输入、工具栏 ＋ 仍贴触发源）
+  const [centerVertically, setCenterVertically] = useState(false);
     const slashFrom = useRef(0);
     const editorId = editor ? getSlashEditorId(editor) : null;
 
@@ -1029,6 +1053,7 @@ export const SlashCommandsMenu = forwardRef<SlashCommandsRef, SlashCommandsProps
       setQuery("");
       setMode("full");
       setTrigger(undefined);
+      setCenterVertically(false);
       slashFrom.current = 0;
     }, []);
 
@@ -1289,6 +1314,7 @@ export const SlashCommandsMenu = forwardRef<SlashCommandsRef, SlashCommandsProps
         setMode(detail.mode ?? "full");
         setPosition({ top: detail.top, left: detail.left });
         setTrigger(detail.trigger);
+        setCenterVertically(detail.centerVertically ?? false);
         slashFrom.current = detail.from;
       };
       const handleDeactivate = (event: Event) => {
@@ -1322,6 +1348,7 @@ export const SlashCommandsMenu = forwardRef<SlashCommandsRef, SlashCommandsProps
         query={query}
         position={position}
         trigger={trigger}
+        centerVertically={centerVertically}
         from={slashFrom.current}
         mode={mode}
         onSelect={handleSelect}
@@ -1338,7 +1365,7 @@ export function createSlashEventHandlers() {
   return {
     onActivate: (
       query: string,
-      pos: { top: number; left: number; from: number; mode?: "full" | "insert"; trigger?: { top: number; bottom: number; left: number; right: number } },
+      pos: { top: number; left: number; from: number; mode?: "full" | "insert"; trigger?: { top: number; bottom: number; left: number; right: number }; centerVertically?: boolean },
       sourceId?: string,
     ) => {
       window.dispatchEvent(new CustomEvent<SlashActivateDetail>("slash-activate", {

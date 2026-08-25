@@ -18,6 +18,7 @@ import { cn } from "@/lib/utils";
 import { useTranslation } from "react-i18next";
 import { haptic } from "@/hooks/useCapacitor";
 import CreateNoteMenu, { type NoteType } from "@/components/CreateNoteMenu";
+import YuqueImport from "@/components/YuqueImport";
 import { toast } from "@/lib/toast";
 import { exportSingleNote, exportSingleNoteAsPDF, exportSingleNoteAsImage, exportNoteAsImage } from "@/lib/exportService";
 import { realtime } from "@/lib/realtime"
@@ -1502,12 +1503,15 @@ export default function NoteList() {
   // 三个 + 按钮各自一个 ref（桌面顶部 / 移动顶部 / 移动 FAB）；
   // openSource 记录是哪一个触发了下拉，避免共用一个 ref 导致的菜单错位。
   const [createMenuOpen, setCreateNoteMenuOpen] = useState(false);
-  const [createMenuSource, setCreateNoteMenuSource] = useState<"desktop" | "mobile" | "fab" | null>(null);
+  const [createMenuSource, setCreateNoteMenuSource] = useState<"desktop" | "mobile" | "fab" | "empty" | null>(null);
   const createMenuAnchorDesktopRef = useRef<HTMLButtonElement>(null);
   const createMenuAnchorMobileRef = useRef<HTMLButtonElement>(null);
   const createMenuAnchorFabRef = useRef<HTMLButtonElement>(null);
+  const createMenuAnchorEmptyRef = useRef<HTMLButtonElement>(null);
   // picker 模式下记住即将创建的笔记类型；用户选 notebook 后据此分支。
-  const [pendingNoteType, setPendingNoteType] = useState<"normal" | "markdown" | "word">("normal");
+  const [pendingNoteType, setPendingNoteType] = useState<"normal" | "markdown" | "word" | "yuque">("normal");
+  // 新建入口触发 Yuque 导入时记录目标笔记本；非空时弹导入面板。
+  const [yuqueImportNotebookId, setYuqueImportNotebookId] = useState<string | null>(null);
   const [dateFilter, setDateFilter] = useState<string | null>(null); // YYYY-MM-DD
   const [notesLoadError, setNotesLoadError] = useState<string | null>(null);
   const [showCalendar, setShowCalendar] = useState(false);
@@ -2085,7 +2089,7 @@ export default function NoteList() {
     }
   };
 
-  const handleCreateNote = async (noteType: "normal" | "markdown" | "word" | "journal" = "normal") => {
+  const handleCreateNote = async (noteType: "normal" | "markdown" | "word" | "journal" | "yuque" = "normal") => {
     haptic.light();
     // 回收站视图禁止新建笔记
     if (state.viewMode === "trash") {
@@ -2159,11 +2163,16 @@ export default function NoteList() {
 
   // 实际执行创建笔记的逻辑，抽出供选择器回调复用
   // noteType="word" 时：弹文件选择器，走 importDocxAsNote（解析 .docx 为富文本笔记）。
+  // noteType="yuque" 时：弹出导入面板，导入目标固定为所选笔记本。
   const createNoteInNotebook = async (
     notebookId: string,
-    noteType: "normal" | "markdown" | "word" | "journal" = "normal",
+    noteType: "normal" | "markdown" | "word" | "journal" | "yuque" = "normal",
   ) => {
     try {
+      if (noteType === "yuque") {
+        setYuqueImportNotebookId(notebookId);
+        return;
+      }
       let note: any;
       if (noteType === "word") {
         const { pickDocxFile, importDocxAsNote } = await import("@/lib/wordNoteService");
@@ -4167,11 +4176,16 @@ export default function NoteList() {
               </p>
               {state.viewMode !== "trash" && (
                 <button
-                  onClick={() => handleCreateNote("normal")}
+                  ref={createMenuAnchorEmptyRef}
+                  onClick={() => {
+                    setCreateNoteMenuSource("empty");
+                    setCreateNoteMenuOpen(true);
+                  }}
                   className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-accent-primary text-white text-xs font-medium hover:bg-accent-primary/90 active:scale-95 transition-all shadow-sm"
                 >
                   <Plus size={14} />
                   {t('common.newNote')}
+                  <ChevronDown size={12} />
                 </button>
               )}
             </div>
@@ -4275,7 +4289,7 @@ export default function NoteList() {
         }}
       />
 
-      {/* 新建按钮的下拉（普通笔记 / Word 文档），在 split-button 的 ▾ 旁边 portal 弹出 */}
+      {/* 新建按钮的下拉（普通笔记 / Markdown / Word / Yuque 导入），在 split-button 的 ▾ 旁边 portal 弹出 */}
       {createMenuOpen && createMenuSource && (
         <CreateNoteMenu
           anchorRef={
@@ -4283,7 +4297,9 @@ export default function NoteList() {
               ? createMenuAnchorDesktopRef
               : createMenuSource === "mobile"
                 ? createMenuAnchorMobileRef
-                : createMenuAnchorFabRef
+                : createMenuSource === "empty"
+                  ? createMenuAnchorEmptyRef
+                  : createMenuAnchorFabRef
           }
           onPick={(type) => handleCreateNote(type)}
           onClose={() => {
@@ -4291,6 +4307,33 @@ export default function NoteList() {
             setCreateNoteMenuSource(null);
           }}
         />
+      )}
+
+      {/* 新建入口触发的 Yuque 导入面板：目标笔记本固定为所选笔记本 */}
+      {yuqueImportNotebookId && (
+        <div
+          className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/40 p-4"
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) setYuqueImportNotebookId(null);
+          }}
+        >
+          <div className="w-full max-w-lg max-h-[82vh] overflow-y-auto rounded-xl border border-app-border bg-app-elevated p-5 shadow-2xl">
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <span className="text-sm font-medium text-tx-primary">{t("yuqueImport.title")}</span>
+              <button
+                type="button"
+                onClick={() => setYuqueImportNotebookId(null)}
+                className="rounded-md p-1 text-tx-tertiary hover:bg-app-hover hover:text-tx-primary"
+                aria-label="close"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M18 6L6 18M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            <YuqueImport defaultNotebookId={yuqueImportNotebookId} />
+          </div>
+        </div>
       )}
 
       {/* AI 批量归类确认面板：扫描完成后弹出，用户逐条审核再执行移动 */}

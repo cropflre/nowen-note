@@ -2,7 +2,9 @@
  * <DragHandle> 组件内部用 floating-ui 定位外层元素（position/top/left 由组件
  * inline 设置）。这里只提供视觉样式；外层 className 由组件 props.className
  * 传入（"tiptap-drag-handle"），grip 图标用 .tiptap-drag-handle__grip。
+ *
  */
+
 .tiptap-drag-handle {
   display: flex;
   align-items: center;
@@ -40,9 +42,12 @@
  * 按下并拖动则走父元素 draggable=true 的原生拖拽，两者不冲突。 */
 .tiptap-drag-handle__grip {
   display: flex;
+  align-items: center;
+  gap: 3px;
   pointer-events: auto;
   cursor: grab;
 }
+
 
 /* 拖拽进行中：防止文本被选中干扰 */
 .editor-dragging-active * {

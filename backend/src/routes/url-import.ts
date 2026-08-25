@@ -209,16 +209,21 @@ async function downloadImageToAttachment(
   userId: string,
   noteId: string,
   workspaceId: string | null,
+  referer = "https://mp.weixin.qq.com/",
+  authCookie?: string,
 ): Promise<string> {
   // SEC-IMPORT-01: 使用安全 fetch（带超时和大小限制）
+  const headers: Record<string, string> = {
+    Referer: referer,
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36",
+    Accept: "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
+  };
+  // Yuque等需登录态的图片：携带用户 cookie 才能下载（重试失败图片时传此值）
+  if (authCookie) headers["Cookie"] = authCookie;
   const res = await safeFetch(imageUrl, {
     fetchTimeout: SAFE_FETCH_TIMEOUT_MS,
     maxBytes: MAX_IMAGE_SIZE,
-    headers: {
-      Referer: "https://mp.weixin.qq.com/",
-      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36",
-      Accept: "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
-    },
+    headers,
   });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const buf = await safeReadBody(res, MAX_IMAGE_SIZE);
@@ -282,12 +287,15 @@ async function downloadImageToAttachment(
  *   <img src="/api/attachments/<id>" ...>
  * 同时清掉懒加载相关的 data-* 属性，避免编辑器加载时还触发懒加载脚本。
  */
-async function rewriteImages(
+export async function rewriteImages(
   html: string,
   userId: string,
   noteId: string,
   workspaceId: string | null,
+  options?: { referer?: string; authCookie?: string },
 ): Promise<{ html: string; downloaded: number; failed: number }> {
+  const referer = options?.referer || "https://mp.weixin.qq.com/";
+  const authCookie = options?.authCookie;
   const imgRe = /<img\b[^>]*>/gi;
   const tags = html.match(imgRe) || [];
   // 收集 (原标签, 远端URL) 二元组并去重 URL
@@ -324,7 +332,7 @@ async function rewriteImages(
     await Promise.all(
       batch.map(async (u) => {
         try {
-          const local = await downloadImageToAttachment(u, userId, noteId, workspaceId);
+          const local = await downloadImageToAttachment(u, userId, noteId, workspaceId, referer, authCookie);
           urlMap.set(u, local);
           downloaded++;
         } catch (e) {
