@@ -5,7 +5,7 @@
     "indexUrl": "https://cropflre.github.io/nowen-plugin-registry/v2/index.json",
     "keyId": "nowen-registry-root-2026",
     "algorithm": "Ed25519",
-    "publicKey": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAbCFfxocphmOC0MGuD+246Zs0SU3ciD/PBp0NODKRO64=\n-----END PUBLIC KEY-----\n",
+    "publicKey": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA2WT3TlHX2HcXNbxHP8uaWOVrIV4pb+yMBO7RIeCWSnU=\n-----END PUBLIC KEY-----\n",
     "sequence": 1,
     "state": "active",
     "validFrom": "2026-08-25T00:00:00.000Z",
