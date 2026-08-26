@@ -76,6 +76,8 @@ jobs:
       - run: npm ci
       - name: Startup chunking contract
         run: npm run test:run -- src/lib/__tests__/startupChunkingContract.test.ts
+      - name: Note text-first media regression
+        run: npm run test:run -- src/lib/__tests__/noteLoadSource.test.ts src/lib/__tests__/attachmentSignedUrlRecovery.test.ts src/lib/__tests__/noteAttachmentAccessPriming.test.ts src/lib/__tests__/noteAttachmentAccessBridge.test.ts
       - name: Production web build
         run: npm run build:web
       - name: Enforce initial bundle budgets
