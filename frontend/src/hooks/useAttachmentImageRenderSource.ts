@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Capacitor } from "@capacitor/core";
 
-import { resolveAttachmentUrl } from "@/lib/api";
+import { getBaseUrl, resolveAttachmentUrl } from "@/lib/api";
+import { extractNoteIdFromSignedAttachmentUrl } from "@/lib/attachmentSignedUrlRecovery";
 import {
   acquireAttachmentRenderUrl,
   getAttachmentAccessSnapshot,
@@ -9,6 +10,7 @@ import {
   invalidateOfflineAttachmentRenderUrl,
   subscribeAttachmentAccess,
 } from "@/lib/noteAttachmentAccessBridge";
+import { primeNoteAttachmentAccess } from "@/lib/noteAttachmentAccessPriming";
 
 type ImageLoadState = {
   requestKey: string;
@@ -30,6 +32,21 @@ export type AttachmentImageRenderSource = {
   onLoad: () => void;
   onError: () => void;
 };
+
+const signedAccessRefreshInFlight = new Map<string, Promise<number>>();
+
+function refreshSignedAccess(noteId: string): Promise<number> {
+  const existing = signedAccessRefreshInFlight.get(noteId);
+  if (existing) return existing;
+  const pending = primeNoteAttachmentAccess(noteId, getBaseUrl(), { timeoutMs: 2_500 })
+    .finally(() => {
+      if (signedAccessRefreshInFlight.get(noteId) === pending) {
+        signedAccessRefreshInFlight.delete(noteId);
+      }
+    });
+  signedAccessRefreshInFlight.set(noteId, pending);
+  return pending;
+}
 
 /**
  * 图片渲染边界统一使用的运行时地址解析。
@@ -68,6 +85,11 @@ export function useAttachmentImageRenderSource(
     preparingAndroidBlob: false,
     imageLoaded: false,
   });
+  const signedRetryAttemptedRef = useRef(false);
+
+  useEffect(() => {
+    signedRetryAttemptedRef.current = false;
+  }, [rawSrc]);
 
   useEffect(() => {
     const releaseRenderUrl = enabled && resolvedSrc
@@ -153,6 +175,7 @@ export function useAttachmentImageRenderSource(
   const activeRenderSrc = activeState.renderSrc;
 
   const onLoad = useCallback(() => {
+    signedRetryAttemptedRef.current = false;
     setState((current) => (
       current.requestKey === requestKey && current.renderSrc === activeRenderSrc
         ? { ...current, loading: false, error: null, imageLoaded: true }
@@ -168,6 +191,51 @@ export function useAttachmentImageRenderSource(
         : current);
       return;
     }
+
+    // A signed URL can become invalid during a long editing session or after a server-side
+    // permission/signing rotation. Refresh the note-scoped access map once, shared by every image
+    // in that note, then let the bridge subscription re-resolve this persistent attachment node.
+    // The server remains authoritative: extracting noteId from scope only selects the endpoint;
+    // `/attachments/access/urls` still performs the real ACL check.
+    const signedNoteId = source.signedUrlPresent
+      ? extractNoteIdFromSignedAttachmentUrl(activeRenderSrc)
+      : null;
+    if (
+      source.attachmentId
+      && signedNoteId
+      && !signedRetryAttemptedRef.current
+      && !activeState.preparingAndroidBlob
+    ) {
+      signedRetryAttemptedRef.current = true;
+      setState((current) => current.requestKey === requestKey
+        ? { ...current, loading: true, error: null, imageLoaded: false }
+        : current);
+      void refreshSignedAccess(signedNoteId)
+        .then((registered) => {
+          if (registered > 0) {
+            // A changed signed URL triggers the access-store subscription and a new requestKey.
+            // If the server returned the exact same URL, do not leave this image spinning forever.
+            setState((current) => current.requestKey === requestKey
+              ? {
+                  ...current,
+                  loading: false,
+                  error: new Error("图片访问已刷新，但资源仍无法加载"),
+                  imageLoaded: false,
+                }
+              : current);
+            return;
+          }
+          throw new Error("未获取到新的图片访问地址");
+        })
+        .catch((error: unknown) => {
+          const normalized = error instanceof Error ? error : new Error("图片访问续签失败");
+          setState((current) => current.requestKey === requestKey
+            ? { ...current, loading: false, error: normalized, imageLoaded: false }
+            : current);
+        });
+      return;
+    }
+
     setState((current) => {
       if (current.requestKey !== requestKey || current.renderSrc !== activeRenderSrc) return current;
       // Android 的远程地址可能先触发 mixed-content 错误；blob fetch 尚在进行时不提前宣告失败。
@@ -179,7 +247,7 @@ export function useAttachmentImageRenderSource(
         imageLoaded: false,
       };
     });
-  }, [activeRenderSrc, requestKey]);
+  }, [activeRenderSrc, activeState.preparingAndroidBlob, requestKey, source.attachmentId, source.signedUrlPresent]);
 
   return {
     attachmentId: source.attachmentId,
