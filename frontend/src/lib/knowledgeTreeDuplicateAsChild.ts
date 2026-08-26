@@ -41,6 +41,8 @@ export async function resolveDuplicableKnowledgeTreeNote(
   const nodes = await dependencies.listNodes();
   const source = nodes.find((node) => node.id === sourceNodeId) || null;
   if (!source || source.resourceType !== "note") return null;
+  if (source.nodeType !== "note" && source.nodeType !== "markdown") return null;
+  if (source.isLocked === 1) return null;
   if (!source.access.capabilities.canCreate) return null;
   return source;
 }
