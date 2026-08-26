@@ -112,7 +112,7 @@ describe("loadNoteCacheFirst", () => {
     attachmentRuntime.primeNoteAttachmentAccess.mockResolvedValue(1);
   });
 
-  it("Case 1/2: prepares a cached image note before it is reopened after a switch", async () => {
+  it("Case 1/2: preserves explicitly blocking preparation hooks for callers that require them", async () => {
     const cached = makeNote({
       content: '{"type":"doc","content":[{"type":"image","attrs":{"src":"/api/attachments/123e4567-e89b-42d3-a456-426614174216"}}]}',
     });
@@ -181,7 +181,7 @@ describe("loadNoteCacheFirst", () => {
     await vi.waitFor(() => expect(localStore.putNote).toHaveBeenCalled());
   });
 
-  it("keeps cached notes available if runtime preparation fails while offline", async () => {
+  it("keeps cached notes available if an explicitly blocking runtime preparation fails", async () => {
     const cached = makeNote();
     localStore.getNote.mockResolvedValue(cached);
     const remoteGate = deferred<Note>();
@@ -218,7 +218,7 @@ describe("loadNoteCacheFirst", () => {
     expect(localStore.putNote).toHaveBeenCalledWith({ ...remote, __detailCached: true });
   });
 
-  it("waits for remote attachment priming before the first editor render", async () => {
+  it("does not wait for default attachment priming before the first editor render", async () => {
     localStore.getNote.mockResolvedValue(null);
     const remote = makeNote({
       version: 5,
@@ -226,24 +226,20 @@ describe("loadNoteCacheFirst", () => {
     });
     const primeGate = deferred<number>();
     attachmentRuntime.primeNoteAttachmentAccess.mockImplementationOnce(() => primeGate.promise);
-    let settled = false;
 
     const loadPromise = loadNoteCacheFirst({
       noteId: remote.id,
       fetchRemote: async () => remote,
-    }).then((value) => {
-      settled = true;
-      return value;
     });
 
     await vi.waitFor(() => expect(attachmentRuntime.primeNoteAttachmentAccess).toHaveBeenCalledWith(
       remote.id,
       "https://notes.example.com/api",
     ));
-    expect(settled).toBe(false);
-
-    primeGate.resolve(1);
     await expect(loadPromise).resolves.toBe(remote);
-    expect(settled).toBe(true);
+
+    // Background priming may finish later without affecting text visibility.
+    primeGate.resolve(1);
+    await new Promise((resolve) => setTimeout(resolve, 0));
   });
 });
