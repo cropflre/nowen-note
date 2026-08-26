@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { FileArchive, FileCode, Files, FileText, FileType2, Folder, LayoutTemplate, Link2 } from "lucide-react";
+import { Copy, FileArchive, FileCode, Files, FileText, FileType2, Folder, LayoutTemplate, Link2 } from "lucide-react";
 
 import NoteTemplatePickerDialog from "@/components/NoteTemplatePickerDialog";
 import KnowledgeTreePanelBase, {
@@ -13,11 +13,17 @@ import KnowledgeTreePanelBase, {
 } from "./KnowledgeTreePanel";
 import { type KnowledgeTreeInlineCreateKind } from "@/lib/knowledgeTreeInlineCreate";
 import {
+  duplicateKnowledgeTreeNoteAsChild,
+  resolveDuplicableKnowledgeTreeNote,
+} from "@/lib/knowledgeTreeDuplicateAsChild";
+import { revealCreatedKnowledgeTreeNote } from "@/lib/knowledgeTreeCreateVisibility";
+import {
   loadNoteWorkspaceLayoutMode,
   NOTE_WORKSPACE_LAYOUT_CHANGED_EVENT,
   NOTE_WORKSPACE_LAYOUT_STORAGE_KEY,
   type NoteWorkspaceLayoutMode,
 } from "@/lib/noteWorkspaceLayout";
+import { toast } from "@/lib/toast";
 import { cn } from "@/lib/utils";
 import { useApp, useAppActions } from "@/store/AppContext";
 
@@ -200,6 +206,25 @@ export function KnowledgeTreeCreateDropdown({
 }: KnowledgeTreeCreateDropdownProps) {
   const menuRef = useRef<HTMLDivElement>(null);
   const [position, setPosition] = useState<React.CSSProperties | null>(null);
+  const [canDuplicateAsChild, setCanDuplicateAsChild] = useState(false);
+  const [duplicating, setDuplicating] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    setCanDuplicateAsChild(false);
+    const sourceNodeId = menu?.parentId;
+    if (!sourceNodeId) return () => { cancelled = true; };
+
+    void resolveDuplicableKnowledgeTreeNote(sourceNodeId)
+      .then((source) => {
+        if (!cancelled) setCanDuplicateAsChild(Boolean(source));
+      })
+      .catch(() => {
+        if (!cancelled) setCanDuplicateAsChild(false);
+      });
+
+    return () => { cancelled = true; };
+  }, [menu?.parentId]);
 
   useLayoutEffect(() => {
     if (!menu || !menuRef.current) {
@@ -207,7 +232,7 @@ export function KnowledgeTreeCreateDropdown({
       return;
     }
     setPosition(menuPosition(menu.anchor, menuRef.current.scrollHeight));
-  }, [menu]);
+  }, [menu, canDuplicateAsChild]);
 
   useEffect(() => {
     if (!menu) return;
@@ -233,12 +258,31 @@ export function KnowledgeTreeCreateDropdown({
     };
   }, [menu, onClose]);
 
+  const duplicateAsChild = useCallback(async () => {
+    const sourceNodeId = menu?.parentId;
+    if (!sourceNodeId || duplicating) return;
+    setDuplicating(true);
+    onClose();
+    try {
+      await duplicateKnowledgeTreeNoteAsChild(sourceNodeId);
+      revealCreatedKnowledgeTreeNote(sourceNodeId);
+      window.dispatchEvent(new CustomEvent(KNOWLEDGE_TREE_CHANGED_EVENT, {
+        detail: { reason: "note-duplicated-as-child", parentId: sourceNodeId },
+      }));
+      toast.success("副本已创建到子目录");
+    } catch (error: any) {
+      toast.error(error?.message || "创建副本失败");
+    } finally {
+      setDuplicating(false);
+    }
+  }, [duplicating, menu?.parentId, onClose]);
+
   if (!menu || typeof document === "undefined") return null;
   return createPortal(
     <div
       ref={menuRef}
       role="menu"
-      aria-label={menu.parentId ? "在当前节点下新建" : "在根目录新建"}
+      aria-label={menu.parentId ? "在当前节点下新建或复制" : "在根目录新建"}
       className="fixed z-[420] overflow-y-auto overscroll-contain rounded-lg border border-app-border bg-app-bg p-1 shadow-xl"
       style={position || { left: 8, top: 8, width: CREATE_MENU_WIDTH, visibility: "hidden" }}
       onPointerDown={(event) => event.stopPropagation()}
@@ -279,6 +323,18 @@ export function KnowledgeTreeCreateDropdown({
         <Folder size={15} className="text-amber-500" />
         <span>{FOLDER_CREATE_ITEM.label}</span>
       </button>
+      {canDuplicateAsChild && menu.parentId && (
+        <button
+          type="button"
+          role="menuitem"
+          disabled={duplicating}
+          className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-xs text-tx-secondary transition-colors hover:bg-app-hover hover:text-tx-primary focus:bg-app-hover focus:text-tx-primary focus:outline-none disabled:cursor-wait disabled:opacity-50"
+          onClick={() => { void duplicateAsChild(); }}
+        >
+          <Copy size={15} className="text-sky-500" />
+          <span>创建副本</span>
+        </button>
+      )}
       <div className="my-1 border-t border-app-border" />
       {IMPORT_ITEMS.map((item) => {
         const Icon = item.icon;
