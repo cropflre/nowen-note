@@ -55,15 +55,30 @@ function duplicatedNote() {
 }
 
 describe("knowledge tree duplicate as child", () => {
-  it("only exposes child duplication for writable note nodes", async () => {
+  it("only exposes child duplication for writable, unlocked rich-text/Markdown note nodes", async () => {
     const note = sourceNode();
     await expect(resolveDuplicableKnowledgeTreeNote(note.id, {
       listNodes: async () => [note],
     })).resolves.toEqual(note);
 
+    const markdown = sourceNode({ nodeType: "markdown" });
+    await expect(resolveDuplicableKnowledgeTreeNote(markdown.id, {
+      listNodes: async () => [markdown],
+    })).resolves.toEqual(markdown);
+
     const folder = sourceNode({ resourceType: "notebook", nodeType: "folder" });
     await expect(resolveDuplicableKnowledgeTreeNote(folder.id, {
       listNodes: async () => [folder],
+    })).resolves.toBeNull();
+
+    const locked = sourceNode({ isLocked: 1 });
+    await expect(resolveDuplicableKnowledgeTreeNote(locked.id, {
+      listNodes: async () => [locked],
+    })).resolves.toBeNull();
+
+    const unsupported = sourceNode({ nodeType: "word" });
+    await expect(resolveDuplicableKnowledgeTreeNote(unsupported.id, {
+      listNodes: async () => [unsupported],
     })).resolves.toBeNull();
 
     const readonly = sourceNode({
