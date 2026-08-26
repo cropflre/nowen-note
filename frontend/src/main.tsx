@@ -42,7 +42,9 @@ import { installAndroidNativeHttpBridge } from "./lib/androidNativeHttpBridge";
 import { installDesktopNativeHttpBridge } from "./lib/desktopNativeHttpBridge";
 import { installMobileStartupBridge } from "./lib/mobileStartupBridge";
 import { installMobileWebStartupBridge } from "./lib/mobileWebStartupBridge";
+import { captureAttachmentAccessUpstreamFetch } from "./lib/attachmentAccessUpstreamFetch";
 import { installNoteAttachmentAccessBridge } from "./lib/noteAttachmentAccessBridge";
+import { installNonBlockingNoteFetch } from "./lib/nonBlockingNoteFetch";
 import { installReliableExportDownloadBridge } from "./lib/reliableExportDownloadBridge";
 import { installNoteSyncSafety } from "./lib/noteSyncSafety";
 import { installNoteUpdateResponseGuard } from "./lib/noteUpdateResponseGuard";
@@ -98,7 +100,12 @@ installAndroidNativeHttpBridge();
 installDesktopNativeHttpBridge();
 installMobileStartupBridge();
 installMobileWebStartupBridge();
+// Keep every transport wrapper installed above, but capture the chain before the attachment
+// bridge adds its note-detail prerequisite wait. Canonical note text can then render first while
+// signed media access is prepared in the background.
+captureAttachmentAccessUpstreamFetch();
 installNoteAttachmentAccessBridge();
+installNonBlockingNoteFetch();
 installTwoFactorLoginChallengeBridge();
 installNoteSyncSafety();
 installNoteUpdateResponseGuard();
