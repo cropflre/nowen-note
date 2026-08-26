@@ -5,6 +5,7 @@ import {
   shouldHandleAsMarkdownPaste,
 } from "@/lib/pasteRouting";
 
+// Dedicated CI gate for the real-world clipboard shape that originally triggered this regression.
 /**
  * Regression for the user-reported case where the same article sometimes pasted as proper
  * Tiptap headings/lists/tables and sometimes stayed as literal `##`, `-` and pipe-table text.
