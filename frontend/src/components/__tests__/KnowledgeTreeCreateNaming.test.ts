@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 const runtimeSource = readFileSync(path.resolve(__dirname, "../KnowledgeTreeCreateMenuRuntime.tsx"), "utf8");
 const panelSource = readFileSync(path.resolve(__dirname, "../KnowledgeTreePanel.tsx"), "utf8");
 const quickPanelSource = readFileSync(path.resolve(__dirname, "../MobileKnowledgeTreePanel.tsx"), "utf8");
+const nodeMenuSource = readFileSync(path.resolve(__dirname, "../KnowledgeTreeNodeMenu.tsx"), "utf8");
 
 describe("knowledge tree create naming", () => {
   it("hands dropdown selections to the inline naming draft before creating", () => {
@@ -27,6 +28,19 @@ describe("knowledge tree create naming", () => {
     expect(panelSource).toContain("importMarkdownIntoKnowledgeTree");
     expect(panelSource).toContain("importWeChatArticleIntoKnowledgeTree");
     expect(quickPanelSource).toContain("importMarkdownIntoKnowledgeTree");
+  });
+
+  it("adds child duplication to the plus menu while preserving the existing sibling duplicate action", () => {
+    expect(runtimeSource).toContain("duplicateKnowledgeTreeNoteAsChild");
+    expect(runtimeSource).toContain("resolveDuplicableKnowledgeTreeNote");
+    expect(runtimeSource).toContain("<span>创建副本</span>");
+    expect(runtimeSource).toContain('toast.success("副本已创建到子目录")');
+    expect(runtimeSource).toContain('reason: "note-duplicated-as-child"');
+
+    // `...` / 右键菜单仍然使用原 duplicateNote 调用，保持创建到同级目录的历史行为。
+    expect(nodeMenuSource).toContain('id: "duplicate"');
+    expect(nodeMenuSource).toContain('case "duplicate": await duplicateCurrentNote(); break;');
+    expect(nodeMenuSource).toContain("api.duplicateNote(node.resourceId)");
   });
 
   it("uses the tree-style anchored menu and inline naming in quick browse", () => {
