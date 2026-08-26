@@ -3,7 +3,7 @@ name: Frontend Loading Performance CI
 on:
   workflow_dispatch:
   push:
-    branches: [main, release/v1.4.6]
+    branches: [main, release/v1.4.6, release/v1.5.0]
     paths:
       - "Dockerfile"
       - "package.json"
