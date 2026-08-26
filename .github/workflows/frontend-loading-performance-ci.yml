@@ -17,7 +17,7 @@ on:
       - "frontend/src/components/Lazy*Runtime.tsx"
       - "frontend/src/components/EditorPaneRuntime.tsx"
       - "frontend/src/lib/pasteRouting.ts"
-      - "frontend/src/lib/__tests__/pasteRouting.test.ts"
+      - "frontend/src/lib/__tests__/pasteRouting*.test.ts"
       - "frontend/src/lib/__tests__/startupChunkingContract.test.ts"
       - "backend/src/index.ts"
       - "backend/src/index.hardened.ts"
@@ -42,7 +42,7 @@ on:
       - "frontend/src/components/Lazy*Runtime.tsx"
       - "frontend/src/components/EditorPaneRuntime.tsx"
       - "frontend/src/lib/pasteRouting.ts"
-      - "frontend/src/lib/__tests__/pasteRouting.test.ts"
+      - "frontend/src/lib/__tests__/pasteRouting*.test.ts"
       - "frontend/src/lib/__tests__/startupChunkingContract.test.ts"
       - "backend/src/index.ts"
       - "backend/src/index.hardened.ts"
@@ -81,7 +81,7 @@ jobs:
       - name: Startup chunking contract
         run: npm run test:run -- src/lib/__tests__/startupChunkingContract.test.ts
       - name: Clipboard paste routing regression
-        run: npm run test:run -- src/lib/__tests__/pasteRouting.test.ts
+        run: npm run test:run -- src/lib/__tests__/pasteRouting.test.ts src/lib/__tests__/pasteRoutingUserRegression.test.ts
       - name: Note text-first media regression
         run: npm run test:run -- src/lib/__tests__/noteLoadSource.test.ts src/lib/__tests__/attachmentSignedUrlRecovery.test.ts src/lib/__tests__/noteAttachmentAccessPriming.test.ts src/lib/__tests__/noteAttachmentAccessBridge.test.ts
       - name: Production web build
