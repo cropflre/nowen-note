@@ -73,7 +73,11 @@ describe("Android 本地优先游客运行时", () => {
       accountId: "android-device-local",
       userId: "android-local-user",
     }));
-    expect(mocks.installMobileLocalFirstBridge).toHaveBeenCalledWith(mocks.repository);
+    expect(mocks.installMobileLocalFirstBridge).toHaveBeenCalledWith(
+      mocks.repository,
+      mocks.db,
+      "android-local-user",
+    );
     expect(mocks.setSyncLocalAdminAdapter).toHaveBeenCalledWith(expect.any(Function));
     expect(mocks.createMobileSyncEngine).not.toHaveBeenCalled();
   });
