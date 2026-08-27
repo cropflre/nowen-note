@@ -53,9 +53,10 @@ export function installMobileLocalAttachmentFolderBridge(
         const columns = await db.query<{ name: string }>("PRAGMA table_info(attachments)");
         if (!columns.some((column) => column.name === "folderId")) {
           await db.run("ALTER TABLE attachments ADD COLUMN folderId TEXT");
-          await db.run(`CREATE INDEX IF NOT EXISTS idx_native_attachments_folder
-            ON attachments(scopeKey,folderId,createdAt)`);
         }
+        // 索引单独幂等创建：即使某次升级已加列但在建索引前中断，下一次也能自动修复。
+        await db.run(`CREATE INDEX IF NOT EXISTS idx_native_attachments_folder
+          ON attachments(scopeKey,folderId,createdAt)`);
       })();
     }
     return schemaPromise;
@@ -79,7 +80,7 @@ export function installMobileLocalAttachmentFolderBridge(
     const rows = await db.query<{ id: string }>(`
       SELECT id FROM mobile_local_attachment_folders
       WHERE userId=? AND name=?
-        AND ((parentId=? ) OR (parentId IS NULL AND ? IS NULL))
+        AND ((parentId=?) OR (parentId IS NULL AND ? IS NULL))
         ${excludeId ? "AND id<>?" : ""}
       LIMIT 1
     `, excludeId
@@ -149,18 +150,22 @@ export function installMobileLocalAttachmentFolderBridge(
     return { success:true };
   };
 
-  const folderMap = async () => {
+  const folderMap = async (): Promise<Map<string,AttachmentFolder>> => {
     const { folders } = await listFolders();
-    return new Map<string,AttachmentFolder>(folders.map((folder: AttachmentFolder) => [folder.id,folder]));
+    return new Map<string,AttachmentFolder>(
+      folders.map((folder): [string,AttachmentFolder] => [folder.id,folder]),
+    );
   };
 
-  const assignmentMap = async () => {
+  const assignmentMap = async (): Promise<Map<string,string|null>> => {
     await ready();
     const rows = await db.query<{ id: string; folderId: string | null }>(`
       SELECT id,folderId FROM attachments
       WHERE scopeKey='personal' AND available=1
     `);
-    return new Map(rows.map((row) => [row.id,row.folderId || null]));
+    return new Map<string,string|null>(
+      rows.map((row): [string,string|null] => [row.id,row.folderId || null]),
+    );
   };
 
   const decorateItems = async <T extends FileItem>(items: T[]): Promise<T[]> => {
@@ -185,7 +190,7 @@ export function installMobileLocalAttachmentFolderBridge(
     const item = await originals.filesGet(id) as FileDetail;
     return (await decorateItems([item]))[0] as FileDetail;
   };
-  target.files.upload = async (file: File, options?: { folderId?: string }) => {
+  target.files.upload = async (file: File, options?: { noteId?: string; notebookId?: string; folderId?: string }) => {
     await ready();
     const folderId = options?.folderId || null;
     const folder = folderId ? await readFolder(folderId) : null;
