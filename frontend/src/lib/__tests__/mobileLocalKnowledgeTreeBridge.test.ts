@@ -126,7 +126,7 @@ describe("mobile local knowledge tree bridge", () => {
     const { repository } = createRepository();
     const fetchSpy = vi.spyOn(globalThis, "fetch");
 
-    restoreBridge = installMobileLocalKnowledgeTreeBridge(repository);
+    restoreBridge = installMobileLocalKnowledgeTreeBridge(repository, { deviceOnly: true });
     const result = await knowledgeTreeApi.list();
     const shared = await knowledgeTreeApi.listShared();
 
@@ -141,7 +141,7 @@ describe("mobile local knowledge tree bridge", () => {
   it("persists create, rename, move, reorder and delete through the native repository only", async () => {
     const { repository, notes } = createRepository();
     const fetchSpy = vi.spyOn(globalThis, "fetch");
-    restoreBridge = installMobileLocalKnowledgeTreeBridge(repository);
+    restoreBridge = installMobileLocalKnowledgeTreeBridge(repository, { deviceOnly: true });
 
     const folder = await knowledgeTreeApi.create({
       parentId: "notebook:folder-1",
@@ -177,7 +177,7 @@ describe("mobile local knowledge tree bridge", () => {
   it("blocks unsupported note-parent and server ACL operations before any remote request", async () => {
     const { repository } = createRepository();
     const fetchSpy = vi.spyOn(globalThis, "fetch");
-    restoreBridge = installMobileLocalKnowledgeTreeBridge(repository);
+    restoreBridge = installMobileLocalKnowledgeTreeBridge(repository, { deviceOnly: true });
 
     await expect(knowledgeTreeApi.create({
       parentId: "note:note-1",
