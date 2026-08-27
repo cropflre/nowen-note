@@ -4,14 +4,15 @@ import { SYNC_SNAPSHOT_APPLIED_EVENT } from "@/lib/syncEngine";
 import { installOfflineAttachmentRecoveryCapture } from "@/lib/offlineAttachmentRecovery";
 import { useNetworkStatus } from "@/hooks/useNetworkStatus";
 import { useAppActions } from "@/store/AppContext";
-import { isMobileLocalMode } from "@/lib/mobileLocalMode";
+import { isAndroidNativeRuntime } from "@/lib/mobileLocalMode";
 
 /**
- * Web / Electron / 服务端账号模式使用的旧离线队列 Runtime。
+ * Web / Electron 使用的旧离线队列 Runtime。
  *
- * Android 设备本地模式已经拥有 Native SQLite + Native Repository + Mobile Sync Engine。
- * 纯本地模式不能同时启动这套 Web Runtime，否则会继续探测 /health、触发 syncNow()
- * 和旧附件恢复链路，造成“本地模式仍在请求服务器”的噪声与状态竞争。
+ * Android Native 无论是设备本地模式还是已登录账号，都由
+ * mobileLocalFirstRuntime + Native SQLite + MobileSyncEngine 管理持久化/同步。
+ * Android 再挂载这里会产生第二套 /health 探测、syncNow() 和附件恢复链路，
+ * 导致重复请求、状态竞争以及“本地模式仍在访问服务器”的噪声。
  */
 function ServerOfflineSyncRuntime() {
   const actions = useAppActions();
@@ -35,6 +36,6 @@ function ServerOfflineSyncRuntime() {
 }
 
 export default function OfflineSyncRuntime() {
-  if (isMobileLocalMode()) return null;
+  if (isAndroidNativeRuntime()) return null;
   return <ServerOfflineSyncRuntime />;
 }
