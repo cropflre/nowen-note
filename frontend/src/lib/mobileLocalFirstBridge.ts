@@ -10,10 +10,11 @@ import type { NativeDatabase } from "./nativeDatabase";
 let installed = false;
 
 /**
- * 将 Android 设备本地模式的业务门面切到 Native Repository。
+ * 将 Android Native 的核心业务门面切到 Native Repository。
  *
- * 除笔记核心 CRUD 外，同时接管启动期/设置期常见的只读服务 API，避免组件为了
- * 获取“当前用户 / 站点开关 / 版本”又落回 Server-first 请求链路。
+ * 注意：该 Bridge 在“设备本地模式”和“已登录服务器的 Local-first 模式”都会安装。
+ * 只有纯设备本地模式才能覆盖 getMe / 版本 / 站点设置等服务端只读信息；登录模式
+ * 必须保留真实账号与真实服务器信息。
  */
 export function installMobileLocalFirstBridge(
   repository: NativeLocalRepository,
@@ -25,6 +26,7 @@ export function installMobileLocalFirstBridge(
   const restoreKnowledgeTreeBridge = installMobileLocalKnowledgeTreeBridge(repository);
   const restoreModuleBridge = installMobileLocalModuleBridge(repository, db, userId);
   const target = api as any;
+  const deviceOnlyMode = isMobileLocalMode();
   const originals = {
     getMe: target.getMe,
     getVersion: target.getVersion,
@@ -64,14 +66,16 @@ export function installMobileLocalFirstBridge(
     attachmentRemove: target.attachments.remove,
   };
 
-  target.getMe = async () => getMobileLocalUser();
-  target.getVersion = async () => ({
-    appVersion: typeof __APP_VERSION__ === "string" ? __APP_VERSION__ : "0.0.0",
-    frontendBuildId: undefined,
-    minClientVersion: undefined,
-  });
-  target.getLatestRelease = async () => ({ available: false, reason: "mobile_local_mode" });
-  target.getSiteSettings = async () => ({ web_ui_enabled: "false" });
+  if (deviceOnlyMode) {
+    target.getMe = async () => getMobileLocalUser();
+    target.getVersion = async () => ({
+      appVersion: typeof __APP_VERSION__ === "string" ? __APP_VERSION__ : "0.0.0",
+      frontendBuildId: undefined,
+      minClientVersion: undefined,
+    });
+    target.getLatestRelease = async () => ({ available: false, reason: "mobile_local_mode" });
+    target.getSiteSettings = async () => ({ web_ui_enabled: "false" });
+  }
 
   target.getWorkspaces = async (): Promise<Workspace[]> => repository.listWorkspaces();
 
