@@ -2,14 +2,19 @@ import { api } from "./api";
 import { newLocalId } from "./localRepository";
 import type { NativeLocalRepository } from "./nativeLocalRepository";
 import type { Note, Notebook, Tag, Workspace } from "@/types";
-import { isMobileLocalMode } from "./mobileLocalMode";
+import { getMobileLocalUser, isMobileLocalMode } from "./mobileLocalMode";
 import { installMobileLocalKnowledgeTreeBridge } from "./mobileLocalKnowledgeTreeBridge";
 import { installMobileLocalModuleBridge } from "./mobileLocalModuleBridge";
 import type { NativeDatabase } from "./nativeDatabase";
 
 let installed = false;
 
-/** 将核心 UI 门面切换到 Native Repository；非核心 API 继续访问服务器。 */
+/**
+ * 将 Android 设备本地模式的业务门面切到 Native Repository。
+ *
+ * 除笔记核心 CRUD 外，同时接管启动期/设置期常见的只读服务 API，避免组件为了
+ * 获取“当前用户 / 站点开关 / 版本”又落回 Server-first 请求链路。
+ */
 export function installMobileLocalFirstBridge(
   repository: NativeLocalRepository,
   db: NativeDatabase,
@@ -21,6 +26,10 @@ export function installMobileLocalFirstBridge(
   const restoreModuleBridge = installMobileLocalModuleBridge(repository, db, userId);
   const target = api as any;
   const originals = {
+    getMe: target.getMe,
+    getVersion: target.getVersion,
+    getLatestRelease: target.getLatestRelease,
+    getSiteSettings: target.getSiteSettings,
     getWorkspaces: target.getWorkspaces,
     getNotebooks: target.getNotebooks,
     createNotebook: target.createNotebook,
@@ -55,6 +64,15 @@ export function installMobileLocalFirstBridge(
     attachmentRemove: target.attachments.remove,
   };
 
+  target.getMe = async () => getMobileLocalUser();
+  target.getVersion = async () => ({
+    appVersion: typeof __APP_VERSION__ === "string" ? __APP_VERSION__ : "0.0.0",
+    frontendBuildId: undefined,
+    minClientVersion: undefined,
+  });
+  target.getLatestRelease = async () => ({ available: false, reason: "mobile_local_mode" });
+  target.getSiteSettings = async () => ({ web_ui_enabled: "false" });
+
   target.getWorkspaces = async (): Promise<Workspace[]> => repository.listWorkspaces();
 
   target.getNotebooks = async (workspaceId?: string): Promise<Notebook[]> =>
@@ -72,11 +90,13 @@ export function installMobileLocalFirstBridge(
     await repository.notebooks.remove(id);
     return { success: true };
   };
-  target.reorderNotebooks = async (items:Array<{id:string;sortOrder:number}>) => {
-    await repository.reorderNotebooks(items);return {success:true};
+  target.reorderNotebooks = async (items: Array<{ id: string; sortOrder: number }>) => {
+    await repository.reorderNotebooks(items);
+    return { success: true };
   };
-  target.moveNotebook = async (id:string,data:{parentId?:string|null;sortOrder?:number}) => {
-    await repository.notebooks.update(id,data);return (await repository.notebooks.get(id))!;
+  target.moveNotebook = async (id: string, data: { parentId?: string | null; sortOrder?: number }) => {
+    await repository.notebooks.update(id, data);
+    return (await repository.notebooks.get(id))!;
   };
 
   target.getNotes = async (params: Record<string, string> = {}) => repository.listNotesForWorkspace(params.workspaceId, {
@@ -111,14 +131,15 @@ export function installMobileLocalFirstBridge(
   };
   target.createNoteConfirmed = target.createNote;
   target.updateNoteConfirmed = target.updateNote;
-  target.duplicateNote = async (id:string) => repository.duplicateNote(id);
-  target.reorderNotes = async (items:Array<{id:string;sortOrder:number}>) => {
-    await repository.reorderNotes(items);return {success:true};
+  target.duplicateNote = async (id: string) => repository.duplicateNote(id);
+  target.reorderNotes = async (items: Array<{ id: string; sortOrder: number }>) => {
+    await repository.reorderNotes(items);
+    return { success: true };
   };
   target.getTrashSummary = async () => repository.trashSummary();
   target.emptyTrash = async () => repository.emptyTrash();
 
-  target.getTags = async (workspaceId?:string): Promise<Tag[]> => repository.listTagsForWorkspace(workspaceId);
+  target.getTags = async (workspaceId?: string): Promise<Tag[]> => repository.listTagsForWorkspace(workspaceId);
   target.createTag = async (data: Partial<Tag>): Promise<Tag> => {
     const id = data.id || newLocalId();
     await repository.tags.create({ ...data, id });
@@ -141,11 +162,12 @@ export function installMobileLocalFirstBridge(
     return { success: true };
   };
   target.getNotesWithTag = async (tagId: string, params: Record<string, string> = {}) =>
-    repository.listNotesForWorkspace(params.workspaceId,{tagId,limit:params.limit?Number(params.limit):undefined});
-  target.getNotesWithTags = async (tagIds:string[],params:Record<string,string>={}) =>
-    repository.listNotesWithTags(tagIds,params.workspaceId,params.limit?Number(params.limit):undefined);
-  target.search = async (query:string) => repository.searchNotes(query);
-  target.searchNotes = async (query:string,limit=10) => (await repository.searchNotes(query,limit)).map(({id,title,notebookId,updatedAt})=>({id,title,notebookId,updatedAt}));
+    repository.listNotesForWorkspace(params.workspaceId, { tagId, limit: params.limit ? Number(params.limit) : undefined });
+  target.getNotesWithTags = async (tagIds: string[], params: Record<string, string> = {}) =>
+    repository.listNotesWithTags(tagIds, params.workspaceId, params.limit ? Number(params.limit) : undefined);
+  target.search = async (query: string) => repository.searchNotes(query);
+  target.searchNotes = async (query: string, limit = 10) => (await repository.searchNotes(query, limit))
+    .map(({ id, title, notebookId, updatedAt }) => ({ id, title, notebookId, updatedAt }));
 
   target.attachments.upload = async (noteId: string, file: File) => {
     const id = newLocalId();
@@ -174,6 +196,10 @@ export function installMobileLocalFirstBridge(
     restoreModuleBridge();
     restoreKnowledgeTreeBridge();
     Object.assign(target, {
+      getMe: originals.getMe,
+      getVersion: originals.getVersion,
+      getLatestRelease: originals.getLatestRelease,
+      getSiteSettings: originals.getSiteSettings,
       getWorkspaces: originals.getWorkspaces,
       getNotebooks: originals.getNotebooks,
       createNotebook: originals.createNotebook,
