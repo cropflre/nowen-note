@@ -15,6 +15,7 @@
 
 import { clearAuthTokens } from "@/lib/authSession";
 import { inferBrowserServerBaseUrl, normalizeServerBaseUrl } from "@/lib/serverUrl";
+import { isMobileLocalMode } from "@/lib/mobileLocalMode";
 
 type Listener = (payload: any) => void;
 
@@ -49,10 +50,13 @@ class RealtimeClient {
 
   /**
    * 解析 WebSocket URL：
-   *   - 优先用自定义 server URL（nowen-server-url）
+   *   - Android 设备本地模式：明确禁用实时协作网络层；即使保留了账号 token，
+   *     也不能因为旧 token 仍在 localStorage 就偷偷连回服务器。
+   *   - 其他模式优先用自定义 server URL（nowen-server-url）
    *   - 否则根据当前页面 origin 推断
    */
   private resolveWsUrl(): string | null {
+    if (isMobileLocalMode()) return null;
     const token = localStorage.getItem("nowen-token");
     if (!token) return null;
 
