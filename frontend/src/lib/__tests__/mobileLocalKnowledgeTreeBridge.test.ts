@@ -10,11 +10,9 @@ const now = "2026-08-27T00:00:00.000Z";
 function notebook(input: Partial<Notebook> & Pick<Notebook, "id" | "name">): Notebook {
   const { id, name, ...rest } = input;
   return {
-    id,
     userId: "mobile-local-user",
     workspaceId: null,
     parentId: null,
-    name,
     description: null,
     icon: "📁",
     color: null,
@@ -23,7 +21,6 @@ function notebook(input: Partial<Notebook> & Pick<Notebook, "id" | "name">): Not
     createdAt: now,
     updatedAt: now,
     ...rest,
-    // required identity fields stay authoritative even if a Partial accidentally carries them.
     id,
     name,
   };
@@ -32,11 +29,8 @@ function notebook(input: Partial<Notebook> & Pick<Notebook, "id" | "name">): Not
 function note(input: Partial<NoteListItem> & Pick<NoteListItem, "id" | "notebookId" | "title">): NoteListItem {
   const { id, notebookId, title, ...rest } = input;
   return {
-    id,
     userId: "mobile-local-user",
-    notebookId,
     workspaceId: null,
-    title,
     contentText: "",
     contentFormat: "tiptap-json",
     isPinned: 0,
