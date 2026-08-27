@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect, useCallback } fr
 import i18n from "i18next";
 import { api, SERVER_URL_CHANGED_EVENT } from "@/lib/api";
 import { setRuntimePublicWebOrigin } from "@/lib/publicWebOrigin";
+import { isMobileLocalMode } from "@/lib/mobileLocalMode";
 
 export interface SiteConfig {
   title: string;
@@ -12,11 +13,7 @@ export interface SiteConfig {
   publicWebOrigin: string;
   /** settings / environment / current，用于分享弹窗解释地址来源。 */
   publicWebOriginSource: string;
-  editorFontFamily: string; // 空串=默认(Inter), 自定义字体 id, 或内置字体名
-  // 注：v6 起，"个人空间导出/导入"不再是站点级全站开关；它已下沉为 users 表
-  // 的 personalExportEnabled / personalImportEnabled 两列，由管理员在
-  // 「用户管理 → 编辑用户」里为每个用户独立控制。消费方（Sidebar、DataManager）
-  // 请读当前登录用户自己（api.getMe() 的返回）上的这两字段，不要再从这里读。
+  editorFontFamily: string;
 }
 
 const DEFAULT_CONFIG: SiteConfig = {
@@ -28,6 +25,8 @@ const DEFAULT_CONFIG: SiteConfig = {
   editorFontFamily: "",
 };
 
+const MOBILE_LOCAL_SITE_CONFIG_KEY = "nowen-mobile-local-site-config";
+
 // 内置字体选项（不需要上传）
 export const BUILTIN_FONTS = [
   { id: "", nameKey: "fonts.interDefault", family: "-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Helvetica Neue', Helvetica, Arial, sans-serif" },
@@ -36,7 +35,6 @@ export const BUILTIN_FONTS = [
   { id: "__mono", nameKey: "fonts.monospace", family: "'Cascadia Code', 'Fira Code', 'Source Code Pro', 'Menlo', 'Consolas', monospace" },
 ];
 
-// Helper to get translated font name
 export function getBuiltinFontName(font: typeof BUILTIN_FONTS[number]): string {
   return i18n.t(font.nameKey);
 }
@@ -66,7 +64,7 @@ function applyToDOM(title: string, faviconUrl: string) {
   document.title = title || "nowen-note";
 
   const oldLinks = document.head.querySelectorAll<HTMLLinkElement>(
-    'link[rel="icon"], link[rel="shortcut icon"], link[rel="alternate icon"], link[rel="apple-touch-icon"]'
+    'link[rel="icon"], link[rel="shortcut icon"], link[rel="alternate icon"], link[rel="apple-touch-icon"]',
   );
   oldLinks.forEach((n) => n.parentNode?.removeChild(n));
 
@@ -88,7 +86,7 @@ function applyToDOM(title: string, faviconUrl: string) {
 }
 
 function applyEditorFont(fontId: string, customFontName?: string) {
-  const builtin = BUILTIN_FONTS.find(f => f.id === fontId);
+  const builtin = BUILTIN_FONTS.find((font) => font.id === fontId);
   if (builtin) {
     document.documentElement.style.setProperty("--editor-font-family", builtin.family);
     return;
@@ -107,14 +105,14 @@ function applyEditorFont(fontId: string, customFontName?: string) {
 
     document.documentElement.style.setProperty(
       "--editor-font-family",
-      `'${fontFaceName}', system-ui, sans-serif`
+      `'${fontFaceName}', system-ui, sans-serif`,
     );
     return;
   }
 
   document.documentElement.style.setProperty(
     "--editor-font-family",
-    "-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Helvetica Neue', Helvetica, Arial, sans-serif"
+    "-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Helvetica Neue', Helvetica, Arial, sans-serif",
   );
 }
 
@@ -133,21 +131,60 @@ function applyRuntimePublicOrigin(config: SiteConfig): void {
   setRuntimePublicWebOrigin(config.publicWebOrigin, config.publicWebOriginSource);
 }
 
+function readMobileLocalConfig(): SiteConfig {
+  try {
+    const value = localStorage.getItem(MOBILE_LOCAL_SITE_CONFIG_KEY);
+    if (!value) return DEFAULT_CONFIG;
+    const parsed = JSON.parse(value) as Partial<SiteConfig>;
+    return {
+      ...DEFAULT_CONFIG,
+      ...parsed,
+      publicWebOrigin: "",
+      publicWebOriginSource: "current",
+    };
+  } catch {
+    return DEFAULT_CONFIG;
+  }
+}
+
+function writeMobileLocalConfig(config: SiteConfig): void {
+  try {
+    localStorage.setItem(MOBILE_LOCAL_SITE_CONFIG_KEY, JSON.stringify({
+      title: config.title,
+      favicon: config.favicon,
+      editorFontFamily: config.editorFontFamily,
+    }));
+  } catch {
+    // WebView storage failure: keep the in-memory settings for this session.
+  }
+}
+
 export function SiteSettingsProvider({ children }: { children: React.ReactNode }) {
   const [siteConfig, setSiteConfig] = useState<SiteConfig>(DEFAULT_CONFIG);
   const [isLoaded, setIsLoaded] = useState(false);
 
   const loadSiteSettings = useCallback(() => {
+    if (isMobileLocalMode()) {
+      const config = readMobileLocalConfig();
+      applyRuntimePublicOrigin(config);
+      setSiteConfig(config);
+      applyToDOM(config.title, config.favicon);
+      // 设备本地模式只加载内置字体；自定义字体文件属于服务端资源。
+      applyEditorFont(BUILTIN_FONTS.some((font) => font.id === config.editorFontFamily) ? config.editorFontFamily : "");
+      setIsLoaded(true);
+      return;
+    }
+
     api.getSiteSettingsPublic().then(async (data) => {
       const config = toSiteConfig(data);
       applyRuntimePublicOrigin(config);
       setSiteConfig(config);
       applyToDOM(config.title, config.favicon);
 
-      if (config.editorFontFamily && !BUILTIN_FONTS.find(f => f.id === config.editorFontFamily)) {
+      if (config.editorFontFamily && !BUILTIN_FONTS.find((font) => font.id === config.editorFontFamily)) {
         try {
           const fonts = await api.getFontsPublic();
-          const font = fonts.find(f => f.id === config.editorFontFamily);
+          const font = fonts.find((item) => item.id === config.editorFontFamily);
           applyEditorFont(config.editorFontFamily, font?.name);
         } catch {
           applyEditorFont(config.editorFontFamily);
@@ -176,10 +213,14 @@ export function SiteSettingsProvider({ children }: { children: React.ReactNode }
   }, [loadSiteSettings]);
 
   const updateSiteConfig = useCallback(async (title: string, favicon: string) => {
-    const data = await api.updateSiteSettings({
-      site_title: title,
-      site_favicon: favicon,
-    });
+    if (isMobileLocalMode()) {
+      const config = { ...siteConfig, title: title || "nowen-note", favicon };
+      setSiteConfig(config);
+      writeMobileLocalConfig(config);
+      applyToDOM(config.title, config.favicon);
+      return;
+    }
+    const data = await api.updateSiteSettings({ site_title: title, site_favicon: favicon });
     const config = toSiteConfig(data, siteConfig);
     applyRuntimePublicOrigin(config);
     setSiteConfig(config);
@@ -187,9 +228,11 @@ export function SiteSettingsProvider({ children }: { children: React.ReactNode }
   }, [siteConfig]);
 
   const updatePublicWebOrigin = useCallback(async (origin: string) => {
-    const data = await api.updateSiteSettings({
-      site_public_web_origin: origin,
-    } as any);
+    if (isMobileLocalMode()) {
+      setSiteConfig((previous) => ({ ...previous, publicWebOrigin: "", publicWebOriginSource: "current" }));
+      return;
+    }
+    const data = await api.updateSiteSettings({ site_public_web_origin: origin } as any);
     setSiteConfig((previous) => {
       const config = toSiteConfig(data, previous);
       applyRuntimePublicOrigin(config);
@@ -198,6 +241,15 @@ export function SiteSettingsProvider({ children }: { children: React.ReactNode }
   }, []);
 
   const updateEditorFont = useCallback(async (fontId: string) => {
+    if (isMobileLocalMode()) {
+      const localFontId = BUILTIN_FONTS.some((font) => font.id === fontId) ? fontId : "";
+      const config = { ...siteConfig, editorFontFamily: localFontId };
+      setSiteConfig(config);
+      writeMobileLocalConfig(config);
+      applyEditorFont(localFontId);
+      return;
+    }
+
     const data = await api.updateSiteSettings({ editor_font_family: fontId });
     const config: SiteConfig = {
       ...siteConfig,
@@ -206,10 +258,10 @@ export function SiteSettingsProvider({ children }: { children: React.ReactNode }
     applyRuntimePublicOrigin(config);
     setSiteConfig(config);
 
-    if (fontId && !BUILTIN_FONTS.find(f => f.id === fontId)) {
+    if (fontId && !BUILTIN_FONTS.find((font) => font.id === fontId)) {
       try {
         const fonts = await api.getFonts();
-        const font = fonts.find(f => f.id === fontId);
+        const font = fonts.find((item) => item.id === fontId);
         applyEditorFont(fontId, font?.name);
       } catch {
         applyEditorFont(fontId);
