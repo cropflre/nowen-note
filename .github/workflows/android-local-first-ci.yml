@@ -1,0 +1,52 @@
+name: Android Local-first CI
+
+on:
+  push:
+    branches:
+      - release/v1.5.0
+    paths:
+      - "frontend/src/lib/mobileLocal*.ts"
+      - "frontend/src/lib/realtime.ts"
+      - "frontend/src/lib/__tests__/mobileLocal*.test.ts"
+      - ".github/workflows/android-local-first-ci.yml"
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "frontend/src/lib/mobileLocal*.ts"
+      - "frontend/src/lib/realtime.ts"
+      - "frontend/src/lib/__tests__/mobileLocal*.test.ts"
+      - ".github/workflows/android-local-first-ci.yml"
+  workflow_dispatch:
+
+jobs:
+  local-first-regression:
+    name: local-first-zero-network
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci --silent
+
+      - name: Run Android Local-first regression tests
+        working-directory: frontend
+        run: >-
+          npx vitest run
+          src/lib/__tests__/mobileLocalFirstGuestRuntime.test.ts
+          src/lib/__tests__/mobileLocalKnowledgeTreeBridge.test.ts
+          src/lib/__tests__/mobileLocalAdvancedTaskBridge.test.ts
+          src/lib/__tests__/mobileLocalNoteRelationsBridge.test.ts
+          src/lib/__tests__/mobileLocalAttachmentFolderBridge.test.ts
+          src/lib/__tests__/mobileLocalRealtimeGuard.test.ts
