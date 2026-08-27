@@ -33,7 +33,7 @@ function createFakeDb(): NativeDatabase {
   const templates: TemplateRow[] = [];
 
   const db: NativeDatabase = {
-    async run(sql, values = []) {
+    async run(sql: string, values: unknown[] = []) {
       const normalized = sql.replace(/\s+/g, " ").trim();
       if (normalized.startsWith("CREATE TABLE") || normalized.startsWith("CREATE INDEX")) {
         return { changes: 0 };
@@ -71,7 +71,7 @@ function createFakeDb(): NativeDatabase {
       }
       return { changes:0 };
     },
-    async query<T>(sql, values = []) {
+    async query<T>(sql: string, values: unknown[] = []) {
       const normalized = sql.replace(/\s+/g, " ").trim();
       if (normalized.includes("FROM mobile_local_task_projects p WHERE p.id=?")) {
         const row = projects.find((item) => item.id === String(values[0]));
