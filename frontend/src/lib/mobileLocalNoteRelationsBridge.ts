@@ -133,27 +133,79 @@ function parseBlocks(note: LocalNoteRow): LocalBlock[] {
   return parseTiptapBlocks(note) ?? parseMarkdownBlocks(note);
 }
 
-function extractLinks(note: LocalNoteRow): LocalLink[] {
-  const raw = note.content || "";
-  const excerpt = safeExcerpt(note.contentText || raw.replace(/[{}\[\]"]/g, " "));
-  const links: LocalLink[] = [];
-  const seen = new Set<string>();
+function addLinksFromText(
+  text: string,
+  sourceBlockId: string | null,
+  links: LocalLink[],
+  seen: Set<string>,
+): void {
+  const excerpt = safeExcerpt(text.replace(MARKDOWN_BLOCK_ID_RE, ""));
   const add = (targetNoteId: string, targetBlockId: string | null, linkText: string | null) => {
-    const key = `${targetNoteId}:${targetBlockId || ""}`;
+    const key = `${sourceBlockId || ""}:${targetNoteId}:${targetBlockId || ""}`;
     if (seen.has(key)) return;
     seen.add(key);
     links.push({
       targetNoteId,
       targetBlockId,
-      sourceBlockId: null,
+      sourceBlockId,
       linkType: targetBlockId ? "block" : "note",
       linkText,
-      excerpt,
+      excerpt:excerpt || linkText,
     });
   };
-  for (const match of raw.matchAll(WIKI_LINK_RE)) add(match[1], match[2] || null, match[3] || null);
-  for (const match of raw.matchAll(NOTE_HREF_RE)) add(match[1], match[2] || null, null);
+  for (const match of text.matchAll(WIKI_LINK_RE)) add(match[1],match[2] || null,match[3] || null);
+  for (const match of text.matchAll(NOTE_HREF_RE)) add(match[1],match[2] || null,null);
+}
+
+function extractTiptapLinks(note: LocalNoteRow): LocalLink[] | null {
+  try {
+    const document = JSON.parse(note.content || "{}");
+    if (!document || !Array.isArray(document.content)) return null;
+    const links: LocalLink[] = [];
+    const seen = new Set<string>();
+    const visit = (nodes: any[], parentBlockId: string | null) => {
+      for (const node of nodes) {
+        if (!node || typeof node !== "object") continue;
+        const type = SUPPORTED_BLOCKS.has(node.type) ? node.type as LocalBlock["blockType"] : null;
+        const ownBlockId = type && typeof node.attrs?.blockId === "string"
+          ? node.attrs.blockId
+          : parentBlockId;
+        if (node.type === "text") {
+          const text = String(node.text || "");
+          addLinksFromText(text,ownBlockId,links,seen);
+          for (const mark of Array.isArray(node.marks) ? node.marks : []) {
+            const href = mark?.attrs?.href;
+            if (mark?.type === "link" && typeof href === "string" && href.startsWith("note:")) {
+              addLinksFromText(href,ownBlockId,links,seen);
+            }
+          }
+        }
+        if (Array.isArray(node.content)) visit(node.content,ownBlockId);
+      }
+    };
+    visit(document.content,null);
+    return links;
+  } catch {
+    return null;
+  }
+}
+
+function extractMarkdownLinks(note: LocalNoteRow): LocalLink[] {
+  const links: LocalLink[] = [];
+  const seen = new Set<string>();
+  const lines = (note.content || "").split("\n");
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
+    if (!line.trim()) continue;
+    const directId = line.match(MARKDOWN_BLOCK_ID_RE)?.[1] || null;
+    const nextId = lines[index + 1]?.trim().match(/^\^(blk_[A-Za-z0-9_-]{6,})$/)?.[1] || null;
+    addLinksFromText(line,directId || nextId,links,seen);
+  }
   return links;
+}
+
+function extractLinks(note: LocalNoteRow): LocalLink[] {
+  return extractTiptapLinks(note) ?? extractMarkdownLinks(note);
 }
 
 async function readNote(db: NativeDatabase, id: string): Promise<LocalNoteRow> {
@@ -279,7 +331,7 @@ export function installMobileLocalNoteRelationsBridge(db: NativeDatabase): () =>
   });
   target.getKnowledgeGraph = async (focusNoteId?: string) => {
     const notes = await listNotes(db);
-    const noteMap = new Map(notes.map((note) => [note.id,note]));
+    const noteMap = new Map(notes.map((note): [string,LocalNoteRow] => [note.id,note]));
     let edges = notes.flatMap((note) => extractLinks(note)
       .filter((link) => noteMap.has(link.targetNoteId))
       .map((link) => ({
