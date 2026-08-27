@@ -6,23 +6,27 @@ import {
 } from "./knowledgeTreeApi";
 import { applyKnowledgeTreeSort } from "./knowledgeTreeSort";
 import { newLocalId } from "./localRepository";
+import { isMobileLocalMode } from "./mobileLocalMode";
 import type { NativeLocalRepository } from "./nativeLocalRepository";
 
-function ownerAccess(nodeId: string, canCreate = true): EffectiveKnowledgeAccess {
+function ownerAccess(
+  nodeId: string,
+  options: { canCreate?: boolean; deviceOnly?: boolean } = {},
+): EffectiveKnowledgeAccess {
+  const deviceOnly = options.deviceOnly === true;
   return {
     nodeId,
     rolePreset: "admin",
     capabilities: {
       canView: true,
       canComment: true,
-      canCreate,
+      canCreate: options.canCreate !== false,
       canEdit: true,
       canDelete: true,
       canMove: true,
       canDownload: true,
-      // 设备本地空间没有成员/分享主体，避免 UI 继续进入服务端权限链路。
-      canReshare: false,
-      canManageMembers: false,
+      canReshare: !deviceOnly,
+      canManageMembers: !deviceOnly,
     },
     source: "owner",
     sourceNodeId: null,
@@ -33,7 +37,7 @@ function scopeKey(userId: string, workspaceId: string | null): string {
   return workspaceId ? `workspace:${workspaceId}` : `personal:${userId}`;
 }
 
-function notebookNode(item: Notebook): KnowledgeTreeNode {
+function notebookNode(item: Notebook, deviceOnly: boolean): KnowledgeTreeNode {
   const id = `notebook:${item.id}`;
   return {
     id,
@@ -52,11 +56,11 @@ function notebookNode(item: Notebook): KnowledgeTreeNode {
     childCount: 0,
     createdAt: item.createdAt,
     updatedAt: item.updatedAt,
-    access: ownerAccess(id, true),
+    access: ownerAccess(id, { canCreate: true, deviceOnly }),
   };
 }
 
-function noteNode(item: NoteListItem): KnowledgeTreeNode {
+function noteNode(item: NoteListItem, deviceOnly: boolean): KnowledgeTreeNode {
   const id = `note:${item.id}`;
   return {
     id,
@@ -78,14 +82,21 @@ function noteNode(item: NoteListItem): KnowledgeTreeNode {
     childCount: 0,
     createdAt: item.createdAt,
     updatedAt: item.updatedAt,
-    // Native Repository 目前只持久化 notebook.parentId + note.notebookId，
-    // 因此本地模式不宣称支持“笔记作为父节点”，避免重启后层级丢失。
-    access: ownerAccess(id, false),
+    // 纯设备本地模式只能持久化 notebook.parentId + note.notebookId，
+    // 不能可靠表达“笔记作为父节点”。登录模式保留服务端原能力。
+    access: ownerAccess(id, { canCreate: !deviceOnly, deviceOnly }),
   };
 }
 
-function projectNodes(notebooks: Notebook[], notes: NoteListItem[]): KnowledgeTreeNode[] {
-  const nodes = [...notebooks.map(notebookNode), ...notes.map(noteNode)];
+function projectNodes(
+  notebooks: Notebook[],
+  notes: NoteListItem[],
+  deviceOnly: boolean,
+): KnowledgeTreeNode[] {
+  const nodes = [
+    ...notebooks.map((item) => notebookNode(item, deviceOnly)),
+    ...notes.map((item) => noteNode(item, deviceOnly)),
+  ];
   const childCounts = new Map<string, number>();
   for (const node of nodes) {
     if (node.parentId) childCounts.set(node.parentId, (childCounts.get(node.parentId) || 0) + 1);
@@ -103,15 +114,20 @@ function localOnlyUnsupported(message: string): Error & { code?: string } {
 }
 
 /**
- * 把安卓本地仓库投影到统一知识树。
+ * Android Native 知识树 Bridge。
  *
- * 重要约束：Native DB 当前没有独立 knowledge_tree_nodes 表，本地可持久化的树结构
- * 由 notebooks.parentId + notes.notebookId 表达。因此这里完整接管知识树 API，
- * 但只允许文件夹承载子节点；不做“看似成功、重启后层级丢失”的临时内存实现。
+ * - 所有 Native 模式：列表从 Native Repository 投影，保证断网可读。
+ * - 纯设备本地模式：进一步接管 CRUD / batch / ACL 等入口，确保不会漏回服务器。
+ * - 已登录 Local-first：保留服务端 mutation / 权限 / 密码等高级知识树能力，避免
+ *   因 Native DB 暂无 knowledge_tree_nodes 表而破坏原有任意层级结构与权限语义。
  */
-export function installMobileLocalKnowledgeTreeBridge(repository: NativeLocalRepository): () => void {
+export function installMobileLocalKnowledgeTreeBridge(
+  repository: NativeLocalRepository,
+  options: { deviceOnly?: boolean } = {},
+): () => void {
   const target = knowledgeTreeApi as any;
   const originals = { ...target };
+  const deviceOnly = options.deviceOnly ?? isMobileLocalMode();
 
   const list = async (workspaceId?: string, includeDeleted = false) => {
     const [notebooks, notes] = await Promise.all([
@@ -122,8 +138,19 @@ export function installMobileLocalKnowledgeTreeBridge(repository: NativeLocalRep
         limit: 10_000,
       }),
     ]);
-    return { nodes: projectNodes(notebooks, notes) };
+    return { nodes: projectNodes(notebooks, notes, deviceOnly) };
   };
+
+  target.list = (includeDeleted = false) => list(undefined, includeDeleted);
+  target.listForWorkspace = (workspaceId: string, includeDeleted = false) => list(workspaceId, includeDeleted);
+  target.listShared = async () => ({ nodes: [] });
+
+  // 登录后的 Android 维持此前行为：只投影本地列表，其余高级树能力继续访问服务器。
+  if (!deviceOnly) {
+    return () => {
+      Object.assign(target, originals);
+    };
+  }
 
   const findNode = async (nodeId: string, workspaceId?: string): Promise<KnowledgeTreeNode> => {
     const result = await list(workspaceId, true);
@@ -149,7 +176,8 @@ export function installMobileLocalKnowledgeTreeBridge(repository: NativeLocalRep
     input: { parentId: string | null; nodeType: "folder" | "note" | "markdown" | "word"; title: string },
   ): Promise<KnowledgeTreeNode> => {
     const parent = await requireFolderParent(input.parentId, workspaceId);
-    const effectiveWorkspaceId = parent?.workspaceId ?? (workspaceId && workspaceId !== "personal" ? workspaceId : null);
+    const effectiveWorkspaceId = parent?.workspaceId
+      ?? (workspaceId && workspaceId !== "personal" ? workspaceId : null);
     const title = input.title.trim() || (input.nodeType === "folder" ? "新建文件夹" : "无标题笔记");
     const id = newLocalId();
 
@@ -164,9 +192,7 @@ export function installMobileLocalKnowledgeTreeBridge(repository: NativeLocalRep
       return findNode(`notebook:${id}`, workspaceId);
     }
 
-    if (!parent) {
-      throw localOnlyUnsupported("根级文档需要先创建文件夹");
-    }
+    if (!parent) throw localOnlyUnsupported("根级文档需要先创建文件夹");
     const contentFormat = input.nodeType === "markdown" ? "markdown" : "tiptap-json";
     await repository.notes.create({
       id,
@@ -245,9 +271,7 @@ export function installMobileLocalKnowledgeTreeBridge(repository: NativeLocalRep
 
     const subtree = [node, ...descendantsOf(nodeId, nodes)];
     const notes = subtree.filter((item) => item.resourceType === "note");
-    const folders = subtree
-      .filter((item) => item.resourceType === "notebook")
-      .sort((a, b) => descendantsOf(b.id, nodes).length - descendantsOf(a.id, nodes).length);
+    const folders = subtree.filter((item) => item.resourceType === "notebook").reverse();
     const trashedAt = new Date().toISOString();
     for (const item of notes) {
       await repository.notes.update(item.resourceId, { isTrashed: 1, trashedAt });
@@ -260,10 +284,6 @@ export function installMobileLocalKnowledgeTreeBridge(repository: NativeLocalRep
     return { success: true as const, affectedNodeIds: affected, promotedNodeIds: promoted };
   };
 
-  target.list = (includeDeleted = false) => list(undefined, includeDeleted);
-  target.listForWorkspace = (workspaceId: string, includeDeleted = false) => list(workspaceId, includeDeleted);
-  target.listShared = async () => ({ nodes: [] });
-
   target.create = (input: Parameters<typeof create>[1]) => create(undefined, input);
   target.createForWorkspace = (workspaceId: string, input: Parameters<typeof create>[1]) => create(workspaceId, input);
 
@@ -274,10 +294,8 @@ export function installMobileLocalKnowledgeTreeBridge(repository: NativeLocalRep
         ...(input.title !== undefined ? { name: input.title.trim() || "未命名文件夹" } : {}),
         ...(input.isExpanded !== undefined ? { isExpanded: input.isExpanded ? 1 : 0 } : {}),
       });
-    } else if (node.resourceType === "note") {
-      if (input.title !== undefined) {
-        await repository.notes.update(node.resourceId, { title: input.title.trim() || "无标题笔记" });
-      }
+    } else if (node.resourceType === "note" && input.title !== undefined) {
+      await repository.notes.update(node.resourceId, { title: input.title.trim() || "无标题笔记" });
     }
     return findNode(nodeId);
   };
@@ -319,14 +337,14 @@ export function installMobileLocalKnowledgeTreeBridge(repository: NativeLocalRep
     return { success: true, restoredNodeIds: [nodeId] };
   };
 
-  // 设备本地空间没有服务端成员 ACL / 密码 / 审计历史。全部在 Bridge 层终止，
-  // 不能再落回 knowledgeTreeApi.request() 触发 /api/knowledge-tree/*。
+  // 设备本地空间没有服务端成员 ACL / 密码 / 审计历史。这些调用必须在 Bridge
+  // 层终止，不能继续落回 knowledgeTreeApi.request()。
   target.getPermissions = async (nodeId: string) => ({
     direct: [],
     inheritsFromParent: null,
     accessMode: "inherit",
     isExplicit: false,
-    currentUserAccess: ownerAccess(nodeId, false),
+    currentUserAccess: ownerAccess(nodeId, { canCreate: false, deviceOnly: true }),
   });
   target.setAccessMode = async () => { throw localOnlyUnsupported("设备本地空间不支持成员权限设置"); };
   target.setPermission = async () => { throw localOnlyUnsupported("设备本地空间不支持成员权限设置"); };
