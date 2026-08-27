@@ -105,6 +105,22 @@ export function installMobileLocalFirstBridge(
     // SiteSettingsProvider 会把自定义字体 id 自动降级为默认字体。
     target.getFonts = async () => [];
     target.getFontsPublic = async () => [];
+  } else {
+    // 登录后的 Android 仍以 Native Repository 作为附件数据源，但 attachment_folder
+    // 尚未进入 Sync V2 实体注册表。如果这里继续保留服务端 create/rename/remove，
+    // 就会出现“远端创建了 folderId，本地附件却引用另一份库”的静默数据分叉。
+    // 因此在同步能力补齐前必须 fail-closed，而不是让 UI 看似成功。
+    const unsupportedAttachmentFolders = async () => {
+      const error = Object.assign(
+        new Error("Android 登录同步模式暂不支持附件文件夹；请切换到‘仅此设备’后使用该功能"),
+        { code: "MOBILE_SYNC_ATTACHMENT_FOLDER_UNSUPPORTED" },
+      );
+      throw error;
+    };
+    target.attachmentFolders.list = async () => ({ folders: [] });
+    target.attachmentFolders.create = unsupportedAttachmentFolders;
+    target.attachmentFolders.rename = unsupportedAttachmentFolders;
+    target.attachmentFolders.remove = unsupportedAttachmentFolders;
   }
 
   target.getWorkspaces = async (): Promise<Workspace[]> => repository.listWorkspaces();
