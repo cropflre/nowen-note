@@ -4,10 +4,12 @@ import type { NativeDatabase } from "./nativeDatabase";
 type LocalNoteRow = {
   id: string;
   notebookId: string;
+  notebookName: string | null;
   title: string;
   content: string;
   contentText: string;
   contentFormat: string;
+  version: number;
   updatedAt: string;
 };
 
@@ -155,15 +157,27 @@ function extractLinks(note: LocalNoteRow): LocalLink[] {
 }
 
 async function readNote(db: NativeDatabase, id: string): Promise<LocalNoteRow> {
-  const row = (await db.query<LocalNoteRow>(`SELECT id,notebookId,title,content,contentText,contentFormat,updatedAt
-    FROM notes WHERE scopeKey='personal' AND id=? LIMIT 1`, [id]))[0];
+  const row = (await db.query<LocalNoteRow>(`
+    SELECT n.id,n.notebookId,b.name AS notebookName,n.title,n.content,n.contentText,
+      n.contentFormat,n.version,n.updatedAt
+    FROM notes n
+    LEFT JOIN notebooks b ON b.scopeKey=n.scopeKey AND b.id=n.notebookId
+    WHERE n.scopeKey='personal' AND n.id=? AND n.isTrashed=0
+    LIMIT 1
+  `, [id]))[0];
   if (!row) throw new Error("笔记不存在");
   return row;
 }
 
 async function listNotes(db: NativeDatabase): Promise<LocalNoteRow[]> {
-  return db.query<LocalNoteRow>(`SELECT id,notebookId,title,content,contentText,contentFormat,updatedAt
-    FROM notes WHERE scopeKey='personal' AND isTrashed=0 ORDER BY updatedAt DESC`);
+  return db.query<LocalNoteRow>(`
+    SELECT n.id,n.notebookId,b.name AS notebookName,n.title,n.content,n.contentText,
+      n.contentFormat,n.version,n.updatedAt
+    FROM notes n
+    LEFT JOIN notebooks b ON b.scopeKey=n.scopeKey AND b.id=n.notebookId
+    WHERE n.scopeKey='personal' AND n.isTrashed=0
+    ORDER BY n.updatedAt DESC
+  `);
 }
 
 /**
@@ -213,13 +227,23 @@ export function installMobileLocalNoteRelationsBridge(db: NativeDatabase): () =>
     const match = link.match(/^note:([A-Za-z0-9_-]{6,})(?:#blk:([A-Za-z0-9_-]+))?/);
     if (!match) throw new Error("无效的笔记链接");
     const note = await readNote(db,match[1]);
-    const block = match[2] ? await target.getBlock(note.id,match[2]) : null;
+    const block = match[2] ? await target.getBlock(note.id,match[2]) as LocalBlock : null;
     return {
-      noteId:note.id,
-      notebookId:note.notebookId,
-      title:note.title,
-      blockId:match[2] || null,
-      block,
+      note: {
+        id: note.id,
+        title: note.title,
+        notebookId: note.notebookId,
+        notebookName: note.notebookName,
+        version: Number(note.version) || 1,
+        updatedAt: note.updatedAt,
+        excerpt: safeExcerpt(note.contentText || "") || "",
+        contentFormat: note.contentFormat || "tiptap-json",
+      },
+      block: block ? {
+        blockId: block.blockId,
+        blockType: block.blockType,
+        plainText: block.plainText,
+      } : null,
     };
   };
 
