@@ -40,6 +40,10 @@ jobs:
         working-directory: frontend
         run: npm ci --silent
 
+      - name: Type-check frontend
+        working-directory: frontend
+        run: npx tsc -b --pretty false
+
       - name: Run Android Local-first regression tests
         working-directory: frontend
         run: >-
