@@ -5,6 +5,7 @@ import type { Note, Notebook, Tag, Workspace } from "@/types";
 import { getMobileLocalUser, isMobileLocalMode } from "./mobileLocalMode";
 import { installMobileLocalKnowledgeTreeBridge } from "./mobileLocalKnowledgeTreeBridge";
 import { installMobileLocalModuleBridge } from "./mobileLocalModuleBridge";
+import { installMobileLocalAdvancedTaskBridge } from "./mobileLocalAdvancedTaskBridge";
 import type { NativeDatabase } from "./nativeDatabase";
 
 let installed = false;
@@ -23,15 +24,23 @@ export function installMobileLocalFirstBridge(
 ): () => void {
   if (installed) return () => undefined;
   installed = true;
-  const restoreKnowledgeTreeBridge = installMobileLocalKnowledgeTreeBridge(repository);
-  const restoreModuleBridge = installMobileLocalModuleBridge(repository, db, userId);
-  const target = api as any;
   const deviceOnlyMode = isMobileLocalMode();
+  const restoreKnowledgeTreeBridge = installMobileLocalKnowledgeTreeBridge(repository, { deviceOnly: deviceOnlyMode });
+  const restoreModuleBridge = installMobileLocalModuleBridge(repository, db, userId);
+  // ModuleBridge 为历史兼容会给项目/模板/依赖/习惯返回空数据。
+  // 纯设备模式再由持久化 Bridge 覆盖这些空实现；登录模式保留服务端高级任务能力，
+  // 直到这些实体完整进入 Mobile Sync V2 的同步注册表。
+  const restoreAdvancedTaskBridge = deviceOnlyMode
+    ? installMobileLocalAdvancedTaskBridge(db, userId)
+    : () => undefined;
+  const target = api as any;
   const originals = {
     getMe: target.getMe,
     getVersion: target.getVersion,
     getLatestRelease: target.getLatestRelease,
     getSiteSettings: target.getSiteSettings,
+    getFonts: target.getFonts,
+    getFontsPublic: target.getFontsPublic,
     getWorkspaces: target.getWorkspaces,
     getNotebooks: target.getNotebooks,
     createNotebook: target.createNotebook,
@@ -75,6 +84,10 @@ export function installMobileLocalFirstBridge(
     });
     target.getLatestRelease = async () => ({ available: false, reason: "mobile_local_mode" });
     target.getSiteSettings = async () => ({ web_ui_enabled: "false" });
+    // 打开设置页不再为了字体列表触发服务器请求。设备本地模式只支持内置字体，
+    // SiteSettingsProvider 会把自定义字体 id 自动降级为默认字体。
+    target.getFonts = async () => [];
+    target.getFontsPublic = async () => [];
   }
 
   target.getWorkspaces = async (): Promise<Workspace[]> => repository.listWorkspaces();
@@ -197,6 +210,8 @@ export function installMobileLocalFirstBridge(
   };
 
   return () => {
+    // AdvancedTaskBridge 是覆盖在 ModuleBridge 之上的，必须先恢复它，再恢复基础 ModuleBridge。
+    restoreAdvancedTaskBridge();
     restoreModuleBridge();
     restoreKnowledgeTreeBridge();
     Object.assign(target, {
@@ -204,6 +219,8 @@ export function installMobileLocalFirstBridge(
       getVersion: originals.getVersion,
       getLatestRelease: originals.getLatestRelease,
       getSiteSettings: originals.getSiteSettings,
+      getFonts: originals.getFonts,
+      getFontsPublic: originals.getFontsPublic,
       getWorkspaces: originals.getWorkspaces,
       getNotebooks: originals.getNotebooks,
       createNotebook: originals.createNotebook,
