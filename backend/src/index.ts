@@ -713,6 +713,7 @@ if (process.env.NODE_ENV === "production") {
   const mimeTypes: Record<string, string> = {
     ".html": "text/html",
     ".js": "application/javascript",
+    ".mjs": "application/javascript",
     ".css": "text/css",
     ".json": "application/json",
     ".png": "image/png",
