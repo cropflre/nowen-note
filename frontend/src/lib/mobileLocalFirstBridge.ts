@@ -6,6 +6,8 @@ import { getMobileLocalUser, isMobileLocalMode } from "./mobileLocalMode";
 import { installMobileLocalKnowledgeTreeBridge } from "./mobileLocalKnowledgeTreeBridge";
 import { installMobileLocalModuleBridge } from "./mobileLocalModuleBridge";
 import { installMobileLocalAdvancedTaskBridge } from "./mobileLocalAdvancedTaskBridge";
+import { installMobileLocalAttachmentFolderBridge } from "./mobileLocalAttachmentFolderBridge";
+import { installMobileLocalNoteRelationsBridge } from "./mobileLocalNoteRelationsBridge";
 import type { NativeDatabase } from "./nativeDatabase";
 
 let installed = false;
@@ -24,16 +26,11 @@ export function installMobileLocalFirstBridge(
 ): () => void {
   if (installed) return () => undefined;
   installed = true;
-  const deviceOnlyMode = isMobileLocalMode();
-  const restoreKnowledgeTreeBridge = installMobileLocalKnowledgeTreeBridge(repository, { deviceOnly: deviceOnlyMode });
-  const restoreModuleBridge = installMobileLocalModuleBridge(repository, db, userId);
-  // ModuleBridge 为历史兼容会给项目/模板/依赖/习惯返回空数据。
-  // 纯设备模式再由持久化 Bridge 覆盖这些空实现；登录模式保留服务端高级任务能力，
-  // 直到这些实体完整进入 Mobile Sync V2 的同步注册表。
-  const restoreAdvancedTaskBridge = deviceOnlyMode
-    ? installMobileLocalAdvancedTaskBridge(db, userId)
-    : () => undefined;
+
   const target = api as any;
+  // 必须在任何子 Bridge 安装前保存服务器原始门面。历史实现先装 ModuleBridge 再快照，
+  // teardown 时会把 ModuleBridge 的本地 attachment 函数误当成“原始函数”重新装回去，
+  // 导致退出 Native Runtime 后仍残留本地实现。
   const originals = {
     getMe: target.getMe,
     getVersion: target.getVersion,
@@ -74,6 +71,26 @@ export function installMobileLocalFirstBridge(
     attachmentUrlFor: target.attachments.urlFor,
     attachmentRemove: target.attachments.remove,
   };
+
+  const deviceOnlyMode = isMobileLocalMode();
+  const restoreKnowledgeTreeBridge = installMobileLocalKnowledgeTreeBridge(repository, { deviceOnly: deviceOnlyMode });
+  const restoreModuleBridge = installMobileLocalModuleBridge(repository, db, userId);
+  // ModuleBridge 为历史兼容会给项目/模板/依赖/习惯返回空数据。
+  // 纯设备模式再由持久化 Bridge 覆盖这些空实现；登录模式保留服务端高级任务能力，
+  // 直到这些实体完整进入 Mobile Sync V2 的同步注册表。
+  const restoreAdvancedTaskBridge = deviceOnlyMode
+    ? installMobileLocalAdvancedTaskBridge(db, userId)
+    : () => undefined;
+  // 附件文件夹目前不是 Sync V2 实体；只在纯设备模式使用本地增量 schema，
+  // 避免登录态产生“本地 folderId 成功、远端没有对应文件夹”的数据分叉。
+  const restoreAttachmentFolderBridge = deviceOnlyMode
+    ? installMobileLocalAttachmentFolderBridge(db, userId)
+    : () => undefined;
+  // 块索引 / 反链 / 关系图都是 notes.content 的派生数据。纯设备模式直接从本地权威
+  // 内容计算，彻底阻断编辑器侧栏对 /blocks、/backlinks、Yjs release-room 的请求。
+  const restoreNoteRelationsBridge = deviceOnlyMode
+    ? installMobileLocalNoteRelationsBridge(db)
+    : () => undefined;
 
   if (deviceOnlyMode) {
     target.getMe = async () => getMobileLocalUser();
@@ -210,7 +227,9 @@ export function installMobileLocalFirstBridge(
   };
 
   return () => {
-    // AdvancedTaskBridge 是覆盖在 ModuleBridge 之上的，必须先恢复它，再恢复基础 ModuleBridge。
+    // 子 Bridge 按安装的逆序恢复，避免 wrapper 恢复到另一个 wrapper 上。
+    restoreNoteRelationsBridge();
+    restoreAttachmentFolderBridge();
     restoreAdvancedTaskBridge();
     restoreModuleBridge();
     restoreKnowledgeTreeBridge();
