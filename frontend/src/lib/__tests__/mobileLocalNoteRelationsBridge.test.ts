@@ -29,7 +29,7 @@ const source = {
   notebookId:"book-1",
   notebookName:"本地笔记本",
   title:"来源笔记",
-  content:`引用 [[note:${targetId}#blk:blk_heading01|目标块]]`,
+  content:`引用 [[note:${targetId}#blk:blk_heading01|目标块]] ^blk_source01`,
   contentText:"引用目标块",
   contentFormat:"markdown",
   version:1,
@@ -64,7 +64,7 @@ afterEach(() => {
 });
 
 describe("mobile local note relations bridge", () => {
-  it("resolves block previews, backlinks and graph from local notes without fetch", async () => {
+  it("resolves block previews, precise backlinks and graph from local notes without fetch", async () => {
     const fetchSpy = vi.spyOn(globalThis,"fetch");
     restore = installMobileLocalNoteRelationsBridge(createFakeDb());
 
@@ -83,6 +83,7 @@ describe("mobile local note relations bridge", () => {
     expect(backlinks.backlinks).toHaveLength(1);
     expect(backlinks.backlinks[0]).toMatchObject({
       sourceNoteId:sourceId,
+      sourceBlockId:"blk_source01",
       targetBlockId:"blk_heading01",
       linkType:"block",
     });
@@ -91,6 +92,7 @@ describe("mobile local note relations bridge", () => {
     expect(graph.nodes.map((node) => node.id).sort()).toEqual([sourceId,targetId].sort());
     expect(graph.edges).toContainEqual(expect.objectContaining({
       sourceNoteId:sourceId,
+      sourceBlockId:"blk_source01",
       targetNoteId:targetId,
       targetBlockId:"blk_heading01",
     }));
