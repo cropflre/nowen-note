@@ -144,7 +144,7 @@ export default function NavRail({ variant = "desktop" }: { variant?: "desktop" |
   const canSwitchBackToLocal = isDesktopApp() && (usingRemoteServer || usingDesktopLiteMode);
 
   const availableItems = features ? NAV_CONFIG.filter((item) => !item.feature || features[item.feature] !== false) : NAV_CONFIG;
-  const items = availableItems;
+  const items = localDeviceMode ? NAV_CONFIG : availableItems;
 
   const handleClick = useCallback((mode: ViewMode) => {
     if (localDeviceMode && (mode === "ai-chat" || mode === "shares")) {

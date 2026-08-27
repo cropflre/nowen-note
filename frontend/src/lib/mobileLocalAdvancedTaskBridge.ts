@@ -23,9 +23,9 @@ function dateKey(value = now()): string {
 }
 
 function addDays(baseDate: string, offset: number): string {
-  const date = new Date(`${baseDate}T00:00:00`);
+  const date = new Date(`${baseDate}T00:00:00Z`);
   if (Number.isNaN(date.getTime())) return baseDate;
-  date.setDate(date.getDate() + offset);
+  date.setUTCDate(date.getUTCDate() + offset);
   return date.toISOString().slice(0, 10);
 }
 

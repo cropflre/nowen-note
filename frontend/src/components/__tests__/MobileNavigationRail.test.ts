@@ -47,7 +47,7 @@ describe("mobile navigation rail contract", () => {
   });
 
   it("shows the complete labeled shortcut rail in Android local mode", () => {
-    expect(railSource).toContain("const items = availableItems");
+    expect(railSource).toContain("const items = localDeviceMode ? NAV_CONFIG : availableItems");
     expect(railSource).not.toContain('item.mode === "favorites" || item.mode === "trash"');
     for (const mode of ["favorites", "files", "trash", "diary", "tasks", "mindmaps", "ai-chat", "shares"]) {
       expect(railSource).toContain(`mode: "${mode}"`);
@@ -56,7 +56,7 @@ describe("mobile navigation rail contract", () => {
   });
 
   it("keeps Settings reachable when the mobile rail is hidden", () => {
-    expect(sidebarSource).toContain("const [mobileRailHidden] = useMobileRailHidden()");
+    expect(sidebarSource).toContain("const [mobileRailHidden, setMobileRailHidden] = useMobileRailHidden()");
     expect(sidebarSource).toContain("{mobileRailHidden && (");
     expect(sidebarSource).toContain('data-mobile-sidebar-settings=""');
     expect(sidebarSource).toContain('window.dispatchEvent(new CustomEvent("nowen:open-settings"))');

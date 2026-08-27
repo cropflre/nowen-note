@@ -40,6 +40,7 @@ import {
   OPEN_INLINE_COMMENT_PANEL_EVENT,
   type OpenInlineCommentPanelDetail,
 } from "@/lib/inlineCommentEvents";
+import { isMobileLocalMode } from "@/lib/mobileLocalMode";
 
 type SelectionDraft = {
   note: Note;
@@ -563,6 +564,11 @@ export default function InlineCommentBridge() {
 
   const loadComments = useCallback(async (noteId: string, quiet = false) => {
     const requestId = ++loadRequestRef.current;
+    if (isMobileLocalMode()) {
+      setComments([]);
+      if (!quiet) setCommentsLoading(false);
+      return;
+    }
     if (!quiet) setCommentsLoading(true);
     try {
       const data = await api.getNoteComments(noteId);
