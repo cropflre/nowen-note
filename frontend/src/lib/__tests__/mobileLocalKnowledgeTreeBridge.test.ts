@@ -10,7 +10,6 @@ const now = "2026-08-27T00:00:00.000Z";
 function notebook(input: Partial<Notebook> & Pick<Notebook, "id" | "name">): Notebook {
   const { id, name, ...rest } = input;
   return {
-    ...rest,
     id,
     userId: "mobile-local-user",
     workspaceId: null,
@@ -23,13 +22,16 @@ function notebook(input: Partial<Notebook> & Pick<Notebook, "id" | "name">): Not
     isExpanded: 1,
     createdAt: now,
     updatedAt: now,
+    ...rest,
+    // required identity fields stay authoritative even if a Partial accidentally carries them.
+    id,
+    name,
   };
 }
 
 function note(input: Partial<NoteListItem> & Pick<NoteListItem, "id" | "notebookId" | "title">): NoteListItem {
   const { id, notebookId, title, ...rest } = input;
   return {
-    ...rest,
     id,
     userId: "mobile-local-user",
     notebookId,
@@ -46,6 +48,10 @@ function note(input: Partial<NoteListItem> & Pick<NoteListItem, "id" | "notebook
     sortOrder: 0,
     createdAt: now,
     updatedAt: now,
+    ...rest,
+    id,
+    notebookId,
+    title,
   };
 }
 
