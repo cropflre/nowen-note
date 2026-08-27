@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import {
   completeMobileAccountLogin,
   continueMobileLocalMode,
+  enterMobileLocalMode,
   getMobileLocalUser,
   isMobileLocalMode,
   requestMobileAccountLogin,
@@ -42,6 +43,15 @@ describe("Android 未登录本地模式", () => {
     requestMobileAccountLogin();
     completeMobileAccountLogin();
     localStorage.setItem("nowen-token", "signed-in-token");
+    expect(isMobileLocalMode()).toBe(false);
+  });
+
+  it("保留已登录令牌时也可以切换到设备离线模式", () => {
+    localStorage.setItem("nowen-token", "signed-in-token");
+    enterMobileLocalMode();
+    expect(isMobileLocalMode()).toBe(true);
+
+    requestMobileAccountLogin();
     expect(isMobileLocalMode()).toBe(false);
   });
 

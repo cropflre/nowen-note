@@ -4,6 +4,7 @@ import { Menu, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import Sidebar from "@/components/Sidebar";
 import NavRail from "@/components/NavRail";
+import SettingsModal from "@/components/SettingsModal";
 import { useRailMode } from "@/hooks/useRailMode";
 import { useMobileRailHidden } from "@/hooks/useMobileRailHidden";
 import NoteList from "@/components/NoteList";
@@ -295,15 +296,9 @@ function NoteListResizeHandle() {
  * P3: 侧边栏边缘滑动手势 Hook
  * 从屏幕左侧 30px 区域右滑打开侧边栏，侧边栏打开时左滑关闭
  *
- * 重要：本 hook 在 document 上挂全局 touchstart/touchend，触发的是 setMobileSidebar(false)。
- * 在移动端，用户从 Sidebar 进入 SettingsModal 时，Sidebar 仍处于 open 状态（关闭设置后
- * 还要回到 Sidebar），mobileSidebarOpen 为 true。此时只要 touchend 的 deltaX 超过阈值
- * 就会左滑关闭 Sidebar——而 SettingsModal 通过 createPortal 渲染到 body，但**生命周期
- * 仍挂在 Sidebar 子树**：Sidebar 卸载 = SettingsModal 卸载 = 设置弹窗"莫名消失"。
- *
- * 实测表现：用户在 SettingsModal 里"长按 / 滚动 / 横向触摸"时，touch 起止位移就足够触发
- * 该判定，弹窗瞬间被卸掉，看起来像"动一下就关"。React 合成事件的 stopPropagation
- * 拦不住 document 原生监听，必须在监听内部主动跳过。
+ * 重要：本 hook 在 document 上挂全局 touchstart/touchend。设置等 Portal 浮层打开时，
+ * 浮层内的长按、滚动或横向触摸不应触发侧边栏开关。React 合成事件的 stopPropagation
+ * 拦不住 document 原生监听，因此必须在监听内部主动跳过。
  *
  * 修复：在 touchstart 时，沿事件 target 向上查找是否处于带 `[data-swipe-blocker]` 的子树。
  * 是则置 isSwiping=false，本次手势整段不参与 sidebar 开关判定。任何想屏蔽 sidebar 全局
@@ -436,10 +431,17 @@ function AppLayout() {
    * 统一从外部事件驱动 setOpen(true)，组件只负责展示 + Esc 关闭。
    */
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   useEffect(() => {
     const onOpen = () => setCommandPaletteOpen(true);
     window.addEventListener("nowen:open-command-palette", onOpen);
     return () => window.removeEventListener("nowen:open-command-palette", onOpen);
+  }, []);
+
+  useEffect(() => {
+    const onOpen = () => setSettingsOpen(true);
+    window.addEventListener("nowen:open-settings", onOpen);
+    return () => window.removeEventListener("nowen:open-settings", onOpen);
   }, []);
 
   // 离线队列入队事件 → 把 syncStatus 切到 "queued"（让 UI 展示"已暂存"而非"已同步"）
@@ -708,7 +710,7 @@ function AppLayout() {
 
   return (
     <div className="flex h-[100dvh] w-screen bg-app-bg overflow-hidden transition-colors duration-200">
-      {/* 移动端目录使用全屏抽屉；快捷栏是独立偏好，默认隐藏以扩大内容区。 */}
+      {/* 移动端目录使用全屏抽屉；快捷栏默认显示，也可通过独立偏好隐藏。 */}
       <AnimatePresence>
         {state.mobileSidebarOpen && (
           <>
@@ -845,6 +847,10 @@ function AppLayout() {
         onClose={() => setCommandPaletteOpen(false)}
       />
 
+      <AnimatePresence>
+        {settingsOpen && <SettingsModal onClose={() => setSettingsOpen(false)} />}
+      </AnimatePresence>
+
       {/* 无 UI 的网络探活、离线队列重放与同步后数据刷新 */}
       <OfflineSyncRuntime />
 
@@ -911,14 +917,14 @@ function AuthGate() {
 
   const checkAuth = useCallback(() => {
     const token = getAccessToken();
+    if (isMobileLocalMode()) {
+      setUser(getMobileLocalUser());
+      setIsAuthenticated(true);
+      return;
+    }
     if (!token) {
-      if (isMobileLocalMode()) {
-        setUser(getMobileLocalUser());
-        setIsAuthenticated(true);
-      } else {
-        setUser(null);
-        setIsAuthenticated(false);
-      }
+      setUser(null);
+      setIsAuthenticated(false);
       return;
     }
 

@@ -11,6 +11,7 @@ import {
   type OfflineAttachmentRecord,
 } from "./localStore";
 import { installMobileLocalFirstBridge } from "./mobileLocalFirstBridge";
+import { migrateMobileLocalAccount } from "./mobileLocalAccountMigration";
 import { createMobileSyncEngine, type MobileSyncEngine } from "./mobileSyncEngine";
 import { createNativeAttachmentStore } from "./nativeAttachmentStore";
 import { openNativeDatabase, type NativeDatabase } from "./nativeDatabase";
@@ -458,7 +459,7 @@ async function configureRuntime(): Promise<void> {
       await repository.warmAttachmentUrls();
       setLocalRepository(repository);
       setSyncLocalAdminAdapter(createDeviceOnlyAdminAdapter(repository));
-      restoreBridge = installMobileLocalFirstBridge(repository);
+      restoreBridge = installMobileLocalFirstBridge(repository,db,MOBILE_LOCAL_USER_ID);
       active = { identity, db, restoreBridge, removeListeners: [] };
     } catch (error) {
       restoreBridge();
@@ -498,6 +499,20 @@ async function configureRuntime(): Promise<void> {
         ids.profileId,ids.deviceId,"移动设备",Capacitor.getPlatform(),now(),now(),
       ]);
     });
+    const mobileLocalDb = await openNativeDatabase(MOBILE_LOCAL_ACCOUNT_ID);
+    try {
+      await migrateMobileLocalAccount({
+        sourceDb: mobileLocalDb,
+        sourceAttachments: await createNativeAttachmentStore(MOBILE_LOCAL_ACCOUNT_ID),
+        targetDb: db,
+        targetAttachments: attachmentStore,
+        targetUserId: userId,
+        profileId: ids.profileId,
+        deviceId: ids.deviceId,
+      });
+    } finally {
+      await mobileLocalDb.close().catch(() => undefined);
+    }
     await migrateLegacyOfflineQueue(db,ids.profileId,ids.deviceId);
     let repository!:NativeLocalRepository;
     const engine = createMobileSyncEngine({
@@ -522,7 +537,7 @@ async function configureRuntime(): Promise<void> {
     removeListeners.push(() => appHandle.remove(),() => networkHandle.remove());
     setLocalRepository(repository);
     setSyncLocalAdminAdapter(createNativeAdminAdapter(db,engine,repository,ids.profileId,ids.deviceId,serverUrl));
-    const restoreBridge = installMobileLocalFirstBridge(repository);
+    const restoreBridge = installMobileLocalFirstBridge(repository,db,userId);
     active = {identity,db,engine,restoreBridge,removeListeners};
     engine.start();
   } catch (error) {

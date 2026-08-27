@@ -3,8 +3,9 @@ import type { NativeAttachmentStore } from "./nativeAttachmentStore";
 import { newLocalId } from "./localRepository";
 
 type ScopeStatus = "active" | "replan_required" | "access_revoked";
-type EntityType = "notebook" | "note" | "tag" | "note_tag" | "favorite" | "attachment";
-type RemoteEntityType = EntityType | "task" | "task_reminder" | "diary" | "mindmap";
+type EntityType = "notebook" | "note" | "tag" | "note_tag" | "favorite" | "attachment"
+  | "task" | "task_reminder" | "diary" | "mindmap";
+type RemoteEntityType = EntityType;
 
 interface ScopeDescriptor {
   scopeKey: string;
@@ -52,7 +53,8 @@ function stable(value: unknown): string {
 
 function isCoreEntityType(value:RemoteEntityType):value is EntityType {
   return value === "notebook" || value === "note" || value === "tag"
-    || value === "note_tag" || value === "favorite" || value === "attachment";
+    || value === "note_tag" || value === "favorite" || value === "attachment"
+    || value === "task" || value === "task_reminder" || value === "diary" || value === "mindmap";
 }
 
 function syncFailure(code:string,message:string):Error&{code:string}{
@@ -318,6 +320,15 @@ export class MobileSyncEngine {
         [scope.scopeKey,...ids,this.options.profileId,scope.scopeKey,type]);
       };
       await remove("attachments","attachment");
+      await remove("diaries","diary");
+      await remove("mindmaps","mindmap");
+      const reminderIds=[...(seen.get("task_reminder")||[])];
+      await tx.run(`DELETE FROM task_reminders WHERE taskId IN (SELECT id FROM tasks WHERE scopeKey=?)
+        ${reminderIds.length?`AND id NOT IN (${reminderIds.map(()=>"?").join(",")})`:""}
+        AND NOT EXISTS (SELECT 1 FROM sync_outbox o WHERE o.profileId=? AND o.scopeKey=?
+          AND o.entityType='task_reminder' AND o.entityId=task_reminders.id AND o.status IN ('pending','inflight','failed'))`,
+      [scope.scopeKey,...reminderIds,this.options.profileId,scope.scopeKey]);
+      await remove("tasks","task");
       await removeComposite("favorites","favorite","favorites.userId || ':' || favorites.noteId");
       await removeComposite("note_tags","note_tag","note_tags.noteId || ':' || note_tags.tagId");
       await remove("notes","note");
@@ -446,8 +457,10 @@ export class MobileSyncEngine {
   }
 
   private async readEntity(db:NativeDatabase,scopeKey:string,type:EntityType,id:string):Promise<Record<string,unknown>|null>{
-    const table=type==="notebook"?"notebooks":type==="note"?"notes":type==="tag"?"tags":type==="attachment"?"attachments":null;
+    const table=type==="notebook"?"notebooks":type==="note"?"notes":type==="tag"?"tags":type==="attachment"?"attachments"
+      :type==="task"?"tasks":type==="task_reminder"?"task_reminders":type==="diary"?"diaries":type==="mindmap"?"mindmaps":null;
     if(!table)return null;
+    if(type==="task_reminder")return (await db.query<Record<string,unknown>>("SELECT * FROM task_reminders WHERE id=?",[id]))[0]||null;
     return (await db.query<Record<string,unknown>>(`SELECT * FROM ${table} WHERE scopeKey=? AND id=?`,[scopeKey,id]))[0]||null;
   }
 
@@ -464,6 +477,45 @@ export class MobileSyncEngine {
       if(deleting)await db.run("DELETE FROM favorites WHERE scopeKey=? AND userId=? AND noteId=?",[key,this.options.userId,noteId]);
       else await db.run("INSERT OR IGNORE INTO favorites (scopeKey,workspaceId,userId,noteId,createdAt) VALUES (?,?,?,?,?)",[key,ws,this.options.userId,noteId,p.createdAt||now()]);
       return;
+    }
+    if(entry.entityType==="task_reminder"){
+      if(deleting){await db.run("DELETE FROM task_reminders WHERE id=?",[entry.entityId]);return;}
+      await db.run(`INSERT INTO task_reminders (id,taskId,userId,offsetMinutes,enabled,lastNotifiedAt,snoozedUntil,createdAt,updatedAt)
+        VALUES (?,?,?,?,?,NULL,NULL,?,?) ON CONFLICT(id) DO UPDATE SET
+        taskId=excluded.taskId,offsetMinutes=excluded.offsetMinutes,enabled=excluded.enabled,updatedAt=excluded.updatedAt`,[
+        entry.entityId,p.taskId,this.options.userId,p.offsetMinutes||30,p.enabled===false?0:(p.enabled??1),p.createdAt||now(),now(),
+      ]);return;
+    }
+    if(entry.entityType==="task"){
+      if(deleting){await db.run("DELETE FROM tasks WHERE scopeKey=? AND id=?",[key,entry.entityId]);return;}
+      await db.run(`INSERT INTO tasks (
+        id,scopeKey,workspaceId,userId,title,description,isCompleted,completedAt,priority,dueDate,dueAt,startDate,noteId,parentId,sortOrder,projectId,status,createdAt,updatedAt
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET
+        title=excluded.title,description=excluded.description,isCompleted=excluded.isCompleted,completedAt=excluded.completedAt,
+        priority=excluded.priority,dueDate=excluded.dueDate,dueAt=excluded.dueAt,startDate=excluded.startDate,noteId=excluded.noteId,
+        parentId=excluded.parentId,sortOrder=excluded.sortOrder,projectId=excluded.projectId,status=excluded.status,updatedAt=excluded.updatedAt`,[
+        entry.entityId,key,ws,p.userId||this.options.userId,p.title||"新任务",p.description||"",p.isCompleted?1:0,p.completedAt||null,
+        p.priority||2,p.dueDate||null,p.dueAt||null,p.startDate||null,p.noteId||null,p.parentId||null,p.sortOrder||0,p.projectId||null,
+        p.status||(p.isCompleted?"done":"todo"),p.createdAt||now(),p.updatedAt||now(),
+      ]);return;
+    }
+    if(entry.entityType==="diary"){
+      if(deleting){await db.run("DELETE FROM diaries WHERE scopeKey=? AND id=?",[key,entry.entityId]);return;}
+      const jsonArray=(value:unknown)=>typeof value==="string"?value:JSON.stringify(Array.isArray(value)?value:[]);
+      await db.run(`INSERT INTO diaries (id,scopeKey,workspaceId,userId,contentText,mood,images,media,createdAt)
+        VALUES (?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET
+        contentText=excluded.contentText,mood=excluded.mood,images=excluded.images,media=excluded.media`,[
+        entry.entityId,key,ws,p.userId||this.options.userId,p.contentText||"",p.mood||"",jsonArray(p.images),jsonArray(p.media),p.createdAt||now(),
+      ]);return;
+    }
+    if(entry.entityType==="mindmap"){
+      if(deleting){await db.run("DELETE FROM mindmaps WHERE scopeKey=? AND id=?",[key,entry.entityId]);return;}
+      await db.run(`INSERT INTO mindmaps (id,scopeKey,workspaceId,userId,title,data,starred,folderId,createdAt,updatedAt)
+        VALUES (?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET
+        title=excluded.title,data=excluded.data,starred=excluded.starred,folderId=excluded.folderId,updatedAt=excluded.updatedAt`,[
+        entry.entityId,key,ws,p.userId||this.options.userId,p.title||"无标题导图",
+        typeof p.data==="string"?p.data:JSON.stringify(p.data||{}),p.starred?1:0,p.folderId||null,p.createdAt||now(),p.updatedAt||now(),
+      ]);return;
     }
     const table=entry.entityType==="notebook"?"notebooks":entry.entityType==="note"?"notes":entry.entityType==="tag"?"tags":"attachments";
     if(deleting){await db.run(`DELETE FROM ${table} WHERE scopeKey=? AND id=?`,[key,entry.entityId]);return;}

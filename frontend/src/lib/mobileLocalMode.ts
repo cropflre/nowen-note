@@ -1,6 +1,7 @@
 import type { User } from "@/types";
 
 const LOGIN_REQUESTED_KEY = "nowen-mobile-account-login-requested";
+const FORCE_LOCAL_KEY = "nowen-mobile-force-local-mode";
 
 export const MOBILE_LOCAL_ACCOUNT_ID = "android-device-local";
 export const MOBILE_LOCAL_USER_ID = "android-local-user";
@@ -28,8 +29,10 @@ function hasAccessToken(): boolean {
 }
 
 export function isMobileLocalMode(): boolean {
-  if (!isAndroidNativeRuntime() || hasAccessToken()) return false;
+  if (!isAndroidNativeRuntime()) return false;
   try {
+    if (localStorage.getItem(FORCE_LOCAL_KEY) === "1") return true;
+    if (hasAccessToken()) return false;
     return localStorage.getItem(LOGIN_REQUESTED_KEY) !== "1";
   } catch {
     return true;
@@ -41,17 +44,35 @@ function notifyModeChanged(): void {
 }
 
 export function requestMobileAccountLogin(): void {
-  try { localStorage.setItem(LOGIN_REQUESTED_KEY, "1"); } catch { /* ignore */ }
+  try {
+    localStorage.removeItem(FORCE_LOCAL_KEY);
+    localStorage.setItem(LOGIN_REQUESTED_KEY, "1");
+  } catch { /* ignore */ }
+  notifyModeChanged();
+}
+
+/** 保留已登录账号与令牌，只把 Android 当前工作区切换到设备离线库。 */
+export function enterMobileLocalMode(): void {
+  try {
+    localStorage.setItem(FORCE_LOCAL_KEY, "1");
+    localStorage.removeItem(LOGIN_REQUESTED_KEY);
+  } catch { /* ignore */ }
   notifyModeChanged();
 }
 
 export function continueMobileLocalMode(): void {
-  try { localStorage.removeItem(LOGIN_REQUESTED_KEY); } catch { /* ignore */ }
+  try {
+    localStorage.setItem(FORCE_LOCAL_KEY, "1");
+    localStorage.removeItem(LOGIN_REQUESTED_KEY);
+  } catch { /* ignore */ }
   notifyModeChanged();
 }
 
 export function completeMobileAccountLogin(): void {
-  try { localStorage.removeItem(LOGIN_REQUESTED_KEY); } catch { /* ignore */ }
+  try {
+    localStorage.removeItem(LOGIN_REQUESTED_KEY);
+    localStorage.removeItem(FORCE_LOCAL_KEY);
+  } catch { /* ignore */ }
 }
 
 export function getMobileLocalUser(): User {

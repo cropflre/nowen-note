@@ -16,14 +16,13 @@ import {
   Trash2,
   UsersRound,
 } from "lucide-react";
-import { AnimatePresence } from "framer-motion";
 import { useTranslation } from "react-i18next";
 import { useApp, useAppActions } from "@/store/AppContext";
 import { api, broadcastLogout, clearServerUrl, getCurrentWorkspace, getServerUrl } from "@/lib/api";
 import { ViewMode, WorkspaceFeatures } from "@/types";
 import { cn } from "@/lib/utils";
-import SettingsModal from "@/components/SettingsModal";
 import { useRailMode } from "@/hooks/useRailMode";
+import { useMobileRailHidden } from "@/hooks/useMobileRailHidden";
 import {
   clearDesktopLocalAuth,
   getAppInfo,
@@ -35,7 +34,12 @@ import {
 import { clearLocalIdMap, clearQueue, getQueueLength } from "@/lib/offlineQueue";
 import { AccountLoginHistoryDialog } from "@/components/AccountLoginHistory";
 import { isAccountLoginHistorySupported } from "@/lib/accountLoginHistory";
-import { isMobileLocalMode, requestMobileAccountLogin } from "@/lib/mobileLocalMode";
+import {
+  enterMobileLocalMode,
+  isAndroidNativeRuntime,
+  isMobileLocalMode,
+  requestMobileAccountLogin,
+} from "@/lib/mobileLocalMode";
 
 type NavGroup = "workspace" | "modules" | "tools";
 
@@ -70,13 +74,13 @@ export default function NavRail({ variant = "desktop" }: { variant?: "desktop" |
   const { state } = useApp();
   const actions = useAppActions();
   const [railMode] = useRailMode();
-  const effectiveMode = variant === "mobile" ? "icon" : railMode;
+  const [, setMobileRailHidden] = useMobileRailHidden();
+  const effectiveMode = variant === "mobile" ? "label" : railMode;
   const showLabel = effectiveMode === "label";
   const isMobile = variant === "mobile";
   const localDeviceMode = isMobileLocalMode();
 
   const [features, setFeatures] = useState<WorkspaceFeatures | null>(null);
-  const [showSettings, setShowSettings] = useState(false);
   const [loginHistoryOpen, setLoginHistoryOpen] = useState(false);
   const [desktopInfo, setDesktopInfo] = useState<AppInfo | null>(null);
 
@@ -140,15 +144,18 @@ export default function NavRail({ variant = "desktop" }: { variant?: "desktop" |
   const canSwitchBackToLocal = isDesktopApp() && (usingRemoteServer || usingDesktopLiteMode);
 
   const availableItems = features ? NAV_CONFIG.filter((item) => !item.feature || features[item.feature] !== false) : NAV_CONFIG;
-  const items = localDeviceMode
-    ? availableItems.filter((item) => item.mode === "favorites" || item.mode === "trash")
-    : availableItems;
+  const items = availableItems;
 
   const handleClick = useCallback((mode: ViewMode) => {
+    if (localDeviceMode && (mode === "ai-chat" || mode === "shares")) {
+      requestMobileAccountLogin();
+      window.location.reload();
+      return;
+    }
     actions.setViewMode(mode);
     actions.setSelectedNotebook(null);
     if (isMobile) actions.setMobileSidebar(false);
-  }, [actions, isMobile]);
+  }, [actions, isMobile, localDeviceMode]);
 
   const handleDesktopCloudButton = useCallback(async () => {
     if (!canSwitchBackToLocal) return;
@@ -201,6 +208,11 @@ export default function NavRail({ variant = "desktop" }: { variant?: "desktop" |
     window.location.reload();
   }, []);
 
+  const handleMobileLocalMode = useCallback(() => {
+    enterMobileLocalMode();
+    window.location.reload();
+  }, []);
+
   const railWidthClass = showLabel ? "w-16" : "w-12";
   const itemBaseClass = showLabel
     ? "relative w-14 py-1.5 rounded-lg flex flex-col items-center justify-center gap-0.5 transition-colors"
@@ -242,7 +254,16 @@ export default function NavRail({ variant = "desktop" }: { variant?: "desktop" |
       style={{ paddingTop: "calc(var(--safe-area-top) + 4px)", paddingBottom: "8px" }}
     >
       {isMobile ? (
-        <div className="h-10 w-10 shrink-0" aria-hidden />
+        <button
+          type="button"
+          data-mobile-rail-hide=""
+          onClick={() => setMobileRailHidden(true)}
+          title={t("sidebar.hideMobileRail")}
+          aria-label={t("sidebar.hideMobileRail")}
+          className="h-10 w-10 shrink-0 rounded-lg flex items-center justify-center text-tx-tertiary hover:bg-app-hover hover:text-tx-primary transition-colors"
+        >
+          <PanelLeftClose size={16} />
+        </button>
       ) : (
         <button
           data-mobile-drawer-rail-item=""
@@ -274,7 +295,7 @@ export default function NavRail({ variant = "desktop" }: { variant?: "desktop" |
 
       <button
         data-mobile-drawer-rail-item=""
-        onClick={() => setShowSettings(true)}
+        onClick={() => window.dispatchEvent(new CustomEvent("nowen:open-settings"))}
         title={showLabel ? undefined : t("sidebar.settings")}
         aria-label={t("sidebar.settings")}
         className={cn(itemBaseClass, "text-tx-tertiary hover:bg-app-hover hover:text-tx-primary")}
@@ -309,6 +330,19 @@ export default function NavRail({ variant = "desktop" }: { variant?: "desktop" |
         </button>
       )}
 
+      {!localDeviceMode && isAndroidNativeRuntime() && (
+        <button
+          data-mobile-drawer-rail-item=""
+          onClick={handleMobileLocalMode}
+          title={showLabel ? undefined : t("sidebar.switchToLocal", "切换离线模式")}
+          aria-label={t("sidebar.switchToLocal", "切换离线模式")}
+          className={cn(itemBaseClass, "text-tx-tertiary hover:bg-app-hover hover:text-accent-primary")}
+        >
+          <CloudOff size={16} />
+          {showLabel && <span className="text-[10px] leading-none mt-0.5 max-w-full truncate px-1">{t("sidebar.switchToLocalShort", "离线")}</span>}
+        </button>
+      )}
+
       {localDeviceMode ? (
         <button
           data-mobile-drawer-rail-item=""
@@ -333,7 +367,6 @@ export default function NavRail({ variant = "desktop" }: { variant?: "desktop" |
         </button>
       )}
 
-      <AnimatePresence>{showSettings && <SettingsModal onClose={() => setShowSettings(false)} />}</AnimatePresence>
       <AccountLoginHistoryDialog open={loginHistoryOpen} onClose={() => setLoginHistoryOpen(false)} />
     </div>
   );

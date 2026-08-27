@@ -110,6 +110,7 @@ import {
 } from "@/lib/tiptapEditorScrollLayout";
 import { resolveEditorBubbleKind, type BubbleSelectionKind } from "@/lib/editorBubbleSelection";
 import { toast } from "@/lib/toast";
+import { formatServerTime } from "@/lib/dateTime";
 import { decideAttachmentPrimaryAction, detectAttachmentPreviewKind } from "@/lib/attachmentOpenStrategy";
 import { copyText } from "@/lib/clipboard";
 import { openTaskQuickCapture } from "@/lib/taskInboxApi";
@@ -5612,7 +5613,7 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
         >
           <span>{t('tiptap.version')}{note.version}</span>
           <span className="max-md:hidden">·</span>
-          <span>{t('tiptap.updatedAt')}{new Date(note.updatedAt + "Z").toLocaleString()}</span>
+          <span>{t('tiptap.updatedAt')}{formatServerTime(note.updatedAt)}</span>
           <span className="max-md:hidden">·</span>
           <WordStatsDisplay
             ref={wordStatsDisplayRef}

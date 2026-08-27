@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { ChevronDown, ChevronRight, PanelLeft, PanelTopClose, PanelTopOpen, Tags, Trash2, X } from "lucide-react";
+import { ChevronDown, ChevronRight, PanelLeft, PanelTopClose, PanelTopOpen, Settings, Tags, Trash2, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import KnowledgeTreePanel, {
@@ -12,6 +12,7 @@ import { OPEN_KNOWLEDGE_TREE_EVENT } from "@/components/KnowledgeTreeDrawer";
 import TagColorPopover from "@/components/TagColorPopover";
 import WorkspaceSwitcher from "@/components/WorkspaceSwitcher";
 import { useRailMode, nextRailMode } from "@/hooks/useRailMode";
+import { useMobileRailHidden } from "@/hooks/useMobileRailHidden";
 import { useMobileSidebarControlsCollapsed } from "@/hooks/useMobileSidebarControlsCollapsed";
 import { useSiteSettings } from "@/hooks/useSiteSettings";
 import { api } from "@/lib/api";
@@ -87,6 +88,7 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
   const { siteConfig } = useSiteSettings();
   const [railMode, setRailMode] = useRailMode();
   const [mobileControlsCollapsed, setMobileControlsCollapsed] = useMobileSidebarControlsCollapsed();
+  const [mobileRailHidden, setMobileRailHidden] = useMobileRailHidden();
   const rootRef = useRef<HTMLDivElement>(null);
   const tagLongPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const tagLongPressFired = useRef(false);
@@ -256,15 +258,44 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
             <PanelLeft size={16} />
           </button>
         ) : (
-          <button
-            type="button"
-            onClick={() => actions.setMobileSidebar(false)}
-            title={t("common.close")}
-            aria-label={t("common.close")}
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-tx-tertiary transition-colors hover:bg-app-hover hover:text-tx-primary"
-          >
-            <X size={16} />
-          </button>
+          <div className="flex shrink-0 items-center gap-1">
+            {mobileRailHidden && (
+              <button
+                type="button"
+                data-mobile-rail-show=""
+                onClick={() => setMobileRailHidden(false)}
+                title={t("sidebar.showMobileRail")}
+                aria-label={t("sidebar.showMobileRail")}
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-tx-tertiary transition-colors hover:bg-app-hover hover:text-tx-primary"
+              >
+                <PanelLeft size={16} />
+              </button>
+            )}
+            {mobileRailHidden && (
+              <button
+                type="button"
+                data-mobile-sidebar-settings=""
+                onClick={() => {
+                  window.dispatchEvent(new CustomEvent("nowen:open-settings"));
+                  actions.setMobileSidebar(false);
+                }}
+                title={t("sidebar.settings")}
+                aria-label={t("sidebar.settings")}
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-tx-tertiary transition-colors hover:bg-app-hover hover:text-tx-primary"
+              >
+                <Settings size={16} />
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => actions.setMobileSidebar(false)}
+              title={t("common.close")}
+              aria-label={t("common.close")}
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-tx-tertiary transition-colors hover:bg-app-hover hover:text-tx-primary"
+            >
+              <X size={16} />
+            </button>
+          </div>
         )}
       </header>
 

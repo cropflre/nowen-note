@@ -6,9 +6,9 @@ export const MOBILE_RAIL_HIDDEN_CHANGED_EVENT = "nowen:mobile-rail-hidden-change
 export function loadMobileRailHidden(): boolean {
   try {
     const stored = localStorage.getItem(MOBILE_RAIL_HIDDEN_STORAGE_KEY);
-    return stored === null ? true : stored === "true";
+    return stored === null ? false : stored === "true";
   } catch {
-    return true;
+    return false;
   }
 }
 

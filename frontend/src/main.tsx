@@ -25,6 +25,7 @@ import AndroidShareImportCenter from "./components/AndroidShareImportCenter";
 import DeferredGlobalFeatureCentersMount from "./components/DeferredGlobalFeatureCentersMount";
 import SiyuanRichTextCalloutBridge from "./components/SiyuanRichTextCalloutBridge";
 import InlineCommentBridge from "./components/InlineCommentBridge";
+import { isMobileLocalMode } from "./lib/mobileLocalMode";
 import "./index.css";
 import "./editor-list-markers.css";
 import "./code-block-wrap.css";
@@ -170,7 +171,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
             <AndroidShareImportCenter />
             <DeferredGlobalFeatureCentersMount />
             <SiyuanRichTextCalloutBridge />
-            <InlineCommentBridge />
+            {!isMobileLocalMode() && <InlineCommentBridge />}
             <React.Suspense fallback={<MainRouteFallback />}>
               <App />
             </React.Suspense>

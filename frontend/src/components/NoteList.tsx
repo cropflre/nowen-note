@@ -57,6 +57,7 @@ import {
 } from "@/lib/noteFormatConversion";
 import { revealCreatedKnowledgeTreeNote } from "@/lib/knowledgeTreeCreateVisibility";
 import { emitKnowledgeTreeRefresh } from "@/lib/workspaceRefreshBridge";
+import { isMobileLocalMode } from "@/lib/mobileLocalMode";
 // "导入 Word 文档" 走 dynamic import（见 createNoteInNotebook），减少首屏 bundle 体积。
 
 /* ===== 排序模式 ===== */
@@ -2099,8 +2100,19 @@ export default function NoteList() {
       return;
     }
 
-    // 无笔记本时给出提示，无法创建
+    // Android 本地模式首次使用时自动建立默认笔记本，避免把用户卡在空状态。
     if (state.notebooks.length === 0) {
+      if (isMobileLocalMode()) {
+        try {
+          const notebook = await api.createNotebook({ name: "我的笔记", icon: "📒" });
+          actions.addNotebook(notebook);
+          actions.setSelectedNotebook(notebook.id);
+          await createNoteInNotebook(notebook.id, noteType);
+        } catch (err: any) {
+          toast.error(err?.message || t("common.needNotebookFirst"));
+        }
+        return;
+      }
       toast.warning(t('common.needNotebookFirst'));
       return;
     }

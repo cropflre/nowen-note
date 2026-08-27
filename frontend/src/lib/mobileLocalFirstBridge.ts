@@ -3,13 +3,22 @@ import { newLocalId } from "./localRepository";
 import type { NativeLocalRepository } from "./nativeLocalRepository";
 import type { Note, Notebook, Tag, Workspace } from "@/types";
 import { isMobileLocalMode } from "./mobileLocalMode";
+import { installMobileLocalKnowledgeTreeBridge } from "./mobileLocalKnowledgeTreeBridge";
+import { installMobileLocalModuleBridge } from "./mobileLocalModuleBridge";
+import type { NativeDatabase } from "./nativeDatabase";
 
 let installed = false;
 
 /** 将核心 UI 门面切换到 Native Repository；非核心 API 继续访问服务器。 */
-export function installMobileLocalFirstBridge(repository: NativeLocalRepository): () => void {
+export function installMobileLocalFirstBridge(
+  repository: NativeLocalRepository,
+  db: NativeDatabase,
+  userId: string,
+): () => void {
   if (installed) return () => undefined;
   installed = true;
+  const restoreKnowledgeTreeBridge = installMobileLocalKnowledgeTreeBridge(repository);
+  const restoreModuleBridge = installMobileLocalModuleBridge(repository, db, userId);
   const target = api as any;
   const originals = {
     getWorkspaces: target.getWorkspaces,
@@ -162,6 +171,8 @@ export function installMobileLocalFirstBridge(repository: NativeLocalRepository)
   };
 
   return () => {
+    restoreModuleBridge();
+    restoreKnowledgeTreeBridge();
     Object.assign(target, {
       getWorkspaces: originals.getWorkspaces,
       getNotebooks: originals.getNotebooks,

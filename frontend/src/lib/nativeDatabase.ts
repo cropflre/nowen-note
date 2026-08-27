@@ -30,7 +30,7 @@ type NativeDatabaseGlobal = typeof globalThis & {
   __nowenNoteNativeDatabaseState?: NativeDatabaseGlobalState;
 };
 
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 2;
 const DATABASE_PREFIX = "nowen_local_";
 
 const ENTITY_TYPE_CHECK = `
@@ -46,6 +46,90 @@ const SCOPE_CHECK = `
     AND scopeKey = 'workspace:' || workspaceId
   )
 `;
+
+const MOBILE_MODULE_SCHEMA_STATEMENTS = [
+  `CREATE TABLE IF NOT EXISTS tasks (
+    id TEXT PRIMARY KEY,
+    scopeKey TEXT NOT NULL DEFAULT 'personal',
+    workspaceId TEXT,
+    userId TEXT NOT NULL,
+    title TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    isCompleted INTEGER NOT NULL DEFAULT 0 CHECK (isCompleted IN (0, 1)),
+    completedAt TEXT,
+    priority INTEGER NOT NULL DEFAULT 2,
+    dueDate TEXT,
+    dueAt TEXT,
+    startDate TEXT,
+    noteId TEXT,
+    parentId TEXT,
+    sortOrder INTEGER NOT NULL DEFAULT 0,
+    projectId TEXT,
+    status TEXT NOT NULL DEFAULT 'todo',
+    createdAt TEXT NOT NULL,
+    updatedAt TEXT NOT NULL,
+    CHECK (${SCOPE_CHECK})
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_native_tasks_scope_updated
+    ON tasks(scopeKey, isCompleted, updatedAt)`,
+  `CREATE TABLE IF NOT EXISTS task_reminders (
+    id TEXT PRIMARY KEY,
+    taskId TEXT NOT NULL,
+    userId TEXT NOT NULL,
+    offsetMinutes INTEGER NOT NULL DEFAULT 30,
+    enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1)),
+    lastNotifiedAt TEXT,
+    snoozedUntil TEXT,
+    createdAt TEXT NOT NULL,
+    updatedAt TEXT NOT NULL,
+    FOREIGN KEY (taskId) REFERENCES tasks(id) ON DELETE CASCADE
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_native_task_reminders_task
+    ON task_reminders(taskId, enabled)`,
+  `CREATE TABLE IF NOT EXISTS diaries (
+    id TEXT PRIMARY KEY,
+    scopeKey TEXT NOT NULL DEFAULT 'personal',
+    workspaceId TEXT,
+    userId TEXT NOT NULL,
+    contentText TEXT NOT NULL DEFAULT '',
+    mood TEXT NOT NULL DEFAULT '',
+    images TEXT NOT NULL DEFAULT '[]',
+    media TEXT NOT NULL DEFAULT '[]',
+    createdAt TEXT NOT NULL,
+    CHECK (${SCOPE_CHECK})
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_native_diaries_scope_created
+    ON diaries(scopeKey, createdAt DESC)`,
+  `CREATE TABLE IF NOT EXISTS mindmaps (
+    id TEXT PRIMARY KEY,
+    scopeKey TEXT NOT NULL DEFAULT 'personal',
+    workspaceId TEXT,
+    userId TEXT NOT NULL,
+    title TEXT NOT NULL,
+    data TEXT NOT NULL,
+    starred INTEGER NOT NULL DEFAULT 0 CHECK (starred IN (0, 1)),
+    folderId TEXT,
+    createdAt TEXT NOT NULL,
+    updatedAt TEXT NOT NULL,
+    CHECK (${SCOPE_CHECK})
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_native_mindmaps_scope_updated
+    ON mindmaps(scopeKey, updatedAt DESC)`,
+  `CREATE TABLE IF NOT EXISTS mindmap_folders (
+    id TEXT PRIMARY KEY,
+    scopeKey TEXT NOT NULL DEFAULT 'personal',
+    workspaceId TEXT,
+    userId TEXT NOT NULL,
+    parentId TEXT,
+    name TEXT NOT NULL,
+    sortOrder INTEGER NOT NULL DEFAULT 0,
+    createdAt TEXT NOT NULL,
+    updatedAt TEXT NOT NULL,
+    CHECK (${SCOPE_CHECK})
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_native_mindmap_folders_scope_parent
+    ON mindmap_folders(scopeKey, parentId, sortOrder)`,
+] as const;
 
 const SCHEMA_V1_STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS notebooks (
@@ -185,6 +269,92 @@ const SCHEMA_V1_STATEMENTS = [
     ON attachments(transferStatus, updatedAt)`,
   `CREATE INDEX IF NOT EXISTS idx_native_attachments_hash
     ON attachments(hash) WHERE hash IS NOT NULL`,
+
+  `CREATE TABLE IF NOT EXISTS tasks (
+    id TEXT PRIMARY KEY,
+    scopeKey TEXT NOT NULL DEFAULT 'personal',
+    workspaceId TEXT,
+    userId TEXT NOT NULL,
+    title TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    isCompleted INTEGER NOT NULL DEFAULT 0 CHECK (isCompleted IN (0, 1)),
+    completedAt TEXT,
+    priority INTEGER NOT NULL DEFAULT 2,
+    dueDate TEXT,
+    dueAt TEXT,
+    startDate TEXT,
+    noteId TEXT,
+    parentId TEXT,
+    sortOrder INTEGER NOT NULL DEFAULT 0,
+    projectId TEXT,
+    status TEXT NOT NULL DEFAULT 'todo',
+    createdAt TEXT NOT NULL,
+    updatedAt TEXT NOT NULL,
+    CHECK (${SCOPE_CHECK})
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_native_tasks_scope_updated
+    ON tasks(scopeKey, isCompleted, updatedAt)`,
+
+  `CREATE TABLE IF NOT EXISTS task_reminders (
+    id TEXT PRIMARY KEY,
+    taskId TEXT NOT NULL,
+    userId TEXT NOT NULL,
+    offsetMinutes INTEGER NOT NULL DEFAULT 30,
+    enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1)),
+    lastNotifiedAt TEXT,
+    snoozedUntil TEXT,
+    createdAt TEXT NOT NULL,
+    updatedAt TEXT NOT NULL,
+    FOREIGN KEY (taskId) REFERENCES tasks(id) ON DELETE CASCADE
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_native_task_reminders_task
+    ON task_reminders(taskId, enabled)`,
+
+  `CREATE TABLE IF NOT EXISTS diaries (
+    id TEXT PRIMARY KEY,
+    scopeKey TEXT NOT NULL DEFAULT 'personal',
+    workspaceId TEXT,
+    userId TEXT NOT NULL,
+    contentText TEXT NOT NULL DEFAULT '',
+    mood TEXT NOT NULL DEFAULT '',
+    images TEXT NOT NULL DEFAULT '[]',
+    media TEXT NOT NULL DEFAULT '[]',
+    createdAt TEXT NOT NULL,
+    CHECK (${SCOPE_CHECK})
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_native_diaries_scope_created
+    ON diaries(scopeKey, createdAt DESC)`,
+
+  `CREATE TABLE IF NOT EXISTS mindmaps (
+    id TEXT PRIMARY KEY,
+    scopeKey TEXT NOT NULL DEFAULT 'personal',
+    workspaceId TEXT,
+    userId TEXT NOT NULL,
+    title TEXT NOT NULL,
+    data TEXT NOT NULL,
+    starred INTEGER NOT NULL DEFAULT 0 CHECK (starred IN (0, 1)),
+    folderId TEXT,
+    createdAt TEXT NOT NULL,
+    updatedAt TEXT NOT NULL,
+    CHECK (${SCOPE_CHECK})
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_native_mindmaps_scope_updated
+    ON mindmaps(scopeKey, updatedAt DESC)`,
+
+  `CREATE TABLE IF NOT EXISTS mindmap_folders (
+    id TEXT PRIMARY KEY,
+    scopeKey TEXT NOT NULL DEFAULT 'personal',
+    workspaceId TEXT,
+    userId TEXT NOT NULL,
+    parentId TEXT,
+    name TEXT NOT NULL,
+    sortOrder INTEGER NOT NULL DEFAULT 0,
+    createdAt TEXT NOT NULL,
+    updatedAt TEXT NOT NULL,
+    CHECK (${SCOPE_CHECK})
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_native_mindmap_folders_scope_parent
+    ON mindmap_folders(scopeKey, parentId, sortOrder)`,
 
   `CREATE TABLE IF NOT EXISTS sync_profiles (
     id TEXT PRIMARY KEY,
@@ -331,6 +501,109 @@ const SCHEMA_V1_STATEMENTS = [
   )`,
 ] as const;
 
+const SYNC_OUTBOX_V2_STATEMENTS = [
+  "DROP TABLE IF EXISTS sync_outbox_v2",
+  `CREATE TABLE sync_outbox_v2 (
+    id TEXT PRIMARY KEY,
+    mutationId TEXT NOT NULL UNIQUE,
+    profileId TEXT NOT NULL,
+    deviceId TEXT NOT NULL,
+    scopeKey TEXT NOT NULL,
+    entityType TEXT NOT NULL CHECK (entityType IN (${ENTITY_TYPE_CHECK})),
+    entityId TEXT NOT NULL,
+    operation TEXT NOT NULL CHECK (operation IN ('upsert', 'delete')),
+    baseVersion INTEGER,
+    payload TEXT,
+    status TEXT NOT NULL DEFAULT 'pending' CHECK (
+      status IN ('pending', 'inflight', 'failed')
+    ),
+    retryCount INTEGER NOT NULL DEFAULT 0,
+    lastAttemptAt TEXT,
+    lastError TEXT,
+    createdAt TEXT NOT NULL,
+    FOREIGN KEY (profileId, deviceId)
+      REFERENCES sync_devices(profileId, deviceId) ON DELETE CASCADE,
+    CHECK (scopeKey = 'personal' OR (
+      scopeKey LIKE 'workspace:%' AND length(scopeKey) > 10
+    ))
+  )`,
+  `INSERT INTO sync_outbox_v2 (
+    id,mutationId,profileId,deviceId,scopeKey,entityType,entityId,operation,
+    baseVersion,payload,status,retryCount,lastAttemptAt,lastError,createdAt
+  ) SELECT
+    id,mutationId,profileId,deviceId,scopeKey,entityType,entityId,operation,
+    baseVersion,payload,status,retryCount,lastAttemptAt,lastError,createdAt
+  FROM sync_outbox`,
+  "DROP TABLE sync_outbox",
+  "ALTER TABLE sync_outbox_v2 RENAME TO sync_outbox",
+  `CREATE INDEX idx_native_sync_outbox_pending
+    ON sync_outbox(profileId, scopeKey, status, createdAt)`,
+  `CREATE INDEX idx_native_sync_outbox_entity
+    ON sync_outbox(profileId, scopeKey, entityType, entityId, status)`,
+] as const;
+
+const SYNC_CONFLICTS_V2_STATEMENTS = [
+  "DROP TABLE IF EXISTS sync_conflicts_v2",
+  `CREATE TABLE sync_conflicts_v2 (
+    id TEXT PRIMARY KEY,
+    profileId TEXT NOT NULL,
+    scopeKey TEXT NOT NULL,
+    entityType TEXT NOT NULL CHECK (entityType IN (${ENTITY_TYPE_CHECK})),
+    entityId TEXT NOT NULL,
+    localVersion INTEGER,
+    remoteVersion INTEGER,
+    basePayload TEXT,
+    localPayload TEXT,
+    remotePayload TEXT,
+    status TEXT NOT NULL DEFAULT 'unresolved' CHECK (
+      status IN ('unresolved', 'resolved')
+    ),
+    createdAt TEXT NOT NULL,
+    resolvedAt TEXT,
+    FOREIGN KEY (profileId) REFERENCES sync_profiles(id) ON DELETE CASCADE,
+    CHECK (scopeKey = 'personal' OR (
+      scopeKey LIKE 'workspace:%' AND length(scopeKey) > 10
+    ))
+  )`,
+  `INSERT INTO sync_conflicts_v2 (
+    id,profileId,scopeKey,entityType,entityId,localVersion,remoteVersion,
+    basePayload,localPayload,remotePayload,status,createdAt,resolvedAt
+  ) SELECT
+    id,profileId,scopeKey,entityType,entityId,localVersion,remoteVersion,
+    basePayload,localPayload,remotePayload,status,createdAt,resolvedAt
+  FROM sync_conflicts`,
+  "DROP TABLE sync_conflicts",
+  "ALTER TABLE sync_conflicts_v2 RENAME TO sync_conflicts",
+  `CREATE INDEX idx_native_sync_conflicts_unresolved
+    ON sync_conflicts(profileId, scopeKey, status, createdAt)`,
+  `CREATE INDEX idx_native_sync_conflicts_entity
+    ON sync_conflicts(profileId, scopeKey, entityType, entityId)`,
+] as const;
+
+async function executeSchemaStatements(
+  raw: SQLiteDBConnection,
+  statements: readonly string[],
+): Promise<void> {
+  for (const statement of statements) await raw.execute(statement, false);
+}
+
+async function upgradeSchemaV1ToV2(raw: SQLiteDBConnection): Promise<void> {
+  await executeSchemaStatements(raw, MOBILE_MODULE_SCHEMA_STATEMENTS);
+
+  const rows = await raw.query(
+    "SELECT name,sql FROM sqlite_master WHERE type='table' AND name IN ('sync_outbox','sync_conflicts')",
+  );
+  const schemas = new Map(
+    (rows.values || []).map((row) => [String(row.name), String(row.sql || "")]),
+  );
+  if (!schemas.get("sync_outbox")?.includes("'task'")) {
+    await executeSchemaStatements(raw, SYNC_OUTBOX_V2_STATEMENTS);
+  }
+  if (!schemas.get("sync_conflicts")?.includes("'task'")) {
+    await executeSchemaStatements(raw, SYNC_CONFLICTS_V2_STATEMENTS);
+  }
+}
+
 function getGlobalState(): NativeDatabaseGlobalState {
   const root = globalThis as NativeDatabaseGlobal;
   if (!root.__nowenNoteNativeDatabaseState) {
@@ -438,6 +711,12 @@ class NativeDatabaseImpl implements NativeDatabase {
             [accountHash],
             false,
           );
+        }
+
+        if (version === 1) {
+          await upgradeSchemaV1ToV2(this.raw);
+          // 只有模块表和同步约束都升级成功后才推进版本号。
+          await this.raw.execute(`PRAGMA user_version = ${SCHEMA_VERSION}`, false);
         }
       });
     });
