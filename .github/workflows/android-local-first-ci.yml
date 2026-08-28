@@ -7,7 +7,10 @@ on:
     paths:
       - "frontend/src/lib/mobileLocal*.ts"
       - "frontend/src/lib/realtime.ts"
+      - "frontend/src/lib/accountLoginHistory.ts"
+      - "frontend/src/components/AccountLoginHistory.tsx"
       - "frontend/src/lib/__tests__/mobileLocal*.test.ts"
+      - "frontend/src/components/__tests__/AccountLoginHistory*.test.tsx"
       - ".github/workflows/android-local-first-ci.yml"
   pull_request:
     branches:
@@ -15,7 +18,10 @@ on:
     paths:
       - "frontend/src/lib/mobileLocal*.ts"
       - "frontend/src/lib/realtime.ts"
+      - "frontend/src/lib/accountLoginHistory.ts"
+      - "frontend/src/components/AccountLoginHistory.tsx"
       - "frontend/src/lib/__tests__/mobileLocal*.test.ts"
+      - "frontend/src/components/__tests__/AccountLoginHistory*.test.tsx"
       - ".github/workflows/android-local-first-ci.yml"
   workflow_dispatch:
 
@@ -54,3 +60,5 @@ jobs:
           src/lib/__tests__/mobileLocalNoteRelationsBridge.test.ts
           src/lib/__tests__/mobileLocalAttachmentFolderBridge.test.ts
           src/lib/__tests__/mobileLocalRealtimeGuard.test.ts
+          src/components/__tests__/AccountLoginHistory.test.tsx
+          src/components/__tests__/AccountLoginHistoryServerEdit.test.tsx
