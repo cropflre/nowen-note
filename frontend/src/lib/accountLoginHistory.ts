@@ -200,6 +200,94 @@ export async function saveAccountLoginHistory(params: {
   return ok ? { ok: true, id } : { ok: false, error: "WRITE_FAILED" };
 }
 
+/**
+ * 修改一条已保存账号的服务器地址。
+ *
+ * Android/iOS 原生端直接更新 SecureStorage 中的记录，保留原 history id、token
+ * 与 refresh token。桌面端旧 preload 没有专用 update IPC，因此通过“读取加密令牌
+ * → 保存到新地址 → 删除旧记录”完成兼容迁移；若修改的是当前账号，会同步迁移
+ * CURRENT_ACCOUNT_HISTORY_ID_KEY，避免刷新后丢失“当前”标记。
+ */
+export async function updateAccountLoginHistoryServerUrl(
+  id: string,
+  nextServerUrl: string,
+): Promise<{ ok: boolean; id?: string; error?: string }> {
+  const serverUrl = normalizeServerBaseUrl(nextServerUrl);
+  if (!id || !serverUrl) return { ok: false, error: "INVALID_PAYLOAD" };
+
+  const desktop = getDesktopBridge();
+  if (desktop) {
+    try {
+      const items = await desktop.list();
+      const item = items.find((entry) => entry.id === id);
+      if (!item) return { ok: false, error: "NOT_FOUND" };
+      if (item.serverUrl === serverUrl) return { ok: true, id };
+
+      const loaded = await desktop.loadToken(id);
+      if (!loaded.ok || !loaded.token) {
+        return { ok: false, error: loaded.error || "TOKEN_UNAVAILABLE" };
+      }
+      const saved = await desktop.save({
+        serverUrl,
+        userId: item.userId,
+        username: item.username,
+        displayName: item.displayName,
+        avatarUrl: item.avatarUrl,
+        token: loaded.token,
+        refreshToken: loaded.refreshToken,
+        lastUsedAt: item.lastUsedAt,
+      });
+      if (!saved.ok || !saved.id) return { ok: false, error: saved.error || "WRITE_FAILED" };
+
+      const nextId = saved.id;
+      if (nextId !== id) {
+        const removed = await desktop.remove(id);
+        if (!removed.ok) return { ok: false, error: removed.error || "WRITE_FAILED" };
+      }
+      replaceCurrentHistoryId(id, nextId);
+      notifyHistoryChanged();
+      return { ok: true, id: nextId };
+    } catch (error) {
+      console.warn("[accountHistory] desktop server update failed:", error);
+      return { ok: false, error: "STORAGE_ERROR" };
+    }
+  }
+
+  if (!isCapacitorNative()) return { ok: false, error: "UNSUPPORTED" };
+  const readResult = await readMobileRecords();
+  if (!readResult.ok) return { ok: false, error: readResult.error || "STORAGE_ERROR" };
+  const current = readResult.records.find((record) => record.id === id);
+  if (!current) return { ok: false, error: "NOT_FOUND" };
+  if (current.serverUrl === serverUrl) return { ok: true, id };
+
+  // 如果新地址已经存在同一用户的历史记录，合并为当前这条记录，避免 IP/域名
+  // 切换后列表出现两个完全相同的账号。优先保留正在编辑记录的令牌；若它已失效，
+  // 才使用冲突记录里仍可用的令牌。
+  const duplicate = readResult.records.find(
+    (record) => record.id !== id && record.serverUrl === serverUrl && record.userId === current.userId,
+  );
+  const merged: SecureAccountLoginRecord = {
+    ...current,
+    serverUrl,
+    token: current.token || duplicate?.token || "",
+    refreshToken: current.refreshToken || duplicate?.refreshToken || "",
+    requiresReauth: current.token
+      ? current.requiresReauth
+      : duplicate
+        ? duplicate.requiresReauth
+        : current.requiresReauth,
+    lastUsedAt: Math.max(current.lastUsedAt, duplicate?.lastUsedAt || 0),
+  };
+  if (!merged.token) merged.requiresReauth = true;
+
+  const nextRecords = readResult.records.map((record) => record.id === id ? merged : record)
+    .filter((record) => !duplicate || record.id !== duplicate.id);
+  const ok = await writeMobileRecords(nextRecords);
+  if (!ok) return { ok: false, error: "WRITE_FAILED" };
+  notifyHistoryChanged();
+  return { ok: true, id };
+}
+
 export async function loadAccountLoginToken(
   id: string,
 ): Promise<{ ok: boolean; token?: string; refreshToken?: string; error?: string }> {
@@ -264,6 +352,14 @@ function notifyHistoryChanged(): void {
 
 function setCurrentHistoryId(id: string): void {
   try { localStorage.setItem(CURRENT_ACCOUNT_HISTORY_ID_KEY, id); } catch { /* ignore */ }
+}
+
+function replaceCurrentHistoryId(previousId: string, nextId: string): void {
+  try {
+    if (localStorage.getItem(CURRENT_ACCOUNT_HISTORY_ID_KEY) === previousId) {
+      localStorage.setItem(CURRENT_ACCOUNT_HISTORY_ID_KEY, nextId);
+    }
+  } catch { /* ignore */ }
 }
 
 function clearCurrentHistoryId(id: string): void {
