@@ -25,10 +25,10 @@ async function flush() {
 
 describe("账号历史服务器地址编辑", () => {
   let root: Root | null = null;
-  let list: ReturnType<typeof vi.fn>;
-  let save: ReturnType<typeof vi.fn>;
-  let loadToken: ReturnType<typeof vi.fn>;
-  let remove: ReturnType<typeof vi.fn>;
+  let list: any;
+  let save: any;
+  let loadToken: any;
+  let remove: any;
 
   beforeEach(() => {
     localStorage.clear();
