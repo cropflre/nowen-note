@@ -1,8 +1,9 @@
-import { RangeSetBuilder, StateField, type Extension } from "@codemirror/state";
+import { Prec, RangeSetBuilder, StateField, Transaction, type Extension } from "@codemirror/state";
 import { Decoration, EditorView, type DecorationSet } from "@codemirror/view";
 import {
   findInternalMarkdownMarkerRanges,
   projectMarkdownForUser,
+  resolveInternalMarkdownTypingPosition,
   sanitizeMarkdownClipboardText,
 } from "@/lib/markdownUserContent";
 import { markdownSelectionWrapExtension } from "@/lib/markdownSelectionWrap";
@@ -64,6 +65,28 @@ const cleanClipboard = EditorView.domEventHandlers({
   },
 });
 
+const keepTypingBeforeHiddenMarker = Prec.highest(
+  EditorView.inputHandler.of((view, from, to, text) => {
+    if (!view.state.facet(EditorView.editable)) return false;
+    const insertionPoint = resolveInternalMarkdownTypingPosition(
+      view.state.doc.toString(),
+      from,
+      to,
+      text,
+    );
+    if (insertionPoint == null) return false;
+
+    view.dispatch({
+      changes: { from: insertionPoint, to: insertionPoint, insert: text },
+      selection: { anchor: insertionPoint + text.length },
+    }, {
+      annotations: Transaction.userEvent.of("input.type"),
+      scrollIntoView: true,
+    });
+    return true;
+  }),
+);
+
 /**
  * Shared CodeMirror extensions used by both the normal Markdown editor and the
  * large-document safe editor. Keeping selection wrapping here guarantees the same
@@ -73,5 +96,6 @@ export const internalMarkdownMarkerExtensions: Extension[] = [
   markerField,
   markerTheme,
   cleanClipboard,
+  keepTypingBeforeHiddenMarker,
   markdownSelectionWrapExtension,
 ];

@@ -120,10 +120,14 @@ import { toast } from "@/lib/toast";
 import { copyText } from "@/lib/clipboard";
 import { openTaskQuickCapture } from "@/lib/taskInboxApi";
 import { findTextAction, type TextAction } from "@/lib/textActions";
+import { resolveEditorBubblePosition } from "@/lib/editorBubbleSelection";
 import { cn } from "@/lib/utils";
 import { normalizeToMarkdown, markdownToPlainText } from "@/lib/contentFormat";
 import { internalMarkdownMarkerExtensions } from "@/lib/markdownInternalMarkers";
-import { sanitizeMarkdownClipboardText } from "@/lib/markdownUserContent";
+import {
+  resolveInternalMarkerSyncSelection,
+  sanitizeMarkdownClipboardText,
+} from "@/lib/markdownUserContent";
 import { shouldEmitTitleUpdate, shouldSkipTitleChange, shouldSyncTitleValue } from "@/lib/titleIme";
 import { resolveEditorLifecycleSave } from "@/lib/editorLifecycleSafety";
 import { scrollMarkdownPreviewToPosition } from "@/lib/markdownPreviewOutline";
@@ -1303,17 +1307,22 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
       // ��ֱ���ò��ԣ��� Tiptap һ�£���
       //   ���/����  �� ѡ���Ϸ�
       //   ���ڴ��� �� ѡ���·������� Android ϵͳԭ�����Ʋ˵���
-      const isTouch = Date.now() - lastTouchAtRef.current < 800;
+      const isNativeAndroidSurface = document.documentElement.getAttribute("data-native") === "android";
+      const isTouch = isNativeAndroidSurface || Date.now() - lastTouchAtRef.current < 800;
       const bubbleH = 40;
-      let top: number;
-      if (isTouch) {
-        const below = endCoords.bottom + 8;
-        const overflowsBottom = below + bubbleH > window.innerHeight - 16;
-        top = overflowsBottom ? Math.max(8, startCoords.top - bubbleH - 8) : below;
-      } else {
-        top = Math.max(8, startCoords.top - 44); // �˵�Լ 40px �ߣ����� 4px ���
-      }
-      const left = Math.max(8, Math.min(cx - 110, window.innerWidth - 230)); // �˵�Լ 220px ��
+      const visualViewport = window.visualViewport;
+      const { top, left } = resolveEditorBubblePosition({
+        anchorTop: startCoords.top,
+        anchorBottom: endCoords.bottom,
+        centerX: cx,
+        bubbleWidth: 220,
+        bubbleHeight: bubbleH,
+        viewportTop: visualViewport?.offsetTop ?? 0,
+        viewportLeft: visualViewport?.offsetLeft ?? 0,
+        viewportWidth: visualViewport?.width ?? window.innerWidth,
+        viewportHeight: visualViewport?.height ?? window.innerHeight,
+        touchLayout: isTouch,
+      });
       setSelectedTextAction(findTextAction(view.state.doc.sliceString(sel.from, sel.to)));
       setBubble({ open: true, top, left });
     });
@@ -1611,8 +1620,20 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
           nextTo -= 1;
         }
 
+        const currentSelection = view.state.selection.main;
+        const protectedSelection = resolveInternalMarkerSyncSelection({
+          currentMarkdown: currentDoc,
+          nextMarkdown: nextDoc,
+          from,
+          currentTo,
+          nextTo,
+          anchor: currentSelection.anchor,
+          head: currentSelection.head,
+        });
+
         view.dispatch({
           changes: { from, to: currentTo, insert: nextDoc.slice(from, nextTo) },
+          ...(protectedSelection ? { selection: protectedSelection } : {}),
         });
       }
       // ������һ΢������������� Tiptap ��ȼ��߼���

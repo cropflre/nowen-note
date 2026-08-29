@@ -1360,7 +1360,7 @@ export default function NoteList() {
     loadNoteWorkspaceLayoutMode(state.noteListCollapsed),
   );
   const [desktopFolderNavigationSurface, setDesktopFolderNavigationSurface] = useState(() =>
-    typeof window === "undefined" ? true : window.matchMedia("(min-width: 768px)").matches,
+    typeof window === "undefined" ? true : window.matchMedia("(min-width: 840px)").matches,
   );
   const [folderScopeMode, setFolderScopeMode] = useState<ThreeColumnFolderScopeMode>(
     loadThreeColumnFolderScopeMode,
@@ -1390,7 +1390,7 @@ export default function NoteList() {
   }, [state.noteListCollapsed]);
 
   useEffect(() => {
-    const media = window.matchMedia("(min-width: 768px)");
+    const media = window.matchMedia("(min-width: 840px)");
     const update = () => setDesktopFolderNavigationSurface(media.matches);
     update();
     media.addEventListener("change", update);
@@ -3590,6 +3590,7 @@ export default function NoteList() {
           {/* 折叠笔记列表面板（桌面专用；点击后中间整列隐藏，编辑器占满）。
               与Rail上的 toggleSidebar 互不干扰，均有独立状态。 */}
           <button
+            data-adaptive-note-list-collapse
             type="button"
             onClick={() => actions.toggleNoteListCollapsed()}
             title={t("common.collapseList")}

@@ -2441,8 +2441,9 @@ const moveToTrash = useCallback(async () => {
             ���� activeNote ʱ��ĻһƬ�հף��û��Ҳ����ص��б�����ڣ�ϵͳ���ؼ�
             ��Ȼ�ܴ��� onBackToList���������û�/���Ƶ��������²���ֱ�ۣ���������
             ����"��ʼ�û��Ӧ"�����ﲹһ���ƶ��˿ɼ��ķ���������İ�����Ϊ���ס� */}
-        <header className="flex items-center gap-2 px-3 py-2 border-b border-app-border bg-app-surface/50 md:hidden" style={{ paddingTop: 'calc(var(--safe-area-top) + 8px)' }}>
+        <header data-adaptive-editor-empty-header className="flex items-center gap-2 px-3 py-2 border-b border-app-border bg-app-surface/50 md:hidden" style={{ paddingTop: 'calc(var(--safe-area-top) + 8px)' }}>
           <button
+            data-adaptive-editor-back
             onClick={() => actions.setMobileView("list")}
             className="flex items-center text-accent-primary py-1.5 px-1.5 -ml-1.5 rounded-lg active:bg-app-hover"
           >
@@ -2536,6 +2537,7 @@ const moveToTrash = useCallback(async () => {
         {/* �� 1 �У����� + ���м + ͬ�� */}
         <div className={cn("flex min-w-0 items-center gap-2 px-3 pt-2 pb-1", compactMobileEditing && "hidden")}>
           <button
+            data-adaptive-editor-back
             onClick={() => actions.setMobileView("list")}
             className="flex items-center text-accent-primary py-1 px-1 -ml-1 rounded-lg active:bg-app-hover shrink-0"
             aria-label={t('editor.back')}
@@ -2581,6 +2583,7 @@ const moveToTrash = useCallback(async () => {
         <div className={cn("flex items-center gap-1", compactMobileEditing ? "px-2 py-1" : "px-3 pb-2 pt-0.5")}>
           {compactMobileEditing && (
             <button
+              data-adaptive-editor-back
               onClick={() => actions.setMobileView("list")}
               className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-accent-primary active:bg-app-hover"
               aria-label={t('editor.back')}

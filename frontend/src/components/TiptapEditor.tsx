@@ -108,7 +108,11 @@ import {
   resolveTiptapEditorScrollContainer,
   resolveTiptapEditorScrollLayout,
 } from "@/lib/tiptapEditorScrollLayout";
-import { resolveEditorBubbleKind, type BubbleSelectionKind } from "@/lib/editorBubbleSelection";
+import {
+  resolveEditorBubbleKind,
+  resolveEditorBubblePosition,
+  type BubbleSelectionKind,
+} from "@/lib/editorBubbleSelection";
 import { toast } from "@/lib/toast";
 import { formatServerTime } from "@/lib/dateTime";
 import { decideAttachmentPrimaryAction, detectAttachmentPreviewKind } from "@/lib/attachmentOpenStrategy";
@@ -3912,7 +3916,7 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
   //   默认显示在**选区上方**。我们的自定义气泡也默认放上方，两者会精确重叠。
   //   - 检测最近一次 pointer 事件 type 是否为 "touch"（350ms 内）；
   //   - 若是，则气泡放在**选区下方**（top = bottom + 8），错开系统菜单；
-  //   - 若选区已经接近视口底部（再往下放会被键盘吞掉），fallback 回上方；
+  //   - 若选区已经接近视口底部，则贴住可视区域底部，不再回到系统菜单所在的上方；
   //   - 鼠标 / 桌面端依然按"上方居中"逻辑，不变。
   const lastTouchAtRef = useRef<number>(0);
   useEffect(() => {
@@ -3934,22 +3938,24 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
      * 根据选区矩形计算气泡位置：
      *   - desktop / 鼠标：上方居中（top = rect.top - 44）
      *   - 触屏：下方居中（top = rect.bottom + 8），错开系统 ActionMode
-     *   - 触屏 & 选区贴近视口底部：fallback 上方
+     *   - 触屏 & 选区贴近视口底部：贴住可视区域底部
      */
     const placeBubble = (rect: { top: number; bottom: number; left: number; right: number; width: number }, bubbleHeight = 40, bubbleWidth = 220) => {
-      const isTouch = Date.now() - lastTouchAtRef.current < 800; // 触屏后 800ms 内都算触屏触发
-      const cx = rect.left + rect.width / 2;
-      let top: number;
-      if (isTouch) {
-        const below = rect.bottom + 8;
-        const overflowsBottom = below + bubbleHeight > window.innerHeight - 16;
-        // 距离底部太近就 fallback 到上方（再上偏 4px，给系统菜单一些视觉缓冲）
-        top = overflowsBottom ? Math.max(8, rect.top - bubbleHeight - 8) : below;
-      } else {
-        top = Math.max(8, rect.top - bubbleHeight - 4);
-      }
-      const left = Math.max(8, Math.min(cx - bubbleWidth / 2, window.innerWidth - bubbleWidth - 10));
-      return { top, left };
+      const visualViewport = window.visualViewport;
+      const isNativeAndroidSurface = document.documentElement.getAttribute("data-native") === "android";
+      return resolveEditorBubblePosition({
+        anchorTop: rect.top,
+        anchorBottom: rect.bottom,
+        centerX: rect.left + rect.width / 2,
+        bubbleHeight,
+        bubbleWidth,
+        viewportTop: visualViewport?.offsetTop ?? 0,
+        viewportLeft: visualViewport?.offsetLeft ?? 0,
+        viewportWidth: visualViewport?.width ?? window.innerWidth,
+        viewportHeight: visualViewport?.height ?? window.innerHeight,
+        // Android long-press selection can arrive after the old 800ms pointer window.
+        touchLayout: isNativeAndroidSurface || Date.now() - lastTouchAtRef.current < 800,
+      });
     };
 
     const getImageSelectionRect = (pos: number) => {

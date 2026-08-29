@@ -1,3 +1,5 @@
+import { EXPANDED_WINDOW_MIN_WIDTH } from "@/lib/adaptiveWindowLayout";
+
 export type NoteWorkspaceLayoutMode = "standard" | "three-column";
 export type NoteWorkspaceSurface = "web" | "desktop" | "native-mobile";
 
@@ -49,8 +51,13 @@ export function detectNoteWorkspaceSurface(
   return "web";
 }
 
-export function supportsWideNoteWorkspaceLayout(surface: NoteWorkspaceSurface): boolean {
-  return surface === "web" || surface === "desktop";
+export function supportsWideNoteWorkspaceLayout(
+  surface: NoteWorkspaceSurface,
+  viewportWidth = typeof window === "undefined" ? 1920 : window.innerWidth,
+): boolean {
+  return surface === "web"
+    || surface === "desktop"
+    || viewportWidth >= EXPANDED_WINDOW_MIN_WIDTH;
 }
 
 export function usesThreeColumnFolderNavigation(input: {

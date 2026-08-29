@@ -33,6 +33,8 @@ import { getServerUrl, setServerUrl, clearServerUrl, broadcastLogout, initialize
 import { TASK_VIEW_SHELL_CLASS } from "@/lib/taskLayout";
 import { useReminderNotifier } from "@/components/tasks/useReminderNotifier";
 import { resolveEditorFocusLayout } from "@/lib/editorFocusLayout";
+import { resolveMediumNoteListWidth } from "@/lib/adaptiveWindowLayout";
+import { useAdaptiveWindowLayout } from "@/hooks/useAdaptiveWindowLayout";
 import { bootstrap as syncBootstrap, teardown as syncTeardown, syncNow } from "@/lib/syncEngine";
 import { realtime } from "@/lib/realtime";
 import { deleteNotes as deleteLocalNotes } from "@/lib/localStore";
@@ -398,6 +400,14 @@ function AppLayout() {
   const showRail = editorFocusLayout.showRail;
   const showSidebar = editorFocusLayout.showSidebar;
   const showDesktopNoteList = editorFocusLayout.showNoteList;
+  const adaptiveWindow = useAdaptiveWindowLayout();
+  const mediumNoteWorkspace = adaptiveWindow.windowClass === "medium"
+    && !state.editorFullscreen
+    && !state.editorSplit;
+  const persistentNoteList = showDesktopNoteList || mediumNoteWorkspace;
+  const noteListWidth = mediumNoteWorkspace
+    ? resolveMediumNoteListWidth(adaptiveWindow.width)
+    : state.noteListWidth;
   const sidebarBackdropPointerStart = useRef<{ x: number; y: number } | null>(null);
 
   const handleSidebarBackdropPointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
@@ -751,7 +761,7 @@ function AppLayout() {
           v16 P3 后续：Rail 三档模式（icon=48px 纯图标 / label=64px 图标+文字 / hidden=完全隐藏）；
           hidden 模式下若主侧栏也折叠，强制保留 Rail（避免完全无侧栏入口）。 */}
       {showRail && <PhaseAPerfProfiler id="NavRail"><NavRail /></PhaseAPerfProfiler>}
-      {showSidebar && (
+      {showSidebar && !mediumNoteWorkspace && (
         <div
           className="hidden md:flex shrink-0"
           style={{ width: `${state.sidebarWidth}px` }}
@@ -759,7 +769,7 @@ function AppLayout() {
           <PhaseAPerfProfiler id="Sidebar"><Sidebar variant="desktop" /></PhaseAPerfProfiler>
         </div>
       )}
-      {showSidebar && <SidebarResizeHandle />}
+      {showSidebar && !mediumNoteWorkspace && <SidebarResizeHandle />}
 
       {/* ===== 主内容区 ===== */}
       {isTaskView ? (
@@ -809,31 +819,47 @@ function AppLayout() {
           <ShareManagementPage />
         </div>
       ) : (
-        <div className="flex-1 flex relative overflow-hidden">
+        <div
+          className="flex-1 flex relative overflow-hidden"
+          data-note-workspace-window={adaptiveWindow.windowClass}
+          data-note-workspace-two-pane={mediumNoteWorkspace ? "true" : "false"}
+          data-note-workspace-width={adaptiveWindow.width}
+          data-note-workspace-height={adaptiveWindow.height}
+        >
           {/*
             移动端与桌面端共用同一个 NoteList 实例。仅靠 CSS 隐藏两个独立实例会让
             隐藏列表也执行数据请求，导致一次 refreshNotes 产生重复的 /api/notes 调用。
           */}
-          {(state.mobileView === "list" || showDesktopNoteList) && (
+          {(state.mobileView === "list" || persistentNoteList) && (
             <div
+              data-testid="note-workspace-list-pane"
               className={`
-                flex-col shrink-0 h-full w-full md:w-[var(--note-list-width)]
-                ${state.mobileView === "list" ? "flex" : "hidden"}
-                ${showDesktopNoteList ? "md:flex" : "md:hidden"}
+                flex-col shrink-0 h-full
+                ${mediumNoteWorkspace ? "flex border-r border-app-border" : "w-full md:w-[var(--note-list-width)]"}
+                ${mediumNoteWorkspace || state.mobileView === "list" ? "flex" : "hidden"}
+                ${mediumNoteWorkspace ? "" : showDesktopNoteList ? "md:flex" : "md:hidden"}
               `}
-              style={{ "--note-list-width": `${state.noteListWidth}px` } as React.CSSProperties}
+              style={mediumNoteWorkspace
+                ? { width: `${noteListWidth}px` }
+                : { "--note-list-width": `${noteListWidth}px` } as React.CSSProperties}
             >
               <PhaseAPerfProfiler id="NoteList"><NoteList /></PhaseAPerfProfiler>
             </div>
           )}
 
-          {showDesktopNoteList && <NoteListResizeHandle />}
+          {showDesktopNoteList && !mediumNoteWorkspace && <NoteListResizeHandle />}
 
           {/* 编辑器 — 移动端全屏覆盖 */}
-          <div className={`
-            absolute inset-0 z-20 md:static md:z-auto md:flex-1 flex flex-col min-w-0
-            ${state.mobileView === "editor" ? "flex" : "hidden md:flex"}
-          `}>
+          <div
+            data-testid="note-workspace-editor-pane"
+            className={`
+              flex flex-col min-w-0
+              ${mediumNoteWorkspace
+                ? "relative z-auto flex-1"
+                : "absolute inset-0 z-20 md:static md:z-auto md:flex-1"}
+              ${mediumNoteWorkspace || state.mobileView === "editor" ? "flex" : "hidden md:flex"}
+            `}
+          >
             <PhaseAPerfProfiler id="EditorPane">
               {state.editorSplit ? <EditorSplitView /> : <EditorPane />}
             </PhaseAPerfProfiler>

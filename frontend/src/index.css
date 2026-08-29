@@ -2794,3 +2794,11 @@ html[data-electron="darwin"][data-fullscreen="1"] main::before {
     outline-offset: 2px;
   }
 }
+/* Foldable inner displays use a persistent list-detail workspace. The editor remains
+   touch-oriented below the existing desktop breakpoint, but its phone-only back affordance
+   is redundant once the list is already visible beside it. */
+[data-note-workspace-window="medium"] [data-adaptive-editor-back],
+[data-note-workspace-window="medium"] [data-adaptive-editor-empty-header],
+[data-note-workspace-window="medium"] [data-adaptive-note-list-collapse] {
+  display: none !important;
+}

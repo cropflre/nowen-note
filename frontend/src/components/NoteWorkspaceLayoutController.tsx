@@ -52,16 +52,16 @@ export default function NoteWorkspaceLayoutController() {
   const actions = useAppActions();
   const { t } = useTranslation();
   const [surface] = useState(() => detectNoteWorkspaceSurface());
-  const wideLayoutSupported = supportsWideNoteWorkspaceLayout(surface);
+  const [viewportWidth, setViewportWidth] = useState(() =>
+    typeof window === "undefined" ? 1920 : window.innerWidth,
+  );
+  const wideLayoutSupported = supportsWideNoteWorkspaceLayout(surface, viewportWidth);
   const noteWorkspaceActive = wideLayoutSupported
     && !NON_NOTE_WORKSPACE_VIEWS.has(state.viewMode);
   const showLayoutControl = noteWorkspaceActive && !state.editorFullscreen;
   const functionalListView = usesFunctionalNoteList(state.viewMode);
   const [preferredMode, setPreferredMode] = useState<NoteWorkspaceLayoutMode>(() =>
     loadNoteWorkspaceLayoutMode(state.noteListCollapsed),
-  );
-  const [viewportWidth, setViewportWidth] = useState(() =>
-    typeof window === "undefined" ? 1920 : window.innerWidth,
   );
   const [portalTarget, setPortalTarget] = useState<HTMLElement | null>(() =>
     wideLayoutSupported ? findWideSidebarHeader() : null,

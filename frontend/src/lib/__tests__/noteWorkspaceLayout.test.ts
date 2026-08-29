@@ -16,7 +16,7 @@ import {
 describe("note workspace layout", () => {
   beforeEach(() => localStorage.clear());
 
-  it("supports wide layouts in Web and Electron but not native mobile", () => {
+  it("supports wide layouts by capability instead of excluding every native device", () => {
     const webWindow = {} as Window;
     const desktopWindow = {
       nowenDesktop: { isDesktop: true },
@@ -31,9 +31,10 @@ describe("note workspace layout", () => {
     expect(detectNoteWorkspaceSurface(webWindow)).toBe("web");
     expect(detectNoteWorkspaceSurface(desktopWindow)).toBe("desktop");
     expect(detectNoteWorkspaceSurface(nativeWindow)).toBe("native-mobile");
-    expect(supportsWideNoteWorkspaceLayout("web")).toBe(true);
-    expect(supportsWideNoteWorkspaceLayout("desktop")).toBe(true);
-    expect(supportsWideNoteWorkspaceLayout("native-mobile")).toBe(false);
+    expect(supportsWideNoteWorkspaceLayout("web", 680)).toBe(true);
+    expect(supportsWideNoteWorkspaceLayout("desktop", 680)).toBe(true);
+    expect(supportsWideNoteWorkspaceLayout("native-mobile", 680)).toBe(false);
+    expect(supportsWideNoteWorkspaceLayout("native-mobile", 840)).toBe(true);
   });
 
   it("limits direct folder navigation to desktop three-column mode", () => {

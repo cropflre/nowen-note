@@ -130,6 +130,7 @@ describe("NoteWorkspaceLayoutController", () => {
   });
 
   it("does not replace native mobile progressive navigation with a wide layout", () => {
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 680 });
     (window as any).Capacitor = {
       isNativePlatform: () => true,
       getPlatform: () => "android",
@@ -138,6 +139,18 @@ describe("NoteWorkspaceLayoutController", () => {
 
     expect(document.querySelector('[data-testid="note-workspace-layout-trigger"]')).toBeNull();
     expect(actions.toggleNoteListCollapsed).not.toHaveBeenCalled();
+  });
+
+  it("allows the wide workspace controls on an expanded native window", () => {
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 840 });
+    (window as any).Capacitor = {
+      isNativePlatform: () => true,
+      getPlatform: () => "android",
+    };
+    act(() => root.render(<NoteWorkspaceLayoutController />));
+
+    const trigger = document.querySelector('[data-testid="note-workspace-layout-trigger"]');
+    expect(trigger?.getAttribute("data-note-workspace-surface")).toBe("native-mobile");
   });
 
   it("restores three-column mode after right split and still accepts a manual collapse", () => {
