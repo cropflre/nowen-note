@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { readFileSync, readdirSync } from "node:fs";
+import { extname, join } from "node:path";
 import zhBase from "../locales/zh-CN.json";
 import enBase from "../locales/en.json";
 import {
@@ -37,6 +39,10 @@ import {
   enEditorSplitTranslations,
   zhCNEditorSplitTranslations,
 } from "../editorSplitTranslations";
+import {
+  enCoverageTranslations,
+  zhCNCoverageTranslations,
+} from "../coverageTranslations";
 
 type TranslationTree = Record<string, unknown>;
 
@@ -86,6 +92,29 @@ function interpolationNames(value: string): string[] {
   return Array.from(value.matchAll(/{{\s*([\w.-]+)\s*}}/g), (match) => match[1]).sort();
 }
 
+function sourceFiles(root: string): string[] {
+  return readdirSync(root, { withFileTypes: true }).flatMap((entry) => {
+    const path = join(root, entry.name);
+    if (entry.isDirectory()) {
+      return entry.name === "__tests__" || entry.name === "i18n" ? [] : sourceFiles(path);
+    }
+    return [".ts", ".tsx"].includes(extname(entry.name)) && !entry.name.includes(".test.")
+      ? [path]
+      : [];
+  });
+}
+
+function literalTranslationKeys(root: string): string[] {
+  const keys = new Set<string>();
+  const callPattern = /\b(?:t|tr|i18n\.t)\(\s*["'`]([^"'`$]+)["'`]/g;
+  for (const path of sourceFiles(root)) {
+    const source = readFileSync(path, "utf8");
+    if (!source.includes("react-i18next") && !/\bi18n\.t\(/.test(source)) continue;
+    for (const match of source.matchAll(callPattern)) keys.add(match[1]);
+  }
+  return [...keys].sort();
+}
+
 const zhAdditionalPatch = zhCNAdditionalTranslations as unknown as TranslationTree;
 const enAdditionalPatch = enAdditionalTranslations as unknown as TranslationTree;
 const zhYoudaoPatch = zhCNYoudaoTranslations as unknown as TranslationTree;
@@ -104,6 +133,8 @@ const zhDiaryMarkdownPatch = zhCNDiaryMarkdownTranslations as unknown as Transla
 const enDiaryMarkdownPatch = enDiaryMarkdownTranslations as unknown as TranslationTree;
 const zhEditorSplitPatch = zhCNEditorSplitTranslations as unknown as TranslationTree;
 const enEditorSplitPatch = enEditorSplitTranslations as unknown as TranslationTree;
+const zhCoveragePatch = zhCNCoverageTranslations as unknown as TranslationTree;
+const enCoveragePatch = enCoverageTranslations as unknown as TranslationTree;
 
 const zh = mergePatches(
   zhBase as TranslationTree,
@@ -116,6 +147,7 @@ const zh = mergePatches(
   zhSecurityPatch,
   zhDiaryMarkdownPatch,
   zhEditorSplitPatch,
+  zhCoveragePatch,
 );
 const en = mergePatches(
   enBase as TranslationTree,
@@ -128,6 +160,7 @@ const en = mergePatches(
   enSecurityPatch,
   enDiaryMarkdownPatch,
   enEditorSplitPatch,
+  enCoveragePatch,
 );
 
 const criticalNamespaces = [
@@ -158,6 +191,35 @@ function expectPatchParity(
 }
 
 describe("release i18n coverage", () => {
+  it("keeps the complete runtime translation trees in parity", () => {
+    const zhEntries = leafEntries(zh);
+    const enEntries = leafEntries(en);
+    const zhPaths = zhEntries.map(([path]) => path);
+    const enPaths = enEntries.map(([path]) => path);
+
+    expect(zhPaths.filter((path) => !enPaths.includes(path))).toEqual([]);
+    expect(enPaths.filter((path) => !zhPaths.includes(path))).toEqual([]);
+
+    const enByPath = new Map(enEntries);
+    for (const [path, zhValue] of zhEntries) {
+      expect(interpolationNames(zhValue), `${path} interpolation variables`).toEqual(
+        interpolationNames(enByPath.get(path)!),
+      );
+    }
+
+    expect(
+      enEntries
+        .filter(([path, value]) => path !== "language.zh" && /[\u3400-\u9fff]/u.test(value))
+        .map(([path]) => path),
+    ).toEqual([]);
+  });
+
+  it("defines every literal translation key used by the frontend", () => {
+    const keys = literalTranslationKeys(join(process.cwd(), "src"));
+    expect(keys.filter((key) => getPath(zh, key) === undefined)).toEqual([]);
+    expect(keys.filter((key) => getPath(en, key) === undefined)).toEqual([]);
+  });
+
   it.each(criticalNamespaces)("keeps %s key and interpolation parity", (namespace) => {
     expectPatchParity(zhAdditionalPatch, enAdditionalPatch, namespace);
   });
@@ -192,6 +254,12 @@ describe("release i18n coverage", () => {
 
   it("keeps editor split translation parity", () => {
     expectPatchParity(zhEditorSplitPatch, enEditorSplitPatch, "editorTabs");
+  });
+
+  it("keeps coverage translation parity", () => {
+    expect(leafEntries(zhCoveragePatch).map(([path]) => path)).toEqual(
+      leafEntries(enCoveragePatch).map(([path]) => path),
+    );
   });
 
   it("defines the complete LAN discovery key set in both languages", () => {

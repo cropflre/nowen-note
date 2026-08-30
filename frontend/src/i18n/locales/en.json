@@ -294,6 +294,14 @@
     "multiSelectHint": "Ctrl/Cmd-click to multi-select, Shift-click for range",
     "restoreNotebookTrashed": "The original notebook has been deleted. Please restore or create a notebook first, then try again."
   },
+  "share": {
+    "outline": {
+      "title": "Outline",
+      "empty": "No outline is available for this shared content",
+      "open": "Open outline",
+      "close": "Close outline"
+    }
+  },
   "editor": {
     "selectNote": "Select a note to start editing",
     "orCreateNew": "or create a new note",
@@ -490,6 +498,9 @@
     "markdownConvertError": "Markdown conversion failed, inserted as plain text",
     "markdownDetected": "Markdown syntax detected",
     "markdownConvertNow": "Convert now",
+    "markdownForceConvert": "Force-convert selected Markdown",
+    "markdownForceSelect": "Select the Markdown text to convert first",
+    "markdownForceConvertError": "Markdown conversion failed; the original text was kept",
     "imageUploading": "Uploading image...",
     "imageUploadSuccess": "Image uploaded",
     "imageUploadFailed": "Image upload failed",
@@ -610,6 +621,11 @@
     "codeBlockDesc": "Insert a code block",
     "mermaid": "Mermaid Diagram",
     "mermaidDesc": "Insert a Mermaid flow chart",
+    "mermaidCopySource": "Copy source",
+    "mermaidCopySvg": "Copy SVG",
+    "mermaidDownloadSvg": "Download SVG",
+    "mermaidSyntaxError": "Mermaid syntax error",
+    "mermaidCopySourceOnError": "Copy source",
     "math": "Math Formula",
     "mathDesc": "Insert a LaTeX block ($$...$$)",
     "footnote": "Footnote",
@@ -1385,6 +1401,7 @@
     "timePlanning": "Time planning",
     "view": "View",
     "visibleTaskCount": "{{count}} tasks",
+    "taskCount": "{{count}} tasks",
     "moreTools": "More tools",
     "high": "High",
     "medium": "Medium",
@@ -1414,6 +1431,7 @@
     "allDayRequiresDate": "Choose a start or due date before enabling all-day",
     "dueDate": "Due Date",
     "dueAt": "Due Time",
+    "sortByDueTime": "Sort by due time",
     "createdAt": "Created",
     "deleteTask": "Delete Task",
     "pendingCount": "{{pending}} pending · {{completed}} completed",
@@ -1482,7 +1500,12 @@
       "enableReminder": "Enable reminder",
       "disableReminder": "Disable reminder",
       "noPermission": "No notification support",
-      "permissionDenied": "Notifications blocked"
+      "permissionDenied": "Notifications blocked",
+      "daysUnit": "d",
+      "hoursUnit": "h",
+      "minutesUnit": "min",
+      "addCustom": "Add custom reminder",
+      "alreadyExists": "Added"
     },
     "search": "Search tasks",
     "searchPlaceholder": "Search by title...",
@@ -1513,6 +1536,19 @@
     "dropHere": "Drop here",
     "calendarView": "Calendar",
     "calendarEmpty": "No tasks this day",
+    "timelineView": "Timeline",
+    "gantt": {
+      "title": "Timeline",
+      "today": "Today",
+      "prev": "Previous",
+      "next": "Next",
+      "week": "Week",
+      "month": "Month",
+      "unscheduled": "Unscheduled tasks",
+      "noScheduledTasks": "No scheduled tasks",
+      "invalidDateRange": "The start time cannot be later than the due time",
+      "scheduleToday": "Schedule for today"
+    },
     "repeat": {
       "title": "Repeat",
       "none": "No repeat",
@@ -1554,6 +1590,127 @@
       "failed": "Operation failed",
       "deleteConfirm": "Delete this template?",
       "itemCount": "{{count}} items"
+    },
+    "dependencies": {
+      "title": "Dependencies",
+      "blockedBy": "Predecessors",
+      "blocks": "Successors",
+      "addPredecessor": "Add predecessor",
+      "selectTask": "Select task",
+      "noDependencies": "No dependencies",
+      "cycleError": "A circular dependency cannot be created",
+      "delete": "Delete",
+      "finishToStart": "Finish to start",
+      "blocked": "Blocked",
+      "blockedByIncomplete": "This task is blocked by an incomplete predecessor",
+      "allDependenciesDone": "All predecessors are complete",
+      "scheduleWarning": "A predecessor is incomplete. Consider rescheduling this task to {{date}}",
+      "suggestReschedule": "Suggest reschedule",
+      "applySuggestion": "Apply suggestion",
+      "rescheduleReason": "Predecessor is incomplete"
+    },
+    "reminderCenter": {
+      "title": "Reminder Center",
+      "refresh": "Refresh",
+      "missed": "Missed",
+      "today": "Today",
+      "upcoming": "Upcoming",
+      "disabled": "Disabled",
+      "empty": "No reminders",
+      "emptyTitle": "No reminders",
+      "emptyDescription": "There are no task reminders requiring attention",
+      "loadFailed": "Failed to load reminders",
+      "open": "Reminders",
+      "close": "Close",
+      "permissionEnabled": "Browser notifications are enabled",
+      "permissionDenied": "Browser notifications are blocked. Enable them in your browser settings.",
+      "permissionDefault": "Notifications are not enabled",
+      "enableNotification": "Enable browser notifications",
+      "desktopNotificationEnabled": "Desktop notifications are enabled",
+      "reminderAt": "Reminder time",
+      "dueAt": "Due time",
+      "offset": "Before",
+      "atDue": "At due time",
+      "minutesBefore": "{{minutes}} minutes before",
+      "hoursBefore": "{{hours}} hours before",
+      "hoursMinutesBefore": "{{hours}} hours {{minutes}} minutes before",
+      "goToTask": "Go to task",
+      "snooze": "Snooze",
+      "snooze10min": "In 10 minutes",
+      "snooze1hour": "In 1 hour",
+      "snoozeTomorrow": "Tomorrow",
+      "disableReminder": "Disable reminder",
+      "enableReminder": "Enable reminder",
+      "snoozedUntil": "Snoozed until",
+      "moreActions": "More actions",
+      "retry": "Retry"
+    },
+    "notifications": {
+      "taskReminderTitle": "Task reminder",
+      "taskReminderBody": "{{taskTitle}}",
+      "dependencyReadyTitle": "A successor task is ready",
+      "dependencyReadyBody": "Its predecessor is complete. You can start: {{taskTitle}}",
+      "overdueDailyTitle": "Task overdue",
+      "overdueDailyBody": "{{taskTitle}} is overdue. Please take action."
+    },
+    "empty": {
+      "no-tasks": {
+        "title": "No tasks",
+        "description": "Create your first task to get started",
+        "action": "New task"
+      },
+      "no-search": {
+        "title": "No results",
+        "description": "Try another search term",
+        "action": "Clear search"
+      },
+      "no-scheduled": {
+        "title": "No scheduled tasks",
+        "description": "Set start and due dates on tasks to see them here",
+        "action": ""
+      },
+      "no-templates": {
+        "title": "No templates",
+        "description": "Save a task tree as a template for quick reuse",
+        "action": ""
+      },
+      "no-reminders": {
+        "title": "No reminders",
+        "description": "Set a reminder on a task to see it here",
+        "action": ""
+      },
+      "no-dependencies": {
+        "title": "No dependencies",
+        "description": "Add task dependencies to track blocking status",
+        "action": ""
+      },
+      "no-projects": {
+        "title": "No projects",
+        "description": "Create a project to organize tasks",
+        "action": ""
+      }
+    },
+    "toast": {
+      "created": "Task created",
+      "createFailed": "Failed to create task",
+      "updated": "Task updated",
+      "updateFailed": "Failed to update task",
+      "descriptionUpdated": "Details updated",
+      "descriptionUpdateFailed": "Failed to update details",
+      "completed": "Task completed",
+      "completeFailed": "Failed to complete task",
+      "deleted": "Task deleted",
+      "deleteFailed": "Failed to delete task",
+      "bulkDeleted": "Deleted {{count}} tasks",
+      "bulkDeleteFailed": "Failed to delete tasks",
+      "bulkCompleted": "Completed {{count}} tasks",
+      "bulkCompleteFailed": "Failed to complete tasks",
+      "templateApplied": "Template applied",
+      "templateApplyFailed": "Failed to apply template",
+      "dependencyCreated": "Dependency created",
+      "dependencyCreateFailed": "Failed to create dependency",
+      "dependencyDeleted": "Dependency deleted",
+      "dependencyDeleteFailed": "Failed to delete dependency"
     },
     "add": "Add",
     "calendarFeed": {
@@ -1744,7 +1901,9 @@
     "exportFailed": "Export failed: {{error}}",
     "exportingNotebook": "Exporting notebook \"{{name}}\"...",
     "exportingNote": "Exporting note \"{{name}}\"...",
-    "someImagesFailed": "{{count}} image(s) failed to download; original URLs kept in md"
+    "someImagesFailed": "{{count}} image(s) failed to download; original URLs kept in md",
+    "metaCreated": "Created",
+    "metaUpdated": "Updated"
   },
   "fonts": {
     "interDefault": "Inter (Default)",
@@ -2108,7 +2267,10 @@
     "importFailed": "Import failed",
     "toolsSection": "AI Tools",
     "closePreview": "Close Preview",
-    "copyMarkdown": "Copy Markdown"
+    "copyMarkdown": "Copy Markdown",
+    "knowledgeScope": "Knowledge scope",
+    "scopeAll": "Current space",
+    "includeChildren": "Include child notebooks"
   },
   "server": {
     "title": "Connect to Server",
