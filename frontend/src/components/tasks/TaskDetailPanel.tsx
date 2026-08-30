@@ -8,6 +8,7 @@ import { zhCN, enUS } from "date-fns/locale";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/utils";
 import { api } from "@/lib/api";
+import { parseServerTime } from "@/lib/dateTime";
 import { toast } from "@/lib/toast";
 import { getTaskNotificationSurface, showTestTaskNotification } from "@/lib/taskNotifications";
 import type { Task, TaskPriority, TaskReminder, TaskDependency } from "@/types";
@@ -179,6 +180,7 @@ export const TaskDetailPanel = React.forwardRef<HTMLDivElement, {
   const lang = i18n.resolvedLanguage || i18n.language;
   const isZh = lang.toLowerCase().startsWith("zh");
   const dateLocale = isZh ? zhCN : enUS;
+  const createdAtDate = parseServerTime(task.createdAt);
   const [title, setTitle] = useState(task.title);
   const [description, setDescription] = useState(task.description ?? "");
   const [descriptionMode, setDescriptionMode] = useState<"edit" | "preview">("edit");
@@ -721,7 +723,7 @@ export const TaskDetailPanel = React.forwardRef<HTMLDivElement, {
 
         {/* Created At */}
         <div className="text-xs text-tx-tertiary">
-          {t("tasks.createdAt")}: {task.createdAt ? format(parseISO(task.createdAt), "yyyy-MM-dd HH:mm", { locale: dateLocale }) : "-"}
+          {t("tasks.createdAt")}: {createdAtDate ? format(createdAtDate, "yyyy-MM-dd HH:mm", { locale: dateLocale }) : "-"}
         </div>
 
         {/* Progress Section */}
