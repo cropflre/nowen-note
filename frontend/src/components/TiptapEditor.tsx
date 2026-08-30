@@ -4989,6 +4989,37 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
     }
   }, [editor, showPasteToast, t]);
 
+  const handleForceMarkdownConversion = useCallback(() => {
+    if (!editor || !editable || isGuest) return;
+    const { from, to } = editor.state.selection;
+    if (from === to) {
+      showPasteToast("error", t("tiptap.markdownForceSelect"), 3000);
+      return;
+    }
+
+    const text = editor.state.doc.textBetween(from, to, "\n");
+    if (!text.trim()) {
+      showPasteToast("error", t("tiptap.markdownForceSelect"), 3000);
+      return;
+    }
+
+    try {
+      const convertedHtml = sanitizeForPaste(mdToFullHtml(text) || markdownToSimpleHtml(text));
+      const parser = ProseMirrorDOMParser.fromSchema(editor.state.schema);
+      const tempDiv = document.createElement("div");
+      tempDiv.innerHTML = convertedHtml;
+      const slice = parser.parseSlice(tempDiv);
+      const tr = editor.state.tr.replaceRange(from, to, slice).scrollIntoView();
+      editor.view.dispatch(tr);
+      editor.chain().focus().run();
+      setBubble((current) => ({ ...current, open: false }));
+      showPasteToast("success", t("tiptap.markdownConvertSuccess"));
+    } catch (err) {
+      console.error("Manual Markdown conversion failed:", err);
+      showPasteToast("error", t("tiptap.markdownForceConvertError"));
+    }
+  }, [editable, editor, isGuest, showPasteToast, t]);
+
   const handleAIInsert = useCallback((text: string) => {
     if (!editor) return;
     const { to } = editor.state.selection;
@@ -5393,6 +5424,13 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
           <FileCode size={iconSize} />
         </ToolbarButton>
         <ToolbarButton
+          onClick={handleForceMarkdownConversion}
+          disabled={!editable || isGuest}
+          title={t("tiptap.markdownForceConvert")}
+        >
+          <FileType size={iconSize} />
+        </ToolbarButton>
+        <ToolbarButton
           onClick={() => editor.chain().focus().setHorizontalRule().run()}
           title={t('tiptap.horizontalRule')}
         >
@@ -5743,6 +5781,13 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
             title={t('tiptap.codeBlock')}
           >
             <FileCode size={14} />
+          </ToolbarButton>
+          <ToolbarButton
+            onClick={handleForceMarkdownConversion}
+            disabled={!editable || isGuest}
+            title={t("tiptap.markdownForceConvert")}
+          >
+            <FileType size={14} />
           </ToolbarButton>
           {/* 清除全部 inline 文本格式（Mod-Shift-X 同等效果） */}
           <ToolbarButton
