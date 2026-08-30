@@ -552,7 +552,7 @@ module.exports = {
   afterSign: "build/afterSign.js",
   linux: {
     target: ["AppImage", "deb"],
-    icon: "electron/icon.png",
+    icon: "build/icons",
     // FreeDesktop 规范分类：https://specifications.freedesktop.org/menu-spec/latest/apa.html
     // Office 是顶级分类；笔记类一般还加 TextTools / Utility
     category: "Office",
@@ -566,11 +566,10 @@ module.exports = {
     description:
       "Nowen Note — 一个现代化的笔记应用，支持 Markdown、全文搜索、跨设备局域网同步。",
     // 桌面文件额外字段
+    // electron-builder 25 直接把 desktop 的键值写入 [Desktop Entry]。
     desktop: {
-      entry: {
-        StartupWMClass: "Nowen Note",
-        Keywords: "note;markdown;editor;nowen;",
-      },
+      StartupWMClass: "Nowen Note",
+      Keywords: "note;markdown;editor;nowen;",
     },
     // Linux x64 / arm64 会分两次构建；文件名必须带架构，避免互相覆盖。
     artifactName: "${productName}-${version}-${arch}.${ext}",
