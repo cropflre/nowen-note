@@ -281,6 +281,7 @@ export default function EditorPane({
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const mobileMenuRef = useRef<HTMLDivElement | null>(null);
   const desktopMoreMenuRef = useRef<HTMLDivElement | null>(null);
+  const exportSubmenuRef = useRef<HTMLDivElement | null>(null);
 
   // 纯 HTML 预览模式：当
   // 笔记内容被保存为 HTML 格式（如 clipper 导入）时自动进入只读预览，
@@ -1500,7 +1501,7 @@ export default function EditorPane({
           && !viewLockedIdsRef.current.has(activeNote.id)) {
         // ��齹���Ƿ��ڱ༭���ڲ�������ڱ༭���ڣ�Delete ��Ӧ������ɾ�����֣�
         const activeEl = document.activeElement;
-        const isInEditor = activeEl?.closest(".ProseMirror") || activeEl?.tagName === "INPUT" || activeEl?.tagName === "TEXTAREA";
+        const isInEditor = activeEl?.closest(".ProseMirror, .cm-editor") || activeEl?.tagName === "INPUT" || activeEl?.tagName === "TEXTAREA";
         if (!isInEditor) {
           e.preventDefault();
           setShowDeleteConfirm(true);
@@ -1527,7 +1528,15 @@ export default function EditorPane({
   useEffect(() => {
     if (!showDesktopMoreMenu) return;
     const onPointerDown = (e: MouseEvent) => {
-      if (desktopMoreMenuRef.current && !desktopMoreMenuRef.current.contains(e.target as Node)) {
+      const target = e.target as Node;
+      // 导出级联子菜单用 portal 渲染在菜单之外，需一并视为“菜单内部”，
+      // 否则点击子菜单按钮会先触发 mousedown 把整个菜单关掉，导致 onClick 不执行。
+      const insideExportSubmenu = !!exportSubmenuRef.current && exportSubmenuRef.current.contains(target);
+      if (
+        desktopMoreMenuRef.current
+        && !desktopMoreMenuRef.current.contains(target)
+        && !insideExportSubmenu
+      ) {
         setShowDesktopMoreMenu(false);
       }
     };
@@ -3843,6 +3852,7 @@ const moveToTrash = useCallback(async () => {
       {/* 导出级联子菜单（三级菜单）：通过 portal 渲染到 body，避免被主菜单 overflow 裁切 */}
       {exportSubmenuOpen && exportSubmenuPos && createPortal(
         <div
+          ref={exportSubmenuRef}
           role="menu"
           className="fixed z-[60] w-64 rounded-lg border border-app-border bg-app-elevated py-1 shadow-xl"
           style={{ top: exportSubmenuPos.top, left: exportSubmenuPos.left }}
