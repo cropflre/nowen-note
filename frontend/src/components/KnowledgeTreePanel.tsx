@@ -6,6 +6,7 @@ import {
   ChevronsDown,
   ChevronsUp,
   CircleAlert,
+  CloudDownload,
   FileCode,
   FileText,
   Folder,
@@ -32,6 +33,7 @@ import {
 import KnowledgeTreeDropdownMenu from "@/components/KnowledgeTreeDropdownMenu";
 import KnowledgeSearchScopeMenuButton from "@/components/KnowledgeSearchScopeMenuButton";
 import KnowledgeSearchScopeSwitch from "@/components/KnowledgeSearchScopeSwitch";
+import YuqueImport from "@/components/YuqueImport";
 import KnowledgeTreeNodeMenu from "@/components/KnowledgeTreeNodeMenu";
 import KnowledgeTreePermissionsDialog from "@/components/KnowledgeTreePermissionsDialog";
 import {
@@ -278,7 +280,7 @@ export interface KnowledgeTreeInlineCreateRequest {
 export interface KnowledgeTreeImportRequest {
   requestId: number;
   parentId: string | null;
-  kind: "markdown" | "markdown-zip" | "word" | "wechat";
+  kind: "markdown" | "markdown-zip" | "word" | "wechat" | "yuque";
 }
 
 export interface KnowledgeTreeTemplateCreateRequest {
@@ -327,6 +329,7 @@ export function KnowledgeTreePanel({
   const [multiSelectMode, setMultiSelectMode] = useState(false);
   const [unlockedFolderIds, setUnlockedFolderIds] = useState<Set<string>>(() => loadUnlockedFolderIds());
   const [passwordDialog, setPasswordDialog] = useState<{ node: KnowledgeTreeNode; mode: "unlock" | "manage" } | null>(null);
+  const [yuqueImportNotebookId, setYuqueImportNotebookId] = useState<string | null>(null);
   const [pendingFolderAction, setPendingFolderAction] = useState<{
     nodeId: string;
     action: "select" | "toggle";
@@ -760,6 +763,15 @@ export function KnowledgeTreePanel({
       : null;
     if (importRequest.parentId && !parent) return;
     handledImportRequestRef.current = importRequest.requestId;
+
+    // Yuque 导入走弹模态流程（不依赖父节点类型：folder 也可触发，目标笔记本用 fallback）
+    if (importRequest.kind === "yuque") {
+      setYuqueImportNotebookId(
+        state.activeNote?.notebookId || state.selectedNotebookId || state.notebooks[0]?.id || null,
+      );
+      return;
+    }
+
     if (parent && !isFolderUnlocked(parent, unlockedFolderIds)) {
       setPendingFolderAction(null);
       setPasswordDialog({ node: parent, mode: "unlock" });
@@ -1707,6 +1719,31 @@ export function KnowledgeTreePanel({
         onReload={reload}
         onNotePatched={patchNoteStatus}
       />
+
+      {/* 知识树触发的 Yuque 导入面板：目标笔记本由 fallback 解析（folder/null 时后端自动建"Yuque 导入"） */}
+      {yuqueImportNotebookId !== null && (
+        <div
+          className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/40 p-4"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setYuqueImportNotebookId(null);
+          }}
+        >
+          <div className="w-full max-w-lg max-h-[82vh] overflow-y-auto rounded-xl border border-app-border bg-app-elevated p-5 shadow-2xl">
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <span className="text-sm font-medium text-tx-primary">从 Yuque 导入</span>
+              <button
+                type="button"
+                onClick={() => setYuqueImportNotebookId(null)}
+                className="rounded-md p-1 text-tx-tertiary hover:bg-app-hover hover:text-tx-primary"
+                aria-label="close"
+              >
+                <X size={16} />
+              </button>
+            </div>
+            <YuqueImport defaultNotebookId={yuqueImportNotebookId ?? undefined} />
+          </div>
+        </div>
+      )}
     </section>
   );
 }

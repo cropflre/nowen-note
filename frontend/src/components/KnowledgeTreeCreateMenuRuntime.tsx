@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { FileArchive, FileCode, Files, FileText, FileType2, Folder, LayoutTemplate, Link2 } from "lucide-react";
+import { FileArchive, FileCode, Files, FileText, FileType2, Folder, LayoutTemplate, Link2, CloudDownload } from "lucide-react";
 
 import NoteTemplatePickerDialog from "@/components/NoteTemplatePickerDialog";
 import KnowledgeTreePanelBase, {
@@ -39,6 +39,7 @@ const IMPORT_ITEMS = [
   { kind: "markdown-zip", label: "导入 Markdown + 附件（ZIP）", icon: FileArchive },
   { kind: "word", label: "导入 Word 文档", icon: FileType2 },
   { kind: "wechat", label: "导入公众号文章", icon: Link2 },
+  { kind: "yuque", label: "从 Yuque 导入", icon: CloudDownload },
 ] as const;
 
 export interface KnowledgeTreeCreateMenuState {

@@ -8,6 +8,7 @@ import {
   ChevronsUp,
   CircleAlert,
   Clock3,
+  CloudDownload,
   FileCode,
   FileText,
   Folder,
@@ -34,6 +35,7 @@ import KnowledgeSearchScopeMenuButton from "@/components/KnowledgeSearchScopeMen
 import KnowledgeSearchScopeSwitch from "@/components/KnowledgeSearchScopeSwitch";
 import KnowledgeTreeNodeMenu from "@/components/KnowledgeTreeNodeMenu";
 import KnowledgeTreePermissionsDialog from "@/components/KnowledgeTreePermissionsDialog";
+import YuqueImport from "@/components/YuqueImport";
 import {
   KnowledgeTreeCreateDropdown,
   type KnowledgeTreeCreateMenuState,
@@ -265,6 +267,7 @@ export default function MobileKnowledgeTreePanel({
   const [multiSelectMode, setMultiSelectMode] = useState(false);
   const [unlockedFolderIds, setUnlockedFolderIds] = useState<Set<string>>(() => loadUnlockedFolderIds());
   const [passwordDialog, setPasswordDialog] = useState<{ node: KnowledgeTreeNode; mode: "unlock" | "manage" } | null>(null);
+  const [yuqueImportNotebookId, setYuqueImportNotebookId] = useState<string | null>(null);
   const [pendingFolderOpenId, setPendingFolderOpenId] = useState<string | null>(null);
   const [draft, setDraft] = useState<KnowledgeTreeInlineDraft | null>(null);
   const [createMenu, setCreateMenu] = useState<KnowledgeTreeCreateMenuState | null>(null);
@@ -657,7 +660,7 @@ export default function MobileKnowledgeTreePanel({
 
   const importIntoTree = useCallback(async (
     targetParentId: string | null,
-    kind: "markdown" | "markdown-zip" | "word" | "wechat",
+    kind: "markdown" | "markdown-zip" | "word" | "wechat" | "yuque",
   ) => {
     setCreateMenu(null);
     const parent = targetParentId ? nodes.find((node) => node.id === targetParentId) || null : null;
@@ -665,6 +668,12 @@ export default function MobileKnowledgeTreePanel({
     if (parent && !isFolderUnlocked(parent, unlockedFolderIds)) {
       setPendingFolderOpenId(null);
       setPasswordDialog({ node: parent, mode: "unlock" });
+      return;
+    }
+    if (kind === "yuque") {
+      setYuqueImportNotebookId(
+        state.activeNote?.notebookId || state.selectedNotebookId || state.notebooks[0]?.id || null,
+      );
       return;
     }
     try {
@@ -1540,6 +1549,31 @@ export default function MobileKnowledgeTreePanel({
         onClose={() => setTemplatePicker(null)}
         onCreate={createFromTemplate}
       />
+
+      {/* 知识树触发的 Yuque 导入面板（移动端） */}
+      {yuqueImportNotebookId !== null && (
+        <div
+          className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/40 p-4"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setYuqueImportNotebookId(null);
+          }}
+        >
+          <div className="w-full max-w-lg max-h-[82vh] overflow-y-auto rounded-xl border border-app-border bg-app-elevated p-5 shadow-2xl">
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <span className="text-sm font-medium text-tx-primary">从 Yuque 导入</span>
+              <button
+                type="button"
+                onClick={() => setYuqueImportNotebookId(null)}
+                className="rounded-md p-1 text-tx-tertiary hover:bg-app-hover hover:text-tx-primary"
+                aria-label="close"
+              >
+                <X size={16} />
+              </button>
+            </div>
+            <YuqueImport defaultNotebookId={yuqueImportNotebookId ?? undefined} />
+          </div>
+        </div>
+      )}
     </section>
   );
 }

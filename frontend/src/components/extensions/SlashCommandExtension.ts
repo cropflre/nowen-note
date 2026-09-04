@@ -11,7 +11,7 @@ export interface SlashPluginState {
 
 export type SlashActivateHandler = (
   query: string,
-  position: { top: number; left: number; from: number },
+  position: { top: number; left: number; from: number; trigger?: { top: number; bottom: number; left: number; right: number }; centerVertically?: boolean },
   sourceId?: string,
 ) => void;
 export type SlashDeactivateHandler = (sourceId?: string) => void;
@@ -135,25 +135,73 @@ function stateAfterTransaction(
   return previous;
 }
 
-function getMenuPosition(view: EditorView): { top: number; left: number } {
-  let bottom = 12;
-  let left = 12;
+function getMenuPosition(view: EditorView): { top: number; left: number; trigger: BlockMenuTrigger } {
+  let top = 12, left = 12, bottom = 12, right = 12;
   try {
     const coords = view.coordsAtPos(view.state.selection.from);
-    bottom = coords.bottom;
-    left = coords.left;
+    top = coords.top; bottom = coords.bottom; left = coords.left; right = coords.right;
   } catch {
     const rect = view.dom.getBoundingClientRect();
-    bottom = rect.top + 24;
-    left = rect.left + 12;
+    top = rect.top; bottom = rect.bottom; left = rect.left; right = rect.left + 12;
+  }
+  const trigger = { top, bottom, left, right };
+  return { ...getSmartBlockMenuPosition(trigger, BLOCK_MENU_ESTIMATED_SIZE), trigger };
+}
+
+/* ------------------------------------------------------------------ */
+/*  智能菜单定位（导出供 TiptapEditor 拖拽柄与 / 触发共用）            */
+/* ------------------------------------------------------------------ */
+
+export interface BlockMenuTrigger {
+  top: number;
+  bottom: number;
+  left: number;
+  right: number;
+}
+export interface BlockMenuSize {
+  width: number;
+  height: number;
+}
+/** 菜单的最大预估尺寸（用于定位时留够空间；实际尺寸由 CSS max-h 控制） */
+export const BLOCK_MENU_ESTIMATED_SIZE: BlockMenuSize = { width: 320, height: 360 };
+
+/**
+ * 菜单定位：
+ * - 水平：紧贴触发源右侧（offset=0），溢出视口时翻到左侧
+ * - 垂直：优先在触发源下方显示；下方空间不够则翻到上方；都不够则贴触发源顶部
+ * - 保证菜单不超出视口边界
+ */
+export function getSmartBlockMenuPosition(
+  trigger: BlockMenuTrigger,
+  menuSize: BlockMenuSize,
+  viewport?: { width: number; height: number },
+  offset: number = 0,
+): { top: number; left: number } {
+  const margin = 6;
+  const vw = viewport?.width ?? (typeof window === "undefined" ? 1200 : window.innerWidth);
+  const vh = viewport?.height ?? (typeof window === "undefined" ? 800 : window.innerHeight);
+
+  // 水平：紧贴触发源右侧，不够则翻到左侧
+  let left = trigger.right + offset;
+  if (left + menuSize.width > vw - margin) {
+    left = trigger.left - offset - menuSize.width;
+  }
+  left = Math.max(margin, Math.min(left, vw - menuSize.width - margin));
+
+  // 垂直：优先在触发源下方；下方不够则翻上方；都不够则贴顶
+  let top = trigger.bottom + 4; // 触发源下方留 4px 间距
+  if (top + menuSize.height > vh - margin) {
+    // 下方放不下 → 尝试放到触发源上方
+    const topAbove = trigger.top - 4 - menuSize.height;
+    if (topAbove >= margin) {
+      top = topAbove;
+    } else {
+      // 上下都放不下 → 贴顶部
+      top = margin;
+    }
   }
 
-  const viewportHeight = typeof window === "undefined" ? 800 : window.innerHeight;
-  const viewportWidth = typeof window === "undefined" ? 1200 : window.innerWidth;
-  return {
-    top: Math.max(8, Math.min(bottom + 4, viewportHeight - 340)),
-    left: Math.max(8, Math.min(left, viewportWidth - 300)),
-  };
+  return { top, left };
 }
 
 export function getSlashPluginState(editor: Editor): SlashPluginState {
@@ -233,7 +281,8 @@ export function createSlashExtension(
                 const current = slashPluginKey.getState(view.state) ?? inactiveState();
 
                 if (!previous.active && current.active) {
-                  onActivate(current.query, { ...getMenuPosition(view), from: current.from }, sourceId);
+                  const pos = getMenuPosition(view);
+                  onActivate(current.query, { top: pos.top, left: pos.left, from: current.from, trigger: pos.trigger, centerVertically: true }, sourceId);
                   return;
                 }
                 if (previous.active && !current.active) {

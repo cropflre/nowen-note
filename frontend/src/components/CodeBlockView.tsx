@@ -1,7 +1,7 @@
 import React, { useCallback, useMemo, useState, useEffect, useRef, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import { NodeViewWrapper, NodeViewContent, NodeViewProps } from "@tiptap/react";
-import { Copy, Check, ChevronDown, Palette, Eye, Code2, FileText, Minimize2, Maximize2 } from "lucide-react";
+import { Copy, Check, ChevronDown, ChevronRight, ChevronUp, Eye, Code2, FileText, MoreHorizontal } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   CODE_BLOCK_THEMES,
@@ -23,9 +23,9 @@ import {
 
 /**
  * 自定义代码块视图：
- *  - 顶部工具条：语言切换下拉 + 复制按钮
+ *  - 顶部工具条：折叠箭头 + 标题输入框 + 语言切换下拉 + 主题切换下拉
+ *  - 右侧操作：复制 / 运行 / 更多菜单（折叠、解散等）
  *  - 行号区（使用 CSS counter 自动生成，无需侵入 ProseMirror 内容模型）
- *  - 深色代码区与浅色页面形成清晰对比，突出代码语义
  */
 
 // 常用语言列表（超集由 lowlight.common 决定）
@@ -63,6 +63,16 @@ export function CodeBlockView(props: NodeViewProps) {
   const [showThemePicker, setShowThemePicker] = useState(false);
   const [activeTheme, setActiveTheme] = useState<CodeBlockThemeId>(getSavedCodeBlockTheme);
   const [collapsed, setCollapsed] = useState(false);
+  const [showMoreMenu, setShowMoreMenu] = useState(false);
+  const [titleEditing, setTitleEditing] = useState(false);
+  const [toolbarHidden, setToolbarHidden] = useState(false);
+  // 标题输入框使用本地草稿：每次按键只更新草稿，避免 updateAttributes 触发 ProseMirror
+  // 事务导致 NodeView 重渲染、输入框丢失焦点（原 bug：无法连续输入/保存）。
+  // 仅在失焦或回车时把草稿提交到节点 title 属性，并同步外部变化（如 undo）。
+  const [titleDraft, setTitleDraft] = useState<string>((node.attrs.title as string) || "");
+  useEffect(() => {
+    if (!titleEditing) setTitleDraft((node.attrs.title as string) || "");
+  }, [node.attrs.title, titleEditing]);
   const subscribeToEditable = useCallback((listener: () => void) => (
     subscribeEditorEditable(editor, () => {
       recordPhaseAPerfEvent({ type: "code-block-permission-state-update", blockId: perfBlockId });
@@ -98,8 +108,11 @@ export function CodeBlockView(props: NodeViewProps) {
   // 下拉面板锚点按钮 ref，用于计算 fixed 弹出位置（避免被代码块容器 overflow-hidden 裁剪）
   const langBtnRef = useRef<HTMLButtonElement | null>(null);
   const themeBtnRef = useRef<HTMLButtonElement | null>(null);
+  const moreBtnRef = useRef<HTMLButtonElement | null>(null);
+  const titleInputRef = useRef<HTMLInputElement | null>(null);
   const [langPopupPos, setLangPopupPos] = useState<{ top: number; left: number; placement: "bottom" | "top" } | null>(null);
   const [themePopupPos, setThemePopupPos] = useState<{ top: number; right: number; placement: "bottom" | "top" } | null>(null);
+  const [morePopupPos, setMorePopupPos] = useState<{ top: number; right: number; placement: "bottom" | "top" } | null>(null);
 
   // 语言下拉宽度 / 主题下拉宽度（与原样式保持一致：w-48 / w-52）
   const LANG_POPUP_WIDTH = 192; // w-48
@@ -133,6 +146,45 @@ export function CodeBlockView(props: NodeViewProps) {
     // 右对齐按钮
     const right = Math.max(8, window.innerWidth - rect.right);
     setThemePopupPos({ top, right, placement });
+  }, []);
+
+  const MORE_POPUP_MAX_H = 200;
+
+  const computeMorePopupPos = useCallback(() => {
+    const btn = moreBtnRef.current;
+    if (!btn) return;
+    const rect = btn.getBoundingClientRect();
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const placement: "bottom" | "top" = spaceBelow < MORE_POPUP_MAX_H && rect.top > spaceBelow ? "top" : "bottom";
+    const top = placement === "bottom" ? rect.bottom + 4 : Math.max(8, rect.top - 4 - MORE_POPUP_MAX_H);
+    // 右对齐按钮
+    const right = Math.max(8, window.innerWidth - rect.right);
+    setMorePopupPos({ top, right, placement });
+  }, []);
+
+  const commitTitle = useCallback(() => {
+    const val = titleDraft.trim();
+    const current = (node.attrs.title as string) || "";
+    if (val !== current) {
+      updateAttributes({ title: val || undefined });
+    }
+  }, [titleDraft, node.attrs.title, updateAttributes]);
+
+  const handleTitleChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    setTitleDraft(e.target.value);
+  }, []);
+
+  const handleTitleKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      commitTitle();
+      setTitleEditing(false);
+      (e.target as HTMLInputElement).blur();
+    } else if (e.key === "Escape") {
+      setTitleDraft((node.attrs.title as string) || "");
+      setTitleEditing(false);
+      (e.target as HTMLInputElement).blur();
+    }
   }, []);
 
   // 订阅全局主题变化，使同文档多个代码块同步刷新高亮（UI 内选中态）
@@ -287,6 +339,49 @@ export function CodeBlockView(props: NodeViewProps) {
     };
   }, [showThemePicker, computeThemePopupPos]);
 
+  // 点击外部关闭更多菜单
+  useEffect(() => {
+    if (!showMoreMenu) return;
+    const handleDocClick = (e: MouseEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (!target) return;
+      if (!target.closest("[data-codeblock-more]")) {
+        setShowMoreMenu(false);
+      }
+    };
+    const id = setTimeout(() => document.addEventListener("mousedown", handleDocClick), 0);
+    return () => {
+      clearTimeout(id);
+      document.removeEventListener("mousedown", handleDocClick);
+    };
+  }, [showMoreMenu]);
+
+  // 打开更多菜单时计算位置；滚动/resize 时关闭
+  useEffect(() => {
+    if (!showMoreMenu) {
+      setMorePopupPos(null);
+      return;
+    }
+    computeMorePopupPos();
+    let raf = 0;
+    const scheduleRecompute = () => {
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(computeMorePopupPos);
+    };
+    const onScroll = (e: Event) => {
+      const target = e.target as Element | null;
+      if (target?.closest?.("[data-codeblock-more]")) return;
+      scheduleRecompute();
+    };
+    window.addEventListener("resize", scheduleRecompute);
+    window.addEventListener("scroll", onScroll, true);
+    return () => {
+      cancelAnimationFrame(raf);
+      window.removeEventListener("resize", scheduleRecompute);
+      window.removeEventListener("scroll", onScroll, true);
+    };
+  }, [showMoreMenu, computeMorePopupPos]);
+
   const handleSelectTheme = useCallback((theme: CodeBlockThemeId) => {
     setCodeBlockTheme(theme);
     setActiveTheme(theme);
@@ -297,23 +392,45 @@ export function CodeBlockView(props: NodeViewProps) {
     <NodeViewWrapper
       className="code-block-wrapper group relative my-4 rounded-xl overflow-hidden border shadow-sm"
       data-indent={indent > 0 ? indent : undefined}
-      // 预览态时把隐藏的 NodeViewContent 用绝对定位藏起来，依赖外层 relative
       style={{ position: "relative" }}
     >
       {/* 顶部工具栏（不可编辑） */}
+      {!toolbarHidden && (
       <div
         className="code-block-toolbar flex items-center justify-between px-3 py-1.5 border-b select-none"
         contentEditable={false}
       >
-        {/* 左侧：mac 风格小圆点 + 语言徽章（可点击切换） */}
-        <div className="flex items-center gap-2">
-          <span className="flex items-center gap-1">
-            <span className="w-2.5 h-2.5 rounded-full bg-[#ff5f57]" />
-            <span className="w-2.5 h-2.5 rounded-full bg-[#febc2e]" />
-            <span className="w-2.5 h-2.5 rounded-full bg-[#28c840]" />
-          </span>
+        {/* 左侧：折叠箭头 + 标题输入框 + 语言选择器 + 主题选择器 */}
+        <div className="flex items-center gap-2 min-w-0 flex-1">
+          {/* 折叠/展开箭头 */}
+          <button
+            type="button"
+            onClick={() => setCollapsed((v) => !v)}
+            className="code-block-tool-btn shrink-0 p-0.5 rounded transition-colors text-[var(--code-muted)] hover:text-[var(--code-muted-strong)]"
+            title={collapsed ? "展开代码" : "折叠代码"}
+          >
+            {collapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
+          </button>
 
-          <div className="relative" data-codeblock-langpicker>
+          {/* 标题输入框 */}
+          <input
+            ref={titleInputRef}
+            type="text"
+            value={titleDraft}
+            onChange={handleTitleChange}
+            onKeyDown={handleTitleKeyDown}
+            onMouseDown={(e) => e.stopPropagation()}
+            onFocus={() => setTitleEditing(true)}
+            onBlur={() => {
+              commitTitle();
+              setTitleEditing(false);
+            }}
+            placeholder="请输入代码块名称"
+            className="code-block-title-input bg-transparent border-none outline-none text-[12px] text-[var(--code-muted-strong)] placeholder:text-[var(--code-muted)] min-w-[100px] max-w-[200px]"
+          />
+
+          {/* 语言选择器 */}
+          <div className="relative shrink-0" data-codeblock-langpicker>
             <button
               ref={langBtnRef}
               type="button"
@@ -324,9 +441,10 @@ export function CodeBlockView(props: NodeViewProps) {
                 if (!canUseCodeBlockToolbarAction("language", editor)) return;
                 setShowLangPicker((v) => !v);
                 setShowThemePicker(false);
+                setShowMoreMenu(false);
               }}
               className={cn(
-                "code-block-tool-btn flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[11px] font-mono transition-colors",
+                "code-block-tool-btn flex items-center gap-0.5 px-2 py-0.5 rounded text-[12px] font-medium transition-colors",
                 !canChangeLanguage && "opacity-40 cursor-not-allowed",
               )}
               title={canChangeLanguage ? "切换语言" : "笔记本已锁定，不能修改代码语言"}
@@ -380,35 +498,9 @@ export function CodeBlockView(props: NodeViewProps) {
               document.body,
             )}
           </div>
-        </div>
 
-        {/* 右侧：折叠/展开 + mermaid 切换 + 主题切换 + 复制按钮 */}
-        <div className="flex items-center gap-1">
-          {!isMermaid && (
-            <button
-              type="button"
-              onClick={() => setCollapsed((v) => !v)}
-              className="code-block-tool-btn flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium transition-colors"
-              title={collapsed ? "展开代码" : "折叠代码"}
-            >
-              {collapsed ? <Maximize2 size={12} /> : <Minimize2 size={12} />}
-              <span className="hidden sm:inline">{collapsed ? "展开" : "折叠"}</span>
-            </button>
-          )}
-          {/* 仅 mermaid 语言显示：源码 / 预览 切换。预览时按钮显示"代码"图标
-              （提示点击会切回源码视图），源码时显示"眼睛"图标（提示切回预览） */}
-          {isMermaid && (
-            <button
-              type="button"
-              onClick={() => setMermaidPreview((v) => !v)}
-              className="code-block-tool-btn flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium transition-colors"
-              title={mermaidPreview ? "切换到源码" : "切换到预览"}
-            >
-              {mermaidPreview ? <Code2 size={12} /> : <Eye size={12} />}
-              <span className="hidden sm:inline">{mermaidPreview ? "源码" : "预览"}</span>
-            </button>
-          )}
-          <div className="relative" data-codeblock-themepicker>
+          {/* 主题选择器 */}
+          <div className="relative shrink-0" data-codeblock-themepicker>
             <button
               ref={themeBtnRef}
               type="button"
@@ -416,12 +508,13 @@ export function CodeBlockView(props: NodeViewProps) {
                 e.stopPropagation();
                 setShowThemePicker((v) => !v);
                 setShowLangPicker(false);
+                setShowMoreMenu(false);
               }}
-              className="code-block-tool-btn flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium transition-colors"
+              className="code-block-tool-btn flex items-center gap-0.5 px-2 py-0.5 rounded text-[12px] font-medium transition-colors"
               title="切换代码块主题"
             >
-              <Palette size={12} />
-              <span className="hidden sm:inline">主题</span>
+              <span>{CODE_BLOCK_THEMES.find(t => t.id === activeTheme)?.label || activeTheme}</span>
+              <ChevronDown size={11} />
             </button>
 
             {showThemePicker && themePopupPos && createPortal(
@@ -439,9 +532,6 @@ export function CodeBlockView(props: NodeViewProps) {
                 onClick={(e) => e.stopPropagation()}
                 onMouseDown={(e) => e.stopPropagation()}
               >
-                <div className="code-block-popup-title px-2 py-1.5 text-[11px] font-medium border-b">
-                  代码块主题
-                </div>
                 <div className="max-h-64 overflow-auto py-1">
                   {CODE_BLOCK_THEMES.map((t) => (
                     <button
@@ -474,79 +564,139 @@ export function CodeBlockView(props: NodeViewProps) {
               document.body,
             )}
           </div>
+        </div>
 
+        {/* 右侧：复制 + 更多菜单 */}
+        <div className="flex items-center gap-0.5 shrink-0">
           <button
             type="button"
             onClick={handleCopy}
             className={cn(
-              "code-block-tool-btn flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium transition-colors",
+              "code-block-tool-btn flex items-center gap-1 px-1.5 py-0.5 rounded text-[12px] font-medium transition-colors",
               copied && "is-copied",
             )}
             title={copied ? "已复制" : "复制代码"}
           >
-            {copied ? <Check size={12} /> : <Copy size={12} />}
-            <span>{copied ? "已复制" : "复制"}</span>
+            {copied ? <Check size={13} /> : <Copy size={13} />}
           </button>
-          <button
-            type="button"
-            disabled={!canDissolve}
-            aria-disabled={!canDissolve}
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={handleDissolveToText}
-            className={cn(
-              "code-block-tool-btn flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium transition-colors",
-              !canDissolve && "opacity-40 cursor-not-allowed",
+          <div className="relative" data-codeblock-more>
+            <button
+              ref={moreBtnRef}
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setShowMoreMenu((v) => !v);
+                setShowLangPicker(false);
+                setShowThemePicker(false);
+              }}
+              className="code-block-tool-btn flex items-center px-1.5 py-0.5 rounded text-[12px] font-medium transition-colors"
+              title="更多操作"
+            >
+              <MoreHorizontal size={14} />
+            </button>
+
+            {showMoreMenu && morePopupPos && createPortal(
+              <div
+                data-codeblock-more
+                className="code-block-popup border rounded-lg shadow-xl overflow-hidden min-w-[150px] py-1"
+                style={{
+                  position: "fixed",
+                  top: morePopupPos.top,
+                  right: morePopupPos.right,
+                  zIndex: 1000,
+                  animation: "contextMenuIn 0.12s ease-out",
+                }}
+                onClick={(e) => e.stopPropagation()}
+                onMouseDown={(e) => e.stopPropagation()}
+              >
+                {isMermaid && (
+                  <button
+                    type="button"
+                    onClick={() => { setMermaidPreview((v) => !v); setShowMoreMenu(false); }}
+                    className="code-block-popup-item w-full text-left px-3 py-1.5 text-[12px] transition-colors flex items-center gap-2"
+                  >
+                    {mermaidPreview ? <Code2 size={13} /> : <Eye size={13} />}
+                    <span>{mermaidPreview ? "切换到源码" : "切换到预览"}</span>
+                  </button>
+                )}
+                <button
+                  type="button"
+                  disabled={!canDissolve}
+                  aria-disabled={!canDissolve}
+                  onClick={() => { handleDissolveToText(); setShowMoreMenu(false); }}
+                  className={cn(
+                    "code-block-popup-item w-full text-left px-3 py-1.5 text-[12px] transition-colors flex items-center gap-2",
+                    !canDissolve && "opacity-40 cursor-not-allowed",
+                  )}
+                >
+                  <FileText size={13} />
+                  <span>解散为文本</span>
+                </button>
+              </div>,
+              document.body,
             )}
-            title={canDissolve ? "解散为文本" : "笔记本已锁定，不能解散代码块"}
-          >
-            <FileText size={12} />
-            <span className="hidden sm:inline">解散</span>
-          </button>
+          </div>
         </div>
       </div>
+      )}
 
-      {/* 代码内容区
-          - mermaid + 预览态：渲染 SVG 流程图；同时把 NodeViewContent 用零高
-            容器藏起来（不能直接不渲染，否则 ProseMirror 找不到节点内容会报错），
-            保留可编辑节点的引用同时让用户看到预览。
-          - 其它情况：正常显示代码 + lowlight 高亮。 */}
-      {isMermaid && mermaidPreview ? (
-        <>
-          {/* 双击预览区进入源码态，便于直接编辑（与脚注/公式 NodeView 交互一致）；
-              单击不切换，避免阅读时误触把图变成代码。 */}
-          <div
-            className="mermaid-preview-host px-3 py-2 cursor-text"
-            contentEditable={false}
-            onDoubleClick={(e) => {
-              e.stopPropagation();
-              setMermaidPreview(false);
-            }}
-            title="双击进入源码编辑"
+      {/* 代码内容区 */}
+      <div className="relative">
+        {/* 工具栏隐藏时，悬浮显示恢复按钮 */}
+        {toolbarHidden && (
+          <button
+            type="button"
+            onClick={() => setToolbarHidden(false)}
+            className="absolute top-2 right-2 z-10 code-block-tool-btn p-1 rounded opacity-0 group-hover:opacity-100 transition-opacity"
+            title="显示工具栏"
           >
-            <MermaidView source={node.textContent} debounceMs={250} />
-          </div>
-          {/* 隐藏但保留的可编辑内容承载节点；ProseMirror 需要它存在 */}
+            <ChevronUp size={14} />
+          </button>
+        )}
+
+        {/* 工具栏未隐藏时，悬浮显示收起按钮 */}
+        {!toolbarHidden && (
+          <button
+            type="button"
+            onClick={() => setToolbarHidden(true)}
+            className="absolute top-2 right-2 z-10 code-block-tool-btn p-1 rounded opacity-0 group-hover:opacity-100 transition-opacity"
+            title="隐藏工具栏"
+          >
+            <ChevronDown size={14} />
+          </button>
+        )}
+
+        {isMermaid && mermaidPreview ? (
+          <>
+            <div
+              className="mermaid-preview-host px-3 py-2 cursor-text"
+              contentEditable={false}
+              onDoubleClick={(e) => {
+                e.stopPropagation();
+                setMermaidPreview(false);
+              }}
+              title="双击进入源码编辑"
+            >
+              <MermaidView source={node.textContent} debounceMs={250} />
+            </div>
+            <pre
+              className="code-block-pre"
+              style={{ position: "absolute", width: 1, height: 1, overflow: "hidden", clip: "rect(0 0 0 0)", pointerEvents: "none" }}
+              aria-hidden="true"
+            >
+              <NodeViewContent
+                as={"code" as "div"}
+                className="code-block-content"
+                style={{ whiteSpace: "pre" }}
+              />
+            </pre>
+          </>
+        ) : (
           <pre
             className="code-block-pre"
-            style={{ position: "absolute", width: 1, height: 1, overflow: "hidden", clip: "rect(0 0 0 0)", pointerEvents: "none" }}
-            aria-hidden="true"
+            style={collapsed ? { maxHeight: "3.5em", overflow: "hidden" } : undefined}
           >
             <NodeViewContent
-              as={"code" as "div"}
-              className="code-block-content"
-              style={{ whiteSpace: "pre" }}
-            />
-          </pre>
-        </>
-      ) : (
-        <div className="relative">
-          <pre
-            className="code-block-pre"
-            style={collapsed ? { maxHeight: "120px", overflow: "hidden" } : undefined}
-          >
-            <NodeViewContent
-              // NodeViewContent 的类型声明把 as 限制为 "div"，但 Tiptap 运行时实际支持任意 tag；
-              // 这里我们就是要 <code> 以便让 highlight.js / 复制按钮的语义正确。断言绕过类型窄化。
               as={"code" as "div"}
               className={cn(
                 "code-block-content hljs",
@@ -555,16 +705,16 @@ export function CodeBlockView(props: NodeViewProps) {
               style={{ whiteSpace: "pre" }}
             />
           </pre>
-          {collapsed && (
-            <div
-              className="absolute bottom-0 left-0 right-0 h-12 pointer-events-none"
-              style={{
-                background: "linear-gradient(transparent, var(--code-bg, #1e1e2e))",
-              }}
-            />
-          )}
-        </div>
-      )}
+        )}
+        {collapsed && !isMermaid && (
+          <div
+            className="absolute bottom-0 left-0 right-0 h-12 pointer-events-none"
+            style={{
+              background: "linear-gradient(transparent, var(--code-bg, #1e1e2e))",
+            }}
+          />
+        )}
+      </div>
     </NodeViewWrapper>
   );
 }

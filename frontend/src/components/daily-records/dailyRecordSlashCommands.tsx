@@ -93,6 +93,7 @@ export function getDailyRecordSlashCommands(): SlashCommandItem[] {
     description: definition.description,
     icon: iconFor(definition),
     category: definition.category,
+    categoryKey: "daily",
     keywords: definition.keywords,
     action: (editor) => {
       if (definition.kind === "timestamp") {
