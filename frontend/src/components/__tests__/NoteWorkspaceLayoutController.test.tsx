@@ -114,9 +114,12 @@ describe("NoteWorkspaceLayoutController", () => {
     expect(localStorage.getItem(NOTE_WORKSPACE_LAYOUT_STORAGE_KEY)).toBe("three-column");
 
     act(() => root.render(<NoteWorkspaceLayoutController />));
-    expect(document.querySelector('[data-testid="note-workspace-layout-trigger"]')).toBeNull();
+    const focusTrigger = document.querySelector('[data-testid="note-workspace-layout-trigger"]');
+    expect(focusTrigger).not.toBeNull();
+    act(() => click(focusTrigger));
+    act(() => click(findMenuChoice("三栏模式")));
+    expect(actions.setEditorFullscreen).toHaveBeenLastCalledWith(false);
 
-    state.editorFullscreen = false;
     act(() => root.render(<NoteWorkspaceLayoutController />));
     expect(document.querySelector('[data-testid="note-workspace-layout-trigger"]')).not.toBeNull();
   });

@@ -58,7 +58,7 @@ export default function NoteWorkspaceLayoutController() {
   const wideLayoutSupported = supportsWideNoteWorkspaceLayout(surface, viewportWidth);
   const noteWorkspaceActive = wideLayoutSupported
     && !NON_NOTE_WORKSPACE_VIEWS.has(state.viewMode);
-  const showLayoutControl = noteWorkspaceActive && !state.editorFullscreen;
+  const showLayoutControl = noteWorkspaceActive;
   const functionalListView = usesFunctionalNoteList(state.viewMode);
   const [preferredMode, setPreferredMode] = useState<NoteWorkspaceLayoutMode>(() =>
     loadNoteWorkspaceLayoutMode(state.noteListCollapsed),
@@ -66,6 +66,7 @@ export default function NoteWorkspaceLayoutController() {
   const [portalTarget, setPortalTarget] = useState<HTMLElement | null>(() =>
     wideLayoutSupported ? findWideSidebarHeader() : null,
   );
+  const activePortalTarget = state.editorFullscreen ? null : portalTarget;
   const [open, setOpen] = useState(false);
   const [menuPosition, setMenuPosition] = useState({ left: 8, top: 44 });
   const triggerRef = useRef<HTMLButtonElement | null>(null);
@@ -132,16 +133,16 @@ export default function NoteWorkspaceLayoutController() {
   }, [wideLayoutSupported]);
 
   useEffect(() => {
-    if (!portalTarget || !showLayoutControl) return;
-    const previousPosition = portalTarget.style.position;
-    const previousPaddingRight = portalTarget.style.paddingRight;
-    portalTarget.style.position = "relative";
-    portalTarget.style.paddingRight = "5rem";
+    if (!activePortalTarget || !showLayoutControl) return;
+    const previousPosition = activePortalTarget.style.position;
+    const previousPaddingRight = activePortalTarget.style.paddingRight;
+    activePortalTarget.style.position = "relative";
+    activePortalTarget.style.paddingRight = "5rem";
     return () => {
-      portalTarget.style.position = previousPosition;
-      portalTarget.style.paddingRight = previousPaddingRight;
+      activePortalTarget.style.position = previousPosition;
+      activePortalTarget.style.paddingRight = previousPaddingRight;
     };
-  }, [portalTarget, showLayoutControl]);
+  }, [activePortalTarget, showLayoutControl]);
 
   useEffect(() => {
     if (!open) return;
@@ -246,7 +247,7 @@ export default function NoteWorkspaceLayoutController() {
       onClick={toggleMenu}
       className={cn(
         "flex h-8 shrink-0 items-center justify-center rounded-md text-tx-tertiary transition-colors hover:bg-app-hover hover:text-tx-primary",
-        portalTarget
+        activePortalTarget
           ? "absolute right-11 top-1/2 z-10 w-8 -translate-y-1/2"
           : "gap-1 border border-app-border bg-app-elevated px-2 shadow-lg",
       )}
@@ -264,14 +265,14 @@ export default function NoteWorkspaceLayoutController() {
       ) : (
         <PanelLeftClose size={15} />
       )}
-      {!portalTarget && <ChevronDown size={12} />}
+      {!activePortalTarget && <ChevronDown size={12} />}
     </button>
   );
 
   return (
     <>
-      {portalTarget
-        ? createPortal(trigger, portalTarget)
+      {activePortalTarget
+        ? createPortal(trigger, activePortalTarget)
         : createPortal(
           <div className="fixed right-3 top-2 z-[70] hidden md:block">{trigger}</div>,
           document.body,
