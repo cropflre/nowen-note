@@ -3,6 +3,7 @@ import { getDb } from "../db/schema";
 
 type MarkdownViewMode = "source" | "preview" | "split";
 type ReadingDensity = "cozy" | "compact";
+type EditorFontSize = 0 | 14 | 16 | 18 | 20 | 22 | 24;
 type EditorMode = "md" | "tiptap";
 type FolderAutoLockMinutes = 0 | 5 | 15 | 30 | 60;
 type CodeBlockTheme =
@@ -22,6 +23,7 @@ export interface SyncedUserPreferences {
   folderLockOnBackground: boolean;
   showNotesInNotebookTree: boolean;
   readingDensity: ReadingDensity;
+  editorFontSize: EditorFontSize;
   showNoteListUpdatedTime: boolean;
   enableNoteTabs: boolean;
   markdownDefaultViewMode: MarkdownViewMode;
@@ -60,6 +62,7 @@ export const DEFAULT_SYNCED_USER_PREFERENCES: SyncedUserPreferences = {
   folderLockOnBackground: true,
   showNotesInNotebookTree: false,
   readingDensity: "cozy",
+  editorFontSize: 0,
   showNoteListUpdatedTime: true,
   enableNoteTabs: false,
   markdownDefaultViewMode: "source",
@@ -107,6 +110,13 @@ function normalizePreferenceValue<K extends PreferenceKey>(
       ) as SyncedUserPreferences[K];
     case "readingDensity":
       return (value === "cozy" || value === "compact" ? value : fallback) as SyncedUserPreferences[K];
+    case "editorFontSize":
+      return (
+        value === 0 || value === 14 || value === 16 || value === 18 ||
+        value === 20 || value === 22 || value === 24
+          ? value
+          : fallback
+      ) as SyncedUserPreferences[K];
     case "markdownDefaultViewMode":
       return (
         value === "source" || value === "preview" || value === "split"

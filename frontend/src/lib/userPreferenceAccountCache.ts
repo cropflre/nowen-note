@@ -1,4 +1,5 @@
 export type ReadingDensity = "cozy" | "compact";
+export type EditorFontSize = 0 | 14 | 16 | 18 | 20 | 22 | 24;
 export type MarkdownViewMode = "source" | "preview" | "split";
 export type EditorMode = "md" | "tiptap";
 export type FolderAutoLockMinutes = 0 | 5 | 15 | 30 | 60;
@@ -18,6 +19,7 @@ export interface UserPreferences {
   folderAutoLockMinutes: FolderAutoLockMinutes;
   folderLockOnBackground: boolean;
   readingDensity: ReadingDensity;
+  editorFontSize: EditorFontSize;
   showNoteListUpdatedTime: boolean;
   enableNoteTabs: boolean;
   markdownDefaultViewMode: MarkdownViewMode;
@@ -49,6 +51,7 @@ export const DEFAULT_USER_PREFERENCES: UserPreferences = {
   folderAutoLockMinutes: 15,
   folderLockOnBackground: true,
   readingDensity: "cozy",
+  editorFontSize: 0,
   showNoteListUpdatedTime: true,
   enableNoteTabs: false,
   markdownDefaultViewMode: "source",
@@ -110,6 +113,16 @@ export function normalizeUserPreferences(
     readingDensity: raw.readingDensity === "compact" || raw.readingDensity === "cozy"
       ? raw.readingDensity
       : fallback.readingDensity,
+    editorFontSize:
+      raw.editorFontSize === 0 ||
+      raw.editorFontSize === 14 ||
+      raw.editorFontSize === 16 ||
+      raw.editorFontSize === 18 ||
+      raw.editorFontSize === 20 ||
+      raw.editorFontSize === 22 ||
+      raw.editorFontSize === 24
+        ? raw.editorFontSize
+        : fallback.editorFontSize,
     showNoteListUpdatedTime: typeof raw.showNoteListUpdatedTime === "boolean"
       ? raw.showNoteListUpdatedTime
       : legacyShowTime ?? fallback.showNoteListUpdatedTime,

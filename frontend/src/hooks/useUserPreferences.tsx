@@ -32,6 +32,7 @@ import { isMobileLocalMode, MOBILE_LOCAL_USER_ID } from "@/lib/mobileLocalMode";
 
 export type {
   CodeBlockThemeId,
+  EditorFontSize,
   EditorMode,
   FolderAutoLockMinutes,
   MarkdownViewMode,
@@ -130,6 +131,19 @@ export function UserPreferencesProvider({ children }: { children: React.ReactNod
     const cls = "density-compact";
     document.body.classList.toggle(cls, prefs.readingDensity === "compact");
   }, [prefs.readingDensity]);
+
+  // 默认字号只改变编辑器的本地展示，不向笔记内容写入 font-size 标记。
+  useEffect(() => {
+    const root = document.documentElement;
+    if (prefs.editorFontSize === 0) {
+      root.style.removeProperty("--editor-font-size");
+    } else {
+      root.style.setProperty("--editor-font-size", `${prefs.editorFontSize}px`);
+    }
+    return () => {
+      root.style.removeProperty("--editor-font-size");
+    };
+  }, [prefs.editorFontSize]);
 
   // 密码文件夹的闲置/后台锁定策略由账号偏好统一驱动。该 Provider 同时服务
   // Web、Electron 和 Capacitor，因此三端共享同一套生命周期与同步行为。

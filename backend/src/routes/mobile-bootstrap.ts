@@ -9,6 +9,7 @@ const app = new Hono();
 const NOTE_PREVIEW_CHARS = 280;
 
 type ReadingDensity = "cozy" | "compact";
+type EditorFontSize = 0 | 14 | 16 | 18 | 20 | 22 | 24;
 type MarkdownViewMode = "source" | "preview" | "split";
 
 type UserPreferences = {
@@ -17,6 +18,7 @@ type UserPreferences = {
   lockOnOpen: boolean;
   showNotesInNotebookTree: boolean;
   readingDensity: ReadingDensity;
+  editorFontSize: EditorFontSize;
   showNoteListUpdatedTime: boolean;
   enableNoteTabs: boolean;
   markdownDefaultViewMode: MarkdownViewMode;
@@ -28,6 +30,7 @@ const DEFAULT_PREFS: UserPreferences = {
   lockOnOpen: false,
   showNotesInNotebookTree: false,
   readingDensity: "cozy",
+  editorFontSize: 0,
   showNoteListUpdatedTime: true,
   enableNoteTabs: false,
   markdownDefaultViewMode: "source",
@@ -53,6 +56,12 @@ function normalizePreferences(input: unknown): UserPreferences {
     readingDensity: raw.readingDensity === "compact" || raw.readingDensity === "cozy"
       ? raw.readingDensity
       : DEFAULT_PREFS.readingDensity,
+    editorFontSize:
+      raw.editorFontSize === 0 || raw.editorFontSize === 14 || raw.editorFontSize === 16 ||
+      raw.editorFontSize === 18 || raw.editorFontSize === 20 || raw.editorFontSize === 22 ||
+      raw.editorFontSize === 24
+        ? raw.editorFontSize
+        : DEFAULT_PREFS.editorFontSize,
     showNoteListUpdatedTime: typeof raw.showNoteListUpdatedTime === "boolean"
       ? raw.showNoteListUpdatedTime
       : DEFAULT_PREFS.showNoteListUpdatedTime,

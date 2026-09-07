@@ -522,7 +522,7 @@ const searchPanelTheme = EditorView.theme({
 const baseTheme = EditorView.theme({
   "&": {
     height: "100%",
-    fontSize: "15px",
+    fontSize: "var(--editor-font-size, 15px)",
     backgroundColor: "transparent",
   },
   ".cm-scroller": {

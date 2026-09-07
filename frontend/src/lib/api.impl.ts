@@ -1321,6 +1321,7 @@ export const api = {
     outlineDefaultOpen: boolean;
     lockOnOpen: boolean;
     readingDensity: "cozy" | "compact";
+    editorFontSize: 0 | 14 | 16 | 18 | 20 | 22 | 24;
     showNoteListUpdatedTime: boolean;
     enableNoteTabs: boolean;
     markdownDefaultViewMode: "source" | "preview" | "split";
@@ -1331,6 +1332,7 @@ export const api = {
     outlineDefaultOpen: boolean;
     lockOnOpen: boolean;
     readingDensity: "cozy" | "compact";
+    editorFontSize: 0 | 14 | 16 | 18 | 20 | 22 | 24;
     showNoteListUpdatedTime: boolean;
     enableNoteTabs: boolean;
     markdownDefaultViewMode: "source" | "preview" | "split";
@@ -1339,6 +1341,7 @@ export const api = {
     outlineDefaultOpen: boolean;
     lockOnOpen: boolean;
     readingDensity: "cozy" | "compact";
+    editorFontSize: 0 | 14 | 16 | 18 | 20 | 22 | 24;
     showNoteListUpdatedTime: boolean;
     enableNoteTabs: boolean;
     markdownDefaultViewMode: "source" | "preview" | "split";

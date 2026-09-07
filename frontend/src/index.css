@@ -185,6 +185,11 @@ body {
   /* 搴曢儴棰勭暀鍙粴鍔ㄧ殑绌虹櫧锛氬啓鍒版湯灏炬椂浠嶈兘鎶婂厜鏍囪寰€涓婃粴锛岄伩鍏嶈创灞忓箷搴曢儴 */
   padding-bottom: 40vh;
   font-family: var(--editor-font-family);
+  font-size: var(--editor-font-size, inherit);
+}
+
+.nowen-md-preview {
+  font-size: var(--editor-font-size, inherit);
 }
 
 /* 缂栬緫鍣ㄥ唴閾炬帴锛氬彲瑙佺殑棰滆壊 + 涓嬪垝绾?+ 鎸囬拡锛汿ypora 椋庢牸鐨勮交閲忔彁绀?*/

@@ -1535,6 +1535,43 @@ function AppearancePanel() {
           </div>
         </div>
 
+        {/* 编辑器字号：账号级显示偏好，不改写笔记内容中的字号格式 */}
+        <div className="flex items-center justify-between gap-4 p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-800/30 max-sm:flex-col max-sm:items-stretch">
+          <div className="min-w-0">
+            <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
+              {t('settings.editorFontSize', { defaultValue: '编辑器默认字号' })}
+            </span>
+            <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
+              {t('settings.editorFontSizeDesc', { defaultValue: '影响富文本正文、Markdown 源码和预览，仅改变显示，不修改笔记内容。' })}
+            </p>
+          </div>
+          <div
+            role="group"
+            aria-label={t('settings.editorFontSize', { defaultValue: '编辑器默认字号' })}
+            className="grid grid-cols-4 gap-1 p-1 rounded-lg bg-zinc-100 dark:bg-zinc-800 flex-shrink-0 sm:grid-cols-7"
+          >
+            {([
+              { value: 0 as const, label: t('settings.fontSizeDefault', { defaultValue: '默认' }) },
+              ...([14, 16, 18, 20, 22, 24] as const).map(value => ({ value, label: String(value) })),
+            ]).map(option => (
+              <button
+                key={option.value}
+                type="button"
+                aria-pressed={userPrefs.editorFontSize === option.value}
+                onClick={() => setUserPref("editorFontSize", option.value)}
+                className={cn(
+                  "min-w-8 rounded-md px-2 py-1 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary/50 max-sm:min-h-10",
+                  userPrefs.editorFontSize === option.value
+                    ? "bg-white dark:bg-zinc-700 text-accent-primary shadow-sm"
+                    : "text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-300"
+                )}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
         {/*
          * 个人空间导入/导出的功能开关已下沉为 per-user 字段
          * （users.personalExportEnabled / personalImportEnabled，schema v6 起）。

@@ -51,10 +51,11 @@ describe("user preference account cache", () => {
       prefs: {
         ...DEFAULT_USER_PREFERENCES,
         readingDensity: "compact",
+        editorFontSize: 22,
         codeBlockTheme: "nord",
       },
       revision: 3,
-      pending: { readingDensity: "compact", codeBlockTheme: "nord" },
+      pending: { readingDensity: "compact", editorFontSize: 22, codeBlockTheme: "nord" },
     });
     writeAccountPreferenceCache(storage, {
       version: 2,
@@ -70,6 +71,7 @@ describe("user preference account cache", () => {
 
     expect(accountPreferenceStorageKey("user-a")).not.toBe(accountPreferenceStorageKey("user-b"));
     expect(readAccountPreferenceCache(storage, "user-a")?.prefs.readingDensity).toBe("compact");
+    expect(readAccountPreferenceCache(storage, "user-a")?.prefs.editorFontSize).toBe(22);
     expect(readAccountPreferenceCache(storage, "user-a")?.prefs.codeBlockTheme).toBe("nord");
     expect(readAccountPreferenceCache(storage, "user-a")?.prefs.enableNoteTabs).toBe(false);
     expect(readAccountPreferenceCache(storage, "user-b")?.prefs.enableNoteTabs).toBe(true);
@@ -117,12 +119,35 @@ describe("user preference account cache", () => {
   it("drops unknown and sensitive fields from local pending payloads", () => {
     const patch = sanitizeUserPreferencePatch({
       enableNoteTabs: true,
+      editorFontSize: 20,
       codeBlockTheme: "nord",
       apiKey: "secret",
       token: "secret-token",
     });
 
-    expect(patch).toEqual({ enableNoteTabs: true, codeBlockTheme: "nord" });
+    expect(patch).toEqual({ enableNoteTabs: true, editorFontSize: 20, codeBlockTheme: "nord" });
     expect(JSON.stringify(patch)).not.toContain("secret");
+  });
+
+  it("keeps supported editor font sizes and falls back for invalid values", () => {
+    const storage = new MemoryStorage();
+    writeAccountPreferenceCache(storage, {
+      version: 2,
+      userId: "user-a",
+      prefs: { ...DEFAULT_USER_PREFERENCES, editorFontSize: 24 },
+      revision: 1,
+      pending: {},
+    });
+    storage.setItem(accountPreferenceStorageKey("user-b"), JSON.stringify({
+      version: 2,
+      userId: "user-b",
+      prefs: { ...DEFAULT_USER_PREFERENCES, editorFontSize: 48 },
+      revision: 1,
+      pending: { editorFontSize: 48 },
+    }));
+
+    expect(readAccountPreferenceCache(storage, "user-a")?.prefs.editorFontSize).toBe(24);
+    expect(readAccountPreferenceCache(storage, "user-b")?.prefs.editorFontSize).toBe(0);
+    expect(readAccountPreferenceCache(storage, "user-b")?.pending.editorFontSize).toBe(0);
   });
 });
