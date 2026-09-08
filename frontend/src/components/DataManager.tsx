@@ -20,7 +20,7 @@ import {
   PDF_NO_TEXT_LAYER_FLAG, PDF_TOO_LARGE_FLAG, MAX_PDF_SIZE,
 } from "@/lib/importService";
 import { useApp, useAppActions } from "@/store/AppContext";
-import { api, withSudo, getCurrentWorkspace, setCurrentWorkspace, getBaseUrl } from "@/lib/api";
+import { api, withSudo, getCurrentWorkspace, setCurrentWorkspace, getServerUrl } from "@/lib/api";
 import { emitKnowledgeTreeRefresh } from "@/lib/workspaceRefreshBridge";
 import { toast } from "@/lib/toast";
 import { storeAuthTokens } from "@/lib/authSession";
@@ -164,8 +164,8 @@ function SyncCenterCard() {
           <span className="text-zinc-300 dark:text-zinc-700">·</span>
           <span className="min-w-0 truncate">上次同步 {formatSyncTime(summary.lastSyncAt)}</span>
           <span className="hidden sm:inline text-zinc-300 dark:text-zinc-700">·</span>
-          <span className="hidden sm:inline truncate" title={getBaseUrl()}>
-            {getBaseUrl().replace(/\/api$/, "")}
+          <span className="hidden sm:inline truncate" title={getServerUrl()}>
+            {getServerUrl()}
           </span>
         </div>
         <button

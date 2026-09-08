@@ -1,4 +1,4 @@
-import { getCurrentWorkspace, getServerUrl } from "@/lib/api";
+import { getBaseUrl, getCurrentWorkspace } from "@/lib/api";
 import type { KnowledgeTreeNode } from "@/lib/knowledgeTreeApi";
 
 export type NoteTemplateFormat = "tiptap-json" | "markdown";
@@ -17,8 +17,7 @@ export interface NoteTemplateSummary {
 }
 
 function apiBase(): string {
-  const server = (getServerUrl() || "").replace(/\/+$/, "");
-  return server ? `${server}/api/note-templates` : "/api/note-templates";
+  return `${getBaseUrl()}/note-templates`;
 }
 
 function workspaceQuery(): string {

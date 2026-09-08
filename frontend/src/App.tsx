@@ -29,7 +29,7 @@ import { UserPreferencesProvider, useUserPreferences } from "@/hooks/useUserPref
 import { TooltipProvider } from "@/components/ui/tooltip";
 import Toaster from "@/components/Toaster";
 import { User } from "@/types";
-import { getServerUrl, setServerUrl, clearServerUrl, broadcastLogout, initializeServerUrlFromRuntime } from "@/lib/api";
+import { getBaseUrl, getServerUrl, setServerUrl, clearServerUrl, broadcastLogout, initializeServerUrlFromRuntime } from "@/lib/api";
 import { TASK_VIEW_SHELL_CLASS } from "@/lib/taskLayout";
 import { useReminderNotifier } from "@/components/tasks/useReminderNotifier";
 import { resolveEditorFocusLayout } from "@/lib/editorFocusLayout";
@@ -176,7 +176,7 @@ function isNativeClientRuntime(): boolean {
 
 async function fetchWebUiEnabled(): Promise<boolean> {
   try {
-    const baseUrl = getServerUrl() ? `${getServerUrl()}/api` : "/api";
+    const baseUrl = getBaseUrl();
     const res = await fetch(`${baseUrl}/settings`, { cache: "no-store" });
     if (!res.ok) return true;
     const data = await res.json().catch(() => ({}));
@@ -964,7 +964,7 @@ function AuthGate() {
       setIsAuthenticated(false);
       return;
     }
-    const baseUrl = serverUrl ? `${serverUrl}/api` : "/api";
+    const baseUrl = getBaseUrl();
     const cachedUser = loadCachedAuthUser(authScope, token);
     if (cachedUser) {
       setUser(cachedUser);
@@ -1126,8 +1126,7 @@ function AuthGate() {
 
     const renew = async () => {
       if (cancelled) return;
-      const serverUrl = getServerUrl();
-      const baseUrl = serverUrl ? `${serverUrl}/api` : "/api";
+      const baseUrl = getBaseUrl();
       try {
         const token = await refreshAccessToken(baseUrl);
         if (!token) return;

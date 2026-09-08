@@ -2288,6 +2288,11 @@
     "portPlaceholder": "Port",
     "connectButton": "Connect",
     "connectFailed": "Cannot connect to server",
+    "connectionDiagnostics": "Connection probe: API {{apiPath}}; WebSocket {{websocketPath}}; {{mode}}",
+    "standardMode": "standard paths",
+    "proxyMode": "reverse-proxy compatibility paths",
+    "proxyCompatibilityEnabled": "Reverse-proxy path rewriting detected. Compatibility mode is active (API {{apiPath}}, WebSocket {{websocketPath}}).",
+    "websocketUnavailable": "The API is connected, but WebSocket Upgrade is unavailable. Realtime sync may be affected.",
     "disconnect": "Disconnect",
     "note": "Make sure the server is running and reachable from this device"
   },

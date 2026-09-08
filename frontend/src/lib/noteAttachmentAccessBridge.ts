@@ -89,7 +89,7 @@ function isLoopbackHostname(hostname: string): boolean {
 }
 
 function isKnownNowenApiUrl(url: URL): boolean {
-  return /\/api\/(?:notes|attachments|files|shared)(?:\/|$)/.test(url.pathname);
+  return /\/(?:api|publicapi)\/(?:notes|attachments|files|shared)(?:\/|$)/.test(url.pathname);
 }
 
 function currentWindowHttpOrigin(): string {
@@ -149,10 +149,10 @@ function moveUrlToOrigin(url: URL, origin: string): URL {
 }
 
 export function extractAttachmentId(value: string | null | undefined): string | null {
-  if (!value || !value.includes("/api/attachments/")) return null;
+  if (!value || !/\/(?:api|publicapi)\/attachments\//i.test(value)) return null;
   const parsed = asAbsoluteUrl(value);
   if (!parsed) return null;
-  const match = parsed.pathname.match(/\/api\/attachments\/([^/]+)$/i);
+  const match = parsed.pathname.match(/\/(?:api|publicapi)\/attachments\/([^/]+)$/i);
   const id = match?.[1] || "";
   return ATTACHMENT_ID_RE.test(id) ? id : null;
 }
@@ -445,7 +445,7 @@ function rewriteElementAttribute(element: Element, attribute: string): void {
 
 function rewriteSrcset(element: Element): void {
   const raw = element.getAttribute("srcset");
-  if (!raw || !raw.includes("/api/attachments/")) return;
+  if (!raw || !/\/(?:api|publicapi)\/attachments\//i.test(raw)) return;
   const next = raw
     .split(",")
     .map((entry) => {
@@ -519,10 +519,9 @@ function requestMethod(input: RequestInfo | URL, init?: RequestInit): string {
 }
 
 function apiBaseFromRequestUrl(url: URL): string {
-  const marker = "/api/";
-  const index = url.pathname.indexOf(marker);
-  const prefix = index >= 0 ? url.pathname.slice(0, index) : "";
-  return `${url.origin}${prefix}/api`;
+  const match = url.pathname.match(/\/(?:api|publicapi)(?:\/|$)/);
+  const apiPath = match ? url.pathname.slice(0, match.index! + match[0].replace(/\/$/, "").length) : "/api";
+  return `${url.origin}${apiPath}`;
 }
 
 function requestHeaders(input: RequestInfo | URL, init?: RequestInit): Headers {
@@ -640,8 +639,8 @@ export function installNoteAttachmentAccessBridge(): void {
     const credentials = input instanceof Request
       ? input.credentials
       : (init?.credentials || "same-origin");
-    const noteMatch = url.pathname.match(/\/api\/notes\/([^/]+)$/);
-    const shareMatch = url.pathname.match(/\/api\/shared\/([^/]+)\/content$/);
+    const noteMatch = url.pathname.match(/\/(?:api|publicapi)\/notes\/([^/]+)$/);
+    const shareMatch = url.pathname.match(/\/(?:api|publicapi)\/shared\/([^/]+)\/content$/);
 
     let accessPromise: Promise<void> | null = null;
     if (method === "GET" && noteMatch && url.searchParams.get("slim") !== "1") {

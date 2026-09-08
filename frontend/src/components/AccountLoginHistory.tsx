@@ -10,7 +10,7 @@ import {
   updateAccountLoginHistoryServerUrl,
 } from "@/lib/accountLoginHistory";
 import { switchAccountLogin } from "@/lib/accountLoginSwitch";
-import { getServerUrl, setServerUrl } from "@/lib/api";
+import { getServerUrl, setServerUrl, testServerConnection } from "@/lib/api";
 import { normalizeServerBaseUrl } from "@/lib/serverUrl";
 import { toast } from "@/lib/toast";
 import { cn } from "@/lib/utils";
@@ -31,37 +31,7 @@ function initials(item: AccountLoginHistoryItem): string {
 }
 
 async function probeNowenServer(serverUrl: string): Promise<boolean> {
-  const healthUrl = `${serverUrl}/api/health`;
-  const desktopHttp = (window as any).nowenDesktop?.http?.requestJson;
-  if (typeof desktopHttp === "function") {
-    try {
-      const result = await desktopHttp({ url: healthUrl, method: "GET", headers: {} });
-      if (!result?.ok || !Number.isFinite(result.status) || result.status < 200 || result.status >= 300) {
-        return false;
-      }
-      const body = typeof result.body === "string" ? JSON.parse(result.body || "{}") : result.body;
-      return body?.status === "ok";
-    } catch {
-      return false;
-    }
-  }
-
-  const controller = new AbortController();
-  const timer = window.setTimeout(() => controller.abort(), 8000);
-  try {
-    const response = await globalThis.fetch(healthUrl, {
-      method: "GET",
-      cache: "no-store",
-      signal: controller.signal,
-    });
-    if (!response.ok) return false;
-    const body = await response.json().catch(() => null);
-    return body?.status === "ok";
-  } catch {
-    return false;
-  } finally {
-    window.clearTimeout(timer);
-  }
+  return (await testServerConnection(serverUrl)).ok;
 }
 
 export function AccountLoginHistoryList({

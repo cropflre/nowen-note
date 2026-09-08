@@ -128,18 +128,18 @@ function isNativeCapacitorRuntime(): boolean {
 }
 
 function isJsonApiRequest(input: FetchInput, init: FetchInit | undefined, url: URL): boolean {
-  if (!/(?:^|\/)api(?:\/|$)/.test(url.pathname)) return false;
+  if (!/(?:^|\/)(?:api|publicapi)(?:\/|$)/.test(url.pathname)) return false;
 
   const headers = mergeRequestHeaders(input, init);
   const contentType = headers["content-type"] || "";
   const accept = headers.accept || "";
-  if (/text\/event-stream/i.test(accept) || /(?:^|\/)api\/ai(?:\/|$)/.test(url.pathname)) {
+  if (/text\/event-stream/i.test(accept) || /(?:^|\/)(?:api|publicapi)\/ai(?:\/|$)/.test(url.pathname)) {
     return false;
   }
   if (/json/i.test(contentType) || /json/i.test(accept)) return true;
 
   // 这些启动阶段请求直接通过 fetch 发出，不一定携带 JSON header。
-  return /(?:^|\/)api\/(?:auth\/(?:login|verify|refresh|2fa\/verify|register(?:\/config)?)|settings|health|version)\/?$/.test(url.pathname);
+  return /(?:^|\/)(?:api|publicapi)\/(?:auth\/(?:login|verify|refresh|2fa\/verify|register(?:\/config)?)|settings|health|version)\/?$/.test(url.pathname);
 }
 
 /**
@@ -234,7 +234,7 @@ export function installAndroidNativeHttpBridge(
     if (isMobileLocalMode()) {
       try {
         const url = new URL(getRequestUrl(input), window.location.href);
-        if (/(?:^|\/)api(?:\/|$)/.test(url.pathname)) {
+        if (/(?:^|\/)(?:api|publicapi)(?:\/|$)/.test(url.pathname)) {
           throw new MobileLocalModeRemoteRequestError(url.pathname);
         }
       } catch (error) {

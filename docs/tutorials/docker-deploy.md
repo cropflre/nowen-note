@@ -115,6 +115,15 @@ server {
 }
 ```
 
+客户端会先探测标准 `/api`、`/ws` 路径；如果反向代理把请求改写成
+`/public/api`、`/publicapi`（WebSocket 对应 `/public/ws`、`/publicws`），
+会自动识别并缓存本次连接使用的路径。服务器地址仍填写用户实际访问的根地址，
+无需把 `/api` 或 `/public` 手动追加到地址中。
+
+Lucky 等 NAS 反向代理仍建议把站点根路径完整转发到 `nowen-note:3001`，并开启
+WebSocket Upgrade。自动兼容用于承接已有的 `/public` 重写配置；如果连接诊断显示
+“API 正常但 WebSocket 不可用”，请检查代理是否转发 `Upgrade` 和 `Connection` 请求头。
+
 不要为 `nowen-note-updater` 配置反向代理或宿主机端口。
 
 ---

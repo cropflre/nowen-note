@@ -14,7 +14,11 @@
  */
 
 import { clearAuthTokens } from "@/lib/authSession";
-import { inferBrowserServerBaseUrl, normalizeServerBaseUrl } from "@/lib/serverUrl";
+import {
+  getResolvedWebSocketUrl,
+  inferBrowserServerBaseUrl,
+  normalizeServerBaseUrl,
+} from "@/lib/serverUrl";
 import { isMobileLocalMode } from "@/lib/mobileLocalMode";
 
 type Listener = (payload: any) => void;
@@ -70,8 +74,9 @@ class RealtimeClient {
     } else {
       return null;
     }
-    const wsOrigin = origin.replace(/^http/, "ws");
-    return `${wsOrigin}${WS_PATH}?token=${encodeURIComponent(token)}`;
+    const resolvedWebSocketUrl = getResolvedWebSocketUrl(origin)
+      || `${origin.replace(/^http/, "ws")}${WS_PATH}`;
+    return `${resolvedWebSocketUrl}?token=${encodeURIComponent(token)}`;
   }
 
   connect() {

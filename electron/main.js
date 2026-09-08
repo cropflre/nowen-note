@@ -404,7 +404,7 @@ function waitForBackendReady(port, timeoutMs = 30000) {
 //
 // 与 waitForBackendReady 不同：
 //   - 远端可能是 https 自签证书，要走 https 模块；
-//   - 路径优先 /api/health，失败兜底 /；
+//   - 标准 /api/health 失败后尝试两种常见 /public 改写；
 //   - 失败时不立刻 retry，而是给较长间隔（1s），避免在网络中断时狂打目标服务器。
 function waitForRemoteReady(remoteUrl, timeoutMs = 15000) {
   if (!remoteUrl) {
@@ -426,37 +426,58 @@ function waitForRemoteReady(remoteUrl, timeoutMs = 15000) {
     rejectUnauthorized: false, // 容忍自签
   };
   const pathPrefix = parsed.pathname.replace(/\/+$/, "");
+  const healthPaths = [
+    `${pathPrefix}/api/health`,
+    `${pathPrefix}/public/api/health`,
+    `${pathPrefix}/publicapi/health`,
+  ];
 
   const start = Date.now();
   return new Promise((resolve, reject) => {
     let lastErr = null;
-    const tick = () => {
-      const req = lib.get({ ...baseOpts, path: `${pathPrefix}/api/health` }, (res) => {
+    const tryPath = (index) => {
+      let settled = false;
+      const next = () => {
+        if (settled) return;
+        settled = true;
+        if (index + 1 < healthPaths.length) tryPath(index + 1);
+        else retry();
+      };
+      const req = lib.get({ ...baseOpts, path: healthPaths[index] }, (res) => {
         let body = "";
         res.setEncoding("utf8");
         res.on("data", (chunk) => { if (body.length < 4096) body += chunk; });
         res.on("end", () => {
+          if (settled) return;
           let payload = null;
           try { payload = JSON.parse(body); } catch { /* 门户 HTML / 反代错误 */ }
-          if (res.statusCode >= 200 && res.statusCode < 300 && payload?.status === "ok") {
+          const isNowenPayload = payload?.service === "nowen-note" || typeof payload?.version === "string";
+          if (
+            res.statusCode >= 200
+            && res.statusCode < 300
+            && payload?.status === "ok"
+            && isNowenPayload
+          ) {
+            settled = true;
             return resolve();
           }
           lastErr = new Error(
             `HTTP ${res.statusCode}，未检测到 Nowen Note API（可能仍是 NAS 门户或反代路径不正确）`,
           );
-          retry();
+          next();
         });
       });
       req.on("error", (e) => {
         lastErr = e;
-        retry();
+        next();
       });
       req.on("timeout", () => {
         req.destroy();
         lastErr = new Error("连接超时");
-        retry();
+        next();
       });
     };
+    const tick = () => tryPath(0);
     const retry = () => {
       if (Date.now() - start > timeoutMs) {
         return reject(

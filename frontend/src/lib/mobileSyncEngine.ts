@@ -1,6 +1,7 @@
 import type { NativeDatabase } from "./nativeDatabase";
 import type { NativeAttachmentStore } from "./nativeAttachmentStore";
 import { newLocalId } from "./localRepository";
+import { getResolvedApiBaseUrl } from "./serverUrl";
 
 type ScopeStatus = "active" | "replan_required" | "access_revoked";
 type EntityType = "notebook" | "note" | "tag" | "note_tag" | "favorite" | "attachment"
@@ -198,7 +199,7 @@ export class MobileSyncEngine {
   private async request<T>(path: string, init: RequestInit = {}): Promise<T> {
     let response: Response;
     try {
-      response = await fetch(`${this.options.serverUrl.replace(/\/+$/, "")}/api/sync/v2${path}`, {
+      response = await fetch(`${getResolvedApiBaseUrl(this.options.serverUrl)}/sync/v2${path}`, {
         ...init,
         headers: {
           Authorization: `Bearer ${this.options.token}`,
@@ -553,7 +554,7 @@ export class MobileSyncEngine {
       SELECT id,mimeType,size,hash,transferStatus FROM attachments WHERE scopeKey=?
         AND transferStatus IN ('pending_upload','failed','pending_download') ORDER BY updatedAt LIMIT 4`,[scope.scopeKey]);
     for(const row of rows){
-      const url=`${this.options.serverUrl.replace(/\/+$/,'')}/api/sync/v2/blob/${encodeURIComponent(row.id)}?scopeKey=${encodeURIComponent(scope.scopeKey)}`;
+      const url=`${getResolvedApiBaseUrl(this.options.serverUrl)}/sync/v2/blob/${encodeURIComponent(row.id)}?scopeKey=${encodeURIComponent(scope.scopeKey)}`;
       try{
         if(row.transferStatus==="pending_download"){
           const response=await fetch(url,{headers:{Authorization:`Bearer ${this.options.token}`}});

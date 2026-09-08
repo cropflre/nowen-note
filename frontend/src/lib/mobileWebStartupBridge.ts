@@ -61,10 +61,9 @@ function mergeHeaders(input: FetchInput, init?: FetchInit): Headers {
 }
 
 function apiPrefix(url: URL): string | null {
-  const marker = "/api/";
-  const index = url.pathname.lastIndexOf(marker);
-  if (index < 0) return null;
-  return url.pathname.slice(0, index + marker.length - 1);
+  const match = url.pathname.match(/\/(?:api|publicapi)(?:\/|$)/);
+  if (!match || match.index === undefined) return null;
+  return url.pathname.slice(0, match.index + match[0].replace(/\/$/, "").length);
 }
 
 function apiRelativePath(url: URL): string | null {

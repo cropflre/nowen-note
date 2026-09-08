@@ -1,4 +1,5 @@
-import { setServerUrl } from "@/lib/api";
+import { setServerUrl, testServerConnection } from "@/lib/api";
+import { getResolvedApiBaseUrl } from "@/lib/serverUrl";
 import { getDeviceId } from "@/lib/deviceId";
 import { loadRememberedCredentials } from "@/lib/rememberLogin";
 import type { User } from "@/types";
@@ -75,7 +76,7 @@ async function retryWithRememberedPassword(
   }
 
   try {
-    const response = await fetch(`${account.serverUrl}/api/auth/login`, {
+    const response = await fetch(`${getResolvedApiBaseUrl(account.serverUrl)}/auth/login`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -95,6 +96,9 @@ async function retryWithRememberedPassword(
 }
 
 export async function switchAccountLogin(account: AccountLoginHistoryItem): Promise<AccountLoginSwitchResult> {
+  const probe = await testServerConnection(account.serverUrl);
+  if (!probe.ok) return { status: "network_error", message: probe.error };
+  const apiBaseUrl = probe.apiBaseUrl || getResolvedApiBaseUrl(account.serverUrl);
   const loaded = await loadAccountLoginToken(account.id);
   if (!loaded.ok || !loaded.token) {
     if (loaded.error === "TOKEN_UNAVAILABLE") return retryWithRememberedPassword(account);
@@ -106,7 +110,7 @@ export async function switchAccountLogin(account: AccountLoginHistoryItem): Prom
   try {
     // /api/me 经过全局 JWT + session 中间件，会正确拒绝已被下线的 jti。
     // /api/auth/verify 在旧服务端只校验 JWT 签名，会把已撤销会话误判为有效。
-    const response = await fetch(`${account.serverUrl}/api/me`, {
+    const response = await fetch(`${apiBaseUrl}/me`, {
       headers: { Authorization: `Bearer ${loaded.token}` },
       signal: controller.signal,
     });
@@ -118,12 +122,12 @@ export async function switchAccountLogin(account: AccountLoginHistoryItem): Prom
       }
       if (loaded.refreshToken) {
         try {
-          const token = await refreshAccessToken(`${account.serverUrl}/api`, {
+          const token = await refreshAccessToken(apiBaseUrl, {
             refreshToken: loaded.refreshToken,
             persist: false,
           });
           if (token) {
-            const retry = await fetch(`${account.serverUrl}/api/me`, {
+            const retry = await fetch(`${apiBaseUrl}/me`, {
               headers: { Authorization: `Bearer ${token}` },
               signal: controller.signal,
             });

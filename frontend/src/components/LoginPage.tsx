@@ -10,7 +10,7 @@ import {
   setServerUrl,
   testServerConnection,
 } from "@/lib/api";
-import { buildServerUrl, isLanServerHostname, parseServerUrl, type ServerAddressParts } from "@/lib/serverUrl";
+import { buildServerUrl, getResolvedApiBaseUrl, isLanServerHostname, parseServerUrl, type ServerAddressParts } from "@/lib/serverUrl";
 import ServerAddressInput from "@/components/ServerAddressInput";
 import LanDiscoveryPanel from "@/components/LanDiscoveryPanel";
 import { useKeyboardLayout } from "@/hooks/useCapacitor";
@@ -73,6 +73,7 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
     path: "",
   });
   const [serverStatus, setServerStatus] = useState<"idle" | "checking" | "ok" | "fail">("idle");
+  const [serverNotice, setServerNotice] = useState("");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -299,9 +300,25 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
       return;
     }
     setServerStatus("checking");
+    setServerNotice("");
     const result = await testServerConnection(url);
     setServerStatus(result.ok ? "ok" : "fail");
     if (result.ok) {
+      const notices = [
+        t("server.connectionDiagnostics", {
+          apiPath: result.apiPath,
+          websocketPath: result.websocketPath,
+          mode: t(result.proxyCompatibilityMode === "standard" ? "server.standardMode" : "server.proxyMode"),
+        }),
+        result.proxyCompatibilityMode && result.proxyCompatibilityMode !== "standard"
+          ? t("server.proxyCompatibilityEnabled", {
+            apiPath: result.proxyRewrittenApiPath || result.apiPath,
+            websocketPath: result.proxyRewrittenWebsocketPath || result.websocketPath,
+          })
+          : "",
+        result.websocketOk === false ? t("server.websocketUnavailable") : "",
+      ].filter(Boolean);
+      setServerNotice(notices.join(" "));
       setServerUrl(url);
       localStorage.setItem("nowen-server-url-last", url);
       fetchRegisterConfig(url).then((cfg) => setAllowRegistration(cfg.allowRegistration)).catch(() => {});
@@ -348,6 +365,7 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
       return null;
     }
     setServerStatus("checking");
+    setServerNotice("");
     const result = await testServerConnection(url);
     if (!result.ok) {
       if (isDesktopClient && isUgreenRemoteAccessUrl(url)) {
@@ -359,6 +377,21 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
       return null;
     }
     setServerStatus("ok");
+    const notices = [
+      t("server.connectionDiagnostics", {
+        apiPath: result.apiPath,
+        websocketPath: result.websocketPath,
+        mode: t(result.proxyCompatibilityMode === "standard" ? "server.standardMode" : "server.proxyMode"),
+      }),
+      result.proxyCompatibilityMode && result.proxyCompatibilityMode !== "standard"
+        ? t("server.proxyCompatibilityEnabled", {
+          apiPath: result.proxyRewrittenApiPath || result.apiPath,
+          websocketPath: result.proxyRewrittenWebsocketPath || result.websocketPath,
+        })
+        : "",
+      result.websocketOk === false ? t("server.websocketUnavailable") : "",
+    ].filter(Boolean);
+    setServerNotice(notices.join(" "));
     setServerUrl(url);
     localStorage.setItem("nowen-server-url-last", url);
     return url;
@@ -446,7 +479,7 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
         return;
       }
 
-      loginUrl = baseUrl ? `${baseUrl}/api/auth/login` : "/api/auth/login";
+      loginUrl = `${getResolvedApiBaseUrl(baseUrl)}/auth/login`;
       const { getDeviceId } = await import("@/lib/deviceId");
       const res = await fetch(loginUrl, {
         method: "POST",
@@ -482,7 +515,7 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
     } catch (err: any) {
       const message = err?.message || String(err || t("auth.networkError"));
       console.error("[login] request failed", { url: loginUrl || "(resolveBaseUrl)", error: message });
-      setError(`${message}（请检查服务器地址、CORS/CSP、证书或 /api 反代）`);
+      setError(`${message}（请检查服务器地址、CORS/CSP、证书或 API/WebSocket 反向代理）`);
     } finally {
       setIsLoading(false);
     }
@@ -506,7 +539,7 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
     try {
       const baseUrl = twoFactorBaseUrl || (isClientMode ? buildServerUrl(serverParts) : "");
       const verifyUrl = baseUrl
-        ? `${baseUrl}/api/auth/2fa/verify`
+        ? `${getResolvedApiBaseUrl(baseUrl)}/auth/2fa/verify`
         : "/api/auth/2fa/verify";
       const { getDeviceId } = await import("@/lib/deviceId");
       const res = await fetch(verifyUrl, {
@@ -566,6 +599,7 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
     clearAuthTokens();
     setServerParts({ protocol: "http", host: "", port: "", path: "" });
     setServerStatus("idle");
+    setServerNotice("");
     setUsername("");
     setPassword("");
     setConfirmPassword("");
@@ -764,6 +798,7 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
                     onChange={(next) => {
                       setServerParts(next);
                       if (serverStatus !== "idle") setServerStatus("idle");
+                      if (serverNotice) setServerNotice("");
                     }}
                     onHostBlur={handleServerBlur}
                     autoFocus={isClientMode}
@@ -771,12 +806,18 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
                     rightSlot={serverStatusIcon()}
                   />
                   <p className="text-xs text-zinc-400 dark:text-zinc-500">{t("auth.serverHint")}</p>
+                  {serverNotice && (
+                    <p className="rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-2 text-xs leading-5 text-amber-700 dark:border-amber-500/25 dark:bg-amber-500/10 dark:text-amber-300">
+                      {serverNotice}
+                    </p>
+                  )}
                   {showLanDiscovery && (
                     <LanDiscoveryPanel
                       currentHostIsEmpty={!serverParts.host.trim()}
                       onSelect={(next) => {
                         setServerParts(next);
                         setServerStatus("idle");
+                        setServerNotice("");
                       }}
                     />
                   )}

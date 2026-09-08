@@ -1,4 +1,4 @@
-import { getCurrentWorkspace, getServerUrl } from "@/lib/api";
+import { getBaseUrl, getCurrentWorkspace } from "@/lib/api";
 import { applyKnowledgeTreeSort } from "@/lib/knowledgeTreeSort";
 
 export type KnowledgeNodeType = "folder" | "note" | "markdown" | "word" | "mindmap" | "file";
@@ -73,8 +73,7 @@ export interface KnowledgePermissionsResponse {
 }
 
 function apiBase(): string {
-  const server = (getServerUrl() || "").replace(/\/+$/, "");
-  return server ? `${server}/api/knowledge-tree` : "/api/knowledge-tree";
+  return `${getBaseUrl()}/knowledge-tree`;
 }
 
 function token(): string {

@@ -1,4 +1,4 @@
-import { getServerUrl } from "@/lib/api";
+import { getBaseUrl } from "@/lib/api";
 import { registerAttachmentAccessUrls } from "@/lib/noteAttachmentAccessBridge";
 import { normalizeShareCommentTimestamp } from "@/lib/shareCommentTime";
 
@@ -116,8 +116,7 @@ export interface ManagedPublicationComment extends PublicComment {
 }
 
 function apiBase(): string {
-  const server = (getServerUrl() || "").replace(/\/+$/, "");
-  return server ? `${server}/api` : "/api";
+  return getBaseUrl();
 }
 
 function loginToken(): string {

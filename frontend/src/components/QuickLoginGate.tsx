@@ -33,6 +33,7 @@ import { setServerUrl, getServerUrl } from "@/lib/api";
 import { hasActiveTwoFactorLoginChallenge } from "@/lib/twoFactorLoginChallenge";
 import type { User } from "@/types";
 import { fetchWithAuthRefresh, getAccessToken, storeAuthTokens } from "@/lib/authSession";
+import { getResolvedApiBaseUrl } from "@/lib/serverUrl";
 
 interface Props {
   /** 是否处于客户端模式（Electron / Capacitor / 曾配置过服务器地址） */
@@ -131,9 +132,8 @@ export default function QuickLoginGate({ isClientMode, onSettled }: Props) {
       }
 
       const baseUrl = ssServer || lsServer || "";
-      const verifyUrl = baseUrl
-        ? `${baseUrl}/api/me`
-        : "/api/me";
+      const apiBaseUrl = getResolvedApiBaseUrl(baseUrl);
+      const verifyUrl = `${apiBaseUrl}/me`;
 
       try {
         const ctrl = new AbortController();
@@ -142,7 +142,7 @@ export default function QuickLoginGate({ isClientMode, onSettled }: Props) {
         const res = await fetchWithAuthRefresh(verifyUrl, {
           headers: { Authorization: `Bearer ${result.token}` },
           signal: ctrl.signal,
-        }, baseUrl ? `${baseUrl}/api` : "/api");
+        }, apiBaseUrl);
         clearTimeout(timer);
         if (!res.ok) {
           // 401 / 403：token 已被吊销 / 改密。secure storage 凭据失效 → 清空

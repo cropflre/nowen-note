@@ -2295,6 +2295,11 @@
     "portPlaceholder": "端口",
     "connectButton": "连接",
     "connectFailed": "无法连接到服务器",
+    "connectionDiagnostics": "连接探测：API {{apiPath}}；WebSocket {{websocketPath}}；{{mode}}",
+    "standardMode": "标准路径",
+    "proxyMode": "反向代理兼容路径",
+    "proxyCompatibilityEnabled": "检测到反向代理路径重写，已自动启用兼容模式（API {{apiPath}}，WebSocket {{websocketPath}}）",
+    "websocketUnavailable": "API 已连接，但 WebSocket Upgrade 不可用，实时同步可能受影响。",
     "disconnect": "断开",
     "note": "请确保服务器已启动且网络可达，客户端将通过 HTTP 连接到服务器"
   },

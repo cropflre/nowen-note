@@ -56,9 +56,9 @@ export function resolveAttachmentDownloadUrl(url: string, publicOrigin = ""): st
     const parsed = new URL(flagged, fallback);
     if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return flagged;
 
-    const attachmentPathIndex = parsed.pathname.indexOf("/api/attachments/");
-    if (attachmentPathIndex < 0) return flagged;
-    const attachmentPath = parsed.pathname.slice(attachmentPathIndex);
+    const attachmentPathMatch = parsed.pathname.match(/\/(?:public\/api|publicapi|api)\/attachments\//);
+    if (!attachmentPathMatch || attachmentPathMatch.index === undefined) return flagged;
+    const attachmentPath = parsed.pathname.slice(attachmentPathMatch.index);
     return `${normalizedPublicOrigin}${attachmentPath}${parsed.search}${parsed.hash}`;
   } catch {
     return flagged;

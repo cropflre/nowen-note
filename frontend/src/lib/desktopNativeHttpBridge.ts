@@ -71,13 +71,13 @@ function isJsonApiRequest(input: FetchInput, init?: FetchInit): boolean {
 
   try {
     const url = new URL(getRequestUrl(input), window.location.href);
-    if (!/^https?:$/.test(url.protocol) || !/(?:^|\/)api(?:\/|$)/.test(url.pathname)) return false;
+    if (!/^https?:$/.test(url.protocol) || !/(?:^|\/)(?:api|publicapi)(?:\/|$)/.test(url.pathname)) return false;
     const headers = mergeRequestHeaders(input, init);
     const contentType = headers["content-type"] || "";
     const accept = headers.accept || "";
-    if (/text\/event-stream/i.test(accept) || /(?:^|\/)api\/ai(?:\/|$)/.test(url.pathname)) return false;
+    if (/text\/event-stream/i.test(accept) || /(?:^|\/)(?:api|publicapi)\/ai(?:\/|$)/.test(url.pathname)) return false;
     if (/json/i.test(contentType) || /json/i.test(accept)) return true;
-    return /(?:^|\/)api\/(?:auth\/(?:login|refresh|2fa\/verify|register(?:\/config)?)|settings|health|version)\/?$/.test(url.pathname);
+    return /(?:^|\/)(?:api|publicapi)\/(?:auth\/(?:login|refresh|2fa\/verify|register(?:\/config)?)|settings|health|version)\/?$/.test(url.pathname);
   } catch {
     return false;
   }

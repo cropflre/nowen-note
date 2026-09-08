@@ -97,6 +97,51 @@ import {
 
 const app = new Hono();
 
+function normalizeProxyCompatibilityPath(pathname: string): string {
+  if (pathname === "/public/api" || pathname.startsWith("/public/api/")) {
+    return pathname.slice("/public".length) || "/api";
+  }
+  if (pathname === "/publicapi" || pathname.startsWith("/publicapi/")) {
+    return `/api${pathname.slice("/publicapi".length)}`;
+  }
+  return pathname;
+}
+
+// Lucky/Nginx 的 proxy_pass .../public 可能把 /api/* 改写成
+// /public/api/* 或 /publicapi/*。只接受这两个精确前缀并重新进入原 API
+// 路由，确保 JWT、ACL、限流和公开/私有路由边界全部保持不变。
+app.use("*", async (c, next) => {
+  const target = new URL(c.req.url);
+  const normalizedPath = normalizeProxyCompatibilityPath(target.pathname);
+  if (normalizedPath === target.pathname) {
+    await next();
+    return;
+  }
+
+  const compatibilityPath = target.pathname.startsWith("/public/api")
+    ? "/public/api"
+    : "/publicapi";
+  target.pathname = normalizedPath;
+  const init: RequestInit & { duplex?: "half" } = {
+    method: c.req.raw.method,
+    headers: c.req.raw.headers,
+    redirect: c.req.raw.redirect,
+    signal: c.req.raw.signal,
+  };
+  if (c.req.raw.method !== "GET" && c.req.raw.method !== "HEAD") {
+    init.body = c.req.raw.body;
+    init.duplex = "half";
+  }
+  const response = await app.fetch(new Request(target.toString(), init));
+  const headers = new Headers(response.headers);
+  headers.set("X-Nowen-Proxy-Compatibility-Path", compatibilityPath);
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+});
+
 app.use("*", logger());
 
 const isProd = process.env.NODE_ENV === "production";
@@ -108,6 +153,7 @@ app.use("*", cors({
   },
   allowMethods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
   allowHeaders: ["Content-Type", "X-User-Id", "Authorization", "X-Sudo-Token", "X-Folder-Unlock-Tokens", "X-Connection-Id", "X-Share-Session", "X-Requested-With", "X-Request-Id", "X-Export-Filename"],
+  exposeHeaders: ["X-Nowen-Proxy-Compatibility-Path"],
   credentials: true,
 }));
 
@@ -275,7 +321,11 @@ app.route("/api/shared", sharedRouter);
 
 // 健康检查（无需 JWT）
 // version 字段动态读取根 package.json / ENV，避免常年停在 1.0.0 误导运维。
-app.get("/api/health", (c) => c.json({ status: "ok", version: resolveAppVersion() }));
+app.get("/api/health", (c) => c.json({
+  status: "ok",
+  service: "nowen-note",
+  version: resolveAppVersion(),
+}));
 
 // 版本信息 & GitHub 最新 release（无需 JWT）
 //

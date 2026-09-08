@@ -40,8 +40,14 @@ import {
 } from "@/lib/offlineRead";
 
 import {
+  buildServerPathCandidates as _buildServerPathCandidates,
+  cacheResolvedServerConnection as _cacheResolvedServerConnection,
+  clearResolvedServerConnection as _clearResolvedServerConnection,
+  getResolvedApiBaseUrl as _getResolvedApiBaseUrl,
   inferBrowserServerBaseUrl as _inferBrowserServerBaseUrl,
   normalizeServerBaseUrl as _normalizeBase,
+  type ProxyCompatibilityMode,
+  type ServerPathCandidate,
 } from "@/lib/serverUrl";
 import { withShareSessionHeader } from "@/lib/shareSession";
 import { clearFolderUnlockTokens, folderUnlockRequestHeaders } from "@/lib/knowledgeTreePassword";
@@ -190,6 +196,7 @@ export function setServerUrl(url: string) {
  */
 export function clearServerUrl() {
   try { localStorage.removeItem(SERVER_URL_KEY); } catch { /* ignore */ }
+  _clearResolvedServerConnection();
   try {
     window.dispatchEvent(new CustomEvent(SERVER_URL_CHANGED_EVENT, { detail: { serverUrl: "" } }));
   } catch { /* ignore */ }
@@ -228,7 +235,7 @@ export function initializeServerUrlFromRuntime(): void {
 
 export function getBaseUrl(): string {
   const server = getServerUrl();
-  return server ? `${server}/api` : "/api";
+  return _getResolvedApiBaseUrl(server);
 }
 
 export function isNativeCapacitor(): boolean {
@@ -557,6 +564,9 @@ export function resolveAttachmentUrl(src: string | null | undefined): string {
 
   // 归一化：确保以 / 开头
   const normalized = src.startsWith("/") ? src : `/${src}`;
+  if (normalized === "/api" || normalized.startsWith("/api/")) {
+    return resolveAttachmentAccessUrl(`${getBaseUrl()}${normalized.slice(4)}`);
+  }
   return resolveAttachmentAccessUrl(`${base}${normalized}`);
 }
 
@@ -1424,7 +1434,7 @@ export const api = {
 
   // 注册配置（公开读，管理员写）
   getRegisterConfig: async (baseUrlOverride?: string): Promise<{ allowRegistration: boolean }> => {
-    const base = baseUrlOverride ? `${baseUrlOverride.replace(/\/+$/, "")}/api` : getBaseUrl();
+    const base = baseUrlOverride ? _getResolvedApiBaseUrl(baseUrlOverride) : getBaseUrl();
     const res = await fetch(`${base}/auth/register/config`);
     if (!res.ok) return { allowRegistration: true };
     return res.json();
@@ -4741,34 +4751,172 @@ export async function withSudo<T>(
   return { result, sudoToken };
 }
 
-// 测试服务器连接（不需要 token）
-export async function testServerConnection(serverUrl: string): Promise<{ ok: boolean; error?: string }> {
-  const base = _normalizeBase(serverUrl);
-  if (!base) return { ok: false, error: "服务器地址格式无效" };
-  const url = `${base}/api/health`;
+export interface ServerProbeResult {
+  ok: boolean;
+  error?: string;
+  serverBaseUrl?: string;
+  apiBaseUrl?: string;
+  websocketUrl?: string;
+  apiPath?: string;
+  websocketPath?: string;
+  proxyCompatibilityMode?: ProxyCompatibilityMode;
+  proxyRewrittenApiPath?: string;
+  proxyRewrittenWebsocketPath?: string;
+  apiOk?: boolean;
+  websocketOk?: boolean;
+}
+
+interface HealthProbeAttempt {
+  ok: boolean;
+  error?: string;
+  htmlResponse?: boolean;
+  proxyRewrittenApiPath?: string;
+}
+
+async function probeHealthCandidate(candidate: ServerPathCandidate): Promise<HealthProbeAttempt> {
+  const url = `${candidate.apiBaseUrl}/health`;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 5000);
   try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 5000);
-    const res = await fetch(url, { signal: controller.signal });
-    clearTimeout(timeout);
+    const res = await globalThis.fetch(url, { signal: controller.signal, redirect: "manual" });
     const contentType = res.headers.get("content-type") || "";
     const text = await res.text();
     if (!res.ok) return { ok: false, error: `HTTP ${res.status}` };
     if (contentType.includes("text/html") || /^\s*</.test(text)) {
-      return {
-        ok: false,
-        error: "该地址返回的是 NAS 门户页面，不是可供客户端直连的 Nowen Note API",
-      };
+      return { ok: false, htmlResponse: true, error: "返回了网页 HTML，而不是 Nowen Note API" };
     }
-    const data = JSON.parse(text);
-    if (data.status === "ok") return { ok: true };
-    return { ok: false, error: "Invalid response" };
-  } catch (e: any) {
-    const message = e?.message || String(e || "连接失败");
-    console.error("[api] testServerConnection failed", { url, error: message });
-    if (e?.name === "AbortError") return { ok: false, error: `连接超时：${url}` };
-    return { ok: false, error: `${message}（请求：${url}；请检查服务器地址、CORS/CSP、证书或 /api 反代）` };
+    let data: unknown;
+    try { data = JSON.parse(text); } catch { return { ok: false, error: "返回内容不是有效 JSON" }; }
+    const payload = data as { status?: unknown; service?: unknown; version?: unknown } | null;
+    if (
+      !payload
+      || payload.status !== "ok"
+      || (payload.service !== "nowen-note" && typeof payload.version !== "string")
+    ) {
+      return { ok: false, error: "JSON 响应不符合 Nowen Note 健康检查格式" };
+    }
+    return {
+      ok: true,
+      proxyRewrittenApiPath: res.headers.get("x-nowen-proxy-compatibility-path") || undefined,
+    };
+  } catch (error: any) {
+    if (error?.name === "AbortError") return { ok: false, error: "连接超时" };
+    return { ok: false, error: error?.message || "连接失败" };
+  } finally {
+    clearTimeout(timeout);
   }
+}
+
+async function probeWebSocketCandidate(websocketUrl: string): Promise<string | null> {
+  if (typeof WebSocket === "undefined") return null;
+  return new Promise<string | null>((resolve) => {
+    let settled = false;
+    let socket: WebSocket | null = null;
+    const finish = (acceptedPath: string | null) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      try { socket?.close(); } catch { /* ignore */ }
+      resolve(acceptedPath);
+    };
+    const timeout = setTimeout(() => finish(null), 2500);
+    try {
+      socket = new WebSocket(`${websocketUrl}?probe=1`);
+      socket.addEventListener("message", (event) => {
+        try {
+          const payload = JSON.parse(typeof event.data === "string" ? event.data : "");
+          const acceptedPath = typeof payload?.path === "string" ? payload.path : "";
+          finish(
+            payload?.type === "probe"
+              && payload?.status === "ok"
+              && payload?.service === "nowen-note"
+              && ["/ws", "/public/ws", "/publicws"].includes(acceptedPath)
+              ? acceptedPath
+              : null,
+          );
+        } catch {
+          finish(null);
+        }
+      });
+      socket.addEventListener("error", () => finish(null));
+      socket.addEventListener("close", () => finish(null));
+    } catch {
+      finish(null);
+    }
+  });
+}
+
+// 测试服务器连接（不需要 token），标准路径失败后才进入反向代理兼容探测。
+export async function testServerConnection(serverUrl: string): Promise<ServerProbeResult> {
+  const base = _normalizeBase(serverUrl);
+  if (!base) return { ok: false, error: "服务器地址格式无效" };
+
+  const candidates = _buildServerPathCandidates(base);
+  const errors: string[] = [];
+  let sawHtml = false;
+  let resolved: ServerPathCandidate | null = null;
+  let proxyRewrittenApiPath: string | undefined;
+  for (const candidate of candidates) {
+    const attempt = await probeHealthCandidate(candidate);
+    if (attempt.ok) {
+      resolved = candidate;
+      proxyRewrittenApiPath = attempt.proxyRewrittenApiPath;
+      break;
+    }
+    sawHtml ||= attempt.htmlResponse === true;
+    errors.push(`${candidate.apiPath}: ${attempt.error || "不可用"}`);
+  }
+
+  if (!resolved) {
+    const error = sawHtml
+      ? "检测到可访问的网页，但标准及兼容 API 路径均不可用。请检查反向代理是否转发 API 请求。"
+      : `未检测到 Nowen Note API（${errors.join("；")}）`;
+    console.error("[api] server probe failed", { serverUrl: base, errors });
+    return { ok: false, apiOk: false, websocketOk: false, error };
+  }
+
+  const websocketCandidates = [
+    resolved,
+    ...candidates.filter((candidate) => candidate.mode !== resolved?.mode),
+  ];
+  let resolvedWebSocket = resolved;
+  let proxyRewrittenWebsocketPath: string | undefined;
+  let websocketOk = false;
+  for (const candidate of websocketCandidates) {
+    const acceptedPath = await probeWebSocketCandidate(candidate.websocketUrl);
+    if (acceptedPath) {
+      resolvedWebSocket = candidate;
+      proxyRewrittenWebsocketPath = acceptedPath;
+      websocketOk = true;
+      break;
+    }
+  }
+
+  _cacheResolvedServerConnection({
+    ...resolved,
+    websocketUrl: resolvedWebSocket.websocketUrl,
+    websocketPath: resolvedWebSocket.websocketPath,
+  });
+
+  const detectedCompatibilityMode: ProxyCompatibilityMode = proxyRewrittenApiPath === "/public/api"
+    ? "public-prefix"
+    : proxyRewrittenApiPath === "/publicapi"
+      ? "public-concat"
+      : resolved.mode;
+
+  return {
+    ok: true,
+    serverBaseUrl: resolved.serverBaseUrl,
+    apiBaseUrl: resolved.apiBaseUrl,
+    websocketUrl: resolvedWebSocket.websocketUrl,
+    apiPath: resolved.apiPath,
+    websocketPath: resolvedWebSocket.websocketPath,
+    proxyCompatibilityMode: detectedCompatibilityMode,
+    proxyRewrittenApiPath,
+    proxyRewrittenWebsocketPath,
+    apiOk: true,
+    websocketOk,
+  };
 }
 
 /** 诊断结果 */
@@ -4801,7 +4949,28 @@ export async function diagnoseConnection(serverUrl: string): Promise<DiagnosisRe
   }
   results.push({ step: "url_format", ok: true, detail: base });
 
-  const baseUrl = `${base}/api`;
+  const probe = await testServerConnection(base);
+  if (!probe.ok) {
+    results.push({ step: "api_health", ok: false, detail: probe.error || "API 不可用" });
+    return results;
+  }
+  results.push({ step: "api_health", ok: true, detail: `API 正常：${probe.apiPath}` });
+  results.push({
+    step: "websocket",
+    ok: probe.websocketOk === true,
+    detail: probe.websocketOk
+      ? `WebSocket 正常：${probe.proxyRewrittenWebsocketPath || probe.websocketPath}`
+      : "API 正常，但 WebSocket Upgrade 不可用；登录可继续，实时同步将受影响",
+  });
+  if (probe.proxyCompatibilityMode && probe.proxyCompatibilityMode !== "standard") {
+    results.push({
+      step: "proxy_compatibility",
+      ok: true,
+      detail: `检测到反向代理路径重写，已启用兼容模式：${probe.proxyRewrittenApiPath || probe.apiPath} / ${probe.proxyRewrittenWebsocketPath || probe.websocketPath}`,
+    });
+  }
+
+  const baseUrl = probe.apiBaseUrl || _getResolvedApiBaseUrl(base);
   const timeout = 8000;
 
   async function tryFetch(path: string, label: string): Promise<void> {
@@ -4837,9 +5006,6 @@ export async function diagnoseConnection(serverUrl: string): Promise<DiagnosisRe
     }
   }
 
-  // Step 2: health
-  await tryFetch("/health", "api_health");
-
   // Step 3: version
   await tryFetch("/version", "api_version");
 
@@ -4857,7 +5023,7 @@ export async function registerAccount(
   data: { username: string; password: string; email?: string; displayName?: string },
   baseUrlOverride?: string,
 ): Promise<{ token: string; refreshToken: string; user: User }> {
-  const base = baseUrlOverride ? `${baseUrlOverride.replace(/\/+$/, "")}/api` : getBaseUrl();
+  const base = baseUrlOverride ? _getResolvedApiBaseUrl(baseUrlOverride) : getBaseUrl();
   const res = await fetch(`${base}/auth/register`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -4872,7 +5038,7 @@ export async function registerAccount(
  * 登录页使用：查询注册开关（无需 token）。
  */
 export async function fetchRegisterConfig(baseUrlOverride?: string): Promise<{ allowRegistration: boolean }> {
-  const base = baseUrlOverride ? `${baseUrlOverride.replace(/\/+$/, "")}/api` : getBaseUrl();
+  const base = baseUrlOverride ? _getResolvedApiBaseUrl(baseUrlOverride) : getBaseUrl();
   try {
     const res = await fetch(`${base}/auth/register/config`);
     if (!res.ok) return { allowRegistration: true };

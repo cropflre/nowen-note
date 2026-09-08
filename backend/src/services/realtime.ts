@@ -206,6 +206,7 @@ function broadcastPresence(noteId: string) {
 
 export function attachRealtimeServer(server: import("http").Server) {
   const wss = new WebSocketServer({ noServer: true });
+  const acceptedPaths = new Set(["/ws", "/public/ws", "/publicws"]);
 
   server.on("upgrade", (req: IncomingMessage, socket: any, head) => {
     if (!req.url) {
@@ -213,8 +214,24 @@ export function attachRealtimeServer(server: import("http").Server) {
       return;
     }
     const url = new URL(req.url, `http://${req.headers.host || "localhost"}`);
-    if (url.pathname !== "/ws") {
+    if (!acceptedPaths.has(url.pathname)) {
       socket.destroy();
+      return;
+    }
+
+    // Connection setup needs a credential-free Upgrade check. The probe gets
+    // one fixed identity frame and is immediately closed; all actual realtime
+    // connections continue through the token validation below.
+    if (url.searchParams.get("probe") === "1") {
+      wss.handleUpgrade(req, socket, head, (ws) => {
+        ws.send(JSON.stringify({
+          type: "probe",
+          status: "ok",
+          service: "nowen-note",
+          path: url.pathname,
+        }));
+        ws.close(1000, "probe-complete");
+      });
       return;
     }
 
@@ -262,7 +279,7 @@ export function attachRealtimeServer(server: import("http").Server) {
     }
   }, HEARTBEAT_INTERVAL_MS);
 
-  console.log("[realtime] WebSocket server attached at /ws");
+  console.log("[realtime] WebSocket server attached at /ws (+ proxy compatibility aliases)");
 }
 
 function handleConnection(ws: WebSocket, userId: string, username: string) {

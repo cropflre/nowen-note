@@ -9,6 +9,22 @@
  */
 
 export type ServerScheme = "http" | "https";
+export type ProxyCompatibilityMode = "standard" | "public-prefix" | "public-concat";
+
+export interface ServerPathCandidate {
+  mode: ProxyCompatibilityMode;
+  serverBaseUrl: string;
+  apiBaseUrl: string;
+  apiPath: string;
+  websocketUrl: string;
+  websocketPath: string;
+}
+
+export interface ResolvedServerConnection extends ServerPathCandidate {
+  resolvedAt: number;
+}
+
+const RESOLVED_SERVER_CONNECTION_KEY = "nowen-resolved-server-connection-v1";
 
 export interface ServerAddressParts {
   protocol: ServerScheme;
@@ -217,6 +233,101 @@ export function stripServerBasePath(pathname: string, serverBaseUrl: string): st
 
 export function isValidServerUrl(input: string | null | undefined): boolean {
   return normalizeServerBaseUrl(input) !== "";
+}
+
+/**
+ * 反向代理路径候选。所有候选只在用户输入的同一 origin/path-prefix 下扩展，
+ * 不跟随或构造第三方 hostname。
+ */
+export function buildServerPathCandidates(
+  input: string | null | undefined,
+): ServerPathCandidate[] {
+  const serverBaseUrl = normalizeServerBaseUrl(input);
+  if (!serverBaseUrl) return [];
+  const wsBaseUrl = serverBaseUrl.replace(/^http:/, "ws:").replace(/^https:/, "wss:");
+  const paths: Array<Pick<ServerPathCandidate, "mode" | "apiPath" | "websocketPath">> = [
+    { mode: "standard", apiPath: "/api", websocketPath: "/ws" },
+    { mode: "public-prefix", apiPath: "/public/api", websocketPath: "/public/ws" },
+    { mode: "public-concat", apiPath: "/publicapi", websocketPath: "/publicws" },
+  ];
+  return paths.map((candidate) => ({
+    ...candidate,
+    serverBaseUrl,
+    apiBaseUrl: `${serverBaseUrl}${candidate.apiPath}`,
+    websocketUrl: `${wsBaseUrl}${candidate.websocketPath}`,
+  }));
+}
+
+function readResolvedServerConnection(
+  input: string | null | undefined,
+): ResolvedServerConnection | null {
+  const candidates = buildServerPathCandidates(input);
+  if (candidates.length === 0 || typeof localStorage === "undefined") return null;
+  try {
+    const raw = localStorage.getItem(RESOLVED_SERVER_CONNECTION_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<ResolvedServerConnection>;
+    const apiCandidate = candidates.find((candidate) => (
+      candidate.mode === parsed.mode
+      && candidate.apiBaseUrl === parsed.apiBaseUrl
+      && candidate.serverBaseUrl === parsed.serverBaseUrl
+    ));
+    const websocketCandidate = candidates.find((candidate) => (
+      candidate.websocketUrl === parsed.websocketUrl
+      && candidate.websocketPath === parsed.websocketPath
+    ));
+    if (!apiCandidate || !websocketCandidate) return null;
+    return {
+      ...apiCandidate,
+      websocketUrl: websocketCandidate.websocketUrl,
+      websocketPath: websocketCandidate.websocketPath,
+      resolvedAt: typeof parsed.resolvedAt === "number" ? parsed.resolvedAt : 0,
+    };
+  } catch {
+    return null;
+  }
+}
+
+export function cacheResolvedServerConnection(
+  connection: Omit<ResolvedServerConnection, "resolvedAt"> | ResolvedServerConnection,
+): void {
+  if (typeof localStorage === "undefined") return;
+  const candidates = buildServerPathCandidates(connection.serverBaseUrl);
+  const apiCandidate = candidates.find((candidate) => (
+    candidate.mode === connection.mode && candidate.apiBaseUrl === connection.apiBaseUrl
+  ));
+  const websocketCandidate = candidates.find((candidate) => (
+    candidate.websocketUrl === connection.websocketUrl
+  ));
+  if (!apiCandidate || !websocketCandidate) return;
+  try {
+    localStorage.setItem(RESOLVED_SERVER_CONNECTION_KEY, JSON.stringify({
+      ...apiCandidate,
+      websocketUrl: websocketCandidate.websocketUrl,
+      websocketPath: websocketCandidate.websocketPath,
+      resolvedAt: Date.now(),
+    }));
+  } catch {
+    // Restricted storage falls back to the standard path for the next request.
+  }
+}
+
+export function clearResolvedServerConnection(): void {
+  if (typeof localStorage === "undefined") return;
+  try { localStorage.removeItem(RESOLVED_SERVER_CONNECTION_KEY); } catch { /* ignore */ }
+}
+
+export function getResolvedApiBaseUrl(input: string | null | undefined): string {
+  const serverBaseUrl = normalizeServerBaseUrl(input);
+  if (!serverBaseUrl) return "/api";
+  return readResolvedServerConnection(serverBaseUrl)?.apiBaseUrl || `${serverBaseUrl}/api`;
+}
+
+export function getResolvedWebSocketUrl(input: string | null | undefined): string {
+  const candidates = buildServerPathCandidates(input);
+  if (candidates.length === 0) return "";
+  return readResolvedServerConnection(candidates[0].serverBaseUrl)?.websocketUrl
+    || candidates[0].websocketUrl;
 }
 
 export function parseServerUrl(input: string | null | undefined): ServerAddressParts {
