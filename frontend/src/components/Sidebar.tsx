@@ -11,7 +11,7 @@ import MobileKnowledgeTreePanel from "@/components/MobileKnowledgeTreePanel";
 import { OPEN_KNOWLEDGE_TREE_EVENT } from "@/components/KnowledgeTreeDrawer";
 import TagColorPopover from "@/components/TagColorPopover";
 import WorkspaceSwitcher from "@/components/WorkspaceSwitcher";
-import { useRailMode, nextRailMode } from "@/hooks/useRailMode";
+import { useRailMode } from "@/hooks/useRailMode";
 import { useMobileRailHidden } from "@/hooks/useMobileRailHidden";
 import { useMobileSidebarControlsCollapsed } from "@/hooks/useMobileSidebarControlsCollapsed";
 import { useSiteSettings } from "@/hooks/useSiteSettings";
@@ -92,6 +92,7 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
   const rootRef = useRef<HTMLDivElement>(null);
   const tagLongPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const tagLongPressFired = useRef(false);
+  const noteWorkspaceActive = !["tasks", "mindmaps", "ai-chat", "diary", "files", "shares"].includes(state.viewMode);
 
   const [tagsExpanded, setTagsExpanded] = useState(() => {
     try {
@@ -247,17 +248,21 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
           )}
           <span className="min-w-0 truncate text-sm font-semibold">{siteConfig.title || "nowen-note"}</span>
         </div>
-        {variant === "desktop" ? (
-          <button
-            type="button"
-            onClick={() => setRailMode(nextRailMode(railMode))}
-            title={t(`sidebar.railMode.switchTo.${nextRailMode(railMode)}`)}
-            aria-label={t(`sidebar.railMode.switchTo.${nextRailMode(railMode)}`)}
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-tx-tertiary transition-colors hover:bg-app-hover hover:text-tx-primary"
-          >
-            <PanelLeft size={16} />
-          </button>
-        ) : (
+        {variant === "desktop" && railMode === "hidden" ? (
+          noteWorkspaceActive ? (
+            <div data-note-workspace-layout-anchor="" className="h-8 w-8 shrink-0" />
+          ) : (
+            <button
+              type="button"
+              onClick={() => setRailMode("icon")}
+              title={t("sidebar.railMode.switchTo.icon")}
+              aria-label={t("sidebar.railMode.switchTo.icon")}
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-tx-tertiary transition-colors hover:bg-app-hover hover:text-tx-primary"
+            >
+              <PanelLeft size={16} />
+            </button>
+          )
+        ) : variant === "mobile" ? (
           <div className="flex shrink-0 items-center gap-1">
             {mobileRailHidden && (
               <button
@@ -296,7 +301,7 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
               <X size={16} />
             </button>
           </div>
-        )}
+        ) : null}
       </header>
 
       {(variant !== "mobile" || !mobileControlsCollapsed) && (

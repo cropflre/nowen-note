@@ -1,6 +1,6 @@
 import React, { useCallback, useRef, useState, useEffect, useMemo } from "react";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
-import { Star, Pin, Trash2, Cloud, RefreshCw, Check, Loader2, ChevronLeft, FolderInput, ChevronRight, ChevronDown, X, ListTree, Lock, Unlock, Tag as TagIcon, Type, MoreHorizontal, Share2, History, MessageCircle, FileCode, FileText, Eye, Pencil, PanelLeft, Paperclip, Search, Sparkles, Network, Maximize2, Minimize2, Image, Link2, Printer, Scissors } from "lucide-react";
+import { Star, Pin, Trash2, Cloud, RefreshCw, Check, Loader2, ChevronLeft, FolderInput, ChevronRight, ChevronDown, X, ListTree, Lock, Unlock, Tag as TagIcon, Type, MoreHorizontal, Share2, History, MessageCircle, FileCode, FileText, Eye, Pencil, Paperclip, Search, Sparkles, Network, Minimize2, Image, Link2, Printer, Scissors } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import TiptapEditor from "@/components/TiptapEditor";
@@ -235,9 +235,9 @@ export default function EditorPane({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeNote?.id]);
 
-  const toggleEditorFullscreen = useCallback(() => {
-    actions.setEditorFullscreen(!state.editorFullscreen);
-  }, [actions, state.editorFullscreen]);
+  const exitEditorFullscreen = useCallback(() => {
+    actions.setEditorFullscreen(false);
+  }, [actions]);
 
   const [showMobileMenu, setShowMobileMenu] = useState(false);
   const [showDesktopMoreMenu, setShowDesktopMoreMenu] = useState(false);
@@ -2422,20 +2422,6 @@ const moveToTrash = useCallback(async () => {
   if (!activeNote) {
     return (
       <div className="flex-1 flex flex-col bg-app-bg transition-colors relative">
-        {/* ����˿�̬��ҲҪ����"չ���ʼ��б�"��ڣ�����һ���۵�+��ѡ�бʼǣ�������Ļ
-            ��ֻʣ NavRail���û��Ҳ����κλص��б��ķ�ʽ��ͼƬ�������� bug����
-            ���ɾ��Զ�λ�����Ͻǣ������ƻ�ԭ�����еĿ�̬�Ӿ��� */}
-        {state.noteListCollapsed && (
-          <button
-            type="button"
-            onClick={() => actions.toggleNoteListCollapsed()}
-            title={t("common.expandList")}
-            aria-label={t("common.expandList")}
-            className="hidden md:flex absolute top-3 left-3 z-10 p-1.5 rounded-md text-tx-tertiary hover:bg-app-hover hover:text-tx-secondary transition-colors"
-          >
-            <PanelLeft size={16} />
-          </button>
-        )}
         {/* �ƶ��ˣ��������ذ�ť + ��ʾ��
             ������ԭ��̬�� `hidden md:flex` �����ݲ��������ƶ����е� editor ��ͼ��
             ���� activeNote ʱ��ĻһƬ�հף��û��Ҳ����ص��б�����ڣ�ϵͳ���ؼ�
@@ -2974,19 +2960,6 @@ const moveToTrash = useCallback(async () => {
       {/* Desktop Editor Header */}
       <div className="hidden md:flex min-w-0 items-center justify-between gap-3 px-4 py-2 border-b border-app-border bg-app-surface/30 transition-colors">
         <div className="flex min-w-0 flex-1 items-center gap-1.5">
-          {/* �ʼ��б����۵�ʱ���������ṩ��չ������ť��δ�۵�ʱ���ء�
-              ����������м��࣬�����ڡ���˭���б���ס�ˡ������֪��һ�ۿ����� */}
-          {state.noteListCollapsed && (
-            <button
-              type="button"
-              onClick={() => actions.toggleNoteListCollapsed()}
-              title={t("common.expandList")}
-              aria-label={t("common.expandList")}
-              className="p-1 rounded-md text-tx-tertiary hover:bg-app-hover hover:text-tx-secondary transition-colors shrink-0"
-            >
-              <PanelLeft size={15} />
-            </button>
-          )}
           <div className="relative min-w-0 flex-1">
           <button
             onClick={() => setShowMoveDropdown(!showMoveDropdown)}
@@ -3216,17 +3189,19 @@ const moveToTrash = useCallback(async () => {
             </Button>
           </div>
 
-          {/* 全屏 */}
-          <Button
-            variant="ghost" size="icon" className="h-7 w-7 shrink-0"
-            onClick={toggleEditorFullscreen}
-            title={state.editorFullscreen ? '退出全屏' : '编辑器全屏'}
-            aria-label={state.editorFullscreen ? '退出全屏' : '编辑器全屏'}
-          >
-            {state.editorFullscreen
-              ? <Minimize2 size={14} className="text-accent-primary" />
-              : <Maximize2 size={14} />}
-          </Button>
+          {state.editorFullscreen && (
+            <Button
+              data-note-workspace-focus-exit=""
+              variant="ghost"
+              size="icon"
+              className="order-last h-7 w-7 shrink-0 bg-accent-primary/10 text-accent-primary hover:bg-accent-primary/15 hover:text-accent-primary"
+              onClick={exitEditorFullscreen}
+              title={t("workspaceLayout.exitFocus")}
+              aria-label={t("workspaceLayout.exitFocus")}
+            >
+              <Minimize2 size={14} />
+            </Button>
+          )}
 
           {/* �༭��ģʽ�л���MD / Tiptap�� */}
           {/*

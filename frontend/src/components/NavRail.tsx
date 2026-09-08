@@ -52,6 +52,14 @@ interface NavConfigItem {
 }
 
 const RAIL_ICON_SIZE = 18;
+const NON_NOTE_WORKSPACE_VIEWS = new Set<ViewMode>([
+  "tasks",
+  "mindmaps",
+  "ai-chat",
+  "diary",
+  "files",
+  "shares",
+]);
 
 /**
  * The unified content tree is the primary note-navigation surface. The rail
@@ -79,6 +87,7 @@ export default function NavRail({ variant = "desktop" }: { variant?: "desktop" |
   const showLabel = effectiveMode === "label";
   const isMobile = variant === "mobile";
   const localDeviceMode = isMobileLocalMode();
+  const noteWorkspaceActive = !NON_NOTE_WORKSPACE_VIEWS.has(state.viewMode);
 
   const [features, setFeatures] = useState<WorkspaceFeatures | null>(null);
   const [loginHistoryOpen, setLoginHistoryOpen] = useState(false);
@@ -264,12 +273,17 @@ export default function NavRail({ variant = "desktop" }: { variant?: "desktop" |
         >
           <PanelLeftClose size={16} />
         </button>
+      ) : noteWorkspaceActive ? (
+        <div
+          data-note-workspace-layout-anchor=""
+          className="h-10 w-10 shrink-0"
+        />
       ) : (
         <button
           data-mobile-drawer-rail-item=""
           onClick={actions.toggleSidebar}
-          title={state.sidebarCollapsed ? t("common.expand") : t("common.collapse")}
-          aria-label={state.sidebarCollapsed ? t("common.expand") : t("common.collapse")}
+          title={t(state.sidebarCollapsed ? "common.expand" : "common.collapse")}
+          aria-label={t(state.sidebarCollapsed ? "common.expand" : "common.collapse")}
           className="w-10 h-10 rounded-lg flex items-center justify-center text-tx-tertiary hover:bg-app-hover hover:text-tx-primary transition-colors"
         >
           {state.sidebarCollapsed ? <PanelLeft size={16} /> : <PanelLeftClose size={16} />}

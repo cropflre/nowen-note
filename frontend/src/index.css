@@ -2803,7 +2803,6 @@ html[data-electron="darwin"][data-fullscreen="1"] main::before {
    touch-oriented below the existing desktop breakpoint, but its phone-only back affordance
    is redundant once the list is already visible beside it. */
 [data-note-workspace-window="medium"] [data-adaptive-editor-back],
-[data-note-workspace-window="medium"] [data-adaptive-editor-empty-header],
-[data-note-workspace-window="medium"] [data-adaptive-note-list-collapse] {
+[data-note-workspace-window="medium"] [data-adaptive-editor-empty-header] {
   display: none !important;
 }
