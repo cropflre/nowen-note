@@ -15,7 +15,7 @@ export function resolveTiptapEditorScrollLayout(
   if (!useParentScrollContainer) {
     return {
       root: "h-full",
-      content: "flex-1 overflow-auto",
+      content: "flex-1 overflow-auto pt-1",
       ownsViewportOverlay: true,
     };
   }

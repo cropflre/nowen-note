@@ -8,7 +8,7 @@ describe("resolveTiptapEditorScrollLayout", () => {
   it("keeps the monolithic editor as its own scroll container", () => {
     expect(resolveTiptapEditorScrollLayout(false, false)).toEqual({
       root: "h-full",
-      content: "flex-1 overflow-auto",
+      content: "flex-1 overflow-auto pt-1",
       ownsViewportOverlay: true,
     });
   });
