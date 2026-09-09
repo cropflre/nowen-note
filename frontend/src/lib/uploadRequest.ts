@@ -1,6 +1,5 @@
-export const LOCAL_ATTACHMENT_UPLOAD_TIMEOUT_MS = 20_000;
-export const NATIVE_ATTACHMENT_UPLOAD_MIN_TIMEOUT_MS = 90_000;
-export const NATIVE_ATTACHMENT_UPLOAD_MAX_TIMEOUT_MS = 10 * 60_000;
+export const ATTACHMENT_UPLOAD_MIN_TIMEOUT_MS = 90_000;
+export const ATTACHMENT_UPLOAD_MAX_TIMEOUT_MS = 10 * 60_000;
 
 export type UploadErrorCode =
   | "OFFLINE"
@@ -75,20 +74,16 @@ export function isNativeCapacitorUploadRuntime(): boolean {
 }
 
 /**
- * 手机端通常通过公网 / Wi-Fi 上传附件，固定 20 秒会把正常的视频上传中途 abort。
- * 按文件大小放宽 deadline，同时保留 10 分钟硬上限，避免真正卡死的请求无限挂起。
+ * 所有平台按文件大小放宽附件上传 deadline：小文件至少 90 秒，大文件按每 MiB
+ * 增加 4 秒计算，同时保留 10 分钟硬上限，避免真正卡死的请求无限挂起。
  */
-export function getAttachmentUploadTimeoutMs(
-  fileSize: number,
-  native = isNativeCapacitorUploadRuntime(),
-): number {
-  if (!native) return LOCAL_ATTACHMENT_UPLOAD_TIMEOUT_MS;
+export function getAttachmentUploadTimeoutMs(fileSize: number): number {
   const safeBytes = Number.isFinite(fileSize) && fileSize > 0 ? fileSize : 0;
   const sizeMiB = safeBytes / (1024 * 1024);
   const scaled = 45_000 + Math.ceil(sizeMiB) * 4_000;
   return Math.min(
-    NATIVE_ATTACHMENT_UPLOAD_MAX_TIMEOUT_MS,
-    Math.max(NATIVE_ATTACHMENT_UPLOAD_MIN_TIMEOUT_MS, scaled),
+    ATTACHMENT_UPLOAD_MAX_TIMEOUT_MS,
+    Math.max(ATTACHMENT_UPLOAD_MIN_TIMEOUT_MS, scaled),
   );
 }
 

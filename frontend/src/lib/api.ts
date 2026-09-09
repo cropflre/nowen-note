@@ -15,9 +15,9 @@ import { installTaskOfflineApi } from "./taskOfflineApi";
 import { emitTaskReminderScheduleChanged } from "./taskNotificationSchedule";
 import { toast } from "./toast";
 import {
+  ATTACHMENT_UPLOAD_MIN_TIMEOUT_MS,
   fetchJsonWithUploadDeadline,
   isElectronFullLocalRuntime,
-  LOCAL_ATTACHMENT_UPLOAD_TIMEOUT_MS,
   UploadRequestError,
 } from "./uploadRequest";
 import type { Note, SearchResult, Task } from "@/types";
@@ -254,7 +254,7 @@ api.attachments.upload = (async (noteId: string, file: File) => {
       body: form,
     },
     {
-      timeoutMs: LOCAL_ATTACHMENT_UPLOAD_TIMEOUT_MS,
+      timeoutMs: ATTACHMENT_UPLOAD_MIN_TIMEOUT_MS,
       timeoutMessage: "附件上传超时，请检查本地服务或网络后重试",
       httpErrorMessage: "附件上传失败",
     },
