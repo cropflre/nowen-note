@@ -1223,6 +1223,7 @@ const OVERSCAN = 8; // 上下额外渲染的条目数
 
 function VirtualNoteList({
   notes,
+  scrollScopeKey,
   activeNoteId,
   menuState,
   sharedNoteIds,
@@ -1246,6 +1247,7 @@ function VirtualNoteList({
   dragHint,
 }: {
   notes: NoteListItem[];
+  scrollScopeKey: string;
   activeNoteId: string | undefined;
   menuState: { isOpen: boolean; targetId: string | null };
   sharedNoteIds: Set<string>;
@@ -1272,17 +1274,14 @@ function VirtualNoteList({
   const [scrollTop, setScrollTop] = useState(0);
   const [containerHeight, setContainerHeight] = useState(600);
 
-  // 切换笔记本/搜索条件/筛选/排序时，notes 引用会整体替换。此时若不复位
-  // scrollTop，浏览器会把"上一组列表"的滚动位置原样保留下来，新列表只显示
-  // 中下部分，配合 framer-motion 的进入动画，肉眼看上去就像"列表先从面板
-  // 底部冒出来再爬到顶部"。这里强制把视口拉回顶部，并清零内部 scrollTop
-  // 状态，保证新列表立即从首条开始呈现。
+  // 只在列表语义 scope 真正变化时复位。自动保存、realtime、后台同步、
+  // notesRefreshToken 等同 scope 刷新会替换 notes 引用，但不能打断用户浏览位置。
   useEffect(() => {
     if (containerRef.current) {
       containerRef.current.scrollTop = 0;
     }
     setScrollTop(0);
-  }, [notes]);
+  }, [scrollScopeKey]);
 
   // 监听容器尺寸变化
   useEffect(() => {
@@ -1914,23 +1913,13 @@ export default function NoteList() {
     setLastClickedId(null);
   }, [state.viewMode, state.selectedNotebookId, state.searchQuery, state.selectedTagIds, dateFilter]);
 
-  // 切换笔记本/视图/搜索/标签/日期/排序 时把非虚拟列表的 ScrollArea 滚动复位到顶。
-  // 否则 Radix ScrollArea 会保留前一组列表的 scrollTop，新列表立刻渲染时整组卡片
-  // 视觉上"贴在面板下方再爬上来"，配合卡片自身的淡入动画体感很差。
+  // 普通列表与虚拟列表共用 notesQueryKey 作为滚动 scope；同 scope 数据刷新不改变滚动位置。
   useEffect(() => {
     const root = scrollAreaRef.current;
     if (!root) return;
     const viewport = root.querySelector<HTMLElement>("[data-radix-scroll-area-viewport]");
     if (viewport) viewport.scrollTop = 0;
-  }, [
-    state.viewMode,
-    state.selectedNotebookId,
-    state.searchQuery,
-    state.selectedTagIds,
-    dateFilter,
-    sortPref.by,
-    sortPref.dir,
-  ]);
+  }, [notesQueryKey]);
 
   // 全局 ESC 清空多选（多选状态下）
   useEffect(() => {
@@ -4038,6 +4027,7 @@ export default function NoteList() {
         {sortedNotes.length > 100 ? (
           <VirtualNoteList
             notes={sortedNotes}
+            scrollScopeKey={notesQueryKey}
             activeNoteId={state.noteLoadingState.pendingNoteId || state.activeNote?.id}
             menuState={{ isOpen: menu.isOpen, targetId: menu.targetId }}
             sharedNoteIds={sharedNoteIds}

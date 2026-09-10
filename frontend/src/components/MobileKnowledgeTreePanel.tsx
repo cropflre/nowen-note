@@ -64,6 +64,7 @@ import {
   knowledgeTreeApi,
   type KnowledgeTreeNode,
 } from "@/lib/knowledgeTreeApi";
+import { loadKnowledgeTreeOnEntry } from "@/lib/knowledgeTreeInitialLoad";
 import {
   forgetUnlockedFolder,
   hideLockedFolderDescendants,
@@ -313,15 +314,21 @@ export default function MobileKnowledgeTreePanel({
     });
   }, [draft?.parentId, draft?.kind]);
 
-  const reload = useCallback(async () => {
+  const reload = useCallback(async (onEntry = false) => {
     setLoading(true);
     setError(null);
     try {
-      const [ownedResult, sharedResult] = await Promise.allSettled([
-        knowledgeTreeApi.list(),
-        knowledgeTreeApi.listShared(),
-      ]);
-      if (ownedResult.status === "rejected") throw ownedResult.reason;
+      const load = async () => {
+        const results = await Promise.allSettled([
+          knowledgeTreeApi.list(),
+          knowledgeTreeApi.listShared(),
+        ]);
+        if (results[0].status === "rejected") throw results[0].reason;
+        return [results[0].value, results[1]] as const;
+      };
+      const [owned, sharedResult] = onEntry
+        ? await loadKnowledgeTreeOnEntry(load)
+        : await load();
       const shared = sharedResult.status === "fulfilled" ? sharedResult.value.nodes : [];
       setSharedLoadError(
         sharedResult.status === "rejected"
@@ -329,7 +336,7 @@ export default function MobileKnowledgeTreePanel({
           : null,
       );
       const merged = Array.from(
-        new Map([...ownedResult.value.nodes, ...shared].map((node) => [node.id, node])).values(),
+        new Map([...owned.nodes, ...shared].map((node) => [node.id, node])).values(),
       );
       setNodes(merged);
       setParentId((current) => {
@@ -345,7 +352,7 @@ export default function MobileKnowledgeTreePanel({
     }
   }, []);
 
-  useEffect(() => { void reload(); }, [reload]);
+  useEffect(() => { void reload(true); }, [reload]);
 
   useEffect(() => {
     const syncUnlockedFolders = () => setUnlockedFolderIds(loadUnlockedFolderIds());
@@ -1422,23 +1429,23 @@ export default function MobileKnowledgeTreePanel({
         {loading && nodes.length === 0 ? (
           <div className="flex justify-center py-16"><Loader2 size={22} className="animate-spin text-tx-tertiary" /></div>
         ) : error ? (
-          <div role="status" className="mx-2 mt-4 rounded-2xl border border-app-border bg-app-surface/70 px-5 py-6 text-center shadow-sm">
-            <span className="mx-auto flex h-10 w-10 items-center justify-center rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400">
-              <CircleAlert size={20} aria-hidden="true" />
+          <div role="status" className="flex flex-col items-center px-5 py-14 text-center">
+            <span className="flex h-9 w-9 items-center justify-center rounded-full bg-app-hover text-tx-tertiary">
+              <CircleAlert size={18} aria-hidden="true" />
             </span>
-            <p className="mt-3 text-sm font-medium text-tx-primary">内容暂时未加载</p>
+            <p className="mt-2.5 text-sm font-medium text-tx-secondary">内容暂时未加载</p>
             <p className="mx-auto mt-1 max-w-[280px] text-xs leading-relaxed text-tx-tertiary">
-              可能是网络波动或服务暂时不可用，本次加载失败不会修改你的笔记数据。
+              连接可能还没准备好，不会影响你的笔记数据。
             </p>
             <button
               type="button"
               onClick={() => void reload()}
-              className="mt-4 inline-flex items-center gap-1.5 rounded-lg bg-accent-primary px-3.5 py-2 text-xs font-medium text-white transition-colors hover:bg-accent-primary/90"
+              className="mt-3 inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium text-accent-primary hover:bg-app-hover"
             >
               <RefreshCw size={13} aria-hidden="true" />
               重新加载
             </button>
-            <details className="mx-auto mt-3 max-w-[280px] text-left text-[10px] text-tx-tertiary">
+            <details className="mx-auto mt-2 max-w-[280px] text-left text-[10px] text-tx-tertiary">
               <summary className="cursor-pointer select-none text-center hover:text-tx-secondary">查看错误详情</summary>
               <p className="mt-1.5 break-words rounded-md bg-app-bg px-2 py-1.5 leading-relaxed">{error}</p>
             </details>

@@ -2,6 +2,7 @@ import React, {
   Suspense,
   useDeferredValue,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
 } from "react";
@@ -60,6 +61,11 @@ type AppliedFilterSnapshot = {
   ids: Set<string>;
 };
 
+type VirtualScrollSnapshot = {
+  viewport: HTMLElement;
+  scrollTop: number;
+};
+
 function findDesktopNoteListHeader(shell: HTMLElement): HTMLElement | null {
   const noteRoot = Array.from(shell.children).find((child) => (
     child instanceof HTMLElement
@@ -94,6 +100,14 @@ export default function LazyNoteListRuntime() {
   const sourceRefreshPendingRef = useRef(false);
   const preserveCurrentNotesOnCreateRef = useRef(false);
 
+  // #781：NoteList 的 >100 条虚拟列表历史上把 [notes] 引用变化直接当成“切换列表”，
+  // 导致 autosave/realtime/后台刷新后把 scrollTop 写回 0。真正切换目录/筛选时
+  // NoteList 会先清空 notes，虚拟 viewport 会被卸载；因此这里仅在“同一个 viewport
+  // 节点仍然存活”的刷新中保存并恢复滚动位置，既不会带着旧目录的位置进入新目录，
+  // 也不会因为同 scope 的数据更新把用户拉回顶部。
+  const previousNotesRef = useRef(state.notes);
+  const virtualScrollSnapshotRef = useRef<VirtualScrollSnapshot | null>(null);
+
   const searchContextKey = `${state.viewMode}:${state.selectedNotebookId || ""}:${
     state.selectedKnowledgeTreeParentId === undefined
       ? "legacy"
@@ -102,6 +116,45 @@ export default function LazyNoteListRuntime() {
   const searchContextKeyRef = useRef(searchContextKey);
   const showDirectorySearch = state.viewMode === "notebook" && !!state.selectedNotebookId;
   const searchActive = showDirectorySearch && deferredDirectoryQuery.trim().length > 0;
+
+  // 在子组件 passive effect 执行前抓取旧 scrollTop。这里只接受当前仍挂载的虚拟 viewport；
+  // scope 变化时 NoteList 会 setNotes([]) 并卸载它，因此不会错误恢复上一目录的位置。
+  useLayoutEffect(() => {
+    const notesChanged = previousNotesRef.current !== state.notes;
+    previousNotesRef.current = state.notes;
+    if (!notesChanged) return;
+
+    const viewport = shellRef.current?.querySelector<HTMLElement>(
+      '[data-note-list-scroll-viewport="virtual"]',
+    ) || null;
+    if (!viewport || viewport.scrollTop <= 0) {
+      virtualScrollSnapshotRef.current = null;
+      return;
+    }
+    virtualScrollSnapshotRef.current = {
+      viewport,
+      scrollTop: viewport.scrollTop,
+    };
+  }, [state.notes]);
+
+  // React 的子组件 passive effect 会先把旧 VirtualNoteList 的 scrollTop 复位；父层随后
+  // 把同一 DOM viewport 恢复到快照位置。若节点已卸载/替换则直接放弃，保证真正切换
+  // notebook/search/tag/date/sort/folder scope 时仍从顶部开始。
+  useEffect(() => {
+    const snapshot = virtualScrollSnapshotRef.current;
+    virtualScrollSnapshotRef.current = null;
+    if (!snapshot) return;
+
+    const { viewport } = snapshot;
+    const shell = shellRef.current;
+    if (!viewport.isConnected || !shell?.contains(viewport)) return;
+
+    const maxScrollTop = Math.max(0, viewport.scrollHeight - viewport.clientHeight);
+    const nextScrollTop = Math.min(snapshot.scrollTop, maxScrollTop);
+    if (nextScrollTop > 0 && Math.abs(viewport.scrollTop - nextScrollTop) > 1) {
+      viewport.scrollTop = nextScrollTop;
+    }
+  }, [state.notes]);
 
   // NoteList 是 lazy chunk。等它真实挂载后定位桌面 header，把搜索框通过 portal
   // 放到“目录标题”和右侧排序/新建按钮之间；不复制/重写 NoteList 的大块布局代码。

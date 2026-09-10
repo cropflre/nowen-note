@@ -27,7 +27,10 @@ describe("knowledge tree sidebar contract", () => {
 
   it("keeps loading recovery inside one embedded panel without a legacy fallback", () => {
     const panel = source("../../components/KnowledgeTreePanel.tsx");
+    const mobilePanel = source("../../components/MobileKnowledgeTreePanel.tsx");
     expect(panel).toContain('data-nowen-knowledge-tree="embedded"');
+    expect(panel).toContain("loadKnowledgeTreeOnEntry(load)");
+    expect(mobilePanel).toContain("loadKnowledgeTreeOnEntry(load)");
     expect(panel).toContain("内容暂时未加载");
     expect(panel).toContain("重新加载");
     expect(panel).toContain("return !descendantsOf(source.id, allChildren).has(target.id);");
