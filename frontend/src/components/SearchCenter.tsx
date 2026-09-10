@@ -16,10 +16,12 @@ import {
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import KnowledgeSearchScopeSwitch from "@/components/KnowledgeSearchScopeSwitch";
+import SearchNotebookExclusionsPanel from "@/components/SearchNotebookExclusionsPanel";
 import { useApp, useAppActions } from "@/store/AppContext";
 import { useRailMode } from "@/hooks/useRailMode";
 import { useNoteLoader } from "@/hooks/useNoteLoader";
 import { api } from "@/lib/api";
+import { searchIncludingExcludedNotebooks } from "@/lib/searchNotebookExclusions";
 import { highlightTextNode, sanitizeSearchHtml } from "@/lib/searchHighlight";
 import { cn } from "@/lib/utils";
 import type { SearchResult } from "@/types";
@@ -147,6 +149,8 @@ export default function SearchCenter() {
   const [sortMode, setSortMode] = useState<SortMode>("relevance");
   const [activeIndex, setActiveIndex] = useState(0);
   const [openingId, setOpeningId] = useState<string | null>(null);
+  const [includeExcluded, setIncludeExcluded] = useState(false);
+  const [searchScopeRevision, setSearchScopeRevision] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const resultRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
   const requestSequence = useRef(0);
@@ -163,7 +167,10 @@ export default function SearchCenter() {
   }, [state.searchQuery]);
 
   useEffect(() => {
-    if (!isVisible) return;
+    if (!isVisible) {
+      setIncludeExcluded(false);
+      return;
+    }
     const timer = window.setTimeout(() => inputRef.current?.focus(), 0);
     return () => window.clearTimeout(timer);
   }, [isVisible]);
@@ -184,7 +191,9 @@ export default function SearchCenter() {
     setError("");
     const timer = window.setTimeout(async () => {
       try {
-        const rows = await api.search(normalized) as EnhancedSearchResult[];
+        const rows = (includeExcluded
+          ? await searchIncludingExcludedNotebooks(normalized)
+          : await api.search(normalized)) as EnhancedSearchResult[];
         if (sequence !== requestSequence.current) return;
         setResults(rows);
         setActiveIndex(0);
@@ -199,7 +208,7 @@ export default function SearchCenter() {
     }, 180);
 
     return () => window.clearTimeout(timer);
-  }, [copy.loadFailed, isVisible, query]);
+  }, [copy.loadFailed, includeExcluded, isVisible, query, searchScopeRevision]);
 
   const notebookPaths = useMemo(() => {
     const notebooks = new Map(state.notebooks.map((notebook) => [notebook.id, notebook]));
@@ -457,6 +466,12 @@ export default function SearchCenter() {
               </div>
             </div>
           </div>
+
+          <SearchNotebookExclusionsPanel
+            includeExcluded={includeExcluded}
+            onIncludeExcludedChange={setIncludeExcluded}
+            onScopeChanged={() => setSearchScopeRevision((value) => value + 1)}
+          />
 
           {error && (
             <div className="mt-4 rounded-xl border border-red-500/20 bg-red-500/5 px-4 py-3 text-sm text-red-500">
