@@ -20,6 +20,8 @@ import {
   rebuildNormalizedSearchFts,
   repairSearchContentText,
 } from "../lib/searchIndex";
+import { ensureSearchNotebookExclusionsTable } from "../services/searchNotebookExclusions";
+import searchExclusionsRouter from "./search-exclusions";
 
 const app = new Hono();
 const registeredSearchDatabases = new WeakSet<object>();
@@ -193,15 +195,49 @@ function ensureSearchSqlFunctions(db: Database.Database): void {
   registeredSearchDatabases.add(db as object);
 }
 
-function buildSearchScope(workspaceId: string | undefined, userId: string): SearchScope | null {
+function exclusionSearchScope(userId: string, includeExcluded: boolean): SearchScope {
+  if (includeExcluded) return { sql: "1 = 1", params: [] };
+  // Materialized by SQLite as a list subquery for each candidate statement. This keeps the
+  // exclusion inside FTS/metadata/literal candidate collection, so large archives cannot consume
+  // MAX_TERM_CANDIDATES before active notes are considered.
+  return {
+    sql: `n.notebookId NOT IN (
+      WITH RECURSIVE excluded(id, expand) AS (
+        SELECT e.notebookId, e.includeDescendants
+        FROM user_search_notebook_exclusions e
+        JOIN notebooks root ON root.id = e.notebookId
+        WHERE e.userId = ? AND root.isDeleted = 0
+
+        UNION
+
+        SELECT child.id, excluded.expand
+        FROM notebooks child
+        JOIN excluded ON child.parentId = excluded.id
+        WHERE excluded.expand = 1 AND child.isDeleted = 0
+      )
+      SELECT id FROM excluded
+    )`,
+    params: [userId],
+  };
+}
+
+function buildSearchScope(
+  workspaceId: string | undefined,
+  userId: string,
+  includeExcluded = false,
+): SearchScope | null {
+  const exclusion = exclusionSearchScope(userId, includeExcluded);
   if (workspaceId && workspaceId !== "personal") {
     const role = getUserWorkspaceRole(workspaceId, userId);
     if (!role) return null;
-    return { sql: "n.workspaceId = ?", params: [workspaceId] };
+    return {
+      sql: `(n.workspaceId = ?) AND (${exclusion.sql})`,
+      params: [workspaceId, ...exclusion.params],
+    };
   }
 
   return {
-    sql: `((n.userId = ? AND n.workspaceId IS NULL)
+    sql: `(((n.userId = ? AND n.workspaceId IS NULL)
       OR EXISTS (
         SELECT 1
         FROM notebook_members nm
@@ -211,8 +247,8 @@ function buildSearchScope(workspaceId: string | undefined, userId: string): Sear
           AND nm.status = 'active'
           AND shared_nb.userId <> ?
           AND shared_nb.isDeleted = 0
-      ))`,
-    params: [userId, userId, userId],
+      ))) AND (${exclusion.sql})`,
+    params: [userId, userId, userId, ...exclusion.params],
   };
 }
 
@@ -684,6 +720,8 @@ function setSearchTimingHeaders(
   );
 }
 
+app.route("/excluded-notebooks", searchExclusionsRouter);
+
 app.get("/health", (c) => {
   const db = getDb();
   const userId = c.req.header("X-User-Id") || "demo";
@@ -743,9 +781,11 @@ app.get("/", (c) => {
   const userId = c.req.header("X-User-Id") || "demo";
   const q = (c.req.query("q") || "").trim().slice(0, 200);
   const workspaceId = c.req.query("workspaceId");
+  const includeExcluded = c.req.query("includeExcluded") === "1";
   if (!q) return c.json([]);
 
-  const scope = buildSearchScope(workspaceId, userId);
+  ensureSearchNotebookExclusionsTable(db);
+  const scope = buildSearchScope(workspaceId, userId, includeExcluded);
   if (!scope) return c.json({ error: "无权访问该工作区" }, 403);
 
   const terms = splitSearchTerms(q);
