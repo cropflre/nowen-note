@@ -57,6 +57,7 @@ import { extensionEcosystemRc1Migration } from "./extensionEcosystemRc1Migration
 import { pluginUpdateLifecycleMigration } from "./pluginUpdateLifecycleMigration.js";
 import { extensionAdvisoryFreshnessMigration } from "./extensionAdvisoryFreshnessMigration.js";
 import { extensionAdvisorySchemaRepairMigration } from "./extensionAdvisorySchemaRepairMigration.js";
+import { searchNotebookExclusionsMigration } from "./searchNotebookExclusionsMigration.js";
 
 export type { Migration } from "./migrations.impl.js";
 
@@ -370,6 +371,7 @@ export const MIGRATIONS: Migration[] = [
   pluginUpdateLifecycleMigration,
   extensionAdvisoryFreshnessMigration,
   extensionAdvisorySchemaRepairMigration,
+  searchNotebookExclusionsMigration,
 ].sort((a, b) => a.version - b.version);
 
 export const CURRENT_SCHEMA_VERSION: number = MIGRATIONS.reduce(
