@@ -62,12 +62,9 @@ export function listDirectSearchNotebookExclusions(
 }
 
 /**
- * Resolve all notebooks hidden from this user's global search in one recursive query.
- *
- * Descendants intentionally follow knowledge_tree_nodes rather than notebooks.parentId. The
- * unified tree supports richer relationships (for example a folder below a document), while the
- * legacy notebook parent column only mirrors the nearest physical notebook container. Following
- * the UI tree here makes "exclude this notebook and everything below it" match what users see.
+ * Resolve all notebook resources hidden from this user's global search in one recursive query.
+ * Search rows are scoped by notes.notebookId, so the exclusion hierarchy deliberately follows the
+ * same notebook parent model. This keeps FTS, metadata, literal fallback and UI status consistent.
  */
 export function getEffectiveExcludedNotebookIds(
   userId: string,
@@ -75,26 +72,20 @@ export function getEffectiveExcludedNotebookIds(
 ): Set<string> {
   ensureSearchNotebookExclusionsTable(db);
   const rows = db.prepare(`
-    WITH RECURSIVE excluded_nodes(nodeId, expand) AS (
-      SELECT root.id, e.includeDescendants
+    WITH RECURSIVE excluded(id, expand) AS (
+      SELECT e.notebookId, e.includeDescendants
       FROM user_search_notebook_exclusions e
-      JOIN knowledge_tree_nodes root
-        ON root.resourceType = 'notebook'
-       AND root.resourceId = e.notebookId
-       AND root.isDeleted = 0
-      WHERE e.userId = ?
+      JOIN notebooks root ON root.id = e.notebookId
+      WHERE e.userId = ? AND root.isDeleted = 0
 
       UNION
 
-      SELECT child.id, excluded_nodes.expand
-      FROM knowledge_tree_nodes child
-      JOIN excluded_nodes ON child.parentId = excluded_nodes.nodeId
-      WHERE excluded_nodes.expand = 1 AND child.isDeleted = 0
+      SELECT child.id, excluded.expand
+      FROM notebooks child
+      JOIN excluded ON child.parentId = excluded.id
+      WHERE excluded.expand = 1 AND child.isDeleted = 0
     )
-    SELECT DISTINCT node.resourceId AS id
-    FROM excluded_nodes
-    JOIN knowledge_tree_nodes node ON node.id = excluded_nodes.nodeId
-    WHERE node.resourceType = 'notebook' AND node.isDeleted = 0
+    SELECT DISTINCT id FROM excluded
   `).all(userId) as Array<{ id: string }>;
   return new Set(rows.map((row) => row.id));
 }
