@@ -29,11 +29,12 @@ app.get("/", (c) => {
   const direct = listDirectSearchNotebookExclusions(userId, db)
     // Never reveal stale exclusions for resources the current user can no longer see.
     .filter((row) => canViewNotebook(row.notebookId, userId));
-  const visibleEffective = getEffectiveExcludedNotebookIds(userId, db);
+  const effectiveNotebookCount = Array.from(getEffectiveExcludedNotebookIds(userId, db))
+    .filter((notebookId) => canViewNotebook(notebookId, userId)).length;
   return c.json({
     direct,
     directCount: direct.length,
-    effectiveNotebookCount: visibleEffective.size,
+    effectiveNotebookCount,
   });
 });
 
