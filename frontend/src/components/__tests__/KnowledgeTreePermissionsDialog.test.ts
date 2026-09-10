@@ -67,8 +67,18 @@ describe("KnowledgeTreePermissionsDialog", () => {
 
   it("prevents self-demotion and accurately describes direct permission removal", () => {
     expect(dialogSource).toContain("api.getMe()");
-    expect(dialogSource).toContain("if (!currentUser)");
+    expect(dialogSource).toContain("if (!currentUser || !ensureCanManageMembers())");
     expect(dialogSource).toContain("不能修改自己的权限");
     expect(dialogSource).toContain("下级节点已有的独立权限不会被删除");
+  });
+
+  it("uses currentUserAccess to disable member-management actions instead of waiting for a 403", () => {
+    expect(dialogSource).toContain("type EffectiveKnowledgeAccess");
+    expect(dialogSource).toContain("setCurrentUserAccess(response.currentUserAccess)");
+    expect(dialogSource).toContain("currentUserAccess?.capabilities.canManageMembers === true");
+    expect(dialogSource).toContain("managementDisabled");
+    expect(dialogSource).toContain("ensureCanManageMembers");
+    expect(dialogSource).toContain("你当前可以查看此内容，但没有成员管理权限");
+    expect(dialogSource).toContain("owner access invariant violated");
   });
 });
