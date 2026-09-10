@@ -22,6 +22,11 @@ type TreeNodeRow = {
   isDeleted: number;
 };
 
+type ResourceIdentity = {
+  userId: string;
+  workspaceId: string | null;
+};
+
 type AclRow = {
   nodeId: string;
   rolePreset: KnowledgeRolePreset;
@@ -59,6 +64,8 @@ const NONE: KnowledgeCapabilities = {
   canManageMembers: false,
 };
 
+const warnedOwnershipMismatches = new Set<string>();
+
 function clone(value: KnowledgeCapabilities): KnowledgeCapabilities {
   return { ...value };
 }
@@ -78,6 +85,68 @@ function readNode(db: Database.Database, nodeId: string): TreeNodeRow | null {
     SELECT id, userId, workspaceId, parentId, resourceType, resourceId, isDeleted
     FROM knowledge_tree_nodes WHERE id = ?
   `).get(nodeId) as TreeNodeRow | undefined) || null;
+}
+
+/**
+ * The unified tree mirrors ownership fields for fast listing, but the business resource remains
+ * the canonical source of ownership. Historical migrations / ownership transfers can leave an
+ * otherwise visible tree row with a stale userId. If permission resolution trusts only that mirror,
+ * the real personal owner can lose canManageMembers as soon as a restricted ACL is created.
+ *
+ * Prefer the canonical resource identity whenever it still exists. This also prevents the inverse
+ * security bug: a stale tree userId must never turn a collaborator into the owner of someone else's
+ * note/folder.
+ */
+function readCanonicalResourceIdentity(
+  db: Database.Database,
+  node: TreeNodeRow,
+): ResourceIdentity | null {
+  try {
+    if (node.resourceType === "notebook") {
+      return (db.prepare("SELECT userId, workspaceId FROM notebooks WHERE id = ?")
+        .get(node.resourceId) as ResourceIdentity | undefined) || null;
+    }
+    if (node.resourceType === "note") {
+      return (db.prepare("SELECT userId, workspaceId FROM notes WHERE id = ?")
+        .get(node.resourceId) as ResourceIdentity | undefined) || null;
+    }
+    if (node.resourceType === "mindmap") {
+      return (db.prepare("SELECT userId, workspaceId FROM mindmaps WHERE id = ?")
+        .get(node.resourceId) as ResourceIdentity | undefined) || null;
+    }
+    if (node.resourceType === "file") {
+      return (db.prepare("SELECT userId, workspaceId FROM attachments WHERE id = ?")
+        .get(node.resourceId) as ResourceIdentity | undefined) || null;
+    }
+  } catch (error) {
+    // Older databases can briefly resolve access while optional resource tables are still being
+    // initialized. Falling back to the tree mirror preserves startup compatibility.
+    console.warn(`[knowledge-access] canonical ownership lookup failed for ${node.id}:`, error);
+  }
+  return null;
+}
+
+function effectiveResourceIdentity(db: Database.Database, node: TreeNodeRow): ResourceIdentity {
+  const canonical = readCanonicalResourceIdentity(db, node);
+  if (!canonical) return { userId: node.userId, workspaceId: node.workspaceId };
+
+  if (canonical.userId !== node.userId || canonical.workspaceId !== node.workspaceId) {
+    const warningKey = `${node.id}:${node.userId}:${node.workspaceId || "personal"}:${canonical.userId}:${canonical.workspaceId || "personal"}`;
+    if (!warnedOwnershipMismatches.has(warningKey)) {
+      warnedOwnershipMismatches.add(warningKey);
+      console.warn("[knowledge-access] tree ownership mirror differs from canonical resource", {
+        nodeId: node.id,
+        resourceType: node.resourceType,
+        resourceId: node.resourceId,
+        treeUserId: node.userId,
+        treeWorkspaceId: node.workspaceId,
+        canonicalUserId: canonical.userId,
+        canonicalWorkspaceId: canonical.workspaceId,
+      });
+    }
+  }
+
+  return canonical;
 }
 
 function nearestExplicitAcl(db: Database.Database, nodeId: string, userId: string): AclRow | null {
@@ -141,7 +210,12 @@ function workspaceOwnerId(db: Database.Database, workspaceId: string): string | 
     | undefined)?.ownerId) || null;
 }
 
-function legacyAccess(db: Database.Database, node: TreeNodeRow, userId: string) {
+function legacyAccess(
+  db: Database.Database,
+  node: TreeNodeRow,
+  userId: string,
+  effectiveWorkspaceId: string | null = node.workspaceId,
+) {
   if (node.resourceType === "notebook") {
     const member = memberQueryService.getNotebookMemberAccess(node.resourceId, userId);
     if (member) return legacyPermission(member.role);
@@ -153,16 +227,17 @@ function legacyAccess(db: Database.Database, node: TreeNodeRow, userId: string) 
     if (noteAcl) return legacyPermission(noteAcl.permission);
   }
 
-  if (!node.workspaceId) return legacyPermission(null);
+  if (!effectiveWorkspaceId) return legacyPermission(null);
   const workspaceRole = db.prepare(
     "SELECT role FROM workspace_members WHERE workspaceId = ? AND userId = ?",
-  ).get(node.workspaceId, userId) as { role: string } | undefined;
+  ).get(effectiveWorkspaceId, userId) as { role: string } | undefined;
   return legacyPermission(workspaceRole?.role);
 }
 
 /**
  * Effective access rules:
- * 1. Personal owner / workspace owner always keeps admin access.
+ * 1. Personal owner / workspace owner always keeps admin access. Ownership is resolved from the
+ *    canonical resource first and only falls back to the tree mirror when the resource is absent.
  * 2. The nearest explicit allow/deny wins; a child allow can re-open access below
  *    a denied parent, while a deny on the same node wins over an allow.
  * 3. An eligible allow must still be on or below the nearest restricted boundary.
@@ -184,11 +259,12 @@ export function resolveKnowledgeNodeAccess(
   const node = readNode(db, nodeId);
   if (!node || (node.isDeleted && !options.includeDeleted)) return noAccess(nodeId);
 
-  const ownsPersonalNode = !node.workspaceId && node.userId === userId;
-  const ownsWorkspace = !!node.workspaceId && workspaceOwnerId(db, node.workspaceId) === userId;
-  const workspaceRole = node.workspaceId
+  const identity = effectiveResourceIdentity(db, node);
+  const ownsPersonalNode = !identity.workspaceId && identity.userId === userId;
+  const ownsWorkspace = !!identity.workspaceId && workspaceOwnerId(db, identity.workspaceId) === userId;
+  const workspaceRole = identity.workspaceId
     ? db.prepare("SELECT role FROM workspace_members WHERE workspaceId = ? AND userId = ?")
-        .get(node.workspaceId, userId) as { role: string } | undefined
+        .get(identity.workspaceId, userId) as { role: string } | undefined
     : undefined;
   const administersWorkspace = workspaceRole?.role === "owner" || workspaceRole?.role === "admin";
   if (ownsPersonalNode || ownsWorkspace || administersWorkspace) {
@@ -224,7 +300,7 @@ export function resolveKnowledgeNodeAccess(
 
   if (restricted) return noAccess(nodeId, restricted.nodeId);
 
-  const legacy = legacyAccess(db, node, userId);
+  const legacy = legacyAccess(db, node, userId, identity.workspaceId);
   return {
     nodeId,
     ...legacy,
