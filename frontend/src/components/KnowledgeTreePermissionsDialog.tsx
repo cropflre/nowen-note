@@ -6,6 +6,7 @@ import { confirm } from "@/components/ui/confirm";
 import { api } from "@/lib/api";
 import {
   knowledgeTreeApi,
+  type EffectiveKnowledgeAccess,
   type KnowledgeAccessMode,
   type KnowledgePermissionRow,
   type KnowledgeRolePreset,
@@ -58,6 +59,7 @@ export default function KnowledgeTreePermissionsDialog({ node, onClose, onChange
   const [accessMode, setAccessMode] = useState<KnowledgeAccessMode>("inherit");
   const [isExplicit, setIsExplicit] = useState(false);
   const [currentUser, setCurrentUser] = useState<{ id: string; username: string } | null>(null);
+  const [currentUserAccess, setCurrentUserAccess] = useState<EffectiveKnowledgeAccess | null>(null);
   const [loading, setLoading] = useState(true);
   const [savingKey, setSavingKey] = useState<string | null>(null);
   const [memberSearch, setMemberSearch] = useState("");
@@ -83,8 +85,16 @@ export default function KnowledgeTreePermissionsDialog({ node, onClose, onChange
       setInheritsFromParent(response.inheritsFromParent);
       setAccessMode(response.accessMode);
       setIsExplicit(response.isExplicit === true);
+      setCurrentUserAccess(response.currentUserAccess);
       setCurrentUser({ id: me.id, username: me.username });
+      if (response.currentUserAccess.source === "owner" && !response.currentUserAccess.capabilities.canManageMembers) {
+        console.error("[KnowledgeTreePermissionsDialog] owner access invariant violated", {
+          nodeId: node.id,
+          access: response.currentUserAccess,
+        });
+      }
     } catch (error: any) {
+      setCurrentUserAccess(null);
       toast.error(error?.message || "读取权限失败");
     } finally {
       setLoading(false);
@@ -148,9 +158,17 @@ export default function KnowledgeTreePermissionsDialog({ node, onClose, onChange
     () => rows.filter((row) => row.rolePreset === "deny"),
     [rows],
   );
+  const canManageMembers = currentUserAccess?.capabilities.canManageMembers === true;
+  const managementDisabled = loading || savingKey !== null || !canManageMembers;
+
+  const ensureCanManageMembers = () => {
+    if (canManageMembers) return true;
+    toast.error("你当前没有成员管理权限");
+    return false;
+  };
 
   const changeAccessMode = async (nextMode: KnowledgeAccessMode) => {
-    if (nextMode === accessMode || savingKey) return;
+    if (!ensureCanManageMembers() || nextMode === accessMode || savingKey) return;
     if (nextMode === "inherit") {
       const accepted = await confirm({
         title: "恢复继承权限？",
@@ -176,7 +194,7 @@ export default function KnowledgeTreePermissionsDialog({ node, onClose, onChange
   };
 
   const addMember = async () => {
-    if (!currentUser) return;
+    if (!currentUser || !ensureCanManageMembers()) return;
     if (!selectedUser || savingKey) return;
     setSavingKey("add");
     try {
@@ -198,7 +216,7 @@ export default function KnowledgeTreePermissionsDialog({ node, onClose, onChange
   };
 
   const updateMemberRole = async (row: KnowledgePermissionRow, nextRole: KnowledgeRolePreset) => {
-    if (row.rolePreset === nextRole || savingKey) return;
+    if (!ensureCanManageMembers() || row.rolePreset === nextRole || savingKey) return;
     if (row.userId === currentUser?.id) { toast.error("不能修改自己的权限"); return; }
     setSavingKey(row.userId);
     try {
@@ -214,7 +232,7 @@ export default function KnowledgeTreePermissionsDialog({ node, onClose, onChange
   };
 
   const removeRule = async (row: KnowledgePermissionRow) => {
-    if (savingKey) return;
+    if (!ensureCanManageMembers() || savingKey) return;
     if (row.userId === currentUser?.id) { toast.error("不能修改自己的权限"); return; }
     const name = memberName(row);
     const removesLastAutomaticAllow =
@@ -287,6 +305,12 @@ export default function KnowledgeTreePermissionsDialog({ node, onClose, onChange
         </header>
 
         <main className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-6 sm:py-5">
+          {!loading && currentUserAccess && !canManageMembers && (
+            <div className="mb-4 rounded-xl border border-amber-500/30 bg-amber-500/[0.08] px-4 py-3 text-xs leading-5 text-amber-700 dark:text-amber-300" role="status">
+              你当前可以查看此内容，但没有成员管理权限。成员角色、禁止访问和访问范围只能由所有者或管理员修改。
+            </div>
+          )}
+
           <section className={`rounded-xl border px-4 py-4 ${accessMode === "restricted" ? "border-amber-500/30 bg-amber-500/[0.06]" : "border-app-border bg-app-hover/25"}`}>
             <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
               <div className="min-w-0">
@@ -299,17 +323,17 @@ export default function KnowledgeTreePermissionsDialog({ node, onClose, onChange
               <div className="flex shrink-0 rounded-lg border border-app-border bg-app-bg p-1">
                 <button
                   type="button"
-                  disabled={savingKey !== null}
+                  disabled={managementDisabled}
                   onClick={() => void changeAccessMode("inherit")}
-                  className={`rounded-md px-3 py-1.5 text-xs font-medium ${accessMode === "inherit" ? "bg-app-surface text-tx-primary shadow-sm" : "text-tx-tertiary hover:text-tx-primary"}`}
+                  className={`rounded-md px-3 py-1.5 text-xs font-medium disabled:cursor-not-allowed disabled:opacity-40 ${accessMode === "inherit" ? "bg-app-surface text-tx-primary shadow-sm" : "text-tx-tertiary hover:text-tx-primary"}`}
                 >
                   继承权限
                 </button>
                 <button
                   type="button"
-                  disabled={savingKey !== null}
+                  disabled={managementDisabled}
                   onClick={() => void changeAccessMode("restricted")}
-                  className={`rounded-md px-3 py-1.5 text-xs font-medium ${accessMode === "restricted" ? "bg-amber-500/15 text-amber-600 dark:text-amber-400" : "text-tx-tertiary hover:text-tx-primary"}`}
+                  className={`rounded-md px-3 py-1.5 text-xs font-medium disabled:cursor-not-allowed disabled:opacity-40 ${accessMode === "restricted" ? "bg-amber-500/15 text-amber-600 dark:text-amber-400" : "text-tx-tertiary hover:text-tx-primary"}`}
                 >
                   仅指定成员
                 </button>
@@ -325,15 +349,16 @@ export default function KnowledgeTreePermissionsDialog({ node, onClose, onChange
               </div>
               <button
                 type="button"
-                disabled={!currentUser || savingKey !== null}
+                disabled={!currentUser || managementDisabled}
                 onClick={() => {
+                  if (!ensureCanManageMembers()) return;
                   setShowAddMember((current) => !current);
                   setSelectedUser(null);
                   setUserQuery("");
                   setUserCandidates([]);
                   setCandidateOpen(true);
                 }}
-                className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm font-medium text-accent-primary hover:bg-accent-primary/10 disabled:opacity-40"
+                className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm font-medium text-accent-primary hover:bg-accent-primary/10 disabled:cursor-not-allowed disabled:opacity-40"
               >
                 <UserPlus size={16} />添加成员
               </button>
@@ -358,6 +383,7 @@ export default function KnowledgeTreePermissionsDialog({ node, onClose, onChange
                         <Search size={15} className="text-tx-tertiary" />
                         <input
                           value={userQuery}
+                          disabled={!canManageMembers}
                           onChange={(event) => { setUserQuery(event.target.value); setActiveCandidateIndex(-1); setCandidateOpen(true); }}
                           onFocus={() => setCandidateOpen(true)}
                           onKeyDown={(event) => {
@@ -369,12 +395,12 @@ export default function KnowledgeTreePermissionsDialog({ node, onClose, onChange
                           aria-activedescendant={activeCandidateIndex >= 0 ? `knowledge-user-candidate-${activeCandidateIndex}` : undefined}
                           autoFocus={focusUserPicker}
                           placeholder="搜索用户名、显示名或邮箱"
-                          className="min-w-0 flex-1 bg-transparent text-sm text-tx-primary outline-none placeholder:text-tx-tertiary"
+                          className="min-w-0 flex-1 bg-transparent text-sm text-tx-primary outline-none placeholder:text-tx-tertiary disabled:cursor-not-allowed"
                         />
                         {candidateLoading && <Loader2 size={15} className="animate-spin text-tx-tertiary" />}
                       </div>
                     )}
-                    {!selectedUser && candidateOpen && (
+                    {!selectedUser && candidateOpen && canManageMembers && (
                       <div role="listbox" className="absolute left-0 right-0 top-11 z-20 max-h-56 overflow-y-auto rounded-xl border border-app-border bg-app-surface py-1 shadow-xl">
                         {candidateLoading && userCandidates.length === 0 ? (
                           <div className="flex items-center justify-center gap-2 px-3 py-6 text-sm text-tx-tertiary"><Loader2 size={16} className="animate-spin" />加载中</div>
@@ -403,10 +429,15 @@ export default function KnowledgeTreePermissionsDialog({ node, onClose, onChange
                       </div>
                     )}
                   </div>
-                  <select value={role} onChange={(event) => setRole(event.target.value as KnowledgeRolePreset)} className="h-10 rounded-lg border border-app-border bg-app-bg px-3 text-sm text-tx-primary sm:w-36">
+                  <select
+                    value={role}
+                    disabled={managementDisabled}
+                    onChange={(event) => setRole(event.target.value as KnowledgeRolePreset)}
+                    className="h-10 rounded-lg border border-app-border bg-app-bg px-3 text-sm text-tx-primary disabled:cursor-not-allowed disabled:opacity-40 sm:w-36"
+                  >
                     {ROLE_OPTIONS.map((preset) => <option key={preset} value={preset}>{ROLE_LABELS[preset]}</option>)}
                   </select>
-                  <button type="button" disabled={!selectedUser || savingKey !== null} onClick={() => void addMember()} className="flex h-10 min-w-20 items-center justify-center rounded-lg bg-accent-primary px-4 text-sm font-medium text-white disabled:opacity-40">
+                  <button type="button" disabled={!selectedUser || managementDisabled} onClick={() => void addMember()} className="flex h-10 min-w-20 items-center justify-center rounded-lg bg-accent-primary px-4 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-40">
                     {savingKey === "add" ? <Loader2 size={16} className="animate-spin" /> : "添加"}
                   </button>
                 </div>
@@ -445,17 +476,17 @@ export default function KnowledgeTreePermissionsDialog({ node, onClose, onChange
                     </div>
                     <select
                       value={row.rolePreset}
-                      disabled={savingKey !== null || isCurrentUser}
+                      disabled={managementDisabled || isCurrentUser}
                       onChange={(event) => void updateMemberRole(row, event.target.value as KnowledgeRolePreset)}
-                      className={`ml-12 h-9 rounded-lg border bg-app-bg px-2 text-xs sm:ml-0 sm:w-32 ${isDenied ? "border-red-500/30 text-red-500" : "border-app-border text-tx-primary"}`}
+                      className={`ml-12 h-9 rounded-lg border bg-app-bg px-2 text-xs disabled:cursor-not-allowed disabled:opacity-40 sm:ml-0 sm:w-32 ${isDenied ? "border-red-500/30 text-red-500" : "border-app-border text-tx-primary"}`}
                     >
                       {ROLE_OPTIONS.map((preset) => <option key={preset} value={preset}>{ROLE_LABELS[preset]}</option>)}
                     </select>
                     <button
                       type="button"
-                      disabled={savingKey !== null || isCurrentUser}
+                      disabled={managementDisabled || isCurrentUser}
                       onClick={() => void removeRule(row)}
-                      className="rounded-lg p-2 text-tx-tertiary hover:bg-red-500/10 hover:text-red-500 disabled:opacity-40"
+                      className="rounded-lg p-2 text-tx-tertiary hover:bg-red-500/10 hover:text-red-500 disabled:cursor-not-allowed disabled:opacity-40"
                       aria-label={`移除 ${memberName(row)} 的权限规则`}
                     >
                       {savingKey === row.userId ? <Loader2 size={15} className="animate-spin" /> : <Trash2 size={15} />}
