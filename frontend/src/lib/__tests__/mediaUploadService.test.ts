@@ -89,4 +89,32 @@ describe("mediaUploadService", () => {
     expect(second.attachmentId).toBe(first.attachmentId);
     expect(scheduleMediaInsertionCommit).toHaveBeenCalledTimes(2);
   });
+
+  it("never reuses a pending upload after the user switches to another note", async () => {
+    vi.mocked(api.attachments.upload)
+      .mockResolvedValueOnce({
+        id: "att-note-1",
+        url: "/api/attachments/att-note-1",
+        mimeType: "video/mp4",
+        size: 12,
+        filename: "switch.mp4",
+        category: "file",
+      })
+      .mockResolvedValueOnce({
+        id: "att-note-2",
+        url: "/api/attachments/att-note-2",
+        mimeType: "video/mp4",
+        size: 12,
+        filename: "switch.mp4",
+        category: "file",
+      });
+
+    const file = new File(["video-data!!"], "switch.mp4", { type: "video/mp4" });
+    const first = await uploadMediaAttachment({ noteId: "note-1", file, source: "drag-drop" });
+    const second = await uploadMediaAttachment({ noteId: "note-2", file, source: "drag-drop" });
+
+    expect(api.attachments.upload).toHaveBeenCalledTimes(2);
+    expect(first.attachmentId).toBe("att-note-1");
+    expect(second.attachmentId).toBe("att-note-2");
+  });
 });
