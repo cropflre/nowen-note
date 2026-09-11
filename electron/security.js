@@ -9,6 +9,17 @@
 // 主窗口 webContents.id，由 main.js 在创建窗口后设置
 let trustedMainWindowId = null;
 
+function isTrustedMainWindowUrl(rawUrl) {
+  try {
+    const url = String(rawUrl || "");
+    if (url.startsWith("file://")) return true;
+    if (url.startsWith("http://127.0.0.1:") || url.startsWith("http://localhost:")) return true;
+    return false;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * 验证外部 URL 协议是否允许通过 shell.openExternal 打开。
  * 只允许 http/https/mailto，禁止 file/javascript/data/vbscript 等危险协议。
@@ -48,10 +59,22 @@ function isTrustedMainWindowSender(event) {
   try {
     const frame = event.senderFrame;
     if (!frame) return false;
-    const url = frame.url || "";
-    if (url.startsWith("file://")) return true;
-    if (url.startsWith("http://127.0.0.1:") || url.startsWith("http://localhost:")) return true;
+    return isTrustedMainWindowUrl(frame.url || "");
+  } catch {
     return false;
+  }
+}
+
+/**
+ * 判断一个 WebContents 是否就是已登记的 Nowen 主窗口。
+ * 与 senderFrame URL 校验不同，这个函数同时绑定 webContents.id，供摄像头等
+ * 浏览器权限边界使用，避免 setupWindow / UGREEN 内置窗口 / 外部 renderer 复用权限。
+ */
+function isTrustedMainWebContents(webContents) {
+  try {
+    if (!webContents || trustedMainWindowId === null) return false;
+    if (webContents.id !== trustedMainWindowId) return false;
+    return isTrustedMainWindowUrl(webContents.getURL?.() || "");
   } catch {
     return false;
   }
@@ -139,6 +162,7 @@ module.exports = {
   isAllowedUgreenRemoteUrl,
   isAllowedMainWindowNavigation,
   isTrustedMainWindowSender,
+  isTrustedMainWebContents,
   isTrustedSetupWindowSender,
   assertMainWindowSender,
   setTrustedMainWindowId,
