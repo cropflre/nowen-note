@@ -46,6 +46,8 @@ export default function CameraCaptureBridge() {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const pendingInputRef = useRef<HTMLInputElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const capturedUrlRef = useRef("");
+  const cameraRequestSequenceRef = useRef(0);
 
   const releaseStream = useCallback(() => {
     stopCameraStream(streamRef.current);
@@ -54,13 +56,14 @@ export default function CameraCaptureBridge() {
   }, []);
 
   const revokeCapturedUrl = useCallback(() => {
-    setCapturedUrl((current) => {
-      if (current) URL.revokeObjectURL(current);
-      return "";
-    });
+    const current = capturedUrlRef.current;
+    capturedUrlRef.current = "";
+    if (current) URL.revokeObjectURL(current);
+    setCapturedUrl("");
   }, []);
 
   const resetCapture = useCallback((removePendingInput: boolean) => {
+    cameraRequestSequenceRef.current += 1;
     releaseStream();
     revokeCapturedUrl();
     setCapturedFile(null);
@@ -74,6 +77,7 @@ export default function CameraCaptureBridge() {
   }, [releaseStream, revokeCapturedUrl]);
 
   const startCamera = useCallback(async (deviceId?: string) => {
+    const requestSequence = ++cameraRequestSequenceRef.current;
     releaseStream();
     revokeCapturedUrl();
     setCapturedFile(null);
@@ -84,6 +88,14 @@ export default function CameraCaptureBridge() {
         deviceId: deviceId || undefined,
         facingMode: "environment",
       });
+      if (
+        requestSequence !== cameraRequestSequenceRef.current
+        || !pendingInputRef.current
+      ) {
+        stopCameraStream(nextStream);
+        return;
+      }
+
       streamRef.current = nextStream;
       setStream(nextStream);
       const track = nextStream.getVideoTracks()[0];
@@ -91,9 +103,18 @@ export default function CameraCaptureBridge() {
       const resolvedDeviceId = settings?.deviceId || deviceId || "";
       setActiveDeviceId(resolvedDeviceId);
       const nextDevices = await listVideoInputs().catch(() => []);
+      if (requestSequence !== cameraRequestSequenceRef.current) {
+        stopCameraStream(nextStream);
+        if (streamRef.current === nextStream) {
+          streamRef.current = null;
+          setStream(null);
+        }
+        return;
+      }
       setDevices(nextDevices);
       setState("preview");
     } catch (cameraError) {
+      if (requestSequence !== cameraRequestSequenceRef.current) return;
       releaseStream();
       setError(describeCameraError(cameraError));
       setState("error");
@@ -145,10 +166,13 @@ export default function CameraCaptureBridge() {
   }, [open, resetCapture]);
 
   useEffect(() => () => {
+    cameraRequestSequenceRef.current += 1;
     stopCameraStream(streamRef.current);
     streamRef.current = null;
-    if (capturedUrl) URL.revokeObjectURL(capturedUrl);
-  }, [capturedUrl]);
+    const previewUrl = capturedUrlRef.current;
+    capturedUrlRef.current = "";
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
+  }, []);
 
   const capture = useCallback(async () => {
     const video = videoRef.current;
@@ -157,8 +181,10 @@ export default function CameraCaptureBridge() {
       const file = await capturePhotoToFile(video);
       releaseStream();
       revokeCapturedUrl();
+      const previewUrl = URL.createObjectURL(file);
+      capturedUrlRef.current = previewUrl;
       setCapturedFile(file);
-      setCapturedUrl(URL.createObjectURL(file));
+      setCapturedUrl(previewUrl);
       setState("captured");
     } catch (captureError) {
       setError({
@@ -194,6 +220,7 @@ export default function CameraCaptureBridge() {
       resetCapture(true);
       return;
     }
+    cameraRequestSequenceRef.current += 1;
     releaseStream();
     revokeCapturedUrl();
     setOpen(false);
@@ -202,6 +229,7 @@ export default function CameraCaptureBridge() {
     setError(null);
     input.dataset.nowenCameraFallback = "1";
     input.removeAttribute("capture");
+    pendingInputRef.current = null;
     window.setTimeout(() => {
       try {
         input.click();
