@@ -60,17 +60,11 @@ function expandSemanticTail(
     if (!next) break;
     const text = next.text;
 
-    // SiYuan block IAL rows belong to the preceding semantic block. Parsing them
-    // as a separate live-preview paragraph is one of the reasons imported
-    // callouts/tables differed from the complete-document preview.
     if (STANDALONE_IAL_RE.test(text)) {
       to = next.to;
       continue;
     }
 
-    // CodeMirror may expose nested/continued blockquote lines as siblings. Keep
-    // the whole quote together so a GFM alert marker and its body are parsed by
-    // one ReactMarkdown instance.
     if (quoteBlock && /^\s*>/.test(text)) {
       to = next.to;
       continue;
@@ -123,18 +117,17 @@ function mergeSemanticRanges(
 }
 
 /**
- * Collect top-level semantic blocks that do not intersect the current selection.
+ * Collect top-level semantic blocks that do not intersect any current selection.
  *
- * Live preview and full preview both render through MarkdownPreview. The important
- * invariant is therefore the input boundary: quote/callout continuations and
- * SiYuan IAL rows must reach the renderer as one block instead of several isolated
- * Markdown fragments.
+ * Every active cursor must keep its source block visible. Otherwise a secondary cursor in Live
+ * mode can end up inside a Decoration.replace widget owned by another selection, which makes
+ * multi-cursor editing appear to lose a caret.
  */
 export function collectMarkdownLivePreviewBlocks(
   source: EditorView | EditorState,
 ): MarkdownLivePreviewBlock[] {
   const state = getEditorState(source);
-  const selection = state.selection.main;
+  const selections = state.selection.ranges;
   const cursor = syntaxTree(state).cursor();
   const candidates: Array<{ from: number; to: number }> = [];
   const seen = new Set<string>();
@@ -151,7 +144,9 @@ export function collectMarkdownLivePreviewBlocks(
   } while (cursor.nextSibling());
 
   return mergeSemanticRanges(state, candidates)
-    .filter((range) => !(selection.from <= range.to && selection.to >= range.from))
+    .filter((range) => !selections.some(
+      (selection) => selection.from <= range.to && selection.to >= range.from,
+    ))
     .map((range) => ({
       ...range,
       markdown: state.doc.sliceString(range.from, range.to),
@@ -229,8 +224,6 @@ class MarkdownLivePreviewWidget extends WidgetType {
 }
 
 function buildDecorations(state: EditorState): DecorationSet {
-  // Large documents stay responsive because CodeMirror's syntax tree is incremental;
-  // this hard ceiling prevents thousands of React roots on pathological imports.
   if (state.doc.length > 350_000) return Decoration.none;
 
   const builder = new RangeSetBuilder<Decoration>();
