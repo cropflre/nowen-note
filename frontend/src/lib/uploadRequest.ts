@@ -107,10 +107,14 @@ function appendUploadSizeHint(url: string, fileSize: number): string {
   if (!fileSize) return url;
   try {
     const parsed = new URL(url, typeof window !== "undefined" ? window.location.href : "http://localhost/");
+    // ISSUE-780 metadata belongs only to the canonical attachment POST. Other multipart features
+    // (task attachments/imports/etc.) must not silently gain an unrelated query parameter.
+    if (!/\/attachments\/?$/.test(parsed.pathname)) return url;
     parsed.searchParams.set("__uploadSize", String(fileSize));
     if (/^https?:\/\//i.test(url)) return parsed.toString();
     return `${parsed.pathname}${parsed.search}${parsed.hash}`;
   } catch {
+    if (!/\/attachments(?:\?|$)/.test(url)) return url;
     const separator = url.includes("?") ? "&" : "?";
     return `${url}${separator}__uploadSize=${encodeURIComponent(String(fileSize))}`;
   }
