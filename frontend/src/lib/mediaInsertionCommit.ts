@@ -84,6 +84,8 @@ export function scheduleMediaInsertionCommit(options: {
   file: File | Blob;
   filename: string;
   result: MediaInsertionResult;
+  onSuccess?: () => void;
+  onFailure?: () => void;
 }): void {
   if (typeof window === "undefined" || typeof document === "undefined") return;
   const key = options.result.attachmentId || options.result.url;
@@ -94,6 +96,7 @@ export function scheduleMediaInsertionCommit(options: {
   const check = () => {
     if (hasCommittedMediaInsertion(options.result, document)) {
       clearPending(key);
+      options.onSuccess?.();
       emitMediaUploadLifecycle({
         phase: "success",
         file: options.file,
@@ -107,13 +110,14 @@ export function scheduleMediaInsertionCommit(options: {
     index += 1;
     if (index >= CHECK_DELAYS_MS.length) {
       clearPending(key);
+      options.onFailure?.();
       emitMediaUploadLifecycle({
         phase: "error",
         file: options.file,
         filename: options.filename,
         mediaType: "video",
         result: options.result,
-        error: "视频已上传，但插入正文失败。文件仍保留在附件库，可重新插入。",
+        error: "视频已上传，但插入正文失败。点击“重试失败项”会复用已上传文件重新插入，也可从附件库手动插入。",
       });
       return;
     }
