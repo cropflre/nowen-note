@@ -73,6 +73,8 @@ const FENCE_LANGUAGE_OPTIONS = [
   "sql", "java", "go", "rust", "c", "cpp", "csharp", "powershell", "maxscript",
   "markdown", "text",
 ];
+const FENCE_LANGUAGE_SET = new Set(FENCE_LANGUAGE_OPTIONS);
+const MAX_LIVE_FENCE_DOCUMENT_LENGTH = 350_000;
 
 const FENCE_ALIAS_OPTIONS = Object.entries(MARKDOWN_FENCE_LANGUAGE_ALIASES)
   .filter(([alias]) => !FENCE_LANGUAGE_OPTIONS.includes(alias))
@@ -84,8 +86,6 @@ const FENCE_ALIAS_OPTIONS = Object.entries(MARKDOWN_FENCE_LANGUAGE_ALIASES)
     boost: 5,
   }));
 
-// CommonMark allows arbitrary info text after a tilde fence. Backtick fences are the exception:
-// their info string may not itself contain a backtick.
 const OPENING_FENCE_RE = /^(\s{0,3}(?:(?:>\s*)*))((`{3,})|(~{3,}))(.*)$/;
 
 export function normalizeFenceLanguage(language: string): string {
@@ -97,6 +97,12 @@ export function getFenceLanguageLabel(language: string): string {
   const canonical = normalizeFenceLanguage(language);
   if (!canonical) return "Plain text";
   return LANGUAGE_LABELS[canonical] || language.trim() || "Plain text";
+}
+
+function isKnownFenceLanguage(language: string): boolean {
+  const raw = language.trim().toLowerCase();
+  if (!raw) return false;
+  return FENCE_LANGUAGE_SET.has(raw) || Object.prototype.hasOwnProperty.call(MARKDOWN_FENCE_LANGUAGE_ALIASES, raw);
 }
 
 export function parseMarkdownFenceOpening(line: string): MarkdownFenceOpening | null {
@@ -142,21 +148,30 @@ export function hasMatchingFenceClosing(
 /**
  * Typora-style fenced-code input rule. It only takes over Enter when every selection is an empty
  * cursor at the end of a pure fence-opening line. Paste, normal Enter and IME composition therefore
- * fall through to CodeMirror unchanged. Active autocomplete also wins Enter so a visible language
- * candidate can be accepted before the user enters the code body.
+ * fall through to CodeMirror unchanged.
+ *
+ * Autocomplete coordination:
+ * - bare ``` / ~~~ does not auto-open language completion, so Enter creates plain text immediately;
+ * - a partial token such as ```ja lets the visible completion consume Enter;
+ * - an already complete language/alias such as ```bash or ```js enters the body immediately.
  */
 export function completeMarkdownFenceOnEnter(view: EditorView): boolean {
   if (view.composing) return false;
-  if (completionStatus(view.state)) return false;
   const state = view.state;
   const ranges = state.selection.ranges;
   if (!ranges.length || ranges.some((range) => !range.empty)) return false;
 
-  const canHandleEveryCursor = ranges.every((range) => {
+  const openings = ranges.map((range) => {
     const line = state.doc.lineAt(range.head);
-    return range.head === line.to && Boolean(parseMarkdownFenceOpening(line.text));
+    if (range.head !== line.to) return null;
+    return parseMarkdownFenceOpening(line.text);
   });
-  if (!canHandleEveryCursor) return false;
+  if (openings.some((opening) => !opening)) return false;
+
+  if (completionStatus(state)) {
+    const allLanguagesComplete = openings.every((opening) => isKnownFenceLanguage(opening!.language));
+    if (!allLanguagesComplete) return false;
+  }
 
   const transaction = state.changeByRange((range) => {
     const line = state.doc.lineAt(range.head);
@@ -182,6 +197,7 @@ export function fencedCodeLanguageCompletion(context: CompletionContext): Comple
   const match = before.match(/^(\s{0,3}(?:(?:>\s*)*))(`{3,}|~{3,})([A-Za-z0-9_+#.-]*)$/);
   if (!match) return null;
   const token = match[3];
+  if (!token && !context.explicit) return null;
   const from = context.pos - token.length;
   return {
     from,
@@ -198,6 +214,7 @@ export function fencedCodeLanguageCompletion(context: CompletionContext): Comple
 }
 
 function activeFenceDecorations(state: EditorState): DecorationSet {
+  if (state.doc.length > MAX_LIVE_FENCE_DOCUMENT_LENGTH) return Decoration.none;
   const heads = state.selection.ranges.map((range) => range.head);
   const ranges: Array<{ from: number; decoration: Decoration }> = [];
 
