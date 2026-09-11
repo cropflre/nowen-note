@@ -28,6 +28,12 @@ test('camera policy only accepts trusted main renderer video permission', () => 
     requestingUrl: wc.getURL(),
   }, security), true);
 
+  // Packaged Electron may report only the generic file:// security origin.
+  assert.equal(shouldAllowCameraPermission(wc, 'media', {
+    mediaTypes: ['video'],
+    securityOrigin: 'file://',
+  }, security), true);
+
   assert.equal(shouldAllowCameraPermission(wc, 'media', {
     mediaTypes: ['audio'],
     requestingUrl: wc.getURL(),
