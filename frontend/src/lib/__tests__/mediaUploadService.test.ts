@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   isVideoFile,
@@ -19,6 +19,11 @@ vi.mock("@/lib/api", () => ({
 vi.mock("@/lib/mediaInsertionCommit", () => ({
   scheduleMediaInsertionCommit: vi.fn(),
 }));
+
+beforeEach(() => {
+  vi.mocked(api.attachments.upload).mockReset();
+  vi.mocked(scheduleMediaInsertionCommit).mockReset();
+});
 
 describe("mediaUploadService", () => {
   it("detects video files by mime type and filename fallback", () => {
@@ -62,6 +67,26 @@ describe("mediaUploadService", () => {
     expect(scheduleMediaInsertionCommit).toHaveBeenCalledWith(expect.objectContaining({
       filename: "clip.mp4",
       result,
+      onSuccess: expect.any(Function),
     }));
+  });
+
+  it("retries editor insertion with the already uploaded attachment instead of uploading twice", async () => {
+    vi.mocked(api.attachments.upload).mockResolvedValueOnce({
+      id: "att-recover",
+      url: "/api/attachments/att-recover",
+      mimeType: "video/mp4",
+      size: 12,
+      filename: "recover.mp4",
+      category: "file",
+    });
+
+    const file = new File(["video-data!!"], "recover.mp4", { type: "video/mp4" });
+    const first = await uploadMediaAttachment({ noteId: "note-1", file, source: "drag-drop" });
+    const second = await uploadMediaAttachment({ noteId: "note-1", file, source: "drag-drop" });
+
+    expect(api.attachments.upload).toHaveBeenCalledTimes(1);
+    expect(second.attachmentId).toBe(first.attachmentId);
+    expect(scheduleMediaInsertionCommit).toHaveBeenCalledTimes(2);
   });
 });
