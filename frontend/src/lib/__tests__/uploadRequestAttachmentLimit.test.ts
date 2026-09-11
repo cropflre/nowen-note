@@ -8,6 +8,7 @@ import {
 
 afterEach(() => {
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
 });
 
 describe("attachment upload request contract", () => {
@@ -60,5 +61,29 @@ describe("attachment upload request contract", () => {
       maxSizeBytes: 100,
       actualSizeBytes: 101,
     });
+  });
+
+  it("does not append the attachment size hint to unrelated multipart endpoints", async () => {
+    const file = new File([new Uint8Array(16)], "task.png", { type: "image/png" });
+    const form = new FormData();
+    form.set("file", file);
+
+    const fetchMock = vi.fn(async (url: string | URL | Request) => {
+      expect(String(url)).toBe("https://notes.example/api/task-attachments");
+      return new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(fetchJsonWithUploadDeadline("https://notes.example/api/task-attachments", {
+      method: "POST",
+      body: form,
+    }, {
+      timeoutMs: ATTACHMENT_UPLOAD_MIN_TIMEOUT_MS,
+      timeoutMessage: "timeout",
+      httpErrorMessage: "upload failed",
+    })).resolves.toEqual({ ok: true });
   });
 });
