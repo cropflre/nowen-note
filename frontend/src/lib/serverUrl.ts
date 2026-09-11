@@ -24,7 +24,14 @@ export interface ResolvedServerConnection extends ServerPathCandidate {
   resolvedAt: number;
 }
 
-const RESOLVED_SERVER_CONNECTION_KEY = "nowen-resolved-server-connection-v1";
+const RESOLVED_SERVER_CONNECTION_KEY = "nowen-resolved-server-connections-v2";
+const LEGACY_RESOLVED_SERVER_CONNECTION_KEY = "nowen-resolved-server-connection-v1";
+const MAX_RESOLVED_SERVER_CONNECTIONS = 20;
+
+interface ResolvedServerConnectionCache {
+  version: 2;
+  connections: Record<string, Partial<ResolvedServerConnection>>;
+}
 
 export interface ServerAddressParts {
   protocol: ServerScheme;
@@ -258,31 +265,95 @@ export function buildServerPathCandidates(
   }));
 }
 
+function normalizeCachedResolvedConnection(
+  candidates: ServerPathCandidate[],
+  parsed: Partial<ResolvedServerConnection> | null | undefined,
+): ResolvedServerConnection | null {
+  if (!parsed) return null;
+  const apiCandidate = candidates.find((candidate) => (
+    candidate.mode === parsed.mode
+    && candidate.apiBaseUrl === parsed.apiBaseUrl
+    && candidate.serverBaseUrl === parsed.serverBaseUrl
+  ));
+  const websocketCandidate = candidates.find((candidate) => (
+    candidate.websocketUrl === parsed.websocketUrl
+    && candidate.websocketPath === parsed.websocketPath
+  ));
+  if (!apiCandidate || !websocketCandidate) return null;
+  return {
+    ...apiCandidate,
+    websocketUrl: websocketCandidate.websocketUrl,
+    websocketPath: websocketCandidate.websocketPath,
+    resolvedAt: typeof parsed.resolvedAt === "number" ? parsed.resolvedAt : 0,
+  };
+}
+
+function readResolvedServerConnectionCache(): ResolvedServerConnectionCache {
+  const empty: ResolvedServerConnectionCache = { version: 2, connections: {} };
+  if (typeof localStorage === "undefined") return empty;
+  try {
+    const raw = localStorage.getItem(RESOLVED_SERVER_CONNECTION_KEY);
+    if (!raw) return empty;
+    const parsed = JSON.parse(raw) as Partial<ResolvedServerConnectionCache>;
+    if (parsed?.version !== 2 || !parsed.connections || typeof parsed.connections !== "object") {
+      return empty;
+    }
+    return { version: 2, connections: parsed.connections };
+  } catch {
+    return empty;
+  }
+}
+
+function writeResolvedServerConnectionCache(cache: ResolvedServerConnectionCache): void {
+  if (typeof localStorage === "undefined") return;
+  try {
+    const entries = Object.values(cache.connections)
+      .filter((entry): entry is ResolvedServerConnection => (
+        !!entry
+        && typeof entry.serverBaseUrl === "string"
+        && typeof entry.resolvedAt === "number"
+      ))
+      .sort((a, b) => b.resolvedAt - a.resolvedAt)
+      .slice(0, MAX_RESOLVED_SERVER_CONNECTIONS);
+    const connections: Record<string, ResolvedServerConnection> = {};
+    for (const entry of entries) connections[entry.serverBaseUrl] = entry;
+    localStorage.setItem(RESOLVED_SERVER_CONNECTION_KEY, JSON.stringify({
+      version: 2,
+      connections,
+    }));
+  } catch {
+    // Restricted storage falls back to the standard path for the next request.
+  }
+}
+
 function readResolvedServerConnection(
   input: string | null | undefined,
 ): ResolvedServerConnection | null {
   const candidates = buildServerPathCandidates(input);
   if (candidates.length === 0 || typeof localStorage === "undefined") return null;
+  const serverBaseUrl = candidates[0].serverBaseUrl;
+
+  const currentCache = readResolvedServerConnectionCache();
+  const current = normalizeCachedResolvedConnection(
+    candidates,
+    currentCache.connections[serverBaseUrl],
+  );
+  if (current) return current;
+
+  // v1 只保存一个服务器。首次读取时迁移到按 serverBaseUrl 分桶的 v2，避免
+  // 桌面端多服务器/账号切换时后一个探测结果覆盖前一个服务器的代理兼容路径。
   try {
-    const raw = localStorage.getItem(RESOLVED_SERVER_CONNECTION_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as Partial<ResolvedServerConnection>;
-    const apiCandidate = candidates.find((candidate) => (
-      candidate.mode === parsed.mode
-      && candidate.apiBaseUrl === parsed.apiBaseUrl
-      && candidate.serverBaseUrl === parsed.serverBaseUrl
-    ));
-    const websocketCandidate = candidates.find((candidate) => (
-      candidate.websocketUrl === parsed.websocketUrl
-      && candidate.websocketPath === parsed.websocketPath
-    ));
-    if (!apiCandidate || !websocketCandidate) return null;
-    return {
-      ...apiCandidate,
-      websocketUrl: websocketCandidate.websocketUrl,
-      websocketPath: websocketCandidate.websocketPath,
-      resolvedAt: typeof parsed.resolvedAt === "number" ? parsed.resolvedAt : 0,
-    };
+    const legacyRaw = localStorage.getItem(LEGACY_RESOLVED_SERVER_CONNECTION_KEY);
+    if (!legacyRaw) return null;
+    const legacy = normalizeCachedResolvedConnection(
+      candidates,
+      JSON.parse(legacyRaw) as Partial<ResolvedServerConnection>,
+    );
+    if (!legacy) return null;
+    currentCache.connections[serverBaseUrl] = legacy;
+    writeResolvedServerConnectionCache(currentCache);
+    localStorage.removeItem(LEGACY_RESOLVED_SERVER_CONNECTION_KEY);
+    return legacy;
   } catch {
     return null;
   }
@@ -300,21 +371,25 @@ export function cacheResolvedServerConnection(
     candidate.websocketUrl === connection.websocketUrl
   ));
   if (!apiCandidate || !websocketCandidate) return;
-  try {
-    localStorage.setItem(RESOLVED_SERVER_CONNECTION_KEY, JSON.stringify({
-      ...apiCandidate,
-      websocketUrl: websocketCandidate.websocketUrl,
-      websocketPath: websocketCandidate.websocketPath,
-      resolvedAt: Date.now(),
-    }));
-  } catch {
-    // Restricted storage falls back to the standard path for the next request.
-  }
+
+  const normalized: ResolvedServerConnection = {
+    ...apiCandidate,
+    websocketUrl: websocketCandidate.websocketUrl,
+    websocketPath: websocketCandidate.websocketPath,
+    resolvedAt: Date.now(),
+  };
+  const cache = readResolvedServerConnectionCache();
+  cache.connections[normalized.serverBaseUrl] = normalized;
+  writeResolvedServerConnectionCache(cache);
+  try { localStorage.removeItem(LEGACY_RESOLVED_SERVER_CONNECTION_KEY); } catch { /* ignore */ }
 }
 
 export function clearResolvedServerConnection(): void {
   if (typeof localStorage === "undefined") return;
-  try { localStorage.removeItem(RESOLVED_SERVER_CONNECTION_KEY); } catch { /* ignore */ }
+  try {
+    localStorage.removeItem(RESOLVED_SERVER_CONNECTION_KEY);
+    localStorage.removeItem(LEGACY_RESOLVED_SERVER_CONNECTION_KEY);
+  } catch { /* ignore */ }
 }
 
 export function getResolvedApiBaseUrl(input: string | null | undefined): string {
