@@ -44,6 +44,7 @@ import { installAndroidNativeHttpBridge } from "./lib/androidNativeHttpBridge";
 import { installDesktopNativeHttpBridge } from "./lib/desktopNativeHttpBridge";
 import { installMobileStartupBridge } from "./lib/mobileStartupBridge";
 import { installMobileWebStartupBridge } from "./lib/mobileWebStartupBridge";
+import { installAttachmentUploadPolicyBridge } from "./lib/attachmentUploadPolicyBridge";
 import { captureAttachmentAccessUpstreamFetch } from "./lib/attachmentAccessUpstreamFetch";
 import { installNoteAttachmentAccessBridge } from "./lib/noteAttachmentAccessBridge";
 import { installNonBlockingNoteFetch } from "./lib/nonBlockingNoteFetch";
@@ -102,6 +103,9 @@ installAndroidNativeHttpBridge();
 installDesktopNativeHttpBridge();
 installMobileStartupBridge();
 installMobileWebStartupBridge();
+// Install the runtime upload contract before any editor starts sending attachments. The policy
+// endpoint is warmed in the background; every actual upload still re-checks it before POST.
+installAttachmentUploadPolicyBridge();
 // Keep every transport wrapper installed above, but capture the chain before the attachment
 // bridge adds its note-detail prerequisite wait. Canonical note text can then render first while
 // signed media access is prepared in the background.
