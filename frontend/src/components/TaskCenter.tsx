@@ -2,6 +2,7 @@ import React, { useEffect } from "react";
 import TaskCenterImpl from "./TaskCenterImpl";
 import { TaskMetadataWorkspace } from "./tasks/TaskMetadataWorkspace";
 import TaskEntryUxBridge from "./tasks/TaskEntryUxBridge";
+import TaskDetailRichExperienceBridge from "./tasks/TaskDetailRichExperienceBridge";
 import { shouldConfirmHabitDelete } from "./tasks/taskCenterHardening";
 
 export * from "./TaskCenterImpl";
@@ -26,8 +27,9 @@ export default function TaskCenter() {
   }, []);
 
   return (
-      <TaskMetadataWorkspace>
+    <TaskMetadataWorkspace>
       <TaskEntryUxBridge />
+      <TaskDetailRichExperienceBridge />
       <TaskCenterImpl />
     </TaskMetadataWorkspace>
   );
