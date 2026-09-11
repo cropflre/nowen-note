@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from "react";
 import { Check, Copy } from "lucide-react";
 import { createCodeBlockLowlight } from "@/lib/codeBlockLowlight";
+import { getCodeBlockLanguageDisplayLabel } from "@/lib/codeBlockLanguageRegistry";
 import { instrumentPhaseALowlight } from "@/lib/phaseAPerfDiagnostics";
 import { isPlainTextLanguage } from "@/lib/codeBlockHighlightPlugin";
 import { copyText } from "@/lib/clipboard";
@@ -8,32 +9,6 @@ import { cn } from "@/lib/utils";
 import "@/markdown-code-highlight.css";
 
 const lowlight = instrumentPhaseALowlight(createCodeBlockLowlight());
-
-const LANGUAGE_LABELS: Record<string, string> = {
-  bash: "Bash",
-  shell: "Shell",
-  sh: "Shell",
-  css: "CSS",
-  html: "HTML",
-  xml: "XML",
-  javascript: "JavaScript",
-  js: "JavaScript",
-  jsx: "JSX",
-  json: "JSON",
-  markdown: "Markdown",
-  md: "Markdown",
-  maxscript: "MAXScript",
-  ms: "MAXScript",
-  mcr: "MAXScript",
-  python: "Python",
-  py: "Python",
-  sql: "SQL",
-  typescript: "TypeScript",
-  ts: "TypeScript",
-  tsx: "TSX",
-  yaml: "YAML",
-  yml: "YAML",
-};
 
 function normalizeLanguage(className?: string): string {
   return className?.match(/(?:^|\s)language-([^\s]+)/)?.[1]?.toLowerCase() || "text";
@@ -81,7 +56,7 @@ export function MarkdownCodeBlock({ className, children }: MarkdownCodeBlockProp
     window.setTimeout(() => setCopied(false), 1400);
   };
 
-  const label = LANGUAGE_LABELS[language] || (language === "text" ? "Text" : language.toUpperCase());
+  const label = getCodeBlockLanguageDisplayLabel(language);
   const lineCount = code ? code.split("\n").length : 0;
 
   return (
