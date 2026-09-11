@@ -1,4 +1,8 @@
-import { CompletionContext, type CompletionResult } from "@codemirror/autocomplete";
+import {
+  completionStatus,
+  type CompletionContext,
+  type CompletionResult,
+} from "@codemirror/autocomplete";
 import { markdownLanguage } from "@codemirror/lang-markdown";
 import { syntaxTree } from "@codemirror/language";
 import {
@@ -29,12 +33,9 @@ export interface MarkdownFenceOpening {
 
 export const MARKDOWN_FENCE_LANGUAGE_ALIASES: Record<string, string> = {
   js: "javascript",
-  jsx: "javascript",
   ts: "typescript",
-  tsx: "typescript",
   sh: "bash",
   shell: "bash",
-  zsh: "bash",
   py: "python",
   yml: "yaml",
   md: "markdown",
@@ -83,7 +84,9 @@ const FENCE_ALIAS_OPTIONS = Object.entries(MARKDOWN_FENCE_LANGUAGE_ALIASES)
     boost: 5,
   }));
 
-const OPENING_FENCE_RE = /^(\s{0,3}(?:(?:>\s*)*))(`{3,}|~{3,})([^`~\r\n]*)$/;
+// CommonMark allows arbitrary info text after a tilde fence. Backtick fences are the exception:
+// their info string may not itself contain a backtick.
+const OPENING_FENCE_RE = /^(\s{0,3}(?:(?:>\s*)*))((`{3,})|(~{3,}))(.*)$/;
 
 export function normalizeFenceLanguage(language: string): string {
   const normalized = language.trim().toLowerCase();
@@ -101,7 +104,9 @@ export function parseMarkdownFenceOpening(line: string): MarkdownFenceOpening | 
   if (!match) return null;
   const fence = match[2];
   const marker = fence[0] as FenceMarker;
-  const info = match[3].trim();
+  const rawInfo = match[5] || "";
+  if (marker === "`" && rawInfo.includes("`")) return null;
+  const info = rawInfo.trim();
   const language = info.split(/\s+/)[0] || "";
   return {
     prefix: match[1],
@@ -135,23 +140,23 @@ export function hasMatchingFenceClosing(
 }
 
 /**
- * Typora-style fenced-code input rule. The rule only takes over Enter when every selection is an
- * empty cursor at the end of a pure fence-opening line. That makes paste, normal Enter and IME
- * composition fall through to CodeMirror unchanged.
+ * Typora-style fenced-code input rule. It only takes over Enter when every selection is an empty
+ * cursor at the end of a pure fence-opening line. Paste, normal Enter and IME composition therefore
+ * fall through to CodeMirror unchanged. Active autocomplete also wins Enter so a visible language
+ * candidate can be accepted before the user enters the code body.
  */
 export function completeMarkdownFenceOnEnter(view: EditorView): boolean {
   if (view.composing) return false;
+  if (completionStatus(view.state)) return false;
   const state = view.state;
   const ranges = state.selection.ranges;
   if (!ranges.length || ranges.some((range) => !range.empty)) return false;
 
-  const contexts = ranges.map((range) => {
+  const canHandleEveryCursor = ranges.every((range) => {
     const line = state.doc.lineAt(range.head);
-    if (range.head !== line.to) return null;
-    const opening = parseMarkdownFenceOpening(line.text);
-    return opening ? { range, line, opening } : null;
+    return range.head === line.to && Boolean(parseMarkdownFenceOpening(line.text));
   });
-  if (contexts.some((context) => !context)) return false;
+  if (!canHandleEveryCursor) return false;
 
   const transaction = state.changeByRange((range) => {
     const line = state.doc.lineAt(range.head);
@@ -222,7 +227,7 @@ function activeFenceDecorations(state: EditorState): DecorationSet {
               closingLine ? "cm-nowen-fence-closing" : "",
               !openingLine && !closingLine ? "cm-nowen-fence-body" : "",
             ].filter(Boolean).join(" "),
-            attributes: openingLine ? { "data-fence-language-label": label } : undefined,
+            ...(openingLine ? { attributes: { "data-fence-language-label": label } } : {}),
           }),
         });
       }
