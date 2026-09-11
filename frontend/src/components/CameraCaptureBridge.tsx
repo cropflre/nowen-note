@@ -187,6 +187,7 @@ export default function CameraCaptureBridge() {
       setCapturedUrl(previewUrl);
       setState("captured");
     } catch (captureError) {
+      releaseStream();
       setError({
         code: "capture-failed",
         title: "拍照失败",
@@ -230,13 +231,13 @@ export default function CameraCaptureBridge() {
     input.dataset.nowenCameraFallback = "1";
     input.removeAttribute("capture");
     pendingInputRef.current = null;
-    window.setTimeout(() => {
-      try {
-        input.click();
-      } finally {
-        delete input.dataset.nowenCameraFallback;
-      }
-    }, 0);
+    try {
+      // Keep this synchronous with the user's fallback button click so browser user-activation
+      // is still valid and the native file chooser is not blocked.
+      input.click();
+    } finally {
+      delete input.dataset.nowenCameraFallback;
+    }
   }, [releaseStream, resetCapture, revokeCapturedUrl]);
 
   const switchCamera = useCallback(() => {
