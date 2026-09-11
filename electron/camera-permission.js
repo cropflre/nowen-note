@@ -13,7 +13,11 @@ function isSameTrustedRendererOrigin(requestingUrl, topUrl) {
   if (!requester || !top) return false;
 
   if (top.protocol === 'file:') {
-    return requester.protocol === 'file:' && requester.pathname === top.pathname;
+    if (requester.protocol !== 'file:') return false;
+    // Some Electron permission callbacks expose only the generic file:// security origin,
+    // while others expose the full requesting URL. Accept the generic origin but, when a
+    // concrete local path is present, require the exact main document path.
+    return !requester.pathname || requester.pathname === '/' || requester.pathname === top.pathname;
   }
   if (top.protocol === 'http:' || top.protocol === 'https:') {
     return requester.origin === top.origin;
