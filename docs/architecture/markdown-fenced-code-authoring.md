@@ -42,6 +42,7 @@ markdownFencedCodeLiveEditingExtension
 - 支持 blockquote 前缀与 0~3 空格标准缩进；
 - 多光标只有在所有 cursor 都位于有效 fence opening 时才接管 Enter；
 - IME composing 时不接管 Enter；
+- completion 正在显示时，Enter 优先交给补全系统；
 - 一次事务完成补齐，因此一次 Undo 可以回退；
 - `Cmd/Ctrl + Shift + K` 继续复用既有 `toggleCodeBlock()`；
 - CodeMirror language data 提供轻量语言补全。
@@ -121,7 +122,7 @@ const example = true
 ````
 `````
 
-closing fence 必须使用相同 marker，且长度不得短于 opening。
+closing fence 必须使用相同 marker，且长度不得短于 opening。Tilde fence 的 info string 可以包含 `~`；backtick fence 的 info string 不接受额外 backtick，保持 CommonMark 语义。
 
 ## 4. 语言能力
 
@@ -134,7 +135,7 @@ closing fence 必须使用相同 marker，且长度不得短于 opening。
 ```text
 js -> javascript
 ts -> typescript
-sh / shell / zsh -> bash
+sh / shell -> bash
 py -> python
 yml -> yaml
 md -> markdown
@@ -229,21 +230,19 @@ active fenced-code frame 基于 CodeMirror/Lezer incremental syntax tree 构建�
 
 至少覆盖：
 
-```text
-```bash + Enter
-~~~python + Enter
-existing closing fence
-4-backtick fence containing 3 backticks
-blockquote fence
-one-step Undo
-multi-cursor
-language aliases
-language completion
-unknown language fallback
-Live active code-frame
-Preview -> code-body anchor
-Live multi-cursor source preservation
-```
+    ```bash + Enter
+    ~~~python + Enter
+    existing closing fence
+    4-backtick fence containing 3 backticks
+    blockquote fence
+    one-step Undo
+    multi-cursor
+    language aliases
+    language completion
+    unknown language fallback
+    Live active code-frame
+    Preview -> code-body anchor
+    Live multi-cursor source preservation
 
 并继续人工验证：
 
