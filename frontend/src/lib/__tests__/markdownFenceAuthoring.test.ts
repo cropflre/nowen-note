@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { CompletionContext } from "@codemirror/autocomplete";
-import { undo } from "@codemirror/commands";
+import { history, undo } from "@codemirror/commands";
 import { markdown } from "@codemirror/lang-markdown";
 import { EditorSelection, EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
@@ -10,6 +10,7 @@ import {
   completeMarkdownFenceOnEnter,
   fencedCodeLanguageCompletion,
   getFenceLanguageLabel,
+  hasMatchingFenceClosing,
   markdownFencedCodeAuthoringExtension,
   markdownFencedCodeLiveEditingExtension,
   normalizeFenceLanguage,
@@ -26,7 +27,11 @@ beforeAll(() => {
   }
 });
 
-function createView(doc: string, selection = doc.length, extensions = [markdown(), markdownFencedCodeAuthoringExtension]) {
+function createView(
+  doc: string,
+  selection = doc.length,
+  extensions = [history(), markdown(), markdownFencedCodeAuthoringExtension],
+) {
   const parent = document.createElement("div");
   document.body.appendChild(parent);
   return new EditorView({
@@ -80,6 +85,14 @@ describe("Markdown fenced code authoring", () => {
     expect(view.state.doc.toString()).toBe("```bash\n\n```");
     expect(view.state.doc.toString().match(/```/g)?.length).toBe(2);
     view.destroy();
+  });
+
+  it("does not treat an inner three-backtick line as the close of a four-backtick fence", () => {
+    const doc = "````markdown\n```\n````";
+    const opening = parseMarkdownFenceOpening("````markdown")!;
+    const state = EditorState.create({ doc, extensions: [markdown()] });
+    expect(hasMatchingFenceClosing(state, 1, opening)).toBe(true);
+    expect(opening.length).toBe(4);
   });
 
   it("keeps blockquote prefixes and the opening fence length", () => {
