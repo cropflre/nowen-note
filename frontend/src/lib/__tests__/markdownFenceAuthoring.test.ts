@@ -1,10 +1,11 @@
 // @vitest-environment jsdom
 
-import { beforeAll, describe, expect, it } from "vitest";
+import { CompletionContext } from "@codemirror/autocomplete";
+import { undo } from "@codemirror/commands";
+import { markdown } from "@codemirror/lang-markdown";
 import { EditorSelection, EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
-import { markdown } from "@codemirror/lang-markdown";
-import { undo } from "@codemirror/commands";
+import { beforeAll, describe, expect, it } from "vitest";
 import {
   completeMarkdownFenceOnEnter,
   fencedCodeLanguageCompletion,
@@ -117,14 +118,16 @@ describe("Markdown fenced code authoring", () => {
     view.destroy();
   });
 
-  it("offers lightweight language completion for a fence token", () => {
-    const state = EditorState.create({ doc: "```ja", selection: { anchor: 5 }, extensions: [markdown()] });
-    const context = new (Object.getPrototypeOf(fencedCodeLanguageCompletion) as any)();
-    void context;
-    // CompletionContext has no public constructor contract we need to couple tests to. The source
-    // is exercised through the installed CodeMirror language data in integration; alias behavior
-    // above remains a pure, stable unit contract.
-    expect(markdownFencedCodeAuthoringExtension).toBeTruthy();
+  it("offers lightweight language completion for fence tokens and aliases", () => {
+    const state = EditorState.create({
+      doc: "```ja",
+      selection: { anchor: 5 },
+      extensions: [markdown()],
+    });
+    const result = fencedCodeLanguageCompletion(new CompletionContext(state, state.doc.length, false));
+    expect(result?.from).toBe(3);
+    expect(result?.options.some((option) => option.label === "javascript")).toBe(true);
+    expect(result?.options.some((option) => option.label === "js" && option.apply === "javascript")).toBe(true);
   });
 
   it("decorates only the active fenced block as a Live editing frame", () => {
