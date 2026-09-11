@@ -15,6 +15,7 @@ import Toaster from "./components/Toaster";
 import NoteIconBridge from "./components/NoteIconBridge";
 import EmbedPasswordBridge from "./components/EmbedPasswordBridge";
 import MediaExperienceBridge from "./components/MediaExperienceBridge";
+import CameraCaptureBridge from "./components/CameraCaptureBridge";
 import EditorImageTransformBridge from "./components/EditorImageTransformBridge";
 import ImageClipboardBridge from "./components/ImageClipboardBridge";
 import MarkdownMobileViewControlsBridge from "./components/MarkdownMobileViewControlsBridge";
@@ -168,6 +169,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
           <>
             <NoteIconBridge />
             <EmbedPasswordBridge />
+            <CameraCaptureBridge />
             <MediaExperienceBridge />
             <EditorImageTransformBridge />
             <ImageClipboardBridge />
