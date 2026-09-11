@@ -3,6 +3,7 @@ import {
   emitMediaUploadLifecycle,
   resolveMediaUploadLifecycleFile,
 } from "@/lib/mediaUploadLifecycle";
+import { scheduleMediaInsertionCommit } from "@/lib/mediaInsertionCommit";
 
 const VIDEO_EXTENSIONS = new Set(["mp4", "webm", "ogg", "ogv", "m4v", "mov"]);
 
@@ -85,11 +86,12 @@ export async function uploadMediaAttachment({
       size: uploaded.size,
       source,
     };
-    emitMediaUploadLifecycle({
-      phase: "success",
+
+    // ISSUE-780: 上传附件成功只是中间态。让调用方继续走现有 Tiptap / Markdown
+    // 插入流程，再由 mediaInsertionCommit 确认正文中真正出现该附件后才发最终 success。
+    scheduleMediaInsertionCommit({
       file: lifecycleFile,
       filename: file.name,
-      mediaType: "video",
       result,
     });
     return result;
