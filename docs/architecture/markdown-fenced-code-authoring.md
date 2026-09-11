@@ -32,14 +32,12 @@ markdownFencedCodeAuthoringExtension
 markdownFencedCodeLiveEditingExtension
 ```
 
-职责拆分：
-
 ### Authoring Extension
 
 始终安装在 Markdown CodeMirror：
 
-- ` ```lang + Enter` 自动补 closing fence；
-- `~~~lang + Enter` 同样支持；
+- 输入 `` ```lang `` + Enter 自动补 closing fence；
+- `~~~lang` + Enter 同样支持；
 - 已有 closing fence 时只进入代码正文，不重复补齐；
 - 支持 blockquote 前缀与 0~3 空格标准缩进；
 - 多光标只有在所有 cursor 都位于有效 fence opening 时才接管 Enter；
@@ -63,21 +61,21 @@ markdownFencedCodeLiveEditingExtension
 
 ## 2. 输入规则
 
-示例：
-
-```text
 用户输入：
-```bash|
 
-按 Enter：
+````text
+```bash|
+````
+
+按 Enter 后：
+
+````text
 ```bash
 |
 ```
-```
+````
 
-事务只新增正文空行和 closing fence。
-
-保存后的数据仍然是：
+事务只新增正文空行和 closing fence。保存后的数据仍然是标准 Markdown：
 
 ````markdown
 ```bash
@@ -89,14 +87,14 @@ command here
 
 输入：
 
-````markdown
+````text
 ```bash|
 ```
 ````
 
 按 Enter 后：
 
-````markdown
+````text
 ```bash
 |
 ```
@@ -106,14 +104,12 @@ command here
 
 ## 3. Fence 长度与 marker
 
-opening 的 marker 和长度必须原样保留：
+opening 的 marker 和长度必须原样保留，例如：
 
-```text
-```
-~~~~
-````
-~~~~~~
-```
+    ```
+    ~~~~
+    ````
+    ~~~~~~
 
 四个反引号允许正文内出现三个反引号：
 
@@ -131,10 +127,7 @@ closing fence 必须使用相同 marker，且长度不得短于 opening。
 
 源码语言名默认原样保存，不强制规范化。
 
-内部 alias 只用于：
-
-- Live badge；
-- 用户主动选择 completion 时的 canonical apply。
+内部 alias 只用于 Live badge，以及用户主动选择 completion 时的 canonical apply。
 
 常用映射：
 
@@ -158,7 +151,7 @@ go / rust / c / cpp / csharp / powershell
 maxscript / markdown / text
 ```
 
-未知语言不应抛异常；Live badge 保留原始名称，最终预览继续沿用现有 MarkdownPreview 的安全降级。
+未知语言不应抛异常；Live badge 保留原始名称，最终预览继续沿用现有 `MarkdownPreview` 的安全降级。
 
 ## 5. Live 模式
 
@@ -181,21 +174,19 @@ MarkdownPreview code block
 
 不会在代码正文内部创建第二个编辑器，也不会维护“源码状态 + 富文本状态”两份数据。
 
-这是重要的数据完整性约束。
-
 ## 6. Preview -> Edit
 
 inactive fenced code 已由 `MarkdownPreview` 渲染。
 
 点击代码块预览时，Live widget 会把 selection 放到 opening fence 后的第一行，而不是 fence 起始字符：
 
-```text
+````text
 Preview Code Block
       ↓ click
 ```bash
 |   <- cursor
 ```
-```
+````
 
 普通段落仍回到 block 起点。
 
@@ -203,7 +194,7 @@ Preview Code Block
 
 Live block collection 必须检查所有 selections，而不是只检查 `selection.main`。
 
-否则：
+例如：
 
 ```text
 cursor A -> First block
@@ -222,7 +213,7 @@ cursor B -> Third block
 - 在 code block 内嵌套另一个 CodeMirror；
 - 改写用户已有 fenced Markdown；
 - 自动把所有 alias 强制替换成 canonical language；
-- 重写 MarkdownPreview；
+- 重写 `MarkdownPreview`；
 - 新建 `/code` 命令（项目已有并继续复用）；
 - 为本能力开放 Plugin/Public API。
 
@@ -230,16 +221,9 @@ cursor B -> Third block
 
 Live preview 原有 `350,000` 字符保护继续生效。
 
-active fenced-code frame 基于 CodeMirror/Lezer incremental syntax tree 构建，只在：
+active fenced-code frame 基于 CodeMirror/Lezer incremental syntax tree 构建，只在 `docChanged` 或 `selectionChanged` 时重新计算。
 
-```text
-docChanged
-selectionChanged
-```
-
-时重新计算。
-
-没有按键级 React root 或第二编辑器实例。
+没有按键级 React root，也没有第二编辑器实例。
 
 ## 10. 回归边界
 
@@ -285,6 +269,6 @@ Code Block Authoring Commands
 Optional formatter / runner adapters
 ```
 
-但运行代码、格式化器、LSP 等都属于新的安全/执行边界，不应该因为 #774 顺手加入。
+运行代码、格式化器、LSP 等都属于新的安全/执行边界，不应该因为 #774 顺手加入。
 
 当前 `markdownFenceAuthoring` 保持 Internal API，等至少出现更多真实消费者后再评估 Extension / Plugin API。
