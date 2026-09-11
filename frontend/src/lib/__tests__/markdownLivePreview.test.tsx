@@ -1,11 +1,12 @@
 // @vitest-environment jsdom
 
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
-import { EditorState } from "@codemirror/state";
+import { EditorSelection, EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { markdown } from "@codemirror/lang-markdown";
 import {
   collectMarkdownLivePreviewBlocks,
+  markdownLivePreviewEditAnchor,
   markdownLivePreviewExtension,
 } from "@/lib/markdownLivePreview";
 
@@ -68,6 +69,29 @@ describe("markdownLivePreviewExtension", () => {
     expect(callout?.from).toBe(doc.indexOf("> [!TIP]"));
   });
 
+  it("keeps every multi-cursor source block visible in Live mode", () => {
+    const doc = "First paragraph\n\nSecond paragraph\n\nThird paragraph";
+    const state = EditorState.create({
+      doc,
+      selection: EditorSelection.create([
+        EditorSelection.cursor(doc.indexOf("First") + 1),
+        EditorSelection.cursor(doc.indexOf("Third") + 1),
+      ]),
+      extensions: [EditorState.allowMultipleSelections.of(true), markdown()],
+    });
+
+    const blocks = collectMarkdownLivePreviewBlocks(state);
+    expect(blocks.some((block) => block.markdown.includes("First paragraph"))).toBe(false);
+    expect(blocks.some((block) => block.markdown.includes("Third paragraph"))).toBe(false);
+    expect(blocks.some((block) => block.markdown.includes("Second paragraph"))).toBe(true);
+  });
+
+  it("places a previewed fenced-code click inside the code body", () => {
+    const markdown = "```bash\necho hello\n```";
+    expect(markdownLivePreviewEditAnchor(markdown, 40)).toBe(40 + "```bash\n".length);
+    expect(markdownLivePreviewEditAnchor("Plain paragraph", 40)).toBe(40);
+  });
+
   it("renders an inactive imported TIP through the real MarkdownPreview plugin chain", async () => {
     const parent = document.createElement("div");
     document.body.appendChild(parent);
@@ -97,7 +121,7 @@ describe("markdownLivePreviewExtension", () => {
 
     const state = EditorState.create({
       doc,
-      selection: { anchor: doc.lastIndexOf("Editing") },
+      selection: { anchor: 1 },
       extensions: [markdown(), markdownLivePreviewExtension],
     });
 
