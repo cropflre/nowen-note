@@ -193,16 +193,19 @@ function activeFenceDecorations(state: EditorState): DecorationSet {
         const line = state.doc.line(lineNumber);
         const openingLine = lineNumber === firstLine.number;
         const closingLine = hasClosing && lineNumber === lastLine.number;
+        const className = [
+          "cm-nowen-fence-active",
+          openingLine ? "cm-nowen-fence-opening" : "",
+          closingLine ? "cm-nowen-fence-closing" : "",
+          !openingLine && !closingLine ? "cm-nowen-fence-body" : "",
+        ].filter(Boolean).join(" ");
         ranges.push({
           from: line.from,
           decoration: Decoration.line({
-            class: [
-              "cm-nowen-fence-active",
-              openingLine ? "cm-nowen-fence-opening" : "",
-              closingLine ? "cm-nowen-fence-closing" : "",
-              !openingLine && !closingLine ? "cm-nowen-fence-body" : "",
-            ].filter(Boolean).join(" "),
-            ...(openingLine ? { attributes: { "data-fence-language-label": label } } : {}),
+            attributes: {
+              class: className,
+              ...(openingLine ? { "data-fence-language-label": label } : {}),
+            },
           }),
         });
       }
