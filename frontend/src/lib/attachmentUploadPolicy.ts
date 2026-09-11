@@ -54,7 +54,7 @@ export function validateAttachmentSize(
 
 async function fetchPolicy(baseUrl: string): Promise<AttachmentUploadPolicy> {
   const controller = new AbortController();
-  const timeout = window.setTimeout(() => controller.abort(), 3_000);
+  const timeout = globalThis.setTimeout(() => controller.abort(), 3_000);
   try {
     const token = getAccessToken();
     const response = await fetchWithAuthRefresh(`${baseUrl}/attachment-upload-policy`, {
@@ -83,7 +83,7 @@ async function fetchPolicy(baseUrl: string): Promise<AttachmentUploadPolicy> {
       source: "fallback",
     };
   } finally {
-    window.clearTimeout(timeout);
+    globalThis.clearTimeout(timeout);
   }
 }
 
