@@ -18,6 +18,13 @@ import {
   keymap,
   type DecorationSet,
 } from "@codemirror/view";
+import {
+  CODE_BLOCK_LANGUAGE_ALIASES,
+  getCodeBlockAuthoringLanguages,
+  getCodeBlockLanguageDisplayLabel,
+  isKnownCodeBlockLanguage,
+  normalizeCodeBlockLanguageId,
+} from "@/lib/codeBlockLanguageRegistry";
 import { toggleCodeBlock } from "@/lib/markdownCommands";
 
 export type FenceMarker = "`" | "~";
@@ -31,57 +38,17 @@ export interface MarkdownFenceOpening {
   language: string;
 }
 
-export const MARKDOWN_FENCE_LANGUAGE_ALIASES: Record<string, string> = {
-  js: "javascript",
-  ts: "typescript",
-  sh: "bash",
-  shell: "bash",
-  py: "python",
-  yml: "yaml",
-  md: "markdown",
-  plaintext: "text",
-  txt: "text",
-  cs: "csharp",
-  "c#": "csharp",
-  ps1: "powershell",
-};
-
-const LANGUAGE_LABELS: Record<string, string> = {
-  javascript: "JavaScript",
-  typescript: "TypeScript",
-  bash: "Bash",
-  python: "Python",
-  html: "HTML",
-  css: "CSS",
-  json: "JSON",
-  yaml: "YAML",
-  sql: "SQL",
-  java: "Java",
-  go: "Go",
-  rust: "Rust",
-  c: "C",
-  cpp: "C++",
-  csharp: "C#",
-  powershell: "PowerShell",
-  maxscript: "MAXScript",
-  markdown: "Markdown",
-  text: "Text",
-};
-
-const FENCE_LANGUAGE_OPTIONS = [
-  "javascript", "typescript", "bash", "python", "html", "css", "json", "yaml",
-  "sql", "java", "go", "rust", "c", "cpp", "csharp", "powershell", "maxscript",
-  "markdown", "text",
-];
-const FENCE_LANGUAGE_SET = new Set(FENCE_LANGUAGE_OPTIONS);
+/** Compatibility export for callers/tests that reason specifically about Markdown aliases. */
+export const MARKDOWN_FENCE_LANGUAGE_ALIASES = CODE_BLOCK_LANGUAGE_ALIASES;
+const FENCE_LANGUAGE_OPTIONS = getCodeBlockAuthoringLanguages();
 const MAX_LIVE_FENCE_DOCUMENT_LENGTH = 350_000;
 
-const FENCE_ALIAS_OPTIONS = Object.entries(MARKDOWN_FENCE_LANGUAGE_ALIASES)
+const FENCE_ALIAS_OPTIONS = Object.entries(CODE_BLOCK_LANGUAGE_ALIASES)
   .filter(([alias]) => !FENCE_LANGUAGE_OPTIONS.includes(alias))
   .map(([alias, canonical]) => ({
     label: alias,
     apply: canonical,
-    detail: `${LANGUAGE_LABELS[canonical] || canonical} alias`,
+    detail: `${getCodeBlockLanguageDisplayLabel(canonical)} alias`,
     type: "keyword" as const,
     boost: 5,
   }));
@@ -89,20 +56,11 @@ const FENCE_ALIAS_OPTIONS = Object.entries(MARKDOWN_FENCE_LANGUAGE_ALIASES)
 const OPENING_FENCE_RE = /^(\s{0,3}(?:(?:>\s*)*))((`{3,})|(~{3,}))(.*)$/;
 
 export function normalizeFenceLanguage(language: string): string {
-  const normalized = language.trim().toLowerCase();
-  return MARKDOWN_FENCE_LANGUAGE_ALIASES[normalized] || normalized;
+  return normalizeCodeBlockLanguageId(language);
 }
 
 export function getFenceLanguageLabel(language: string): string {
-  const canonical = normalizeFenceLanguage(language);
-  if (!canonical) return "Plain text";
-  return LANGUAGE_LABELS[canonical] || language.trim() || "Plain text";
-}
-
-function isKnownFenceLanguage(language: string): boolean {
-  const raw = language.trim().toLowerCase();
-  if (!raw) return false;
-  return FENCE_LANGUAGE_SET.has(raw) || Object.prototype.hasOwnProperty.call(MARKDOWN_FENCE_LANGUAGE_ALIASES, raw);
+  return language.trim() ? getCodeBlockLanguageDisplayLabel(language) : "Plain text";
 }
 
 export function parseMarkdownFenceOpening(line: string): MarkdownFenceOpening | null {
@@ -169,7 +127,7 @@ export function completeMarkdownFenceOnEnter(view: EditorView): boolean {
   if (openings.some((opening) => !opening)) return false;
 
   if (completionStatus(state)) {
-    const allLanguagesComplete = openings.every((opening) => isKnownFenceLanguage(opening!.language));
+    const allLanguagesComplete = openings.every((opening) => isKnownCodeBlockLanguage(opening!.language));
     if (!allLanguagesComplete) return false;
   }
 
@@ -205,7 +163,7 @@ export function fencedCodeLanguageCompletion(context: CompletionContext): Comple
     options: [
       ...FENCE_LANGUAGE_OPTIONS.map((language) => ({
         label: language,
-        detail: LANGUAGE_LABELS[language],
+        detail: getCodeBlockLanguageDisplayLabel(language),
         type: "keyword" as const,
       })),
       ...FENCE_ALIAS_OPTIONS,
