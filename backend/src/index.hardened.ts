@@ -43,4 +43,7 @@ import "./runtime/notebook-publication.js";
 import "./runtime/knowledge-tree.js";
 // Install before the main Hono app registers its production wildcard static route.
 import "./runtime/static-precompressed-assets.js";
+// Publish the effective attachment-size policy and normalize oversized upload errors before the
+// legacy /api/attachments router is mounted.
+import "./runtime/attachment-upload-policy.js";
 import "./index.js";
