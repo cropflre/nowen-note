@@ -1,5 +1,10 @@
 import { isVideoFile } from "@/lib/mediaUploadService";
 import { rememberMediaUploadDispatchFiles } from "@/lib/mediaUploadLifecycle";
+import {
+  formatAttachmentLimit,
+  getCachedAttachmentUploadPolicy,
+  MAX_ATTACHMENT_LIMIT_BYTES,
+} from "@/lib/attachmentUploadPolicy";
 
 export type MediaKind = "image" | "video";
 export type MediaItemStatus = "ready" | "uploading" | "success" | "error";
@@ -15,7 +20,9 @@ export interface PreparedMediaFile {
 
 export const MAX_MOBILE_MEDIA_ITEMS = 30;
 export const LARGE_MEDIA_WARNING_BYTES = 100 * 1024 * 1024;
-export const MAX_MOBILE_MEDIA_FILE_BYTES = 1024 * 1024 * 1024;
+// Compatibility export: the product limit is now server-driven; this is only a client safety cap
+// matching the backend's maximum configurable value (10 GiB), not a business upload limit.
+export const MAX_MOBILE_MEDIA_FILE_BYTES = MAX_ATTACHMENT_LIMIT_BYTES;
 
 const IMAGE_EXTENSIONS = new Set([
   "png", "jpg", "jpeg", "gif", "webp", "bmp", "heic", "heif", "avif", "svg",
@@ -34,6 +41,7 @@ export function classifyMediaFile(file: Pick<File, "name" | "type">): MediaKind 
 }
 
 export function prepareMediaFiles(files: Iterable<File>): PreparedMediaFile[] {
+  const policy = getCachedAttachmentUploadPolicy();
   return Array.from(files).slice(0, MAX_MOBILE_MEDIA_ITEMS).map((file, index) => {
     const kind = classifyMediaFile(file);
     let error: string | undefined;
@@ -41,8 +49,15 @@ export function prepareMediaFiles(files: Iterable<File>): PreparedMediaFile[] {
 
     if (!kind) error = "仅支持图片或视频";
     else if (file.size <= 0) error = "文件为空或来源应用未授予读取权限";
-    else if (file.size > MAX_MOBILE_MEDIA_FILE_BYTES) error = "单个媒体文件不能超过 1GB";
-    else if (file.size > LARGE_MEDIA_WARNING_BYTES) warning = "大文件上传可能需要较长时间";
+    else if (file.size > MAX_MOBILE_MEDIA_FILE_BYTES) {
+      error = `单个媒体文件不能超过 ${formatAttachmentLimit(MAX_MOBILE_MEDIA_FILE_BYTES)}`;
+    } else if (policy.authoritative && file.size > policy.maxAttachmentSizeBytes) {
+      error = `文件大小超过服务器附件上限 ${formatAttachmentLimit(policy.maxAttachmentSizeBytes)}`;
+    } else if (file.size > LARGE_MEDIA_WARNING_BYTES) {
+      warning = policy.authoritative
+        ? `大文件上传可能需要较长时间（服务器上限 ${formatAttachmentLimit(policy.maxAttachmentSizeBytes)}）`
+        : "大文件上传可能需要较长时间，开始上传前会校验服务器实际上限";
+    }
 
     return {
       id: `${Date.now().toString(36)}-${index}-${Math.random().toString(36).slice(2, 8)}`,
