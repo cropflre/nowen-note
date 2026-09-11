@@ -14,6 +14,7 @@ import {
   type DecorationSet,
 } from "@codemirror/view";
 import { MarkdownPreview } from "@/components/MarkdownPreview";
+import { markdownFencedCodeLiveEditingExtension } from "@/lib/markdownFenceAuthoring";
 import {
   applyMarkdownTaskCheckboxChange,
   getMarkdownTaskCheckboxChange,
@@ -157,6 +158,14 @@ export function collectMarkdownLivePreviewBlocks(
     }));
 }
 
+export function markdownLivePreviewEditAnchor(markdown: string, from: number): number {
+  const lineBreak = markdown.indexOf("\n");
+  if (lineBreak < 0) return from;
+  const firstLine = markdown.slice(0, lineBreak);
+  if (!/^\s{0,3}(?:(?:>\s*)*)(?:`{3,}|~{3,})/.test(firstLine)) return from;
+  return from + lineBreak + 1;
+}
+
 class MarkdownLivePreviewWidget extends WidgetType {
   constructor(
     readonly markdown: string,
@@ -180,9 +189,10 @@ class MarkdownLivePreviewWidget extends WidgetType {
       const target = event.target as HTMLElement | null;
       if (target?.closest("input, button, a, video, audio, iframe")) return;
       event.preventDefault();
+      const anchor = markdownLivePreviewEditAnchor(this.markdown, this.from);
       view.dispatch({
-        selection: { anchor: this.from },
-        effects: EditorView.scrollIntoView(this.from, { y: "center" }),
+        selection: { anchor },
+        effects: EditorView.scrollIntoView(anchor, { y: "center" }),
       });
       view.focus();
     });
@@ -269,4 +279,8 @@ const livePreviewTheme = EditorView.theme({
   ".cm-live-preview-block .cm-live-preview-render > :last-child": { marginBottom: "0" },
 });
 
-export const markdownLivePreviewExtension: Extension = [livePreviewDecorations, livePreviewTheme];
+export const markdownLivePreviewExtension: Extension = [
+  livePreviewDecorations,
+  livePreviewTheme,
+  markdownFencedCodeLiveEditingExtension,
+];
