@@ -52,11 +52,11 @@ describe("Markdown fenced code authoring", () => {
       language: "bash",
       info: "bash shell-session",
     });
-    expect(parseMarkdownFenceOpening("  ~~~~python")).toMatchObject({
+    expect(parseMarkdownFenceOpening("  ~~~~python~variant")).toMatchObject({
       marker: "~",
       length: 4,
       prefix: "  ",
-      language: "python",
+      language: "python~variant",
     });
   });
 
@@ -88,10 +88,10 @@ describe("Markdown fenced code authoring", () => {
   });
 
   it("does not treat an inner three-backtick line as the close of a four-backtick fence", () => {
-    const doc = "````markdown\n```\n````";
+    const doc = "````markdown\n```\nconst example = true";
     const opening = parseMarkdownFenceOpening("````markdown")!;
     const state = EditorState.create({ doc, extensions: [markdown()] });
-    expect(hasMatchingFenceClosing(state, 1, opening)).toBe(true);
+    expect(hasMatchingFenceClosing(state, 1, opening)).toBe(false);
     expect(opening.length).toBe(4);
   });
 
