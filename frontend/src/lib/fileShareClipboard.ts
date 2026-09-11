@@ -1,8 +1,8 @@
 import { getBaseUrl } from "@/lib/api.impl";
 import { fetchWithAuthRefresh, getAccessToken } from "@/lib/authSession";
 
-const SIGNED_ATTACHMENT_URL_RE = /(?:https?:\/\/[^\s"'<>]+)?\/(?:api|publicapi)\/attachments\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\?[^\s"'<>()]+/gi;
-const ATTACHMENT_PATH_RE = /\/(?:api|publicapi)\/attachments\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i;
+const SIGNED_ATTACHMENT_URL_RE = /(?:https?:\/\/[^\s"'<>]+)?\/(?:api|publicapi|public\/api)\/attachments\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\?[^\s"'<>()]+/gi;
+const ATTACHMENT_PATH_RE = /\/(?:api|publicapi|public\/api)\/attachments\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i;
 
 interface SignedAttachmentCandidate {
   attachmentId: string;
@@ -65,10 +65,14 @@ function inspectSignedAttachmentUrl(raw: string): SignedAttachmentCandidate | nu
   return { attachmentId, htmlEscaped };
 }
 
-function absoluteStableShareUrl(value: string): string {
+function absoluteStableShareUrl(value: string, apiBase: string): string {
   if (/^https?:\/\//i.test(value)) return value;
   try {
-    const base = typeof window !== "undefined" ? window.location.href : "http://nowen.local/";
+    const runtimeBase = typeof window !== "undefined" ? window.location.href : "http://nowen.local/";
+    const resolvedApiBase = new URL(apiBase, runtimeBase);
+    const base = /^https?:$/i.test(resolvedApiBase.protocol)
+      ? `${resolvedApiBase.origin}/`
+      : runtimeBase;
     return new URL(value, base).toString();
   } catch {
     return value;
@@ -93,7 +97,7 @@ async function createStableFileShareUrl(attachmentId: string): Promise<string> {
   if (!response.ok || !payload.url) {
     throw new Error(payload.error || "无法创建稳定文件分享链接");
   }
-  return absoluteStableShareUrl(payload.url);
+  return absoluteStableShareUrl(payload.url, apiBase);
 }
 
 /**
@@ -107,7 +111,11 @@ export async function stabilizeClipboardAttachmentLinks(
   text: string,
   createShareUrl: (attachmentId: string) => Promise<string> = createStableFileShareUrl,
 ): Promise<string> {
-  if (!text || !/\/(?:api|publicapi)\/attachments\//i.test(text) || !/[?&](?:exp|sig|scope)=/i.test(text)) {
+  if (
+    !text
+    || !/\/(?:api|publicapi|public\/api)\/attachments\//i.test(text)
+    || !/[?&](?:exp|sig|scope)=/i.test(text.replace(/&amp;/g, "&"))
+  ) {
     return text;
   }
 
