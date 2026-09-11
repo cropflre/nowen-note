@@ -34,7 +34,7 @@ export class FileShareError extends Error {
   }
 }
 
-let schemaReady = false;
+let schemaReadyFor: ReturnType<typeof getDb> | null = null;
 
 /**
  * 独立文件分享是附件之上的 capability，不复用 notes shares 表：
@@ -43,8 +43,8 @@ let schemaReady = false;
  * 目前先保持为内部能力表；等 PostgreSQL 迁移链稳定后再纳入统一 schema migration。
  */
 export function ensureFileSharesTable(): void {
-  if (schemaReady) return;
   const db = getDb();
+  if (schemaReadyFor === db) return;
   db.exec(`
     CREATE TABLE IF NOT EXISTS file_shares (
       id TEXT PRIMARY KEY,
@@ -67,7 +67,7 @@ export function ensureFileSharesTable(): void {
     CREATE INDEX IF NOT EXISTS idx_file_shares_attachment_owner
       ON file_shares(attachmentId, ownerId, isActive);
   `);
-  schemaReady = true;
+  schemaReadyFor = db;
 }
 
 function isExpired(value: string | null | undefined): boolean {
