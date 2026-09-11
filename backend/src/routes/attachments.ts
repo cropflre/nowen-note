@@ -15,6 +15,13 @@ import { verifyLoginToken, verifyShareAccessToken } from "../lib/auth-security";
 import { hasScope, looksLikeApiToken, resolveApiToken } from "../lib/api-tokens";
 import { userSessionsRepository } from "../repositories";
 import {
+  ensureStableFileShare,
+  FileShareError,
+  resolveStableFileShare,
+  revokeStableFileShare,
+  type FileShareAccess,
+} from "../services/file-shares";
+import {
   createAttachmentSignedUrl,
   createShareAttachmentScope,
   createUserAttachmentScope,
@@ -66,10 +73,24 @@ function buildSignedAttachmentUrls(noteId: string, scope: string, origin: string
   return urls;
 }
 
+function buildStableFileShareUrl(c: Context, attachmentId: string, token: string): string {
+  const path = `/api/attachments/${encodeURIComponent(attachmentId)}?share=${encodeURIComponent(token)}`;
+  const origin = requestPublicOrigin(c).replace(/\/+$/, "");
+  return origin ? `${origin}${path}` : path;
+}
+
 function noStoreJson(c: Context, payload: unknown, status: 200 | 400 | 401 | 403 | 404 | 410 = 200): Response {
   c.header("Cache-Control", "private, no-store");
   c.header("Pragma", "no-cache");
   return c.json(payload, status);
+}
+
+function fileShareErrorResponse(c: Context, error: unknown): Response {
+  if (error instanceof FileShareError) {
+    return noStoreJson(c, { error: error.message, code: error.code }, error.status);
+  }
+  console.error("[attachment.file-share.failed]", error);
+  return noStoreJson(c, { error: "文件分享处理失败", code: "FILE_SHARE_FAILED" }, 400);
 }
 
 function readClientIp(c: Context): string {
@@ -201,6 +222,52 @@ attachmentsRouter.get("/access/urls", (c) => {
   });
 });
 
+/**
+ * 把运行时附件 URL 升级为稳定文件分享 capability。
+ * 临时签名继续只负责页面运行时读取，用户复制/转发使用这里返回的稳定地址。
+ */
+attachmentsRouter.post("/file-share", async (c) => {
+  const userId = c.req.header("X-User-Id") || "";
+  const body = await c.req.json().catch(() => ({})) as {
+    attachmentId?: unknown;
+    allowDownload?: unknown;
+    expiresAt?: unknown;
+  };
+  const attachmentId = typeof body.attachmentId === "string" ? body.attachmentId.trim() : "";
+  if (!attachmentId) {
+    return noStoreJson(c, { error: "缺少 attachmentId", code: "FILE_SHARE_ATTACHMENT_REQUIRED" }, 400);
+  }
+
+  try {
+    const share = ensureStableFileShare(attachmentId, userId, {
+      ...(typeof body.allowDownload === "boolean" ? { allowDownload: body.allowDownload } : {}),
+      ...(body.expiresAt !== undefined
+        ? { expiresAt: body.expiresAt === null ? null : String(body.expiresAt) }
+        : {}),
+    });
+    return noStoreJson(c, {
+      id: share.id,
+      attachmentId: share.attachmentId,
+      isActive: share.isActive !== 0,
+      expiresAt: share.expiresAt,
+      allowDownload: share.allowDownload !== 0,
+      url: buildStableFileShareUrl(c, share.attachmentId, share.token),
+    });
+  } catch (error) {
+    return fileShareErrorResponse(c, error);
+  }
+});
+
+attachmentsRouter.delete("/file-share/:attachmentId", (c) => {
+  const userId = c.req.header("X-User-Id") || "";
+  const attachmentId = c.req.param("attachmentId").trim();
+  if (!attachmentId) {
+    return noStoreJson(c, { error: "缺少 attachmentId", code: "FILE_SHARE_ATTACHMENT_REQUIRED" }, 400);
+  }
+  const revoked = revokeStableFileShare(attachmentId, userId);
+  return noStoreJson(c, { success: true, revoked });
+});
+
 attachmentsRouter.route("/", remoteImageImportRouter);
 attachmentsRouter.route("/", attachmentsCoreRouter);
 
@@ -251,10 +318,26 @@ export async function handleDownloadAttachment(c: Context): Promise<Response> {
   const id = c.req.param("id");
   if (id === "share-access") return handleSharedAttachmentAccess(c);
 
-  // Strip the untrusted pre-JWT identity header, then restore it only after Bearer verification.
+  // Strip the untrusted pre-JWT identity header before resolving either bearer access or
+  // a server-validated stable file-share capability.
   c.req.raw.headers.delete("X-User-Id");
-  const verifiedUserId = resolveVerifiedAttachmentUser(c);
-  if (verifiedUserId) c.req.raw.headers.set("X-User-Id", verifiedUserId);
+
+  let fileShareAccess: FileShareAccess | null = null;
+  const fileShareToken = (c.req.query("share") || "").trim();
+  if (fileShareToken) {
+    try {
+      fileShareAccess = resolveStableFileShare(fileShareToken, id);
+      // attachments-core already owns mature note/file ACL handling. Only inject the owner
+      // identity after the opaque share token, attachment binding and current reshare permission
+      // were all revalidated above; caller-supplied X-User-Id has already been removed.
+      c.req.raw.headers.set("X-User-Id", fileShareAccess.ownerId);
+    } catch (error) {
+      return fileShareErrorResponse(c, error);
+    }
+  }
+
+  const verifiedUserId = fileShareAccess?.ownerId || resolveVerifiedAttachmentUser(c);
+  if (verifiedUserId && !fileShareAccess) c.req.raw.headers.set("X-User-Id", verifiedUserId);
 
   const exp = c.req.query("exp");
   const sig = c.req.query("sig");
@@ -296,14 +379,17 @@ export async function handleDownloadAttachment(c: Context): Promise<Response> {
   }
 
   // The attachment UUID is no longer an authorization capability. Native image/video requests
-  // must use a short-lived signed URL; API clients may send a verified Bearer credential.
+  // must use a short-lived signed URL, a verified bearer credential, or a stable file-share token.
   if (!hasCompleteSignature && !verifiedUserId) {
     console.warn("[attachment.access.denied]", { id, reason: "missing_verified_access" });
     return c.json({ error: "附件不存在", code: "ATTACHMENT_NOT_FOUND" }, 404);
   }
 
   const downloadRequested = /^(?:1|true|yes)$/i.test(c.req.query("download") || "");
-  if (downloadRequested && signatureVerification?.allowDownload === false) {
+  if (
+    downloadRequested
+    && (signatureVerification?.allowDownload === false || fileShareAccess?.allowDownload === false)
+  ) {
     console.warn("[attachment.access.denied]", { id, reason: "download_forbidden" });
     return c.json({ error: "当前分享不允许下载附件", code: "ATTACHMENT_DOWNLOAD_FORBIDDEN" }, 403);
   }
