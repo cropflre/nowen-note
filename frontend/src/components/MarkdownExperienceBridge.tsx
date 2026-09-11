@@ -1,6 +1,7 @@
 import React, { useEffect } from "react";
 import { Compartment, StateEffect } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
+import { markdownFencedCodeAuthoringExtension } from "@/lib/markdownFenceAuthoring";
 import { markdownLivePreviewExtension } from "@/lib/markdownLivePreview";
 import { attachMarkdownSplitScrollSync } from "@/lib/markdownScrollSync";
 
@@ -10,6 +11,7 @@ const INACTIVE_CLASSES = ["text-tx-tertiary", "hover:text-tx-secondary", "hover:
 
 interface EditorBridgeState {
   view: EditorView;
+  authoringInstalled: boolean;
   liveCompartment: Compartment;
   liveInstalled: boolean;
   liveActive: boolean;
@@ -42,6 +44,7 @@ function getState(view: EditorView): EditorBridgeState {
   if (existing) return existing;
   const created: EditorBridgeState = {
     view,
+    authoringInstalled: false,
     liveCompartment: new Compartment(),
     liveInstalled: false,
     liveActive: false,
@@ -52,6 +55,14 @@ function getState(view: EditorView): EditorBridgeState {
   };
   states.set(view, created);
   return created;
+}
+
+function ensureFencedCodeAuthoring(state: EditorBridgeState): void {
+  if (state.authoringInstalled) return;
+  state.view.dispatch({
+    effects: StateEffect.appendConfig.of(markdownFencedCodeAuthoringExtension),
+  });
+  state.authoringInstalled = true;
 }
 
 function setLivePreview(state: EditorBridgeState, active: boolean): void {
@@ -207,6 +218,7 @@ function reconcileMarkdownEditors(): void {
     const editorRoot = host.closest<HTMLElement>(".flex.flex-col.h-full.overflow-hidden");
     if (!editorRoot) continue;
     const state = getState(view);
+    ensureFencedCodeAuthoring(state);
     const modeGroup = findMarkdownModeGroup(editorRoot);
     if (modeGroup) bindModeButtons(modeGroup, state);
     bindSplitScroll(host, editorRoot, state);
