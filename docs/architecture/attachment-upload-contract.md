@@ -92,13 +92,13 @@ runtime 会把历史 413 响应标准化成：
 }
 ```
 
-客户端 multipart 请求会附加：
+canonical `/api/attachments` multipart 请求会附加：
 
 ```text
 __uploadSize=<File.size>
 ```
 
-作为错误元数据提示。该值**不参与服务端授权或大小判定**；真正的限制仍由后端收到的 `File.size` 决定，不能信任客户端 hint 绕过限制。
+作为错误元数据提示。该值**不参与服务端授权或大小判定**；真正的限制仍由后端收到的 `File.size` 决定，不能信任客户端 hint 绕过限制。该 query 仅用于标准附件上传，不会扩散到 task attachments 或其它 multipart API。
 
 `UploadRequestError` 会保留：
 
@@ -157,10 +157,19 @@ Tiptap 和 Markdown 已经有各自稳定的插入逻辑。#780 不应该为了�
 未确认插入时生命周期返回：
 
 ```text
-视频已上传，但插入正文失败。文件仍保留在附件库，可重新插入。
+视频已上传，但插入正文失败。点击“重试失败项”会复用已上传文件重新插入，也可从附件库手动插入。
 ```
 
-因此不会再出现“最终成功”提示，但正文中没有对应媒体节点。
+此时 `mediaUploadService` 会在当前页面会话中暂存该 `MediaUploadResult`。用户点击现有“重试失败项”后，编辑器重新执行插入流程，但**不会再次 POST 同一个视频**；确认正文出现对应 attachment marker 后才清除暂存并进入最终 success。
+
+这样同时解决两个问题：
+
+```text
+假成功 → 不再发生
+插入失败后反复重试 → 不再制造重复附件/更多孤儿文件
+```
+
+如果页面已经离开，内存恢复缓存自然释放；附件本体仍保留在附件库，用户仍可以手动重新插入。
 
 ## 5. 大文件 timeout
 
@@ -193,9 +202,11 @@ How long should this valid upload be allowed to run?
 MAX_ATTACHMENT_SIZE_MB=500
 structured 413
 runtime upload-size hint
+upload-size hint only for /api/attachments
 Tiptap inserted marker
 Markdown inserted marker
 uploaded-but-not-inserted
+retry insertion without duplicate upload
 large-file dynamic timeout
 ```
 
