@@ -6,6 +6,7 @@ import {
   uploadMediaAttachment,
 } from "@/lib/mediaUploadService";
 import { api } from "@/lib/api";
+import { scheduleMediaInsertionCommit } from "@/lib/mediaInsertionCommit";
 
 vi.mock("@/lib/api", () => ({
   api: {
@@ -13,6 +14,10 @@ vi.mock("@/lib/api", () => ({
       upload: vi.fn(),
     },
   },
+}));
+
+vi.mock("@/lib/mediaInsertionCommit", () => ({
+  scheduleMediaInsertionCommit: vi.fn(),
 }));
 
 describe("mediaUploadService", () => {
@@ -27,7 +32,7 @@ describe("mediaUploadService", () => {
     expect(toInlineAttachmentUrl("/api/attachments/att-1?download=0")).toBe("/api/attachments/att-1?download=0&inline=1");
   });
 
-  it("uploads a video attachment and returns inline preview metadata", async () => {
+  it("uploads a video attachment but delegates final success to insertion commit", async () => {
     vi.mocked(api.attachments.upload).mockResolvedValueOnce({
       id: "att-video",
       url: "/api/attachments/att-video",
@@ -37,9 +42,10 @@ describe("mediaUploadService", () => {
       category: "file",
     });
 
+    const file = new File(["video-data!!"], "clip.mp4", { type: "video/mp4" });
     const result = await uploadMediaAttachment({
       noteId: "note-1",
-      file: new File(["video-data!!"], "clip.mp4", { type: "video/mp4" }),
+      file,
       source: "paste",
     });
 
@@ -53,5 +59,9 @@ describe("mediaUploadService", () => {
       previewUrl: "/api/attachments/att-video?inline=1",
       source: "paste",
     });
+    expect(scheduleMediaInsertionCommit).toHaveBeenCalledWith(expect.objectContaining({
+      filename: "clip.mp4",
+      result,
+    }));
   });
 });
