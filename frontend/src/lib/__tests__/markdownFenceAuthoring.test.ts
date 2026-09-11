@@ -131,6 +131,12 @@ describe("Markdown fenced code authoring", () => {
     view.destroy();
   });
 
+  it("does not pop language completion for a bare fence unless completion is explicit", () => {
+    const state = EditorState.create({ doc: "```", selection: { anchor: 3 }, extensions: [markdown()] });
+    expect(fencedCodeLanguageCompletion(new CompletionContext(state, 3, false))).toBeNull();
+    expect(fencedCodeLanguageCompletion(new CompletionContext(state, 3, true))?.options.length).toBeGreaterThan(0);
+  });
+
   it("offers lightweight language completion for fence tokens and aliases", () => {
     const state = EditorState.create({
       doc: "```ja",
