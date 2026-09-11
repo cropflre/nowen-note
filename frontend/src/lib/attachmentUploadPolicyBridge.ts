@@ -41,8 +41,12 @@ export function installAttachmentUploadPolicyBridge(): void {
       return await nativeUpload(noteId, file);
     } catch (error) {
       if (error instanceof UploadRequestError && error.code === "ATTACHMENT_TOO_LARGE") {
-        const max = error.maxSizeBytes || policy.maxAttachmentSizeBytes;
-        error.message = `文件大小超过服务器附件上限 ${formatAttachmentLimit(max)}`;
+        // New servers return maxSizeBytes. When talking to an older server whose policy endpoint
+        // does not exist, keep its original 413 text instead of overwriting it with our non-
+        // authoritative 100 MiB fallback (the old server may actually be configured for 500 MiB).
+        const max = error.maxSizeBytes
+          || (policy.authoritative ? policy.maxAttachmentSizeBytes : undefined);
+        if (max) error.message = `文件大小超过服务器附件上限 ${formatAttachmentLimit(max)}`;
       }
       throw error;
     }
