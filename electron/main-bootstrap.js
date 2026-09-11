@@ -2,6 +2,8 @@
 
 const childProcess = require('node:child_process');
 const electron = require('electron');
+const security = require('./security');
+const { installCameraPermissionPolicyBootstrap } = require('./camera-permission');
 
 const recentBackendOutput = [];
 const outputLimit = 160;
@@ -55,5 +57,9 @@ electron.dialog.showErrorBox = function patchedShowErrorBox(title, content) {
   const enhanced = `${content}\n\n— 后端原始错误 —\n${diagnosis}${excerpt.join('\n')}`;
   return originalShowErrorBox(title, enhanced);
 };
+
+// Install before main.js registers its restrictive renderer permission handlers.
+// The bootstrap composes with those handlers and only adds trusted, video-only camera access.
+installCameraPermissionPolicyBootstrap(electron, security);
 
 require('./main.js');
