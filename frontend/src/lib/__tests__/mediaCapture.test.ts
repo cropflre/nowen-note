@@ -37,6 +37,13 @@ describe("managed photo capture capability", () => {
     expect(shouldUseManagedPhotoCapture(captureInput("image/*"))).toBe(false);
   });
 
+  it("allows the explicit choose-file fallback to bypass camera interception", () => {
+    (window as any).nowenDesktop = { isDesktop: true, platform: "win32" };
+    const input = captureInput("image/*");
+    input.dataset.nowenCameraFallback = "1";
+    expect(shouldUseManagedPhotoCapture(input)).toBe(false);
+  });
+
   it("requests video only and never requests microphone audio", async () => {
     const stream = { getTracks: () => [], getVideoTracks: () => [] } as unknown as MediaStream;
     const getUserMedia = vi.fn(async () => stream);
