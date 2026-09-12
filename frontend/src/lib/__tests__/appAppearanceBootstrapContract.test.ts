@@ -1,9 +1,10 @@
 import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
-const main = readFileSync(new URL("../../main.tsx", import.meta.url), "utf8");
-const runtime = readFileSync(new URL("../runtimeCompatibility.ts", import.meta.url), "utf8");
-const useSkin = readFileSync(new URL("../../hooks/useSkin.ts", import.meta.url), "utf8");
+const main = readFileSync(resolve(process.cwd(), "src/main.tsx"), "utf8");
+const runtime = readFileSync(resolve(process.cwd(), "src/lib/runtimeCompatibility.ts"), "utf8");
+const useSkin = readFileSync(resolve(process.cwd(), "src/hooks/useSkin.ts"), "utf8");
 
 describe("app appearance bootstrap contract", () => {
   it("boots whole-app appearance from the first main entry import", () => {
