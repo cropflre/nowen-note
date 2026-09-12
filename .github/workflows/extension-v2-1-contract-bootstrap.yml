@@ -22,25 +22,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-      - name: Repair bootstrap-only generator escaping
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          path = Path("scripts/generate-plugin-host-api.mjs")
-          text = path.read_text()
-          before = text
-          text = text.replace(
-              'throw new Error(`Mock Host API 方法不存在: ${"${method}"}`);',
-              'throw new Error("Mock Host API 方法不存在: " + method);',
-          )
-          text = text.replace(
-              'throw new Error(`Mock Host API 未配置处理器: ${"${method}"}`);',
-              'throw new Error("Mock Host API 未配置处理器: " + method);',
-          )
-          if text == before:
-              raise SystemExit("bootstrap repair did not match generator source")
-          path.write_text(text)
-          PY
       - name: Generate unified capability artifacts
         run: node scripts/generate-plugin-host-api.mjs
       - name: Verify generated artifacts
@@ -50,7 +31,6 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add \
-            scripts/generate-plugin-host-api.mjs \
             backend/src/plugins/hostApiContract.generated.ts \
             backend/src/plugins/capabilityCatalog.generated.ts \
             packages/nowen-plugin-sdk/src/hostApi.generated.ts \
