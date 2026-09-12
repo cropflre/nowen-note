@@ -1,78 +1,56 @@
 import { useCallback, useEffect, useState } from "react";
+import {
+  APP_APPEARANCE_CHANGED_EVENT,
+  APP_APPEARANCE_IDS,
+  APP_APPEARANCE_STORAGE_KEY,
+  applyAppAppearance,
+  readStoredAppAppearance,
+  type AppAppearanceId,
+} from "@/lib/appAppearance";
 
 /**
- * "外观风格"（Skin）与 next-themes 的"明暗模式"（Theme）是**正交**的两个维度：
+ * App 外观风格与 Light / Dark / System 是正交维度。
  *
- *   Skin  ∈  { "default", "macos" }        → 写到 <html data-skin="...">
- *   Theme ∈  { "light", "dark", "system" } → 写到 <html class="dark" | "">
- *
- * 这样组合出 default-light / default-dark / macos-light / macos-dark 四种视觉，
- * 增加新皮肤（nord / solarized …）时只需要多一组 CSS 变量，不动 next-themes。
- *
- * 存储在 localStorage("nowen-note-skin")；FOUC 防护由 index.html 里的同步内联脚本完成。
+ * 外观风格负责整个 Nowen Note 的视觉语言；主题模式只决定当前风格使用 light 还是 dark
+ * token。所有风格都由 `appAppearance.ts` 的唯一 Registry 提供，组件不再维护第二份名单。
  */
+export type Skin = AppAppearanceId;
+export const SKIN_STORAGE_KEY = APP_APPEARANCE_STORAGE_KEY;
 
-export type Skin = "default" | "macos";
-
-export const SKIN_STORAGE_KEY = "nowen-note-skin";
-const ALL_SKINS: readonly Skin[] = ["default", "macos"] as const;
-
-function readSkin(): Skin {
-  try {
-    const raw = localStorage.getItem(SKIN_STORAGE_KEY);
-    if (raw && (ALL_SKINS as readonly string[]).includes(raw)) {
-      return raw as Skin;
-    }
-  } catch {
-    /* localStorage 被禁：走默认 */
-  }
-  return "default";
-}
-
-function applySkin(skin: Skin) {
-  const root = document.documentElement;
-  if (skin === "default") {
-    // 默认皮肤 = 不写 data-skin，让原有 :root / .dark 变量生效
-    root.removeAttribute("data-skin");
-  } else {
-    root.setAttribute("data-skin", skin);
-  }
-}
-
-/**
- * 订阅并修改当前皮肤。
- * - 跨标签页同步：通过 storage 事件
- * - 首次挂载时读取 localStorage 并确保 DOM 属性一致（索引脚本已经设过，但
- *   SPA 多入口下稳妥起见再兜底一次）
- */
 export function useSkin(): {
   skin: Skin;
   setSkin: (next: Skin) => void;
   skins: readonly Skin[];
 } {
-  const [skin, setSkinState] = useState<Skin>(() => readSkin());
+  const [skin, setSkinState] = useState<Skin>(() => readStoredAppAppearance());
 
   useEffect(() => {
-    applySkin(skin);
+    applyAppAppearance(skin);
   }, [skin]);
 
   useEffect(() => {
-    const onStorage = (e: StorageEvent) => {
-      if (e.key !== SKIN_STORAGE_KEY) return;
-      setSkinState(readSkin());
+    const sync = () => setSkinState(readStoredAppAppearance());
+    const onStorage = (event: StorageEvent) => {
+      if (event.key === APP_APPEARANCE_STORAGE_KEY) sync();
     };
     window.addEventListener("storage", onStorage);
-    return () => window.removeEventListener("storage", onStorage);
+    window.addEventListener(APP_APPEARANCE_CHANGED_EVENT, sync);
+    return () => {
+      window.removeEventListener("storage", onStorage);
+      window.removeEventListener(APP_APPEARANCE_CHANGED_EVENT, sync);
+    };
   }, []);
 
   const setSkin = useCallback((next: Skin) => {
     try {
-      localStorage.setItem(SKIN_STORAGE_KEY, next);
+      localStorage.setItem(APP_APPEARANCE_STORAGE_KEY, next);
     } catch {
-      /* ignore */
+      // localStorage 不可用时仍更新当前窗口内存态。
     }
+    applyAppAppearance(next);
     setSkinState(next);
+    window.dispatchEvent(new CustomEvent(APP_APPEARANCE_CHANGED_EVENT, { detail: next }));
   }, []);
 
-  return { skin, setSkin, skins: ALL_SKINS };
+  return { skin, setSkin, skins: APP_APPEARANCE_IDS };
 }
