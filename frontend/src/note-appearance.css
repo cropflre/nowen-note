@@ -1,0 +1,94 @@
+/* Note Appearance Engine
+ *
+ * Theme definitions only set a white-listed token surface. They never inject selectors or remote
+ * resources. Rich-text, Markdown source/live/preview and public/export renderers can consume the
+ * same variables without changing note content.
+ */
+
+[data-note-theme] {
+  --note-theme-canvas: var(--color-app-bg, transparent);
+  --note-theme-surface: transparent;
+  --note-theme-text: var(--color-text-primary, inherit);
+  --note-theme-muted: var(--color-text-secondary, inherit);
+  --note-theme-accent: var(--color-accent-primary, currentColor);
+  --note-theme-border: var(--color-border, currentColor);
+  --note-theme-quote-bg: var(--color-app-hover, transparent);
+  --note-theme-code-bg: var(--color-app-hover, transparent);
+  --note-theme-inline-code-bg: var(--color-app-hover, transparent);
+  --note-theme-max-width: none;
+  --note-theme-font-family: inherit;
+  --note-theme-font-size: inherit;
+  --note-theme-line-height: inherit;
+}
+
+.nowen-note-theme-surface {
+  background: var(--note-theme-canvas);
+  color: var(--note-theme-text);
+  transition: background-color 160ms ease, color 160ms ease;
+}
+
+.nowen-note-theme-surface .ProseMirror,
+.nowen-note-theme-surface .cm-content,
+.nowen-note-theme-surface .nowen-md-preview {
+  box-sizing: border-box;
+  width: min(100%, var(--note-theme-max-width));
+  max-width: var(--note-theme-max-width);
+  margin-inline: auto;
+  color: var(--note-theme-text);
+  font-family: var(--note-theme-font-family);
+  font-size: var(--note-theme-font-size);
+  line-height: var(--note-theme-line-height);
+}
+
+.nowen-note-theme-surface .ProseMirror,
+.nowen-note-theme-surface .nowen-md-preview,
+.nowen-note-theme-surface .cm-scroller {
+  background: var(--note-theme-surface);
+}
+
+.nowen-note-theme-surface :is(h1, h2, h3, h4, h5, h6) {
+  color: var(--note-theme-text);
+}
+
+.nowen-note-theme-surface :is(a, .ProseMirror a, .nowen-md-preview a) {
+  color: var(--note-theme-accent);
+}
+
+.nowen-note-theme-surface :is(blockquote, .ProseMirror blockquote, .nowen-md-preview blockquote) {
+  background: var(--note-theme-quote-bg);
+  border-color: var(--note-theme-accent);
+  color: var(--note-theme-text);
+}
+
+.nowen-note-theme-surface :is(table, th, td) {
+  border-color: var(--note-theme-border);
+}
+
+.nowen-note-theme-surface :is(hr) {
+  border-color: var(--note-theme-border);
+}
+
+.nowen-note-theme-surface :is(code:not(pre code)) {
+  background: var(--note-theme-inline-code-bg);
+  color: var(--note-theme-text);
+}
+
+.nowen-note-theme-surface :is(pre, .group\/code) {
+  border-color: var(--note-theme-border);
+}
+
+/* The default theme deliberately inherits the established editor appearance. Non-default note
+ * themes opt into an explicit reading surface without changing the surrounding application skin. */
+.nowen-note-theme-surface:not([data-note-theme="nowen.default"]) .ProseMirror,
+.nowen-note-theme-surface:not([data-note-theme="nowen.default"]) .nowen-md-preview,
+.nowen-note-theme-surface:not([data-note-theme="nowen.default"]) .cm-scroller {
+  border-radius: 14px;
+}
+
+@media (max-width: 767px) {
+  .nowen-note-theme-surface .ProseMirror,
+  .nowen-note-theme-surface .cm-content,
+  .nowen-note-theme-surface .nowen-md-preview {
+    max-width: 100%;
+  }
+}
