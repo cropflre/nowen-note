@@ -25,11 +25,9 @@ const SURFACE_TOKEN_PROPERTIES: Array<[keyof NoteThemeTokens, string]> = [
   ["selection", "--pm-selection"],
   ["contentMaxWidth", "--note-theme-content-width"],
   ["lineHeight", "--pm-p-line-height"],
-  ["fontFamily", "--note-theme-font-family"],
-  ["fontSize", "--note-theme-font-size"],
 ];
 
-/** Apply an explicit note override, including explicit `default` over a non-default account style. */
+/** Legacy per-note compatibility only; no longer exposed as a product surface. */
 export function applyExplicitNoteTheme(surface: HTMLElement, themeId: NoteThemeId): void {
   const tokens = resolveNoteThemeTokens(themeId, resolveDocumentThemeMode());
   surface.dataset.noteTheme = themeId;
@@ -38,7 +36,6 @@ export function applyExplicitNoteTheme(surface: HTMLElement, themeId: NoteThemeI
   }
 }
 
-/** Remove only per-note values; account-level appearance style continues to cascade from root. */
 export function clearExplicitNoteTheme(surface: HTMLElement): void {
   surface.removeAttribute("data-note-theme");
   for (const [, property] of SURFACE_TOKEN_PROPERTIES) surface.style.removeProperty(property);
