@@ -116,7 +116,19 @@ export interface PluginMenuContribution { location: "commandPalette" | "note.con
 export interface PluginSettingContribution { key: string; title: string; type: "string" | "number" | "boolean" | "select"; description?: string; options?: Array<string | number>; default?: string | number | boolean; secret?: boolean }
 export interface PluginAutomationTemplateContribution { id: string; title: string; file: string; description?: string }
 
-export interface PluginManifestV2 {
+export interface PluginContributionManifest {
+  commands?: PluginCommandContribution[];
+  menus?: PluginMenuContribution[];
+  settings?: PluginSettingContribution[];
+  automationTemplates?: PluginAutomationTemplateContribution[];
+}
+
+export interface PluginDeclarativeContributionManifest {
+  settings?: PluginSettingContribution[];
+  automationTemplates?: PluginAutomationTemplateContribution[];
+}
+
+interface PluginManifestV2Base {
   id: string;
   name: string;
   description: string;
@@ -124,8 +136,6 @@ export interface PluginManifestV2 {
   apiVersion: 2;
   publisher: string;
   engines: { nowen: string };
-  runtime: "sandbox-js" | "node-action";
-  main: string;
   categories: string[];
   keywords?: string[];
   repository: string;
@@ -136,23 +146,47 @@ export interface PluginManifestV2 {
   platforms?: Array<"server" | "desktop-full">;
   runtimePlatform?: Array<"server" | "desktop-full">;
   uiPlatform?: Array<"web" | "desktop" | "android" | "ios">;
-  connections?: PluginConnectionManifest[];
   output?: Record<string, unknown>;
   permissions: PluginPermission[];
   permissionConfig?: { externalFetchHosts?: string[] };
-  actions: PluginActionManifest[];
-  events?: string[];
-  eventHandlers?: Array<{ event: string; action: string }>;
-  contributes?: {
-    commands?: PluginCommandContribution[];
-    menus?: PluginMenuContribution[];
-    settings?: PluginSettingContribution[];
-    automationTemplates?: PluginAutomationTemplateContribution[];
-  };
   extensionDependencies?: Record<string, string>;
 }
 
+export interface PluginManifestV2Executable extends PluginManifestV2Base {
+  runtime: "sandbox-js" | "node-action";
+  main: string;
+  connections?: PluginConnectionManifest[];
+  actions: PluginActionManifest[];
+  events?: string[];
+  eventHandlers?: Array<{ event: string; action: string }>;
+  contributes?: PluginContributionManifest;
+}
+
+export interface PluginManifestV2Declarative extends PluginManifestV2Base {
+  runtime: "declarative";
+  contributes: PluginDeclarativeContributionManifest;
+  permissions: [];
+  main?: never;
+  connections?: never;
+  actions?: never;
+  events?: never;
+  eventHandlers?: never;
+}
+
+export type PluginManifestV2 = PluginManifestV2Executable | PluginManifestV2Declarative;
 export type PluginManifest = PluginManifestV1 | PluginManifestV2;
+
+export function isDeclarativePluginManifest(manifest: PluginManifest): manifest is PluginManifestV2Declarative {
+  return manifest.apiVersion === 2 && manifest.runtime === "declarative";
+}
+
+export function pluginManifestMain(manifest: PluginManifest): string {
+  return isDeclarativePluginManifest(manifest) ? "" : manifest.main;
+}
+
+export function pluginManifestActions(manifest: PluginManifest): PluginActionManifest[] {
+  return isDeclarativePluginManifest(manifest) ? [] : manifest.actions;
+}
 
 export interface PluginRegistryRecord {
   id: string;
