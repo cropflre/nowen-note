@@ -70,7 +70,7 @@ test("sandbox enforces the recursive Host API call ceiling", async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "nowen-sandbox-calls-"));
   fs.writeFileSync(path.join(directory, "index.js"), `globalThis.__nowenPluginModule={actions:{hello:async({nowen})=>{for(let i=0;i<1001;i++)await nowen.runtime.capabilities();return {success:true}}}}`);
   const runner = new SandboxRunner(record(directory), async () => ({ runtime: "sandbox-js" }));
-  try { await assert.rejects(() => runner.execute({ executionId: "sandbox-calls", pluginId: manifest.id, actionId: "hello", userId: "u", workspaceId: null }, {}, 5000, new ExecutionLogTail()), /调用次数超过限制/); }
+  try { await assert.rejects(() => runner.execute({ executionId: "sandbox-calls", pluginId: manifest.id, actionId: "hello", userId: "u", workspaceId: null }, {}, 5000, new ExecutionLogTail()), (error: any) => error?.code === "PLUGIN_PROTOCOL_LIMIT_EXCEEDED"); }
   finally { await runner.terminate(); fs.rmSync(directory, { recursive: true, force: true }); }
 });
 
@@ -78,18 +78,28 @@ test("external.fetch rejects raw/private network targets before network access",
   const permissions = { require: () => ({ configJson: JSON.stringify({ hosts: ["localhost", "169.254.169.254"] }) }) };
   const broker = new HostApiBroker(permissions as any);
   const context = { executionId: "ssrf", pluginId: manifest.id, actionId: "hello", userId: "u", workspaceId: null };
-  await assert.rejects(() => broker.call(context, { method: "external.fetch", args: { url: "http://localhost/" } }), (error: any) => error.code === "EXTERNAL_FETCH_DENIED");
+  await assert.rejects(() => broker.call(context, { method: "external.fetch", args: { url: "http://localhost/" } }), (error: any) => error.code === "EXTERNAL_FETCH_INVALID_URL");
   await assert.rejects(() => broker.call(context, { method: "external.fetch", args: { url: "https://169.254.169.254/latest/meta-data" } }), (error: any) => error.code === "EXTERNAL_FETCH_DENIED");
 });
 
-test("schema v96 and enterprise policy default community V2 to sandbox", async () => {
-  const { getDb, getDbSchemaVersion, closeDb } = await import("../src/db/schema");
+test("current schema and enterprise policy default community V2 to sandbox", async () => {
+  const [{ getDb, getDbSchemaVersion, closeDb }, { CURRENT_SCHEMA_VERSION }] = await Promise.all([
+    import("../src/db/schema"), import("../src/db/migrations"),
+  ]);
   const { ExtensionPolicy } = await import("../src/plugins/extensionPolicy");
-  assert.equal(getDbSchemaVersion(), 96);
+  assert.equal(getDbSchemaVersion(), CURRENT_SCHEMA_VERSION);
   assert.ok(getDb().prepare("SELECT 1 FROM plugin_sources").all());
   const policy = new ExtensionPolicy();
-  assert.throws(() => policy.assertAllowed({ ...manifest, runtime: "node-action", main: "index.mjs" }, "community", "registry"), (error: any) => error.code === "PLUGIN_POLICY_DENIED");
+  const compatibility = {
+    manifest: { ...manifest, runtime: "node-action" as const, main: "index.mjs" },
+    source: "registry" as const,
+    trustLevel: "community" as const,
+    signatureState: "verified",
+    advisoryState: "unknown",
+    nodeRuntimeConfirmed: false,
+  };
+  assert.throws(() => policy.assertAllowed(compatibility), (error: any) => error.code === "PLUGIN_COMMUNITY_NODE_RUNTIME_DENIED");
   policy.set({ allowNodeRuntime: false }, "admin");
-  assert.throws(() => policy.assertAllowed({ ...manifest, runtime: "node-action", main: "index.mjs" }, "verified", "registry"), /禁止 Node Runtime/);
+  assert.throws(() => policy.assertAllowed({ ...compatibility, trustLevel: "verified" }), /禁止 Official\/Verified V2 Node Runtime/);
   closeDb(); fs.rmSync(databaseDirectory, { recursive: true, force: true });
 });

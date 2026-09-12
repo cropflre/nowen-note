@@ -21,12 +21,14 @@ test("controlled templates and conditions cannot execute JavaScript", () => {
 });
 
 test("event ledger, dispatch, workflow steps, delay and recovery are durable", async () => {
-  const { getDb, closeDb, getDbSchemaVersion } = await import("../src/db/schema");
+  const [{ getDb, closeDb, getDbSchemaVersion }, { CURRENT_SCHEMA_VERSION }] = await Promise.all([
+    import("../src/db/schema"), import("../src/db/migrations"),
+  ]);
   const { eventPublisher } = await import("../src/automation/eventPublisher");
   const { WorkflowRepository } = await import("../src/automation/workflowRepository");
   const { automationRuntime } = await import("../src/automation/runtime");
   const db = getDb();
-  assert.equal(getDbSchemaVersion(), 96);
+  assert.equal(getDbSchemaVersion(), CURRENT_SCHEMA_VERSION);
   const tables = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'automation_%' ORDER BY name").all() as Array<{ name: string }>;
   assert.deepEqual(tables.map((row) => row.name), ["automation_events", "automation_idempotency", "automation_schedules", "automation_webhooks", "automation_workflow_runs", "automation_workflow_steps", "automation_workflows"]);
 

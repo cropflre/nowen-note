@@ -3413,7 +3413,7 @@ const moveToTrash = useCallback(async () => {
 
       {/* Editor (HTML Ԥ�� / MD / Tiptap ��ģʽ����) + Outline */}
       <div className="flex-1 flex overflow-hidden">
-        <div className="flex-1 overflow-hidden relative">
+        <div className="note-theme-surface flex-1 overflow-hidden relative">
           {/* Phase 2: ʵʱЭ����������� / Զ�̸��� / Զ��ɾ�������� absolute ���㣬��ռ�ĵ���������ҳ�涶�� */}
           {false && pendingDraft ? (
             <div

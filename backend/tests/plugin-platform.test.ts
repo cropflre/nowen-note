@@ -114,14 +114,19 @@ test("runner isolates execution and kills a timed-out worker", async () => {
   }
 });
 
-test("schema v96 creates versioned plugin, automation and ecosystem tables", async () => {
-  const { getDb, closeDb, getDbSchemaVersion } = await import("../src/db/schema");
+test("current schema retains the versioned plugin, automation and ecosystem tables", async () => {
+  const [{ getDb, closeDb, getDbSchemaVersion }, { CURRENT_SCHEMA_VERSION }] = await Promise.all([
+    import("../src/db/schema"), import("../src/db/migrations"),
+  ]);
   const { PluginExecutionManager } = await import("../src/plugins/executionManager");
   const { HostApiBroker } = await import("../src/plugins/hostApiBroker");
   const db = getDb();
-  assert.equal(getDbSchemaVersion(), 96);
+  assert.equal(getDbSchemaVersion(), CURRENT_SCHEMA_VERSION);
   const names = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'plugin_%' ORDER BY name").all() as Array<{ name: string }>;
-  assert.deepEqual(names.map((row) => row.name), ["plugin_executions", "plugin_permissions", "plugin_policy", "plugin_registry", "plugin_secrets", "plugin_security_state", "plugin_settings", "plugin_sources", "plugin_storage", "plugin_trust_records", "plugin_update_state", "plugin_versions"]);
+  const pluginTables = new Set(names.map((row) => row.name));
+  for (const table of ["plugin_executions", "plugin_permissions", "plugin_policy", "plugin_registry", "plugin_secrets", "plugin_security_state", "plugin_settings", "plugin_sources", "plugin_storage", "plugin_trust_records", "plugin_update_state", "plugin_versions"]) {
+    assert.equal(pluginTables.has(table), true, `missing plugin platform table: ${table}`);
+  }
   const executionColumns = db.prepare("PRAGMA table_info(plugin_executions)").all() as Array<{ name: string }>;
   assert.ok(executionColumns.some((column) => column.name === "progressCurrent"));
   const timestamp = new Date().toISOString();

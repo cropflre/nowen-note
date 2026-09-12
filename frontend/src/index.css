@@ -192,6 +192,95 @@ body {
   font-size: var(--editor-font-size, inherit);
 }
 
+/* ===== Note Theme Engine =====
+ * 主题只作用于编辑/阅读表面。默认主题不进入这组规则，继续继承现有 Skin、
+ * 明暗模式和用户字体；其他内置主题由账号偏好把一组白名单 Token 写到根节点。
+ */
+html[data-note-theme]:not([data-note-theme="default"]) .note-theme-surface {
+  background: var(--note-theme-surface);
+  color: var(--pm-text);
+  transition: background-color 0.18s ease, color 0.18s ease;
+}
+
+html[data-note-theme]:not([data-note-theme="default"]) .note-theme-surface .ProseMirror,
+html[data-note-theme]:not([data-note-theme="default"]) .note-theme-surface .nowen-md-preview {
+  width: 100%;
+  max-width: var(--note-theme-content-width);
+  margin-left: auto;
+  margin-right: auto;
+  color: var(--pm-text);
+  line-height: var(--pm-p-line-height);
+}
+
+html[data-note-theme]:not([data-note-theme="default"]) .note-theme-surface .ProseMirror a,
+html[data-note-theme]:not([data-note-theme="default"]) .note-theme-surface .nowen-md-preview a {
+  color: var(--note-theme-accent);
+  text-decoration-color: currentColor;
+}
+
+html[data-note-theme]:not([data-note-theme="default"]) .note-theme-surface .ProseMirror a:hover,
+html[data-note-theme]:not([data-note-theme="default"]) .note-theme-surface .nowen-md-preview a:hover {
+  color: var(--note-theme-accent-hover);
+}
+
+html[data-note-theme]:not([data-note-theme="default"]) .note-theme-surface .nowen-md-preview h1,
+html[data-note-theme]:not([data-note-theme="default"]) .note-theme-surface .nowen-md-preview h2,
+html[data-note-theme]:not([data-note-theme="default"]) .note-theme-surface .nowen-md-preview h3,
+html[data-note-theme]:not([data-note-theme="default"]) .note-theme-surface .nowen-md-preview h4,
+html[data-note-theme]:not([data-note-theme="default"]) .note-theme-surface .nowen-md-preview h5,
+html[data-note-theme]:not([data-note-theme="default"]) .note-theme-surface .nowen-md-preview h6 {
+  color: var(--pm-heading);
+}
+
+html[data-note-theme]:not([data-note-theme="default"]) .note-theme-surface .nowen-md-preview blockquote {
+  color: var(--pm-blockquote-text);
+  border-left-color: var(--pm-blockquote-border);
+  background: var(--note-theme-soft);
+}
+
+html[data-note-theme]:not([data-note-theme="default"]) .note-theme-surface .nowen-md-preview :not(pre) > code {
+  color: var(--pm-code-text);
+  background: var(--pm-code-bg);
+}
+
+html[data-note-theme]:not([data-note-theme="default"]) .note-theme-surface .nowen-md-preview hr,
+html[data-note-theme]:not([data-note-theme="default"]) .note-theme-surface .nowen-md-preview th,
+html[data-note-theme]:not([data-note-theme="default"]) .note-theme-surface .nowen-md-preview td,
+html[data-note-theme]:not([data-note-theme="default"]) .note-theme-surface .ProseMirror table,
+html[data-note-theme]:not([data-note-theme="default"]) .note-theme-surface .ProseMirror th,
+html[data-note-theme]:not([data-note-theme="default"]) .note-theme-surface .ProseMirror td {
+  border-color: var(--note-theme-border);
+}
+
+html[data-note-theme]:not([data-note-theme="default"]) .note-theme-surface .nowen-md-preview th,
+html[data-note-theme]:not([data-note-theme="default"]) .note-theme-surface .ProseMirror th {
+  color: var(--pm-heading);
+  background: var(--note-theme-soft);
+}
+
+html[data-note-theme]:not([data-note-theme="default"]) .note-theme-surface .nowen-md-preview tr:nth-child(even) td,
+html[data-note-theme]:not([data-note-theme="default"]) .note-theme-surface .ProseMirror tr:nth-child(even) td {
+  color: var(--pm-text);
+  background: var(--note-theme-table-stripe);
+}
+
+html[data-note-theme]:not([data-note-theme="default"]) .note-theme-surface .nowen-md-preview mark {
+  color: inherit;
+  background: var(--note-theme-mark);
+}
+
+html[data-note-theme]:not([data-note-theme="default"]) .note-theme-surface .ProseMirror ::selection,
+html[data-note-theme]:not([data-note-theme="default"]) .note-theme-surface .nowen-md-preview ::selection {
+  background: var(--pm-selection);
+}
+
+html[data-note-theme]:not([data-note-theme="default"]) .note-theme-surface .nowen-md-editor .cm-editor,
+html[data-note-theme]:not([data-note-theme="default"]) .note-theme-surface .nowen-md-editor .cm-scroller,
+html[data-note-theme]:not([data-note-theme="default"]) .note-theme-surface .nowen-md-editor .cm-gutters {
+  color: var(--pm-text);
+  background: var(--note-theme-surface);
+}
+
 /* 缂栬緫鍣ㄥ唴閾炬帴锛氬彲瑙佺殑棰滆壊 + 涓嬪垝绾?+ 鎸囬拡锛汿ypora 椋庢牸鐨勮交閲忔彁绀?*/
 .ProseMirror a {
   color: #4f46e5; /* indigo-600 */

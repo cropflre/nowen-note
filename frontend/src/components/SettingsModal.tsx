@@ -16,6 +16,7 @@ import FolderSyncSettings from "@/components/settings/FolderSyncSettings";
 import SyncSettingsTab from "@/components/settings/SyncSettingsTab";
 import ShortcutSettingsPanel from "@/components/settings/ShortcutSettingsPanel";
 import PluginSettingsTab from "@/components/settings/plugins/PluginSettingsTab";
+import NoteThemePicker from "@/components/settings/NoteThemePicker";
 import AutomationCenter from "@/components/automation/AutomationCenter";
 import AISettingsPanel from "@/components/AISettingsPanel";
 import UserManagement from "@/components/UserManagement";
@@ -1350,6 +1351,8 @@ function AppearancePanel() {
           </div>
           <ThemeToggle />
         </div>
+
+        <NoteThemePicker />
 
         {/* 编辑器字体 - 可交互 */}
         <div className="p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-800/30 space-y-4">

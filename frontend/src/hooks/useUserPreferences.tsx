@@ -9,6 +9,7 @@ import React, {
 } from "react";
 import { api } from "@/lib/api";
 import { installKnowledgeTreeAutoLock } from "@/lib/knowledgeTreeAutoLock";
+import { applyNoteTheme } from "@/lib/noteTheme";
 import {
   DEFAULT_USER_PREFERENCES,
   LEGACY_CODE_BLOCK_THEME_KEY,
@@ -104,6 +105,7 @@ function initialPreferences(): UserPreferences {
   if (!identity) return DEFAULT_USER_PREFERENCES;
   const prefs = readAccountPreferenceCache(localStorage, identity.userId)?.prefs || DEFAULT_USER_PREFERENCES;
   applyLegacyPreferenceBridges(prefs, false);
+  applyNoteTheme(prefs.noteTheme);
   return prefs;
 }
 
@@ -144,6 +146,15 @@ export function UserPreferencesProvider({ children }: { children: React.ReactNod
       root.style.removeProperty("--editor-font-size");
     };
   }, [prefs.editorFontSize]);
+
+  useEffect(() => {
+    const root = document.documentElement;
+    const apply = () => applyNoteTheme(prefs.noteTheme, root);
+    apply();
+    const observer = new MutationObserver(apply);
+    observer.observe(root, { attributes: true, attributeFilter: ["class", "data-theme"] });
+    return () => observer.disconnect();
+  }, [prefs.noteTheme]);
 
   // 密码文件夹的闲置/后台锁定策略由账号偏好统一驱动。该 Provider 同时服务
   // Web、Electron 和 Capacitor，因此三端共享同一套生命周期与同步行为。

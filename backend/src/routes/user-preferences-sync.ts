@@ -6,6 +6,7 @@ type ReadingDensity = "cozy" | "compact";
 type EditorFontSize = 0 | 14 | 16 | 18 | 20 | 22 | 24;
 type EditorMode = "md" | "tiptap";
 type FolderAutoLockMinutes = 0 | 5 | 15 | 30 | 60;
+type NoteTheme = "default" | "paper" | "minimal" | "eye-care";
 type CodeBlockTheme =
   | "github-dark"
   | "github-light"
@@ -29,6 +30,7 @@ export interface SyncedUserPreferences {
   markdownDefaultViewMode: MarkdownViewMode;
   defaultEditorMode: EditorMode;
   codeBlockTheme: CodeBlockTheme;
+  noteTheme: NoteTheme;
   noteListTitleOnly: boolean;
 }
 
@@ -68,6 +70,7 @@ export const DEFAULT_SYNCED_USER_PREFERENCES: SyncedUserPreferences = {
   markdownDefaultViewMode: "source",
   defaultEditorMode: "tiptap",
   codeBlockTheme: "github-dark",
+  noteTheme: "default",
   noteListTitleOnly: false,
 };
 
@@ -128,6 +131,12 @@ function normalizePreferenceValue<K extends PreferenceKey>(
     case "codeBlockTheme":
       return (
         typeof value === "string" && CODE_BLOCK_THEMES.has(value as CodeBlockTheme)
+          ? value
+          : fallback
+      ) as SyncedUserPreferences[K];
+    case "noteTheme":
+      return (
+        value === "default" || value === "paper" || value === "minimal" || value === "eye-care"
           ? value
           : fallback
       ) as SyncedUserPreferences[K];

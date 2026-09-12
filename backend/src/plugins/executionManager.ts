@@ -14,6 +14,7 @@ import type { PluginExecutionContext, PluginExecutionResult, PluginManifest, Plu
 const MAX_GLOBAL_CONCURRENCY = 2;
 let activeGlobalExecutions = 0;
 const globalWaiters: Array<() => void> = [];
+const EXPECTED_ACCESS_DENIAL_CODES = new Set(["RESOURCE_FORBIDDEN", "PLUGIN_PERMISSION_DENIED"]);
 
 async function acquireGlobalSlot(): Promise<() => void> {
   if (activeGlobalExecutions >= MAX_GLOBAL_CONCURRENCY) {
@@ -221,6 +222,7 @@ export class PluginExecutionManager {
       const probation = this.registry.get(input.pluginId);
       const shouldRollbackProbation = executionStarted
         && coded.code !== "PLUGIN_CANCELLED"
+        && !EXPECTED_ACCESS_DENIAL_CODES.has(coded.code || "")
         && boundRecord?.lifecycleState === "probation"
         && probation?.lifecycleState === "probation"
         && probation.status === "enabled"

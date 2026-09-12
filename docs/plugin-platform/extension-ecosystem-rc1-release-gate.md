@@ -70,6 +70,11 @@ Registry Index 和插件 Artifact 使用二进制安全的 pinned HTTPS 传输�
 4. 每次 Redirect 都重新执行 URL + DNS 校验；
 5. 保持 TLS hostname 校验、响应大小预算和超时限制。
 
+对于使用 TUN/透明代理的客户端，DNS 可能把公网域名映射到 `198.18.0.0/15` 的 Fake-IP。
+V2 签名 Registry 允许把该网段作为传输占位地址，但只接受域名解析结果，不接受 URL 直接填写
+`198.18.x.x`；连接仍使用原始域名执行 SNI 和 TLS 证书校验，Registry/Publisher 签名与制品
+SHA-256 校验也不会跳过。插件 `external.fetch` 和旧 V1 Registry 不启用此兼容路径。
+
 ## 根轮换
 
 正式客户端从编译根建立信任。后续 Root Rotation 必须由当前 active root 的私钥签名，客户端会验证 `parentKeyId`、`sequence`、有效期和 Ed25519 签名，并持久化受信链。不得通过管理 API 或 Registry 响应直接覆盖 Official Root。

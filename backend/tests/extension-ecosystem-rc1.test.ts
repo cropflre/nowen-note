@@ -81,6 +81,11 @@ test("RC1 Registry metadata rejects rollback, equivocation and time rollback", a
   const publicPem = publicKey.export({ type: "spki", format: "pem" }).toString();
   const sourceId = `rc1-${crypto.randomUUID()}`;
   const guard = new RegistryMetadataGuard();
+  const createdAt = new Date().toISOString();
+  getDb().prepare(`INSERT INTO plugin_sources
+    (id,name,indexUrl,official,enabled,registryKeyId,registryPublicKey,createdAt,updatedAt)
+    VALUES (?,?,?,0,1,?,?,?,?)`)
+    .run(sourceId, "RC1 fixture", "https://registry.example/v2/index.json", "root-1", publicPem, createdAt, createdAt);
   const base = {
     protocolVersion: 2,
     sequence: 10,

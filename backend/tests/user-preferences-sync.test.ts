@@ -102,6 +102,7 @@ test("merges stale field-level updates instead of replacing the whole document",
   const second = await requestJson("PUT", {
     readingDensity: "compact",
     editorFontSize: 22,
+    noteTheme: "paper",
     _baseRevision: 0,
   });
   assert.equal(second.status, 200);
@@ -110,9 +111,11 @@ test("merges stale field-level updates instead of replacing the whole document",
   assert.equal(second.json.noteTitleAsAppTitle, true);
   assert.equal(second.json.readingDensity, "compact");
   assert.equal(second.json.editorFontSize, 22);
+  assert.equal(second.json.noteTheme, "paper");
   assert.ok(second.json.fieldUpdatedAt.noteTitleAsAppTitle);
   assert.ok(second.json.fieldUpdatedAt.readingDensity);
   assert.ok(second.json.fieldUpdatedAt.editorFontSize);
+  assert.ok(second.json.fieldUpdatedAt.noteTheme);
 });
 
 test("prevents a second first-run migration from overwriting established remote preferences", async () => {
@@ -167,4 +170,8 @@ test("rejects invalid values for known preference fields", async () => {
   const invalidFontSize = await requestJson("PUT", { editorFontSize: 48 });
   assert.equal(invalidFontSize.status, 400);
   assert.equal(invalidFontSize.json.code, "INVALID_USER_PREFERENCE");
+
+  const invalidNoteTheme = await requestJson("PUT", { noteTheme: "remote-css" });
+  assert.equal(invalidNoteTheme.status, 400);
+  assert.equal(invalidNoteTheme.json.code, "INVALID_USER_PREFERENCE");
 });

@@ -101,6 +101,11 @@ test("Registry trust -> metadata -> publisher artifact -> package install closes
   };
 
   const trust = new RegistryTrust();
+  const sourceCreatedAt = new Date(now).toISOString();
+  getDb().prepare(`INSERT INTO plugin_sources
+    (id,name,indexUrl,official,enabled,registryKeyId,registryPublicKey,createdAt,updatedAt)
+    VALUES (?,?,?,0,1,?,?,?,?)`)
+    .run(sourceId, "RC1 E2E fixture", "https://registry.example/v2/index.json", "registry-root-1", registryPublicKey, sourceCreatedAt, sourceCreatedAt);
   const resolution = trust.resolve({
     id: sourceId,
     official: false,
@@ -148,7 +153,9 @@ test("Registry trust -> metadata -> publisher artifact -> package install closes
 });
 
 test("Registry binary transport rejects private/metadata targets before opening a socket", async () => {
-  const { safeRegistryFetch } = await import("../src/plugins/communityRegistry");
+  const [{ safeRegistryFetch }, { isRegistryDnsAddressAllowed }] = await Promise.all([
+    import("../src/plugins/communityRegistry"), import("../src/plugins/secureRegistryFetch"),
+  ]);
   for (const url of [
     "https://127.0.0.1/index.json",
     "https://169.254.169.254/latest/meta-data",
@@ -160,4 +167,8 @@ test("Registry binary transport rejects private/metadata targets before opening 
       (error: any) => error?.code === "REGISTRY_URL_DENIED",
     );
   }
+  assert.equal(isRegistryDnsAddressAllowed("registry.example", "198.18.1.2"), false);
+  assert.equal(isRegistryDnsAddressAllowed("registry.example", "198.18.1.2", { allowTransparentProxyDns: true }), true);
+  assert.equal(isRegistryDnsAddressAllowed("198.18.1.2", "198.18.1.2", { allowTransparentProxyDns: true }), false);
+  assert.equal(isRegistryDnsAddressAllowed("registry.example", "127.0.0.1", { allowTransparentProxyDns: true }), false);
 });

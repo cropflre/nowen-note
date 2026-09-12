@@ -1,3 +1,5 @@
+import { isNoteThemeId, type NoteThemeId } from "@/lib/noteTheme";
+
 export type ReadingDensity = "cozy" | "compact";
 export type EditorFontSize = 0 | 14 | 16 | 18 | 20 | 22 | 24;
 export type MarkdownViewMode = "source" | "preview" | "split";
@@ -25,6 +27,7 @@ export interface UserPreferences {
   markdownDefaultViewMode: MarkdownViewMode;
   defaultEditorMode: EditorMode;
   codeBlockTheme: CodeBlockThemeId;
+  noteTheme: NoteThemeId;
   noteListTitleOnly: boolean;
 }
 
@@ -57,6 +60,7 @@ export const DEFAULT_USER_PREFERENCES: UserPreferences = {
   markdownDefaultViewMode: "source",
   defaultEditorMode: "tiptap",
   codeBlockTheme: "github-dark",
+  noteTheme: "default",
   noteListTitleOnly: false,
 };
 
@@ -142,6 +146,7 @@ export function normalizeUserPreferences(
       typeof raw.codeBlockTheme === "string" && CODE_BLOCK_THEMES.has(raw.codeBlockTheme as CodeBlockThemeId)
         ? raw.codeBlockTheme as CodeBlockThemeId
         : fallback.codeBlockTheme,
+    noteTheme: isNoteThemeId(raw.noteTheme) ? raw.noteTheme : fallback.noteTheme,
     noteListTitleOnly: typeof raw.noteListTitleOnly === "boolean"
       ? raw.noteListTitleOnly
       : fallback.noteListTitleOnly,

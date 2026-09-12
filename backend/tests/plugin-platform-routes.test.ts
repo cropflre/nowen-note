@@ -84,6 +84,7 @@ test("admin lifecycle and ordinary-user boundaries work end to end", async () =>
 
   const viewerWrite = await app.request("/plugins/com.example.route-test/actions/create-note/execute", { method: "POST", headers: { "X-User-Id": USER, "Content-Type": "application/json" }, body: JSON.stringify({ input: { notebookId: "plugin-notebook", title: "Denied" } }) });
   assert.equal(viewerWrite.status, 403);
+  assert.equal((await app.request("/plugins/com.example.route-test", { headers: { "X-User-Id": USER } })).status, 200);
   assert.equal((db.prepare("SELECT COUNT(*) AS count FROM notes WHERE title='Denied'").get() as { count: number }).count, 0);
 
   for (const [actionId, input] of [
@@ -91,7 +92,7 @@ test("admin lifecycle and ordinary-user boundaries work end to end", async () =>
     ["create-mindmap", { workspaceId: "plugin-ws", title: "Denied" }],
   ] as const) {
     const denied = await app.request(`/plugins/com.example.route-test/actions/${actionId}/execute`, { method: "POST", headers: { "X-User-Id": USER, "Content-Type": "application/json" }, body: JSON.stringify({ input }) });
-    assert.equal(denied.status, 403);
+    assert.equal(denied.status, 403, `${actionId}: ${await denied.clone().text()}`);
   }
 
   db.prepare("UPDATE workspace_members SET role='editor' WHERE workspaceId='plugin-ws' AND userId=?").run(USER);
@@ -111,6 +112,13 @@ test("admin lifecycle and ordinary-user boundaries work end to end", async () =>
   const progress = db.prepare("SELECT status,progressCurrent,progressTotal,progressMessage FROM plugin_executions WHERE id=?").get(progressId) as any;
   assert.deepEqual(progress, { status: "completed", progressCurrent: 73, progressTotal: 100, progressMessage: "Working" });
 
+  // Manual rollback only targets a previously verified stable version. Finish the
+  // initial five-execution probation window before installing the update candidate.
+  for (const name of ["Stable 4", "Stable 5"]) {
+    const probation = await app.request("/plugins/com.example.route-test/actions/hello/execute", { method: "POST", headers: { "X-User-Id": USER, "Content-Type": "application/json" }, body: JSON.stringify({ input: { name } }) });
+    assert.equal(probation.status, 200);
+  }
+
   const updateForm = new FormData();
   updateForm.append("file", await createPackage("1.1.0"));
   const update = await app.request("/plugins/install", { method: "POST", headers: { "X-User-Id": ADMIN }, body: updateForm });
@@ -122,7 +130,7 @@ test("admin lifecycle and ordinary-user boundaries work end to end", async () =>
   await app.request("/plugins/com.example.route-test/permissions", { method: "PUT", headers: { "X-User-Id": ADMIN, "Content-Type": "application/json" }, body: JSON.stringify({ granted: declaredPermissions }) });
   assert.equal((await app.request("/plugins/com.example.route-test/enable", { method: "POST", headers: { "X-User-Id": ADMIN } })).status, 200);
   const rollback = await app.request("/plugins/com.example.route-test/rollback", { method: "POST", headers: { "X-User-Id": ADMIN, "Content-Type": "application/json" }, body: JSON.stringify({ version: "1.0.0" }) });
-  assert.equal(rollback.status, 200);
+  assert.equal(rollback.status, 200, await rollback.clone().text());
   assert.equal((await rollback.json() as any).plugin.version, "1.0.0");
 
   await app.request("/plugins/com.example.route-test/disable", { method: "POST", headers: { "X-User-Id": ADMIN } });

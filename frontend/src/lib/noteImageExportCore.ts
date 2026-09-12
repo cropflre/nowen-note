@@ -26,6 +26,7 @@ import {
 import { isMermaidLang, renderMermaid } from "@/lib/mermaidRenderer";
 import { sanitizeSvg } from "@/lib/sanitizeHtml";
 import { rasterizeMermaidSvgForExport } from "@/lib/mermaidExportRaster";
+import { currentNoteThemeId, resolveNoteThemeTokens, type NoteThemeTokens } from "@/lib/noteTheme";
 
 const EXPORT_WIDTH = 794;
 const EXPORT_HORIZONTAL_PADDING = 56;
@@ -317,14 +318,17 @@ function currentTheme(theme: NoteImageExportTheme): "light" | "dark" {
   return root.classList.contains("dark") || root.getAttribute("data-theme") === "dark" ? "dark" : "light";
 }
 
-function buildStyle(theme: "light" | "dark", fontFamily: string, lineHeight: string): string {
-  const dark = theme === "dark";
-  const bg = dark ? "#111318" : "#ffffff";
-  const fg = dark ? "#e7e9ee" : "#1f2328";
-  const muted = dark ? "#9299a8" : "#6b7280";
-  const border = dark ? "#343943" : "#d0d7de";
-  const soft = dark ? "#1b1f27" : "#f6f8fa";
-  const codeBg = dark ? "#0b0e14" : "#0d1117";
+function buildStyle(
+  fontFamily: string,
+  lineHeight: string,
+  noteTheme: NoteThemeTokens,
+): string {
+  const bg = noteTheme.surface;
+  const fg = noteTheme.text;
+  const muted = noteTheme.muted;
+  const border = noteTheme.border;
+  const soft = noteTheme.softBackground;
+  const codeBg = noteTheme.preBackground;
 
   return `
     .nowen-note-image-export-host, .nowen-note-image-export-host * { box-sizing: border-box; }
@@ -344,7 +348,7 @@ function buildStyle(theme: "light" | "dark", fontFamily: string, lineHeight: str
     .nowen-note-image-export-body h2 { margin: 26px 0 10px; font-size: 21px; line-height: 1.4; font-weight: 700; }
     .nowen-note-image-export-body h3 { margin: 22px 0 8px; font-size: 18px; line-height: 1.45; font-weight: 680; }
     .nowen-note-image-export-body p { margin: 9px 0; white-space: normal; }
-    .nowen-note-image-export-body a { color: ${dark ? "#79b8ff" : "#0969da"}; text-decoration: none; }
+    .nowen-note-image-export-body a { color: ${noteTheme.accent}; text-decoration: none; }
     .nowen-note-image-export-body strong { font-weight: 700; }
     .nowen-note-image-export-body ul, .nowen-note-image-export-body ol { margin: 10px 0; padding-left: 1.6em; }
     .nowen-note-image-export-body ul { list-style: none !important; --nowen-ul-marker: "•"; --nowen-ul-marker-size: 1.1em; --nowen-ul-marker-top: 0; }
@@ -364,7 +368,7 @@ function buildStyle(theme: "light" | "dark", fontFamily: string, lineHeight: str
     .nowen-note-image-export-body li > p { margin: 2px 0; }
     .nowen-note-image-export-body ul[data-type="taskList"], .nowen-note-image-export-body ul.contains-task-list { padding-left: 0.5em; list-style: none; }
     .nowen-note-image-export-body li[data-type="taskItem"], .nowen-note-image-export-body li.task-list-item, .nowen-note-image-export-body ul[data-type="taskList"] > li { display: flex; gap: 9px; align-items: flex-start; list-style: none; }
-    .nowen-note-image-export-body input[type="checkbox"] { width: 15px; height: 15px; margin: 5px 0 0; accent-color: #4f7cff; }
+    .nowen-note-image-export-body input[type="checkbox"] { width: 15px; height: 15px; margin: 5px 0 0; accent-color: ${noteTheme.accent}; }
     .nowen-note-image-export-body blockquote { margin: 14px 0; padding: 10px 16px; color: ${muted}; background: ${soft}; border-left: 4px solid ${border}; border-radius: 0 8px 8px 0; }
     .nowen-note-image-export-body hr { margin: 24px 0; border: 0; border-top: 1px solid ${border}; }
     .nowen-note-image-export-body table { width: 100% !important; max-width: 100% !important; min-width: 0 !important; margin: 16px 0; border-collapse: collapse; table-layout: fixed; font-size: 14px; overflow-wrap: anywhere; }
@@ -380,11 +384,11 @@ function buildStyle(theme: "light" | "dark", fontFamily: string, lineHeight: str
     .nowen-note-image-export-body .nowen-note-image-export-mermaid { margin: 18px 0; break-inside: avoid; page-break-inside: avoid; }
     .nowen-note-image-export-body .nowen-note-image-export-mermaid img { width: auto; max-width: 100%; margin: 0 auto; border-radius: 0; }
     .nowen-note-image-export-body code { padding: 2px 5px; border-radius: 4px; background: ${soft}; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace; font-size: .91em; }
-    .nowen-note-image-export-body pre { position: relative; margin: 16px 0; padding: 18px 18px 16px; overflow: hidden; border-radius: 10px; background: ${codeBg}; color: #e6edf3; white-space: pre-wrap; overflow-wrap: anywhere; }
+    .nowen-note-image-export-body pre { position: relative; margin: 16px 0; padding: 18px 18px 16px; overflow: hidden; border-radius: 10px; background: ${codeBg}; color: ${noteTheme.preText}; white-space: pre-wrap; overflow-wrap: anywhere; }
     .nowen-note-image-export-body pre[data-language] { padding-top: 32px; }
     .nowen-note-image-export-body pre[data-language]::before { content: attr(data-language); position: absolute; top: 9px; right: 13px; color: #8b949e; font: 600 10px/1.2 ui-monospace, monospace; letter-spacing: .08em; }
     .nowen-note-image-export-body pre code { padding: 0; border-radius: 0; background: transparent; color: inherit; font-size: 12.5px; line-height: 1.6; }
-    .nowen-note-image-export-body mark { padding: 0 2px; border-radius: 3px; background: ${dark ? "#5c4b14" : "#fff3a3"}; color: inherit; }
+    .nowen-note-image-export-body mark { padding: 0 2px; border-radius: 3px; background: ${noteTheme.markBackground}; color: inherit; }
     .nowen-note-image-export-body .hljs-comment, .nowen-note-image-export-body .hljs-quote { color: #8b949e; }
     .nowen-note-image-export-body .hljs-keyword, .nowen-note-image-export-body .hljs-selector-tag, .nowen-note-image-export-body .hljs-type { color: #ff7b72; }
     .nowen-note-image-export-body .hljs-string, .nowen-note-image-export-body .hljs-attr, .nowen-note-image-export-body .hljs-template-tag { color: #a5d6ff; }
@@ -456,11 +460,14 @@ async function prepareHost(
   bodyHtml = await inlineRemainingImages(bodyHtml, failedResources);
 
   const theme = currentTheme(themeOption);
+  const noteThemeId = currentNoteThemeId();
+  const noteTheme = resolveNoteThemeTokens(noteThemeId, theme);
   const bodyStyle = getComputedStyle(document.body);
   const fontFamily = bodyStyle.fontFamily || '-apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif';
-  const lineHeight = Number.parseFloat(bodyStyle.lineHeight) > 1.2 ? bodyStyle.lineHeight : "1.75";
-  const styleText = buildStyle(theme, fontFamily, lineHeight);
-  const background = theme === "dark" ? "#111318" : "#ffffff";
+  const bodyLineHeight = Number.parseFloat(bodyStyle.lineHeight) > 1.2 ? bodyStyle.lineHeight : "1.75";
+  const lineHeight = noteThemeId === "default" ? bodyLineHeight : noteTheme.lineHeight;
+  const styleText = buildStyle(fontFamily, lineHeight, noteTheme);
+  const background = noteTheme.surface;
 
   const host = document.createElement("div");
   host.className = "nowen-note-image-export-host";

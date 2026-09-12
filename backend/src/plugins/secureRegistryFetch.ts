@@ -8,6 +8,14 @@ interface PinnedAddress {
   family: 4 | 6;
 }
 
+export interface SecureRegistryFetchOptions {
+  /**
+   * TUN/透明代理常用 198.18.0.0/15 作为域名占位地址。仅 V2 签名 Registry
+   * 可以启用；URL 字面量仍会被拒绝，TLS 仍按原始 hostname 校验证书。
+   */
+  allowTransparentProxyDns?: boolean;
+}
+
 type RegistryFetchErrorCode =
   | "REGISTRY_URL_DENIED"
   | "REGISTRY_DNS_ERROR"
@@ -83,6 +91,21 @@ function isPublicAddress(address: string): boolean {
   return net.isIPv4(address) ? isPublicIPv4(address) : net.isIPv6(address) ? isPublicIPv6(address) : false;
 }
 
+function isTransparentProxyAddress(address: string): boolean {
+  if (!net.isIPv4(address)) return false;
+  const [first, second] = address.split(".").map(Number);
+  return first === 198 && (second === 18 || second === 19);
+}
+
+export function isRegistryDnsAddressAllowed(
+  hostname: string,
+  address: string,
+  options: SecureRegistryFetchOptions = {},
+): boolean {
+  if (isPublicAddress(address)) return true;
+  return !net.isIP(hostname) && options.allowTransparentProxyDns === true && isTransparentProxyAddress(address);
+}
+
 function normalizeHostname(value: string): string {
   const raw = value.startsWith("[") && value.endsWith("]") ? value.slice(1, -1) : value;
   if (!raw || raw.includes("%") || CONTROL_OR_CONFUSING.test(raw)) {
@@ -116,7 +139,7 @@ function normalizeRemoteUrl(value: string): { url: URL; hostname: string } {
   return { url, hostname };
 }
 
-async function resolvePinned(hostname: string): Promise<PinnedAddress[]> {
+async function resolvePinned(hostname: string, options: SecureRegistryFetchOptions): Promise<PinnedAddress[]> {
   const literal = net.isIP(hostname);
   if (literal) {
     if (!isPublicAddress(hostname)) throw codedError("Registry 禁止访问非公网地址", "REGISTRY_URL_DENIED");
@@ -132,7 +155,7 @@ async function resolvePinned(hostname: string): Promise<PinnedAddress[]> {
     .filter((item): item is { address: string; family: 4 | 6 } => item.family === 4 || item.family === 6)
     .map((item) => ({ address: item.address, family: item.family }));
   if (!pinned.length) throw codedError("Registry DNS 未返回可用地址", "REGISTRY_DNS_ERROR");
-  if (pinned.some((item) => !isPublicAddress(item.address))) {
+  if (pinned.some((item) => !isRegistryDnsAddressAllowed(hostname, item.address, options))) {
     throw codedError("Registry DNS 返回非公网地址", "REGISTRY_URL_DENIED");
   }
   return [...new Map(pinned.map((item) => [`${item.family}:${item.address}`, item])).values()];
@@ -232,13 +255,17 @@ async function requestPinned(url: URL, hostname: string, addresses: PinnedAddres
  * Registry/Artifact 专用二进制安全传输：先解析并校验 DNS，再把 HTTPS socket 固定到同一批公网 IP。
  * 每次重定向都会重新执行 URL + DNS 校验，避免 validate-then-fetch 的 DNS rebinding/TOCTOU。
  */
-export async function secureRegistryFetch(urlValue: string, maxBytes: number): Promise<Buffer> {
+export async function secureRegistryFetch(
+  urlValue: string,
+  maxBytes: number,
+  options: SecureRegistryFetchOptions = {},
+): Promise<Buffer> {
   if (!Number.isSafeInteger(maxBytes) || maxBytes <= 0) {
     throw codedError("Registry 响应预算无效", "REGISTRY_PAYLOAD_TOO_LARGE");
   }
   let target = normalizeRemoteUrl(urlValue);
   for (let redirects = 0; redirects <= MAX_REDIRECTS; redirects += 1) {
-    const addresses = await resolvePinned(target.hostname);
+    const addresses = await resolvePinned(target.hostname, options);
     const response = await requestPinned(target.url, target.hostname, addresses, maxBytes, DEFAULT_TIMEOUT_MS);
     if (response.status < 300 || response.status >= 400) return response.body;
     if (!response.location) throw codedError("Registry 重定向缺少 Location", "REGISTRY_REDIRECT_INVALID");

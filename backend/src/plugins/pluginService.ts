@@ -422,6 +422,18 @@ export class PluginService {
     const current = this.requireRecord(pluginId);
     const targetVersion = requestedVersion || current.previousVersion;
     if (!targetVersion || targetVersion === current.version) throw Object.assign(new Error("没有可回滚版本"), { code: "PLUGIN_VERSION_NOT_FOUND" });
+    if (current.lifecycleState === "probation" && current.activeOperationId
+      && current.previousStableVersion === targetVersion) {
+      this.executions.suspendForUpdate(pluginId);
+      try {
+        await this.executions.shutdown(pluginId);
+        const restored = this.lifecycle.rollback(pluginId, "管理员手动回滚试运行版本", "PLUGIN_MANUAL_ROLLBACK");
+        await this.executions.restart(pluginId);
+        return this.publicRecord(restored);
+      } finally {
+        this.executions.resumeAfterUpdate(pluginId);
+      }
+    }
     return this.publicRecord(await this.updates.activateExistingVersion(pluginId, targetVersion, "manual-rollback"));
   }
 

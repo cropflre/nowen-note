@@ -7,9 +7,9 @@ import {
   RESERVED_OFFICIAL_REGISTRY_SOURCE_IDS,
 } from "./officialRegistryTrustRoots.js";
 import { PACKAGE_LIMITS } from "./packageValidator.js";
-import { safeRegistryFetch } from "./communityRegistry.js";
 import { RegistryMetadataGuard, type GuardedRegistryDocument } from "./registryMetadataGuard.js";
 import { RegistryTrust, type RegistryRootRotation } from "./registryTrust.js";
+import { secureRegistryFetch } from "./secureRegistryFetch.js";
 import { SecurityAdvisoryService, type SecurityAdvisory } from "./securityAdvisoryService.js";
 import { isEd25519PublicKey, verifyArtifactSignature } from "./signatures.js";
 import type { PluginTrustLevel } from "./types.js";
@@ -26,6 +26,10 @@ export interface EcosystemIndex extends GuardedRegistryDocument {
 }
 
 function sha256(bytes: Buffer): string { return crypto.createHash("sha256").update(bytes).digest("hex"); }
+
+function fetchSignedRegistry(url: string, maxBytes: number): Promise<Buffer> {
+  return secureRegistryFetch(url, maxBytes, { allowTransparentProxyDns: true });
+}
 
 export class EcosystemRegistry {
   readonly advisories = new SecurityAdvisoryService();
@@ -88,7 +92,7 @@ export class EcosystemRegistry {
     const source = this.listSources().find((item) => item.id === sourceId && item.enabled);
     if (!source) throw Object.assign(new Error("V2 Registry Source 不存在或已禁用"), { code: "REGISTRY_SOURCE_NOT_FOUND" });
     this.trust.assertSourceConfigured(source);
-    const parsed = JSON.parse((await safeRegistryFetch(source.indexUrl, 4 * 1024 * 1024)).toString("utf8")) as EcosystemIndex;
+    const parsed = JSON.parse((await fetchSignedRegistry(source.indexUrl, 4 * 1024 * 1024)).toString("utf8")) as EcosystemIndex;
     if (parsed.protocolVersion !== 2 || !Array.isArray(parsed.publishers) || !Array.isArray(parsed.extensions)
       || parsed.rootRotations !== undefined && !Array.isArray(parsed.rootRotations)
       || parsed.advisories !== undefined && !Array.isArray(parsed.advisories)) {
@@ -159,7 +163,7 @@ export class EcosystemRegistry {
     const key = index.publishers.find((item) => item.publisher === extension.publisher && item.keyId === version.publisherKeyId);
     const time = Date.now();
     if (!key || key.state !== "active" || key.validFrom && Date.parse(key.validFrom) > time || key.validUntil && Date.parse(key.validUntil) < time) throw Object.assign(new Error("Publisher 签名密钥不可用或已撤销"), { code: "PUBLISHER_KEY_REVOKED" });
-    const bytes = await safeRegistryFetch(version.artifactUrl, PACKAGE_LIMITS.compressedBytes);
+    const bytes = await fetchSignedRegistry(version.artifactUrl, PACKAGE_LIMITS.compressedBytes);
     if (sha256(bytes) !== version.sha256.toLowerCase()) throw Object.assign(new Error("插件 SHA256 不匹配"), { code: "REGISTRY_CHECKSUM_MISMATCH" });
     if (!verifyArtifactSignature(bytes, version.signature, key.publicKey)) throw Object.assign(new Error("插件 Publisher 签名无效"), { code: "PLUGIN_SIGNATURE_INVALID" });
     const advisoryStatus = this.advisories.assertInstallAllowed(extensionId, version.version);

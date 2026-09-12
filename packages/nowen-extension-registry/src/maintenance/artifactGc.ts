@@ -69,7 +69,7 @@ export async function collectArtifactGarbage(options: {
 
   try {
     const referenced = new Set((db.prepare("SELECT DISTINCT artifactKey FROM extension_versions").all() as Array<{ artifactKey: string }>).map((row) => row.artifactKey));
-    const metadataRows = db.prepare("SELECT sha256,storageKey,sizeBytes,state,createdAt FROM artifact_objects").all() as ArtifactObjectRow[];
+    const metadataRows = db.prepare("SELECT sha256,storageKey,sizeBytes,state,createdAt FROM artifact_objects").all() as unknown as ArtifactObjectRow[];
     result.scanned.metadataRows = metadataRows.length;
     const metadataByKey = new Map(metadataRows.map((row) => [row.storageKey, row]));
     const seenCommitted = new Set<string>();
