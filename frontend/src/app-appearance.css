@@ -1,0 +1,97 @@
+/* App Appearance Style compatibility bridge.
+ *
+ * Newer surfaces already consume semantic app/tx/accent tokens through Tailwind. A number of older
+ * settings/dialog surfaces still use fixed zinc utilities. When a non-default app appearance is
+ * active, this bridge maps the most common legacy utilities back onto the same semantic tokens so
+ * the whole application changes together instead of leaving islands of the default palette.
+ *
+ * No appearance-specific colors live here. `appAppearance.ts` is the only palette registry.
+ */
+
+:root[data-app-appearance]:not([data-app-appearance="default"]) body,
+:root[data-app-appearance]:not([data-app-appearance="default"]) #root {
+  background: var(--color-bg);
+  color: var(--color-text-primary);
+}
+
+:root[data-app-appearance]:not([data-app-appearance="default"]) .bg-white {
+  background-color: var(--color-elevated) !important;
+}
+
+:root[data-app-appearance]:not([data-app-appearance="default"]) .bg-zinc-50,
+:root[data-app-appearance]:not([data-app-appearance="default"]) .bg-zinc-50\/50 {
+  background-color: var(--color-surface) !important;
+}
+
+:root[data-app-appearance]:not([data-app-appearance="default"]) .bg-zinc-100,
+:root[data-app-appearance]:not([data-app-appearance="default"]) .bg-zinc-100\/60,
+:root[data-app-appearance]:not([data-app-appearance="default"]) .bg-zinc-200\/40,
+:root[data-app-appearance]:not([data-app-appearance="default"]) .bg-zinc-200\/60,
+:root[data-app-appearance]:not([data-app-appearance="default"]) .bg-zinc-200\/70 {
+  background-color: var(--color-hover) !important;
+}
+
+:root.dark[data-app-appearance]:not([data-app-appearance="default"]) .dark\:bg-zinc-950 {
+  background-color: var(--color-bg) !important;
+}
+
+:root.dark[data-app-appearance]:not([data-app-appearance="default"]) .dark\:bg-zinc-900,
+:root.dark[data-app-appearance]:not([data-app-appearance="default"]) .dark\:bg-zinc-900\/25,
+:root.dark[data-app-appearance]:not([data-app-appearance="default"]) .dark\:bg-zinc-900\/50,
+:root.dark[data-app-appearance]:not([data-app-appearance="default"]) .dark\:bg-zinc-900\/95 {
+  background-color: var(--color-surface) !important;
+}
+
+:root.dark[data-app-appearance]:not([data-app-appearance="default"]) .dark\:bg-zinc-800,
+:root.dark[data-app-appearance]:not([data-app-appearance="default"]) .dark\:bg-zinc-800\/30,
+:root.dark[data-app-appearance]:not([data-app-appearance="default"]) .dark\:bg-zinc-800\/40,
+:root.dark[data-app-appearance]:not([data-app-appearance="default"]) .dark\:bg-zinc-800\/50 {
+  background-color: var(--color-hover) !important;
+}
+
+:root.dark[data-app-appearance]:not([data-app-appearance="default"]) .dark\:bg-zinc-700 {
+  background-color: var(--color-active) !important;
+}
+
+:root[data-app-appearance]:not([data-app-appearance="default"]) .text-zinc-950,
+:root[data-app-appearance]:not([data-app-appearance="default"]) .text-zinc-900,
+:root[data-app-appearance]:not([data-app-appearance="default"]) .text-zinc-800,
+:root[data-app-appearance]:not([data-app-appearance="default"]) .text-zinc-700,
+:root.dark[data-app-appearance]:not([data-app-appearance="default"]) .dark\:text-zinc-100,
+:root.dark[data-app-appearance]:not([data-app-appearance="default"]) .dark\:text-zinc-200,
+:root.dark[data-app-appearance]:not([data-app-appearance="default"]) .dark\:text-zinc-300 {
+  color: var(--color-text-primary) !important;
+}
+
+:root[data-app-appearance]:not([data-app-appearance="default"]) .text-zinc-600,
+:root[data-app-appearance]:not([data-app-appearance="default"]) .text-zinc-500,
+:root.dark[data-app-appearance]:not([data-app-appearance="default"]) .dark\:text-zinc-400 {
+  color: var(--color-text-secondary) !important;
+}
+
+:root[data-app-appearance]:not([data-app-appearance="default"]) .text-zinc-400,
+:root.dark[data-app-appearance]:not([data-app-appearance="default"]) .dark\:text-zinc-500,
+:root.dark[data-app-appearance]:not([data-app-appearance="default"]) .dark\:text-zinc-600 {
+  color: var(--color-text-tertiary) !important;
+}
+
+:root[data-app-appearance]:not([data-app-appearance="default"]) .border-zinc-100,
+:root[data-app-appearance]:not([data-app-appearance="default"]) .border-zinc-200,
+:root[data-app-appearance]:not([data-app-appearance="default"]) .border-zinc-300,
+:root.dark[data-app-appearance]:not([data-app-appearance="default"]) .dark\:border-zinc-700,
+:root.dark[data-app-appearance]:not([data-app-appearance="default"]) .dark\:border-zinc-800 {
+  border-color: var(--color-border) !important;
+}
+
+:root[data-app-appearance]:not([data-app-appearance="default"]) .divide-zinc-200 > :not([hidden]) ~ :not([hidden]),
+:root.dark[data-app-appearance]:not([data-app-appearance="default"]) .dark\:divide-zinc-800 > :not([hidden]) ~ :not([hidden]) {
+  border-color: var(--color-border) !important;
+}
+
+/* Keep input controls and browser-native surfaces coherent with the selected app appearance. */
+:root[data-app-appearance]:not([data-app-appearance="default"]) input,
+:root[data-app-appearance]:not([data-app-appearance="default"]) textarea,
+:root[data-app-appearance]:not([data-app-appearance="default"]) select {
+  color: var(--color-text-primary);
+  caret-color: var(--color-accent-primary);
+}
