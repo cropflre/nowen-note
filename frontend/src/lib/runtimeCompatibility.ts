@@ -1,3 +1,6 @@
+import "../app-appearance.css";
+import { bootstrapAppAppearanceRuntime } from "./appAppearance";
+import { installLegacyNoteAppearanceNeutralizer } from "./legacyNoteAppearanceNeutralizer";
 import { migrateUnifiedTreeOnlyLayout } from "./unifiedTreeOnlyLayout";
 
 type FindLastPredicate<T> = (
@@ -23,8 +26,13 @@ function toSafeLength(value: unknown): number {
 
 /**
  * Standards-aligned Array.prototype.findLast fallback for WebViews whose
- * JavaScript runtime predates ES2023. Keep this module dependency-free so it
- * can execute before React, Tiptap and the rest of the application graph.
+ * JavaScript runtime predates ES2023. Keep this module lightweight because it
+ * executes before React, Tiptap and the rest of the application graph.
+ *
+ * App Appearance also boots here intentionally: main.tsx imports this module
+ * first, so the persisted whole-app style is projected before React paints.
+ * This avoids relying on Settings/SkinSwitcher being evaluated and prevents a
+ * default-theme flash on cold start or public surfaces.
  */
 const findLastPolyfill: FindLastMethod = function findLast<T>(
   this: ArrayLike<T>,
@@ -49,6 +57,10 @@ const findLastPolyfill: FindLastMethod = function findLast<T>(
 
 export function installRuntimeCompatibility(): void {
   migrateUnifiedTreeOnlyLayout();
+
+  // Whole-app appearance is runtime infrastructure, not a Settings-panel side effect.
+  bootstrapAppAppearanceRuntime();
+  installLegacyNoteAppearanceNeutralizer();
 
   if (typeof Array === "undefined") return;
   if (typeof Reflect.get(Array.prototype, "findLast") === "function") return;
