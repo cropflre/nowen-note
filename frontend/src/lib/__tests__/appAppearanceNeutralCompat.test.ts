@@ -1,7 +1,8 @@
 import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
-const css = readFileSync(new URL("../../app-appearance-neutral-compat.css", import.meta.url), "utf8");
+const css = readFileSync(resolve(process.cwd(), "src/app-appearance-neutral-compat.css"), "utf8");
 
 describe("app appearance legacy neutral compatibility", () => {
   it("maps old gray surfaces and controls back to semantic app tokens", () => {
