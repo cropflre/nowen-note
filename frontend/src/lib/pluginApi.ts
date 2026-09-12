@@ -1,6 +1,15 @@
 import { getBaseUrl } from "./api.impl";
 import { fetchWithAuthRefresh, getAccessToken } from "./authSession";
 
+export interface ExtensionPlatformFeatureFlags {
+  extensionsV21: boolean;
+  pluginStudio: boolean;
+  fileProcessingExtensions: boolean;
+  experimentalDocumentTypes: boolean;
+  currentNowenVersion: string;
+  targetNowenVersion: string;
+}
+
 export interface PluginPermissionRow {
   permission: string;
   configJson: string;
@@ -101,6 +110,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 }
 
 export const pluginApi = {
+  features: () => request<ExtensionPlatformFeatureFlags>("/plugins/features"),
   list: () => request<InstalledPlugin[]>("/plugins"),
   actions: () => request<Array<PluginAction & { pluginId: string; actionId: string }>>("/plugins/actions"),
   contributions: () => request<Array<Record<string, unknown>>>("/plugins/contributions"),
