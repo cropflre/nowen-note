@@ -13,7 +13,6 @@ import { SiteSettingsProvider } from "./hooks/useSiteSettings";
 import { ConfirmProvider } from "./components/ui/confirm";
 import Toaster from "./components/Toaster";
 import NoteIconBridge from "./components/NoteIconBridge";
-import NoteAppearanceBridge from "./components/NoteAppearanceBridge";
 import EmbedPasswordBridge from "./components/EmbedPasswordBridge";
 import MediaExperienceBridge from "./components/MediaExperienceBridge";
 import CameraCaptureBridge from "./components/CameraCaptureBridge";
@@ -174,7 +173,6 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
         ) : (
           <>
             <NoteIconBridge />
-            <NoteAppearanceBridge />
             <EmbedPasswordBridge />
             <CameraCaptureBridge />
             <MediaExperienceBridge />
