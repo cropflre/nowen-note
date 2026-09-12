@@ -1,5 +1,5 @@
 import { getDb } from "../db/schema.js";
-import type { PluginManifest, PluginRegistryRecord, PluginSource, PluginStatus, PluginTrustLevel, PluginVersionRecord } from "./types.js";
+import { pluginManifestMain, type PluginManifest, type PluginRegistryRecord, type PluginSource, type PluginStatus, type PluginTrustLevel, type PluginVersionRecord } from "./types.js";
 
 function now(): string {
   return new Date().toISOString();
@@ -68,7 +68,7 @@ export class PluginRegistry {
         lifecycleState='installed',activeOperationId=NULL,stateUpdatedAt=excluded.stateUpdatedAt
     `).run(
       input.manifest.id, input.manifest.name, input.manifest.version,
-      input.manifest.apiVersion, input.manifest.runtime, input.manifest.main,
+      input.manifest.apiVersion, input.manifest.runtime, pluginManifestMain(input.manifest),
       input.source, input.trustLevel, input.status, input.checksum,
       JSON.stringify(input.manifest), input.installedPath, input.installedBy,
       timestamp, timestamp, input.manifest.apiVersion === 2 ? input.manifest.publisher : null, input.signatureState || "unsigned",
@@ -102,9 +102,7 @@ export class PluginRegistry {
     artifactUrl?: string | null;
   }): PluginVersionRecord {
     const existing = this.getVersion(input.manifest.id, input.manifest.version);
-    if (existing && existing.checksum !== input.checksum) {
-      throw Object.assign(new Error("相同插件坐标对应不同内容"), { code: "PLUGIN_VERSION_COORDINATE_CONFLICT" });
-    }
+    if (existing && existing.checksum !== input.checksum) throw Object.assign(new Error("相同插件坐标对应不同内容"), { code: "PLUGIN_VERSION_COORDINATE_CONFLICT" });
     getDb().prepare(`INSERT INTO plugin_versions
       (pluginId,version,manifestJson,checksum,installedPath,source,trustLevel,status,installedAt,verifiedAt,publisherKeyId,signature,signatureState,artifactUrl)
       VALUES (?,?,?,?,?,?,?,?,?,NULL,?,?,?,?)
@@ -113,28 +111,14 @@ export class PluginRegistry {
         trustLevel=excluded.trustLevel,status=excluded.status,publisherKeyId=excluded.publisherKeyId,
         signature=excluded.signature,signatureState=excluded.signatureState,artifactUrl=excluded.artifactUrl`)
       .run(
-        input.manifest.id,
-        input.manifest.version,
-        JSON.stringify(input.manifest),
-        input.checksum,
-        input.installedPath,
-        input.source,
-        input.trustLevel,
-        input.status,
-        now(),
-        input.publisherKeyId || null,
-        input.signature || null,
-        input.signatureState || "unsigned",
-        input.artifactUrl || null,
+        input.manifest.id, input.manifest.version, JSON.stringify(input.manifest), input.checksum,
+        input.installedPath, input.source, input.trustLevel, input.status, now(),
+        input.publisherKeyId || null, input.signature || null, input.signatureState || "unsigned", input.artifactUrl || null,
       );
     return this.getVersion(input.manifest.id, input.manifest.version)!;
   }
 
-  recordForVersion(
-    id: string,
-    version: string,
-    options: { nodeRuntimeConfirmedBy?: string | null } = {},
-  ): PluginRegistryRecord {
+  recordForVersion(id: string, version: string, options: { nodeRuntimeConfirmedBy?: string | null } = {}): PluginRegistryRecord {
     const current = this.get(id);
     const target = this.getVersion(id, version);
     if (!current || !target) throw Object.assign(new Error("插件版本不存在"), { code: "PLUGIN_VERSION_NOT_FOUND" });
@@ -149,7 +133,7 @@ export class PluginRegistry {
       version: target.version,
       apiVersion: manifest.apiVersion,
       runtime: manifest.runtime,
-      main: manifest.main,
+      main: pluginManifestMain(manifest),
       source: target.source,
       trustLevel: target.trustLevel,
       checksum: target.checksum,
@@ -163,33 +147,27 @@ export class PluginRegistry {
   }
 
   setStatus(id: string, status: PluginStatus, lastError: string | null = null): void {
-    getDb().prepare("UPDATE plugin_registry SET status=?, lastError=?, updatedAt=? WHERE id=?")
-      .run(status, lastError, now(), id);
+    getDb().prepare("UPDATE plugin_registry SET status=?, lastError=?, updatedAt=? WHERE id=?").run(status, lastError, now(), id);
   }
 
   setPath(id: string, installedPath: string): void {
     const db = getDb();
     db.transaction(() => {
-      db.prepare("UPDATE plugin_registry SET installedPath=?, updatedAt=? WHERE id=?")
-        .run(installedPath, now(), id);
-      db.prepare("UPDATE plugin_versions SET installedPath=? WHERE pluginId=? AND version=(SELECT version FROM plugin_registry WHERE id=?)")
-        .run(installedPath, id, id);
+      db.prepare("UPDATE plugin_registry SET installedPath=?, updatedAt=? WHERE id=?").run(installedPath, now(), id);
+      db.prepare("UPDATE plugin_versions SET installedPath=? WHERE pluginId=? AND version=(SELECT version FROM plugin_registry WHERE id=?)").run(installedPath, id, id);
     })();
   }
 
   listVersions(id: string): PluginVersionRecord[] {
-    return getDb().prepare("SELECT * FROM plugin_versions WHERE pluginId=? ORDER BY installedAt DESC")
-      .all(id) as PluginVersionRecord[];
+    return getDb().prepare("SELECT * FROM plugin_versions WHERE pluginId=? ORDER BY installedAt DESC").all(id) as PluginVersionRecord[];
   }
 
   getVersion(id: string, version: string): PluginVersionRecord | undefined {
-    return getDb().prepare("SELECT * FROM plugin_versions WHERE pluginId=? AND version=?")
-      .get(id, version) as PluginVersionRecord | undefined;
+    return getDb().prepare("SELECT * FROM plugin_versions WHERE pluginId=? AND version=?").get(id, version) as PluginVersionRecord | undefined;
   }
 
   markCurrentVersion(id: string, status: string, verified: boolean): void {
-    getDb().prepare(`UPDATE plugin_versions SET status=?,verifiedAt=?
-      WHERE pluginId=? AND version=(SELECT version FROM plugin_registry WHERE id=?)`)
+    getDb().prepare(`UPDATE plugin_versions SET status=?,verifiedAt=? WHERE pluginId=? AND version=(SELECT version FROM plugin_registry WHERE id=?)`)
       .run(status, verified ? now() : null, id, id);
   }
 
