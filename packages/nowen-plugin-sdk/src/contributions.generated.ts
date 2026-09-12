@@ -8,7 +8,7 @@ function deepFreeze<T>(value: T): T {
 }
 
 export type PluginContributionRuntime = "declarative" | "sandbox-js" | "node-action";
-export type PluginContributionType = "appearances" | "automationTemplates" | "commands" | "menus" | "noteTemplates" | "promptPacks" | "settings";
+export type PluginContributionType = "automationTemplates" | "commands" | "menus" | "noteTemplates" | "noteThemes" | "promptPacks" | "settings";
 
 export interface PluginContributionContractEntry {
   id: PluginContributionType;
@@ -18,20 +18,9 @@ export interface PluginContributionContractEntry {
   description: string;
 }
 
-export const CONTRIBUTION_CONTRACT_VERSION = 1 as const;
+export const CONTRIBUTION_CONTRACT_VERSION = 2 as const;
 export const CONTRIBUTION_NAMESPACE_TEMPLATE = "<pluginId>/<contributionId>" as const;
 export const CONTRIBUTION_CONTRACT: readonly PluginContributionContractEntry[] = deepFreeze([
-  {
-    "id": "appearances",
-    "since": "2.1",
-    "runtimes": [
-      "declarative",
-      "sandbox-js",
-      "node-action"
-    ],
-    "declarative": true,
-    "description": "Safe semantic appearance tokens rendered by the host"
-  },
   {
     "id": "automationTemplates",
     "since": "2.0",
@@ -75,6 +64,17 @@ export const CONTRIBUTION_CONTRACT: readonly PluginContributionContractEntry[] =
     "description": "Static note templates rendered/imported by the host"
   },
   {
+    "id": "noteThemes",
+    "since": "2.1",
+    "runtimes": [
+      "declarative",
+      "sandbox-js",
+      "node-action"
+    ],
+    "declarative": true,
+    "description": "Safe note-scoped visual themes rendered by the host without changing app chrome"
+  },
+  {
     "id": "promptPacks",
     "since": "2.1",
     "runtimes": [
@@ -97,55 +97,37 @@ export const CONTRIBUTION_CONTRACT: readonly PluginContributionContractEntry[] =
     "description": "Host-rendered extension settings"
   }
 ]);
-export const APPEARANCE_CONTRIBUTION_LIMITS = deepFreeze({
+export const NOTE_THEME_CONTRIBUTION_LIMITS = deepFreeze({
   "schemaVersion": 1,
   "bases": [
-    "default",
-    "macos",
-    "paper",
-    "minimal",
-    "eye-care",
-    "developer",
-    "magazine"
+    "nowen.default"
   ],
   "editableTokens": [
-    "bg",
-    "surface",
-    "sidebar",
-    "elevated",
+    "canvasBackground",
+    "contentBackground",
+    "text",
+    "mutedText",
+    "headingText",
+    "link",
+    "accent",
     "border",
-    "hover",
-    "active",
-    "textPrimary",
-    "textSecondary",
-    "textTertiary",
-    "textQuaternary",
-    "accentPrimary",
-    "accentSecondary",
-    "accentWarning",
-    "accentDanger",
-    "accentMuted",
-    "pmText",
-    "pmHeading",
-    "pmCodeBg",
-    "pmCodeText",
-    "pmPreBg",
-    "pmPreBorder",
-    "pmPreText",
-    "pmBlockquoteBorder",
-    "pmBlockquoteText",
-    "pmHr",
-    "pmPlaceholder",
-    "pmTaskDone",
-    "pmScrollbar",
-    "pmScrollbarHover",
-    "pmSelection",
-    "radiusWindow",
-    "radiusCard",
-    "radiusButton",
-    "radiusInput",
-    "fontFamily",
-    "editorFontFamily"
+    "quoteBackground",
+    "quoteBorder",
+    "tableBorder",
+    "tableHeaderBackground",
+    "codeBackground",
+    "codeText",
+    "inlineCodeBackground",
+    "selection",
+    "contentMaxWidth",
+    "fontCategory",
+    "fontSize",
+    "lineHeight",
+    "paragraphSpacing",
+    "h1FontSize",
+    "h2FontSize",
+    "h3FontSize",
+    "contentPadding"
   ],
   "fontCategories": [
     "system",
@@ -153,7 +135,7 @@ export const APPEARANCE_CONTRIBUTION_LIMITS = deepFreeze({
     "serif",
     "mono"
   ],
-  "maxAppearancesPerPlugin": 20
+  "maxThemesPerPlugin": 20
 } as const);
 export const NOTE_TEMPLATE_CONTRIBUTION_LIMITS = deepFreeze({
   "schemaVersion": 1,

@@ -24,6 +24,20 @@ export interface PluginAction {
   input?: Record<string, { type: string; required?: boolean; description?: string }>;
 }
 
+export type PluginNoteThemeFontCategory = "system" | "sans" | "serif" | "mono";
+export interface PluginNoteThemeTokens {
+  canvasBackground?: string; contentBackground?: string; text?: string; mutedText?: string; headingText?: string;
+  link?: string; accent?: string; border?: string; quoteBackground?: string; quoteBorder?: string;
+  tableBorder?: string; tableHeaderBackground?: string; codeBackground?: string; codeText?: string;
+  inlineCodeBackground?: string; selection?: string; contentMaxWidth?: number; fontCategory?: PluginNoteThemeFontCategory;
+  fontSize?: number; lineHeight?: number; paragraphSpacing?: number; h1FontSize?: number; h2FontSize?: number;
+  h3FontSize?: number; contentPadding?: number;
+}
+export interface PluginNoteThemeContribution {
+  id: string; name: string; description?: string; base?: "nowen.default";
+  modes: { light: PluginNoteThemeTokens; dark?: PluginNoteThemeTokens };
+}
+
 export interface InstalledPlugin {
   id: string;
   name: string;
@@ -54,6 +68,7 @@ export interface InstalledPlugin {
     automationTemplates?: Array<{ id: string; title: string; description?: string }>;
     commands?: Array<{ id: string; title: string; action: string; category?: string }>;
     menus?: Array<{ location: string; command: string }>;
+    noteThemes?: PluginNoteThemeContribution[];
   };
   versions?: PluginVersion[];
   permissionDiff?: { added: string[]; removed: string[] };

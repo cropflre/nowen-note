@@ -115,17 +115,54 @@ export interface PluginCommandContribution { id: string; title: string; action: 
 export interface PluginMenuContribution { location: "commandPalette" | "note.contextMenu" | "notebook.contextMenu" | "editor.toolbar.actions" | "attachment.contextMenu" | "task.contextMenu" | "settings.plugin" | "automation.template"; command: string }
 export interface PluginSettingContribution { key: string; title: string; type: "string" | "number" | "boolean" | "select"; description?: string; options?: Array<string | number>; default?: string | number | boolean; secret?: boolean }
 export interface PluginAutomationTemplateContribution { id: string; title: string; file: string; description?: string }
+export type PluginNoteThemeFontCategory = "system" | "sans" | "serif" | "mono";
+export interface PluginNoteThemeTokens {
+  canvasBackground?: string;
+  contentBackground?: string;
+  text?: string;
+  mutedText?: string;
+  headingText?: string;
+  link?: string;
+  accent?: string;
+  border?: string;
+  quoteBackground?: string;
+  quoteBorder?: string;
+  tableBorder?: string;
+  tableHeaderBackground?: string;
+  codeBackground?: string;
+  codeText?: string;
+  inlineCodeBackground?: string;
+  selection?: string;
+  contentMaxWidth?: number;
+  fontCategory?: PluginNoteThemeFontCategory;
+  fontSize?: number;
+  lineHeight?: number;
+  paragraphSpacing?: number;
+  h1FontSize?: number;
+  h2FontSize?: number;
+  h3FontSize?: number;
+  contentPadding?: number;
+}
+export interface PluginNoteThemeContribution {
+  id: string;
+  name: string;
+  description?: string;
+  base?: "nowen.default";
+  modes: { light: PluginNoteThemeTokens; dark?: PluginNoteThemeTokens };
+}
 
 export interface PluginContributionManifest {
   commands?: PluginCommandContribution[];
   menus?: PluginMenuContribution[];
   settings?: PluginSettingContribution[];
   automationTemplates?: PluginAutomationTemplateContribution[];
+  noteThemes?: PluginNoteThemeContribution[];
 }
 
 export interface PluginDeclarativeContributionManifest {
   settings?: PluginSettingContribution[];
   automationTemplates?: PluginAutomationTemplateContribution[];
+  noteThemes?: PluginNoteThemeContribution[];
 }
 
 interface PluginManifestV2Base {

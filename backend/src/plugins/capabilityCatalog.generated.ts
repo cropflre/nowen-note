@@ -7,7 +7,7 @@ function deepFreeze<T>(value: T): T {
   return value;
 }
 
-export const EXTENSION_CAPABILITY_CATALOG_DIGEST = "49438447356580fe5b441c0b288131a82220bed6a323d27a60741c4a04be2b7e" as const;
+export const EXTENSION_CAPABILITY_CATALOG_DIGEST = "3574561c12fb3b6cb2dfbf1798c77cf76f62d901e2a5a437471ad9c811fdbe1d" as const;
 export const EXTENSION_CAPABILITY_CATALOG = deepFreeze({
   "catalogVersion": 1,
   "hostApi": {
@@ -936,7 +936,7 @@ export const EXTENSION_CAPABILITY_CATALOG = deepFreeze({
     ]
   },
   "contributions": {
-    "contractVersion": 1,
+    "contractVersion": 2,
     "namespaceTemplate": "<pluginId>/<contributionId>",
     "runtimes": [
       "declarative",
@@ -944,17 +944,6 @@ export const EXTENSION_CAPABILITY_CATALOG = deepFreeze({
       "node-action"
     ],
     "types": [
-      {
-        "id": "appearances",
-        "since": "2.1",
-        "runtimes": [
-          "declarative",
-          "sandbox-js",
-          "node-action"
-        ],
-        "declarative": true,
-        "description": "Safe semantic appearance tokens rendered by the host"
-      },
       {
         "id": "automationTemplates",
         "since": "2.0",
@@ -998,6 +987,17 @@ export const EXTENSION_CAPABILITY_CATALOG = deepFreeze({
         "description": "Static note templates rendered/imported by the host"
       },
       {
+        "id": "noteThemes",
+        "since": "2.1",
+        "runtimes": [
+          "declarative",
+          "sandbox-js",
+          "node-action"
+        ],
+        "declarative": true,
+        "description": "Safe note-scoped visual themes rendered by the host without changing app chrome"
+      },
+      {
         "id": "promptPacks",
         "since": "2.1",
         "runtimes": [
@@ -1020,55 +1020,37 @@ export const EXTENSION_CAPABILITY_CATALOG = deepFreeze({
         "description": "Host-rendered extension settings"
       }
     ],
-    "appearance": {
+    "noteTheme": {
       "schemaVersion": 1,
       "bases": [
-        "default",
-        "macos",
-        "paper",
-        "minimal",
-        "eye-care",
-        "developer",
-        "magazine"
+        "nowen.default"
       ],
       "editableTokens": [
-        "bg",
-        "surface",
-        "sidebar",
-        "elevated",
+        "canvasBackground",
+        "contentBackground",
+        "text",
+        "mutedText",
+        "headingText",
+        "link",
+        "accent",
         "border",
-        "hover",
-        "active",
-        "textPrimary",
-        "textSecondary",
-        "textTertiary",
-        "textQuaternary",
-        "accentPrimary",
-        "accentSecondary",
-        "accentWarning",
-        "accentDanger",
-        "accentMuted",
-        "pmText",
-        "pmHeading",
-        "pmCodeBg",
-        "pmCodeText",
-        "pmPreBg",
-        "pmPreBorder",
-        "pmPreText",
-        "pmBlockquoteBorder",
-        "pmBlockquoteText",
-        "pmHr",
-        "pmPlaceholder",
-        "pmTaskDone",
-        "pmScrollbar",
-        "pmScrollbarHover",
-        "pmSelection",
-        "radiusWindow",
-        "radiusCard",
-        "radiusButton",
-        "radiusInput",
-        "fontFamily",
-        "editorFontFamily"
+        "quoteBackground",
+        "quoteBorder",
+        "tableBorder",
+        "tableHeaderBackground",
+        "codeBackground",
+        "codeText",
+        "inlineCodeBackground",
+        "selection",
+        "contentMaxWidth",
+        "fontCategory",
+        "fontSize",
+        "lineHeight",
+        "paragraphSpacing",
+        "h1FontSize",
+        "h2FontSize",
+        "h3FontSize",
+        "contentPadding"
       ],
       "fontCategories": [
         "system",
@@ -1076,7 +1058,7 @@ export const EXTENSION_CAPABILITY_CATALOG = deepFreeze({
         "serif",
         "mono"
       ],
-      "maxAppearancesPerPlugin": 20
+      "maxThemesPerPlugin": 20
     },
     "noteTemplate": {
       "schemaVersion": 1,
@@ -1244,5 +1226,5 @@ export const EXTENSION_CAPABILITY_CATALOG = deepFreeze({
       }
     ]
   },
-  "digest": "49438447356580fe5b441c0b288131a82220bed6a323d27a60741c4a04be2b7e"
+  "digest": "3574561c12fb3b6cb2dfbf1798c77cf76f62d901e2a5a437471ad9c811fdbe1d"
 } as const);

@@ -76,6 +76,29 @@ const settingSchema = z.object({
   options: z.array(z.union([z.string(), z.number()])).max(100).optional(), default: z.union([z.string(), z.number(), z.boolean()]).optional(), secret: z.boolean().optional(),
 }).strict();
 const automationTemplateSchema = z.object({ id: z.string().regex(/^[a-z][a-z0-9-]{0,63}$/), title: z.string().min(1).max(100), file: z.string().min(1).max(300), description: z.string().max(500).optional() }).strict();
+const noteThemeColorSchema = z.string().regex(/^#[0-9a-fA-F]{6}(?:[0-9a-fA-F]{2})?$/, "Note Theme 颜色必须是 #RRGGBB 或 #RRGGBBAA");
+const noteThemeTokensSchema = z.object({
+  canvasBackground: noteThemeColorSchema.optional(), contentBackground: noteThemeColorSchema.optional(),
+  text: noteThemeColorSchema.optional(), mutedText: noteThemeColorSchema.optional(), headingText: noteThemeColorSchema.optional(),
+  link: noteThemeColorSchema.optional(), accent: noteThemeColorSchema.optional(), border: noteThemeColorSchema.optional(),
+  quoteBackground: noteThemeColorSchema.optional(), quoteBorder: noteThemeColorSchema.optional(),
+  tableBorder: noteThemeColorSchema.optional(), tableHeaderBackground: noteThemeColorSchema.optional(),
+  codeBackground: noteThemeColorSchema.optional(), codeText: noteThemeColorSchema.optional(),
+  inlineCodeBackground: noteThemeColorSchema.optional(), selection: noteThemeColorSchema.optional(),
+  contentMaxWidth: z.number().int().min(480).max(1200).optional(),
+  fontCategory: z.enum(["system", "sans", "serif", "mono"]).optional(),
+  fontSize: z.number().min(12).max(24).optional(), lineHeight: z.number().min(1.2).max(2.2).optional(),
+  paragraphSpacing: z.number().min(0).max(32).optional(), h1FontSize: z.number().min(24).max(56).optional(),
+  h2FontSize: z.number().min(20).max(44).optional(), h3FontSize: z.number().min(18).max(36).optional(),
+  contentPadding: z.number().min(12).max(96).optional(),
+}).strict().superRefine((tokens, ctx) => {
+  if (Object.keys(tokens).length === 0) ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Note Theme token 不能为空" });
+});
+const noteThemeSchema = z.object({
+  id: z.string().regex(/^[a-z][a-z0-9-]{0,63}$/), name: z.string().min(1).max(100),
+  description: z.string().max(500).optional(), base: z.literal("nowen.default").default("nowen.default"),
+  modes: z.object({ light: noteThemeTokensSchema, dark: noteThemeTokensSchema.optional() }).strict(),
+}).strict();
 
 const v2BaseShape = {
   id: z.string().regex(/^[a-z0-9]+(?:[.-][a-z0-9]+)+$/).max(150),
@@ -96,13 +119,15 @@ const v2BaseShape = {
 const executableContributesSchema = z.object({
   commands: z.array(commandSchema).max(100).optional(), menus: z.array(menuSchema).max(100).optional(),
   settings: z.array(settingSchema).max(100).optional(), automationTemplates: z.array(automationTemplateSchema).max(50).optional(),
+  noteThemes: z.array(noteThemeSchema).max(20).optional(),
 }).strict().optional();
 
 const declarativeContributesSchema = z.object({
   settings: z.array(settingSchema).max(100).optional(),
   automationTemplates: z.array(automationTemplateSchema).max(50).optional(),
+  noteThemes: z.array(noteThemeSchema).max(20).optional(),
 }).strict().superRefine((contributes, ctx) => {
-  if (!(contributes.settings?.length || contributes.automationTemplates?.length)) {
+  if (!(contributes.settings?.length || contributes.automationTemplates?.length || contributes.noteThemes?.length)) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, message: "声明式插件必须至少提供一个静态 Contribution" });
   }
   if (contributes.settings?.some((setting) => setting.secret)) {
@@ -194,6 +219,12 @@ export function parsePluginManifest(value: unknown, options: ParsePluginManifest
     if (!(options.extensionsV21 ?? isExtensionV21Enabled())) throw Object.assign(new Error("声明式 Extension 当前未启用"), { code: "PLUGIN_V21_FEATURE_DISABLED" });
     if (!nowenVersionSatisfies(manifest.engines.nowen, "1.6.0") || nowenVersionSatisfies(manifest.engines.nowen, "1.5.0")) {
       throw Object.assign(new Error("声明式 Extension 必须要求 engines.nowen >=1.6.0"), { code: "PLUGIN_NOWEN_INCOMPATIBLE" });
+    }
+  }
+  if (manifest.apiVersion === 2 && manifest.contributes?.noteThemes?.length) {
+    if (!(options.extensionsV21 ?? isExtensionV21Enabled())) throw Object.assign(new Error("Note Theme Contribution 当前未启用"), { code: "PLUGIN_V21_FEATURE_DISABLED" });
+    if (!nowenVersionSatisfies(manifest.engines.nowen, "1.6.0") || nowenVersionSatisfies(manifest.engines.nowen, "1.5.0")) {
+      throw Object.assign(new Error("Note Theme Contribution 必须要求 engines.nowen >=1.6.0"), { code: "PLUGIN_NOWEN_INCOMPATIBLE" });
     }
   }
   const currentVersion = options.currentVersion || NOWEN_VERSION;
