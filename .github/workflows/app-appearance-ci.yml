@@ -1,0 +1,84 @@
+name: App Appearance Release Gate
+
+on:
+  pull_request:
+    paths:
+      - "frontend/src/lib/appAppearance.ts"
+      - "frontend/src/hooks/useSkin.ts"
+      - "frontend/src/components/SkinSwitcher.tsx"
+      - "frontend/src/app-appearance.css"
+      - "frontend/src/app-appearance-neutral-compat.css"
+      - "frontend/src/lib/editorFontAppearanceGuard.ts"
+      - "frontend/src/lib/legacyNoteAppearanceNeutralizer.ts"
+      - "frontend/src/lib/runtimeCompatibility.ts"
+      - "frontend/src/lib/__tests__/appAppearance*.test.ts"
+      - "frontend/src/lib/__tests__/editorFontAppearanceGuard.test.ts"
+      - "frontend/src/lib/__tests__/runtimeCompatibility.test.ts"
+      - "frontend/src/index.css"
+      - "frontend/src/skins.css"
+      - "frontend/tailwind.config.*"
+      - "frontend/package.json"
+      - "frontend/package-lock.json"
+      - "docs/architecture/app-appearance-style.md"
+      - ".github/workflows/app-appearance-ci.yml"
+  push:
+    branches:
+      - main
+      - "release/**"
+    paths:
+      - "frontend/src/lib/appAppearance.ts"
+      - "frontend/src/hooks/useSkin.ts"
+      - "frontend/src/components/SkinSwitcher.tsx"
+      - "frontend/src/app-appearance.css"
+      - "frontend/src/app-appearance-neutral-compat.css"
+      - "frontend/src/lib/editorFontAppearanceGuard.ts"
+      - "frontend/src/lib/legacyNoteAppearanceNeutralizer.ts"
+      - "frontend/src/lib/runtimeCompatibility.ts"
+      - "frontend/src/lib/__tests__/appAppearance*.test.ts"
+      - "frontend/src/lib/__tests__/editorFontAppearanceGuard.test.ts"
+      - "frontend/src/lib/__tests__/runtimeCompatibility.test.ts"
+      - "frontend/src/index.css"
+      - "frontend/src/skins.css"
+      - "frontend/tailwind.config.*"
+      - "frontend/package.json"
+      - "frontend/package-lock.json"
+      - "docs/architecture/app-appearance-style.md"
+      - ".github/workflows/app-appearance-ci.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  appearance-release-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Run App Appearance regression suite
+        working-directory: frontend
+        run: |
+          npx vitest run \
+            src/lib/__tests__/appAppearance.test.ts \
+            src/lib/__tests__/appAppearanceBootstrapContract.test.ts \
+            src/lib/__tests__/appAppearanceCssContract.test.ts \
+            src/lib/__tests__/appAppearanceNeutralCompat.test.ts \
+            src/lib/__tests__/editorFontAppearanceGuard.test.ts \
+            src/lib/__tests__/runtimeCompatibility.test.ts \
+            --reporter=verbose
+
+      - name: Build frontend production bundle
+        working-directory: frontend
+        run: npm run build
