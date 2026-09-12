@@ -1,0 +1,42 @@
+name: Extension V2.1 Contract Bootstrap
+
+on:
+  push:
+    branches:
+      - release/v1.5.0
+    paths:
+      - "scripts/generate-plugin-host-api.mjs"
+      - "packages/nowen-plugin-sdk/*-contract.json"
+      - ".github/workflows/extension-v2-1-contract-bootstrap.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Generate unified capability artifacts
+        run: node scripts/generate-plugin-host-api.mjs
+      - name: Verify generated artifacts
+        run: node scripts/generate-plugin-host-api.mjs --check
+      - uses: actions/upload-artifact@v4
+        with:
+          name: extension-v2-1-generated
+          if-no-files-found: error
+          path: |
+            backend/src/plugins/hostApiContract.generated.ts
+            backend/src/plugins/capabilityCatalog.generated.ts
+            packages/nowen-plugin-sdk/src/hostApi.generated.ts
+            packages/nowen-plugin-sdk/src/contributions.generated.ts
+            packages/nowen-plugin-sdk/src/errors.generated.ts
+            packages/nowen-plugin-sdk/src/mock.generated.ts
+            packages/nowen-plugin-sdk/capability-catalog.json
+            docs/plugin-platform/host-api.generated.md
+            docs/plugin-platform/contributions.generated.md
