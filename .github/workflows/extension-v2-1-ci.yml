@@ -7,6 +7,7 @@ on:
       - "backend/src/plugins/**"
       - "backend/src/routes/plugins.ts"
       - "backend/tests/extension-v2-1-*.test.ts"
+      - "backend/tests/extension-capability-catalog.test.ts"
       - "backend/tests/declarative-extension-lifecycle.test.ts"
       - "backend/tests/appearance-contribution.test.ts"
       - "backend/tests/extension-platform-v2.test.ts"
@@ -33,6 +34,7 @@ on:
       - "backend/src/plugins/**"
       - "backend/src/routes/plugins.ts"
       - "backend/tests/extension-v2-1-*.test.ts"
+      - "backend/tests/extension-capability-catalog.test.ts"
       - "backend/tests/declarative-extension-lifecycle.test.ts"
       - "backend/tests/appearance-contribution.test.ts"
       - "backend/tests/extension-platform-v2.test.ts"
@@ -83,9 +85,16 @@ jobs:
           npx tsx --test tests/plugin-platform.test.ts
           npx tsx --test tests/extension-platform-v2.test.ts
           npx tsx --test tests/extension-ecosystem-rc1.test.ts
+      - name: V2.1 capability contracts
+        working-directory: backend
+        run: npx tsx --test tests/extension-capability-catalog.test.ts
       - name: V2.1 fail-closed feature gate
         working-directory: backend
         run: npx tsx --test tests/extension-v2-1-feature-gates.test.ts
+      - name: Declarative extension lifecycle
+        if: ${{ hashFiles('backend/tests/declarative-extension-lifecycle.test.ts') != '' }}
+        working-directory: backend
+        run: npx tsx --test tests/declarative-extension-lifecycle.test.ts
       - name: Backend production typecheck
         working-directory: backend
         run: npm run build:tsc
