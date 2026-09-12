@@ -1,167 +1,105 @@
-# Note Appearance Engine
+# Note Appearance Style Capability
 
-> 目标：让“主题属于笔记”，而不是把笔记主题做成一个孤立的全局换肤设置。
+> 目标：把“笔记长什么样”沉淀成 Note Appearance Style 能力，而不是再增加一套孤立的“默认笔记主题”。
 
 ## Requirement
 
-用户选择主题时，表达的是“这篇笔记应该长什么样”。因此产品模型是：
+产品上有三个明确不同的层次：
 
 ```text
-Note
-  └── appearance
-       └── themeId
-              ↓
-        Theme Registry
-              ↓
-        Theme Renderer
+App 外观风格  -> Sidebar / Settings / Dialog / Navigation
+主题模式      -> Light / Dark / Follow system
+笔记外观风格  -> RichText / Markdown / Preview / 阅读排版
 ```
 
-App Skin / Light-Dark Mode 与 Note Theme 是两个不同层级：
+设置页中的“笔记外观风格”决定未单独设置笔记的继承值；单篇笔记仍可独立覆盖。
 
 ```text
-App Skin   -> Sidebar / Settings / Dialog / Navigation
-Note Theme -> Editor / Preview / document typography / reading surface
+Note explicit style
+      ??
+Account note appearance style
+      ??
+Nowen Default
 ```
 
-一个深色 Nowen 界面可以打开纸张阅读主题；一个浅色 Nowen 界面也可以打开夜间技术主题。
-
-## Current Architecture Impact
-
-本能力横跨：
-
-- Storage：笔记主题必须是独立元数据，不能写进正文；
-- Editor：Tiptap 与 Markdown 必须共享同一主题解析器；
-- Rendering：主题只能影响文档视觉语义，不能修改 App chrome；
-- Security：未来主题插件不能获得任意 CSS/JS 注入能力；
-- Sync：外观元数据需要独立于正文版本语义同步；
-- Share / Export：后续必须复用同一 Theme Definition，避免本机、分享、导出三套样式。
+UI 不再向用户暴露“默认笔记主题”这一独立概念。
 
 ## Product Decision
 
-### 1. Internal Capability first
+能力等级：**Internal Platform Capability**。
 
-当前保持 Internal API：
+当前先稳定内部契约，不冻结 `contributes.themes` Public Manifest。主题插件属于未来扩展，不是本阶段发布面。
 
-```text
-Note Appearance Metadata
-Theme Registry
-Theme Resolver
-Theme Token Projector
-Tiptap / Markdown Renderer Adapter
-```
-
-暂不冻结 `contributes.themes` Public Manifest。
-
-原因：主题字段、继承规则、跨端同步和导出语义仍需要真实内置主题验证。先用 4 个内置主题跑稳契约，再开放给插件生态。
-
-### 2. Metadata, not content
-
-SQLite / PostgreSQL 的 Note 记录增加可空 `themeId`。
+核心资产：
 
 ```text
-NULL          -> 继承 Nowen 默认
-nowen.paper   -> 纸张阅读
-nowen.minimal -> 极简写作
-nowen.night   -> 夜间护眼
+Appearance Style Registry
+→ Style Resolver
+→ White-listed Token Contract
+→ Shared Preview Card
+→ RichText / Markdown Renderer Adapter
+→ Per-note Override
+→ Regression Tests
 ```
 
-恢复默认写回 `NULL`，而不是把默认值复制到每篇笔记。
+## Single Registry
 
-切换主题：
-
-- 更新 `updatedAt`；
-- 不改正文；
-- 不增加内容版本 `version`；
-- 不创建正文历史版本。
-
-这保证视觉变化不会伪装成内容修改。
-
-## Backend Contract
-
-P0 提供独立元数据 capability：
+唯一内置事实来源：
 
 ```text
-GET /api/note-appearance/:noteId
-PUT /api/note-appearance/:noteId
+frontend/src/lib/noteTheme.ts
 ```
 
-GET 需要当前用户拥有 note read capability。
-PUT 需要 write capability。
+禁止再维护第二份 Theme / Appearance Style 名单。
 
-PUT 示例：
+首批六种内置风格：
 
-```json
-{
-  "themeId": "nowen.paper"
-}
-```
+1. `default` — Nowen 默认；
+2. `paper` — 纸张阅读；
+3. `minimal` — 极简写作；
+4. `eye-care` — 夜间护眼；
+5. `developer` — 开发文档；
+6. `magazine` — 杂志排版。
 
-返回：
+`NOTE_THEMES` 同时驱动：
 
-```json
-{
-  "noteId": "...",
-  "themeId": "nowen.paper",
-  "updated": true
-}
-```
+- 设置页“笔记外观风格”；
+- 单篇“当前笔记外观”；
+- Shared Preview Card；
+- Light / Dark token；
+- Renderer；
+- 后续 Share / Export Adapter；
+- 未来声明式 Style Pack。
 
-主题标识只允许：
+## Token Contract
+
+外观风格只能提供白名单 Design Tokens：
 
 ```text
-[a-z0-9][a-z0-9._-]{0,95}
-```
-
-因此 URL、CSS、`@import`、空格选择器等不能伪装成 themeId。
-
-## Theme Registry
-
-前端唯一内置事实来源：
-
-```text
-frontend/src/lib/noteAppearance.ts
-```
-
-当前主题：
-
-1. `nowen.default` — Nowen 默认；
-2. `nowen.paper` — 纸张阅读；
-3. `nowen.minimal` — 极简写作；
-4. `nowen.night` — 夜间护眼。
-
-同一 Theme Definition 同时驱动：
-
-- 主题选择 UI；
-- 主题预览卡片；
-- Renderer CSS variables；
-- 未来 Share / Export Adapter；
-- 未来零运行时 Theme Plugin。
-
-禁止 UI 名称、Renderer token、插件定义各维护一份主题名单。
-
-## Security Boundary
-
-Theme Definition 只映射到白名单 Design Tokens：
-
-```text
-canvas
 surface
 text
+heading
 muted
-accent
 border
-quoteBackground
-codeBackground
+accent
+accentHover
 inlineCodeBackground
-maxWidth
+inlineCodeText
+preBackground
+preText
+quoteBorder
+quoteText
+softBackground
+tableStripe
+markBackground
+selection
+contentMaxWidth
+lineHeight
 fontFamily
 fontSize
-lineHeight
 ```
 
-Renderer 最终只写 `--note-theme-*` CSS Variables。
-
-当前能力不接受：
+这些 token 被投影为受控 CSS variables。当前不接受：
 
 - 任意 CSS selector；
 - `<style>` / DOM 注入；
@@ -169,61 +107,134 @@ Renderer 最终只写 `--note-theme-*` CSS Variables。
 - `url()`；
 - `@import`；
 - 远程字体；
-- `position: fixed`；
-- 自定义网络资源。
+- 网络资源；
+- 主题脚本。
 
-未来 Theme Plugin 必须继续维持“零运行时声明式资源包”模型。
+内置字体栈只引用系统字体，不下载字体文件。
 
-## Editor Integration
+## Renderer Contract
 
-`NoteAppearanceBridge` 是 Tiptap 和 Markdown 的共享 Renderer Adapter。
+统一渲染适配器：
 
 ```text
-activeNote.id
-   ↓
-GET appearance metadata
-   ↓
-resolveNoteTheme(themeId)
-   ↓
-noteThemeCssVariables()
-   ↓
-current editor content surface
+frontend/src/note-appearance.css
 ```
 
-它不会把 themeId 塞进 editor document，也不会通过 stale `activeNote` snapshot 回写正文状态。
+同一 token contract 同时覆盖：
 
-主题 UI 是“这篇笔记的外观”，而不是 Settings 中的全局皮肤入口。
+```text
+RichText       -> .ProseMirror
+Markdown Source -> .nowen-md-editor .cm-content
+Markdown Live   -> CodeMirror + Markdown preview blocks
+Markdown Preview -> .nowen-md-preview
+```
+
+Renderer 禁止出现 `paper` / `developer` / `magazine` 等风格 ID 特判；新增风格只应修改 Registry。
+
+## Account Style vs Per-note Override
+
+账号级设置仍使用现有 `UserPreferences.noteTheme` 存储字段，以避免为了产品术语变化做无价值数据迁移；UI 统一称为“笔记外观风格”。
+
+单篇笔记使用独立 appearance metadata。
+
+```text
+notes.themeId = NULL
+→ 跟随“笔记外观风格”设置
+
+notes.themeId = "default"
+→ 显式使用 Nowen 默认，即使账号风格是 Paper
+
+notes.themeId = "developer"
+→ 当前笔记明确使用开发文档风格
+```
+
+因此 **NULL 与 `default` 必须保持不同语义**。
+
+## Backend Contract
+
+独立元数据 capability：
+
+```text
+GET /api/note-appearance/:noteId
+PUT /api/note-appearance/:noteId
+```
+
+GET 需要 read permission，PUT 需要 write permission。
+
+跟随账号设置：
+
+```json
+{ "themeId": null }
+```
+
+显式覆盖：
+
+```json
+{ "themeId": "developer" }
+```
+
+Appearance mutation：
+
+- 可以更新 `updatedAt`；
+- 不修改 note content；
+- 不增加正文 `version`；
+- 不创建正文历史版本。
+
+这条不变量由 backend regression test 锁定。
+
+## Storage
+
+SQLite / PostgreSQL Note 记录使用可空 `themeId`。
+
+当前 runtime schema guard 保证旧数据库恢复/打开时能补齐列和索引。正式 migration ledger 后仍应将 DDL 纳入 canonical migration。
+
+## UX Contract
+
+设置页：
+
+```text
+外观与主题
+├── 外观风格
+├── 主题模式
+└── 笔记外观风格
+```
+
+“笔记外观风格”使用共享视觉预览卡，Desktop 2–3 列、Mobile 单列/自适应。
+
+单篇笔记入口：
+
+```text
+当前笔记外观
+├── 跟随笔记外观设置
+├── Nowen 默认
+├── 纸张阅读
+├── 极简写作
+├── 夜间护眼
+├── 开发文档
+└── 杂志排版
+```
+
+用户不需要理解 Registry、Theme ID 或 metadata。
 
 ## Local-first Sync Gate
 
-### 为什么没有直接把 themeId 塞进现有 Note Sync payload
-
-当前 Sync V2 把 `note` 当成带 `baseVersion` 的版本化正文实体：
+当前正文 `note` sync entity 带 `baseVersion`，因此不能把 appearance 粗暴塞进正文 mutation：
 
 ```text
-note mutation
-  -> compare baseVersion
-  -> apply full note payload
-  -> server increments note.version
+change appearance
+→ note mutation
+→ note.version + 1   // 错误语义
 ```
 
-如果仅为了换主题，把 `themeId` 塞进这条 payload：
+正确方向仍然是独立 metadata entity：
 
 ```text
-change theme
-  -> note mutation
-  -> remote note.version + 1
+entityType: note_appearance
+entityId: noteId
+payload: { themeId, updatedAt }
 ```
 
-这会破坏 Note Appearance 的核心不变量：
-
-> 外观变化不是正文版本变化。
-
-因此 P0 **不把 themeId 硬塞进现有版本化 Note mutation**。
-
-### 正确后续方向
-
-Local-first 多设备主题同步必须作为独立 metadata capability 接入完整同步七环：
+并完整接入：
 
 ```text
 Local CRUD
@@ -235,36 +246,11 @@ Local CRUD
 → Conflict Strategy
 ```
 
-推荐实体语义：
-
-```text
-entityType: note_appearance
-entityId: noteId
-payload: { themeId, updatedAt }
-```
-
-它依附 Note 存在，但不推进正文 `version`。
-
-在这条完整链路落地并通过回归前，不得把“本机主题可保存”描述成“Local-first 多设备主题同步已完成”。
-
-## PostgreSQL
-
-主 PostgreSQL schema replay 已补：
-
-```sql
-ALTER TABLE notes ADD COLUMN IF NOT EXISTS "themeId" TEXT;
-CREATE INDEX IF NOT EXISTS idx_notes_theme_id ON notes("themeId");
-```
-
-SQLite v1.5.0 runtime capability 使用幂等 schema guard；数据库恢复/重新打开后会重新确认该列存在。
-
-正式统一 migration ledger 后，应把这项 DDL 纳入下一条 canonical migration，并保留 runtime guard 作为旧构建/恢复兼容层。
+在这条链路完成前，不宣称 Local-first 多设备外观同步已完成。
 
 ## Share / Export Gate
 
-当前 P0 聚焦“当前笔记编辑/阅读主题”。
-
-在对外宣称“主题完整发布”之前，还需要让：
+正式发布完整外观风格能力前，以下 renderer 还需要消费同一 Registry / server equivalent：
 
 ```text
 Single Share
@@ -274,99 +260,89 @@ Image Export
 HTML Export
 ```
 
-消费相同 Theme Definition。
+禁止各导出器复制独立配色。
 
-不能在各导出器里复制硬编码颜色。
+## Missing Style Fallback
 
-## Missing Theme Fallback
-
-未来插件主题可能在另一台设备未安装。
-
-Note 只保存稳定 ID：
+未来 Style Pack 可能在另一台设备未安装。Note 只保存稳定 ID，例如：
 
 ```text
 publisher.paper-pro
 ```
 
-Theme Registry 找不到时必须：
-
-```text
-resolve unknown theme
-→ nowen.default
-```
-
-后续 UI 可提示：
-
-```text
-当前笔记使用的主题尚未安装
-[安装主题] [使用默认主题]
-```
-
-正文永远不能因为主题包缺失而不可读。
+Registry 找不到时正文必须安全回退到 Nowen Default，并允许 UI 提示安装或恢复继承。主题缺失永远不能导致正文不可读。
 
 ## Future Extension
 
-### P1 — Inheritance
+### P1 — Notebook inheritance
 
-解析顺序：
+自然扩展为：
 
 ```text
 note.themeId
-  ?? notebook.defaultThemeId
-  ?? user.defaultNoteThemeId
-  ?? nowen.default
+?? notebook.defaultAppearanceStyleId
+?? user.noteTheme
+?? default
 ```
-
-Notebook / User 只提供默认值；Note 明确选择始终优先。
 
 ### P1 — Share / Export
 
-让分享、PDF、图片和 HTML 复用 `NoteThemeDefinition` / server-side equivalent。
+让分享、PDF、图片、HTML 复用同一 Theme Definition。
 
-### P1 — Local-first Metadata Sync
+### P1 — Local-first metadata sync
 
 增加 `note_appearance` 同步实体，不污染正文 version。
 
-### P2 — Theme Plugin
+### P2 — Declarative Style Pack
 
-稳定后再考虑：
-
-```text
-contributes.themes
-```
-
-主题包：
-
-- 不需要 `main`；
-- 不需要 Action；
-- 不申请 note read 权限；
-- 不启动 QuickJS / Worker；
-- 只包含签名后的声明式 token、预览资源和允许的本地字体资产。
-
-### P2 — Preset
-
-最终可组合：
+内部契约稳定后再考虑：
 
 ```text
-Document Type + Template + Theme
+contributes.themes / appearanceStyles
 ```
 
-形成 Note Experience Preset，例如“开发文档 / 周报 / 日记 / 会议记录”。
+仍坚持零运行时：无 Action、无 QuickJS、无任意 CSS、无脚本、无远程资源。
+
+### P2 — Note Experience Preset
+
+最终可以组合：
+
+```text
+Document Type + Template + Appearance Style
+```
+
+形成开发文档、周报、日记、会议记录等 Note Experience Preset。
+
+## Regression Assets
+
+当前回归重点：
+
+- 六种内置风格唯一 Registry；
+- Light / Dark token；
+- token 禁止 `url()` / `@import` / `javascript:`；
+- 账号外观风格缓存持久化；
+- 单篇 explicit override；
+- explicit `default` 与 inherit 区分；
+- 恢复继承时只清除 local tokens；
+- RichText / Markdown Source / Live / Preview 共享 renderer contract；
+- appearance mutation 不修改正文和正文 version；
+- Provider boundary 不允许 Bridge 挂在 `AppProvider` 外。
 
 ## Product Asset
 
 本阶段沉淀：
 
 ```text
-Note Appearance Metadata Capability
-+ Built-in Theme Registry
-+ Theme Resolver
+Note Appearance Style Capability
++ Single Appearance Style Registry
++ Style Resolver
 + White-listed Design Token Contract
-+ RichText/Markdown Shared Renderer Adapter
-+ Per-note Theme UX
-+ PostgreSQL Compatibility
-+ Regression Tests
-+ Local-first Sync Release Gate
++ Shared Appearance Preview Card
++ RichText/Markdown Shared Renderer
++ Per-note Override
++ Persistence Contract
++ Regression Suite
++ Local-first / Share / Export Release Gates
 ```
 
-它的价值不是“多了几个颜色”，而是为笔记建立可扩展、可安全分发的视觉身份模型。
+价值不在于“多了几个主题”，而在于 Nowen Note 已经具备可持续扩展的笔记视觉身份能力。
