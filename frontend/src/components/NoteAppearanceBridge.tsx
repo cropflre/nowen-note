@@ -21,12 +21,13 @@ interface AnchorPosition {
 function editorAnchor(): HTMLElement | null {
   return document.querySelector<HTMLElement>(".nowen-md-editor")
     || document.querySelector<HTMLElement>(".ProseMirror[contenteditable]")
-    || document.querySelector<HTMLElement>(".ProseMirror");
+    || document.querySelector<HTMLElement>(".ProseMirror")
+    || document.querySelector<HTMLElement>(".nowen-md-preview");
 }
 
 function themeSurfaceFor(target: HTMLElement): HTMLElement {
-  // Keep application chrome outside the note theme. The immediate editor content wrapper is the
-  // narrowest shared boundary for Tiptap and Markdown and is safe to decorate/remove repeatedly.
+  // Keep application chrome outside the note theme. The immediate editor/preview content wrapper is
+  // the narrowest shared boundary for Tiptap and Markdown and is safe to decorate/remove repeatedly.
   return target.parentElement || target;
 }
 
