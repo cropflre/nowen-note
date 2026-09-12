@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 
 import KnowledgeTreePanel from "@/components/KnowledgeTreeCreateMenuRuntime";
 import KnowledgeTreeSortButton from "@/components/KnowledgeTreeSortButton";
+import NoteAppearanceBridge from "@/components/NoteAppearanceBridge";
 import TaskQuickCaptureBridge from "@/components/tasks/TaskQuickCaptureBridge";
 import {
   applySidebarSearchExperience,
@@ -244,6 +245,9 @@ function mutationContainsRelevantSurface(node: Node): boolean {
  * - 在统一树工具栏恢复排序入口；
  * - 应用设置中持久化的移动端目录浏览模式；
  * - 同时兼容桌面与移动 Sidebar 的挂载和工作区切换。
+ *
+ * 这个组件本身挂在 AppProvider 内，因此也作为依赖 AppContext 的轻量 runtime bridge
+ * 宿主。NoteAppearanceBridge 必须放在这里或更深层，不能回到 main.tsx 的 Provider 外层。
  */
 export default function SidebarSearchExperienceBridge() {
   const [sortSlots, setSortSlots] = useState<HTMLElement[]>([]);
@@ -314,6 +318,7 @@ export default function SidebarSearchExperienceBridge() {
   return (
     <>
       <style data-mobile-markdown-keyboard-layout="">{MOBILE_MARKDOWN_KEYBOARD_LAYOUT_CSS}</style>
+      <NoteAppearanceBridge />
       <TaskQuickCaptureBridge />
       {sortSlots.map((slot) => createPortal(
         <KnowledgeTreeSortButton />,
