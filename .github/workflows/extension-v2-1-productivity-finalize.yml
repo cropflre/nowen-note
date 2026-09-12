@@ -4,7 +4,7 @@ on:
   push:
     branches: [release/v1.5.0]
     paths:
-      - "scripts/bootstrap-productivity-pack-v21-finalize.mjs"
+      - "scripts/bootstrap-productivity-pack-v21-finalize2.mjs"
       - ".github/workflows/extension-v2-1-productivity-finalize.yml"
   workflow_dispatch:
 
@@ -23,9 +23,9 @@ jobs:
         with:
           node-version: 22
       - name: Apply host integration patch
-        run: node scripts/bootstrap-productivity-pack-v21-finalize.mjs
+        run: node scripts/bootstrap-productivity-pack-v21-finalize2.mjs
       - name: Check bootstrap syntax
-        run: node --check scripts/bootstrap-productivity-pack-v21-finalize.mjs
+        run: node --check scripts/bootstrap-productivity-pack-v21-finalize2.mjs
       - name: Commit implementation
         run: |
           git config user.name "github-actions[bot]"
