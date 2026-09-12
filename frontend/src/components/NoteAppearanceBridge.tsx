@@ -9,26 +9,20 @@ import { toast } from "@/lib/toast";
 import { getNoteAppearance, setNoteAppearance } from "@/lib/noteAppearance";
 import {
   NOTE_THEMES,
-  applyNoteTheme,
   getNoteTheme,
   isNoteThemeId,
   resolveDocumentThemeMode,
   type NoteThemeId,
 } from "@/lib/noteTheme";
+import {
+  applyExplicitNoteTheme,
+  clearExplicitNoteTheme,
+} from "@/lib/noteAppearanceSurface";
 
 interface AnchorPosition {
   top: number;
   right: number;
 }
-
-const LOCAL_THEME_PROPERTIES = [
-  "--note-theme-surface", "--pm-text", "--pm-heading", "--note-theme-muted",
-  "--note-theme-border", "--note-theme-accent", "--note-theme-accent-hover",
-  "--pm-code-bg", "--pm-code-text", "--pm-pre-bg", "--pm-pre-text",
-  "--pm-blockquote-border", "--pm-blockquote-text", "--note-theme-soft",
-  "--note-theme-table-stripe", "--note-theme-mark", "--pm-selection",
-  "--note-theme-content-width", "--pm-p-line-height",
-] as const;
 
 function noteSurface(): HTMLElement | null {
   return document.querySelector<HTMLElement>(".note-theme-surface");
@@ -40,11 +34,6 @@ function positionFor(target: HTMLElement): AnchorPosition {
     top: Math.max(72, Math.min(window.innerHeight - 56, rect.top + 12)),
     right: Math.max(12, window.innerWidth - rect.right + 12),
   };
-}
-
-function clearLocalTheme(surface: HTMLElement): void {
-  surface.removeAttribute("data-note-theme");
-  for (const property of LOCAL_THEME_PROPERTIES) surface.style.removeProperty(property);
 }
 
 /**
@@ -98,7 +87,7 @@ export default function NoteAppearanceBridge() {
 
   useEffect(() => {
     if (!noteId) {
-      if (surfaceRef.current) clearLocalTheme(surfaceRef.current);
+      if (surfaceRef.current) clearExplicitNoteTheme(surfaceRef.current);
       surfaceRef.current = null;
       setAnchor(null);
       return;
@@ -112,14 +101,16 @@ export default function NoteAppearanceBridge() {
         setAnchor(null);
         return;
       }
-      if (surfaceRef.current && surfaceRef.current !== surface) clearLocalTheme(surfaceRef.current);
+      if (surfaceRef.current && surfaceRef.current !== surface) {
+        clearExplicitNoteTheme(surfaceRef.current);
+      }
       surfaceRef.current = surface;
 
       if (explicitThemeId) {
-        applyNoteTheme(explicitThemeId, surface);
+        applyExplicitNoteTheme(surface, explicitThemeId);
       } else {
         // No per-note override: the account default already lives on documentElement and cascades.
-        clearLocalTheme(surface);
+        clearExplicitNoteTheme(surface);
       }
       setAnchor(positionFor(surface));
     };
@@ -144,20 +135,22 @@ export default function NoteAppearanceBridge() {
       themeObserver.disconnect();
       window.removeEventListener("resize", schedule);
       window.removeEventListener("scroll", schedule, true);
-      if (surfaceRef.current) clearLocalTheme(surfaceRef.current);
+      if (surfaceRef.current) clearExplicitNoteTheme(surfaceRef.current);
       surfaceRef.current = null;
     };
   }, [noteId, explicitThemeId]);
 
   const chooseTheme = useCallback(async (nextThemeId: NoteThemeId | null) => {
-    if (!noteId || saving || nextThemeId === explicitThemeId && storedThemeId !== null) {
-      setOpen(false);
-      return;
-    }
+    if (!noteId || saving) return;
     if (nextThemeId === null && storedThemeId === null) {
       setOpen(false);
       return;
     }
+    if (nextThemeId !== null && storedThemeId === nextThemeId) {
+      setOpen(false);
+      return;
+    }
+
     const previous = storedThemeId;
     setStoredThemeId(nextThemeId);
     setSaving(true);
@@ -174,7 +167,7 @@ export default function NoteAppearanceBridge() {
     } finally {
       setSaving(false);
     }
-  }, [explicitThemeId, language, noteId, prefs.noteTheme, saving, storedThemeId]);
+  }, [language, noteId, prefs.noteTheme, saving, storedThemeId]);
 
   if (!noteId || !anchor) return null;
 
