@@ -28,7 +28,7 @@ export interface HostApiBudgets {
   readonly hostCallResultBytes: number;
 }
 
-export const HOST_API_CONTRACT_VERSION = 1 as const;
+export const HOST_API_CONTRACT_VERSION = 2 as const;
 export const HOST_API_BUDGETS: HostApiBudgets = deepFreeze({
   "ipcMessageBytes": 2097152,
   "hostCallArgsBytes": 262144,

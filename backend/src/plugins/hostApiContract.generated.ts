@@ -10,7 +10,7 @@ function deepFreeze<T>(value: T): T {
   return value;
 }
 
-export const HOST_API_CONTRACT_VERSION = 1 as const;
+export const HOST_API_CONTRACT_VERSION = 2 as const;
 
 export const HOST_API_BUDGETS = deepFreeze({
   "ipcMessageBytes": 2097152,

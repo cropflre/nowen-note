@@ -1,0 +1,1200 @@
+// 此文件由 scripts/generate-plugin-host-api.mjs 根据 packages/nowen-plugin-sdk/host-api-contract.json, packages/nowen-plugin-sdk/contribution-contract.json, packages/nowen-plugin-sdk/error-code-contract.json 生成，请勿手动修改。
+function deepFreeze<T>(value: T): T {
+  if (value && typeof value === "object" && !Object.isFrozen(value)) {
+    for (const nested of Object.values(value)) deepFreeze(nested);
+    Object.freeze(value);
+  }
+  return value;
+}
+
+export const EXTENSION_CAPABILITY_CATALOG_DIGEST = "f5aefa0b719a87cab58a81cb67f5959a3eff817b2b5f5d16e84c8ee5ddbfa56f" as const;
+export const EXTENSION_CAPABILITY_CATALOG = deepFreeze({
+  "catalogVersion": 1,
+  "hostApi": {
+    "contractVersion": 2,
+    "budgets": {
+      "ipcMessageBytes": 2097152,
+      "hostCallArgsBytes": 262144,
+      "hostCallResultBytes": 1048576
+    },
+    "platforms": [
+      {
+        "id": "android",
+        "kind": "ui",
+        "description": "Android UI"
+      },
+      {
+        "id": "desktop",
+        "kind": "ui",
+        "description": "Electron desktop UI"
+      },
+      {
+        "id": "desktop-full",
+        "kind": "runtime",
+        "description": "Desktop runtime with full host services"
+      },
+      {
+        "id": "ios",
+        "kind": "ui",
+        "description": "iOS UI"
+      },
+      {
+        "id": "server",
+        "kind": "runtime",
+        "description": "Self-hosted/server runtime"
+      },
+      {
+        "id": "web",
+        "kind": "ui",
+        "description": "Browser UI"
+      }
+    ],
+    "permissions": [
+      {
+        "id": "attachments:read",
+        "description": "Read attachment metadata visible to the invoking user",
+        "risk": "data-read"
+      },
+      {
+        "id": "diary:read",
+        "description": "Read diary entries visible to the invoking user",
+        "risk": "sensitive-read"
+      },
+      {
+        "id": "diary:write",
+        "description": "Create diary entries",
+        "risk": "sensitive-write"
+      },
+      {
+        "id": "external:fetch",
+        "description": "Make host-brokered network requests to declared hosts",
+        "risk": "network"
+      },
+      {
+        "id": "mindmaps:read",
+        "description": "Read mind map documents",
+        "risk": "data-read"
+      },
+      {
+        "id": "mindmaps:write",
+        "description": "Create or update mind maps",
+        "risk": "data-write"
+      },
+      {
+        "id": "notebooks:read",
+        "description": "Read notebook metadata",
+        "risk": "data-read"
+      },
+      {
+        "id": "notebooks:write",
+        "description": "Create or update notebook structure",
+        "risk": "data-write"
+      },
+      {
+        "id": "notes:read",
+        "description": "Read notes visible to the invoking user",
+        "risk": "data-read"
+      },
+      {
+        "id": "notes:write",
+        "description": "Create or update notes as the invoking user",
+        "risk": "data-write"
+      },
+      {
+        "id": "plugin-storage:read",
+        "description": "Read this extension's scoped storage",
+        "risk": "extension-storage"
+      },
+      {
+        "id": "plugin-storage:write",
+        "description": "Write this extension's scoped storage",
+        "risk": "extension-storage"
+      },
+      {
+        "id": "secrets:use",
+        "description": "Inject declared connection secrets into brokered requests",
+        "risk": "secret-use"
+      },
+      {
+        "id": "tags:read",
+        "description": "Read tag metadata",
+        "risk": "data-read"
+      },
+      {
+        "id": "tags:write",
+        "description": "Create tags and change note-tag membership",
+        "risk": "data-write"
+      },
+      {
+        "id": "tasks:read",
+        "description": "Read tasks visible to the invoking user",
+        "risk": "data-read"
+      },
+      {
+        "id": "tasks:write",
+        "description": "Create or update tasks",
+        "risk": "data-write"
+      }
+    ],
+    "combinationPermissions": [
+      "secrets:use"
+    ],
+    "templates": {
+      "extensionId": "<publisher>.<extension>",
+      "contributionId": "<pluginId>/<contributionId>",
+      "v21EngineRange": ">=1.6.0",
+      "declarativeRuntime": "declarative"
+    },
+    "methods": [
+      {
+        "method": "attachments.get",
+        "sinceApiVersion": 1,
+        "permission": "attachments:read",
+        "runtimes": [
+          "node-action",
+          "sandbox-js"
+        ],
+        "platforms": [
+          "server",
+          "desktop-full"
+        ],
+        "maxArgsBytes": 262144,
+        "maxResultBytes": 1048576,
+        "inputSchema": {
+          "type": "object"
+        },
+        "outputSchema": {},
+        "examples": [
+          {
+            "input": {
+              "attachmentId": "attachment-id"
+            }
+          }
+        ],
+        "sdkSignature": "get(input: { attachmentId: string }): Promise<Attachment>;"
+      },
+      {
+        "method": "attachments.list",
+        "sinceApiVersion": 1,
+        "permission": "attachments:read",
+        "runtimes": [
+          "node-action",
+          "sandbox-js"
+        ],
+        "platforms": [
+          "server",
+          "desktop-full"
+        ],
+        "maxArgsBytes": 262144,
+        "maxResultBytes": 1048576,
+        "inputSchema": {
+          "type": "object"
+        },
+        "outputSchema": {},
+        "examples": [
+          {
+            "input": {
+              "limit": 50
+            }
+          }
+        ],
+        "sdkSignature": "list(input?: { limit?: number }): Promise<Attachment[]>;"
+      },
+      {
+        "method": "diary.create",
+        "sinceApiVersion": 1,
+        "permission": "diary:write",
+        "runtimes": [
+          "node-action",
+          "sandbox-js"
+        ],
+        "platforms": [
+          "server",
+          "desktop-full"
+        ],
+        "maxArgsBytes": 262144,
+        "maxResultBytes": 1048576,
+        "inputSchema": {
+          "type": "object"
+        },
+        "outputSchema": {},
+        "examples": [
+          {
+            "input": {
+              "contentText": "Today..."
+            }
+          }
+        ],
+        "sdkSignature": "create(input: { workspaceId?: string | null; contentText: string; mood?: string; createdAt?: string }): Promise<{ id: string }>;"
+      },
+      {
+        "method": "diary.get",
+        "sinceApiVersion": 1,
+        "permission": "diary:read",
+        "runtimes": [
+          "node-action",
+          "sandbox-js"
+        ],
+        "platforms": [
+          "server",
+          "desktop-full"
+        ],
+        "maxArgsBytes": 262144,
+        "maxResultBytes": 1048576,
+        "inputSchema": {
+          "type": "object"
+        },
+        "outputSchema": {},
+        "examples": [
+          {
+            "input": {
+              "diaryId": "diary-id"
+            }
+          }
+        ],
+        "sdkSignature": "get(input: { diaryId: string }): Promise<DiaryEntry>;"
+      },
+      {
+        "method": "diary.list",
+        "sinceApiVersion": 1,
+        "permission": "diary:read",
+        "runtimes": [
+          "node-action",
+          "sandbox-js"
+        ],
+        "platforms": [
+          "server",
+          "desktop-full"
+        ],
+        "maxArgsBytes": 262144,
+        "maxResultBytes": 1048576,
+        "inputSchema": {
+          "type": "object"
+        },
+        "outputSchema": {},
+        "examples": [
+          {
+            "input": {
+              "limit": 30
+            }
+          }
+        ],
+        "sdkSignature": "list(input?: { limit?: number }): Promise<DiaryEntry[]>;"
+      },
+      {
+        "method": "external.fetch",
+        "sinceApiVersion": 1,
+        "permission": "external:fetch",
+        "runtimes": [
+          "node-action",
+          "sandbox-js"
+        ],
+        "platforms": [
+          "server",
+          "desktop-full"
+        ],
+        "maxArgsBytes": 262144,
+        "maxResultBytes": 1048576,
+        "inputSchema": {
+          "type": "object"
+        },
+        "outputSchema": {},
+        "examples": [
+          {
+            "input": {
+              "url": "https://api.example.com/data",
+              "method": "GET"
+            }
+          }
+        ],
+        "sdkSignature": "fetch(input: { url: string; method?: string; headers?: Record<string, string>; body?: unknown; connection?: string }): Promise<{ status: number; ok: boolean; headers: { \"content-type\": string | null }; body: string }>;"
+      },
+      {
+        "method": "mindmaps.create",
+        "sinceApiVersion": 1,
+        "permission": "mindmaps:write",
+        "runtimes": [
+          "node-action",
+          "sandbox-js"
+        ],
+        "platforms": [
+          "server",
+          "desktop-full"
+        ],
+        "maxArgsBytes": 262144,
+        "maxResultBytes": 1048576,
+        "inputSchema": {
+          "type": "object"
+        },
+        "outputSchema": {},
+        "examples": [
+          {
+            "input": {
+              "title": "Architecture"
+            }
+          }
+        ],
+        "sdkSignature": "create(input: { workspaceId?: string | null; title?: string; data?: unknown }): Promise<{ id: string }>;"
+      },
+      {
+        "method": "mindmaps.get",
+        "sinceApiVersion": 1,
+        "permission": "mindmaps:read",
+        "runtimes": [
+          "node-action",
+          "sandbox-js"
+        ],
+        "platforms": [
+          "server",
+          "desktop-full"
+        ],
+        "maxArgsBytes": 262144,
+        "maxResultBytes": 1048576,
+        "inputSchema": {
+          "type": "object"
+        },
+        "outputSchema": {},
+        "examples": [
+          {
+            "input": {
+              "mindmapId": "mindmap-id"
+            }
+          }
+        ],
+        "sdkSignature": "get(input: { mindmapId: string }): Promise<Mindmap>;"
+      },
+      {
+        "method": "mindmaps.list",
+        "sinceApiVersion": 1,
+        "permission": "mindmaps:read",
+        "runtimes": [
+          "node-action",
+          "sandbox-js"
+        ],
+        "platforms": [
+          "server",
+          "desktop-full"
+        ],
+        "maxArgsBytes": 262144,
+        "maxResultBytes": 1048576,
+        "inputSchema": {
+          "type": "object"
+        },
+        "outputSchema": {},
+        "examples": [
+          {
+            "input": {
+              "limit": 50
+            }
+          }
+        ],
+        "sdkSignature": "list(input?: { limit?: number }): Promise<Mindmap[]>;"
+      },
+      {
+        "method": "mindmaps.update",
+        "sinceApiVersion": 1,
+        "permission": "mindmaps:write",
+        "runtimes": [
+          "node-action",
+          "sandbox-js"
+        ],
+        "platforms": [
+          "server",
+          "desktop-full"
+        ],
+        "maxArgsBytes": 262144,
+        "maxResultBytes": 1048576,
+        "inputSchema": {
+          "type": "object"
+        },
+        "outputSchema": {},
+        "examples": [
+          {
+            "input": {
+              "mindmapId": "mindmap-id",
+              "title": "Updated"
+            }
+          }
+        ],
+        "sdkSignature": "update(input: { mindmapId: string; title?: string; data?: unknown }): Promise<{ id: string }>;"
+      },
+      {
+        "method": "notebooks.create",
+        "sinceApiVersion": 1,
+        "permission": "notebooks:write",
+        "runtimes": [
+          "node-action",
+          "sandbox-js"
+        ],
+        "platforms": [
+          "server",
+          "desktop-full"
+        ],
+        "maxArgsBytes": 262144,
+        "maxResultBytes": 1048576,
+        "inputSchema": {
+          "type": "object"
+        },
+        "outputSchema": {},
+        "examples": [
+          {
+            "input": {
+              "name": "Research"
+            }
+          }
+        ],
+        "sdkSignature": "create(input: { name: string; workspaceId?: string | null; parentId?: string | null; icon?: string; color?: string | null }): Promise<{ id: string }>;"
+      },
+      {
+        "method": "notebooks.get",
+        "sinceApiVersion": 1,
+        "permission": "notebooks:read",
+        "runtimes": [
+          "node-action",
+          "sandbox-js"
+        ],
+        "platforms": [
+          "server",
+          "desktop-full"
+        ],
+        "maxArgsBytes": 262144,
+        "maxResultBytes": 1048576,
+        "inputSchema": {
+          "type": "object"
+        },
+        "outputSchema": {},
+        "examples": [
+          {
+            "input": {
+              "notebookId": "notebook-id"
+            }
+          }
+        ],
+        "sdkSignature": "get(input: { notebookId: string }): Promise<Notebook | null>;"
+      },
+      {
+        "method": "notebooks.list",
+        "sinceApiVersion": 1,
+        "permission": "notebooks:read",
+        "runtimes": [
+          "node-action",
+          "sandbox-js"
+        ],
+        "platforms": [
+          "server",
+          "desktop-full"
+        ],
+        "maxArgsBytes": 262144,
+        "maxResultBytes": 1048576,
+        "inputSchema": {
+          "type": "object"
+        },
+        "outputSchema": {},
+        "examples": [
+          {
+            "input": {}
+          }
+        ],
+        "sdkSignature": "list(): Promise<Notebook[]>;"
+      },
+      {
+        "method": "notes.create",
+        "sinceApiVersion": 1,
+        "permission": "notes:write",
+        "runtimes": [
+          "node-action",
+          "sandbox-js"
+        ],
+        "platforms": [
+          "server",
+          "desktop-full"
+        ],
+        "maxArgsBytes": 262144,
+        "maxResultBytes": 1048576,
+        "inputSchema": {
+          "type": "object"
+        },
+        "outputSchema": {},
+        "examples": [
+          {
+            "input": {
+              "notebookId": "notebook-id",
+              "title": "New note"
+            }
+          }
+        ],
+        "sdkSignature": "create(input: { notebookId: string; title?: string; content?: string; contentFormat?: \"markdown\" | \"html\" | \"tiptap-json\" }): Promise<{ id: string; version?: number }>;"
+      },
+      {
+        "method": "notes.get",
+        "sinceApiVersion": 1,
+        "permission": "notes:read",
+        "runtimes": [
+          "node-action",
+          "sandbox-js"
+        ],
+        "platforms": [
+          "server",
+          "desktop-full"
+        ],
+        "maxArgsBytes": 262144,
+        "maxResultBytes": 1048576,
+        "inputSchema": {
+          "type": "object"
+        },
+        "outputSchema": {},
+        "examples": [
+          {
+            "input": {
+              "noteId": "note-id"
+            }
+          }
+        ],
+        "sdkSignature": "get(input: { noteId: string }): Promise<Note | null>;"
+      },
+      {
+        "method": "notes.list",
+        "sinceApiVersion": 1,
+        "permission": "notes:read",
+        "runtimes": [
+          "node-action",
+          "sandbox-js"
+        ],
+        "platforms": [
+          "server",
+          "desktop-full"
+        ],
+        "maxArgsBytes": 262144,
+        "maxResultBytes": 1048576,
+        "inputSchema": {
+          "type": "object"
+        },
+        "outputSchema": {},
+        "examples": [
+          {
+            "input": {
+              "limit": 50
+            }
+          }
+        ],
+        "sdkSignature": "list(input?: { limit?: number }): Promise<NoteSummary[]>;"
+      },
+      {
+        "method": "notes.update",
+        "sinceApiVersion": 1,
+        "permission": "notes:write",
+        "runtimes": [
+          "node-action",
+          "sandbox-js"
+        ],
+        "platforms": [
+          "server",
+          "desktop-full"
+        ],
+        "maxArgsBytes": 262144,
+        "maxResultBytes": 1048576,
+        "inputSchema": {
+          "type": "object"
+        },
+        "outputSchema": {},
+        "examples": [
+          {
+            "input": {
+              "noteId": "note-id",
+              "title": "Updated"
+            }
+          }
+        ],
+        "sdkSignature": "update(input: { noteId: string; title?: string; content?: string; contentFormat?: \"markdown\" | \"html\" | \"tiptap-json\" }): Promise<{ id: string; version: number }>;"
+      },
+      {
+        "method": "runtime.capabilities",
+        "sinceApiVersion": 1,
+        "permission": null,
+        "runtimes": [
+          "node-action",
+          "sandbox-js"
+        ],
+        "platforms": [
+          "server",
+          "desktop-full"
+        ],
+        "maxArgsBytes": 262144,
+        "maxResultBytes": 1048576,
+        "inputSchema": {
+          "type": "object"
+        },
+        "outputSchema": {},
+        "examples": [
+          {
+            "input": {}
+          }
+        ],
+        "sdkSignature": "capabilities(): Promise<RuntimeCapabilities>;"
+      },
+      {
+        "method": "storage.delete",
+        "sinceApiVersion": 1,
+        "permission": "plugin-storage:write",
+        "runtimes": [
+          "node-action",
+          "sandbox-js"
+        ],
+        "platforms": [
+          "server",
+          "desktop-full"
+        ],
+        "maxArgsBytes": 262144,
+        "maxResultBytes": 1048576,
+        "inputSchema": {
+          "type": "object"
+        },
+        "outputSchema": {},
+        "examples": [
+          {
+            "input": {
+              "key": "preferences"
+            }
+          }
+        ],
+        "sdkSignature": "delete(input: { key: string; scopeType?: \"user\" | \"workspace\"; scopeId?: string }): Promise<{ success: true }>;"
+      },
+      {
+        "method": "storage.get",
+        "sinceApiVersion": 1,
+        "permission": "plugin-storage:read",
+        "runtimes": [
+          "node-action",
+          "sandbox-js"
+        ],
+        "platforms": [
+          "server",
+          "desktop-full"
+        ],
+        "maxArgsBytes": 262144,
+        "maxResultBytes": 1048576,
+        "inputSchema": {
+          "type": "object"
+        },
+        "outputSchema": {},
+        "examples": [
+          {
+            "input": {
+              "key": "preferences"
+            }
+          }
+        ],
+        "sdkSignature": "get(input: { key: string; scopeType?: \"user\" | \"workspace\"; scopeId?: string }): Promise<unknown>;"
+      },
+      {
+        "method": "storage.set",
+        "sinceApiVersion": 1,
+        "permission": "plugin-storage:write",
+        "runtimes": [
+          "node-action",
+          "sandbox-js"
+        ],
+        "platforms": [
+          "server",
+          "desktop-full"
+        ],
+        "maxArgsBytes": 262144,
+        "maxResultBytes": 1048576,
+        "inputSchema": {
+          "type": "object"
+        },
+        "outputSchema": {},
+        "examples": [
+          {
+            "input": {
+              "key": "preferences",
+              "value": {
+                "enabled": true
+              }
+            }
+          }
+        ],
+        "sdkSignature": "set(input: { key: string; value: unknown; scopeType?: \"user\" | \"workspace\"; scopeId?: string }): Promise<{ success: true }>;"
+      },
+      {
+        "method": "tags.addToNote",
+        "sinceApiVersion": 1,
+        "permission": "tags:write",
+        "runtimes": [
+          "node-action",
+          "sandbox-js"
+        ],
+        "platforms": [
+          "server",
+          "desktop-full"
+        ],
+        "maxArgsBytes": 262144,
+        "maxResultBytes": 1048576,
+        "inputSchema": {
+          "type": "object"
+        },
+        "outputSchema": {},
+        "examples": [
+          {
+            "input": {
+              "noteId": "note-id",
+              "tagId": "tag-id"
+            }
+          }
+        ],
+        "sdkSignature": "addToNote(input: { noteId: string; tagId: string }): Promise<{ success: true }>;"
+      },
+      {
+        "method": "tags.create",
+        "sinceApiVersion": 1,
+        "permission": "tags:write",
+        "runtimes": [
+          "node-action",
+          "sandbox-js"
+        ],
+        "platforms": [
+          "server",
+          "desktop-full"
+        ],
+        "maxArgsBytes": 262144,
+        "maxResultBytes": 1048576,
+        "inputSchema": {
+          "type": "object"
+        },
+        "outputSchema": {},
+        "examples": [
+          {
+            "input": {
+              "name": "AI"
+            }
+          }
+        ],
+        "sdkSignature": "create(input: { name: string; color?: string; workspaceId?: string | null }): Promise<{ id: string }>;"
+      },
+      {
+        "method": "tags.list",
+        "sinceApiVersion": 1,
+        "permission": "tags:read",
+        "runtimes": [
+          "node-action",
+          "sandbox-js"
+        ],
+        "platforms": [
+          "server",
+          "desktop-full"
+        ],
+        "maxArgsBytes": 262144,
+        "maxResultBytes": 1048576,
+        "inputSchema": {
+          "type": "object"
+        },
+        "outputSchema": {},
+        "examples": [
+          {
+            "input": {}
+          }
+        ],
+        "sdkSignature": "list(): Promise<Tag[]>;"
+      },
+      {
+        "method": "tags.removeFromNote",
+        "sinceApiVersion": 1,
+        "permission": "tags:write",
+        "runtimes": [
+          "node-action",
+          "sandbox-js"
+        ],
+        "platforms": [
+          "server",
+          "desktop-full"
+        ],
+        "maxArgsBytes": 262144,
+        "maxResultBytes": 1048576,
+        "inputSchema": {
+          "type": "object"
+        },
+        "outputSchema": {},
+        "examples": [
+          {
+            "input": {
+              "noteId": "note-id",
+              "tagId": "tag-id"
+            }
+          }
+        ],
+        "sdkSignature": "removeFromNote(input: { noteId: string; tagId: string }): Promise<{ success: true }>;"
+      },
+      {
+        "method": "tasks.create",
+        "sinceApiVersion": 1,
+        "permission": "tasks:write",
+        "runtimes": [
+          "node-action",
+          "sandbox-js"
+        ],
+        "platforms": [
+          "server",
+          "desktop-full"
+        ],
+        "maxArgsBytes": 262144,
+        "maxResultBytes": 1048576,
+        "inputSchema": {
+          "type": "object"
+        },
+        "outputSchema": {},
+        "examples": [
+          {
+            "input": {
+              "title": "Review spec"
+            }
+          }
+        ],
+        "sdkSignature": "create(input: { title: string; workspaceId?: string | null; description?: string; priority?: number; dueDate?: string | null; noteId?: string | null }): Promise<{ id: string }>;"
+      },
+      {
+        "method": "tasks.get",
+        "sinceApiVersion": 1,
+        "permission": "tasks:read",
+        "runtimes": [
+          "node-action",
+          "sandbox-js"
+        ],
+        "platforms": [
+          "server",
+          "desktop-full"
+        ],
+        "maxArgsBytes": 262144,
+        "maxResultBytes": 1048576,
+        "inputSchema": {
+          "type": "object"
+        },
+        "outputSchema": {},
+        "examples": [
+          {
+            "input": {
+              "taskId": "task-id"
+            }
+          }
+        ],
+        "sdkSignature": "get(input: { taskId: string }): Promise<Task>;"
+      },
+      {
+        "method": "tasks.list",
+        "sinceApiVersion": 1,
+        "permission": "tasks:read",
+        "runtimes": [
+          "node-action",
+          "sandbox-js"
+        ],
+        "platforms": [
+          "server",
+          "desktop-full"
+        ],
+        "maxArgsBytes": 262144,
+        "maxResultBytes": 1048576,
+        "inputSchema": {
+          "type": "object"
+        },
+        "outputSchema": {},
+        "examples": [
+          {
+            "input": {
+              "limit": 50
+            }
+          }
+        ],
+        "sdkSignature": "list(input?: { limit?: number }): Promise<Task[]>;"
+      },
+      {
+        "method": "tasks.update",
+        "sinceApiVersion": 1,
+        "permission": "tasks:write",
+        "runtimes": [
+          "node-action",
+          "sandbox-js"
+        ],
+        "platforms": [
+          "server",
+          "desktop-full"
+        ],
+        "maxArgsBytes": 262144,
+        "maxResultBytes": 1048576,
+        "inputSchema": {
+          "type": "object"
+        },
+        "outputSchema": {},
+        "examples": [
+          {
+            "input": {
+              "taskId": "task-id",
+              "isCompleted": true
+            }
+          }
+        ],
+        "sdkSignature": "update(input: { taskId: string; title?: string; description?: string; isCompleted?: boolean; priority?: number; dueDate?: string | null }): Promise<{ id: string }>;"
+      }
+    ]
+  },
+  "contributions": {
+    "contractVersion": 1,
+    "namespaceTemplate": "<pluginId>/<contributionId>",
+    "runtimes": [
+      "declarative",
+      "sandbox-js",
+      "node-action"
+    ],
+    "types": [
+      {
+        "id": "appearances",
+        "since": "2.1",
+        "runtimes": [
+          "declarative",
+          "sandbox-js",
+          "node-action"
+        ],
+        "declarative": true,
+        "description": "Safe semantic appearance tokens rendered by the host"
+      },
+      {
+        "id": "automationTemplates",
+        "since": "2.0",
+        "runtimes": [
+          "declarative",
+          "sandbox-js",
+          "node-action"
+        ],
+        "declarative": true,
+        "description": "Static automation templates installed by explicit user action"
+      },
+      {
+        "id": "commands",
+        "since": "2.0",
+        "runtimes": [
+          "sandbox-js",
+          "node-action"
+        ],
+        "declarative": false,
+        "description": "Command palette and host command registrations"
+      },
+      {
+        "id": "menus",
+        "since": "2.0",
+        "runtimes": [
+          "sandbox-js",
+          "node-action"
+        ],
+        "declarative": false,
+        "description": "Host-owned menu placements referencing declared commands"
+      },
+      {
+        "id": "noteTemplates",
+        "since": "2.1",
+        "runtimes": [
+          "declarative",
+          "sandbox-js",
+          "node-action"
+        ],
+        "declarative": true,
+        "description": "Static note templates rendered/imported by the host"
+      },
+      {
+        "id": "promptPacks",
+        "since": "2.1",
+        "runtimes": [
+          "declarative",
+          "sandbox-js",
+          "node-action"
+        ],
+        "declarative": true,
+        "description": "Static prompt packs with explicit variable schemas"
+      },
+      {
+        "id": "settings",
+        "since": "2.0",
+        "runtimes": [
+          "declarative",
+          "sandbox-js",
+          "node-action"
+        ],
+        "declarative": true,
+        "description": "Host-rendered extension settings"
+      }
+    ],
+    "appearance": {
+      "schemaVersion": 1,
+      "bases": [
+        "default",
+        "macos",
+        "paper",
+        "minimal",
+        "eye-care",
+        "developer",
+        "magazine"
+      ],
+      "editableTokens": [
+        "bg",
+        "surface",
+        "sidebar",
+        "elevated",
+        "border",
+        "hover",
+        "active",
+        "textPrimary",
+        "textSecondary",
+        "textTertiary",
+        "textQuaternary",
+        "accentPrimary",
+        "accentSecondary",
+        "accentWarning",
+        "accentDanger",
+        "accentMuted",
+        "pmText",
+        "pmHeading",
+        "pmCodeBg",
+        "pmCodeText",
+        "pmPreBg",
+        "pmPreBorder",
+        "pmPreText",
+        "pmBlockquoteBorder",
+        "pmBlockquoteText",
+        "pmHr",
+        "pmPlaceholder",
+        "pmTaskDone",
+        "pmScrollbar",
+        "pmScrollbarHover",
+        "pmSelection",
+        "radiusWindow",
+        "radiusCard",
+        "radiusButton",
+        "radiusInput",
+        "fontFamily",
+        "editorFontFamily"
+      ],
+      "fontCategories": [
+        "system",
+        "sans",
+        "serif",
+        "mono"
+      ],
+      "maxAppearancesPerPlugin": 20
+    },
+    "noteTemplate": {
+      "schemaVersion": 1,
+      "maxTemplatesPerPlugin": 100,
+      "maxBodyBytes": 262144
+    },
+    "promptPack": {
+      "schemaVersion": 1,
+      "maxPromptsPerPlugin": 100,
+      "maxPromptBytes": 65536
+    }
+  },
+  "errors": {
+    "contractVersion": 1,
+    "errors": [
+      {
+        "code": "EXTERNAL_FETCH_DENIED",
+        "category": "network",
+        "retryable": false,
+        "description": "Destination is outside the declared network allowlist"
+      },
+      {
+        "code": "HOST_ARGS_TOO_LARGE",
+        "category": "budget",
+        "retryable": false,
+        "description": "Host API arguments exceed the budget"
+      },
+      {
+        "code": "HOST_METHOD_NOT_FOUND",
+        "category": "contract",
+        "retryable": false,
+        "description": "Requested Host API method does not exist"
+      },
+      {
+        "code": "HOST_METHOD_UNSUPPORTED",
+        "category": "contract",
+        "retryable": false,
+        "description": "Host API method is not supported by this API/runtime"
+      },
+      {
+        "code": "HOST_RESULT_TOO_LARGE",
+        "category": "budget",
+        "retryable": false,
+        "description": "Host API result exceeds the budget"
+      },
+      {
+        "code": "INVALID_ARGUMENT",
+        "category": "validation",
+        "retryable": false,
+        "description": "Input does not satisfy the method contract"
+      },
+      {
+        "code": "NETWORK_UNAVAILABLE",
+        "category": "network",
+        "retryable": true,
+        "description": "Network is currently unavailable"
+      },
+      {
+        "code": "PLUGIN_CANCELLED",
+        "category": "runtime",
+        "retryable": false,
+        "description": "Execution was cancelled"
+      },
+      {
+        "code": "PLUGIN_CONTRIBUTION_INVALID",
+        "category": "validation",
+        "retryable": false,
+        "description": "A declarative contribution failed validation"
+      },
+      {
+        "code": "PLUGIN_DECLARATIVE_NOT_EXECUTABLE",
+        "category": "runtime",
+        "retryable": false,
+        "description": "Declarative extensions cannot execute actions"
+      },
+      {
+        "code": "PLUGIN_ERROR",
+        "category": "runtime",
+        "retryable": false,
+        "description": "Unclassified extension failure"
+      },
+      {
+        "code": "PLUGIN_PERMISSION_DENIED",
+        "category": "permission",
+        "retryable": false,
+        "description": "Declared permission is not granted"
+      },
+      {
+        "code": "PLUGIN_PREFLIGHT_FAILED",
+        "category": "lifecycle",
+        "retryable": false,
+        "description": "Extension preflight failed"
+      },
+      {
+        "code": "PLUGIN_TIMEOUT",
+        "category": "runtime",
+        "retryable": true,
+        "description": "Extension execution exceeded its deadline"
+      },
+      {
+        "code": "PLUGIN_V21_FEATURE_DISABLED",
+        "category": "feature-gate",
+        "retryable": false,
+        "description": "V2.1 capability is disabled by the host"
+      },
+      {
+        "code": "RESOURCE_FORBIDDEN",
+        "category": "permission",
+        "retryable": false,
+        "description": "Invoker cannot access the requested resource"
+      },
+      {
+        "code": "RESOURCE_NOT_FOUND",
+        "category": "resource",
+        "retryable": false,
+        "description": "Requested resource does not exist"
+      }
+    ]
+  },
+  "digest": "f5aefa0b719a87cab58a81cb67f5959a3eff817b2b5f5d16e84c8ee5ddbfa56f"
+} as const);
