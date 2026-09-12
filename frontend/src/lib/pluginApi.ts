@@ -29,6 +29,8 @@ export interface InstalledPlugin {
   name: string;
   description: string;
   version: string;
+  runtime: "node-action" | "sandbox-js" | "declarative";
+  executionMode?: "executable" | "declarative-zero-code";
   source: string;
   trustLevel: string;
   status: "quarantined" | "disabled" | "enabled" | "error" | "incompatible";
@@ -41,7 +43,7 @@ export interface InstalledPlugin {
   nodeRuntimeConfirmedAt?: string | null;
   nodeRuntimeConfirmedBy?: string | null;
   compatibility?:
-    | { allowed: true; runner: "node-action" | "sandbox-js" }
+    | { allowed: true; runner: "node-action" | "sandbox-js" | "declarative" }
     | { allowed: false; code: string; reason: string; confirmationRequired?: true };
   updatePolicy?: "manual" | "notify" | "automatic";
   pinnedVersion?: string | null;
