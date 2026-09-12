@@ -16,6 +16,7 @@ import { PluginRegistry } from "./registry.js";
 import { PluginSecrets } from "./secrets.js";
 import { PluginUpdateCoordinator } from "./pluginUpdateCoordinator.js";
 import { isDeclarativePluginManifest, pluginManifestActions, type PluginManifest, type PluginRegistryRecord } from "./types.js";
+import { createNoteFromPluginTemplate } from "./contributions/noteTemplateContribution.js";
 
 function manifestOf(record: PluginRegistryRecord): PluginManifest {
   return JSON.parse(record.manifestJson) as PluginManifest;
@@ -123,6 +124,15 @@ export class PluginService {
     const raw = JSON.parse(fs.readFileSync(target, "utf8")) as { name?: string; description?: string; definition?: unknown; ignoreSync?: boolean; ignoreBulk?: boolean };
     const { getWorkflowService } = await import("../automation/workflowService.js");
     return getWorkflowService().create(userId, { name: raw.name || template.title, description: raw.description || template.description || "", workspaceId: null, ignoreSync: raw.ignoreSync !== false, ignoreBulk: raw.ignoreBulk !== false, definition: raw.definition });
+  }
+
+  createNoteFromTemplateContribution(pluginId: string, templateId: string, userId: string, input: { workspaceId?: string | null; parentId?: string | null; values?: Record<string, unknown> }): Record<string, unknown> {
+    const record = this.requireRecord(pluginId);
+    if (record.status !== "enabled") throw Object.assign(new Error("插件未启用"), { code: "PLUGIN_NOT_ENABLED" });
+    const manifest = manifestOf(record);
+    const template = manifest.apiVersion === 2 ? manifest.contributes?.noteTemplates?.find((item) => item.id === templateId) : undefined;
+    if (!template) throw Object.assign(new Error("Note Template 不存在"), { code: "PLUGIN_TEMPLATE_NOT_FOUND" });
+    return createNoteFromPluginTemplate({ userId, workspaceId: input.workspaceId, parentId: input.parentId || null, template, values: input.values || {} });
   }
 
   async checkUpdates(sourceId: string): Promise<Array<Record<string, unknown>>> {

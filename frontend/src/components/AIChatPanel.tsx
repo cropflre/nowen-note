@@ -39,6 +39,7 @@ import { cn } from "@/lib/utils";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useApp } from "@/store/AppContext";
 import AIKnowledgeScopePicker from "@/components/AIKnowledgeScopePicker";
+import PluginPromptPicker from "@/components/PluginPromptPicker";
 
 interface ChatReference {
   id: string;
@@ -1460,6 +1461,7 @@ export default function AIChatPanel({ onClose, onNavigateToNote }: {
                   <span>{t("aiChat.includeChildren") || "含子笔记本"}</span>
                 </label>
               )}
+              <PluginPromptPicker disabled={isLoading} onSelect={(value) => { setInput(value); requestAnimationFrame(() => inputRef.current?.focus()); }} />
               <span className="ml-auto hidden text-tx-tertiary lg:inline">Enter 发送 · Shift + Enter 换行</span>
             </div>
             <div className="flex items-end gap-2 p-2">

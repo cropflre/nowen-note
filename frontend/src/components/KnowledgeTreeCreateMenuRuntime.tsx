@@ -24,6 +24,8 @@ import {
   type NoteWorkspaceLayoutMode,
 } from "@/lib/noteWorkspaceLayout";
 import { toast } from "@/lib/toast";
+import { getCurrentWorkspace } from "@/lib/api";
+import { pluginApi } from "@/lib/pluginApi";
 import { cn } from "@/lib/utils";
 import { useApp, useAppActions } from "@/store/AppContext";
 
@@ -469,6 +471,13 @@ export function KnowledgeTreePanel(props: KnowledgeTreePanelProps) {
     });
   }, [templatePicker?.parentId]);
 
+  const requestPluginTemplateCreate = useCallback(async (pluginId: string, templateId: string, values: Record<string, unknown>) => {
+    const parentId = templatePicker?.parentId ?? null;
+    await pluginApi.createNoteFromTemplate(pluginId, templateId, { workspaceId: getCurrentWorkspace(), parentId, values });
+    window.dispatchEvent(new CustomEvent(KNOWLEDGE_TREE_CHANGED_EVENT, { detail: { reason: "plugin-template-created", parentId } }));
+    actions.refreshNotebooks(); actions.refreshNotes(); toast.success("已从插件模板创建笔记");
+  }, [actions, templatePicker?.parentId]);
+
   const handleClickCapture = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
     const target = event.target;
     if (!(target instanceof Element)) return;
@@ -513,6 +522,7 @@ export function KnowledgeTreePanel(props: KnowledgeTreePanelProps) {
         open={Boolean(templatePicker)}
         onClose={() => setTemplatePicker(null)}
         onCreate={requestTemplateCreate}
+        onCreatePlugin={requestPluginTemplateCreate}
       />
     </>
   );

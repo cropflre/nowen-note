@@ -15,6 +15,7 @@ import {
   Zap,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import PluginPromptPackSettingsSection from "@/components/settings/PluginPromptPackSettingsSection";
 import {
   aiProfiles,
   emitAIProfilesChanged,
@@ -482,6 +483,7 @@ export default function AISettingsPanel() {
           </div>
         </section>
       </div>
+      <PluginPromptPackSettingsSection />
     </div>
   );
 }

@@ -140,6 +140,12 @@ pluginsRouter.put("/:id/settings", async (c) => {
 pluginsRouter.post("/:id/automation-templates/:templateId/install", async (c) => {
   try { return c.json({ success: true, workflow: await getPluginService().installAutomationTemplate(c.req.param("id"), c.req.param("templateId"), userId(c)) }, 201); } catch (error) { return errorResponse(c, error); }
 });
+pluginsRouter.post("/:id/note-templates/:templateId/create", async (c) => {
+  try {
+    const body = await c.req.json().catch(() => ({})) as { workspaceId?: string | null; parentId?: string | null; values?: Record<string, unknown> };
+    return c.json({ success: true, ...getPluginService().createNoteFromTemplateContribution(c.req.param("id"), c.req.param("templateId"), userId(c), body) }, 201);
+  } catch (error) { return errorResponse(c, error); }
+});
 pluginsRouter.put("/:id/update-policy", requireAdmin, async (c) => {
   try { const body = await c.req.json() as any; return c.json(getPluginService().setUpdatePolicy(c.req.param("id"), body.policy, body.pinnedVersion)); } catch (error) { return errorResponse(c, error); }
 });

@@ -47,7 +47,8 @@ import {
 import { choose, confirm, prompt } from "@/components/ui/confirm";
 import { useContextMenu } from "@/hooks/useContextMenu";
 import { useMobileSidebarControlsCollapsed } from "@/hooks/useMobileSidebarControlsCollapsed";
-import { api } from "@/lib/api";
+import { api, getCurrentWorkspace } from "@/lib/api";
+import { pluginApi } from "@/lib/pluginApi";
 import { noteTemplatesApi } from "@/lib/noteTemplatesApi";
 import { affectedKnowledgeNoteIds } from "@/lib/knowledgeTreeDeleteReconcile";
 import {
@@ -724,6 +725,15 @@ export default function MobileKnowledgeTreePanel({
     }
     toast.success("已从模板创建笔记");
   }, [actions, activateNote, nodes, reload, rememberOpened, templatePicker?.parentId, unlockedFolderIds]);
+
+  const createFromPluginTemplate = useCallback(async (pluginId: string, templateId: string, values: Record<string, unknown>) => {
+    const targetParentId = templatePicker?.parentId ?? null;
+    const result = await pluginApi.createNoteFromTemplate(pluginId, templateId, { workspaceId: getCurrentWorkspace(), parentId: targetParentId, values });
+    emitTreeChanged("plugin-template-created-quick-browse"); await reload(); actions.refreshNotebooks(); actions.refreshNotes();
+    const node = result.node as KnowledgeTreeNode; rememberOpened(node.id);
+    try { activateNote(await api.getNote(result.noteId), targetParentId); } catch (openError: any) { toast.error(openError?.message || "文档已创建，但自动打开失败"); }
+    toast.success("已从插件模板创建笔记");
+  }, [actions, activateNote, reload, rememberOpened, templatePicker?.parentId]);
 
   const rename = async (node: KnowledgeTreeNode) => {
     closeMenu();
@@ -1572,6 +1582,7 @@ export default function MobileKnowledgeTreePanel({
         open={Boolean(templatePicker)}
         onClose={() => setTemplatePicker(null)}
         onCreate={createFromTemplate}
+        onCreatePlugin={createFromPluginTemplate}
       />
     </section>
   );
