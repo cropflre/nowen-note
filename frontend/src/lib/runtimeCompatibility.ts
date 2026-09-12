@@ -1,4 +1,5 @@
 import "../app-appearance.css";
+import "../app-appearance-neutral-compat.css";
 import { bootstrapAppAppearanceRuntime } from "./appAppearance";
 import { installEditorFontAppearanceGuard } from "./editorFontAppearanceGuard";
 import { installLegacyNoteAppearanceNeutralizer } from "./legacyNoteAppearanceNeutralizer";
