@@ -13,6 +13,11 @@ $$;
 
 \ir schema.base.sql
 
+-- Note Appearance Engine metadata. Keep appearance separate from editor content/version while
+-- preserving it across PostgreSQL-backed deployments and schema replays.
+ALTER TABLE notes ADD COLUMN IF NOT EXISTS "themeId" TEXT;
+CREATE INDEX IF NOT EXISTS idx_notes_theme_id ON notes("themeId");
+
 ALTER TABLE tasks ADD COLUMN IF NOT EXISTS "estimatedMinutes" INTEGER;
 ALTER TABLE task_reminders ADD COLUMN IF NOT EXISTS "timezoneOffsetMinutes" INTEGER;
 
