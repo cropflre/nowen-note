@@ -61,8 +61,6 @@ test.before(async () => {
   closeDb = schemaModule.closeDb;
 
   app = new Hono();
-  // note-appearance patches the canonical /api/notes mount so the metadata capability is installed
-  // in exactly the same order as production index.hardened.ts.
   app.route("/api/notes", notesModule.default);
 });
 
@@ -81,8 +79,10 @@ test.after(async () => {
   }
 });
 
-test("default theme is inheritance metadata and publisher ids are strictly normalized", () => {
-  assert.equal(normalizeNoteThemeId(defaultThemeId), null);
+test("inheritance is NULL while explicit Nowen Default remains a valid appearance id", () => {
+  assert.equal(normalizeNoteThemeId(null), null);
+  assert.equal(normalizeNoteThemeId(""), null);
+  assert.equal(normalizeNoteThemeId(defaultThemeId), "default");
   assert.equal(normalizeNoteThemeId(" Publisher.Paper-V2 "), "publisher.paper-v2");
   assert.equal(normalizeNoteThemeId("https://evil.example/theme.css"), null);
   assert.equal(normalizeNoteThemeId("theme id with spaces"), null);
@@ -90,10 +90,10 @@ test("default theme is inheritance metadata and publisher ids are strictly norma
   assert.equal(normalizeNoteThemeId("a".repeat(97)), null);
 });
 
-test("appearance defaults to Nowen theme and persists independently from note content version", async () => {
+test("appearance starts in inherit mode and persists independently from note content version", async () => {
   const initial = await app.request(`/api/note-appearance/${NOTE_ID}`, { headers: headers() });
   assert.equal(initial.status, 200);
-  assert.deepEqual(await initial.json(), { noteId: NOTE_ID, themeId: defaultThemeId });
+  assert.deepEqual(await initial.json(), { noteId: NOTE_ID, themeId: null });
 
   const before = db().prepare("SELECT content, version FROM notes WHERE id = ?").get(NOTE_ID) as {
     content: string;
@@ -103,11 +103,11 @@ test("appearance defaults to Nowen theme and persists independently from note co
   const response = await app.request(`/api/note-appearance/${NOTE_ID}`, {
     method: "PUT",
     headers: headers(),
-    body: JSON.stringify({ themeId: "nowen.paper" }),
+    body: JSON.stringify({ themeId: "paper" }),
   });
   assert.equal(response.status, 200, await response.text());
   const payload = await response.json() as { noteId: string; themeId: string; updated: boolean };
-  assert.equal(payload.themeId, "nowen.paper");
+  assert.equal(payload.themeId, "paper");
   assert.equal(payload.updated, true);
 
   const after = db().prepare("SELECT themeId, content, version FROM notes WHERE id = ?").get(NOTE_ID) as {
@@ -115,25 +115,40 @@ test("appearance defaults to Nowen theme and persists independently from note co
     content: string;
     version: number;
   };
-  assert.equal(after.themeId, "nowen.paper");
+  assert.equal(after.themeId, "paper");
   assert.equal(after.content, before.content);
   assert.equal(after.version, before.version);
 });
 
-test("restoring default stores NULL and invalid theme ids fail closed", async () => {
-  db().prepare("UPDATE notes SET themeId = 'nowen.night' WHERE id = ?").run(NOTE_ID);
-
-  const reset = await app.request(`/api/note-appearance/${NOTE_ID}`, {
+test("explicit Nowen Default is distinct from following the account appearance setting", async () => {
+  const explicitDefault = await app.request(`/api/note-appearance/${NOTE_ID}`, {
     method: "PUT",
     headers: headers(),
     body: JSON.stringify({ themeId: defaultThemeId }),
   });
-  assert.equal(reset.status, 200);
+  assert.equal(explicitDefault.status, 200);
+  assert.equal(
+    (db().prepare("SELECT themeId FROM notes WHERE id = ?").get(NOTE_ID) as { themeId: string | null }).themeId,
+    "default",
+  );
+
+  const inherit = await app.request(`/api/note-appearance/${NOTE_ID}`, {
+    method: "PUT",
+    headers: headers(),
+    body: JSON.stringify({ themeId: null }),
+  });
+  assert.equal(inherit.status, 200);
   assert.equal(
     (db().prepare("SELECT themeId FROM notes WHERE id = ?").get(NOTE_ID) as { themeId: string | null }).themeId,
     null,
   );
+});
 
+test("invalid appearance ids fail closed without changing note content or version", async () => {
+  const before = db().prepare("SELECT content, version FROM notes WHERE id = ?").get(NOTE_ID) as {
+    content: string;
+    version: number;
+  };
   const invalid = await app.request(`/api/note-appearance/${NOTE_ID}`, {
     method: "PUT",
     headers: headers(),
@@ -142,4 +157,13 @@ test("restoring default stores NULL and invalid theme ids fail closed", async ()
   assert.equal(invalid.status, 400);
   const invalidPayload = await invalid.json() as { code: string };
   assert.equal(invalidPayload.code, "INVALID_THEME_ID");
+
+  const after = db().prepare("SELECT content, version, themeId FROM notes WHERE id = ?").get(NOTE_ID) as {
+    content: string;
+    version: number;
+    themeId: string | null;
+  };
+  assert.equal(after.content, before.content);
+  assert.equal(after.version, before.version);
+  assert.equal(after.themeId, null);
 });
