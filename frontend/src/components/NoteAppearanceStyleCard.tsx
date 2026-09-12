@@ -1,6 +1,11 @@
 import { Check } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { NoteThemeDefinition, NoteThemeMode } from "@/lib/noteTheme";
+import type {
+  NoteThemeDefinition,
+  NoteThemeMode,
+  NoteThemePreviewKind,
+  NoteThemeTokens,
+} from "@/lib/noteTheme";
 
 interface NoteAppearanceStyleCardProps {
   theme: NoteThemeDefinition;
@@ -13,14 +18,15 @@ interface NoteAppearanceStyleCardProps {
 }
 
 function PreviewContent({
-  theme,
+  previewKind,
+  tokens,
   language,
 }: {
-  theme: NoteThemeDefinition;
+  previewKind: NoteThemePreviewKind;
+  tokens: NoteThemeTokens;
   language: "zh" | "en";
 }) {
-  const tokens = theme.modes.light;
-  if (theme.previewKind === "code") {
+  if (previewKind === "code") {
     return (
       <div className="h-full rounded-md px-2 py-1.5" style={{ background: tokens.surface }}>
         <div className="flex items-center justify-between gap-2">
@@ -35,7 +41,7 @@ function PreviewContent({
     );
   }
 
-  if (theme.previewKind === "magazine") {
+  if (previewKind === "magazine") {
     return (
       <div className="h-full rounded-md px-2.5 py-1.5" style={{ background: tokens.surface }}>
         <div className="text-[7px] font-semibold tracking-[0.18em] uppercase" style={{ color: tokens.accent }}>
@@ -89,7 +95,7 @@ export default function NoteAppearanceStyleCard({
         className={cn(compact ? "h-16 p-2" : "h-24 p-3")}
         style={{ background: tokens.softBackground }}
       >
-        <PreviewContent theme={{ ...theme, modes: { ...theme.modes, light: tokens } }} language={language} />
+        <PreviewContent previewKind={theme.previewKind} tokens={tokens} language={language} />
       </div>
       <div className={cn("bg-app-surface", compact ? "px-2.5 py-2" : "px-3 py-2.5")}>
         <div className="flex items-center gap-1.5 text-xs font-medium text-tx-primary">
