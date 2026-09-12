@@ -1,0 +1,50 @@
+name: Extension V2.1 Declarative Bootstrap
+
+on:
+  push:
+    branches: [release/v1.5.0]
+    paths: [".github/workflows/extension-v2-1-declarative-bootstrap.yml"]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Integrate declarative lifecycle into PluginService
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("backend/src/plugins/pluginService.ts")
+          s = p.read_text()
+          replacements = [
+            ('import type { PluginManifest, PluginRegistryRecord } from "./types.js";',
+             'import { isDeclarativePluginManifest, pluginManifestActions, type PluginManifest, type PluginRegistryRecord } from "./types.js";'),
+            ('return manifest.actions.map((action) => ({',
+             'return pluginManifestActions(manifest).map((action) => ({'),
+            ('record = this.installer.moveToInstalled(record);\n    await this.executions.restart(pluginId);\n    try {',
+             'record = this.installer.moveToInstalled(record);\n    const declarative = isDeclarativePluginManifest(manifest);\n    if (!declarative) await this.executions.restart(pluginId);\n    try {'),
+            ('this.lifecycle.activateInstalled(pluginId);',
+             'this.lifecycle.activateInstalled(pluginId, declarative ? 1 : 5);\n        if (declarative) this.lifecycle.completeProbationExecution(pluginId);'),
+            ('const manifest = manifestOf(record);\n    const action = manifest.actions.find((candidate) => candidate.id === actionId);',
+             'const manifest = manifestOf(record);\n    if (isDeclarativePluginManifest(manifest)) throw Object.assign(new Error("声明式插件不执行 Action"), { code: "PLUGIN_DECLARATIVE_NOT_EXECUTABLE" });\n    const action = pluginManifestActions(manifest).find((candidate) => candidate.id === actionId);'),
+            ('      apiVersion: record.apiVersion,\n      source: record.source,',
+             '      apiVersion: record.apiVersion,\n      runtime: manifest.runtime,\n      executionMode: isDeclarativePluginManifest(manifest) ? "declarative-zero-code" : "executable",\n      source: record.source,'),
+            ('      actions: manifest.actions,',
+             '      actions: pluginManifestActions(manifest),'),
+          ]
+          for old, new in replacements:
+            if old not in s:
+              raise SystemExit(f"expected PluginService fragment not found: {old[:80]}")
+            s = s.replace(old, new, 1)
+          p.write_text(s)
+          PY
+      - name: Commit service integration
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add backend/src/plugins/pluginService.ts
+          git commit -m "feat(extensions): add declarative extension runtime"
+          git push origin HEAD:release/v1.5.0
