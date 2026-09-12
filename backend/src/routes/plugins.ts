@@ -2,7 +2,9 @@ import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import crypto from "node:crypto";
 import { isSystemAdmin, requireAdmin } from "../middleware/acl.js";
+import { getExtensionPlatformFeatureFlags } from "../plugins/featureFlags.js";
 import { getPluginService } from "../plugins/pluginService.js";
+import { EXTENSION_V21_TARGET_NOWEN_VERSION, NOWEN_VERSION } from "../plugins/types.js";
 
 const pluginsRouter = new Hono();
 
@@ -33,6 +35,11 @@ pluginsRouter.get("/", (c) => {
   return c.json(getPluginService().list(isSystemAdmin(actor)));
 });
 
+pluginsRouter.get("/features", (c) => c.json({
+  ...getExtensionPlatformFeatureFlags(),
+  currentNowenVersion: NOWEN_VERSION,
+  targetNowenVersion: EXTENSION_V21_TARGET_NOWEN_VERSION,
+}));
 pluginsRouter.get("/actions", (c) => c.json(getPluginService().listActions()));
 pluginsRouter.get("/contributions", (c) => c.json(getPluginService().contributions()));
 pluginsRouter.get("/ecosystem/sources", (c) => c.json(getPluginService().ecosystem.listSources()));
