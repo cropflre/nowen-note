@@ -53,10 +53,10 @@ describe("user preference account cache", () => {
         readingDensity: "compact",
         editorFontSize: 22,
         codeBlockTheme: "nord",
-        noteTheme: "paper",
+        noteTheme: "developer",
       },
       revision: 3,
-      pending: { readingDensity: "compact", editorFontSize: 22, codeBlockTheme: "nord", noteTheme: "paper" },
+      pending: { readingDensity: "compact", editorFontSize: 22, codeBlockTheme: "nord", noteTheme: "developer" },
     });
     writeAccountPreferenceCache(storage, {
       version: 2,
@@ -74,7 +74,7 @@ describe("user preference account cache", () => {
     expect(readAccountPreferenceCache(storage, "user-a")?.prefs.readingDensity).toBe("compact");
     expect(readAccountPreferenceCache(storage, "user-a")?.prefs.editorFontSize).toBe(22);
     expect(readAccountPreferenceCache(storage, "user-a")?.prefs.codeBlockTheme).toBe("nord");
-    expect(readAccountPreferenceCache(storage, "user-a")?.prefs.noteTheme).toBe("paper");
+    expect(readAccountPreferenceCache(storage, "user-a")?.prefs.noteTheme).toBe("developer");
     expect(readAccountPreferenceCache(storage, "user-a")?.prefs.enableNoteTabs).toBe(false);
     expect(readAccountPreferenceCache(storage, "user-b")?.prefs.enableNoteTabs).toBe(true);
     expect(readAccountPreferenceCache(storage, "user-b")?.prefs.defaultEditorMode).toBe("md");
@@ -123,12 +123,12 @@ describe("user preference account cache", () => {
       enableNoteTabs: true,
       editorFontSize: 20,
       codeBlockTheme: "nord",
-      noteTheme: "minimal",
+      noteTheme: "magazine",
       apiKey: "secret",
       token: "secret-token",
     });
 
-    expect(patch).toEqual({ enableNoteTabs: true, editorFontSize: 20, codeBlockTheme: "nord", noteTheme: "minimal" });
+    expect(patch).toEqual({ enableNoteTabs: true, editorFontSize: 20, codeBlockTheme: "nord", noteTheme: "magazine" });
     expect(JSON.stringify(patch)).not.toContain("secret");
   });
 
@@ -154,7 +154,7 @@ describe("user preference account cache", () => {
     expect(readAccountPreferenceCache(storage, "user-b")?.pending.editorFontSize).toBe(0);
   });
 
-  it("falls back to the default note theme for unknown theme identifiers", () => {
+  it("falls back to the default appearance style for unknown identifiers", () => {
     const storage = new MemoryStorage();
     storage.setItem(accountPreferenceStorageKey("user-a"), JSON.stringify({
       version: 2,
