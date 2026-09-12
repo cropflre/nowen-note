@@ -15,7 +15,7 @@ import { PluginPermissions } from "./permissions.js";
 import { PluginRegistry } from "./registry.js";
 import { PluginSecrets } from "./secrets.js";
 import { PluginUpdateCoordinator } from "./pluginUpdateCoordinator.js";
-import type { PluginManifest, PluginRegistryRecord } from "./types.js";
+import { isDeclarativePluginManifest, pluginManifestActions, type PluginManifest, type PluginRegistryRecord } from "./types.js";
 
 function manifestOf(record: PluginRegistryRecord): PluginManifest {
   return JSON.parse(record.manifestJson) as PluginManifest;
@@ -70,7 +70,7 @@ export class PluginService {
     return this.registry.list().flatMap((record) => {
       if (record.status !== "enabled") return [];
       const manifest = manifestOf(record);
-      return manifest.actions.map((action) => ({
+      return pluginManifestActions(manifest).map((action) => ({
         pluginId: record.id,
         actionId: action.id,
         name: action.name,
@@ -329,7 +329,8 @@ export class PluginService {
     if (!this.permissions.allDeclaredGranted(pluginId)) throw new Error("必须先确认并授予插件声明的全部权限");
     if (!fs.existsSync(record.installedPath)) throw new Error("插件目录不存在");
     record = this.installer.moveToInstalled(record);
-    await this.executions.restart(pluginId);
+    const declarative = isDeclarativePluginManifest(manifest);
+    if (!declarative) await this.executions.restart(pluginId);
     try {
       if (record.lifecycleState === "probation") {
         await this.executions.preflight(pluginId);
@@ -340,7 +341,8 @@ export class PluginService {
       await this.executions.preflight(pluginId);
       const afterPreflight = this.registry.get(pluginId)!;
       if (afterPreflight.lifecycleState === "preflight") {
-        this.lifecycle.activateInstalled(pluginId);
+        this.lifecycle.activateInstalled(pluginId, declarative ? 1 : 5);
+        if (declarative) this.lifecycle.completeProbationExecution(pluginId);
       } else {
         this.registry.setStatus(pluginId, "enabled");
         this.registry.markCurrentVersion(pluginId, "stable", true);
@@ -449,7 +451,8 @@ export class PluginService {
     const record = this.requireRecord(pluginId);
     if (record.status !== "enabled") throw Object.assign(new Error(`插件当前状态为 ${record.status}`), { code: "PLUGIN_NOT_ENABLED" });
     const manifest = manifestOf(record);
-    const action = manifest.actions.find((candidate) => candidate.id === actionId);
+    if (isDeclarativePluginManifest(manifest)) throw Object.assign(new Error("声明式插件不执行 Action"), { code: "PLUGIN_DECLARATIVE_NOT_EXECUTABLE" });
+    const action = pluginManifestActions(manifest).find((candidate) => candidate.id === actionId);
     if (!action) throw Object.assign(new Error("Action 不存在"), { code: "PLUGIN_ACTION_NOT_FOUND" });
     const validated = validateActionInput(action, input);
     const timeoutMs = action.execution === "background" ? 30_000 : 10_000;
@@ -474,6 +477,8 @@ export class PluginService {
       description: manifest.description,
       version: record.version,
       apiVersion: record.apiVersion,
+      runtime: manifest.runtime,
+      executionMode: isDeclarativePluginManifest(manifest) ? "declarative-zero-code" : "executable",
       source: record.source,
       trustLevel: record.trustLevel,
       status: record.status,
@@ -513,7 +518,7 @@ export class PluginService {
       contributes: manifest.apiVersion === 2 ? manifest.contributes || {} : {},
       platforms: manifest.apiVersion === 2 ? manifest.platforms || manifest.runtimePlatform || [] : [],
       connections: manifest.connections || [],
-      actions: manifest.actions,
+      actions: pluginManifestActions(manifest),
       permissions: this.permissions.list(record.id),
     };
   }
