@@ -16,25 +16,43 @@ function projectedAppearanceFont(root: HTMLElement): string {
   return getAppAppearance(appearanceId).modes[resolveAppAppearanceMode(root)].editorFontFamily.trim();
 }
 
+export function resolveEditorFontGuardState(
+  currentFont: string,
+  appearanceFont: string,
+  previousProtectedFont: string,
+): { protectedFont: string; restoreFont: string | null } {
+  const current = currentFont.trim();
+  const projected = appearanceFont.trim();
+  const protectedFont = previousProtectedFont.trim();
+
+  // SiteSettings writes the explicit editor font to the same root property. Any non-empty value
+  // that differs from the appearance projection becomes the protected source of truth.
+  if (current && current !== projected) {
+    return { protectedFont: current, restoreFont: null };
+  }
+
+  // Appearance switching/theme-mode switching may replace or clear the property. Restore the latest
+  // explicit SiteSettings value once one has been observed.
+  if (protectedFont && current !== protectedFont) {
+    return { protectedFont, restoreFont: protectedFont };
+  }
+
+  return { protectedFont, restoreFont: null };
+}
+
 function reconcile(root: HTMLElement): void {
   if (reconciling) return;
   reconciling = true;
   try {
-    const current = root.style.getPropertyValue("--editor-font-family").trim();
-    const appearanceFont = projectedAppearanceFont(root);
-
-    // SiteSettings writes the explicit editor font to the same root property. Any non-empty value
-    // that is not the currently projected appearance font is therefore the user's/site setting and
-    // becomes the protected source of truth.
-    if (current && current !== appearanceFont) {
-      protectedEditorFont = current;
-      return;
-    }
-
-    // App Appearance may temporarily replace/clear the property while styles or theme mode switch.
-    // Restore the explicit editor font before the next paint once we have observed one.
-    if (protectedEditorFont && current !== protectedEditorFont) {
-      root.style.setProperty("--editor-font-family", protectedEditorFont);
+    const current = root.style.getPropertyValue("--editor-font-family");
+    const next = resolveEditorFontGuardState(
+      current,
+      projectedAppearanceFont(root),
+      protectedEditorFont,
+    );
+    protectedEditorFont = next.protectedFont;
+    if (next.restoreFont) {
+      root.style.setProperty("--editor-font-family", next.restoreFont);
     }
   } finally {
     reconciling = false;
