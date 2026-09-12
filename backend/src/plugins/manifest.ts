@@ -1,5 +1,6 @@
 import path from "node:path";
 import { z } from "zod";
+import { isExtensionV21Enabled } from "./featureFlags.js";
 import { isV2SupportedPluginPermission } from "./hostApiContract.js";
 import { NOWEN_VERSION, PLUGIN_PERMISSIONS, type PluginActionManifest, type PluginManifest, type PluginManifestV1, type PluginManifestV2 } from "./types.js";
 
@@ -49,31 +50,19 @@ export const pluginManifestV1Schema = z.object({
   connections: z.array(connectionSchema).max(20).optional(),
   output: z.record(z.unknown()).optional(),
   permissions: z.array(z.enum(PLUGIN_PERMISSIONS)).max(32).default([]),
-  permissionConfig: z.object({
-    externalFetchHosts: z.array(z.string().min(1).max(253)).max(50).optional(),
-  }).strict().optional(),
+  permissionConfig: z.object({ externalFetchHosts: z.array(z.string().min(1).max(253)).max(50).optional() }).strict().optional(),
   actions: z.array(actionSchema).min(1).max(50),
   events: z.array(z.string().min(1).max(100)).max(50).optional(),
   eventHandlers: z.array(z.object({ event: z.string().min(1).max(100), action: z.string().min(1).max(64) }).strict()).max(50).optional(),
 }).strict().superRefine((manifest, ctx) => {
-  if (new Set(manifest.actions.map((action) => action.id)).size !== manifest.actions.length) {
-    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["actions"], message: "Action id 不能重复" });
-  }
-  if (manifest.connections && new Set(manifest.connections.map((connection) => connection.id)).size !== manifest.connections.length) {
-    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["connections"], message: "Connection id 不能重复" });
-  }
-  if (manifest.connections?.length && !manifest.permissions.includes("secrets:use")) {
-    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["permissions"], message: "声明 connections 必须请求 secrets:use" });
-  }
+  if (new Set(manifest.actions.map((action) => action.id)).size !== manifest.actions.length) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["actions"], message: "Action id 不能重复" });
+  if (manifest.connections && new Set(manifest.connections.map((connection) => connection.id)).size !== manifest.connections.length) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["connections"], message: "Connection id 不能重复" });
+  if (manifest.connections?.length && !manifest.permissions.includes("secrets:use")) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["permissions"], message: "声明 connections 必须请求 secrets:use" });
   for (const connection of manifest.connections || []) {
-    if (connection.type === "api-key-header" && connection.headerName && /^(authorization|cookie|proxy-authorization)$/i.test(connection.headerName)) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["connections", connection.id, "headerName"], message: "API Key Header 名称不安全" });
-    }
+    if (connection.type === "api-key-header" && connection.headerName && /^(authorization|cookie|proxy-authorization)$/i.test(connection.headerName)) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["connections", connection.id, "headerName"], message: "API Key Header 名称不安全" });
   }
   const normalized = manifest.main.replace(/\\/g, "/");
-  if (path.posix.isAbsolute(normalized) || normalized.split("/").includes("..")) {
-    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["main"], message: "main 必须位于插件目录内" });
-  }
+  if (path.posix.isAbsolute(normalized) || normalized.split("/").includes("..")) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["main"], message: "main 必须位于插件目录内" });
 });
 
 const commandSchema = z.object({ id: z.string().regex(/^[a-z0-9]+(?:[.-][a-z0-9]+)+$/), title: z.string().min(1).max(100), action: z.string().min(1).max(64), category: z.string().max(50).optional() }).strict();
@@ -88,41 +77,59 @@ const settingSchema = z.object({
 }).strict();
 const automationTemplateSchema = z.object({ id: z.string().regex(/^[a-z][a-z0-9-]{0,63}$/), title: z.string().min(1).max(100), file: z.string().min(1).max(300), description: z.string().max(500).optional() }).strict();
 
-export const pluginManifestV2Schema = z.object({
+const v2BaseShape = {
   id: z.string().regex(/^[a-z0-9]+(?:[.-][a-z0-9]+)+$/).max(150),
   name: z.string().min(1).max(100), description: z.string().max(1000).default(""),
   version: z.string().regex(/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/), apiVersion: z.literal(2),
   publisher: z.string().regex(/^[a-z0-9][a-z0-9-]{1,63}$/), engines: z.object({ nowen: z.string().min(1).max(100) }).strict(),
-  runtime: z.enum(["sandbox-js", "node-action"]), main: z.string().min(1).max(300),
   categories: z.array(z.string().min(1).max(50)).min(1).max(10), keywords: z.array(z.string().min(1).max(50)).max(20).optional(),
   repository: z.string().url(), homepage: z.string().url().optional(), license: z.string().min(1).max(100),
   icon: z.string().min(1).max(300).optional(), screenshots: z.array(z.string().min(1).max(300)).max(10).optional(),
   platforms: z.array(z.enum(["server", "desktop-full"])).min(1).max(2).optional(),
   runtimePlatform: z.array(z.enum(["server", "desktop-full"])).min(1).max(2).optional(),
   uiPlatform: z.array(z.enum(["web", "desktop", "android", "ios"])).max(4).optional(),
-  connections: z.array(connectionSchema).max(20).optional(), output: z.record(z.unknown()).optional(),
-  permissions: z.array(z.enum(PLUGIN_PERMISSIONS)).max(32).default([]),
+  output: z.record(z.unknown()).optional(),
   permissionConfig: z.object({ externalFetchHosts: z.array(z.string().min(1).max(253)).max(50).optional() }).strict().optional(),
+  extensionDependencies: z.record(z.string().min(1).max(100)).optional(),
+};
+
+const executableContributesSchema = z.object({
+  commands: z.array(commandSchema).max(100).optional(), menus: z.array(menuSchema).max(100).optional(),
+  settings: z.array(settingSchema).max(100).optional(), automationTemplates: z.array(automationTemplateSchema).max(50).optional(),
+}).strict().optional();
+
+const declarativeContributesSchema = z.object({
+  settings: z.array(settingSchema).max(100).optional(),
+  automationTemplates: z.array(automationTemplateSchema).max(50).optional(),
+}).strict().superRefine((contributes, ctx) => {
+  if (!(contributes.settings?.length || contributes.automationTemplates?.length)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: "声明式插件必须至少提供一个静态 Contribution" });
+  }
+});
+
+const executableV2Schema = z.object({
+  ...v2BaseShape,
+  runtime: z.enum(["sandbox-js", "node-action"]), main: z.string().min(1).max(300),
+  connections: z.array(connectionSchema).max(20).optional(),
+  permissions: z.array(z.enum(PLUGIN_PERMISSIONS)).max(32).default([]),
   actions: z.array(actionSchema).min(1).max(50), events: z.array(z.string().min(1).max(100)).max(50).optional(),
   eventHandlers: z.array(z.object({ event: z.string().min(1).max(100), action: z.string().min(1).max(64) }).strict()).max(50).optional(),
-  contributes: z.object({
-    commands: z.array(commandSchema).max(100).optional(), menus: z.array(menuSchema).max(100).optional(),
-    settings: z.array(settingSchema).max(100).optional(), automationTemplates: z.array(automationTemplateSchema).max(50).optional(),
-  }).strict().optional(),
-  extensionDependencies: z.record(z.string().min(1).max(100)).optional(),
-}).strict().superRefine((manifest, ctx) => {
+  contributes: executableContributesSchema,
+}).strict();
+
+const declarativeV2Schema = z.object({
+  ...v2BaseShape,
+  runtime: z.literal("declarative"),
+  permissions: z.array(z.enum(PLUGIN_PERMISSIONS)).max(0).default([]),
+  contributes: declarativeContributesSchema,
+}).strict();
+
+export const pluginManifestV2Schema = z.union([executableV2Schema, declarativeV2Schema]).superRefine((manifest, ctx) => {
   if (!manifest.id.startsWith(`${manifest.publisher}.`)) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["id"], message: "插件 ID 必须位于 Publisher namespace" });
   for (const [index, permission] of manifest.permissions.entries()) {
-    if (!isV2SupportedPluginPermission(permission)) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["permissions", index],
-        message: permission === "attachments:write"
-          ? "Plugin API V2 不支持 attachments:write"
-          : `Plugin API V2 不支持权限 ${permission}`,
-      });
-    }
+    if (!isV2SupportedPluginPermission(permission)) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["permissions", index], message: permission === "attachments:write" ? "Plugin API V2 不支持 attachments:write" : `Plugin API V2 不支持权限 ${permission}` });
   }
+  if (manifest.runtime === "declarative") return;
   if (new Set(manifest.actions.map((action) => action.id)).size !== manifest.actions.length) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["actions"], message: "Action id 不能重复" });
   const actionIds = new Set(manifest.actions.map((action) => action.id));
   for (const command of manifest.contributes?.commands || []) if (!actionIds.has(command.action)) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["contributes", "commands"], message: `Command Action 不存在: ${command.action}` });
@@ -141,13 +148,11 @@ function parseVersion(value: string): [number, number, number] | null {
 }
 
 function compareVersion(a: [number, number, number], b: [number, number, number]): number {
-  for (let index = 0; index < 3; index += 1) {
-    if (a[index] !== b[index]) return a[index] - b[index];
-  }
+  for (let index = 0; index < 3; index += 1) if (a[index] !== b[index]) return a[index] - b[index];
   return 0;
 }
 
-/** V1 支持常见的 >=x.y.z、>、<=、< 和空格 AND 组合。 */
+/** 支持常见的 >=x.y.z、>、<=、< 和空格 AND 组合。 */
 export function nowenVersionSatisfies(range: string, current = NOWEN_VERSION): boolean {
   const actual = parseVersion(current);
   if (!actual) return false;
@@ -171,24 +176,30 @@ export function nowenVersionSatisfies(range: string, current = NOWEN_VERSION): b
   });
 }
 
-export function parsePluginManifest(value: unknown): PluginManifest {
+export interface ParsePluginManifestOptions {
+  currentVersion?: string;
+  extensionsV21?: boolean;
+}
+
+export function parsePluginManifest(value: unknown, options: ParsePluginManifestOptions = {}): PluginManifest {
   const apiVersion = Number((value as { apiVersion?: unknown } | null)?.apiVersion);
   const manifest = (apiVersion === 1 ? pluginManifestV1Schema.parse(value) : apiVersion === 2 ? pluginManifestV2Schema.parse(value) : (() => { throw new Error(`不支持 Plugin API V${apiVersion || "unknown"}`); })()) as PluginManifest;
-  if (!nowenVersionSatisfies(manifest.engines.nowen)) {
-    throw new Error(`插件要求 Nowen ${manifest.engines.nowen}，当前版本为 ${NOWEN_VERSION}`);
+  if (manifest.apiVersion === 2 && manifest.runtime === "declarative") {
+    if (!(options.extensionsV21 ?? isExtensionV21Enabled())) throw Object.assign(new Error("声明式 Extension 当前未启用"), { code: "PLUGIN_V21_FEATURE_DISABLED" });
+    if (!nowenVersionSatisfies(manifest.engines.nowen, "1.6.0") || nowenVersionSatisfies(manifest.engines.nowen, "1.5.0")) {
+      throw Object.assign(new Error("声明式 Extension 必须要求 engines.nowen >=1.6.0"), { code: "PLUGIN_NOWEN_INCOMPATIBLE" });
+    }
   }
+  const currentVersion = options.currentVersion || NOWEN_VERSION;
+  if (!nowenVersionSatisfies(manifest.engines.nowen, currentVersion)) throw new Error(`插件要求 Nowen ${manifest.engines.nowen}，当前版本为 ${currentVersion}`);
   return manifest;
 }
 
 export function validateActionInput(action: PluginActionManifest, input: unknown): Record<string, unknown> {
-  if (!input || typeof input !== "object" || Array.isArray(input)) {
-    throw new Error("Action input 必须是对象");
-  }
+  if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error("Action input 必须是对象");
   const result = input as Record<string, unknown>;
   const declared = action.input || {};
-  for (const key of Object.keys(result)) {
-    if (!declared[key]) throw new Error(`未知参数: ${key}`);
-  }
+  for (const key of Object.keys(result)) if (!declared[key]) throw new Error(`未知参数: ${key}`);
   for (const [key, field] of Object.entries(declared)) {
     const value = result[key];
     if (value === undefined || value === null) {
