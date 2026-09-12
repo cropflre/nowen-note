@@ -9,6 +9,7 @@ import {
   readStoredAppAppearance,
   type AppAppearanceId,
 } from "@/lib/appAppearance";
+import { installLegacyNoteAppearanceNeutralizer } from "@/lib/legacyNoteAppearanceNeutralizer";
 
 /**
  * App 外观风格与 Light / Dark / System 是正交维度。
@@ -20,8 +21,9 @@ export type Skin = AppAppearanceId;
 export const SKIN_STORAGE_KEY = APP_APPEARANCE_STORAGE_KEY;
 
 // SkinSwitcher 随主应用模块一同加载；在 React 首次绘制前先恢复持久化风格，并安装
-// Light/Dark 与多标签页同步监听，避免只有打开设置页后主题才生效。
+// Light/Dark、多标签页同步，以及旧笔记主题投影的兼容隔离。
 bootstrapAppAppearanceRuntime();
+installLegacyNoteAppearanceNeutralizer();
 
 export function useSkin(): {
   skin: Skin;
