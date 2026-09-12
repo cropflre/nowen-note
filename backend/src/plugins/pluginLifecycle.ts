@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import { getDb } from "../db/schema.js";
-import type { PluginLifecycleState, PluginManifest, PluginRegistryRecord, PluginUpdateStage, PluginVersionRecord } from "./types.js";
+import { pluginManifestMain, type PluginLifecycleState, type PluginManifest, type PluginRegistryRecord, type PluginUpdateStage, type PluginVersionRecord } from "./types.js";
 
 const ALLOWED_TRANSITIONS: Readonly<Record<PluginLifecycleState, readonly PluginLifecycleState[]>> = Object.freeze({
   installed: ["preflight"],
@@ -124,7 +124,7 @@ export class PluginLifecycle {
           manifest.version,
           manifest.apiVersion,
           manifest.runtime,
-          manifest.main,
+          pluginManifestMain(manifest),
           target.source,
           target.trustLevel,
           target.checksum,
@@ -308,7 +308,7 @@ export class PluginLifecycle {
           manifest.version,
           manifest.apiVersion,
           manifest.runtime,
-          manifest.main,
+          pluginManifestMain(manifest),
           previous.source,
           previous.trustLevel,
           previous.checksum,

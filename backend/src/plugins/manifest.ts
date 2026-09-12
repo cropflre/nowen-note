@@ -105,6 +105,9 @@ const declarativeContributesSchema = z.object({
   if (!(contributes.settings?.length || contributes.automationTemplates?.length)) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, message: "声明式插件必须至少提供一个静态 Contribution" });
   }
+  if (contributes.settings?.some((setting) => setting.secret)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["settings"], message: "声明式插件不能声明 Secret Setting" });
+  }
 });
 
 const executableV2Schema = z.object({
@@ -129,7 +132,10 @@ export const pluginManifestV2Schema = z.union([executableV2Schema, declarativeV2
   for (const [index, permission] of manifest.permissions.entries()) {
     if (!isV2SupportedPluginPermission(permission)) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["permissions", index], message: permission === "attachments:write" ? "Plugin API V2 不支持 attachments:write" : `Plugin API V2 不支持权限 ${permission}` });
   }
-  if (manifest.runtime === "declarative") return;
+  if (manifest.runtime === "declarative") {
+    if (manifest.permissionConfig) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["permissionConfig"], message: "声明式插件不能声明权限配置" });
+    return;
+  }
   if (new Set(manifest.actions.map((action) => action.id)).size !== manifest.actions.length) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["actions"], message: "Action id 不能重复" });
   const actionIds = new Set(manifest.actions.map((action) => action.id));
   for (const command of manifest.contributes?.commands || []) if (!actionIds.has(command.action)) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["contributes", "commands"], message: `Command Action 不存在: ${command.action}` });

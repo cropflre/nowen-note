@@ -471,6 +471,7 @@ export class PluginService {
     const previous = record.previousVersion ? this.registry.getVersion(record.id, record.previousVersion) : undefined;
     const previousManifest = previous ? JSON.parse(previous.manifestJson) as PluginManifest : undefined;
     const previousPermissions = new Set(previousManifest?.permissions || []);
+    const currentPermissions = new Set(manifest.permissions);
     return {
       id: record.id,
       name: record.name,
@@ -494,7 +495,7 @@ export class PluginService {
       versions: this.listVersions(record.id),
       permissionDiff: previousManifest ? {
         added: manifest.permissions.filter((permission) => !previousPermissions.has(permission)),
-        removed: previousManifest.permissions.filter((permission) => !manifest.permissions.includes(permission)),
+        removed: previousManifest.permissions.filter((permission) => !currentPermissions.has(permission)),
       } : { added: [], removed: [] },
       author: manifest.apiVersion === 1 ? manifest.author : { name: manifest.publisher },
       publisher: manifest.apiVersion === 2 ? manifest.publisher : null,
