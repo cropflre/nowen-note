@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const css = readFileSync(resolve(process.cwd(), "src/app-appearance-neutral-compat.css"), "utf8");
+const mindMap = readFileSync(resolve(process.cwd(), "src/components/MindMapEditor.tsx"), "utf8");
 
 describe("app appearance legacy neutral compatibility", () => {
   it("maps old gray surfaces and controls back to semantic app tokens", () => {
@@ -23,6 +24,15 @@ describe("app appearance legacy neutral compatibility", () => {
     expect(css).toContain("var(--color-active)");
     expect(css).toContain("var(--color-text-primary)");
     expect(css).toContain("var(--color-border)");
+  });
+
+  it("projects mind-map chrome through the same app appearance tokens", () => {
+    expect(css).toContain("--mm-canvas-bg: var(--color-bg)");
+    expect(css).toContain("--mm-node-bg: var(--color-elevated-solid)");
+    expect(css).toContain("--mm-edge-active: var(--color-accent-primary)");
+    expect(mindMap).not.toContain("bg-blue-500/90");
+    expect(mindMap).toContain("bg-accent-primary");
+    expect(mindMap).toContain("text-accent-primary");
   });
 
   it("remains palette-free and reusable across features", () => {

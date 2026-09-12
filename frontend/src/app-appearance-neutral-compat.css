@@ -5,6 +5,20 @@
  * same App Appearance contract without adding palette values or per-feature theme branches.
  */
 
+:root[data-app-appearance]:not([data-app-appearance="default"]) {
+  --mm-canvas-bg: var(--color-bg);
+  --mm-panel-bg: var(--color-surface);
+  --mm-panel-border: var(--color-border);
+  --mm-node-bg: var(--color-elevated-solid);
+  --mm-node-border: var(--color-border);
+  --mm-node-text: var(--color-text-primary);
+  --mm-edge-stroke: var(--color-text-quaternary);
+  --mm-edge-active: var(--color-accent-primary);
+  --mm-menu-bg: var(--color-elevated);
+  --mm-menu-bg-dark: var(--color-elevated);
+  --mm-menu-border: var(--color-border);
+}
+
 :root[data-app-appearance]:not([data-app-appearance="default"]) .bg-gray-50,
 :root[data-app-appearance]:not([data-app-appearance="default"]) .bg-gray-100 {
   background-color: var(--color-surface) !important;

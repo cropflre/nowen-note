@@ -717,7 +717,7 @@ function FloatingToolbar({
       onMouseDown={(e) => e.stopPropagation()}
       onClick={(e) => e.stopPropagation()}
     >
-      <button className={cn("flex items-center gap-1 rounded-full bg-blue-500 text-white font-medium hover:bg-blue-600 active:bg-blue-700 transition-colors duration-150 ease-out shadow-md shadow-blue-500/20 border border-blue-400/50", isMobile ? "px-3.5 py-2 text-xs" : "px-3 py-1.5 text-[11px]")}
+      <button className={cn("flex items-center gap-1 rounded-full border border-accent-primary bg-accent-primary text-tx-inverse font-medium shadow-md transition-opacity duration-150 ease-out hover:opacity-90 active:opacity-80", isMobile ? "px-3.5 py-2 text-xs" : "px-3 py-1.5 text-[11px]")}
         onClick={(e) => { e.stopPropagation(); onAddChild(); }}>
         <Plus size={isMobile ? 14 : 10} />
         <span className="hidden sm:inline">{t("mindMap.addChild")}</span>
@@ -769,7 +769,7 @@ function FloatingToolbar({
                 if (link !== null) onSetLink(link);
                 setShowMore(false);
               }}>
-              <LinkIcon size={14} className="text-blue-500" /> {t("mindMap.setLink")}
+              <LinkIcon size={14} className="text-accent-primary" /> {t("mindMap.setLink")}
             </button>
             <button className="w-full flex items-center gap-2 px-3 py-2 text-sm text-tx-primary hover:bg-black/[0.04] dark:hover:bg-white/[0.06] transition-colors duration-150 ease-out"
               onClick={(e) => {
@@ -853,7 +853,7 @@ function OutlinePanel({
     return (
       <div key={node.id}>
         <div className={cn("flex items-center gap-1 px-2 py-1 rounded cursor-pointer text-sm transition-colors duration-150 ease-out group",
-          isSelected && "bg-blue-50/70 dark:bg-blue-500/15 text-blue-700 dark:text-blue-300",
+          isSelected && "bg-app-active text-accent-primary",
           !isSelected && "hover:bg-black/[0.03] dark:hover:bg-white/[0.04] text-tx-primary"
         )} style={{ paddingLeft: depth * 20 + 8 }}
           onClick={() => onSelectNode(node.id)} onDoubleClick={() => onEdit(node.id, node.text)}>
@@ -866,7 +866,7 @@ function OutlinePanel({
           {isEditing ? (
             <input ref={inputRef} value={editValue} onChange={(e) => onEditChange(e.target.value)}
               onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); onEditSubmit(); } if (e.key === "Escape") onEditSubmit(); }}
-              onBlur={onEditSubmit} className="flex-1 bg-transparent outline-none border-b border-blue-400 text-sm min-w-0" />
+              onBlur={onEditSubmit} className="flex-1 min-w-0 border-b border-accent-primary bg-transparent text-sm outline-none" />
           ) : <span className="truncate flex-1 text-xs">{node.text}</span>}
         </div>
         {hasChildren && !node.collapsed && <div>{node.children.map((c) => renderNode(c, depth + 1))}</div>}
@@ -877,7 +877,7 @@ function OutlinePanel({
   return (
     <div className="flex flex-col h-full overflow-hidden">
       <div className="px-3 py-2 border-b border-app-border flex items-center gap-2">
-        <PanelLeft size={14} className="text-blue-500" />
+        <PanelLeft size={14} className="text-accent-primary" />
         <span className="text-xs font-semibold text-tx-primary">{t("mindMap.outline")}</span>
       </div>
       <div className="flex-1 overflow-auto p-1">{renderNode(mapData.root, 0)}</div>
@@ -910,7 +910,7 @@ function MindMapListRow({
       className={cn(
         "group flex items-center gap-3 px-3 py-2.5 rounded-md transition-all duration-150 ease-out cursor-pointer border-l-2",
         isActive
-          ? "border-l-blue-500 bg-blue-50/50 dark:bg-blue-500/10"
+          ? "border-l-accent-primary bg-app-active"
           : isDropTarget
           ? "border-l-emerald-500 bg-emerald-50/50 dark:bg-emerald-500/10"
           : "border-l-transparent hover:bg-black/[0.03] dark:hover:bg-white/[0.04]"
@@ -948,7 +948,7 @@ function MindMapListRow({
         }
       }}
     >
-      <BrainCircuit size={18} className="text-blue-500 flex-shrink-0" />
+      <BrainCircuit size={18} className="text-accent-primary flex-shrink-0" />
       <div className="flex-1 min-w-0">
         <div className="text-sm font-medium text-tx-primary truncate">{item.title}</div>
         <div className="flex items-center gap-2 text-xs text-tx-tertiary mt-0.5 min-w-0">
@@ -2539,13 +2539,13 @@ export default function MindMapCenter() {
         <div className="px-4 py-4 border-b border-app-border/40">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <BrainCircuit size={18} className="text-blue-500" />
+              <BrainCircuit size={18} className="text-accent-primary" />
               <h2 className="text-sm font-bold text-tx-primary">{t("mindMap.title")}</h2>
             </div>
             <div className="flex items-center gap-1">
               <button
                 onClick={handleCreate}
-                className="p-1.5 rounded-md hover:bg-app-hover transition-colors duration-150 ease-out text-tx-secondary hover:text-blue-500"
+                className="p-1.5 rounded-md hover:bg-app-hover transition-colors duration-150 ease-out text-tx-secondary hover:text-accent-primary"
                 title={t("mindMap.create")}
               >
                 <Plus size={16} />
@@ -2642,7 +2642,7 @@ export default function MindMapCenter() {
                           }
                           setRenamingFolderId(null);
                         }}
-                        className="flex-1 bg-transparent text-sm text-tx-primary outline-none border-b border-blue-400"
+                        className="flex-1 border-b border-accent-primary bg-transparent text-sm text-tx-primary outline-none"
                         autoFocus
                         onClick={(e) => e.stopPropagation()}
                       />
@@ -2677,7 +2677,7 @@ export default function MindMapCenter() {
               <div className="flex flex-col items-center justify-center h-32 text-tx-tertiary">
                 <BrainCircuit size={32} className="mb-2 opacity-30" />
                 <span className="text-xs">{t("mindMap.empty")}</span>
-                <button onClick={handleCreate} className="mt-3 text-xs text-blue-500 hover:text-blue-600 font-medium">{t("mindMap.createFirst")}</button>
+                <button onClick={handleCreate} className="mt-3 text-xs font-medium text-accent-primary hover:opacity-80">{t("mindMap.createFirst")}</button>
               </div>
             );
 
@@ -2846,7 +2846,7 @@ export default function MindMapCenter() {
                   className={cn(
                     "p-1.5 rounded-md transition-colors duration-150 ease-out",
                     showMiniMap
-                      ? "bg-blue-50/70 dark:bg-blue-500/15 text-blue-600 dark:text-blue-300"
+                      ? "bg-app-active text-accent-primary"
                       : "hover:bg-app-hover text-tx-secondary"
                   )}
                   title={t("mindMap.miniMap")}
@@ -3237,7 +3237,7 @@ export default function MindMapCenter() {
             <span className="text-sm">{t("mindMap.selectOrCreate")}</span>
             <button
               onClick={handleCreate}
-              className="mt-4 flex items-center gap-2 px-4 py-2 rounded-[10px] bg-blue-500/90 text-white text-sm font-medium hover:bg-blue-600 transition-colors duration-150 ease-out"
+              className="mt-4 flex items-center gap-2 rounded-[10px] bg-accent-primary px-4 py-2 text-sm font-medium text-tx-inverse transition-opacity duration-150 ease-out hover:opacity-90"
             >
               <Plus size={16} />
               {t("mindMap.create")}
@@ -3261,7 +3261,7 @@ export default function MindMapCenter() {
                 className={`w-full flex items-center gap-2.5 px-3 py-2 text-sm text-tx-primary ${MT.menuHover} transition-colors duration-150 ease-out`}
                 onClick={() => { setRenamingFolderId(folderContextMenu.folderId); setRenamingFolderName(folderContextMenu.folderName); close(); }}
               >
-                <Edit2 size={15} className="text-blue-500" />
+                <Edit2 size={15} className="text-accent-primary" />
                 {t("mindMap.renameFolder")}
               </button>
               <div className="h-px bg-black/[0.06] dark:bg-white/[0.08] my-1" />
@@ -3344,7 +3344,7 @@ function MindMapContextMenuOverlay({
         className={`w-full flex items-center gap-2.5 px-3 py-2 text-sm text-tx-primary ${MT.menuHover} transition-colors duration-150 ease-out`}
         onClick={onDownloadPNG}
       >
-        <Image size={15} className="text-blue-500" />
+        <Image size={15} className="text-accent-primary" />
         {t("mindMap.downloadPNG")}
       </button>
       <button
@@ -3365,4 +3365,3 @@ function MindMapContextMenuOverlay({
     </div>
   );
 }
-
