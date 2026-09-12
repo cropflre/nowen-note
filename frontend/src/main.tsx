@@ -13,6 +13,7 @@ import { SiteSettingsProvider } from "./hooks/useSiteSettings";
 import { ConfirmProvider } from "./components/ui/confirm";
 import Toaster from "./components/Toaster";
 import NoteIconBridge from "./components/NoteIconBridge";
+import NoteAppearanceBridge from "./components/NoteAppearanceBridge";
 import EmbedPasswordBridge from "./components/EmbedPasswordBridge";
 import MediaExperienceBridge from "./components/MediaExperienceBridge";
 import CameraCaptureBridge from "./components/CameraCaptureBridge";
@@ -39,6 +40,7 @@ import "./siyuan-rich-text-callout.css";
 import "./knowledge-tree-markdown-drop.css";
 import "./inline-comments.css";
 import "./loading-experience.css";
+import "./note-appearance.css";
 import { initCodeBlockTheme } from "./lib/codeBlockTheme";
 import { installAndroidNativeHttpBridge } from "./lib/androidNativeHttpBridge";
 import { installDesktopNativeHttpBridge } from "./lib/desktopNativeHttpBridge";
@@ -172,6 +174,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
         ) : (
           <>
             <NoteIconBridge />
+            <NoteAppearanceBridge />
             <EmbedPasswordBridge />
             <CameraCaptureBridge />
             <MediaExperienceBridge />
