@@ -102,6 +102,52 @@ const noteThemeSchema = z.object({
   modes: z.object({ light: noteThemeTokensSchema, dark: noteThemeTokensSchema.optional() }).strict(),
 }).strict();
 
+const staticInputFieldSchema = z.object({
+  id: z.string().regex(/^[a-z][a-z0-9_-]{0,63}$/),
+  label: z.string().min(1).max(100).optional(),
+  type: z.enum(["string", "number", "boolean"]),
+  required: z.boolean().optional(),
+  default: z.union([z.string(), z.number(), z.boolean()]).optional(),
+}).strict().superRefine((field, ctx) => {
+  if (field.default !== undefined && typeof field.default !== field.type) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["default"], message: "变量默认值类型与 type 不一致" });
+  }
+});
+const unsafeStaticContent = /(?:<\s*(?:script|iframe|object)\b|javascript\s*:|data\s*:\s*text\/html)/i;
+const noteTemplateSchema = z.object({
+  id: z.string().regex(/^[a-z][a-z0-9-]{0,63}$/),
+  name: z.string().min(1).max(100),
+  description: z.string().max(500).optional(),
+  contentFormat: z.enum(["markdown", "tiptap-json"]),
+  body: z.string().min(1),
+  variables: z.array(staticInputFieldSchema).max(50).optional(),
+  suggestedTags: z.array(z.string().min(1).max(64)).max(20).optional(),
+  documentTypes: z.array(z.enum(["note", "markdown"])).min(1).max(2).optional(),
+}).strict().superRefine((template, ctx) => {
+  if (Buffer.byteLength(template.body, "utf8") > 262144) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["body"], message: "Note Template body 不能超过 256KiB" });
+  if (unsafeStaticContent.test(template.body)) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["body"], message: "Note Template 包含不安全内容" });
+  if (template.contentFormat === "tiptap-json") {
+    try { JSON.parse(template.body); } catch { ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["body"], message: "tiptap-json 模板必须是合法 JSON" }); }
+  }
+  const ids = (template.variables || []).map((item) => item.id);
+  if (new Set(ids).size !== ids.length) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["variables"], message: "模板变量 id 不能重复" });
+});
+const promptPackSchema = z.object({
+  id: z.string().regex(/^[a-z][a-z0-9-]{0,63}$/),
+  name: z.string().min(1).max(100),
+  description: z.string().max(500).optional(),
+  prompt: z.string().min(1),
+  inputs: z.array(staticInputFieldSchema).max(50).optional(),
+  context: z.array(z.enum(["title", "note", "selection", "tags"])).max(4).optional(),
+  outputMode: z.enum(["text", "markdown", "replace-selection", "append"]).default("markdown"),
+  uiPlatform: z.array(z.enum(["web", "desktop", "android", "ios"])).max(4).optional(),
+}).strict().superRefine((prompt, ctx) => {
+  if (Buffer.byteLength(prompt.prompt, "utf8") > 65536) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["prompt"], message: "Prompt 不能超过 64KiB" });
+  if (unsafeStaticContent.test(prompt.prompt)) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["prompt"], message: "Prompt 包含不安全内容" });
+  const ids = (prompt.inputs || []).map((item) => item.id);
+  if (new Set(ids).size !== ids.length) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["inputs"], message: "Prompt input id 不能重复" });
+});
+
 const v2BaseShape = {
   id: z.string().regex(/^[a-z0-9]+(?:[.-][a-z0-9]+)+$/).max(150),
   name: z.string().min(1).max(100), description: z.string().max(1000).default(""),
@@ -122,14 +168,18 @@ const executableContributesSchema = z.object({
   commands: z.array(commandSchema).max(100).optional(), menus: z.array(menuSchema).max(100).optional(),
   settings: z.array(settingSchema).max(100).optional(), automationTemplates: z.array(automationTemplateSchema).max(50).optional(),
   noteThemes: z.array(noteThemeSchema).max(20).optional(),
+  noteTemplates: z.array(noteTemplateSchema).max(100).optional(),
+  promptPacks: z.array(promptPackSchema).max(100).optional(),
 }).strict().optional();
 
 const declarativeContributesSchema = z.object({
   settings: z.array(settingSchema).max(100).optional(),
   automationTemplates: z.array(automationTemplateSchema).max(50).optional(),
   noteThemes: z.array(noteThemeSchema).max(20).optional(),
+  noteTemplates: z.array(noteTemplateSchema).max(100).optional(),
+  promptPacks: z.array(promptPackSchema).max(100).optional(),
 }).strict().superRefine((contributes, ctx) => {
-  if (!(contributes.settings?.length || contributes.automationTemplates?.length || contributes.noteThemes?.length)) {
+  if (!(contributes.settings?.length || contributes.automationTemplates?.length || contributes.noteThemes?.length || contributes.noteTemplates?.length || contributes.promptPacks?.length)) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, message: "声明式插件必须至少提供一个静态 Contribution" });
   }
   if (contributes.settings?.some((setting) => setting.secret)) {
@@ -158,6 +208,10 @@ export const pluginManifestV2Schema = z.union([executableV2Schema, declarativeV2
   if (!manifest.id.startsWith(`${manifest.publisher}.`)) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["id"], message: "插件 ID 必须位于 Publisher namespace" });
   const noteThemeIds = (manifest.contributes?.noteThemes || []).map((theme) => theme.id);
   if (new Set(noteThemeIds).size !== noteThemeIds.length) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["contributes", "noteThemes"], message: "Note Theme id 不能重复" });
+  const noteTemplateIds = (manifest.contributes?.noteTemplates || []).map((item) => item.id);
+  if (new Set(noteTemplateIds).size !== noteTemplateIds.length) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["contributes", "noteTemplates"], message: "Note Template id 不能重复" });
+  const promptPackIds = (manifest.contributes?.promptPacks || []).map((item) => item.id);
+  if (new Set(promptPackIds).size !== promptPackIds.length) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["contributes", "promptPacks"], message: "Prompt Pack id 不能重复" });
   for (const [index, permission] of manifest.permissions.entries()) {
     if (!isV2SupportedPluginPermission(permission)) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["permissions", index], message: permission === "attachments:write" ? "Plugin API V2 不支持 attachments:write" : `Plugin API V2 不支持权限 ${permission}` });
   }

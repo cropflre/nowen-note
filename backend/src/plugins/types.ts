@@ -143,6 +143,33 @@ export interface PluginNoteThemeContribution {
   base?: "nowen.default";
   modes: { light: PluginNoteThemeTokens; dark?: PluginNoteThemeTokens };
 }
+export interface PluginStaticInputField {
+  id: string;
+  label?: string;
+  type: "string" | "number" | "boolean";
+  required?: boolean;
+  default?: string | number | boolean;
+}
+export interface PluginNoteTemplateContribution {
+  id: string;
+  name: string;
+  description?: string;
+  contentFormat: "markdown" | "tiptap-json";
+  body: string;
+  variables?: PluginStaticInputField[];
+  suggestedTags?: string[];
+  documentTypes?: Array<"note" | "markdown">;
+}
+export interface PluginPromptPackContribution {
+  id: string;
+  name: string;
+  description?: string;
+  prompt: string;
+  inputs?: PluginStaticInputField[];
+  context?: Array<"title" | "note" | "selection" | "tags">;
+  outputMode?: "text" | "markdown" | "replace-selection" | "append";
+  uiPlatform?: Array<"web" | "desktop" | "android" | "ios">;
+}
 
 export interface PluginContributionManifest {
   commands?: PluginCommandContribution[];
@@ -150,12 +177,16 @@ export interface PluginContributionManifest {
   settings?: PluginSettingContribution[];
   automationTemplates?: PluginAutomationTemplateContribution[];
   noteThemes?: PluginNoteThemeContribution[];
+  noteTemplates?: PluginNoteTemplateContribution[];
+  promptPacks?: PluginPromptPackContribution[];
 }
 
 export interface PluginDeclarativeContributionManifest {
   settings?: PluginSettingContribution[];
   automationTemplates?: PluginAutomationTemplateContribution[];
   noteThemes?: PluginNoteThemeContribution[];
+  noteTemplates?: PluginNoteTemplateContribution[];
+  promptPacks?: PluginPromptPackContribution[];
 }
 
 interface PluginManifestV2Base {
