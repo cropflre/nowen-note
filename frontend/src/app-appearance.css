@@ -1,11 +1,15 @@
 /* App Appearance Style compatibility bridge.
  *
  * Newer surfaces already consume semantic app/tx/accent tokens through Tailwind. A number of older
- * settings/dialog surfaces still use fixed zinc/indigo utilities. When a non-default app appearance
- * is active, this bridge maps the common legacy utilities back onto the same semantic tokens so the
- * whole application changes together instead of leaving islands of the default palette.
+ * settings/dialog/tool surfaces still use fixed zinc/indigo utilities. When a non-default app
+ * appearance is active, this bridge maps the common legacy utilities back onto the same semantic
+ * tokens so the whole application changes together instead of leaving default-palette islands.
  *
- * No appearance-specific colors live here. `appAppearance.ts` is the only palette registry.
+ * IMPORTANT:
+ * - No appearance-specific colors live here. `appAppearance.ts` remains the only palette registry.
+ * - Status/meaning colors (red/amber/emerald/purple, destructive states, warnings, AI branding)
+ *   are intentionally not remapped.
+ * - This is a migration bridge. New code should use bg-app-*, text-tx-*, border-app-* and accent-*.
  */
 
 :root[data-app-appearance]:not([data-app-appearance="default"]) body,
@@ -14,49 +18,79 @@
   color: var(--color-text-primary);
 }
 
-:root[data-app-appearance]:not([data-app-appearance="default"]) .bg-white {
-  background-color: var(--color-elevated) !important;
-}
-
+/* --------------------------------------------------------------------------
+ * Neutral surfaces
+ * -------------------------------------------------------------------------- */
+:root[data-app-appearance]:not([data-app-appearance="default"]) .bg-white,
+:root[data-app-appearance]:not([data-app-appearance="default"]) .bg-white\/50,
+:root[data-app-appearance]:not([data-app-appearance="default"]) .bg-white\/60,
+:root[data-app-appearance]:not([data-app-appearance="default"]) .bg-white\/80,
+:root[data-app-appearance]:not([data-app-appearance="default"]) .bg-white\/90,
 :root[data-app-appearance]:not([data-app-appearance="default"]) .bg-zinc-50,
-:root[data-app-appearance]:not([data-app-appearance="default"]) .bg-zinc-50\/50 {
+:root[data-app-appearance]:not([data-app-appearance="default"]) .bg-zinc-50\/50,
+:root[data-app-appearance]:not([data-app-appearance="default"]) .bg-zinc-50\/60,
+:root[data-app-appearance]:not([data-app-appearance="default"]) .bg-zinc-50\/70,
+:root[data-app-appearance]:not([data-app-appearance="default"]) .bg-zinc-50\/80 {
   background-color: var(--color-surface) !important;
 }
 
 :root[data-app-appearance]:not([data-app-appearance="default"]) .bg-zinc-100,
+:root[data-app-appearance]:not([data-app-appearance="default"]) .bg-zinc-100\/50,
 :root[data-app-appearance]:not([data-app-appearance="default"]) .bg-zinc-100\/60,
+:root[data-app-appearance]:not([data-app-appearance="default"]) .bg-zinc-100\/70,
+:root[data-app-appearance]:not([data-app-appearance="default"]) .bg-zinc-200\/30,
 :root[data-app-appearance]:not([data-app-appearance="default"]) .bg-zinc-200\/40,
+:root[data-app-appearance]:not([data-app-appearance="default"]) .bg-zinc-200\/50,
 :root[data-app-appearance]:not([data-app-appearance="default"]) .bg-zinc-200\/60,
-:root[data-app-appearance]:not([data-app-appearance="default"]) .bg-zinc-200\/70 {
+:root[data-app-appearance]:not([data-app-appearance="default"]) .bg-zinc-200\/70,
+:root[data-app-appearance]:not([data-app-appearance="default"]) .bg-zinc-500\/10 {
   background-color: var(--color-hover) !important;
 }
 
-:root.dark[data-app-appearance]:not([data-app-appearance="default"]) .dark\:bg-zinc-950 {
+:root.dark[data-app-appearance]:not([data-app-appearance="default"]) .dark\:bg-zinc-950,
+:root.dark[data-app-appearance]:not([data-app-appearance="default"]) .dark\:bg-zinc-950\/50,
+:root.dark[data-app-appearance]:not([data-app-appearance="default"]) .dark\:bg-zinc-950\/60,
+:root.dark[data-app-appearance]:not([data-app-appearance="default"]) .dark\:bg-zinc-950\/70,
+:root.dark[data-app-appearance]:not([data-app-appearance="default"]) .dark\:bg-zinc-950\/80 {
   background-color: var(--color-bg) !important;
 }
 
 :root.dark[data-app-appearance]:not([data-app-appearance="default"]) .dark\:bg-zinc-900,
 :root.dark[data-app-appearance]:not([data-app-appearance="default"]) .dark\:bg-zinc-900\/25,
+:root.dark[data-app-appearance]:not([data-app-appearance="default"]) .dark\:bg-zinc-900\/30,
+:root.dark[data-app-appearance]:not([data-app-appearance="default"]) .dark\:bg-zinc-900\/40,
 :root.dark[data-app-appearance]:not([data-app-appearance="default"]) .dark\:bg-zinc-900\/50,
+:root.dark[data-app-appearance]:not([data-app-appearance="default"]) .dark\:bg-zinc-900\/60,
+:root.dark[data-app-appearance]:not([data-app-appearance="default"]) .dark\:bg-zinc-900\/70,
 :root.dark[data-app-appearance]:not([data-app-appearance="default"]) .dark\:bg-zinc-900\/95 {
   background-color: var(--color-surface) !important;
 }
 
 :root.dark[data-app-appearance]:not([data-app-appearance="default"]) .dark\:bg-zinc-800,
+:root.dark[data-app-appearance]:not([data-app-appearance="default"]) .dark\:bg-zinc-800\/20,
 :root.dark[data-app-appearance]:not([data-app-appearance="default"]) .dark\:bg-zinc-800\/30,
 :root.dark[data-app-appearance]:not([data-app-appearance="default"]) .dark\:bg-zinc-800\/40,
-:root.dark[data-app-appearance]:not([data-app-appearance="default"]) .dark\:bg-zinc-800\/50 {
+:root.dark[data-app-appearance]:not([data-app-appearance="default"]) .dark\:bg-zinc-800\/50,
+:root.dark[data-app-appearance]:not([data-app-appearance="default"]) .dark\:bg-zinc-800\/60,
+:root.dark[data-app-appearance]:not([data-app-appearance="default"]) .dark\:bg-zinc-800\/70 {
   background-color: var(--color-hover) !important;
 }
 
-:root.dark[data-app-appearance]:not([data-app-appearance="default"]) .dark\:bg-zinc-700 {
+:root.dark[data-app-appearance]:not([data-app-appearance="default"]) .dark\:bg-zinc-700,
+:root.dark[data-app-appearance]:not([data-app-appearance="default"]) .dark\:bg-zinc-700\/30,
+:root.dark[data-app-appearance]:not([data-app-appearance="default"]) .dark\:bg-zinc-700\/40,
+:root.dark[data-app-appearance]:not([data-app-appearance="default"]) .dark\:bg-zinc-700\/50 {
   background-color: var(--color-active) !important;
 }
 
+/* --------------------------------------------------------------------------
+ * Neutral text
+ * -------------------------------------------------------------------------- */
 :root[data-app-appearance]:not([data-app-appearance="default"]) .text-zinc-950,
 :root[data-app-appearance]:not([data-app-appearance="default"]) .text-zinc-900,
 :root[data-app-appearance]:not([data-app-appearance="default"]) .text-zinc-800,
 :root[data-app-appearance]:not([data-app-appearance="default"]) .text-zinc-700,
+:root.dark[data-app-appearance]:not([data-app-appearance="default"]) .dark\:text-zinc-50,
 :root.dark[data-app-appearance]:not([data-app-appearance="default"]) .dark\:text-zinc-100,
 :root.dark[data-app-appearance]:not([data-app-appearance="default"]) .dark\:text-zinc-200,
 :root.dark[data-app-appearance]:not([data-app-appearance="default"]) .dark\:text-zinc-300 {
@@ -70,39 +104,115 @@
 }
 
 :root[data-app-appearance]:not([data-app-appearance="default"]) .text-zinc-400,
+:root[data-app-appearance]:not([data-app-appearance="default"]) .text-zinc-300,
 :root.dark[data-app-appearance]:not([data-app-appearance="default"]) .dark\:text-zinc-500,
 :root.dark[data-app-appearance]:not([data-app-appearance="default"]) .dark\:text-zinc-600 {
   color: var(--color-text-tertiary) !important;
 }
 
+:root[data-app-appearance]:not([data-app-appearance="default"]) .text-zinc-200,
+:root[data-app-appearance]:not([data-app-appearance="default"]) .text-zinc-100,
+:root.dark[data-app-appearance]:not([data-app-appearance="default"]) .dark\:text-zinc-700 {
+  color: var(--color-text-quaternary) !important;
+}
+
+/* --------------------------------------------------------------------------
+ * Borders / dividers / rings
+ * -------------------------------------------------------------------------- */
 :root[data-app-appearance]:not([data-app-appearance="default"]) .border-zinc-100,
 :root[data-app-appearance]:not([data-app-appearance="default"]) .border-zinc-200,
+:root[data-app-appearance]:not([data-app-appearance="default"]) .border-zinc-200\/50,
+:root[data-app-appearance]:not([data-app-appearance="default"]) .border-zinc-200\/60,
 :root[data-app-appearance]:not([data-app-appearance="default"]) .border-zinc-300,
 :root.dark[data-app-appearance]:not([data-app-appearance="default"]) .dark\:border-zinc-700,
-:root.dark[data-app-appearance]:not([data-app-appearance="default"]) .dark\:border-zinc-800 {
+:root.dark[data-app-appearance]:not([data-app-appearance="default"]) .dark\:border-zinc-700\/60,
+:root.dark[data-app-appearance]:not([data-app-appearance="default"]) .dark\:border-zinc-800,
+:root.dark[data-app-appearance]:not([data-app-appearance="default"]) .dark\:border-zinc-800\/50,
+:root.dark[data-app-appearance]:not([data-app-appearance="default"]) .dark\:border-zinc-800\/60 {
   border-color: var(--color-border) !important;
 }
 
+:root[data-app-appearance]:not([data-app-appearance="default"]) .divide-zinc-100 > :not([hidden]) ~ :not([hidden]),
 :root[data-app-appearance]:not([data-app-appearance="default"]) .divide-zinc-200 > :not([hidden]) ~ :not([hidden]),
+:root.dark[data-app-appearance]:not([data-app-appearance="default"]) .dark\:divide-zinc-700 > :not([hidden]) ~ :not([hidden]),
 :root.dark[data-app-appearance]:not([data-app-appearance="default"]) .dark\:divide-zinc-800 > :not([hidden]) ~ :not([hidden]) {
   border-color: var(--color-border) !important;
 }
 
-/* Old settings/navigation selected states used a fixed indigo palette. Keep the interaction
- * hierarchy but let the active appearance own its accent and active background. */
+:root[data-app-appearance]:not([data-app-appearance="default"]) .ring-zinc-200,
+:root[data-app-appearance]:not([data-app-appearance="default"]) .ring-zinc-300,
+:root.dark[data-app-appearance]:not([data-app-appearance="default"]) .dark\:ring-zinc-700,
+:root.dark[data-app-appearance]:not([data-app-appearance="default"]) .dark\:ring-zinc-800 {
+  --tw-ring-color: var(--color-border) !important;
+}
+
+/* --------------------------------------------------------------------------
+ * Legacy neutral interaction states
+ * -------------------------------------------------------------------------- */
+:root[data-app-appearance]:not([data-app-appearance="default"]) .hover\:bg-zinc-50:hover,
+:root[data-app-appearance]:not([data-app-appearance="default"]) .hover\:bg-zinc-100:hover,
+:root[data-app-appearance]:not([data-app-appearance="default"]) .hover\:bg-zinc-200\/40:hover,
+:root[data-app-appearance]:not([data-app-appearance="default"]) .hover\:bg-zinc-200\/50:hover,
+:root[data-app-appearance]:not([data-app-appearance="default"]) .hover\:bg-zinc-200\/60:hover,
+:root.dark[data-app-appearance]:not([data-app-appearance="default"]) .dark\:hover\:bg-zinc-800:hover,
+:root.dark[data-app-appearance]:not([data-app-appearance="default"]) .dark\:hover\:bg-zinc-800\/40:hover,
+:root.dark[data-app-appearance]:not([data-app-appearance="default"]) .dark\:hover\:bg-zinc-800\/50:hover,
+:root.dark[data-app-appearance]:not([data-app-appearance="default"]) .dark\:hover\:bg-zinc-700:hover {
+  background-color: var(--color-hover) !important;
+}
+
+:root[data-app-appearance]:not([data-app-appearance="default"]) .hover\:text-zinc-900:hover,
+:root[data-app-appearance]:not([data-app-appearance="default"]) .hover\:text-zinc-800:hover,
+:root[data-app-appearance]:not([data-app-appearance="default"]) .hover\:text-zinc-700:hover,
+:root.dark[data-app-appearance]:not([data-app-appearance="default"]) .dark\:hover\:text-zinc-100:hover,
+:root.dark[data-app-appearance]:not([data-app-appearance="default"]) .dark\:hover\:text-zinc-200:hover,
+:root.dark[data-app-appearance]:not([data-app-appearance="default"]) .dark\:hover\:text-zinc-300:hover {
+  color: var(--color-text-primary) !important;
+}
+
+/* --------------------------------------------------------------------------
+ * Old indigo primary/selected states → current appearance accent
+ * -------------------------------------------------------------------------- */
+:root[data-app-appearance]:not([data-app-appearance="default"]) .text-indigo-500,
 :root[data-app-appearance]:not([data-app-appearance="default"]) .text-indigo-600,
 :root.dark[data-app-appearance]:not([data-app-appearance="default"]) .dark\:text-indigo-400 {
   color: var(--color-accent-primary) !important;
 }
 
 :root[data-app-appearance]:not([data-app-appearance="default"]) .bg-indigo-50,
+:root[data-app-appearance]:not([data-app-appearance="default"]) .bg-indigo-500\/10,
 :root.dark[data-app-appearance]:not([data-app-appearance="default"]) .dark\:bg-indigo-500\/10 {
   background-color: var(--color-active) !important;
 }
 
+:root[data-app-appearance]:not([data-app-appearance="default"]) .bg-indigo-500,
+:root[data-app-appearance]:not([data-app-appearance="default"]) .bg-indigo-600 {
+  background-color: var(--color-accent-primary) !important;
+}
+
+:root[data-app-appearance]:not([data-app-appearance="default"]) .hover\:bg-indigo-600:hover,
+:root[data-app-appearance]:not([data-app-appearance="default"]) .hover\:bg-indigo-700:hover {
+  background-color: var(--color-accent-primary) !important;
+  filter: brightness(0.94);
+}
+
 :root[data-app-appearance]:not([data-app-appearance="default"]) .border-indigo-200,
 :root[data-app-appearance]:not([data-app-appearance="default"]) .border-indigo-300,
+:root[data-app-appearance]:not([data-app-appearance="default"]) .border-indigo-500,
 :root.dark[data-app-appearance]:not([data-app-appearance="default"]) .dark\:border-indigo-700 {
+  border-color: var(--color-accent-primary) !important;
+}
+
+:root[data-app-appearance]:not([data-app-appearance="default"]) .ring-indigo-400,
+:root[data-app-appearance]:not([data-app-appearance="default"]) .ring-indigo-500,
+:root[data-app-appearance]:not([data-app-appearance="default"]) .focus\:ring-indigo-500:focus,
+:root[data-app-appearance]:not([data-app-appearance="default"]) .focus-visible\:ring-indigo-400:focus-visible,
+:root[data-app-appearance]:not([data-app-appearance="default"]) .focus-visible\:ring-indigo-500:focus-visible {
+  --tw-ring-color: var(--color-accent-primary) !important;
+}
+
+:root[data-app-appearance]:not([data-app-appearance="default"]) .focus\:border-indigo-500:focus,
+:root[data-app-appearance]:not([data-app-appearance="default"]) .focus-visible\:border-indigo-500:focus-visible {
   border-color: var(--color-accent-primary) !important;
 }
 
@@ -110,10 +220,34 @@
   accent-color: var(--color-accent-primary) !important;
 }
 
-/* Keep input controls and browser-native surfaces coherent with the selected app appearance. */
+/* --------------------------------------------------------------------------
+ * Inputs / placeholder / geometry
+ * -------------------------------------------------------------------------- */
 :root[data-app-appearance]:not([data-app-appearance="default"]) input,
 :root[data-app-appearance]:not([data-app-appearance="default"]) textarea,
 :root[data-app-appearance]:not([data-app-appearance="default"]) select {
   color: var(--color-text-primary);
   caret-color: var(--color-accent-primary);
+}
+
+:root[data-app-appearance]:not([data-app-appearance="default"]) .placeholder\:text-zinc-400::placeholder,
+:root[data-app-appearance]:not([data-app-appearance="default"]) .placeholder\:text-zinc-500::placeholder,
+:root.dark[data-app-appearance]:not([data-app-appearance="default"]) .dark\:placeholder\:text-zinc-500::placeholder {
+  color: var(--color-text-tertiary) !important;
+}
+
+/* The app registry owns geometry too. Do not touch rounded-full because avatars/pills must remain
+ * circular regardless of visual style. */
+:root[data-app-appearance]:not([data-app-appearance="default"]) .rounded-2xl {
+  border-radius: var(--radius-window) !important;
+}
+
+:root[data-app-appearance]:not([data-app-appearance="default"]) .rounded-xl,
+:root[data-app-appearance]:not([data-app-appearance="default"]) .rounded-lg {
+  border-radius: var(--radius-card) !important;
+}
+
+:root[data-app-appearance]:not([data-app-appearance="default"]) .rounded-md,
+:root[data-app-appearance]:not([data-app-appearance="default"]) .rounded {
+  border-radius: var(--radius-button) !important;
 }
