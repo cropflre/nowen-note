@@ -1,5 +1,13 @@
 export const PLUGIN_API_VERSION = 2;
 export const NOWEN_VERSION = "1.5.0";
+export const EXTENSION_V21_TARGET_NOWEN_VERSION = "1.6.0";
+
+export interface ExtensionPlatformFeatureFlags {
+  extensionsV21: boolean;
+  pluginStudio: boolean;
+  fileProcessingExtensions: boolean;
+  experimentalDocumentTypes: boolean;
+}
 
 export const PLUGIN_PERMISSIONS = [
   "notes:read", "notes:write",
