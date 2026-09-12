@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { createPortal } from "react-dom";
 import { Check, Loader2, Palette, RotateCcw, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import NoteAppearanceStyleCard from "@/components/NoteAppearanceStyleCard";
 import { useApp } from "@/store/AppContext";
 import { useUserPreferences } from "@/hooks/useUserPreferences";
 import { canWriteNote } from "@/lib/notePermissions";
@@ -39,8 +40,8 @@ function positionFor(target: HTMLElement): AnchorPosition {
 /**
  * Per-note appearance controller.
  *
- * `prefs.noteTheme` is the account-level default only. A note stores either NULL (inherit that
- * default) or one explicit theme id. The editor document never carries appearance data.
+ * `prefs.noteTheme` is the account-level note appearance style. A note stores either NULL
+ * (inherit that setting) or one explicit style id. The editor document never carries appearance.
  */
 export default function NoteAppearanceBridge() {
   const { state } = useApp();
@@ -62,7 +63,7 @@ export default function NoteAppearanceBridge() {
   const missingThemeId = storedThemeId && !isNoteThemeId(storedThemeId) ? storedThemeId : null;
   const effectiveThemeId = explicitThemeId || prefs.noteTheme;
   const selectedTheme = useMemo(() => getNoteTheme(effectiveThemeId), [effectiveThemeId]);
-  const accountDefaultTheme = useMemo(() => getNoteTheme(prefs.noteTheme), [prefs.noteTheme]);
+  const inheritedTheme = useMemo(() => getNoteTheme(prefs.noteTheme), [prefs.noteTheme]);
 
   useEffect(() => {
     setOpen(false);
@@ -109,7 +110,6 @@ export default function NoteAppearanceBridge() {
       if (explicitThemeId) {
         applyExplicitNoteTheme(surface, explicitThemeId);
       } else {
-        // No per-note override: the account default already lives on documentElement and cascades.
         clearExplicitNoteTheme(surface);
       }
       setAnchor(positionFor(surface));
@@ -160,10 +160,10 @@ export default function NoteAppearanceBridge() {
       setOpen(false);
       const effective = nextThemeId || prefs.noteTheme;
       const name = getNoteTheme(effective).name[language];
-      toast.success(nextThemeId ? `已应用「${name}」` : `已跟随默认主题「${name}」`);
+      toast.success(nextThemeId ? `已应用外观风格「${name}」` : `已跟随笔记外观设置「${name}」`);
     } catch (error) {
       setStoredThemeId(previous);
-      toast.error(error instanceof Error ? error.message : "主题保存失败");
+      toast.error(error instanceof Error ? error.message : "外观风格保存失败");
     } finally {
       setSaving(false);
     }
@@ -183,8 +183,8 @@ export default function NoteAppearanceBridge() {
         type="button"
         onClick={() => setOpen((value) => !value)}
         disabled={loading}
-        aria-label="笔记外观"
-        title={`笔记外观 · ${selectedTheme.name[language]}`}
+        aria-label="当前笔记外观"
+        title={`当前笔记外观 · ${selectedTheme.name[language]}`}
         className="flex h-9 items-center gap-1.5 rounded-lg border border-app-border bg-app-surface/95 px-2.5 text-xs text-tx-secondary shadow-md backdrop-blur transition hover:bg-app-hover hover:text-tx-primary disabled:opacity-50"
       >
         {loading ? <Loader2 size={14} className="animate-spin" /> : <Palette size={14} />}
@@ -192,11 +192,11 @@ export default function NoteAppearanceBridge() {
       </button>
 
       {open && (
-        <div className="absolute right-0 mt-2 w-[min(360px,calc(100vw-24px))] overflow-hidden rounded-xl border border-app-border bg-app-surface shadow-2xl">
+        <div className="absolute right-0 mt-2 w-[min(420px,calc(100vw-24px))] overflow-hidden rounded-xl border border-app-border bg-app-surface shadow-2xl">
           <div className="flex items-center justify-between border-b border-app-border px-4 py-3">
             <div>
-              <div className="text-sm font-semibold text-tx-primary">这篇笔记的外观</div>
-              <div className="mt-0.5 text-[11px] text-tx-tertiary">单篇覆盖优先；未设置时跟随账号默认主题</div>
+              <div className="text-sm font-semibold text-tx-primary">当前笔记外观</div>
+              <div className="mt-0.5 text-[11px] text-tx-tertiary">单篇设置优先；未单独设置时跟随“笔记外观风格”</div>
             </div>
             <button type="button" onClick={() => setOpen(false)} className="rounded-md p-1 text-tx-tertiary hover:bg-app-hover">
               <X size={15} />
@@ -205,7 +205,7 @@ export default function NoteAppearanceBridge() {
 
           {missingThemeId && (
             <div className="mx-3 mt-3 rounded-lg border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-700 dark:text-amber-300">
-              主题「{missingThemeId}」当前未安装，已回退到账号默认主题。
+              外观风格「{missingThemeId}」当前不可用，已回退到笔记外观设置。
             </div>
           )}
 
@@ -220,44 +220,29 @@ export default function NoteAppearanceBridge() {
                 {storedThemeId === null ? <Check size={16} /> : <RotateCcw size={15} />}
               </div>
               <div className="min-w-0 flex-1">
-                <div className="text-xs font-medium text-tx-primary">跟随默认</div>
-                <div className="mt-0.5 text-[10px] text-tx-tertiary">当前默认：{accountDefaultTheme.name[language]}</div>
+                <div className="text-xs font-medium text-tx-primary">跟随笔记外观设置</div>
+                <div className="mt-0.5 text-[10px] text-tx-tertiary">当前继承：{inheritedTheme.name[language]}</div>
               </div>
             </button>
           </div>
 
           <div className="grid grid-cols-2 gap-2 p-3 pt-2">
-            {NOTE_THEMES.map((theme) => {
-              const active = explicitThemeId === theme.id;
-              const tokens = theme.modes[mode];
-              return (
-                <button
-                  key={theme.id}
-                  type="button"
-                  disabled={!editable || saving}
-                  onClick={() => void chooseTheme(theme.id)}
-                  className={`group relative overflow-hidden rounded-xl border p-2 text-left transition ${active ? "border-accent-primary ring-1 ring-accent-primary/30" : "border-app-border hover:border-accent-primary/50"} disabled:cursor-not-allowed disabled:opacity-55`}
-                >
-                  <div className="h-16 rounded-lg p-2" style={{ background: tokens.softBackground }}>
-                    <div className="h-full rounded-md px-2 py-1.5" style={{ background: tokens.surface }}>
-                      <div className="h-1.5 w-2/3 rounded" style={{ background: tokens.heading }} />
-                      <div className="mt-2 h-1 w-full rounded opacity-45" style={{ background: tokens.text }} />
-                      <div className="mt-1 h-1 w-4/5 rounded opacity-30" style={{ background: tokens.text }} />
-                      <div className="mt-2 h-1 w-1/3 rounded" style={{ background: tokens.accent }} />
-                    </div>
-                  </div>
-                  <div className="mt-2 flex items-center gap-1.5 text-xs font-medium text-tx-primary">
-                    {active && <Check size={13} className="text-accent-primary" />}
-                    {theme.name[language]}
-                  </div>
-                  <div className="mt-0.5 line-clamp-2 text-[10px] leading-4 text-tx-tertiary">{theme.description[language]}</div>
-                </button>
-              );
-            })}
+            {NOTE_THEMES.map((theme) => (
+              <NoteAppearanceStyleCard
+                key={theme.id}
+                theme={theme}
+                mode={mode}
+                language={language}
+                selected={explicitThemeId === theme.id}
+                disabled={!editable || saving}
+                compact
+                onSelect={() => void chooseTheme(theme.id)}
+              />
+            ))}
           </div>
 
           <div className="border-t border-app-border px-3 py-2 text-[11px] text-tx-tertiary">
-            {editable ? "外观作为笔记元数据保存，不修改正文和正文版本" : "只读笔记不可修改主题"}
+            {editable ? "外观风格作为笔记元数据保存，不修改正文和正文版本" : "只读笔记不可修改外观风格"}
           </div>
         </div>
       )}
