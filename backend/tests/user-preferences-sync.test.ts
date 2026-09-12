@@ -16,9 +16,7 @@ let app: Hono;
 let getDb: () => Database.Database;
 let closeDb: () => void;
 
-function db() {
-  return getDb();
-}
+function db() { return getDb(); }
 
 async function requestJson(method: string, body?: unknown, userId = USER_ID) {
   const response = await app.request("/user-preferences", {
@@ -41,16 +39,11 @@ test.before(async () => {
   app.route("/user-preferences", routeModule.default);
   getDb = schemaModule.getDb;
   closeDb = schemaModule.closeDb;
-
-  db().prepare("INSERT INTO users (id, username, passwordHash) VALUES (?, ?, ?)")
-    .run(USER_ID, USER_ID, "hash");
-  db().prepare("INSERT INTO users (id, username, passwordHash) VALUES (?, ?, ?)")
-    .run(OTHER_ID, OTHER_ID, "hash");
+  db().prepare("INSERT INTO users (id, username, passwordHash) VALUES (?, ?, ?)").run(USER_ID, USER_ID, "hash");
+  db().prepare("INSERT INTO users (id, username, passwordHash) VALUES (?, ?, ?)").run(OTHER_ID, OTHER_ID, "hash");
 });
 
-test.beforeEach(() => {
-  db().prepare("DELETE FROM user_preferences").run();
-});
+test.beforeEach(() => { db().prepare("DELETE FROM user_preferences").run(); });
 
 test.after(() => {
   closeDb();
@@ -61,10 +54,7 @@ test("reads legacy flat preference rows and upgrades them on the next partial wr
   db().prepare(`
     INSERT INTO user_preferences (userId, preferencesJson, updatedAt)
     VALUES (?, ?, ?)
-  `).run(USER_ID, JSON.stringify({
-    noteTitleAsAppTitle: true,
-    readingDensity: "compact",
-  }), "2026-07-01T00:00:00.000Z");
+  `).run(USER_ID, JSON.stringify({ noteTitleAsAppTitle: true, readingDensity: "compact" }), "2026-07-01T00:00:00.000Z");
 
   const before = await requestJson("GET");
   assert.equal(before.status, 200);
@@ -73,18 +63,14 @@ test("reads legacy flat preference rows and upgrades them on the next partial wr
   assert.equal(before.json.revision, 1);
   assert.equal(before.json.userId, USER_ID);
 
-  const updated = await requestJson("PUT", {
-    showNotesInNotebookTree: true,
-    _baseRevision: 1,
-  });
+  const updated = await requestJson("PUT", { showNotesInNotebookTree: true, _baseRevision: 1 });
   assert.equal(updated.status, 200);
   assert.equal(updated.json.noteTitleAsAppTitle, true);
   assert.equal(updated.json.showNotesInNotebookTree, true);
   assert.equal(updated.json.revision, 2);
   assert.equal(updated.json.conflict, false);
 
-  const stored = db().prepare("SELECT preferencesJson FROM user_preferences WHERE userId = ?")
-    .get(USER_ID) as { preferencesJson: string };
+  const stored = db().prepare("SELECT preferencesJson FROM user_preferences WHERE userId = ?").get(USER_ID) as { preferencesJson: string };
   const parsed = JSON.parse(stored.preferencesJson);
   assert.equal(parsed.noteTitleAsAppTitle, true);
   assert.equal(parsed.showNotesInNotebookTree, true);
@@ -93,16 +79,13 @@ test("reads legacy flat preference rows and upgrades them on the next partial wr
 });
 
 test("merges stale field-level updates instead of replacing the whole document", async () => {
-  const first = await requestJson("PUT", {
-    noteTitleAsAppTitle: true,
-    _baseRevision: 0,
-  });
+  const first = await requestJson("PUT", { noteTitleAsAppTitle: true, _baseRevision: 0 });
   assert.equal(first.json.revision, 1);
 
   const second = await requestJson("PUT", {
     readingDensity: "compact",
     editorFontSize: 22,
-    noteTheme: "developer",
+    noteTheme: "paper",
     _baseRevision: 0,
   });
   assert.equal(second.status, 200);
@@ -111,25 +94,11 @@ test("merges stale field-level updates instead of replacing the whole document",
   assert.equal(second.json.noteTitleAsAppTitle, true);
   assert.equal(second.json.readingDensity, "compact");
   assert.equal(second.json.editorFontSize, 22);
-  assert.equal(second.json.noteTheme, "developer");
+  assert.equal(second.json.noteTheme, "paper");
   assert.ok(second.json.fieldUpdatedAt.noteTitleAsAppTitle);
   assert.ok(second.json.fieldUpdatedAt.readingDensity);
   assert.ok(second.json.fieldUpdatedAt.editorFontSize);
   assert.ok(second.json.fieldUpdatedAt.noteTheme);
-});
-
-test("persists every built-in note appearance style through account preference sync", async () => {
-  const styles = ["default", "paper", "minimal", "eye-care", "developer", "magazine"];
-  let revision = 0;
-  for (const noteTheme of styles) {
-    const result = await requestJson("PUT", { noteTheme, _baseRevision: revision });
-    assert.equal(result.status, 200, JSON.stringify(result.json));
-    assert.equal(result.json.noteTheme, noteTheme);
-    revision = result.json.revision;
-  }
-  const loaded = await requestJson("GET");
-  assert.equal(loaded.status, 200);
-  assert.equal(loaded.json.noteTheme, "magazine");
 });
 
 test("prevents a second first-run migration from overwriting established remote preferences", async () => {
@@ -165,8 +134,7 @@ test("keeps caches isolated per user and never persists sensitive unknown fields
   assert.equal("apiKey" in saved.json, false);
   assert.equal("token" in saved.json, false);
 
-  const raw = db().prepare("SELECT preferencesJson FROM user_preferences WHERE userId = ?")
-    .get(USER_ID) as { preferencesJson: string };
+  const raw = db().prepare("SELECT preferencesJson FROM user_preferences WHERE userId = ?").get(USER_ID) as { preferencesJson: string };
   assert.doesNotMatch(raw.preferencesJson, /should-never-be-stored|also-secret|apiKey|token/);
 
   const other = await requestJson("GET", undefined, OTHER_ID);
@@ -185,7 +153,7 @@ test("rejects invalid values for known preference fields", async () => {
   assert.equal(invalidFontSize.status, 400);
   assert.equal(invalidFontSize.json.code, "INVALID_USER_PREFERENCE");
 
-  const invalidNoteTheme = await requestJson("PUT", { noteTheme: "remote-css" });
+  const invalidNoteTheme = await requestJson("PUT", { noteTheme: "developer" });
   assert.equal(invalidNoteTheme.status, 400);
   assert.equal(invalidNoteTheme.json.code, "INVALID_USER_PREFERENCE");
 });
