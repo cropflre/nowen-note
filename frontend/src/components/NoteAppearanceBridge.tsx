@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Check, Loader2, Palette, RotateCcw, X } from "lucide-react";
-import { useApp, useAppActions } from "@/store/AppContext";
+import { useApp } from "@/store/AppContext";
 import { canWriteNote } from "@/lib/notePermissions";
 import { toast } from "@/lib/toast";
 import {
@@ -64,7 +64,6 @@ function applyThemeSurface(surface: HTMLElement, themeId: string): void {
  */
 export default function NoteAppearanceBridge() {
   const { state } = useApp();
-  const actions = useAppActions();
   const activeNote = state.activeNote;
   const noteId = activeNote?.id || "";
   const editable = canWriteNote(activeNote);
@@ -86,7 +85,6 @@ export default function NoteAppearanceBridge() {
       .then((result) => {
         if (requestGenerationRef.current !== generation) return;
         setThemeId(result.themeId || DEFAULT_NOTE_THEME_ID);
-        actions.setActiveNote(activeNote ? ({ ...activeNote, themeId: result.themeId } as any) : activeNote);
       })
       .catch((error) => {
         if (requestGenerationRef.current !== generation) return;
@@ -96,9 +94,6 @@ export default function NoteAppearanceBridge() {
       .finally(() => {
         if (requestGenerationRef.current === generation) setLoading(false);
       });
-  // activeNote intentionally excluded: editor autosave replaces the object frequently; appearance
-  // belongs to the note id and should not refetch on every content ACK.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [noteId]);
 
   useEffect(() => {
@@ -158,9 +153,6 @@ export default function NoteAppearanceBridge() {
     try {
       const result = await setNoteAppearance(noteId, nextThemeId);
       setThemeId(result.themeId);
-      if (activeNote?.id === noteId) {
-        actions.setActiveNote({ ...activeNote, themeId: result.themeId } as any);
-      }
       setOpen(false);
       toast.success(`已应用「${resolveNoteTheme(result.themeId).name}」`);
     } catch (error) {
@@ -169,7 +161,7 @@ export default function NoteAppearanceBridge() {
     } finally {
       setSaving(false);
     }
-  }, [activeNote, actions, noteId, saving, themeId]);
+  }, [noteId, saving, themeId]);
 
   if (!noteId || !anchor) return null;
 
