@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
+import "@/app-appearance.css";
 import {
   APP_APPEARANCE_CHANGED_EVENT,
   APP_APPEARANCE_IDS,
   APP_APPEARANCE_STORAGE_KEY,
   applyAppAppearance,
+  bootstrapAppAppearanceRuntime,
   readStoredAppAppearance,
   type AppAppearanceId,
 } from "@/lib/appAppearance";
@@ -16,6 +18,10 @@ import {
  */
 export type Skin = AppAppearanceId;
 export const SKIN_STORAGE_KEY = APP_APPEARANCE_STORAGE_KEY;
+
+// SkinSwitcher 随主应用模块一同加载；在 React 首次绘制前先恢复持久化风格，并安装
+// Light/Dark 与多标签页同步监听，避免只有打开设置页后主题才生效。
+bootstrapAppAppearanceRuntime();
 
 export function useSkin(): {
   skin: Skin;
