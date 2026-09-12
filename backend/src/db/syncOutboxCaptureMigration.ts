@@ -220,6 +220,10 @@ export function installSyncOutboxCaptureTriggers(db: Parameters<Migration["up"]>
 
     // --- note ---
     // 唯一带 baseVersion 的实体：正文冲突必须能被检测。
+    // v87/v90/v91 会在 v102 添加 themeId 之前调用本函数；只有列已经存在时
+    // 才能把它写进触发器，否则旧库升级会在中途因 NEW.themeId 不存在而失败。
+    const noteColumns = db.prepare("PRAGMA table_info(notes)").all() as Array<{ name: string }>;
+    const hasThemeId = noteColumns.some((column) => column.name === "themeId");
     const notePayload = (ref: string) => `json_object(
       'id', ${ref}.id,
       'notebookId', ${ref}.notebookId,
@@ -233,6 +237,7 @@ export function installSyncOutboxCaptureTriggers(db: Parameters<Migration["up"]>
       'isArchived', ${ref}.isArchived,
       'isTrashed', ${ref}.isTrashed,
       'trashedAt', ${ref}.trashedAt,
+      ${hasThemeId ? `'themeId', ${ref}.themeId,` : ""}
       'sortOrder', ${ref}.sortOrder,
       'version', ${ref}.version,
       'createdAt', ${ref}.createdAt,

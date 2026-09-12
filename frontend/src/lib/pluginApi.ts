@@ -24,18 +24,22 @@ export interface PluginAction {
   input?: Record<string, { type: string; required?: boolean; description?: string }>;
 }
 
-export type PluginNoteThemeFontCategory = "system" | "sans" | "serif" | "mono";
 export interface PluginNoteThemeTokens {
-  canvasBackground?: string; contentBackground?: string; contentText?: string; mutedText?: string; headingText?: string;
-  linkColor?: string; linkWeight?: number; quoteBackground?: string; quoteBorder?: string; tableBorder?: string;
-  tableHeaderBackground?: string; tableStripeBackground?: string; codeBackground?: string; inlineCodeBackground?: string;
-  contentMaxWidth?: number; contentPaddingInline?: number; contentPaddingBlock?: number; fontCategory?: PluginNoteThemeFontCategory;
-  fontSize?: number; lineHeight?: number; letterSpacing?: number; paragraphSpacing?: number; radius?: number;
-  controlBackground?: string; controlBorder?: string;
+  surface?: string; text?: string; heading?: string; muted?: string; border?: string; accent?: string;
+  accentHover?: string; inlineCodeBackground?: string; inlineCodeText?: string; preBackground?: string; preText?: string;
+  quoteBorder?: string; quoteText?: string; softBackground?: string; tableStripe?: string; markBackground?: string;
+  selection?: string; contentMaxWidth?: string; lineHeight?: string;
 }
 export interface PluginNoteThemeContribution {
   id: string; name: string; description?: string; base?: "nowen.default";
   modes: { light: PluginNoteThemeTokens; dark?: PluginNoteThemeTokens };
+}
+
+export interface PluginContributionRecord {
+  pluginId: string;
+  publisher?: string;
+  noteThemes?: PluginNoteThemeContribution[];
+  [key: string]: unknown;
 }
 
 export interface InstalledPlugin {
@@ -126,27 +130,35 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   return payload as T;
 }
 
+export const PLUGIN_CONTRIBUTIONS_CHANGED_EVENT = "nowen:plugin-contributions-changed";
+
+async function contributionMutation<T>(operation: Promise<T>): Promise<T> {
+  const result = await operation;
+  if (typeof window !== "undefined") window.dispatchEvent(new Event(PLUGIN_CONTRIBUTIONS_CHANGED_EVENT));
+  return result;
+}
+
 export const pluginApi = {
   features: () => request<ExtensionPlatformFeatureFlags>("/plugins/features"),
   list: () => request<InstalledPlugin[]>("/plugins"),
   actions: () => request<Array<PluginAction & { pluginId: string; actionId: string }>>("/plugins/actions"),
-  contributions: () => request<Array<Record<string, unknown>>>("/plugins/contributions"),
+  contributions: () => request<PluginContributionRecord[]>("/plugins/contributions"),
   get: (id: string) => request<InstalledPlugin>(`/plugins/${encodeURIComponent(id)}`),
   install: (file: File, confirmNodeRuntime = false) => {
     const form = new FormData();
     form.append("file", file);
     if (confirmNodeRuntime) form.append("confirmNodeRuntime", "true");
-    return request<{ success: true; plugin: InstalledPlugin }>("/plugins/install", { method: "POST", body: form });
+    return contributionMutation(request<{ success: true; plugin: InstalledPlugin }>("/plugins/install", { method: "POST", body: form }));
   },
   grant: (id: string, granted: string[]) => request(`/plugins/${encodeURIComponent(id)}/permissions`, { method: "PUT", body: JSON.stringify({ granted }) }),
-  enable: (id: string) => request(`/plugins/${encodeURIComponent(id)}/enable`, { method: "POST" }),
-  disable: (id: string) => request(`/plugins/${encodeURIComponent(id)}/disable`, { method: "POST" }),
-  reload: (id: string) => request(`/plugins/${encodeURIComponent(id)}/reload`, { method: "POST" }),
-  uninstall: (id: string) => request(`/plugins/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  enable: (id: string) => contributionMutation(request(`/plugins/${encodeURIComponent(id)}/enable`, { method: "POST" })),
+  disable: (id: string) => contributionMutation(request(`/plugins/${encodeURIComponent(id)}/disable`, { method: "POST" })),
+  reload: (id: string) => contributionMutation(request(`/plugins/${encodeURIComponent(id)}/reload`, { method: "POST" })),
+  uninstall: (id: string) => contributionMutation(request(`/plugins/${encodeURIComponent(id)}`, { method: "DELETE" })),
   execute: (pluginId: string, actionId: string, input: Record<string, unknown>) => request<{ success: boolean; executionId: string; data: unknown }>(`/plugins/${encodeURIComponent(pluginId)}/actions/${encodeURIComponent(actionId)}/execute`, { method: "POST", body: JSON.stringify({ input }) }),
   executions: (id: string) => request<PluginExecution[]>(`/plugins/${encodeURIComponent(id)}/executions`),
   versions: (id: string) => request<PluginVersion[]>(`/plugins/${encodeURIComponent(id)}/versions`),
-  rollback: (id: string, version?: string) => request(`/plugins/${encodeURIComponent(id)}/rollback`, { method: "POST", body: JSON.stringify({ version }) }),
+  rollback: (id: string, version?: string) => contributionMutation(request(`/plugins/${encodeURIComponent(id)}/rollback`, { method: "POST", body: JSON.stringify({ version }) })),
   connections: (id: string) => request<PluginConnection[]>(`/plugins/${encodeURIComponent(id)}/connections`),
   setConnection: (id: string, name: string, value: string) => request(`/plugins/${encodeURIComponent(id)}/secrets/${encodeURIComponent(name)}`, { method: "PUT", body: JSON.stringify({ value }) }),
   removeConnection: (id: string, name: string) => request(`/plugins/${encodeURIComponent(id)}/secrets/${encodeURIComponent(name)}`, { method: "DELETE" }),
@@ -160,12 +172,12 @@ export const pluginApi = {
         .sort((left, right) => right.version.localeCompare(left.version, undefined, { numeric: true }))[0]?.version || "",
     }));
   },
-  installFromRegistry: (sourceId: string, pluginId: string, version?: string) => request("/plugins/ecosystem/install", { method: "POST", body: JSON.stringify({ sourceId, pluginId, version }) }),
+  installFromRegistry: (sourceId: string, pluginId: string, version?: string) => contributionMutation(request("/plugins/ecosystem/install", { method: "POST", body: JSON.stringify({ sourceId, pluginId, version }) })),
   getDeveloperMode: () => request<{ enabled: boolean; available: boolean }>("/plugins/developer-mode"),
   setDeveloperMode: (enabled: boolean) => request<{ enabled: boolean }>("/plugins/developer-mode", { method: "PUT", body: JSON.stringify({ enabled }) }),
-  loadDevelopment: (directory: string, confirmNodeRuntime = false) => request("/plugins/dev/load", { method: "POST", body: JSON.stringify({ directory, confirmNodeRuntime }) }),
+  loadDevelopment: (directory: string, confirmNodeRuntime = false) => contributionMutation(request("/plugins/dev/load", { method: "POST", body: JSON.stringify({ directory, confirmNodeRuntime }) })),
   checkUpdates: (source = "official-v2") => request<PluginUpdate[]>(`/plugins/ecosystem/updates?source=${encodeURIComponent(source)}`),
-  applyUpdate: (sourceId: string, pluginId: string, version: string, confirmed = false) => request("/plugins/ecosystem/update", { method: "POST", body: JSON.stringify({ sourceId, pluginId, version, confirmed }) }),
+  applyUpdate: (sourceId: string, pluginId: string, version: string, confirmed = false) => contributionMutation(request("/plugins/ecosystem/update", { method: "POST", body: JSON.stringify({ sourceId, pluginId, version, confirmed }) })),
   setUpdatePolicy: (id: string, policy: "manual" | "notify" | "automatic", pinnedVersion?: string | null) => request(`/plugins/${encodeURIComponent(id)}/update-policy`, { method: "PUT", body: JSON.stringify({ policy, pinnedVersion }) }),
   settings: (id: string) => request<Record<string, unknown>>(`/plugins/${encodeURIComponent(id)}/settings`),
   setSettings: (id: string, values: Record<string, unknown>) => request<Record<string, unknown>>(`/plugins/${encodeURIComponent(id)}/settings`, { method: "PUT", body: JSON.stringify(values) }),

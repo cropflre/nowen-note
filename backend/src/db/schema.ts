@@ -208,6 +208,7 @@ function initSchema(db: Database.Database) {
       isArchived INTEGER DEFAULT 0,
       isTrashed INTEGER DEFAULT 0,
       trashedAt TEXT,
+      themeId TEXT,
       version INTEGER DEFAULT 1,
       sortOrder INTEGER DEFAULT 0,
       createdAt TEXT NOT NULL DEFAULT (datetime('now')),

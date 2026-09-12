@@ -15,7 +15,7 @@ import { isEd25519PublicKey, verifyArtifactSignature } from "./signatures.js";
 import type { PluginTrustLevel } from "./types.js";
 
 export interface EcosystemSource { id: string; name: string; indexUrl: string; official: boolean; enabled: boolean; registryKeyId: string | null; registryPublicKey: string | null }
-export interface EcosystemVersion { version: string; apiVersion: 2; runtime: "sandbox-js" | "node-action"; artifactUrl: string; sha256: string; publisherKeyId: string; signature: string; nowen: string; permissions: string[]; permissionConfig?: { externalFetchHosts?: string[] }; platforms?: string[]; runtimePlatform?: string[]; uiPlatform?: string[]; channel?: string; publishedAt?: string }
+export interface EcosystemVersion { version: string; apiVersion: 2; runtime: "sandbox-js" | "node-action" | "declarative"; artifactUrl: string; sha256: string; publisherKeyId: string; signature: string; nowen: string; permissions: string[]; permissionConfig?: { externalFetchHosts?: string[] }; platforms?: string[]; runtimePlatform?: string[]; uiPlatform?: string[]; channel?: string; publishedAt?: string }
 export interface EcosystemExtension { id: string; publisher: string; name: string; description?: string; trustLevel?: PluginTrustLevel; versions: EcosystemVersion[] }
 export interface EcosystemIndex extends GuardedRegistryDocument {
   protocolVersion: 2;

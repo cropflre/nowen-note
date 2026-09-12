@@ -1,9 +1,8 @@
 import {
   resolveDocumentThemeMode,
-  resolveNoteThemeTokens,
-  type NoteThemeId,
   type NoteThemeTokens,
 } from "@/lib/noteTheme";
+import { resolveRegisteredNoteTheme } from "@/lib/pluginNoteThemeRegistry";
 
 const SURFACE_TOKEN_PROPERTIES: Array<[keyof NoteThemeTokens, string]> = [
   ["surface", "--note-theme-surface"],
@@ -27,17 +26,21 @@ const SURFACE_TOKEN_PROPERTIES: Array<[keyof NoteThemeTokens, string]> = [
   ["lineHeight", "--pm-p-line-height"],
 ];
 
-/** Legacy per-note compatibility only; no longer exposed as a product surface. */
-export function applyExplicitNoteTheme(surface: HTMLElement, themeId: NoteThemeId): void {
-  const tokens = resolveNoteThemeTokens(themeId, resolveDocumentThemeMode());
-  surface.dataset.noteTheme = themeId;
+export function applyExplicitNoteTheme(surface: HTMLElement, themeId: string): boolean {
+  const resolved = resolveRegisteredNoteTheme(themeId, resolveDocumentThemeMode());
+  surface.dataset.noteTheme = resolved.id;
+  surface.dataset.noteThemeRequested = themeId;
+  surface.toggleAttribute("data-note-theme-fallback", !resolved.available);
   for (const [key, property] of SURFACE_TOKEN_PROPERTIES) {
-    surface.style.setProperty(property, tokens[key]);
+    surface.style.setProperty(property, resolved.tokens[key]);
   }
+  return resolved.available;
 }
 
 export function clearExplicitNoteTheme(surface: HTMLElement): void {
   surface.removeAttribute("data-note-theme");
+  surface.removeAttribute("data-note-theme-requested");
+  surface.removeAttribute("data-note-theme-fallback");
   for (const [, property] of SURFACE_TOKEN_PROPERTIES) surface.style.removeProperty(property);
 }
 

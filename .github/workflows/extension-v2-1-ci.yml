@@ -9,6 +9,7 @@ on:
       - "backend/tests/extension-v2-1-*.test.ts"
       - "backend/tests/extension-capability-catalog.test.ts"
       - "backend/tests/declarative-extension-lifecycle.test.ts"
+      - "backend/tests/note-theme-plugin-lifecycle.test.ts"
       - "backend/tests/appearance-contribution.test.ts"
       - "backend/tests/extension-platform-v2.test.ts"
       - "backend/tests/plugin-platform.test.ts"
@@ -18,6 +19,22 @@ on:
       - "frontend/src/lib/pluginApi.ts"
       - "frontend/src/lib/pluginRuntimePresentation.ts"
       - "frontend/src/lib/pluginAppearanceRegistry.ts"
+      - "frontend/src/lib/pluginNoteThemeRegistry.ts"
+      - "frontend/src/lib/noteAppearance*.ts"
+      - "frontend/src/components/NoteAppearanceBridge.tsx"
+      - "frontend/src/components/NoteThemeMenuSelect.tsx"
+      - "frontend/src/lib/__tests__/pluginNoteThemeRegistry.test.ts"
+      - "frontend/src/lib/__tests__/noteAppearanceProviderBoundary.test.ts"
+      - "backend/src/runtime/note-appearance.ts"
+      - "backend/src/lib/noteThemeId.ts"
+      - "backend/src/db/noteThemeContributionMigration.ts"
+      - "backend/src/db/syncOutboxCaptureMigration.ts"
+      - "backend/src/db/migrations.ts"
+      - "backend/src/db/schema.ts"
+      - "backend/src/sync/**"
+      - "backend/tests/note-appearance.test.ts"
+      - "backend/tests/sync-v2-*.test.ts"
+      - "frontend/src/components/EditorPane.tsx"
       - "frontend/src/lib/pluginContributionCache.ts"
       - "frontend/src/lib/appAppearance.ts"
       - "frontend/src/hooks/useSkin.ts"
@@ -39,6 +56,7 @@ on:
       - "backend/tests/extension-v2-1-*.test.ts"
       - "backend/tests/extension-capability-catalog.test.ts"
       - "backend/tests/declarative-extension-lifecycle.test.ts"
+      - "backend/tests/note-theme-plugin-lifecycle.test.ts"
       - "backend/tests/appearance-contribution.test.ts"
       - "backend/tests/extension-platform-v2.test.ts"
       - "backend/tests/plugin-platform.test.ts"
@@ -48,6 +66,22 @@ on:
       - "frontend/src/lib/pluginApi.ts"
       - "frontend/src/lib/pluginRuntimePresentation.ts"
       - "frontend/src/lib/pluginAppearanceRegistry.ts"
+      - "frontend/src/lib/pluginNoteThemeRegistry.ts"
+      - "frontend/src/lib/noteAppearance*.ts"
+      - "frontend/src/components/NoteAppearanceBridge.tsx"
+      - "frontend/src/components/NoteThemeMenuSelect.tsx"
+      - "frontend/src/lib/__tests__/pluginNoteThemeRegistry.test.ts"
+      - "frontend/src/lib/__tests__/noteAppearanceProviderBoundary.test.ts"
+      - "backend/src/runtime/note-appearance.ts"
+      - "backend/src/lib/noteThemeId.ts"
+      - "backend/src/db/noteThemeContributionMigration.ts"
+      - "backend/src/db/syncOutboxCaptureMigration.ts"
+      - "backend/src/db/migrations.ts"
+      - "backend/src/db/schema.ts"
+      - "backend/src/sync/**"
+      - "backend/tests/note-appearance.test.ts"
+      - "backend/tests/sync-v2-*.test.ts"
+      - "frontend/src/components/EditorPane.tsx"
       - "frontend/src/lib/pluginContributionCache.ts"
       - "frontend/src/lib/appAppearance.ts"
       - "frontend/src/hooks/useSkin.ts"
@@ -82,25 +116,45 @@ jobs:
         run: npm test
       - name: Validate CLI entrypoint
         run: node --check packages/nowen-plugin-cli/bin/nowen-plugin.mjs
+      - name: Install CLI dependencies
+        working-directory: packages/nowen-plugin-cli
+        run: npm ci
+      - name: Validate and pack official declarative Theme Pack
+        working-directory: examples/plugins/theme-pack
+        run: |
+          node ../../../packages/nowen-plugin-cli/bin/nowen-plugin.mjs validate
+          node ../../../packages/nowen-plugin-cli/bin/nowen-plugin.mjs doctor
+          node ../../../packages/nowen-plugin-cli/bin/nowen-plugin.mjs pack
       - name: Install backend dependencies
         working-directory: backend
         run: npm ci
       - name: V1/V2 compatibility baseline
         working-directory: backend
         run: |
-          npx tsx --test tests/plugin-platform.test.ts
-          npx tsx --test tests/extension-platform-v2.test.ts
-          npx tsx --test tests/extension-ecosystem-rc1.test.ts
+          node --import tsx --import ./tests/setup-db-isolation.ts --test tests/plugin-platform.test.ts
+          node --import tsx --import ./tests/setup-db-isolation.ts --test tests/extension-platform-v2.test.ts
+          node --import tsx --import ./tests/setup-db-isolation.ts --test tests/extension-ecosystem-rc1.test.ts
       - name: V2.1 capability contracts
         working-directory: backend
-        run: npx tsx --test tests/extension-capability-catalog.test.ts
+        run: |
+          node --import tsx --import ./tests/setup-db-isolation.ts --test tests/extension-capability-catalog.test.ts
+          node --import tsx --import ./tests/setup-db-isolation.ts --test tests/appearance-contribution.test.ts
+          node --import tsx --import ./tests/setup-db-isolation.ts --test tests/note-appearance.test.ts
       - name: V2.1 fail-closed feature gate
         working-directory: backend
-        run: npx tsx --test tests/extension-v2-1-feature-gates.test.ts
+        run: node --import tsx --import ./tests/setup-db-isolation.ts --test tests/extension-v2-1-feature-gates.test.ts
+      - name: Note Theme persistence and Sync V2
+        working-directory: backend
+        run: |
+          node --import tsx --import ./tests/setup-db-isolation.ts --test tests/sync-v2-outbox-capture.test.ts
+          node --import tsx --import ./tests/setup-db-isolation.ts --test tests/sync-v2-bootstrap.test.ts
+          node --import tsx --import ./tests/setup-db-isolation.ts --test tests/sync-v2-personal-entities.test.ts
       - name: Declarative extension lifecycle
         if: ${{ hashFiles('backend/tests/declarative-extension-lifecycle.test.ts') != '' }}
         working-directory: backend
-        run: npx tsx --test tests/declarative-extension-lifecycle.test.ts
+        run: |
+          node --import tsx --import ./tests/setup-db-isolation.ts --test tests/declarative-extension-lifecycle.test.ts
+          node --import tsx --import ./tests/setup-db-isolation.ts --test tests/note-theme-plugin-lifecycle.test.ts
       - name: Backend production typecheck
         working-directory: backend
         run: npm run build:tsc
@@ -123,7 +177,7 @@ jobs:
         run: npx vitest run src/lib/__tests__/pluginRuntimePresentation.test.ts --reporter=verbose
       - name: Appearance compatibility baseline
         working-directory: frontend
-        run: npx vitest run src/lib/__tests__/appAppearance.test.ts src/lib/__tests__/appAppearanceBootstrapContract.test.ts src/lib/__tests__/editorFontAppearanceGuard.test.ts --reporter=verbose
+        run: npx vitest run src/lib/__tests__/appAppearance.test.ts src/lib/__tests__/appAppearanceBootstrapContract.test.ts src/lib/__tests__/editorFontAppearanceGuard.test.ts src/lib/__tests__/noteTheme.test.ts src/lib/__tests__/noteAppearance.test.ts src/lib/__tests__/noteAppearanceProviderBoundary.test.ts src/lib/__tests__/pluginNoteThemeRegistry.test.ts --reporter=verbose
       - name: Frontend production build
         working-directory: frontend
         run: npm run build

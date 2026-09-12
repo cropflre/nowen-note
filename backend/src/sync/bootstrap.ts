@@ -252,7 +252,7 @@ export function readLocalState(
       return (db.prepare(`
         SELECT id, notebookId, title, content, contentText, contentFormat,
                isPinned, isFavorite, isLocked, isArchived, isTrashed,
-               trashedAt, sortOrder, version, createdAt
+               trashedAt, themeId, sortOrder, version, createdAt
         FROM notes WHERE userId = ? AND workspaceId IS NULL
         ORDER BY createdAt ASC
       `).all(userId) as Array<Record<string, unknown>>).map((r) => ({

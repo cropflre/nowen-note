@@ -1,6 +1,8 @@
 import { getBaseUrl } from "@/lib/api.impl";
 import { fetchWithAuthRefresh, getAccessToken } from "@/lib/authSession";
-import { isNoteThemeId, type NoteThemeId } from "@/lib/noteTheme";
+import { isStoredNoteThemeId } from "@/lib/pluginNoteThemeRegistry";
+
+export const NOTE_APPEARANCE_CHANGED_EVENT = "nowen:note-appearance-changed";
 
 export interface NoteAppearanceState {
   noteId: string;
@@ -32,11 +34,15 @@ export async function getNoteAppearance(noteId: string): Promise<NoteAppearanceS
 
 export async function setNoteAppearance(
   noteId: string,
-  themeId: NoteThemeId | null,
+  themeId: string | null,
 ): Promise<NoteAppearanceState & { updated: boolean }> {
-  if (themeId !== null && !isNoteThemeId(themeId)) throw new Error("未知笔记主题");
-  return appearanceRequest(noteId, {
+  if (themeId !== null && !isStoredNoteThemeId(themeId)) throw new Error("无效的笔记主题标识");
+  const result = await appearanceRequest<NoteAppearanceState & { updated: boolean }>(noteId, {
     method: "PUT",
     body: JSON.stringify({ themeId }),
   });
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent(NOTE_APPEARANCE_CHANGED_EVENT, { detail: result }));
+  }
+  return result;
 }

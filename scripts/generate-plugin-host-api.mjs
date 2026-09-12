@@ -134,12 +134,11 @@ function validateContributionContract(value) {
   for (const required of ["commands", "menus", "settings", "automationTemplates", "noteThemes", "noteTemplates", "promptPacks"]) {
     if (!ids.has(required)) fail(`缺少 Contribution type ${required}`);
   }
-  requireExactKeys(value.noteTheme, ["schemaVersion", "bases", "editableTokens", "fontCategories", "maxThemesPerPlugin"], "noteTheme contribution");
+  requireExactKeys(value.noteTheme, ["schemaVersion", "bases", "editableTokens", "maxThemesPerPlugin"], "noteTheme contribution");
   requireExactKeys(value.noteTemplate, ["schemaVersion", "maxTemplatesPerPlugin", "maxBodyBytes"], "noteTemplate contribution");
   requireExactKeys(value.promptPack, ["schemaVersion", "maxPromptsPerPlugin", "maxPromptBytes"], "promptPack contribution");
   uniqueStrings(value.noteTheme.bases, "noteTheme.bases");
   uniqueStrings(value.noteTheme.editableTokens, "noteTheme.editableTokens");
-  uniqueStrings(value.noteTheme.fontCategories, "noteTheme.fontCategories");
   return { ...value, types: [...value.types].sort((a, b) => compareCodePoints(a.id, b.id)) };
 }
 

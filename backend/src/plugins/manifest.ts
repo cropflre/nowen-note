@@ -77,19 +77,22 @@ const settingSchema = z.object({
 }).strict();
 const automationTemplateSchema = z.object({ id: z.string().regex(/^[a-z][a-z0-9-]{0,63}$/), title: z.string().min(1).max(100), file: z.string().min(1).max(300), description: z.string().max(500).optional() }).strict();
 const noteThemeColorSchema = z.string().regex(/^#[0-9a-fA-F]{6}(?:[0-9a-fA-F]{2})?$/, "Note Theme 颜色必须是 #RRGGBB 或 #RRGGBBAA");
+const noteThemeWidthSchema = z.string().regex(/^\d{3,4}px$/, "contentMaxWidth 必须是 px 长度").refine((value) => {
+  const width = Number.parseInt(value, 10);
+  return width >= 480 && width <= 1200;
+}, "contentMaxWidth 必须介于 480px 与 1200px");
+const noteThemeLineHeightSchema = z.string().regex(/^\d(?:\.\d{1,2})?$/, "lineHeight 必须是无单位数值").refine((value) => {
+  const lineHeight = Number(value);
+  return lineHeight >= 1.2 && lineHeight <= 2.2;
+}, "lineHeight 必须介于 1.2 与 2.2");
 const noteThemeTokensSchema = z.object({
-  canvasBackground: noteThemeColorSchema.optional(), contentBackground: noteThemeColorSchema.optional(),
-  contentText: noteThemeColorSchema.optional(), mutedText: noteThemeColorSchema.optional(), headingText: noteThemeColorSchema.optional(),
-  linkColor: noteThemeColorSchema.optional(), linkWeight: z.number().int().min(400).max(700).optional(),
-  quoteBackground: noteThemeColorSchema.optional(), quoteBorder: noteThemeColorSchema.optional(),
-  tableBorder: noteThemeColorSchema.optional(), tableHeaderBackground: noteThemeColorSchema.optional(), tableStripeBackground: noteThemeColorSchema.optional(),
-  codeBackground: noteThemeColorSchema.optional(), inlineCodeBackground: noteThemeColorSchema.optional(),
-  contentMaxWidth: z.number().int().min(480).max(1200).optional(),
-  contentPaddingInline: z.number().min(16).max(96).optional(), contentPaddingBlock: z.number().min(16).max(120).optional(),
-  fontCategory: z.enum(["system", "sans", "serif", "mono"]).optional(),
-  fontSize: z.number().min(12).max(24).optional(), lineHeight: z.number().min(1.2).max(2.2).optional(),
-  letterSpacing: z.number().min(-0.5).max(2).optional(), paragraphSpacing: z.number().min(0).max(32).optional(),
-  radius: z.number().min(0).max(24).optional(), controlBackground: noteThemeColorSchema.optional(), controlBorder: noteThemeColorSchema.optional(),
+  surface: noteThemeColorSchema.optional(), text: noteThemeColorSchema.optional(), heading: noteThemeColorSchema.optional(),
+  muted: noteThemeColorSchema.optional(), border: noteThemeColorSchema.optional(), accent: noteThemeColorSchema.optional(),
+  accentHover: noteThemeColorSchema.optional(), inlineCodeBackground: noteThemeColorSchema.optional(),
+  inlineCodeText: noteThemeColorSchema.optional(), preBackground: noteThemeColorSchema.optional(), preText: noteThemeColorSchema.optional(),
+  quoteBorder: noteThemeColorSchema.optional(), quoteText: noteThemeColorSchema.optional(), softBackground: noteThemeColorSchema.optional(),
+  tableStripe: noteThemeColorSchema.optional(), markBackground: noteThemeColorSchema.optional(), selection: noteThemeColorSchema.optional(),
+  contentMaxWidth: noteThemeWidthSchema.optional(), lineHeight: noteThemeLineHeightSchema.optional(),
 }).strict().superRefine((tokens, ctx) => {
   if (Object.keys(tokens).length === 0) ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Note Theme token 不能为空" });
 });

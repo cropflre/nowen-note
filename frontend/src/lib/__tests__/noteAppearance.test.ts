@@ -13,8 +13,8 @@ afterEach(() => {
   applyNoteTheme("default");
 });
 
-describe("legacy per-note appearance surface", () => {
-  it("keeps old explicit metadata renderable for compatibility", () => {
+describe("per-note appearance surface", () => {
+  it("renders an explicit built-in note theme", () => {
     const surface = document.createElement("div");
     applyExplicitNoteTheme(surface, "paper");
 
@@ -23,7 +23,7 @@ describe("legacy per-note appearance surface", () => {
       .toBe(resolveNoteThemeTokens("paper", "light").surface);
   });
 
-  it("clearing old metadata removes every local token", () => {
+  it("clearing explicit appearance removes every local token", () => {
     const surface = document.createElement("div");
     applyExplicitNoteTheme(surface, "minimal");
     clearExplicitNoteTheme(surface);

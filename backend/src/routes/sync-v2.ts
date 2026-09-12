@@ -323,7 +323,7 @@ function snapshotPage(
       return map(db.prepare(`
         SELECT id, userId, notebookId, title, content, contentText, contentFormat,
                isPinned, isFavorite, isLocked, isArchived, isTrashed, trashedAt,
-               version, sortOrder, createdAt, updatedAt, workspaceId
+               themeId, version, sortOrder, createdAt, updatedAt, workspaceId
         FROM notes WHERE workspaceId IS ? AND (? IS NOT NULL OR userId = ?) AND id > ?
         ORDER BY id ASC LIMIT ?
       `).all(workspaceId, workspaceId, userId, afterId, limit) as Array<Record<string, unknown>>);

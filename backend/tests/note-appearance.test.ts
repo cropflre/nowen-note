@@ -83,11 +83,28 @@ test("inheritance is NULL while explicit Nowen Default remains a valid appearanc
   assert.equal(normalizeNoteThemeId(null), null);
   assert.equal(normalizeNoteThemeId(""), null);
   assert.equal(normalizeNoteThemeId(defaultThemeId), "default");
-  assert.equal(normalizeNoteThemeId(" Publisher.Paper-V2 "), "publisher.paper-v2");
+  assert.equal(normalizeNoteThemeId(" Acme.Theme-Pack/Paper-V2 "), "acme.theme-pack/paper-v2");
+  assert.equal(normalizeNoteThemeId("publisher.paper-v2"), null);
+  assert.equal(normalizeNoteThemeId("unknown-built-in"), null);
   assert.equal(normalizeNoteThemeId("https://evil.example/theme.css"), null);
   assert.equal(normalizeNoteThemeId("theme id with spaces"), null);
   assert.equal(normalizeNoteThemeId("@import"), null);
   assert.equal(normalizeNoteThemeId("a".repeat(97)), null);
+});
+
+test("namespaced plugin theme ids persist even when the plugin is currently unavailable", async () => {
+  const themeId = "acme.theme-pack/paper-v2";
+  const response = await app.request(`/api/note-appearance/${NOTE_ID}`, {
+    method: "PUT",
+    headers: headers(),
+    body: JSON.stringify({ themeId }),
+  });
+  assert.equal(response.status, 200, await response.clone().text());
+  assert.equal((await response.json() as { themeId: string }).themeId, themeId);
+  assert.equal(
+    (db().prepare("SELECT themeId FROM notes WHERE id = ?").get(NOTE_ID) as { themeId: string }).themeId,
+    themeId,
+  );
 });
 
 test("appearance starts in inherit mode and persists independently from note content version", async () => {
@@ -105,7 +122,7 @@ test("appearance starts in inherit mode and persists independently from note con
     headers: headers(),
     body: JSON.stringify({ themeId: "paper" }),
   });
-  assert.equal(response.status, 200, await response.text());
+  assert.equal(response.status, 200, await response.clone().text());
   const payload = await response.json() as { noteId: string; themeId: string; updated: boolean };
   assert.equal(payload.themeId, "paper");
   assert.equal(payload.updated, true);

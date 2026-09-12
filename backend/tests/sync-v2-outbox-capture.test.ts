@@ -180,6 +180,20 @@ test("修改笔记携带 OLD.version 作为 baseVersion，供服务端判冲突"
   assert.equal(payload.version, 2, "payload 携带新版本");
 });
 
+test("修改笔记主题会把 namespaced themeId 写入 Outbox", () => {
+  resetAll();
+  const { profileId } = enableSync();
+  const note = createNote(createNotebook());
+  db().exec("DELETE FROM sync_outbox");
+
+  db().prepare("UPDATE notes SET themeId = ?, updatedAt = datetime('now') WHERE id = ?")
+    .run("nowen.theme-pack/sepia", note);
+
+  const row = listPendingMutations(db(), 10, profileId).find((item) => item.entityId === note);
+  assert.ok(row, "主题元数据修改必须进入同步队列");
+  assert.equal(JSON.parse(row.payload as string).themeId, "nowen.theme-pack/sepia");
+});
+
 test("删除笔记产生 delete mutation 且带 baseVersion", () => {
   resetAll();
   const { profileId } = enableSync();

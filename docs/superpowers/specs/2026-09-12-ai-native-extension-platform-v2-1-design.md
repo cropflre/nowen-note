@@ -156,7 +156,7 @@ type DeclarativeExtension = {
 - `menus`
 - `settings`
 - `automationTemplates`
-- `appearances`
+- `noteThemes`
 - `noteTemplates`
 - `promptPacks`
 

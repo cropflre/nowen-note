@@ -259,6 +259,16 @@ test("readLocalState 只读个人空间，不含工作区数据", () => {
   assert.equal(notes.length, 1, "工作区笔记不在第一版同步范围内");
 });
 
+test("readLocalState 保留插件笔记主题标识", () => {
+  resetAll();
+  const noteId = makeNote(makeNotebook());
+  db().prepare("UPDATE notes SET themeId = ? WHERE id = ?")
+    .run("nowen.theme-pack/sepia", noteId);
+
+  const note = readLocalState(db(), USER_ID, "note")[0];
+  assert.equal(note.payload?.themeId, "nowen.theme-pack/sepia");
+});
+
 test("readLocalState 的附件 payload 不含服务器路径", () => {
   resetAll();
   const nb = makeNotebook();

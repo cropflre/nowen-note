@@ -1,13 +1,14 @@
 import { Hono } from "hono";
 import { getDb } from "../db/schema.js";
 import { hasPermission, resolveNotePermission } from "../middleware/acl.js";
+import { DEFAULT_NOTE_THEME_ID, normalizeNoteThemeId } from "../lib/noteThemeId.js";
+
+export { DEFAULT_NOTE_THEME_ID, normalizeNoteThemeId } from "../lib/noteThemeId.js";
 
 const ROUTE_PATCH_FLAG = Symbol.for("nowen.noteAppearance.routePatch");
 const ROUTER_INSTALLED_FLAG = Symbol.for("nowen.noteAppearance.routerInstalled");
 const globals = globalThis as typeof globalThis & Record<symbol, boolean>;
 
-export const DEFAULT_NOTE_THEME_ID = "default";
-const THEME_ID_RE = /^[a-z0-9][a-z0-9._-]{0,95}$/;
 let schemaReadyFor: ReturnType<typeof getDb> | null = null;
 
 /**
@@ -31,13 +32,6 @@ export function ensureNoteAppearanceSchema(): void {
  * NULL means "inherit the account/notebook default". `default` is a real explicit theme choice,
  * which matters when an account default is Paper but one note intentionally wants Nowen Default.
  */
-export function normalizeNoteThemeId(value: unknown): string | null {
-  if (value == null || value === "") return null;
-  if (typeof value !== "string") return null;
-  const normalized = value.trim().toLowerCase();
-  return THEME_ID_RE.test(normalized) ? normalized : null;
-}
-
 const router = new Hono();
 
 router.get("/:id", (c) => {

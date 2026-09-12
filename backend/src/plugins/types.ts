@@ -115,33 +115,26 @@ export interface PluginCommandContribution { id: string; title: string; action: 
 export interface PluginMenuContribution { location: "commandPalette" | "note.contextMenu" | "notebook.contextMenu" | "editor.toolbar.actions" | "attachment.contextMenu" | "task.contextMenu" | "settings.plugin" | "automation.template"; command: string }
 export interface PluginSettingContribution { key: string; title: string; type: "string" | "number" | "boolean" | "select"; description?: string; options?: Array<string | number>; default?: string | number | boolean; secret?: boolean }
 export interface PluginAutomationTemplateContribution { id: string; title: string; file: string; description?: string }
-export type PluginNoteThemeFontCategory = "system" | "sans" | "serif" | "mono";
 export interface PluginNoteThemeTokens {
-  canvasBackground?: string;
-  contentBackground?: string;
-  contentText?: string;
-  mutedText?: string;
-  headingText?: string;
-  linkColor?: string;
-  linkWeight?: number;
-  quoteBackground?: string;
-  quoteBorder?: string;
-  tableBorder?: string;
-  tableHeaderBackground?: string;
-  tableStripeBackground?: string;
-  codeBackground?: string;
+  surface?: string;
+  text?: string;
+  heading?: string;
+  muted?: string;
+  border?: string;
+  accent?: string;
+  accentHover?: string;
   inlineCodeBackground?: string;
-  contentMaxWidth?: number;
-  contentPaddingInline?: number;
-  contentPaddingBlock?: number;
-  fontCategory?: PluginNoteThemeFontCategory;
-  fontSize?: number;
-  lineHeight?: number;
-  letterSpacing?: number;
-  paragraphSpacing?: number;
-  radius?: number;
-  controlBackground?: string;
-  controlBorder?: string;
+  inlineCodeText?: string;
+  preBackground?: string;
+  preText?: string;
+  quoteBorder?: string;
+  quoteText?: string;
+  softBackground?: string;
+  tableStripe?: string;
+  markBackground?: string;
+  selection?: string;
+  contentMaxWidth?: string;
+  lineHeight?: string;
 }
 export interface PluginNoteThemeContribution {
   id: string;

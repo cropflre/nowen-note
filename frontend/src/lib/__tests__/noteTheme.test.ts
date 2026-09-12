@@ -7,13 +7,13 @@ import {
   resolveNoteThemeTokens,
 } from "@/lib/noteTheme";
 
-describe("legacy note theme compatibility", () => {
+describe("built-in note theme registry", () => {
   afterEach(() => {
     document.documentElement.classList.remove("dark");
     applyNoteTheme("default");
   });
 
-  it("keeps the legacy registry constrained", () => {
+  it("keeps the built-in registry constrained", () => {
     expect(NOTE_THEME_IDS).toEqual(["default", "paper", "minimal", "eye-care"]);
     expect(new Set(NOTE_THEMES.map((theme) => theme.id)).size).toBe(NOTE_THEME_IDS.length);
   });
@@ -22,7 +22,7 @@ describe("legacy note theme compatibility", () => {
     expect(resolveNoteThemeTokens("remote-css", "light")).toEqual(resolveNoteThemeTokens("default", "light"));
   });
 
-  it("retains old token projection only for backward compatibility", () => {
+  it("projects built-in tokens onto a note surface", () => {
     const root = document.documentElement;
     applyNoteTheme("paper", root);
     expect(currentNoteThemeId(root)).toBe("paper");

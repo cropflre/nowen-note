@@ -645,7 +645,7 @@ export class SyncEngine {
   ): Record<string, unknown> | null {
     if (item.entityType !== "note") return null;
     const row = this.db.prepare(`
-      SELECT id, title, content, contentText, version, updatedAt
+      SELECT id, title, content, contentText, themeId, version, updatedAt
       FROM notes WHERE id = ? AND workspaceId IS ? AND (? IS NOT NULL OR userId = ?)
     `).get(item.entityId, scope.workspaceId, scope.workspaceId, this.userId) as
       | Record<string, unknown>

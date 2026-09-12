@@ -187,6 +187,7 @@ export interface Note {
   isArchived: number;
   isTrashed: number;
   trashedAt: string | null;
+  themeId?: string | null;
   version: number;
   sortOrder: number;
   createdAt: string;

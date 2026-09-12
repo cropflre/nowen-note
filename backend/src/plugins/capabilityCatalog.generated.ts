@@ -7,7 +7,7 @@ function deepFreeze<T>(value: T): T {
   return value;
 }
 
-export const EXTENSION_CAPABILITY_CATALOG_DIGEST = "31f53aa1ebb51e47ba2618fa6333d2a053cd35374c520a38af74d9c669b6cdf2" as const;
+export const EXTENSION_CAPABILITY_CATALOG_DIGEST = "796c075c88fb030b133da69b363f954b03268491ea8d4fd4d8358f61205343ab" as const;
 export const EXTENSION_CAPABILITY_CATALOG = deepFreeze({
   "catalogVersion": 1,
   "hostApi": {
@@ -1026,37 +1026,25 @@ export const EXTENSION_CAPABILITY_CATALOG = deepFreeze({
         "nowen.default"
       ],
       "editableTokens": [
-        "canvasBackground",
-        "contentBackground",
-        "contentText",
-        "mutedText",
-        "headingText",
-        "linkColor",
-        "linkWeight",
-        "quoteBackground",
-        "quoteBorder",
-        "tableBorder",
-        "tableHeaderBackground",
-        "tableStripeBackground",
-        "codeBackground",
+        "surface",
+        "text",
+        "heading",
+        "muted",
+        "border",
+        "accent",
+        "accentHover",
         "inlineCodeBackground",
+        "inlineCodeText",
+        "preBackground",
+        "preText",
+        "quoteBorder",
+        "quoteText",
+        "softBackground",
+        "tableStripe",
+        "markBackground",
+        "selection",
         "contentMaxWidth",
-        "contentPaddingInline",
-        "contentPaddingBlock",
-        "fontCategory",
-        "fontSize",
-        "lineHeight",
-        "letterSpacing",
-        "paragraphSpacing",
-        "radius",
-        "controlBackground",
-        "controlBorder"
-      ],
-      "fontCategories": [
-        "system",
-        "sans",
-        "serif",
-        "mono"
+        "lineHeight"
       ],
       "maxThemesPerPlugin": 20
     },
@@ -1226,5 +1214,5 @@ export const EXTENSION_CAPABILITY_CATALOG = deepFreeze({
       }
     ]
   },
-  "digest": "31f53aa1ebb51e47ba2618fa6333d2a053cd35374c520a38af74d9c669b6cdf2"
+  "digest": "796c075c88fb030b133da69b363f954b03268491ea8d4fd4d8358f61205343ab"
 } as const);

@@ -99,6 +99,7 @@ import {
   REQUEST_NOTE_FORMAT_CONVERSION_EVENT,
   type NoteFormatConversionRequest,
 } from "@/lib/noteFormatConversion";
+import NoteThemeMenuSelect from "@/components/NoteThemeMenuSelect";
 
 // ---------------------------------------------------------------------------
 // 编辑器模式切换（MD vs Tiptap）
@@ -2728,6 +2729,7 @@ const moveToTrash = useCallback(async () => {
                     <ListTree size={15} className="text-tx-tertiary" />
                     <span>{t('editor.showOutline')}</span>
                   </button>
+                  <NoteThemeMenuSelect noteId={activeNote.id} disabled={!canWriteNote(activeNote)} />
                   <div className="h-px bg-app-border mx-2 my-0.5" />
                   {/* AI ���ɱ��� */}
                   <button
@@ -3309,6 +3311,7 @@ const moveToTrash = useCallback(async () => {
                     <Paperclip size={15} className="text-amber-500" />
                     <span>{t('editor.attachments')}</span>
                   </button>
+                  <NoteThemeMenuSelect noteId={activeNote.id} disabled={!canWriteNote(activeNote)} />
                   {canSplitDocument && onSplitDocument && (
                     <button
                       onClick={() => { onSplitDocument(); setShowDesktopMoreMenu(false); }}
@@ -3413,7 +3416,7 @@ const moveToTrash = useCallback(async () => {
 
       {/* Editor (HTML Ԥ�� / MD / Tiptap ��ģʽ����) + Outline */}
       <div className="flex-1 flex overflow-hidden">
-        <div className="note-theme-surface flex-1 overflow-hidden relative">
+        <div className="note-theme-surface flex-1 overflow-hidden relative" data-note-id={activeNote.id}>
           {/* Phase 2: ʵʱЭ����������� / Զ�̸��� / Զ��ɾ�������� absolute ���㣬��ռ�ĵ���������ҳ�涶�� */}
           {false && pendingDraft ? (
             <div

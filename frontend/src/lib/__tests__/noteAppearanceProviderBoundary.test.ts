@@ -22,4 +22,14 @@ describe("note appearance provider boundary", () => {
     expect(bridgeHostSource).toContain('import NoteAppearanceBridge from "@/components/NoteAppearanceBridge"');
     expect(bridgeHostSource).toContain("<NoteAppearanceBridge />");
   });
+
+  it("binds themes to each note surface independently, including split view", () => {
+    const bridgeSource = readSource("../../components/NoteAppearanceBridge.tsx");
+    const editorSource = readSource("../../components/EditorPane.tsx");
+    const splitSource = readSource("../../components/EditorSplitView.tsx");
+
+    expect(bridgeSource).toContain("surface.dataset.noteId");
+    expect(editorSource).toContain("data-note-id={activeNote.id}");
+    expect(splitSource).toContain("data-note-id={note?.id ?? noteId}");
+  });
 });

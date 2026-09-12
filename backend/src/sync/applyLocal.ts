@@ -2,6 +2,7 @@ import type Database from "better-sqlite3";
 import { runWithOutboxSuppressed } from "./context";
 import { runChangeFeedSuppressed } from "./suppression";
 import type { SyncEntityType } from "./types";
+import { normalizeNoteThemeId } from "../lib/noteThemeId";
 
 /**
  * 把远端变更写入本地 SQLite。
@@ -153,12 +154,13 @@ function applyNoteLocal(db: Database.Database, item: RemoteEntityPayload, option
     return;
   }
   const p = item.payload || {};
+  const hasThemeId = Object.prototype.hasOwnProperty.call(p, "themeId");
   db.prepare(`
     INSERT INTO notes (
       id, userId, notebookId, workspaceId, title, content, contentText, contentFormat,
       isPinned, isFavorite, isLocked, isArchived, isTrashed, trashedAt,
-      version, sortOrder, createdAt, updatedAt
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+      themeId, version, sortOrder, createdAt, updatedAt
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
               COALESCE(?, datetime('now')), datetime('now'))
     ON CONFLICT(id) DO UPDATE SET
       notebookId = excluded.notebookId,
@@ -172,6 +174,7 @@ function applyNoteLocal(db: Database.Database, item: RemoteEntityPayload, option
       isArchived = excluded.isArchived,
       isTrashed = excluded.isTrashed,
       trashedAt = excluded.trashedAt,
+      themeId = CASE WHEN ? THEN excluded.themeId ELSE notes.themeId END,
       version = excluded.version,
       sortOrder = excluded.sortOrder,
       updatedAt = datetime('now')
@@ -190,9 +193,11 @@ function applyNoteLocal(db: Database.Database, item: RemoteEntityPayload, option
     bit(p.isArchived),
     bit(p.isTrashed),
     p.trashedAt ?? null,
+    normalizeNoteThemeId(p.themeId),
     Math.max(1, num(p.version, 1)),
     num(p.sortOrder),
     p.createdAt ?? null,
+    hasThemeId ? 1 : 0,
   );
 }
 

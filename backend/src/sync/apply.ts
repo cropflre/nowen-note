@@ -2,6 +2,7 @@ import type Database from "better-sqlite3";
 import { runChangeFeedSuppressed } from "./suppression";
 import { SyncError } from "./errors";
 import type { SyncEntityType, SyncOperation } from "./types";
+import { normalizeNoteThemeId } from "../lib/noteThemeId";
 
 /**
  * Sync V2 服务端 mutation 应用层。
@@ -180,10 +181,10 @@ function applyTag(db: Database.Database, input: ApplyMutationInput): number | nu
  */
 function applyNote(db: Database.Database, input: ApplyMutationInput): number | null {
   const existing = db.prepare(`
-    SELECT version FROM notes WHERE id = ? AND workspaceId IS ?
+    SELECT version, themeId FROM notes WHERE id = ? AND workspaceId IS ?
       AND (? IS NOT NULL OR userId = ?)
   `).get(input.entityId, workspaceIdOf(input), workspaceIdOf(input), input.userId) as
-    | { version: number }
+    | { version: number; themeId: string | null }
     | undefined;
 
   if (input.operation === "delete") {
@@ -209,7 +210,7 @@ function applyNote(db: Database.Database, input: ApplyMutationInput): number | n
       UPDATE notes SET
         notebookId = ?, title = ?, content = ?, contentText = ?, contentFormat = ?,
         isPinned = ?, isFavorite = ?, isLocked = ?, isArchived = ?, isTrashed = ?,
-        trashedAt = ?, sortOrder = ?, version = ?, updatedAt = datetime('now')
+        trashedAt = ?, themeId = ?, sortOrder = ?, version = ?, updatedAt = datetime('now')
       WHERE id = ? AND workspaceId IS ? AND (? IS NOT NULL OR userId = ?)
     `).run(
       str(p.notebookId),
@@ -223,6 +224,9 @@ function applyNote(db: Database.Database, input: ApplyMutationInput): number | n
       bit(p.isArchived),
       bit(p.isTrashed),
       p.trashedAt ?? null,
+      Object.prototype.hasOwnProperty.call(p, "themeId")
+        ? normalizeNoteThemeId(p.themeId)
+        : existing.themeId,
       num(p.sortOrder),
       nextVersion,
       input.entityId,
@@ -239,8 +243,8 @@ function applyNote(db: Database.Database, input: ApplyMutationInput): number | n
     INSERT INTO notes (
       id, userId, notebookId, workspaceId, title, content, contentText, contentFormat,
       isPinned, isFavorite, isLocked, isArchived, isTrashed, trashedAt,
-      version, sortOrder, createdAt, updatedAt
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+      themeId, version, sortOrder, createdAt, updatedAt
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
               COALESCE(?, datetime('now')), datetime('now'))
   `).run(
     input.entityId,
@@ -257,6 +261,7 @@ function applyNote(db: Database.Database, input: ApplyMutationInput): number | n
     bit(p.isArchived),
     bit(p.isTrashed),
     p.trashedAt ?? null,
+    normalizeNoteThemeId(p.themeId),
     version,
     num(p.sortOrder),
     p.createdAt ?? null,

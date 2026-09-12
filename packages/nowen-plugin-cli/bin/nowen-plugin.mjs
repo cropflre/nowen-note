@@ -17,6 +17,7 @@ const knownPermissions = new Set([
 ]);
 
 function fail(message) { throw new Error(message); }
+function isDeclarative(manifest) { return manifest.apiVersion === 2 && manifest.runtime === "declarative"; }
 function readManifest() {
   if (!fs.existsSync(manifestPath)) fail("manifest.json not found");
   const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
@@ -24,27 +25,43 @@ function readManifest() {
   if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(manifest.version || "")) fail("invalid version");
   if (![1, 2].includes(manifest.apiVersion)) fail("unsupported apiVersion");
   if (manifest.apiVersion === 1 && manifest.runtime !== "node-action") fail("V1 requires node-action");
-  if (manifest.apiVersion === 2 && !["sandbox-js", "node-action"].includes(manifest.runtime)) fail("invalid V2 runtime");
+  if (manifest.apiVersion === 2 && !["declarative", "sandbox-js", "node-action"].includes(manifest.runtime)) fail("invalid V2 runtime");
   if (manifest.apiVersion === 2 && (!manifest.publisher || !manifest.id.startsWith(`${manifest.publisher}.`) || !manifest.repository || !manifest.license || !Array.isArray(manifest.categories))) fail("V2 publisher namespace, repository, license and categories are required");
-  if (!manifest.engines?.nowen || !manifest.main) fail("engines.nowen and main are required");
-  const normalizedMain = String(manifest.main).replace(/\\/g, "/");
-  if (path.posix.isAbsolute(normalizedMain) || normalizedMain.split("/").includes("..")) fail("main escapes plugin root");
-  if (!Array.isArray(manifest.actions) || manifest.actions.length === 0) fail("at least one action is required");
-  const actionIds = manifest.actions.map((item) => item.id);
-  if (new Set(actionIds).size !== actionIds.length) fail("duplicate action id");
+  if (!manifest.engines?.nowen) fail("engines.nowen is required");
+  if (isDeclarative(manifest)) {
+    for (const field of ["main", "actions", "connections", "events", "eventHandlers"]) {
+      if (field in manifest) fail(`declarative plugin cannot declare ${field}`);
+    }
+    if ((manifest.permissions || []).length > 0) fail("declarative plugin cannot request permissions");
+    const contributions = manifest.contributes || {};
+    if (![contributions.settings, contributions.automationTemplates, contributions.noteThemes]
+      .some((items) => Array.isArray(items) && items.length > 0)) fail("declarative plugin requires a static contribution");
+  } else {
+    if (!manifest.main) fail("main is required for executable plugins");
+    const normalizedMain = String(manifest.main).replace(/\\/g, "/");
+    if (path.posix.isAbsolute(normalizedMain) || normalizedMain.split("/").includes("..")) fail("main escapes plugin root");
+    if (!Array.isArray(manifest.actions) || manifest.actions.length === 0) fail("at least one action is required");
+    const actionIds = manifest.actions.map((item) => item.id);
+    if (new Set(actionIds).size !== actionIds.length) fail("duplicate action id");
+  }
   if ((manifest.permissions || []).some((permission) => !knownPermissions.has(permission))) fail("unknown permission");
   return manifest;
 }
 
 function validate(requireMain = true) {
   const manifest = readManifest();
-  if (requireMain && !fs.existsSync(path.resolve(cwd, manifest.main))) fail(`main not found: ${manifest.main}`);
+  if (requireMain && !isDeclarative(manifest) && !fs.existsSync(path.resolve(cwd, manifest.main))) fail(`main not found: ${manifest.main}`);
   process.stdout.write(`valid ${manifest.id}@${manifest.version}\n`);
   return manifest;
 }
 
 async function doctor() {
   const manifest = validate(true);
+  if (isDeclarative(manifest)) {
+    const contributionCount = Object.values(manifest.contributes || {})
+      .reduce((count, items) => count + (Array.isArray(items) ? items.length : 0), 0);
+    process.stdout.write(`doctor ok (${contributionCount} declarative contributions)\n`); return;
+  }
   if (manifest.runtime === "sandbox-js") {
     const { getQuickJS } = await import("quickjs-emscripten");
     const QuickJS = await getQuickJS(); const runtime = QuickJS.newRuntime(); runtime.setMemoryLimit(64 * 1024 * 1024); const vm = runtime.newContext();
@@ -67,6 +84,9 @@ async function doctor() {
 
 function build() {
   const manifest = validate(false);
+  if (isDeclarative(manifest)) {
+    process.stdout.write("declarative plugin requires no build\n"); return;
+  }
   const source = fs.existsSync(path.join(cwd, "src", "index.ts")) ? "src/index.ts" : "src/index.js";
   if (!fs.existsSync(path.join(cwd, source))) fail("src/index.ts or src/index.js not found");
   fs.mkdirSync(path.dirname(path.resolve(cwd, manifest.main)), { recursive: true });
@@ -92,7 +112,7 @@ async function pack() {
     const archive = archiver("zip", { zlib: { level: 9 } });
     output.on("close", resolve); output.on("error", reject); archive.on("error", reject); archive.pipe(output);
     archive.file(manifestPath, { name: "manifest.json" });
-    archive.file(path.resolve(cwd, manifest.main), { name: manifest.main.replace(/\\/g, "/") });
+    if (!isDeclarative(manifest)) archive.file(path.resolve(cwd, manifest.main), { name: manifest.main.replace(/\\/g, "/") });
     for (const optional of ["README.md", manifest.icon, ...(manifest.screenshots || []), ...(manifest.contributes?.automationTemplates || []).map((item) => item.file)].filter(Boolean)) {
       const absolute = path.resolve(cwd, optional);
       if (fs.existsSync(absolute)) archive.file(absolute, { name: String(optional).replace(/\\/g, "/") });

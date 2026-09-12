@@ -510,7 +510,10 @@ function SplitEditorPane({
         </button>
       </header>
 
-      <div className="relative min-h-0 flex-1 overflow-hidden">
+      <div
+        className="note-theme-surface relative min-h-0 flex-1 overflow-hidden"
+        data-note-id={note?.id ?? noteId}
+      >
         {loadingState.visible && (
           <NoteLoadingSkeleton
             mode="overlay"

@@ -160,6 +160,85 @@ test("首次同步可写入已删除根容器下的笔记和子目录", () => {
   ]);
 });
 
+test("note themeId 双向同步，并兼容不携带 themeId 的旧客户端", () => {
+  resetAll();
+  const d = db();
+  const notebookId = randomUUID();
+  const noteId = randomUUID();
+  d.prepare(`
+    INSERT INTO notebooks (id, userId, name, createdAt, updatedAt)
+    VALUES (?, ?, '主题同步', datetime('now'), datetime('now'))
+  `).run(notebookId, USER_ID);
+  d.prepare(`
+    INSERT INTO notes (
+      id, userId, notebookId, title, content, contentText, contentFormat,
+      themeId, version, createdAt, updatedAt
+    ) VALUES (?, ?, ?, '主题笔记', '{}', '', 'tiptap-json',
+              'nowen.theme-pack/sepia', 4, datetime('now'), datetime('now'))
+  `).run(noteId, USER_ID, notebookId);
+
+  const notePayload = {
+    notebookId,
+    title: "主题笔记",
+    content: "{}",
+    contentText: "",
+    contentFormat: "tiptap-json",
+  };
+  applyMutation(d, {
+    mutationId: randomUUID(),
+    entityType: "note",
+    entityId: noteId,
+    operation: "upsert",
+    userId: USER_ID,
+    deviceId: "dev-theme",
+    baseVersion: 4,
+    payload: { ...notePayload, themeId: "acme.theme-pack/paper-v2" },
+  });
+  assert.equal(
+    (d.prepare("SELECT themeId FROM notes WHERE id = ?").get(noteId) as { themeId: string }).themeId,
+    "acme.theme-pack/paper-v2",
+  );
+
+  applyMutation(d, {
+    mutationId: randomUUID(),
+    entityType: "note",
+    entityId: noteId,
+    operation: "upsert",
+    userId: USER_ID,
+    deviceId: "dev-old",
+    baseVersion: 5,
+    payload: notePayload,
+  });
+  assert.equal(
+    (d.prepare("SELECT themeId FROM notes WHERE id = ?").get(noteId) as { themeId: string }).themeId,
+    "acme.theme-pack/paper-v2",
+    "旧客户端 payload 缺少 themeId 时不得清空现有选择",
+  );
+
+  applyRemoteChanges(d, [{
+    entityType: "note",
+    entityId: noteId,
+    operation: "upsert",
+    payload: { ...notePayload, version: 6 },
+  }], { userId: USER_ID });
+  assert.equal(
+    (d.prepare("SELECT themeId FROM notes WHERE id = ?").get(noteId) as { themeId: string }).themeId,
+    "acme.theme-pack/paper-v2",
+    "旧服务端下行 payload 缺少 themeId 时不得清空本地选择",
+  );
+
+  applyRemoteChanges(d, [{
+    entityType: "note",
+    entityId: noteId,
+    operation: "upsert",
+    payload: { ...notePayload, themeId: "nowen.theme-pack/midnight", version: 7 },
+  }], { userId: USER_ID });
+  assert.equal(
+    (d.prepare("SELECT themeId FROM notes WHERE id = ?").get(noteId) as { themeId: string }).themeId,
+    "nowen.theme-pack/midnight",
+  );
+});
+
 // ===========================================================================
 // task：Local CRUD → Outbox → Change Feed → Push → Pull → Delete → Conflict
 // ===========================================================================
