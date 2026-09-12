@@ -16,11 +16,14 @@ on:
       - "packages/nowen-plugin-cli/**"
       - "scripts/generate-plugin-host-api.mjs"
       - "frontend/src/lib/pluginApi.ts"
+      - "frontend/src/lib/pluginRuntimePresentation.ts"
       - "frontend/src/lib/pluginAppearanceRegistry.ts"
       - "frontend/src/lib/pluginContributionCache.ts"
       - "frontend/src/lib/appAppearance.ts"
       - "frontend/src/hooks/useSkin.ts"
       - "frontend/src/components/SkinSwitcher.tsx"
+      - "frontend/src/components/settings/plugins/PluginSettingsTab.tsx"
+      - "frontend/src/lib/__tests__/pluginRuntimePresentation.test.ts"
       - "frontend/src/lib/__tests__/pluginAppearanceRegistry.test.ts"
       - "examples/plugins/theme-pack/**"
       - "docs/plugin-platform/**"
@@ -43,11 +46,14 @@ on:
       - "packages/nowen-plugin-cli/**"
       - "scripts/generate-plugin-host-api.mjs"
       - "frontend/src/lib/pluginApi.ts"
+      - "frontend/src/lib/pluginRuntimePresentation.ts"
       - "frontend/src/lib/pluginAppearanceRegistry.ts"
       - "frontend/src/lib/pluginContributionCache.ts"
       - "frontend/src/lib/appAppearance.ts"
       - "frontend/src/hooks/useSkin.ts"
       - "frontend/src/components/SkinSwitcher.tsx"
+      - "frontend/src/components/settings/plugins/PluginSettingsTab.tsx"
+      - "frontend/src/lib/__tests__/pluginRuntimePresentation.test.ts"
       - "frontend/src/lib/__tests__/pluginAppearanceRegistry.test.ts"
       - "examples/plugins/theme-pack/**"
       - "docs/plugin-platform/**"
@@ -112,6 +118,9 @@ jobs:
       - name: Install frontend dependencies
         working-directory: frontend
         run: npm ci
+      - name: Declarative runtime presentation
+        working-directory: frontend
+        run: npx vitest run src/lib/__tests__/pluginRuntimePresentation.test.ts --reporter=verbose
       - name: Appearance compatibility baseline
         working-directory: frontend
         run: npx vitest run src/lib/__tests__/appAppearance.test.ts src/lib/__tests__/appAppearanceBootstrapContract.test.ts src/lib/__tests__/editorFontAppearanceGuard.test.ts --reporter=verbose
