@@ -9,7 +9,6 @@ import React, {
 } from "react";
 import { api } from "@/lib/api";
 import { installKnowledgeTreeAutoLock } from "@/lib/knowledgeTreeAutoLock";
-import { applyNoteTheme } from "@/lib/noteTheme";
 import {
   DEFAULT_USER_PREFERENCES,
   LEGACY_CODE_BLOCK_THEME_KEY,
@@ -47,6 +46,9 @@ export type {
  * 账号级偏好以服务端为准，并在浏览器中使用 userId 隔离的缓存作为启动/离线兜底。
  * 窗口位置、下载目录、缓存大小等设备级配置不进入这里；API Key、Token 等敏感信息
  * 也不属于普通偏好白名单。
+ *
+ * `noteTheme` 仅作为旧版本兼容字段保留，不再向 DOM 投影视觉。整个平台外观由
+ * App Appearance Style Capability (`useSkin` / `appAppearance.ts`) 统一负责。
  */
 
 type RemotePreferences = UserPreferences & {
@@ -105,7 +107,6 @@ function initialPreferences(): UserPreferences {
   if (!identity) return DEFAULT_USER_PREFERENCES;
   const prefs = readAccountPreferenceCache(localStorage, identity.userId)?.prefs || DEFAULT_USER_PREFERENCES;
   applyLegacyPreferenceBridges(prefs, false);
-  applyNoteTheme(prefs.noteTheme);
   return prefs;
 }
 
@@ -146,15 +147,6 @@ export function UserPreferencesProvider({ children }: { children: React.ReactNod
       root.style.removeProperty("--editor-font-size");
     };
   }, [prefs.editorFontSize]);
-
-  useEffect(() => {
-    const root = document.documentElement;
-    const apply = () => applyNoteTheme(prefs.noteTheme, root);
-    apply();
-    const observer = new MutationObserver(apply);
-    observer.observe(root, { attributes: true, attributeFilter: ["class", "data-theme"] });
-    return () => observer.disconnect();
-  }, [prefs.noteTheme]);
 
   // 密码文件夹的闲置/后台锁定策略由账号偏好统一驱动。该 Provider 同时服务
   // Web、Electron 和 Capacitor，因此三端共享同一套生命周期与同步行为。
