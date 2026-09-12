@@ -43,7 +43,7 @@ export const NOTE_THEMES: readonly NoteThemeDefinition[] = [
       quoteBackground: "var(--color-app-hover, #f1f5f9)",
       codeBackground: "var(--color-app-hover, #f1f5f9)",
       inlineCodeBackground: "var(--color-app-hover, #f1f5f9)",
-      maxWidth: "none",
+      maxWidth: "100%",
       fontFamily: "inherit",
       fontSize: "inherit",
       lineHeight: "inherit",
