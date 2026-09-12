@@ -1,5 +1,6 @@
 import "../app-appearance.css";
 import { bootstrapAppAppearanceRuntime } from "./appAppearance";
+import { installEditorFontAppearanceGuard } from "./editorFontAppearanceGuard";
 import { installLegacyNoteAppearanceNeutralizer } from "./legacyNoteAppearanceNeutralizer";
 import { migrateUnifiedTreeOnlyLayout } from "./unifiedTreeOnlyLayout";
 
@@ -61,6 +62,8 @@ export function installRuntimeCompatibility(): void {
   // Whole-app appearance is runtime infrastructure, not a Settings-panel side effect.
   bootstrapAppAppearanceRuntime();
   installLegacyNoteAppearanceNeutralizer();
+  // SiteSettings remains authoritative for editor typography even when a style suggests a font.
+  installEditorFontAppearanceGuard();
 
   if (typeof Array === "undefined") return;
   if (typeof Reflect.get(Array.prototype, "findLast") === "function") return;
