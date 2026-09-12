@@ -26,12 +26,12 @@ export interface PluginAction {
 
 export type PluginNoteThemeFontCategory = "system" | "sans" | "serif" | "mono";
 export interface PluginNoteThemeTokens {
-  canvasBackground?: string; contentBackground?: string; text?: string; mutedText?: string; headingText?: string;
-  link?: string; accent?: string; border?: string; quoteBackground?: string; quoteBorder?: string;
-  tableBorder?: string; tableHeaderBackground?: string; codeBackground?: string; codeText?: string;
-  inlineCodeBackground?: string; selection?: string; contentMaxWidth?: number; fontCategory?: PluginNoteThemeFontCategory;
-  fontSize?: number; lineHeight?: number; paragraphSpacing?: number; h1FontSize?: number; h2FontSize?: number;
-  h3FontSize?: number; contentPadding?: number;
+  canvasBackground?: string; contentBackground?: string; contentText?: string; mutedText?: string; headingText?: string;
+  linkColor?: string; linkWeight?: number; quoteBackground?: string; quoteBorder?: string; tableBorder?: string;
+  tableHeaderBackground?: string; tableStripeBackground?: string; codeBackground?: string; inlineCodeBackground?: string;
+  contentMaxWidth?: number; contentPaddingInline?: number; contentPaddingBlock?: number; fontCategory?: PluginNoteThemeFontCategory;
+  fontSize?: number; lineHeight?: number; letterSpacing?: number; paragraphSpacing?: number; radius?: number;
+  controlBackground?: string; controlBorder?: string;
 }
 export interface PluginNoteThemeContribution {
   id: string; name: string; description?: string; base?: "nowen.default";

@@ -7,7 +7,7 @@ function deepFreeze<T>(value: T): T {
   return value;
 }
 
-export const EXTENSION_CAPABILITY_CATALOG_DIGEST = "3574561c12fb3b6cb2dfbf1798c77cf76f62d901e2a5a437471ad9c811fdbe1d" as const;
+export const EXTENSION_CAPABILITY_CATALOG_DIGEST = "31f53aa1ebb51e47ba2618fa6333d2a053cd35374c520a38af74d9c669b6cdf2" as const;
 export const EXTENSION_CAPABILITY_CATALOG = deepFreeze({
   "catalogVersion": 1,
   "hostApi": {
@@ -1028,29 +1028,29 @@ export const EXTENSION_CAPABILITY_CATALOG = deepFreeze({
       "editableTokens": [
         "canvasBackground",
         "contentBackground",
-        "text",
+        "contentText",
         "mutedText",
         "headingText",
-        "link",
-        "accent",
-        "border",
+        "linkColor",
+        "linkWeight",
         "quoteBackground",
         "quoteBorder",
         "tableBorder",
         "tableHeaderBackground",
+        "tableStripeBackground",
         "codeBackground",
-        "codeText",
         "inlineCodeBackground",
-        "selection",
         "contentMaxWidth",
+        "contentPaddingInline",
+        "contentPaddingBlock",
         "fontCategory",
         "fontSize",
         "lineHeight",
+        "letterSpacing",
         "paragraphSpacing",
-        "h1FontSize",
-        "h2FontSize",
-        "h3FontSize",
-        "contentPadding"
+        "radius",
+        "controlBackground",
+        "controlBorder"
       ],
       "fontCategories": [
         "system",
@@ -1226,5 +1226,5 @@ export const EXTENSION_CAPABILITY_CATALOG = deepFreeze({
       }
     ]
   },
-  "digest": "3574561c12fb3b6cb2dfbf1798c77cf76f62d901e2a5a437471ad9c811fdbe1d"
+  "digest": "31f53aa1ebb51e47ba2618fa6333d2a053cd35374c520a38af74d9c669b6cdf2"
 } as const);

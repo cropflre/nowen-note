@@ -79,18 +79,17 @@ const automationTemplateSchema = z.object({ id: z.string().regex(/^[a-z][a-z0-9-
 const noteThemeColorSchema = z.string().regex(/^#[0-9a-fA-F]{6}(?:[0-9a-fA-F]{2})?$/, "Note Theme 颜色必须是 #RRGGBB 或 #RRGGBBAA");
 const noteThemeTokensSchema = z.object({
   canvasBackground: noteThemeColorSchema.optional(), contentBackground: noteThemeColorSchema.optional(),
-  text: noteThemeColorSchema.optional(), mutedText: noteThemeColorSchema.optional(), headingText: noteThemeColorSchema.optional(),
-  link: noteThemeColorSchema.optional(), accent: noteThemeColorSchema.optional(), border: noteThemeColorSchema.optional(),
+  contentText: noteThemeColorSchema.optional(), mutedText: noteThemeColorSchema.optional(), headingText: noteThemeColorSchema.optional(),
+  linkColor: noteThemeColorSchema.optional(), linkWeight: z.number().int().min(400).max(700).optional(),
   quoteBackground: noteThemeColorSchema.optional(), quoteBorder: noteThemeColorSchema.optional(),
-  tableBorder: noteThemeColorSchema.optional(), tableHeaderBackground: noteThemeColorSchema.optional(),
-  codeBackground: noteThemeColorSchema.optional(), codeText: noteThemeColorSchema.optional(),
-  inlineCodeBackground: noteThemeColorSchema.optional(), selection: noteThemeColorSchema.optional(),
+  tableBorder: noteThemeColorSchema.optional(), tableHeaderBackground: noteThemeColorSchema.optional(), tableStripeBackground: noteThemeColorSchema.optional(),
+  codeBackground: noteThemeColorSchema.optional(), inlineCodeBackground: noteThemeColorSchema.optional(),
   contentMaxWidth: z.number().int().min(480).max(1200).optional(),
+  contentPaddingInline: z.number().min(16).max(96).optional(), contentPaddingBlock: z.number().min(16).max(120).optional(),
   fontCategory: z.enum(["system", "sans", "serif", "mono"]).optional(),
   fontSize: z.number().min(12).max(24).optional(), lineHeight: z.number().min(1.2).max(2.2).optional(),
-  paragraphSpacing: z.number().min(0).max(32).optional(), h1FontSize: z.number().min(24).max(56).optional(),
-  h2FontSize: z.number().min(20).max(44).optional(), h3FontSize: z.number().min(18).max(36).optional(),
-  contentPadding: z.number().min(12).max(96).optional(),
+  letterSpacing: z.number().min(-0.5).max(2).optional(), paragraphSpacing: z.number().min(0).max(32).optional(),
+  radius: z.number().min(0).max(24).optional(), controlBackground: noteThemeColorSchema.optional(), controlBorder: noteThemeColorSchema.optional(),
 }).strict().superRefine((tokens, ctx) => {
   if (Object.keys(tokens).length === 0) ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Note Theme token 不能为空" });
 });
@@ -154,6 +153,8 @@ const declarativeV2Schema = z.object({
 
 export const pluginManifestV2Schema = z.union([executableV2Schema, declarativeV2Schema]).superRefine((manifest, ctx) => {
   if (!manifest.id.startsWith(`${manifest.publisher}.`)) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["id"], message: "插件 ID 必须位于 Publisher namespace" });
+  const noteThemeIds = (manifest.contributes?.noteThemes || []).map((theme) => theme.id);
+  if (new Set(noteThemeIds).size !== noteThemeIds.length) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["contributes", "noteThemes"], message: "Note Theme id 不能重复" });
   for (const [index, permission] of manifest.permissions.entries()) {
     if (!isV2SupportedPluginPermission(permission)) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["permissions", index], message: permission === "attachments:write" ? "Plugin API V2 不支持 attachments:write" : `Plugin API V2 不支持权限 ${permission}` });
   }
