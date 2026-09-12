@@ -1,0 +1,36 @@
+name: Extension V2.1 Productivity Finalize
+
+on:
+  push:
+    branches: [release/v1.5.0]
+    paths:
+      - "scripts/bootstrap-productivity-pack-v21-finalize.mjs"
+      - ".github/workflows/extension-v2-1-productivity-finalize.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  finalize:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: release/v1.5.0
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Apply host integration patch
+        run: node scripts/bootstrap-productivity-pack-v21-finalize.mjs
+      - name: Check bootstrap syntax
+        run: node --check scripts/bootstrap-productivity-pack-v21-finalize.mjs
+      - name: Commit implementation
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add backend/src/plugins/pluginService.ts backend/src/routes/plugins.ts backend/src/plugins/contributions/promptPackContribution.ts backend/tests/productivity-contribution-host.test.ts frontend/src/lib/pluginApi.ts frontend/src/components/PluginNoteTemplatePickerSection.tsx frontend/src/components/NoteTemplatePickerDialog.tsx frontend/src/components/KnowledgeTreeCreateMenuRuntime.tsx frontend/src/components/MobileKnowledgeTreePanel.tsx frontend/src/components/PluginPromptPicker.tsx frontend/src/components/AIChatPanel.tsx frontend/src/components/settings/PluginPromptPackSettingsSection.tsx frontend/src/components/AISettingsPanel.tsx .github/workflows/extension-v2-1-ci.yml
+          if git diff --cached --quiet; then echo "No changes"; exit 0; fi
+          git commit -m "feat(extensions): integrate productivity contributions into host"
+          git push origin HEAD:release/v1.5.0
