@@ -1,6 +1,10 @@
 import type { NowenHostApi } from "./hostApi.generated.js";
+import type { NowenPluginErrorCode } from "./errors.generated.js";
 
 export * from "./hostApi.generated.js";
+export * from "./contributions.generated.js";
+export * from "./errors.generated.js";
+export * from "./mock.generated.js";
 
 export type JsonObject = Record<string, unknown>;
 export type ActionResult = { success?: boolean; data?: unknown; text?: string } | unknown;
@@ -25,15 +29,6 @@ export interface NowenPluginDefinition {
   actions: Record<string, PluginActionHandler>;
   deactivate?(): void | Promise<void>;
 }
-
-export type NowenPluginErrorCode = "PLUGIN_PERMISSION_DENIED" | "RESOURCE_NOT_FOUND" | "RESOURCE_FORBIDDEN"
-  | "INVALID_ARGUMENT" | "NETWORK_UNAVAILABLE" | "EXTERNAL_FETCH_DENIED" | "PLUGIN_TIMEOUT"
-  | "EXTERNAL_FETCH_INVALID_URL" | "EXTERNAL_FETCH_DNS_ERROR" | "EXTERNAL_FETCH_NETWORK_ERROR"
-  | "EXTERNAL_FETCH_TIMEOUT" | "EXTERNAL_FETCH_INVALID_REDIRECT" | "EXTERNAL_FETCH_REDIRECT_LIMIT"
-  | "EXTERNAL_FETCH_RESPONSE_TOO_LARGE"
-  | "PLUGIN_CANCELLED" | "PLUGIN_PREFLIGHT_FAILED" | "PLUGIN_ACTION_MISMATCH"
-  | "HOST_METHOD_NOT_FOUND" | "HOST_METHOD_UNSUPPORTED" | "HOST_ARGS_TOO_LARGE"
-  | "HOST_RESULT_TOO_LARGE" | "PLUGIN_ERROR";
 
 export class NowenPluginError extends Error {
   constructor(message: string, readonly code: NowenPluginErrorCode = "PLUGIN_ERROR") {
