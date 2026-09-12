@@ -13,6 +13,8 @@ import "./runtime/notebook-permission-management.js";
 import "./runtime/note-format-yjs-transition.js";
 // Install schema/route hardening before the main backend module evaluates.
 import "./runtime/task-stats-hardening.js";
+// Note appearance is note metadata. Mount its schema/API capability before /api/notes is registered.
+import "./runtime/note-appearance.js";
 // Keep the legacy Xiaomi route as a reusable, single-row-safe import pipeline.
 import "./runtime/micloud-import-hardening.js";
 // Mount persistent Xiaomi background jobs and one SSE progress stream before /api/micloud mounts.
