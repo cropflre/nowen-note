@@ -102,7 +102,7 @@ test("merges stale field-level updates instead of replacing the whole document",
   const second = await requestJson("PUT", {
     readingDensity: "compact",
     editorFontSize: 22,
-    noteTheme: "paper",
+    noteTheme: "developer",
     _baseRevision: 0,
   });
   assert.equal(second.status, 200);
@@ -111,11 +111,25 @@ test("merges stale field-level updates instead of replacing the whole document",
   assert.equal(second.json.noteTitleAsAppTitle, true);
   assert.equal(second.json.readingDensity, "compact");
   assert.equal(second.json.editorFontSize, 22);
-  assert.equal(second.json.noteTheme, "paper");
+  assert.equal(second.json.noteTheme, "developer");
   assert.ok(second.json.fieldUpdatedAt.noteTitleAsAppTitle);
   assert.ok(second.json.fieldUpdatedAt.readingDensity);
   assert.ok(second.json.fieldUpdatedAt.editorFontSize);
   assert.ok(second.json.fieldUpdatedAt.noteTheme);
+});
+
+test("persists every built-in note appearance style through account preference sync", async () => {
+  const styles = ["default", "paper", "minimal", "eye-care", "developer", "magazine"];
+  let revision = 0;
+  for (const noteTheme of styles) {
+    const result = await requestJson("PUT", { noteTheme, _baseRevision: revision });
+    assert.equal(result.status, 200, JSON.stringify(result.json));
+    assert.equal(result.json.noteTheme, noteTheme);
+    revision = result.json.revision;
+  }
+  const loaded = await requestJson("GET");
+  assert.equal(loaded.status, 200);
+  assert.equal(loaded.json.noteTheme, "magazine");
 });
 
 test("prevents a second first-run migration from overwriting established remote preferences", async () => {
