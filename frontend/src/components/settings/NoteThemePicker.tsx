@@ -1,9 +1,14 @@
-import { Check } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import NoteAppearanceStyleCard from "@/components/NoteAppearanceStyleCard";
 import { useUserPreferences } from "@/hooks/useUserPreferences";
 import { NOTE_THEMES, resolveDocumentThemeMode } from "@/lib/noteTheme";
-import { cn } from "@/lib/utils";
 
+/**
+ * Account-level note appearance style.
+ *
+ * This is not a second theme system: it selects the default style inherited by notes that do not
+ * have a per-note appearance override. The cards consume the same registry as the editor bridge.
+ */
 export default function NoteThemePicker() {
   const { i18n } = useTranslation();
   const { prefs, setPref } = useUserPreferences();
@@ -11,61 +16,38 @@ export default function NoteThemePicker() {
   const mode = resolveDocumentThemeMode();
   const copy = language === "zh"
     ? {
-        title: "默认笔记主题",
-        description: "作为未单独设置主题的笔记默认值；每篇笔记仍可在编辑器中独立覆盖。",
-        sampleTitle: "把想法写下来",
-        sampleBody: "清晰的排版，让阅读和写作保持舒适。",
+        title: "笔记外观风格",
+        description: "为笔记选择阅读与写作时的视觉风格，也可在单篇笔记中独立调整。",
       }
     : {
-        title: "Default note theme",
-        description: "Used by notes without their own theme. Each note can still override it in the editor.",
-        sampleTitle: "Write your ideas down",
-        sampleBody: "Clear typography keeps reading and writing comfortable.",
+        title: "Note appearance style",
+        description: "Choose a reading and writing style for notes. Individual notes can still override it.",
       };
 
   return (
-    <div className="rounded-xl border border-zinc-200 bg-zinc-50/50 p-4 dark:border-zinc-800 dark:bg-zinc-800/30">
+    <section
+      data-note-appearance-style-settings
+      className="rounded-xl border border-zinc-200 bg-zinc-50/50 p-4 dark:border-zinc-800 dark:bg-zinc-800/30"
+    >
       <div>
         <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">{copy.title}</span>
         <p className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">
           {copy.description}
         </p>
       </div>
-      <div className="mt-3 grid gap-2 sm:grid-cols-2">
-        {NOTE_THEMES.map((theme) => {
-          const selected = prefs.noteTheme === theme.id;
-          const tokens = theme.modes[mode];
-          return (
-            <button
-              key={theme.id}
-              type="button"
-              aria-pressed={selected}
-              onClick={() => setPref("noteTheme", theme.id)}
-              className={cn(
-                "overflow-hidden rounded-lg border text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary/50",
-                selected
-                  ? "border-accent-primary ring-1 ring-accent-primary/30"
-                  : "border-zinc-200 hover:border-zinc-300 dark:border-zinc-700 dark:hover:border-zinc-600",
-              )}
-            >
-              <div className="h-20 px-4 py-3" style={{ background: tokens.surface, color: tokens.text }}>
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-[13px] font-bold" style={{ color: tokens.heading }}>{copy.sampleTitle}</span>
-                  {selected && <Check size={14} style={{ color: tokens.accent }} />}
-                </div>
-                <p className="mt-2 text-[10px]" style={{ lineHeight: tokens.lineHeight }}>
-                  {copy.sampleBody}
-                </p>
-                <div className="mt-2 h-0.5 w-10 rounded-full" style={{ background: tokens.accent }} />
-              </div>
-              <div className="bg-white px-3 py-2 dark:bg-zinc-900">
-                <div className="text-xs font-medium text-zinc-800 dark:text-zinc-200">{theme.name[language]}</div>
-                <div className="mt-0.5 text-[10px] leading-4 text-zinc-500">{theme.description[language]}</div>
-              </div>
-            </button>
-          );
-        })}
+
+      <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-3">
+        {NOTE_THEMES.map((theme) => (
+          <NoteAppearanceStyleCard
+            key={theme.id}
+            theme={theme}
+            mode={mode}
+            language={language}
+            selected={prefs.noteTheme === theme.id}
+            onSelect={() => setPref("noteTheme", theme.id)}
+          />
+        ))}
       </div>
-    </div>
+    </section>
   );
 }
