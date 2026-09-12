@@ -1,0 +1,61 @@
+/* Legacy neutral-palette bridge for surfaces that predate the semantic app tokens.
+ *
+ * `app-appearance.css` handles the dominant zinc/indigo history. A small set of older modules
+ * (notably mind-map controls) use Tailwind gray-* utilities instead. Keep those surfaces inside the
+ * same App Appearance contract without adding palette values or per-feature theme branches.
+ */
+
+:root[data-app-appearance]:not([data-app-appearance="default"]) .bg-gray-50,
+:root[data-app-appearance]:not([data-app-appearance="default"]) .bg-gray-100 {
+  background-color: var(--color-surface) !important;
+}
+
+:root[data-app-appearance]:not([data-app-appearance="default"]) .bg-gray-200,
+:root[data-app-appearance]:not([data-app-appearance="default"]) .bg-gray-200\/50,
+:root[data-app-appearance]:not([data-app-appearance="default"]) .bg-gray-200\/80 {
+  background-color: var(--color-hover) !important;
+}
+
+:root[data-app-appearance]:not([data-app-appearance="default"]) .bg-gray-300 {
+  background-color: var(--color-active) !important;
+}
+
+:root[data-app-appearance]:not([data-app-appearance="default"]) .text-gray-950,
+:root[data-app-appearance]:not([data-app-appearance="default"]) .text-gray-900,
+:root[data-app-appearance]:not([data-app-appearance="default"]) .text-gray-800,
+:root[data-app-appearance]:not([data-app-appearance="default"]) .text-gray-700 {
+  color: var(--color-text-primary) !important;
+}
+
+:root[data-app-appearance]:not([data-app-appearance="default"]) .text-gray-600,
+:root[data-app-appearance]:not([data-app-appearance="default"]) .text-gray-500 {
+  color: var(--color-text-secondary) !important;
+}
+
+:root[data-app-appearance]:not([data-app-appearance="default"]) .text-gray-400,
+:root[data-app-appearance]:not([data-app-appearance="default"]) .text-gray-300 {
+  color: var(--color-text-tertiary) !important;
+}
+
+:root[data-app-appearance]:not([data-app-appearance="default"]) .border-gray-100,
+:root[data-app-appearance]:not([data-app-appearance="default"]) .border-gray-200,
+:root[data-app-appearance]:not([data-app-appearance="default"]) .border-gray-200\/80,
+:root[data-app-appearance]:not([data-app-appearance="default"]) .border-gray-300 {
+  border-color: var(--color-border) !important;
+}
+
+:root[data-app-appearance]:not([data-app-appearance="default"]) .hover\:bg-gray-100:hover,
+:root[data-app-appearance]:not([data-app-appearance="default"]) .hover\:bg-gray-200:hover {
+  background-color: var(--color-hover) !important;
+}
+
+:root[data-app-appearance]:not([data-app-appearance="default"]) .active\:bg-gray-200:active,
+:root[data-app-appearance]:not([data-app-appearance="default"]) .active\:bg-gray-300:active {
+  background-color: var(--color-active) !important;
+}
+
+:root[data-app-appearance]:not([data-app-appearance="default"]) .hover\:text-gray-900:hover,
+:root[data-app-appearance]:not([data-app-appearance="default"]) .hover\:text-gray-800:hover,
+:root[data-app-appearance]:not([data-app-appearance="default"]) .hover\:text-gray-700:hover {
+  color: var(--color-text-primary) !important;
+}
