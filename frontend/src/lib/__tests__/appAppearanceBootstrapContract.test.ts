@@ -9,6 +9,7 @@ describe("app appearance bootstrap contract", () => {
   it("boots whole-app appearance from the first main entry import", () => {
     expect(main.trimStart().startsWith('import "./lib/runtimeCompatibility";')).toBe(true);
     expect(runtime).toContain('import "../app-appearance.css";');
+    expect(runtime).toContain('import "../app-appearance-neutral-compat.css";');
     expect(runtime).toContain("bootstrapAppAppearanceRuntime();");
     expect(runtime).toContain("installLegacyNoteAppearanceNeutralizer();");
     expect(runtime).toContain("installEditorFontAppearanceGuard();");
