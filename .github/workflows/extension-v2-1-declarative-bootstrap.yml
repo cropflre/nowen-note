@@ -13,38 +13,56 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Integrate declarative lifecycle into PluginService
+      - name: Finish declarative lifecycle integration
         run: |
           python3 - <<'PY'
           from pathlib import Path
-          p = Path("backend/src/plugins/pluginService.ts")
-          s = p.read_text()
-          replacements = [
-            ('import type { PluginManifest, PluginRegistryRecord } from "./types.js";',
-             'import { isDeclarativePluginManifest, pluginManifestActions, type PluginManifest, type PluginRegistryRecord } from "./types.js";'),
-            ('return manifest.actions.map((action) => ({',
-             'return pluginManifestActions(manifest).map((action) => ({'),
-            ('record = this.installer.moveToInstalled(record);\n    await this.executions.restart(pluginId);\n    try {',
-             'record = this.installer.moveToInstalled(record);\n    const declarative = isDeclarativePluginManifest(manifest);\n    if (!declarative) await this.executions.restart(pluginId);\n    try {'),
-            ('this.lifecycle.activateInstalled(pluginId);',
-             'this.lifecycle.activateInstalled(pluginId, declarative ? 1 : 5);\n        if (declarative) this.lifecycle.completeProbationExecution(pluginId);'),
-            ('const manifest = manifestOf(record);\n    const action = manifest.actions.find((candidate) => candidate.id === actionId);',
-             'const manifest = manifestOf(record);\n    if (isDeclarativePluginManifest(manifest)) throw Object.assign(new Error("声明式插件不执行 Action"), { code: "PLUGIN_DECLARATIVE_NOT_EXECUTABLE" });\n    const action = pluginManifestActions(manifest).find((candidate) => candidate.id === actionId);'),
-            ('      apiVersion: record.apiVersion,\n      source: record.source,',
-             '      apiVersion: record.apiVersion,\n      runtime: manifest.runtime,\n      executionMode: isDeclarativePluginManifest(manifest) ? "declarative-zero-code" : "executable",\n      source: record.source,'),
-            ('      actions: manifest.actions,',
-             '      actions: pluginManifestActions(manifest),'),
-          ]
-          for old, new in replacements:
-            if old not in s:
-              raise SystemExit(f"expected PluginService fragment not found: {old[:80]}")
-            s = s.replace(old, new, 1)
-          p.write_text(s)
+
+          lifecycle = Path("backend/src/plugins/pluginLifecycle.ts")
+          s = lifecycle.read_text()
+          old = 'import type { PluginLifecycleState, PluginManifest, PluginRegistryRecord, PluginUpdateStage, PluginVersionRecord } from "./types.js";'
+          new = 'import { pluginManifestMain, type PluginLifecycleState, type PluginManifest, type PluginRegistryRecord, type PluginUpdateStage, type PluginVersionRecord } from "./types.js";'
+          if old not in s:
+              raise SystemExit("pluginLifecycle import fragment missing")
+          s = s.replace(old, new, 1)
+          count = s.count("manifest.main,")
+          if count != 2:
+              raise SystemExit(f"expected 2 manifest.main persistence writes, found {count}")
+          s = s.replace("manifest.main,", "pluginManifestMain(manifest),")
+          lifecycle.write_text(s)
+
+          service = Path("backend/src/plugins/pluginService.ts")
+          s = service.read_text()
+          old = '    const previousPermissions = new Set(previousManifest?.permissions || []);\n    return {'
+          new = '    const previousPermissions = new Set(previousManifest?.permissions || []);\n    const currentPermissions = new Set(manifest.permissions);\n    return {'
+          if old not in s:
+              raise SystemExit("PluginService permission set insertion fragment missing")
+          s = s.replace(old, new, 1)
+          old = '        removed: previousManifest.permissions.filter((permission) => !manifest.permissions.includes(permission)),'
+          new = '        removed: previousManifest.permissions.filter((permission) => !currentPermissions.has(permission)),'
+          if old not in s:
+              raise SystemExit("PluginService permission diff fragment missing")
+          s = s.replace(old, new, 1)
+          service.write_text(s)
+
+          manifest = Path("backend/src/plugins/manifest.ts")
+          s = manifest.read_text()
+          old = '''}).strict().superRefine((contributes, ctx) => {\n  if (!(contributes.settings?.length || contributes.automationTemplates?.length)) {\n    ctx.addIssue({ code: z.ZodIssueCode.custom, message: "声明式插件必须至少提供一个静态 Contribution" });\n  }\n});'''
+          new = '''}).strict().superRefine((contributes, ctx) => {\n  if (!(contributes.settings?.length || contributes.automationTemplates?.length)) {\n    ctx.addIssue({ code: z.ZodIssueCode.custom, message: "声明式插件必须至少提供一个静态 Contribution" });\n  }\n  if (contributes.settings?.some((setting) => setting.secret)) {\n    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["settings"], message: "声明式插件不能声明 Secret Setting" });\n  }\n});'''
+          if old not in s:
+              raise SystemExit("declarative contributes refine fragment missing")
+          s = s.replace(old, new, 1)
+          old = '''  if (manifest.runtime === "declarative") return;\n  if (new Set(manifest.actions.map((action) => action.id)).size !== manifest.actions.length)'''
+          new = '''  if (manifest.runtime === "declarative") {\n    if (manifest.permissionConfig) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["permissionConfig"], message: "声明式插件不能声明权限配置" });\n    return;\n  }\n  if (new Set(manifest.actions.map((action) => action.id)).size !== manifest.actions.length)'''
+          if old not in s:
+              raise SystemExit("declarative permissionConfig refine fragment missing")
+          s = s.replace(old, new, 1)
+          manifest.write_text(s)
           PY
-      - name: Commit service integration
+      - name: Commit lifecycle fixes
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add backend/src/plugins/pluginService.ts
-          git commit -m "feat(extensions): add declarative extension runtime"
+          git add backend/src/plugins/pluginLifecycle.ts backend/src/plugins/pluginService.ts backend/src/plugins/manifest.ts
+          git commit -m "fix(extensions): enforce declarative zero-code lifecycle"
           git push origin HEAD:release/v1.5.0
