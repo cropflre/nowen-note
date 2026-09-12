@@ -1,9 +1,9 @@
 /* App Appearance Style compatibility bridge.
  *
  * Newer surfaces already consume semantic app/tx/accent tokens through Tailwind. A number of older
- * settings/dialog surfaces still use fixed zinc utilities. When a non-default app appearance is
- * active, this bridge maps the most common legacy utilities back onto the same semantic tokens so
- * the whole application changes together instead of leaving islands of the default palette.
+ * settings/dialog surfaces still use fixed zinc/indigo utilities. When a non-default app appearance
+ * is active, this bridge maps the common legacy utilities back onto the same semantic tokens so the
+ * whole application changes together instead of leaving islands of the default palette.
  *
  * No appearance-specific colors live here. `appAppearance.ts` is the only palette registry.
  */
@@ -86,6 +86,28 @@
 :root[data-app-appearance]:not([data-app-appearance="default"]) .divide-zinc-200 > :not([hidden]) ~ :not([hidden]),
 :root.dark[data-app-appearance]:not([data-app-appearance="default"]) .dark\:divide-zinc-800 > :not([hidden]) ~ :not([hidden]) {
   border-color: var(--color-border) !important;
+}
+
+/* Old settings/navigation selected states used a fixed indigo palette. Keep the interaction
+ * hierarchy but let the active appearance own its accent and active background. */
+:root[data-app-appearance]:not([data-app-appearance="default"]) .text-indigo-600,
+:root.dark[data-app-appearance]:not([data-app-appearance="default"]) .dark\:text-indigo-400 {
+  color: var(--color-accent-primary) !important;
+}
+
+:root[data-app-appearance]:not([data-app-appearance="default"]) .bg-indigo-50,
+:root.dark[data-app-appearance]:not([data-app-appearance="default"]) .dark\:bg-indigo-500\/10 {
+  background-color: var(--color-active) !important;
+}
+
+:root[data-app-appearance]:not([data-app-appearance="default"]) .border-indigo-200,
+:root[data-app-appearance]:not([data-app-appearance="default"]) .border-indigo-300,
+:root.dark[data-app-appearance]:not([data-app-appearance="default"]) .dark\:border-indigo-700 {
+  border-color: var(--color-accent-primary) !important;
+}
+
+:root[data-app-appearance]:not([data-app-appearance="default"]) .accent-indigo-600 {
+  accent-color: var(--color-accent-primary) !important;
 }
 
 /* Keep input controls and browser-native surfaces coherent with the selected app appearance. */
