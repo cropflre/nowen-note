@@ -6,7 +6,7 @@ const ROUTE_PATCH_FLAG = Symbol.for("nowen.noteAppearance.routePatch");
 const ROUTER_INSTALLED_FLAG = Symbol.for("nowen.noteAppearance.routerInstalled");
 const globals = globalThis as typeof globalThis & Record<symbol, boolean>;
 
-export const DEFAULT_NOTE_THEME_ID = "nowen.default";
+export const DEFAULT_NOTE_THEME_ID = "default";
 const THEME_ID_RE = /^[a-z0-9][a-z0-9._-]{0,95}$/;
 let schemaReadyFor: ReturnType<typeof getDb> | null = null;
 
@@ -27,15 +27,15 @@ export function ensureNoteAppearanceSchema(): void {
   schemaReadyFor = db;
 }
 
+/**
+ * NULL means "inherit the account/notebook default". `default` is a real explicit theme choice,
+ * which matters when an account default is Paper but one note intentionally wants Nowen Default.
+ */
 export function normalizeNoteThemeId(value: unknown): string | null {
-  if (value == null || value === "" || value === DEFAULT_NOTE_THEME_ID) return null;
+  if (value == null || value === "") return null;
   if (typeof value !== "string") return null;
   const normalized = value.trim().toLowerCase();
   return THEME_ID_RE.test(normalized) ? normalized : null;
-}
-
-function presentThemeId(value: unknown): string {
-  return typeof value === "string" && value.trim() ? value.trim() : DEFAULT_NOTE_THEME_ID;
 }
 
 const router = new Hono();
@@ -52,7 +52,7 @@ router.get("/:id", (c) => {
     | { themeId: string | null }
     | undefined;
   if (!row) return c.json({ error: "Note not found", code: "NOT_FOUND" }, 404);
-  return c.json({ noteId, themeId: presentThemeId(row.themeId) });
+  return c.json({ noteId, themeId: row.themeId || null });
 });
 
 router.put("/:id", async (c) => {
@@ -70,8 +70,8 @@ router.put("/:id", async (c) => {
   }
   const requested = body.themeId;
   const normalized = normalizeNoteThemeId(requested);
-  const wantsDefault = requested == null || requested === "" || requested === DEFAULT_NOTE_THEME_ID;
-  if (!wantsDefault && normalized === null) {
+  const wantsInheritance = requested == null || requested === "";
+  if (!wantsInheritance && normalized === null) {
     return c.json({ error: "无效的主题标识", code: "INVALID_THEME_ID" }, 400);
   }
 
@@ -82,15 +82,14 @@ router.put("/:id", async (c) => {
   if (!existing) return c.json({ error: "Note not found", code: "NOT_FOUND" }, 404);
 
   if ((existing.themeId || null) !== normalized) {
-    // Appearance is synchronized note metadata. Updating updatedAt intentionally makes the metadata
-    // change observable to list/realtime/sync layers, but does not increment the content version.
+    // Appearance is metadata. Keep it observable via updatedAt without creating a content version.
     db.prepare("UPDATE notes SET themeId = ?, updatedAt = datetime('now') WHERE id = ?")
       .run(normalized, noteId);
   }
 
   return c.json({
     noteId,
-    themeId: presentThemeId(normalized),
+    themeId: normalized,
     updated: (existing.themeId || null) !== normalized,
   });
 });
