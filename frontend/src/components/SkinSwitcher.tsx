@@ -6,6 +6,7 @@ import { useSkin } from "@/hooks/useSkin";
 import {
   APP_APPEARANCES,
   resolveAppAppearanceMode,
+  type AppAppearanceMode,
 } from "@/lib/appAppearance";
 import { cn } from "@/lib/utils";
 
@@ -13,7 +14,16 @@ export default function SkinSwitcher() {
   const { i18n } = useTranslation();
   const { skin, setSkin } = useSkin();
   const language = i18n.language.toLowerCase().startsWith("zh") ? "zh" : "en";
-  const mode = resolveAppAppearanceMode();
+  const [mode, setMode] = React.useState<AppAppearanceMode>(() => resolveAppAppearanceMode());
+
+  React.useEffect(() => {
+    const root = document.documentElement;
+    const sync = () => setMode(resolveAppAppearanceMode(root));
+    const observer = new MutationObserver(sync);
+    observer.observe(root, { attributes: true, attributeFilter: ["class", "data-theme"] });
+    sync();
+    return () => observer.disconnect();
+  }, []);
 
   return (
     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
