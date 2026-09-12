@@ -1,0 +1,131 @@
+name: Extension V2.1 Note Theme Bootstrap
+
+on:
+  push:
+    branches:
+      - release/v1.5.0
+    paths:
+      - ".github/workflows/extension-v2-1-note-theme-bootstrap.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  bootstrap:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: release/v1.5.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Apply Note Appearance contract integration
+        shell: bash
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+
+          def replace_once(path, old, new):
+              p = Path(path)
+              text = p.read_text()
+              if old not in text:
+                  raise SystemExit(f"expected block not found in {path}: {old[:100]!r}")
+              if text.count(old) != 1:
+                  raise SystemExit(f"expected block not unique in {path}: {text.count(old)}")
+              p.write_text(text.replace(old, new, 1))
+
+          # Generator: Appearance is note-scoped, not a global app skin.
+          replace_once(
+              "scripts/generate-plugin-host-api.mjs",
+              '["contractVersion", "namespaceTemplate", "runtimes", "types", "appearance", "noteTemplate", "promptPack"]',
+              '["contractVersion", "namespaceTemplate", "runtimes", "types", "noteTheme", "noteTemplate", "promptPack"]',
+          )
+          replace_once(
+              "scripts/generate-plugin-host-api.mjs",
+              '["commands", "menus", "settings", "automationTemplates", "appearances", "noteTemplates", "promptPacks"]',
+              '["commands", "menus", "settings", "automationTemplates", "noteThemes", "noteTemplates", "promptPacks"]',
+          )
+          replace_once(
+              "scripts/generate-plugin-host-api.mjs",
+              '  requireExactKeys(value.appearance, ["schemaVersion", "bases", "editableTokens", "fontCategories", "maxAppearancesPerPlugin"], "appearance contribution");\n  requireExactKeys(value.noteTemplate, ["schemaVersion", "maxTemplatesPerPlugin", "maxBodyBytes"], "noteTemplate contribution");\n  requireExactKeys(value.promptPack, ["schemaVersion", "maxPromptsPerPlugin", "maxPromptBytes"], "promptPack contribution");\n  uniqueStrings(value.appearance.bases, "appearance.bases");\n  uniqueStrings(value.appearance.editableTokens, "appearance.editableTokens");\n  uniqueStrings(value.appearance.fontCategories, "appearance.fontCategories");',
+              '  requireExactKeys(value.noteTheme, ["schemaVersion", "bases", "editableTokens", "fontCategories", "maxThemesPerPlugin"], "noteTheme contribution");\n  requireExactKeys(value.noteTemplate, ["schemaVersion", "maxTemplatesPerPlugin", "maxBodyBytes"], "noteTemplate contribution");\n  requireExactKeys(value.promptPack, ["schemaVersion", "maxPromptsPerPlugin", "maxPromptBytes"], "promptPack contribution");\n  uniqueStrings(value.noteTheme.bases, "noteTheme.bases");\n  uniqueStrings(value.noteTheme.editableTokens, "noteTheme.editableTokens");\n  uniqueStrings(value.noteTheme.fontCategories, "noteTheme.fontCategories");',
+          )
+          replace_once(
+              "scripts/generate-plugin-host-api.mjs",
+              'export const APPEARANCE_CONTRIBUTION_LIMITS = deepFreeze(${JSON.stringify(contributions.appearance, null, 2)} as const);',
+              'export const NOTE_THEME_CONTRIBUTION_LIMITS = deepFreeze(${JSON.stringify(contributions.noteTheme, null, 2)} as const);',
+          )
+          replace_once(
+              "scripts/generate-plugin-host-api.mjs",
+              'Appearance 最大数量：${contributions.appearance.maxAppearancesPerPlugin}；Note Template 最大正文：${contributions.noteTemplate.maxBodyBytes} 字节；Prompt 最大正文：${contributions.promptPack.maxPromptBytes} 字节。',
+              'Note Theme 最大数量：${contributions.noteTheme.maxThemesPerPlugin}；Note Template 最大正文：${contributions.noteTemplate.maxBodyBytes} 字节；Prompt 最大正文：${contributions.promptPack.maxPromptBytes} 字节。',
+          )
+
+          # Shared backend manifest types.
+          replace_once(
+              "backend/src/plugins/types.ts",
+              'export interface PluginAutomationTemplateContribution { id: string; title: string; file: string; description?: string }\n',
+              '''export interface PluginAutomationTemplateContribution { id: string; title: string; file: string; description?: string }\nexport type PluginNoteThemeFontCategory = "system" | "sans" | "serif" | "mono";\nexport interface PluginNoteThemeTokens {\n  canvasBackground?: string;\n  contentBackground?: string;\n  text?: string;\n  mutedText?: string;\n  headingText?: string;\n  link?: string;\n  accent?: string;\n  border?: string;\n  quoteBackground?: string;\n  quoteBorder?: string;\n  tableBorder?: string;\n  tableHeaderBackground?: string;\n  codeBackground?: string;\n  codeText?: string;\n  inlineCodeBackground?: string;\n  selection?: string;\n  contentMaxWidth?: number;\n  fontCategory?: PluginNoteThemeFontCategory;\n  fontSize?: number;\n  lineHeight?: number;\n  paragraphSpacing?: number;\n  h1FontSize?: number;\n  h2FontSize?: number;\n  h3FontSize?: number;\n  contentPadding?: number;\n}\nexport interface PluginNoteThemeContribution {\n  id: string;\n  name: string;\n  description?: string;\n  base?: "nowen.default";\n  modes: { light: PluginNoteThemeTokens; dark?: PluginNoteThemeTokens };\n}\n''',
+          )
+          replace_once(
+              "backend/src/plugins/types.ts",
+              '  automationTemplates?: PluginAutomationTemplateContribution[];\n}\n\nexport interface PluginDeclarativeContributionManifest {\n  settings?: PluginSettingContribution[];\n  automationTemplates?: PluginAutomationTemplateContribution[];\n}',
+              '  automationTemplates?: PluginAutomationTemplateContribution[];\n  noteThemes?: PluginNoteThemeContribution[];\n}\n\nexport interface PluginDeclarativeContributionManifest {\n  settings?: PluginSettingContribution[];\n  automationTemplates?: PluginAutomationTemplateContribution[];\n  noteThemes?: PluginNoteThemeContribution[];\n}',
+          )
+
+          # Manifest validator: only semantic Note tokens, strict numeric ranges and hex colors.
+          replace_once(
+              "backend/src/plugins/manifest.ts",
+              'const automationTemplateSchema = z.object({ id: z.string().regex(/^[a-z][a-z0-9-]{0,63}$/), title: z.string().min(1).max(100), file: z.string().min(1).max(300), description: z.string().max(500).optional() }).strict();\n',
+              '''const automationTemplateSchema = z.object({ id: z.string().regex(/^[a-z][a-z0-9-]{0,63}$/), title: z.string().min(1).max(100), file: z.string().min(1).max(300), description: z.string().max(500).optional() }).strict();\nconst noteThemeColorSchema = z.string().regex(/^#[0-9a-fA-F]{6}(?:[0-9a-fA-F]{2})?$/, "Note Theme 颜色必须是 #RRGGBB 或 #RRGGBBAA");\nconst noteThemeTokensSchema = z.object({\n  canvasBackground: noteThemeColorSchema.optional(), contentBackground: noteThemeColorSchema.optional(),\n  text: noteThemeColorSchema.optional(), mutedText: noteThemeColorSchema.optional(), headingText: noteThemeColorSchema.optional(),\n  link: noteThemeColorSchema.optional(), accent: noteThemeColorSchema.optional(), border: noteThemeColorSchema.optional(),\n  quoteBackground: noteThemeColorSchema.optional(), quoteBorder: noteThemeColorSchema.optional(),\n  tableBorder: noteThemeColorSchema.optional(), tableHeaderBackground: noteThemeColorSchema.optional(),\n  codeBackground: noteThemeColorSchema.optional(), codeText: noteThemeColorSchema.optional(),\n  inlineCodeBackground: noteThemeColorSchema.optional(), selection: noteThemeColorSchema.optional(),\n  contentMaxWidth: z.number().int().min(480).max(1200).optional(),\n  fontCategory: z.enum(["system", "sans", "serif", "mono"]).optional(),\n  fontSize: z.number().min(12).max(24).optional(), lineHeight: z.number().min(1.2).max(2.2).optional(),\n  paragraphSpacing: z.number().min(0).max(32).optional(), h1FontSize: z.number().min(24).max(56).optional(),\n  h2FontSize: z.number().min(20).max(44).optional(), h3FontSize: z.number().min(18).max(36).optional(),\n  contentPadding: z.number().min(12).max(96).optional(),\n}).strict().superRefine((tokens, ctx) => {\n  if (Object.keys(tokens).length === 0) ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Note Theme token 不能为空" });\n});\nconst noteThemeSchema = z.object({\n  id: z.string().regex(/^[a-z][a-z0-9-]{0,63}$/), name: z.string().min(1).max(100),\n  description: z.string().max(500).optional(), base: z.literal("nowen.default").default("nowen.default"),\n  modes: z.object({ light: noteThemeTokensSchema, dark: noteThemeTokensSchema.optional() }).strict(),\n}).strict();\n''',
+          )
+          replace_once(
+              "backend/src/plugins/manifest.ts",
+              '  settings: z.array(settingSchema).max(100).optional(), automationTemplates: z.array(automationTemplateSchema).max(50).optional(),\n}).strict().optional();',
+              '  settings: z.array(settingSchema).max(100).optional(), automationTemplates: z.array(automationTemplateSchema).max(50).optional(),\n  noteThemes: z.array(noteThemeSchema).max(20).optional(),\n}).strict().optional();',
+          )
+          replace_once(
+              "backend/src/plugins/manifest.ts",
+              '  settings: z.array(settingSchema).max(100).optional(),\n  automationTemplates: z.array(automationTemplateSchema).max(50).optional(),\n}).strict().superRefine((contributes, ctx) => {\n  if (!(contributes.settings?.length || contributes.automationTemplates?.length)) {',
+              '  settings: z.array(settingSchema).max(100).optional(),\n  automationTemplates: z.array(automationTemplateSchema).max(50).optional(),\n  noteThemes: z.array(noteThemeSchema).max(20).optional(),\n}).strict().superRefine((contributes, ctx) => {\n  if (!(contributes.settings?.length || contributes.automationTemplates?.length || contributes.noteThemes?.length)) {',
+          )
+          replace_once(
+              "backend/src/plugins/manifest.ts",
+              '  if (manifest.apiVersion === 2 && manifest.runtime === "declarative") {\n    if (!(options.extensionsV21 ?? isExtensionV21Enabled())) throw Object.assign(new Error("声明式 Extension 当前未启用"), { code: "PLUGIN_V21_FEATURE_DISABLED" });\n    if (!nowenVersionSatisfies(manifest.engines.nowen, "1.6.0") || nowenVersionSatisfies(manifest.engines.nowen, "1.5.0")) {\n      throw Object.assign(new Error("声明式 Extension 必须要求 engines.nowen >=1.6.0"), { code: "PLUGIN_NOWEN_INCOMPATIBLE" });\n    }\n  }',
+              '''  if (manifest.apiVersion === 2 && manifest.runtime === "declarative") {\n    if (!(options.extensionsV21 ?? isExtensionV21Enabled())) throw Object.assign(new Error("声明式 Extension 当前未启用"), { code: "PLUGIN_V21_FEATURE_DISABLED" });\n    if (!nowenVersionSatisfies(manifest.engines.nowen, "1.6.0") || nowenVersionSatisfies(manifest.engines.nowen, "1.5.0")) {\n      throw Object.assign(new Error("声明式 Extension 必须要求 engines.nowen >=1.6.0"), { code: "PLUGIN_NOWEN_INCOMPATIBLE" });\n    }\n  }\n  if (manifest.apiVersion === 2 && manifest.contributes?.noteThemes?.length) {\n    if (!(options.extensionsV21 ?? isExtensionV21Enabled())) throw Object.assign(new Error("Note Theme Contribution 当前未启用"), { code: "PLUGIN_V21_FEATURE_DISABLED" });\n    if (!nowenVersionSatisfies(manifest.engines.nowen, "1.6.0") || nowenVersionSatisfies(manifest.engines.nowen, "1.5.0")) {\n      throw Object.assign(new Error("Note Theme Contribution 必须要求 engines.nowen >=1.6.0"), { code: "PLUGIN_NOWEN_INCOMPATIBLE" });\n    }\n  }''',
+          )
+
+          # Frontend API carries note theme resources; no executable capability is added.
+          replace_once(
+              "frontend/src/lib/pluginApi.ts",
+              'export interface PluginAction {\n  id: string;\n  name: string;\n  description?: string;\n  execution?: "interactive" | "background";\n  input?: Record<string, { type: string; required?: boolean; description?: string }>;\n}\n',
+              '''export interface PluginAction {\n  id: string;\n  name: string;\n  description?: string;\n  execution?: "interactive" | "background";\n  input?: Record<string, { type: string; required?: boolean; description?: string }>;\n}\n\nexport type PluginNoteThemeFontCategory = "system" | "sans" | "serif" | "mono";\nexport interface PluginNoteThemeTokens {\n  canvasBackground?: string; contentBackground?: string; text?: string; mutedText?: string; headingText?: string;\n  link?: string; accent?: string; border?: string; quoteBackground?: string; quoteBorder?: string;\n  tableBorder?: string; tableHeaderBackground?: string; codeBackground?: string; codeText?: string;\n  inlineCodeBackground?: string; selection?: string; contentMaxWidth?: number; fontCategory?: PluginNoteThemeFontCategory;\n  fontSize?: number; lineHeight?: number; paragraphSpacing?: number; h1FontSize?: number; h2FontSize?: number;\n  h3FontSize?: number; contentPadding?: number;\n}\nexport interface PluginNoteThemeContribution {\n  id: string; name: string; description?: string; base?: "nowen.default";\n  modes: { light: PluginNoteThemeTokens; dark?: PluginNoteThemeTokens };\n}\n''',
+          )
+          replace_once(
+              "frontend/src/lib/pluginApi.ts",
+              '    menus?: Array<{ location: string; command: string }>;\n  };',
+              '    menus?: Array<{ location: string; command: string }>;\n    noteThemes?: PluginNoteThemeContribution[];\n  };',
+          )
+          PY
+      - name: Generate unified extension capability artifacts
+        run: node scripts/generate-plugin-host-api.mjs
+      - name: Verify generator is clean
+        run: node scripts/generate-plugin-host-api.mjs --check
+      - name: Commit generated Note Theme contract
+        shell: bash
+        run: |
+          git config user.name "Drug"
+          git config user.email "cropflre2333@gmail.com"
+          git add scripts/generate-plugin-host-api.mjs backend/src/plugins/types.ts backend/src/plugins/manifest.ts frontend/src/lib/pluginApi.ts \
+            backend/src/plugins/hostApiContract.generated.ts backend/src/plugins/capabilityCatalog.generated.ts \
+            packages/nowen-plugin-sdk/src/hostApi.generated.ts packages/nowen-plugin-sdk/src/contributions.generated.ts \
+            packages/nowen-plugin-sdk/src/errors.generated.ts packages/nowen-plugin-sdk/src/mock.generated.ts \
+            packages/nowen-plugin-sdk/capability-catalog.json docs/plugin-platform/host-api.generated.md docs/plugin-platform/contributions.generated.md
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+            exit 0
+          fi
+          git commit -m "feat(extensions): 实现笔记主题贡献合同"
+          git push origin HEAD:release/v1.5.0
