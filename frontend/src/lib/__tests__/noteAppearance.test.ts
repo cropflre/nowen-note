@@ -13,19 +13,23 @@ afterEach(() => {
   applyNoteTheme("default");
 });
 
-describe("per-note appearance surface", () => {
-  it("projects an explicit note theme onto the local editor surface", () => {
+describe("per-note appearance style surface", () => {
+  it("projects an explicit note style onto the local editor surface", () => {
     const surface = document.createElement("div");
-    applyExplicitNoteTheme(surface, "paper");
+    applyExplicitNoteTheme(surface, "developer");
 
-    expect(surface.dataset.noteTheme).toBe("paper");
+    expect(surface.dataset.noteTheme).toBe("developer");
     expect(surface.style.getPropertyValue("--note-theme-surface"))
-      .toBe(resolveNoteThemeTokens("paper", "light").surface);
+      .toBe(resolveNoteThemeTokens("developer", "light").surface);
     expect(surface.style.getPropertyValue("--pm-text"))
-      .toBe(resolveNoteThemeTokens("paper", "light").text);
+      .toBe(resolveNoteThemeTokens("developer", "light").text);
+    expect(surface.style.getPropertyValue("--note-theme-font-family"))
+      .toBe(resolveNoteThemeTokens("developer", "light").fontFamily);
+    expect(surface.style.getPropertyValue("--note-theme-font-size"))
+      .toBe(resolveNoteThemeTokens("developer", "light").fontSize);
   });
 
-  it("explicit default overrides a non-default account theme", () => {
+  it("explicit Nowen Default overrides a non-default account appearance style", () => {
     applyNoteTheme("paper", document.documentElement);
     const surface = document.createElement("div");
     applyExplicitNoteTheme(surface, "default");
@@ -37,7 +41,8 @@ describe("per-note appearance surface", () => {
     expect(surface.dataset.noteTheme).toBe("default");
   });
 
-  it("clearing an override removes only local tokens so account defaults can inherit again", () => {
+  it("clearing an override removes only local tokens so the account style inherits again", () => {
+    applyNoteTheme("magazine", document.documentElement);
     const surface = document.createElement("div");
     applyExplicitNoteTheme(surface, "minimal");
     clearExplicitNoteTheme(surface);
@@ -46,5 +51,20 @@ describe("per-note appearance surface", () => {
     for (const property of noteAppearanceSurfaceTokenProperties()) {
       expect(surface.style.getPropertyValue(property)).toBe("");
     }
+    expect(document.documentElement.style.getPropertyValue("--note-theme-surface"))
+      .toBe(resolveNoteThemeTokens("magazine", "light").surface);
+  });
+
+  it("refreshes an explicit note style from light to dark without touching account defaults", () => {
+    applyNoteTheme("paper", document.documentElement);
+    const surface = document.createElement("div");
+    applyExplicitNoteTheme(surface, "developer");
+    document.documentElement.classList.add("dark");
+    applyExplicitNoteTheme(surface, "developer");
+
+    expect(surface.style.getPropertyValue("--note-theme-surface"))
+      .toBe(resolveNoteThemeTokens("developer", "dark").surface);
+    expect(document.documentElement.style.getPropertyValue("--note-theme-surface"))
+      .toBe(resolveNoteThemeTokens("paper", "light").surface);
   });
 });
