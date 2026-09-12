@@ -1,7 +1,8 @@
 import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
-const css = readFileSync(new URL("../../app-appearance.css", import.meta.url), "utf8");
+const css = readFileSync(resolve(process.cwd(), "src/app-appearance.css"), "utf8");
 
 describe("app appearance css contract", () => {
   it("bridges legacy fixed utilities back to semantic app tokens", () => {
