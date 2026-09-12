@@ -1,5 +1,5 @@
 {
-  "contractVersion": 1,
+  "contractVersion": 2,
   "namespaceTemplate": "<pluginId>/<contributionId>",
   "runtimes": ["declarative", "sandbox-js", "node-action"],
   "types": [
@@ -7,16 +7,42 @@
     {"id":"menus","since":"2.0","runtimes":["sandbox-js","node-action"],"declarative":false,"description":"Host-owned menu placements referencing declared commands"},
     {"id":"settings","since":"2.0","runtimes":["declarative","sandbox-js","node-action"],"declarative":true,"description":"Host-rendered extension settings"},
     {"id":"automationTemplates","since":"2.0","runtimes":["declarative","sandbox-js","node-action"],"declarative":true,"description":"Static automation templates installed by explicit user action"},
-    {"id":"appearances","since":"2.1","runtimes":["declarative","sandbox-js","node-action"],"declarative":true,"description":"Safe semantic appearance tokens rendered by the host"},
+    {"id":"noteThemes","since":"2.1","runtimes":["declarative","sandbox-js","node-action"],"declarative":true,"description":"Safe note-scoped visual themes rendered by the host without changing app chrome"},
     {"id":"noteTemplates","since":"2.1","runtimes":["declarative","sandbox-js","node-action"],"declarative":true,"description":"Static note templates rendered/imported by the host"},
     {"id":"promptPacks","since":"2.1","runtimes":["declarative","sandbox-js","node-action"],"declarative":true,"description":"Static prompt packs with explicit variable schemas"}
   ],
-  "appearance": {
+  "noteTheme": {
     "schemaVersion": 1,
-    "bases": ["default", "macos", "paper", "minimal", "eye-care", "developer", "magazine"],
-    "editableTokens": ["bg","surface","sidebar","elevated","border","hover","active","textPrimary","textSecondary","textTertiary","textQuaternary","accentPrimary","accentSecondary","accentWarning","accentDanger","accentMuted","pmText","pmHeading","pmCodeBg","pmCodeText","pmPreBg","pmPreBorder","pmPreText","pmBlockquoteBorder","pmBlockquoteText","pmHr","pmPlaceholder","pmTaskDone","pmScrollbar","pmScrollbarHover","pmSelection","radiusWindow","radiusCard","radiusButton","radiusInput","fontFamily","editorFontFamily"],
+    "bases": ["nowen.default"],
+    "editableTokens": [
+      "canvasBackground",
+      "contentBackground",
+      "text",
+      "mutedText",
+      "headingText",
+      "link",
+      "accent",
+      "border",
+      "quoteBackground",
+      "quoteBorder",
+      "tableBorder",
+      "tableHeaderBackground",
+      "codeBackground",
+      "codeText",
+      "inlineCodeBackground",
+      "selection",
+      "contentMaxWidth",
+      "fontCategory",
+      "fontSize",
+      "lineHeight",
+      "paragraphSpacing",
+      "h1FontSize",
+      "h2FontSize",
+      "h3FontSize",
+      "contentPadding"
+    ],
     "fontCategories": ["system", "sans", "serif", "mono"],
-    "maxAppearancesPerPlugin": 20
+    "maxThemesPerPlugin": 20
   },
   "noteTemplate": {"schemaVersion":1,"maxTemplatesPerPlugin":100,"maxBodyBytes":262144},
   "promptPack": {"schemaVersion":1,"maxPromptsPerPlugin":100,"maxPromptBytes":65536}
