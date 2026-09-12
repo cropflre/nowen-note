@@ -3,8 +3,9 @@ import path from "node:path";
 import crypto from "node:crypto";
 import { PluginPermissions } from "./permissions.js";
 import { PluginRegistry } from "./registry.js";
+import { parsePluginManifest, type ParsePluginManifestOptions } from "./manifest.js";
 import { validatePluginPackage, type ValidatedPluginPackage } from "./packageValidator.js";
-import type { PluginManifest, PluginRegistryRecord, PluginSource, PluginTrustLevel } from "./types.js";
+import { isDeclarativePluginManifest, type PluginManifest, type PluginRegistryRecord, type PluginSource, type PluginTrustLevel } from "./types.js";
 
 export interface ValidatedDevelopmentPlugin {
   absolute: string;
@@ -28,15 +29,9 @@ function assertInside(root: string, target: string): void {
 function normalizeCompatibilityValidationError(error: unknown): never {
   const coded = error as Error & { code?: string; issues?: Array<{ path?: Array<string | number> }> };
   if (coded.code) throw coded;
-  if (coded.message?.startsWith("插件要求 Nowen ")) {
-    throw Object.assign(coded, { code: "PLUGIN_NOWEN_INCOMPATIBLE" });
-  }
-  if (coded.message?.startsWith("不支持 Plugin API V")) {
-    throw Object.assign(coded, { code: "PLUGIN_API_VERSION_UNSUPPORTED" });
-  }
-  if (coded.issues?.some((issue) => issue.path?.[0] === "runtime" || issue.path?.[0] === "apiVersion")) {
-    throw Object.assign(coded, { code: "PLUGIN_API_RUNTIME_INCOMPATIBLE" });
-  }
+  if (coded.message?.startsWith("插件要求 Nowen ") || coded.message?.includes("engines.nowen")) throw Object.assign(coded, { code: "PLUGIN_NOWEN_INCOMPATIBLE" });
+  if (coded.message?.startsWith("不支持 Plugin API V")) throw Object.assign(coded, { code: "PLUGIN_API_VERSION_UNSUPPORTED" });
+  if (coded.issues?.some((issue) => issue.path?.[0] === "runtime" || issue.path?.[0] === "apiVersion")) throw Object.assign(coded, { code: "PLUGIN_API_RUNTIME_INCOMPATIBLE" });
   throw coded;
 }
 
@@ -44,11 +39,7 @@ const PACKAGE_INTEGRITY_FILE = ".nowen-package.json";
 
 function readPackageIntegrity(directory: string): { id?: string; version?: string; checksum?: string } | null {
   try {
-    return JSON.parse(fs.readFileSync(path.join(directory, PACKAGE_INTEGRITY_FILE), "utf8")) as {
-      id?: string;
-      version?: string;
-      checksum?: string;
-    };
+    return JSON.parse(fs.readFileSync(path.join(directory, PACKAGE_INTEGRITY_FILE), "utf8")) as { id?: string; version?: string; checksum?: string };
   } catch {
     return null;
   }
@@ -61,28 +52,35 @@ async function extract(zip: Awaited<ReturnType<typeof validatePluginPackage>>["z
     if (!normalized) continue;
     const target = path.join(destination, ...normalized.split("/"));
     assertInside(destination, target);
-    if (file.dir) {
-      fs.mkdirSync(target, { recursive: true });
-    } else {
+    if (file.dir) fs.mkdirSync(target, { recursive: true });
+    else {
       fs.mkdirSync(path.dirname(target), { recursive: true });
       fs.writeFileSync(target, await file.async("nodebuffer"), { flag: "wx" });
     }
   }
 }
 
+function developmentReferencedFiles(manifest: PluginManifest): string[] {
+  const referenced = [manifest.icon, ...(manifest.screenshots || [])].filter((item): item is string => Boolean(item));
+  if (isDeclarativePluginManifest(manifest)) {
+    referenced.push(...(manifest.contributes.automationTemplates || []).map((template) => template.file));
+  } else {
+    referenced.push(manifest.main);
+    if (manifest.apiVersion === 2) referenced.push(...(manifest.contributes?.automationTemplates || []).map((template) => template.file));
+  }
+  return [...new Set(referenced)].sort();
+}
+
 export class PluginPackageInstaller {
-  constructor(
-    private readonly registry = new PluginRegistry(),
-    private readonly permissions = new PluginPermissions(),
-  ) {}
+  constructor(private readonly registry = new PluginRegistry(), private readonly permissions = new PluginPermissions()) {}
 
   async install(bytes: Buffer, installedBy: string): Promise<PluginRegistryRecord> {
     return this.installValidated(await this.inspect(bytes), installedBy);
   }
 
-  async inspect(bytes: Buffer): Promise<ValidatedPluginPackage> {
+  async inspect(bytes: Buffer, options: ParsePluginManifestOptions = {}): Promise<ValidatedPluginPackage> {
     try {
-      return await validatePluginPackage(bytes);
+      return await validatePluginPackage(bytes, options);
     } catch (error) {
       normalizeCompatibilityValidationError(error);
     }
@@ -101,9 +99,7 @@ export class PluginPackageInstaller {
       nodeRuntimeConfirmedBy?: string | null;
     } = {},
   ): Promise<PluginRegistryRecord> {
-    if (this.registry.get(validated.manifest.id)) {
-      throw Object.assign(new Error("已有插件必须通过更新协调器安装"), { code: "PLUGIN_UPDATE_COORDINATOR_REQUIRED" });
-    }
+    if (this.registry.get(validated.manifest.id)) throw Object.assign(new Error("已有插件必须通过更新协调器安装"), { code: "PLUGIN_UPDATE_COORDINATOR_REQUIRED" });
     const operationId = crypto.randomUUID();
     let stagingPath: string | null = null;
     try {
@@ -127,7 +123,7 @@ export class PluginPackageInstaller {
       this.permissions.initialize(validated.manifest);
       return record;
     } catch (error) {
-      try { if (stagingPath) this.removeStaging(stagingPath); } catch { /* 尽力清理未完成 staging */ }
+      try { if (stagingPath) this.removeStaging(stagingPath); } catch { /* best effort */ }
       throw error;
     }
   }
@@ -136,15 +132,9 @@ export class PluginPackageInstaller {
     const stagingRoot = path.join(getPluginRoot(), "staging");
     const destination = path.join(stagingRoot, operationId);
     assertInside(stagingRoot, destination);
-    if (fs.existsSync(destination)) {
-      throw Object.assign(new Error("插件更新 staging 已存在"), { code: "PLUGIN_UPDATE_STAGING_EXISTS" });
-    }
+    if (fs.existsSync(destination)) throw Object.assign(new Error("插件更新 staging 已存在"), { code: "PLUGIN_UPDATE_STAGING_EXISTS" });
     await extract(validated.zip, destination);
-    fs.writeFileSync(path.join(destination, PACKAGE_INTEGRITY_FILE), JSON.stringify({
-      id: validated.manifest.id,
-      version: validated.manifest.version,
-      checksum: validated.checksum,
-    }), { encoding: "utf8", flag: "wx" });
+    fs.writeFileSync(path.join(destination, PACKAGE_INTEGRITY_FILE), JSON.stringify({ id: validated.manifest.id, version: validated.manifest.version, checksum: validated.checksum }), { encoding: "utf8", flag: "wx" });
     return destination;
   }
 
@@ -158,12 +148,8 @@ export class PluginPackageInstaller {
     const destinationExists = fs.existsSync(destination);
     if (existing || destinationExists) {
       const integrity = destinationExists ? readPackageIntegrity(destination) : null;
-      const integrityMatches = integrity?.id === manifest.id
-        && integrity.version === manifest.version
-        && integrity.checksum === checksum;
-      if (!destinationExists || !existing || existing.checksum !== checksum || !integrityMatches) {
-        throw Object.assign(new Error("相同插件坐标对应不同内容"), { code: "PLUGIN_VERSION_COORDINATE_CONFLICT" });
-      }
+      const integrityMatches = integrity?.id === manifest.id && integrity.version === manifest.version && integrity.checksum === checksum;
+      if (!destinationExists || !existing || existing.checksum !== checksum || !integrityMatches) throw Object.assign(new Error("相同插件坐标对应不同内容"), { code: "PLUGIN_VERSION_COORDINATE_CONFLICT" });
       this.removeStaging(stagingPath);
       return destination;
     }
@@ -192,44 +178,31 @@ export class PluginPackageInstaller {
     if (fs.existsSync(destination)) fs.rmSync(destination, { recursive: true, force: true });
   }
 
-  async inspectDevelopmentDirectory(directory: string): Promise<ValidatedDevelopmentPlugin> {
+  async inspectDevelopmentDirectory(directory: string, options: ParsePluginManifestOptions = {}): Promise<ValidatedDevelopmentPlugin> {
     const absolute = path.resolve(directory);
     const manifestPath = path.join(absolute, "manifest.json");
-    if (!fs.statSync(absolute).isDirectory() || !fs.existsSync(manifestPath)) throw new Error("开发目录缺少 manifest.json");
-    const { parsePluginManifest } = await import("./manifest.js");
+    if (!fs.existsSync(absolute) || !fs.statSync(absolute).isDirectory() || !fs.existsSync(manifestPath)) throw new Error("开发目录缺少 manifest.json");
     let manifest: PluginManifest;
     try {
-      manifest = parsePluginManifest(JSON.parse(fs.readFileSync(manifestPath, "utf8")));
+      manifest = parsePluginManifest(JSON.parse(fs.readFileSync(manifestPath, "utf8")), options);
     } catch (error) {
       normalizeCompatibilityValidationError(error);
     }
-    const mainPath = path.resolve(absolute, manifest.main);
-    assertInside(absolute, mainPath);
-    if (!fs.existsSync(mainPath)) throw new Error(`插件入口不存在: ${manifest.main}`);
-    const { createHash } = await import("node:crypto");
-    const checksum = createHash("sha256").update(fs.readFileSync(manifestPath)).update(fs.readFileSync(mainPath)).digest("hex");
-    return { absolute, manifest, checksum };
+    const createHash = crypto.createHash("sha256").update(fs.readFileSync(manifestPath));
+    for (const relativePath of developmentReferencedFiles(manifest)) {
+      const target = path.resolve(absolute, relativePath);
+      assertInside(absolute, target);
+      if (!fs.existsSync(target) || !fs.statSync(target).isFile()) throw new Error(`插件资源不存在: ${relativePath}`);
+      if (isDeclarativePluginManifest(manifest) && /\.(?:mjs|cjs|js|wasm)$/i.test(relativePath)) throw Object.assign(new Error(`声明式插件禁止可执行代码资源: ${relativePath}`), { code: "PLUGIN_CONTRIBUTION_INVALID" });
+      createHash.update(relativePath).update(fs.readFileSync(target));
+    }
+    return { absolute, manifest, checksum: createHash.digest("hex") };
   }
 
-  loadDevelopmentDirectory(
-    validated: ValidatedDevelopmentPlugin,
-    installedBy: string,
-    nodeRuntimeConfirmedBy: string | null = null,
-  ): PluginRegistryRecord {
+  loadDevelopmentDirectory(validated: ValidatedDevelopmentPlugin, installedBy: string, nodeRuntimeConfirmedBy: string | null = null): PluginRegistryRecord {
     const { absolute, manifest, checksum } = validated;
-    if (this.registry.get(manifest.id)) {
-      throw Object.assign(new Error("开发插件 ID 已存在，请先卸载后重新加载"), { code: "PLUGIN_DEV_RELOAD_REQUIRES_UNINSTALL" });
-    }
-    const record = this.registry.upsert({
-      manifest,
-      source: "dev",
-      trustLevel: "developer",
-      status: "quarantined",
-      checksum,
-      installedPath: absolute,
-      installedBy,
-      nodeRuntimeConfirmedBy,
-    });
+    if (this.registry.get(manifest.id)) throw Object.assign(new Error("开发插件 ID 已存在，请先卸载后重新加载"), { code: "PLUGIN_DEV_RELOAD_REQUIRES_UNINSTALL" });
+    const record = this.registry.upsert({ manifest, source: "dev", trustLevel: "developer", status: "quarantined", checksum, installedPath: absolute, installedBy, nodeRuntimeConfirmedBy });
     this.permissions.initialize(manifest);
     return record;
   }
@@ -244,13 +217,9 @@ export class PluginPackageInstaller {
       fs.mkdirSync(path.dirname(destination), { recursive: true });
       if (fs.existsSync(destination)) {
         const existing = this.registry.getVersion(record.id, record.version);
-        if (!existing || existing.checksum !== record.checksum) {
-          throw Object.assign(new Error("相同插件坐标对应不同内容"), { code: "PLUGIN_VERSION_COORDINATE_CONFLICT" });
-        }
+        if (!existing || existing.checksum !== record.checksum) throw Object.assign(new Error("相同插件坐标对应不同内容"), { code: "PLUGIN_VERSION_COORDINATE_CONFLICT" });
         fs.rmSync(record.installedPath, { recursive: true, force: true });
-      } else {
-        fs.renameSync(record.installedPath, destination);
-      }
+      } else fs.renameSync(record.installedPath, destination);
       this.registry.setPath(record.id, destination);
     }
     return this.registry.get(record.id)!;
