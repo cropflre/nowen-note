@@ -7,7 +7,7 @@ function deepFreeze<T>(value: T): T {
   return value;
 }
 
-export type NowenPluginErrorCode = "EXTERNAL_FETCH_DENIED" | "HOST_ARGS_TOO_LARGE" | "HOST_METHOD_NOT_FOUND" | "HOST_METHOD_UNSUPPORTED" | "HOST_RESULT_TOO_LARGE" | "INVALID_ARGUMENT" | "NETWORK_UNAVAILABLE" | "PLUGIN_CANCELLED" | "PLUGIN_CONTRIBUTION_INVALID" | "PLUGIN_DECLARATIVE_NOT_EXECUTABLE" | "PLUGIN_ERROR" | "PLUGIN_PERMISSION_DENIED" | "PLUGIN_PREFLIGHT_FAILED" | "PLUGIN_TIMEOUT" | "PLUGIN_V21_FEATURE_DISABLED" | "RESOURCE_FORBIDDEN" | "RESOURCE_NOT_FOUND";
+export type NowenPluginErrorCode = "EXTERNAL_FETCH_DENIED" | "EXTERNAL_FETCH_DNS_ERROR" | "EXTERNAL_FETCH_INVALID_REDIRECT" | "EXTERNAL_FETCH_INVALID_URL" | "EXTERNAL_FETCH_NETWORK_ERROR" | "EXTERNAL_FETCH_REDIRECT_LIMIT" | "EXTERNAL_FETCH_RESPONSE_TOO_LARGE" | "EXTERNAL_FETCH_TIMEOUT" | "HOST_ARGS_TOO_LARGE" | "HOST_METHOD_NOT_FOUND" | "HOST_METHOD_UNSUPPORTED" | "HOST_RESULT_TOO_LARGE" | "INVALID_ARGUMENT" | "NETWORK_UNAVAILABLE" | "PLUGIN_ACTION_MISMATCH" | "PLUGIN_CANCELLED" | "PLUGIN_CONTRIBUTION_INVALID" | "PLUGIN_DECLARATIVE_NOT_EXECUTABLE" | "PLUGIN_ERROR" | "PLUGIN_PERMISSION_DENIED" | "PLUGIN_PREFLIGHT_FAILED" | "PLUGIN_TIMEOUT" | "PLUGIN_V21_FEATURE_DISABLED" | "RESOURCE_FORBIDDEN" | "RESOURCE_NOT_FOUND";
 
 export interface NowenPluginErrorMetadata {
   code: NowenPluginErrorCode;
@@ -23,6 +23,48 @@ export const NOWEN_PLUGIN_ERROR_CATALOG: readonly NowenPluginErrorMetadata[] = d
     "category": "network",
     "retryable": false,
     "description": "Destination is outside the declared network allowlist"
+  },
+  {
+    "code": "EXTERNAL_FETCH_DNS_ERROR",
+    "category": "network",
+    "retryable": true,
+    "description": "External fetch DNS resolution failed"
+  },
+  {
+    "code": "EXTERNAL_FETCH_INVALID_REDIRECT",
+    "category": "network",
+    "retryable": false,
+    "description": "External fetch redirect target is invalid or unsafe"
+  },
+  {
+    "code": "EXTERNAL_FETCH_INVALID_URL",
+    "category": "network",
+    "retryable": false,
+    "description": "External fetch URL is invalid or unsafe"
+  },
+  {
+    "code": "EXTERNAL_FETCH_NETWORK_ERROR",
+    "category": "network",
+    "retryable": true,
+    "description": "External fetch failed at the network layer"
+  },
+  {
+    "code": "EXTERNAL_FETCH_REDIRECT_LIMIT",
+    "category": "network",
+    "retryable": false,
+    "description": "External fetch exceeded the redirect limit"
+  },
+  {
+    "code": "EXTERNAL_FETCH_RESPONSE_TOO_LARGE",
+    "category": "budget",
+    "retryable": false,
+    "description": "External fetch response exceeds the configured budget"
+  },
+  {
+    "code": "EXTERNAL_FETCH_TIMEOUT",
+    "category": "network",
+    "retryable": true,
+    "description": "External fetch exceeded its deadline"
   },
   {
     "code": "HOST_ARGS_TOO_LARGE",
@@ -59,6 +101,12 @@ export const NOWEN_PLUGIN_ERROR_CATALOG: readonly NowenPluginErrorMetadata[] = d
     "category": "network",
     "retryable": true,
     "description": "Network is currently unavailable"
+  },
+  {
+    "code": "PLUGIN_ACTION_MISMATCH",
+    "category": "contract",
+    "retryable": false,
+    "description": "Runtime actions do not match the manifest contract"
   },
   {
     "code": "PLUGIN_CANCELLED",

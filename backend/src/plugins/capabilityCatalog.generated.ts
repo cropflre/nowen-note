@@ -7,7 +7,7 @@ function deepFreeze<T>(value: T): T {
   return value;
 }
 
-export const EXTENSION_CAPABILITY_CATALOG_DIGEST = "f5aefa0b719a87cab58a81cb67f5959a3eff817b2b5f5d16e84c8ee5ddbfa56f" as const;
+export const EXTENSION_CAPABILITY_CATALOG_DIGEST = "49438447356580fe5b441c0b288131a82220bed6a323d27a60741c4a04be2b7e" as const;
 export const EXTENSION_CAPABILITY_CATALOG = deepFreeze({
   "catalogVersion": 1,
   "hostApi": {
@@ -1099,6 +1099,48 @@ export const EXTENSION_CAPABILITY_CATALOG = deepFreeze({
         "description": "Destination is outside the declared network allowlist"
       },
       {
+        "code": "EXTERNAL_FETCH_DNS_ERROR",
+        "category": "network",
+        "retryable": true,
+        "description": "External fetch DNS resolution failed"
+      },
+      {
+        "code": "EXTERNAL_FETCH_INVALID_REDIRECT",
+        "category": "network",
+        "retryable": false,
+        "description": "External fetch redirect target is invalid or unsafe"
+      },
+      {
+        "code": "EXTERNAL_FETCH_INVALID_URL",
+        "category": "network",
+        "retryable": false,
+        "description": "External fetch URL is invalid or unsafe"
+      },
+      {
+        "code": "EXTERNAL_FETCH_NETWORK_ERROR",
+        "category": "network",
+        "retryable": true,
+        "description": "External fetch failed at the network layer"
+      },
+      {
+        "code": "EXTERNAL_FETCH_REDIRECT_LIMIT",
+        "category": "network",
+        "retryable": false,
+        "description": "External fetch exceeded the redirect limit"
+      },
+      {
+        "code": "EXTERNAL_FETCH_RESPONSE_TOO_LARGE",
+        "category": "budget",
+        "retryable": false,
+        "description": "External fetch response exceeds the configured budget"
+      },
+      {
+        "code": "EXTERNAL_FETCH_TIMEOUT",
+        "category": "network",
+        "retryable": true,
+        "description": "External fetch exceeded its deadline"
+      },
+      {
         "code": "HOST_ARGS_TOO_LARGE",
         "category": "budget",
         "retryable": false,
@@ -1133,6 +1175,12 @@ export const EXTENSION_CAPABILITY_CATALOG = deepFreeze({
         "category": "network",
         "retryable": true,
         "description": "Network is currently unavailable"
+      },
+      {
+        "code": "PLUGIN_ACTION_MISMATCH",
+        "category": "contract",
+        "retryable": false,
+        "description": "Runtime actions do not match the manifest contract"
       },
       {
         "code": "PLUGIN_CANCELLED",
@@ -1196,5 +1244,5 @@ export const EXTENSION_CAPABILITY_CATALOG = deepFreeze({
       }
     ]
   },
-  "digest": "f5aefa0b719a87cab58a81cb67f5959a3eff817b2b5f5d16e84c8ee5ddbfa56f"
+  "digest": "49438447356580fe5b441c0b288131a82220bed6a323d27a60741c4a04be2b7e"
 } as const);
