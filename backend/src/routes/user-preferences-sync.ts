@@ -6,7 +6,7 @@ type ReadingDensity = "cozy" | "compact";
 type EditorFontSize = 0 | 14 | 16 | 18 | 20 | 22 | 24;
 type EditorMode = "md" | "tiptap";
 type FolderAutoLockMinutes = 0 | 5 | 15 | 30 | 60;
-type NoteTheme = "default" | "paper" | "minimal" | "eye-care" | "developer" | "magazine";
+type NoteTheme = "default" | "paper" | "minimal" | "eye-care";
 type CodeBlockTheme =
   | "github-dark"
   | "github-light"
@@ -85,14 +85,6 @@ const CODE_BLOCK_THEMES = new Set<CodeBlockTheme>([
   "one-dark",
   "nord",
 ]);
-const NOTE_APPEARANCE_STYLES = new Set<NoteTheme>([
-  "default",
-  "paper",
-  "minimal",
-  "eye-care",
-  "developer",
-  "magazine",
-]);
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
@@ -144,7 +136,7 @@ function normalizePreferenceValue<K extends PreferenceKey>(
       ) as SyncedUserPreferences[K];
     case "noteTheme":
       return (
-        typeof value === "string" && NOTE_APPEARANCE_STYLES.has(value as NoteTheme)
+        value === "default" || value === "paper" || value === "minimal" || value === "eye-care"
           ? value
           : fallback
       ) as SyncedUserPreferences[K];
@@ -181,25 +173,14 @@ export function readPreferenceState(userId: string): PreferenceState {
     .get(userId) as { preferencesJson: string; updatedAt: string } | undefined;
 
   if (!row) {
-    return {
-      prefs: DEFAULT_SYNCED_USER_PREFERENCES,
-      hasPreferences: false,
-      revision: 0,
-      fieldUpdatedAt: {},
-      updatedAt: null,
-    };
+    return { prefs: DEFAULT_SYNCED_USER_PREFERENCES, hasPreferences: false, revision: 0, fieldUpdatedAt: {}, updatedAt: null };
   }
 
   try {
     const parsed = JSON.parse(row.preferencesJson) as unknown;
     const raw = isObject(parsed) ? parsed : {};
     const meta = isObject(raw.__meta) ? raw.__meta : {};
-    const revision = typeof meta.revision === "number" &&
-      Number.isInteger(meta.revision) &&
-      meta.revision > 0
-      ? meta.revision
-      : 1;
-
+    const revision = typeof meta.revision === "number" && Number.isInteger(meta.revision) && meta.revision > 0 ? meta.revision : 1;
     return {
       prefs: normalizeSyncedUserPreferences(raw),
       hasPreferences: true,
@@ -208,13 +189,7 @@ export function readPreferenceState(userId: string): PreferenceState {
       updatedAt: row.updatedAt || null,
     };
   } catch {
-    return {
-      prefs: DEFAULT_SYNCED_USER_PREFERENCES,
-      hasPreferences: true,
-      revision: 1,
-      fieldUpdatedAt: {},
-      updatedAt: row.updatedAt || null,
-    };
+    return { prefs: DEFAULT_SYNCED_USER_PREFERENCES, hasPreferences: true, revision: 1, fieldUpdatedAt: {}, updatedAt: row.updatedAt || null };
   }
 }
 
@@ -222,7 +197,6 @@ function validatePatch(input: unknown): { patch: PreferencePatch; errors: string
   const raw = isObject(input) ? input : {};
   const patch: PreferencePatch = {};
   const errors: string[] = [];
-
   for (const key of PREFERENCE_KEYS) {
     if (!(key in raw)) continue;
     const current = DEFAULT_SYNCED_USER_PREFERENCES[key];
@@ -233,70 +207,37 @@ function validatePatch(input: unknown): { patch: PreferencePatch; errors: string
     }
     patch[key] = normalized as never;
   }
-
   return { patch, errors };
 }
 
-function serializeStoredPreferences(
-  prefs: SyncedUserPreferences,
-  revision: number,
-  fieldUpdatedAt: FieldUpdatedAt,
-): string {
-  const document: StoredPreferenceDocument = {
-    ...prefs,
-    __meta: {
-      version: 2,
-      revision,
-      fieldUpdatedAt,
-    },
-  };
+function serializeStoredPreferences(prefs: SyncedUserPreferences, revision: number, fieldUpdatedAt: FieldUpdatedAt): string {
+  const document: StoredPreferenceDocument = { ...prefs, __meta: { version: 2, revision, fieldUpdatedAt } };
   return JSON.stringify(document);
 }
 
 function responsePayload(userId: string, state: PreferenceState, conflict = false) {
-  return {
-    ...state.prefs,
-    hasPreferences: state.hasPreferences,
-    userId,
-    revision: state.revision,
-    fieldUpdatedAt: state.fieldUpdatedAt,
-    updatedAt: state.updatedAt,
-    conflict,
-  };
+  return { ...state.prefs, hasPreferences: state.hasPreferences, userId, revision: state.revision, fieldUpdatedAt: state.fieldUpdatedAt, updatedAt: state.updatedAt, conflict };
 }
 
 async function writePreferences(c: any) {
   const userId = c.req.header("X-User-Id");
   if (!userId) return c.json({ error: "Unauthorized" }, 401);
-
   const body = await c.req.json().catch(() => ({}));
   const raw = isObject(body) ? body : {};
   const { patch, errors } = validatePatch(raw);
-  if (errors.length > 0) {
-    return c.json({ error: errors[0], code: "INVALID_USER_PREFERENCE" }, 400);
-  }
+  if (errors.length > 0) return c.json({ error: errors[0], code: "INVALID_USER_PREFERENCE" }, 400);
 
   const patchKeys = Object.keys(patch) as PreferenceKey[];
   if (patchKeys.length === 0) {
     const unknownKeys = Object.keys(raw).filter((key) => !PREFERENCE_KEY_SET.has(key) && !key.startsWith("_"));
-    return c.json({
-      error: unknownKeys.length > 0
-        ? "请求中没有可同步的账号级偏好字段"
-        : "至少需要提供一个偏好字段",
-      code: "EMPTY_USER_PREFERENCE_PATCH",
-    }, 400);
+    return c.json({ error: unknownKeys.length > 0 ? "请求中没有可同步的账号级偏好字段" : "至少需要提供一个偏好字段", code: "EMPTY_USER_PREFERENCE_PATCH" }, 400);
   }
 
   const current = readPreferenceState(userId);
-  const baseRevision = typeof raw._baseRevision === "number" && Number.isInteger(raw._baseRevision)
-    ? raw._baseRevision
-    : null;
+  const baseRevision = typeof raw._baseRevision === "number" && Number.isInteger(raw._baseRevision) ? raw._baseRevision : null;
   const migration = raw._migration === true;
   const conflict = baseRevision !== null && baseRevision !== current.revision;
-
-  if (migration && current.hasPreferences) {
-    return c.json(responsePayload(userId, current, true));
-  }
+  if (migration && current.hasPreferences) return c.json(responsePayload(userId, current, true));
 
   const nextPrefs = { ...current.prefs };
   const changedKeys: PreferenceKey[] = [];
@@ -306,10 +247,7 @@ async function writePreferences(c: any) {
       changedKeys.push(key);
     }
   }
-
-  if (changedKeys.length === 0 && current.hasPreferences) {
-    return c.json(responsePayload(userId, current, conflict));
-  }
+  if (changedKeys.length === 0 && current.hasPreferences) return c.json(responsePayload(userId, current, conflict));
 
   const now = new Date().toISOString();
   const nextRevision = current.revision + 1;
@@ -322,29 +260,17 @@ async function writePreferences(c: any) {
     ON CONFLICT(userId) DO UPDATE SET
       preferencesJson = excluded.preferencesJson,
       updatedAt = excluded.updatedAt
-  `).run(
-    userId,
-    serializeStoredPreferences(nextPrefs, nextRevision, fieldUpdatedAt),
-    now,
-  );
+  `).run(userId, serializeStoredPreferences(nextPrefs, nextRevision, fieldUpdatedAt), now);
 
-  return c.json(responsePayload(userId, {
-    prefs: nextPrefs,
-    hasPreferences: true,
-    revision: nextRevision,
-    fieldUpdatedAt,
-    updatedAt: now,
-  }, conflict));
+  return c.json(responsePayload(userId, { prefs: nextPrefs, hasPreferences: true, revision: nextRevision, fieldUpdatedAt, updatedAt: now }, conflict));
 }
 
 const app = new Hono();
-
 app.get("/", (c) => {
   const userId = c.req.header("X-User-Id");
   if (!userId) return c.json({ error: "Unauthorized" }, 401);
   return c.json(responsePayload(userId, readPreferenceState(userId)));
 });
-
 app.put("/", writePreferences);
 app.patch("/", writePreferences);
 
