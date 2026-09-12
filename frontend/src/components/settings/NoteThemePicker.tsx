@@ -11,14 +11,14 @@ export default function NoteThemePicker() {
   const mode = resolveDocumentThemeMode();
   const copy = language === "zh"
     ? {
-        title: "笔记主题",
-        description: "只改变编辑与阅读外观，不修改笔记正文；选择会同步到当前账号。",
+        title: "默认笔记主题",
+        description: "作为未单独设置主题的笔记默认值；每篇笔记仍可在编辑器中独立覆盖。",
         sampleTitle: "把想法写下来",
         sampleBody: "清晰的排版，让阅读和写作保持舒适。",
       }
     : {
-        title: "Note theme",
-        description: "Changes reading and editing appearance without modifying note content. Synced to this account.",
+        title: "Default note theme",
+        description: "Used by notes without their own theme. Each note can still override it in the editor.",
         sampleTitle: "Write your ideas down",
         sampleBody: "Clear typography keeps reading and writing comfortable.",
       };
