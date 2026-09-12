@@ -9,7 +9,7 @@ import { UploadRequestError } from "@/lib/uploadRequest";
 
 const INSTALL_FLAG = Symbol.for("nowen.attachmentUploadPolicyBridge.installed");
 
-type FlaggedWindow = Window & Record<symbol, boolean>;
+type InstallFlagStore = Record<symbol, boolean | undefined>;
 
 /**
  * One upload boundary for editor, paste, drag-drop, imports and media picker.
@@ -19,7 +19,10 @@ type FlaggedWindow = Window & Record<symbol, boolean>;
  */
 export function installAttachmentUploadPolicyBridge(): void {
   if (typeof window === "undefined") return;
-  const flagged = window as FlaggedWindow;
+  // Window has no symbol index signature in lib.dom.d.ts, but Symbol.for is intentionally used as
+  // a process-wide idempotency slot. Cast through unknown so TypeScript does not pretend Window and
+  // Record<symbol, ...> structurally overlap; this changes no runtime behavior.
+  const flagged = window as unknown as InstallFlagStore;
   if (flagged[INSTALL_FLAG]) return;
   flagged[INSTALL_FLAG] = true;
 
