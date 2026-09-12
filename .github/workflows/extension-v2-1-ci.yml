@@ -1,0 +1,111 @@
+name: Extension Platform V2.1
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "backend/src/plugins/**"
+      - "backend/src/routes/plugins.ts"
+      - "backend/tests/extension-v2-1-*.test.ts"
+      - "backend/tests/declarative-extension-lifecycle.test.ts"
+      - "backend/tests/appearance-contribution.test.ts"
+      - "backend/tests/extension-platform-v2.test.ts"
+      - "backend/tests/plugin-platform.test.ts"
+      - "packages/nowen-plugin-sdk/**"
+      - "packages/nowen-plugin-cli/**"
+      - "scripts/generate-plugin-host-api.mjs"
+      - "frontend/src/lib/pluginApi.ts"
+      - "frontend/src/lib/pluginAppearanceRegistry.ts"
+      - "frontend/src/lib/pluginContributionCache.ts"
+      - "frontend/src/lib/appAppearance.ts"
+      - "frontend/src/hooks/useSkin.ts"
+      - "frontend/src/components/SkinSwitcher.tsx"
+      - "frontend/src/lib/__tests__/pluginAppearanceRegistry.test.ts"
+      - "examples/plugins/theme-pack/**"
+      - "docs/plugin-platform/**"
+      - ".github/workflows/extension-v2-1-ci.yml"
+      - ".github/workflows/app-appearance-ci.yml"
+  push:
+    branches:
+      - main
+      - "release/**"
+    paths:
+      - "backend/src/plugins/**"
+      - "backend/src/routes/plugins.ts"
+      - "backend/tests/extension-v2-1-*.test.ts"
+      - "backend/tests/declarative-extension-lifecycle.test.ts"
+      - "backend/tests/appearance-contribution.test.ts"
+      - "backend/tests/extension-platform-v2.test.ts"
+      - "backend/tests/plugin-platform.test.ts"
+      - "packages/nowen-plugin-sdk/**"
+      - "packages/nowen-plugin-cli/**"
+      - "scripts/generate-plugin-host-api.mjs"
+      - "frontend/src/lib/pluginApi.ts"
+      - "frontend/src/lib/pluginAppearanceRegistry.ts"
+      - "frontend/src/lib/pluginContributionCache.ts"
+      - "frontend/src/lib/appAppearance.ts"
+      - "frontend/src/hooks/useSkin.ts"
+      - "frontend/src/components/SkinSwitcher.tsx"
+      - "frontend/src/lib/__tests__/pluginAppearanceRegistry.test.ts"
+      - "examples/plugins/theme-pack/**"
+      - "docs/plugin-platform/**"
+      - ".github/workflows/extension-v2-1-ci.yml"
+      - ".github/workflows/app-appearance-ci.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  contract-and-backend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Verify generated extension contracts
+        run: node scripts/generate-plugin-host-api.mjs --check
+      - name: Install SDK dependencies
+        working-directory: packages/nowen-plugin-sdk
+        run: npm ci
+      - name: Build and test SDK
+        working-directory: packages/nowen-plugin-sdk
+        run: npm test
+      - name: Validate CLI entrypoint
+        run: node --check packages/nowen-plugin-cli/bin/nowen-plugin.mjs
+      - name: Install backend dependencies
+        working-directory: backend
+        run: npm ci
+      - name: V1/V2 compatibility baseline
+        working-directory: backend
+        run: |
+          npx tsx --test tests/plugin-platform.test.ts
+          npx tsx --test tests/extension-platform-v2.test.ts
+          npx tsx --test tests/extension-ecosystem-rc1.test.ts
+      - name: V2.1 fail-closed feature gate
+        working-directory: backend
+        run: npx tsx --test tests/extension-v2-1-feature-gates.test.ts
+      - name: Backend production typecheck
+        working-directory: backend
+        run: npm run build:tsc
+
+  frontend-release-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+      - name: Appearance compatibility baseline
+        working-directory: frontend
+        run: npx vitest run src/lib/__tests__/appAppearance.test.ts src/lib/__tests__/appAppearanceBootstrapContract.test.ts src/lib/__tests__/editorFontAppearanceGuard.test.ts --reporter=verbose
+      - name: Frontend production build
+        working-directory: frontend
+        run: npm run build
