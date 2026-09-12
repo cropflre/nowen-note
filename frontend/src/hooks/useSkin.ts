@@ -1,29 +1,24 @@
 import { useCallback, useEffect, useState } from "react";
-import "@/app-appearance.css";
 import {
   APP_APPEARANCE_CHANGED_EVENT,
   APP_APPEARANCE_IDS,
   APP_APPEARANCE_STORAGE_KEY,
   applyAppAppearance,
-  bootstrapAppAppearanceRuntime,
   readStoredAppAppearance,
   type AppAppearanceId,
 } from "@/lib/appAppearance";
-import { installLegacyNoteAppearanceNeutralizer } from "@/lib/legacyNoteAppearanceNeutralizer";
 
 /**
  * App 外观风格与 Light / Dark / System 是正交维度。
  *
  * 外观风格负责整个 Nowen Note 的视觉语言；主题模式只决定当前风格使用 light 还是 dark
  * token。所有风格都由 `appAppearance.ts` 的唯一 Registry 提供，组件不再维护第二份名单。
+ *
+ * Runtime bootstrap 已前移到 runtimeCompatibility（main.tsx 首个 import），这里仅负责
+ * React 状态和用户交互，避免必须打开 Settings/SkinSwitcher 后才恢复全局风格。
  */
 export type Skin = AppAppearanceId;
 export const SKIN_STORAGE_KEY = APP_APPEARANCE_STORAGE_KEY;
-
-// SkinSwitcher 随主应用模块一同加载；在 React 首次绘制前先恢复持久化风格，并安装
-// Light/Dark、多标签页同步，以及旧笔记主题投影的兼容隔离。
-bootstrapAppAppearanceRuntime();
-installLegacyNoteAppearanceNeutralizer();
 
 export function useSkin(): {
   skin: Skin;
