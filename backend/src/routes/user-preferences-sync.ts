@@ -6,7 +6,7 @@ type ReadingDensity = "cozy" | "compact";
 type EditorFontSize = 0 | 14 | 16 | 18 | 20 | 22 | 24;
 type EditorMode = "md" | "tiptap";
 type FolderAutoLockMinutes = 0 | 5 | 15 | 30 | 60;
-type NoteTheme = "default" | "paper" | "minimal" | "eye-care";
+type NoteTheme = "default" | "paper" | "minimal" | "eye-care" | "developer" | "magazine";
 type CodeBlockTheme =
   | "github-dark"
   | "github-light"
@@ -85,6 +85,14 @@ const CODE_BLOCK_THEMES = new Set<CodeBlockTheme>([
   "one-dark",
   "nord",
 ]);
+const NOTE_APPEARANCE_STYLES = new Set<NoteTheme>([
+  "default",
+  "paper",
+  "minimal",
+  "eye-care",
+  "developer",
+  "magazine",
+]);
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
@@ -136,7 +144,7 @@ function normalizePreferenceValue<K extends PreferenceKey>(
       ) as SyncedUserPreferences[K];
     case "noteTheme":
       return (
-        value === "default" || value === "paper" || value === "minimal" || value === "eye-care"
+        typeof value === "string" && NOTE_APPEARANCE_STYLES.has(value as NoteTheme)
           ? value
           : fallback
       ) as SyncedUserPreferences[K];
@@ -286,7 +294,6 @@ async function writePreferences(c: any) {
   const migration = raw._migration === true;
   const conflict = baseRevision !== null && baseRevision !== current.revision;
 
-  // 两台设备同时做首次迁移时，后到的设备不能用本地旧值覆盖已经建立的账号偏好。
   if (migration && current.hasPreferences) {
     return c.json(responsePayload(userId, current, true));
   }
@@ -338,7 +345,6 @@ app.get("/", (c) => {
   return c.json(responsePayload(userId, readPreferenceState(userId)));
 });
 
-// PUT 保持旧客户端兼容；PATCH 为新客户端提供明确的增量语义。
 app.put("/", writePreferences);
 app.patch("/", writePreferences);
 
