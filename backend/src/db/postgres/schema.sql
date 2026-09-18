@@ -184,3 +184,4 @@ EXECUTE FUNCTION clear_task_inbox_after_completion();
 \ir 067_extension_ecosystem_rc1.sql
 \ir 068_plugin_update_lifecycle.sql
 \ir 069_extension_advisory_freshness.sql
+\ir 070_plugin_studio.sql

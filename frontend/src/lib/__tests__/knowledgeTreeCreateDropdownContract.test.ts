@@ -26,4 +26,14 @@ describe("knowledge tree create dropdown contract", () => {
     expect(runtime).toContain('button.setAttribute("aria-haspopup", "menu")');
     expect(runtime).toContain("button.getBoundingClientRect()");
   });
+
+  it("binds app actions before the plugin template callback uses them", () => {
+    const runtime = source("../../components/KnowledgeTreeCreateMenuRuntime.tsx");
+    const panel = runtime.slice(runtime.indexOf("export function KnowledgeTreePanel"));
+    const actionsBinding = panel.indexOf("const actions = useAppActions();");
+    const pluginTemplateCallback = panel.indexOf("const requestPluginTemplateCreate");
+
+    expect(actionsBinding).toBeGreaterThanOrEqual(0);
+    expect(actionsBinding).toBeLessThan(pluginTemplateCallback);
+  });
 });

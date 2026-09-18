@@ -372,6 +372,7 @@ export function KnowledgeTreeCreateDropdown({
 
 export function KnowledgeTreePanel(props: KnowledgeTreePanelProps) {
   const { state } = useApp();
+  const actions = useAppActions();
   const rootRef = useRef<HTMLDivElement>(null);
   const requestCounterRef = useRef(0);
   const [createMenu, setCreateMenu] = useState<KnowledgeTreeCreateMenuState | null>(null);

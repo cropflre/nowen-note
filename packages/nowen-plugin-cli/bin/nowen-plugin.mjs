@@ -34,7 +34,13 @@ function readManifest() {
     }
     if ((manifest.permissions || []).length > 0) fail("declarative plugin cannot request permissions");
     const contributions = manifest.contributes || {};
-    if (![contributions.settings, contributions.automationTemplates, contributions.noteThemes]
+    if (![
+      contributions.settings,
+      contributions.automationTemplates,
+      contributions.noteThemes,
+      contributions.noteTemplates,
+      contributions.promptPacks,
+    ]
       .some((items) => Array.isArray(items) && items.length > 0)) fail("declarative plugin requires a static contribution");
   } else {
     if (!manifest.main) fail("main is required for executable plugins");

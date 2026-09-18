@@ -50,6 +50,7 @@ import urlImportRouter from "./routes/url-import";
 
 import aiRouter from "./routes/ai";
 import pluginsRouter from "./routes/plugins";
+import pluginStudioRouter from "./routes/plugin-studio";
 import pluginExecutionsRouter from "./routes/plugin-executions";
 import automationsRouter from "./routes/automations";
 import automationWebhookRouter from "./automation/webhookTrigger";
@@ -589,6 +590,7 @@ app.route("/api/diary", diaryRouter);
 app.route("/api/journals", journalsRouter);
 app.route("/api/url-import", urlImportRouter);
 app.route("/api/ai", aiRouter);
+app.route("/api/plugins/studio", pluginStudioRouter);
 app.route("/api/plugins", pluginsRouter);
 app.route("/api/plugin-executions", pluginExecutionsRouter);
 app.route("/api/automations", automationsRouter);

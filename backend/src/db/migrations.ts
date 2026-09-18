@@ -59,6 +59,7 @@ import { extensionAdvisoryFreshnessMigration } from "./extensionAdvisoryFreshnes
 import { extensionAdvisorySchemaRepairMigration } from "./extensionAdvisorySchemaRepairMigration.js";
 import { searchNotebookExclusionsMigration } from "./searchNotebookExclusionsMigration.js";
 import { noteThemeContributionMigration } from "./noteThemeContributionMigration.js";
+import { pluginStudioMigration } from "./pluginStudioMigration.js";
 
 export type { Migration } from "./migrations.impl.js";
 
@@ -374,6 +375,7 @@ export const MIGRATIONS: Migration[] = [
   extensionAdvisorySchemaRepairMigration,
   searchNotebookExclusionsMigration,
   noteThemeContributionMigration,
+  pluginStudioMigration,
 ].sort((a, b) => a.version - b.version);
 
 export const CURRENT_SCHEMA_VERSION: number = MIGRATIONS.reduce(

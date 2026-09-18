@@ -31,7 +31,12 @@ import JSZip from "jszip";
 import Database from "better-sqlite3";
 import { closeDb, getDb, getDbSchemaVersion } from "../db/schema.js";
 import { noteVersionsRepository } from "../repositories";
-import { createBackupFilename, createFullBackupArchive, hashFileSha256 } from "./backup-archive.js";
+import {
+  createBackupFilename,
+  createFullBackupArchive,
+  hashFileSha256,
+  scrubPluginStudioProjectsFromBackup,
+} from "./backup-archive.js";
 import { quarantineRestoredPlugins } from "../plugins/pluginService.js";
 import { quarantineRestoredAutomations } from "../automation/recovery.js";
 
@@ -849,6 +854,7 @@ export class BackupManager {
       if (type === "db-only") {
         // SQLite 在线 backup —— 事务一致
         await db.backup(backupPath);
+        scrubPluginStudioProjectsFromBackup(backupPath);
       } else {
         await this.createFullBackup(backupPath, db, options.description);
       }
@@ -930,10 +936,15 @@ export class BackupManager {
     const tmpDb = path.join(os.tmpdir(), `nowen-fullbk-${Date.now()}-${crypto.randomBytes(4).toString("hex")}.db`);
     try {
       await db.backup(tmpDb);
+      scrubPluginStudioProjectsFromBackup(tmpDb);
       // 2) 表行数（动态枚举，不再写死）
       const tables = listAllTables(db);
       const tableRowCounts: Record<string, number> = {};
       for (const t of tables) {
+        if (t.startsWith("plugin_studio_")) {
+          tableRowCounts[t] = 0;
+          continue;
+        }
         try {
           tableRowCounts[t] = (db.prepare(`SELECT COUNT(*) as c FROM ${t}`).get() as { c: number }).c;
         } catch {
