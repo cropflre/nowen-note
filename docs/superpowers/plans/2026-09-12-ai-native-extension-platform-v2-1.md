@@ -1,8 +1,11 @@
 # AI 原生扩展平台 V2.1 实现计划
 
-**设计依据：** `docs/superpowers/specs/2026-09-12-ai-native-extension-platform-v2-1-design.md`
+**设计依据：**
 
-**目标：** 在保持 Plugin V1/V2、安全供应链和核心应用离线语义不退化的前提下，分四个发布阶段实现声明式插件、受控文件/文档扩展和 AI Plugin Studio。
+- `docs/superpowers/specs/2026-09-12-ai-native-extension-platform-v2-1-design.md`
+- `docs/superpowers/specs/2026-09-18-nowen-ui-extension-platform-design.md`
+
+**目标：** 在保持 Plugin V1/V2、安全供应链和核心应用离线语义不退化的前提下，分四个主发布阶段实现声明式插件、受控文件/文档扩展和 AI Plugin Studio；同时以独立 `UI-R0` 至 `UI-R4` 轨道建设 Nowen UI Extension Platform。UI 轨道不替代现有 R1–R4 编号，也不能绕过原有权限、安装和供应链门禁。
 
 **目标版本：** 从 Nowen `1.6.0` 开始交付 V2.1 增量能力。不得在 `release/v1.5.0` 中一次性混入全部功能；实施时为每个 Release 建立独立分支或受控 Feature Flag。
 
@@ -322,6 +325,58 @@
 
 ---
 
+## 1A. UI-R0–UI-R4 — Nowen UI Extension Platform 并行轨道
+
+详细实施计划见：`docs/superpowers/plans/2026-09-18-nowen-ui-extension-platform.md`。
+
+这条轨道解决的是“用户如何组合自己的工作空间”，不是给 `NavRail.tsx` 增加另一套硬编码布局。Floating Dock 是第一个官方参考插件，而不是 Host 特例。
+
+### 与 V2.1 主线的依赖
+
+```text
+任务 1.1 Capability Contract
+        +
+任务 1.2 Declarative Runtime
+        +
+现有 Command / Navigation Internal API
+        ↓
+UI-R0 Slot 与 UI Contribution Contract
+        ↓
+UI-R1 Floating Layer + 官方 Floating Dock
+        ↓
+UI-R2 声明式 UI SDK + 零代码布局编辑器
+        ↓
+UI-R3 独立 Sandboxed UI Runtime
+        ↓
+UI-R4 布局导入导出、分享与 Marketplace 生态
+```
+
+- UI-R0/UI-R1 可以在 V2.1 R1 声明式门禁通过后开始，不依赖 File Broker 或 Document Type。
+- UI-R2 必须建立在真实 Floating Dock 和至少一个第三方替代 Dock 的验证结果上。
+- UI-R3 必须复用任务 1.7 的受控构建、包校验和报告资产，但运行时必须是新的 iframe UI Runtime，不能把 `sandbox-js` Action Worker 当成渲染环境。
+- UI-R4 与现有 R4 Marketplace GA 协同，但布局包与插件包是不同资产；布局不能复制插件签名、密钥或 Publisher 身份。
+
+### UI 轨道 Feature Flag
+
+- `uiExtensions`：UI Contribution Contract、Slot Registry 和 Host 容器总开关。
+- `uiLayoutEditor`：零代码布局编辑器；依赖 `uiExtensions`。
+- `sandboxedPluginUi`：自定义 React/Vue/HTML/CSS iframe Runtime；依赖前两项并默认关闭。
+
+关闭 `uiExtensions` 时，现有 `NavRail`、Sidebar、Toolbar、Dashboard 和状态 UI 必须与当前发布版本完全一致。
+
+### UI 轨道统一发布门禁
+
+- [ ] 插件只能声明组件及允许的 Slot，最终 Placement 由用户布局保存，插件不能强制占位。
+- [ ] Settings、插件管理、安全模式和恢复默认布局始终存在 Host-owned 逃生入口。
+- [ ] 插件禁用、卸载、撤销、更新失败或 Contribution 消失时，布局保留 dormant reference 并回退，不产生空白主界面。
+- [ ] 第三方替代 Dock 无需修改 Nowen 源码即可安装、放置、禁用、恢复和卸载。
+- [ ] Web、Electron、Android、iOS 的 Slot 支持矩阵明确；不支持的平台不渲染空壳。
+- [ ] Dark Mode、缩放、键盘拖拽、屏幕阅读器、焦点恢复、Reduced Motion 和触控命中区域通过验收。
+- [ ] UI-R3 的 iframe 无法读取 Host DOM、Token、LocalStorage、数据库、Electron/Capacitor Bridge 或其他插件 Frame。
+- [ ] UI Runtime 崩溃、超时、消息洪泛和资源超限只隔离当前实例，不阻塞编辑、同步或应用启动。
+
+---
+
 ## 2. R2 — File Processing + Import/Export
 
 ### 任务 2.1：Opaque File Handle Broker
@@ -497,7 +552,7 @@
 **步骤：**
 
 - [ ] 增加 Capability、Contribution、平台、AI-generated metadata 和兼容矩阵。
-- [ ] 分类支持 Themes、Templates、Automation、AI Tools、Importer、Exporter、Documents、Connectors。
+- [ ] 分类支持 Themes、Templates、Automation、AI Tools、Importer、Exporter、Documents、Connectors、UI Components 和 Layout Packs。
 - [ ] 搜索和详情展示权限、网络域名、Runtime、测试状态和安全公告。
 - [ ] “用此插件作为模板”只复制公开源码/模板，不复制签名、Secret 或 Publisher 身份。
 - [ ] Marketplace 离线继续使用已签名有效缓存，不影响核心启动。
@@ -518,7 +573,7 @@
 
 **步骤：**
 
-- [ ] 新增 `theme/template/prompt/importer/exporter/document-preview` 模板。
+- [ ] 新增 `theme/template/prompt/importer/exporter/document-preview/ui-declarative` 模板；`ui-sandboxed` 只在 UI-R3 门禁通过后提供。
 - [ ] CLI 增加 `spec/check-capabilities/verify-report`，沿用 `validate/doctor/test/pack/sign/publish`。
 - [ ] 发布 Theme Pack、Productivity Pack、Office Adapter、PDF/OCR 示例。
 - [ ] 模板全部通过同一 CI，不保留只存在于文档的伪 API。
@@ -560,6 +615,7 @@
 - [ ] 日志、AI Context、Telemetry 和 Build Report 不包含用户正文或凭据。
 - [ ] 禁用、卸载、回滚、撤销、离线和崩溃均有恢复语义。
 - [ ] Web/Desktop/Android/iOS 的可用范围明确，不伪装成全平台。
+- [ ] UI 插件没有 Host DOM、其他插件 Frame、Token/Storage 或 Electron/Capacitor Bridge 直通能力。
 
 ## 6. 每阶段统一验证命令
 
@@ -573,7 +629,7 @@ cd backend && npm run build:tsc && npm test
 cd frontend && npm run test:run -- <targeted suites> && npm run build
 ```
 
-涉及 Electron/File Handle/Office 时额外执行真实进程和文件验证；涉及移动端时执行 Capacitor sync/build 与真机验收。Node backend tests 前如发生 ABI 不匹配，先 `npm rebuild better-sqlite3`；Electron 验证前再恢复 Electron ABI。
+涉及 Electron/File Handle/Office 时额外执行真实进程和文件验证；涉及移动端时执行 Capacitor sync/build 与真机验收。涉及 UI-R3 时必须执行 iframe/CSP/Bridge 攻击回归、消息洪泛和崩溃隔离测试。Node backend tests 前如发生 ABI 不匹配，先 `npm rebuild better-sqlite3`；Electron 验证前再恢复 Electron ABI。
 
 ## 7. 推荐首个实施切片
 
@@ -589,7 +645,7 @@ cd frontend && npm run test:run -- <targeted suites> && npm run build
 
 ## 8. 资源与周期估算
 
-以下是工程规划估算，不是发布日期承诺；不包含完整 Office 编辑器、多人 Office 协作或任意第三方 UI Runtime。
+以下是工程规划估算，不是发布日期承诺；不包含完整 Office 编辑器或多人 Office 协作。UI Extension Platform 作为独立轨道估算，不应挤压 File/Document 安全门禁。
 
 | 阶段 | 主要结果 | 2–3 名工程师 | 单人配合 AI |
 | --- | --- | ---: | ---: |
@@ -597,6 +653,8 @@ cd frontend && npm run test:run -- <targeted suites> && npm run build
 | R2 | File Broker + Import/Export + DOCX Adapter | 5–7 周 | 9–13 周 |
 | R3 | Document Type Preview + Office 只读 | 8–12 周 | 14–22 周 |
 | R4 | Marketplace、模板、文档与 GA | 4–6 周 | 7–10 周 |
+| UI-R0–R2 | Slot、Floating Dock、声明式 SDK、布局编辑器 | 5–8 周 | 9–14 周 |
+| UI-R3–R4 | Sandboxed UI Runtime、布局生态与 GA | 7–11 周 | 12–20 周 |
 
 建议最小团队包含：一名 Backend/Security、一名 Frontend/Product、一名 SDK/AI/Developer Experience；Office 真实兼容语料和移动端验收需要专项投入。
 
@@ -606,3 +664,6 @@ cd frontend && npm run test:run -- <targeted suites> && npm run build
 - R2 结束：若 File Handle 越权、崩溃清理或事务回滚未通过，不开放第三方 Office/PDF 插件。
 - R3 结束：若未出现至少三个真实 Document Type 实现，不冻结 Public Document Type SDK。
 - R4 发布：必须具有线上 Registry 拉取、签名验证、安装、更新、撤销和离线缓存的真实证据。
+- UI-R1 结束：若官方 Dock 仍依赖 `NavRail.tsx` 特判，或第三方替代 Dock 需要修改 Host 源码，不进入 UI-R2。
+- UI-R2 结束：若布局失效恢复、核心逃生入口、跨设备语义或无障碍未通过，不开放 UI-R3。
+- UI-R3 结束：若 iframe 隔离、CSP、Bridge 身份、消息预算或崩溃恢复有任一绕过，不开放自定义 UI Marketplace。

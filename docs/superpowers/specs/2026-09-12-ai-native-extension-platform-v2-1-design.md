@@ -38,9 +38,10 @@
 - 每种新 Capability 至少有一个官方参考插件、一个 AI 模板、一组回归测试和一篇开发文档。
 - 能测量首次成功时间、生成成功率、安装启用率、7 日使用率、崩溃率和回滚率。
 
-## 3. 不在首期范围
+## 3. 不在 V2.1 首期范围
 
-- 不允许插件注入任意 React、CSS、DOM、Tiptap Schema 或原生 Electron/Capacitor API。
+- V2.1 主线不允许插件向 Host DOM 注入任意 React、CSS 或脚本，也不开放 Tiptap Schema 或原生 Electron/Capacitor API。
+- 自定义 React/Vue/HTML/CSS 仅在独立的 Nowen UI Extension Platform `UI-R3` 中评估，通过隔离 iframe 和受控 UI Bridge 运行；它不属于 `sandbox-js` Action Runtime，也不会获得 Host DOM 访问权。
 - 不允许 AI 自动授予权限、自动切换到 `node-action`、访问发布私钥或自动发布。
 - 不在首期开放完整 Word/Excel/PPT 编辑、多人 Office 协同、PPT 动画或 Excel 公式引擎。
 - 不实现任意 npm 依赖安装、插件自定义构建脚本或通用 Shell。
@@ -56,6 +57,7 @@
 - Commands、Menus、Settings、Automation Templates 声明式贡献。
 - App Appearance Registry 与受控 Semantic Token 投影。
 - `frontend/src/office` 下的 OPC、DocxIR、DOCX Parser/Serializer、Word Viewer 和导出能力。
+- `NavRail`、Sidebar、Toolbar、Dashboard 等既有 Host UI，以及 Commands/Menus 可作为 UI Extension 的内部能力来源。
 
 ### 4.2 关键缺口
 
@@ -64,6 +66,7 @@
 - Host API 只适合小型 JSON 调用，无法安全处理大体积二进制文件。
 - 没有 Plugin Studio 项目模型、受限构建器、生成记录、Dry-run 和 AI 修复循环。
 - 当前 Marketplace 更接近安装入口，缺少创作、发布、模板复用和质量反馈闭环。
+- 导航和界面位置仍由 Host 组件硬编码，没有 Slot Registry、用户 Placement、布局恢复或隔离 UI Runtime。
 
 ### 4.3 用户场景与能力阶段
 
@@ -73,7 +76,10 @@
 | 自定义主题、笔记模板、Prompt/Agent 模板 | Declarative Contribution | R1 |
 | Word 导入导出、PDF/OCR、媒体压缩、附件批处理 | File Handle + Importer/Exporter | R2 |
 | Word/Excel/PPT 和第三方格式只读预览 | Document Type ViewModel | R3 |
-| 完整 Office 编辑、第三方编辑器节点、任意自定义 UI | Document Edit/Isolated UI Runtime | 延期评估 |
+| 完整 Office 编辑、第三方编辑器节点 | Document Edit Runtime | 延期评估 |
+| 自定义 React/Vue/HTML/CSS 界面 | Isolated UI Runtime | 独立 UI-R3 实验门禁 |
+
+UI 扩展的独立产品与安全规格见 `docs/superpowers/specs/2026-09-18-nowen-ui-extension-platform-design.md`。Floating Dock、声明式 UI SDK 和布局编辑器可以在不开放任意自定义代码的前提下先行交付；Sandboxed Custom UI 继续作为独立实验门禁。
 
 AI Studio 必须根据这张能力表判断需求是否可生成。超出当前阶段时，应解释缺少的 Capability 并形成平台需求，不能虚构接口或退回不安全实现。
 
@@ -165,6 +171,11 @@ type DeclarativeExtension = {
 - `importers`
 - `exporters`
 - `documentTypes`（先 Preview/Import/Export，Edit 暂不公开）
+
+独立 UI Extension 轨道：
+
+- `uiComponents`（UI-R0/UI-R1 先声明式）
+- `uiViews`（UI-R3 隔离 iframe，默认关闭）
 
 每个贡献 ID 都是插件内局部 ID，运行时键统一为 `${pluginId}/${contributionId}`，禁止覆盖内置 ID 或其他 Publisher 命名空间。
 
