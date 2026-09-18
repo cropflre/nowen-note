@@ -116,7 +116,7 @@ function validateHostContract(value) {
 }
 
 function validateContributionContract(value) {
-  requireExactKeys(value, ["contractVersion", "namespaceTemplate", "runtimes", "types", "noteTheme", "noteTemplate", "promptPack"], "Contribution 根对象");
+  requireExactKeys(value, ["contractVersion", "namespaceTemplate", "runtimes", "types", "noteTheme", "noteTemplate", "promptPack", "uiComponent"], "Contribution 根对象");
   if (!Number.isInteger(value.contractVersion) || value.contractVersion < 1) fail("Contribution contractVersion 必须是正整数");
   uniqueStrings(value.runtimes, "Contribution runtimes", CONTRIBUTION_RUNTIMES);
   if (value.namespaceTemplate !== "<pluginId>/<contributionId>") fail("Contribution namespaceTemplate 无效");
@@ -131,14 +131,18 @@ function validateContributionContract(value) {
     if (entry.declarative === true && !runtimes.has("declarative")) fail(`${entry.id} 标记 declarative 但未开放 declarative runtime`);
     if (entry.declarative !== true && entry.declarative !== false) fail(`${entry.id}.declarative 必须是 boolean`);
   }
-  for (const required of ["commands", "menus", "settings", "automationTemplates", "noteThemes", "noteTemplates", "promptPacks"]) {
+  for (const required of ["commands", "menus", "settings", "automationTemplates", "noteThemes", "noteTemplates", "promptPacks", "uiComponents"]) {
     if (!ids.has(required)) fail(`缺少 Contribution type ${required}`);
   }
   requireExactKeys(value.noteTheme, ["schemaVersion", "bases", "editableTokens", "maxThemesPerPlugin"], "noteTheme contribution");
   requireExactKeys(value.noteTemplate, ["schemaVersion", "maxTemplatesPerPlugin", "maxBodyBytes"], "noteTemplate contribution");
   requireExactKeys(value.promptPack, ["schemaVersion", "maxPromptsPerPlugin", "maxPromptBytes"], "promptPack contribution");
+  requireExactKeys(value.uiComponent, ["schemaVersion", "kinds", "slots", "actions", "maxComponentsPerPlugin"], "uiComponent contribution");
   uniqueStrings(value.noteTheme.bases, "noteTheme.bases");
   uniqueStrings(value.noteTheme.editableTokens, "noteTheme.editableTokens");
+  uniqueStrings(value.uiComponent.kinds, "uiComponent.kinds");
+  uniqueStrings(value.uiComponent.slots, "uiComponent.slots");
+  uniqueStrings(value.uiComponent.actions, "uiComponent.actions");
   return { ...value, types: [...value.types].sort((a, b) => compareCodePoints(a.id, b.id)) };
 }
 
@@ -217,7 +221,7 @@ function renderSdkHost(host) {
 
 function renderContributions(contributions) {
   const ids = contributions.types.map((entry) => entry.id);
-  return `${generatedHeader(["packages/nowen-plugin-sdk/contribution-contract.json"])}${deepFreezeSource()}\nexport type PluginContributionRuntime = "declarative" | "sandbox-js" | "node-action";\nexport type PluginContributionType = ${ids.map((id) => JSON.stringify(id)).join(" | ")};\n\nexport interface PluginContributionContractEntry {\n  id: PluginContributionType;\n  since: string;\n  runtimes: readonly PluginContributionRuntime[];\n  declarative: boolean;\n  description: string;\n}\n\nexport const CONTRIBUTION_CONTRACT_VERSION = ${contributions.contractVersion} as const;\nexport const CONTRIBUTION_NAMESPACE_TEMPLATE = ${JSON.stringify(contributions.namespaceTemplate)} as const;\nexport const CONTRIBUTION_CONTRACT: readonly PluginContributionContractEntry[] = deepFreeze(${JSON.stringify(contributions.types, null, 2)});\nexport const NOTE_THEME_CONTRIBUTION_LIMITS = deepFreeze(${JSON.stringify(contributions.noteTheme, null, 2)} as const);\nexport const NOTE_TEMPLATE_CONTRIBUTION_LIMITS = deepFreeze(${JSON.stringify(contributions.noteTemplate, null, 2)} as const);\nexport const PROMPT_PACK_CONTRIBUTION_LIMITS = deepFreeze(${JSON.stringify(contributions.promptPack, null, 2)} as const);\n`;
+  return `${generatedHeader(["packages/nowen-plugin-sdk/contribution-contract.json"])}${deepFreezeSource()}\nexport type PluginContributionRuntime = "declarative" | "sandbox-js" | "node-action";\nexport type PluginContributionType = ${ids.map((id) => JSON.stringify(id)).join(" | ")};\n\nexport interface PluginContributionContractEntry {\n  id: PluginContributionType;\n  since: string;\n  runtimes: readonly PluginContributionRuntime[];\n  declarative: boolean;\n  description: string;\n}\n\nexport const CONTRIBUTION_CONTRACT_VERSION = ${contributions.contractVersion} as const;\nexport const CONTRIBUTION_NAMESPACE_TEMPLATE = ${JSON.stringify(contributions.namespaceTemplate)} as const;\nexport const CONTRIBUTION_CONTRACT: readonly PluginContributionContractEntry[] = deepFreeze(${JSON.stringify(contributions.types, null, 2)});\nexport const NOTE_THEME_CONTRIBUTION_LIMITS = deepFreeze(${JSON.stringify(contributions.noteTheme, null, 2)} as const);\nexport const NOTE_TEMPLATE_CONTRIBUTION_LIMITS = deepFreeze(${JSON.stringify(contributions.noteTemplate, null, 2)} as const);\nexport const PROMPT_PACK_CONTRIBUTION_LIMITS = deepFreeze(${JSON.stringify(contributions.promptPack, null, 2)} as const);\nexport const UI_COMPONENT_CONTRIBUTION_LIMITS = deepFreeze(${JSON.stringify(contributions.uiComponent, null, 2)} as const);\n`;
 }
 
 function renderErrors(errors) {

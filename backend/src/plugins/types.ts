@@ -5,6 +5,9 @@ export const EXTENSION_V21_TARGET_NOWEN_VERSION = "1.6.0";
 export interface ExtensionPlatformFeatureFlags {
   extensionsV21: boolean;
   pluginStudio: boolean;
+  uiExtensions: boolean;
+  uiLayoutEditor: boolean;
+  sandboxedPluginUi: boolean;
   fileProcessingExtensions: boolean;
   experimentalDocumentTypes: boolean;
 }
@@ -170,6 +173,20 @@ export interface PluginPromptPackContribution {
   outputMode?: "text" | "markdown" | "replace-selection" | "append";
   uiPlatform?: Array<"web" | "desktop" | "android" | "ios">;
 }
+export type PluginUiSlot = "floating-layer";
+export type PluginUiIcon = "home" | "star" | "files" | "diary" | "tasks" | "mindmap" | "ai" | "shares" | "settings";
+export type PluginNavigationTarget = "all" | "favorites" | "files" | "diary" | "tasks" | "mindmaps" | "ai-chat" | "shares" | "settings";
+export interface PluginUiActionContribution {
+  id: string;
+  kind: "action";
+  label: string;
+  description?: string;
+  icon: PluginUiIcon;
+  allowedSlots: PluginUiSlot[];
+  defaultPlacement?: { slot: PluginUiSlot; order?: number };
+  action: { type: "navigation.open"; target: PluginNavigationTarget };
+  uiPlatform?: Array<"web" | "desktop" | "android" | "ios">;
+}
 
 export interface PluginContributionManifest {
   commands?: PluginCommandContribution[];
@@ -179,6 +196,7 @@ export interface PluginContributionManifest {
   noteThemes?: PluginNoteThemeContribution[];
   noteTemplates?: PluginNoteTemplateContribution[];
   promptPacks?: PluginPromptPackContribution[];
+  uiComponents?: PluginUiActionContribution[];
 }
 
 export interface PluginDeclarativeContributionManifest {
@@ -187,6 +205,7 @@ export interface PluginDeclarativeContributionManifest {
   noteThemes?: PluginNoteThemeContribution[];
   noteTemplates?: PluginNoteTemplateContribution[];
   promptPacks?: PluginPromptPackContribution[];
+  uiComponents?: PluginUiActionContribution[];
 }
 
 interface PluginManifestV2Base {

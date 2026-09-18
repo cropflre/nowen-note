@@ -1,5 +1,5 @@
 {
-  "contractVersion": 2,
+  "contractVersion": 3,
   "namespaceTemplate": "<pluginId>/<contributionId>",
   "runtimes": ["declarative", "sandbox-js", "node-action"],
   "types": [
@@ -9,7 +9,8 @@
     {"id":"automationTemplates","since":"2.0","runtimes":["declarative","sandbox-js","node-action"],"declarative":true,"description":"Static automation templates installed by explicit user action"},
     {"id":"noteThemes","since":"2.1","runtimes":["declarative","sandbox-js","node-action"],"declarative":true,"description":"Safe note-scoped visual themes rendered by the host without changing app chrome"},
     {"id":"noteTemplates","since":"2.1","runtimes":["declarative","sandbox-js","node-action"],"declarative":true,"description":"Static note templates rendered/imported by the host"},
-    {"id":"promptPacks","since":"2.1","runtimes":["declarative","sandbox-js","node-action"],"declarative":true,"description":"Static prompt packs with explicit variable schemas"}
+    {"id":"promptPacks","since":"2.1","runtimes":["declarative","sandbox-js","node-action"],"declarative":true,"description":"Static prompt packs with explicit variable schemas"},
+    {"id":"uiComponents","since":"2.1","runtimes":["declarative","sandbox-js","node-action"],"declarative":true,"description":"Host-rendered UI actions placed in user-controlled extension slots"}
   ],
   "noteTheme": {
     "schemaVersion": 1,
@@ -38,5 +39,6 @@
     "maxThemesPerPlugin": 20
   },
   "noteTemplate": {"schemaVersion":1,"maxTemplatesPerPlugin":100,"maxBodyBytes":262144},
-  "promptPack": {"schemaVersion":1,"maxPromptsPerPlugin":100,"maxPromptBytes":65536}
+  "promptPack": {"schemaVersion":1,"maxPromptsPerPlugin":100,"maxPromptBytes":65536},
+  "uiComponent": {"schemaVersion":1,"kinds":["action"],"slots":["floating-layer"],"actions":["navigation.open"],"maxComponentsPerPlugin":50}
 }

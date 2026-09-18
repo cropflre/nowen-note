@@ -23,6 +23,7 @@
     {"code":"HOST_ARGS_TOO_LARGE","category":"budget","retryable":false,"description":"Host API arguments exceed the budget"},
     {"code":"HOST_RESULT_TOO_LARGE","category":"budget","retryable":false,"description":"Host API result exceeds the budget"},
     {"code":"PLUGIN_V21_FEATURE_DISABLED","category":"feature-gate","retryable":false,"description":"V2.1 capability is disabled by the host"},
+    {"code":"PLUGIN_UI_FEATURE_DISABLED","category":"feature-gate","retryable":false,"description":"UI contributions are disabled by the host"},
     {"code":"PLUGIN_DECLARATIVE_NOT_EXECUTABLE","category":"runtime","retryable":false,"description":"Declarative extensions cannot execute actions"},
     {"code":"PLUGIN_CONTRIBUTION_INVALID","category":"validation","retryable":false,"description":"A declarative contribution failed validation"},
     {"code":"PLUGIN_ERROR","category":"runtime","retryable":false,"description":"Unclassified extension failure"}

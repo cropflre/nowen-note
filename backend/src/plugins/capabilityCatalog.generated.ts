@@ -7,7 +7,7 @@ function deepFreeze<T>(value: T): T {
   return value;
 }
 
-export const EXTENSION_CAPABILITY_CATALOG_DIGEST = "796c075c88fb030b133da69b363f954b03268491ea8d4fd4d8358f61205343ab" as const;
+export const EXTENSION_CAPABILITY_CATALOG_DIGEST = "947b3d67183d1380f17d05791101f50d231afe28bb79d3941346c29be3053ac9" as const;
 export const EXTENSION_CAPABILITY_CATALOG = deepFreeze({
   "catalogVersion": 1,
   "hostApi": {
@@ -936,7 +936,7 @@ export const EXTENSION_CAPABILITY_CATALOG = deepFreeze({
     ]
   },
   "contributions": {
-    "contractVersion": 2,
+    "contractVersion": 3,
     "namespaceTemplate": "<pluginId>/<contributionId>",
     "runtimes": [
       "declarative",
@@ -1018,6 +1018,17 @@ export const EXTENSION_CAPABILITY_CATALOG = deepFreeze({
         ],
         "declarative": true,
         "description": "Host-rendered extension settings"
+      },
+      {
+        "id": "uiComponents",
+        "since": "2.1",
+        "runtimes": [
+          "declarative",
+          "sandbox-js",
+          "node-action"
+        ],
+        "declarative": true,
+        "description": "Host-rendered UI actions placed in user-controlled extension slots"
       }
     ],
     "noteTheme": {
@@ -1057,6 +1068,19 @@ export const EXTENSION_CAPABILITY_CATALOG = deepFreeze({
       "schemaVersion": 1,
       "maxPromptsPerPlugin": 100,
       "maxPromptBytes": 65536
+    },
+    "uiComponent": {
+      "schemaVersion": 1,
+      "kinds": [
+        "action"
+      ],
+      "slots": [
+        "floating-layer"
+      ],
+      "actions": [
+        "navigation.open"
+      ],
+      "maxComponentsPerPlugin": 50
     }
   },
   "errors": {
@@ -1195,6 +1219,12 @@ export const EXTENSION_CAPABILITY_CATALOG = deepFreeze({
         "description": "Extension execution exceeded its deadline"
       },
       {
+        "code": "PLUGIN_UI_FEATURE_DISABLED",
+        "category": "feature-gate",
+        "retryable": false,
+        "description": "UI contributions are disabled by the host"
+      },
+      {
         "code": "PLUGIN_V21_FEATURE_DISABLED",
         "category": "feature-gate",
         "retryable": false,
@@ -1214,5 +1244,5 @@ export const EXTENSION_CAPABILITY_CATALOG = deepFreeze({
       }
     ]
   },
-  "digest": "796c075c88fb030b133da69b363f954b03268491ea8d4fd4d8358f61205343ab"
+  "digest": "947b3d67183d1380f17d05791101f50d231afe28bb79d3941346c29be3053ac9"
 } as const);

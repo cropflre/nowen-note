@@ -13,10 +13,15 @@ function envFlag(name: string): boolean {
  */
 export function getExtensionPlatformFeatureFlags(): Readonly<ExtensionPlatformFeatureFlags> {
   const extensionsV21 = envFlag("NOWEN_EXTENSIONS_V21");
+  const uiExtensions = extensionsV21 && envFlag("NOWEN_UI_EXTENSIONS");
+  const uiLayoutEditor = uiExtensions && envFlag("NOWEN_UI_LAYOUT_EDITOR");
   const fileProcessingExtensions = extensionsV21 && envFlag("NOWEN_FILE_PROCESSING_EXTENSIONS");
   return Object.freeze({
     extensionsV21,
     pluginStudio: extensionsV21 && envFlag("NOWEN_PLUGIN_STUDIO"),
+    uiExtensions,
+    uiLayoutEditor,
+    sandboxedPluginUi: uiLayoutEditor && envFlag("NOWEN_SANDBOXED_PLUGIN_UI"),
     fileProcessingExtensions,
     experimentalDocumentTypes: fileProcessingExtensions && envFlag("NOWEN_EXPERIMENTAL_DOCUMENT_TYPES"),
   });

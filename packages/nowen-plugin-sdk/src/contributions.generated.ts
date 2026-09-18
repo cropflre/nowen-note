@@ -8,7 +8,7 @@ function deepFreeze<T>(value: T): T {
 }
 
 export type PluginContributionRuntime = "declarative" | "sandbox-js" | "node-action";
-export type PluginContributionType = "automationTemplates" | "commands" | "menus" | "noteTemplates" | "noteThemes" | "promptPacks" | "settings";
+export type PluginContributionType = "automationTemplates" | "commands" | "menus" | "noteTemplates" | "noteThemes" | "promptPacks" | "settings" | "uiComponents";
 
 export interface PluginContributionContractEntry {
   id: PluginContributionType;
@@ -18,7 +18,7 @@ export interface PluginContributionContractEntry {
   description: string;
 }
 
-export const CONTRIBUTION_CONTRACT_VERSION = 2 as const;
+export const CONTRIBUTION_CONTRACT_VERSION = 3 as const;
 export const CONTRIBUTION_NAMESPACE_TEMPLATE = "<pluginId>/<contributionId>" as const;
 export const CONTRIBUTION_CONTRACT: readonly PluginContributionContractEntry[] = deepFreeze([
   {
@@ -95,6 +95,17 @@ export const CONTRIBUTION_CONTRACT: readonly PluginContributionContractEntry[] =
     ],
     "declarative": true,
     "description": "Host-rendered extension settings"
+  },
+  {
+    "id": "uiComponents",
+    "since": "2.1",
+    "runtimes": [
+      "declarative",
+      "sandbox-js",
+      "node-action"
+    ],
+    "declarative": true,
+    "description": "Host-rendered UI actions placed in user-controlled extension slots"
   }
 ]);
 export const NOTE_THEME_CONTRIBUTION_LIMITS = deepFreeze({
@@ -134,4 +145,17 @@ export const PROMPT_PACK_CONTRIBUTION_LIMITS = deepFreeze({
   "schemaVersion": 1,
   "maxPromptsPerPlugin": 100,
   "maxPromptBytes": 65536
+} as const);
+export const UI_COMPONENT_CONTRIBUTION_LIMITS = deepFreeze({
+  "schemaVersion": 1,
+  "kinds": [
+    "action"
+  ],
+  "slots": [
+    "floating-layer"
+  ],
+  "actions": [
+    "navigation.open"
+  ],
+  "maxComponentsPerPlugin": 50
 } as const);

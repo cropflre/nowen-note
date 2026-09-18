@@ -1,6 +1,6 @@
 import path from "node:path";
 import { z } from "zod";
-import { isExtensionV21Enabled } from "./featureFlags.js";
+import { getExtensionPlatformFeatureFlags, isExtensionV21Enabled } from "./featureFlags.js";
 import { isV2SupportedPluginPermission } from "./hostApiContract.js";
 import { NOWEN_VERSION, PLUGIN_PERMISSIONS, type PluginActionManifest, type PluginManifest, type PluginManifestV1, type PluginManifestV2 } from "./types.js";
 
@@ -148,6 +148,29 @@ const promptPackSchema = z.object({
   if (new Set(ids).size !== ids.length) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["inputs"], message: "Prompt input id 不能重复" });
 });
 
+const uiSlotSchema = z.enum(["floating-layer"]);
+const uiComponentSchema = z.object({
+  id: z.string().regex(/^[a-z][a-z0-9-]{0,63}$/),
+  kind: z.literal("action"),
+  label: z.string().min(1).max(100),
+  description: z.string().max(500).optional(),
+  icon: z.enum(["home", "star", "files", "diary", "tasks", "mindmap", "ai", "shares", "settings"]),
+  allowedSlots: z.array(uiSlotSchema).min(1).max(1),
+  defaultPlacement: z.object({ slot: uiSlotSchema, order: z.number().int().min(0).max(999).optional() }).strict().optional(),
+  action: z.object({
+    type: z.literal("navigation.open"),
+    target: z.enum(["all", "favorites", "files", "diary", "tasks", "mindmaps", "ai-chat", "shares", "settings"]),
+  }).strict(),
+  uiPlatform: z.array(z.enum(["web", "desktop", "android", "ios"])).min(1).max(4).optional(),
+}).strict().superRefine((component, ctx) => {
+  if (new Set(component.allowedSlots).size !== component.allowedSlots.length) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["allowedSlots"], message: "UI Slot 不能重复" });
+  }
+  if (component.defaultPlacement && !component.allowedSlots.includes(component.defaultPlacement.slot)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["defaultPlacement", "slot"], message: "默认位置必须位于 allowedSlots 中" });
+  }
+});
+
 const v2BaseShape = {
   id: z.string().regex(/^[a-z0-9]+(?:[.-][a-z0-9]+)+$/).max(150),
   name: z.string().min(1).max(100), description: z.string().max(1000).default(""),
@@ -170,6 +193,7 @@ const executableContributesSchema = z.object({
   noteThemes: z.array(noteThemeSchema).max(20).optional(),
   noteTemplates: z.array(noteTemplateSchema).max(100).optional(),
   promptPacks: z.array(promptPackSchema).max(100).optional(),
+  uiComponents: z.array(uiComponentSchema).max(50).optional(),
 }).strict().optional();
 
 const declarativeContributesSchema = z.object({
@@ -178,8 +202,9 @@ const declarativeContributesSchema = z.object({
   noteThemes: z.array(noteThemeSchema).max(20).optional(),
   noteTemplates: z.array(noteTemplateSchema).max(100).optional(),
   promptPacks: z.array(promptPackSchema).max(100).optional(),
+  uiComponents: z.array(uiComponentSchema).max(50).optional(),
 }).strict().superRefine((contributes, ctx) => {
-  if (!(contributes.settings?.length || contributes.automationTemplates?.length || contributes.noteThemes?.length || contributes.noteTemplates?.length || contributes.promptPacks?.length)) {
+  if (!(contributes.settings?.length || contributes.automationTemplates?.length || contributes.noteThemes?.length || contributes.noteTemplates?.length || contributes.promptPacks?.length || contributes.uiComponents?.length)) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, message: "声明式插件必须至少提供一个静态 Contribution" });
   }
   if (contributes.settings?.some((setting) => setting.secret)) {
@@ -212,6 +237,8 @@ export const pluginManifestV2Schema = z.union([executableV2Schema, declarativeV2
   if (new Set(noteTemplateIds).size !== noteTemplateIds.length) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["contributes", "noteTemplates"], message: "Note Template id 不能重复" });
   const promptPackIds = (manifest.contributes?.promptPacks || []).map((item) => item.id);
   if (new Set(promptPackIds).size !== promptPackIds.length) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["contributes", "promptPacks"], message: "Prompt Pack id 不能重复" });
+  const uiComponentIds = (manifest.contributes?.uiComponents || []).map((item) => item.id);
+  if (new Set(uiComponentIds).size !== uiComponentIds.length) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["contributes", "uiComponents"], message: "UI Component id 不能重复" });
   for (const [index, permission] of manifest.permissions.entries()) {
     if (!isV2SupportedPluginPermission(permission)) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["permissions", index], message: permission === "attachments:write" ? "Plugin API V2 不支持 attachments:write" : `Plugin API V2 不支持权限 ${permission}` });
   }
@@ -268,6 +295,7 @@ export function nowenVersionSatisfies(range: string, current = NOWEN_VERSION): b
 export interface ParsePluginManifestOptions {
   currentVersion?: string;
   extensionsV21?: boolean;
+  uiExtensions?: boolean;
 }
 
 export function parsePluginManifest(value: unknown, options: ParsePluginManifestOptions = {}): PluginManifest {
@@ -283,6 +311,15 @@ export function parsePluginManifest(value: unknown, options: ParsePluginManifest
     if (!(options.extensionsV21 ?? isExtensionV21Enabled())) throw Object.assign(new Error("Note Theme Contribution 当前未启用"), { code: "PLUGIN_V21_FEATURE_DISABLED" });
     if (!nowenVersionSatisfies(manifest.engines.nowen, "1.6.0") || nowenVersionSatisfies(manifest.engines.nowen, "1.5.0")) {
       throw Object.assign(new Error("Note Theme Contribution 必须要求 engines.nowen >=1.6.0"), { code: "PLUGIN_NOWEN_INCOMPATIBLE" });
+    }
+  }
+  if (manifest.apiVersion === 2 && manifest.contributes?.uiComponents?.length) {
+    const flags = getExtensionPlatformFeatureFlags();
+    if (!(options.uiExtensions ?? flags.uiExtensions)) {
+      throw Object.assign(new Error("UI Contribution 当前未启用"), { code: "PLUGIN_UI_FEATURE_DISABLED" });
+    }
+    if (!nowenVersionSatisfies(manifest.engines.nowen, "1.6.0") || nowenVersionSatisfies(manifest.engines.nowen, "1.5.0")) {
+      throw Object.assign(new Error("UI Contribution 必须要求 engines.nowen >=1.6.0"), { code: "PLUGIN_NOWEN_INCOMPATIBLE" });
     }
   }
   const currentVersion = options.currentVersion || NOWEN_VERSION;

@@ -4,6 +4,9 @@ import { fetchWithAuthRefresh, getAccessToken } from "./authSession";
 export interface ExtensionPlatformFeatureFlags {
   extensionsV21: boolean;
   pluginStudio: boolean;
+  uiExtensions: boolean;
+  uiLayoutEditor: boolean;
+  sandboxedPluginUi: boolean;
   fileProcessingExtensions: boolean;
   experimentalDocumentTypes: boolean;
   currentNowenVersion: string;
@@ -45,6 +48,20 @@ export interface PluginPromptPackContribution {
   outputMode?: "text" | "markdown" | "replace-selection" | "append";
   uiPlatform?: Array<"web" | "desktop" | "android" | "ios">;
 }
+export type PluginUiSlot = "floating-layer";
+export type PluginUiIcon = "home" | "star" | "files" | "diary" | "tasks" | "mindmap" | "ai" | "shares" | "settings";
+export type PluginNavigationTarget = "all" | "favorites" | "files" | "diary" | "tasks" | "mindmaps" | "ai-chat" | "shares" | "settings";
+export interface PluginUiActionContribution {
+  id: string;
+  kind: "action";
+  label: string;
+  description?: string;
+  icon: PluginUiIcon;
+  allowedSlots: PluginUiSlot[];
+  defaultPlacement?: { slot: PluginUiSlot; order?: number };
+  action: { type: "navigation.open"; target: PluginNavigationTarget };
+  uiPlatform?: Array<"web" | "desktop" | "android" | "ios">;
+}
 
 export interface PluginContributionRecord {
   pluginId: string;
@@ -52,6 +69,7 @@ export interface PluginContributionRecord {
   noteThemes?: PluginNoteThemeContribution[];
   noteTemplates?: PluginNoteTemplateContribution[];
   promptPacks?: PluginPromptPackContribution[];
+  uiComponents?: PluginUiActionContribution[];
   [key: string]: unknown;
 }
 
@@ -88,6 +106,7 @@ export interface InstalledPlugin {
     noteThemes?: PluginNoteThemeContribution[];
     noteTemplates?: PluginNoteTemplateContribution[];
     promptPacks?: PluginPromptPackContribution[];
+    uiComponents?: PluginUiActionContribution[];
   };
   versions?: PluginVersion[];
   permissionDiff?: { added: string[]; removed: string[] };

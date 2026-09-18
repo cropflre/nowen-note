@@ -17,6 +17,7 @@ import { PluginSecrets } from "./secrets.js";
 import { PluginUpdateCoordinator } from "./pluginUpdateCoordinator.js";
 import { isDeclarativePluginManifest, pluginManifestActions, type PluginManifest, type PluginRegistryRecord } from "./types.js";
 import { createNoteFromPluginTemplate } from "./contributions/noteTemplateContribution.js";
+import { getExtensionPlatformFeatureFlags } from "./featureFlags.js";
 
 function manifestOf(record: PluginRegistryRecord): PluginManifest {
   return JSON.parse(record.manifestJson) as PluginManifest;
@@ -87,7 +88,9 @@ export class PluginService {
       if (record.status !== "enabled") return [];
       const manifest = manifestOf(record);
       if (manifest.apiVersion !== 2 || !manifest.contributes) return [];
-      return [{ pluginId: record.id, publisher: manifest.publisher, ...manifest.contributes }];
+      const contributions = { ...manifest.contributes };
+      if (!getExtensionPlatformFeatureFlags().uiExtensions) delete contributions.uiComponents;
+      return [{ pluginId: record.id, publisher: manifest.publisher, ...contributions }];
     });
   }
 

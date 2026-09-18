@@ -2,7 +2,7 @@
 
 **设计依据：** `docs/superpowers/specs/2026-09-18-nowen-ui-extension-platform-design.md`
 
-**状态：** 设计完成，尚未实现通用 UI 扩展机制。
+**状态：** UI-R0/R1 第一段已实现：声明式 Action、Floating Layer Host、受控导航与设备本地布局；布局编辑器和 Sandboxed Custom UI 尚未开始。
 
 **目标：** 先通过声明式 Floating Dock 验证 Slot、Placement、布局恢复和用户控制，再逐步开放声明式 UI SDK 与隔离的自定义 UI Runtime。
 
@@ -26,11 +26,11 @@
 
 **步骤：**
 
-- [ ] 定义 Slot、组件 kind、允许位置、平台、表现白名单和稳定错误码。
-- [ ] Manifest 只描述组件和 `allowedSlots`；用户 Placement 不写回插件 Manifest。
-- [ ] 为 UI 合同增加版本与 digest，并进入统一 `--check`。
-- [ ] 增加 `uiExtensions/uiLayoutEditor/sandboxedPluginUi` 依赖式 Feature Flag，全部默认关闭。
-- [ ] Feature Flag 关闭时不注册 UI Contribution，不改变现有导航与启动路径。
+- [x] 定义首期 Slot、Action kind、允许位置、平台、图标/导航白名单和稳定错误码。
+- [x] Manifest 只描述组件和 `allowedSlots`；用户 Placement 不写回插件 Manifest。
+- [x] 为 UI 合同增加版本与 digest，并进入统一 `--check`。
+- [x] 增加 `uiExtensions/uiLayoutEditor/sandboxedPluginUi` 依赖式 Feature Flag，全部默认关闭。
+- [x] Feature Flag 关闭时不注册 UI Contribution，不改变现有导航与启动路径。
 
 **测试：** 合同生成漂移、未知 Slot/kind、跨插件 ID、平台不匹配、非法样式和 Flag fail-closed。
 

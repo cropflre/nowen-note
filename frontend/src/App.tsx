@@ -54,6 +54,7 @@ import NoteWorkspaceLayoutController from "@/components/NoteWorkspaceLayoutContr
 import { PhaseAPerfProfiler } from "@/components/PhaseAPerfProfiler";
 import { isAccountLoginHistorySupported, saveAccountLoginHistory } from "@/lib/accountLoginHistory";
 import SidebarSearchExperienceBridge from "@/components/SidebarSearchExperienceBridge";
+import FloatingLayerHost from "@/components/FloatingLayerHost";
 import { stripServerBasePath } from "@/lib/serverUrl";
 import {
   clearAuthTokens,
@@ -868,6 +869,8 @@ function AppLayout() {
       )}
 
       {/* 全局命令面板（Cmd-K / 菜单搜索 / Dock 搜索统一入口） */}
+      <FloatingLayerHost />
+
       <CommandPalette
         open={commandPaletteOpen}
         onClose={() => setCommandPaletteOpen(false)}
