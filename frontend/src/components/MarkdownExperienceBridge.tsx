@@ -103,6 +103,14 @@ function getEditorRoot(group: HTMLElement): HTMLElement | null {
   return group.closest<HTMLElement>("[data-markdown-mobile-editing-compact]");
 }
 
+// MarkdownPreview is also rendered *inside* a CodeMirror Live widget. Only a preview outside
+// the .nowen-md-editor host represents React's preview/split layout. A broad query would see
+// Live's own widgets and repeatedly click Source, making Live appear unresponsive.
+function getStandalonePreviewRoot(editorRoot: HTMLElement): HTMLElement | null {
+  return Array.from(editorRoot.querySelectorAll<HTMLElement>(".nowen-md-preview"))
+    .find((preview) => !preview.closest(".nowen-md-editor")) || null;
+}
+
 // Never capture an EditorView in a button handler: the toolbar can survive a CodeMirror remount.
 function getCurrentState(group: HTMLElement): EditorBridgeState | null {
   const root = getEditorRoot(group);
@@ -180,7 +188,8 @@ function activateLive(group: HTMLElement): void {
   // React owns the source/preview/split layout. Never defer a captured view: a mode switch can
   // replace the editor before setTimeout fires. Persist intent after the native click; the next
   // reconcile resolves the latest view and attaches the extension to that exact instance.
-  if (getEditorRoot(group)?.querySelector(".nowen-md-preview")) {
+  const root = getEditorRoot(group);
+  if (root && getStandalonePreviewRoot(root)) {
     buttons.source.click();
     writeLivePreference(true);
     return;
@@ -232,7 +241,8 @@ function bindModeButtons(group: HTMLElement, state: EditorBridgeState): void {
     // Note switching can reset the React layout to the default preview/split mode without
     // invoking a native button. Restore source first, then let the next DOM pass enable Live.
     const buttonsNow = getModeButtons(group);
-    if (getEditorRoot(group)?.querySelector(".nowen-md-preview") && buttonsNow) {
+    const root = getEditorRoot(group);
+    if (root && getStandalonePreviewRoot(root) && buttonsNow) {
       buttonsNow.source.click();
       writeLivePreference(true);
       return;
@@ -256,7 +266,7 @@ function clearSplitBinding(state: EditorBridgeState): void {
 }
 
 function bindSplitScroll(host: HTMLElement, editorRoot: HTMLElement, state: EditorBridgeState): void {
-  const previewRoot = editorRoot.querySelector<HTMLElement>(".nowen-md-preview");
+  const previewRoot = getStandalonePreviewRoot(editorRoot);
   const sourcePane = host.parentElement;
   const previewPane = previewRoot?.parentElement || null;
   const isSplit = !!(previewRoot && sourcePane && previewPane && sourcePane.style.width && previewPane.style.width);
