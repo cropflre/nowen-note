@@ -1,8 +1,7 @@
 // @vitest-environment jsdom
 
-import React from "react";
+import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { act } from "react-dom/test-utils";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
@@ -118,18 +117,23 @@ function liveButton(group: HTMLElement): HTMLButtonElement {
   return button;
 }
 
+function standalonePreviews(shell: HTMLElement): HTMLElement[] {
+  return Array.from(shell.querySelectorAll<HTMLElement>(".nowen-md-preview"))
+    .filter((preview) => !preview.closest(".nowen-md-editor"));
+}
+
 describe("MarkdownExperienceBridge real mode interactions (#773)", () => {
   it("clicks Live and actually renders a CodeMirror preview; native modes turn it off", async () => {
     const { group, view, native } = buildEditor();
     await settle();
     const live = liveButton(group);
     expect(group.querySelectorAll('[data-nowen-markdown-live="1"]')).toHaveLength(1);
-    live.click();
+    act(() => live.click());
     await settle();
     expect(live.getAttribute("aria-pressed")).toBe("true");
     expect(localStorage.getItem(PREF_KEY)).toBe("1");
     expect(view.dom.querySelector(".cm-live-preview-block")).not.toBeNull();
-    native[0].click();
+    act(() => native[0].click());
     await settle();
     expect(localStorage.getItem(PREF_KEY)).toBeNull();
     expect(live.getAttribute("aria-pressed")).toBe("false");
@@ -137,17 +141,21 @@ describe("MarkdownExperienceBridge real mode interactions (#773)", () => {
     expect(view.state.doc.toString()).toBe(SAMPLE);
   });
 
-  it("switches from a preview layout to Live without losing the CodeMirror instance", async () => {
+  it("switches from a preview layout to Live and never mistakes its inner widget for a preview panel", async () => {
     const { shell, group, view, native } = buildEditor();
     await settle();
-    native[1].click();
+    act(() => native[1].click());
     await settle();
-    expect(shell.querySelector(".nowen-md-preview")).not.toBeNull();
-    liveButton(group).click();
+    expect(standalonePreviews(shell)).toHaveLength(1);
+    act(() => liveButton(group).click());
     await settle();
-    expect(shell.querySelector(".nowen-md-preview")).toBeNull();
+    expect(standalonePreviews(shell)).toHaveLength(0);
     expect(liveButton(group).getAttribute("aria-pressed")).toBe("true");
-    expect(view.dom.querySelector(".cm-live-preview-block")).not.toBeNull();
+    expect(view.dom.querySelector(".cm-live-preview-block .nowen-md-preview")).not.toBeNull();
+    act(() => liveButton(group).click());
+    await settle();
+    expect(standalonePreviews(shell)).toHaveLength(0);
+    expect(liveButton(group).getAttribute("aria-pressed")).toBe("true");
     expect(view.state.doc.toString()).toBe(SAMPLE);
   });
 
@@ -155,9 +163,9 @@ describe("MarkdownExperienceBridge real mode interactions (#773)", () => {
     const { group, editorHost, view, native } = buildEditor();
     await settle();
     const live = liveButton(group);
-    live.click();
+    act(() => live.click());
     await settle();
-    native[0].click();
+    act(() => native[0].click());
     await settle();
     view.destroy();
     views.splice(views.indexOf(view), 1);
@@ -166,7 +174,7 @@ describe("MarkdownExperienceBridge real mode interactions (#773)", () => {
     await settle();
     expect(group.querySelectorAll('[data-nowen-markdown-live="1"]')).toHaveLength(1);
     expect(liveButton(group)).toBe(live);
-    live.click();
+    act(() => live.click());
     await settle();
     expect(replacement.dom.querySelector(".cm-live-preview-block")).not.toBeNull();
     expect(localStorage.getItem(PREF_KEY)).toBe("1");
@@ -175,7 +183,7 @@ describe("MarkdownExperienceBridge real mode interactions (#773)", () => {
   it("does not pretend Live is active for documents beyond the decoration limit", async () => {
     const { group, view } = buildEditor("x".repeat(350_001));
     await settle();
-    liveButton(group).click();
+    act(() => liveButton(group).click());
     await settle();
     expect(localStorage.getItem(PREF_KEY)).toBeNull();
     expect(liveButton(group).getAttribute("aria-pressed")).toBe("false");
