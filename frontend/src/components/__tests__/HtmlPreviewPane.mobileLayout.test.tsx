@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import React, { act } from "react";
 import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import HtmlPreviewPane from "@/components/HtmlPreviewPane";
@@ -70,9 +71,9 @@ describe("HtmlPreviewPane responsive clipped article (#789)", () => {
   });
 
   it("scopes fixed-width, nowrap and media guards to mobile fragments while preserving scrollable tables and code", () => {
-    // Vitest's default CSS transform provides an empty module, even with ?raw.
-    // Inspect the real source so that this test catches deleted/changed layout rules.
-    const responsiveStyles = readFileSync(new URL("../HtmlPreviewPane.css", import.meta.url), "utf8");
+    // Vite maps import.meta.url to a browser URL under jsdom and stubs CSS imports.
+    // Read the actual file from the frontend working directory instead.
+    const responsiveStyles = readFileSync(resolve(process.cwd(), "src/components/HtmlPreviewPane.css"), "utf8");
     expect(responsiveStyles).toContain(".html-preview-content");
     expect(responsiveStyles).toContain("@media (max-width: 639px)");
     expect(responsiveStyles).toMatch(/:where\(a\)[\s\S]*?overflow-wrap: anywhere !important/);
