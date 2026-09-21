@@ -5,8 +5,11 @@ import { AlertTriangle, Loader2, Quote } from "lucide-react";
 import { api } from "@/lib/api";
 import { openInternalNoteLink } from "@/lib/blockNavigation";
 import { useLazyNodeView } from "@/hooks/useLazyNodeView";
+import MindMapEmbedCard, { parseMindMapEmbedHref } from "@/components/MindMapEmbedCard";
 
-const EMBED_RE = /!\[\[(note:[0-9a-f-]{36}#blk:[A-Za-z0-9_-]+)\]\]\s$/i;
+// A stable reference to an independent mind map is stored in the same atom infrastructure as
+// existing note blocks. No mindmap JSON is copied into the note, and deleting the atom is safe.
+const EMBED_RE = /!\[\[((?:note:[0-9a-f-]{36}#blk:[A-Za-z0-9_-]+|mindmap:[0-9a-f-]{36}))\]\]\s$/i;
 
 function BlockEmbedCard({ href }: { href: string }) {
   const [state, setState] = useState<{ loading: boolean; data: any; error: boolean }>({ loading: true, data: null, error: false });
@@ -41,6 +44,7 @@ function BlockEmbedNodeView({ node, selected }: any) {
     rootMargin: "1000px 0px",
     manualInLightweight: true,
   });
+  const mindMapId = parseMindMapEmbedHref(node.attrs.href || "");
   return (
     <NodeViewWrapper
       ref={observeRef}
@@ -53,7 +57,10 @@ function BlockEmbedNodeView({ node, selected }: any) {
         containIntrinsicSize: lazyEnabled ? "auto 120px" : undefined,
       }}
     >
-      {shouldRenderHeavyContent ? <BlockEmbedCard href={node.attrs.href} /> : (
+      {shouldRenderHeavyContent ? (mindMapId
+        ? <MindMapEmbedCard href={`mindmap:${mindMapId}`} />
+        : <BlockEmbedCard href={node.attrs.href} />
+      ) : (
         <button
           type="button"
           contentEditable={false}
@@ -61,7 +68,7 @@ function BlockEmbedNodeView({ node, selected }: any) {
           onClick={(event) => { event.preventDefault(); event.stopPropagation(); requestRender(); }}
           className="flex min-h-24 w-full flex-col items-center justify-center gap-1 rounded-xl border border-app-border bg-app-hover/30 p-3 text-xs text-tx-tertiary"
         >
-          <span>嵌入块暂未加载</span>
+          <span>嵌入{mindMapId ? "思维导图" : "块"}暂未加载</span>
           <span>{requiresInteraction ? "点击加载预览" : "滚动到附近后自动加载"}</span>
         </button>
       )}
