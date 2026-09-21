@@ -33,7 +33,7 @@ replaceOnce(editor,
   useEffect(() => {
     const handler = (event: Event) => {
       const id = (event as CustomEvent<{ id?: string }>).detail?.id;
-      if (!id || !/^[0-9a-f]{8}-[0-9a-f-]{27,}$/i.test(id)) return;
+      if (!id || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) return;
       sessionStorage.setItem("pendingOpenMindMapId", id);
       actions.setViewMode("mindmaps");
     };
@@ -100,6 +100,14 @@ const contentFormat = "frontend/src/lib/contentFormat.ts";
 replaceOnce(contentFormat,
   '  // 链接\n  text = text.replace(/\\[([^\\]]+)\\]\\([^)]*\\)/g, "$1");',
   '  // 原生思维导图引用是结构元数据，不把 UUID 暴露到全文摘要。\n  text = text.replace(/!\\[\\[mindmap:[0-9a-f-]{36}\\]\\]/gi, "思维导图");\n  // 链接\n  text = text.replace(/\\[([^\\]]+)\\]\\([^)]*\\)/g, "$1");',
+);
+
+// Turndown skips its custom rule for an entirely empty HTML atom. Render a harmless
+// nonempty fallback label so both existing block embeds and mind map refs round-trip.
+const blockEmbed = "frontend/src/components/BlockEmbedExtension.tsx";
+replaceOnce(blockEmbed,
+  '    return ["div", mergeAttributes(HTMLAttributes, { "data-nowen-block-embed": HTMLAttributes.href })];',
+  '    return ["div", mergeAttributes(HTMLAttributes, { "data-nowen-block-embed": HTMLAttributes.href }), parseMindMapEmbedHref(HTMLAttributes.href || "") ? "思维导图" : "引用块"];',
 );
 
 for (const [path, contents] of changed) {
