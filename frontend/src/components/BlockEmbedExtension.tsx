@@ -89,7 +89,7 @@ export const BlockEmbedExtension = Node.create({
     return [{ tag: "div[data-nowen-block-embed]", getAttrs: (node) => ({ href: (node as HTMLElement).getAttribute("data-nowen-block-embed") || "" }) }];
   },
   renderHTML({ HTMLAttributes }) {
-    return ["div", mergeAttributes(HTMLAttributes, { "data-nowen-block-embed": HTMLAttributes.href })];
+    return ["div", mergeAttributes(HTMLAttributes, { "data-nowen-block-embed": HTMLAttributes.href }), parseMindMapEmbedHref(HTMLAttributes.href || "") ? "思维导图" : "引用块"];
   },
   addNodeView() { return ReactNodeViewRenderer(BlockEmbedNodeView); },
   addInputRules() {

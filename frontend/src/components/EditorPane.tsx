@@ -100,6 +100,7 @@ import {
   type NoteFormatConversionRequest,
 } from "@/lib/noteFormatConversion";
 import NoteThemeMenuSelect from "@/components/NoteThemeMenuSelect";
+import MindMapEmbedInsertDialog from "@/components/MindMapEmbedInsertDialog";
 
 // ---------------------------------------------------------------------------
 // 编辑器模式切换（MD vs Tiptap）
@@ -128,6 +129,16 @@ export default function EditorPane({
 }: EditorPaneProps) {
   const { state } = useApp();
   const actions = useAppActions();
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const id = (event as CustomEvent<{ id?: string }>).detail?.id;
+      if (!id || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) return;
+      sessionStorage.setItem("pendingOpenMindMapId", id);
+      actions.setViewMode("mindmaps");
+    };
+    window.addEventListener("nowen:request-open-embedded-mindmap", handler);
+    return () => window.removeEventListener("nowen:request-open-embedded-mindmap", handler);
+  }, [actions]);
   const { loadNote, retryNoteLoad } = useNoteLoader();
   const { activeNote, syncStatus, lastSyncedAt, noteLoading, noteLoadingState } = state;
   const reduceMotion = useReducedMotion();
@@ -2228,6 +2239,7 @@ const moveToTrash = useCallback(async () => {
   const [aiMermaidResult, setAiMermaidResult] = useState("");
   const [aiMermaidType, setAiMermaidType] = useState<"mermaid_mindmap" | "mermaid_flowchart">("mermaid_mindmap");
   const [showMermaidDialog, setShowMermaidDialog] = useState(false);
+  const [showMindMapInsertDialog, setShowMindMapInsertDialog] = useState(false);
 
   const handleAIMermaid = useCallback(async (type: "mermaid_mindmap" | "mermaid_flowchart") => {
     if (!activeNote || aiMermaidLoading) return;
@@ -2617,6 +2629,14 @@ const moveToTrash = useCallback(async () => {
           >
             <Search size={17} />
           </Button>
+          <Button
+            variant="ghost" size="icon" className="h-8 w-8 shrink-0"
+            aria-label="插入思维导图" title="插入思维导图"
+            disabled={effectiveLocked || isTrashed || noteIsFullHtmlDoc}
+            onClick={() => setShowMindMapInsertDialog(true)}
+          >
+            <Network size={17} />
+          </Button>
           <Button variant="ghost" size="icon" className={cn("h-8 w-8 shrink-0", compactMobileEditing && "hidden")} onClick={toggleFavorite}
             disabled={isTrashed}
             aria-label={activeNote.isFavorite ? t('editor.unfavoriteTooltip') : t('editor.favoriteTooltip')}>
@@ -2661,6 +2681,15 @@ const moveToTrash = useCallback(async () => {
                   >
                     <Search size={15} className="text-tx-tertiary" />
                     <span>{t('editor.searchInNote')}</span>
+                  </button>
+                  <button
+                    type="button"
+                    disabled={effectiveLocked || isTrashed || noteIsFullHtmlDoc}
+                    onClick={() => { setShowMobileMenu(false); setShowMindMapInsertDialog(true); }}
+                    className="flex w-full items-center gap-2.5 px-3 py-2 text-sm text-tx-secondary hover:bg-app-hover disabled:opacity-40"
+                  >
+                    <Network size={15} className="text-accent-primary" />
+                    <span>插入思维导图</span>
                   </button>
                   <button
                     onClick={() => { toggleFavorite(); setShowMobileMenu(false); }}
@@ -3735,6 +3764,16 @@ const moveToTrash = useCallback(async () => {
       </AnimatePresence>
 
       {/* AI Mermaid Ԥ������ */}
+      <MindMapEmbedInsertDialog
+        open={showMindMapInsertDialog && !!activeNote && !effectiveLocked && !isTrashed && !noteIsFullHtmlDoc}
+        onClose={() => setShowMindMapInsertDialog(false)}
+        onInsert={(id) => {
+          if (!activeNote || effectiveLocked || isTrashed || noteIsFullHtmlDoc) return false;
+          const inserted = editorHandleRef.current?.appendMarkdown?.(`\n\n![[mindmap:${id}]]\n\n`) === true;
+          if (inserted) toast.success("已插入思维导图引用");
+          return inserted;
+        }}
+      />
       <AnimatePresence>
         {showMermaidDialog && (
           <motion.div
