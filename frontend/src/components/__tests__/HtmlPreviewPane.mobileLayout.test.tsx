@@ -1,11 +1,11 @@
 // @vitest-environment jsdom
 import React, { act } from "react";
+import { readFileSync } from "node:fs";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import HtmlPreviewPane from "@/components/HtmlPreviewPane";
 import type { Note } from "@/types";
 import type { NoteEditorHandle } from "@/components/editors/types";
-import responsiveStyles from "@/components/HtmlPreviewPane.css?raw";
 
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({ t: (key: string) => key }),
@@ -70,6 +70,9 @@ describe("HtmlPreviewPane responsive clipped article (#789)", () => {
   });
 
   it("scopes fixed-width, nowrap and media guards to mobile fragments while preserving scrollable tables and code", () => {
+    // Vitest's default CSS transform provides an empty module, even with ?raw.
+    // Inspect the real source so that this test catches deleted/changed layout rules.
+    const responsiveStyles = readFileSync(new URL("../HtmlPreviewPane.css", import.meta.url), "utf8");
     expect(responsiveStyles).toContain(".html-preview-content");
     expect(responsiveStyles).toContain("@media (max-width: 639px)");
     expect(responsiveStyles).toMatch(/:where\(a\)[\s\S]*?overflow-wrap: anywhere !important/);
