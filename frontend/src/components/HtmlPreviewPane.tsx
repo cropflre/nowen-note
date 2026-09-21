@@ -33,6 +33,7 @@ import {
   scrollToHtmlPreviewHeading,
   syncHtmlPreviewOutline,
 } from "@/lib/htmlPreviewOutline";
+import "./HtmlPreviewPane.css";
 
 /**
  * DOMPurify 配置：保留常见剪藏标签 & 属性（图片、链接、样式），
@@ -50,8 +51,6 @@ const PURIFY_CONFIG: DOMPurify.Config = {
     "blockquote", "pre", "address",
     // 列表
     "ul", "ol", "li", "dl", "dt", "dd",
-    // 表格
-    "table", "thead", "tbody", "tfoot", "tr", "th", "td", "caption", "colgroup", "col",
     // 媒体
     "img", "picture", "source", "video", "audio",
     // 链接
@@ -247,8 +246,8 @@ const HtmlPreviewPane = forwardRef<NoteEditorHandle, NoteEditorProps>(
     const cleanHtml = resolveHtmlPreviewAssetUrls(sanitize(note.content), resolveAttachmentUrl);
 
     return (
-      <ScrollArea className="h-full">
-        <div className="max-w-4xl mx-auto px-6 py-8 md:px-10">
+      <ScrollArea className="h-full min-w-0">
+        <div className="w-full min-w-0 max-w-4xl mx-auto px-3 py-6 sm:px-6 sm:py-8 md:px-10">
           {/* 提示条 */}
           <div className="mb-4 flex items-center gap-2 px-3 py-2 rounded-lg bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 text-xs text-blue-700 dark:text-blue-300">
             <Eye size={14} className="shrink-0" />
