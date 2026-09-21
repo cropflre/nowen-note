@@ -2632,7 +2632,7 @@ const moveToTrash = useCallback(async () => {
           <Button
             variant="ghost" size="icon" className="h-8 w-8 shrink-0"
             aria-label="插入思维导图" title="插入思维导图"
-            disabled={effectiveLocked || isTrashed || noteIsFullHtmlDoc}
+            disabled={effectiveLocked || isTrashed || noteIsFullHtmlDoc || !canEditActiveNote}
             onClick={() => setShowMindMapInsertDialog(true)}
           >
             <Network size={17} />
@@ -2684,7 +2684,7 @@ const moveToTrash = useCallback(async () => {
                   </button>
                   <button
                     type="button"
-                    disabled={effectiveLocked || isTrashed || noteIsFullHtmlDoc}
+                    disabled={effectiveLocked || isTrashed || noteIsFullHtmlDoc || !canEditActiveNote}
                     onClick={() => { setShowMobileMenu(false); setShowMindMapInsertDialog(true); }}
                     className="flex w-full items-center gap-2.5 px-3 py-2 text-sm text-tx-secondary hover:bg-app-hover disabled:opacity-40"
                   >
@@ -3765,10 +3765,10 @@ const moveToTrash = useCallback(async () => {
 
       {/* AI Mermaid Ԥ������ */}
       <MindMapEmbedInsertDialog
-        open={showMindMapInsertDialog && !!activeNote && !effectiveLocked && !isTrashed && !noteIsFullHtmlDoc}
+        open={showMindMapInsertDialog && !!activeNote && !effectiveLocked && !isTrashed && !noteIsFullHtmlDoc && canEditActiveNote}
         onClose={() => setShowMindMapInsertDialog(false)}
         onInsert={(id) => {
-          if (!activeNote || effectiveLocked || isTrashed || noteIsFullHtmlDoc) return false;
+          if (!activeNote || effectiveLocked || isTrashed || noteIsFullHtmlDoc || !canEditActiveNote) return false;
           const inserted = editorHandleRef.current?.appendMarkdown?.(`\n\n![[mindmap:${id}]]\n\n`) === true;
           if (inserted) toast.success("已插入思维导图引用");
           return inserted;
