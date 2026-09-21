@@ -9,23 +9,13 @@ vi.mock("@/lib/katexRenderer", () => ({ renderKatex: katexMocks.renderKatex }));
 vi.mock("react-i18next", () => ({ useTranslation: () => ({ t: (value: string) => value }) }));
 vi.mock("@/lib/clipboard", () => ({ copyText: vi.fn(async () => true) }));
 vi.mock("@/lib/toast", () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() } }));
-
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 const SOURCE = [
-  "# 测试：力矩测量链",
-  "",
-  "行内频率 $f_{\\mathrm{rip}} = 2\\,f_{WG}$，与其他文字同行。",
-  "",
-  "$$",
-  "\\tau_{\\mathrm{rip}}(\\theta_{WG}) = \\sum_{k=1}^{K} a_k \\sin(k\\theta_{WG})",
-  "$$",
-  "",
-  "```tex",
-  "$do_not_render$",
-  "```",
-  "",
-  "普通 `inline $not_math$` 代码。",
+  "# 测试：力矩测量链", "",
+  "行内频率 $f_{\\mathrm{rip}} = 2\\,f_{WG}$，与其他文字同行。", "",
+  "$$", "\\tau_{\\mathrm{rip}}(\\theta_{WG}) = \\sum_{k=1}^{K} a_k \\sin(k\\theta_{WG})", "$$", "",
+  "```tex", "$do_not_render$", "```", "", "普通 `inline $not_math$` 代码。",
 ].join("\n");
 
 function response(text: string, status = 200) {
@@ -56,18 +46,30 @@ describe("Markdown attachment formula preview (#788)", () => {
     vi.clearAllMocks();
   });
 
+  async function awaitPreview() {
+    // The shared renderer has a substantial async import graph. Poll the actual UI state
+    // instead of assuming a particular CI runner can finish lazy loading in 60ms.
+    for (let retry = 0; retry < 40; retry++) {
+      await act(async () => { await new Promise((resolve) => setTimeout(resolve, 50)); });
+      if (host.querySelector(".nowen-md-preview")) {
+        // Allow asynchronous MathView / renderKatex promise completions to commit.
+        await act(async () => { await Promise.resolve(); });
+        return;
+      }
+    }
+    throw new Error(`Markdown preview not mounted; actual UI: ${host.innerHTML.slice(0, 1600)}`);
+  }
+
   async function open(filename = "力矩测量.md", mimeType = "text/plain", size = SOURCE.length) {
     await act(async () => {
       root.render(<AttachmentPreview url="/api/attachments/math-file" filename={filename} mimeType={mimeType} size={size} />);
     });
-    // Wait for the attachment fetch, lazy MarkdownPreview import and asynchronous MathView rendering.
-    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 60)); });
+    await awaitPreview();
   }
 
   it("routes .md attachments to the real Markdown preview and renders inline + block formulas", async () => {
     await open();
     expect(fetchMock).toHaveBeenCalledWith("/api/attachments/math-file", expect.objectContaining({ signal: expect.any(AbortSignal) }));
-    expect(host.querySelector(".nowen-md-preview")).not.toBeNull();
     expect(host.querySelector("h1")?.textContent).toContain("力矩测量链");
     expect(katexMocks.renderKatex).toHaveBeenCalledWith("f_{\\mathrm{rip}} = 2\\,f_{WG}", { displayMode: false });
     expect(katexMocks.renderKatex).toHaveBeenCalledWith("\\tau_{\\mathrm{rip}}(\\theta_{WG}) = \\sum_{k=1}^{K} a_k \\sin(k\\theta_{WG})", { displayMode: true });
@@ -85,8 +87,7 @@ describe("Markdown attachment formula preview (#788)", () => {
     expect(host.querySelector(".nowen-md-preview")).toBeNull();
     expect(host.querySelector("pre")?.textContent).toBe(SOURCE);
     await act(async () => { tabs[0].click(); });
-    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 40)); });
-    expect(host.querySelector(".nowen-md-preview")).not.toBeNull();
+    await awaitPreview();
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
