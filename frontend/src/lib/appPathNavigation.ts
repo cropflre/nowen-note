@@ -1,5 +1,7 @@
 const FILE_ROUTE_QUERY_KEY = "nowenAppPath";
 
+export const APP_PATH_CHANGED_EVENT = "nowen:app-path-changed";
+
 function normalizeAppPath(rawPath: string): string {
   const value = String(rawPath || "/").trim();
   if (!value || value === "/") return "/";
@@ -59,4 +61,41 @@ export function resolveCurrentAppPathname(
   } catch {
     return "/";
   }
+}
+
+
+export interface AppPathChangedDetail {
+  appPath: string;
+  replace: boolean;
+}
+
+/**
+ * SPA 内部导航：不刷新页面，同时兼容 Web、Electron file:// 和 Capacitor。
+ * Public route 仍可继续使用 navigateToAppPath() 做完整重载；应用内部模块路由
+ * 使用本方法，避免丢失正在运行的本地状态。
+ */
+function commitAppPathState(appPath: string, replace: boolean): void {
+  const normalizedPath = normalizeAppPath(appPath);
+  const nextUrl = buildAppPathUrl(normalizedPath);
+  const currentPath = resolveCurrentAppPathname();
+
+  if (currentPath === normalizedPath) return;
+
+  if (replace) {
+    window.history.replaceState(window.history.state, "", nextUrl);
+  } else {
+    window.history.pushState(window.history.state, "", nextUrl);
+  }
+
+  window.dispatchEvent(new CustomEvent<AppPathChangedDetail>(APP_PATH_CHANGED_EVENT, {
+    detail: { appPath: normalizedPath, replace },
+  }));
+}
+
+export function pushAppPathState(appPath: string): void {
+  commitAppPathState(appPath, false);
+}
+
+export function replaceAppPathState(appPath: string): void {
+  commitAppPathState(appPath, true);
 }
