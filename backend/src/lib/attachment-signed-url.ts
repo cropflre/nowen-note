@@ -15,7 +15,6 @@
  */
 import crypto from "crypto";
 import { getDb } from "../db/schema";
-import { hasPermission, resolveNotePermission } from "../middleware/acl";
 import { resolveEffectiveNoteCapabilities } from "../services/share-capabilities";
 import {
   isManualFileManagerUpload,
