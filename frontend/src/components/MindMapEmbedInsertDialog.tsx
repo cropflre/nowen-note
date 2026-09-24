@@ -66,7 +66,10 @@ export default function MindMapEmbedInsertDialog({ open, onClose, onInsert }: Pr
     <div className="fixed inset-0 z-[10001] flex items-center justify-center bg-black/50 p-4" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
       <section role="dialog" aria-modal="true" aria-label="插入思维导图" className="flex max-h-[min(80dvh,600px)] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-app-border bg-app-surface shadow-2xl">
         <header className="flex items-center justify-between border-b border-app-border px-4 py-3">
-          <h2 className="flex items-center gap-2 text-base font-semibold text-tx-primary"><BrainCircuit size={18} />插入思维导图</h2>
+          <div className="min-w-0">
+            <h2 className="flex items-center gap-2 text-base font-semibold text-tx-primary"><BrainCircuit size={18} />插入思维导图</h2>
+            <p className="mt-0.5 text-xs text-tx-tertiary">选择即可插入，无需复制 ID 或输入引用代码</p>
+          </div>
           <button type="button" onClick={onClose} aria-label="关闭" className="rounded p-2 hover:bg-app-hover"><X size={17} /></button>
         </header>
         <div className="space-y-3 p-4">
@@ -82,7 +85,7 @@ export default function MindMapEmbedInsertDialog({ open, onClose, onInsert }: Pr
               <button type="button" key={item.id} disabled={busy} onClick={() => insert(item.id)} className="flex w-full min-w-0 items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-tx-primary hover:bg-app-hover disabled:opacity-50">
                 <BrainCircuit size={16} className="shrink-0 text-accent-primary" />
                 <span className="min-w-0 flex-1 truncate">{item.title}</span>
-                <span className="shrink-0 text-xs text-tx-tertiary">插入</span>
+                <span className="shrink-0 rounded-md bg-accent-primary/10 px-2 py-1 text-xs font-medium text-accent-primary">插入</span>
               </button>
             )) : <p className="text-sm text-tx-tertiary">没有匹配的思维导图，可以在下方创建。</p>}
         </div>
