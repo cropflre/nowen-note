@@ -10,6 +10,8 @@ on:
       - 'frontend/src/components/MindMapEmbedCard.tsx'
       - 'frontend/src/components/SharedNoteView.tsx'
       - 'frontend/src/lib/mindMapSnapshot.ts'
+      - 'frontend/src/lib/documentMindMapExport.ts'
+      - 'frontend/src/lib/exportServiceCore.ts'
       - 'frontend/src/lib/sharedMindMapSnapshots.ts'
       - 'frontend/src/lib/__tests__/mindMapEmbed.test.ts'
       - 'frontend/src/lib/__tests__/mindMapSnapshot.test.ts'
@@ -75,5 +77,6 @@ jobs:
           src/lib/__tests__/mindMapEmbed.test.ts
           src/lib/__tests__/mindMapSnapshot.test.ts
           src/lib/__tests__/sharedMindMapSnapshots.test.ts
+          src/lib/__tests__/documentMindMapExport.test.ts
       - name: Frontend production build
         run: npm run build
