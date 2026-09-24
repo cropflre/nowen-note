@@ -1,7 +1,8 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { Suspense, lazy, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   AlertTriangle,
+  Edit3,
   ExternalLink,
   Maximize2,
   Minimize2,
@@ -23,6 +24,8 @@ import {
   loadDocumentMindMap,
   type DocumentMindMapChangedDetail,
 } from "@/lib/documentMindMapRuntime";
+
+const EmbeddedMindMapEditor = lazy(() => import("./MindMapEditor"));
 
 /** A document holds only an ID; the original mind map remains the single source of truth. */
 const MINDMAP_HREF = /^mindmap:([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i;
@@ -87,6 +90,7 @@ export default function MindMapEmbedCard({ href }: { href: string }) {
   const [revision, setRevision] = useState(0);
   const [scale, setScale] = useState(1);
   const [fullscreen, setFullscreen] = useState(false);
+  const [editing, setEditing] = useState(false);
 
   useEffect(() => {
     setVisible(typeof IntersectionObserver === "undefined");
@@ -95,6 +99,7 @@ export default function MindMapEmbedCard({ href }: { href: string }) {
     setCacheState({ source: "network" });
     setScale(1);
     setFullscreen(false);
+    setEditing(false);
     if (!mapId || typeof IntersectionObserver === "undefined") return;
     const host = hostRef.current;
     if (!host) return;
@@ -167,6 +172,24 @@ export default function MindMapEmbedCard({ href }: { href: string }) {
     return () => window.removeEventListener("keydown", onEscape);
   }, [fullscreen]);
 
+
+  useEffect(() => {
+    if (!editing) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const onEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setEditing(false);
+    };
+    const onWorkspaceChanged = () => setEditing(false);
+    window.addEventListener("keydown", onEscape);
+    window.addEventListener("nowen:workspace-changed", onWorkspaceChanged);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", onEscape);
+      window.removeEventListener("nowen:workspace-changed", onWorkspaceChanged);
+    };
+  }, [editing]);
+
   const snapshot = useMemo(() => {
     if (!map) return null;
     const data = parseMindMapSnapshotData(map.data);
@@ -184,6 +207,13 @@ export default function MindMapEmbedCard({ href }: { href: string }) {
     window.dispatchEvent(new CustomEvent("nowen:request-open-embedded-mindmap", {
       detail: { id: map.id },
     }));
+  };
+
+
+  const openEmbeddedEditor = () => {
+    if (!map || map.canEdit !== true) return;
+    setFullscreen(false);
+    setEditing(true);
   };
 
   const toolbar = (
@@ -227,13 +257,22 @@ export default function MindMapEmbedCard({ href }: { href: string }) {
       >
         <RefreshCw size={15} />
       </button>
+      {map?.canEdit === true && (
+        <button
+          type="button"
+          onClick={openEmbeddedEditor}
+          className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs font-medium text-accent-primary hover:bg-app-hover"
+        >
+          <Edit3 size={13} />文档内编辑
+        </button>
+      )}
       {map && (
         <button
           type="button"
           onClick={openEditor}
           className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs text-accent-primary hover:bg-app-hover"
         >
-          <ExternalLink size={13} />打开编辑
+          <ExternalLink size={13} />打开编辑器
         </button>
       )}
     </div>
@@ -285,6 +324,39 @@ export default function MindMapEmbedCard({ href }: { href: string }) {
             : "引用原始导图 · SVG 只读快照 · 删除此块不会删除源文件"}
         </div>
       </div>
+      {editing && mapId && typeof document !== "undefined" && createPortal(
+        <div
+          className="fixed inset-0 z-[10030] flex items-center justify-center bg-black/45 p-0 sm:p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-label="在文档中编辑思维导图"
+          data-document-mindmap-editor-dialog="true"
+        >
+          <div className="h-full w-full overflow-hidden bg-app-bg shadow-2xl sm:h-[min(88vh,900px)] sm:max-w-[1500px] sm:rounded-2xl sm:border sm:border-app-border">
+            <Suspense
+              fallback={
+                <div className="flex h-full items-center justify-center text-sm text-tx-tertiary">
+                  正在加载思维导图编辑器…
+                </div>
+              }
+            >
+              <EmbeddedMindMapEditor
+                embeddedMode
+                embeddedMindMapId={mapId}
+                onRequestClose={() => {
+                  setEditing(false);
+                  setRevision((value) => value + 1);
+                }}
+                onSaved={(updated) => {
+                  setMap(updated);
+                  setCacheState({ source: "network" });
+                }}
+              />
+            </Suspense>
+          </div>
+        </div>,
+        document.body,
+      )}
       {fullscreen && snapshot && typeof document !== "undefined" && createPortal(
         <div className="fixed inset-0 z-[10020] flex flex-col bg-app-bg/95 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label="思维导图全屏预览">
           <div className="flex items-center justify-between gap-3 border-b border-app-border bg-app-surface px-4 py-3 shadow-sm">
