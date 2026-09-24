@@ -100,7 +100,10 @@ app.get("/:id", (c) => {
   if (!canReadMindmap(row, userId)) {
     return c.json({ error: "无权访问该导图", code: "FORBIDDEN" }, 403);
   }
-  return c.json(row);
+  return c.json({
+    ...row,
+    canEdit: canManageResource(row.userId, row.workspaceId, userId),
+  });
 });
 
 // ---------- 创建 ----------
@@ -143,7 +146,15 @@ app.put("/:id", async (c) => {
   const db = getDb();
   const userId = c.req.header("X-User-Id") || "";
   const id = c.req.param("id");
-  const body = await c.req.json();
+  const body = await c.req.json<{
+    title?: string;
+    data?: string | Record<string, unknown>;
+    /**
+     * 可选乐观锁。文档内弹层编辑等多入口编辑场景必须携带读取时的 updatedAt，
+     * 防止独立脑图中心/另一个浏览器窗口的更新被静默覆盖。
+     */
+    expectedUpdatedAt?: string;
+  }>();
 
   const existing = db.prepare("SELECT * FROM mindmaps WHERE id = ?").get(id) as
     | MindmapRow
@@ -152,6 +163,19 @@ app.put("/:id", async (c) => {
 
   if (!canManageResource(existing.userId, existing.workspaceId, userId)) {
     return c.json({ error: "无权修改此导图", code: "FORBIDDEN" }, 403);
+  }
+
+  const expectedUpdatedAt =
+    typeof body.expectedUpdatedAt === "string" && body.expectedUpdatedAt.trim()
+      ? body.expectedUpdatedAt.trim()
+      : null;
+
+  if (expectedUpdatedAt && expectedUpdatedAt !== existing.updatedAt) {
+    return c.json({
+      error: "思维导图已在其他窗口更新，请重新加载后再保存",
+      code: "MINDMAP_CONFLICT",
+      currentUpdatedAt: existing.updatedAt,
+    }, 409);
   }
 
   const updates: string[] = [];
@@ -168,13 +192,31 @@ app.put("/:id", async (c) => {
   // 显式忽略 body.workspaceId：不允许跨空间迁移
 
   if (updates.length > 0) {
-    updates.push("updatedAt = datetime('now')");
+    // 使用毫秒精度，确保同一秒内连续保存也能可靠参与下一次乐观锁比较。
+    updates.push("updatedAt = strftime('%Y-%m-%d %H:%M:%f', 'now')");
+    const where = expectedUpdatedAt
+      ? "WHERE id = ? AND updatedAt = ?"
+      : "WHERE id = ?";
     values.push(id);
-    db.prepare(`UPDATE mindmaps SET ${updates.join(", ")} WHERE id = ?`).run(...values);
+    if (expectedUpdatedAt) values.push(expectedUpdatedAt);
+    const result = db.prepare(`UPDATE mindmaps SET ${updates.join(", ")} ${where}`).run(...values);
+    if (expectedUpdatedAt && result.changes === 0) {
+      const latest = db.prepare("SELECT updatedAt FROM mindmaps WHERE id = ?").get(id) as
+        | { updatedAt: string }
+        | undefined;
+      return c.json({
+        error: "思维导图已在其他窗口更新，请重新加载后再保存",
+        code: "MINDMAP_CONFLICT",
+        currentUpdatedAt: latest?.updatedAt || null,
+      }, 409);
+    }
   }
 
-  const row = db.prepare("SELECT * FROM mindmaps WHERE id = ?").get(id);
-  return c.json(row);
+  const row = db.prepare("SELECT * FROM mindmaps WHERE id = ?").get(id) as MindmapRow;
+  return c.json({
+    ...row,
+    canEdit: canManageResource(row.userId, row.workspaceId, userId),
+  });
 });
 
 // ---------- 删除 ----------
