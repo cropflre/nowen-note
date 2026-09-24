@@ -12,6 +12,14 @@ on:
       - 'frontend/src/App.tsx'
       - 'frontend/src/components/MindMapEmbedCard.tsx'
       - 'frontend/src/components/MindMapEditor.tsx'
+      - 'frontend/src/components/__tests__/SlashCommands.mindmap.test.tsx'
+      - 'frontend/src/components/MindMapEmbedInsertDialog.tsx'
+      - 'frontend/src/components/SlashCommands.tsx'
+      - 'frontend/src/components/TiptapEditorRuntime.tsx'
+      - 'frontend/src/components/TiptapEditor.tsx'
+      - 'frontend/src/components/LargeMarkdownSafeEditor.tsx'
+      - 'frontend/src/components/MarkdownEditorImpl.tsx'
+      - 'frontend/src/components/editors/types.ts'
       - 'frontend/src/components/EditorPane.tsx'
       - 'frontend/src/components/NavRail.tsx'
       - 'frontend/src/components/__tests__/MindMapEmbedCard.edit.test.tsx'
@@ -44,6 +52,14 @@ on:
       - 'frontend/src/App.tsx'
       - 'frontend/src/components/MindMapEmbedCard.tsx'
       - 'frontend/src/components/MindMapEditor.tsx'
+      - 'frontend/src/components/__tests__/SlashCommands.mindmap.test.tsx'
+      - 'frontend/src/components/MindMapEmbedInsertDialog.tsx'
+      - 'frontend/src/components/SlashCommands.tsx'
+      - 'frontend/src/components/TiptapEditorRuntime.tsx'
+      - 'frontend/src/components/TiptapEditor.tsx'
+      - 'frontend/src/components/LargeMarkdownSafeEditor.tsx'
+      - 'frontend/src/components/MarkdownEditorImpl.tsx'
+      - 'frontend/src/components/editors/types.ts'
       - 'frontend/src/components/EditorPane.tsx'
       - 'frontend/src/components/NavRail.tsx'
       - 'frontend/src/components/__tests__/MindMapEmbedCard.edit.test.tsx'
@@ -110,5 +126,6 @@ jobs:
           src/lib/__tests__/documentMindMapRuntime.test.ts
           src/lib/__tests__/mindMapDeepLink.test.ts
           src/components/__tests__/MindMapEmbedCard.edit.test.tsx
+          src/components/__tests__/SlashCommands.mindmap.test.tsx
       - name: Frontend production build
         run: npm run build
