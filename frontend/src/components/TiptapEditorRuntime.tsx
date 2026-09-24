@@ -140,6 +140,7 @@ const TiptapEditorRuntime = forwardRef<NoteEditorHandle, RuntimeTiptapEditorProp
       getSnapshot: () => baseRef.current?.getSnapshot?.() ?? null,
       acknowledgeSave: (ack) => baseRef.current?.acknowledgeSave?.(ack),
       isReady: () => baseRef.current?.isReady?.() ?? Boolean(baseRef.current),
+      insertMarkdownAtCursor: (markdown) => baseRef.current?.insertMarkdownAtCursor?.(markdown) ?? false,
       appendMarkdown: (markdown) => baseRef.current?.appendMarkdown?.(markdown) ?? false,
     }), []);
 
