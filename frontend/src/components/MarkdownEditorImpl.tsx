@@ -108,6 +108,7 @@ import {
   Film,
   FolderSearch,
   ClipboardPlus,
+  BrainCircuit,
 } from "lucide-react";
 import { MarkdownPreview } from "./MarkdownPreview";
 import AttachmentLibraryPicker from "@/components/AttachmentLibraryPicker";
@@ -2256,6 +2257,12 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
             title={tr("tiptap.insertTable") || "�������"}
           >
             <Table2 size={iconSize} />
+          </ToolbarButton>
+          <ToolbarButton
+            onClick={() => window.dispatchEvent(new CustomEvent("nowen:open-mindmap-insert"))}
+            title={tr("tiptap.insertMindMap")}
+          >
+            <BrainCircuit size={iconSize} />
           </ToolbarButton>
 
           {!isGuest && <ToolbarDivider />}

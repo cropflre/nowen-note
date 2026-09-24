@@ -1,6 +1,6 @@
 import React, { useCallback, useRef, useState, useEffect, useMemo } from "react";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
-import { Star, Pin, Trash2, Cloud, RefreshCw, Check, Loader2, ChevronLeft, FolderInput, ChevronRight, ChevronDown, X, ListTree, Lock, Unlock, Tag as TagIcon, Type, MoreHorizontal, Share2, History, MessageCircle, FileCode, FileText, Eye, Pencil, Paperclip, Search, Sparkles, Network, BrainCircuit, Minimize2, Image, Link2, Printer, Scissors } from "lucide-react";
+import { Star, Pin, Trash2, Cloud, RefreshCw, Check, Loader2, ChevronLeft, FolderInput, ChevronRight, ChevronDown, X, ListTree, Lock, Unlock, Tag as TagIcon, Type, MoreHorizontal, Share2, History, MessageCircle, FileCode, FileText, Eye, Pencil, Paperclip, Search, Sparkles, Network, Minimize2, Image, Link2, Printer, Scissors } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import TiptapEditor from "@/components/TiptapEditor";
@@ -2637,16 +2637,6 @@ const moveToTrash = useCallback(async () => {
           >
             <Search size={17} />
           </Button>
-          <Button
-            data-editor-mindmap-insert="compact"
-            variant="ghost" size="sm" className="h-8 shrink-0 gap-1 px-1.5"
-            aria-label="插入思维导图" title="插入思维导图"
-            disabled={effectiveLocked || isTrashed || noteIsFullHtmlDoc || !canEditActiveNote}
-            onClick={() => setShowMindMapInsertDialog(true)}
-          >
-            <BrainCircuit size={17} />
-            <span className="hidden min-[480px]:inline">脑图</span>
-          </Button>
           <Button variant="ghost" size="icon" className={cn("h-8 w-8 shrink-0", compactMobileEditing && "hidden")} onClick={toggleFavorite}
             disabled={isTrashed}
             aria-label={activeNote.isFavorite ? t('editor.unfavoriteTooltip') : t('editor.favoriteTooltip')}>
@@ -2691,15 +2681,6 @@ const moveToTrash = useCallback(async () => {
                   >
                     <Search size={15} className="text-tx-tertiary" />
                     <span>{t('editor.searchInNote')}</span>
-                  </button>
-                  <button
-                    type="button"
-                    disabled={effectiveLocked || isTrashed || noteIsFullHtmlDoc || !canEditActiveNote}
-                    onClick={() => { setShowMobileMenu(false); setShowMindMapInsertDialog(true); }}
-                    className="flex w-full items-center gap-2.5 px-3 py-2 text-sm text-tx-secondary hover:bg-app-hover disabled:opacity-40"
-                  >
-                    <Network size={15} className="text-accent-primary" />
-                    <span>插入思维导图</span>
                   </button>
                   <button
                     onClick={() => { toggleFavorite(); setShowMobileMenu(false); }}
@@ -3174,17 +3155,6 @@ const moveToTrash = useCallback(async () => {
             </Button>
           </div>
 
-          <Button
-            data-editor-mindmap-insert="desktop"
-            variant="ghost" size="sm" className="h-7 shrink-0 gap-1 px-2 text-accent-primary"
-            aria-label="插入思维导图" title="插入思维导图"
-            disabled={effectiveLocked || isTrashed || noteIsFullHtmlDoc || !canEditActiveNote}
-            onClick={() => setShowMindMapInsertDialog(true)}
-          >
-            <BrainCircuit size={14} />
-            <span>插入脑图</span>
-          </Button>
-
           {/* ���� */}
           <Button
             variant="ghost" size="icon" className="h-7 w-7 shrink-0"
@@ -3360,14 +3330,6 @@ const moveToTrash = useCallback(async () => {
                   >
                     <Paperclip size={15} className="text-amber-500" />
                     <span>{t('editor.attachments')}</span>
-                  </button>
-                  <button
-                    onClick={() => { setShowDesktopMoreMenu(false); setShowMindMapInsertDialog(true); }}
-                    disabled={effectiveLocked || isTrashed || noteIsFullHtmlDoc || !canEditActiveNote}
-                    className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-tx-secondary hover:bg-app-hover transition-colors disabled:opacity-40"
-                  >
-                    <BrainCircuit size={15} className="text-accent-primary" />
-                    <span>插入思维导图</span>
                   </button>
                   <NoteThemeMenuSelect noteId={activeNote.id} disabled={!canWriteNote(activeNote)} />
                   {canSplitDocument && onSplitDocument && (
