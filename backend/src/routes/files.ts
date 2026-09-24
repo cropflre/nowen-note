@@ -60,6 +60,11 @@ import {
   requireWorkspaceFeature,
 } from "../middleware/acl";
 import { createUserAttachmentAccessUrls } from "../lib/attachment-signed-url";
+import {
+  isManualFileManagerUpload,
+  resolveFileAttachmentAccess,
+  type FileAttachmentAccessRow,
+} from "../services/fileAttachmentAccess";
 
 const app = new Hono();
 
@@ -72,6 +77,20 @@ const IMAGE_MIME_PREFIX = "image/";
 /** 判定一个 MIME 是否属于图片（供分类筛选用）。 */
 function isImage(mime: string | null | undefined): boolean {
   return !!mime && mime.toLowerCase().startsWith(IMAGE_MIME_PREFIX);
+}
+
+type MutableFileRow = FileAttachmentAccessRow & { path?: string; filename?: string };
+
+/**
+ * 文件管理手动上传不再依赖隐藏 holder note 的 knowledge-tree projection。
+ * 普通附件继续使用原有笔记 write 权限，避免绕过目录/笔记 ACL。
+ */
+function canWriteManagedFile(row: MutableFileRow, userId: string): boolean {
+  if (isManualFileManagerUpload(row)) {
+    return resolveFileAttachmentAccess(row, userId).canWrite;
+  }
+  const { permission } = resolveNotePermission(row.noteId, userId);
+  return hasPermission(permission, "write");
 }
 
 // ---------------------------------------------------------------------------
@@ -809,10 +828,10 @@ app.delete("/:id", async (c) => {
 
   const row = db
     .prepare(
-      "SELECT id, noteId, userId, path FROM attachments WHERE id = ?",
+      "SELECT id, noteId, userId, workspaceId, uploadSource, path FROM attachments WHERE id = ?",
     )
     .get(id) as
-    | { id: string; noteId: string; userId: string; path: string }
+    | (FileAttachmentAccessRow & { id: string; path: string })
     | undefined;
   if (!row) return c.json({ error: "文件不存在" }, 404);
 
@@ -821,9 +840,8 @@ app.delete("/:id", async (c) => {
     return c.json({ error: "无权删除他人文件", code: "FORBIDDEN" }, 403);
   }
 
-  // 同时走笔记 ACL：若笔记在工作区内，只有 write+ 可删
-  const { permission } = resolveNotePermission(row.noteId, userId);
-  if (!hasPermission(permission, "write")) {
+  // 普通附件走笔记 ACL；文件管理手动上传走附件自身 scope 权限。
+  if (!canWriteManagedFile(row, userId)) {
     return c.json({ error: "无权删除该文件", code: "FORBIDDEN" }, 403);
   }
 
@@ -890,9 +908,9 @@ app.patch("/:id", async (c) => {
   }
 
   const row = db
-    .prepare("SELECT id, noteId, userId, filename FROM attachments WHERE id = ?")
+    .prepare("SELECT id, noteId, userId, workspaceId, uploadSource, filename FROM attachments WHERE id = ?")
     .get(id) as
-    | { id: string; noteId: string; userId: string; filename: string }
+    | (FileAttachmentAccessRow & { id: string; filename: string })
     | undefined;
   if (!row) return c.json({ error: "文件不存在" }, 404);
 
@@ -900,8 +918,7 @@ app.patch("/:id", async (c) => {
   if (row.userId !== userId) {
     return c.json({ error: "无权重命名他人文件", code: "FORBIDDEN" }, 403);
   }
-  const { permission } = resolveNotePermission(row.noteId, userId);
-  if (!hasPermission(permission, "write")) {
+  if (!canWriteManagedFile(row, userId)) {
     return c.json({ error: "无权重命名该文件", code: "FORBIDDEN" }, 403);
   }
 
@@ -974,12 +991,11 @@ app.post("/batch-delete", async (c) => {
   const placeholders = ids.map(() => "?").join(",");
   const rows = db
     .prepare(
-      `SELECT id, noteId, userId, path FROM attachments WHERE id IN (${placeholders})`,
+      `SELECT id, noteId, userId, workspaceId, uploadSource, path
+         FROM attachments WHERE id IN (${placeholders})`,
     )
-    .all(...ids) as Array<{
+    .all(...ids) as Array<FileAttachmentAccessRow & {
       id: string;
-      noteId: string;
-      userId: string;
       path: string;
     }>;
 
@@ -996,8 +1012,7 @@ app.post("/batch-delete", async (c) => {
       failed.push({ id: row.id, reason: "无权删除他人文件" });
       continue;
     }
-    const { permission } = resolveNotePermission(row.noteId, userId);
-    if (!hasPermission(permission, "write")) {
+    if (!canWriteManagedFile(row, userId)) {
       failed.push({ id: row.id, reason: "无权删除该文件" });
       continue;
     }
