@@ -23,6 +23,7 @@ import QRCode from "@/components/ui/QRCode";
 import FolderAutoLockSettings from "@/components/FolderAutoLockSettings";
 import { useTranslation } from "react-i18next";
 import { api, broadcastAuthChanged, withSudo } from "@/lib/api";
+import { getAppInfo } from "@/lib/desktopBridge";
 import {
   confirm as confirmDialog,
   prompt as promptDialog,
@@ -39,7 +40,15 @@ export default function SecuritySettings() {
   const { t } = useTranslation();
   const [isDemo, setIsDemo] = useState(false);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [currentUsername, setCurrentUsername] = useState<string | null>(null);
+  const [isFullLocalDesktop, setIsFullLocalDesktop] = useState(false);
   const prevUserIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    getAppInfo().then((info) => {
+      setIsFullLocalDesktop(info?.mode === "full" && info?.runtime === "local");
+    }).catch(() => {});
+  }, []);
 
   // 拉取当前用户信息：mount 时 + token 变化时重新拉取，
   // 防止切换账号后 SettingsModal 未卸载导致子组件保留旧用户数据。
@@ -51,12 +60,14 @@ export default function SecuritySettings() {
         if (cancelled) return;
         setIsDemo(!!(u as any)?.isDemo);
         setCurrentUserId(u.id);
+        setCurrentUsername(u.username);
         prevUserIdRef.current = u.id;
       })
       .catch(() => {
         if (!cancelled) {
           setIsDemo(false);
           setCurrentUserId(null);
+          setCurrentUsername(null);
           prevUserIdRef.current = null;
         }
       });
@@ -90,12 +101,14 @@ export default function SecuritySettings() {
           api.getMe().then((u) => {
             setIsDemo(!!(u as any)?.isDemo);
             setCurrentUserId(u.id);
+            setCurrentUsername(u.username);
             prevUserIdRef.current = u.id;
           }).catch(() => {});
         } else {
           // token 被清除（登出），重置状态
           setIsDemo(false);
           setCurrentUserId(null);
+          setCurrentUsername(null);
           prevUserIdRef.current = null;
         }
       }
@@ -103,6 +116,8 @@ export default function SecuritySettings() {
     window.addEventListener("storage", onStorage);
     return () => window.removeEventListener("storage", onStorage);
   }, []);
+
+  const isManagedDesktop = isFullLocalDesktop && currentUsername === "desktop";
 
   return (
     <div className="space-y-10">
@@ -117,9 +132,18 @@ export default function SecuritySettings() {
           </div>
         </div>
       )}
+      {isManagedDesktop && (
+        <div className="flex items-start gap-3 rounded-lg border border-amber-300/60 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300">
+          <Lock className="mt-0.5 h-4 w-4 flex-shrink-0" />
+          <div>
+            此 desktop 账号由本机自动登录凭据托管，不能在这里修改密码或用户名；自动登录不是应用密码锁。如需恢复本地账号，请先核对「数据管理 → 本地数据位置」，再使用「恢复本地自动登录」。
+            {currentUserId && <div className="mt-1 break-all font-mono text-xs">当前账号：desktop · ID {currentUserId}</div>}
+          </div>
+        </div>
+      )}
       {/* 用 key={currentUserId} 强制子组件在用户切换时完全 remount，清除所有旧状态 */}
-      {!isDemo && <PasswordSection key={`pwd-${currentUserId}`} />}
-      {!isDemo && <TwoFactorSection key={`2fa-${currentUserId}`} />}
+      {!isDemo && !isManagedDesktop && <PasswordSection key={`pwd-${currentUserId}`} />}
+      {!isDemo && !isManagedDesktop && <TwoFactorSection key={`2fa-${currentUserId}`} />}
       <FolderAutoLockSettings key={`folder-lock-${currentUserId}`} />
       <SessionsSection key={`sess-${currentUserId}`} />
     </div>

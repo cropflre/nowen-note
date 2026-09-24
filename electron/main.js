@@ -19,6 +19,7 @@ const { openSetupWindow } = require("./setupWindow");
 const { openLocalAttachmentWithSystem } = require("./attachment-open");
 const { registerTextContextMenu } = require("./text-context-menu");
 const { attachWindowStatePersistence, resolveWindowBounds } = require("./window-state");
+const { requestLocalAccountBootstrap } = require("./localAccountBootstrap");
 const {
   setCredentialsPath,
   registerCredentialsIpc,
@@ -71,6 +72,8 @@ let ugreenWorkspaceWindow = null;
 // ensureLocalAccount() 写入；renderer 通过 ipcMain "desktop:get-local-auth" 拉取。
 // 仅 full 模式有意义；lite 模式（连远端）保持原有手动登录流程。
 let localAuthCache = null;  // { token: string, user: object } | null
+let localAuthBootstrapSucceeded = false;
+let localAccountCreationAllowed = false;
 
 const MAIN_WINDOW_RELOAD_URL = "nowen-reload://main";
 const PREFERRED_BACKEND_PORT = 57892;
@@ -544,6 +547,7 @@ async function startBackend() {
   const backendEntry = getBackendEntry();
   const userDataPath = getUserDataPath();
   const dbPath = path.join(userDataPath, "nowen-note.db");
+  localAccountCreationAllowed = !fs.existsSync(dbPath);
   const backendCwd = app.isPackaged
     ? path.join(process.resourcesPath)
     : path.join(__dirname, "..");
@@ -741,10 +745,9 @@ function stopBackendForMigration(timeoutMs = 2000) {
 // ---------- Phase A: 桌面零登录的本地账号自动准备 ----------
 //
 // 设计：
-//   - full 模式下，backend 起来后向自身 localhost:port 走一遍 /auth/login；
+//   - full 模式下，backend 起来后向自身 localhost:port 走受保护的 bootstrap；
 //     用户名固定为 "desktop"，密码用 userData/.local_account_secret 持久化的 32B base64。
-//   - 第一次启动找不到用户，或存量 desktop 账号不是管理员 → 通过桌面专用受保护接口
-//     创建/升级为 admin，避免被 seed 阶段已创建的 admin 账号挤成普通用户。
+//   - 首次启动仅创建缺失的 desktop 管理员账号；已存在账号绝不在启动时改密或提权。
 //   - 拿到 token 后缓存在主进程，preload 通过 ipcMain "desktop:get-local-auth" 暴露给前端。
 //   - 失败不抛：renderer 拿不到 localAuth 就走原本的登录页，相当于"零登录"功能未生效。
 //
@@ -829,38 +832,19 @@ async function provisionLocalAdminAccount(username, password) {
 }
 
 async function ensureLocalAccount() {
+  localAuthBootstrapSucceeded = false;
   if (currentMode !== "full") return null;
   if (!backendPort) return null;
 
   const password = getLocalAccountSecret();
-  const username = "desktop";
-
-  // 先尝试登录
-  try {
-    const r = await localApiRequest("/auth/login", { username, password });
-    if (r.status === 200 && r.data?.token && r.data?.user?.role === "admin") {
-      console.log("[Electron] local desktop admin login OK");
-      return { token: r.data.token, refreshToken: r.data.refreshToken, user: r.data.user };
-    }
-    if (r.status === 200 && r.data?.token) {
-      console.warn("[Electron] local desktop account is not admin; promoting it");
-    }
-  } catch (e) {
-    console.warn("[Electron] local login failed:", e?.message || e);
+  // 密码不匹配、锁定、限流或网络错误都不会触发 reset-local。
+  const result = await requestLocalAccountBootstrap(localApiRequest, password, localAccountCreationAllowed);
+  if (result.account) {
+    localAuthBootstrapSucceeded = true;
+    console.log("[Electron] local desktop admin login OK");
+    return result.account;
   }
-
-  // 后端启动时 seed 已经会创建 admin，因此不能走普通注册接口：普通注册只会得到 user。
-  // 桌面专用接口受随机本机 secret 保护，负责创建或升级专用 desktop 管理员账号。
-  try {
-    const account = await provisionLocalAdminAccount(username, password);
-    if (account) {
-      console.log("[Electron] local desktop admin account provisioned");
-      return account;
-    }
-    console.warn("[Electron] local desktop admin provisioning failed");
-  } catch (e) {
-    console.warn("[Electron] local desktop admin provisioning error:", e?.message || e);
-  }
+  console.warn("[Electron] local desktop auto-login unavailable:", result.reason);
   return null;
 }
 
@@ -872,6 +856,7 @@ async function resetLocalAccountAuth() {
     const account = await provisionLocalAdminAccount("desktop", password);
     if (account) {
       localAuthCache = account;
+      localAuthBootstrapSucceeded = true;
       return { ok: true, ...account };
     }
     return { ok: false, error: "local-admin-provisioning-failed" };
@@ -2248,7 +2233,7 @@ ipcMain.handle("task:notify-permission", () => {
     const reject = assertMainWindowSender(event);
     if (reject) return reject;
     const serverUrl = getLocalLoginServerUrl();
-    if (currentMode !== "full" || currentRuntime !== "local" || !serverUrl) return null;
+    if (currentMode !== "full" || currentRuntime !== "local" || !serverUrl || !localAuthBootstrapSucceeded) return null;
     if (readSettings().localLoginHintDismissed) return null;
     return {
       serverUrl,
@@ -2298,7 +2283,7 @@ ipcMain.handle("task:notify-permission", () => {
     const { response } = await dialog.showMessageBox(parentWin || null, {
       type: "warning",
       title: "重置本地账号？",
-      message: "此操作会清除当前桌面端的本地账号认证信息。你可能需要重新登录或重新配置本地账号。是否继续？",
+      message: "此操作会把当前数据目录的 desktop 账号密码重置为本机托管凭据，并使该账号的旧登录会话失效；不会删除笔记或附件。请先确认本地数据位置及备份。是否继续？",
       buttons: ["取消", "重置"],
       defaultId: 0,  // 默认按钮是取消
       cancelId: 0,   // Esc / 关闭弹窗视为取消
