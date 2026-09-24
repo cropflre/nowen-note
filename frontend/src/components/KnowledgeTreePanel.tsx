@@ -1177,7 +1177,8 @@ export function KnowledgeTreePanel({
       <div key={node.id}>
         <div
           className={cn(
-            "group relative flex min-w-0 items-center text-tx-secondary hover:bg-app-hover hover:text-tx-primary",
+            "group relative flex min-w-0 items-center hover:bg-app-hover hover:text-tx-primary",
+            variant === "mobile" ? "text-tx-secondary" : "text-tx-primary",
             variant === "mobile" ? "gap-0.5 rounded-sm" : "rounded-md",
             active && "bg-app-active text-tx-primary",
             selected && "bg-accent-primary/10 text-tx-primary ring-1 ring-inset ring-accent-primary/25",
@@ -1260,7 +1261,7 @@ export function KnowledgeTreePanel({
             onClick={(event) => handleNodeSelection(event, node)}
             className={cn(
               "flex min-w-0 flex-1 items-center text-left",
-              variant === "mobile" ? "gap-1.5 py-1 text-[13px] leading-5" : "gap-1.5 py-1.5 text-xs",
+              variant === "mobile" ? "gap-1.5 py-1 text-[13px] leading-5" : "gap-1.5 py-1.5 text-sm leading-5",
             )}
             title={node.title}
           >
@@ -1630,7 +1631,8 @@ export function KnowledgeTreePanel({
               <div data-knowledge-tree-section="owned">
                 <div
                   className={cn(
-                    "flex items-center justify-between px-2 pb-1 pt-1 text-[10px] font-semibold uppercase tracking-wider text-tx-tertiary",
+                    "flex items-center justify-between px-2 pb-1 pt-1 font-semibold uppercase tracking-wider text-tx-secondary",
+                    variant === "mobile" ? "text-[10px]" : "text-xs",
                     controlsCollapsed && "hidden",
                   )}
                   data-knowledge-tree-section-heading=""
@@ -1652,7 +1654,7 @@ export function KnowledgeTreePanel({
             )}
             {sharedRoots.length > 0 && (
               <div className={cn("mt-2 border-t border-app-border pt-2", ownedRoots.length === 0 && !hasRootDraft && "mt-0 border-t-0 pt-0")} data-knowledge-tree-section="shared">
-                <div className="px-2 pb-1 text-[10px] font-semibold uppercase tracking-wider text-tx-tertiary">共享给我</div>
+                <div className={cn("px-2 pb-1 font-semibold uppercase tracking-wider text-tx-secondary", variant === "mobile" ? "text-[10px]" : "text-xs")}>共享给我</div>
                 {sharedRoots.map((node) => renderNode(node, 0))}
               </div>
             )}

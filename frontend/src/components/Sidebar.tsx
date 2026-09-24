@@ -312,7 +312,7 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
 
       <section className="flex min-h-0 flex-1 flex-col border-t border-app-border/60">
         {variant === "desktop" && (
-          <div className="shrink-0 px-4 pb-1 pt-2 text-[11px] font-medium text-tx-tertiary">
+          <div className="shrink-0 px-4 pb-1 pt-2 text-xs font-medium text-tx-secondary">
             内容
           </div>
         )}
@@ -331,7 +331,7 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
         <button
           type="button"
           onClick={toggleTagsExpanded}
-          className="flex w-full items-center gap-2 px-4 py-2 text-xs font-medium text-tx-tertiary transition-colors hover:bg-app-hover hover:text-tx-primary"
+          className="flex w-full items-center gap-2 px-4 py-2 text-[13px] font-medium text-tx-secondary transition-colors hover:bg-app-hover hover:text-tx-primary"
           aria-expanded={tagsExpanded}
         >
           {tagsExpanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}

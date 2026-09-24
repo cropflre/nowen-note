@@ -252,13 +252,13 @@ export default function NavRail({ variant = "desktop" }: { variant?: "desktop" |
         aria-label={label}
         className={cn(
           itemBaseClass,
-          active ? "bg-accent-primary/12 text-accent-primary" : "text-tx-tertiary hover:bg-app-hover hover:text-tx-primary",
+          active ? "bg-accent-primary/12 text-accent-primary" : "text-tx-secondary hover:bg-app-hover hover:text-tx-primary",
           item.mode === "trash" && !active && "opacity-70 hover:opacity-100",
         )}
       >
         {active && <span className="absolute left-0 top-1.5 bottom-1.5 w-[2px] rounded-full bg-accent-primary" aria-hidden />}
         {item.icon}
-        {showLabel && <span className="text-[10px] leading-none mt-0.5 max-w-full truncate px-1">{label}</span>}
+        {showLabel && <span className={cn("mt-0.5 max-w-full truncate px-1 leading-tight", isMobile ? "text-[10px]" : "text-[11px] font-medium")}>{label}</span>}
       </button>
     );
   };
@@ -326,7 +326,7 @@ export default function NavRail({ variant = "desktop" }: { variant?: "desktop" |
         className={cn(itemBaseClass, "text-tx-tertiary hover:bg-app-hover hover:text-tx-primary")}
       >
         <Settings size={16} />
-        {showLabel && <span className="text-[10px] leading-none mt-0.5 max-w-full truncate px-1">{t("sidebar.settings")}</span>}
+        {showLabel && <span className={cn("mt-0.5 max-w-full truncate px-1 leading-tight", isMobile ? "text-[10px]" : "text-[11px] font-medium")}>{t("sidebar.settings")}</span>}
       </button>
 
       {!localDeviceMode && isAccountLoginHistorySupported() && (

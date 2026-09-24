@@ -1125,7 +1125,7 @@ const NoteCard = React.memo(function NoteCard({
             // break-all：兜底——遇到极长不可断词（连续超长英文/无空格 URL）也强制裁断，
             // 不让一行的"内容宽度"超过容器，导致 flex 容器再被撑变形。
             "note-card-title text-sm font-medium line-clamp-1 break-all flex-1 min-w-0",
-            isActive ? "text-tx-primary" : "text-tx-secondary group-hover:text-tx-primary"
+            "text-tx-primary"
           )}>
             {searchQuery && note.titleHtml ? (
               <span dangerouslySetInnerHTML={{ __html: sanitizeSearchHtml(note.titleHtml) }} />
@@ -1169,10 +1169,10 @@ const NoteCard = React.memo(function NoteCard({
                   </span>
                 </div>
               )}
-              <p className="note-card-preview text-xs text-tx-tertiary line-clamp-2 leading-relaxed break-words [overflow-wrap:anywhere]" dangerouslySetInnerHTML={{ __html: sanitizeSearchHtml(preview) }} />
+              <p className="note-card-preview text-[13px] text-tx-secondary line-clamp-2 leading-relaxed break-words [overflow-wrap:anywhere]" dangerouslySetInnerHTML={{ __html: sanitizeSearchHtml(preview) }} />
             </div>
           ) : (
-            <p className="text-xs text-tx-tertiary mt-1.5 line-clamp-2 leading-relaxed break-words [overflow-wrap:anywhere]">{preview}</p>
+            <p className="text-[13px] text-tx-secondary mt-1.5 line-clamp-2 leading-relaxed break-words [overflow-wrap:anywhere]">{preview}</p>
           )
         )}
 
@@ -1180,11 +1180,11 @@ const NoteCard = React.memo(function NoteCard({
             - 左侧：更新时间（始终显示）
             - 右侧：工作区下显示创建者（最高优先级），否则 hover 时显示字数
             两者互斥渲染——卡片宽度有限，避免徽标挤压标题/预览。 */}
-        <div className="flex items-center justify-between mt-2 text-tx-tertiary gap-2">
+        <div className="flex items-center justify-between mt-2 text-tx-secondary gap-2">
           {(showNoteTime || notebookLabel) && (
             <div className="flex items-center gap-2 min-w-0">
               {notebookLabel && (
-                <span className="flex min-w-0 items-center gap-1 text-[10px] text-tx-tertiary" title={notebookLabel}>
+                <span className="flex min-w-0 items-center gap-1 text-[11px] text-tx-secondary" title={notebookLabel}>
                   <Folder size={10} className="shrink-0" />
                   <span className="truncate">{notebookLabel}</span>
                 </span>
@@ -1192,21 +1192,21 @@ const NoteCard = React.memo(function NoteCard({
               {showNoteTime && (
                 <span className="flex shrink-0 items-center gap-1.5">
               <Clock size={10} />
-              <span className="text-[10px]">{formatTime(note.updatedAt, t)}</span>
+              <span className="text-[11px]">{formatTime(note.updatedAt, t)}</span>
                 </span>
               )}
             </div>
           )}
           {showCreator ? (
             <span
-              className="flex items-center gap-1 text-[10px] text-tx-secondary/80 truncate max-w-[40%]"
+              className="flex items-center gap-1 text-[11px] text-tx-secondary truncate max-w-[40%]"
               title={t('common.createdBy', { name: note.creatorName })}
             >
               <UserIcon size={10} className="shrink-0" />
               <span className="truncate">{note.creatorName}</span>
             </span>
           ) : wordCount > 0 ? (
-            <span className="text-[10px] opacity-0 group-hover:opacity-100 transition-opacity tabular-nums">
+            <span className="text-[11px] opacity-0 group-hover:opacity-100 transition-opacity tabular-nums">
               {wordCount > 999 ? `${(wordCount / 1000).toFixed(1)}k` : wordCount} {t('common.chars') || '字'}
             </span>
           ) : null}
@@ -1218,7 +1218,7 @@ const NoteCard = React.memo(function NoteCard({
 NoteCard.displayName = "NoteCard";
 
 /* ===== 虚拟滚动笔记列表 ===== */
-const ITEM_HEIGHT = 90; // 每个笔记卡片的估算高度（px）
+const ITEM_HEIGHT = 112; // 包含两行预览与元信息的卡片高度（px）
 const OVERSCAN = 8; // 上下额外渲染的条目数
 
 function VirtualNoteList({
@@ -1301,7 +1301,7 @@ function VirtualNoteList({
     setScrollTop(e.currentTarget.scrollTop);
   }, []);
 
-  const itemHeight = showNotebookLabel ? 104 : ITEM_HEIGHT;
+  const itemHeight = showNotebookLabel ? 124 : ITEM_HEIGHT;
   const totalHeight = notes.length * itemHeight;
   const startIndex = Math.max(0, Math.floor(scrollTop / itemHeight) - OVERSCAN);
   const endIndex = Math.min(notes.length, Math.ceil((scrollTop + containerHeight) / itemHeight) + OVERSCAN);
