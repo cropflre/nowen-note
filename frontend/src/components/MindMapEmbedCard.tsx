@@ -17,6 +17,12 @@ import {
   parseMindMapSnapshotData,
   type MindMapSnapshot,
 } from "@/lib/mindMapSnapshot";
+import {
+  DOCUMENT_MINDMAP_CHANGED_EVENT,
+  invalidateDocumentMindMapCache,
+  loadDocumentMindMap,
+  type DocumentMindMapChangedDetail,
+} from "@/lib/documentMindMapRuntime";
 
 /** A document holds only an ID; the original mind map remains the single source of truth. */
 const MINDMAP_HREF = /^mindmap:([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i;
@@ -77,6 +83,7 @@ export default function MindMapEmbedCard({ href }: { href: string }) {
   const [map, setMap] = useState<MindMap | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(false);
+  const [cacheState, setCacheState] = useState<{ source: "network" | "cache"; cachedAt?: number }>({ source: "network" });
   const [revision, setRevision] = useState(0);
   const [scale, setScale] = useState(1);
   const [fullscreen, setFullscreen] = useState(false);
@@ -85,6 +92,7 @@ export default function MindMapEmbedCard({ href }: { href: string }) {
     setVisible(typeof IntersectionObserver === "undefined");
     setMap(null);
     setError(false);
+    setCacheState({ source: "network" });
     setScale(1);
     setFullscreen(false);
     if (!mapId || typeof IntersectionObserver === "undefined") return;
@@ -105,19 +113,21 @@ export default function MindMapEmbedCard({ href }: { href: string }) {
     let alive = true;
     setLoading(true);
     setError(false);
-    api.getMindMap(mapId).then((result) => {
+    loadDocumentMindMap(mapId, { fetcher: (id) => api.getMindMap(id) }).then((result) => {
       if (!alive) return;
-      const data = parseMindMapSnapshotData(result.data);
+      const data = parseMindMapSnapshotData(result.map.data);
       if (!data) {
         setMap(null);
         setError(true);
         return;
       }
-      setMap(result);
+      setMap(result.map as MindMap);
+      setCacheState({ source: result.source, cachedAt: result.cachedAt });
     }).catch(() => {
       if (alive) {
         setMap(null);
         setError(true);
+        setCacheState({ source: "network" });
       }
     }).finally(() => {
       if (alive) setLoading(false);
@@ -128,9 +138,25 @@ export default function MindMapEmbedCard({ href }: { href: string }) {
   useEffect(() => {
     if (!visible) return;
     const refresh = () => setRevision((current) => current + 1);
+    const onMindMapChanged = (event: Event) => {
+      const detail = (event as CustomEvent<DocumentMindMapChangedDetail>).detail;
+      if (!mapId || detail?.id !== mapId) return;
+      if (detail.kind === "deleted") {
+        void invalidateDocumentMindMapCache(mapId);
+        setMap(null);
+        setError(true);
+        setCacheState({ source: "network" });
+        return;
+      }
+      refresh();
+    };
     window.addEventListener("focus", refresh);
-    return () => window.removeEventListener("focus", refresh);
-  }, [visible]);
+    window.addEventListener(DOCUMENT_MINDMAP_CHANGED_EVENT, onMindMapChanged as EventListener);
+    return () => {
+      window.removeEventListener("focus", refresh);
+      window.removeEventListener(DOCUMENT_MINDMAP_CHANGED_EVENT, onMindMapChanged as EventListener);
+    };
+  }, [mapId, visible]);
 
   useEffect(() => {
     if (!fullscreen) return;
@@ -237,14 +263,26 @@ export default function MindMapEmbedCard({ href }: { href: string }) {
         className="my-4 min-w-0 max-w-full overflow-hidden rounded-xl border border-app-border bg-app-surface"
       >
         <div className="flex min-w-0 flex-wrap items-center justify-between gap-2 border-b border-app-border px-3 py-2">
-          <span className="min-w-0 truncate text-sm font-semibold text-tx-primary">{map?.title || "思维导图"}</span>
+          <div className="flex min-w-0 items-center gap-2">
+            <span className="min-w-0 truncate text-sm font-semibold text-tx-primary">{map?.title || "思维导图"}</span>
+            {cacheState.source === "cache" && (
+              <span
+                className="shrink-0 rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium text-amber-600"
+                title={cacheState.cachedAt ? `缓存于 ${new Date(cacheState.cachedAt).toLocaleString()}` : "离线缓存"}
+              >
+                离线快照
+              </span>
+            )}
+          </div>
           {toolbar}
         </div>
         <div className="min-h-24 max-h-[380px] overflow-auto overscroll-contain px-3 py-3" aria-label="思维导图只读预览">
           {body}
         </div>
         <div className="border-t border-app-border px-3 py-1.5 text-[11px] text-tx-tertiary">
-          引用原始导图 · SVG 只读快照 · 删除此块不会删除源文件
+          {cacheState.source === "cache"
+            ? "离线只读快照 · 联网后自动刷新 · 删除此块不会删除源文件"
+            : "引用原始导图 · SVG 只读快照 · 删除此块不会删除源文件"}
         </div>
       </div>
       {fullscreen && snapshot && typeof document !== "undefined" && createPortal(
