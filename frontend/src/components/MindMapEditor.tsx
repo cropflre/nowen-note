@@ -3,7 +3,7 @@ import {
   BrainCircuit, Plus, Trash2, Edit2,
   ZoomIn, ZoomOut, Maximize2, Minimize2, Scan,
   Loader2, Check, Map as MapIcon, Menu, PanelLeftClose, Image, FileImage, FileDown, MoreHorizontal,
-  User as UserIcon, Undo2, Redo2, PanelLeft, ChevronRight, ChevronDown, Link as LinkIcon, StickyNote, Palette, ExternalLink, FileText, ArrowDownToLine, Spline, Square, Pipette, Search as SearchIcon, ChevronUp, Star, Folder as FolderIcon, FolderPlus
+  User as UserIcon, Undo2, Redo2, PanelLeft, ChevronRight, ChevronDown, Link as LinkIcon, StickyNote, Palette, ExternalLink, FileText, ArrowDownToLine, Spline, Square, Pipette, Search as SearchIcon, ChevronUp, Star, Folder as FolderIcon, FolderPlus, AlertTriangle, X
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { api, getCurrentWorkspace } from "@/lib/api";
@@ -987,7 +987,25 @@ function MindMapListRow({
 }
 
 /* ===== 主组件 ===== */
-export default function MindMapCenter() {
+export interface MindMapCenterProps {
+  /** 文档内弹层编辑：只打开指定源导图，不展示导图列表/文件夹。 */
+  embeddedMode?: boolean;
+  embeddedMindMapId?: string;
+  onRequestClose?: () => void;
+  onSaved?: (map: MindMap) => void;
+}
+
+type MindMapSaveConflict = {
+  localData: MindMapData;
+  title?: string;
+};
+
+export default function MindMapCenter({
+  embeddedMode = false,
+  embeddedMindMapId,
+  onRequestClose,
+  onSaved,
+}: MindMapCenterProps = {}) {
   const { t } = useTranslation();
 
   // 移动端检测
@@ -1075,6 +1093,11 @@ export default function MindMapCenter() {
   const [listSearch, setListSearch] = useState("");
   const [showStarredOnly, setShowStarredOnly] = useState(false);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const embeddedPendingSaveRef = useRef<{ data: MindMapData; title?: string } | null>(null);
+  const embeddedSaveRunningRef = useRef(false);
+  const embeddedSaveConflictRef = useRef(false);
+  const embeddedFlushRef = useRef<(() => Promise<void>) | null>(null);
+  const [saveConflict, setSaveConflict] = useState<MindMapSaveConflict | null>(null);
   // 每次选择导图或切换目录都递增，用于丢弃已经失效的异步加载结果。
   const mapLoadRequestRef = useRef(0);
 
@@ -1151,8 +1174,13 @@ export default function MindMapCenter() {
   }, []);
 
   useEffect(() => {
-    loadMaps(); loadFolders();
-  }, [loadMaps]);
+    if (embeddedMode) {
+      setIsLoading(false);
+      return;
+    }
+    loadMaps();
+    loadFolders();
+  }, [embeddedMode, loadFolders, loadMaps]);
 
   // 切换目录后不保留上一个导图，避免用户误以为目录没有切换成功。
   // 同时递增请求序号，让切换前发出的 getMindMap 请求即使晚返回也不能恢复旧内容。
@@ -1232,8 +1260,14 @@ export default function MindMapCenter() {
     }
   }, []);
 
+  useEffect(() => {
+    if (!embeddedMode || !embeddedMindMapId) return;
+    void handleSelect(embeddedMindMapId);
+  }, [embeddedMindMapId, embeddedMode, handleSelect]);
+
   // 监听来自笔记编辑器的"保存为思维导图"事件 + sessionStorage 持久化
   useEffect(() => {
+    if (embeddedMode) return;
     const handler = (e: Event) => {
       const id = (e as CustomEvent).detail?.id;
       if (id) {
@@ -1251,30 +1285,121 @@ export default function MindMapCenter() {
     }
 
     return () => window.removeEventListener("nowen:open-mindmap", handler);
-  }, [loadMaps, handleSelect]);
+  }, [embeddedMode, loadMaps, handleSelect]);
+
+  const applySavedMindMap = useCallback((updated: MindMap) => {
+    activeMapRef.current = updated;
+    setActiveMap((current) => current?.id === updated.id ? updated : current);
+    setMaps((prev) =>
+      prev.map((m) => (m.id === updated.id ? { ...m, title: updated.title, updatedAt: updated.updatedAt } : m))
+    );
+    dispatchDocumentMindMapChanged({ id: updated.id, kind: "updated" });
+    onSaved?.(updated);
+  }, [onSaved]);
+
+  const flushEmbeddedSave = useCallback(async () => {
+    if (!embeddedMode || embeddedSaveRunningRef.current || embeddedSaveConflictRef.current) return;
+    const pending = embeddedPendingSaveRef.current;
+    const currentMap = activeMapRef.current;
+    if (!pending || !currentMap) return;
+
+    embeddedPendingSaveRef.current = null;
+    embeddedSaveRunningRef.current = true;
+    setIsSaving(true);
+    try {
+      const payload: { data: string; title?: string; expectedUpdatedAt: string } = {
+        data: JSON.stringify(pending.data),
+        expectedUpdatedAt: currentMap.updatedAt,
+      };
+      if (pending.title !== undefined) payload.title = pending.title;
+      const updated = await api.updateMindMap(currentMap.id, payload);
+      applySavedMindMap(updated);
+    } catch (err) {
+      const error = err as Error & { status?: number; code?: string };
+      if (error.status === 409 && error.code === "MINDMAP_CONFLICT") {
+        embeddedSaveConflictRef.current = true;
+        setSaveConflict({ localData: pending.data, title: pending.title });
+      } else {
+        console.error("Failed to save embedded mindmap:", err);
+        toast.error(error.message || "思维导图保存失败");
+        // 网络/服务端错误保留最新一次本地数据，后续编辑或手动操作仍可重试。
+        embeddedPendingSaveRef.current = pending;
+      }
+    } finally {
+      embeddedSaveRunningRef.current = false;
+      setIsSaving(false);
+      if (embeddedPendingSaveRef.current && !embeddedSaveConflictRef.current) {
+        window.setTimeout(() => { void embeddedFlushRef.current?.(); }, 0);
+      }
+    }
+  }, [applySavedMindMap, embeddedMode]);
+
+  embeddedFlushRef.current = flushEmbeddedSave;
 
   // 自动保存
   const triggerSave = useCallback((data: MindMapData, title?: string) => {
-    if (!activeMap) return;
+    const currentMap = activeMapRef.current || activeMap;
+    if (!currentMap) return;
+
+    if (embeddedMode && embeddedSaveConflictRef.current) {
+      setSaveConflict((current) => current ? { ...current, localData: data, title } : { localData: data, title });
+      return;
+    }
+
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     saveTimerRef.current = setTimeout(async () => {
+      if (embeddedMode) {
+        embeddedPendingSaveRef.current = { data, title };
+        void embeddedFlushRef.current?.();
+        return;
+      }
+
       setIsSaving(true);
       try {
         const payload: { data: string; title?: string } = { data: JSON.stringify(data) };
         if (title !== undefined) payload.title = title;
-        const updated = await api.updateMindMap(activeMap.id, payload);
-        dispatchDocumentMindMapChanged({ id: updated.id, kind: "updated" });
-        setActiveMap((current) => current?.id === updated.id ? updated : current);
-        setMaps((prev) =>
-          prev.map((m) => (m.id === updated.id ? { ...m, title: updated.title, updatedAt: updated.updatedAt } : m))
-        );
+        const updated = await api.updateMindMap(currentMap.id, payload);
+        applySavedMindMap(updated);
       } catch (err) {
         console.error("Failed to save mindmap:", err);
       } finally {
         setIsSaving(false);
       }
     }, 600);
-  }, [activeMap]);
+  }, [activeMap, applySavedMindMap, embeddedMode]);
+
+  const reloadConflictVersion = useCallback(async () => {
+    const id = activeMapRef.current?.id || embeddedMindMapId;
+    if (!id) return;
+    embeddedPendingSaveRef.current = null;
+    embeddedSaveConflictRef.current = false;
+    setSaveConflict(null);
+    await handleSelect(id);
+  }, [embeddedMindMapId, handleSelect]);
+
+  const overwriteConflictVersion = useCallback(async () => {
+    const conflict = saveConflict;
+    const currentMap = activeMapRef.current;
+    if (!conflict || !currentMap) return;
+    setIsSaving(true);
+    try {
+      const payload: { data: string; title?: string } = {
+        data: JSON.stringify(conflict.localData),
+      };
+      if (conflict.title !== undefined) payload.title = conflict.title;
+      const updated = await api.updateMindMap(currentMap.id, payload);
+      embeddedSaveConflictRef.current = false;
+      setSaveConflict(null);
+      applySavedMindMap(updated);
+      setMapData(conflict.localData);
+      mapDataRef.current = conflict.localData;
+    } catch (err) {
+      const error = err as Error;
+      toast.error(error.message || "覆盖保存失败");
+    } finally {
+      setIsSaving(false);
+    }
+  }, [applySavedMindMap, saveConflict]);
 
   // Undo/Redo
   const [history, setHistory] = useState<HistoryEntry[]>([]);
@@ -2515,6 +2640,19 @@ export default function MindMapCenter() {
     URL.revokeObjectURL(url);
   }, [listContextMenu, loadMapData, buildXmindContent]);
 
+  const requestEmbeddedClose = useCallback(() => {
+    if (!onRequestClose) return;
+    const hasUnsaved =
+      isSaving ||
+      embeddedSaveRunningRef.current ||
+      embeddedPendingSaveRef.current !== null ||
+      embeddedSaveConflictRef.current;
+    if (hasUnsaved && !window.confirm("思维导图还有未完成的保存或冲突处理，确定关闭编辑窗口吗？")) {
+      return;
+    }
+    onRequestClose();
+  }, [isSaving, onRequestClose]);
+
   return (
     <div className={cn(
       isFullscreen
@@ -2529,7 +2667,7 @@ export default function MindMapCenter() {
         />
       )}
 
-      {!isFullscreen && (/* Left: Map List Panel */
+      {!isFullscreen && !embeddedMode && (/* Left: Map List Panel */
       <div
         className={cn(
           "border-r border-app-border/60 bg-app-surface flex flex-col transition-all duration-150 ease-out",
@@ -2755,7 +2893,7 @@ export default function MindMapCenter() {
                     {t("mindMap.showAll")}
                   </button>
                 )}
-                {isMobile && (
+                {isMobile && !embeddedMode && (
                   <button
                     onClick={() => setSidebarOpen(true)}
                     className="p-1.5 rounded-md hover:bg-app-hover text-tx-secondary transition-colors duration-150 ease-out flex-shrink-0"
@@ -2879,8 +3017,51 @@ export default function MindMapCenter() {
                 >
                   <SearchIcon size={16} />
                 </button>
+                {embeddedMode && onRequestClose && (
+                  <>
+                    <div className="w-px h-4 bg-app-border mx-0.5" />
+                    <button
+                      onClick={requestEmbeddedClose}
+                      className={MT.toolbarBtn}
+                      title="关闭文档内编辑"
+                      aria-label="关闭文档内思维导图编辑"
+                    >
+                      <X size={16} />
+                    </button>
+                  </>
+                )}
               </div>
             </div>
+            {saveConflict && (
+              <div
+                className="flex flex-wrap items-center justify-between gap-2 border-b border-amber-400/30 bg-amber-500/10 px-3 py-2 text-xs"
+                role="alert"
+                data-mindmap-save-conflict="true"
+              >
+                <div className="flex min-w-0 items-center gap-2 text-amber-700 dark:text-amber-300">
+                  <AlertTriangle size={15} className="shrink-0" />
+                  <span>源导图已在其他窗口更新。为避免覆盖他人修改，自动保存已暂停。</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    disabled={isSaving}
+                    onClick={() => void reloadConflictVersion()}
+                    className="rounded-md border border-app-border bg-app-surface px-2.5 py-1 font-medium text-tx-primary hover:bg-app-hover disabled:opacity-50"
+                  >
+                    载入最新版
+                  </button>
+                  <button
+                    type="button"
+                    disabled={isSaving}
+                    onClick={() => void overwriteConflictVersion()}
+                    className="rounded-md bg-amber-600 px-2.5 py-1 font-medium text-white hover:bg-amber-700 disabled:opacity-50"
+                  >
+                    保留我的版本
+                  </button>
+                </div>
+              </div>
+            )}
             {showSearch && (
               <div className="px-2 sm:px-4 py-1.5 border-b border-app-border/40 bg-app-surface/20 flex items-center gap-2">
                 <SearchIcon size={14} className="text-tx-tertiary flex-shrink-0" />
