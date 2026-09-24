@@ -20,6 +20,11 @@ import { renderKatex } from "@/lib/katexRenderer";
 import { projectMarkdownForUser } from "@/lib/markdownUserContent";
 import { normalizeIndentValue } from "@/lib/codeBlockIndent";
 import FullscreenImageViewer, { type FullscreenImageItem } from "@/components/FullscreenImageViewer";
+import {
+  hydrateSharedMindMapPlaceholders,
+  preprocessSharedMindMapMarkdown,
+  renderSharedMindMapPlaceholder,
+} from "@/lib/sharedMindMapSnapshots";
 
 // 分享页独立的 lowlight 实例（与编辑器保持一致的 common 语法集合）
 const sharedLowlight = createLowlight(common);
@@ -134,7 +139,7 @@ export default function SharedNoteView({ shareToken }: SharedNoteViewProps) {
   const isReadOnlyContent = !(isEditing && (content?.permission === "edit" || content?.permission === "edit_auth"));
   const sharedMarkdownForDisplay = useMemo(
   () => content && detectFormat(content.content) === "md"
-    ? prepareSharedMarkdownForDisplay(content.content)
+    ? preprocessSharedMindMapMarkdown(prepareSharedMarkdownForDisplay(content.content))
     : "",
   [content?.content],
 );
@@ -169,6 +174,17 @@ export default function SharedNoteView({ shareToken }: SharedNoteViewProps) {
     });
     return () => cancelAnimationFrame(raf);
   }, [content?.content]);
+
+  // #790：分享页只使用 /shared/:token/content 随响应下发的静态脑图快照。
+  // 不从公开页面请求 /api/mindmaps/:id，避免把私有导图 API 暴露给访客。
+  useEffect(() => {
+    const root = pmRenderRef.current;
+    if (!root || !content?.content || !isReadOnlyContent) return;
+    const frame = requestAnimationFrame(() => {
+      hydrateSharedMindMapPlaceholders(root, content.mindMapSnapshots);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [content?.content, content?.mindMapSnapshots, isReadOnlyContent, isEditing]);
 
   // 分享页只读内容里的外部链接默认新标签页打开；HTML/PM 路径需要 DOM 后处理。
   useEffect(() => {
@@ -1223,7 +1239,7 @@ export default function SharedNoteView({ shareToken }: SharedNoteViewProps) {
                       "*": [
                         "className", "id", "title", "dir", "lang", "style",
                         "dataMermaidSource", "dataMathSource", "dataMathSourceMd",
-                        "dataFootnoteId", "dataRendered", "dataWidth",
+                        "dataFootnoteId", "dataRendered", "dataWidth", "dataSharedMindmapId",
                       ],
                       "a": ["href", "target", "rel", "name"],
                       "img": ["src", "alt", "width", "height", "loading", "referrerpolicy"],
@@ -1844,6 +1860,10 @@ function renderNode(node: any): string {
       const order = _footnoteOrderMap[id] || 0;
       const encId = escapeHtml(id);
       return `<div class="shared-footnote-def" id="fn-${encId}" data-footnote-def="${encId}" data-footnote-order="${order}"><span class="shared-footnote-def-marker"><a href="#fnref-${encId}" class="shared-footnote-back" data-footnote-back="${encId}" title="跳回">↩</a><span class="shared-footnote-def-index">${order || "?"}.</span></span><span class="shared-footnote-def-content">${escapeHtml(content)}</span></div>`;
+    }
+    case "blockEmbed": {
+      const placeholder = renderSharedMindMapPlaceholder(String(node.attrs?.href || ""));
+      return placeholder || "";
     }
     case "blockquote":
       return `<blockquote${renderSharedIndentAttribute(node)}>${renderChildren(node)}</blockquote>`;
