@@ -2869,7 +2869,10 @@ export const api = {
     const qs = ws && ws !== "personal" ? `?workspaceId=${encodeURIComponent(ws)}` : "";
     return request<MindMap>(`/mindmaps${qs}`, { method: "POST", body: JSON.stringify(data) });
   },
-  updateMindMap: (id: string, data: { title?: string; data?: string }) =>
+  updateMindMap: (
+    id: string,
+    data: { title?: string; data?: string; expectedUpdatedAt?: string },
+  ) =>
     request<MindMap>(`/mindmaps/${id}`, { method: "PUT", body: JSON.stringify(data) }),
   deleteMindMap: (id: string) => request(`/mindmaps/${id}`, { method: "DELETE" }),
   toggleStarMindMap: (id: string) => request<MindMap>(`/mindmaps/${id}/star`, { method: "PATCH" }),
