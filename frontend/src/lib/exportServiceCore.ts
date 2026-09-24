@@ -3,7 +3,7 @@ import { saveAs } from "file-saver";
 import { isAndroidNative, saveImageToGallery } from "./nativeImageSave";
 import TurndownService from "turndown";
 import i18n from "i18next";
-import { generateHTML } from "@tiptap/core";
+import { generateHTML, Node, mergeAttributes } from "@tiptap/core";
 import StarterKit from "@tiptap/starter-kit";
 import Image from "@tiptap/extension-image";
 import CodeBlockLowlight from "@tiptap/extension-code-block-lowlight";
@@ -18,6 +18,35 @@ import { api, resolveAttachmentUrl } from "./api";
 import { TextStyleKit } from "@/components/FontSizeExtension";
 import { Video as VideoExtension } from "@/components/VideoExtension";
 import { detectFormat, markdownToHtml } from "@/lib/contentFormat";
+import { hydrateMindMapEmbedsForExport } from "@/lib/documentMindMapExport";
+
+// 导出只需要 blockEmbed 的 schema/HTML 序列化，不挂 React NodeView。
+// 这样 Tiptap JSON 中的 mindmap 引用不会在 generateHTML 阶段被 schema 静默吞掉。
+const ExportBlockEmbedExtension = Node.create({
+  name: "blockEmbed",
+  group: "block",
+  atom: true,
+  addAttributes() {
+    return { href: { default: "" } };
+  },
+  parseHTML() {
+    return [{
+      tag: "div[data-nowen-block-embed]",
+      getAttrs: (node) => ({
+        href: (node as HTMLElement).getAttribute("data-nowen-block-embed") || "",
+      }),
+    }];
+  },
+  renderHTML({ HTMLAttributes }) {
+    return [
+      "div",
+      mergeAttributes(HTMLAttributes, {
+        "data-nowen-block-embed": HTMLAttributes.href,
+      }),
+      "引用块",
+    ];
+  },
+});
 
 // TipTap 扩展列表（需与 importService / 编辑器保持一致，否则某些节点会被吞掉）
 const lowlight = createLowlight(common);
@@ -42,6 +71,7 @@ const tiptapExtensions = [
   ...TextStyleKit,
   // 视频节点：与编辑器保持一致，否则导出时 video 节点会被吞
   VideoExtension,
+  ExportBlockEmbedExtension,
 ];
 
 /**
@@ -1436,7 +1466,7 @@ export async function exportSingleNote(
 // ============================================================================
 
 // 公共：把笔记渲染为带样式的完整 HTML 文档字符串
-async function buildPrintableHtml(note: {
+export async function buildPrintableHtml(note: {
   title: string;
   content: string;
   contentText: string;
@@ -1445,6 +1475,9 @@ async function buildPrintableHtml(note: {
   updatedAt: string;
 }): Promise<string> {
   let html = noteContentToExportHtml(note.content, note.contentText, note.contentFormat);
+  // 原生思维导图引用在打印/PDF/图片中必须冻结为静态 SVG 快照；
+  // 不能把 mindmap:<uuid> 或需要登录的 /api/mindmaps/:id 暴露到导出产物。
+  html = await hydrateMindMapEmbedsForExport(html);
   // 把 /api/attachments/<id> 全部 inline 成 data URI（避免新窗口加载失败、canvas tainted）
   const stats: ImgStats = { ok: 0, failed: 0, failures: [] };
   html = await inlineRemoteImages(html, stats);
