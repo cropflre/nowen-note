@@ -45,6 +45,7 @@ const ACCESS_REVOKED_REASONS = new Set([
   "attachment_not_found",
   "note_mismatch",
   "user_access_revoked",
+  "file_access_revoked",
   "share_access_revoked",
   "share_expired",
 ]);
