@@ -1,13 +1,29 @@
 name: Knowledge Access Query Limits CI
 
 on:
+  push:
+    branches: [release/v1.5.0]
+    paths:
+      - 'backend/src/routes/search.ts'
+      - 'backend/src/routes/attachments.ts'
+      - 'backend/src/lib/attachment-signed-url.ts'
+      - 'backend/src/middleware/knowledgeFilesCapabilityGuard.ts'
+      - 'backend/src/services/fileAttachmentAccess.ts'
+      - 'backend/src/services/knowledge*.ts'
+      - 'backend/tests/knowledge-tree-query-limits.test.ts'
+      - 'backend/tests/file-manager-manual-upload-visibility.test.ts'
+      - '.github/workflows/knowledge-access-query-limits-ci.yml'
   pull_request:
     branches: [main]
     paths:
       - 'backend/src/routes/search.ts'
+      - 'backend/src/routes/attachments.ts'
+      - 'backend/src/lib/attachment-signed-url.ts'
       - 'backend/src/middleware/knowledgeFilesCapabilityGuard.ts'
+      - 'backend/src/services/fileAttachmentAccess.ts'
       - 'backend/src/services/knowledge*.ts'
       - 'backend/tests/knowledge-tree-query-limits.test.ts'
+      - 'backend/tests/file-manager-manual-upload-visibility.test.ts'
       - '.github/workflows/knowledge-access-query-limits-ci.yml'
 
 permissions:
@@ -28,7 +44,10 @@ jobs:
           cache: npm
           cache-dependency-path: backend/package-lock.json
       - run: npm ci --silent
-      - name: Query limit regression tests
-        run: node --import tsx --test tests/knowledge-tree-query-limits.test.ts
+      - name: Knowledge/file-manager regression tests
+        run: >-
+          node --import tsx --test
+          tests/knowledge-tree-query-limits.test.ts
+          tests/file-manager-manual-upload-visibility.test.ts
       - name: Backend typecheck
         run: npm run build:tsc
