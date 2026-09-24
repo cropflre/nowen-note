@@ -1,4 +1,5 @@
 import {
+  buildAppPathUrl,
   pushAppPathState,
   replaceAppPathState,
   resolveCurrentAppPathname,
@@ -53,4 +54,14 @@ export function pushMindMapAppPath(mindMapId?: string | null): void {
 
 export function replaceMindMapAppPath(mindMapId?: string | null): void {
   replaceAppPathState(buildMindMapAppPath(mindMapId));
+}
+
+
+export function buildMindMapDeepLinkUrl(
+  mindMapId: string,
+  currentHref: string = window.location.href,
+): string {
+  const appPath = buildMindMapAppPath(mindMapId);
+  const routed = buildAppPathUrl(appPath, currentHref);
+  return new URL(routed, currentHref).toString();
 }
