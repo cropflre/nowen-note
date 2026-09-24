@@ -57,6 +57,18 @@ import SidebarSearchExperienceBridge from "@/components/SidebarSearchExperienceB
 import FloatingLayerHost from "@/components/FloatingLayerHost";
 import { stripServerBasePath } from "@/lib/serverUrl";
 import {
+  APP_PATH_CHANGED_EVENT,
+  replaceAppPathState,
+  resolveCurrentAppPathname,
+} from "@/lib/appPathNavigation";
+import {
+  getCurrentMindMapAppRoute,
+  isMindMapId,
+  parseMindMapAppPath,
+  replaceMindMapAppPath,
+  type MindMapAppRoute,
+} from "@/lib/mindMapDeepLink";
+import {
   clearAuthTokens,
   fetchWithAuthRefresh,
   getAccessToken,
@@ -379,6 +391,50 @@ function AppLayout() {
   const { state } = useApp();
   const actions = useAppActions();
   const { t } = useTranslation();
+  const [mindMapRoute, setMindMapRoute] = useState<MindMapAppRoute>(() => getCurrentMindMapAppRoute());
+  const [appPathReady, setAppPathReady] = useState(false);
+
+  useEffect(() => {
+    const applyRoute = () => {
+      const pathname = resolveCurrentAppPathname();
+      const route = parseMindMapAppPath(pathname);
+      setMindMapRoute(route);
+
+      if (route.matched) {
+        actions.setViewMode("mindmaps");
+      } else if (pathname === "/") {
+        // Browser back from /mindmaps[/id] returns to the normal note workspace.
+        actions.setViewMode("all");
+      }
+      setAppPathReady(true);
+    };
+
+    applyRoute();
+    window.addEventListener("popstate", applyRoute);
+    window.addEventListener(APP_PATH_CHANGED_EVENT, applyRoute);
+    return () => {
+      window.removeEventListener("popstate", applyRoute);
+      window.removeEventListener(APP_PATH_CHANGED_EVENT, applyRoute);
+    };
+  }, [actions]);
+
+  useEffect(() => {
+    if (!appPathReady) return;
+    const currentRoute = getCurrentMindMapAppRoute();
+
+    if (state.viewMode === "mindmaps") {
+      if (!currentRoute.matched) {
+        const pendingId = sessionStorage.getItem("pendingOpenMindMapId");
+        replaceMindMapAppPath(isMindMapId(pendingId) ? pendingId : null);
+      }
+      return;
+    }
+
+    if (currentRoute.matched) {
+      // Non-router legacy viewMode transitions still get a canonical URL.
+      replaceAppPathState("/");
+    }
+  }, [appPathReady, state.viewMode]);
   const { prefs: userPrefs } = useUserPreferences();
   // v16 P3 后续：Rail 视觉模式三档（icon / label / hidden）。
   // 约束：主侧栏折叠时强制显示 Rail（即便偏好是 hidden），
@@ -782,7 +838,7 @@ function AppLayout() {
       ) : isMindMapView ? (
         <div className="flex-1 flex flex-col">
           <MobileTopBar />
-          <MindMapCenter />
+          <MindMapCenter routeMindMapId={mindMapRoute.matched ? mindMapRoute.mindMapId : undefined} />
         </div>
       ) : isAIChatView ? (
         <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
