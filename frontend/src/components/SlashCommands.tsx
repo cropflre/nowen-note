@@ -9,7 +9,7 @@ import {
   Heading1, Heading2, Heading3, Heading4, Heading5, Heading6, List, ListOrdered, CheckSquare,
   Quote, FileCode, Minus, ImagePlus, Sparkles,
   Bold, Italic, Highlighter, Table2,
-  Strikethrough, Code, Link as LinkIcon, Workflow, Sigma, BookOpen, Film, FolderSearch
+  Strikethrough, Code, Link as LinkIcon, Workflow, Sigma, BookOpen, Film, FolderSearch, Network
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useTranslation } from "react-i18next";
@@ -314,6 +314,17 @@ export function getDefaultSlashCommands(
             content: [{ type: "text", text: sample }],
           })
           .run();
+      },
+    },
+    {
+      id: "mindmap",
+      label: "思维导图",
+      description: "选择已有脑图或新建后插入",
+      icon: <Network size={16} />,
+      category: "插入",
+      keywords: ["mindmap", "mind map", "脑图", "思维导图", "导图", "插入脑图"],
+      action: () => {
+        window.dispatchEvent(new CustomEvent("nowen:open-mindmap-insert"));
       },
     },
     {
