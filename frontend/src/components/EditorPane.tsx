@@ -2242,6 +2242,13 @@ const moveToTrash = useCallback(async () => {
   const [showMermaidDialog, setShowMermaidDialog] = useState(false);
   const [showMindMapInsertDialog, setShowMindMapInsertDialog] = useState(false);
 
+
+  useEffect(() => {
+    const openMindMapInsert = () => setShowMindMapInsertDialog(true);
+    window.addEventListener("nowen:open-mindmap-insert", openMindMapInsert);
+    return () => window.removeEventListener("nowen:open-mindmap-insert", openMindMapInsert);
+  }, []);
+
   const handleAIMermaid = useCallback(async (type: "mermaid_mindmap" | "mermaid_flowchart") => {
     if (!activeNote || aiMermaidLoading) return;
     const snap = editorHandleRef.current?.getSnapshot?.();
@@ -3770,8 +3777,14 @@ const moveToTrash = useCallback(async () => {
         onClose={() => setShowMindMapInsertDialog(false)}
         onInsert={(id) => {
           if (!activeNote || effectiveLocked || isTrashed || noteIsFullHtmlDoc || !canEditActiveNote) return false;
-          const inserted = editorHandleRef.current?.appendMarkdown?.(`\n\n![[mindmap:${id}]]\n\n`) === true;
-          if (inserted) toast.success("已插入思维导图引用");
+          const markdown = `\n\n![[mindmap:${id}]]\n\n`;
+          const editorHandle = editorHandleRef.current;
+          const insertedAtCursor = editorHandle?.insertMarkdownAtCursor?.(markdown) === true;
+          const inserted = insertedAtCursor || editorHandle?.appendMarkdown?.(markdown) === true;
+          if (inserted) {
+            editorHandle?.flushSave?.();
+            toast.success("已插入思维导图");
+          }
           return inserted;
         }}
       />
