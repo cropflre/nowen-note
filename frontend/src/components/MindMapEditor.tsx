@@ -3,7 +3,7 @@ import {
   BrainCircuit, Plus, Trash2, Edit2,
   ZoomIn, ZoomOut, Maximize2, Minimize2, Scan,
   Loader2, Check, Map as MapIcon, Menu, PanelLeftClose, Image, FileImage, FileDown, MoreHorizontal,
-  User as UserIcon, Undo2, Redo2, PanelLeft, ChevronRight, ChevronDown, Link as LinkIcon, StickyNote, Palette, ExternalLink, FileText, ArrowDownToLine, Spline, Square, Pipette, Search as SearchIcon, ChevronUp, Star, Folder as FolderIcon, FolderPlus, AlertTriangle, X
+  User as UserIcon, Undo2, Redo2, PanelLeft, ChevronRight, ChevronDown, Link as LinkIcon, StickyNote, Palette, ExternalLink, FileText, ArrowDownToLine, Spline, Square, Pipette, Search as SearchIcon, ChevronUp, Star, Folder as FolderIcon, FolderPlus, AlertTriangle, X, Copy
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { api, getCurrentWorkspace } from "@/lib/api";
@@ -15,6 +15,11 @@ import { buildXmindContent, buildZip, downloadBlob } from "@/lib/mindmapExport";
 import { markdownToMindMapData, mindMapDataToMarkdown } from "@/lib/mindmapTransform";
 import { computeLayoutBounds, fitMindMapToViewport, isValidViewport } from "@/lib/mindmapViewport";
 import { dispatchDocumentMindMapChanged } from "@/lib/documentMindMapRuntime";
+import {
+  buildMindMapDeepLinkUrl,
+  pushMindMapAppPath,
+  replaceMindMapAppPath,
+} from "@/lib/mindMapDeepLink";
 /* ===== macOS-style Mindmap Theme Tokens ===== */
 const MT = {
   canvasBg: "var(--mm-canvas-bg, #f5f5f7)",
@@ -991,6 +996,8 @@ export interface MindMapCenterProps {
   /** 文档内弹层编辑：只打开指定源导图，不展示导图列表/文件夹。 */
   embeddedMode?: boolean;
   embeddedMindMapId?: string;
+  /** 主应用路由控制：undefined=不参与；null=/mindmaps；uuid=/mindmaps/:id。 */
+  routeMindMapId?: string | null;
   onRequestClose?: () => void;
   onSaved?: (map: MindMap) => void;
 }
@@ -1003,6 +1010,7 @@ type MindMapSaveConflict = {
 export default function MindMapCenter({
   embeddedMode = false,
   embeddedMindMapId,
+  routeMindMapId,
   onRequestClose,
   onSaved,
 }: MindMapCenterProps = {}) {
@@ -1223,11 +1231,13 @@ export default function MindMapCenter({
     const requestId = ++mapLoadRequestRef.current;
     try {
       const map = await api.getMindMap(id);
-      if (requestId !== mapLoadRequestRef.current) return;
+      if (requestId !== mapLoadRequestRef.current) return false;
       setActiveMap(map);
+      activeMapRef.current = map;
       try {
         const parsed = JSON.parse(map.data);
         setMapData(parsed);
+        mapDataRef.current = parsed;
         setLayoutMode(parsed.layout || "right");
         if (parsed.viewport?.userSet && isValidViewport(parsed.viewport)) {
           setPan({ x: parsed.viewport.x, y: parsed.viewport.y });
@@ -1246,7 +1256,9 @@ export default function MindMapCenter({
         setHistory([entry]);
         setHistoryIndex(0);
       } catch {
-        setMapData({ root: { id: "root", text: map.title, children: [] } });
+        const fallback = { root: { id: "root", text: map.title, children: [] } };
+        setMapData(fallback);
+        mapDataRef.current = fallback;
         setPan({ x: 0, y: 0 });
         setZoom(1);
         viewportUserSetRef.current = false;
@@ -1255,15 +1267,33 @@ export default function MindMapCenter({
       setSelectedNodeId(null);
       setSelectedNodeIds([]);
       setEditingNodeId(null);
+      if (!embeddedMode) pushMindMapAppPath(map.id);
+      return true;
     } catch (err) {
       console.error("Failed to load mindmap:", err);
+      if (!embeddedMode) {
+        toast.error("思维导图不存在、已删除或当前账号无权访问");
+        replaceMindMapAppPath(null);
+      }
+      return false;
     }
-  }, []);
+  }, [embeddedMode]);
 
   useEffect(() => {
     if (!embeddedMode || !embeddedMindMapId) return;
     void handleSelect(embeddedMindMapId);
   }, [embeddedMindMapId, embeddedMode, handleSelect]);
+
+
+  useEffect(() => {
+    if (embeddedMode || routeMindMapId === undefined) return;
+    if (routeMindMapId === null) {
+      if (activeMapRef.current) clearActiveMap();
+      return;
+    }
+    if (activeMapRef.current?.id === routeMindMapId) return;
+    void handleSelect(routeMindMapId);
+  }, [clearActiveMap, embeddedMode, handleSelect, routeMindMapId]);
 
   // 监听来自笔记编辑器的"保存为思维导图"事件 + sessionStorage 持久化
   useEffect(() => {
@@ -1858,12 +1888,15 @@ export default function MindMapCenter({
       setMaps((prev) => prev.filter((m) => m.id !== id));
       if (activeMap?.id === id) {
         setActiveMap(null);
+        activeMapRef.current = null;
         setMapData(null);
+        mapDataRef.current = null;
+        if (!embeddedMode) replaceMindMapAppPath(null);
       }
     } catch (err) {
       console.error("Failed to delete mindmap:", err);
     }
-  }, [activeMap]);
+  }, [activeMap, embeddedMode]);
 
   const applyViewport = useCallback((viewport: MindMapViewport, options: { userSet?: boolean; persist?: boolean } = {}) => {
     const next = { ...viewport, userSet: options.userSet ?? viewport.userSet };
@@ -2904,6 +2937,24 @@ export default function MindMapCenter({
                 <h1 className="text-sm font-semibold text-tx-primary truncate max-w-[120px] sm:max-w-[300px]">
                   {activeMap.title}
                 </h1>
+                {!embeddedMode && (
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      try {
+                        await navigator.clipboard.writeText(buildMindMapDeepLinkUrl(activeMap.id));
+                        toast.success("已复制思维导图链接");
+                      } catch {
+                        toast.error("复制链接失败");
+                      }
+                    }}
+                    className="hidden sm:inline-flex rounded-md p-1 text-tx-tertiary hover:bg-app-hover hover:text-tx-secondary"
+                    title="复制思维导图链接"
+                    aria-label="复制思维导图链接"
+                  >
+                    <Copy size={13} />
+                  </button>
+                )}
                 {isSaving ? (
                   <span className="flex items-center gap-1 text-xs text-tx-tertiary flex-shrink-0">
                     <Loader2 size={12} className="animate-spin" />
