@@ -109,6 +109,8 @@ export interface NotebookShareLink {
   createdBy: string;
   createdAt: string;
   updatedAt: string;
+  /** 当前会话是否具备源导图编辑权限；GET /mindmaps/:id 返回。 */
+  canEdit?: boolean;
 }
 
 export interface WorkspaceInvite {
