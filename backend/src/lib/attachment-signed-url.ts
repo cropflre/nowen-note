@@ -6,6 +6,7 @@
  *
  * v2 scope 不再只是一个不可解释的字符串，而是携带可重新校验的授权上下文：
  *   - user：某个已登录用户读取某篇笔记；
+ *   - file：某个已登录用户读取文件管理中主动保存的独立文件；
  *   - share：某个仍有效的单篇公开分享读取某篇笔记；
  *   - publication：某个仍有效的笔记本发布读取目录树中的笔记。
  *
@@ -16,6 +17,11 @@ import crypto from "crypto";
 import { getDb } from "../db/schema";
 import { hasPermission, resolveNotePermission } from "../middleware/acl";
 import { resolveEffectiveNoteCapabilities } from "../services/share-capabilities";
+import {
+  isManualFileManagerUpload,
+  resolveFileAttachmentAccess,
+  type FileAttachmentAccessRow,
+} from "../services/fileAttachmentAccess";
 
 const DEFAULT_TTL_MS = 12 * 60 * 60 * 1000; // 12 小时：覆盖长时间编辑会话
 const MAX_TTL_MS = 24 * 60 * 60 * 1000;     // 24 小时；访问权限仍会逐请求复核
@@ -37,6 +43,7 @@ const EXP_QUANTIZATION_WINDOW_MS = 15 * 60 * 1000; // 15 分钟
 
 export type AttachmentAccessScope =
   | { version: 2; kind: "user"; subjectId: string; noteId: string; allowDownload: boolean }
+  | { version: 2; kind: "file"; subjectId: string; attachmentId: string; allowDownload: boolean }
   | { version: 2; kind: "share"; subjectId: string; noteId: string; allowDownload: boolean }
   | { version: 2; kind: "publication"; subjectId: string; noteId: string; allowDownload: boolean };
 
@@ -63,6 +70,14 @@ export function createUserAttachmentScope(userId: string, noteId: string, allowD
   return encodeScope({ version: 2, kind: "user", subjectId: userId, noteId, allowDownload });
 }
 
+export function createFileAttachmentScope(
+  userId: string,
+  attachmentId: string,
+  allowDownload = true,
+): string {
+  return encodeScope({ version: 2, kind: "file", subjectId: userId, attachmentId, allowDownload });
+}
+
 export function createShareAttachmentScope(shareId: string, noteId: string, allowDownload = true): string {
   return encodeScope({ version: 2, kind: "share", subjectId: shareId, noteId, allowDownload });
 }
@@ -79,19 +94,34 @@ export function parseAttachmentAccessScope(raw: string): AttachmentAccessScope |
   if (!raw || raw.length > MAX_SCOPE_LENGTH || !raw.startsWith(SCOPE_PREFIX)) return null;
   try {
     const decoded = Buffer.from(raw.slice(SCOPE_PREFIX.length), "base64url").toString("utf8");
-    const parsed = JSON.parse(decoded) as Partial<AttachmentAccessScope>;
+    const parsed = JSON.parse(decoded) as Record<string, unknown>;
     if (parsed.version !== 2) return null;
-    if (parsed.kind !== "user" && parsed.kind !== "share" && parsed.kind !== "publication") return null;
+    const kind = parsed.kind;
+    if (kind !== "user" && kind !== "file" && kind !== "share" && kind !== "publication") return null;
     if (typeof parsed.subjectId !== "string" || !parsed.subjectId.trim()) return null;
+    if (parsed.subjectId.length > 256) return null;
+
+    if (kind === "file") {
+      if (typeof parsed.attachmentId !== "string" || !parsed.attachmentId.trim()) return null;
+      if (parsed.attachmentId.length > 256) return null;
+      return {
+        version: 2,
+        kind,
+        subjectId: parsed.subjectId,
+        attachmentId: parsed.attachmentId,
+        allowDownload: parsed.allowDownload !== false,
+      };
+    }
+
     if (typeof parsed.noteId !== "string" || !parsed.noteId.trim()) return null;
-    if (parsed.subjectId.length > 256 || parsed.noteId.length > 256) return null;
+    if (parsed.noteId.length > 256) return null;
     return {
       version: 2,
-      kind: parsed.kind,
+      kind,
       subjectId: parsed.subjectId,
       noteId: parsed.noteId,
       allowDownload: parsed.allowDownload !== false,
-    } as AttachmentAccessScope;
+    };
   } catch {
     return null;
   }
@@ -121,9 +151,25 @@ export function verifyAttachmentAccessScope(
 
   const db = getDb();
   const attachment = db
-    .prepare("SELECT noteId FROM attachments WHERE id = ?")
-    .get(attachmentId) as { noteId: string } | undefined;
+    .prepare("SELECT id, noteId, userId, workspaceId, uploadSource FROM attachments WHERE id = ?")
+    .get(attachmentId) as FileAttachmentAccessRow | undefined;
   if (!attachment) return { valid: false, reason: "attachment_not_found", accessKind: scope.kind };
+
+  if (scope.kind === "file") {
+    if (scope.attachmentId !== attachmentId || !isManualFileManagerUpload(attachment)) {
+      return { valid: false, reason: "file_scope_mismatch", accessKind: "file" };
+    }
+    const access = resolveFileAttachmentAccess(attachment, scope.subjectId);
+    if (!access.canView) {
+      return { valid: false, reason: "file_access_revoked", accessKind: "file" };
+    }
+    return {
+      valid: true,
+      accessKind: "file",
+      allowDownload: scope.allowDownload && access.canDownload,
+    };
+  }
+
   if (!attachment.noteId || attachment.noteId !== scope.noteId) {
     return { valid: false, reason: "note_mismatch", accessKind: scope.kind };
   }
@@ -234,8 +280,37 @@ export function createUserAttachmentAccessUrls(
   attachments: Array<{ id: string; noteId: string }>,
 ): Record<string, string> {
   const urls: Record<string, string> = {};
+  const ids = Array.from(new Set(attachments.map((attachment) => attachment.id).filter(Boolean)));
+  const metadata = new Map<string, FileAttachmentAccessRow>();
+
+  if (ids.length > 0) {
+    const placeholders = ids.map(() => "?").join(",");
+    const rows = getDb().prepare(
+      `SELECT id, noteId, userId, workspaceId, uploadSource
+         FROM attachments
+        WHERE id IN (${placeholders})`,
+    ).all(...ids) as FileAttachmentAccessRow[];
+    for (const row of rows) {
+      if (row.id) metadata.set(row.id, row);
+    }
+  }
+
   for (const attachment of attachments) {
     if (!attachment.id || !attachment.noteId) continue;
+    const stored = metadata.get(attachment.id);
+
+    if (stored && isManualFileManagerUpload(stored)) {
+      const access = resolveFileAttachmentAccess(stored, userId);
+      if (!access.canView) continue;
+      const scope = createFileAttachmentScope(userId, attachment.id, access.canDownload);
+      urls[attachment.id] = createAttachmentSignedUrl(
+        `/api/attachments/${attachment.id}`,
+        attachment.id,
+        scope,
+      );
+      continue;
+    }
+
     const capabilities = resolveEffectiveNoteCapabilities(attachment.noteId, userId);
     const scope = createUserAttachmentScope(userId, attachment.noteId, capabilities.download);
     urls[attachment.id] = createAttachmentSignedUrl(
