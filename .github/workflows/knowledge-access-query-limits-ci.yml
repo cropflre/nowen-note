@@ -6,6 +6,7 @@ on:
     paths:
       - 'backend/src/routes/search.ts'
       - 'backend/src/routes/attachments.ts'
+      - 'backend/src/routes/files.ts'
       - 'backend/src/lib/attachment-signed-url.ts'
       - 'backend/src/middleware/knowledgeFilesCapabilityGuard.ts'
       - 'backend/src/services/fileAttachmentAccess.ts'
@@ -18,6 +19,7 @@ on:
     paths:
       - 'backend/src/routes/search.ts'
       - 'backend/src/routes/attachments.ts'
+      - 'backend/src/routes/files.ts'
       - 'backend/src/lib/attachment-signed-url.ts'
       - 'backend/src/middleware/knowledgeFilesCapabilityGuard.ts'
       - 'backend/src/services/fileAttachmentAccess.ts'
