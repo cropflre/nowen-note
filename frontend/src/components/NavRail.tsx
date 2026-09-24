@@ -21,6 +21,8 @@ import { useApp, useAppActions } from "@/store/AppContext";
 import { api, broadcastLogout, clearServerUrl, getCurrentWorkspace, getServerUrl } from "@/lib/api";
 import { ViewMode, WorkspaceFeatures } from "@/types";
 import { cn } from "@/lib/utils";
+import { pushAppPathState } from "@/lib/appPathNavigation";
+import { getCurrentMindMapAppRoute, pushMindMapAppPath } from "@/lib/mindMapDeepLink";
 import { useRailMode } from "@/hooks/useRailMode";
 import { useMobileRailHidden } from "@/hooks/useMobileRailHidden";
 import {
@@ -161,6 +163,15 @@ export default function NavRail({ variant = "desktop" }: { variant?: "desktop" |
       window.location.reload();
       return;
     }
+
+    if (mode === "mindmaps") {
+      // 点击模块入口回到 /mindmaps 列表；具体导图选择后再进入 /mindmaps/:id。
+      pushMindMapAppPath(null);
+    } else if (getCurrentMindMapAppRoute().matched) {
+      // 用户主动离开脑图模块时保留一条可 Back 返回的历史记录。
+      pushAppPathState("/");
+    }
+
     actions.setViewMode(mode);
     actions.setSelectedNotebook(null);
     if (isMobile) actions.setMobileSidebar(false);
