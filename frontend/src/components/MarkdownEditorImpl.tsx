@@ -1198,6 +1198,22 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
         };
       },
       isReady: () => !!viewRef.current,
+      insertMarkdownAtCursor: (md: string) => {
+        const view = viewRef.current;
+        if (!view) return false;
+        try {
+          const selection = view.state.selection.main;
+          const from = selection.from;
+          const to = selection.to;
+          view.dispatch({
+            changes: { from, to, insert: md },
+            selection: { anchor: from + md.length },
+            scrollIntoView: true,
+          });
+          view.focus();
+          return true;
+        } catch { return false; }
+      },
       appendMarkdown: (md: string) => {
         const view = viewRef.current;
         if (!view) return false;
