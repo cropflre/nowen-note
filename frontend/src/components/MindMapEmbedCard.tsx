@@ -18,6 +18,7 @@ import {
   parseMindMapSnapshotData,
   type MindMapSnapshot,
 } from "@/lib/mindMapSnapshot";
+import { pushMindMapAppPath } from "@/lib/mindMapDeepLink";
 import {
   DOCUMENT_MINDMAP_CHANGED_EVENT,
   invalidateDocumentMindMapCache,
@@ -203,10 +204,9 @@ export default function MindMapEmbedCard({ href }: { href: string }) {
 
   const openEditor = () => {
     if (!map) return;
-    sessionStorage.setItem("pendingOpenMindMapId", map.id);
-    window.dispatchEvent(new CustomEvent("nowen:request-open-embedded-mindmap", {
-      detail: { id: map.id },
-    }));
+    // Route is the source of truth; AppLayout will switch the module and MindMapEditor
+    // will select the UUID from /mindmaps/:id. Keep the old event out of this path.
+    pushMindMapAppPath(map.id);
   };
 
 
