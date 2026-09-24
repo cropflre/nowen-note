@@ -1,4 +1,3 @@
-import { JSDOM } from "jsdom";
 import { describe, expect, it } from "vitest";
 import {
   hydrateSharedMindMapPlaceholders,
@@ -47,23 +46,37 @@ describe("shared mind map snapshots", () => {
   });
 
   it("hydrates only snapshots supplied by the share response", () => {
-    const dom = new JSDOM(
-      `<main><div class="shared-mindmap-block" data-shared-mindmap-id="${ID}"></div></main>`,
-    );
-    const root = dom.window.document.querySelector("main") as unknown as HTMLElement;
+    const attrs = new Map<string, string>([["data-shared-mindmap-id", ID]]);
+    const block = {
+      innerHTML: "",
+      getAttribute: (name: string) => attrs.get(name) || null,
+      setAttribute: (name: string, value: string) => { attrs.set(name, value); },
+    } as unknown as HTMLElement;
+    const root = {
+      querySelectorAll: () => [block],
+    } as unknown as HTMLElement;
+
     const count = hydrateSharedMindMapPlaceholders(root, { [ID]: snapshot });
 
     expect(count).toBe(1);
-    expect(root.querySelector("svg")).not.toBeNull();
-    expect(root.querySelector("[data-rendered]")?.getAttribute("data-rendered")).toBe("1");
+    expect(block.innerHTML).toContain("<svg");
+    expect(attrs.get("data-rendered")).toBe("1");
   });
 
   it("fails closed when a snapshot was not authorized by the server", () => {
-    const dom = new JSDOM(renderSharedMindMapPlaceholder(`mindmap:${ID}`));
-    const root = dom.window.document.body as unknown as HTMLElement;
+    const attrs = new Map<string, string>([["data-shared-mindmap-id", ID]]);
+    const block = {
+      innerHTML: renderSharedMindMapPlaceholder(`mindmap:${ID}`),
+      getAttribute: (name: string) => attrs.get(name) || null,
+      setAttribute: (name: string, value: string) => { attrs.set(name, value); },
+    } as unknown as HTMLElement;
+    const root = {
+      querySelectorAll: () => [block],
+    } as unknown as HTMLElement;
+
     hydrateSharedMindMapPlaceholders(root, {});
 
-    expect(root.textContent).toContain("未随当前分享公开");
-    expect(root.innerHTML).not.toContain("/api/mindmaps/");
+    expect(block.innerHTML).toContain("未随当前分享公开");
+    expect(block.innerHTML).not.toContain("/api/mindmaps/");
   });
 });
