@@ -12,6 +12,7 @@ on:
       - 'frontend/src/lib/mindMapSnapshot.ts'
       - 'frontend/src/lib/documentMindMapExport.ts'
       - 'frontend/src/lib/exportServiceCore.ts'
+      - 'frontend/src/lib/noteImageExportCore.ts'
       - 'frontend/src/lib/sharedMindMapSnapshots.ts'
       - 'frontend/src/lib/__tests__/mindMapEmbed.test.ts'
       - 'frontend/src/lib/__tests__/mindMapSnapshot.test.ts'
