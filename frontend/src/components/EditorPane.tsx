@@ -101,6 +101,7 @@ import {
 } from "@/lib/noteFormatConversion";
 import NoteThemeMenuSelect from "@/components/NoteThemeMenuSelect";
 import MindMapEmbedInsertDialog from "@/components/MindMapEmbedInsertDialog";
+import { pushMindMapAppPath } from "@/lib/mindMapDeepLink";
 
 // ---------------------------------------------------------------------------
 // 编辑器模式切换（MD vs Tiptap）
@@ -133,7 +134,7 @@ export default function EditorPane({
     const handler = (event: Event) => {
       const id = (event as CustomEvent<{ id?: string }>).detail?.id;
       if (!id || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) return;
-      sessionStorage.setItem("pendingOpenMindMapId", id);
+      pushMindMapAppPath(id);
       actions.setViewMode("mindmaps");
     };
     window.addEventListener("nowen:request-open-embedded-mindmap", handler);
@@ -2328,7 +2329,7 @@ const moveToTrash = useCallback(async () => {
       // 通知 MindMapEditor 打开新图
       // 切换到思维导图视图
       // 保存 pending ID 到 sessionStorage 并切换到思维导图视图
-      sessionStorage.setItem("pendingOpenMindMapId", created.id);
+      pushMindMapAppPath(created.id);
       actions.setViewMode("mindmaps");
     } catch (e: any) {
       console.error("Save mindmap error:", e);
