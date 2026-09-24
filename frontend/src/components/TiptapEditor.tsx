@@ -3234,6 +3234,14 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
         pendingSaveAckRef.current = ack;
       },
       isReady: () => !!editor && !editor.isDestroyed,
+      insertMarkdownAtCursor: (md: string) => {
+        if (!editor || editor.isDestroyed) return false;
+        try {
+          const html = mdToFullHtml(md);
+          editor.chain().focus().insertContent(html).run();
+          return true;
+        } catch { return false; }
+      },
       appendMarkdown: (md: string) => {
         if (!editor || editor.isDestroyed) return false;
         try {
