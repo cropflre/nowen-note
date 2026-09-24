@@ -395,15 +395,16 @@ function AppLayout() {
   const [appPathReady, setAppPathReady] = useState(false);
 
   useEffect(() => {
-    const applyRoute = () => {
+    const applyRoute = (event?: Event) => {
       const pathname = resolveCurrentAppPathname();
       const route = parseMindMapAppPath(pathname);
       setMindMapRoute(route);
 
       if (route.matched) {
         actions.setViewMode("mindmaps");
-      } else if (pathname === "/") {
-        // Browser back from /mindmaps[/id] returns to the normal note workspace.
+      } else if (pathname === "/" && event?.type === "popstate") {
+        // Browser Back/Forward owns navigation intent. Internal root-path normalization must
+        // not clobber a concurrent legacy viewMode transition such as tasks/AI/files.
         actions.setViewMode("all");
       }
       setAppPathReady(true);
