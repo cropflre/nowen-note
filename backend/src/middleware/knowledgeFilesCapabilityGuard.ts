@@ -6,6 +6,10 @@ import {
   hasKnowledgeCapability,
   resolveResourceKnowledgeAccess,
 } from "../services/knowledgeCapabilities.js";
+import {
+  resolveFileAttachmentAccess,
+  type FileAttachmentAccessRow,
+} from "../services/fileAttachmentAccess.js";
 
 type FileScope = {
   scope: "personal" | "workspace";
@@ -20,6 +24,9 @@ type FileListDbRow = {
   path: string;
   createdAt: string;
   noteId: string;
+  userId: string;
+  workspaceId: string | null;
+  uploadSource: string | null;
   folderId: string | null;
   hash: string | null;
   noteTitle: string | null;
@@ -61,17 +68,18 @@ async function readJsonResponse(c: Context): Promise<any | null> {
   }
 }
 
-function attachmentNoteId(attachmentId: string): string | null {
-  const row = getDb().prepare("SELECT noteId FROM attachments WHERE id = ?")
-    .get(attachmentId) as { noteId: string } | undefined;
-  return row?.noteId || null;
+function attachmentAccessRow(attachmentId: string): FileAttachmentAccessRow | null {
+  const row = getDb().prepare(
+    "SELECT id, noteId, userId, workspaceId, uploadSource FROM attachments WHERE id = ?",
+  ).get(attachmentId) as FileAttachmentAccessRow | undefined;
+  return row || null;
 }
 
 function noteIdFromFileRow(row: any): string | null {
   if (typeof row?.noteId === "string") return row.noteId;
   if (typeof row?.primaryNote?.id === "string") return row.primaryNote.id;
-  if (typeof row?.id === "string") return attachmentNoteId(row.id);
-  return null;
+  const attachmentId = typeof row?.id === "string" ? row.id : "";
+  return attachmentId ? attachmentAccessRow(attachmentId)?.noteId || null : null;
 }
 
 function accessForNote(noteId: string, userId: string) {
@@ -79,13 +87,18 @@ function accessForNote(noteId: string, userId: string) {
 }
 
 function canViewFileRow(row: any, userId: string): boolean {
+  const attachmentId = typeof row?.id === "string" ? row.id : "";
+  if (attachmentId) {
+    const accessRow = attachmentAccessRow(attachmentId);
+    if (accessRow) return resolveFileAttachmentAccess(accessRow, userId).canView;
+  }
   const noteId = noteIdFromFileRow(row);
   return Boolean(noteId && hasKnowledgeCapability(accessForNote(noteId, userId), "canView"));
 }
 
 function canDownloadAttachment(attachmentId: string, userId: string): boolean {
-  const noteId = attachmentNoteId(attachmentId);
-  return Boolean(noteId && hasKnowledgeCapability(accessForNote(noteId, userId), "canDownload"));
+  const row = attachmentAccessRow(attachmentId);
+  return Boolean(row && resolveFileAttachmentAccess(row, userId).canDownload);
 }
 
 function filterAccessUrls(value: unknown, userId: string): Record<string, string> {
@@ -122,17 +135,17 @@ function visibleAttachmentStats(workspaceId: string | null, userId: string) {
   const db = getDb();
   const rows = workspaceId
     ? db.prepare(`
-        SELECT a.id, a.noteId, a.mimeType, a.size
+        SELECT a.id, a.noteId, a.userId, a.workspaceId, a.uploadSource, a.mimeType, a.size
         FROM attachments a
         JOIN notes n ON n.id = a.noteId
         WHERE a.workspaceId = ?
       `).all(workspaceId)
     : db.prepare(`
-        SELECT a.id, a.noteId, a.mimeType, a.size
+        SELECT a.id, a.noteId, a.userId, a.workspaceId, a.uploadSource, a.mimeType, a.size
         FROM attachments a
         JOIN notes n ON n.id = a.noteId
         WHERE a.workspaceId IS NULL AND a.userId = ?
-      `).all(userId) as Array<{ id: string; noteId: string; mimeType: string; size: number }>;
+      `).all(userId) as Array<FileAttachmentAccessRow & { mimeType: string; size: number }>;
 
   const byMime = new Map<string, { count: number; bytes: number }>();
   let total = 0;
@@ -142,9 +155,8 @@ function visibleAttachmentStats(workspaceId: string | null, userId: string) {
   let fileCount = 0;
   let fileBytes = 0;
 
-  for (const row of rows as Array<{ id: string; noteId: string; mimeType: string; size: number }>) {
-    const access = accessForNote(row.noteId, userId);
-    if (!hasKnowledgeCapability(access, "canView")) continue;
+  for (const row of rows as Array<FileAttachmentAccessRow & { mimeType: string; size: number }>) {
+    if (!resolveFileAttachmentAccess(row, userId).canView) continue;
     total += 1;
     totalBytes += Number(row.size || 0);
     const mime = row.mimeType || "application/octet-stream";
@@ -353,7 +365,7 @@ function visibleFileList(c: Context, userId: string) {
 
   const rows = db.prepare(`
     SELECT a.id, a.filename, a.mimeType, a.size, a.path, a.createdAt, a.hash,
-           a.noteId, a.folderId,
+           a.noteId, a.userId, a.workspaceId, a.uploadSource, a.folderId,
            n.title AS noteTitle, n.notebookId, n.isTrashed,
            nb.name AS notebookName, nb.icon AS notebookIcon,
            af.name AS folderName
@@ -366,29 +378,29 @@ function visibleFileList(c: Context, userId: string) {
   `).all(...params) as FileListDbRow[];
 
   const accessCache = new Map<string, { canView: boolean; canDownload: boolean }>();
-  const permissions = (noteIdValue: string) => {
-    const cached = accessCache.get(noteIdValue);
+  const permissions = (row: FileListDbRow) => {
+    const cached = accessCache.get(row.id);
     if (cached) return cached;
-    const access = accessForNote(noteIdValue, userId);
+    const access = resolveFileAttachmentAccess(row, userId);
     const resolved = {
-      canView: hasKnowledgeCapability(access, "canView"),
-      canDownload: hasKnowledgeCapability(access, "canDownload"),
+      canView: access.canView,
+      canDownload: access.canDownload,
     };
-    accessCache.set(noteIdValue, resolved);
+    accessCache.set(row.id, resolved);
     return resolved;
   };
 
-  const visibleRows = rows.filter((row) => row.noteId && permissions(row.noteId).canView);
+  const visibleRows = rows.filter((row) => permissions(row).canView);
   const start = (page - 1) * pageSize;
   const pageRows = visibleRows.slice(start, start + pageSize);
   const items = pageRows.map((row) => {
     const output = toFileOut(row);
-    if (permissions(row.noteId).canDownload) return { ...output, downloadAllowed: true };
+    if (permissions(row).canDownload) return { ...output, downloadAllowed: true };
     delete output.url;
     delete output.thumbnailUrl;
     return { ...output, downloadAllowed: false };
   });
-  const downloadableRows = pageRows.filter((row) => permissions(row.noteId).canDownload);
+  const downloadableRows = pageRows.filter((row) => permissions(row).canDownload);
 
   return {
     items,
