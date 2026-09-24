@@ -9,13 +9,14 @@ import {
   Heading1, Heading2, Heading3, Heading4, Heading5, Heading6, List, ListOrdered, CheckSquare,
   Quote, FileCode, Minus, ImagePlus, Sparkles,
   Bold, Italic, Highlighter, Table2,
-  Strikethrough, Code, Link as LinkIcon, Workflow, Sigma, BookOpen, Film, FolderSearch, Network
+  Strikethrough, Code, Link as LinkIcon, Workflow, Sigma, BookOpen, Film, FolderSearch, Network, BrainCircuit
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useTranslation } from "react-i18next";
 import { nextFootnoteIdentifier } from "@/components/FootnoteExtensions";
 import { prompt as promptDialog } from "@/components/ui/confirm";
 import { getDailyRecordSlashCommands } from "@/components/daily-records/dailyRecordSlashCommands";
+import { insertContentPreservingBlockEmbed } from "@/lib/insertContentPreservingBlockEmbed";
 
 export interface SlashCommandItem {
   id: string;
@@ -305,22 +306,33 @@ export function getDefaultSlashCommands(
       keywords: ["mermaid", "flowchart", "diagram", "graph", "流程", "流程图", "图表"],
       action: (editor) => {
         const sample = "graph TD\n  A[开始] --> B{判断}\n  B -->|是| C[继续]\n  B -->|否| D[结束]";
-        editor
-          .chain()
-          .focus()
-          .insertContent({
-            type: "codeBlock",
-            attrs: { language: "mermaid" },
-            content: [{ type: "text", text: sample }],
-          })
-          .run();
+        insertContentPreservingBlockEmbed(editor, {
+          type: "codeBlock",
+          attrs: { language: "mermaid" },
+          content: [{ type: "text", text: sample }],
+        });
+      },
+    },
+    {
+      id: "mermaidMindMap",
+      label: t("slash.mermaidMindMap"),
+      description: t("slash.mermaidMindMapDesc"),
+      icon: <Network size={16} />,
+      category: t("slash.catFormat"),
+      keywords: ["mermaid", "mindmap", "脑图代码", "Mermaid 脑图"],
+      action: (editor) => {
+        insertContentPreservingBlockEmbed(editor, {
+          type: "codeBlock",
+          attrs: { language: "mermaid" },
+          content: [{ type: "text", text: "mindmap\n  root((中心主题))\n    主题一\n      子主题一\n      子主题二\n    主题二" }],
+        });
       },
     },
     {
       id: "mindmap",
       label: "思维导图",
       description: "选择已有脑图或新建后插入",
-      icon: <Network size={16} />,
+      icon: <BrainCircuit size={16} />,
       category: "插入",
       keywords: ["mindmap", "mind map", "脑图", "思维导图", "导图", "插入脑图"],
       action: () => {

@@ -46,6 +46,7 @@ on:
       - "frontend/src/components/ResizableImageView.tsx"
       - "frontend/src/components/VideoExtensionRuntime.tsx"
       - "frontend/src/components/MermaidViewRuntime.tsx"
+      - "frontend/src/components/mermaid-inline-preview.css"
       - "frontend/src/components/MathExtensionsRuntime.tsx"
       - "frontend/src/components/SearchReplacePanelRuntime.tsx"
       - "frontend/src/components/LargeRichTextSafeViewer.tsx"
@@ -118,6 +119,7 @@ on:
       - "frontend/src/components/ResizableImageView.tsx"
       - "frontend/src/components/VideoExtensionRuntime.tsx"
       - "frontend/src/components/MermaidViewRuntime.tsx"
+      - "frontend/src/components/mermaid-inline-preview.css"
       - "frontend/src/components/MathExtensionsRuntime.tsx"
       - "frontend/src/components/SearchReplacePanelRuntime.tsx"
       - "frontend/src/components/LargeRichTextSafeViewer.tsx"
@@ -201,6 +203,7 @@ jobs:
           src/lib/__tests__/codeBlockViewportHighlight.test.ts
           src/hooks/__tests__/useLazyNodeView.test.tsx
           src/components/__tests__/VideoExtension.test.ts
+          src/components/__tests__/CodeBlockView.indent.test.tsx
           src/components/__tests__/HeavyNodeRuntimeShells.test.tsx
           src/components/__tests__/MarkdownPreview.test.tsx
           src/components/__tests__/SearchReplaceRuntime.test.ts

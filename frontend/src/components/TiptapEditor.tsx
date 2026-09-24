@@ -99,7 +99,7 @@ import {
   Type, Palette, Eraser, Paintbrush, ChevronDown, Search, Upload, FolderSearch, ClipboardPlus,
   MoreHorizontal,
   // 表格气泡菜单图标
-  Rows3, Columns3, Merge, Split, Heading, Network,
+  Rows3, Columns3, Merge, Split, Heading, BrainCircuit,
 } from "lucide-react";
 import { downloadAttachment } from "@/lib/downloadFile";
 import { saveImageToGallery, isAndroidNative } from "@/lib/nativeImageSave";
@@ -134,6 +134,7 @@ import { NoteLinkMenu, type NoteSearchResult, type NoteLinkBlockItem, type NoteL
 import { NoteLinkHoverPreview } from "@/components/NoteLinkPreview";
 import { detectActiveWikiNoteQuery } from "@/lib/noteLinkSyntax";
 import { BlockEmbedExtension } from "@/components/BlockEmbedExtension";
+import { insertContentPreservingBlockEmbed } from "@/lib/insertContentPreservingBlockEmbed";
 import { consumeBlockNavigation, subscribeBlockNavigation } from "@/lib/blockNavigation";
 import { MarkdownEnhancements } from "@/components/MarkdownEnhancements";
 import { MathExtensions } from "@/components/MathExtensions";
@@ -3238,8 +3239,7 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
         if (!editor || editor.isDestroyed) return false;
         try {
           const html = mdToFullHtml(md);
-          editor.chain().focus().insertContent(html).run();
-          return true;
+          return insertContentPreservingBlockEmbed(editor, html);
         } catch { return false; }
       },
       appendMarkdown: (md: string) => {
@@ -5175,26 +5175,11 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
     editor.chain().focus().insertTable({ rows, cols, withHeaderRow: true }).run();
   };
   const insertMermaid = () => {
-    editor
-      .chain()
-      .focus()
-      .insertContent({
-        type: "codeBlock",
-        attrs: { language: "mermaid" },
-        content: [{ type: "text", text: "graph TD\n  A[开始] --> B[结束]" }],
-      })
-      .run();
-  };
-  const insertMindMap = () => {
-    editor
-      .chain()
-      .focus()
-      .insertContent({
-        type: "codeBlock",
-        attrs: { language: "mermaid" },
-        content: [{ type: "text", text: "mindmap\n  root((中心主题))\n    主题一\n      子主题一\n      子主题二\n    主题二" }],
-      })
-      .run();
+    insertContentPreservingBlockEmbed(editor, {
+      type: "codeBlock",
+      attrs: { language: "mermaid" },
+      content: [{ type: "text", text: "graph TD\n  A[开始] --> B[结束]" }],
+    });
   };
   const insertMath = () => {
     editor.chain().focus().insertContent({ type: "mathBlock", attrs: { latex: "" } }).run();
@@ -5472,8 +5457,12 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
         <ToolbarButton onClick={insertMermaid} title={t('tiptap.insertMermaid')}>
           <Workflow size={iconSize} />
         </ToolbarButton>
-        <ToolbarButton onClick={insertMindMap} title={t('tiptap.insertMindMap')}>
-          <Network size={iconSize} />
+        <ToolbarButton
+          onClick={() => window.dispatchEvent(new CustomEvent("nowen:open-mindmap-insert"))}
+          disabled={!editable || isGuest}
+          title={t('tiptap.insertMindMap')}
+        >
+          <BrainCircuit size={iconSize} />
         </ToolbarButton>
         <ToolbarButton onClick={insertMath} title={t('tiptap.insertMath')}>
           <Sigma size={iconSize} />

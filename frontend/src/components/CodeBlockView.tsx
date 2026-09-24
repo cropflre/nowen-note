@@ -10,6 +10,7 @@ import {
   setCodeBlockTheme,
 } from "@/lib/codeBlockTheme";
 import MermaidView from "@/components/MermaidView";
+import "@/components/mermaid-inline-preview.css";
 import { isMermaidLang } from "@/lib/mermaidRenderer";
 import { replaceCodeBlockWithPlainText } from "@/lib/tiptapEditorCommands";
 import { canUseCodeBlockToolbarAction } from "@/lib/codeBlockPermissions";
@@ -297,6 +298,7 @@ export function CodeBlockView(props: NodeViewProps) {
     <NodeViewWrapper
       className="code-block-wrapper group relative my-4 rounded-xl overflow-hidden border shadow-sm"
       data-indent={indent > 0 ? indent : undefined}
+      data-nowen-mermaid-inline-preview={isMermaid && mermaidPreview ? "true" : undefined}
       // 预览态时把隐藏的 NodeViewContent 用绝对定位藏起来，依赖外层 relative
       style={{ position: "relative" }}
     >

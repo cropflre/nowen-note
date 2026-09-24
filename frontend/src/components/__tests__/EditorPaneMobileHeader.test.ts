@@ -47,6 +47,14 @@ function desktopMoreMenuSource() {
   return editorPaneSource.slice(start, end);
 }
 
+function desktopHeaderSource() {
+  const start = editorPaneSource.indexOf("{/* Desktop Editor Header */}");
+  const end = editorPaneSource.indexOf("{userPrefs.enableNoteTabs", start);
+  expect(start).toBeGreaterThanOrEqual(0);
+  expect(end).toBeGreaterThan(start);
+  return editorPaneSource.slice(start, end);
+}
+
 describe("EditorPane mobile header", () => {
   it("pins lock toggle before search and keeps it out of the mobile more menu", () => {
     const header = mobileHeaderSource();
@@ -101,5 +109,18 @@ describe("EditorPane mobile header", () => {
     expect(mobileMenu).toContain("<Scissors");
     expect(desktopMenu).toContain("onSplitDocument");
     expect(desktopMenu).toContain("<Scissors");
+  });
+
+  it("offers the native mind map picker in both responsive headers and desktop overflow", () => {
+    const mobileHeader = mobileHeaderSource();
+    const desktopHeader = desktopHeaderSource();
+    const desktopMenu = desktopMoreMenuSource();
+
+    expect(mobileHeader).toContain('data-editor-mindmap-insert="compact"');
+    expect(mobileHeader).toContain('<span className="hidden min-[480px]:inline">脑图</span>');
+    expect(desktopHeader).toContain('data-editor-mindmap-insert="desktop"');
+    expect(desktopHeader).toContain("<span>插入脑图</span>");
+    expect(desktopMenu).toContain("<span>插入思维导图</span>");
+    expect(desktopHeader).toContain("setShowMindMapInsertDialog(true)");
   });
 });

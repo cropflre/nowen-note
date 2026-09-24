@@ -140,12 +140,12 @@ describe("heavy node runtime shells", () => {
     }
   });
 
-  it("marks only rich-text Mermaid code blocks for borderless preview chrome", async () => {
+  it("leaves the code block owner's preview chrome intact while mounting and unmounting", async () => {
     setActiveEditorRuntimeDecision("mermaid-inline-note", lightweightDecision());
     const host = document.createElement("div");
     host.innerHTML = `
       <div class="ProseMirror">
-        <div class="code-block-wrapper">
+        <div class="code-block-wrapper" data-nowen-mermaid-inline-preview="true">
           <div class="code-block-toolbar">toolbar</div>
           <div class="mermaid-preview-host"><div data-mermaid-test-mount></div></div>
         </div>
@@ -170,7 +170,7 @@ describe("heavy node runtime shells", () => {
       expect(wrapper.dataset.nowenMermaidInlinePreview).toBe("true");
     } finally {
       await act(async () => root.unmount());
-      expect(wrapper.hasAttribute("data-nowen-mermaid-inline-preview")).toBe(false);
+      expect(wrapper.dataset.nowenMermaidInlinePreview).toBe("true");
       host.remove();
     }
   });

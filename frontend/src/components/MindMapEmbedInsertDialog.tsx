@@ -7,11 +7,12 @@ import type { MindMapListItem } from "@/types";
 
 interface Props {
   open: boolean;
+  workspaceId: string | null;
   onClose: () => void;
   onInsert: (id: string) => boolean;
 }
 
-export default function MindMapEmbedInsertDialog({ open, onClose, onInsert }: Props) {
+export default function MindMapEmbedInsertDialog({ open, workspaceId, onClose, onInsert }: Props) {
   const [items, setItems] = useState<MindMapListItem[]>([]);
   const [query, setQuery] = useState("");
   const [title, setTitle] = useState("");
@@ -23,14 +24,15 @@ export default function MindMapEmbedInsertDialog({ open, onClose, onInsert }: Pr
     let alive = true;
     setError("");
     setQuery("");
+    setItems([]);
     setBusy(true);
-    api.getMindMaps().then((maps) => {
+    api.getMindMaps(workspaceId).then((maps) => {
       if (alive) setItems(maps);
     }).catch(() => {
       if (alive) setError("无法获取思维导图列表，请检查网络和访问权限");
     }).finally(() => { if (alive) setBusy(false); });
     return () => { alive = false; };
-  }, [open]);
+  }, [open, workspaceId]);
 
   useEffect(() => {
     if (!open) return;
@@ -39,7 +41,7 @@ export default function MindMapEmbedInsertDialog({ open, onClose, onInsert }: Pr
     return () => window.removeEventListener("keydown", onEscape);
   }, [open, onClose]);
 
-  const filtered = useMemo(() => items.filter((item) => item.title.toLowerCase().includes(query.trim().toLowerCase())), [items, query]);
+  const filtered = useMemo(() => items.filter((item) => item.workspaceId === workspaceId && item.title.toLowerCase().includes(query.trim().toLowerCase())), [items, query, workspaceId]);
   const insert = (id: string) => {
     if (onInsert(id)) { onClose(); return; }
     toast.error("当前编辑器暂不支持插入，请切换到常规编辑模式后重试");
@@ -50,7 +52,7 @@ export default function MindMapEmbedInsertDialog({ open, onClose, onInsert }: Pr
     setBusy(true);
     setError("");
     try {
-      const created = await api.createMindMap({ title: name });
+      const created = await api.createMindMap({ title: name }, workspaceId);
       // If the editor became read-only while awaiting creation, the new map remains in the
       // library and is never silently deleted; the user can insert it later.
       insert(created.id);

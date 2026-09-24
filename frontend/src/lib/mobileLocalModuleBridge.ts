@@ -269,9 +269,13 @@ export function installMobileLocalModuleBridge(
     const map = (await db.query<MindMap>("SELECT * FROM mindmaps WHERE scopeKey='personal' AND id=?",[id]))[0];
     if (!map) throw new Error("思维导图不存在");return map;
   };
-  target.getMindMaps = async (): Promise<MindMapListItem[]> => db.query("SELECT id,userId,workspaceId,title,starred,folderId,createdAt,updatedAt FROM mindmaps WHERE scopeKey='personal' ORDER BY starred DESC,updatedAt DESC");
+  target.getMindMaps = async (workspaceId?: string | null): Promise<MindMapListItem[]> => {
+    if (workspaceId && workspaceId !== "personal") throw new Error("本地脑图暂不支持工作区");
+    return db.query("SELECT id,userId,workspaceId,title,starred,folderId,createdAt,updatedAt FROM mindmaps WHERE scopeKey='personal' ORDER BY starred DESC,updatedAt DESC");
+  };
   target.getMindMap = readMindMap;
-  target.createMindMap = async (data: { title?: string; data?: string }): Promise<MindMap> => {
+  target.createMindMap = async (data: { title?: string; data?: string }, workspaceId?: string | null): Promise<MindMap> => {
+    if (workspaceId && workspaceId !== "personal") throw new Error("本地脑图暂不支持工作区");
     const createdAt=now();const map:MindMap={id:newLocalId(),userId,workspaceId:null,title:data.title||"无标题导图",data:data.data||JSON.stringify({root:{id:"root",text:"中心主题",children:[]}}),createdAt,updatedAt:createdAt};
     await db.run("INSERT INTO mindmaps (id,scopeKey,workspaceId,userId,title,data,starred,folderId,createdAt,updatedAt) VALUES (?,'personal',NULL,?,?,?,0,NULL,?,?)",[map.id,userId,map.title,map.data,createdAt,createdAt]);
     await enqueue("mindmap",map.id,"upsert",map as unknown as Record<string, unknown>);return map;

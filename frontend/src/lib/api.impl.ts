@@ -2858,14 +2858,14 @@ export const api = {
   // Mind Maps
   // Y4: 与 tasks/diary 一致——"集合"接口自动带当前 workspaceId（personal 不带），
   //   "按 id"接口（get/update/delete）不带，后端按行自带的 workspaceId 做 ACL。
-  getMindMaps: () => {
-    const ws = getCurrentWorkspace();
+  getMindMaps: (workspaceId?: string | null) => {
+    const ws = workspaceId === undefined ? getCurrentWorkspace() : workspaceId;
     const qs = ws && ws !== "personal" ? `?workspaceId=${encodeURIComponent(ws)}` : "";
     return request<MindMapListItem[]>(`/mindmaps${qs}`);
   },
   getMindMap: (id: string) => request<MindMap>(`/mindmaps/${id}`),
-  createMindMap: (data: { title?: string; data?: string }) => {
-    const ws = getCurrentWorkspace();
+  createMindMap: (data: { title?: string; data?: string }, workspaceId?: string | null) => {
+    const ws = workspaceId === undefined ? getCurrentWorkspace() : workspaceId;
     const qs = ws && ws !== "personal" ? `?workspaceId=${encodeURIComponent(ws)}` : "";
     return request<MindMap>(`/mindmaps${qs}`, { method: "POST", body: JSON.stringify(data) });
   },

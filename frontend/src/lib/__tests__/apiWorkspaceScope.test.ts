@@ -40,4 +40,26 @@ describe("API 工作区参数", () => {
     const urls = fetchMock.mock.calls.map(([url]) => String(url));
     expect(urls.every((url) => url.includes("workspaceId=workspace-1"))).toBe(true);
   });
+
+  it("脑图选择与创建以笔记空间为准，而非当前导航空间", async () => {
+    localStorage.setItem("nowen-server-url", "https://note.example.com");
+    localStorage.setItem("nowen-current-workspace", "workspace-navigation");
+    const fetchMock = vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => new Response(
+      init?.method === "POST" ? "{}" : "[]",
+      { status: 200, headers: { "Content-Type": "application/json" } },
+    ));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await api.getMindMaps(null);
+    await api.createMindMap({ title: "个人导图" }, null);
+    await api.getMindMaps("workspace-note");
+    await api.createMindMap({ title: "团队导图" }, "workspace-note");
+
+    expect(fetchMock.mock.calls.map(([url]) => String(url))).toEqual([
+      "https://note.example.com/api/mindmaps",
+      "https://note.example.com/api/mindmaps",
+      "https://note.example.com/api/mindmaps?workspaceId=workspace-note",
+      "https://note.example.com/api/mindmaps?workspaceId=workspace-note",
+    ]);
+  });
 });
