@@ -14,6 +14,7 @@ import { useMindMapHistory } from "@/hooks/useMindMapHistory";
 import { buildXmindContent, buildZip, downloadBlob } from "@/lib/mindmapExport";
 import { markdownToMindMapData, mindMapDataToMarkdown } from "@/lib/mindmapTransform";
 import { computeLayoutBounds, fitMindMapToViewport, isValidViewport } from "@/lib/mindmapViewport";
+import { dispatchDocumentMindMapChanged } from "@/lib/documentMindMapRuntime";
 /* ===== macOS-style Mindmap Theme Tokens ===== */
 const MT = {
   canvasBg: "var(--mm-canvas-bg, #f5f5f7)",
@@ -1262,6 +1263,7 @@ export default function MindMapCenter() {
         const payload: { data: string; title?: string } = { data: JSON.stringify(data) };
         if (title !== undefined) payload.title = title;
         const updated = await api.updateMindMap(activeMap.id, payload);
+        dispatchDocumentMindMapChanged({ id: updated.id, kind: "updated" });
         setActiveMap((current) => current?.id === updated.id ? updated : current);
         setMaps((prev) =>
           prev.map((m) => (m.id === updated.id ? { ...m, title: updated.title, updatedAt: updated.updatedAt } : m))
@@ -1727,6 +1729,7 @@ export default function MindMapCenter() {
   const handleDeleteMap = useCallback(async (id: string) => {
     try {
       await api.deleteMindMap(id);
+      dispatchDocumentMindMapChanged({ id, kind: "deleted" });
       setMaps((prev) => prev.filter((m) => m.id !== id));
       if (activeMap?.id === id) {
         setActiveMap(null);
