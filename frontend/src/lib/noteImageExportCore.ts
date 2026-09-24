@@ -26,6 +26,7 @@ import {
 import { isMermaidLang, renderMermaid } from "@/lib/mermaidRenderer";
 import { sanitizeSvg } from "@/lib/sanitizeHtml";
 import { rasterizeMermaidSvgForExport } from "@/lib/mermaidExportRaster";
+import { hydrateMindMapEmbedsForExport } from "@/lib/documentMindMapExport";
 import { currentNoteThemeId, resolveNoteThemeTokens, type NoteThemeTokens } from "@/lib/noteTheme";
 
 const EXPORT_WIDTH = 794;
@@ -438,6 +439,8 @@ async function prepareHost(
   progress?.({ phase: "prepare", current: 0, total: 1, message: "正在生成最终预览…" });
 
   let bodyHtml = noteContentToExportHtml(note.content || "", note.contentText || "", note.contentFormat);
+  // #790：图片/SVG 导出也必须冻结实时脑图引用，不能依赖导出后的应用运行时。
+  bodyHtml = await hydrateMindMapEmbedsForExport(bodyHtml);
   const attachmentStats: ImgStats = { ok: 0, failed: 0, failures: [] };
   bodyHtml = await inlineRemoteImages(bodyHtml, attachmentStats, { noteId: note.id, noteTitle: note.title });
 
