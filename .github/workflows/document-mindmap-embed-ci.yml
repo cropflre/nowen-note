@@ -9,8 +9,11 @@ on:
       - 'backend/src/services/sharedMindMapSnapshots.ts'
       - 'backend/tests/shared-mindmap-snapshots.test.ts'
       - 'backend/tests/mindmap-optimistic-update.test.ts'
+      - 'frontend/src/App.tsx'
       - 'frontend/src/components/MindMapEmbedCard.tsx'
       - 'frontend/src/components/MindMapEditor.tsx'
+      - 'frontend/src/components/EditorPane.tsx'
+      - 'frontend/src/components/NavRail.tsx'
       - 'frontend/src/components/__tests__/MindMapEmbedCard.edit.test.tsx'
       - 'frontend/src/components/SharedNoteView.tsx'
       - 'frontend/src/lib/mindMapSnapshot.ts'
@@ -18,6 +21,9 @@ on:
       - 'frontend/src/lib/documentMindMapRuntime.ts'
       - 'frontend/src/lib/localStore.ts'
       - 'frontend/src/lib/api.impl.ts'
+      - 'frontend/src/lib/__tests__/mindMapDeepLink.test.ts'
+      - 'frontend/src/lib/mindMapDeepLink.ts'
+      - 'frontend/src/lib/appPathNavigation.ts'
       - 'frontend/src/lib/exportServiceCore.ts'
       - 'frontend/src/lib/noteImageExportCore.ts'
       - 'frontend/src/lib/sharedMindMapSnapshots.ts'
@@ -35,12 +41,18 @@ on:
       - 'backend/src/services/sharedMindMapSnapshots.ts'
       - 'backend/tests/shared-mindmap-snapshots.test.ts'
       - 'backend/tests/mindmap-optimistic-update.test.ts'
+      - 'frontend/src/App.tsx'
       - 'frontend/src/components/MindMapEmbedCard.tsx'
       - 'frontend/src/components/MindMapEditor.tsx'
+      - 'frontend/src/components/EditorPane.tsx'
+      - 'frontend/src/components/NavRail.tsx'
       - 'frontend/src/components/__tests__/MindMapEmbedCard.edit.test.tsx'
       - 'frontend/src/components/SharedNoteView.tsx'
       - 'frontend/src/lib/mindMapSnapshot.ts'
       - 'frontend/src/lib/api.impl.ts'
+      - 'frontend/src/lib/__tests__/mindMapDeepLink.test.ts'
+      - 'frontend/src/lib/mindMapDeepLink.ts'
+      - 'frontend/src/lib/appPathNavigation.ts'
       - 'frontend/src/lib/sharedMindMapSnapshots.ts'
       - 'frontend/src/lib/__tests__/mindMapEmbed.test.ts'
       - 'frontend/src/lib/__tests__/mindMapSnapshot.test.ts'
@@ -96,6 +108,7 @@ jobs:
           src/lib/__tests__/sharedMindMapSnapshots.test.ts
           src/lib/__tests__/documentMindMapExport.test.ts
           src/lib/__tests__/documentMindMapRuntime.test.ts
+          src/lib/__tests__/mindMapDeepLink.test.ts
           src/components/__tests__/MindMapEmbedCard.edit.test.tsx
       - name: Frontend production build
         run: npm run build
