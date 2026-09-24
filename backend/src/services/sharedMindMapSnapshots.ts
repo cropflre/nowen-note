@@ -1,7 +1,7 @@
 import type Database from "better-sqlite3";
 
 const MINDMAP_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const MARKDOWN_EMBED_RE = /!\\[\\[mindmap:([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\\]\\]/gi;
+const MARKDOWN_EMBED_RE = /!\[\[mindmap:([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\]\]/gi;
 const HTML_EMBED_RE = /data-nowen-block-embed=["\']mindmap:([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})["\']/gi;
 
 const MAX_SHARED_MINDMAPS = 20;
@@ -23,7 +23,7 @@ function addId(ids: string[], candidate: unknown): void {
 }
 
 function extractFromMarkdown(content: string): string[] {
-  const protectedContent = content.replace(/```[\\s\\S]*?```|~~~[\\s\\S]*?~~~/g, () => "\\u0000NOWEN_MINDMAP_CODE\\u0000");
+  const protectedContent = content.replace(/```[\s\S]*?```|~~~[\s\S]*?~~~/g, () => "\u0000NOWEN_MINDMAP_CODE\u0000");
   const ids: string[] = [];
   let match: RegExpExecArray | null;
   MARKDOWN_EMBED_RE.lastIndex = 0;
