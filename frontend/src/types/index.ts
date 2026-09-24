@@ -798,6 +798,13 @@ export interface ShareInfo {
   createdAt: string;
 }
 
+export interface SharedMindMapSnapshot {
+  id: string;
+  title: string;
+  data: string;
+  updatedAt: string;
+}
+
 export interface SharedNoteContent {
   /** 关联的笔记 ID（访客编辑时作为伪 Note.id 使用） */
   noteId?: string;
@@ -816,6 +823,8 @@ export interface SharedNoteContent {
    * 直接进入编辑模式（自动以作者身份保存）。
    */
   ownerId?: string;
+  /** #790：公开分享只下发正文明确引用且通过服务端权限校验的只读导图快照。 */
+  mindMapSnapshots?: Record<string, SharedMindMapSnapshot>;
 }
 
 // 版本历史
