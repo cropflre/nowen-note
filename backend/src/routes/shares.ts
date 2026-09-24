@@ -18,6 +18,7 @@ import { resolveEffectiveNoteCapabilities } from "../services/share-capabilities
 import { parseShareManagementQuery, queryShareManagement } from "../services/share-management";
 import { consumeShareViewSession, findSingleShareByToken, installSingleShareGuard, resetShareViewSessions } from "../services/single-share-access";
 import { checkCredentialAttempt, getClientIp as getCredentialClientIp, hashClientIp, recordCredentialFailure, recordCredentialSuccess } from "../lib/share-credential-rate-limit";
+import { collectSharedMindMapSnapshots } from "../services/sharedMindMapSnapshots";
 
 // H3: 使用密码学安全的随机源生成分享 token。
 //     原实现用 Math.random()，理论上可被预测；改用 crypto.randomBytes。
@@ -385,7 +386,8 @@ sharedRouter.get("/:token/content", (c) => {
     SELECT s.id AS shareId, s.noteId, s.isActive, s.expiresAt, s.maxViews, s.viewCount, s.password, s.permission,
            n.title, n.content, n.contentText, n.contentFormat, n.updatedAt AS noteUpdatedAt, n.version AS noteVersion,
            n.isLocked AS noteIsLocked,
-           n.userId AS noteOwnerId
+           n.userId AS noteOwnerId,
+           n.workspaceId AS noteWorkspaceId
     FROM shares s
     LEFT JOIN notes n ON s.noteId = n.id
     WHERE s.shareToken = ?
@@ -429,6 +431,16 @@ sharedRouter.get("/:token/content", (c) => {
     ? rewriteRelativeAttachmentUrls(share.content, publicOrigin)
     : share.content;
 
+  // #790: Public share pages must never fetch private mind-map APIs directly.
+  // Resolve only explicitly embedded maps, under the note owner's current access and
+  // the same personal/workspace boundary, then ship a bounded read-only snapshot.
+  const mindMapSnapshots = collectSharedMindMapSnapshots(db, {
+    content: share.content || "",
+    contentFormat: share.contentFormat,
+    noteOwnerId: share.noteOwnerId,
+    noteWorkspaceId: share.noteWorkspaceId || null,
+  });
+
   return c.json({
     noteId: share.noteId,
     title: share.title,
@@ -443,6 +455,7 @@ sharedRouter.get("/:token/content", (c) => {
     // 如果访问者就是作者本人，则跳过"请填写访客昵称"弹窗，直接进入编辑模式。
     // 这里只下发 id，不下发用户名/昵称等敏感信息。
     ownerId: share.noteOwnerId,
+    mindMapSnapshots,
   });
 });
 
