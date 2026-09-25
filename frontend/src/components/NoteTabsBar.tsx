@@ -4,6 +4,7 @@ import { Check, ChevronDown, FileCode, FileText, Folder, List, Lock, Pin, Plus, 
 import { useTranslation } from "react-i18next";
 import { useApp, useAppActions, type OpenNoteTab } from "@/store/AppContext";
 import { api } from "@/lib/api";
+import { markNewNoteForImmediateEdit } from "@/lib/newNoteImmediateEdit";
 import { cn } from "@/lib/utils";
 import { toast } from "@/lib/toast";
 import { useNoteLoader } from "@/hooks/useNoteLoader";
@@ -317,6 +318,7 @@ export default function NoteTabsBar() {
         contentFormat,
         ...(contentFormat === "markdown" ? { content: "", contentText: "" } : {}),
       });
+      markNewNoteForImmediateEdit(note.id);
       actions.setActiveNote(note);
       actions.setMobileView("editor");
       actions.openNoteTab({

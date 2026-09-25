@@ -713,7 +713,7 @@
     "prefOutlineDefaultOpen": "进入笔记默认显示大纲",
     "prefOutlineDefaultOpenHint": "开启后，每次打开笔记右侧大纲面板会自动展开；你仍可以随时手动关闭。",
     "prefLockOnOpen": "进入笔记默认锁定",
-    "prefLockOnOpenHint": "开启后，每次切换到一篇笔记都会先以只读视图打开，需要点解锁按钮才能编辑。该锁仅在本设备生效，不会写入笔记本身、也不会影响其他人。",
+    "prefLockOnOpenHint": "开启后，已有笔记以只读视图打开；刚新建的笔记首次打开可直接编辑，之后重新打开仍需解锁。该锁仅在本设备生效，不会写入笔记本身、也不会影响其他人。",
     "enableNoteTabs": "启用顶部笔记标签页",
     "enableNoteTabsDesc": "打开多个笔记后，可在编辑区顶部快速切换。关闭后恢复当前单笔记模式。",
     "markdownDefaultViewMode": "Markdown 默认打开方式",

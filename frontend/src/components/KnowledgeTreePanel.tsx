@@ -44,6 +44,7 @@ import { choose, confirm, prompt } from "@/components/ui/confirm";
 import { useContextMenu } from "@/hooks/useContextMenu";
 import { useMobileSidebarControlsCollapsed } from "@/hooks/useMobileSidebarControlsCollapsed";
 import { api } from "@/lib/api";
+import { markNewNoteForImmediateEdit } from "@/lib/newNoteImmediateEdit";
 import { affectedKnowledgeNoteIds } from "@/lib/knowledgeTreeDeleteReconcile";
 import {
   knowledgeTreeRangeSelection,
@@ -539,7 +540,9 @@ export function KnowledgeTreePanel({
   const activateNote = useCallback((
     note: Awaited<ReturnType<typeof api.getNote>>,
     treeParentId?: string | null,
+    newlyCreated = false,
   ) => {
+    if (newlyCreated) markNewNoteForImmediateEdit(note.id);
     actions.setActiveNote(note);
     actions.setSelectedNotebook(note.notebookId);
     actions.setSelectedKnowledgeTreeParent(treeParentId);
@@ -843,7 +846,7 @@ export function KnowledgeTreePanel({
         actions.refreshNotebooks();
         actions.refreshNotes();
         try {
-          activateNote(await api.getNote(result.noteId), templateCreateRequest.parentId);
+          activateNote(await api.getNote(result.noteId), templateCreateRequest.parentId, true);
         } catch (openError: any) {
           toast.error(openError?.message || "文档已创建，但自动打开失败");
         }
@@ -909,7 +912,7 @@ export function KnowledgeTreePanel({
     }
 
     try {
-      activateNote(await api.getNote(created.resourceId), snapshot.parentId);
+      activateNote(await api.getNote(created.resourceId), snapshot.parentId, true);
     } catch (requestError: any) {
       toast.error(requestError?.message || "文档已创建，但自动打开失败");
     }

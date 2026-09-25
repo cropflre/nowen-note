@@ -102,6 +102,7 @@ import {
 import NoteThemeMenuSelect from "@/components/NoteThemeMenuSelect";
 import MindMapEmbedInsertDialog from "@/components/MindMapEmbedInsertDialog";
 import { pushMindMapAppPath } from "@/lib/mindMapDeepLink";
+import { shouldApplyDefaultViewLock } from "@/lib/newNoteImmediateEdit";
 
 // ---------------------------------------------------------------------------
 // 编辑器模式切换（MD vs Tiptap）
@@ -154,11 +155,12 @@ export default function EditorPane({
   const [showOutline, setShowOutline] = useState<boolean>(() => userPrefs.outlineDefaultOpen);
   const [outlineWidth, setOutlineWidth] = useState(getSavedOutlineWidth);
   // 视图级只读：除了 DB 的 isLocked，还有用户偏好带来的"会话锁"。
-  // 新笔记打开时如果启用了 lockOnOpen 偏好，就把当前笔记 id 加入集合，
+  // 打开已有笔记时如果启用了 lockOnOpen 偏好，就把当前笔记 id 加入集合，
   // 编辑器变为只读，用户需要点解锁按钮移除，从而恢复编辑能力。
-  // 下一次打开新笔记时再次按偏好应用，不影响其它笔记。
+  // 刚创建后首次自动打开可编辑；离开后再次打开仍按偏好应用，不影响其它笔记。
   // 这样做的好处是：不污染笔记的 isLocked 字段，也不会触发协作广播 / 权限检查。
   const [viewLockedIds, setViewLockedIds] = useState<Set<string>>(() => new Set());
+  const lastOpenedNoteIdRef = useRef<string | null>(null);
   // 用 ref 让 yDoc/snapshot/flushToLocal 等长驻闭包引用最新值。
   // 否则可能读到旧值，导致偏好刚关之后还会往"已锁定的笔记"写 / 写 yDoc。
   const viewLockedIdsRef = useRef(viewLockedIds);
@@ -228,9 +230,12 @@ export default function EditorPane({
   // �������ѿ��شӿ��е��أ������̰ѵ�ǰ�ʼǵĻỰ��Ҳ�����������"�Ҹջ��ڿ���
   // �ܱ����ʼǱ�͵͵������"����ֱ�ۡ����صı仯ֻӰ��"�´δ��±ʼ�ʱ"�ĳ�ֵ��
   useEffect(() => {
-    const id = activeNote?.id;
+    const id = activeNote?.id ?? null;
+    // React StrictMode may replay this effect; only process a given opening once.
+    if (lastOpenedNoteIdRef.current === id) return;
+    lastOpenedNoteIdRef.current = id;
     if (!id) return;
-    if (userPrefs.lockOnOpen) {
+    if (shouldApplyDefaultViewLock(id, userPrefs.lockOnOpen)) {
       setViewLockedIds((prev) => {
         if (prev.has(id)) return prev;
         const next = new Set(prev);

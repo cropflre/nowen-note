@@ -13,6 +13,7 @@ import { useUserPreferences } from "@/hooks/useUserPreferences";
 import { useNoteLoader } from "@/hooks/useNoteLoader";
 import { useApp, useAppActions } from "@/store/AppContext";
 import { api, broadcastLogout, getBaseUrl, getCurrentWorkspace, getServerUrl, isAndroidInvalidServerUrl, isNativeCapacitor } from "@/lib/api";
+import { markNewNoteForImmediateEdit } from "@/lib/newNoteImmediateEdit";
 import { NoteListItem, Notebook } from "@/types";
 import { cn } from "@/lib/utils";
 import { useTranslation } from "react-i18next";
@@ -2136,6 +2137,7 @@ export default function NoteList() {
         toast.info(t("journal.opened", { defaultValue: "已打开今日日记" }));
       }
       // 打开笔记
+      if (!result.existed) markNewNoteForImmediateEdit(result.id);
       actions.setActiveNote(result as any);
       // 如果笔记不在列表中，添加到列表
       actions.addNoteToList({
@@ -2199,6 +2201,7 @@ export default function NoteList() {
         }
       }
 
+      markNewNoteForImmediateEdit(note.id);
       actions.setActiveNote(note);
       actions.addNoteToList({
         id: note.id,

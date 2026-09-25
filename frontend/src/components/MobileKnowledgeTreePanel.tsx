@@ -48,6 +48,7 @@ import { choose, confirm, prompt } from "@/components/ui/confirm";
 import { useContextMenu } from "@/hooks/useContextMenu";
 import { useMobileSidebarControlsCollapsed } from "@/hooks/useMobileSidebarControlsCollapsed";
 import { api, getCurrentWorkspace } from "@/lib/api";
+import { markNewNoteForImmediateEdit } from "@/lib/newNoteImmediateEdit";
 import { pluginApi } from "@/lib/pluginApi";
 import { noteTemplatesApi } from "@/lib/noteTemplatesApi";
 import { affectedKnowledgeNoteIds } from "@/lib/knowledgeTreeDeleteReconcile";
@@ -511,7 +512,9 @@ export default function MobileKnowledgeTreePanel({
   const activateNote = useCallback((
     note: Awaited<ReturnType<typeof api.getNote>>,
     treeParentId?: string | null,
+    newlyCreated = false,
   ) => {
+    if (newlyCreated) markNewNoteForImmediateEdit(note.id);
     actions.setActiveNote(note);
     actions.setSelectedNotebook(note.notebookId);
     actions.setSelectedKnowledgeTreeParent(treeParentId);
@@ -644,7 +647,7 @@ export default function MobileKnowledgeTreePanel({
         return;
       }
       rememberOpened(created.id);
-      activateNote(await api.getNote(created.resourceId), snapshot.parentId);
+      activateNote(await api.getNote(created.resourceId), snapshot.parentId, true);
     } catch (requestError: any) {
       setDraft((current) => current ? {
         ...current,
@@ -719,7 +722,7 @@ export default function MobileKnowledgeTreePanel({
     actions.refreshNotes();
     rememberOpened(result.node.id);
     try {
-      activateNote(await api.getNote(result.noteId), targetParentId);
+      activateNote(await api.getNote(result.noteId), targetParentId, true);
     } catch (openError: any) {
       toast.error(openError?.message || "文档已创建，但自动打开失败");
     }
@@ -731,7 +734,7 @@ export default function MobileKnowledgeTreePanel({
     const result = await pluginApi.createNoteFromTemplate(pluginId, templateId, { workspaceId: getCurrentWorkspace(), parentId: targetParentId, values });
     emitTreeChanged("plugin-template-created-quick-browse"); await reload(); actions.refreshNotebooks(); actions.refreshNotes();
     const node = result.node as KnowledgeTreeNode; rememberOpened(node.id);
-    try { activateNote(await api.getNote(result.noteId), targetParentId); } catch (openError: any) { toast.error(openError?.message || "文档已创建，但自动打开失败"); }
+    try { activateNote(await api.getNote(result.noteId), targetParentId, true); } catch (openError: any) { toast.error(openError?.message || "文档已创建，但自动打开失败"); }
     toast.success("已从插件模板创建笔记");
   }, [actions, activateNote, reload, rememberOpened, templatePicker?.parentId]);
 
