@@ -9,19 +9,21 @@ describe("desktop sidebar readability", () => {
     const tree = source("KnowledgeTreePanel.tsx");
     const quick = source("MobileKnowledgeTreePanel.tsx");
 
-    expect(tree).toContain('variant === "mobile" ? "gap-1.5 py-1 text-[13px] leading-5" : "gap-1.5 py-1.5 text-sm leading-5"');
-    expect(tree).toContain('variant === "mobile" ? "text-tx-secondary" : "text-tx-primary"');
-    expect(quick).toContain('variant === "mobile" ? "text-[15px]" : "text-sm font-medium"');
-    expect(quick).toContain('variant === "mobile" ? "text-tx-secondary" : "text-tx-primary"');
+    expect(tree).toContain('classicText ? "gap-1.5 py-1.5 text-xs" : "gap-1.5 py-1.5 text-sm leading-5"');
+    expect(tree).toContain('variant === "mobile" || classicText ? "text-tx-secondary" : "text-tx-primary"');
+    expect(quick).toContain('classicText ? "text-xs" : "text-sm font-medium"');
+    expect(quick).toContain('variant === "mobile" || classicText ? "text-tx-secondary" : "text-tx-primary"');
   });
 
   it("uses larger desktop rail labels and more legible note previews", () => {
     const rail = source("NavRail.tsx");
     const notes = source("NoteList.tsx");
 
-    expect(rail).toContain('isMobile ? "text-[10px]" : "text-[11px] font-medium"');
-    expect(notes).toContain('note-card-preview text-[13px] text-tx-secondary');
+    expect(rail).toContain('classicText ? "text-[10px] leading-none"');
+    expect(rail).toContain('"text-[11px] font-medium leading-tight"');
+    expect(notes).toContain('classicText ? "text-xs text-tx-tertiary" : "text-[13px] text-tx-secondary"');
     expect(notes).toContain('const ITEM_HEIGHT = 112');
+    expect(notes).toContain('showNotebookLabel ? 104 : 90');
     expect(notes).toContain('showNotebookLabel ? 124 : ITEM_HEIGHT');
   });
 });

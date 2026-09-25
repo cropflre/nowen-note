@@ -26,6 +26,7 @@ import DownloadPanel from "@/components/DownloadPanel";
 import { useSiteSettings, BUILTIN_FONTS, getBuiltinFontName } from "@/hooks/useSiteSettings";
 import { useUserPreferences } from "@/hooks/useUserPreferences";
 import { useMobileRailHidden } from "@/hooks/useMobileRailHidden";
+import { useSidebarTextStyle } from "@/hooks/useSidebarTextStyle";
 import { api } from "@/lib/api";
 import { isDesktop, checkForUpdates, onUpdaterStatus, getReleaseChannel, isPortableDesktop, getAppInfo, setDesktopHideMenuBar as setDesktopHideMenuBarPreference, type UpdaterPayload } from "@/lib/desktopBridge";
 import { CustomFont } from "@/types";
@@ -1084,6 +1085,7 @@ function AppearancePanel() {
   const { t, i18n } = useTranslation();
   const { siteConfig, updateSiteConfig, updateEditorFont } = useSiteSettings();
   const { prefs: userPrefs, setPref: setUserPref } = useUserPreferences();
+  const [sidebarTextStyle, setSidebarTextStyle] = useSidebarTextStyle();
   const [title, setTitle] = useState(siteConfig.title);
   const [previewIcon, setPreviewIcon] = useState(siteConfig.favicon);
   const [isSaving, setIsSaving] = useState(false);
@@ -1349,6 +1351,31 @@ function AppearancePanel() {
             <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">{t('settings.themeModeDesc')}</p>
           </div>
           <ThemeToggle />
+        </div>
+
+        <div className="flex items-center justify-between gap-4 p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-800/30 max-sm:flex-col max-sm:items-stretch">
+          <div className="min-w-0">
+            <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">{t('settings.sidebarTextStyle')}</span>
+            <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">{t('settings.sidebarTextStyleDesc')}</p>
+          </div>
+          <div role="group" aria-label={t('settings.sidebarTextStyle')} className="flex shrink-0 gap-1 rounded-lg bg-zinc-100 p-1 dark:bg-zinc-800">
+            {(["readable", "classic"] as const).map((style) => (
+              <button
+                key={style}
+                type="button"
+                aria-pressed={sidebarTextStyle === style}
+                onClick={() => setSidebarTextStyle(style)}
+                className={cn(
+                  "rounded-md px-3 py-1 text-xs font-medium transition-colors",
+                  sidebarTextStyle === style
+                    ? "bg-white text-accent-primary shadow-sm dark:bg-zinc-700"
+                    : "text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200",
+                )}
+              >
+                {t(style === "readable" ? 'settings.sidebarTextReadable' : 'settings.sidebarTextClassic')}
+              </button>
+            ))}
+          </div>
         </div>
 
         {/* 编辑器字体 - 可交互 */}

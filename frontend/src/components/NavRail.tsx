@@ -24,6 +24,7 @@ import { cn } from "@/lib/utils";
 import { pushAppPathState } from "@/lib/appPathNavigation";
 import { getCurrentMindMapAppRoute, pushMindMapAppPath } from "@/lib/mindMapDeepLink";
 import { useRailMode } from "@/hooks/useRailMode";
+import { useSidebarTextStyle } from "@/hooks/useSidebarTextStyle";
 import { useMobileRailHidden } from "@/hooks/useMobileRailHidden";
 import {
   clearDesktopLocalAuth,
@@ -84,6 +85,8 @@ export default function NavRail({ variant = "desktop" }: { variant?: "desktop" |
   const { state } = useApp();
   const actions = useAppActions();
   const [railMode] = useRailMode();
+  const [sidebarTextStyle] = useSidebarTextStyle();
+  const classicText = sidebarTextStyle === "classic";
   const [, setMobileRailHidden] = useMobileRailHidden();
   const effectiveMode = variant === "mobile" ? "label" : railMode;
   const showLabel = effectiveMode === "label";
@@ -252,13 +255,13 @@ export default function NavRail({ variant = "desktop" }: { variant?: "desktop" |
         aria-label={label}
         className={cn(
           itemBaseClass,
-          active ? "bg-accent-primary/12 text-accent-primary" : "text-tx-secondary hover:bg-app-hover hover:text-tx-primary",
+          active ? "bg-accent-primary/12 text-accent-primary" : `${classicText ? "text-tx-tertiary" : "text-tx-secondary"} hover:bg-app-hover hover:text-tx-primary`,
           item.mode === "trash" && !active && "opacity-70 hover:opacity-100",
         )}
       >
         {active && <span className="absolute left-0 top-1.5 bottom-1.5 w-[2px] rounded-full bg-accent-primary" aria-hidden />}
         {item.icon}
-        {showLabel && <span className={cn("mt-0.5 max-w-full truncate px-1 leading-tight", isMobile ? "text-[10px]" : "text-[11px] font-medium")}>{label}</span>}
+        {showLabel && <span className={cn("mt-0.5 max-w-full truncate px-1", classicText ? "text-[10px] leading-none" : isMobile ? "text-[10px] leading-tight" : "text-[11px] font-medium leading-tight")}>{label}</span>}
       </button>
     );
   };
@@ -326,7 +329,7 @@ export default function NavRail({ variant = "desktop" }: { variant?: "desktop" |
         className={cn(itemBaseClass, "text-tx-tertiary hover:bg-app-hover hover:text-tx-primary")}
       >
         <Settings size={16} />
-        {showLabel && <span className={cn("mt-0.5 max-w-full truncate px-1 leading-tight", isMobile ? "text-[10px]" : "text-[11px] font-medium")}>{t("sidebar.settings")}</span>}
+        {showLabel && <span className={cn("mt-0.5 max-w-full truncate px-1", classicText ? "text-[10px] leading-none" : isMobile ? "text-[10px] leading-tight" : "text-[11px] font-medium leading-tight")}>{t("sidebar.settings")}</span>}
       </button>
 
       {!localDeviceMode && isAccountLoginHistorySupported() && (

@@ -43,6 +43,7 @@ import {
 import { choose, confirm, prompt } from "@/components/ui/confirm";
 import { useContextMenu } from "@/hooks/useContextMenu";
 import { useMobileSidebarControlsCollapsed } from "@/hooks/useMobileSidebarControlsCollapsed";
+import { useSidebarTextStyle } from "@/hooks/useSidebarTextStyle";
 import { api } from "@/lib/api";
 import { markNewNoteForImmediateEdit } from "@/lib/newNoteImmediateEdit";
 import { affectedKnowledgeNoteIds } from "@/lib/knowledgeTreeDeleteReconcile";
@@ -304,6 +305,8 @@ export function KnowledgeTreePanel({
   const { state } = useApp();
   const actions = useAppActions();
   const [mobileControlsCollapsed] = useMobileSidebarControlsCollapsed();
+  const [sidebarTextStyle] = useSidebarTextStyle();
+  const classicText = sidebarTextStyle === "classic";
   const controlsCollapsed = variant === "mobile" && mobileControlsCollapsed;
   const threeColumnFolderNavigation = usesThreeColumnFolderNavigation({
     mode: layoutMode,
@@ -1181,7 +1184,7 @@ export function KnowledgeTreePanel({
         <div
           className={cn(
             "group relative flex min-w-0 items-center hover:bg-app-hover hover:text-tx-primary",
-            variant === "mobile" ? "text-tx-secondary" : "text-tx-primary",
+            variant === "mobile" || classicText ? "text-tx-secondary" : "text-tx-primary",
             variant === "mobile" ? "gap-0.5 rounded-sm" : "rounded-md",
             active && "bg-app-active text-tx-primary",
             selected && "bg-accent-primary/10 text-tx-primary ring-1 ring-inset ring-accent-primary/25",
@@ -1264,7 +1267,7 @@ export function KnowledgeTreePanel({
             onClick={(event) => handleNodeSelection(event, node)}
             className={cn(
               "flex min-w-0 flex-1 items-center text-left",
-              variant === "mobile" ? "gap-1.5 py-1 text-[13px] leading-5" : "gap-1.5 py-1.5 text-sm leading-5",
+              variant === "mobile" ? "gap-1.5 py-1 text-[13px] leading-5" : classicText ? "gap-1.5 py-1.5 text-xs" : "gap-1.5 py-1.5 text-sm leading-5",
             )}
             title={node.title}
           >
@@ -1634,8 +1637,8 @@ export function KnowledgeTreePanel({
               <div data-knowledge-tree-section="owned">
                 <div
                   className={cn(
-                    "flex items-center justify-between px-2 pb-1 pt-1 font-semibold uppercase tracking-wider text-tx-secondary",
-                    variant === "mobile" ? "text-[10px]" : "text-xs",
+                    "flex items-center justify-between px-2 pb-1 pt-1 font-semibold uppercase tracking-wider",
+                    classicText ? "text-[10px] text-tx-tertiary" : variant === "mobile" ? "text-[10px] text-tx-secondary" : "text-xs text-tx-secondary",
                     controlsCollapsed && "hidden",
                   )}
                   data-knowledge-tree-section-heading=""
@@ -1657,7 +1660,7 @@ export function KnowledgeTreePanel({
             )}
             {sharedRoots.length > 0 && (
               <div className={cn("mt-2 border-t border-app-border pt-2", ownedRoots.length === 0 && !hasRootDraft && "mt-0 border-t-0 pt-0")} data-knowledge-tree-section="shared">
-                <div className={cn("px-2 pb-1 font-semibold uppercase tracking-wider text-tx-secondary", variant === "mobile" ? "text-[10px]" : "text-xs")}>共享给我</div>
+                <div className={cn("px-2 pb-1 font-semibold uppercase tracking-wider", classicText ? "text-[10px] text-tx-tertiary" : variant === "mobile" ? "text-[10px] text-tx-secondary" : "text-xs text-tx-secondary")}>共享给我</div>
                 {sharedRoots.map((node) => renderNode(node, 0))}
               </div>
             )}

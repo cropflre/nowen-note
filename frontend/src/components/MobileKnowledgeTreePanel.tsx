@@ -47,6 +47,7 @@ import {
 import { choose, confirm, prompt } from "@/components/ui/confirm";
 import { useContextMenu } from "@/hooks/useContextMenu";
 import { useMobileSidebarControlsCollapsed } from "@/hooks/useMobileSidebarControlsCollapsed";
+import { useSidebarTextStyle } from "@/hooks/useSidebarTextStyle";
 import { api, getCurrentWorkspace } from "@/lib/api";
 import { markNewNoteForImmediateEdit } from "@/lib/newNoteImmediateEdit";
 import { pluginApi } from "@/lib/pluginApi";
@@ -247,6 +248,8 @@ export default function MobileKnowledgeTreePanel({
   const { state } = useApp();
   const actions = useAppActions();
   const [mobileControlsCollapsed] = useMobileSidebarControlsCollapsed();
+  const [sidebarTextStyle] = useSidebarTextStyle();
+  const classicText = sidebarTextStyle === "classic";
   const controlsCollapsed = variant === "mobile" && mobileControlsCollapsed;
   const [workspaceSurface] = useState(() => detectNoteWorkspaceSurface());
   const rootRef = useRef<HTMLElement>(null);
@@ -978,7 +981,7 @@ export default function MobileKnowledgeTreePanel({
         key={node.id}
         className={cn(
           "group relative mx-1 flex min-w-0 items-center active:bg-app-active/80",
-          variant === "mobile" ? "text-tx-secondary" : "text-tx-primary",
+          variant === "mobile" || classicText ? "text-tx-secondary" : "text-tx-primary",
           variant === "mobile" ? "mb-0.5 min-h-12 rounded-xl" : "mb-px min-h-9 rounded-md",
           active ? "bg-app-active text-tx-primary" : "hover:bg-app-hover hover:text-tx-primary",
           selected && "bg-accent-primary/10 text-tx-primary ring-1 ring-inset ring-accent-primary/25",
@@ -1014,7 +1017,7 @@ export default function MobileKnowledgeTreePanel({
           {nodeIcon(node)}
           <span className="min-w-0 flex-1">
             <span className="flex min-w-0 items-center gap-1.5">
-              <span className={cn("min-w-0 truncate", variant === "mobile" ? "text-[15px]" : "text-sm font-medium")}>{node.title}</span>
+              <span className={cn("min-w-0 truncate", variant === "mobile" ? "text-[15px]" : classicText ? "text-xs" : "text-sm font-medium")}>{node.title}</span>
               {variant === "mobile" && firstLevelNoteCount !== null && (
                 <span
                   className="shrink-0 text-[10px] tabular-nums text-tx-tertiary"
@@ -1047,7 +1050,7 @@ export default function MobileKnowledgeTreePanel({
               )}
             </span>
             {(showPath || updatedAt) && (
-              <span className={cn("mt-0.5 flex min-w-0 items-center gap-1", variant === "mobile" ? "text-[10px] text-tx-tertiary" : "text-xs text-tx-secondary")}>
+              <span className={cn("mt-0.5 flex min-w-0 items-center gap-1", variant === "mobile" || classicText ? "text-[10px] text-tx-tertiary" : "text-xs text-tx-secondary")}>
                 {showPath && <span className="min-w-0 truncate">{path}</span>}
                 {showPath && updatedAt && <span className="shrink-0">·</span>}
                 {updatedAt && <span className="shrink-0">{updatedAt}</span>}
@@ -1141,8 +1144,8 @@ export default function MobileKnowledgeTreePanel({
           <section data-mobile-knowledge-tree-section="owned">
             <div
               className={cn(
-                "flex items-center justify-between px-3 pb-1 pt-2 font-semibold uppercase tracking-wider text-tx-secondary",
-                variant === "mobile" ? "text-[10px]" : "text-xs",
+                "flex items-center justify-between px-3 pb-1 pt-2 font-semibold uppercase tracking-wider",
+                classicText ? "text-[10px] text-tx-tertiary" : variant === "mobile" ? "text-[10px] text-tx-secondary" : "text-xs text-tx-secondary",
                 controlsCollapsed && "hidden",
               )}
               data-mobile-knowledge-tree-section-heading=""
@@ -1166,7 +1169,7 @@ export default function MobileKnowledgeTreePanel({
         )}
         {rootShared.length > 0 && (
           <section className={cn("mt-2 border-t border-app-border pt-2", rootOwned.length === 0 && "mt-0 border-t-0 pt-0")} data-mobile-knowledge-tree-section="shared">
-            <div className={cn("px-3 pb-1 font-semibold uppercase tracking-wider text-tx-secondary", variant === "mobile" ? "text-[10px]" : "text-xs")}>共享给我</div>
+            <div className={cn("px-3 pb-1 font-semibold uppercase tracking-wider", classicText ? "text-[10px] text-tx-tertiary" : variant === "mobile" ? "text-[10px] text-tx-secondary" : "text-xs text-tx-secondary")}>共享给我</div>
             {rootShared.map((node) => (
               variant === "desktop" && allExpanded ? renderExpandedBranch(node) : renderNode(node)
             ))}

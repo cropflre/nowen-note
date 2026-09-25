@@ -12,6 +12,7 @@ import { useContextMenu } from "@/hooks/useContextMenu";
 import { useUserPreferences } from "@/hooks/useUserPreferences";
 import { useNoteLoader } from "@/hooks/useNoteLoader";
 import { useApp, useAppActions } from "@/store/AppContext";
+import { useSidebarTextStyle, type SidebarTextStyle } from "@/hooks/useSidebarTextStyle";
 import { api, broadcastLogout, getBaseUrl, getCurrentWorkspace, getServerUrl, isAndroidInvalidServerUrl, isNativeCapacitor } from "@/lib/api";
 import { markNewNoteForImmediateEdit } from "@/lib/newNoteImmediateEdit";
 import { NoteListItem, Notebook } from "@/types";
@@ -1014,6 +1015,7 @@ const NoteCard = React.memo(function NoteCard({
   draggable, onDragStart, onDragOver, onDragEnd, onDrop, isDragOver,
   onTouchStart, onTouchMove, onTouchEnd, cardRef, searchQuery,
   showNoteTime, notebookLabel, dragHint,
+  sidebarTextStyle,
 }: {
   note: NoteListItem; isActive: boolean; onClick: (e: React.MouseEvent) => void;
   onContextMenu: (e: React.MouseEvent) => void;
@@ -1034,7 +1036,9 @@ const NoteCard = React.memo(function NoteCard({
   showNoteTime?: boolean;
   notebookLabel?: string;
   dragHint?: string;
+  sidebarTextStyle: SidebarTextStyle;
 }) {
+  const classicText = sidebarTextStyle === "classic";
   // 预览文本：普通列表取正文前 100 字；搜索结果使用后端 snippet，不能再截断。
   // 压成单个空格。否则 markdown 多段落正文里的换行会被 <p> 当作空白渲染，
   // 配合 line-clamp-2 + break-words 出现"每句被切到独立一行"的错觉
@@ -1126,7 +1130,7 @@ const NoteCard = React.memo(function NoteCard({
             // break-all：兜底——遇到极长不可断词（连续超长英文/无空格 URL）也强制裁断，
             // 不让一行的"内容宽度"超过容器，导致 flex 容器再被撑变形。
             "note-card-title text-sm font-medium line-clamp-1 break-all flex-1 min-w-0",
-            "text-tx-primary"
+            classicText ? (isActive ? "text-tx-primary" : "text-tx-secondary group-hover:text-tx-primary") : "text-tx-primary"
           )}>
             {searchQuery && note.titleHtml ? (
               <span dangerouslySetInnerHTML={{ __html: sanitizeSearchHtml(note.titleHtml) }} />
@@ -1170,10 +1174,10 @@ const NoteCard = React.memo(function NoteCard({
                   </span>
                 </div>
               )}
-              <p className="note-card-preview text-[13px] text-tx-secondary line-clamp-2 leading-relaxed break-words [overflow-wrap:anywhere]" dangerouslySetInnerHTML={{ __html: sanitizeSearchHtml(preview) }} />
+              <p className={cn("note-card-preview line-clamp-2 leading-relaxed break-words [overflow-wrap:anywhere]", classicText ? "text-xs text-tx-tertiary" : "text-[13px] text-tx-secondary")} dangerouslySetInnerHTML={{ __html: sanitizeSearchHtml(preview) }} />
             </div>
           ) : (
-            <p className="text-[13px] text-tx-secondary mt-1.5 line-clamp-2 leading-relaxed break-words [overflow-wrap:anywhere]">{preview}</p>
+            <p className={cn("mt-1.5 line-clamp-2 leading-relaxed break-words [overflow-wrap:anywhere]", classicText ? "text-xs text-tx-tertiary" : "text-[13px] text-tx-secondary")}>{preview}</p>
           )
         )}
 
@@ -1181,11 +1185,11 @@ const NoteCard = React.memo(function NoteCard({
             - 左侧：更新时间（始终显示）
             - 右侧：工作区下显示创建者（最高优先级），否则 hover 时显示字数
             两者互斥渲染——卡片宽度有限，避免徽标挤压标题/预览。 */}
-        <div className="flex items-center justify-between mt-2 text-tx-secondary gap-2">
+        <div className={cn("flex items-center justify-between mt-2 gap-2", classicText ? "text-tx-tertiary" : "text-tx-secondary")}>
           {(showNoteTime || notebookLabel) && (
             <div className="flex items-center gap-2 min-w-0">
               {notebookLabel && (
-                <span className="flex min-w-0 items-center gap-1 text-[11px] text-tx-secondary" title={notebookLabel}>
+                <span className={cn("flex min-w-0 items-center gap-1", classicText ? "text-[10px] text-tx-tertiary" : "text-[11px] text-tx-secondary")} title={notebookLabel}>
                   <Folder size={10} className="shrink-0" />
                   <span className="truncate">{notebookLabel}</span>
                 </span>
@@ -1193,21 +1197,21 @@ const NoteCard = React.memo(function NoteCard({
               {showNoteTime && (
                 <span className="flex shrink-0 items-center gap-1.5">
               <Clock size={10} />
-              <span className="text-[11px]">{formatTime(note.updatedAt, t)}</span>
+              <span className={classicText ? "text-[10px]" : "text-[11px]"}>{formatTime(note.updatedAt, t)}</span>
                 </span>
               )}
             </div>
           )}
           {showCreator ? (
             <span
-              className="flex items-center gap-1 text-[11px] text-tx-secondary truncate max-w-[40%]"
+              className={cn("flex items-center gap-1 truncate max-w-[40%]", classicText ? "text-[10px] text-tx-secondary/80" : "text-[11px] text-tx-secondary")}
               title={t('common.createdBy', { name: note.creatorName })}
             >
               <UserIcon size={10} className="shrink-0" />
               <span className="truncate">{note.creatorName}</span>
             </span>
           ) : wordCount > 0 ? (
-            <span className="text-[11px] opacity-0 group-hover:opacity-100 transition-opacity tabular-nums">
+            <span className={cn("opacity-0 group-hover:opacity-100 transition-opacity tabular-nums", classicText ? "text-[10px]" : "text-[11px]")}>
               {wordCount > 999 ? `${(wordCount / 1000).toFixed(1)}k` : wordCount} {t('common.chars') || '字'}
             </span>
           ) : null}
@@ -1219,7 +1223,7 @@ const NoteCard = React.memo(function NoteCard({
 NoteCard.displayName = "NoteCard";
 
 /* ===== 虚拟滚动笔记列表 ===== */
-const ITEM_HEIGHT = 112; // 包含两行预览与元信息的卡片高度（px）
+const ITEM_HEIGHT = 112; // 清晰版包含两行预览与元信息的卡片高度（px）
 const OVERSCAN = 8; // 上下额外渲染的条目数
 
 function VirtualNoteList({
@@ -1246,6 +1250,7 @@ function VirtualNoteList({
   showNotebookLabel,
   notebookLabels,
   dragHint,
+  sidebarTextStyle,
 }: {
   notes: NoteListItem[];
   scrollScopeKey: string;
@@ -1270,6 +1275,7 @@ function VirtualNoteList({
   showNotebookLabel?: boolean;
   notebookLabels?: Map<string, string>;
   dragHint?: string;
+  sidebarTextStyle: SidebarTextStyle;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [scrollTop, setScrollTop] = useState(0);
@@ -1302,7 +1308,9 @@ function VirtualNoteList({
     setScrollTop(e.currentTarget.scrollTop);
   }, []);
 
-  const itemHeight = showNotebookLabel ? 124 : ITEM_HEIGHT;
+  const itemHeight = sidebarTextStyle === "classic"
+    ? (showNotebookLabel ? 104 : 90)
+    : (showNotebookLabel ? 124 : ITEM_HEIGHT);
   const totalHeight = notes.length * itemHeight;
   const startIndex = Math.max(0, Math.floor(scrollTop / itemHeight) - OVERSCAN);
   const endIndex = Math.min(notes.length, Math.ceil((scrollTop + containerHeight) / itemHeight) + OVERSCAN);
@@ -1326,6 +1334,7 @@ function VirtualNoteList({
                 else noteCardRefs?.current.delete(note.id);
               }}
               note={note}
+              sidebarTextStyle={sidebarTextStyle}
               isActive={activeNoteId === note.id}
               isContextTarget={menuState.isOpen && menuState.targetId === note.id}
               isShared={sharedNoteIds.has(note.id)}
@@ -1356,6 +1365,7 @@ function VirtualNoteList({
 export default function NoteList() {
   const { state } = useApp();
   const actions = useAppActions();
+  const [sidebarTextStyle] = useSidebarTextStyle();
   const [layoutMode, setLayoutMode] = useState<NoteWorkspaceLayoutMode>(() =>
     loadNoteWorkspaceLayoutMode(state.noteListCollapsed),
   );
@@ -4029,6 +4039,7 @@ export default function NoteList() {
         {/* 笔记数量较少时使用普通渲染，较多时使用虚拟滚动 */}
         {sortedNotes.length > 100 ? (
           <VirtualNoteList
+            sidebarTextStyle={sidebarTextStyle}
             notes={sortedNotes}
             scrollScopeKey={notesQueryKey}
             activeNoteId={state.noteLoadingState.pendingNoteId || state.activeNote?.id}
@@ -4059,6 +4070,7 @@ export default function NoteList() {
           <AnimatePresence>
             {sortedNotes.map((note) => (
               <NoteCard
+                sidebarTextStyle={sidebarTextStyle}
                 key={note.id}
                 cardRef={(el) => {
                   if (el) noteCardRefs.current.set(note.id, el);

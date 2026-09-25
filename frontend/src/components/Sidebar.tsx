@@ -14,6 +14,7 @@ import WorkspaceSwitcher from "@/components/WorkspaceSwitcher";
 import { useRailMode } from "@/hooks/useRailMode";
 import { useMobileRailHidden } from "@/hooks/useMobileRailHidden";
 import { useMobileSidebarControlsCollapsed } from "@/hooks/useMobileSidebarControlsCollapsed";
+import { useSidebarTextStyle } from "@/hooks/useSidebarTextStyle";
 import { useSiteSettings } from "@/hooks/useSiteSettings";
 import { api } from "@/lib/api";
 import { refreshKnowledgeTreeScrollbars } from "@/lib/knowledgeTreeScrollbarBridge";
@@ -88,6 +89,8 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
   const { siteConfig } = useSiteSettings();
   const [railMode, setRailMode] = useRailMode();
   const [mobileControlsCollapsed, setMobileControlsCollapsed] = useMobileSidebarControlsCollapsed();
+  const [sidebarTextStyle] = useSidebarTextStyle();
+  const classicText = sidebarTextStyle === "classic";
   const [mobileRailHidden, setMobileRailHidden] = useMobileRailHidden();
   const rootRef = useRef<HTMLDivElement>(null);
   const tagLongPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -312,7 +315,7 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
 
       <section className="flex min-h-0 flex-1 flex-col border-t border-app-border/60">
         {variant === "desktop" && (
-          <div className="shrink-0 px-4 pb-1 pt-2 text-xs font-medium text-tx-secondary">
+          <div className={cn("shrink-0 px-4 pb-1 pt-2 font-medium", classicText ? "text-[11px] text-tx-tertiary" : "text-xs text-tx-secondary")}>
             内容
           </div>
         )}
@@ -331,7 +334,7 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
         <button
           type="button"
           onClick={toggleTagsExpanded}
-          className="flex w-full items-center gap-2 px-4 py-2 text-[13px] font-medium text-tx-secondary transition-colors hover:bg-app-hover hover:text-tx-primary"
+          className={cn("flex w-full items-center gap-2 px-4 py-2 font-medium transition-colors hover:bg-app-hover hover:text-tx-primary", classicText ? "text-xs text-tx-tertiary" : "text-[13px] text-tx-secondary")}
           aria-expanded={tagsExpanded}
         >
           {tagsExpanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
