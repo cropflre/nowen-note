@@ -54,7 +54,7 @@ import {
   shouldResetSharedFileImport,
   type ImportMethod,
 } from "@/lib/importHub";
-import type { Workspace } from "@/types";
+import type { User, Workspace } from "@/types";
 import { openTaskDataTransfer } from "@/lib/taskDataTransferBridge";
 import { runFullBackupJob } from "@/lib/fullBackupJobClient";
 
@@ -188,7 +188,7 @@ function SyncCenterCard() {
   );
 }
 
-function DesktopDataSafetyCard() {
+function DesktopDataSafetyCard({ currentUser }: { currentUser: Pick<User, "id" | "username"> | null }) {
   const [info, setInfo] = useState<AppInfo | null>(null);
   const [dataDirInfo, setDataDirInfo] = useState<DataDirInfo | null>(null);
   const [resetting, setResetting] = useState(false);
@@ -299,6 +299,11 @@ function DesktopDataSafetyCard() {
                 : "轻量模式数据存储在远端服务器，本机不保存完整数据库。"}
               {dataDirInfo?.isCustom ? " · 自定义目录" : ""}
             </p>
+            {isFullLocal && currentUser && (
+              <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1 break-all">
+                当前会话账号：{currentUser.username} · ID：{currentUser.id}（请与旧版本核对；当前会话不一定属于此数据库）
+              </p>
+            )}
           </div>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -355,6 +360,7 @@ export default function DataManager() {
   // 这里直接从 /api/me 读最新值；老后端若不返回字段则按 true 兜底保持原行为。
   // -----------------------------------------------------------------
   const [isAdmin, setIsAdmin] = useState<boolean | null>(null);
+  const [currentUser, setCurrentUser] = useState<Pick<User, "id" | "username"> | null>(null);
   const [personalExportAllowed, setPersonalExportAllowed] = useState(true);
   const [personalImportAllowed, setPersonalImportAllowed] = useState(true);
   useEffect(() => {
@@ -363,6 +369,7 @@ export default function DataManager() {
       .then((u) => {
         if (cancelled) return;
         setIsAdmin((u as any)?.role === "admin");
+        setCurrentUser(u?.id && u?.username ? { id: u.id, username: u.username } : null);
         // 老后端可能不返回这两个字段——按 true 兜底，保持原行为。
         const exp = (u as any)?.personalExportEnabled;
         const imp = (u as any)?.personalImportEnabled;
@@ -1116,7 +1123,7 @@ export default function DataManager() {
 
         <div className="space-y-3 mb-4">
           <SyncCenterCard />
-          <DesktopDataSafetyCard />
+          <DesktopDataSafetyCard currentUser={currentUser} />
           <RemoteImageLocalizationPanel />
         </div>
 

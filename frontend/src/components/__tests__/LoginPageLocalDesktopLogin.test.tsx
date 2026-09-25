@@ -1,6 +1,7 @@
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { testServerConnection } from "@/lib/api";
 import LoginPage from "../LoginPage";
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
@@ -78,6 +79,7 @@ describe("桌面端本地登录信息提示", () => {
     localStorage.clear();
     document.body.innerHTML = "";
     completeLocalLoginHint.mockClear();
+    vi.mocked(testServerConnection).mockClear();
     (window as any).nowenDesktop = { isDesktop: true };
     vi.stubGlobal("scrollTo", vi.fn());
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({
@@ -146,5 +148,49 @@ describe("桌面端本地登录信息提示", () => {
       expect(inputs.some((input) => input.value.includes("note.nowen.cn"))).toBe(true);
       expect(host.querySelector("[data-lan-discovery]")).toBeNull();
     });
+  });
+
+  it("连接探测失败时不会误报为密码错误", async () => {
+    vi.mocked(testServerConnection).mockResolvedValueOnce({ ok: false, error: "Failed to fetch" });
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    root = createRoot(host);
+    await act(async () => root?.render(<LoginPage isClientMode onLogin={vi.fn()} />));
+    await waitFor(() => expect(host.textContent).toContain(localHint.serverUrl));
+    await act(async () => {
+      Array.from(host.querySelectorAll("button"))
+        .find((button) => button.textContent === "auth.localDesktopLogin.fillButton")?.click();
+      host.querySelector("form")?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    });
+    await waitFor(() => expect(host.textContent).toContain("auth.serverProbeFailed"));
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("区分登录请求无 HTTP 响应与服务端返回 401", async () => {
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    root = createRoot(host);
+    await act(async () => root?.render(<LoginPage isClientMode onLogin={vi.fn()} />));
+    await waitFor(() => expect(host.textContent).toContain(localHint.serverUrl));
+    await act(async () => Array.from(host.querySelectorAll("button"))
+      .find((button) => button.textContent === "auth.localDesktopLogin.fillButton")?.click());
+
+    vi.stubGlobal("fetch", vi.fn(async () => { throw new TypeError("Failed to fetch"); }));
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      await act(async () => host.querySelector("form")
+        ?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
+      await waitFor(() => expect(host.textContent).toContain("auth.loginNoResponse"));
+
+      vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ error: "wrong password" }), {
+        status: 401,
+        headers: { "Content-Type": "application/json" },
+      })));
+      await act(async () => host.querySelector("form")
+        ?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
+      await waitFor(() => expect(host.textContent).toContain("auth.loginHttpError"));
+    } finally {
+      errorLog.mockRestore();
+    }
   });
 });

@@ -37,6 +37,10 @@
   "auth": {
     "verifying": "Verifying identity...",
     "loginFailed": "Login failed",
+    "loginNoResponse": "No HTTP response to the login request ({{target}}). Check server availability, address, certificate, CORS/CSP, and reverse proxy; this does not mean the password is wrong.",
+    "loginHttpError": "Login request returned HTTP {{status}} ({{target}}): {{reason}}",
+    "loginSessionError": "Local session handling failed after login. Please retry or check the application log.",
+    "serverProbeFailed": "Connection probe failed ({{target}}): {{reason}}. Your account password has not been checked yet.",
     "networkError": "Network error, please check if the server is running",
     "appTitle": "nowen-note",
     "subtitle": "Private Knowledge Base · Welcome Back",

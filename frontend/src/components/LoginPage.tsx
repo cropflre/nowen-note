@@ -11,6 +11,7 @@ import {
   testServerConnection,
 } from "@/lib/api";
 import { buildServerUrl, getResolvedApiBaseUrl, isLanServerHostname, parseServerUrl, type ServerAddressParts } from "@/lib/serverUrl";
+import { safeLoginRequestTarget } from "@/lib/loginRequestDiagnostics";
 import ServerAddressInput from "@/components/ServerAddressInput";
 import LanDiscoveryPanel from "@/components/LanDiscoveryPanel";
 import { useKeyboardLayout } from "@/hooks/useCapacitor";
@@ -373,7 +374,10 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
         return null;
       }
       setServerStatus("fail");
-      setError(result.error || t("server.connectFailed"));
+      setError(t("auth.serverProbeFailed", {
+        target: safeLoginRequestTarget(url),
+        reason: result.error || t("server.connectFailed"),
+      }));
       return null;
     }
     setServerStatus("ok");
@@ -449,7 +453,6 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
     e.preventDefault();
     setError("");
     setIsLoading(true);
-    let loginUrl = "";
     try {
       const baseUrl = await resolveBaseUrl();
       if (baseUrl === null) return;
@@ -479,16 +482,28 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
         return;
       }
 
-      loginUrl = `${getResolvedApiBaseUrl(baseUrl)}/auth/login`;
+      const loginUrl = `${getResolvedApiBaseUrl(baseUrl)}/auth/login`;
       const { getDeviceId } = await import("@/lib/deviceId");
-      const res = await fetch(loginUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username: username.trim(), password, deviceId: getDeviceId() }),
-      });
+      const target = safeLoginRequestTarget(loginUrl);
+      let res: Response;
+      try {
+        res = await fetch(loginUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ username: username.trim(), password, deviceId: getDeviceId() }),
+        });
+      } catch {
+        console.error("[login] no HTTP response");
+        setError(t("auth.loginNoResponse", { target }));
+        return;
+      }
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setError(data.error || t("auth.loginFailed"));
+        setError(t("auth.loginHttpError", {
+          status: res.status,
+          target,
+          reason: data.error || t("auth.loginFailed"),
+        }));
         return;
       }
 
@@ -513,9 +528,8 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
       await completeLocalLoginHintIfMatched(baseUrl || "", data.user?.username || username.trim());
       onLogin(data.token, data.user);
     } catch (err: any) {
-      const message = err?.message || String(err || t("auth.networkError"));
-      console.error("[login] request failed", { url: loginUrl || "(resolveBaseUrl)", error: message });
-      setError(`${message}（请检查服务器地址、CORS/CSP、证书或 API/WebSocket 反向代理）`);
+      console.error("[login] setup or session failed", { name: err?.name || "unknown" });
+      setError(t("auth.loginSessionError"));
     } finally {
       setIsLoading(false);
     }

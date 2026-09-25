@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import bcrypt from "bcryptjs";
-import { getDb } from "../src/db/schema";
+import { closeDb, getDb } from "../src/db/schema";
 import auth from "../src/routes/auth";
 
 const secret = "test-desktop-secret-for-bootstrap-787";
@@ -60,11 +60,23 @@ test("desktop bootstrap creates only a missing account and never changes an exis
   db.prepare("UPDATE users SET passwordHash = ?, tokenVersion = 7 WHERE id = ?")
     .run(customHash, created.id);
 
+  // An upgraded portable database must keep its identity and notes after a backend restart.
+  db.prepare("INSERT INTO notebooks (id, userId, name) VALUES (?, ?, ?)")
+    .run("issue-787-notebook", created.id, "旧版笔记本");
+  db.prepare("INSERT INTO notes (id, userId, notebookId, title, contentText) VALUES (?, ?, ?, ?, ?)")
+    .run("issue-787-note", created.id, "issue-787-notebook", "旧版笔记", "keep this note");
+  closeDb();
+  assert.equal(desktop()?.id, created.id);
+
   const mismatch = await bootstrap();
   assert.equal(mismatch.status, 409);
   assert.equal((await mismatch.json() as any).code, "LOCAL_ACCOUNT_REQUIRES_MANUAL_LOGIN");
   assert.equal(desktop()?.passwordHash, customHash);
   assert.equal(desktop()?.tokenVersion, 7);
+  assert.deepEqual(
+    getDb().prepare("SELECT userId, title, contentText FROM notes WHERE id = ?").get("issue-787-note"),
+    { userId: created.id, title: "旧版笔记", contentText: "keep this note" },
+  );
 
   const manualLogin = await auth.request("/login", {
     method: "POST",
@@ -98,6 +110,10 @@ test("desktop bootstrap creates only a missing account and never changes an exis
   assert.equal(desktop()?.id, created.id);
   assert.equal(bcrypt.compareSync(secret, desktop()!.passwordHash), true);
   assert.equal(desktop()?.tokenVersion, 8);
+  assert.equal(
+    (getDb().prepare("SELECT contentText FROM notes WHERE id = ?").get("issue-787-note") as { contentText: string }).contentText,
+    "keep this note",
+  );
 });
 
 test("desktop bootstrap leaves disabled and locked accounts unchanged", async () => {

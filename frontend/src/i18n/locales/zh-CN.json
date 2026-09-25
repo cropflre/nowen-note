@@ -37,6 +37,10 @@
   "auth": {
     "verifying": "正在验证身份...",
     "loginFailed": "登录失败",
+    "loginNoResponse": "登录请求未收到 HTTP 响应（{{target}}）。请检查服务器是否运行、地址、证书、CORS/CSP 和反向代理；这不代表密码错误。",
+    "loginHttpError": "登录请求返回 HTTP {{status}}（{{target}}）：{{reason}}",
+    "loginSessionError": "登录后的本地会话处理失败，请重试或查看应用日志。",
+    "serverProbeFailed": "连接探测失败（{{target}}）：{{reason}}。尚未验证账号密码。",
     "networkError": "网络错误，请检查服务是否运行",
     "appTitle": "nowen-note",
     "subtitle": "私有化知识库 · 欢迎回来",

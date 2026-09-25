@@ -8,18 +8,36 @@ on:
       - "backend/src/routes/auth.ts"
       - "backend/tests/desktop-local-account-bootstrap.test.ts"
       - "electron/main.js"
+      - "electron/dataDir.js"
+      - "electron/__tests__/dataDir.test.js"
       - "electron/localAccountBootstrap.js"
       - "electron/__tests__/localAccountBootstrap.test.js"
       - "frontend/src/components/SecuritySettings.tsx"
+      - "frontend/src/components/DataManager.tsx"
+      - "frontend/src/components/LoginPage.tsx"
+      - "frontend/src/lib/loginRequestDiagnostics.ts"
+      - "frontend/src/lib/__tests__/loginRequestDiagnostics.test.ts"
+      - "frontend/src/components/__tests__/LoginPageLocalDesktopLogin.test.tsx"
+      - "frontend/src/i18n/locales/zh-CN.json"
+      - "frontend/src/i18n/locales/en.json"
       - ".github/workflows/desktop-local-account-ci.yml"
   pull_request:
     paths:
       - "backend/src/routes/auth.ts"
       - "backend/tests/desktop-local-account-bootstrap.test.ts"
       - "electron/main.js"
+      - "electron/dataDir.js"
+      - "electron/__tests__/dataDir.test.js"
       - "electron/localAccountBootstrap.js"
       - "electron/__tests__/localAccountBootstrap.test.js"
       - "frontend/src/components/SecuritySettings.tsx"
+      - "frontend/src/components/DataManager.tsx"
+      - "frontend/src/components/LoginPage.tsx"
+      - "frontend/src/lib/loginRequestDiagnostics.ts"
+      - "frontend/src/lib/__tests__/loginRequestDiagnostics.test.ts"
+      - "frontend/src/components/__tests__/LoginPageLocalDesktopLogin.test.tsx"
+      - "frontend/src/i18n/locales/zh-CN.json"
+      - "frontend/src/i18n/locales/en.json"
       - ".github/workflows/desktop-local-account-ci.yml"
 
 permissions:
@@ -45,7 +63,7 @@ jobs:
       - name: Backend typecheck
         run: npm run build:tsc
       - name: Electron startup contract
-        run: node --test ../electron/__tests__/localAccountBootstrap.test.js
+        run: node --test ../electron/__tests__/localAccountBootstrap.test.js ../electron/__tests__/dataDir.test.js
 
   frontend:
     runs-on: ubuntu-latest
@@ -61,5 +79,7 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci --silent
+      - name: Login request diagnostic regression
+        run: npm run test:run -- src/lib/__tests__/loginRequestDiagnostics.test.ts src/components/__tests__/LoginPageLocalDesktopLogin.test.tsx
       - name: Frontend production build
         run: npm run build
