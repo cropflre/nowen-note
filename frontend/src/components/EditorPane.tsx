@@ -11,6 +11,7 @@ import HtmlPreviewPane, { isFullHtmlDocument } from "@/components/HtmlPreviewPan
 import type { NoteEditorHandle } from "@/components/editors/types";
 import { useApp, useAppActions, SyncStatus } from "@/store/AppContext";
 import { api } from "@/lib/api";
+import { confirmMediaNotePersistence } from "@/lib/mediaInsertionCommit";
 import { parseMermaidMindmap, normalizeMindMapData } from "@/lib/mindmapTransform";
 import { cn } from "@/lib/utils";
 import SyncStatusBadge from "@/components/SyncStatusBadge";
@@ -1709,6 +1710,15 @@ export default function EditorPane({
         });
       }
 
+      if (updated && typeof lastSentData.content === "string") {
+        const committedContent = typeof updated.content === "string" ? updated.content : lastSentData.content;
+        confirmMediaNotePersistence(
+          currentNote.id,
+          committedContent,
+          (updated as Note & { __offlineQueued?: boolean }).__offlineQueued ? "queued" : "saved",
+        );
+      }
+
       // ���ڱ���ıʼ����ǵ�ǰ����ʼ�ʱ����״̬����ֹ�����л�ʱ���Ǵ���ʼǣ�
       if (activeNoteRef.current?.id === updated.id) {
         // �ؼ�������Ѹձ���� content / contentText Ҳ��� activeNote��
@@ -1819,6 +1829,7 @@ export default function EditorPane({
               version: currentNote.version,
             },
           });
+          confirmMediaNotePersistence(currentNote.id, snap.content, "queued");
         }
       } catch (queueErr) {
         console.warn("[EditorPane] enqueue offline fallback failed:", queueErr);

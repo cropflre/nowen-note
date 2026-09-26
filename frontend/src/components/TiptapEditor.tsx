@@ -76,6 +76,7 @@ import {
   type ImageNodeAttrs,
 } from "@/lib/imageToolbar";
 import { isVideoFile, toInlineAttachmentUrl, uploadMediaAttachment, type MediaUploadResult } from "@/lib/mediaUploadService";
+import { listenMediaUploadLifecycle } from "@/lib/mediaUploadLifecycle";
 import { extractRtfImagesAsync } from "@/lib/rtfImageWorkerClient";
 import { replaceDataUrlImagesWithAttachments } from "@/lib/rtfImageUploader";
 import {
@@ -1870,6 +1871,15 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
   // 保持最新的 note ref，避免闭包引用过期
   const noteRef = useRef(note);
   noteRef.current = note;
+  useEffect(() => listenMediaUploadLifecycle((detail) => {
+    if (detail.mediaType !== "video" || detail.noteId !== noteRef.current.id || !detail.result) return;
+    if (detail.phase === "success") {
+      if (detail.queued) toast.info("视频已插入，等待离线同步");
+      else toast.success(t("tiptap.videoUploaded") || "Video uploaded");
+    } else if (detail.phase === "error") {
+      toast.error(detail.error || t("tiptap.videoUploadFailed") || "Video upload failed");
+    }
+  }), [t]);
   const pasteNoteScopeRef = useRef({ id: note.id, revision: 0 });
   if (pasteNoteScopeRef.current.id !== note.id) {
     pasteNoteScopeRef.current = { id: note.id, revision: pasteNoteScopeRef.current.revision + 1 };
@@ -2292,6 +2302,7 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
                 if (node) view.dispatch(view.state.tr.replaceSelectionWith(node));
               };
               const uploadAll = async () => {
+                let failed = false;
                 for (const file of pastedFiles) {
                   try {
                     if (isVideoFile(file)) {
@@ -2306,10 +2317,12 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
                       }
                     }
                   } catch (err) {
+                    failed = true;
                     console.error("Paste attachment upload failed:", err);
                   }
                 }
-                showPasteToast("success", t("tiptap.attachmentUploaded"));
+                if (failed) showPasteToast("error", t("tiptap.attachmentUploadFailed"));
+                else if (pastedFiles.every((file) => !isVideoFile(file))) showPasteToast("success", t("tiptap.attachmentUploaded"));
               };
               uploadAll();
               return true;
@@ -2795,6 +2808,7 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
         showPasteToast("converting", t("tiptap.attachmentUploading"));
         (async () => {
           try {
+            let failed = false;
             for (const file of files) {
               try {
                 const isImage = file.type.startsWith("image/");
@@ -2816,10 +2830,12 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
                   insertAttachmentToView(res.filename, res.url, res.size);
                 }
               } catch (err) {
+                failed = true;
                 console.error("Drop attachment upload failed:", err);
               }
             }
-            showPasteToast("success", t("tiptap.attachmentUploaded"));
+            if (failed) showPasteToast("error", t("tiptap.attachmentUploadFailed"));
+            else if (files.every((file) => !isVideoFile(file))) showPasteToast("success", t("tiptap.attachmentUploaded"));
           } finally {
             releaseAsyncInsertAnchor(asyncInsertAnchorsRef.current, dropInsertAnchor);
           }
@@ -4791,9 +4807,7 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
             mimeType: res.mimeType,
             size: res.size,
           });
-          if (ok) {
-            toast.success(t("tiptap.videoUploaded") || "Video uploaded");
-          } else {
+          if (!ok) {
             toast.error(t("tiptap.videoUploadFailed") || "Video upload failed");
           }
         })

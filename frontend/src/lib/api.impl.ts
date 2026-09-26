@@ -1056,6 +1056,7 @@ function handleOfflineEnqueue<T>(url: string, method: string, bodyStr?: string):
   // updateNote: 返回 body + noteId，让 EditorPane 的 reconcile 能拿到 version/updatedAt
   return {
     id: noteId,
+    __offlineQueued: true,
     version: body?.version || 1,
     updatedAt: new Date().toISOString(),
     title: body?.title || "",

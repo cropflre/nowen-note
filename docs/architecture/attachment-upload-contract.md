@@ -139,28 +139,29 @@ start
   ↓
 调用方沿用现有编辑器插入流程
   ↓
-mediaInsertionCommit 检查附件 marker
-  ├─ 找到 → success
-  └─ 超时 → error（附件仍保留在附件库）
+mediaInsertionCommit 等待当前笔记的正文保存确认
+  ├─ 服务端确认且正文包含该视频 → success
+  ├─ 离线队列接收且正文包含该视频 → 已插入，待同步
+  └─ 30 秒未确认 → error（附件仍保留在附件库）
 ```
 
 ### 为什么不重写两个编辑器
 
 Tiptap 和 Markdown 已经有各自稳定的插入逻辑。#780 不应该为了统一状态而复制第三套插入实现。
 
-`mediaInsertionCommit.ts` 只确认结果是否跨过“编辑器正文边界”：
+`mediaInsertionCommit.ts` 只在当前笔记的保存结果或离线队列正文中确认该视频，不再扫描全页面 DOM：
 
-- Tiptap：匹配带该 attachment id 的 `<video src>` / 媒体节点；
-- Markdown：匹配 CodeMirror 正文中的持久化附件 URL；
+- Tiptap：匹配带该 attachment id 的持久化 `video` 节点；
+- Markdown：匹配持久化正文中的 `@[video](附件 URL)`；
 - 同时兼容带短期签名参数的运行时附件 URL。
 
 未确认插入时生命周期返回：
 
 ```text
-视频已上传，但插入正文失败。点击“重试失败项”会复用已上传文件重新插入，也可从附件库手动插入。
+视频已上传，但正文插入或保存确认失败。点击“重试失败项”会复用已上传文件重新插入，也可从附件库手动插入。
 ```
 
-此时 `mediaUploadService` 会在当前页面会话中暂存该 `MediaUploadResult`。用户点击现有“重试失败项”后，编辑器重新执行插入流程，但**不会再次 POST 同一个视频**；确认正文出现对应 attachment marker 后才清除暂存并进入最终 success。
+此时 `mediaUploadService` 会在当前页面会话中暂存该 `MediaUploadResult`。用户点击现有“重试失败项”后，编辑器重新执行插入流程，但**不会再次 POST 同一个视频**；确认当前笔记正文保存后才清除暂存并进入最终 success。离线队列接收只能显示“待同步”，不能显示服务端保存成功。
 
 这样同时解决两个问题：
 
@@ -203,12 +204,15 @@ MAX_ATTACHMENT_SIZE_MB=500
 structured 413
 runtime upload-size hint
 upload-size hint only for /api/attachments
-Tiptap inserted marker
-Markdown inserted marker
+Tiptap / Markdown 当前笔记正文保存确认
+别的笔记或仅 DOM 中出现 marker 不算成功
+离线保存排队只显示待同步
 uploaded-but-not-inserted
 retry insertion without duplicate upload
 large-file dynamic timeout
 ```
+
+发版前还需在 Web、Windows、Android、iOS 上分别用工具栏、粘贴、拖拽或系统媒体选择器走一遍：上传小于限制的视频，确认保存后刷新仍可播放；超限文件在上传前被阻止；上传成功但正文未保存时不出现成功提示；离线排队仅显示“待同步”。自动化测试不能替代这些设备验收。
 
 ## 7. 后续演进
 

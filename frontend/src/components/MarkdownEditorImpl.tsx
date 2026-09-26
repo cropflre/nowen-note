@@ -148,6 +148,7 @@ import { api } from "@/lib/api";
 import { uploadAndInsertImage } from "@/lib/imageUploadService";
 import { buildExistingAttachmentMarkdownSnippet } from "@/lib/existingAttachmentInsert";
 import { isVideoFile, uploadMediaAttachment, type MediaUploadResult } from "@/lib/mediaUploadService";
+import { listenMediaUploadLifecycle } from "@/lib/mediaUploadLifecycle";
 import type { NoteEditorHandle, NoteEditorHeading, NoteEditorProps } from "@/components/editors/types";
 import type { FormatMenuPayload } from "@/lib/desktopBridge";
 import { NoteLinkMenu, type NoteSearchResult, type NoteLinkBlockItem, type NoteLinkSelectionOptions } from "@/components/NoteLinkExtension";
@@ -691,6 +692,15 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
   // �� ref ׷���� note / callbacks�������� CM6 listener ���õ����ڱհ�
   const noteRef = useRef(note);
   noteRef.current = note;
+  useEffect(() => listenMediaUploadLifecycle((detail) => {
+    if (detail.mediaType !== "video" || detail.noteId !== noteRef.current.id || !detail.result) return;
+    if (detail.phase === "success") {
+      if (detail.queued) toast.info("视频已插入，等待离线同步");
+      else toast.success(tr("tiptap.attachmentUploaded") || "Attachment uploaded");
+    } else if (detail.phase === "error") {
+      toast.error(detail.error || tr("tiptap.attachmentUploadFailed") || "Attachment upload failed");
+    }
+  }), [tr]);
   const pasteNoteScopeRef = useRef({ id: note.id, revision: 0 });
   if (pasteNoteScopeRef.current.id !== note.id) {
     pasteNoteScopeRef.current = { id: note.id, revision: pasteNoteScopeRef.current.revision + 1 };
@@ -1008,7 +1018,6 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
         const v = viewRef.current;
         if (!v) return;
         replaceSelection(v, buildMarkdownVideoSnippet(result));
-        toast.success(tr("tiptap.attachmentUploaded") || "Attachment uploaded");
       })
       .catch((err: any) => {
         console.error("Video upload failed:", err);

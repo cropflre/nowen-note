@@ -58,6 +58,7 @@ function scheduleCommit(
 ): void {
   uploadedButNotCommitted.set(lifecycleFile, { noteId, result });
   scheduleMediaInsertionCommit({
+    noteId,
     file: lifecycleFile,
     filename,
     result,
@@ -77,6 +78,7 @@ export async function uploadMediaAttachment({
     file: lifecycleFile,
     filename: file.name,
     mediaType: "video",
+    noteId,
   });
 
   // If the previous attempt reached storage but failed only at the editor insertion boundary,
@@ -128,6 +130,7 @@ export async function uploadMediaAttachment({
       file: lifecycleFile,
       filename: file.name,
       mediaType: "video",
+      noteId,
       error: error?.message || "视频上传失败",
     });
     throw error;

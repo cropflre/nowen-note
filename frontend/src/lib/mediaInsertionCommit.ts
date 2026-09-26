@@ -7,125 +7,111 @@ export interface MediaInsertionResult {
   filename?: string;
 }
 
-const pendingChecks = new Map<string, number>();
-const CHECK_DELAYS_MS = [0, 40, 100, 180, 320, 550, 900, 1400, 2200];
+type PendingCommit = {
+  noteId: string;
+  file: File | Blob;
+  filename: string;
+  result: MediaInsertionResult;
+  timer: number;
+  onSuccess?: () => void;
+  onFailure?: () => void;
+};
 
-function markerValues(result: MediaInsertionResult): string[] {
-  const values = [result.attachmentId, result.url, result.previewUrl || ""]
-    .map((value) => String(value || "").trim())
-    .filter(Boolean);
+const pendingCommits = new Map<string, PendingCommit>();
+const SAVE_CONFIRM_TIMEOUT_MS = 30_000;
+
+function attachmentIdFromUrl(url: string): string {
   try {
-    const parsed = new URL(result.url, typeof window !== "undefined" ? window.location.href : "http://localhost/");
-    if (parsed.pathname) values.push(parsed.pathname);
+    const pathname = new URL(url, "http://localhost/").pathname;
+    return pathname.match(/\/attachments\/([^/]+)$/)?.[1] || "";
   } catch {
-    // Relative/legacy URLs are already covered by their raw value above.
+    return "";
   }
-  return Array.from(new Set(values));
 }
 
-function elementReferencesMarker(element: Element, markers: string[]): boolean {
-  const attrs = ["src", "href", "data-original-url", "data-attachment-id"];
-  for (const name of attrs) {
-    const value = element.getAttribute(name) || "";
-    if (value && markers.some((marker) => value.includes(marker))) return true;
+function matchesVideoNode(node: unknown, attachmentId: string): boolean {
+  if (!node || typeof node !== "object") return false;
+  const value = node as { type?: unknown; attrs?: Record<string, unknown>; content?: unknown };
+  if (value.type === "video" && value.attrs?.kind === "file") {
+    if (value.attrs.attachmentId === attachmentId) return true;
+    if (typeof value.attrs.src === "string" && attachmentIdFromUrl(value.attrs.src) === attachmentId) return true;
   }
-  return false;
+  return Array.isArray(value.content) && value.content.some((child) => matchesVideoNode(child, attachmentId));
 }
 
-/**
- * Verify the uploaded attachment has crossed the editor boundary.
- *
- * Tiptap file-video nodes render a <video src=".../attachments/:id?...">. Markdown inserts the
- * persistent attachment URL into the visible CodeMirror content. Checking both keeps this module
- * independent of either editor implementation while still distinguishing "uploaded" from
- * "inserted into the current document".
- */
-export function hasCommittedMediaInsertion(
-  result: MediaInsertionResult,
-  root: ParentNode = document,
-): boolean {
-  const markers = markerValues(result);
-  if (!markers.length) return false;
-
-  const mediaNodes = root.querySelectorAll(
-    "video[src], source[src], img[src], a[href], [data-original-url], [data-attachment-id]",
-  );
-  for (const element of Array.from(mediaNodes)) {
-    if (elementReferencesMarker(element, markers)) return true;
-  }
-
-  const editors = root.querySelectorAll(".cm-content, .ProseMirror");
-  for (const editor of Array.from(editors)) {
-    const text = editor.textContent || "";
-    if (markers.some((marker) => text.includes(marker))) return true;
-    if (editor instanceof HTMLElement) {
-      const html = editor.innerHTML || "";
-      if (markers.some((marker) => html.includes(marker))) return true;
+/** Inspect the content accepted by the note save path, never another editor's DOM. */
+export function hasCommittedMediaInsertion(result: MediaInsertionResult, content: string): boolean {
+  const attachmentId = result.attachmentId || attachmentIdFromUrl(result.url);
+  if (!attachmentId || !content) return false;
+  if (content.trimStart().startsWith("{")) {
+    try {
+      return matchesVideoNode(JSON.parse(content), attachmentId);
+    } catch {
+      // A Markdown note can also begin with a literal `{`.
     }
   }
+  const videoReferences = content.matchAll(/@\[video\]\(([^\s)]+)/g);
+  for (const match of videoReferences) {
+    if (attachmentIdFromUrl(match[1]) === attachmentId) return true;
+  }
   return false;
 }
 
-function clearPending(key: string): void {
-  const timer = pendingChecks.get(key);
-  if (timer !== undefined) window.clearTimeout(timer);
-  pendingChecks.delete(key);
+function keyFor(noteId: string, result: MediaInsertionResult): string {
+  return `${noteId}\u0000${result.attachmentId || result.url}`;
 }
 
-/**
- * Upload completion is intentionally not the final lifecycle success anymore. The caller resumes,
- * inserts the returned result through its existing Tiptap/Markdown path, and this bounded checker
- * confirms the marker appears in the editor before announcing success to MediaExperienceBridge.
- *
- * If insertion never appears, the attachment itself is still preserved and discoverable in the
- * attachment library; the lifecycle reports an actionable error instead of a false success.
- */
+function clearPending(key: string): PendingCommit | undefined {
+  const pending = pendingCommits.get(key);
+  if (pending) window.clearTimeout(pending.timer);
+  pendingCommits.delete(key);
+  return pending;
+}
+
+/** Called only after the target note's content write succeeds or is durably queued offline. */
+export function confirmMediaNotePersistence(noteId: string, content: string, disposition: "saved" | "queued" = "saved"): void {
+  if (typeof window === "undefined") return;
+  for (const [key, pending] of pendingCommits) {
+    if (pending.noteId !== noteId || !hasCommittedMediaInsertion(pending.result, content)) continue;
+    clearPending(key);
+    pending.onSuccess?.();
+    emitMediaUploadLifecycle({
+      phase: "success",
+      file: pending.file,
+      filename: pending.filename,
+      mediaType: "video",
+      noteId,
+      result: pending.result,
+      queued: disposition === "queued",
+    });
+  }
+}
+
+/** An uploaded file is not a completed editor operation until its note write is acknowledged. */
 export function scheduleMediaInsertionCommit(options: {
+  noteId: string;
   file: File | Blob;
   filename: string;
   result: MediaInsertionResult;
   onSuccess?: () => void;
   onFailure?: () => void;
 }): void {
-  if (typeof window === "undefined" || typeof document === "undefined") return;
-  const key = options.result.attachmentId || options.result.url;
-  if (!key) return;
+  if (typeof window === "undefined") return;
+  const key = keyFor(options.noteId, options.result);
   clearPending(key);
-
-  let index = 0;
-  const check = () => {
-    if (hasCommittedMediaInsertion(options.result, document)) {
-      clearPending(key);
-      options.onSuccess?.();
-      emitMediaUploadLifecycle({
-        phase: "success",
-        file: options.file,
-        filename: options.filename,
-        mediaType: "video",
-        result: options.result,
-      });
-      return;
-    }
-
-    index += 1;
-    if (index >= CHECK_DELAYS_MS.length) {
-      clearPending(key);
-      options.onFailure?.();
-      emitMediaUploadLifecycle({
-        phase: "error",
-        file: options.file,
-        filename: options.filename,
-        mediaType: "video",
-        result: options.result,
-        error: "视频已上传，但插入正文失败。点击“重试失败项”会复用已上传文件重新插入，也可从附件库手动插入。",
-      });
-      return;
-    }
-
-    const timer = window.setTimeout(check, CHECK_DELAYS_MS[index]);
-    pendingChecks.set(key, timer);
-  };
-
-  const timer = window.setTimeout(check, CHECK_DELAYS_MS[0]);
-  pendingChecks.set(key, timer);
+  const timer = window.setTimeout(() => {
+    const pending = clearPending(key);
+    if (!pending) return;
+    pending.onFailure?.();
+    emitMediaUploadLifecycle({
+      phase: "error",
+      file: pending.file,
+      filename: pending.filename,
+      mediaType: "video",
+      noteId: pending.noteId,
+      result: pending.result,
+      error: "视频已上传，但正文插入或保存确认失败。点击“重试失败项”会复用已上传文件重新插入，也可从附件库手动插入。",
+    });
+  }, SAVE_CONFIRM_TIMEOUT_MS);
+  pendingCommits.set(key, { ...options, timer });
 }
