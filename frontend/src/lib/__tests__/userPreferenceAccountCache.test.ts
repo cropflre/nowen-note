@@ -136,4 +136,20 @@ describe("user preference account cache", () => {
     expect(readAccountPreferenceCache(storage, "user-a")?.prefs.noteTheme).toBe("default");
     expect(readAccountPreferenceCache(storage, "user-a")?.pending.noteTheme).toBe("default");
   });
+
+  it("defaults remote image pastes to attachments and validates account-scoped choices", () => {
+    const storage = new MemoryStorage();
+    expect(DEFAULT_USER_PREFERENCES.remoteImagePasteMode).toBe("localize");
+    writeAccountPreferenceCache(storage, {
+      version: 2,
+      userId: "user-a",
+      prefs: { ...DEFAULT_USER_PREFERENCES, remoteImagePasteMode: "ask" },
+      revision: 1,
+      pending: { remoteImagePasteMode: "ask" },
+    });
+    expect(readAccountPreferenceCache(storage, "user-a")?.prefs.remoteImagePasteMode).toBe("ask");
+    expect(readAccountPreferenceCache(storage, "user-b")).toBeNull();
+    expect(sanitizeUserPreferencePatch({ remoteImagePasteMode: "keep-remote" })).toEqual({ remoteImagePasteMode: "keep-remote" });
+    expect(sanitizeUserPreferencePatch({ remoteImagePasteMode: "unsafe" })).toEqual({ remoteImagePasteMode: "localize" });
+  });
 });

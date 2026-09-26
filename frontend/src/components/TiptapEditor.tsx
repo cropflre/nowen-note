@@ -78,7 +78,15 @@ import {
 import { isVideoFile, toInlineAttachmentUrl, uploadMediaAttachment, type MediaUploadResult } from "@/lib/mediaUploadService";
 import { extractRtfImagesAsync } from "@/lib/rtfImageWorkerClient";
 import { replaceDataUrlImagesWithAttachments } from "@/lib/rtfImageUploader";
-import { shouldLocalizeUrl } from "@/lib/remoteImageLocalizer";
+import {
+  extractRemoteImageUrls,
+  extractRemoteImageUrlsFromMarkdown,
+  localizeRemoteImages,
+  replaceRemoteUrlsInHtml,
+  replaceRemoteUrlsInMarkdown,
+  shouldLocalizeUrl,
+} from "@/lib/remoteImageLocalizer";
+import { useUserPreferences } from "@/hooks/useUserPreferences";
 import {
   normalizeTiptapAttachmentSources,
   reportTransientNoteImageSource,
@@ -120,7 +128,7 @@ import { copyText } from "@/lib/clipboard";
 import { openTaskQuickCapture } from "@/lib/taskInboxApi";
 import { saveAs } from "file-saver";
 import { findTextAction, type TextAction } from "@/lib/textActions";
-import { prompt as promptDialog } from "@/components/ui/confirm";
+import { choose, prompt as promptDialog } from "@/components/ui/confirm";
 import { normalizeImageFlipX, normalizeImageRotation, type ImageRotation } from "@/lib/imageNodeTransformBootstrap";
 import { registerMobileBackHandler } from "@/lib/mobileBackNavigation";
 import { Note, Tag, type FileDetail, type FileItem } from "@/types";
@@ -1648,6 +1656,9 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
   // 移动端软键盘是否弹起；用于在原生 + 键盘弹起时隐藏顶部工具栏（走底部浮动工具栏）
 
   const { t, i18n } = useTranslation();
+  const { prefs: userPrefs } = useUserPreferences();
+  const remoteImagePasteModeRef = useRef(userPrefs.remoteImagePasteMode);
+  remoteImagePasteModeRef.current = userPrefs.remoteImagePasteMode;
 
   // ---------- 选区气泡菜单（划词弹出） ----------
   // 手动实现，不依赖 Tiptap 内置 BubbleMenu（v3 下有 overflow-auto 裁剪问题）
@@ -1859,6 +1870,10 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
   // 保持最新的 note ref，避免闭包引用过期
   const noteRef = useRef(note);
   noteRef.current = note;
+  const pasteNoteScopeRef = useRef({ id: note.id, revision: 0 });
+  if (pasteNoteScopeRef.current.id !== note.id) {
+    pasteNoteScopeRef.current = { id: note.id, revision: pasteNoteScopeRef.current.revision + 1 };
+  }
   // 保持最新的 onUpdate ref
   const onUpdateRef = useRef(onUpdate);
   onUpdateRef.current = onUpdate;
@@ -2306,6 +2321,45 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
           // 保留原始视觉颜色并由 TextStyleKit 承载。
           const rawHtml = event.clipboardData?.getData("text/html") || "";
           const html = sanitizeForPaste(normalizeLegacyFontColors(rawHtml));
+          const prepareRemoteImages = async (content: string, format: "html" | "markdown", scope: { id: string; revision: number }): Promise<string | null> => {
+            const images = format === "html" ? extractRemoteImageUrls(content) : extractRemoteImageUrlsFromMarkdown(content);
+            const mode = remoteImagePasteModeRef.current;
+            if (images.length === 0 || mode === "keep-remote") return content;
+            if (mode === "ask") {
+              const choice = await choose({
+                title: t("settings.remoteImagePasteAskTitle", { count: images.length }),
+                description: t("settings.remoteImagePasteAskDesc"),
+                choices: [
+                  { value: "localize", label: t("settings.remoteImagePasteSave") },
+                  { value: "keep-remote", label: t("settings.remoteImagePasteKeep"), variant: "outline" },
+                ],
+              });
+              if (choice === null) return null;
+              if (choice === "keep-remote") return content;
+            }
+            if (pasteNoteScopeRef.current !== scope) return null;
+            showPasteToast("converting", t("settings.remoteImagePasteProgress", { done: 0, total: images.length }));
+            const results = await localizeRemoteImages(
+              images.map((image) => image.originalUrl),
+              scope.id,
+              "paste",
+              (done, total) => {
+                if (pasteNoteScopeRef.current === scope) {
+                  showPasteToast("converting", t("settings.remoteImagePasteProgress", { done, total }));
+                }
+              },
+            );
+            if (pasteNoteScopeRef.current !== scope) return null;
+            const saved = results.filter((result) => result.success).length;
+            showPasteToast(
+              saved === results.length ? "success" : "error",
+              t("settings.remoteImagePasteResult", { saved, failed: results.length - saved }),
+            );
+            const replacements = new Map(results.filter((result) => result.success).map((result) => [result.originalUrl, result.localUrl]));
+            return format === "html"
+              ? replaceRemoteUrlsInHtml(content, replacements)
+              : replaceRemoteUrlsInMarkdown(content, replacements);
+          };
 
           // 2) 若当前光标在代码块内：不管来源是 html 还是 text，始终保留原始文本 + 换行
           const { state: stCode } = view;
@@ -2544,46 +2598,49 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
 
           // 4) Markdown 纯文本：不自动转换，先原样插入纯文本并弹 confirm toast，
           //    用户点击"立即转换样式"时再用原始文本替换刚插入的那段范围。
-          if (text && shouldHandleAsMarkdownPaste(html, looksLikeMarkdown(text))) {
+          const remoteMarkdownImages = extractRemoteImageUrlsFromMarkdown(text);
+          if (text && (
+            shouldHandleAsMarkdownPaste(html, looksLikeMarkdown(text)) ||
+            (remoteMarkdownImages.length > 0 && shouldHandleAsMarkdownPaste({
+              text, html, rtf: event.clipboardData?.getData("text/rtf") || "", markdownLike: true,
+            }))
+          )) {
             console.log("[paste-diag] PATH=markdown (insertText + confirm toast)");
-            const { state } = view;
-            // 记录插入起点，用于后续按 from..to 范围替换
-            const insertFrom = state.selection.from;
-            insertPlainTextPreservingParagraphs(view, text);
-            // 注意：不能用 insertFrom + text.length，因为 ProseMirror 把 \n 转成段落节点，
-            // 每个节点边界占 2 个位置，实际偏移远大于字符数。
-            // insertText 后光标移到末尾，直接读 view.state.selection.to 即为真实终点。
-            const insertTo = view.state.selection.to;
-
-            // 构造转换动作：把 [insertFrom, insertTo] 替换为转换后的 HTML 切片。
-            // 注意 view 在此闭包中长期有效（React 卸载时编辑器会 destroy，届时 isDestroyed 为真）。
-            const doConvert = () => {
-              try {
-                if (view.isDestroyed) return;
-                // SEC-XSS-01-D: marked 输出清洗，防止 markdown 中嵌入的 XSS
-                const convertedHtml = sanitizeForPaste(markdownToSimpleHtml(text));
-                const parser = ProseMirrorDOMParser.fromSchema(view.state.schema);
-                const tempDiv = document.createElement("div");
-                tempDiv.innerHTML = convertedHtml;
-                const slice = parser.parseSlice(tempDiv);
-                // 替换范围要 clamp 到当前文档长度，防止用户此后又编辑/删除了部分内容
-                const docSize = view.state.doc.content.size;
-                const from = Math.min(insertFrom, docSize);
-                const to = Math.min(insertTo, docSize);
-                const replaceTr = view.state.tr.replaceRange(from, to, slice).scrollIntoView();
-                view.dispatch(replaceTr);
-                showPasteToast("success", t("tiptap.markdownConvertSuccess"));
-              } catch (err) {
-                console.error("Markdown paste conversion failed:", err);
-                showPasteToast("error", t("tiptap.markdownConvertError"));
-              }
+            const insertMarkdownText = (preparedText: string) => {
+              const insertScope = pasteNoteScopeRef.current;
+              const insertFrom = view.state.selection.from;
+              insertPlainTextPreservingParagraphs(view, preparedText);
+              const insertTo = view.state.selection.to;
+              showPasteConfirmToast(t("tiptap.markdownDetected"), t("tiptap.markdownConvertNow"), () => {
+                try {
+                  if (view.isDestroyed || pasteNoteScopeRef.current !== insertScope) return;
+                  const convertedHtml = sanitizeForPaste(markdownToSimpleHtml(preparedText));
+                  const parser = ProseMirrorDOMParser.fromSchema(view.state.schema);
+                  const tempDiv = document.createElement("div");
+                  tempDiv.innerHTML = convertedHtml;
+                  const slice = parser.parseSlice(tempDiv);
+                  const docSize = view.state.doc.content.size;
+                  view.dispatch(view.state.tr.replaceRange(Math.min(insertFrom, docSize), Math.min(insertTo, docSize), slice).scrollIntoView());
+                  showPasteToast("success", t("tiptap.markdownConvertSuccess"));
+                } catch (err) {
+                  console.error("Markdown paste conversion failed:", err);
+                  showPasteToast("error", t("tiptap.markdownConvertError"));
+                }
+              });
             };
-
-            showPasteConfirmToast(
-              t("tiptap.markdownDetected"),
-              t("tiptap.markdownConvertNow"),
-              doConvert
-            );
+            if (remoteMarkdownImages.length > 0 && remoteImagePasteModeRef.current !== "keep-remote") {
+              const scope = pasteNoteScopeRef.current;
+              const anchor = captureAsyncInsertAnchor(view);
+              asyncInsertAnchorsRef.current.add(anchor);
+              void prepareRemoteImages(text, "markdown", scope).then((preparedText) => {
+                if (preparedText === null || view.isDestroyed || pasteNoteScopeRef.current !== scope) return;
+                if (restoreAsyncInsertAnchor(view, anchor)) insertMarkdownText(preparedText);
+              }).catch(() => {
+                if (!view.isDestroyed && pasteNoteScopeRef.current === scope && restoreAsyncInsertAnchor(view, anchor)) insertMarkdownText(text);
+              }).finally(() => releaseAsyncInsertAnchor(asyncInsertAnchorsRef.current, anchor));
+            } else {
+              insertMarkdownText(text);
+            }
             return true;
           }
 
@@ -2639,7 +2696,19 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
               }
             };
 
-            insertPreparedHtml(htmlForParse);
+            if (extractRemoteImageUrls(htmlForParse).length > 0 && remoteImagePasteModeRef.current !== "keep-remote") {
+              const scope = pasteNoteScopeRef.current;
+              const anchor = captureAsyncInsertAnchor(view);
+              asyncInsertAnchorsRef.current.add(anchor);
+              void prepareRemoteImages(htmlForParse, "html", scope).then((preparedHtml) => {
+                if (preparedHtml === null || view.isDestroyed || pasteNoteScopeRef.current !== scope) return;
+                if (restoreAsyncInsertAnchor(view, anchor)) insertPreparedHtml(preparedHtml);
+              }).catch(() => {
+                if (!view.isDestroyed && pasteNoteScopeRef.current === scope && restoreAsyncInsertAnchor(view, anchor)) insertPreparedHtml(htmlForParse);
+              }).finally(() => releaseAsyncInsertAnchor(asyncInsertAnchorsRef.current, anchor));
+            } else {
+              insertPreparedHtml(htmlForParse);
+            }
             return true;
           }
 

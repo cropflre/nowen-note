@@ -113,6 +113,12 @@ import {
 import { MarkdownPreview } from "./MarkdownPreview";
 import AttachmentLibraryPicker from "@/components/AttachmentLibraryPicker";
 import { useUserPreferences, type MarkdownViewMode } from "@/hooks/useUserPreferences";
+import {
+  extractRemoteImageUrlsFromMarkdown,
+  localizeRemoteImages,
+  replaceRemoteUrlsInMarkdown,
+} from "@/lib/remoteImageLocalizer";
+import { choose } from "@/components/ui/confirm";
 
 import { Note, Tag, type FileItem } from "@/types";
 import TagInput from "@/components/TagInput";
@@ -658,6 +664,8 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
 }, ref) {
   const { t: tr, i18n } = useTranslation();
   const { prefs: userPrefs } = useUserPreferences();
+  const remoteImagePasteModeRef = useRef(userPrefs.remoteImagePasteMode);
+  remoteImagePasteModeRef.current = userPrefs.remoteImagePasteMode;
   const { visible: keyboardVisible } = useKeyboardVisible();
   const compactMobileEditing = editable
     && keyboardVisible
@@ -683,6 +691,11 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
   // �� ref ׷���� note / callbacks�������� CM6 listener ���õ����ڱհ�
   const noteRef = useRef(note);
   noteRef.current = note;
+  const pasteNoteScopeRef = useRef({ id: note.id, revision: 0 });
+  if (pasteNoteScopeRef.current.id !== note.id) {
+    pasteNoteScopeRef.current = { id: note.id, revision: pasteNoteScopeRef.current.revision + 1 };
+  }
+  const asyncPasteAnchorsRef = useRef(new Set<{ from: number; to: number }>());
   const onUpdateRef = useRef(onUpdate);
   onUpdateRef.current = onUpdate;
   const onLocalUpdateRef = useRef(onLocalUpdate);
@@ -1266,6 +1279,11 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
 
     const updateListener = EditorView.updateListener.of((update) => {
       if (!update.docChanged) return;
+      for (const anchor of asyncPasteAnchorsRef.current) {
+        const collapsed = anchor.from === anchor.to;
+        anchor.from = update.changes.mapPos(anchor.from, collapsed ? 1 : -1);
+        anchor.to = update.changes.mapPos(anchor.to, 1);
+      }
       if (isSettingContent.current) return;
 
       const text = update.state.doc.toString();
@@ -1492,7 +1510,59 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
               }
               return true;
             }
-            return false;
+            const pastedText = event.clipboardData?.getData("text/plain") || "";
+            const remoteImages = extractRemoteImageUrlsFromMarkdown(pastedText);
+            if (remoteImages.length === 0 || remoteImagePasteModeRef.current === "keep-remote") return false;
+            event.preventDefault();
+            const view = viewRef.current;
+            if (!view) return true;
+            const scope = pasteNoteScopeRef.current;
+            const anchor = { from: view.state.selection.main.from, to: view.state.selection.main.to };
+            asyncPasteAnchorsRef.current.add(anchor);
+            void (async () => {
+              try {
+                if (remoteImagePasteModeRef.current === "ask") {
+                  const choice = await choose({
+                    title: tr("settings.remoteImagePasteAskTitle", { count: remoteImages.length }),
+                    description: tr("settings.remoteImagePasteAskDesc"),
+                    choices: [
+                      { value: "localize", label: tr("settings.remoteImagePasteSave") },
+                      { value: "keep-remote", label: tr("settings.remoteImagePasteKeep"), variant: "outline" },
+                    ],
+                  });
+                  if (choice === null) return;
+                  if (choice === "keep-remote") {
+                    if (viewRef.current === view && pasteNoteScopeRef.current === scope) {
+                      asyncPasteAnchorsRef.current.delete(anchor);
+                      view.dispatch({ changes: { from: anchor.from, to: anchor.to, insert: pastedText }, selection: { anchor: anchor.from + pastedText.length } });
+                    }
+                    return;
+                  }
+                }
+                if (viewRef.current !== view || pasteNoteScopeRef.current !== scope) return;
+                const progressToastId = toast.info(tr("settings.remoteImagePasteProgress", { done: 0, total: remoteImages.length }), 0);
+                const results = await localizeRemoteImages(
+                  remoteImages.map((image) => image.originalUrl), scope.id, "paste",
+                ).finally(() => toast.dismiss(progressToastId));
+                if (viewRef.current !== view || pasteNoteScopeRef.current !== scope) return;
+                const saved = results.filter((result) => result.success).length;
+                const replacements = new Map(results.filter((result) => result.success).map((result) => [result.originalUrl, result.localUrl]));
+                const preparedText = replaceRemoteUrlsInMarkdown(pastedText, replacements);
+                asyncPasteAnchorsRef.current.delete(anchor);
+                view.dispatch({ changes: { from: anchor.from, to: anchor.to, insert: preparedText }, selection: { anchor: anchor.from + preparedText.length } });
+                const message = tr("settings.remoteImagePasteResult", { saved, failed: results.length - saved });
+                if (saved === results.length) toast.success(message); else toast.warning(message);
+              } catch {
+                if (viewRef.current === view && pasteNoteScopeRef.current === scope) {
+                  asyncPasteAnchorsRef.current.delete(anchor);
+                  view.dispatch({ changes: { from: anchor.from, to: anchor.to, insert: pastedText }, selection: { anchor: anchor.from + pastedText.length } });
+                  toast.warning(tr("settings.remoteImagePasteResult", { saved: 0, failed: remoteImages.length }));
+                }
+              } finally {
+                asyncPasteAnchorsRef.current.delete(anchor);
+              }
+            })();
+            return true;
           },
           drop(event) {
             if (!editable) return false;

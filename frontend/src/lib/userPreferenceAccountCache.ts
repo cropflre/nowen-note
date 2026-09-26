@@ -3,6 +3,7 @@ import { isNoteThemeId, type NoteThemeId } from "@/lib/noteTheme";
 export type ReadingDensity = "cozy" | "compact";
 export type EditorFontSize = 0 | 14 | 16 | 18 | 20 | 22 | 24;
 export type MarkdownViewMode = "source" | "preview" | "split";
+export type RemoteImagePasteMode = "localize" | "ask" | "keep-remote";
 export type EditorMode = "md" | "tiptap";
 export type FolderAutoLockMinutes = 0 | 5 | 15 | 30 | 60;
 export type CodeBlockThemeId =
@@ -25,6 +26,7 @@ export interface UserPreferences {
   showNoteListUpdatedTime: boolean;
   enableNoteTabs: boolean;
   markdownDefaultViewMode: MarkdownViewMode;
+  remoteImagePasteMode: RemoteImagePasteMode;
   defaultEditorMode: EditorMode;
   codeBlockTheme: CodeBlockThemeId;
   noteTheme: NoteThemeId;
@@ -58,6 +60,7 @@ export const DEFAULT_USER_PREFERENCES: UserPreferences = {
   showNoteListUpdatedTime: true,
   enableNoteTabs: false,
   markdownDefaultViewMode: "source",
+  remoteImagePasteMode: "localize",
   defaultEditorMode: "tiptap",
   codeBlockTheme: "github-dark",
   noteTheme: "default",
@@ -139,6 +142,12 @@ export function normalizeUserPreferences(
       raw.markdownDefaultViewMode === "split"
         ? raw.markdownDefaultViewMode
         : fallback.markdownDefaultViewMode,
+    remoteImagePasteMode:
+      raw.remoteImagePasteMode === "localize" ||
+      raw.remoteImagePasteMode === "ask" ||
+      raw.remoteImagePasteMode === "keep-remote"
+        ? raw.remoteImagePasteMode
+        : fallback.remoteImagePasteMode,
     defaultEditorMode: raw.defaultEditorMode === "md" || raw.defaultEditorMode === "tiptap"
       ? raw.defaultEditorMode
       : fallback.defaultEditorMode,

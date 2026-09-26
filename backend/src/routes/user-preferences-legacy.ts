@@ -12,6 +12,7 @@ import {
 } from "../services/user-ai-settings";
 
 type MarkdownViewMode = "source" | "preview" | "split";
+type RemoteImagePasteMode = "localize" | "ask" | "keep-remote";
 type ReadingDensity = "cozy" | "compact";
 type EditorFontSize = 0 | 14 | 16 | 18 | 20 | 22 | 24;
 
@@ -25,6 +26,7 @@ interface UserPreferences {
   showNoteListUpdatedTime: boolean;
   enableNoteTabs: boolean;
   markdownDefaultViewMode: MarkdownViewMode;
+  remoteImagePasteMode: RemoteImagePasteMode;
 }
 
 const DEFAULT_PREFS: UserPreferences = {
@@ -37,6 +39,7 @@ const DEFAULT_PREFS: UserPreferences = {
   showNoteListUpdatedTime: true,
   enableNoteTabs: false,
   markdownDefaultViewMode: "source",
+  remoteImagePasteMode: "localize",
 };
 
 const MAX_NOTE_ICON_CODE_POINTS = 32;
@@ -98,6 +101,12 @@ function normalizePrefs(input: unknown, base: UserPreferences = DEFAULT_PREFS): 
       raw.markdownDefaultViewMode === "split"
         ? raw.markdownDefaultViewMode
         : base.markdownDefaultViewMode,
+    remoteImagePasteMode:
+      raw.remoteImagePasteMode === "localize" ||
+      raw.remoteImagePasteMode === "ask" ||
+      raw.remoteImagePasteMode === "keep-remote"
+        ? raw.remoteImagePasteMode
+        : base.remoteImagePasteMode,
   };
 }
 

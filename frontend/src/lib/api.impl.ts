@@ -1335,6 +1335,7 @@ export const api = {
     showNoteListUpdatedTime: boolean;
     enableNoteTabs: boolean;
     markdownDefaultViewMode: "source" | "preview" | "split";
+    remoteImagePasteMode?: "localize" | "ask" | "keep-remote";
     hasPreferences?: boolean;
   }>("/user-preferences"),
   updateUserPreferences: (data: {
@@ -1346,6 +1347,7 @@ export const api = {
     showNoteListUpdatedTime: boolean;
     enableNoteTabs: boolean;
     markdownDefaultViewMode: "source" | "preview" | "split";
+    remoteImagePasteMode?: "localize" | "ask" | "keep-remote";
   }) => request<{
     noteTitleAsAppTitle: boolean;
     outlineDefaultOpen: boolean;
@@ -1355,6 +1357,7 @@ export const api = {
     showNoteListUpdatedTime: boolean;
     enableNoteTabs: boolean;
     markdownDefaultViewMode: "source" | "preview" | "split";
+    remoteImagePasteMode?: "localize" | "ask" | "keep-remote";
     hasPreferences?: boolean;
   }>("/user-preferences", { method: "PUT", body: JSON.stringify(data) }),
 

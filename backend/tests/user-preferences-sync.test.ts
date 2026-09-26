@@ -156,4 +156,18 @@ test("rejects invalid values for known preference fields", async () => {
   const invalidNoteTheme = await requestJson("PUT", { noteTheme: "developer" });
   assert.equal(invalidNoteTheme.status, 400);
   assert.equal(invalidNoteTheme.json.code, "INVALID_USER_PREFERENCE");
+
+  const invalidImagePasteMode = await requestJson("PUT", { remoteImagePasteMode: "unsafe" });
+  assert.equal(invalidImagePasteMode.status, 400);
+  assert.equal(invalidImagePasteMode.json.code, "INVALID_USER_PREFERENCE");
+});
+
+test("persists remote image paste policy per account with a safe default", async () => {
+  const before = await requestJson("GET");
+  assert.equal(before.json.remoteImagePasteMode, "localize");
+  const saved = await requestJson("PUT", { remoteImagePasteMode: "ask" });
+  assert.equal(saved.status, 200);
+  assert.equal(saved.json.remoteImagePasteMode, "ask");
+  assert.equal((await requestJson("GET")).json.remoteImagePasteMode, "ask");
+  assert.equal((await requestJson("GET", undefined, OTHER_ID)).json.remoteImagePasteMode, "localize");
 });

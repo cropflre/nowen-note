@@ -36,6 +36,7 @@ export type {
   EditorMode,
   FolderAutoLockMinutes,
   MarkdownViewMode,
+  RemoteImagePasteMode,
   ReadingDensity,
   UserPreferences,
 } from "@/lib/userPreferenceAccountCache";

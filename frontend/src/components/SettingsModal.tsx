@@ -911,6 +911,35 @@ function SwitchesPanel() {
         <div className="flex items-center justify-between gap-3 px-3 py-2.5 hover:bg-white/60 dark:hover:bg-zinc-900/25 transition-colors max-sm:flex-col max-sm:items-stretch">
           <div className="flex-1 min-w-0">
             <div className="text-xs font-medium text-zinc-800 dark:text-zinc-200 leading-none">
+              {t("settings.remoteImagePasteMode")}
+            </div>
+            <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-1 leading-snug">
+              {t("settings.remoteImagePasteModeDesc")}
+            </p>
+          </div>
+          <div role="group" aria-label={t("settings.remoteImagePasteMode")} className="flex items-center gap-1 p-1 rounded-lg bg-zinc-100 dark:bg-zinc-800 flex-shrink-0 max-sm:w-full">
+            {(["localize", "ask", "keep-remote"] as const).map((mode) => (
+              <button
+                key={mode}
+                type="button"
+                aria-pressed={userPrefs.remoteImagePasteMode === mode}
+                onClick={() => setUserPref("remoteImagePasteMode", mode)}
+                className={cn(
+                  "px-2.5 py-1 rounded-md text-xs font-medium transition-colors whitespace-nowrap max-sm:flex-1",
+                  userPrefs.remoteImagePasteMode === mode
+                    ? "bg-white dark:bg-zinc-700 text-accent-primary shadow-sm"
+                    : "text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-300",
+                )}
+              >
+                {t(`settings.remoteImagePasteMode_${mode}`)}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="flex items-center justify-between gap-3 px-3 py-2.5 hover:bg-white/60 dark:hover:bg-zinc-900/25 transition-colors max-sm:flex-col max-sm:items-stretch">
+          <div className="flex-1 min-w-0">
+            <div className="text-xs font-medium text-zinc-800 dark:text-zinc-200 leading-none">
               {t("settings.markdownDefaultViewMode")}
             </div>
             <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-1 leading-snug">

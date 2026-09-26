@@ -11,6 +11,7 @@ const NOTE_PREVIEW_CHARS = 280;
 type ReadingDensity = "cozy" | "compact";
 type EditorFontSize = 0 | 14 | 16 | 18 | 20 | 22 | 24;
 type MarkdownViewMode = "source" | "preview" | "split";
+type RemoteImagePasteMode = "localize" | "ask" | "keep-remote";
 
 type UserPreferences = {
   noteTitleAsAppTitle: boolean;
@@ -22,6 +23,7 @@ type UserPreferences = {
   showNoteListUpdatedTime: boolean;
   enableNoteTabs: boolean;
   markdownDefaultViewMode: MarkdownViewMode;
+  remoteImagePasteMode: RemoteImagePasteMode;
 };
 
 const DEFAULT_PREFS: UserPreferences = {
@@ -34,6 +36,7 @@ const DEFAULT_PREFS: UserPreferences = {
   showNoteListUpdatedTime: true,
   enableNoteTabs: false,
   markdownDefaultViewMode: "source",
+  remoteImagePasteMode: "localize",
 };
 
 function normalizeWorkspaceId(raw: string | null | undefined): string | null {
@@ -74,6 +77,12 @@ function normalizePreferences(input: unknown): UserPreferences {
       raw.markdownDefaultViewMode === "split"
         ? raw.markdownDefaultViewMode
         : DEFAULT_PREFS.markdownDefaultViewMode,
+    remoteImagePasteMode:
+      raw.remoteImagePasteMode === "localize" ||
+      raw.remoteImagePasteMode === "ask" ||
+      raw.remoteImagePasteMode === "keep-remote"
+        ? raw.remoteImagePasteMode
+        : DEFAULT_PREFS.remoteImagePasteMode,
   };
 }
 

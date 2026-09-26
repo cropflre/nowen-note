@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { getDb } from "../db/schema";
 
 type MarkdownViewMode = "source" | "preview" | "split";
+type RemoteImagePasteMode = "localize" | "ask" | "keep-remote";
 type ReadingDensity = "cozy" | "compact";
 type EditorFontSize = 0 | 14 | 16 | 18 | 20 | 22 | 24;
 type EditorMode = "md" | "tiptap";
@@ -28,6 +29,7 @@ export interface SyncedUserPreferences {
   showNoteListUpdatedTime: boolean;
   enableNoteTabs: boolean;
   markdownDefaultViewMode: MarkdownViewMode;
+  remoteImagePasteMode: RemoteImagePasteMode;
   defaultEditorMode: EditorMode;
   codeBlockTheme: CodeBlockTheme;
   noteTheme: NoteTheme;
@@ -68,6 +70,7 @@ export const DEFAULT_SYNCED_USER_PREFERENCES: SyncedUserPreferences = {
   showNoteListUpdatedTime: true,
   enableNoteTabs: false,
   markdownDefaultViewMode: "source",
+  remoteImagePasteMode: "localize",
   defaultEditorMode: "tiptap",
   codeBlockTheme: "github-dark",
   noteTheme: "default",
@@ -123,6 +126,12 @@ function normalizePreferenceValue<K extends PreferenceKey>(
     case "markdownDefaultViewMode":
       return (
         value === "source" || value === "preview" || value === "split"
+          ? value
+          : fallback
+      ) as SyncedUserPreferences[K];
+    case "remoteImagePasteMode":
+      return (
+        value === "localize" || value === "ask" || value === "keep-remote"
           ? value
           : fallback
       ) as SyncedUserPreferences[K];
