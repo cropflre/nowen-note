@@ -28,6 +28,7 @@ import { sanitizeSvg } from "@/lib/sanitizeHtml";
 import { rasterizeMermaidSvgForExport } from "@/lib/mermaidExportRaster";
 import { hydrateMindMapEmbedsForExport } from "@/lib/documentMindMapExport";
 import { currentNoteThemeId, resolveNoteThemeTokens, type NoteThemeTokens } from "@/lib/noteTheme";
+import { assertExportCanvasHasContent, assertExportHtmlHasContent, EXPORT_CANVAS_CONTENT_ERROR } from "@/lib/exportCanvasGuard";
 
 const EXPORT_WIDTH = 794;
 const EXPORT_HORIZONTAL_PADDING = 56;
@@ -461,6 +462,7 @@ async function prepareHost(
 
   progress?.({ phase: "assets", current: 0, total: 1, message: "正在加载图片和字体…" });
   bodyHtml = await inlineRemainingImages(bodyHtml, failedResources);
+  assertExportHtmlHasContent(note.contentText || "", bodyHtml, "note-image");
 
   const theme = currentTheme(themeOption);
   const noteThemeId = currentNoteThemeId();
@@ -616,9 +618,11 @@ export function chooseRasterPlan(args: {
 
 async function canvasToBlob(canvas: HTMLCanvasElement, mimeType: string, quality: number): Promise<Blob> {
   const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, mimeType, quality));
-  if (blob) return blob;
+  if (blob?.size) return blob;
   const response = await fetch(canvas.toDataURL(mimeType, quality));
-  return response.blob();
+  const recovered = await response.blob();
+  if (!recovered.size) throw new Error(EXPORT_CANVAS_CONTENT_ERROR);
+  return recovered;
 }
 
 async function renderSlice(
@@ -641,7 +645,7 @@ async function renderSlice(
   try {
     await waitForHostAssets(clone, []);
     const html2canvas = (await import("html2canvas")).default;
-    return await html2canvas(clone, {
+    const canvas = await html2canvas(clone, {
       backgroundColor: prepared.background,
       scale,
       useCORS: true,
@@ -655,6 +659,8 @@ async function renderSlice(
       scrollY: 0,
       imageTimeout: RESOURCE_TIMEOUT_MS,
     });
+    assertExportCanvasHasContent(canvas, "note-image");
+    return canvas;
   } finally {
     clone.remove();
   }

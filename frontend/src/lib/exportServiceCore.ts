@@ -19,6 +19,7 @@ import { TextStyleKit } from "@/components/FontSizeExtension";
 import { Video as VideoExtension } from "@/components/VideoExtension";
 import { detectFormat, markdownToHtml } from "@/lib/contentFormat";
 import { hydrateMindMapEmbedsForExport } from "@/lib/documentMindMapExport";
+import { assertExportCanvasHasContent, assertExportHtmlHasContent, EXPORT_CANVAS_CONTENT_ERROR } from "@/lib/exportCanvasGuard";
 
 // 导出只需要 blockEmbed 的 schema/HTML 序列化，不挂 React NodeView。
 // 这样 Tiptap JSON 中的 mindmap 引用不会在 generateHTML 阶段被 schema 静默吞掉。
@@ -1486,6 +1487,7 @@ export async function buildPrintableHtml(note: {
     ADD_TAGS: ["img"],
     ADD_ATTR: ["src", "alt", "width", "height", "style", "data-type", "data-checked"],
   });
+  assertExportHtmlHasContent(note.contentText || "", html, "note-pdf-web");
 
   const safeTitle = (note.title || i18n.t('common.untitledNote'))
     .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -1648,6 +1650,7 @@ async function renderPrintableHtmlToPdfBlob(docHtml: string): Promise<Blob> {
       windowWidth: page.scrollWidth,
       windowHeight: fullHeight,
     });
+    assertExportCanvasHasContent(canvas, "note-pdf-web");
 
     // A4: 210mm × 297mm
     const pdf = new jsPDF({ unit: "mm", format: "a4", orientation: "portrait" });
@@ -1704,7 +1707,9 @@ async function renderPrintableHtmlToPdfBlob(docHtml: string): Promise<Blob> {
       }
     }
 
-    return pdf.output("blob");
+    const blob = pdf.output("blob");
+    if (!blob.size) throw new Error(EXPORT_CANVAS_CONTENT_ERROR);
+    return blob;
   } finally {
     cleanup();
   }

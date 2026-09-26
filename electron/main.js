@@ -2405,7 +2405,7 @@ ipcMain.handle("task:notify-permission", () => {
       await offscreen.loadURL(dataUrl);
 
       // 等图片全部解码完成（HTML 里可能有 data: 图或 localhost 后端图）
-      await offscreen.webContents.executeJavaScript(`
+      const renderState = await offscreen.webContents.executeJavaScript(`
         (async () => {
           const imgs = Array.from(document.images || []);
           await Promise.all(imgs.map(img => {
@@ -2416,11 +2416,26 @@ ipcMain.handle("task:notify-permission", () => {
               setTimeout(res, 3000); // 兜底 3s
             });
           }));
+          await document.fonts.ready;
           // 再给布局一点时间
           await new Promise(r => setTimeout(r, 100));
-          return true;
+          const title = document.querySelector('.title');
+          const content = document.querySelector('.content');
+          const titleRect = title && title.getBoundingClientRect();
+          return {
+            width: document.documentElement.scrollWidth,
+            height: document.documentElement.scrollHeight,
+            titleWidth: titleRect && titleRect.width,
+            titleHeight: titleRect && titleRect.height,
+            hasContentContainer: !!content,
+          };
         })()
       `, true);
+      if (!renderState || renderState.width <= 0 || renderState.height <= 0
+        || renderState.titleWidth <= 0 || renderState.titleHeight <= 0
+        || !renderState.hasContentContainer) {
+        throw new Error('PDF_RENDER_EMPTY');
+      }
 
       const pdfBuffer = await offscreen.webContents.printToPDF({
         printBackground: true,
@@ -2428,6 +2443,9 @@ ipcMain.handle("task:notify-permission", () => {
         margins: { marginType: "default" },
         preferCSSPageSize: true,
       });
+      if (!pdfBuffer || pdfBuffer.length < 256 || pdfBuffer.subarray(0, 5).toString() !== '%PDF-') {
+        throw new Error('PDF_OUTPUT_EMPTY');
+      }
       fs.writeFileSync(outPath, pdfBuffer);
       return { ok: true, path: outPath };
     } catch (err) {

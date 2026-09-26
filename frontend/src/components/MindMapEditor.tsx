@@ -10,6 +10,7 @@ import { api, getCurrentWorkspace } from "@/lib/api";
 import { MindMap, MindMapListItem, MindMapNode, MindMapData, MindMapRelation, MindMapBoundary, MindMapViewport } from "@/types";
 import { cn } from "@/lib/utils";
 import { toast } from "@/lib/toast";
+import { assertExportCanvasHasContent, EXPORT_CANVAS_CONTENT_ERROR } from "@/lib/exportCanvasGuard";
 import { useMindMapHistory } from "@/hooks/useMindMapHistory";
 import { buildXmindContent, buildZip, downloadBlob } from "@/lib/mindmapExport";
 import { markdownToMindMapData, mindMapDataToMarkdown } from "@/lib/mindmapTransform";
@@ -2514,31 +2515,53 @@ export default function MindMapCenter({
     const { mapId, title } = listContextMenu;
     setListContextMenu(null);
     const result = await loadMapData(mapId);
-    if (!result) return;
+    if (!result) {
+      toast.error(EXPORT_CANVAS_CONTENT_ERROR);
+      return;
+    }
     const svgResult = buildExportSvgFromData(result.data);
-    if (!svgResult) return;
+    if (!svgResult) {
+      toast.error(EXPORT_CANVAS_CONTENT_ERROR);
+      return;
+    }
     const scale = 2;
     const canvas = document.createElement("canvas");
     canvas.width = svgResult.width * scale;
     canvas.height = svgResult.height * scale;
     const ctx = canvas.getContext("2d");
-    if (!ctx) return;
+    if (!ctx) {
+      toast.error(EXPORT_CANVAS_CONTENT_ERROR);
+      return;
+    }
     const img = new window.Image();
     const svgBlob = new Blob([svgResult.svgContent], { type: "image/svg+xml;charset=utf-8" });
     const url = URL.createObjectURL(svgBlob);
     img.onload = () => {
-      ctx.scale(scale, scale);
-      ctx.drawImage(img, 0, 0);
+      try {
+        ctx.scale(scale, scale);
+        ctx.drawImage(img, 0, 0);
+        assertExportCanvasHasContent(canvas, "mindmap-png");
+        canvas.toBlob((blob) => {
+          if (!blob?.size) {
+            toast.error(EXPORT_CANVAS_CONTENT_ERROR);
+            return;
+          }
+          const pngUrl = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = pngUrl;
+          a.download = `${title || "mindmap"}.png`;
+          a.click();
+          URL.revokeObjectURL(pngUrl);
+        }, "image/png");
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : EXPORT_CANVAS_CONTENT_ERROR);
+      } finally {
+        URL.revokeObjectURL(url);
+      }
+    };
+    img.onerror = () => {
       URL.revokeObjectURL(url);
-      canvas.toBlob((blob) => {
-        if (!blob) return;
-        const pngUrl = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = pngUrl;
-        a.download = `${title || "mindmap"}.png`;
-        a.click();
-        URL.revokeObjectURL(pngUrl);
-      }, "image/png");
+      toast.error(EXPORT_CANVAS_CONTENT_ERROR);
     };
     img.src = url;
   }, [listContextMenu, loadMapData, buildExportSvgFromData]);

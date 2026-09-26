@@ -104,4 +104,16 @@ describe("document mind map export snapshots", () => {
     expect(html).not.toContain(`mindmap:${ID}`);
     expect(html).not.toContain("/api/mindmaps/");
   });
+
+  it("rejects a printable document when conversion drops its nonempty body", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    await expect(buildPrintableHtml({
+      title: "Not empty",
+      content: JSON.stringify({ type: "doc", content: [] }),
+      contentText: "Important body text",
+      contentFormat: "tiptap-json",
+      createdAt: "2026-09-24 10:00:00",
+      updatedAt: "2026-09-24 12:00:00",
+    })).rejects.toThrow(/未正确渲染/);
+  });
 });
