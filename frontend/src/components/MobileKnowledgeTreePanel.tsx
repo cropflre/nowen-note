@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  BrainCircuit,
   ArrowLeft,
   ArrowUpDown,
   Check,
@@ -49,6 +50,7 @@ import { useContextMenu } from "@/hooks/useContextMenu";
 import { useMobileSidebarControlsCollapsed } from "@/hooks/useMobileSidebarControlsCollapsed";
 import { useSidebarTextStyle } from "@/hooks/useSidebarTextStyle";
 import { api, getCurrentWorkspace } from "@/lib/api";
+import { pushMindMapAppPath } from "@/lib/mindMapDeepLink";
 import { markNewNoteForImmediateEdit } from "@/lib/newNoteImmediateEdit";
 import { pluginApi } from "@/lib/pluginApi";
 import { noteTemplatesApi } from "@/lib/noteTemplatesApi";
@@ -125,6 +127,7 @@ function nodeIcon(node: KnowledgeTreeNode) {
       : <Folder size={18} className="shrink-0 text-amber-500" />;
   }
   if (node.nodeType === "markdown") return <FileCode size={18} className="shrink-0 text-emerald-500" />;
+  if (node.nodeType === "mindmap") return <BrainCircuit size={18} className="shrink-0 text-accent-primary" />;
   return <FileText size={18} className="shrink-0 text-accent-primary" />;
 }
 
@@ -551,6 +554,12 @@ export default function MobileKnowledgeTreePanel({
       setQuery("");
       return;
     }
+    if (node.resourceType === "mindmap") {
+      rememberOpened(node.id);
+      pushMindMapAppPath(node.resourceId);
+      if (variant === "mobile") actions.setMobileSidebar(false);
+      return;
+    }
     if (node.resourceType !== "note") return;
     rememberOpened(node.id);
     try {
@@ -558,7 +567,7 @@ export default function MobileKnowledgeTreePanel({
     } catch (requestError: any) {
       toast.error(requestError?.message || "打开文档失败");
     }
-  }, [activateNote, closeMenu, rememberOpened, unlockedFolderIds]);
+  }, [actions, activateNote, closeMenu, rememberOpened, unlockedFolderIds, variant]);
 
   const handleNodeSelection = (event: React.MouseEvent, node: KnowledgeTreeNode) => {
     if (multiSelectMode || event.ctrlKey || event.metaKey) {
@@ -647,6 +656,12 @@ export default function MobileKnowledgeTreePanel({
       actions.refreshNotes();
       if (snapshot.kind === "folder") {
         toast.success("已创建文件夹");
+        return;
+      }
+      if (snapshot.kind === "mindmap") {
+        rememberOpened(created.id);
+        pushMindMapAppPath(created.resourceId);
+        if (variant === "mobile") actions.setMobileSidebar(false);
         return;
       }
       rememberOpened(created.id);
@@ -899,7 +914,7 @@ export default function MobileKnowledgeTreePanel({
 
   const renderDraft = () => {
     if (!draft) return null;
-    const DraftIcon = draft.kind === "folder" ? Folder : draft.kind === "markdown" ? FileCode : FileText;
+    const DraftIcon = draft.kind === "folder" ? Folder : draft.kind === "markdown" ? FileCode : draft.kind === "mindmap" ? BrainCircuit : FileText;
     return (
       <div
         className={cn(

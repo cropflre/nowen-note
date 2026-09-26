@@ -3,6 +3,7 @@ import bcrypt from "bcryptjs";
 import { createHash } from "node:crypto";
 
 import { getDb } from "../db/schema.js";
+import { isFeatureEnabled, resolveWorkspaceFeatures } from "../middleware/acl.js";
 import { broadcastNotesDeleted } from "../services/realtime.js";
 import { ensureKnowledgeTreePasswordTable } from "../db/knowledgeTreePasswordMigration.js";
 import { signFolderUnlockToken } from "../lib/knowledgeTreePasswordAccess.js";
@@ -124,13 +125,23 @@ app.post("/nodes", async (c) => {
   try {
     const body = await c.req.json().catch(() => ({}));
     const nodeType = body.nodeType;
-    if (!["folder", "note", "markdown", "word"].includes(nodeType)) {
+    if (!["folder", "note", "markdown", "word", "mindmap"].includes(nodeType)) {
       return c.json({ error: "不支持的节点类型", code: "KNOWLEDGE_NODE_TYPE_UNSUPPORTED" }, 400);
+    }
+    const parentId = typeof body.parentId === "string" && body.parentId ? body.parentId : null;
+    if (nodeType === "mindmap") {
+      const parent = parentId
+        ? getDb().prepare("SELECT workspaceId FROM knowledge_tree_nodes WHERE id = ?").get(parentId) as { workspaceId: string | null } | undefined
+        : undefined;
+      const targetWorkspaceId = parent ? parent.workspaceId : workspaceIdOf(c);
+      if (targetWorkspaceId && !isFeatureEnabled(resolveWorkspaceFeatures(targetWorkspaceId), "mindmaps")) {
+        return c.json({ error: "该功能在当前工作区已被管理员关闭", code: "FEATURE_DISABLED", feature: "mindmaps" }, 403);
+      }
     }
     const node = createKnowledgeChild({
       actorUserId: userIdOf(c),
       workspaceId: workspaceIdOf(c),
-      parentId: typeof body.parentId === "string" && body.parentId ? body.parentId : null,
+      parentId,
       nodeType,
       title: typeof body.title === "string" ? body.title : "",
     });

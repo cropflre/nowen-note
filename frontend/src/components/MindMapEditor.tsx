@@ -1371,12 +1371,14 @@ export default function MindMapCenter({
   }, [embeddedMode, loadMaps, handleSelect]);
 
   const applySavedMindMap = useCallback((updated: MindMap) => {
+    const titleChanged = activeMapRef.current?.title !== updated.title;
     activeMapRef.current = updated;
     setActiveMap((current) => current?.id === updated.id ? updated : current);
     setMaps((prev) =>
       prev.map((m) => (m.id === updated.id ? { ...m, title: updated.title, updatedAt: updated.updatedAt } : m))
     );
     dispatchDocumentMindMapChanged({ id: updated.id, kind: "updated" });
+    if (titleChanged) window.dispatchEvent(new Event("nowen:knowledge-tree-changed"));
     onSaved?.(updated);
   }, [onSaved]);
 
@@ -1867,6 +1869,7 @@ export default function MindMapCenter({
       const data = markdownToMindMapData(md);
       const title = data.root.text.slice(0, 50) || t("mindMap.untitled");
       const created = await api.createMindMap({ title, data: JSON.stringify(data) });
+      window.dispatchEvent(new Event("nowen:knowledge-tree-changed"));
       setMaps((prev) => [{ id: created.id, userId: created.userId, workspaceId: created.workspaceId, title: created.title, createdAt: created.createdAt, updatedAt: created.updatedAt }, ...prev]);
       handleSelect(created.id);
       toast.success(t("mindMap.importSuccess"));
@@ -1921,6 +1924,7 @@ export default function MindMapCenter({
       const title = templateIdx === 0 ? t("mindMap.untitled") : template.name;
       const data = template.data ? JSON.stringify(template.data) : undefined;
       const map = await api.createMindMap({ title, data });
+      window.dispatchEvent(new Event("nowen:knowledge-tree-changed"));
       setMaps((prev) => [{ id: map.id, userId: map.userId, workspaceId: map.workspaceId, title: map.title, createdAt: map.createdAt, updatedAt: map.updatedAt }, ...prev]);
       handleSelect(map.id);
     } catch (err) {
@@ -1937,6 +1941,7 @@ export default function MindMapCenter({
   const handleDeleteMap = useCallback(async (id: string) => {
     try {
       await api.deleteMindMap(id);
+      window.dispatchEvent(new Event("nowen:knowledge-tree-changed"));
       dispatchDocumentMindMapChanged({ id, kind: "deleted" });
       setMaps((prev) => prev.filter((m) => m.id !== id));
       if (activeMap?.id === id) {

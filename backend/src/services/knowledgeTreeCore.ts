@@ -248,7 +248,7 @@ export function createKnowledgeChild(input: {
   actorUserId: string;
   workspaceId: string | null;
   parentId: string | null;
-  nodeType: "folder" | "note" | "markdown" | "word";
+  nodeType: "folder" | "note" | "markdown" | "word" | "mindmap";
   title: string;
   db?: Database.Database;
 }): KnowledgeTreeNode {
@@ -264,7 +264,7 @@ export function createKnowledgeChild(input: {
     throw new KnowledgeTreeError("KNOWLEDGE_CAPABILITY_FORBIDDEN", 403, "没有在此处新建内容的权限", { required: "canCreate" });
   }
 
-  const title = input.title.trim() || (input.nodeType === "folder" ? "新建文件夹" : "无标题笔记");
+  const title = input.title.trim() || (input.nodeType === "folder" ? "新建文件夹" : input.nodeType === "mindmap" ? "无标题导图" : "无标题笔记");
   const key = expectedScope;
   const sortOrder = maxSortOrder(db, key, input.parentId);
   let createdNode: NodeRow | null = null;
@@ -278,6 +278,12 @@ export function createKnowledgeChild(input: {
         VALUES (?, ?, ?, ?, ?, '📁', ?)
       `).run(notebookId, resourceOwnerUserId, normalizedWorkspaceId, physicalParentId, title, sortOrder);
       createdNode = nodeForResource(db, "notebook", notebookId);
+    } else if (input.nodeType === "mindmap") {
+      const mindmapId = uuid();
+      db.prepare("INSERT INTO mindmaps (id, userId, workspaceId, title, data) VALUES (?, ?, ?, ?, ?)")
+        .run(mindmapId, resourceOwnerUserId, normalizedWorkspaceId, title,
+          JSON.stringify({ root: { id: "root", text: title, children: [] } }));
+      createdNode = nodeForResource(db, "mindmap", mindmapId);
     } else {
       const notebookId = nearestNotebookContainer(db, input.parentId);
       if (!notebookId) {

@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import {
+  BrainCircuit,
   Check,
   ChevronDown,
   ChevronRight,
@@ -45,6 +46,7 @@ import { useContextMenu } from "@/hooks/useContextMenu";
 import { useMobileSidebarControlsCollapsed } from "@/hooks/useMobileSidebarControlsCollapsed";
 import { useSidebarTextStyle } from "@/hooks/useSidebarTextStyle";
 import { api } from "@/lib/api";
+import { pushMindMapAppPath } from "@/lib/mindMapDeepLink";
 import { markNewNoteForImmediateEdit } from "@/lib/newNoteImmediateEdit";
 import { affectedKnowledgeNoteIds } from "@/lib/knowledgeTreeDeleteReconcile";
 import {
@@ -148,12 +150,14 @@ function nodeIcon(node: KnowledgeTreeNode) {
       : <Folder size={15} className="text-amber-500" />;
   }
   if (node.nodeType === "markdown") return <FileCode size={15} className="text-emerald-500" />;
+  if (node.nodeType === "mindmap") return <BrainCircuit size={15} className="text-accent-primary" />;
   return <FileText size={15} className="text-accent-primary" />;
 }
 
 function draftIcon(kind: KnowledgeTreeInlineCreateKind) {
   if (kind === "folder") return <Folder size={15} className="text-amber-500" />;
   if (kind === "markdown") return <FileCode size={15} className="text-emerald-500" />;
+  if (kind === "mindmap") return <BrainCircuit size={15} className="text-accent-primary" />;
   return <FileText size={15} className="text-accent-primary" />;
 }
 
@@ -635,6 +639,11 @@ export function KnowledgeTreePanel({
       else await toggle(node);
       return;
     }
+    if (node.resourceType === "mindmap") {
+      rememberOpened(node.id);
+      pushMindMapAppPath(node.resourceId);
+      return;
+    }
     if (node.resourceType !== "note") return;
     rememberOpened(node.id);
     try {
@@ -903,7 +912,7 @@ export function KnowledgeTreePanel({
 
     setDraft(null);
     if (snapshot.parentId) setNodeExpanded(snapshot.parentId, true);
-    if (snapshot.kind !== "folder") revealCreatedKnowledgeTreeNote(snapshot.parentId);
+    if (snapshot.kind === "note" || snapshot.kind === "markdown") revealCreatedKnowledgeTreeNote(snapshot.parentId);
     emitTreeChanged("node-created-inline");
     await reload();
     actions.refreshNotebooks();
@@ -911,6 +920,11 @@ export function KnowledgeTreePanel({
 
     if (snapshot.kind === "folder") {
       toast.success("已创建文件夹");
+      return;
+    }
+
+    if (snapshot.kind === "mindmap") {
+      pushMindMapAppPath(created.resourceId);
       return;
     }
 

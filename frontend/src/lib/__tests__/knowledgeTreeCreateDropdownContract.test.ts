@@ -13,6 +13,7 @@ describe("knowledge tree create dropdown contract", () => {
     expect(runtime).toContain("createPortal(");
     expect(runtime).toContain('label: "富文本文档"');
     expect(runtime).toContain('label: "Markdown 文档"');
+    expect(runtime).toContain('label: "思维导图"');
     expect(runtime).toContain('label: "文件夹"');
     expect(runtime).not.toContain("choose({");
     expect(runtime).not.toContain("prompt({");

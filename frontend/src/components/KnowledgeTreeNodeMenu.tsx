@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type RefObject } from "react";
 import {
+  BrainCircuit,
   ArrowLeftRight,
   Copy,
   Download,
@@ -116,6 +117,7 @@ function createChildren(): ContextMenuItem[] {
   return [
     { id: "new_note", label: "文档", icon: <FilePlus size={14} /> },
     { id: "new_markdown", label: "Markdown 文档", icon: <FileCode size={14} /> },
+    { id: "new_mindmap", label: "思维导图", icon: <BrainCircuit size={14} /> },
     { id: "new_folder", label: "文件夹", icon: <FolderPlus size={14} /> },
   ];
 }
@@ -139,6 +141,14 @@ export function buildKnowledgeTreeNodeMenuItems(
   const isDocument = node.resourceType === "note";
   const isNotebook = node.resourceType === "notebook";
   const isOwned = !node.sharedRootId;
+
+  if (node.resourceType === "mindmap") {
+    return [
+      { id: "open", label: "打开脑图", icon: <BrainCircuit size={14} /> },
+      ...(capabilities.canEdit ? [{ id: "rename", label: "重命名", icon: <Pencil size={14} /> }] : []),
+      ...(capabilities.canMove && !node.sharedRootId ? [{ id: "move", label: "移动", icon: <FolderInput size={14} /> }] : []),
+    ];
+  }
 
   if (isDocument) {
     const flags: ContextMenuItem[] = [];
@@ -666,6 +676,7 @@ export default function KnowledgeTreeNodeMenu({
     const protectedContentActions = new Set([
       "new_note",
       "new_markdown",
+      "new_mindmap",
       "new_folder",
       "import_markdown",
       "import_markdown_zip",
@@ -686,6 +697,7 @@ export default function KnowledgeTreeNodeMenu({
         case "duplicate": await duplicateCurrentNote(); break;
         case "new_note": onCreate(node, "note"); break;
         case "new_markdown": onCreate(node, "markdown"); break;
+        case "new_mindmap": onCreate(node, "mindmap"); break;
         case "new_folder": onCreate(node, "folder"); break;
         case "import_markdown": await importMarkdown(); break;
         case "import_markdown_zip": await importMarkdownZip(); break;

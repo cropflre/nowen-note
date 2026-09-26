@@ -55,6 +55,7 @@ describe("knowledge tree node menu", () => {
     expect(actions).toEqual(expect.arrayContaining([
       "new_note",
       "new_markdown",
+      "new_mindmap",
       "import_markdown",
       "import_word",
       "import_url",
@@ -67,6 +68,16 @@ describe("knowledge tree node menu", () => {
       "export_folder",
       "delete",
     ]));
+  });
+
+  it("opens and moves mindmaps without offering note-only actions", () => {
+    const actions = ids(buildKnowledgeTreeNodeMenuItems(node({
+      id: "mindmap:m1",
+      nodeType: "mindmap",
+      resourceType: "mindmap",
+      resourceId: "m1",
+    }), null));
+    expect(actions).toEqual(["open", "rename", "move"]);
   });
 
   it("restores personal document flags and export formats", () => {

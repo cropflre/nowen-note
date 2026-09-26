@@ -21,6 +21,7 @@ import { yjsSubdocumentGenerationMigration } from "./yjsSubdocumentGenerationMig
 import { tagScopeUniquenessMigration } from "./tagScopeUniquenessMigration.js";
 import { knowledgeTreeMigration } from "./knowledgeTreeMigration.js";
 import { knowledgeTreeResourceMigration } from "./knowledgeTreeResourceMigration.js";
+import { knowledgeTreeMindmapMigration } from "./knowledgeTreeMindmapMigration.js";
 import { knowledgeTreeParentPreservationMigration } from "./knowledgeTreeParentPreservationMigration.js";
 import { knowledgeTreeLegacySyncMigration } from "./knowledgeTreeLegacySyncMigration.js";
 import { knowledgeTreeStructuralGuardMigration } from "./knowledgeTreeStructuralGuardMigration.js";
@@ -376,6 +377,7 @@ export const MIGRATIONS: Migration[] = [
   searchNotebookExclusionsMigration,
   noteThemeContributionMigration,
   pluginStudioMigration,
+  knowledgeTreeMindmapMigration,
 ].sort((a, b) => a.version - b.version);
 
 export const CURRENT_SCHEMA_VERSION: number = MIGRATIONS.reduce(
