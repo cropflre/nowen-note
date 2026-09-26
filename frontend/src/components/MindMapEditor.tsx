@@ -420,6 +420,58 @@ function escapeXml(str: string): string {
     .replace(/'/g, "&apos;");
 }
 
+export function buildMindMapExportSvg(data: MindMapData) {
+  const root = buildLayout(data.root, 0, null);
+  const treeH = getSubtreeHeight(root);
+  layoutTree(root, 0, treeH / 2);
+  const allNodes = flattenNodes(root);
+
+  const edgeList: { from: LayoutNode; to: LayoutNode }[] = [];
+  const collectEdges = (n: LayoutNode) => {
+    n.children.forEach((c) => {
+      edgeList.push({ from: n, to: c });
+      collectEdges(c);
+    });
+  };
+  collectEdges(root);
+
+  if (allNodes.length === 0) return null;
+
+  const pad = 40;
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  allNodes.forEach((n) => {
+    minX = Math.min(minX, n.x);
+    minY = Math.min(minY, n.y);
+    maxX = Math.max(maxX, n.x + n.width);
+    maxY = Math.max(maxY, n.y + n.height);
+  });
+  const w = maxX - minX + pad * 2;
+  const h = maxY - minY + pad * 2;
+
+  let svgContent = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="${minX - pad} ${minY - pad} ${w} ${h}" style="background:#fff">\n`;
+
+  edgeList.forEach((e) => {
+    const x1 = e.from.x + e.from.width;
+    const y1 = e.from.y + e.from.height / 2;
+    const x2 = e.to.x;
+    const y2 = e.to.y + e.to.height / 2;
+    const mx = (x1 + x2) / 2;
+    svgContent += `  <path d="M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}" fill="none" stroke="rgb(203,213,225)" stroke-width="2"/>\n`;
+  });
+
+  allNodes.forEach((n) => {
+    const color = getNodeColor(n.depth);
+    const isRoot = n.depth === 0;
+    const fontSize = isRoot ? 14 : 13;
+    const fontWeight = isRoot ? 700 : 500;
+    svgContent += `  <rect x="${n.x}" y="${n.y}" width="${n.width}" height="${n.height}" rx="8" fill="${color.bg}" stroke="${color.border}" stroke-width="1.5"/>\n`;
+    svgContent += `  <text x="${n.x + 12}" y="${n.y + n.height / 2}" dominant-baseline="central" font-family="system-ui,-apple-system,sans-serif" font-size="${fontSize}" font-weight="${fontWeight}" fill="${color.text}">${escapeXml(n.text)}</text>\n`;
+  });
+
+  svgContent += `</svg>`;
+  return { svgContent, width: w, height: h };
+}
+
 /* ===== CRC-32（用于 ZIP 打包） ===== */
 const crc32Table = (() => {
   const table = new Uint32Array(256);
@@ -2429,59 +2481,6 @@ export default function MindMapCenter({
     };
   }, [listContextMenu]);
 
-  // 根据 MindMapData 生成布局并构建导出用的干净 SVG 字符串
-  const buildExportSvgFromData = useCallback((data: MindMapData) => {
-    const root = buildLayout(data.root, 0, null);
-    const treeH = getSubtreeHeight(root);
-    layoutTree(root, 0, treeH / 2);
-    const allNodes = flattenNodes(root);
-
-    const edgeList: { from: LayoutNode; to: LayoutNode }[] = [];
-    const collectEdges = (n: LayoutNode) => {
-      n.children.forEach((c) => {
-        edgeList.push({ from: n, to: c });
-        collectEdges(c);
-      });
-    };
-    collectEdges(root);
-
-    if (allNodes.length === 0) return null;
-
-    const pad = 40;
-    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-    allNodes.forEach((n) => {
-      minX = Math.min(minX, n.x);
-      minY = Math.min(minY, n.y);
-      maxX = Math.max(maxX, n.x + n.width);
-      maxY = Math.max(maxY, n.y + n.height);
-    });
-    const w = maxX - minX + pad * 2;
-    const h = maxY - minY + pad * 2;
-
-    let svgContent = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="${minX - pad} ${minY - pad} ${w} ${h}" style="background:#fff">\n`;
-
-    edgeList.forEach((e) => {
-      const x1 = e.from.x + e.from.width;
-      const y1 = e.from.y + e.from.height / 2;
-      const x2 = e.to.x;
-      const y2 = e.to.y + e.to.height / 2;
-      const mx = (x1 + x2) / 2;
-      svgContent += `  <path d="M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}" fill="none" stroke="rgb(203,213,225)" stroke-width="2"/>\n`;
-    });
-
-    allNodes.forEach((n) => {
-      const color = getNodeColor(n.depth);
-      const isRoot = n.depth === 0;
-      const fontSize = isRoot ? 14 : 13;
-      const fontWeight = isRoot ? 700 : 500;
-      svgContent += `  <rect x="${n.x}" y="${n.y}" width="${n.width}" height="${n.height}" rx="8" fill="${color.bg}" stroke="${color.border}" stroke-width="1.5"/>\n`;
-      svgContent += `  <text x="${n.x + 12}" y="${n.y + n.height / 2}" dominant-baseline="central" font-family="system-ui,-apple-system,sans-serif" font-size="${fontSize}" font-weight="${fontWeight}" fill="${color.text}">${escapeXml(n.text)}</text>\n`;
-    });
-
-    svgContent += `</svg>`;
-    return { svgContent, width: w, height: h };
-  }, []);
-
   // 加载指定导图数据
   const loadMapData = useCallback(async (mapId: string): Promise<{ data: MindMapData; title: string } | null> => {
     try {
@@ -2499,7 +2498,7 @@ export default function MindMapCenter({
     setListContextMenu(null);
     const result = await loadMapData(mapId);
     if (!result) return;
-    const svgResult = buildExportSvgFromData(result.data);
+    const svgResult = buildMindMapExportSvg(result.data);
     if (!svgResult) return;
     const blob = new Blob([svgResult.svgContent], { type: "image/svg+xml;charset=utf-8" });
     const url = URL.createObjectURL(blob);
@@ -2508,7 +2507,7 @@ export default function MindMapCenter({
     a.download = `${title || "mindmap"}.svg`;
     a.click();
     URL.revokeObjectURL(url);
-  }, [listContextMenu, loadMapData, buildExportSvgFromData]);
+  }, [listContextMenu, loadMapData]);
 
   const handleListDownloadPNG = useCallback(async () => {
     if (!listContextMenu) return;
@@ -2519,7 +2518,7 @@ export default function MindMapCenter({
       toast.error(EXPORT_CANVAS_CONTENT_ERROR);
       return;
     }
-    const svgResult = buildExportSvgFromData(result.data);
+    const svgResult = buildMindMapExportSvg(result.data);
     if (!svgResult) {
       toast.error(EXPORT_CANVAS_CONTENT_ERROR);
       return;
@@ -2564,7 +2563,7 @@ export default function MindMapCenter({
       toast.error(EXPORT_CANVAS_CONTENT_ERROR);
     };
     img.src = url;
-  }, [listContextMenu, loadMapData, buildExportSvgFromData]);
+  }, [listContextMenu, loadMapData]);
 
   // 将 MindMapNode 转换为 xmind 的 content.json 格式
   const buildXmindContent = useCallback((data: MindMapData, title: string) => {

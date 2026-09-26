@@ -20,6 +20,7 @@ const { openLocalAttachmentWithSystem } = require("./attachment-open");
 const { registerTextContextMenu } = require("./text-context-menu");
 const { attachWindowStatePersistence, resolveWindowBounds } = require("./window-state");
 const { requestLocalAccountBootstrap } = require("./localAccountBootstrap");
+const { isPdfBufferValid, isPdfRenderReady } = require("./pdfExportGuard");
 const {
   setCredentialsPath,
   registerCredentialsIpc,
@@ -2431,9 +2432,7 @@ ipcMain.handle("task:notify-permission", () => {
           };
         })()
       `, true);
-      if (!renderState || renderState.width <= 0 || renderState.height <= 0
-        || renderState.titleWidth <= 0 || renderState.titleHeight <= 0
-        || !renderState.hasContentContainer) {
+      if (!isPdfRenderReady(renderState)) {
         throw new Error('PDF_RENDER_EMPTY');
       }
 
@@ -2443,7 +2442,7 @@ ipcMain.handle("task:notify-permission", () => {
         margins: { marginType: "default" },
         preferCSSPageSize: true,
       });
-      if (!pdfBuffer || pdfBuffer.length < 256 || pdfBuffer.subarray(0, 5).toString() !== '%PDF-') {
+      if (!isPdfBufferValid(pdfBuffer)) {
         throw new Error('PDF_OUTPUT_EMPTY');
       }
       fs.writeFileSync(outPath, pdfBuffer);
