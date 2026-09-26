@@ -3,6 +3,7 @@ import bcrypt from "bcryptjs";
 import { createHash } from "node:crypto";
 
 import { getDb } from "../db/schema.js";
+import { MINDMAP_LEGACY_NOTEBOOK_PREFIX } from "../db/knowledgeTreeMindmapFolderMigration.js";
 import { isFeatureEnabled, resolveWorkspaceFeatures } from "../middleware/acl.js";
 import { broadcastNotesDeleted } from "../services/realtime.js";
 import { ensureKnowledgeTreePasswordTable } from "../db/knowledgeTreePasswordMigration.js";
@@ -175,6 +176,10 @@ app.patch("/nodes/:nodeId", async (c) => {
         if (!title) throw new KnowledgeTreeError("KNOWLEDGE_TITLE_REQUIRED", 400, "名称不能为空");
         if (node.resourceType === "notebook") {
           db.prepare("UPDATE notebooks SET name = ?, updatedAt = datetime('now') WHERE id = ?").run(title, node.resourceId);
+          if (node.resourceId.startsWith(MINDMAP_LEGACY_NOTEBOOK_PREFIX)) {
+            db.prepare("UPDATE mindmap_folders SET name = ?, updatedAt = datetime('now') WHERE id = ?")
+              .run(title, node.resourceId.slice(MINDMAP_LEGACY_NOTEBOOK_PREFIX.length));
+          }
         } else if (node.resourceType === "note") {
           db.prepare("UPDATE notes SET title = ?, version = version + 1, updatedAt = datetime('now') WHERE id = ?").run(title, node.resourceId);
         } else if (node.resourceType === "mindmap") {

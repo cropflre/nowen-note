@@ -3,6 +3,7 @@ import { v4 as uuid } from "uuid";
 
 import { getDb } from "../db/schema.js";
 import { ensureKnowledgeTreeTables } from "../db/knowledgeTreeMigration.js";
+import { MINDMAP_LEGACY_NOTEBOOK_PREFIX } from "../db/knowledgeTreeMindmapFolderMigration.js";
 import {
   hasKnowledgeCapability,
   resolveKnowledgeNodeAccess,
@@ -356,6 +357,23 @@ function syncBusinessParent(db: Database.Database, node: NodeRow, treeParentId: 
   } else if (node.resourceType === "notebook") {
     db.prepare("UPDATE notebooks SET parentId = ?, updatedAt = datetime('now') WHERE id = ?")
       .run(notebookContainer, node.resourceId);
+    if (node.resourceId.startsWith(MINDMAP_LEGACY_NOTEBOOK_PREFIX)) {
+      db.prepare("UPDATE mindmap_folders SET parentId = ?, updatedAt = datetime('now') WHERE id = ?")
+        .run(
+          notebookContainer?.startsWith(MINDMAP_LEGACY_NOTEBOOK_PREFIX)
+            ? notebookContainer.slice(MINDMAP_LEGACY_NOTEBOOK_PREFIX.length)
+            : null,
+          node.resourceId.slice(MINDMAP_LEGACY_NOTEBOOK_PREFIX.length),
+        );
+    }
+  } else if (node.resourceType === "mindmap") {
+    db.prepare("UPDATE mindmaps SET folderId = ?, updatedAt = datetime('now') WHERE id = ?")
+      .run(
+        notebookContainer?.startsWith(MINDMAP_LEGACY_NOTEBOOK_PREFIX)
+          ? notebookContainer.slice(MINDMAP_LEGACY_NOTEBOOK_PREFIX.length)
+          : null,
+        node.resourceId,
+      );
   }
 }
 
@@ -608,6 +626,10 @@ export function reorderKnowledgeNodes(input: {
         db.prepare("UPDATE notes SET sortOrder = ? WHERE id = ?").run(sortOrder, node.resourceId);
       } else if (node.resourceType === "notebook") {
         db.prepare("UPDATE notebooks SET sortOrder = ? WHERE id = ?").run(sortOrder, node.resourceId);
+        if (node.resourceId.startsWith(MINDMAP_LEGACY_NOTEBOOK_PREFIX)) {
+          db.prepare("UPDATE mindmap_folders SET sortOrder = ? WHERE id = ?")
+            .run(sortOrder, node.resourceId.slice(MINDMAP_LEGACY_NOTEBOOK_PREFIX.length));
+        }
       }
       recordHistory(db, {
         nodeId: node.id,

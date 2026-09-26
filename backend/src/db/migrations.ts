@@ -22,6 +22,7 @@ import { tagScopeUniquenessMigration } from "./tagScopeUniquenessMigration.js";
 import { knowledgeTreeMigration } from "./knowledgeTreeMigration.js";
 import { knowledgeTreeResourceMigration } from "./knowledgeTreeResourceMigration.js";
 import { knowledgeTreeMindmapMigration } from "./knowledgeTreeMindmapMigration.js";
+import { knowledgeTreeMindmapFolderMigration } from "./knowledgeTreeMindmapFolderMigration.js";
 import { knowledgeTreeParentPreservationMigration } from "./knowledgeTreeParentPreservationMigration.js";
 import { knowledgeTreeLegacySyncMigration } from "./knowledgeTreeLegacySyncMigration.js";
 import { knowledgeTreeStructuralGuardMigration } from "./knowledgeTreeStructuralGuardMigration.js";
@@ -378,6 +379,7 @@ export const MIGRATIONS: Migration[] = [
   noteThemeContributionMigration,
   pluginStudioMigration,
   knowledgeTreeMindmapMigration,
+  knowledgeTreeMindmapFolderMigration,
 ].sort((a, b) => a.version - b.version);
 
 export const CURRENT_SCHEMA_VERSION: number = MIGRATIONS.reduce(
