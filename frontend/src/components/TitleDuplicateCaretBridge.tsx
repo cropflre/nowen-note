@@ -51,13 +51,8 @@ export function syncTitleDuplicateCaretProxy(root: ParentNode = document): boole
   const spans = Array.from(textLayer.children).filter(
     (child): child is HTMLSpanElement => child instanceof HTMLSpanElement,
   );
-  if (spans.length < 2) return false;
-
-  const prefix = spans[0];
-  const suffix = spans[1];
-  const prefixText = prefix.textContent || "";
-  const suffixText = suffix.textContent || "";
-  if (`${prefixText}${suffixText}` !== field.value) return false;
+  if (!spans.length) return false;
+  if (spans.map((span) => span.textContent || "").join("") !== field.value) return false;
 
   const caret = document.createElement("span");
   caret.dataset.nowenTitleDuplicateCaret = "";
@@ -82,21 +77,22 @@ export function syncTitleDuplicateCaretProxy(root: ParentNode = document): boole
   });
 
   const position = Math.max(0, Math.min(selectionStart, field.value.length));
-  if (position <= prefixText.length) {
-    prefix.replaceChildren(
-      document.createTextNode(prefixText.slice(0, position)),
-      caret,
-      document.createTextNode(prefixText.slice(position)),
-    );
-  } else {
-    const suffixPosition = position - prefixText.length;
-    suffix.replaceChildren(
-      document.createTextNode(suffixText.slice(0, suffixPosition)),
-      caret,
-      document.createTextNode(suffixText.slice(suffixPosition)),
-    );
+  let start = 0;
+  for (const span of spans) {
+    const value = span.textContent || "";
+    const end = start + value.length;
+    if (position <= end) {
+      const offset = position - start;
+      span.replaceChildren(
+        document.createTextNode(value.slice(0, offset)),
+        caret,
+        document.createTextNode(value.slice(offset)),
+      );
+      return true;
+    }
+    start = end;
   }
-  return true;
+  return false;
 }
 
 export default function TitleDuplicateCaretBridge() {

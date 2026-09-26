@@ -49,4 +49,20 @@ describe("TitleDuplicateCaretBridge", () => {
     expect(syncTitleDuplicateCaretProxy()).toBe(false);
     expect(document.querySelector("[data-nowen-title-duplicate-caret]")).toBeNull();
   });
+
+  it("places the caret within the third segment of a multi-range mirror", () => {
+    document.body.innerHTML = `
+      <input id="title" value="aa123456bb" style="caret-color: rgb(15, 23, 42)">
+      <div data-title-duplicate-mirror><div>
+        <span>aa</span><span class="text-red-500">123456</span><span>bb</span>
+      </div></div>
+    `;
+    const field = document.querySelector<HTMLInputElement>("#title")!;
+    field.focus();
+    field.setSelectionRange(9, 9);
+    expect(syncTitleDuplicateCaretProxy()).toBe(true);
+    const spans = document.querySelectorAll("[data-title-duplicate-mirror] div > span");
+    expect(spans[2].querySelector("[data-nowen-title-duplicate-caret]")).not.toBeNull();
+    expect(Array.from(spans).map((span) => span.textContent).join("")).toBe(field.value);
+  });
 });

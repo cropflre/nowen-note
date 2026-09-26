@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   findTitleDuplicateMatch,
+  findTitleDuplicateRanges,
   type TitleDuplicateCandidate,
 } from "../titleDuplicateAssist";
 
@@ -99,6 +100,15 @@ describe("titleDuplicateAssist", () => {
     expect(match).toBeNull();
   });
 
+  it("旧前缀匹配函数仍默认排除其它 notebook 候选", () => {
+    expect(findTitleDuplicateMatch({
+      title: "ABCDEFGH当前",
+      currentNoteId: "current",
+      currentNotebookId: notebookId,
+      candidates: [candidate("child", "ABCDEFGH历史", { notebookId: "child-nb" })],
+    })).toBeNull();
+  });
+
   it("空输入不检测", () => {
     expect(findTitleDuplicateMatch({
       title: "",
@@ -115,5 +125,53 @@ describe("titleDuplicateAssist", () => {
       currentNotebookId: notebookId,
       candidates: [candidate("other", "技术文档-测试")],
     })).toBeNull();
+  });
+});
+
+describe("title duplicate ranges", () => {
+  const rangesFor = (title: string, candidates: TitleDuplicateCandidate[]) => findTitleDuplicateRanges({
+    title,
+    currentNoteId: "current",
+    currentNotebookId: notebookId,
+    candidates,
+  });
+
+  it("highlights a repeated business number in the middle without coloring the prefix", () => {
+    const title = "驰铭-13010181_CM-7023";
+    expect(rangesFor(title, [candidate("other", "其它供应商-13010181-A版")])).toEqual([{
+      from: title.indexOf("13010181"),
+      to: title.indexOf("13010181") + 8,
+      type: "serial",
+      candidateId: "other",
+    }]);
+  });
+
+  it("matches repeated numbers at the start and end, and multiple mixed codes", () => {
+    expect(rangesFor("13010181-项目", [candidate("other", "旧版-13010181")])).toHaveLength(1);
+    expect(rangesFor("项目-13010181", [candidate("other", "13010181-旧版")])).toHaveLength(1);
+    const title = "项目 CM-7023 / ABC_123456";
+    const matches = rangesFor(title, [candidate("other", "旧版 cm_7023 与 abc-123456")]);
+    expect(matches.map(({ from, to }) => title.slice(from, to))).toEqual(["CM-7023", "ABC_123456"]);
+    expect(rangesFor("项目 A13010181 与 201A00276", [candidate("other", "历史 a13010181 / 201a00276")])
+      .map(({ from, to }) => "项目 A13010181 与 201A00276".slice(from, to)))
+      .toEqual(["A13010181", "201A00276"]);
+  });
+
+  it("does not report short common tokens, self, or trashed notes", () => {
+    expect(rangesFor("项目 V1 H1 2026", [candidate("other", "历史 V1 H1 2026")])).toEqual([]);
+    expect(rangesFor("项目 13010181", [candidate("current", "历史 13010181"), candidate("trash", "历史 13010181", { isTrashed: 1 })])).toEqual([]);
+  });
+
+  it("retains exact and prefix priority, and accepts candidates supplied from a descendant notebook", () => {
+    expect(rangesFor("ABCDEFGH当前", [candidate("other", "ABCDEFGH历史")])).toEqual([{
+      from: 0, to: 8, type: "prefix", candidateId: "other",
+    }]);
+    expect(rangesFor("完全相同标题", [candidate("other", "完全相同标题")])).toEqual([{
+      from: 0, to: "完全相同标题".length, type: "exact", candidateId: "other",
+    }]);
+    expect(rangesFor("项目 13010181", [candidate("child", "旧版 13010181", { notebookId: "child-nb" })])).toHaveLength(1);
+    expect(rangesFor("ABCDEFGH当前", [candidate("child", "ABCDEFGH历史", { notebookId: "child-nb" })])).toEqual([{
+      from: 0, to: 8, type: "prefix", candidateId: "child",
+    }]);
   });
 });

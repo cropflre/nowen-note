@@ -3,7 +3,7 @@ import React, { useCallback, useEffect, useRef } from "react";
 import { api } from "@/lib/api";
 import { canWriteNote } from "@/lib/notePermissions";
 import {
-  findTitleDuplicateMatch,
+  findTitleDuplicateRanges,
   type TitleDuplicateCandidate,
 } from "@/lib/titleDuplicateAssist";
 import { useApp } from "@/store/AppContext";
@@ -21,8 +21,7 @@ type Session = {
 type Mirror = {
   root: HTMLDivElement;
   text: HTMLDivElement;
-  prefix: HTMLSpanElement;
-  suffix: HTMLSpanElement;
+  normalColor: string;
   inlineColor: string;
   inlineCaretColor: string;
   inlineTextFillColor: string;
@@ -140,6 +139,7 @@ export default function TitleDuplicateAssistBridge({
   const activeNoteRef = useRef<Note | null>(state.activeNote);
   const cacheRef = useRef<Map<string, TitleDuplicateCandidate[]>>(new Map());
   const inflightRef = useRef<Map<string, Promise<TitleDuplicateCandidate[]>>>(new Map());
+  const requestVersionRef = useRef<Map<string, number>>(new Map());
   const sessionRef = useRef<Session | null>(null);
   const mirrorRef = useRef<Mirror | null>(null);
   const resizeObserverRef = useRef<ResizeObserver | null>(null);
@@ -228,19 +228,13 @@ export default function TitleDuplicateAssistBridge({
 
     const text = document.createElement("div");
     Object.assign(text.style, { position: "absolute", left: "0", top: "0" });
-    const prefix = document.createElement("span");
-    prefix.className = "text-red-500 dark:text-red-400";
-    const suffix = document.createElement("span");
-    suffix.style.color = fieldColor;
-    text.append(prefix, suffix);
     root.appendChild(text);
     document.body.appendChild(root);
 
     const mirror: Mirror = {
       root,
       text,
-      prefix,
-      suffix,
+      normalColor: fieldColor,
       inlineColor: field.style.color,
       inlineCaretColor: field.style.caretColor,
       inlineTextFillColor: field.style.webkitTextFillColor,
@@ -267,21 +261,36 @@ export default function TitleDuplicateAssistBridge({
     }
 
     const title = session.field.value;
-    const match = findTitleDuplicateMatch({
+    const ranges = findTitleDuplicateRanges({
       title,
       currentNoteId: session.noteId,
       currentNotebookId: session.notebookId,
       candidates: cacheRef.current.get(session.notebookId) || [],
     });
-    if (!match) {
+    if (!ranges.length) {
       clearMirror();
       return;
     }
 
     const mirror = ensureMirror();
     if (!mirror) return;
-    mirror.prefix.textContent = title.slice(0, match.prefixLength);
-    mirror.suffix.textContent = title.slice(match.prefixLength);
+    const segments: HTMLSpanElement[] = [];
+    const appendSegment = (value: string, duplicate: boolean) => {
+      if (!value) return;
+      const span = document.createElement("span");
+      span.textContent = value;
+      if (duplicate) span.className = "text-red-500 dark:text-red-400";
+      else span.style.color = mirror.normalColor;
+      segments.push(span);
+    };
+    let cursor = 0;
+    for (const range of ranges) {
+      appendSegment(title.slice(cursor, range.from), false);
+      appendSegment(title.slice(range.from, range.to), true);
+      cursor = range.to;
+    }
+    appendSegment(title.slice(cursor), false);
+    mirror.text.replaceChildren(...segments);
     scheduleLayout();
   }, [clearMirror, ensureMirror, scheduleLayout]);
 
@@ -290,26 +299,34 @@ export default function TitleDuplicateAssistBridge({
       return Promise.resolve(cacheRef.current.get(notebookId)!);
     }
     const inflight = inflightRef.current.get(notebookId);
-    if (inflight) return inflight;
+    if (inflight && !force) return inflight;
 
-    const request = api.getNotes({ notebookId, includeDescendants: "0" })
+    const version = (requestVersionRef.current.get(notebookId) || 0) + 1;
+    requestVersionRef.current.set(notebookId, version);
+
+    const request = api.getNotes({ notebookId, includeDescendants: "1" })
       .then((notes) => {
         const candidates = notes
-          .filter((note) => note.notebookId === notebookId && !note.isTrashed)
+          .filter((note) => !note.isTrashed)
           .map((note) => ({
             id: note.id,
             title: note.title || "",
             notebookId: note.notebookId,
             isTrashed: note.isTrashed,
           } satisfies TitleDuplicateCandidate));
-        cacheRef.current.set(notebookId, candidates);
-        return candidates;
+        if (requestVersionRef.current.get(notebookId) === version) {
+          cacheRef.current.set(notebookId, candidates);
+          return candidates;
+        }
+        return cacheRef.current.get(notebookId) || [];
       })
       .catch((error) => {
         console.warn("[title-duplicate-assist] failed to load notebook titles", error);
         return cacheRef.current.get(notebookId) || [];
       })
-      .finally(() => inflightRef.current.delete(notebookId));
+      .finally(() => {
+        if (inflightRef.current.get(notebookId) === request) inflightRef.current.delete(notebookId);
+      });
 
     inflightRef.current.set(notebookId, request);
     return request;
@@ -342,7 +359,7 @@ export default function TitleDuplicateAssistBridge({
   }, [clearMirror, rememberEditedTitle]);
 
   // state.notes 不是可靠候选源：搜索、标签、日期以及“本目录搜索”都会把它缩成子集。
-  // 因此只在笔记本变化 / 明确列表刷新时，使用已有 notes list API 拉一次直属笔记并缓存。
+  // 因此只在笔记本变化 / 明确列表刷新时，使用已有 notes list API 拉一次当前目录及子目录并缓存。
   useEffect(() => {
     const note = state.activeNote;
     if (!note?.notebookId) return;
