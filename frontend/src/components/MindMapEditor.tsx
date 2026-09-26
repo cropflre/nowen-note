@@ -1227,8 +1227,10 @@ export default function MindMapCenter({
     try {
       const data = await api.getMindMaps();
       setMaps(data);
+      return data;
     } catch (err) {
       console.error("Failed to load mindmaps:", err);
+      return null;
     } finally {
       setIsLoading(false);
     }
@@ -1258,6 +1260,17 @@ export default function MindMapCenter({
     setSearchResults([]);
     setSearchIndex(0);
   }, []);
+
+  useEffect(() => {
+    if (embeddedMode) return;
+    const onTreeChanged = () => {
+      void loadMaps().then((current) => {
+        if (activeMap && current && !current.some((map) => map.id === activeMap.id)) clearActiveMap();
+      });
+    };
+    window.addEventListener("nowen:knowledge-tree-changed", onTreeChanged);
+    return () => window.removeEventListener("nowen:knowledge-tree-changed", onTreeChanged);
+  }, [activeMap, clearActiveMap, embeddedMode, loadMaps]);
 
   // 工作区切换：清空当前打开的导图 + 重拉列表，避免显示其他 scope 的图
   useEffect(() => {
@@ -1943,6 +1956,7 @@ export default function MindMapCenter({
       await api.deleteMindMap(id);
       window.dispatchEvent(new Event("nowen:knowledge-tree-changed"));
       dispatchDocumentMindMapChanged({ id, kind: "deleted" });
+      toast.success("已移入回收站");
       setMaps((prev) => prev.filter((m) => m.id !== id));
       if (activeMap?.id === id) {
         setActiveMap(null);
@@ -1953,6 +1967,7 @@ export default function MindMapCenter({
       }
     } catch (err) {
       console.error("Failed to delete mindmap:", err);
+      toast.error(err instanceof Error ? err.message : "删除思维导图失败");
     }
   }, [activeMap, embeddedMode]);
 
@@ -2821,7 +2836,7 @@ export default function MindMapCenter({
                     }}
                     onDragOver={(e) => { if (dragMapId) { e.preventDefault(); e.dataTransfer.dropEffect = "move"; setDropFolderId(folder.id); } }}
                     onDragLeave={() => { if (dropFolderId === folder.id) setDropFolderId(null); }}
-                    onDrop={(e) => { e.preventDefault(); if (dragMapId) { api.moveMindMap(dragMapId, folder.id).then(() => { loadMaps(); loadFolders(); }); setDragMapId(null); setDropFolderId(null); } }}
+                    onDrop={(e) => { e.preventDefault(); if (dragMapId) { api.moveMindMap(dragMapId, folder.id).then(() => { loadMaps(); loadFolders(); window.dispatchEvent(new Event("nowen:knowledge-tree-changed")); }); setDragMapId(null); setDropFolderId(null); } }}
                     onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setFolderContextMenu({ x: e.clientX, y: e.clientY, folderId: folder.id, folderName: folder.name }); }}
                   >
                     <ChevronRight size={12} className={cn("text-tx-tertiary transition-transform flex-shrink-0", isExpanded && "rotate-90")} />
@@ -2833,13 +2848,13 @@ export default function MindMapCenter({
                         onChange={(e) => setRenamingFolderName(e.target.value)}
                         onKeyDown={(e) => {
                           if (e.key === "Enter" && renamingFolderName.trim()) {
-                            api.updateMindMapFolder(folder.id, { name: renamingFolderName.trim() }).then(() => { loadFolders(); setRenamingFolderId(null); });
+                            api.updateMindMapFolder(folder.id, { name: renamingFolderName.trim() }).then(() => { loadFolders(); setRenamingFolderId(null); window.dispatchEvent(new Event("nowen:knowledge-tree-changed")); });
                           }
                           if (e.key === "Escape") { setRenamingFolderId(null); }
                         }}
                         onBlur={() => {
                           if (renamingFolderName.trim() && renamingFolderName !== folder.name) {
-                            api.updateMindMapFolder(folder.id, { name: renamingFolderName.trim() }).then(() => { loadFolders(); });
+                            api.updateMindMapFolder(folder.id, { name: renamingFolderName.trim() }).then(() => { loadFolders(); window.dispatchEvent(new Event("nowen:knowledge-tree-changed")); });
                           }
                           setRenamingFolderId(null);
                         }}
@@ -2851,7 +2866,7 @@ export default function MindMapCenter({
                       <span className="flex-1 truncate text-tx-primary">{folder.name}</span>
                     )}
                     <span className="text-[10px] text-tx-tertiary">{filteredMaps.filter(m => m.folderId === folder.id).length}</span>
-                    <button onClick={(e) => { e.stopPropagation(); if (confirm(t("mindMap.confirmDeleteFolder"))) { api.deleteMindMapFolder(folder.id).then(() => { loadFolders(); loadMaps(); }); } }} className="opacity-0 group-hover:opacity-100 text-tx-tertiary hover:text-accent-danger transition-all duration-150 ease-out"><Trash2 size={12} /></button>
+                    <button onClick={(e) => { e.stopPropagation(); if (confirm(t("mindMap.confirmDeleteFolder"))) { api.deleteMindMapFolder(folder.id).then(() => { loadFolders(); loadMaps(); window.dispatchEvent(new Event("nowen:knowledge-tree-changed")); }); } }} className="opacity-0 group-hover:opacity-100 text-tx-tertiary hover:text-accent-danger transition-all duration-150 ease-out"><Trash2 size={12} /></button>
                   </div>
                   {isExpanded && (
                     <>
@@ -2890,14 +2905,14 @@ export default function MindMapCenter({
                   </button>
                   {showNewFolder && (
                     <div className="flex items-center gap-1 px-2 py-1">
-                      <input type="text" value={newFolderName} onChange={(e) => setNewFolderName(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && newFolderName.trim()) { api.createMindMapFolder({ name: newFolderName.trim() }).then(() => { loadFolders(); setShowNewFolder(false); setNewFolderName(""); }); } if (e.key === "Escape") { setShowNewFolder(false); setNewFolderName(""); } }} placeholder={t("mindMap.folderName")} className="flex-1 bg-transparent text-xs text-tx-primary placeholder:text-tx-tertiary outline-none border-b border-app-border py-0.5" autoFocus />
+                      <input type="text" value={newFolderName} onChange={(e) => setNewFolderName(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && newFolderName.trim()) { api.createMindMapFolder({ name: newFolderName.trim() }).then(() => { loadFolders(); setShowNewFolder(false); setNewFolderName(""); window.dispatchEvent(new Event("nowen:knowledge-tree-changed")); }); } if (e.key === "Escape") { setShowNewFolder(false); setNewFolderName(""); } }} placeholder={t("mindMap.folderName")} className="flex-1 bg-transparent text-xs text-tx-primary placeholder:text-tx-tertiary outline-none border-b border-app-border py-0.5" autoFocus />
                     </div>
                   )}
                 </div>
                 {topFolders.map(f => renderFolder(f, 0))}
                 {uncategorized.length > 0 && (
                   <div>
-                    <div className={cn("rounded-md transition-colors duration-150 ease-out", dropFolderId === "__uncategorized__" && "ring-2 ring-emerald-400/60 bg-emerald-50/40 dark:bg-emerald-500/10 p-1")} onDragOver={(e) => { if (dragMapId) { e.preventDefault(); e.dataTransfer.dropEffect = "move"; setDropFolderId("__uncategorized__"); } }} onDragLeave={() => { if (dropFolderId === "__uncategorized__") setDropFolderId(null); }} onDrop={(e) => { e.preventDefault(); if (dragMapId) { api.moveMindMap(dragMapId, null).then(() => { loadMaps(); loadFolders(); }); setDragMapId(null); setDropFolderId(null); } }}>
+                    <div className={cn("rounded-md transition-colors duration-150 ease-out", dropFolderId === "__uncategorized__" && "ring-2 ring-emerald-400/60 bg-emerald-50/40 dark:bg-emerald-500/10 p-1")} onDragOver={(e) => { if (dragMapId) { e.preventDefault(); e.dataTransfer.dropEffect = "move"; setDropFolderId("__uncategorized__"); } }} onDragLeave={() => { if (dropFolderId === "__uncategorized__") setDropFolderId(null); }} onDrop={(e) => { e.preventDefault(); if (dragMapId) { api.moveMindMap(dragMapId, null).then(() => { loadMaps(); loadFolders(); window.dispatchEvent(new Event("nowen:knowledge-tree-changed")); }); setDragMapId(null); setDropFolderId(null); } }}>
                     {!q && topFolders.length > 0 && (
                       <div className="flex items-center gap-1.5 px-2 pt-2 pb-1 text-[10px] text-tx-tertiary uppercase tracking-wider">
                         {t("mindMap.uncategorized")}
@@ -3531,7 +3546,7 @@ export default function MindMapCenter({
                 className={`w-full flex items-center gap-2.5 px-3 py-2 text-sm text-red-500 ${MT.menuHover} transition-colors duration-150 ease-out`}
                 onClick={() => {
                   if (confirm(t("mindMap.confirmDeleteFolder"))) {
-                    api.deleteMindMapFolder(folderContextMenu.folderId).then(() => { loadFolders(); loadMaps(); });
+                    api.deleteMindMapFolder(folderContextMenu.folderId).then(() => { loadFolders(); loadMaps(); window.dispatchEvent(new Event("nowen:knowledge-tree-changed")); });
                   }
                   close();
                 }}

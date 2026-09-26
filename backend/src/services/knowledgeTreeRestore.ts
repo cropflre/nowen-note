@@ -13,6 +13,7 @@ type RestorableNode = {
   parentId: string | null;
   resourceType: "notebook" | "note" | "mindmap" | "file";
   resourceId: string;
+  isDeleted: number;
 };
 
 function canRestoreRoot(db: Database.Database, node: RestorableNode, actorUserId: string): boolean {
@@ -30,7 +31,7 @@ function canRestoreRoot(db: Database.Database, node: RestorableNode, actorUserId
 function readSubtree(db: Database.Database, nodeId: string, includeSubtree: boolean): RestorableNode[] {
   if (!includeSubtree) {
     const node = db.prepare(`
-      SELECT id, userId, workspaceId, parentId, resourceType, resourceId
+      SELECT id, userId, workspaceId, parentId, resourceType, resourceId, isDeleted
       FROM knowledge_tree_nodes WHERE id = ?
     `).get(nodeId) as RestorableNode | undefined;
     return node ? [node] : [];
@@ -44,7 +45,7 @@ function readSubtree(db: Database.Database, nodeId: string, includeSubtree: bool
       JOIN subtree ON child.parentId = subtree.id
     )
     SELECT node.id, node.userId, node.workspaceId, node.parentId,
-           node.resourceType, node.resourceId
+           node.resourceType, node.resourceId, node.isDeleted
     FROM subtree
     JOIN knowledge_tree_nodes node ON node.id = subtree.id
     ORDER BY subtree.depth ASC, node.sortOrder ASC, node.id ASC
@@ -60,15 +61,38 @@ export function restoreKnowledgeNode(input: {
   const db = input.db || getDb();
   ensureKnowledgeTreeTables(db);
   const root = db.prepare(`
-    SELECT id, userId, workspaceId, parentId, resourceType, resourceId
+    SELECT id, userId, workspaceId, parentId, resourceType, resourceId, isDeleted
     FROM knowledge_tree_nodes WHERE id = ?
   `).get(input.nodeId) as RestorableNode | undefined;
   if (!root) throw new KnowledgeTreeError("KNOWLEDGE_NODE_NOT_FOUND", 404, "内容节点不存在");
+  if (!root.isDeleted) throw new KnowledgeTreeError("KNOWLEDGE_NODE_NOT_TRASHED", 409, "内容不在回收站");
   if (!canRestoreRoot(db, root, input.actorUserId)) {
     throw new KnowledgeTreeError("KNOWLEDGE_CAPABILITY_FORBIDDEN", 403, "没有恢复权限", { required: "canDelete" });
   }
+  if (root.parentId) {
+    const parent = db.prepare("SELECT isDeleted FROM knowledge_tree_nodes WHERE id = ?")
+      .get(root.parentId) as { isDeleted: number } | undefined;
+    if (parent?.isDeleted) throw new KnowledgeTreeError("KNOWLEDGE_PARENT_DELETED", 409, "请先恢复上级文件夹");
+  }
 
-  const nodes = readSubtree(db, input.nodeId, input.includeSubtree !== false);
+  // Only restore the cohort recorded by this folder's latest delete operation. A child
+  // trashed earlier must stay in the bin when its former parent is restored.
+  const deletion = input.includeSubtree === false ? undefined : db.prepare(`
+    SELECT metadata FROM knowledge_tree_history
+    WHERE nodeId = ? AND action = 'delete_subtree'
+    ORDER BY rowid DESC LIMIT 1
+  `).get(root.id) as { metadata: string | null } | undefined;
+  let affectedIds: Set<string> | null = null;
+  if (deletion?.metadata) {
+    try {
+      const parsed = JSON.parse(deletion.metadata) as { affectedNodeIds?: unknown };
+      if (Array.isArray(parsed.affectedNodeIds)) {
+        affectedIds = new Set(parsed.affectedNodeIds.filter((id): id is string => typeof id === "string"));
+      }
+    } catch { /* Missing legacy metadata restores only the requested node. */ }
+  }
+  const nodes = readSubtree(db, root.id, input.includeSubtree !== false)
+    .filter((node) => node.isDeleted && (node.id === root.id || affectedIds?.has(node.id)));
   const restored: string[] = [];
   const transaction = db.transaction(() => {
     // Activate every navigation row first. Legacy resource triggers then see an active parent even

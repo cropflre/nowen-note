@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import ContextMenu, { ContextMenuItem } from "@/components/ContextMenu";
 import KnowledgeTreePermissionsDialog from "@/components/KnowledgeTreePermissionsDialog";
+import MindmapTrashSection from "@/components/MindmapTrashSection";
 import ShareModal from "@/components/ShareModal";
 import { buildNoteContextMenuLayout } from "@/components/noteContextMenuLayout";
 import { useContextMenu } from "@/hooks/useContextMenu";
@@ -1376,6 +1377,7 @@ export default function NoteList() {
     loadThreeColumnFolderScopeMode,
   );
   const [folderTreeNodes, setFolderTreeNodes] = useState<KnowledgeTreeNode[]>([]);
+  const [trashedMindmapCount, setTrashedMindmapCount] = useState<number | null>(null);
   const [unlockedFolderIds, setUnlockedFolderIds] = useState<Set<string>>(
     loadUnlockedFolderIds,
   );
@@ -2050,7 +2052,7 @@ export default function NoteList() {
       const summary = await api.getTrashSummary();
       const removable = summary.count;
       if (removable === 0) {
-        toast.info(t('sidebar.emptyTrashEmpty'));
+        toast.info(trashedMindmapCount ? "没有待清空的笔记；脑图可在列表中单独永久删除" : t('sidebar.emptyTrashEmpty'));
         return;
       }
       const ok = await confirm({
@@ -3539,8 +3541,8 @@ export default function NoteList() {
               variant="ghost"
               size="icon"
               className="h-8 w-8 text-accent-danger hover:bg-accent-danger/10"
-              title={t('sidebar.emptyTrash')}
-              aria-label={t('sidebar.emptyTrash')}
+              title="清空笔记回收站"
+              aria-label="清空笔记回收站"
               onClick={handleEmptyTrash}
             >
               <Trash2 size={18} />
@@ -3630,8 +3632,8 @@ export default function NoteList() {
               variant="ghost"
               size="icon"
               className="h-7 w-7 text-accent-danger hover:bg-accent-danger/10"
-              title={t('sidebar.emptyTrash')}
-              aria-label={t('sidebar.emptyTrash')}
+              title="清空笔记回收站"
+              aria-label="清空笔记回收站"
               onClick={handleEmptyTrash}
             >
               <Trash2 size={15} />
@@ -3790,6 +3792,10 @@ export default function NoteList() {
         <div className="px-4 py-1.5">
           <span className="text-[10px] text-tx-tertiary">{t('common.noteCount', { count: sortedNotes.length })}</span>
         </div>
+      )}
+
+      {state.viewMode === "trash" && (
+        <MindmapTrashSection workspaceId={getCurrentWorkspace()} onCountChange={setTrashedMindmapCount} />
       )}
 
       {showThreeColumnFolderContents && hasVisibleChildFolders && (
@@ -4142,7 +4148,8 @@ export default function NoteList() {
               </p>
             </div>
           )}
-          {state.notes.length === 0 && !state.isLoading && !notesLoadError && !hasVisibleChildFolders && (
+          {state.notes.length === 0 && !state.isLoading && !notesLoadError && !hasVisibleChildFolders
+            && (state.viewMode !== "trash" || trashedMindmapCount === 0) && (
             <div className="flex flex-col items-center justify-center py-16 px-6 text-center">
               <div className={cn(
                 "w-16 h-16 rounded-2xl flex items-center justify-center mb-4",

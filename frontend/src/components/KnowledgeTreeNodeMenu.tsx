@@ -147,6 +147,7 @@ export function buildKnowledgeTreeNodeMenuItems(
       { id: "open", label: "打开脑图", icon: <BrainCircuit size={14} /> },
       ...(capabilities.canEdit ? [{ id: "rename", label: "重命名", icon: <Pencil size={14} /> }] : []),
       ...(capabilities.canMove && !node.sharedRootId ? [{ id: "move", label: "移动", icon: <FolderInput size={14} /> }] : []),
+      ...(capabilities.canDelete ? [{ id: "delete", label: "移到回收站", icon: <Trash2 size={14} />, danger: true }] : []),
     ];
   }
 

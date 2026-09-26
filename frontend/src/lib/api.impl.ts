@@ -2879,6 +2879,7 @@ export const api = {
   ) =>
     request<MindMap>(`/mindmaps/${id}`, { method: "PUT", body: JSON.stringify(data) }),
   deleteMindMap: (id: string) => request(`/mindmaps/${id}`, { method: "DELETE" }),
+  deleteMindMapPermanently: (id: string) => request(`/mindmaps/${id}/permanent`, { method: "DELETE" }),
   toggleStarMindMap: (id: string) => request<MindMap>(`/mindmaps/${id}/star`, { method: "PATCH" }),
 
   // MindMap Folders

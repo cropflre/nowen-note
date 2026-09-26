@@ -8,6 +8,7 @@ import {
 } from "../middleware/acl";
 import { ensureMindmapSchema } from "../lib/mindmap-schema";
 import { mindmapFoldersRepository } from "../repositories";
+import { MINDMAP_LEGACY_NOTEBOOK_PREFIX } from "../db/knowledgeTreeMindmapFolderMigration.js";
 
 const app = new Hono();
 
@@ -43,10 +44,17 @@ app.get("/", requireWorkspaceFeature("mindmaps"), (c) => {
   const scope = resolveScope(c.req.query("workspaceId") || "", userId);
   if (scope.error) return c.json({ error: scope.error, code: "FORBIDDEN" }, 403);
 
-  const rows = mindmapFoldersRepository.listByUser(userId, scope.workspaceId);
+  const folderState = db.prepare("SELECT isDeleted FROM notebooks WHERE id = ?");
+  const rows = mindmapFoldersRepository.listByUser(userId, scope.workspaceId).filter((folder) =>
+    !(folderState.get(`${MINDMAP_LEGACY_NOTEBOOK_PREFIX}${folder.id}`) as { isDeleted: number } | undefined)?.isDeleted,
+  );
 
   // 附加每个文件夹内的导图数量
-  const countStmt = db.prepare("SELECT COUNT(*) as cnt FROM mindmaps WHERE folderId = ?");
+  const countStmt = db.prepare(`
+    SELECT COUNT(*) AS cnt FROM mindmaps map WHERE map.folderId = ?
+      AND NOT EXISTS (SELECT 1 FROM knowledge_tree_nodes tree
+        WHERE tree.resourceType = 'mindmap' AND tree.resourceId = map.id AND tree.isDeleted = 1)
+  `);
   const result = rows.map((r) => ({
     ...r,
     mindmapCount: (countStmt.get(r.id) as any).cnt,
