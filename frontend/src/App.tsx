@@ -841,7 +841,11 @@ function AppLayout() {
       ) : isMindMapView ? (
         <div className="flex-1 flex flex-col">
           <MobileTopBar />
-          <MindMapCenter routeMindMapId={mindMapRoute.matched ? mindMapRoute.mindMapId : undefined} />
+          <MindMapCenter
+            documentMode={mindMapRoute.matched && mindMapRoute.mindMapId !== null}
+            routeMindMapId={mindMapRoute.matched ? mindMapRoute.mindMapId : undefined}
+            onRequestClose={() => actions.setViewMode("all")}
+          />
         </div>
       ) : isAIChatView ? (
         <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">

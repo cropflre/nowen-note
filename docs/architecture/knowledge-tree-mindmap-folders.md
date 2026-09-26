@@ -10,6 +10,14 @@ Issue #776 的 Phase 1 保留 `mindmaps` 和 `mindmap_folders` 作为旧客户�
 
 迁移与兼容测试见 `backend/tests/knowledge-tree-mindmap-folders.test.ts`。
 
+## 打开方式
+
+- 从桌面或移动知识树点选脑图，会打开 `/mindmaps/:id`，主内容区直接显示该脑图画布，不再附带脑图中心的第二份列表。
+- 左侧模块入口 `/mindmaps` 仍保留原脑图中心，用于集中浏览和管理。单篇链接仍可刷新、复制和通过浏览器历史返回；切换到笔记时回到笔记工作区。
+- 两种入口复用同一个脑图编辑器及原有保存链路；目前笔记标签页仍只管理笔记，不把脑图伪装成笔记标签页。
+
+主画布与中心列表的路由回归见 `frontend/src/components/__tests__/MindMapEditor.documentMode.test.tsx`、`frontend/src/components/__tests__/LazyMindMapEditorRuntime.test.tsx` 和 `frontend/src/lib/__tests__/mindMapDeepLink.test.ts`。懒加载包装层必须透传路由参数，否则实际 Web 运行时会退回旧脑图中心并丢失当前导图选择。
+
 ## 脑图回收站生命周期
 
 - 知识树节点的 `isDeleted` 是脑图的回收站状态；不新增第二套 `mindmaps.isDeleted`。从知识树或旧脑图中心删除都会软删除树节点，脑图正文保留。

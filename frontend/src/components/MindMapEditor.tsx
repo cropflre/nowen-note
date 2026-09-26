@@ -1049,6 +1049,8 @@ export interface MindMapCenterProps {
   /** 文档内弹层编辑：只打开指定源导图，不展示导图列表/文件夹。 */
   embeddedMode?: boolean;
   embeddedMindMapId?: string;
+  /** 从知识树打开单篇导图时，只展示主画布，保留普通路由和保存行为。 */
+  documentMode?: boolean;
   /** 主应用路由控制：undefined=不参与；null=/mindmaps；uuid=/mindmaps/:id。 */
   routeMindMapId?: string | null;
   onRequestClose?: () => void;
@@ -1063,6 +1065,7 @@ type MindMapSaveConflict = {
 export default function MindMapCenter({
   embeddedMode = false,
   embeddedMindMapId,
+  documentMode = false,
   routeMindMapId,
   onRequestClose,
   onSaved,
@@ -2742,7 +2745,7 @@ export default function MindMapCenter({
         />
       )}
 
-      {!isFullscreen && !embeddedMode && (/* Left: Map List Panel */
+      {!isFullscreen && !embeddedMode && !documentMode && (/* Left: Map List Panel */
       <div
         className={cn(
           "border-r border-app-border/60 bg-app-surface flex flex-col transition-all duration-150 ease-out",
@@ -2968,7 +2971,7 @@ export default function MindMapCenter({
                     {t("mindMap.showAll")}
                   </button>
                 )}
-                {isMobile && !embeddedMode && (
+                {isMobile && !embeddedMode && !documentMode && (
                   <button
                     onClick={() => setSidebarOpen(true)}
                     className="p-1.5 rounded-md hover:bg-app-hover text-tx-secondary transition-colors duration-150 ease-out flex-shrink-0"
@@ -3110,14 +3113,14 @@ export default function MindMapCenter({
                 >
                   <SearchIcon size={16} />
                 </button>
-                {embeddedMode && onRequestClose && (
+                {(embeddedMode || documentMode) && onRequestClose && (
                   <>
                     <div className="w-px h-4 bg-app-border mx-0.5" />
                     <button
                       onClick={requestEmbeddedClose}
                       className={MT.toolbarBtn}
-                      title="关闭文档内编辑"
-                      aria-label="关闭文档内思维导图编辑"
+                      title={embeddedMode ? "关闭文档内编辑" : "关闭思维导图"}
+                      aria-label={embeddedMode ? "关闭文档内思维导图编辑" : "关闭思维导图"}
                     >
                       <X size={16} />
                     </button>
@@ -3502,7 +3505,7 @@ export default function MindMapCenter({
           </>
         ) : (
           <div className="flex-1 flex flex-col items-center justify-center text-tx-tertiary relative">
-            {isMobile && (
+            {isMobile && !documentMode && !embeddedMode && (
               <button
                 onClick={() => setSidebarOpen(true)}
                 className="absolute top-3 left-3 p-2 rounded-md hover:bg-app-hover text-tx-secondary transition-colors duration-150 ease-out"
@@ -3511,14 +3514,16 @@ export default function MindMapCenter({
               </button>
             )}
             <BrainCircuit size={48} className="mb-3 opacity-20" />
-            <span className="text-sm">{t("mindMap.selectOrCreate")}</span>
-            <button
-              onClick={handleCreate}
-              className="mt-4 flex items-center gap-2 rounded-[10px] bg-accent-primary px-4 py-2 text-sm font-medium text-tx-inverse transition-opacity duration-150 ease-out hover:opacity-90"
-            >
-              <Plus size={16} />
-              {t("mindMap.create")}
-            </button>
+            <span className="text-sm">{documentMode ? t("common.loading") : t("mindMap.selectOrCreate")}</span>
+            {!documentMode && (
+              <button
+                onClick={handleCreate}
+                className="mt-4 flex items-center gap-2 rounded-[10px] bg-accent-primary px-4 py-2 text-sm font-medium text-tx-inverse transition-opacity duration-150 ease-out hover:opacity-90"
+              >
+                <Plus size={16} />
+                {t("mindMap.create")}
+              </button>
+            )}
           </div>
         )}
       </div>
