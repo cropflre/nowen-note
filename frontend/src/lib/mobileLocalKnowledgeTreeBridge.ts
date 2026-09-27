@@ -1,5 +1,5 @@
 import type { MindMapListItem, NoteListItem, Notebook } from "@/types";
-import { api } from "./api";
+import { api, getCurrentWorkspace } from "./api";
 import {
   knowledgeTreeApi,
   type EffectiveKnowledgeAccess,
@@ -38,6 +38,15 @@ function ownerAccess(
 
 function scopeKey(userId: string, workspaceId: string | null): string {
   return workspaceId ? `workspace:${workspaceId}` : `personal:${userId}`;
+}
+
+function syncScopeKey(workspaceId?: string): string {
+  return workspaceId && workspaceId !== "personal"
+    ? `workspace:${workspaceId.replace(/^workspace:/, "")}` : "personal";
+}
+
+function snapshotKey(workspaceId: string | undefined, includeDeleted: boolean): string {
+  return `knowledgeTreeSnapshot:v1:${syncScopeKey(workspaceId)}:${includeDeleted ? 1 : 0}`;
 }
 
 function notebookNode(item: Notebook, deviceOnly: boolean): KnowledgeTreeNode {
@@ -151,10 +160,9 @@ function localOnlyUnsupported(message: string): Error & { code?: string } {
 /**
  * Android Native 知识树 Bridge。
  *
- * - 所有 Native 模式：列表从 Native Repository 投影，保证断网可读。
- * - 纯设备本地模式：进一步接管 CRUD / batch / ACL 等入口，确保不会漏回服务器。
- * - 已登录 Local-first：保留服务端 mutation / 权限 / 密码等高级知识树能力，避免
- *   因 Native DB 暂无 knowledge_tree_nodes 表而破坏原有任意层级结构与权限语义。
+ * - 纯设备本地模式：列表从 Native Repository 投影，并接管 CRUD / batch / ACL。
+ * - 已登录 Local-first：在线读取服务端统一树，断网回退本机列表；mutation / 权限 /
+ *   密码等高级能力仍由服务端处理，直到 Native DB 支持完整结构同步。
  */
 export function installMobileLocalKnowledgeTreeBridge(
   repository: NativeLocalRepository,
@@ -188,16 +196,77 @@ export function installMobileLocalKnowledgeTreeBridge(
     return { nodes: projectNodes(notebooks, notes, mindMaps, deviceOnly) };
   };
 
+  // 登录态以服务端统一树为准；断网时保留原有本机列表兜底。
+  // 权限或服务端错误不能当作断网，否则可能显示已撤权的工作区内容。
+  if (!deviceOnly) {
+    const serverFirstList = async (
+      workspaceId: string | undefined,
+      includeDeleted: boolean,
+      remote: () => Promise<{ nodes: KnowledgeTreeNode[] }>,
+    ): Promise<{ nodes: KnowledgeTreeNode[] }> => {
+      const key = snapshotKey(workspaceId, includeDeleted);
+      const scope = syncScopeKey(workspaceId);
+      const validNodes = (nodes: unknown): nodes is KnowledgeTreeNode[] => Array.isArray(nodes)
+        && nodes.every((node) => node && typeof node.id === "string"
+          && (scope === "personal" ? node.workspaceId == null : syncScopeKey(node.workspaceId || undefined) === scope));
+      try {
+        const result = await remote();
+        if (!validNodes(result.nodes)) throw new Error("服务器知识树数据空间不匹配");
+        if (db) {
+          try {
+            await db.run(`INSERT INTO native_runtime_meta (key,value,updatedAt) VALUES (?,?,?)
+              ON CONFLICT(key) DO UPDATE SET value=excluded.value,updatedAt=excluded.updatedAt`,
+            [key, JSON.stringify(result.nodes), new Date().toISOString()]);
+          } catch (error) {
+            console.warn("[mobile knowledge tree] snapshot cache write failed", error);
+          }
+        }
+        return result;
+      } catch (error) {
+        if (db && error && typeof error === "object" && "status" in error && error.status === 403) {
+          if (scope !== "personal") {
+            try {
+              await db.run("UPDATE sync_workspace_scopes SET accessStatus='access_revoked' WHERE scopeKey=?", [scope]);
+            } catch (accessError) {
+              console.warn("[mobile knowledge tree] offline access freeze failed", accessError);
+            }
+          }
+        }
+        if (!(error instanceof TypeError) || !/failed to fetch|network request failed|load failed/i.test(error.message)) throw error;
+        if (db) {
+          if (scope !== "personal") {
+            const access = (await db.query<{ accessStatus: string }>(
+              "SELECT accessStatus FROM sync_workspace_scopes WHERE scopeKey=? LIMIT 1", [scope],
+            ))[0];
+            if (access?.accessStatus !== "active") throw new Error("当前工作区的离线访问权未确认");
+          }
+          const cached = (await db.query<{ value: string }>(
+            "SELECT value FROM native_runtime_meta WHERE key=?", [key],
+          ))[0];
+          if (cached) {
+            try {
+              const nodes = JSON.parse(cached.value) as unknown;
+              if (validNodes(nodes)) return { nodes };
+            } catch { /* Corrupt cache falls back to native projection. */ }
+          }
+        }
+        return list(workspaceId, includeDeleted);
+      }
+    };
+    target.list = (includeDeleted = false) => serverFirstList(
+      getCurrentWorkspace(), includeDeleted,
+      () => originals.list(includeDeleted),
+    );
+    target.listForWorkspace = (workspaceId: string, includeDeleted = false) => serverFirstList(
+      workspaceId, includeDeleted,
+      () => originals.listForWorkspace(workspaceId, includeDeleted),
+    );
+    return () => { Object.assign(target, originals); };
+  }
+
   target.list = (includeDeleted = false) => list(undefined, includeDeleted);
   target.listForWorkspace = (workspaceId: string, includeDeleted = false) => list(workspaceId, includeDeleted);
   target.listShared = async () => ({ nodes: [] });
-
-  // 登录后的 Android 维持此前行为：只投影本地列表，其余高级树能力继续访问服务器。
-  if (!deviceOnly) {
-    return () => {
-      Object.assign(target, originals);
-    };
-  }
 
   const findNode = async (nodeId: string, workspaceId?: string): Promise<KnowledgeTreeNode> => {
     const result = await list(workspaceId, true);

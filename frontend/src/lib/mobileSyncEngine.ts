@@ -52,7 +52,7 @@ function stable(value: unknown): string {
   return JSON.stringify(value) ?? "undefined";
 }
 
-function isCoreEntityType(value:RemoteEntityType):value is EntityType {
+function isCoreEntityType(value:unknown):value is EntityType {
   return value === "notebook" || value === "note" || value === "tag"
     || value === "note_tag" || value === "favorite" || value === "attachment"
     || value === "task" || value === "task_reminder" || value === "diary" || value === "mindmap";
@@ -60,6 +60,21 @@ function isCoreEntityType(value:RemoteEntityType):value is EntityType {
 
 function syncFailure(code:string,message:string):Error&{code:string}{
   return Object.assign(new Error(message),{code});
+}
+
+/** Reject future protocol entities before a mobile cursor or ACK can advance. */
+export function assertMobileSyncItems(items:unknown,kind:"snapshot"|"changes"):void{
+  if(!Array.isArray(items))throw syncFailure("SERVER_ERROR","远端同步条目格式无效");
+  for(const item of items){
+    if(!item||typeof item!=="object")throw syncFailure("SERVER_ERROR","远端同步条目格式无效");
+    const entry=item as Record<string,unknown>;
+    if(!isCoreEntityType(entry.entityType))throw syncFailure("SERVER_ERROR",`不支持的同步实体：${String(entry.entityType)}`);
+    if(typeof entry.entityId!=="string"||!entry.entityId)throw syncFailure("SERVER_ERROR","远端同步实体 ID 无效");
+    if(kind==="changes"&&entry.operation!=="upsert"&&entry.operation!=="delete")
+      throw syncFailure("SERVER_ERROR","远端同步操作无效");
+    if(kind==="snapshot"&&(!entry.payload||typeof entry.payload!=="object"||Array.isArray(entry.payload)))
+      throw syncFailure("SERVER_ERROR","远端同步快照载荷无效");
+  }
 }
 
 export class MobileSyncEngine {
@@ -275,9 +290,9 @@ export class MobileSyncEngine {
       if (cursor) params.set("cursor",cursor);
       if (sequence) params.set("snapshotSequence",String(sequence));
       const page = await this.request<{ snapshotSequence:number;nextCursor:string|null;items:SnapshotEntry[] }>(`/snapshot?${params}`);
+      assertMobileSyncItems(page.items,"snapshot");
       if (!sequence) sequence = page.snapshotSequence;
       for(const entry of page.items){
-        if(!isCoreEntityType(entry.entityType))continue;
         const ids=seen.get(entry.entityType)||new Set<string>();ids.add(entry.entityId);seen.set(entry.entityType,ids);
         if(entry.entityType==="notebook"&&typeof entry.payload.parentId==="string")notebookParents.set(entry.entityId,entry.payload.parentId);
       }
@@ -347,6 +362,10 @@ export class MobileSyncEngine {
       WHERE profileId=? AND scopeKey=? AND status IN ('pending','failed') ORDER BY createdAt LIMIT 100`,
     [this.options.profileId,scope.scopeKey]);
     if (!rows.length || !scope.canWrite && scope.workspaceId) return;
+    for(const row of rows){
+      if(!isCoreEntityType(row.entityType)||row.operation!=="upsert"&&row.operation!=="delete")
+        throw syncFailure("SERVER_ERROR","本地存在当前客户端不支持的同步实体或操作");
+    }
     const mutations = rows.map((row) => ({ ...row,
       baseVersion:row.baseVersion??undefined,payload:row.payload?JSON.parse(row.payload):undefined }));
     const response = await this.request<{ serverSequence:number;results:Array<{mutationId:string;status:string;code?:string;serverVersion?:number;serverPayload?:Record<string,unknown>}> }>(
@@ -388,6 +407,7 @@ export class MobileSyncEngine {
     const changes = await this.request<{ resetRequired:boolean;nextSequence:number;items:Array<{entityType:RemoteEntityType;entityId:string;operation:string}> }>(
       `/changes?scopeKey=${encodeURIComponent(scope.scopeKey)}&after=${after}`,
     );
+    assertMobileSyncItems(changes.items,"changes");
     if (changes.resetRequired) { await this.bootstrap(scope); return; }
     const deletes: SnapshotEntry[] = changes.items.filter((item)=>item.operation==="delete")
       .map((item)=>({entityType:item.entityType,entityId:item.entityId,payload:{__delete:true}}));
@@ -399,6 +419,7 @@ export class MobileSyncEngine {
         const params = new URLSearchParams({scopeKey:scope.scopeKey,limit:"200"});
         if(cursor) params.set("cursor",cursor);
         const page = await this.request<{nextCursor:string|null;items:SnapshotEntry[]}>(`/snapshot?${params}`);
+        assertMobileSyncItems(page.items,"snapshot");
         for(const item of page.items){const key=`${item.entityType}\0${item.entityId}`;if(wanted.delete(key))entries.push(item);}
         cursor=page.nextCursor;
       } while(cursor&&wanted.size);
@@ -421,11 +442,11 @@ export class MobileSyncEngine {
   }
 
   private async applyEntries(scope: ScopeDescriptor, entries: SnapshotEntry[], bootstrap: boolean): Promise<void> {
+    assertMobileSyncItems(entries,"snapshot");
     const notebookParents=entries.flatMap((entry)=>entry.entityType==="notebook"
       && typeof entry.payload.parentId==="string" ? [[entry.entityId,entry.payload.parentId] as const] : []);
     await this.options.db.transaction(async (tx) => {
       for(const entry of entries){
-        if(!isCoreEntityType(entry.entityType))continue;
         const conflict=(await tx.query<{id:string}>(`SELECT id FROM sync_conflicts WHERE
           profileId=? AND scopeKey=? AND entityType=? AND entityId=? AND status='unresolved' LIMIT 1`,
         [this.options.profileId,scope.scopeKey,entry.entityType,entry.entityId]))[0];

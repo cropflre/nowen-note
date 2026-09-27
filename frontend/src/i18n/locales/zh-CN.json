@@ -2099,6 +2099,8 @@
     "fitView": "适应视图",
     "miniMap": "小地图",
     "shortcutAdd": "添加子节点",
+    "shortcutSibling": "添加同级节点",
+    "shortcutPromote": "提升层级",
     "shortcutEdit": "编辑节点",
     "shortcutDelete": "删除节点",
     "shortcutCollapse": "展开/折叠",

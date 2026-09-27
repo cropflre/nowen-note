@@ -124,6 +124,122 @@ function createRepository() {
 }
 
 describe("mobile local knowledge tree bridge", () => {
+  it("restores the last server tree with cross-type parents after a signed-in device goes offline", async () => {
+    const { repository } = createRepository();
+    const metadata = new Map<string, string>();
+    const db = {
+      run: vi.fn(async (_sql: string, values: unknown[]) => {
+        metadata.set(String(values[0]), String(values[1]));
+        return { changes: 1 };
+      }),
+      query: vi.fn(async (sql: string, values: unknown[]) => sql.includes("native_runtime_meta")
+        ? (metadata.has(String(values[0])) ? [{ value: metadata.get(String(values[0])) }] : [])
+        : []),
+    } as unknown as NativeDatabase;
+    const remoteNode = { id: "mindmap:map-1", workspaceId: null,
+      parentId: "note:note-1", resourceType: "mindmap" };
+    const remoteList = vi.spyOn(knowledgeTreeApi, "listForWorkspace")
+      .mockResolvedValueOnce({ nodes: [remoteNode] as never })
+      .mockRejectedValueOnce(new TypeError("Failed to fetch"));
+
+    restoreBridge = installMobileLocalKnowledgeTreeBridge(repository, { deviceOnly: false }, db);
+    expect((await knowledgeTreeApi.listForWorkspace("personal")).nodes).toEqual([remoteNode]);
+    restoreBridge();
+    restoreBridge = installMobileLocalKnowledgeTreeBridge(repository, { deviceOnly: false }, db);
+    expect((await knowledgeTreeApi.listForWorkspace("personal")).nodes).toEqual([remoteNode]);
+    expect(remoteList).toHaveBeenCalledTimes(2);
+    expect(repository.listNotebooksForWorkspace).not.toHaveBeenCalled();
+  });
+
+  it("keeps offline snapshots isolated by workspace and refuses locally revoked access", async () => {
+    const { repository } = createRepository();
+    const metadata = new Map<string, string>();
+    let accessStatus = "active";
+    const db = {
+      run: vi.fn(async (sql: string, values: unknown[]) => {
+        if (sql.includes("UPDATE sync_workspace_scopes")) {
+          accessStatus = "access_revoked";
+          return { changes: 1 };
+        }
+        metadata.set(String(values[0]), String(values[1]));
+        return { changes: 1 };
+      }),
+      query: vi.fn(async (sql: string, values: unknown[]) => {
+        if (sql.includes("sync_workspace_scopes")) return [{ accessStatus }];
+        if (sql.includes("native_runtime_meta") && metadata.has(String(values[0]))) {
+          return [{ value: metadata.get(String(values[0])) }];
+        }
+        return [];
+      }),
+    } as unknown as NativeDatabase;
+    const remoteNode = { id: "mindmap:ws-map", workspaceId: "ws-a", parentId: "note:ws-note" };
+    const remoteList = vi.spyOn(knowledgeTreeApi, "listForWorkspace")
+      .mockResolvedValueOnce({ nodes: [remoteNode] as never })
+      .mockRejectedValue(new TypeError("Failed to fetch"));
+
+    restoreBridge = installMobileLocalKnowledgeTreeBridge(repository, { deviceOnly: false }, db);
+    expect((await knowledgeTreeApi.listForWorkspace("ws-a")).nodes).toEqual([remoteNode]);
+    expect((await knowledgeTreeApi.listForWorkspace("ws-a")).nodes).toEqual([remoteNode]);
+    expect((await knowledgeTreeApi.listForWorkspace("ws-b")).nodes).not.toContainEqual(remoteNode);
+    const denied = Object.assign(new Error("forbidden"), { status: 403 });
+    remoteList.mockRejectedValueOnce(denied);
+    await expect(knowledgeTreeApi.listForWorkspace("ws-a")).rejects.toBe(denied);
+    expect(accessStatus).toBe("access_revoked");
+    await expect(knowledgeTreeApi.listForWorkspace("ws-a")).rejects.toThrow("离线访问权未确认");
+    expect(remoteList).toHaveBeenCalledTimes(5);
+  });
+
+  it("rejects a server tree containing nodes from another workspace", async () => {
+    const { repository } = createRepository();
+    const db = {
+      run: vi.fn(),
+      query: vi.fn(),
+    } as unknown as NativeDatabase;
+    vi.spyOn(knowledgeTreeApi, "listForWorkspace").mockResolvedValue({ nodes: [
+      { id: "mindmap:foreign", workspaceId: "ws-b" },
+    ] as never });
+
+    restoreBridge = installMobileLocalKnowledgeTreeBridge(repository, { deviceOnly: false }, db);
+    await expect(knowledgeTreeApi.listForWorkspace("ws-a")).rejects.toThrow("空间不匹配");
+    expect(db.run).not.toHaveBeenCalled();
+    expect(repository.listNotebooksForWorkspace).not.toHaveBeenCalled();
+  });
+
+  it("uses the server tree in signed-in mode so cross-type placement and shared nodes remain visible", async () => {
+    const { repository } = createRepository();
+    const remote = { id: "mindmap:map-1", parentId: "note:note-1", resourceType: "mindmap" };
+    const remoteList = vi.spyOn(knowledgeTreeApi, "list").mockResolvedValue({ nodes: [remote] as never });
+    const remoteShared = vi.spyOn(knowledgeTreeApi, "listShared").mockResolvedValue({ nodes: [remote] as never });
+
+    restoreBridge = installMobileLocalKnowledgeTreeBridge(repository, { deviceOnly: false });
+    expect((await knowledgeTreeApi.list()).nodes).toEqual([remote]);
+    expect((await knowledgeTreeApi.listShared()).nodes).toEqual([remote]);
+    expect(remoteList).toHaveBeenCalledOnce();
+    expect(remoteShared).toHaveBeenCalledOnce();
+    expect(repository.listNotebooksForWorkspace).not.toHaveBeenCalled();
+  });
+
+  it("falls back to local data only for network failures, not server permission denials", async () => {
+    const { repository } = createRepository();
+    const remoteList = vi.spyOn(knowledgeTreeApi, "list").mockRejectedValue(new TypeError("Failed to fetch"));
+    restoreBridge = installMobileLocalKnowledgeTreeBridge(repository, { deviceOnly: false });
+
+    expect((await knowledgeTreeApi.list()).nodes).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: "note:note-1" }),
+    ]));
+    expect(repository.listNotebooksForWorkspace).toHaveBeenCalledOnce();
+
+    const denied = Object.assign(new Error("forbidden"), { status: 403 });
+    remoteList.mockRejectedValue(denied);
+    await expect(knowledgeTreeApi.list()).rejects.toBe(denied);
+    expect(repository.listNotebooksForWorkspace).toHaveBeenCalledOnce();
+
+    const malformed = new TypeError("Cannot read properties of undefined");
+    remoteList.mockRejectedValue(malformed);
+    await expect(knowledgeTreeApi.list()).rejects.toBe(malformed);
+    expect(repository.listNotebooksForWorkspace).toHaveBeenCalledOnce();
+  });
+
   it("lists local notebooks and notes without requesting the remote registry", async () => {
     const { repository } = createRepository();
     const fetchSpy = vi.spyOn(globalThis, "fetch");

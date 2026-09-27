@@ -2092,6 +2092,8 @@
     "fitView": "Fit to View",
     "miniMap": "Mini Map",
     "shortcutAdd": "Add child",
+    "shortcutSibling": "Add sibling",
+    "shortcutPromote": "Promote level",
     "shortcutEdit": "Edit node",
     "shortcutDelete": "Delete node",
     "shortcutCollapse": "Expand/Collapse",

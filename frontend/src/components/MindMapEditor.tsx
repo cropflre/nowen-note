@@ -294,6 +294,52 @@ export function moveMindMapNodes(root: MindMapNode, targetId: string, nodeIds: s
   return appendMindMapChildren(newRoot, targetId, nodesToMove);
 }
 
+/** Shift+Tab: move a node immediately after its parent, preserving its subtree. */
+export function promoteMindMapNode(root: MindMapNode, nodeId: string): MindMapNode {
+  for (let index = 0; index < root.children.length; index++) {
+    const parent = root.children[index];
+    const childIndex = parent.children.findIndex((child) => child.id === nodeId);
+    if (childIndex >= 0) {
+      const promoted = parent.children[childIndex];
+      return {
+        ...root,
+        children: [
+          ...root.children.slice(0, index),
+          { ...parent, children: parent.children.filter((child) => child.id !== nodeId) },
+          promoted,
+          ...root.children.slice(index + 1),
+        ],
+      };
+    }
+    const updated = promoteMindMapNode(parent, nodeId);
+    if (updated !== parent) {
+      return { ...root, children: root.children.map((child, at) => at === index ? updated : child) };
+    }
+  }
+  return root;
+}
+
+/** Navigate the visible outline without selecting children hidden by a collapsed node. */
+export function navigateMindMapNode(
+  root: MindMapNode,
+  nodeId: string,
+  direction: "ArrowUp" | "ArrowDown" | "ArrowLeft" | "ArrowRight",
+): string | null {
+  const visible: Array<{ node: MindMapNode; parentId: string | null }> = [];
+  const visit = (node: MindMapNode, parentId: string | null) => {
+    visible.push({ node, parentId });
+    if (!node.collapsed) node.children.forEach((child) => visit(child, node.id));
+  };
+  visit(root, null);
+  const index = visible.findIndex(({ node }) => node.id === nodeId);
+  if (index < 0) return null;
+  if (direction === "ArrowUp") return visible[index - 1]?.node.id ?? null;
+  if (direction === "ArrowDown") return visible[index + 1]?.node.id ?? null;
+  if (direction === "ArrowLeft") return visible[index].parentId;
+  const current = visible[index].node;
+  return current.collapsed ? null : current.children[0]?.id ?? null;
+}
+
 function getSubtreeHeight(node: LayoutNode): number {
   if (node.children.length === 0) return node.height;
   let total = 0;
@@ -1546,6 +1592,16 @@ export default function MindMapCenter({
     triggerSave(newData);
   }, [mapData, findParentNode, updateNode, triggerSave, t]);
 
+  const handlePromoteNode = useCallback((nodeId: string) => {
+    if (!mapData) return;
+    const newRoot = promoteMindMapNode(mapData.root, nodeId);
+    if (newRoot === mapData.root) return;
+    const newData = { ...mapData, root: newRoot };
+    setMapData(newData);
+    pushHistory(newData);
+    triggerSave(newData);
+  }, [mapData, pushHistory, triggerSave]);
+
   // 操作：删除节点
   const handleDeleteNode = useCallback((nodeId: string) => {
     if (!mapData || nodeId === "root") return;
@@ -2108,7 +2164,7 @@ export default function MindMapCenter({
       }
 
       if (editingNodeId) return;
-      const activeNodeId = selectedNodeIds.length === 1 ? selectedNodeIds[0] : selectedNodeId;
+      const activeNodeId = selectedNodeIds.length > 1 ? null : selectedNodeIds[0] || selectedNodeId;
       if ((e.key === "Delete" || e.key === "Backspace") && (selectedNodeIds.length > 0 || selectedNodeId)) {
         e.preventDefault();
         handleDeleteSelectedNodes();
@@ -2117,12 +2173,21 @@ export default function MindMapCenter({
       if (!activeNodeId) return;
 
 
-      if (e.key === "Tab") {
+      if (e.key === "Tab" && !e.altKey && !e.ctrlKey && !e.metaKey) {
         e.preventDefault();
-        handleAddChild(activeNodeId);
-      } else if (e.key === "Enter") {
+        if (e.shiftKey) handlePromoteNode(activeNodeId);
+        else handleAddChild(activeNodeId);
+      } else if (e.key === "Enter" && !e.altKey && !e.ctrlKey && !e.metaKey) {
         e.preventDefault();
         handleAddSibling(activeNodeId);
+      } else if ((e.key === "ArrowUp" || e.key === "ArrowDown" || e.key === "ArrowLeft" || e.key === "ArrowRight")
+        && !e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey) {
+        const nextId = navigateMindMapNode(mapData.root, activeNodeId, e.key);
+        if (nextId) {
+          e.preventDefault();
+          setSelectedNodeId(nextId);
+          setSelectedNodeIds([nextId]);
+        }
       } else if (e.key === "F2") {
         e.preventDefault();
         const node = findNode(mapData.root, activeNodeId);
@@ -2153,7 +2218,7 @@ export default function MindMapCenter({
       window.removeEventListener("keydown", handler);
       window.removeEventListener("keyup", keyupHandler);
     };
-  }, [mapData, selectedNodeId, selectedNodeIds, editingNodeId, handleUndo, handleRedo, handleAddChild, handleAddSibling, handleDeleteSelectedNodes, handleToggleCollapse, findNode, handleCopyNode, handleCutNode, handlePasteNode]);
+  }, [mapData, selectedNodeId, selectedNodeIds, editingNodeId, handleUndo, handleRedo, handleAddChild, handleAddSibling, handlePromoteNode, handleDeleteSelectedNodes, handleToggleCollapse, findNode, handleCopyNode, handleCutNode, handlePasteNode]);
 
   // 构建布局
   const { layoutNodes, edges, viewBox, bounds } = useMemo(() => {
@@ -3213,9 +3278,11 @@ export default function MindMapCenter({
             </div>
             </div>
             {!isMobile && (
-            <div className="px-4 py-1.5 border-t border-app-border/40 bg-app-surface/20 flex items-center gap-4 text-[11px] text-tx-tertiary">
+            <div className="px-4 py-1.5 border-t border-app-border/40 bg-app-surface/20 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-tx-tertiary">
               <span><kbd className="px-1 py-0.5 rounded border border-app-border bg-app-bg text-[10px]">Tab</kbd> {t("mindMap.shortcutAdd")}</span>
-              <span><kbd className="px-1 py-0.5 rounded border border-app-border bg-app-bg text-[10px]">Enter</kbd> {t("mindMap.shortcutEdit")}</span>
+              <span><kbd className="px-1 py-0.5 rounded border border-app-border bg-app-bg text-[10px]">Enter</kbd> {t("mindMap.shortcutSibling")}</span>
+              <span><kbd className="px-1 py-0.5 rounded border border-app-border bg-app-bg text-[10px]">Shift+Tab</kbd> {t("mindMap.shortcutPromote")}</span>
+              <span><kbd className="px-1 py-0.5 rounded border border-app-border bg-app-bg text-[10px]">F2</kbd> {t("mindMap.shortcutEdit")}</span>
               <span><kbd className="px-1 py-0.5 rounded border border-app-border bg-app-bg text-[10px]">Del</kbd> {t("mindMap.shortcutDelete")}</span>
               <span><kbd className="px-1 py-0.5 rounded border border-app-border bg-app-bg text-[10px]">Space</kbd> {t("mindMap.shortcutCollapse")}</span>
                 <span><kbd className="px-1 py-0.5 rounded border border-app-border bg-app-bg text-[10px]">Ctrl+Z</kbd> {t("mindMap.undo")}</span>
