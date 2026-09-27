@@ -2,6 +2,8 @@ import type Database from "better-sqlite3";
 import { runWithOutboxSuppressed } from "./context";
 import { runChangeFeedSuppressed } from "./suppression";
 import type { SyncEntityType } from "./types";
+import { isSyncEntityType, isSyncOperation } from "./types";
+import { SyncError } from "./errors";
 import { normalizeNoteThemeId } from "../lib/noteThemeId";
 
 /**
@@ -466,6 +468,11 @@ export function applyRemoteChanges(
   items: RemoteEntityPayload[],
   options: ApplyLocalOptions,
 ): ApplyLocalResult {
+  for (const item of items) {
+    if (!isSyncEntityType(item.entityType) || !isSyncOperation(item.operation)) {
+      throw new SyncError("SERVER_ERROR", "收到当前客户端不支持的同步实体或操作");
+    }
+  }
   const result: ApplyLocalResult = { applied: 0, skipped: 0, pendingConflicts: [] };
   const scopeKey = options.scopeKey || (options.workspaceId ? `workspace:${options.workspaceId}` : "personal");
 
@@ -479,8 +486,7 @@ export function applyRemoteChanges(
       }
       const applier = LOCAL_APPLIERS[item.entityType];
       if (!applier) {
-        result.skipped += 1;
-        continue;
+        throw new SyncError("SERVER_ERROR", "收到当前客户端不支持的同步实体");
       }
       applier(db,item,{...options,scopeKey,workspaceId:options.workspaceId ?? null});
       result.applied += 1;

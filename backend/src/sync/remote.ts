@@ -4,6 +4,7 @@ import {
   SYNC_V2_ROUTES,
 } from "./constants";
 import { SyncError } from "./errors";
+import { isSyncEntityType, isSyncOperation } from "./types";
 import type { SyncScopeDescriptor } from "./scope";
 import type {
   SyncChangeItem,
@@ -84,6 +85,29 @@ export interface RemotePushResult {
   accessFingerprint: string;
   serverSequence: number;
   results: PushResultItem[];
+}
+
+/** Unknown future entities must stop Pull before the caller advances its cursor or ACKs. */
+function assertSupportedItems(items: unknown, kind: "changes" | "snapshot"): void {
+  if (!Array.isArray(items)) throw new SyncError("SERVER_ERROR", "远端同步条目格式无效");
+  for (const item of items) {
+    if (!item || typeof item !== "object") {
+      throw new SyncError("SERVER_ERROR", "远端同步条目格式无效");
+    }
+    const entry = item as Record<string, unknown>;
+    if (!isSyncEntityType(entry.entityType)) {
+      throw new SyncError("SERVER_ERROR", `不支持的同步实体：${String(entry.entityType)}`);
+    }
+    if (typeof entry.entityId !== "string" || !entry.entityId) {
+      throw new SyncError("SERVER_ERROR", "远端同步实体 ID 无效");
+    }
+    if (kind === "changes" && !isSyncOperation(entry.operation)) {
+      throw new SyncError("SERVER_ERROR", "远端同步操作无效");
+    }
+    if (kind === "snapshot" && (!entry.payload || typeof entry.payload !== "object" || Array.isArray(entry.payload))) {
+      throw new SyncError("SERVER_ERROR", "远端同步快照载荷无效");
+    }
+  }
 }
 
 /** 允许测试注入，避免真实网络。 */
@@ -204,7 +228,11 @@ export class SyncRemoteClient {
     const params = new URLSearchParams({ scopeKey, after: String(after) });
     if (limit) params.set("limit", String(limit));
     const query = `?${params.toString()}`;
-    return this.request<RemoteChanges>(SYNC_V2_ROUTES.changes, { method: "GET", query });
+    return this.request<RemoteChanges>(SYNC_V2_ROUTES.changes, { method: "GET", query })
+      .then((response) => {
+        assertSupportedItems(response.items, "changes");
+        return response;
+      });
   }
 
   snapshot(
@@ -218,7 +246,11 @@ export class SyncRemoteClient {
     if (snapshotSequence > 0) params.set("snapshotSequence", String(snapshotSequence));
     if (limit) params.set("limit", String(limit));
     const query = params.toString() ? `?${params.toString()}` : "";
-    return this.request<RemoteSnapshotPage>(SYNC_V2_ROUTES.snapshot, { method: "GET", query });
+    return this.request<RemoteSnapshotPage>(SYNC_V2_ROUTES.snapshot, { method: "GET", query })
+      .then((response) => {
+        assertSupportedItems(response.items, "snapshot");
+        return response;
+      });
   }
 
   push(

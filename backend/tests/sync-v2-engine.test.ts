@@ -578,6 +578,24 @@ test("Change Feed upsert 缺少 Snapshot payload 时不推进游标或 ACK", asy
   assert.deepEqual(remote.ackCalls, []);
 });
 
+test("未知同步实体不能被跳过并推进游标或 ACK", async () => {
+  resetSyncTables();
+  const db = getDb();
+  const { engine, remote, profileId } = createEngine();
+  remote.serverSequence = 44;
+  remote.changesQueue.push({
+    serverSequence: 44, nextSequence: 44, hasMore: false, resetRequired: false,
+    items: [{ sequence: 44, entityType: "knowledge_tree_node", entityId: "note:n1", operation: "delete" }],
+  });
+
+  const status = await engine.syncOnce();
+
+  assert.equal(status.state, "error");
+  assert.equal(status.lastError, "SERVER_ERROR");
+  assert.equal(sync.getSyncState(db, profileId)?.lastSequence ?? 0, 0);
+  assert.deepEqual(remote.ackCalls, []);
+});
+
 test("hasMore 时安排立即续拉，不等下个周期", async () => {
   resetSyncTables();
   const db = getDb();
