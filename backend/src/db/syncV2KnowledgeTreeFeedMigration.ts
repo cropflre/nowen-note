@@ -3,7 +3,7 @@ import type { Migration } from "./migrations.impl.js";
 import { installSyncChangesV2Triggers } from "./syncChangesV2Migration.js";
 import { installSyncPersonalEntitiesTriggers } from "./syncPersonalEntitiesMigration.js";
 
-function installKnowledgeTreeFeedTriggers(db: Database.Database): void {
+export function installKnowledgeTreeFeedTriggers(db: Database.Database): void {
   const changed = `
     OLD.parentId IS NOT NEW.parentId OR OLD.sortOrder IS NOT NEW.sortOrder
     OR OLD.isDeleted IS NOT NEW.isDeleted OR OLD.deletedAt IS NOT NEW.deletedAt
@@ -17,6 +17,7 @@ function installKnowledgeTreeFeedTriggers(db: Database.Database): void {
     CREATE TRIGGER sync_v2_knowledge_tree_feed_insert
     AFTER INSERT ON knowledge_tree_nodes
     WHEN (SELECT enabled FROM sync_v2_should_log) = 1
+      AND NEW.id NOT GLOB 'notebook:__nowen_root_documents__:*'
     BEGIN
       INSERT INTO sync_changes_v2 (entityType, entityId, userId, workspaceId, operation)
       VALUES ('knowledge_tree_node', NEW.id, NEW.userId, NEW.workspaceId, 'upsert');
@@ -27,6 +28,7 @@ function installKnowledgeTreeFeedTriggers(db: Database.Database): void {
     AFTER UPDATE OF parentId, sortOrder, isDeleted, deletedAt, scopeKey,
       workspaceId, userId, nodeType, resourceType, resourceId ON knowledge_tree_nodes
     WHEN (SELECT enabled FROM sync_v2_should_log) = 1 AND (${changed})
+      AND NEW.id NOT GLOB 'notebook:__nowen_root_documents__:*'
     BEGIN
       INSERT INTO sync_changes_v2 (entityType, entityId, userId, workspaceId, operation)
       SELECT 'knowledge_tree_node', OLD.id, OLD.userId, OLD.workspaceId, 'delete'
@@ -39,6 +41,7 @@ function installKnowledgeTreeFeedTriggers(db: Database.Database): void {
     CREATE TRIGGER sync_v2_knowledge_tree_feed_delete
     AFTER DELETE ON knowledge_tree_nodes
     WHEN (SELECT enabled FROM sync_v2_should_log) = 1
+      AND OLD.id NOT GLOB 'notebook:__nowen_root_documents__:*'
     BEGIN
       INSERT INTO sync_changes_v2 (entityType, entityId, userId, workspaceId, operation)
       VALUES ('knowledge_tree_node', OLD.id, OLD.userId, OLD.workspaceId, 'delete');

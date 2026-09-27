@@ -3,6 +3,7 @@ import { runChangeFeedSuppressed } from "./suppression";
 import { SyncError } from "./errors";
 import type { SyncEntityType, SyncOperation } from "./types";
 import { normalizeNoteThemeId } from "../lib/noteThemeId";
+import { applyKnowledgeTreeStructureMutation } from "./knowledgeTreeStructure.js";
 
 /**
  * Sync V2 服务端 mutation 应用层。
@@ -25,7 +26,7 @@ export interface ApplyMutationInput {
   userId: string;
   deviceId: string;
   mutationId: string;
-  entityType: SyncEntityType;
+  entityType: SyncEntityType | "knowledge_tree_node";
   entityId: string;
   operation: SyncOperation;
   baseVersion?: number;
@@ -604,7 +605,7 @@ function applyMindmap(db: Database.Database, input: ApplyMutationInput): number 
   return null;
 }
 
-const APPLIERS: Record<SyncEntityType, (db: Database.Database, input: ApplyMutationInput) => number | null> = {
+const APPLIERS: Record<ApplyMutationInput["entityType"], (db: Database.Database, input: ApplyMutationInput) => number | null> = {
   notebook: applyNotebook,
   note: applyNote,
   tag: applyTag,
@@ -615,6 +616,16 @@ const APPLIERS: Record<SyncEntityType, (db: Database.Database, input: ApplyMutat
   task_reminder: applyTaskReminder,
   diary: applyDiary,
   mindmap: applyMindmap,
+  knowledge_tree_node: (db, input) => {
+    applyKnowledgeTreeStructureMutation(db, {
+      userId: input.userId,
+      workspaceId: input.workspaceId ?? null,
+      entityId: input.entityId,
+      operation: input.operation,
+      payload: input.payload,
+    });
+    return null;
+  },
 };
 
 /**

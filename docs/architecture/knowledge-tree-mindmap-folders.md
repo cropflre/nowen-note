@@ -53,4 +53,14 @@ Issue #776 的 Phase 1 保留 `mindmaps` 和 `mindmap_folders` 作为旧客户�
 在上述完整链路落地前，#776 的跨设备结构同步仍未完成；已有协议握手与服务端结构变更捕获，但未开放新实体订阅。
 `backend/tests/sync-v2-entity-readiness.test.ts` 校验当前 10 类协议实体与能力注册表一致，并要求 `knowledge_tree_node` 在七段链路补齐前保持未就绪。
 
-v107 已将知识树结构插入、移动、排序、软删除/恢复和物理删除写入服务端 `sync_changes_v2`；内容变化仅更新 `updatedAt` 或展开状态变化不产生结构事件。迁移保留已有 sequence 与 AUTOINCREMENT 高水位，旧客户端的 feed 查询继续过滤树实体。回归见 `backend/tests/sync-v2-knowledge-tree-feed.test.ts`。这只完成 Change Feed 一段；Outbox、Push、Snapshot、Pull/Apply 和冲突策略未就绪时，树实体仍不进入 `SYNC_ENTITY_TYPES` 或显式订阅集合。
+v107 已将知识树结构插入、移动、排序、软删除/恢复和物理删除写入服务端 `sync_changes_v2`；内容变化仅更新 `updatedAt` 或展开状态变化不产生结构事件。迁移保留已有 sequence 与 AUTOINCREMENT 高水位，旧客户端的 feed 查询继续过滤树实体。回归见 `backend/tests/sync-v2-knowledge-tree-feed.test.ts`。
+
+v108 扩展本地 Outbox 的实体约束，保留旧队列顺序和内容，并安装知识树结构变更的原子捕获触发器。`sync_v2_tree_outbox_ready` 固定返回 0，直到 Push、Snapshot、Pull/Apply、冲突策略与客户端订阅全部就绪才可由后续迁移启用；目前生产环境不会产生或推送树实体 mutation。回归见 `backend/tests/sync-v2-knowledge-tree-outbox.test.ts`。因此树实体仍不进入 `SYNC_ENTITY_TYPES` 或显式订阅集合，#776 的跨设备目录同步尚未完成。
+
+服务端结构 mutation 应用层已实现：业务资源投影须先存在，旧结构须与客户端 base 一致；并发移动返回 `VERSION_CONFLICT`，缺失父节点、跨空间父节点、越权和循环均拒绝。隐藏的根级文档临时容器不进入 Change Feed 或 Outbox。当前 `/push` 仍拒绝 `knowledge_tree_node`，直到 Snapshot、客户端 Apply 和订阅能力全链路补齐；回归见 `backend/tests/sync-v2-knowledge-tree-structure.test.ts`。
+
+新协议的知识树 Snapshot 准备层已支持跨类型父节点优先、分页和回收站结构字段；附件元数据已在 Sync V2 的文件节点会保留，无权访问的工作区节点不会进入快照，父节点缺失、文件引用悬空或游标失效会明确失败，避免静默拍平目录。回归见 `backend/tests/sync-v2-knowledge-tree-snapshot.test.ts`。此准备层尚未接入公开 `/snapshot`：旧客户端仍只收到 10 类实体，且完整接入还需客户端 Apply 接线、能力协商与跨设备验收。
+
+桌面本地的完整结构快照应用器已作为独立内部能力实现：业务实体须先落地，随后按父节点顺序恢复跨类型位置，并在最后倒序恢复回收站状态；文件节点从已同步的附件元数据建立，现有节点的设备展开状态不被覆盖。整批写入在事务与双层同步抑制内进行，遇到待推送的本地结构修改或缺失父节点就回滚；回归见 `backend/tests/sync-v2-knowledge-tree-apply-local.test.ts`。它尚未接入 Desktop Engine / Bootstrap 或移动端，不代表跨设备结构同步已开放。
+
+增量结构应用同样走该内部应用器：已删除父节点下原位置不变的子节点墓碑仍可到达；删除时先处理子节点，即使输入的删除顺序相反也不会触发外键自动拍平。若缺少子节点的后续移动或删除事件，则整批失败、不推进游标。当前公开 Change Feed 仍过滤树实体，增量应用器还没有接入 Engine。
