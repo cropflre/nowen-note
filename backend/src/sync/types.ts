@@ -18,7 +18,8 @@
  * Sync V2 支持的完整实体范围。Scope 由独立字段承载；每类实体都必须
  * 补齐 Local CRUD → Outbox → Push → Change Feed → Pull → Apply → Conflict 全链路。
  */
-export const SYNC_ENTITY_TYPES = [
+/** V2 旧客户端无需协商即可读取的实体集合；新增实体不得改动此基线。 */
+export const SYNC_V2_LEGACY_ENTITY_TYPES = [
   // 知识库核心
   "notebook",
   "note",
@@ -38,6 +39,9 @@ export const SYNC_ENTITY_TYPES = [
   "diary",
   "mindmap",
 ] as const;
+
+/** 当前服务端已完整接入的实体；未来实体应显式追加，不自动进入旧客户端基线。 */
+export const SYNC_ENTITY_TYPES = [...SYNC_V2_LEGACY_ENTITY_TYPES] as const;
 
 export type SyncEntityType = (typeof SYNC_ENTITY_TYPES)[number];
 

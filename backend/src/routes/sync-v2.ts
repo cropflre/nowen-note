@@ -9,7 +9,7 @@ import {
   SYNC_SNAPSHOT_PAGE_SIZE,
 } from "../sync/constants";
 import { isLocalFirstSyncV2Enabled } from "../sync/flag";
-import { isSyncEntityType, isSyncOperation } from "../sync/types";
+import { isSyncEntityType, isSyncOperation, SYNC_V2_LEGACY_ENTITY_TYPES } from "../sync/types";
 import type { SyncEntityType, SyncOperation } from "../sync/types";
 import { logSyncInfo, logSyncWarn } from "../sync/log";
 import { applyMutation } from "../sync/apply";
@@ -39,6 +39,7 @@ import {
  * 所有端点都按 personal / workspace:<id> Scope 独立授权与推进游标。
  */
 const app = new Hono();
+const LEGACY_ENTITY_SET = SYNC_V2_LEGACY_ENTITY_TYPES.join(",");
 
 interface ChangeRowV2 {
   sequence: number;
@@ -82,7 +83,8 @@ function minAvailableSequence(
   const row = db.prepare(`
     SELECT MIN(sequence) AS sequence FROM sync_changes_v2
     WHERE workspaceId IS ? AND (? IS NOT NULL OR userId = ?)
-  `).get(workspaceId, workspaceId, userId) as
+      AND entityType IN (${SYNC_V2_LEGACY_ENTITY_TYPES.map(() => "?").join(",")})
+  `).get(workspaceId, workspaceId, userId, ...SYNC_V2_LEGACY_ENTITY_TYPES) as
     | { sequence: number | null } | undefined;
   return Number(row?.sequence || 0);
 }
@@ -155,12 +157,44 @@ function requestScope(
   if (c.req.query("workspaceId") !== undefined) {
     throw new SyncError("INVALID_PAYLOAD", "请使用 scopeKey=workspace:<id> 指定工作区同步作用域");
   }
-  return resolveAuthorizedScope(
+  const scope = resolveAuthorizedScope(
     db,
     c.req.header("X-User-Id") as string,
     c.req.query("scopeKey") || SYNC_PERSONAL_SCOPE_KEY,
     access,
   );
+  // 未声明的旧客户端继续使用原有 10 类实体。显式声明目前只接受同一集合；
+  // 否则若静默忽略新实体，客户端可能 ACK 已跳过的知识树变更。
+  const requested = c.req.queries("entityTypes") as string[] | undefined;
+  if (requested !== undefined) {
+    const types = requested.length === 1 ? requested[0].split(",") : [];
+    const legacy = SYNC_V2_LEGACY_ENTITY_TYPES as readonly string[];
+    if (types.length !== legacy.length || new Set(types).size !== legacy.length
+      || types.some((type) => !legacy.includes(type))) {
+      throw new SyncError("INVALID_PAYLOAD", "当前同步协议不支持请求的实体集合");
+    }
+  }
+  return scope;
+}
+
+function explicitSubscriptionDevice(c: any): string | null {
+  if (c.req.query("entityTypes") === undefined) return null;
+  const values = c.req.queries("deviceId") as string[] | undefined;
+  const deviceId = values?.length === 1 ? values[0].trim() : "";
+  if (!deviceId || deviceId.length > 128) {
+    throw new SyncError("INVALID_PAYLOAD", "显式实体订阅需要有效的 deviceId");
+  }
+  return deviceId;
+}
+
+function hasBoundSubscription(
+  db: Database.Database, userId: string, scopeKey: string, deviceId: string,
+): boolean {
+  const row = db.prepare(`
+    SELECT entitySet FROM sync_v2_clients
+    WHERE deviceId = ? AND userId = ? AND scopeKey = ?
+  `).get(deviceId, userId, scopeKey) as { entitySet: string | null } | undefined;
+  return row?.entitySet === LEGACY_ENTITY_SET;
 }
 
 app.get("/scopes", (c) => {
@@ -182,7 +216,9 @@ app.get("/plan", (c) => {
   const db = getDb();
   const userId = c.req.header("X-User-Id") as string;
   let scope: SyncScopeDescriptor;
-  try { scope = requestScope(c, db); } catch (error) { return scopeError(c, error); }
+  let deviceId: string | null;
+  try { scope = requestScope(c, db); deviceId = explicitSubscriptionDevice(c); }
+  catch (error) { return scopeError(c, error); }
   const after = Math.max(0, Number(c.req.query("after") || 0) || 0);
   const minSequence = minAvailableSequence(db, userId, scope.workspaceId);
   const serverSequence = currentSequence(db, userId, scope.workspaceId);
@@ -201,9 +237,11 @@ app.get("/plan", (c) => {
   return c.json({
     scopeKey: scope.scopeKey,
     accessFingerprint: scope.accessFingerprint,
+    entityTypes: SYNC_V2_LEGACY_ENTITY_TYPES,
     serverSequence,
     minAvailableSequence: minSequence,
-    resetRequired: needsReset(after, minSequence),
+    resetRequired: needsReset(after, minSequence)
+      || (deviceId !== null && !hasBoundSubscription(db, userId, scope.scopeKey, deviceId)),
     notebookCount: counts.notebooks,
     noteCount: counts.notes,
     tagCount: counts.tags,
@@ -222,13 +260,16 @@ app.get("/changes", (c) => {
   const db = getDb();
   const userId = c.req.header("X-User-Id") as string;
   let scope: SyncScopeDescriptor;
-  try { scope = requestScope(c, db); } catch (error) { return scopeError(c, error); }
+  let deviceId: string | null;
+  try { scope = requestScope(c, db); deviceId = explicitSubscriptionDevice(c); }
+  catch (error) { return scopeError(c, error); }
   const after = Math.max(0, Number(c.req.query("after") || 0) || 0);
   const limit = clampInt(c.req.query("limit"), SYNC_CHANGES_PAGE_SIZE, 1, 1000);
   const minSequence = minAvailableSequence(db, userId, scope.workspaceId);
   const serverSequence = currentSequence(db, userId, scope.workspaceId);
 
-  if (needsReset(after, minSequence)) {
+  if (needsReset(after, minSequence)
+    || (deviceId !== null && !hasBoundSubscription(db, userId, scope.scopeKey, deviceId))) {
     return c.json({
       scopeKey: scope.scopeKey,
       accessFingerprint: scope.accessFingerprint,
@@ -245,9 +286,10 @@ app.get("/changes", (c) => {
     SELECT sequence, entityType, entityId, noteId, operation, version, changedAt
     FROM sync_changes_v2
     WHERE sequence > ? AND workspaceId IS ? AND (? IS NOT NULL OR userId = ?)
+      AND entityType IN (${SYNC_V2_LEGACY_ENTITY_TYPES.map(() => "?").join(",")})
     ORDER BY sequence ASC
     LIMIT ?
-  `).all(after, scope.workspaceId, scope.workspaceId, userId, limit) as ChangeRowV2[];
+  `).all(after, scope.workspaceId, scope.workspaceId, userId, ...SYNC_V2_LEGACY_ENTITY_TYPES, limit) as ChangeRowV2[];
   const rows = scannedRows.filter((row) => row.operation === "delete" || canViewWorkspaceEntity(
     db,userId,scope.workspaceId,row.entityType,row.entityId,row.noteId,
   ));
@@ -278,6 +320,8 @@ app.get("/changes", (c) => {
  * 顺序固定使分页可重放，也保证客户端先拿到 notebook / tag
  * 再拿 note，应用时不会缺少父实体。
  */
+// 旧客户端快照依赖顺序与实体类型声明顺序不同：tag 必须先于 note。
+// 新实体只能通过后续显式协商加入，不得直接改动这份默认顺序。
 const SNAPSHOT_ORDER: SyncEntityType[] = [
   "notebook", "tag", "note", "note_tag", "favorite", "attachment",
   "task", "task_reminder", "diary", "mindmap",
@@ -287,7 +331,7 @@ function parseCursor(raw: string): { type: SyncEntityType; id: string } {
   const separator = raw.indexOf(":");
   if (separator > 0) {
     const type = raw.slice(0, separator);
-    if (isSyncEntityType(type)) return { type, id: raw.slice(separator + 1) };
+    if (SNAPSHOT_ORDER.includes(type as SyncEntityType)) return { type: type as SyncEntityType, id: raw.slice(separator + 1) };
   }
   return { type: SNAPSHOT_ORDER[0], id: "" };
 }
@@ -422,18 +466,37 @@ app.get("/snapshot", (c) => {
   const db = getDb();
   const userId = c.req.header("X-User-Id") as string;
   let scope: SyncScopeDescriptor;
-  try { scope = requestScope(c, db); } catch (error) { return scopeError(c, error); }
+  let deviceId: string | null;
+  try { scope = requestScope(c, db); deviceId = explicitSubscriptionDevice(c); }
+  catch (error) { return scopeError(c, error); }
   const limit = clampInt(
     c.req.query("limit"), SYNC_SNAPSHOT_PAGE_SIZE, 1, SYNC_SNAPSHOT_MAX_PAGE_SIZE,
   );
   const requested = Number(c.req.query("snapshotSequence") || 0) || 0;
+  const rawCursor = (c.req.query("cursor") || "").trim();
+  const needsBinding = deviceId !== null
+    && !hasBoundSubscription(db, userId, scope.scopeKey, deviceId);
+  let resumedSequence: number | null = null;
+  if (needsBinding && (rawCursor || requested !== 0)) {
+    const session = db.prepare(`
+      SELECT accessFingerprint, snapshotSequence, nextCursor, completed FROM sync_v2_snapshot_sessions
+      WHERE deviceId = ? AND userId = ? AND scopeKey = ? AND entitySet = ?
+    `).get(deviceId, userId, scope.scopeKey, LEGACY_ENTITY_SET) as
+      | { accessFingerprint: string; snapshotSequence: number; nextCursor: string | null; completed: number }
+      | undefined;
+    if (!session || session.completed || session.nextCursor !== rawCursor
+      || session.snapshotSequence !== requested
+      || session.accessFingerprint !== scope.accessFingerprint) {
+      return scopeError(c, new SyncError("INVALID_PAYLOAD", "Snapshot 分页游标与实体订阅不匹配"));
+    }
+    resumedSequence = session.snapshotSequence;
+  }
   // 首页确定 snapshotSequence，客户端在后续页回传，
   // 保证整份 snapshot 对应同一时间点，之后从该序号继续增量。
-  const snapshotSequence = requested > 0
-    ? requested
-    : currentSequence(db, userId, scope.workspaceId);
+  const snapshotSequence = resumedSequence
+    ?? (requested > 0 ? requested : currentSequence(db, userId, scope.workspaceId));
 
-  const cursor = parseCursor((c.req.query("cursor") || "").trim());
+  const cursor = parseCursor(rawCursor);
   let typeIndex = Math.max(0, SNAPSHOT_ORDER.indexOf(cursor.type));
   let afterId = cursor.id;
 
@@ -452,6 +515,21 @@ app.get("/snapshot", (c) => {
     }
     typeIndex += 1;
     afterId = "";
+  }
+
+  if (needsBinding) {
+    db.prepare(`
+      INSERT INTO sync_v2_snapshot_sessions
+        (deviceId, userId, scopeKey, entitySet, accessFingerprint, snapshotSequence, nextCursor, completed)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(deviceId, userId, scopeKey) DO UPDATE SET
+        entitySet = excluded.entitySet,
+        accessFingerprint = excluded.accessFingerprint,
+        snapshotSequence = excluded.snapshotSequence,
+        nextCursor = excluded.nextCursor,
+        completed = excluded.completed
+    `).run(deviceId, userId, scope.scopeKey, LEGACY_ENTITY_SET, scope.accessFingerprint,
+      snapshotSequence, nextCursor, nextCursor === null ? 1 : 0);
   }
 
   return c.json({
@@ -668,16 +746,54 @@ app.post("/ack", async (c) => {
   if (body.scopeKey !== undefined && body.scopeKey !== scope.scopeKey) {
     return c.json({ error: "请求体与查询参数的 Scope 不一致", code: "SCOPE_FORBIDDEN" }, 403);
   }
+  if (c.req.query("deviceId") !== undefined && c.req.query("deviceId") !== deviceId) {
+    return c.json({ error: "请求体与查询参数的 deviceId 不一致", code: "INVALID_PAYLOAD" }, 400);
+  }
 
-  // 游标只前进不后退：乱序 / 迟到的 ACK 若把它改小，
-  // 客户端会被迫重复拉取已应用过的变更。
-  db.prepare(`
-    INSERT INTO sync_v2_clients (deviceId, userId, scopeKey, lastSequence, lastSeenAt)
-    VALUES (?, ?, ?, ?, datetime('now'))
-    ON CONFLICT(deviceId, userId, scopeKey) DO UPDATE SET
-      lastSequence = MAX(lastSequence, excluded.lastSequence),
-      lastSeenAt = excluded.lastSeenAt
-  `).run(deviceId, userId, scope.scopeKey, sequence);
+  if (c.req.query("entityTypes") !== undefined) {
+    if (sequence > currentSequence(db, userId, scope.workspaceId)) {
+      return c.json({ error: "ACK 序号超过服务端游标", code: "INVALID_PAYLOAD" }, 400);
+    }
+    const alreadyBound = hasBoundSubscription(db, userId, scope.scopeKey, deviceId);
+    if (!alreadyBound) {
+      const session = db.prepare(`
+        SELECT accessFingerprint, snapshotSequence, completed FROM sync_v2_snapshot_sessions
+        WHERE deviceId = ? AND userId = ? AND scopeKey = ? AND entitySet = ?
+      `).get(deviceId, userId, scope.scopeKey, LEGACY_ENTITY_SET) as
+        | { accessFingerprint: string; snapshotSequence: number; completed: number }
+        | undefined;
+      if (!session?.completed || session.snapshotSequence !== sequence
+        || session.accessFingerprint !== scope.accessFingerprint) {
+        return c.json({ error: "实体订阅变更须先完成全量 Snapshot", code: "INVALID_PAYLOAD" }, 400);
+      }
+    }
+    db.transaction(() => {
+      db.prepare(`
+        INSERT INTO sync_v2_clients (deviceId, userId, scopeKey, lastSequence, lastSeenAt, entitySet)
+        VALUES (?, ?, ?, ?, datetime('now'), ?)
+        ON CONFLICT(deviceId, userId, scopeKey) DO UPDATE SET
+          lastSequence = CASE WHEN entitySet IS excluded.entitySet
+            THEN MAX(lastSequence, excluded.lastSequence) ELSE excluded.lastSequence END,
+          entitySet = excluded.entitySet,
+          lastSeenAt = excluded.lastSeenAt
+      `).run(deviceId, userId, scope.scopeKey, sequence, LEGACY_ENTITY_SET);
+      db.prepare(`
+        DELETE FROM sync_v2_snapshot_sessions
+        WHERE deviceId = ? AND userId = ? AND scopeKey = ?
+      `).run(deviceId, userId, scope.scopeKey);
+    })();
+  } else {
+    // 旧客户端仍可 ACK，但清除显式绑定。再次升级时必须重建快照，
+    // 不能沿用降级期间已经跳过新实体的游标。
+    db.prepare(`
+      INSERT INTO sync_v2_clients (deviceId, userId, scopeKey, lastSequence, lastSeenAt)
+      VALUES (?, ?, ?, ?, datetime('now'))
+      ON CONFLICT(deviceId, userId, scopeKey) DO UPDATE SET
+        lastSequence = MAX(lastSequence, excluded.lastSequence),
+        entitySet = NULL,
+        lastSeenAt = excluded.lastSeenAt
+    `).run(deviceId, userId, scope.scopeKey, sequence);
+  }
 
   const row = db.prepare(`
     SELECT lastSequence FROM sync_v2_clients

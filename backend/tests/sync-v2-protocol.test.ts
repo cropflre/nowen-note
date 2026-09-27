@@ -141,7 +141,7 @@ test("六类实体的写入都进入 Change Feed", async () => {
   `).run(randomUUID(), noteId, USER_ID);
 
   const types = (db.prepare(
-    "SELECT DISTINCT entityType FROM sync_changes_v2 ORDER BY entityType",
+    "SELECT DISTINCT entityType FROM sync_changes_v2 WHERE entityType != 'knowledge_tree_node' ORDER BY entityType",
   ).all() as Array<{ entityType: string }>).map((r) => r.entityType);
 
   assert.deepEqual(types, [
@@ -506,6 +506,139 @@ test("changes 支持分页并推进游标", async () => {
   assert.ok(page2.json.items.length >= 3);
 });
 
+test("旧客户端跳过未来实体但仍推进游标", async () => {
+  const db = getDb();
+  clearFeed();
+  const notebookId = seedNotebook(USER_ID);
+  const knownSequence = (db.prepare("SELECT MAX(sequence) AS s FROM sync_changes_v2").get() as { s: number }).s;
+  // 模拟未来版本写入的新实体；当前 schema 的 CHECK 尚未开放该类型。
+  db.pragma("ignore_check_constraints = ON");
+  try {
+    db.prepare(`
+      INSERT INTO sync_changes_v2 (entityType, entityId, userId, workspaceId, operation)
+      VALUES ('knowledge_tree_node', 'mindmap:future', ?, NULL, 'upsert')
+    `).run(USER_ID);
+  } finally {
+    db.pragma("ignore_check_constraints = OFF");
+  }
+  const futureSequence = (db.prepare("SELECT MAX(sequence) AS s FROM sync_changes_v2").get() as { s: number }).s;
+
+  const first = await call("GET", "/api/sync/v2/changes?after=0&limit=10");
+  assert.deepEqual(first.json.items.map((item: { entityId: string }) => item.entityId), [notebookId]);
+  assert.equal(first.json.nextSequence, futureSequence);
+  assert.equal(first.json.hasMore, false);
+
+  const next = await call("GET", `/api/sync/v2/changes?after=${knownSequence}&limit=10`);
+  assert.deepEqual(next.json.items, []);
+  assert.equal(next.json.nextSequence, futureSequence);
+  assert.equal(next.json.resetRequired, false);
+
+  const snapshot = await call("GET", "/api/sync/v2/snapshot?limit=500");
+  assert.ok(snapshot.json.items.every((item: { entityType: string }) => item.entityType !== "knowledge_tree_node"));
+});
+
+test("显式实体订阅只接受完整的旧协议集合", async () => {
+  const { SYNC_V2_LEGACY_ENTITY_TYPES } = await import("../src/sync/types.js");
+  const entityTypes = encodeURIComponent([...SYNC_V2_LEGACY_ENTITY_TYPES].reverse().join(","));
+  const deviceId = "explicit-set-device";
+  const query = `entityTypes=${entityTypes}&deviceId=${deviceId}`;
+  const oldAck = await call("POST", "/api/sync/v2/ack", { deviceId, sequence: 999999 });
+  assert.equal(oldAck.response.status, 200);
+  const plan = await call("GET", `/api/sync/v2/plan?after=999999&${query}`);
+  assert.equal(plan.response.status, 200);
+  assert.deepEqual(plan.json.entityTypes, [...SYNC_V2_LEGACY_ENTITY_TYPES]);
+  assert.equal(plan.json.resetRequired, true);
+
+  const changes = await call("GET", `/api/sync/v2/changes?after=0&${query}`);
+  assert.equal(changes.response.status, 200);
+  assert.equal(changes.json.resetRequired, true);
+  assert.deepEqual(changes.json.items, []);
+
+  const prematureAck = await call("POST", `/api/sync/v2/ack?entityTypes=${entityTypes}`, {
+    deviceId, sequence: plan.json.serverSequence,
+  });
+  assert.equal(prematureAck.response.status, 400);
+
+  let snapshot = await call("GET", `/api/sync/v2/snapshot?limit=1&${query}`);
+  assert.equal(snapshot.response.status, 200);
+  const snapshotSequence = snapshot.json.snapshotSequence;
+  if (snapshot.json.hasMore) {
+    const stillPremature = await call("POST", `/api/sync/v2/ack?entityTypes=${entityTypes}`, {
+      deviceId, sequence: snapshotSequence,
+    });
+    assert.equal(stillPremature.response.status, 400);
+    const skippedPage = await call("GET", `/api/sync/v2/snapshot?limit=1&${query}&snapshotSequence=${snapshotSequence}&cursor=note:skipped`);
+    assert.equal(skippedPage.response.status, 400, "Snapshot 不允许跳过分页游标");
+  }
+  let pages = 0;
+  while (snapshot.json.hasMore && pages++ < 500) {
+    snapshot = await call("GET", `/api/sync/v2/snapshot?limit=50&${query}&snapshotSequence=${snapshotSequence}&cursor=${encodeURIComponent(snapshot.json.nextCursor)}`);
+    assert.equal(snapshot.response.status, 200);
+  }
+  assert.ok(pages < 500);
+
+  const wrongSequence = await call("POST", `/api/sync/v2/ack?entityTypes=${entityTypes}`, {
+    deviceId, sequence: snapshotSequence > 0 ? snapshotSequence - 1 : snapshotSequence + 1,
+  });
+  assert.equal(wrongSequence.response.status, 400);
+
+  const ack = await call("POST", `/api/sync/v2/ack?entityTypes=${entityTypes}`, {
+    deviceId, sequence: snapshotSequence,
+  });
+  assert.equal(ack.response.status, 200);
+  assert.equal(ack.json.lastSequence, snapshotSequence, "全量重建后不得沿用旧协议的游标");
+  const resumed = await call("GET", `/api/sync/v2/changes?after=${snapshotSequence}&${query}`);
+  assert.equal(resumed.json.resetRequired, false);
+  const nextPlan = await call("GET", `/api/sync/v2/plan?after=${snapshotSequence}&${query}`);
+  assert.equal(nextPlan.json.resetRequired, false);
+
+  const legacyAck = await call("POST", "/api/sync/v2/ack", {
+    deviceId, sequence: snapshotSequence,
+  });
+  assert.equal(legacyAck.response.status, 200);
+  const afterDowngrade = await call("GET", `/api/sync/v2/changes?after=${snapshotSequence}&${query}`);
+  assert.equal(afterDowngrade.json.resetRequired, true, "旧客户端 ACK 后必须重新做 Snapshot");
+});
+
+test("未知或不完整订阅不能读取变更、快照或推进 ACK", async () => {
+  const invalidSets = [
+    "knowledge_tree_node",
+    "notebook,mindmap",
+    "",
+    "notebook,notebook",
+  ];
+  const previous = getDb().prepare(`
+    SELECT lastSequence FROM sync_v2_clients
+    WHERE deviceId = ? AND userId = ? AND scopeKey = 'personal'
+  `).get("unsupported-set-device", USER_ID);
+  assert.equal(previous, undefined);
+
+  for (const entityTypes of invalidSets) {
+    const query = `entityTypes=${encodeURIComponent(entityTypes)}`;
+    for (const route of ["plan", "changes", "snapshot"]) {
+      const result = await call("GET", `/api/sync/v2/${route}?${query}`);
+      assert.equal(result.response.status, 400, `${route} must reject ${entityTypes}`);
+      assert.equal(result.json.code, "INVALID_PAYLOAD");
+    }
+    const ack = await call("POST", `/api/sync/v2/ack?${query}`, {
+      deviceId: "unsupported-set-device", sequence: 999,
+    });
+    assert.equal(ack.response.status, 400);
+    assert.equal(ack.json.code, "INVALID_PAYLOAD");
+  }
+  const repeated = await call("GET", "/api/sync/v2/plan?entityTypes=notebook&entityTypes=note");
+  assert.equal(repeated.response.status, 400);
+  const pushResult = await call("POST", "/api/sync/v2/push?entityTypes=knowledge_tree_node", {
+    deviceId: "unsupported-set-device", mutations: [],
+  });
+  assert.equal(pushResult.response.status, 400);
+  const after = getDb().prepare(`
+    SELECT lastSequence FROM sync_v2_clients
+    WHERE deviceId = ? AND userId = ? AND scopeKey = 'personal'
+  `).get("unsupported-set-device", USER_ID);
+  assert.equal(after, undefined, "拒绝订阅后不得记录 ACK 游标");
+});
+
 test("游标早于 minAvailableSequence 时要求回退 snapshot", async () => {
   const db = getDb();
   clearFeed();
@@ -553,6 +686,9 @@ test("ack 拒绝非法参数", async () => {
 
 test("snapshot 分页遍历且按固定实体顺序，父实体先于子实体", async () => {
   const notebookId = seedNotebook(USER_ID);
+  const tagId = randomUUID();
+  getDb().prepare("INSERT INTO tags (id, userId, name, workspaceId, createdAt) VALUES (?, ?, ?, NULL, datetime('now'))")
+    .run(tagId, USER_ID, `snapshot-${tagId}`);
   const noteId = randomUUID();
   getDb().prepare(`
     INSERT INTO notes (id, userId, notebookId, workspaceId, title, content, contentText, version, createdAt, updatedAt)
@@ -569,6 +705,7 @@ test("snapshot 分页遍历且按固定实体顺序，父实体先于子实体",
   let cursor = first.json.nextCursor;
   let guard = 0;
   const seen = new Set<string>([`${first.json.items[0].entityType}:${first.json.items[0].entityId}`]);
+  const orderedTypes = [first.json.items[0].entityType];
   while (cursor && guard < 500) {
     const page = await call(
       "GET",
@@ -576,12 +713,14 @@ test("snapshot 分页遍历且按固定实体顺序，父实体先于子实体",
     );
     for (const item of page.json.items) {
       seen.add(`${item.entityType}:${item.entityId}`);
+      orderedTypes.push(item.entityType);
     }
     cursor = page.json.nextCursor;
     guard += 1;
   }
   assert.ok(guard < 500, "分页必须能终止");
   assert.ok(seen.has(`note:${noteId}`), "遍历结果应包含所有实体");
+  assert.ok(orderedTypes.indexOf("tag") < orderedTypes.indexOf("note"), "标签必须先于笔记进入快照");
 });
 
 test("snapshot 不泄漏他人数据", async () => {

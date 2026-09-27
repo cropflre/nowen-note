@@ -62,6 +62,8 @@ import { extensionAdvisorySchemaRepairMigration } from "./extensionAdvisorySchem
 import { searchNotebookExclusionsMigration } from "./searchNotebookExclusionsMigration.js";
 import { noteThemeContributionMigration } from "./noteThemeContributionMigration.js";
 import { pluginStudioMigration } from "./pluginStudioMigration.js";
+import { syncV2EntitySubscriptionMigration } from "./syncV2EntitySubscriptionMigration.js";
+import { syncV2KnowledgeTreeFeedMigration } from "./syncV2KnowledgeTreeFeedMigration.js";
 
 export type { Migration } from "./migrations.impl.js";
 
@@ -380,6 +382,8 @@ export const MIGRATIONS: Migration[] = [
   pluginStudioMigration,
   knowledgeTreeMindmapMigration,
   knowledgeTreeMindmapFolderMigration,
+  syncV2EntitySubscriptionMigration,
+  syncV2KnowledgeTreeFeedMigration,
 ].sort((a, b) => a.version - b.version);
 
 export const CURRENT_SCHEMA_VERSION: number = MIGRATIONS.reduce(

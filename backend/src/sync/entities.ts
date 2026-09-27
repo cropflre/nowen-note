@@ -33,12 +33,8 @@ export interface EntityCapability {
 }
 
 /**
- * 第一版实体能力表。
- *
- * 六类个人知识库核心数据全链路就绪。
- * note 是唯一带版本冲突检测的实体，因为只有它承载正文；
- * 关系型实体（note_tag / favorite）靠 mutationId 幂等即可保证一致，
- * 这本身就是一种明确的冲突策略，不是遗漏。
+ * 已接入 Sync V2 全链路的实体能力表。
+ * note / task / mindmap 使用各自的冲突策略；关系型实体使用 mutationId 幂等。
  */
 export const SYNC_ENTITY_CAPABILITIES: EntityCapability[] = [
   {
@@ -71,28 +67,35 @@ export const SYNC_ENTITY_CAPABILITIES: EntityCapability[] = [
     localCrud: true, outbox: true, push: true, changeFeed: true,
     pull: true, apply: true, conflictStrategy: true,
   },
-];
-
-/**
- * 后续 Phase 的候选实体。
- *
- * 全部标为未就绪，且**必须**逐个补齐七个环节才能加入上表。
- * 这里显式列出来的目的是防止"顺手接一个上传就上线"。
- */
-export const PLANNED_SYNC_ENTITIES: EntityCapability[] = [
   {
     entityType: "task",
-    localCrud: true, outbox: false, push: false, changeFeed: false,
-    pull: false, apply: false, conflictStrategy: false,
+    localCrud: true, outbox: true, push: true, changeFeed: true,
+    pull: true, apply: true, conflictStrategy: true,
+  },
+  {
+    entityType: "task_reminder",
+    localCrud: true, outbox: true, push: true, changeFeed: true,
+    pull: true, apply: true, conflictStrategy: true,
   },
   {
     entityType: "diary",
-    localCrud: true, outbox: false, push: false, changeFeed: false,
-    pull: false, apply: false, conflictStrategy: false,
+    localCrud: true, outbox: true, push: true, changeFeed: true,
+    pull: true, apply: true, conflictStrategy: true,
   },
   {
     entityType: "mindmap",
-    localCrud: true, outbox: false, push: false, changeFeed: false,
+    localCrud: true, outbox: true, push: true, changeFeed: true,
+    pull: true, apply: true, conflictStrategy: true,
+  },
+];
+
+/**
+ * 后续 Phase 的候选实体；缺少任一环节时不得加入已接入范围。
+ */
+export const PLANNED_SYNC_ENTITIES: EntityCapability[] = [
+  {
+    entityType: "knowledge_tree_node",
+    localCrud: true, outbox: false, push: false, changeFeed: true,
     pull: false, apply: false, conflictStrategy: false,
   },
   {
