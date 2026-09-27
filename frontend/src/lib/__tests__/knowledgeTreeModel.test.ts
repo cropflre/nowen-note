@@ -5,6 +5,7 @@ import {
   buildKnowledgeTreeForest,
   canMoveKnowledgeNode,
   collectKnowledgeDescendantIds,
+  isActiveKnowledgeTreeDocument,
 } from "@/lib/knowledgeTreeModel";
 
 function node(id: string, parentId: string | null, title: string, sortOrder = 0): KnowledgeTreeNode {
@@ -82,5 +83,14 @@ describe("knowledgeTreeModel", () => {
       node("note-orphan", "missing", "Orphan"),
     ]);
     expect(forest.map((entry) => entry.node.id)).toEqual(["note-orphan", "folder-root"]);
+  });
+
+  it("highlights the opened mind map instead of the previously active note", () => {
+    const noteNode = node("note-a", null, "笔记");
+    const mapNode = { ...node("mindmap-a", null, "脑图"), resourceType: "mindmap" as const, resourceId: "map-a" };
+    expect(isActiveKnowledgeTreeDocument(mapNode, "mindmaps", "note-a", "map-a")).toBe(true);
+    expect(isActiveKnowledgeTreeDocument(noteNode, "mindmaps", "note-a", "map-a")).toBe(false);
+    expect(isActiveKnowledgeTreeDocument(noteNode, "notebook", "note-a", null)).toBe(true);
+    expect(isActiveKnowledgeTreeDocument(mapNode, "notebook", "note-a", "map-a")).toBe(false);
   });
 });

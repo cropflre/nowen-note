@@ -1,4 +1,5 @@
-import type { NoteListItem, Notebook } from "@/types";
+import type { MindMapListItem, NoteListItem, Notebook } from "@/types";
+import { api } from "./api";
 import {
   knowledgeTreeApi,
   type EffectiveKnowledgeAccess,
@@ -7,6 +8,8 @@ import {
 import { applyKnowledgeTreeSort } from "./knowledgeTreeSort";
 import { newLocalId } from "./localRepository";
 import { isMobileLocalMode } from "./mobileLocalMode";
+import { ensureMobileLocalMindMapTree } from "./mobileLocalMindMapTree";
+import type { NativeDatabase } from "./nativeDatabase";
 import type { NativeLocalRepository } from "./nativeLocalRepository";
 
 function ownerAccess(
@@ -88,14 +91,46 @@ function noteNode(item: NoteListItem, deviceOnly: boolean): KnowledgeTreeNode {
   };
 }
 
+type LocalMindMapRow = MindMapListItem & {
+  treeParentId: string | null;
+  treeSortOrder: number;
+  treeIsDeleted: number;
+};
+
+function mindMapNode(item: LocalMindMapRow, notebookIds: Set<string>, deviceOnly: boolean): KnowledgeTreeNode {
+  const id = `mindmap:${item.id}`;
+  return {
+    id,
+    userId: item.userId,
+    workspaceId: item.workspaceId,
+    scopeKey: scopeKey(item.userId, item.workspaceId),
+    parentId: item.treeParentId && notebookIds.has(item.treeParentId) ? item.treeParentId : null,
+    nodeType: "mindmap",
+    resourceType: "mindmap",
+    resourceId: item.id,
+    title: item.title,
+    isFavorite: item.starred ? 1 : 0,
+    sortOrder: item.treeSortOrder,
+    isExpanded: 0,
+    isDeleted: item.treeIsDeleted,
+    childCount: 0,
+    createdAt: item.createdAt,
+    updatedAt: item.updatedAt,
+    access: ownerAccess(id, { canCreate: false, deviceOnly }),
+  };
+}
+
 function projectNodes(
   notebooks: Notebook[],
   notes: NoteListItem[],
+  mindMaps: LocalMindMapRow[],
   deviceOnly: boolean,
 ): KnowledgeTreeNode[] {
+  const notebookIds = new Set(notebooks.map((item) => `notebook:${item.id}`));
   const nodes = [
     ...notebooks.map((item) => notebookNode(item, deviceOnly)),
     ...notes.map((item) => noteNode(item, deviceOnly)),
+    ...mindMaps.map((item) => mindMapNode(item, notebookIds, deviceOnly)),
   ];
   const childCounts = new Map<string, number>();
   for (const node of nodes) {
@@ -124,6 +159,7 @@ function localOnlyUnsupported(message: string): Error & { code?: string } {
 export function installMobileLocalKnowledgeTreeBridge(
   repository: NativeLocalRepository,
   options: { deviceOnly?: boolean } = {},
+  db?: NativeDatabase,
 ): () => void {
   const target = knowledgeTreeApi as any;
   const originals = { ...target };
@@ -138,7 +174,18 @@ export function installMobileLocalKnowledgeTreeBridge(
         limit: 10_000,
       }),
     ]);
-    return { nodes: projectNodes(notebooks, notes, deviceOnly) };
+    let mindMaps: LocalMindMapRow[] = [];
+    if (deviceOnly && db && (!workspaceId || workspaceId === "personal")) {
+      await ensureMobileLocalMindMapTree(db);
+      mindMaps = await db.query<LocalMindMapRow>(`
+        SELECT m.id,m.userId,m.workspaceId,m.title,m.starred,m.folderId,m.createdAt,m.updatedAt,
+          t.parentId AS treeParentId,COALESCE(t.sortOrder,0) AS treeSortOrder,
+          COALESCE(t.isDeleted,0) AS treeIsDeleted
+        FROM mindmaps m LEFT JOIN mobile_local_mindmap_tree t ON t.mindmapId=m.id
+        WHERE m.scopeKey='personal' ${includeDeleted ? "" : "AND COALESCE(t.isDeleted,0)=0"}
+      `);
+    }
+    return { nodes: projectNodes(notebooks, notes, mindMaps, deviceOnly) };
   };
 
   target.list = (includeDeleted = false) => list(undefined, includeDeleted);
@@ -173,7 +220,7 @@ export function installMobileLocalKnowledgeTreeBridge(
 
   const create = async (
     workspaceId: string | undefined,
-    input: { parentId: string | null; nodeType: "folder" | "note" | "markdown" | "word"; title: string },
+    input: { parentId: string | null; nodeType: "folder" | "note" | "markdown" | "word" | "mindmap"; title: string },
   ): Promise<KnowledgeTreeNode> => {
     const parent = await requireFolderParent(input.parentId, workspaceId);
     const effectiveWorkspaceId = parent?.workspaceId
@@ -190,6 +237,15 @@ export function installMobileLocalKnowledgeTreeBridge(
         icon: "📁",
       });
       return findNode(`notebook:${id}`, workspaceId);
+    }
+
+    if (input.nodeType === "mindmap") {
+      if (!db) throw localOnlyUnsupported("设备本地脑图目录尚未就绪");
+      if (effectiveWorkspaceId) throw localOnlyUnsupported("设备本地脑图暂不支持工作区");
+      await ensureMobileLocalMindMapTree(db);
+      const map = await api.createMindMap({ title: input.title.trim() || "无标题导图" });
+      await db.run("INSERT INTO mobile_local_mindmap_tree (mindmapId,parentId) VALUES (?,?)", [map.id, parent?.id ?? null]);
+      return findNode(`mindmap:${map.id}`, workspaceId);
     }
 
     if (!parent) throw localOnlyUnsupported("根级文档需要先创建文件夹");
@@ -228,6 +284,11 @@ export function installMobileLocalKnowledgeTreeBridge(
         parentId: parent?.resourceId ?? null,
         ...(typeof input.sortOrder === "number" ? { sortOrder: input.sortOrder } : {}),
       });
+    } else if (node.resourceType === "mindmap" && db) {
+      await ensureMobileLocalMindMapTree(db);
+      await db.run(`INSERT INTO mobile_local_mindmap_tree (mindmapId,parentId,sortOrder) VALUES (?,?,?)
+        ON CONFLICT(mindmapId) DO UPDATE SET parentId=excluded.parentId,sortOrder=excluded.sortOrder`,
+        [node.resourceId, parent?.id ?? null, input.sortOrder ?? node.sortOrder]);
     } else {
       throw localOnlyUnsupported("当前节点类型暂不支持本地移动");
     }
@@ -271,11 +332,21 @@ export function installMobileLocalKnowledgeTreeBridge(
 
     const subtree = [node, ...descendantsOf(nodeId, nodes)];
     const notes = subtree.filter((item) => item.resourceType === "note");
+    const mindMaps = subtree.filter((item) => item.resourceType === "mindmap");
     const folders = subtree.filter((item) => item.resourceType === "notebook").reverse();
     const trashedAt = new Date().toISOString();
     for (const item of notes) {
       await repository.notes.update(item.resourceId, { isTrashed: 1, trashedAt });
       affected.push(item.id);
+    }
+    if (mindMaps.length) {
+      if (!db) throw localOnlyUnsupported("设备本地脑图回收站尚未就绪");
+      await ensureMobileLocalMindMapTree(db);
+      for (const item of mindMaps) {
+        await db.run(`INSERT INTO mobile_local_mindmap_tree (mindmapId,isDeleted) VALUES (?,1)
+          ON CONFLICT(mindmapId) DO UPDATE SET isDeleted=1`, [item.resourceId]);
+        affected.push(item.id);
+      }
     }
     for (const item of folders) {
       await repository.notebooks.remove(item.resourceId);
@@ -296,6 +367,8 @@ export function installMobileLocalKnowledgeTreeBridge(
       });
     } else if (node.resourceType === "note" && input.title !== undefined) {
       await repository.notes.update(node.resourceId, { title: input.title.trim() || "无标题笔记" });
+    } else if (node.resourceType === "mindmap" && input.title !== undefined) {
+      await api.updateMindMap(node.resourceId, { title: input.title.trim() || "无标题导图" });
     }
     return findNode(nodeId);
   };
@@ -310,13 +383,23 @@ export function installMobileLocalKnowledgeTreeBridge(
     const nodes = await Promise.all(items.map(({ id }) => findNode(id)));
     const noteItems: Array<{ id: string; sortOrder: number }> = [];
     const notebookItems: Array<{ id: string; sortOrder: number }> = [];
+    const mindMapItems: Array<{ id: string; sortOrder: number }> = [];
     items.forEach((item, index) => {
       const node = nodes[index];
       if (node.resourceType === "note") noteItems.push({ id: node.resourceId, sortOrder: item.sortOrder });
       if (node.resourceType === "notebook") notebookItems.push({ id: node.resourceId, sortOrder: item.sortOrder });
+      if (node.resourceType === "mindmap") mindMapItems.push({ id: node.resourceId, sortOrder: item.sortOrder });
     });
     if (noteItems.length) await repository.reorderNotes(noteItems);
     if (notebookItems.length) await repository.reorderNotebooks(notebookItems);
+    if (mindMapItems.length) {
+      if (!db) throw localOnlyUnsupported("设备本地脑图排序尚未就绪");
+      await ensureMobileLocalMindMapTree(db);
+      for (const item of mindMapItems) {
+        await db.run(`INSERT INTO mobile_local_mindmap_tree (mindmapId,sortOrder) VALUES (?,?)
+          ON CONFLICT(mindmapId) DO UPDATE SET sortOrder=excluded.sortOrder`, [item.id, item.sortOrder]);
+      }
+    }
     return { success: true, updated: items.length };
   };
   target.remove = remove;
@@ -330,6 +413,12 @@ export function installMobileLocalKnowledgeTreeBridge(
   };
   target.restore = async (nodeId: string) => {
     const node = await findNode(nodeId);
+    if (node.resourceType === "mindmap") {
+      if (!db) throw localOnlyUnsupported("设备本地脑图回收站尚未就绪");
+      await ensureMobileLocalMindMapTree(db);
+      await db.run("UPDATE mobile_local_mindmap_tree SET isDeleted=0 WHERE mindmapId=?", [node.resourceId]);
+      return { success: true, restoredNodeIds: [nodeId] };
+    }
     if (node.resourceType !== "note") {
       throw localOnlyUnsupported("Android 本地模式暂不支持恢复已删除文件夹");
     }

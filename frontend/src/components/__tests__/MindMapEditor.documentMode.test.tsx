@@ -5,17 +5,19 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const MAP_ID = "11111111-1111-4111-8111-111111111111";
-const { getMindMap, getMindMaps, getMindMapFolders } = vi.hoisted(() => ({
+const { getMindMap, getMindMaps, listTree, createTree } = vi.hoisted(() => ({
   getMindMap: vi.fn(),
   getMindMaps: vi.fn(),
-  getMindMapFolders: vi.fn(),
+  listTree: vi.fn(),
+  createTree: vi.fn(),
 }));
 
 vi.mock("@/lib/api", () => ({
-  api: { getMindMap, getMindMaps, getMindMapFolders },
+  api: { getMindMap, getMindMaps },
   getCurrentWorkspace: () => null,
 }));
-vi.mock("react-i18next", () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
+vi.mock("@/lib/knowledgeTreeApi", () => ({ knowledgeTreeApi: { list: listTree, create: createTree } }));
+vi.mock("react-i18next", () => ({ useTranslation: () => ({ t: (key: string) => key, i18n: { language: "zh" } }) }));
 
 import MindMapCenter from "@/components/MindMapEditor";
 
@@ -32,7 +34,8 @@ describe("MindMapCenter document mode", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     getMindMaps.mockResolvedValue([]);
-    getMindMapFolders.mockResolvedValue([]);
+    listTree.mockResolvedValue({ nodes: [] });
+    createTree.mockResolvedValue({ resourceId: MAP_ID });
     getMindMap.mockResolvedValue({
       id: MAP_ID,
       title: "项目脑图",
@@ -65,15 +68,17 @@ describe("MindMapCenter document mode", () => {
     expect(onClose).toHaveBeenCalledOnce();
   });
 
-  it("keeps the standalone center list on the module route", async () => {
+  it("shows one full-width overview instead of a separate folder list on the module route", async () => {
     await act(async () => {
       root.render(<MindMapCenter routeMindMapId={null} />);
       await Promise.resolve();
     });
-    expect(host.querySelector("h2")?.textContent).toBe("mindMap.title");
+    expect(host.querySelector("h1")?.textContent).toBe("全部脑图");
+    expect(host.textContent).not.toContain("新建文件夹");
+    expect(host.textContent).not.toContain("未分类");
   });
 
-  it("returns from a document canvas to the standalone center without stale content", async () => {
+  it("returns from a document canvas to the overview without stale content", async () => {
     await act(async () => {
       root.render(<MindMapCenter documentMode routeMindMapId={MAP_ID} />);
       await Promise.resolve();
@@ -84,8 +89,32 @@ describe("MindMapCenter document mode", () => {
       root.render(<MindMapCenter routeMindMapId={null} />);
       await Promise.resolve();
     });
-    expect(host.querySelector("h2")?.textContent).toBe("mindMap.title");
-    expect(host.querySelector("h1")).toBeNull();
+    expect(host.querySelector("h1")?.textContent).toBe("全部脑图");
+    expect(host.textContent).not.toContain("项目脑图");
+  });
+
+  it("creates a new map in the selected unified-tree directory", async () => {
+    listTree.mockResolvedValue({ nodes: [{
+      id: "notebook:project", parentId: null, nodeType: "folder", resourceType: "notebook",
+      title: "项目", access: { capabilities: { canCreate: true } },
+    }] });
+    await act(async () => {
+      root.render(<MindMapCenter routeMindMapId={null} />);
+      await Promise.resolve();
+    });
+    await act(async () => {
+      const select = host.querySelector("#mindmap-create-location") as HTMLSelectElement;
+      select.value = "notebook:project";
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    await act(async () => {
+      (Array.from(host.querySelectorAll("button")).find((button) => button.textContent?.includes("新建脑图")) as HTMLButtonElement).click();
+    });
+    await act(async () => {
+      (Array.from(host.querySelectorAll("button")).find((button) => button.textContent?.includes("mindMap.templateBlank")) as HTMLButtonElement).click();
+      await Promise.resolve();
+    });
+    expect(createTree).toHaveBeenCalledWith({ parentId: "notebook:project", nodeType: "mindmap", title: "mindMap.untitled" });
   });
 
   it("does not offer to create a new map while a document route is loading", async () => {

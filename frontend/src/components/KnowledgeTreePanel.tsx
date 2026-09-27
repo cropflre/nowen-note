@@ -46,7 +46,7 @@ import { useContextMenu } from "@/hooks/useContextMenu";
 import { useMobileSidebarControlsCollapsed } from "@/hooks/useMobileSidebarControlsCollapsed";
 import { useSidebarTextStyle } from "@/hooks/useSidebarTextStyle";
 import { api } from "@/lib/api";
-import { pushMindMapAppPath } from "@/lib/mindMapDeepLink";
+import { getCurrentMindMapAppId, pushMindMapAppPath, subscribeMindMapAppPath } from "@/lib/mindMapDeepLink";
 import { markNewNoteForImmediateEdit } from "@/lib/newNoteImmediateEdit";
 import { affectedKnowledgeNoteIds } from "@/lib/knowledgeTreeDeleteReconcile";
 import {
@@ -69,6 +69,7 @@ import {
   type KnowledgeTreeNode,
 } from "@/lib/knowledgeTreeApi";
 import { loadKnowledgeTreeOnEntry } from "@/lib/knowledgeTreeInitialLoad";
+import { isActiveKnowledgeTreeDocument } from "@/lib/knowledgeTreeModel";
 import { noteTemplatesApi } from "@/lib/noteTemplatesApi";
 import {
   getKnowledgeTreeExpansionScope,
@@ -308,6 +309,7 @@ export function KnowledgeTreePanel({
 }: KnowledgeTreePanelProps) {
   const { state } = useApp();
   const actions = useAppActions();
+  const activeMindMapId = useSyncExternalStore(subscribeMindMapAppPath, getCurrentMindMapAppId, () => null);
   const [mobileControlsCollapsed] = useMobileSidebarControlsCollapsed();
   const [sidebarTextStyle] = useSidebarTextStyle();
   const classicText = sidebarTextStyle === "classic";
@@ -1179,7 +1181,7 @@ export function KnowledgeTreePanel({
     const hasChildren = childNodes.length > 0 || node.childCount > 0 || draft?.parentId === node.id;
     const isExpanded = effectiveExpanded.has(node.id);
     const active = (
-      (node.resourceType === "note" && state.activeNote?.id === node.resourceId)
+      isActiveKnowledgeTreeDocument(node, state.viewMode, state.activeNote?.id, activeMindMapId)
       || (
         threeColumnFolderNavigation
         && node.resourceType === "notebook"

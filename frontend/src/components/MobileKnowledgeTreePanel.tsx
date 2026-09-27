@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import {
   BrainCircuit,
   ArrowLeft,
@@ -50,7 +50,7 @@ import { useContextMenu } from "@/hooks/useContextMenu";
 import { useMobileSidebarControlsCollapsed } from "@/hooks/useMobileSidebarControlsCollapsed";
 import { useSidebarTextStyle } from "@/hooks/useSidebarTextStyle";
 import { api, getCurrentWorkspace } from "@/lib/api";
-import { pushMindMapAppPath } from "@/lib/mindMapDeepLink";
+import { getCurrentMindMapAppId, pushMindMapAppPath, subscribeMindMapAppPath } from "@/lib/mindMapDeepLink";
 import { markNewNoteForImmediateEdit } from "@/lib/newNoteImmediateEdit";
 import { pluginApi } from "@/lib/pluginApi";
 import { noteTemplatesApi } from "@/lib/noteTemplatesApi";
@@ -70,6 +70,7 @@ import {
   type KnowledgeTreeNode,
 } from "@/lib/knowledgeTreeApi";
 import { loadKnowledgeTreeOnEntry } from "@/lib/knowledgeTreeInitialLoad";
+import { isActiveKnowledgeTreeDocument } from "@/lib/knowledgeTreeModel";
 import {
   forgetUnlockedFolder,
   hideLockedFolderDescendants,
@@ -250,6 +251,7 @@ export default function MobileKnowledgeTreePanel({
 } = {}) {
   const { state } = useApp();
   const actions = useAppActions();
+  const activeMindMapId = useSyncExternalStore(subscribeMindMapAppPath, getCurrentMindMapAppId, () => null);
   const [mobileControlsCollapsed] = useMobileSidebarControlsCollapsed();
   const [sidebarTextStyle] = useSidebarTextStyle();
   const classicText = sidebarTextStyle === "classic";
@@ -980,7 +982,7 @@ export default function MobileKnowledgeTreePanel({
   };
 
   const renderNode = (node: KnowledgeTreeNode, showPath = false, depth = 0) => {
-    const active = node.resourceType === "note" && state.activeNote?.id === node.resourceId;
+    const active = isActiveKnowledgeTreeDocument(node, state.viewMode, state.activeNote?.id, activeMindMapId);
     const selected = selectedNodeIds.has(node.id);
     const hasChildren = node.childCount > 0 || nodes.some((candidate) => candidate.parentId === node.id);
     const path = showPath ? buildMobileKnowledgeTreePath(node, nodes) : "";

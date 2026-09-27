@@ -1,7 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { knowledgeTreeApi } from "@/lib/knowledgeTreeApi";
+import { api } from "@/lib/api";
 import { installMobileLocalKnowledgeTreeBridge } from "@/lib/mobileLocalKnowledgeTreeBridge";
+import type { NativeDatabase } from "@/lib/nativeDatabase";
 import type { NativeLocalRepository } from "@/lib/nativeLocalRepository";
 import type { NoteListItem, Notebook } from "@/types";
 
@@ -189,6 +191,66 @@ describe("mobile local knowledge tree bridge", () => {
     expect(permissions.direct).toEqual([]);
     await expect(knowledgeTreeApi.setAccessMode("note:note-1", "restricted"))
       .rejects.toMatchObject({ code: "MOBILE_LOCAL_UNSUPPORTED" });
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("persists local mind map placement and trash without creating a note", async () => {
+    const { repository } = createRepository();
+    const maps: Array<{ id: string; userId: string; workspaceId: null; title: string; starred: number; createdAt: string; updatedAt: string }> = [];
+    const placements = new Map<string, { parentId: string | null; sortOrder: number; isDeleted: number }>();
+    const db = {
+      run: vi.fn(async (sql: string, values: unknown[] = []) => {
+        const id = String(values[0] || "");
+        if (sql.startsWith("INSERT INTO mobile_local_mindmap_tree")) {
+          const current = placements.get(id) || { parentId: null, sortOrder: 0, isDeleted: 0 };
+          if (sql.includes("(mindmapId,parentId,sortOrder)")) placements.set(id, { ...current, parentId: values[1] as string | null, sortOrder: Number(values[2]) });
+          else if (sql.includes("(mindmapId,parentId)")) placements.set(id, { ...current, parentId: values[1] as string | null });
+          else if (sql.includes("(mindmapId,isDeleted)")) placements.set(id, { ...current, isDeleted: 1 });
+          else if (sql.includes("(mindmapId,sortOrder)")) placements.set(id, { ...current, sortOrder: Number(values[1]) });
+        } else if (sql.startsWith("UPDATE mobile_local_mindmap_tree SET isDeleted=0")) {
+          const current = placements.get(id);
+          if (current) current.isDeleted = 0;
+        }
+        return { changes: 1 };
+      }),
+      query: vi.fn(async (sql: string) => {
+        if (!sql.includes("FROM mindmaps m LEFT JOIN mobile_local_mindmap_tree")) return [];
+        return maps.flatMap((map) => {
+          const placement = placements.get(map.id);
+          if (placement?.isDeleted && sql.includes("AND COALESCE(t.isDeleted,0)=0")) return [];
+          return [{ ...map, treeParentId: placement?.parentId || null, treeSortOrder: placement?.sortOrder || 0, treeIsDeleted: placement?.isDeleted || 0 }];
+        });
+      }),
+    } as unknown as NativeDatabase;
+    vi.spyOn(api, "createMindMap").mockImplementation(async ({ title }) => {
+      const map = { id: "map-1", userId: "mobile-local-user", workspaceId: null, title: title || "无标题导图", starred: 0, createdAt: now, updatedAt: now };
+      maps.push(map);
+      return { ...map, data: "{}" };
+    });
+    vi.spyOn(api, "updateMindMap").mockImplementation(async (id, patch) => {
+      const map = maps.find((item) => item.id === id)!;
+      map.title = patch.title || map.title;
+      return { ...map, data: "{}" };
+    });
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    restoreBridge = installMobileLocalKnowledgeTreeBridge(repository, { deviceOnly: true }, db);
+
+    const created = await knowledgeTreeApi.create({ parentId: "notebook:folder-1", nodeType: "mindmap", title: "离线脑图" });
+    expect(created).toEqual(expect.objectContaining({ id: "mindmap:map-1", parentId: "notebook:folder-1", resourceType: "mindmap" }));
+    expect(repository.notes.create).not.toHaveBeenCalled();
+    expect((await knowledgeTreeApi.list()).nodes.find((node) => node.id === created.id)?.parentId).toBe("notebook:folder-1");
+
+    await knowledgeTreeApi.move(created.id, { parentId: "notebook:folder-2", sortOrder: 4 });
+    expect((await knowledgeTreeApi.list()).nodes.find((node) => node.id === created.id)).toEqual(expect.objectContaining({ parentId: "notebook:folder-2", sortOrder: 4 }));
+    await knowledgeTreeApi.update(created.id, { title: "已改名脑图" });
+    await knowledgeTreeApi.reorder([{ id: created.id, sortOrder: 8 }]);
+    expect((await knowledgeTreeApi.list()).nodes.find((node) => node.id === created.id)).toEqual(expect.objectContaining({ title: "已改名脑图", sortOrder: 8 }));
+    const removed = await knowledgeTreeApi.remove(created.id, "subtree");
+    expect(removed.affectedNodeIds).toContain(created.id);
+    expect((await knowledgeTreeApi.list()).nodes.some((node) => node.id === created.id)).toBe(false);
+    expect((await knowledgeTreeApi.list(true)).nodes.find((node) => node.id === created.id)?.isDeleted).toBe(1);
+    await knowledgeTreeApi.restore(created.id);
+    expect((await knowledgeTreeApi.list()).nodes.find((node) => node.id === created.id)?.parentId).toBe("notebook:folder-2");
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 });

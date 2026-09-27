@@ -73,7 +73,7 @@ export function installMobileLocalFirstBridge(
   };
 
   const deviceOnlyMode = isMobileLocalMode();
-  const restoreKnowledgeTreeBridge = installMobileLocalKnowledgeTreeBridge(repository, { deviceOnly: deviceOnlyMode });
+  const restoreKnowledgeTreeBridge = installMobileLocalKnowledgeTreeBridge(repository, { deviceOnly: deviceOnlyMode }, db);
   const restoreModuleBridge = installMobileLocalModuleBridge(repository, db, userId);
   // ModuleBridge 为历史兼容会给项目/模板/依赖/习惯返回空数据。
   // 纯设备模式再由持久化 Bridge 覆盖这些空实现；登录模式保留服务端高级任务能力，

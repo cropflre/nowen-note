@@ -15,6 +15,8 @@ import type {
 } from "@/types";
 import { api } from "./api";
 import { newLocalId } from "./localRepository";
+import { isMobileLocalMode } from "./mobileLocalMode";
+import { ensureMobileLocalMindMapTree } from "./mobileLocalMindMapTree";
 import type { NativeDatabase } from "./nativeDatabase";
 import type { NativeLocalRepository } from "./nativeLocalRepository";
 
@@ -71,6 +73,7 @@ export function installMobileLocalModuleBridge(
     createMindMap: target.createMindMap,
     updateMindMap: target.updateMindMap,
     deleteMindMap: target.deleteMindMap,
+    deleteMindMapPermanently: target.deleteMindMapPermanently,
     toggleStarMindMap: target.toggleStarMindMap,
     getMindMapFolders: target.getMindMapFolders,
     createMindMapFolder: target.createMindMapFolder,
@@ -266,11 +269,22 @@ export function installMobileLocalModuleBridge(
   target.deleteDiary = async (id: string) => { await db.run("DELETE FROM diaries WHERE id=?",[id]);await enqueue("diary",id,"delete");return {success:true}; };
 
   const readMindMap = async (id: string): Promise<MindMap> => {
-    const map = (await db.query<MindMap>("SELECT * FROM mindmaps WHERE scopeKey='personal' AND id=?",[id]))[0];
+    const deviceOnly = isMobileLocalMode();
+    if (deviceOnly) await ensureMobileLocalMindMapTree(db);
+    const map = (await db.query<MindMap>(deviceOnly
+      ? `SELECT m.* FROM mindmaps m LEFT JOIN mobile_local_mindmap_tree t ON t.mindmapId=m.id
+         WHERE m.scopeKey='personal' AND m.id=? AND COALESCE(t.isDeleted,0)=0`
+      : "SELECT * FROM mindmaps WHERE scopeKey='personal' AND id=?",[id]))[0];
     if (!map) throw new Error("思维导图不存在");return map;
   };
   target.getMindMaps = async (workspaceId?: string | null): Promise<MindMapListItem[]> => {
     if (workspaceId && workspaceId !== "personal") throw new Error("本地脑图暂不支持工作区");
+    if (isMobileLocalMode()) {
+      await ensureMobileLocalMindMapTree(db);
+      return db.query(`SELECT m.id,m.userId,m.workspaceId,m.title,m.starred,m.folderId,m.createdAt,m.updatedAt
+        FROM mindmaps m LEFT JOIN mobile_local_mindmap_tree t ON t.mindmapId=m.id
+        WHERE m.scopeKey='personal' AND COALESCE(t.isDeleted,0)=0 ORDER BY m.starred DESC,m.updatedAt DESC`);
+    }
     return db.query("SELECT id,userId,workspaceId,title,starred,folderId,createdAt,updatedAt FROM mindmaps WHERE scopeKey='personal' ORDER BY starred DESC,updatedAt DESC");
   };
   target.getMindMap = readMindMap;
@@ -285,7 +299,28 @@ export function installMobileLocalModuleBridge(
     await db.run("UPDATE mindmaps SET title=?,data=?,updatedAt=? WHERE id=?",[map.title,map.data,map.updatedAt,id]);
     await enqueue("mindmap",id,"upsert",map as unknown as Record<string, unknown>,current.updatedAt);return map;
   };
-  target.deleteMindMap = async (id:string)=>{await db.run("DELETE FROM mindmaps WHERE id=?",[id]);await enqueue("mindmap",id,"delete");return {success:true};};
+  target.deleteMindMap = async (id:string)=>{
+    if (isMobileLocalMode()) {
+      await readMindMap(id);
+      await db.run(`INSERT INTO mobile_local_mindmap_tree (mindmapId,isDeleted) VALUES (?,1)
+        ON CONFLICT(mindmapId) DO UPDATE SET isDeleted=1`,[id]);
+      return {success:true};
+    }
+    await db.run("DELETE FROM mindmaps WHERE id=?",[id]);await enqueue("mindmap",id,"delete");return {success:true};
+  };
+  target.deleteMindMapPermanently = async (id:string)=>{
+    if (!isMobileLocalMode()) return originals.deleteMindMapPermanently(id);
+    await ensureMobileLocalMindMapTree(db);
+    const deleted = (await db.query<{ isDeleted: number }>(
+      "SELECT isDeleted FROM mobile_local_mindmap_tree WHERE mindmapId=?", [id],
+    ))[0];
+    if (!deleted?.isDeleted) throw new Error("请先将脑图移入回收站");
+    await db.transaction(async (tx) => {
+      await tx.run("DELETE FROM mindmaps WHERE id=? AND userId=? AND scopeKey='personal'", [id,userId]);
+      await tx.run("DELETE FROM mobile_local_mindmap_tree WHERE mindmapId=?", [id]);
+    });
+    return {success:true};
+  };
   target.toggleStarMindMap = async (id:string)=>{const current=await readMindMap(id);await db.run("UPDATE mindmaps SET starred=CASE starred WHEN 1 THEN 0 ELSE 1 END WHERE id=?",[id]);return {...current,starred:(current as any).starred?0:1};};
   target.getMindMapFolders = async ():Promise<MindMapFolder[]> => db.query("SELECT *,0 AS mindmapCount FROM mindmap_folders WHERE scopeKey='personal' ORDER BY sortOrder,createdAt");
   target.createMindMapFolder = async (data:Partial<MindMapFolder>)=>{const createdAt=now();const folder={id:newLocalId(),userId,workspaceId:null,parentId:data.parentId||null,name:data.name||"新建文件夹",sortOrder:data.sortOrder||0,createdAt,updatedAt:createdAt};await db.run("INSERT INTO mindmap_folders (id,scopeKey,workspaceId,userId,parentId,name,sortOrder,createdAt,updatedAt) VALUES (?,'personal',NULL,?,?,?,?,?,?)",[folder.id,userId,folder.parentId,folder.name,folder.sortOrder,createdAt,createdAt]);return folder;};

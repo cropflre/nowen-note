@@ -1,4 +1,5 @@
 import {
+  APP_PATH_CHANGED_EVENT,
   buildAppPathUrl,
   pushAppPathState,
   replaceAppPathState,
@@ -40,6 +41,19 @@ export function parseMindMapAppPath(pathname: string): MindMapAppRoute {
 
 export function getCurrentMindMapAppRoute(): MindMapAppRoute {
   return parseMindMapAppPath(resolveCurrentAppPathname());
+}
+
+export function getCurrentMindMapAppId(): string | null {
+  return getCurrentMindMapAppRoute().mindMapId;
+}
+
+export function subscribeMindMapAppPath(listener: () => void): () => void {
+  window.addEventListener(APP_PATH_CHANGED_EVENT, listener);
+  window.addEventListener("popstate", listener);
+  return () => {
+    window.removeEventListener(APP_PATH_CHANGED_EVENT, listener);
+    window.removeEventListener("popstate", listener);
+  };
 }
 
 export function buildMindMapAppPath(mindMapId?: string | null): string {
