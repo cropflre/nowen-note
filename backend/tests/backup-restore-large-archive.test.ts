@@ -53,7 +53,7 @@ function readMarker(): string | undefined {
 
 async function writeFullBackup(
   filename: string,
-  options: { metaAttachmentCount?: number } = {},
+  options: { metaAttachmentCount?: number; invalidObjectStorageConfig?: boolean } = {},
 ): Promise<string> {
   const snapshot = path.join(backupDir, `snapshot-${crypto.randomUUID()}.db`);
   await getDb().backup(snapshot);
@@ -61,6 +61,18 @@ async function writeFullBackup(
   try {
     snapshotDb.prepare("INSERT OR REPLACE INTO system_settings (key, value) VALUES (?, ?)")
       .run(markerKey, "backup");
+    if (options.invalidObjectStorageConfig) {
+      snapshotDb.prepare("INSERT OR REPLACE INTO system_settings (key, value) VALUES (?, ?)")
+        .run("attachmentStorage:config", JSON.stringify({
+          enabled: true,
+          endpoint: "",
+          region: "auto",
+          bucket: "",
+          accessKeyId: "",
+          secretAccessKeyEnc: "",
+          prefix: "",
+        }));
+    }
   } finally {
     snapshotDb.close();
   }
@@ -213,3 +225,20 @@ test("post-restore attachment storage probe failure rolls database and files bac
     fs.writeFileSync = originalWriteFileSync;
   }
 });
+
+test("invalid restored object-storage config fails closed and rolls back", async () => {
+  const filename = "invalid-object-storage.zip";
+  await writeFullBackup(filename, { invalidObjectStorageConfig: true });
+
+  const restored = await manager.restoreFromBackup(filename, { dryRun: false });
+
+  assert.equal(restored.success, false);
+  assert.match(
+    restored.error || "",
+    /ATTACHMENT_STORAGE_CONFIG_INVALID|对象存储|配置不完整|附件存储健康检查失败/,
+  );
+  assert.equal(readMarker(), "current");
+  assert.equal(fs.readFileSync(path.join(tmpDir, "attachments", "old.txt"), "utf8"), "old-attachments");
+  assert.equal(fs.existsSync(path.join(tmpDir, "attachments", "new.txt")), false);
+});
+
