@@ -51,7 +51,10 @@ function readMarker(): string | undefined {
   return row?.value;
 }
 
-async function writeFullBackup(filename: string): Promise<string> {
+async function writeFullBackup(
+  filename: string,
+  options: { metaAttachmentCount?: number } = {},
+): Promise<string> {
   const snapshot = path.join(backupDir, `snapshot-${crypto.randomUUID()}.db`);
   await getDb().backup(snapshot);
   const snapshotDb = new Database(snapshot);
@@ -69,7 +72,7 @@ async function writeFullBackup(filename: string): Promise<string> {
     createdAt: new Date().toISOString(),
     tables: { users: 1, system_settings: 1 },
     files: {
-      attachments: { count: 1, bytes: 3 },
+      attachments: { count: options.metaAttachmentCount ?? 1, bytes: 3 },
       fonts: { count: 1, bytes: 3 },
       plugins: { count: 1, bytes: 3 },
     },
@@ -133,5 +136,80 @@ test("full ZIP dry-run and restore never read the whole archive into a Buffer", 
     assert.equal(fs.readFileSync(path.join(tmpDir, ".jwt_secret"), "utf8"), "new-secret");
   } finally {
     fs.readFileSync = originalReadFileSync;
+  }
+});
+
+
+test("attachment meta/archive mismatch is rejected before live database or files are touched", async () => {
+  const filename = "attachment-count-mismatch.zip";
+  await writeFullBackup(filename, { metaAttachmentCount: 2 });
+
+  const preview = await manager.restoreFromBackup(filename, { dryRun: true });
+  assert.equal(preview.success, false);
+  assert.match(preview.error || "", /附件归档数量校验失败/);
+  assert.equal(readMarker(), "current");
+  assert.equal(fs.readFileSync(path.join(tmpDir, "attachments", "old.txt"), "utf8"), "old-attachments");
+});
+
+test("bind-mount style EBUSY rename falls back to in-place attachment restore", async () => {
+  const filename = "mountpoint-fallback.zip";
+  await writeFullBackup(filename);
+
+  const attachmentsDir = path.join(tmpDir, "attachments");
+  const before = fs.statSync(attachmentsDir);
+  const originalRenameSync = fs.renameSync;
+
+  fs.renameSync = ((oldPath: fs.PathLike, newPath: fs.PathLike) => {
+    if (
+      path.resolve(String(oldPath)) === path.resolve(attachmentsDir)
+      && String(newPath).includes(".before-restore.")
+    ) {
+      const error = new Error("simulated Docker bind mount EBUSY") as NodeJS.ErrnoException;
+      error.code = "EBUSY";
+      throw error;
+    }
+    return originalRenameSync(oldPath, newPath);
+  }) as typeof fs.renameSync;
+
+  try {
+    const restored = await manager.restoreFromBackup(filename, { dryRun: false });
+    assert.equal(restored.success, true, restored.error);
+    assert.equal(readMarker(), "backup");
+    assert.equal(fs.readFileSync(path.join(attachmentsDir, "new.txt"), "utf8"), "new");
+    assert.equal(fs.existsSync(path.join(attachmentsDir, "old.txt")), false);
+    if (process.platform !== "win32") {
+      assert.equal(fs.statSync(attachmentsDir).ino, before.ino);
+    }
+  } finally {
+    fs.renameSync = originalRenameSync;
+  }
+});
+
+test("post-restore attachment storage probe failure rolls database and files back", async () => {
+  const filename = "storage-probe-fails.zip";
+  await writeFullBackup(filename);
+
+  const originalWriteFileSync = fs.writeFileSync;
+  fs.writeFileSync = ((file: fs.PathOrFileDescriptor, data: string | NodeJS.ArrayBufferView, options?: fs.WriteFileOptions) => {
+    if (String(file).includes(".nowen-storage-probe-")) {
+      const error = new Error("simulated read-only attachment mount") as NodeJS.ErrnoException;
+      error.code = "EACCES";
+      throw error;
+    }
+    return originalWriteFileSync(file, data, options);
+  }) as typeof fs.writeFileSync;
+
+  try {
+    const restored = await manager.restoreFromBackup(filename, { dryRun: false });
+    assert.equal(restored.success, false);
+    assert.match(
+      restored.error || "",
+      /ATTACHMENT_STORAGE_PERMISSION_DENIED|附件存储健康检查失败|文件目录恢复失败/,
+    );
+    assert.equal(readMarker(), "current");
+    assert.equal(fs.readFileSync(path.join(tmpDir, "attachments", "old.txt"), "utf8"), "old-attachments");
+    assert.equal(fs.existsSync(path.join(tmpDir, "attachments", "new.txt")), false);
+  } finally {
+    fs.writeFileSync = originalWriteFileSync;
   }
 });
