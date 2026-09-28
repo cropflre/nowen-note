@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - main
+      - release/v1.5.0
       - feat/issue-370-p0c-p1-knowledge-tree
     paths:
       - "backend/src/db/knowledgeTree*.ts"
@@ -13,11 +14,19 @@ on:
       - "backend/src/db/postgres/064_knowledge_tree_structural_guard.sql"
       - "backend/src/runtime/knowledge-tree*.ts"
       - "backend/src/routes/knowledge-tree.ts"
+      - "backend/src/routes/sync-v2.ts"
+      - "backend/src/sync/knowledgeTree*.ts"
+      - "backend/src/sync/entities.ts"
+      - "backend/src/sync/types.ts"
+      - "backend/src/db/syncV2KnowledgeTree*.ts"
       - "backend/src/services/knowledge*.ts"
       - "backend/src/services/notebook-permissions.ts"
       - "backend/src/middleware/knowledgeCapabilityGuard.ts"
       - "backend/src/index.hardened.ts"
       - "backend/tests/knowledge-tree*.test.ts"
+      - "backend/tests/sync-v2-knowledge-tree*.test.ts"
+      - "backend/tests/sync-v2-entity-readiness.test.ts"
+      - "backend/tests/sync-v2-protocol.test.ts"
       - "frontend/src/components/KnowledgeTreeDrawer.tsx"
       - "frontend/src/components/MobileDrawerUxBridge.tsx"
       - "frontend/src/lib/knowledgeTree*.ts"
@@ -31,11 +40,19 @@ on:
       - "backend/src/db/postgres/064_knowledge_tree_structural_guard.sql"
       - "backend/src/runtime/knowledge-tree*.ts"
       - "backend/src/routes/knowledge-tree.ts"
+      - "backend/src/routes/sync-v2.ts"
+      - "backend/src/sync/knowledgeTree*.ts"
+      - "backend/src/sync/entities.ts"
+      - "backend/src/sync/types.ts"
+      - "backend/src/db/syncV2KnowledgeTree*.ts"
       - "backend/src/services/knowledge*.ts"
       - "backend/src/services/notebook-permissions.ts"
       - "backend/src/middleware/knowledgeCapabilityGuard.ts"
       - "backend/src/index.hardened.ts"
       - "backend/tests/knowledge-tree*.test.ts"
+      - "backend/tests/sync-v2-knowledge-tree*.test.ts"
+      - "backend/tests/sync-v2-entity-readiness.test.ts"
+      - "backend/tests/sync-v2-protocol.test.ts"
       - "frontend/src/components/KnowledgeTreeDrawer.tsx"
       - "frontend/src/components/MobileDrawerUxBridge.tsx"
       - "frontend/src/lib/knowledgeTree*.ts"
@@ -69,6 +86,19 @@ jobs:
         run: |
           set -o pipefail
           node --import tsx --import ./tests/setup-db-isolation.ts --test tests/knowledge-tree.test.ts 2>&1 | tee .ci/sqlite.log
+      - id: tree_sync
+        name: Knowledge tree Sync V2 protocol tests
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          node --import tsx --test \
+            tests/sync-v2-entity-readiness.test.ts \
+            tests/sync-v2-knowledge-tree-feed.test.ts \
+            tests/sync-v2-knowledge-tree-outbox.test.ts \
+            tests/sync-v2-knowledge-tree-snapshot.test.ts \
+            tests/sync-v2-knowledge-tree-structure.test.ts \
+            tests/sync-v2-knowledge-tree-apply-local.test.ts \
+            tests/sync-v2-protocol.test.ts 2>&1 | tee .ci/tree-sync.log
       - id: postgres
         name: PostgreSQL schema parity test
         if: always()
@@ -126,7 +156,7 @@ jobs:
               });
             }
       - name: Enforce backend result
-        if: always() && (steps.sqlite.outcome == 'failure' || steps.postgres.outcome == 'failure' || steps.backend_typecheck.outcome == 'failure')
+        if: always() && (steps.sqlite.outcome == 'failure' || steps.tree_sync.outcome == 'failure' || steps.postgres.outcome == 'failure' || steps.backend_typecheck.outcome == 'failure')
         run: exit 1
 
   frontend:
