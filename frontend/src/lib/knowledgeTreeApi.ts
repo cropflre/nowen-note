@@ -139,6 +139,13 @@ export const knowledgeTreeApi = {
     });
   },
 
+  linkFile(input: { fileId: string; notebookPath: string[] }) {
+    return request<KnowledgeTreeNode>(`/files/link?${workspaceQuery()}`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    });
+  },
+
   createForWorkspace(
     workspaceId: string,
     input: { parentId: string | null; nodeType: "folder" | "note" | "markdown" | "word" | "mindmap" | "sheet"; title: string },
