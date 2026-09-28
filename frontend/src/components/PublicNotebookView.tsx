@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   BookOpen,
+  BrainCircuit,
   ChevronRight,
   FileText,
   Globe2,
@@ -12,24 +13,23 @@ import {
   Search,
   Send,
   ShieldCheck,
+  Table2,
   UserPlus,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { MarkdownPreview } from "@/components/MarkdownPreview";
-import TiptapEditor from "@/components/TiptapEditor";
-import type { Note } from "@/types";
+import PublicKnowledgeResourceRenderer from "@/components/PublicKnowledgeResourceRenderer";
 import { cn } from "@/lib/utils";
 import { toast } from "@/lib/toast";
 import { navigateToAppPath } from "@/lib/appPathNavigation";
 import {
   notebookPublicationApi,
   type PublicComment,
+  type PublicKnowledgeResourceContent,
+  type PublicKnowledgeResourceSummary,
   type PublicNotebookIndexItem,
   type PublicNotebookInfo,
   type PublicNotebookNode,
-  type PublicNoteContent,
-  type PublicNoteSummary,
 } from "@/lib/notebookPublicationApi";
 
 interface PublicNotebookViewProps {
@@ -52,6 +52,18 @@ function hasLoginToken(): boolean {
   } catch {
     return false;
   }
+}
+
+function ResourceIcon({ type }: { type: PublicKnowledgeResourceSummary["resourceType"] }) {
+  if (type === "mindmap") return <BrainCircuit size={13} className="shrink-0" />;
+  if (type === "sheet") return <Table2 size={13} className="shrink-0" />;
+  return <FileText size={13} className="shrink-0" />;
+}
+
+function resourceLabel(type: PublicKnowledgeResourceSummary["resourceType"]): string {
+  if (type === "mindmap") return "思维导图";
+  if (type === "sheet") return "轻量表格";
+  return "文档";
 }
 
 function PublicNotebookIndex() {
@@ -113,7 +125,7 @@ function PublicNotebookIndex() {
                 </div>
                 <h2 className="mt-4 truncate text-base font-semibold group-hover:text-accent-primary">{item.name}</h2>
                 <p className="mt-1 text-xs text-tx-tertiary">
-                  由 {item.ownerDisplayName || item.ownerUsername} 发布 · {Number(item.noteCount || 0)} 篇笔记
+                  由 {item.ownerDisplayName || item.ownerUsername} 发布 · 多类型知识内容
                 </p>
                 <div className="mt-4 flex items-center justify-between text-xs text-tx-secondary">
                   <span>{item.permission === "write" ? "登录后可编辑" : item.permission === "comment" ? "可评论" : "只读"}</span>
@@ -135,16 +147,16 @@ export default function PublicNotebookView({ token }: PublicNotebookViewProps) {
 function PublicNotebookReader({ token }: { token: string }) {
   const [info, setInfo] = useState<PublicNotebookInfo | null>(null);
   const [notebooks, setNotebooks] = useState<PublicNotebookNode[]>([]);
-  const [notes, setNotes] = useState<PublicNoteSummary[]>([]);
-  const [activeNoteId, setActiveNoteId] = useState("");
-  const [activeNote, setActiveNote] = useState<PublicNoteContent | null>(null);
+  const [resources, setResources] = useState<PublicKnowledgeResourceSummary[]>([]);
+  const [activeNodeId, setActiveNodeId] = useState("");
+  const [activeResource, setActiveResource] = useState<PublicKnowledgeResourceContent | null>(null);
   const [accessToken, setAccessToken] = useState(() => {
     try { return sessionStorage.getItem(publicationAccessKey(token)) || ""; } catch { return ""; }
   });
   const [secret, setSecret] = useState("");
   const [needsSecret, setNeedsSecret] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [noteLoading, setNoteLoading] = useState(false);
+  const [resourceLoading, setResourceLoading] = useState(false);
   const [error, setError] = useState("");
   const [query, setQuery] = useState("");
   const [outline, setOutline] = useState<OutlineItem[]>([]);
@@ -161,10 +173,27 @@ function PublicNotebookReader({ token }: { token: string }) {
   const loadTree = useCallback(async (nextInfo: PublicNotebookInfo, nextAccessToken: string) => {
     try {
       const tree = await notebookPublicationApi.getPublicTree(token, nextAccessToken || undefined);
+      const unified = tree.resources && tree.resources.length > 0
+        ? tree.resources.filter((resource) => resource.resourceType !== "notebook")
+        : tree.notes.map((note) => ({
+            nodeId: `note:${note.id}`,
+            parentNodeId: `notebook:${note.notebookId}`,
+            resourceType: "note" as const,
+            resourceId: note.id,
+            notebookId: note.notebookId,
+            title: note.title,
+            contentText: note.contentText || "",
+            contentFormat: note.contentFormat || null,
+            updatedAt: note.updatedAt,
+            sortOrder: 0,
+            depth: 1,
+          }));
       setNotebooks(tree.notebooks);
-      setNotes(tree.notes);
+      setResources(unified);
       setNeedsSecret(false);
-      setActiveNoteId((current) => current && tree.notes.some((note) => note.id === current) ? current : tree.notes[0]?.id || "");
+      setActiveNodeId((current) => current && unified.some((resource) => resource.nodeId === current)
+        ? current
+        : unified[0]?.nodeId || "");
     } catch (err: any) {
       if (err?.status === 401 && nextInfo.needSecret) {
         setNeedsSecret(true);
@@ -193,37 +222,41 @@ function PublicNotebookReader({ token }: { token: string }) {
   }, [token, accessToken, loadTree]);
 
   useEffect(() => {
-    if (!activeNoteId || needsSecret) {
-      setActiveNote(null);
+    if (!activeNodeId || needsSecret) {
+      setActiveResource(null);
       setComments([]);
       return;
     }
     let cancelled = false;
-    setNoteLoading(true);
-    const commentsRequest = info && (info.allowComment || info.permission !== "read")
-      ? notebookPublicationApi.getComments(token, activeNoteId, accessToken || undefined).catch(() => [])
-      : Promise.resolve([] as PublicComment[]);
-    Promise.all([
-      notebookPublicationApi.getPublicNote(token, activeNoteId, accessToken || undefined),
-      commentsRequest,
-    ])
-      .then(([note, nextComments]) => {
+    setResourceLoading(true);
+    notebookPublicationApi.getPublicResource(token, activeNodeId, accessToken || undefined)
+      .then(async (resource) => {
         if (cancelled) return;
-        setActiveNote(note);
-        setComments(nextComments);
+        setActiveResource(resource);
+        const canComment = resource.resourceType !== "mindmap"
+          && info
+          && (info.allowComment || info.permission !== "read");
+        const nextComments = canComment
+          ? await notebookPublicationApi.getComments(token, resource.resourceId, accessToken || undefined).catch(() => [])
+          : [];
+        if (!cancelled) setComments(nextComments);
       })
       .catch((err: any) => {
-        if (!cancelled) toast.error(err?.message || "笔记加载失败");
+        if (!cancelled) {
+          setActiveResource(null);
+          setComments([]);
+          toast.error(err?.message || "内容加载失败");
+        }
       })
       .finally(() => {
-        if (!cancelled) setNoteLoading(false);
+        if (!cancelled) setResourceLoading(false);
       });
     return () => { cancelled = true; };
-  }, [token, activeNoteId, accessToken, needsSecret, info]);
+  }, [token, activeNodeId, accessToken, needsSecret, info]);
 
   useEffect(() => {
     const host = contentRef.current;
-    if (!host || !activeNote) {
+    if (!host || !activeResource || activeResource.resourceType !== "note") {
       setOutline([]);
       return;
     }
@@ -236,49 +269,26 @@ function PublicNotebookReader({ token }: { token: string }) {
       }));
     }, 80);
     return () => window.clearTimeout(timer);
-  }, [activeNote]);
+  }, [activeResource]);
 
-  const filteredNotes = useMemo(() => {
+  const filteredResources = useMemo(() => {
     const keyword = query.trim().toLowerCase();
     return keyword
-      ? notes.filter((note) => `${note.title} ${note.contentText || ""}`.toLowerCase().includes(keyword))
-      : notes;
-  }, [notes, query]);
+      ? resources.filter((resource) =>
+          `${resource.title} ${resource.contentText || ""}`.toLowerCase().includes(keyword))
+      : resources;
+  }, [resources, query]);
 
-  const notesByNotebook = useMemo(() => {
-    const grouped = new Map<string, PublicNoteSummary[]>();
-    for (const note of filteredNotes) {
-      const list = grouped.get(note.notebookId) || [];
-      list.push(note);
-      grouped.set(note.notebookId, list);
+  const resourcesByNotebook = useMemo(() => {
+    const grouped = new Map<string, PublicKnowledgeResourceSummary[]>();
+    for (const resource of filteredResources) {
+      if (!resource.notebookId) continue;
+      const list = grouped.get(resource.notebookId) || [];
+      list.push(resource);
+      grouped.set(resource.notebookId, list);
     }
     return grouped;
-  }, [filteredNotes]);
-
-  const fakeNote = useMemo<Note | null>(() => {
-    if (!activeNote) return null;
-    return {
-      id: activeNote.id,
-      userId: "public",
-      notebookId: activeNote.notebookId,
-      workspaceId: null,
-      title: activeNote.title || "",
-      content: activeNote.content || "{}",
-      contentText: activeNote.contentText || "",
-      isPinned: 0,
-      isFavorite: 0,
-      isLocked: 1,
-      isArchived: 0,
-      isTrashed: 0,
-      trashedAt: null,
-      sortOrder: 0,
-      version: activeNote.version || 0,
-      createdAt: activeNote.updatedAt,
-      updatedAt: activeNote.updatedAt,
-      contentFormat: activeNote.contentFormat || "tiptap-json",
-      tags: [],
-    } as Note;
-  }, [activeNote]);
+  }, [filteredResources]);
 
   const verifySecret = async () => {
     if (!info || !secret.trim()) return;
@@ -294,12 +304,12 @@ function PublicNotebookReader({ token }: { token: string }) {
   };
 
   const submitComment = async () => {
-    if (!activeNote || !nickname.trim() || !commentText.trim()) return;
+    if (!activeResource || activeResource.resourceType === "mindmap" || !nickname.trim() || !commentText.trim()) return;
     setCommenting(true);
     try {
       const created = await notebookPublicationApi.addComment(
         token,
-        activeNote.id,
+        activeResource.resourceId,
         { nickname: nickname.trim(), content: commentText.trim(), _hp: commentWebsite },
         accessToken || undefined,
       );
@@ -382,24 +392,28 @@ function PublicNotebookReader({ token }: { token: string }) {
           </button>
           <div className="relative mt-4">
             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-tx-tertiary" />
-            <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索已发布内容" className="h-9 pl-9 text-xs" />
+            <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索笔记、脑图和表格" className="h-9 pl-9 text-xs" />
           </div>
         </div>
         <div className="flex-1 overflow-y-auto p-2">
           {notebooks.map((notebook) => {
-            const childNotes = notesByNotebook.get(notebook.id) || [];
-            if (query.trim() && childNotes.length === 0) return null;
+            const children = resourcesByNotebook.get(notebook.id) || [];
+            if (query.trim() && children.length === 0) return null;
             return (
               <div key={notebook.id} className="mb-1">
                 <div className="flex items-center gap-1.5 px-2 py-1.5 text-xs font-medium text-tx-secondary" style={{ paddingLeft: `${8 + notebook.depth * 14}px` }}><span>{notebook.icon || "📁"}</span><span className="truncate">{notebook.name}</span></div>
-                {childNotes.map((note) => (
+                {children.map((resource) => (
                   <button
-                    key={note.id}
+                    key={resource.nodeId}
                     type="button"
-                    onClick={() => setActiveNoteId(note.id)}
-                    className={cn("mb-0.5 flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-xs transition", activeNoteId === note.id ? "bg-accent-primary/10 text-accent-primary" : "text-tx-secondary hover:bg-app-hover hover:text-tx-primary")}
+                    onClick={() => setActiveNodeId(resource.nodeId)}
+                    className={cn("mb-0.5 flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-xs transition", activeNodeId === resource.nodeId ? "bg-accent-primary/10 text-accent-primary" : "text-tx-secondary hover:bg-app-hover hover:text-tx-primary")}
                     style={{ paddingLeft: `${22 + notebook.depth * 14}px` }}
-                  ><FileText size={13} className="shrink-0" /><span className="truncate">{note.title || "无标题笔记"}</span></button>
+                    title={resourceLabel(resource.resourceType)}
+                  >
+                    <ResourceIcon type={resource.resourceType} />
+                    <span className="truncate">{resource.title || "无标题内容"}</span>
+                  </button>
                 ))}
               </div>
             );
@@ -419,42 +433,33 @@ function PublicNotebookReader({ token }: { token: string }) {
             <button className="flex min-w-0 items-center gap-2" onClick={() => navigateToAppPath("/public")}><BookOpen size={17} className="text-accent-primary" /><span className="truncate text-sm font-semibold">{info.name}</span></button>
             <Button size="sm" variant="outline" onClick={join}><UserPlus size={13} className="mr-1" />加入</Button>
           </div>
-          <select className="mt-3 h-9 w-full rounded-lg border border-app-border bg-app-bg px-3 text-xs" value={activeNoteId} onChange={(event) => setActiveNoteId(event.target.value)}>
-            {filteredNotes.map((note) => <option key={note.id} value={note.id}>{note.title || "无标题笔记"}</option>)}
+          <select className="mt-3 h-9 w-full rounded-lg border border-app-border bg-app-bg px-3 text-xs" value={activeNodeId} onChange={(event) => setActiveNodeId(event.target.value)}>
+            {filteredResources.map((resource) => <option key={resource.nodeId} value={resource.nodeId}>[{resourceLabel(resource.resourceType)}] {resource.title || "无标题内容"}</option>)}
           </select>
         </header>
 
         <div className="mx-auto grid max-w-[1180px] grid-cols-1 gap-8 px-5 py-8 lg:grid-cols-[minmax(0,1fr)_220px]">
           <article className="min-w-0">
-            {noteLoading ? (
-              <div className="flex min-h-[50vh] items-center justify-center gap-2 text-sm text-tx-secondary"><Loader2 size={16} className="animate-spin" />正在加载笔记</div>
-            ) : !activeNote ? (
-              <div className="flex min-h-[50vh] flex-col items-center justify-center text-center text-tx-tertiary"><FileText size={32} className="mb-3" /><p className="text-sm">这个目录暂时没有可公开浏览的笔记</p></div>
+            {resourceLoading ? (
+              <div className="flex min-h-[50vh] items-center justify-center gap-2 text-sm text-tx-secondary"><Loader2 size={16} className="animate-spin" />正在加载内容</div>
+            ) : !activeResource ? (
+              <div className="flex min-h-[50vh] flex-col items-center justify-center text-center text-tx-tertiary"><FileText size={32} className="mb-3" /><p className="text-sm">这个目录暂时没有可公开浏览的内容</p></div>
             ) : (
               <>
                 <div className="mb-7 border-b border-app-border pb-5">
                   <div className="mb-2 flex flex-wrap items-center gap-2 text-[11px] text-tx-tertiary">
                     <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-1 text-emerald-600 dark:text-emerald-300"><ShieldCheck size={11} />已发布</span>
-                    <span>更新于 {new Date(activeNote.updatedAt).toLocaleString("zh-CN")}</span>
-                    {!activeNote.allowDownload && <span>· 未开放附件下载</span>}
+                    <span>{resourceLabel(activeResource.resourceType)}</span>
+                    <span>更新于 {new Date(activeResource.updatedAt).toLocaleString("zh-CN")}</span>
+                    {!activeResource.allowDownload && activeResource.resourceType === "note" && <span>· 未开放附件下载</span>}
                   </div>
-                  <h1 className="text-3xl font-bold leading-tight">{activeNote.title || "无标题笔记"}</h1>
+                  <h1 className="text-3xl font-bold leading-tight">{activeResource.title || "无标题内容"}</h1>
                 </div>
                 <div ref={contentRef} className="public-notebook-content min-h-[240px]">
-                  {activeNote.contentFormat === "md" ? (
-                    <MarkdownPreview markdown={activeNote.content} compact className="p-0" />
-                  ) : fakeNote ? (
-                    <TiptapEditor
-                      note={fakeNote}
-                      editable={false}
-                      onUpdate={() => undefined}
-                      isGuest
-                      presentationMode
-                    />
-                  ) : null}
+                  <PublicKnowledgeResourceRenderer resource={activeResource} />
                 </div>
 
-                {(activeNote.allowComment || info.permission !== "read") && (
+                {activeResource.resourceType !== "mindmap" && (activeResource.allowComment || info.permission !== "read") && (
                   <section className="mt-12 border-t border-app-border pt-7">
                     <h2 className="flex items-center gap-2 text-sm font-semibold"><MessageCircle size={16} className="text-accent-primary" />评论 {comments.length > 0 ? `(${comments.length})` : ""}</h2>
                     <div className="mt-4 space-y-3">
@@ -489,7 +494,7 @@ function PublicNotebookReader({ token }: { token: string }) {
           <aside className="hidden lg:block">
             <div className="sticky top-8 rounded-xl border border-app-border bg-app-surface p-3">
               <div className="mb-2 flex items-center gap-2 px-1 text-xs font-semibold text-tx-secondary"><ListTree size={14} />本页大纲</div>
-              {outline.length === 0 ? <p className="px-1 py-2 text-xs text-tx-tertiary">当前笔记没有标题层级</p> : (
+              {outline.length === 0 ? <p className="px-1 py-2 text-xs text-tx-tertiary">{activeResource?.resourceType === "note" ? "当前文档没有标题层级" : "当前资源使用专属只读视图"}</p> : (
                 <div className="space-y-0.5">
                   {outline.map((item) => <button key={item.id} type="button" onClick={() => document.getElementById(item.id)?.scrollIntoView({ behavior: "smooth", block: "start" })} className="block w-full truncate rounded-md px-2 py-1.5 text-left text-xs text-tx-secondary hover:bg-app-hover hover:text-tx-primary" style={{ paddingLeft: `${8 + (item.level - 1) * 10}px` }}>{item.text}</button>)}
                 </div>
