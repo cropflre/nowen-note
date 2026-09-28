@@ -1,0 +1,97 @@
+name: Backup Restore Integrity CI
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, release/v1.5.0]
+    paths:
+      - "backend/src/services/backup.ts"
+      - "backend/src/services/backup-archive.ts"
+      - "backend/src/services/backup-restore-integrity.ts"
+      - "backend/src/services/attachment-storage.ts"
+      - "backend/src/runtime/backup-restore-large-archive.ts"
+      - "backend/src/routes/attachments-core.ts"
+      - "backend/tests/backup-restore-integrity.test.ts"
+      - "backend/tests/backup-restore-large-archive.test.ts"
+      - "backend/tests/backup-restore-corrupt-hotfix.test.ts"
+      - "backend/tests/attachment-storage-error-classification.test.ts"
+      - "backend/tests/full-backup-streaming.test.ts"
+      - "frontend/src/components/DataManager.tsx"
+      - "frontend/src/lib/api.impl.ts"
+      - "frontend/src/i18n/locales/zh-CN.json"
+      - "frontend/src/i18n/locales/en.json"
+      - ".github/workflows/backup-restore-integrity-ci.yml"
+  pull_request:
+    paths:
+      - "backend/src/services/backup.ts"
+      - "backend/src/services/backup-archive.ts"
+      - "backend/src/services/backup-restore-integrity.ts"
+      - "backend/src/services/attachment-storage.ts"
+      - "backend/src/runtime/backup-restore-large-archive.ts"
+      - "backend/src/routes/attachments-core.ts"
+      - "backend/tests/backup-restore-integrity.test.ts"
+      - "backend/tests/backup-restore-large-archive.test.ts"
+      - "backend/tests/backup-restore-corrupt-hotfix.test.ts"
+      - "backend/tests/attachment-storage-error-classification.test.ts"
+      - "backend/tests/full-backup-streaming.test.ts"
+      - "frontend/src/components/DataManager.tsx"
+      - "frontend/src/lib/api.impl.ts"
+      - "frontend/src/i18n/locales/zh-CN.json"
+      - "frontend/src/i18n/locales/en.json"
+      - ".github/workflows/backup-restore-integrity-ci.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backup-restore-integrity-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Restore integrity and storage safety
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - run: npm ci
+      - name: Restore integrity primitives
+        run: node --import tsx --test tests/backup-restore-integrity.test.ts
+      - name: Large archive restore regression
+        run: node --import tsx --test tests/backup-restore-large-archive.test.ts
+      - name: Corrupt restore rollback regression
+        run: node --import tsx --test tests/backup-restore-corrupt-hotfix.test.ts
+      - name: Attachment storage error contract
+        run: node --import tsx --test tests/attachment-storage-error-classification.test.ts
+      - name: Full backup streaming regression
+        run: node --import tsx --test tests/full-backup-streaming.test.ts
+      - name: Backend typecheck
+        run: npm run build:tsc
+
+  frontend:
+    name: Restore warning UI contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - name: Data manager backup regression
+        run: npm run test:run -- src/components/__tests__/DataManagerFullBackupJob.test.ts
+      - name: Frontend typecheck
+        run: npx tsc -b
