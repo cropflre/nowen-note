@@ -19,6 +19,7 @@ test("tree outbox capture remains gated until the full entity protocol is ready"
   const { getDb } = await import("../src/db/schema.js");
   const { createProfile, switchActiveProfile } = await import("../src/sync/profile.js");
   const { ensureDevice } = await import("../src/sync/device.js");
+  const { markKnowledgeTreeSyncReady } = await import("../src/sync/knowledgeTreeReadiness.js");
   const db = getDb();
   db.prepare("INSERT INTO users (id, username, passwordHash) VALUES ('owner', 'owner', 'hash')").run();
   const profile = createProfile(db, { name: "测试服务", serverUrl: "http://tree-sync.test" });
@@ -33,11 +34,8 @@ test("tree outbox capture remains gated until the full entity protocol is ready"
   assert.ok(before.some((row) => row.entityType === "mindmap"));
   assert.ok(before.every((row) => row.entityType !== "knowledge_tree_node"));
 
-  db.exec(`
-    DROP VIEW sync_v2_tree_outbox_ready;
-    CREATE VIEW sync_v2_tree_outbox_ready AS SELECT 1 AS enabled;
-    DELETE FROM sync_outbox;
-  `);
+  markKnowledgeTreeSyncReady(db, profile.id, "personal");
+  db.prepare("DELETE FROM sync_outbox").run();
   db.prepare("UPDATE knowledge_tree_nodes SET parentId = 'notebook:folder', sortOrder = 7 WHERE id = 'mindmap:map'").run();
   const rows = db.prepare(`
     SELECT profileId, scopeKey, deviceId, entityType, entityId, operation, payload
@@ -87,10 +85,13 @@ test("tree outbox capture remains gated until the full entity protocol is ready"
 
   const pending = db.prepare("SELECT mutationId, entityType, entityId, payload FROM sync_outbox ORDER BY rowid").all();
   const { syncV2KnowledgeTreeOutboxMigration } = await import("../src/db/syncV2KnowledgeTreeOutboxMigration.js");
+  const { syncV2KnowledgeTreeScopeReadinessMigration } =
+    await import("../src/db/syncV2KnowledgeTreeScopeReadinessMigration.js");
   syncV2KnowledgeTreeOutboxMigration.up(db);
+  syncV2KnowledgeTreeScopeReadinessMigration.up(db);
   assert.deepEqual(db.prepare("SELECT mutationId, entityType, entityId, payload FROM sync_outbox ORDER BY rowid").all(), pending,
     "扩展 Outbox 约束时必须保留尚未推送的用户修改");
-  assert.equal((db.prepare("SELECT enabled FROM sync_v2_tree_outbox_ready").get() as { enabled: number }).enabled, 0);
+  assert.equal((db.prepare("SELECT enabled FROM sync_v2_tree_outbox_ready").get() as { enabled: number }).enabled, 1);
   db.prepare("INSERT INTO mindmaps (id, userId, title, data) VALUES ('another', 'owner', '新脑图', '{}')").run();
   assert.ok(db.prepare("SELECT 1 FROM sync_outbox WHERE entityType = 'mindmap' AND entityId = 'another'").get(),
     "重建 Outbox 后已有实体仍须被捕获");

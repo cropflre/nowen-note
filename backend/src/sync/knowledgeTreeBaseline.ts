@@ -8,6 +8,7 @@ import {
 import { prepareKnowledgeTreeSnapshot, type KnowledgeTreeSnapshotItem } from "./knowledgeTreeSnapshot.js";
 import type { SyncRemoteClient, SyncProtocolSubscription } from "./remote.js";
 import { SYNC_V2_NEGOTIATED_ENTITY_TYPES } from "./types.js";
+import type { SyncNegotiatedEntityType } from "./types.js";
 
 export type KnowledgeTreeBaselineStatus = "ready" | "conflict" | "unsupported";
 
@@ -109,7 +110,7 @@ async function readRemoteTreeSnapshot(
   let sequence = 0;
   let pages = 0;
   do {
-    const page = await options.client.snapshot(
+    const page = await options.client.snapshot<SyncNegotiatedEntityType>(
       cursor,
       sequence,
       options.pageSize ?? 200,

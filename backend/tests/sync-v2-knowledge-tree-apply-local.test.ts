@@ -49,11 +49,13 @@ test("tree snapshot apply restores cross-type positions and tombstones without a
   db.prepare("DELETE FROM knowledge_tree_nodes WHERE id = 'file:attachment-1'").run();
   const { createProfile, switchActiveProfile } = await import("../src/sync/profile.js");
   const { ensureDevice } = await import("../src/sync/device.js");
+  const { markKnowledgeTreeSyncReady, resetKnowledgeTreeSyncReadiness } =
+    await import("../src/sync/knowledgeTreeReadiness.js");
   const profile = createProfile(db, { name: "测试服务", serverUrl: "http://tree-local.test" });
   switchActiveProfile(db, profile.id);
   db.prepare("UPDATE sync_profiles SET bootstrapStatus = 'ready' WHERE id = ?").run(profile.id);
   ensureDevice(db, { profileId: profile.id, platform: "test" });
-  db.exec("DROP VIEW sync_v2_tree_outbox_ready; CREATE VIEW sync_v2_tree_outbox_ready AS SELECT 1 AS enabled");
+  markKnowledgeTreeSyncReady(db, profile.id, "personal");
   const beforeProbe = (db.prepare("SELECT COUNT(*) AS count FROM sync_outbox").get() as { count: number }).count;
   db.prepare("UPDATE knowledge_tree_nodes SET sortOrder = 55 WHERE id = ?").run(folder.id);
   assert.equal((db.prepare("SELECT COUNT(*) AS count FROM sync_outbox").get() as { count: number }).count,
@@ -75,7 +77,7 @@ test("tree snapshot apply restores cross-type positions and tombstones without a
   assert.equal(restoredFile.parentId, note.id);
   assert.equal((db.prepare("SELECT COUNT(*) AS count FROM sync_changes_v2").get() as { count: number }).count, feedBefore);
   assert.equal((db.prepare("SELECT COUNT(*) AS count FROM sync_outbox").get() as { count: number }).count, outboxBefore);
-  db.exec("DROP VIEW sync_v2_tree_outbox_ready; CREATE VIEW sync_v2_tree_outbox_ready AS SELECT 0 AS enabled");
+  resetKnowledgeTreeSyncReadiness(db, profile.id, "personal");
 
   db.prepare("UPDATE knowledge_tree_nodes SET sortOrder = 99 WHERE id = ?").run(folder.id);
   db.prepare("INSERT INTO sync_profiles (id, name, serverUrl) VALUES ('profile', '测试', 'http://sync.test')").run();

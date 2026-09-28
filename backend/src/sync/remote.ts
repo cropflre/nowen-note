@@ -38,7 +38,7 @@ export interface RemotePlan {
   tagCount: number;
 }
 
-export interface RemoteChanges {
+export interface RemoteChanges<T extends SyncNegotiatedEntityType = SyncEntityType> {
   scopeKey: string;
   accessFingerprint: string;
   serverSequence: number;
@@ -47,20 +47,20 @@ export interface RemoteChanges {
   resetRequired: boolean;
   items: Array<{
     sequence: number;
-    entityType: SyncNegotiatedEntityType;
+    entityType: T;
     entityId: string;
     operation: SyncOperation;
   }>;
 }
 
-export interface RemoteSnapshotPage {
+export interface RemoteSnapshotPage<T extends SyncNegotiatedEntityType = SyncEntityType> {
   scopeKey: string;
   accessFingerprint: string;
   snapshotSequence: number;
   hasMore: boolean;
   nextCursor: string | null;
   items: Array<{
-    entityType: SyncNegotiatedEntityType;
+    entityType: T;
     entityId: string;
     payload: Record<string, unknown>;
   }>;
@@ -258,33 +258,33 @@ export class SyncRemoteClient {
     });
   }
 
-  changes(
+  changes<T extends SyncNegotiatedEntityType = SyncEntityType>(
     after: number,
     limit?: number,
     scopeKey = SYNC_PERSONAL_SCOPE_KEY,
     subscription?: SyncProtocolSubscription,
-  ): Promise<RemoteChanges> {
+  ): Promise<RemoteChanges<T>> {
     const query = this.query(scopeKey, { after, limit }, subscription);
-    return this.request<RemoteChanges>(SYNC_V2_ROUTES.changes, { method: "GET", query })
+    return this.request<RemoteChanges<T>>(SYNC_V2_ROUTES.changes, { method: "GET", query })
       .then((response) => {
         assertSupportedItems(response.items, "changes", subscription);
         return response;
       });
   }
 
-  snapshot(
+  snapshot<T extends SyncNegotiatedEntityType = SyncEntityType>(
     cursor: string | null,
     snapshotSequence: number,
     limit?: number,
     scopeKey = SYNC_PERSONAL_SCOPE_KEY,
     subscription?: SyncProtocolSubscription,
-  ): Promise<RemoteSnapshotPage> {
+  ): Promise<RemoteSnapshotPage<T>> {
     const query = this.query(scopeKey, {
       cursor: cursor || undefined,
       snapshotSequence: snapshotSequence > 0 ? snapshotSequence : undefined,
       limit,
     }, subscription);
-    return this.request<RemoteSnapshotPage>(SYNC_V2_ROUTES.snapshot, { method: "GET", query })
+    return this.request<RemoteSnapshotPage<T>>(SYNC_V2_ROUTES.snapshot, { method: "GET", query })
       .then((response) => {
         assertSupportedItems(response.items, "snapshot", subscription);
         return response;
