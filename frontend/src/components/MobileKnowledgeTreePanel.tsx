@@ -683,11 +683,13 @@ export default function MobileKnowledgeTreePanel({
       rememberOpened(created.id);
       activateNote(await api.getNote(created.resourceId), snapshot.parentId, true);
     } catch (requestError: any) {
+      const message = requestError?.message || "创建失败，请重试";
       setDraft((current) => current ? {
         ...current,
         saving: false,
-        error: requestError?.message || "创建失败，请重试",
+        error: message,
       } : null);
+      toast.error(message);
       requestAnimationFrame(() => draftInputRef.current?.focus());
     }
   };
