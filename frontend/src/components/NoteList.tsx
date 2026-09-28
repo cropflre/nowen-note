@@ -1,7 +1,7 @@
 import React, { useEffect, useCallback, useState, useRef, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { Plus, Pin, PinOff, Star, StarOff, Clock, FileText, FileCode, FileType2, Trash2, ArchiveRestore, Menu, FolderInput, ChevronRight, ChevronDown, ChevronLeft, Folder, X, Check, Lock, Unlock, CalendarDays, RefreshCw, Share2, GripVertical, Download, ArrowUpDown, ArrowUp, ArrowDown, Image as ImageIcon, Printer, User as UserIcon, Sparkles, Tag as TagIcon, Loader2, FileUp, AlertTriangle, Copy, LayoutTemplate, SplitSquareHorizontal, SplitSquareVertical, ArrowLeftRight, Pencil, ShieldCheck } from "lucide-react";
+import { Plus, Pin, PinOff, Star, StarOff, Clock, FileText, FileCode, FileType2, Trash2, ArchiveRestore, Menu, MoreHorizontal, FolderInput, ChevronRight, ChevronDown, ChevronLeft, Folder, X, Check, Lock, Unlock, CalendarDays, RefreshCw, Share2, GripVertical, Download, ArrowUpDown, ArrowUp, ArrowDown, Image as ImageIcon, Printer, User as UserIcon, Sparkles, Tag as TagIcon, Loader2, FileUp, AlertTriangle, Copy, LayoutTemplate, SplitSquareHorizontal, SplitSquareVertical, ArrowLeftRight, Pencil, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import ContextMenu, { ContextMenuItem } from "@/components/ContextMenu";
@@ -61,6 +61,7 @@ import {
 import { revealCreatedKnowledgeTreeNote } from "@/lib/knowledgeTreeCreateVisibility";
 import { emitKnowledgeTreeRefresh } from "@/lib/workspaceRefreshBridge";
 import { isMobileLocalMode } from "@/lib/mobileLocalMode";
+import { compactNotebookLabels, noteListPreview, noteListRowHeight } from "@/lib/noteListPresentation";
 // "导入 Word 文档" 走 dynamic import（见 createNoteInNotebook），减少首屏 bundle 体积。
 
 /* ===== 排序模式 ===== */
@@ -119,13 +120,16 @@ function saveShowTimePref(value: boolean) {
  *   4) 菜单项使用真正的 <button>，不附加 onMouseDown 干扰 click；
  *   5) 位置在每次 anchor 变化或 window resize/scroll 时重新计算。
  */
-function SortMenu({
+export function SortMenu({
   value,
   onChange,
   onClose,
   anchorRef,
   showNoteTime,
   onToggleShowTime,
+  titleOnly,
+  onToggleTitleOnly,
+  onToggleCalendar,
 }: {
   value: { by: SortBy; dir: SortDir };
   onChange: (next: { by: SortBy; dir: SortDir }) => void;
@@ -133,6 +137,9 @@ function SortMenu({
   anchorRef: React.RefObject<HTMLButtonElement | null>;
   showNoteTime: boolean;
   onToggleShowTime: () => void;
+  titleOnly?: boolean;
+  onToggleTitleOnly?: () => void;
+  onToggleCalendar?: () => void;
 }) {
   const { t } = useTranslation();
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
@@ -219,12 +226,13 @@ function SortMenu({
         {/* 菜单本体 */}
         <div
           role="menu"
-          className="rounded-lg border border-app-border bg-app-elevated shadow-xl py-1"
+          className="rounded-lg border border-app-border bg-app-elevated shadow-xl py-1 overflow-y-auto overscroll-contain"
           style={{
             position: "fixed",
             top: pos.top,
             left: pos.left,
             width: 176,
+            maxHeight: Math.max(80, window.innerHeight - pos.top - 8),
             zIndex: 9999,
             animation: "contextMenuIn 0.12s ease-out",
           }}
@@ -269,7 +277,8 @@ function SortMenu({
           {/* 显示更新时间开关 */}
           <button
             type="button"
-            role="menuitem"
+            role="menuitemcheckbox"
+            aria-checked={showNoteTime}
             onClick={(e) => { e.preventDefault(); e.stopPropagation(); onToggleShowTime(); }}
             className={cn(
               "w-full flex items-center justify-between gap-2 px-3 py-1.5 text-xs transition-colors text-left",
@@ -283,6 +292,27 @@ function SortMenu({
               <span>{t("noteList.showUpdatedTime")}</span>
             </span>
           </button>
+          {onToggleTitleOnly && (
+            <button
+              type="button"
+              role="menuitemcheckbox"
+              aria-checked={!!titleOnly}
+              onClick={onToggleTitleOnly}
+              className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-tx-secondary hover:bg-app-hover text-left"
+            >
+              {titleOnly ? <Check size={12} /> : <span className="w-3" />}
+              {t("noteList.titleOnly")}
+            </button>
+          )}
+          {onToggleCalendar && (
+            <>
+              <div className="my-1 border-t border-app-border" />
+              <button type="button" role="menuitem" onClick={() => { onToggleCalendar(); onClose(); }}
+                className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-tx-secondary hover:bg-app-hover text-left">
+                <CalendarDays size={12} />{t("noteList.dateFilter")}
+              </button>
+            </>
+          )}
         </div>
       </div>
     </>,
@@ -1011,11 +1041,11 @@ export function PullToRefresh({
 //   `Warning: ref is not a prop. Trying to access it will result in undefined`。
 // 解决方案：把 ref 改成普通 prop（cardRef），由组件内部直接挂到 motion.div 上，
 // PopChild 检测到 child 没有 ref 属性时就跳过转发路径，警告也就消失了。
-const NoteCard = React.memo(function NoteCard({
+export const NoteCard = React.memo(function NoteCard({
   note, isActive, onClick, onContextMenu, isContextTarget, isShared, isSelected,
   draggable, onDragStart, onDragOver, onDragEnd, onDrop, isDragOver,
   onTouchStart, onTouchMove, onTouchEnd, cardRef, searchQuery,
-  showNoteTime, notebookLabel, dragHint,
+  showNoteTime, notebookLabel, notebookPath, dragHint, titleOnly = false,
   sidebarTextStyle,
 }: {
   note: NoteListItem; isActive: boolean; onClick: (e: React.MouseEvent) => void;
@@ -1036,31 +1066,27 @@ const NoteCard = React.memo(function NoteCard({
   searchQuery?: string;
   showNoteTime?: boolean;
   notebookLabel?: string;
+  notebookPath?: string;
+  titleOnly?: boolean;
   dragHint?: string;
   sidebarTextStyle: SidebarTextStyle;
 }) {
   const classicText = sidebarTextStyle === "classic";
-  // 预览文本：普通列表取正文前 100 字；搜索结果使用后端 snippet，不能再截断。
-  // 压成单个空格。否则 markdown 多段落正文里的换行会被 <p> 当作空白渲染，
-  // 配合 line-clamp-2 + break-words 出现"每句被切到独立一行"的错觉
-  // （短标题时不明显，因为预览整体行数少；长标题挤占空间后尤为严重）。
-  const isSearchResult = !!searchQuery;
-  const preview = (
-    isSearchResult
-      ? (note.snippetHtml || note.contentText || "")
-      : (note.contentText?.slice(0, 100) || "")
-  ).replace(/\s+/g, " ").trim();
   const { t } = useTranslation();
-  const wordCount = note.contentText?.length || 0;
-  // 工作区视图下笔记可能由不同成员创建，需要在卡片底部展示创建者；
-  // 个人空间下创建者一定是当前用户，留白即可。creatorName 由后端 list 接口
-  // LEFT JOIN users 注入，老后端无该字段时退化为不展示。
+  const isSearchResult = !!searchQuery;
+  const compactTitleOnly = titleOnly && !isSearchResult;
+  const preview = isSearchResult
+    ? (note.snippetHtml || note.contentText || "").replace(/\s+/g, " ").trim()
+    : noteListPreview(note.contentText || "", { mindmap: t("noteList.mindmapPreview"), diagram: t("noteList.diagramPreview") });
+  // 工作区保留创建者提示，使用图标和 tooltip，避免挤占目录与时间。
   const showCreator =
     !!note.creatorName && getCurrentWorkspace() !== "personal";
 
   return (
     <motion.div
       ref={cardRef}
+      data-note-list-card
+      style={{ height: noteListRowHeight(titleOnly, searchQuery) - 4 }}
       // 仅做轻量淡入。早期版本用了 y:4 → y:0 的位移，会造成切换笔记本时
       // 整列卡片"先在面板底部出现再上移"的错觉（尤其当 list 项很少、
       // 列表内容贴近底部时尤为明显）。这里去掉 y 位移，让卡片就地淡入。
@@ -1082,7 +1108,7 @@ const NoteCard = React.memo(function NoteCard({
       onTouchMove={onTouchMove}
       onTouchEnd={onTouchEnd}
       className={cn(
-        "relative rounded-lg cursor-pointer border transition-all group overflow-hidden",
+        "relative w-full min-w-0 max-w-full rounded-lg cursor-pointer border transition-all group overflow-hidden",
         isSelected
           ? "bg-accent-primary/10 border-accent-primary/40 shadow-sm"
           : isActive
@@ -1107,20 +1133,16 @@ const NoteCard = React.memo(function NoteCard({
           : "bg-transparent group-hover:bg-app-border"
       )} />
 
-      <div className="pl-3.5 pr-3 py-2.5 min-w-0">
+      <div className="h-full flex flex-col justify-center pl-3 pr-2.5 py-1.5 min-w-0">
         {/* 标题行 + 状态图标 */}
         <div className="flex items-center justify-between gap-2 min-w-0">
-          <span
+          {draggable && <span
             title={dragHint}
-            className={cn(
-              "inline-flex text-tx-tertiary transition-opacity shrink-0",
-              draggable
-                ? "opacity-70 cursor-grab active:cursor-grabbing"
-                : "opacity-30 cursor-help"
-            )}
+            className="absolute left-0 top-2 inline-flex text-tx-tertiary opacity-0 group-hover:opacity-70 transition-opacity cursor-grab active:cursor-grabbing"
+            aria-hidden="true"
           >
-            <GripVertical size={14} />
-          </span>
+            <GripVertical size={12} />
+          </span>}
           <h3 className={cn(
             // 标题强制单行：这里**故意**不用 `truncate`（white-space: nowrap）。
             // 历史踩坑：`truncate` 在 flex item 里偶发被外层富文本/prose 全局样式覆盖
@@ -1132,7 +1154,7 @@ const NoteCard = React.memo(function NoteCard({
             // 不让一行的"内容宽度"超过容器，导致 flex 容器再被撑变形。
             "note-card-title text-sm font-medium line-clamp-1 break-all flex-1 min-w-0",
             classicText ? (isActive ? "text-tx-primary" : "text-tx-secondary group-hover:text-tx-primary") : "text-tx-primary"
-          )}>
+          )} title={note.title || t('common.untitledNote')}>
             {searchQuery && note.titleHtml ? (
               <span dangerouslySetInnerHTML={{ __html: sanitizeSearchHtml(note.titleHtml) }} />
             ) : searchQuery ? (
@@ -1143,12 +1165,12 @@ const NoteCard = React.memo(function NoteCard({
           </h3>
           <div className="flex items-center gap-1 shrink-0">
             {note.contentFormat === "markdown" ? (
-              <span className="text-[10px] px-1 py-0.5 rounded border border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 leading-none" title={t('note.format.markdown')}>
-                {t('note.format.markdownShort')}
+              <span className="text-emerald-600 dark:text-emerald-400" title={t('note.format.markdown')} aria-label={t('note.format.markdown')}>
+                <FileCode size={12} />
               </span>
             ) : (
-              <span className="text-[10px] px-1 py-0.5 rounded border border-app-border bg-app-hover text-tx-tertiary leading-none" title={t('note.format.richText')}>
-                {t('note.format.richTextShort')}
+              <span className="text-tx-tertiary" title={t('note.format.richText')} aria-label={t('note.format.richText')}>
+                <FileText size={12} />
               </span>
             )}
             {isShared && <Share2 size={11} className="text-emerald-500" />}
@@ -1164,7 +1186,7 @@ const NoteCard = React.memo(function NoteCard({
               break-all 会让英文也按字符硬切，反而更难读；break-words 只在
               "整行装不下的长不可断词"时才强制打破，对中英混排最友好。
             - overflow-wrap-anywhere 避免极长 URL 撑破容器。 */}
-        {preview && (
+        {!compactTitleOnly && preview && (
           searchQuery ? (
             <div className="mt-1.5">
               {/* 命中字段提示 */}
@@ -1178,45 +1200,27 @@ const NoteCard = React.memo(function NoteCard({
               <p className={cn("note-card-preview line-clamp-2 leading-relaxed break-words [overflow-wrap:anywhere]", classicText ? "text-xs text-tx-tertiary" : "text-[13px] text-tx-secondary")} dangerouslySetInnerHTML={{ __html: sanitizeSearchHtml(preview) }} />
             </div>
           ) : (
-            <p className={cn("mt-1.5 line-clamp-2 leading-relaxed break-words [overflow-wrap:anywhere]", classicText ? "text-xs text-tx-tertiary" : "text-[13px] text-tx-secondary")}>{preview}</p>
+            <p className={cn("note-card-preview mt-1 line-clamp-1 leading-[18px] break-words [overflow-wrap:anywhere]", classicText ? "text-xs text-tx-tertiary" : "text-[13px] text-tx-secondary")}>{preview}</p>
           )
         )}
 
-        {/* 底部元信息行
-            - 左侧：更新时间（始终显示）
-            - 右侧：工作区下显示创建者（最高优先级），否则 hover 时显示字数
-            两者互斥渲染——卡片宽度有限，避免徽标挤压标题/预览。 */}
-        <div className={cn("flex items-center justify-between mt-2 gap-2", classicText ? "text-tx-tertiary" : "text-tx-secondary")}>
-          {(showNoteTime || notebookLabel) && (
-            <div className="flex items-center gap-2 min-w-0">
-              {notebookLabel && (
-                <span className={cn("flex min-w-0 items-center gap-1", classicText ? "text-[10px] text-tx-tertiary" : "text-[11px] text-tx-secondary")} title={notebookLabel}>
-                  <Folder size={10} className="shrink-0" />
-                  <span className="truncate">{notebookLabel}</span>
-                </span>
-              )}
-              {showNoteTime && (
-                <span className="flex shrink-0 items-center gap-1.5">
-              <Clock size={10} />
-              <span className={classicText ? "text-[10px]" : "text-[11px]"}>{formatTime(note.updatedAt, t)}</span>
-                </span>
-              )}
-            </div>
-          )}
-          {showCreator ? (
-            <span
-              className={cn("flex items-center gap-1 truncate max-w-[40%]", classicText ? "text-[10px] text-tx-secondary/80" : "text-[11px] text-tx-secondary")}
-              title={t('common.createdBy', { name: note.creatorName })}
-            >
-              <UserIcon size={10} className="shrink-0" />
-              <span className="truncate">{note.creatorName}</span>
-            </span>
-          ) : wordCount > 0 ? (
-            <span className={cn("opacity-0 group-hover:opacity-100 transition-opacity tabular-nums", classicText ? "text-[10px]" : "text-[11px]")}>
-              {wordCount > 999 ? `${(wordCount / 1000).toFixed(1)}k` : wordCount} {t('common.chars') || '字'}
-            </span>
-          ) : null}
-        </div>
+        {!compactTitleOnly && (showNoteTime || notebookLabel || showCreator) && (
+          <div className={cn("note-card-metadata flex min-w-0 items-center gap-2 mt-auto leading-4", classicText ? "text-[10px] text-tx-tertiary" : "text-xs text-tx-secondary")}>
+            {notebookLabel && (
+              <span className="flex flex-1 min-w-0 items-center gap-1" title={notebookPath || notebookLabel}>
+                <Folder size={10} className="shrink-0" />
+                <span className="truncate">{notebookLabel}</span>
+              </span>
+            )}
+            {showCreator && <span className="shrink-0" title={t('common.createdBy', { name: note.creatorName })} aria-label={t('common.createdBy', { name: note.creatorName })}><UserIcon size={11} /></span>}
+            {showNoteTime && (
+              <span className="flex shrink-0 items-center gap-1 ml-auto" title={note.updatedAt}>
+                <Clock size={10} />
+                <span>{formatTime(note.updatedAt, t)}</span>
+              </span>
+            )}
+          </div>
+        )}
       </div>
     </motion.div>
   );
@@ -1224,10 +1228,9 @@ const NoteCard = React.memo(function NoteCard({
 NoteCard.displayName = "NoteCard";
 
 /* ===== 虚拟滚动笔记列表 ===== */
-const ITEM_HEIGHT = 112; // 清晰版包含两行预览与元信息的卡片高度（px）
 const OVERSCAN = 8; // 上下额外渲染的条目数
 
-function VirtualNoteList({
+export function VirtualNoteList({
   notes,
   scrollScopeKey,
   activeNoteId,
@@ -1252,6 +1255,7 @@ function VirtualNoteList({
   notebookLabels,
   dragHint,
   sidebarTextStyle,
+  titleOnly = false,
 }: {
   notes: NoteListItem[];
   scrollScopeKey: string;
@@ -1274,9 +1278,10 @@ function VirtualNoteList({
   searchQuery?: string;
   showNoteTime?: boolean;
   showNotebookLabel?: boolean;
-  notebookLabels?: Map<string, string>;
+  notebookLabels?: Map<string, { text: string; path: string }>;
   dragHint?: string;
   sidebarTextStyle: SidebarTextStyle;
+  titleOnly?: boolean;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [scrollTop, setScrollTop] = useState(0);
@@ -1309,10 +1314,16 @@ function VirtualNoteList({
     setScrollTop(e.currentTarget.scrollTop);
   }, []);
 
-  const itemHeight = sidebarTextStyle === "classic"
-    ? (showNotebookLabel ? 104 : 90)
-    : (showNotebookLabel ? 124 : ITEM_HEIGHT);
+  const itemHeight = noteListRowHeight(titleOnly, searchQuery);
   const totalHeight = notes.length * itemHeight;
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    // 切到仅标题或列表变短后，旧 scrollTop 可能落到新的总高度之外。
+    const nextTop = Math.min(container.scrollTop, Math.max(0, totalHeight - container.clientHeight));
+    container.scrollTop = nextTop;
+    setScrollTop(nextTop);
+  }, [totalHeight]);
   const startIndex = Math.max(0, Math.floor(scrollTop / itemHeight) - OVERSCAN);
   const endIndex = Math.min(notes.length, Math.ceil((scrollTop + containerHeight) / itemHeight) + OVERSCAN);
   const visibleNotes = notes.slice(startIndex, endIndex);
@@ -1322,7 +1333,7 @@ function VirtualNoteList({
     <div
       ref={containerRef}
       data-note-list-scroll-viewport="virtual"
-      className="flex-1 min-h-0 overflow-auto"
+      className="flex-1 min-h-0 min-w-0 overflow-y-auto overflow-x-hidden"
       onScroll={handleScroll}
     >
       <div style={{ height: totalHeight, position: "relative" }}>
@@ -1353,7 +1364,9 @@ function VirtualNoteList({
               onTouchEnd={onTouchEnd}
               searchQuery={searchQuery}
               showNoteTime={showNoteTime}
-              notebookLabel={showNotebookLabel ? notebookLabels?.get(note.notebookId) : undefined}
+              titleOnly={titleOnly}
+              notebookLabel={showNotebookLabel ? notebookLabels?.get(note.notebookId)?.text : undefined}
+              notebookPath={showNotebookLabel ? notebookLabels?.get(note.notebookId)?.path : undefined}
               dragHint={dragHint}
             />
           ))}
@@ -1530,8 +1543,9 @@ export default function NoteList() {
   const [sortPref, setSortPref] = useState<{ by: SortBy; dir: SortDir }>(() => loadSortPref());
   const userPrefs = useUserPreferences();
   const showNoteTime = userPrefs.prefs.showNoteListUpdatedTime;
+  const titleOnly = userPrefs.prefs.noteListTitleOnly;
   const [showSortMenu, setShowSortMenu] = useState(false);
-  const sortBtnRef = useRef<HTMLButtonElement>(null);
+  const sortBtnRef = useRef<HTMLButtonElement | null>(null);
   const [sharedNoteIds, setSharedNoteIds] = useState<Set<string>>(new Set());
   const [dragNoteId, setDragNoteId] = useState<string | null>(null);
   const [dragOverNoteId, setDragOverNoteId] = useState<string | null>(null);
@@ -1838,17 +1852,15 @@ export default function NoteList() {
 
   const showNotebookLabel = state.viewMode === "all";
   const notebookLabels = useMemo(() => {
-    const labels = new Map<string, string>();
-    if (!showNotebookLabel) return labels;
-    for (const note of sortedNotes) {
-      if (labels.has(note.notebookId)) continue;
-      labels.set(
-        note.notebookId,
-        getNotebookPathLabel(state.notebooks, note.notebookId)
-          || t("noteList.unknownNotebook", { defaultValue: "未知笔记本" }),
-      );
+    const paths = new Map<string, string>();
+    if (!showNotebookLabel) return compactNotebookLabels(paths);
+    for (const notebook of state.notebooks) {
+      paths.set(notebook.id, getNotebookPathLabel(state.notebooks, notebook.id) || notebook.name);
     }
-    return labels;
+    for (const note of sortedNotes) {
+      if (!paths.has(note.notebookId)) paths.set(note.notebookId, t("noteList.unknownNotebook"));
+    }
+    return compactNotebookLabels(paths);
   }, [showNotebookLabel, sortedNotes, state.notebooks, t]);
 
   // 监听 WebSocket：外部导入 / 同账号其它设备保存后自动刷新列表
@@ -3490,7 +3502,7 @@ export default function NoteList() {
   };
 
   return (
-    <div className="w-full h-full bg-app-surface border-r border-app-border flex flex-col transition-colors relative">
+    <div className="w-full min-w-0 h-full bg-app-surface border-r border-app-border flex flex-col transition-colors relative">
       {/* Mobile Header */}
       <header className="flex items-center justify-between gap-2 px-4 py-3 border-b border-app-border md:hidden relative z-40" style={{ paddingTop: 'calc(var(--safe-area-top) + 4px)' }}>
         <button
@@ -3504,8 +3516,9 @@ export default function NoteList() {
           {/* 移动端排序按钮（搜索/回收站不显示） */}
           {state.viewMode !== "trash" && state.viewMode !== "search" && (
             <button
-              ref={sortBtnRef}
-              onClick={() => setShowSortMenu((v) => !v)}
+              onClick={(e) => { sortBtnRef.current = e.currentTarget; setShowSortMenu((v) => !v); }}
+              aria-expanded={showSortMenu}
+              aria-haspopup="menu"
               className={cn(
                 "p-1.5 rounded-md transition-colors relative",
                 sortPref.by !== "manual"
@@ -3561,65 +3574,36 @@ export default function NoteList() {
               <ChevronDown size={12} />
             </button>
           )}
-          {/* 排序下拉（移动端） */}
-          {showSortMenu && (
-            <SortMenu
-              value={sortPref}
-              anchorRef={sortBtnRef}
-              onChange={(next) => {
-                setSortPref(next);
-                saveSortPref(next);
-              }}
-              onClose={() => setShowSortMenu(false)}
-              showNoteTime={showNoteTime}
-              onToggleShowTime={() => userPrefs.setPref("showNoteListUpdatedTime", !userPrefs.prefs.showNoteListUpdatedTime)}
-            />
-          )}
         </div>
       </header>
 
       {/* Desktop Header */}
       <div
-        className={cn(
-          "hidden md:flex items-center justify-between gap-2 px-4 py-3 border-b border-app-border relative z-40",
-          layoutMode === "three-column" && "flex-wrap",
-        )}
+        className="hidden md:flex min-w-0 items-center justify-between gap-1 px-3 py-2 border-b border-app-border relative z-40"
         data-note-workspace-layout={layoutMode}
       >
-        <div className="flex min-w-0 items-center gap-2">
-          <FileText size={16} className="text-accent-primary" />
-          <h2 className="min-w-0 truncate text-sm font-medium text-tx-primary">{viewTitles[state.viewMode]}</h2>
+        <div className="flex min-w-0 flex-1 items-center gap-1.5">
+          <FileText size={16} className="shrink-0 text-accent-primary" />
+          <h2 className="min-w-0 truncate text-sm font-medium text-tx-primary" title={viewTitles[state.viewMode]}>{viewTitles[state.viewMode]}</h2>
+          <span className="shrink-0 text-xs tabular-nums text-tx-tertiary" title={t('common.noteCount', { count: sortedNotes.length })}>{sortedNotes.length}</span>
         </div>
         <div className="flex shrink-0 items-center gap-1 relative">
-          {/* 桌面端排序按钮 */}
+          {/* 排序、日期和显示偏好合并为列表选项，窄栏也保持单行。 */}
           {state.viewMode !== "trash" && state.viewMode !== "search" && (
             <button
-              ref={sortBtnRef}
-              onClick={() => setShowSortMenu((v) => !v)}
+              onClick={(e) => { sortBtnRef.current = e.currentTarget; setShowSortMenu((v) => !v); }}
+              aria-expanded={showSortMenu}
+              aria-haspopup="menu"
               className={cn(
                 "p-1.5 rounded-md transition-colors relative",
                 sortPref.by !== "manual"
                   ? "text-accent-primary bg-accent-primary/10"
                   : "text-tx-tertiary hover:bg-app-hover hover:text-tx-secondary"
               )}
-              title={t("noteList.sortBy")}
+              title={t("noteList.listOptions")}
+              aria-label={t("noteList.listOptions")}
             >
-              <ArrowUpDown size={15} />
-            </button>
-          )}
-          {/* 日历筛选按钮 */}
-          {state.viewMode !== "trash" && state.viewMode !== "search" && (
-            <button
-              onClick={() => setShowCalendar(!showCalendar)}
-              className={cn(
-                "p-1.5 rounded-md transition-colors relative",
-                showCalendar || dateFilter
-                  ? "text-accent-primary bg-accent-primary/10"
-                  : "text-tx-tertiary hover:bg-app-hover hover:text-tx-secondary"
-              )}
-              title={t("noteList.dateFilter")}
-            >
-              <CalendarDays size={15} />
+              <MoreHorizontal size={16} />
               {dateFilter && (
                 <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-accent-primary" />
               )}
@@ -3643,31 +3627,37 @@ export default function NoteList() {
               ref={createMenuAnchorMobileRef}
               type="button"
               className="h-7 px-1.5 flex items-center gap-0.5 rounded-md text-tx-tertiary hover:bg-app-hover hover:text-tx-secondary transition-colors"
+              title={t("common.newNote")}
+              aria-label={t("common.newNote")}
               onClick={() => {
                 setCreateNoteMenuSource("mobile");
                 setCreateNoteMenuOpen((v) => !v);
               }}
             >
               <Plus size={15} />
-              <ChevronDown size={11} />
             </button>
-          )}
-          {/* 排序下拉（桌面端） */}
-          {showSortMenu && (
-            <SortMenu
-              value={sortPref}
-              anchorRef={sortBtnRef}
-              onChange={(next) => {
-                setSortPref(next);
-                saveSortPref(next);
-              }}
-              onClose={() => setShowSortMenu(false)}
-              showNoteTime={showNoteTime}
-              onToggleShowTime={() => userPrefs.setPref("showNoteListUpdatedTime", !userPrefs.prefs.showNoteListUpdatedTime)}
-            />
           )}
         </div>
       </div>
+
+      {showSortMenu && (
+        <SortMenu value={sortPref} anchorRef={sortBtnRef}
+          onChange={(next) => { setSortPref(next); saveSortPref(next); }}
+          onClose={() => setShowSortMenu(false)}
+          showNoteTime={showNoteTime}
+          onToggleShowTime={() => userPrefs.setPref("showNoteListUpdatedTime", !showNoteTime)}
+          titleOnly={titleOnly}
+          onToggleTitleOnly={() => userPrefs.setPref("noteListTitleOnly", !titleOnly)}
+          onToggleCalendar={() => setShowCalendar((v) => !v)}
+        />
+      )}
+
+      {dateFilter && state.viewMode !== "trash" && state.viewMode !== "search" && (
+        <div className="flex items-center gap-1.5 px-3 py-1 border-b border-app-border/50 text-xs text-accent-primary">
+          <CalendarDays size={12} /><span className="min-w-0 flex-1 truncate">{dateFilter}</span>
+          <button type="button" onClick={() => setDateFilter(null)} title={t("noteList.clearFilter")} aria-label={t("noteList.clearFilter")} className="p-1 rounded hover:bg-app-hover"><X size={12} /></button>
+        </div>
+      )}
 
       {/* 日历筛选面板 */}
       {showCalendar && state.viewMode !== "trash" && state.viewMode !== "search" && (
@@ -3789,7 +3779,7 @@ export default function NoteList() {
           </div>
         </div>
       ) : (
-        <div className="px-4 py-1.5">
+        <div className="px-4 py-1.5 md:hidden">
           <span className="text-[10px] text-tx-tertiary">{t('common.noteCount', { count: sortedNotes.length })}</span>
         </div>
       )}
@@ -3977,7 +3967,8 @@ export default function NoteList() {
         </div>
       )}
 
-      {/* List - 包裹下拉刷新（仅移动端生效，桌面端不影响） */}
+      {/* List - 包裹下拉刷新（仅移动端生效，桌面端不影响）。普通列表限定 Radix
+          内容容器为 block，防止其默认 display:table 被长标题撑宽。 */}
       {/* 拖拽外部文件兜底层：让用户拖到列表的任意位置（含空白处、虚拟列表、骨架屏）
           都能触发文件导入（方案 B）。NoteCard 自身也在 handleDrop 里做了同源判断，
           这里只是兜底处理“没落到任何笔记上”的情况。dragover 必须 preventDefault
@@ -3987,7 +3978,7 @@ export default function NoteList() {
           让用户明确“此区域可以接收文件”。overlay 用 pointer-events:none 以免吃事件。 */}
       <div
         className={cn(
-          "flex-1 min-h-0 flex flex-col relative transition-colors duration-150",
+          "flex-1 min-h-0 min-w-0 flex flex-col relative transition-colors duration-150",
           isFileDragging && "bg-accent-primary/5",
         )}
         onDragEnter={(e) => {
@@ -4066,13 +4057,14 @@ export default function NoteList() {
             noteCardRefs={noteCardRefs}
             searchQuery={state.searchQuery || undefined}
             showNoteTime={showNoteTime}
+            titleOnly={titleOnly}
             showNotebookLabel={showNotebookLabel}
             notebookLabels={notebookLabels}
             dragHint={noteDragHint}
           />
         ) : (
-        <ScrollArea ref={scrollAreaRef} className="flex-1 min-h-0">
-        <div className="px-2 pb-2 space-y-1">
+        <ScrollArea ref={scrollAreaRef} className="flex-1 min-h-0 min-w-0 [&_[data-radix-scroll-area-viewport]>div]:!block [&_[data-radix-scroll-area-viewport]>div]:w-full">
+        <div className="min-w-0 w-full px-2 pb-2 space-y-1">
           <AnimatePresence>
             {sortedNotes.map((note) => (
               <NoteCard
@@ -4100,7 +4092,9 @@ export default function NoteList() {
                 onTouchEnd={handleTouchEnd}
                 searchQuery={state.searchQuery || undefined}
                 showNoteTime={showNoteTime}
-                notebookLabel={showNotebookLabel ? notebookLabels.get(note.notebookId) : undefined}
+                titleOnly={titleOnly}
+                notebookLabel={showNotebookLabel ? notebookLabels.get(note.notebookId)?.text : undefined}
+                notebookPath={showNotebookLabel ? notebookLabels.get(note.notebookId)?.path : undefined}
                 dragHint={noteDragHint}
               />
             ))}
