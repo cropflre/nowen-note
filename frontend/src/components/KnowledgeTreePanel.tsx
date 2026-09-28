@@ -22,6 +22,7 @@ import {
   Star,
   Trash2,
   TreePine,
+  Table2,
   X,
 } from "lucide-react";
 
