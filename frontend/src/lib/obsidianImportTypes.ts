@@ -31,16 +31,24 @@ export interface ObsidianScanResult {
   };
 }
 
+export type ObsidianDuplicateStrategy = "skip" | "update" | "duplicate";
+
 export interface ObsidianImportOptions {
   rootName: string;
   contentFormat: ImportTargetContentFormat;
+  duplicateStrategy?: ObsidianDuplicateStrategy;
+  includeUnusedAttachments?: boolean;
   onProgress?: (progress: ImportProgress) => void;
 }
 
 export interface ObsidianImportResult {
   success: boolean;
   noteCount: number;
+  createdCount: number;
+  updatedCount: number;
+  skippedCount: number;
   attachmentCount: number;
+  fileNodeCount: number;
   errors: string[];
   warnings: string[];
   missingReferences: string[];
