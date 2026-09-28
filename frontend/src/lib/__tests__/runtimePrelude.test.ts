@@ -16,8 +16,14 @@ describe("runtimePrelude polyfills", () => {
 
   it("returns copied arrays for change-by-copy helpers", () => {
     const source = [3, 1, 2];
-    expect(toSortedPolyfill.call<number>(source, (a: number, b: number) => a - b)).toEqual([1, 2, 3]);
-    expect(toReversedPolyfill.call<number>(source)).toEqual([2, 1, 3]);
+    const sortNumbers = toSortedPolyfill as (
+      this: number[],
+      compareFn?: (a: number, b: number) => number,
+    ) => number[];
+    const reverseNumbers = toReversedPolyfill as (this: number[]) => number[];
+
+    expect(sortNumbers.call(source, (a, b) => a - b)).toEqual([1, 2, 3]);
+    expect(reverseNumbers.call(source)).toEqual([2, 1, 3]);
     expect(source).toEqual([3, 1, 2]);
   });
 });
