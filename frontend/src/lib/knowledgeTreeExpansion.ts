@@ -1,5 +1,6 @@
 import { getCurrentWorkspace, getServerUrl } from "@/lib/api";
 import { decodeUserIdFromToken } from "@/lib/userPreferenceAccountCache";
+import type { KnowledgeTreeNode } from "@/lib/knowledgeTreeApi";
 
 const STORAGE_KEY_PREFIX = "nowen.knowledgeTree.expandedNodeIds.v1:";
 
@@ -31,6 +32,63 @@ function storageKey(scope: string): string {
 function normalizeIds(value: unknown): string[] | null {
   if (!Array.isArray(value)) return null;
   return Array.from(new Set(value.filter((id): id is string => typeof id === "string" && id.length > 0)));
+}
+
+export type KnowledgeTreeVisibleDepth = 1 | 2 | 3 | "all";
+
+export function normalizeKnowledgeTreeVisibleDepth(value: unknown): KnowledgeTreeVisibleDepth {
+  if (value === "all" || value === 1 || value === 2 || value === 3) return value;
+  if (value === "1") return 1;
+  if (value === "2") return 2;
+  if (value === "3") return 3;
+  return "all";
+}
+
+/**
+ * Returns folder ids that must be expanded so the tree is visible down to the requested level.
+ * Root nodes are level 1. Therefore depth=1 means fully collapsed roots, depth=2 expands only
+ * root folders, and "all" expands every folder that has at least one visible child.
+ */
+export function buildKnowledgeTreeExpandedIdsForDepth(
+  nodes: readonly Pick<KnowledgeTreeNode, "id" | "parentId" | "nodeType" | "isDeleted">[],
+  visibleDepth: KnowledgeTreeVisibleDepth,
+): string[] {
+  const active = nodes.filter((node) => node.isDeleted !== 1);
+  const byId = new Map(active.map((node) => [node.id, node]));
+  const children = new Map<string | null, typeof active>();
+  for (const node of active) {
+    const parentId = node.parentId && byId.has(node.parentId) ? node.parentId : null;
+    const siblings = children.get(parentId) || [];
+    siblings.push(node);
+    children.set(parentId, siblings);
+  }
+
+  if (visibleDepth === 1) return [];
+
+  const maxFolderLevel = visibleDepth === "all" ? Number.POSITIVE_INFINITY : visibleDepth - 1;
+  const expanded: string[] = [];
+  const visited = new Set<string>();
+  const stack = (children.get(null) || []).map((node) => ({ node, level: 1 }));
+
+  while (stack.length > 0) {
+    const current = stack.pop()!;
+    if (visited.has(current.node.id)) continue;
+    visited.add(current.node.id);
+
+    const childNodes = children.get(current.node.id) || [];
+    if (
+      current.node.nodeType === "folder"
+      && childNodes.length > 0
+      && current.level <= maxFolderLevel
+    ) {
+      expanded.push(current.node.id);
+    }
+    for (const child of childNodes) {
+      stack.push({ node: child, level: current.level + 1 });
+    }
+  }
+
+  return expanded;
 }
 
 function readStoredSnapshot(scope: string): KnowledgeTreeExpansionSnapshot {
