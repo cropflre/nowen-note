@@ -26,6 +26,11 @@ function jsonHeaders() {
   };
 }
 
+async function readJsonResponse(response: Response): Promise<any> {
+  const text = await response.text();
+  return text ? JSON.parse(text) : {};
+}
+
 test.before(async () => {
   const [schema, exportRoutes, knowledgeRoutes] = await Promise.all([
     import("../src/db/schema.js"),
@@ -91,8 +96,9 @@ test("persistent import origins resolve the same Obsidian source without creatin
       metadata: { vaultPath: "docs/A.md" },
     }),
   });
-  if (response.status !== 201) assert.equal(response.status, 201, await response.text());
-  assert.deepEqual(await response.json(), {
+  const firstPayload = await readJsonResponse(response);
+  assert.equal(response.status, 201, JSON.stringify(firstPayload));
+  assert.deepEqual(firstPayload, {
     created: true,
     conflict: false,
     noteId: "note-origin",
@@ -107,8 +113,9 @@ test("persistent import origins resolve the same Obsidian source without creatin
       noteId: "note-origin",
     }),
   });
-  assert.equal(response.status, 200);
-  assert.deepEqual(await response.json(), {
+  const secondPayload = await readJsonResponse(response);
+  assert.equal(response.status, 200, JSON.stringify(secondPayload));
+  assert.deepEqual(secondPayload, {
     created: false,
     conflict: false,
     noteId: "note-origin",
@@ -122,8 +129,8 @@ test("persistent import origins resolve the same Obsidian source without creatin
       externalIds: ["Vault/docs/A.md", "Vault/docs/Unknown.md"],
     }),
   });
-  assert.equal(response.status, 200);
-  const resolved = await response.json() as any;
+  const resolved = await readJsonResponse(response) as any;
+  assert.equal(response.status, 200, JSON.stringify(resolved));
   assert.equal(resolved.origins["Vault/docs/A.md"].noteId, "note-origin");
   assert.equal(resolved.origins["Vault/docs/A.md"].title, "A");
   assert.equal(resolved.origins["Vault/docs/Unknown.md"], undefined);
@@ -157,8 +164,8 @@ test("imported attachments can be linked into their original Vault directory as 
       notebookPath: ["Imported Vault", "docs"],
     }),
   });
-  if (response.status !== 201) assert.equal(response.status, 201, await response.text());
-  const linked = await response.json() as any;
+  const linked = await readJsonResponse(response) as any;
+  assert.equal(response.status, 201, JSON.stringify(linked));
   assert.equal(linked.id, "file:asset-pdf");
   assert.equal(linked.resourceType, "file");
   assert.equal(linked.resourceId, "asset-pdf");
@@ -189,7 +196,8 @@ test("imported attachments can be linked into their original Vault directory as 
       notebookPath: ["Imported Vault", "docs"],
     }),
   });
-  if (second.status !== 200) assert.equal(second.status, 200, await second.text());
+  const secondLinked = await readJsonResponse(second);
+  assert.equal(second.status, 200, JSON.stringify(secondLinked));
   assert.equal(
     (db().prepare(
       "SELECT COUNT(*) AS count FROM knowledge_tree_nodes WHERE resourceType = 'file' AND resourceId = 'asset-pdf'",
