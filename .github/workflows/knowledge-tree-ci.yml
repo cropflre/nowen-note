@@ -181,6 +181,9 @@ jobs:
         run: >-
           npm run test:run --
           src/lib/__tests__/knowledgeTreeModel.test.ts
+          src/lib/__tests__/knowledgeTreePerformance.test.ts
+          src/lib/__tests__/sharedKnowledgeTree.test.ts
+          src/lib/__tests__/knowledgeTreeSort.test.ts
           src/lib/__tests__/editorWorkspaceLayout.test.ts
       - name: Frontend typecheck
         if: always()

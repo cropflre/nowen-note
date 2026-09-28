@@ -1,6 +1,24 @@
 name: Knowledge Tree Sidebar CI
 
 on:
+  push:
+    branches:
+      - main
+      - release/v1.5.0
+    paths:
+      - 'frontend/src/main.tsx'
+      - 'frontend/src/mobile-knowledge-tree-compact.css'
+      - 'frontend/src/components/Sidebar.tsx'
+      - 'frontend/src/components/KnowledgeTreeDrawer.tsx'
+      - 'frontend/src/components/KnowledgeTreePanel.tsx'
+      - 'frontend/src/components/KnowledgeTreeNodeMenu.tsx'
+      - 'frontend/src/lib/sidebarTreeMode.ts'
+      - 'frontend/src/lib/knowledgeTree*.ts'
+      - 'frontend/src/lib/sharedKnowledgeTree.ts'
+      - 'frontend/src/lib/rootDocumentCreateBridge.ts'
+      - 'frontend/src/lib/rootDocumentCreatePolicy.ts'
+      - 'frontend/src/lib/toast.ts'
+      - '.github/workflows/knowledge-tree-sidebar-ci.yml'
   pull_request:
     branches: [main]
     paths:

@@ -14,7 +14,9 @@ export function filterKnowledgeTreeNodes(nodes: KnowledgeTreeNode[], query: stri
   );
   for (const id of Array.from(visible)) {
     let parentId = byId.get(id)?.parentId;
-    while (parentId) {
+    const ancestors = new Set<string>();
+    while (parentId && !ancestors.has(parentId)) {
+      ancestors.add(parentId);
       visible.add(parentId);
       parentId = byId.get(parentId)?.parentId;
     }
