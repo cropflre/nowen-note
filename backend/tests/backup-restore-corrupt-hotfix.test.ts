@@ -170,8 +170,11 @@ test("zip file-stage failure rolls back database and does not update jwt secret"
     const newText = String(newPath);
     if (!simulated && oldText.includes(".nowen-restore-staging") && newText.endsWith(`${path.sep}fonts`)) {
       simulated = true;
-      const err = new Error("simulated fonts restore failure") as NodeJS.ErrnoException;
-      err.code = "EACCES";
+      const err = new Error("simulated unrecoverable fonts restore failure") as NodeJS.ErrnoException;
+      // EACCES/EPERM/EBUSY/EXDEV are intentionally recoverable now: Docker/NAS mount roots
+      // may reject directory rename and should fall back to in-place synchronization.
+      // EIO models a real copy/device failure and must still roll the whole restore back.
+      err.code = "EIO";
       throw err;
     }
     return originalRenameSync(oldPath, newPath);
@@ -181,7 +184,7 @@ test("zip file-stage failure rolls back database and does not update jwt secret"
     const result = await manager.restoreFromBackup("file-stage-fails.zip", { dryRun: false });
 
     assert.equal(result.success, false);
-    assert.match(result.error || "", /已自动回滚|文件目录|fonts|simulated fonts restore failure/);
+    assert.match(result.error || "", /已自动回滚|文件目录|fonts|simulated unrecoverable fonts restore failure/);
     assertNoWalShm();
     assert.equal(readMarker(), "current");
     assert.equal(fs.readFileSync(path.join(tmpDir, ".jwt_secret"), "utf-8"), "old-secret");
