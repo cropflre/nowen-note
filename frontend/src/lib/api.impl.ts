@@ -4295,6 +4295,18 @@ export const api = {
           tables: { name: string; willClear: number; willInsert: number }[];
           files: { attachments: number; fonts: number; plugins: number };
           schemaVersion: number;
+          backupType?: "full" | "db-only" | "legacy";
+          attachmentAudit?: {
+            metaCount: number | null;
+            metaBytes: number | null;
+            archiveCount: number;
+            stagedCount?: number;
+            stagedBytes?: number;
+            dbRows: number;
+            dbDistinctPaths: number;
+            missingDbPaths: string[];
+            objectStorageEnabled: boolean;
+          };
         };
       }>(`/backups/${encodeURIComponent(filename)}/restore?dryRun=${dryRun ? 1 : 0}`, {
         method: "POST",
