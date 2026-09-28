@@ -328,6 +328,8 @@ export function createKnowledgeChild(input: {
               id: `c${index + 1}`,
               width: 120,
               title: String.fromCharCode(65 + index),
+              type: "text",
+              align: "left",
             })),
             cells: {},
           }),

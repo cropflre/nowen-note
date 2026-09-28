@@ -930,7 +930,15 @@ export default function MobileKnowledgeTreePanel({
 
   const renderDraft = () => {
     if (!draft) return null;
-    const DraftIcon = draft.kind === "folder" ? Folder : draft.kind === "markdown" ? FileCode : draft.kind === "mindmap" ? BrainCircuit : FileText;
+    const DraftIcon = draft.kind === "folder"
+      ? Folder
+      : draft.kind === "markdown"
+        ? FileCode
+        : draft.kind === "mindmap"
+          ? BrainCircuit
+          : draft.kind === "sheet"
+            ? Table2
+            : FileText;
     return (
       <div
         className={cn(

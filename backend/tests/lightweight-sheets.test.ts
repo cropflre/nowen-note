@@ -36,6 +36,8 @@ test("lightweight sheet uses an independent data model and a unified tree note s
   const data = JSON.parse(stored.data);
   assert.equal(data.rows.length, 20);
   assert.equal(data.columns.length, 8);
+  assert.equal(data.columns[0].type, "text");
+  assert.equal(data.columns[0].align, "left");
 
   const listed = listKnowledgeTree({ userId: "owner", workspaceId: null, db })
     .find((node) => node.resourceId === sheet.resourceId);
