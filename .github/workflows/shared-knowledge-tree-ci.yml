@@ -15,6 +15,9 @@ on:
       - 'backend/src/services/knowledgeTreeListing.ts'
       - 'backend/src/services/knowledgeTreeRestore.ts'
       - 'backend/src/services/sharedKnowledgeTree*.ts'
+      - 'backend/src/services/notebookPublicationResources.ts'
+      - 'backend/src/runtime/notebook-publication.ts'
+      - 'backend/tests/notebook-publication-resources.test.ts'
       - 'backend/tests/shared-knowledge-tree*.test.ts'
       - 'backend/tests/knowledge-tree.test.ts'
       - 'backend/tests/recycle-bin-capability-guard.test.ts'
@@ -23,6 +26,8 @@ on:
       - 'frontend/src/lib/knowledgeTreeApi.ts'
       - 'frontend/src/lib/knowledgeTreeDeleteReconcile.ts'
       - 'frontend/src/lib/sharedKnowledgeTree.ts'
+      - 'frontend/src/lib/notebookPublicationApi.ts'
+      - 'frontend/src/components/PublicNotebookView.tsx'
       - 'frontend/src/lib/__tests__/sharedKnowledgeTree.test.ts'
       - 'frontend/src/lib/__tests__/knowledgeTree*.test.ts'
       - 'frontend/src/lib/__tests__/knowledgeTreeDeleteReconcile.test.ts'
@@ -50,6 +55,7 @@ jobs:
         run: |
           node --import tsx --test tests/shared-knowledge-tree.test.ts
           node --import tsx --test tests/shared-knowledge-tree-boundary.test.ts
+          node --import tsx --import ./tests/setup-db-isolation.ts --test tests/notebook-publication-resources.test.ts
           node --import tsx --import ./tests/setup-db-isolation.ts --test tests/knowledge-tree.test.ts
           node --import tsx --test tests/recycle-bin-capability-guard.test.ts
 
