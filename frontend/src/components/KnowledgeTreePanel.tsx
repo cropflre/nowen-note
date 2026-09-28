@@ -76,11 +76,13 @@ import { loadKnowledgeTreeOnEntry } from "@/lib/knowledgeTreeInitialLoad";
 import { isActiveKnowledgeTreeDocument } from "@/lib/knowledgeTreeModel";
 import { noteTemplatesApi } from "@/lib/noteTemplatesApi";
 import {
+  buildKnowledgeTreeExpandedIdsForDepth,
   getKnowledgeTreeExpansionScope,
   getKnowledgeTreeExpansionSnapshot,
   initializeKnowledgeTreeExpansion,
   saveKnowledgeTreeExpansion,
   subscribeKnowledgeTreeExpansion,
+  type KnowledgeTreeVisibleDepth,
 } from "@/lib/knowledgeTreeExpansion";
 import {
   forgetUnlockedFolder,
@@ -591,19 +593,45 @@ export function KnowledgeTreePanel({
     }
   };
 
-  const toggleAll = useCallback(() => {
-    const expanding = !hasExpandedFolders;
-    const targetIds = new Set(expandableFolderIds);
+  const applyVisibleDepth = useCallback((depth: KnowledgeTreeVisibleDepth) => {
+    const targetIds = new Set(buildKnowledgeTreeExpandedIdsForDepth(visibleNodes, depth));
+    saveKnowledgeTreeExpansion(expansionScope, targetIds);
     const changedOwnedFolders = nodes.filter((node) => (
-      node.nodeType === "folder"
-      && targetIds.has(node.id)
-      && !node.sharedRootId
+      node.nodeType === "folder" && !node.sharedRootId
     ));
-    saveKnowledgeTreeExpansion(expansionScope, expanding ? targetIds : []);
     void Promise.allSettled(
-      changedOwnedFolders.map((node) => knowledgeTreeApi.update(node.id, { isExpanded: expanding })),
+      changedOwnedFolders.map((node) => knowledgeTreeApi.update(node.id, {
+        isExpanded: targetIds.has(node.id),
+      })),
     );
-  }, [expandableFolderIds, expansionScope, hasExpandedFolders, nodes]);
+  }, [expansionScope, nodes, visibleNodes]);
+
+  const toggleAll = useCallback(() => {
+    applyVisibleDepth(hasExpandedFolders ? 1 : "all");
+  }, [applyVisibleDepth, hasExpandedFolders]);
+
+  const chooseVisibleDepth = useCallback(async () => {
+    if (query.trim()) return;
+    const choice = await choose({
+      title: "目录展示层级",
+      description: "根目录为第 1 层；选择后会统一调整当前知识树的展开状态。",
+      choices: [
+        { value: "1", label: "仅显示第 1 层" },
+        { value: "2", label: "展开到第 2 层" },
+        { value: "3", label: "展开到第 3 层" },
+        { value: "all", label: "展开全部层级" },
+      ],
+    });
+    if (!choice) return;
+    const depth: KnowledgeTreeVisibleDepth = choice === "all"
+      ? "all"
+      : choice === "2"
+        ? 2
+        : choice === "3"
+          ? 3
+          : 1;
+    applyVisibleDepth(depth);
+  }, [applyVisibleDepth, query]);
 
   const runMobileTreeAction = useCallback((value: string) => {
     setMobileActionsOpen(false);
@@ -613,6 +641,16 @@ export function KnowledgeTreePanel({
       if (option) saveKnowledgeTreeSortMode(option.value);
     } else if (value === "toggle") {
       toggleAll();
+    } else if (value.startsWith("depth:")) {
+      const rawDepth = value.slice("depth:".length);
+      const depth: KnowledgeTreeVisibleDepth = rawDepth === "all"
+        ? "all"
+        : rawDepth === "2"
+          ? 2
+          : rawDepth === "3"
+            ? 3
+            : 1;
+      applyVisibleDepth(depth);
     } else if (value === "refresh") {
       void reload();
     } else if (value === "multi-select") {
@@ -620,7 +658,7 @@ export function KnowledgeTreePanel({
       setSelectedNodeIds(new Set());
       selectionAnchorRef.current = null;
     }
-  }, [reload, toggleAll]);
+  }, [applyVisibleDepth, reload, toggleAll]);
 
   const selectFolder = useCallback((node: KnowledgeTreeNode) => {
     if (node.resourceType !== "notebook") return;
@@ -1565,6 +1603,17 @@ export function KnowledgeTreePanel({
           <div className="contents">
             <button
               type="button"
+              onClick={() => { void chooseVisibleDepth(); }}
+              disabled={Boolean(query.trim()) || expandableFolderIds.length === 0}
+              className="flex h-7 shrink-0 items-center justify-center rounded-md px-1.5 text-[10px] font-medium text-tx-tertiary hover:bg-app-hover hover:text-tx-primary disabled:cursor-default disabled:opacity-35"
+              title={query.trim() ? "清除筛选后可设置展示层级" : "设置目录展示层级"}
+              aria-label="设置目录展示层级"
+              data-knowledge-tree-depth-control=""
+            >
+              层级
+            </button>
+            <button
+              type="button"
               onClick={toggleAll}
               disabled={Boolean(query.trim()) || expandableFolderIds.length === 0}
               className="flex h-7 w-6 shrink-0 items-center justify-center rounded-md text-tx-tertiary hover:bg-app-hover hover:text-tx-primary disabled:cursor-default disabled:opacity-35 disabled:hover:bg-transparent disabled:hover:text-tx-tertiary"
@@ -1606,6 +1655,16 @@ export function KnowledgeTreePanel({
               checked: currentSortMode === option.value,
               sectionLabel: index === 0 ? "排序方式" : undefined,
             })),
+            {
+              value: "depth:1",
+              label: "仅显示第 1 层",
+              disabled: Boolean(query.trim()),
+              separatorBefore: true,
+              sectionLabel: "展示层级",
+            },
+            { value: "depth:2", label: "展开到第 2 层", disabled: Boolean(query.trim()) },
+            { value: "depth:3", label: "展开到第 3 层", disabled: Boolean(query.trim()) },
+            { value: "depth:all", label: "展开全部层级", disabled: Boolean(query.trim()) },
             {
               value: "toggle",
               label: toggleAllLabel,
