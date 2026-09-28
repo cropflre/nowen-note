@@ -475,18 +475,16 @@ test("accepts safe first-line indent and whole-table layout attrs while rejectin
   tableNode.attrs.tableWidthMode = "full";
   (tableNode.content[0].content[0].content[0].attrs as Record<string, unknown>).firstLineIndent = 0;
 
-  assert.doesNotThrow(() => validateTiptapBlockPatchOperations([
-    {
-      type: "replace",
-      blockId: "blk_para7720",
-      node: paragraphNode,
-    },
-    {
-      type: "replace",
-      blockId: "blk_table772",
-      node: tableNode,
-    },
-  ]));
+  assert.doesNotThrow(() => validateTiptapBlockPatchOperations([{
+    type: "replace",
+    blockId: "blk_para7720",
+    node: paragraphNode,
+  }]));
+  assert.doesNotThrow(() => validateTiptapBlockPatchOperations([{
+    type: "replace",
+    blockId: "blk_table772",
+    node: tableNode,
+  }]));
 
   const unsafeParagraph = paragraph("blk_para7721", "正文");
   unsafeParagraph.attrs.firstLineIndent = 99;
