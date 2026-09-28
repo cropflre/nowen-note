@@ -662,8 +662,9 @@ const NodeBox = React.memo(function NodeBox({
   node, isSelected, isEditing, editValue,
   onSelect, onDoubleClick, onEditChange, onEditSubmit,
   onToggleCollapse, isMobile, onContextMenu, nodeData,
-  markerIcons, isSearchMatch, isSearchActive, onDragStart, onDragOver, onDragLeave, onDrop,
-  isDragTarget, dragPlacement, onResizeStart,
+  markerIcons, isSearchMatch, isSearchActive, onDragStart, onDragOver, onDragLeave, onDrop, onDragEnd,
+  isDragTarget, dragPlacement, onResizeStart, isDragging,
+  onTouchDragStart, onTouchDragMove, onTouchDragEnd,
 }: {
   node: LayoutNode;
   isSelected: boolean;
@@ -684,9 +685,14 @@ const NodeBox = React.memo(function NodeBox({
   onDragOver?: (e: React.DragEvent) => void;
   onDragLeave?: (e: React.DragEvent) => void;
   onDrop?: (e: React.DragEvent) => void;
+  onDragEnd?: (e: React.DragEvent) => void;
   isDragTarget?: boolean;
   dragPlacement?: MindMapDropPlacement | null;
   onResizeStart?: (e: React.PointerEvent<HTMLButtonElement>) => void;
+  isDragging?: boolean;
+  onTouchDragStart?: (point: { clientX: number; clientY: number }) => void;
+  onTouchDragMove?: (point: { clientX: number; clientY: number }) => void;
+  onTouchDragEnd?: () => void;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const color = getNodeColor(node.depth);
@@ -696,6 +702,14 @@ const NodeBox = React.memo(function NodeBox({
     ? countMindMapDescendants(nodeData)
     : 0;
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const touchDragRef = useRef<{ startX: number; startY: number; active: boolean } | null>(null);
+
+  const clearNodeLongPress = () => {
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
+  };
 
     useEffect(() => {
     if (isEditing && inputRef.current) {
@@ -715,10 +729,12 @@ const NodeBox = React.memo(function NodeBox({
       >
         <div
           data-mindmap-node-id={node.id}
+          data-mindmap-node-depth={node.depth}
           data-mindmap-node-surface="true"
           data-mindmap-drop-placement={isDragTarget ? dragPlacement ?? undefined : undefined}
           className={cn(
             "relative flex items-center h-full px-3 rounded-[12px] cursor-pointer select-none transition-colors duration-150 ease-out text-sm font-medium whitespace-nowrap overflow-hidden group",
+            isDragging && "opacity-55 cursor-grabbing",
             isSearchMatch && "ring-2 ring-amber-400/70",
             isSearchActive && "ring-2 ring-amber-500 shadow-lg shadow-amber-500/20",
             isDragTarget && dragPlacement === "inside"
@@ -740,36 +756,74 @@ const NodeBox = React.memo(function NodeBox({
               : isRoot ? MT.rootShadow : MT.nodeShadow,
             fontSize: isRoot ? 14 : 13,
             fontWeight: isRoot ? 700 : 500,
+            touchAction: isMobile ? "none" : undefined,
           }}
-          draggable={!!onDragStart}
+          draggable={!!onDragStart && !isEditing}
           onPointerDown={(e) => e.stopPropagation()}
           onDragStart={onDragStart}
           onDragOver={onDragOver}
           onDragLeave={onDragLeave}
           onDrop={onDrop}
+          onDragEnd={onDragEnd}
           onClick={(e) => { e.stopPropagation(); onSelect(e); }}
           onDoubleClick={(e) => { e.stopPropagation(); onDoubleClick(); }}
           onContextMenu={onContextMenu}
           onTouchStart={(e) => {
-            if (isMobile) {
+            if (!isMobile) return;
+            e.stopPropagation();
+            const touch = e.touches[0];
+            if (!touch) return;
+            clearNodeLongPress();
+            touchDragRef.current = {
+              startX: touch.clientX,
+              startY: touch.clientY,
+              active: false,
+            };
+            if (!isRoot && !isEditing && onTouchDragStart) {
+              const point = { clientX: touch.clientX, clientY: touch.clientY };
               longPressTimer.current = setTimeout(() => {
-                e.stopPropagation();
+                longPressTimer.current = null;
+                if (!touchDragRef.current) return;
+                touchDragRef.current.active = true;
                 onSelect();
-                onDoubleClick();
-              }, 500);
+                onTouchDragStart(point);
+                try { navigator.vibrate?.(10); } catch { /* best-effort haptic */ }
+              }, 320);
             }
           }}
-          onTouchEnd={() => {
-            if (longPressTimer.current) {
-              clearTimeout(longPressTimer.current);
-              longPressTimer.current = null;
+          onTouchMove={(e) => {
+            if (!isMobile) return;
+            e.stopPropagation();
+            const touch = e.touches[0];
+            const state = touchDragRef.current;
+            if (!touch || !state) return;
+            const dx = touch.clientX - state.startX;
+            const dy = touch.clientY - state.startY;
+            if (!state.active && dx * dx + dy * dy > 64) {
+              clearNodeLongPress();
+              return;
+            }
+            if (state.active) {
+              e.preventDefault();
+              onTouchDragMove?.({ clientX: touch.clientX, clientY: touch.clientY });
             }
           }}
-          onTouchMove={() => {
-            if (longPressTimer.current) {
-              clearTimeout(longPressTimer.current);
-              longPressTimer.current = null;
+          onTouchEnd={(e) => {
+            if (!isMobile) return;
+            e.stopPropagation();
+            clearNodeLongPress();
+            if (touchDragRef.current?.active) {
+              e.preventDefault();
+              onTouchDragEnd?.();
             }
+            touchDragRef.current = null;
+          }}
+          onTouchCancel={(e) => {
+            if (!isMobile) return;
+            e.stopPropagation();
+            clearNodeLongPress();
+            if (touchDragRef.current?.active) onTouchDragEnd?.();
+            touchDragRef.current = null;
           }}
         >
           {markerIcons}
@@ -1106,6 +1160,10 @@ export default function MindMapCenter({
   const [clipboard, setClipboard] = useState<{ node: MindMapNode; isCut: boolean } | null>(null);
   const [dragNodeId, setDragNodeId] = useState<string | null>(null);
   const [dropTarget, setDropTarget] = useState<{
+    nodeId: string;
+    placement: MindMapDropPlacement;
+  } | null>(null);
+  const touchDropTargetRef = useRef<{
     nodeId: string;
     placement: MindMapDropPlacement;
   } | null>(null);
@@ -1464,7 +1522,9 @@ export default function MindMapCenter({
         const updated = await api.updateMindMap(currentMap.id, payload);
         applySavedMindMap(updated);
       } catch (err) {
+        const error = err as Error;
         console.error("Failed to save mindmap:", err);
+        toast.error(error.message || "思维导图保存失败");
       } finally {
         setIsSaving(false);
       }
@@ -2151,6 +2211,63 @@ export default function MindMapCenter({
     pushHistory(newData);
     triggerSave(newData);
   }, [mapData, selectedNodeIds, pushHistory, triggerSave]);
+
+  const beginTouchNodeDrag = useCallback((sourceId: string) => {
+    if (sourceId === "root") return;
+    if (!selectedNodeIds.includes(sourceId)) {
+      setSelectedNodeIds([sourceId]);
+      setSelectedNodeId(sourceId);
+    }
+    touchDropTargetRef.current = null;
+    setDropTarget(null);
+    setDragNodeId(sourceId);
+  }, [selectedNodeIds]);
+
+  const moveTouchNodeDrag = useCallback((
+    sourceId: string,
+    point: { clientX: number; clientY: number },
+  ) => {
+    const element = document.elementFromPoint(point.clientX, point.clientY);
+    const surface = element?.closest<HTMLElement>("[data-mindmap-node-id]");
+    if (!surface || !svgRef.current?.contains(surface)) {
+      touchDropTargetRef.current = null;
+      setDropTarget(null);
+      return;
+    }
+
+    const targetId = surface.dataset.mindmapNodeId || "";
+    const targetDepth = Number(surface.dataset.mindmapNodeDepth || "0");
+    const targetIsSelected = selectedNodeIds.length > 1
+      && selectedNodeIds.includes(sourceId)
+      && selectedNodeIds.includes(targetId);
+    if (!targetId || targetId === sourceId || targetIsSelected) {
+      touchDropTargetRef.current = null;
+      setDropTarget(null);
+      return;
+    }
+
+    const rect = surface.getBoundingClientRect();
+    const placement: MindMapDropPlacement = targetDepth === 0
+      ? "inside"
+      : resolveMindMapDropPlacement(point.clientY, rect.top, rect.height);
+    const next = { nodeId: targetId, placement };
+    touchDropTargetRef.current = next;
+    setDropTarget((current) => (
+      current?.nodeId === next.nodeId && current.placement === next.placement
+        ? current
+        : next
+    ));
+  }, [selectedNodeIds]);
+
+  const endTouchNodeDrag = useCallback((sourceId: string) => {
+    const target = touchDropTargetRef.current;
+    if (target && target.nodeId !== sourceId) {
+      handleMoveNodes(sourceId, target.nodeId, target.placement);
+    }
+    touchDropTargetRef.current = null;
+    setDropTarget(null);
+    setDragNodeId(null);
+  }, [handleMoveNodes]);
 
   // 复制节点
   const handleCopyNode = useCallback((nodeId: string) => {
@@ -3163,7 +3280,7 @@ export default function MindMapCenter({
                     isSelected={selectedNodeIds.length > 0 ? selectedNodeIds.includes(n.id) : selectedNodeId === n.id}
                     isSearchMatch={searchResults.includes(n.id)}
                     isSearchActive={searchResults.length > 0 && searchIndex >= 0 && searchResults[searchIndex] === n.id}
-                    onDragStart={(e) => {
+                    onDragStart={n.depth === 0 ? undefined : (e) => {
                       e.stopPropagation();
                       if (!selectedNodeIds.includes(n.id)) {
                         setSelectedNodeIds([n.id]);
@@ -3208,6 +3325,14 @@ export default function MindMapCenter({
                       setDragNodeId(null);
                       setDropTarget(null);
                     }}
+                    onDragEnd={() => {
+                      setDragNodeId(null);
+                      setDropTarget(null);
+                    }}
+                    isDragging={dragNodeId === n.id}
+                    onTouchDragStart={n.depth === 0 ? undefined : () => beginTouchNodeDrag(n.id)}
+                    onTouchDragMove={n.depth === 0 ? undefined : (point) => moveTouchNodeDrag(n.id, point)}
+                    onTouchDragEnd={n.depth === 0 ? undefined : () => endTouchNodeDrag(n.id)}
                     isDragTarget={dropTarget?.nodeId === n.id}
                     dragPlacement={dropTarget?.nodeId === n.id ? dropTarget.placement : null}
                     isEditing={editingNodeId === n.id}
