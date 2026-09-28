@@ -8,8 +8,12 @@ const useSkin = readFileSync(resolve(process.cwd(), "src/hooks/useSkin.ts"), "ut
 const settings = readFileSync(resolve(process.cwd(), "src/components/SettingsModal.tsx"), "utf8");
 
 describe("app appearance bootstrap contract", () => {
-  it("boots whole-app appearance from the first main entry import", () => {
-    expect(main.trimStart().startsWith('import "./lib/runtimeCompatibility";')).toBe(true);
+  it("boots primitive compatibility before whole-app appearance", () => {
+    const trimmed = main.trimStart();
+    expect(trimmed.startsWith('import "./lib/runtimePrelude";')).toBe(true);
+    expect(trimmed.indexOf('import "./lib/runtimeCompatibility";')).toBeGreaterThan(
+      trimmed.indexOf('import "./lib/runtimePrelude";'),
+    );
     expect(runtime).toContain('import "../app-appearance.css";');
     expect(runtime).toContain('import "../app-appearance-neutral-compat.css";');
     expect(runtime).toContain("bootstrapAppAppearanceRuntime();");

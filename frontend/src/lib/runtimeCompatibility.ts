@@ -1,4 +1,4 @@
-import "./runtimePrelude";
+import { installRuntimePrelude } from "./runtimePrelude";
 import "../app-appearance.css";
 import "../app-appearance-neutral-compat.css";
 import { bootstrapAppAppearanceRuntime } from "./appAppearance";
@@ -14,6 +14,9 @@ import { migrateUnifiedTreeOnlyLayout } from "./unifiedTreeOnlyLayout";
  * dependency before this module body gets a chance to run.
  */
 export function installRuntimeCompatibility(): void {
+  // Re-run the zero-dependency prelude for direct callers/tests that deliberately remove
+  // a native method after module evaluation. It is idempotent and preserves native methods.
+  installRuntimePrelude();
   migrateUnifiedTreeOnlyLayout();
   bootstrapAppAppearanceRuntime();
   installLegacyNoteAppearanceNeutralizer();

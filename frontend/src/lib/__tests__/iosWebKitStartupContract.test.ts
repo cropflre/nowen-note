@@ -14,7 +14,8 @@ describe("iOS WebKit startup contract", () => {
 
     expect(preludeIndex).toBeGreaterThanOrEqual(0);
     expect(compatibilityIndex).toBeGreaterThan(preludeIndex);
-    expect(compatibility.startsWith('import "./runtimePrelude";')).toBe(true);
+    expect(compatibility.startsWith('import { installRuntimePrelude } from "./runtimePrelude";')).toBe(true);
+    expect(compatibility).toContain("installRuntimePrelude();");
   });
 
   it("does not depend on Promise.finally to mount the application", () => {
