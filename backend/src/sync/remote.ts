@@ -4,11 +4,11 @@ import {
   SYNC_V2_ROUTES,
 } from "./constants";
 import { SyncError } from "./errors";
-import { isSyncEntityType, isSyncOperation } from "./types";
+import { isSyncEntityType, isSyncNegotiatedEntityType, isSyncOperation } from "./types";
 import type { SyncScopeDescriptor } from "./scope";
 import type {
-  SyncChangeItem,
   SyncEntityType,
+  SyncNegotiatedEntityType,
   SyncOperation,
 } from "./types";
 
@@ -45,7 +45,12 @@ export interface RemoteChanges {
   nextSequence: number;
   hasMore: boolean;
   resetRequired: boolean;
-  items: SyncChangeItem[];
+  items: Array<{
+    sequence: number;
+    entityType: SyncNegotiatedEntityType;
+    entityId: string;
+    operation: SyncOperation;
+  }>;
 }
 
 export interface RemoteSnapshotPage {
@@ -55,7 +60,7 @@ export interface RemoteSnapshotPage {
   hasMore: boolean;
   nextCursor: string | null;
   items: Array<{
-    entityType: SyncEntityType;
+    entityType: SyncNegotiatedEntityType;
     entityId: string;
     payload: Record<string, unknown>;
   }>;
@@ -63,7 +68,7 @@ export interface RemoteSnapshotPage {
 
 export interface PushMutationPayload {
   mutationId: string;
-  entityType: SyncEntityType;
+  entityType: SyncNegotiatedEntityType;
   entityId: string;
   operation: SyncOperation;
   baseVersion?: number;
@@ -87,15 +92,28 @@ export interface RemotePushResult {
   results: PushResultItem[];
 }
 
+export interface SyncProtocolSubscription {
+  entityTypes: readonly SyncNegotiatedEntityType[];
+  deviceId?: string;
+}
+
 /** Unknown future entities must stop Pull before the caller advances its cursor or ACKs. */
-function assertSupportedItems(items: unknown, kind: "changes" | "snapshot"): void {
+function assertSupportedItems(
+  items: unknown,
+  kind: "changes" | "snapshot",
+  subscription?: SyncProtocolSubscription,
+): void {
   if (!Array.isArray(items)) throw new SyncError("SERVER_ERROR", "远端同步条目格式无效");
   for (const item of items) {
     if (!item || typeof item !== "object") {
       throw new SyncError("SERVER_ERROR", "远端同步条目格式无效");
     }
     const entry = item as Record<string, unknown>;
-    if (!isSyncEntityType(entry.entityType)) {
+    const entitySupported = subscription
+      ? isSyncNegotiatedEntityType(entry.entityType)
+        && subscription.entityTypes.includes(entry.entityType)
+      : isSyncEntityType(entry.entityType);
+    if (!entitySupported) {
       throw new SyncError("SERVER_ERROR", `不支持的同步实体：${String(entry.entityType)}`);
     }
     if (typeof entry.entityId !== "string" || !entry.entityId) {
@@ -207,16 +225,36 @@ export class SyncRemoteClient {
     }
   }
 
+  private query(
+    scopeKey: string,
+    values: Record<string, string | number | undefined>,
+    subscription?: SyncProtocolSubscription,
+  ): string {
+    const params = new URLSearchParams({ scopeKey });
+    for (const [key, value] of Object.entries(values)) {
+      if (value !== undefined) params.set(key, String(value));
+    }
+    if (subscription) {
+      params.set("entityTypes", subscription.entityTypes.join(","));
+      if (subscription.deviceId) params.set("deviceId", subscription.deviceId);
+    }
+    return `?${params.toString()}`;
+  }
+
   listScopes(): Promise<SyncScopeDescriptor[]> {
     return this.request<{ items: SyncScopeDescriptor[] }>(SYNC_V2_ROUTES.scopes, {
       method: "GET",
     }).then((response) => response.items);
   }
 
-  plan(after: number, scopeKey = SYNC_PERSONAL_SCOPE_KEY): Promise<RemotePlan> {
+  plan(
+    after: number,
+    scopeKey = SYNC_PERSONAL_SCOPE_KEY,
+    subscription?: SyncProtocolSubscription,
+  ): Promise<RemotePlan> {
     return this.request<RemotePlan>(SYNC_V2_ROUTES.plan, {
       method: "GET",
-      query: `?scopeKey=${encodeURIComponent(scopeKey)}&after=${encodeURIComponent(String(after))}`,
+      query: this.query(scopeKey, { after }, subscription),
     });
   }
 
@@ -224,13 +262,12 @@ export class SyncRemoteClient {
     after: number,
     limit?: number,
     scopeKey = SYNC_PERSONAL_SCOPE_KEY,
+    subscription?: SyncProtocolSubscription,
   ): Promise<RemoteChanges> {
-    const params = new URLSearchParams({ scopeKey, after: String(after) });
-    if (limit) params.set("limit", String(limit));
-    const query = `?${params.toString()}`;
+    const query = this.query(scopeKey, { after, limit }, subscription);
     return this.request<RemoteChanges>(SYNC_V2_ROUTES.changes, { method: "GET", query })
       .then((response) => {
-        assertSupportedItems(response.items, "changes");
+        assertSupportedItems(response.items, "changes", subscription);
         return response;
       });
   }
@@ -240,15 +277,16 @@ export class SyncRemoteClient {
     snapshotSequence: number,
     limit?: number,
     scopeKey = SYNC_PERSONAL_SCOPE_KEY,
+    subscription?: SyncProtocolSubscription,
   ): Promise<RemoteSnapshotPage> {
-    const params = new URLSearchParams({ scopeKey });
-    if (cursor) params.set("cursor", cursor);
-    if (snapshotSequence > 0) params.set("snapshotSequence", String(snapshotSequence));
-    if (limit) params.set("limit", String(limit));
-    const query = params.toString() ? `?${params.toString()}` : "";
+    const query = this.query(scopeKey, {
+      cursor: cursor || undefined,
+      snapshotSequence: snapshotSequence > 0 ? snapshotSequence : undefined,
+      limit,
+    }, subscription);
     return this.request<RemoteSnapshotPage>(SYNC_V2_ROUTES.snapshot, { method: "GET", query })
       .then((response) => {
-        assertSupportedItems(response.items, "snapshot");
+        assertSupportedItems(response.items, "snapshot", subscription);
         return response;
       });
   }
@@ -257,10 +295,11 @@ export class SyncRemoteClient {
     deviceId: string,
     mutations: PushMutationPayload[],
     scopeKey = SYNC_PERSONAL_SCOPE_KEY,
+    subscription?: SyncProtocolSubscription,
   ): Promise<RemotePushResult> {
     return this.request<RemotePushResult>(SYNC_V2_ROUTES.push, {
       method: "POST",
-      query: `?scopeKey=${encodeURIComponent(scopeKey)}`,
+      query: this.query(scopeKey, {}, subscription),
       body: { scopeKey, deviceId, mutations },
     });
   }
@@ -269,10 +308,11 @@ export class SyncRemoteClient {
     deviceId: string,
     sequence: number,
     scopeKey = SYNC_PERSONAL_SCOPE_KEY,
+    subscription?: SyncProtocolSubscription,
   ): Promise<{ lastSequence: number; accessFingerprint: string }> {
     return this.request<{ lastSequence: number; accessFingerprint: string }>(SYNC_V2_ROUTES.ack, {
       method: "POST",
-      query: `?scopeKey=${encodeURIComponent(scopeKey)}`,
+      query: this.query(scopeKey, {}, subscription),
       body: { scopeKey, deviceId, sequence },
     });
   }

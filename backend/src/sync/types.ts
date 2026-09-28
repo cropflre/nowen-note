@@ -147,7 +147,7 @@ export interface SyncOutboxRow {
   profileId: string;
   scopeKey: string;
   deviceId: string;
-  entityType: SyncEntityType;
+  entityType: SyncNegotiatedEntityType;
   entityId: string;
   operation: SyncOperation;
   baseVersion: number | null;

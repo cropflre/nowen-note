@@ -9,8 +9,10 @@ export { isLocalFirstSyncV2Enabled } from "./flag";
 
 export {
   SYNC_ENTITY_TYPES,
+  SYNC_V2_NEGOTIATED_ENTITY_TYPES,
   SYNC_OPERATIONS,
   isSyncEntityType,
+  isSyncNegotiatedEntityType,
   isSyncOperation,
 } from "./types";
 
@@ -25,6 +27,7 @@ export type {
   SyncEnginePhase,
   SyncEngineState,
   SyncEntityType,
+  SyncNegotiatedEntityType,
   SyncMutation,
   SyncOperation,
   SyncOutboxRow,
@@ -148,6 +151,7 @@ export type {
   RemotePlan,
   RemotePushResult,
   RemoteSnapshotPage,
+  SyncProtocolSubscription,
 } from "./remote";
 
 export {
@@ -298,3 +302,11 @@ export { classifyHttpStatus } from "./errors";
 
 export { SyncRealtimeSubscription } from "./realtime";
 export type { RealtimeSubscriptionOptions } from "./realtime";
+
+export {
+  runKnowledgeTreeBaseline,
+} from "./knowledgeTreeBaseline";
+export type {
+  KnowledgeTreeBaselineResult,
+  KnowledgeTreeBaselineStatus,
+} from "./knowledgeTreeBaseline";
