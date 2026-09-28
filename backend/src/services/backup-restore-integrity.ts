@@ -306,6 +306,11 @@ export async function replaceDirectoriesFromStagingSafe(
   }
 }
 
+function environmentObjectStorageEnabled(): boolean {
+  const driver = String(process.env.ATTACHMENT_STORAGE || "").trim().toLowerCase();
+  return driver === "s3" || driver === "r2" || driver === "minio";
+}
+
 function readObjectStorageEnabled(db: Database.Database): boolean {
   try {
     const row = db
@@ -359,7 +364,7 @@ export function auditAttachmentBackup(
   const db = new Database(dbPath, { readonly: true, fileMustExist: true });
   try {
     const attachmentRows = readAttachmentRows(db);
-    const objectStorageEnabled = readObjectStorageEnabled(db);
+    const objectStorageEnabled = readObjectStorageEnabled(db) || environmentObjectStorageEnabled();
     const missingDbPaths = objectStorageEnabled
       ? []
       : attachmentRows.paths.filter((attachmentPath) => (
