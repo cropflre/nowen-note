@@ -35,9 +35,31 @@ describe("MindMapEditor UX guardrails", () => {
 
   it("moves selected nodes together through the drag/drop path", () => {
     expect(source).toContain("getMovableNodeIdsForDrag");
-    expect(source).toContain("moveMindMapNodes(mapData.root, targetId, nodeIds)");
-    expect(source).toContain("handleMoveNodes(dragNodeId, n.id)");
+    expect(source).toContain("moveMindMapNodes(mapData.root, targetId, nodeIds, placement)");
+    expect(source).toContain("handleMoveNodes(dragNodeId, n.id, placement)");
     expect(source).toContain("selectedNodeIds.length > 1 && selectedNodeIds.includes(dragNodeId)");
+  });
+
+  it("supports long-press structural dragging on touch devices", () => {
+    expect(source).toContain("touchDragRef");
+    expect(source).toContain("}, 320);");
+    expect(source).toContain("document.elementFromPoint");
+    expect(source).toContain('data-mindmap-node-depth={node.depth}');
+    expect(source).toContain("beginTouchNodeDrag");
+    expect(source).toContain("moveTouchNodeDrag");
+    expect(source).toContain("endTouchNodeDrag");
+    expect(source).toContain('touchAction: isMobile ? "none" : undefined');
+  });
+
+  it("keeps desktop dragging out of edit mode and clears transient drag state", () => {
+    expect(source).toContain("draggable={!!onDragStart && !isEditing}");
+    expect(source).toContain("onDragEnd={() => {");
+    expect(source).toContain("setDragNodeId(null)");
+    expect(source).toContain("setDropTarget(null)");
+  });
+
+  it("surfaces normal mind map autosave failures instead of silently logging them", () => {
+    expect(source).toContain('toast.error(error.message || "思维导图保存失败")');
   });
 
   it("hides the single-node toolbar for multi-selection", () => {
