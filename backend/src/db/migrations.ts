@@ -65,6 +65,7 @@ import { pluginStudioMigration } from "./pluginStudioMigration.js";
 import { syncV2EntitySubscriptionMigration } from "./syncV2EntitySubscriptionMigration.js";
 import { syncV2KnowledgeTreeFeedMigration } from "./syncV2KnowledgeTreeFeedMigration.js";
 import { syncV2KnowledgeTreeOutboxMigration } from "./syncV2KnowledgeTreeOutboxMigration.js";
+import { syncV2KnowledgeTreeReadinessMigration } from "./syncV2KnowledgeTreeReadinessMigration.js";
 
 export type { Migration } from "./migrations.impl.js";
 
@@ -386,6 +387,7 @@ export const MIGRATIONS: Migration[] = [
   syncV2EntitySubscriptionMigration,
   syncV2KnowledgeTreeFeedMigration,
   syncV2KnowledgeTreeOutboxMigration,
+  syncV2KnowledgeTreeReadinessMigration,
 ].sort((a, b) => a.version - b.version);
 
 export const CURRENT_SCHEMA_VERSION: number = MIGRATIONS.reduce(

@@ -95,6 +95,7 @@ jobs:
             tests/sync-v2-entity-readiness.test.ts \
             tests/sync-v2-knowledge-tree-feed.test.ts \
             tests/sync-v2-knowledge-tree-outbox.test.ts \
+            tests/sync-v2-knowledge-tree-readiness.test.ts \
             tests/sync-v2-knowledge-tree-snapshot.test.ts \
             tests/sync-v2-knowledge-tree-structure.test.ts \
             tests/sync-v2-knowledge-tree-apply-local.test.ts \

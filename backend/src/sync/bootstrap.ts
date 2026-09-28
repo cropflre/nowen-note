@@ -51,6 +51,10 @@ import { applyRemoteChanges } from "./applyLocal";
 import type { RemoteEntityPayload } from "./applyLocal";
 import type { SyncRemoteClient } from "./remote";
 import type { SyncEntityType } from "./types";
+import {
+  resetAllKnowledgeTreeSyncReadiness,
+  resetKnowledgeTreeSyncReadiness,
+} from "./knowledgeTreeReadiness";
 
 export type BootstrapStatus =
   | "pending"
@@ -162,6 +166,10 @@ export function markSyncNeedsReconcile(db: Database.Database = getDb()): number 
              bootstrapError = '恢复备份后需要重新对账',
              updatedAt = datetime('now')
     `).run();
+
+    // 备份恢复意味着所有 Profile 的树结构基线也不再可信。
+    // 老备份没有 readiness 表时 helper 会安全 no-op。
+    resetAllKnowledgeTreeSyncReadiness(db);
 
     // 游标归零：下次同步从头对账。
     // 不删除 sync_state 行，保留 lastSyncAt 等诊断信息。
@@ -800,6 +808,7 @@ export function isBootstrapReady(db: Database.Database, profileId: string): bool
  * 只清 Bootstrap 进度，**不动任何本地业务数据、不动 Outbox、不动冲突台账**。
  */
 export function resetBootstrap(db: Database.Database, profileId: string): void {
+  resetKnowledgeTreeSyncReadiness(db, profileId);
   db.prepare(`
     UPDATE sync_profiles
     SET bootstrapStatus = 'pending',
