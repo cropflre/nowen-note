@@ -20,6 +20,7 @@ const C_NOTE_ID = "search-c";
 const META_NOTE_ID = "search-meta";
 const MUTABLE_NOTE_ID = "search-mutable";
 const STALE_NOTE_ID = "search-stale-content";
+const MINDMAP_ID = "11111111-2222-4333-8444-555555555555";
 
 let app: Hono;
 let getDb: () => Database.Database;
@@ -100,6 +101,13 @@ test.before(async () => {
     "markdown",
     "# Historical note\n\nhistoricalrepairkeyword",
   );
+  db().prepare("INSERT INTO mindmaps (id, userId, title, data) VALUES (?, ?, ?, ?)")
+    .run(
+      MINDMAP_ID,
+      OWNER_ID,
+      "知识星图 唯一脑图检索词",
+      JSON.stringify({ root: { id: "root", text: "知识星图", children: [] } }),
+    );
 
   db().prepare("INSERT INTO tags (id, userId, name, color) VALUES (?, ?, ?, ?)")
     .run("search-tag", OWNER_ID, "项目代号X9", "#58a6ff");
@@ -192,6 +200,22 @@ test("tag, attachment filename and extracted attachment text expose their hit re
   assert.equal(contentResult.id, META_NOTE_ID);
   assert.equal(contentResult.matchReason, "attachment");
   assert.match(contentResult.snippetHtml, /<mark>火星计划<\/mark>/);
+});
+
+test("mindmap titles participate in global search without leaking inaccessible maps", async () => {
+  const owner = await search(OWNER_ID, "唯一脑图检索词");
+  assert.equal(owner.status, 200);
+  const result = owner.json.find((item) => item.id === MINDMAP_ID);
+  assert.ok(result);
+  assert.equal(result.resourceType, "mindmap");
+  assert.equal(result.contentFormat, "mindmap");
+  assert.equal(result.matchedField, "title");
+  assert.equal(result.notebookId, "");
+  assert.match(result.titleHtml, /<mark>唯一脑图检索词<\/mark>/);
+
+  const other = await search(OTHER_ID, "唯一脑图检索词");
+  assert.equal(other.status, 200);
+  assert.equal(other.json.some((item) => item.id === MINDMAP_ID), false);
 });
 
 test("editing, trashing, restoring and deleting a note never leaves ghost results", async () => {

@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import {
   ArrowDown,
   ArrowUp,
+  BrainCircuit,
   Clock3,
   FileCode2,
   FileText,
@@ -21,6 +22,7 @@ import { useApp, useAppActions } from "@/store/AppContext";
 import { useRailMode } from "@/hooks/useRailMode";
 import { useNoteLoader } from "@/hooks/useNoteLoader";
 import { api } from "@/lib/api";
+import { pushMindMapAppPath } from "@/lib/mindMapDeepLink";
 import { searchIncludingExcludedNotebooks } from "@/lib/searchNotebookExclusions";
 import { highlightTextNode, sanitizeSearchHtml } from "@/lib/searchHighlight";
 import { cn } from "@/lib/utils";
@@ -111,7 +113,8 @@ export default function SearchCenter() {
     noResultDescription: "尝试更换关键词，或切换到“全部”范围。",
     loadFailed: "搜索失败，请稍后重试",
     unknownNotebook: "未知笔记本",
-    openFailed: "打开笔记失败",
+    mindmap: "思维导图",
+    openFailed: "打开内容失败",
     close: "退出搜索",
     shortcut: "↑↓ 选择 · Enter 打开 · Esc 退出",
   } : {
@@ -136,7 +139,8 @@ export default function SearchCenter() {
     noResultDescription: "Try another keyword or switch the scope back to All.",
     loadFailed: "Search failed. Please try again.",
     unknownNotebook: "Unknown notebook",
-    openFailed: "Failed to open note",
+    mindmap: "Mind map",
+    openFailed: "Failed to open content",
     close: "Exit search",
     shortcut: "↑↓ select · Enter open · Esc exit",
   }), [isZh]);
@@ -231,7 +235,9 @@ export default function SearchCenter() {
       return path;
     };
 
-    for (const result of results) resolve(result.notebookId, result.notebookName);
+    for (const result of results) {
+      if (result.resourceType !== "mindmap") resolve(result.notebookId, result.notebookName);
+    }
     return paths;
   }, [copy.unknownNotebook, results, state.notebooks]);
 
@@ -286,6 +292,15 @@ export default function SearchCenter() {
 
   const openResult = useCallback(async (result: EnhancedSearchResult) => {
     setOpeningId(result.id);
+    if (result.resourceType === "mindmap") {
+      actions.clearSelectedTags();
+      actions.setSearchQuery("");
+      actions.setMobileSidebar(false);
+      updateMountedSidebarSearch("");
+      pushMindMapAppPath(result.id);
+      setOpeningId(null);
+      return;
+    }
     actions.setSelectedNotebook(result.notebookId);
     actions.clearSelectedTags();
     actions.setSearchQuery("");
@@ -506,7 +521,8 @@ export default function SearchCenter() {
                   : result.matchedField === "content"
                     ? copy.contentMatch
                     : copy.bothMatch;
-                const markdown = result.contentFormat === "markdown";
+                const mindmap = result.resourceType === "mindmap";
+                const markdown = !mindmap && result.contentFormat === "markdown";
 
                 return (
                   <button
@@ -529,9 +545,17 @@ export default function SearchCenter() {
                     <div className="flex items-start gap-3">
                       <div className={cn(
                         "mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl",
-                        markdown ? "bg-emerald-500/10 text-emerald-500" : "bg-accent-primary/10 text-accent-primary",
+                        mindmap
+                          ? "bg-violet-500/10 text-violet-500"
+                          : markdown
+                            ? "bg-emerald-500/10 text-emerald-500"
+                            : "bg-accent-primary/10 text-accent-primary",
                       )}>
-                        {markdown ? <FileCode2 size={17} /> : <FileText size={17} />}
+                        {mindmap
+                          ? <BrainCircuit size={17} />
+                          : markdown
+                            ? <FileCode2 size={17} />
+                            : <FileText size={17} />}
                       </div>
 
                       <div className="min-w-0 flex-1">
@@ -545,10 +569,17 @@ export default function SearchCenter() {
                               )}
                             </h3>
                             <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-tx-tertiary">
-                              <span className="flex min-w-0 max-w-full items-center gap-1" title={notebookPaths.get(result.notebookId)}>
-                                <Folder size={11} className="shrink-0" />
-                                <span className="truncate">{notebookPaths.get(result.notebookId) || result.notebookName || copy.unknownNotebook}</span>
-                              </span>
+                              {mindmap ? (
+                                <span className="flex min-w-0 max-w-full items-center gap-1">
+                                  <BrainCircuit size={11} className="shrink-0" />
+                                  <span className="truncate">{copy.mindmap}</span>
+                                </span>
+                              ) : (
+                                <span className="flex min-w-0 max-w-full items-center gap-1" title={notebookPaths.get(result.notebookId)}>
+                                  <Folder size={11} className="shrink-0" />
+                                  <span className="truncate">{notebookPaths.get(result.notebookId) || result.notebookName || copy.unknownNotebook}</span>
+                                </span>
+                              )}
                               <span className="flex items-center gap-1 whitespace-nowrap">
                                 <Clock3 size={11} />
                                 {formatResultDate(result.updatedAt, language)}

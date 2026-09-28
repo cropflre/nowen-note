@@ -1690,12 +1690,15 @@ export const api = {
     const data = await request<any>(`/search?${params.toString()}`);
     // 后端返回数组或 { items: [...] }，兼容处理
     const items = Array.isArray(data) ? data : (data?.items || []);
-    return items.slice(0, limit).map((item: any) => ({
+    return items
+      .filter((item: any) => item?.resourceType !== "mindmap")
+      .slice(0, limit)
+      .map((item: any) => ({
       id: item.id,
       title: item.title,
       notebookId: item.notebookId,
-      updatedAt: item.updatedAt,
-    }));
+        updatedAt: item.updatedAt,
+      }));
   },
   /**
    * 释放笔记的 Y.js 房间：销毁服务端内存 Doc，并清空 note_yupdates / note_ysnapshots。

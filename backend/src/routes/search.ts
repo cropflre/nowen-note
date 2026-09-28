@@ -60,6 +60,7 @@ type MatchSource = {
 };
 
 type SearchResultWithScore = Omit<SearchRow, "contentText" | "tagText" | "attachmentNames" | "attachmentText"> & {
+  resourceType: "note" | "mindmap";
   snippet: string;
   titleHtml: string;
   snippetHtml: string;
@@ -669,6 +670,7 @@ function buildSearchResult(
     - Math.min(matchCount, 20) / 100;
 
   return {
+    resourceType: "note",
     id: row.id,
     userId: row.userId,
     notebookId: row.notebookId,
@@ -690,6 +692,78 @@ function buildSearchResult(
   };
 }
 
+type MindMapSearchRow = {
+  id: string;
+  userId: string;
+  workspaceId: string | null;
+  title: string;
+  updatedAt: string;
+};
+
+function fetchMindMapTitleResults(
+  db: Database.Database,
+  userId: string,
+  workspaceId: string | undefined,
+  terms: string[],
+  normalizedQuery: string,
+): SearchResultWithScore[] {
+  const normalizedTerms = terms.map(normalizeSearchText).filter(Boolean);
+  if (normalizedTerms.length === 0) return [];
+
+  const workspaceScope = workspaceId && workspaceId !== "personal";
+  const scopeSql = workspaceScope
+    ? "m.workspaceId = ?"
+    : "m.workspaceId IS NULL AND m.userId = ?";
+  const scopeParams = workspaceScope ? [workspaceId] : [userId];
+  const termSql = normalizedTerms
+    .map(() => "instr(nowen_search_normalize(COALESCE(m.title, '')), ?) > 0")
+    .join(" AND ");
+
+  const rows = db.prepare(`
+    SELECT m.id, m.userId, m.workspaceId, m.title, m.updatedAt
+    FROM mindmaps m
+    WHERE ${scopeSql}
+      AND ${termSql}
+    ORDER BY m.updatedAt DESC, m.id ASC
+    LIMIT 200
+  `).all(...scopeParams, ...normalizedTerms) as MindMapSearchRow[];
+
+  return rows
+    .filter((row) => {
+      const access = resolveResourceKnowledgeAccess("mindmap", row.id, userId, db);
+      return hasKnowledgeCapability(access, "canView");
+    })
+    .map((row) => {
+      const normalizedTitle = normalizeSearchText(row.title);
+      const matchCount = normalizedTerms.reduce(
+        (sum, term) => sum + countNormalizedOccurrences(normalizedTitle, term),
+        0,
+      );
+      const exactQuery = normalizedQuery ? normalizedTitle.includes(normalizedQuery) : false;
+      return {
+        resourceType: "mindmap" as const,
+        id: row.id,
+        userId: row.userId,
+        notebookId: "",
+        workspaceId: row.workspaceId,
+        title: row.title,
+        updatedAt: row.updatedAt,
+        isFavorite: 0,
+        isPinned: 0,
+        contentFormat: "mindmap",
+        notebookName: null,
+        snippet: "",
+        titleHtml: markPlainText(row.title, terms),
+        snippetHtml: "",
+        matchedField: "title" as const,
+        matchedFields: ["title" as const],
+        matchReason: "title" as const,
+        matchCount,
+        score: (exactQuery ? -5 : 0) - Math.min(matchCount, 20) / 100,
+      };
+    });
+}
+
 function setSearchTimingHeaders(
   c: Context,
   timings: {
@@ -699,11 +773,15 @@ function setSearchTimingHeaders(
     rankDurationMs: number;
     renderDurationMs: number;
     totalDurationMs: number;
+    additionalCandidateCount?: number;
   },
 ): void {
   const { candidate } = timings;
   c.header("X-Search-Index-Status", candidate.degraded ? "degraded" : "ok");
-  c.header("X-Search-Candidate-Count", String(candidate.ids.size));
+  c.header(
+    "X-Search-Candidate-Count",
+    String(candidate.ids.size + (timings.additionalCandidateCount || 0)),
+  );
   c.header("X-Search-Literal-Fallback", candidate.literalFallback ? "1" : "0");
   c.header(
     "Server-Timing",
@@ -796,6 +874,13 @@ app.get("/", (c) => {
   const candidate = collectCandidates(db, terms, scope, userId);
   candidate.ids = filterVisibleCandidates(db, candidate.ids, userId);
   const candidateDurationMs = performance.now() - candidateStarted;
+  const mindMapResults = fetchMindMapTitleResults(
+    db,
+    userId,
+    workspaceId,
+    terms,
+    normalizedQuery,
+  );
 
   if (candidate.ids.size === 0) {
     setSearchTimingHeaders(c, {
@@ -805,8 +890,14 @@ app.get("/", (c) => {
       rankDurationMs: 0,
       renderDurationMs: 0,
       totalDurationMs: performance.now() - totalStarted,
+      additionalCandidateCount: mindMapResults.length,
     });
-    return c.json([]);
+    return c.json(
+      mindMapResults
+        .sort((a, b) => a.score - b.score || b.updatedAt.localeCompare(a.updatedAt))
+        .slice(0, 100)
+        .map(({ score: _score, ...row }) => row),
+    );
   }
 
   const fetchStarted = performance.now();
@@ -824,9 +915,12 @@ app.get("/", (c) => {
   const rankDurationMs = performance.now() - rankStarted;
 
   const renderStarted = performance.now();
-  const results = rows
-    .map((row) => buildSearchResult(row, terms, normalizedQuery, fts.scores.get(row.id)))
-    .filter((row): row is SearchResultWithScore => Boolean(row))
+  const results = [
+    ...rows
+      .map((row) => buildSearchResult(row, terms, normalizedQuery, fts.scores.get(row.id)))
+      .filter((row): row is SearchResultWithScore => Boolean(row)),
+    ...mindMapResults,
+  ]
     .sort((a, b) => a.score - b.score || b.updatedAt.localeCompare(a.updatedAt))
     .slice(0, 100)
     .map(({ score: _score, ...row }) => row);
@@ -839,6 +933,7 @@ app.get("/", (c) => {
     rankDurationMs,
     renderDurationMs,
     totalDurationMs: performance.now() - totalStarted,
+    additionalCandidateCount: mindMapResults.length,
   });
   return c.json(results);
 });

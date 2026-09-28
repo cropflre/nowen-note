@@ -13,15 +13,18 @@ on:
       - "backend/package.json"
       - "backend/package-lock.json"
       - "frontend/src/components/SearchCenter.tsx"
+      - "frontend/src/types/index.ts"
       - "frontend/src/lib/api.ts"
       - "frontend/src/lib/api.impl.ts"
       - "frontend/src/lib/searchRequestPolicy.ts"
       - "frontend/src/lib/__tests__/searchRequestPolicy.test.ts"
+      - "packages/nowen-sdk/src/types.ts"
       - "frontend/package.json"
       - "frontend/package-lock.json"
   push:
     branches:
       - main
+      - release/v1.5.0
     paths:
       - ".github/workflows/search-regression.yml"
       - "backend/src/routes/search.ts"
@@ -32,10 +35,12 @@ on:
       - "backend/package.json"
       - "backend/package-lock.json"
       - "frontend/src/components/SearchCenter.tsx"
+      - "frontend/src/types/index.ts"
       - "frontend/src/lib/api.ts"
       - "frontend/src/lib/api.impl.ts"
       - "frontend/src/lib/searchRequestPolicy.ts"
       - "frontend/src/lib/__tests__/searchRequestPolicy.test.ts"
+      - "packages/nowen-sdk/src/types.ts"
       - "frontend/package.json"
       - "frontend/package-lock.json"
 
