@@ -2330,6 +2330,49 @@ export const api = {
     const filename = filenameMatch ? decodeURIComponent(filenameMatch[1].replace(/"/g, "")) : "nowen-package.nowen.zip";
     return { blob, filename };
   },
+  resolveImportOrigins: (
+    sourceType: string,
+    externalIds: string[],
+  ) => {
+    const ws = getCurrentWorkspace();
+    const qs = ws && ws !== "personal" ? `?workspaceId=${encodeURIComponent(ws)}` : "";
+    return request<{
+      origins: Record<string, {
+        externalId: string;
+        noteId: string;
+        contentHash: string | null;
+        metadata: string | null;
+        title: string;
+        notebookId: string;
+        version: number;
+        updatedAt: string;
+        isTrashed: number;
+      }>;
+    }>(`/export/import/origins/resolve${qs}`, {
+      method: "POST",
+      body: JSON.stringify({ sourceType, externalIds }),
+    });
+  },
+
+  registerImportOrigin: (input: {
+    sourceType: string;
+    externalId: string;
+    noteId: string;
+    contentHash?: string | null;
+    metadata?: unknown;
+  }) => {
+    const ws = getCurrentWorkspace();
+    const qs = ws && ws !== "personal" ? `?workspaceId=${encodeURIComponent(ws)}` : "";
+    return request<{
+      created: boolean;
+      conflict: boolean;
+      noteId: string;
+    }>(`/export/import/origins/register${qs}`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    });
+  },
+
   importNotes: async (
     notes: ImportNotePayload[],
     notebookId?: string,
