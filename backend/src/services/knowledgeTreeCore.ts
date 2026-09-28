@@ -32,6 +32,7 @@ export interface KnowledgeTreeNode {
   isLocked?: number;
   isPasswordProtected?: number;
   contentFormat?: string | null;
+  noteType?: string | null;
   sortOrder: number;
   isExpanded: number;
   isDeleted: number;
@@ -172,6 +173,7 @@ export function listKnowledgeTree(input: {
     SELECT node.id, node.userId, node.workspaceId, node.scopeKey, node.parentId,
            node.nodeType, node.resourceType, node.resourceId, node.sortOrder,
            node.isExpanded, node.isDeleted, node.deletedAt, node.createdAt, node.updatedAt,
+           note.contentFormat AS contentFormat, note.note_type AS noteType,
            ${titleExpression()} AS title,
            (SELECT COUNT(*) FROM knowledge_tree_nodes child
              WHERE child.parentId = node.id AND child.isDeleted = 0) AS childCount
@@ -249,7 +251,7 @@ export function createKnowledgeChild(input: {
   actorUserId: string;
   workspaceId: string | null;
   parentId: string | null;
-  nodeType: "folder" | "note" | "markdown" | "word" | "mindmap";
+  nodeType: "folder" | "note" | "markdown" | "word" | "mindmap" | "sheet";
   title: string;
   db?: Database.Database;
 }): KnowledgeTreeNode {
@@ -265,7 +267,15 @@ export function createKnowledgeChild(input: {
     throw new KnowledgeTreeError("KNOWLEDGE_CAPABILITY_FORBIDDEN", 403, "没有在此处新建内容的权限", { required: "canCreate" });
   }
 
-  const title = input.title.trim() || (input.nodeType === "folder" ? "新建文件夹" : input.nodeType === "mindmap" ? "无标题导图" : "无标题笔记");
+  const title = input.title.trim() || (
+    input.nodeType === "folder"
+      ? "新建文件夹"
+      : input.nodeType === "mindmap"
+        ? "无标题导图"
+        : input.nodeType === "sheet"
+          ? "无标题表格"
+          : "无标题笔记"
+  );
   const key = expectedScope;
   const sortOrder = maxSortOrder(db, key, input.parentId);
   let createdNode: NodeRow | null = null;
@@ -292,7 +302,7 @@ export function createKnowledgeChild(input: {
       }
       const noteId = uuid();
       const contentFormat = input.nodeType === "markdown" ? "markdown" : "tiptap-json";
-      const noteType = input.nodeType === "word" ? "word" : "normal";
+      const noteType = input.nodeType === "word" ? "word" : input.nodeType === "sheet" ? "sheet" : "normal";
       const content = contentFormat === "markdown" ? `# ${title}\n\n` : "{}";
       db.prepare(`
         INSERT INTO notes (
@@ -303,6 +313,26 @@ export function createKnowledgeChild(input: {
         noteId, resourceOwnerUserId, normalizedWorkspaceId, notebookId, title,
         content, contentFormat, noteType, sortOrder,
       );
+      if (input.nodeType === "sheet") {
+        db.prepare(`
+          INSERT INTO sheets (noteId, userId, workspaceId, data)
+          VALUES (?, ?, ?, ?)
+        `).run(
+          noteId,
+          resourceOwnerUserId,
+          normalizedWorkspaceId,
+          JSON.stringify({
+            version: 1,
+            rows: Array.from({ length: 20 }, (_, index) => ({ id: `r${index + 1}`, height: 32 })),
+            columns: Array.from({ length: 8 }, (_, index) => ({
+              id: `c${index + 1}`,
+              width: 120,
+              title: String.fromCharCode(65 + index),
+            })),
+            cells: {},
+          }),
+        );
+      }
       createdNode = nodeForResource(db, "note", noteId);
     }
 
@@ -327,6 +357,8 @@ export function createKnowledgeChild(input: {
     ...row,
     title,
     childCount: 0,
+    contentFormat: input.nodeType === "markdown" ? "markdown" : input.nodeType === "folder" || input.nodeType === "mindmap" ? undefined : "tiptap-json",
+    noteType: input.nodeType === "sheet" ? "sheet" : input.nodeType === "word" ? "word" : undefined,
     access: resolveKnowledgeNodeAccess(row.id, input.actorUserId, db),
   };
 }
