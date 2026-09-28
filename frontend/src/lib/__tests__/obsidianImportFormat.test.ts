@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const importNotesMock = vi.fn();
 const updateNoteMock = vi.fn();
@@ -50,7 +50,7 @@ function scanFor(markdown: string) {
 }
 
 describe("Obsidian import target format", () => {
-  afterEach(() => {
+  beforeEach(() => {
     importNotesMock.mockReset();
     updateNoteMock.mockReset();
     getNoteMock.mockReset();
