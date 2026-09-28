@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 
 import { getSheet, saveSheet } from "@/lib/sheetApi";
+import { createSheetXlsx, parseSheetXlsx, XLSX_MIME } from "@/lib/sheetXlsx";
 import {
   addSheetColumn,
   addSheetRow,
@@ -64,6 +65,7 @@ export default function SheetEditor({ noteId, onRequestClose }: SheetEditorProps
   const updatedAtRef = useRef("");
   const dataRef = useRef<SheetDataModel | null>(null);
   const csvInputRef = useRef<HTMLInputElement>(null);
+  const xlsxInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => { dataRef.current = data; }, [data]);
   useEffect(() => { updatedAtRef.current = updatedAt; }, [updatedAt]);
@@ -165,6 +167,38 @@ export default function SheetEditor({ noteId, onRequestClose }: SheetEditorProps
     anchor.click();
     URL.revokeObjectURL(href);
   }, [data, title]);
+
+  const exportXlsx = useCallback(async () => {
+    if (!data) return;
+    try {
+      const buffer = await createSheetXlsx(data, title || "轻量表格");
+      const href = URL.createObjectURL(new Blob([buffer], { type: XLSX_MIME }));
+      const anchor = document.createElement("a");
+      anchor.href = href;
+      anchor.download = `${(title || "轻量表格").replace(/[\\/:*?"<>|]+/g, "_")}.xlsx`;
+      anchor.click();
+      URL.revokeObjectURL(href);
+    } catch (error: any) {
+      toast.error(error?.message || "XLSX 导出失败");
+    }
+  }, [data, title]);
+
+  const importXlsx = useCallback(async (file: File | undefined) => {
+    if (!file || !canEdit) return;
+    try {
+      const imported = await parseSheetXlsx(file);
+      mutate(() => imported);
+      setFilterQuery("");
+      setSelection(imported.rows[0] && imported.columns[0]
+        ? { rowId: imported.rows[0].id, columnId: imported.columns[0].id }
+        : null);
+      toast.success(`已导入 XLSX：${imported.rows.length} 行 × ${imported.columns.length} 列`);
+    } catch (error: any) {
+      toast.error(error?.message || "XLSX 导入失败");
+    } finally {
+      if (xlsxInputRef.current) xlsxInputRef.current.value = "";
+    }
+  }, [canEdit, mutate]);
 
   const importCsv = useCallback(async (file: File | undefined) => {
     if (!file || !canEdit) return;
@@ -272,8 +306,17 @@ export default function SheetEditor({ noteId, onRequestClose }: SheetEditorProps
             className="hidden"
             onChange={(event) => void importCsv(event.target.files?.[0])}
           />
+          <input
+            ref={xlsxInputRef}
+            type="file"
+            accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            className="hidden"
+            onChange={(event) => void importXlsx(event.target.files?.[0])}
+          />
           <button disabled={!canEdit} className="sheet-tool" onClick={() => csvInputRef.current?.click()}><Upload size={14} />导入 CSV</button>
+          <button disabled={!canEdit} className="sheet-tool" onClick={() => xlsxInputRef.current?.click()}><Upload size={14} />导入 XLSX</button>
           <button className="sheet-tool" onClick={exportCsv}><Download size={14} />导出 CSV</button>
+          <button className="sheet-tool" onClick={() => void exportXlsx()}><Download size={14} />导出 XLSX</button>
         </span>
       </div>
 

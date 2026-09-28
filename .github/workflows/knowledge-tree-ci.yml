@@ -34,7 +34,7 @@ on:
       - "frontend/src/components/KnowledgeTreeDrawer.tsx"
       - "frontend/src/components/SheetEditor.tsx"
       - "frontend/src/lib/sheet*.ts"
-      - "frontend/src/lib/__tests__/sheetModel.test.ts"
+      - "frontend/src/lib/__tests__/sheet*.test.ts"
       - "frontend/src/components/MobileDrawerUxBridge.tsx"
       - "frontend/src/lib/knowledgeTree*.ts"
       - "frontend/src/lib/__tests__/knowledgeTree*.test.ts"
@@ -67,7 +67,7 @@ on:
       - "frontend/src/components/KnowledgeTreeDrawer.tsx"
       - "frontend/src/components/SheetEditor.tsx"
       - "frontend/src/lib/sheet*.ts"
-      - "frontend/src/lib/__tests__/sheetModel.test.ts"
+      - "frontend/src/lib/__tests__/sheet*.test.ts"
       - "frontend/src/components/MobileDrawerUxBridge.tsx"
       - "frontend/src/lib/knowledgeTree*.ts"
       - "frontend/src/lib/__tests__/knowledgeTree*.test.ts"
@@ -208,6 +208,7 @@ jobs:
           src/components/__tests__/MindMapOutlineKeyboard.test.ts
           src/lib/__tests__/editorWorkspaceLayout.test.ts
           src/lib/__tests__/sheetModel.test.ts
+          src/lib/__tests__/sheetXlsx.test.ts
       - name: Frontend typecheck
         if: always()
         run: npx tsc -b
