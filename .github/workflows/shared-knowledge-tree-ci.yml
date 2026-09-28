@@ -1,6 +1,19 @@
 name: Shared Knowledge Tree CI
 
 on:
+  push:
+    branches:
+      - main
+      - release/v1.5.0
+    paths:
+      - 'backend/src/services/notebookPublicationResources.ts'
+      - 'backend/src/runtime/notebook-publication.ts'
+      - 'backend/tests/notebook-publication-resources.test.ts'
+      - 'frontend/src/lib/notebookPublicationApi.ts'
+      - 'frontend/src/components/PublicNotebookView.tsx'
+      - 'frontend/src/components/PublicKnowledgeResourceRenderer.tsx'
+      - 'frontend/src/components/PublicKnowledgeResourceRenderer.tsx'
+      - '.github/workflows/shared-knowledge-tree-ci.yml'
   pull_request:
     branches: [main]
     paths:
