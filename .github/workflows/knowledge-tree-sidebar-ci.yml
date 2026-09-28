@@ -18,6 +18,7 @@ on:
       - 'frontend/src/lib/rootDocumentCreateBridge.ts'
       - 'frontend/src/lib/rootDocumentCreatePolicy.ts'
       - 'frontend/src/lib/toast.ts'
+      - 'frontend/src/lib/__tests__/knowledgeTreeNodeMenu.test.tsx'
       - '.github/workflows/knowledge-tree-sidebar-ci.yml'
   pull_request:
     branches: [main]

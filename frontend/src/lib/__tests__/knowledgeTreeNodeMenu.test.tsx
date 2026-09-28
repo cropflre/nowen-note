@@ -70,14 +70,14 @@ describe("knowledge tree node menu", () => {
     ]));
   });
 
-  it("opens and moves mindmaps without offering note-only actions", () => {
+  it("uses the unified open, rename, move and delete lifecycle for mindmaps", () => {
     const actions = ids(buildKnowledgeTreeNodeMenuItems(node({
       id: "mindmap:m1",
       nodeType: "mindmap",
       resourceType: "mindmap",
       resourceId: "m1",
     }), null));
-    expect(actions).toEqual(["open", "rename", "move"]);
+    expect(actions).toEqual(["open", "rename", "move", "delete"]);
   });
 
   it("restores personal document flags and export formats", () => {
