@@ -188,6 +188,8 @@ jobs:
           src/lib/__tests__/knowledgeTreePerformance.test.ts
           src/lib/__tests__/sharedKnowledgeTree.test.ts
           src/lib/__tests__/knowledgeTreeSort.test.ts
+          src/components/__tests__/MindMapMoveNodes.test.ts
+          src/components/__tests__/MindMapOutlineKeyboard.test.ts
           src/lib/__tests__/editorWorkspaceLayout.test.ts
       - name: Frontend typecheck
         if: always()

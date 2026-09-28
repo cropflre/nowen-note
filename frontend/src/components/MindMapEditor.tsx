@@ -189,6 +189,19 @@ export function hitTestSelectionElements(
 }
 
 export type MindMapMoveRejectReason = "self" | "target-selected" | "descendant";
+export type MindMapDropPlacement = "before" | "inside" | "after";
+
+export function resolveMindMapDropPlacement(
+  clientY: number,
+  top: number,
+  height: number,
+): MindMapDropPlacement {
+  if (!Number.isFinite(height) || height <= 0) return "inside";
+  const ratio = (clientY - top) / height;
+  if (ratio < 0.28) return "before";
+  if (ratio > 0.72) return "after";
+  return "inside";
+}
 
 function cloneMindMapNode(node: MindMapNode): MindMapNode {
   return {
@@ -284,14 +297,47 @@ function containsMindMapNode(root: MindMapNode, nodeId: string): boolean {
   return root.id === nodeId || root.children.some((child) => containsMindMapNode(child, nodeId));
 }
 
-export function moveMindMapNodes(root: MindMapNode, targetId: string, nodeIds: string[]): MindMapNode {
+function insertMindMapNodesRelative(
+  root: MindMapNode,
+  targetId: string,
+  nodes: MindMapNode[],
+  placement: Exclude<MindMapDropPlacement, "inside">,
+): MindMapNode {
+  const targetIndex = root.children.findIndex((child) => child.id === targetId);
+  if (targetIndex >= 0) {
+    const insertAt = placement === "before" ? targetIndex : targetIndex + 1;
+    return {
+      ...root,
+      children: [
+        ...root.children.slice(0, insertAt),
+        ...nodes,
+        ...root.children.slice(insertAt),
+      ],
+    };
+  }
+  return {
+    ...root,
+    children: root.children.map((child) =>
+      insertMindMapNodesRelative(child, targetId, nodes, placement)),
+  };
+}
+
+export function moveMindMapNodes(
+  root: MindMapNode,
+  targetId: string,
+  nodeIds: string[],
+  placement: MindMapDropPlacement = "inside",
+): MindMapNode {
   if (!containsMindMapNode(root, targetId)) return root;
   const movingIds = new Set(nodeIds);
   const nodesToMove = collectNodesInTreeOrder(root, movingIds);
   if (nodesToMove.length === 0) return root;
 
   const newRoot = removeMindMapNodes(root, movingIds);
-  return appendMindMapChildren(newRoot, targetId, nodesToMove);
+  if (placement === "inside" || targetId === root.id) {
+    return appendMindMapChildren(newRoot, targetId, nodesToMove);
+  }
+  return insertMindMapNodesRelative(newRoot, targetId, nodesToMove, placement);
 }
 
 /** Shift+Tab: move a node immediately after its parent, preserving its subtree. */
@@ -616,8 +662,8 @@ const NodeBox = React.memo(function NodeBox({
   node, isSelected, isEditing, editValue,
   onSelect, onDoubleClick, onEditChange, onEditSubmit,
   onToggleCollapse, isMobile, onContextMenu, nodeData,
-  markerIcons, isSearchMatch, isSearchActive, onDragStart, onDragOver, onDragLeave, onDrop, isDragTarget,
-  onResizeStart,
+  markerIcons, isSearchMatch, isSearchActive, onDragStart, onDragOver, onDragLeave, onDrop,
+  isDragTarget, dragPlacement, onResizeStart,
 }: {
   node: LayoutNode;
   isSelected: boolean;
@@ -639,6 +685,7 @@ const NodeBox = React.memo(function NodeBox({
   onDragLeave?: (e: React.DragEvent) => void;
   onDrop?: (e: React.DragEvent) => void;
   isDragTarget?: boolean;
+  dragPlacement?: MindMapDropPlacement | null;
   onResizeStart?: (e: React.PointerEvent<HTMLButtonElement>) => void;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
@@ -669,9 +716,17 @@ const NodeBox = React.memo(function NodeBox({
         <div
           data-mindmap-node-id={node.id}
           data-mindmap-node-surface="true"
+          data-mindmap-drop-placement={isDragTarget ? dragPlacement ?? undefined : undefined}
           className={cn(
             "relative flex items-center h-full px-3 rounded-[12px] cursor-pointer select-none transition-colors duration-150 ease-out text-sm font-medium whitespace-nowrap overflow-hidden group",
-            isSearchMatch && "ring-2 ring-amber-400/70", isSearchActive && "ring-2 ring-amber-500 shadow-lg shadow-amber-500/20", isDragTarget && "ring-2 ring-emerald-500 bg-emerald-50/50 dark:bg-emerald-900/20"
+            isSearchMatch && "ring-2 ring-amber-400/70",
+            isSearchActive && "ring-2 ring-amber-500 shadow-lg shadow-amber-500/20",
+            isDragTarget && dragPlacement === "inside"
+              && "ring-2 ring-emerald-500 bg-emerald-50/50 dark:bg-emerald-900/20",
+            isDragTarget && dragPlacement === "before"
+              && "before:absolute before:inset-x-1 before:top-0 before:h-0.5 before:bg-emerald-500",
+            isDragTarget && dragPlacement === "after"
+              && "after:absolute after:inset-x-1 after:bottom-0 after:h-0.5 after:bg-emerald-500",
           )}
           style={{
             width: "100%",
@@ -1050,7 +1105,10 @@ export default function MindMapCenter({
   const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([]);
   const [clipboard, setClipboard] = useState<{ node: MindMapNode; isCut: boolean } | null>(null);
   const [dragNodeId, setDragNodeId] = useState<string | null>(null);
-  const [dropTargetId, setDropTargetId] = useState<string | null>(null);
+  const [dropTarget, setDropTarget] = useState<{
+    nodeId: string;
+    placement: MindMapDropPlacement;
+  } | null>(null);
   const [focusedNodeId, setFocusedNodeId] = useState<string | null>(null);
   useEffect(() => { setSelectedNodeIds([]); setClipboard(null); setFocusedNodeId(null); }, [activeMap?.id]);
   const [editingNodeId, setEditingNodeId] = useState<string | null>(null);
@@ -2067,21 +2125,25 @@ export default function MindMapCenter({
     // tap 由 onClick 处理
   }, []);
 
-  // 拖拽移动节点到目标节点下，兼容单选和多选
-  const handleMoveNodes = useCallback((sourceId: string, targetId: string) => {
+  // 拖拽支持 before / inside / after：既可改父子关系，也可精确调整同级顺序。
+  const handleMoveNodes = useCallback((
+    sourceId: string,
+    targetId: string,
+    placement: MindMapDropPlacement,
+  ) => {
     if (!mapData) return;
     const { nodeIds, reason } = getMovableNodeIdsForDrag(mapData.root, sourceId, targetId, selectedNodeIds);
     if (reason === "target-selected") {
-      toast.error("不能移动到已选中的节点下");
+      toast.error("不能移动到已选中的目标位置");
       return;
     }
     if (reason === "descendant") {
-      toast.error("不能移动到自己的子节点下");
+      toast.error("不能移动到自己的子节点位置");
       return;
     }
     if (nodeIds.length === 0) return;
 
-    const newRoot = moveMindMapNodes(mapData.root, targetId, nodeIds);
+    const newRoot = moveMindMapNodes(mapData.root, targetId, nodeIds, placement);
     const newData = { ...mapData, root: newRoot };
     setMapData(newData);
     setSelectedNodeIds(nodeIds);
@@ -3101,11 +3163,53 @@ export default function MindMapCenter({
                     isSelected={selectedNodeIds.length > 0 ? selectedNodeIds.includes(n.id) : selectedNodeId === n.id}
                     isSearchMatch={searchResults.includes(n.id)}
                     isSearchActive={searchResults.length > 0 && searchIndex >= 0 && searchResults[searchIndex] === n.id}
-                    onDragStart={(e) => { e.stopPropagation(); if (!selectedNodeIds.includes(n.id)) { setSelectedNodeIds([n.id]); setSelectedNodeId(n.id); } setDragNodeId(n.id); e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", n.id); }}
-                    onDragOver={(e) => { const targetIsSelected = !!dragNodeId && selectedNodeIds.length > 1 && selectedNodeIds.includes(dragNodeId) && selectedNodeIds.includes(n.id); if (dragNodeId && dragNodeId !== n.id && !targetIsSelected) { e.preventDefault(); e.stopPropagation(); e.dataTransfer.dropEffect = "move"; setDropTargetId(n.id); } }}
-                    onDragLeave={() => { if (dropTargetId === n.id) setDropTargetId(null); }}
-                    onDrop={(e) => { e.preventDefault(); e.stopPropagation(); if (dragNodeId && dragNodeId !== n.id) { handleMoveNodes(dragNodeId, n.id); } setDragNodeId(null); setDropTargetId(null); }}
-                    isDragTarget={dropTargetId === n.id}
+                    onDragStart={(e) => {
+                      e.stopPropagation();
+                      if (!selectedNodeIds.includes(n.id)) {
+                        setSelectedNodeIds([n.id]);
+                        setSelectedNodeId(n.id);
+                      }
+                      setDragNodeId(n.id);
+                      e.dataTransfer.effectAllowed = "move";
+                      e.dataTransfer.setData("text/plain", n.id);
+                    }}
+                    onDragOver={(e) => {
+                      const targetIsSelected = !!dragNodeId
+                        && selectedNodeIds.length > 1
+                        && selectedNodeIds.includes(dragNodeId)
+                        && selectedNodeIds.includes(n.id);
+                      if (!dragNodeId || dragNodeId === n.id || targetIsSelected) return;
+                      e.preventDefault();
+                      e.stopPropagation();
+                      e.dataTransfer.dropEffect = "move";
+                      const rect = e.currentTarget.getBoundingClientRect();
+                      const placement = n.depth === 0
+                        ? "inside"
+                        : resolveMindMapDropPlacement(e.clientY, rect.top, rect.height);
+                      setDropTarget((current) => (
+                        current?.nodeId === n.id && current.placement === placement
+                          ? current
+                          : { nodeId: n.id, placement }
+                      ));
+                    }}
+                    onDragLeave={() => {
+                      setDropTarget((current) => current?.nodeId === n.id ? null : current);
+                    }}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      if (dragNodeId && dragNodeId !== n.id) {
+                        const rect = e.currentTarget.getBoundingClientRect();
+                        const placement = n.depth === 0
+                          ? "inside"
+                          : resolveMindMapDropPlacement(e.clientY, rect.top, rect.height);
+                        handleMoveNodes(dragNodeId, n.id, placement);
+                      }
+                      setDragNodeId(null);
+                      setDropTarget(null);
+                    }}
+                    isDragTarget={dropTarget?.nodeId === n.id}
+                    dragPlacement={dropTarget?.nodeId === n.id ? dropTarget.placement : null}
                     isEditing={editingNodeId === n.id}
                     editValue={editValue}
                     onSelect={(e?: React.MouseEvent) => {
