@@ -351,6 +351,11 @@ app.patch("/nodes/:nodeId", async (c) => {
           db.prepare("UPDATE notes SET title = ?, version = version + 1, updatedAt = datetime('now') WHERE id = ?").run(title, node.resourceId);
         } else if (node.resourceType === "mindmap") {
           db.prepare("UPDATE mindmaps SET title = ?, updatedAt = datetime('now') WHERE id = ?").run(title, node.resourceId);
+        } else if (node.resourceType === "file") {
+          if (title.length > 255 || /[\\/\u0000-\u001f]/.test(title)) {
+            throw new KnowledgeTreeError("KNOWLEDGE_FILE_NAME_INVALID", 400, "文件名包含非法字符或过长");
+          }
+          db.prepare("UPDATE attachments SET filename = ? WHERE id = ?").run(title, node.resourceId);
         }
       }
       if (isExpanded !== undefined) {
