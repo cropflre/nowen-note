@@ -218,7 +218,11 @@ function pPrXml(p: ParagraphNode): string {
     const pieces: string[] = [];
     if (p.indent.left != null) pieces.push(`w:left="${ptToTwip(p.indent.left)}"`);
     if (p.indent.right != null) pieces.push(`w:right="${ptToTwip(p.indent.right)}"`);
-    if (p.indent.firstLine != null) pieces.push(`w:firstLine="${ptToTwip(p.indent.firstLine)}"`);
+    if (p.indent.firstLineChars != null) {
+      pieces.push(`w:firstLineChars="${Math.max(0, Math.round(p.indent.firstLineChars * 100))}"`);
+    } else if (p.indent.firstLine != null) {
+      pieces.push(`w:firstLine="${ptToTwip(p.indent.firstLine)}"`);
+    }
     if (p.indent.hanging != null) pieces.push(`w:hanging="${ptToTwip(p.indent.hanging)}"`);
     if (pieces.length) parts.push(`<w:ind ${pieces.join(" ")}/>`);
   }
@@ -313,9 +317,16 @@ function tableXml(table: TableNode, ctx: SerializerCtx): string {
   const tblGrid = cols.length
     ? `<w:tblGrid>${cols.map((w) => `<w:gridCol w:w="${ptToTwip(w)}"/>`).join("")}</w:tblGrid>`
     : "";
-  // 默认表格属性：100% 宽度、单线边框
+  const tableWidth = table.widthMode === "auto"
+    ? '<w:tblW w:w="0" w:type="auto"/>'
+    : '<w:tblW w:w="5000" w:type="pct"/>';
+  const tableAlign = table.alignment
+    ? `<w:jc w:val="${table.alignment}"/>`
+    : "";
+
   const tblPr = `<w:tblPr>
-    <w:tblW w:w="5000" w:type="pct"/>
+    ${tableWidth}
+    ${tableAlign}
     <w:tblBorders>
       <w:top w:val="single" w:sz="4" w:space="0" w:color="999999"/>
       <w:left w:val="single" w:sz="4" w:space="0" w:color="999999"/>
