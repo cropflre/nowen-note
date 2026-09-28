@@ -41,6 +41,7 @@ type SearchRow = {
   isFavorite: number;
   isPinned: number;
   contentFormat?: string;
+  noteType?: string | null;
   notebookName?: string | null;
   tagText: string;
   attachmentNames: string;
@@ -60,7 +61,7 @@ type MatchSource = {
 };
 
 type SearchResultWithScore = Omit<SearchRow, "contentText" | "tagText" | "attachmentNames" | "attachmentText"> & {
-  resourceType: "note" | "mindmap";
+  resourceType: "note" | "mindmap" | "sheet";
   snippet: string;
   titleHtml: string;
   snippetHtml: string;
@@ -565,6 +566,7 @@ function fetchCandidateRows(
       ) THEN 1 ELSE 0 END AS isFavorite,
       n.isPinned,
       n.contentFormat,
+      n.note_type AS noteType,
       nb.name AS notebookName,
       COALESCE((
         SELECT group_concat(t.name, char(10))
@@ -670,7 +672,7 @@ function buildSearchResult(
     - Math.min(matchCount, 20) / 100;
 
   return {
-    resourceType: "note",
+    resourceType: row.noteType === "sheet" ? "sheet" : "note",
     id: row.id,
     userId: row.userId,
     notebookId: row.notebookId,

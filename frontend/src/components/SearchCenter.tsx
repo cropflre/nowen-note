@@ -5,6 +5,7 @@ import {
   ArrowUp,
   BrainCircuit,
   Clock3,
+  Table2,
   FileCode2,
   FileText,
   Filter,
@@ -23,6 +24,7 @@ import { useRailMode } from "@/hooks/useRailMode";
 import { useNoteLoader } from "@/hooks/useNoteLoader";
 import { api } from "@/lib/api";
 import { pushMindMapAppPath } from "@/lib/mindMapDeepLink";
+import { pushSheetAppPath } from "@/lib/sheetDeepLink";
 import { searchIncludingExcludedNotebooks } from "@/lib/searchNotebookExclusions";
 import { highlightTextNode, sanitizeSearchHtml } from "@/lib/searchHighlight";
 import { cn } from "@/lib/utils";
@@ -292,6 +294,15 @@ export default function SearchCenter() {
 
   const openResult = useCallback(async (result: EnhancedSearchResult) => {
     setOpeningId(result.id);
+    if (result.resourceType === "sheet") {
+      actions.clearSelectedTags();
+      actions.setSearchQuery("");
+      actions.setMobileSidebar(false);
+      updateMountedSidebarSearch("");
+      pushSheetAppPath(result.id);
+      setOpeningId(null);
+      return;
+    }
     if (result.resourceType === "mindmap") {
       actions.clearSelectedTags();
       actions.setSearchQuery("");
@@ -522,7 +533,8 @@ export default function SearchCenter() {
                     ? copy.contentMatch
                     : copy.bothMatch;
                 const mindmap = result.resourceType === "mindmap";
-                const markdown = !mindmap && result.contentFormat === "markdown";
+                const sheet = result.resourceType === "sheet";
+                const markdown = !mindmap && !sheet && result.contentFormat === "markdown";
 
                 return (
                   <button
@@ -553,7 +565,9 @@ export default function SearchCenter() {
                       )}>
                         {mindmap
                           ? <BrainCircuit size={17} />
-                          : markdown
+                          : sheet
+                            ? <Table2 size={17} />
+                            : markdown
                             ? <FileCode2 size={17} />
                             : <FileText size={17} />}
                       </div>
