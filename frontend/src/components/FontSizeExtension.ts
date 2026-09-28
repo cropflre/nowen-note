@@ -41,6 +41,7 @@ import {
   FontSize as FontSizeBase,
 } from "@tiptap/extension-text-style";
 import { TableFidelityExtension } from "@/components/extensions/TableFidelityExtensions";
+import { RichTextLayoutExtensions } from "@/components/extensions/RichTextLayoutExtensions";
 
 declare module "@tiptap/core" {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -136,6 +137,7 @@ export const TextStyleKit = [
   FontSize,
   ClearInlineFormatHotkey,
   TableFidelityExtension,
+  ...RichTextLayoutExtensions,
 ];
 
 /** 预设字号档位（px） */
