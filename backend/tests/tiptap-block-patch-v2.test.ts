@@ -464,3 +464,49 @@ test("replaces image attributes in the owning paragraph and rejects unsafe atoms
     );
   }
 });
+
+
+test("accepts safe first-line indent and whole-table layout attrs while rejecting unsafe values (#772)", () => {
+  const paragraphNode = paragraph("blk_para7720", "正文");
+  paragraphNode.attrs.firstLineIndent = 2;
+
+  const tableNode = table("blk_table772", "A", "blk_cell7720");
+  tableNode.attrs.tableLayoutAlign = "center";
+  tableNode.attrs.tableWidthMode = "full";
+  (tableNode.content[0].content[0].content[0].attrs as Record<string, unknown>).firstLineIndent = 0;
+
+  assert.doesNotThrow(() => validateTiptapBlockPatchOperations([
+    {
+      type: "replace",
+      blockId: "blk_para7720",
+      node: paragraphNode,
+    },
+    {
+      type: "replace",
+      blockId: "blk_table772",
+      node: tableNode,
+    },
+  ]));
+
+  const unsafeParagraph = paragraph("blk_para7721", "正文");
+  unsafeParagraph.attrs.firstLineIndent = 99;
+  assert.throws(
+    () => validateTiptapBlockPatchOperations([{
+      type: "replace",
+      blockId: "blk_para7721",
+      node: unsafeParagraph,
+    }]),
+    (error: unknown) => error instanceof TiptapBlockPatchError && error.code === "INVALID_BLOCK_NODE",
+  );
+
+  const unsafeTable = table("blk_table773", "A", "blk_cell7730");
+  unsafeTable.attrs.tableLayoutAlign = "absolute";
+  assert.throws(
+    () => validateTiptapBlockPatchOperations([{
+      type: "replace",
+      blockId: "blk_table773",
+      node: unsafeTable,
+    }]),
+    (error: unknown) => error instanceof TiptapBlockPatchError && error.code === "INVALID_BLOCK_NODE",
+  );
+});
