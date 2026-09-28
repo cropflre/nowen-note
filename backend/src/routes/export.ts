@@ -391,6 +391,133 @@ app.post("/download-jobs", async (c) => {
   }
 });
 
+function normalizeImportOriginKey(value: unknown, maxLength: number): string {
+  if (typeof value !== "string") return "";
+  return value.trim().slice(0, maxLength);
+}
+
+function importWorkspaceId(raw: string | undefined): string | null {
+  const value = (raw || "").trim();
+  return !value || value === "personal" ? null : value;
+}
+
+app.post("/import/origins/resolve", async (c) => {
+  const userId = c.req.header("X-User-Id") || "";
+  if (!userId) return c.json({ error: "未授权" }, 401);
+  const workspaceId = importWorkspaceId(c.req.query("workspaceId") ?? undefined);
+  const denied = denyIfPersonalFeatureDisabled(userId, workspaceId === null, "personalImportEnabled");
+  if (denied) return c.json(denied, 403);
+
+  const body = await c.req.json().catch(() => ({})) as {
+    sourceType?: unknown;
+    externalIds?: unknown;
+  };
+  const sourceType = normalizeImportOriginKey(body.sourceType, 64);
+  const externalIds = Array.isArray(body.externalIds)
+    ? Array.from(new Set(body.externalIds
+      .map((value) => normalizeImportOriginKey(value, 1000))
+      .filter(Boolean)))
+      .slice(0, 1000)
+    : [];
+  if (!sourceType || externalIds.length === 0) {
+    return c.json({ error: "sourceType 和 externalIds 必填", code: "IMPORT_ORIGIN_INVALID" }, 400);
+  }
+
+  const db = getDb();
+  const workspaceScope = workspaceId || "personal";
+  const rows: Array<{
+    externalId: string;
+    noteId: string;
+    contentHash: string | null;
+    metadata: string | null;
+    title: string;
+    notebookId: string;
+    version: number;
+    updatedAt: string;
+    isTrashed: number;
+  }> = [];
+  for (let offset = 0; offset < externalIds.length; offset += 400) {
+    const chunk = externalIds.slice(offset, offset + 400);
+    const placeholders = chunk.map(() => "?").join(",");
+    rows.push(...db.prepare(`
+      SELECT origin.externalId, origin.noteId, origin.contentHash, origin.metadata,
+             note.title, note.notebookId, note.version, note.updatedAt, note.isTrashed
+      FROM note_import_origins origin
+      JOIN notes note ON note.id = origin.noteId
+      WHERE origin.userId = ?
+        AND origin.workspaceScope = ?
+        AND origin.sourceType = ?
+        AND origin.externalId IN (${placeholders})
+    `).all(userId, workspaceScope, sourceType, ...chunk) as typeof rows);
+  }
+  return c.json({
+    origins: Object.fromEntries(rows.map((row) => [row.externalId, row])),
+  });
+});
+
+app.post("/import/origins/register", async (c) => {
+  const userId = c.req.header("X-User-Id") || "";
+  if (!userId) return c.json({ error: "未授权" }, 401);
+  const workspaceId = importWorkspaceId(c.req.query("workspaceId") ?? undefined);
+  const denied = denyIfPersonalFeatureDisabled(userId, workspaceId === null, "personalImportEnabled");
+  if (denied) return c.json(denied, 403);
+
+  const body = await c.req.json().catch(() => ({})) as {
+    sourceType?: unknown;
+    externalId?: unknown;
+    noteId?: unknown;
+    contentHash?: unknown;
+    metadata?: unknown;
+  };
+  const sourceType = normalizeImportOriginKey(body.sourceType, 64);
+  const externalId = normalizeImportOriginKey(body.externalId, 1000);
+  const noteId = normalizeImportOriginKey(body.noteId, 128);
+  if (!sourceType || !externalId || !noteId) {
+    return c.json({ error: "sourceType、externalId 和 noteId 必填", code: "IMPORT_ORIGIN_INVALID" }, 400);
+  }
+
+  const db = getDb();
+  const note = db.prepare(
+    "SELECT id, userId, workspaceId, isTrashed FROM notes WHERE id = ?",
+  ).get(noteId) as { id: string; userId: string; workspaceId: string | null; isTrashed: number } | undefined;
+  if (!note || note.userId !== userId || (note.workspaceId || null) !== workspaceId) {
+    return c.json({ error: "导入来源对应笔记不存在或不属于当前空间", code: "IMPORT_ORIGIN_NOTE_SCOPE_MISMATCH" }, 404);
+  }
+
+  const workspaceScope = workspaceId || "personal";
+  const existing = db.prepare(`
+    SELECT id, noteId FROM note_import_origins
+    WHERE userId = ? AND workspaceScope = ? AND sourceType = ? AND externalId = ?
+  `).get(userId, workspaceScope, sourceType, externalId) as { id: string; noteId: string } | undefined;
+  if (existing) {
+    return c.json({ created: false, conflict: existing.noteId !== noteId, noteId: existing.noteId });
+  }
+
+  const metadata = body.metadata == null
+    ? null
+    : JSON.stringify(body.metadata).slice(0, 20_000);
+  const contentHash = typeof body.contentHash === "string"
+    ? body.contentHash.trim().slice(0, 128) || null
+    : null;
+  db.prepare(`
+    INSERT INTO note_import_origins (
+      id, userId, workspaceId, workspaceScope, noteId, sourceType, externalId,
+      contentHash, importedAt, updatedAt, metadata
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'), ?)
+  `).run(
+    crypto.randomUUID(),
+    userId,
+    workspaceId,
+    workspaceScope,
+    noteId,
+    sourceType,
+    externalId,
+    contentHash,
+    metadata,
+  );
+  return c.json({ created: true, conflict: false, noteId }, 201);
+});
+
 // 导入笔记（批量）
 //   - 默认按 personal（写入 notes.workspaceId = NULL，notebooks 也按 NULL 域查找/创建）
 //   - 传 ?workspaceId=<uuid> 时所有新笔记和新笔记本都落到该工作区
