@@ -85,7 +85,11 @@ jobs:
         continue-on-error: true
         run: |
           set -o pipefail
-          node --import tsx --import ./tests/setup-db-isolation.ts --test tests/knowledge-tree.test.ts 2>&1 | tee .ci/sqlite.log
+          node --import tsx --import ./tests/setup-db-isolation.ts --test \
+            tests/knowledge-tree.test.ts \
+            tests/knowledge-tree-mindmap.test.ts \
+            tests/knowledge-tree-mindmap-folders.test.ts \
+            tests/knowledge-tree-mindmap-lifecycle.test.ts 2>&1 | tee .ci/sqlite.log
       - id: tree_sync
         name: Knowledge tree Sync V2 protocol tests
         continue-on-error: true
