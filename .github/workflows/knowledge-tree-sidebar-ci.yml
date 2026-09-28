@@ -68,10 +68,13 @@ jobs:
           grep -q "onTouchStart" frontend/src/components/KnowledgeTreePanel.tsx
           grep -q "KnowledgeTreeNodeMenu" frontend/src/components/KnowledgeTreePanel.tsx
           grep -q "mobile-knowledge-tree-compact.css" frontend/src/main.tsx
-          grep -q -- "--nowen-mobile-tree-row-height: 26px" frontend/src/mobile-knowledge-tree-compact.css
+          grep -q -- "--nowen-mobile-tree-row-height: 30px" frontend/src/mobile-knowledge-tree-compact.css
+          grep -q -- "--nowen-mobile-tree-note-row-height: 28px" frontend/src/mobile-knowledge-tree-compact.css
+          grep -q -- "--nowen-mobile-tree-folder-row-height: 30px" frontend/src/mobile-knowledge-tree-compact.css
+          grep -q -- "--nowen-mobile-tree-root-folder-row-height: 32px" frontend/src/mobile-knowledge-tree-compact.css
           grep -q -- "--nowen-mobile-tree-indent: 10px" frontend/src/mobile-knowledge-tree-compact.css
-          grep -q -- "--nowen-mobile-tree-expander-width: 8px" frontend/src/mobile-knowledge-tree-compact.css
-          grep -q -- "--nowen-mobile-tree-content-gap: 3px" frontend/src/mobile-knowledge-tree-compact.css
+          grep -q -- "--nowen-mobile-tree-expander-width: 20px" frontend/src/mobile-knowledge-tree-compact.css
+          grep -q -- "--nowen-mobile-tree-content-gap: 4px" frontend/src/mobile-knowledge-tree-compact.css
           grep -q -- "flex: 0 0 var(--nowen-mobile-tree-expander-width) !important" frontend/src/mobile-knowledge-tree-compact.css
 
       - name: Install frontend dependencies
