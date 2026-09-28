@@ -112,6 +112,70 @@ async function sharedStrings(zip: JSZip): Promise<string[]> {
   return strings;
 }
 
+const BUILTIN_DATE_FORMAT_IDS = new Set([
+  14, 15, 16, 17, 18, 19, 20, 21, 22,
+  27, 28, 29, 30, 31, 32, 33, 34, 35, 36,
+  45, 46, 47, 50, 51, 52, 53, 54, 55, 56, 57, 58,
+]);
+
+function looksLikeDateFormat(formatCode: string): boolean {
+  const normalized = formatCode
+    .replace(/"[^"]*"/g, "")
+    .replace(/\\./g, "")
+    .replace(/\[(?!h+\]|m+\]|s+\])[^\]]*\]/gi, "")
+    .toLowerCase();
+  return /(^|[^a-z])[ymdhis]/i.test(normalized);
+}
+
+async function dateStyleIndexes(zip: JSZip): Promise<Set<number>> {
+  const source = await zip.file("xl/styles.xml")?.async("string");
+  if (!source) return new Set();
+
+  const customDateIds = new Set<number>();
+  const numFmtPattern = /<numFmt\b([^>]*)\/?\s*>/gi;
+  let numFmt: RegExpExecArray | null;
+  while ((numFmt = numFmtPattern.exec(source))) {
+    const id = Number.parseInt(attribute(numFmt[1], "numFmtId"), 10);
+    const code = attribute(numFmt[1], "formatCode");
+    if (Number.isFinite(id) && looksLikeDateFormat(code)) customDateIds.add(id);
+  }
+
+  const cellXfs = source.match(/<cellXfs\b[^>]*>([\s\S]*?)<\/cellXfs>/i)?.[1] || "";
+  const styles = new Set<number>();
+  const xfPattern = /<xf\b([^>]*)\/?\s*>/gi;
+  let xf: RegExpExecArray | null;
+  let styleIndex = 0;
+  while ((xf = xfPattern.exec(cellXfs))) {
+    const numFmtId = Number.parseInt(attribute(xf[1], "numFmtId"), 10);
+    if (BUILTIN_DATE_FORMAT_IDS.has(numFmtId) || customDateIds.has(numFmtId)) {
+      styles.add(styleIndex);
+    }
+    styleIndex += 1;
+  }
+  return styles;
+}
+
+function workbookUses1904Dates(workbookXml: string): boolean {
+  const workbookPr = workbookXml.match(/<workbookPr\b[^>]*>/i)?.[0] || "";
+  const value = attribute(workbookPr, "date1904").toLowerCase();
+  return value === "1" || value === "true";
+}
+
+function excelSerialToIsoDate(raw: string, use1904Dates: boolean): string | null {
+  const serial = Number(raw);
+  if (!Number.isFinite(serial)) return null;
+  const wholeDays = Math.floor(serial);
+  let timestamp: number;
+  if (use1904Dates) {
+    timestamp = Date.UTC(1904, 0, 1) + wholeDays * 86_400_000;
+  } else {
+    const adjustedDays = wholeDays >= 60 ? wholeDays - 1 : wholeDays;
+    timestamp = Date.UTC(1899, 11, 31) + adjustedDays * 86_400_000;
+  }
+  const date = new Date(timestamp);
+  return Number.isNaN(date.getTime()) ? null : date.toISOString().slice(0, 10);
+}
+
 function inferType(values: string[]): SheetCellType {
   const nonEmpty = values.map((value) => value.trim()).filter(Boolean);
   if (nonEmpty.length === 0) return "text";
@@ -162,6 +226,8 @@ export async function parseSheetXlsx(input: File | Blob | ArrayBuffer | Uint8Arr
   if (!worksheetXml) throw new Error("XLSX 工作表内容不存在");
 
   const strings = await sharedStrings(zip);
+  const dateStyles = await dateStyleIndexes(zip);
+  const use1904Dates = workbookUses1904Dates(workbookXml);
   const matrix: string[][] = [];
   const cellPattern = /<c\b([^>]*)>([\s\S]*?)<\/c>/gi;
   let cell: RegExpExecArray | null;
@@ -174,6 +240,7 @@ export async function parseSheetXlsx(input: File | Blob | ArrayBuffer | Uint8Arr
     if (rowIndex < 0 || rowIndex > MAX_ROWS || columnIndex < 0 || columnIndex >= MAX_COLUMNS) continue;
 
     const type = attribute(attrs, "t");
+    const styleIndex = Number.parseInt(attribute(attrs, "s"), 10);
     const rawValue = body.match(/<v\b[^>]*>([\s\S]*?)<\/v>/i)?.[1] || "";
     let value = "";
     if (type === "s") {
@@ -183,8 +250,13 @@ export async function parseSheetXlsx(input: File | Blob | ArrayBuffer | Uint8Arr
       value = textRuns(body);
     } else if (type === "b") {
       value = decodeXml(rawValue) === "1" ? "TRUE" : "FALSE";
+    } else if (type === "d") {
+      value = decodeXml(rawValue).slice(0, 10);
     } else {
-      value = decodeXml(rawValue);
+      const decoded = decodeXml(rawValue);
+      value = Number.isFinite(styleIndex) && dateStyles.has(styleIndex)
+        ? excelSerialToIsoDate(decoded, use1904Dates) || decoded
+        : decoded;
     }
 
     while (matrix.length <= rowIndex) matrix.push([]);
