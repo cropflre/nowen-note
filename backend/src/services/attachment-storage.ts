@@ -9,6 +9,30 @@ const ATTACHMENTS_DIR = path.join(DATA_DIR, "attachments");
 
 type StorageDriver = "local" | "s3";
 
+export type AttachmentStorageErrorCode =
+  | "ATTACHMENT_STORAGE_NOT_WRITABLE"
+  | "ATTACHMENT_STORAGE_PERMISSION_DENIED"
+  | "ATTACHMENT_STORAGE_NO_SPACE"
+  | "ATTACHMENT_STORAGE_CONFIG_INVALID";
+
+export interface AttachmentStorageHealth {
+  ok: boolean;
+  driver: StorageDriver;
+  code?: AttachmentStorageErrorCode;
+  error?: string;
+}
+
+class AttachmentStorageError extends Error {
+  constructor(
+    readonly code: AttachmentStorageErrorCode,
+    message: string,
+    readonly causeCode?: string,
+  ) {
+    super(message);
+    this.name = "AttachmentStorageError";
+  }
+}
+
 interface S3Config {
   endpoint: string;
   region: string;
@@ -139,6 +163,49 @@ function getS3Config(): S3Config | null {
     return saved;
   }
   return getEnvS3Config();
+}
+
+function getAttachmentStorageConfigurationIssue(): string | null {
+  const saved = readPersistedObjectStorageConfig();
+  if (saved) {
+    if (!saved.enabled) return null;
+    if (!saved.endpoint || !saved.bucket || !saved.accessKeyId || !saved.secretAccessKey) {
+      return "已启用对象存储，但配置不完整或密钥无法解密";
+    }
+    return null;
+  }
+
+  if (getDriver() === "s3" && !getEnvS3Config()) {
+    return "环境变量要求使用对象存储，但 S3/MinIO 配置不完整";
+  }
+  return null;
+}
+
+export function classifyAttachmentStorageError(error: unknown): {
+  code: AttachmentStorageErrorCode;
+  message: string;
+  errno?: string;
+} {
+  if (error instanceof AttachmentStorageError) {
+    return {
+      code: error.code,
+      message: error.message,
+      errno: error.causeCode,
+    };
+  }
+
+  const errno = (error as NodeJS.ErrnoException)?.code;
+  const message = error instanceof Error ? error.message : String(error);
+  if (errno === "EACCES" || errno === "EPERM" || errno === "EROFS") {
+    return { code: "ATTACHMENT_STORAGE_PERMISSION_DENIED", message, errno };
+  }
+  if (errno === "ENOSPC" || errno === "EDQUOT") {
+    return { code: "ATTACHMENT_STORAGE_NO_SPACE", message, errno };
+  }
+  if (/S3 (PUT|GET|HEAD|DELETE) failed: (401|403)|credential|signature|decrypt|配置不完整|密钥无法解密/i.test(message)) {
+    return { code: "ATTACHMENT_STORAGE_CONFIG_INVALID", message, errno };
+  }
+  return { code: "ATTACHMENT_STORAGE_NOT_WRITABLE", message, errno };
 }
 
 function encodePathSegment(s: string): string {
@@ -353,23 +420,114 @@ export function deleteObjectStorageConfig(): ObjectStorageConfigPublic {
   return readObjectStorageConfigPublic();
 }
 
-export async function testObjectStorageConfig(): Promise<{ ok: boolean; error?: string }> {
-  const cfg = getS3Config();
-  if (!cfg) return { ok: false, error: "object storage is not enabled or config is incomplete" };
-  const probe = `.nowen-note-probe/${Date.now()}-${crypto.randomBytes(4).toString("hex")}.txt`;
-  try {
-    const put = await signedFetch("PUT", probe, cfg, Buffer.from("nowen-note object storage probe"), "text/plain");
-    if (!put.ok) {
-      return { ok: false, error: `PUT failed: ${put.status} ${await put.text().catch(() => "")}` };
-    }
-    const del = await signedFetch("DELETE", probe, cfg);
-    if (!del.ok && del.status !== 404) {
-      return { ok: false, error: `DELETE failed: ${del.status} ${await del.text().catch(() => "")}` };
-    }
-    return { ok: true };
-  } catch (err: any) {
-    return { ok: false, error: err?.message || String(err) };
+export async function probeAttachmentStorage(): Promise<AttachmentStorageHealth> {
+  const configIssue = getAttachmentStorageConfigurationIssue();
+  if (configIssue) {
+    return {
+      ok: false,
+      driver: "s3",
+      code: "ATTACHMENT_STORAGE_CONFIG_INVALID",
+      error: configIssue,
+    };
   }
+
+  const cfg = getS3Config();
+  if (!cfg) {
+    const dir = ensureAttachmentsDir();
+    const probeName = ".nowen-storage-probe-" + process.pid + "-" + Date.now() + "-" + crypto.randomBytes(4).toString("hex");
+    const probePath = path.join(dir, probeName);
+    const payload = Buffer.from("nowen-note attachment storage probe");
+    try {
+      fs.writeFileSync(probePath, payload, { flag: "wx" });
+      const readBack = fs.readFileSync(probePath);
+      if (!readBack.equals(payload)) {
+        throw new Error("附件存储写入后读回校验不一致");
+      }
+      fs.unlinkSync(probePath);
+      return { ok: true, driver: "local" };
+    } catch (error) {
+      try { fs.rmSync(probePath, { force: true }); } catch { /* ignore probe cleanup */ }
+      const classified = classifyAttachmentStorageError(error);
+      return {
+        ok: false,
+        driver: "local",
+        code: classified.code,
+        error: classified.message,
+      };
+    }
+  }
+
+  const probe = ".nowen-note-probe/" + Date.now() + "-" + crypto.randomBytes(4).toString("hex") + ".txt";
+  const payload = Buffer.from("nowen-note object storage probe");
+  let putSucceeded = false;
+  try {
+    const put = await signedFetch("PUT", probe, cfg, payload, "text/plain");
+    if (!put.ok) {
+      throw new AttachmentStorageError(
+        put.status === 401 || put.status === 403
+          ? "ATTACHMENT_STORAGE_CONFIG_INVALID"
+          : "ATTACHMENT_STORAGE_NOT_WRITABLE",
+        "S3 PUT failed: " + put.status + " " + await put.text().catch(() => ""),
+      );
+    }
+    putSucceeded = true;
+
+    const head = await signedFetch("HEAD", probe, cfg);
+    if (!head.ok) {
+      throw new AttachmentStorageError(
+        head.status === 401 || head.status === 403
+          ? "ATTACHMENT_STORAGE_CONFIG_INVALID"
+          : "ATTACHMENT_STORAGE_NOT_WRITABLE",
+        "S3 HEAD failed: " + head.status + " " + await head.text().catch(() => ""),
+      );
+    }
+
+    const get = await signedFetch("GET", probe, cfg);
+    if (!get.ok) {
+      throw new AttachmentStorageError(
+        get.status === 401 || get.status === 403
+          ? "ATTACHMENT_STORAGE_CONFIG_INVALID"
+          : "ATTACHMENT_STORAGE_NOT_WRITABLE",
+        "S3 GET failed: " + get.status + " " + await get.text().catch(() => ""),
+      );
+    }
+    const readBack = Buffer.from(await get.arrayBuffer());
+    if (!readBack.equals(payload)) {
+      throw new AttachmentStorageError(
+        "ATTACHMENT_STORAGE_NOT_WRITABLE",
+        "对象存储写入后读回校验不一致",
+      );
+    }
+
+    return { ok: true, driver: "s3" };
+  } catch (error) {
+    const classified = classifyAttachmentStorageError(error);
+    return {
+      ok: false,
+      driver: "s3",
+      code: classified.code,
+      error: classified.message,
+    };
+  } finally {
+    if (putSucceeded) {
+      try {
+        const del = await signedFetch("DELETE", probe, cfg);
+        if (!del.ok && del.status !== 404) {
+          console.warn("[attachment-storage] probe cleanup failed:", del.status);
+        }
+      } catch (error) {
+        console.warn("[attachment-storage] probe cleanup error:", error);
+      }
+    }
+  }
+}
+
+export async function testObjectStorageConfig(): Promise<{ ok: boolean; error?: string }> {
+  const health = await probeAttachmentStorage();
+  if (health.driver !== "s3") {
+    return { ok: false, error: "object storage is not enabled or config is incomplete" };
+  }
+  return health.ok ? { ok: true } : { ok: false, error: health.error };
 }
 
 export function isObjectAttachmentStorageEnabled(): boolean {
@@ -385,6 +543,13 @@ export async function writeAttachmentObject(
   buffer: Buffer,
   contentType?: string,
 ): Promise<void> {
+  const configIssue = getAttachmentStorageConfigurationIssue();
+  if (configIssue) {
+    throw new AttachmentStorageError(
+      "ATTACHMENT_STORAGE_CONFIG_INVALID",
+      configIssue,
+    );
+  }
   const cfg = getS3Config();
   if (!cfg) {
     ensureAttachmentsDir();
