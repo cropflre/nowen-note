@@ -94,12 +94,15 @@ import {
   getMobileKnowledgeTreeAncestors,
   getMobileKnowledgeTreeChildren,
   loadMobileKnowledgeTreeRecentEntries,
+  loadMobileKnowledgeTreeRecentMode,
   loadMobileKnowledgeTreeSortMode,
   saveMobileKnowledgeTreeRecentEntries,
+  saveMobileKnowledgeTreeRecentMode,
   saveMobileKnowledgeTreeSortMode,
   sortMobileKnowledgeTreeNodes,
   upsertMobileKnowledgeTreeRecentEntry,
   type MobileKnowledgeTreeRecentEntry,
+  type MobileKnowledgeTreeRecentMode,
   type MobileKnowledgeTreeSortMode,
 } from "@/lib/mobileKnowledgeTree";
 import { detectNoteWorkspaceSurface } from "@/lib/noteWorkspaceLayout";
@@ -112,6 +115,7 @@ const FOCUS_KNOWLEDGE_TREE_EVENT = "nowen:focus-knowledge-tree";
 const KNOWLEDGE_TREE_CHANGED_EVENT = "nowen:knowledge-tree-changed";
 
 type MobileView = "recent" | "browse";
+type QuickTreeVisibleDepth = 1 | 2 | 3 | "all";
 
 const SORT_LABELS: Record<MobileKnowledgeTreeSortMode, string> = {
   "updated-desc": "最近更新",
@@ -275,9 +279,11 @@ export default function MobileKnowledgeTreePanel({
   const [query, setQuery] = useState(() => state.viewMode === "search" ? state.searchQuery : "");
   const [view, setView] = useState<MobileView>("browse");
   const [parentId, setParentId] = useState<string | null>(null);
-  const [allExpanded, setAllExpanded] = useState(false);
+  const [visibleDepth, setVisibleDepth] = useState<QuickTreeVisibleDepth>(1);
+  const allExpanded = visibleDepth === "all";
   const [sortMode, setSortMode] = useState<MobileKnowledgeTreeSortMode>(() => loadMobileKnowledgeTreeSortMode());
   const [recentEntries, setRecentEntries] = useState<MobileKnowledgeTreeRecentEntry[]>(() => loadMobileKnowledgeTreeRecentEntries());
+  const [recentMode, setRecentMode] = useState<MobileKnowledgeTreeRecentMode>(() => loadMobileKnowledgeTreeRecentMode());
   const [permissionsNode, setPermissionsNode] = useState<KnowledgeTreeNode | null>(null);
   const [previewFileId, setPreviewFileId] = useState<string | null>(null);
   const [movingNode, setMovingNode] = useState<KnowledgeTreeNode | null>(null);
@@ -512,8 +518,8 @@ export default function MobileKnowledgeTreePanel({
   }, [sortMode, visibleNodes]);
   const hasExpandableContent = currentChildren.some((node) => (childrenByParent.get(node.id)?.length || 0) > 0);
   const recentNodes = useMemo(
-    () => buildMobileKnowledgeTreeRecentNodes(visibleNodes, recentEntries),
-    [visibleNodes, recentEntries],
+    () => buildMobileKnowledgeTreeRecentNodes(visibleNodes, recentEntries, undefined, recentMode),
+    [visibleNodes, recentEntries, recentMode],
   );
   const searchResults = useMemo(
     () => filterMobileKnowledgeTreeNodes(visibleNodes, query, sortMode),
@@ -893,7 +899,10 @@ export default function MobileKnowledgeTreePanel({
       setSortMode(mode);
       saveMobileKnowledgeTreeSortMode(mode);
     } else if (value === "toggle") {
-      setAllExpanded((current) => !current);
+      setVisibleDepth((current) => current === "all" ? 1 : "all");
+    } else if (value.startsWith("depth:")) {
+      const rawDepth = value.slice("depth:".length);
+      setVisibleDepth(rawDepth === "all" ? "all" : rawDepth === "2" ? 2 : rawDepth === "3" ? 3 : 1);
     } else if (value === "refresh") {
       void reload();
     } else if (value === "multi-select") {
@@ -1166,12 +1175,17 @@ export default function MobileKnowledgeTreePanel({
     );
   };
 
-  const renderExpandedBranch = (node: KnowledgeTreeNode, depth = 0): React.ReactNode => (
-    <React.Fragment key={`expanded-${node.id}`}>
-      {renderNode(node, false, depth)}
-      {(childrenByParent.get(node.id) || []).map((child) => renderExpandedBranch(child, depth + 1))}
-    </React.Fragment>
-  );
+  const renderExpandedBranch = (node: KnowledgeTreeNode, depth = 0): React.ReactNode => {
+    const canRenderChildren = visibleDepth === "all" || depth + 1 < visibleDepth;
+    return (
+      <React.Fragment key={`expanded-${node.id}`}>
+        {renderNode(node, false, depth)}
+        {canRenderChildren
+          ? (childrenByParent.get(node.id) || []).map((child) => renderExpandedBranch(child, depth + 1))
+          : null}
+      </React.Fragment>
+    );
+  };
 
   const renderEmpty = (title: string, description?: string) => (
     <div className="flex flex-col items-center px-6 py-14 text-center">
@@ -1185,7 +1199,7 @@ export default function MobileKnowledgeTreePanel({
     if (parentId !== null) {
       if (currentChildren.length === 0 && !draft) return renderEmpty("当前目录为空", "点击右上角加号创建文档或子目录。");
       return <>{draft && renderDraft()}{currentChildren.map((node) => (
-        variant === "desktop" && allExpanded ? renderExpandedBranch(node) : renderNode(node)
+        variant === "desktop" && visibleDepth !== 1 ? renderExpandedBranch(node) : renderNode(node)
       ))}</>;
     }
     if (rootOwned.length === 0 && rootShared.length === 0 && !draft) return renderEmpty("暂无内容", "点击右上角加号创建第一个根目录。");
@@ -1214,7 +1228,7 @@ export default function MobileKnowledgeTreePanel({
             </div>
             {draft && renderDraft()}
             {rootOwned.map((node) => (
-              variant === "desktop" && allExpanded ? renderExpandedBranch(node) : renderNode(node)
+              variant === "desktop" && visibleDepth !== 1 ? renderExpandedBranch(node) : renderNode(node)
             ))}
           </section>
         )}
@@ -1222,7 +1236,7 @@ export default function MobileKnowledgeTreePanel({
           <section className={cn("mt-2 border-t border-app-border pt-2", rootOwned.length === 0 && "mt-0 border-t-0 pt-0")} data-mobile-knowledge-tree-section="shared">
             <div className={cn("px-3 pb-1 font-semibold uppercase tracking-wider", classicText ? "text-[10px] text-tx-tertiary" : variant === "mobile" ? "text-[10px] text-tx-secondary" : "text-xs text-tx-secondary")}>共享给我</div>
             {rootShared.map((node) => (
-              variant === "desktop" && allExpanded ? renderExpandedBranch(node) : renderNode(node)
+              variant === "desktop" && visibleDepth !== 1 ? renderExpandedBranch(node) : renderNode(node)
             ))}
           </section>
         )}
@@ -1381,7 +1395,7 @@ export default function MobileKnowledgeTreePanel({
           {view === "browse" && (
             <button
               type="button"
-              onClick={() => setAllExpanded((current) => !current)}
+              onClick={() => setVisibleDepth((current) => current === "all" ? 1 : "all")}
               disabled={Boolean(query.trim()) || (!allExpanded && !hasExpandableContent)}
               className="flex h-7 w-6 shrink-0 items-center justify-center rounded-md text-tx-tertiary hover:bg-app-hover hover:text-tx-primary disabled:cursor-default disabled:opacity-35 disabled:hover:bg-transparent disabled:hover:text-tx-tertiary"
               title={query.trim() ? "清除搜索后可批量展开或收起" : allExpanded ? "全部收起" : "全部展开"}
@@ -1427,12 +1441,25 @@ export default function MobileKnowledgeTreePanel({
               }))
               : []),
             ...(variant === "desktop" && view === "browse"
-              ? [{
-                value: "toggle",
-                label: allExpanded ? "全部收起" : "全部展开",
-                disabled: Boolean(query.trim()) || (!allExpanded && !hasExpandableContent),
-                separatorBefore: true,
-              }]
+              ? [
+                {
+                  value: "depth:1",
+                  label: "仅显示第 1 层",
+                  checked: visibleDepth === 1,
+                  disabled: Boolean(query.trim()),
+                  separatorBefore: true,
+                  sectionLabel: "展示层级",
+                },
+                { value: "depth:2", label: "展开到第 2 层", checked: visibleDepth === 2, disabled: Boolean(query.trim()) },
+                { value: "depth:3", label: "展开到第 3 层", checked: visibleDepth === 3, disabled: Boolean(query.trim()) },
+                { value: "depth:all", label: "展开全部层级", checked: visibleDepth === "all", disabled: Boolean(query.trim()) },
+                {
+                  value: "toggle",
+                  label: allExpanded ? "全部收起" : "全部展开",
+                  disabled: Boolean(query.trim()) || (!allExpanded && !hasExpandableContent),
+                  separatorBefore: true,
+                },
+              ]
               : []),
             {
               value: "refresh",
@@ -1530,8 +1557,44 @@ export default function MobileKnowledgeTreePanel({
           recentNodes.length > 0 ? (
             <section data-mobile-knowledge-tree-view="recent">
               <div className="px-3 pb-1 pt-2">
-                <div className="text-[10px] font-semibold uppercase tracking-wider text-tx-tertiary">最近使用</div>
-                <div className="mt-0.5 text-[10px] text-tx-tertiary">最近打开优先，其他文档按最近更新时间补充</div>
+                <div className="flex items-center justify-between gap-2">
+                  <div className="text-[10px] font-semibold uppercase tracking-wider text-tx-tertiary">最近使用</div>
+                  <div
+                    className="grid grid-cols-2 rounded-md bg-app-hover/70 p-0.5"
+                    role="radiogroup"
+                    aria-label="最近列表排序方式"
+                    data-recent-mode-switch=""
+                  >
+                    {([
+                      ["opened", "最近打开"],
+                      ["edited", "最近编辑"],
+                    ] as const).map(([mode, label]) => (
+                      <button
+                        key={mode}
+                        type="button"
+                        role="radio"
+                        aria-checked={recentMode === mode}
+                        onClick={() => {
+                          setRecentMode(mode);
+                          saveMobileKnowledgeTreeRecentMode(mode);
+                        }}
+                        className={cn(
+                          "rounded px-2 py-1 text-[10px] font-medium transition-colors",
+                          recentMode === mode
+                            ? "bg-app-bg text-tx-primary shadow-sm"
+                            : "text-tx-tertiary hover:text-tx-secondary",
+                        )}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="mt-1 text-[10px] text-tx-tertiary">
+                  {recentMode === "opened"
+                    ? "按实际打开时间优先，未打开文档按最近更新时间补充"
+                    : "按笔记最近编辑时间排序"}
+                </div>
               </div>
               {recentNodes.map((node) => renderNode(node, true))}
             </section>
