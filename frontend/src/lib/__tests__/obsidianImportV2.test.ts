@@ -1,27 +1,42 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const importNotesMock = vi.fn();
-const updateNoteMock = vi.fn();
-const getNoteMock = vi.fn();
-const resolveOriginsMock = vi.fn();
-const registerOriginMock = vi.fn();
-const uploadMock = vi.fn();
-const linkFileMock = vi.fn();
+const mocks = vi.hoisted(() => ({
+  importNotes: vi.fn(),
+  updateNote: vi.fn(),
+  getNote: vi.fn(),
+  resolveOrigins: vi.fn(),
+  registerOrigin: vi.fn(),
+  upload: vi.fn(),
+  linkFile: vi.fn(),
+}));
 
 vi.mock("../api", () => ({
   api: {
-    importNotes: importNotesMock,
-    updateNote: updateNoteMock,
-    getNote: getNoteMock,
-    resolveImportOrigins: resolveOriginsMock,
-    registerImportOrigin: registerOriginMock,
-    files: { upload: uploadMock },
+    importNotes: mocks.importNotes,
+    updateNote: mocks.updateNote,
+    getNote: mocks.getNote,
+    resolveImportOrigins: mocks.resolveOrigins,
+    registerImportOrigin: mocks.registerOrigin,
+    files: { upload: mocks.upload },
   },
 }));
 
 vi.mock("../knowledgeTreeApi", () => ({
-  knowledgeTreeApi: { linkFile: linkFileMock },
+  knowledgeTreeApi: { linkFile: mocks.linkFile },
 }));
+
+import {
+  obsidianExternalId,
+  runObsidianImport,
+} from "@/lib/obsidianImportService";
+
+const importNotesMock = mocks.importNotes;
+const updateNoteMock = mocks.updateNote;
+const getNoteMock = mocks.getNote;
+const resolveOriginsMock = mocks.resolveOrigins;
+const registerOriginMock = mocks.registerOrigin;
+const uploadMock = mocks.upload;
+const linkFileMock = mocks.linkFile;
 
 function fileAt(path: string, content: string, type: string): File {
   const name = path.split("/").pop() || path;
@@ -108,8 +123,6 @@ describe("Obsidian Import V2 (#763)", () => {
 
   it("reports one-based note progress and uploads a shared referenced asset only once", async () => {
     const progress: Array<{ current: number; total: number; message: string }> = [];
-    const { runObsidianImport } = await import("@/lib/obsidianImportService");
-
     const result = await runObsidianImport(scanFixture(), {
       rootName: "Imported Vault",
       contentFormat: "markdown",
@@ -166,8 +179,6 @@ describe("Obsidian Import V2 (#763)", () => {
         },
       },
     });
-    const { runObsidianImport } = await import("@/lib/obsidianImportService");
-
     const result = await runObsidianImport(scanFixture(), {
       rootName: "Imported Vault",
       contentFormat: "markdown",
@@ -261,7 +272,6 @@ describe("Obsidian Import V2 (#763)", () => {
   });
 
   it("keeps the original source identity even when the destination root is renamed", async () => {
-    const { obsidianExternalId } = await import("@/lib/obsidianImportService");
     const scan = scanFixture();
     const note = scan.entries.find((entry) => entry.kind === "note")!;
     expect(obsidianExternalId(scan, note)).toBe("Vault/docs/A.md");
