@@ -179,12 +179,13 @@ function ensureKnowledgeImportNotebookPath(
     }
 
     const notebookId = randomUUID();
-    const order = Number((parentTreeNodeId
+    const orderRow = (parentTreeNodeId
       ? db.prepare("SELECT COALESCE(MAX(sortOrder), -1) AS value FROM knowledge_tree_nodes WHERE parentId = ? AND isDeleted = 0")
           .get(parentTreeNodeId)
       : db.prepare("SELECT COALESCE(MAX(sortOrder), -1) AS value FROM knowledge_tree_nodes WHERE scopeKey = ? AND parentId IS NULL AND isDeleted = 0")
           .get(workspaceId ? `workspace:${workspaceId}` : `personal:${actorUserId}`)
-    )?.value ?? -1) + 1;
+    ) as { value: number } | undefined;
+    const order = Number(orderRow?.value ?? -1) + 1;
 
     db.prepare(`
       INSERT INTO notebooks (id, userId, workspaceId, parentId, name, icon, sortOrder)
@@ -260,12 +261,13 @@ app.post("/files/link", async (c) => {
       `).run(target.treeNodeId, nodeId);
     } else {
       nodeId = `file:${fileId}`;
-      const sortOrder = Number((target.treeNodeId
+      const sortOrderRow = (target.treeNodeId
         ? db.prepare("SELECT COALESCE(MAX(sortOrder), -1) AS value FROM knowledge_tree_nodes WHERE parentId = ? AND isDeleted = 0")
             .get(target.treeNodeId)
         : db.prepare("SELECT COALESCE(MAX(sortOrder), -1) AS value FROM knowledge_tree_nodes WHERE scopeKey = ? AND parentId IS NULL AND isDeleted = 0")
             .get(scopeKey)
-      )?.value ?? -1) + 1;
+      ) as { value: number } | undefined;
+      const sortOrder = Number(sortOrderRow?.value ?? -1) + 1;
       db.prepare(`
         INSERT INTO knowledge_tree_nodes (
           id, userId, workspaceId, scopeKey, parentId, nodeType, resourceType,
