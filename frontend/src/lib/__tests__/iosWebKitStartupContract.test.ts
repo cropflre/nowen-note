@@ -6,6 +6,16 @@ function source(relativeUrl: string) {
 }
 
 describe("iOS WebKit startup contract", () => {
+  it("installs primitive compatibility in HTML before any module entry", () => {
+    const html = source("../../../index.html");
+
+    expect(html).toContain("var nativeFeatures = {");
+    expect(html).toContain('defineBootMethod(Array.prototype, "findLast"');
+    expect(html).toContain('defineBootMethod(Promise.prototype, "finally"');
+    expect(html).toContain("window.queueMicrotask = function");
+    expect(html).toContain("nativeFeatures: nativeFeatures");
+  });
+
   it("executes a zero-dependency runtime prelude before compatibility/application modules", () => {
     const main = source("../../main.tsx");
     const compatibility = source("../runtimeCompatibility.ts");

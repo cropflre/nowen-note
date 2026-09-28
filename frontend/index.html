@@ -101,6 +101,86 @@
     </style>
     <script>
       (function () {
+        // This classic-script prelude executes before Vite's module entry and every dependency
+        // chunk. Keep it ES5-syntax-friendly so older Safari/WKWebView can reach the app at all.
+        var nativeFeatures = {
+          promiseFinally: typeof Promise !== "undefined" && typeof Promise.prototype.finally === "function",
+          arrayFindLast: typeof Array !== "undefined" && typeof Array.prototype.findLast === "function",
+          arrayFindLastIndex: typeof Array !== "undefined" && typeof Array.prototype.findLastIndex === "function",
+          queueMicrotask: typeof window.queueMicrotask === "function"
+        };
+
+        function defineBootMethod(target, name, value) {
+          if (!target || typeof target[name] === "function") return;
+          try {
+            Object.defineProperty(target, name, {
+              configurable: true,
+              writable: true,
+              enumerable: false,
+              value: value
+            });
+          } catch (e) {
+            try { target[name] = value; } catch (ignored) {}
+          }
+        }
+
+        function bootLength(value) {
+          var numeric = Number(value);
+          if (!isFinite(numeric) || numeric <= 0) return numeric === Infinity ? 9007199254740991 : 0;
+          return Math.min(Math.floor(numeric), 9007199254740991);
+        }
+
+        if (typeof Array !== "undefined") {
+          defineBootMethod(Array.prototype, "findLast", function (predicate, thisArg) {
+            if (this == null) throw new TypeError("Array.prototype.findLast called on null or undefined");
+            if (typeof predicate !== "function") throw new TypeError("predicate must be a function");
+            var target = Object(this);
+            for (var index = bootLength(target.length) - 1; index >= 0; index -= 1) {
+              var value = target[index];
+              if (predicate.call(thisArg, value, index, target)) return value;
+            }
+            return undefined;
+          });
+          defineBootMethod(Array.prototype, "findLastIndex", function (predicate, thisArg) {
+            if (this == null) throw new TypeError("Array.prototype.findLastIndex called on null or undefined");
+            if (typeof predicate !== "function") throw new TypeError("predicate must be a function");
+            var target = Object(this);
+            for (var index = bootLength(target.length) - 1; index >= 0; index -= 1) {
+              if (predicate.call(thisArg, target[index], index, target)) return index;
+            }
+            return -1;
+          });
+          defineBootMethod(Array.prototype, "toSorted", function (compareFn) {
+            if (this == null) throw new TypeError("Array.prototype.toSorted called on null or undefined");
+            return Array.prototype.slice.call(this).sort(compareFn);
+          });
+          defineBootMethod(Array.prototype, "toReversed", function () {
+            if (this == null) throw new TypeError("Array.prototype.toReversed called on null or undefined");
+            return Array.prototype.slice.call(this).reverse();
+          });
+        }
+
+        if (typeof Promise !== "undefined" && typeof Promise.prototype.finally !== "function") {
+          defineBootMethod(Promise.prototype, "finally", function (onFinally) {
+            var promise = this;
+            var handler = typeof onFinally === "function" ? onFinally : function () {};
+            return promise.then(
+              function (value) { return Promise.resolve(handler()).then(function () { return value; }); },
+              function (reason) {
+                return Promise.resolve(handler()).then(function () { throw reason; });
+              }
+            );
+          });
+        }
+
+        if (typeof window.queueMicrotask !== "function" && typeof Promise !== "undefined") {
+          window.queueMicrotask = function (callback) {
+            Promise.resolve().then(callback).catch(function (error) {
+              window.setTimeout(function () { throw error; }, 0);
+            });
+          };
+        }
+
         function safePathname(pathname) {
           return String(pathname || "/")
             .replace(/\/(public|share)\/[^/]+/gi, "/$1/<redacted>");
@@ -132,6 +212,7 @@
           userAgent: navigator.userAgent || "",
           platform: navigator.platform || "",
           secureContext: window.isSecureContext === true,
+          nativeFeatures: nativeFeatures,
           features: {
             promiseFinally: typeof Promise !== "undefined" && typeof Promise.prototype.finally === "function",
             arrayFindLast: typeof Array.prototype.findLast === "function",
