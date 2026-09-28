@@ -362,6 +362,10 @@ async function paragraphFromTip(node: TipNode, ctx: BuildCtx): Promise<Paragraph
     p.indent = { left: indent * 24 };
   }
 
+  if (node.attrs?.firstLineIndent === 2) {
+    p.indent = { ...(p.indent || {}), firstLineChars: 2 };
+  }
+
   return p;
 }
 
@@ -567,6 +571,33 @@ function bytesToDataUrl(bytes: Uint8Array, mime: string): string {
 // 表格
 // ---------------------------------------------------------------------------
 
+function tableColumnWidthsFromTip(node: TipNode): number[] | undefined {
+  const colgroup = node.attrs?.colgroup;
+  if (Array.isArray(colgroup) && colgroup.length > 0) {
+    const widths = colgroup.map((entry: any) =>
+      parsePx(entry && typeof entry === "object" ? entry.width : entry),
+    );
+    if (widths.every((width): width is number => typeof width === "number")) {
+      return widths.map(pxToPt);
+    }
+  }
+
+  const firstRow = (node.content || []).find((row) => row.type === "tableRow");
+  if (!firstRow) return undefined;
+  const widths: number[] = [];
+  for (const cell of firstRow.content || []) {
+    if (cell.type !== "tableCell" && cell.type !== "tableHeader") continue;
+    const span = clampInt(cell.attrs?.colspan, 1, 32, 1);
+    const raw = Array.isArray(cell.attrs?.colwidth) ? cell.attrs?.colwidth : [];
+    for (let index = 0; index < span; index += 1) {
+      const width = parsePx(raw[index]);
+      if (!width) return undefined;
+      widths.push(pxToPt(width));
+    }
+  }
+  return widths.length > 0 ? widths : undefined;
+}
+
 async function tableFromTip(node: TipNode, ctx: BuildCtx): Promise<TableNode> {
   const rows: RowNode[] = [];
   for (const r of node.content || []) {
@@ -593,7 +624,19 @@ async function tableFromTip(node: TipNode, ctx: BuildCtx): Promise<TableNode> {
     }
     rows.push({ type: "row", cells });
   }
-  return { type: "table", rows };
+  const table: TableNode = { type: "table", rows };
+  const colWidths = tableColumnWidthsFromTip(node);
+  if (colWidths) table.colWidths = colWidths;
+
+  const align = node.attrs?.tableLayoutAlign;
+  if (align === "left" || align === "center" || align === "right") {
+    table.alignment = align;
+  }
+  const widthMode = node.attrs?.tableWidthMode;
+  if (widthMode === "auto" || widthMode === "full") {
+    table.widthMode = widthMode;
+  }
+  return table;
 }
 
 // ---------------------------------------------------------------------------
