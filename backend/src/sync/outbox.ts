@@ -3,7 +3,6 @@ import type Database from "better-sqlite3";
 import { SYNC_PERSONAL_SCOPE_KEY, SYNC_TABLES } from "./constants";
 import { isOutboxSuppressed } from "./context";
 import type {
-  SyncEntityType,
   SyncNegotiatedEntityType,
   SyncOperation,
   SyncOutboxRow,
@@ -133,12 +132,15 @@ export function listPendingMutations(
   limit: number,
   profileId?: string | null,
   scopeKey?: string,
+  includeKnowledgeTree = true,
 ): SyncOutboxRow[] {
+  const treeFilter = includeKnowledgeTree ? "" : "AND entityType <> 'knowledge_tree_node'";
   if (profileId === undefined || profileId === null) {
     // 不限定 Profile：仅供诊断与统计使用，Push 路径必须传 profileId。
     return db.prepare(`
       SELECT * FROM ${SYNC_TABLES.outbox}
       WHERE status IN ('pending', 'failed')
+        ${treeFilter}
       ORDER BY createdAt ASC, rowid ASC
       LIMIT ?
     `).all(limit) as SyncOutboxRow[];
@@ -149,6 +151,7 @@ export function listPendingMutations(
       SELECT * FROM ${SYNC_TABLES.outbox}
       WHERE status IN ('pending', 'failed')
         AND profileId = ? AND scopeKey = ?
+        ${treeFilter}
       ORDER BY createdAt ASC, rowid ASC
       LIMIT ?
     `).all(profileId, scopeKey, limit) as SyncOutboxRow[];
@@ -158,6 +161,7 @@ export function listPendingMutations(
     SELECT * FROM ${SYNC_TABLES.outbox}
     WHERE status IN ('pending', 'failed')
       AND profileId = ?
+      ${treeFilter}
     ORDER BY createdAt ASC, rowid ASC
     LIMIT ?
   `).all(profileId, limit) as SyncOutboxRow[];

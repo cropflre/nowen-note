@@ -29,10 +29,24 @@ import {
 import { coalesceMutations, markLocalMutationApplied } from "./push";
 import { applyRemoteChanges } from "./applyLocal";
 import type { RemoteEntityPayload } from "./applyLocal";
-import { recordConflict } from "./conflict";
-import { countUnresolvedConflicts } from "./conflict";
-import type { RemoteSnapshotPage, SyncRemoteClient } from "./remote";
-import type { SyncEnginePhase, SyncEngineState } from "./types";
+import { countUnresolvedConflicts, recordConflict } from "./conflict";
+import { runKnowledgeTreeBaseline } from "./knowledgeTreeBaseline";
+import { applyKnowledgeTreeChangesLocal } from "./knowledgeTreeApplyLocal";
+import {
+  isKnowledgeTreeSyncReady,
+  resetKnowledgeTreeSyncReadiness,
+} from "./knowledgeTreeReadiness";
+import type {
+  RemoteSnapshotPage,
+  SyncProtocolSubscription,
+  SyncRemoteClient,
+} from "./remote";
+import {
+  SYNC_V2_NEGOTIATED_ENTITY_TYPES,
+  type SyncEnginePhase,
+  type SyncEngineState,
+  type SyncNegotiatedEntityType,
+} from "./types";
 import type { SyncScopeDescriptor } from "./scope";
 import {
   listWorkspaceScopeStates,
@@ -101,6 +115,15 @@ export interface SyncEngineOptions {
 
 const DEFAULT_INTERVAL_MS = 60_000;
 
+type TreeRemotePayload = {
+  entityType: "knowledge_tree_node";
+  entityId: string;
+  operation: "upsert" | "delete";
+  payload?: Record<string, unknown>;
+};
+
+type EngineRemotePayload = RemoteEntityPayload | TreeRemotePayload;
+
 export class SyncEngine {
   private state: SyncEngineState = "idle";
   private phase: SyncEnginePhase | null = null;
@@ -121,6 +144,8 @@ export class SyncEngine {
   private remoteSequence = 0;
   /** 一轮同步进行中又收到触发时置位，结束后立即再跑一轮。 */
   private rerunRequested = false;
+  /** 老服务器不支持 negotiated entityTypes 时，本次进程不重复探测。 */
+  private readonly unsupportedTreeScopes = new Set<string>();
 
   private readonly db: Database.Database;
   private readonly profileId: string;
@@ -165,6 +190,7 @@ export class SyncEngine {
         pendingCount: recovered,
       });
     }
+    this.unsupportedTreeScopes.clear();
     this.stopped = false;
     this.state = "idle";
     this.scheduleNext(0);
@@ -271,6 +297,8 @@ export class SyncEngine {
         if (!local || local.accessStatus === "access_revoked") continue;
         try {
           if (local.accessStatus === "replan_required") {
+            resetKnowledgeTreeSyncReadiness(this.db, this.profileId, descriptor.scopeKey);
+            this.unsupportedTreeScopes.delete(descriptor.scopeKey);
             await this.runSnapshotRebuild(descriptor);
             markWorkspaceScopeActive(
               this.db,
@@ -279,6 +307,7 @@ export class SyncEngine {
               descriptor.accessFingerprint,
             );
           }
+          await this.ensureKnowledgeTreeBaseline(descriptor);
           await this.runPush(descriptor);
           await this.runPull(descriptor);
           // 附件二进制放在最后：它耗时最长且不影响正文一致性。
@@ -319,6 +348,72 @@ export class SyncEngine {
 
   private scheduleNextAfterSuccess(): void {
     if (this.intervalMs > 0) this.scheduleNext(this.intervalMs);
+  }
+
+  private treeSubscription(scopeKey: string): SyncProtocolSubscription | undefined {
+    return isKnowledgeTreeSyncReady(this.db, this.profileId, scopeKey)
+      ? { entityTypes: SYNC_V2_NEGOTIATED_ENTITY_TYPES, deviceId: this.deviceId }
+      : undefined;
+  }
+
+  private businessBootstrapReady(): boolean {
+    const row = this.db.prepare(
+      "SELECT bootstrapStatus FROM sync_profiles WHERE id = ?",
+    ).get(this.profileId) as { bootstrapStatus?: string } | undefined;
+    return row?.bootstrapStatus === "ready";
+  }
+
+  private hasUnresolvedTreeConflict(scopeKey: string, entityId?: string): boolean {
+    const row = this.db.prepare(`
+      SELECT 1 FROM sync_conflicts
+      WHERE profileId = ? AND scopeKey = ?
+        AND entityType = 'knowledge_tree_node' AND status = 'unresolved'
+        ${entityId ? "AND entityId = ?" : ""}
+      LIMIT 1
+    `).get(...(entityId
+      ? [this.profileId, scopeKey, entityId]
+      : [this.profileId, scopeKey]));
+    return Boolean(row);
+  }
+
+  private async ensureKnowledgeTreeBaseline(scope: SyncScopeDescriptor): Promise<void> {
+    if (this.treeSubscription(scope.scopeKey)
+      || this.unsupportedTreeScopes.has(scope.scopeKey)
+      || !this.businessBootstrapReady()
+      || this.hasUnresolvedTreeConflict(scope.scopeKey)) {
+      return;
+    }
+
+    const result = await runKnowledgeTreeBaseline({
+      db: this.db,
+      profileId: this.profileId,
+      deviceId: this.deviceId,
+      userId: this.userId,
+      scopeKey: scope.scopeKey,
+      workspaceId: scope.workspaceId,
+      client: this.client,
+    });
+    if (result.status === "unsupported") {
+      this.unsupportedTreeScopes.add(scope.scopeKey);
+      logSyncInfo("engine.tree-protocol-unsupported", {
+        profileId: this.profileId,
+        scopeKey: scope.scopeKey,
+      });
+      return;
+    }
+    if (result.status === "conflict") {
+      logSyncWarn("engine.tree-baseline-conflict", {
+        profileId: this.profileId,
+        scopeKey: scope.scopeKey,
+        conflictCount: result.conflictCount,
+      });
+      return;
+    }
+    logSyncInfo("engine.tree-baseline-ready", {
+      profileId: this.profileId,
+      scopeKey: scope.scopeKey,
+      pullSequence: result.snapshotSequence,
+    });
   }
 
   /**
@@ -396,12 +491,14 @@ export class SyncEngine {
 
   private async runPush(scope: SyncScopeDescriptor): Promise<void> {
     this.phase = "pushing";
+    const subscription = this.treeSubscription(scope.scopeKey);
 
     const rows = listPendingMutations(
       this.db,
       SYNC_PUSH_MAX_MUTATIONS,
       this.profileId,
       scope.scopeKey,
+      Boolean(subscription),
     );
     if (rows.length === 0) return;
 
@@ -419,6 +516,7 @@ export class SyncEngine {
         this.deviceId,
         batch.map(({ supersededIds: _ignored, ...payload }) => payload),
         scope.scopeKey,
+        subscription,
       );
     } catch (error) {
       // 请求失败（断网、超时、服务端异常）时必须把 inflight 退回 pending。
@@ -518,7 +616,12 @@ export class SyncEngine {
     const cursor = getSyncState(this.db, this.profileId, scope.scopeKey);
     let after = cursor?.lastSequence ?? 0;
 
-    const changes = await this.client.changes(after, undefined, scope.scopeKey);
+    const subscription = this.treeSubscription(scope.scopeKey);
+    const changes = subscription
+      ? await this.client.changes<SyncNegotiatedEntityType>(
+        after, undefined, scope.scopeKey, subscription,
+      )
+      : await this.client.changes(after, undefined, scope.scopeKey);
     this.remoteSequence = changes.serverSequence;
     this.lastPullAt = new Date().toISOString();
 
@@ -537,18 +640,27 @@ export class SyncEngine {
     if (changes.items.length === 0) {
       // 无变更也要推进游标，避免下次重复扫描同一段序号。
       advanceSyncState(this.db, this.profileId, changes.nextSequence, scope.scopeKey);
-      await this.client.ack(this.deviceId, changes.nextSequence, scope.scopeKey);
+      await this.client.ack(
+        this.deviceId, changes.nextSequence, scope.scopeKey, subscription,
+      );
       return;
     }
 
     // Change Feed 只给"哪些实体变了"，完整内容通过 snapshot 单点拉取。
     // 这样协议不必在 feed 里塞正文，也避免历史变更累积成巨大响应。
     this.phase = "applying";
-    const payloads = await this.fetchEntityPayloads(changes.items, scope);
-    const result = applyRemoteChanges(this.db,payloads,{
+    const payloads = await this.fetchEntityPayloads(changes.items, scope, subscription);
+    const businessPayloads = payloads.filter(
+      (item): item is RemoteEntityPayload => item.entityType !== "knowledge_tree_node",
+    );
+    const treePayloads = payloads.filter(
+      (item): item is TreeRemotePayload => item.entityType === "knowledge_tree_node",
+    );
+    const result = applyRemoteChanges(this.db,businessPayloads,{
       userId:this.userId,scopeKey:scope.scopeKey,workspaceId:scope.workspaceId,
     });
-    this.restoreParentLinks(payloads,scope);
+    this.restoreParentLinks(businessPayloads,scope);
+    const treeResult = this.applyKnowledgeTreePayloads(treePayloads, scope);
 
     for (const conflict of result.pendingConflicts) {
       // 本地有未推送修改，远端也变了：登记冲突，两侧都保留。
@@ -563,13 +675,15 @@ export class SyncEngine {
     }
 
     advanceSyncState(this.db, this.profileId, changes.nextSequence, scope.scopeKey);
-    await this.client.ack(this.deviceId, changes.nextSequence, scope.scopeKey);
+    await this.client.ack(
+      this.deviceId, changes.nextSequence, scope.scopeKey, subscription,
+    );
 
     logSyncInfo("engine.pull-applied", {
       profileId: this.profileId,
       pullSequence: changes.nextSequence,
-      applyCount: result.applied,
-      conflictCount: result.pendingConflicts.length,
+      applyCount: result.applied + treeResult.applied,
+      conflictCount: result.pendingConflicts.length + treeResult.conflicts,
     });
 
     // 服务端还有更多变更时立即续拉，不必等下个周期。
@@ -583,19 +697,26 @@ export class SyncEngine {
    * 这里逐类批量拉取，避免为每条变更单独发一次请求。
    */
   private async fetchEntityPayloads(
-    items: Array<{ entityType: string; entityId: string; operation: string }>,
+    items: Array<{ entityType: SyncNegotiatedEntityType; entityId: string; operation: string }>,
     scope: SyncScopeDescriptor,
-  ): Promise<RemoteEntityPayload[]> {
-    const deletions: RemoteEntityPayload[] = [];
+    subscription?: SyncProtocolSubscription,
+  ): Promise<EngineRemotePayload[]> {
+    const deletions: EngineRemotePayload[] = [];
     const wanted = new Set<string>();
 
     for (const item of items) {
       if (item.operation === "delete") {
-        deletions.push({
-          entityType: item.entityType as RemoteEntityPayload["entityType"],
-          entityId: item.entityId,
-          operation: "delete",
-        });
+        deletions.push(item.entityType === "knowledge_tree_node"
+          ? {
+              entityType: "knowledge_tree_node",
+              entityId: item.entityId,
+              operation: "delete",
+            }
+          : {
+              entityType: item.entityType as RemoteEntityPayload["entityType"],
+              entityId: item.entityId,
+              operation: "delete",
+            });
         continue;
       }
       wanted.add(`${item.entityType}\u0000${item.entityId}`);
@@ -604,22 +725,31 @@ export class SyncEngine {
     if (wanted.size === 0) return deletions;
 
     // 遍历 snapshot，挑出本轮需要的实体。
-    const upserts: RemoteEntityPayload[] = [];
+    const upserts: EngineRemotePayload[] = [];
     let cursor: string | null = null;
     let guard = 0;
     do {
-      const page: RemoteSnapshotPage = await this.client.snapshot(
-        cursor, 0, undefined, scope.scopeKey,
-      );
+      const page: RemoteSnapshotPage<SyncNegotiatedEntityType> = subscription
+        ? await this.client.snapshot<SyncNegotiatedEntityType>(
+          cursor, 0, undefined, scope.scopeKey, subscription,
+        )
+        : await this.client.snapshot(cursor, 0, undefined, scope.scopeKey);
       for (const entry of page.items) {
         const key = `${entry.entityType}\u0000${entry.entityId}`;
         if (!wanted.has(key)) continue;
-        upserts.push({
-          entityType: entry.entityType,
-          entityId: entry.entityId,
-          operation: "upsert",
-          payload: entry.payload,
-        });
+        upserts.push(entry.entityType === "knowledge_tree_node"
+          ? {
+              entityType: "knowledge_tree_node",
+              entityId: entry.entityId,
+              operation: "upsert",
+              payload: entry.payload,
+            }
+          : {
+              entityType: entry.entityType as RemoteEntityPayload["entityType"],
+              entityId: entry.entityId,
+              operation: "upsert",
+              payload: entry.payload,
+            });
         wanted.delete(key);
       }
       cursor = page.nextCursor;
@@ -638,6 +768,85 @@ export class SyncEngine {
     // 先应用 upsert 再应用 delete：
     // 同一轮里若既有创建又有删除，删除应当是最终状态。
     return [...upserts, ...deletions];
+  }
+
+  private readLocalTreeSnapshot(
+    entityId: string,
+    scope: SyncScopeDescriptor,
+  ): Record<string, unknown> | null {
+    const row = this.db.prepare(`
+      SELECT id, userId, workspaceId, parentId, nodeType, resourceType, resourceId,
+             sortOrder, isDeleted, deletedAt, createdAt, updatedAt
+      FROM knowledge_tree_nodes
+      WHERE id = ? AND workspaceId IS ? AND (? IS NOT NULL OR userId = ?)
+    `).get(entityId, scope.workspaceId, scope.workspaceId, this.userId) as
+      | Record<string, unknown>
+      | undefined;
+    return row || null;
+  }
+
+  private applyKnowledgeTreePayloads(
+    items: TreeRemotePayload[],
+    scope: SyncScopeDescriptor,
+  ): { applied: number; conflicts: number } {
+    if (items.length === 0) return { applied: 0, conflicts: 0 };
+    const applicable: Array<
+      ({ entityId: string; operation: "upsert"; payload: Record<string, unknown> })
+      | { entityId: string; operation: "delete" }
+    > = [];
+    let conflicts = 0;
+
+    for (const item of items) {
+      if (this.hasUnresolvedTreeConflict(scope.scopeKey, item.entityId)) {
+        conflicts += 1;
+        continue;
+      }
+      const pending = this.db.prepare(`
+        SELECT 1 FROM sync_outbox
+        WHERE profileId = ? AND scopeKey = ?
+          AND entityType = 'knowledge_tree_node' AND entityId = ?
+          AND status IN ('pending', 'inflight', 'failed')
+        LIMIT 1
+      `).get(this.profileId, scope.scopeKey, item.entityId);
+      if (pending) {
+        const localPayload = this.readLocalTreeSnapshot(item.entityId, scope);
+        const remotePayload = item.operation === "upsert" ? item.payload ?? null : null;
+        if (!localPayload && !remotePayload) {
+          throw new SyncError(
+            "VERSION_CONFLICT",
+            "知识树删除与本机待同步删除发生竞争，禁止推进同步游标",
+          );
+        }
+        recordConflict(this.db, {
+          profileId: this.profileId,
+          scopeKey: scope.scopeKey,
+          entityType: "knowledge_tree_node",
+          entityId: item.entityId,
+          localPayload,
+          remotePayload,
+        });
+        conflicts += 1;
+        continue;
+      }
+      if (item.operation === "upsert") {
+        if (!item.payload) throw new SyncError("SERVER_ERROR", "知识树 upsert 缺少 payload");
+        applicable.push({
+          entityId: item.entityId,
+          operation: "upsert",
+          payload: item.payload,
+        });
+      } else {
+        applicable.push({ entityId: item.entityId, operation: "delete" });
+      }
+    }
+
+    if (applicable.length > 0) {
+      applyKnowledgeTreeChangesLocal(this.db, applicable, {
+        userId: this.userId,
+        workspaceId: scope.workspaceId,
+      });
+    }
+    return { applied: applicable.length, conflicts };
   }
 
   /** 读取本地当前内容，作为冲突的 local 一方留存。 */
@@ -663,6 +872,7 @@ export class SyncEngine {
    */
   private async runSnapshotRebuild(scope: SyncScopeDescriptor): Promise<void> {
     this.phase = "applying";
+    const subscription = this.treeSubscription(scope.scopeKey);
     let cursor: string | null = null;
     let snapshotSequence = 0;
     let guard = 0;
@@ -671,12 +881,13 @@ export class SyncEngine {
     const parentLinks:RemoteEntityPayload[] = [];
 
     do {
-      const page: RemoteSnapshotPage = await this.client.snapshot(
-        cursor,
-        snapshotSequence,
-        undefined,
-        scope.scopeKey,
-      );
+      const page: RemoteSnapshotPage<SyncNegotiatedEntityType> = subscription
+        ? await this.client.snapshot<SyncNegotiatedEntityType>(
+          cursor, snapshotSequence, undefined, scope.scopeKey, subscription,
+        )
+        : await this.client.snapshot(
+          cursor, snapshotSequence, undefined, scope.scopeKey,
+        );
       if (snapshotSequence === 0) snapshotSequence = page.snapshotSequence;
       for (const entry of page.items) {
         const ids=seen.get(entry.entityType) || new Set<string>();
@@ -692,17 +903,32 @@ export class SyncEngine {
         }
       }
 
+      const businessEntries: RemoteEntityPayload[] = [];
+      const treeEntries: TreeRemotePayload[] = [];
+      for (const entry of page.items) {
+        if (entry.entityType === "knowledge_tree_node") {
+          treeEntries.push({
+            entityType: "knowledge_tree_node",
+            entityId: entry.entityId,
+            operation: "upsert",
+            payload: entry.payload,
+          });
+        } else {
+          businessEntries.push({
+            entityType: entry.entityType as RemoteEntityPayload["entityType"],
+            entityId: entry.entityId,
+            operation: "upsert",
+            payload: entry.payload,
+          });
+        }
+      }
       const result = applyRemoteChanges(
         this.db,
-        page.items.map((entry) => ({
-          entityType: entry.entityType,
-          entityId: entry.entityId,
-          operation: "upsert" as const,
-          payload: entry.payload,
-        })),
+        businessEntries,
         { userId:this.userId,scopeKey:scope.scopeKey,workspaceId:scope.workspaceId },
       );
-      applied += result.applied;
+      const treeResult = this.applyKnowledgeTreePayloads(treeEntries, scope);
+      applied += result.applied + treeResult.applied;
 
       cursor = page.nextCursor;
       guard += 1;
@@ -714,7 +940,9 @@ export class SyncEngine {
 
     // 重建完成后游标落在 snapshot 时间点，之后继续增量。
     advanceSyncState(this.db, this.profileId, snapshotSequence, scope.scopeKey);
-    await this.client.ack(this.deviceId, snapshotSequence, scope.scopeKey);
+    await this.client.ack(
+      this.deviceId, snapshotSequence, scope.scopeKey, subscription,
+    );
 
     logSyncInfo("engine.snapshot-rebuilt", {
       profileId: this.profileId,

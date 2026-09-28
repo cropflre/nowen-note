@@ -11,27 +11,27 @@ import {
   SYNC_V2_NEGOTIATED_ENTITY_TYPES,
 } from "../src/sync/types.js";
 
-test("Sync V2 runtime entity types match the complete capability registry", () => {
+test("Sync V2 capability registry covers the negotiated entity set", () => {
   assert.deepEqual(
     SYNC_ENTITY_CAPABILITIES.map((item) => item.entityType),
-    [...SYNC_ENTITY_TYPES],
+    [...SYNC_V2_NEGOTIATED_ENTITY_TYPES],
   );
-  for (const entityType of SYNC_ENTITY_TYPES) {
+  for (const entityType of SYNC_V2_NEGOTIATED_ENTITY_TYPES) {
     assert.doesNotThrow(() => assertEntitySyncReady(entityType));
   }
 });
 
-test("knowledge tree structure cannot enter Sync V2 before all seven links are ready", () => {
-  const tree = PLANNED_SYNC_ENTITIES.find((item) => item.entityType === "knowledge_tree_node");
+test("knowledge tree structure is fully wired but remains opt-in for legacy clients", () => {
+  const tree = SYNC_ENTITY_CAPABILITIES.find((item) => item.entityType === "knowledge_tree_node");
   assert.ok(tree);
-  assert.equal(tree.changeFeed, true);
+  assert.equal(tree.outbox, true);
   assert.equal(tree.push, true);
+  assert.equal(tree.changeFeed, true);
+  assert.equal(tree.pull, true);
   assert.equal(tree.apply, true);
   assert.equal(tree.conflictStrategy, true);
-  assert.equal(tree.outbox, false, "客户端订阅前不得开启树 Outbox");
-  assert.equal(tree.pull, false, "客户端 Engine 尚未消费树实体");
   assert.equal(SYNC_ENTITY_TYPES.includes("knowledge_tree_node" as never), false);
-  assert.throws(() => assertEntitySyncReady("knowledge_tree_node"), /outbox、pull/);
+  assert.equal(PLANNED_SYNC_ENTITIES.some((item) => item.entityType === "knowledge_tree_node"), false);
 });
 
 test("unnegotiated V2 clients retain the original ten-entity baseline", () => {

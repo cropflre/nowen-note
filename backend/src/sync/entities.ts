@@ -87,19 +87,17 @@ export const SYNC_ENTITY_CAPABILITIES: EntityCapability[] = [
     localCrud: true, outbox: true, push: true, changeFeed: true,
     pull: true, apply: true, conflictStrategy: true,
   },
+  {
+    entityType: "knowledge_tree_node",
+    localCrud: true, outbox: true, push: true, changeFeed: true,
+    pull: true, apply: true, conflictStrategy: true,
+  },
 ];
 
 /**
  * 后续 Phase 的候选实体；缺少任一环节时不得加入已接入范围。
  */
 export const PLANNED_SYNC_ENTITIES: EntityCapability[] = [
-  {
-    entityType: "knowledge_tree_node",
-    // 服务端显式订阅、Snapshot、Push/CAS 与本地 Apply 已具备；
-    // Outbox 仍由 sync_v2_tree_outbox_ready 关闭，客户端 Engine 尚未订阅。
-    localCrud: true, outbox: false, push: true, changeFeed: true,
-    pull: false, apply: true, conflictStrategy: true,
-  },
   {
     entityType: "habit",
     localCrud: true, outbox: false, push: false, changeFeed: false,
