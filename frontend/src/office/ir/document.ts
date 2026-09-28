@@ -69,6 +69,10 @@ export interface TableNode {
    * 缺失时渲染层退化为等分列宽。
    */
   colWidths?: number[];
+  /** Whole-table alignment from the rich-text table layout controls. */
+  alignment?: "left" | "center" | "right";
+  /** Width mode requested by the rich-text editor. */
+  widthMode?: "auto" | "full";
   rows: RowNode[];
 }
 
@@ -134,6 +138,8 @@ export interface ParagraphNode {
     left?: number;
     right?: number;
     firstLine?: number;
+    /** OOXML character-based first-line indent (2 => two characters). */
+    firstLineChars?: number;
     hanging?: number;
   };
   /**
