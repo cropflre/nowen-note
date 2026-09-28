@@ -108,6 +108,35 @@ describe("mobile knowledge tree navigation", () => {
     ]);
   });
 
+  it("can switch the recent list to true recently-edited ordering", () => {
+    const rows = [
+      node("note:opened", "Opened", {
+        nodeType: "note",
+        resourceType: "note",
+        updatedAt: "2026-07-01T00:00:00.000Z",
+      }),
+      node("note:edited", "Edited", {
+        nodeType: "note",
+        resourceType: "note",
+        updatedAt: "2026-07-20T00:00:00.000Z",
+      }),
+    ];
+    const entries = upsertMobileKnowledgeTreeRecentEntry(
+      [],
+      "note:opened",
+      Date.parse("2026-07-25T00:00:00.000Z"),
+    );
+
+    expect(buildMobileKnowledgeTreeRecentNodes(rows, entries, 40, "opened").map((row) => row.id)).toEqual([
+      "note:opened",
+      "note:edited",
+    ]);
+    expect(buildMobileKnowledgeTreeRecentNodes(rows, entries, 40, "edited").map((row) => row.id)).toEqual([
+      "note:edited",
+      "note:opened",
+    ]);
+  });
+
   it("keeps actual open history ahead of updatedAt-only fallback documents", () => {
     const rows = [
       node("note:a", "A", {
