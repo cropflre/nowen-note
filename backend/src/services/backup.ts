@@ -414,7 +414,25 @@ function verifyCurrentDbUsable(curDbPath: string): void {
   if (integrity !== "ok") {
     throw new Error(`恢复后完整性检查失败: ${integrity}`);
   }
-  // getDb() 会打开 WAL；验证完成后关闭并清理，避免失败路径残留旧 sidecar。
+
+  // A readable SQLite file is not enough: attachment upload also needs a writable DB.
+  // Use a SAVEPOINT-backed write probe so permissions/read-only mounts fail before restore
+  // is committed, while the probe leaves no persistent row behind.
+  try {
+    cur.exec("SAVEPOINT nowen_restore_write_probe");
+    cur.prepare(
+      `INSERT OR REPLACE INTO system_settings (key, value) VALUES (?, ?)`,
+    ).run("backup:restore-write-probe", String(Date.now()));
+    cur.exec("ROLLBACK TO nowen_restore_write_probe");
+    cur.exec("RELEASE nowen_restore_write_probe");
+  } catch (error) {
+    try { cur.exec("ROLLBACK TO nowen_restore_write_probe"); } catch { /* ignore */ }
+    try { cur.exec("RELEASE nowen_restore_write_probe"); } catch { /* ignore */ }
+    throw new Error(
+      "恢复后数据库写入检查失败: " + (error instanceof Error ? error.message : String(error)),
+    );
+  }
+
   closeDb();
   cleanupWalShm(curDbPath);
 }
