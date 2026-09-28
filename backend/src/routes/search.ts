@@ -699,10 +699,36 @@ type MindMapSearchRow = {
   userId: string;
   workspaceId: string | null;
   title: string;
+  data: string;
   updatedAt: string;
 };
 
-function fetchMindMapTitleResults(
+function parseMindMapSearchValues(raw: string): string[] {
+  try {
+    const parsed = JSON.parse(raw) as { root?: unknown };
+    const root = parsed && typeof parsed === "object" && "root" in parsed ? parsed.root : parsed;
+    const values: string[] = [];
+    const stack: unknown[] = root ? [root] : [];
+    let visited = 0;
+    while (stack.length > 0 && visited < 20_000) {
+      const current = stack.pop();
+      visited += 1;
+      if (!current || typeof current !== "object" || Array.isArray(current)) continue;
+      const node = current as { text?: unknown; children?: unknown };
+      if (typeof node.text === "string" && node.text) values.push(node.text);
+      if (Array.isArray(node.children)) {
+        for (let index = node.children.length - 1; index >= 0; index -= 1) {
+          stack.push(node.children[index]);
+        }
+      }
+    }
+    return values;
+  } catch {
+    return [];
+  }
+}
+
+function fetchMindMapResults(
   db: Database.Database,
   userId: string,
   workspaceId: string | undefined,
@@ -718,32 +744,76 @@ function fetchMindMapTitleResults(
     : "m.workspaceId IS NULL AND m.userId = ?";
   const scopeParams = workspaceScope ? [workspaceId] : [userId];
   const termSql = normalizedTerms
-    .map(() => "instr(nowen_search_normalize(COALESCE(m.title, '')), ?) > 0")
+    .map(() => `(
+      instr(nowen_search_normalize(COALESCE(m.title, '')), ?) > 0
+      OR instr(nowen_search_normalize(COALESCE(m.data, '')), ?) > 0
+    )`)
     .join(" AND ");
+  const termParams = normalizedTerms.flatMap((term) => [term, term]);
 
   const rows = db.prepare(`
-    SELECT m.id, m.userId, m.workspaceId, m.title, m.updatedAt
+    SELECT m.id, m.userId, m.workspaceId, m.title, m.data, m.updatedAt
     FROM mindmaps m
     WHERE ${scopeSql}
       AND ${termSql}
     ORDER BY m.updatedAt DESC, m.id ASC
     LIMIT 200
-  `).all(...scopeParams, ...normalizedTerms) as MindMapSearchRow[];
+  `).all(...scopeParams, ...termParams) as MindMapSearchRow[];
 
   return rows
     .filter((row) => {
       const access = resolveResourceKnowledgeAccess("mindmap", row.id, userId, db);
       return hasKnowledgeCapability(access, "canView");
     })
-    .map((row) => {
-      const normalizedTitle = normalizeSearchText(row.title);
-      const matchCount = normalizedTerms.reduce(
-        (sum, term) => sum + countNormalizedOccurrences(normalizedTitle, term),
-        0,
+    .map((row): SearchResultWithScore | null => {
+      const titleNormalized = normalizeSearchText(row.title || "");
+      const titleTermCounts = normalizedTerms.map((term) =>
+        countNormalizedOccurrences(titleNormalized, term)
       );
-      const exactQuery = normalizedQuery ? normalizedTitle.includes(normalizedQuery) : false;
+      const contentTermCounts = normalizedTerms.map(() => 0);
+      const matchingValues: string[] = [];
+      let contentExact = false;
+
+      for (const rawValue of parseMindMapSearchValues(row.data)) {
+        const normalized = normalizeSearchText(rawValue);
+        if (!normalized) continue;
+        let matched = false;
+        normalizedTerms.forEach((term, index) => {
+          const count = countNormalizedOccurrences(normalized, term);
+          if (count > 0) {
+            contentTermCounts[index] += count;
+            matched = true;
+          }
+        });
+        if (normalizedQuery && normalized.includes(normalizedQuery)) contentExact = true;
+        if (matched && matchingValues.length < 8) matchingValues.push(rawValue.slice(0, 500));
+      }
+
+      const allTermsExplained = normalizedTerms.every((_, index) =>
+        titleTermCounts[index] > 0 || contentTermCounts[index] > 0
+      );
+      if (!allTermsExplained) return null;
+
+      const titleCount = titleTermCounts.reduce((sum, count) => sum + count, 0);
+      const contentCount = contentTermCounts.reduce((sum, count) => sum + count, 0);
+      const titleCoverage = titleTermCounts.filter((count) => count > 0).length;
+      const contentCoverage = contentTermCounts.filter((count) => count > 0).length;
+      const titleExact = normalizedQuery ? titleNormalized.includes(normalizedQuery) : false;
+      const hasTitle = titleCount > 0;
+      const hasContent = contentCount > 0;
+      const primaryField: "title" | "content" =
+        titleExact || (!contentExact && titleCoverage >= contentCoverage && hasTitle)
+          ? "title"
+          : "content";
+      const matchedField = hasTitle && hasContent ? "title+content" : hasTitle ? "title" : "content";
+      const snippetHtml = hasContent
+        ? buildPlainSnippet(matchingValues.join(" · "), terms, "脑图")
+        : "";
+      const matchCount = titleCount + contentCount;
+      const exact = primaryField === "title" ? titleExact : contentExact;
+
       return {
-        resourceType: "mindmap" as const,
+        resourceType: "mindmap",
         id: row.id,
         userId: row.userId,
         notebookId: "",
@@ -754,16 +824,22 @@ function fetchMindMapTitleResults(
         isPinned: 0,
         contentFormat: "mindmap",
         notebookName: null,
-        snippet: "",
+        snippet: snippetHtml,
         titleHtml: markPlainText(row.title, terms),
-        snippetHtml: "",
-        matchedField: "title" as const,
-        matchedFields: ["title" as const],
-        matchReason: "title" as const,
+        snippetHtml,
+        matchedField,
+        matchedFields: [
+          ...(hasTitle ? ["title" as const] : []),
+          ...(hasContent ? ["content" as const] : []),
+        ],
+        matchReason: primaryField,
         matchCount,
-        score: (exactQuery ? -5 : 0) - Math.min(matchCount, 20) / 100,
+        score: (primaryField === "title" ? 0 : 10)
+          - (exact ? 5 : 0)
+          - Math.min(matchCount, 20) / 100,
       };
-    });
+    })
+    .filter((row): row is SearchResultWithScore => Boolean(row));
 }
 
 type SheetSearchRow = {
@@ -1046,7 +1122,7 @@ app.get("/", (c) => {
   const candidate = collectCandidates(db, terms, scope, userId);
   candidate.ids = filterVisibleCandidates(db, candidate.ids, userId);
   const candidateDurationMs = performance.now() - candidateStarted;
-  const mindMapResults = fetchMindMapTitleResults(
+  const mindMapResults = fetchMindMapResults(
     db,
     userId,
     workspaceId,

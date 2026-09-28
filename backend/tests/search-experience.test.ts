@@ -107,7 +107,15 @@ test.before(async () => {
       MINDMAP_ID,
       OWNER_ID,
       "知识星图 唯一脑图检索词",
-      JSON.stringify({ root: { id: "root", text: "知识星图", children: [] } }),
+      JSON.stringify({
+        root: {
+          id: "root",
+          text: "知识星图",
+          children: [
+            { id: "node-1", text: "Agent 编排中的唯一脑图节点词", children: [] },
+          ],
+        },
+      }),
     );
 
   insertNote(SHEET_ID, "服务器清单", "", "tiptap-json", "{}");
@@ -237,6 +245,26 @@ test("mindmap titles participate in global search without leaking inaccessible m
   assert.match(result.titleHtml, /<mark>唯一脑图检索词<\/mark>/);
 
   const other = await search(OTHER_ID, "唯一脑图检索词");
+  assert.equal(other.status, 200);
+  assert.equal(other.json.some((item) => item.id === MINDMAP_ID), false);
+});
+
+test("mindmap topic text participates in global search without leaking inaccessible maps", async () => {
+  const owner = await search(OWNER_ID, "唯一脑图节点词");
+  assert.equal(owner.status, 200);
+  const result = owner.json.find((item) => item.id === MINDMAP_ID);
+  assert.ok(result);
+  assert.equal(result.resourceType, "mindmap");
+  assert.equal(result.matchedField, "content");
+  assert.equal(result.matchReason, "content");
+  assert.match(result.snippetHtml, /<mark>唯一脑图节点词<\/mark>/);
+
+  const splitSource = await search(OWNER_ID, "知识星图 Agent");
+  const combined = splitSource.json.find((item) => item.id === MINDMAP_ID);
+  assert.ok(combined);
+  assert.equal(combined.matchedField, "title+content");
+
+  const other = await search(OTHER_ID, "唯一脑图节点词");
   assert.equal(other.status, 200);
   assert.equal(other.json.some((item) => item.id === MINDMAP_ID), false);
 });
