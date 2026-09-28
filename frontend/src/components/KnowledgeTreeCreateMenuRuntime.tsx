@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { BrainCircuit, Copy, FileArchive, FileCode, Files, FileText, FileType2, Folder, LayoutTemplate, Link2 } from "lucide-react";
+import { BrainCircuit, Copy, FileArchive, FileCode, Files, FileText, FileType2, Folder, LayoutTemplate, Link2, Table2 } from "lucide-react";
 
 import NoteTemplatePickerDialog from "@/components/NoteTemplatePickerDialog";
 import KnowledgeTreePanelBase, {
@@ -40,6 +40,7 @@ const CREATE_ITEMS = [
   { kind: "note", label: "富文本文档", icon: FileText },
   { kind: "markdown", label: "Markdown 文档", icon: FileCode },
   { kind: "mindmap", label: "思维导图", icon: BrainCircuit },
+  { kind: "sheet", label: "轻量表格", icon: Table2 },
 ] as const;
 const FOLDER_CREATE_ITEM = { kind: "folder", label: "文件夹" } as const;
 

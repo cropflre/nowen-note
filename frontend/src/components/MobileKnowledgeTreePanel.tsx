@@ -22,6 +22,7 @@ import {
   Star,
   TreePine,
   X,
+  Table2,
 } from "lucide-react";
 
 import FolderPasswordDialog from "@/components/FolderPasswordDialog";
@@ -51,6 +52,7 @@ import { useMobileSidebarControlsCollapsed } from "@/hooks/useMobileSidebarContr
 import { useSidebarTextStyle } from "@/hooks/useSidebarTextStyle";
 import { api, getCurrentWorkspace } from "@/lib/api";
 import { getCurrentMindMapAppId, pushMindMapAppPath, subscribeMindMapAppPath } from "@/lib/mindMapDeepLink";
+import { pushSheetAppPath } from "@/lib/sheetDeepLink";
 import { markNewNoteForImmediateEdit } from "@/lib/newNoteImmediateEdit";
 import { pluginApi } from "@/lib/pluginApi";
 import { noteTemplatesApi } from "@/lib/noteTemplatesApi";
@@ -129,6 +131,7 @@ function nodeIcon(node: KnowledgeTreeNode) {
   }
   if (node.nodeType === "markdown") return <FileCode size={18} className="shrink-0 text-emerald-500" />;
   if (node.nodeType === "mindmap") return <BrainCircuit size={18} className="shrink-0 text-accent-primary" />;
+  if (node.noteType === "sheet") return <Table2 size={18} className="shrink-0 text-sky-500" />;
   return <FileText size={18} className="shrink-0 text-accent-primary" />;
 }
 
@@ -564,6 +567,11 @@ export default function MobileKnowledgeTreePanel({
     }
     if (node.resourceType !== "note") return;
     rememberOpened(node.id);
+    if (node.noteType === "sheet") {
+      pushSheetAppPath(node.resourceId);
+      if (variant === "mobile") actions.setMobileSidebar(false);
+      return;
+    }
     try {
       activateNote(await api.getNote(node.resourceId), node.parentId);
     } catch (requestError: any) {
@@ -663,6 +671,12 @@ export default function MobileKnowledgeTreePanel({
       if (snapshot.kind === "mindmap") {
         rememberOpened(created.id);
         pushMindMapAppPath(created.resourceId);
+        if (variant === "mobile") actions.setMobileSidebar(false);
+        return;
+      }
+      if (snapshot.kind === "sheet") {
+        rememberOpened(created.id);
+        pushSheetAppPath(created.resourceId);
         if (variant === "mobile") actions.setMobileSidebar(false);
         return;
       }

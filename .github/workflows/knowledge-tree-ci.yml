@@ -19,6 +19,8 @@ on:
       - "backend/src/sync/entities.ts"
       - "backend/src/sync/types.ts"
       - "backend/src/db/syncV2KnowledgeTree*.ts"
+      - "backend/src/db/lightweightSheetsMigration.ts"
+      - "backend/src/routes/sheets.ts"
       - "backend/src/services/knowledge*.ts"
       - "backend/src/services/notebook-permissions.ts"
       - "backend/src/middleware/knowledgeCapabilityGuard.ts"
@@ -27,7 +29,11 @@ on:
       - "backend/tests/sync-v2-knowledge-tree*.test.ts"
       - "backend/tests/sync-v2-entity-readiness.test.ts"
       - "backend/tests/sync-v2-protocol.test.ts"
+      - "backend/tests/lightweight-sheets.test.ts"
       - "frontend/src/components/KnowledgeTreeDrawer.tsx"
+      - "frontend/src/components/SheetEditor.tsx"
+      - "frontend/src/lib/sheet*.ts"
+      - "frontend/src/lib/__tests__/sheetModel.test.ts"
       - "frontend/src/components/MobileDrawerUxBridge.tsx"
       - "frontend/src/lib/knowledgeTree*.ts"
       - "frontend/src/lib/__tests__/knowledgeTree*.test.ts"
@@ -45,6 +51,8 @@ on:
       - "backend/src/sync/entities.ts"
       - "backend/src/sync/types.ts"
       - "backend/src/db/syncV2KnowledgeTree*.ts"
+      - "backend/src/db/lightweightSheetsMigration.ts"
+      - "backend/src/routes/sheets.ts"
       - "backend/src/services/knowledge*.ts"
       - "backend/src/services/notebook-permissions.ts"
       - "backend/src/middleware/knowledgeCapabilityGuard.ts"
@@ -53,7 +61,11 @@ on:
       - "backend/tests/sync-v2-knowledge-tree*.test.ts"
       - "backend/tests/sync-v2-entity-readiness.test.ts"
       - "backend/tests/sync-v2-protocol.test.ts"
+      - "backend/tests/lightweight-sheets.test.ts"
       - "frontend/src/components/KnowledgeTreeDrawer.tsx"
+      - "frontend/src/components/SheetEditor.tsx"
+      - "frontend/src/lib/sheet*.ts"
+      - "frontend/src/lib/__tests__/sheetModel.test.ts"
       - "frontend/src/components/MobileDrawerUxBridge.tsx"
       - "frontend/src/lib/knowledgeTree*.ts"
       - "frontend/src/lib/__tests__/knowledgeTree*.test.ts"
@@ -106,7 +118,8 @@ jobs:
             tests/sync-v2-knowledge-tree-apply-local.test.ts \
             tests/sync-v2-knowledge-tree-conflict.test.ts \
             tests/sync-v2-knowledge-tree-engine.test.ts \
-            tests/sync-v2-protocol.test.ts 2>&1 | tee .ci/tree-sync.log
+            tests/sync-v2-protocol.test.ts \
+            tests/lightweight-sheets.test.ts 2>&1 | tee .ci/tree-sync.log
       - id: postgres
         name: PostgreSQL schema parity test
         if: always()
@@ -191,6 +204,7 @@ jobs:
           src/components/__tests__/MindMapMoveNodes.test.ts
           src/components/__tests__/MindMapOutlineKeyboard.test.ts
           src/lib/__tests__/editorWorkspaceLayout.test.ts
+          src/lib/__tests__/sheetModel.test.ts
       - name: Frontend typecheck
         if: always()
         run: npx tsc -b

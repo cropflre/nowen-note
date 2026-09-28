@@ -12,6 +12,7 @@ import EditorPane from "@/components/EditorPane";
 import EditorSplitView from "@/components/EditorSplitView";
 import TaskCenter from "@/components/TaskCenter";
 import MindMapCenter from "@/components/MindMapEditor";
+import SheetEditor from "@/components/SheetEditor";
 import AIChatPanel from "@/components/AIChatPanel";
 import DiaryCenter from "@/components/DiaryCenter";
 import FileManager from "@/components/FileManager";
@@ -69,6 +70,11 @@ import {
   replaceMindMapAppPath,
   type MindMapAppRoute,
 } from "@/lib/mindMapDeepLink";
+import {
+  getCurrentSheetAppRoute,
+  parseSheetAppPath,
+  type SheetAppRoute,
+} from "@/lib/sheetDeepLink";
 import {
   clearAuthTokens,
   fetchWithAuthRefresh,
@@ -393,15 +399,22 @@ function AppLayout() {
   const actions = useAppActions();
   const { t } = useTranslation();
   const [mindMapRoute, setMindMapRoute] = useState<MindMapAppRoute>(() => getCurrentMindMapAppRoute());
+  const [sheetRoute, setSheetRoute] = useState<SheetAppRoute>(() => getCurrentSheetAppRoute());
   const [appPathReady, setAppPathReady] = useState(false);
 
   useEffect(() => {
     const applyRoute = (event?: Event) => {
       const pathname = resolveCurrentAppPathname();
       const route = parseMindMapAppPath(pathname);
+      const nextSheetRoute = parseSheetAppPath(pathname);
       setMindMapRoute(route);
+      setSheetRoute(nextSheetRoute);
 
-      if (route.matched) {
+      if (nextSheetRoute.matched) {
+        actions.setViewMode("all");
+        actions.setActiveNote(null);
+        actions.setMobileView("editor");
+      } else if (route.matched) {
         actions.setViewMode("mindmaps");
       } else if (pathname === "/" && event?.type === "popstate") {
         // Browser Back/Forward owns navigation intent. Internal root-path normalization must
@@ -444,6 +457,7 @@ function AppLayout() {
   const [railMode] = useRailMode();
   const [mobileRailHidden] = useMobileRailHidden();
   const railVisible = railMode !== "hidden" || state.sidebarCollapsed;
+  const isSheetView = sheetRoute.matched && sheetRoute.sheetId !== null;
   const isTaskView = state.viewMode === "tasks";
   const isMindMapView = state.viewMode === "mindmaps";
   const isAIChatView = state.viewMode === "ai-chat";
@@ -832,7 +846,15 @@ function AppLayout() {
       {showSidebar && !mediumNoteWorkspace && <SidebarResizeHandle />}
 
       {/* ===== 主内容区 ===== */}
-      {isTaskView ? (
+      {isSheetView ? (
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+          <MobileTopBar />
+          <SheetEditor
+            noteId={sheetRoute.sheetId!}
+            onRequestClose={() => replaceAppPathState("/")}
+          />
+        </div>
+      ) : isTaskView ? (
         <div className={TASK_VIEW_SHELL_CLASS}>
           {/* 移动端顶栏 */}
           <MobileTopBar />

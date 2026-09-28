@@ -47,6 +47,7 @@ import { useMobileSidebarControlsCollapsed } from "@/hooks/useMobileSidebarContr
 import { useSidebarTextStyle } from "@/hooks/useSidebarTextStyle";
 import { api } from "@/lib/api";
 import { getCurrentMindMapAppId, pushMindMapAppPath, subscribeMindMapAppPath } from "@/lib/mindMapDeepLink";
+import { pushSheetAppPath } from "@/lib/sheetDeepLink";
 import { markNewNoteForImmediateEdit } from "@/lib/newNoteImmediateEdit";
 import { affectedKnowledgeNoteIds } from "@/lib/knowledgeTreeDeleteReconcile";
 import {
@@ -152,6 +153,7 @@ function nodeIcon(node: KnowledgeTreeNode) {
   }
   if (node.nodeType === "markdown") return <FileCode size={15} className="text-emerald-500" />;
   if (node.nodeType === "mindmap") return <BrainCircuit size={15} className="text-accent-primary" />;
+  if (node.noteType === "sheet") return <Table2 size={15} className="text-sky-500" />;
   return <FileText size={15} className="text-accent-primary" />;
 }
 
@@ -159,6 +161,7 @@ function draftIcon(kind: KnowledgeTreeInlineCreateKind) {
   if (kind === "folder") return <Folder size={15} className="text-amber-500" />;
   if (kind === "markdown") return <FileCode size={15} className="text-emerald-500" />;
   if (kind === "mindmap") return <BrainCircuit size={15} className="text-accent-primary" />;
+  if (kind === "sheet") return <Table2 size={15} className="text-sky-500" />;
   return <FileText size={15} className="text-accent-primary" />;
 }
 
@@ -648,6 +651,11 @@ export function KnowledgeTreePanel({
     }
     if (node.resourceType !== "note") return;
     rememberOpened(node.id);
+    if (node.noteType === "sheet") {
+      pushSheetAppPath(node.resourceId);
+      if (variant === "mobile") actions.setMobileSidebar(false);
+      return;
+    }
     try {
       activateNote(await api.getNote(node.resourceId), node.parentId);
     } catch (requestError: any) {
@@ -927,6 +935,10 @@ export function KnowledgeTreePanel({
 
     if (snapshot.kind === "mindmap") {
       pushMindMapAppPath(created.resourceId);
+      return;
+    }
+    if (snapshot.kind === "sheet") {
+      pushSheetAppPath(created.resourceId);
       return;
     }
 
