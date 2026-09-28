@@ -91,7 +91,7 @@ test("persistent import origins resolve the same Obsidian source without creatin
       metadata: { vaultPath: "docs/A.md" },
     }),
   });
-  assert.equal(response.status, 201, await response.text());
+  if (response.status !== 201) assert.equal(response.status, 201, await response.text());
   assert.deepEqual(await response.json(), {
     created: true,
     conflict: false,
@@ -157,7 +157,7 @@ test("imported attachments can be linked into their original Vault directory as 
       notebookPath: ["Imported Vault", "docs"],
     }),
   });
-  assert.equal(response.status, 201, await response.text());
+  if (response.status !== 201) assert.equal(response.status, 201, await response.text());
   const linked = await response.json() as any;
   assert.equal(linked.id, "file:asset-pdf");
   assert.equal(linked.resourceType, "file");
@@ -189,7 +189,7 @@ test("imported attachments can be linked into their original Vault directory as 
       notebookPath: ["Imported Vault", "docs"],
     }),
   });
-  assert.equal(second.status, 200, await second.text());
+  if (second.status !== 200) assert.equal(second.status, 200, await second.text());
   assert.equal(
     (db().prepare(
       "SELECT COUNT(*) AS count FROM knowledge_tree_nodes WHERE resourceType = 'file' AND resourceId = 'asset-pdf'",
