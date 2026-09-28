@@ -56,6 +56,7 @@ import { createUserAttachmentAccessUrls } from "../lib/attachment-signed-url";
 import { extractAttachmentIdsFromContent, syncReferences } from "../lib/attachmentRefs";
 import {
   checkAttachmentObjectExists,
+  classifyAttachmentStorageError,
   deleteObjectStorageConfig,
   deleteAttachmentObject,
   ensureAttachmentsDir as ensureStorageAttachmentsDir,
@@ -665,7 +666,17 @@ app.post("/", async (c) => {
         hash: sha256,
       });
     } catch (err: any) {
-      return c.json({ error: `写入数据库失败: ${err?.message || err}` }, 500);
+      console.error("[attachments.upload] dedup DB write failed", {
+        code: "ATTACHMENT_DB_WRITE_FAILED",
+        message: err?.message || String(err),
+      });
+      return c.json(
+        {
+          error: `写入数据库失败: ${err?.message || err}`,
+          code: "ATTACHMENT_DB_WRITE_FAILED",
+        },
+        500,
+      );
     }
 
     enqueueAttachment({
@@ -693,7 +704,22 @@ app.post("/", async (c) => {
   try {
     await writeAttachmentObject(storagePath, buffer, mime);
   } catch (err: any) {
-    return c.json({ error: `写入文件失败: ${err?.message || err}` }, 500);
+    const failure = classifyAttachmentStorageError(err);
+    const storage = getAttachmentStorageInfo();
+    console.error("[attachments.upload] storage write failed", {
+      code: failure.code,
+      driver: storage.driver,
+      storagePath,
+      errno: failure.errno,
+      message: failure.message,
+    });
+    return c.json(
+      {
+        error: `写入文件失败: ${failure.message}`,
+        code: failure.code,
+      },
+      500,
+    );
   }
 
   // 写 DB。attachments.path 存**文件名**（相对 ATTACHMENTS_DIR）而非绝对路径，
@@ -722,7 +748,18 @@ app.post("/", async (c) => {
   } catch (err: any) {
     // DB 写失败时把已落盘文件清掉，避免孤儿
     try { await deleteAttachmentObject(storagePath); } catch { /* ignore */ }
-    return c.json({ error: `写入数据库失败: ${err?.message || err}` }, 500);
+    console.error("[attachments.upload] DB write failed", {
+      code: "ATTACHMENT_DB_WRITE_FAILED",
+      storagePath,
+      message: err?.message || String(err),
+    });
+    return c.json(
+      {
+        error: `写入数据库失败: ${err?.message || err}`,
+        code: "ATTACHMENT_DB_WRITE_FAILED",
+      },
+      500,
+    );
   }
 
   // v8：上传成功后立即把附件入队做内容索引。enqueueAttachment 内部吞错，
