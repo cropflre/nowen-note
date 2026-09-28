@@ -9,8 +9,13 @@ import {
   SYNC_SNAPSHOT_PAGE_SIZE,
 } from "../sync/constants";
 import { isLocalFirstSyncV2Enabled } from "../sync/flag";
-import { isSyncEntityType, isSyncOperation, SYNC_V2_LEGACY_ENTITY_TYPES } from "../sync/types";
-import type { SyncEntityType, SyncOperation } from "../sync/types";
+import {
+  isSyncNegotiatedEntityType,
+  isSyncOperation,
+  SYNC_V2_LEGACY_ENTITY_TYPES,
+  SYNC_V2_NEGOTIATED_ENTITY_TYPES,
+} from "../sync/types";
+import type { SyncEntityType, SyncNegotiatedEntityType, SyncOperation } from "../sync/types";
 import { logSyncInfo, logSyncWarn } from "../sync/log";
 import { applyMutation } from "../sync/apply";
 import type { ApplyMutationResult } from "../sync/apply";
@@ -24,8 +29,10 @@ import {
 } from "../sync/scope";
 import {
   hasKnowledgeCapability,
+  resolveKnowledgeNodeAccess,
   resolveResourceKnowledgeAccess,
 } from "../services/knowledgeCapabilities";
+import { knowledgeTreeSnapshotPage } from "../sync/knowledgeTreeSnapshot";
 
 /**
  * Sync Protocol V2。
@@ -40,10 +47,41 @@ import {
  */
 const app = new Hono();
 const LEGACY_ENTITY_SET = SYNC_V2_LEGACY_ENTITY_TYPES.join(",");
+const NEGOTIATED_ENTITY_SET = SYNC_V2_NEGOTIATED_ENTITY_TYPES.join(",");
+
+interface EntitySubscription {
+  types: readonly SyncNegotiatedEntityType[];
+  entitySet: string;
+  explicit: boolean;
+}
+
+function sameEntitySet(values: string[], expected: readonly string[]): boolean {
+  return values.length === expected.length
+    && new Set(values).size === expected.length
+    && values.every((value) => expected.includes(value));
+}
+
+function resolveEntitySubscription(c: any): EntitySubscription {
+  const requested = c.req.queries("entityTypes") as string[] | undefined;
+  if (requested === undefined) {
+    return { types: SYNC_V2_LEGACY_ENTITY_TYPES, entitySet: LEGACY_ENTITY_SET, explicit: false };
+  }
+  if (requested.length !== 1) {
+    throw new SyncError("INVALID_PAYLOAD", "entityTypes 只能声明一次");
+  }
+  const types = requested[0].split(",").map((value) => value.trim()).filter(Boolean);
+  if (sameEntitySet(types, SYNC_V2_LEGACY_ENTITY_TYPES)) {
+    return { types: SYNC_V2_LEGACY_ENTITY_TYPES, entitySet: LEGACY_ENTITY_SET, explicit: true };
+  }
+  if (sameEntitySet(types, SYNC_V2_NEGOTIATED_ENTITY_TYPES)) {
+    return { types: SYNC_V2_NEGOTIATED_ENTITY_TYPES, entitySet: NEGOTIATED_ENTITY_SET, explicit: true };
+  }
+  throw new SyncError("INVALID_PAYLOAD", "当前同步协议不支持请求的实体集合");
+}
 
 interface ChangeRowV2 {
   sequence: number;
-  entityType: SyncEntityType;
+  entityType: SyncNegotiatedEntityType;
   entityId: string;
   noteId: string | null;
   operation: SyncOperation;
@@ -79,12 +117,13 @@ function minAvailableSequence(
   db: Database.Database,
   userId: string,
   workspaceId: string | null,
+  entityTypes: readonly SyncNegotiatedEntityType[],
 ): number {
   const row = db.prepare(`
     SELECT MIN(sequence) AS sequence FROM sync_changes_v2
     WHERE workspaceId IS ? AND (? IS NOT NULL OR userId = ?)
-      AND entityType IN (${SYNC_V2_LEGACY_ENTITY_TYPES.map(() => "?").join(",")})
-  `).get(workspaceId, workspaceId, userId, ...SYNC_V2_LEGACY_ENTITY_TYPES) as
+      AND entityType IN (${entityTypes.map(() => "?").join(",")})
+  `).get(workspaceId, workspaceId, userId, ...entityTypes) as
     | { sequence: number | null } | undefined;
   return Number(row?.sequence || 0);
 }
@@ -108,11 +147,21 @@ function canViewWorkspaceEntity(
   db: Database.Database,
   userId: string,
   workspaceId: string | null,
-  entityType: SyncEntityType,
+  entityType: SyncNegotiatedEntityType,
   entityId: string,
   noteId?: string | null,
 ): boolean {
   if (!workspaceId) return true;
+  if (entityType === "knowledge_tree_node") {
+    try {
+      return hasKnowledgeCapability(
+        resolveKnowledgeNodeAccess(entityId, userId, db, { includeDeleted: true }),
+        "canView",
+      );
+    } catch {
+      return false;
+    }
+  }
   let resourceType: "note" | "notebook" | null = null;
   let resourceId = "";
   if (entityType === "notebook") { resourceType = "notebook"; resourceId = entityId; }
@@ -163,17 +212,8 @@ function requestScope(
     c.req.query("scopeKey") || SYNC_PERSONAL_SCOPE_KEY,
     access,
   );
-  // 未声明的旧客户端继续使用原有 10 类实体。显式声明目前只接受同一集合；
-  // 否则若静默忽略新实体，客户端可能 ACK 已跳过的知识树变更。
-  const requested = c.req.queries("entityTypes") as string[] | undefined;
-  if (requested !== undefined) {
-    const types = requested.length === 1 ? requested[0].split(",") : [];
-    const legacy = SYNC_V2_LEGACY_ENTITY_TYPES as readonly string[];
-    if (types.length !== legacy.length || new Set(types).size !== legacy.length
-      || types.some((type) => !legacy.includes(type))) {
-      throw new SyncError("INVALID_PAYLOAD", "当前同步协议不支持请求的实体集合");
-    }
-  }
+  // 未声明的旧客户端继续使用原有 10 类实体；新客户端必须显式声明完整协商集合。
+  resolveEntitySubscription(c);
   return scope;
 }
 
@@ -188,13 +228,17 @@ function explicitSubscriptionDevice(c: any): string | null {
 }
 
 function hasBoundSubscription(
-  db: Database.Database, userId: string, scopeKey: string, deviceId: string,
+  db: Database.Database,
+  userId: string,
+  scopeKey: string,
+  deviceId: string,
+  entitySet: string,
 ): boolean {
   const row = db.prepare(`
     SELECT entitySet FROM sync_v2_clients
     WHERE deviceId = ? AND userId = ? AND scopeKey = ?
   `).get(deviceId, userId, scopeKey) as { entitySet: string | null } | undefined;
-  return row?.entitySet === LEGACY_ENTITY_SET;
+  return row?.entitySet === entitySet;
 }
 
 app.get("/scopes", (c) => {
@@ -219,8 +263,9 @@ app.get("/plan", (c) => {
   let deviceId: string | null;
   try { scope = requestScope(c, db); deviceId = explicitSubscriptionDevice(c); }
   catch (error) { return scopeError(c, error); }
+  const subscription = resolveEntitySubscription(c);
   const after = Math.max(0, Number(c.req.query("after") || 0) || 0);
-  const minSequence = minAvailableSequence(db, userId, scope.workspaceId);
+  const minSequence = minAvailableSequence(db, userId, scope.workspaceId, subscription.types);
   const serverSequence = currentSequence(db, userId, scope.workspaceId);
 
   const counts = db.prepare(`
@@ -237,11 +282,12 @@ app.get("/plan", (c) => {
   return c.json({
     scopeKey: scope.scopeKey,
     accessFingerprint: scope.accessFingerprint,
-    entityTypes: SYNC_V2_LEGACY_ENTITY_TYPES,
+    entityTypes: subscription.types,
     serverSequence,
     minAvailableSequence: minSequence,
     resetRequired: needsReset(after, minSequence)
-      || (deviceId !== null && !hasBoundSubscription(db, userId, scope.scopeKey, deviceId)),
+      || (deviceId !== null
+        && !hasBoundSubscription(db, userId, scope.scopeKey, deviceId, subscription.entitySet)),
     notebookCount: counts.notebooks,
     noteCount: counts.notes,
     tagCount: counts.tags,
@@ -263,13 +309,15 @@ app.get("/changes", (c) => {
   let deviceId: string | null;
   try { scope = requestScope(c, db); deviceId = explicitSubscriptionDevice(c); }
   catch (error) { return scopeError(c, error); }
+  const subscription = resolveEntitySubscription(c);
   const after = Math.max(0, Number(c.req.query("after") || 0) || 0);
   const limit = clampInt(c.req.query("limit"), SYNC_CHANGES_PAGE_SIZE, 1, 1000);
-  const minSequence = minAvailableSequence(db, userId, scope.workspaceId);
+  const minSequence = minAvailableSequence(db, userId, scope.workspaceId, subscription.types);
   const serverSequence = currentSequence(db, userId, scope.workspaceId);
 
   if (needsReset(after, minSequence)
-    || (deviceId !== null && !hasBoundSubscription(db, userId, scope.scopeKey, deviceId))) {
+    || (deviceId !== null
+      && !hasBoundSubscription(db, userId, scope.scopeKey, deviceId, subscription.entitySet))) {
     return c.json({
       scopeKey: scope.scopeKey,
       accessFingerprint: scope.accessFingerprint,
@@ -286,10 +334,10 @@ app.get("/changes", (c) => {
     SELECT sequence, entityType, entityId, noteId, operation, version, changedAt
     FROM sync_changes_v2
     WHERE sequence > ? AND workspaceId IS ? AND (? IS NOT NULL OR userId = ?)
-      AND entityType IN (${SYNC_V2_LEGACY_ENTITY_TYPES.map(() => "?").join(",")})
+      AND entityType IN (${subscription.types.map(() => "?").join(",")})
     ORDER BY sequence ASC
     LIMIT ?
-  `).all(after, scope.workspaceId, scope.workspaceId, userId, ...SYNC_V2_LEGACY_ENTITY_TYPES, limit) as ChangeRowV2[];
+  `).all(after, scope.workspaceId, scope.workspaceId, userId, ...subscription.types, limit) as ChangeRowV2[];
   const rows = scannedRows.filter((row) => row.operation === "delete" || canViewWorkspaceEntity(
     db,userId,scope.workspaceId,row.entityType,row.entityId,row.noteId,
   ));
@@ -322,25 +370,36 @@ app.get("/changes", (c) => {
  */
 // 旧客户端快照依赖顺序与实体类型声明顺序不同：tag 必须先于 note。
 // 新实体只能通过后续显式协商加入，不得直接改动这份默认顺序。
-const SNAPSHOT_ORDER: SyncEntityType[] = [
+const LEGACY_SNAPSHOT_ORDER: SyncNegotiatedEntityType[] = [
   "notebook", "tag", "note", "note_tag", "favorite", "attachment",
   "task", "task_reminder", "diary", "mindmap",
 ];
 
-function parseCursor(raw: string): { type: SyncEntityType; id: string } {
+function snapshotOrder(subscription: EntitySubscription): SyncNegotiatedEntityType[] {
+  return subscription.entitySet === NEGOTIATED_ENTITY_SET
+    ? [...LEGACY_SNAPSHOT_ORDER, "knowledge_tree_node"]
+    : [...LEGACY_SNAPSHOT_ORDER];
+}
+
+function parseCursor(
+  raw: string,
+  order: readonly SyncNegotiatedEntityType[],
+): { type: SyncNegotiatedEntityType; id: string } {
   const separator = raw.indexOf(":");
   if (separator > 0) {
     const type = raw.slice(0, separator);
-    if (SNAPSHOT_ORDER.includes(type as SyncEntityType)) return { type: type as SyncEntityType, id: raw.slice(separator + 1) };
+    if (order.includes(type as SyncNegotiatedEntityType)) {
+      return { type: type as SyncNegotiatedEntityType, id: raw.slice(separator + 1) };
+    }
   }
-  return { type: SNAPSHOT_ORDER[0], id: "" };
+  return { type: order[0], id: "" };
 }
 
 function snapshotPage(
   db: Database.Database,
   userId: string,
   workspaceId: string | null,
-  type: SyncEntityType,
+  type: SyncNegotiatedEntityType,
   afterId: string,
   limit: number,
 ): Array<{ id: string; payload: Record<string, unknown> }> {
@@ -438,7 +497,7 @@ function authorizedSnapshotPage(
   db: Database.Database,
   userId: string,
   workspaceId: string | null,
-  type: SyncEntityType,
+  type: SyncNegotiatedEntityType,
   afterId: string,
   limit: number,
 ): { rows:Array<{id:string;payload:Record<string,unknown>}>;scannedThrough:string;exhausted:boolean } {
@@ -469,19 +528,20 @@ app.get("/snapshot", (c) => {
   let deviceId: string | null;
   try { scope = requestScope(c, db); deviceId = explicitSubscriptionDevice(c); }
   catch (error) { return scopeError(c, error); }
+  const subscription = resolveEntitySubscription(c);
   const limit = clampInt(
     c.req.query("limit"), SYNC_SNAPSHOT_PAGE_SIZE, 1, SYNC_SNAPSHOT_MAX_PAGE_SIZE,
   );
   const requested = Number(c.req.query("snapshotSequence") || 0) || 0;
   const rawCursor = (c.req.query("cursor") || "").trim();
   const needsBinding = deviceId !== null
-    && !hasBoundSubscription(db, userId, scope.scopeKey, deviceId);
+    && !hasBoundSubscription(db, userId, scope.scopeKey, deviceId, subscription.entitySet);
   let resumedSequence: number | null = null;
   if (needsBinding && (rawCursor || requested !== 0)) {
     const session = db.prepare(`
       SELECT accessFingerprint, snapshotSequence, nextCursor, completed FROM sync_v2_snapshot_sessions
       WHERE deviceId = ? AND userId = ? AND scopeKey = ? AND entitySet = ?
-    `).get(deviceId, userId, scope.scopeKey, LEGACY_ENTITY_SET) as
+    `).get(deviceId, userId, scope.scopeKey, subscription.entitySet) as
       | { accessFingerprint: string; snapshotSequence: number; nextCursor: string | null; completed: number }
       | undefined;
     if (!session || session.completed || session.nextCursor !== rawCursor
@@ -496,15 +556,35 @@ app.get("/snapshot", (c) => {
   const snapshotSequence = resumedSequence
     ?? (requested > 0 ? requested : currentSequence(db, userId, scope.workspaceId));
 
-  const cursor = parseCursor(rawCursor);
-  let typeIndex = Math.max(0, SNAPSHOT_ORDER.indexOf(cursor.type));
+  const order = snapshotOrder(subscription);
+  const cursor = parseCursor(rawCursor, order);
+  let typeIndex = Math.max(0, order.indexOf(cursor.type));
   let afterId = cursor.id;
 
-  const items: Array<{ entityType: SyncEntityType; entityId: string; payload: Record<string, unknown> }> = [];
+  const items: Array<{ entityType: SyncNegotiatedEntityType; entityId: string; payload: Record<string, unknown> }> = [];
   let nextCursor: string | null = null;
 
-  while (typeIndex < SNAPSHOT_ORDER.length && items.length < limit) {
-    const type = SNAPSHOT_ORDER[typeIndex];
+  while (typeIndex < order.length && items.length < limit) {
+    const type = order[typeIndex];
+    if (type === "knowledge_tree_node") {
+      const page = knowledgeTreeSnapshotPage(
+        db,
+        userId,
+        scope.workspaceId,
+        afterId || null,
+        limit - items.length,
+      );
+      for (const row of page.items) {
+        items.push({ entityType: type, entityId: row.entityId, payload: row.payload });
+      }
+      if (page.nextCursor) {
+        nextCursor = `${type}:${page.nextCursor}`;
+        break;
+      }
+      typeIndex += 1;
+      afterId = "";
+      continue;
+    }
     const page = authorizedSnapshotPage(db,userId,scope.workspaceId,type,afterId,limit-items.length);
     for (const row of page.rows) {
       items.push({ entityType: type, entityId: row.id, payload: row.payload });
@@ -528,7 +608,7 @@ app.get("/snapshot", (c) => {
         snapshotSequence = excluded.snapshotSequence,
         nextCursor = excluded.nextCursor,
         completed = excluded.completed
-    `).run(deviceId, userId, scope.scopeKey, LEGACY_ENTITY_SET, scope.accessFingerprint,
+    `).run(deviceId, userId, scope.scopeKey, subscription.entitySet, scope.accessFingerprint,
       snapshotSequence, nextCursor, nextCursor === null ? 1 : 0);
   }
 
@@ -548,7 +628,7 @@ app.get("/snapshot", (c) => {
 
 interface IncomingMutation {
   mutationId: string;
-  entityType: SyncEntityType;
+  entityType: SyncNegotiatedEntityType;
   entityId: string;
   operation: SyncOperation;
   baseVersion?: number;
@@ -561,7 +641,7 @@ function validateMutation(raw: unknown): IncomingMutation | string {
 
   const mutationId = typeof m.mutationId === "string" ? m.mutationId.trim() : "";
   if (!mutationId || mutationId.length > 128) return "mutationId 无效";
-  if (!isSyncEntityType(m.entityType)) return "entityType 超出第一版范围";
+  if (!isSyncNegotiatedEntityType(m.entityType)) return "entityType 超出当前协议范围";
   if (!isSyncOperation(m.operation)) return "operation 只能是 upsert / delete";
 
   const entityId = typeof m.entityId === "string" ? m.entityId.trim() : "";
@@ -596,6 +676,7 @@ app.post("/push", async (c) => {
   const userId = c.req.header("X-User-Id") as string;
   let scope: SyncScopeDescriptor;
   try { scope = requestScope(c, db, "write"); } catch (error) { return scopeError(c, error); }
+  const subscription = resolveEntitySubscription(c);
 
   let body: { scopeKey?: unknown; deviceId?: unknown; mutations?: unknown };
   try {
@@ -641,6 +722,28 @@ app.post("/push", async (c) => {
       continue;
     }
 
+    if (!subscription.types.includes(parsed.entityType)) {
+      results.push({
+        mutationId: parsed.mutationId,
+        status: "conflict",
+        code: "INVALID_PAYLOAD",
+        error: "当前客户端未订阅该实体类型",
+      });
+      continue;
+    }
+    if (parsed.entityType === "knowledge_tree_node"
+      && (!subscription.explicit
+        || subscription.entitySet !== NEGOTIATED_ENTITY_SET
+        || !hasBoundSubscription(db, userId, scope.scopeKey, deviceId, subscription.entitySet))) {
+      results.push({
+        mutationId: parsed.mutationId,
+        status: "conflict",
+        code: "INVALID_PAYLOAD",
+        error: "知识树结构同步须先完成显式订阅 Snapshot",
+      });
+      continue;
+    }
+
     // 每条 mutation 独立成事务：一条冲突不应回滚同批次已成功的其他条目，
     // 否则客户端只能整批重试，反复卡在同一条坏数据上。
     try {
@@ -648,7 +751,14 @@ app.post("/push", async (c) => {
       if (payloadWorkspaceId !== null && payloadWorkspaceId !== scope.workspaceId) {
         throw new SyncError("SCOPE_FORBIDDEN", "payload 的 workspaceId 与 Scope 不一致");
       }
-      assertSyncMutationAccess(db, userId, scope, parsed);
+      if (parsed.entityType !== "knowledge_tree_node") {
+        assertSyncMutationAccess(db, userId, scope, parsed as {
+          entityType: SyncEntityType;
+          entityId: string;
+          operation: SyncOperation;
+          payload?: Record<string, unknown>;
+        });
+      }
       const result = db.transaction(() => applyMutation(db, {
         userId,
         deviceId,
@@ -676,7 +786,16 @@ app.post("/push", async (c) => {
         const table = parsed.entityType === "note" ? "notes"
           : parsed.entityType === "task" ? "tasks"
             : parsed.entityType === "mindmap" ? "mindmaps" : null;
-        if (table) {
+        if (parsed.entityType === "knowledge_tree_node") {
+          serverPayload = db.prepare(`
+            SELECT id, userId, workspaceId, parentId, nodeType, resourceType, resourceId,
+                   sortOrder, isDeleted, deletedAt, createdAt, updatedAt
+            FROM knowledge_tree_nodes
+            WHERE id = ? AND workspaceId IS ? AND (? IS NOT NULL OR userId = ?)
+          `).get(parsed.entityId, scope.workspaceId, scope.workspaceId, userId) as
+            | Record<string, unknown>
+            | undefined;
+        } else if (table) {
           serverPayload = db.prepare(`SELECT * FROM ${table} WHERE id=? AND workspaceId IS ?
             AND (? IS NOT NULL OR userId=?)`).get(
             parsed.entityId,scope.workspaceId,scope.workspaceId,userId,
@@ -729,6 +848,7 @@ app.post("/ack", async (c) => {
   const userId = c.req.header("X-User-Id") as string;
   let scope: SyncScopeDescriptor;
   try { scope = requestScope(c, db); } catch (error) { return scopeError(c, error); }
+  const subscription = resolveEntitySubscription(c);
 
   let body: { scopeKey?: unknown; deviceId?: unknown; sequence?: unknown };
   try {
@@ -754,12 +874,14 @@ app.post("/ack", async (c) => {
     if (sequence > currentSequence(db, userId, scope.workspaceId)) {
       return c.json({ error: "ACK 序号超过服务端游标", code: "INVALID_PAYLOAD" }, 400);
     }
-    const alreadyBound = hasBoundSubscription(db, userId, scope.scopeKey, deviceId);
+    const alreadyBound = hasBoundSubscription(
+      db, userId, scope.scopeKey, deviceId, subscription.entitySet,
+    );
     if (!alreadyBound) {
       const session = db.prepare(`
         SELECT accessFingerprint, snapshotSequence, completed FROM sync_v2_snapshot_sessions
         WHERE deviceId = ? AND userId = ? AND scopeKey = ? AND entitySet = ?
-      `).get(deviceId, userId, scope.scopeKey, LEGACY_ENTITY_SET) as
+      `).get(deviceId, userId, scope.scopeKey, subscription.entitySet) as
         | { accessFingerprint: string; snapshotSequence: number; completed: number }
         | undefined;
       if (!session?.completed || session.snapshotSequence !== sequence
@@ -776,7 +898,7 @@ app.post("/ack", async (c) => {
             THEN MAX(lastSequence, excluded.lastSequence) ELSE excluded.lastSequence END,
           entitySet = excluded.entitySet,
           lastSeenAt = excluded.lastSeenAt
-      `).run(deviceId, userId, scope.scopeKey, sequence, LEGACY_ENTITY_SET);
+      `).run(deviceId, userId, scope.scopeKey, sequence, subscription.entitySet);
       db.prepare(`
         DELETE FROM sync_v2_snapshot_sessions
         WHERE deviceId = ? AND userId = ? AND scopeKey = ?

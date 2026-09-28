@@ -24,9 +24,9 @@ export interface KnowledgeTreeSnapshotItem {
 }
 
 /**
- * Prepare the tree phase of a future negotiated Snapshot. Business entities must be sent first.
+ * Prepare the tree phase of the explicitly negotiated Snapshot. Business entities are sent first.
  * Never silently flatten a missing parent or omit a file node: either would lose the user's tree.
- * This is deliberately not exposed by /snapshot until every client can apply the same contract.
+ * Legacy clients never receive this phase; only devices that request the complete negotiated set do.
  */
 export function prepareKnowledgeTreeSnapshot(
   db: Database.Database,

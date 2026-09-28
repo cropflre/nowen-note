@@ -537,7 +537,7 @@ test("旧客户端跳过未来实体但仍推进游标", async () => {
   assert.ok(snapshot.json.items.every((item: { entityType: string }) => item.entityType !== "knowledge_tree_node"));
 });
 
-test("显式实体订阅只接受完整的旧协议集合", async () => {
+test("旧协议显式订阅仍保持十类实体基线", async () => {
   const { SYNC_V2_LEGACY_ENTITY_TYPES } = await import("../src/sync/types.js");
   const entityTypes = encodeURIComponent([...SYNC_V2_LEGACY_ENTITY_TYPES].reverse().join(","));
   const deviceId = "explicit-set-device";
@@ -598,6 +598,134 @@ test("显式实体订阅只接受完整的旧协议集合", async () => {
   assert.equal(legacyAck.response.status, 200);
   const afterDowngrade = await call("GET", `/api/sync/v2/changes?after=${snapshotSequence}&${query}`);
   assert.equal(afterDowngrade.json.resetRequired, true, "旧客户端 ACK 后必须重新做 Snapshot");
+});
+
+test("新版显式订阅在完整 Snapshot 后开放知识树结构同步", async () => {
+  const db = getDb();
+  clearFeed();
+  const { SYNC_V2_NEGOTIATED_ENTITY_TYPES } = await import("../src/sync/types.js");
+  const notebookId = seedNotebook(USER_ID);
+  const treeId = `notebook:${notebookId}`;
+  const entityTypes = encodeURIComponent([...SYNC_V2_NEGOTIATED_ENTITY_TYPES].reverse().join(","));
+  const deviceId = "tree-set-device";
+  const query = `entityTypes=${entityTypes}&deviceId=${deviceId}`;
+
+  const plan = await call("GET", `/api/sync/v2/plan?after=0&${query}`);
+  assert.equal(plan.response.status, 200);
+  assert.deepEqual(plan.json.entityTypes, [...SYNC_V2_NEGOTIATED_ENTITY_TYPES]);
+  assert.equal(plan.json.resetRequired, true, "新实体集合必须先做全量 Snapshot");
+
+  const beforeBinding = db.prepare(`
+    SELECT id, nodeType, resourceType, resourceId, parentId, sortOrder,
+           isDeleted, deletedAt, createdAt, updatedAt
+    FROM knowledge_tree_nodes WHERE id = ?
+  `).get(treeId) as Record<string, unknown>;
+  assert.ok(beforeBinding);
+
+  const prematurePush = await call("POST", `/api/sync/v2/push?entityTypes=${entityTypes}`, {
+    deviceId,
+    mutations: [{
+      mutationId: "tree-before-snapshot",
+      entityType: "knowledge_tree_node",
+      entityId: treeId,
+      operation: "upsert",
+      payload: {
+        ...beforeBinding,
+        baseParentId: beforeBinding.parentId,
+        baseSortOrder: beforeBinding.sortOrder,
+        baseIsDeleted: beforeBinding.isDeleted,
+        baseDeletedAt: beforeBinding.deletedAt,
+      },
+    }],
+  });
+  assert.equal(prematurePush.response.status, 200);
+  assert.equal(prematurePush.json.results[0].code, "INVALID_PAYLOAD");
+
+  let snapshot = await call("GET", `/api/sync/v2/snapshot?limit=2&${query}`);
+  assert.equal(snapshot.response.status, 200);
+  const snapshotSequence = snapshot.json.snapshotSequence;
+  const snapshotItems = [...snapshot.json.items];
+  let pages = 0;
+  while (snapshot.json.hasMore && pages++ < 500) {
+    snapshot = await call(
+      "GET",
+      `/api/sync/v2/snapshot?limit=10&${query}&snapshotSequence=${snapshotSequence}&cursor=${encodeURIComponent(snapshot.json.nextCursor)}`,
+    );
+    assert.equal(snapshot.response.status, 200);
+    snapshotItems.push(...snapshot.json.items);
+  }
+  assert.ok(pages < 500);
+  const businessIndex = snapshotItems.findIndex(
+    (item: { entityType: string; entityId: string }) =>
+      item.entityType === "notebook" && item.entityId === notebookId,
+  );
+  const treeIndex = snapshotItems.findIndex(
+    (item: { entityType: string; entityId: string }) =>
+      item.entityType === "knowledge_tree_node" && item.entityId === treeId,
+  );
+  assert.ok(businessIndex >= 0, "Snapshot 必须先包含业务资源");
+  assert.ok(treeIndex > businessIndex, "知识树结构必须排在业务资源之后");
+
+  const ack = await call("POST", `/api/sync/v2/ack?entityTypes=${entityTypes}`, {
+    deviceId,
+    sequence: snapshotSequence,
+  });
+  assert.equal(ack.response.status, 200);
+
+  const bound = db.prepare(`
+    SELECT entitySet FROM sync_v2_clients
+    WHERE deviceId = ? AND userId = ? AND scopeKey = 'personal'
+  `).get(deviceId, USER_ID) as { entitySet: string } | undefined;
+  assert.equal(bound?.entitySet, SYNC_V2_NEGOTIATED_ENTITY_TYPES.join(","));
+
+  const current = db.prepare(`
+    SELECT id, nodeType, resourceType, resourceId, parentId, sortOrder,
+           isDeleted, deletedAt, createdAt, updatedAt
+    FROM knowledge_tree_nodes WHERE id = ?
+  `).get(treeId) as Record<string, unknown>;
+  const desiredSort = Number(current.sortOrder) + 7;
+  const pushed = await call("POST", `/api/sync/v2/push?entityTypes=${entityTypes}`, {
+    deviceId,
+    mutations: [{
+      mutationId: "tree-after-snapshot",
+      entityType: "knowledge_tree_node",
+      entityId: treeId,
+      operation: "upsert",
+      payload: {
+        ...current,
+        sortOrder: desiredSort,
+        baseParentId: current.parentId,
+        baseSortOrder: current.sortOrder,
+        baseIsDeleted: current.isDeleted,
+        baseDeletedAt: current.deletedAt,
+      },
+    }],
+  });
+  assert.equal(pushed.response.status, 200);
+  assert.equal(pushed.json.results[0].status, "applied");
+  assert.equal(
+    (db.prepare("SELECT sortOrder FROM knowledge_tree_nodes WHERE id = ?").get(treeId) as { sortOrder: number }).sortOrder,
+    desiredSort,
+  );
+
+  const negotiatedChanges = await call(
+    "GET",
+    `/api/sync/v2/changes?after=${snapshotSequence}&${query}`,
+  );
+  assert.equal(negotiatedChanges.response.status, 200);
+  assert.ok(negotiatedChanges.json.items.some(
+    (item: { entityType: string; entityId: string }) =>
+      item.entityType === "knowledge_tree_node" && item.entityId === treeId,
+  ));
+
+  const legacyChanges = await call("GET", `/api/sync/v2/changes?after=${snapshotSequence}`);
+  assert.ok(legacyChanges.json.items.every(
+    (item: { entityType: string }) => item.entityType !== "knowledge_tree_node",
+  ));
+  assert.ok(
+    legacyChanges.json.nextSequence >= negotiatedChanges.json.nextSequence,
+    "旧客户端应跳过树实体但仍推进全局游标",
+  );
 });
 
 test("未知或不完整订阅不能读取变更、快照或推进 ACK", async () => {

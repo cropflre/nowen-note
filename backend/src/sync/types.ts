@@ -40,10 +40,25 @@ export const SYNC_V2_LEGACY_ENTITY_TYPES = [
   "mindmap",
 ] as const;
 
-/** 当前服务端已完整接入的实体；未来实体应显式追加，不自动进入旧客户端基线。 */
+/**
+ * 新协议可通过 entityTypes 显式协商的实体集合。
+ * 未声明 entityTypes 的旧客户端仍只看到 SYNC_V2_LEGACY_ENTITY_TYPES。
+ */
+export const SYNC_V2_NEGOTIATED_ENTITY_TYPES = [
+  ...SYNC_V2_LEGACY_ENTITY_TYPES,
+  "knowledge_tree_node",
+] as const;
+
+/** 当前客户端引擎已完整接入的实体；树结构在客户端 Pull/Reconcile 接线前不进入这里。 */
 export const SYNC_ENTITY_TYPES = [...SYNC_V2_LEGACY_ENTITY_TYPES] as const;
 
 export type SyncEntityType = (typeof SYNC_ENTITY_TYPES)[number];
+export type SyncNegotiatedEntityType = (typeof SYNC_V2_NEGOTIATED_ENTITY_TYPES)[number];
+
+export function isSyncNegotiatedEntityType(value: unknown): value is SyncNegotiatedEntityType {
+  return typeof value === "string"
+    && (SYNC_V2_NEGOTIATED_ENTITY_TYPES as readonly string[]).includes(value);
+}
 
 export function isSyncEntityType(value: unknown): value is SyncEntityType {
   return typeof value === "string"
