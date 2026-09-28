@@ -38,6 +38,32 @@ test("attachment audit rejects meta/archive count mismatch before touching live 
   }
 });
 
+test("attachment audit accepts empty and matching local attachment sets", () => {
+  const emptyRoot = fs.mkdtempSync(path.join(os.tmpdir(), "nowen-restore-empty-"));
+  const matchingRoot = fs.mkdtempSync(path.join(os.tmpdir(), "nowen-restore-match-"));
+  try {
+    const emptyDb = createAuditDb(emptyRoot, []);
+    const emptyAudit = auditAttachmentBackup(emptyDb, [], { count: 0, bytes: 0 });
+    assert.equal(emptyAudit.archiveCount, 0);
+    assert.equal(emptyAudit.dbRows, 0);
+    assert.equal(emptyAudit.dbDistinctPaths, 0);
+
+    const matchingDb = createAuditDb(matchingRoot, ["2026/09/one.bin"]);
+    const matchingAudit = auditAttachmentBackup(
+      matchingDb,
+      ["2026/09/one.bin"],
+      { count: 1, bytes: 3 },
+    );
+    assert.equal(matchingAudit.archiveCount, 1);
+    assert.equal(matchingAudit.dbRows, 1);
+    assert.equal(matchingAudit.dbDistinctPaths, 1);
+    assert.deepEqual(matchingAudit.missingDbPaths, []);
+  } finally {
+    fs.rmSync(emptyRoot, { recursive: true, force: true });
+    fs.rmSync(matchingRoot, { recursive: true, force: true });
+  }
+});
+
 test("attachment audit rejects local DB paths missing from full ZIP", () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "nowen-restore-audit-"));
   try {
