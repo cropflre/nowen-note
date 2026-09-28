@@ -13,6 +13,7 @@ import {
   Loader2,
   LockKeyhole,
   MoreHorizontal,
+  Paperclip,
   Pin,
   Plus,
   RefreshCw,
@@ -26,6 +27,7 @@ import {
   X,
 } from "lucide-react";
 
+import AttachmentDetailDrawer from "@/components/attachmentDetail/AttachmentDetailDrawer";
 import FolderPasswordDialog from "@/components/FolderPasswordDialog";
 import {
   KnowledgeTreeBatchMovePanel,
@@ -154,6 +156,7 @@ function nodeIcon(node: KnowledgeTreeNode) {
   }
   if (node.nodeType === "markdown") return <FileCode size={15} className="text-emerald-500" />;
   if (node.nodeType === "mindmap") return <BrainCircuit size={15} className="text-accent-primary" />;
+  if (node.resourceType === "file") return <Paperclip size={15} className="text-amber-500" />;
   if (node.noteType === "sheet") return <Table2 size={15} className="text-sky-500" />;
   return <FileText size={15} className="text-accent-primary" />;
 }
@@ -339,6 +342,7 @@ export function KnowledgeTreePanel({
   const [query, setQuery] = useState(() => state.viewMode === "search" ? state.searchQuery : "");
   const [draft, setDraft] = useState<KnowledgeTreeInlineDraft | null>(null);
   const [permissionsNode, setPermissionsNode] = useState<KnowledgeTreeNode | null>(null);
+  const [previewFileId, setPreviewFileId] = useState<string | null>(null);
   const [movingNode, setMovingNode] = useState<KnowledgeTreeNode | null>(null);
   const [batchMoving, setBatchMoving] = useState(false);
   const [selectedNodeIds, setSelectedNodeIds] = useState<Set<string>>(() => new Set());
@@ -648,6 +652,12 @@ export function KnowledgeTreePanel({
     if (node.resourceType === "mindmap") {
       rememberOpened(node.id);
       pushMindMapAppPath(node.resourceId);
+      return;
+    }
+    if (node.resourceType === "file") {
+      rememberOpened(node.id);
+      setPreviewFileId(node.resourceId);
+      if (variant === "mobile") actions.setMobileSidebar(false);
       return;
     }
     if (node.resourceType !== "note") return;
@@ -1702,6 +1712,12 @@ export function KnowledgeTreePanel({
               </div>
             )}
           </>
+        )}
+        {previewFileId && (
+          <AttachmentDetailDrawer
+            attachmentId={previewFileId}
+            onClose={() => setPreviewFileId(null)}
+          />
         )}
         {permissionsNode && (
           <KnowledgeTreePermissionsDialog
