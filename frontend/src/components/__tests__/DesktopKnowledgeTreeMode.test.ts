@@ -44,6 +44,16 @@ describe("desktop knowledge tree browsing mode", () => {
     expect(expansionSource).toContain("saveKnowledgeTreeExpansion");
   });
 
+  it("supports choosing how many tree levels are visible", () => {
+    expect(treePanelSource).toContain("buildKnowledgeTreeExpandedIdsForDepth");
+    expect(treePanelSource).toContain('data-knowledge-tree-depth-control=""');
+    expect(treePanelSource).toContain('value: "depth:1"');
+    expect(treePanelSource).toContain('value: "depth:2"');
+    expect(treePanelSource).toContain('value: "depth:3"');
+    expect(treePanelSource).toContain('value: "depth:all"');
+    expect(expansionSource).toContain("buildKnowledgeTreeExpandedIdsForDepth");
+  });
+
   it("records tree-view opens for the shared recent list", () => {
     expect(treePanelSource).toContain("saveMobileKnowledgeTreeRecentEntries");
     expect(treePanelSource).toContain("rememberOpened(node.id)");
