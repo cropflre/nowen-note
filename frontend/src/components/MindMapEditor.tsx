@@ -3082,7 +3082,7 @@ export default function MindMapCenter({
                   setSelectedNodeId(null);
                   setEditingNodeId(null);
                   setDragNodeId(null);
-                  setDropTargetId(null);
+                  setDropTarget(null);
                 }}
               >
                 <svg
