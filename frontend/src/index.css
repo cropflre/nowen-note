@@ -847,7 +847,7 @@ html[data-code-theme="solarized-light"] {
   border-collapse: collapse;
   margin: 0;
   width: auto;
-  max-width: 100%;
+  max-width: none;
   table-layout: fixed;
   border-radius: 6px;
   border: 1px solid var(--color-border);
