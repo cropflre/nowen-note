@@ -37,7 +37,9 @@ describe("MindMapEditor UX guardrails", () => {
     expect(source).toContain("getMovableNodeIdsForDrag");
     expect(source).toContain("moveMindMapNodes(mapData.root, targetId, nodeIds, placement)");
     expect(source).toContain("handleMoveNodes(dragNodeId, n.id, placement)");
-    expect(source).toContain("selectedNodeIds.length > 1 && selectedNodeIds.includes(dragNodeId)");
+    expect(source).toContain("const targetIsSelected =");
+    expect(source).toContain("selectedNodeIds.includes(dragNodeId)");
+    expect(source).toContain("selectedNodeIds.includes(n.id)");
   });
 
   it("supports long-press structural dragging on touch devices", () => {
