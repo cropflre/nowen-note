@@ -4660,6 +4660,30 @@ function BackupRestoreDialog(props: {
                 })}
               </div>
 
+              {(dryRun.backupType === "db-only" || target.type === "db-only") && (
+                <div className="flex items-start gap-2 rounded-lg border border-amber-200 dark:border-amber-700/40 bg-amber-50 dark:bg-amber-500/10 px-3 py-2 text-xs">
+                  <AlertTriangle size={14} className="mt-0.5 flex-shrink-0 text-amber-600 dark:text-amber-400" />
+                  <div>
+                    <div className="font-semibold text-amber-700 dark:text-amber-300">
+                      {t("dataManager.backup.dbOnlyRestoreWarningTitle")}
+                    </div>
+                    <div className="mt-0.5 text-amber-700/90 dark:text-amber-300/90">
+                      {t("dataManager.backup.dbOnlyRestoreWarningDesc")}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {dryRun.attachmentAudit && (
+                <div className="rounded-lg border border-emerald-200 dark:border-emerald-800/50 bg-emerald-50/70 dark:bg-emerald-500/10 px-3 py-2 text-xs text-emerald-800 dark:text-emerald-300">
+                  {t("dataManager.backup.attachmentAuditSummary", {
+                    archive: dryRun.attachmentAudit.archiveCount,
+                    rows: dryRun.attachmentAudit.dbRows,
+                    paths: dryRun.attachmentAudit.dbDistinctPaths,
+                  })}
+                </div>
+              )}
+
               {/* 表级明细：只显示净变化 != 0 的，避免一屏几十张表全 0 */}
               <div className="border border-zinc-200 dark:border-zinc-700 rounded overflow-hidden">
                 <div className="text-[11px] font-semibold text-zinc-500 px-3 py-1.5 bg-zinc-50 dark:bg-zinc-800/50 grid grid-cols-[1fr_auto_auto] gap-3">
