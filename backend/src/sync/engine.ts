@@ -31,7 +31,7 @@ import { applyRemoteChanges } from "./applyLocal";
 import type { RemoteEntityPayload } from "./applyLocal";
 import { recordConflict } from "./conflict";
 import { countUnresolvedConflicts } from "./conflict";
-import type { SyncRemoteClient } from "./remote";
+import type { RemoteSnapshotPage, SyncRemoteClient } from "./remote";
 import type { SyncEnginePhase, SyncEngineState } from "./types";
 import type { SyncScopeDescriptor } from "./scope";
 import {
@@ -608,7 +608,9 @@ export class SyncEngine {
     let cursor: string | null = null;
     let guard = 0;
     do {
-      const page = await this.client.snapshot(cursor, 0, undefined, scope.scopeKey);
+      const page: RemoteSnapshotPage = await this.client.snapshot(
+        cursor, 0, undefined, scope.scopeKey,
+      );
       for (const entry of page.items) {
         const key = `${entry.entityType}\u0000${entry.entityId}`;
         if (!wanted.has(key)) continue;
@@ -669,7 +671,7 @@ export class SyncEngine {
     const parentLinks:RemoteEntityPayload[] = [];
 
     do {
-      const page = await this.client.snapshot(
+      const page: RemoteSnapshotPage = await this.client.snapshot(
         cursor,
         snapshotSequence,
         undefined,

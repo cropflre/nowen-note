@@ -49,7 +49,7 @@ import { runWithOutboxSuppressed } from "./context";
 import { runChangeFeedSuppressed } from "./suppression";
 import { applyRemoteChanges } from "./applyLocal";
 import type { RemoteEntityPayload } from "./applyLocal";
-import type { SyncRemoteClient } from "./remote";
+import type { RemoteSnapshotPage, SyncRemoteClient } from "./remote";
 import type { SyncEntityType } from "./types";
 import {
   resetAllKnowledgeTreeSyncReadiness,
@@ -704,7 +704,7 @@ export async function runBootstrap(
     if (wantedUpserts.size > 0) {
       let snapCursor: string | null = null;
       for (;;) {
-        const page = await client.snapshot(snapCursor, cursor, pageSize);
+        const page: RemoteSnapshotPage = await client.snapshot(snapCursor, cursor, pageSize);
         for (const entry of page.items) {
           const key = `${entry.entityType}\u0000${entry.entityId}`;
           if (!wantedUpserts.has(key)) continue;
