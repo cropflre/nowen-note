@@ -409,6 +409,8 @@
     "insertMenu": "Insert",
     "moreMenu": "More",
     "advancedFormat": "Advanced format",
+    "collapseToolbar": "Collapse toolbar",
+    "expandToolbar": "Expand toolbar",
     "undo": "Undo",
     "redo": "Redo",
     "heading1": "Heading 1",

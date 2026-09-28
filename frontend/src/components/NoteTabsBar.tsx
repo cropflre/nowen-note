@@ -9,6 +9,7 @@ import { cn } from "@/lib/utils";
 import { toast } from "@/lib/toast";
 import { useNoteLoader } from "@/hooks/useNoteLoader";
 import type { Notebook, NoteListItem } from "@/types";
+import { EditorToolbarExpandSlot } from "@/components/CollapsibleEditorToolbar";
 
 type TabContextMenuState = {
   tabId: string;
@@ -723,6 +724,7 @@ export default function NoteTabsBar() {
 
       <div className="pointer-events-none w-8 shrink-0 bg-gradient-to-r from-transparent to-app-surface/80" />
       <div className="flex shrink-0 items-center border-l border-app-border/70 px-1">
+        <EditorToolbarExpandSlot location="tabs" />
         <button
           ref={tabListTriggerRef}
           type="button"

@@ -416,6 +416,8 @@
     "insertMenu": "插入",
     "moreMenu": "更多",
     "advancedFormat": "高级格式",
+    "collapseToolbar": "收起工具栏",
+    "expandToolbar": "展开工具栏",
     "undo": "撤销",
     "redo": "重做",
     "heading1": "标题 1",

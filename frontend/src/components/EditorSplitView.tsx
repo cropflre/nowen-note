@@ -3,6 +3,7 @@ import { ArrowLeftRight, Eye, Loader2, PanelLeftClose, Pencil, X } from "lucide-
 import { useTranslation } from "react-i18next";
 import FormatAwareEditorPane from "@/components/FormatAwareEditorPane";
 import NoteTabsBar from "@/components/NoteTabsBar";
+import { EditorToolbarHost, EditorToolbarExpandSlot } from "@/components/CollapsibleEditorToolbar";
 import NoteLoadingSkeleton from "@/components/NoteLoadingSkeleton";
 import TiptapEditor from "@/components/TiptapEditor";
 import MarkdownEditor from "@/components/MarkdownEditor";
@@ -448,6 +449,7 @@ function SplitEditorPane({
   const editable = !!note && canWriteNote(note) && note.id === noteId && !readOnly && state.activeNote?.id !== noteId && !note.isLocked && !note.isTrashed && !loadingState.pendingNoteId;
 
   return (
+    <EditorToolbarHost>
     <section className="flex h-full min-h-0 min-w-0 flex-col bg-app-bg">
       <header className="flex h-10 shrink-0 items-center gap-1.5 border-b border-app-border bg-app-surface/60 px-2.5">
         <div className="min-w-0 flex-1 truncate text-sm font-medium text-tx-primary">{title}</div>
@@ -508,6 +510,7 @@ function SplitEditorPane({
         >
           <X size={15} />
         </button>
+        <EditorToolbarExpandSlot location="header" />
       </header>
 
       <div
@@ -552,5 +555,6 @@ function SplitEditorPane({
         )}
       </div>
     </section>
+    </EditorToolbarHost>
   );
 }

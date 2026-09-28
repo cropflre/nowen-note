@@ -17,6 +17,7 @@ import { AnimatePresence, motion } from "framer-motion";import StarterKit from "
 import Placeholder from "@tiptap/extension-placeholder";
 import Image from "@tiptap/extension-image";
 import ResizableImageView from "./ResizableImageView";
+import CollapsibleEditorToolbar from "./CollapsibleEditorToolbar";
 import ImageEditDialog from "@/components/image-editor/ImageEditDialog";
 import FullscreenImageViewer, { type FullscreenImageItem } from "@/components/FullscreenImageViewer";
 import { editedImageBlobToFile, isSvgImageSource } from "@/components/image-editor/imageEditService";
@@ -1046,8 +1047,8 @@ function ToolbarButton({ onClick, isActive, disabled, children, title, compact, 
   );
 }
 
-function ToolbarDivider() {
-  return <div className="h-5 w-px shrink-0 bg-app-border mx-1" />;
+function ToolbarDivider({ className }: { className?: string }) {
+  return <div className={cn("h-5 w-px shrink-0 bg-app-border mx-1", className)} />;
 }
 
 /**
@@ -5382,27 +5383,29 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
             <ChevronDown size={16} className={cn("transition-transform", mobileToolbarExpanded && "rotate-180")} />
           </ToolbarButton>
         </div>
+        <CollapsibleEditorToolbar>
         <div
           ref={outlineToolbarRef}
           data-mobile-editor-toolbar="expanded"
           className={cn(
-            "editor-toolbar-scroll-fade hide-scrollbar z-30 flex-nowrap items-center gap-0.5 overflow-x-auto touch-pan-x border-b border-app-border bg-app-elevated px-3 py-2 transition-shadow duration-200 md:sticky md:top-0 md:z-20 md:flex md:flex-wrap md:overflow-visible md:touch-auto md:bg-app-surface/95 md:px-4 md:backdrop-blur md:supports-[backdrop-filter]:bg-app-surface/70",
+            "editor-toolbar-scroll-fade hide-scrollbar z-30 flex-nowrap items-center gap-0.5 overflow-x-auto touch-pan-x border-b border-app-border bg-app-elevated px-3 py-2 transition-shadow duration-200 md:flex md:flex-wrap md:overflow-visible md:touch-auto md:bg-app-surface/95 md:px-4 md:pr-12 md:backdrop-blur md:supports-[backdrop-filter]:bg-app-surface/70",
             mobileToolbarExpanded
               ? "flex max-md:max-h-[38vh] max-md:flex-wrap max-md:overflow-y-auto max-md:shadow-xl"
               : "hidden md:flex",
             toolbarShadow && "shadow-[0_2px_8px_-2px_rgba(0,0,0,0.08)] dark:shadow-[0_2px_8px_-2px_rgba(0,0,0,0.4)]",
           )}
         >
-        <ToolbarButton onClick={() => editor.chain().focus().undo().run()} disabled={!editor.can().undo()} title={t('tiptap.undo')}>
+        <ToolbarButton className="max-md:hidden" onClick={() => editor.chain().focus().undo().run()} disabled={!editor.can().undo()} title={t('tiptap.undo')}>
           <Undo size={iconSize} />
         </ToolbarButton>
-        <ToolbarButton onClick={() => editor.chain().focus().redo().run()} disabled={!editor.can().redo()} title={t('tiptap.redo')}>
+        <ToolbarButton className="max-md:hidden" onClick={() => editor.chain().focus().redo().run()} disabled={!editor.can().redo()} title={t('tiptap.redo')}>
           <Redo size={iconSize} />
         </ToolbarButton>
 
-        <ToolbarDivider />
+        <ToolbarDivider className="max-md:hidden" />
 
         <ToolbarButton
+          className="max-md:hidden"
           onClick={() => toggleHeadingSmart(editor, 1)}
           isActive={editor.isActive("heading", { level: 1 })}
           title={t('tiptap.heading1')}
@@ -5410,6 +5413,7 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
           <Heading1 size={iconSize} />
         </ToolbarButton>
         <ToolbarButton
+          className="max-md:hidden"
           onClick={() => toggleHeadingSmart(editor, 2)}
           isActive={editor.isActive("heading", { level: 2 })}
           title={t('tiptap.heading2')}
@@ -5448,6 +5452,7 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
         <ToolbarDivider />
 
         <ToolbarButton
+          className="max-md:hidden"
           onClick={() => editor.chain().focus().toggleBold().run()}
           isActive={editor.isActive("bold")}
           title={t('tiptap.bold')}
@@ -5506,6 +5511,7 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
         <ToolbarDivider />
 
         <ToolbarButton
+          className="max-md:hidden"
           onClick={() => toggleBulletListSmart(editor)}
           isActive={activeListType === "bulletList"}
           title={t('tiptap.bulletList')}
@@ -5559,7 +5565,7 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
         >
           <Minus size={iconSize} />
         </ToolbarButton>
-        <ToolbarButton onClick={handleImageUpload} title={t('tiptap.insertImage')}>
+        <ToolbarButton className="max-md:hidden" onClick={handleImageUpload} title={t('tiptap.insertImage')}>
           <ImagePlus size={iconSize} />
         </ToolbarButton>
         <ToolbarButton onClick={handleImageUrlInsert} title={t('tiptap.insertImageUrl')}>
@@ -5568,7 +5574,7 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
         <ToolbarButton onClick={handleVideoUrlInsert} title={t('tiptap.insertVideoLink')}>
           <Film size={iconSize} />
         </ToolbarButton>
-        <ToolbarButton onClick={handleVideoUpload} title={t('tiptap.uploadLocalVideo')}>
+        <ToolbarButton className="max-md:hidden" onClick={handleVideoUpload} title={t('tiptap.uploadLocalVideo')}>
           <Upload size={iconSize} />
         </ToolbarButton>
         <ToolbarButton
@@ -5648,6 +5654,7 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
           <Outdent size={iconSize} />
         </ToolbarButton>
         <ToolbarButton
+          className="max-md:hidden"
           onClick={() => editor.chain().focus().toggleFirstLineIndent().run()}
           isActive={editor.isActive("paragraph", { firstLineIndent: 2 })}
           disabled={!editor.isActive("paragraph")}
@@ -5742,6 +5749,7 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
           </>
         )}
       </div>
+      </CollapsibleEditorToolbar>
       </>
       )}
 
@@ -5760,7 +5768,7 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
       {!presentationMode && (
       <div
         data-mobile-editor-title=""
-        className={cn("px-4 md:px-8 pb-0", compactMobileEditing ? "pt-2" : "pt-3 md:pt-6")}
+        className={cn("px-4 md:px-8 pb-0", compactMobileEditing ? "pt-2" : "pt-3")}
       >
         <textarea
           ref={titleRef}
@@ -5781,14 +5789,13 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
           spellCheck={false}
           readOnly={!editable}
           className={cn(
-            "w-full resize-none overflow-hidden break-words bg-transparent text-xl md:text-2xl font-bold text-tx-primary placeholder:text-tx-tertiary focus:outline-none no-focus-ring",
-            compactMobileEditing && "text-lg leading-7",
+            "block w-full resize-none overflow-hidden break-words bg-transparent p-0 text-lg leading-7 md:text-xl font-semibold text-tx-primary placeholder:text-tx-tertiary focus:outline-none no-focus-ring",
             !editable && "cursor-default"
           )}
         />
         <div
           data-mobile-editor-metadata=""
-          className={cn("flex items-center flex-wrap gap-x-3 gap-y-0.5 mt-2 text-[10px] text-tx-tertiary", compactMobileEditing && "hidden")}
+          className={cn("flex items-center flex-wrap gap-x-3 gap-y-0.5 mt-1 text-[10px] text-tx-tertiary", compactMobileEditing && "hidden")}
         >
           <span>{t('tiptap.version')}{note.version}</span>
           <span className="max-md:hidden">·</span>
@@ -5805,7 +5812,7 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
 
       {/* Tag Bar：访客模式下隐藏（TagInput 依赖 AppProvider + 登录态 API） */}
       {!isGuest && !windowedSection && !compactMobileEditing && (
-        <div className="px-4 md:px-8 pb-2">
+        <div className="px-4 md:px-8 pb-1">
           <TagInput
             noteId={note.id}
             noteTags={note.tags || []}

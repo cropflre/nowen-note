@@ -44,6 +44,7 @@ import {
 } from "@/components/PresenceBar";
 import { EditorErrorBoundary } from "@/components/EditorErrorBoundary";
 import NoteTabsBar from "@/components/NoteTabsBar";
+import { EditorToolbarHost, EditorToolbarExpandSlot } from "@/components/CollapsibleEditorToolbar";
 import NoteLoadingSkeleton from "@/components/NoteLoadingSkeleton";
 import { useNoteLoader } from "@/hooks/useNoteLoader";
 import { useRealtimeNote } from "@/hooks/useRealtimeNote";
@@ -2514,6 +2515,7 @@ const moveToTrash = useCallback(async () => {
   }
 
   return (
+    <EditorToolbarHost>
     <motion.div
       key={activeNote.id}
       initial={{ opacity: 0 }}
@@ -3302,6 +3304,9 @@ const moveToTrash = useCallback(async () => {
             </Button>
           )}
 
+          {(!userPrefs.enableNoteTabs || state.openNoteTabs.length === 0 || state.editorSplit) && (
+            <EditorToolbarExpandSlot location="header" />
+          )}
           <div data-editor-more-menu="desktop" className="relative shrink-0" ref={desktopMoreMenuRef}>
             <Button
               variant="ghost"
@@ -3912,6 +3917,7 @@ const moveToTrash = useCallback(async () => {
         )}
       </div>
     </motion.div>
+    </EditorToolbarHost>
   );
 }
 

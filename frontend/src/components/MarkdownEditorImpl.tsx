@@ -25,6 +25,7 @@
  */
 
 import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
+import CollapsibleEditorToolbar from "@/components/CollapsibleEditorToolbar";
 import { EditorState, Compartment, StateEffect } from "@codemirror/state";
 import {
   EditorView,
@@ -262,8 +263,8 @@ function ToolbarButton({ onClick, disabled, children, title, className }: Toolba
   );
 }
 
-function ToolbarDivider() {
-  return <div className="w-px h-5 bg-app-border mx-1" />;
+function ToolbarDivider({ className }: { className?: string }) {
+  return <div className={cn("w-px h-5 bg-app-border mx-1", className)} />;
 }
 
 // ---------------------------------------------------------------------------
@@ -2136,22 +2137,25 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
               <ChevronDown size={16} className={cn("transition-transform", mobileToolbarExpanded && "rotate-180")} />
             </ToolbarButton>
           </div>
+          <CollapsibleEditorToolbar>
           <div
             data-markdown-mobile-toolbar="expanded"
             className={cn(
-              "z-30 items-center gap-0.5 overflow-x-auto border-b border-app-border bg-app-elevated px-3 py-2 hide-scrollbar touch-pan-x transition-colors md:sticky md:top-0 md:z-20 md:flex md:flex-wrap md:bg-app-surface/95 md:px-4 md:backdrop-blur md:supports-[backdrop-filter]:bg-app-surface/70",
+              "z-30 items-center gap-0.5 overflow-x-auto border-b border-app-border bg-app-elevated px-3 py-2 hide-scrollbar touch-pan-x transition-colors md:flex md:flex-wrap md:bg-app-surface/95 md:px-4 md:pr-12 md:backdrop-blur md:supports-[backdrop-filter]:bg-app-surface/70",
               mobileToolbarExpanded
                 ? "flex max-md:max-h-[38vh] max-md:flex-wrap max-md:overflow-y-auto max-md:shadow-xl"
                 : "hidden md:flex",
             )}
           >
           <ToolbarButton
+            className="max-md:hidden"
             onClick={() => withView((v) => undo(v))}
             title={tr("tiptap.undo") || "����"}
           >
             <Undo size={iconSize} />
           </ToolbarButton>
           <ToolbarButton
+            className="max-md:hidden"
             onClick={() => withView((v) => redo(v))}
             title={tr("tiptap.redo") || "重做"}
           >
@@ -2200,15 +2204,17 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
             </button>
           </div>
 
-          <ToolbarDivider />
+          <ToolbarDivider className="max-md:hidden" />
 
           <ToolbarButton
+            className="max-md:hidden"
             onClick={() => withView((v) => toggleHeading(v, 1))}
             title={tr("tiptap.heading1") || "һ������"}
           >
             <Heading1 size={iconSize} />
           </ToolbarButton>
           <ToolbarButton
+            className="max-md:hidden"
             onClick={() => withView((v) => toggleHeading(v, 2))}
             title={tr("tiptap.heading2") || "��������"}
           >
@@ -2242,6 +2248,7 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
           <ToolbarDivider />
 
           <ToolbarButton
+            className="max-md:hidden"
             onClick={() => withView((v) => toggleWrap(v, "**"))}
             title={tr("tiptap.bold") || "�Ӵ�"}
           >
@@ -2269,6 +2276,7 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
           <ToolbarDivider />
 
           <ToolbarButton
+            className="max-md:hidden"
             onClick={() => withView((v) => toggleBulletList(v))}
             title={tr("tiptap.bulletList") || "�����б�"}
           >
@@ -2313,10 +2321,10 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
           >
             <LinkIcon size={iconSize} />
           </ToolbarButton>
-          <ToolbarButton onClick={triggerImagePicker} title={tr("tiptap.insertImage") || "����ͼƬ"}>
+          <ToolbarButton className="max-md:hidden" onClick={triggerImagePicker} title={tr("tiptap.insertImage") || "����ͼƬ"}>
             <ImagePlus size={iconSize} />
           </ToolbarButton>
-          <ToolbarButton onClick={triggerVideoPicker} title={tr("tiptap.insertVideo") || "插入视频"}>
+          <ToolbarButton className="max-md:hidden" onClick={triggerVideoPicker} title={tr("tiptap.uploadLocalVideo") || "插入本地视频"}>
             <Film size={iconSize} />
           </ToolbarButton>
           <ToolbarButton
@@ -2365,7 +2373,7 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
               type="button"
               onClick={() => setMarkdownViewMode("source")}
               className={cn(
-                "flex items-center gap-1 px-2 py-1 text-[11px] font-medium transition-colors",
+                "max-md:hidden flex items-center gap-1 px-2 py-1 text-[11px] font-medium transition-colors",
                 viewMode === "source"
                   ? "bg-accent-primary/10 text-accent-primary"
                   : "text-tx-tertiary hover:text-tx-secondary hover:bg-app-hover"
@@ -2379,7 +2387,7 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
               type="button"
               onClick={() => setMarkdownViewMode("preview")}
               className={cn(
-                "flex items-center gap-1 px-2 py-1 text-[11px] font-medium transition-colors",
+                "max-md:hidden flex items-center gap-1 px-2 py-1 text-[11px] font-medium transition-colors",
                 viewMode === "preview"
                   ? "bg-accent-primary/10 text-accent-primary"
                   : "text-tx-tertiary hover:text-tx-secondary hover:bg-app-hover"
@@ -2405,13 +2413,14 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
             </button>
           </div>
           </div>
+          </CollapsibleEditorToolbar>
         </>
       )}
 
       {/* ������ */}
       <div
         data-markdown-mobile-title=""
-        className={cn("px-4 md:px-8 pb-2", compactMobileEditing ? "pt-2" : "pt-3 md:pt-6")}
+        className={cn("px-4 md:px-8 pb-1", compactMobileEditing ? "pt-2" : "pt-3")}
       >
         <textarea
           ref={titleRef}
@@ -2429,13 +2438,10 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
           onKeyDown={handleTitleKeyDown}
           spellCheck={false}
           readOnly={!editable}
-          className={cn(
-            "w-full resize-none overflow-hidden break-words bg-transparent outline-none text-xl md:text-3xl font-bold text-tx-primary placeholder:text-tx-tertiary/60",
-            compactMobileEditing && "text-lg leading-7",
-          )}
+          className="block w-full resize-none overflow-hidden break-words bg-transparent p-0 outline-none text-lg leading-7 md:text-xl font-semibold text-tx-primary placeholder:text-tx-tertiary/60"
         />
         {!isGuest && !compactMobileEditing && (
-          <div className="mt-2">
+          <div className="mt-1">
             <TagInput
               noteId={note.id}
               noteTags={noteTags}
