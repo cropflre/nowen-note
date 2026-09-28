@@ -56,6 +56,10 @@ test("tree Outbox readiness follows the active Profile and is re-locked by recon
 
   markKnowledgeTreeSyncReady(db, first.id);
   assert.equal(isKnowledgeTreeSyncReady(db, first.id), true);
+  assert.equal(isKnowledgeTreeSyncReady(db, first.id, "workspace:alpha"), false);
+  markKnowledgeTreeSyncReady(db, first.id, "workspace:alpha");
+  assert.equal(isKnowledgeTreeSyncReady(db, first.id, "workspace:alpha"), true);
+  assert.equal(isKnowledgeTreeSyncReady(db, first.id, "workspace:beta"), false);
   assert.equal(gate(), 1);
   db.prepare("UPDATE knowledge_tree_nodes SET sortOrder = 4 WHERE id = 'mindmap:map'").run();
   const firstMutation = db.prepare(`
@@ -88,7 +92,8 @@ test("tree Outbox readiness follows the active Profile and is re-locked by recon
   assert.equal(gate(), 1, "每个 Profile 的树基线状态必须相互独立");
   resetBootstrap(db, first.id);
   assert.equal(isKnowledgeTreeSyncReady(db, first.id), false);
-  assert.equal(gate(), 0, "手动重新对账时必须立即关闭树 Outbox");
+  assert.equal(isKnowledgeTreeSyncReady(db, first.id, "workspace:alpha"), false);
+  assert.equal(gate(), 0, "手动重新对账时必须立即关闭该 Profile 的所有树 Outbox");
 
   db.prepare("UPDATE sync_profiles SET bootstrapStatus = 'ready' WHERE id = ?").run(first.id);
   markKnowledgeTreeSyncReady(db, first.id);

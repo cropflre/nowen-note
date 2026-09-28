@@ -4,9 +4,12 @@ import { installSyncOutboxCaptureTriggers } from "./syncOutboxCaptureMigration.j
 import { installSyncPersonalEntitiesTriggers } from "./syncPersonalEntitiesMigration.js";
 import { installKnowledgeTreeFeedTriggers } from "./syncV2KnowledgeTreeFeedMigration.js";
 
-function installKnowledgeTreeOutboxTriggers(db: Database.Database): void {
-  const gate = `(SELECT enabled FROM sync_v2_tree_outbox_ready) = 1
-    AND (SELECT enabled FROM sync_v2_should_enqueue) = 1`;
+export function installKnowledgeTreeOutboxTriggers(db: Database.Database): void {
+  const readinessTable = db.prepare(`
+    SELECT 1 FROM sqlite_master
+    WHERE type = 'table' AND name = 'sync_v2_tree_scope_readiness'
+  `).get();
+  const enqueueGate = `(SELECT enabled FROM sync_v2_should_enqueue) = 1`;
   const changed = `OLD.parentId IS NOT NEW.parentId OR OLD.sortOrder IS NOT NEW.sortOrder
     OR OLD.isDeleted IS NOT NEW.isDeleted OR OLD.deletedAt IS NOT NEW.deletedAt
     OR OLD.scopeKey IS NOT NEW.scopeKey OR OLD.workspaceId IS NOT NEW.workspaceId
@@ -14,6 +17,15 @@ function installKnowledgeTreeOutboxTriggers(db: Database.Database): void {
     OR OLD.resourceType IS NOT NEW.resourceType OR OLD.resourceId IS NOT NEW.resourceId`;
   const scope = (alias: "OLD" | "NEW") => `CASE WHEN ${alias}.workspaceId IS NULL
     THEN 'personal' ELSE 'workspace:' || ${alias}.workspaceId END`;
+  const readyGate = (alias: "OLD" | "NEW") => readinessTable
+    ? `EXISTS (
+        SELECT 1
+        FROM sync_v2_tree_scope_readiness readiness
+        JOIN sync_v2_outbox_target target ON target.profileId = readiness.profileId
+        WHERE readiness.scopeKey = ${scope(alias)}
+          AND readiness.status = 'ready'
+      )`
+    : `(SELECT enabled FROM sync_v2_tree_outbox_ready) = 1`;
   const payload = (alias: "OLD" | "NEW", base?: "OLD") => `json_object(
     'id', ${alias}.id, 'nodeType', ${alias}.nodeType,
     'resourceType', ${alias}.resourceType, 'resourceId', ${alias}.resourceId,
@@ -33,7 +45,8 @@ function installKnowledgeTreeOutboxTriggers(db: Database.Database): void {
   db.exec(`
     DROP TRIGGER IF EXISTS sync_outbox_knowledge_tree_insert;
     CREATE TRIGGER sync_outbox_knowledge_tree_insert
-    AFTER INSERT ON knowledge_tree_nodes WHEN ${gate}
+    AFTER INSERT ON knowledge_tree_nodes WHEN ${enqueueGate}
+      AND ${readyGate("NEW")}
       AND NEW.id NOT GLOB 'notebook:__nowen_root_documents__:*'
     BEGIN
       INSERT INTO sync_outbox (${columns}) VALUES (
@@ -46,23 +59,25 @@ function installKnowledgeTreeOutboxTriggers(db: Database.Database): void {
     CREATE TRIGGER sync_outbox_knowledge_tree_update
     AFTER UPDATE OF parentId, sortOrder, isDeleted, deletedAt, scopeKey,
       workspaceId, userId, nodeType, resourceType, resourceId ON knowledge_tree_nodes
-    WHEN ${gate} AND (${changed})
+    WHEN ${enqueueGate} AND (${changed})
       AND NEW.id NOT GLOB 'notebook:__nowen_root_documents__:*'
     BEGIN
       INSERT INTO sync_outbox (${columns})
       SELECT ${identity}, ${scope("OLD")}, ${device}, 'knowledge_tree_node',
         OLD.id, 'delete', NULL, NULL, 'pending', 0, datetime('now')
-      WHERE OLD.scopeKey IS NOT NEW.scopeKey OR OLD.userId IS NOT NEW.userId;
+      WHERE (OLD.scopeKey IS NOT NEW.scopeKey OR OLD.userId IS NOT NEW.userId)
+        AND ${readyGate("OLD")};
 
-      INSERT INTO sync_outbox (${columns}) VALUES (
-        ${identity}, ${scope("NEW")}, ${device}, 'knowledge_tree_node',
+      INSERT INTO sync_outbox (${columns})
+      SELECT ${identity}, ${scope("NEW")}, ${device}, 'knowledge_tree_node',
         NEW.id, 'upsert', NULL, ${payload("NEW", "OLD")}, 'pending', 0, datetime('now')
-      );
+      WHERE ${readyGate("NEW")};
     END;
 
     DROP TRIGGER IF EXISTS sync_outbox_knowledge_tree_delete;
     CREATE TRIGGER sync_outbox_knowledge_tree_delete
-    AFTER DELETE ON knowledge_tree_nodes WHEN ${gate}
+    AFTER DELETE ON knowledge_tree_nodes WHEN ${enqueueGate}
+      AND ${readyGate("OLD")}
       AND OLD.id NOT GLOB 'notebook:__nowen_root_documents__:*'
     BEGIN
       INSERT INTO sync_outbox (${columns}) VALUES (
