@@ -30,6 +30,7 @@ function fileAt(path: string, content: string, type: string): File {
     lastModified: 1_700_000_000_000,
   });
   Object.defineProperty(file, "webkitRelativePath", { value: path });
+  Object.defineProperty(file, "text", { value: async () => content });
   return file;
 }
 
