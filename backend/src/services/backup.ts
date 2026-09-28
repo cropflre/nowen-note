@@ -37,6 +37,13 @@ import {
   hashFileSha256,
   scrubPluginStudioProjectsFromBackup,
 } from "./backup-archive.js";
+import {
+  auditAttachmentBackup,
+  replaceDirectoriesFromStagingSafe,
+  verifyStagedAttachmentStats,
+  type AttachmentRestoreAudit,
+} from "./backup-restore-integrity.js";
+import { probeAttachmentStorage } from "./attachment-storage.js";
 import { quarantineRestoredPlugins } from "../plugins/pluginService.js";
 import { quarantineRestoredAutomations } from "../automation/recovery.js";
 
@@ -1323,6 +1330,10 @@ export class BackupManager {
 
     const dbFile = zip.file("db.sqlite");
     if (!dbFile) throw new Error("zip 备份缺少 db.sqlite");
+    const attachmentArchivePaths = Object.keys(zip.files)
+      .filter((name) => name.startsWith("attachments/") && !zip.files[name].dir)
+      .map((name) => name.slice("attachments/".length))
+      .filter((name) => name && name !== ".keep");
 
     if (dryRun) {
       // 干跑：从 zip 内 .db 临时打开，统计每张表 N 行
@@ -1355,6 +1366,11 @@ export class BackupManager {
             }`,
           );
         }
+        const attachmentAudit = auditAttachmentBackup(
+          tmpDb,
+          attachmentArchivePaths,
+          meta.files?.attachments,
+        );
         const tables = listAllTables(tmp as unknown as ReturnType<typeof getDb>);
         const cur = getDb();
         const list = tables.map((name) => {
@@ -1378,6 +1394,8 @@ export class BackupManager {
               plugins: meta.files?.plugins?.count ?? 0,
             },
             schemaVersion: meta.schemaVersion ?? 1,
+            backupType: "full",
+            attachmentAudit,
           },
         };
       } finally {
@@ -1407,6 +1425,11 @@ export class BackupManager {
     );
     fs.writeFileSync(tmpDb, await dbFile.async("nodebuffer"));
     checkSqliteIntegrity(tmpDb, "备份文件");
+    let attachmentAudit: AttachmentRestoreAudit = auditAttachmentBackup(
+      tmpDb,
+      attachmentArchivePaths,
+      meta.files?.attachments,
+    );
 
     const stagingRoot = path.join(this.dataDir, `.nowen-restore-staging-${restoreId}`);
     const stagedAttDir = path.join(stagingRoot, "attachments");
@@ -1418,6 +1441,7 @@ export class BackupManager {
     const attCount = await extractDirFromZip(zip, "attachments", stagedAttDir);
     const fntCount = await extractDirFromZip(zip, "fonts", stagedFontsDir);
     const plgCount = await extractDirFromZip(zip, hasInstalledLayout ? "plugins/installed" : "plugins", stagedPluginsDir);
+    attachmentAudit = verifyStagedAttachmentStats(stagedAttDir, attachmentAudit);
 
     const curDbPath = getDbPath();
     const safetyBak = curDbPath + `.before-restore.${Date.now()}.bak`;
@@ -1434,11 +1458,19 @@ export class BackupManager {
       verifyCurrentDbUsable(curDbPath);
 
       // DB 已验证可用后，再安全替换文件目录；任一步失败都回滚 DB。
-      replaceDirectoriesFromStaging([
+      await replaceDirectoriesFromStagingSafe([
         { stagedDir: stagedAttDir, destDir: path.join(this.dataDir, "attachments") },
         { stagedDir: stagedFontsDir, destDir: path.join(this.dataDir, "fonts") },
         { stagedDir: stagedPluginsDir, destDir: hasInstalledLayout ? path.join(this.dataDir, "plugins", "installed") : path.join(this.dataDir, "plugins") },
-      ], restoreId);
+      ], restoreId, async () => {
+        const health = await probeAttachmentStorage();
+        if (!health.ok) {
+          throw new Error(
+            "附件存储健康检查失败 [" + (health.code || "ATTACHMENT_STORAGE_NOT_WRITABLE") + "]: "
+            + (health.error || "unknown storage error"),
+          );
+        }
+      });
     } catch (e) {
       rollbackDb(curDbPath, safetyBak, e);
     } finally {
@@ -1476,6 +1508,9 @@ export class BackupManager {
       attachments: attCount,
       fonts: fntCount,
       plugins: plgCount,
+      attachmentDbRows: attachmentAudit.dbRows,
+      attachmentDistinctPaths: attachmentAudit.dbDistinctPaths,
+      attachmentBytes: attachmentAudit.stagedBytes ?? 0,
     };
     for (const [t, n] of Object.entries(meta.tables ?? {})) {
       stats[t] = typeof n === "number" ? n : -1;
