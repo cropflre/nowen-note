@@ -52,7 +52,7 @@ import {
 } from "@/lib/codeBlockHighlightPlugin";
 import { DOMParser as ProseMirrorDOMParser, Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { TextSelection, NodeSelection } from "@tiptap/pm/state";
-import { CellSelection } from "@tiptap/pm/tables";
+import { CellSelection, TableMap } from "@tiptap/pm/tables";
 import { markdownToSimpleHtml } from "@/lib/importService";
 import { repairTiptapJson } from "@/lib/tiptapSchemaRepair";
 import { markdownToHtml as mdToFullHtml, detectFormat as detectContentFormat, tiptapJsonToMarkdown } from "@/lib/contentFormat";
@@ -5257,6 +5257,44 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
   const insertTable = (rows: number, cols: number) => {
     editor.chain().focus().insertTable({ rows, cols, withHeaderRow: true }).run();
   };
+
+  const setCurrentTableColumnWidth = (width: number | null) => {
+    const { state } = editor;
+    const { $from } = state.selection;
+    let tableDepth = -1;
+    let cellDepth = -1;
+    for (let depth = $from.depth; depth > 0; depth -= 1) {
+      const type = $from.node(depth).type.name;
+      if (cellDepth < 0 && (type === "tableCell" || type === "tableHeader")) cellDepth = depth;
+      if (type === "table") {
+        tableDepth = depth;
+        break;
+      }
+    }
+    if (tableDepth < 0 || cellDepth < 0) return;
+
+    try {
+      const tableNode = $from.node(tableDepth);
+      const tableStart = $from.start(tableDepth);
+      const currentCellPos = $from.before(cellDepth) - tableStart;
+      const map = TableMap.get(tableNode);
+      const rect = map.findCell(currentCellPos);
+      const anchorCell = tableStart + map.positionAt(0, rect.left, tableNode);
+      const headCell = tableStart + map.positionAt(map.height - 1, rect.left, tableNode);
+      const originalFrom = state.selection.from;
+
+      editor
+        .chain()
+        .focus()
+        .setCellSelection({ anchorCell, headCell })
+        .setCellAttribute("colwidth", width == null ? null : [width])
+        .setTextSelection(originalFrom)
+        .run();
+    } catch (error) {
+      console.warn("Failed to set table column width:", error);
+      toast.error(t("tiptap.tableColumnWidthFailed", { defaultValue: "列宽调整失败" }));
+    }
+  };
   const insertMermaid = () => {
     insertContentPreservingBlockEmbed(editor, {
       type: "codeBlock",
@@ -5321,6 +5359,15 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
           </ToolbarButton>
           <ToolbarButton compact onClick={() => editor.chain().focus().toggleBold().run()} isActive={editor.isActive("bold")} title={t('tiptap.bold')}>
             <Bold size={16} />
+          </ToolbarButton>
+          <ToolbarButton
+            compact
+            onClick={() => editor.chain().focus().toggleFirstLineIndent().run()}
+            isActive={editor.isActive("paragraph", { firstLineIndent: 2 })}
+            disabled={!editor.isActive("paragraph")}
+            title={t("tiptap.firstLineIndent2", { defaultValue: "首行缩进 2 字符" })}
+          >
+            <span className="text-[10px] font-semibold leading-none">首2</span>
           </ToolbarButton>
           <ToolbarButton compact onClick={() => toggleBulletListSmart(editor)} isActive={activeListType === "bulletList"} title={t('tiptap.bulletList')}>
             <List size={16} />
@@ -5599,6 +5646,14 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
           title={t('tiptap.outdent')}
         >
           <Outdent size={iconSize} />
+        </ToolbarButton>
+        <ToolbarButton
+          onClick={() => editor.chain().focus().toggleFirstLineIndent().run()}
+          isActive={editor.isActive("paragraph", { firstLineIndent: 2 })}
+          disabled={!editor.isActive("paragraph")}
+          title={t("tiptap.firstLineIndent2", { defaultValue: "首行缩进 2 字符" })}
+        >
+          <span className="text-[10px] font-semibold leading-none">首2</span>
         </ToolbarButton>
 
         <ToolbarDivider />
@@ -6285,6 +6340,26 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
                         className="w-full h-11 rounded-lg px-3 text-left text-sm text-red-500 hover:bg-red-500/10 active:bg-red-500/20 transition-colors">
                         🗑 {t("tiptap.deleteColumn", { defaultValue: "删除当前列" })}
                       </button>
+                      <div className="h-px bg-app-border my-1" />
+                      <div className="px-3 pb-1 pt-1 text-[11px] font-medium text-tx-tertiary">
+                        {t("tiptap.tableColumnWidth", { defaultValue: "当前列宽" })}
+                      </div>
+                      <div className="grid grid-cols-4 gap-1 px-1 pb-1">
+                        {([
+                          ["auto", t("tiptap.tableWidthAuto", { defaultValue: "自动" }), null],
+                          ["narrow", t("tiptap.tableWidthNarrow", { defaultValue: "窄" }), 96],
+                          ["medium", t("tiptap.tableWidthMedium", { defaultValue: "中" }), 160],
+                          ["wide", t("tiptap.tableWidthWide", { defaultValue: "宽" }), 240],
+                        ] as const).map(([key, label, width]) => (
+                          <button
+                            key={key}
+                            onClick={() => { setCurrentTableColumnWidth(width); setTableSheet(null); }}
+                            className="h-10 rounded-lg bg-app-hover px-2 text-xs text-tx-secondary active:bg-accent-primary/15 active:text-accent-primary"
+                          >
+                            {label}
+                          </button>
+                        ))}
+                      </div>
                     </>)}
                     {tableSheet === "more" && (<>
                       <button onClick={() => { editor.chain().focus().mergeCells().run(); setTableSheet(null); }}
@@ -6309,6 +6384,57 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
                         <Heading size={14} className="inline mr-2 -mt-0.5 rotate-90" />
                         {t("tiptap.toggleHeaderColumn", { defaultValue: "切换表头列" })}
                       </button>
+                      <div className="h-px bg-app-border my-1" />
+                      <div className="px-3 pb-1 pt-1 text-[11px] font-medium text-tx-tertiary">
+                        {t("tiptap.tableAlign", { defaultValue: "表格对齐" })}
+                      </div>
+                      <div className="grid grid-cols-3 gap-1 px-1 pb-1">
+                        {([
+                          ["left", t("tiptap.alignLeft", { defaultValue: "左对齐" })],
+                          ["center", t("tiptap.alignCenter", { defaultValue: "居中" })],
+                          ["right", t("tiptap.alignRight", { defaultValue: "右对齐" })],
+                        ] as const).map(([align, label]) => (
+                          <button
+                            key={align}
+                            onClick={() => { editor.chain().focus().setTableLayoutAlign(align).run(); setTableSheet(null); }}
+                            className={cn(
+                              "h-10 rounded-lg px-2 text-xs transition-colors",
+                              editor.getAttributes("table").tableLayoutAlign === align
+                                ? "bg-accent-primary/15 text-accent-primary"
+                                : "bg-app-hover text-tx-secondary",
+                            )}
+                          >
+                            {label}
+                          </button>
+                        ))}
+                      </div>
+                      <div className="px-3 pb-1 pt-1 text-[11px] font-medium text-tx-tertiary">
+                        {t("tiptap.tableWidth", { defaultValue: "表格宽度" })}
+                      </div>
+                      <div className="grid grid-cols-2 gap-1 px-1 pb-1">
+                        <button
+                          onClick={() => { editor.chain().focus().setTableWidthMode("auto").run(); setTableSheet(null); }}
+                          className={cn(
+                            "h-10 rounded-lg px-2 text-xs transition-colors",
+                            editor.getAttributes("table").tableWidthMode !== "full"
+                              ? "bg-accent-primary/15 text-accent-primary"
+                              : "bg-app-hover text-tx-secondary",
+                          )}
+                        >
+                          {t("tiptap.tableWidthAuto", { defaultValue: "自动" })}
+                        </button>
+                        <button
+                          onClick={() => { editor.chain().focus().setTableWidthMode("full").run(); setTableSheet(null); }}
+                          className={cn(
+                            "h-10 rounded-lg px-2 text-xs transition-colors",
+                            editor.getAttributes("table").tableWidthMode === "full"
+                              ? "bg-accent-primary/15 text-accent-primary"
+                              : "bg-app-hover text-tx-secondary",
+                          )}
+                        >
+                          100%
+                        </button>
+                      </div>
                       <button onClick={() => {
                         const view = editor.view;
                         const { from } = view.state.selection;
@@ -6384,6 +6510,47 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
           </ToolbarButton>
           <ToolbarButton compact title={t("tiptap.toggleHeaderRow")} onClick={() => editor.chain().focus().toggleHeaderRow().run()}>
             <Heading size={14} />
+          </ToolbarButton>
+          <div className="w-px h-3 bg-app-border mx-0.5" />
+          <ToolbarButton
+            compact
+            title={t("tiptap.tableAlignLeft", { defaultValue: "表格左对齐" })}
+            isActive={editor.getAttributes("table").tableLayoutAlign !== "center" && editor.getAttributes("table").tableLayoutAlign !== "right"}
+            onClick={() => editor.chain().focus().setTableLayoutAlign("left").run()}
+          >
+            <AlignLeft size={14} />
+          </ToolbarButton>
+          <ToolbarButton
+            compact
+            title={t("tiptap.tableAlignCenter", { defaultValue: "表格居中" })}
+            isActive={editor.getAttributes("table").tableLayoutAlign === "center"}
+            onClick={() => editor.chain().focus().setTableLayoutAlign("center").run()}
+          >
+            <AlignCenter size={14} />
+          </ToolbarButton>
+          <ToolbarButton
+            compact
+            title={t("tiptap.tableAlignRight", { defaultValue: "表格右对齐" })}
+            isActive={editor.getAttributes("table").tableLayoutAlign === "right"}
+            onClick={() => editor.chain().focus().setTableLayoutAlign("right").run()}
+          >
+            <AlignRight size={14} />
+          </ToolbarButton>
+          <ToolbarButton
+            compact
+            title={t("tiptap.tableWidthAuto", { defaultValue: "表格自动宽度" })}
+            isActive={editor.getAttributes("table").tableWidthMode !== "full"}
+            onClick={() => editor.chain().focus().setTableWidthMode("auto").run()}
+          >
+            <span className="text-[9px] font-semibold">AUTO</span>
+          </ToolbarButton>
+          <ToolbarButton
+            compact
+            title={t("tiptap.tableWidthFull", { defaultValue: "表格宽度 100%" })}
+            isActive={editor.getAttributes("table").tableWidthMode === "full"}
+            onClick={() => editor.chain().focus().setTableWidthMode("full").run()}
+          >
+            <span className="text-[9px] font-semibold">100%</span>
           </ToolbarButton>
           <ToolbarButton compact title={t("tiptap.resizeTable")} onClick={() => {
             const view = editor.view;
