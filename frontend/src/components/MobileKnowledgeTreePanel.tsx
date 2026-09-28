@@ -15,6 +15,7 @@ import {
   Loader2,
   LockKeyhole,
   MoreHorizontal,
+  Paperclip,
   Pin,
   Plus,
   RefreshCw,
@@ -25,6 +26,7 @@ import {
   Table2,
 } from "lucide-react";
 
+import AttachmentDetailDrawer from "@/components/attachmentDetail/AttachmentDetailDrawer";
 import FolderPasswordDialog from "@/components/FolderPasswordDialog";
 import NoteTemplatePickerDialog from "@/components/NoteTemplatePickerDialog";
 import {
@@ -131,6 +133,7 @@ function nodeIcon(node: KnowledgeTreeNode) {
   }
   if (node.nodeType === "markdown") return <FileCode size={18} className="shrink-0 text-emerald-500" />;
   if (node.nodeType === "mindmap") return <BrainCircuit size={18} className="shrink-0 text-accent-primary" />;
+  if (node.resourceType === "file") return <Paperclip size={18} className="shrink-0 text-amber-500" />;
   if (node.noteType === "sheet") return <Table2 size={18} className="shrink-0 text-sky-500" />;
   return <FileText size={18} className="shrink-0 text-accent-primary" />;
 }
@@ -276,6 +279,7 @@ export default function MobileKnowledgeTreePanel({
   const [sortMode, setSortMode] = useState<MobileKnowledgeTreeSortMode>(() => loadMobileKnowledgeTreeSortMode());
   const [recentEntries, setRecentEntries] = useState<MobileKnowledgeTreeRecentEntry[]>(() => loadMobileKnowledgeTreeRecentEntries());
   const [permissionsNode, setPermissionsNode] = useState<KnowledgeTreeNode | null>(null);
+  const [previewFileId, setPreviewFileId] = useState<string | null>(null);
   const [movingNode, setMovingNode] = useState<KnowledgeTreeNode | null>(null);
   const [batchMoving, setBatchMoving] = useState(false);
   const [selectedNodeIds, setSelectedNodeIds] = useState<Set<string>>(() => new Set());
@@ -562,6 +566,12 @@ export default function MobileKnowledgeTreePanel({
     if (node.resourceType === "mindmap") {
       rememberOpened(node.id);
       pushMindMapAppPath(node.resourceId);
+      if (variant === "mobile") actions.setMobileSidebar(false);
+      return;
+    }
+    if (node.resourceType === "file") {
+      rememberOpened(node.id);
+      setPreviewFileId(node.resourceId);
       if (variant === "mobile") actions.setMobileSidebar(false);
       return;
     }
@@ -1535,6 +1545,12 @@ export default function MobileKnowledgeTreePanel({
           </div>
         )}
 
+        {previewFileId && (
+          <AttachmentDetailDrawer
+            attachmentId={previewFileId}
+            onClose={() => setPreviewFileId(null)}
+          />
+        )}
         {permissionsNode && (
           <KnowledgeTreePermissionsDialog
             node={permissionsNode}
