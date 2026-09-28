@@ -257,7 +257,7 @@ function validateAttrs(
   }
 
   if (type === "paragraph") {
-    assertOnlyKeys(raw, new Set(["blockId", "textAlign", "lineHeight", "indent"]), "node.attrs");
+    assertOnlyKeys(raw, new Set(["blockId", "textAlign", "lineHeight", "indent", "firstLineIndent"]), "node.attrs");
   } else if (type === "heading") {
     assertOnlyKeys(raw, new Set(["blockId", "level", "textAlign", "lineHeight"]), "node.attrs");
     if (!Number.isInteger(raw.level) || Number(raw.level) < 1 || Number(raw.level) > 6) {
@@ -283,6 +283,9 @@ function validateAttrs(
   }
   if (raw.indent != null && (!Number.isInteger(raw.indent) || Number(raw.indent) < 0 || Number(raw.indent) > 8)) {
     throw new TiptapBlockNodeValidationError("node.attrs.indent 必须为 0-8");
+  }
+  if (raw.firstLineIndent != null && raw.firstLineIndent !== 0 && raw.firstLineIndent !== 2) {
+    throw new TiptapBlockNodeValidationError("node.attrs.firstLineIndent 必须为 0 或 2");
   }
   return { ...raw };
 }
@@ -467,7 +470,7 @@ function validateTable(raw: Record<string, unknown>, expectedBlockId: string): T
   if (!isRecord(raw.attrs) || raw.attrs.blockId !== expectedBlockId || !BLOCK_ID_RE.test(expectedBlockId)) {
     throw new TiptapBlockNodeValidationError("node.attrs.blockId 必须与目标块一致");
   }
-  assertOnlyKeys(raw.attrs, new Set(["blockId", "tableAligns", "colgroup"]), "table.attrs");
+  assertOnlyKeys(raw.attrs, new Set(["blockId", "tableAligns", "colgroup", "tableLayoutAlign", "tableWidthMode"]), "table.attrs");
   if (raw.attrs.tableAligns != null && (
     !Array.isArray(raw.attrs.tableAligns)
     || raw.attrs.tableAligns.length > 128
@@ -476,6 +479,18 @@ function validateTable(raw: Record<string, unknown>, expectedBlockId: string): T
     ))
   )) {
     throw new TiptapBlockNodeValidationError("table.attrs.tableAligns 无效");
+  }
+  if (raw.attrs.tableLayoutAlign != null && (
+    typeof raw.attrs.tableLayoutAlign !== "string"
+    || !["left", "center", "right"].includes(raw.attrs.tableLayoutAlign)
+  )) {
+    throw new TiptapBlockNodeValidationError("table.attrs.tableLayoutAlign 无效");
+  }
+  if (raw.attrs.tableWidthMode != null && (
+    typeof raw.attrs.tableWidthMode !== "string"
+    || !["auto", "full"].includes(raw.attrs.tableWidthMode)
+  )) {
+    throw new TiptapBlockNodeValidationError("table.attrs.tableWidthMode 无效");
   }
   const attrs = {
     ...raw.attrs,
