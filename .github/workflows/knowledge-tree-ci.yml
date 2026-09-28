@@ -14,6 +14,7 @@ on:
       - "backend/src/db/postgres/064_knowledge_tree_structural_guard.sql"
       - "backend/src/runtime/knowledge-tree*.ts"
       - "backend/src/routes/knowledge-tree.ts"
+      - "backend/src/routes/mindmap-folders.ts"
       - "backend/src/routes/sync-v2.ts"
       - "backend/src/sync/knowledgeTree*.ts"
       - "backend/src/sync/entities.ts"
@@ -26,12 +27,17 @@ on:
       - "backend/src/middleware/knowledgeCapabilityGuard.ts"
       - "backend/src/index.hardened.ts"
       - "backend/tests/knowledge-tree*.test.ts"
+      - "backend/tests/mindmap-folder-route.test.ts"
       - "backend/tests/sync-v2-knowledge-tree*.test.ts"
       - "backend/tests/sync-v2-entity-readiness.test.ts"
       - "backend/tests/sync-v2-protocol.test.ts"
       - "backend/tests/lightweight-sheets.test.ts"
       - "backend/tests/lightweight-sheets-route.test.ts"
       - "frontend/src/components/KnowledgeTreeDrawer.tsx"
+      - "frontend/src/components/KnowledgeTreePanel.tsx"
+      - "frontend/src/components/MobileKnowledgeTreePanel.tsx"
+      - "frontend/src/components/MindMapEditor.tsx"
+      - "frontend/src/components/__tests__/MindMap*.test.ts"
       - "frontend/src/components/SheetEditor.tsx"
       - "frontend/src/lib/sheet*.ts"
       - "frontend/src/lib/__tests__/sheet*.test.ts"
@@ -47,6 +53,7 @@ on:
       - "backend/src/db/postgres/064_knowledge_tree_structural_guard.sql"
       - "backend/src/runtime/knowledge-tree*.ts"
       - "backend/src/routes/knowledge-tree.ts"
+      - "backend/src/routes/mindmap-folders.ts"
       - "backend/src/routes/sync-v2.ts"
       - "backend/src/sync/knowledgeTree*.ts"
       - "backend/src/sync/entities.ts"
@@ -59,12 +66,17 @@ on:
       - "backend/src/middleware/knowledgeCapabilityGuard.ts"
       - "backend/src/index.hardened.ts"
       - "backend/tests/knowledge-tree*.test.ts"
+      - "backend/tests/mindmap-folder-route.test.ts"
       - "backend/tests/sync-v2-knowledge-tree*.test.ts"
       - "backend/tests/sync-v2-entity-readiness.test.ts"
       - "backend/tests/sync-v2-protocol.test.ts"
       - "backend/tests/lightweight-sheets.test.ts"
       - "backend/tests/lightweight-sheets-route.test.ts"
       - "frontend/src/components/KnowledgeTreeDrawer.tsx"
+      - "frontend/src/components/KnowledgeTreePanel.tsx"
+      - "frontend/src/components/MobileKnowledgeTreePanel.tsx"
+      - "frontend/src/components/MindMapEditor.tsx"
+      - "frontend/src/components/__tests__/MindMap*.test.ts"
       - "frontend/src/components/SheetEditor.tsx"
       - "frontend/src/lib/sheet*.ts"
       - "frontend/src/lib/__tests__/sheet*.test.ts"
@@ -103,7 +115,8 @@ jobs:
             tests/knowledge-tree.test.ts \
             tests/knowledge-tree-mindmap.test.ts \
             tests/knowledge-tree-mindmap-folders.test.ts \
-            tests/knowledge-tree-mindmap-lifecycle.test.ts 2>&1 | tee .ci/sqlite.log
+            tests/knowledge-tree-mindmap-lifecycle.test.ts \
+            tests/mindmap-folder-route.test.ts 2>&1 | tee .ci/sqlite.log
       - id: tree_sync
         name: Knowledge tree Sync V2 protocol tests
         continue-on-error: true
@@ -205,6 +218,7 @@ jobs:
           src/lib/__tests__/sharedKnowledgeTree.test.ts
           src/lib/__tests__/knowledgeTreeSort.test.ts
           src/components/__tests__/MindMapMoveNodes.test.ts
+          src/components/__tests__/MindMapUxGuards.test.ts
           src/components/__tests__/MindMapOutlineKeyboard.test.ts
           src/lib/__tests__/editorWorkspaceLayout.test.ts
           src/lib/__tests__/sheetModel.test.ts
