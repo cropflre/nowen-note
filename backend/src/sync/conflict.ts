@@ -3,7 +3,7 @@ import type Database from "better-sqlite3";
 import { SYNC_PERSONAL_SCOPE_KEY, SYNC_TABLES } from "./constants";
 import type {
   SyncConflictRow,
-  SyncEntityType,
+  SyncNegotiatedEntityType,
 } from "./types";
 
 /**
@@ -18,7 +18,7 @@ import type {
 export interface RecordConflictInput {
   profileId: string;
   scopeKey?: string;
-  entityType: SyncEntityType;
+  entityType: SyncNegotiatedEntityType;
   entityId: string;
   localVersion?: number | null;
   remoteVersion?: number | null;
@@ -100,7 +100,7 @@ export function listResolvedConflicts(
   scopeKey?: string,
   limit = 50,
   offset = 0,
-  entityType?: SyncEntityType,
+  entityType?: SyncNegotiatedEntityType,
 ): SyncConflictRow[] {
   const safeLimit = Math.max(1, Math.min(200, Math.trunc(limit) || 50));
   const safeOffset = Math.max(0, Math.trunc(offset) || 0);
@@ -132,7 +132,7 @@ export function countResolvedConflicts(
   db: Database.Database,
   profileId?: string,
   scopeKey?: string,
-  entityType?: SyncEntityType,
+  entityType?: SyncNegotiatedEntityType,
 ): number {
   const row = db.prepare(`
     SELECT COUNT(*) AS count FROM ${SYNC_TABLES.conflicts}

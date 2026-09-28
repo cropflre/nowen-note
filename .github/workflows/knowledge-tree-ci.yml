@@ -99,6 +99,7 @@ jobs:
             tests/sync-v2-knowledge-tree-snapshot.test.ts \
             tests/sync-v2-knowledge-tree-structure.test.ts \
             tests/sync-v2-knowledge-tree-apply-local.test.ts \
+            tests/sync-v2-knowledge-tree-conflict.test.ts \
             tests/sync-v2-protocol.test.ts 2>&1 | tee .ci/tree-sync.log
       - id: postgres
         name: PostgreSQL schema parity test

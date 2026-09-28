@@ -13,7 +13,7 @@ import {
   listUnresolvedConflicts,
   reopenConflict,
 } from "../sync/conflict";
-import { isSyncEntityType } from "../sync/types";
+import { isSyncEntityType, isSyncNegotiatedEntityType } from "../sync/types";
 import {
   applyConflictResolution,
   forkConflictVersion,
@@ -826,10 +826,12 @@ app.get("/conflicts/history", (c) => {
   const requestedLimit = Number(c.req.query("limit") || 50);
   const requestedOffset = Number(c.req.query("offset") || 0);
   const requestedEntityType = c.req.query("entityType") || undefined;
-  if (requestedEntityType && !isSyncEntityType(requestedEntityType)) {
+  if (requestedEntityType && !isSyncNegotiatedEntityType(requestedEntityType)) {
     return c.json({ error: "不支持的冲突实体类型", code: "INVALID_PAYLOAD" }, 400);
   }
-  const entityType = requestedEntityType && isSyncEntityType(requestedEntityType) ? requestedEntityType : undefined;
+  const entityType = requestedEntityType && isSyncNegotiatedEntityType(requestedEntityType)
+    ? requestedEntityType
+    : undefined;
   const limit = Math.max(1, Math.min(200, Math.trunc(requestedLimit) || 50));
   const offset = Math.max(0, Math.trunc(requestedOffset) || 0);
   const total = active

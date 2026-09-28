@@ -5,8 +5,9 @@ import { SyncError } from "./errors";
 import { getConflict, resolveConflict } from "./conflict";
 import { enqueueMutation } from "./outbox";
 import { applyRemoteChanges } from "./applyLocal";
+import { applyKnowledgeTreeChangesLocal } from "./knowledgeTreeApplyLocal";
 import { logSyncInfo } from "./log";
-import type { SyncConflictRow, SyncEntityType } from "./types";
+import type { SyncConflictRow, SyncNegotiatedEntityType } from "./types";
 
 /**
  * 冲突解决（Phase 5）。
@@ -39,7 +40,7 @@ export interface ResolveConflictInput {
 
 export interface ConflictDetail {
   id: string;
-  entityType: SyncEntityType;
+  entityType: SyncNegotiatedEntityType;
   entityId: string;
   localVersion: number | null;
   remoteVersion: number | null;
@@ -118,7 +119,7 @@ export function toConflictDetail(row: SyncConflictRow): ConflictDetail {
  */
 export function fillRemotePayload(
   db: Database.Database,
-  entityType: SyncEntityType,
+  entityType: SyncNegotiatedEntityType,
   entityId: string,
   remotePayload: Record<string, unknown>,
   remoteVersion?: number,
@@ -165,6 +166,58 @@ export function applyConflictResolution(
       WHERE profileId=? AND scopeKey=? AND entityType=? AND entityId=?
         AND status IN ('pending','inflight','failed')`)
       .run(row.profileId,row.scopeKey,row.entityType,row.entityId);
+
+    if (row.entityType === "knowledge_tree_node") {
+      const chosen = input.resolution === "keep-remote"
+        ? remote
+        : input.resolution === "manual"
+          ? input.mergedPayload ?? null
+          : local;
+      if (!chosen) {
+        throw new SyncError(
+          "INVALID_PAYLOAD",
+          input.resolution === "keep-remote"
+            ? "缺少服务器知识树结构"
+            : input.resolution === "manual"
+              ? "缺少合并后的知识树结构"
+              : "缺少本机知识树结构",
+        );
+      }
+
+      applyKnowledgeTreeChangesLocal(
+        db,
+        [{
+          entityId: row.entityId,
+          operation: "upsert",
+          payload: chosen,
+        }],
+        { userId: input.userId, workspaceId },
+      );
+
+      if (input.resolution !== "keep-remote") {
+        if (!remote) throw new SyncError("INVALID_PAYLOAD", "缺少服务器知识树基线");
+        enqueueMutation(db, {
+          entityType: "knowledge_tree_node",
+          entityId: row.entityId,
+          operation: "upsert",
+          deviceId: input.deviceId,
+          profileId: row.profileId,
+          scopeKey: row.scopeKey,
+          payload: {
+            ...chosen,
+            baseParentId: remote.parentId ?? null,
+            baseSortOrder: remote.sortOrder,
+            baseIsDeleted: remote.isDeleted,
+            baseDeletedAt: remote.deletedAt ?? null,
+          },
+          mutationId: randomUUID(),
+        });
+      }
+
+      resolveConflict(db, row.id);
+      return;
+    }
+
     if (input.resolution === "keep-remote") {
       // 采用服务端版本：写入本地并抑制 Outbox
       // （这是远端内容，不该被当成本地修改再推回去）。

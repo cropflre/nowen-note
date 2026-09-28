@@ -4,6 +4,7 @@ import { SYNC_PERSONAL_SCOPE_KEY, SYNC_TABLES } from "./constants";
 import { isOutboxSuppressed } from "./context";
 import type {
   SyncEntityType,
+  SyncNegotiatedEntityType,
   SyncOperation,
   SyncOutboxRow,
 } from "./types";
@@ -24,7 +25,7 @@ import type {
  */
 
 export interface EnqueueMutationInput {
-  entityType: SyncEntityType;
+  entityType: SyncNegotiatedEntityType;
   entityId: string;
   operation: SyncOperation;
   deviceId: string;

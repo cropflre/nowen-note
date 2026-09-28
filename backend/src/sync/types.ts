@@ -174,7 +174,7 @@ export interface SyncConflictRow {
   id: string;
   profileId: string;
   scopeKey: string;
-  entityType: SyncEntityType;
+  entityType: SyncNegotiatedEntityType;
   entityId: string;
   localVersion: number | null;
   remoteVersion: number | null;
