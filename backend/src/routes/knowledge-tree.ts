@@ -1,10 +1,10 @@
 import { Hono } from "hono";
 import bcrypt from "bcryptjs";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 
 import { getDb } from "../db/schema.js";
 import { MINDMAP_LEGACY_NOTEBOOK_PREFIX } from "../db/knowledgeTreeMindmapFolderMigration.js";
-import { isFeatureEnabled, resolveWorkspaceFeatures } from "../middleware/acl.js";
+import { getUserWorkspaceRole, hasRole, isFeatureEnabled, isSystemAdmin, resolveWorkspaceFeatures } from "../middleware/acl.js";
 import { broadcastNotesDeleted } from "../services/realtime.js";
 import { ensureKnowledgeTreePasswordTable } from "../db/knowledgeTreePasswordMigration.js";
 import { signFolderUnlockToken } from "../lib/knowledgeTreePasswordAccess.js";
@@ -117,6 +117,171 @@ app.get("/shared-with-me", (c) => {
         workspaceId: workspaceIdOf(c),
       }),
     });
+  } catch (error) {
+    return mapError(c, error);
+  }
+});
+
+function normalizeKnowledgeImportPath(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((segment) => typeof segment === "string"
+      ? segment
+        .replace(/[\u0000-\u001f\u007f<>:"/\\|?*]/g, " ")
+        .replace(/\s+/g, " ")
+        .replace(/^[\s.]+|[\s.]+$/g, "")
+        .slice(0, 120)
+        .trim()
+      : "")
+    .filter(Boolean)
+    .slice(0, 32);
+}
+
+function ensureKnowledgeImportNotebookPath(
+  actorUserId: string,
+  workspaceId: string | null,
+  segments: string[],
+): { notebookId: string | null; treeNodeId: string | null } {
+  const db = getDb();
+  let parentNotebookId: string | null = null;
+  let parentTreeNodeId: string | null = null;
+
+  for (const segment of segments) {
+    if (parentTreeNodeId) {
+      const access = resolveKnowledgeNodeAccess(parentTreeNodeId, actorUserId, db);
+      if (!hasKnowledgeCapability(access, "canCreate")) {
+        throw new KnowledgeTreeError(
+          "KNOWLEDGE_CAPABILITY_FORBIDDEN",
+          403,
+          "没有在目标目录创建文件的权限",
+          { required: "canCreate" },
+        );
+      }
+    }
+
+    const existing = (workspaceId
+      ? db.prepare(`
+          SELECT id FROM notebooks
+          WHERE workspaceId = ? AND parentId IS ? AND name = ? AND isDeleted = 0
+          ORDER BY createdAt, id LIMIT 1
+        `).get(workspaceId, parentNotebookId, segment)
+      : db.prepare(`
+          SELECT id FROM notebooks
+          WHERE userId = ? AND workspaceId IS NULL AND parentId IS ? AND name = ? AND isDeleted = 0
+          ORDER BY createdAt, id LIMIT 1
+        `).get(actorUserId, parentNotebookId, segment)
+    ) as { id: string } | undefined;
+
+    if (existing) {
+      parentNotebookId = existing.id;
+      parentTreeNodeId = `notebook:${existing.id}`;
+      continue;
+    }
+
+    const notebookId = randomUUID();
+    const order = Number((parentTreeNodeId
+      ? db.prepare("SELECT COALESCE(MAX(sortOrder), -1) AS value FROM knowledge_tree_nodes WHERE parentId = ? AND isDeleted = 0")
+          .get(parentTreeNodeId)
+      : db.prepare("SELECT COALESCE(MAX(sortOrder), -1) AS value FROM knowledge_tree_nodes WHERE scopeKey = ? AND parentId IS NULL AND isDeleted = 0")
+          .get(workspaceId ? `workspace:${workspaceId}` : `personal:${actorUserId}`)
+    )?.value ?? -1) + 1;
+
+    db.prepare(`
+      INSERT INTO notebooks (id, userId, workspaceId, parentId, name, icon, sortOrder)
+      VALUES (?, ?, ?, ?, ?, '📁', ?)
+    `).run(notebookId, actorUserId, workspaceId, parentNotebookId, segment, order);
+    parentNotebookId = notebookId;
+    parentTreeNodeId = `notebook:${notebookId}`;
+  }
+
+  return { notebookId: parentNotebookId, treeNodeId: parentTreeNodeId };
+}
+
+app.post("/files/link", async (c) => {
+  try {
+    const actorUserId = userIdOf(c);
+    if (!actorUserId) return c.json({ error: "未授权" }, 401);
+    const workspaceId = workspaceIdOf(c);
+    if (workspaceId
+      && !isSystemAdmin(actorUserId)
+      && !hasRole(getUserWorkspaceRole(workspaceId, actorUserId), "editor")) {
+      return c.json({ error: "没有在当前工作区导入文件的权限", code: "KNOWLEDGE_CAPABILITY_FORBIDDEN" }, 403);
+    }
+
+    const body = await c.req.json().catch(() => ({})) as {
+      fileId?: unknown;
+      notebookPath?: unknown;
+    };
+    const fileId = typeof body.fileId === "string" ? body.fileId.trim() : "";
+    if (!fileId) return c.json({ error: "fileId 必填", code: "KNOWLEDGE_FILE_ID_REQUIRED" }, 400);
+
+    const db = getDb();
+    const attachment = db.prepare(`
+      SELECT id, userId, workspaceId, filename
+      FROM attachments WHERE id = ?
+    `).get(fileId) as {
+      id: string;
+      userId: string;
+      workspaceId: string | null;
+      filename: string;
+    } | undefined;
+    if (!attachment
+      || (attachment.workspaceId || null) !== workspaceId
+      || (!workspaceId && attachment.userId !== actorUserId)) {
+      return c.json({ error: "文件不存在或不属于当前空间", code: "KNOWLEDGE_FILE_SCOPE_MISMATCH" }, 404);
+    }
+
+    const path = normalizeKnowledgeImportPath(body.notebookPath);
+    const target = ensureKnowledgeImportNotebookPath(actorUserId, workspaceId, path);
+    if (target.treeNodeId) {
+      const access = resolveKnowledgeNodeAccess(target.treeNodeId, actorUserId, db);
+      if (!hasKnowledgeCapability(access, "canCreate")) {
+        return c.json({ error: "没有在目标目录创建文件的权限", code: "KNOWLEDGE_CAPABILITY_FORBIDDEN" }, 403);
+      }
+    }
+
+    const scopeKey = workspaceId ? `workspace:${workspaceId}` : `personal:${actorUserId}`;
+    const existing = db.prepare(`
+      SELECT id, scopeKey FROM knowledge_tree_nodes
+      WHERE resourceType = 'file' AND resourceId = ?
+      LIMIT 1
+    `).get(fileId) as { id: string; scopeKey: string } | undefined;
+
+    let nodeId: string;
+    if (existing) {
+      if (existing.scopeKey !== scopeKey) {
+        return c.json({ error: "文件目录作用域不一致", code: "KNOWLEDGE_FILE_SCOPE_MISMATCH" }, 409);
+      }
+      nodeId = existing.id;
+      db.prepare(`
+        UPDATE knowledge_tree_nodes
+        SET parentId = ?, isDeleted = 0, deletedAt = NULL, updatedAt = datetime('now')
+        WHERE id = ?
+      `).run(target.treeNodeId, nodeId);
+    } else {
+      nodeId = `file:${fileId}`;
+      const sortOrder = Number((target.treeNodeId
+        ? db.prepare("SELECT COALESCE(MAX(sortOrder), -1) AS value FROM knowledge_tree_nodes WHERE parentId = ? AND isDeleted = 0")
+            .get(target.treeNodeId)
+        : db.prepare("SELECT COALESCE(MAX(sortOrder), -1) AS value FROM knowledge_tree_nodes WHERE scopeKey = ? AND parentId IS NULL AND isDeleted = 0")
+            .get(scopeKey)
+      )?.value ?? -1) + 1;
+      db.prepare(`
+        INSERT INTO knowledge_tree_nodes (
+          id, userId, workspaceId, scopeKey, parentId, nodeType, resourceType,
+          resourceId, sortOrder, isExpanded, isDeleted
+        ) VALUES (?, ?, ?, ?, ?, 'file', 'file', ?, ?, 1, 0)
+      `).run(nodeId, attachment.userId, workspaceId, scopeKey, target.treeNodeId, fileId, sortOrder);
+    }
+
+    const refreshed = listKnowledgeTree({ userId: actorUserId, workspaceId })
+      .find((node) => node.id === nodeId);
+    return c.json(refreshed || {
+      id: nodeId,
+      resourceType: "file",
+      resourceId: fileId,
+      title: attachment.filename,
+    }, existing ? 200 : 201);
   } catch (error) {
     return mapError(c, error);
   }
