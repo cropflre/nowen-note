@@ -213,7 +213,7 @@ function normalizeAttrs(
 ): Record<string, unknown> | null {
   if (!isRecord(raw) || raw.blockId !== expectedBlockId || !BLOCK_ID_RE.test(expectedBlockId)) return null;
   if (type === "paragraph") {
-    if (!hasOnlyKeys(raw, new Set(["blockId", "textAlign", "lineHeight", "indent"]))) return null;
+    if (!hasOnlyKeys(raw, new Set(["blockId", "textAlign", "lineHeight", "indent", "firstLineIndent"]))) return null;
   } else if (type === "heading") {
     if (!hasOnlyKeys(raw, new Set(["blockId", "level", "textAlign", "lineHeight"]))) return null;
     if (!Number.isInteger(raw.level) || Number(raw.level) < 1 || Number(raw.level) > 6) return null;
@@ -227,6 +227,7 @@ function normalizeAttrs(
   )) return null;
   if (!isValidLineHeight(raw.lineHeight)) return null;
   if (raw.indent != null && (!Number.isInteger(raw.indent) || Number(raw.indent) < 0 || Number(raw.indent) > 8)) return null;
+  if (raw.firstLineIndent != null && raw.firstLineIndent !== 0 && raw.firstLineIndent !== 2) return null;
   return { ...raw };
 }
 
@@ -365,13 +366,21 @@ function normalizeAtom(raw: Record<string, unknown>, expectedBlockId: string): T
 function normalizeTable(raw: Record<string, unknown>, expectedBlockId: string): TiptapPatchTableNode | null {
   if (!hasOnlyKeys(raw, NODE_KEYS)) return null;
   if (!isRecord(raw.attrs) || raw.attrs.blockId !== expectedBlockId || !BLOCK_ID_RE.test(expectedBlockId)) return null;
-  if (!hasOnlyKeys(raw.attrs, new Set(["blockId", "tableAligns", "colgroup"]))) return null;
+  if (!hasOnlyKeys(raw.attrs, new Set(["blockId", "tableAligns", "colgroup", "tableLayoutAlign", "tableWidthMode"]))) return null;
   if (raw.attrs.tableAligns != null && (
     !Array.isArray(raw.attrs.tableAligns)
     || raw.attrs.tableAligns.length > 128
     || raw.attrs.tableAligns.some((value) => value != null && (
       typeof value !== "string" || !["left", "center", "right"].includes(value)
     ))
+  )) return null;
+  if (raw.attrs.tableLayoutAlign != null && (
+    typeof raw.attrs.tableLayoutAlign !== "string"
+    || !["left", "center", "right"].includes(raw.attrs.tableLayoutAlign)
+  )) return null;
+  if (raw.attrs.tableWidthMode != null && (
+    typeof raw.attrs.tableWidthMode !== "string"
+    || !["auto", "full"].includes(raw.attrs.tableWidthMode)
   )) return null;
   const metadata = raw.attrs.colgroup === undefined ? undefined : normalizeMetadata(raw.attrs.colgroup);
   if (raw.attrs.colgroup !== undefined && metadata === undefined) return null;
