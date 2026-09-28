@@ -254,7 +254,7 @@ export interface KnowledgeStats {
 // ===== 搜索 =====
 export interface SearchResult {
   /** Unified search resource discriminator; omitted by older servers means note. */
-  resourceType?: "note" | "mindmap";
+  resourceType?: "note" | "mindmap" | "sheet";
   id: string;
   title: string;
   snippet: string;

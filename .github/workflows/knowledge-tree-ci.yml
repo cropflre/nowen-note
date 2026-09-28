@@ -30,6 +30,7 @@ on:
       - "backend/tests/sync-v2-entity-readiness.test.ts"
       - "backend/tests/sync-v2-protocol.test.ts"
       - "backend/tests/lightweight-sheets.test.ts"
+      - "backend/tests/lightweight-sheets-route.test.ts"
       - "frontend/src/components/KnowledgeTreeDrawer.tsx"
       - "frontend/src/components/SheetEditor.tsx"
       - "frontend/src/lib/sheet*.ts"
@@ -62,6 +63,7 @@ on:
       - "backend/tests/sync-v2-entity-readiness.test.ts"
       - "backend/tests/sync-v2-protocol.test.ts"
       - "backend/tests/lightweight-sheets.test.ts"
+      - "backend/tests/lightweight-sheets-route.test.ts"
       - "frontend/src/components/KnowledgeTreeDrawer.tsx"
       - "frontend/src/components/SheetEditor.tsx"
       - "frontend/src/lib/sheet*.ts"
@@ -119,7 +121,8 @@ jobs:
             tests/sync-v2-knowledge-tree-conflict.test.ts \
             tests/sync-v2-knowledge-tree-engine.test.ts \
             tests/sync-v2-protocol.test.ts \
-            tests/lightweight-sheets.test.ts 2>&1 | tee .ci/tree-sync.log
+            tests/lightweight-sheets.test.ts \
+            tests/lightweight-sheets-route.test.ts 2>&1 | tee .ci/tree-sync.log
       - id: postgres
         name: PostgreSQL schema parity test
         if: always()
