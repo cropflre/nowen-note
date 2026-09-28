@@ -11,6 +11,12 @@ on:
       - "frontend/src/components/FontSizeExtension.ts"
       - "frontend/src/components/extensions/RichTextLayoutExtensions.ts"
       - "frontend/src/index.css"
+      - "frontend/src/office/ir/document.ts"
+      - "frontend/src/office/serializers/tiptap-to-ir.ts"
+      - "frontend/src/office/serializers/docx-serializer.ts"
+      - "frontend/src/office/serializers/editorLayoutDocx.test.ts"
+      - "frontend/src/i18n/locales/zh-CN.json"
+      - "frontend/src/i18n/locales/en.json"
       - "frontend/src/lib/tiptapBlockPatchNode.ts"
       - "frontend/src/lib/__tests__/richTextLayoutExtensions.test.ts"
       - "frontend/src/lib/__tests__/tiptapBlockPatchLayoutAttrs.test.ts"
@@ -24,6 +30,12 @@ on:
       - "frontend/src/components/FontSizeExtension.ts"
       - "frontend/src/components/extensions/RichTextLayoutExtensions.ts"
       - "frontend/src/index.css"
+      - "frontend/src/office/ir/document.ts"
+      - "frontend/src/office/serializers/tiptap-to-ir.ts"
+      - "frontend/src/office/serializers/docx-serializer.ts"
+      - "frontend/src/office/serializers/editorLayoutDocx.test.ts"
+      - "frontend/src/i18n/locales/zh-CN.json"
+      - "frontend/src/i18n/locales/en.json"
       - "frontend/src/lib/tiptapBlockPatchNode.ts"
       - "frontend/src/lib/__tests__/richTextLayoutExtensions.test.ts"
       - "frontend/src/lib/__tests__/tiptapBlockPatchLayoutAttrs.test.ts"
@@ -56,6 +68,7 @@ jobs:
           src/lib/__tests__/richTextLayoutExtensions.test.ts
           src/lib/__tests__/tiptapBlockPatchLayoutAttrs.test.ts
           src/components/__tests__/EditorLayoutUxGuard.test.ts
+          src/office/serializers/editorLayoutDocx.test.ts
           src/lib/__tests__/tiptapSchemaRepair.test.ts
           src/lib/__tests__/tableFidelityExtensions.test.ts
       - name: Frontend typecheck
