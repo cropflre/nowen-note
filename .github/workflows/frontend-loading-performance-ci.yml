@@ -11,6 +11,13 @@ on:
       - "frontend/package-lock.json"
       - "frontend/vite.config.ts"
       - "frontend/src/main.tsx"
+      - "frontend/index.html"
+      - "frontend/src/lib/runtimePrelude.ts"
+      - "frontend/src/lib/runtimeCompatibility.ts"
+      - "frontend/src/lib/bootSplash.ts"
+      - "frontend/src/lib/__tests__/iosWebKitStartupContract.test.ts"
+      - "frontend/src/lib/__tests__/runtimePrelude.test.ts"
+      - "frontend/e2e/ios-webkit-cold-start.spec.ts"
       - "frontend/src/App.tsx"
       - "frontend/src/components/DeferredGlobalFeatureCenters.tsx"
       - "frontend/src/components/DeferredGlobalFeatureCentersMount.tsx"
@@ -36,6 +43,13 @@ on:
       - "frontend/package-lock.json"
       - "frontend/vite.config.ts"
       - "frontend/src/main.tsx"
+      - "frontend/index.html"
+      - "frontend/src/lib/runtimePrelude.ts"
+      - "frontend/src/lib/runtimeCompatibility.ts"
+      - "frontend/src/lib/bootSplash.ts"
+      - "frontend/src/lib/__tests__/iosWebKitStartupContract.test.ts"
+      - "frontend/src/lib/__tests__/runtimePrelude.test.ts"
+      - "frontend/e2e/ios-webkit-cold-start.spec.ts"
       - "frontend/src/App.tsx"
       - "frontend/src/components/DeferredGlobalFeatureCenters.tsx"
       - "frontend/src/components/DeferredGlobalFeatureCentersMount.tsx"
@@ -65,7 +79,7 @@ jobs:
   frontend:
     name: Build and bundle budget
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 35
     defaults:
       run:
         working-directory: frontend
@@ -78,8 +92,8 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
-      - name: Startup chunking contract
-        run: npm run test:run -- src/lib/__tests__/startupChunkingContract.test.ts
+      - name: Startup chunking and iOS WebKit contracts
+        run: npm run test:run -- src/lib/__tests__/startupChunkingContract.test.ts src/lib/__tests__/iosWebKitStartupContract.test.ts src/lib/__tests__/runtimePrelude.test.ts
       - name: Clipboard paste routing regression
         run: npm run test:run -- src/lib/__tests__/pasteRouting.test.ts src/lib/__tests__/pasteRoutingUserRegression.test.ts
       - name: Note text-first media regression
@@ -88,6 +102,21 @@ jobs:
         run: npm run build:web
       - name: Enforce initial bundle budgets
         run: npm run verify:bundle
+      - name: Install Playwright WebKit for cold-start smoke
+        run: |
+          npm install --no-save --no-package-lock @playwright/test@1.48.2
+          npx playwright install --with-deps webkit
+      - name: iPhone WebKit cold-start smoke
+        run: |
+          npm run preview -- --host 127.0.0.1 --port 4173 > /tmp/nowen-vite-preview.log 2>&1 &
+          PREVIEW_PID=$!
+          trap 'kill $PREVIEW_PID 2>/dev/null || true' EXIT
+          for i in {1..30}; do
+            if curl -fsS http://127.0.0.1:4173/ >/dev/null; then break; fi
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:4173/ >/dev/null
+          npx playwright test e2e/ios-webkit-cold-start.spec.ts --browser=webkit --reporter=line
       - name: Verify precompressed artifacts
         run: |
           node --input-type=module <<'NODE'

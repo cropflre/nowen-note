@@ -41,7 +41,11 @@
       .app-boot-title { font-size: 16px; font-weight: 700; }
       .app-boot-subtitle { font-size: 13px; color: #64748b; text-align: center; }
       .app-boot-spinner { width: 22px; height: 22px; margin-top: 4px; border: 2px solid rgba(37, 99, 235, 0.18); border-top-color: #2563eb; border-radius: 999px; animation: appBootSpin 0.8s linear infinite; }
-      .app-boot-reload { display: none; align-items: center; justify-content: center; margin-top: 8px; padding: 8px 14px; border: 0; border-radius: 999px; background: #2563eb; color: #ffffff; font: inherit; font-size: 13px; cursor: pointer; }
+      .app-boot-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 8px; }
+      .app-boot-reload, .app-boot-copy { display: none; align-items: center; justify-content: center; padding: 8px 14px; border-radius: 999px; font: inherit; font-size: 13px; cursor: pointer; }
+      .app-boot-reload { border: 0; background: #2563eb; color: #ffffff; }
+      .app-boot-copy { border: 1px solid rgba(100, 116, 139, 0.35); background: transparent; color: inherit; }
+      .app-boot-code { display: none; width: 100%; max-height: 108px; overflow: auto; margin: 2px 0 0; padding: 8px; border-radius: 8px; background: rgba(100, 116, 139, 0.10); box-sizing: border-box; color: #64748b; font: 11px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; word-break: break-word; text-align: left; }
 
       /* Issue #145 UI guard styles */
       .fixed.inset-0.z-\[10000\] > [role="dialog"][aria-modal="true"] { background: var(--color-bg, #fff) !important; -webkit-backdrop-filter: none !important; backdrop-filter: none !important; }
@@ -96,26 +100,180 @@
       @media (prefers-color-scheme: dark) { html, body { background: #0f172a; } .app-boot-splash { background: radial-gradient(circle at 50% 30%, rgba(99, 102, 241, 0.16), transparent 34%), #0f172a; color: #e5e7eb; } .app-boot-card { border-color: rgba(148, 163, 184, 0.22); background: rgba(15, 23, 42, 0.78); box-shadow: 0 24px 80px rgba(0, 0, 0, 0.28); } .app-boot-subtitle { color: #94a3b8; } }
     </style>
     <script>
-      // Fast starts should not flash a splash card. Reveal it only after 260ms, then let
-      // bootSplash.ts keep it visible for at least 600ms once the card has appeared.
-      window.__NOWEN_BOOT_REVEAL_TIMER__ = window.setTimeout(function () {
-        var splash = document.getElementById("app-boot-splash");
-        if (!splash) return;
-        window.__NOWEN_BOOT_VISIBLE_AT__ = Date.now();
-        splash.classList.add("app-boot-splash--visible");
-      }, 260);
+      (function () {
+        function safePathname(pathname) {
+          return String(pathname || "/")
+            .replace(/\/(public|share)\/[^/]+/gi, "/$1/<redacted>");
+        }
 
-      window.__NOWEN_BOOT_TIMER__ = window.setTimeout(function () {
-        var splash = document.getElementById("app-boot-splash");
-        var reload = document.getElementById("app-boot-reload");
-        var subtitle = document.querySelector(".app-boot-subtitle");
-        if (splash && !splash.classList.contains("app-boot-splash--visible")) {
+        function safeUrl(value) {
+          try {
+            var parsed = new URL(String(value), window.location.href);
+            return parsed.origin + safePathname(parsed.pathname);
+          } catch (e) {
+            return String(value || "").split("?")[0].split("#")[0];
+          }
+        }
+
+        function errorText(error) {
+          if (!error) return "unknown";
+          if (typeof error === "string") return error;
+          try {
+            return String(error.stack || error.message || error);
+          } catch (e) {
+            return "unserializable error";
+          }
+        }
+
+        var diagnostics = {
+          startedAt: new Date().toISOString(),
+          origin: window.location.origin || "",
+          pathname: safePathname(window.location.pathname),
+          userAgent: navigator.userAgent || "",
+          platform: navigator.platform || "",
+          secureContext: window.isSecureContext === true,
+          features: {
+            promiseFinally: typeof Promise !== "undefined" && typeof Promise.prototype.finally === "function",
+            arrayFindLast: typeof Array.prototype.findLast === "function",
+            queueMicrotask: typeof window.queueMicrotask === "function",
+            fetch: typeof window.fetch === "function",
+            mutationObserver: typeof window.MutationObserver === "function"
+          },
+          errors: []
+        };
+        window.__NOWEN_BOOT_DIAGNOSTICS__ = diagnostics;
+        window.__NOWEN_BOOT_READY__ = false;
+        window.__NOWEN_BOOT_FAILED__ = false;
+
+        function diagnosticText() {
+          try { return JSON.stringify(diagnostics, null, 2); }
+          catch (e) { return "Nowen Note boot diagnostics unavailable"; }
+        }
+
+        function fallbackCopy(text) {
+          try {
+            var area = document.createElement("textarea");
+            area.value = text;
+            area.setAttribute("readonly", "");
+            area.style.position = "fixed";
+            area.style.opacity = "0";
+            document.body.appendChild(area);
+            area.select();
+            document.execCommand("copy");
+            document.body.removeChild(area);
+            return true;
+          } catch (e) {
+            return false;
+          }
+        }
+
+        function copyDiagnostics() {
+          var text = diagnosticText();
+          var button = document.getElementById("app-boot-copy");
+          var done = function (ok) {
+            if (button) button.textContent = ok ? "诊断信息已复制" : "复制失败，请截图";
+          };
+          try {
+            if (navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
+              var result = navigator.clipboard.writeText(text);
+              if (result && typeof result.then === "function") {
+                result.then(function () { done(true); }, function () { done(fallbackCopy(text)); });
+                return;
+              }
+            }
+          } catch (e) {}
+          done(fallbackCopy(text));
+        }
+
+        function showBootFailure(code, error) {
+          if (window.__NOWEN_BOOT_READY__) return;
+          window.__NOWEN_BOOT_FAILED__ = true;
+          var render = function () {
+            var splash = document.getElementById("app-boot-splash");
+            if (!splash) return false;
+            var title = splash.querySelector(".app-boot-title");
+            var subtitle = splash.querySelector(".app-boot-subtitle");
+            var spinner = splash.querySelector(".app-boot-spinner");
+            var reload = document.getElementById("app-boot-reload");
+            var copy = document.getElementById("app-boot-copy");
+            var detail = document.getElementById("app-boot-code");
+            window.__NOWEN_BOOT_VISIBLE_AT__ = window.__NOWEN_BOOT_VISIBLE_AT__ || Date.now();
+            splash.classList.remove("app-boot-splash--leaving");
+            splash.classList.add("app-boot-splash--visible");
+            if (title) title.textContent = "应用启动失败";
+            if (subtitle) {
+              subtitle.textContent = code === "BOOT_TIMEOUT"
+                ? "应用未能在预期时间内完成启动。这可能是浏览器兼容性或启动阶段异常，并不等同于网络故障。"
+                : "检测到启动阶段异常。你可以重新加载，或复制诊断信息反馈给开发者。";
+            }
+            if (spinner) spinner.style.display = "none";
+            if (reload) {
+              reload.style.display = "inline-flex";
+              reload.onclick = function () { window.location.reload(); };
+            }
+            if (copy) {
+              copy.style.display = "inline-flex";
+              copy.onclick = copyDiagnostics;
+            }
+            if (detail) {
+              detail.style.display = "block";
+              detail.textContent = code + (error ? "\n" + errorText(error).slice(0, 600) : "");
+            }
+            return true;
+          };
+          if (!render()) {
+            window.addEventListener("DOMContentLoaded", render, { once: true });
+          }
+        }
+
+        window.__NOWEN_REPORT_BOOT_ERROR__ = function (source, error, fatal) {
+          diagnostics.errors.push({
+            at: new Date().toISOString(),
+            source: String(source || "unknown"),
+            message: errorText(error).slice(0, 1200)
+          });
+          if (fatal !== false) showBootFailure("BOOT_RUNTIME_ERROR", error);
+        };
+
+        window.__NOWEN_MARK_BOOT_READY__ = function () {
+          window.__NOWEN_BOOT_READY__ = true;
+          window.__NOWEN_BOOT_FAILED__ = false;
+        };
+
+        window.addEventListener("error", function (event) {
+          var target = event && event.target;
+          if (target && target.tagName === "SCRIPT") {
+            window.__NOWEN_REPORT_BOOT_ERROR__("script-resource:" + safeUrl(target.src), "JavaScript resource failed to load", true);
+            return;
+          }
+          if (event && (event.error || event.message)) {
+            window.__NOWEN_REPORT_BOOT_ERROR__("window.error:" + safeUrl(event.filename || ""), event.error || event.message, true);
+          }
+        }, true);
+
+        window.addEventListener("unhandledrejection", function (event) {
+          window.__NOWEN_REPORT_BOOT_ERROR__("unhandledrejection", event && event.reason, true);
+        });
+
+        // Fast starts should not flash a splash card. Reveal it only after 260ms, then let
+        // bootSplash.ts keep it visible for at least 600ms once the card has appeared.
+        window.__NOWEN_BOOT_REVEAL_TIMER__ = window.setTimeout(function () {
+          var splash = document.getElementById("app-boot-splash");
+          if (!splash) return;
           window.__NOWEN_BOOT_VISIBLE_AT__ = Date.now();
           splash.classList.add("app-boot-splash--visible");
-        }
-        if (subtitle) subtitle.textContent = "加载时间较长，请检查网络或刷新重试";
-        if (reload) { reload.style.display = "inline-flex"; reload.onclick = function () { window.location.reload(); }; }
-      }, 12000);
+        }, 260);
+
+        window.__NOWEN_BOOT_TIMER__ = window.setTimeout(function () {
+          if (window.__NOWEN_BOOT_READY__) return;
+          diagnostics.errors.push({
+            at: new Date().toISOString(),
+            source: "boot-timeout",
+            message: "Application did not become ready within 12 seconds"
+          });
+          showBootFailure("BOOT_TIMEOUT");
+        }, 12000);
+      })();
     </script>
   </head>
   <body>
@@ -125,7 +283,11 @@
         <div class="app-boot-title">nowen-note</div>
         <div class="app-boot-subtitle">正在恢复你的工作区…</div>
         <div class="app-boot-spinner" aria-hidden="true"></div>
-        <button id="app-boot-reload" class="app-boot-reload" type="button">刷新重试</button>
+        <div class="app-boot-actions">
+          <button id="app-boot-reload" class="app-boot-reload" type="button">刷新重试</button>
+          <button id="app-boot-copy" class="app-boot-copy" type="button">复制诊断信息</button>
+        </div>
+        <pre id="app-boot-code" class="app-boot-code" aria-live="off"></pre>
       </div>
     </div>
     <div id="root" style="height:100vh;width:100vw;overflow:hidden;"></div>
