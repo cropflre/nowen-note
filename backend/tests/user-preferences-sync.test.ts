@@ -196,6 +196,19 @@ test("syncs navigation visibility preferences and rejects unknown module ids", a
 });
 
 
+test("persists notification entry visibility per account and supports restoring it", async () => {
+  assert.deepEqual((await requestJson("GET")).json.hiddenNavigationModules, []);
+
+  const hidden = await requestJson("PUT", { hiddenNavigationModules: ["tasks", "notifications"] });
+  assert.equal(hidden.status, 200);
+  assert.deepEqual((await requestJson("GET")).json.hiddenNavigationModules, ["tasks", "notifications"]);
+  assert.deepEqual((await requestJson("GET", undefined, OTHER_ID)).json.hiddenNavigationModules, []);
+
+  const shown = await requestJson("PUT", { hiddenNavigationModules: ["tasks"] });
+  assert.equal(shown.status, 200);
+  assert.deepEqual((await requestJson("GET")).json.hiddenNavigationModules, ["tasks"]);
+});
+
 test("syncs journal lock-on-entry preference per account", async () => {
   const before = await requestJson("GET");
   assert.equal(before.json.journalLockOnEntry, false);

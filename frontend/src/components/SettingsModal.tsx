@@ -774,6 +774,7 @@ function SwitchesPanel() {
     { value: "split" as const, label: t("markdown.view.split") },
   ];
   const navigationVisibilityItems: Array<{ id: NavigationModuleId; label: string }> = [
+    { id: "notifications", label: t("sidebar.notifications") },
     { id: "favorites", label: t("sidebar.favorites") },
     { id: "files", label: t("sidebar.fileManager") },
     { id: "diary", label: t("sidebar.dailyRecords", { defaultValue: "每日记录" }) },

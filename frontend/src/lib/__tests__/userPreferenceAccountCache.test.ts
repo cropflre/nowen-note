@@ -169,11 +169,11 @@ describe("user preference account cache", () => {
     expect(DEFAULT_USER_PREFERENCES.hiddenTaskCenterModules).toEqual([]);
 
     const patch = sanitizeUserPreferencePatch({
-      hiddenNavigationModules: ["tasks", "diary", "tasks", "unknown-module"],
+      hiddenNavigationModules: ["tasks", "diary", "notifications", "tasks", "unknown-module"],
       hiddenTaskCenterModules: ["habits", "stats", "tasks"],
     });
 
-    expect(patch.hiddenNavigationModules).toEqual(["tasks", "diary"]);
+    expect(patch.hiddenNavigationModules).toEqual(["tasks", "diary", "notifications"]);
     expect(patch.hiddenTaskCenterModules).toEqual(["habits", "stats"]);
   });
 

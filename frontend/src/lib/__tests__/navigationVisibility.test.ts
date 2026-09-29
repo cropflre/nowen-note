@@ -14,6 +14,14 @@ describe("navigation visibility", () => {
     expect(isNavigationModuleVisible("trash", hidden)).toBe(true);
   });
 
+  it("shows notifications by default and supports hiding and restoring the entry", () => {
+    expect(isNavigationModuleVisible("notifications", [])).toBe(true);
+    const hidden = normalizeHiddenNavigationModules(["notifications", "notifications"]);
+    expect(hidden).toEqual(["notifications"]);
+    expect(isNavigationModuleVisible("notifications", hidden)).toBe(false);
+    expect(isNavigationModuleVisible("notifications", hidden.filter((id) => id !== "notifications"))).toBe(true);
+  });
+
   it("keeps core tasks available while optional task modules can be hidden", () => {
     const hidden = normalizeHiddenTaskCenterModules(["habits", "stats", "tasks"]);
     expect(hidden).toEqual(["habits", "stats"]);

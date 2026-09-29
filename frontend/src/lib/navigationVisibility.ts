@@ -1,4 +1,5 @@
 export const NAVIGATION_MODULE_IDS = [
+  "notifications",
   "favorites",
   "files",
   "diary",

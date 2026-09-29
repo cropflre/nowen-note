@@ -7,7 +7,7 @@ type ReadingDensity = "cozy" | "compact";
 type EditorFontSize = 0 | 14 | 16 | 18 | 20 | 22 | 24;
 type EditorMode = "md" | "tiptap";
 type FolderAutoLockMinutes = 0 | 5 | 15 | 30 | 60;
-type NavigationModuleId = "favorites" | "files" | "diary" | "tasks" | "mindmaps" | "ai-chat" | "shares";
+type NavigationModuleId = "notifications" | "favorites" | "files" | "diary" | "tasks" | "mindmaps" | "ai-chat" | "shares";
 type TaskCenterOptionalModuleId = "inbox" | "my-day" | "planner" | "habits" | "stats";
 type NoteTheme = "default" | "paper" | "minimal" | "eye-care";
 type CodeBlockTheme =
@@ -89,7 +89,7 @@ export const DEFAULT_SYNCED_USER_PREFERENCES: SyncedUserPreferences = {
 
 const PREFERENCE_KEYS = Object.keys(DEFAULT_SYNCED_USER_PREFERENCES) as PreferenceKey[];
 const PREFERENCE_KEY_SET = new Set<string>(PREFERENCE_KEYS);
-const NAVIGATION_MODULE_IDS = new Set<string>(["favorites", "files", "diary", "tasks", "mindmaps", "ai-chat", "shares"]);
+const NAVIGATION_MODULE_IDS = new Set<string>(["notifications", "favorites", "files", "diary", "tasks", "mindmaps", "ai-chat", "shares"]);
 const TASK_CENTER_OPTIONAL_MODULE_IDS = new Set<string>(["inbox", "my-day", "planner", "habits", "stats"]);
 const CODE_BLOCK_THEMES = new Set<CodeBlockTheme>([
   "github-dark",

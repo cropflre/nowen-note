@@ -16,9 +16,11 @@ import { useMobileRailHidden } from "@/hooks/useMobileRailHidden";
 import { useMobileSidebarControlsCollapsed } from "@/hooks/useMobileSidebarControlsCollapsed";
 import { useSidebarTextStyle } from "@/hooks/useSidebarTextStyle";
 import { useSiteSettings } from "@/hooks/useSiteSettings";
+import { useUserPreferences } from "@/hooks/useUserPreferences";
 import { api, getCurrentWorkspace } from "@/lib/api";
 import { openWorkspaceIssue, OPEN_NOTIFICATIONS_EVENT } from "@/lib/workspaceIssueNavigation";
 import { isMobileLocalMode } from "@/lib/mobileLocalMode";
+import { isNavigationModuleVisible } from "@/lib/navigationVisibility";
 import { refreshKnowledgeTreeScrollbars } from "@/lib/knowledgeTreeScrollbarBridge";
 import {
   DESKTOP_KNOWLEDGE_TREE_VIEW_MODE_CHANGED_EVENT,
@@ -89,11 +91,14 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
   const actions = useAppActions();
   const { t } = useTranslation();
   const { siteConfig } = useSiteSettings();
+  const { prefs: userPrefs } = useUserPreferences();
   const [railMode, setRailMode] = useRailMode();
   const [mobileControlsCollapsed, setMobileControlsCollapsed] = useMobileSidebarControlsCollapsed();
   const [sidebarTextStyle] = useSidebarTextStyle();
   const classicText = sidebarTextStyle === "classic";
   const [mobileRailHidden, setMobileRailHidden] = useMobileRailHidden();
+  const showNotifications = variant === "mobile" && mobileRailHidden
+    && isNavigationModuleVisible("notifications", userPrefs.hiddenNavigationModules);
   const rootRef = useRef<HTMLDivElement>(null);
   const tagLongPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const tagLongPressFired = useRef(false);
@@ -332,9 +337,9 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
         </div>
       </section>
 
-      {!isMobileLocalMode() && <div className="shrink-0 border-t border-app-border px-2 py-2">
+      {!isMobileLocalMode() && (getCurrentWorkspace() !== "personal" || showNotifications) && <div className="shrink-0 border-t border-app-border px-2 py-2">
         {getCurrentWorkspace() !== "personal" && <button className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-tx-secondary hover:bg-app-hover" onClick={() => { openWorkspaceIssue(null); actions.setViewMode("issues"); actions.setMobileSidebar(false); }}><CircleDot size={15} />{t("sidebar.issues")}</button>}
-        <button className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-tx-secondary hover:bg-app-hover" onClick={() => { actions.setMobileSidebar(false); window.dispatchEvent(new Event(OPEN_NOTIFICATIONS_EVENT)); }}><Bell size={15} />{t("sidebar.notifications")}</button>
+        {showNotifications && <button className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-tx-secondary hover:bg-app-hover" onClick={() => { actions.setMobileSidebar(false); window.dispatchEvent(new Event(OPEN_NOTIFICATIONS_EVENT)); }}><Bell size={15} />{t("sidebar.notifications")}</button>}
       </div>}
 
       <section className="shrink-0 border-t border-app-border">
