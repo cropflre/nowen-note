@@ -101,7 +101,6 @@ export default function NoteDeepLinkBridge() {
           if (getCurrentNoteAppRoute().noteId !== noteId) return;
 
           activeNoteRef.current = note;
-          pendingRouteNoteIdRef.current = null;
           actions.setActiveNote(note);
           actions.setSelectedNotebook(note.notebookId);
           actions.setViewMode("notebook");
@@ -137,11 +136,24 @@ export default function NoteDeepLinkBridge() {
   }, [actions, cancelNoteLoad, loadNote, prefs.enableNoteTabs]);
 
   useEffect(() => {
-    if (pendingRouteNoteIdRef.current) return;
     if (!NOTE_WORKSPACE_VIEWS.has(state.viewMode)) return;
 
     const pathname = resolveCurrentAppPathname();
     const currentRoute = parseNoteAppPath(pathname);
+    const pendingRouteNoteId = pendingRouteNoteIdRef.current;
+    if (pendingRouteNoteId) {
+      // Keep route ownership until the AppContext render actually reflects the routed note.
+      // Clearing this in onSuccess is too early: React may not have committed setActiveNote yet,
+      // causing the same effect pass to see activeNote=null and canonicalize back to "/".
+      if (
+        state.activeNote?.id === pendingRouteNoteId
+        && currentRoute.noteId === pendingRouteNoteId
+      ) {
+        pendingRouteNoteIdRef.current = null;
+      } else {
+        return;
+      }
+    }
 
     if (state.activeNote?.id) {
       if (currentRoute.noteId === state.activeNote.id) return;
