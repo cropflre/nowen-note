@@ -53,12 +53,10 @@ export default function NoteDeepLinkBridge() {
   const { loadNote, cancelNoteLoad } = useNoteLoader();
 
   const activeNoteRef = useRef(state.activeNote);
-  const viewModeRef = useRef(state.viewMode);
   const pendingRouteNoteIdRef = useRef<string | null>(null);
   const routeLoadSequenceRef = useRef(0);
 
   activeNoteRef.current = state.activeNote;
-  viewModeRef.current = state.viewMode;
 
   useEffect(() => {
     let disposed = false;
