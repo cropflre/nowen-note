@@ -69,6 +69,7 @@ import { syncV2KnowledgeTreeReadinessMigration } from "./syncV2KnowledgeTreeRead
 import { syncV2KnowledgeTreeConflictMigration } from "./syncV2KnowledgeTreeConflictMigration.js";
 import { syncV2KnowledgeTreeScopeReadinessMigration } from "./syncV2KnowledgeTreeScopeReadinessMigration.js";
 import { lightweightSheetsMigration } from "./lightweightSheetsMigration.js";
+import { attachmentMediaVariantsMigration } from "./attachmentMediaVariantsMigration.js";
 
 export type { Migration } from "./migrations.impl.js";
 
@@ -394,6 +395,7 @@ export const MIGRATIONS: Migration[] = [
   syncV2KnowledgeTreeConflictMigration,
   syncV2KnowledgeTreeScopeReadinessMigration,
   lightweightSheetsMigration,
+  attachmentMediaVariantsMigration,
 ].sort((a, b) => a.version - b.version);
 
 export const CURRENT_SCHEMA_VERSION: number = MIGRATIONS.reduce(

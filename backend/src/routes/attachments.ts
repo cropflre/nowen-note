@@ -398,6 +398,7 @@ export async function handleDownloadAttachment(c: Context): Promise<Response> {
   const metadataExists = Boolean(
     getDb().prepare("SELECT 1 AS ok FROM attachments WHERE id = ?").get(id),
   );
+  c.set("attachmentAllowDownload", signatureVerification?.allowDownload !== false && fileShareAccess?.allowDownload !== false);
 
   let delegated = false;
   const rangeResponse = await handleAttachmentMediaRange(c, async () => {

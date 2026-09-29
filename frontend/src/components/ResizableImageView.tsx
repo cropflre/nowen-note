@@ -7,6 +7,8 @@ import {
 } from "@/lib/imageNodeTransformBootstrap";
 import { useAttachmentImageRenderSource } from "@/hooks/useAttachmentImageRenderSource";
 import { useLazyNodeView } from "@/hooks/useLazyNodeView";
+import { MotionPhotoOverlay } from "./MotionPhotoOverlay";
+import { downloadAttachment } from "@/lib/downloadFile";
 
 /**
  * Tiptap Image 扩展的自定义 NodeView。
@@ -295,6 +297,7 @@ export function ResizableImageView(props: NodeViewProps) {
         </span>
       )}
 
+      {shouldRenderHeavyContent && !imgError && <MotionPhotoOverlay source={src || ""} />}
       {shouldRenderHeavyContent && imgError && (
         <span
           contentEditable={false}
@@ -315,7 +318,7 @@ export function ResizableImageView(props: NodeViewProps) {
         >
           图片加载失败
           <br />
-          <span style={{ fontSize: 10, opacity: 0.7 }}>{imageRender.resolvedSrc.slice(0, 80)}</span>
+          <button type="button" onClick={(event) => { event.stopPropagation(); void downloadAttachment(src || "", alt || "photo"); }} style={{ lineHeight: 1.5, textDecoration: "underline" }}>下载原件</button>
         </span>
       )}
 

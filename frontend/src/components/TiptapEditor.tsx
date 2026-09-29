@@ -61,7 +61,8 @@ import { findInternalMarkdownMarkerRanges } from "@/lib/markdownUserContent";
 import { shouldEmitTitleUpdate, shouldSkipTitleChange, shouldSyncTitleValue } from "@/lib/titleIme";
 import { resolveEditorLifecycleSave } from "@/lib/editorLifecycleSafety";
 import { api, resolveAttachmentUrl } from "@/lib/api";
-import { uploadAndInsertImage } from "@/lib/imageUploadService";
+import { uploadAndInsertImage, uploadPhotoSelection } from "@/lib/imageUploadService";
+import { resolvePhotoUploadMime } from "@/lib/photoUploadMime";
 import {
   isInlineImageAttachment,
   isInlineVideoAttachment,
@@ -2812,7 +2813,7 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
             let failed = false;
             for (const file of files) {
               try {
-                const isImage = file.type.startsWith("image/");
+                const isImage = (await resolvePhotoUploadMime(file)).startsWith("image/");
                 if (isImage) {
                   // 图片文件：优先走图床
                   await uploadAndInsertImage(
@@ -3756,11 +3757,11 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
     const imagePos = editor.state.selection.from;
     const input = document.createElement("input");
     input.type = "file";
-    input.accept = "image/*";
-    input.onchange = () => {
+    input.accept = "image/*,.heic,.heif";
+    input.onchange = async () => {
       const file = input.files?.[0];
       if (!file) return;
-      if (!file.type.startsWith("image/")) {
+      if (!(await resolvePhotoUploadMime(file)).startsWith("image/")) {
         toast.error(t("tiptap.imageFileInvalid", { defaultValue: "请选择图片文件" }));
         return;
       }
@@ -4676,9 +4677,26 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
     const releaseAnchor = () => releaseEditorInsertAnchor(insertAnchor);
     const input = document.createElement("input");
     input.type = "file";
-    input.accept = "image/*";
+    input.accept = "image/*,.heic,.heif,.mov";
+    input.multiple = true;
     input.addEventListener("cancel", releaseAnchor, { once: true });
     input.onchange = () => {
+      const files = Array.from(input.files || []);
+      if (files.length > 1 || files.some((item) => /\.mov$/i.test(item.name))) {
+        const noteId = noteRef.current?.id;
+        if (!noteId) { toast.error("请先创建笔记，再上传动态照片"); releaseAnchor(); return; }
+        toast.info(t("tiptap.imageUploading"));
+        void uploadPhotoSelection(noteId, files)
+          .then((photos) => {
+            if (restoreEditorInsertAnchor(insertAnchor)) {
+              editor.chain().focus().insertContent(photos.map((photo) => ({ type: "image", attrs: { src: photo.url, alt: photo.filename } }))).run();
+            }
+            toast.success(t("tiptap.imageUploadSuccess"));
+          })
+          .catch((error: unknown) => toast.error(error instanceof Error ? error.message : "照片上传失败"))
+          .finally(releaseAnchor);
+        return;
+      }
       const file = input.files?.[0];
       if (!file) {
         releaseAnchor();

@@ -7,6 +7,7 @@ const ATTACHMENT_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a
 const ACCESS_QUERY_KEYS = new Set(["exp", "sig", "scope"]);
 const accessUrls = new Map<string, string>();
 const offlineObjectUrls = new Map<string, string>();
+const nativeAttachmentUrls = new Map<string, { preview: string; original: string }>();
 const offlineObjectBlobMetadata = new Map<string, { size: number; type: string }>();
 const objectUrlAttachmentIds = new Map<string, string>();
 const offlineObjectUrlEntries = new Map<string, {
@@ -261,9 +262,11 @@ function forceRevokeAllOfflineObjectUrls(): void {
   offlineObjectBlobMetadata.clear();
   for (const entry of [...offlineObjectUrlEntries.values()]) revokeOfflineObjectUrlEntry(entry);
   objectUrlAttachmentIds.clear();
+  nativeAttachmentUrls.clear();
 }
 
 function resetAttachmentAccessForSessionChange(): void {
+  nativeAttachmentUrls.clear();
   const changed = accessUrls.size > 0 || offlineObjectUrls.size > 0 || !!attachmentApiOrigin;
   accessUrls.clear();
   attachmentApiOrigin = "";
@@ -283,6 +286,16 @@ export function getPersistentAttachmentUrl(value: string | null | undefined): st
   const mappedId = value ? objectUrlAttachmentIds.get(value) : undefined;
   const id = directId || mappedId;
   return id ? `/api/attachments/${id}` : null;
+}
+
+/** 原生文件 URI 只用于渲染；文档与派生请求仍使用稳定附件 ID。 */
+export function registerNativeAttachmentUrl(id: string, url: string, original = url): void {
+  if (!ATTACHMENT_ID_RE.test(id) || !url) return;
+  const changed = nativeAttachmentUrls.get(id)?.preview !== url;
+  nativeAttachmentUrls.set(id, { preview: url, original });
+  objectUrlAttachmentIds.set(url, id);
+  objectUrlAttachmentIds.set(original, id);
+  if (changed) notifyAttachmentAccessChanged();
 }
 
 /**
@@ -360,7 +373,10 @@ export function resolveAttachmentAccessUrl(raw: string): string {
   const persistent = getPersistentAttachmentUrl(raw);
   const id = persistent ? extractAttachmentId(persistent) : null;
   if (!id) return raw;
-  const offline = offlineObjectUrls.get(id);
+  const params = asAbsoluteUrl(raw)?.searchParams;
+  const native = nativeAttachmentUrls.get(id);
+  const offline = params?.has("variant") || params?.has("media") ? undefined : offlineObjectUrls.get(id)
+    || (params?.has("download") ? native?.original : native?.preview);
   if (offline) return offline;
   const signed = accessUrls.get(id);
   const stableSource = extractAttachmentId(raw) ? raw : persistent!;
@@ -393,7 +409,8 @@ export function getAttachmentRenderSource(raw: string | null | undefined): Attac
   const original = raw || "";
   const persistent = getPersistentAttachmentUrl(original) || original;
   const attachmentId = extractAttachmentId(persistent);
-  const offlineUrl = attachmentId ? offlineObjectUrls.get(attachmentId) : undefined;
+  const params = asAbsoluteUrl(original)?.searchParams;
+  const offlineUrl = attachmentId && !params?.has("variant") && !params?.has("media") ? offlineObjectUrls.get(attachmentId) : undefined;
   return {
     attachmentId,
     persistentSrc: persistent,
@@ -416,6 +433,7 @@ export function invalidateOfflineAttachmentRenderUrl(value: string): boolean {
 
 /** 测试隔离；生产代码无需调用。 */
 export function resetAttachmentAccessStateForTests(): void {
+  nativeAttachmentUrls.clear();
   const hadEntries = accessUrls.size > 0 || offlineObjectUrls.size > 0 || !!attachmentApiOrigin;
   accessUrls.clear();
   forceRevokeAllOfflineObjectUrls();

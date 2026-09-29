@@ -14,6 +14,8 @@ import {
 } from "@/lib/markdownPreviewOutline";
 import { preprocessMarkdownVideos } from "@/lib/markdownVideoSyntax";
 import { MarkdownVideoPreview } from "@/components/MarkdownVideoPreview";
+import { MotionPhotoOverlay } from "@/components/MotionPhotoOverlay";
+import { downloadAttachment } from "@/lib/downloadFile";
 import FullscreenImageViewer, { type FullscreenImageItem } from "@/components/FullscreenImageViewer";
 import { MarkdownCodeBlock, isMarkdownBlockCode } from "@/components/MarkdownCodeBlock";
 import { MathView } from "@/components/MathView";
@@ -231,16 +233,17 @@ function PreviewImage({ src, alt }: { src?: string; alt?: string }) {
 
   if (!src) return null;
   if (failedSrc === resolvedSrc) {
-    return <span className="inline-flex items-center gap-1 rounded-lg bg-app-hover px-3 py-2 text-xs text-tx-tertiary">⚠ {t("markdown.preview.imageLoadFailed")}</span>;
+    return <span className="inline-flex items-center gap-2 rounded-lg bg-app-hover px-3 py-2 text-xs text-tx-tertiary">⚠ {t("markdown.preview.imageLoadFailed")} <button type="button" className="underline" onClick={() => { void downloadAttachment(src, alt || "photo"); }}>下载原件</button></span>;
   }
   return (
     <>
+      <span className="relative my-4 inline-block max-w-full">
       <img
         key={resolvedSrc}
         src={resolvedSrc}
         alt={alt || ""}
         loading="lazy"
-        className="my-4 block max-h-[520px] max-w-full cursor-pointer rounded-xl border border-app-border object-contain shadow-sm transition-opacity hover:opacity-90"
+        className="block max-h-[520px] max-w-full cursor-pointer rounded-xl border border-app-border object-contain shadow-sm transition-opacity hover:opacity-90"
         onClick={(event) => openViewer(event.currentTarget)}
         onLoad={() => setFailedSrc((current) => current === resolvedSrc ? null : current)}
         onError={() => {
@@ -251,6 +254,8 @@ function PreviewImage({ src, alt }: { src?: string; alt?: string }) {
           setFailedSrc(resolvedSrc);
         }}
       />
+      <MotionPhotoOverlay source={src} />
+      </span>
       <FullscreenImageViewer
         open={!!viewer}
         images={viewer?.images}

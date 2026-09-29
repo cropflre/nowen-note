@@ -61,6 +61,8 @@ import {
 } from "../middleware/acl";
 import { createUserAttachmentAccessUrls } from "../lib/attachment-signed-url";
 import { isHeifMime, resolveHeifUploadMime } from "../lib/heif-mime";
+import { analyzeModernMedia } from "../lib/modern-media";
+import { recordMediaAnalysis } from "../services/modern-media";
 import {
   isManualFileManagerUpload,
   resolveFileAttachmentAccess,
@@ -1218,7 +1220,7 @@ app.post("/upload", requireWorkspaceFeature("files"), async (c) => {
     );
   }
 
-  mime = resolveHeifUploadMime(buffer, mime);
+  mime = analyzeModernMedia(buffer, resolveHeifUploadMime(buffer, mime)).mimeType;
   const ext = pickExt(file.name, mime);
   const monthPath = getUploadMonthPath();
   const storagePath = `${monthPath}/${id}.${ext}`;
@@ -1250,7 +1252,7 @@ app.post("/upload", requireWorkspaceFeature("files"), async (c) => {
     ) as { id: string; noteId: string; mimeType: string; size: number; filename: string } | undefined;
 
   if (dedupRow) {
-    if (isHeifMime(mime) && dedupRow.mimeType !== mime) {
+    if ((isHeifMime(mime) || mime === "image/jpeg" || mime.startsWith("video/")) && dedupRow.mimeType !== mime) {
       db.prepare("UPDATE attachments SET mimeType = ? WHERE id = ?").run(mime, dedupRow.id);
       dedupRow.mimeType = mime;
     }
@@ -1272,6 +1274,7 @@ app.post("/upload", requireWorkspaceFeature("files"), async (c) => {
       ).run(folderId, dedupRow.id, folderId);
     }
 
+    recordMediaAnalysis(dedupRow.id, buffer, dedupRow.mimeType);
     return c.json(
       {
         id: dedupRow.id,
@@ -1323,6 +1326,7 @@ app.post("/upload", requireWorkspaceFeature("files"), async (c) => {
     );
   }
 
+  recordMediaAnalysis(id, buffer, mime);
   return c.json(
     {
       id,

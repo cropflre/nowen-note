@@ -20,6 +20,7 @@
 import { Hono } from "hono";
 import crypto from "node:crypto";
 import path from "node:path";
+import { recordMediaAnalysis } from "../services/modern-media";
 
 import { getDb } from "../db/schema";
 import { isLocalFirstSyncV2Enabled } from "../sync/flag";
@@ -238,6 +239,8 @@ app.put("/:attachmentId", async (c) => {
        SET path = ?, size = ?, hash = COALESCE(hash, ?)
      WHERE id = ?
   `).run(relPath, buffer.length, actualHash, attachmentId);
+  const analysis = recordMediaAnalysis(attachmentId, buffer, row!.mimeType);
+  if (analysis.mimeType !== row!.mimeType) getDb().prepare("UPDATE attachments SET mimeType = ? WHERE id = ?").run(analysis.mimeType, attachmentId);
 
   logSyncInfo("blob.uploaded", { entityId: attachmentId });
   return c.json({ attachmentId, size: buffer.length, hash: actualHash, stored: true });

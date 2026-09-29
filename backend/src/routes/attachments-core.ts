@@ -79,6 +79,9 @@ import {
 import { computeAttachmentEtag, requestMatchesEtag } from "../lib/attachment-etag";
 import { isHeifMime, resolveHeifUploadMime, sniffHeifMime } from "../lib/heif-mime";
 import { getOrCreateHeifPreview } from "../services/heif-preview";
+import { analyzeModernMedia } from "../lib/modern-media";
+import { getOrCreateMotionPreview, inspectPhotoMedia, recordHeifVariant, recordMediaAnalysis } from "../services/modern-media";
+import { parseSingleHttpRange } from "../lib/http-range";
 
 const ATTACHMENTS_DIR = getStorageAttachmentsDir();
 
@@ -476,6 +479,52 @@ export async function handleDownloadAttachment(
     if (heifSource === undefined) heifSource = await readObject(row.path);
     return heifSource;
   };
+  const mediaVariant = c.req.query("variant");
+  if ((c.req.query("media") === "info" || mediaVariant === "motion" || mediaVariant === "motion-original") && (!forceDownload || mediaVariant === "motion-original")) {
+    try {
+      const media = await inspectPhotoMedia(row.id, readHeifSource);
+      if (c.req.query("media") === "info") {
+        c.header("Cache-Control", "private, no-store");
+        return c.json({
+          kind: media.analysis.kind,
+          mimeType: media.analysis.mimeType,
+          hasMotion: Boolean(media.analysis.motion || media.companion),
+          motionStatus: media.analysis.motion || media.companion ? "available"
+            : media.analysis.kind === "live-photo" ? "missing-companion" : "none",
+          hasMotionOriginal: Boolean(media.companion),
+          canDownloadOriginal: c.get("attachmentAllowDownload") !== false,
+          ...(!sig && userId && !c.req.query("share") ? { accessUrls: createUserAttachmentAccessUrls(userId, [{ id: row.id, noteId: row.noteId }]) } : {}),
+        });
+      }
+      if (mediaVariant === "motion-original") {
+        // 配对原视频的下载仍受照片凭证及 wrapper 的下载权限约束。
+        if (!forceDownload) return c.json({ error: "下载动态原件需要 download=1" }, 400);
+        if (!media.companion) return c.json({ error: "没有配对的动态原件" }, 404);
+        const original = await readObject(media.companion.path);
+        if (!original) return c.json({ error: "attachment file missing" }, 404);
+        return c.body(toResponseBody(original), 200, {
+          "Content-Type": media.companion.mimeType,
+          "Content-Disposition": encodeContentDispositionFilename(media.companion.filename),
+        });
+      }
+      if (!media.analysis.motion && !media.companion) return c.json({ error: "照片没有可播放的动态内容", code: "MOTION_NOT_AVAILABLE" }, 404);
+      const preview = await getOrCreateMotionPreview(row.id, readHeifSource);
+      const etag = `"motion-v1-${crypto.createHash("sha256").update(preview).digest("hex")}"`;
+      const headers = { "Content-Type": "video/mp4", "Accept-Ranges": "bytes", ETag: etag };
+      const rangeHeader = c.req.header("Range");
+      const ifRange = c.req.header("If-Range");
+      const range = !ifRange || ifRange === etag ? parseSingleHttpRange(rangeHeader, preview.length) : null;
+      if (range && !range.ok) return c.body(null, 416, { ...headers, "Content-Range": `bytes */${preview.length}` });
+      if (requestMatchesEtag(new Headers(c.req.raw.headers), etag)) return c.body(null, 304, headers);
+      if (range?.ok) return c.body(toResponseBody(preview.subarray(range.start, range.end + 1)), 206, {
+        ...headers, "Content-Length": String(range.length), "Content-Range": `bytes ${range.start}-${range.end}/${preview.length}`,
+      });
+      return c.body(toResponseBody(preview), 200, { ...headers, "Content-Length": String(preview.length) });
+    } catch (error) {
+      console.warn(`[modern-media] 读取派生媒体失败 attachment=${row.id}:`, error);
+      return c.json({ error: "动态内容暂时无法播放，仍可查看照片或下载原件", code: "MEDIA_PREVIEW_FAILED" }, 422);
+    }
+  }
   if (!isHeifMime(row.mimeType) && (
     !row.mimeType || row.mimeType === "application/octet-stream"
     || /\.hei[cf]$/i.test(row.filename) || /\.hei[cf]$/i.test(row.path)
@@ -494,6 +543,7 @@ export async function handleDownloadAttachment(
     }
     try {
       const preview = await getOrCreateHeifPreview(ATTACHMENTS_DIR, row.id, readHeifSource);
+      recordHeifVariant(row.id);
       const thumb = requestedWidth
         ? await createThumbnailFromBuffer(ATTACHMENTS_DIR, row.id, preview, "image/webp", requestedWidth)
         : null;
@@ -679,7 +729,7 @@ app.post("/", async (c) => {
   } catch (err: any) {
     return c.json({ error: `读取上传内容失败: ${err?.message || err}` }, 500);
   }
-  mime = resolveHeifUploadMime(buffer, mime);
+  mime = analyzeModernMedia(buffer, resolveHeifUploadMime(buffer, mime)).mimeType;
   const ext = pickExt(file.name, mime);
   const monthPath = getUploadMonthPath();
   const storagePath = `${monthPath}/${id}.${ext}`;
@@ -707,8 +757,8 @@ app.post("/", async (c) => {
     ) as ExistingAttachmentForDedup | undefined;
 
   if (dedupRow) {
-    // 旧附件可能尚未识别 HEIF，新元数据按本次上传的真实字节分类。
-    if (isHeifMime(mime)) dedupRow.mimeType = mime;
+    // 旧附件可能只有通用 MIME，去重新记录按本次上传的真实媒体字节分类。
+    if (isHeifMime(mime) || mime === "image/jpeg" || mime === "image/png" || mime.startsWith("video/")) dedupRow.mimeType = mime;
     let clone: DeduplicatedAttachmentRow;
     try {
       clone = createDeduplicatedAttachmentRow({
@@ -739,6 +789,8 @@ app.post("/", async (c) => {
       workspaceId: noteWorkspaceId,
       noteId,
     });
+
+    recordMediaAnalysis(clone.id, buffer, clone.mimeType);
 
     return c.json(
       {
@@ -824,6 +876,8 @@ app.post("/", async (c) => {
     workspaceId: noteWorkspaceId,
     noteId,
   });
+
+  recordMediaAnalysis(id, buffer, mime);
 
   return c.json(
     {
@@ -1179,6 +1233,11 @@ export function scanOrphanAttachments(graceHours = 24): OrphanScanResult {
     if (n.content) sources.push(n.content);
   }
   const haystack = sources.join("\n");
+  const companionReferences = db.prepare(`SELECT sourceAttachmentId, variantAttachmentId FROM attachment_media_variants
+    WHERE kind = 'original-motion' AND variantAttachmentId IS NOT NULL`).all() as Array<{ sourceAttachmentId: string; variantAttachmentId: string }>;
+  const protectedCompanions = new Set(companionReferences
+    .filter((relation) => haystack.includes(`/api/attachments/${relation.sourceAttachmentId}`))
+    .map((relation) => relation.variantAttachmentId));
 
   const cutoff = Date.now() - graceHours * 3600 * 1000;
   const contentOrphans: OrphanScanResult["contentOrphans"] = [];
@@ -1188,6 +1247,7 @@ export function scanOrphanAttachments(graceHours = 24): OrphanScanResult {
     if (Number.isFinite(created) && created > cutoff) continue;
     // 引用判定：搜 `/api/attachments/<id>`（uuid 不会与其他随机字符串混淆）
     if (haystack.indexOf(`/api/attachments/${r.id}`) >= 0) continue;
+    if (protectedCompanions.has(r.id)) continue;
     contentOrphans.push({
       id: r.id,
       filename: r.path,

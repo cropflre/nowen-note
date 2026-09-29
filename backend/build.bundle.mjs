@@ -41,6 +41,7 @@ const external = [
   "unpdf",
   // HEIF 工作线程按真实路径加载 WASM；sharp 保留原生运行时依赖。
   "libheif-js",
+  "ffmpeg-static",
   "sharp",
   // unzipper 的 S3_v3 辅助函数里有可选 AWS SDK require；思源导入只用本地文件。
   "@aws-sdk/client-s3",

@@ -12,6 +12,8 @@ import rehypeRaw from "rehype-raw";
 import rehypeSanitize from "rehype-sanitize";
 import { sanitizeForShare, sanitizeSvg } from "@/lib/sanitizeHtml";
 import TiptapEditor from "@/components/TiptapEditor";
+import { MotionPhotoOverlay, SharedPhotoMotionBridge } from "@/components/MotionPhotoOverlay";
+import { AttachmentPhotoPreview } from "@/components/attachmentPreview/AttachmentPreview";
 import type { NoteEditorUpdatePayload } from "@/components/editors/types";
 import { detectFormat } from "@/lib/contentFormat";
 import MermaidView from "@/components/MermaidView";
@@ -1299,7 +1301,13 @@ export default function SharedNoteView({ shareToken }: SharedNoteViewProps) {
                       : typeof rawW === "string" && /^\d+(?:\.\d+)?$/.test(rawW.trim())
                         ? Math.round(Number(rawW))
                         : null;
+                    if (/\/(?:api|publicapi)\/attachments\//.test(String(src || ""))) {
+                      return <span className="inline-block max-w-full" style={{ width: w ? `${w}px` : undefined }}>
+                        <AttachmentPhotoPreview url={String(src)} filename={String(alt || "照片")} imgMaxHeightClass="max-h-none" />
+                      </span>;
+                    }
                     return (
+                      <span className="relative inline-block max-w-full">
                       <img
                         {...imgProps}
                         src={resolvedSrc}
@@ -1316,6 +1324,8 @@ export default function SharedNoteView({ shareToken }: SharedNoteViewProps) {
                           margin: "0.25rem 0.375rem",
                         }}
                       />
+                      <MotionPhotoOverlay source={String(src || "")} />
+                      </span>
                     );
                   },
                 }}
@@ -1329,6 +1339,7 @@ export default function SharedNoteView({ shareToken }: SharedNoteViewProps) {
               </ReactMarkdown>
             </div>
           ) : (
+            <>
             <div
               ref={pmRenderRef}
               className="shared-note-content prose prose-sm dark:prose-invert max-w-none
@@ -1341,6 +1352,8 @@ export default function SharedNoteView({ shareToken }: SharedNoteViewProps) {
               // SEC-XSS-01-C: sanitizeForShare 防止 stored XSS（H1 修复）
               dangerouslySetInnerHTML={{ __html: sanitizeForShare(renderContent(content.content)) }}
             />
+            <SharedPhotoMotionBridge rootRef={pmRenderRef} revision={content.content} />
+            </>
           )}
         </section>
 

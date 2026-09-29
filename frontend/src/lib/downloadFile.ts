@@ -1,4 +1,4 @@
-import { resolveAttachmentAccessUrl } from "@/lib/noteAttachmentAccessBridge";
+import { extractAttachmentId, getPersistentAttachmentUrl, resolveAttachmentAccessUrl } from "@/lib/noteAttachmentAccessBridge";
 import {
   normalizePublicWebOrigin,
   resolvePublicWebOrigin,
@@ -42,7 +42,9 @@ function isMobileDevice(): boolean {
  * 可避免源 API 与公开地址都带反代前缀时出现 `/prefix/prefix/api/...` 重复。
  */
 export function resolveAttachmentDownloadUrl(url: string, publicOrigin = ""): string {
-  const resolved = resolveAttachmentAccessUrl(url);
+  // 先声明下载意图，原生 HEIF 的 JPEG 封面才不会替代原件。
+  const persistent = getPersistentAttachmentUrl(url);
+  const resolved = resolveAttachmentAccessUrl(persistent ? withDownloadFlag(extractAttachmentId(url) ? url : persistent) : url);
 
   // 离线附件可能已经是 blob URL；它不经过后端，也不能追加 download 查询参数。
   if (/^(?:blob:|data:)/i.test(resolved)) return resolved;

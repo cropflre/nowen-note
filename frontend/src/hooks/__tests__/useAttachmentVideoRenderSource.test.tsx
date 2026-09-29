@@ -58,7 +58,7 @@ const PERSISTED_SRC = "/api/attachments/123e4567-e89b-42d3-a456-426614174216";
 
 function Probe() {
   const source = useAttachmentVideoRenderSource(PERSISTED_SRC);
-  return <video data-testid="video" data-render-key={source.renderKey} src={source.renderSrc} />;
+  return <video data-testid="video" data-render-key={source.renderKey} data-error={source.error?.message || ""} src={source.renderSrc} />;
 }
 
 let host: HTMLDivElement;
@@ -128,6 +128,16 @@ describe("useAttachmentVideoRenderSource", () => {
     });
     expect(host.querySelector("video")?.getAttribute("src"))
       .toBe("local:file:///data/user/0/com.nowen.note/cache/attachment-video/video.mp4");
+  });
+
+  it("原生动态缓存失败时暴露错误，照片可返回静态封面", async () => {
+    fixture.platform = "android";
+    fixture.signedUrl = `http://192.168.1.171:3001${PERSISTED_SRC}?exp=123&sig=signed&scope=user&variant=motion`;
+    fixture.prepareNative.mockRejectedValueOnce(new Error("动态缓存失败"));
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    await act(async () => root.render(<Probe />));
+    expect(host.querySelector("video")?.getAttribute("src")).toBe("");
+    expect(host.querySelector("video")?.getAttribute("data-error")).toBe("动态缓存失败");
   });
 
   it("switches to a late signed URL without downloading the whole video as a blob", async () => {

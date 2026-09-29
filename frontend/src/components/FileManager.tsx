@@ -75,6 +75,7 @@ import {
   type ImageHostFormat,
 } from "@/lib/imageHostFormats";
 import AttachmentDetailDrawer from "@/components/attachmentDetail/AttachmentDetailDrawer";
+import { MotionPhotoOverlay } from "@/components/MotionPhotoOverlay";
 import FileUploadDialog from "@/components/FileUploadDialog";
 
 // ---------------------------------------------------------------------------
@@ -1832,7 +1833,7 @@ const GridCard = React.memo(function GridCard({
       onClick={handleCardClick}
       title={item.filename}
     >
-      <div className="aspect-square w-full bg-app-bg flex items-center justify-center overflow-hidden">
+      <div className="relative aspect-square w-full bg-app-bg flex items-center justify-center overflow-hidden">
         {isImage ? (
           <img
             src={thumbSrc}
@@ -1860,6 +1861,7 @@ const GridCard = React.memo(function GridCard({
             }}
           />
         ) : null}
+        {isImage && <MotionPhotoOverlay source={item.url} />}
         {!isImage && (
           <div className="w-full h-full flex flex-col items-center justify-center text-tx-tertiary">
             <div className="text-accent-primary/70 mb-1">{mimeIcon(item.mimeType)}</div>

@@ -1,4 +1,5 @@
-import { Capacitor } from "@capacitor/core";
+import { Capacitor, registerPlugin } from "@capacitor/core";
+import { registerNativeAttachmentUrl } from "./noteAttachmentAccessBridge";
 import {
   Directory,
   Filesystem,
@@ -7,6 +8,7 @@ import {
 } from "@capacitor/filesystem";
 
 export type NativeAttachmentData = Blob | ArrayBuffer | Uint8Array;
+const AttachmentMedia = registerPlugin<{ preparePhoto(options: { attachmentId: string; uri: string }): Promise<{ uri: string }> }>("AttachmentMedia");
 
 export interface NativeAttachmentSaveInput {
   attachmentId: string;
@@ -775,7 +777,14 @@ class NativeAttachmentStoreImpl implements NativeAttachmentStore {
       const fileStat = await statOrNull(path);
       if (!fileStat || fileStat.type !== "file") return null;
       const { uri } = await Filesystem.getUri({ path, directory: Directory.Data });
-      return Capacitor.convertFileSrc(uri);
+      let renderUri = uri;
+      if (Capacitor.getPlatform() === "android") {
+        try { renderUri = (await AttachmentMedia.preparePhoto({ attachmentId: id, uri })).uri || uri; }
+        catch { /* 原生解码不可用时保留原件地址，由图片预览展示下载降级。 */ }
+      }
+      const url = Capacitor.convertFileSrc(renderUri);
+      registerNativeAttachmentUrl(id, url, Capacitor.convertFileSrc(uri));
+      return url;
     });
   }
 

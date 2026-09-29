@@ -64,6 +64,11 @@ async function authorizeMediaRange(c: Context, row: MediaAttachmentRow): Promise
  * whole file again.
  */
 export async function handleAttachmentMediaRange(c: Context, next: Next): Promise<Response | void> {
+  // 派生资源由源照片 handler 授权并提供 Range，不能被原件的视频分支截走。
+  if (c.req.query("variant") || c.req.query("media")) {
+    await next();
+    return;
+  }
   const id = c.req.param("id");
   const db = getDb();
   const row = db

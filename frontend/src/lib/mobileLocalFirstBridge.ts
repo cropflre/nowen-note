@@ -9,6 +9,7 @@ import { installMobileLocalAdvancedTaskBridge } from "./mobileLocalAdvancedTaskB
 import { installMobileLocalAttachmentFolderBridge } from "./mobileLocalAttachmentFolderBridge";
 import { installMobileLocalNoteRelationsBridge } from "./mobileLocalNoteRelationsBridge";
 import type { NativeDatabase } from "./nativeDatabase";
+import { resolvePhotoUploadMime } from "./photoUploadMime";
 
 let installed = false;
 
@@ -225,7 +226,7 @@ export function installMobileLocalFirstBridge(
       id,
       noteId,
       filename: file.name,
-      mimeType: file.type || "application/octet-stream",
+      mimeType: await resolvePhotoUploadMime(file),
       blob: file,
     });
     const url = await repository.attachments.resolveUrl(id);

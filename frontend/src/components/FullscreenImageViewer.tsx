@@ -22,6 +22,7 @@ import { downloadAttachment } from "@/lib/downloadFile";
 import { toast } from "@/lib/toast";
 import { normalizeImageFlipX, normalizeImageRotation } from "@/lib/imageNodeTransformBootstrap";
 import { useAttachmentImageRenderSource } from "@/hooks/useAttachmentImageRenderSource";
+import { MotionPhotoOverlay } from "./MotionPhotoOverlay";
 
 const MIN_SCALE = 1;
 const MAX_SCALE = 5;
@@ -561,6 +562,7 @@ export default function FullscreenImageViewer({
         onPointerCancel={(event) => finishPointer(event, true)}
         onWheel={handleWheel}
       >
+        <span className="relative inline-block leading-none" style={{ transform: `translate3d(${position.x}px, ${position.y}px, 0) scale(${scale}) rotate(${rotation}deg)${baseFlipX ? " scaleX(-1)" : ""}`, transformOrigin: "center center" }}>
         <img
           key={imageRender.renderKey}
           ref={imageRef}
@@ -572,7 +574,6 @@ export default function FullscreenImageViewer({
           style={{
             maxWidth: rotation % 180 !== 0 ? "calc(100dvh - 32px)" : "calc(100vw - 24px)",
             maxHeight: rotation % 180 !== 0 ? "calc(100vw - 24px)" : "calc(100dvh - 32px)",
-            transform: `translate3d(${position.x}px, ${position.y}px, 0) scale(${scale}) rotate(${rotation}deg)${baseFlipX ? " scaleX(-1)" : ""}`,
             transformOrigin: "center center",
             transition: interacting ? "none" : "transform 140ms ease-out",
           }}
@@ -583,6 +584,8 @@ export default function FullscreenImageViewer({
           }}
           onError={imageRender.onError}
         />
+        {!imageRender.error && <MotionPhotoOverlay source={currentItem.src} enabled={open} />}
+        </span>
       </div>
 
       {(imageRender.loading || imageRender.error) && (

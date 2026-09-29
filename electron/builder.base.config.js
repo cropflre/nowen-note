@@ -341,6 +341,7 @@ const BACKEND_KEEP_PACKAGES = [
   "@jitl",                 // 整个 scope（WASM variants + FFI types）
   // HEIF 解码和兼容预览的运行时依赖。
   "libheif-js",
+  "ffmpeg-static",
   "sharp",
   "@img",
   "color",
@@ -376,6 +377,9 @@ function buildBackendNodeModulesFilter() {
   rules.push("!**/LICENSE*");
   // 保留随 HEIF 解码器分发的许可证。
   rules.push("libheif-js/LICENSE");
+  // FFmpeg 二进制及随包分发的许可信息必须一起保留。
+  rules.push("ffmpeg-static/*LICENSE*");
+  rules.push("ffmpeg-static/*README*");
   rules.push("!**/{AUTHORS,CONTRIBUTORS,HISTORY}*");
   // better-sqlite3 自带源码（src/ 是 C++ 源码，deps/ 是 sqlite amalgamation；
   // 只要 build/Release/*.node 就够 runtime 跑，src/deps 可以剥掉）

@@ -34,8 +34,9 @@ RUN npm run build:web
 FROM node:20-alpine AS backend-build
 WORKDIR /app/backend
 RUN apk add --no-cache --virtual .build-deps python3 make g++ linux-headers
+RUN apk add --no-cache ffmpeg
 COPY backend/package.json backend/package-lock.json ./
-RUN npm ci --no-audit --no-fund
+RUN FFMPEG_BIN=/usr/bin/ffmpeg npm ci --no-audit --no-fund
 COPY backend/ .
 RUN npx tsc
 RUN apk del .build-deps
@@ -43,12 +44,12 @@ RUN apk del .build-deps
 # ---------- Stage 3: 运行时镜像 ----------
 FROM node:20-alpine
 WORKDIR /app
-RUN apk add --no-cache tini tzdata
+RUN apk add --no-cache tini tzdata ffmpeg
 
 COPY package.json ./package.json
 COPY backend/package.json backend/package-lock.json ./backend/
 RUN apk add --no-cache --virtual .build-deps python3 make g++ linux-headers \
-    && cd backend && npm ci --omit=dev --no-audit --no-fund \
+    && cd backend && FFMPEG_BIN=/usr/bin/ffmpeg npm ci --omit=dev --no-audit --no-fund \
     && apk del .build-deps \
     && npm cache clean --force \
     && rm -rf /root/.npm /tmp/* /var/cache/apk/*
@@ -80,6 +81,7 @@ LABEL org.opencontainers.image.title="Nowen Note" \
 ENV NODE_ENV=production
 ENV DB_PATH=/app/data/nowen-note.db
 ENV PORT=3001
+ENV FFMPEG_PATH=/usr/bin/ffmpeg
 
 EXPOSE 3001
 

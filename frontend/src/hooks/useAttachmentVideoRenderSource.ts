@@ -14,6 +14,7 @@ export type AttachmentVideoRenderSource = {
   persistentSrc: string;
   renderSrc: string;
   renderKey: string;
+  error: Error | null;
 };
 
 type AndroidAttachmentPreparation = {
@@ -98,12 +99,12 @@ export function useAttachmentVideoRenderSource(
     : "";
   const preparationAttachmentId = preparation?.attachmentId ?? "";
   const preparationUrl = preparation?.url ?? "";
-  const [prepared, setPrepared] = useState({ key: "", src: "" });
+  const [prepared, setPrepared] = useState<{ key: string; src: string; error: Error | null }>({ key: "", src: "", error: null });
 
   useEffect(() => {
     if (!enabled || !preparationKey) return;
     let cancelled = false;
-    setPrepared({ key: preparationKey, src: "" });
+    setPrepared({ key: preparationKey, src: "", error: null });
     AttachmentMedia.prepare({
       attachmentId: preparationAttachmentId,
       url: preparationUrl,
@@ -111,7 +112,7 @@ export function useAttachmentVideoRenderSource(
       .then((result) => {
         if (cancelled) return;
         if (!result?.uri) throw new Error("Android video cache did not return a file URI");
-        setPrepared({ key: preparationKey, src: Capacitor.convertFileSrc(result.uri) });
+        setPrepared({ key: preparationKey, src: Capacitor.convertFileSrc(result.uri), error: null });
       })
       .catch((error: unknown) => {
         if (cancelled) return;
@@ -119,7 +120,7 @@ export function useAttachmentVideoRenderSource(
           attachmentId: preparationAttachmentId,
           error: error instanceof Error ? error.message : String(error),
         });
-        setPrepared({ key: preparationKey, src: "" });
+        setPrepared({ key: preparationKey, src: "", error: error instanceof Error ? error : new Error("动态内容无法加载") });
       });
     return () => {
       cancelled = true;
@@ -141,5 +142,6 @@ export function useAttachmentVideoRenderSource(
     persistentSrc: source.persistentSrc,
     renderSrc,
     renderKey: renderSrc || source.persistentSrc || "video-empty",
+    error: preparation && prepared.key === preparationKey ? prepared.error : null,
   };
 }

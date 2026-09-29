@@ -16,6 +16,9 @@ import AttachmentTextPreview from "./AttachmentTextPreview";
 import AttachmentMediaPreview from "./AttachmentMediaPreview";
 import AttachmentPdfPreview from "./AttachmentPdfPreview";
 import { detectAttachmentPreviewKind } from "@/lib/attachmentOpenStrategy";
+import { MotionPhotoOverlay } from "../MotionPhotoOverlay";
+import { useAttachmentImageRenderSource } from "@/hooks/useAttachmentImageRenderSource";
+import { downloadAttachment } from "@/lib/downloadFile";
 
 // docx 解析器有 ~80KB 的运行时（fflate + 自研 OOXML 解析），与图片/视频路径无关
 // → 懒加载，避免首屏体积。
@@ -32,6 +35,16 @@ interface Props {
   imgMaxHeightClass?: string;
 }
 
+export function AttachmentPhotoPreview({ url, filename, imgMaxHeightClass }: Pick<Props, "url" | "filename" | "imgMaxHeightClass">) {
+  const image = useAttachmentImageRenderSource(url);
+  return <span className="relative block">
+    {image.error ? <span className="flex flex-col items-center gap-2 py-10 text-sm text-tx-tertiary">照片暂时无法预览<button type="button" className="underline" onClick={() => { void downloadAttachment(url, filename); }}>下载原件</button></span>
+      : <><img src={image.renderSrc} alt={filename} onLoad={image.onLoad} onError={image.onError}
+          className={cn("w-full object-contain bg-zinc-950/5", imgMaxHeightClass ?? "max-h-[360px]")} />
+        <MotionPhotoOverlay source={url} /></>}
+  </span>;
+}
+
 export default function AttachmentPreview({
   url,
   filename,
@@ -44,11 +57,7 @@ export default function AttachmentPreview({
 
   if (kind === "image") {
     return (
-      <img
-        src={url}
-        alt={filename}
-        className={cn("w-full object-contain bg-zinc-950/5", imgMaxHeightClass ?? "max-h-[360px]")}
-      />
+      <AttachmentPhotoPreview url={url} filename={filename} imgMaxHeightClass={imgMaxHeightClass} />
     );
   }
 

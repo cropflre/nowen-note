@@ -228,7 +228,7 @@ export function deleteThumbnailsFor(attachmentsDir: string, attachmentId: string
   }
   const prefix = `${attachmentId}_w`;
   for (const f of files) {
-    if (!f.startsWith(prefix) && f !== `${attachmentId}_preview.webp`) continue;
+    if (!f.startsWith(prefix) && f !== `${attachmentId}_preview.webp` && !f.startsWith(`${attachmentId}_motion_`)) continue;
     try {
       fs.unlinkSync(path.join(dir, f));
     } catch {
