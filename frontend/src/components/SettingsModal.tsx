@@ -25,6 +25,7 @@ import AuthorStoryModal from "@/components/AuthorStoryModal";
 import DownloadPanel from "@/components/DownloadPanel";
 import { useSiteSettings, BUILTIN_FONTS, getBuiltinFontName } from "@/hooks/useSiteSettings";
 import { useUserPreferences } from "@/hooks/useUserPreferences";
+import { useApp, useAppActions } from "@/store/AppContext";
 import { useMobileRailHidden } from "@/hooks/useMobileRailHidden";
 import { useSidebarTextStyle } from "@/hooks/useSidebarTextStyle";
 import { api } from "@/lib/api";
@@ -746,6 +747,8 @@ function AboutPanel() {
 
 function SwitchesPanel() {
   const { t } = useTranslation();
+  const { state } = useApp();
+  const actions = useAppActions();
   const { prefs: userPrefs, setPref: setUserPref } = useUserPreferences();
   const [isAdmin, setIsAdmin] = useState(false);
   const [webUiEnabled, setWebUiEnabled] = useState(false);
@@ -794,6 +797,13 @@ function SwitchesPanel() {
         ? hidden.filter((item) => item !== id)
         : Array.from(new Set([...hidden, id])),
     );
+
+    // Hiding is a presentation preference, not an access-control rule. Only
+    // leave the currently open module when the user explicitly hides that
+    // exact entry here; later deep links can still open hidden modules.
+    if (!visible && state.viewMode === id) {
+      actions.setViewMode("all");
+    }
   };
 
   const setTaskCenterModuleVisible = (id: TaskCenterOptionalModuleId, visible: boolean) => {
