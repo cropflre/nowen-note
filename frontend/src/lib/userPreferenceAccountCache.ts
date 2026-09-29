@@ -1,4 +1,10 @@
 import { isNoteThemeId, type NoteThemeId } from "@/lib/noteTheme";
+import {
+  normalizeHiddenNavigationModules,
+  normalizeHiddenTaskCenterModules,
+  type NavigationModuleId,
+  type TaskCenterOptionalModuleId,
+} from "@/lib/navigationVisibility";
 
 export type ReadingDensity = "cozy" | "compact";
 export type EditorFontSize = 0 | 14 | 16 | 18 | 20 | 22 | 24;
@@ -31,6 +37,8 @@ export interface UserPreferences {
   codeBlockTheme: CodeBlockThemeId;
   noteTheme: NoteThemeId;
   noteListTitleOnly: boolean;
+  hiddenNavigationModules: NavigationModuleId[];
+  hiddenTaskCenterModules: TaskCenterOptionalModuleId[];
 }
 
 export type UserPreferencePatch = Partial<UserPreferences>;
@@ -65,6 +73,8 @@ export const DEFAULT_USER_PREFERENCES: UserPreferences = {
   codeBlockTheme: "github-dark",
   noteTheme: "default",
   noteListTitleOnly: false,
+  hiddenNavigationModules: [],
+  hiddenTaskCenterModules: [],
 };
 
 export const LEGACY_USER_PREFERENCES_KEY = "nowen.user-prefs.v1";
@@ -159,6 +169,12 @@ export function normalizeUserPreferences(
     noteListTitleOnly: typeof raw.noteListTitleOnly === "boolean"
       ? raw.noteListTitleOnly
       : fallback.noteListTitleOnly,
+    hiddenNavigationModules: Array.isArray(raw.hiddenNavigationModules)
+      ? normalizeHiddenNavigationModules(raw.hiddenNavigationModules)
+      : [...fallback.hiddenNavigationModules],
+    hiddenTaskCenterModules: Array.isArray(raw.hiddenTaskCenterModules)
+      ? normalizeHiddenTaskCenterModules(raw.hiddenTaskCenterModules)
+      : [...fallback.hiddenTaskCenterModules],
   };
 }
 

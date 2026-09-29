@@ -115,6 +115,9 @@ function samePreferenceValue<K extends keyof UserPreferences>(
   left: UserPreferences[K] | undefined,
   right: UserPreferences[K] | undefined,
 ): boolean {
+  if (Array.isArray(left) && Array.isArray(right)) {
+    return left.length === right.length && left.every((value, index) => value === right[index]);
+  }
   return left === right;
 }
 

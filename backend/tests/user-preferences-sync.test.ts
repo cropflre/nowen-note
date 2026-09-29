@@ -171,3 +171,26 @@ test("persists remote image paste policy per account with a safe default", async
   assert.equal((await requestJson("GET")).json.remoteImagePasteMode, "ask");
   assert.equal((await requestJson("GET", undefined, OTHER_ID)).json.remoteImagePasteMode, "localize");
 });
+
+
+test("syncs navigation visibility preferences and rejects unknown module ids", async () => {
+  const before = await requestJson("GET");
+  assert.deepEqual(before.json.hiddenNavigationModules, []);
+  assert.deepEqual(before.json.hiddenTaskCenterModules, []);
+
+  const saved = await requestJson("PUT", {
+    hiddenNavigationModules: ["tasks", "diary", "tasks"],
+    hiddenTaskCenterModules: ["habits", "stats"],
+  });
+  assert.equal(saved.status, 200);
+  assert.deepEqual(saved.json.hiddenNavigationModules, ["tasks", "diary"]);
+  assert.deepEqual(saved.json.hiddenTaskCenterModules, ["habits", "stats"]);
+
+  const invalidNav = await requestJson("PUT", { hiddenNavigationModules: ["tasks", "unknown-module"] });
+  assert.equal(invalidNav.status, 400);
+  assert.equal(invalidNav.json.code, "INVALID_USER_PREFERENCE");
+
+  const invalidTask = await requestJson("PUT", { hiddenTaskCenterModules: ["habits", "tasks"] });
+  assert.equal(invalidTask.status, 400);
+  assert.equal(invalidTask.json.code, "INVALID_USER_PREFERENCE");
+});

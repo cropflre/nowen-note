@@ -152,4 +152,17 @@ describe("user preference account cache", () => {
     expect(sanitizeUserPreferencePatch({ remoteImagePasteMode: "keep-remote" })).toEqual({ remoteImagePasteMode: "keep-remote" });
     expect(sanitizeUserPreferencePatch({ remoteImagePasteMode: "unsafe" })).toEqual({ remoteImagePasteMode: "localize" });
   });
+  it("normalizes account-scoped navigation visibility preferences", () => {
+    expect(DEFAULT_USER_PREFERENCES.hiddenNavigationModules).toEqual([]);
+    expect(DEFAULT_USER_PREFERENCES.hiddenTaskCenterModules).toEqual([]);
+
+    const patch = sanitizeUserPreferencePatch({
+      hiddenNavigationModules: ["tasks", "diary", "tasks", "unknown-module"],
+      hiddenTaskCenterModules: ["habits", "stats", "tasks"],
+    });
+
+    expect(patch.hiddenNavigationModules).toEqual(["tasks", "diary"]);
+    expect(patch.hiddenTaskCenterModules).toEqual(["habits", "stats"]);
+  });
+
 });

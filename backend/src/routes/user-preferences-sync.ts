@@ -7,6 +7,8 @@ type ReadingDensity = "cozy" | "compact";
 type EditorFontSize = 0 | 14 | 16 | 18 | 20 | 22 | 24;
 type EditorMode = "md" | "tiptap";
 type FolderAutoLockMinutes = 0 | 5 | 15 | 30 | 60;
+type NavigationModuleId = "favorites" | "files" | "diary" | "tasks" | "mindmaps" | "ai-chat" | "shares";
+type TaskCenterOptionalModuleId = "inbox" | "my-day" | "planner" | "habits" | "stats";
 type NoteTheme = "default" | "paper" | "minimal" | "eye-care";
 type CodeBlockTheme =
   | "github-dark"
@@ -34,6 +36,8 @@ export interface SyncedUserPreferences {
   codeBlockTheme: CodeBlockTheme;
   noteTheme: NoteTheme;
   noteListTitleOnly: boolean;
+  hiddenNavigationModules: NavigationModuleId[];
+  hiddenTaskCenterModules: TaskCenterOptionalModuleId[];
 }
 
 type PreferenceKey = keyof SyncedUserPreferences;
@@ -75,10 +79,14 @@ export const DEFAULT_SYNCED_USER_PREFERENCES: SyncedUserPreferences = {
   codeBlockTheme: "github-dark",
   noteTheme: "default",
   noteListTitleOnly: false,
+  hiddenNavigationModules: [],
+  hiddenTaskCenterModules: [],
 };
 
 const PREFERENCE_KEYS = Object.keys(DEFAULT_SYNCED_USER_PREFERENCES) as PreferenceKey[];
 const PREFERENCE_KEY_SET = new Set<string>(PREFERENCE_KEYS);
+const NAVIGATION_MODULE_IDS = new Set<string>(["favorites", "files", "diary", "tasks", "mindmaps", "ai-chat", "shares"]);
+const TASK_CENTER_OPTIONAL_MODULE_IDS = new Set<string>(["inbox", "my-day", "planner", "habits", "stats"]);
 const CODE_BLOCK_THEMES = new Set<CodeBlockTheme>([
   "github-dark",
   "github-light",
@@ -108,6 +116,22 @@ function normalizePreferenceValue<K extends PreferenceKey>(
     case "enableNoteTabs":
     case "noteListTitleOnly":
       return (typeof value === "boolean" ? value : fallback) as SyncedUserPreferences[K];
+    case "hiddenNavigationModules":
+      return (
+        Array.isArray(value)
+          ? Array.from(new Set(value.filter((item): item is NavigationModuleId =>
+              typeof item === "string" && NAVIGATION_MODULE_IDS.has(item)
+            )))
+          : fallback
+      ) as SyncedUserPreferences[K];
+    case "hiddenTaskCenterModules":
+      return (
+        Array.isArray(value)
+          ? Array.from(new Set(value.filter((item): item is TaskCenterOptionalModuleId =>
+              typeof item === "string" && TASK_CENTER_OPTIONAL_MODULE_IDS.has(item)
+            )))
+          : fallback
+      ) as SyncedUserPreferences[K];
     case "folderAutoLockMinutes":
       return (
         value === 0 || value === 5 || value === 15 || value === 30 || value === 60
@@ -208,6 +232,20 @@ function validatePatch(input: unknown): { patch: PreferencePatch; errors: string
   const errors: string[] = [];
   for (const key of PREFERENCE_KEYS) {
     if (!(key in raw)) continue;
+    if (key === "hiddenNavigationModules") {
+      const value = raw[key];
+      if (!Array.isArray(value) || value.some((item) => typeof item !== "string" || !NAVIGATION_MODULE_IDS.has(item))) {
+        errors.push(`${key} 的值无效`);
+        continue;
+      }
+    }
+    if (key === "hiddenTaskCenterModules") {
+      const value = raw[key];
+      if (!Array.isArray(value) || value.some((item) => typeof item !== "string" || !TASK_CENTER_OPTIONAL_MODULE_IDS.has(item))) {
+        errors.push(`${key} 的值无效`);
+        continue;
+      }
+    }
     const current = DEFAULT_SYNCED_USER_PREFERENCES[key];
     const normalized = normalizePreferenceValue(key, raw[key], current);
     if (normalized === current && raw[key] !== current) {

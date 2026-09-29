@@ -1337,6 +1337,8 @@ export const api = {
     enableNoteTabs: boolean;
     markdownDefaultViewMode: "source" | "preview" | "split";
     remoteImagePasteMode?: "localize" | "ask" | "keep-remote";
+    hiddenNavigationModules?: string[];
+    hiddenTaskCenterModules?: string[];
     hasPreferences?: boolean;
   }>("/user-preferences"),
   updateUserPreferences: (data: {
@@ -1349,6 +1351,8 @@ export const api = {
     enableNoteTabs: boolean;
     markdownDefaultViewMode: "source" | "preview" | "split";
     remoteImagePasteMode?: "localize" | "ask" | "keep-remote";
+    hiddenNavigationModules?: string[];
+    hiddenTaskCenterModules?: string[];
   }) => request<{
     noteTitleAsAppTitle: boolean;
     outlineDefaultOpen: boolean;
@@ -1359,6 +1363,8 @@ export const api = {
     enableNoteTabs: boolean;
     markdownDefaultViewMode: "source" | "preview" | "split";
     remoteImagePasteMode?: "localize" | "ask" | "keep-remote";
+    hiddenNavigationModules?: string[];
+    hiddenTaskCenterModules?: string[];
     hasPreferences?: boolean;
   }>("/user-preferences", { method: "PUT", body: JSON.stringify(data) }),
 
