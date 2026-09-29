@@ -53,10 +53,12 @@ export default function NoteDeepLinkBridge() {
   const { loadNote, cancelNoteLoad } = useNoteLoader();
 
   const activeNoteRef = useRef(state.activeNote);
+  const viewModeRef = useRef(state.viewMode);
   const pendingRouteNoteIdRef = useRef<string | null>(null);
   const routeLoadSequenceRef = useRef(0);
 
   activeNoteRef.current = state.activeNote;
+  viewModeRef.current = state.viewMode;
 
   useEffect(() => {
     let disposed = false;
@@ -75,6 +77,19 @@ export default function NoteDeepLinkBridge() {
           actions.setActiveNote(null);
           actions.setMobileView("list");
           actions.setViewMode("all");
+          return;
+        }
+
+        // AppLayout still has a few legacy module transitions that canonicalize back to "/"
+        // with replaceState. If a note remains active when that happens (for example leaving
+        // Mind Map), immediately restore the resource URL so address bar and editor never diverge.
+        if (
+          event?.type === APP_PATH_CHANGED_EVENT
+          && pathname === "/"
+          && activeNoteRef.current?.id
+          && NOTE_WORKSPACE_VIEWS.has(viewModeRef.current)
+        ) {
+          pushNoteAppPath(activeNoteRef.current.id);
         }
         return;
       }
