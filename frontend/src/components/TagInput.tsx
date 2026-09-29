@@ -7,6 +7,7 @@ import { api } from "@/lib/api";
 import { Tag } from "@/types";
 import TagColorPicker from "@/components/TagColorPicker";
 import { toast } from "@/lib/toast";
+import { cn } from "@/lib/utils";
 
 /** 标签名称最大长度 */
 export const MAX_TAG_NAME_LENGTH = 30;
@@ -15,9 +16,11 @@ interface TagInputProps {
   noteId: string;
   noteTags: Tag[];
   onTagsChange?: (tags: Tag[]) => void;
+  /** Mobile note metadata keeps at most three chips until the user enters tag editing. */
+  mobileCompact?: boolean;
 }
 
-export default function TagInput({ noteId, noteTags, onTagsChange }: TagInputProps) {
+export default function TagInput({ noteId, noteTags, onTagsChange, mobileCompact = false }: TagInputProps) {
   const { t } = useTranslation();
   const { state } = useApp();
   const actions = useAppActions();
@@ -137,20 +140,39 @@ export default function TagInput({ noteId, noteTags, onTagsChange }: TagInputPro
     setIsFocused(true);
   };
 
+  const compactCollapsed = mobileCompact && !isFocused;
+  const visibleTags = compactCollapsed ? noteTags.slice(0, 3) : noteTags;
+  const hiddenTagCount = compactCollapsed ? Math.max(0, noteTags.length - visibleTags.length) : 0;
+
+  const expandCompactEditor = () => {
+    if (blurTimerRef.current) clearTimeout(blurTimerRef.current);
+    setIsFocused(true);
+    requestAnimationFrame(() => inputRef.current?.focus());
+  };
+
   const showDropdown = isFocused && inputValue.trim().length > 0;
   const hasExactMatch = suggestions.some((s) => s.name.toLowerCase() === inputValue.trim().toLowerCase());
 
   return (
     <div className="relative w-full tag-input-area">
       <div
-        className="flex flex-wrap items-center gap-1 sm:gap-1.5 px-2 sm:px-3 py-1 sm:py-1.5"
-        onClick={() => inputRef.current?.focus()}
+        className={cn(
+          "flex flex-wrap items-center gap-1 sm:gap-1.5",
+          mobileCompact ? "px-0 py-1 sm:px-3 sm:py-1.5" : "px-2 py-1 sm:px-3 sm:py-1.5",
+        )}
+        onClick={() => {
+          if (compactCollapsed && noteTags.length > 0) {
+            expandCompactEditor();
+            return;
+          }
+          inputRef.current?.focus();
+        }}
       >
         <Hash className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-tx-tertiary shrink-0" />
 
         {/* 已有标签列表 */}
         <AnimatePresence mode="popLayout">
-          {noteTags.map((tag) => (
+          {visibleTags.map((tag) => (
             <motion.span
               key={tag.id}
               layout
@@ -165,51 +187,90 @@ export default function TagInput({ noteId, noteTags, onTagsChange }: TagInputPro
                 color: tag.color,
               }}
             >
-              <TagColorPicker
-                currentColor={tag.color}
-                size="sm"
-                onColorChange={async (color) => {
-                  try {
-                    const updated = await api.updateTag(tag.id, { color });
-                    // 更新本地标签列表
-                    const newTags = noteTags.map((t) => t.id === tag.id ? { ...t, color } : t);
-                    onTagsChange?.(newTags);
-                    // 刷新全局标签
-                    const allTags = await api.getTags();
-                    actions.setTags(allTags);
-                  } catch (err) {
-                    console.error("Failed to update tag color:", err);
-                  }
-                }}
-              />
+              {compactCollapsed ? (
+                <span
+                  className="h-1.5 w-1.5 shrink-0 rounded-full"
+                  style={{ backgroundColor: tag.color }}
+                  aria-hidden="true"
+                />
+              ) : (
+                <TagColorPicker
+                  currentColor={tag.color}
+                  size="sm"
+                  onColorChange={async (color) => {
+                    try {
+                      const updated = await api.updateTag(tag.id, { color });
+                      const newTags = noteTags.map((t) => t.id === tag.id ? { ...t, color } : t);
+                      onTagsChange?.(newTags);
+                      const allTags = await api.getTags();
+                      actions.setTags(allTags);
+                    } catch (err) {
+                      console.error("Failed to update tag color:", err);
+                    }
+                  }}
+                />
+              )}
               <span className="max-w-[100px] truncate" title={tag.name}>{tag.name}</span>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  removeTag(tag.id);
-                }}
-                className="p-0.5 rounded hover:bg-black/10 dark:hover:bg-white/10 opacity-100 sm:opacity-0 sm:group-hover/tag:opacity-100 transition-opacity"
-              >
-                <X size={9} />
-              </button>
+              {!compactCollapsed && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    removeTag(tag.id);
+                  }}
+                  className="p-0.5 rounded hover:bg-black/10 dark:hover:bg-white/10 opacity-100 sm:opacity-0 sm:group-hover/tag:opacity-100 transition-opacity"
+                  aria-label={t("tags.removeTag", { defaultValue: "移除标签 {{name}}", name: tag.name })}
+                >
+                  <X size={9} />
+                </button>
+              )}
             </motion.span>
           ))}
         </AnimatePresence>
 
-        {/* 输入框 */}
-        <input
-          ref={inputRef}
-          type="text"
-          value={inputValue}
-          onChange={(e) => setInputValue(e.target.value)}
-          onKeyDown={handleKeyDown}
-          onFocus={handleFocus}
-          onBlur={handleBlur}
-          disabled={isAdding}
-          maxLength={MAX_TAG_NAME_LENGTH}
-          className="flex-1 min-w-[60px] sm:min-w-[80px] bg-transparent text-[10px] sm:text-[11px] text-tx-primary outline-none border-none focus:ring-0 focus:shadow-none placeholder:text-tx-tertiary no-focus-ring"
-          placeholder={noteTags.length === 0 ? t('tags.addTagPlaceholder') : ""}
-        />
+        {hiddenTagCount > 0 && (
+          <button
+            type="button"
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={(event) => {
+              event.stopPropagation();
+              expandCompactEditor();
+            }}
+            className="inline-flex h-5 shrink-0 items-center rounded-full bg-app-hover px-1.5 text-[10px] font-medium text-tx-tertiary active:bg-app-border sm:hidden"
+            aria-label={t("tags.showMore", { defaultValue: "显示其余 {{count}} 个标签", count: hiddenTagCount })}
+          >
+            +{hiddenTagCount}
+          </button>
+        )}
+
+        {/* 输入框：移动端已有标签时默认折叠为一个 +，点击后再进入完整编辑。 */}
+        {compactCollapsed && noteTags.length > 0 ? (
+          <button
+            type="button"
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={(event) => {
+              event.stopPropagation();
+              expandCompactEditor();
+            }}
+            className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-tx-tertiary active:bg-app-hover sm:hidden"
+            aria-label={t("tags.addTagPlaceholder")}
+          >
+            <Plus size={11} />
+          </button>
+        ) : (
+          <input
+            ref={inputRef}
+            type="text"
+            value={inputValue}
+            onChange={(e) => setInputValue(e.target.value)}
+            onKeyDown={handleKeyDown}
+            onFocus={handleFocus}
+            onBlur={handleBlur}
+            disabled={isAdding}
+            maxLength={MAX_TAG_NAME_LENGTH}
+            className="flex-1 min-w-[60px] sm:min-w-[80px] bg-transparent text-[10px] sm:text-[11px] text-tx-primary outline-none border-none focus:ring-0 focus:shadow-none placeholder:text-tx-tertiary no-focus-ring"
+            placeholder={noteTags.length === 0 ? t('tags.addTagPlaceholder') : ""}
+          />
+        )}
       </div>
 
       {/* 联想下拉菜单 */}
