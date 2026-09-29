@@ -23,6 +23,7 @@ import {
   ensureJournalArchiveFolders,
   ensureJournalArchivePlacement,
   ensureJournalArchiveRoot,
+  JOURNAL_ARCHIVE_ROOT_TITLE,
   journalArchiveNotebookId,
   organizeJournalArchive,
   parseJournalDateKey,
@@ -70,28 +71,46 @@ function journalPrivacyState(
   userId: string,
   unlockHeader?: string,
 ) {
-  const rootNotebookId = journalArchiveNotebookId(userId, "root");
-  const rootNodeId = `notebook:${rootNotebookId}`;
+  const stableRootNotebookId = journalArchiveNotebookId(userId, "root");
+  // Older archive migrations intentionally adopt an existing exact “个人日记” root
+  // instead of duplicating it. That adopted notebook keeps its historical id, so the
+  // privacy boundary must resolve the actual root resource rather than assume the
+  // deterministic id was used.
   const row = db.prepare(`
     SELECT nb.id,
+           tree.id AS nodeId,
            CASE WHEN password.notebookId IS NULL THEN 0 ELSE 1 END AS isPasswordProtected
       FROM notebooks nb
+      LEFT JOIN knowledge_tree_nodes tree
+        ON tree.resourceType = 'notebook'
+       AND tree.resourceId = nb.id
+       AND tree.isDeleted = 0
       LEFT JOIN notebook_passwords password ON password.notebookId = nb.id
-     WHERE nb.id = ?
-       AND nb.userId = ?
+     WHERE nb.userId = ?
        AND nb.workspaceId IS NULL
+       AND nb.parentId IS NULL
        AND nb.isDeleted = 0
+       AND (nb.id = ? OR nb.name = ?)
+     ORDER BY CASE WHEN nb.id = ? THEN 0 ELSE 1 END, nb.createdAt ASC, nb.id ASC
      LIMIT 1
-  `).get(rootNotebookId, userId) as { id: string; isPasswordProtected: number } | undefined;
-  const exists = !!row;
+  `).get(
+    userId,
+    stableRootNotebookId,
+    JOURNAL_ARCHIVE_ROOT_TITLE,
+    stableRootNotebookId,
+  ) as { id: string; nodeId: string | null; isPasswordProtected: number } | undefined;
+
+  const rootNotebookId = row?.id || null;
+  const rootNodeId = row?.nodeId || (rootNotebookId ? `notebook:${rootNotebookId}` : null);
+  const exists = !!rootNotebookId;
   const isPasswordProtected = row?.isPasswordProtected === 1;
   const unlocked = !isPasswordProtected
-    || resolveUnlockedFolderNodeIds(db, userId, unlockHeader).has(rootNodeId);
+    || (!!rootNodeId && resolveUnlockedFolderNodeIds(db, userId, unlockHeader).has(rootNodeId));
   return {
     exists,
-    rootNotebookId: exists ? rootNotebookId : null,
-    rootNodeId: exists ? rootNodeId : null,
-    title: "个人日记",
+    rootNotebookId,
+    rootNodeId,
+    title: JOURNAL_ARCHIVE_ROOT_TITLE,
     isPasswordProtected,
     unlocked,
   };
