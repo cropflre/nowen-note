@@ -29,8 +29,25 @@ export default function TagInput({ noteId, noteTags, onTagsChange, mobileCompact
   const [isFocused, setIsFocused] = useState(false);
   const [highlightedIndex, setHighlightedIndex] = useState(-1);
   const [isAdding, setIsAdding] = useState(false);
+  const [isCompactViewport, setIsCompactViewport] = useState(() => (
+    mobileCompact
+    && typeof window !== "undefined"
+    && window.matchMedia("(max-width: 639px)").matches
+  ));
   const inputRef = useRef<HTMLInputElement>(null);
   const blurTimerRef = useRef<ReturnType<typeof setTimeout>>();
+
+  useEffect(() => {
+    if (!mobileCompact || typeof window === "undefined") {
+      setIsCompactViewport(false);
+      return;
+    }
+    const media = window.matchMedia("(max-width: 639px)");
+    const sync = () => setIsCompactViewport(media.matches);
+    sync();
+    media.addEventListener?.("change", sync);
+    return () => media.removeEventListener?.("change", sync);
+  }, [mobileCompact]);
 
   // 过滤联想词
   useEffect(() => {
@@ -140,7 +157,7 @@ export default function TagInput({ noteId, noteTags, onTagsChange, mobileCompact
     setIsFocused(true);
   };
 
-  const compactCollapsed = mobileCompact && !isFocused;
+  const compactCollapsed = mobileCompact && isCompactViewport && !isFocused;
   const visibleTags = compactCollapsed ? noteTags.slice(0, 3) : noteTags;
   const hiddenTagCount = compactCollapsed ? Math.max(0, noteTags.length - visibleTags.length) : 0;
 
