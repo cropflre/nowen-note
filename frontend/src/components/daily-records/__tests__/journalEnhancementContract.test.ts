@@ -17,6 +17,17 @@ describe("journal enhancement contract", () => {
     expect(api).toContain("ensurePrivacyRoot");
   });
 
+  it("gates the actual journal entry point and reuses note capabilities for subtitle/share", () => {
+    const hub = source("../DailyRecordsHub.tsx");
+    const view = source("../DailyJournalView.tsx");
+    expect(hub).toContain("<JournalPrivacyGate");
+    expect(view).toContain("api.updateNote(journal.id, { title: nextTitle })");
+    expect(view).toContain("<ShareModal");
+    expect(view).toContain("<JournalArchive");
+    expect(view).toContain("给这一天写个副标题");
+    expect(view).toContain("工作区日志");
+  });
+
   it("reuses folder password sessions for the personal journal gate", () => {
     const gate = source("../JournalPrivacyGate.tsx");
     expect(gate).toContain("FolderPasswordDialog");
