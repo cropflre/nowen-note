@@ -8,7 +8,6 @@ import type { JournalScope } from "@/lib/journalScope";
 import {
   forgetUnlockedFolder,
   KNOWLEDGE_TREE_PASSWORD_SESSION_CHANGED_EVENT,
-  loadUnlockedFolderIds,
   rememberUnlockedFolder,
 } from "@/lib/knowledgeTreePassword";
 
@@ -60,9 +59,9 @@ export default function JournalPrivacyGate({
         forgetUnlockedFolder(next.rootNodeId);
         forcedForPersonalEntry.current = true;
         next = { ...next, unlocked: false };
-      } else if (next.rootNodeId) {
-        next = { ...next, unlocked: !next.isPasswordProtected || loadUnlockedFolderIds().has(next.rootNodeId) };
       }
+      // Trust the server verdict on initial load: a locally cached token may have
+      // become stale after a password change. The API validates passwordVersion.
       setStatus(next);
     } catch (requestError: any) {
       setError(requestError?.message || "读取日记隐私状态失败");
@@ -75,15 +74,10 @@ export default function JournalPrivacyGate({
 
   useEffect(() => {
     if (scope.kind !== "personal" || !status?.rootNodeId) return;
-    const sync = () => {
-      setStatus((current) => current ? {
-        ...current,
-        unlocked: !current.isPasswordProtected || loadUnlockedFolderIds().has(current.rootNodeId || ""),
-      } : current);
-    };
+    const sync = () => { void load(); };
     window.addEventListener(KNOWLEDGE_TREE_PASSWORD_SESSION_CHANGED_EVENT, sync);
     return () => window.removeEventListener(KNOWLEDGE_TREE_PASSWORD_SESSION_CHANGED_EVENT, sync);
-  }, [scope.kind, status?.rootNodeId]);
+  }, [load, scope.kind, status?.rootNodeId]);
 
   if (scope.kind === "workspace") return <>{children}</>;
 

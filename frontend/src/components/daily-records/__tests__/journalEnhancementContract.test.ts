@@ -21,7 +21,8 @@ describe("journal enhancement contract", () => {
     const hub = source("../DailyRecordsHub.tsx");
     const view = source("../DailyJournalView.tsx");
     expect(hub).toContain("<JournalPrivacyGate");
-    expect(view).toContain("api.updateNote(journal.id, { title: nextTitle })");
+    expect(view).toContain("title: nextTitle");
+    expect(view).toContain("version: journal.version");
     expect(view).toContain("<ShareModal");
     expect(view).toContain("<JournalArchive");
     expect(view).toContain("给这一天写个副标题");

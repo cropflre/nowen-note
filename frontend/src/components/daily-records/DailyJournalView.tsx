@@ -245,7 +245,10 @@ export default function DailyJournalView({
 
     setSubtitleSaving(true);
     try {
-      const updated = await api.updateNote(journal.id, { title: nextTitle });
+      const updated = await api.updateNote(journal.id, {
+        title: nextTitle,
+        version: journal.version,
+      });
       setJournal(updated);
       actions.addNoteToList(noteListItem(updated));
       setSubtitleDraft(nextSubtitle);
