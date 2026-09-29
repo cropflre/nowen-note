@@ -14,6 +14,7 @@ import {
   MessageCircle,
   Plus,
   RefreshCw,
+  Share2,
   Sparkles,
   Trash2,
   Undo2,
@@ -22,6 +23,8 @@ import {
 import { api, getCurrentWorkspace, setCurrentWorkspace } from "@/lib/api";
 import { confirm as confirmDialog } from "@/components/ui/confirm";
 import DailyJournalContentPreview from "@/components/daily-records/DailyJournalContentPreview";
+import JournalArchive from "@/components/JournalArchive";
+import ShareModal from "@/components/ShareModal";
 import {
   extractJournalPreview,
   formatJournalHeading,
@@ -155,6 +158,9 @@ export default function DailyJournalView({
     try { return localStorage.getItem("nowen.journalArchive.lastCleanupId"); } catch { return null; }
   });
   const [reloadToken, setReloadToken] = useState(0);
+  const [subtitleDraft, setSubtitleDraft] = useState("");
+  const [subtitleSaving, setSubtitleSaving] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
 
   const today = relativeLocalDateKey(0);
   const isToday = selectedDate === today;
@@ -175,7 +181,12 @@ export default function DailyJournalView({
         : "personal";
       const [check, momentResult, treeResult] = await Promise.all([
         checkJournalForScope(selectedDate, journalScope),
-        api.getDiaryTimeline(undefined, 100, range || undefined),
+        api.getDiaryTimeline(
+          undefined,
+          100,
+          range || undefined,
+          journalScope.kind === "workspace" ? journalScope.workspaceId : "personal",
+        ),
         knowledgeTreeApi.listForWorkspace(treeWorkspaceId).catch(() => ({ nodes: [] as KnowledgeTreeNode[] })),
       ]);
 
@@ -223,6 +234,42 @@ export default function DailyJournalView({
     void loadDay();
   }, [loadDay, reloadToken]);
 
+  useEffect(() => {
+    setSubtitleDraft(
+      journal && journal.title && journal.title !== selectedDate
+        ? journal.title
+        : "",
+    );
+  }, [journal?.id, journal?.title, selectedDate]);
+
+  const saveSubtitle = useCallback(async () => {
+    if (!journal || !journalCanWrite || subtitleSaving) return;
+    const nextSubtitle = subtitleDraft.trim().slice(0, 200);
+    const nextTitle = nextSubtitle || selectedDate;
+    if (journal.title === nextTitle) return;
+
+    setSubtitleSaving(true);
+    try {
+      const updated = await api.updateNote(journal.id, {
+        title: nextTitle,
+        version: journal.version,
+      });
+      setJournal(updated);
+      actions.addNoteToList(noteListItem(updated));
+      setSubtitleDraft(nextSubtitle);
+      setReloadToken((value) => value + 1);
+      window.dispatchEvent(new CustomEvent("nowen:knowledge-tree-changed", {
+        detail: { reason: "journal-subtitle-updated", noteId: journal.id },
+      }));
+      toast.success(nextSubtitle ? "日记副标题已保存" : "日记副标题已清空");
+    } catch (error: any) {
+      toast.error(error?.message || "保存日记副标题失败");
+      setSubtitleDraft(journal.title !== selectedDate ? journal.title : "");
+    } finally {
+      setSubtitleSaving(false);
+    }
+  }, [actions, journal, journalCanWrite, selectedDate, subtitleDraft, subtitleSaving]);
+
   const openNote = useCallback((note: Note) => {
     const targetWorkspace = note.workspaceId || "personal";
     if (getCurrentWorkspace() !== targetWorkspace) {
@@ -247,8 +294,8 @@ export default function DailyJournalView({
       setJournalCanWrite(result.canWrite);
       openNote(note);
       toast.success(result.existed
-        ? journalScope.kind === "workspace" ? "已打开工作区日记" : "已打开该日日记"
-        : journalScope.kind === "workspace" ? "工作区日记已创建" : "日记已创建");
+        ? journalScope.kind === "workspace" ? "已打开工作区日志" : "已打开该日日记"
+        : journalScope.kind === "workspace" ? "工作区日志已创建" : "日记已创建");
     } catch (error: any) {
       toast.error(error?.message || "创建日记失败");
     } finally {
@@ -404,6 +451,7 @@ export default function DailyJournalView({
   }
 
   return (
+    <>
     <div className="min-h-0 flex-1 overflow-auto bg-app-bg">
       <div className="mx-auto grid w-full max-w-[1320px] grid-cols-1 gap-5 px-4 py-5 xl:grid-cols-[minmax(0,1fr)_320px] xl:px-6">
         <main className="min-w-0 space-y-5">
@@ -439,7 +487,7 @@ export default function DailyJournalView({
                       : "text-tx-tertiary hover:text-tx-primary",
                   )}
                 >
-                  工作区日记
+                  工作区日志
                 </button>
               </div>
             </div>
@@ -527,25 +575,69 @@ export default function DailyJournalView({
                 <div className="min-w-0">
                   <div className="flex items-center gap-2 text-sm font-semibold text-tx-primary">
                     <BookOpen size={16} className="text-accent-primary" />
-                    今日日记
+                    {isToday ? "今日日记" : "日期日记"}
                   </div>
                   <div className="mt-1 truncate text-[10px] text-tx-tertiary">
-                    {journalScope.kind === "workspace" ? "工作区日记" : "个人日记"} / {selectedDateObject.getFullYear()}年 / {selectedDateObject.getFullYear()}年{String(selectedDateObject.getMonth() + 1).padStart(2, "0")}月 / {selectedDate}
+                    {journalScope.kind === "workspace" ? "工作区日志" : "个人日记"} / {selectedDateObject.getFullYear()}年 / {selectedDateObject.getFullYear()}年{String(selectedDateObject.getMonth() + 1).padStart(2, "0")}月 / {selectedDate}
                   </div>
                 </div>
                 {journal && (
-                  <button
-                    type="button"
-                    onClick={() => void createOrOpenJournal()}
-                    disabled={creating}
-                    className="rounded-lg bg-accent-primary/10 px-3 py-1.5 text-xs font-medium text-accent-primary hover:bg-accent-primary/15 disabled:opacity-60"
-                  >
-                    打开编辑
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setShareOpen(true)}
+                      className="flex items-center gap-1.5 rounded-lg border border-app-border px-2.5 py-1.5 text-xs font-medium text-tx-secondary hover:bg-app-hover hover:text-tx-primary"
+                      title="分享这篇日记"
+                    >
+                      <Share2 size={13} />
+                      <span className="hidden sm:inline">分享</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void createOrOpenJournal()}
+                      disabled={creating}
+                      className="rounded-lg bg-accent-primary/10 px-3 py-1.5 text-xs font-medium text-accent-primary hover:bg-accent-primary/15 disabled:opacity-60"
+                    >
+                      打开编辑
+                    </button>
+                  </div>
                 )}
               </div>
               {journal ? (
                 <div className="min-h-[190px]">
+                  <div className="border-b border-app-border/70 px-5 py-3">
+                    <div className="mb-1.5 flex items-center justify-between gap-2">
+                      <label htmlFor="journal-subtitle" className="text-[11px] font-medium text-tx-secondary">
+                        副标题
+                      </label>
+                      {subtitleSaving && (
+                        <span className="flex items-center gap-1 text-[10px] text-tx-tertiary">
+                          <Loader2 size={10} className="animate-spin" /> 保存中
+                        </span>
+                      )}
+                    </div>
+                    {journalCanWrite ? (
+                      <input
+                        id="journal-subtitle"
+                        value={subtitleDraft}
+                        onChange={(event) => setSubtitleDraft(event.target.value)}
+                        onBlur={() => void saveSubtitle()}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter" && !event.nativeEvent.isComposing) {
+                            event.preventDefault();
+                            event.currentTarget.blur();
+                          }
+                        }}
+                        maxLength={200}
+                        placeholder="给这一天写个副标题…"
+                        className="h-9 w-full rounded-lg border border-app-border bg-app-bg px-3 text-sm text-tx-primary outline-none placeholder:text-tx-tertiary/70 focus:border-accent-primary/60"
+                      />
+                    ) : (
+                      <p className="text-sm text-tx-secondary">
+                        {journal.title !== selectedDate ? journal.title : "暂无副标题"}
+                      </p>
+                    )}
+                  </div>
                   {preview ? (
                     <DailyJournalContentPreview
                       note={journal}
@@ -643,6 +735,19 @@ export default function DailyJournalView({
         </main>
 
         <aside className="space-y-4">
+          {journalScope.kind === "personal" && (
+            <section className="rounded-2xl border border-app-border bg-app-surface p-4">
+              <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold text-tx-primary">
+                <BookOpen size={16} className="text-accent-primary" /> 日记档案
+              </h3>
+              <JournalArchive
+                selectedDate={selectedDate}
+                onSelectDate={onDateChange}
+                refreshToken={reloadToken}
+              />
+            </section>
+          )}
+
           <section className="rounded-2xl border border-app-border bg-app-surface p-4">
             <div className="mb-3 flex items-center justify-between">
               <h3 className="flex items-center gap-2 text-sm font-semibold text-tx-primary"><CalendarDays size={16} className="text-accent-primary" /> 日历</h3>
@@ -722,5 +827,14 @@ export default function DailyJournalView({
         </aside>
       </div>
     </div>
+
+      {shareOpen && journal && (
+        <ShareModal
+          noteId={journal.id}
+          noteTitle={journal.title !== selectedDate ? journal.title : selectedDate}
+          onClose={() => setShareOpen(false)}
+        />
+      )}
+    </>
   );
 }

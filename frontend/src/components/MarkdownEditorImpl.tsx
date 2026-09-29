@@ -25,7 +25,7 @@
  */
 
 import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
-import CollapsibleEditorToolbar from "@/components/CollapsibleEditorToolbar";
+import CollapsibleEditorToolbar, { MobileEditorToolbarSlot } from "@/components/CollapsibleEditorToolbar";
 import { EditorState, Compartment, StateEffect } from "@codemirror/state";
 import {
   EditorView,
@@ -2106,34 +2106,42 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
         <>
           <div
             data-markdown-mobile-toolbar="compact"
-            className="sticky top-0 z-20 flex min-w-0 flex-nowrap items-center gap-0.5 overflow-x-auto touch-pan-x border-b border-app-border bg-app-surface/95 px-2 py-1.5 backdrop-blur md:hidden [&>button]:shrink-0 [&>button]:p-1"
+            className="sticky top-0 z-20 flex min-w-0 items-center gap-0.5 border-b border-app-border bg-app-surface/95 px-1 py-1 backdrop-blur md:hidden"
+            style={compactMobileEditing ? { paddingTop: "calc(var(--safe-area-top) + 4px)" } : undefined}
           >
-            <ToolbarButton onClick={() => withView((view) => undo(view))} title={tr("tiptap.undo") || "撤销"}>
-              <Undo size={16} />
-            </ToolbarButton>
-            <ToolbarButton onClick={() => withView((view) => redo(view))} title={tr("tiptap.redo") || "重做"}>
-              <Redo size={16} />
-            </ToolbarButton>
-            <ToolbarDivider />
-            <ToolbarButton onClick={() => withView((view) => toggleHeading(view, 1))} title={tr("tiptap.heading1") || "一级标题"}>
-              <Heading1 size={16} />
-            </ToolbarButton>
-            <ToolbarButton onClick={() => withView((view) => toggleHeading(view, 2))} title={tr("tiptap.heading2") || "二级标题"}>
-              <Heading2 size={16} />
-            </ToolbarButton>
-            <ToolbarButton onClick={() => withView((view) => toggleWrap(view, "**"))} title={tr("tiptap.bold") || "加粗"}>
-              <Bold size={16} />
-            </ToolbarButton>
-            <ToolbarButton onClick={() => withView((view) => toggleBulletList(view))} title={tr("tiptap.bulletList") || "无序列表"}>
-              <List size={16} />
-            </ToolbarButton>
-            <ToolbarButton onClick={triggerImagePicker} title={tr("tiptap.insertImage") || "插入图片"}>
-              <ImagePlus size={16} />
-            </ToolbarButton>
-            <ToolbarButton onClick={triggerVideoPicker} title={tr("tiptap.uploadLocalVideo") || "插入本地视频"}>
-              <Film size={16} />
-            </ToolbarButton>
-            <ToolbarButton className="ml-auto" onClick={() => setMobileToolbarExpanded((value) => !value)} title={tr("common.more") || "更多"}>
+            <MobileEditorToolbarSlot location="leading" />
+            <div
+              data-mobile-editor-format-strip=""
+              className="hide-scrollbar flex min-w-0 flex-1 flex-nowrap items-center gap-0.5 overflow-x-auto touch-pan-x px-1 [&>button]:shrink-0 [&>button]:p-1"
+            >
+              <ToolbarButton onClick={() => withView((view) => undo(view))} title={tr("tiptap.undo") || "撤销"}>
+                <Undo size={16} />
+              </ToolbarButton>
+              <ToolbarButton onClick={() => withView((view) => redo(view))} title={tr("tiptap.redo") || "重做"}>
+                <Redo size={16} />
+              </ToolbarButton>
+              <ToolbarDivider />
+              <ToolbarButton onClick={() => withView((view) => toggleHeading(view, 1))} title={tr("tiptap.heading1") || "一级标题"}>
+                <Heading1 size={16} />
+              </ToolbarButton>
+              <ToolbarButton onClick={() => withView((view) => toggleHeading(view, 2))} title={tr("tiptap.heading2") || "二级标题"}>
+                <Heading2 size={16} />
+              </ToolbarButton>
+              <ToolbarButton onClick={() => withView((view) => toggleWrap(view, "**"))} title={tr("tiptap.bold") || "加粗"}>
+                <Bold size={16} />
+              </ToolbarButton>
+              <ToolbarButton onClick={() => withView((view) => toggleBulletList(view))} title={tr("tiptap.bulletList") || "无序列表"}>
+                <List size={16} />
+              </ToolbarButton>
+              <ToolbarButton onClick={triggerImagePicker} title={tr("tiptap.insertImage") || "插入图片"}>
+                <ImagePlus size={16} />
+              </ToolbarButton>
+              <ToolbarButton onClick={triggerVideoPicker} title={tr("tiptap.uploadLocalVideo") || "插入本地视频"}>
+                <Film size={16} />
+              </ToolbarButton>
+            </div>
+            <MobileEditorToolbarSlot location="trailing" />
+            <ToolbarButton onClick={() => setMobileToolbarExpanded((value) => !value)} title={tr("common.more") || "更多"}>
               <ChevronDown size={16} className={cn("transition-transform", mobileToolbarExpanded && "rotate-180")} />
             </ToolbarButton>
           </div>
@@ -2446,6 +2454,7 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
               noteId={note.id}
               noteTags={noteTags}
               onTagsChange={onTagsChange}
+              mobileCompact
             />
           </div>
         )}

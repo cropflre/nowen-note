@@ -19,6 +19,10 @@ import { parseShareManagementQuery, queryShareManagement } from "../services/sha
 import { consumeShareViewSession, findSingleShareByToken, installSingleShareGuard, resetShareViewSessions } from "../services/single-share-access";
 import { checkCredentialAttempt, getClientIp as getCredentialClientIp, hashClientIp, recordCredentialFailure, recordCredentialSuccess } from "../lib/share-credential-rate-limit";
 import { collectSharedMindMapSnapshots } from "../services/sharedMindMapSnapshots";
+import {
+  canViewNoteThroughFolderPasswords,
+  resolveUnlockedFolderNodeIds,
+} from "../lib/knowledgeTreePasswordAccess";
 
 // H3: 使用密码学安全的随机源生成分享 token。
 //     原实现用 Math.random()，理论上可被预测；改用 crypto.randomBytes。
@@ -80,6 +84,20 @@ function checkRateLimit(key: string): boolean {
   return true;
 }
 
+function requireUnlockedNoteForShare(c: any, noteId: string, userId: string): Response | null {
+  const db = getDb();
+  const unlockedFolderNodeIds = resolveUnlockedFolderNodeIds(
+    db,
+    userId,
+    c.req.header("X-Folder-Unlock-Tokens"),
+  );
+  if (canViewNoteThroughFolderPasswords(db, noteId, unlockedFolderNodeIds)) return null;
+  return c.json({
+    error: "受密码保护的目录尚未解锁",
+    code: "FOLDER_UNLOCK_REQUIRED",
+  }, 403);
+}
+
 // ===== 需要 JWT 认证的管理路由 =====
 const sharesRouter = new Hono();
 
@@ -102,6 +120,8 @@ sharesRouter.post("/", async (c) => {
 
   const note = db.prepare("SELECT id, userId, title FROM notes WHERE id = ?").get(noteId) as any;
   if (!note) return c.json({ error: "笔记不存在" }, 404);
+  const folderPasswordError = requireUnlockedNoteForShare(c, noteId, userId);
+  if (folderPasswordError) return folderPasswordError;
   const capabilities = resolveEffectiveNoteCapabilities(noteId, userId);
   if (!capabilities.reshare) {
     return c.json({ error: "当前目录不允许二次分享", code: "RESHARE_FORBIDDEN" }, 403);
@@ -167,6 +187,8 @@ sharesRouter.get("/note/:noteId", (c) => {
   const userId = c.req.header("X-User-Id") || "";
   const noteId = c.req.param("noteId");
 
+  const folderPasswordError = requireUnlockedNoteForShare(c, noteId, userId);
+  if (folderPasswordError) return folderPasswordError;
   const capabilities = resolveEffectiveNoteCapabilities(noteId, userId);
   const shares = capabilities.manage
     ? db.prepare("SELECT * FROM shares WHERE noteId = ? ORDER BY createdAt DESC").all(noteId)

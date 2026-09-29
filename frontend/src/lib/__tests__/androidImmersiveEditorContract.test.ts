@@ -32,6 +32,29 @@ describe("Android immersive editor contract", () => {
     expect(source).toContain("nowen:open-search");
   });
 
+  it("keeps note management out of a duplicate mobile title toolbar", () => {
+    const source = read("src/components/EditorPane.tsx");
+    expect(source).not.toContain('flex items-center gap-1", compactMobileEditing ? "px-2 py-1"');
+    expect(source).toContain('MobileEditorToolbarPortal location="leading"');
+    expect(source).toContain('MobileEditorToolbarPortal location="trailing"');
+    expect(source).toContain('data-mobile-note-menu-trigger');
+    expect(source).toContain("toggleLock(); setShowMobileMenu(false)");
+  });
+
+  it("reuses the breadcrumb slot for the title only after the body title scrolls away", () => {
+    const source = read("src/components/EditorPane.tsx");
+    expect(source).toContain("mobileTitlePinned");
+    expect(source).toContain("IntersectionObserver");
+    expect(source).toContain("[data-mobile-editor-title], [data-markdown-mobile-title]");
+    expect(source).toContain("setMobileTitlePinned(!entry?.isIntersecting)");
+  });
+
+  it("does not resurrect the legacy two-row header from global keyboard CSS", () => {
+    const html = read("index.html");
+    expect(html).not.toContain('header[data-mobile-editor-compact="true"] > div:nth-of-type(2)');
+    expect(html).not.toContain('header[data-mobile-editor-compact="true"] > div:first-of-type');
+  });
+
   it("keeps one compact toolbar and exposes advanced formatting on demand", () => {
     const source = read("src/components/TiptapEditor.tsx");
     const expanded = expandedToolbarSection(source, 'data-mobile-editor-toolbar="expanded"');
@@ -69,7 +92,9 @@ describe("Android immersive editor contract", () => {
     expect(compact).toContain("flex-nowrap");
     expect(compact).toContain("overflow-x-auto");
     expect(source).toContain('compact ? "shrink-0 p-1');
-    expect(compact).toContain('className="ml-auto"');
+    expect(compact).toContain('<MobileEditorToolbarSlot location="leading" />');
+    expect(compact).toContain('<MobileEditorToolbarSlot location="trailing" />');
+    expect(compact).toContain('data-mobile-editor-format-strip');
   });
 
   it("removes nonessential metadata and floating actions from the keyboard viewport", () => {
@@ -126,7 +151,9 @@ describe("Android immersive editor contract", () => {
     expect(compact).toContain("overflow-x-auto");
     expect(compact).toContain("[&>button]:shrink-0");
     expect(compact).toContain("[&>button]:p-1");
-    expect(compact).toContain('className="ml-auto"');
+    expect(compact).toContain('<MobileEditorToolbarSlot location="leading" />');
+    expect(compact).toContain('<MobileEditorToolbarSlot location="trailing" />');
+    expect(compact).toContain('data-mobile-editor-format-strip');
   });
 
   it("suppresses the mobile space launcher while the IME is open", () => {

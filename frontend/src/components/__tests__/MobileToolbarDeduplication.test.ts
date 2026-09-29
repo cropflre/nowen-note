@@ -47,7 +47,14 @@ for (const { file, marker, actions } of editors) {
       expect(expanded).toContain("max-md:max-h-[38vh]");
     });
 
-    if (file === "MarkdownEditorImpl.tsx") {
+    it("provides fixed mobile navigation/action slots around the scrollable format strip", () => {
+      expect(compact).toContain('<MobileEditorToolbarSlot location="leading" />');
+      expect(compact).toContain('<MobileEditorToolbarSlot location="trailing" />');
+      expect(compact).toContain('data-mobile-editor-format-strip');
+      expect(compact).toContain("overflow-x-auto");
+    });
+
+        if (file === "MarkdownEditorImpl.tsx") {
       it("hides source/preview/live counterparts on compact tablets but preserves split mode", () => {
         const modeGroup = expanded.slice(expanded.indexOf("MARKDOWN-PREVIEW-MODE-01"));
         const modes = Array.from(modeGroup.matchAll(/<button\b[\s\S]*?<\/button>/g)).map((match) => match[0]);

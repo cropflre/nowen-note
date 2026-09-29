@@ -1339,6 +1339,7 @@ export const api = {
     remoteImagePasteMode?: "localize" | "ask" | "keep-remote";
     hiddenNavigationModules?: string[];
     hiddenTaskCenterModules?: string[];
+    journalLockOnEntry?: boolean;
     hasPreferences?: boolean;
   }>("/user-preferences"),
   updateUserPreferences: (data: {
@@ -1353,6 +1354,7 @@ export const api = {
     remoteImagePasteMode?: "localize" | "ask" | "keep-remote";
     hiddenNavigationModules?: string[];
     hiddenTaskCenterModules?: string[];
+    journalLockOnEntry?: boolean;
   }) => request<{
     noteTitleAsAppTitle: boolean;
     outlineDefaultOpen: boolean;
@@ -1365,6 +1367,7 @@ export const api = {
     remoteImagePasteMode?: "localize" | "ask" | "keep-remote";
     hiddenNavigationModules?: string[];
     hiddenTaskCenterModules?: string[];
+    journalLockOnEntry?: boolean;
     hasPreferences?: boolean;
   }>("/user-preferences", { method: "PUT", body: JSON.stringify(data) }),
 
@@ -2966,6 +2969,7 @@ export const api = {
     cursor?: string,
     limit?: number,
     range?: { from?: string; to?: string; mediaType?: string; mood?: string; q?: string },
+    workspaceOverride?: string,
   ) => {
     const params = new URLSearchParams();
     if (cursor) params.set("cursor", cursor);
@@ -2976,7 +2980,7 @@ export const api = {
     // from/to 接收 "YYYY-MM-DD" 或完整 ISO 时间；后端会做 normalize
     if (range?.from) params.set("from", range.from);
     if (range?.to) params.set("to", range.to);
-    const ws = getCurrentWorkspace();
+    const ws = workspaceOverride ?? getCurrentWorkspace();
     if (ws && ws !== "personal") params.set("workspaceId", ws);
     const qs = params.toString();
     return request<DiaryTimeline>(`/diary/timeline${qs ? `?${qs}` : ""}`);
@@ -3115,15 +3119,67 @@ export const api = {
       missing: number;
       restoredNotebooks: Array<{ id: string; name: string }>;
     }>("/journals/cleanup/restore", { method: "POST", body: JSON.stringify({ cleanupId }) }),
-    /** 获取日记列表 */
-    list: (cursor?: string, limit?: number) => {
+    /** 个人日记隐私状态；状态查询本身不要求已解锁。 */
+    getPrivacyStatus: () => request<{
+      exists: boolean;
+      rootNotebookId: string | null;
+      rootNodeId: string | null;
+      title: string;
+      isPasswordProtected: boolean;
+      unlocked: boolean;
+    }>("/journals/privacy"),
+    /** 只确保稳定的个人日记根存在，不会创建当天日记。 */
+    ensurePrivacyRoot: () => request<{
+      exists: boolean;
+      rootNotebookId: string | null;
+      rootNodeId: string | null;
+      title: string;
+      isPasswordProtected: boolean;
+      unlocked: boolean;
+    }>("/journals/privacy/ensure", { method: "POST" }),
+    /** 获取个人日记轻量档案列表。 */
+    list: (options: {
+      year?: string;
+      month?: string;
+      from?: string;
+      to?: string;
+      mood?: string;
+      q?: string;
+      sort?: "date_desc" | "date_asc" | "updated_desc" | "updated_asc";
+      offset?: number;
+      limit?: number;
+      tzOffsetMinutes?: number;
+    } = {}) => {
       const params = new URLSearchParams();
-      if (cursor) params.set("cursor", cursor);
-      if (limit) params.set("limit", String(limit));
+      if (options.year) params.set("year", options.year);
+      if (options.month) params.set("month", options.month);
+      if (options.from) params.set("from", options.from);
+      if (options.to) params.set("to", options.to);
+      if (options.mood) params.set("mood", options.mood);
+      if (options.q) params.set("q", options.q);
+      if (options.sort) params.set("sort", options.sort);
+      if (typeof options.offset === "number") params.set("offset", String(options.offset));
+      if (typeof options.limit === "number") params.set("limit", String(options.limit));
+      params.set("tzOffsetMinutes", String(
+        options.tzOffsetMinutes ?? (typeof Date !== "undefined" ? -new Date().getTimezoneOffset() : 0),
+      ));
       const qs = params.toString();
-      return request<{ items: any[]; hasMore: boolean; nextCursor: string | null }>(
-        `/journals/list${qs ? `?${qs}` : ""}`
-      );
+      return request<{
+        items: Array<{
+          id: string;
+          title: string;
+          subtitle: string;
+          journalDate: string;
+          preview: string;
+          moods: string[];
+          createdAt: string;
+          updatedAt: string;
+        }>;
+        total: number;
+        hasMore: boolean;
+        nextOffset: number | null;
+        nextCursor: string | null;
+      }>(`/journals/list?${qs}`);
     },
     /** 获取日记年月归档结构 */
     getArchive: () =>
@@ -3137,6 +3193,7 @@ export const api = {
             journals: Array<{
               id: string;
               title: string;
+              subtitle?: string;
               journalDate: string;
               createdAt: string;
               updatedAt: string;

@@ -39,6 +39,7 @@ export interface UserPreferences {
   noteListTitleOnly: boolean;
   hiddenNavigationModules: NavigationModuleId[];
   hiddenTaskCenterModules: TaskCenterOptionalModuleId[];
+  journalLockOnEntry: boolean;
 }
 
 export type UserPreferencePatch = Partial<UserPreferences>;
@@ -75,6 +76,7 @@ export const DEFAULT_USER_PREFERENCES: UserPreferences = {
   noteListTitleOnly: false,
   hiddenNavigationModules: [],
   hiddenTaskCenterModules: [],
+  journalLockOnEntry: false,
 };
 
 export const LEGACY_USER_PREFERENCES_KEY = "nowen.user-prefs.v1";
@@ -175,6 +177,9 @@ export function normalizeUserPreferences(
     hiddenTaskCenterModules: Array.isArray(raw.hiddenTaskCenterModules)
       ? normalizeHiddenTaskCenterModules(raw.hiddenTaskCenterModules)
       : [...fallback.hiddenTaskCenterModules],
+    journalLockOnEntry: typeof raw.journalLockOnEntry === "boolean"
+      ? raw.journalLockOnEntry
+      : fallback.journalLockOnEntry,
   };
 }
 

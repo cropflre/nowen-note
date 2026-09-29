@@ -22,9 +22,13 @@ import { v4 as uuid } from "uuid";
 import {
   ensureJournalArchiveFolders,
   ensureJournalArchivePlacement,
+  ensureJournalArchiveRoot,
+  JOURNAL_ARCHIVE_ROOT_TITLE,
+  journalArchiveNotebookId,
   organizeJournalArchive,
   parseJournalDateKey,
 } from "../services/journalArchiveTree.js";
+import { resolveUnlockedFolderNodeIds } from "../lib/knowledgeTreePasswordAccess.js";
 import {
   applyJournalArchiveCleanup,
   previewJournalArchiveCleanup,
@@ -57,6 +61,128 @@ function getLocalDateKey(dateStr?: string): string {
   return `${year}-${month}-${day}`;
 }
 
+const JOURNAL_MOODS = new Set([
+  "happy", "excited", "peaceful", "thinking", "tired", "sad",
+  "angry", "sick", "love", "cool", "laugh", "shock",
+]);
+
+function journalPrivacyState(
+  db: ReturnType<typeof getDb>,
+  userId: string,
+  unlockHeader?: string,
+) {
+  const stableRootNotebookId = journalArchiveNotebookId(userId, "root");
+  // Older archive migrations intentionally adopt an existing exact “个人日记” root
+  // instead of duplicating it. That adopted notebook keeps its historical id, so the
+  // privacy boundary must resolve the actual root resource rather than assume the
+  // deterministic id was used.
+  const row = db.prepare(`
+    SELECT nb.id,
+           tree.id AS nodeId,
+           CASE WHEN password.notebookId IS NULL THEN 0 ELSE 1 END AS isPasswordProtected
+      FROM notebooks nb
+      LEFT JOIN knowledge_tree_nodes tree
+        ON tree.resourceType = 'notebook'
+       AND tree.resourceId = nb.id
+       AND tree.isDeleted = 0
+      LEFT JOIN notebook_passwords password ON password.notebookId = nb.id
+     WHERE nb.userId = ?
+       AND nb.workspaceId IS NULL
+       AND nb.parentId IS NULL
+       AND nb.isDeleted = 0
+       AND (nb.id = ? OR nb.name = ?)
+     ORDER BY CASE WHEN nb.id = ? THEN 0 ELSE 1 END, nb.createdAt ASC, nb.id ASC
+     LIMIT 1
+  `).get(
+    userId,
+    stableRootNotebookId,
+    JOURNAL_ARCHIVE_ROOT_TITLE,
+    stableRootNotebookId,
+  ) as { id: string; nodeId: string | null; isPasswordProtected: number } | undefined;
+
+  const rootNotebookId = row?.id || null;
+  const rootNodeId = row?.nodeId || (rootNotebookId ? `notebook:${rootNotebookId}` : null);
+  const exists = !!rootNotebookId;
+  const isPasswordProtected = row?.isPasswordProtected === 1;
+  const unlocked = !isPasswordProtected
+    || (!!rootNodeId && resolveUnlockedFolderNodeIds(db, userId, unlockHeader).has(rootNodeId));
+  return {
+    exists,
+    rootNotebookId,
+    rootNodeId,
+    title: JOURNAL_ARCHIVE_ROOT_TITLE,
+    isPasswordProtected,
+    unlocked,
+  };
+}
+
+function requirePersonalJournalUnlocked(c: any, db: ReturnType<typeof getDb>, userId: string): Response | null {
+  const state = journalPrivacyState(db, userId, c.req.header("X-Folder-Unlock-Tokens"));
+  if (!state.exists || !state.isPasswordProtected || state.unlocked) return null;
+  return c.json({
+    error: "个人日记已锁定，请先解锁",
+    code: "FOLDER_UNLOCK_REQUIRED",
+    nodeId: state.rootNodeId,
+    rootNotebookId: state.rootNotebookId,
+  }, 403);
+}
+
+function safeLimit(raw: string | undefined): number {
+  const parsed = Number(raw || 30);
+  return Number.isFinite(parsed) ? Math.min(100, Math.max(1, Math.floor(parsed))) : 30;
+}
+
+function safeOffset(raw: string | undefined): number {
+  const parsed = Number(raw || 0);
+  return Number.isFinite(parsed) ? Math.min(1_000_000, Math.max(0, Math.floor(parsed))) : 0;
+}
+
+function safeTimezoneOffset(raw: string | undefined): number {
+  const parsed = Number(raw || 0);
+  return Number.isFinite(parsed) ? Math.min(840, Math.max(-840, Math.trunc(parsed))) : 0;
+}
+
+function sqliteMinuteModifier(offsetMinutes: number): string {
+  return `${offsetMinutes >= 0 ? "+" : ""}${offsetMinutes} minutes`;
+}
+
+function escapeLike(value: string): string {
+  return value.replace(/[\\%_]/g, "\\function getLocalDateKey(dateStr?: string): string {
+  if (dateStr !== undefined) return parseJournalDateKey(dateStr).dateKey;
+
+  const date = new Date();
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}");
+}
+
+function normalizeJournalSort(raw: string | undefined): "date_desc" | "date_asc" | "updated_desc" | "updated_asc" {
+  return raw === "date_asc" || raw === "updated_desc" || raw === "updated_asc"
+    ? raw
+    : "date_desc";
+}
+
+/**
+ * 个人日记隐私状态。这个接口故意不要求已解锁，否则前端无法显示解锁入口。
+ */
+app.get("/privacy", (c) => {
+  const db = getDb();
+  const userId = c.req.header("X-User-Id") || "";
+  if (!userId) return c.json({ error: "未授权" }, 401);
+  return c.json(journalPrivacyState(db, userId, c.req.header("X-Folder-Unlock-Tokens")));
+});
+
+/** 确保稳定的“个人日记”根目录存在，只创建根目录，不创建当天日记。 */
+app.post("/privacy/ensure", (c) => {
+  const db = getDb();
+  const userId = c.req.header("X-User-Id") || "";
+  if (!userId) return c.json({ error: "未授权" }, 401);
+  ensureJournalArchiveRoot({ db, userId });
+  return c.json(journalPrivacyState(db, userId, c.req.header("X-Folder-Unlock-Tokens")));
+});
+
 /**
  * 获取或创建今日日记（POST 语义）
  *
@@ -79,6 +205,8 @@ app.post("/today", async (c) => {
   if (!userId) {
     return c.json({ error: "未授权" }, 401);
   }
+  const privacyError = requirePersonalJournalUnlocked(c, db, userId);
+  if (privacyError) return privacyError;
 
   // 解析 body（可选）
   let localDate: string | undefined;
@@ -211,6 +339,8 @@ app.get("/check", (c) => {
   if (!userId) {
     return c.json({ error: "未授权" }, 401);
   }
+  const privacyError = requirePersonalJournalUnlocked(c, db, userId);
+  if (privacyError) return privacyError;
 
   const dateParam = c.req.query("date");
   let today: string;
@@ -301,6 +431,8 @@ app.post("/organize", (c) => {
   const db = getDb();
   const userId = c.req.header("X-User-Id") || "";
   if (!userId) return c.json({ error: "未授权" }, 401);
+  const privacyError = requirePersonalJournalUnlocked(c, db, userId);
+  if (privacyError) return privacyError;
 
   const result = organizeJournalArchive({ db, userId });
   return c.json({ success: true, ...result });
@@ -316,6 +448,8 @@ app.get("/cleanup-preview", (c) => {
   const db = getDb();
   const userId = c.req.header("X-User-Id") || "";
   if (!userId) return c.json({ error: "未授权" }, 401);
+  const privacyError = requirePersonalJournalUnlocked(c, db, userId);
+  if (privacyError) return privacyError;
   return c.json(previewJournalArchiveCleanup({ db, userId }));
 });
 
@@ -329,6 +463,8 @@ app.post("/cleanup", async (c) => {
   const db = getDb();
   const userId = c.req.header("X-User-Id") || "";
   if (!userId) return c.json({ error: "未授权" }, 401);
+  const privacyError = requirePersonalJournalUnlocked(c, db, userId);
+  if (privacyError) return privacyError;
 
   const body = await c.req.json().catch(() => ({}));
   const previewToken = typeof body?.previewToken === "string" ? body.previewToken.trim() : "";
@@ -362,6 +498,8 @@ app.post("/cleanup/restore", async (c) => {
   const db = getDb();
   const userId = c.req.header("X-User-Id") || "";
   if (!userId) return c.json({ error: "未授权" }, 401);
+  const privacyError = requirePersonalJournalUnlocked(c, db, userId);
+  if (privacyError) return privacyError;
   const body = await c.req.json().catch(() => ({}));
   const cleanupId = typeof body?.cleanupId === "string" ? body.cleanupId.trim() : "";
   if (!/^[0-9a-f-]{36}$/i.test(cleanupId)) {
@@ -383,43 +521,128 @@ app.post("/cleanup/restore", async (c) => {
 });
 
 /**
- * 获取日记列表（按日期倒序）
+ * 获取个人日记轻量列表。
+ *
+ * mood 复用同日“瞬间”的 mood；tzOffsetMinutes 用于把 UTC 瞬间映射到用户本地日期。
+ * 列表只返回 240 字摘要，完整正文继续通过 notes/:id 获取。
  */
 app.get("/list", (c) => {
   const db = getDb();
   const userId = c.req.header("X-User-Id") || "";
-  const limit = Math.min(parseInt(c.req.query("limit") || "30"), 100);
-  const cursor = c.req.query("cursor"); // 上次最后一条的 journal_date
+  if (!userId) return c.json({ error: "未授权" }, 401);
+  const privacyError = requirePersonalJournalUnlocked(c, db, userId);
+  if (privacyError) return privacyError;
 
-  if (!userId) {
-    return c.json({ error: "未授权" }, 401);
+  const limit = safeLimit(c.req.query("limit"));
+  const offset = safeOffset(c.req.query("offset"));
+  const timezoneOffset = safeTimezoneOffset(c.req.query("tzOffsetMinutes"));
+  const dateModifier = sqliteMinuteModifier(timezoneOffset);
+  const sort = normalizeJournalSort(c.req.query("sort"));
+  const year = (c.req.query("year") || "").trim();
+  const month = (c.req.query("month") || "").trim();
+  const from = (c.req.query("from") || "").trim();
+  const to = (c.req.query("to") || "").trim();
+  const q = (c.req.query("q") || "").trim().slice(0, 100);
+  const mood = (c.req.query("mood") || "").trim();
+
+  if (year && !/^\d{4}$/.test(year)) return c.json({ error: "年份格式无效", code: "INVALID_JOURNAL_YEAR" }, 400);
+  if (month && !/^(0[1-9]|1[0-2])$/.test(month)) return c.json({ error: "月份格式无效", code: "INVALID_JOURNAL_MONTH" }, 400);
+  try {
+    if (from) parseJournalDateKey(from);
+    if (to) parseJournalDateKey(to);
+  } catch {
+    return c.json({ error: "日期范围格式无效", code: "INVALID_JOURNAL_DATE_RANGE" }, 400);
+  }
+  if (from && to && from > to) return c.json({ error: "开始日期不能晚于结束日期", code: "INVALID_JOURNAL_DATE_RANGE" }, 400);
+  if (mood && !JOURNAL_MOODS.has(mood)) return c.json({ error: "心情筛选值无效", code: "INVALID_JOURNAL_MOOD" }, 400);
+
+  const where: string[] = [
+    "n.userId = ?",
+    "n.workspaceId IS NULL",
+    "n.note_type = 'journal'",
+    "n.isTrashed = 0",
+    "n.journal_date IS NOT NULL",
+    "n.journal_date != ''",
+  ];
+  const args: unknown[] = [userId];
+
+  if (year) { where.push("substr(n.journal_date, 1, 4) = ?"); args.push(year); }
+  if (month) { where.push("substr(n.journal_date, 6, 2) = ?"); args.push(month); }
+  if (from) { where.push("n.journal_date >= ?"); args.push(from); }
+  if (to) { where.push("n.journal_date <= ?"); args.push(to); }
+  if (q) {
+    const needle = `%${escapeLike(q)}%`;
+    where.push("(n.title LIKE ? ESCAPE '\\' OR n.contentText LIKE ? ESCAPE '\\')");
+    args.push(needle, needle);
+  }
+  if (mood) {
+    where.push(`EXISTS (
+      SELECT 1 FROM diaries d
+       WHERE d.userId = n.userId
+         AND d.workspaceId IS NULL
+         AND d.mood = ?
+         AND date(datetime(d.createdAt, ?)) = n.journal_date
+    )`);
+    args.push(mood, dateModifier);
   }
 
-  let query = `
-    SELECT id, userId, notebookId, workspaceId, title, content, contentText,
-           isPinned, isLocked, isArchived, isTrashed, version, sortOrder,
-           createdAt, updatedAt, trashedAt, contentFormat, note_type, journal_date
-    FROM notes
-    WHERE userId = ? AND note_type = 'journal' AND isTrashed = 0
-  `;
-  const params: any[] = [userId];
+  const whereSql = where.join(" AND ");
+  const orderSql = sort === "date_asc"
+    ? "n.journal_date ASC, n.id ASC"
+    : sort === "updated_desc"
+      ? "n.updatedAt DESC, n.journal_date DESC, n.id DESC"
+      : sort === "updated_asc"
+        ? "n.updatedAt ASC, n.journal_date ASC, n.id ASC"
+        : "n.journal_date DESC, n.id DESC";
 
-  if (cursor) {
-    query += " AND journal_date < ?";
-    params.push(cursor);
+  const total = Number((db.prepare(`SELECT COUNT(*) AS count FROM notes n WHERE ${whereSql}`)
+    .get(...args) as { count: number }).count || 0);
+
+  const rows = db.prepare(`
+    SELECT n.id, n.title, n.journal_date AS journalDate,
+           substr(COALESCE(n.contentText, ''), 1, 240) AS preview,
+           n.createdAt, n.updatedAt
+      FROM notes n
+     WHERE ${whereSql}
+     ORDER BY ${orderSql}
+     LIMIT ? OFFSET ?
+  `).all(...args, limit, offset) as Array<{
+    id: string; title: string; journalDate: string; preview: string; createdAt: string; updatedAt: string;
+  }>;
+
+  const moodByDate = new Map<string, string[]>();
+  const dates = Array.from(new Set(rows.map((row) => row.journalDate)));
+  if (dates.length > 0) {
+    const placeholders = dates.map(() => "?").join(",");
+    const moodRows = db.prepare(`
+      SELECT date(datetime(createdAt, ?)) AS dateKey, mood
+        FROM diaries
+       WHERE userId = ?
+         AND workspaceId IS NULL
+         AND mood != ''
+         AND date(datetime(createdAt, ?)) IN (${placeholders})
+       GROUP BY dateKey, mood
+       ORDER BY dateKey DESC, mood ASC
+    `).all(dateModifier, userId, dateModifier, ...dates) as Array<{ dateKey: string; mood: string }>;
+    for (const row of moodRows) {
+      const list = moodByDate.get(row.dateKey) || [];
+      list.push(row.mood);
+      moodByDate.set(row.dateKey, list);
+    }
   }
 
-  query += " ORDER BY journal_date DESC LIMIT ?";
-  params.push(limit);
-
-  const rows = db.prepare(query).all(...params) as any[];
-  const hasMore = rows.length === limit;
-  const nextCursor = rows.length > 0 ? rows[rows.length - 1].journal_date : null;
+  const items = rows.map((row) => ({
+    ...row,
+    subtitle: row.title && row.title !== row.journalDate ? row.title : "",
+    moods: moodByDate.get(row.journalDate) || [],
+  }));
 
   return c.json({
-    items: rows,
-    hasMore,
-    nextCursor,
+    items,
+    total,
+    hasMore: offset + items.length < total,
+    nextOffset: offset + items.length < total ? offset + items.length : null,
+    nextCursor: items.length > 0 ? items[items.length - 1].journalDate : null,
   });
 });
 
@@ -436,6 +659,8 @@ app.get("/archive", (c) => {
   if (!userId) {
     return c.json({ error: "未授权" }, 401);
   }
+  const privacyError = requirePersonalJournalUnlocked(c, db, userId);
+  if (privacyError) return privacyError;
 
   // 查询所有日记，按 journal_date 倒序
   const rows = db.prepare(`
@@ -483,6 +708,7 @@ app.get("/archive", (c) => {
     monthEntry.journals.push({
       id: row.id,
       title: row.title,
+      subtitle: row.title && row.title !== row.journal_date ? row.title : "",
       journalDate: row.journal_date,
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,

@@ -44,7 +44,7 @@ import {
 } from "@/components/PresenceBar";
 import { EditorErrorBoundary } from "@/components/EditorErrorBoundary";
 import NoteTabsBar from "@/components/NoteTabsBar";
-import { EditorToolbarHost, EditorToolbarExpandSlot } from "@/components/CollapsibleEditorToolbar";
+import { EditorToolbarHost, EditorToolbarExpandSlot, MobileEditorToolbarPortal } from "@/components/CollapsibleEditorToolbar";
 import NoteLoadingSkeleton from "@/components/NoteLoadingSkeleton";
 import { useNoteLoader } from "@/hooks/useNoteLoader";
 import { useRealtimeNote } from "@/hooks/useRealtimeNote";
@@ -260,6 +260,7 @@ export default function EditorPane({
   }, [actions]);
 
   const [showMobileMenu, setShowMobileMenu] = useState(false);
+  const [mobileTitlePinned, setMobileTitlePinned] = useState(false);
   const [showDesktopMoreMenu, setShowDesktopMoreMenu] = useState(false);
   const [showMobileMoveMenu, setShowMobileMoveMenu] = useState(false);
   const [showMobileOutline, setShowMobileOutline] = useState(false);
@@ -272,6 +273,7 @@ export default function EditorPane({
   const [backlinksLoading, setBacklinksLoading] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const mobileMenuRef = useRef<HTMLDivElement | null>(null);
+  const editorPaneRootRef = useRef<HTMLDivElement | null>(null);
   const desktopMoreMenuRef = useRef<HTMLDivElement | null>(null);
 
   // 纯 HTML 预览模式：当
@@ -1503,10 +1505,38 @@ export default function EditorPane({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [activeNote]);
 
+  // 标题离开正文可视区后，复用现有路径导航位显示标题，不额外增加顶部高度。
+  useEffect(() => {
+    setMobileTitlePinned(false);
+    if (!activeNote || typeof window === "undefined") return;
+    if (!window.matchMedia("(max-width: 767px)").matches) return;
+    if (typeof IntersectionObserver === "undefined") return;
+
+    let observer: IntersectionObserver | null = null;
+    const frame = requestAnimationFrame(() => {
+      const title = editorPaneRootRef.current?.querySelector<HTMLElement>(
+        '[data-mobile-editor-title], [data-markdown-mobile-title]',
+      );
+      if (!title) return;
+      observer = new IntersectionObserver(
+        ([entry]) => setMobileTitlePinned(!entry?.isIntersecting),
+        { threshold: 0.15 },
+      );
+      observer.observe(title);
+    });
+
+    return () => {
+      cancelAnimationFrame(frame);
+      observer?.disconnect();
+    };
+  }, [activeNote?.id]);
+
   // ����ⲿ�ر��ƶ��˲˵�
   useEffect(() => {
     if (!showMobileMenu) return;
     const handler = (e: MouseEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (target?.closest("[data-mobile-note-menu-trigger]")) return;
       if (mobileMenuRef.current && !mobileMenuRef.current.contains(e.target as Node)) {
         setShowMobileMenu(false);
         setShowMobileMoveMenu(false);
@@ -2516,7 +2546,40 @@ const moveToTrash = useCallback(async () => {
 
   return (
     <EditorToolbarHost>
+    <>
+      <MobileEditorToolbarPortal location="leading">
+        {compactMobileEditing ? (
+          <button
+            data-adaptive-editor-back
+            onClick={() => actions.setMobileView("list")}
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-accent-primary active:bg-app-hover"
+            aria-label={t('editor.back')}
+          >
+            <ChevronLeft size={21} />
+          </button>
+        ) : null}
+      </MobileEditorToolbarPortal>
+      <MobileEditorToolbarPortal location="trailing">
+        {compactMobileEditing ? (
+          <Button
+            data-mobile-note-menu-trigger
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 shrink-0"
+            onClick={() => {
+              const nextOpen = !showMobileMenu;
+              if (nextOpen) window.dispatchEvent(new CustomEvent('nowen:close-search'));
+              setShowMobileMenu(nextOpen);
+              setShowMobileMoveMenu(false);
+            }}
+            aria-label={t('common.more')}
+          >
+            <MoreHorizontal size={17} />
+          </Button>
+        ) : null}
+      </MobileEditorToolbarPortal>
     <motion.div
+      ref={editorPaneRootRef}
       key={activeNote.id}
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
@@ -2556,11 +2619,11 @@ const moveToTrash = useCallback(async () => {
             - Presence ͷ����С�����岻���ƶ��˲���Ⱦ������˱����� */}
       <header
         data-mobile-editor-compact={compactMobileEditing ? "true" : "false"}
-        className={cn("flex flex-col border-b border-app-border bg-app-surface/50 md:hidden", compactMobileEditing && "shadow-sm")}
+        className={cn("flex flex-col border-b border-app-border bg-app-surface/50 md:hidden", compactMobileEditing && "hidden")}
         style={{ paddingTop: 'var(--safe-area-top)' }}
       >
         {/* �� 1 �У����� + ���м + ͬ�� */}
-        <div className={cn("flex min-w-0 items-center gap-2 px-3 pt-2 pb-1", compactMobileEditing && "hidden")}>
+        <div className="flex min-w-0 items-center gap-1.5 px-2 py-1.5">
           <button
             data-adaptive-editor-back
             onClick={() => actions.setMobileView("list")}
@@ -2576,7 +2639,11 @@ const moveToTrash = useCallback(async () => {
             className="flex-1 min-w-0 flex items-center gap-1 text-xs text-tx-tertiary active:bg-app-hover rounded-md px-1.5 py-1 overflow-hidden"
             title={t('editor.moveToNotebook')}
           >
-            {currentPath.length > 0 ? (
+            {mobileTitlePinned ? (
+              <span className="min-w-0 truncate text-sm font-semibold text-tx-primary">
+                {activeNote.title || t('editor.untitled')}
+              </span>
+            ) : currentPath.length > 0 ? (
               <span className="flex min-w-0 items-center gap-1 overflow-hidden">
                 {currentPath.map((nb, idx) => {
                   const isLast = idx === currentPath.length - 1;
@@ -2603,69 +2670,36 @@ const moveToTrash = useCallback(async () => {
               绝不能让一次网络抖动显示成"保存失败"。
               一切正常或未开启同步时该组件不渲染，不占空间。 */}
           <SyncStatusBadge />
+          <span className="flex shrink-0 items-center gap-0.5" aria-hidden="true">
+            {activeNote.isLocked || isViewLocked ? <Lock size={12} className={activeNote.isLocked ? "text-orange-500" : "text-tx-tertiary"} /> : null}
+            {activeNote.isPinned ? <Pin size={12} className="text-accent-primary fill-accent-primary" /> : null}
+            {activeNote.isFavorite ? <Star size={12} className="text-amber-400 fill-amber-400" /> : null}
+          </span>
+          <Button
+            data-mobile-note-menu-trigger
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 shrink-0"
+            onClick={() => {
+              const nextOpen = !showMobileMenu;
+              if (nextOpen) window.dispatchEvent(new CustomEvent('nowen:close-search'));
+              setShowMobileMenu(nextOpen);
+              setShowMobileMoveMenu(false);
+            }}
+            aria-label={t('common.more')}
+          >
+            <MoreHorizontal size={17} />
+          </Button>
         </div>
-        {/* �� 2 �У����� + �ղ� + ���� */}
-        <div className={cn("flex items-center gap-1", compactMobileEditing ? "px-2 py-1" : "px-3 pb-2 pt-0.5")}>
-          {compactMobileEditing && (
-            <button
-              data-adaptive-editor-back
-              onClick={() => actions.setMobileView("list")}
-              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-accent-primary active:bg-app-hover"
-              aria-label={t('editor.back')}
-            >
-              <ChevronLeft size={22} />
-            </button>
-          )}
-          <div className="flex-1 min-w-0 flex items-center gap-1.5">
-            {/* ��/�ö� ״̬���£�ֻ��ʾ�Ѽ���״̬��δ���ռλ��
-                ע�⣺isLocked / isPinned �� SQLite ���� 0/1��ֱ�� `value && <Icon/>`
-                �� value=0 ʱ��·��������� 0��React ��� 0 ���ı���Ⱦ��������
-                ���������������ʽ�����жϣ�����ҳ��������� "0"�� */}
-            {/* ����ǰ����ͼ�꣺���������ó�ɫ��ʾ���־�������
-                ֻ�ǻỰ����ƫ�á��򿪼���������ɣ��ø�ǳ�Ļ�ɫ����������״̬�� */}
-            {activeNote.isLocked
-              ? <Lock size={13} className="text-orange-500 shrink-0" />
-              : isViewLocked
-                ? <Lock size={13} className="text-tx-tertiary shrink-0" />
-                : null}
-            {activeNote.isPinned ? <Pin size={13} className="text-accent-primary fill-accent-primary shrink-0" /> : null}
-            <span className="truncate text-sm font-semibold text-tx-primary">
-              {activeNote.title || t('editor.untitled')}
-            </span>
-          </div>
-          {/* ���� / �������ƶ��˹̶���������ť��࣬���ֳ�������ȶ��ɼ��� */}
-          <Button
-            variant="ghost" size="icon" className={cn("h-8 w-8 shrink-0", compactMobileEditing && "hidden")}
-            onClick={toggleLock}
-            disabled={isTrashed}
-            aria-label={effectiveLocked ? t('editor.unlockTooltip') : t('editor.lockTooltip')}
-            title={isTrashed ? t('editor.trashTooltip') : effectiveLocked ? t('editor.unlockTooltip') : t('editor.lockTooltip')}
-          >
-            {effectiveLocked
-              ? <Lock size={17} className="text-orange-500" />
-              : <Unlock size={17} className="text-tx-tertiary" />}
-          </Button>
-          {/* �����������滻�����ƶ��˸�Ƶ�������ᵽ��������������
-              ͨ���Զ����¼� 'nowen:open-search' ���� TiptapEditor �ڲ��� SearchReplacePanel��
-              ����� TiptapEditor ���ڲ� state �������ⲿ����������ӿڸɾ��� */}
-          <Button
-            variant="ghost" size="icon" className={cn("h-8 w-8 shrink-0", compactMobileEditing && "hidden")}
-            onClick={() => window.dispatchEvent(new CustomEvent('nowen:open-search'))}
-            aria-label={t('editor.searchInNote')}
-          >
-            <Search size={17} />
-          </Button>
-          <Button variant="ghost" size="icon" className={cn("h-8 w-8 shrink-0", compactMobileEditing && "hidden")} onClick={toggleFavorite}
-            disabled={isTrashed}
-            aria-label={activeNote.isFavorite ? t('editor.unfavoriteTooltip') : t('editor.favoriteTooltip')}>
-            <Star size={17} className={cn(activeNote.isFavorite && "text-amber-400 fill-amber-400")} />
-          </Button>
-          {/* ���������ť */}
-          <div className="relative shrink-0" ref={mobileMenuRef}>
+      </header>
+
+      {/* Mobile document actions popover: triggers live in breadcrumb or compact editor toolbar. */}
+          <div className="absolute right-2 top-[calc(var(--safe-area-top)+2.75rem)] z-[60] shrink-0 md:hidden" ref={mobileMenuRef}>
             <Button
+              data-mobile-note-menu-trigger
               variant="ghost"
               size="icon"
-              className="h-8 w-8"
+              className="hidden"
               onClick={() => {
                 const nextOpen = !showMobileMenu;
                 if (nextOpen) window.dispatchEvent(new CustomEvent('nowen:close-search'));
@@ -2683,7 +2717,7 @@ const moveToTrash = useCallback(async () => {
                   animate={{ opacity: 1, scale: 1, y: 0 }}
                   exit={{ opacity: 0, scale: 0.95, y: -4 }}
                   transition={{ duration: 0.12 }}
-                  className="absolute top-full right-0 mt-1 w-56 max-h-[calc(100vh-9rem)] bg-app-elevated border border-app-border rounded-lg shadow-xl z-50 py-1 overflow-x-hidden overflow-y-auto overscroll-contain"
+                  className="absolute top-0 right-0 mt-1 w-56 max-h-[calc(100vh-9rem)] bg-app-elevated border border-app-border rounded-lg shadow-xl z-50 py-1 overflow-x-hidden overflow-y-auto overscroll-contain"
                   style={{
                     maxHeight: "calc(100dvh - 9rem - env(safe-area-inset-bottom, 0px))",
                     WebkitOverflowScrolling: "touch",
@@ -2707,6 +2741,16 @@ const moveToTrash = useCallback(async () => {
                   >
                     <Star size={15} className={cn(activeNote.isFavorite ? "text-amber-400 fill-amber-400" : "text-tx-tertiary")} />
                     <span>{activeNote.isFavorite ? t('editor.unfavoriteTooltip') : t('editor.favoriteTooltip')}</span>
+                  </button>
+                  <button
+                    onClick={() => { toggleLock(); setShowMobileMenu(false); }}
+                    disabled={isTrashed}
+                    className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-tx-secondary active:bg-app-hover transition-colors disabled:opacity-40"
+                  >
+                    {effectiveLocked
+                      ? <Lock size={15} className="text-orange-500" />
+                      : <Unlock size={15} className="text-tx-tertiary" />}
+                    <span>{effectiveLocked ? t('editor.unlockTooltip') : t('editor.lockTooltip')}</span>
                   </button>
                   <div className="h-px bg-app-border mx-2 my-0.5" />
                   <button
@@ -2932,8 +2976,6 @@ const moveToTrash = useCallback(async () => {
               )}
             </AnimatePresence>
           </div>
-        </div>
-      </header>
 
       {/* Mobile Outline Panel (ȫ������) */}
       <AnimatePresence>
@@ -3917,6 +3959,7 @@ const moveToTrash = useCallback(async () => {
         )}
       </div>
     </motion.div>
+    </>
     </EditorToolbarHost>
   );
 }

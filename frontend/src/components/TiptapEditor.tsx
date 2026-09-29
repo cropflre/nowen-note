@@ -17,7 +17,7 @@ import { AnimatePresence, motion } from "framer-motion";import StarterKit from "
 import Placeholder from "@tiptap/extension-placeholder";
 import Image from "@tiptap/extension-image";
 import ResizableImageView from "./ResizableImageView";
-import CollapsibleEditorToolbar from "./CollapsibleEditorToolbar";
+import CollapsibleEditorToolbar, { MobileEditorToolbarSlot } from "./CollapsibleEditorToolbar";
 import ImageEditDialog from "@/components/image-editor/ImageEditDialog";
 import FullscreenImageViewer, { type FullscreenImageItem } from "@/components/FullscreenImageViewer";
 import { editedImageBlobToFile, isSvgImageSource } from "@/components/image-editor/imageEditService";
@@ -5359,45 +5359,53 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
         <div
           data-mobile-editor-toolbar="compact"
           className={cn(
-            "md:hidden sticky top-0 z-20 flex flex-nowrap items-center gap-0.5 overflow-x-auto touch-pan-x border-b border-app-border bg-app-surface/95 px-2 py-1.5 backdrop-blur transition-shadow duration-200 supports-[backdrop-filter]:bg-app-surface/70",
+            "md:hidden sticky top-0 z-20 flex min-w-0 items-center gap-0.5 border-b border-app-border bg-app-surface/95 px-1 py-1 backdrop-blur transition-shadow duration-200 supports-[backdrop-filter]:bg-app-surface/70",
             toolbarShadow && "shadow-[0_2px_8px_-2px_rgba(0,0,0,0.08)] dark:shadow-[0_2px_8px_-2px_rgba(0,0,0,0.4)]",
           )}
+          style={compactMobileEditing ? { paddingTop: "calc(var(--safe-area-top) + 4px)" } : undefined}
         >
-          <ToolbarButton compact onClick={() => editor.chain().focus().undo().run()} disabled={!editor.can().undo()} title={t('tiptap.undo')}>
-            <Undo size={16} />
-          </ToolbarButton>
-          <ToolbarButton compact onClick={() => editor.chain().focus().redo().run()} disabled={!editor.can().redo()} title={t('tiptap.redo')}>
-            <Redo size={16} />
-          </ToolbarButton>
-          <ToolbarDivider />
-          <ToolbarButton compact onClick={() => toggleHeadingSmart(editor, 1)} isActive={editor.isActive("heading", { level: 1 })} title={t('tiptap.heading1')}>
-            <Heading1 size={16} />
-          </ToolbarButton>
-          <ToolbarButton compact onClick={() => toggleHeadingSmart(editor, 2)} isActive={editor.isActive("heading", { level: 2 })} title={t('tiptap.heading2')}>
-            <Heading2 size={16} />
-          </ToolbarButton>
-          <ToolbarButton compact onClick={() => editor.chain().focus().toggleBold().run()} isActive={editor.isActive("bold")} title={t('tiptap.bold')}>
-            <Bold size={16} />
-          </ToolbarButton>
-          <ToolbarButton
-            compact
-            onClick={() => editor.chain().focus().toggleFirstLineIndent().run()}
-            isActive={editor.isActive("paragraph", { firstLineIndent: 2 })}
-            disabled={!editor.isActive("paragraph")}
-            title={t("tiptap.firstLineIndent2", { defaultValue: "首行缩进 2 字符" })}
+          <MobileEditorToolbarSlot location="leading" />
+          <div
+            data-mobile-editor-format-strip=""
+            className="hide-scrollbar flex min-w-0 flex-1 flex-nowrap items-center gap-0.5 overflow-x-auto touch-pan-x px-1"
           >
-            <span className="text-[10px] font-semibold leading-none">首2</span>
-          </ToolbarButton>
-          <ToolbarButton compact onClick={() => toggleBulletListSmart(editor)} isActive={activeListType === "bulletList"} title={t('tiptap.bulletList')}>
-            <List size={16} />
-          </ToolbarButton>
-          <ToolbarButton compact onClick={handleImageUpload} title={t('tiptap.insertImage')}>
-            <ImagePlus size={16} />
-          </ToolbarButton>
-          <ToolbarButton compact onClick={handleVideoUpload} title={t('tiptap.uploadLocalVideo')}>
-            <Film size={16} />
-          </ToolbarButton>
-          <ToolbarButton compact className="ml-auto" onClick={() => setMobileToolbarExpanded((value) => !value)} isActive={mobileToolbarExpanded} title={t('common.more')}>
+            <ToolbarButton compact onClick={() => editor.chain().focus().undo().run()} disabled={!editor.can().undo()} title={t('tiptap.undo')}>
+              <Undo size={16} />
+            </ToolbarButton>
+            <ToolbarButton compact onClick={() => editor.chain().focus().redo().run()} disabled={!editor.can().redo()} title={t('tiptap.redo')}>
+              <Redo size={16} />
+            </ToolbarButton>
+            <ToolbarDivider />
+            <ToolbarButton compact onClick={() => toggleHeadingSmart(editor, 1)} isActive={editor.isActive("heading", { level: 1 })} title={t('tiptap.heading1')}>
+              <Heading1 size={16} />
+            </ToolbarButton>
+            <ToolbarButton compact onClick={() => toggleHeadingSmart(editor, 2)} isActive={editor.isActive("heading", { level: 2 })} title={t('tiptap.heading2')}>
+              <Heading2 size={16} />
+            </ToolbarButton>
+            <ToolbarButton compact onClick={() => editor.chain().focus().toggleBold().run()} isActive={editor.isActive("bold")} title={t('tiptap.bold')}>
+              <Bold size={16} />
+            </ToolbarButton>
+            <ToolbarButton
+              compact
+              onClick={() => editor.chain().focus().toggleFirstLineIndent().run()}
+              isActive={editor.isActive("paragraph", { firstLineIndent: 2 })}
+              disabled={!editor.isActive("paragraph")}
+              title={t("tiptap.firstLineIndent2", { defaultValue: "首行缩进 2 字符" })}
+            >
+              <span className="text-[10px] font-semibold leading-none">首2</span>
+            </ToolbarButton>
+            <ToolbarButton compact onClick={() => toggleBulletListSmart(editor)} isActive={activeListType === "bulletList"} title={t('tiptap.bulletList')}>
+              <List size={16} />
+            </ToolbarButton>
+            <ToolbarButton compact onClick={handleImageUpload} title={t('tiptap.insertImage')}>
+              <ImagePlus size={16} />
+            </ToolbarButton>
+            <ToolbarButton compact onClick={handleVideoUpload} title={t('tiptap.uploadLocalVideo')}>
+              <Film size={16} />
+            </ToolbarButton>
+          </div>
+          <MobileEditorToolbarSlot location="trailing" />
+          <ToolbarButton compact onClick={() => setMobileToolbarExpanded((value) => !value)} isActive={mobileToolbarExpanded} title={t('common.more')}>
             <ChevronDown size={16} className={cn("transition-transform", mobileToolbarExpanded && "rotate-180")} />
           </ToolbarButton>
         </div>
@@ -5835,6 +5843,7 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
             noteId={note.id}
             noteTags={note.tags || []}
             onTagsChange={onTagsChange}
+            mobileCompact
           />
         </div>
       )}

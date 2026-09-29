@@ -12,11 +12,27 @@ let memoryCollapsed = false;
 const ToolbarHostContext = createContext<{
   target: HTMLSpanElement | null;
   setTarget: (target: HTMLSpanElement | null) => void;
+  mobileLeadingTarget: HTMLSpanElement | null;
+  setMobileLeadingTarget: (target: HTMLSpanElement | null) => void;
+  mobileTrailingTarget: HTMLSpanElement | null;
+  setMobileTrailingTarget: (target: HTMLSpanElement | null) => void;
 } | null>(null);
 
 export function EditorToolbarHost({ children }: { children: ReactNode }) {
   const [target, setTarget] = useState<HTMLSpanElement | null>(null);
-  const value = useMemo(() => ({ target, setTarget }), [target]);
+  const [mobileLeadingTarget, setMobileLeadingTarget] = useState<HTMLSpanElement | null>(null);
+  const [mobileTrailingTarget, setMobileTrailingTarget] = useState<HTMLSpanElement | null>(null);
+  const value = useMemo(
+    () => ({
+      target,
+      setTarget,
+      mobileLeadingTarget,
+      setMobileLeadingTarget,
+      mobileTrailingTarget,
+      setMobileTrailingTarget,
+    }),
+    [target, mobileLeadingTarget, mobileTrailingTarget],
+  );
   return <ToolbarHostContext.Provider value={value}>{children}</ToolbarHostContext.Provider>;
 }
 
@@ -30,6 +46,30 @@ export function EditorToolbarExpandSlot({ location }: { location: "tabs" | "head
       className="hidden shrink-0 items-center empty:hidden md:flex md:empty:hidden"
     />
   );
+}
+
+export function MobileEditorToolbarSlot({ location }: { location: "leading" | "trailing" }) {
+  const host = useContext(ToolbarHostContext);
+  if (!host) return null;
+  return (
+    <span
+      ref={location === "leading" ? host.setMobileLeadingTarget : host.setMobileTrailingTarget}
+      data-mobile-editor-toolbar-slot={location}
+      className="flex shrink-0 items-center empty:hidden md:hidden"
+    />
+  );
+}
+
+export function MobileEditorToolbarPortal({
+  location,
+  children,
+}: {
+  location: "leading" | "trailing";
+  children: ReactNode;
+}) {
+  const host = useContext(ToolbarHostContext);
+  const target = location === "leading" ? host?.mobileLeadingTarget : host?.mobileTrailingTarget;
+  return target ? createPortal(children, target) : null;
 }
 
 function readCollapsed(): boolean {

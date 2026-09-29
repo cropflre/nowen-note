@@ -152,6 +152,12 @@ describe("user preference account cache", () => {
     expect(sanitizeUserPreferencePatch({ remoteImagePasteMode: "keep-remote" })).toEqual({ remoteImagePasteMode: "keep-remote" });
     expect(sanitizeUserPreferencePatch({ remoteImagePasteMode: "unsafe" })).toEqual({ remoteImagePasteMode: "localize" });
   });
+  it("keeps journal lock-on-entry account scoped and boolean", () => {
+    expect(DEFAULT_USER_PREFERENCES.journalLockOnEntry).toBe(false);
+    expect(sanitizeUserPreferencePatch({ journalLockOnEntry: true })).toEqual({ journalLockOnEntry: true });
+    expect(sanitizeUserPreferencePatch({ journalLockOnEntry: "yes" })).toEqual({ journalLockOnEntry: false });
+  });
+
   it("normalizes account-scoped navigation visibility preferences", () => {
     expect(DEFAULT_USER_PREFERENCES.hiddenNavigationModules).toEqual([]);
     expect(DEFAULT_USER_PREFERENCES.hiddenTaskCenterModules).toEqual([]);
