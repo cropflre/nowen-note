@@ -28,6 +28,16 @@ describe("journal enhancement contract", () => {
     expect(view).toContain("工作区日志");
   });
 
+  it("exposes journal privacy management in account settings", () => {
+    const settings = source("../../SettingsModal.tsx");
+    const card = source("../../settings/JournalPrivacySettingsCard.tsx");
+    expect(settings).toContain("<JournalPrivacySettingsCard");
+    expect(card).toContain("api.journals.organizeArchive()");
+    expect(card).toContain("api.journals.ensurePrivacyRoot()");
+    expect(card).toContain("FolderPasswordDialog");
+    expect(card).toContain('setPref("journalLockOnEntry"');
+  });
+
   it("reuses folder password sessions for the personal journal gate", () => {
     const gate = source("../JournalPrivacyGate.tsx");
     expect(gate).toContain("FolderPasswordDialog");
