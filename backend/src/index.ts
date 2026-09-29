@@ -346,7 +346,18 @@ app.get("/api/openapi.json", (c) => c.json(generateOpenAPISpec()));
 app.get("/api/settings", (c) => {
   const db = getDb();
   const rows = db.prepare("SELECT key, value FROM system_settings WHERE key LIKE 'site_%' OR key LIKE 'editor_%' OR key LIKE 'debug_%' OR key = 'web_ui_enabled'").all() as { key: string; value: string }[];
-  const result: Record<string, string> = { site_title: "nowen-note", site_favicon: "", site_icp_beian: "", editor_font_family: "", debug_files_query: "false", web_ui_enabled: "true" };
+  const result: Record<string, string> = {
+    site_title: "nowen-note",
+    site_favicon: "",
+    site_icp_beian: "",
+    site_public_web_origin: "",
+    site_public_web_origin_source: "current",
+    site_file_public_origin: "",
+    site_file_public_origin_source: "inherit",
+    editor_font_family: "",
+    debug_files_query: "false",
+    web_ui_enabled: "true",
+  };
   for (const row of rows) {
     result[row.key] = row.value;
   }
