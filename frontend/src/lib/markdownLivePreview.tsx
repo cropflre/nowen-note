@@ -15,6 +15,7 @@ import {
 } from "@codemirror/view";
 import { MarkdownPreview } from "@/components/MarkdownPreview";
 import { markdownFencedCodeLiveEditingExtension } from "@/lib/markdownFenceAuthoring";
+import { formatMarkdownCodeBlock } from "@/lib/markdownCodeBlockFormatting";
 import {
   applyMarkdownTaskCheckboxChange,
   getMarkdownTaskCheckboxChange,
@@ -166,12 +167,13 @@ class MarkdownLivePreviewWidget extends WidgetType {
     readonly markdown: string,
     readonly from: number,
     readonly to: number,
+    readonly formattingEnabled: boolean,
   ) {
     super();
   }
 
   eq(other: MarkdownLivePreviewWidget): boolean {
-    return this.markdown === other.markdown && this.from === other.from && this.to === other.to;
+    return this.markdown === other.markdown && this.from === other.from && this.to === other.to && this.formattingEnabled === other.formattingEnabled;
   }
 
   toDOM(view: EditorView): HTMLElement {
@@ -199,6 +201,7 @@ class MarkdownLivePreviewWidget extends WidgetType {
         markdown={this.markdown}
         compact
         className="cm-live-preview-render !h-auto !overflow-visible !p-0"
+        onFormatCodeBlock={this.formattingEnabled ? (source, offset) => formatMarkdownCodeBlock(view, source, offset, this.from) : undefined}
         onTaskCheckboxChange={(taskIndex, checked) => {
           const change = getMarkdownTaskCheckboxChange(this.markdown, taskIndex, checked);
           if (!change) return;
@@ -232,7 +235,7 @@ function buildDecorations(state: EditorState): DecorationSet {
       block.from,
       block.to,
       Decoration.replace({
-        widget: new MarkdownLivePreviewWidget(block.markdown, block.from, block.to),
+        widget: new MarkdownLivePreviewWidget(block.markdown, block.from, block.to, state.facet(EditorView.editable) && !state.facet(EditorState.readOnly)),
         block: true,
       }),
     );
@@ -246,7 +249,7 @@ const livePreviewDecorations = StateField.define<DecorationSet>({
   },
   update(value, transaction) {
     const selectionChanged = !transaction.startState.selection.eq(transaction.state.selection);
-    return transaction.docChanged || selectionChanged ? buildDecorations(transaction.state) : value;
+    return transaction.docChanged || transaction.reconfigured || selectionChanged ? buildDecorations(transaction.state) : value;
   },
   provide(field) {
     return EditorView.decorations.from(field);

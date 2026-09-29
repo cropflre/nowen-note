@@ -14,6 +14,8 @@ import "@/components/mermaid-inline-preview.css";
 import { isMermaidLang } from "@/lib/mermaidRenderer";
 import { replaceCodeBlockWithPlainText } from "@/lib/tiptapEditorCommands";
 import { canUseCodeBlockToolbarAction } from "@/lib/codeBlockPermissions";
+import { CodeBlockFormatButton } from "@/components/CodeBlockFormatButton";
+import { formatTiptapCodeBlock } from "@/lib/tiptapCodeBlockFormatting";
 import { formatCodeBlockLanguageLabel } from "@/lib/codeBlockLowlight";
 import { copyText } from "@/lib/clipboard";
 import { recordPhaseAPerfEvent } from "@/lib/phaseAPerfDiagnostics";
@@ -477,6 +479,12 @@ export function CodeBlockView(props: NodeViewProps) {
             )}
           </div>
 
+          <CodeBlockFormatButton
+            language={currentLang}
+            disabled={!canUseCodeBlockToolbarAction("format", editor)}
+            onFormat={() => formatTiptapCodeBlock(editor, getPos)}
+            className="code-block-tool-btn flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+          />
           <button
             type="button"
             onClick={handleCopy}

@@ -2,6 +2,7 @@ import React, { useEffect } from "react";
 import { Compartment, StateEffect } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { markdownFencedCodeAuthoringExtension } from "@/lib/markdownFenceAuthoring";
+import { markdownCodeBlockFormattingExtension } from "@/lib/markdownCodeBlockFormatting";
 import { markdownLivePreviewExtension } from "@/lib/markdownLivePreview";
 import { attachMarkdownSplitScrollSync } from "@/lib/markdownScrollSync";
 import { toast } from "@/lib/toast";
@@ -78,7 +79,7 @@ function getState(view: EditorView): EditorBridgeState {
 
 function ensureFencedCodeAuthoring(state: EditorBridgeState): void {
   if (state.authoringInstalled) return;
-  state.view.dispatch({ effects: StateEffect.appendConfig.of(markdownFencedCodeAuthoringExtension) });
+  state.view.dispatch({ effects: StateEffect.appendConfig.of([markdownFencedCodeAuthoringExtension, markdownCodeBlockFormattingExtension]) });
   state.authoringInstalled = true;
 }
 

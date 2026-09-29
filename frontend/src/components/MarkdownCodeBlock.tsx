@@ -6,6 +6,7 @@ import { instrumentPhaseALowlight } from "@/lib/phaseAPerfDiagnostics";
 import { isPlainTextLanguage } from "@/lib/codeBlockHighlightPlugin";
 import { copyText } from "@/lib/clipboard";
 import { cn } from "@/lib/utils";
+import { CodeBlockFormatButton } from "@/components/CodeBlockFormatButton";
 import "@/markdown-code-highlight.css";
 
 const lowlight = instrumentPhaseALowlight(createCodeBlockLowlight());
@@ -31,10 +32,11 @@ function renderLowlightNode(node: any, key: React.Key): React.ReactNode {
 export interface MarkdownCodeBlockProps {
   className?: string;
   children?: React.ReactNode;
+  onFormat?: () => Promise<void>;
 }
 
 /** Shared Markdown code block with the same core affordances as rich-text code blocks. */
-export function MarkdownCodeBlock({ className, children }: MarkdownCodeBlockProps) {
+export function MarkdownCodeBlock({ className, children, onFormat }: MarkdownCodeBlockProps) {
   const [copied, setCopied] = useState(false);
   const language = normalizeLanguage(className);
   const code = String(children ?? "").replace(/\n$/, "");
@@ -65,16 +67,19 @@ export function MarkdownCodeBlock({ className, children }: MarkdownCodeBlockProp
         <span className="font-medium text-tx-secondary">{label}</span>
         <span className="opacity-50">·</span>
         <span>{lineCount} {lineCount === 1 ? "line" : "lines"}</span>
-        <button
-          type="button"
-          onClick={() => void handleCopy()}
-          className="ml-auto inline-flex h-7 items-center gap-1 rounded-md px-2 transition hover:bg-app-hover hover:text-tx-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary/50"
-          aria-label={copied ? "Copied" : "Copy code"}
-          title={copied ? "Copied" : "Copy code"}
-        >
-          {copied ? <Check size={13} /> : <Copy size={13} />}
-          <span>{copied ? "Copied" : "Copy"}</span>
-        </button>
+        <div className="ml-auto flex items-center gap-1">
+          {onFormat && <CodeBlockFormatButton language={language} onFormat={onFormat} />}
+          <button
+            type="button"
+            onClick={() => void handleCopy()}
+            className="inline-flex h-7 items-center gap-1 rounded-md px-2 transition hover:bg-app-hover hover:text-tx-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary/50"
+            aria-label={copied ? "Copied" : "Copy code"}
+            title={copied ? "Copied" : "Copy code"}
+          >
+            {copied ? <Check size={13} /> : <Copy size={13} />}
+            <span>{copied ? "Copied" : "Copy"}</span>
+          </button>
+        </div>
       </div>
       <pre className="max-w-full overflow-x-auto p-4 text-sm leading-6 [tab-size:2]">
         <code className={cn("nowen-code-highlight font-mono text-tx-primary", className)}>{highlighted}</code>

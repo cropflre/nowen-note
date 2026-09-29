@@ -6,10 +6,12 @@ export type CodeBlockToolbarAction =
   | "mermaid-view"
   | "theme"
   | "language"
+  | "format"
   | "dissolve";
 
 const MUTATING_ACTIONS = new Set<CodeBlockToolbarAction>([
   "language",
+  "format",
   "dissolve",
 ]);
 
@@ -23,7 +25,7 @@ export function isEditorDocumentMutable(
  * Code-block toolbar permission matrix.
  *
  * View-only actions remain available while a notebook is locked. Actions that
- * change node attributes or document structure require an editable editor.
+ * change content, node attributes or document structure require an editable editor.
  */
 export function canUseCodeBlockToolbarAction(
   action: CodeBlockToolbarAction,

@@ -44,6 +44,7 @@ interface MarkdownPreviewProps {
   compact?: boolean;
   containerRef?: React.Ref<HTMLDivElement>;
   onTaskCheckboxChange?: (taskIndex: number, checked: boolean) => void;
+  onFormatCodeBlock?: (source: string, offset: number) => Promise<void>;
 }
 
 const RAW_HTML_RE = /<\/?[a-z][^>]*>/i;
@@ -333,6 +334,7 @@ function createComponents(
   headingIds?: ReadonlyMap<number, string>,
   headingPositions?: ReadonlyMap<number, number>,
   onInternalAnchorClick?: (fragment: string) => void,
+  onFormatCodeBlock?: (offset: number) => Promise<void>,
 ): Record<string, React.FC<any>> {
   const attrs = (node: any) => headingDataAttrs(node, sourceOffset);
   const headingAttrs = (node: any) => headingDataAttrs(node, sourceOffset, headingIds, headingPositions);
@@ -406,11 +408,12 @@ function createComponents(
         ? <div {...props}>{children}</div>
         : <MathView source={source} display />;
     },
-    code: ({ className, children }: any) => {
+    code: ({ node, className, children }: any) => {
       const raw = String(children ?? "");
       const isBlock = isMarkdownBlockCode(className) || raw.endsWith("\n");
       return isBlock
-        ? <MarkdownCodeBlock className={className}>{children}</MarkdownCodeBlock>
+        ? <MarkdownCodeBlock className={className} onFormat={onFormatCodeBlock && typeof node?.position?.start?.offset === "number"
+          ? () => onFormatCodeBlock(sourceOffset + node.position.start.offset) : undefined}>{children}</MarkdownCodeBlock>
         : <code className="rounded bg-app-hover px-1.5 py-0.5 font-mono text-[13px] text-accent-primary">{children}</code>;
     },
     pre: ({ node, children }) => <div {...attrs(node)}>{children}</div>,
@@ -441,12 +444,13 @@ function createComponents(
   };
 }
 
-function MarkdownSegment({ segment, onTaskCheckboxChange, headingIds, headingPositions, onInternalAnchorClick }: {
+function MarkdownSegment({ segment, onTaskCheckboxChange, headingIds, headingPositions, onInternalAnchorClick, onFormatCodeBlock }: {
   segment: MarkdownPreviewSegment;
   onTaskCheckboxChange?: (taskIndex: number, checked: boolean) => void;
   headingIds: ReadonlyMap<number, string>;
   headingPositions: ReadonlyMap<number, number>;
   onInternalAnchorClick: (fragment: string) => void;
+  onFormatCodeBlock?: (offset: number) => Promise<void>;
 }) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const [mounted, setMounted] = useState(() => segment.start === 0 || typeof IntersectionObserver === "undefined");
@@ -466,8 +470,8 @@ function MarkdownSegment({ segment, onTaskCheckboxChange, headingIds, headingPos
     if (height > 0) setEstimatedHeight(height);
   }, [mounted, segment.markdown]);
   const components = useMemo(
-    () => createComponents(onTaskCheckboxChange, segment.start, segment.taskOffset, headingIds, headingPositions, onInternalAnchorClick),
-    [headingIds, headingPositions, onInternalAnchorClick, onTaskCheckboxChange, segment.start, segment.taskOffset],
+    () => createComponents(onTaskCheckboxChange, segment.start, segment.taskOffset, headingIds, headingPositions, onInternalAnchorClick, onFormatCodeBlock),
+    [headingIds, headingPositions, onInternalAnchorClick, onTaskCheckboxChange, onFormatCodeBlock, segment.start, segment.taskOffset],
   );
   const rehypePlugins: any[] = RAW_HTML_RE.test(segment.markdown)
     ? [rehypeRaw, [rehypeSanitize, safeHtmlSchema]]
@@ -491,7 +495,7 @@ function MarkdownSegment({ segment, onTaskCheckboxChange, headingIds, headingPos
   );
 }
 
-export function MarkdownPreview({ markdown, className, compact, containerRef, onTaskCheckboxChange }: MarkdownPreviewProps) {
+export function MarkdownPreview({ markdown, className, compact, containerRef, onTaskCheckboxChange, onFormatCodeBlock }: MarkdownPreviewProps) {
   const { t } = useTranslation();
   const rootRef = useRef<HTMLDivElement | null>(null);
   const renderedMarkdown = useMemo(() => preprocessInternalNoteLinks(preprocessMarkdownMath(preprocessMarkdownVideos(projectMarkdownForUser(markdown || "")
@@ -533,9 +537,13 @@ export function MarkdownPreview({ markdown, className, compact, containerRef, on
     else if (containerRef) (containerRef as React.MutableRefObject<HTMLDivElement | null>).current = node;
   }, [containerRef]);
   const containsRawHtml = RAW_HTML_RE.test(renderedMarkdown);
+  const handleFormatCodeBlock = useMemo(() => onFormatCodeBlock ? async (offset: number) => {
+    const { resolveMarkdownCodeBlockSource } = await import("@/lib/markdownCodeBlockFormatting");
+    await onFormatCodeBlock(markdown, resolveMarkdownCodeBlockSource(markdown, renderedMarkdown, offset));
+  } : undefined, [markdown, renderedMarkdown, onFormatCodeBlock]);
   const components = useMemo(
-    () => createComponents(onTaskCheckboxChange, 0, 0, headingIds, headingPositions, handleInternalAnchorClick),
-    [handleInternalAnchorClick, headingIds, headingPositions, onTaskCheckboxChange],
+    () => createComponents(onTaskCheckboxChange, 0, 0, headingIds, headingPositions, handleInternalAnchorClick, handleFormatCodeBlock),
+    [handleInternalAnchorClick, headingIds, headingPositions, onTaskCheckboxChange, handleFormatCodeBlock],
   );
   const rehypePlugins: any[] = containsRawHtml ? [rehypeRaw, [rehypeSanitize, safeHtmlSchema]] : [];
   const segments = useMemo(
@@ -566,6 +574,7 @@ export function MarkdownPreview({ markdown, className, compact, containerRef, on
           headingIds={headingIds}
           headingPositions={headingPositions}
           onInternalAnchorClick={handleInternalAnchorClick}
+          onFormatCodeBlock={handleFormatCodeBlock}
         />
       )) : (
         <ReactMarkdown

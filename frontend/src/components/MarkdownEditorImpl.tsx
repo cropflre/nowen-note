@@ -2015,6 +2015,14 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
     setPreviewMarkdown(nextMarkdown);
   }, [editable]);
 
+  const handlePreviewCodeBlockFormat = useCallback(async (source: string, offset: number) => {
+    const view = viewRef.current;
+    if (!view || !editable) return;
+    const { formatMarkdownCodeBlock } = await import("@/lib/markdownCodeBlockFormatting");
+    await formatMarkdownCodeBlock(view, source, offset);
+    setPreviewMarkdown(view.state.doc.toString());
+  }, [editable]);
+
   // ---------- ��ǩ�仯 ----------
 
   const noteTags = useMemo(() => note.tags || [], [note.tags]);
@@ -2523,6 +2531,7 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
               compact={viewMode === "split"}
               containerRef={previewRootRef}
               onTaskCheckboxChange={editable ? handlePreviewTaskCheckboxChange : undefined}
+              onFormatCodeBlock={editable ? handlePreviewCodeBlockFormat : undefined}
             />
           </div>
         )}

@@ -93,6 +93,7 @@
     "mermaid": "^11.15.0",
     "next-themes": "^0.4.6",
     "pdfjs-dist": "^4.10.38",
+    "prettier": "3.9.9",
     "qrcode": "^1.5.4",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
