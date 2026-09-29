@@ -127,6 +127,8 @@ export function SortMenu({
   anchorRef,
   showNoteTime,
   onToggleShowTime,
+  showDividers,
+  onToggleDividers,
   titleOnly,
   onToggleTitleOnly,
   onToggleCalendar,
@@ -137,6 +139,8 @@ export function SortMenu({
   anchorRef: React.RefObject<HTMLButtonElement | null>;
   showNoteTime: boolean;
   onToggleShowTime: () => void;
+  showDividers: boolean;
+  onToggleDividers: () => void;
   titleOnly?: boolean;
   onToggleTitleOnly?: () => void;
   onToggleCalendar?: () => void;
@@ -291,6 +295,21 @@ export function SortMenu({
               {showNoteTime ? <Check size={12} className="shrink-0" /> : <span className="w-3 shrink-0" />}
               <span>{t("noteList.showUpdatedTime")}</span>
             </span>
+          </button>
+          <button
+            type="button"
+            role="menuitemcheckbox"
+            aria-checked={showDividers}
+            onClick={(e) => { e.preventDefault(); e.stopPropagation(); onToggleDividers(); }}
+            className={cn(
+              "w-full flex items-center gap-2 px-3 py-1.5 text-xs transition-colors text-left",
+              showDividers
+                ? "text-accent-primary bg-accent-primary/10"
+                : "text-tx-secondary hover:bg-app-hover hover:text-tx-primary"
+            )}
+          >
+            {showDividers ? <Check size={12} /> : <span className="w-3" />}
+            {t("noteList.showDividers")}
           </button>
           {onToggleTitleOnly && (
             <button
@@ -1045,7 +1064,7 @@ export const NoteCard = React.memo(function NoteCard({
   note, isActive, onClick, onContextMenu, isContextTarget, isShared, isSelected,
   draggable, onDragStart, onDragOver, onDragEnd, onDrop, isDragOver,
   onTouchStart, onTouchMove, onTouchEnd, cardRef, searchQuery,
-  showNoteTime, notebookLabel, notebookPath, dragHint, titleOnly = false,
+  showNoteTime, showDivider = false, notebookLabel, notebookPath, dragHint, titleOnly = false,
   sidebarTextStyle,
 }: {
   note: NoteListItem; isActive: boolean; onClick: (e: React.MouseEvent) => void;
@@ -1065,6 +1084,7 @@ export const NoteCard = React.memo(function NoteCard({
   cardRef?: (el: HTMLDivElement | null) => void;
   searchQuery?: string;
   showNoteTime?: boolean;
+  showDivider?: boolean;
   notebookLabel?: string;
   notebookPath?: string;
   titleOnly?: boolean;
@@ -1115,9 +1135,12 @@ export const NoteCard = React.memo(function NoteCard({
           ? "bg-app-active border-accent-primary/30 shadow-sm"
           : isContextTarget
           ? "bg-app-hover border-accent-primary/20"
+          : showDivider
+          ? "bg-transparent border-x-transparent border-t-transparent border-b-app-border/70 hover:bg-app-hover"
           : "bg-transparent border-transparent hover:bg-app-hover",
         isDragOver && "border-accent-primary/50 bg-accent-primary/5"
       )}
+      data-note-list-divider={showDivider ? "on" : "off"}
     >
       {/* 左侧彩色指示条 */}
       <div className={cn(
@@ -1251,6 +1274,7 @@ export function VirtualNoteList({
   noteCardRefs,
   searchQuery,
   showNoteTime,
+  showDividers,
   showNotebookLabel,
   notebookLabels,
   dragHint,
@@ -1277,6 +1301,7 @@ export function VirtualNoteList({
   noteCardRefs?: React.MutableRefObject<Map<string, HTMLDivElement>>;
   searchQuery?: string;
   showNoteTime?: boolean;
+  showDividers?: boolean;
   showNotebookLabel?: boolean;
   notebookLabels?: Map<string, { text: string; path: string }>;
   dragHint?: string;
@@ -1338,7 +1363,7 @@ export function VirtualNoteList({
     >
       <div style={{ height: totalHeight, position: "relative" }}>
         <div className="px-2 space-y-1" style={{ position: "absolute", top: offsetY, left: 0, right: 0 }}>
-          {visibleNotes.map((note) => (
+          {visibleNotes.map((note, visibleIndex) => (
             <NoteCard
               key={note.id}
               cardRef={(el) => {
@@ -1364,6 +1389,7 @@ export function VirtualNoteList({
               onTouchEnd={onTouchEnd}
               searchQuery={searchQuery}
               showNoteTime={showNoteTime}
+              showDivider={!!showDividers && startIndex + visibleIndex < notes.length - 1}
               titleOnly={titleOnly}
               notebookLabel={showNotebookLabel ? notebookLabels?.get(note.notebookId)?.text : undefined}
               notebookPath={showNotebookLabel ? notebookLabels?.get(note.notebookId)?.path : undefined}
@@ -1543,6 +1569,7 @@ export default function NoteList() {
   const [sortPref, setSortPref] = useState<{ by: SortBy; dir: SortDir }>(() => loadSortPref());
   const userPrefs = useUserPreferences();
   const showNoteTime = userPrefs.prefs.showNoteListUpdatedTime;
+  const showDividers = userPrefs.prefs.showNoteListDividers;
   const titleOnly = userPrefs.prefs.noteListTitleOnly;
   const [showSortMenu, setShowSortMenu] = useState(false);
   const sortBtnRef = useRef<HTMLButtonElement | null>(null);
@@ -3646,6 +3673,8 @@ export default function NoteList() {
           onClose={() => setShowSortMenu(false)}
           showNoteTime={showNoteTime}
           onToggleShowTime={() => userPrefs.setPref("showNoteListUpdatedTime", !showNoteTime)}
+          showDividers={showDividers}
+          onToggleDividers={() => userPrefs.setPref("showNoteListDividers", !showDividers)}
           titleOnly={titleOnly}
           onToggleTitleOnly={() => userPrefs.setPref("noteListTitleOnly", !titleOnly)}
           onToggleCalendar={() => setShowCalendar((v) => !v)}
@@ -4057,6 +4086,7 @@ export default function NoteList() {
             noteCardRefs={noteCardRefs}
             searchQuery={state.searchQuery || undefined}
             showNoteTime={showNoteTime}
+            showDividers={showDividers}
             titleOnly={titleOnly}
             showNotebookLabel={showNotebookLabel}
             notebookLabels={notebookLabels}
@@ -4066,7 +4096,7 @@ export default function NoteList() {
         <ScrollArea ref={scrollAreaRef} className="flex-1 min-h-0 min-w-0 [&_[data-radix-scroll-area-viewport]>div]:!block [&_[data-radix-scroll-area-viewport]>div]:w-full">
         <div className="min-w-0 w-full px-2 pb-2 space-y-1">
           <AnimatePresence>
-            {sortedNotes.map((note) => (
+            {sortedNotes.map((note, noteIndex) => (
               <NoteCard
                 sidebarTextStyle={sidebarTextStyle}
                 key={note.id}
@@ -4092,6 +4122,7 @@ export default function NoteList() {
                 onTouchEnd={handleTouchEnd}
                 searchQuery={state.searchQuery || undefined}
                 showNoteTime={showNoteTime}
+                showDivider={showDividers && noteIndex < sortedNotes.length - 1}
                 titleOnly={titleOnly}
                 notebookLabel={showNotebookLabel ? notebookLabels.get(note.notebookId)?.text : undefined}
                 notebookPath={showNotebookLabel ? notebookLabels.get(note.notebookId)?.path : undefined}

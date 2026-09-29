@@ -942,6 +942,11 @@ function SwitchesPanel() {
       label: t('settings.enableNoteTabs'),
       hint: t('settings.enableNoteTabsDesc'),
     },
+    {
+      key: "showNoteListDividers" as const,
+      label: t('settings.showNoteListDividers'),
+      hint: t('settings.showNoteListDividersDesc'),
+    },
   ];
 
   return (
