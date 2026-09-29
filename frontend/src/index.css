@@ -28,9 +28,13 @@
 @supports not (color-mix(in srgb, red 50%, transparent)) {
   input:focus-visible:not(.no-focus-ring),
   textarea:focus-visible:not(.no-focus-ring),
-  select:focus-visible:not(.no-focus-ring),
+  select:focus-visible:not(.no-focus-ring) {
+    box-shadow: 0 0 0 1px rgba(37, 99, 235, 0.5);
+  }
+
+  /* Buttons keep a stronger keyboard focus indicator for accessibility. */
   button:focus-visible:not(.no-focus-ring) {
-    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.5);
+    box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.5);
   }
 }
 
@@ -2566,7 +2570,7 @@ body.density-compact {
 :root[data-skin="macos"] input:focus-visible:not(.no-focus-ring),
 :root[data-skin="macos"] textarea:focus-visible:not(.no-focus-ring),
 :root[data-skin="macos"] select:focus-visible:not(.no-focus-ring) {
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-accent-primary) 40%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-accent-primary) 40%, transparent);
   border-color: var(--color-accent-primary);
 }
 

@@ -32,6 +32,7 @@ import { isDesktop, checkForUpdates, onUpdaterStatus, getReleaseChannel, isPorta
 import { CustomFont } from "@/types";
 import { cn } from "@/lib/utils";
 import { detectShortcutSurface } from "@/lib/shortcutRegistry";
+import type { NavigationModuleId, TaskCenterOptionalModuleId } from "@/lib/navigationVisibility";
 import {
   DESKTOP_KNOWLEDGE_TREE_VIEW_MODE_CHANGED_EVENT,
   DESKTOP_KNOWLEDGE_TREE_VIEW_MODE_STORAGE_KEY,
@@ -768,6 +769,42 @@ function SwitchesPanel() {
     { value: "preview" as const, label: t("markdown.view.preview") },
     { value: "split" as const, label: t("markdown.view.split") },
   ];
+  const navigationVisibilityItems: Array<{ id: NavigationModuleId; label: string }> = [
+    { id: "favorites", label: t("sidebar.favorites") },
+    { id: "files", label: t("sidebar.fileManager") },
+    { id: "diary", label: t("sidebar.dailyRecords", { defaultValue: "每日记录" }) },
+    { id: "tasks", label: t("sidebar.tasks") },
+    { id: "mindmaps", label: t("sidebar.mindMaps") },
+    { id: "ai-chat", label: t("sidebar.aiChat") },
+    { id: "shares", label: t("sidebar.shareManagement") },
+  ];
+  const taskCenterVisibilityItems: Array<{ id: TaskCenterOptionalModuleId; label: string }> = [
+    { id: "inbox", label: t("tasks.inbox", { defaultValue: "收集箱" }) },
+    { id: "my-day", label: t("tasks.myDay", { defaultValue: "我的一天" }) },
+    { id: "planner", label: t("tasks.timePlanning", { defaultValue: "时间规划" }) },
+    { id: "habits", label: t("habits.title") },
+    { id: "stats", label: t("stats.title") },
+  ];
+
+  const setNavigationModuleVisible = (id: NavigationModuleId, visible: boolean) => {
+    const hidden = userPrefs.hiddenNavigationModules;
+    setUserPref(
+      "hiddenNavigationModules",
+      visible
+        ? hidden.filter((item) => item !== id)
+        : Array.from(new Set([...hidden, id])),
+    );
+  };
+
+  const setTaskCenterModuleVisible = (id: TaskCenterOptionalModuleId, visible: boolean) => {
+    const hidden = userPrefs.hiddenTaskCenterModules;
+    setUserPref(
+      "hiddenTaskCenterModules",
+      visible
+        ? hidden.filter((item) => item !== id)
+        : Array.from(new Set([...hidden, id])),
+    );
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -905,6 +942,54 @@ function SwitchesPanel() {
         <p className="text-sm text-zinc-500 dark:text-zinc-400">
           {t('settings.switchesDesc')}
         </p>
+      </div>
+
+      <div className="space-y-3">
+        <div>
+          <div className="text-sm font-semibold text-zinc-800 dark:text-zinc-200">
+            {t("settings.navigationVisibilityTitle")}
+          </div>
+          <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+            {t("settings.navigationVisibilityDesc")}
+          </p>
+        </div>
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+          {navigationVisibilityItems.map((item) => (
+            <label key={item.id} className="flex items-center gap-2 rounded-lg border border-zinc-200 bg-white/70 px-3 py-2 text-xs text-zinc-700 transition-colors hover:border-accent-primary/40 dark:border-zinc-800 dark:bg-zinc-900/40 dark:text-zinc-300">
+              <input
+                type="checkbox"
+                checked={!userPrefs.hiddenNavigationModules.includes(item.id)}
+                onChange={(event) => setNavigationModuleVisible(item.id, event.target.checked)}
+                className="h-3.5 w-3.5 accent-indigo-600"
+              />
+              <span className="truncate">{item.label}</span>
+            </label>
+          ))}
+        </div>
+      </div>
+
+      <div className="space-y-3">
+        <div>
+          <div className="text-sm font-semibold text-zinc-800 dark:text-zinc-200">
+            {t("settings.taskCenterVisibilityTitle")}
+          </div>
+          <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+            {t("settings.taskCenterVisibilityDesc")}
+          </p>
+        </div>
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+          {taskCenterVisibilityItems.map((item) => (
+            <label key={item.id} className="flex items-center gap-2 rounded-lg border border-zinc-200 bg-white/70 px-3 py-2 text-xs text-zinc-700 transition-colors hover:border-accent-primary/40 dark:border-zinc-800 dark:bg-zinc-900/40 dark:text-zinc-300">
+              <input
+                type="checkbox"
+                checked={!userPrefs.hiddenTaskCenterModules.includes(item.id)}
+                onChange={(event) => setTaskCenterModuleVisible(item.id, event.target.checked)}
+                className="h-3.5 w-3.5 accent-indigo-600"
+              />
+              <span className="truncate">{item.label}</span>
+            </label>
+          ))}
+        </div>
       </div>
 
       <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-800/30 divide-y divide-zinc-200 dark:divide-zinc-800 overflow-hidden">

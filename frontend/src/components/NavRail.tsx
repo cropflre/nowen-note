@@ -26,6 +26,8 @@ import { getCurrentMindMapAppRoute, pushMindMapAppPath } from "@/lib/mindMapDeep
 import { useRailMode } from "@/hooks/useRailMode";
 import { useSidebarTextStyle } from "@/hooks/useSidebarTextStyle";
 import { useMobileRailHidden } from "@/hooks/useMobileRailHidden";
+import { useUserPreferences } from "@/hooks/useUserPreferences";
+import { isNavigationModuleVisible } from "@/lib/navigationVisibility";
 import {
   clearDesktopLocalAuth,
   getAppInfo,
@@ -84,6 +86,7 @@ export default function NavRail({ variant = "desktop" }: { variant?: "desktop" |
   const { t } = useTranslation();
   const { state } = useApp();
   const actions = useAppActions();
+  const { prefs: userPrefs } = useUserPreferences();
   const [railMode] = useRailMode();
   const [sidebarTextStyle] = useSidebarTextStyle();
   const classicText = sidebarTextStyle === "classic";
@@ -158,7 +161,10 @@ export default function NavRail({ variant = "desktop" }: { variant?: "desktop" |
   const canSwitchBackToLocal = isDesktopApp() && (usingRemoteServer || usingDesktopLiteMode);
 
   const availableItems = features ? NAV_CONFIG.filter((item) => !item.feature || features[item.feature] !== false) : NAV_CONFIG;
-  const items = localDeviceMode ? NAV_CONFIG : availableItems;
+  const capabilityItems = localDeviceMode ? NAV_CONFIG : availableItems;
+  const items = capabilityItems.filter((item) =>
+    isNavigationModuleVisible(item.mode, userPrefs.hiddenNavigationModules),
+  );
 
   const handleClick = useCallback((mode: ViewMode) => {
     if (localDeviceMode && (mode === "ai-chat" || mode === "shares")) {

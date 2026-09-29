@@ -51,6 +51,8 @@ import { TaskTimePlanner } from "./tasks/TaskTimePlanner";
 import { openTaskQuickCapture } from "@/lib/taskInboxApi";
 import { consumePendingTaskNotificationTaskId } from "@/lib/taskNotifications";
 import { TASK_NOTIFICATION_OPEN_EVENT } from "@/lib/taskNotificationSchedule";
+import { useUserPreferences } from "@/hooks/useUserPreferences";
+import { isTaskCenterModuleVisible } from "@/lib/navigationVisibility";
 
 export function formatLocalDateKey(date = new Date()): string {
   const y = date.getFullYear();
@@ -81,6 +83,7 @@ function getQuickAddCreatePatch(parsed: TaskQuickAddParseResult): Partial<Task> 
 /* ===== Main Component ===== */
 export default function TaskCenter() {
   const { t } = useTranslation();
+  const { prefs: userPrefs } = useUserPreferences();
 
   type CenterMode = "inbox" | "tasks" | "my-day" | "planner" | "habits" | "stats";
   type HabitListMode = "active" | "archived" | "all";
@@ -104,6 +107,13 @@ export default function TaskCenter() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [stats, setStats] = useState<TaskStats | null>(null);
   const [centerMode, setCenterMode] = useState<CenterMode>("tasks");
+
+  useEffect(() => {
+    if (!isTaskCenterModuleVisible(centerMode, userPrefs.hiddenTaskCenterModules)) {
+      setCenterMode("tasks");
+    }
+  }, [centerMode, userPrefs.hiddenTaskCenterModules]);
+
   const [habits, setHabits] = useState<Habit[]>([]);
   const [habitStats, setHabitStats] = useState<HabitStats | null>(null);
   const [habitListMode, setHabitListMode] = useState<HabitListMode>("active");
@@ -813,6 +823,7 @@ export default function TaskCenter() {
             {t("tasks.title")}
           </div>
           <button
+            style={{ display: isTaskCenterModuleVisible("inbox", userPrefs.hiddenTaskCenterModules) ? undefined : "none" }}
             onClick={() => { setCenterMode("inbox"); setSelectedTaskId(null); setSearchQuery(""); setSelectedProjectId(null); }}
             className={cn(
               "flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition-colors",
@@ -842,10 +853,14 @@ export default function TaskCenter() {
             </button>
           ))}
 
-          <div className="px-3 pb-1 pt-3 text-[10px] font-semibold uppercase tracking-wider text-tx-tertiary">
-            {t("tasks.planning", { defaultValue: "计划" })}
-          </div>
+          {(isTaskCenterModuleVisible("my-day", userPrefs.hiddenTaskCenterModules) ||
+            isTaskCenterModuleVisible("planner", userPrefs.hiddenTaskCenterModules)) && (
+            <div className="px-3 pb-1 pt-3 text-[10px] font-semibold uppercase tracking-wider text-tx-tertiary">
+              {t("tasks.planning", { defaultValue: "计划" })}
+            </div>
+          )}
           <button
+            style={{ display: isTaskCenterModuleVisible("my-day", userPrefs.hiddenTaskCenterModules) ? undefined : "none" }}
             onClick={() => { setCenterMode("my-day"); setSelectedTaskId(null); setSearchQuery(""); setSelectedProjectId(null); }}
             className={cn(
               "flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition-colors",
@@ -856,6 +871,7 @@ export default function TaskCenter() {
             <span className="flex-1 text-left">{t("tasks.myDay", { defaultValue: "我的一天" })}</span>
           </button>
           <button
+            style={{ display: isTaskCenterModuleVisible("planner", userPrefs.hiddenTaskCenterModules) ? undefined : "none" }}
             onClick={() => { setCenterMode("planner"); setSelectedTaskId(null); setSearchQuery(""); setSelectedProjectId(null); }}
             className={cn(
               "flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition-colors",
@@ -867,6 +883,7 @@ export default function TaskCenter() {
           </button>
 
           <button
+            style={{ display: isTaskCenterModuleVisible("habits", userPrefs.hiddenTaskCenterModules) ? undefined : "none" }}
             onClick={() => { setCenterMode("habits"); setSelectedTaskId(null); setSearchQuery(""); setSelectedProjectId(null); }}
             className={cn(
               "flex items-center gap-2.5 w-full px-3 py-2 rounded-lg text-sm transition-colors",
@@ -884,6 +901,7 @@ export default function TaskCenter() {
           </button>
 
           <button
+            style={{ display: isTaskCenterModuleVisible("stats", userPrefs.hiddenTaskCenterModules) ? undefined : "none" }}
             onClick={() => { setCenterMode("stats"); setSelectedTaskId(null); setSearchQuery(""); setSelectedProjectId(null); }}
             className={cn(
               "flex items-center gap-2.5 w-full px-3 py-2 rounded-lg text-sm transition-colors",
@@ -966,6 +984,7 @@ export default function TaskCenter() {
         {/* Mobile: horizontal filter bar */}
         <div className={TASK_MOBILE_FILTER_BAR_CLASS}>
           <button
+            style={{ display: isTaskCenterModuleVisible("inbox", userPrefs.hiddenTaskCenterModules) ? undefined : "none" }}
             onClick={() => { setCenterMode("inbox"); setSelectedTaskId(null); setSearchQuery(""); setSelectedProjectId(null); }}
             className={cn(
               "flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-3 py-1.5 text-xs font-medium transition-colors",
@@ -996,6 +1015,7 @@ export default function TaskCenter() {
             </button>
           ))}
           <button
+            style={{ display: isTaskCenterModuleVisible("my-day", userPrefs.hiddenTaskCenterModules) ? undefined : "none" }}
             onClick={() => { setCenterMode("my-day"); setSelectedTaskId(null); setSearchQuery(""); setSelectedProjectId(null); }}
             className={cn(
               "flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-3 py-1.5 text-xs font-medium transition-colors",
@@ -1005,6 +1025,7 @@ export default function TaskCenter() {
             <Sun size={14} /> {t("tasks.myDay", { defaultValue: "我的一天" })}
           </button>
           <button
+            style={{ display: isTaskCenterModuleVisible("planner", userPrefs.hiddenTaskCenterModules) ? undefined : "none" }}
             onClick={() => { setCenterMode("planner"); setSelectedTaskId(null); setSearchQuery(""); setSelectedProjectId(null); }}
             className={cn(
               "flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-3 py-1.5 text-xs font-medium transition-colors",
@@ -1014,6 +1035,7 @@ export default function TaskCenter() {
             <CalendarClock size={14} /> {t("tasks.timePlanning", { defaultValue: "时间规划" })}
           </button>
           <button
+            style={{ display: isTaskCenterModuleVisible("habits", userPrefs.hiddenTaskCenterModules) ? undefined : "none" }}
             onClick={() => { setCenterMode("habits"); setSelectedTaskId(null); setSearchQuery(""); setSelectedProjectId(null); }}
             className={cn(
               "flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition-colors shrink-0",
@@ -1030,6 +1052,7 @@ export default function TaskCenter() {
             </span>
           </button>
           <button
+            style={{ display: isTaskCenterModuleVisible("stats", userPrefs.hiddenTaskCenterModules) ? undefined : "none" }}
             onClick={() => { setCenterMode("stats"); setSelectedTaskId(null); setSearchQuery(""); setSelectedProjectId(null); }}
             className={cn(
               "flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition-colors shrink-0",
