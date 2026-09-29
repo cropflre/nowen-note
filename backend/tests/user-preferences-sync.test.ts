@@ -194,3 +194,19 @@ test("syncs navigation visibility preferences and rejects unknown module ids", a
   assert.equal(invalidTask.status, 400);
   assert.equal(invalidTask.json.code, "INVALID_USER_PREFERENCE");
 });
+
+
+test("syncs journal lock-on-entry preference per account", async () => {
+  const before = await requestJson("GET");
+  assert.equal(before.json.journalLockOnEntry, false);
+
+  const saved = await requestJson("PUT", { journalLockOnEntry: true });
+  assert.equal(saved.status, 200);
+  assert.equal(saved.json.journalLockOnEntry, true);
+  assert.equal((await requestJson("GET")).json.journalLockOnEntry, true);
+  assert.equal((await requestJson("GET", undefined, OTHER_ID)).json.journalLockOnEntry, false);
+
+  const invalid = await requestJson("PUT", { journalLockOnEntry: "yes" });
+  assert.equal(invalid.status, 400);
+  assert.equal(invalid.json.code, "INVALID_USER_PREFERENCE");
+});

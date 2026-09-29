@@ -1339,6 +1339,7 @@ export const api = {
     remoteImagePasteMode?: "localize" | "ask" | "keep-remote";
     hiddenNavigationModules?: string[];
     hiddenTaskCenterModules?: string[];
+    journalLockOnEntry?: boolean;
     hasPreferences?: boolean;
   }>("/user-preferences"),
   updateUserPreferences: (data: {
@@ -1353,6 +1354,7 @@ export const api = {
     remoteImagePasteMode?: "localize" | "ask" | "keep-remote";
     hiddenNavigationModules?: string[];
     hiddenTaskCenterModules?: string[];
+    journalLockOnEntry?: boolean;
   }) => request<{
     noteTitleAsAppTitle: boolean;
     outlineDefaultOpen: boolean;
@@ -1365,6 +1367,7 @@ export const api = {
     remoteImagePasteMode?: "localize" | "ask" | "keep-remote";
     hiddenNavigationModules?: string[];
     hiddenTaskCenterModules?: string[];
+    journalLockOnEntry?: boolean;
     hasPreferences?: boolean;
   }>("/user-preferences", { method: "PUT", body: JSON.stringify(data) }),
 
