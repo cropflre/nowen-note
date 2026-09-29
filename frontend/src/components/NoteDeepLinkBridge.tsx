@@ -54,6 +54,8 @@ export default function NoteDeepLinkBridge() {
 
   const activeNoteRef = useRef(state.activeNote);
   const viewModeRef = useRef(state.viewMode);
+  const previousActiveNoteIdRef = useRef<string | null>(state.activeNote?.id ?? null);
+  const previousViewModeRef = useRef<ViewMode>(state.viewMode);
   const pendingRouteNoteIdRef = useRef<string | null>(null);
   const routeLoadSequenceRef = useRef(0);
 
@@ -149,6 +151,20 @@ export default function NoteDeepLinkBridge() {
   }, [actions, cancelNoteLoad, loadNote, prefs.enableNoteTabs]);
 
   useEffect(() => {
+    const activeNoteId = state.activeNote?.id ?? null;
+    const previousActiveNoteId = previousActiveNoteIdRef.current;
+    const previousViewMode = previousViewModeRef.current;
+    const activeNoteChanged = activeNoteId !== previousActiveNoteId;
+    const enteredNoteWorkspace = (
+      !NOTE_WORKSPACE_VIEWS.has(previousViewMode)
+      && NOTE_WORKSPACE_VIEWS.has(state.viewMode)
+    );
+
+    // Record what this render observed before any early return. On initial mount the refs
+    // already contain the same values, so a stale activeNote cannot hijack /sheets or /mindmaps.
+    previousActiveNoteIdRef.current = activeNoteId;
+    previousViewModeRef.current = state.viewMode;
+
     if (!NOTE_WORKSPACE_VIEWS.has(state.viewMode)) return;
 
     const pathname = resolveCurrentAppPathname();
@@ -170,10 +186,12 @@ export default function NoteDeepLinkBridge() {
 
     if (state.activeNote?.id) {
       if (currentRoute.noteId === state.activeNote.id) return;
-      // Do not hijack another module/public/unknown resource route. AppLayout will normalize
-      // legacy module transitions back to "/" first, after which the next note-state transition
-      // can publish its canonical resource URL.
-      if (pathname !== "/" && !currentRoute.matched) return;
+      // A different resource route may coexist with a stale activeNote in AppContext.
+      // Only take over that route when this render represents explicit note navigation:
+      // either the active note itself changed (Sheet -> Note), or the app entered a note
+      // workspace from a non-note workspace (MindMap -> the same previously active Note).
+      const explicitNoteNavigation = activeNoteChanged || enteredNoteWorkspace;
+      if (pathname !== "/" && !currentRoute.matched && !explicitNoteNavigation) return;
       pushNoteAppPath(state.activeNote.id);
       return;
     }
