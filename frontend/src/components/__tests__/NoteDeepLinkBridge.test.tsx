@@ -166,6 +166,57 @@ describe("NoteDeepLinkBridge", () => {
     expect(window.location.pathname).toBe(`/mindmaps/${NOTE_B}`);
   });
 
+  it("does not hijack a sheet route from stale active-note state on mount", async () => {
+    mocks.state.activeNote = note(NOTE_A);
+    mocks.state.viewMode = "all";
+    window.history.replaceState(null, "", `/sheets/${NOTE_B}`);
+
+    await act(async () => {
+      root.render(<NoteDeepLinkBridge />);
+      await Promise.resolve();
+    });
+
+    expect(window.location.pathname).toBe(`/sheets/${NOTE_B}`);
+  });
+
+  it("switches Sheet -> Note when the user activates a new note", async () => {
+    mocks.state.activeNote = null;
+    mocks.state.viewMode = "all";
+    window.history.replaceState(null, "", `/sheets/${NOTE_A}`);
+
+    await act(async () => {
+      root.render(<NoteDeepLinkBridge />);
+    });
+
+    mocks.state.activeNote = note(NOTE_B);
+    mocks.state.viewMode = "notebook";
+    await act(async () => {
+      root.render(<NoteDeepLinkBridge />);
+      await Promise.resolve();
+    });
+
+    expect(window.location.pathname).toBe(`/notes/${NOTE_B}`);
+    expect(mocks.loadNote).not.toHaveBeenCalled();
+  });
+
+  it("switches MindMap -> the same active Note when entering the note workspace", async () => {
+    mocks.state.activeNote = note(NOTE_A);
+    mocks.state.viewMode = "mindmaps";
+    window.history.replaceState(null, "", `/mindmaps/${NOTE_B}`);
+
+    await act(async () => {
+      root.render(<NoteDeepLinkBridge />);
+    });
+
+    mocks.state.viewMode = "notebook";
+    await act(async () => {
+      root.render(<NoteDeepLinkBridge />);
+      await Promise.resolve();
+    });
+
+    expect(window.location.pathname).toBe(`/notes/${NOTE_A}`);
+  });
+
   it("restores the active note resource URL when a legacy module returns to root", async () => {
     mocks.state.activeNote = note(NOTE_A);
     mocks.state.viewMode = "all";
