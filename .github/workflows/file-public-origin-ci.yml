@@ -38,6 +38,7 @@ on:
       - "frontend/src/lib/api.impl.ts"
       - ".github/workflows/file-public-origin-ci.yml"
 
+# Targeted regressions plus full typechecks keep public-link changes from hiding unrelated branch breakage.
 permissions:
   contents: read
 
