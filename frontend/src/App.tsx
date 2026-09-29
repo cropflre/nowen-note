@@ -3,6 +3,9 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Menu, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import Sidebar from "@/components/Sidebar";
+import WorkspaceIssues from "@/components/issues/WorkspaceIssues";
+import NotificationCenter from "@/components/issues/NotificationCenter";
+import { openWorkspaceIssue, parseIssueAppPath } from "@/lib/workspaceIssueNavigation";
 import NavRail from "@/components/NavRail";
 import SettingsModal from "@/components/SettingsModal";
 import { useRailMode } from "@/hooks/useRailMode";
@@ -401,6 +404,8 @@ function AppLayout() {
   const { t } = useTranslation();
   const [mindMapRoute, setMindMapRoute] = useState<MindMapAppRoute>(() => getCurrentMindMapAppRoute());
   const [sheetRoute, setSheetRoute] = useState<SheetAppRoute>(() => getCurrentSheetAppRoute());
+  const [issueRoute, setIssueRoute] = useState(() => parseIssueAppPath(resolveCurrentAppPathname()));
+  const [notificationCount, setNotificationCount] = useState(0);
   const [appPathReady, setAppPathReady] = useState(false);
 
   useEffect(() => {
@@ -410,8 +415,14 @@ function AppLayout() {
       const nextSheetRoute = parseSheetAppPath(pathname);
       setMindMapRoute(route);
       setSheetRoute(nextSheetRoute);
+      const nextIssueRoute = parseIssueAppPath(pathname);
+      setIssueRoute(nextIssueRoute);
 
-      if (nextSheetRoute.matched) {
+      if (nextIssueRoute.matched) {
+        actions.setViewMode("issues");
+        actions.setEditorFullscreen(false);
+        actions.setMobileSidebar(false);
+      } else if (nextSheetRoute.matched) {
         actions.setViewMode("all");
         actions.setActiveNote(null);
         actions.setMobileView("editor");
@@ -437,6 +448,12 @@ function AppLayout() {
   useEffect(() => {
     if (!appPathReady) return;
     const currentRoute = getCurrentMindMapAppRoute();
+    const currentIssueRoute = parseIssueAppPath(resolveCurrentAppPathname());
+    if (state.viewMode === "issues") {
+      if (!currentIssueRoute.matched) replaceAppPathState("/issues");
+      return;
+    }
+    if (currentIssueRoute.matched) replaceAppPathState("/");
 
     if (state.viewMode === "mindmaps") {
       if (!currentRoute.matched) {
@@ -465,6 +482,7 @@ function AppLayout() {
   const isDiaryView = state.viewMode === "diary";
   const isFilesView = state.viewMode === "files";
   const isSharesView = state.viewMode === "shares";
+  const isIssuesView = state.viewMode === "issues";
   const editorFocusLayout = resolveEditorFocusLayout({
     editorFullscreen: state.editorFullscreen,
     railVisible,
@@ -723,12 +741,14 @@ function AppLayout() {
   // 注：notebooks/tags 本身由 Sidebar 监听同一事件重拉，这里不重复；但我们
   //     显式调用 refreshNotebooks 以统一触发一次订阅刷新，保持一致性。
   useEffect(() => {
-    const onWorkspaceChanged = () => {
+    const onWorkspaceChanged = (event: Event) => {
       actions.setActiveNote(null);
       actions.setNotes([]);
       actions.setSelectedNotebook(null);
       actions.setSelectedTag(null);
-      actions.setViewMode("all");
+      const issuePath = parseIssueAppPath(resolveCurrentAppPathname());
+      if (issuePath.matched && !(event as CustomEvent<{ preserveIssueRoute?: boolean }>).detail?.preserveIssueRoute) replaceAppPathState("/issues");
+      actions.setViewMode(issuePath.matched ? "issues" : "all");
       actions.setMobileView("list");
       actions.setSearchQuery("");
       actions.clearNoteTabs();
@@ -821,7 +841,7 @@ function AppLayout() {
               // （桌面端两者也复用，写在子组件里更通用）。
               style={{ paddingBottom: 'var(--safe-area-bottom)' }}
             >
-              {!mobileRailHidden && <NavRail variant="mobile" />}
+              {!mobileRailHidden && <NavRail variant="mobile" notificationCount={notificationCount} />}
               <div className="flex-1 min-w-0 overflow-hidden">
                 <Sidebar variant="mobile" />
               </div>
@@ -836,7 +856,7 @@ function AppLayout() {
           但 Rail 仍在，模块切换永远 1 次点击可达。
           v16 P3 后续：Rail 三档模式（icon=48px 纯图标 / label=64px 图标+文字 / hidden=完全隐藏）；
           hidden 模式下若主侧栏也折叠，强制保留 Rail（避免完全无侧栏入口）。 */}
-      {showRail && <PhaseAPerfProfiler id="NavRail"><NavRail /></PhaseAPerfProfiler>}
+      {showRail && <PhaseAPerfProfiler id="NavRail"><NavRail notificationCount={notificationCount} /></PhaseAPerfProfiler>}
       {showSidebar && !mediumNoteWorkspace && (
         <div
           className="hidden md:flex shrink-0"
@@ -855,6 +875,11 @@ function AppLayout() {
             noteId={sheetRoute.sheetId!}
             onRequestClose={() => replaceAppPathState("/")}
           />
+        </div>
+      ) : isIssuesView ? (
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+          <MobileTopBar />
+          <WorkspaceIssues key={issueRoute.issueId ?? "issues-list"} issueId={issueRoute.issueId} />
         </div>
       ) : isTaskView ? (
         <div className={TASK_VIEW_SHELL_CLASS}>
@@ -954,6 +979,8 @@ function AppLayout() {
           </div>
         </div>
       )}
+
+      <NotificationCenter onUnreadChange={setNotificationCount} onOpenIssue={(issueId, workspaceId) => { openWorkspaceIssue(issueId, workspaceId); actions.setViewMode("issues"); actions.setMobileSidebar(false); }} />
 
       {/* 全局命令面板（Cmd-K / 菜单搜索 / Dock 搜索统一入口） */}
       <FloatingLayerHost />

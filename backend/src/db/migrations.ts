@@ -71,6 +71,8 @@ import { syncV2KnowledgeTreeScopeReadinessMigration } from "./syncV2KnowledgeTre
 import { lightweightSheetsMigration } from "./lightweightSheetsMigration.js";
 import { attachmentMediaVariantsMigration } from "./attachmentMediaVariantsMigration.js";
 
+import { workspaceIssuesMigration } from "./workspaceIssuesMigration.js";
+
 export type { Migration } from "./migrations.impl.js";
 
 function ensureTaskActivitySchema(db: Database.Database): void {
@@ -396,6 +398,7 @@ export const MIGRATIONS: Migration[] = [
   syncV2KnowledgeTreeScopeReadinessMigration,
   lightweightSheetsMigration,
   attachmentMediaVariantsMigration,
+  workspaceIssuesMigration,
 ].sort((a, b) => a.version - b.version);
 
 export const CURRENT_SCHEMA_VERSION: number = MIGRATIONS.reduce(

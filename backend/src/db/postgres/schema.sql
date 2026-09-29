@@ -185,3 +185,6 @@ EXECUTE FUNCTION clear_task_inbox_after_completion();
 \ir 068_plugin_update_lifecycle.sql
 \ir 069_extension_advisory_freshness.sql
 \ir 070_plugin_studio.sql
+
+-- 工作区议题、回复、状态历史与站内通知（Issue #756）。
+\ir migrations/0114-workspace-issues.sql

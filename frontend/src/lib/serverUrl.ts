@@ -216,6 +216,7 @@ export function inferBrowserServerBaseUrl(
 
   let pathname = locationLike.pathname.replace(/\/+$/, "");
   const routeSuffix = pathname.match(/\/(?:share|notebook-share)\/[A-Za-z0-9_-]+$/)?.[0]
+    || pathname.match(/\/issues(?:\/[A-Za-z0-9-]+)?$/)?.[0]
     || pathname.match(/\/public(?:\/[^/]+)?$/)?.[0]
     || pathname.match(/\/login$/)?.[0]
     || "";

@@ -218,6 +218,21 @@ describe("API endpoint construction", () => {
 });
 
 describe("inferBrowserServerBaseUrl", () => {
+  it.each([
+    ["/issues", ""],
+    ["/issues/", ""],
+    ["/issues/04d9d743-2888-4f08-a71f-4463e1d825ac", ""],
+    ["/nowen/issues", "https://notes.example.com/nowen"],
+    ["/nowen/issues/demo-issue/", "https://notes.example.com/nowen"],
+    ["/user:3001/issues/demo-issue", "https://notes.example.com/user:3001"],
+  ])("议题路由 %s 不会混入 API 服务器前缀", (pathname, expected) => {
+    expect(inferBrowserServerBaseUrl({
+      protocol: "https:",
+      origin: "https://notes.example.com",
+      pathname,
+    })).toBe(expected);
+  });
+
   it("不会把公共空间路由误判为服务器路径前缀", () => {
     expect(inferBrowserServerBaseUrl({
       protocol: "https:",

@@ -1,3 +1,5 @@
+import { inferBrowserServerBaseUrl, stripServerBasePath } from "./serverUrl";
+
 const FILE_ROUTE_QUERY_KEY = "nowenAppPath";
 
 export const APP_PATH_CHANGED_EVENT = "nowen:app-path-changed";
@@ -26,6 +28,14 @@ export function buildAppPathUrl(
   const currentUrl = new URL(currentHref);
 
   if (currentUrl.protocol !== "file:" && !nativeCapacitor) {
+    const currentIssuePath = /\/issues(?:\/[A-Za-z0-9-]+)?\/?$/.test(currentUrl.pathname);
+    if (/^\/issues(?:\/[A-Za-z0-9-]+)?\/?$/.test(normalizedPath) || (currentIssuePath && normalizedPath === "/")) {
+      // 议题导航保留部署前缀，已有模块路径不能被误认为反向代理目录。
+      const pathname = currentUrl.pathname.replace(/\/(?:mindmaps|sheets)(?:\/[A-Za-z0-9-]+)?\/?$/, "");
+      const serverBase = inferBrowserServerBaseUrl({ protocol: currentUrl.protocol, origin: currentUrl.origin, pathname });
+      const prefix = serverBase ? new URL(serverBase).pathname.replace(/\/+$/, "") : "";
+      return `${prefix}${normalizedPath}`;
+    }
     return normalizedPath;
   }
 
@@ -48,6 +58,9 @@ export function resolveCurrentAppPathname(
 ): string {
   const currentUrl = new URL(currentHref);
   if (currentUrl.protocol !== "file:" && !nativeCapacitor) {
+    if (/\/issues(?:\/[A-Za-z0-9-]+)?\/?$/.test(currentUrl.pathname)) {
+      return stripServerBasePath(currentUrl.pathname, inferBrowserServerBaseUrl(currentUrl));
+    }
     return currentUrl.pathname;
   }
 

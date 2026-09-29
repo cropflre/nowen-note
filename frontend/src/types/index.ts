@@ -256,7 +256,7 @@ export interface SearchResult {
   matchedField?: string;
 }
 
-export type ViewMode = "notebook" | "favorites" | "trash" | "all" | "search" | "tasks" | "tag" | "mindmaps" | "ai-chat" | "diary" | "files" | "shares";
+export type ViewMode = "notebook" | "favorites" | "trash" | "all" | "search" | "tasks" | "tag" | "mindmaps" | "ai-chat" | "diary" | "files" | "shares" | "issues";
 
 // ========== 文件管理（/api/files 聚合视图） ==========
 

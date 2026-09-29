@@ -1,6 +1,8 @@
 import React, { useCallback, useEffect, useState } from "react";
 import {
   BrainCircuit,
+  CircleDot,
+  Bell,
   CloudOff,
   FolderOpen,
   ListTodo,
@@ -21,6 +23,8 @@ import { useApp, useAppActions } from "@/store/AppContext";
 import { api, broadcastLogout, clearServerUrl, getCurrentWorkspace, getServerUrl } from "@/lib/api";
 import { ViewMode, WorkspaceFeatures } from "@/types";
 import { cn } from "@/lib/utils";
+import { openWorkspaceIssue, OPEN_NOTIFICATIONS_EVENT, parseIssueAppPath } from "@/lib/workspaceIssueNavigation";
+import { resolveCurrentAppPathname } from "@/lib/appPathNavigation";
 import { pushAppPathState } from "@/lib/appPathNavigation";
 import { getCurrentMindMapAppRoute, pushMindMapAppPath } from "@/lib/mindMapDeepLink";
 import { useRailMode } from "@/hooks/useRailMode";
@@ -64,6 +68,7 @@ const NON_NOTE_WORKSPACE_VIEWS = new Set<ViewMode>([
   "diary",
   "files",
   "shares",
+  "issues",
 ]);
 
 /**
@@ -82,7 +87,7 @@ const NAV_CONFIG: NavConfigItem[] = [
   { icon: <Link2 size={RAIL_ICON_SIZE} />, labelKey: "sidebar.shareManagement", mode: "shares", group: "tools" },
 ];
 
-export default function NavRail({ variant = "desktop" }: { variant?: "desktop" | "mobile" } = {}) {
+export default function NavRail({ variant = "desktop", notificationCount = 0 }: { variant?: "desktop" | "mobile"; notificationCount?: number } = {}) {
   const { t } = useTranslation();
   const { state } = useApp();
   const actions = useAppActions();
@@ -97,6 +102,7 @@ export default function NavRail({ variant = "desktop" }: { variant?: "desktop" |
   const localDeviceMode = isMobileLocalMode();
   const noteWorkspaceActive = !NON_NOTE_WORKSPACE_VIEWS.has(state.viewMode);
 
+  const [workspaceId, setWorkspaceId] = useState(getCurrentWorkspace);
   const [features, setFeatures] = useState<WorkspaceFeatures | null>(null);
   const [loginHistoryOpen, setLoginHistoryOpen] = useState(false);
   const [desktopInfo, setDesktopInfo] = useState<AppInfo | null>(null);
@@ -104,6 +110,7 @@ export default function NavRail({ variant = "desktop" }: { variant?: "desktop" |
   useEffect(() => {
     const load = () => {
       const ws = getCurrentWorkspace();
+      setWorkspaceId(ws);
       if (!ws || ws === "personal") {
         setFeatures(null);
         return;
@@ -171,6 +178,12 @@ export default function NavRail({ variant = "desktop" }: { variant?: "desktop" |
       requestMobileAccountLogin();
       window.location.reload();
       return;
+    }
+
+    if (mode === "issues") {
+      openWorkspaceIssue(null);
+    } else if (parseIssueAppPath(resolveCurrentAppPathname()).matched) {
+      pushAppPathState("/");
     }
 
     if (mode === "mindmaps") {
@@ -313,6 +326,8 @@ export default function NavRail({ variant = "desktop" }: { variant?: "desktop" |
       <div className={cn("my-2 border-t border-app-border/60", showLabel ? "w-8" : "w-6")} aria-hidden />
 
       <div className="flex-1 min-h-0 w-full overflow-y-auto no-scrollbar flex flex-col items-center gap-1 px-1">
+        {!localDeviceMode && workspaceId !== "personal" && <button onClick={() => handleClick("issues")} aria-label={t("sidebar.issues")} title={t("sidebar.issues")} className={cn(itemBaseClass, state.viewMode === "issues" ? "text-accent-primary bg-app-hover" : "text-tx-tertiary hover:bg-app-hover")}><CircleDot size={RAIL_ICON_SIZE} />{showLabel && <span className="mt-0.5 text-[10px]">{t("sidebar.issues")}</span>}</button>}
+        {!localDeviceMode && <button onClick={() => { actions.setMobileSidebar(false); window.dispatchEvent(new Event(OPEN_NOTIFICATIONS_EVENT)); }} aria-label={t("sidebar.notifications")} title={t("sidebar.notifications")} className={cn(itemBaseClass, "relative text-tx-tertiary hover:bg-app-hover")}><Bell size={RAIL_ICON_SIZE} />{notificationCount > 0 && <span className="absolute right-0 top-0 rounded-full bg-accent-primary px-1 text-[9px] text-white">{notificationCount > 99 ? "99+" : notificationCount}</span>}{showLabel && <span className="mt-0.5 text-[10px]">{t("sidebar.notifications")}</span>}</button>}
         {groups.map((group, index) => {
           const groupItems = items.filter((item) => item.group === group);
           if (groupItems.length === 0) return null;

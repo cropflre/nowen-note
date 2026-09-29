@@ -1,3 +1,4 @@
+import type { WorkspaceIssue, WorkspaceIssueDetail, IssueActivity, IssueListResponse, NotificationListResponse } from "@/types/workspaceIssues";
 import { Notebook, NotebookMember, NotebookShareLink, Note, NoteListItem, Tag, SearchResult, User, UserPublicInfo, Task, TaskStats, TaskFilter, CustomFont, MindMap, MindMapListItem, Diary, DiaryMediaItem, DiaryTimeline, DiaryStats, Share, ShareInfo, SharedNoteContent, NoteVersion, ShareComment, Workspace, WorkspaceAdminItem, WorkspaceMember, WorkspaceInvite, WorkspaceRole, WorkspaceFeatures, FileItem, FileDetail, FileListResponse, FileStats, FileSortKey, FileCategory, FileFilter, FileMyUploadsRef } from "@/types";
 import { TASK_REMINDER_SYNC_EVENT, type TaskReminderScheduleItem } from "@/lib/taskNotificationSchedule";
 
@@ -4018,6 +4019,22 @@ export const api = {
       throw new Error(err.error || `导入失败: ${res.status}`);
     }
     return res.json();
+  },
+
+  issues: {
+    list: (workspaceId: string, status = "all", offset = 0) => request<IssueListResponse>(`/workspace-issues?${new URLSearchParams({ workspaceId, status, offset: String(offset) })}`),
+    get: (id: string) => request<WorkspaceIssueDetail>(`/workspace-issues/${encodeURIComponent(id)}`),
+    create: (data: { workspaceId: string; title: string; content: string; relatedNoteId?: string | null }) => request<WorkspaceIssue>("/workspace-issues", { method: "POST", body: JSON.stringify(data), _skipOfflineQueue: true }),
+    update: (id: string, data: { title?: string; content?: string; status?: "open" | "closed"; relatedNoteId?: string | null }) => request<WorkspaceIssue>(`/workspace-issues/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(data), _skipOfflineQueue: true }),
+    activity: (id: string, offset = 0) => request<{ items: IssueActivity[]; total: number }>(`/workspace-issues/${encodeURIComponent(id)}/activity?offset=${offset}`),
+    comment: (id: string, content: string, parentId?: string) => request<{ id: string }>(`/workspace-issues/${encodeURIComponent(id)}/comments`, { method: "POST", body: JSON.stringify({ content, parentId }), _skipOfflineQueue: true }),
+    editComment: (id: string, commentId: string, content: string) => request<{ success: boolean }>(`/workspace-issues/${encodeURIComponent(id)}/comments/${encodeURIComponent(commentId)}`, { method: "PATCH", body: JSON.stringify({ content }), _skipOfflineQueue: true }),
+    deleteComment: (id: string, commentId: string) => request<{ success: boolean }>(`/workspace-issues/${encodeURIComponent(id)}/comments/${encodeURIComponent(commentId)}`, { method: "DELETE", _skipOfflineQueue: true }),
+  },
+  notifications: {
+    list: (unread = false, offset = 0, limit = 30) => request<NotificationListResponse>(`/notifications?unread=${unread}&offset=${offset}&limit=${limit}`),
+    read: (id: string) => request<{ success: boolean }>(`/notifications/${encodeURIComponent(id)}/read`, { method: "POST", _skipOfflineQueue: true }),
+    readAll: () => request<{ success: boolean }>("/notifications/read-all", { method: "POST", _skipOfflineQueue: true }),
   },
 
   // ========== Workspaces (Phase 1 多用户协作) ==========

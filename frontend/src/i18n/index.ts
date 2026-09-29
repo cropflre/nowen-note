@@ -43,6 +43,7 @@ import {
   enCoverageTranslations,
   zhCNCoverageTranslations,
 } from "./coverageTranslations";
+import { enWorkspaceIssuesTranslations, zhCNWorkspaceIssuesTranslations } from "./workspaceIssuesTranslations";
 import { installLegacySettingsI18nBridge } from "./legacySettingsI18nBridge";
 
 function mergeTranslations(base: any, patch: any): any {
@@ -73,6 +74,7 @@ const zhCNWithReleaseTranslations = mergeTranslationPatches(
   zhCNDiaryMarkdownTranslations,
   zhCNEditorSplitTranslations,
   zhCNCoverageTranslations,
+  zhCNWorkspaceIssuesTranslations,
 );
 
 const enWithReleaseTranslations = mergeTranslationPatches(
@@ -87,6 +89,7 @@ const enWithReleaseTranslations = mergeTranslationPatches(
   enDiaryMarkdownTranslations,
   enEditorSplitTranslations,
   enCoverageTranslations,
+  enWorkspaceIssuesTranslations,
 );
 
 const zhCNWithRuntimeOverrides = mergeTranslations(
