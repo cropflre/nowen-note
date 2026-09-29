@@ -18,6 +18,7 @@ services:
       - PORT=3001
       - TZ=${TZ:-Asia/Shanghai}
       - PUBLIC_WEB_ORIGIN=${PUBLIC_WEB_ORIGIN:-}
+      - FILE_PUBLIC_ORIGIN=${FILE_PUBLIC_ORIGIN:-}
       - NOWEN_DEPLOYMENT_TYPE=docker-compose-managed
       - NOWEN_IMAGE_TAG=${NOWEN_IMAGE_TAG:-latest}
       - NOWEN_UPDATER_URL=http://nowen-note-updater:3002
