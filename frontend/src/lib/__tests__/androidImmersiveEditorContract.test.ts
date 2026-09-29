@@ -41,6 +41,14 @@ describe("Android immersive editor contract", () => {
     expect(source).toContain("toggleLock(); setShowMobileMenu(false)");
   });
 
+  it("reuses the breadcrumb slot for the title only after the body title scrolls away", () => {
+    const source = read("src/components/EditorPane.tsx");
+    expect(source).toContain("mobileTitlePinned");
+    expect(source).toContain("IntersectionObserver");
+    expect(source).toContain("[data-mobile-editor-title], [data-markdown-mobile-title]");
+    expect(source).toContain("setMobileTitlePinned(!entry?.isIntersecting)");
+  });
+
   it("does not resurrect the legacy two-row header from global keyboard CSS", () => {
     const html = read("index.html");
     expect(html).not.toContain('header[data-mobile-editor-compact="true"] > div:nth-of-type(2)');
