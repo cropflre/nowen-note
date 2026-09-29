@@ -262,6 +262,7 @@ docker run -d \
 | `NOWEN_PORT` | `3001` | Compose 对外暴露端口 |
 | `TZ` | `Asia/Shanghai` | 容器时区，会影响任务日期与日记自然日期判断 |
 | `PUBLIC_WEB_ORIGIN` | 空 | 反向代理或公网域名，用于生成正确的分享链接 |
+| `FILE_PUBLIC_ORIGIN` | 继承 `PUBLIC_WEB_ORIGIN` | 文件管理 / 图床复制直链使用的独立公网域名；上传、预览和本人下载仍走当前连接地址 |
 | `JWT_SECRET` | 自动生成并持久化 | 登录、会话与部分加密回退；多实例部署时必须统一配置 |
 | `BACKUP_DIR` | `/app/data/backups` | 自动备份目录 |
 | `BACKUP_WEBDAV_ENCRYPTION_KEY` | 回退到 `JWT_SECRET` | 加密保存 WebDAV 凭据，生产环境建议单独配置 |
