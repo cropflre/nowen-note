@@ -69,6 +69,10 @@ vi.mock("@/store/AppContext", () => ({
 
 vi.mock("@/lib/api", () => ({ api: mocks.api }));
 
+vi.mock("@/lib/noteDeepLink", () => ({
+  buildNoteDeepLinkUrl: (id: string) => `https://notes.example.com/notes/${id}`,
+}));
+
 vi.mock("@/lib/toast", () => ({
   toast: {
     error: vi.fn(),
@@ -90,6 +94,11 @@ describe("NoteTabsBar 全部标签列表", () => {
 
   beforeEach(async () => {
     vi.clearAllMocks();
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText: vi.fn(async () => undefined) },
+    });
+    vi.spyOn(window, "open").mockImplementation(() => null);
     mocks.api.getNote.mockResolvedValue({
       id: "note-2",
       title: "笔记二",
@@ -215,6 +224,59 @@ describe("NoteTabsBar 全部标签列表", () => {
     expect(mocks.api.getNote).toHaveBeenCalledWith("note-2");
     expect(mocks.actions.setActiveNote).toHaveBeenCalledWith(
       expect.objectContaining({ id: "note-2" }),
+    );
+  });
+
+  it("右键标签可以复制内部深链", async () => {
+    const tab = document.querySelector<HTMLButtonElement>('button[title="笔记一"]');
+    expect(tab).not.toBeNull();
+
+    await act(async () => {
+      tab!.dispatchEvent(new MouseEvent("contextmenu", {
+        bubbles: true,
+        clientX: 120,
+        clientY: 80,
+      }));
+    });
+
+    const copyButton = Array.from(document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]'))
+      .find((button) => button.textContent?.includes("editorTabs.copyInternalLink"));
+    expect(copyButton).toBeDefined();
+
+    await act(async () => {
+      copyButton!.click();
+      await Promise.resolve();
+    });
+
+    expect(navigator.clipboard.writeText).toHaveBeenCalledWith(
+      "https://notes.example.com/notes/note-1",
+    );
+  });
+
+  it("右键标签可以在浏览器新标签页打开内部深链", async () => {
+    const tab = document.querySelector<HTMLButtonElement>('button[title="笔记一"]');
+    expect(tab).not.toBeNull();
+
+    await act(async () => {
+      tab!.dispatchEvent(new MouseEvent("contextmenu", {
+        bubbles: true,
+        clientX: 120,
+        clientY: 80,
+      }));
+    });
+
+    const openButton = Array.from(document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]'))
+      .find((button) => button.textContent?.includes("editorTabs.openInNewTab"));
+    expect(openButton).toBeDefined();
+
+    await act(async () => {
+      openButton!.click();
+    });
+
+    expect(window.open).toHaveBeenCalledWith(
+      "https://notes.example.com/notes/note-1",
+      "_blank",
+      "noopener,noreferrer",
     );
   });
 });
