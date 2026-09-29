@@ -77,6 +77,11 @@ import {
 import AttachmentDetailDrawer from "@/components/attachmentDetail/AttachmentDetailDrawer";
 import { MotionPhotoOverlay } from "@/components/MotionPhotoOverlay";
 import FileUploadDialog from "@/components/FileUploadDialog";
+import { useSiteSettings } from "@/hooks/useSiteSettings";
+import {
+  buildPublicAttachmentUrl,
+  resolvePublicAttachmentOrigin,
+} from "@/lib/publicAttachmentUrl";
 
 // ---------------------------------------------------------------------------
 // 工具：文件大小可读化 / MIME → 图标 / 时间格式化
@@ -245,6 +250,32 @@ export default function FileManager() {
   const { t } = useTranslation();
   const { state } = useApp();
   const actions = useAppActions();
+  const { siteConfig, updateFilePublicOrigin } = useSiteSettings();
+  const [canConfigurePublicOrigin, setCanConfigurePublicOrigin] = useState(false);
+  const [showPublicOriginEditor, setShowPublicOriginEditor] = useState(false);
+  const [publicOriginDraft, setPublicOriginDraft] = useState("");
+  const [savingPublicOrigin, setSavingPublicOrigin] = useState(false);
+
+  const publicAttachmentOptions = useMemo(() => ({
+    filePublicOrigin: siteConfig.filePublicOrigin,
+    publicWebOrigin: siteConfig.publicWebOrigin,
+  }), [siteConfig.filePublicOrigin, siteConfig.publicWebOrigin]);
+  const publicAttachmentOrigin = useMemo(
+    () => resolvePublicAttachmentOrigin(publicAttachmentOptions),
+    [publicAttachmentOptions],
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    api.getMe()
+      .then((user) => {
+        if (!cancelled) setCanConfigurePublicOrigin((user as any)?.role === "admin");
+      })
+      .catch(() => {
+        if (!cancelled) setCanConfigurePublicOrigin(false);
+      });
+    return () => { cancelled = true; };
+  }, []);
 
   // 列表状态
   const [items, setItems] = useState<FileItem[]>([]);
@@ -302,6 +333,29 @@ export default function FileManager() {
   //     - 详情抽屉头部新增"外链分享"区块，醒目展示完整直链 + 三种格式按钮
   //   不持久化到 localStorage：当前作为临时操作模式，避免下次进来发现"图片之外的文件不见了"。
   const [isImageHostMode, setIsImageHostMode] = useState(false);
+
+  const openPublicOriginEditor = useCallback(() => {
+    setPublicOriginDraft(siteConfig.filePublicOrigin || "");
+    setShowPublicOriginEditor(true);
+  }, [siteConfig.filePublicOrigin]);
+
+  const savePublicOrigin = useCallback(async () => {
+    if (savingPublicOrigin) return;
+    setSavingPublicOrigin(true);
+    try {
+      await updateFilePublicOrigin(publicOriginDraft.trim());
+      toast.success(
+        publicOriginDraft.trim()
+          ? "文件公开地址已保存"
+          : "已改为继承公开分享地址",
+      );
+      setShowPublicOriginEditor(false);
+    } catch (error: any) {
+      toast.error(error?.message || "保存文件公开地址失败");
+    } finally {
+      setSavingPublicOrigin(false);
+    }
+  }, [publicOriginDraft, savingPublicOrigin, updateFilePublicOrigin]);
 
   // 详情抽屉
   // detailId 为 null 时抽屉关闭；非 null 由 AttachmentDetailDrawer 自己加载详情。
@@ -887,7 +941,8 @@ export default function FileManager() {
   /** 把附件信息按指定格式（URL / Markdown / HTML）复制到剪贴板。 */
   const copySnippet = useCallback(
     async (item: { id: string; filename: string; url: string }, format: ImageHostFormat = "url") => {
-      const full = resolveAttachmentUrl(item.url);
+      const resolved = resolveAttachmentUrl(item.url);
+      const full = buildPublicAttachmentUrl(resolved, publicAttachmentOptions);
       const snippet = formatImageHostSnippet(format, full, item.filename);
       const ok = await copyText(snippet);
       if (ok) {
@@ -898,7 +953,7 @@ export default function FileManager() {
         toast.error("复制失败，请检查浏览器剪贴板权限");
       }
     },
-    [],
+    [publicAttachmentOptions],
   );
 
   /** 旧 API 兼容：默认复制纯 URL（GridCard 主按钮 / ListView 都还在用这个名字）。 */
@@ -1261,6 +1316,83 @@ export default function FileManager() {
           onChange={onFileInputChange}
         />
       </div>
+
+      {isImageHostMode && (
+        <div
+          data-file-public-origin
+          className="border-b border-app-border bg-indigo-500/[0.04] px-3 py-2 md:px-6"
+        >
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex min-w-0 flex-1 items-center gap-2">
+              <Globe size={14} className="shrink-0 text-indigo-500" />
+              <span className="shrink-0 text-[11px] font-medium text-tx-secondary">外链地址</span>
+              <code className="min-w-0 truncate text-[11px] text-tx-primary">
+                {publicAttachmentOrigin.origin || "当前连接地址"}
+              </code>
+              <span className="shrink-0 rounded-full bg-app-hover px-1.5 py-0.5 text-[9px] text-tx-tertiary">
+                {publicAttachmentOrigin.source === "file"
+                  ? siteConfig.filePublicOriginSource === "environment"
+                    ? "FILE_PUBLIC_ORIGIN"
+                    : "文件设置"
+                  : publicAttachmentOrigin.source === "public-web"
+                    ? "继承分享地址"
+                    : "当前连接"}
+              </span>
+            </div>
+            {canConfigurePublicOrigin && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 shrink-0 px-2 text-[11px]"
+                onClick={openPublicOriginEditor}
+              >
+                配置
+              </Button>
+            )}
+          </div>
+
+          {showPublicOriginEditor && canConfigurePublicOrigin && (
+            <div className="mt-2 rounded-lg border border-app-border bg-app-surface p-2.5">
+              <div className="mb-1 text-[11px] font-medium text-tx-secondary">文件公开地址</div>
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <Input
+                  value={publicOriginDraft}
+                  onChange={(event) => setPublicOriginDraft(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") void savePublicOrigin();
+                    if (event.key === "Escape") setShowPublicOriginEditor(false);
+                  }}
+                  placeholder="https://file.example.com"
+                  className="h-8 min-w-0 flex-1 font-mono text-xs"
+                  autoFocus
+                />
+                <div className="flex shrink-0 gap-1.5">
+                  <Button
+                    size="sm"
+                    className="h-8 px-3 text-xs"
+                    disabled={savingPublicOrigin}
+                    onClick={() => void savePublicOrigin()}
+                  >
+                    {savingPublicOrigin ? <Loader2 size={12} className="animate-spin" /> : "保存"}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-8 px-3 text-xs"
+                    disabled={savingPublicOrigin}
+                    onClick={() => setShowPublicOriginEditor(false)}
+                  >
+                    取消
+                  </Button>
+                </div>
+              </div>
+              <p className="mt-1.5 text-[10px] leading-4 text-tx-tertiary">
+                留空时继承“公开分享地址”；文件上传、预览和本人下载仍走当前服务器。该域名需反向代理到 Nowen Note，并允许访问 /api/attachments/*。
+              </p>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* 工具条：分类 / 搜索 / 排序 */}
       <div className="flex flex-wrap items-center gap-2 px-3 md:px-6 py-1.5 md:py-2 border-b border-app-border bg-app-surface/20">
