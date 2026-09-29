@@ -53,6 +53,7 @@ import OfflineSyncRuntime from "@/components/OfflineSyncRuntime";
 import UpdateNotifier from "@/components/common/UpdateNotifier";
 import FolderSyncScheduler from "@/components/FolderSyncScheduler";
 import NoteWorkspaceLayoutController from "@/components/NoteWorkspaceLayoutController";
+import NoteDeepLinkBridge from "@/components/NoteDeepLinkBridge";
 import { PhaseAPerfProfiler } from "@/components/PhaseAPerfProfiler";
 import { isAccountLoginHistorySupported, saveAccountLoginHistory } from "@/lib/accountLoginHistory";
 import SidebarSearchExperienceBridge from "@/components/SidebarSearchExperienceBridge";
@@ -794,6 +795,7 @@ function AppLayout() {
 
   return (
     <div className="flex h-[100dvh] w-screen bg-app-bg overflow-hidden transition-colors duration-200">
+      <NoteDeepLinkBridge />
       {/* 移动端目录使用全屏抽屉；快捷栏默认显示，也可通过独立偏好隐藏。 */}
       <AnimatePresence>
         {state.mobileSidebarOpen && (
