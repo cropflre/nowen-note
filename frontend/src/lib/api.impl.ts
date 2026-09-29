@@ -1239,6 +1239,10 @@ export const api = {
     site_title: string;
     site_favicon: string;
     site_icp_beian?: string;
+    site_public_web_origin?: string;
+    site_public_web_origin_source?: string;
+    site_file_public_origin?: string;
+    site_file_public_origin_source?: string;
     editor_font_family: string;
     // 功能开关（字符串 "true"/"false"，未写过时 DEFAULTS 保证为 "true"）
     feature_personal_export_enabled?: string;
@@ -1250,6 +1254,10 @@ export const api = {
         site_title: "nowen-note",
         site_favicon: "",
         site_icp_beian: "",
+        site_public_web_origin: "",
+        site_public_web_origin_source: "current",
+        site_file_public_origin: "",
+        site_file_public_origin_source: "inherit",
         editor_font_family: "",
         feature_personal_export_enabled: "true",
         feature_personal_import_enabled: "true",
@@ -2649,6 +2657,10 @@ export const api = {
       site_title: string;
       site_favicon: string;
       site_icp_beian?: string;
+      site_public_web_origin?: string;
+      site_public_web_origin_source?: string;
+      site_file_public_origin?: string;
+      site_file_public_origin_source?: string;
       editor_font_family: string;
       feature_personal_export_enabled?: string;
       feature_personal_import_enabled?: string;
@@ -2660,6 +2672,8 @@ export const api = {
     site_title?: string;
     site_favicon?: string;
     site_icp_beian?: string;
+    site_public_web_origin?: string;
+    site_file_public_origin?: string;
     editor_font_family?: string;
     // 布尔值或 "true"/"false" 字符串；后端做归一化
     feature_personal_export_enabled?: boolean | string;
@@ -2672,6 +2686,10 @@ export const api = {
       site_title: string;
       site_favicon: string;
       site_icp_beian?: string;
+      site_public_web_origin?: string;
+      site_public_web_origin_source?: string;
+      site_file_public_origin?: string;
+      site_file_public_origin_source?: string;
       editor_font_family: string;
       feature_personal_export_enabled?: string;
       feature_personal_import_enabled?: string;
