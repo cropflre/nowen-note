@@ -96,9 +96,10 @@ describe("NoteList compact cards and controls", () => {
   it("uses one responsive menu with preference checkboxes and a date-filter action", () => {
     const anchor = document.createElement("button");
     document.body.appendChild(anchor);
-    const onChange = vi.fn(), onClose = vi.fn(), toggleTitle = vi.fn(), toggleTime = vi.fn(), calendar = vi.fn();
+    const onChange = vi.fn(), onClose = vi.fn(), toggleTitle = vi.fn(), toggleTime = vi.fn(), toggleDividers = vi.fn(), calendar = vi.fn();
     act(() => root.render(<SortMenu value={{ by: "updatedAt", dir: "desc" }} onChange={onChange} onClose={onClose}
-      anchorRef={{ current: anchor }} showNoteTime onToggleShowTime={toggleTime} titleOnly={false} onToggleTitleOnly={toggleTitle} onToggleCalendar={calendar} />));
+      anchorRef={{ current: anchor }} showNoteTime onToggleShowTime={toggleTime} titleOnly={false} onToggleTitleOnly={toggleTitle}
+      showDividers={false} onToggleDividers={toggleDividers} onToggleCalendar={calendar} />));
     const buttons = [...document.querySelectorAll<HTMLButtonElement>('[role="menu"] button')];
     act(() => buttons.find((b) => b.textContent === "noteList.titleOnly")!.click());
     act(() => buttons.find((b) => b.textContent === "noteList.showUpdatedTime")!.click());
