@@ -13,6 +13,10 @@ export interface SiteConfig {
   publicWebOrigin: string;
   /** settings / environment / current，用于分享弹窗解释地址来源。 */
   publicWebOriginSource: string;
+  /** 文件/图床复制直链专用地址；空串表示继承 publicWebOrigin。 */
+  filePublicOrigin: string;
+  /** settings / environment / inherit。 */
+  filePublicOriginSource: string;
   editorFontFamily: string;
 }
 
@@ -22,6 +26,8 @@ const DEFAULT_CONFIG: SiteConfig = {
   icpBeian: "",
   publicWebOrigin: "",
   publicWebOriginSource: "current",
+  filePublicOrigin: "",
+  filePublicOriginSource: "inherit",
   editorFontFamily: "",
 };
 
@@ -43,6 +49,7 @@ interface SiteSettingsContextValue {
   siteConfig: SiteConfig;
   updateSiteConfig: (title: string, favicon: string) => Promise<void>;
   updatePublicWebOrigin: (origin: string) => Promise<void>;
+  updateFilePublicOrigin: (origin: string) => Promise<void>;
   updateEditorFont: (fontId: string) => Promise<void>;
   isLoaded: boolean;
 }
@@ -51,6 +58,7 @@ const SiteSettingsContext = createContext<SiteSettingsContextValue>({
   siteConfig: DEFAULT_CONFIG,
   updateSiteConfig: async () => {},
   updatePublicWebOrigin: async () => {},
+  updateFilePublicOrigin: async () => {},
   updateEditorFont: async () => {},
   isLoaded: false,
 });
@@ -123,6 +131,8 @@ function toSiteConfig(data: any, previous: SiteConfig = DEFAULT_CONFIG): SiteCon
     icpBeian: data?.site_icp_beian || previous.icpBeian || "",
     publicWebOrigin: data?.site_public_web_origin || "",
     publicWebOriginSource: data?.site_public_web_origin_source || "current",
+    filePublicOrigin: data?.site_file_public_origin || "",
+    filePublicOriginSource: data?.site_file_public_origin_source || "inherit",
     editorFontFamily: data?.editor_font_family || previous.editorFontFamily || "",
   };
 }
@@ -141,6 +151,8 @@ function readMobileLocalConfig(): SiteConfig {
       ...parsed,
       publicWebOrigin: "",
       publicWebOriginSource: "current",
+      filePublicOrigin: "",
+      filePublicOriginSource: "inherit",
     };
   } catch {
     return DEFAULT_CONFIG;
@@ -240,6 +252,23 @@ export function SiteSettingsProvider({ children }: { children: React.ReactNode }
     });
   }, []);
 
+  const updateFilePublicOrigin = useCallback(async (origin: string) => {
+    if (isMobileLocalMode()) {
+      setSiteConfig((previous) => ({
+        ...previous,
+        filePublicOrigin: "",
+        filePublicOriginSource: "inherit",
+      }));
+      return;
+    }
+    const data = await api.updateSiteSettings({ site_file_public_origin: origin });
+    setSiteConfig((previous) => {
+      const config = toSiteConfig(data, previous);
+      applyRuntimePublicOrigin(config);
+      return config;
+    });
+  }, []);
+
   const updateEditorFont = useCallback(async (fontId: string) => {
     if (isMobileLocalMode()) {
       const localFontId = BUILTIN_FONTS.some((font) => font.id === fontId) ? fontId : "";
@@ -272,7 +301,7 @@ export function SiteSettingsProvider({ children }: { children: React.ReactNode }
   }, [siteConfig]);
 
   return (
-    <SiteSettingsContext.Provider value={{ siteConfig, updateSiteConfig, updatePublicWebOrigin, updateEditorFont, isLoaded }}>
+    <SiteSettingsContext.Provider value={{ siteConfig, updateSiteConfig, updatePublicWebOrigin, updateFilePublicOrigin, updateEditorFont, isLoaded }}>
       {children}
     </SiteSettingsContext.Provider>
   );
