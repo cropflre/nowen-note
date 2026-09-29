@@ -674,6 +674,7 @@ app.get("/archive", (c) => {
       journals: Array<{
         id: string;
         title: string;
+        subtitle: string;
         journalDate: string;
         createdAt: string;
         updatedAt: string;
