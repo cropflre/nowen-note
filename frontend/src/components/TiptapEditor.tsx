@@ -5344,6 +5344,7 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
             "md:hidden sticky top-0 z-20 flex min-w-0 items-center gap-0.5 border-b border-app-border bg-app-surface/95 px-1 py-1 backdrop-blur transition-shadow duration-200 supports-[backdrop-filter]:bg-app-surface/70",
             toolbarShadow && "shadow-[0_2px_8px_-2px_rgba(0,0,0,0.08)] dark:shadow-[0_2px_8px_-2px_rgba(0,0,0,0.4)]",
           )}
+          style={compactMobileEditing ? { paddingTop: "calc(var(--safe-area-top) + 4px)" } : undefined}
         >
           <MobileEditorToolbarSlot location="leading" />
           <div
