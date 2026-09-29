@@ -2,7 +2,7 @@ import { api, getCurrentWorkspace } from "@/lib/api";
 
 export type JournalScope =
   | { kind: "personal"; workspaceId: null; key: "personal"; label: "个人日记" }
-  | { kind: "workspace"; workspaceId: string; key: string; label: "工作区日记" };
+  | { kind: "workspace"; workspaceId: string; key: string; label: "工作区日志" };
 
 export interface ScopedJournalResult {
   id: string;
@@ -42,7 +42,7 @@ export function resolveJournalScope(workspaceId = getCurrentWorkspace()): Journa
     kind: "workspace",
     workspaceId,
     key: `workspace:${workspaceId}`,
-    label: "工作区日记",
+    label: "工作区日志",
   };
 }
 

@@ -1,235 +1,234 @@
 /**
- * 日记归档组件
+ * 个人日记档案。
  *
- * 在侧边栏展示按年月分组的日记树：
- *   日记
- *   ├── 今日日记
- *   ├── 2026
- *   │   ├── 06月
- *   │   │   ├── 2026-06-26
- *   │   │   ├── 2026-06-25
- *   │   ├── 05月
- *   ├── 2025
- *
- * 设计决策：
- *   - 分组基于 journal_date，不使用 createdAt 或 title
- *   - 月份显示使用中文格式（06月）
- *   - 支持展开/收起年份和月份
- *   - 点击日记打开对应笔记
+ * 只消费 /journals/list 的轻量 DTO，不拉完整正文。日期是事实主标题，
+ * notes.title 仅在与 journal_date 不同时作为副标题显示。
  */
-
-import React, { useState, useEffect, useCallback, useMemo } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
+  CalendarDays,
   ChevronDown,
-  ChevronRight,
-  Calendar,
-  FileText,
   Loader2,
+  Search,
+  SlidersHorizontal,
 } from "lucide-react";
-import { useTranslation } from "react-i18next";
-import { cn } from "@/lib/utils";
+
 import { api } from "@/lib/api";
-import { toast } from "@/lib/toast";
+import { cn } from "@/lib/utils";
+
+type JournalSort = "date_desc" | "date_asc" | "updated_desc" | "updated_asc";
 
 interface JournalItem {
   id: string;
   title: string;
+  subtitle: string;
   journalDate: string;
+  preview: string;
+  moods: string[];
   createdAt: string;
   updatedAt: string;
 }
 
-interface MonthGroup {
-  month: string;
-  count: number;
-  journals: JournalItem[];
-}
-
-interface YearGroup {
+interface ArchiveGroup {
   year: string;
-  count: number;
-  months: MonthGroup[];
+  months: Array<{ month: string; items: JournalItem[] }>;
 }
 
-interface JournalArchiveProps {
-  /** 当前打开的笔记 ID */
-  activeNoteId: string | null;
-  /** 打开笔记回调 */
-  onOpenNote: (noteId: string) => void;
-  /** 创建今日日记回调 */
-  onCreateToday: () => void;
-  /** 刷新令牌：变化时重新加载归档数据 */
-  refreshToken?: number;
+const MOODS = [
+  ["happy", "😊"],
+  ["excited", "🥳"],
+  ["peaceful", "😌"],
+  ["thinking", "🤔"],
+  ["tired", "😴"],
+  ["sad", "😢"],
+  ["angry", "😤"],
+  ["sick", "🤒"],
+  ["love", "🥰"],
+  ["cool", "😎"],
+  ["laugh", "🤣"],
+  ["shock", "😱"],
+] as const;
+
+function groupItems(items: JournalItem[]): ArchiveGroup[] {
+  const years = new Map<string, Map<string, JournalItem[]>>();
+  for (const item of items) {
+    const year = item.journalDate.slice(0, 4);
+    const month = item.journalDate.slice(5, 7);
+    const months = years.get(year) || new Map<string, JournalItem[]>();
+    const list = months.get(month) || [];
+    list.push(item);
+    months.set(month, list);
+    years.set(year, months);
+  }
+  return Array.from(years.entries()).map(([year, months]) => ({
+    year,
+    months: Array.from(months.entries()).map(([month, monthItems]) => ({ month, items: monthItems })),
+  }));
 }
 
 export default function JournalArchive({
-  activeNoteId,
-  onOpenNote,
-  onCreateToday,
-  refreshToken,
-}: JournalArchiveProps) {
-  const { t } = useTranslation();
-  const [years, setYears] = useState<YearGroup[]>([]);
+  selectedDate,
+  onSelectDate,
+  refreshToken = 0,
+}: {
+  selectedDate: string;
+  onSelectDate: (dateKey: string) => void;
+  refreshToken?: number;
+}) {
+  const [items, setItems] = useState<JournalItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const [expandedYears, setExpandedYears] = useState<Set<string>>(new Set());
-  const [expandedMonths, setExpandedMonths] = useState<Set<string>>(new Set());
+  const [q, setQ] = useState("");
+  const [year, setYear] = useState("");
+  const [month, setMonth] = useState("");
+  const [mood, setMood] = useState("");
+  const [sort, setSort] = useState<JournalSort>("date_desc");
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [availableYears, setAvailableYears] = useState<string[]>([]);
 
-  // 加载归档数据
-  const loadArchive = useCallback(async () => {
-    setLoading(true);
+  const loadYears = useCallback(async () => {
     try {
-      const data = await api.journals.getArchive();
-      setYears(data.years || []);
-
-      // 默认展开当前年月
-      const now = new Date();
-      const currentYear = String(now.getFullYear());
-      const currentMonth = String(now.getMonth() + 1).padStart(2, "0");
-      setExpandedYears(new Set([currentYear]));
-      setExpandedMonths(new Set([`${currentYear}-${currentMonth}`]));
-    } catch (err) {
-      console.error("Failed to load journal archive:", err);
-    } finally {
-      setLoading(false);
+      const archive = await api.journals.getArchive();
+      setAvailableYears((archive.years || []).map((item) => item.year));
+    } catch {
+      setAvailableYears([]);
     }
   }, []);
 
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const result = await api.journals.list({
+        year: year || undefined,
+        month: month || undefined,
+        from: from || undefined,
+        to: to || undefined,
+        mood: mood || undefined,
+        q: q.trim() || undefined,
+        sort,
+        limit: 100,
+      });
+      setItems(result.items);
+    } catch (error: any) {
+      if (error?.code !== "FOLDER_UNLOCK_REQUIRED") console.error("[JournalArchive] load failed", error);
+      setItems([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [from, month, mood, q, sort, to, year]);
+
+  useEffect(() => { void loadYears(); }, [loadYears, refreshToken]);
   useEffect(() => {
-    loadArchive();
-  }, [loadArchive, refreshToken]);
+    const timer = window.setTimeout(() => void load(), q ? 220 : 0);
+    return () => window.clearTimeout(timer);
+  }, [load, q, refreshToken]);
 
-  // 切换年份展开/收起
-  const toggleYear = (year: string) => {
-    setExpandedYears((prev) => {
-      const next = new Set(prev);
-      if (next.has(year)) {
-        next.delete(year);
-      } else {
-        next.add(year);
-      }
-      return next;
-    });
-  };
-
-  // 切换月份展开/收起
-  const toggleMonth = (key: string) => {
-    setExpandedMonths((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) {
-        next.delete(key);
-      } else {
-        next.add(key);
-      }
-      return next;
-    });
-  };
-
-  // 月份显示名称
-  const getMonthLabel = (month: string) => {
-    return t(`calendar.months.${parseInt(month) - 1}`, { defaultValue: `${month}月` });
-  };
-
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center py-4">
-        <Loader2 size={16} className="animate-spin text-tx-tertiary" />
-      </div>
-    );
-  }
+  const groups = useMemo(() => groupItems(items), [items]);
 
   return (
-    <div className="space-y-1">
-      {/* 今日日记入口 */}
-      <button
-        onClick={onCreateToday}
-        className="w-full flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium text-tx-secondary hover:bg-app-hover transition-colors"
-      >
-        <Calendar size={14} className="text-accent-primary" />
-        <span>{t("journal.todayJournal", { defaultValue: "今日日记" })}</span>
-      </button>
-
-      {/* 归档树 */}
-      {years.length === 0 ? (
-        <div className="px-3 py-4 text-center">
-          <p className="text-xs text-tx-tertiary">
-            {t("journal.noJournals", { defaultValue: "暂无日记" })}
-          </p>
-          <button
-            onClick={onCreateToday}
-            className="mt-2 text-xs text-accent-primary hover:underline"
-          >
-            {t("journal.createToday", { defaultValue: "创建今日日记" })}
-          </button>
+    <div className="space-y-3" data-journal-archive="">
+      <div className="flex items-center gap-2">
+        <div className="relative min-w-0 flex-1">
+          <Search size={13} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-tx-tertiary" />
+          <input
+            value={q}
+            onChange={(event) => setQ(event.target.value)}
+            placeholder="搜索日记"
+            className="h-8 w-full rounded-lg border border-app-border bg-app-bg pl-8 pr-2 text-xs text-tx-primary outline-none focus:border-accent-primary/60"
+          />
         </div>
+        <button
+          type="button"
+          onClick={() => setFiltersOpen((value) => !value)}
+          className={cn(
+            "rounded-lg border border-app-border p-2 text-tx-tertiary hover:bg-app-hover",
+            filtersOpen && "border-accent-primary/40 bg-accent-primary/10 text-accent-primary",
+          )}
+          title="筛选与排序"
+        >
+          <SlidersHorizontal size={13} />
+        </button>
+      </div>
+
+      {filtersOpen && (
+        <div className="grid grid-cols-2 gap-2 rounded-xl bg-app-hover/40 p-2">
+          <select value={year} onChange={(e) => { setYear(e.target.value); if (!e.target.value) setMonth(""); }} className="h-8 rounded-lg border border-app-border bg-app-surface px-2 text-xs text-tx-secondary">
+            <option value="">全部年份</option>
+            {availableYears.map((value) => <option key={value} value={value}>{value}年</option>)}
+          </select>
+          <select value={month} onChange={(e) => setMonth(e.target.value)} className="h-8 rounded-lg border border-app-border bg-app-surface px-2 text-xs text-tx-secondary">
+            <option value="">全部月份</option>
+            {Array.from({ length: 12 }, (_, index) => String(index + 1).padStart(2, "0")).map((value) => <option key={value} value={value}>{value}月</option>)}
+          </select>
+          <select value={mood} onChange={(e) => setMood(e.target.value)} className="h-8 rounded-lg border border-app-border bg-app-surface px-2 text-xs text-tx-secondary">
+            <option value="">全部心情</option>
+            {MOODS.map(([value, emoji]) => <option key={value} value={value}>{emoji} {value}</option>)}
+          </select>
+          <select value={sort} onChange={(e) => setSort(e.target.value as JournalSort)} className="h-8 rounded-lg border border-app-border bg-app-surface px-2 text-xs text-tx-secondary">
+            <option value="date_desc">日期 ↓</option>
+            <option value="date_asc">日期 ↑</option>
+            <option value="updated_desc">最近编辑</option>
+            <option value="updated_asc">最早编辑</option>
+          </select>
+          <label className="col-span-1 text-[10px] text-tx-tertiary">从
+            <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="mt-1 h-8 w-full rounded-lg border border-app-border bg-app-surface px-2 text-xs text-tx-secondary" />
+          </label>
+          <label className="col-span-1 text-[10px] text-tx-tertiary">到
+            <input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="mt-1 h-8 w-full rounded-lg border border-app-border bg-app-surface px-2 text-xs text-tx-secondary" />
+          </label>
+        </div>
+      )}
+
+      {loading ? (
+        <div className="flex justify-center py-6"><Loader2 size={16} className="animate-spin text-accent-primary" /></div>
+      ) : groups.length === 0 ? (
+        <div className="rounded-xl border border-dashed border-app-border px-3 py-6 text-center text-xs text-tx-tertiary">没有匹配的日记</div>
       ) : (
-        years.map((yearGroup) => (
-          <div key={yearGroup.year}>
-            {/* 年份 */}
-            <button
-              onClick={() => toggleYear(yearGroup.year)}
-              className="w-full flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-semibold text-tx-primary hover:bg-app-hover transition-colors"
-            >
-              {expandedYears.has(yearGroup.year) ? (
-                <ChevronDown size={12} />
-              ) : (
-                <ChevronRight size={12} />
-              )}
-              <span>{yearGroup.year}</span>
-              <span className="ml-auto text-[10px] text-tx-tertiary font-normal">
-                {yearGroup.count}
-              </span>
-            </button>
-
-            {/* 月份列表 */}
-            {expandedYears.has(yearGroup.year) && (
-              <div className="ml-2">
-                {yearGroup.months.map((monthGroup) => {
-                  const monthKey = `${yearGroup.year}-${monthGroup.month}`;
-                  return (
-                    <div key={monthKey}>
-                      {/* 月份 */}
-                      <button
-                        onClick={() => toggleMonth(monthKey)}
-                        className="w-full flex items-center gap-1 px-2 py-1 rounded-lg text-xs text-tx-secondary hover:bg-app-hover transition-colors"
-                      >
-                        {expandedMonths.has(monthKey) ? (
-                          <ChevronDown size={10} />
-                        ) : (
-                          <ChevronRight size={10} />
-                        )}
-                        <span>{getMonthLabel(monthGroup.month)}</span>
-                        <span className="ml-auto text-[10px] text-tx-tertiary">
-                          {monthGroup.count}
-                        </span>
-                      </button>
-
-                      {/* 日记列表 */}
-                      {expandedMonths.has(monthKey) && (
-                        <div className="ml-3 space-y-0.5">
-                          {monthGroup.journals.map((journal) => (
-                            <button
-                              key={journal.id}
-                              onClick={() => onOpenNote(journal.id)}
-                              className={cn(
-                                "w-full flex items-center gap-1.5 px-2 py-1 rounded-lg text-xs transition-colors",
-                                activeNoteId === journal.id
-                                  ? "bg-accent-primary/10 text-accent-primary"
-                                  : "text-tx-secondary hover:bg-app-hover hover:text-tx-primary"
-                              )}
-                            >
-                              <FileText size={10} className="shrink-0" />
-                              <span className="truncate">{journal.title}</span>
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
+        <div className="max-h-[420px] space-y-3 overflow-y-auto pr-1">
+          {groups.map((group) => (
+            <div key={group.year}>
+              <div className="mb-1 flex items-center gap-1 text-[11px] font-semibold text-tx-tertiary">
+                <ChevronDown size={11} /> {group.year}年
               </div>
-            )}
-          </div>
-        ))
+              <div className="space-y-2">
+                {group.months.map((monthGroup) => (
+                  <div key={monthGroup.month}>
+                    <div className="mb-1 px-1 text-[10px] text-tx-tertiary">{monthGroup.month}月</div>
+                    <div className="space-y-1">
+                      {monthGroup.items.map((item) => (
+                        <button
+                          key={item.id}
+                          type="button"
+                          onClick={() => onSelectDate(item.journalDate)}
+                          className={cn(
+                            "w-full rounded-xl border px-3 py-2 text-left transition-colors",
+                            selectedDate === item.journalDate
+                              ? "border-accent-primary/40 bg-accent-primary/10"
+                              : "border-transparent bg-app-hover/40 hover:border-app-border hover:bg-app-hover",
+                          )}
+                        >
+                          <div className="flex items-center gap-2">
+                            <CalendarDays size={12} className="shrink-0 text-accent-primary" />
+                            <span className="text-xs font-medium tabular-nums text-tx-primary">{item.journalDate}</span>
+                            {item.moods.length > 0 && (
+                              <span className="ml-auto text-xs" title={item.moods.join(", ")}>
+                                {item.moods.slice(0, 3).map((value) => MOODS.find(([key]) => key === value)?.[1] || "💬").join("")}
+                              </span>
+                            )}
+                          </div>
+                          {(item.subtitle || item.preview) && (
+                            <div className="mt-1 truncate pl-5 text-[11px] text-tx-secondary">{item.subtitle || item.preview}</div>
+                          )}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
       )}
     </div>
   );
