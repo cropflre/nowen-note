@@ -260,6 +260,7 @@ export default function EditorPane({
   }, [actions]);
 
   const [showMobileMenu, setShowMobileMenu] = useState(false);
+  const [mobileTitlePinned, setMobileTitlePinned] = useState(false);
   const [showDesktopMoreMenu, setShowDesktopMoreMenu] = useState(false);
   const [showMobileMoveMenu, setShowMobileMoveMenu] = useState(false);
   const [showMobileOutline, setShowMobileOutline] = useState(false);
@@ -272,6 +273,7 @@ export default function EditorPane({
   const [backlinksLoading, setBacklinksLoading] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const mobileMenuRef = useRef<HTMLDivElement | null>(null);
+  const editorPaneRootRef = useRef<HTMLDivElement | null>(null);
   const desktopMoreMenuRef = useRef<HTMLDivElement | null>(null);
 
   // 纯 HTML 预览模式：当
@@ -1503,6 +1505,32 @@ export default function EditorPane({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [activeNote]);
 
+  // 标题离开正文可视区后，复用现有路径导航位显示标题，不额外增加顶部高度。
+  useEffect(() => {
+    setMobileTitlePinned(false);
+    if (!activeNote || typeof window === "undefined") return;
+    if (!window.matchMedia("(max-width: 767px)").matches) return;
+    if (typeof IntersectionObserver === "undefined") return;
+
+    let observer: IntersectionObserver | null = null;
+    const frame = requestAnimationFrame(() => {
+      const title = editorPaneRootRef.current?.querySelector<HTMLElement>(
+        '[data-mobile-editor-title], [data-markdown-mobile-title]',
+      );
+      if (!title) return;
+      observer = new IntersectionObserver(
+        ([entry]) => setMobileTitlePinned(!entry?.isIntersecting),
+        { threshold: 0.15 },
+      );
+      observer.observe(title);
+    });
+
+    return () => {
+      cancelAnimationFrame(frame);
+      observer?.disconnect();
+    };
+  }, [activeNote?.id]);
+
   // ����ⲿ�ر��ƶ��˲˵�
   useEffect(() => {
     if (!showMobileMenu) return;
@@ -2551,6 +2579,7 @@ const moveToTrash = useCallback(async () => {
         ) : null}
       </MobileEditorToolbarPortal>
     <motion.div
+      ref={editorPaneRootRef}
       key={activeNote.id}
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
@@ -2610,7 +2639,11 @@ const moveToTrash = useCallback(async () => {
             className="flex-1 min-w-0 flex items-center gap-1 text-xs text-tx-tertiary active:bg-app-hover rounded-md px-1.5 py-1 overflow-hidden"
             title={t('editor.moveToNotebook')}
           >
-            {currentPath.length > 0 ? (
+            {mobileTitlePinned ? (
+              <span className="min-w-0 truncate text-sm font-semibold text-tx-primary">
+                {activeNote.title || t('editor.untitled')}
+              </span>
+            ) : currentPath.length > 0 ? (
               <span className="flex min-w-0 items-center gap-1 overflow-hidden">
                 {currentPath.map((nb, idx) => {
                   const isLast = idx === currentPath.length - 1;
