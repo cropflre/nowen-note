@@ -2107,6 +2107,7 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
           <div
             data-markdown-mobile-toolbar="compact"
             className="sticky top-0 z-20 flex min-w-0 items-center gap-0.5 border-b border-app-border bg-app-surface/95 px-1 py-1 backdrop-blur md:hidden"
+            style={compactMobileEditing ? { paddingTop: "calc(var(--safe-area-top) + 4px)" } : undefined}
           >
             <MobileEditorToolbarSlot location="leading" />
             <div
