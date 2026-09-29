@@ -30,7 +30,7 @@ JPEG/PNG/HEIF、QuickTime/MP4，并读取手机照片的媒体元数据。原件
 - Samsung：读取 SEFH/SEFT 的 0x0a30 MotionPhoto_Data，支持直接视频数据和
   `mpv2` 的绝对偏移/长度。其它厂商兼容以上结构时可复用；未识别结构只展示照片。
 
-照片选择器可同时选择多张照片及 MOV。先保存 MOV，再保存照片，正文只插入照片。
+富文本和 Markdown 的图片选择器均可同时选择多张照片及 MOV。先保存 MOV，再保存照片，正文只插入照片。
 已有照片及 MOV 首次读取媒体信息时分析并关联，不要求重新上传。若导出工具删除了
 媒体 UUID，无法可靠配对：显示“LIVE · 缺少配对视频”，保留两份原件，避免错误关联。
 
@@ -65,6 +65,19 @@ JPEG 封面，不修改原件。封面和原件 URL 分开，下载仍指向原�
 纯设备本地模式、未完成同步或离线时不具备服务端转码能力；无法解析的设备保留
 原件并展示下载降级。厂商解码器可用性及 iOS/Android 真机行为需实际设备验收，
 不能用自动化通过代替所有设备验收。
+
+iPhone 的系统照片选择器不保证把 Live Photo 暴露为照片与 MOV 两份文件；当前未接入
+PhotoKit 原生 Live Photo 选择器。可选择已导出的两份原件，直接从“照片”App 选择的
+自动配对能力仍待真机验收。
+
+发布前的真机验收项（尚未完成）：
+
+- 华为 HEIC → Windows Chrome 与非华为 Android App 静态预览。
+- iPhone 普通 HEIC → Web/Desktop/Android 静态预览。
+- iPhone Live Photo → iPhone 上传后，Windows/Android 显示 LIVE 并播放。
+- Pixel/Samsung 动态照片 → 上传后播放动态内容。
+- 富文本/Markdown 多选照片及 MOV → 正文只插入照片且可动态播放。
+- 下载照片/动态原件 → 得到原始 HEIC/MOV，而非派生 WebP/MP4。
 
 ## 生命周期与备份
 

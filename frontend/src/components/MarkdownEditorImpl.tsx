@@ -146,7 +146,7 @@ import {
 } from "@/lib/markdownTasks";
 import { clampMarkdownSplitPercent } from "@/lib/markdownSplitPane";
 import { api } from "@/lib/api";
-import { uploadAndInsertImage } from "@/lib/imageUploadService";
+import { uploadAndInsertImage, uploadPhotoSelection } from "@/lib/imageUploadService";
 import { buildExistingAttachmentMarkdownSnippet } from "@/lib/existingAttachmentInsert";
 import { isVideoFile, uploadMediaAttachment, type MediaUploadResult } from "@/lib/mediaUploadService";
 import { listenMediaUploadLifecycle } from "@/lib/mediaUploadLifecycle";
@@ -992,15 +992,34 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
   const triggerImagePicker = useCallback(() => {
     const view = viewRef.current;
     if (!view || !editable) return;
+    const noteId = noteRef.current.id;
+    const scope = pasteNoteScopeRef.current;
+    const anchor = { from: view.state.selection.main.from, to: view.state.selection.main.to };
+    asyncPasteAnchorsRef.current.add(anchor);
+    const releaseAnchor = () => { asyncPasteAnchorsRef.current.delete(anchor); };
     const input = document.createElement("input");
     input.type = "file";
-    input.accept = "image/*";
+    input.accept = "image/*,.heic,.heif,.mov";
+    input.multiple = true;
+    input.addEventListener("cancel", releaseAnchor, { once: true });
     input.onchange = () => {
-      const file = input.files?.[0];
-      if (file) insertImageFromFile(file);
+      const files = Array.from(input.files || []);
+      if (!files.length || viewRef.current !== view || pasteNoteScopeRef.current !== scope) { releaseAnchor(); return; }
+      if (!noteId) { toast.error("请先创建笔记，再上传照片"); releaseAnchor(); return; }
+      toast.info(tr("tiptap.imageUploading"));
+      void uploadPhotoSelection(noteId, files)
+        .then((photos) => {
+          // 复用异步粘贴锚点映射，上传完成后恢复原选区；切换笔记则不插入。
+          if (viewRef.current !== view || pasteNoteScopeRef.current !== scope) return;
+          view.dispatch({ selection: { anchor: anchor.from, head: anchor.to } });
+          for (const photo of photos) insertImage(view, photo.url, photo.filename.replace(/\.[^.]+$/, ""));
+          toast.success(tr("tiptap.imageUploadSuccess"));
+        })
+        .catch((error: unknown) => toast.error(error instanceof Error ? error.message : "照片上传失败"))
+        .finally(releaseAnchor);
     };
     input.click();
-  }, [editable, insertImageFromFile]);
+  }, [editable, tr]);
 
   const insertVideoFromFile = useCallback((file: File, source: "editor" | "paste" | "drag-drop" = "editor") => {
     const currentNote = noteRef.current;
