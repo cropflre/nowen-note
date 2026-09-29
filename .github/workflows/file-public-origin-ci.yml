@@ -1,0 +1,84 @@
+name: File Public Origin CI
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - release/v1.5.0
+    paths:
+      - "backend/src/lib/file-public-origin.ts"
+      - "backend/src/lib/public-web-origin.ts"
+      - "backend/src/routes/settings.ts"
+      - "backend/src/index.ts"
+      - "backend/tests/file-public-origin-runtime.test.ts"
+      - "frontend/src/lib/publicAttachmentUrl.ts"
+      - "frontend/src/lib/__tests__/publicAttachmentUrl.test.ts"
+      - "frontend/src/components/FileManager.tsx"
+      - "frontend/src/components/attachmentDetail/AttachmentDetailDrawer.tsx"
+      - "frontend/src/components/__tests__/FileManagerPublicOriginContract.test.ts"
+      - "frontend/src/hooks/useSiteSettings.tsx"
+      - "frontend/src/lib/api.impl.ts"
+      - "docker-compose.yml"
+      - ".env.example"
+      - ".github/workflows/file-public-origin-ci.yml"
+  pull_request:
+    paths:
+      - "backend/src/lib/file-public-origin.ts"
+      - "backend/src/lib/public-web-origin.ts"
+      - "backend/src/routes/settings.ts"
+      - "backend/src/index.ts"
+      - "backend/tests/file-public-origin-runtime.test.ts"
+      - "frontend/src/lib/publicAttachmentUrl.ts"
+      - "frontend/src/lib/__tests__/publicAttachmentUrl.test.ts"
+      - "frontend/src/components/FileManager.tsx"
+      - "frontend/src/components/attachmentDetail/AttachmentDetailDrawer.tsx"
+      - "frontend/src/components/__tests__/FileManagerPublicOriginContract.test.ts"
+      - "frontend/src/hooks/useSiteSettings.tsx"
+      - "frontend/src/lib/api.impl.ts"
+      - ".github/workflows/file-public-origin-ci.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - run: npm ci
+      - name: File public origin regression
+        run: node --import tsx --test tests/file-public-origin-runtime.test.ts
+      - name: Backend typecheck
+        run: npm run build:tsc
+
+  frontend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - name: File public origin regression
+        run: >-
+          npm run test:run --
+          src/lib/__tests__/publicAttachmentUrl.test.ts
+          src/components/__tests__/FileManagerPublicOriginContract.test.ts
+      - name: Frontend typecheck
+        run: npx tsc -b
