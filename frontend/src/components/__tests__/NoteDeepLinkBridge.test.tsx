@@ -165,4 +165,24 @@ describe("NoteDeepLinkBridge", () => {
 
     expect(window.location.pathname).toBe(`/mindmaps/${NOTE_B}`);
   });
+
+  it("restores the active note resource URL when a legacy module returns to root", async () => {
+    mocks.state.activeNote = note(NOTE_A);
+    mocks.state.viewMode = "all";
+
+    await act(async () => {
+      root.render(<NoteDeepLinkBridge />);
+    });
+
+    // Simulate AppLayout normalizing a legacy module route back to root.
+    window.history.replaceState(null, "", "/");
+    await act(async () => {
+      window.dispatchEvent(new CustomEvent("nowen:app-path-changed", {
+        detail: { appPath: "/", replace: true },
+      }));
+      await Promise.resolve();
+    });
+
+    expect(window.location.pathname).toBe(`/notes/${NOTE_A}`);
+  });
 });
