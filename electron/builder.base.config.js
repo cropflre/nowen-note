@@ -339,6 +339,18 @@ const BACKEND_KEEP_PACKAGES = [
   "quickjs-emscripten",
   "quickjs-emscripten-core",
   "@jitl",                 // 整个 scope（WASM variants + FFI types）
+  // HEIF 解码和兼容预览的运行时依赖。
+  "libheif-js",
+  "sharp",
+  "@img",
+  "color",
+  "color-string",
+  "color-name",
+  "color-convert",
+  "simple-swizzle",
+  "is-arrayish",
+  "detect-libc",
+  "semver",
 ];
 
 // 生成 electron-builder filter 规则（路径相对 from 目录，即 backend/node_modules 根）
@@ -362,6 +374,8 @@ function buildBackendNodeModulesFilter() {
   // 注意：不能排除 *.d.ts ？其实 d.ts 和 .ts 已被上一条覆盖
   rules.push("!**/CHANGELOG*");
   rules.push("!**/LICENSE*");
+  // 保留随 HEIF 解码器分发的许可证。
+  rules.push("libheif-js/LICENSE");
   rules.push("!**/{AUTHORS,CONTRIBUTORS,HISTORY}*");
   // better-sqlite3 自带源码（src/ 是 C++ 源码，deps/ 是 sqlite amalgamation；
   // 只要 build/Release/*.node 就够 runtime 跑，src/deps 可以剥掉）

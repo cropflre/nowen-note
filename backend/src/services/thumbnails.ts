@@ -29,6 +29,8 @@
  */
 import fs from "fs";
 import path from "path";
+import { isHeifMime } from "../lib/heif-mime";
+import { getOrCreateHeifPreview } from "./heif-preview";
 // 使用动态 require，避免 sharp 安装失败时整个后端起不来——
 // sharp 是 native 模块，少数平台/CI 没有预编译 binary 时会报错。
 // 此处兜底：拿不到 sharp 时缩略图功能整体降级为"返回原图"。
@@ -102,6 +104,7 @@ export function isThumbnailable(mime: string | null | undefined): boolean {
   const m = (mime || "").toLowerCase();
   if (SKIP_MIMES.has(m)) return false;
   if (m === "image/gif") return true; // gif 也允许，但只取首帧
+  if (isHeifMime(m)) return true;
   return RASTER_MIMES.has(m);
 }
 
@@ -151,6 +154,11 @@ async function getOrCreateThumbnailFromInputAsync(
   // 未命中：生成
   try {
     ensureThumbsDir(attachmentsDir);
+    if (isHeifMime(sourceMime)) {
+      input = await getOrCreateHeifPreview(attachmentsDir, attachmentId, async () =>
+        typeof input === "string" ? fs.readFileSync(input) : input,
+      );
+    }
     const buffer: Buffer = await sharp(input, {
       animated: false, // GIF 只取首帧（列表页用静态首帧足矣）
       limitInputPixels: 268_402_689, // sharp 默认值，显式声明：防 50000×50000 撑爆内存
@@ -220,7 +228,7 @@ export function deleteThumbnailsFor(attachmentsDir: string, attachmentId: string
   }
   const prefix = `${attachmentId}_w`;
   for (const f of files) {
-    if (!f.startsWith(prefix)) continue;
+    if (!f.startsWith(prefix) && f !== `${attachmentId}_preview.webp`) continue;
     try {
       fs.unlinkSync(path.join(dir, f));
     } catch {

@@ -77,6 +77,8 @@ import {
   deleteThumbnailsFor,
 } from "../services/thumbnails";
 import { computeAttachmentEtag, requestMatchesEtag } from "../lib/attachment-etag";
+import { isHeifMime, resolveHeifUploadMime, sniffHeifMime } from "../lib/heif-mime";
+import { getOrCreateHeifPreview } from "../services/heif-preview";
 
 const ATTACHMENTS_DIR = getStorageAttachmentsDir();
 
@@ -211,6 +213,10 @@ const ALLOWED_IMAGE_MIMES = new Set([
   "image/svg+xml",
   "image/x-icon",
   "image/vnd.microsoft.icon",
+  "image/heic",
+  "image/heif",
+  "image/heic-sequence",
+  "image/heif-sequence",
 ]);
 
 export const MIME_TO_EXT: Record<string, string> = {
@@ -222,6 +228,10 @@ export const MIME_TO_EXT: Record<string, string> = {
   "image/svg+xml": "svg",
   "image/x-icon": "ico",
   "image/vnd.microsoft.icon": "ico",
+  "image/heic": "heic",
+  "image/heif": "heif",
+  "image/heic-sequence": "heic",
+  "image/heif-sequence": "heif",
 };
 
 // 判断附件是否属于「图片」——供 handleDownloadAttachment / 响应 category 字段共用。
@@ -448,7 +458,7 @@ export async function handleDownloadAttachment(
     }
   }
 
-  const forceDownload = c.req.query("download") === "1";
+  const forceDownload = /^(?:1|true|yes)$/i.test(c.req.query("download") || "");
   // ?inline=1 —— 显式声明"用于浏览器内联预览（如 <video>/<audio>/<iframe>）"。
   // 对于非图片附件，此参数会跳过 Content-Disposition: attachment，让浏览器直接渲染
   // 而不是触发下载。和 forceDownload 互斥（forceDownload 优先级更高，因为是用户明示）。
@@ -459,6 +469,48 @@ export async function handleDownloadAttachment(
   const readObject = dependencies.readAttachmentObject ?? readAttachmentObject;
   const createThumbnailFromBuffer = dependencies.getOrCreateThumbnailFromBufferAsync
     ?? getOrCreateThumbnailFromBufferAsync;
+
+  // 存量附件可能以空 MIME 或 octet-stream 入库；读取字节兜底识别，不依赖扩展名转码。
+  let heifSource: Buffer | null | undefined;
+  const readHeifSource = async () => {
+    if (heifSource === undefined) heifSource = await readObject(row.path);
+    return heifSource;
+  };
+  if (!isHeifMime(row.mimeType) && (
+    !row.mimeType || row.mimeType === "application/octet-stream"
+    || /\.hei[cf]$/i.test(row.filename) || /\.hei[cf]$/i.test(row.path)
+  )) {
+    const source = await readHeifSource();
+    const detected = source && sniffHeifMime(source);
+    if (detected) {
+      row.mimeType = detected;
+      db.prepare("UPDATE attachments SET mimeType = ? WHERE id = ?").run(detected, row.id);
+    }
+  }
+  if (isHeifMime(row.mimeType) && !forceDownload) {
+    const previewEtag = computeAttachmentEtag(row.id, requestedWidth || "heif-preview-v1");
+    if (requestMatchesEtag(new Headers(c.req.raw.headers), previewEtag)) {
+      return new Response(null, { status: 304, headers: { ETag: previewEtag } });
+    }
+    try {
+      const preview = await getOrCreateHeifPreview(ATTACHMENTS_DIR, row.id, readHeifSource);
+      const thumb = requestedWidth
+        ? await createThumbnailFromBuffer(ATTACHMENTS_DIR, row.id, preview, "image/webp", requestedWidth)
+        : null;
+      return c.body(toResponseBody(thumb?.buffer || preview), 200, {
+        "Content-Type": "image/webp",
+        ETag: thumb || !requestedWidth ? previewEtag : computeAttachmentEtag(row.id, "heif-preview-v1"),
+        ...(thumb ? { "X-Thumbnail-Width": String(requestedWidth) } : {}),
+      });
+    } catch (error) {
+      console.warn(`[heif-preview] 生成兼容预览失败 attachment=${row.id}:`, error);
+      if (heifSource === null) return c.json({ error: "attachment file missing" }, 404);
+      return c.json({
+        error: "无法生成 HEIC/HEIF 兼容预览，请下载原文件查看",
+        code: "HEIF_PREVIEW_FAILED",
+      }, 422);
+    }
+  }
 
   // 是否会走缩略图分支只依赖 query 参数 + row.mimeType，不需要读文件内容就能
   // 确定。据此可在读取任何字节之前算出这次响应的 ETag variant，命中
@@ -487,7 +539,7 @@ export async function handleDownloadAttachment(
   //   2) 不是 ?download=1（下载场景必须给原文件）
   //   3) 原图是可缩略的 raster 图片
   // 三者同时满足时尝试。任何一步失败就回退到原图。
-  let sourceBuffer: Buffer | null | undefined;
+  let sourceBuffer: Buffer | null | undefined = heifSource;
   if (willServeThumbnail) {
     const thumb = localExists
       ? await getOrCreateThumbnailAsync(
@@ -612,7 +664,7 @@ app.post("/", async (c) => {
       413,
     );
   }
-  const mime = (file.type || "application/octet-stream").toLowerCase();
+  let mime = (file.type || "application/octet-stream").toLowerCase();
   // 不限制格式：只拒绝少数高危可执行文件类型，其它任意 MIME 都放行。
   if (BLOCKED_MIMES.has(mime)) {
     return c.json({ error: `出于安全考虑，不支持该类型: ${mime}` }, 415);
@@ -621,16 +673,16 @@ app.post("/", async (c) => {
   // 落盘
   ensureAttachmentsDir();
   const id = uuid();
-  const ext = pickExt(file.name, mime);
-  const monthPath = getUploadMonthPath();
-  const storagePath = `${monthPath}/${id}.${ext}`;
-
   let buffer: Buffer;
   try {
     buffer = Buffer.from(await file.arrayBuffer());
   } catch (err: any) {
     return c.json({ error: `读取上传内容失败: ${err?.message || err}` }, 500);
   }
+  mime = resolveHeifUploadMime(buffer, mime);
+  const ext = pickExt(file.name, mime);
+  const monthPath = getUploadMonthPath();
+  const storagePath = `${monthPath}/${id}.${ext}`;
 
   // v11 hash 去重：先算 SHA-256，在同 scope（userId + workspaceId）内查命中。
   // 阶段 B 命中策略：
@@ -655,6 +707,8 @@ app.post("/", async (c) => {
     ) as ExistingAttachmentForDedup | undefined;
 
   if (dedupRow) {
+    // 旧附件可能尚未识别 HEIF，新元数据按本次上传的真实字节分类。
+    if (isHeifMime(mime)) dedupRow.mimeType = mime;
     let clone: DeduplicatedAttachmentRow;
     try {
       clone = createDeduplicatedAttachmentRow({

@@ -26,6 +26,7 @@
     "hono": "^4.6.15",
     "jsonwebtoken": "^9.0.3",
     "jszip": "^3.10.1",
+    "libheif-js": "1.23.2",
     "lunar-javascript": "^1.7.7",
     "mammoth": "^1.11.0",
     "pg": "^8.22.0",

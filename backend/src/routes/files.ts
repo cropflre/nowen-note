@@ -60,6 +60,7 @@ import {
   requireWorkspaceFeature,
 } from "../middleware/acl";
 import { createUserAttachmentAccessUrls } from "../lib/attachment-signed-url";
+import { isHeifMime, resolveHeifUploadMime } from "../lib/heif-mime";
 import {
   isManualFileManagerUpload,
   resolveFileAttachmentAccess,
@@ -231,7 +232,7 @@ function toFileOut(row: FileRow): FileOut {
         }
       : null,
   };
-  if (isImg && THUMBNAILABLE_MIMES.has(mimeLower)) {
+  if (isImg && (THUMBNAILABLE_MIMES.has(mimeLower) || isHeifMime(mimeLower))) {
     out.thumbnailUrl = `/api/attachments/${row.id}?w=${DEFAULT_THUMBNAIL_WIDTH}`;
   }
   return out;
@@ -1198,7 +1199,7 @@ app.post("/upload", requireWorkspaceFeature("files"), async (c) => {
       413,
     );
   }
-  const mime = (file.type || "application/octet-stream").toLowerCase();
+  let mime = (file.type || "application/octet-stream").toLowerCase();
   if (BLOCKED_MIMES.has(mime)) {
     return c.json({ error: `出于安全考虑，不支持该类型: ${mime}` }, 415);
   }
@@ -1207,10 +1208,6 @@ app.post("/upload", requireWorkspaceFeature("files"), async (c) => {
 
   ensureAttachmentsDir();
   const id = uuid();
-  const ext = pickExt(file.name, mime);
-  const monthPath = getUploadMonthPath();
-  const storagePath = `${monthPath}/${id}.${ext}`;
-
   let buffer: Buffer;
   try {
     buffer = Buffer.from(await file.arrayBuffer());
@@ -1220,6 +1217,11 @@ app.post("/upload", requireWorkspaceFeature("files"), async (c) => {
       500,
     );
   }
+
+  mime = resolveHeifUploadMime(buffer, mime);
+  const ext = pickExt(file.name, mime);
+  const monthPath = getUploadMonthPath();
+  const storagePath = `${monthPath}/${id}.${ext}`;
 
   // v11 hash dedup：同 user + 同 workspace 内查命中。命中 → 复用老 id 不写盘不写 DB。
   const sha256 = crypto.createHash("sha256").update(buffer).digest("hex");
@@ -1248,6 +1250,10 @@ app.post("/upload", requireWorkspaceFeature("files"), async (c) => {
     ) as { id: string; noteId: string; mimeType: string; size: number; filename: string } | undefined;
 
   if (dedupRow) {
+    if (isHeifMime(mime) && dedupRow.mimeType !== mime) {
+      db.prepare("UPDATE attachments SET mimeType = ? WHERE id = ?").run(mime, dedupRow.id);
+      dedupRow.mimeType = mime;
+    }
     // v12：dedup 命中老行时把 uploadSource 升级到 'file_manager'——
     // 用户这次是从文件管理页主动上传同一份内容，理应进入"我的上传"。
     // 用 COALESCE 语义：仅当老行还没标过来源时才写，避免把已有的 'file_manager'
