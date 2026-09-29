@@ -1,12 +1,32 @@
 name: Android Immersive Editor CI
 
 on:
+  workflow_dispatch:
+  push:
+    branches: [main, release/v1.5.0]
+    paths:
+      - 'frontend/index.html'
+      - 'frontend/src/components/EditorPane.tsx'
+      - 'frontend/src/components/TiptapEditor.tsx'
+      - 'frontend/src/components/MarkdownEditorImpl.tsx'
+      - 'frontend/src/components/CollapsibleEditorToolbar.tsx'
+      - 'frontend/src/components/TagInput.tsx'
+      - 'frontend/src/components/__tests__/MobileToolbarDeduplication.test.ts'
+      - 'frontend/src/components/__tests__/TagInputMobileCompact.test.ts'
+      - 'frontend/src/hooks/useKeyboardVisible.ts'
+      - 'frontend/src/lib/__tests__/androidImmersiveEditorContract.test.ts'
+      - '.github/workflows/android-immersive-editor-ci.yml'
   pull_request:
     branches: [main]
     paths:
       - 'frontend/src/components/EditorPane.tsx'
       - 'frontend/src/components/TiptapEditor.tsx'
       - 'frontend/src/components/MarkdownEditorImpl.tsx'
+      - 'frontend/src/components/CollapsibleEditorToolbar.tsx'
+      - 'frontend/src/components/TagInput.tsx'
+      - 'frontend/src/components/__tests__/MobileToolbarDeduplication.test.ts'
+      - 'frontend/src/components/__tests__/TagInputMobileCompact.test.ts'
+      - 'frontend/index.html'
       - 'frontend/src/components/PublicSpaceLauncher.tsx'
       - 'frontend/src/hooks/useKeyboardVisible.ts'
       - 'frontend/src/lib/__tests__/androidImmersiveEditorContract.test.ts'
@@ -28,9 +48,13 @@ jobs:
       - name: Install frontend dependencies
         working-directory: frontend
         run: npm ci --silent
-      - name: Android immersive editor contract
+      - name: Mobile editor chrome regression
         working-directory: frontend
-        run: npx vitest run --reporter=basic src/lib/__tests__/androidImmersiveEditorContract.test.ts
+        run: >-
+          npx vitest run --reporter=basic
+          src/lib/__tests__/androidImmersiveEditorContract.test.ts
+          src/components/__tests__/MobileToolbarDeduplication.test.ts
+          src/components/__tests__/TagInputMobileCompact.test.ts
       - name: Frontend typecheck
         working-directory: frontend
         run: npx tsc -b
