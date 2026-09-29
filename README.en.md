@@ -258,6 +258,7 @@ See [`.env.example`](./.env.example) for the complete template.
 | `NOWEN_PORT` | `3001` | Exposed Compose port |
 | `TZ` | `Asia/Shanghai` | Container timezone |
 | `PUBLIC_WEB_ORIGIN` | empty | Public or reverse-proxy origin used to generate share links |
+| `FILE_PUBLIC_ORIGIN` | inherits `PUBLIC_WEB_ORIGIN` | Optional public origin used when copying File Manager / image-host direct links; uploads, previews, and owner downloads keep using the current server connection |
 | `JWT_SECRET` | generated and persisted | Session signing and fallback encryption; must match across instances |
 | `BACKUP_DIR` | `/app/data/backups` | Automatic backup directory |
 | `BACKUP_WEBDAV_ENCRYPTION_KEY` | falls back to `JWT_SECRET` | Encrypts stored WebDAV credentials; use a dedicated production key |
