@@ -798,6 +798,8 @@
     "closeSplit": "取消分屏",
     "closeAllSplits": "取消全部分屏",
     "splitLoadFailed": "分屏加载失败",
+    "openInNewTab": "在新标签页打开",
+    "copyInternalLink": "复制内部链接",
     "copyWikiLink": "复制双链引用",
     "copyMarkdownLink": "复制 Markdown 链接",
     "copyTitle": "复制标题",
