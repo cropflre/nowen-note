@@ -55,23 +55,9 @@
       [data-radix-scroll-area-viewport] { overflow-x: hidden !important; }
       .nowen-md-editor-status { min-height: 28px; white-space: nowrap; overflow: hidden; }
 
-      /* 移动端键盘打开时保持文档顶部布局稳定。
-         键盘高度仍由 --keyboard-height 负责正文避让；这里只撤销旧的 compact Header
-         视觉折叠，避免小屏设备在输入法弹出时把标题栏/格式工具栏挤成另一套布局。 */
+      /* 移动端键盘打开时，EditorPane 会隐藏文档路径 Header，并把“返回 / 文档更多”
+         通过共享 slot 注入唯一的紧凑编辑工具栏。不要再用全局 CSS 强制恢复旧的双行 Header。 */
       @media (max-width: 767px) {
-        html[data-keyboard="open"] header[data-mobile-editor-compact="true"] > div:first-of-type {
-          display: flex !important;
-        }
-        html[data-keyboard="open"] header[data-mobile-editor-compact="true"] > div:nth-of-type(2) {
-          padding: 0.125rem 0.75rem 0.5rem !important;
-        }
-        html[data-keyboard="open"] header[data-mobile-editor-compact="true"] > div:nth-of-type(2) > button:first-child {
-          display: none !important;
-        }
-        html[data-keyboard="open"] header[data-mobile-editor-compact="true"] > div:nth-of-type(2) > button.hidden {
-          display: inline-flex !important;
-        }
-
         /* 展开的格式工具栏本身会换行并纵向溢出，但组件基础类带有 touch-pan-x，
            会阻止手机端纵向拖动。展开态统一交回纵向滚动，同时禁止 flex 把面板
            压到内容高度以下，确保被 max-height 收起的按钮仍可通过滚动访问。 */
