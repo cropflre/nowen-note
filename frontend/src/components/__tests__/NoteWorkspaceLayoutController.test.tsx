@@ -5,6 +5,7 @@ import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const state = vi.hoisted(() => ({
+  activeNote: { id: "note-1" },
   noteListCollapsed: false,
   editorFullscreen: false,
   editorSplit: null as null | { noteId: string; direction: "right" | "down" },
@@ -115,9 +116,8 @@ describe("NoteWorkspaceLayoutController", () => {
 
     act(() => root.render(<NoteWorkspaceLayoutController />));
     const focusTrigger = document.querySelector('[data-testid="note-workspace-layout-trigger"]');
-    expect(focusTrigger).not.toBeNull();
-    act(() => click(focusTrigger));
-    act(() => click(findMenuChoice("三栏模式")));
+    expect(focusTrigger).toBeNull();
+    act(() => document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
     expect(actions.setEditorFullscreen).toHaveBeenLastCalledWith(false);
 
     act(() => root.render(<NoteWorkspaceLayoutController />));
@@ -198,10 +198,30 @@ describe("NoteWorkspaceLayoutController", () => {
     expect(localStorage.getItem(NOTE_WORKSPACE_LAYOUT_STORAGE_KEY)).toBe("standard");
   });
 
-  it("does not expose note layout controls in non-note modules", () => {
-    state.viewMode = "tasks";
+  it.each(["tasks", "mindmaps", "ai-chat", "diary", "files", "shares", "issues"])("does not expose note layout controls in %s", (viewMode) => {
+    state.viewMode = viewMode;
     act(() => root.render(<NoteWorkspaceLayoutController />));
     expect(document.querySelector('[data-testid="note-workspace-layout-trigger"]')).toBeNull();
+    expect(actions.toggleNoteListCollapsed).not.toHaveBeenCalled();
+  });
+
+  it("closes note layout controls on entering issues and preserves the layout when returning", () => {
+    localStorage.setItem(NOTE_WORKSPACE_LAYOUT_STORAGE_KEY, "three-column");
+    act(() => root.render(<NoteWorkspaceLayoutController />));
+    act(() => click(document.querySelector('[data-testid="note-workspace-layout-trigger"]')));
+    expect(document.querySelector('[data-testid="note-workspace-layout-menu"]')).not.toBeNull();
+
+    state.viewMode = "issues";
+    act(() => root.render(<NoteWorkspaceLayoutController />));
+    expect(document.querySelector('[data-testid="note-workspace-layout-trigger"]')).toBeNull();
+    expect(document.querySelector('[data-testid="note-workspace-layout-menu"]')).toBeNull();
+    expect(actions.toggleNoteListCollapsed).not.toHaveBeenCalled();
+    expect(localStorage.getItem(NOTE_WORKSPACE_LAYOUT_STORAGE_KEY)).toBe("three-column");
+
+    state.viewMode = "all";
+    act(() => root.render(<NoteWorkspaceLayoutController />));
+    expect(document.querySelector('[data-testid="note-workspace-layout-trigger"]')).not.toBeNull();
+    expect(document.querySelector('[data-testid="note-workspace-layout-menu"]')).toBeNull();
     expect(actions.toggleNoteListCollapsed).not.toHaveBeenCalled();
   });
 });

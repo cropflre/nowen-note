@@ -41,6 +41,7 @@ const NON_NOTE_WORKSPACE_VIEWS = new Set([
   "diary",
   "files",
   "shares",
+  "issues",
 ]);
 
 function findLayoutAnchor(): HTMLElement | null {
