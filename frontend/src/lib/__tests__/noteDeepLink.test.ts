@@ -11,13 +11,14 @@ import {
 } from "@/lib/noteDeepLink";
 
 const NOTE_ID = "123e4567-e89b-42d3-a456-426614174216";
+const ONBOARDING_MARKDOWN_ID = "onboarding-v1-user-42-zh-welcome";
 
 describe("noteDeepLink", () => {
   beforeEach(() => {
     window.history.replaceState(null, "", "/");
   });
 
-  it("parses only canonical UUID note resource routes", () => {
+  it("parses UUID and opaque note resource ids used by real note data", () => {
     expect(parseNoteAppPath(`/notes/${NOTE_ID}`)).toEqual({
       matched: true,
       noteId: NOTE_ID,
@@ -26,9 +27,9 @@ describe("noteDeepLink", () => {
       matched: true,
       noteId: NOTE_ID,
     });
-    expect(parseNoteAppPath("/notes/not-a-note")).toEqual({
-      matched: false,
-      noteId: null,
+    expect(parseNoteAppPath(`/notes/${ONBOARDING_MARKDOWN_ID}`)).toEqual({
+      matched: true,
+      noteId: ONBOARDING_MARKDOWN_ID,
     });
     expect(parseNoteAppPath("/mindmaps/123")).toEqual({
       matched: false,
@@ -62,7 +63,15 @@ describe("noteDeepLink", () => {
     expect(url.searchParams.get("nowenAppPath")).toBe(`/notes/${NOTE_ID}`);
   });
 
-  it("falls back to root for an invalid note id", () => {
-    expect(buildNoteAppPath("invalid")).toBe("/");
+  it("builds routes for deterministic onboarding Markdown ids", () => {
+    expect(buildNoteAppPath(ONBOARDING_MARKDOWN_ID))
+      .toBe(`/notes/${ONBOARDING_MARKDOWN_ID}`);
+  });
+
+  it("rejects only path-unsafe or empty note ids", () => {
+    expect(buildNoteAppPath("")).toBe("/");
+    expect(buildNoteAppPath("..")).toBe("/");
+    expect(buildNoteAppPath("bad/id")).toBe("/");
+    expect(buildNoteAppPath("bad\\id")).toBe("/");
   });
 });
