@@ -181,7 +181,12 @@ export default function DailyJournalView({
         : "personal";
       const [check, momentResult, treeResult] = await Promise.all([
         checkJournalForScope(selectedDate, journalScope),
-        api.getDiaryTimeline(undefined, 100, range || undefined),
+        api.getDiaryTimeline(
+          undefined,
+          100,
+          range || undefined,
+          journalScope.kind === "workspace" ? journalScope.workspaceId : "personal",
+        ),
         knowledgeTreeApi.listForWorkspace(treeWorkspaceId).catch(() => ({ nodes: [] as KnowledgeTreeNode[] })),
       ]);
 

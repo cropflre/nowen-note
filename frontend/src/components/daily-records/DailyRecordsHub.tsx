@@ -12,7 +12,7 @@ import DiaryExperienceBridge from "@/components/diary/DiaryExperienceBridge";
 import SayCalendarView from "@/components/diary/SayCalendarView";
 import DailyJournalView from "@/components/daily-records/DailyJournalView";
 import JournalPrivacyGate from "@/components/daily-records/JournalPrivacyGate";
-import { getCurrentWorkspace } from "@/lib/api";
+import { getCurrentWorkspace, setCurrentWorkspace } from "@/lib/api";
 import {
   formatCurrentTimestamp,
   loadDailyRecordsView,
@@ -194,7 +194,18 @@ export default function DailyRecordsHub() {
           <DailyJournalView
             selectedDate={selectedDate}
             onDateChange={setSelectedDate}
-            onWriteMoment={() => setView("moments")}
+            onWriteMoment={() => {
+              const targetWorkspace = journalScope.kind === "workspace"
+                ? journalScope.workspaceId
+                : "personal";
+              if (getCurrentWorkspace() !== targetWorkspace) {
+                setCurrentWorkspace(targetWorkspace);
+                window.dispatchEvent(new CustomEvent("nowen:workspace-changed", {
+                  detail: { workspaceId: targetWorkspace },
+                }));
+              }
+              setView("moments");
+            }}
             journalScope={journalScope}
             onJournalScopeChange={setJournalScope}
             activeWorkspaceId={activeWorkspaceId}

@@ -2969,6 +2969,7 @@ export const api = {
     cursor?: string,
     limit?: number,
     range?: { from?: string; to?: string; mediaType?: string; mood?: string; q?: string },
+    workspaceOverride?: string,
   ) => {
     const params = new URLSearchParams();
     if (cursor) params.set("cursor", cursor);
@@ -2979,7 +2980,7 @@ export const api = {
     // from/to 接收 "YYYY-MM-DD" 或完整 ISO 时间；后端会做 normalize
     if (range?.from) params.set("from", range.from);
     if (range?.to) params.set("to", range.to);
-    const ws = getCurrentWorkspace();
+    const ws = workspaceOverride ?? getCurrentWorkspace();
     if (ws && ws !== "personal") params.set("workspaceId", ws);
     const qs = params.toString();
     return request<DiaryTimeline>(`/diary/timeline${qs ? `?${qs}` : ""}`);

@@ -27,6 +27,8 @@ describe("journal enhancement contract", () => {
     expect(view).toContain("<JournalArchive");
     expect(view).toContain("给这一天写个副标题");
     expect(view).toContain("工作区日志");
+    expect(view).toContain('journalScope.kind === "workspace" ? journalScope.workspaceId : "personal"');
+    expect(hub).toContain("setCurrentWorkspace(targetWorkspace)");
   });
 
   it("exposes journal privacy management in account settings", () => {
