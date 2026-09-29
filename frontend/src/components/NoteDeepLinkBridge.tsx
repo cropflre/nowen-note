@@ -4,7 +4,11 @@ import { useApp, useAppActions } from "@/store/AppContext";
 import { useUserPreferences } from "@/hooks/useUserPreferences";
 import { useNoteLoader } from "@/hooks/useNoteLoader";
 import { api } from "@/lib/api";
-import { APP_PATH_CHANGED_EVENT, resolveCurrentAppPathname } from "@/lib/appPathNavigation";
+import {
+  APP_PATH_CHANGED_EVENT,
+  replaceAppPathState,
+  resolveCurrentAppPathname,
+} from "@/lib/appPathNavigation";
 import {
   getCurrentNoteAppRoute,
   parseNoteAppPath,
@@ -114,7 +118,7 @@ export default function NoteDeepLinkBridge() {
         actions.setActiveNote(null);
         actions.setMobileView("list");
         actions.setViewMode("all");
-        window.history.replaceState(window.history.state, "", "/");
+        replaceAppPathState("/");
         toast.error(error instanceof Error ? error.message : "无法打开该笔记");
       });
     };
@@ -150,7 +154,7 @@ export default function NoteDeepLinkBridge() {
     }
 
     if (currentRoute.matched) {
-      window.history.replaceState(window.history.state, "", "/");
+      replaceAppPathState("/");
     }
   }, [state.activeNote?.id, state.viewMode]);
 
