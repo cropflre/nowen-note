@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const NOTE_A = "123e4567-e89b-42d3-a456-426614174216";
 const NOTE_B = "223e4567-e89b-42d3-a456-426614174217";
+const MARKDOWN_ONBOARDING_ID = "onboarding-v1-user-42-zh-welcome";
 
 const mocks = vi.hoisted(() => ({
   state: {
@@ -196,6 +197,31 @@ describe("NoteDeepLinkBridge", () => {
     });
 
     expect(window.location.pathname).toBe(`/notes/${NOTE_B}`);
+    expect(mocks.loadNote).not.toHaveBeenCalled();
+  });
+
+  it("switches Sheet -> onboarding Markdown note with a non-UUID id", async () => {
+    mocks.state.activeNote = null;
+    mocks.state.viewMode = "all";
+    window.history.replaceState(null, "", `/sheets/${NOTE_A}`);
+
+    await act(async () => {
+      root.render(<NoteDeepLinkBridge />);
+    });
+
+    mocks.state.activeNote = {
+      ...note(NOTE_B),
+      id: MARKDOWN_ONBOARDING_ID,
+      title: "欢迎使用 Nowen Note",
+      contentFormat: "markdown",
+    };
+    mocks.state.viewMode = "notebook";
+    await act(async () => {
+      root.render(<NoteDeepLinkBridge />);
+      await Promise.resolve();
+    });
+
+    expect(window.location.pathname).toBe(`/notes/${MARKDOWN_ONBOARDING_ID}`);
     expect(mocks.loadNote).not.toHaveBeenCalled();
   });
 
