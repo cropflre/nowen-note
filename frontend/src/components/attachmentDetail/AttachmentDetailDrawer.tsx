@@ -43,6 +43,8 @@ import {
   type ImageHostFormat,
 } from "@/lib/imageHostFormats";
 import AttachmentPreview from "@/components/attachmentPreview/AttachmentPreview";
+import { useSiteSettings } from "@/hooks/useSiteSettings";
+import { buildPublicAttachmentUrl } from "@/lib/publicAttachmentUrl";
 
 function humanSize(bytes: number): string {
   if (!bytes || bytes < 0) return "0 B";
@@ -111,6 +113,7 @@ export default function AttachmentDetailDrawer({
   renderPreview,
 }: AttachmentDetailDrawerProps) {
   const { t } = useTranslation();
+  const { siteConfig } = useSiteSettings();
   const [detail, setDetail] = useState<FileDetail | null>(null);
   const [loading, setLoading] = useState(false);
   const reqIdRef = useRef(0);
@@ -208,7 +211,11 @@ export default function AttachmentDetailDrawer({
   const copySnippet = useCallback(
     async (format: ImageHostFormat) => {
       if (!detail) return;
-      const full = resolveAttachmentUrl(detail.url);
+      const resolved = resolveAttachmentUrl(detail.url);
+      const full = buildPublicAttachmentUrl(resolved, {
+        filePublicOrigin: siteConfig.filePublicOrigin,
+        publicWebOrigin: siteConfig.publicWebOrigin,
+      });
       const snippet = formatImageHostSnippet(format, full, detail.filename);
       const ok = await copyText(snippet);
       if (ok) {
@@ -217,7 +224,7 @@ export default function AttachmentDetailDrawer({
         toast.error(t("attachmentDetail.copyFailed"));
       }
     },
-    [detail, t],
+    [detail, siteConfig.filePublicOrigin, siteConfig.publicWebOrigin, t],
   );
 
   const [downloading, setDownloading] = useState(false);
@@ -477,7 +484,13 @@ export default function AttachmentDetailDrawer({
               )}
 
               {(() => {
-                const fullUrl = resolveAttachmentUrl(detail.url);
+                const fullUrl = buildPublicAttachmentUrl(
+                  resolveAttachmentUrl(detail.url),
+                  {
+                    filePublicOrigin: siteConfig.filePublicOrigin,
+                    publicWebOrigin: siteConfig.publicWebOrigin,
+                  },
+                );
                 if (isMobile) {
                   return (
                     <div
