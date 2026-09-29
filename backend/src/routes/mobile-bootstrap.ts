@@ -24,6 +24,7 @@ type UserPreferences = {
   enableNoteTabs: boolean;
   markdownDefaultViewMode: MarkdownViewMode;
   remoteImagePasteMode: RemoteImagePasteMode;
+  showNoteListDividers: boolean;
 };
 
 const DEFAULT_PREFS: UserPreferences = {
@@ -37,6 +38,7 @@ const DEFAULT_PREFS: UserPreferences = {
   enableNoteTabs: false,
   markdownDefaultViewMode: "source",
   remoteImagePasteMode: "localize",
+  showNoteListDividers: false,
 };
 
 function normalizeWorkspaceId(raw: string | null | undefined): string | null {
@@ -83,6 +85,9 @@ function normalizePreferences(input: unknown): UserPreferences {
       raw.remoteImagePasteMode === "keep-remote"
         ? raw.remoteImagePasteMode
         : DEFAULT_PREFS.remoteImagePasteMode,
+    showNoteListDividers: typeof raw.showNoteListDividers === "boolean"
+      ? raw.showNoteListDividers
+      : DEFAULT_PREFS.showNoteListDividers,
   };
 }
 

@@ -210,3 +210,19 @@ test("syncs journal lock-on-entry preference per account", async () => {
   assert.equal(invalid.status, 400);
   assert.equal(invalid.json.code, "INVALID_USER_PREFERENCE");
 });
+
+
+test("syncs note-list divider preference per account", async () => {
+  const before = await requestJson("GET");
+  assert.equal(before.json.showNoteListDividers, false);
+
+  const saved = await requestJson("PUT", { showNoteListDividers: true });
+  assert.equal(saved.status, 200);
+  assert.equal(saved.json.showNoteListDividers, true);
+  assert.equal((await requestJson("GET")).json.showNoteListDividers, true);
+  assert.equal((await requestJson("GET", undefined, OTHER_ID)).json.showNoteListDividers, false);
+
+  const invalid = await requestJson("PUT", { showNoteListDividers: "yes" });
+  assert.equal(invalid.status, 400);
+  assert.equal(invalid.json.code, "INVALID_USER_PREFERENCE");
+});

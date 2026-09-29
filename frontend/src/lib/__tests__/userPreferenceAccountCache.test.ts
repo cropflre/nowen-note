@@ -152,6 +152,12 @@ describe("user preference account cache", () => {
     expect(sanitizeUserPreferencePatch({ remoteImagePasteMode: "keep-remote" })).toEqual({ remoteImagePasteMode: "keep-remote" });
     expect(sanitizeUserPreferencePatch({ remoteImagePasteMode: "unsafe" })).toEqual({ remoteImagePasteMode: "localize" });
   });
+  it("keeps note-list divider preference account scoped and boolean", () => {
+    expect(DEFAULT_USER_PREFERENCES.showNoteListDividers).toBe(false);
+    expect(sanitizeUserPreferencePatch({ showNoteListDividers: true })).toEqual({ showNoteListDividers: true });
+    expect(sanitizeUserPreferencePatch({ showNoteListDividers: "yes" })).toEqual({ showNoteListDividers: false });
+  });
+
   it("keeps journal lock-on-entry account scoped and boolean", () => {
     expect(DEFAULT_USER_PREFERENCES.journalLockOnEntry).toBe(false);
     expect(sanitizeUserPreferencePatch({ journalLockOnEntry: true })).toEqual({ journalLockOnEntry: true });

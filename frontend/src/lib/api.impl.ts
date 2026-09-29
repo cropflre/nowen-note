@@ -1340,6 +1340,7 @@ export const api = {
     hiddenNavigationModules?: string[];
     hiddenTaskCenterModules?: string[];
     journalLockOnEntry?: boolean;
+    showNoteListDividers?: boolean;
     hasPreferences?: boolean;
   }>("/user-preferences"),
   updateUserPreferences: (data: {
@@ -1355,6 +1356,7 @@ export const api = {
     hiddenNavigationModules?: string[];
     hiddenTaskCenterModules?: string[];
     journalLockOnEntry?: boolean;
+    showNoteListDividers?: boolean;
   }) => request<{
     noteTitleAsAppTitle: boolean;
     outlineDefaultOpen: boolean;
@@ -1368,6 +1370,7 @@ export const api = {
     hiddenNavigationModules?: string[];
     hiddenTaskCenterModules?: string[];
     journalLockOnEntry?: boolean;
+    showNoteListDividers?: boolean;
     hasPreferences?: boolean;
   }>("/user-preferences", { method: "PUT", body: JSON.stringify(data) }),
 
