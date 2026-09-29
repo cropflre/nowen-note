@@ -66,7 +66,12 @@ export function useAttachmentImageRenderSource(
   );
 
   const source = getAttachmentRenderSource(rawSrc);
-  const resolvedSrc = rawSrc ? resolveAttachmentUrl(source.persistentSrc) : "";
+  // Resolve from the original node source, not the persistence-normalized path.
+  // This keeps runtime-only query parameters (for example thumbnail width) intact and,
+  // more importantly, lets the attachment access bridge atomically replace a raw/stale
+  // attachment URL with the latest signed/offline render URL as soon as that mapping arrives.
+  // The persisted document still stays stable through source.persistentSrc.
+  const resolvedSrc = rawSrc ? resolveAttachmentUrl(rawSrc) : "";
   const needsAndroidBlob = enabled
     && Capacitor.getPlatform() === "android"
     && !!source.attachmentId
