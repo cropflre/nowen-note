@@ -6,6 +6,10 @@ import {
   resolvePublicWebOriginSettingUpdate,
   syncRuntimePublicWebOriginSetting,
 } from "../lib/public-web-origin";
+import {
+  resolveFilePublicOriginSettingUpdate,
+  syncRuntimeFilePublicOriginSetting,
+} from "../lib/file-public-origin";
 import systemUpdateRouter from "./system-update";
 import importBatchesRouter from "./import-batches";
 import roundTripPermissionsRouter from "./roundtrip-permissions";
@@ -21,6 +25,10 @@ export interface SiteSettings {
   site_public_web_origin: string;
   /** 地址来源，仅用于 UI 解释：settings / environment / current。 */
   site_public_web_origin_source: string;
+  /** 文件/图床复制直链专用公开地址；空串表示继承公开 Web 地址。 */
+  site_file_public_origin: string;
+  /** settings / environment / inherit。 */
+  site_file_public_origin_source: string;
   editor_font_family: string;
   /** @deprecated v6 起弃用，个人空间导出开关已下沉为 users.personalExportEnabled。 */
   feature_personal_export_enabled: string;
@@ -38,6 +46,8 @@ const DEFAULTS: SiteSettings = {
   site_icp_beian: "",
   site_public_web_origin: "",
   site_public_web_origin_source: "current",
+  site_file_public_origin: "",
+  site_file_public_origin_source: "inherit",
   editor_font_family: "",
   feature_personal_export_enabled: "true",
   feature_personal_import_enabled: "true",
@@ -49,6 +59,11 @@ try {
   syncRuntimePublicWebOriginSetting();
 } catch (error) {
   console.warn("[settings] failed to initialize PUBLIC_WEB_ORIGIN:", error);
+}
+try {
+  syncRuntimeFilePublicOriginSetting();
+} catch (error) {
+  console.warn("[settings] failed to initialize FILE_PUBLIC_ORIGIN:", error);
 }
 
 function readSettings(): Record<string, string> {
@@ -75,7 +90,8 @@ settings.put("/", async (c) => {
   const wantsSiteIdentity =
     body.site_title !== undefined ||
     body.site_favicon !== undefined ||
-    body.site_public_web_origin !== undefined;
+    body.site_public_web_origin !== undefined ||
+    body.site_file_public_origin !== undefined;
   if (wantsSiteIdentity && !isSystemAdmin(userId)) {
     return c.json({ error: "仅管理员可修改该设置", code: "FORBIDDEN" }, 403);
   }
@@ -97,6 +113,13 @@ settings.put("/", async (c) => {
     const resolved = resolvePublicWebOriginSettingUpdate(body.site_public_web_origin);
     if ("error" in resolved) {
       return c.json({ error: resolved.error, code: "INVALID_PUBLIC_WEB_ORIGIN" }, 400);
+    }
+    entries.push(...resolved.entries);
+  }
+  if (body.site_file_public_origin !== undefined) {
+    const resolved = resolveFilePublicOriginSettingUpdate(body.site_file_public_origin);
+    if ("error" in resolved) {
+      return c.json({ error: resolved.error, code: "INVALID_FILE_PUBLIC_ORIGIN" }, 400);
     }
     entries.push(...resolved.entries);
   }
