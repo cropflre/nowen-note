@@ -12,6 +12,8 @@ on:
       - "frontend/src/components/ResizableImageView.tsx"
       - "frontend/src/components/TiptapEditor.tsx"
       - "frontend/src/components/EditorImageTransformBridge.tsx"
+      - "frontend/src/hooks/useAttachmentImageRenderSource.ts"
+      - "frontend/src/hooks/__tests__/useAttachmentImageRenderSource.test.tsx"
       - "frontend/src/components/__tests__/MobileKnowledgeTreePanel.test.ts"
       - "frontend/src/components/__tests__/DesktopKnowledgeTreeMode.test.ts"
       - "frontend/src/components/__tests__/EditorImageTransformBridge.test.tsx"
@@ -32,6 +34,8 @@ on:
       - "frontend/src/components/ResizableImageView.tsx"
       - "frontend/src/components/TiptapEditor.tsx"
       - "frontend/src/components/EditorImageTransformBridge.tsx"
+      - "frontend/src/hooks/useAttachmentImageRenderSource.ts"
+      - "frontend/src/hooks/__tests__/useAttachmentImageRenderSource.test.tsx"
       - "frontend/src/components/__tests__/MobileKnowledgeTreePanel.test.ts"
       - "frontend/src/components/__tests__/DesktopKnowledgeTreeMode.test.ts"
       - "frontend/src/components/__tests__/EditorImageTransformBridge.test.tsx"
@@ -73,6 +77,7 @@ jobs:
           src/lib/__tests__/knowledgeTreeSidebarContract.test.ts
           src/components/__tests__/MobileKnowledgeTreePanel.test.ts
           src/components/__tests__/DesktopKnowledgeTreeMode.test.ts
+          src/hooks/__tests__/useAttachmentImageRenderSource.test.tsx
           src/lib/__tests__/editorImageTransformLayout.test.ts
           src/components/__tests__/EditorImageTransformBridge.test.tsx
       - name: Frontend typecheck
