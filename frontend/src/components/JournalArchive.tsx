@@ -77,6 +77,9 @@ export default function JournalArchive({
 }) {
   const [items, setItems] = useState<JournalItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(false);
+  const [nextOffset, setNextOffset] = useState<number | null>(null);
   const [q, setQ] = useState("");
   const [year, setYear] = useState("");
   const [month, setMonth] = useState("");
@@ -96,8 +99,9 @@ export default function JournalArchive({
     }
   }, []);
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const load = useCallback(async (offset = 0, append = false) => {
+    if (append) setLoadingMore(true);
+    else setLoading(true);
     try {
       const result = await api.journals.list({
         year: year || undefined,
@@ -107,20 +111,26 @@ export default function JournalArchive({
         mood: mood || undefined,
         q: q.trim() || undefined,
         sort,
-        limit: 100,
+        offset,
+        limit: 50,
       });
-      setItems(result.items);
+      setItems((current) => append ? [...current, ...result.items] : result.items);
+      setHasMore(result.hasMore);
+      setNextOffset(result.nextOffset);
     } catch (error: any) {
       if (error?.code !== "FOLDER_UNLOCK_REQUIRED") console.error("[JournalArchive] load failed", error);
-      setItems([]);
+      if (!append) setItems([]);
+      setHasMore(false);
+      setNextOffset(null);
     } finally {
-      setLoading(false);
+      if (append) setLoadingMore(false);
+      else setLoading(false);
     }
   }, [from, month, mood, q, sort, to, year]);
 
   useEffect(() => { void loadYears(); }, [loadYears, refreshToken]);
   useEffect(() => {
-    const timer = window.setTimeout(() => void load(), q ? 220 : 0);
+    const timer = window.setTimeout(() => void load(0, false), q ? 220 : 0);
     return () => window.clearTimeout(timer);
   }, [load, q, refreshToken]);
 
@@ -228,6 +238,17 @@ export default function JournalArchive({
               </div>
             </div>
           ))}
+          {hasMore && nextOffset !== null && (
+            <button
+              type="button"
+              onClick={() => void load(nextOffset, true)}
+              disabled={loadingMore}
+              className="flex w-full items-center justify-center gap-1.5 rounded-xl border border-app-border px-3 py-2.5 text-xs font-medium text-tx-secondary hover:bg-app-hover disabled:opacity-60"
+            >
+              {loadingMore && <Loader2 size={12} className="animate-spin" />}
+              {loadingMore ? "加载中…" : "加载更多"}
+            </button>
+          )}
         </div>
       )}
     </div>

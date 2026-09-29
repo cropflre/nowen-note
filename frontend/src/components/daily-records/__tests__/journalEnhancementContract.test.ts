@@ -13,6 +13,8 @@ describe("journal enhancement contract", () => {
     expect(archive).toContain('placeholder="搜索日记"');
     expect(archive).toContain("全部心情");
     expect(archive).toContain("最近编辑");
+    expect(archive).toContain("加载更多");
+    expect(archive).toContain("limit: 50");
     expect(api).toContain("tzOffsetMinutes");
     expect(api).toContain("ensurePrivacyRoot");
   });
