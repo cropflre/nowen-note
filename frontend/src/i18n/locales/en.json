@@ -791,6 +791,8 @@
     "closeSplit": "Close split",
     "closeAllSplits": "Close all splits",
     "splitLoadFailed": "Failed to load split pane",
+    "openInNewTab": "Open in new tab",
+    "copyInternalLink": "Copy internal link",
     "copyWikiLink": "Copy wiki link",
     "copyMarkdownLink": "Copy Markdown link",
     "copyTitle": "Copy title",
