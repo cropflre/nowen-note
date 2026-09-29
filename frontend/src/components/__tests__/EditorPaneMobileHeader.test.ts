@@ -48,25 +48,33 @@ function desktopMoreMenuSource() {
 }
 
 describe("EditorPane mobile header", () => {
-  it("pins lock toggle before search and keeps it out of the mobile more menu", () => {
+  it("keeps lock management in the mobile menu without adding a duplicate header row", () => {
     const header = mobileHeaderSource();
-    const lockButton = header.indexOf("onClick={toggleLock}");
-    const searchButton = header.indexOf("nowen:open-search");
-    const moreMenu = header.slice(header.indexOf("{showMobileMenu && ("));
+    const moreMenu = mobileMoreMenuSource();
 
-    expect(lockButton).toBeGreaterThanOrEqual(0);
-    expect(searchButton).toBeGreaterThan(lockButton);
-    expect(moreMenu).not.toContain("toggleLock()");
+    expect(header).not.toContain("onClick={toggleLock}");
+    expect(header).toContain("nowen:open-search");
+    expect(moreMenu).toContain("toggleLock(); setShowMobileMenu(false)");
+    expect(header).toContain("mobileTitlePinned");
   });
 
-  it("closes the note search before opening the mobile more menu", () => {
-    const header = mobileHeaderSource();
-    const moreButton = header.slice(
-      header.indexOf('<div className="relative shrink-0" ref={mobileMenuRef}>'),
-      header.indexOf("<AnimatePresence>", header.indexOf('ref={mobileMenuRef}')),
-    );
+  it("closes note search before opening either mobile menu trigger", () => {
+    const start = editorPaneSource.indexOf("<MobileEditorToolbarPortal location=\"trailing\">");
+    const source = editorPaneSource.slice(start, editorPaneSource.indexOf("{showMobileMenu && (", start));
+    const triggers = Array.from(source.matchAll(/<Button\b[\s\S]*?<\/Button>/g))
+      .map((match) => match[0])
+      .filter((button) => button.includes("data-mobile-note-menu-trigger"));
 
-    expect(moreButton).toContain("nowen:close-search");
+    expect(triggers).toHaveLength(3);
+    for (const trigger of triggers) expect(trigger).toContain("nowen:close-search");
+  });
+
+  it("lets both note management menus scroll within the available viewport", () => {
+    for (const menu of [mobileMoreMenuSource(), desktopMoreMenuSource()]) {
+      expect(menu).toContain("overflow-y-auto");
+      expect(menu).toContain("overscroll-contain");
+      expect(menu).toContain("noteMenuViewport.height");
+    }
   });
 
   it("keeps desktop action titles matched with their buttons", () => {

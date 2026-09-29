@@ -1,4 +1,6 @@
-import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import { useVisibleViewport } from "@/hooks/useVisibleViewport";
 import {
   Check,
   ChevronDown,
@@ -51,15 +53,15 @@ const contextMenuIconClassName = "w-4 h-4 flex items-center justify-center shrin
 function DesktopContextMenuItems({
   items,
   onAction,
+  menuId,
 }: {
   items: ContextMenuItem[];
   onAction: (actionId: string) => void;
+  menuId: string;
 }) {
   const [activeItemId, setActiveItemId] = useState<string | null>(null);
-  const [placement, setPlacement] = useState<{ side: "left" | "right"; top: number }>({
-    side: "right",
-    top: 0,
-  });
+  const [placement, setPlacement] = useState({ left: 0, top: 0 });
+  const viewport = useVisibleViewport(!!activeItemId);
   const anchorRef = useRef<HTMLDivElement | null>(null);
   const submenuRef = useRef<HTMLDivElement | null>(null);
   const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -75,18 +77,24 @@ function DesktopContextMenuItems({
       const submenuRect = submenu.getBoundingClientRect();
       const viewportGap = 8;
       const menuGap = 4;
-      const rightSpace = window.innerWidth - viewportGap - anchorRect.right - menuGap;
-      const leftSpace = anchorRect.left - viewportGap - menuGap;
-      const side = rightSpace >= submenuRect.width || rightSpace >= leftSpace ? "right" : "left";
-      const maxTop = Math.max(viewportGap, window.innerHeight - viewportGap - submenuRect.height);
-      const viewportTop = Math.min(Math.max(anchorRect.top, viewportGap), maxTop);
-      setPlacement({ side, top: viewportTop - anchorRect.top });
+      const minLeft = viewport.left + viewportGap;
+      const rightEdge = viewport.left + viewport.width - viewportGap;
+      const rightSpace = rightEdge - anchorRect.right - menuGap;
+      const leftSpace = anchorRect.left - minLeft - menuGap;
+      const preferredLeft = rightSpace >= submenuRect.width || rightSpace >= leftSpace
+        ? anchorRect.right + menuGap : anchorRect.left - submenuRect.width - menuGap;
+      const left = Math.min(Math.max(preferredLeft, minLeft), Math.max(minLeft, rightEdge - submenuRect.width));
+      const minTop = viewport.top + viewportGap;
+      const maxTop = Math.max(minTop, viewport.top + viewport.height - viewportGap - submenuRect.height);
+      const top = Math.min(Math.max(anchorRect.top, minTop), maxTop);
+      setPlacement({ left, top });
     };
 
     updatePlacement();
-    window.addEventListener("resize", updatePlacement);
-    return () => window.removeEventListener("resize", updatePlacement);
-  }, [activeItemId]);
+    // 根菜单滚动时同步子菜单位置；子菜单通过 portal 保持完整可见。
+    window.addEventListener("scroll", updatePlacement, true);
+    return () => window.removeEventListener("scroll", updatePlacement, true);
+  }, [activeItemId, viewport]);
 
   useEffect(() => () => {
     if (closeTimerRef.current) clearTimeout(closeTimerRef.current);
@@ -138,16 +146,13 @@ function DesktopContextMenuItems({
                 </span>
                 <ChevronRight size={12} className="text-tx-tertiary shrink-0" />
               </button>
-              {active && (
+              {active && createPortal(
                 <div
                   ref={submenuRef}
-                  style={{
-                    top: placement.top,
-                    ...(placement.side === "left"
-                      ? { right: "calc(100% + 4px)" }
-                      : { left: "calc(100% + 4px)" }),
-                  }}
-                  className="absolute w-max min-w-[13.5rem] max-w-[calc(100vw-16px)] overflow-visible backdrop-blur-xl bg-white/90 dark:bg-zinc-900/90 rounded-[12px] shadow-lg shadow-black/[0.08] dark:shadow-black/30 border border-black/[0.06] dark:border-white/[0.08] py-1 z-[101]"
+                  data-context-menu-id={menuId}
+                  data-context-menu-submenu=""
+                  style={{ ...placement, maxHeight: Math.max(0, viewport.height - 16), maxWidth: Math.max(0, viewport.width - 16) }}
+                  className="fixed w-max min-w-[13.5rem] max-w-[calc(100vw-16px)] overflow-y-auto overscroll-contain backdrop-blur-xl bg-white/90 dark:bg-zinc-900/90 rounded-[12px] shadow-lg shadow-black/[0.08] dark:shadow-black/30 border border-black/[0.06] dark:border-white/[0.08] py-1 z-[101]"
                   onMouseEnter={() => {
                     if (closeTimerRef.current) clearTimeout(closeTimerRef.current);
                   }}
@@ -155,8 +160,9 @@ function DesktopContextMenuItems({
                     closeTimerRef.current = setTimeout(() => setActiveItemId(null), 150);
                   }}
                 >
-                  <DesktopContextMenuItems items={item.children} onAction={onAction} />
-                </div>
+                  <DesktopContextMenuItems items={item.children} onAction={onAction} menuId={menuId} />
+                </div>,
+                document.body,
               )}
             </div>
           );
@@ -442,6 +448,8 @@ export default function ContextMenu({
   isOpen, x, y, items, menuRef, onAction, header,
 }: ContextMenuProps) {
   const internalRef = useRef<HTMLDivElement | null>(null);
+  const menuId = useId();
+  const viewport = useVisibleViewport(isOpen);
   const [adjustedPos, setAdjustedPos] = useState({ x, y });
   const [moveNoteId, setMoveNoteId] = useState<string | null>(null);
   const [renameNoteId, setRenameNoteId] = useState<string | null>(null);
@@ -559,11 +567,7 @@ export default function ContextMenu({
       const el = internalRef.current;
       if (!el) return;
       const rect = el.getBoundingClientRect();
-      const viewport = window.visualViewport;
-      const viewportLeft = viewport?.offsetLeft ?? 0;
-      const viewportTop = viewport?.offsetTop ?? 0;
-      const viewportWidth = viewport?.width ?? window.innerWidth;
-      const viewportHeight = viewport?.height ?? window.innerHeight;
+      const { left: viewportLeft, top: viewportTop, width: viewportWidth, height: viewportHeight } = viewport;
       const gap = 8;
       const minX = viewportLeft + gap;
       const minY = viewportTop + gap;
@@ -578,7 +582,7 @@ export default function ContextMenu({
       ));
     });
     return () => cancelAnimationFrame(frame);
-  }, [isOpen, x, y, displayItems, mobileMenuPath]);
+  }, [isOpen, x, y, displayItems, mobileMenuPath, viewport]);
 
   useEffect(() => {
     setAdjustedPos({ x, y });
@@ -715,15 +719,17 @@ export default function ContextMenu({
       {isOpen && (
         <div
           ref={internalRef}
+          data-context-menu-id={menuId}
           style={{
             position: "fixed",
             top: adjustedPos.y,
             left: adjustedPos.x,
             zIndex: 100,
+            maxHeight: Math.max(0, viewport.height - 16),
             animation: "contextMenuIn 0.12s ease-out",
           }}
           className={cn(
-            "w-48 max-h-[calc(100dvh-16px)] overflow-y-auto overscroll-contain sm:max-h-none sm:overflow-visible backdrop-blur-xl bg-white/90 dark:bg-zinc-900/90 rounded-[12px] shadow-lg shadow-black/[0.08] dark:shadow-black/30 border border-black/[0.06] dark:border-white/[0.08] py-1 select-none",
+            "w-48 overflow-x-hidden overflow-y-auto overscroll-contain backdrop-blur-xl bg-white/90 dark:bg-zinc-900/90 rounded-[12px] shadow-lg shadow-black/[0.08] dark:shadow-black/30 border border-black/[0.06] dark:border-white/[0.08] py-1 select-none",
             mobileMenuPath.length > 0 && "max-sm:w-max max-sm:min-w-[13.5rem] max-sm:max-w-[calc(100vw-16px)]",
           )}
         >
@@ -793,6 +799,7 @@ export default function ContextMenu({
           <div className="hidden sm:block">
             <DesktopContextMenuItems
               items={displayItems}
+              menuId={menuId}
               onAction={(actionId) => void handleSpecialInlineNoteAction(actionId)}
             />
           </div>

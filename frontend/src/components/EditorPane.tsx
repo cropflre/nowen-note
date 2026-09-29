@@ -78,6 +78,7 @@ import {
 } from "@/lib/noteContentPersistence";
 import { useUserPreferences } from "@/hooks/useUserPreferences";
 import { useKeyboardVisible } from "@/hooks/useKeyboardVisible";
+import { useVisibleViewport } from "@/hooks/useVisibleViewport";
 import {
   isRemoteVersionNewer,
   resolveConfirmedTiptapContent,
@@ -262,6 +263,7 @@ export default function EditorPane({
   const [showMobileMenu, setShowMobileMenu] = useState(false);
   const [mobileTitlePinned, setMobileTitlePinned] = useState(false);
   const [showDesktopMoreMenu, setShowDesktopMoreMenu] = useState(false);
+  const noteMenuViewport = useVisibleViewport(showMobileMenu || showDesktopMoreMenu);
   const [showMobileMoveMenu, setShowMobileMoveMenu] = useState(false);
   const [showMobileOutline, setShowMobileOutline] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
@@ -2717,9 +2719,9 @@ const moveToTrash = useCallback(async () => {
                   animate={{ opacity: 1, scale: 1, y: 0 }}
                   exit={{ opacity: 0, scale: 0.95, y: -4 }}
                   transition={{ duration: 0.12 }}
-                  className="absolute top-0 right-0 mt-1 w-56 max-h-[calc(100vh-9rem)] bg-app-elevated border border-app-border rounded-lg shadow-xl z-50 py-1 overflow-x-hidden overflow-y-auto overscroll-contain"
+                  className="absolute top-0 right-0 mt-1 w-56 max-h-[calc(100dvh-9rem)] bg-app-elevated border border-app-border rounded-lg shadow-xl z-50 py-1 overflow-x-hidden overflow-y-auto overscroll-contain"
                   style={{
-                    maxHeight: "calc(100dvh - 9rem - env(safe-area-inset-bottom, 0px))",
+                    maxHeight: `calc(${noteMenuViewport.height}px - 9rem - env(safe-area-inset-bottom, 0px))`,
                     WebkitOverflowScrolling: "touch",
                   }}
                 >
@@ -3367,7 +3369,8 @@ const moveToTrash = useCallback(async () => {
                   animate={{ opacity: 1, scale: 1, y: 0 }}
                   exit={{ opacity: 0, scale: 0.96, y: -4 }}
                   transition={{ duration: 0.12 }}
-                  className="absolute right-0 top-full z-50 mt-1 w-72 overflow-hidden rounded-lg border border-app-border bg-app-elevated py-1 shadow-xl"
+                  className="absolute right-0 top-full z-50 mt-1 w-72 overflow-x-hidden overflow-y-auto overscroll-contain rounded-lg border border-app-border bg-app-elevated py-1 shadow-xl"
+                  style={{ maxHeight: `calc(${noteMenuViewport.height}px - 6rem - env(safe-area-inset-bottom, 0px))` }}
                 >
                   <div className="px-3 py-2 border-b border-app-border">
                     <div className="flex items-center justify-between gap-2 text-[11px] text-tx-tertiary">

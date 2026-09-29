@@ -68,12 +68,23 @@ export function useContextMenu() {
   }, []);
 
   useEffect(() => {
+    const isInsideMenu = (target: EventTarget | null) => {
+      const root = menuRef.current;
+      if (!root || !(target instanceof Node)) return false;
+      if (root.contains(target)) return true;
+      // 桌面子菜单通过 portal 避免被滚动容器裁剪，仍属于同一菜单。
+      const element = target instanceof Element ? target : target.parentElement;
+      const menuId = root.getAttribute("data-context-menu-id");
+      return !!menuId && element?.closest("[data-context-menu-id]")?.getAttribute("data-context-menu-id") === menuId;
+    };
     const handleClick = (e: MouseEvent) => {
-      // 点击菜单外部时关闭
-      if (menuRef.current && menuRef.current.contains(e.target as Node)) return;
+      if (isInsideMenu(e.target)) return;
       closeMenu();
     };
-    const handleScroll = () => closeMenu();
+    const handleScroll = (e: Event) => {
+      if (isInsideMenu(e.target)) return;
+      closeMenu();
+    };
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") closeMenu();
     };
