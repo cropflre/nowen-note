@@ -6,7 +6,8 @@ import {
   resolveCurrentAppPathname,
 } from "@/lib/appPathNavigation";
 
-const NOTE_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const MAX_NOTE_ID_LENGTH = 512;
+const INVALID_NOTE_ID_CHARS_RE = /[\\/\u0000-\u001f\u007f]/;
 
 export interface NoteAppRoute {
   matched: boolean;
@@ -14,7 +15,14 @@ export interface NoteAppRoute {
 }
 
 export function isNoteId(value: string | null | undefined): value is string {
-  return typeof value === "string" && NOTE_ID_RE.test(value);
+  if (typeof value !== "string" || value.length === 0 || value.length > MAX_NOTE_ID_LENGTH) {
+    return false;
+  }
+  // notes.id is an opaque TEXT primary key in the backend. Current data includes UUIDs,
+  // deterministic onboarding ids (onboarding-v1-...), and imported/migrated identifiers.
+  // Routing must therefore validate path-safety, not impose a UUID-only data model.
+  if (value === "." || value === "..") return false;
+  return !INVALID_NOTE_ID_CHARS_RE.test(value);
 }
 
 export function parseNoteAppPath(pathname: string): NoteAppRoute {
