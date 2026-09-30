@@ -1656,7 +1656,20 @@ body.density-compact {
   --nowen-ul-marker-size: 1.1em;
   --nowen-ul-marker-top: 0;
 }
-.shared-note-content ol { list-style: decimal; }
+/* 有序列表层级与编辑器保持一致：1. → a. → i. */
+.shared-note-content ol {
+  list-style-type: decimal !important;
+}
+.shared-note-content ol > li {
+  display: list-item !important;
+  list-style-type: decimal !important;
+}
+.shared-note-content ol > li > ol > li {
+  list-style-type: lower-alpha !important;
+}
+.shared-note-content ol > li > ol > li > ol > li {
+  list-style-type: lower-roman !important;
+}
 .shared-note-content ul ul { --nowen-ul-marker: "◦"; --nowen-ul-marker-size: 1.1em; --nowen-ul-marker-top: 0; }
 .shared-note-content ul ul ul { --nowen-ul-marker: "▪"; --nowen-ul-marker-size: 1.2em; --nowen-ul-marker-top: -0.05em; }
 .shared-note-content ul ul ul ul { --nowen-ul-marker: "•"; --nowen-ul-marker-size: 1.1em; --nowen-ul-marker-top: 0; }
