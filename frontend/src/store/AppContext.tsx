@@ -34,6 +34,7 @@ export interface OpenNoteTab {
   isLocked?: number;
   isTrashed?: number;
   updatedAt?: string;
+  colorMark?: import("@/types").NoteColorMark | null;
   pinned?: boolean;
 }
 

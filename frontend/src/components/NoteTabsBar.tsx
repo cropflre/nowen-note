@@ -681,7 +681,6 @@ export default function NoteTabsBar() {
                 active={active}
                 loading={active && noteLoading}
                 colorMark={active ? activeNote?.colorMark : state.notes.find((note) => note.id === tab.id)?.colorMark}
-                colorMark={active ? activeNote?.colorMark : state.notes.find((note) => note.id === tab.id)?.colorMark}
                 closeLabel={t("editorTabs.close")}
                 onClose={(e) => {
                   e.stopPropagation();
