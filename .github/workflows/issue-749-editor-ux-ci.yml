@@ -12,6 +12,8 @@ on:
       - "frontend/src/components/NoteIconPickerModal.tsx"
       - "frontend/src/components/KnowledgeTreePanel.tsx"
       - "frontend/src/components/SettingsModal.tsx"
+      - "frontend/src/components/NavRail.tsx"
+      - "frontend/src/lib/navigationVisibility.ts"
       - "frontend/src/lib/codeBlockPresentation.ts"
       - "frontend/src/lib/noteIconRegistry.ts"
       - "frontend/src/lib/userPreferenceAccountCache.ts"
@@ -30,6 +32,8 @@ on:
       - "frontend/src/components/NoteIconPickerModal.tsx"
       - "frontend/src/components/KnowledgeTreePanel.tsx"
       - "frontend/src/components/SettingsModal.tsx"
+      - "frontend/src/components/NavRail.tsx"
+      - "frontend/src/lib/navigationVisibility.ts"
       - "frontend/src/lib/codeBlockPresentation.ts"
       - "frontend/src/lib/noteIconRegistry.ts"
       - "frontend/src/lib/userPreferenceAccountCache.ts"
@@ -65,6 +69,7 @@ jobs:
           src/components/__tests__/CodeBlockView.performance.test.tsx
           src/components/__tests__/MarkdownCodeBlock.performance.test.tsx
           src/lib/__tests__/userPreferenceAccountCache.test.ts
+          src/lib/__tests__/navigationVisibility.test.ts
           --reporter=verbose
       - name: Frontend typecheck
         run: npx tsc -b --pretty false

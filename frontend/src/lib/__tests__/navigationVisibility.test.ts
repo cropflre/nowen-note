@@ -2,8 +2,11 @@ import { describe, expect, it } from "vitest";
 import {
   isNavigationModuleVisible,
   isTaskCenterModuleVisible,
+  moveNavigationModule,
+  moveNavigationModuleByOffset,
   normalizeHiddenNavigationModules,
   normalizeHiddenTaskCenterModules,
+  normalizeNavigationModuleOrder,
 } from "../navigationVisibility";
 
 describe("navigation visibility", () => {
@@ -21,6 +24,17 @@ describe("navigation visibility", () => {
     expect(isNavigationModuleVisible("notifications", hidden)).toBe(false);
     expect(isNavigationModuleVisible("notifications", hidden.filter((id) => id !== "notifications"))).toBe(true);
   });
+
+  it("normalizes custom navigation order and appends missing modules safely", () => {
+    expect(normalizeNavigationModuleOrder(["tasks", "favorites", "tasks", "unknown"])).toEqual([
+      "tasks", "favorites", "notifications", "files", "diary", "mindmaps", "ai-chat", "shares",
+    ]);
+    expect(moveNavigationModule([], "tasks", "notifications").slice(0, 2)).toEqual(["tasks", "notifications"]);
+    expect(moveNavigationModuleByOffset([], "favorites", 1).slice(0, 3)).toEqual([
+      "notifications", "files", "favorites",
+    ]);
+  });
+
 
   it("keeps core tasks available while optional task modules can be hidden", () => {
     const hidden = normalizeHiddenTaskCenterModules(["habits", "stats", "tasks"]);

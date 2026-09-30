@@ -210,6 +210,27 @@ test("syncs navigation visibility preferences and rejects unknown module ids", a
 });
 
 
+test("syncs navigation module order, appends future/default modules, and rejects unknown ids", async () => {
+  const before = await requestJson("GET");
+  assert.deepEqual(before.json.navigationModuleOrder, [
+    "notifications", "favorites", "files", "diary", "tasks", "mindmaps", "ai-chat", "shares",
+  ]);
+
+  const saved = await requestJson("PUT", { navigationModuleOrder: ["tasks", "favorites", "notifications"] });
+  assert.equal(saved.status, 200);
+  assert.deepEqual(saved.json.navigationModuleOrder, [
+    "tasks", "favorites", "notifications", "files", "diary", "mindmaps", "ai-chat", "shares",
+  ]);
+  assert.deepEqual((await requestJson("GET", undefined, OTHER_ID)).json.navigationModuleOrder, [
+    "notifications", "favorites", "files", "diary", "tasks", "mindmaps", "ai-chat", "shares",
+  ]);
+
+  const invalid = await requestJson("PUT", { navigationModuleOrder: ["tasks", "unknown-module"] });
+  assert.equal(invalid.status, 400);
+  assert.equal(invalid.json.code, "INVALID_USER_PREFERENCE");
+});
+
+
 test("persists notification entry visibility per account and supports restoring it", async () => {
   assert.deepEqual((await requestJson("GET")).json.hiddenNavigationModules, []);
 

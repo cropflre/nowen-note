@@ -7,6 +7,8 @@ export type { CodeBlockCollapseMode } from "@/lib/codeBlockPresentation";
 import {
   normalizeHiddenNavigationModules,
   normalizeHiddenTaskCenterModules,
+  normalizeNavigationModuleOrder,
+  NAVIGATION_MODULE_IDS,
   type NavigationModuleId,
   type TaskCenterOptionalModuleId,
 } from "@/lib/navigationVisibility";
@@ -44,6 +46,7 @@ export interface UserPreferences {
   noteTheme: NoteThemeId;
   noteListTitleOnly: boolean;
   hiddenNavigationModules: NavigationModuleId[];
+  navigationModuleOrder: NavigationModuleId[];
   hiddenTaskCenterModules: TaskCenterOptionalModuleId[];
   journalLockOnEntry: boolean;
   showNoteListDividers: boolean;
@@ -83,6 +86,7 @@ export const DEFAULT_USER_PREFERENCES: UserPreferences = {
   noteTheme: "default",
   noteListTitleOnly: false,
   hiddenNavigationModules: [],
+  navigationModuleOrder: [...NAVIGATION_MODULE_IDS],
   hiddenTaskCenterModules: [],
   journalLockOnEntry: false,
   showNoteListDividers: false,
@@ -187,6 +191,9 @@ export function normalizeUserPreferences(
     hiddenNavigationModules: Array.isArray(raw.hiddenNavigationModules)
       ? normalizeHiddenNavigationModules(raw.hiddenNavigationModules)
       : [...fallback.hiddenNavigationModules],
+    navigationModuleOrder: Array.isArray(raw.navigationModuleOrder)
+      ? normalizeNavigationModuleOrder(raw.navigationModuleOrder)
+      : normalizeNavigationModuleOrder(fallback.navigationModuleOrder),
     hiddenTaskCenterModules: Array.isArray(raw.hiddenTaskCenterModules)
       ? normalizeHiddenTaskCenterModules(raw.hiddenTaskCenterModules)
       : [...fallback.hiddenTaskCenterModules],

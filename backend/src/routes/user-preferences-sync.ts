@@ -39,6 +39,7 @@ export interface SyncedUserPreferences {
   noteTheme: NoteTheme;
   noteListTitleOnly: boolean;
   hiddenNavigationModules: NavigationModuleId[];
+  navigationModuleOrder: NavigationModuleId[];
   hiddenTaskCenterModules: TaskCenterOptionalModuleId[];
   journalLockOnEntry: boolean;
   showNoteListDividers: boolean;
@@ -85,6 +86,7 @@ export const DEFAULT_SYNCED_USER_PREFERENCES: SyncedUserPreferences = {
   noteTheme: "default",
   noteListTitleOnly: false,
   hiddenNavigationModules: [],
+  navigationModuleOrder: ["notifications", "favorites", "files", "diary", "tasks", "mindmaps", "ai-chat", "shares"],
   hiddenTaskCenterModules: [],
   journalLockOnEntry: false,
   showNoteListDividers: false,
@@ -92,7 +94,8 @@ export const DEFAULT_SYNCED_USER_PREFERENCES: SyncedUserPreferences = {
 
 const PREFERENCE_KEYS = Object.keys(DEFAULT_SYNCED_USER_PREFERENCES) as PreferenceKey[];
 const PREFERENCE_KEY_SET = new Set<string>(PREFERENCE_KEYS);
-const NAVIGATION_MODULE_IDS = new Set<string>(["notifications", "favorites", "files", "diary", "tasks", "mindmaps", "ai-chat", "shares"]);
+const NAVIGATION_MODULE_ORDER: NavigationModuleId[] = ["notifications", "favorites", "files", "diary", "tasks", "mindmaps", "ai-chat", "shares"];
+const NAVIGATION_MODULE_IDS = new Set<string>(NAVIGATION_MODULE_ORDER);
 const TASK_CENTER_OPTIONAL_MODULE_IDS = new Set<string>(["inbox", "my-day", "planner", "habits", "stats"]);
 const CODE_BLOCK_THEMES = new Set<CodeBlockTheme>([
   "github-dark",
@@ -106,6 +109,15 @@ const CODE_BLOCK_THEMES = new Set<CodeBlockTheme>([
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function normalizeNavigationModuleOrder(value: unknown, fallback: NavigationModuleId[]): NavigationModuleId[] {
+  const source = Array.isArray(value) ? value : fallback;
+  const saved = Array.from(new Set(source.filter((item): item is NavigationModuleId =>
+    typeof item === "string" && NAVIGATION_MODULE_IDS.has(item)
+  )));
+  const seen = new Set(saved);
+  return [...saved, ...NAVIGATION_MODULE_ORDER.filter((id) => !seen.has(id))];
 }
 
 function normalizePreferenceValue<K extends PreferenceKey>(
@@ -133,6 +145,8 @@ function normalizePreferenceValue<K extends PreferenceKey>(
             )))
           : fallback
       ) as SyncedUserPreferences[K];
+    case "navigationModuleOrder":
+      return normalizeNavigationModuleOrder(value, fallback as NavigationModuleId[]) as SyncedUserPreferences[K];
     case "hiddenTaskCenterModules":
       return (
         Array.isArray(value)
@@ -248,6 +262,13 @@ function validatePatch(input: unknown): { patch: PreferencePatch; errors: string
   for (const key of PREFERENCE_KEYS) {
     if (!(key in raw)) continue;
     if (key === "hiddenNavigationModules") {
+      const value = raw[key];
+      if (!Array.isArray(value) || value.some((item) => typeof item !== "string" || !NAVIGATION_MODULE_IDS.has(item))) {
+        errors.push(`${key} 的值无效`);
+        continue;
+      }
+    }
+    if (key === "navigationModuleOrder") {
       const value = raw[key];
       if (!Array.isArray(value) || value.some((item) => typeof item !== "string" || !NAVIGATION_MODULE_IDS.has(item))) {
         errors.push(`${key} 的值无效`);

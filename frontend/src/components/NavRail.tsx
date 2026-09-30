@@ -31,7 +31,12 @@ import { useRailMode } from "@/hooks/useRailMode";
 import { useSidebarTextStyle } from "@/hooks/useSidebarTextStyle";
 import { useMobileRailHidden } from "@/hooks/useMobileRailHidden";
 import { useUserPreferences } from "@/hooks/useUserPreferences";
-import { isNavigationModuleVisible } from "@/lib/navigationVisibility";
+import {
+  NAVIGATION_MODULE_IDS,
+  isNavigationModuleVisible,
+  normalizeNavigationModuleOrder,
+  type NavigationModuleId,
+} from "@/lib/navigationVisibility";
 import {
   clearDesktopLocalAuth,
   getAppInfo,
@@ -169,9 +174,15 @@ export default function NavRail({ variant = "desktop", notificationCount = 0 }: 
 
   const availableItems = features ? NAV_CONFIG.filter((item) => !item.feature || features[item.feature] !== false) : NAV_CONFIG;
   const capabilityItems = localDeviceMode ? NAV_CONFIG : availableItems;
-  const items = capabilityItems.filter((item) =>
-    isNavigationModuleVisible(item.mode, userPrefs.hiddenNavigationModules),
-  );
+  const configurableItemById = new Map<NavigationModuleId, NavConfigItem>();
+  for (const item of capabilityItems) {
+    if (NAVIGATION_MODULE_IDS.includes(item.mode as NavigationModuleId)) {
+      configurableItemById.set(item.mode as NavigationModuleId, item);
+    }
+  }
+  const orderedNavigationModuleIds = normalizeNavigationModuleOrder(userPrefs.navigationModuleOrder)
+    .filter((id) => isNavigationModuleVisible(id, userPrefs.hiddenNavigationModules));
+  const trashItem = capabilityItems.find((item) => item.mode === "trash") || null;
 
   const handleClick = useCallback((mode: ViewMode) => {
     if (localDeviceMode && (mode === "ai-chat" || mode === "shares")) {
@@ -285,7 +296,32 @@ export default function NavRail({ variant = "desktop", notificationCount = 0 }: 
     );
   };
 
-  const groups: NavGroup[] = ["workspace", "modules", "tools"];
+  const renderNotificationItem = () => {
+    if (localDeviceMode) return null;
+    const label = t("sidebar.notifications");
+    return (
+      <button
+        key="notifications"
+        data-mobile-drawer-rail-item=""
+        onClick={() => {
+          actions.setMobileSidebar(false);
+          window.dispatchEvent(new Event(OPEN_NOTIFICATIONS_EVENT));
+        }}
+        aria-label={label}
+        title={showLabel ? undefined : label}
+        className={cn(itemBaseClass, "relative text-tx-tertiary hover:bg-app-hover hover:text-tx-primary")}
+      >
+        <Bell size={RAIL_ICON_SIZE} />
+        {notificationCount > 0 && (
+          <span className="absolute right-0 top-0 rounded-full bg-accent-primary px-1 text-[9px] text-white">
+            {notificationCount > 99 ? "99+" : notificationCount}
+          </span>
+        )}
+        {showLabel && <span className="mt-0.5 max-w-full truncate px-1 text-[10px]">{label}</span>}
+      </button>
+    );
+  };
+
   return (
     <div
       className={cn(
@@ -327,17 +363,17 @@ export default function NavRail({ variant = "desktop", notificationCount = 0 }: 
 
       <div className="flex-1 min-h-0 w-full overflow-y-auto no-scrollbar flex flex-col items-center gap-1 px-1">
         {!localDeviceMode && workspaceId !== "personal" && <button onClick={() => handleClick("issues")} aria-label={t("sidebar.issues")} title={t("sidebar.issues")} className={cn(itemBaseClass, state.viewMode === "issues" ? "text-accent-primary bg-app-hover" : "text-tx-tertiary hover:bg-app-hover")}><CircleDot size={RAIL_ICON_SIZE} />{showLabel && <span className="mt-0.5 text-[10px]">{t("sidebar.issues")}</span>}</button>}
-        {!localDeviceMode && isNavigationModuleVisible("notifications", userPrefs.hiddenNavigationModules) && <button onClick={() => { actions.setMobileSidebar(false); window.dispatchEvent(new Event(OPEN_NOTIFICATIONS_EVENT)); }} aria-label={t("sidebar.notifications")} title={t("sidebar.notifications")} className={cn(itemBaseClass, "relative text-tx-tertiary hover:bg-app-hover")}><Bell size={RAIL_ICON_SIZE} />{notificationCount > 0 && <span className="absolute right-0 top-0 rounded-full bg-accent-primary px-1 text-[9px] text-white">{notificationCount > 99 ? "99+" : notificationCount}</span>}{showLabel && <span className="mt-0.5 text-[10px]">{t("sidebar.notifications")}</span>}</button>}
-        {groups.map((group, index) => {
-          const groupItems = items.filter((item) => item.group === group);
-          if (groupItems.length === 0) return null;
-          return (
-            <React.Fragment key={group}>
-              {index > 0 && <div className={cn("my-1 border-t border-app-border/60", showLabel ? "w-8" : "w-6")} aria-hidden />}
-              {groupItems.map(renderItem)}
-            </React.Fragment>
-          );
+        {orderedNavigationModuleIds.map((id) => {
+          if (id === "notifications") return renderNotificationItem();
+          const item = configurableItemById.get(id);
+          return item ? renderItem(item) : null;
         })}
+        {trashItem && (
+          <>
+            <div className={cn("my-1 border-t border-app-border/60", showLabel ? "w-8" : "w-6")} aria-hidden />
+            {renderItem(trashItem)}
+          </>
+        )}
       </div>
 
       <div className={cn("my-2 border-t border-app-border/60", showLabel ? "w-8" : "w-6")} aria-hidden />

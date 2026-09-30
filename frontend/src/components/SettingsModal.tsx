@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { Palette, Shield, Database, X, Settings, Camera, Save, Loader2, Trash2, Upload, Type, Check, ChevronDown, Globe, Bot, Users, Info, ExternalLink, Heart, Sparkles, RefreshCw, ZoomIn, Key, Keyboard, Building2, BookOpen, ToggleLeft, Download, FolderSync, Mail, Puzzle, Workflow } from "lucide-react";
+import { Palette, Shield, Database, X, Settings, Camera, Save, Loader2, Trash2, Upload, Type, Check, ChevronDown, Globe, Bot, Users, Info, ExternalLink, Heart, Sparkles, RefreshCw, ZoomIn, Key, Keyboard, Building2, BookOpen, ToggleLeft, Download, FolderSync, Mail, Puzzle, Workflow, GripVertical, ArrowUp, ArrowDown } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import wechatSponsorQr from "@/assets/sponsor/weixin.jpg";
 import alipaySponsorQr from "@/assets/sponsor/zhifubao.png";
@@ -34,7 +34,13 @@ import { isDesktop, checkForUpdates, onUpdaterStatus, getReleaseChannel, isPorta
 import { CustomFont } from "@/types";
 import { cn } from "@/lib/utils";
 import { detectShortcutSurface } from "@/lib/shortcutRegistry";
-import type { NavigationModuleId, TaskCenterOptionalModuleId } from "@/lib/navigationVisibility";
+import {
+  moveNavigationModule,
+  moveNavigationModuleByOffset,
+  normalizeNavigationModuleOrder,
+  type NavigationModuleId,
+  type TaskCenterOptionalModuleId,
+} from "@/lib/navigationVisibility";
 import {
   DESKTOP_KNOWLEDGE_TREE_VIEW_MODE_CHANGED_EVENT,
   DESKTOP_KNOWLEDGE_TREE_VIEW_MODE_STORAGE_KEY,
@@ -756,6 +762,7 @@ function SwitchesPanel() {
   const [desktopHideMenuBar, setDesktopHideMenuBar] = useState(true);
   const [desktopPlatform, setDesktopPlatform] = useState<string | null>(null);
   const [savingKey, setSavingKey] = useState<string | null>(null);
+  const [draggedNavigationModule, setDraggedNavigationModule] = useState<NavigationModuleId | null>(null);
   const [mobileKnowledgeTreeMode, setMobileKnowledgeTreeMode] = useState<MobileKnowledgeTreeViewMode>(
     () => loadMobileKnowledgeTreeViewMode(),
   );
@@ -783,6 +790,10 @@ function SwitchesPanel() {
     { id: "ai-chat", label: t("sidebar.aiChat") },
     { id: "shares", label: t("sidebar.shareManagement") },
   ];
+  const navigationItemById = new Map(navigationVisibilityItems.map((item) => [item.id, item]));
+  const orderedNavigationVisibilityItems = normalizeNavigationModuleOrder(userPrefs.navigationModuleOrder)
+    .map((id) => navigationItemById.get(id))
+    .filter((item): item is { id: NavigationModuleId; label: string } => !!item);
   const taskCenterVisibilityItems: Array<{ id: TaskCenterOptionalModuleId; label: string }> = [
     { id: "inbox", label: t("tasks.inbox", { defaultValue: "收集箱" }) },
     { id: "my-day", label: t("tasks.myDay", { defaultValue: "我的一天" }) },
@@ -806,6 +817,22 @@ function SwitchesPanel() {
     if (!visible && state.viewMode === id) {
       actions.setViewMode("all");
     }
+  };
+
+  const moveNavigationEntry = (id: NavigationModuleId, offset: -1 | 1) => {
+    setUserPref(
+      "navigationModuleOrder",
+      moveNavigationModuleByOffset(userPrefs.navigationModuleOrder, id, offset),
+    );
+  };
+
+  const dropNavigationEntry = (targetId: NavigationModuleId) => {
+    if (!draggedNavigationModule) return;
+    setUserPref(
+      "navigationModuleOrder",
+      moveNavigationModule(userPrefs.navigationModuleOrder, draggedNavigationModule, targetId),
+    );
+    setDraggedNavigationModule(null);
   };
 
   const setTaskCenterModuleVisible = (id: TaskCenterOptionalModuleId, visible: boolean) => {
@@ -970,17 +997,57 @@ function SwitchesPanel() {
             {t("settings.navigationVisibilityDesc")}
           </p>
         </div>
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-          {navigationVisibilityItems.map((item) => (
-            <label key={item.id} className="flex items-center gap-2 rounded-lg border border-zinc-200 bg-white/70 px-3 py-2 text-xs text-zinc-700 transition-colors hover:border-accent-primary/40 dark:border-zinc-800 dark:bg-zinc-900/40 dark:text-zinc-300">
+        <div className="space-y-1.5" data-navigation-module-order-list="">
+          {orderedNavigationVisibilityItems.map((item, index) => (
+            <div
+              key={item.id}
+              draggable
+              data-navigation-module-order-item={item.id}
+              onDragStart={() => setDraggedNavigationModule(item.id)}
+              onDragEnd={() => setDraggedNavigationModule(null)}
+              onDragOver={(event) => {
+                event.preventDefault();
+                event.dataTransfer.dropEffect = "move";
+              }}
+              onDrop={(event) => {
+                event.preventDefault();
+                dropNavigationEntry(item.id);
+              }}
+              className={cn(
+                "flex items-center gap-2 rounded-lg border border-zinc-200 bg-white/70 px-2.5 py-2 text-xs text-zinc-700 transition-colors dark:border-zinc-800 dark:bg-zinc-900/40 dark:text-zinc-300",
+                draggedNavigationModule === item.id && "opacity-50 ring-1 ring-accent-primary/40",
+              )}
+            >
+              <GripVertical size={14} className="shrink-0 cursor-grab text-zinc-400 active:cursor-grabbing" aria-hidden />
               <input
                 type="checkbox"
                 checked={!userPrefs.hiddenNavigationModules.includes(item.id)}
                 onChange={(event) => setNavigationModuleVisible(item.id, event.target.checked)}
-                className="h-3.5 w-3.5 accent-indigo-600"
+                className="h-3.5 w-3.5 shrink-0 accent-indigo-600"
+                aria-label={item.label}
               />
-              <span className="truncate">{item.label}</span>
-            </label>
+              <span className="min-w-0 flex-1 truncate">{item.label}</span>
+              <button
+                type="button"
+                disabled={index === 0}
+                onClick={() => moveNavigationEntry(item.id, -1)}
+                className="flex h-6 w-6 items-center justify-center rounded text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 disabled:opacity-25 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+                title={t("settings.navigationMoveUp", { defaultValue: "上移" })}
+                aria-label={t("settings.navigationMoveUp", { defaultValue: "上移" })}
+              >
+                <ArrowUp size={13} />
+              </button>
+              <button
+                type="button"
+                disabled={index === orderedNavigationVisibilityItems.length - 1}
+                onClick={() => moveNavigationEntry(item.id, 1)}
+                className="flex h-6 w-6 items-center justify-center rounded text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 disabled:opacity-25 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+                title={t("settings.navigationMoveDown", { defaultValue: "下移" })}
+                aria-label={t("settings.navigationMoveDown", { defaultValue: "下移" })}
+              >
+                <ArrowDown size={13} />
+              </button>
+            </div>
           ))}
         </div>
       </div>

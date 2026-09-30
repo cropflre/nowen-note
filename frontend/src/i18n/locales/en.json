@@ -717,7 +717,7 @@
     "appearanceThemeDesc": "Customize visual experience",
     "switchesTitle": "Switches",
     "switchesDesc": "Manage feature switches and default behavior in one place",
-    "navigationVisibilityTitle": "Navigation visibility",
+    "navigationVisibilityTitle": "Navigation modules",
     "navigationVisibilityDesc": "Hide entries you do not need without deleting data or disabling features. Deep links remain available.",
     "taskCenterVisibilityTitle": "Task Center visibility",
     "taskCenterVisibilityDesc": "The core task list stays available. You can hide Inbox, My Day, Planner, Habits, and Stats.",
