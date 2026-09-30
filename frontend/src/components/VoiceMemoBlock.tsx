@@ -17,6 +17,6 @@ export default function VoiceMemoBlock({ node, editor, deleteNode }: NodeViewPro
       <a className={button} href={downloadSource.renderSrc} download={attrs.filename}>{t("voice.download")}</a>
       {editor.isEditable && <button type="button" className={button} onClick={deleteNode}>{t("voice.remove")}</button>}
     </div>
-    {editor.isEditable && <VoiceTranscription key={attrs.src} src={attrs.src} onInsert={(text) => { if (editor.isEditable && !editor.isDestroyed) editor.chain().focus().insertContent({ type: "paragraph", content: [{ type: "text", text }] }).run(); }} />}
+    {editor.isEditable && <VoiceTranscription key={attrs.attachmentId || attrs.src} attachmentId={attrs.attachmentId} src={attrs.src} onInsert={(text) => { if (editor.isEditable && !editor.isDestroyed) editor.chain().focus().insertContent({ type: "paragraph", content: [{ type: "text", text }] }).run(); }} />}
   </NodeViewWrapper>;
 }

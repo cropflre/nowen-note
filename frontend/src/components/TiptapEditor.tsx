@@ -4669,7 +4669,7 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
         title: item.filename,
       }).run();
     } else if (isInlineAudioAttachment(item)) {
-      chain.insertContent({ type: "voiceMemo", attrs: { attachmentId: item.id, src: item.url, filename: item.filename, mimeType: item.mimeType, size: item.size, durationMs: 0 } }).run();
+      chain.insertContent({ type: "voiceMemo", attrs: { attachmentId: item.id, src: `/api/attachments/${item.id}`, filename: item.filename, mimeType: item.mimeType, size: item.size, durationMs: 0 } }).run();
     } else if (inlineVideo) {
       chain.setVideoFile({
         previewUrl: toInlineAttachmentUrl(item.url),

@@ -2,10 +2,11 @@ import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { voiceApi } from "@/lib/api";
 import { toast } from "@/lib/toast";
+import { extractAttachmentId, getPersistentAttachmentUrl } from "@/lib/noteAttachmentAccessBridge";
 
-export default function VoiceTranscription({ src, onInsert }: { src: string; onInsert: (text: string) => void }) {
+export default function VoiceTranscription({ attachmentId, src, onInsert }: { attachmentId?: string; src: string; onInsert: (text: string) => void }) {
   const { t } = useTranslation();
-  const attachmentId = src.match(/\/api\/attachments\/([^/?#]+)/)?.[1];
+  const id = attachmentId || extractAttachmentId(getPersistentAttachmentUrl(src) || src);
   const [configured, setConfigured] = useState(false);
   const [busy, setBusy] = useState(false);
   const [text, setText] = useState<string | null>(null);
@@ -17,12 +18,12 @@ export default function VoiceTranscription({ src, onInsert }: { src: string; onI
     return () => { mounted = false; window.removeEventListener("nowen:speech-settings-changed", refresh); };
   }, []);
   const transcribe = async () => {
-    if (!attachmentId) return;
+    if (!id) return;
     setBusy(true); setError("");
-    try { setText((await voiceApi.transcribe(attachmentId)).text); } catch (failure) { setError((failure as Error).message); } finally { setBusy(false); }
+    try { setText((await voiceApi.transcribe(id)).text); } catch (failure) { setError((failure as Error).message); } finally { setBusy(false); }
   };
   const button = "rounded-md border border-app-border px-3 py-1.5 text-xs hover:bg-app-hover disabled:opacity-50";
-  if (!attachmentId) return null;
+  if (!id) return null;
   return <div className="space-y-2">
     <button type="button" className={button} disabled={!configured || busy} title={!configured ? t("voice.configure") : undefined} onClick={() => void transcribe()}>{t(busy ? "voice.transcribing" : text === null ? "voice.transcribe" : "voice.retranscribe")}</button>
     {error && <p role="alert" className="text-sm text-red-500">{error}</p>}

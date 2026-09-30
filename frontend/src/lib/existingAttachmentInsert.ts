@@ -5,7 +5,7 @@ import { voiceMemoHtml } from "@/lib/voiceMemo";
 export type ExistingAttachmentInsertItem = Pick<
   FileItem,
   "category" | "filename" | "mimeType" | "size" | "url"
->;
+> & Partial<Pick<FileItem, "id">>;
 
 /**
  * 文件管理中的图片应按图片节点插入，而不是退化成普通附件链接。
@@ -74,7 +74,7 @@ export function buildExistingAttachmentMarkdownSnippet(
     return `![${label}](${url})`;
   }
   if (isInlineAudioAttachment(item)) {
-    return `\n\n${voiceMemoHtml({ src: item.url, filename: item.filename, mimeType: item.mimeType, size: item.size, attachmentId: item.url.match(/\/api\/attachments\/([^/?#]+)/)?.[1], durationMs: 0 })}\n\n`;
+    return `\n\n${voiceMemoHtml({ src: item.url, filename: item.filename, mimeType: item.mimeType, size: item.size, attachmentId: item.id || item.url.match(/\/api\/attachments\/([^/?#]+)/)?.[1], durationMs: 0 })}\n\n`;
   }
   if (isInlineVideoAttachment(item)) {
     const previewUrl = encodeMarkdownUrl(toInlineAttachmentUrl(item.url));

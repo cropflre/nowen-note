@@ -88,4 +88,20 @@ describe("recoverable voice recording", () => {
     await act(async () => window.dispatchEvent(new CustomEvent("nowen:voice-record", { detail: { noteId: "note-b", insert: vi.fn() } })));
     expect(document.body.textContent).toContain("voice.start");
   });
+
+  it("inserts and persists the attachment identity when Android upload returns a device URL", async () => {
+    mocks.upload.mockResolvedValue({ id: "audio-1", url: "https://localhost/_capacitor_file_/voice.webm", filename: "voice.webm", mimeType: "audio/webm", size: 9 });
+    const insert = await record();
+    expect(insert).toHaveBeenCalledWith(expect.objectContaining({ attachmentId: "audio-1", src: "/api/attachments/audio-1" }));
+    expect(mocks.put).toHaveBeenCalledWith(expect.objectContaining({ attachment: expect.objectContaining({ src: "/api/attachments/audio-1" }) }));
+  });
+  it("canonicalizes an uploaded legacy draft on recovery without uploading again", async () => {
+    mocks.list.mockResolvedValue([{ id: "old-draft", scope: "server|user-a", noteId: "note-a", createdAt: 123, blob: new Blob(["recording"]), mimeType: "audio/webm", durationMs: 32120, status: "recorded", attachment: { attachmentId: "audio-1", src: "capacitor://localhost/old.webm", filename: "voice.webm", mimeType: "audio/webm", size: 9, durationMs: 32120 } }]);
+    const insert = vi.fn().mockReturnValue(true);
+    await act(async () => window.dispatchEvent(new CustomEvent("nowen:voice-record", { detail: { noteId: "note-a", insert } })));
+    await click("voice.retry");
+    expect(mocks.upload).not.toHaveBeenCalled();
+    expect(insert).toHaveBeenCalledWith(expect.objectContaining({ src: "/api/attachments/audio-1" }));
+    expect(mocks.remove).toHaveBeenCalledWith("old-draft");
+  });
 });

@@ -50,12 +50,12 @@ export default function VoiceRecorderSheet() {
       const note = await api.getNote(draft.noteId);
       if (note.isTrashed) throw new Error(t("voice.noteUnavailable"));
       if (draft.scope !== voiceMemoScope()) throw new Error(t("voice.localSaved"));
-      let attachment = draft.attachment;
+      let attachment = draft.attachment ? { ...draft.attachment, src: `/api/attachments/${draft.attachment.attachmentId}` } : undefined;
       if (!attachment) {
         const file = recordedVoiceFile({ blob: draft.blob, mimeType: draft.mimeType, extension: voiceRecordingExtension(draft.mimeType), durationMs: draft.durationMs, size: draft.blob.size }, draft.createdAt);
         const result = await api.attachments.upload(draft.noteId, file);
         if (result.size !== file.size) throw new Error(t("voice.uploadIncomplete"));
-        attachment = { attachmentId: result.id, src: result.url, filename: result.filename, mimeType: result.mimeType, size: result.size, durationMs: draft.durationMs };
+        attachment = { attachmentId: result.id, src: `/api/attachments/${result.id}`, filename: result.filename, mimeType: result.mimeType, size: result.size, durationMs: draft.durationMs };
         draft = { ...draft, attachment };
         setDraft(draft);
         await voiceMemoDraftStore.put(draft);

@@ -3,6 +3,7 @@ import { getAccessToken } from "./authSession";
 import type { VoiceMemoAttachment } from "./voiceMemoDraftStore";
 import { isMobileLocalMode, MOBILE_LOCAL_USER_ID } from "./mobileLocalMode";
 import { isElectronFullLocalRuntime } from "./uploadRequest";
+import { getPersistentAttachmentUrl } from "./noteAttachmentAccessBridge";
 
 export interface VoiceMemoRequest {
   noteId: string;
@@ -25,6 +26,7 @@ export function voiceMemoScope(): string {
   } catch { return ""; }
 }
 export function voiceMemoHtml(attrs: Partial<VoiceMemoAttachment>): string {
+  const src = getPersistentAttachmentUrl(attrs.src) || (attrs.attachmentId ? `/api/attachments/${attrs.attachmentId}` : attrs.src);
   const escape = (value: unknown) => String(value ?? "").replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-  return `<audio controls preload="metadata" src="${escape(attrs.src)}" data-attachment-id="${escape(attrs.attachmentId)}" data-filename="${escape(attrs.filename)}" data-mime-type="${escape(attrs.mimeType)}" data-size="${escape(attrs.size)}" data-duration-ms="${escape(attrs.durationMs)}"></audio>`;
+  return `<audio controls preload="metadata" src="${escape(src)}" data-attachment-id="${escape(attrs.attachmentId)}" data-filename="${escape(attrs.filename)}" data-mime-type="${escape(attrs.mimeType)}" data-size="${escape(attrs.size)}" data-duration-ms="${escape(attrs.durationMs)}"></audio>`;
 }

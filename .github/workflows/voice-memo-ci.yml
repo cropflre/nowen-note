@@ -1,0 +1,97 @@
+name: Voice Memo CI
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, "release/**"]
+    paths:
+      - "frontend/**"
+      - "backend/src/**"
+      - "backend/tests/**"
+      - "backend/package*.json"
+      - "backend/tsconfig.json"
+      - "electron/**"
+      - "scripts/tests/*voice*"
+      - "scripts/tests/electron-camera-permission.test.cjs"
+      - "package.json"
+      - "docs/voice-memos.md"
+      - ".github/workflows/voice-memo-ci.yml"
+  pull_request:
+    paths:
+      - "frontend/**"
+      - "backend/src/**"
+      - "backend/tests/**"
+      - "backend/package*.json"
+      - "backend/tsconfig.json"
+      - "electron/**"
+      - "scripts/tests/*voice*"
+      - "scripts/tests/electron-camera-permission.test.cjs"
+      - "package.json"
+      - "docs/voice-memos.md"
+      - ".github/workflows/voice-memo-ci.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  frontend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+      - name: Voice recording, persistence, sync and rendering regression tests
+        run: >-
+          npx vitest run
+          src/lib/__tests__/voiceRecorder.test.ts
+          src/components/__tests__/VoiceRecorderSheet.test.tsx
+          src/components/__tests__/VoiceTranscription.test.tsx
+          src/lib/__tests__/voiceMemoScope.test.ts
+          src/lib/__tests__/voiceMemoFormat.test.ts
+          src/lib/__tests__/voiceMemoExport.test.ts
+          src/lib/__tests__/voiceMemoLocalFirst.test.tsx
+          src/lib/__tests__/noteContentPersistence.test.ts
+          src/lib/__tests__/existingAttachmentInsert.test.ts
+          src/lib/__tests__/mobileSyncUnknownEntity.test.ts
+          --reporter=verbose
+      - name: Production frontend build
+        env:
+          NODE_OPTIONS: --max-old-space-size=6144
+        run: npm run build
+
+  backend-and-platform:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+      - name: Backend TypeScript build
+        run: npm run build:tsc -- --pretty false
+      - name: Transcription ACL, settings, multipart and attachment regression tests
+        run: >-
+          node --import tsx --import ./tests/setup-db-isolation.ts --test
+          tests/voice-transcription.test.ts tests/attachments-inline-video.test.ts
+      - name: Native microphone permission contracts
+        run: >-
+          node --test
+          ../scripts/tests/electron-voice-permission.test.cjs
+          ../scripts/tests/electron-camera-permission.test.cjs
+          ../scripts/tests/voice-platform-contract.test.cjs

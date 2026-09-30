@@ -10,6 +10,7 @@ import { installMobileLocalAttachmentFolderBridge } from "./mobileLocalAttachmen
 import { installMobileLocalNoteRelationsBridge } from "./mobileLocalNoteRelationsBridge";
 import type { NativeDatabase } from "./nativeDatabase";
 import { resolvePhotoUploadMime } from "./photoUploadMime";
+import { stabilizeNoteMutationPayload } from "./noteContentPersistence";
 
 let installed = false;
 
@@ -169,11 +170,11 @@ export function installMobileLocalFirstBridge(
   target.getNoteSlim = target.getNote;
   target.createNote = async (data: Partial<Note>): Promise<Note> => {
     const id = data.id || newLocalId();
-    await repository.notes.create({ ...data, id });
+    await repository.notes.create(stabilizeNoteMutationPayload({ ...data, id }));
     return (await repository.notes.get(id))!;
   };
   target.updateNote = async (id: string, data: Partial<Note>): Promise<Note> => {
-    await repository.notes.update(id, data);
+    await repository.notes.update(id, stabilizeNoteMutationPayload(data));
     return (await repository.notes.get(id))!;
   };
   target.deleteNote = async (id: string) => {
