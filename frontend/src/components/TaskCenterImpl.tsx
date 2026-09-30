@@ -42,6 +42,8 @@ import { CalendarExportTargetSettings } from "./tasks/CalendarExportTargetSettin
 import { MobileProjectTrigger, MobileProjectPicker } from "./tasks/MobileProjectPicker";
 import { taskMatchesSearch } from "./tasks/taskSearch";
 import { parseTaskQuickAdd, type TaskQuickAddParseResult } from "./tasks/taskSmartRecognition";
+import { resolveTaskQuickAddDraft, type TaskQuickAddManualMeta } from "./tasks/taskQuickAddDraft";
+import { loadTaskViewMode, saveTaskViewMode, type TaskViewMode } from "./tasks/taskViewMode";
 import { HabitStatsOverview } from "./tasks/HabitStatsOverview";
 import { HabitRow } from "./tasks/HabitRow";
 import { StatsCenter } from "./tasks/StatsCenter";
@@ -192,9 +194,11 @@ export default function TaskCenter() {
     return () => window.removeEventListener(TASK_NOTIFICATION_OPEN_EVENT, onOpen);
   }, [openTaskFromNotification]);
 
-  // Phase 4: view mode (list / board)
-  type ViewMode = "list" | "board" | "calendar" | "timeline";
-  const [viewMode, setViewMode] = useState<ViewMode>("list");
+  const [viewMode, setViewMode] = useState<TaskViewMode>(loadTaskViewMode);
+  const changeViewMode = (mode: TaskViewMode) => {
+    setViewMode(mode);
+    saveTaskViewMode(mode);
+  };
 
   // Phase 4: new project dialog
   const [showNewProject, setShowNewProject] = useState(false);
@@ -478,17 +482,16 @@ export default function TaskCenter() {
     } catch { loadTasks(); }
   };
 
-  const handleCreate = async (orphanIds: string[] = []): Promise<boolean> => {
+  const handleCreate = async (orphanIds: string[] = [], manual: TaskQuickAddManualMeta = {}): Promise<boolean> => {
     if (!newTitle.trim()) return false;
     const titleToCreate = newTitle.trim();
-    const parsed = parseTaskQuickAdd(titleToCreate);
+    const parsed = resolveTaskQuickAddDraft(titleToCreate, getDefaultTaskPatchForFilter(filter), manual);
     const createPatch = getQuickAddCreatePatch(parsed);
     const taskTitle = parsed.cleanTitle || titleToCreate;
     try {
       const task = await api.createTask({
         title: taskTitle,
         projectId: selectedProjectId || undefined,
-        ...getDefaultTaskPatchForFilter(filter),
         ...createPatch,
       });
       setTasks((prev) => [task, ...prev]);
@@ -1071,13 +1074,14 @@ export default function TaskCenter() {
                 onClick={() => setMobileProjectOpen(true)}
                 t={t}
               />
-              {/* Mobile view toggle (cycle: list -> board -> calendar -> list) */}
+              {/* 移动端依次切换列表、看板、日历、时间线，并记住选择。 */}
               <button
-                onClick={() => setViewMode(viewMode === "list" ? "board" : viewMode === "board" ? "calendar" : "list")}
+                onClick={() => changeViewMode(viewMode === "list" ? "board" : viewMode === "board" ? "calendar" : viewMode === "calendar" ? "timeline" : "list")}
                 className="flex items-center gap-1 px-2 py-1.5 rounded-full text-xs shrink-0 text-tx-secondary bg-app-hover/50 active:bg-app-active"
-                title={viewMode === "list" ? t("tasks.boardView") : viewMode === "board" ? t("tasks.calendarView") : t("tasks.listView")}
+                title={viewMode === "list" ? t("tasks.boardView") : viewMode === "board" ? t("tasks.calendarView") : viewMode === "calendar" ? t("tasks.timelineView") : t("tasks.listView")}
+                aria-label={t("tasks.view", { defaultValue: "视图" })}
               >
-                {viewMode === "list" ? <LayoutGrid size={12} /> : viewMode === "board" ? <CalendarIcon size={12} /> : <LayoutList size={12} />}
+                {viewMode === "list" ? <LayoutGrid size={12} /> : viewMode === "board" ? <CalendarIcon size={12} /> : viewMode === "calendar" ? <CalendarClock size={12} /> : <LayoutList size={12} />}
               </button>
             </>
           )}
@@ -1146,7 +1150,7 @@ export default function TaskCenter() {
                     <span className="text-tx-tertiary">{t("tasks.view", { defaultValue: "视图" })}</span>
                     <select
                       value={viewMode}
-                      onChange={(event) => setViewMode(event.target.value as ViewMode)}
+                      onChange={(event) => changeViewMode(event.target.value as TaskViewMode)}
                       className="bg-transparent text-xs text-tx-primary outline-none"
                     >
                       <option value="list">{t("tasks.listView")}</option>
@@ -1263,6 +1267,7 @@ export default function TaskCenter() {
               value={newTitle}
               onChange={setNewTitle}
               onSubmit={handleCreate}
+              defaults={getDefaultTaskPatchForFilter(filter)}
               inputRef={inputRef}
             />
             <div className="mt-2 flex justify-end">

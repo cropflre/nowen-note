@@ -1525,7 +1525,12 @@
     "createdAt": "Created",
     "deleteTask": "Delete Task",
     "pendingCount": "{{pending}} pending · {{completed}} completed",
-    "addTaskPlaceholder": "Add a new task, press Enter to save...",
+    "addTaskPlaceholder": "Add a task, e.g. “tomorrow 8pm meeting remind me 30 minutes before”",
+    "quickAdd": {
+      "clearDeadline": "Clear deadline",
+      "noReminder": "No reminder",
+      "customReminder": "Custom advance"
+    },
     "noTasks": "No tasks",
     "insertImage": "Insert image",
     "uploadingImage": "Uploading image...",

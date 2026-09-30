@@ -125,7 +125,7 @@ export const zhCNCoverageTranslations = {
       subscribeHint: "在 iOS/macOS 日历 app 中选择「添加订阅」并粘贴上方链接",
     },
     newTask: "新建任务",
-    newTaskHint: "输入任务内容，按 Enter 快速创建",
+    newTaskHint: "支持自然语言日期和提醒，按 Enter 快速创建",
     repeat: {
       custom: "自定义",
       day: "日",
@@ -294,7 +294,7 @@ export const enCoverageTranslations = {
       subscribeHint: "In the iOS/macOS Calendar app, choose Add Subscription Calendar and paste the link above",
     },
     newTask: "New task",
-    newTaskHint: "Enter a task and press Enter to create it",
+    newTaskHint: "Type dates and reminders naturally, then press Enter to create",
     repeat: {
       custom: "Custom",
       day: "day",

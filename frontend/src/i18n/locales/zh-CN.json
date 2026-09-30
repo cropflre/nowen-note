@@ -1528,7 +1528,12 @@
     "createdAt": "创建时间",
     "deleteTask": "删除任务",
     "pendingCount": "{{pending}} 待完成 · {{completed}} 已完成",
-    "addTaskPlaceholder": "添加新任务，按 Enter 保存...",
+    "addTaskPlaceholder": "添加任务，例如“明天晚上8点开会 提前30分钟”",
+    "quickAdd": {
+      "clearDeadline": "清除截止日期",
+      "noReminder": "不提醒",
+      "customReminder": "自定义提前"
+    },
     "noTasks": "暂无任务",
     "insertImage": "插入图片",
     "uploadingImage": "图片上传中...",

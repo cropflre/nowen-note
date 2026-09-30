@@ -158,21 +158,6 @@ vi.mock("../tasks/StatsCenter", () => ({
     },
 }));
 
-vi.mock("../tasks/TaskQuickAdd", () => ({
-    TaskQuickAdd: ({ value, onChange, onSubmit, inputRef }: any) => (
-        <div>
-            <input
-                data-testid="quick-add-input"
-                ref={inputRef}
-                value={value}
-                onInput={(e) => onChange((e.target as HTMLInputElement).value)}
-            />
-            <button data-testid="quick-add-submit" onClick={() => void onSubmit([])}>
-                submit
-            </button>
-        </div>
-    ),
-}));
 
 function makeTask(overrides: Record<string, any> = {}) {
     return {
@@ -251,6 +236,10 @@ function makeStats() {
     return { total: 0, completed: 0, pending: 0, today: 0, overdue: 0, week: 0 };
 }
 
+function setInputValue(input: HTMLInputElement, value: string) {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, value);
+}
+
 async function flush() {
     await Promise.resolve();
     await Promise.resolve();
@@ -268,6 +257,7 @@ describe("TaskCenter quick-add integration", () => {
     let root: Root;
 
     beforeEach(async () => {
+        localStorage.clear();
         vi.useFakeTimers();
         vi.setSystemTime(new Date("2026-07-08T10:00:00"));
 
@@ -303,13 +293,13 @@ describe("TaskCenter quick-add integration", () => {
     it("creates task with parsed fields and creates reminders", async () => {
         await renderTaskCenter(root);
 
-        const input = host.querySelector<HTMLInputElement>("[data-testid='quick-add-input']");
-        const submit = host.querySelector<HTMLButtonElement>("[data-testid='quick-add-submit']");
+        const input = host.querySelector<HTMLInputElement>("[aria-label='tasks.newTask']");
+        const submit = host.querySelector<HTMLButtonElement>("[aria-label='tasks.add']");
         expect(input).not.toBeNull();
         expect(submit).not.toBeNull();
 
         await act(async () => {
-            input!.value = "今天下午3点 开会 提前3小时";
+            setInputValue(input!, "今天下午3点 开会 提前3小时");
             input!.dispatchEvent(new Event("input", { bubbles: true }));
             await flush();
         });
@@ -333,6 +323,68 @@ describe("TaskCenter quick-add integration", () => {
         expect(input!.value).toBe("");
     });
 
+    it("creates a task using manual date, time and reminders over recognized fields", async () => {
+        await renderTaskCenter(root);
+        const title = host.querySelector<HTMLInputElement>("[aria-label='tasks.newTask']")!;
+        await act(async () => {
+            setInputValue(title, "明天晚上8点 开会 提前3小时");
+            title.dispatchEvent(new Event("input", { bubbles: true }));
+        });
+        const quickAdd = host.querySelector<HTMLElement>("[data-task-quick-add]")!;
+        const clickButton = async (text: string) => {
+            const button = Array.from(quickAdd.querySelectorAll("button")).find((item) => item.textContent?.includes(text))!;
+            await act(async () => { button.click(); await flush(); });
+        };
+        await clickButton("2026-07-09");
+        await act(async () => {
+            const date = quickAdd.querySelector<HTMLInputElement>("input[type='date']")!;
+            setInputValue(date, "2026-07-10");
+            date.dispatchEvent(new Event("input", { bubbles: true }));
+        });
+        await act(async () => {
+            const time = quickAdd.querySelector<HTMLInputElement>("input[type='time']")!;
+            setInputValue(time, "21:00");
+            time.dispatchEvent(new Event("input", { bubbles: true }));
+        });
+        await clickButton("tasks.reminder.atDue");
+        await clickButton("tasks.quickAdd.noReminder");
+        await act(async () => {
+            // 选项按分钟升序排列：0、10、30、60、1440。
+            quickAdd.querySelectorAll<HTMLInputElement>("input[type='checkbox']")[2].click();
+        });
+        await act(async () => { quickAdd.querySelector<HTMLButtonElement>("[aria-label='tasks.add']")!.click(); await flush(); });
+        expect(apiMocks.createTask).toHaveBeenCalledWith(expect.objectContaining({
+            title: "开会", dueDate: "2026-07-10", dueAt: "2026-07-10T21:00",
+        }));
+        expect(apiMocks.createTaskReminder).toHaveBeenCalledTimes(1);
+        expect(apiMocks.createTaskReminder).toHaveBeenCalledWith("new-task", 30);
+        expect(title.value).toBe("");
+        expect(quickAdd.textContent).not.toContain("2026-07-10");
+    });
+
+    it.each(["board", "calendar", "timeline"])("restores %s after remounting", async (mode) => {
+        await renderTaskCenter(root);
+        const select = host.querySelector<HTMLSelectElement>("select")!;
+        await act(async () => {
+            select.value = mode;
+            select.dispatchEvent(new Event("change", { bubbles: true }));
+        });
+        expect(localStorage.getItem("nowen.taskCenter.viewMode.v1")).toBe(mode);
+        act(() => root.unmount());
+        root = createRoot(host);
+        await renderTaskCenter(root);
+        expect(host.querySelector<HTMLSelectElement>("select")!.value).toBe(mode);
+    });
+
+    it("persists mobile view changes through all four views", async () => {
+        await renderTaskCenter(root);
+        const toggle = host.querySelector<HTMLButtonElement>("button[aria-label='tasks.view']")!;
+        for (const mode of ["board", "calendar", "timeline", "list"]) {
+            await act(async () => { toggle.click(); await flush(); });
+            expect(localStorage.getItem("nowen.taskCenter.viewMode.v1")).toBe(mode);
+        }
+    });
+
     it("continues when one reminder creation fails", async () => {
         await renderTaskCenter(root);
 
@@ -340,11 +392,11 @@ describe("TaskCenter quick-add integration", () => {
             .mockRejectedValueOnce(new Error("network"))
             .mockResolvedValueOnce({ id: "r-ok" });
 
-        const input = host.querySelector<HTMLInputElement>("[data-testid='quick-add-input']");
-        const submit = host.querySelector<HTMLButtonElement>("[data-testid='quick-add-submit']");
+        const input = host.querySelector<HTMLInputElement>("[aria-label='tasks.newTask']");
+        const submit = host.querySelector<HTMLButtonElement>("[aria-label='tasks.add']");
 
         await act(async () => {
-            input!.value = "今天下午3点 开会 提前3小时";
+            setInputValue(input!, "今天下午3点 开会 提前3小时");
             input!.dispatchEvent(new Event("input", { bubbles: true }));
             await flush();
         });
@@ -362,11 +414,11 @@ describe("TaskCenter quick-add integration", () => {
     it("creates custom repeat task with object repeatRuleJson payload", async () => {
         await renderTaskCenter(root);
 
-        const input = host.querySelector<HTMLInputElement>("[data-testid='quick-add-input']");
-        const submit = host.querySelector<HTMLButtonElement>("[data-testid='quick-add-submit']");
+        const input = host.querySelector<HTMLInputElement>("[aria-label='tasks.newTask']");
+        const submit = host.querySelector<HTMLButtonElement>("[aria-label='tasks.add']");
 
         await act(async () => {
-            input!.value = "每个工作日 写日报";
+            setInputValue(input!, "每个工作日 写日报");
             input!.dispatchEvent(new Event("input", { bubbles: true }));
             await flush();
         });
