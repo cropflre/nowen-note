@@ -456,7 +456,7 @@ function initSchema(db: Database.Database) {
     CREATE INDEX IF NOT EXISTS idx_notes_user ON notes(userId);
     CREATE INDEX IF NOT EXISTS idx_notes_updated ON notes(updatedAt DESC);
     CREATE INDEX IF NOT EXISTS idx_notes_trashed ON notes(isTrashed);
-    CREATE INDEX IF NOT EXISTS idx_notes_color_mark ON notes(colorMark);
+    -- idx_notes_color_mark 由 v115 迁移在补齐 colorMark 列后创建，避免旧库启动失败。
     CREATE INDEX IF NOT EXISTS idx_notebooks_parent ON notebooks(parentId);
     CREATE INDEX IF NOT EXISTS idx_notebooks_user ON notebooks(userId);
     CREATE INDEX IF NOT EXISTS idx_note_tags_note ON note_tags(noteId);
