@@ -1,5 +1,10 @@
 import { isNoteThemeId, type NoteThemeId } from "@/lib/noteTheme";
 import {
+  normalizeCodeBlockCollapseMode,
+  type CodeBlockCollapseMode,
+} from "@/lib/codeBlockPresentation";
+export type { CodeBlockCollapseMode } from "@/lib/codeBlockPresentation";
+import {
   normalizeHiddenNavigationModules,
   normalizeHiddenTaskCenterModules,
   type NavigationModuleId,
@@ -35,6 +40,7 @@ export interface UserPreferences {
   remoteImagePasteMode: RemoteImagePasteMode;
   defaultEditorMode: EditorMode;
   codeBlockTheme: CodeBlockThemeId;
+  codeBlockCollapseMode: CodeBlockCollapseMode;
   noteTheme: NoteThemeId;
   noteListTitleOnly: boolean;
   hiddenNavigationModules: NavigationModuleId[];
@@ -73,6 +79,7 @@ export const DEFAULT_USER_PREFERENCES: UserPreferences = {
   remoteImagePasteMode: "localize",
   defaultEditorMode: "tiptap",
   codeBlockTheme: "github-dark",
+  codeBlockCollapseMode: "long",
   noteTheme: "default",
   noteListTitleOnly: false,
   hiddenNavigationModules: [],
@@ -169,6 +176,10 @@ export function normalizeUserPreferences(
       typeof raw.codeBlockTheme === "string" && CODE_BLOCK_THEMES.has(raw.codeBlockTheme as CodeBlockThemeId)
         ? raw.codeBlockTheme as CodeBlockThemeId
         : fallback.codeBlockTheme,
+    codeBlockCollapseMode: normalizeCodeBlockCollapseMode(
+      raw.codeBlockCollapseMode,
+      fallback.codeBlockCollapseMode,
+    ),
     noteTheme: isNoteThemeId(raw.noteTheme) ? raw.noteTheme : fallback.noteTheme,
     noteListTitleOnly: typeof raw.noteListTitleOnly === "boolean"
       ? raw.noteListTitleOnly

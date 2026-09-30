@@ -29,6 +29,7 @@ import {
   type UserPreferences,
 } from "@/lib/userPreferenceAccountCache";
 import { isMobileLocalMode, MOBILE_LOCAL_USER_ID } from "@/lib/mobileLocalMode";
+import { setCodeBlockCollapseMode } from "@/lib/codeBlockPresentation";
 
 export type {
   CodeBlockThemeId,
@@ -88,6 +89,7 @@ function applyLegacyPreferenceBridges(prefs: UserPreferences, notify = true): vo
     localStorage.setItem(LEGACY_CODE_BLOCK_THEME_KEY, prefs.codeBlockTheme);
     localStorage.setItem(LEGACY_NOTE_LIST_TITLE_ONLY_KEY, String(prefs.noteListTitleOnly));
     document.documentElement.setAttribute("data-code-theme", prefs.codeBlockTheme);
+    setCodeBlockCollapseMode(prefs.codeBlockCollapseMode);
     if (!notify) return;
     window.dispatchEvent(new CustomEvent<EditorMode>("nowen:editor-mode-change", {
       detail: prefs.defaultEditorMode,

@@ -173,6 +173,20 @@ test("persists remote image paste policy per account with a safe default", async
 });
 
 
+test("syncs code block collapse policy per account and rejects invalid values", async () => {
+  const before = await requestJson("GET");
+  assert.equal(before.json.codeBlockCollapseMode, "long");
+  const saved = await requestJson("PUT", { codeBlockCollapseMode: "collapsed" });
+  assert.equal(saved.status, 200);
+  assert.equal(saved.json.codeBlockCollapseMode, "collapsed");
+  assert.equal((await requestJson("GET")).json.codeBlockCollapseMode, "collapsed");
+  assert.equal((await requestJson("GET", undefined, OTHER_ID)).json.codeBlockCollapseMode, "long");
+  const invalid = await requestJson("PUT", { codeBlockCollapseMode: "sometimes" });
+  assert.equal(invalid.status, 400);
+  assert.equal(invalid.json.code, "INVALID_USER_PREFERENCE");
+});
+
+
 test("syncs navigation visibility preferences and rejects unknown module ids", async () => {
   const before = await requestJson("GET");
   assert.deepEqual(before.json.hiddenNavigationModules, []);

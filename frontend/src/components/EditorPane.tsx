@@ -2,6 +2,7 @@ import React, { useCallback, useRef, useState, useEffect, useMemo } from "react"
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import { Star, Pin, Trash2, Cloud, RefreshCw, Check, Loader2, ChevronLeft, FolderInput, ChevronRight, ChevronDown, X, ListTree, Lock, Unlock, Tag as TagIcon, Type, MoreHorizontal, Share2, History, MessageCircle, FileCode, FileText, Eye, Pencil, Paperclip, Search, Sparkles, Network, Minimize2, Image, Link2, Printer, Scissors } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { confirm } from "@/components/ui/confirm";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import TiptapEditor from "@/components/TiptapEditor";
 import { PhaseAPerfProfiler } from "@/components/PhaseAPerfProfiler";
@@ -3166,17 +3167,34 @@ const moveToTrash = useCallback(async () => {
               Live
             </span>
           )}
-          {activeNote.contentFormat === "markdown" ? (
-            <span className="inline-flex shrink-0 items-center gap-1 rounded border border-emerald-500/30 bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-mono font-medium text-emerald-500" title={t('note.format.markdown')}>
-              <FileCode size={11} />
-              {t('note.format.markdownShort')}
-            </span>
-          ) : (
-            <span className="inline-flex shrink-0 items-center gap-1 rounded border border-app-border bg-app-hover px-1.5 py-0.5 text-[10px] font-mono text-tx-tertiary" title={t('note.format.richText')}>
-              <FileText size={11} />
-              {t('note.format.richTextShort')}
-            </span>
-          )}
+          <button
+            type="button"
+            data-note-format-switch=""
+            disabled={modeSwitching || effectiveLocked || noteIsHtml || !canWriteNote(activeNote)}
+            onClick={async () => {
+              const targetFormat = activeNote.contentFormat === "markdown" ? "tiptap-json" : "markdown";
+              const targetLabel = targetFormat === "markdown" ? t("note.format.markdown") : t("note.format.richText");
+              const ok = await confirm({
+                title: t("note.format.convertTitle", { target: targetLabel }),
+                description: t("note.format.convertDesc"),
+                confirmText: t("note.format.convertConfirm"),
+                cancelText: t("common.cancel", { defaultValue: "取消" }),
+              });
+              if (!ok) return;
+              await convertActiveNoteFormat({ noteId: activeNote.id, targetFormat });
+            }}
+            className={cn(
+              "inline-flex shrink-0 items-center gap-1 rounded border px-1.5 py-0.5 text-[10px] font-mono font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50",
+              activeNote.contentFormat === "markdown"
+                ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500/15"
+                : "border-app-border bg-app-hover text-tx-tertiary hover:bg-app-active hover:text-tx-secondary",
+            )}
+            title={activeNote.contentFormat === "markdown" ? t("note.format.convertToRichText") : t("note.format.convertToMarkdown")}
+            aria-label={activeNote.contentFormat === "markdown" ? t("note.format.convertToRichText") : t("note.format.convertToMarkdown")}
+          >
+            {activeNote.contentFormat === "markdown" ? <FileCode size={11} /> : <FileText size={11} />}
+            {activeNote.contentFormat === "markdown" ? t("note.format.markdownShort") : t("note.format.richTextShort")}
+          </button>
         </div>
 
         {/* Sync Indicator + Grouped Actions */}

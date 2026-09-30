@@ -765,6 +765,11 @@
     "showNoteListDividersDesc": "在相邻笔记之间显示细分割线，移动端长列表会更容易区分；关闭后保持当前卡片式视觉。该偏好会随账号同步。",
     "markdownDefaultViewMode": "Markdown 默认打开方式",
     "markdownDefaultViewModeDesc": "打开 Markdown 笔记时默认使用源码、预览或分屏模式。",
+    "codeBlockCollapseMode": "代码块默认展示",
+    "codeBlockCollapseModeDesc": "仅影响显示，不写入笔记内容。长代码模式会自动折叠 20 行及以上的代码块。",
+    "codeBlockCollapseMode_expanded": "始终展开",
+    "codeBlockCollapseMode_long": "长代码折叠",
+    "codeBlockCollapseMode_collapsed": "始终折叠",
     "remoteImagePasteMode": "粘贴外部图片",
     "remoteImagePasteModeDesc": "自动保存可避免外链过期或加载缓慢，但会占用附件空间。单张转存失败时保留原链接。",
     "remoteImagePasteMode_localize": "自动保存为附件",
@@ -2719,6 +2724,11 @@
     "format": {
       "markdown": "Markdown 笔记",
       "markdownShort": "MD",
+      "convertTitle": "转换为 {{target}}？",
+      "convertDesc": "转换前会保存当前内容；复杂排版在不同格式间可能存在轻微差异。",
+      "convertConfirm": "转换",
+      "convertToRichText": "点击转换为富文本",
+      "convertToMarkdown": "点击转换为 Markdown",
       "richText": "富文本笔记",
       "richTextShort": "RT",
       "html": "HTML 笔记"

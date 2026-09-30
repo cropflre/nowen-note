@@ -1069,6 +1069,39 @@ function SwitchesPanel() {
           </div>
         </div>
 
+        <div
+          data-settings-code-block-collapse=""
+          className="flex items-center justify-between gap-3 px-3 py-2.5 hover:bg-white/60 dark:hover:bg-zinc-900/25 transition-colors max-sm:flex-col max-sm:items-stretch"
+        >
+          <div className="flex-1 min-w-0">
+            <div className="text-xs font-medium text-zinc-800 dark:text-zinc-200 leading-none">
+              {t("settings.codeBlockCollapseMode")}
+            </div>
+            <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-1 leading-snug">
+              {t("settings.codeBlockCollapseModeDesc")}
+            </p>
+          </div>
+          <div role="group" aria-label={t("settings.codeBlockCollapseMode")} className="flex items-center gap-1 p-1 rounded-lg bg-zinc-100 dark:bg-zinc-800 flex-shrink-0 max-sm:w-full">
+            {(["expanded", "long", "collapsed"] as const).map((mode) => (
+              <button
+                key={mode}
+                type="button"
+                aria-pressed={userPrefs.codeBlockCollapseMode === mode}
+                onClick={() => setUserPref("codeBlockCollapseMode", mode)}
+                className={cn(
+                  "px-2.5 py-1 rounded-md text-xs font-medium transition-colors whitespace-nowrap max-sm:flex-1",
+                  userPrefs.codeBlockCollapseMode === mode
+                    ? "bg-white dark:bg-zinc-700 text-accent-primary shadow-sm"
+                    : "text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-300",
+                )}
+              >
+                {t(`settings.codeBlockCollapseMode_${mode}`)}
+              </button>
+            ))}
+          </div>
+        </div>
+
+
         {switches.map((item) => (
           <label key={item.key} className="flex items-start gap-2.5 px-3 py-2.5 cursor-pointer hover:bg-white/60 dark:hover:bg-zinc-900/25 transition-colors">
             <input

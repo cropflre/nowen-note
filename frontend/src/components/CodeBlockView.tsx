@@ -24,6 +24,14 @@ import {
   getEditorEditableSnapshot,
   subscribeEditorEditable,
 } from "@/lib/editorEditableStore";
+import {
+  CODE_BLOCK_TOOLBAR_CLASS,
+  CODE_BLOCK_TOOL_BUTTON_CLASS,
+  CODE_BLOCK_WRAPPER_CLASS,
+  getCodeBlockCollapseMode,
+  shouldCollapseCodeBlock,
+  subscribeCodeBlockCollapseMode,
+} from "@/lib/codeBlockPresentation";
 
 /**
  * 自定义代码块视图：
@@ -52,7 +60,14 @@ export function CodeBlockView(props: NodeViewProps) {
   const [langFilter, setLangFilter] = useState("");
   const [showThemePicker, setShowThemePicker] = useState(false);
   const [activeTheme, setActiveTheme] = useState<CodeBlockThemeId>(getSavedCodeBlockTheme);
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapseOverride, setCollapseOverride] = useState<boolean | null>(null);
+  const collapseMode = useSyncExternalStore(
+    subscribeCodeBlockCollapseMode,
+    getCodeBlockCollapseMode,
+    getCodeBlockCollapseMode,
+  );
+  const lineCount = node.textContent ? node.textContent.split("\n").length : 0;
+  const collapsed = collapseOverride ?? shouldCollapseCodeBlock(collapseMode, lineCount);
   const subscribeToEditable = useCallback((listener: () => void) => (
     subscribeEditorEditable(editor, () => {
       recordPhaseAPerfEvent({ type: "code-block-permission-state-update", blockId: perfBlockId });
@@ -285,7 +300,7 @@ export function CodeBlockView(props: NodeViewProps) {
 
   return (
     <NodeViewWrapper
-      className="code-block-wrapper group relative my-4 rounded-xl overflow-hidden border shadow-sm"
+      className={CODE_BLOCK_WRAPPER_CLASS}
       data-indent={indent > 0 ? indent : undefined}
       data-nowen-mermaid-inline-preview={isMermaid && mermaidPreview ? "true" : undefined}
       // 预览态时把隐藏的 NodeViewContent 用绝对定位藏起来，依赖外层 relative
@@ -293,7 +308,7 @@ export function CodeBlockView(props: NodeViewProps) {
     >
       {/* 顶部工具栏（不可编辑） */}
       <div
-        className="code-block-toolbar flex items-center justify-between px-3 py-1.5 border-b select-none"
+        className={CODE_BLOCK_TOOLBAR_CLASS}
         contentEditable={false}
       >
         {/* 左侧：mac 风格小圆点 + 语言徽章（可点击切换） */}
@@ -378,8 +393,8 @@ export function CodeBlockView(props: NodeViewProps) {
           {!isMermaid && (
             <button
               type="button"
-              onClick={() => setCollapsed((v) => !v)}
-              className="code-block-tool-btn flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium transition-colors"
+              onClick={() => setCollapseOverride(!collapsed)}
+              className={CODE_BLOCK_TOOL_BUTTON_CLASS}
               title={collapsed ? "展开代码" : "折叠代码"}
             >
               {collapsed ? <Maximize2 size={12} /> : <Minimize2 size={12} />}

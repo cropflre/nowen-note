@@ -361,6 +361,8 @@ export function KnowledgeTreePanel({
     nodeId: string;
     placement: KnowledgeTreeDropPlacement;
   } | null>(null);
+  const [draggedTreeNodeId, setDraggedTreeNodeId] = useState<string | null>(null);
+  const [rootDropActive, setRootDropActive] = useState(false);
   const draggedTreeNodeIdRef = useRef<string | null>(null);
   const selectionAnchorRef = useRef<string | null>(null);
   const { menu, menuRef, openMenu, openMenuAt, closeMenu } = useContextMenu();
@@ -1143,6 +1145,28 @@ export function KnowledgeTreePanel({
     }
   };
 
+  const canDropToRoot = (sourceId: string) => {
+    const source = nodes.find((node) => node.id === sourceId);
+    return !!source
+      && !source.sharedRootId
+      && source.access.capabilities.canMove
+      && source.parentId !== null;
+  };
+
+  const dropToRoot = async (sourceId: string) => {
+    if (!canDropToRoot(sourceId)) return;
+    try {
+      await knowledgeTreeApi.move(sourceId, { parentId: null });
+      await reload();
+      emitTreeChanged("node-moved-root");
+      actions.refreshNotebooks();
+      actions.refreshNotes();
+      toast.success("已移动到根目录");
+    } catch (requestError: any) {
+      toast.error(requestError?.message || "移动到根目录失败");
+    }
+  };
+
   const cancelLongPress = () => {
     if (!longPressRef.current) return;
     clearTimeout(longPressRef.current.timer);
@@ -1278,6 +1302,8 @@ export function KnowledgeTreePanel({
           draggable={!query.trim() && node.access.capabilities.canMove && !isSharedRoot(node)}
           onDragStart={(event) => {
             draggedTreeNodeIdRef.current = node.id;
+            setDraggedTreeNodeId(node.id);
+            setRootDropActive(false);
             event.dataTransfer.effectAllowed = "move";
             event.dataTransfer.setData("application/x-nowen-tree-node", node.id);
           }}
@@ -1308,6 +1334,8 @@ export function KnowledgeTreePanel({
             const rect = event.currentTarget.getBoundingClientRect();
             const placement = resolveKnowledgeTreeDropPlacement(event.clientY, rect.top, rect.height);
             setTreeDropTarget(null);
+            setDraggedTreeNodeId(null);
+            setRootDropActive(false);
             draggedTreeNodeIdRef.current = null;
             if (!canDropWithTarget(sourceId, node, placement)) return;
             if (placement === "inside") {
@@ -1318,6 +1346,8 @@ export function KnowledgeTreePanel({
           }}
           onDragEnd={() => {
             draggedTreeNodeIdRef.current = null;
+            setDraggedTreeNodeId(null);
+            setRootDropActive(false);
             setTreeDropTarget(null);
           }}
           onContextMenu={(event) => openMenu(event, node.id, "knowledge-node")}
@@ -1733,6 +1763,41 @@ export function KnowledgeTreePanel({
           </div>
         ) : (
           <>
+            {draggedTreeNodeId && canDropToRoot(draggedTreeNodeId) && (
+              <div
+                data-knowledge-tree-root-drop=""
+                className={cn(
+                  "mx-1 mb-2 flex items-center justify-center gap-2 rounded-lg border border-dashed px-3 py-2 text-xs font-medium transition-colors",
+                  rootDropActive
+                    ? "border-accent-primary bg-accent-primary/10 text-accent-primary"
+                    : "border-app-border text-tx-tertiary",
+                )}
+                onDragOver={(event) => {
+                  if (!event.dataTransfer.types.includes("application/x-nowen-tree-node")) return;
+                  const sourceId = event.dataTransfer.getData("application/x-nowen-tree-node") || draggedTreeNodeIdRef.current || "";
+                  if (!canDropToRoot(sourceId)) return;
+                  event.preventDefault();
+                  event.stopPropagation();
+                  event.dataTransfer.dropEffect = "move";
+                  setRootDropActive(true);
+                  setTreeDropTarget(null);
+                }}
+                onDragLeave={() => setRootDropActive(false)}
+                onDrop={(event) => {
+                  if (!event.dataTransfer.types.includes("application/x-nowen-tree-node")) return;
+                  event.preventDefault();
+                  event.stopPropagation();
+                  const sourceId = event.dataTransfer.getData("application/x-nowen-tree-node") || draggedTreeNodeIdRef.current || "";
+                  setRootDropActive(false);
+                  setDraggedTreeNodeId(null);
+                  draggedTreeNodeIdRef.current = null;
+                  if (canDropToRoot(sourceId)) void dropToRoot(sourceId);
+                }}
+              >
+                <TreePine size={14} />
+                <span>移动到根目录</span>
+              </div>
+            )}
             {(ownedRoots.length > 0 || hasRootDraft) && (
               <div data-knowledge-tree-section="owned">
                 <div

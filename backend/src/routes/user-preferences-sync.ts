@@ -6,6 +6,7 @@ type RemoteImagePasteMode = "localize" | "ask" | "keep-remote";
 type ReadingDensity = "cozy" | "compact";
 type EditorFontSize = 0 | 14 | 16 | 18 | 20 | 22 | 24;
 type EditorMode = "md" | "tiptap";
+type CodeBlockCollapseMode = "expanded" | "long" | "collapsed";
 type FolderAutoLockMinutes = 0 | 5 | 15 | 30 | 60;
 type NavigationModuleId = "notifications" | "favorites" | "files" | "diary" | "tasks" | "mindmaps" | "ai-chat" | "shares";
 type TaskCenterOptionalModuleId = "inbox" | "my-day" | "planner" | "habits" | "stats";
@@ -34,6 +35,7 @@ export interface SyncedUserPreferences {
   remoteImagePasteMode: RemoteImagePasteMode;
   defaultEditorMode: EditorMode;
   codeBlockTheme: CodeBlockTheme;
+  codeBlockCollapseMode: CodeBlockCollapseMode;
   noteTheme: NoteTheme;
   noteListTitleOnly: boolean;
   hiddenNavigationModules: NavigationModuleId[];
@@ -79,6 +81,7 @@ export const DEFAULT_SYNCED_USER_PREFERENCES: SyncedUserPreferences = {
   remoteImagePasteMode: "localize",
   defaultEditorMode: "tiptap",
   codeBlockTheme: "github-dark",
+  codeBlockCollapseMode: "long",
   noteTheme: "default",
   noteListTitleOnly: false,
   hiddenNavigationModules: [],
@@ -170,6 +173,12 @@ function normalizePreferenceValue<K extends PreferenceKey>(
     case "codeBlockTheme":
       return (
         typeof value === "string" && CODE_BLOCK_THEMES.has(value as CodeBlockTheme)
+          ? value
+          : fallback
+      ) as SyncedUserPreferences[K];
+    case "codeBlockCollapseMode":
+      return (
+        value === "expanded" || value === "long" || value === "collapsed"
           ? value
           : fallback
       ) as SyncedUserPreferences[K];

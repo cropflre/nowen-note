@@ -758,6 +758,11 @@
     "showNoteListDividersDesc": "Draw a subtle divider between adjacent notes to improve scanning on mobile lists. Turn it off to keep the current card-style appearance. This preference syncs with your account.",
     "markdownDefaultViewMode": "Default Markdown View",
     "markdownDefaultViewModeDesc": "Choose whether Markdown notes open in source, preview, or split view.",
+    "codeBlockCollapseMode": "Default code-block display",
+    "codeBlockCollapseModeDesc": "Display only; note content is unchanged. Long mode collapses code blocks with 20 or more lines.",
+    "codeBlockCollapseMode_expanded": "Always expand",
+    "codeBlockCollapseMode_long": "Collapse long",
+    "codeBlockCollapseMode_collapsed": "Always collapse",
     "remoteImagePasteMode": "Paste external images",
     "remoteImagePasteModeDesc": "Saving attachments avoids slow or expired links but uses storage. Failed images keep their original links.",
     "remoteImagePasteMode_localize": "Save as attachments",
@@ -2712,6 +2717,11 @@
     "format": {
       "markdown": "Markdown note",
       "markdownShort": "MD",
+      "convertTitle": "Convert to {{target}}?",
+      "convertDesc": "The current content is saved first. Complex formatting may differ slightly between formats.",
+      "convertConfirm": "Convert",
+      "convertToRichText": "Convert to rich text",
+      "convertToMarkdown": "Convert to Markdown",
       "richText": "Rich text note",
       "richTextShort": "RT",
       "html": "HTML note"

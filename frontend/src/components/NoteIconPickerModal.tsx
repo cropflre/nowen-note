@@ -1,9 +1,10 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { ImageIcon, SmilePlus, Trash2, X } from "lucide-react";
+import { ImageIcon, Search, SmilePlus, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/lib/toast";
 import { isImageIcon } from "@/lib/iconValue";
 import { getCachedNoteIcon, refreshNoteIcons, setNoteIcon } from "@/lib/noteIcons";
+import { ALL_NOTE_ICONS, getVirtualIconRows, searchNoteIcons } from "@/lib/noteIconRegistry";
 
 const PRESET_ICONS = [
   "📝", "📌", "📚", "💡", "✅", "⭐", "🔥", "🎯",
@@ -25,6 +26,10 @@ function getCopy() {
   return language.startsWith("zh") ? {
     title: "设置笔记图标",
     subtitle: "选择 emoji，或粘贴一个自定义短图标。",
+    common: "常用",
+    allIcons: "全部图标",
+    searchPlaceholder: "搜索分类，如：工作、开发、旅行…",
+    noIcons: "没有匹配的图标",
     custom: "自定义图标",
     importedImage: "从思源笔记导入的图片图标",
     importedImageHint: "可直接保留，也可以选择 emoji 或输入新图标进行替换。",
@@ -40,6 +45,10 @@ function getCopy() {
   } : {
     title: "Set note icon",
     subtitle: "Choose an emoji or paste a short custom icon.",
+    common: "Common",
+    allIcons: "All icons",
+    searchPlaceholder: "Search categories, e.g. work, dev, travel…",
+    noIcons: "No matching icons",
     custom: "Custom icon",
     importedImage: "Image icon imported from SiYuan",
     importedImageHint: "Keep it as-is, or replace it with an emoji or another short icon.",
@@ -63,6 +72,9 @@ export default function NoteIconPickerModal({
 }: NoteIconPickerModalProps) {
   const copy = useMemo(() => getCopy(), []);
   const inputRef = useRef<HTMLInputElement>(null);
+  const iconScrollRef = useRef<HTMLDivElement>(null);
+  const [iconQuery, setIconQuery] = useState("");
+  const [iconScrollTop, setIconScrollTop] = useState(0);
   const [icon, setIcon] = useState("");
   const [originalIcon, setOriginalIcon] = useState("");
   const [loading, setLoading] = useState(false);
@@ -98,6 +110,10 @@ export default function NoteIconPickerModal({
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [noteId, onClose, saving]);
+
+  const filteredIcons = useMemo(() => searchNoteIcons(iconQuery), [iconQuery]);
+  const iconWindow = getVirtualIconRows(filteredIcons.length, iconScrollTop, 224);
+
 
   if (!noteId) return null;
 
@@ -182,6 +198,7 @@ export default function NoteIconPickerModal({
             </div>
           )}
 
+          <div className="text-xs font-medium text-tx-secondary">{copy.common}</div>
           <div className="grid grid-cols-8 gap-2 sm:grid-cols-10">
             {PRESET_ICONS.map((preset) => {
               const selected = normalizedIcon === preset;
@@ -204,6 +221,76 @@ export default function NoteIconPickerModal({
               );
             })}
           </div>
+
+          <div className="space-y-2">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-xs font-medium text-tx-secondary">
+                {copy.allIcons} · {filteredIcons.length}/{ALL_NOTE_ICONS.length}
+              </span>
+              <div className="flex min-w-0 flex-1 items-center gap-1.5 rounded-lg border border-app-border bg-app-bg px-2.5 py-1.5 sm:max-w-[270px]">
+                <Search size={13} className="shrink-0 text-tx-tertiary" />
+                <input
+                  type="search"
+                  value={iconQuery}
+                  disabled={loading || saving || locked}
+                  onChange={(event) => {
+                    setIconQuery(event.target.value);
+                    setIconScrollTop(0);
+                    if (iconScrollRef.current) iconScrollRef.current.scrollTop = 0;
+                  }}
+                  placeholder={copy.searchPlaceholder}
+                  className="min-w-0 flex-1 bg-transparent text-xs text-tx-primary outline-none placeholder:text-tx-tertiary"
+                />
+              </div>
+            </div>
+            <div
+              ref={iconScrollRef}
+              className="h-56 overflow-y-auto overscroll-contain rounded-lg border border-app-border bg-app-bg"
+              onScroll={(event) => setIconScrollTop(event.currentTarget.scrollTop)}
+              data-note-icon-browser=""
+            >
+              {filteredIcons.length === 0 ? (
+                <div className="flex h-full items-center justify-center text-xs text-tx-tertiary">{copy.noIcons}</div>
+              ) : (
+                <div className="relative" style={{ height: iconWindow.totalRows * 44 }}>
+                  {Array.from({ length: Math.max(0, iconWindow.endRow - iconWindow.startRow) }, (_, offset) => {
+                    const rowIndex = iconWindow.startRow + offset;
+                    const rowIcons = filteredIcons.slice(rowIndex * 8, rowIndex * 8 + 8);
+                    return (
+                      <div
+                        key={rowIndex}
+                        className="absolute left-0 right-0 grid grid-cols-8 gap-1 px-1.5"
+                        style={{ top: rowIndex * 44, height: 44 }}
+                      >
+                        {rowIcons.map((preset) => {
+                          const selected = normalizedIcon === preset;
+                          return (
+                            <button
+                              key={preset}
+                              type="button"
+                              disabled={loading || saving || locked}
+                              onClick={() => {
+                                setIcon(preset);
+                                setError("");
+                              }}
+                              className={`m-0.5 flex items-center justify-center rounded-md border text-xl transition-colors ${selected
+                                ? "border-accent-primary bg-accent-primary/10"
+                                : "border-transparent hover:border-app-border hover:bg-app-hover"}`}
+                              aria-label={preset}
+                              aria-pressed={selected}
+                            >
+                              {preset}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+
 
           <label className="block space-y-1.5">
             <span className="text-xs font-medium text-tx-secondary">{copy.custom}</span>
