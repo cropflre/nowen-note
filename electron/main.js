@@ -11,6 +11,7 @@ const { createTray, destroyTray, markQuitting, getIsQuitting } = require("./tray
 const { initAutoUpdater, checkForUpdatesManually, setUpdaterContext } = require("./updater");
 const { initLogger, getLogDir } = require("./logger");
 const { createRendererRecoveryGate } = require("./renderer-recovery");
+const { allowVoicePermissionRequest, allowVoicePermissionCheck } = require("./voice-permissions");
 const { handleArgv, setupMacOpenFile, flushPending } = require("./fileAssoc");
 const { registerDiscoveryIpc, shutdown: shutdownDiscovery } = require("./discovery");
 const { setSettingsPath, readSettings, writeSettings, shouldUseLocalRuntime } = require("./settings");
@@ -179,12 +180,12 @@ function prepareRendererSession(settings) {
 }
 
 function configureRendererSession(rendererSession) {
-  rendererSession.setPermissionRequestHandler((_webContents, permission, callback) => {
-    callback(permission === "notifications" || permission === "fullscreen");
+  rendererSession.setPermissionRequestHandler((webContents, permission, callback, details) => {
+    callback(permission === "notifications" || permission === "fullscreen" || (permission === "media" && allowVoicePermissionRequest(webContents, details)));
   });
   if (typeof rendererSession.setPermissionCheckHandler === "function") {
-    rendererSession.setPermissionCheckHandler((_webContents, permission) => (
-      permission === "notifications" || permission === "fullscreen"
+    rendererSession.setPermissionCheckHandler((webContents, permission, _origin, details) => (
+      permission === "notifications" || permission === "fullscreen" || (permission === "media" && allowVoicePermissionCheck(webContents, details))
     ));
   }
 

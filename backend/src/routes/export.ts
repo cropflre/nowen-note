@@ -720,7 +720,7 @@ app.post("/import", async (c) => {
       //     notes.content 撑大到 MB 级，后续 GET 性能崩塌（这是本次改造的根本目的）。
       //   - 短路策略保证"没有内联图"的常规导入完全无额外成本。
       let finalContent: string | null = note.content ?? null;
-      if (note.content && note.content.indexOf("data:image") >= 0) {
+      if (note.content && /data:(?:image|audio)\//i.test(note.content)) {
         // 附件与笔记同 workspace（targetWs 已决定）。
         const { content: rewritten, replacedCount } = extractInlineBase64Images(
           note.content,

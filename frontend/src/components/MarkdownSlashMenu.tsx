@@ -64,11 +64,13 @@ export function getDefaultMdSlashItems(
   opts: {
     onImageUpload?: () => void;
     onAttachmentLibrary?: () => void;
+    onVoiceRecord?: () => void;
     onAIAssistant?: () => void;
   },
 ): MdSlashItem[] {
   const size = 16;
   return [
+    ...(opts.onVoiceRecord ? [{ id: "voice", label: t("voice.record"), description: t("voice.description"), icon: <span>🎙</span>, category: t("slash.catInsert"), keywords: ["voice", "audio", "录音", "语音"], run: opts.onVoiceRecord }] : []),
     {
       id: "h1",
       label: t("slash.heading1"),

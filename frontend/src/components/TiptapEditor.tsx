@@ -12,6 +12,10 @@ const DocxAttachmentPreview = lazy(() => import("@/office/word/DocxAttachmentPre
 // 复用的附件详情抽屉（与 FileManager 同一份实现）
 import AttachmentDetailDrawer from "@/components/attachmentDetail/AttachmentDetailDrawer";
 import AttachmentLibraryPicker from "@/components/AttachmentLibraryPicker";
+import VoiceInsertMenu from "@/components/VoiceInsertMenu";
+import VoiceMemoBlock from "@/components/VoiceMemoBlock";
+import { VoiceMemo } from "@/components/VoiceMemoExtension";
+import { requestVoiceMemo } from "@/lib/voiceMemo";
 import { posToDOMRect, type Content } from "@tiptap/core";
 import { AnimatePresence, motion } from "framer-motion";import StarterKit from "@tiptap/starter-kit";
 import Placeholder from "@tiptap/extension-placeholder";
@@ -66,6 +70,7 @@ import { resolvePhotoUploadMime } from "@/lib/photoUploadMime";
 import {
   isInlineImageAttachment,
   isInlineVideoAttachment,
+  isInlineAudioAttachment,
 } from "@/lib/existingAttachmentInsert";
 import {
   buildEditedImageAttrs,
@@ -2096,6 +2101,7 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
       // atom + block + draggable，NodeView 用透明遮罩防 iframe 抢焦点。
       // parseHTML 同时识别 <iframe> / <video>，让剪藏过来的视频内容也能落到此节点。
       VideoExtension,
+      VoiceMemo.extend({ addNodeView() { return ReactNodeViewRenderer(VoiceMemoBlock); } }),
       BlockEmbedExtension,
     ],
     content: initialEditorContent,
@@ -4631,6 +4637,20 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
     setAttachmentLibraryOpen(true);
   }, [captureEditorInsertAnchor, editor, releaseEditorInsertAnchor]);
 
+  const openVoiceRecorder = useCallback(() => {
+    if (!editor || !editor.isEditable || isGuest || noteRef.current.isTrashed) return;
+    const noteId = noteRef.current.id;
+    const anchor = captureEditorInsertAnchor();
+    requestVoiceMemo({
+      noteId,
+      release: () => releaseEditorInsertAnchor(anchor),
+      insert: (attachment) => {
+        if (noteRef.current.id !== noteId || noteRef.current.isTrashed || !editor.isEditable || editor.isDestroyed || !restoreEditorInsertAnchor(anchor)) return false;
+        return editor.chain().focus().insertContent({ type: "voiceMemo", attrs: attachment }).run();
+      },
+    });
+  }, [editor, isGuest, captureEditorInsertAnchor, restoreEditorInsertAnchor, releaseEditorInsertAnchor]);
+
   const insertExistingAttachment = useCallback((item: FileItem) => {
     const anchor = attachmentLibraryAnchorRef.current;
     if (!editor || !restoreEditorInsertAnchor(anchor)) {
@@ -4648,6 +4668,8 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
         alt: item.filename,
         title: item.filename,
       }).run();
+    } else if (isInlineAudioAttachment(item)) {
+      chain.insertContent({ type: "voiceMemo", attrs: { attachmentId: item.id, src: item.url, filename: item.filename, mimeType: item.mimeType, size: item.size, durationMs: 0 } }).run();
     } else if (inlineVideo) {
       chain.setVideoFile({
         previewUrl: toInlineAttachmentUrl(item.url),
@@ -5603,12 +5625,7 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
         <ToolbarButton className="max-md:hidden" onClick={handleVideoUpload} title={t('tiptap.uploadLocalVideo')}>
           <Upload size={iconSize} />
         </ToolbarButton>
-        <ToolbarButton
-          onClick={handleAttachmentUpload}
-          title={t("tiptap.uploadAndInsertAttachment", { defaultValue: "上传新附件" })}
-        >
-          <Paperclip size={iconSize} />
-        </ToolbarButton>
+        <VoiceInsertMenu onUpload={handleAttachmentUpload} onRecord={openVoiceRecorder} recordDisabled={!editable || isGuest || !!note.isTrashed} iconSize={iconSize} />
         <ToolbarButton
           onClick={openAttachmentLibrary}
           title={t("tiptap.insertExistingAttachment", { defaultValue: "从文件管理插入" })}
@@ -6767,7 +6784,7 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
       {/* 斜杠命令菜单 */}
       <SlashCommandsMenu
         editor={editor}
-        items={getDefaultSlashCommands(t, handleImageUpload, openAIAssistant, openAttachmentLibrary)}
+        items={getDefaultSlashCommands(t, handleImageUpload, openAIAssistant, openAttachmentLibrary, editable && !isGuest && !note.isTrashed ? openVoiceRecorder : undefined)}
       />
 
       <AttachmentLibraryPicker

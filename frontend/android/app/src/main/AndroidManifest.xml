@@ -107,6 +107,9 @@
     <!-- Permissions -->
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- 仅在用户开始录音时由 WebView 请求麦克风权限。 -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <!-- Android 13+ notification runtime permission. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- Android 12+ exact task alarms. Users may still disable exact alarms in system settings. -->

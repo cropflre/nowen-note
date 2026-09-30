@@ -189,8 +189,10 @@ export function getDefaultSlashCommands(
   onImageUpload?: () => void,
   onAIAssistant?: () => void,
   onAttachmentLibrary?: () => void,
+  onVoiceRecord?: () => void,
 ): SlashCommandItem[] {
   return [
+    ...(onVoiceRecord ? [{ id: "voice", label: t("voice.record"), description: t("voice.description"), icon: <span>🎙</span>, category: t("slash.catInsert"), keywords: ["voice", "audio", "录音", "语音"], action: onVoiceRecord }] : []),
     ...getDailyRecordSlashCommands(),
     // 标题
     {

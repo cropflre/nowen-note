@@ -97,7 +97,6 @@ import {
   Strikethrough,
   Table2,
   Image as ImagePlus,
-  Paperclip,
   Undo,
   Code as CodeIcon,
   Copy, ArrowUp,
@@ -113,6 +112,8 @@ import {
 } from "lucide-react";
 import { MarkdownPreview } from "./MarkdownPreview";
 import AttachmentLibraryPicker from "@/components/AttachmentLibraryPicker";
+import VoiceInsertMenu from "@/components/VoiceInsertMenu";
+import { requestVoiceMemo, voiceMemoHtml } from "@/lib/voiceMemo";
 import { useUserPreferences, type MarkdownViewMode } from "@/hooks/useUserPreferences";
 import {
   extractRemoteImageUrlsFromMarkdown,
@@ -933,6 +934,33 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
   }, [closeAttachmentLibrary, tr]);
 
   // slash 菜单项：基础 Markdown、附件、AI 与日期日记命令共享同一个 CodeMirror 菜单。
+  const openVoiceRecorder = useCallback(() => {
+    const view = viewRef.current;
+    if (!view || !editable || isGuest || noteRef.current.isTrashed) return;
+    const noteId = noteRef.current.id;
+    const scope = pasteNoteScopeRef.current;
+    const anchor = { from: view.state.selection.main.from, to: view.state.selection.main.to };
+    asyncPasteAnchorsRef.current.add(anchor);
+    requestVoiceMemo({
+      noteId,
+      release: () => asyncPasteAnchorsRef.current.delete(anchor),
+      insert: (attachment) => {
+        if (noteRef.current.id !== noteId || noteRef.current.isTrashed || viewRef.current !== view || pasteNoteScopeRef.current !== scope || !view.state.facet(EditorView.editable)) return false;
+        const snippet = `\n\n${voiceMemoHtml(attachment)}\n\n`;
+        view.dispatch({ changes: { from: anchor.from, to: anchor.to, insert: snippet }, selection: { anchor: anchor.from + snippet.length } });
+        return true;
+      },
+    });
+  }, [editable, isGuest]);
+
+  const insertVoiceTranscript = useCallback((text: string) => {
+    const view = viewRef.current;
+    if (!view || !editable || isGuest || noteRef.current.id !== note.id || noteRef.current.isTrashed) return;
+    const selection = view.state.selection.main;
+    view.dispatch({ changes: { from: selection.from, to: selection.to, insert: text }, selection: { anchor: selection.from + text.length } });
+    view.focus();
+  }, [editable, isGuest, note.id]);
+
   const slashItems: MdSlashItem[] = useMemo(
     () => [
       ...getDefaultMdSlashItems(tr as unknown as (key: string) => string, {
@@ -940,12 +968,13 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
           triggerImagePicker();
         },
         onAttachmentLibrary: openAttachmentLibrary,
+        onVoiceRecord: editable && !isGuest && !note.isTrashed ? openVoiceRecorder : undefined,
         onAIAssistant: isGuest ? undefined : openAIAssistant,
       }),
       ...getMarkdownDailyRecordSlashCommands(),
     ],
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [tr, isGuest, openAIAssistant, openAttachmentLibrary],
+    [tr, isGuest, editable, note.isTrashed, openAIAssistant, openAttachmentLibrary, openVoiceRecorder],
   );
 
   // ---------- ͼƬ�ϴ����㹤����/б��/��ק/ճ���� ----------
@@ -2362,12 +2391,7 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
           <ToolbarButton className="max-md:hidden" onClick={triggerVideoPicker} title={tr("tiptap.uploadLocalVideo") || "插入本地视频"}>
             <Film size={iconSize} />
           </ToolbarButton>
-          <ToolbarButton
-            onClick={triggerAttachmentPicker}
-            title={tr("tiptap.uploadAndInsertAttachment", { defaultValue: "上传新附件" })}
-          >
-            <Paperclip size={iconSize} />
-          </ToolbarButton>
+          <VoiceInsertMenu onUpload={triggerAttachmentPicker} onRecord={openVoiceRecorder} recordDisabled={!editable || isGuest || !!note.isTrashed} iconSize={iconSize} />
           <ToolbarButton
             onClick={openAttachmentLibrary}
             title={tr("tiptap.insertExistingAttachment", { defaultValue: "从文件管理插入" })}
@@ -2532,6 +2556,7 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
               containerRef={previewRootRef}
               onTaskCheckboxChange={editable ? handlePreviewTaskCheckboxChange : undefined}
               onFormatCodeBlock={editable ? handlePreviewCodeBlockFormat : undefined}
+              onInsertVoiceTranscript={editable && !isGuest && !note.isTrashed ? insertVoiceTranscript : undefined}
             />
           </div>
         )}

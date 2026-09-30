@@ -235,6 +235,11 @@ export const MIME_TO_EXT: Record<string, string> = {
   "image/heif": "heif",
   "image/heic-sequence": "heic",
   "image/heif-sequence": "heif",
+  "audio/mp4": "m4a",
+  "audio/webm": "webm",
+  "audio/ogg": "ogg",
+  "audio/mpeg": "mp3",
+  "audio/wav": "wav",
 };
 
 // 判断附件是否属于「图片」——供 handleDownloadAttachment / 响应 category 字段共用。
@@ -958,7 +963,7 @@ app.delete("/:id", async (c) => {
 //   - notes.content 99% 情况是序列化的 Tiptap JSON（JSON.stringify 后的字符串），
 //     同一份字符串同时承载 HTML 形式和 JSON 形式里的 src 属性值；
 //   - 用正则替换只操作 src 的值部分，对 JSON / HTML 都安全。
-const INLINE_IMG_BASE64_RE = /(["'])data:(image\/[a-z0-9.+\-]+);base64,([A-Za-z0-9+/=]+)\1/gi;
+const INLINE_IMG_BASE64_RE = /(["'])data:((?:image|audio)\/[a-z0-9.+\-]+);base64,([A-Za-z0-9+/=]+)\1/gi;
 const MARKDOWN_IMG_BASE64_RE = /!\[([^\]]*)\]\(data:(image\/[a-z0-9.+\-]+);base64,([A-Za-z0-9+/=]+)\)/gi;
 
 export interface InlineImageExtractResult {
@@ -994,8 +999,8 @@ export function extractInlineBase64Images(
   if (!content || typeof content !== "string") {
     return { content: content || "", attachmentIds: [], replacedCount: 0 };
   }
-  // 快速预检：没有 "data:image" 字样直接返回，零分配。
-  if (content.indexOf("data:image") < 0) {
+  // 图片及 ZIP 导入的音频都进入现有附件存储。
+  if (!/data:(?:image|audio)\//i.test(content)) {
     return { content, attachmentIds: [], replacedCount: 0 };
   }
 
@@ -1020,7 +1025,7 @@ export function extractInlineBase64Images(
 
   const createAttachmentUrl = (mime: string, base64: string): string | null => {
     const mimeLower = mime.toLowerCase();
-    if (!ALLOWED_IMAGE_MIMES.has(mimeLower)) {
+    if (!ALLOWED_IMAGE_MIMES.has(mimeLower) && !(mimeLower.startsWith("audio/") && MIME_TO_EXT[mimeLower])) {
       return null;
     }
     let buffer: Buffer;

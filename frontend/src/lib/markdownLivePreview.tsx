@@ -202,6 +202,12 @@ class MarkdownLivePreviewWidget extends WidgetType {
         compact
         className="cm-live-preview-render !h-auto !overflow-visible !p-0"
         onFormatCodeBlock={this.formattingEnabled ? (source, offset) => formatMarkdownCodeBlock(view, source, offset, this.from) : undefined}
+        onInsertVoiceTranscript={this.formattingEnabled ? (text) => {
+          if (!view.state.facet(EditorView.editable) || view.state.facet(EditorState.readOnly)) return;
+          const selection = view.state.selection.main;
+          view.dispatch({ changes: { from: selection.from, to: selection.to, insert: text }, selection: { anchor: selection.from + text.length } });
+          view.focus();
+        } : undefined}
         onTaskCheckboxChange={(taskIndex, checked) => {
           const change = getMarkdownTaskCheckboxChange(this.markdown, taskIndex, checked);
           if (!change) return;

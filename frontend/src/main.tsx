@@ -12,6 +12,7 @@ import "./lib/imageNodeTransformBootstrap";
 import { ThemeProvider } from "./components/ThemeProvider";
 import { SiteSettingsProvider } from "./hooks/useSiteSettings";
 import { ConfirmProvider } from "./components/ui/confirm";
+import VoiceRecorderSheet from "./components/VoiceRecorderSheet";
 import Toaster from "./components/Toaster";
 import NoteIconBridge from "./components/NoteIconBridge";
 import EmbedPasswordBridge from "./components/EmbedPasswordBridge";
@@ -230,6 +231,7 @@ function renderApplication() {
             <NoteIconBridge />
             <EmbedPasswordBridge />
             <CameraCaptureBridge />
+            <VoiceRecorderSheet />
             <MediaExperienceBridge />
             <EditorImageTransformBridge />
             <ImageClipboardBridge />

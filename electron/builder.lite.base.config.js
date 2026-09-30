@@ -179,6 +179,7 @@ module.exports = {
     icon: "electron/icon.png",
     category: "public.app-category.productivity",
     hardenedRuntime: true,
+    extendInfo: { NSMicrophoneUsageDescription: "Nowen Note 需要访问麦克风，用于录制语音笔记。" },
     gatekeeperAssess: false,
     entitlements: "build/entitlements.mac.plist",
     entitlementsInherit: "build/entitlements.mac.plist",

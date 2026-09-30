@@ -38,8 +38,12 @@ import {
   type MarkdownPreviewSegment,
 } from "@/lib/markdownPreviewSegments";
 
+import VoiceMemoAudio from "@/components/VoiceMemoAudio";
+import VoiceTranscription from "@/components/VoiceTranscription";
+
 interface MarkdownPreviewProps {
   markdown: string;
+  onInsertVoiceTranscript?: (text: string) => void;
   className?: string;
   compact?: boolean;
   containerRef?: React.Ref<HTMLDivElement>;
@@ -335,6 +339,7 @@ function createComponents(
   headingPositions?: ReadonlyMap<number, number>,
   onInternalAnchorClick?: (fragment: string) => void,
   onFormatCodeBlock?: (offset: number) => Promise<void>,
+  onInsertVoiceTranscript?: (text: string) => void,
 ): Record<string, React.FC<any>> {
   const attrs = (node: any) => headingDataAttrs(node, sourceOffset);
   const headingAttrs = (node: any) => headingDataAttrs(node, sourceOffset, headingIds, headingPositions);
@@ -385,7 +390,10 @@ function createComponents(
     img: PreviewMediaImage,
     iframe: PreviewIframe,
     video: ({ src, children, ...props }) => <video src={src} controls preload="metadata" className="my-4 max-h-[520px] w-full rounded-xl border border-app-border bg-black" {...props}>{children}</video>,
-    audio: ({ src, children, ...props }) => <audio src={src} controls preload="metadata" className="my-4 w-full" {...props}>{children}</audio>,
+    audio: ({ src, node }) => {
+      const source = String(src || node?.children?.find((child: any) => child.tagName === "source")?.properties?.src || "");
+      return <div className="my-4"><VoiceMemoAudio src={source} />{onInsertVoiceTranscript && <VoiceTranscription key={source} src={source} onInsert={onInsertVoiceTranscript} />}</div>;
+    },
     details: ({ node, children, open }) => <details {...attrs(node)} open={open} className="my-4 rounded-lg border border-app-border bg-app-surface px-4 py-2">{children}</details>,
     summary: ({ children }) => <summary className="cursor-pointer py-1 font-medium text-tx-primary">{children}</summary>,
     mark: ({ children }) => <mark className="rounded bg-yellow-200/80 px-0.5 text-inherit dark:bg-yellow-500/30">{children}</mark>,
@@ -444,8 +452,9 @@ function createComponents(
   };
 }
 
-function MarkdownSegment({ segment, onTaskCheckboxChange, headingIds, headingPositions, onInternalAnchorClick, onFormatCodeBlock }: {
+function MarkdownSegment({ segment, onTaskCheckboxChange, headingIds, headingPositions, onInternalAnchorClick, onFormatCodeBlock, onInsertVoiceTranscript }: {
   segment: MarkdownPreviewSegment;
+  onInsertVoiceTranscript?: (text: string) => void;
   onTaskCheckboxChange?: (taskIndex: number, checked: boolean) => void;
   headingIds: ReadonlyMap<number, string>;
   headingPositions: ReadonlyMap<number, number>;
@@ -470,8 +479,8 @@ function MarkdownSegment({ segment, onTaskCheckboxChange, headingIds, headingPos
     if (height > 0) setEstimatedHeight(height);
   }, [mounted, segment.markdown]);
   const components = useMemo(
-    () => createComponents(onTaskCheckboxChange, segment.start, segment.taskOffset, headingIds, headingPositions, onInternalAnchorClick, onFormatCodeBlock),
-    [headingIds, headingPositions, onInternalAnchorClick, onTaskCheckboxChange, onFormatCodeBlock, segment.start, segment.taskOffset],
+    () => createComponents(onTaskCheckboxChange, segment.start, segment.taskOffset, headingIds, headingPositions, onInternalAnchorClick, onFormatCodeBlock, onInsertVoiceTranscript),
+    [headingIds, headingPositions, onInternalAnchorClick, onTaskCheckboxChange, onFormatCodeBlock, onInsertVoiceTranscript, segment.start, segment.taskOffset],
   );
   const rehypePlugins: any[] = RAW_HTML_RE.test(segment.markdown)
     ? [rehypeRaw, [rehypeSanitize, safeHtmlSchema]]
@@ -495,7 +504,7 @@ function MarkdownSegment({ segment, onTaskCheckboxChange, headingIds, headingPos
   );
 }
 
-export function MarkdownPreview({ markdown, className, compact, containerRef, onTaskCheckboxChange, onFormatCodeBlock }: MarkdownPreviewProps) {
+export function MarkdownPreview({ markdown, className, compact, containerRef, onTaskCheckboxChange, onFormatCodeBlock, onInsertVoiceTranscript }: MarkdownPreviewProps) {
   const { t } = useTranslation();
   const rootRef = useRef<HTMLDivElement | null>(null);
   const renderedMarkdown = useMemo(() => preprocessInternalNoteLinks(preprocessMarkdownMath(preprocessMarkdownVideos(projectMarkdownForUser(markdown || "")
@@ -542,8 +551,8 @@ export function MarkdownPreview({ markdown, className, compact, containerRef, on
     await onFormatCodeBlock(markdown, resolveMarkdownCodeBlockSource(markdown, renderedMarkdown, offset));
   } : undefined, [markdown, renderedMarkdown, onFormatCodeBlock]);
   const components = useMemo(
-    () => createComponents(onTaskCheckboxChange, 0, 0, headingIds, headingPositions, handleInternalAnchorClick, handleFormatCodeBlock),
-    [handleInternalAnchorClick, headingIds, headingPositions, onTaskCheckboxChange, handleFormatCodeBlock],
+    () => createComponents(onTaskCheckboxChange, 0, 0, headingIds, headingPositions, handleInternalAnchorClick, handleFormatCodeBlock, onInsertVoiceTranscript),
+    [handleInternalAnchorClick, headingIds, headingPositions, onTaskCheckboxChange, handleFormatCodeBlock, onInsertVoiceTranscript],
   );
   const rehypePlugins: any[] = containsRawHtml ? [rehypeRaw, [rehypeSanitize, safeHtmlSchema]] : [];
   const segments = useMemo(
@@ -575,6 +584,7 @@ export function MarkdownPreview({ markdown, className, compact, containerRef, on
           headingPositions={headingPositions}
           onInternalAnchorClick={handleInternalAnchorClick}
           onFormatCodeBlock={handleFormatCodeBlock}
+          onInsertVoiceTranscript={onInsertVoiceTranscript}
         />
       )) : (
         <ReactMarkdown

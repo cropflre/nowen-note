@@ -22,6 +22,10 @@
   <key>com.apple.security.network.server</key>
   <true/>
 
+  <!-- 语音笔记的麦克风输入权限。 -->
+  <key>com.apple.security.device.audio-input</key>
+  <true/>
+
   <!-- 文件访问：允许用户选择的文件 + 下载目录 -->
   <key>com.apple.security.files.user-selected.read-write</key>
   <true/>

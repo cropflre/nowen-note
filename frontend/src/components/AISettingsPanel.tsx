@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import PluginPromptPackSettingsSection from "@/components/settings/PluginPromptPackSettingsSection";
+import SpeechSettingsPanel from "@/components/SpeechSettingsPanel";
 import {
   aiProfiles,
   emitAIProfilesChanged,
@@ -484,6 +485,7 @@ export default function AISettingsPanel() {
         </section>
       </div>
       <PluginPromptPackSettingsSection />
+      <SpeechSettingsPanel />
     </div>
   );
 }

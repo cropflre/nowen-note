@@ -23,6 +23,24 @@ import {
 import type { Note, SearchResult, Task } from "@/types";
 import { fetchWithAuthRefresh, getAccessToken } from "./authSession";
 
+export interface SpeechSettings { apiUrl: string; model: string; language: string | null; apiKeySet: boolean; configured: boolean }
+async function voiceRequest<T>(path: string, body?: unknown, method = body === undefined ? "GET" : "POST"): Promise<T> {
+  const response = await fetchWithAuthRefresh(`${getBaseUrl()}/voice${path}`, {
+    method,
+    headers: { "Content-Type": "application/json", ...(getAccessToken() ? { Authorization: `Bearer ${getAccessToken()}` } : {}) },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+  }, getBaseUrl());
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(result.error || `HTTP ${response.status}`);
+  return result as T;
+}
+export const voiceApi = {
+  settings: () => voiceRequest<SpeechSettings>("/settings"),
+  saveSettings: (settings: { apiUrl: string; model: string; language: string | null; apiKey?: string }) => voiceRequest<SpeechSettings>("/settings", settings, "PUT"),
+  test: () => voiceRequest<{ success: boolean }>("/test", {}),
+  transcribe: (attachmentId: string, language?: string) => voiceRequest<{ text: string; language: string | null; model: string }>("/transcriptions", { attachmentId, language }),
+};
+
 export type TaskActivityEvent = {
   id: string;
   taskId: string | null;

@@ -1,5 +1,6 @@
 import type { FileItem } from "@/types";
 import { isVideoFile, toInlineAttachmentUrl } from "@/lib/mediaUploadService";
+import { voiceMemoHtml } from "@/lib/voiceMemo";
 
 export type ExistingAttachmentInsertItem = Pick<
   FileItem,
@@ -23,7 +24,11 @@ export function isInlineImageAttachment(
 export function isInlineVideoAttachment(
   item: Pick<ExistingAttachmentInsertItem, "filename" | "mimeType">,
 ): boolean {
-  return isVideoFile({ name: item.filename || "", type: item.mimeType || "" });
+  return !isInlineAudioAttachment(item) && isVideoFile({ name: item.filename || "", type: item.mimeType || "" });
+}
+
+export function isInlineAudioAttachment(item: Pick<ExistingAttachmentInsertItem, "mimeType">): boolean {
+  return /^audio\//i.test(item.mimeType.trim());
 }
 
 function formatAttachmentSize(bytes: number): string {
@@ -67,6 +72,9 @@ export function buildExistingAttachmentMarkdownSnippet(
   const url = encodeMarkdownUrl(item.url);
   if (isInlineImageAttachment(item)) {
     return `![${label}](${url})`;
+  }
+  if (isInlineAudioAttachment(item)) {
+    return `\n\n${voiceMemoHtml({ src: item.url, filename: item.filename, mimeType: item.mimeType, size: item.size, attachmentId: item.url.match(/\/api\/attachments\/([^/?#]+)/)?.[1], durationMs: 0 })}\n\n`;
   }
   if (isInlineVideoAttachment(item)) {
     const previewUrl = encodeMarkdownUrl(toInlineAttachmentUrl(item.url));

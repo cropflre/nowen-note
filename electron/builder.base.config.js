@@ -561,6 +561,7 @@ module.exports = {
     //   APPLE_ID / APPLE_APP_SPECIFIC_PASSWORD    - 公证所需（或用 APPLE_API_KEY）
     //   APPLE_TEAM_ID                             - 团队 ID
     hardenedRuntime: true,
+    extendInfo: { NSMicrophoneUsageDescription: "Nowen Note 需要访问麦克风，用于录制语音笔记。" },
     gatekeeperAssess: false,
     entitlements: "build/entitlements.mac.plist",
     entitlementsInherit: "build/entitlements.mac.plist",

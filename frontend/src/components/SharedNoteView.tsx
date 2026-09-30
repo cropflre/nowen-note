@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useRef, useMemo } from "react"
 import { Globe, Lock, AlertCircle, Loader2, FileText, MessageCircle, Send, RefreshCw, Edit3, Check, UserCircle2, ListTree, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { api, resolveAttachmentUrl } from "@/lib/api";
+import VoiceMemoAudio from "@/components/VoiceMemoAudio";
 import { ShareInfo, SharedNoteContent, ShareComment, Note } from "@/types";
 import { cn } from "@/lib/utils";
 import { toast } from "@/lib/toast";
@@ -1293,6 +1294,10 @@ export default function SharedNoteView({ shareToken }: SharedNoteViewProps) {
                     );
                   },
                   // 图片：有 width 时输出 inline style 控制缩放宽度
+                  audio({ src, node }: any) {
+                    const source = String(src || node?.children?.find((child: any) => child.tagName === "source")?.properties?.src || "");
+                    return <VoiceMemoAudio src={source} />;
+                  },
                   img({ src, alt, ...imgProps }: any) {
                     const resolvedSrc = resolveAttachmentUrl(String(src || ""));
                     const rawW = imgProps?.width || imgProps?.["data-width"];
@@ -1896,6 +1901,13 @@ function renderNode(node: any): string {
         ? ` style="width:${w}px;max-width:100%;height:auto"`
         : ` style="max-width:100%;height:auto"`;
       return `<img src="${escapeHtml(src)}" alt="${escapeHtml(alt)}"${wAttr}${style} />`;
+    }
+    case "voiceMemo": {
+      const rawSrc = String(node.attrs?.src || "").trim();
+      if (/^(?!https?:)[a-z][a-z\d+.-]*:/i.test(rawSrc)) return "";
+      const src = resolveAttachmentUrl(rawSrc);
+      const inline = src ? `${src}${src.includes("?") ? "&" : "?"}inline=1` : "";
+      return `<audio controls preload="metadata" src="${escapeHtml(inline)}"></audio>`;
     }
     case "table":
       return `<table>${renderChildren(node)}</table>`;

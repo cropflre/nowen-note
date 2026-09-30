@@ -17,6 +17,7 @@ import { common, createLowlight } from "lowlight";
 import { api, resolveAttachmentUrl } from "./api";
 import { TextStyleKit } from "@/components/FontSizeExtension";
 import { Video as VideoExtension } from "@/components/VideoExtension";
+import { VoiceMemo } from "@/components/VoiceMemoExtension";
 import { detectFormat, markdownToHtml } from "@/lib/contentFormat";
 import { hydrateMindMapEmbedsForExport } from "@/lib/documentMindMapExport";
 import { assertExportCanvasHasContent, assertExportHtmlHasContent, EXPORT_CANVAS_CONTENT_ERROR } from "@/lib/exportCanvasGuard";
@@ -72,6 +73,7 @@ const tiptapExtensions = [
   ...TextStyleKit,
   // 视频节点：与编辑器保持一致，否则导出时 video 节点会被吞
   VideoExtension,
+  VoiceMemo,
   ExportBlockEmbedExtension,
 ];
 
@@ -168,6 +170,7 @@ const MIME_EXT_MAP: Record<string, string> = {
   "audio/wav": "wav",
   "audio/ogg": "ogg",
   "audio/mp4": "m4a",
+  "audio/webm": "webm",
   "video/mp4": "mp4",
   "video/webm": "webm",
   "video/quicktime": "mov",
@@ -763,21 +766,23 @@ async function processMarkdownAttachments(
   return { content: result, images };
 }
 
-async function fetchRemoteAttachments(
+export async function fetchRemoteAttachments(
   html: string,
   registry: Map<string, string>,
   stats: ImgStats,
   noteContext?: { noteId?: string; noteTitle?: string },
 ): Promise<{ html: string; assets: ExtractedImage[] }> {
-  if (!html || !/<a\b[^>]*\bhref=/i.test(html)) {
+  if (!html || !/<(?:a|audio|source|video)\b[^>]*\b(?:href|src)=/i.test(html)) {
     return { html, assets: [] };
   }
 
   const assets: ExtractedImage[] = [];
-  // 抓 <a ... href="..." ...>，捕获 (前缀, 引号, href, 后缀)；不闭合标签也无所谓
-  const aRe = /<a\b([^>]*?)\bhref\s*=\s*(["'])([^"']+)\2([^>]*)>/gi;
+  // 音频和 source 也复用附件打包链路，不能只扫描下载链接。
+  const aRe = /<(a|audio|source|video)\b([^>]*?)\b(href|src)\s*=\s*(["'])([^"']+)\4([^>]*)>/gi;
 
   type Task = {
+    tag: string;
+    attribute: string;
     fullMatch: string;
     beforeHref: string;
     quote: string;
@@ -787,16 +792,19 @@ async function fetchRemoteAttachments(
   const tasks: Task[] = [];
   let m: RegExpExecArray | null;
   while ((m = aRe.exec(html)) !== null) {
-    const originalHref = m[3];
+    if ((m[1].toLowerCase() === "a") !== (m[3].toLowerCase() === "href")) continue;
+    const originalHref = m[5];
     if (/^(data:|blob:|mailto:|tel:|#)/i.test(originalHref)) continue;
     if (/^\.\/?assets\//i.test(originalHref)) continue;
     if (!isAttachmentUrl(originalHref)) continue;
     tasks.push({
       fullMatch: m[0],
-      beforeHref: m[1] || "",
-      quote: m[2],
+      tag: m[1],
+      attribute: m[3],
+      beforeHref: m[2] || "",
+      quote: m[4],
       originalHref,
-      afterHref: m[4] || "",
+      afterHref: m[6] || "",
     });
   }
   if (tasks.length === 0) return { html, assets: [] };
@@ -859,7 +867,7 @@ async function fetchRemoteAttachments(
         }
 
         const newHref = `./${relPath}`;
-        const rebuilt = `<a${task.beforeHref} href=${task.quote}${newHref}${task.quote}${task.afterHref}>`;
+        const rebuilt = `<${task.tag}${task.beforeHref} ${task.attribute}=${task.quote}${newHref}${task.quote}${task.afterHref}>`;
         results[myIdx] = { task, rebuilt };
         stats.ok++;
       } catch (err) {
@@ -878,7 +886,7 @@ async function fetchRemoteAttachments(
         // 兜底：把死 host 剥成相对路径
         const normalized = normalizeAttachmentSrc(task.originalHref);
         if (normalized !== task.originalHref) {
-          const rebuilt = `<a${task.beforeHref} href=${task.quote}${normalized}${task.quote}${task.afterHref}>`;
+          const rebuilt = `<${task.tag}${task.beforeHref} ${task.attribute}=${task.quote}${normalized}${task.quote}${task.afterHref}>`;
           results[myIdx] = { task, rebuilt };
         }
       }
@@ -962,6 +970,7 @@ function createTurndown(): TurndownService {
     replacement: (content) => `==${content}==`,
   });
 
+  td.keep(["audio"]);
   return td;
 }
 
@@ -1266,6 +1275,15 @@ export async function exportNotebook(
         }
 
         markdown = html ? postProcessMarkdown(td.turndown(html)) : "";
+      }
+
+      // 两种笔记格式都可能包含标准 HTML 音频；内嵌图片模式也必须打包音频。
+      if (markdown) {
+        let registry = perFolderRegistry.get(folder);
+        if (!registry) { registry = new Map(); perFolderRegistry.set(folder, registry); }
+        const media = await fetchRemoteAttachments(markdown, registry, imgStats, { noteId: note.id, noteTitle: note.title });
+        markdown = media.html;
+        extractedImages = extractedImages.concat(media.assets);
       }
 
       const frontmatter = [

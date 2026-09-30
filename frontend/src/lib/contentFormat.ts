@@ -44,6 +44,7 @@ import { MathInline, MathBlock } from "@/components/MathExtensions";
 import { FootnoteReference, FootnoteDefinition } from "@/components/FootnoteExtensions";
 import { TextStyleKit } from "@/components/FontSizeExtension";
 import { Video as VideoExtension, videoNodeToMarkdown } from "@/components/VideoExtension";
+import { VoiceMemo } from "@/components/VoiceMemoExtension";
 import { BlockEmbedExtension } from "@/components/BlockEmbedExtension";
 import { preprocessInternalNoteLinks } from "@/lib/noteLinkSyntax";
 import { projectMarkdownForUser } from "@/lib/markdownUserContent";
@@ -208,6 +209,7 @@ export function getTiptapExtensions() {
     // 视频节点：必须与 TiptapEditor 保持一致，否则 generateHTML 时 video 节点
     // 会被 schema 过滤，导致切换到 MD 后视频丢失。
     VideoExtension,
+    VoiceMemo,
     BlockEmbedExtension,
   ];
   return _extensions;
@@ -477,6 +479,9 @@ function getTurndown(): TurndownService {
       });
     },
   });
+
+  // 标准 HTML 音频块在两种编辑器之间往返时保留媒体及元数据。
+  td.keep(["audio"]);
 
   // Persist universal block identity in Markdown using the compatible `^blk_xxx` suffix.
   td.addRule("nowenBlockId", {

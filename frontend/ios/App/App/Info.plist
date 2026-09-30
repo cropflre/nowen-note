@@ -43,6 +43,8 @@
 	</array>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Nowen Note uses your local network to connect to self-hosted servers and discover nearby Nowen Note instances.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Nowen Note 需要访问麦克风，用于录制语音笔记。</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>
