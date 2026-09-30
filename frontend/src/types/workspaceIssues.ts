@@ -38,11 +38,13 @@ export interface IssueActivity {
 export interface WorkspaceNotification {
   id: string;
   userId: string;
-  workspaceId: string;
-  workspaceName: string;
-  type: "issue_created" | "issue_commented" | "issue_closed" | "issue_reopened";
+  workspaceId: string | null;
+  workspaceName: string | null;
+  type: "issue_created" | "issue_commented" | "issue_closed" | "issue_reopened" | "note_commented" | "note_comment_replied";
   actorName: string | null;
-  resourceType: "workspace_issue";
+  resourceType: "workspace_issue" | "note_comment";
+  noteId?: string;
+  commentId?: string;
   resourceId: string;
   title: string;
   body: string;

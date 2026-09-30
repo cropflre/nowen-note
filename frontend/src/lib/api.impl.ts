@@ -1,5 +1,5 @@
 import type { WorkspaceIssue, WorkspaceIssueDetail, IssueActivity, IssueListResponse, NotificationListResponse } from "@/types/workspaceIssues";
-import { Notebook, NotebookMember, NotebookShareLink, Note, NoteListItem, Tag, SearchResult, User, UserPublicInfo, Task, TaskStats, TaskFilter, CustomFont, MindMap, MindMapListItem, Diary, DiaryMediaItem, DiaryTimeline, DiaryStats, Share, ShareInfo, SharedNoteContent, NoteVersion, ShareComment, Workspace, WorkspaceAdminItem, WorkspaceMember, WorkspaceInvite, WorkspaceRole, WorkspaceFeatures, FileItem, FileDetail, FileListResponse, FileStats, FileSortKey, FileCategory, FileFilter, FileMyUploadsRef } from "@/types";
+import { Notebook, NotebookMember, NotebookShareLink, Note, NoteListItem, Tag, SearchResult, User, UserPublicInfo, Task, TaskStats, TaskFilter, CustomFont, MindMap, MindMapListItem, Diary, DiaryMediaItem, DiaryTimeline, DiaryStats, Share, ShareInfo, SharedNoteContent, NoteVersion, ShareComment, NoteCommentListResponse, Workspace, WorkspaceAdminItem, WorkspaceMember, WorkspaceInvite, WorkspaceRole, WorkspaceFeatures, FileItem, FileDetail, FileListResponse, FileStats, FileSortKey, FileCategory, FileFilter, FileMyUploadsRef } from "@/types";
 import { TASK_REMINDER_SYNC_EVENT, type TaskReminderScheduleItem } from "@/lib/taskNotificationSchedule";
 
 export type TaskMutationResponse = { task: Task; generatedTask: Task | null };
@@ -3439,14 +3439,18 @@ export const api = {
   clearNoteVersions: (noteId: string) =>
     request<{ success: boolean; count: number }>(`/shares/note/${noteId}/versions`, { method: "DELETE" }),
 
+  // 评论中心复用现有评论资源，不进入笔记离线写队列。
+  getManagedNoteComments: (status = "all", q = "", offset = 0, limit = 30) =>
+    request<NoteCommentListResponse>(`/shares/comments?${new URLSearchParams({ status, q, offset: String(offset), limit: String(limit) })}`),
+
   // 评论批注
   getNoteComments: (noteId: string) => request<ShareComment[]>(`/shares/note/${noteId}/comments`),
   addNoteComment: (noteId: string, data: { content: string; parentId?: string; anchorData?: string }) =>
-    request<ShareComment>(`/shares/note/${noteId}/comments`, { method: "POST", body: JSON.stringify(data) }),
+    request<ShareComment>(`/shares/note/${noteId}/comments`, { method: "POST", body: JSON.stringify(data), _skipOfflineQueue: true }),
   deleteNoteComment: (noteId: string, commentId: string) =>
-    request(`/shares/note/${noteId}/comments/${commentId}`, { method: "DELETE" }),
+    request(`/shares/note/${noteId}/comments/${commentId}`, { method: "DELETE", _skipOfflineQueue: true }),
   toggleCommentResolved: (noteId: string, commentId: string) =>
-    request<ShareComment>(`/shares/note/${noteId}/comments/${commentId}/resolve`, { method: "PATCH" }),
+    request<ShareComment>(`/shares/note/${noteId}/comments/${commentId}/resolve`, { method: "PATCH", _skipOfflineQueue: true }),
 
   // Shared (公开访问，无需 JWT)
   getShareInfo: async (token: string): Promise<ShareInfo> => {

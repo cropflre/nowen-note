@@ -5,6 +5,8 @@ import { useTranslation } from "react-i18next";
 import Sidebar from "@/components/Sidebar";
 import WorkspaceIssues from "@/components/issues/WorkspaceIssues";
 import NotificationCenter from "@/components/issues/NotificationCenter";
+import CommentManagementCenter from "@/components/CommentManagementCenter";
+import { openNoteComment } from "@/lib/noteCommentNavigation";
 import { openWorkspaceIssue, parseIssueAppPath } from "@/lib/workspaceIssueNavigation";
 import NavRail from "@/components/NavRail";
 import SettingsModal from "@/components/SettingsModal";
@@ -813,6 +815,15 @@ function AppLayout() {
     },
   });
 
+  const handleOpenComment = (noteId: string, commentId: string) => openNoteComment(noteId, commentId, (note) => {
+    actions.setActiveNote(note);
+    actions.setSelectedNotebook(note.notebookId);
+    actions.setViewMode("notebook");
+    actions.setMobileView("editor");
+    actions.setMobileSidebar(false);
+    if (userPrefs.enableNoteTabs) actions.openNoteTab({ id: note.id, title: note.title, notebookId: note.notebookId, workspaceId: note.workspaceId, contentFormat: note.contentFormat, colorMark: note.colorMark, isLocked: note.isLocked, isTrashed: note.isTrashed, updatedAt: note.updatedAt });
+  });
+
   return (
     <div className="flex h-[100dvh] w-screen bg-app-bg overflow-hidden transition-colors duration-200">
       <NoteDeepLinkBridge />
@@ -980,7 +991,8 @@ function AppLayout() {
         </div>
       )}
 
-      <NotificationCenter onUnreadChange={setNotificationCount} onOpenIssue={(issueId, workspaceId) => { openWorkspaceIssue(issueId, workspaceId); actions.setViewMode("issues"); actions.setMobileSidebar(false); }} />
+      <CommentManagementCenter onOpenComment={handleOpenComment} />
+      <NotificationCenter onUnreadChange={setNotificationCount} onOpenComment={handleOpenComment} onOpenIssue={(issueId, workspaceId) => { openWorkspaceIssue(issueId, workspaceId); actions.setViewMode("issues"); actions.setMobileSidebar(false); }} />
 
       {/* 全局命令面板（Cmd-K / 菜单搜索 / Dock 搜索统一入口） */}
       <FloatingLayerHost />

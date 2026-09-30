@@ -73,6 +73,7 @@ import { attachmentMediaVariantsMigration } from "./attachmentMediaVariantsMigra
 
 import { workspaceIssuesMigration } from "./workspaceIssuesMigration.js";
 import { noteColorMarkMigration } from "./noteColorMarkMigration.js";
+import { noteCommentNotificationsMigration } from "./noteCommentNotificationsMigration.js";
 
 export type { Migration } from "./migrations.impl.js";
 
@@ -401,6 +402,7 @@ export const MIGRATIONS: Migration[] = [
   attachmentMediaVariantsMigration,
   workspaceIssuesMigration,
   noteColorMarkMigration,
+  noteCommentNotificationsMigration,
 ].sort((a, b) => a.version - b.version);
 
 export const CURRENT_SCHEMA_VERSION: number = MIGRATIONS.reduce(

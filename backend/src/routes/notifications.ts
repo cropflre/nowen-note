@@ -1,6 +1,8 @@
 import { Hono } from "hono";
 import { getDb } from "../db/schema.js";
-import { IssueError, VISIBLE_NOTIFICATIONS } from "../services/workspaceIssues.js";
+import { IssueError } from "../services/workspaceIssues.js";
+import { visibleNotifications } from "../services/notificationListing.js";
+import { resolveUnlockedFolderNodeIds } from "../lib/knowledgeTreePasswordAccess.js";
 import { pageParams } from "./workspace-issues.js";
 
 const app = new Hono();
@@ -23,19 +25,18 @@ app.get("/", (c) => {
   const userId = c.req.header("X-User-Id")!;
   const { limit, offset } = pageParams(c.req.query("limit"), c.req.query("offset"));
   const unreadOnly = c.req.query("unread") === "true";
-  const db = getDb();
-  const items = db.prepare(`SELECT n.*, (SELECT COALESCE(NULLIF(u.displayName, ''), u.username) FROM users u WHERE u.id = n.actorUserId) AS actorName,
-    (SELECT w.name FROM workspaces w WHERE w.id = n.workspaceId) AS workspaceName
-    ${VISIBLE_NOTIFICATIONS} ${unreadOnly ? "AND n.readAt IS NULL" : ""} ORDER BY n.createdAt DESC, n.id DESC LIMIT ? OFFSET ?`).all(userId, limit, offset);
-  const total = (db.prepare(`SELECT COUNT(*) AS total ${VISIBLE_NOTIFICATIONS} ${unreadOnly ? "AND n.readAt IS NULL" : ""}`).get(userId) as { total: number }).total;
-  const unreadCount = (db.prepare(`SELECT COUNT(*) AS total ${VISIBLE_NOTIFICATIONS} AND n.readAt IS NULL`).get(userId) as { total: number }).total;
-  return c.json({ items, total, unreadCount });
+  const visible = visibleNotifications(userId, resolveUnlockedFolderNodeIds(getDb(), userId, c.req.header("X-Folder-Unlock-Tokens")));
+  const filtered = unreadOnly ? visible.filter((item) => !item.readAt) : visible;
+  return c.json({ items: filtered.slice(offset, offset + limit), total: filtered.length, unreadCount: visible.filter((item) => !item.readAt).length });
 });
 
 app.post("/read-all", (c) => {
   const userId = c.req.header("X-User-Id")!;
-  getDb().prepare(`UPDATE notifications SET readAt = ? WHERE readAt IS NULL AND id IN (SELECT n.id ${VISIBLE_NOTIFICATIONS})`)
-    .run(new Date().toISOString(), userId);
+  const db = getDb();
+  const visible = visibleNotifications(userId, resolveUnlockedFolderNodeIds(db, userId, c.req.header("X-Folder-Unlock-Tokens")));
+  const read = db.prepare("UPDATE notifications SET readAt = ? WHERE id = ? AND userId = ? AND readAt IS NULL");
+  const now = new Date().toISOString();
+  db.transaction(() => { for (const item of visible) if (!item.readAt) read.run(now, item.id, userId); })();
   return c.json({ success: true });
 });
 
@@ -43,7 +44,7 @@ app.post("/:id/read", (c) => {
   const userId = c.req.header("X-User-Id")!;
   const id = c.req.param("id");
   const db = getDb();
-  if (!db.prepare(`SELECT n.id ${VISIBLE_NOTIFICATIONS} AND n.id = ?`).get(userId, id)) throw new IssueError("通知不存在", 404);
+  if (!visibleNotifications(userId, resolveUnlockedFolderNodeIds(db, userId, c.req.header("X-Folder-Unlock-Tokens"))).some((item) => item.id === id)) throw new IssueError("通知不存在", 404);
   db.prepare("UPDATE notifications SET readAt = COALESCE(readAt, ?) WHERE id = ? AND userId = ?").run(new Date().toISOString(), id, userId);
   return c.json({ success: true });
 });

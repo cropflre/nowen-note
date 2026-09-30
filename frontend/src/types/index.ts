@@ -856,6 +856,15 @@ export interface NoteVersion {
 // userId 为 null 表示未登录访客评论（公开分享 + comment 权限场景）；
 // 此时 guestName 是访客自填的昵称，前端显示用 displayName（后端合成的统一字段）。
 // isGuest=true 时 UI 上可以加"访客"标记或不同颜色，与登录用户区分。
+export interface ManagedNoteComment extends ShareComment {
+  noteTitle: string;
+  workspaceId: string | null;
+}
+export interface NoteCommentListResponse {
+  items: ManagedNoteComment[];
+  total: number;
+}
+
 export interface ShareComment {
   id: string;
   noteId: string;

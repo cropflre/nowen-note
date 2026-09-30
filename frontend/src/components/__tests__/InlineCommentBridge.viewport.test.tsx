@@ -116,6 +116,33 @@ describe("评论与批注的键盘避让", () => {
     expect(document.body.scrollTop).toBe(0);
   });
 
+  it("从评论中心打开已解决的回复时显示并定位所属线程", async () => {
+    const base = { noteId: note.id, userId: "author", displayName: "作者", createdAt: "2026-09-30T00:00:00Z", updatedAt: "2026-09-30T00:00:00Z", anchorData: null };
+    const comments = [
+      { ...base, id: "resolved-root", parentId: null, content: "已解决的讨论", isResolved: 1 },
+      { ...base, id: "target-reply", parentId: "resolved-root", content: "目标回复", isResolved: 0 },
+    ];
+    mocks.getNoteComments.mockResolvedValue(comments);
+    await open();
+    let resolve!: (value: typeof comments) => void;
+    mocks.getNoteComments.mockImplementationOnce(() => new Promise((done) => { resolve = done; }));
+    const scroll = vi.fn();
+    const original = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "scrollIntoView");
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", { configurable: true, value: scroll });
+    try {
+      await act(async () => openInlineCommentPanel({ noteId: note.id, commentId: "target-reply" }));
+      scroll.mockClear();
+      await act(async () => resolve(comments)); await settle();
+      const thread = document.querySelector('[data-comment-thread-id="resolved-root"]');
+      expect(thread?.textContent).toContain("目标回复");
+      expect(thread?.className).toContain("border-amber-400/70");
+      expect(scroll).toHaveBeenCalledWith({ block: "nearest" });
+    } finally {
+      if (original) Object.defineProperty(HTMLElement.prototype, "scrollIntoView", original);
+      else Reflect.deleteProperty(HTMLElement.prototype, "scrollIntoView");
+    }
+  });
+
   it("关闭面板后不再订阅视口变化，重新打开读取最新尺寸", async () => {
     const remove = vi.spyOn(viewport, "removeEventListener");
     await open();

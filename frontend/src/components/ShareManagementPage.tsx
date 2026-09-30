@@ -37,6 +37,7 @@ import {
   shareStatusMeta,
 } from "@/lib/shareManagement";
 import { toast } from "@/lib/toast";
+import { openCommentCenter } from "@/lib/noteCommentNavigation";
 import { cn } from "@/lib/utils";
 import { useAppActions } from "@/store/AppContext";
 import type {
@@ -515,6 +516,7 @@ export default function ShareManagementPage() {
                 variant="badge"
               />
             )}
+            <Button variant="outline" onClick={openCommentCenter}>评论管理</Button>
             <Button variant="outline" onClick={() => void load(true)} disabled={refreshing}>
               {refreshing ? <Loader2 size={15} className="mr-2 animate-spin" /> : <RefreshCw size={15} className="mr-2" />}
               刷新

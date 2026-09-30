@@ -34,6 +34,36 @@ on:
       - "frontend/src/i18n/locales/**"
       - "backend/src/routes/user-preferences-sync.ts"
       - "backend/tests/user-preferences-sync.test.ts"
+      - "frontend/src/App.tsx"
+      - "frontend/src/components/CommentManagementCenter.tsx"
+      - "frontend/src/components/__tests__/CommentManagementCenter.test.tsx"
+      - "frontend/src/components/ShareManagementPage.tsx"
+      - "frontend/src/components/__tests__/ShareManagementPage.test.tsx"
+      - "frontend/src/components/InlineCommentBridge.tsx"
+      - "frontend/src/components/__tests__/InlineCommentBridge.viewport.test.tsx"
+      - "frontend/src/components/issues/NotificationCenter.tsx"
+      - "frontend/src/components/issues/__tests__/NotificationCenter.test.tsx"
+      - "frontend/src/lib/noteCommentNavigation.ts"
+      - "frontend/src/lib/__tests__/noteCommentNavigation.test.ts"
+      - "frontend/src/lib/inlineCommentEvents.ts"
+      - "frontend/src/lib/api.impl.ts"
+      - "frontend/src/types/index.ts"
+      - "frontend/src/types/workspaceIssues.ts"
+      - "frontend/src/i18n/workspaceIssuesTranslations.ts"
+      - "backend/src/routes/shares.ts"
+      - "backend/src/routes/notifications.ts"
+      - "backend/src/services/noteCommentManagement.ts"
+      - "backend/src/services/notificationListing.ts"
+      - "backend/src/services/share-capabilities.ts"
+      - "backend/src/lib/knowledgeTreePasswordAccess.ts"
+      - "backend/src/repositories/shareCommentsRepository.ts"
+      - "backend/src/db/migrations.ts"
+      - "backend/src/db/noteCommentNotificationsMigration.ts"
+      - "backend/src/db/postgres/migrations/0116-note-comment-notifications.sql"
+      - "backend/tests/note-comments-management.test.ts"
+      - "backend/tests/workspace-issues.test.ts"
+      - "backend/tests/share-management-route.test.ts"
+      - "docs/note-comments.md"
       - ".github/workflows/issue-749-editor-ux-ci.yml"
   pull_request:
     paths:
@@ -54,6 +84,36 @@ on:
       - "frontend/src/i18n/locales/**"
       - "backend/src/routes/user-preferences-sync.ts"
       - "backend/tests/user-preferences-sync.test.ts"
+      - "frontend/src/App.tsx"
+      - "frontend/src/components/CommentManagementCenter.tsx"
+      - "frontend/src/components/__tests__/CommentManagementCenter.test.tsx"
+      - "frontend/src/components/ShareManagementPage.tsx"
+      - "frontend/src/components/__tests__/ShareManagementPage.test.tsx"
+      - "frontend/src/components/InlineCommentBridge.tsx"
+      - "frontend/src/components/__tests__/InlineCommentBridge.viewport.test.tsx"
+      - "frontend/src/components/issues/NotificationCenter.tsx"
+      - "frontend/src/components/issues/__tests__/NotificationCenter.test.tsx"
+      - "frontend/src/lib/noteCommentNavigation.ts"
+      - "frontend/src/lib/__tests__/noteCommentNavigation.test.ts"
+      - "frontend/src/lib/inlineCommentEvents.ts"
+      - "frontend/src/lib/api.impl.ts"
+      - "frontend/src/types/index.ts"
+      - "frontend/src/types/workspaceIssues.ts"
+      - "frontend/src/i18n/workspaceIssuesTranslations.ts"
+      - "backend/src/routes/shares.ts"
+      - "backend/src/routes/notifications.ts"
+      - "backend/src/services/noteCommentManagement.ts"
+      - "backend/src/services/notificationListing.ts"
+      - "backend/src/services/share-capabilities.ts"
+      - "backend/src/lib/knowledgeTreePasswordAccess.ts"
+      - "backend/src/repositories/shareCommentsRepository.ts"
+      - "backend/src/db/migrations.ts"
+      - "backend/src/db/noteCommentNotificationsMigration.ts"
+      - "backend/src/db/postgres/migrations/0116-note-comment-notifications.sql"
+      - "backend/tests/note-comments-management.test.ts"
+      - "backend/tests/workspace-issues.test.ts"
+      - "backend/tests/share-management-route.test.ts"
+      - "docs/note-comments.md"
       - ".github/workflows/issue-749-editor-ux-ci.yml"
 
 permissions:
@@ -83,6 +143,11 @@ jobs:
           src/lib/__tests__/userPreferenceAccountCache.test.ts
           src/lib/__tests__/navigationVisibility.test.ts
           src/lib/__tests__/noteColorMarkUi.test.ts
+          src/components/__tests__/CommentManagementCenter.test.tsx
+          src/components/__tests__/ShareManagementPage.test.tsx
+          src/components/__tests__/InlineCommentBridge.viewport.test.tsx
+          src/components/issues/__tests__/NotificationCenter.test.tsx
+          src/lib/__tests__/noteCommentNavigation.test.ts
           --reporter=verbose
       - name: Frontend typecheck
         run: npx tsc -b --pretty false
@@ -103,5 +168,11 @@ jobs:
       - run: npm ci
       - name: Synced preference regression
         run: node --import tsx --import ./tests/setup-db-isolation.ts --test tests/user-preferences-sync.test.ts
+      - name: Note comment management and notification regressions
+        run: >-
+          node --import tsx --import ./tests/setup-db-isolation.ts --test
+          tests/note-comments-management.test.ts
+          tests/workspace-issues.test.ts
+          tests/share-management-route.test.ts
       - name: Backend typecheck
         run: npm run build:tsc -- --pretty false

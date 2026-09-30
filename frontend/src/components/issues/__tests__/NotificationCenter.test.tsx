@@ -15,13 +15,15 @@ describe("站内通知中心", () => {
   let host: HTMLDivElement;
   const count = vi.fn();
   const openIssue = vi.fn();
-  async function mount() { await act(async () => root.render(<NotificationCenter onUnreadChange={count} onOpenIssue={openIssue} />)); }
+  const openComment = vi.fn();
+  async function mount() { await act(async () => root.render(<NotificationCenter onUnreadChange={count} onOpenIssue={openIssue} onOpenComment={openComment} />)); }
   async function open() { await act(async () => window.dispatchEvent(new Event("nowen:open-notifications"))); }
   function button(text: string) { return [...document.querySelectorAll("button")].find((element) => element.textContent === text)!; }
   beforeEach(() => {
     vi.clearAllMocks(); vi.useFakeTimers(); mocks.local = false;
     (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
     mocks.list.mockResolvedValue({ items: [item], total: 1, unreadCount: 1 });
+    openComment.mockResolvedValue(undefined);
     mocks.read.mockResolvedValue({ success: true }); mocks.readAll.mockResolvedValue({ success: true });
     host = document.createElement("div"); document.body.append(host); root = createRoot(host);
   });
@@ -54,6 +56,27 @@ describe("站内通知中心", () => {
     expect(document.querySelector('[role="dialog"]')).toBeNull();
   });
 
+  it("评论通知标已读后定位评论，个人空间不走议题跳转", async () => {
+    const comment = { ...item, resourceType: "note_comment", resourceId: "comment-one", commentId: "comment-one", noteId: "note-one", workspaceId: null, workspaceName: null, type: "note_commented" };
+    mocks.list.mockResolvedValue({ items: [comment], total: 1, unreadCount: 1 });
+    await mount(); await open();
+    expect(document.body.textContent).toContain("commentCenter.personal");
+    await act(async () => document.querySelector<HTMLButtonElement>("button p.font-medium")!.parentElement!.click());
+    expect(mocks.read).toHaveBeenCalledWith(comment.id);
+    expect(openComment).toHaveBeenCalledWith("note-one", "comment-one");
+    expect(mocks.read.mock.invocationCallOrder[0]).toBeLessThan(openComment.mock.invocationCallOrder[0]);
+    expect(openIssue).not.toHaveBeenCalled();
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+  });
+
+  it("通知中心提供评论管理入口", async () => {
+    const listener = vi.fn(); window.addEventListener("nowen:open-comment-center", listener);
+    try {
+      await mount(); await open(); await act(async () => button("commentCenter.title").click());
+      expect(listener).toHaveBeenCalledOnce(); expect(document.querySelector('[role="dialog"]')).toBeNull();
+    } finally { window.removeEventListener("nowen:open-comment-center", listener); }
+  });
+
   it("通知权限过期显示错误且不跳转", async () => {
     mocks.read.mockRejectedValue(new Error("通知不存在"));
     await mount(); await open();
@@ -73,12 +96,12 @@ describe("站内通知中心", () => {
     expect(mocks.list).toHaveBeenLastCalledWith(false, 0, 1);
   });
 
-  it("服务器切换使旧请求失效，不能显示旧服务器通知", async () => {
+  it.each(["nowen:server-url-changed", "nowen:token-changed"])("身份切换使旧请求失效：%s", async (event) => {
     let resolve!: (value: unknown) => void;
     mocks.list.mockImplementationOnce(() => new Promise((done) => { resolve = done; }));
     await mount();
     mocks.list.mockResolvedValue({ items: [], total: 0, unreadCount: 0 });
-    await act(async () => window.dispatchEvent(new Event("nowen:server-url-changed")));
+    await act(async () => window.dispatchEvent(new Event(event)));
     await act(async () => resolve({ items: [item], total: 1, unreadCount: 9 }));
     expect(count).not.toHaveBeenCalledWith(9);
     await open(); expect(document.body.textContent).not.toContain(item.title);

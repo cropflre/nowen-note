@@ -23,6 +23,7 @@ import {
 import { useTranslation } from "react-i18next";
 
 import { api } from "@/lib/api";
+import { COMMENTS_CHANGED_EVENT } from "@/lib/noteCommentNavigation";
 import { cn } from "@/lib/utils";
 import { toast } from "@/lib/toast";
 import type { Note, ShareComment, User } from "@/types";
@@ -537,6 +538,7 @@ export default function InlineCommentBridge() {
   const externalCloseRef = useRef<(() => void) | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const loadRequestRef = useRef(0);
+  const [requestedComment, setRequestedComment] = useState<{ noteId: string; commentId: string } | null>(null);
   const revealComposer = useCallback(() => {
     const footer = textareaRef.current?.closest("footer");
     // 小高度横屏下只滚动输入区，保留面板顶栏和评论列表的位置。
@@ -606,14 +608,17 @@ export default function InlineCommentBridge() {
     const timer = window.setInterval(() => void loadComments(currentNote.id, true), 10_000);
     const onFocus = () => void loadComments(currentNote.id, true);
     window.addEventListener("focus", onFocus);
+    window.addEventListener(COMMENTS_CHANGED_EVENT, onFocus);
     return () => {
       window.clearInterval(timer);
       window.removeEventListener("focus", onFocus);
+      window.removeEventListener(COMMENTS_CHANGED_EVENT, onFocus);
     };
   }, [currentNote?.id, loadComments, panelOpen]);
 
   const closePanel = useCallback(() => {
     setPanelOpen(false);
+    setRequestedComment(null);
     setPendingAnchor(null);
     setReplyTo(null);
     setComposer("");
@@ -629,6 +634,7 @@ export default function InlineCommentBridge() {
       const detail = (event as CustomEvent<OpenInlineCommentPanelDetail>).detail;
       if (!detail?.noteId) return;
       externalCloseRef.current = detail.onClose || null;
+      setRequestedComment(detail.commentId ? { noteId: detail.noteId, commentId: detail.commentId } : null);
       setPendingAnchor(detail.anchor || null);
       setPanelOpen(true);
       setSelectionDraft(null);
@@ -649,6 +655,31 @@ export default function InlineCommentBridge() {
       window.removeEventListener(CLOSE_INLINE_COMMENT_PANEL_EVENT, onClose);
     };
   }, [closePanel, loadComments]);
+
+  useEffect(() => {
+    const target = requestedComment;
+    if (!target || target.noteId !== currentNote?.id) return;
+    let thread = comments.find((comment) => comment.id === target.commentId);
+    if (!thread) return;
+    const visited = new Set<string>();
+    while (thread.parentId && !visited.has(thread.id)) {
+      visited.add(thread.id);
+      const parent = comments.find((comment) => comment.id === thread!.parentId);
+      if (!parent) break;
+      thread = parent;
+    }
+    setRequestedComment(null);
+    setActiveCommentId(thread.id);
+    if (thread.isResolved) setShowResolved(true);
+    focusCommentAnchor(thread);
+  }, [comments, currentNote?.id, requestedComment]);
+
+  useEffect(() => {
+    if (!panelOpen || !activeCommentId || commentsLoading) return;
+    const thread = Array.from(document.querySelectorAll<HTMLElement>("[data-comment-thread-id]"))
+      .find((element) => element.dataset.commentThreadId === activeCommentId);
+    thread?.scrollIntoView?.({ block: "nearest" });
+  }, [panelOpen, activeCommentId, showResolved, commentsLoading]);
 
   useEffect(() => {
     let frame = 0;

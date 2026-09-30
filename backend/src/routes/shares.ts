@@ -15,6 +15,9 @@ import { rebuildYjsSubdocumentsIfEnabled } from "../services/yjs-subdocuments";
 import { logAudit } from "../services/audit";
 import { noteVersionsRepository, shareCommentsRepository, noteYsnapshotsRepository, noteYupdatesRepository } from "../repositories";
 import { resolveEffectiveNoteCapabilities } from "../services/share-capabilities";
+import { createNoteCommentWithNotifications, listManagedNoteComments } from "../services/noteCommentManagement.js";
+import { IssueError } from "../services/workspaceIssues.js";
+import { pageParams } from "./workspace-issues.js";
 import { parseShareManagementQuery, queryShareManagement } from "../services/share-management";
 import { consumeShareViewSession, findSingleShareByToken, installSingleShareGuard, resetShareViewSessions } from "../services/single-share-access";
 import { checkCredentialAttempt, getClientIp as getCredentialClientIp, hashClientIp, recordCredentialFailure, recordCredentialSuccess } from "../lib/share-credential-rate-limit";
@@ -100,6 +103,21 @@ function requireUnlockedNoteForShare(c: any, noteId: string, userId: string): Re
 
 // ===== 需要 JWT 认证的管理路由 =====
 const sharesRouter = new Hono();
+sharesRouter.get("/comments", (c) => {
+  const userId = c.req.header("X-User-Id") || "";
+  if (!userId) return c.json({ error: "请先登录" }, 401);
+  if (c.req.header("X-Auth-Mode") === "api-token") return c.json({ error: "评论管理需要账号登录" }, 403);
+  try {
+    const page = pageParams(c.req.query("limit"), c.req.query("offset"));
+    return c.json(listManagedNoteComments(userId, {
+      ...page, status: c.req.query("status") || "all", query: (c.req.query("q") || "").trim(),
+      unlockedFolderNodeIds: resolveUnlockedFolderNodeIds(getDb(), userId, c.req.header("X-Folder-Unlock-Tokens")),
+    }));
+  } catch (error) {
+    if (error instanceof IssueError) return c.json({ error: error.message }, error.status);
+    throw error;
+  }
+});
 
 // 创建分享
 sharesRouter.post("/", async (c) => {
@@ -793,6 +811,8 @@ sharesRouter.get("/note/:noteId/comments", (c) => {
   const noteId = c.req.param("noteId");
   const capabilities = resolveEffectiveNoteCapabilities(noteId, userId);
   if (!capabilities.read) return c.json({ error: "无权读取评论", code: "FORBIDDEN" }, 403);
+  const locked = requireUnlockedNoteForShare(c, noteId, userId);
+  if (locked) return locked;
   return c.json(shareCommentsRepository.listByNoteIdWithUser(noteId));
 });
 
@@ -801,6 +821,8 @@ sharesRouter.post("/note/:noteId/comments", async (c) => {
   const noteId = c.req.param("noteId");
   const capabilities = resolveEffectiveNoteCapabilities(noteId, userId);
   if (!capabilities.comment) return c.json({ error: "无权发表评论", code: "FORBIDDEN" }, 403);
+  const locked = requireUnlockedNoteForShare(c, noteId, userId);
+  if (locked) return locked;
   const body = await c.req.json().catch(() => ({}));
   const content = String(body.content || "").trim();
   if (!content) return c.json({ error: "评论内容不能为空" }, 400);
@@ -810,7 +832,7 @@ sharesRouter.post("/note/:noteId/comments", async (c) => {
     if (!parent || parent.noteId !== noteId) return c.json({ error: "父评论不属于当前笔记" }, 400);
   }
   const id = uuid();
-  shareCommentsRepository.create({
+  createNoteCommentWithNotifications({
     id,
     noteId,
     userId,
@@ -828,6 +850,9 @@ sharesRouter.delete("/note/:noteId/comments/:commentId", (c) => {
   const comment = shareCommentsRepository.getById(commentId);
   if (!comment || comment.noteId !== noteId) return c.json({ error: "评论不存在" }, 404);
   const capabilities = resolveEffectiveNoteCapabilities(noteId, userId);
+  if (!capabilities.read) return c.json({ error: "无权读取评论", code: "FORBIDDEN" }, 403);
+  const locked = requireUnlockedNoteForShare(c, noteId, userId);
+  if (locked) return locked;
   if (comment.userId !== userId && !capabilities.manage) {
     return c.json({ error: "只能删除自己的评论或由管理员删除" }, 403);
   }
@@ -841,6 +866,8 @@ sharesRouter.patch("/note/:noteId/comments/:commentId/resolve", (c) => {
   const commentId = c.req.param("commentId");
   const capabilities = resolveEffectiveNoteCapabilities(noteId, userId);
   if (!capabilities.manage) return c.json({ error: "无权操作", code: "FORBIDDEN" }, 403);
+  const locked = requireUnlockedNoteForShare(c, noteId, userId);
+  if (locked) return locked;
   const comment = shareCommentsRepository.getResolved(commentId);
   if (!comment || comment.noteId !== noteId) return c.json({ error: "评论不存在" }, 404);
   shareCommentsRepository.updateResolved(commentId, comment.isResolved ? 0 : 1);
@@ -963,7 +990,7 @@ sharedRouter.post("/:token/comments", async (c) => {
     return c.json({ ok: true, suppressed: true });
   }
 
-  if (!content || !content.trim()) return c.json({ error: "评论内容不能为空" }, 400);
+  if (typeof content !== "string" || !content.trim()) return c.json({ error: "评论内容不能为空" }, 400);
   const trimmedContent = content.trim();
   if (trimmedContent.length > 1000) {
     return c.json({ error: "评论内容过长（最多 1000 字）" }, 400);
@@ -1009,7 +1036,7 @@ sharedRouter.post("/:token/comments", async (c) => {
 
   if (!userId) {
     // 未登录访客必须填昵称
-    const trimmedName = (guestName || "").trim();
+    const trimmedName = typeof guestName === "string" ? guestName.trim() : "";
     if (!trimmedName) {
       return c.json({ error: "请填写昵称后再评论", code: "GUEST_NAME_REQUIRED" }, 400);
     }
@@ -1019,8 +1046,12 @@ sharedRouter.post("/:token/comments", async (c) => {
     storedGuestName = trimmedName;
   }
 
+  if (parentId) {
+    const parent = shareCommentsRepository.getById(String(parentId));
+    if (!parent || parent.noteId !== share.noteId) return c.json({ error: "父评论不属于当前笔记" }, 400);
+  }
   const id = uuid();
-  shareCommentsRepository.create({
+  createNoteCommentWithNotifications({
     id,
     noteId: share.noteId,
     userId,
