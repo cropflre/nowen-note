@@ -268,8 +268,8 @@ export function KnowledgeTreeCreateDropdown({
     setDuplicating(true);
     onClose();
     try {
-      await duplicateKnowledgeTreeNoteAsChild(sourceNodeId);
-      revealCreatedKnowledgeTreeNote(sourceNodeId);
+      const duplicated = await duplicateKnowledgeTreeNoteAsChild(sourceNodeId);
+      revealCreatedKnowledgeTreeNote(sourceNodeId, duplicated.treeNodeId);
       window.dispatchEvent(new CustomEvent(KNOWLEDGE_TREE_CHANGED_EVENT, {
         detail: { reason: "note-duplicated-as-child", parentId: sourceNodeId },
       }));

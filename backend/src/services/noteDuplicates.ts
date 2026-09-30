@@ -8,6 +8,7 @@ import { syncNoteLinks } from "../lib/noteLinks.js";
 import { hasPermission, resolveNotePermission } from "../middleware/acl.js";
 import { enqueueAttachment } from "./embedding-worker.js";
 import { createKnowledgeChild, KnowledgeTreeError, type KnowledgeTreeNode } from "./knowledgeTree.js";
+import { resolveKnowledgeNodeAccess } from "./knowledgeCapabilities.js";
 import {
   cleanupCopiedAttachmentObjects,
   copyReferencedNoteAttachments,
@@ -18,6 +19,7 @@ import { yFlush } from "./yjs.js";
 import { rebuildYjsSubdocumentsIfEnabled } from "./yjs-subdocuments.js";
 
 type SupportedNoteFormat = "tiptap-json" | "markdown";
+export type DuplicateNotePlacement = "sibling" | "child";
 
 interface SourceNoteRow {
   id: string;
@@ -28,6 +30,7 @@ interface SourceNoteRow {
   isLocked: number;
   isTrashed: number;
   version: number;
+  treeNodeId: string;
   treeParentId: string | null;
   treeScopeKey: string;
 }
@@ -54,7 +57,7 @@ function readSourceNote(db: Database.Database, noteId: string): SourceNoteRow | 
     SELECT note.id, note.workspaceId, note.title,
            note.content, note.contentFormat, note.isLocked,
            note.isTrashed, note.version, tree.parentId AS treeParentId,
-           tree.scopeKey AS treeScopeKey
+           tree.scopeKey AS treeScopeKey, tree.id AS treeNodeId
     FROM notes note
     JOIN knowledge_tree_nodes tree
       ON tree.resourceType = 'note' AND tree.resourceId = note.id AND tree.isDeleted = 0
@@ -68,14 +71,14 @@ function duplicateTitleBase(title: string): string {
   return normalized.replace(/（副本(?: \d+)?）$/u, "") || normalized;
 }
 
-function nextDuplicateTitle(db: Database.Database, source: SourceNoteRow): string {
+function nextDuplicateTitle(db: Database.Database, source: SourceNoteRow, parentId: string | null): string {
   const siblingTitles = db.prepare(`
     SELECT note.title
     FROM knowledge_tree_nodes tree
     JOIN notes note ON tree.resourceType = 'note' AND tree.resourceId = note.id
     WHERE tree.scopeKey = ? AND tree.isDeleted = 0 AND note.isTrashed = 0
       AND ((? IS NULL AND tree.parentId IS NULL) OR tree.parentId = ?)
-  `).all(source.treeScopeKey, source.treeParentId, source.treeParentId) as Array<{ title: string }>;
+  `).all(source.treeScopeKey, parentId, parentId) as Array<{ title: string }>;
   const used = new Set(siblingTitles.map((item) => item.title));
   const base = duplicateTitleBase(source.title);
   const first = `${base}（副本）`;
@@ -99,6 +102,20 @@ function ensureSourceParentCanBeReused(source: SourceNoteRow, userId: string): v
   }
 }
 
+function resolveDuplicateParent(
+  db: Database.Database,
+  source: SourceNoteRow,
+  userId: string,
+  placement: DuplicateNotePlacement,
+): string | null {
+  const parentId = placement === "child" ? source.treeNodeId : source.treeParentId;
+  if (placement === "sibling") ensureSourceParentCanBeReused(source, userId);
+  if (parentId && !resolveKnowledgeNodeAccess(parentId, userId, db).capabilities.canCreate) {
+    throw new DuplicateNoteError("NOTE_DUPLICATE_PARENT_FORBIDDEN", 403, "没有在目标目录创建内容的权限");
+  }
+  return parentId;
+}
+
 function mapKnownError(error: unknown): never {
   if (error instanceof DuplicateNoteError) throw error;
   if (error instanceof NoteAttachmentCopyError) {
@@ -113,7 +130,12 @@ function mapKnownError(error: unknown): never {
 export async function duplicateNote(input: {
   userId: string;
   noteId: string;
+  placement?: DuplicateNotePlacement;
 }): Promise<DuplicatedNoteResult> {
+  const { placement = "sibling" } = input;
+  if (placement !== "sibling" && placement !== "child") {
+    throw new DuplicateNoteError("NOTE_DUPLICATE_PLACEMENT_INVALID", 400, "无效的副本位置");
+  }
   const db = getDb();
   let source = readSourceNote(db, input.noteId);
   if (!source || source.isTrashed === 1) {
@@ -129,7 +151,7 @@ export async function duplicateNote(input: {
   if (source.contentFormat !== "markdown" && source.contentFormat !== "tiptap-json") {
     throw new DuplicateNoteError("NOTE_DUPLICATE_FORMAT_UNSUPPORTED", 400, "仅支持复制富文本和 Markdown 笔记");
   }
-  ensureSourceParentCanBeReused(source, input.userId);
+  resolveDuplicateParent(db, source, input.userId, placement);
 
   yFlush(source.id);
   source = readSourceNote(db, input.noteId);
@@ -141,7 +163,11 @@ export async function duplicateNote(input: {
   }
   const stableSource = source;
   const contentFormat = source.contentFormat as SupportedNoteFormat;
-  const authoritative = readAuthoritativeNoteContent(db, source.id, source.content || "").content;
+  const authoritativeContent = readAuthoritativeNoteContent(db, source.id, source.content || "").content;
+  // 新建且尚未编辑的富文本使用 {}；副本的 block authority 需要合法空 doc。
+  const authoritative = contentFormat === "tiptap-json" && authoritativeContent.trim() === "{}"
+    ? JSON.stringify({ type: "doc", content: [] })
+    : authoritativeContent;
   const sourceVersion = source.version;
   const copied = await copyReferencedNoteAttachments({
     db,
@@ -170,8 +196,8 @@ export async function duplicateNote(input: {
       if (!hasPermission(currentPermission, "read")) {
         throw new DuplicateNoteError("NOTE_DUPLICATE_SOURCE_FORBIDDEN", 403, "没有读取源笔记的权限");
       }
-      ensureSourceParentCanBeReused(current, input.userId);
       if (current.version !== sourceVersion
+        || current.treeNodeId !== stableSource.treeNodeId
         || current.treeParentId !== stableSource.treeParentId
         || current.workspaceId !== stableSource.workspaceId
         || current.treeScopeKey !== stableSource.treeScopeKey
@@ -179,11 +205,12 @@ export async function duplicateNote(input: {
         throw new DuplicateNoteError("NOTE_DUPLICATE_SOURCE_CHANGED", 409, "源笔记已更新或移动，请重试");
       }
 
-      const title = nextDuplicateTitle(db, current);
+      const parentId = resolveDuplicateParent(db, current, input.userId, placement);
+      const title = nextDuplicateTitle(db, current, parentId);
       const created = createKnowledgeChild({
         actorUserId: input.userId,
         workspaceId: current.workspaceId,
-        parentId: current.treeParentId,
+        parentId,
         nodeType: contentFormat === "markdown" ? "markdown" : "note",
         title,
         db,

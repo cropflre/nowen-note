@@ -349,6 +349,7 @@ export function KnowledgeTreePanel({
   const [movingNode, setMovingNode] = useState<KnowledgeTreeNode | null>(null);
   const [batchMoving, setBatchMoving] = useState(false);
   const [selectedNodeIds, setSelectedNodeIds] = useState<Set<string>>(() => new Set());
+  const [pendingCreatedNodeId, setPendingCreatedNodeId] = useState<string | null>(null);
   const [multiSelectMode, setMultiSelectMode] = useState(false);
   const [unlockedFolderIds, setUnlockedFolderIds] = useState<Set<string>>(() => loadUnlockedFolderIds());
   const [passwordDialog, setPasswordDialog] = useState<{ node: KnowledgeTreeNode; mode: "unlock" | "manage" } | null>(null);
@@ -486,14 +487,22 @@ export function KnowledgeTreePanel({
   useEffect(() => {
     if (!surfaceActive) return;
     const revealCreatedNote = (event: Event) => {
-      const parentId = (event as CustomEvent<KnowledgeTreeClearSearchDetail>).detail?.parentId;
+      const { parentId, nodeId } = (event as CustomEvent<KnowledgeTreeClearSearchDetail>).detail || {};
       // 全文搜索由全局 searchQuery 管理，不能把它当作目录树临时筛选清空。
       if (state.viewMode !== "search") setQuery("");
       if (typeof parentId === "string") setNodeExpanded(parentId, true);
+      if (nodeId) {
+        setQuery("");
+        if (state.viewMode === "search") {
+          actions.setSearchQuery("");
+          actions.setViewMode(state.selectedNotebookId ? "notebook" : "all");
+        }
+        setPendingCreatedNodeId(nodeId);
+      }
     };
     window.addEventListener(KNOWLEDGE_TREE_CLEAR_SEARCH_EVENT, revealCreatedNote);
     return () => window.removeEventListener(KNOWLEDGE_TREE_CLEAR_SEARCH_EVENT, revealCreatedNote);
-  }, [setNodeExpanded, state.viewMode, surfaceActive]);
+  }, [actions, setNodeExpanded, state.selectedNotebookId, state.viewMode, surfaceActive]);
 
   useEffect(() => {
     if (!draft) return;
@@ -508,6 +517,23 @@ export function KnowledgeTreePanel({
     () => hideLockedFolderDescendants(nodes, unlockedFolderIds),
     [nodes, unlockedFolderIds],
   );
+  useEffect(() => {
+    if (!pendingCreatedNodeId || !visibleNodes.some((node) => node.id === pendingCreatedNodeId)) return;
+    let parentId = visibleNodes.find((node) => node.id === pendingCreatedNodeId)?.parentId;
+    while (parentId) {
+      setNodeExpanded(parentId, true);
+      parentId = visibleNodes.find((node) => node.id === parentId)?.parentId;
+    }
+    setSelectedNodeIds(new Set([pendingCreatedNodeId]));
+    selectionAnchorRef.current = pendingCreatedNodeId;
+    const frame = requestAnimationFrame(() => {
+      Array.from(rootRef.current?.querySelectorAll<HTMLElement>("[data-knowledge-tree-select-id]") || [])
+        .find((element) => element.dataset.knowledgeTreeSelectId === pendingCreatedNodeId)
+        ?.scrollIntoView({ block: "nearest" });
+      setPendingCreatedNodeId(null);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [pendingCreatedNodeId, setNodeExpanded, visibleNodes]);
   const allChildren = useMemo(() => buildChildren(nodes), [nodes]);
   const selectedNodes = useMemo(
     () => visibleNodes.filter((node) => selectedNodeIds.has(node.id)),

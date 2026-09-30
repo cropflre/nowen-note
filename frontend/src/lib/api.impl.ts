@@ -1638,12 +1638,15 @@ export const api = {
     }
     return request<Note>("/notes", { method: "POST", body: JSON.stringify(payload) });
   },
-  duplicateNote: (id: string) =>
+  duplicateNote: (id: string, options?: { placement: "sibling" | "child" }) =>
     request<Note & {
       tags: Tag[];
       treeNodeId: string;
       treeParentId: string | null;
-    }>(`/notes/${id}/duplicate`, { method: "POST" }),
+    }>(`/notes/${id}/duplicate`, {
+      method: "POST",
+      ...(options ? { body: JSON.stringify(options) } : {}),
+    }),
   updateNote: (id: string, data: Partial<Note>) => {
     const payload = protectNoteMutationPayload(data, { operation: "updateNote", noteId: id });
     const p = request<Note>(`/notes/${id}`, { method: "PUT", body: JSON.stringify(payload) });

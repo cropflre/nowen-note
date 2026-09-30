@@ -571,8 +571,19 @@ app.post("/:id/duplicate", async (c) => {
   const db = getDb();
   const userId = c.req.header("X-User-Id") || "";
   const sourceNoteId = c.req.param("id");
+  let body: { placement?: "sibling" | "child" };
   try {
-    const result = await duplicateNote({ userId, noteId: sourceNoteId });
+    const text = await c.req.text();
+    body = text.trim() ? JSON.parse(text) : {};
+    if (!body || typeof body !== "object" || Array.isArray(body)
+      || (body.placement !== undefined && body.placement !== "sibling" && body.placement !== "child")) {
+      throw new Error("Invalid placement");
+    }
+  } catch {
+    return c.json({ error: "无效的副本位置", code: "NOTE_DUPLICATE_PLACEMENT_INVALID" }, 400);
+  }
+  try {
+    const result = await duplicateNote({ userId, noteId: sourceNoteId, placement: body.placement });
     const responseNote = presentNoteForResponse(db, c, result.note);
     logAudit(userId, "note", "duplicate", {
       sourceNoteId,
