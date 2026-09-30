@@ -229,6 +229,19 @@
     "emojiNature": "自然",
     "emojiFood": "食物"
   },
+  "note": {
+    "colorMark": {
+      "action": "颜色标记",
+      "none": "无标记",
+      "red": "红色",
+      "orange": "橙色",
+      "yellow": "黄色",
+      "green": "绿色",
+      "blue": "蓝色",
+      "purple": "紫色",
+      "gray": "灰色"
+    }
+  },
   "noteList": {
     "moveTo": "移动到...",
     "moveNote": "移动笔记",

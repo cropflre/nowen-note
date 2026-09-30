@@ -104,6 +104,8 @@ import {
   type NoteFormatConversionRequest,
 } from "@/lib/noteFormatConversion";
 import NoteThemeMenuSelect from "@/components/NoteThemeMenuSelect";
+import NoteColorMarkPicker from "@/components/NoteColorMarkPicker";
+import type { NoteColorMark } from "@/types";
 import MindMapEmbedInsertDialog from "@/components/MindMapEmbedInsertDialog";
 import { pushMindMapAppPath } from "@/lib/mindMapDeepLink";
 import { shouldApplyDefaultViewLock } from "@/lib/newNoteImmediateEdit";
@@ -1967,6 +1969,19 @@ export default function EditorPane({
     actions.updateNoteInList({ id: updated.id, isPinned: updated.isPinned });
   }, [activeNote, actions]);
 
+  const setNoteColorMark = useCallback(async (colorMark: NoteColorMark | null) => {
+    if (!activeNote || activeNote.isTrashed || !canWriteNote(activeNote)) return;
+    haptic.light();
+    const updated = await api.updateNote(activeNote.id, { colorMark } as any);
+    const nextColor = updated.colorMark ?? colorMark;
+    actions.setActiveNote({ ...updated, colorMark: nextColor });
+    actions.updateNoteInList({ id: updated.id, colorMark: nextColor });
+    actions.updateNoteTab({ id: updated.id, colorMark: nextColor } as any);
+    try {
+      window.dispatchEvent(new CustomEvent("nowen:knowledge-tree-changed", { detail: { reason: "note-color-mark-changed" } }));
+    } catch {}
+  }, [activeNote, actions]);
+
   const toggleLock = useCallback(async () => {
     if (!activeNote || activeNote.isTrashed) return;
     haptic.medium();
@@ -3167,6 +3182,11 @@ const moveToTrash = useCallback(async () => {
               Live
             </span>
           )}
+          <NoteColorMarkPicker
+            value={activeNote.colorMark}
+            disabled={effectiveLocked || activeNote.isTrashed === 1 || !canWriteNote(activeNote)}
+            onChange={setNoteColorMark}
+          />
           <button
             type="button"
             data-note-format-switch=""

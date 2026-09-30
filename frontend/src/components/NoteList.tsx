@@ -1,7 +1,7 @@
 import React, { useEffect, useCallback, useState, useRef, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { Plus, Pin, PinOff, Star, StarOff, Clock, FileText, FileCode, FileType2, Trash2, ArchiveRestore, Menu, MoreHorizontal, FolderInput, ChevronRight, ChevronDown, ChevronLeft, Folder, X, Check, Lock, Unlock, CalendarDays, RefreshCw, Share2, GripVertical, Download, ArrowUpDown, ArrowUp, ArrowDown, Image as ImageIcon, Printer, User as UserIcon, Sparkles, Tag as TagIcon, Loader2, FileUp, AlertTriangle, Copy, LayoutTemplate, SplitSquareHorizontal, SplitSquareVertical, ArrowLeftRight, Pencil, ShieldCheck } from "lucide-react";
+import { Plus, Pin, PinOff, Star, StarOff, Clock, FileText, FileCode, FileType2, Trash2, ArchiveRestore, Menu, MoreHorizontal, FolderInput, ChevronRight, ChevronDown, ChevronLeft, Folder, X, Check, Lock, Unlock, CalendarDays, RefreshCw, Share2, GripVertical, Download, ArrowUpDown, ArrowUp, ArrowDown, Image as ImageIcon, Printer, User as UserIcon, Sparkles, Tag as TagIcon, Loader2, FileUp, AlertTriangle, Copy, LayoutTemplate, SplitSquareHorizontal, SplitSquareVertical, ArrowLeftRight, Pencil, ShieldCheck, Palette } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import ContextMenu, { ContextMenuItem } from "@/components/ContextMenu";
@@ -62,6 +62,8 @@ import { revealCreatedKnowledgeTreeNote } from "@/lib/knowledgeTreeCreateVisibil
 import { emitKnowledgeTreeRefresh } from "@/lib/workspaceRefreshBridge";
 import { isMobileLocalMode } from "@/lib/mobileLocalMode";
 import { compactNotebookLabels, noteListPreview, noteListRowHeight } from "@/lib/noteListPresentation";
+import NoteColorMarkDot from "@/components/NoteColorMarkDot";
+import { NOTE_COLOR_MARK_OPTIONS, isNoteColorMark } from "@/lib/noteColorMark";
 // "导入 Word 文档" 走 dynamic import（见 createNoteInNotebook），减少首屏 bundle 体积。
 
 /* ===== 排序模式 ===== */
@@ -1166,6 +1168,7 @@ export const NoteCard = React.memo(function NoteCard({
           >
             <GripVertical size={12} />
           </span>}
+          <NoteColorMarkDot value={note.colorMark} title={note.colorMark ? t(`note.colorMark.${note.colorMark}`) : undefined} />
           <h3 className={cn(
             // 标题强制单行：这里**故意**不用 `truncate`（white-space: nowrap）。
             // 历史踩坑：`truncate` 在 flex item 里偶发被外层富文本/prose 全局样式覆盖
@@ -1912,6 +1915,7 @@ export default function NoteList() {
           isTrashed: note.isTrashed,
           notebookId: note.notebookId,
           workspaceId: note.workspaceId,
+          colorMark: note.colorMark,
         } as any);
       } else {
         // 当前筛选下原本没有这条笔记；可能是移动/恢复/新建，低频场景全量刷新更稳。
@@ -2076,6 +2080,7 @@ export default function NoteList() {
             contentFormat: note.contentFormat,
             isLocked: note.isLocked,
             isTrashed: note.isTrashed,
+            colorMark: note.colorMark,
             updatedAt: note.updatedAt,
           });
         }
@@ -2271,6 +2276,7 @@ export default function NoteList() {
         updatedAt: note.updatedAt,
         createdAt: note.createdAt,
         contentFormat: note.contentFormat,
+        colorMark: note.colorMark ?? null,
       } as NoteListItem);
       actions.setMobileView("editor");
       revealCreatedKnowledgeTreeNote(selectedKnowledgeTreeParentId);
@@ -2597,6 +2603,18 @@ export default function NoteList() {
       ],
       flags: [
         {
+          id: "color_mark",
+          label: t("note.colorMark.action"),
+          icon: <Palette size={14} />,
+          children: NOTE_COLOR_MARK_OPTIONS.map((option) => ({
+            id: `color_mark_${option.value || "none"}`,
+            label: t(option.labelKey),
+            icon: option.value
+              ? <span className="h-3 w-3 rounded-full ring-1 ring-black/10 dark:ring-white/15" style={{ backgroundColor: option.hex }} />
+              : <X size={13} />,
+          })),
+        },
+        {
           id: "toggle_pin",
           label: targetNote.isPinned === 1 ? t('noteList.unpin') : t('noteList.pin'),
           icon: targetNote.isPinned === 1 ? <PinOff size={14} /> : <Pin size={14} />,
@@ -2757,6 +2775,20 @@ export default function NoteList() {
 
     const targetNote = state.notes.find((n) => n.id === targetId);
     if (!targetNote) return;
+
+    if (actionId.startsWith("color_mark_")) {
+      const raw = actionId.slice("color_mark_".length);
+      const nextColor = raw === "none" ? null : (isNoteColorMark(raw) ? raw : null);
+      haptic.light();
+      const updated = await api.updateNote(targetId, { colorMark: nextColor } as any);
+      actions.updateNoteInList({ id: targetId, colorMark: updated.colorMark ?? nextColor });
+      actions.updateNoteTab({ id: targetId, colorMark: updated.colorMark ?? nextColor } as any);
+      if (state.activeNote?.id === targetId) {
+        actions.setActiveNote({ ...state.activeNote, colorMark: updated.colorMark ?? nextColor });
+      }
+      emitKnowledgeTreeRefresh("note-color-mark-changed");
+      return;
+    }
 
     switch (actionId) {
       case "open": {
@@ -3326,6 +3358,7 @@ export default function NoteList() {
           updatedAt: note.updatedAt,
           createdAt: note.createdAt,
           contentFormat: note.contentFormat,
+          colorMark: note.colorMark ?? null,
         } as NoteListItem);
         okCount++;
       } catch (err: any) {

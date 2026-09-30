@@ -11,6 +11,7 @@ import { useNoteLoader } from "@/hooks/useNoteLoader";
 import type { Notebook, NoteListItem } from "@/types";
 import { EditorToolbarExpandSlot } from "@/components/CollapsibleEditorToolbar";
 import { buildNoteDeepLinkUrl } from "@/lib/noteDeepLink";
+import NoteColorMarkDot from "@/components/NoteColorMarkDot";
 
 type TabContextMenuState = {
   tabId: string;
@@ -120,6 +121,7 @@ function NoteTabVisual({
   title,
   active,
   loading,
+  colorMark,
   closeLabel,
   onClose,
 }: {
@@ -127,11 +129,13 @@ function NoteTabVisual({
   title: string;
   active: boolean;
   loading: boolean;
+  colorMark?: import("@/types").NoteColorMark | null;
   closeLabel: string;
   onClose?: (event: React.MouseEvent<HTMLSpanElement>) => void;
 }) {
   return (
     <>
+      <NoteColorMarkDot value={colorMark} />
       {tab.pinned && <Pin size={11} className="shrink-0 text-accent-primary fill-accent-primary/20" />}
       {tab.isLocked ? (
         <Lock size={12} className="shrink-0 text-orange-500" />
@@ -676,6 +680,8 @@ export default function NoteTabsBar() {
                 title={title}
                 active={active}
                 loading={active && noteLoading}
+                colorMark={active ? activeNote?.colorMark : state.notes.find((note) => note.id === tab.id)?.colorMark}
+                colorMark={active ? activeNote?.colorMark : state.notes.find((note) => note.id === tab.id)?.colorMark}
                 closeLabel={t("editorTabs.close")}
                 onClose={(e) => {
                   e.stopPropagation();

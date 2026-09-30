@@ -109,6 +109,7 @@ import { detectNoteWorkspaceSurface } from "@/lib/noteWorkspaceLayout";
 import { isSharedRoot } from "@/lib/sharedKnowledgeTree";
 import { toast } from "@/lib/toast";
 import { cn } from "@/lib/utils";
+import NoteColorMarkDot from "@/components/NoteColorMarkDot";
 import { useApp, useAppActions } from "@/store/AppContext";
 
 const FOCUS_KNOWLEDGE_TREE_EVENT = "nowen:focus-knowledge-tree";
@@ -1075,6 +1076,7 @@ export default function MobileKnowledgeTreePanel({
             </span>
           )}
           {nodeIcon(node)}
+          {node.resourceType === "note" && <NoteColorMarkDot value={node.colorMark} className="h-2.5 w-2.5" />}
           <span className="min-w-0 flex-1">
             <span className="flex min-w-0 items-center gap-1.5">
               <span className={cn("min-w-0 truncate", variant === "mobile" ? "text-[15px]" : classicText ? "text-xs" : "text-sm font-medium")}>{node.title}</span>

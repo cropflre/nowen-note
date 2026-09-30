@@ -12,6 +12,14 @@ on:
       - "frontend/src/components/NoteIconPickerModal.tsx"
       - "frontend/src/components/KnowledgeTreePanel.tsx"
       - "frontend/src/components/SettingsModal.tsx"
+      - "frontend/src/components/NoteColorMarkPicker.tsx"
+      - "frontend/src/components/NoteColorMarkDot.tsx"
+      - "frontend/src/lib/noteColorMark.ts"
+      - "frontend/src/lib/__tests__/noteColorMarkUi.test.ts"
+      - "frontend/src/components/NoteColorMarkPicker.tsx"
+      - "frontend/src/components/NoteColorMarkDot.tsx"
+      - "frontend/src/lib/noteColorMark.ts"
+      - "frontend/src/lib/__tests__/noteColorMarkUi.test.ts"
       - "frontend/src/components/NavRail.tsx"
       - "frontend/src/lib/navigationVisibility.ts"
       - "frontend/src/lib/codeBlockPresentation.ts"
@@ -70,6 +78,7 @@ jobs:
           src/components/__tests__/MarkdownCodeBlock.performance.test.tsx
           src/lib/__tests__/userPreferenceAccountCache.test.ts
           src/lib/__tests__/navigationVisibility.test.ts
+          src/lib/__tests__/noteColorMarkUi.test.ts
           --reporter=verbose
       - name: Frontend typecheck
         run: npx tsc -b --pretty false

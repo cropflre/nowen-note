@@ -222,6 +222,19 @@
     "emojiNature": "Nature",
     "emojiFood": "Food"
   },
+  "note": {
+    "colorMark": {
+      "action": "Color mark",
+      "none": "No mark",
+      "red": "Red",
+      "orange": "Orange",
+      "yellow": "Yellow",
+      "green": "Green",
+      "blue": "Blue",
+      "purple": "Purple",
+      "gray": "Gray"
+    }
+  },
   "noteList": {
     "moveTo": "Move to...",
     "moveNote": "Move Note",

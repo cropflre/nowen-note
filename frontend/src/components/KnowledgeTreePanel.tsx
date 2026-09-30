@@ -117,6 +117,7 @@ import {
   type KnowledgeTreeOpenFolderDetail,
 } from "@/lib/threeColumnFolderContents";
 import { cn } from "@/lib/utils";
+import NoteColorMarkDot from "@/components/NoteColorMarkDot";
 import {
   filterKnowledgeTreeNodes,
   isSharedRoot,
@@ -1389,6 +1390,7 @@ export function KnowledgeTreePanel({
               </span>
             )}
             {nodeIcon(node)}
+            {node.resourceType === "note" && <NoteColorMarkDot value={node.colorMark} />}
             <span className="flex min-w-0 flex-1 items-center gap-1">
               <span className="min-w-0 truncate">{node.title}</span>
               {variant === "mobile" && firstLevelNoteCount !== null && (
