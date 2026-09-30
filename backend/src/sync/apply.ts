@@ -3,6 +3,7 @@ import { runChangeFeedSuppressed } from "./suppression";
 import { SyncError } from "./errors";
 import type { SyncEntityType, SyncOperation } from "./types";
 import { normalizeNoteThemeId } from "../lib/noteThemeId";
+import { normalizeNoteColorMark } from "../lib/noteColorMark";
 import { applyKnowledgeTreeStructureMutation } from "./knowledgeTreeStructure.js";
 
 /**
@@ -182,10 +183,10 @@ function applyTag(db: Database.Database, input: ApplyMutationInput): number | nu
  */
 function applyNote(db: Database.Database, input: ApplyMutationInput): number | null {
   const existing = db.prepare(`
-    SELECT version, themeId FROM notes WHERE id = ? AND workspaceId IS ?
+    SELECT version, themeId, colorMark FROM notes WHERE id = ? AND workspaceId IS ?
       AND (? IS NOT NULL OR userId = ?)
   `).get(input.entityId, workspaceIdOf(input), workspaceIdOf(input), input.userId) as
-    | { version: number; themeId: string | null }
+    | { version: number; themeId: string | null; colorMark: string | null }
     | undefined;
 
   if (input.operation === "delete") {
@@ -211,7 +212,7 @@ function applyNote(db: Database.Database, input: ApplyMutationInput): number | n
       UPDATE notes SET
         notebookId = ?, title = ?, content = ?, contentText = ?, contentFormat = ?,
         isPinned = ?, isFavorite = ?, isLocked = ?, isArchived = ?, isTrashed = ?,
-        trashedAt = ?, themeId = ?, sortOrder = ?, version = ?, updatedAt = datetime('now')
+        trashedAt = ?, themeId = ?, colorMark = ?, sortOrder = ?, version = ?, updatedAt = datetime('now')
       WHERE id = ? AND workspaceId IS ? AND (? IS NOT NULL OR userId = ?)
     `).run(
       str(p.notebookId),
@@ -228,6 +229,9 @@ function applyNote(db: Database.Database, input: ApplyMutationInput): number | n
       Object.prototype.hasOwnProperty.call(p, "themeId")
         ? normalizeNoteThemeId(p.themeId)
         : existing.themeId,
+      Object.prototype.hasOwnProperty.call(p, "colorMark")
+        ? normalizeNoteColorMark(p.colorMark)
+        : existing.colorMark,
       num(p.sortOrder),
       nextVersion,
       input.entityId,
@@ -244,8 +248,8 @@ function applyNote(db: Database.Database, input: ApplyMutationInput): number | n
     INSERT INTO notes (
       id, userId, notebookId, workspaceId, title, content, contentText, contentFormat,
       isPinned, isFavorite, isLocked, isArchived, isTrashed, trashedAt,
-      themeId, version, sortOrder, createdAt, updatedAt
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+      themeId, colorMark, version, sortOrder, createdAt, updatedAt
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
               COALESCE(?, datetime('now')), datetime('now'))
   `).run(
     input.entityId,
@@ -263,6 +267,7 @@ function applyNote(db: Database.Database, input: ApplyMutationInput): number | n
     bit(p.isTrashed),
     p.trashedAt ?? null,
     normalizeNoteThemeId(p.themeId),
+    normalizeNoteColorMark(p.colorMark),
     version,
     num(p.sortOrder),
     p.createdAt ?? null,

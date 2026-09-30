@@ -52,6 +52,7 @@ export function listKnowledgeTree(input: {
            CASE WHEN node.resourceType = 'note' THEN COALESCE(note.isLocked, 0) ELSE 0 END AS isLocked,
            CASE WHEN node.resourceType = 'notebook' AND notebook_password.notebookId IS NOT NULL THEN 1 ELSE 0 END AS isPasswordProtected,
            CASE WHEN node.resourceType = 'note' THEN note.contentFormat ELSE NULL END AS contentFormat,
+           CASE WHEN node.resourceType = 'note' THEN note.colorMark ELSE NULL END AS colorMark,
            CASE WHEN node.resourceType = 'note' THEN note.note_type ELSE NULL END AS noteType,
            0 AS childCount
     FROM knowledge_tree_nodes node

@@ -32,6 +32,7 @@ export interface KnowledgeTreeNode {
   isLocked?: number;
   isPasswordProtected?: number;
   contentFormat?: string | null;
+  colorMark?: string | null;
   noteType?: string | null;
   sortOrder: number;
   isExpanded: number;

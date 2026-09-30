@@ -1,5 +1,6 @@
 import { getBaseUrl, getCurrentWorkspace } from "@/lib/api";
 import { applyKnowledgeTreeSort } from "@/lib/knowledgeTreeSort";
+import type { NoteColorMark } from "@/types";
 
 export type KnowledgeNodeType = "folder" | "note" | "markdown" | "word" | "mindmap" | "file";
 export type KnowledgeRolePreset = "readonly" | "editor" | "maintainer" | "admin" | "deny";
@@ -42,6 +43,7 @@ export interface KnowledgeTreeNode {
   isLocked?: number;
   isPasswordProtected?: number;
   contentFormat?: string | null;
+  colorMark?: NoteColorMark | null;
   noteType?: string | null;
   sortOrder: number;
   isExpanded: number;
