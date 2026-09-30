@@ -30,7 +30,7 @@ type NativeDatabaseGlobal = typeof globalThis & {
   __nowenNoteNativeDatabaseState?: NativeDatabaseGlobalState;
 };
 
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
 const DATABASE_PREFIX = "nowen_local_";
 
 const ENTITY_TYPE_CHECK = `
@@ -168,6 +168,7 @@ const SCHEMA_V1_STATEMENTS = [
     content TEXT NOT NULL DEFAULT '{}',
     contentText TEXT NOT NULL DEFAULT '',
     contentFormat TEXT NOT NULL DEFAULT 'tiptap-json',
+    colorMark TEXT,
     isPinned INTEGER NOT NULL DEFAULT 0 CHECK (isPinned IN (0, 1)),
     isFavorite INTEGER NOT NULL DEFAULT 0 CHECK (isFavorite IN (0, 1)),
     isLocked INTEGER NOT NULL DEFAULT 0 CHECK (isLocked IN (0, 1)),
@@ -189,6 +190,8 @@ const SCHEMA_V1_STATEMENTS = [
     ON notes(scopeKey, updatedAt)`,
   `CREATE INDEX IF NOT EXISTS idx_native_notes_workspace
     ON notes(workspaceId, updatedAt)`,
+  `CREATE INDEX IF NOT EXISTS idx_native_notes_color_mark
+    ON notes(scopeKey, colorMark)`,
 
   `CREATE TABLE IF NOT EXISTS tags (
     id TEXT NOT NULL,
@@ -604,6 +607,13 @@ async function upgradeSchemaV1ToV2(raw: SQLiteDBConnection): Promise<void> {
   }
 }
 
+async function upgradeSchemaV2ToV3(raw: SQLiteDBConnection): Promise<void> {
+  const rows = await raw.query("PRAGMA table_info(notes)");
+  const columns = new Set((rows.values || []).map((row) => String(row.name || "")));
+  if (!columns.has("colorMark")) await raw.execute("ALTER TABLE notes ADD COLUMN colorMark TEXT", false);
+  await raw.execute("CREATE INDEX IF NOT EXISTS idx_native_notes_color_mark ON notes(scopeKey, colorMark)", false);
+}
+
 function getGlobalState(): NativeDatabaseGlobalState {
   const root = globalThis as NativeDatabaseGlobal;
   if (!root.__nowenNoteNativeDatabaseState) {
@@ -715,7 +725,10 @@ class NativeDatabaseImpl implements NativeDatabase {
 
         if (version === 1) {
           await upgradeSchemaV1ToV2(this.raw);
-          // 只有模块表和同步约束都升级成功后才推进版本号。
+          await upgradeSchemaV2ToV3(this.raw);
+          await this.raw.execute(`PRAGMA user_version = ${SCHEMA_VERSION}`, false);
+        } else if (version === 2) {
+          await upgradeSchemaV2ToV3(this.raw);
           await this.raw.execute(`PRAGMA user_version = ${SCHEMA_VERSION}`, false);
         }
       });

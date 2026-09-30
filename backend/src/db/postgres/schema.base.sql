@@ -102,6 +102,7 @@ CREATE TABLE IF NOT EXISTS notes (
     "updatedAt" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     "workspaceId" TEXT,
     "contentFormat" TEXT NOT NULL DEFAULT 'tiptap-json',
+    "colorMark" TEXT,
     note_type TEXT NOT NULL DEFAULT 'normal',
     journal_date TEXT
 );
@@ -1023,3 +1024,5 @@ CREATE INDEX IF NOT EXISTS idx_workspace_journals_note
   ON workspace_journals("noteId");
 CREATE INDEX IF NOT EXISTS idx_workspace_journals_date
   ON workspace_journals("workspaceId", "journalDate" DESC);
+
+CREATE INDEX IF NOT EXISTS idx_notes_color_mark ON notes("colorMark");

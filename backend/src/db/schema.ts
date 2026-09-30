@@ -209,6 +209,7 @@ function initSchema(db: Database.Database) {
       isTrashed INTEGER DEFAULT 0,
       trashedAt TEXT,
       themeId TEXT,
+      colorMark TEXT,
       version INTEGER DEFAULT 1,
       sortOrder INTEGER DEFAULT 0,
       createdAt TEXT NOT NULL DEFAULT (datetime('now')),
@@ -455,6 +456,7 @@ function initSchema(db: Database.Database) {
     CREATE INDEX IF NOT EXISTS idx_notes_user ON notes(userId);
     CREATE INDEX IF NOT EXISTS idx_notes_updated ON notes(updatedAt DESC);
     CREATE INDEX IF NOT EXISTS idx_notes_trashed ON notes(isTrashed);
+    CREATE INDEX IF NOT EXISTS idx_notes_color_mark ON notes(colorMark);
     CREATE INDEX IF NOT EXISTS idx_notebooks_parent ON notebooks(parentId);
     CREATE INDEX IF NOT EXISTS idx_notebooks_user ON notebooks(userId);
     CREATE INDEX IF NOT EXISTS idx_note_tags_note ON note_tags(noteId);

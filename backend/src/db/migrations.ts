@@ -72,6 +72,7 @@ import { lightweightSheetsMigration } from "./lightweightSheetsMigration.js";
 import { attachmentMediaVariantsMigration } from "./attachmentMediaVariantsMigration.js";
 
 import { workspaceIssuesMigration } from "./workspaceIssuesMigration.js";
+import { noteColorMarkMigration } from "./noteColorMarkMigration.js";
 
 export type { Migration } from "./migrations.impl.js";
 
@@ -399,6 +400,7 @@ export const MIGRATIONS: Migration[] = [
   lightweightSheetsMigration,
   attachmentMediaVariantsMigration,
   workspaceIssuesMigration,
+  noteColorMarkMigration,
 ].sort((a, b) => a.version - b.version);
 
 export const CURRENT_SCHEMA_VERSION: number = MIGRATIONS.reduce(

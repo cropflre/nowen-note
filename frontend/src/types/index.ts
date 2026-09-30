@@ -171,6 +171,8 @@ export interface Notebook {
   children?: Notebook[];
 }
 
+export type NoteColorMark = "red" | "orange" | "yellow" | "green" | "blue" | "purple" | "gray";
+
 export interface Note {
   id: string;
   userId: string;
@@ -188,6 +190,7 @@ export interface Note {
   isTrashed: number;
   trashedAt: string | null;
   themeId?: string | null;
+  colorMark?: NoteColorMark | null;
   version: number;
   sortOrder: number;
   createdAt: string;
@@ -212,6 +215,7 @@ export interface NoteListItem {
   isLocked: number;
   isArchived: number;
   isTrashed: number;
+  colorMark?: NoteColorMark | null;
   version: number;
   sortOrder?: number;
   createdAt: string;

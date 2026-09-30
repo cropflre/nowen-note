@@ -318,8 +318,8 @@ export class NativeLocalRepository implements LocalRepository {
       for(const row of notes){
         const id=noteMap.get(String(row.id))!;const notebookId=notebookMap.get(String(row.notebookId));if(!notebookId)continue;const createdAt=now();
         const payload: Record<string, unknown> & { id: string }={...row,id,scopeKey:"personal",workspaceId:null,userId:this.userId,notebookId,title:`${String(row.title||"无标题笔记")}（工作区副本）`,version:1,createdAt,updatedAt:createdAt};
-        await tx.run(`INSERT INTO notes (id,scopeKey,workspaceId,userId,notebookId,title,content,contentText,contentFormat,isPinned,isFavorite,isLocked,isArchived,isTrashed,trashedAt,version,sortOrder,createdAt,updatedAt)
-          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,[id,"personal",null,this.userId,notebookId,payload.title,row["content"],row["contentText"],row["contentFormat"],row["isPinned"],row["isFavorite"],row["isLocked"],row["isArchived"],row["isTrashed"],row["trashedAt"],1,row["sortOrder"],createdAt,createdAt]);
+        await tx.run(`INSERT INTO notes (id,scopeKey,workspaceId,userId,notebookId,title,content,contentText,contentFormat,colorMark,isPinned,isFavorite,isLocked,isArchived,isTrashed,trashedAt,version,sortOrder,createdAt,updatedAt)
+          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,[id,"personal",null,this.userId,notebookId,payload.title,row["content"],row["contentText"],row["contentFormat"],row["colorMark"]??null,row["isPinned"],row["isFavorite"],row["isLocked"],row["isArchived"],row["isTrashed"],row["trashedAt"],1,row["sortOrder"],createdAt,createdAt]);
         await this.enqueue(tx,"note",id,"upsert",payload,undefined,"personal");
       }
       for(const row of noteTags){const noteId=noteMap.get(row.noteId),tagId=tagMap.get(row.tagId);if(!noteId||!tagId)continue;
@@ -382,7 +382,7 @@ export class NativeLocalRepository implements LocalRepository {
       id: input.id, scopeKey: scope.scopeKey, workspaceId: scope.workspaceId,
       userId: this.userId, notebookId: input.notebookId || "", title: input.title || "无标题笔记",
       content: input.content ?? "{}", contentText: input.contentText ?? "",
-      contentFormat: input.contentFormat || "tiptap-json", isPinned: bool(input.isPinned),
+      contentFormat: input.contentFormat || "tiptap-json", colorMark: input.colorMark ?? null, isPinned: bool(input.isPinned),
       isFavorite: bool(input.isFavorite), isLocked: bool(input.isLocked),
       isArchived: bool(input.isArchived), isTrashed: bool(input.isTrashed),
       trashedAt: input.trashedAt ?? null, version: Math.max(1, input.version || 1),
@@ -390,9 +390,9 @@ export class NativeLocalRepository implements LocalRepository {
     };
     await this.db.transaction(async (tx) => {
       await tx.run(`INSERT INTO notes (
-        id,scopeKey,workspaceId,userId,notebookId,title,content,contentText,contentFormat,
+        id,scopeKey,workspaceId,userId,notebookId,title,content,contentText,contentFormat,colorMark,
         isPinned,isFavorite,isLocked,isArchived,isTrashed,trashedAt,version,sortOrder,createdAt,updatedAt
-      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, Object.values(row));
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, Object.values(row));
       await this.enqueue(tx, "note", input.id, "upsert", row);
     });
     return { id: input.id, savedAt };
@@ -405,10 +405,10 @@ export class NativeLocalRepository implements LocalRepository {
     const scope = this.scopeFromWorkspace(current.workspaceId);
     await this.assertWritable(scope.scopeKey);
     await this.db.transaction(async (tx) => {
-      await tx.run(`UPDATE notes SET notebookId=?,title=?,content=?,contentText=?,contentFormat=?,
+      await tx.run(`UPDATE notes SET notebookId=?,title=?,content=?,contentText=?,contentFormat=?,colorMark=?,
         isPinned=?,isFavorite=?,isLocked=?,isArchived=?,isTrashed=?,trashedAt=?,version=?,sortOrder=?,updatedAt=?
         WHERE scopeKey=? AND id=?`, [
-        next.notebookId, next.title, next.content, next.contentText, next.contentFormat || "tiptap-json",
+        next.notebookId, next.title, next.content, next.contentText, next.contentFormat || "tiptap-json", next.colorMark ?? null,
         bool(next.isPinned), bool(next.isFavorite), bool(next.isLocked), bool(next.isArchived),
         bool(next.isTrashed), next.trashedAt, next.version, next.sortOrder || 0, next.updatedAt,
         scope.scopeKey, id,

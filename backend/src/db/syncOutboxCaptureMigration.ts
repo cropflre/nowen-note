@@ -224,6 +224,7 @@ export function installSyncOutboxCaptureTriggers(db: Parameters<Migration["up"]>
     // 才能把它写进触发器，否则旧库升级会在中途因 NEW.themeId 不存在而失败。
     const noteColumns = db.prepare("PRAGMA table_info(notes)").all() as Array<{ name: string }>;
     const hasThemeId = noteColumns.some((column) => column.name === "themeId");
+    const hasColorMark = noteColumns.some((column) => column.name === "colorMark");
     const notePayload = (ref: string) => `json_object(
       'id', ${ref}.id,
       'notebookId', ${ref}.notebookId,
@@ -238,6 +239,7 @@ export function installSyncOutboxCaptureTriggers(db: Parameters<Migration["up"]>
       'isTrashed', ${ref}.isTrashed,
       'trashedAt', ${ref}.trashedAt,
       ${hasThemeId ? `'themeId', ${ref}.themeId,` : ""}
+      ${hasColorMark ? `'colorMark', ${ref}.colorMark,` : ""}
       'sortOrder', ${ref}.sortOrder,
       'version', ${ref}.version,
       'createdAt', ${ref}.createdAt,

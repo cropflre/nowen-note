@@ -17,6 +17,8 @@ $$;
 -- preserving it across PostgreSQL-backed deployments and schema replays.
 ALTER TABLE notes ADD COLUMN IF NOT EXISTS "themeId" TEXT;
 CREATE INDEX IF NOT EXISTS idx_notes_theme_id ON notes("themeId");
+ALTER TABLE notes ADD COLUMN IF NOT EXISTS "colorMark" TEXT;
+CREATE INDEX IF NOT EXISTS idx_notes_color_mark ON notes("colorMark");
 
 ALTER TABLE tasks ADD COLUMN IF NOT EXISTS "estimatedMinutes" INTEGER;
 ALTER TABLE task_reminders ADD COLUMN IF NOT EXISTS "timezoneOffsetMinutes" INTEGER;

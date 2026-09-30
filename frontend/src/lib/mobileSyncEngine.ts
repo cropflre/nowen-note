@@ -553,12 +553,12 @@ export class MobileSyncEngine {
       entry.entityId,key,ws,p.userId||this.options.userId,parentId,p.name||"未命名笔记本",p.description||null,p.icon||"📒",p.color||null,p.sortOrder||0,p.isExpanded??1,p.isDeleted||0,p.deletedAt||null,p.createdAt||now(),p.updatedAt||now()]);
     }
     else if(entry.entityType==="note")await db.run(`INSERT INTO notes (
-      id,scopeKey,workspaceId,userId,notebookId,title,content,contentText,contentFormat,isPinned,isFavorite,isLocked,isArchived,isTrashed,trashedAt,version,sortOrder,createdAt,updatedAt
-    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(scopeKey,id) DO UPDATE SET
-      notebookId=excluded.notebookId,title=excluded.title,content=excluded.content,contentText=excluded.contentText,contentFormat=excluded.contentFormat,
+      id,scopeKey,workspaceId,userId,notebookId,title,content,contentText,contentFormat,colorMark,isPinned,isFavorite,isLocked,isArchived,isTrashed,trashedAt,version,sortOrder,createdAt,updatedAt
+    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(scopeKey,id) DO UPDATE SET
+      notebookId=excluded.notebookId,title=excluded.title,content=excluded.content,contentText=excluded.contentText,contentFormat=excluded.contentFormat,colorMark=excluded.colorMark,
       isPinned=excluded.isPinned,isFavorite=excluded.isFavorite,isLocked=excluded.isLocked,isArchived=excluded.isArchived,isTrashed=excluded.isTrashed,
       trashedAt=excluded.trashedAt,version=excluded.version,sortOrder=excluded.sortOrder,updatedAt=excluded.updatedAt`,[
-      entry.entityId,key,ws,p.userId||this.options.userId,p.notebookId,p.title||"无标题笔记",p.content??"{}",p.contentText??"",p.contentFormat||"tiptap-json",p.isPinned||0,p.isFavorite||0,p.isLocked||0,p.isArchived||0,p.isTrashed||0,p.trashedAt||null,p.version||1,p.sortOrder||0,p.createdAt||now(),p.updatedAt||now()]);
+      entry.entityId,key,ws,p.userId||this.options.userId,p.notebookId,p.title||"无标题笔记",p.content??"{}",p.contentText??"",p.contentFormat||"tiptap-json",p.colorMark??null,p.isPinned||0,p.isFavorite||0,p.isLocked||0,p.isArchived||0,p.isTrashed||0,p.trashedAt||null,p.version||1,p.sortOrder||0,p.createdAt||now(),p.updatedAt||now()]);
     else if(entry.entityType==="tag")await db.run(`INSERT INTO tags (id,scopeKey,workspaceId,userId,name,color,createdAt,updatedAt)
       VALUES (?,?,?,?,?,?,?,?) ON CONFLICT(scopeKey,id) DO UPDATE SET name=excluded.name,color=excluded.color,updatedAt=excluded.updatedAt`,[
       entry.entityId,key,ws,p.userId||this.options.userId,p.name||"未命名标签",p.color||"#58a6ff",p.createdAt||now(),p.updatedAt||now()]);
