@@ -1,4 +1,11 @@
 {
+  "htmlPlayground": {
+    "run": "Run HTML",
+    "title": "HTML Playground",
+    "rerun": "Run again",
+    "close": "Close preview",
+    "description": "Supports HTML, CSS and inline JavaScript. The preview is isolated from your notes; external scripts and network requests are restricted."
+  },
   "codeBlockFormatting": {
     "format": "Format",
     "formatting": "Formatting…",

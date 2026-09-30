@@ -9,6 +9,11 @@ on:
       - "frontend/src/components/TiptapEditor.tsx"
       - "frontend/src/components/CodeBlockView.tsx"
       - "frontend/src/components/MarkdownCodeBlock.tsx"
+      - "frontend/src/components/HtmlCodeBlockRunButton.tsx"
+      - "frontend/src/components/__tests__/HtmlCodeBlockRunButton.test.tsx"
+      - "frontend/src/lib/htmlPlayground.ts"
+      - "frontend/src/lib/__tests__/htmlPlayground.test.ts"
+      - "docs/html-code-block-playground.md"
       - "frontend/src/components/NoteIconPickerModal.tsx"
       - "frontend/src/components/KnowledgeTreePanel.tsx"
       - "frontend/src/components/SettingsModal.tsx"
@@ -71,6 +76,11 @@ on:
       - "frontend/src/components/TiptapEditor.tsx"
       - "frontend/src/components/CodeBlockView.tsx"
       - "frontend/src/components/MarkdownCodeBlock.tsx"
+      - "frontend/src/components/HtmlCodeBlockRunButton.tsx"
+      - "frontend/src/components/__tests__/HtmlCodeBlockRunButton.test.tsx"
+      - "frontend/src/lib/htmlPlayground.ts"
+      - "frontend/src/lib/__tests__/htmlPlayground.test.ts"
+      - "docs/html-code-block-playground.md"
       - "frontend/src/components/NoteIconPickerModal.tsx"
       - "frontend/src/components/KnowledgeTreePanel.tsx"
       - "frontend/src/components/SettingsModal.tsx"
@@ -138,6 +148,8 @@ jobs:
         run: >-
           npx vitest run
           src/lib/__tests__/issue749EditorUx.test.ts
+          src/lib/__tests__/htmlPlayground.test.ts
+          src/components/__tests__/HtmlCodeBlockRunButton.test.tsx
           src/components/__tests__/CodeBlockView.performance.test.tsx
           src/components/__tests__/MarkdownCodeBlock.performance.test.tsx
           src/lib/__tests__/userPreferenceAccountCache.test.ts

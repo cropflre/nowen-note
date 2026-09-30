@@ -7,6 +7,7 @@ import { isPlainTextLanguage } from "@/lib/codeBlockHighlightPlugin";
 import { copyText } from "@/lib/clipboard";
 import { cn } from "@/lib/utils";
 import { CodeBlockFormatButton } from "@/components/CodeBlockFormatButton";
+import { HtmlCodeBlockRunButton } from "@/components/HtmlCodeBlockRunButton";
 import {
   CODE_BLOCK_TOOLBAR_CLASS,
   CODE_BLOCK_TOOL_BUTTON_CLASS,
@@ -96,6 +97,7 @@ export function MarkdownCodeBlock({ className, children, onFormat }: MarkdownCod
             <span className="hidden sm:inline">{collapsed ? "展开" : "折叠"}</span>
           </button>
           {onFormat && <CodeBlockFormatButton language={language} onFormat={onFormat} />}
+          <HtmlCodeBlockRunButton language={language} source={code} />
           <button
             type="button"
             onClick={() => void handleCopy()}

@@ -1,4 +1,11 @@
 {
+  "htmlPlayground": {
+    "run": "运行 HTML",
+    "title": "HTML 运行预览",
+    "rerun": "重新运行",
+    "close": "关闭预览",
+    "description": "支持 HTML、CSS 和内联 JavaScript。预览与笔记隔离，外部脚本和网络请求受限。"
+  },
   "codeBlockFormatting": {
     "format": "格式化",
     "formatting": "格式化中…",
