@@ -17,6 +17,7 @@ import { canUseCodeBlockToolbarAction } from "@/lib/codeBlockPermissions";
 import { CodeBlockFormatButton } from "@/components/CodeBlockFormatButton";
 import { formatTiptapCodeBlock } from "@/lib/tiptapCodeBlockFormatting";
 import { formatCodeBlockLanguageLabel } from "@/lib/codeBlockLowlight";
+import { CODE_BLOCK_POPULAR_LANGUAGES } from "@/lib/codeBlockLanguageRegistry";
 import { copyText } from "@/lib/clipboard";
 import { recordPhaseAPerfEvent } from "@/lib/phaseAPerfDiagnostics";
 import {
@@ -30,20 +31,6 @@ import {
  *  - 行号区（使用 CSS counter 自动生成，无需侵入 ProseMirror 内容模型）
  *  - 深色代码区与浅色页面形成清晰对比，突出代码语义
  */
-
-// 常用语言列表（超集由 lowlight.common 决定）
-// 注：mermaid 不在 lowlight 注册，是 nowen 自己识别的特殊语言（用于流程图渲染），
-// 把它放进常用列表是为了在语言下拉里可以一键切换到 mermaid，触发 MermaidView。
-const POPULAR_LANGUAGES = [
-  "auto", "plaintext",
-  "javascript", "typescript", "tsx", "jsx",
-  "html", "css", "scss", "json", "xml",
-  "python", "java", "c", "cpp", "csharp",
-  "go", "rust", "php", "ruby", "kotlin", "swift",
-  "bash", "shell", "powershell",
-  "sql", "yaml", "markdown", "diff", "dockerfile",
-  "maxscript", "mermaid",
-];
 
 export function normalizeCodeBlockIndent(value: unknown): number {
   const numeric = Number(value);
@@ -158,7 +145,7 @@ export function CodeBlockView(props: NodeViewProps) {
     } catch {
       /* ignore */
     }
-    const set = new Set<string>(["auto", "plaintext", ...registered, ...POPULAR_LANGUAGES]);
+    const set = new Set<string>(["auto", "plaintext", ...registered, ...CODE_BLOCK_POPULAR_LANGUAGES]);
     return Array.from(set).sort((a, b) => {
       if (a === "auto") return -1;
       if (b === "auto") return 1;

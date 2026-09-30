@@ -35,6 +35,28 @@ describe("local code formatting", () => {
     expect(await formatCodeBlock(source, language)).toBe(expected);
   });
 
+  it.each([
+    ["jsonc", '{\n// comment\n"a":1\n}', '"a": 1'],
+    ["json5", "{a:1,}", "a: 1"],
+    ["graphql", "type Query{hello:String}", "hello: String"],
+    ["markdown", "# Title\n\n* item", "# Title"],
+    ["mdx", "# Title\n\n<Component a={1}/>", "<Component"],
+    ["vue", "<template><div>hello</div></template>", "<template>"],
+    ["angular", '<div *ngIf="ok">hello</div>', "*ngIf"],
+    ["flow", "const x:number=1", "const x: number = 1;"],
+    ["handlebars", "<div>{{foo}}</div>", "{{foo}}"],
+    ["lwc", "<template><div>{value}</div></template>", "<template>"],
+    ["mjml", "<mjml><mj-body><mj-section></mj-section></mj-body></mjml>", "<mjml>"],
+  ])("formats newly supported %s syntax", async (language, source, marker) => {
+    const formatted = await formatCodeBlock(source, language);
+    expect(formatted).toContain(marker);
+    expect(formatted.length).toBeGreaterThan(0);
+  });
+
+  it.each(["gql", "hbs", "mjs", "cjs", "mts", "cts"])("supports formatter aliases (%s)", (language) => {
+    expect(canFormatCodeBlock(language)).toBe(true);
+  });
+
   it("rejects invalid JSON and unsupported languages without including code in errors", async () => {
     await expect(formatCodeBlock('{"secret":}', "json")).rejects.toMatchObject({ message: "invalid" });
     expect(canFormatCodeBlock("python")).toBe(false);
