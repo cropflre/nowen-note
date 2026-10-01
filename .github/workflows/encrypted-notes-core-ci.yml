@@ -159,8 +159,8 @@ jobs:
       - name: Backend typecheck
         run: npx tsc --noEmit --pretty false
         working-directory: backend
-      - name: Sync and recovery fixture typecheck
-        run: npx tsc --noEmit --pretty false --target ES2022 --module ESNext --moduleResolution bundler --esModuleInterop --skipLibCheck --strict tests/encrypted-notes-sync.test.ts tests/encrypted-notes-backup.test.ts tests/encrypted-notes-recovery-worker.ts
+      - name: Storage, Sync and recovery fixture typecheck
+        run: npx tsc --noEmit --pretty false --target ES2022 --module ESNext --moduleResolution bundler --esModuleInterop --skipLibCheck --strict tests/encrypted-notes-sync.test.ts tests/encrypted-notes-backup.test.ts tests/encrypted-notes-recovery-worker.ts tests/encrypted-notes-block-writers.test.ts tests/encrypted-notes-postgres.test.ts
         working-directory: backend
       - name: Crypto core and Worker lifecycle regressions
         run: npm run test:encrypted-notes
