@@ -1,3 +1,4 @@
+import { withEncryptedBlocksSupport } from "./encryptedNotes/blockDocument";
 import type { WorkspaceIssue, WorkspaceIssueDetail, IssueActivity, IssueListResponse, NotificationListResponse } from "@/types/workspaceIssues";
 import { Notebook, NotebookMember, NotebookShareLink, Note, NoteListItem, Tag, SearchResult, User, UserPublicInfo, Task, TaskStats, TaskFilter, CustomFont, MindMap, MindMapListItem, Diary, DiaryMediaItem, DiaryTimeline, DiaryStats, Share, ShareInfo, SharedNoteContent, NoteVersion, ShareComment, NoteCommentListResponse, Workspace, WorkspaceAdminItem, WorkspaceMember, WorkspaceInvite, WorkspaceRole, WorkspaceFeatures, FileItem, FileDetail, FileListResponse, FileStats, FileSortKey, FileCategory, FileFilter, FileMyUploadsRef } from "@/types";
 import { TASK_REMINDER_SYNC_EVENT, type TaskReminderScheduleItem } from "@/lib/taskNotificationSchedule";
@@ -84,7 +85,7 @@ function protectNoteMutationPayload<T extends Partial<Note>>(
   context: Record<string, unknown>,
 ): T {
   try {
-    return stabilizeNoteMutationPayload(data);
+    return withEncryptedBlocksSupport(stabilizeNoteMutationPayload(data));
   } catch (error) {
     reportTransientNoteImageSource(error, context);
     throw error;

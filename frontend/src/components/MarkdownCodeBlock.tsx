@@ -17,6 +17,8 @@ import {
   subscribeCodeBlockCollapseMode,
 } from "@/lib/codeBlockPresentation";
 import "@/markdown-code-highlight.css";
+import { isEncryptedBlockLanguage } from "@/lib/encryptedNotes/blockDocument";
+import EncryptedBlockCard from "./EncryptedBlockCard";
 
 const lowlight = instrumentPhaseALowlight(createCodeBlockLowlight());
 
@@ -46,6 +48,10 @@ export interface MarkdownCodeBlockProps {
 
 /** Shared Markdown code block with the same core affordances as rich-text code blocks. */
 export function MarkdownCodeBlock({ className, children, onFormat }: MarkdownCodeBlockProps) {
+  if (isEncryptedBlockLanguage(normalizeLanguage(className))) return <EncryptedBlockCard language={normalizeLanguage(className)} source={String(children ?? "").replace(/\n$/, "")} />;
+  return <OrdinaryMarkdownCodeBlock className={className} onFormat={onFormat}>{children}</OrdinaryMarkdownCodeBlock>;
+}
+function OrdinaryMarkdownCodeBlock({ className, children, onFormat }: MarkdownCodeBlockProps) {
   const [copied, setCopied] = useState(false);
   const [collapseOverride, setCollapseOverride] = useState<boolean | null>(null);
   const collapseMode = useSyncExternalStore(

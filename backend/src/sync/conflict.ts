@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
 import type Database from "better-sqlite3";
 import { SYNC_PERSONAL_SCOPE_KEY, SYNC_TABLES } from "./constants";
+import { EncryptedNotePayloadError, guardEncryptedNoteMutation, guardEncryptedBlockWriter } from "../lib/encryptedNotes.js";
+import { SyncError } from "./errors";
 import type {
   SyncConflictRow,
   SyncNegotiatedEntityType,
@@ -31,6 +33,29 @@ function serialize(value: Record<string, unknown> | null | undefined): string | 
   return value == null ? null : JSON.stringify(value);
 }
 
+/** Push conflicts and later snapshot fills must not persist invalid encrypted payloads. */
+export function validateEncryptedConflictPayload(
+  db: Database.Database,
+  entityType: SyncNegotiatedEntityType,
+  entityId: string,
+  payload: Record<string, unknown> | null | undefined,
+  historical = false,
+): void {
+  if (entityType !== "note" || payload == null) return;
+  const current = db.prepare("SELECT content, contentFormat FROM notes WHERE id = ?").get(entityId) as
+    { content: string; contentFormat: string } | undefined;
+  try {
+    guardEncryptedNoteMutation({ ...payload }, current);
+    if (!historical) {
+      guardEncryptedBlockWriter({ ...payload, content: typeof payload.content === "string" ? payload.content : "{}" }, current);
+    }
+  }
+  catch (error) {
+    if (!(error instanceof EncryptedNotePayloadError)) throw error;
+    throw new SyncError("INVALID_PAYLOAD", "加密笔记冲突载荷无效，原密文已保留");
+  }
+}
+
 /**
  * 记录一次冲突。
  *
@@ -47,6 +72,11 @@ export function recordConflict(
       "[sync-v2] recordConflict 至少需要 localPayload 或 remotePayload，否则冲突无法恢复",
     );
   }
+
+  for (const payload of [input.basePayload, input.localPayload]) {
+    validateEncryptedConflictPayload(db, input.entityType, input.entityId, payload, true);
+  }
+  validateEncryptedConflictPayload(db, input.entityType, input.entityId, input.remotePayload);
 
   const id = randomUUID();
   db.prepare(`

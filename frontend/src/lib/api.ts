@@ -1,3 +1,4 @@
+import { withEncryptedBlocksSupport } from "./encryptedNotes/blockDocument";
 export * from "./api.impl";
 
 import { api as baseApi, getBaseUrl, getCurrentWorkspace, getServerUrl } from "./api.impl";
@@ -328,10 +329,10 @@ api.restoreTaskCompletedAt = (taskId: string, completedAt: string) =>
 api.createNoteConfirmed = async (data: Partial<Note>) => {
   let payload: Partial<Note> & { id: string };
   try {
-    payload = stabilizeNoteMutationPayload({
+    payload = withEncryptedBlocksSupport(stabilizeNoteMutationPayload({
       ...data,
       id: data.id || generateConfirmedNoteId(),
-    });
+    }));
   } catch (error) {
     reportTransientNoteImageSource(error, { operation: "createNoteConfirmed" });
     throw error;
@@ -347,7 +348,7 @@ api.createNoteConfirmed = async (data: Partial<Note>) => {
 api.updateNoteConfirmed = async (id: string, data: Partial<Note>) => {
   let payload: Partial<Note>;
   try {
-    payload = stabilizeNoteMutationPayload(data);
+    payload = withEncryptedBlocksSupport(stabilizeNoteMutationPayload(data));
   } catch (error) {
     reportTransientNoteImageSource(error, { operation: "updateNoteConfirmed", noteId: id });
     throw error;

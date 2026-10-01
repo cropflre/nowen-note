@@ -1,3 +1,4 @@
+import { assertEncryptedBlockCollaborationAllowed } from "../lib/encryptedBlockWrites.js";
 /**
  * Phase 3: Y.js CRDT 服务端
  * --------------------------------------------------------------------
@@ -216,6 +217,7 @@ function persistUpdate(
  */
 function writeSnapshot(noteId: string, doc: Y.Doc) {
   const db = getDb();
+  assertEncryptedBlockCollaborationAllowed(db, noteId);
   const state = Y.encodeStateAsUpdate(doc);
   // 取当前最大 updateId 作为水位线（在事务内做，避免并发 insert 造成 off-by-one）
   const tx = db.transaction(() => {
@@ -261,6 +263,7 @@ function schedulePersistToNotesTable(room: RoomState) {
 
 function persistToNotesTable(room: RoomState) {
   const db = getDb();
+  assertEncryptedBlockCollaborationAllowed(db, room.noteId);
   const ytext = room.doc.getText("content");
   let markdown: string;
   try {
@@ -381,6 +384,9 @@ function persistToNotesTable(room: RoomState) {
 // ---------------------------------------------------------------------------
 
 function getOrCreateRoom(noteId: string): RoomState {
+  assertEncryptedBlockCollaborationAllowed(getDb(), noteId);
+  const format = getDb().prepare("SELECT contentFormat FROM notes WHERE id = ?").get(noteId) as { contentFormat?: string } | undefined;
+  if (format?.contentFormat?.startsWith("encrypted-")) throw new Error("ENCRYPTED_NOTE_COLLABORATION_FORBIDDEN");
   let room = rooms.get(noteId);
   if (!room) {
     const doc = loadDocFromDb(noteId);
@@ -475,6 +481,7 @@ export function yApplyUpdate(
 ): YApplyResult {
   const room = rooms.get(noteId);
   if (!room) return "no_room";
+  try { assertEncryptedBlockCollaborationAllowed(getDb(), noteId); } catch { return "invalid"; }
   let update: Uint8Array;
   try {
     update = base64ToUint8(updateBase64);
@@ -488,6 +495,13 @@ export function yApplyUpdate(
     );
     return "too_large";
   }
+  const candidate = new Y.Doc();
+  try {
+    Y.applyUpdate(candidate, Y.encodeStateAsUpdate(room.doc));
+    Y.applyUpdate(candidate, update);
+    if (/nowen-encrypted/i.test(candidate.getText("content").toString())) return "invalid";
+  } catch { return "invalid"; }
+  finally { candidate.destroy(); }
   try {
     Y.applyUpdate(room.doc, update);
   } catch (e) {
@@ -710,6 +724,8 @@ export function yReplaceContentAsUpdate(
   markdown: string,
   userId: string | null,
 ): { updateBase64: string } | null {
+  assertEncryptedBlockCollaborationAllowed(getDb(), noteId);
+  if (/nowen-encrypted/i.test(markdown)) throw new Error("ENCRYPTED_NOTE_COLLABORATION_FORBIDDEN");
   // 手动管理 room：调用方其实没有"持有"一个 ws 连接，不能走 getOrCreateRoom + releaseRoom
   // 这对 refCount 的配对（++ / --）——releaseRoom 会把 refCount 减到负再被 Math.max 钳到 0，
   // 并顺便把原本有人在房间里的 room 误标成 idle，结果是活跃协作者还在但 room 启动了 idleTimer。
@@ -816,6 +832,7 @@ export function yReplaceContentAsUpdate(
  * 注意：只在 Y.Doc 为空时生效；如果已有内容会 no-op。
  */
 export function ySeedIfEmpty(noteId: string, markdown: string) {
+  if (/nowen-encrypted/i.test(markdown)) throw new Error("ENCRYPTED_NOTE_COLLABORATION_FORBIDDEN");
   const room = getOrCreateRoom(noteId);
   const ytext = room.doc.getText("content");
   if (ytext.length > 0) {

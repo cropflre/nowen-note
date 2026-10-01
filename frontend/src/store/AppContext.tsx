@@ -487,6 +487,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
 
     const current = stateRef.current;
+    const leavingNote = current.activeNote && (
+      (action.type === "SET_ACTIVE_NOTE" && current.activeNote.id !== action.payload?.id)
+      || (action.type === "SET_VIEW_MODE" && current.viewMode !== action.payload)
+      || (action.type === "SET_MOBILE_VIEW" && action.payload !== "editor")
+      || ((action.type === "CLOSE_NOTE_TAB" || action.type === "REMOVE_NOTE_TAB") && action.payload === current.activeNote.id)
+      || action.type === "CLEAR_NOTE_TABS"
+      || (action.type === "SET_NOTE_TABS" && !action.payload.some((tab) => tab.id === current.activeNote!.id))
+    );
+    if (leavingNote) {
+      if (!window.dispatchEvent(new Event("nowen:encrypted-note-before-leave", { cancelable: true }))) return;
+    }
     let changedFields = "";
     if (action.type === "SET_ACTIVE_NOTE") {
       const previous = current.activeNote;

@@ -1,4 +1,5 @@
 import type { Note } from "@/types";
+import { pendingEncryptedNote } from "./encryptedNotes/pendingNote";
 import { getBaseUrl } from "@/lib/api";
 import {
   getNote as getCachedNote,
@@ -77,6 +78,8 @@ export async function loadNoteCacheFirst({
   onRevalidated,
   beforeUseCached = prepareNoteRuntime,
 }: CacheFirstNoteLoadOptions): Promise<Note> {
+  const pending = pendingEncryptedNote(noteId);
+  if (pending) return pending;
   const cached = await getCachedNote(noteId);
   if (cached && isNoteDetailCached(cached)) {
     // Start freshness revalidation immediately. Runtime/media preparation is best-effort by default;

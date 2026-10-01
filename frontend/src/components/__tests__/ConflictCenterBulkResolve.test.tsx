@@ -119,6 +119,26 @@ describe("冲突中心批量处理", () => {
     document.body.innerHTML = "";
   });
 
+  it("加密冲突不开放 JSON 手动合并，批量智能合并也保留两侧版本", async () => {
+    fetchConflictsMock.mockResolvedValue({ total: 1, items: [conflicts[0]] });
+    const encrypted = { id: "note-1", contentFormat: "encrypted-note-v1", content: "opaque envelope", title: "旧标题" };
+    fetchConflictDetailMock.mockResolvedValue({ ...conflicts[0], status: "unresolved", resolvedAt: null,
+      base: encrypted, local: { ...encrypted, title: "本机标题" }, remote: { ...encrypted, content: "remote envelope" } });
+    const host = document.createElement("div"); document.body.appendChild(host); root = createRoot(host);
+    await act(async () => { root?.render(<ConflictCenter deviceId="encrypted-device" />); });
+    await waitFor(() => expect(host.textContent).toContain("冲突（1）"));
+    const compare = Array.from(host.querySelectorAll("button")).find((button) => button.textContent?.trim() === "查看");
+    expect(compare).toBeDefined();
+    await act(async () => compare?.click());
+    await waitFor(() => expect(host.textContent).toContain("加密正文无法在此比较或合并"));
+    expect(host.textContent).not.toContain("手动编辑并合并");
+    await act(async () => host.querySelector<HTMLInputElement>('input[aria-label="全选冲突"]')?.click());
+    const merge = Array.from(host.querySelectorAll("button")).find((button) => button.textContent?.includes("智能合并选中项"));
+    await act(async () => merge?.click());
+    await waitFor(() => expect(host.textContent).toContain("加密笔记需明确选择本机或服务器版本"));
+    expect(resolveConflictMock).not.toHaveBeenCalled();
+  });
+
   it("全选后批量采用本机版本", async () => {
     fetchConflictsMock
       .mockResolvedValueOnce({ total: conflicts.length, items: conflicts })

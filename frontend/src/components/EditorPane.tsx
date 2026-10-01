@@ -1,4 +1,6 @@
 import React, { useCallback, useRef, useState, useEffect, useMemo } from "react";
+import EncryptedNotePane from "./EncryptedNotePane";
+import { isEncryptedNoteFormat } from "@/lib/encryptedNotes/noteDocument";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import { Star, Pin, Trash2, Cloud, RefreshCw, Check, Loader2, ChevronLeft, FolderInput, ChevronRight, ChevronDown, X, ListTree, Lock, Unlock, Tag as TagIcon, Type, MoreHorizontal, Share2, History, MessageCircle, FileCode, FileText, Eye, Pencil, Paperclip, Search, Sparkles, Network, Minimize2, Image, Link2, Printer, Scissors } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -131,7 +133,14 @@ interface EditorPaneProps {
   onSplitDocument?: () => void;
 }
 
-export default function EditorPane({
+export default function EditorPane(props: EditorPaneProps) {
+  const { state } = useApp();
+  return state.activeNote && isEncryptedNoteFormat(state.activeNote.contentFormat)
+    ? <EncryptedNotePane key={state.activeNote.id} note={state.activeNote} />
+    : <OrdinaryEditorPane {...props} />;
+}
+
+function OrdinaryEditorPane({
   canSplitDocument = false,
   onSplitDocument,
 }: EditorPaneProps) {
@@ -1331,7 +1340,8 @@ export default function EditorPane({
    * ע�����˳�����Ҳ���á�������ֻһ�� client��y-collab �൱�ڿղ������������
    * ����������־û��������������Զ��ϲ���
    */
-  const collabReady = !!(activeNote && !activeNote.isLocked && selfUser && editorMode === "md");
+  const collabReady = !!(activeNote && !activeNote.isLocked && selfUser && editorMode === "md"
+    && !/nowen-encrypted/i.test(activeNote.content || ""));
   const { doc: collabYDoc, provider: collabProvider, synced: collabSynced } = useYDoc({
     noteId: collabReady ? (activeNote?.id ?? null) : null,
     user: selfUser,

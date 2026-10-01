@@ -1,6 +1,6 @@
 # Encrypted Notes Epic：整篇笔记与局部内容加密
 
-状态：M1 内部加密核心已实现，M0 参数冻结仍待移动端实测；尚未接入可用加密笔记。来源：[Issue #749 第 9 项](https://github.com/cropflre/nowen-note/issues/749)。跟踪：[Epic #796](https://github.com/cropflre/nowen-note/issues/796)。协议与验收：[内部 envelope v1](./encrypted-notes-envelope-v1.md)。
+状态：M1 核心已实现，M2 已接入实验性整篇文本编辑与 SQLite/离线密文保存，同步/完整 ZIP 恢复与 PostgreSQL 16 迁移自动化验收已通过，真实产品双设备与安装包验收仍待完成；M3 新增局部加密文本实验入口，完整验收未完成。M0 参数冻结仍待移动端实测。来源：[Issue #749 第 9 项](https://github.com/cropflre/nowen-note/issues/749)。跟踪：[Epic #796](https://github.com/cropflre/nowen-note/issues/796)。协议与验收：[内部 envelope v1](./encrypted-notes-envelope-v1.md)。
 
 ## 用户目标与验收边界
 
@@ -28,7 +28,7 @@
 
 ## 建议的密码与密文格式
 
-以下设计已在内部核心实现，产品接入尚未交付，不冻结 Public API。格式、候选参数与依赖以 [envelope v1](./encrypted-notes-envelope-v1.md) 为准。
+以下设计已在内部核心实现，M2 产品实验入口见 [整篇文本接入记录](./encrypted-notes-m2.md)，不冻结 Public API。格式、候选参数与依赖以 [envelope v1](./encrypted-notes-envelope-v1.md) 为准。
 
 - 每篇笔记/每个加密区域生成随机 256 位内容密钥（DEK），每次加密生成新的 96 位 IV，使用 AES-256-GCM 和 128 位认证标签。
 - 口令经 Argon2id 派生包装密钥（KEK），使用独立随机盐；KEK 用 AES-GCM 包装 DEK。修改口令时重新派生并包装 DEK，不重新加密全部历史正文。
@@ -45,7 +45,7 @@ Argon2id 在 Worker 中运行。依赖版本、WASM 构建、内存/耗时参数
 
 **整篇笔记：** 服务端正文存储 envelope，解密后的 Markdown/Tiptap 原始格式只存在于客户端会话。`contentText` 不包含正文；服务端普通解析、格式修复、块提取和索引逻辑必须跳过。首个交付阶段支持新建文本笔记；既有笔记转换在历史明文清理方案通过验证后交付。
 
-**局部内容：** 富文本使用不可编辑的加密节点；Markdown 使用显式的加密围栏与版本化 envelope。解锁内容在临时编辑区修改，加密完成后写回原区域；不把解密内容插入主文档或主 Yjs 文档。普通内容照常可搜索，受保护区域始终只参与密文保存、同步、历史和格式转换。源码模式只能看到 envelope。
+**局部内容：** 当前实验入口复用带保留语言的 codeBlock 与不可编辑 NodeView，尚未新增 schema atom；Markdown 使用显式的加密围栏与版本化 envelope。解锁内容在临时编辑区修改，加密完成后写回原区域；不把解密内容插入主文档或主 Yjs 文档。普通内容照常可搜索，受保护区域始终只参与密文保存、同步、历史和格式转换。源码模式只能看到 envelope。
 
 整篇加密与局部加密共用经过验证的 envelope/密钥组件，但由不同编辑器入口承载。MD/RT 转换、复制、撤销/重做不能丢失密文区域或生成明文副本。首版不支持多人共同编辑解锁明文，也不允许插件或服务端 AI 自动获得解锁内容。
 
@@ -69,6 +69,10 @@ JavaScript 无法保证所有内存副本被物理清零；锁定验收针对应
 - [ ] M3：局部加密节点/围栏，覆盖区域选择、解锁编辑、复制、MD/RT 转换、撤销重做和密文冲突。
 - [ ] M4：既有笔记转换；审计并处理正文、contentText、块快照、历史、FTS、向量索引、Yjs、队列、缓存、SQLite WAL/空闲页及备份中的旧明文。验证转换事务失败不会丢失笔记。
 - [ ] M5：跨端恢复、自动锁定、性能和安全验收；补用户文档、兼容说明与 CI。附件/多人协作的后续范围单独记录，不影响明确受限版本的验收，但不得虚报原需求全部完成。
+
+M2 当前已实现新建、MD/RT 内存编辑、手动加密保存、锁定、改口令、SQLite/API/Sync 写入守卫和离线密文队列；独立数据库同步/冲突、完整 ZIP 新进程恢复及 PostgreSQL 16 迁移测试已通过，真实产品双设备、账号切换/注销和安装包验收仍待完成，详见 [M2](./encrypted-notes-m2.md)。M2 保持未勾选，直到其完整验收通过。
+
+M3 当前已接入新增加密文本区域、已有区域临时解锁编辑、复制密文、格式互转与撤销重做回归；已补充 notes API/Sync V2 旧客户端写入保护、完整版本冲突选择和实际 MD/RT 编辑器集成回归；既有明文选区转换、数据库直写/块 Patch/Yjs 区域保护、完整产品双设备与安装包验收尚未完成，详见 [M3](./encrypted-notes-m3.md)。
 
 Epic 必须覆盖 M0–M5 的整篇与局部加密，不能在 M2 完成时就标记 #749 第 9 项完成。
 

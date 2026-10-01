@@ -1,3 +1,4 @@
+import { withEncryptedBlocksSupport } from "../lib/encryptedNotes.js";
 /**
  * Bootstrap / Reconcile：首次开启同步时的基线建立（阶段 D）。
  *
@@ -47,7 +48,7 @@ import { recordConflict } from "./conflict";
 import { advanceSyncState } from "./profile";
 import { runWithOutboxSuppressed } from "./context";
 import { runChangeFeedSuppressed } from "./suppression";
-import { applyRemoteChanges } from "./applyLocal";
+import { applyRemoteChanges, validateEncryptedRemoteNotes } from "./applyLocal";
 import type { RemoteEntityPayload } from "./applyLocal";
 import type { RemoteSnapshotPage, SyncRemoteClient } from "./remote";
 import type { SyncEntityType } from "./types";
@@ -267,7 +268,7 @@ export function readLocalState(
         entityType: "note" as const,
         operation: "upsert" as const,
         entityId: String(r.id),
-        payload: r,
+        payload: withEncryptedBlocksSupport(r),
       }));
 
     case "note_tag":
@@ -527,6 +528,7 @@ export async function runBootstrap(
       let cursor = profile.bootstrapCursor;
       for (;;) {
         const page = await client.snapshot(cursor, snapshotSequence, pageSize);
+        validateEncryptedRemoteNotes(db, page.items.map((item) => ({ ...item, operation: "upsert" as const })), { userId });
         for (const item of page.items) {
           remoteItems.push({
             entityType: item.entityType,

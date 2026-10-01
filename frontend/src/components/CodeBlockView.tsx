@@ -1,4 +1,6 @@
 import React, { useCallback, useMemo, useState, useEffect, useRef, useSyncExternalStore } from "react";
+import { isEncryptedBlockLanguage } from "@/lib/encryptedNotes/blockDocument";
+import EncryptedBlockCard from "./EncryptedBlockCard";
 import { createPortal } from "react-dom";
 import { NodeViewWrapper, NodeViewContent, NodeViewProps } from "@tiptap/react";
 import { Copy, Check, ChevronDown, Palette, Eye, Code2, FileText, Minimize2, Maximize2 } from "lucide-react";
@@ -48,6 +50,20 @@ export function normalizeCodeBlockIndent(value: unknown): number {
 }
 
 export function CodeBlockView(props: NodeViewProps) {
+  if (isEncryptedBlockLanguage(props.node.attrs.language)) return <EncryptedCodeBlockView {...props} />;
+  return <OrdinaryCodeBlockView {...props} />;
+}
+function EncryptedCodeBlockView({ node, editor, getPos }: NodeViewProps) {
+  const editable = useSyncExternalStore((listener) => subscribeEditorEditable(editor, listener), () => getEditorEditableSnapshot(editor), () => false);
+  const source = node.textContent;
+  return <NodeViewWrapper contentEditable={false}><EncryptedBlockCard language={node.attrs.language} source={source} onCommit={editable ? (next) => {
+    const position = getPos();
+    const current = typeof position === "number" ? editor.state.doc.nodeAt(position) : null;
+    if (typeof position !== "number" || !editor.isEditable || !current?.eq(node)) throw new Error("Encrypted region changed");
+    if (!editor.commands.insertContentAt({ from: position, to: position + node.nodeSize }, { type: "codeBlock", attrs: node.attrs, content: [{ type: "text", text: next }] })) throw new Error("Encrypted region write failed");
+  } : undefined} /></NodeViewWrapper>;
+}
+function OrdinaryCodeBlockView(props: NodeViewProps) {
   const { node, updateAttributes, extension, editor, getPos } = props;
   const lowlight = (extension.options as any)?.lowlight;
   const perfBlockId = String(node.attrs.blockId || node.attrs.language || "code-block");

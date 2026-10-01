@@ -1,3 +1,4 @@
+import { encryptedBlocksInContent, isProtectedNotePayload } from "./encryptedNotes/blockDocument";
 import type { Note } from "@/types";
 import { api } from "@/lib/api";
 import {
@@ -8,6 +9,7 @@ import {
 import * as draftStorage from "@/lib/draftStorage";
 import { clearOfflineNoteSnapshot } from "@/lib/offlineRead";
 import { clearNoteSyncConflict } from "@/lib/noteSyncSafety";
+import { isEncryptedNoteFormat, readEncryptedNoteDocument } from "@/lib/encryptedNotes/noteDocument";
 
 export type ConflictResolutionChoice = "keep-local" | "use-server";
 export const NOTE_CONFLICT_AUTO_RESOLVED_EVENT = "nowen:note-conflict-auto-resolved";
@@ -85,6 +87,14 @@ export function getConflictLocalPayload(
   remote: Note,
 ): ConflictPayload {
   const queued = payloadFromQueue(item);
+  if (isProtectedNotePayload(queued) || isProtectedNotePayload(remote)) {
+    const content = queued.content ?? remote.content;
+    const contentFormat = queued.contentFormat ?? remote.contentFormat;
+    const whole = isEncryptedNoteFormat(contentFormat);
+    if (whole) readEncryptedNoteDocument({ content, contentFormat });
+    else encryptedBlocksInContent(content, contentFormat);
+    return { title: queued.title ?? remote.title, content, contentText: whole ? "" : queued.contentText ?? remote.contentText, contentFormat };
+  }
   const draft = draftStorage.loadDraft(item.noteId);
   return {
     title: draft?.title ?? queued.title ?? remote.title,
@@ -329,6 +339,9 @@ export async function resolveQueuedNoteConflicts(
   const latestByNote = new Map<string, OfflineQueueItem>();
   for (const item of items) {
     if (item.type !== "updateNote" || !(item.conflict || item.errorCode === "VERSION_CONFLICT")) continue;
+    // Never auto-select or rebase opaque encrypted versions; keep the durable ciphertext
+    // until the user explicitly resolves the conflict.
+    if (isProtectedNotePayload(item.body) || isProtectedNotePayload(item.localPayload)) continue;
     const previous = latestByNote.get(item.noteId);
     if (!previous || item.enqueuedAt >= previous.enqueuedAt) latestByNote.set(item.noteId, item);
   }
@@ -340,7 +353,9 @@ export async function resolveQueuedNoteConflicts(
   for (const item of conflicts) {
     try {
       // 服务器当前 revision 作为正式版本；清理冲突前先确认本地副本已经落库。
-      const result = await resolveNoteConflict(item, "use-server");
+      const remote = await api.getNote(item.noteId);
+      if (isProtectedNotePayload(remote)) continue;
+      const result = await useServerVersion(item, remote, getConflictLocalPayload(item, remote));
       if (typeof window !== "undefined") {
         const detail: NoteConflictAutoResolvedDetail = {
           note: result.note,

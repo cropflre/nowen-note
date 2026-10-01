@@ -1,7 +1,8 @@
 import type { ConflictDetail } from "@/lib/syncLocalApi";
+import { isProtectedNotePayload } from "./encryptedNotes/blockDocument";
 
 const ABSENT = Symbol("absent");
-const TRANSPORT_FIELDS = new Set(["baseUpdatedAt"]);
+const TRANSPORT_FIELDS = new Set(["baseUpdatedAt", "encryptedBlocksVersion"]);
 
 type MissingValue = typeof ABSENT;
 type MergeValue = unknown | MissingValue;
@@ -14,7 +15,7 @@ export type AutomaticConflictMergeResult =
     }
   | {
       ok: false;
-      reason: "missing-base" | "missing-side" | "overlapping-changes";
+      reason: "missing-base" | "missing-side" | "overlapping-changes" | "encrypted-content";
       conflictFields: string[];
     };
 
@@ -59,6 +60,9 @@ function assignValue(target: Record<string, unknown>, key: string, value: MergeV
 export function buildAutomaticConflictMerge(
   detail: Pick<ConflictDetail, "base" | "local" | "remote">,
 ): AutomaticConflictMergeResult {
+  if ([detail.base, detail.local, detail.remote].some(isProtectedNotePayload)) {
+    return { ok: false, reason: "encrypted-content", conflictFields: ["content"] };
+  }
   if (!detail.local || !detail.remote) {
     return { ok: false, reason: "missing-side", conflictFields: [] };
   }

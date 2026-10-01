@@ -1,3 +1,5 @@
+import { withEncryptedBlockWrite } from "../lib/encryptedBlockWrites.js";
+import { EncryptedNotePayloadError } from "../lib/encryptedNotes.js";
 import { Hono } from "hono";
 import type { Context } from "hono";
 import { v4 as uuid } from "uuid";
@@ -180,6 +182,7 @@ function recordVersionSnapshot(note: NoteRecord, userId: string): void {
 }
 
 function mapPatchError(c: Context, error: unknown): Response | null {
+  if (error instanceof EncryptedNotePayloadError) return c.json({ error: "块补丁必须完整保留加密区域，请使用加密区域编辑器修改", code: error.code }, 400);
   if (error instanceof BlockAuthorityConflictError) {
     return c.json({ error: error.message, code: error.code, ...error.details }, 409);
   }
@@ -280,11 +283,11 @@ async function patchBlocks(c: Context) {
         const nextVersion = note.version + 1;
         const contentText = plainTextFromNoteContent(patch.content, note.contentFormat);
         recordVersionSnapshot(note, userId);
-        const update = db.prepare(`
+        const update = withEncryptedBlockWrite(db, noteId, patch.content, note.contentFormat, () => db.prepare(`
           UPDATE notes
           SET content = ?, contentText = ?, version = ?, updatedAt = datetime('now')
           WHERE id = ? AND version = ?
-        `).run(patch.content, contentText, nextVersion, noteId, note.version);
+        `).run(patch.content, contentText, nextVersion, noteId, note.version));
         if (update.changes !== 1) {
           const current = readNote(noteId);
           throw new BlockPatchRouteError("VERSION_CONFLICT", 409, { currentVersion: current?.version ?? note.version });
@@ -376,11 +379,11 @@ async function patchBlocks(c: Context) {
 
       recordVersionSnapshot(note, userId);
 
-      const update = db.prepare(`
+      const update = withEncryptedBlockWrite(db, noteId, patch.content, note.contentFormat, () => db.prepare(`
         UPDATE notes
         SET content = ?, contentText = ?, version = ?, updatedAt = datetime('now')
         WHERE id = ? AND version = ?
-      `).run(patch.content, contentText, nextVersion, noteId, note.version);
+      `).run(patch.content, contentText, nextVersion, noteId, note.version));
       if (update.changes !== 1) {
         const current = readNote(noteId);
         throw new BlockPatchRouteError("VERSION_CONFLICT", 409, {

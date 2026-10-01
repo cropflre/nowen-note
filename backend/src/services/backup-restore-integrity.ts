@@ -233,6 +233,7 @@ function moveDirectoryFromStaging(
     }
 
     try {
+      fs.mkdirSync(path.dirname(destDir), { recursive: true });
       fs.renameSync(stagedDir, destDir);
       movedNew = true;
       return {

@@ -1,4 +1,5 @@
 import type Database from "better-sqlite3";
+import { isEncryptedNoteFormat, isEncryptedBlockLanguage } from "./encryptedNotes.js";
 import { plainTextFromNoteContent, syncNoteBlocks } from "./noteBlocks";
 import { stripLegacyInternalMarkdownMarkers } from "./markdownUserContent";
 import { normalizeSearchText } from "./searchQuery";
@@ -43,6 +44,7 @@ function collectFallbackJsonText(value: unknown, output: string[]): void {
   }
 
   const record = value as Record<string, unknown>;
+  if (record.type === "codeBlock" && isEncryptedBlockLanguage((record.attrs as any)?.language)) return;
   if (record.type === "text" && typeof record.text === "string") output.push(record.text);
   if (record.type === "hardBreak") output.push("\n");
   if (Array.isArray(record.content)) collectFallbackJsonText(record.content, output);
@@ -56,6 +58,7 @@ export function extractSearchableText(
   content: unknown,
   contentFormat: unknown,
 ): string {
+  if (isEncryptedNoteFormat(contentFormat)) return "";
   const source = typeof content === "string" ? content : "";
   const format = normalizeContentFormat(
     typeof contentFormat === "string" ? contentFormat : undefined,

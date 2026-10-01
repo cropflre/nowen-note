@@ -1,3 +1,4 @@
+import { withEncryptedBlocksSupport } from "../lib/encryptedNotes.js";
 import {
   SYNC_PERSONAL_SCOPE_KEY,
   SYNC_V2_BASE_PATH,
@@ -300,7 +301,12 @@ export class SyncRemoteClient {
     return this.request<RemotePushResult>(SYNC_V2_ROUTES.push, {
       method: "POST",
       query: this.query(scopeKey, {}, subscription),
-      body: { scopeKey, deviceId, mutations },
+      body: {
+        scopeKey, deviceId,
+        mutations: mutations.map((mutation) => mutation.entityType === "note" && mutation.operation === "upsert" && mutation.payload
+          ? { ...mutation, payload: withEncryptedBlocksSupport(mutation.payload) }
+          : mutation),
+      },
     });
   }
 

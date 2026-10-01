@@ -1,6 +1,6 @@
 # Encrypted Notes：内部 envelope v1
 
-状态：M1 内部核心实现，未接入笔记编辑、保存、同步或数据库。跟踪 [Epic #796](https://github.com/cropflre/nowen-note/issues/796)，范围见 [Epic 设计](./encrypted-notes-epic.md)。本阶段不能宣称 #749 第 9 项完成。协议和参数为实验性内部格式，移动端实测前不冻结为对外格式。
+状态：M1 内部核心实现，M2 已接入实验性整篇文本编辑与密文持久化，见 [接入及验收记录](./encrypted-notes-m2.md)。跟踪 [Epic #796](https://github.com/cropflre/nowen-note/issues/796)，范围见 [Epic 设计](./encrypted-notes-epic.md)。本阶段不能宣称 #749 第 9 项完成。协议和参数为实验性内部格式，移动端实测前不冻结为对外格式。
 
 ## 密文格式
 
@@ -25,7 +25,7 @@
 
 随机 256 位正文密钥 DEK 加密正文；口令经 Argon2id 派生 32 字节 KEK，包装 DEK。AES-GCM 使用 128 位标签，`ciphertext` 末尾追加 16 字节标签，与 Web Crypto 返回格式一致。IV 每次随机生成，更新时避免复用当前正文 IV，包装与正文 IV 不同；历史碰撞风险由安全随机数控制，不维护历史 nonce 表。
 
-正文最多 4 MiB UTF-8，可为空；口令为 1–1024 字节 UTF-8。保留空格、BOM 和 Unicode 形式，不 trim/normalize，拒绝不成对 UTF-16 代理项。口令强度和二次确认由后续产品入口负责。核心只处理字符串，Tiptap JSON schema 由接入层验证。
+正文最多 4 MiB UTF-8，可为空；口令为 1–1024 字节 UTF-8。保留空格、BOM 和 Unicode 形式，不 trim/normalize，拒绝不成对 UTF-16 代理项。M2 产品入口要求创建/新口令至少 12 个字符并二次确认；解锁保留核心已有格式兼容。核心只处理字符串，Tiptap JSON schema 由接入层验证。
 
 AAD 是以下数组经 `JSON.stringify` 序列化后的 UTF-8，无 BOM 或额外空格：
 
@@ -34,7 +34,7 @@ AAD 是以下数组经 `JSON.stringify` 序列化后的 UTF-8，无 BOM 或额�
 ["nowen-encrypted-content",1,"AES-256-GCM","content",objectId,kind,originalFormat]
 ```
 
-`key` 认证 DEK 包装，`content` 认证正文。调用方须提供可信文档上下文的 `expected` 身份，不能直接信任传入 envelope。身份替换、类型/格式更改及认证失败均拒绝。外层笔记绑定、修订/CAS 与历史版本回滚检测仍由 M2 实现，核心不提供防回滚承诺。
+`key` 认证 DEK 包装，`content` 认证正文。调用方须提供可信文档上下文的 `expected` 身份，不能直接信任传入 envelope。身份替换、类型/格式更改及认证失败均拒绝。M2 API/数据库提供外层对象身份与原格式不可变校验、修订/CAS；核心与服务端不提供对离线数据库替换或合法历史密文回滚的密码学检测承诺。
 
 ## 操作、失败与生命周期
 
@@ -64,7 +64,7 @@ npx playwright install chromium
 npm run test:encrypted-notes:browser
 ```
 
-Vitest 覆盖独立向量、AES 互操作、Unicode/BOM、随机性、更新/改口令、篡改、身份替换、参数/长度上限与 Worker 生命周期。浏览器测试独立构建真实 Worker，在 CSP 下使用 Web Crypto 与 WASM 执行相同向量，覆盖 Worker 销毁、取消重试、认证失败、无 Worker 拒绝和本地存储无写入。CI 为 `Encrypted Notes Core CI`。
+Vitest 覆盖独立向量、AES 互操作、Unicode/BOM、随机性、更新/改口令、篡改、身份替换、参数/长度上限与 Worker 生命周期。浏览器测试独立构建真实 Worker，在 CSP 下使用 Web Crypto 与 WASM 执行相同向量，覆盖 Worker 销毁、取消重试、认证失败、无 Worker 拒绝和核心不写本地存储。M2 新增编辑/密文持久化验收见接入记录。CI 为 `Encrypted Notes CI`。
 
 本地验收（2026-10-01）：37 项 Vitest、6 项 Chromium 153 浏览器测试、应用及验收页 TypeScript 检查、应用生产构建通过。Electron 33.0.0 / Chromium 130.0.6723.44 以 sandbox、contextIsolation 开启且 nodeIntegration 关闭的窗口运行独立验收页，核心自检通过；五种操作总耗时约 105–206 ms。这验证了内核执行能力，不代表产品内持久化、安装包 CSP 或移动端已完成验收。新 CI 已配置，尚未在远端运行。
 
@@ -76,9 +76,9 @@ node scripts/generate-encrypted-notes-vector.mjs
 git diff -- frontend/src/lib/encryptedNotes/__tests__/fixtures/envelope-v1.json
 ```
 
-人工验收：运行 `npm run build:encrypted-notes-benchmark` 和 `npm run preview:encrypted-notes-benchmark`，访问 `http://127.0.0.1:5176/benchmarks/encrypted-notes.html`。只使用公开测试数据，不启用产品加密；计时包含 Worker 启动/KDF，不能视为峰值内存或纯 KDF 基准。
+人工验收：运行 `npm run build:encrypted-notes-benchmark` 和 `npm run preview:encrypted-notes-benchmark`，访问 `http://127.0.0.1:5176/benchmarks/encrypted-notes.html`。只使用公开测试数据；计时包含 Worker 启动/KDF，不能视为峰值内存或纯 KDF 基准。
 
-M2 才能交付整篇加密：独立文档类型、受控编辑器、可信身份绑定、SQLite/PostgreSQL、自动保存/Yjs/队列隔离、版本/同步/备份密文路径，以及搜索、AI、分享、插件和旧客户端写入阻断。M3 才能交付局部节点/围栏。附件、元数据、旧明文及口令丢失按 Epic 处理。当前没有数据转换入口。
+M2 整篇加密接入及未闭环验收见 [M2 记录](./encrypted-notes-m2.md)，覆盖独立文档类型、受控编辑器、对象身份绑定、SQLite/PostgreSQL、自动保存/Yjs/队列隔离、版本/同步/备份密文路径，以及搜索、AI、分享、插件和旧客户端写入阻断。M3 才能交付局部节点/围栏。附件、元数据、旧明文及口令丢失按 Epic 处理。当前没有数据转换入口。
 
 ## 规范
 

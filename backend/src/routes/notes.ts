@@ -1,4 +1,7 @@
+import { withEncryptedBlockWrite } from "../lib/encryptedBlockWrites.js";
 import { Hono } from "hono";
+import { EncryptedNotePayloadError, guardEncryptedBlockWriter, guardEncryptedNoteMutation, isEncryptedNoteFormat, parseEncryptedNote } from "../lib/encryptedNotes.js";
+import { createKnowledgeChild, KnowledgeTreeError } from "../services/knowledgeTree.js";
 import { projectMarkdownNoteForUser } from "../lib/markdownUserContent";
 import { getDb } from "../db/schema";
 import { v4 as uuid } from "uuid";
@@ -609,6 +612,36 @@ app.post("/", async (c) => {
   const db = getDb();
   const userId = c.req.header("X-User-Id") || "";
   const body = await c.req.json();
+  if (!isEncryptedNoteFormat(body.contentFormat)) {
+    try { guardEncryptedNoteMutation(body); guardEncryptedBlockWriter(body); }
+    catch (error) {
+      if (error instanceof EncryptedNotePayloadError) return c.json({ error: error.message, code: error.code }, 400);
+      throw error;
+    }
+  }
+  if (isEncryptedNoteFormat(body.contentFormat)) {
+    try {
+      guardEncryptedNoteMutation(body);
+      const identity = parseEncryptedNote(body.content);
+      const encryptedNoteId = typeof body.id === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(body.id) ? body.id : undefined;
+      if (encryptedNoteId && db.prepare("SELECT 1 FROM notes WHERE id = ?").get(encryptedNoteId)) {
+        return c.json({ error: "笔记 ID 已存在", code: "NOTE_ID_CONFLICT" }, 409);
+      }
+      const node = createKnowledgeChild({
+        actorUserId: userId, workspaceId: typeof body.workspaceId === "string" ? body.workspaceId : null,
+        parentId: typeof body.treeParentId === "string" ? body.treeParentId : null,
+        nodeType: identity.originalFormat === "markdown" ? "markdown" : "note",
+        title: typeof body.title === "string" ? body.title : "加密笔记",
+        encryptedContent: body.content, encryptedNoteId, db,
+      });
+      const note = db.prepare("SELECT * FROM notes WHERE id = ?").get(node.resourceId) as any;
+      return c.json({ ...note, tags: [], permission: resolveNotePermission(node.resourceId, userId).permission, treeNodeId: node.id }, 201);
+    } catch (error) {
+      if (error instanceof EncryptedNotePayloadError) return c.json({ error: error.message, code: error.code }, 400);
+      if (error instanceof KnowledgeTreeError) return c.json({ error: error.message, code: error.code }, error.status);
+      throw error;
+    }
+  }
   if (body.colorMark !== undefined && !isValidNoteColorMarkInput(body.colorMark)) {
     return c.json({ error: "无效的笔记颜色标记", code: "INVALID_NOTE_COLOR_MARK" }, 400);
   }
@@ -699,7 +732,8 @@ app.post("/", async (c) => {
     try {
       const r = extractInlineBase64Images(body.content, userId, id, inheritedWorkspaceId);
       if (r.replacedCount > 0) {
-        db.prepare("UPDATE notes SET content = ? WHERE id = ?").run(r.content, id);
+        withEncryptedBlockWrite(db, id, r.content, contentFormat, () =>
+          db.prepare("UPDATE notes SET content = ? WHERE id = ?").run(r.content, id));
         finalContent = r.content;
       }
     } catch (e) {
@@ -795,6 +829,18 @@ app.put("/:id", async (c) => {
   }
   if (needsWrite && !hasPermission(permission, "write")) {
     return c.json({ error: "权限不足", code: "FORBIDDEN" }, 403);
+  }
+
+  try {
+    const existing = db.prepare("SELECT content, contentFormat FROM notes WHERE id = ?").get(id) as { content: string; contentFormat: string } | undefined;
+    guardEncryptedNoteMutation(body, existing);
+    const protectedWrite = guardEncryptedBlockWriter(body, existing);
+    if (protectedWrite && existing && (!Number.isSafeInteger(body.version) || body.version < 1)) throw new EncryptedNotePayloadError();
+    if (isEncryptedNoteFormat(existing?.contentFormat) && body.content !== undefined
+      && (!Number.isSafeInteger(body.version) || body.version < 1)) throw new EncryptedNotePayloadError();
+  } catch (error) {
+    if (error instanceof EncryptedNotePayloadError) return c.json({ error: error.message, code: error.code }, 400);
+    throw error;
   }
 
   if (typeof body.content === "string") {
@@ -1196,7 +1242,10 @@ app.put("/:id", async (c) => {
         });
       }
     });
-    legacyNoteUpdateTx();
+    if (typeof body.content === "string") {
+      const format = db.prepare("SELECT contentFormat FROM notes WHERE id = ?").get(id) as { contentFormat: string };
+      withEncryptedBlockWrite(db, id, body.content, body.contentFormat ?? format.contentFormat, legacyNoteUpdateTx, body.encryptedBlocksVersion);
+    } else legacyNoteUpdateTx();
   }
 
   // v11: 同步 attachment_references 倒排（仅在 content 字段被改动时；非内容字段

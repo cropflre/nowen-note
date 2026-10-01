@@ -1,3 +1,4 @@
+import { withEncryptedBlockWrite } from "../lib/encryptedBlockWrites.js";
 import type Database from "better-sqlite3";
 import { runWithOutboxSuppressed } from "./context";
 import { runChangeFeedSuppressed } from "./suppression";
@@ -5,6 +6,7 @@ import type { SyncEntityType } from "./types";
 import { isSyncEntityType, isSyncOperation } from "./types";
 import { SyncError } from "./errors";
 import { normalizeNoteThemeId } from "../lib/noteThemeId";
+import { EncryptedNotePayloadError, guardEncryptedNoteMutation, guardEncryptedBlockWriter } from "../lib/encryptedNotes.js";
 
 /**
  * 把远端变更写入本地 SQLite。
@@ -42,6 +44,25 @@ export interface ApplyLocalResult {
   skipped: number;
   /** 因本地有未同步修改而需要走冲突流程的实体。 */
   pendingConflicts: RemoteEntityPayload[];
+}
+
+/** Validate before conflict storage or cursor advancement, including brand-new devices. */
+export function validateEncryptedRemoteNotes(db: Database.Database, items: ReadonlyArray<RemoteEntityPayload>, options: ApplyLocalOptions): void {
+  for (const item of items) {
+    if (item.entityType !== "note" || item.operation !== "upsert") continue;
+    const workspaceId = options.workspaceId ?? null;
+    const current = db.prepare(`SELECT content, contentFormat FROM notes WHERE id = ? AND workspaceId IS ?
+      AND (? IS NOT NULL OR userId = ?)`).get(item.entityId, workspaceId, workspaceId, options.userId) as
+      { content: string; contentFormat: string } | undefined;
+    try {
+      const effective = { ...item.payload, content: str(item.payload?.content, "{}"), contentFormat: str(item.payload?.contentFormat, "richtext") };
+      guardEncryptedNoteMutation(effective, current); guardEncryptedBlockWriter(effective, current);
+    }
+    catch (error) {
+      if (!(error instanceof EncryptedNotePayloadError)) throw error;
+      throw new SyncError("INVALID_PAYLOAD", "加密笔记同步载荷无效，原密文已保留");
+    }
+  }
 }
 
 function str(value: unknown, fallback = ""): string {
@@ -157,7 +178,7 @@ function applyNoteLocal(db: Database.Database, item: RemoteEntityPayload, option
   }
   const p = item.payload || {};
   const hasThemeId = Object.prototype.hasOwnProperty.call(p, "themeId");
-  db.prepare(`
+  withEncryptedBlockWrite(db, item.entityId, str(p.content, "{}"), str(p.contentFormat, "richtext"), () => db.prepare(`
     INSERT INTO notes (
       id, userId, notebookId, workspaceId, title, content, contentText, contentFormat,
       isPinned, isFavorite, isLocked, isArchived, isTrashed, trashedAt,
@@ -200,7 +221,7 @@ function applyNoteLocal(db: Database.Database, item: RemoteEntityPayload, option
     num(p.sortOrder),
     p.createdAt ?? null,
     hasThemeId ? 1 : 0,
-  );
+  ), p.encryptedBlocksVersion);
 }
 
 function applyNoteTagLocal(db: Database.Database, item: RemoteEntityPayload, options: ApplyLocalOptions): void {
@@ -468,6 +489,7 @@ export function applyRemoteChanges(
   items: RemoteEntityPayload[],
   options: ApplyLocalOptions,
 ): ApplyLocalResult {
+  validateEncryptedRemoteNotes(db, items, options);
   for (const item of items) {
     if (!isSyncEntityType(item.entityType) || !isSyncOperation(item.operation)) {
       throw new SyncError("SERVER_ERROR", "收到当前客户端不支持的同步实体或操作");

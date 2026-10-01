@@ -1,4 +1,6 @@
+import { withEncryptedBlockWrite } from "../lib/encryptedBlockWrites.js";
 import type Database from "better-sqlite3";
+import { guardEncryptedNoteMutation, guardEncryptedBlockWriter } from "../lib/encryptedNotes.js";
 import { runChangeFeedSuppressed } from "./suppression";
 import { SyncError } from "./errors";
 import type { SyncEntityType, SyncOperation } from "./types";
@@ -183,10 +185,10 @@ function applyTag(db: Database.Database, input: ApplyMutationInput): number | nu
  */
 function applyNote(db: Database.Database, input: ApplyMutationInput): number | null {
   const existing = db.prepare(`
-    SELECT version, themeId, colorMark FROM notes WHERE id = ? AND workspaceId IS ?
+    SELECT version, themeId, colorMark, content, contentFormat FROM notes WHERE id = ? AND workspaceId IS ?
       AND (? IS NOT NULL OR userId = ?)
   `).get(input.entityId, workspaceIdOf(input), workspaceIdOf(input), input.userId) as
-    | { version: number; themeId: string | null; colorMark: string | null }
+    | { version: number; themeId: string | null; colorMark: string | null; content: string; contentFormat: string }
     | undefined;
 
   if (input.operation === "delete") {
@@ -202,13 +204,17 @@ function applyNote(db: Database.Database, input: ApplyMutationInput): number | n
 
   const p = input.payload || {};
 
+  const effective = { ...p, content: str(p.content, "{}"), contentFormat: str(p.contentFormat, "richtext") };
+  guardEncryptedNoteMutation(effective, existing);
+  guardEncryptedBlockWriter(effective, existing);
+
   if (existing) {
     const base = input.baseVersion;
     if (base === undefined || existing.version !== base) {
       throw new SyncError("VERSION_CONFLICT", `服务端版本 ${existing.version}`);
     }
     const nextVersion = existing.version + 1;
-    db.prepare(`
+    withEncryptedBlockWrite(db, input.entityId, effective.content, effective.contentFormat, () => db.prepare(`
       UPDATE notes SET
         notebookId = ?, title = ?, content = ?, contentText = ?, contentFormat = ?,
         isPinned = ?, isFavorite = ?, isLocked = ?, isArchived = ?, isTrashed = ?,
@@ -238,7 +244,7 @@ function applyNote(db: Database.Database, input: ApplyMutationInput): number | n
       workspaceIdOf(input),
       workspaceIdOf(input),
       input.userId,
-    );
+    ), p.encryptedBlocksVersion);
     return nextVersion;
   }
 

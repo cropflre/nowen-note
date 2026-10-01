@@ -2,6 +2,7 @@ import { lookup } from "node:dns/promises";
 import crypto from "node:crypto";
 import { v4 as uuid } from "uuid";
 import { getDb } from "../db/schema";
+import { isEncryptedNoteFormat } from "../lib/encryptedNotes.js";
 import { hasPermission, resolveNotePermission } from "../middleware/acl";
 import { enqueueAttachment } from "./embedding-worker";
 import {
@@ -226,6 +227,8 @@ export function assertRemoteImageImportPermission(noteId: string, userId: string
   if (!hasPermission(permission, "write")) {
     throw new RemoteImageError("无权修改该笔记", "FORBIDDEN", 403);
   }
+  const note = getDb().prepare("SELECT contentFormat FROM notes WHERE id = ?").get(noteId) as { contentFormat: string } | undefined;
+  if (isEncryptedNoteFormat(note?.contentFormat)) throw new RemoteImageError("加密文本笔记暂不支持附件", "ENCRYPTED_NOTE_ATTACHMENT_FORBIDDEN", 400);
   return { workspaceId: workspaceId || null };
 }
 

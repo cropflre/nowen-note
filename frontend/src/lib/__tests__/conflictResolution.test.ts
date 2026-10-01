@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Note } from "@/types";
 import type { OfflineQueueItem } from "@/lib/offlineQueue";
+import encryptedFixture from "../encryptedNotes/__tests__/fixtures/envelope-v1.json";
 
 const apiMock = vi.hoisted(() => ({
   getNote: vi.fn(),
@@ -94,6 +95,50 @@ describe("resolveNoteConflict", () => {
     apiMock.getNote.mockResolvedValue(remoteNote());
     apiMock.updateNoteConfirmed.mockReset();
     apiMock.createNoteConfirmed.mockReset();
+  });
+
+  it("keeps encrypted conflicts durable until an explicit user choice", async () => {
+    const content = JSON.stringify(encryptedFixture.envelope);
+    const item = conflictItem({ body: { content, contentFormat: "encrypted-note-v1", contentText: "" }, localPayload: null });
+    const result = await resolveQueuedNoteConflicts([item]);
+    expect(result.attempted).toBe(0);
+    expect(apiMock.getNote).not.toHaveBeenCalled();
+    expect(discardResolvedQueueItems).not.toHaveBeenCalled();
+  });
+
+  it("ignores ordinary draft storage when explicitly resolving encrypted versions", async () => {
+    const content = JSON.stringify(encryptedFixture.envelope);
+    const remote = remoteNote({ content, contentText: "", contentFormat: "encrypted-note-v1" });
+    apiMock.getNote.mockResolvedValue(remote);
+    loadDraft.mockReturnValue({ content: "must-never-be-used", contentText: "must-never-be-used" });
+    apiMock.updateNoteConfirmed.mockResolvedValue({ ...remote, version: remote.version + 1 });
+    await resolveNoteConflict(conflictItem({ body: { content, contentText: "", contentFormat: "encrypted-note-v1" }, localPayload: null }), "keep-local");
+    expect(loadDraft).not.toHaveBeenCalled();
+    expect(apiMock.updateNoteConfirmed).toHaveBeenCalledWith(remote.id, expect.objectContaining({ content, contentText: "", contentFormat: "encrypted-note-v1" }));
+  });
+
+  it("局部密文队列不能自动解决，服务器新增区域也不能被自动覆盖", async () => {
+    const content = `\`\`\`nowen-encrypted-v1\n${JSON.stringify({ ...encryptedFixture.envelope, kind: "block" })}\n\`\`\``;
+    const item = conflictItem({ body: { content, contentFormat: "markdown" }, localPayload: null });
+    expect((await resolveQueuedNoteConflicts([item])).attempted).toBe(0);
+    expect(apiMock.getNote).not.toHaveBeenCalled();
+    apiMock.getNote.mockResolvedValue(remoteNote({ content }));
+    const result = await resolveQueuedNoteConflicts([conflictItem()]);
+    expect(result.resolved).toBe(0);
+    expect(apiMock.getNote).toHaveBeenCalledTimes(1);
+    expect(apiMock.updateNoteConfirmed).not.toHaveBeenCalled();
+    expect(discardResolvedQueueItems).not.toHaveBeenCalled();
+  });
+
+  it("明确保留本机区域时使用完整密文，忽略普通草稿缓存", async () => {
+    const content = `\`\`\`nowen-encrypted-v1\n${JSON.stringify({ ...encryptedFixture.envelope, kind: "block" })}\n\`\`\``;
+    const remote = remoteNote({ content, contentText: "" });
+    apiMock.getNote.mockResolvedValue(remote);
+    loadDraft.mockReturnValue({ content: "stale public draft", contentText: "stale public draft" });
+    apiMock.updateNoteConfirmed.mockResolvedValue({ ...remote, version: 9 });
+    await resolveNoteConflict(conflictItem({ body: { content, contentFormat: "markdown", contentText: "" }, localPayload: null }), "keep-local");
+    expect(loadDraft).not.toHaveBeenCalled();
+    expect(apiMock.updateNoteConfirmed).toHaveBeenCalledWith(remote.id, expect.objectContaining({ content, contentText: "", contentFormat: "markdown", version: 8 }));
   });
 
   it("distinguishes debounced editor input from the conflict payload already copied", () => {

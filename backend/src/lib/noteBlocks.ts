@@ -1,7 +1,9 @@
+import { withEncryptedBlockWrite } from "./encryptedBlockWrites.js";
 import { createHash } from "node:crypto";
 import { v4 as uuid } from "uuid";
 import type Database from "better-sqlite3";
 import { stripLegacyInternalMarkdownMarkers } from "./markdownUserContent";
+import { isEncryptedBlockLanguage } from "./encryptedNotes.js";
 
 export const SUPPORTED_NOTE_BLOCK_TYPES = [
   "heading",
@@ -61,6 +63,7 @@ function hashText(type: string, text: string): string {
 
 function collectNodeText(node: any): string {
   if (!node || typeof node !== "object") return "";
+  if (node.type === "codeBlock" && isEncryptedBlockLanguage(node.attrs?.language)) return "";
   if (node.type === "text") return String(node.text || "");
   if (node.type === "hardBreak") return "\n";
   if (!Array.isArray(node.content)) return "";
@@ -116,7 +119,7 @@ function parseTiptap(noteId: string, content: string): {
           parentBlockId,
           blockOrder: order++,
           plainText,
-          contentHash: hashText(node.type, plainText),
+          contentHash: hashText(node.type, node.type === "codeBlock" && isEncryptedBlockLanguage(node.attrs?.language) ? JSON.stringify(node.content) : plainText),
           path: currentPath.join("."),
           startOffset: null,
           endOffset: null,
@@ -252,11 +255,11 @@ function parseMarkdown(noteId: string, content: string): {
       continue;
     }
 
-    const fence = line.text.match(/^\s*(```+|~~~+)/);
-    if (fence) {
-      const fenceToken = fence[1];
+    const fence = line.text.match(/^([ \t>]*(?:(?:[-+*]|\d+[.)])[ \t]+)?)(`{3,}|~{3,})(.*)$/);
+    if (fence && (!fence[1].trim() || isEncryptedBlockLanguage(fence[3].trim()))) {
+      const fenceToken = fence[2];
       let j = i + 1;
-      while (j < lines.length && !new RegExp(`^\\s*${fenceToken[0]}{${fenceToken.length},}\\s*$`).test(lines[j].text)) j++;
+      while (j < lines.length && !new RegExp(`^${isEncryptedBlockLanguage(fence[3].trim()) ? "[ \\t>]*" : "\\s*"}${fenceToken[0]}{${fenceToken.length},}\\s*$`).test(lines[j].text)) j++;
       if (j < lines.length) j++;
       let markerLine = j;
       let explicitBlockId: string | null = null;
@@ -270,7 +273,7 @@ function parseMarkdown(noteId: string, content: string): {
       const start = line.start;
       const end = (j > i ? lines[j - 1].endWithNewline : line.endWithNewline);
       const raw = normalizedContent.slice(start, end);
-      const plainText = raw
+      const plainText = isEncryptedBlockLanguage(fence[3].trim()) ? "" : raw
         .replace(/^\s*(```+|~~~+)[^\n]*\n?/, "")
         .replace(/\n?\s*(```+|~~~+)\s*(?:\n\^blk_[A-Za-z0-9_-]+)?\s*$/, "")
         .trim();
@@ -282,7 +285,7 @@ function parseMarkdown(noteId: string, content: string): {
         parentBlockId: null,
         blockOrder: order++,
         plainText,
-        contentHash: hashText("codeBlock", plainText),
+        contentHash: hashText("codeBlock", isEncryptedBlockLanguage(fence[3].trim()) ? raw : plainText),
         path: String(order - 1),
         startOffset: start,
         endOffset: end,
@@ -447,6 +450,7 @@ export function syncNoteBlocks(
   contentFormat: string,
 ): { content: string; contentText: string; blocks: NoteBlockIndexRow[]; changed: boolean } {
   ensureNoteBlockTables(db);
+  if (contentFormat.startsWith("encrypted-")) return { content, contentText: "", blocks: [], changed: false };
   if (contentFormat === "html") {
     db.prepare("DELETE FROM note_blocks_index WHERE noteId = ?").run(noteId);
     return {
@@ -504,8 +508,9 @@ export function syncNoteBlocks(
       );
     }
     if (changed) {
-      db.prepare("UPDATE notes SET content = ?, contentText = ? WHERE id = ?")
-        .run(normalizedContent, contentText, noteId);
+      withEncryptedBlockWrite(db, noteId, normalizedContent, contentFormat, () =>
+        db.prepare("UPDATE notes SET content = ?, contentText = ? WHERE id = ?")
+          .run(normalizedContent, contentText, noteId));
     }
   });
   tx();
@@ -579,6 +584,7 @@ export function searchNoteBlocks(
 }
 
 export function plainTextFromNoteContent(content: string, contentFormat: string): string {
+  if (contentFormat.startsWith("encrypted-")) return "";
   if (contentFormat === "html") {
     return content.replace(/<script[\s\S]*?<\/script>/gi, " ").replace(/<style[\s\S]*?<\/style>/gi, " ").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
   }

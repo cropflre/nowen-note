@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Note } from "@/types";
+import encryptedFixture from "../encryptedNotes/__tests__/fixtures/envelope-v1.json";
+import { enqueue } from "@/lib/offlineQueue";
 
 const localStore = vi.hoisted(() => ({
   getNote: vi.fn(),
@@ -105,11 +107,21 @@ describe("canApplyRevalidatedNote", () => {
 describe("loadNoteCacheFirst", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    localStorage.clear();
     localStore.isNoteDetailCached.mockReturnValue(true);
     localStore.putNote.mockResolvedValue(undefined);
     attachmentRuntime.hasPersistentNoteAttachmentReference.mockImplementation((content) =>
       typeof content === "string" && content.includes("/api/attachments/"));
     attachmentRuntime.primeNoteAttachmentAccess.mockResolvedValue(1);
+  });
+
+  it("reads pending ciphertext before touching a missing/unavailable detail cache or stale remote", async () => {
+    const content = JSON.stringify(encryptedFixture.envelope);
+    const pending = makeNote({ content, contentText: "", contentFormat: "encrypted-note-v1" });
+    enqueue({ type: "updateNote", noteId: pending.id, method: "PUT", url: "/notes/note-1", body: { ...pending } });
+    const remote = vi.fn();
+    await expect(loadNoteCacheFirst({ noteId: pending.id, fetchRemote: remote })).resolves.toMatchObject(pending);
+    expect(localStore.getNote).not.toHaveBeenCalled(); expect(remote).not.toHaveBeenCalled();
   });
 
   it("Case 1/2: preserves explicitly blocking preparation hooks for callers that require them", async () => {

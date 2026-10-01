@@ -1,3 +1,4 @@
+import { EncryptedNotePayloadError, withEncryptedBlocksSupport } from "../lib/encryptedNotes.js";
 import type Database from "better-sqlite3";
 import { Hono } from "hono";
 import { getDb } from "../db/schema";
@@ -404,7 +405,7 @@ function snapshotPage(
   limit: number,
 ): Array<{ id: string; payload: Record<string, unknown> }> {
   const map = (rows: Array<Record<string, unknown>>) =>
-    rows.map((row) => ({ id: String(row.id), payload: row }));
+    rows.map((row) => ({ id: String(row.id), payload: type === "note" ? withEncryptedBlocksSupport(row) : row }));
 
   switch (type) {
     case "notebook":
@@ -775,7 +776,7 @@ app.post("/push", async (c) => {
     } catch (error: any) {
       const code = error instanceof SyncError && isSyncErrorCode(error.code)
         ? error.code
-        : "SERVER_ERROR";
+        : error instanceof EncryptedNotePayloadError ? "INVALID_PAYLOAD" : "SERVER_ERROR";
       if (code === "VERSION_CONFLICT") conflicts += 1;
 
       // 冲突时直接回传服务端当前内容；远端实体未必会再次产生 Change Feed，
@@ -802,6 +803,7 @@ app.post("/push", async (c) => {
           ) as Record<string,unknown> | undefined;
           if (parsed.entityType === "note" && typeof serverPayload?.version === "number") {
             serverVersion=serverPayload.version;
+            serverPayload = withEncryptedBlocksSupport(serverPayload);
           }
         }
       }

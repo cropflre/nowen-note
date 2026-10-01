@@ -21,6 +21,7 @@ import {
   type ResolvedConflictSummary,
 } from "@/lib/syncLocalApi";
 import { buildAutomaticConflictMerge } from "@/lib/syncConflictAutoMerge";
+import { isProtectedNotePayload } from "@/lib/encryptedNotes/blockDocument";
 
 const HISTORY_PAGE_SIZE = 20;
 const ENTITY_TYPE_LABELS: Record<string, string> = {
@@ -241,9 +242,11 @@ export function ConflictCenter({
           if (!merged.ok) {
             const reason = merged.reason === "missing-base"
               ? "缺少共同基线"
-              : merged.reason === "missing-side"
-                ? "版本内容不完整"
-                : `重叠字段：${merged.conflictFields.join("、")}`;
+              : merged.reason === "encrypted-content"
+                ? "加密笔记需明确选择本机或服务器版本"
+                : merged.reason === "missing-side"
+                  ? "版本内容不完整"
+                  : `重叠字段：${merged.conflictFields.join("、")}`;
             blocked.push(`${title}（${reason}）`);
             continue;
           }
@@ -652,6 +655,7 @@ function ConflictDiff({
   const [editing,setEditing] = useState(false);
   const [draft,setDraft] = useState("");
   const [draftError,setDraftError] = useState<string|null>(null);
+  const encrypted = detail.entityType === "note" && [detail.base, detail.local, detail.remote].some(isProtectedNotePayload);
   const preview = (value: unknown): string => {
     if (value === undefined || value === null) return "—";
     const text = typeof value === "string" ? value : JSON.stringify(value);
@@ -701,8 +705,8 @@ function ConflictDiff({
             {detail.diffFields.map((field) => (
               <tr key={field} className="border-t align-top">
                 <td className="py-1 font-mono">{field}</td>
-                <td className="py-1 break-words">{preview(detail.local?.[field])}</td>
-                <td className="py-1 break-words">{preview(detail.remote?.[field])}</td>
+                <td className="py-1 break-words">{encrypted && field === "content" ? "加密正文（已保留）" : preview(detail.local?.[field])}</td>
+                <td className="py-1 break-words">{encrypted && field === "content" ? "加密正文（已保留）" : preview(detail.remote?.[field])}</td>
               </tr>
             ))}
           </tbody>
@@ -711,6 +715,10 @@ function ConflictDiff({
       {detail.status === "resolved" ? (
         <p className="mt-3 border-t pt-3 text-muted-foreground">
           这是已解决冲突的历史记录。如需重新选择版本，请先点击“撤销处理”。
+        </p>
+      ) : encrypted ? (
+        <p className="mt-3 border-t pt-3 text-muted-foreground">
+          加密正文无法在此比较或合并。请选择本机或服务器版本，两侧密文会保留在冲突历史中。
         </p>
       ) : editing ? (
         <div className="mt-3 space-y-2 border-t pt-3">

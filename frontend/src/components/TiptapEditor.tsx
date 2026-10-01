@@ -163,6 +163,8 @@ import {
 } from "@/components/FontSizeExtension";
 import { LineHeightExtension, LINE_HEIGHT_PRESETS } from "@/components/LineHeightExtension";
 import CodeBlockView from "@/components/CodeBlockView";
+import EncryptedBlockDialog from "./EncryptedBlockDialog";
+import { ENCRYPTED_BLOCK_LANGUAGE } from "@/lib/encryptedNotes/blockDocument";
 import { IndentExtension } from "@/lib/codeBlockIndent";
 import { SearchReplacePanel, createSearchReplaceExtension, searchReplacePluginKey } from "@/components/SearchReplacePanel";
 import { Video as VideoExtension, createVideoFileAttrs } from "@/components/VideoExtension";
@@ -2944,6 +2946,20 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
     },
   });
 
+  const [encryptedRegion, setEncryptedRegion] = useState<{ commit: (source: string) => void } | null>(null);
+  useEffect(() => { setEncryptedRegion(null); }, [note.id]);
+  const insertEncryptedRegion = () => {
+    if (!editor || !editable || isGuest || note.isTrashed) return;
+    const { selection, doc } = editor.state; const noteId = note.id;
+    if (!selection.empty || selection.$from.depth !== 1 || selection.$from.parent.type.name !== "paragraph") {
+      showPasteToast("error", "请在普通段落的光标位置新增加密区域；已有明文选区转换尚未提供。"); return;
+    }
+    setEncryptedRegion({ commit: (source) => {
+      if (noteRef.current.id !== noteId || !editor.isEditable || editor.state.doc !== doc) throw new Error("Encrypted region changed");
+      if (!editor.commands.insertContentAt(selection.from, { type: "codeBlock", attrs: { language: ENCRYPTED_BLOCK_LANGUAGE }, content: [{ type: "text", text: source }] })) throw new Error("Encrypted region write failed");
+    } });
+  };
+
   useEffect(() => {
     if (!isMobile || !imageBubble.open) return;
     const editorDom = editor?.view.dom;
@@ -5370,6 +5386,7 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
         formatPainterArmed && "[&_.ProseMirror]:cursor-crosshair",
       )}
     >
+      {encryptedRegion && <EncryptedBlockDialog onCommit={encryptedRegion.commit} onClose={() => setEncryptedRegion(null)} />}
       {/* Toolbar
           v2026-05-18：取消「键盘弹起时隐藏 + 浮动工具栏顶替」方案，改为始终保留
           单一顶部工具栏并 sticky 在容器顶端：
@@ -5600,6 +5617,7 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
         >
           <FileCode size={iconSize} />
         </ToolbarButton>
+        <ToolbarButton onClick={insertEncryptedRegion} disabled={!editable || isGuest} title="新增加密区域（实验性）">🔒</ToolbarButton>
         <ToolbarButton
           onClick={handleForceMarkdownConversion}
           disabled={!editable || isGuest}

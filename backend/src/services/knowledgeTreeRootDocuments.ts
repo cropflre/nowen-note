@@ -148,6 +148,8 @@ export function createKnowledgeChild(input: {
   parentId: string | null;
   nodeType: "folder" | "note" | "markdown" | "word";
   title: string;
+  encryptedContent?: string;
+  encryptedNoteId?: string;
   db?: Database.Database;
 }): KnowledgeTreeNode {
   if (input.parentId !== null) {

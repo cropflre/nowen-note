@@ -147,7 +147,7 @@ async function processOne(
   // 取笔记内容（含 workspaceId，写入 note_embeddings 时同步落表）
   const note = db
     .prepare(
-      "SELECT id, userId, workspaceId, title, contentText, isTrashed FROM notes WHERE id = ?",
+      "SELECT id, userId, workspaceId, title, contentText, contentFormat, isTrashed FROM notes WHERE id = ?",
     )
     .get(task.noteId) as
     | {
@@ -156,11 +156,12 @@ async function processOne(
         workspaceId: string | null;
         title: string;
         contentText: string;
+        contentFormat: string;
         isTrashed: number;
       }
     | undefined;
 
-  if (!note || note.isTrashed) {
+  if (!note || note.isTrashed || note.contentFormat?.startsWith("encrypted-")) {
     // 笔记已不存在或被丢进回收站 → 直接清队列项
     embeddingQueueRepository.deleteByNoteId(task.noteId);
     return;

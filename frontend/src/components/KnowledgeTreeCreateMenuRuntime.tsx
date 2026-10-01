@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { BrainCircuit, Copy, FileArchive, FileCode, Files, FileText, FileType2, Folder, LayoutTemplate, Link2, Table2 } from "lucide-react";
 
 import NoteTemplatePickerDialog from "@/components/NoteTemplatePickerDialog";
+import EncryptedNoteCreateDialog from "./EncryptedNoteCreateDialog";
 import KnowledgeTreePanelBase, {
   FOCUS_KNOWLEDGE_TREE_EVENT,
   KNOWLEDGE_TREE_CHANGED_EVENT,
@@ -61,6 +62,7 @@ interface KnowledgeTreeCreateDropdownProps {
   onClose: () => void;
   onCreate: (parentId: string | null, kind: KnowledgeTreeInlineCreateKind) => void;
   onCreateFromTemplate: (parentId: string | null) => void;
+  onCreateEncrypted?: (parentId: string | null) => void;
   onImport: (parentId: string | null, kind: KnowledgeTreeImportRequest["kind"]) => void;
 }
 
@@ -206,6 +208,7 @@ export function KnowledgeTreeCreateDropdown({
   onClose,
   onCreate,
   onCreateFromTemplate,
+  onCreateEncrypted,
   onImport,
 }: KnowledgeTreeCreateDropdownProps) {
   const menuRef = useRef<HTMLDivElement>(null);
@@ -309,6 +312,9 @@ export function KnowledgeTreeCreateDropdown({
           </button>
         );
       })}
+      {onCreateEncrypted && <button type="button" role="menuitem" className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-xs text-tx-secondary hover:bg-app-hover" onClick={() => onCreateEncrypted(menu.parentId)}>
+        <FileText size={15} /><span>加密文本笔记（实验性）</span>
+      </button>}
       <button
         type="button"
         role="menuitem"
@@ -382,6 +388,7 @@ export function KnowledgeTreePanel(props: KnowledgeTreePanelProps) {
   const [importRequest, setImportRequest] = useState<KnowledgeTreeImportRequest | undefined>();
   const [templateCreateRequest, setTemplateCreateRequest] = useState<KnowledgeTreeTemplateCreateRequest | undefined>();
   const [templatePicker, setTemplatePicker] = useState<{ parentId: string | null } | null>(null);
+  const [encryptedCreate, setEncryptedCreate] = useState<{ parentId: string | null } | null>(null);
   const [allNotesHost, setAllNotesHost] = useState<HTMLElement | null>(null);
   const [layoutMode, setLayoutMode] = useState<NoteWorkspaceLayoutMode>(() =>
     loadNoteWorkspaceLayoutMode(state.noteListCollapsed),
@@ -519,6 +526,7 @@ export function KnowledgeTreePanel(props: KnowledgeTreePanelProps) {
         onClose={() => setCreateMenu(null)}
         onCreate={requestInlineCreate}
         onCreateFromTemplate={openTemplatePicker}
+        onCreateEncrypted={(parentId) => { setCreateMenu(null); setEncryptedCreate({ parentId }); }}
         onImport={requestImport}
       />
       <NoteTemplatePickerDialog
@@ -527,6 +535,7 @@ export function KnowledgeTreePanel(props: KnowledgeTreePanelProps) {
         onCreate={requestTemplateCreate}
         onCreatePlugin={requestPluginTemplateCreate}
       />
+      {encryptedCreate && <EncryptedNoteCreateDialog parentId={encryptedCreate.parentId} onClose={() => setEncryptedCreate(null)} />}
     </>
   );
 }

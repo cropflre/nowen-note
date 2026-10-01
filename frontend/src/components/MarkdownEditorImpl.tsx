@@ -1,3 +1,4 @@
+import { commitMarkdownEncryptedRegion } from "@/lib/encryptedNotes/blockAuthoring";
 /**
  * MarkdownEditor —— 基于 CodeMirror 6 的 Markdown 笔记编辑器
  * ---
@@ -111,6 +112,8 @@ import {
   BrainCircuit,
 } from "lucide-react";
 import { MarkdownPreview } from "./MarkdownPreview";
+import EncryptedBlockDialog from "./EncryptedBlockDialog";
+import { markdownEncryptedBlocks } from "@/lib/encryptedNotes/blockDocument";
 import AttachmentLibraryPicker from "@/components/AttachmentLibraryPicker";
 import VoiceInsertMenu from "@/components/VoiceInsertMenu";
 import { requestVoiceMemo, voiceMemoHtml } from "@/lib/voiceMemo";
@@ -682,6 +685,28 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
   const previewRootRef = useRef<HTMLDivElement | null>(null);
   const splitContainerRef = useRef<HTMLDivElement | null>(null);
   const viewRef = useRef<EditorView | null>(null);
+  const [encryptedRegion, setEncryptedRegion] = useState<{ source?: string; commit: (source: string) => void } | null>(null);
+  useEffect(() => { setEncryptedRegion(null); }, [note.id]);
+  const openEncryptedRegion = () => {
+    const view = viewRef.current;
+    if (!view || !editable || isGuest || note.isTrashed) return;
+    const snapshot = view.state.doc; const noteId = note.id; const selection = view.state.selection.main;
+    try {
+      const block = markdownEncryptedBlocks(snapshot.toString()).find((item) => selection.from >= item.from && selection.to <= item.to);
+      if (!block && !selection.empty) { toast.error("已有明文选区转换尚未提供。请将新内容直接输入加密区域。"); return; }
+      // New regions start on their own line, never inside another code fence.
+      const syntax = syntaxTree(view.state).resolveInner(selection.from, -1);
+      let insideFence = false;
+      for (let parent: typeof syntax | null = syntax; parent; parent = parent.parent) if (parent.name === "FencedCode" || parent.name === "CodeBlock") insideFence = true;
+      if (!block && (view.state.doc.lineAt(selection.from).text.trim() || insideFence)) {
+        toast.error("请在普通正文的空白行插入加密区域"); return;
+      }
+      setEncryptedRegion({ source: block?.source, commit: (source) => {
+        if (noteRef.current.id !== noteId || viewRef.current !== view || !view.state.facet(EditorView.editable) || view.state.doc !== snapshot) throw new Error("Encrypted region changed");
+        commitMarkdownEncryptedRegion(view, snapshot, { from: block?.from ?? selection.from, to: block?.to ?? selection.to, prefix: block?.prefix }, source);
+      } });
+    } catch { toast.error("加密区域格式无效，请保留原始密文"); }
+  };
   const titleRef = useRef<HTMLTextAreaElement | null>(null);
   const isTitleComposingRef = useRef(false);
   const lastEmittedTitleRef = useRef(note.title);
@@ -1171,7 +1196,7 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
     // P0-#2 �޸���CRDT ģʽ�� content ��ȫ�ɷ���� Y.Doc �йܳ־û���
     // �������ٷ� content ���� yjs �� debounce ��д����"���߸���ǰ��"�ľ�̬��
     // ������ meta��title��������˫д��ͻ��
-    if (collabEnabledRef.current) {
+    if (collabEnabledRef.current && !/nowen-encrypted/i.test(md)) {
       if (title !== noteRef.current.title) {
         onUpdateRef.current({ title, _noteId: noteRef.current.id });
       }
@@ -2148,6 +2173,8 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
       data-markdown-mobile-editing-compact={compactMobileEditing ? "true" : "false"}
       className="relative flex flex-col h-full overflow-hidden"
     >
+      {editable && !isGuest && !note.isTrashed && <button type="button" className="border-b border-app-border px-3 py-1 text-left text-xs text-tx-secondary" onClick={openEncryptedRegion}>加密区域（实验性）</button>}
+      {encryptedRegion && <EncryptedBlockDialog source={encryptedRegion.source} onCommit={encryptedRegion.commit} onClose={() => setEncryptedRegion(null)} />}
       {noteLinkMenu.open && (
         <NoteLinkMenu
           position={noteLinkMenu.position}

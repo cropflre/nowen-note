@@ -1,8 +1,9 @@
+import { isProtectedNotePayload, withEncryptedBlocksSupport } from "../lib/encryptedNotes.js";
 import type Database from "better-sqlite3";
 import { randomUUID } from "node:crypto";
 import { SYNC_TABLES } from "./constants";
 import { SyncError } from "./errors";
-import { getConflict, resolveConflict } from "./conflict";
+import { getConflict, resolveConflict, validateEncryptedConflictPayload } from "./conflict";
 import { enqueueMutation } from "./outbox";
 import { applyRemoteChanges } from "./applyLocal";
 import { applyKnowledgeTreeChangesLocal } from "./knowledgeTreeApplyLocal";
@@ -124,6 +125,7 @@ export function fillRemotePayload(
   remotePayload: Record<string, unknown>,
   remoteVersion?: number,
 ): number {
+  validateEncryptedConflictPayload(db, entityType, entityId, remotePayload);
   const result = db.prepare(`
     UPDATE ${SYNC_TABLES.conflicts}
     SET remotePayload = ?, remoteVersion = COALESCE(?, remoteVersion)
@@ -156,6 +158,7 @@ export function applyConflictResolution(
 
   const local = parse(row.localPayload);
   const remote = parse(row.remotePayload);
+  if (row.entityType === "note" && input.resolution === "manual" && [parse(row.basePayload), local, remote].some(isProtectedNotePayload)) throw new SyncError("INVALID_PAYLOAD", "加密内容冲突只能选择完整版本，不能手动合并密文");
   const workspaceId=workspaceIdFromScope(row.scopeKey);
   const applyOptions={userId:input.userId,scopeKey:row.scopeKey,workspaceId};
 
@@ -236,7 +239,8 @@ export function applyConflictResolution(
       return;
     }
 
-    const payload = input.resolution === "manual" ? input.mergedPayload : local;
+    const chosen = input.resolution === "manual" ? input.mergedPayload : local;
+    const payload = row.entityType === "note" && chosen ? withEncryptedBlocksSupport(chosen) : chosen;
     if (!payload) {
       throw new SyncError(
         "INVALID_PAYLOAD",

@@ -7,6 +7,8 @@
  * activity ledger used by records, trends and heatmaps.
  */
 import type Database from "better-sqlite3";
+import { encryptedBlocksMigration } from "./encryptedBlocksMigration.js";
+import { encryptedNotesMigration } from "./encryptedNotesMigration.js";
 import { markSearchIndexRebuilt, rebuildNormalizedSearchFts, repairSearchContentText } from "../lib/searchIndex.js";
 import {
   MIGRATIONS as BASE_MIGRATIONS,
@@ -403,6 +405,8 @@ export const MIGRATIONS: Migration[] = [
   workspaceIssuesMigration,
   noteColorMarkMigration,
   noteCommentNotificationsMigration,
+  encryptedNotesMigration,
+  encryptedBlocksMigration,
 ].sort((a, b) => a.version - b.version);
 
 export const CURRENT_SCHEMA_VERSION: number = MIGRATIONS.reduce(
