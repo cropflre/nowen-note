@@ -1,6 +1,6 @@
 # Encrypted Notes Epic：整篇笔记与局部内容加密
 
-状态：架构草案与交付计划，尚未实现内容加密。来源：[Issue #749 第 9 项](https://github.com/cropflre/nowen-note/issues/749)。跟踪：[Epic #796](https://github.com/cropflre/nowen-note/issues/796)。
+状态：M1 内部加密核心已实现，M0 参数冻结仍待移动端实测；尚未接入可用加密笔记。来源：[Issue #749 第 9 项](https://github.com/cropflre/nowen-note/issues/749)。跟踪：[Epic #796](https://github.com/cropflre/nowen-note/issues/796)。协议与验收：[内部 envelope v1](./encrypted-notes-envelope-v1.md)。
 
 ## 用户目标与验收边界
 
@@ -28,7 +28,7 @@
 
 ## 建议的密码与密文格式
 
-方案为待实现设计，不在此文引入运行时依赖或冻结 Public API。
+以下设计已在内部核心实现，产品接入尚未交付，不冻结 Public API。格式、候选参数与依赖以 [envelope v1](./encrypted-notes-envelope-v1.md) 为准。
 
 - 每篇笔记/每个加密区域生成随机 256 位内容密钥（DEK），每次加密生成新的 96 位 IV，使用 AES-256-GCM 和 128 位认证标签。
 - 口令经 Argon2id 派生包装密钥（KEK），使用独立随机盐；KEK 用 AES-GCM 包装 DEK。修改口令时重新派生并包装 DEK，不重新加密全部历史正文。
@@ -37,7 +37,7 @@
 - 密钥与口令仅保存在解锁会话内，不进入 localStorage、IndexedDB、数据库、日志、错误报告或同步消息。持久化的只能是盐、参数、IV、wrappedKey、ciphertext 和认证标签。
 - 错误口令、损坏密文或认证失败均返回可重试的解锁失败，不覆盖原密文。未知版本/算法、异常长度和超出上限的 KDF 参数应拒绝，不能自动当明文解析。
 
-Envelope v1 需要定义：`version`、`kind`、`objectId`、`originalFormat`、`kdf`（算法/盐/参数）、`wrappedKey`（IV/密文/标签）和 `payload`（IV/密文/标签）。使用明确的 base64 编码与固定 AAD 规范，跨端测试向量在格式冻结前建立。
+内部 envelope v1 已定义 `version`、`algorithm`、`kind`、`objectId`、`originalFormat`、`kdf`、`wrappedKey` 和 `payload`，使用规范 base64、尾附 GCM 标签和固定 AAD；已建立独立 Node/OpenSSL 测试向量。正式跨端格式仍待 M0 验收冻结。
 
 Argon2id 在 Worker 中运行。依赖版本、WASM 构建、内存/耗时参数和输入上限先在 Web、Electron、Android、iOS 实测后确定，并把参数写入 envelope；不未经测量就硬编码桌面参数。AES-GCM 使用 Web Crypto，Web 部署必须满足安全上下文要求；能力不可用时禁止创建/改写加密内容，不回退到服务端或弱算法。
 
@@ -64,7 +64,7 @@ JavaScript 无法保证所有内存副本被物理清零；锁定验收针对应
 ## 分阶段交付与完成条件
 
 - [ ] M0：明确保护范围、附件限制、元数据可见性、历史副本处理和恢复方式；冻结 envelope/AAD、KDF 参数与依赖；建立跨端测试向量。
-- [ ] M1：内部 Crypto 模块、口令包装、加解密、改口令与格式校验；错误/篡改/对象替换/未知版本/参数越界全部测试通过。
+- [x] M1：内部 Crypto 模块、口令包装、加解密、改口令与格式校验；错误/篡改/对象替换/未知版本/参数越界专项测试通过，真实 Chromium 验证独立向量与 Worker/WASM。
 - [ ] M2：新建整篇加密文本笔记，覆盖 MD/RT、锁定编辑、SQLite/PostgreSQL、离线持久化、版本、同步、备份恢复和旧客户端拒绝写入。
 - [ ] M3：局部加密节点/围栏，覆盖区域选择、解锁编辑、复制、MD/RT 转换、撤销重做和密文冲突。
 - [ ] M4：既有笔记转换；审计并处理正文、contentText、块快照、历史、FTS、向量索引、Yjs、队列、缓存、SQLite WAL/空闲页及备份中的旧明文。验证转换事务失败不会丢失笔记。

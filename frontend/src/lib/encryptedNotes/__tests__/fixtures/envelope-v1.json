@@ -1,0 +1,31 @@
+{
+  "generatedBy": "Node native Argon2id + OpenSSL AES-GCM (independent of hash-wasm/Web Crypto)",
+  "passphrase": "test-only: 密码 café 🚀",
+  "plaintext": "﻿# Secret\n跨端测试 📝\n",
+  "derivedKeyHex": "eecedf2f11669c5d8732fb32230274797304a3c786c5f23f4c0a65654c1cb81c",
+  "aadKeyUtf8": "[\"nowen-encrypted-content\",1,\"AES-256-GCM\",\"key\",\"00112233-4455-4677-8899-aabbccddeeff\",\"note\",\"markdown\"]",
+  "aadContentUtf8": "[\"nowen-encrypted-content\",1,\"AES-256-GCM\",\"content\",\"00112233-4455-4677-8899-aabbccddeeff\",\"note\",\"markdown\"]",
+  "envelope": {
+    "objectId": "00112233-4455-4677-8899-aabbccddeeff",
+    "kind": "note",
+    "originalFormat": "markdown",
+    "version": 1,
+    "algorithm": "AES-256-GCM",
+    "kdf": {
+      "algorithm": "argon2id",
+      "version": 19,
+      "memoryKiB": 65536,
+      "iterations": 3,
+      "parallelism": 4,
+      "salt": "AAECAwQFBgcICQoLDA0ODw=="
+    },
+    "wrappedKey": {
+      "iv": "EBESExQVFhcYGRob",
+      "ciphertext": "hWL0q4hhyZmRXtgdFFF8hhfknqdC8nSIFL7Z4HbcSjS9Gdva7g3d2vY1Jea/cJnJ"
+    },
+    "payload": {
+      "iv": "ICEiIyQlJicoKSor",
+      "ciphertext": "PYEZU0zLf21oGTbEKa9cHnvmCikMaMx7TAbzgdSACBaPekRmWVbtvuiTrouvxg=="
+    }
+  }
+}

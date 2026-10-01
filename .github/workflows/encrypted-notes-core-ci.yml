@@ -1,0 +1,55 @@
+name: Encrypted Notes Core CI
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, "release/**"]
+    paths:
+      - "frontend/src/lib/encryptedNotes/**"
+      - "frontend/benchmarks/encrypted-notes.*"
+      - "frontend/e2e/encrypted-notes-core.spec.ts"
+      - "frontend/vite.crypto-benchmark.config.ts"
+      - "frontend/playwright.encrypted-notes.config.ts"
+      - "frontend/package*.json"
+      - "scripts/generate-encrypted-notes-vector.mjs"
+      - "docs/architecture/encrypted-notes*.md"
+      - ".github/workflows/encrypted-notes-core-ci.yml"
+  pull_request:
+    paths:
+      - "frontend/src/lib/encryptedNotes/**"
+      - "frontend/benchmarks/encrypted-notes.*"
+      - "frontend/e2e/encrypted-notes-core.spec.ts"
+      - "frontend/vite.crypto-benchmark.config.ts"
+      - "frontend/playwright.encrypted-notes.config.ts"
+      - "frontend/package*.json"
+      - "scripts/generate-encrypted-notes-vector.mjs"
+      - "docs/architecture/encrypted-notes*.md"
+      - ".github/workflows/encrypted-notes-core-ci.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  crypto:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - name: Crypto core and Worker lifecycle regressions
+        run: npm run test:encrypted-notes
+      - name: Application typecheck
+        run: npx tsc -b --pretty false
+      - name: Benchmark and browser test typecheck
+        run: npx tsc --noEmit --target ES2022 --module ESNext --moduleResolution Bundler --lib ES2023,DOM --resolveJsonModule --allowSyntheticDefaultImports --skipLibCheck --strict benchmarks/encrypted-notes.ts e2e/encrypted-notes-core.spec.ts vite.crypto-benchmark.config.ts playwright.encrypted-notes.config.ts
+      - run: npx playwright install --with-deps chromium
+      - name: Bundled Worker, Web Crypto and WASM under CSP
+        run: npm run test:encrypted-notes:browser
