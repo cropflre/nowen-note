@@ -8,7 +8,7 @@ on:
       - "frontend/src/lib/encryptedNotes/**"
       - "frontend/src/lib/desktopBridge.ts"
       - "electron/encrypted-notes*.js"
-      - "scripts/encrypted-notes-electron-fixture.cjs"
+      - "scripts/encrypted-notes*-fixture.cjs"
       - "electron/main.js"
       - "electron/preload.js"
       - "frontend/tsconfig.encrypted-notes.json"
@@ -66,7 +66,7 @@ on:
       - "backend/package*.json"
       - "frontend/benchmarks/encrypted-notes*"
       - "frontend/e2e/encrypted-notes-*.spec.ts"
-      - "frontend/e2e/encrypted-notes-test.ts"
+      - "frontend/e2e/encrypted-notes*-test.ts"
       - "frontend/vite.crypto*.config.ts"
       - "frontend/playwright.encrypted-notes*.config.ts"
       - "frontend/package*.json"
@@ -78,7 +78,7 @@ on:
       - "frontend/src/lib/encryptedNotes/**"
       - "frontend/src/lib/desktopBridge.ts"
       - "electron/encrypted-notes*.js"
-      - "scripts/encrypted-notes-electron-fixture.cjs"
+      - "scripts/encrypted-notes*-fixture.cjs"
       - "electron/main.js"
       - "electron/preload.js"
       - "frontend/tsconfig.encrypted-notes.json"
@@ -136,7 +136,7 @@ on:
       - "backend/package*.json"
       - "frontend/benchmarks/encrypted-notes*"
       - "frontend/e2e/encrypted-notes-*.spec.ts"
-      - "frontend/e2e/encrypted-notes-test.ts"
+      - "frontend/e2e/encrypted-notes*-test.ts"
       - "frontend/vite.crypto*.config.ts"
       - "frontend/playwright.encrypted-notes*.config.ts"
       - "frontend/package*.json"
@@ -174,12 +174,12 @@ jobs:
         run: npx tsc --noEmit --pretty false
         working-directory: backend
       - name: Storage, Sync and recovery fixture typecheck
-        run: npx tsc --noEmit --pretty false --target ES2022 --module ESNext --moduleResolution bundler --esModuleInterop --skipLibCheck --strict tests/encrypted-notes-sync.test.ts tests/encrypted-notes-backup.test.ts tests/encrypted-notes-recovery-worker.ts tests/encrypted-notes-block-writers.test.ts tests/encrypted-notes-postgres.test.ts
+        run: npx tsc --noEmit --pretty false --target ES2022 --module ESNext --moduleResolution bundler --esModuleInterop --skipLibCheck --strict tests/encrypted-notes-sync.test.ts tests/encrypted-notes-backup.test.ts tests/encrypted-notes-recovery-worker.ts tests/encrypted-notes-block-writers.test.ts tests/encrypted-notes-postgres.test.ts tests/encrypted-notes-app-server.ts src/types/word-extractor.d.ts
         working-directory: backend
       - name: Crypto core and Worker lifecycle regressions
         run: npm run test:encrypted-notes
       - name: Native locking bridge syntax
-        run: node --check ../electron/encrypted-notes-auto-lock.js && node --check ../scripts/encrypted-notes-electron-fixture.cjs && node --check ../electron/main.js && node --check ../electron/preload.js
+        run: node --check ../electron/encrypted-notes-auto-lock.js && node --check ../scripts/encrypted-notes-electron-fixture.cjs && node --check ../scripts/encrypted-notes-app-fixture.cjs && node --check ../electron/main.js && node --check ../electron/preload.js
       - name: Ordinary and encrypted cache/conflict regressions
         run: npx vitest run src/lib/__tests__/conflictResolution.test.ts src/lib/__tests__/noteLoadSource.test.ts src/lib/__tests__/syncConflictAutoMerge.test.ts src/components/__tests__/ConflictCenterBulkResolve.test.tsx src/store/__tests__/encryptedRegionNavigation.test.tsx src/lib/__tests__/noteContentPersistence.test.ts src/lib/__tests__/contentFormat.test.ts
       - name: Application typecheck

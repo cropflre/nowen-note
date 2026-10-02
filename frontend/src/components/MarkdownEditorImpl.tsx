@@ -1377,7 +1377,8 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
       });
       setWordStats(computeStats(text));
       onHeadingsChangeRef.current?.(extractHeadings(update.view));
-      if (!collabEnabledRef.current) {
+      // Encrypted regions use the normal ciphertext save path; Yjs rejects them.
+      if (!collabEnabledRef.current || /nowen-encrypted/i.test(text)) {
         scheduleSave();
       }
 
