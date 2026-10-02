@@ -36,6 +36,17 @@ it("returning input cannot revive an expired session when timers were suspended"
   act(() => root.render(<Session />)); vi.setSystemTime(Date.now() + ENCRYPTED_IDLE_LOCK_MS);
   act(() => window.dispatchEvent(new Event("keydown"))); expect(lock).toHaveBeenCalledWith("idle");
 });
+it("native desktop events lock once and remove the preload subscription when inactive", () => {
+  let background!: () => void;
+  const unsubscribe = vi.fn();
+  const on = vi.fn((_channel: string, callback: () => void) => { background = callback; return unsubscribe; });
+  Object.defineProperty(window, "nowenDesktop", { configurable: true, value: { on } });
+  try {
+    act(() => root.render(<Session />)); expect(on).toHaveBeenCalledWith("security:auto-lock", expect.any(Function));
+    act(() => { background(); background(); }); expect(lock).toHaveBeenCalledTimes(1); expect(lock).toHaveBeenCalledWith("background");
+    act(() => root.render(<Session active={false} />)); expect(unsubscribe).toHaveBeenCalledTimes(1);
+  } finally { delete (window as any).nowenDesktop; }
+});
 it("rerenders use the current callback without resetting the deadline; inactive sessions remove observers", () => {
   act(() => root.render(<Session />)); act(() => vi.advanceTimersByTime(ENCRYPTED_IDLE_LOCK_MS - 1));
   const next = vi.fn(); act(() => root.render(<Session callback={next} />));

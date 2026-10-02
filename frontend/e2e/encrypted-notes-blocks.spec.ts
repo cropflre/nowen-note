@@ -1,8 +1,9 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test } from "./encrypted-notes-test";
+import type { Page } from "@playwright/test";
 const password = "test-only-m3-password";
 const plaintext = "PRIVATE_ENCRYPTED_M3_SENTINEL";
 async function create(page: Page) {
-  await page.goto("/benchmarks/encrypted-notes-blocks.html");
+  await page.goto("http://127.0.0.1:5176/benchmarks/encrypted-notes-blocks.html");
   await page.getByRole("button", { name: "载入普通笔记", exact: true }).click();
   await expect(page.getByRole("status")).toHaveText("已载入");
   await page.getByRole("button", { name: "新增加密区域", exact: true }).click();
@@ -74,7 +75,7 @@ test("real worker, editor history, format conversion, clipboard and persistence 
   for (const body of writes) { expect(body).not.toContain(plaintext); expect(body).not.toContain(password); }
 });
 test("failed region writes keep private draft and do not replace a changed document", async ({ page }) => {
-  await page.goto("/benchmarks/encrypted-notes-blocks.html");
+  await page.goto("http://127.0.0.1:5176/benchmarks/encrypted-notes-blocks.html");
   await page.getByRole("button", { name: "载入普通笔记", exact: true }).click();
   await expect(page.getByRole("status")).toHaveText("已载入");
   await page.getByRole("button", { name: "新增加密区域", exact: true }).click();

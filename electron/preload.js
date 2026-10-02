@@ -13,6 +13,7 @@ const allowedChannels = new Set([
   "menu:zoom-in",
   "menu:zoom-out",
   "menu:zoom-reset",
+  "security:auto-lock",
   // 格式菜单：{ mark?: "bold"|"italic"|"underline"|"strike"|"code", node?: "heading"|"paragraph", level?: number }
   "menu:format",
   // Dock Quick Action（macOS）

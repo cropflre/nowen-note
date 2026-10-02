@@ -20,6 +20,7 @@ const { openSetupWindow } = require("./setupWindow");
 const { openLocalAttachmentWithSystem } = require("./attachment-open");
 const { registerTextContextMenu } = require("./text-context-menu");
 const { attachWindowStatePersistence, resolveWindowBounds } = require("./window-state");
+const { attachEncryptedAutoLock } = require("./encrypted-notes-auto-lock");
 const { requestLocalAccountBootstrap } = require("./localAccountBootstrap");
 const { isPdfBufferValid, isPdfRenderReady } = require("./pdfExportGuard");
 const {
@@ -1065,6 +1066,7 @@ function createWindow() {
 
   // SEC-ELECTRON-01-B-RV1: 注册主窗口 webContents.id 用于 IPC sender 校验
   setTrustedMainWindowId(mainWindow.webContents.id);
+  attachEncryptedAutoLock(mainWindow);
   registerTextContextMenu(mainWindow, Menu);
   if (restoredWindowState.maximized) mainWindow.maximize();
   attachWindowStatePersistence(mainWindow, (windowState) => {

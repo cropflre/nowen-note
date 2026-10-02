@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./encrypted-notes-test";
 const password = "test-only-m3-password";
 const plaintext = "PRIVATE_ENCRYPTED_M3_SENTINEL actual editor";
 for (const format of ["Markdown", "富文本"]) {
@@ -6,7 +6,7 @@ for (const format of ["Markdown", "富文本"]) {
     const errors: string[] = []; const writes: string[] = [];
     page.on("pageerror", (error) => errors.push(error.message));
     page.on("request", (request) => { if (/5177\/api\/notes/.test(request.url()) && ["POST", "PUT"].includes(request.method())) writes.push(request.postData() || ""); });
-    await page.goto("/benchmarks/encrypted-notes-product-editor.html");
+    await page.goto("http://127.0.0.1:5176/benchmarks/encrypted-notes-product-editor.html");
     await page.getByRole("button", { name: `打开实际${format === "Markdown" ? " Markdown " : "富文本"}编辑器`, exact: true }).click();
     await expect(page.getByRole("status")).toHaveText("编辑器就绪");
     const main = page.locator(format === "Markdown" ? ".cm-content" : ".tiptap").first();

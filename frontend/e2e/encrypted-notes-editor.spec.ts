@@ -1,9 +1,10 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test } from "./encrypted-notes-test";
+import type { Page } from "@playwright/test";
 
 const password = "test-only-m2-password";
 const plaintext = "PRIVATE_ENCRYPTED_M2_SENTINEL";
 async function create(page: Page, format = "markdown", clock = false) {
-  await page.goto("/benchmarks/encrypted-notes-editor.html");
+  await page.goto("http://127.0.0.1:5176/benchmarks/encrypted-notes-editor.html");
   if (clock) await page.clock.install();
   await page.getByRole("button", { name: "新建", exact: true }).click();
   await page.getByLabel("加密笔记标题", { exact: true }).fill("Visible title");

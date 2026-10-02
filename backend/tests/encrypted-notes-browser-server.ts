@@ -47,4 +47,4 @@ async function start() {
   const shutdown = () => { server.close(() => { closeDb(); fs.rmSync(directory, { recursive: true, force: true }); process.exit(0); }); };
   process.once("SIGTERM", shutdown); process.once("SIGINT", shutdown);
 }
-void start().catch(() => { fs.rmSync(directory, { recursive: true, force: true }); process.exit(1); });
+void start().catch((error) => { console.error(error); fs.rmSync(directory, { recursive: true, force: true }); process.exit(1); });

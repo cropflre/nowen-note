@@ -1,8 +1,8 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./encrypted-notes-test";
 import type {} from "../benchmarks/encrypted-notes";
 
 test.beforeEach(async ({ page }) => {
-  await page.goto("/benchmarks/encrypted-notes.html");
+  await page.goto("http://127.0.0.1:5176/benchmarks/encrypted-notes.html");
   await page.waitForFunction(() => Boolean(window.cryptoBenchmark));
 });
 

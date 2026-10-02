@@ -20,6 +20,7 @@ Markdown 使用 `nowen-encrypted-v1` 围栏，围栏内只保存完整 JSON enve
 
 ## 验收证据与范围
 
+- 2026-10-02 Electron 运行时：发现原生窗口隐藏未触发 DOM 自动锁定，已补主窗口/preload 无载荷通知与共享观察器订阅。97 项加密目录测试通过，Electron 21 项通过（复用 18 项并增加原生隐藏/失焦/最小化）；临时用户目录、网络、数据库/WAL 未发现测试正文或口令标记。详见 [运行时验收](./encrypted-notes-electron-acceptance.md)。完整产品、安装包、休眠、双设备与移动验收仍待完成。
 - 2026-10-02 自动锁定：加密目录 96 项测试通过，其中新增观察器/编辑器生命周期 14 项、迟到保存确认队列清理 1 项。真实 Chromium 18 项通过，新增 Markdown 闲置草稿恢复、基础富文本后台卸载/恢复，以及区域后台锁定后主文档不变的 Worker/WASM 验证；继续扫描网络、浏览器存储、数据库与 WAL。事件测试验证 browser blur/pagehide/visibilitychange 边界，尚不代表实体桌面安装包与移动挂起验收。
 - CI 原生崩溃已在本机用 Node 24.21.0 头文件编译复现 `RemoveEnvironmentCleanupHook` 的 `(env) != nullptr` 断言，与 [Node 上游回归 #65446](https://github.com/nodejs/node/issues/65446) 一致。重新编译到 24.18.1 头文件并使用同版本运行原 CI 后端命令，99 项全部通过。加密 CI 的两个作业固定到 24.18.1；必须同时固定 runtime 与安装时编译头文件，仅换 runtime 不能保证修复。未修改 SQLite 依赖或加密协议。远端 CI 仍待提交运行确认；上游修复后须复验再解除固定。
 - 2026-10-01 本次存储验收：后端 `encrypted-notes*.test.ts` 加普通 Markdown Patch 单元/路由测试共 36 项通过，无跳过；包含临时 PostgreSQL 16 的 2 项实测。SQLite 全库备份重开注册原有搜索函数后明确断言区域守卫错误，另有只装 v118 的独立库证明守卫不依赖应用函数。合法哈希的 Markdown/RT Patch 能修改公开正文，删除或替换重复区域中的一个副本则明确返回 `INVALID_ENCRYPTED_NOTE`，正文、版本、历史、回执和块索引全部回滚。Yjs 拒绝引入区域后，房间内存、更新日志和子文档快照保持原样。PostgreSQL 覆盖 v117/v118 共存、非法改写、错误目标/格式/笔记、过期许可拒绝、回滚及正常事务写入。新增测试类型检查已加入 CI；远端 CI 待提交后确认。

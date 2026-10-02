@@ -6,6 +6,11 @@ on:
     branches: [main, "release/**"]
     paths:
       - "frontend/src/lib/encryptedNotes/**"
+      - "frontend/src/lib/desktopBridge.ts"
+      - "electron/encrypted-notes*.js"
+      - "scripts/encrypted-notes-electron-fixture.cjs"
+      - "electron/main.js"
+      - "electron/preload.js"
       - "frontend/tsconfig.encrypted-notes.json"
       - "frontend/src/components/EncryptedNote*.tsx"
       - "frontend/src/components/EncryptedBlock*.tsx"
@@ -61,8 +66,9 @@ on:
       - "backend/package*.json"
       - "frontend/benchmarks/encrypted-notes*"
       - "frontend/e2e/encrypted-notes-*.spec.ts"
+      - "frontend/e2e/encrypted-notes-test.ts"
       - "frontend/vite.crypto-benchmark.config.ts"
-      - "frontend/playwright.encrypted-notes.config.ts"
+      - "frontend/playwright.encrypted-notes*.config.ts"
       - "frontend/package*.json"
       - "scripts/generate-encrypted-notes-vector.mjs"
       - "docs/architecture/encrypted-notes*.md"
@@ -70,6 +76,11 @@ on:
   pull_request:
     paths:
       - "frontend/src/lib/encryptedNotes/**"
+      - "frontend/src/lib/desktopBridge.ts"
+      - "electron/encrypted-notes*.js"
+      - "scripts/encrypted-notes-electron-fixture.cjs"
+      - "electron/main.js"
+      - "electron/preload.js"
       - "frontend/tsconfig.encrypted-notes.json"
       - "frontend/src/components/EncryptedNote*.tsx"
       - "frontend/src/components/EncryptedBlock*.tsx"
@@ -125,8 +136,9 @@ on:
       - "backend/package*.json"
       - "frontend/benchmarks/encrypted-notes*"
       - "frontend/e2e/encrypted-notes-*.spec.ts"
+      - "frontend/e2e/encrypted-notes-test.ts"
       - "frontend/vite.crypto-benchmark.config.ts"
-      - "frontend/playwright.encrypted-notes.config.ts"
+      - "frontend/playwright.encrypted-notes*.config.ts"
       - "frontend/package*.json"
       - "scripts/generate-encrypted-notes-vector.mjs"
       - "docs/architecture/encrypted-notes*.md"
@@ -166,6 +178,8 @@ jobs:
         working-directory: backend
       - name: Crypto core and Worker lifecycle regressions
         run: npm run test:encrypted-notes
+      - name: Native locking bridge syntax
+        run: node --check ../electron/encrypted-notes-auto-lock.js && node --check ../scripts/encrypted-notes-electron-fixture.cjs && node --check ../electron/main.js && node --check ../electron/preload.js
       - name: Ordinary and encrypted cache/conflict regressions
         run: npx vitest run src/lib/__tests__/conflictResolution.test.ts src/lib/__tests__/noteLoadSource.test.ts src/lib/__tests__/syncConflictAutoMerge.test.ts src/components/__tests__/ConflictCenterBulkResolve.test.tsx src/store/__tests__/encryptedRegionNavigation.test.tsx src/lib/__tests__/noteContentPersistence.test.ts src/lib/__tests__/contentFormat.test.ts
       - name: Application typecheck
