@@ -583,9 +583,17 @@ export async function readAttachmentObject(relPath: string): Promise<Buffer | nu
 }
 
 export async function checkAttachmentObjectExists(relPath: string): Promise<{ exists: boolean; status?: number; error?: string }> {
+  const configurationIssue = getAttachmentStorageConfigurationIssue();
+  if (configurationIssue) return { exists: false, error: configurationIssue };
   const cfg = getS3Config();
   if (!cfg) {
-    return { exists: fs.existsSync(getLocalAttachmentPath(relPath)) };
+    try {
+      if (fs.statSync(getLocalAttachmentPath(relPath)).isFile()) return { exists: true };
+      return { exists: false, error: "附件路径不是文件" };
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") return { exists: false };
+      return { exists: false, error: err instanceof Error ? err.message : String(err) };
+    }
   }
   try {
     const res = await signedFetch("HEAD", relPath, cfg);

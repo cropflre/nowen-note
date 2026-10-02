@@ -233,3 +233,17 @@ Commit Attachment
 ```
 
 当前 #780 只建立上传限制契约和媒体 commit lifecycle，不提前设计分片协议或 Public Plugin API。
+
+## 8. 文件管理上传去重与缺失文件修复
+
+`POST /api/files/upload` 仅在同一上传者、同一工作区（或个人空间）内按 SHA-256 去重。命中数据库记录后，必须通过 `checkAttachmentObjectExists` 检查实体文件；数据库记录本身不代表上传已完成。
+
+- 实体存在：返回 `200`、`deduplicated: true`，不重复写入。
+- 本地文件不存在或 S3 HEAD 返回 `404`：把本次上传的内容写回原 `path`，保留附件 ID、文件名和笔记引用；成功后更新 MIME、大小、上传来源及目标文件夹，返回 `200`、`deduplicated: true`、`repaired: true`，并记录修复日志。
+- 本地访问错误、S3 权限/网络/服务错误或配置不完整：返回 `500` 和 `ATTACHMENT_STORAGE_*` 错误码，不把这些错误当成文件缺失。
+- 补写失败：返回失败，保留原附件记录及其元数据，允许用户解决存储问题后重新上传。
+- 未命中去重记录：继续新建附件，成功返回 `201`。
+
+文件列表和统计使用相同的附件可见性规则。手动上传附件独立授权，不依赖隐藏占位笔记仍然存在；`myUploads` 也从同一可见集合计算，保证其总数不超过 `total`。
+
+`backend/tests/file-upload-dedup-repair.test.ts` 覆盖本地/S3 缺失补写、原 ID 引用及下载、正常去重、存储错误、上传者/工作区隔离，以及历史占位笔记缺失时的列表/统计一致性。

@@ -47,6 +47,8 @@ import {
   MIME_TO_EXT,
 } from "./attachments";
 import {
+  checkAttachmentObjectExists,
+  classifyAttachmentStorageError,
   deleteAttachmentObject,
   getAttachmentStorageInfo,
   getUploadMonthPath,
@@ -1225,7 +1227,7 @@ app.post("/upload", requireWorkspaceFeature("files"), async (c) => {
   const monthPath = getUploadMonthPath();
   const storagePath = `${monthPath}/${id}.${ext}`;
 
-  // v11 hash dedup：同 user + 同 workspace 内查命中。命中 → 复用老 id 不写盘不写 DB。
+  // 同 user + 同 workspace 内查 hash；复用原 id，并补写缺失的实体文件。
   const sha256 = crypto.createHash("sha256").update(buffer).digest("hex");
   const db = getDb();
 
@@ -1240,19 +1242,41 @@ app.post("/upload", requireWorkspaceFeature("files"), async (c) => {
   const dedupRow = db
     .prepare(
       scope.workspaceId
-        ? `SELECT id, noteId, mimeType, size, filename FROM attachments
+        ? `SELECT id, noteId, mimeType, size, filename, path FROM attachments
             WHERE userId = ? AND workspaceId = ? AND hash = ? LIMIT 1`
-        : `SELECT id, noteId, mimeType, size, filename FROM attachments
+        : `SELECT id, noteId, mimeType, size, filename, path FROM attachments
             WHERE userId = ? AND workspaceId IS NULL AND hash = ? LIMIT 1`,
     )
     .get(
       ...(scope.workspaceId
         ? [userId, scope.workspaceId, sha256]
         : [userId, sha256]),
-    ) as { id: string; noteId: string; mimeType: string; size: number; filename: string } | undefined;
+    ) as { id: string; noteId: string; mimeType: string; size: number; filename: string; path: string } | undefined;
 
   if (dedupRow) {
-    if ((isHeifMime(mime) || mime === "image/jpeg" || mime.startsWith("video/")) && dedupRow.mimeType !== mime) {
+    let repaired = false;
+    try {
+      const object = await checkAttachmentObjectExists(dedupRow.path);
+      if (!object.exists) {
+        if (object.error !== undefined || (object.status !== undefined && object.status !== 404)) {
+          throw new Error(object.status !== undefined
+            ? `S3 HEAD failed: ${object.status} ${object.error || ""}`
+            : object.error);
+        }
+        await writeAttachmentObject(dedupRow.path, buffer, mime);
+        repaired = true;
+      }
+    } catch (err) {
+      const failure = classifyAttachmentStorageError(err);
+      return c.json({ error: `检查或修复文件失败: ${failure.message}`, code: failure.code }, 500);
+    }
+
+    if (repaired) {
+      db.prepare("UPDATE attachments SET mimeType = ?, size = ? WHERE id = ?").run(mime, buffer.length, dedupRow.id);
+      dedupRow.mimeType = mime;
+      dedupRow.size = buffer.length;
+      console.info("[files.upload] repaired missing attachment object", { attachmentId: dedupRow.id, path: dedupRow.path });
+    } else if ((isHeifMime(mime) || mime === "image/jpeg" || mime.startsWith("video/")) && dedupRow.mimeType !== mime) {
       db.prepare("UPDATE attachments SET mimeType = ? WHERE id = ?").run(mime, dedupRow.id);
       dedupRow.mimeType = mime;
     }
@@ -1285,6 +1309,7 @@ app.post("/upload", requireWorkspaceFeature("files"), async (c) => {
         category: isImage(dedupRow.mimeType) ? "image" : "file",
         createdAt: new Date().toISOString(),
         deduplicated: true,
+        ...(repaired ? { repaired: true } : {}),
         accessUrls: createUserAttachmentAccessUrls(userId, [{ id: dedupRow.id, noteId: dedupRow.noteId }]),
       },
       200,
