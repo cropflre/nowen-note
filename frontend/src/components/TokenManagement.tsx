@@ -102,6 +102,7 @@ export default function TokenManagement(): JSX.Element {
   const [showCreate, setShowCreate] = useState(false);
   const [editing, setEditing] = useState<ApiTokenListItem | null>(null);
   const [created, setCreated] = useState<{ name: string; token: string } | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const reload = useCallback(async () => {
     setLoading(true);
@@ -148,6 +149,28 @@ export default function TokenManagement(): JSX.Element {
     }
   };
 
+  const remove = async (item: ApiTokenListItem) => {
+    const ok = await confirm({
+      title: t("tokens.deleteConfirmTitle"),
+      description: t("tokens.deleteConfirmDesc", { name: item.name }),
+      confirmText: t("tokens.delete"),
+      cancelText: t("common.cancel"),
+      danger: true,
+    });
+    if (!ok) return;
+    setDeletingId(item.id);
+    try {
+      await api.tokens.remove(item.id);
+      setTokens((current) => current.filter((token) => token.id !== item.id));
+      toast.success(t("tokens.deleteSuccess", { name: item.name }));
+      await reload();
+    } catch (error: any) {
+      toast.error(error?.message || t("tokens.deleteFail"));
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
   return (
     <div className="space-y-6 pb-4">
       <div className="flex items-start justify-between gap-4">
@@ -171,7 +194,7 @@ export default function TokenManagement(): JSX.Element {
         <span>restricted 模式采用服务端强制校验。即使绕过 MCP 直接调用 REST API，也不能访问未授权笔记本。</span>
       </div>
 
-      {tokens.length > 0 && <TokenUsageStats />}
+      {tokens.length > 0 && <TokenUsageStats refreshKey={tokens.map((item) => item.id).join(",")} />}
 
       {loading ? (
         <div className="flex justify-center py-12 text-sm text-zinc-500"><Loader2 className="mr-2 h-4 w-4 animate-spin" />加载中...</div>
@@ -184,7 +207,7 @@ export default function TokenManagement(): JSX.Element {
       ) : (
         <div className="space-y-3">
           {tokens.map((item) => (
-            <TokenRow key={item.id} item={item} onEdit={() => setEditing(item)} onRevoke={() => void revoke(item)} />
+            <TokenRow key={item.id} item={item} onEdit={() => setEditing(item)} onRevoke={() => void revoke(item)} onDelete={() => void remove(item)} deleting={deletingId === item.id} deleteDisabled={deletingId !== null} />
           ))}
         </div>
       )}
@@ -252,11 +275,18 @@ function TokenRow({
   item,
   onEdit,
   onRevoke,
+  onDelete,
+  deleting,
+  deleteDisabled,
 }: {
   item: ApiTokenListItem;
   onEdit: () => void;
   onRevoke: () => void;
+  onDelete: () => void;
+  deleting: boolean;
+  deleteDisabled: boolean;
 }) {
+  const { t } = useTranslation();
   const revoked = Boolean(item.revokedAt);
   const expired = Boolean(item.expiresAt && Date.parse(item.expiresAt) < Date.now());
   const active = !revoked && !expired;
@@ -296,7 +326,12 @@ function TokenRow({
             {item.lastUsedIp ? ` · ${item.lastUsedIp}` : ""}
           </div>
         </div>
-        {!revoked && (
+        {revoked ? (
+          <button type="button" onClick={onDelete} disabled={deleteDisabled} className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-red-200 px-2.5 py-1.5 text-xs text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-red-500/30 dark:text-red-400 dark:hover:bg-red-500/10">
+            {deleting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+            {t(deleting ? "tokens.deleting" : "tokens.delete")}
+          </button>
+        ) : (
           <div className="flex shrink-0 items-center gap-2">
             <button type="button" onClick={onEdit} className="inline-flex items-center gap-1 rounded-lg border border-zinc-200 px-2.5 py-1.5 text-xs text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800">
               <Edit3 className="h-3.5 w-3.5" />授权

@@ -4867,6 +4867,12 @@ export const api = {
         method: "DELETE",
       }),
 
+    /** DELETE /api/tokens/:id/permanent — 永久删除已吊销令牌及其授权、使用统计。 */
+    remove: (id: string) =>
+      request<{ success: boolean }>(`/tokens/${encodeURIComponent(id)}/permanent`, {
+        method: "DELETE",
+      }),
+
     /**
      * GET /api/tokens/usage?days=N — 个人 token 使用统计
      *
