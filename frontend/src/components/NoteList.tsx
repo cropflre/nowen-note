@@ -2585,21 +2585,21 @@ export default function NoteList() {
     }
 
     return buildNoteContextMenuLayout({
-      open: { id: "open", label: "打开", icon: <FileText size={14} /> },
+      open: { id: "open", label: t("common.open"), icon: <FileText size={14} /> },
       split: [
-        { id: "split_right", label: "在右侧分屏打开", icon: <SplitSquareHorizontal size={14} /> },
-        { id: "split_down", label: "在下方分屏打开", icon: <SplitSquareVertical size={14} /> },
+        { id: "split_right", label: t("note.contextMenu.splitRight"), icon: <SplitSquareHorizontal size={14} /> },
+        { id: "split_down", label: t("note.contextMenu.splitDown"), icon: <SplitSquareVertical size={14} /> },
       ],
       duplicate: {
         id: "duplicate",
-        label: "创建副本",
+        label: t("note.contextMenu.duplicate"),
         icon: <Copy size={14} />,
         disabled: targetNote.isLocked === 1,
       },
       create: [
-        { id: "new_note", label: "文档", icon: <FileText size={14} /> },
-        { id: "new_markdown", label: "Markdown 文档", icon: <FileCode size={14} /> },
-        { id: "new_folder", label: "文件夹", icon: <Folder size={14} /> },
+        { id: "new_note", label: t("note.contextMenu.document"), icon: <FileText size={14} /> },
+        { id: "new_markdown", label: t("note.contextMenu.markdownDocument"), icon: <FileCode size={14} /> },
+        { id: "new_folder", label: t("note.contextMenu.folder"), icon: <Folder size={14} /> },
       ],
       flags: [
         {
@@ -2626,9 +2626,9 @@ export default function NoteList() {
         },
       ],
       management: [
-        { id: "rename_note", label: "重命名", icon: <Pencil size={14} />, disabled: targetNote.isLocked === 1 },
+        { id: "rename_note", label: t("common.rename"), icon: <Pencil size={14} />, disabled: targetNote.isLocked === 1 },
         { id: "move", label: t('noteList.moveTo'), icon: <FolderInput size={14} />, disabled: targetNote.isLocked === 1 },
-        { id: "share_note", label: "分享", icon: <Share2 size={14} /> },
+        { id: "share_note", label: t("note.contextMenu.share"), icon: <Share2 size={14} /> },
       ],
       more: [
         {
@@ -2638,18 +2638,18 @@ export default function NoteList() {
         },
         {
           id: "convert_format",
-          label: targetNote.contentFormat === "markdown" ? "转换为富文本" : "转换为 Markdown",
+          label: targetNote.contentFormat === "markdown" ? t("note.contextMenu.convertToRichText") : t("note.contextMenu.convertToMarkdown"),
           icon: <ArrowLeftRight size={14} />,
           disabled: targetNote.isLocked === 1,
         },
         {
           id: "save_as_template",
-          label: "保存为模板",
+          label: t("note.contextMenu.saveAsTemplate"),
           icon: <LayoutTemplate size={14} />,
           disabled: targetNote.isLocked === 1
             || (targetNote.contentFormat !== "markdown" && targetNote.contentFormat !== "tiptap-json"),
         },
-        { id: "permissions", label: "成员与权限", icon: <ShieldCheck size={14} /> },
+        { id: "permissions", label: t("note.contextMenu.permissions"), icon: <ShieldCheck size={14} /> },
         {
           id: "export_submenu",
           label: t("noteList.export") || "导出",
@@ -2671,7 +2671,7 @@ export default function NoteList() {
         danger: true,
         disabled: targetNote.isLocked === 1,
       },
-    });
+    }, t);
   };
 
   const loadContextTreeNode = async (noteId: string): Promise<KnowledgeTreeNode> => {

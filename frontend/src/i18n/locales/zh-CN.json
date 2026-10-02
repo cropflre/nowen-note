@@ -236,19 +236,6 @@
     "emojiNature": "自然",
     "emojiFood": "食物"
   },
-  "note": {
-    "colorMark": {
-      "action": "颜色标记",
-      "none": "无标记",
-      "red": "红色",
-      "orange": "橙色",
-      "yellow": "黄色",
-      "green": "绿色",
-      "blue": "蓝色",
-      "purple": "紫色",
-      "gray": "灰色"
-    }
-  },
   "noteList": {
     "moveTo": "移动到...",
     "moveNote": "移动笔记",
@@ -746,6 +733,8 @@
     "switchesDesc": "集中管理功能开关和默认行为",
     "navigationVisibilityTitle": "导航栏显示",
     "navigationVisibilityDesc": "只隐藏不需要的入口，不会删除数据或关闭功能；深链仍可直接访问。",
+    "navigationMoveUp": "上移",
+    "navigationMoveDown": "下移",
     "taskCenterVisibilityTitle": "任务中心显示",
     "taskCenterVisibilityDesc": "任务列表始终保留；可按需隐藏收集箱、我的一天、时间规划、习惯打卡和统计。",
     "journalPrivacyTitle": "日记隐私",
@@ -1981,6 +1970,8 @@
     }
   },
   "tags": {
+    "removeTag": "移除标签 {{name}}",
+    "showMore": "显示其余 {{count}} 个标签",
     "addTagPlaceholder": "添加标签...",
     "createTag": "创建标签 \"{{name}}\"",
     "changeColor": "更换颜色",
@@ -2738,6 +2729,34 @@
     }
   },
   "note": {
+    "colorMark": {
+      "action": "颜色标记",
+      "none": "无标记",
+      "red": "红色",
+      "orange": "橙色",
+      "yellow": "黄色",
+      "green": "绿色",
+      "blue": "蓝色",
+      "purple": "紫色",
+      "gray": "灰色"
+    },
+    "contextMenu": {
+      "split": "分屏打开",
+      "splitRight": "在右侧分屏打开",
+      "splitDown": "在下方分屏打开",
+      "duplicate": "创建副本",
+      "create": "新建",
+      "document": "文档",
+      "markdownDocument": "Markdown 文档",
+      "folder": "文件夹",
+      "mindmap": "思维导图",
+      "share": "分享",
+      "more": "更多",
+      "saveAsTemplate": "保存为模板",
+      "permissions": "成员与权限",
+      "convertToRichText": "转换为富文本",
+      "convertToMarkdown": "转换为 Markdown"
+    },
     "print": "打印",
     "printFailed": "无法打开系统打印服务",
     "exportAsPng": "导出为 PNG",

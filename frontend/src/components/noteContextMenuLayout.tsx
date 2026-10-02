@@ -1,4 +1,5 @@
 import { MoreHorizontal, Plus, SplitSquareHorizontal } from "lucide-react";
+import type { TFunction } from "i18next";
 
 import type { ContextMenuItem } from "@/components/ContextMenu";
 
@@ -20,12 +21,13 @@ function separator(id: string): ContextMenuItem {
 /** 知识树与笔记列表共用的单笔记右键菜单层级。 */
 export function buildNoteContextMenuLayout(
   options: NoteContextMenuLayoutOptions,
+  t: TFunction,
 ): ContextMenuItem[] {
   const items: ContextMenuItem[] = [
     options.open,
     {
       id: "note_split_menu",
-      label: "分屏打开",
+      label: t("note.contextMenu.split"),
       icon: <SplitSquareHorizontal size={14} />,
       children: options.split,
     },
@@ -35,7 +37,7 @@ export function buildNoteContextMenuLayout(
   if (options.create?.length) {
     items.push({
       id: "note_create_menu",
-      label: "新建",
+      label: t("note.contextMenu.create"),
       icon: <Plus size={14} />,
       children: options.create,
     });
@@ -48,7 +50,7 @@ export function buildNoteContextMenuLayout(
   if (options.more.length > 0) {
     items.push({
       id: "note_more_menu",
-      label: "更多",
+      label: t("note.contextMenu.more"),
       icon: <MoreHorizontal size={14} />,
       children: options.more,
     });

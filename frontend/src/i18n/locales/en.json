@@ -229,19 +229,6 @@
     "emojiNature": "Nature",
     "emojiFood": "Food"
   },
-  "note": {
-    "colorMark": {
-      "action": "Color mark",
-      "none": "No mark",
-      "red": "Red",
-      "orange": "Orange",
-      "yellow": "Yellow",
-      "green": "Green",
-      "blue": "Blue",
-      "purple": "Purple",
-      "gray": "Gray"
-    }
-  },
   "noteList": {
     "moveTo": "Move to...",
     "moveNote": "Move Note",
@@ -739,6 +726,8 @@
     "switchesDesc": "Manage feature switches and default behavior in one place",
     "navigationVisibilityTitle": "Navigation modules",
     "navigationVisibilityDesc": "Hide entries you do not need without deleting data or disabling features. Deep links remain available.",
+    "navigationMoveUp": "Move up",
+    "navigationMoveDown": "Move down",
     "taskCenterVisibilityTitle": "Task Center visibility",
     "taskCenterVisibilityDesc": "The core task list stays available. You can hide Inbox, My Day, Planner, Habits, and Stats.",
     "journalPrivacyTitle": "Journal privacy",
@@ -1974,6 +1963,8 @@
     }
   },
   "tags": {
+    "removeTag": "Remove tag {{name}}",
+    "showMore": "Show {{count}} more tags",
     "addTagPlaceholder": "Add tag...",
     "createTag": "Create tag \"{{name}}\"",
     "changeColor": "Change color",
@@ -2731,6 +2722,34 @@
     }
   },
   "note": {
+    "colorMark": {
+      "action": "Color mark",
+      "none": "No mark",
+      "red": "Red",
+      "orange": "Orange",
+      "yellow": "Yellow",
+      "green": "Green",
+      "blue": "Blue",
+      "purple": "Purple",
+      "gray": "Gray"
+    },
+    "contextMenu": {
+      "split": "Open in split view",
+      "splitRight": "Open in right split",
+      "splitDown": "Open in bottom split",
+      "duplicate": "Create a copy",
+      "create": "New",
+      "document": "Document",
+      "markdownDocument": "Markdown document",
+      "folder": "Folder",
+      "mindmap": "Mind map",
+      "share": "Share",
+      "more": "More",
+      "saveAsTemplate": "Save as template",
+      "permissions": "Members and permissions",
+      "convertToRichText": "Convert to rich text",
+      "convertToMarkdown": "Convert to Markdown"
+    },
     "print": "Print",
     "printFailed": "Unable to open the system print service",
     "exportAsPng": "Export as PNG",

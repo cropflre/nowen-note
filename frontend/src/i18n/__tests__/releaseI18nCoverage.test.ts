@@ -43,6 +43,8 @@ import {
   enCoverageTranslations,
   zhCNCoverageTranslations,
 } from "../coverageTranslations";
+import { enWorkspaceIssuesTranslations, zhCNWorkspaceIssuesTranslations } from "../workspaceIssuesTranslations";
+import { enVoiceTranslations, zhCNVoiceTranslations } from "../voiceTranslations";
 
 type TranslationTree = Record<string, unknown>;
 
@@ -148,6 +150,8 @@ const zh = mergePatches(
   zhDiaryMarkdownPatch,
   zhEditorSplitPatch,
   zhCoveragePatch,
+  zhCNWorkspaceIssuesTranslations,
+  zhCNVoiceTranslations,
 );
 const en = mergePatches(
   enBase as TranslationTree,
@@ -161,6 +165,8 @@ const en = mergePatches(
   enDiaryMarkdownPatch,
   enEditorSplitPatch,
   enCoveragePatch,
+  enWorkspaceIssuesTranslations,
+  enVoiceTranslations,
 );
 
 const criticalNamespaces = [
