@@ -20,6 +20,7 @@ Markdown 使用 `nowen-encrypted-v1` 围栏，围栏内只保存完整 JSON enve
 
 ## 验收证据与范围
 
+- 2026-10-02 文件资源：`file://` 与 ASAR 两种模式各 5 项，共 10 项通过；生产 CSP、相对资源路径、真实 Worker/WASM、preload/原生 HTTP 桥和密文重载恢复均通过独立夹具验证。没有放宽生产安全参数，也没有使用真实用户目录。完整产品 IPC、账号、安装/更新与跨设备仍未验收，详见 [Electron 运行时验收](./encrypted-notes-electron-acceptance.md)。
 - 2026-10-02 Electron 运行时：发现原生窗口隐藏未触发 DOM 自动锁定，已补主窗口/preload 无载荷通知与共享观察器订阅。97 项加密目录测试通过，Electron 21 项通过（复用 18 项并增加原生隐藏/失焦/最小化）；临时用户目录、网络、数据库/WAL 未发现测试正文或口令标记。详见 [运行时验收](./encrypted-notes-electron-acceptance.md)。完整产品、安装包、休眠、双设备与移动验收仍待完成。
 - 2026-10-02 自动锁定：加密目录 96 项测试通过，其中新增观察器/编辑器生命周期 14 项、迟到保存确认队列清理 1 项。真实 Chromium 18 项通过，新增 Markdown 闲置草稿恢复、基础富文本后台卸载/恢复，以及区域后台锁定后主文档不变的 Worker/WASM 验证；继续扫描网络、浏览器存储、数据库与 WAL。事件测试验证 browser blur/pagehide/visibilitychange 边界，尚不代表实体桌面安装包与移动挂起验收。
 - CI 原生崩溃已在本机用 Node 24.21.0 头文件编译复现 `RemoveEnvironmentCleanupHook` 的 `(env) != nullptr` 断言，与 [Node 上游回归 #65446](https://github.com/nodejs/node/issues/65446) 一致。重新编译到 24.18.1 头文件并使用同版本运行原 CI 后端命令，99 项全部通过。加密 CI 的两个作业固定到 24.18.1；必须同时固定 runtime 与安装时编译头文件，仅换 runtime 不能保证修复。未修改 SQLite 依赖或加密协议。远端 CI 仍待提交运行确认；上游修复后须复验再解除固定。

@@ -1,5 +1,6 @@
 // The production editor components and save callbacks, isolated from user data and the app shell.
 import { useRef, useState } from "react";
+import "./encrypted-notes-desktop";
 import { createRoot } from "react-dom/client";
 import i18n from "i18next";
 import { initReactI18next } from "react-i18next";

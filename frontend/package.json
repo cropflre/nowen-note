@@ -18,6 +18,7 @@
     "preview:encrypted-notes-benchmark": "vite preview --config vite.crypto-benchmark.config.ts --host 127.0.0.1 --port 5176 --strictPort",
     "test:encrypted-notes:browser": "npm run build:encrypted-notes-benchmark && playwright test --config playwright.encrypted-notes.config.ts",
     "test:encrypted-notes:electron": "npm run build:encrypted-notes-benchmark && playwright test --config playwright.encrypted-notes-electron.config.ts",
+    "test:encrypted-notes:file": "vite build --config vite.crypto-file.config.ts && playwright test --config playwright.encrypted-notes-file.config.ts",
     "perf:phase-a": "vitest run src/components/__tests__/CodeBlockView.performance.test.tsx src/components/__tests__/MarkdownCodeBlock.performance.test.tsx src/lib/__tests__/codeBlockHighlightPlugin.test.ts --reporter=verbose",
     "perf:phase-b": "vitest run src/lib/__tests__/notebookCreatePhaseB.performance.test.ts --reporter=verbose",
     "cap:sync": "npx cap sync android",

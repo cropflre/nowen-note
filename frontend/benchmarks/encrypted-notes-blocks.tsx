@@ -1,5 +1,6 @@
 // Actual region components, worker, document converters and API against a private fixture DB.
 import { useEffect, useState } from "react";
+import "./encrypted-notes-desktop";
 import { createRoot } from "react-dom/client";
 import { EditorContent, ReactNodeViewRenderer, useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";

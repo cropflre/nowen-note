@@ -5,7 +5,7 @@ import browser from "./playwright.encrypted-notes.config";
 process.env.NOWEN_ENCRYPTED_ELECTRON = "1";
 export default defineConfig({
   ...browser,
-  testMatch: "encrypted-notes-*.spec.ts",
+  testMatch: [...browser.testMatch as string[], "encrypted-notes-electron.spec.ts"],
   outputDir: "node_modules/.cache/encrypted-notes-electron-results",
   webServer: [{
     command: "../node_modules/.bin/electron --import tsx tests/encrypted-notes-browser-server.ts",
