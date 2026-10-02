@@ -13,7 +13,7 @@ export async function saveEncryptedNoteCiphertext(note: Note, content: string, s
   try {
     // Bypass ordinary plaintext draft snapshots and automatic conflict rebasing.
     const response = await api.updateNoteConfirmed(note.id, payload);
-    if (!signal.aborted && scope === getOfflineQueueStorageKey() && pending) {
+    if ((!signal.aborted || signal.reason === "auto-lock") && scope === getOfflineQueueStorageKey() && pending) {
       discardResolvedQueueItems(pending);
       if (getQueue().some((item) => item.id === pending.id && item.body?.content === pending.body?.content)) throw new Error("Acknowledged ciphertext queue not cleared");
     }

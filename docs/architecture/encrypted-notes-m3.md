@@ -12,7 +12,7 @@ Markdown 使用 `nowen-encrypted-v1` 围栏，围栏内只保存完整 JSON enve
 
 打开区域时固定原密文和写入守卫。写回时检查文档/区域、权限及笔记身份；原区域被修改时拒绝覆盖并保留弹窗草稿。CodeMirror 写入是独立撤销事务。格式转换前后比较完整 envelope 多重集合，包含重复区域；转换丢失、改变或误修复围栏会抛错。修复了已有围栏恢复逻辑将带语言围栏误算为不平衡的情况。Markdown 源码修改仍可破坏密文，必须保留原始副本。
 
-复制按钮只复制版本化密文围栏，不复制解锁正文。用户在临时正文编辑器主动复制明文属于用户操作，无法阻止截图或被控制的客户端。关闭弹窗销毁临时编辑器；未写回修改会确认放弃，切换普通笔记/视图时会阻止导航，切换账号/服务器会中止 Worker 并锁定。没有闲置/后台自动锁定，也不承诺 JS 物理内存擦除。
+复制按钮只复制版本化密文围栏，不复制解锁正文。用户在临时正文编辑器主动复制明文属于用户操作，无法阻止截图或被控制的客户端。关闭弹窗销毁临时编辑器；未写回修改会确认放弃，切换普通笔记/视图时会阻止导航，切换账号/服务器会中止 Worker 并锁定。Web/桌面现支持 5 分钟闲置，以及 blur/visibilitychange/pagehide 自动锁定；共享观察器使用实际时间截止值，返回输入不能延长已过期会话。未保存编辑先从主线程编辑状态移除并销毁编辑器，再在 Worker 中生成仅内存密文草稿，不自动持久化；加密完成前异步任务仍暂时持有必要输入，不能宣称即时物理擦除。草稿重新解锁后仍为待保存，整篇保存继续校验原服务器 envelope/CAS，区域写回仍使用原区域守卫。未写回草稿会阻止正常离开，强制退出/切号会丢失。失败则恢复编辑并明确报告自动锁定未完成，提供重试；新区域口令未设置或正文超出支持范围时也遵循此规则。待处理解锁会被取消，迟到结果不能重建明文编辑器；已发出的整篇密文提交若成功，只更新密文和确认状态，不恢复解锁会话。
 
 服务端对创建、更新和已有共享 Sync 写入边界进行结构校验，拒绝未知保留语言、错误 kind、缺失字段、超出参数上限或不完整围栏；SQLite/PostgreSQL 触发器拒绝未授权的局部密文改写，块 Patch 要求保留完整区域集合。服务端没有口令，不能认证 GCM。块索引和 `contentText` 跳过区域密文，周围公开正文仍可索引。普通笔记的历史/块快照允许保存公开正文与 envelope；不存在解锁正文传输到服务端的步骤。
 
@@ -20,10 +20,12 @@ Markdown 使用 `nowen-encrypted-v1` 围栏，围栏内只保存完整 JSON enve
 
 ## 验收证据与范围
 
+- 2026-10-02 自动锁定：加密目录 96 项测试通过，其中新增观察器/编辑器生命周期 14 项、迟到保存确认队列清理 1 项。真实 Chromium 18 项通过，新增 Markdown 闲置草稿恢复、基础富文本后台卸载/恢复，以及区域后台锁定后主文档不变的 Worker/WASM 验证；继续扫描网络、浏览器存储、数据库与 WAL。事件测试验证 browser blur/pagehide/visibilitychange 边界，尚不代表实体桌面安装包与移动挂起验收。
+- CI 原生崩溃已在本机用 Node 24.21.0 头文件编译复现 `RemoveEnvironmentCleanupHook` 的 `(env) != nullptr` 断言，与 [Node 上游回归 #65446](https://github.com/nodejs/node/issues/65446) 一致。重新编译到 24.18.1 头文件并使用同版本运行原 CI 后端命令，99 项全部通过。加密 CI 的两个作业固定到 24.18.1；必须同时固定 runtime 与安装时编译头文件，仅换 runtime 不能保证修复。未修改 SQLite 依赖或加密协议。远端 CI 仍待提交运行确认；上游修复后须复验再解除固定。
 - 2026-10-01 本次存储验收：后端 `encrypted-notes*.test.ts` 加普通 Markdown Patch 单元/路由测试共 36 项通过，无跳过；包含临时 PostgreSQL 16 的 2 项实测。SQLite 全库备份重开注册原有搜索函数后明确断言区域守卫错误，另有只装 v118 的独立库证明守卫不依赖应用函数。合法哈希的 Markdown/RT Patch 能修改公开正文，删除或替换重复区域中的一个副本则明确返回 `INVALID_ENCRYPTED_NOTE`，正文、版本、历史、回执和块索引全部回滚。Yjs 拒绝引入区域后，房间内存、更新日志和子文档快照保持原样。PostgreSQL 覆盖 v117/v118 共存、非法改写、错误目标/格式/笔记、过期许可拒绝、回滚及正常事务写入。新增测试类型检查已加入 CI；远端 CI 待提交后确认。
 - 前次前端基线：15 个测试文件共 173 项通过，覆盖加密核心、持久化、转换、CodeMirror undo/redo、导航、缓存/冲突、普通内容格式和代码块性能回归。此前只读专项回归另有验收记录，不合并计数。本次只调整后端测试、CI 和文档，未重跑前端基线。
 - 前次后端基线：16 个测试文件共 131 项通过（97 项加密/Sync/备份/搜索、34 项普通块与历史），覆盖无效能力声明、API CAS、旧客户端相同正文/删除区域/缺正文 upsert 拒绝、独立临时数据库的区域 Bootstrap/Push/Pull、冲突明确选择，以及整篇加密存储和备份回归。
 - 前次 Chromium 基线：15 项全部通过（核心 6、整篇 4、局部 3、实际编辑器 2）。局部组件集成使用真实 Worker/WASM、CodeBlockView、MarkdownCodeBlock、生产格式转换器与真实 notes API，在独立临时数据库运行；覆盖创建、错误口令、编辑、复制、撤销重做、保存/重载、只读、外部修改、草稿保护、账号切换。扫描请求、localStorage/sessionStorage/IndexedDB、数据库全表及 DB/WAL 文件中的专用正文/口令标记。本次未重跑浏览器基线。
 - 新增夹具直接挂载生产 MarkdownEditorImpl/TiptapEditor，在隔离数据库通过真实 API 保存；验证两种工具栏入口创建、MD/RT 互转、富文本卡片解锁修改、再次保存与解锁、请求与 DB/WAL 不含测试明文/口令。它没有包含整个 AppShell/EditorPaneRuntime，也不是实体设备/安装包验收，不能据此宣称所有产品入口、剪贴板快捷键和协作冲突已验收。
 
-复验：前端 `npm run test:encrypted-notes`、`npm run test:encrypted-notes:browser`；后端用测试隔离加载器运行 `tests/encrypted-notes*.test.ts`、`tests/markdown-block-patch.test.ts` 和 `tests/markdown-block-patch-route.test.ts`。PostgreSQL 仅使用显式 `TEST_PG_DATABASE_URL`，无该变量时两项跳过，不读取产品数据库配置。完整 CI 同时覆盖普通内容格式、持久化和导航回归。原有 M0 移动真机参数冻结、M4 历史清理、M5 自动锁定仍待后续实施。
+复验：前端 `npm run test:encrypted-notes`、`npm run test:encrypted-notes:browser`；后端用测试隔离加载器运行 `tests/encrypted-notes*.test.ts`、`tests/markdown-block-patch.test.ts` 和 `tests/markdown-block-patch-route.test.ts`。PostgreSQL 仅使用显式 `TEST_PG_DATABASE_URL`，无该变量时两项跳过，不读取产品数据库配置。完整 CI 同时覆盖普通内容格式、持久化和导航回归。M0 移动真机参数冻结、M4 历史清理及 M5 跨端/安装包安全验收仍待后续实施；M5 的 Web/桌面自动锁定已接入。

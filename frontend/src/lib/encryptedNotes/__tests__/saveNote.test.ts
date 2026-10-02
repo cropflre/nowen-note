@@ -55,6 +55,13 @@ describe("encrypted offline and conflict saves", () => {
     await saveEncryptedNoteCiphertext(note, note.content, new AbortController().signal);
     expect(mocks.queue).toHaveLength(0); expect(pendingEncryptedNote(note.id)).toBeNull();
   });
+  it("a save acknowledged after auto-lock clears stale ciphertext without reviving plaintext", async () => {
+    mocks.queue.push({ id: "old", type: "updateNote", noteId: note.id, body: { content: note.content, contentFormat: ENCRYPTED_NOTE_FORMAT } });
+    const controller = new AbortController();
+    mocks.save.mockImplementation(async () => { controller.abort("auto-lock"); return { ...note, version: 2 }; });
+    expect((await saveEncryptedNoteCiphertext(note, note.content, controller.signal)).version).toBe(2);
+    expect(mocks.queue).toHaveLength(0);
+  });
   it("keeps queued encrypted conflicts until explicit resolution", async () => {
     mocks.queue.push({ type: "updateNote", noteId: note.id, conflict: true, body: { content: note.content, contentFormat: ENCRYPTED_NOTE_FORMAT } });
     await expect(saveEncryptedNoteCiphertext(note, note.content, new AbortController().signal)).rejects.toThrow("Resolve encrypted conflict");

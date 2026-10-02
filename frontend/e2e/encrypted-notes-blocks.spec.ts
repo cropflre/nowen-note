@@ -111,3 +111,20 @@ test("an external region update cannot retarget an unlocked session or discard i
   await expect(page.getByRole("dialog")).toHaveCount(0);
   await expect(page.getByLabel("区域临时正文", { exact: true })).toHaveCount(0);
 });
+
+test("background auto-lock preserves a region draft as memory ciphertext without changing the main document", async ({ page }) => {
+  await create(page); await unlock(page);
+  const editor = page.getByLabel("区域临时正文", { exact: true }); await expect(editor).toHaveValue(plaintext);
+  await editor.fill(`${plaintext} unsaved`);
+  const original = await page.evaluate(() => window.blockFixtureDocument());
+  await page.evaluate(() => window.dispatchEvent(new Event("blur")));
+  await expect(editor).toHaveCount(0);
+  await expect(page.getByRole("dialog").getByRole("status")).toContainText("重新解锁可恢复");
+  await expect(page.getByLabel("区域口令", { exact: true })).toHaveValue("");
+  expect(await page.evaluate(() => window.blockFixtureDocument())).toBe(original); await noLeaks(page);
+  await page.getByLabel("区域口令", { exact: true }).fill(password);
+  await page.getByRole("button", { name: "解锁区域", exact: true }).click(); await expect(editor).toHaveValue(`${plaintext} unsaved`);
+  await page.getByRole("button", { name: "加密写回", exact: true }).click(); await expect(page.getByRole("dialog")).toHaveCount(0);
+  await page.getByRole("button", { name: "保存主文档", exact: true }).click();
+  await expect(page.getByRole("status")).toHaveText("服务器已保存密文"); await noLeaks(page);
+});

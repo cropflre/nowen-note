@@ -2,8 +2,9 @@ import { expect, test, type Page } from "@playwright/test";
 
 const password = "test-only-m2-password";
 const plaintext = "PRIVATE_ENCRYPTED_M2_SENTINEL";
-async function create(page: Page, format = "markdown") {
+async function create(page: Page, format = "markdown", clock = false) {
   await page.goto("/benchmarks/encrypted-notes-editor.html");
+  if (clock) await page.clock.install();
   await page.getByRole("button", { name: "新建", exact: true }).click();
   await page.getByLabel("加密笔记标题", { exact: true }).fill("Visible title");
   await page.getByLabel("加密笔记格式", { exact: true }).selectOption(format);
@@ -127,5 +128,46 @@ test("rich-text editor preserves basic text formatting in the encrypted payload"
   await page.getByRole("button", { name: "锁定", exact: true }).click();
   await unlock(page); await expect(editor).toHaveText(plaintext);
   await expect(editor.locator("strong")).toHaveText(plaintext);
+  await page.getByRole("button", { name: "锁定", exact: true }).click();
+});
+
+test("idle auto-lock seals a dirty draft in memory and restores it only after password entry", async ({ page }) => {
+  await create(page, "markdown", true); await unlock(page);
+  const editor = page.getByLabel("加密 Markdown 正文", { exact: true });
+  await editor.fill(plaintext);
+  const original = await page.evaluate(() => window.encryptedFixtureState().activeNote!.content);
+  await page.clock.fastForward(5 * 60 * 1000 + 1);
+  await expect(editor).toHaveCount(0);
+  await expect(page.getByRole("status")).toContainText("重新解锁可恢复");
+  expect(await page.evaluate(() => window.encryptedFixtureState().activeNote!.content)).toBe(original);
+  await expect(page.getByLabel("解锁口令", { exact: true })).toHaveValue(""); await assertNoLeaks(page);
+  await unlock(page, "wrong-test-password"); await expect(page.getByRole("alert")).toContainText("口令错误或密文损坏");
+  await unlock(page); await expect(editor).toHaveValue(plaintext);
+  await page.getByRole("button", { name: "加密保存", exact: true }).click();
+  await expect(page.getByRole("status")).toHaveText("密文已由服务器确认保存");
+  await page.getByRole("button", { name: "锁定", exact: true }).click(); await unlock(page);
+  await expect(editor).toHaveValue(plaintext); await assertNoLeaks(page);
+});
+
+test("window background removes the real rich-text editor and restores its unsaved encrypted draft", async ({ page }) => {
+  await create(page, "tiptap-json"); await unlock(page);
+  const editor = page.getByLabel("加密富文本正文", { exact: true }); await expect(editor).toBeVisible(); await editor.fill(plaintext);
+  await page.evaluate(() => window.dispatchEvent(new Event("blur")));
+  await expect(editor).toHaveCount(0); await expect(page.getByRole("status")).toContainText("重新解锁可恢复");
+  await assertNoLeaks(page); await unlock(page); await expect(editor).toHaveText(plaintext);
+  await page.getByRole("button", { name: "加密保存", exact: true }).click();
+  await expect(page.getByRole("status")).toHaveText("密文已由服务器确认保存");
+  // A failed seal must remount the latest rich-text document, including edits,
+  // rather than the original editor seed.
+  await editor.fill(`${plaintext} unsaved failure`);
+  await page.evaluate(() => { (window as any).__fixtureWorker = window.Worker; (window as any).Worker = undefined; window.dispatchEvent(new Event("blur")); });
+  await expect(page.getByRole("alert")).toContainText("自动锁定未完成");
+  await expect(editor).toHaveText(`${plaintext} unsaved failure`);
+  await page.evaluate(() => { window.Worker = (window as any).__fixtureWorker; delete (window as any).__fixtureWorker; });
+  await page.getByRole("button", { name: "重试自动锁定", exact: true }).click();
+  await expect(editor).toHaveCount(0); await expect(page.getByRole("status")).toContainText("重新解锁可恢复");
+  await unlock(page); await expect(editor).toHaveText(`${plaintext} unsaved failure`);
+  await page.getByRole("button", { name: "加密保存", exact: true }).click();
+  await expect(page.getByRole("status")).toHaveText("密文已由服务器确认保存");
   await page.getByRole("button", { name: "锁定", exact: true }).click();
 });

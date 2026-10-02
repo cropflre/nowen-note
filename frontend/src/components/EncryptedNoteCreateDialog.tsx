@@ -8,6 +8,7 @@ import { useAppActions } from "@/store/AppContext";
 import { runEncryptedContentOperation } from "@/lib/encryptedNotes/workerClient";
 import { ENCRYPTED_NOTE_FORMAT } from "@/lib/encryptedNotes/noteDocument";
 import type { EncryptedContentIdentity } from "@/lib/encryptedNotes/envelope";
+import { useEncryptedAutoLock } from "@/lib/encryptedNotes/useAutoLock";
 
 export default function EncryptedNoteCreateDialog({ parentId, onClose }: { parentId: string | null; onClose: () => void }) {
   const actions = useAppActions();
@@ -21,6 +22,9 @@ export default function EncryptedNoteCreateDialog({ parentId, onClose }: { paren
   const operation = useRef<AbortController | null>(null);
   const mounted = useRef(true);
   const native = Capacitor.isNativePlatform();
+  useEncryptedAutoLock(Boolean(passphrase || confirmation || busy), () => {
+    operation.current?.abort("auto-lock"); setPassphrase(""); setConfirmation(""); onClose();
+  });
   useEffect(() => {
     mounted.current = true;
     const scope = getOfflineQueueStorageKey();
