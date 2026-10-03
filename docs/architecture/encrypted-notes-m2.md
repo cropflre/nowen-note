@@ -51,3 +51,5 @@ node --import tsx --import ./tests/setup-db-isolation.ts --test tests/encrypted-
 # 专用 PostgreSQL 测试连接，不使用产品数据库；测试创建并清理随机 schema
 node --import tsx --test tests/encrypted-notes-postgres.test.ts
 ```
+
+Full 内置后端及 macOS 应用包已补 8 项生产资源与进程重启验收，范围与仍待完成项见 [Full 验收记录](./encrypted-notes-full-acceptance.md)。签名、安装/升级、真实双设备和移动真机仍不能视为完成。

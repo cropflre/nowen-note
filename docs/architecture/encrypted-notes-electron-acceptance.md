@@ -38,3 +38,5 @@ npm run test:encrypted-notes:file
 后续补充的 [完整工作台验收](./encrypted-notes-app-acceptance.md) 使用生产主进程/IPC、完整 AppShell 和隔离真实账号，覆盖 5 项产品链路；下文仍描述本文件的组件/资源夹具边界。
 
 这是源码 Electron 运行时、组件/存储链路和 `file://` / ASAR 资源验收。ASAR 仅包含独立构建的验收资源，不是整个应用的发布安装包。尚未覆盖完整 AppShell、产品 IPC 的真实账号鉴权/请求过滤、安装与更新流程、真实账号切换/注销、操作系统休眠恢复、双设备和移动真机。生产 CSP 不做放宽；文件 Worker 的策略行为不能等同于 HTTP Worker 响应头 CSP 验收。当前 GitHub 加密 CI 运行 Web/存储测试与原生桥接语法检查；尚未运行这些原生 GUI 测试。M2/M3/M5 继续保持未勾选，既有明文转换与历史清理仍属于 M4。
+
+Full 内置后端及 macOS 应用包已补 8 项生产资源与进程重启验收，范围与仍待完成项见 [Full 验收记录](./encrypted-notes-full-acceptance.md)。签名、安装/升级、真实双设备和移动真机仍不能视为完成。

@@ -15,7 +15,10 @@ const { allowVoicePermissionRequest, allowVoicePermissionCheck } = require("./vo
 const { handleArgv, setupMacOpenFile, flushPending } = require("./fileAssoc");
 const { registerDiscoveryIpc, shutdown: shutdownDiscovery } = require("./discovery");
 const { setSettingsPath, readSettings, writeSettings, shouldUseLocalRuntime } = require("./settings");
-const clipperHost = require("./clipper-host");
+// electron-builder places this Native Messaging module outside app.asar.
+const clipperHost = require(app.isPackaged
+  ? path.join(process.resourcesPath, "clipper", "clipper-host.js")
+  : "./clipper-host");
 const { openSetupWindow } = require("./setupWindow");
 const { openLocalAttachmentWithSystem } = require("./attachment-open");
 const { registerTextContextMenu } = require("./text-context-menu");

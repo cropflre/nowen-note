@@ -32,3 +32,5 @@ Markdown 使用 `nowen-encrypted-v1` 围栏，围栏内只保存完整 JSON enve
 - 新增夹具直接挂载生产 MarkdownEditorImpl/TiptapEditor，在隔离数据库通过真实 API 保存；验证两种工具栏入口创建、MD/RT 互转、富文本卡片解锁修改、再次保存与解锁、请求与 DB/WAL 不含测试明文/口令。它没有包含整个 AppShell/EditorPaneRuntime，也不是实体设备/安装包验收，不能据此宣称所有产品入口、剪贴板快捷键和协作冲突已验收。
 
 复验：前端 `npm run test:encrypted-notes`、`npm run test:encrypted-notes:browser`；后端用测试隔离加载器运行 `tests/encrypted-notes*.test.ts`、`tests/markdown-block-patch.test.ts` 和 `tests/markdown-block-patch-route.test.ts`。PostgreSQL 仅使用显式 `TEST_PG_DATABASE_URL`，无该变量时两项跳过，不读取产品数据库配置。完整 CI 同时覆盖普通内容格式、持久化和导航回归。M0 移动真机参数冻结、M4 历史清理及 M5 跨端/安装包安全验收仍待后续实施；M5 的 Web/桌面自动锁定已接入。
+
+Full 内置后端及 macOS 应用包已补 8 项生产资源与进程重启验收，范围与仍待完成项见 [Full 验收记录](./encrypted-notes-full-acceptance.md)。签名、安装/升级、真实双设备和移动真机仍不能视为完成。

@@ -70,11 +70,11 @@ JavaScript 无法保证所有内存副本被物理清零；锁定验收针对应
 - [ ] M4：既有笔记转换；审计并处理正文、contentText、块快照、历史、FTS、向量索引、Yjs、队列、缓存、SQLite WAL/空闲页及备份中的旧明文。验证转换事务失败不会丢失笔记。
 - [ ] M5：跨端恢复、自动锁定、性能和安全验收；补用户文档、兼容说明与 CI。附件/多人协作的后续范围单独记录，不影响明确受限版本的验收，但不得虚报原需求全部完成。
 
-M2 当前已实现新建、MD/RT 内存编辑、手动加密保存、锁定、改口令、SQLite/API/Sync 写入守卫和离线密文队列；独立数据库同步/冲突、完整 ZIP 新进程恢复及 PostgreSQL 16 迁移测试已通过，真实产品双设备、账号切换/注销和安装包验收仍待完成，详见 [M2](./encrypted-notes-m2.md)。M2 保持未勾选，直到其完整验收通过。
+M2 当前已实现新建、MD/RT 内存编辑、手动加密保存、锁定、改口令、SQLite/API/Sync 写入守卫和离线密文队列；独立数据库同步/冲突、完整 ZIP 新进程恢复及 PostgreSQL 16 迁移测试已通过，真实产品双设备与发布安装/升级验收仍待完成；Lite 账号切换/注销及 Full 应用包范围另见下方验收记录，详见 [M2](./encrypted-notes-m2.md)。M2 保持未勾选，直到其完整验收通过。
 
-M3 当前已接入新增加密文本区域、已有区域临时解锁编辑、复制密文、格式互转与撤销重做回归；已补充 notes API/Sync V2 旧客户端写入保护、完整版本冲突选择、实际 MD/RT 编辑器集成，以及 SQLite/PostgreSQL 更新触发器、块 Patch 区域集合保护和 Yjs 禁用。存储与普通 Markdown Patch 回归共 36 项通过，包含独立 PostgreSQL 16 实测；完整产品双设备与安装包验收尚未完成。既有明文选区转换归入 M4，详见 [M3](./encrypted-notes-m3.md)。
+M3 当前已接入新增加密文本区域、已有区域临时解锁编辑、复制密文、格式互转与撤销重做回归；已补充 notes API/Sync V2 旧客户端写入保护、完整版本冲突选择、实际 MD/RT 编辑器集成，以及 SQLite/PostgreSQL 更新触发器、块 Patch 区域集合保护和 Yjs 禁用。存储与普通 Markdown Patch 回归共 36 项通过，包含独立 PostgreSQL 16 实测；真实产品双设备与发布安装/升级验收尚未完成。既有明文选区转换归入 M4，详见 [M3](./encrypted-notes-m3.md)。
 
-M5 的 Web/桌面闲置/后台自动锁定已接入整篇与局部编辑器，未保存修改使用仅内存密文草稿，需重新输入口令恢复后手动保存。97 项加密目录测试、18 项 Chromium 与 [21 项 Electron 运行时测试](./encrypted-notes-electron-acceptance.md)通过；原生窗口隐藏的 DOM 事件缺口已用主窗口/preload 无载荷通知修复。Node 24.x 原生清理崩溃已复现并通过 CI 固定 runtime/headers 到 24.18.1 避开，原 CI 后端 99 项回归通过。远端 CI、完整产品/实体安装包、休眠、双设备及移动端验收仍待完成，M5 保持未勾选。
+M5 的 Web/桌面闲置/后台自动锁定已接入整篇与局部编辑器，未保存修改使用仅内存密文草稿，需重新输入口令恢复后手动保存。97 项加密目录测试、18 项 Chromium 与 [21 项 Electron 运行时测试](./encrypted-notes-electron-acceptance.md)通过；原生窗口隐藏的 DOM 事件缺口已用主窗口/preload 无载荷通知修复。Node 24.x 原生清理崩溃已复现并通过 CI 固定 runtime/headers 到 24.18.1 避开，原 CI 后端 99 项回归通过。远端 CI、发布安装/升级、休眠、双设备及移动端验收仍待完成，M5 保持未勾选。
 
 Epic 必须覆盖 M0–M5 的整篇与局部加密，不能在 M2 完成时就标记 #749 第 9 项完成。
 
@@ -99,3 +99,5 @@ M5 另补 `file://` / ASAR 两种资源模式共 10 项验收，覆盖真实 Wor
 
 - [RFC 9106：Argon2](https://www.rfc-editor.org/rfc/rfc9106)：KDF 设计、参数与官方测试向量。
 - [W3C Web Crypto：AES-GCM](https://www.w3.org/TR/webcrypto/#aes-gcm)：客户端认证加解密和参数规范。
+
+Full 源码和真实 Full builder 生成的 macOS `.app` 另补 8 项 [内置后端与应用包验收](./encrypted-notes-full-acceptance.md)：整篇及局部 MD/RT 的实际创建、密文保存、锁定、明确放弃草稿、进程重启和重新解锁通过。修复 packaged 主进程从 ASAR 错误加载外置 clipper-host 模块的启动缺陷。包内主进程/preload 与生产后端/原生 SQLite 路径实测；验收入口仅用于隔离，未签名/安装/升级、真实双设备及移动端仍待完成，M4 尚未实现。
