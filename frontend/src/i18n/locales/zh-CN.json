@@ -2900,6 +2900,11 @@
     "linkCreated": "笔记引用已插入"
   },
   "plugins": {
+    "runtimePolicy": {
+      "title": "允许官方 / 已验证插件使用 Node Runtime",
+      "description": "微信公众号采集等官方插件需要此策略。Node 插件具有服务端系统访问能力；社区市场插件仍只能使用沙箱。",
+      "confirm": "允许签名的官方 / 已验证插件使用 Node Runtime？这些插件具有服务端系统访问能力，请仅安装你信任的插件。"
+    },
     "inbound": {
       "title": "入站 Webhook",
       "description": "使用公网回调地址连接外部服务，每个地址以当前用户身份保存内容。",

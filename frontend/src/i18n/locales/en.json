@@ -2893,6 +2893,11 @@
     "linkCreated": "Note link inserted"
   },
   "plugins": {
+    "runtimePolicy": {
+      "title": "Allow Node Runtime for official / verified plugins",
+      "description": "Official plugins such as WeChat Capture require this policy. Node plugins can access the server system; community marketplace plugins remain sandboxed.",
+      "confirm": "Allow signed official / verified plugins to use Node Runtime? These plugins can access the server system. Install only plugins you trust."
+    },
     "inbound": {
       "title": "Inbound webhooks",
       "description": "Connect an external service using a public callback URL. Each URL writes as your account.",

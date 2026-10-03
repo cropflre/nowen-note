@@ -208,6 +208,8 @@ export const pluginApi = {
     }));
   },
   installFromRegistry: (sourceId: string, pluginId: string, version?: string) => contributionMutation(request("/plugins/ecosystem/install", { method: "POST", body: JSON.stringify({ sourceId, pluginId, version }) })),
+  getRuntimePolicy: () => request<{ allowNodeRuntime: boolean }>("/plugins/policy"),
+  setRuntimePolicy: (allowNodeRuntime: boolean) => contributionMutation(request<{ allowNodeRuntime: boolean }>("/plugins/policy", { method: "PUT", body: JSON.stringify({ allowNodeRuntime }) })),
   getDeveloperMode: () => request<{ enabled: boolean; available: boolean }>("/plugins/developer-mode"),
   setDeveloperMode: (enabled: boolean) => request<{ enabled: boolean }>("/plugins/developer-mode", { method: "PUT", body: JSON.stringify({ enabled }) }),
   loadDevelopment: (directory: string, confirmNodeRuntime = false) => contributionMutation(request("/plugins/dev/load", { method: "POST", body: JSON.stringify({ directory, confirmNodeRuntime }) })),

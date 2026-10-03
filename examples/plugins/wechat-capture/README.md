@@ -4,7 +4,7 @@
 
 ## 安装与配置
 
-1. 使用插件 CLI 在此目录执行 `pack`，在 Nowen「设置 → 插件」上传生成的 `.nowen-plugin`。这是本仓库提供的官方示例源码，尚未发布至签名 Registry；手动安装按 Community Node Action 的现有确认流程授权。插件不开放独立端口。
+1. 管理员在 Nowen「设置 → 插件 → 市场」开启「允许官方 / 已验证插件使用 Node Runtime」，搜索「微信公众号采集」并安装。插件通过官方 Registry 和 Publisher 双重签名验证；此策略默认关闭，其他企业允许/阻止列表仍然生效。插件不开放独立端口。也可以使用插件 CLI 执行 `pack` 后手动上传，按 Community Node Action 的现有确认流程授权。
 2. 授予声明权限并启用。配置「目标笔记本 ID」（须有创建权限）、标签，以及公众号 AppID。
 3. 在插件连接中保存微信公众号 `Token`；使用兼容/安全模式时同时保存 43 字符的 `EncodingAESKey`。密钥由 Host 加密存储，插件只调用摘要和 AES-CBC 操作，不能读取密钥原文。
 4. 明文消息选择 `plain`；兼容和安全模式选择 `encrypted`。后者拒绝明文 POST，防止降级。

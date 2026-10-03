@@ -58,4 +58,10 @@ describe("extension API paths", () => {
       expect.any(Object),
     );
   });
+
+  it("updates only the selected Runtime policy through the existing administrator endpoint", async () => {
+    await pluginApi.getRuntimePolicy(); await pluginApi.setRuntimePolicy(true);
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual(["/api/plugins/policy", "/api/plugins/policy"]);
+    expect(fetchMock.mock.calls[1][1]).toMatchObject({ method: "PUT", body: JSON.stringify({ allowNodeRuntime: true }) });
+  });
 });
