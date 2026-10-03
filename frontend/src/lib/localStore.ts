@@ -1,3 +1,4 @@
+import { assertConversionAttachments, convertedNoteVersion, assertConversionNote, isConversionNoteSafe, withConversionWriteLease } from "./encryptedNotes/conversionBarrier";
 import { openDB, type IDBPDatabase, type DBSchema } from "idb";
 import type { Note, NoteListItem, Notebook, Tag } from "@/types";
 
@@ -258,24 +259,31 @@ export async function putNote(note: CachedNote): Promise<void> {
     : note.__detailCached === false
       ? false
       : typeof note.content === "string" && note.content.length > 0;
-  await safe(async () => {
+  await safe(() => withConversionWriteLease(async (assertScope, scope) => {
     const db = await connection;
+    assertScope();
+    assertConversionNote(note, scope);
     await db.put("notes", { ...note, __detailCached: detailCached });
-  }, undefined, "putNote");
+  }), undefined, "putNote");
 }
 
 /** Merge lightweight list metadata without manufacturing a valid empty detail. */
 export async function putNoteListItems(items: NoteListItem[]): Promise<void> {
   const connection = getDb();
   if (!connection) return;
-  await safe(async () => {
+  await safe(() => withConversionWriteLease(async (assertScope, scope) => {
     const db = await connection;
+    assertScope();
     const transaction = db.transaction("notes", "readwrite");
     for (const item of items) {
+      assertScope();
+      if (!isConversionNoteSafe(item)) continue;
       const existing = await transaction.store.get(item.id);
+      assertScope();
       const canKeepDetail = !!(
         existing &&
         existing.version === item.version &&
+        isConversionNoteSafe(existing) &&
         isNoteDetailCached(existing)
       );
 
@@ -301,7 +309,7 @@ export async function putNoteListItems(items: NoteListItem[]): Promise<void> {
       }
     }
     await transaction.done;
-  }, undefined, "putNoteListItems");
+  }), undefined, "putNoteListItems");
 }
 
 /** Audit only an already initialized cache. Never create a database or mask read errors. */
@@ -313,23 +321,70 @@ export async function inspectCachedNotePresence(id: string, userId: string): Pro
   return pending === dbPromise ? present : null;
 }
 
+/** Strict conversion cleanup, limited to the already initialized account cache. */
+export async function clearCachedNoteForEncryptionConversion(id: string, userId: string, assertScope: () => void): Promise<void> {
+  const pending = dbPromise;
+  const identity = currentCacheIdentity;
+  const check = () => {
+    assertScope();
+    if (!pending || pending !== dbPromise || !identity || identity !== currentCacheIdentity || currentUserId !== userId) {
+      throw new Error("CACHE_SCOPE_UNAVAILABLE");
+    }
+  };
+  check();
+  const db = await pending!;
+  check();
+  const stores = ["notes", "offlineAttachments", "offlineAttachmentJobs"] as const;
+  const transaction = db.transaction(stores, "readwrite");
+  try {
+    for (const name of ["offlineAttachments", "offlineAttachmentJobs"] as const) {
+      const store = transaction.objectStore(name);
+      for (const key of await store.index("by-note").getAllKeys(id)) {
+        check();
+        await store.delete(key);
+      }
+    }
+    check();
+    await transaction.objectStore("notes").delete(id);
+    check();
+    await transaction.done;
+  } catch (error) {
+    try { transaction.abort(); } catch { /* already settled */ }
+    await transaction.done.catch(() => {});
+    throw error;
+  }
+  check();
+  const verify = db.transaction(stores, "readonly");
+  const remaining = await Promise.all([
+    verify.objectStore("notes").getKey(id),
+    verify.objectStore("offlineAttachments").index("by-note").count(id),
+    verify.objectStore("offlineAttachmentJobs").index("by-note").count(id),
+  ]);
+  await verify.done;
+  check();
+  if (remaining[0] !== undefined || remaining[1] || remaining[2]) throw new Error("CACHE_CLEANUP_FAILED");
+}
+
 export async function getNote(id: string): Promise<CachedNote | undefined> {
   const connection = getDb();
   if (!connection) return undefined;
-  return safe(async () => (await connection).get("notes", id), undefined, "getNote");
+  return safe(async () => {
+    const note = await (await connection).get("notes", id);
+    return note && isConversionNoteSafe(note) ? note : undefined;
+  }, undefined, "getNote");
 }
 
 export async function getAllNotes(): Promise<CachedNote[]> {
   const connection = getDb();
   if (!connection) return [];
-  return safe(async () => (await connection).getAll("notes"), [], "getAllNotes");
+  return safe(async () => (await (await connection).getAll("notes")).filter(isConversionNoteSafe), [], "getAllNotes");
 }
 
 export async function getNotesByNotebook(notebookId: string): Promise<CachedNote[]> {
   const connection = getDb();
   if (!connection) return [];
   return safe(
-    async () => (await connection).getAllFromIndex("notes", "by-notebook", notebookId),
+    async () => (await (await connection).getAllFromIndex("notes", "by-notebook", notebookId)).filter(isConversionNoteSafe),
     [],
     "getNotesByNotebook",
   );
@@ -425,7 +480,12 @@ export async function putCompleteOfflineNote(note: CachedNote): Promise<void> {
   if (!connection) throw new Error("离线数据库尚未初始化");
   const detailCached = note.__detailCached === true
     || (note.__detailCached !== false && typeof note.content === "string");
-  await (await connection).put("notes", { ...note, __detailCached: detailCached });
+  await withConversionWriteLease(async (assertScope, scope) => {
+    const db = await connection;
+    assertScope();
+    assertConversionNote(note, scope);
+    await db.put("notes", { ...note, __detailCached: detailCached });
+  });
 }
 
 export async function putCompleteOfflineNotebooks(notebooks: Notebook[]): Promise<void> {
@@ -456,21 +516,31 @@ function dispatchOfflineAttachmentRemoval(ids: readonly string[]): void {
 export async function putOfflineAttachment(record: OfflineAttachmentRecord): Promise<void> {
   const connection = getDb();
   if (!connection) throw new Error("离线数据库尚未初始化");
-  await (await connection).put("offlineAttachments", record);
+  await withConversionWriteLease(async (assertScope, scope) => {
+    const db = await connection;
+    assertScope();
+    assertConversionAttachments(record.noteId, scope);
+    await db.put("offlineAttachments", record);
+  });
 }
 
 
 export async function putOfflineAttachmentJob(job: OfflineAttachmentJob): Promise<void> {
   const connection = getDb();
   if (!connection) throw new Error("离线数据库尚未初始化");
-  await (await connection).put("offlineAttachmentJobs", job);
+  await withConversionWriteLease(async (assertScope, scope) => {
+    const db = await connection;
+    assertScope();
+    assertConversionAttachments(job.noteId, scope);
+    await db.put("offlineAttachmentJobs", job);
+  });
 }
 
 export async function getAllOfflineAttachmentJobs(): Promise<OfflineAttachmentJob[]> {
   const connection = getDb();
   if (!connection) return [];
   return safe(
-    async () => (await connection).getAllFromIndex("offlineAttachmentJobs", "by-queued"),
+    async () => (await (await connection).getAllFromIndex("offlineAttachmentJobs", "by-queued")).filter((job) => convertedNoteVersion(job.noteId) === null),
     [],
     "getAllOfflineAttachmentJobs",
   );
@@ -513,14 +583,20 @@ export async function reconcileOfflineAttachmentJobs(
 export async function getOfflineAttachment(id: string): Promise<OfflineAttachmentRecord | undefined> {
   const connection = getDb();
   if (!connection) return undefined;
-  return safe(async () => (await connection).get("offlineAttachments", id), undefined, "getOfflineAttachment");
+  return safe(async () => {
+    const record = await (await connection).get("offlineAttachments", id);
+    return record && convertedNoteVersion(record.noteId) === null ? record : undefined;
+  }, undefined, "getOfflineAttachment");
 }
 
 export async function getOfflineAttachmentsByNote(noteId: string): Promise<OfflineAttachmentRecord[]> {
   const connection = getDb();
   if (!connection) return [];
   return safe(
-    async () => (await connection).getAllFromIndex("offlineAttachments", "by-note", noteId),
+    async () => {
+      const records = await (await connection).getAllFromIndex("offlineAttachments", "by-note", noteId);
+      return convertedNoteVersion(noteId) === null ? records : [];
+    },
     [],
     "getOfflineAttachmentsByNote",
   );

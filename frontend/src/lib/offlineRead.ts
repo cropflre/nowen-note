@@ -1,3 +1,6 @@
+import { getOfflineQueueStorageKey } from "./offlineScope";
+import { assertConversionNote, isConversionNoteSafe } from "./encryptedNotes/conversionBarrier";
+import { ConversionCleanupError } from "./encryptedNotes/conversionCoordination";
 import {
   getAllNotebooks,
   getAllNotes,
@@ -126,6 +129,7 @@ async function withFallback<T>(
     hooks.onOnline?.(value);
     return value;
   } catch (error: any) {
+    if (error instanceof ConversionCleanupError) throw error;
     const status = error?.status as number | undefined;
     if (status && status >= 400 && status < 500 && status !== 408 && status !== 429) {
       throw error;
@@ -199,11 +203,15 @@ export function readNotesList(
   online: () => Promise<NoteListItem[]>,
   filter?: (note: Note) => boolean,
 ): Promise<NoteListItem[]> {
+  const scope = getOfflineQueueStorageKey();
   return withFallback(online, async () => {
     const all = await getAllNotes();
     const matched = filter ? all.filter(filter) : all;
     matched.sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1));
     return matched.map(({ content, __detailCached, ...rest }) => rest as unknown as NoteListItem);
+  }).then((notes) => {
+    if (scope !== getOfflineQueueStorageKey()) throw new ConversionCleanupError("scope_changed");
+    return notes.filter(isConversionNoteSafe);
   });
 }
 
@@ -212,6 +220,7 @@ export function readTags(online: () => Promise<Tag[]>): Promise<Tag[]> {
 }
 
 export function readNote(id: string, online: () => Promise<Note>): Promise<Note> {
+  const scope = getOfflineQueueStorageKey();
   return withFallback(
     online,
     async () => {
@@ -236,6 +245,8 @@ export function readNote(id: string, online: () => Promise<Note>): Promise<Note>
     } else {
       clearOfflineAttachmentObjectUrls();
     }
+    if (scope !== getOfflineQueueStorageKey()) throw new ConversionCleanupError("scope_changed");
+    assertConversionNote(note);
     return note;
   });
 }

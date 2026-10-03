@@ -1,3 +1,6 @@
+import { getOfflineQueueStorageKey } from "./offlineScope";
+import { withConversionRequestLease } from "./encryptedNotes/conversionBarrier";
+import { ConversionCleanupError } from "./encryptedNotes/conversionCoordination";
 import type { EncryptionConversionPreflight } from "./encryptedNotes/conversionPreflight";
 import { withEncryptedBlocksSupport } from "./encryptedNotes/blockDocument";
 import type { WorkspaceIssue, WorkspaceIssueDetail, IssueActivity, IssueListResponse, NotificationListResponse } from "@/types/workspaceIssues";
@@ -757,9 +760,24 @@ interface RequestOptions extends RequestInit {
 }
 
 async function request<T>(url: string, options?: RequestOptions): Promise<T> {
+  const match = url.match(/^\/(?:notes|blocks\/note|shares\/note)\/([^/?]+)(?:[/?]|$)/);
+  const createsNote = url === "/notes" && options?.method === "POST";
+  const body = (match || createsNote) && typeof options?.body === "string" ? JSON.parse(options.body) : null;
+  const noteId = match ? decodeURIComponent(match[1]) : createsNote && typeof body?.id === "string" ? body.id : null;
+  if (noteId) return withConversionRequestLease(noteId, body, () => requestInternal<T>(url, options));
+  const scope = getOfflineQueueStorageKey();
+  const result = await requestInternal<T>(url, options);
+  if ((url === "/notes" || url.startsWith("/notes?")) && scope !== getOfflineQueueStorageKey()) {
+    throw new ConversionCleanupError("scope_changed");
+  }
+  return result;
+}
+
+async function requestInternal<T>(url: string, options?: RequestOptions): Promise<T> {
   if (isMobileLocalMode()) {
     throw new MobileLocalModeRemoteRequestError(url);
   }
+  const requestScope = getOfflineQueueStorageKey();
   const token = getToken();
   const { sudoToken, _skipOfflineQueue, ...restOptions } = options || {};
   const fullUrl = `${getBaseUrl()}${url}`;
@@ -771,7 +789,7 @@ async function request<T>(url: string, options?: RequestOptions): Promise<T> {
     !navigator.onLine &&
     _shouldEnqueue(url, method, new TypeError("offline"))
   ) {
-    return handleOfflineEnqueue<T>(url, method, restOptions?.body as string | undefined);
+    return handleOfflineEnqueue<T>(url, method, restOptions?.body as string | undefined, requestScope);
   }
 
   let res: Response;
@@ -886,7 +904,7 @@ async function request<T>(url: string, options?: RequestOptions): Promise<T> {
             const isTimeout = retryErr?.name === "AbortError";
             if (!_skipOfflineQueue && (isTimeout || _shouldEnqueue(url, method, retryErr))) {
               if (_shouldEnqueue(url, method, isTimeout ? new TypeError("timeout") : retryErr)) {
-                return handleOfflineEnqueue<T>(url, method, restOptions?.body as string | undefined);
+                return handleOfflineEnqueue<T>(url, method, restOptions?.body as string | undefined, requestScope);
               }
             }
             throw retryErr;
@@ -904,7 +922,7 @@ async function request<T>(url: string, options?: RequestOptions): Promise<T> {
           if (!_skipOfflineQueue) {
             const enqueueErr = isTimeout ? new TypeError("timeout") : firstErr;
             if (_shouldEnqueue(url, method, enqueueErr)) {
-              return handleOfflineEnqueue<T>(url, method, restOptions?.body as string | undefined);
+              return handleOfflineEnqueue<T>(url, method, restOptions?.body as string | undefined, requestScope);
             }
           }
           throw firstErr;
@@ -919,7 +937,7 @@ async function request<T>(url: string, options?: RequestOptions): Promise<T> {
     if (!_skipOfflineQueue) {
       const enqueueErr = isTimeout ? new TypeError("timeout") : fetchErr;
       if (_shouldEnqueue(url, method, enqueueErr)) {
-        return handleOfflineEnqueue<T>(url, method, restOptions?.body as string | undefined);
+        return handleOfflineEnqueue<T>(url, method, restOptions?.body as string | undefined, requestScope);
       }
     }
     throw fetchErr;
@@ -984,7 +1002,7 @@ async function request<T>(url: string, options?: RequestOptions): Promise<T> {
       isRetryable &&
       _shouldEnqueue(url, method, error)
     ) {
-      return handleOfflineEnqueue<T>(url, method, restOptions?.body as string | undefined);
+      return handleOfflineEnqueue<T>(url, method, restOptions?.body as string | undefined, requestScope);
     }
 
     throw error;
@@ -1004,7 +1022,8 @@ async function request<T>(url: string, options?: RequestOptions): Promise<T> {
  *   - createNote → 返回带临时 id 的假 Note
  *   - deleteNote → 返回 {}
  */
-function handleOfflineEnqueue<T>(url: string, method: string, bodyStr?: string): T {
+function handleOfflineEnqueue<T>(url: string, method: string, bodyStr: string | undefined, cacheScope: string): T {
+  if (cacheScope !== getOfflineQueueStorageKey()) throw new ConversionCleanupError("scope_changed");
   const body = bodyStr ? JSON.parse(bodyStr) : null;
   const mutationType = _inferMutationType(url, method);
   const noteId = mutationType === "createNote"
@@ -1035,7 +1054,7 @@ function handleOfflineEnqueue<T>(url: string, method: string, bodyStr?: string):
       updatedAt: new Date().toISOString(),
       ...body,
     };
-    void import("@/lib/syncEngine").then((m) => m.cacheNoteContent(optimisticNote as any)).catch(() => { });
+    void import("@/lib/syncEngine").then((m) => m.cacheNoteContent(optimisticNote as any, cacheScope)).catch(() => { });
   } else if (mutationType === "deleteNote") {
     void import("@/lib/localStore").then((m) => m.deleteNote(noteId)).catch(() => { });
   }
@@ -1579,9 +1598,10 @@ export const api = {
     `/notes/${encodeURIComponent(id)}/encryption-preflight`, { cache: "no-store" },
   ),
   getNote: (id: string) => _readNote(id, async () => {
+    const cacheScope = getOfflineQueueStorageKey();
     const note = await request<Note>(`/notes/${id}`);
     // Phase C: \u6210\u529f\u62c9\u5230\u7b14\u8bb0\u6b63\u6587 \u2192 \u5199\u5165\u672c\u5730\u7f13\u5b58\uff0c\u4f9b\u540e\u7eed\u79bb\u7ebf\u6253\u5f00
-    void import("@/lib/syncEngine").then((m) => m.cacheNoteContent(note)).catch(() => { });
+    void import("@/lib/syncEngine").then((m) => m.cacheNoteContent(note, cacheScope)).catch(() => { });
     return note;
   }),
   /**
@@ -1653,11 +1673,12 @@ export const api = {
       ...(options ? { body: JSON.stringify(options) } : {}),
     }),
   updateNote: (id: string, data: Partial<Note>) => {
+    const cacheScope = getOfflineQueueStorageKey();
     const payload = protectNoteMutationPayload(data, { operation: "updateNote", noteId: id });
     const p = request<Note>(`/notes/${id}`, { method: "PUT", body: JSON.stringify(payload) });
     // Phase D: 成功后同步本地缓存，保证离线重启后也能看到最新内容
     p.then((note) => {
-      void import("@/lib/syncEngine").then((m) => m.cacheNoteContent(note)).catch(() => { });
+      void import("@/lib/syncEngine").then((m) => m.cacheNoteContent(note, cacheScope)).catch(() => { });
     }).catch(() => { /* 失败不写入本地 */ });
     return p;
   },
@@ -3438,9 +3459,10 @@ export const api = {
   getNoteVersion: (noteId: string, versionId: string) =>
     request<NoteVersion>(`/shares/note/${noteId}/versions/${versionId}`),
   restoreNoteVersion: (noteId: string, versionId: string) => {
+    const cacheScope = getOfflineQueueStorageKey();
     const p = request<Note>(`/shares/note/${noteId}/versions/${versionId}/restore`, { method: "POST" });
     p.then((note) => {
-      void import("@/lib/syncEngine").then((m) => m.cacheNoteContent(note)).catch(() => { });
+      void import("@/lib/syncEngine").then((m) => m.cacheNoteContent(note, cacheScope)).catch(() => { });
     }).catch(() => { });
     return p;
   },

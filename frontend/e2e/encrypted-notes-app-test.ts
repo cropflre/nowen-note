@@ -59,6 +59,19 @@ export const test = base.extend<{ product: Product }>({
         } else await expect(page.getByPlaceholder("admin", { exact: true })).toBeVisible();
         await app.evaluate(({ app, BrowserWindow }) => { app.focus({ steal: true }); const window = BrowserWindow.getAllWindows().find((entry) => entry.webContents.getURL().includes("/frontend/dist/index.html")); window?.show(); window?.focus(); });
         await expect.poll(() => page.evaluate(() => document.hasFocus())).toBe(true);
+        // Failure evidence contains window lifecycle metadata only, never editor contents.
+        await app.evaluate(({ BrowserWindow }) => {
+          const events: unknown[] = []; (globalThis as any).encryptedAppWindowEvents = events;
+          for (const window of BrowserWindow.getAllWindows()) {
+            const record = (event: string) => { events.push({ at: Date.now(), event, focused: window.isFocused(), visible: window.isVisible() }); };
+            window.on("blur", () => record("blur"));
+            window.on("focus", () => record("focus"));
+            window.on("hide", () => record("hide"));
+            window.on("show", () => record("show"));
+            window.on("minimize", () => record("minimize"));
+            window.on("restore", () => record("restore"));
+          }
+        });
         // UI preferences only; authentication stays on the real product login path.
         await page.evaluate(() => { localStorage.setItem("i18nextLng", "zh-CN"); localStorage.setItem("nowen-seen-version", "1.5.0"); });
         await page.reload();
@@ -79,6 +92,12 @@ export const test = base.extend<{ product: Product }>({
     } finally {
       try {
         if (app) {
+          if (testInfo.status !== testInfo.expectedStatus) {
+            const events = await app.evaluate(() => (globalThis as any).encryptedAppWindowEvents || []);
+            const evidence = testInfo.outputPath("native-window-lifecycle.json");
+            fs.writeFileSync(evidence, JSON.stringify(events));
+            await testInfo.attach("native-window-lifecycle.json", { path: evidence, contentType: "application/json" });
+          }
           const requests = await app.evaluate(() => JSON.stringify((globalThis as any).encryptedAppRequests));
           for (const marker of forbidden) expect(requests).not.toContain(marker);
           expect(await app.evaluate((_, markers) => (globalThis as any).encryptedAppScan(markers), forbidden)).toEqual([]);

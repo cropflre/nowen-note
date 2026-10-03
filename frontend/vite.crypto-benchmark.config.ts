@@ -17,6 +17,6 @@ export default defineConfig({
   build: {
     outDir: "node_modules/.cache/encrypted-notes-benchmark",
     emptyOutDir: true,
-    rollupOptions: { input: ["benchmarks/encrypted-notes.html", "benchmarks/encrypted-notes-editor.html", "benchmarks/encrypted-notes-blocks.html", "benchmarks/encrypted-notes-product-editor.html"] },
+    rollupOptions: { input: ["benchmarks/encrypted-notes.html", "benchmarks/encrypted-notes-editor.html", "benchmarks/encrypted-notes-blocks.html", "benchmarks/encrypted-notes-product-editor.html", "benchmarks/encrypted-notes-cleanup.html"] },
   },
 });

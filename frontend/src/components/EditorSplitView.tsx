@@ -1,3 +1,4 @@
+import EncryptedConversionEditorGuard from "./EncryptedConversionEditorGuard";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeftRight, Eye, Loader2, PanelLeftClose, Pencil, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -245,7 +246,11 @@ interface SplitEditorPaneProps {
   onHideNoteList: () => void;
 }
 
-function SplitEditorPane({
+function SplitEditorPane(props: SplitEditorPaneProps) {
+  return <EncryptedConversionEditorGuard noteId={props.noteId}><SplitEditorPaneRuntime {...props} /></EncryptedConversionEditorGuard>;
+}
+
+function SplitEditorPaneRuntime({
   noteId,
   readOnly,
   duplicateDocument,

@@ -7,6 +7,11 @@
  * payload for diagnostics/export.
  */
 
+import { getOfflineQueueStorageKey, STORAGE_KEY_PREFIX } from "./offlineScope";
+export { getOfflineQueueStorageKey } from "./offlineScope";
+import { assertConversionMutation } from "./encryptedNotes/conversionBarrier";
+import { CONVERSION_REPLAY_LOCK, ConversionCleanupError } from "./encryptedNotes/conversionCoordination";
+
 export type OfflineMutationType = "createNote" | "updateNote" | "deleteNote";
 
 export interface OfflineQueueItem {
@@ -49,7 +54,6 @@ export type FlushResult = {
 };
 
 const LEGACY_STORAGE_KEY = "nowen-offline-queue";
-const STORAGE_KEY_PREFIX = "nowen-offline-queue:v2";
 const LEGACY_LOCAL_ID_MAP_KEY = "nowen-offline-id-map";
 const LOCAL_ID_MAP_KEY_PREFIX = "nowen-offline-id-map:v2";
 const MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
@@ -57,63 +61,6 @@ const MAX_RETRY = 10;
 
 function generateId(): string {
   return `oq_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
-}
-
-function normalizeScopePart(value: string): string {
-  return encodeURIComponent((value || "unknown").replace(/\/+$/, "").toLowerCase());
-}
-
-function decodeUserIdFromToken(token: string | null): string {
-  if (!token) return "anonymous";
-  try {
-    const payload = token.split(".")[1];
-    if (!payload) return "anonymous";
-    const normalized = payload.replace(/-/g, "+").replace(/_/g, "/");
-    const json = decodeURIComponent(
-      Array.from(atob(normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "=")))
-        .map((c) => `%${c.charCodeAt(0).toString(16).padStart(2, "0")}`)
-        .join(""),
-    );
-    const data = JSON.parse(json) as { userId?: string; sub?: string };
-    return data.userId || data.sub || "anonymous";
-  } catch {
-    return "anonymous";
-  }
-}
-
-function normalizeUrl(url: string): string {
-  return url.replace(/\/+$/, "").toLowerCase();
-}
-
-function isLoopbackUrl(url: string): boolean {
-  try {
-    const parsed = new URL(url);
-    return parsed.hostname === "127.0.0.1" || parsed.hostname === "localhost" || parsed.hostname === "::1";
-  } catch {
-    return false;
-  }
-}
-
-function getServerScope(): string {
-  let server = "";
-  try { server = localStorage.getItem("nowen-server-url") || ""; } catch { /* ignore */ }
-  const origin = typeof window !== "undefined" && window.location.origin.startsWith("http")
-    ? window.location.origin
-    : "";
-  const isDesktop = typeof window !== "undefined" && !!(window as any).nowenDesktop?.isDesktop;
-
-  if (isDesktop && ((server && isLoopbackUrl(server)) || (!server && origin && isLoopbackUrl(origin)))) {
-    return "local-desktop";
-  }
-  if (server) return normalizeUrl(server);
-  if (origin) return normalizeUrl(origin);
-  return "same-origin";
-}
-
-export function getOfflineQueueStorageKey(): string {
-  let token: string | null = null;
-  try { token = localStorage.getItem("nowen-token"); } catch { /* ignore */ }
-  return `${STORAGE_KEY_PREFIX}:${normalizeScopePart(getServerScope())}:${normalizeScopePart(decodeUserIdFromToken(token))}`;
 }
 
 function getLocalIdMapStorageKey(): string {
@@ -196,6 +143,7 @@ function clearFailureState(item: OfflineQueueItem): OfflineQueueItem {
 }
 
 export function enqueue(item: Omit<OfflineQueueItem, "id" | "enqueuedAt" | "retryCount">): void {
+  assertConversionMutation(item.noteId, item.body);
   const queue = getQueue();
   const newItem: OfflineQueueItem = {
     ...item,
@@ -484,12 +432,26 @@ export function clearLocalIdMap(): void {
 
 let flushPromise: Promise<FlushResult> | null = null;
 
+/** Conversion must not discard/replay a captured queue while a flush is in flight. */
+export function isOfflineQueueFlushing(): boolean { return flushPromise !== null; }
+
 async function flushQueueInternal(fetchFn: OfflineQueueFetch): Promise<FlushResult> {
   const result: FlushResult = { success: 0, failed: 0, remaining: 0 };
+  const scope = getOfflineQueueStorageKey();
+  const assertScope = () => {
+    if (scope !== getOfflineQueueStorageKey()) throw new ConversionCleanupError("scope_changed");
+  };
   try {
     const queue = getQueue();
     for (const item of queue) {
+      assertScope();
       if (item.conflict || item.blocked || item.errorCode === "VERSION_CONFLICT") continue;
+      try { assertConversionMutation(item.noteId, item.body, scope); }
+      catch {
+        markBlockedFailure(item, "CONVERTED_NOTE", "笔记已转换或无法确认转换状态，已暂停旧操作，请手动处理本地副本。", { retryable: false });
+        result.failed += 1;
+        continue;
+      }
 
       if (Date.now() - item.enqueuedAt >= MAX_AGE_MS) {
         markBlockedFailure(item, "QUEUE_ITEM_EXPIRED", "该操作已等待超过 7 天，已保留本地副本，请手动重试或导出诊断。", {
@@ -515,6 +477,7 @@ async function flushQueueInternal(fetchFn: OfflineQueueFetch): Promise<FlushResu
           idempotencyKey: item.id,
           item,
         });
+        assertScope();
 
         if (response.ok) {
           if (item.type === "createNote" && item.noteId.startsWith("local-") && response.data?.id) {
@@ -580,6 +543,7 @@ async function flushQueueInternal(fetchFn: OfflineQueueFetch): Promise<FlushResu
         result.failed += 1;
         break;
       } catch (error) {
+        assertScope();
         const retryCount = item.retryCount + 1;
         const message = error instanceof Error ? error.message : String(error || "Network error");
         updateItem(item.id, {
@@ -605,7 +569,10 @@ async function flushQueueInternal(fetchFn: OfflineQueueFetch): Promise<FlushResu
 
 export function flushQueue(fetchFn: OfflineQueueFetch): Promise<FlushResult> {
   if (flushPromise) return flushPromise;
-  flushPromise = flushQueueInternal(fetchFn).finally(() => {
+  const replay = typeof navigator !== "undefined" && navigator.locks?.request
+    ? navigator.locks.request(CONVERSION_REPLAY_LOCK, { mode: "shared" }, () => flushQueueInternal(fetchFn))
+    : flushQueueInternal(fetchFn);
+  flushPromise = replay.finally(() => {
     flushPromise = null;
   });
   return flushPromise;

@@ -1,5 +1,6 @@
 import React, { useCallback, useRef, useState, useEffect, useMemo } from "react";
 import EncryptedNoteConversionPreflight from "./EncryptedNoteConversionPreflight";
+import EncryptedConversionEditorGuard from "./EncryptedConversionEditorGuard";
 import EncryptedNotePane from "./EncryptedNotePane";
 import { isEncryptedNoteFormat } from "@/lib/encryptedNotes/noteDocument";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
@@ -138,7 +139,7 @@ export default function EditorPane(props: EditorPaneProps) {
   const { state } = useApp();
   return state.activeNote && isEncryptedNoteFormat(state.activeNote.contentFormat)
     ? <EncryptedNotePane key={state.activeNote.id} note={state.activeNote} />
-    : <OrdinaryEditorPane {...props} />;
+    : <EncryptedConversionEditorGuard noteId={state.activeNote?.id ?? null}><OrdinaryEditorPane {...props} /></EncryptedConversionEditorGuard>;
 }
 
 function OrdinaryEditorPane({

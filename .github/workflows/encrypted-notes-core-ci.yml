@@ -15,6 +15,7 @@ on:
       - "frontend/tsconfig.encrypted-notes.json"
       - "frontend/src/components/EncryptedNote*.tsx"
       - "frontend/src/components/EncryptedBlock*.tsx"
+      - "frontend/src/components/EncryptedConversionEditorGuard.tsx"
       - "frontend/src/components/CodeBlockView.tsx"
       - "frontend/src/components/MarkdownCodeBlock.tsx"
       - "frontend/src/components/MarkdownEditorImpl.tsx"
@@ -22,6 +23,7 @@ on:
       - "frontend/src/lib/noteFormatConversion.ts"
       - "frontend/src/store/__tests__/encryptedRegionNavigation.test.tsx"
       - "frontend/src/components/EditorPane.tsx"
+      - "frontend/src/components/EditorSplitView.tsx"
       - "frontend/src/components/KnowledgeTreeCreateMenuRuntime.tsx"
       - "frontend/src/lib/noteContentPersistence.ts"
       - "frontend/src/lib/noteLoadSource.ts"
@@ -36,6 +38,11 @@ on:
       - "frontend/src/lib/__tests__/noteLoadSource.test.ts"
       - "frontend/src/lib/api.ts"
       - "frontend/src/lib/localStore.ts"
+      - "frontend/src/lib/draftStorage.ts"
+      - "frontend/src/lib/offlineQueue.ts"
+      - "frontend/src/lib/offlineScope.ts"
+      - "frontend/src/lib/offlineRead.ts"
+      - "frontend/src/lib/syncEngine.ts"
       - "frontend/src/lib/yjsProvider.ts"
       - "frontend/src/lib/api.impl.ts"
       - "frontend/src/store/AppContext.tsx"
@@ -89,6 +96,7 @@ on:
       - "frontend/tsconfig.encrypted-notes.json"
       - "frontend/src/components/EncryptedNote*.tsx"
       - "frontend/src/components/EncryptedBlock*.tsx"
+      - "frontend/src/components/EncryptedConversionEditorGuard.tsx"
       - "frontend/src/components/CodeBlockView.tsx"
       - "frontend/src/components/MarkdownCodeBlock.tsx"
       - "frontend/src/components/MarkdownEditorImpl.tsx"
@@ -96,6 +104,7 @@ on:
       - "frontend/src/lib/noteFormatConversion.ts"
       - "frontend/src/store/__tests__/encryptedRegionNavigation.test.tsx"
       - "frontend/src/components/EditorPane.tsx"
+      - "frontend/src/components/EditorSplitView.tsx"
       - "frontend/src/components/KnowledgeTreeCreateMenuRuntime.tsx"
       - "frontend/src/lib/noteContentPersistence.ts"
       - "frontend/src/lib/noteLoadSource.ts"
@@ -110,6 +119,11 @@ on:
       - "frontend/src/lib/__tests__/noteLoadSource.test.ts"
       - "frontend/src/lib/api.ts"
       - "frontend/src/lib/localStore.ts"
+      - "frontend/src/lib/draftStorage.ts"
+      - "frontend/src/lib/offlineQueue.ts"
+      - "frontend/src/lib/offlineScope.ts"
+      - "frontend/src/lib/offlineRead.ts"
+      - "frontend/src/lib/syncEngine.ts"
       - "frontend/src/lib/yjsProvider.ts"
       - "frontend/src/lib/api.impl.ts"
       - "frontend/src/store/AppContext.tsx"
@@ -189,7 +203,7 @@ jobs:
       - name: Native locking bridge syntax
         run: node --check ../electron/encrypted-notes-auto-lock.js && node --check ../scripts/encrypted-notes-electron-fixture.cjs && node --check ../scripts/encrypted-notes-app-fixture.cjs && node --check ../scripts/encrypted-notes-backend-fixture.cjs && node --check ../scripts/encrypted-notes-package-fixture.cjs && node --check ../scripts/encrypted-notes-full-acceptance.mjs && node --check ../electron/main.js && node --check ../electron/preload.js
       - name: Ordinary and encrypted cache/conflict regressions
-        run: npx vitest run src/lib/__tests__/conflictResolution.test.ts src/lib/__tests__/noteLoadSource.test.ts src/lib/__tests__/syncConflictAutoMerge.test.ts src/components/__tests__/ConflictCenterBulkResolve.test.tsx src/store/__tests__/encryptedRegionNavigation.test.tsx src/lib/__tests__/noteContentPersistence.test.ts src/lib/__tests__/contentFormat.test.ts
+        run: npx vitest run src/lib/__tests__/conflictResolution.test.ts src/lib/__tests__/noteLoadSource.test.ts src/lib/__tests__/syncConflictAutoMerge.test.ts src/components/__tests__/ConflictCenterBulkResolve.test.tsx src/store/__tests__/encryptedRegionNavigation.test.tsx src/lib/__tests__/noteContentPersistence.test.ts src/lib/__tests__/contentFormat.test.ts src/lib/__tests__/draftStorage.conflict.test.ts src/lib/__tests__/offlineQueue.test.ts src/lib/__tests__/offlineRead.snapshot.test.ts src/lib/__tests__/apiConfirmedNoteMutations.test.ts src/lib/__tests__/apiDesktopSessionRevocation.test.ts src/lib/__tests__/apiNativeHttpFallback.test.ts
       - name: Application typecheck
         run: npx tsc -b --pretty false
       - name: Benchmark and browser test typecheck
