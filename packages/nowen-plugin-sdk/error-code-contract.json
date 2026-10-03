@@ -1,6 +1,10 @@
 {
-  "contractVersion": 1,
+  "contractVersion": 2,
   "errors": [
+    {"code":"CAPTURE_URL_DENIED","category":"network","retryable":false,"description":"Capture URL is invalid or resolves to a non-public address"},
+    {"code":"CAPTURE_FETCH_FAILED","category":"network","retryable":true,"description":"Public article capture failed at the network layer"},
+    {"code":"CAPTURE_EXTRACTION_FAILED","category":"validation","retryable":false,"description":"No readable HTML article was found"},
+    {"code":"CAPTURE_TOO_LARGE","category":"budget","retryable":false,"description":"Capture exceeds the article content budget"},
     {"code":"PLUGIN_PERMISSION_DENIED","category":"permission","retryable":false,"description":"Declared permission is not granted"},
     {"code":"RESOURCE_NOT_FOUND","category":"resource","retryable":false,"description":"Requested resource does not exist"},
     {"code":"RESOURCE_FORBIDDEN","category":"permission","retryable":false,"description":"Invoker cannot access the requested resource"},

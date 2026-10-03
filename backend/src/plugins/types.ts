@@ -22,6 +22,7 @@ export const PLUGIN_PERMISSIONS = [
   "mindmaps:read", "mindmaps:write",
   "plugin-storage:read", "plugin-storage:write",
   "external:fetch", "secrets:use",
+  "capture:write",
 ] as const;
 
 export type PluginPermission = typeof PLUGIN_PERMISSIONS[number];

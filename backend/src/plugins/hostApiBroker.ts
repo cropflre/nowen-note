@@ -21,6 +21,7 @@ import { PluginPermissions, type PermissionRow } from "./permissions.js";
 import { PluginRegistry } from "./registry.js";
 import { secureExternalFetch, type ExternalFetchRequest } from "./secureExternalFetch.js";
 import { PluginSecrets } from "./secrets.js";
+import { importArticleUrl } from "../services/article-import.js";
 import type { HostCall, PluginExecutionContext, PluginManifest } from "./types.js";
 
 type JsonObject = Record<string, any>;
@@ -97,6 +98,7 @@ export class HostApiBroker {
       case "storage": result = this.storage(context, operation, args); break;
       case "external": result = await this.external(context, operation, args, methodPermission); break;
       case "runtime": result = this.runtime(context, operation); break;
+      case "capture": result = await importArticleUrl(context, args); break;
       default: throw createHostMethodNotFound(call.method);
     }
     requireJsonBudget(result, contract.maxResultBytes, "HOST_RESULT_TOO_LARGE", "PLUGIN_ERROR", "Host API 结果");

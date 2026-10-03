@@ -10,7 +10,7 @@ function deepFreeze<T>(value: T): T {
   return value;
 }
 
-export const HOST_API_CONTRACT_VERSION = 2 as const;
+export const HOST_API_CONTRACT_VERSION = 3 as const;
 
 export const HOST_API_BUDGETS = deepFreeze({
   "ipcMessageBytes": 2097152,
@@ -34,6 +34,17 @@ export const HOST_API_CONTRACT = deepFreeze([
     "method": "attachments.list",
     "sinceApiVersion": 1,
     "permission": "attachments:read",
+    "runtimes": [
+      "node-action",
+      "sandbox-js"
+    ],
+    "maxArgsBytes": 262144,
+    "maxResultBytes": 1048576
+  },
+  {
+    "method": "capture.importUrl",
+    "sinceApiVersion": 2,
+    "permission": "capture:write",
     "runtimes": [
       "node-action",
       "sandbox-js"
@@ -346,6 +357,7 @@ export const V2_COMBINATION_PLUGIN_PERMISSIONS = deepFreeze([
 
 export const V2_SUPPORTED_PLUGIN_PERMISSIONS = deepFreeze([
   "attachments:read",
+  "capture:write",
   "diary:read",
   "diary:write",
   "external:fetch",

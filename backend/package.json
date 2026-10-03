@@ -16,6 +16,7 @@
   },
   "dependencies": {
     "@hono/node-server": "^1.13.7",
+    "@mozilla/readability": "^0.6.0",
     "@types/ws": "^8.18.1",
     "archiver": "^7.0.1",
     "bcryptjs": "^3.0.3",

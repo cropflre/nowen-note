@@ -14,6 +14,7 @@ const knownPermissions = new Set([
   "notes:read", "notes:write", "notebooks:read", "notebooks:write", "tags:read", "tags:write",
   "tasks:read", "tasks:write", "attachments:read", "attachments:write", "diary:read", "diary:write",
   "mindmaps:read", "mindmaps:write", "plugin-storage:read", "plugin-storage:write", "external:fetch", "secrets:use",
+  "capture:write",
 ]);
 
 function fail(message) { throw new Error(message); }
