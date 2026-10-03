@@ -1,3 +1,4 @@
+import { validateSheetData } from "./sheetData.js";
 import type Database from "better-sqlite3";
 import { v4 as uuid } from "uuid";
 
@@ -256,6 +257,7 @@ export function createKnowledgeChild(input: {
   title: string;
   encryptedContent?: string;
   encryptedNoteId?: string;
+  sheetData?: unknown;
   db?: Database.Database;
 }): KnowledgeTreeNode {
   const db = input.db || getDb();
@@ -268,6 +270,11 @@ export function createKnowledgeChild(input: {
   const targetAccess = resolveTargetAccess(db, input.parentId, input.actorUserId, normalizedWorkspaceId);
   if (!targetAccess.capabilities.canCreate) {
     throw new KnowledgeTreeError("KNOWLEDGE_CAPABILITY_FORBIDDEN", 403, "没有在此处新建内容的权限", { required: "canCreate" });
+  }
+
+  const sheetData = input.sheetData === undefined ? undefined : validateSheetData(input.sheetData);
+  if (input.sheetData !== undefined && (input.nodeType !== "sheet" || input.encryptedContent || !sheetData)) {
+    throw new KnowledgeTreeError("INVALID_PAYLOAD", 400, "表格数据格式无效");
   }
 
   const title = input.title.trim() || (
@@ -324,7 +331,7 @@ export function createKnowledgeChild(input: {
           noteId,
           resourceOwnerUserId,
           normalizedWorkspaceId,
-          JSON.stringify({
+          JSON.stringify(sheetData || {
             version: 1,
             rows: Array.from({ length: 20 }, (_, index) => ({ id: `r${index + 1}`, height: 32 })),
             columns: Array.from({ length: 8 }, (_, index) => ({

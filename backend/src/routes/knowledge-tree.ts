@@ -312,6 +312,7 @@ app.post("/nodes", async (c) => {
       parentId,
       nodeType,
       title: typeof body.title === "string" ? body.title : "",
+      sheetData: body.sheetData,
     });
     return c.json(node, 201);
   } catch (error) {

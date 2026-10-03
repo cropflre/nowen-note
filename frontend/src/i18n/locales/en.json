@@ -2906,5 +2906,26 @@
       "rotateConfirm": "Rotate this callback URL? The old URL and pending jobs will be removed.",
       "revokeConfirm": "Revoke this callback URL and remove its pending jobs?"
     }
+  },
+  "xlsxPreview": {
+    "loading": "Loading Excel preview…",
+    "readOnly": "Excel data preview · Read only",
+    "download": "Download original",
+    "downloadFailed": "Failed to download original file",
+    "import": "Import as lightweight sheet",
+    "destination": "Destination",
+    "workspaceRoot": "Current workspace root",
+    "confirmImport": "Import worksheet: {{name}}",
+    "cancel": "Cancel",
+    "importHint": "Import the current worksheet using the first row as column names. Creates a separate sheet and keeps the attachment unchanged.",
+    "imported": "Created a separate lightweight sheet. Open it in the navigation tree.",
+    "importFailed": "Failed to import worksheet",
+    "workspaceChanged": "Workspace changed. Please select the import destination again.",
+    "worksheets": "Worksheets",
+    "empty": "Empty worksheet",
+    "dataOnly": "Cell data and cached formula results only. Formulas are not recalculated. Charts, macros, merged cells and full styling are not retained.",
+    "importLimit": "This worksheet exceeds 50,000 populated cells. Preview or download only.",
+    "limitError": "The workbook exceeds preview limits (20 MB file, 64 MB XML, 20 worksheets, 1,000 rows × 200 columns per sheet, 200,000 total cells, 20,000 characters per cell). Download it and open with Excel / WPS.",
+    "invalidError": "Unable to preview this Excel file. It may be damaged, encrypted or unsupported. Download it and open with Excel / WPS."
   }
 }

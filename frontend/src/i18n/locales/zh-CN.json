@@ -2913,5 +2913,26 @@
       "rotateConfirm": "更换回调地址？旧地址及待处理任务将被移除。",
       "revokeConfirm": "撤销回调地址，并移除待处理任务？"
     }
+  },
+  "xlsxPreview": {
+    "loading": "正在加载 Excel 预览…",
+    "readOnly": "Excel 数据预览 · 只读",
+    "download": "下载原文件",
+    "downloadFailed": "原文件下载失败",
+    "import": "导入为轻量表格",
+    "destination": "目标目录",
+    "workspaceRoot": "当前工作区根目录",
+    "confirmImport": "导入工作表：{{name}}",
+    "cancel": "取消",
+    "importHint": "仅导入当前工作表，首行作为列名；创建独立表格，原附件保持不变。",
+    "imported": "已创建独立轻量表格，请在目录树中打开",
+    "importFailed": "轻量表格导入失败",
+    "workspaceChanged": "工作区已切换，请重新选择导入目录",
+    "worksheets": "工作表",
+    "empty": "空工作表",
+    "dataOnly": "仅展示单元格数据和公式缓存结果，不重新计算公式；不保留图表、宏、合并单元格或完整样式。",
+    "importLimit": "当前工作表超过 5 万个有值单元格，仅支持预览或下载。",
+    "limitError": "文件内容超出预览限制（文件 20 MB、展开 XML 64 MB、20 个工作表、每表 1000 行 × 200 列、合计 20 万单元格、单元格 2 万字符）。请下载原文件，使用 Excel / WPS 打开。",
+    "invalidError": "无法预览此 Excel 文件：文件可能已损坏、加密或格式不受支持。请下载原文件，使用 Excel / WPS 打开。"
   }
 }
