@@ -1,7 +1,7 @@
 <!-- 此文件由 scripts/generate-plugin-host-api.mjs 生成，请勿手动修改。 -->
 # Host API 合同
 
-合同版本：3
+合同版本：4
 
 固定预算：IPC 消息 2097152 字节，Host Call 参数 262144 字节，Host Call 结果 1048576 字节。
 
@@ -26,6 +26,9 @@
 | `notes.list` | V1 | `notes:read` | `node-action`, `sandbox-js` | `server`, `desktop-full` | 262144 | 1048576 |
 | `notes.update` | V1 | `notes:write` | `node-action`, `sandbox-js` | `server`, `desktop-full` | 262144 | 1048576 |
 | `runtime.capabilities` | V1 | 无 | `node-action`, `sandbox-js` | `server`, `desktop-full` | 262144 | 1048576 |
+| `secrets.crypt` | V2 | `secrets:use` | `node-action`, `sandbox-js` | `server`, `desktop-full` | 262144 | 1048576 |
+| `secrets.digest` | V2 | `secrets:use` | `node-action`, `sandbox-js` | `server`, `desktop-full` | 262144 | 1048576 |
+| `settings.get` | V2 | 无 | `node-action`, `sandbox-js` | `server`, `desktop-full` | 262144 | 1048576 |
 | `storage.delete` | V1 | `plugin-storage:write` | `node-action`, `sandbox-js` | `server`, `desktop-full` | 262144 | 1048576 |
 | `storage.get` | V1 | `plugin-storage:read` | `node-action`, `sandbox-js` | `server`, `desktop-full` | 262144 | 1048576 |
 | `storage.set` | V1 | `plugin-storage:write` | `node-action`, `sandbox-js` | `server`, `desktop-full` | 262144 | 1048576 |

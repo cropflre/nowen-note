@@ -99,6 +99,7 @@ export interface InstalledPlugin {
   probationRemaining?: number;
   autoRollbackReason?: string | null;
   contributes?: {
+    inboundWebhooks?: Array<{ id: string; path: string; action: string; methods: Array<"GET" | "POST">; maxBodyBytes: number; backgroundAction?: string }>;
     settings?: Array<{ key: string; title: string; type: "string" | "number" | "boolean" | "select"; description?: string; options?: Array<string | number>; default?: string | number | boolean; secret?: boolean }>;
     automationTemplates?: Array<{ id: string; title: string; description?: string }>;
     commands?: Array<{ id: string; title: string; action: string; category?: string }>;
@@ -214,6 +215,9 @@ export const pluginApi = {
   applyUpdate: (sourceId: string, pluginId: string, version: string, confirmed = false) => contributionMutation(request("/plugins/ecosystem/update", { method: "POST", body: JSON.stringify({ sourceId, pluginId, version, confirmed }) })),
   setUpdatePolicy: (id: string, policy: "manual" | "notify" | "automatic", pinnedVersion?: string | null) => request(`/plugins/${encodeURIComponent(id)}/update-policy`, { method: "PUT", body: JSON.stringify({ policy, pinnedVersion }) }),
   settings: (id: string) => request<Record<string, unknown>>(`/plugins/${encodeURIComponent(id)}/settings`),
+  inboundWebhooks: (id: string) => request<Array<{ hookId: string }>>(`/plugins/${encodeURIComponent(id)}/inbound-webhooks`),
+  createInboundWebhook: (id: string, hookId: string) => request<{ path: string }>(`/plugins/${encodeURIComponent(id)}/inbound-webhooks/${encodeURIComponent(hookId)}`, { method: "POST" }),
+  removeInboundWebhook: (id: string, hookId: string) => request(`/plugins/${encodeURIComponent(id)}/inbound-webhooks/${encodeURIComponent(hookId)}`, { method: "DELETE" }),
   setSettings: (id: string, values: Record<string, unknown>) => request<Record<string, unknown>>(`/plugins/${encodeURIComponent(id)}/settings`, { method: "PUT", body: JSON.stringify(values) }),
   installAutomationTemplate: (id: string, templateId: string) => request(`/plugins/${encodeURIComponent(id)}/automation-templates/${encodeURIComponent(templateId)}/install`, { method: "POST" }),
   createNoteFromTemplate: (id: string, templateId: string, input: { workspaceId?: string | null; parentId?: string | null; values?: Record<string, unknown> }) => request<{ success: true; noteId: string; node: unknown }>("/plugins/" + encodeURIComponent(id) + "/note-templates/" + encodeURIComponent(templateId) + "/create", { method: "POST", body: JSON.stringify(input) }),

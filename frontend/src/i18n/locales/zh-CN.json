@@ -2898,5 +2898,20 @@
     "searchPlaceholder": "搜索笔记...",
     "noResults": "没有找到匹配的笔记",
     "linkCreated": "笔记引用已插入"
+  },
+  "plugins": {
+    "inbound": {
+      "title": "入站 Webhook",
+      "description": "使用公网回调地址连接外部服务，每个地址以当前用户身份保存内容。",
+      "configured": "已配置",
+      "unconfigured": "未配置",
+      "create": "生成回调地址",
+      "rotate": "更换地址",
+      "revoke": "撤销地址",
+      "showOnce": "请现在保存地址，仅显示一次。配置外部服务时请使用公网 HTTPS 地址。",
+      "url": "回调地址",
+      "rotateConfirm": "更换回调地址？旧地址及待处理任务将被移除。",
+      "revokeConfirm": "撤销回调地址，并移除待处理任务？"
+    }
   }
 }

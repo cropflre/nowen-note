@@ -8,7 +8,7 @@ function deepFreeze<T>(value: T): T {
 }
 
 export type PluginContributionRuntime = "declarative" | "sandbox-js" | "node-action";
-export type PluginContributionType = "automationTemplates" | "commands" | "menus" | "noteTemplates" | "noteThemes" | "promptPacks" | "settings" | "uiComponents";
+export type PluginContributionType = "automationTemplates" | "commands" | "inboundWebhooks" | "menus" | "noteTemplates" | "noteThemes" | "promptPacks" | "settings" | "uiComponents";
 
 export interface PluginContributionContractEntry {
   id: PluginContributionType;
@@ -18,7 +18,7 @@ export interface PluginContributionContractEntry {
   description: string;
 }
 
-export const CONTRIBUTION_CONTRACT_VERSION = 3 as const;
+export const CONTRIBUTION_CONTRACT_VERSION = 4 as const;
 export const CONTRIBUTION_NAMESPACE_TEMPLATE = "<pluginId>/<contributionId>" as const;
 export const CONTRIBUTION_CONTRACT: readonly PluginContributionContractEntry[] = deepFreeze([
   {
@@ -41,6 +41,16 @@ export const CONTRIBUTION_CONTRACT: readonly PluginContributionContractEntry[] =
     ],
     "declarative": false,
     "description": "Command palette and host command registrations"
+  },
+  {
+    "id": "inboundWebhooks",
+    "since": "2.0",
+    "runtimes": [
+      "sandbox-js",
+      "node-action"
+    ],
+    "declarative": false,
+    "description": "Host-owned capability-token HTTP callbacks with bounded requests and responses"
   },
   {
     "id": "menus",

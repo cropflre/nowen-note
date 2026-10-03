@@ -1,3 +1,4 @@
+import { pluginInboundMigration } from "./pluginInboundMigration.js";
 import { encryptedNoteConversionMigration } from "./encryptedNoteConversionMigration.js";
 /**
  * Compatibility wrapper around the historical migration list.
@@ -409,6 +410,7 @@ export const MIGRATIONS: Migration[] = [
   encryptedNotesMigration,
   encryptedBlocksMigration,
   encryptedNoteConversionMigration,
+  pluginInboundMigration,
 ].sort((a, b) => a.version - b.version);
 
 export const CURRENT_SCHEMA_VERSION: number = MIGRATIONS.reduce(

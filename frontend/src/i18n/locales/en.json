@@ -2891,5 +2891,20 @@
     "searchPlaceholder": "Search notes...",
     "noResults": "No matching notes found",
     "linkCreated": "Note link inserted"
+  },
+  "plugins": {
+    "inbound": {
+      "title": "Inbound webhooks",
+      "description": "Connect an external service using a public callback URL. Each URL writes as your account.",
+      "configured": "Configured",
+      "unconfigured": "Not configured",
+      "create": "Create callback URL",
+      "rotate": "Rotate URL",
+      "revoke": "Revoke URL",
+      "showOnce": "Save this URL now; it is shown only once. Use your public HTTPS address when configuring external services.",
+      "url": "Callback URL",
+      "rotateConfirm": "Rotate this callback URL? The old URL and pending jobs will be removed.",
+      "revokeConfirm": "Revoke this callback URL and remove its pending jobs?"
+    }
   }
 }

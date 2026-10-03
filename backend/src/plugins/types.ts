@@ -190,6 +190,7 @@ export interface PluginUiActionContribution {
 }
 
 export interface PluginContributionManifest {
+  inboundWebhooks?: PluginInboundWebhookContribution[];
   commands?: PluginCommandContribution[];
   menus?: PluginMenuContribution[];
   settings?: PluginSettingContribution[];
@@ -198,6 +199,15 @@ export interface PluginContributionManifest {
   noteTemplates?: PluginNoteTemplateContribution[];
   promptPacks?: PluginPromptPackContribution[];
   uiComponents?: PluginUiActionContribution[];
+}
+
+export interface PluginInboundWebhookContribution {
+  id: string;
+  path: string;
+  action: string;
+  methods: Array<"GET" | "POST">;
+  maxBodyBytes: number;
+  backgroundAction?: string;
 }
 
 export interface PluginDeclarativeContributionManifest {

@@ -7,11 +7,11 @@ function deepFreeze<T>(value: T): T {
   return value;
 }
 
-export const EXTENSION_CAPABILITY_CATALOG_DIGEST = "e1a72195e49e8824d17fe014baab623ec3fa212907164089e4aec2eb41fe1d3c" as const;
+export const EXTENSION_CAPABILITY_CATALOG_DIGEST = "9f71e9450fefc6a07f1f33cd1a24c0d556e51b70de2c24da45268b74c4865850" as const;
 export const EXTENSION_CAPABILITY_CATALOG = deepFreeze({
   "catalogVersion": 1,
   "hostApi": {
-    "contractVersion": 3,
+    "contractVersion": 4,
     "budgets": {
       "ipcMessageBytes": 2097152,
       "hostCallArgsBytes": 262144,
@@ -117,7 +117,7 @@ export const EXTENSION_CAPABILITY_CATALOG = deepFreeze({
       },
       {
         "id": "secrets:use",
-        "description": "Inject declared connection secrets into brokered requests",
+        "description": "Use declared connection secrets for brokered requests and cryptographic operations",
         "risk": "secret-use"
       },
       {
@@ -663,6 +663,81 @@ export const EXTENSION_CAPABILITY_CATALOG = deepFreeze({
         "sdkSignature": "capabilities(): Promise<RuntimeCapabilities>;"
       },
       {
+        "method": "secrets.crypt",
+        "sinceApiVersion": 2,
+        "permission": "secrets:use",
+        "runtimes": [
+          "node-action",
+          "sandbox-js"
+        ],
+        "platforms": [
+          "server",
+          "desktop-full"
+        ],
+        "maxArgsBytes": 262144,
+        "maxResultBytes": 1048576,
+        "inputSchema": {
+          "type": "object"
+        },
+        "outputSchema": {},
+        "examples": [
+          {
+            "input": {}
+          }
+        ],
+        "sdkSignature": "crypt(input: { connection: string; operation: \"encrypt\" | \"decrypt\"; data: string }): Promise<string>;"
+      },
+      {
+        "method": "secrets.digest",
+        "sinceApiVersion": 2,
+        "permission": "secrets:use",
+        "runtimes": [
+          "node-action",
+          "sandbox-js"
+        ],
+        "platforms": [
+          "server",
+          "desktop-full"
+        ],
+        "maxArgsBytes": 262144,
+        "maxResultBytes": 1048576,
+        "inputSchema": {
+          "type": "object"
+        },
+        "outputSchema": {},
+        "examples": [
+          {
+            "input": {}
+          }
+        ],
+        "sdkSignature": "digest(input: { connection: string; algorithm: \"sha1\" | \"sha256\"; parts: string[]; sort?: boolean }): Promise<string>;"
+      },
+      {
+        "method": "settings.get",
+        "sinceApiVersion": 2,
+        "permission": null,
+        "runtimes": [
+          "node-action",
+          "sandbox-js"
+        ],
+        "platforms": [
+          "server",
+          "desktop-full"
+        ],
+        "maxArgsBytes": 262144,
+        "maxResultBytes": 1048576,
+        "inputSchema": {
+          "type": "object"
+        },
+        "outputSchema": {},
+        "examples": [
+          {
+            "input": {}
+          }
+        ],
+        "sdkSignature": "get(): Promise<Record<string, unknown>>;"
+      },
+      {
         "method": "storage.delete",
         "sinceApiVersion": 1,
         "permission": "plugin-storage:write",
@@ -966,7 +1041,7 @@ export const EXTENSION_CAPABILITY_CATALOG = deepFreeze({
     ]
   },
   "contributions": {
-    "contractVersion": 3,
+    "contractVersion": 4,
     "namespaceTemplate": "<pluginId>/<contributionId>",
     "runtimes": [
       "declarative",
@@ -994,6 +1069,16 @@ export const EXTENSION_CAPABILITY_CATALOG = deepFreeze({
         ],
         "declarative": false,
         "description": "Command palette and host command registrations"
+      },
+      {
+        "id": "inboundWebhooks",
+        "since": "2.0",
+        "runtimes": [
+          "sandbox-js",
+          "node-action"
+        ],
+        "declarative": false,
+        "description": "Host-owned capability-token HTTP callbacks with bounded requests and responses"
       },
       {
         "id": "menus",
@@ -1298,5 +1383,5 @@ export const EXTENSION_CAPABILITY_CATALOG = deepFreeze({
       }
     ]
   },
-  "digest": "e1a72195e49e8824d17fe014baab623ec3fa212907164089e4aec2eb41fe1d3c"
+  "digest": "9f71e9450fefc6a07f1f33cd1a24c0d556e51b70de2c24da45268b74c4865850"
 } as const);
