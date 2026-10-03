@@ -1005,6 +1005,8 @@ function initSchema(db: Database.Database) {
   //   - 触发器：notes INSERT / contentText 或 title 变化时自动入队。
   //     和现有的 notes_au FTS 触发器同款条件，避免无意义重排。
   //   - 删除笔记 → CASCADE 清理 note_embeddings；队列也加触发器同步删除。
+  const hasEmbeddingContentFormat = (db.prepare("PRAGMA table_info(notes)").all() as Array<{ name: string }>).some((column) => column.name === "contentFormat");
+  const encryptedEmbeddingFilter = hasEmbeddingContentFormat ? "AND new.contentFormat NOT LIKE 'encrypted-%'" : "";
   db.exec(`
     CREATE TABLE IF NOT EXISTS note_embeddings (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1058,7 +1060,7 @@ function initSchema(db: Database.Database) {
     -- workspaceId 同步从 notes.workspaceId 取（NULL = 个人空间）
     DROP TRIGGER IF EXISTS notes_embed_ai;
     CREATE TRIGGER notes_embed_ai AFTER INSERT ON notes
-    WHEN new.isTrashed = 0
+    WHEN new.isTrashed = 0 ${encryptedEmbeddingFilter}
     BEGIN
       INSERT INTO embedding_queue (noteId, userId, workspaceId, status, retries, enqueuedAt, updatedAt)
       VALUES (new.id, new.userId, new.workspaceId, 'pending', 0, datetime('now'), datetime('now'))
@@ -1078,7 +1080,7 @@ function initSchema(db: Database.Database) {
     CREATE TRIGGER notes_embed_au AFTER UPDATE ON notes
     WHEN (old.title IS NOT new.title OR old.contentText IS NOT new.contentText
           OR old.workspaceId IS NOT new.workspaceId)
-         AND new.isTrashed = 0
+         AND new.isTrashed = 0 ${encryptedEmbeddingFilter}
     BEGIN
       INSERT INTO embedding_queue (noteId, userId, workspaceId, status, retries, enqueuedAt, updatedAt)
       VALUES (new.id, new.userId, new.workspaceId, 'pending', 0, datetime('now'), datetime('now'))
@@ -1141,6 +1143,7 @@ function initSchema(db: Database.Database) {
         SELECT n.id, n.userId, n.workspaceId, 'pending', 0, datetime('now'), datetime('now')
         FROM notes n
         WHERE n.isTrashed = 0
+          ${hasEmbeddingContentFormat ? "AND n.contentFormat NOT LIKE 'encrypted-%'" : ""}
           AND NOT EXISTS (SELECT 1 FROM note_embeddings e WHERE e.noteId = n.id)
         ON CONFLICT(noteId) DO NOTHING
       `).run();

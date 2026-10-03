@@ -1,3 +1,4 @@
+import { encryptedNoteConversionMigration } from "./encryptedNoteConversionMigration.js";
 /**
  * Compatibility wrapper around the historical migration list.
  *
@@ -407,6 +408,7 @@ export const MIGRATIONS: Migration[] = [
   noteCommentNotificationsMigration,
   encryptedNotesMigration,
   encryptedBlocksMigration,
+  encryptedNoteConversionMigration,
 ].sort((a, b) => a.version - b.version);
 
 export const CURRENT_SCHEMA_VERSION: number = MIGRATIONS.reduce(

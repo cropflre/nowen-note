@@ -304,6 +304,15 @@ export async function putNoteListItems(items: NoteListItem[]): Promise<void> {
   }, undefined, "putNoteListItems");
 }
 
+/** Audit only an already initialized cache. Never create a database or mask read errors. */
+export async function inspectCachedNotePresence(id: string, userId: string): Promise<boolean | null> {
+  const pending = dbPromise;
+  if (!pending || !currentCacheIdentity || currentUserId !== userId) return null;
+  const connection = await pending;
+  const present = (await connection.getKey("notes", id)) !== undefined;
+  return pending === dbPromise ? present : null;
+}
+
 export async function getNote(id: string): Promise<CachedNote | undefined> {
   const connection = getDb();
   if (!connection) return undefined;

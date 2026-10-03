@@ -192,3 +192,4 @@ EXECUTE FUNCTION clear_task_inbox_after_completion();
 \ir migrations/0114-workspace-issues.sql
 \ir migrations/0117-encrypted-note-storage-guards.sql
 \ir migrations/0118-encrypted-block-write-guards.sql
+\ir migrations/0119-encrypted-note-conversion-guards.sql

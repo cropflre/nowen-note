@@ -35,6 +35,8 @@ on:
       - "frontend/src/lib/__tests__/conflictResolution.test.ts"
       - "frontend/src/lib/__tests__/noteLoadSource.test.ts"
       - "frontend/src/lib/api.ts"
+      - "frontend/src/lib/localStore.ts"
+      - "frontend/src/lib/yjsProvider.ts"
       - "frontend/src/lib/api.impl.ts"
       - "frontend/src/store/AppContext.tsx"
       - "backend/src/db/**"
@@ -50,6 +52,7 @@ on:
       - "backend/src/routes/sync-v2.ts"
       - "backend/src/routes/attachments-core.ts"
       - "backend/src/services/knowledgeTree*.ts"
+      - "backend/src/services/encryptedNoteConversion*.ts"
       - "backend/src/services/yjs.ts"
       - "backend/src/services/remote-image-import.ts"
       - "backend/src/services/embedding-worker.ts"
@@ -106,6 +109,8 @@ on:
       - "frontend/src/lib/__tests__/conflictResolution.test.ts"
       - "frontend/src/lib/__tests__/noteLoadSource.test.ts"
       - "frontend/src/lib/api.ts"
+      - "frontend/src/lib/localStore.ts"
+      - "frontend/src/lib/yjsProvider.ts"
       - "frontend/src/lib/api.impl.ts"
       - "frontend/src/store/AppContext.tsx"
       - "backend/src/db/**"
@@ -121,6 +126,7 @@ on:
       - "backend/src/routes/sync-v2.ts"
       - "backend/src/routes/attachments-core.ts"
       - "backend/src/services/knowledgeTree*.ts"
+      - "backend/src/services/encryptedNoteConversion*.ts"
       - "backend/src/services/yjs.ts"
       - "backend/src/services/remote-image-import.ts"
       - "backend/src/services/embedding-worker.ts"
@@ -170,13 +176,13 @@ jobs:
         run: npm ci
         working-directory: backend
       - name: SQLite persistence, backup and old-writer regressions
-        run: node --import tsx --import ./tests/setup-db-isolation.ts --test tests/encrypted-notes-blocks.test.ts tests/encrypted-notes-block-writers.test.ts tests/encrypted-notes-storage.test.ts tests/encrypted-notes-sync.test.ts tests/encrypted-notes-backup.test.ts tests/sync-v2-bootstrap.test.ts tests/sync-v2-engine.test.ts tests/sync-v2-conflict-history-route.test.ts tests/backup-restore-integrity.test.ts tests/backup-restore-large-archive.test.ts tests/backup-restore-corrupt-hotfix.test.ts
+        run: node --import tsx --import ./tests/setup-db-isolation.ts --test tests/encrypted-notes-blocks.test.ts tests/encrypted-notes-block-writers.test.ts tests/encrypted-notes-storage.test.ts tests/encrypted-notes-conversion-preflight.test.ts tests/encrypted-notes-conversion.test.ts tests/encrypted-notes-sync.test.ts tests/encrypted-notes-backup.test.ts tests/sync-v2-bootstrap.test.ts tests/sync-v2-engine.test.ts tests/sync-v2-conflict-history-route.test.ts tests/backup-restore-integrity.test.ts tests/backup-restore-large-archive.test.ts tests/backup-restore-corrupt-hotfix.test.ts
         working-directory: backend
       - name: Backend typecheck
         run: npx tsc --noEmit --pretty false
         working-directory: backend
       - name: Storage, Sync and recovery fixture typecheck
-        run: npx tsc --noEmit --pretty false --target ES2022 --module ESNext --moduleResolution bundler --esModuleInterop --skipLibCheck --strict tests/encrypted-notes-sync.test.ts tests/encrypted-notes-backup.test.ts tests/encrypted-notes-recovery-worker.ts tests/encrypted-notes-block-writers.test.ts tests/encrypted-notes-postgres.test.ts tests/encrypted-notes-app-server.ts src/types/word-extractor.d.ts
+        run: npx tsc --noEmit --pretty false --target ES2022 --module ESNext --moduleResolution bundler --esModuleInterop --skipLibCheck --strict tests/encrypted-notes-sync.test.ts tests/encrypted-notes-backup.test.ts tests/encrypted-notes-recovery-worker.ts tests/encrypted-notes-block-writers.test.ts tests/encrypted-notes-postgres.test.ts tests/encrypted-notes-app-server.ts tests/encrypted-notes-conversion-preflight.test.ts tests/encrypted-notes-conversion.test.ts src/types/word-extractor.d.ts
         working-directory: backend
       - name: Crypto core and Worker lifecycle regressions
         run: npm run test:encrypted-notes

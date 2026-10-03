@@ -1,3 +1,4 @@
+import type { EncryptionConversionPreflight } from "./encryptedNotes/conversionPreflight";
 import { withEncryptedBlocksSupport } from "./encryptedNotes/blockDocument";
 import type { WorkspaceIssue, WorkspaceIssueDetail, IssueActivity, IssueListResponse, NotificationListResponse } from "@/types/workspaceIssues";
 import { Notebook, NotebookMember, NotebookShareLink, Note, NoteListItem, Tag, SearchResult, User, UserPublicInfo, Task, TaskStats, TaskFilter, CustomFont, MindMap, MindMapListItem, Diary, DiaryMediaItem, DiaryTimeline, DiaryStats, Share, ShareInfo, SharedNoteContent, NoteVersion, ShareComment, NoteCommentListResponse, Workspace, WorkspaceAdminItem, WorkspaceMember, WorkspaceInvite, WorkspaceRole, WorkspaceFeatures, FileItem, FileDetail, FileListResponse, FileStats, FileSortKey, FileCategory, FileFilter, FileMyUploadsRef } from "@/types";
@@ -1574,6 +1575,9 @@ export const api = {
       offlineFilter,
     );
   },
+  getEncryptionConversionPreflight: (id: string) => request<EncryptionConversionPreflight>(
+    `/notes/${encodeURIComponent(id)}/encryption-preflight`, { cache: "no-store" },
+  ),
   getNote: (id: string) => _readNote(id, async () => {
     const note = await request<Note>(`/notes/${id}`);
     // Phase C: \u6210\u529f\u62c9\u5230\u7b14\u8bb0\u6b63\u6587 \u2192 \u5199\u5165\u672c\u5730\u7f13\u5b58\uff0c\u4f9b\u540e\u7eed\u79bb\u7ebf\u6253\u5f00

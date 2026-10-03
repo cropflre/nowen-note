@@ -1,4 +1,5 @@
 import React, { useCallback, useRef, useState, useEffect, useMemo } from "react";
+import EncryptedNoteConversionPreflight from "./EncryptedNoteConversionPreflight";
 import EncryptedNotePane from "./EncryptedNotePane";
 import { isEncryptedNoteFormat } from "@/lib/encryptedNotes/noteDocument";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
@@ -279,6 +280,8 @@ function OrdinaryEditorPane({
   const [showMobileMoveMenu, setShowMobileMoveMenu] = useState(false);
   const [showMobileOutline, setShowMobileOutline] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
+  const [preflightNoteId, setPreflightNoteId] = useState<string | null>(null);
+  useEffect(() => { setPreflightNoteId(null); }, [activeNote?.id]);
   const [showVersionHistory, setShowVersionHistory] = useState(false);
   const [showCommentPanel, setShowCommentPanel] = useState(false);
   const [showAttachmentsPanel, setShowAttachmentsPanel] = useState(false);
@@ -2770,6 +2773,15 @@ const moveToTrash = useCallback(async () => {
                     <Star size={15} className={cn(activeNote.isFavorite ? "text-amber-400 fill-amber-400" : "text-tx-tertiary")} />
                     <span>{activeNote.isFavorite ? t('editor.unfavoriteTooltip') : t('editor.favoriteTooltip')}</span>
                   </button>
+                  {canWriteNote(activeNote) && !isTrashed && (
+                    <button
+                      onClick={() => { setPreflightNoteId(activeNote.id); setShowMobileMenu(false); }}
+                      className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-tx-secondary hover:bg-app-hover transition-colors"
+                    >
+                      <Lock size={15} className="text-tx-tertiary" />
+                      <span>加密转换前检查</span>
+                    </button>
+                  )}
                   <button
                     onClick={() => { toggleLock(); setShowMobileMenu(false); }}
                     disabled={isTrashed}
@@ -3445,6 +3457,15 @@ const moveToTrash = useCallback(async () => {
                     <Paperclip size={15} className="text-amber-500" />
                     <span>{t('editor.attachments')}</span>
                   </button>
+                  {canWriteNote(activeNote) && !isTrashed && (
+                    <button
+                      onClick={() => { setPreflightNoteId(activeNote.id); setShowDesktopMoreMenu(false); }}
+                      className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-tx-secondary hover:bg-app-hover transition-colors"
+                    >
+                      <Lock size={15} className="text-tx-tertiary" />
+                      <span>加密转换前检查</span>
+                    </button>
+                  )}
                   <NoteThemeMenuSelect noteId={activeNote.id} disabled={!canWriteNote(activeNote)} />
                   {canSplitDocument && onSplitDocument && (
                     <button
@@ -3690,6 +3711,9 @@ const moveToTrash = useCallback(async () => {
       )}
 
       {/* �汾��ʷ */}
+      {preflightNoteId === activeNote.id && (
+        <EncryptedNoteConversionPreflight noteId={activeNote.id} onClose={() => setPreflightNoteId(null)} />
+      )}
       {showVersionHistory && (
         <VersionHistoryPanel
           noteId={activeNote.id}

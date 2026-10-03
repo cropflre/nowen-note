@@ -4,6 +4,58 @@ import { randomUUID } from "node:crypto";
 import test from "node:test";
 import { Client } from "pg";
 
+test("PostgreSQL conversion permits require exact target/version/identity and the same transaction", { skip: !process.env.TEST_PG_DATABASE_URL }, async () => {
+  const client = new Client({ connectionString: process.env.TEST_PG_DATABASE_URL });
+  const schema = `encrypted_conversion_${randomUUID().replaceAll("-", "")}`;
+  const vector = JSON.parse(fs.readFileSync(new URL("../../frontend/src/lib/encryptedNotes/__tests__/fixtures/envelope-v1.json", import.meta.url), "utf8"));
+  const content = JSON.stringify(vector.envelope);
+  await client.connect();
+  try {
+    await client.query(`CREATE SCHEMA "${schema}"; SET search_path TO "${schema}";
+      CREATE TABLE notes (id TEXT PRIMARY KEY, "userId" TEXT DEFAULT 'owner', "workspaceId" TEXT,
+        "isLocked" BOOLEAN DEFAULT false, "isTrashed" BOOLEAN DEFAULT false,
+        content TEXT, "contentText" TEXT DEFAULT '', "contentFormat" TEXT, version INTEGER DEFAULT 1);
+      CREATE TABLE note_versions (id TEXT PRIMARY KEY, "noteId" TEXT, content TEXT, "contentText" TEXT DEFAULT '', "contentFormat" TEXT);
+      CREATE TABLE embedding_queue ("noteId" TEXT PRIMARY KEY);
+      CREATE TABLE block_operations ("noteId" TEXT PRIMARY KEY);`);
+    for (const file of ["0117-encrypted-note-storage-guards.sql", "0118-encrypted-block-write-guards.sql", "0119-encrypted-note-conversion-guards.sql"]) {
+      await client.query(fs.readFileSync(new URL(`../src/db/postgres/migrations/${file}`, import.meta.url), "utf8"));
+    }
+    await client.query("INSERT INTO notes (id,content,\"contentFormat\") VALUES ('plain','source','markdown'),('stale','source','markdown')");
+    const update = `UPDATE notes SET content = $1, "contentFormat" = 'encrypted-note-v1', version = 2 WHERE id = 'plain'`;
+    await assert.rejects(client.query(update, [content]), /INVALID_ENCRYPTED_NOTE/);
+    await client.query("BEGIN");
+    await client.query(`INSERT INTO encrypted_note_conversion_permits ("noteId","sourceVersion","sourceFormat",content) VALUES ('plain',1,'markdown',$1)`, [content]);
+    for (const query of [
+      `UPDATE notes SET content = $1, "contentFormat" = 'encrypted-note-v1', version = 3 WHERE id = 'plain'`,
+      `UPDATE notes SET content = $1, "contentFormat" = 'encrypted-note-v1', version = 2, "userId" = 'other' WHERE id = 'plain'`,
+      `UPDATE notes SET content = $1, "contentFormat" = 'encrypted-note-v1', version = 2, "contentText" = 'source' WHERE id = 'plain'`,
+    ]) {
+      await client.query("SAVEPOINT invalid_conversion");
+      await assert.rejects(client.query(query, [content]), /INVALID_ENCRYPTED_NOTE/);
+      await client.query("ROLLBACK TO SAVEPOINT invalid_conversion");
+    }
+    await client.query("SAVEPOINT wrong_target");
+    const different = structuredClone(vector.envelope); different.objectId = randomUUID();
+    await assert.rejects(client.query(update, [JSON.stringify(different)]), /INVALID_ENCRYPTED_NOTE/);
+    await client.query("ROLLBACK TO SAVEPOINT wrong_target");
+    await client.query(update, [content]);
+    await client.query("DELETE FROM encrypted_note_conversion_permits WHERE \"noteId\" = 'plain'; COMMIT");
+    assert.equal((await client.query("SELECT content FROM notes WHERE id = 'plain'")).rows[0].content, content);
+    await assert.rejects(client.query(`UPDATE notes SET content = 'source', "contentFormat" = 'markdown' WHERE id = 'plain'`), /INVALID_ENCRYPTED_NOTE/);
+    for (const table of ["embedding_queue", "block_operations"]) {
+      await assert.rejects(client.query(`INSERT INTO ${table} VALUES ('plain')`), /ENCRYPTED_NOTE_DERIVED_CONTENT_FORBIDDEN/);
+    }
+    await client.query(`INSERT INTO encrypted_note_conversion_permits ("noteId","sourceVersion","sourceFormat",content) VALUES ('stale',1,'markdown',$1)`, [content]);
+    await assert.rejects(client.query(`UPDATE notes SET content = $1, "contentFormat" = 'encrypted-note-v1', version = 2 WHERE id = 'stale'`, [content]), /INVALID_ENCRYPTED_NOTE/);
+    await client.query("DELETE FROM encrypted_note_conversion_permits");
+    assert.equal((await client.query("SELECT count(*) FROM encrypted_note_conversion_permits")).rows[0].count, "0");
+  } finally {
+    await client.query("ROLLBACK").catch(() => {});
+    await client.query(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`); await client.end();
+  }
+});
+
 // Explicit test connection only; never discover or use a configured product database.
 test("PostgreSQL migration rejects downgrade/history/derived writes and preserves opaque versions", { skip: !process.env.TEST_PG_DATABASE_URL }, async () => {
   const client = new Client({ connectionString: process.env.TEST_PG_DATABASE_URL });

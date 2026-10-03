@@ -1,3 +1,4 @@
+import { inspectEncryptedNoteConversion } from "../services/encryptedNoteConversionPreflight.js";
 import { withEncryptedBlockWrite } from "../lib/encryptedBlockWrites.js";
 import { Hono } from "hono";
 import { EncryptedNotePayloadError, guardEncryptedBlockWriter, guardEncryptedNoteMutation, isEncryptedNoteFormat, parseEncryptedNote } from "../lib/encryptedNotes.js";
@@ -796,6 +797,20 @@ app.post("/", async (c) => {
 
   const responseNote = presentNoteForResponse(db, c, note);
   return c.json({ ...responseNote as any, tags: [] }, 201);
+});
+
+// M4 preparation only: disclose counts, never content or a conversion permit.
+app.get("/:id/encryption-preflight", (c) => {
+  c.header("Cache-Control", "no-store");
+  const db = getDb(); const id = c.req.param("id");
+  const userId = c.req.header("X-User-Id") || "";
+  const note = db.prepare("SELECT userId FROM notes WHERE id = ?").get(id) as { userId: string } | undefined;
+  if (!note) return c.json({ error: "笔记不存在", code: "NOT_FOUND" }, 404);
+  const { permission } = resolveNotePermission(id, userId);
+  if (note.userId !== userId || !hasPermission(permission, "manage")) {
+    return c.json({ error: "仅笔记所有者可检查加密转换", code: "FORBIDDEN" }, 403);
+  }
+  return c.json(inspectEncryptedNoteConversion(db, id));
 });
 
 // 更新笔记
