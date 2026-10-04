@@ -224,3 +224,23 @@ export const pluginApi = {
   installAutomationTemplate: (id: string, templateId: string) => request(`/plugins/${encodeURIComponent(id)}/automation-templates/${encodeURIComponent(templateId)}/install`, { method: "POST" }),
   createNoteFromTemplate: (id: string, templateId: string, input: { workspaceId?: string | null; parentId?: string | null; values?: Record<string, unknown> }) => request<{ success: true; noteId: string; node: unknown }>("/plugins/" + encodeURIComponent(id) + "/note-templates/" + encodeURIComponent(templateId) + "/create", { method: "POST", body: JSON.stringify(input) }),
 };
+
+export interface WechatInboxItem {
+  id: string; url: string; status: string; createdAt: string;
+  note: { id: string; title: string } | null; error: string | null;
+}
+export interface WechatAssistantStatus {
+  ready: boolean; pluginReady: boolean; connected: boolean; notebookId: string | null; items: WechatInboxItem[];
+}
+export interface WechatAssistantConfiguration {
+  appId: string; publicUrl: string; mode: string; callbackUrl: string; configured: boolean;
+}
+export const wechatAssistantApi = {
+  status: () => request<WechatAssistantStatus>("/wechat-assistant"),
+  configuration: () => request<WechatAssistantConfiguration>("/wechat-assistant/configuration"),
+  configure: (input: Record<string, string>) => request<WechatAssistantConfiguration>("/wechat-assistant/configuration", { method: "PUT", body: JSON.stringify(input) }),
+  connect: () => request<{ qrUrl: string; expiresAt: number }>("/wechat-assistant/connection", { method: "POST" }),
+  disconnect: () => request("/wechat-assistant/connection", { method: "DELETE" }),
+  collect: (text: string) => request<{ accepted: number; duplicates: number }>("/wechat-assistant/collect", { method: "POST", body: JSON.stringify({ text }) }),
+  retry: (id: string) => request(`/wechat-assistant/items/${encodeURIComponent(id)}/retry`, { method: "POST" }),
+};

@@ -7,7 +7,7 @@ import { enqueueInboundAction, requireInboundDeclaration, type InboundWebhookRow
 const HEADER_NAMES = new Set(["content-type", "x-hub-signature", "x-hub-signature-256", "x-signature", "x-timestamp", "x-slack-signature", "x-slack-request-timestamp", "x-github-event", "x-github-delivery"]);
 const CONTENT_TYPES = new Set(["text/plain", "text/xml", "application/xml", "application/json"]);
 
-async function readBody(request: Request, maxBytes: number): Promise<string> {
+export async function readBody(request: Request, maxBytes: number): Promise<string> {
   if (Number(request.headers.get("content-length") || 0) > maxBytes) throw Object.assign(new Error("请求体过大"), { status: 413 });
   if (!request.body) return "";
   const reader = request.body.getReader();

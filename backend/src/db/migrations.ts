@@ -1,3 +1,4 @@
+import { wechatAssistantMigration } from "./wechatAssistantMigration.js";
 import { pluginInboundMigration } from "./pluginInboundMigration.js";
 import { encryptedNoteConversionMigration } from "./encryptedNoteConversionMigration.js";
 /**
@@ -411,6 +412,7 @@ export const MIGRATIONS: Migration[] = [
   encryptedBlocksMigration,
   encryptedNoteConversionMigration,
   pluginInboundMigration,
+  wechatAssistantMigration,
 ].sort((a, b) => a.version - b.version);
 
 export const CURRENT_SCHEMA_VERSION: number = MIGRATIONS.reduce(

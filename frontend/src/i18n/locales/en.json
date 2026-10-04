@@ -2939,5 +2939,52 @@
     "importLimit": "This worksheet exceeds 50,000 populated cells. Preview or download only.",
     "limitError": "The workbook exceeds preview limits (20 MB file, 64 MB XML, 20 worksheets, 1,000 rows × 200 columns per sheet, 200,000 total cells, 20,000 characters per cell). Download it and open with Excel / WPS.",
     "invalidError": "Unable to preview this Excel file. It may be damaged, encrypted or unsupported. Download it and open with Excel / WPS."
+  },
+  "wechatAssistant": {
+    "inbox": "WeChat inbox",
+    "description": "Send article links to save them as notes. You can also paste up to 20 links here.",
+    "refresh": "Refresh capture results",
+    "loading": "Loading inbox…",
+    "connected": "WeChat connected",
+    "disconnected": "WeChat disconnected",
+    "connect": "Connect WeChat",
+    "disconnect": "Disconnect",
+    "setupRequired": "Your administrator has not configured WeChat yet. You can paste links to collect articles now.",
+    "pluginRequired": "Ask your administrator to install and enable WeChat Capture Assistant 1.1.0 or later.",
+    "expired": "The QR code expired. Click Connect WeChat again.",
+    "qrAlt": "Scan this QR code with WeChat to connect your account",
+    "scanDisclosure": "Scan with WeChat and follow the assistant. This code expires in 10 minutes. Links and messages pass through this deployment's official-account service and are saved only to your own inbox.",
+    "paste": "Paste article links",
+    "placeholder": "Paste one or more HTTPS article links, one per article",
+    "collect": "Save to inbox",
+    "accepted": "Received {{accepted}} articles; {{duplicates}} already in your inbox.",
+    "recent": "Latest 100 capture records",
+    "empty": "Your inbox is empty. Connect WeChat and send a link, or paste links above.",
+    "open": "Open note",
+    "retry": "Retry",
+    "adminSetup": "Administrator connection settings",
+    "adminDescription": "Configure one official account with parameterized QR code access for this Nowen deployment and register the public HTTPS callback in WeChat. Regular users do not need these settings.",
+    "saved": "Configuration saved. Register and verify the callback URL below in WeChat.",
+    "keepSecret": "Leave blank to keep the configured credential",
+    "mode": "Message mode",
+    "encrypted": "Secure / compatible mode",
+    "plain": "Plaintext mode",
+    "save": "Save configuration",
+    "callback": "Official-account callback URL",
+    "fields": {
+      "publicUrl": "Public HTTPS base URL",
+      "appId": "Official-account AppID",
+      "token": "Official-account Token",
+      "appSecret": "Official-account AppSecret",
+      "encodingKey": "EncodingAESKey"
+    },
+    "status": {
+      "queued": "Queued",
+      "running": "Collecting",
+      "waiting": "Waiting",
+      "completed": "Collected",
+      "failed": "Failed",
+      "cancelled": "Cancelled"
+    }
   }
 }

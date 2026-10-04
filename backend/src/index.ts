@@ -4,6 +4,7 @@ import "./runtime/task-stats-hardening";
 import "./runtime/notebook-publication";
 import "./runtime/knowledge-tree";
 import { Hono } from "hono";
+import wechatAssistantRouter, { createWechatAssistantCallbackRouter } from "./routes/wechat-assistant.js";
 import pluginInboundRouter from "./routes/plugin-inbound.js";
 import { cors } from "hono/cors";
 import { logger } from "hono/logger";
@@ -149,7 +150,7 @@ app.use("*", async (c, next) => {
 });
 
 // Capability callback URLs and protocol challenges must not enter request logs.
-app.use("*", (c, next) => c.req.path.startsWith("/api/plugin-inbound/") ? next() : logger()(c, next));
+app.use("*", (c, next) => (c.req.path.startsWith("/api/plugin-inbound/") || c.req.path === "/api/wechat-assistant/callback") ? next() : logger()(c, next));
 
 const isProd = process.env.NODE_ENV === "production";
 const corsOrigins = resolveCorsOrigins();
@@ -427,6 +428,7 @@ app.get("/api/diary/attachments/:id", handleDownloadDiaryImage);
 // 高熵 capability token + 可选 HMAC，自身完成鉴权；外部系统不会携带 Nowen JWT。
 app.route("/api/automation/webhooks", automationWebhookRouter);
 app.route("/api/plugin-inbound", pluginInboundRouter);
+app.route("/api/wechat-assistant", createWechatAssistantCallbackRouter());
 
 // JWT 鉴权中间件：保护所有 /api/* 路由（auth 和 health 已在上方注册，不受影响）
 //
@@ -612,6 +614,7 @@ app.route("/api/ai", aiRouter);
 app.route("/api/voice", voiceRouter);
 app.route("/api/plugins/studio", pluginStudioRouter);
 app.route("/api/plugins", pluginsRouter);
+app.route("/api/wechat-assistant", wechatAssistantRouter);
 app.route("/api/plugin-executions", pluginExecutionsRouter);
 app.route("/api/automations", automationsRouter);
 app.route("/api/webhooks", webhooksRouter);

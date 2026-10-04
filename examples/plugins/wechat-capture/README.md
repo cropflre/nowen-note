@@ -1,6 +1,14 @@
-# 微信公众号采集示例
+# 微信采集助手
 
-此示例实现 #746 的文本和 HTTPS 文章链接采集。HTTP 服务、随机回调地址、权限检查、网页安全抓取、Readability、附件落库和后台队列由 Nowen Core 提供；微信签名、XML、AES 报文、OpenID 绑定和消息规则在插件中。
+1.1.0 提供「连接微信 → 发送文章链接 → 自动保存到微信收件箱」的简化入口。用户无需填写笔记本 ID、标签或 Action 参数；公众号接入由部署管理员配置一次。也可直接在收件箱粘贴一篇或多篇链接，查看进度、打开笔记及重试失败记录。
+
+管理员安装并启用插件后，在「设置 → 插件 → 已安装 → 微信采集助手」展开管理员接入配置，填写公众号凭据和公网 HTTPS 根地址，再将生成的回调地址配置到微信公众平台。扫码要求公众号已开通参数二维码接口。服务与 Nowen 后端一起部署；首版每套 Nowen 服务使用一个公众号，用户身份和收件箱互相隔离。
+
+完整部署、权限和验证步骤见 [微信采集助手部署说明](../../../docs/developer/wechat-assistant.md)。公众号名称采集尚未接入文章目录服务，请发送文章链接。
+
+## 兼容的高级接入方式
+
+原有单用户随机 Webhook、绑定码和文本采集继续保留。下面是该高级方式的配置，不是普通用户使用收件箱的必需步骤。
 
 ## 安装与配置
 
@@ -28,7 +36,7 @@ node ../../../packages/nowen-plugin-cli/bin/nowen-plugin.mjs pack
 - 配置界面只能看到自己生成的回调是否存在。完整 URL 只在生成/轮换时显示；轮换或撤销会移除旧地址及待处理任务。用户禁用、tokenVersion 变更、插件禁用或声明变更都会阻断旧地址。
 - 仅抓取公开 HTTPS HTML，不执行网页脚本，不绕过登录、验证码或付费限制。正文最多 2MB；提取后最多 512KB；最多本地化 10 张、每张最多 2MB 的图片。失败的图片不阻止正文保存，笔记中不保留远程媒体地址。
 - 公众号文章使用已有微信正文提取器，其他网站使用 Mozilla Readability。依赖 JavaScript 生成正文的网页可能无法提取，此时任务会报告失败。
-- 订阅事件、图片/语音/视频消息、公众号菜单配置和主动模板通知不在此示例范围内。
+- 收件箱入口处理扫码/关注及取消关注事件。图片/语音/视频消息、公众号菜单配置和主动模板通知不在此版本范围内。
 - 单个 URL 入口不等同于登录会话；不要把完整回调 URL 发给其他人。
 
 协议参考：[微信接入概述](https://developers.weixin.qq.com/doc/offiaccount/Basic_Information/Access_Overview.html)、[消息加解密说明](https://developers.weixin.qq.com/doc/offiaccount/Message_Management/Message_encryption_and_decryption_instructions.html)、[被动回复](https://developers.weixin.qq.com/doc/offiaccount/Message_Management/Passive_user_reply_message.html)。正文提取：[Mozilla Readability](https://github.com/mozilla/readability)。

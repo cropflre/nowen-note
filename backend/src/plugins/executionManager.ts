@@ -11,18 +11,17 @@ import { SandboxRunner } from "./sandboxRunner.js";
 import type { HostApiBroker } from "./hostApiBroker.js";
 import { pluginManifestActions, type PluginExecutionContext, type PluginExecutionResult, type PluginManifest, type PluginRegistryRecord } from "./types.js";
 
-const MAX_GLOBAL_CONCURRENCY = 2;
-let activeGlobalExecutions = 0;
-const globalWaiters: Array<() => void> = [];
 const EXPECTED_ACCESS_DENIAL_CODES = new Set(["RESOURCE_FORBIDDEN", "PLUGIN_PERMISSION_DENIED"]);
+const executionSlots = {
+  background: { limit: 2, active: 0, waiters: [] as Array<() => void> },
+  inbound: { limit: 1, active: 0, waiters: [] as Array<() => void> },
+};
 
-async function acquireGlobalSlot(): Promise<() => void> {
-  if (activeGlobalExecutions >= MAX_GLOBAL_CONCURRENCY) await new Promise<void>((resolve) => globalWaiters.push(resolve));
-  activeGlobalExecutions += 1;
-  return () => {
-    activeGlobalExecutions = Math.max(0, activeGlobalExecutions - 1);
-    globalWaiters.shift()?.();
-  };
+async function acquireGlobalSlot(inbound: boolean): Promise<() => void> {
+  const pool = inbound ? executionSlots.inbound : executionSlots.background;
+  if (pool.active >= pool.limit) await new Promise<void>((resolve) => pool.waiters.push(resolve));
+  pool.active += 1;
+  return () => { pool.active -= 1; pool.waiters.shift()?.(); };
 }
 
 function jsonSize(value: unknown): number {
@@ -67,6 +66,7 @@ export class PluginExecutionManager {
     pluginId: string,
     allowPreflight = false,
     expected?: { version: string; checksum: string },
+    inbound = false,
   ): PluginRunner | SandboxRunner {
     const record = this.registry.get(pluginId);
     if (!record) throw new Error("插件不存在");
@@ -80,9 +80,10 @@ export class PluginExecutionManager {
     if (expected && (record.version !== expected.version || record.checksum !== expected.checksum)) throw Object.assign(new Error("插件在排队期间已切换版本"), { code: "PLUGIN_VERSION_CHANGED_WHILE_QUEUED" });
     const resolvedRuntime = this.policy.assertAllowed(compatibilityInputFromRecord(record));
     if (resolvedRuntime === "declarative") throw Object.assign(new Error("声明式插件不执行代码"), { code: "PLUGIN_DECLARATIVE_NOT_EXECUTABLE" });
-    const existing = this.runners.get(pluginId);
+    const runnerKey = inbound ? `${pluginId}:inbound` : pluginId;
+    const existing = this.runners.get(runnerKey);
     if (existing) {
-      const binding = this.runnerBindings.get(pluginId);
+      const binding = this.runnerBindings.get(runnerKey);
       if (!binding || binding.version !== record.version || binding.checksum !== record.checksum) throw Object.assign(new Error("插件 Runner 与当前版本不一致"), { code: "PLUGIN_RUNNER_STALE" });
       return existing;
     }
@@ -92,8 +93,8 @@ export class PluginExecutionManager {
       (context, call) => this.broker.call(context, call),
       (executionId, progress) => this.updateProgress(executionId, progress),
     );
-    this.runners.set(pluginId, runner);
-    this.runnerBindings.set(pluginId, { version: record.version, checksum: record.checksum });
+    this.runners.set(runnerKey, runner);
+    this.runnerBindings.set(runnerKey, { version: record.version, checksum: record.checksum });
     return runner;
   }
 
@@ -154,7 +155,9 @@ export class PluginExecutionManager {
       VALUES (?,?,?,?,?,'queued',?,?,0,'[]')`)
       .run(executionId, input.pluginId, input.actionId, input.userId, context.workspaceId, startedAt.toISOString(), inputBytes);
     const logs = new ExecutionLogTail();
-    const release = await acquireGlobalSlot();
+    // Only host-owned protocol callbacks use the reserved lane; API Action callers cannot select it.
+    const inbound = context.source === "system" && ["plugin-inbound", "wechat-assistant"].includes(context.sourceId || "");
+    const release = await acquireGlobalSlot(inbound);
     let releaseProbation: (() => void) | null = null;
     let boundRecord: PluginRegistryRecord | null = null;
     let executionStarted = false;
@@ -164,7 +167,7 @@ export class PluginExecutionManager {
       if (beforeProbationLock.lifecycleState === "probation") releaseProbation = await this.acquireProbationSlot(input.pluginId);
       if (this.cancelledBeforeStart.delete(executionId)) throw Object.assign(new Error("插件执行已取消"), { code: "PLUGIN_CANCELLED" });
       boundRecord = this.assertQueuedBinding(input.pluginId, input.actionId, queuedBinding);
-      const runner = this.runner(input.pluginId, false, queuedBinding);
+      const runner = this.runner(input.pluginId, false, queuedBinding, inbound);
       startedAt = new Date();
       getDb().prepare("UPDATE plugin_executions SET status='running',startedAt=? WHERE id=?").run(startedAt.toISOString(), executionId);
       executionStarted = true;
@@ -222,14 +225,16 @@ export class PluginExecutionManager {
       getDb().prepare(`UPDATE plugin_executions SET status='cancelled',finishedAt=?,errorCode='PLUGIN_CANCELLED',errorMessage='插件执行已取消' WHERE id=? AND status='queued'`).run(new Date().toISOString(), executionId);
       return true;
     }
-    return this.runners.get(row.pluginId)?.cancel(executionId) || false;
+    return this.runners.get(row.pluginId)?.cancel(executionId) || this.runners.get(`${row.pluginId}:inbound`)?.cancel(executionId) || false;
   }
 
   async restart(pluginId: string): Promise<void> {
-    const runner = this.runners.get(pluginId);
-    if (runner) await runner.terminate();
-    this.runners.delete(pluginId);
-    this.runnerBindings.delete(pluginId);
+    for (const key of [pluginId, `${pluginId}:inbound`]) {
+      const runner = this.runners.get(key);
+      if (runner) await runner.terminate();
+      this.runners.delete(key);
+      this.runnerBindings.delete(key);
+    }
   }
 
   async preflight(pluginId: string): Promise<void> {

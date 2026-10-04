@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("@/lib/api.impl", () => ({ getBaseUrl: () => "/api" }));
 
 import { automationApi } from "@/lib/automationApi";
-import { pluginApi } from "@/lib/pluginApi";
+import { pluginApi, wechatAssistantApi } from "@/lib/pluginApi";
 
 describe("extension API paths", () => {
   const fetchMock = vi.fn();
@@ -65,4 +65,11 @@ describe("extension API paths", () => {
     expect(fetchMock.mock.calls.map(([url]) => url)).toEqual(["/api/plugins/policy", "/api/plugins/policy"]);
     expect(fetchMock.mock.calls[1][1]).toMatchObject({ method: "PUT", body: JSON.stringify({ allowNodeRuntime: true }) });
   });
+  it("uses authenticated single-prefix paths for the WeChat inbox", async () => {
+    await wechatAssistantApi.status(); await wechatAssistantApi.connect();
+    await wechatAssistantApi.collect("https://example.com/article"); await wechatAssistantApi.retry("item/id");
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual(["/api/wechat-assistant", "/api/wechat-assistant/connection", "/api/wechat-assistant/collect", "/api/wechat-assistant/items/item%2Fid/retry"]);
+    expect(fetchMock.mock.calls[2][1]).toMatchObject({ method: "POST", body: JSON.stringify({ text: "https://example.com/article" }) });
+  });
+
 });

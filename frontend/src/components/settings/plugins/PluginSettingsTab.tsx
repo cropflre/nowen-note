@@ -3,6 +3,7 @@ import JSZip from "jszip";
 import { AlertTriangle, CheckCircle2, ChevronDown, ChevronUp, Code2, KeyRound, Loader2, PackagePlus, Play, RefreshCw, RotateCcw, Search, ShieldCheck, Trash2 } from "lucide-react";
 import { pluginApi, type InstalledPlugin, type PluginAction, type PluginConnection, type PluginExecution, type PluginUpdate, type RegistryPlugin, type RegistrySource } from "@/lib/pluginApi";
 import { getPluginRuntimePresentation } from "@/lib/pluginRuntimePresentation";
+import { WechatAssistantSettings } from "./WechatAssistantSettings";
 import { PluginInboundSettings } from "./PluginInboundSettings";
 import { PluginRuntimePolicySettings } from "./PluginRuntimePolicySettings";
 import { PluginMarketplaceInstallButton } from "./PluginMarketplaceInstallButton";
@@ -78,6 +79,7 @@ function PluginCard({ plugin, isAdmin, refresh }: { plugin: InstalledPlugin; isA
     }
   };
   return <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 p-4 space-y-3">
+    {plugin.id === "nowenlab.wechat-capture" && <WechatAssistantSettings isAdmin={isAdmin} />}
     <div className="flex items-start justify-between gap-3">
       <div className="min-w-0"><h3 className="font-semibold text-zinc-900 dark:text-zinc-100">🧩 {plugin.name}</h3><p className="font-mono text-[11px] text-zinc-400 truncate">{plugin.id}</p><p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">{plugin.description}</p></div>
       <span className={`shrink-0 rounded-full px-2 py-1 text-[11px] ${plugin.status === "enabled" ? "bg-emerald-500/15 text-emerald-600" : plugin.status === "error" ? "bg-red-500/15 text-red-600" : "bg-amber-500/15 text-amber-600"}`}>{statusLabel(plugin.status)}</span>

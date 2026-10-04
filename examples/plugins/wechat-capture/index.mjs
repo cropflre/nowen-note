@@ -43,7 +43,36 @@ async function reply(nowen, settings, message, text, encrypted) {
   return response(`<xml><Encrypt>${cdata(value)}</Encrypt><MsgSignature>${cdata(signature)}</MsgSignature><TimeStamp>${timestamp}</TimeStamp><Nonce>${cdata(nonce)}</Nonce></xml>`, 200, "text/xml");
 }
 
+async function verifyMessage(input, nowen) {
+  const settings = await nowen.settings.get();
+  const query = input.query;
+  if (!/^\d{10}$/.test(query.timestamp || "") || Math.abs(Date.now() / 1000 - Number(query.timestamp)) > 300 || typeof query.nonce !== "string" || query.nonce.length > 128) return response("Invalid signature", 401);
+  let encrypted = input.method === "GET" ? query.encrypt_type === "aes" || Boolean(query.msg_signature) : Boolean(field(input.body, "Encrypt"));
+  if (settings.mode === "encrypted" && !encrypted && input.method !== "GET") return response("Encryption required", 401);
+  const ciphertext = encrypted ? (input.method === "GET" ? query.echostr : field(input.body, "Encrypt")) : null;
+  const expected = await nowen.secrets.digest({ connection: "callback-token", algorithm: "sha1", parts: [query.timestamp, query.nonce, ...(ciphertext ? [ciphertext] : [])], sort: true });
+  const actual = encrypted ? query.msg_signature : query.signature;
+  if (!/^[a-f0-9]{40}$/i.test(actual || "") || !crypto.timingSafeEqual(Buffer.from(actual.toLowerCase()), Buffer.from(expected))) return response("Invalid signature", 401);
+  const plaintext = encrypted ? unframe(await nowen.secrets.crypt({ connection: "encoding-key", operation: "decrypt", data: ciphertext }), settings["app-id"]) : input.body;
+  if (input.method === "GET") return response(encrypted ? plaintext : String(query.echostr || "").slice(0, 1024));
+  const message = { sender: field(plaintext, "FromUserName"), receiver: field(plaintext, "ToUserName"), type: field(plaintext, "MsgType"), id: field(plaintext, "MsgId") };
+  if (!/^[A-Za-z0-9_-]{1,128}$/.test(message.sender)) return response("Invalid sender", 400);
+  const text = message.type === "text" ? field(plaintext, "Content").trim() : message.type === "link" ? field(plaintext, "Url").trim() : "";
+  return { ...response(), message: { ...message, text, event: message.type === "event" ? field(plaintext, "Event") : "", scene: message.type === "event" ? field(plaintext, "EventKey").replace(/^qrscene_/, "") : "", encrypted } };
+}
+
 const actions = {
+  "verify-message": async ({ input, nowen }) => verifyMessage(input, nowen),
+  "reply-message": async ({ input, nowen }) => reply(nowen, await nowen.settings.get(), input.message, input.text, input.encrypted),
+  "capture-article": async ({ input, nowen }) => {
+    const key = `assistant:${input.itemId}`;
+    const prior = await nowen.storage.get({ key });
+    if (prior) return prior;
+    // Store a per-item receipt before reporting success to the queue.
+    const note = await nowen.capture.importUrl({ url: input.url, notebookId: input.notebookId });
+    await nowen.storage.set({ key, value: note });
+    return note;
+  },
   "bind-code": async ({ nowen }) => {
     const code = crypto.randomBytes(16).toString("hex");
     await nowen.storage.set({ key: "bind-code", value: { hash: hash(code), expires: Date.now() + 600000 } });
@@ -55,20 +84,10 @@ const actions = {
     return { success: true };
   },
   "handle-message": async ({ input, nowen }) => {
+    const verified = await verifyMessage(input, nowen);
+    if (!verified.message) return verified;
     const settings = await nowen.settings.get();
-    const query = input.query;
-    if (!/^\d{10}$/.test(query.timestamp || "") || Math.abs(Date.now() / 1000 - Number(query.timestamp)) > 300 || typeof query.nonce !== "string" || query.nonce.length > 128) return response("Invalid signature", 401);
-    let encrypted = input.method === "GET" ? query.encrypt_type === "aes" || Boolean(query.msg_signature) : Boolean(field(input.body, "Encrypt"));
-    if (settings.mode === "encrypted" && !encrypted && input.method !== "GET") return response("Encryption required", 401);
-    const ciphertext = encrypted ? (input.method === "GET" ? query.echostr : field(input.body, "Encrypt")) : null;
-    const expected = await nowen.secrets.digest({ connection: "callback-token", algorithm: "sha1", parts: [query.timestamp, query.nonce, ...(ciphertext ? [ciphertext] : [])], sort: true });
-    const actual = encrypted ? query.msg_signature : query.signature;
-    if (!/^[a-f0-9]{40}$/i.test(actual || "") || !crypto.timingSafeEqual(Buffer.from(actual.toLowerCase()), Buffer.from(expected))) return response("Invalid signature", 401);
-    const plaintext = encrypted ? unframe(await nowen.secrets.crypt({ connection: "encoding-key", operation: "decrypt", data: ciphertext }), settings["app-id"]) : input.body;
-    if (input.method === "GET") return response(encrypted ? plaintext : String(query.echostr || "").slice(0, 1024));
-    const message = { sender: field(plaintext, "FromUserName"), receiver: field(plaintext, "ToUserName"), type: field(plaintext, "MsgType"), id: field(plaintext, "MsgId") };
-    if (!/^[A-Za-z0-9_-]{1,128}$/.test(message.sender)) return response("Invalid sender", 400);
-    const text = message.type === "text" ? field(plaintext, "Content").trim() : message.type === "link" ? field(plaintext, "Url").trim() : "";
+    const { encrypted, text, ...message } = verified.message;
     if (!text) return response();
     if (text.startsWith("绑定 ")) {
       const code = await nowen.storage.get({ key: "bind-code" });

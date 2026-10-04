@@ -2946,5 +2946,52 @@
     "importLimit": "当前工作表超过 5 万个有值单元格，仅支持预览或下载。",
     "limitError": "文件内容超出预览限制（文件 20 MB、展开 XML 64 MB、20 个工作表、每表 1000 行 × 200 列、合计 20 万单元格、单元格 2 万字符）。请下载原文件，使用 Excel / WPS 打开。",
     "invalidError": "无法预览此 Excel 文件：文件可能已损坏、加密或格式不受支持。请下载原文件，使用 Excel / WPS 打开。"
+  },
+  "wechatAssistant": {
+    "inbox": "微信收件箱",
+    "description": "发送公众号文章链接，自动保存为笔记。也可以在这里粘贴链接，一次最多 20 篇。",
+    "refresh": "刷新采集结果",
+    "loading": "正在加载收件箱…",
+    "connected": "微信已连接",
+    "disconnected": "微信未连接",
+    "connect": "连接微信",
+    "disconnect": "断开连接",
+    "setupRequired": "管理员尚未配置微信接入。你可以先粘贴链接采集。",
+    "pluginRequired": "请由管理员安装并启用微信采集助手 1.1.0 或更新版本。",
+    "expired": "二维码已过期，请重新点击连接微信。",
+    "qrAlt": "使用微信扫描此二维码连接账号",
+    "scanDisclosure": "请用微信扫码并关注采集助手。二维码 10 分钟有效。发送的链接及消息将经过本部署的公众号接入服务，仅保存到你自己的收件箱。",
+    "paste": "粘贴文章链接",
+    "placeholder": "粘贴一篇或多篇 HTTPS 文章链接，每篇一个链接",
+    "collect": "保存到收件箱",
+    "accepted": "已接收 {{accepted}} 篇，{{duplicates}} 篇已在收件箱。",
+    "recent": "最近 100 条采集记录",
+    "empty": "收件箱还没有文章。连接微信发送链接，或在上方粘贴链接开始采集。",
+    "open": "打开笔记",
+    "retry": "重试",
+    "adminSetup": "管理员接入配置",
+    "adminDescription": "为本套 Nowen 服务配置一个支持参数二维码接口的公众号，并将公网 HTTPS 回调地址配置到微信公众平台。普通用户无需填写这些信息。",
+    "saved": "配置已保存，请在微信公众平台填写下方回调地址并验证。",
+    "keepSecret": "留空保留已配置凭据",
+    "mode": "消息模式",
+    "encrypted": "安全 / 兼容模式",
+    "plain": "明文模式",
+    "save": "保存配置",
+    "callback": "公众号回调地址",
+    "fields": {
+      "publicUrl": "公网 HTTPS 根地址",
+      "appId": "公众号 AppID",
+      "token": "公众号 Token",
+      "appSecret": "公众号 AppSecret",
+      "encodingKey": "EncodingAESKey"
+    },
+    "status": {
+      "queued": "等待采集",
+      "running": "正在采集",
+      "waiting": "等待继续",
+      "completed": "采集完成",
+      "failed": "采集失败",
+      "cancelled": "已取消"
+    }
   }
 }
