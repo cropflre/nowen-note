@@ -29,6 +29,8 @@ test("another window's ordinary editor blocks cleanup without changing any persi
   expect(code).toBe("busy");
   expect(await page.evaluate(() => window.conversionCleanupHarness.snapshot())).toEqual(before);
   await other.close();
+  // Page closure can finish before Chromium releases the editor's Web Lock.
+  await expect.poll(() => page.evaluate(async () => (await navigator.locks.query()).held?.some((lock) => lock.name?.endsWith(":note")))).toBe(false);
   await expect(page.evaluate(() => window.conversionCleanupHarness.cleanup())).resolves.toMatchObject({ localCleanup: true });
 });
 
