@@ -12,6 +12,11 @@ export function stripTags(html: string): string {
   return decodeEntities(html.replace(/<[^>]+>/g, "")).replace(/\s+/g, " ").trim();
 }
 
+export function isWeixinVerificationPage(html: string, url: string): boolean {
+  return new URL(url).pathname === "/mp/wappoc_appmsgcaptcha"
+    || /<[^>]+\bid=["']js_verify["'][^>]*>/i.test(html);
+}
+
 export function extractWeixinTitle(html: string): string {
   const m = html.match(/<h[12][^>]*id=["']activity-name["'][^>]*>([\s\S]*?)<\/h[12]>/i);
   if (m && m[1]) return stripTags(m[1]) || "未命名文章";

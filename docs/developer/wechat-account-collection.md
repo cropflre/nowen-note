@@ -42,3 +42,14 @@ node --import tsx --import ./tests/setup-db-isolation.ts --test tests/wechat-acc
 Electron 原生 SQLite 环境使用已有 Electron Node 方式。前端运行 `WechatAccountSettings.test.tsx`、`WechatAssistantSettings.test.tsx` 和 API 路径回归。
 
 正式发布下一版本前必须用用户指定的真实公众号验证至少两页、多图文次条、读取结束、正文图片入笔记、再次运行去重和会话过期。上述真实验收未通过前，不将本功能标为“傻瓜式全量采集完成”。
+
+## 2026-10-04 本机真实网络复测
+
+公开样例 `https://mp.weixin.qq.com/s/Jc15wgR7FxDh6tb_StPEBQ` 在本机请求中重定向到 `/mp/wappoc_appmsgcaptcha`，返回「环境异常，完成验证后即可继续访问」的验证页。该响应没有文章正文或公众号名称。此次结果仅说明本机样例请求被验证拦截，不推断所有文章都不可访问。
+
+- 公众号识别现在以 `WECHAT_VERIFICATION_REQUIRED` 明确报告访问验证，不创建虚假的目标账号。
+- 正文导入要求微信实际返回 `#js_content` 正文；验证页、失效页不再交给通用 Readability 当作文章解析。
+- 在独立临时数据库运行真实插件队列：该样例入队后状态为 `failed`，收件箱错误明确指出访问验证，笔记和附件数量均为 0，插件保持启用。该实测没有 Mock HTTP，也没有修改用户笔记数据。
+- 增加了验证页及重定向回归：不写笔记、目录节点、标签或附件；失败记录仍可查看，插件不被禁用。
+
+微信内完成验证不会自动把该登录态传给 Nowen 后端。当前版本仍需用户在本地高级入口提供有效的本人阅读会话，尚未接入自动授权；不要在聊天、Issue 或日志中提交凭据。真实目标公众号的两页历史、正文图片入库和再次采集去重仍待验收。

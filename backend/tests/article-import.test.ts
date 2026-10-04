@@ -46,6 +46,15 @@ test("generic Readability and WeChat extraction remove executable markup and res
   assert.match(wechat.content, /src="https:\/\/mmbiz/);
 });
 
+test("WeChat verification and unavailable pages never fall back to generic article extraction", () => {
+  const verification = '<html><body><h1>环境异常</h1><a id="js_verify">去验证</a></body></html>';
+  for (const url of ["https://mp.weixin.qq.com/s/public", "https://mp.weixin.qq.com/mp/wappoc_appmsgcaptcha"]) {
+    assert.throws(() => extractArticle(verification, url), (error: any) => error.code === "CAPTURE_EXTRACTION_FAILED" && error.message.includes("完成访问验证"));
+  }
+  assert.throws(() => extractArticle(html, "https://mp.weixin.qq.com/s/deleted"), { code: "CAPTURE_EXTRACTION_FAILED" });
+  assert.throws(() => extractArticle('<script>var selector="js_content";</script>', "https://mp.weixin.qq.com/s/unavailable"), { code: "CAPTURE_EXTRACTION_FAILED" });
+});
+
 test("capture transport rejects private addresses and credential/non-HTTPS URLs", async () => {
   for (const url of ["http://example.com", "https://127.0.0.1", "https://[::1]", "https://169.254.169.254", "https://u:p@example.com", "file:///tmp/a"]) await assert.rejects(securePublicFetch(url, 1024), { code: "REGISTRY_URL_DENIED" });
   test.mock.method(dns, "lookup", async () => [{ address: "93.184.216.34", family: 4 }, { address: "10.0.0.2", family: 4 }] as any);
@@ -93,4 +102,16 @@ test("capture uses canonical note/tag writes and stores local images without rem
   assert.match(stored.content, /&lt;script&gt;comment/);
   assert.ok(db.prepare("SELECT id FROM knowledge_tree_nodes WHERE resourceId=?").get(note.id));
   assert.equal((db.prepare("SELECT count(*) n FROM note_tags WHERE noteId=?").get(note.id) as any).n, 1);
+});
+
+test("a redirected WeChat verification page writes no note, tree node, tag, or attachment", async () => {
+  const db = getDb(), count = (table: string) => (db.prepare(`SELECT count(*) n FROM ${table}`).get() as { n: number }).n;
+  const tables = ["notes", "knowledge_tree_nodes", "tags", "attachments"];
+  const before = tables.map(count);
+  transport([
+    { status: 302, headers: { location: "/mp/wappoc_appmsgcaptcha?challenge=private-challenge" } },
+    { body: '<html><body><div id="tips">环境异常</div><a id="js_verify">去验证</a></body></html>' },
+  ]);
+  await assert.rejects(importArticleUrl({ executionId: "capture-verification", pluginId: "test.capture", actionId: "capture", userId: "capture-user", workspaceId: null }, { url: "https://mp.weixin.qq.com/s/public", notebookId: "capture-book", tags: ["verification-not-imported"] }), (error: any) => error.code === "CAPTURE_EXTRACTION_FAILED" && error.message.includes("完成访问验证") && !error.message.includes("private-challenge"));
+  assert.deepEqual(tables.map(count), before);
 });

@@ -157,6 +157,17 @@ test("explicit re-enable after rollback requires grants and re-enters probation 
     db.prepare("UPDATE plugin_registry SET lifecycleState='stable',status='enabled',probationVersion=NULL,probationRemaining=0 WHERE id=?").run(WECHAT_PLUGIN_ID);
   }
 });
+test("WeChat verification failures stay visible without creating a note or disabling the plugin", async () => {
+  const db = getDb(), before = (db.prepare("SELECT count(*) n FROM notes").get() as { n: number }).n;
+  mockArticle('<html><body><div id="tips">环境异常</div><a id="js_verify">去验证</a></body></html>');
+  const result = await collectArticles("alice", article(404)), id = result.items[0].id;
+  assert.equal((await runItem(id)).status, "failed");
+  const item = assistantStatus("alice").items.find((entry) => entry.id === id)!;
+  assert.equal(item.note, null); assert.match(item.error!, /完成访问验证/);
+  assert.equal((db.prepare("SELECT count(*) n FROM notes").get() as { n: number }).n, before);
+  assert.equal(getPluginService().registry.get(WECHAT_PLUGIN_ID)!.status, "enabled");
+});
+
 test("failed extraction is visible; only owner can retry, retaining one item", async () => {
   mockArticle("<html><body></body></html>"); const result = await collectArticles("alice", article(3)), id = result.items[0].id;
   assert.equal((await runItem(id)).status, "failed"); assert.match(assistantStatus("alice").items.find((item) => item.id === id)!.error!, /正文/);

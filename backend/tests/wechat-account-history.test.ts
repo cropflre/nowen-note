@@ -37,6 +37,12 @@ test("article identification requires real metadata, strips credentials and refu
   assert.throws(() => wechatArticleUrl("https://mp.weixin.qq.com/mp/profile_ext"), { code: "INVALID_ARTICLE_URL" });
   assert.doesNotMatch(wechatArticleUrl(article(1) + "&uin=secret&key=secret&scene=1").href, /secret|scene/);
 });
+test("identification distinguishes a live-shaped verification page and never accepts a content selector string", async () => {
+  const verification = '<html><body><div id="tips">环境异常</div><a id="js_verify">去验证</a></body></html>';
+  await assert.rejects(identifyWechatAccount("history-alice", article(1), async () => verification), (error: any) => error.code === "WECHAT_VERIFICATION_REQUIRED" && error.status === 409 && error.message.includes("完成访问验证"));
+  assert.throws(() => accountMetadata(`<a id="js_name">假公众号</a><script>var biz="${biz}";var selector="js_content";</script>`, article(1)), { code: "ACCOUNT_UNAVAILABLE" });
+});
+
 test("reader authorization is target scoped, and an ordinary share link is insufficient", () => {
   assert.equal(readingCredentials(credentials, biz).key, "private-key");
   assert.throws(() => readingCredentials(credentials, otherBiz), { code: "INVALID_READ_SESSION" });

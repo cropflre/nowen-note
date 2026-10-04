@@ -9,7 +9,7 @@ import { securePublicFetch } from "../plugins/secureRegistryFetch.js";
 import type { PluginExecutionContext } from "../plugins/types.js";
 import { ApplicationCommandGateway } from "./applicationCommandGateway.js";
 import { saveDownloadedRemoteImageForNote } from "./remote-image-import.js";
-import { extractWeixinContent, extractWeixinTitle } from "./wechat-article-extractor.js";
+import { extractWeixinContent, extractWeixinTitle, isWeixinVerificationPage } from "./wechat-article-extractor.js";
 
 function invalid(message: string, code = "INVALID_ARGUMENT"): never {
   throw Object.assign(new Error(message), { code });
@@ -24,11 +24,18 @@ async function fetchCapture(url: string, maxBytes: number, timeoutMs: number) {
 }
 
 export function extractArticle(html: string, url: string): { title: string; content: string } {
-  // Normalize HTML void tags for Readability's inert, standalone DOM parser.
-  const normalized = sanitize(html, { allowedTags: false, allowedAttributes: false, allowVulnerableTags: true, exclusiveFilter: (frame) => ["script", "style", "noscript", "iframe", "object", "embed", "form", "base"].includes(frame.tag) });
-  const document = new JSDOMParser().parse(normalized, url);
-  const wechat = new URL(url).hostname === "mp.weixin.qq.com" ? extractWeixinContent(html) : "";
-  const article = wechat ? { title: extractWeixinTitle(html), content: wechat } : new Readability(document, { maxElemsToParse: 25000 }).parse();
+  let article: { title?: string | null; content?: string | null } | null;
+  if (new URL(url).hostname === "mp.weixin.qq.com") {
+    if (isWeixinVerificationPage(html, url)) invalid("微信要求完成访问验证，当前请求未取得文章正文。请在本人微信内打开文章并完成验证", "CAPTURE_EXTRACTION_FAILED");
+    const content = extractWeixinContent(html);
+    if (!content.trim()) invalid("微信未返回文章正文，请确认文章可打开且未被删除", "CAPTURE_EXTRACTION_FAILED");
+    article = { title: extractWeixinTitle(html), content };
+  } else {
+    // Normalize HTML void tags for Readability's inert, standalone DOM parser.
+    const normalized = sanitize(html, { allowedTags: false, allowedAttributes: false, allowVulnerableTags: true, exclusiveFilter: (frame) => ["script", "style", "noscript", "iframe", "object", "embed", "form", "base"].includes(frame.tag) });
+    const document = new JSDOMParser().parse(normalized, url);
+    article = new Readability(document, { maxElemsToParse: 25000 }).parse();
+  }
   if (!article?.content) invalid("未找到可导入的文章正文", "CAPTURE_EXTRACTION_FAILED");
   const content = sanitizeForImport(sanitize(article.content, {
     allowedTags: false, allowedAttributes: false, allowVulnerableTags: true,

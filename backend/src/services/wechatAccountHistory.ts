@@ -4,7 +4,7 @@ import { getPluginService } from "../plugins/pluginService.js";
 import { compatibilityInputFromRecord } from "../plugins/extensionCompatibility.js";
 import { secureExternalFetch, type ExternalFetchRequest } from "../plugins/secureExternalFetch.js";
 import { articleKey, collectArticles, WECHAT_PLUGIN_ID } from "./wechatAssistant.js";
-import { extractWeixinAuthor, stripTags } from "./wechat-article-extractor.js";
+import { extractWeixinAuthor, extractWeixinContent, isWeixinVerificationPage, stripTags } from "./wechat-article-extractor.js";
 
 // Experimental reader-session path. A successful live page is required before collection.
 const lifetime = 10 * 60 * 1000;
@@ -41,10 +41,11 @@ export function wechatArticleUrl(value: string): URL {
   return cleaned;
 }
 export function accountMetadata(html: string, articleUrl: string): { biz: string; name: string } {
+  if (isWeixinVerificationPage(html, articleUrl)) fail("微信要求完成访问验证，当前请求未取得文章正文。请在本人微信内打开文章并完成验证", "WECHAT_VERIFICATION_REQUIRED", 409);
   const match = html.match(/\b(?:var\s+)?(?:biz|__biz)\s*=\s*["']([A-Za-z0-9+/=]+)["']/);
   const biz = match?.[1] || wechatArticleUrl(articleUrl).searchParams.get("__biz") || "";
   const name = extractWeixinAuthor(html) || stripTags(html.match(/<(?:span|strong)[^>]*id=["']js_name["'][^>]*>([\s\S]*?)<\/(?:span|strong)>/i)?.[1] || "");
-  if (!/^[A-Za-z0-9+/=]{8,128}$/.test(biz) || !name || name.length > 100 || !html.includes("js_content")) fail("微信未返回可识别的公众号文章，请在微信内确认链接可打开", "ACCOUNT_UNAVAILABLE", 502);
+  if (!/^[A-Za-z0-9+/=]{8,128}$/.test(biz) || !name || name.length > 100 || !extractWeixinContent(html).trim()) fail("微信未返回可识别的公众号文章，请在微信内确认链接可打开", "ACCOUNT_UNAVAILABLE", 502);
   return { biz, name };
 }
 export type HistoryTransport = (request: ExternalFetchRequest) => Promise<string>;
