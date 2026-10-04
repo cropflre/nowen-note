@@ -24,7 +24,13 @@ test("tag 构建工作流不让 electron-builder 直接发布 GitHub Release", a
   const workflow = await readRepoFile(".github/workflows/release.yml");
   assert.match(workflow, /node-version:\s*["']22["']/);
   assert.match(workflow, /permissions:\s*\n\s*contents:\s*read\s*\n\s*actions:\s*read/);
-  assert.equal((workflow.match(/--publish never/g) || []).length, 5);
+  const jobs = require("js-yaml").load(workflow).jobs;
+  const builderCommands = Object.values(jobs)
+    .flatMap((job) => job.steps || [])
+    .map((step) => step.run)
+    .filter((command) => typeof command === "string" && command.includes("electron-builder"));
+  assert.equal(builderCommands.length, 5);
+  for (const command of builderCommands) assert.match(command, /--publish never\b/);
   assert.doesNotMatch(workflow, /--publish always/);
   assert.doesNotMatch(workflow, /GH_TOKEN:/);
 });
