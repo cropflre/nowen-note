@@ -2942,7 +2942,7 @@
   },
   "wechatAssistant": {
     "inbox": "WeChat inbox",
-    "description": "Send article links to save them as notes. You can also paste up to 20 links here.",
+    "description": "Paste any article from the target account, read its history, then save articles as notes.",
     "refresh": "Refresh capture results",
     "loading": "Loading inbox…",
     "connected": "WeChat connected",
@@ -2959,7 +2959,7 @@
     "collect": "Save to inbox",
     "accepted": "Received {{accepted}} articles; {{duplicates}} already in your inbox.",
     "recent": "Latest 100 capture records",
-    "empty": "Your inbox is empty. Connect WeChat and send a link, or paste links above.",
+    "empty": "No capture records yet. Read articles from a specific account or paste individual links.",
     "open": "Open note",
     "retry": "Retry",
     "adminSetup": "Administrator connection settings",
@@ -2986,5 +2986,27 @@
       "failed": "Failed",
       "cancelled": "Cancelled"
     }
+  },
+  "wechatAccount": {
+    "title": "Collect from a specific official account",
+    "description": "Paste any article from the target account, read its history, then save articles as notes.",
+    "experimental": "Reader-session verification: name search and automatic authorization are not connected. Live history availability still requires acceptance testing.",
+    "article": "An article from the target account",
+    "identify": "Identify account",
+    "change": "Change account and clear session",
+    "authorization": "Open the account page below in your own signed-in WeChat. History access requires a valid reader session.",
+    "home": "Account page to open in WeChat",
+    "verifyHelp": "Verify your reader session (advanced)",
+    "credentialHelp": "For local verification only: use the history request URL from this account page in your own WeChat. It contains temporary credentials; do not send it to chats, issues or third parties. This Nowen backend keeps it only in memory for at most 10 minutes. Automatic capture and QR login are not available here yet.",
+    "readingUrl": "History request URL from your own WeChat",
+    "verify": "Verify and read the first page",
+    "partial": "Read {{count}} articles; history is still incomplete.",
+    "end": "Read {{count}} articles; WeChat reports the end of its list.",
+    "more": "Read the next page",
+    "collectSelected": "Collect {{count}} selected articles",
+    "collectAll": "Collect all retrieved articles",
+    "queued": "Submitted {{completed}} / {{total}} articles: {{accepted}} new, {{duplicates}} duplicates.",
+    "messageEntry": "Optional entry: send links to the capture assistant",
+    "cookie": "Cookie from the same history request (optional)"
   }
 }

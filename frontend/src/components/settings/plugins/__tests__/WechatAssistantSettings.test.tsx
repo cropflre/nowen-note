@@ -3,6 +3,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({ status: vi.fn(), connect: vi.fn(), disconnect: vi.fn(), collect: vi.fn(), retry: vi.fn(), configuration: vi.fn(), configure: vi.fn() }));
 vi.mock("@/lib/pluginApi", () => ({ wechatAssistantApi: mocks }));
+vi.mock("../WechatAccountSettings", () => ({ WechatAccountSettings: () => null }));
 vi.mock("react-i18next", () => ({ useTranslation: () => ({ t: (key: string) => key, i18n: { language: "zh-CN" } }) }));
 import { WechatAssistantSettings } from "../WechatAssistantSettings";
 
@@ -20,7 +21,7 @@ describe("WeChat inbox", () => {
   const button = (label: string) => [...host.querySelectorAll("button")].find((item) => item.textContent === label)!;
   it("offers local capture without pretending an unconfigured WeChat service is connected", async () => {
     await render(); expect(button("wechatAssistant.connect").disabled).toBe(true);
-    expect(host.textContent).toContain("wechatAssistant.setupRequired"); expect(host.querySelector("img")).toBeNull(); expect(host.querySelector("details")).toBeNull();
+    expect(host.textContent).toContain("wechatAssistant.setupRequired"); expect(host.querySelector("img")).toBeNull(); expect(host.textContent).not.toContain("wechatAssistant.adminSetup");
     expect(host.querySelectorAll("textarea")).toHaveLength(1); expect(host.querySelectorAll("input")).toHaveLength(0);
   });
   it("displays only a QR returned by the API and catches connection errors", async () => {

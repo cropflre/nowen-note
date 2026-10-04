@@ -235,6 +235,17 @@ export interface WechatAssistantStatus {
 export interface WechatAssistantConfiguration {
   appId: string; publicUrl: string; mode: string; callbackUrl: string; configured: boolean;
 }
+export interface WechatAccountHistory {
+  id: string; name: string; homeUrl: string; verified: boolean; hasMore: boolean; expiresAt: number;
+  articles: Array<{ url: string; title: string; publishedAt: number }>;
+}
+export const wechatAccountApi = {
+  identify: (articleUrl: string) => request<WechatAccountHistory>("/wechat-assistant/accounts/identify", { method: "POST", body: JSON.stringify({ articleUrl }) }),
+  verify: (id: string, readingUrl: string, cookie = "") => request<WechatAccountHistory>(`/wechat-assistant/accounts/${encodeURIComponent(id)}/verify`, { method: "POST", body: JSON.stringify({ readingUrl, cookie }) }),
+  next: (id: string) => request<WechatAccountHistory>(`/wechat-assistant/accounts/${encodeURIComponent(id)}/next`, { method: "POST" }),
+  collect: (id: string, urls: string[]) => request<{ accepted: number; duplicates: number }>(`/wechat-assistant/accounts/${encodeURIComponent(id)}/collect`, { method: "POST", body: JSON.stringify({ urls }) }),
+  forget: (id: string) => request(`/wechat-assistant/accounts/${encodeURIComponent(id)}`, { method: "DELETE" }),
+};
 export const wechatAssistantApi = {
   status: () => request<WechatAssistantStatus>("/wechat-assistant"),
   configuration: () => request<WechatAssistantConfiguration>("/wechat-assistant/configuration"),

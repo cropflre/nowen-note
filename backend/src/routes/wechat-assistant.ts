@@ -4,9 +4,10 @@ import { getDb } from "../db/schema.js";
 import { getPluginService } from "../plugins/pluginService.js";
 import { readBody } from "./plugin-inbound.js";
 import { adminConfiguration, assistantStatus, bindConnection, collectArticles, configureAssistant, createConnection, disconnectAssistant, requireAssistantConfig, retryArticle, WECHAT_PLUGIN_ID } from "../services/wechatAssistant.js";
+import { collectWechatHistory, forgetWechatHistory, identifyWechatAccount, nextWechatHistoryPage, verifyWechatHistory } from "../services/wechatAccountHistory.js";
 
 function errorResponse(c: any, error: unknown) {
-  return c.json({ error: (error as Error).message || "采集操作失败" }, (error as { status?: number }).status || 400);
+  return c.json({ error: (error as Error).message || "采集操作失败", code: (error as { code?: string }).code }, (error as { status?: number }).status || 400);
 }
 export function createWechatAssistantRouter() {
   const router = new Hono();
@@ -23,6 +24,30 @@ export function createWechatAssistantRouter() {
     } catch (error) { return errorResponse(c, error); }
   });
   router.post("/items/:id/retry", async (c) => { try { await retryArticle(c.req.header("X-User-Id") || "", c.req.param("id")); return c.json({ success: true }); } catch (error) { return errorResponse(c, error); } });
+  router.post("/accounts/identify", async (c) => {
+    try {
+      const input = JSON.parse(await readBody(c.req.raw, 8192));
+      if (typeof input.articleUrl !== "string") return c.json({ error: "请填写目标公众号的一篇文章链接" }, 400);
+      return c.json(await identifyWechatAccount(c.req.header("X-User-Id") || "", input.articleUrl));
+    } catch (error) { return errorResponse(c, error); }
+  });
+  router.post("/accounts/:id/verify", async (c) => {
+    try {
+      const input = JSON.parse(await readBody(c.req.raw, 32768));
+      if (typeof input.readingUrl !== "string") return c.json({ error: "请填写阅读会话地址" }, 400);
+      if (input.cookie !== undefined && typeof input.cookie !== "string") return c.json({ error: "阅读会话 Cookie 无效" }, 400);
+      return c.json(await verifyWechatHistory(c.req.header("X-User-Id") || "", c.req.param("id"), input.readingUrl, undefined, input.cookie));
+    } catch (error) { return errorResponse(c, error); }
+  });
+  router.post("/accounts/:id/next", async (c) => { try { return c.json(await nextWechatHistoryPage(c.req.header("X-User-Id") || "", c.req.param("id"))); } catch (error) { return errorResponse(c, error); } });
+  router.post("/accounts/:id/collect", async (c) => {
+    try {
+      const input = JSON.parse(await readBody(c.req.raw, 65536));
+      if (input.urls !== undefined && (!Array.isArray(input.urls) || input.urls.length > 20 || input.urls.some((url: unknown) => typeof url !== "string"))) return c.json({ error: "每批最多选择 20 篇文章" }, 400);
+      return c.json(await collectWechatHistory(c.req.header("X-User-Id") || "", c.req.param("id"), input.urls));
+    } catch (error) { return errorResponse(c, error); }
+  });
+  router.delete("/accounts/:id", (c) => { try { forgetWechatHistory(c.req.header("X-User-Id") || "", c.req.param("id")); return c.json({ success: true }); } catch (error) { return errorResponse(c, error); } });
   return router;
 }
 
