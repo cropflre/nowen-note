@@ -330,9 +330,24 @@ jobs:
         shell: bash
 
       # ========= Linux =========
+      - name: Linux desktop packaging regression tests
+        if: matrix.os == 'ubuntu-latest'
+        run: npm run test:linux-desktop
+        shell: bash
+
+      - name: Install desktop entry validator
+        if: matrix.os == 'ubuntu-latest'
+        run: sudo apt-get update && sudo apt-get install -y desktop-file-utils
+        shell: bash
+
       - name: Build Electron (Linux)
         if: matrix.os == 'ubuntu-latest'
         run: npx electron-builder --config electron/builder.config.js --linux --publish never
+        shell: bash
+
+      - name: Verify Linux Debian desktop integration
+        if: matrix.os == 'ubuntu-latest'
+        run: npm run verify:linux-desktop
         shell: bash
 
       # ========= 普通构建产物 =========
