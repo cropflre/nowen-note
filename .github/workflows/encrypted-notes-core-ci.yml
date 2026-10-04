@@ -47,6 +47,7 @@ on:
       - "frontend/src/lib/api.impl.ts"
       - "frontend/src/store/AppContext.tsx"
       - "backend/src/db/**"
+      - "backend/src/types/**"
       - "backend/src/lib/encryptedNotes.ts"
       - "backend/src/lib/encryptedBlockWrites.ts"
       - "backend/src/runtime/block-patch.ts"
@@ -128,6 +129,7 @@ on:
       - "frontend/src/lib/api.impl.ts"
       - "frontend/src/store/AppContext.tsx"
       - "backend/src/db/**"
+      - "backend/src/types/**"
       - "backend/src/lib/encryptedNotes.ts"
       - "backend/src/lib/encryptedBlockWrites.ts"
       - "backend/src/runtime/block-patch.ts"
@@ -196,7 +198,7 @@ jobs:
         run: npx tsc --noEmit --pretty false
         working-directory: backend
       - name: Storage, Sync and recovery fixture typecheck
-        run: npx tsc --noEmit --pretty false --target ES2022 --module ESNext --moduleResolution bundler --esModuleInterop --skipLibCheck --strict tests/encrypted-notes-sync.test.ts tests/encrypted-notes-backup.test.ts tests/encrypted-notes-recovery-worker.ts tests/encrypted-notes-block-writers.test.ts tests/encrypted-notes-postgres.test.ts tests/encrypted-notes-app-server.ts tests/encrypted-notes-conversion-preflight.test.ts tests/encrypted-notes-conversion.test.ts src/types/word-extractor.d.ts
+        run: npx tsc --noEmit --pretty false --target ES2022 --module ESNext --moduleResolution bundler --esModuleInterop --skipLibCheck --strict tests/encrypted-notes-sync.test.ts tests/encrypted-notes-backup.test.ts tests/encrypted-notes-recovery-worker.ts tests/encrypted-notes-block-writers.test.ts tests/encrypted-notes-postgres.test.ts tests/encrypted-notes-app-server.ts tests/encrypted-notes-conversion-preflight.test.ts tests/encrypted-notes-conversion.test.ts src/types/word-extractor.d.ts src/types/readability.d.ts
         working-directory: backend
       - name: Crypto core and Worker lifecycle regressions
         run: npm run test:encrypted-notes
