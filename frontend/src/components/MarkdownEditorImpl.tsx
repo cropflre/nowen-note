@@ -1,4 +1,4 @@
-import { commitMarkdownEncryptedRegion } from "@/lib/encryptedNotes/blockAuthoring";
+import { commitMarkdownEncryptedRegion, prepareMarkdownEncryptedRegionEdit } from "@/lib/encryptedNotes/blockAuthoring";
 /**
  * MarkdownEditor —— 基于 CodeMirror 6 的 Markdown 笔记编辑器
  * ---
@@ -693,7 +693,7 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
     const snapshot = view.state.doc; const noteId = note.id; const selection = view.state.selection.main;
     try {
       const block = markdownEncryptedBlocks(snapshot.toString()).find((item) => selection.from >= item.from && selection.to <= item.to);
-      if (!block && !selection.empty) { toast.error("已有明文选区转换尚未提供。请将新内容直接输入加密区域。"); return; }
+      if (!block && !selection.empty) { toast.error("暂不支持直接加密选中文字，请点击“插入加密内容”输入新内容。"); return; }
       // New regions start on their own line, never inside another code fence.
       const syntax = syntaxTree(view.state).resolveInner(selection.from, -1);
       let insideFence = false;
@@ -760,6 +760,7 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
   }, [viewMode]);
 
   const setMarkdownViewMode = useCallback((nextViewMode: MarkdownViewMode) => {
+    if (previewDebounceRef.current) clearTimeout(previewDebounceRef.current);
     const nextMode = normalizeMarkdownViewModeForMobile(nextViewMode, isMobileMarkdownViewport());
     if (nextMode !== "source") {
       const view = viewRef.current;
@@ -1701,6 +1702,8 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
   useEffect(() => {
     const view = viewRef.current;
     if (!view) return;
+    // A delayed pre-save preview must not replace the server-confirmed document.
+    if (previewDebounceRef.current) clearTimeout(previewDebounceRef.current);
 
     // �л�ʱ�������� debounce������Ѿɱʼ�����д���±ʼ�
     if (debounceTimer.current) {
@@ -2078,6 +2081,18 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
     setPreviewMarkdown(view.state.doc.toString());
   }, [editable]);
 
+  const handlePreviewEncryptedBlockEdit = useCallback((source: string, rendered: string, offset: number) => {
+    const view = viewRef.current; const noteId = note.id;
+    if (!view || !editable || isGuest || note.isTrashed) throw new Error("Encrypted region is read-only");
+    const region = prepareMarkdownEncryptedRegionEdit(view, source, rendered, offset);
+    // Keep the private dialog outside the preview tree so a refreshed preview cannot discard edits.
+    setEncryptedRegion({ source: region.source, commit: (ciphertext: string) => {
+      if (noteRef.current.id !== noteId || viewRef.current !== view) throw new Error("Encrypted region changed");
+      region.commit(ciphertext);
+      setPreviewMarkdown(view.state.doc.toString());
+    } });
+  }, [editable, isGuest, note.id, note.isTrashed]);
+
   // ---------- ��ǩ�仯 ----------
 
   const noteTags = useMemo(() => note.tags || [], [note.tags]);
@@ -2174,7 +2189,7 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
       data-markdown-mobile-editing-compact={compactMobileEditing ? "true" : "false"}
       className="relative flex flex-col h-full overflow-hidden"
     >
-      {editable && !isGuest && !note.isTrashed && <button type="button" className="border-b border-app-border px-3 py-1 text-left text-xs text-tx-secondary" onClick={openEncryptedRegion}>加密区域（实验性）</button>}
+      {editable && !isGuest && !note.isTrashed && <button type="button" className="border-b border-app-border px-3 py-1 text-left text-xs text-tx-secondary" onClick={openEncryptedRegion}>插入加密内容</button>}
       {encryptedRegion && <EncryptedBlockDialog source={encryptedRegion.source} onCommit={encryptedRegion.commit} onClose={() => setEncryptedRegion(null)} />}
       {noteLinkMenu.open && (
         <NoteLinkMenu
@@ -2584,6 +2599,7 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
               containerRef={previewRootRef}
               onTaskCheckboxChange={editable ? handlePreviewTaskCheckboxChange : undefined}
               onFormatCodeBlock={editable ? handlePreviewCodeBlockFormat : undefined}
+              onEditEncryptedBlock={editable && !isGuest && !note.isTrashed ? handlePreviewEncryptedBlockEdit : undefined}
               onInsertVoiceTranscript={editable && !isGuest && !note.isTrashed ? insertVoiceTranscript : undefined}
             />
           </div>

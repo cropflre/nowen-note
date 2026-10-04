@@ -44,11 +44,12 @@ export interface MarkdownCodeBlockProps {
   className?: string;
   children?: React.ReactNode;
   onFormat?: () => Promise<void>;
+  onEditEncryptedBlock?: () => void;
 }
 
 /** Shared Markdown code block with the same core affordances as rich-text code blocks. */
-export function MarkdownCodeBlock({ className, children, onFormat }: MarkdownCodeBlockProps) {
-  if (isEncryptedBlockLanguage(normalizeLanguage(className))) return <EncryptedBlockCard language={normalizeLanguage(className)} source={String(children ?? "").replace(/\n$/, "")} />;
+export function MarkdownCodeBlock({ className, children, onFormat, onEditEncryptedBlock }: MarkdownCodeBlockProps) {
+  if (isEncryptedBlockLanguage(normalizeLanguage(className))) return <EncryptedBlockCard language={normalizeLanguage(className)} source={String(children ?? "").replace(/\n$/, "")} onEdit={onEditEncryptedBlock} />;
   return <OrdinaryMarkdownCodeBlock className={className} onFormat={onFormat}>{children}</OrdinaryMarkdownCodeBlock>;
 }
 function OrdinaryMarkdownCodeBlock({ className, children, onFormat }: MarkdownCodeBlockProps) {

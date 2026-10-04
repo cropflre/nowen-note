@@ -1,6 +1,6 @@
 import { test, expect } from "./encrypted-notes-app-test";
 
-test("ordinary note preflight opens from desktop and mobile actions without changing the note", async ({ product }) => {
+test("ordinary note actions hide internal conversion diagnostics while preflight stays read-only and owner-only", async ({ product }) => {
   const { page, server, app } = product;
   const password = "test-only-account-password";
   const registered = await page.request.post(`${server}/api/auth/register`, { data: { username: "preflight_user", password } });
@@ -30,18 +30,19 @@ test("ordinary note preflight opens from desktop and mobile actions without chan
   const denied = await page.request.get(`${server}/api/notes/${before.id}/encryption-preflight`, { headers: { Authorization: `Bearer ${otherAccount.token}` } });
   expect([403, 404]).toContain(denied.status());
   await page.locator('[data-editor-more-menu="desktop"]').getByRole("button").first().click();
-  await page.getByRole("button", { name: "加密转换前检查", exact: true }).click();
-  const dialog = page.getByRole("dialog", { name: "加密转换前检查", exact: true });
-  await expect(dialog.getByText(/服务器版本：/)).toBeVisible();
-  await expect(dialog.getByText("版本历史", { exact: true })).toBeVisible();
-  await expect(dialog.getByRole("button", { name: "转换尚未开放", exact: true })).toBeDisabled();
-  await dialog.getByRole("button", { name: "关闭", exact: true }).click();
+  await expect(page.getByRole("button", { name: "加密转换前检查", exact: true })).toHaveCount(0);
+  const preflight = await page.evaluate(async ({ server, id }) => {
+    const response = await fetch(`${server}/api/notes/${id}/encryption-preflight`, { headers: { Authorization: `Bearer ${localStorage.getItem("nowen-token")}` } });
+    if (!response.ok) throw new Error("Internal preflight failed");
+    return response.json();
+  }, { server, id: before.id });
+  expect(preflight.canConvert).toBe(false);
+  expect(preflight.blockers).toContain("conversion_not_enabled");
+  await page.keyboard.press("Escape");
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find((window) => window.webContents.getURL().includes("/frontend/dist/index.html"))!.setContentSize(390, 844));
   await page.getByRole("button", { name: "更多", exact: true }).filter({ visible: true }).click();
-  await page.getByRole("button", { name: "加密转换前检查", exact: true }).click();
-  await expect(dialog.getByText(/服务器版本：/)).toBeVisible();
-  await expect(dialog.getByText("当前浏览器", { exact: true })).toBeVisible();
-  await page.keyboard.press("Escape"); await expect(dialog).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "加密转换前检查", exact: true })).toHaveCount(0);
+  await page.keyboard.press("Escape");
   const after = await readNote();
   expect({ content: after.content, format: after.contentFormat }).toEqual({ content: before.content, format: before.contentFormat });
 });

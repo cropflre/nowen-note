@@ -7,19 +7,18 @@ async function create(page: Page) {
   await page.getByRole("button", { name: "载入普通笔记", exact: true }).click();
   await expect(page.getByRole("status")).toHaveText("已载入");
   await page.getByRole("button", { name: "新增加密区域", exact: true }).click();
-  await page.getByLabel("区域口令", { exact: true }).fill(password);
-  await page.getByLabel("确认区域口令", { exact: true }).fill(password);
-  await page.getByRole("checkbox").check();
+  await page.getByLabel("密码", { exact: true }).fill(password);
+  await page.getByLabel("确认密码", { exact: true }).fill(password);
   await page.getByLabel("区域临时正文", { exact: true }).fill(plaintext);
   expect(await page.evaluate(() => window.blockFixtureDocument())).not.toContain(plaintext);
-  await page.getByRole("button", { name: "加密写回", exact: true }).click();
+  await page.getByRole("button", { name: "保存", exact: true }).click();
   await expect(page.getByRole("dialog")).toHaveCount(0);
   await expect(page.getByLabel("已锁定加密区域", { exact: true })).toHaveCount(1);
 }
 async function unlock(page: Page, value = password) {
-  await page.getByRole("button", { name: "查看加密区域", exact: true }).click();
-  await page.getByLabel("区域口令", { exact: true }).fill(value);
-  await page.getByRole("button", { name: "解锁区域", exact: true }).click();
+  await page.getByLabel("已锁定加密区域", { exact: true }).getByRole("button", { name: "解锁", exact: true }).click();
+  await page.getByLabel("密码", { exact: true }).fill(value);
+  await page.getByRole("dialog", { name: "局部加密区域", exact: true }).getByRole("button", { name: "解锁", exact: true }).click();
 }
 async function noLeaks(page: Page) {
   const persisted = await page.evaluate(async () => {
@@ -46,7 +45,7 @@ test("real worker, editor history, format conversion, clipboard and persistence 
   await page.getByRole("button", { name: "重做", exact: true }).click();
   expect(await page.evaluate(() => window.blockFixtureDocument())).toBe(original);
   await page.evaluate(() => { Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: (value: string) => { sessionStorage.setItem("fixture-cipher-copy", value); return Promise.resolve(); } } }); });
-  await page.getByRole("button", { name: "复制密文", exact: true }).click();
+  await page.getByRole("button", { name: "复制加密内容", exact: true }).click();
   expect(await page.evaluate(() => sessionStorage.getItem("fixture-cipher-copy"))).toContain("```nowen-encrypted-v1");
   await page.getByRole("button", { name: "转换格式", exact: true }).click();
   await expect(page.getByLabel("主文档 Markdown 密文", { exact: true })).toBeVisible();
@@ -55,22 +54,22 @@ test("real worker, editor history, format conversion, clipboard and persistence 
   await page.reload(); await page.getByRole("button", { name: "载入普通笔记", exact: true }).click();
   await expect(page.getByLabel("已锁定加密区域", { exact: true })).toHaveCount(1);
   await unlock(page, "wrong-password");
-  await expect(page.getByRole("alert")).toContainText("操作未完成");
+  await expect(page.getByRole("alert")).toContainText("操作失败");
   await expect(page.getByLabel("区域临时正文", { exact: true })).toHaveCount(0);
-  await page.getByLabel("区域口令", { exact: true }).fill(password);
-  await page.getByRole("button", { name: "解锁区域", exact: true }).click();
+  await page.getByLabel("密码", { exact: true }).fill(password);
+  await page.getByRole("dialog", { name: "局部加密区域", exact: true }).getByRole("button", { name: "解锁", exact: true }).click();
   await expect(page.getByLabel("区域临时正文", { exact: true })).toHaveValue(plaintext);
   await noLeaks(page);
   await page.getByLabel("区域临时正文", { exact: true }).fill(`${plaintext} edited`);
-  await page.getByRole("button", { name: "加密写回", exact: true }).click();
+  await page.getByRole("button", { name: "保存", exact: true }).click();
   await expect(page.getByRole("dialog")).toHaveCount(0);
   await page.getByRole("button", { name: "保存主文档", exact: true }).click();
   await expect(page.getByRole("status")).toHaveText("服务器已保存密文");
   await page.getByRole("button", { name: "只读", exact: true }).click();
   await unlock(page); await expect(page.getByLabel("区域临时正文", { exact: true })).toHaveValue(`${plaintext} edited`);
   await expect(page.getByLabel("区域临时正文", { exact: true })).toHaveAttribute("readonly", "");
-  await expect(page.getByRole("button", { name: "加密写回", exact: true })).toHaveCount(0);
-  await page.getByRole("button", { name: "关闭并锁定", exact: true }).click();
+  await expect(page.getByRole("button", { name: "保存", exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: "关闭", exact: true }).click();
   await noLeaks(page);
   for (const body of writes) { expect(body).not.toContain(plaintext); expect(body).not.toContain(password); }
 });
@@ -79,13 +78,12 @@ test("failed region writes keep private draft and do not replace a changed docum
   await page.getByRole("button", { name: "载入普通笔记", exact: true }).click();
   await expect(page.getByRole("status")).toHaveText("已载入");
   await page.getByRole("button", { name: "新增加密区域", exact: true }).click();
-  await page.getByLabel("区域口令", { exact: true }).fill(password);
-  await page.getByLabel("确认区域口令", { exact: true }).fill(password);
-  await page.getByRole("checkbox").check();
+  await page.getByLabel("密码", { exact: true }).fill(password);
+  await page.getByLabel("确认密码", { exact: true }).fill(password);
   await page.getByLabel("区域临时正文", { exact: true }).fill(plaintext);
   await page.getByRole("button", { name: "外部修改", exact: true }).click();
-  await page.getByRole("button", { name: "加密写回", exact: true }).click();
-  await expect(page.getByRole("alert")).toContainText("操作未完成");
+  await page.getByRole("button", { name: "保存", exact: true }).click();
+  await expect(page.getByRole("alert")).toContainText("操作失败");
   await expect(page.getByLabel("区域临时正文", { exact: true })).toHaveValue(plaintext);
   await expect(page.getByLabel("已锁定加密区域", { exact: true })).toHaveCount(0);
   expect(await page.evaluate(() => window.blockFixtureDocument())).toContain("public change");
@@ -93,7 +91,7 @@ test("failed region writes keep private draft and do not replace a changed docum
   const prevented = await page.evaluate(() => !window.dispatchEvent(new Event("nowen:encrypted-note-before-leave", { cancelable: true })));
   expect(prevented).toBe(true);
   page.once("dialog", (dialog) => dialog.accept());
-  await page.getByRole("button", { name: "关闭并锁定", exact: true }).click();
+  await page.getByRole("button", { name: "关闭", exact: true }).click();
   await expect(page.getByRole("dialog")).toHaveCount(0);
 });
 
@@ -104,8 +102,8 @@ test("an external region update cannot retarget an unlocked session or discard i
   await page.getByRole("button", { name: "修改区域密文", exact: true }).click();
   const changed = await page.evaluate(() => window.blockFixtureDocument());
   await expect(page.getByLabel("区域临时正文", { exact: true })).toHaveValue(`${plaintext} unsaved`);
-  await page.getByRole("button", { name: "加密写回", exact: true }).click();
-  await expect(page.getByRole("dialog").getByRole("alert")).toContainText("操作未完成");
+  await page.getByRole("button", { name: "保存", exact: true }).click();
+  await expect(page.getByRole("dialog").getByRole("alert")).toContainText("操作失败");
   expect(await page.evaluate(() => window.blockFixtureDocument())).toBe(changed);
   await noLeaks(page);
   await page.evaluate(() => { localStorage.setItem("nowen-token", `test.${btoa(JSON.stringify({ userId: "other-fixture-owner" }))}.test`); window.dispatchEvent(new CustomEvent("nowen:token-changed")); });
@@ -121,11 +119,11 @@ test("background auto-lock preserves a region draft as memory ciphertext without
   await page.evaluate(() => window.dispatchEvent(new Event("blur")));
   await expect(editor).toHaveCount(0);
   await expect(page.getByRole("dialog").getByRole("status")).toContainText("重新解锁可恢复");
-  await expect(page.getByLabel("区域口令", { exact: true })).toHaveValue("");
+  await expect(page.getByLabel("密码", { exact: true })).toHaveValue("");
   expect(await page.evaluate(() => window.blockFixtureDocument())).toBe(original); await noLeaks(page);
-  await page.getByLabel("区域口令", { exact: true }).fill(password);
-  await page.getByRole("button", { name: "解锁区域", exact: true }).click(); await expect(editor).toHaveValue(`${plaintext} unsaved`);
-  await page.getByRole("button", { name: "加密写回", exact: true }).click(); await expect(page.getByRole("dialog")).toHaveCount(0);
+  await page.getByLabel("密码", { exact: true }).fill(password);
+  await page.getByRole("dialog", { name: "局部加密区域", exact: true }).getByRole("button", { name: "解锁", exact: true }).click(); await expect(editor).toHaveValue(`${plaintext} unsaved`);
+  await page.getByRole("button", { name: "保存", exact: true }).click(); await expect(page.getByRole("dialog")).toHaveCount(0);
   await page.getByRole("button", { name: "保存主文档", exact: true }).click();
   await expect(page.getByRole("status")).toHaveText("服务器已保存密文"); await noLeaks(page);
 });

@@ -313,7 +313,7 @@ export function KnowledgeTreeCreateDropdown({
         );
       })}
       {onCreateEncrypted && <button type="button" role="menuitem" className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-xs text-tx-secondary hover:bg-app-hover" onClick={() => onCreateEncrypted(menu.parentId)}>
-        <FileText size={15} /><span>加密文本笔记（实验性）</span>
+        <FileText size={15} /><span>加密笔记</span>
       </button>}
       <button
         type="button"

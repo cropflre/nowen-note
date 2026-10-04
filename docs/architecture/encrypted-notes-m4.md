@@ -4,7 +4,7 @@
 
 ## 已实现的检查
 
-普通笔记的桌面/移动端“更多 → 加密转换前检查”调用 `GET /api/notes/:id/encryption-preflight`。接口验证所有者及 manage 权限，返回 `Cache-Control: no-store`；在 SQLite 读取事务中统计关联记录，不生成口令、密钥、envelope 或转换授权，不执行更新、删除、Yjs flush、索引重建或数据库维护。前端直接请求检查接口，不使用普通笔记正文的离线回退与缓存写入路径。
+内部检查使用 `GET /api/notes/:id/encryption-preflight`。2026-10-04 简化加密体验时移除了普通笔记桌面/移动布局菜单中的独立检查入口；保留检查接口、内部检查组件和回归，未来由转换流程自动调用。接口验证所有者及 manage 权限，返回 `Cache-Control: no-store`；在 SQLite 读取事务中统计关联记录，不生成口令、密钥、envelope 或转换授权，不执行更新、删除、Yjs flush、索引重建或数据库维护。内部检查组件直接请求接口，不使用普通笔记正文的离线回退与缓存写入路径。
 
 | 类别 | 当前覆盖的来源 |
 | --- | --- |
@@ -81,7 +81,7 @@ IndexedDB、localStorage 和 Yjs 数据库之间没有共同事务：后续步�
 
 后端 `encrypted-notes-conversion-preflight.test.ts` 在隔离 SQLite 中验证所有者权限、关联计数、损坏 AI 引用、缺表/新增存储、协作连接和检查前后写入计数/正文/历史一致。已有 encrypted-notes-storage 回归继续验证普通转换与降级被拒绝。
 
-前端 encryption 专项包含只读浏览器检查与弹窗的存储失败、账号隔离、延迟响应、刷新失败、禁止转换和焦点/Esc 回归。真实生产 AppShell 的桌面及移动布局入口由 `encrypted-notes-conversion-preflight.spec.ts` 验证；移动布局不等同原生移动平台验收。
+前端 encryption 专项包含只读浏览器检查与内部弹窗的存储失败、账号隔离、延迟响应、刷新失败、禁止转换和焦点/Esc 回归。`encrypted-notes-conversion-preflight.spec.ts` 现验证真实 AppShell 的桌面及移动布局不显示内部检查入口、接口仍只读且仅所有者可访问，并继续验证编辑器共享锁。下方旧验收数字及入口描述保留为各阶段历史记录；移动布局不等同原生移动平台验收。
 
 本轮本机验证：后端存储与前检查回归 13 项、前端加密专项 115 项、真实 AppShell 桌面/移动布局 1 项回归通过；前后端类型检查及前端生产构建通过。CI 已纳入后端前检查测试、源码变更触发路径及前端专项测试；AppShell 测试使用本机 Electron 隔离验收入口，未声称 CI 或原生移动验收完成。
 

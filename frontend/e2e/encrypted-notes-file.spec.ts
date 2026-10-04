@@ -27,19 +27,18 @@ for (const format of ["markdown", "tiptap-json"]) {
     await page.getByRole("button", { name: "新建", exact: true }).click();
     await page.getByLabel("加密笔记标题", { exact: true }).fill("Public file title");
     await page.getByLabel("加密笔记格式", { exact: true }).selectOption(format);
-    await page.getByLabel("创建口令", { exact: true }).fill(password);
-    await page.getByLabel("确认创建口令", { exact: true }).fill(password);
-    await page.getByRole("checkbox").check();
-    await page.getByRole("button", { name: "加密创建", exact: true }).click();
+    await page.getByLabel("密码", { exact: true }).fill(password);
+    await page.getByLabel("确认密码", { exact: true }).fill(password);
+    await page.getByRole("button", { name: "创建", exact: true }).click();
     async function unlock(key = password) {
-      await page.getByLabel("解锁口令", { exact: true }).fill(key);
+      await page.getByLabel("密码", { exact: true }).fill(key);
       await page.getByRole("button", { name: "解锁", exact: true }).click();
     }
     await unlock();
     const editor = page.getByLabel(format === "markdown" ? "加密 Markdown 正文" : "加密富文本正文", { exact: true });
     await expect(editor).toBeVisible(); await editor.fill(plaintext);
-    await page.getByRole("button", { name: "加密保存", exact: true }).click();
-    await expect(page.getByRole("status")).toHaveText("密文已由服务器确认保存");
+    await page.getByRole("button", { name: "保存", exact: true }).click();
+    await expect(page.getByRole("status")).toHaveText("已保存");
     const original = await page.evaluate(() => window.encryptedFixtureState().activeNote!.content);
     const draft = `${plaintext} unsaved`;
     await editor.fill(draft);
@@ -48,12 +47,12 @@ for (const format of ["markdown", "tiptap-json"]) {
     await expect(page.getByRole("status")).toContainText("重新解锁可恢复");
     expect(await page.evaluate(() => window.encryptedFixtureState().activeNote!.content)).toBe(original);
     await desktopApp.evaluate(({ BrowserWindow }) => { const window = BrowserWindow.getAllWindows()[0]; window.show(); window.focus(); });
-    await unlock("wrong-test-password"); await expect(page.getByRole("alert")).toContainText("口令错误或密文损坏");
+    await unlock("wrong-test-password"); await expect(page.getByRole("alert")).toContainText("密码错误或内容损坏");
     await unlock();
     if (format === "markdown") await expect(editor).toHaveValue(draft);
     else await expect(editor).toHaveText(draft);
-    await page.getByRole("button", { name: "加密保存", exact: true }).click();
-    await expect(page.getByRole("status")).toHaveText("密文已由服务器确认保存");
+    await page.getByRole("button", { name: "保存", exact: true }).click();
+    await expect(page.getByRole("status")).toHaveText("已保存");
     await page.getByRole("button", { name: "锁定", exact: true }).click();
     await page.reload(); await page.getByRole("button", { name: "恢复服务器笔记", exact: true }).click();
     await unlock();

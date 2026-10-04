@@ -36,22 +36,21 @@ test(`full AppShell creates encrypted ${format} and clears its draft on ${format
     }), { server, account })).toMatchObject({ ok: true });
   }
   await page.getByRole("button", { name: "在根目录新建", exact: true }).click();
-  await page.getByRole("menuitem", { name: "加密文本笔记（实验性）", exact: true }).click();
+  await page.getByRole("menuitem", { name: "加密笔记", exact: true }).click();
   await page.getByLabel("加密笔记标题", { exact: true }).fill("Public encrypted product note");
   await page.getByLabel("加密笔记格式", { exact: true }).selectOption(format);
-  await page.getByLabel("创建口令", { exact: true }).fill(passphrase);
-  await page.getByLabel("确认创建口令", { exact: true }).fill(passphrase);
-  await page.getByRole("checkbox").check();
-  await page.getByRole("button", { name: "加密创建", exact: true }).click();
+  await page.getByLabel("密码", { exact: true }).fill(passphrase);
+  await page.getByLabel("确认密码", { exact: true }).fill(passphrase);
+  await page.getByRole("button", { name: "创建", exact: true }).click();
   async function unlock() {
-    await page.getByLabel("解锁口令", { exact: true }).fill(passphrase);
+    await page.getByLabel("密码", { exact: true }).fill(passphrase);
     await page.getByRole("button", { name: "解锁", exact: true }).click();
   }
   await unlock();
   const editor = page.getByLabel(format === "markdown" ? "加密 Markdown 正文" : "加密富文本正文", { exact: true });
   await expect(editor).toBeVisible(); await editor.fill(plaintext);
-  await page.getByRole("button", { name: "加密保存", exact: true }).click();
-  await expect(page.getByRole("status").filter({ hasText: "密文已由服务器确认保存" })).toBeVisible();
+  await page.getByRole("button", { name: "保存", exact: true }).click();
+  await expect(page.getByRole("status").filter({ hasText: "已保存" })).toBeVisible();
   await editor.fill(`${forbidden[0]} unsaved draft`);
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find((window) => window.webContents.getURL().includes("/frontend/dist/index.html"))!.hide());
   await expect(editor).toHaveCount(0);
@@ -98,15 +97,14 @@ test(`full ${format} region editor clears unsaved plaintext on a real cross-wind
   const main = page.locator(format === "markdown" ? ".cm-content" : ".tiptap").first();
   await expect(main).toBeVisible(); await main.focus(); await page.keyboard.press("ControlOrMeta+End");
   async function openRegion() {
-    if (format === "markdown") await page.getByRole("button", { name: "加密区域（实验性）", exact: true }).click();
-    else await page.locator('[title="新增加密区域（实验性）"]').click();
+    if (format === "markdown") await page.getByRole("button", { name: "插入加密内容", exact: true }).click();
+    else await page.locator('[title="插入加密内容"]').click();
   }
   await openRegion();
-  await page.getByLabel("区域口令", { exact: true }).fill(passphrase);
-  await page.getByLabel("确认区域口令", { exact: true }).fill(passphrase);
-  await page.getByRole("dialog", { name: "局部加密区域", exact: true }).getByRole("checkbox").check();
+  await page.getByLabel("密码", { exact: true }).fill(passphrase);
+  await page.getByLabel("确认密码", { exact: true }).fill(passphrase);
   await page.getByLabel("区域临时正文", { exact: true }).fill(plaintext);
-  await page.getByRole("button", { name: "加密写回", exact: true }).click();
+  await page.getByRole("button", { name: "保存", exact: true }).click();
   await expect(page.getByRole("dialog", { name: "局部加密区域", exact: true })).toHaveCount(0);
   await expect.poll(async () => (await (await page.request.get(`${server}/api/notes/${note.id}`, { headers: { Authorization: `Bearer ${token}` } })).json()).content).toContain("nowen-encrypted-v1");
   async function viewRegion() {
@@ -115,9 +113,9 @@ test(`full ${format} region editor clears unsaved plaintext on a real cross-wind
       await main.focus(); await page.keyboard.press("ControlOrMeta+Home");
       await page.keyboard.press("ArrowDown"); await page.keyboard.press("ArrowDown");
       await openRegion();
-    } else await page.getByRole("button", { name: "查看加密区域", exact: true }).first().click();
-    await page.getByLabel("区域口令", { exact: true }).fill(passphrase);
-    await page.getByRole("button", { name: "解锁区域", exact: true }).click();
+    } else await page.getByRole("button", { name: "解锁", exact: true }).first().click();
+    await page.getByLabel("密码", { exact: true }).fill(passphrase);
+    await page.getByRole("dialog", { name: "局部加密区域", exact: true }).getByRole("button", { name: "解锁", exact: true }).click();
   }
   await viewRegion();
   await expect(page.getByLabel("区域临时正文", { exact: true })).toHaveValue(plaintext);
@@ -140,7 +138,7 @@ test(`full ${format} region editor clears unsaved plaintext on a real cross-wind
   else await expect(page.getByRole("button", { name: "源码", exact: true })).toBeVisible();
   await viewRegion();
   await expect(page.getByLabel("区域临时正文", { exact: true })).toHaveValue(plaintext);
-  await page.getByRole("button", { name: "关闭并锁定", exact: true }).click();
+  await page.getByRole("button", { name: "关闭", exact: true }).click();
 });
 }
 

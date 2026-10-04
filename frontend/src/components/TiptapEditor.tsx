@@ -2952,7 +2952,7 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
     if (!editor || !editable || isGuest || note.isTrashed) return;
     const { selection, doc } = editor.state; const noteId = note.id;
     if (!selection.empty || selection.$from.depth !== 1 || selection.$from.parent.type.name !== "paragraph") {
-      showPasteToast("error", "请在普通段落的光标位置新增加密区域；已有明文选区转换尚未提供。"); return;
+      showPasteToast("error", "请先取消选中，在普通段落点击“插入加密内容”输入新内容。"); return;
     }
     setEncryptedRegion({ commit: (source) => {
       if (noteRef.current.id !== noteId || !editor.isEditable || editor.state.doc !== doc) throw new Error("Encrypted region changed");
@@ -5617,7 +5617,7 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
         >
           <FileCode size={iconSize} />
         </ToolbarButton>
-        <ToolbarButton onClick={insertEncryptedRegion} disabled={!editable || isGuest} title="新增加密区域（实验性）">🔒</ToolbarButton>
+        <ToolbarButton onClick={insertEncryptedRegion} disabled={!editable || isGuest} title="插入加密内容">🔒</ToolbarButton>
         <ToolbarButton
           onClick={handleForceMarkdownConversion}
           disabled={!editable || isGuest}

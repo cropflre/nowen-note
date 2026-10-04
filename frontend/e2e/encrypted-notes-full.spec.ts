@@ -5,7 +5,7 @@ const plaintext = `${forbidden[0]} embedded saved`;
 const passphrase = forbidden[1];
 
 async function unlockNote(page: Page) {
-  await page.getByLabel("解锁口令", { exact: true }).fill(passphrase);
+  await page.getByLabel("密码", { exact: true }).fill(passphrase);
   await page.getByRole("button", { name: "解锁", exact: true }).click();
 }
 
@@ -13,27 +13,26 @@ for (const format of ["markdown", "tiptap-json"]) {
   test(`embedded ${format} whole note survives process restart with only saved ciphertext`, async ({ product }) => {
     let page = product.page;
     await page.getByRole("button", { name: "在根目录新建", exact: true }).click();
-    await page.getByRole("menuitem", { name: "加密文本笔记（实验性）", exact: true }).click();
+    await page.getByRole("menuitem", { name: "加密笔记", exact: true }).click();
     await page.getByLabel("加密笔记标题", { exact: true }).fill("Public embedded encrypted note");
     await page.getByLabel("加密笔记格式", { exact: true }).selectOption(format);
-    await page.getByLabel("创建口令", { exact: true }).fill(passphrase);
-    await page.getByLabel("确认创建口令", { exact: true }).fill(passphrase);
-    await page.getByRole("checkbox").check();
-    await page.getByRole("button", { name: "加密创建", exact: true }).click();
+    await page.getByLabel("密码", { exact: true }).fill(passphrase);
+    await page.getByLabel("确认密码", { exact: true }).fill(passphrase);
+    await page.getByRole("button", { name: "创建", exact: true }).click();
     await unlockNote(page);
     const label = format === "markdown" ? "加密 Markdown 正文" : "加密富文本正文";
     const editor = page.getByLabel(label, { exact: true });
     await expect(editor).toBeVisible(); await editor.fill(plaintext);
-    await page.getByRole("button", { name: "加密保存", exact: true }).click();
-    await expect(page.getByRole("status").filter({ hasText: "密文已由服务器确认保存" })).toBeVisible();
+    await page.getByRole("button", { name: "保存", exact: true }).click();
+    await expect(page.getByRole("status").filter({ hasText: "已保存" })).toBeVisible();
     await editor.fill(`${forbidden[0]} embedded unsaved`);
     await product.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find((window) => window.webContents.getURL().includes("/frontend/dist/index.html"))!.hide());
     await expect(editor).toHaveCount(0);
-    await expect(page.getByRole("button", { name: "放弃加密内存草稿", exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "放弃修改", exact: true })).toBeVisible();
     await product.app.evaluate(({ BrowserWindow }) => { const window = BrowserWindow.getAllWindows().find((window) => window.webContents.getURL().includes("/frontend/dist/index.html"))!; window.show(); window.focus(); });
     page.once("dialog", (dialog) => { void dialog.accept(); });
-    await page.getByRole("button", { name: "放弃加密内存草稿", exact: true }).click();
-    await expect(page.getByRole("button", { name: "放弃加密内存草稿", exact: true })).toHaveCount(0);
+    await page.getByRole("button", { name: "放弃修改", exact: true }).click();
+    await expect(page.getByRole("button", { name: "放弃修改", exact: true })).toHaveCount(0);
     page = await product.restart();
     await page.getByText("Public embedded encrypted note", { exact: true }).first().click();
     await expect(page.getByLabel(label, { exact: true })).toHaveCount(0);
@@ -53,15 +52,14 @@ for (const format of ["markdown", "tiptap-json"]) {
     const main = page.locator(format === "markdown" ? ".cm-content" : ".tiptap").first();
     await expect(main).toBeVisible(); await main.focus(); await page.keyboard.press("ControlOrMeta+End");
     async function openRegion() {
-      if (format === "markdown") await page.getByRole("button", { name: "加密区域（实验性）", exact: true }).click();
-      else await page.locator('[title="新增加密区域（实验性）"]').click();
+      if (format === "markdown") await page.getByRole("button", { name: "插入加密内容", exact: true }).click();
+      else await page.locator('[title="插入加密内容"]').click();
     }
     await openRegion();
-    await page.getByLabel("区域口令", { exact: true }).fill(passphrase);
-    await page.getByLabel("确认区域口令", { exact: true }).fill(passphrase);
-    await page.getByRole("dialog", { name: "局部加密区域", exact: true }).getByRole("checkbox").check();
+    await page.getByLabel("密码", { exact: true }).fill(passphrase);
+    await page.getByLabel("确认密码", { exact: true }).fill(passphrase);
     await page.getByLabel("区域临时正文", { exact: true }).fill(plaintext);
-    await page.getByRole("button", { name: "加密写回", exact: true }).click();
+    await page.getByRole("button", { name: "保存", exact: true }).click();
     const token = await page.evaluate(() => localStorage.getItem("nowen-token"));
     const headers = { Authorization: `Bearer ${token}` };
     const notes = await (await page.request.get(`${product.server}/api/notes`, { headers })).json();
@@ -76,15 +74,15 @@ for (const format of ["markdown", "tiptap-json"]) {
         await source.focus(); await page.keyboard.press("ControlOrMeta+Home");
         await page.keyboard.press("ArrowDown"); await page.keyboard.press("ArrowDown");
         await openRegion();
-      } else await page.getByRole("button", { name: "查看加密区域", exact: true }).first().click();
-      await page.getByLabel("区域口令", { exact: true }).fill(passphrase);
-      await page.getByRole("button", { name: "解锁区域", exact: true }).click();
+      } else await page.getByRole("button", { name: "解锁", exact: true }).first().click();
+      await page.getByLabel("密码", { exact: true }).fill(passphrase);
+      await page.getByRole("dialog", { name: "局部加密区域", exact: true }).getByRole("button", { name: "解锁", exact: true }).click();
     }
     await viewRegion();
     await expect(page.getByLabel("区域临时正文", { exact: true })).toHaveValue(plaintext);
     await page.getByLabel("区域临时正文", { exact: true }).fill(`${forbidden[0]} embedded unsaved region`);
     page.once("dialog", (dialog) => { void dialog.accept(); });
-    await page.getByRole("button", { name: "关闭并锁定", exact: true }).click();
+    await page.getByRole("button", { name: "关闭", exact: true }).click();
     await expect(page.getByLabel("区域临时正文", { exact: true })).toHaveCount(0);
     page = await product.restart();
     await page.getByText("Public embedded region note", { exact: true }).first().click();
@@ -93,6 +91,6 @@ for (const format of ["markdown", "tiptap-json"]) {
     else await expect(page.getByRole("button", { name: "源码", exact: true })).toBeVisible();
     await viewRegion();
     await expect(page.getByLabel("区域临时正文", { exact: true })).toHaveValue(plaintext);
-    await page.getByRole("button", { name: "关闭并锁定", exact: true }).click();
+    await page.getByRole("button", { name: "关闭", exact: true }).click();
   });
 }
