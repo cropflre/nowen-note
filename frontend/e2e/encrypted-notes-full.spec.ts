@@ -26,10 +26,10 @@ for (const format of ["markdown", "tiptap-json"]) {
     await page.getByRole("button", { name: "保存", exact: true }).click();
     await expect(page.getByRole("status").filter({ hasText: "已保存" })).toBeVisible();
     await editor.fill(`${forbidden[0]} embedded unsaved`);
-    await product.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find((window) => window.webContents.getURL().includes("/frontend/dist/index.html"))!.hide());
+    await product.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find((window: { webContents: { getURL(): string } }) => window.webContents.getURL().includes("/frontend/dist/index.html"))!.hide());
     await expect(editor).toHaveCount(0);
     await expect(page.getByRole("status").filter({ hasText: "已锁定，修改已保存" })).toBeVisible();
-    await product.app.evaluate(({ BrowserWindow }) => { const window = BrowserWindow.getAllWindows().find((window) => window.webContents.getURL().includes("/frontend/dist/index.html"))!; window.show(); window.focus(); });
+    await product.app.evaluate(({ BrowserWindow }) => { const window = BrowserWindow.getAllWindows().find((window: { webContents: { getURL(): string } }) => window.webContents.getURL().includes("/frontend/dist/index.html"))!; window.show(); window.focus(); });
     page = await product.restart();
     await page.getByText("Public embedded encrypted note", { exact: true }).first().click();
     await expect(page.getByLabel(label, { exact: true })).toHaveCount(0);

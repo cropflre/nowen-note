@@ -57,7 +57,7 @@ export const test = base.extend<{ product: Product }>({
             expect(page.url()).toContain("/Contents/Resources/frontend/dist/index.html");
           }
         } else await expect(page.getByPlaceholder("admin", { exact: true })).toBeVisible();
-        await app.evaluate(({ app, BrowserWindow }) => { app.focus({ steal: true }); const window = BrowserWindow.getAllWindows().find((entry) => entry.webContents.getURL().includes("/frontend/dist/index.html")); window?.show(); window?.focus(); });
+        await app.evaluate(({ app, BrowserWindow }) => { app.focus({ steal: true }); const window = BrowserWindow.getAllWindows().find((entry: { webContents: { getURL(): string } }) => entry.webContents.getURL().includes("/frontend/dist/index.html")); window?.show(); window?.focus(); });
         await expect.poll(() => page.evaluate(() => document.hasFocus())).toBe(true);
         // Failure evidence contains window lifecycle metadata only, never editor contents.
         await app.evaluate(({ BrowserWindow }) => {

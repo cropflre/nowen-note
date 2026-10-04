@@ -51,10 +51,10 @@ test(`full AppShell autosaves encrypted ${format}, persists on background and cl
   await expect(editor).toBeVisible(); await editor.fill(plaintext);
   await expect(page.getByRole("status").filter({ hasText: "已保存" })).toBeVisible();
   await editor.fill(`${forbidden[0]} unsaved draft`);
-  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find((window) => window.webContents.getURL().includes("/frontend/dist/index.html"))!.hide());
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find((window: { webContents: { getURL(): string } }) => window.webContents.getURL().includes("/frontend/dist/index.html"))!.hide());
   await expect(editor).toHaveCount(0);
   await expect(page.getByRole("status").filter({ hasText: "已锁定，修改已保存" })).toBeVisible();
-  await app.evaluate(({ BrowserWindow }) => { const window = BrowserWindow.getAllWindows().find((entry) => entry.webContents.getURL().includes("/frontend/dist/index.html"))!; window.show(); window.focus(); });
+  await app.evaluate(({ BrowserWindow }) => { const window = BrowserWindow.getAllWindows().find((entry: { webContents: { getURL(): string } }) => entry.webContents.getURL().includes("/frontend/dist/index.html"))!; window.show(); window.focus(); });
   if (format === "markdown") {
     await page.getByRole("button", { name: "退出登录", exact: true }).click();
     await expect(page.getByPlaceholder("admin", { exact: true })).toBeVisible();
@@ -166,7 +166,7 @@ test("production native HTTP rejects invalid requests and other windows, and enf
   expect(JSON.stringify(headers)).not.toContain("forbidden-header-marker");
   expect(Object.entries(headers).some(([name, value]) => name.toLowerCase() === "x-encrypted-test" && value === "retained")).toBe(true);
   const rejected = await app.evaluate(async ({ BrowserWindow }, { server, preload }) => {
-    const main = BrowserWindow.getAllWindows().find((window) => window.webContents.getURL().includes("/frontend/dist/index.html"))!;
+    const main = BrowserWindow.getAllWindows().find((window: { webContents: { getURL(): string } }) => window.webContents.getURL().includes("/frontend/dist/index.html"))!;
     const other = new BrowserWindow({ show: false, webPreferences: { nodeIntegration: false, contextIsolation: true, preload } });
     try {
       await other.loadURL(main.webContents.getURL());

@@ -39,7 +39,7 @@ test("ordinary note actions hide internal conversion diagnostics while preflight
   expect(preflight.canConvert).toBe(false);
   expect(preflight.blockers).toContain("conversion_not_enabled");
   await page.keyboard.press("Escape");
-  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find((window) => window.webContents.getURL().includes("/frontend/dist/index.html"))!.setContentSize(390, 844));
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find((window: { webContents: { getURL(): string } }) => window.webContents.getURL().includes("/frontend/dist/index.html"))!.setContentSize(390, 844));
   await page.getByRole("button", { name: "更多", exact: true }).filter({ visible: true }).click();
   await expect(page.getByRole("button", { name: "加密转换前检查", exact: true })).toHaveCount(0);
   await page.keyboard.press("Escape");
