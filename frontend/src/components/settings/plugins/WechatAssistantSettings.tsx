@@ -26,7 +26,7 @@ export function WechatAssistantSettings({ isAdmin }: { isAdmin: boolean }) {
     return () => { mounted.current = false; };
   }, [refresh]);
   useEffect(() => {
-    if (!qr && !status?.items.some((item) => ["queued", "running", "waiting"].includes(item.status))) return;
+    if (!qr && !status?.connected && !status?.items.some((item) => ["queued", "running", "waiting"].includes(item.status))) return;
     const timer = window.setInterval(() => {
       if (qr && Date.now() >= qr.expiresAt) { setExpired(true); setQr(null); }
       void refresh().catch((cause) => { if (mounted.current) setError(cause.message); });

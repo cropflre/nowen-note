@@ -15,7 +15,7 @@ describe("WeChat inbox", () => {
     mocks.collect.mockResolvedValue({ accepted: 2, duplicates: 1 }); mocks.retry.mockResolvedValue({ success: true });
     host = document.createElement("div"); document.body.append(host); root = createRoot(host);
   });
-  afterEach(async () => { await act(async () => root.unmount()); host.remove(); vi.restoreAllMocks(); });
+  afterEach(async () => { await act(async () => root.unmount()); host.remove(); vi.useRealTimers(); vi.restoreAllMocks(); });
   const render = async (isAdmin = false) => { await act(async () => root.render(<WechatAssistantSettings isAdmin={isAdmin} />)); };
   const button = (label: string) => [...host.querySelectorAll("button")].find((item) => item.textContent === label)!;
   it("offers local capture without pretending an unconfigured WeChat service is connected", async () => {
@@ -36,6 +36,14 @@ describe("WeChat inbox", () => {
     expect(mocks.collect).toHaveBeenCalledWith("https://example.com/one\nhttps://example.com/two"); expect(host.querySelector("[role=status]")).not.toBeNull();
     mocks.collect.mockRejectedValue(new Error("采集失败")); await act(async () => host.querySelector("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
     expect(host.querySelector("[role=alert]")?.textContent).toBe("采集失败");
+  });
+  it("polls while connected so new WeChat messages appear without a manual refresh", async () => {
+    vi.useFakeTimers();
+    mocks.status.mockResolvedValue({ ready: true, pluginReady: true, connected: true, items: [] });
+    await render(); expect(mocks.status).toHaveBeenCalledOnce();
+    mocks.status.mockResolvedValue({ ready: true, pluginReady: true, connected: true, items: [{ id: "new", url: "https://example.com/new", status: "completed", createdAt: new Date().toISOString(), note: { id: "new-note", title: "新收到的文章" }, error: null }] });
+    await act(async () => { await vi.advanceTimersByTimeAsync(2500); });
+    expect(mocks.status).toHaveBeenCalledTimes(2); expect(host.textContent).toContain("新收到的文章");
   });
   it("shows per-article status with retry and opens the completed note", async () => {
     mocks.status.mockResolvedValue({ ready: false, pluginReady: true, connected: false, items: [
