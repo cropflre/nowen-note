@@ -22,7 +22,7 @@ async function switchAccount(page: Page, username: string) {
 }
 
 for (const format of ["markdown", "tiptap-json"]) {
-test(`full AppShell creates encrypted ${format} and clears its draft on ${format === "markdown" ? "logout" : "account switch"}`, async ({ product }) => {
+test(`full AppShell autosaves encrypted ${format}, persists on background and clears its session on ${format === "markdown" ? "logout" : "account switch"}`, async ({ product }) => {
   const { page, server, app } = product;
   const registered = await page.request.post(`${server}/api/auth/register`, { data: { username: "encryption_a", password: accountPassword } });
   expect(registered.ok()).toBe(true);
@@ -49,11 +49,11 @@ test(`full AppShell creates encrypted ${format} and clears its draft on ${format
   await unlock();
   const editor = page.getByLabel(format === "markdown" ? "加密 Markdown 正文" : "加密富文本正文", { exact: true });
   await expect(editor).toBeVisible(); await editor.fill(plaintext);
-  await page.getByRole("button", { name: "保存", exact: true }).click();
   await expect(page.getByRole("status").filter({ hasText: "已保存" })).toBeVisible();
   await editor.fill(`${forbidden[0]} unsaved draft`);
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find((window) => window.webContents.getURL().includes("/frontend/dist/index.html"))!.hide());
   await expect(editor).toHaveCount(0);
+  await expect(page.getByRole("status").filter({ hasText: "已锁定，修改已保存" })).toBeVisible();
   await app.evaluate(({ BrowserWindow }) => { const window = BrowserWindow.getAllWindows().find((entry) => entry.webContents.getURL().includes("/frontend/dist/index.html"))!; window.show(); window.focus(); });
   if (format === "markdown") {
     await page.getByRole("button", { name: "退出登录", exact: true }).click();
@@ -74,8 +74,8 @@ test(`full AppShell creates encrypted ${format} and clears its draft on ${format
   }
   await page.getByText("Public encrypted product note", { exact: true }).first().click();
   await unlock();
-  if (format === "markdown") await expect(editor).toHaveValue(plaintext);
-  else await expect(editor).toHaveText(plaintext);
+  if (format === "markdown") await expect(editor).toHaveValue(`${forbidden[0]} unsaved draft`);
+  else await expect(editor).toHaveText(`${forbidden[0]} unsaved draft`);
   await page.getByRole("button", { name: "锁定", exact: true }).click();
 });
 }

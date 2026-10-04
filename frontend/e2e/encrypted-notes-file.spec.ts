@@ -21,16 +21,23 @@ test("file entry runs the bundled crypto Worker and WASM without a preview serve
 });
 
 for (const format of ["markdown", "tiptap-json"]) {
-  test(`file ${format} saves through native HTTP, locks a draft and recovers server ciphertext after reload`, async ({ page, desktopApp }) => {
+  test(`file ${format} saves through native HTTP, saves before locking and recovers server ciphertext after reload`, async ({ page, desktopApp }) => {
     await page.goto(encryptedFixtureUrl("encrypted-notes-editor.html"));
     expect(new URL(page.url()).protocol).toBe("file:");
+    async function focus() {
+      await desktopApp.evaluate(({ app, BrowserWindow }) => { app.focus({ steal: true }); const window = BrowserWindow.getAllWindows()[0]; window.restore(); window.show(); window.focus(); });
+      await expect.poll(() => page.evaluate(() => document.hasFocus())).toBe(true);
+    }
+    await focus();
     await page.getByRole("button", { name: "新建", exact: true }).click();
     await page.getByLabel("加密笔记标题", { exact: true }).fill("Public file title");
     await page.getByLabel("加密笔记格式", { exact: true }).selectOption(format);
     await page.getByLabel("密码", { exact: true }).fill(password);
     await page.getByLabel("确认密码", { exact: true }).fill(password);
     await page.getByRole("button", { name: "创建", exact: true }).click();
+    await expect(page.getByRole("dialog")).toHaveCount(0);
     async function unlock(key = password) {
+      await focus();
       await page.getByLabel("密码", { exact: true }).fill(key);
       await page.getByRole("button", { name: "解锁", exact: true }).click();
     }
@@ -44,15 +51,14 @@ for (const format of ["markdown", "tiptap-json"]) {
     await editor.fill(draft);
     await desktopApp.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].hide());
     await expect(editor).toHaveCount(0);
-    await expect(page.getByRole("status")).toContainText("重新解锁可恢复");
-    expect(await page.evaluate(() => window.encryptedFixtureState().activeNote!.content)).toBe(original);
+    await expect(page.getByRole("status")).toContainText("已锁定，修改已保存");
+    expect(await page.evaluate(() => window.encryptedFixtureState().activeNote!.content)).not.toBe(original);
     await desktopApp.evaluate(({ BrowserWindow }) => { const window = BrowserWindow.getAllWindows()[0]; window.show(); window.focus(); });
+    await expect.poll(() => page.evaluate(() => document.hasFocus())).toBe(true);
     await unlock("wrong-test-password"); await expect(page.getByRole("alert")).toContainText("密码错误或内容损坏");
     await unlock();
     if (format === "markdown") await expect(editor).toHaveValue(draft);
     else await expect(editor).toHaveText(draft);
-    await page.getByRole("button", { name: "保存", exact: true }).click();
-    await expect(page.getByRole("status")).toHaveText("已保存");
     await page.getByRole("button", { name: "锁定", exact: true }).click();
     await page.reload(); await page.getByRole("button", { name: "恢复服务器笔记", exact: true }).click();
     await unlock();

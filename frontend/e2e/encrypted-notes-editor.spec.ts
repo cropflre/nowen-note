@@ -43,13 +43,12 @@ async function assertNoLeaks(page: Page) {
   expect(await scan.json()).toEqual({ leaks: [] });
 }
 
-test("Markdown create, unlock, save, lock and password rotation keep all persistence opaque", async ({ page }) => {
+test("Markdown automatically saves, locks and rotates passwords with opaque persistence", async ({ page }) => {
   const writes: string[] = [];
   page.on("request", (request) => { if (request.url().includes("5177/api/notes") && ["POST", "PUT"].includes(request.method())) writes.push(request.postData() || ""); });
   await create(page); await unlock(page);
   const editor = page.getByLabel("加密 Markdown 正文", { exact: true });
   await editor.fill(plaintext);
-  await page.getByRole("button", { name: "保存", exact: true }).click();
   await expect(page.getByRole("status")).toHaveText("已保存");
   await assertNoLeaks(page);
   // Same-user token refresh must not discard an unlocked draft.
@@ -58,7 +57,7 @@ test("Markdown create, unlock, save, lock and password rotation keep all persist
   await expect(editor).toHaveValue(`${plaintext} unsaved`);
   await page.getByRole("button", { name: "离开笔记", exact: true }).click();
   await expect(editor).toHaveValue(`${plaintext} unsaved`);
-  await expect(page.getByRole("alert")).toContainText("请先保存");
+  await expect(page.getByRole("alert")).toContainText("等待保存");
   await page.getByRole("button", { name: "放弃修改并锁定", exact: true }).click();
   await expect(editor).toHaveCount(0);
   await unlock(page, "wrong-test-password");
@@ -88,6 +87,9 @@ test("conflict keeps the unsaved body and original ciphertext without an automat
   await page.getByRole("button", { name: "保存", exact: true }).click();
   await expect(page.getByRole("alert")).toContainText("原内容和当前修改已保留");
   expect(attempts).toBe(1);
+  await page.evaluate(() => window.dispatchEvent(new Event("blur")));
+  await expect(page.getByRole("alert")).toContainText("锁定未完成");
+  await page.waitForTimeout(1200); expect(attempts).toBe(1);
   await expect(page.getByLabel("加密 Markdown 正文", { exact: true })).toHaveValue(plaintext);
   expect(await page.evaluate(() => window.encryptedFixtureState().activeNote!.content)).toBe(original);
   await assertNoLeaks(page);
@@ -98,7 +100,6 @@ test("offline saves persist ciphertext and recover after closing the editor and 
   await create(page); await unlock(page);
   await page.getByLabel("加密 Markdown 正文", { exact: true }).fill(plaintext);
   await page.route("**/api/notes/*", async (route) => route.request().method() === "PUT" ? route.abort("internetdisconnected") : route.continue());
-  await page.getByRole("button", { name: "保存", exact: true }).click();
   await expect(page.getByRole("status")).toContainText("已保存到本机");
   await assertNoLeaks(page);
   await page.getByRole("button", { name: "锁定", exact: true }).click();
@@ -131,43 +132,59 @@ test("rich-text editor preserves basic text formatting in the encrypted payload"
   await page.getByRole("button", { name: "锁定", exact: true }).click();
 });
 
-test("idle auto-lock seals a dirty draft in memory and restores it only after password entry", async ({ page }) => {
+test("idle lock persists dirty ciphertext so a reload can recover it without a session draft", async ({ page }) => {
   await create(page, "markdown", true); await unlock(page);
   const editor = page.getByLabel("加密 Markdown 正文", { exact: true });
   await editor.fill(plaintext);
   const original = await page.evaluate(() => window.encryptedFixtureState().activeNote!.content);
   await page.clock.fastForward(5 * 60 * 1000 + 1);
   await expect(editor).toHaveCount(0);
-  await expect(page.getByRole("status")).toContainText("重新解锁可恢复");
-  expect(await page.evaluate(() => window.encryptedFixtureState().activeNote!.content)).toBe(original);
+  await expect(page.getByRole("status")).toContainText("已锁定，修改已保存");
+  expect(await page.evaluate(() => window.encryptedFixtureState().activeNote!.content)).not.toBe(original);
   await expect(page.getByLabel("密码", { exact: true })).toHaveValue(""); await assertNoLeaks(page);
+  await page.reload(); await page.getByRole("button", { name: "恢复服务器笔记", exact: true }).click();
   await unlock(page, "wrong-test-password"); await expect(page.getByRole("alert")).toContainText("密码错误或内容损坏");
   await unlock(page); await expect(editor).toHaveValue(plaintext);
-  await page.getByRole("button", { name: "保存", exact: true }).click();
-  await expect(page.getByRole("status")).toHaveText("已保存");
-  await page.getByRole("button", { name: "锁定", exact: true }).click(); await unlock(page);
-  await expect(editor).toHaveValue(plaintext); await assertNoLeaks(page);
+  await page.getByRole("button", { name: "锁定", exact: true }).click(); await assertNoLeaks(page);
 });
 
-test("window background removes the real rich-text editor and restores its unsaved encrypted draft", async ({ page }) => {
+test("background saves rich text before lock and a failed Worker preserves the latest document for retry", async ({ page }) => {
   await create(page, "tiptap-json"); await unlock(page);
   const editor = page.getByLabel("加密富文本正文", { exact: true }); await expect(editor).toBeVisible(); await editor.fill(plaintext);
   await page.evaluate(() => window.dispatchEvent(new Event("blur")));
-  await expect(editor).toHaveCount(0); await expect(page.getByRole("status")).toContainText("重新解锁可恢复");
-  await assertNoLeaks(page); await unlock(page); await expect(editor).toHaveText(plaintext);
-  await page.getByRole("button", { name: "保存", exact: true }).click();
-  await expect(page.getByRole("status")).toHaveText("已保存");
-  // A failed seal must remount the latest rich-text document, including edits,
-  // rather than the original editor seed.
+  await expect(editor).toHaveCount(0); await expect(page.getByRole("status")).toContainText("已锁定，修改已保存");
+  await assertNoLeaks(page); await page.reload();
+  await page.getByRole("button", { name: "恢复服务器笔记", exact: true }).click();
+  await unlock(page); await expect(editor).toHaveText(plaintext);
   await editor.fill(`${plaintext} unsaved failure`);
   await page.evaluate(() => { (window as any).__fixtureWorker = window.Worker; (window as any).Worker = undefined; window.dispatchEvent(new Event("blur")); });
-  await expect(page.getByRole("alert")).toContainText("自动锁定未完成");
+  await expect(page.getByRole("alert")).toContainText("锁定未完成");
   await expect(editor).toHaveText(`${plaintext} unsaved failure`);
   await page.evaluate(() => { window.Worker = (window as any).__fixtureWorker; delete (window as any).__fixtureWorker; });
-  await page.getByRole("button", { name: "重试自动锁定", exact: true }).click();
-  await expect(editor).toHaveCount(0); await expect(page.getByRole("status")).toContainText("重新解锁可恢复");
+  await page.getByRole("button", { name: "重试锁定", exact: true }).click();
+  await expect(editor).toHaveCount(0); await expect(page.getByRole("status")).toContainText("修改已保存");
+  await page.reload(); await page.getByRole("button", { name: "恢复服务器笔记", exact: true }).click();
   await unlock(page); await expect(editor).toHaveText(`${plaintext} unsaved failure`);
-  await page.getByRole("button", { name: "保存", exact: true }).click();
-  await expect(page.getByRole("status")).toHaveText("已保存");
+  await page.getByRole("button", { name: "锁定", exact: true }).click(); await assertNoLeaks(page);
+});
+
+test("lock waits for an outstanding write and persists edits made during automatic saving", async ({ page }) => {
+  await create(page); await unlock(page);
+  const editor = page.getByLabel("加密 Markdown 正文", { exact: true });
+  let writes = 0; let release!: () => void;
+  const delayed = new Promise<void>((resolve) => { release = resolve; });
+  await page.route("**/api/notes/*", async (route) => {
+    if (route.request().method() !== "PUT") return route.continue();
+    if (++writes === 1) await delayed;
+    await route.continue();
+  });
+  await editor.fill(plaintext);
+  await expect.poll(() => writes).toBe(1);
+  await expect(editor).toBeEditable(); await editor.fill(`${plaintext} newer`);
+  await page.getByRole("button", { name: "锁定", exact: true }).click();
+  await expect(editor).toHaveCount(0); expect(writes).toBe(1);
+  await release(); await expect(page.getByRole("status")).toContainText("修改已保存"); expect(writes).toBe(2);
+  await page.reload(); await page.getByRole("button", { name: "恢复服务器笔记", exact: true }).click();
+  await unlock(page); await expect(editor).toHaveValue(`${plaintext} newer`); await assertNoLeaks(page);
   await page.getByRole("button", { name: "锁定", exact: true }).click();
 });

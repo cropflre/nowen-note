@@ -14,11 +14,12 @@ import { EncryptedContentError, type EncryptedContentEnvelope } from "@/lib/encr
 import { ENCRYPTED_NOTE_FORMAT, ENCRYPTED_NOTE_LEAVE_EVENT, readEncryptedNoteDocument, validateEncryptedNotePlaintext } from "@/lib/encryptedNotes/noteDocument";
 import { useEncryptedAutoLock } from "@/lib/encryptedNotes/useAutoLock";
 
+type Session = { envelope: EncryptedContentEnvelope; baseEnvelope: EncryptedContentEnvelope; initialContent: string };
+const AUTOSAVE_DELAY_MS = 800;
+
 export default function EncryptedNotePane({ note }: { note: Note }) {
   const actions = useAppActions();
-  const [session, setSession] = useState<{ envelope: EncryptedContentEnvelope; baseEnvelope: EncryptedContentEnvelope; initialContent: string; draft?: boolean } | null>(null);
-  const draft = useRef<{ envelope: EncryptedContentEnvelope; baseEnvelope: EncryptedContentEnvelope } | null>(null);
-  const lockSaveAcknowledged = useRef(false);
+  const [session, setSession] = useState<Session | null>(null);
   const [securing, setSecuring] = useState(false);
   const [lockFailed, setLockFailed] = useState(false);
   const [body, setBody] = useState("");
@@ -27,66 +28,58 @@ export default function EncryptedNotePane({ note }: { note: Note }) {
   const [newPassphrase, setNewPassphrase] = useState("");
   const [confirmation, setConfirmation] = useState("");
   const [busy, setBusy] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [status, setStatus] = useState("");
   const password = useRef("");
   const operation = useRef<AbortController | null>(null);
+  const pendingSave = useRef<Promise<boolean> | null>(null);
+  const autosaveFailed = useRef(false);
+  const lastSaveQueued = useRef(false);
+  const locking = useRef(false);
   const submitting = useRef(false);
   const mounted = useRef(true);
-  const dirty = Boolean(session?.draft) || body !== savedBody;
+  // Keep these authoritative: a synchronous store render can precede queued state updates.
+  const current = useRef({ session, body, savedBody });
+  const currentNote = useRef(note);
+  const lastNoteProp = useRef(note);
+  if (lastNoteProp.current !== note) { currentNote.current = note; lastNoteProp.current = note; }
+  const dirty = body !== savedBody;
   const editable = canWriteNote(note) && !note.isLocked && !note.isTrashed;
   const native = Capacitor.isNativePlatform();
-  const refs = useRef({ dirty, busy }); refs.current = { dirty: dirty || Boolean(draft.current), busy };
-  useEncryptedAutoLock(!securing && !lockFailed && Boolean(session || passphrase || newPassphrase || confirmation || busy), () => { void autoLock(); });
+  useEncryptedAutoLock(!securing && !lockFailed && Boolean(session || passphrase || newPassphrase || confirmation || busy), () => { void lock(false, true); });
 
-  async function autoLock() {
-    const current = session; const plaintext = body; const key = password.current;
-    const scope = getOfflineQueueStorageKey();
-    lockSaveAcknowledged.current = false;
-    operation.current?.abort("auto-lock");
-    submitting.current = false;
-    password.current = ""; setSession(null); setBody(""); setSavedBody("");
-    setPassphrase(""); setNewPassphrase(""); setConfirmation(""); setError(""); setLockFailed(false);
-    setStatus("已自动锁定，请重新输入密码。");
-    if (!current || !dirty) return;
-    const controller = new AbortController(); operation.current = controller;
-    setSecuring(true); setBusy(true); setStatus("正在锁定…");
-    try {
-      validateEncryptedNotePlaintext(plaintext, current.envelope.originalFormat);
-      const envelope = await runEncryptedContentOperation({ operation: "update", input: { envelope: current.envelope, expected: current.envelope, passphrase: key, plaintext } }, controller.signal);
-      if (!mounted.current || controller.signal.aborted || scope !== getOfflineQueueStorageKey()) return;
-      if (lockSaveAcknowledged.current) return;
-      draft.current = { envelope, baseEnvelope: current.baseEnvelope };
-      setStatus("已自动锁定，重新解锁可恢复未保存的修改。关闭页面会丢失这些修改。");
-    } catch {
-      if (!mounted.current || controller.signal.aborted || scope !== getOfflineQueueStorageKey()) return;
-      if (lockSaveAcknowledged.current) return;
-      password.current = key; setSession({ ...current, initialContent: plaintext }); setBody(plaintext); setSavedBody(savedBody); setLockFailed(true);
-      setStatus(""); setError("临时草稿加密失败，自动锁定未完成；修改仍保留，请保存或重试锁定。");
-    } finally {
-      if (operation.current === controller) { operation.current = null; if (mounted.current) { setBusy(false); setSecuring(false); } }
-    }
+  function clearSession() {
+    password.current = "";
+    current.current = { session: null, body: "", savedBody: "" };
+    setSession(null); setBody(""); setSavedBody("");
+    setPassphrase(""); setNewPassphrase(""); setConfirmation("");
+  }
+  function edit(content: string) {
+    current.current.body = content; setBody(content);
+    setStatus(content !== current.current.savedBody ? "有修改待保存" : lastSaveQueued.current ? "已保存到本机，联网后同步" : "已保存");
   }
 
   useEffect(() => {
     mounted.current = true;
     const scope = getOfflineQueueStorageKey();
+    const hasPendingChanges = () => current.current.body !== current.current.savedBody || Boolean(operation.current) || locking.current;
     const beforeLeave = (event: Event) => {
-      if (refs.current.dirty || refs.current.busy) { event.preventDefault(); setError("请先保存，或放弃修改后再离开"); }
+      if (hasPendingChanges()) { event.preventDefault(); setError("请等待保存完成，或放弃修改后再离开"); }
     };
-    const beforeUnload = (event: BeforeUnloadEvent) => { if (refs.current.dirty || refs.current.busy) { event.preventDefault(); event.returnValue = ""; } };
+    const beforeUnload = (event: BeforeUnloadEvent) => { if (hasPendingChanges()) { event.preventDefault(); event.returnValue = ""; } };
     const clear = () => {
       if (getOfflineQueueStorageKey() === scope) return;
-      operation.current?.abort(); password.current = ""; draft.current = null;
-      setSecuring(false); setLockFailed(false); setError(""); setStatus("");
-      setSession(null); setBody(""); setSavedBody(""); setPassphrase(""); setNewPassphrase(""); setConfirmation("");
+      operation.current?.abort(); operation.current = null; pendingSave.current = null;
+      locking.current = false; autosaveFailed.current = false; submitting.current = false;
+      clearSession(); setBusy(false); setSaving(false); setSecuring(false); setLockFailed(false); setError(""); setStatus("");
     };
     window.addEventListener(ENCRYPTED_NOTE_LEAVE_EVENT, beforeLeave);
     window.addEventListener("beforeunload", beforeUnload);
     window.addEventListener("nowen:token-changed", clear);
     window.addEventListener("nowen:server-url-changed", clear);
     return () => {
-      mounted.current = false; operation.current?.abort(); password.current = ""; draft.current = null;
+      mounted.current = false; operation.current?.abort(); password.current = "";
       window.removeEventListener(ENCRYPTED_NOTE_LEAVE_EVENT, beforeLeave);
       window.removeEventListener("beforeunload", beforeUnload);
       window.removeEventListener("nowen:token-changed", clear);
@@ -94,110 +87,148 @@ export default function EncryptedNotePane({ note }: { note: Note }) {
     };
   }, []);
 
-  async function execute(task: (signal: AbortSignal) => Promise<void>) {
-    if (operation.current) return;
+  useEffect(() => {
+    if (!session || !dirty || !editable || native || busy || securing || autosaveFailed.current) return;
+    const timer = setTimeout(() => { void save(); }, AUTOSAVE_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, [session, body, savedBody, editable, native, busy, securing]);
+
+  async function execute(task: (signal: AbortSignal) => Promise<void>): Promise<boolean> {
+    if (operation.current) return false;
     const controller = new AbortController(); operation.current = controller;
     setBusy(true); setError(""); setStatus("");
-    try { await task(controller.signal); }
+    try { await task(controller.signal); return mounted.current && !controller.signal.aborted; }
     catch (failure) {
       if (mounted.current && !controller.signal.aborted) setError(failure instanceof EncryptedContentError && failure.code === "unlock-failed"
         ? "密码错误或内容损坏，原内容已保留"
         : "保存或解锁失败，原内容和当前修改已保留，请重试。");
+      return false;
     } finally {
       if (operation.current === controller) { submitting.current = false; operation.current = null; if (mounted.current) setBusy(false); }
     }
   }
   async function unlock() {
-    if (native) return;
+    if (native || locking.current) return;
     const inputPassword = passphrase;
     await execute(async (signal) => {
-      const pending = draft.current;
-      const envelope = pending?.envelope || readEncryptedNoteDocument(note);
+      const envelope = readEncryptedNoteDocument(currentNote.current);
       const plaintext = await runEncryptedContentOperation({ operation: "decrypt", input: { envelope, expected: envelope, passphrase: inputPassword } }, signal);
       validateEncryptedNotePlaintext(plaintext, envelope.originalFormat);
       if (!mounted.current || signal.aborted) return;
-      password.current = inputPassword; setPassphrase("");
-      setLockFailed(false); setBody(plaintext); setSavedBody(plaintext);
-      setSession({ envelope, baseEnvelope: pending?.baseEnvelope || envelope, initialContent: plaintext, draft: Boolean(pending) });
-      if (pending) setStatus("已恢复修改，请保存。");
+      password.current = inputPassword; setPassphrase(""); autosaveFailed.current = false;
+      lastSaveQueued.current = getQueue().some((item) => item.noteId === currentNote.current.id);
+      const unlocked = { envelope, baseEnvelope: envelope, initialContent: plaintext };
+      current.current = { session: unlocked, body: plaintext, savedBody: plaintext };
+      setLockFailed(false); setBody(plaintext); setSavedBody(plaintext); setSession(unlocked);
     });
   }
-  async function save(changePassword = false) {
-    if (!session || !editable) return;
-    if (changePassword && getQueue().some((item) => item.noteId === note.id)) { setError("请先将离线密文同步到服务器，再修改密码"); return; }
-    if (changePassword && (dirty || newPassphrase.length < 12 || newPassphrase !== confirmation)) { setError("请先保存正文，并输入两次相同且至少 12 个字符的新密码"); return; }
-    const plaintext = body;
+  function save(changePassword = false): Promise<boolean> {
+    if (pendingSave.current) return pendingSave.current;
+    const { session: active, body: plaintext, savedBody: saved } = current.current;
+    const baseNote = currentNote.current;
+    if (!active || native || !canWriteNote(baseNote) || baseNote.isLocked || baseNote.isTrashed) return Promise.resolve(false);
+    if (changePassword && getQueue().some((item) => item.noteId === baseNote.id)) { setError("请先将离线密文同步到服务器，再修改密码"); return Promise.resolve(false); }
+    if (changePassword && (plaintext !== saved || newPassphrase.length < 12 || newPassphrase !== confirmation)) { setError("请先保存正文，并输入两次相同且至少 12 个字符的新密码"); return Promise.resolve(false); }
+    if (!changePassword && plaintext === saved) return Promise.resolve(true);
+    const key = password.current;
     const scope = getOfflineQueueStorageKey();
-    await execute(async (signal) => {
+    setSaving(!changePassword); autosaveFailed.current = false;
+    const task = execute(async (signal) => {
       // Refuse to overwrite ciphertext revalidated or changed by another device.
-      if (JSON.stringify(readEncryptedNoteDocument(note)) !== JSON.stringify(session.baseEnvelope)) throw new Error("Conflict");
-      validateEncryptedNotePlaintext(plaintext, session.envelope.originalFormat);
+      if (JSON.stringify(readEncryptedNoteDocument(baseNote)) !== JSON.stringify(active.baseEnvelope)) throw new Error("Encrypted base changed");
+      validateEncryptedNotePlaintext(plaintext, active.envelope.originalFormat);
       const envelope = changePassword
-        ? await runEncryptedContentOperation({ operation: "change-passphrase", input: { envelope: session.envelope, expected: session.envelope, passphrase: password.current, newPassphrase } }, signal)
-        : await runEncryptedContentOperation({ operation: "update", input: { envelope: session.envelope, expected: session.envelope, passphrase: password.current, plaintext } }, signal);
-      if (!mounted.current || signal.aborted) return;
+        ? await runEncryptedContentOperation({ operation: "change-passphrase", input: { envelope: active.envelope, expected: active.envelope, passphrase: key, newPassphrase } }, signal)
+        : await runEncryptedContentOperation({ operation: "update", input: { envelope: active.envelope, expected: active.envelope, passphrase: key, plaintext } }, signal);
+      if (!mounted.current || signal.aborted || scope !== getOfflineQueueStorageKey()) return;
+      // Permissions/remote ciphertext may have changed while the Worker was running.
+      const latestNote = currentNote.current;
+      if (!canWriteNote(latestNote) || latestNote.isLocked || latestNote.isTrashed || latestNote.content !== baseNote.content || latestNote.version !== baseNote.version) throw new Error("Permissions or revision changed before write");
       submitting.current = true;
-      setStatus("正在保存…");
-      const payload = { content: JSON.stringify(envelope), contentFormat: ENCRYPTED_NOTE_FORMAT, contentText: "", version: note.version };
-      // Password rotation requires an online acknowledgement. Body edits may use the existing
-      // scoped offline queue, but only after verifying the exact ciphertext was really stored.
-      const response = changePassword ? await api.updateNoteConfirmed(note.id, payload) : await saveEncryptedNoteCiphertext(note, payload.content, signal);
+      const payload = { content: JSON.stringify(envelope), contentFormat: ENCRYPTED_NOTE_FORMAT, contentText: "", version: baseNote.version };
+      const response = changePassword ? await api.updateNoteConfirmed(baseNote.id, payload) : await saveEncryptedNoteCiphertext(baseNote, payload.content, signal);
       const queued = Boolean((response as Note & { __offlineQueued?: boolean }).__offlineQueued);
-      const updated = queued ? { ...note, ...payload, updatedAt: response.updatedAt } : response;
+      const updated = queued ? { ...baseNote, ...payload, updatedAt: response.updatedAt } : response;
       readEncryptedNoteDocument(updated);
-      if (!mounted.current || scope !== getOfflineQueueStorageKey() || (signal.aborted && signal.reason !== "auto-lock")) return;
-      // A request already sent can finish after locking. Apply only its ciphertext,
-      // so the next unlock uses the acknowledged envelope (including password rotation).
-      if (signal.aborted) {
-        lockSaveAcknowledged.current = true;
-        draft.current = null;
-        actions.setActiveNote(updated); actions.updateNoteInList({ id: updated.id, contentText: "", version: updated.version, updatedAt: updated.updatedAt });
-        setStatus("已自动锁定，修改已保存。");
-        return;
-      }
+      if (updated.content !== payload.content) throw new Error("Ciphertext not acknowledged");
+      if (!mounted.current || signal.aborted || scope !== getOfflineQueueStorageKey()) return;
+      if (currentNote.current.content !== baseNote.content || currentNote.current.version !== baseNote.version || !canWriteNote(currentNote.current) || currentNote.current.isLocked || currentNote.current.isTrashed) throw new Error("Ciphertext or permissions changed during save");
       if (changePassword) { password.current = newPassphrase; setNewPassphrase(""); setConfirmation(""); }
-      draft.current = null; setLockFailed(false);
-      setSavedBody(plaintext); setSession({ envelope, baseEnvelope: envelope, initialContent: session.initialContent });
+      const nextSession = { envelope, baseEnvelope: envelope, initialContent: active.initialContent };
+      currentNote.current = updated;
+      lastSaveQueued.current = queued;
+      current.current.session = nextSession; current.current.savedBody = plaintext;
+      setSavedBody(plaintext); setSession(nextSession); setLockFailed(false); setError("");
       actions.setActiveNote(updated); actions.updateNoteInList({ id: updated.id, contentText: "", version: updated.version, updatedAt: updated.updatedAt });
-      setStatus(queued ? "已保存到本机，联网后同步" : "已保存");
+      setStatus(current.current.body !== plaintext ? "有修改待保存" : queued ? "已保存到本机，联网后同步" : "已保存");
     });
+    setStatus("正在保存…");
+    const result = task.then((success) => {
+      if (pendingSave.current === result) {
+        pendingSave.current = null; autosaveFailed.current = !success;
+        if (mounted.current) { setSaving(false); if (!success) setStatus(""); }
+      }
+      return success;
+    });
+    pendingSave.current = result;
+    return result;
   }
-  function lock(discard = false) {
-    if (busy) return;
-    if (dirty && !discard) { setError("请先保存，或选择放弃修改并锁定"); return; }
-    password.current = ""; draft.current = null; setLockFailed(false); setSession(null); setBody(""); setSavedBody(""); setPassphrase(""); setNewPassphrase(""); setConfirmation(""); setError(""); setStatus("");
+  async function lock(discard = false, automatic = false): Promise<boolean> {
+    if (locking.current) return false;
+    if (discard) {
+      if (operation.current) return false;
+      clearSession(); autosaveFailed.current = false; setLockFailed(false); setError(""); setStatus(""); return true;
+    }
+    const scope = getOfflineQueueStorageKey();
+    locking.current = true; setSecuring(true); setLockFailed(false); setError("");
+    setPassphrase(""); setNewPassphrase(""); setConfirmation("");
+    // Cancel only an unlock. Never abort a submitted save or start a competing write.
+    if (!current.current.session) operation.current?.abort();
+    try {
+      let saved = pendingSave.current ? await pendingSave.current : !(automatic && autosaveFailed.current && current.current.body !== current.current.savedBody);
+      if (saved && current.current.body !== current.current.savedBody) saved = await save();
+      if (!mounted.current || scope !== getOfflineQueueStorageKey()) return false;
+      if (!saved) {
+        autosaveFailed.current = true; setLockFailed(true); setStatus("");
+        // Remount rich text from the latest draft, not its original unlock seed.
+        const active = current.current.session;
+        if (active) { const restored = { ...active, initialContent: current.current.body }; current.current.session = restored; setSession(restored); }
+        setError("保存失败，锁定未完成；修改仍保留，请重试保存或锁定。"); return false;
+      }
+      clearSession(); autosaveFailed.current = false;
+      setStatus(lastSaveQueued.current ? "已锁定，修改已保存到本机，联网后同步。" : "已锁定，修改已保存。"); return true;
+    } finally {
+      if (mounted.current && scope === getOfflineQueueStorageKey()) { locking.current = false; setSecuring(false); }
+    }
   }
   return <section className="flex min-w-0 flex-1 flex-col bg-app-bg" aria-label="加密笔记">
     <header className="flex items-center gap-2 border-b border-app-border p-3">
-      <button type="button" aria-label="返回列表" onClick={() => { if (!dirty && !busy && !draft.current) { lock(); actions.setMobileView("list"); } else setError("请先保存或放弃修改"); }}><ChevronLeft size={20} /></button>
+      <button type="button" aria-label="返回列表" disabled={securing} onClick={async () => { if (await lock()) actions.setMobileView("list"); }}><ChevronLeft size={20} /></button>
       <Lock size={16} /><h1 className="min-w-0 flex-1 truncate">{note.title}</h1>
-      {session && <><Button disabled={!editable || busy || !dirty} onClick={() => void save()}>保存</Button><Button disabled={busy} onClick={() => lock()}>锁定</Button></>}
+      {session && <><Button disabled={!editable || busy || securing || !dirty} onClick={() => void save()}>保存</Button><Button disabled={securing} onClick={() => void lock()}>锁定</Button></>}
     </header>
     <details className="px-4 py-2 text-xs text-tx-secondary"><summary>使用说明</summary>
       <p className="mt-2">当前为试用功能，仅正文加密。标题、目录和标签仍可见；附件、分享、AI 和多人协作暂不支持。忘记密码无法恢复。</p>
-      <p className="mt-2">5 分钟无操作或窗口进入后台时自动锁定。修改后请点击“保存”；未保存的修改在关闭页面后会丢失。</p>
+      <p className="mt-2">停止输入后自动保存。5 分钟无操作或窗口进入后台时保存后锁定；保存失败会保留编辑并提示重试。关闭页面前请等待保存完成。</p>
     </details>
     {native && <p role="alert" className="px-4 py-2">移动应用暂不支持加密，请使用网页版或桌面端。</p>}
     {error && <p role="alert" className="px-4 py-2 text-red-500">{error}</p>}
-    {status && <p role="status" className="px-4 py-2 text-tx-secondary">{status}</p>}
-    {!session && draft.current && !busy && <Button variant="ghost" onClick={() => {
-      if (window.confirm("放弃未保存的修改？")) { draft.current = null; setStatus(""); setError(""); }
-    }}>放弃修改</Button>}
-    {lockFailed && <Button disabled={busy} onClick={() => void autoLock()}>重试自动锁定</Button>}
-    {!session ? <form className="m-auto flex max-w-sm flex-col gap-3 p-6" onSubmit={(event) => { event.preventDefault(); void unlock(); }}>
+    {!securing && status && <p role="status" className="px-4 py-2 text-tx-secondary">{status}</p>}
+    {securing ? <p role="status" className="m-auto p-6">正在锁定…</p> : !session ? <form className="m-auto flex max-w-sm flex-col gap-3 p-6" onSubmit={(event) => { event.preventDefault(); void unlock(); }}>
       <label>密码<input aria-label="密码" type="password" autoComplete="off" value={passphrase} disabled={busy} onChange={(event) => setPassphrase(event.target.value)} className="w-full rounded border border-app-border bg-app-bg p-2" /></label>
       <Button type="submit" disabled={native || busy || !passphrase}>{busy ? "正在验证…" : "解锁"}</Button>
     </form> : <>
+      {lockFailed && <Button disabled={busy} onClick={() => void lock()}>重试锁定</Button>}
       {session.envelope.originalFormat === "markdown"
-        ? <textarea aria-label="加密 Markdown 正文" value={body} readOnly={!editable || busy} onChange={(event) => setBody(event.target.value)} className="min-h-64 flex-1 resize-none bg-app-bg p-4 font-mono outline-none" spellCheck={false} />
-        : <EncryptedNoteRichTextEditor initialContent={session.initialContent} editable={editable && !busy} onChange={setBody} />}
-      {dirty && <Button disabled={busy} variant="ghost" onClick={() => lock(true)}>放弃修改并锁定</Button>}
+        ? <textarea aria-label="加密 Markdown 正文" value={body} readOnly={!editable || (busy && !saving)} onChange={(event) => edit(event.target.value)} className="min-h-64 flex-1 resize-none bg-app-bg p-4 font-mono outline-none" spellCheck={false} />
+        : <EncryptedNoteRichTextEditor initialContent={session.initialContent} editable={editable && (!busy || saving)} onChange={edit} />}
+      {dirty && <Button disabled={busy} variant="ghost" onClick={() => void lock(true)}>放弃修改并锁定</Button>}
       {editable && <details className="border-t border-app-border p-4"><summary>修改密码</summary><p className="my-2 text-xs">以前的备份仍需使用当时的密码解锁。</p>
         <input aria-label="新密码" type="password" autoComplete="new-password" value={newPassphrase} disabled={busy} onChange={(event) => setNewPassphrase(event.target.value)} className="border border-app-border bg-app-bg p-2" />
         <input aria-label="确认新密码" type="password" autoComplete="new-password" value={confirmation} disabled={busy} onChange={(event) => setConfirmation(event.target.value)} className="border border-app-border bg-app-bg p-2" />
         <Button disabled={busy || dirty || newPassphrase.length < 12 || newPassphrase !== confirmation} onClick={() => void save(true)}>确认修改</Button>
       </details>}
     </>}
-    {busy && <Button variant="ghost" disabled={submitting.current || securing} onClick={() => { if (!submitting.current && !securing) operation.current?.abort(); }}>取消</Button>}
+    {busy && !saving && <Button variant="ghost" disabled={submitting.current || securing} onClick={() => { if (!submitting.current && !securing) operation.current?.abort(); }}>取消</Button>}
   </section>;
 }

@@ -24,7 +24,7 @@ test.beforeEach(async ({ page, desktopApp }) => {
 });
 
 for (const event of ["hide", "blur", "minimize"] as const) {
-  test(`native window ${event} locks the editor and retains only a recoverable ciphertext draft`, async ({ page, desktopApp }, testInfo) => {
+  test(`native window ${event} locks the editor and persists ciphertext before locking`, async ({ page, desktopApp }, testInfo) => {
     await testInfo.attach("electron-runtime.json", {
       body: JSON.stringify(await desktopApp.evaluate(() => ({ electron: process.versions.electron, chromium: process.versions.chrome, node: process.versions.node, platform: process.platform, arch: process.arch }))),
       contentType: "application/json",
@@ -43,10 +43,10 @@ for (const event of ["hide", "blur", "minimize"] as const) {
       return main.id;
     }, event);
     await expect(page.getByLabel("加密 Markdown 正文", { exact: true })).toHaveCount(0);
-    await expect(page.getByRole("status")).toContainText("重新解锁可恢复");
+    await expect(page.getByRole("status")).toContainText("已锁定，修改已保存");
     await expect(page.getByLabel("密码", { exact: true })).toHaveValue("");
-    expect(writes).toEqual([]);
-    expect(await page.evaluate(() => window.encryptedFixtureState().activeNote!.content)).toBe(original);
+    expect(writes).toHaveLength(1);
+    expect(await page.evaluate(() => window.encryptedFixtureState().activeNote!.content)).not.toBe(original);
     expect(await page.evaluate(() => JSON.stringify([Object.entries(localStorage), Object.entries(sessionStorage), window.encryptedFixtureState()]))).not.toContain(plaintext);
     await desktopApp.evaluate(({ BrowserWindow }, mainId) => {
       for (const other of BrowserWindow.getAllWindows()) if (other.id !== mainId) other.destroy();
@@ -56,8 +56,6 @@ for (const event of ["hide", "blur", "minimize"] as const) {
     await page.getByLabel("密码", { exact: true }).fill(password);
     await page.getByRole("button", { name: "解锁", exact: true }).click();
     await expect(page.getByLabel("加密 Markdown 正文", { exact: true })).toHaveValue(plaintext);
-    await page.getByRole("button", { name: "保存", exact: true }).click();
-    await expect(page.getByRole("status")).toHaveText("已保存");
     expect(writes).toHaveLength(1); expect(writes[0]).not.toContain(plaintext); expect(writes[0]).not.toContain(password);
     expect(await (await page.request.get("http://127.0.0.1:5177/api/fixture/scan")).json()).toEqual({ leaks: [] });
     await page.getByRole("button", { name: "锁定", exact: true }).click();

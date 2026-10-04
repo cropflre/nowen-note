@@ -10,7 +10,7 @@ async function unlockNote(page: Page) {
 }
 
 for (const format of ["markdown", "tiptap-json"]) {
-  test(`embedded ${format} whole note survives process restart with only saved ciphertext`, async ({ product }) => {
+  test(`embedded ${format} whole note saves on background and survives process restart with ciphertext`, async ({ product }) => {
     let page = product.page;
     await page.getByRole("button", { name: "在根目录新建", exact: true }).click();
     await page.getByRole("menuitem", { name: "加密笔记", exact: true }).click();
@@ -28,17 +28,14 @@ for (const format of ["markdown", "tiptap-json"]) {
     await editor.fill(`${forbidden[0]} embedded unsaved`);
     await product.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find((window) => window.webContents.getURL().includes("/frontend/dist/index.html"))!.hide());
     await expect(editor).toHaveCount(0);
-    await expect(page.getByRole("button", { name: "放弃修改", exact: true })).toBeVisible();
+    await expect(page.getByRole("status").filter({ hasText: "已锁定，修改已保存" })).toBeVisible();
     await product.app.evaluate(({ BrowserWindow }) => { const window = BrowserWindow.getAllWindows().find((window) => window.webContents.getURL().includes("/frontend/dist/index.html"))!; window.show(); window.focus(); });
-    page.once("dialog", (dialog) => { void dialog.accept(); });
-    await page.getByRole("button", { name: "放弃修改", exact: true }).click();
-    await expect(page.getByRole("button", { name: "放弃修改", exact: true })).toHaveCount(0);
     page = await product.restart();
     await page.getByText("Public embedded encrypted note", { exact: true }).first().click();
     await expect(page.getByLabel(label, { exact: true })).toHaveCount(0);
     await unlockNote(page);
-    if (format === "markdown") await expect(page.getByLabel(label, { exact: true })).toHaveValue(plaintext);
-    else await expect(page.getByLabel(label, { exact: true })).toHaveText(plaintext);
+    if (format === "markdown") await expect(page.getByLabel(label, { exact: true })).toHaveValue(`${forbidden[0]} embedded unsaved`);
+    else await expect(page.getByLabel(label, { exact: true })).toHaveText(`${forbidden[0]} embedded unsaved`);
     await page.getByRole("button", { name: "锁定", exact: true }).click();
   });
 
