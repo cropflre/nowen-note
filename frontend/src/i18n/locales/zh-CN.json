@@ -2900,6 +2900,13 @@
     "linkCreated": "笔记引用已插入"
   },
   "plugins": {
+    "marketplace": {
+      "install": "安装",
+      "installing": "正在安装…",
+      "policyLoading": "正在读取 Node Runtime 策略…",
+      "policyRequired": "请先开启上方的「允许官方 / 已验证插件使用 Node Runtime」。",
+      "loginRequired": "登录状态已失效，请重新登录后安装。"
+    },
     "runtimePolicy": {
       "title": "允许官方 / 已验证插件使用 Node Runtime",
       "description": "微信公众号采集等官方插件需要此策略。Node 插件具有服务端系统访问能力；社区市场插件仍只能使用沙箱。",

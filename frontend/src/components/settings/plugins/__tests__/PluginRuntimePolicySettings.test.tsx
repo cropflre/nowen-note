@@ -41,4 +41,13 @@ describe("administrator Node Runtime policy", () => {
     expect(host.querySelector("input")!.disabled).toBe(true);
     expect(host.querySelector("[role=alert]")!.textContent).toBe("Unavailable");
   });
+
+  it("reports loaded and saved policy to the marketplace, but never reports a rejected change", async () => {
+    const changed = vi.fn();
+    await act(async () => root.render(<PluginRuntimePolicySettings onPolicyChange={changed} />));
+    expect(changed.mock.calls.map(([value]) => value)).toEqual([null, false]);
+    mocks.set.mockRejectedValueOnce(new Error("Forbidden")); await click();
+    expect(changed).toHaveBeenLastCalledWith(false);
+    await click(); expect(changed).toHaveBeenLastCalledWith(true);
+  });
 });

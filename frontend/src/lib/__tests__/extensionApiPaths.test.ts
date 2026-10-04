@@ -45,13 +45,14 @@ describe("extension API paths", () => {
         id: "nowenlab.example",
         publisher: "nowenlab",
         name: "Example",
-        versions: [{ version: "1.2.0" }, { version: "1.10.0" }],
+        versions: [{ version: "1.2.0", runtime: "sandbox-js" }, { version: "1.10.0", runtime: "node-action" }],
       }],
     }), { status: 200, headers: { "content-type": "application/json" } }));
 
     await expect(pluginApi.registryCatalog()).resolves.toMatchObject([{
       id: "nowenlab.example",
       latestVersion: "1.10.0",
+      runtime: "node-action",
     }]);
     expect(fetchMock).toHaveBeenCalledWith(
       "/api/plugins/ecosystem/catalog?source=official-v2",

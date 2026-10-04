@@ -2893,6 +2893,13 @@
     "linkCreated": "Note link inserted"
   },
   "plugins": {
+    "marketplace": {
+      "install": "Install",
+      "installing": "Installing…",
+      "policyLoading": "Loading Node Runtime policy…",
+      "policyRequired": "Enable “Allow Node Runtime for official / verified plugins” above first.",
+      "loginRequired": "Your session has expired. Sign in again to install."
+    },
     "runtimePolicy": {
       "title": "Allow Node Runtime for official / verified plugins",
       "description": "Official plugins such as WeChat Capture require this policy. Node plugins can access the server system; community marketplace plugins remain sandboxed.",

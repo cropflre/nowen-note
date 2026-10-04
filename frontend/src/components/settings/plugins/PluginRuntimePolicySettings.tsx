@@ -2,20 +2,21 @@ import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { pluginApi } from "@/lib/pluginApi";
 
-export function PluginRuntimePolicySettings() {
+export function PluginRuntimePolicySettings({ onPolicyChange }: { onPolicyChange?: (allowed: boolean | null) => void }) {
   const { t } = useTranslation();
   const [allowed, setAllowed] = useState<boolean | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   useEffect(() => {
     let active = true;
-    void pluginApi.getRuntimePolicy().then((policy) => { if (active) setAllowed(policy.allowNodeRuntime); }).catch((cause) => { if (active) setError(cause instanceof Error ? cause.message : String(cause)); });
+    onPolicyChange?.(null);
+    void pluginApi.getRuntimePolicy().then((policy) => { if (active) { setAllowed(policy.allowNodeRuntime); onPolicyChange?.(policy.allowNodeRuntime); } }).catch((cause) => { if (active) setError(cause instanceof Error ? cause.message : String(cause)); });
     return () => { active = false; };
-  }, []);
+  }, [onPolicyChange]);
   const change = async (enabled: boolean) => {
     if (enabled && !window.confirm(t("plugins.runtimePolicy.confirm"))) return;
     setBusy(true); setError("");
-    try { setAllowed((await pluginApi.setRuntimePolicy(enabled)).allowNodeRuntime); }
+    try { const policy = await pluginApi.setRuntimePolicy(enabled); setAllowed(policy.allowNodeRuntime); onPolicyChange?.(policy.allowNodeRuntime); }
     catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
     finally { setBusy(false); }
   };
