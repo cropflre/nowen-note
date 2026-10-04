@@ -1,3 +1,5 @@
+import Database from "better-sqlite3";
+import { wechatAssistantQueueColumnsMigration } from "../src/db/wechatAssistantQueueColumnsMigration.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 import fs from "node:fs";
@@ -64,6 +66,15 @@ async function callback(xml: string) {
 }
 const message = (sender: string, text: string, id: string) => `<xml><FromUserName>${sender}</FromUserName><ToUserName>gh-test</ToUserName><MsgType>text</MsgType><Content><![CDATA[${text}]]></Content><MsgId>${id}</MsgId></xml>`;
 const article = (n: number) => `https://mp.weixin.qq.com/s?__biz=publisher&mid=${n}&idx=1`;
+test("upgrades an already applied early queue schema without authorizing old jobs", () => {
+  const db = new Database(":memory:");
+  try {
+    db.exec("CREATE TABLE wechat_assistant_items (id TEXT PRIMARY KEY); INSERT INTO wechat_assistant_items(id) VALUES ('old')");
+    wechatAssistantQueueColumnsMigration.up(db); wechatAssistantQueueColumnsMigration.up(db);
+    const row = db.prepare("SELECT openId,tokenVersion FROM wechat_assistant_items WHERE id='old'").get() as any;
+    assert.equal(row.openId, null); assert.equal(row.tokenVersion, -1);
+  } finally { db.close(); }
+});
 test("unconfigured service shows honest readiness and prohibits non-admin setup", () => {
   assert.equal(assistantStatus("alice").ready, false); assert.equal(assistantStatus("alice").pluginReady, true);
   assert.throws(() => configureAssistant("alice", config), /仅管理员/);
@@ -116,6 +127,16 @@ test("deleted notes can be captured again and private queue inputs are never bro
   getDb().prepare("UPDATE notes SET isTrashed=1 WHERE id=?").run(first.note!.id);
   const fresh = await collectArticles("alice", article(1)); assert.equal(fresh.accepted, 1); assert.notEqual(fresh.items[0].id, first.id);
   assert.equal(getDb().prepare("SELECT id FROM automation_events WHERE sourceId='wechat-assistant' AND dispatchState='pending'").get(), undefined);
+});
+test("expected capture failures do not roll back a probationary plugin", async () => {
+  const db = getDb();
+  db.prepare("UPDATE plugin_registry SET lifecycleState='probation',probationVersion=version,probationRemaining=5 WHERE id=?").run(WECHAT_PLUGIN_ID);
+  test.mock.method(dns, "lookup", async () => [{ address: "198.18.0.87", family: 4 }] as any);
+  try {
+    await assert.rejects(getPluginService().execute(WECHAT_PLUGIN_ID, "capture-article", "alice", null, { url: "https://github.com/cropflre/nowen-note", itemId: "probation-fetch", notebookId: assistantStatus("alice").notebookId }), { code: "CAPTURE_URL_DENIED" });
+    const record = getPluginService().registry.get(WECHAT_PLUGIN_ID)!;
+    assert.equal(record.version, "1.1.0"); assert.equal(record.status, "enabled"); assert.equal(record.lifecycleState, "probation");
+  } finally { db.prepare("UPDATE plugin_registry SET lifecycleState='stable',probationVersion=NULL,probationRemaining=0 WHERE id=?").run(WECHAT_PLUGIN_ID); }
 });
 test("failed extraction is visible; only owner can retry, retaining one item", async () => {
   mockArticle("<html><body></body></html>"); const result = await collectArticles("alice", article(3)), id = result.items[0].id;

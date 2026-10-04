@@ -11,7 +11,10 @@ import { SandboxRunner } from "./sandboxRunner.js";
 import type { HostApiBroker } from "./hostApiBroker.js";
 import { pluginManifestActions, type PluginExecutionContext, type PluginExecutionResult, type PluginManifest, type PluginRegistryRecord } from "./types.js";
 
-const EXPECTED_ACCESS_DENIAL_CODES = new Set(["RESOURCE_FORBIDDEN", "PLUGIN_PERMISSION_DENIED"]);
+const EXPECTED_HOST_FAILURE_CODES = new Set([
+  "RESOURCE_FORBIDDEN", "PLUGIN_PERMISSION_DENIED",
+  "CAPTURE_URL_DENIED", "CAPTURE_FETCH_FAILED", "CAPTURE_TOO_LARGE", "CAPTURE_EXTRACTION_FAILED",
+]);
 const executionSlots = {
   background: { limit: 2, active: 0, waiters: [] as Array<() => void> },
   inbound: { limit: 1, active: 0, waiters: [] as Array<() => void> },
@@ -188,7 +191,7 @@ export class PluginExecutionManager {
       const probation = this.registry.get(input.pluginId);
       const shouldRollbackProbation = executionStarted
         && coded.code !== "PLUGIN_CANCELLED"
-        && !EXPECTED_ACCESS_DENIAL_CODES.has(coded.code || "")
+        && !EXPECTED_HOST_FAILURE_CODES.has(coded.code || "")
         && boundRecord?.lifecycleState === "probation"
         && probation?.lifecycleState === "probation"
         && probation.status === "enabled"
