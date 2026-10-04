@@ -227,6 +227,22 @@ it("new note creation needs matching strong passwords without an acknowledgement
   await fill("密码", fixture.passphrase); expect(create.disabled).toBe(true);
   await fill("确认密码", fixture.passphrase); expect(create.disabled).toBe(false);
 });
+it("selected content needs only matching passwords, warns about old copies and writes ciphertext", async () => {
+  const commit = vi.fn(); const close = vi.fn();
+  act(() => root.render(<EncryptedBlockDialog initialContent={{ plaintext: "Previously saved private text", format: "markdown" }} onCommit={commit} onClose={close} />));
+  expect(input("区域临时正文")).toBeNull(); expect(document.body.textContent).toContain("旧历史、旧备份");
+  const encrypt = [...document.querySelectorAll("button")].find((button) => button.textContent === "加密")!;
+  expect(encrypt.disabled).toBe(true);
+  await fill("密码", fixture.passphrase); await fill("确认密码", "mismatching-password"); expect(encrypt.disabled).toBe(true);
+  await fill("确认密码", fixture.passphrase); await click("加密");
+  expect(mocks.crypto.mock.calls.at(-1)![0].input).toMatchObject({ plaintext: "Previously saved private text", originalFormat: "markdown", kind: "block" });
+  expect(commit.mock.calls[0][0]).toBe(JSON.stringify(block)); expect(close).toHaveBeenCalledTimes(1);
+});
+it("closing an untouched selection keeps the original and never asks to discard it", async () => {
+  const close = vi.fn(); const commit = vi.fn(); const confirm = vi.spyOn(window, "confirm");
+  act(() => root.render(<EncryptedBlockDialog initialContent={{ plaintext: "Existing text", format: "markdown" }} onCommit={commit} onClose={close} />));
+  await click("关闭"); expect(close).toHaveBeenCalledTimes(1); expect(confirm).not.toHaveBeenCalled(); expect(commit).not.toHaveBeenCalled();
+});
 it("a new region draft can lock before first write; closing it requires explicit discard", async () => {
   const close = vi.fn(); act(() => root.render(<EncryptedBlockDialog onCommit={vi.fn()} onClose={close} />));
   await fill("密码", fixture.passphrase); await fill("区域临时正文", "New private draft");

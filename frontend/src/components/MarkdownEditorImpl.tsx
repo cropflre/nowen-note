@@ -1,4 +1,4 @@
-import { commitMarkdownEncryptedRegion, prepareMarkdownEncryptedRegionEdit } from "@/lib/encryptedNotes/blockAuthoring";
+import { commitMarkdownEncryptedRegion, prepareMarkdownEncryptedRegionEdit, prepareMarkdownSelectionEncryption } from "@/lib/encryptedNotes/blockAuthoring";
 /**
  * MarkdownEditor —— 基于 CodeMirror 6 的 Markdown 笔记编辑器
  * ---
@@ -685,7 +685,7 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
   const previewRootRef = useRef<HTMLDivElement | null>(null);
   const splitContainerRef = useRef<HTMLDivElement | null>(null);
   const viewRef = useRef<EditorView | null>(null);
-  const [encryptedRegion, setEncryptedRegion] = useState<{ source?: string; commit: (source: string) => void } | null>(null);
+  const [encryptedRegion, setEncryptedRegion] = useState<{ source?: string; initialContent?: { plaintext: string; format: "markdown" }; commit: (source: string) => void } | null>(null);
   useEffect(() => { setEncryptedRegion(null); }, [note.id]);
   const openEncryptedRegion = () => {
     const view = viewRef.current;
@@ -693,7 +693,15 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
     const snapshot = view.state.doc; const noteId = note.id; const selection = view.state.selection.main;
     try {
       const block = markdownEncryptedBlocks(snapshot.toString()).find((item) => selection.from >= item.from && selection.to <= item.to);
-      if (!block && !selection.empty) { toast.error("暂不支持直接加密选中文字，请点击“插入加密内容”输入新内容。"); return; }
+      if (!block && !selection.empty) {
+        const selected = prepareMarkdownSelectionEncryption(view, historyCompartmentRef.current);
+        setEncryptedRegion({ initialContent: selected, commit: (source) => {
+          if (noteRef.current.id !== noteId || viewRef.current !== view || noteRef.current.isTrashed) throw new Error("Encrypted selection changed");
+          selected.commit(source);
+          collabUndoManagerRef.current?.clear();
+        } });
+        return;
+      }
       // New regions start on their own line, never inside another code fence.
       const syntax = syntaxTree(view.state).resolveInner(selection.from, -1);
       let insideFence = false;
@@ -705,7 +713,7 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
         if (noteRef.current.id !== noteId || viewRef.current !== view || !view.state.facet(EditorView.editable) || view.state.doc !== snapshot) throw new Error("Encrypted region changed");
         commitMarkdownEncryptedRegion(view, snapshot, { from: block?.from ?? selection.from, to: block?.to ?? selection.to, prefix: block?.prefix }, source);
       } });
-    } catch { toast.error("加密区域格式无效，请保留原始密文"); }
+    } catch { toast.error(selection.empty ? "加密区域格式无效，请保留原始密文" : "请选择普通文本，暂不支持图片、附件、链接或代码块内的选区。"); }
   };
   const titleRef = useRef<HTMLTextAreaElement | null>(null);
   const isTitleComposingRef = useRef(false);
@@ -715,6 +723,7 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
   const collabEnabled = !!(yDoc && awareness);
   const collabEnabledRef = useRef(collabEnabled);
   collabEnabledRef.current = collabEnabled;
+  const collabUndoManagerRef = useRef<Y.UndoManager | null>(null);
 
   // �� ref ׷���� note / callbacks�������� CM6 listener ���õ����ڱհ�
   const noteRef = useRef(note);
@@ -784,6 +793,7 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
 
   // �����л��õ� Compartment
   const themeCompartmentRef = useRef(new Compartment());
+  const historyCompartmentRef = useRef(new Compartment());
   const editableCompartmentRef = useRef(new Compartment());
   const searchPhraseCompartmentRef = useRef(new Compartment());
 
@@ -1468,7 +1478,7 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
         // P3-#14����ʽ���� UndoManager �ó������Ȱ�����ϲ���350ms window��
         ...(collabEnabled && yDoc && awareness
           ? [yCollab(yDoc.getText("content"), awareness, {
-            undoManager: new Y.UndoManager(yDoc.getText("content"), { captureTimeout: 350 }),
+            undoManager: (collabUndoManagerRef.current = new Y.UndoManager(yDoc.getText("content"), { captureTimeout: 350 })),
           })]
           : []),
 
@@ -1478,7 +1488,7 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
           formatNumber: () => "",
         }),
         highlightActiveLineGutter(),
-        history(),
+        historyCompartmentRef.current.of(history()),
         drawSelection(),
         dropCursor(),
         EditorState.allowMultipleSelections.of(true),
@@ -1691,6 +1701,7 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
         debounceTimer.current = null;
       }
       view.destroy();
+      collabUndoManagerRef.current?.destroy(); collabUndoManagerRef.current = null;
       viewRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -2190,7 +2201,7 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
       className="relative flex flex-col h-full overflow-hidden"
     >
       {editable && !isGuest && !note.isTrashed && <button type="button" className="border-b border-app-border px-3 py-1 text-left text-xs text-tx-secondary" onClick={openEncryptedRegion}>插入加密内容</button>}
-      {encryptedRegion && <EncryptedBlockDialog source={encryptedRegion.source} onCommit={encryptedRegion.commit} onClose={() => setEncryptedRegion(null)} />}
+      {encryptedRegion && <EncryptedBlockDialog source={encryptedRegion.source} initialContent={encryptedRegion.initialContent} onCommit={encryptedRegion.commit} onClose={() => setEncryptedRegion(null)} />}
       {noteLinkMenu.open && (
         <NoteLinkMenu
           position={noteLinkMenu.position}
@@ -2658,6 +2669,7 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
           >
             <ArrowUp size={14} />
           </ToolbarButton>
+          {!isGuest && !note.isTrashed && <ToolbarButton onClick={openEncryptedRegion} title="加密选中文字">加密</ToolbarButton>}
           {selectedTextAction?.type === "phone" && (
             <ToolbarButton
               onClick={() => {

@@ -165,6 +165,7 @@ import { LineHeightExtension, LINE_HEIGHT_PRESETS } from "@/components/LineHeigh
 import CodeBlockView from "@/components/CodeBlockView";
 import EncryptedBlockDialog from "./EncryptedBlockDialog";
 import { ENCRYPTED_BLOCK_LANGUAGE } from "@/lib/encryptedNotes/blockDocument";
+import { prepareTiptapSelectionEncryption } from "@/lib/encryptedNotes/tiptapBlockAuthoring";
 import { IndentExtension } from "@/lib/codeBlockIndent";
 import { SearchReplacePanel, createSearchReplaceExtension, searchReplacePluginKey } from "@/components/SearchReplacePanel";
 import { Video as VideoExtension, createVideoFileAttrs } from "@/components/VideoExtension";
@@ -2946,13 +2947,23 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
     },
   });
 
-  const [encryptedRegion, setEncryptedRegion] = useState<{ commit: (source: string) => void } | null>(null);
+  const [encryptedRegion, setEncryptedRegion] = useState<{ initialContent?: { plaintext: string; format: "tiptap-json" }; commit: (source: string) => void } | null>(null);
   useEffect(() => { setEncryptedRegion(null); }, [note.id]);
   const insertEncryptedRegion = () => {
     if (!editor || !editable || isGuest || note.isTrashed) return;
     const { selection, doc } = editor.state; const noteId = note.id;
-    if (!selection.empty || selection.$from.depth !== 1 || selection.$from.parent.type.name !== "paragraph") {
-      showPasteToast("error", "请先取消选中，在普通段落点击“插入加密内容”输入新内容。"); return;
+    if (!selection.empty) {
+      try {
+        const selected = prepareTiptapSelectionEncryption(editor);
+        setEncryptedRegion({ initialContent: selected, commit: (source) => {
+          if (noteRef.current.id !== noteId || noteRef.current.isTrashed) throw new Error("Encrypted selection changed");
+          selected.commit(source);
+        } });
+      } catch { showPasteToast("error", "请选择普通文本，暂不支持图片、附件、链接或代码块内的选区。"); }
+      return;
+    }
+    if (selection.$from.depth !== 1 || selection.$from.parent.type.name !== "paragraph") {
+      showPasteToast("error", "请在普通段落点击“插入加密内容”输入新内容。"); return;
     }
     setEncryptedRegion({ commit: (source) => {
       if (noteRef.current.id !== noteId || !editor.isEditable || editor.state.doc !== doc) throw new Error("Encrypted region changed");
@@ -5386,7 +5397,7 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
         formatPainterArmed && "[&_.ProseMirror]:cursor-crosshair",
       )}
     >
-      {encryptedRegion && <EncryptedBlockDialog onCommit={encryptedRegion.commit} onClose={() => setEncryptedRegion(null)} />}
+      {encryptedRegion && <EncryptedBlockDialog initialContent={encryptedRegion.initialContent} onCommit={encryptedRegion.commit} onClose={() => setEncryptedRegion(null)} />}
       {/* Toolbar
           v2026-05-18：取消「键盘弹起时隐藏 + 浮动工具栏顶替」方案，改为始终保留
           单一顶部工具栏并 sticky 在容器顶端：
@@ -5902,6 +5913,7 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
           >
             <ArrowUp size={14} />
           </ToolbarButton>
+          {!isGuest && !note.isTrashed && <ToolbarButton onClick={insertEncryptedRegion} title="加密选中文字">加密</ToolbarButton>}
           <ToolbarButton
             onClick={toggleFormatPainter}
             isActive={formatPainterArmed}
