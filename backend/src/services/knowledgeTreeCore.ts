@@ -38,6 +38,7 @@ export interface KnowledgeTreeNode {
   sortOrder: number;
   isExpanded: number;
   isDeleted: number;
+  deletedAt: string | null;
   childCount: number;
   createdAt: string;
   updatedAt: string;

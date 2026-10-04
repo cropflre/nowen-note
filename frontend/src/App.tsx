@@ -16,6 +16,7 @@ import NoteList from "@/components/NoteList";
 import EditorPane from "@/components/EditorPane";
 import EditorSplitView from "@/components/EditorSplitView";
 import TaskCenter from "@/components/TaskCenter";
+import TrashPage from "@/features/trash/TrashPage";
 import MindMapCenter from "@/components/MindMapEditor";
 import SheetEditor from "@/components/SheetEditor";
 import AIChatPanel from "@/components/AIChatPanel";
@@ -420,7 +421,11 @@ function AppLayout() {
       const nextIssueRoute = parseIssueAppPath(pathname);
       setIssueRoute(nextIssueRoute);
 
-      if (nextIssueRoute.matched) {
+      if (pathname === "/trash") {
+        actions.setViewMode("trash");
+        actions.setEditorFullscreen(false);
+        actions.setMobileSidebar(false);
+      } else if (nextIssueRoute.matched) {
         actions.setViewMode("issues");
         actions.setEditorFullscreen(false);
         actions.setMobileSidebar(false);
@@ -451,6 +456,11 @@ function AppLayout() {
     if (!appPathReady) return;
     const currentRoute = getCurrentMindMapAppRoute();
     const currentIssueRoute = parseIssueAppPath(resolveCurrentAppPathname());
+    if (state.viewMode === "trash") {
+      if (resolveCurrentAppPathname() !== "/trash") replaceAppPathState("/trash");
+      return;
+    }
+    if (resolveCurrentAppPathname() === "/trash") replaceAppPathState("/");
     if (state.viewMode === "issues") {
       if (!currentIssueRoute.matched) replaceAppPathState("/issues");
       return;
@@ -879,7 +889,12 @@ function AppLayout() {
       {showSidebar && !mediumNoteWorkspace && <SidebarResizeHandle />}
 
       {/* ===== 主内容区 ===== */}
-      {isSheetView ? (
+      {state.viewMode === "trash" ? (
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+          <MobileTopBar />
+          <TrashPage />
+        </div>
+      ) : isSheetView ? (
         <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
           <MobileTopBar />
           <SheetEditor

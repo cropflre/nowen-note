@@ -198,7 +198,7 @@ describe("NoteWorkspaceLayoutController", () => {
     expect(localStorage.getItem(NOTE_WORKSPACE_LAYOUT_STORAGE_KEY)).toBe("standard");
   });
 
-  it.each(["tasks", "mindmaps", "ai-chat", "diary", "files", "shares", "issues"])("does not expose note layout controls in %s", (viewMode) => {
+  it.each(["tasks", "mindmaps", "ai-chat", "diary", "files", "shares", "issues", "trash"])("does not expose note layout controls in %s", (viewMode) => {
     state.viewMode = viewMode;
     act(() => root.render(<NoteWorkspaceLayoutController />));
     expect(document.querySelector('[data-testid="note-workspace-layout-trigger"]')).toBeNull();

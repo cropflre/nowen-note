@@ -634,6 +634,11 @@ function reconcileAcknowledgedDeletion(
     return;
   }
 
+  if (/^\/trash(?:\/batch)?(?:\?|$)/.test(url) && Array.isArray(data?.noteIds)) {
+    discardNoteQueueItems(data.noteIds.filter((id): id is string => typeof id === "string"));
+    return;
+  }
+
   if (method !== "DELETE") return;
 
   if (/^\/notes\/[^/]+$/.test(url)) {
@@ -1256,6 +1261,12 @@ function mergeImportNoteResponses(results: ImportNotesResponse[]): ImportNotesRe
 }
 
 export const api = {
+  trash: {
+    list: (workspaceId: string) => request<{ items: import("@/features/trash/trashTypes").TrashItem[] }>(`/trash?workspaceId=${encodeURIComponent(workspaceId)}`),
+    mutate: (workspaceId: string, action: "restore" | "permanent", ids: string[]) =>
+      request<import("@/features/trash/trashTypes").TrashBatchResult>(`/trash/batch?workspaceId=${encodeURIComponent(workspaceId)}`, { method: "POST", body: JSON.stringify({ action, ids }) }),
+    empty: (workspaceId: string) => request<import("@/features/trash/trashTypes").TrashBatchResult>(`/trash?workspaceId=${encodeURIComponent(workspaceId)}`, { method: "DELETE" }),
+  },
   // Public (no auth required)
   getSiteSettingsPublic: async (): Promise<{
     site_title: string;

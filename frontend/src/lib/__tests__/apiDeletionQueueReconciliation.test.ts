@@ -62,6 +62,17 @@ function noteResponse(noteId: string) {
 }
 
 describe("API deletion queue reconciliation", () => {
+  it.each(["batch", "empty"])("reconciles only confirmed note deletions from unified trash %s", async (action) => {
+    seedConflict("deleted-a");
+    seedConflict("protected-b");
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse({
+      succeededIds: ["note:deleted-a"], noteIds: ["deleted-a"],
+      failures: [{ id: "note:protected-b", code: "NOTE_LOCKED", error: "locked" }],
+    })));
+    if (action === "batch") await api.trash.mutate("personal", "permanent", ["note:deleted-a", "note:protected-b"]);
+    else await api.trash.empty("personal");
+    expect(getQueue().map((item) => item.noteId)).toEqual(["protected-b"]);
+  });
   beforeEach(() => {
     localStorage.clear();
     localStorage.setItem("nowen-server-url", "http://sync-test.local");

@@ -15,6 +15,7 @@ import { verifyLoginToken, getCachedAuthUser, setCachedAuthUser } from "./lib/au
 import knowledgeTreeRouter from "./routes/knowledge-tree";
 import notebooksRouter from "./routes/notebooks";
 import notesRouter from "./routes/notes";
+import trashRouter from "./routes/trash";
 import noteTemplatesRouter from "./routes/note-templates";
 import offlineSyncRouter from "./routes/offline-sync";
 import syncV2Router from "./routes/sync-v2";
@@ -583,6 +584,7 @@ app.use("/api/*", automationEventCaptureMiddleware);
 app.route("/api/knowledge-tree/", knowledgeTreeRouter);
 app.route("/api/notebooks", notebooksRouter);
 app.route("/api/notes", notesRouter);
+app.route("/api/trash", trashRouter);
 app.route("/api/note-templates", noteTemplatesRouter);
 app.route("/api/offline-sync", offlineSyncRouter);
 // Sync V2（Local-first）。与 V1 并存：V1 服务已发布客户端，不做任何改动。

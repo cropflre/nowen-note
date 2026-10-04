@@ -1,12 +1,11 @@
 import React, { useEffect, useCallback, useState, useRef, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { Plus, Pin, PinOff, Star, StarOff, Clock, FileText, FileCode, FileType2, Trash2, ArchiveRestore, Menu, MoreHorizontal, FolderInput, ChevronRight, ChevronDown, ChevronLeft, Folder, X, Check, Lock, Unlock, CalendarDays, RefreshCw, Share2, GripVertical, Download, ArrowUpDown, ArrowUp, ArrowDown, Image as ImageIcon, Printer, User as UserIcon, Sparkles, Tag as TagIcon, Loader2, FileUp, AlertTriangle, Copy, LayoutTemplate, SplitSquareHorizontal, SplitSquareVertical, ArrowLeftRight, Pencil, ShieldCheck, Palette } from "lucide-react";
+import { Plus, Pin, PinOff, Star, StarOff, Clock, FileText, FileCode, FileType2, Trash2, Menu, MoreHorizontal, FolderInput, ChevronRight, ChevronDown, ChevronLeft, Folder, X, Check, Lock, Unlock, CalendarDays, RefreshCw, Share2, GripVertical, Download, ArrowUpDown, ArrowUp, ArrowDown, Image as ImageIcon, Printer, User as UserIcon, Sparkles, Tag as TagIcon, Loader2, FileUp, AlertTriangle, Copy, LayoutTemplate, SplitSquareHorizontal, SplitSquareVertical, ArrowLeftRight, Pencil, ShieldCheck, Palette } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import ContextMenu, { ContextMenuItem } from "@/components/ContextMenu";
 import KnowledgeTreePermissionsDialog from "@/components/KnowledgeTreePermissionsDialog";
-import MindmapTrashSection from "@/components/MindmapTrashSection";
 import ShareModal from "@/components/ShareModal";
 import { buildNoteContextMenuLayout } from "@/components/noteContextMenuLayout";
 import { useContextMenu } from "@/hooks/useContextMenu";
@@ -1419,7 +1418,6 @@ export default function NoteList() {
     loadThreeColumnFolderScopeMode,
   );
   const [folderTreeNodes, setFolderTreeNodes] = useState<KnowledgeTreeNode[]>([]);
-  const [trashedMindmapCount, setTrashedMindmapCount] = useState<number | null>(null);
   const [unlockedFolderIds, setUnlockedFolderIds] = useState<Set<string>>(
     loadUnlockedFolderIds,
   );
@@ -1679,10 +1677,6 @@ export default function NoteList() {
         const params: Record<string, string> = { isFavorite: "1", ...sortParams };
         if (dateFilter) { params.dateFrom = dateFilter; params.dateTo = dateFilter; }
         notes = await api.getNotes(params);
-      } else if (state.viewMode === "trash") {
-        const params: Record<string, string> = { isTrashed: "1", ...sortParams };
-        if (dateFilter) { params.dateFrom = dateFilter; params.dateTo = dateFilter; }
-        notes = await api.getNotes(params);
       } else if (state.viewMode === "search" && state.searchQuery) {
         const results = await api.search(state.searchQuery);
         notes = results.map((r) => ({
@@ -1772,11 +1766,11 @@ export default function NoteList() {
   //   - 仅在日历面板**首次打开**或视图维度（viewMode/notebook/tag/sortPref/
   //     refreshToken）变化时拉取；
   //   - dateFilter 切换不触发，避免与 fetchNotes 同步重复请求；
-  //   - trash/search 视图不显示日历，无需拉取。
+  //   - search 视图不显示日历，无需拉取。
   const [calendarNotes, setCalendarNotes] = useState<NoteListItem[]>([]);
   useEffect(() => {
     if (!showCalendar) return;
-    if (state.viewMode === "trash" || state.viewMode === "search") return;
+    if (state.viewMode === "search") return;
     let cancelled = false;
     const sortParams: Record<string, string> = { sortBy: sortPref.by, sortOrder: sortPref.dir };
     const fetcher = async (): Promise<NoteListItem[]> => {
@@ -2088,58 +2082,8 @@ export default function NoteList() {
     });
   };
 
-  // 一键清空回收站：只查询数量 → confirm → 单次批量删除 → 刷新列表。
-  // 移动端 Sidebar 未挂载，自定义事件无人监听，因此 NoteList 直接实现完整逻辑。
-  const handleEmptyTrash = async () => {
-    haptic.medium();
-    try {
-      const summary = await api.getTrashSummary();
-      const removable = summary.count;
-      if (removable === 0) {
-        toast.info(trashedMindmapCount ? "没有待清空的笔记；脑图可在列表中单独永久删除" : t('sidebar.emptyTrashEmpty'));
-        return;
-      }
-      const ok = await confirm({
-        title: t('sidebar.emptyTrashConfirmTitle'),
-        description: t('sidebar.emptyTrashConfirm', { count: removable }),
-        confirmText: t('sidebar.emptyTrash'),
-        danger: true,
-      });
-      if (!ok) return;
-      haptic.heavy();
-      const res = await api.emptyTrash();
-      if (res.skipped && res.skipped > 0) {
-        toast.warning(t('sidebar.emptyTrashSkipped', { count: res.count, skipped: res.skipped }));
-      } else {
-        toast.success(t('sidebar.emptyTrashSuccess', { count: res.count }));
-      }
-      if (!res.vacuumed && (res.freedBytesEstimate || 0) >= 10 * 1024 * 1024) {
-        toast.info(
-          "占用较大但数据库未自动压缩。可在「数据管理」里点击「压缩数据库」进一步回收磁盘空间。",
-        );
-      }
-      try {
-        window.dispatchEvent(new CustomEvent("nowen:storage-changed", { detail: { reason: "trash-emptied" } }));
-      } catch { /* ignore */ }
-      actions.setNotes([]);
-      if (state.activeNote?.isTrashed) {
-        actions.setActiveNote(null);
-      }
-      actions.refreshNotebooks();
-    } catch (err: any) {
-      console.error("清空回收站失败", err);
-      toast.error(err?.message || t('sidebar.emptyTrashFailed'));
-    }
-  };
-
   const handleCreateNote = async (noteType: "normal" | "markdown" | "word" | "journal" = "normal") => {
     haptic.light();
-    // 回收站视图禁止新建笔记
-    if (state.viewMode === "trash") {
-      toast.info(t('noteList.cannotCreateInTrash'));
-      return;
-    }
-
     // 今日日记：不需要选择笔记本，直接调用 API
     if (noteType === "journal") {
       await handleOpenTodayJournal();
@@ -2538,18 +2482,9 @@ export default function NoteList() {
     const targetNote = state.notes.find((n) => n.id === menu.targetId);
     if (!targetNote) return [];
 
-    const isTrashView = state.viewMode === "trash";
     // 若右键点击的是多选中的一员，批量操作；否则针对该条
     const bulkMode = menu.targetId && selectedIds.has(menu.targetId) && selectedIds.size > 1;
     const bulkCount = bulkMode ? selectedIds.size : 0;
-
-    if (isTrashView) {
-      return [
-        { id: "restore", label: t('noteList.restoreNote'), icon: <ArchiveRestore size={14} /> },
-        { id: "sep1", label: "", separator: true },
-        { id: "delete_permanent", label: t('noteList.permanentDelete'), icon: <Trash2 size={14} />, danger: true },
-      ];
-    }
 
     if (bulkMode) {
       return [
@@ -3145,69 +3080,7 @@ export default function NoteList() {
         }
         break;
       }
-      case "restore": {
-        haptic.success();
-        actions.removeNoteFromList(targetId);
-        api.updateNote(targetId, { isTrashed: 0 } as any)
-          .then(() => {
-            actions.refreshNotebooks();
-            actions.refreshNotes();
-          })
-          .catch((err: any) => {
-            // v14：父笔记本已被软删 → 后端拒绝直接恢复，需要用户先选一个新笔记本。
-            // 当前最小修复：toast 提示并刷新回收站列表（被乐观删掉的项会重新出现）。
-            // 后续若做"还原到指定笔记本"UI，可在此打开笔记本选择器再走 PUT
-            // 带 notebookId 重试。
-            if (err?.code === "NOTEBOOK_TRASHED") {
-              toast.warning(
-                err?.message ||
-                  t("noteList.restoreNotebookTrashed") ||
-                  "原笔记本已删除，请先在「所有笔记」选择一个新的笔记本作为还原位置",
-              );
-              actions.refreshNotes();
-              return;
-            }
-            console.error(err);
-            actions.refreshNotes();
-          });
-        break;
-      }
-      case "delete_permanent": {
-        haptic.heavy();
-        if (state.activeNote?.id === targetId) actions.setActiveNote(null);
-        actions.removeNoteFromList(targetId);
-        api.deleteNote(targetId)
-          .then(() => {
-            actions.refreshNotebooks();
-            actions.refreshNotes();
-            // TAG-PRUNE-UNUSED-ON-NOTE-DELETE-01: 删除笔记后刷新标签列表并清理失效筛选
-            api.getTags().then((tags) => {
-              actions.setTags(tags);
-              // 清理 selectedTagIds 中已消失的标签
-              const validTagIds = new Set(tags.map((t: any) => t.id));
-              const currentSelected = state.selectedTagIds;
-              const invalidIds = currentSelected.filter(id => !validTagIds.has(id));
-              if (invalidIds.length > 0) {
-                const remaining = currentSelected.filter(id => validTagIds.has(id));
-                if (remaining.length > 0) {
-                  actions.setSelectedTags(remaining);
-                } else {
-                  actions.clearSelectedTags();
-                  // RV2: 只在当前是标签视图时才回退，不破坏笔记本/搜索等上下文
-                  if (state.viewMode === "tag") {
-                    if (state.selectedNotebookId) {
-                      actions.setViewMode("notebook");
-                    } else {
-                      actions.setViewMode("all");
-                    }
-                  }
-                }
-              }
-            }).catch(() => {});
-          })
-          .catch(console.error);
-        break;
-      }
+
     }
   };
 
@@ -3574,7 +3447,7 @@ export default function NoteList() {
         <h2 className="min-w-0 flex-1 truncate text-center text-sm font-semibold text-tx-primary">{viewTitles[state.viewMode]}</h2>
         <div className="flex shrink-0 items-center gap-1 relative">
           {/* 移动端排序按钮（搜索/回收站不显示） */}
-          {state.viewMode !== "trash" && state.viewMode !== "search" && (
+          {state.viewMode !== "search" && (
             <button
               onClick={(e) => { sortBtnRef.current = e.currentTarget; setShowSortMenu((v) => !v); }}
               aria-expanded={showSortMenu}
@@ -3591,7 +3464,7 @@ export default function NoteList() {
             </button>
           )}
           {/* 移动端日历筛选按钮 */}
-          {state.viewMode !== "trash" && state.viewMode !== "search" && (
+          {state.viewMode !== "search" && (
             <button
               onClick={() => setShowCalendar(!showCalendar)}
               className={cn(
@@ -3607,20 +3480,6 @@ export default function NoteList() {
               )}
             </button>
           )}
-          {state.viewMode === "trash" ? (
-            // 回收站视图下用"一键清空"按钮替换"新建"——后者在回收站语义不通且会被禁止；
-            // 移动端 Sidebar 未挂载时自定义事件无人监听，改为直接调用 confirm + api.emptyTrash。
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-8 w-8 text-accent-danger hover:bg-accent-danger/10"
-              title="清空笔记回收站"
-              aria-label="清空笔记回收站"
-              onClick={handleEmptyTrash}
-            >
-              <Trash2 size={18} />
-            </Button>
-          ) : (
             <button
               ref={createMenuAnchorDesktopRef}
               type="button"
@@ -3633,7 +3492,7 @@ export default function NoteList() {
               <Plus size={18} />
               <ChevronDown size={12} />
             </button>
-          )}
+
         </div>
       </header>
 
@@ -3649,7 +3508,7 @@ export default function NoteList() {
         </div>
         <div className="flex shrink-0 items-center gap-1 relative">
           {/* 排序、日期和显示偏好合并为列表选项，窄栏也保持单行。 */}
-          {state.viewMode !== "trash" && state.viewMode !== "search" && (
+          {state.viewMode !== "search" && (
             <button
               onClick={(e) => { sortBtnRef.current = e.currentTarget; setShowSortMenu((v) => !v); }}
               aria-expanded={showSortMenu}
@@ -3669,20 +3528,6 @@ export default function NoteList() {
               )}
             </button>
           )}
-          {state.viewMode === "trash" ? (
-            // 回收站视图：将"+"换成"一键清空回收站"——破坏性操作做红色降级 + 标题提示，
-            // 直接调用 confirm + api.emptyTrash，不依赖 Sidebar 自定义事件。
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-7 w-7 text-accent-danger hover:bg-accent-danger/10"
-              title="清空笔记回收站"
-              aria-label="清空笔记回收站"
-              onClick={handleEmptyTrash}
-            >
-              <Trash2 size={15} />
-            </Button>
-          ) : (
             <button
               ref={createMenuAnchorMobileRef}
               type="button"
@@ -3696,7 +3541,7 @@ export default function NoteList() {
             >
               <Plus size={15} />
             </button>
-          )}
+
         </div>
       </div>
 
@@ -3714,7 +3559,7 @@ export default function NoteList() {
         />
       )}
 
-      {dateFilter && state.viewMode !== "trash" && state.viewMode !== "search" && (
+      {dateFilter && state.viewMode !== "search" && (
         <div className="flex items-center gap-1.5 px-3 py-1 border-b border-app-border/50 text-xs text-accent-primary">
           <CalendarDays size={12} /><span className="min-w-0 flex-1 truncate">{dateFilter}</span>
           <button type="button" onClick={() => setDateFilter(null)} title={t("noteList.clearFilter")} aria-label={t("noteList.clearFilter")} className="p-1 rounded hover:bg-app-hover"><X size={12} /></button>
@@ -3722,7 +3567,7 @@ export default function NoteList() {
       )}
 
       {/* 日历筛选面板 */}
-      {showCalendar && state.viewMode !== "trash" && state.viewMode !== "search" && (
+      {showCalendar && state.viewMode !== "search" && (
         <div className="border-b border-app-border bg-app-surface max-md:animate-in max-md:slide-in-from-top max-md:duration-200">
           <MiniCalendarFilter
             selectedDate={dateFilter}
@@ -3846,9 +3691,7 @@ export default function NoteList() {
         </div>
       )}
 
-      {state.viewMode === "trash" && (
-        <MindmapTrashSection workspaceId={getCurrentWorkspace()} onCountChange={setTrashedMindmapCount} />
-      )}
+
 
       {showThreeColumnFolderContents && hasVisibleChildFolders && (
         <section
@@ -3902,7 +3745,7 @@ export default function NoteList() {
             {t('noteList.selectedCount', { count: selectedIds.size })}
           </span>
           <div className="flex min-w-0 shrink items-center gap-1 overflow-x-auto">
-            {state.viewMode !== "trash" && (
+
               <>
                 <button
                   className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded-md bg-accent-primary text-white hover:bg-accent-primary/90 transition-colors"
@@ -4014,7 +3857,7 @@ export default function NoteList() {
                   <Trash2 size={12} />
                 </button>
               </>
-            )}
+
             <button
               className="inline-flex items-center p-1 rounded-md text-tx-secondary hover:bg-app-hover transition-colors"
               onClick={() => {
@@ -4206,37 +4049,29 @@ export default function NoteList() {
               </p>
             </div>
           )}
-          {state.notes.length === 0 && !state.isLoading && !notesLoadError && !hasVisibleChildFolders
-            && (state.viewMode !== "trash" || trashedMindmapCount === 0) && (
+          {state.notes.length === 0 && !state.isLoading && !notesLoadError && !hasVisibleChildFolders && (
             <div className="flex flex-col items-center justify-center py-16 px-6 text-center">
               <div className={cn(
                 "w-16 h-16 rounded-2xl flex items-center justify-center mb-4",
-                state.viewMode === "trash" ? "bg-app-hover" : "bg-accent-primary/10",
+                "bg-accent-primary/10",
               )}>
-                {state.viewMode === "trash" ? (
-                  <Trash2 size={28} className="text-tx-tertiary/50" />
-                ) : (
                   <FileText size={28} className="text-accent-primary/40" />
-                )}
+
               </div>
               <p className="text-sm font-medium text-tx-secondary mb-1">
-                {state.viewMode === "trash"
-                  ? t('noteList.trashEmptyTitle')
-                  : state.viewMode === "tag" && state.selectedTagIds.length > 1
+                {state.viewMode === "tag" && state.selectedTagIds.length > 1
                   ? (t('noteList.noNotesForTagCombo') || "当前标签组合下没有笔记")
                   : t('common.noNotes')}
               </p>
               <p className={cn(
                 "text-xs text-tx-tertiary max-w-[200px] leading-relaxed",
-                state.viewMode !== "trash" && "mb-5",
+                "mb-5",
               )}>
-                {state.viewMode === "trash"
-                  ? t('noteList.trashEmptyHint')
-                  : state.viewMode === "tag" && state.selectedTagIds.length > 1
+                {state.viewMode === "tag" && state.selectedTagIds.length > 1
                   ? (t('noteList.noNotesForTagComboHint') || "尝试减少标签筛选条件")
                   : t('common.noNotesHint')}
               </p>
-              {state.viewMode !== "trash" && (
+
                 <button
                   onClick={() => handleCreateNote("normal")}
                   className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-accent-primary text-white text-xs font-medium hover:bg-accent-primary/90 active:scale-95 transition-all shadow-sm"
@@ -4244,7 +4079,7 @@ export default function NoteList() {
                   <Plus size={14} />
                   {t('common.newNote')}
                 </button>
-              )}
+
             </div>
           )}
           {/* 骨架屏 Loading */}
@@ -4273,7 +4108,7 @@ export default function NoteList() {
       </div>
 
       {/* Mobile FAB - 新建笔记（点击默认普通笔记，长按弹类型选择） */}
-      {state.viewMode !== "trash" && (
+
         <button
           ref={createMenuAnchorFabRef}
           onClick={() => handleCreateNote("normal")}
@@ -4286,7 +4121,7 @@ export default function NoteList() {
         >
           <Plus size={24} />
         </button>
-      )}
+
 
       {/* Note Context Menu */}
       <ContextMenu

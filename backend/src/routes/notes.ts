@@ -1,3 +1,4 @@
+import { permanentlyDeleteNote } from "../services/trash/noteTrashAdapter.js";
 import { inspectEncryptedNoteConversion } from "../services/encryptedNoteConversionPreflight.js";
 import { withEncryptedBlockWrite } from "../lib/encryptedBlockWrites.js";
 import { Hono } from "hono";
@@ -47,7 +48,7 @@ import {
   synchronizeLegacyNotebookHierarchy,
 } from "../services/legacyKnowledgeHierarchy";
 import { syncAutomaticNoteLinkTitles } from "../lib/noteLinkTitles";
-import { noteLinksRepository, noteTagsRepository, noteVersionsRepository, favoritesRepository, noteYsnapshotsRepository, noteYupdatesRepository } from "../repositories";
+import { noteTagsRepository, noteVersionsRepository, favoritesRepository, noteYsnapshotsRepository, noteYupdatesRepository } from "../repositories";
 import { rebuildYjsSubdocumentsIfEnabled } from "../services/yjs-subdocuments";
 import { reclaimSpace } from "../lib/reclaimSpace";
 import { buildFtsSearchTerm } from "../lib/searchQuery";
@@ -1712,96 +1713,15 @@ app.post("/:id/yjs/subdocuments/:sectionId", async (c) => {
   }
 });
 
-// 删除笔记（永久）
+// 删除笔记（永久）：保留原接口，复用回收站生命周期服务。
 app.delete("/:id", (c) => {
-  const db = getDb();
-  const userId = c.req.header("X-User-Id") || "";
-  const id = c.req.param("id");
-
-  // 永久删除只针对回收站生命周期；tombstone 继续按删除前 Knowledge ACL 校验。
-  const { permission } = resolveTrashedNotePermission(id, userId);
-  if (!hasPermission(permission, "manage")) {
-    // editor 不能永久删除，只能放入回收站
-    return c.json({ error: "仅笔记 owner 或工作区管理员可永久删除", code: "FORBIDDEN" }, 403);
-  }
-
-  const note = db.prepare("SELECT isLocked FROM notes WHERE id = ?").get(id) as { isLocked: number } | undefined;
-  if (note && note.isLocked === 1) {
-    return c.json({ error: "Note is locked", code: "NOTE_LOCKED" }, 403);
-  }
-
-  // ⚠ 先清理磁盘附件物理文件（必须在 DELETE FROM notes 之前，否则 CASCADE 后查不到 path）
-  let removedFiles = 0;
   try {
-    removedFiles = deleteAttachmentFilesByNoteIds([id]);
-  } catch (e) {
-    console.warn("[notes.delete] deleteAttachmentFilesByNoteIds failed:", e);
+    permanentlyDeleteNote(c.req.param("id"), c.req.header("X-User-Id") || "");
+    return c.json({ success: true });
+  } catch (error) {
+    if (error instanceof KnowledgeTreeError) return c.json({ error: error.message, code: error.code }, error.status);
+    throw error;
   }
-
-  // BACKLINKS-02-RV1: 永久删除笔记前清理 note_links 引用关系
-  // 作为 source 或 target 的引用记录都需要清除，避免孤儿数据残留
-  try {
-    noteLinksRepository.deleteByNoteId(id);
-  } catch (e) {
-    console.warn("[notes.delete] cleanup note_links failed:", e);
-  }
-
-  // 估算本次释放的字节数——仅用于判断是否值当做全量 VACUUM。
-  // 失败时当作 0，后续只会做 checkpoint + incremental_vacuum，不会误触发 VACUUM。
-  let freedBytesEstimate = 0;
-  try {
-    const attBytes = db
-      .prepare("SELECT COALESCE(SUM(size), 0) AS bytes FROM attachments WHERE noteId = ?")
-      .get(id) as { bytes: number } | undefined;
-    freedBytesEstimate += attBytes?.bytes || 0;
-    const noteBytes = db
-      .prepare(
-        `SELECT COALESCE(LENGTH(content), 0)
-              + COALESCE(LENGTH(contentText), 0)
-              + COALESCE(LENGTH(title), 0) AS bytes
-           FROM notes WHERE id = ?`,
-      )
-      .get(id) as { bytes: number } | undefined;
-    freedBytesEstimate += noteBytes?.bytes || 0;
-  } catch { /* ignore */ }
-
-  db.prepare("DELETE FROM notes WHERE id = ?").run(id);
-
-  // TAG-PRUNE-UNUSED-ON-NOTE-DELETE-01: 永久删除笔记后清理未使用的标签
-  // 删除该用户下没有任何笔记引用的标签（只删除个人空间标签，不删除工作区标签）
-  try {
-    db.prepare(`
-      DELETE FROM tags
-      WHERE userId = ?
-        AND workspaceId IS NULL
-        AND id NOT IN (
-          SELECT DISTINCT nt.tagId
-          FROM note_tags nt
-          JOIN notes n ON n.id = nt.noteId
-          WHERE n.userId = ? AND n.isTrashed = 0
-        )
-    `).run(userId, userId);
-  } catch (e) {
-    console.warn("[notes.delete] prune unused tags failed:", e);
-  }
-
-  // Phase 3: 释放内存 Y.Doc（CASCADE 已清 note_yupdates/note_ysnapshots）
-  try { yDestroyDoc(id); } catch {}
-
-  // 回收磁盘空间：与"清空回收站"一致的 checkpoint + incremental_vacuum 策略。
-  // 没有这一步，单删笔记永远不会让 .db 主文件缩小（SQLite 默认不归还 free page），
-  // 用户感知就是"删了笔记占用不降"，这是此前的缺陷。
-  reclaimSpace(db, { freedBytesEstimate, tag: "notes.delete" });
-
-  emitWebhook("note.deleted", userId, { noteId: id, removedFiles });
-  logAudit(userId, "note", "delete", { noteId: id, removedFiles }, { targetType: "note", targetId: id });
-
-  // Phase 2: 广播永久删除
-  try {
-    broadcastNoteDeleted(id, { actorUserId: userId, trashed: false });
-  } catch {}
-
-  return c.json({ success: true });
 });
 
 export default app;
