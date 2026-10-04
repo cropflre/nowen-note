@@ -351,7 +351,7 @@ export class PluginService {
         this.registry.setStatus(pluginId, "enabled");
         return this.get(pluginId);
       }
-      if (record.lifecycleState === "installed") this.lifecycle.beginInstalledPreflight(pluginId);
+      if (record.lifecycleState === "installed" || record.lifecycleState === "disabled") this.lifecycle.beginInstalledPreflight(pluginId);
       await this.executions.preflight(pluginId);
       const afterPreflight = this.registry.get(pluginId)!;
       if (afterPreflight.lifecycleState === "preflight") {

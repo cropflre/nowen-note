@@ -12,6 +12,7 @@ import { Readable } from "node:stream";
 import { Hono } from "hono";
 import { getDb, closeDb } from "../src/db/schema.js";
 import { getPluginService } from "../src/plugins/pluginService.js";
+import { PluginPackageInstaller } from "../src/plugins/packageInstaller.js";
 import { parsePluginManifest } from "../src/plugins/manifest.js";
 import { WorkflowRunner } from "../src/automation/workflowRunner.js";
 import { initAuditTables } from "../src/services/audit.js";
@@ -137,6 +138,24 @@ test("expected capture failures do not roll back a probationary plugin", async (
     const record = getPluginService().registry.get(WECHAT_PLUGIN_ID)!;
     assert.equal(record.version, "1.1.0"); assert.equal(record.status, "enabled"); assert.equal(record.lifecycleState, "probation");
   } finally { db.prepare("UPDATE plugin_registry SET lifecycleState='stable',probationVersion=NULL,probationRemaining=0 WHERE id=?").run(WECHAT_PLUGIN_ID); }
+});
+test("explicit re-enable after rollback requires grants and re-enters probation through preflight", async () => {
+  const db = getDb(), service = getPluginService();
+  // Keep the source fixture in place; the worker still performs real preflight.
+  test.mock.method(PluginPackageInstaller.prototype, "moveToInstalled", (record) => record);
+  db.prepare("UPDATE plugin_registry SET lifecycleState='disabled',status='disabled',activeOperationId=NULL,probationVersion=NULL,probationRemaining=0 WHERE id=?").run(WECHAT_PLUGIN_ID);
+  db.prepare("UPDATE plugin_permissions SET granted=0 WHERE pluginId=?").run(WECHAT_PLUGIN_ID);
+  try {
+    await assert.rejects(service.enable(WECHAT_PLUGIN_ID), /必须先确认/);
+    assert.equal(service.registry.get(WECHAT_PLUGIN_ID)!.lifecycleState, "disabled");
+    db.prepare("UPDATE plugin_permissions SET granted=1 WHERE pluginId=?").run(WECHAT_PLUGIN_ID);
+    await service.enable(WECHAT_PLUGIN_ID);
+    const record = service.registry.get(WECHAT_PLUGIN_ID)!;
+    assert.equal(record.status, "enabled"); assert.equal(record.lifecycleState, "probation"); assert.equal(record.probationRemaining, 5);
+  } finally {
+    db.prepare("UPDATE plugin_permissions SET granted=1 WHERE pluginId=?").run(WECHAT_PLUGIN_ID);
+    db.prepare("UPDATE plugin_registry SET lifecycleState='stable',status='enabled',probationVersion=NULL,probationRemaining=0 WHERE id=?").run(WECHAT_PLUGIN_ID);
+  }
 });
 test("failed extraction is visible; only owner can retry, retaining one item", async () => {
   mockArticle("<html><body></body></html>"); const result = await collectArticles("alice", article(3)), id = result.items[0].id;
