@@ -18,7 +18,7 @@ import { WorkflowRunner } from "../src/automation/workflowRunner.js";
 import { initAuditTables } from "../src/services/audit.js";
 import { createWechatAssistantCallbackRouter, createWechatAssistantRouter } from "../src/routes/wechat-assistant.js";
 import { articleKey, articleLinks, assistantStatus, bindConnection, collectArticles, configureAssistant, createConnection, disconnectAssistant, retryArticle, WECHAT_PLUGIN_ID } from "../src/services/wechatAssistant.js";
-const directory = path.resolve("../examples/plugins/wechat-capture");
+const directory = path.resolve("tests/fixtures/wechat-legacy");
 const manifest = parsePluginManifest(JSON.parse(fs.readFileSync(path.join(directory, "manifest.json"), "utf8")));
 const token = "assistantToken", appId = "wx-assistant-test", key = crypto.randomBytes(32);
 const app = new Hono(); app.route("/api/wechat-assistant", createWechatAssistantCallbackRouter()); app.route("/api/wechat-assistant", createWechatAssistantRouter());

@@ -59,6 +59,7 @@ import OfflineSyncRuntime from "@/components/OfflineSyncRuntime";
 import UpdateNotifier from "@/components/common/UpdateNotifier";
 import FolderSyncScheduler from "@/components/FolderSyncScheduler";
 import NoteWorkspaceLayoutController from "@/components/NoteWorkspaceLayoutController";
+import WechatClipboardBridge from "@/components/WechatClipboardBridge";
 import NoteDeepLinkBridge from "@/components/NoteDeepLinkBridge";
 import { PhaseAPerfProfiler } from "@/components/PhaseAPerfProfiler";
 import { isAccountLoginHistorySupported, saveAccountLoginHistory } from "@/lib/accountLoginHistory";
@@ -1506,6 +1507,7 @@ function AuthGate() {
   return (
     <AppProvider>
       <SidebarSearchExperienceBridge />
+      {user && <WechatClipboardBridge key={`${getServerUrl() || "local"}:${user.id}`} />}
       <TooltipProvider>
         <PhaseAPerfProfiler id="AppLayout"><AppLayout /></PhaseAPerfProfiler>
         {/* Phase 7: 客户端模式下，密码登录成功后引导启用快速登录。

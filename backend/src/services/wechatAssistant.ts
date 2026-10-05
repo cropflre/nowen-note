@@ -23,8 +23,10 @@ function activeUser(userId: string) {
 function requirePlugin() {
   const plugin = getPluginService().registry.get(WECHAT_PLUGIN_ID);
   const actions = plugin ? JSON.parse(plugin.manifestJson).actions : [];
-  if (plugin?.status !== "enabled" || !["capture-article", "verify-message", "reply-message"].every((id) => actions?.some((action: { id: string }) => action.id === id))) fail("请由管理员安装并启用微信采集助手 1.1.0 或更新版本", 409);
+  if (plugin?.status !== "enabled" || !actions?.some((action: { id: string }) => action.id === "capture-article")) fail("请先安装并启用微信文章采集插件", 409);
   getPluginService().policy.assertAllowed(compatibilityInputFromRecord(plugin));
+  getPluginService().permissions.require(WECHAT_PLUGIN_ID, "capture:write");
+  if (!getPluginService().permissions.allDeclaredGranted(WECHAT_PLUGIN_ID)) fail("插件权限已撤销，请重新授权", 403);
 }
 export function assistantConfig(): Config | null {
   const row = getDb().prepare("SELECT value FROM system_settings WHERE key=?").get(CONFIG_KEY) as { value: string } | undefined;
@@ -201,7 +203,8 @@ function items(userId: string, urlKey?: string): Item[] {
 }
 function noteResult(item: Item) {
   try {
-    const output = JSON.parse(item.outputPreview || "null");
+    const result = JSON.parse(item.outputPreview || "null");
+    const output = result?.success === true ? result.data : result;
     if (!output?.id) return null;
     const note = getDb().prepare("SELECT id,title FROM notes WHERE id=? AND userId=? AND workspaceId IS NULL AND isTrashed=0").get(output.id, item.userId) as { id: string; title: string } | undefined;
     return note || null;

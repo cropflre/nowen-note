@@ -13,7 +13,7 @@ import managementRouter from "../src/routes/plugins.js";
 import { WorkflowRunner } from "../src/automation/workflowRunner.js";
 import { initAuditTables } from "../src/services/audit.js";
 
-const directory = path.resolve("../examples/plugins/wechat-capture");
+const directory = path.resolve("tests/fixtures/wechat-legacy");
 const raw = JSON.parse(fs.readFileSync(path.join(directory, "manifest.json"), "utf8"));
 const manifest = parsePluginManifest(raw);
 const userId = "inbound-owner";

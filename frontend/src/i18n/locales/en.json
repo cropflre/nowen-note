@@ -2936,7 +2936,7 @@
     },
     "runtimePolicy": {
       "title": "Allow Node Runtime for official / verified plugins",
-      "description": "Official plugins such as WeChat Capture require this policy. Node plugins can access the server system; community marketplace plugins remain sandboxed.",
+      "description": "This policy applies to official or verified plugins that require Node Runtime. Node plugins can access the server system. Community plugins use the sandbox; WeChat article capture 1.2.0 does not require this policy.",
       "confirm": "Allow signed official / verified plugins to use Node Runtime? These plugins can access the server system. Install only plugins you trust."
     },
     "inbound": {
@@ -2975,43 +2975,15 @@
     "invalidError": "Unable to preview this Excel file. It may be damaged, encrypted or unsupported. Download it and open with Excel / WPS."
   },
   "wechatAssistant": {
-    "inbox": "WeChat inbox",
-    "description": "Paste any article from the target account, read its history, then save articles as notes.",
     "refresh": "Refresh capture results",
     "loading": "Loading inbox…",
-    "connected": "WeChat connected",
-    "disconnected": "WeChat disconnected",
-    "connect": "Connect WeChat",
-    "disconnect": "Disconnect",
-    "setupRequired": "Your administrator has not configured WeChat yet. You can paste links to collect articles now.",
-    "pluginRequired": "Ask your administrator to install and enable WeChat Capture Assistant 1.1.0 or later.",
-    "expired": "The QR code expired. Click Connect WeChat again.",
-    "qrAlt": "Scan this QR code with WeChat to connect your account",
-    "scanDisclosure": "Scan with WeChat and follow the assistant. This code expires in 10 minutes. Links and messages pass through this deployment's official-account service and are saved only to your own inbox.",
     "paste": "Paste article links",
-    "placeholder": "Paste one or more HTTPS article links, one per article",
     "collect": "Save to inbox",
     "accepted": "Received {{accepted}} articles; {{duplicates}} already in your inbox.",
     "recent": "Latest 100 capture records",
     "empty": "No capture records yet. Read articles from a specific account or paste individual links.",
     "open": "Open note",
     "retry": "Retry",
-    "adminSetup": "Administrator connection settings",
-    "adminDescription": "Configure one official account with parameterized QR code access for this Nowen deployment and register the public HTTPS callback in WeChat. Regular users do not need these settings.",
-    "saved": "Configuration saved. Register and verify the callback URL below in WeChat.",
-    "keepSecret": "Leave blank to keep the configured credential",
-    "mode": "Message mode",
-    "encrypted": "Secure / compatible mode",
-    "plain": "Plaintext mode",
-    "save": "Save configuration",
-    "callback": "Official-account callback URL",
-    "fields": {
-      "publicUrl": "Public HTTPS base URL",
-      "appId": "Official-account AppID",
-      "token": "Official-account Token",
-      "appSecret": "Official-account AppSecret",
-      "encodingKey": "EncodingAESKey"
-    },
     "status": {
       "queued": "Queued",
       "running": "Collecting",
@@ -3021,26 +2993,21 @@
       "cancelled": "Cancelled"
     }
   },
-  "wechatAccount": {
-    "title": "Collect from a specific official account",
-    "description": "Paste any article from the target account, read its history, then save articles as notes.",
-    "experimental": "Reader-session verification: name search and automatic authorization are not connected. Live history availability still requires acceptance testing.",
-    "article": "An article from the target account",
-    "identify": "Identify account",
-    "change": "Change account and clear session",
-    "authorization": "Open the account page below in your own signed-in WeChat. History access requires a valid reader session.",
-    "home": "Account page to open in WeChat",
-    "verifyHelp": "Verify your reader session (advanced)",
-    "credentialHelp": "For local verification only: use the history request URL from this account page in your own WeChat. It contains temporary credentials; do not send it to chats, issues or third parties. This Nowen backend keeps it only in memory for at most 10 minutes. Automatic capture and QR login are not available here yet.",
-    "readingUrl": "History request URL from your own WeChat",
-    "verify": "Verify and read the first page",
-    "partial": "Read {{count}} articles; history is still incomplete.",
-    "end": "Read {{count}} articles; WeChat reports the end of its list.",
-    "more": "Read the next page",
-    "collectSelected": "Collect {{count}} selected articles",
-    "collectAll": "Collect all retrieved articles",
-    "queued": "Submitted {{completed}} / {{total}} articles: {{accepted}} new, {{duplicates}} duplicates.",
-    "messageEntry": "Optional entry: send links to the capture assistant",
-    "cookie": "Cookie from the same history request (optional)"
+  "wechatCapture": {
+    "title": "WeChat article capture",
+    "description": "Copy a WeChat article link, return to Nowen and confirm to save it as a note.",
+    "pluginRequired": "Install, authorize and enable the WeChat article capture plugin first.",
+    "clipboard": "Suggest capturing WeChat links from the clipboard",
+    "clipboardHelp": "Desktop checks when you return to the app. Web detects pasted links and checks on return if clipboard access is already allowed. Nothing is saved automatically.",
+    "upgrade": "Clipboard prompts require WeChat article capture 1.2.0. Older versions can still capture pasted links.",
+    "placeholder": "Paste https://mp.weixin.qq.com/s/...\nUp to 20 article links at once",
+    "accountHelp": "To capture a specific account, open it and paste the links of articles you want to save. Collecting all historical articles by account name is not supported yet.",
+    "detected": "WeChat article links detected",
+    "prompt": "Save these {{count}} articles to your WeChat inbox?",
+    "dismiss": "Not now",
+    "collecting": "Submitting…",
+    "readClipboard": "Read clipboard / Allow browser access",
+    "browserEnabled": "Clipboard checked. If the browser allows reading, returning to this page can trigger capture suggestions.",
+    "cardDescription": "Paste WeChat article links to capture them. No account secrets required."
   }
 }

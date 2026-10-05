@@ -36,6 +36,7 @@ export function wechatArticleUrl(value: string): URL {
   let url: URL;
   try { url = new URL(value.replace(/&amp;/g, "&")); } catch { return fail("请填写公众号文章链接", "INVALID_ARTICLE_URL"); }
   if (url.protocol !== "https:" || url.hostname !== "mp.weixin.qq.com" || url.port || url.username || url.password || !/^\/s(?:\/[A-Za-z0-9_-]+)?$/.test(url.pathname)) fail("请填写 mp.weixin.qq.com 的 HTTPS 文章链接", "INVALID_ARTICLE_URL");
+  if (url.pathname === "/s" && !["__biz", "mid", "idx"].every((key) => url.searchParams.get(key))) fail("文章链接不完整", "INVALID_ARTICLE_URL");
   const cleaned = new URL(url.origin + url.pathname);
   for (const key of ["__biz", "mid", "idx", "sn", "chksm"]) if (url.searchParams.has(key)) cleaned.searchParams.set(key, url.searchParams.get(key)!);
   return cleaned;

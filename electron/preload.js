@@ -45,6 +45,11 @@ contextBridge.exposeInMainWorld("nowenDesktop", {
     return () => ipcRenderer.removeListener(channel, wrapped);
   },
 
+  // Return only public WeChat article URLs, never arbitrary clipboard text.
+  readWechatArticleClipboard() {
+    return ipcRenderer.invoke("clipboard:wechat-articles");
+  },
+
   /** 主动触发更新检查 */
   checkForUpdates() {
     return ipcRenderer.invoke("updater:check");

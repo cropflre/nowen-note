@@ -229,29 +229,12 @@ export interface WechatInboxItem {
   id: string; url: string; status: string; createdAt: string;
   note: { id: string; title: string } | null; error: string | null;
 }
-export interface WechatAssistantStatus {
-  ready: boolean; pluginReady: boolean; connected: boolean; notebookId: string | null; items: WechatInboxItem[];
+export interface WechatCaptureStatus {
+  pluginReady: boolean; clipboardPrompt: boolean; clipboardAvailable?: boolean; items: WechatInboxItem[];
 }
-export interface WechatAssistantConfiguration {
-  appId: string; publicUrl: string; mode: string; callbackUrl: string; configured: boolean;
-}
-export interface WechatAccountHistory {
-  id: string; name: string; homeUrl: string; verified: boolean; hasMore: boolean; expiresAt: number;
-  articles: Array<{ url: string; title: string; publishedAt: number }>;
-}
-export const wechatAccountApi = {
-  identify: (articleUrl: string) => request<WechatAccountHistory>("/wechat-assistant/accounts/identify", { method: "POST", body: JSON.stringify({ articleUrl }) }),
-  verify: (id: string, readingUrl: string, cookie = "") => request<WechatAccountHistory>(`/wechat-assistant/accounts/${encodeURIComponent(id)}/verify`, { method: "POST", body: JSON.stringify({ readingUrl, cookie }) }),
-  next: (id: string) => request<WechatAccountHistory>(`/wechat-assistant/accounts/${encodeURIComponent(id)}/next`, { method: "POST" }),
-  collect: (id: string, urls: string[]) => request<{ accepted: number; duplicates: number }>(`/wechat-assistant/accounts/${encodeURIComponent(id)}/collect`, { method: "POST", body: JSON.stringify({ urls }) }),
-  forget: (id: string) => request(`/wechat-assistant/accounts/${encodeURIComponent(id)}`, { method: "DELETE" }),
-};
-export const wechatAssistantApi = {
-  status: () => request<WechatAssistantStatus>("/wechat-assistant"),
-  configuration: () => request<WechatAssistantConfiguration>("/wechat-assistant/configuration"),
-  configure: (input: Record<string, string>) => request<WechatAssistantConfiguration>("/wechat-assistant/configuration", { method: "PUT", body: JSON.stringify(input) }),
-  connect: () => request<{ qrUrl: string; expiresAt: number }>("/wechat-assistant/connection", { method: "POST" }),
-  disconnect: () => request("/wechat-assistant/connection", { method: "DELETE" }),
-  collect: (text: string) => request<{ accepted: number; duplicates: number }>("/wechat-assistant/collect", { method: "POST", body: JSON.stringify({ text }) }),
-  retry: (id: string) => request(`/wechat-assistant/items/${encodeURIComponent(id)}/retry`, { method: "POST" }),
+export const wechatCaptureApi = {
+  status: () => request<WechatCaptureStatus>("/wechat-capture"),
+  preferences: (clipboardPrompt: boolean) => contributionMutation(request<{ clipboardPrompt: boolean }>("/wechat-capture/preferences", { method: "PUT", body: JSON.stringify({ clipboardPrompt }) })),
+  collect: (text: string) => request<{ accepted: number; duplicates: number }>("/wechat-capture/collect", { method: "POST", body: JSON.stringify({ text }) }),
+  retry: (id: string) => request(`/wechat-capture/items/${encodeURIComponent(id)}/retry`, { method: "POST" }),
 };

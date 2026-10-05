@@ -2943,7 +2943,7 @@
     },
     "runtimePolicy": {
       "title": "允许官方 / 已验证插件使用 Node Runtime",
-      "description": "微信公众号采集等官方插件需要此策略。Node 插件具有服务端系统访问能力；社区市场插件仍只能使用沙箱。",
+      "description": "此策略仅用于需要 Node Runtime 的官方或已验证插件。Node 插件具有服务端系统访问能力；社区市场插件使用沙箱，微信文章采集 1.2.0 无需开启此策略。",
       "confirm": "允许签名的官方 / 已验证插件使用 Node Runtime？这些插件具有服务端系统访问能力，请仅安装你信任的插件。"
     },
     "inbound": {
@@ -2982,43 +2982,15 @@
     "invalidError": "无法预览此 Excel 文件：文件可能已损坏、加密或格式不受支持。请下载原文件，使用 Excel / WPS 打开。"
   },
   "wechatAssistant": {
-    "inbox": "微信收件箱",
-    "description": "粘贴目标公众号任意一篇文章，识别账号后读取历史列表，再批量保存为笔记。",
     "refresh": "刷新采集结果",
     "loading": "正在加载收件箱…",
-    "connected": "微信已连接",
-    "disconnected": "微信未连接",
-    "connect": "连接微信",
-    "disconnect": "断开连接",
-    "setupRequired": "管理员尚未配置微信接入。你可以先粘贴链接采集。",
-    "pluginRequired": "请由管理员安装并启用微信采集助手 1.1.0 或更新版本。",
-    "expired": "二维码已过期，请重新点击连接微信。",
-    "qrAlt": "使用微信扫描此二维码连接账号",
-    "scanDisclosure": "请用微信扫码并关注采集助手。二维码 10 分钟有效。发送的链接及消息将经过本部署的公众号接入服务，仅保存到你自己的收件箱。",
     "paste": "粘贴文章链接",
-    "placeholder": "粘贴一篇或多篇 HTTPS 文章链接，每篇一个链接",
     "collect": "保存到收件箱",
     "accepted": "已接收 {{accepted}} 篇，{{duplicates}} 篇已在收件箱。",
     "recent": "最近 100 条采集记录",
     "empty": "还没有采集记录。可以从指定公众号读取文章，或粘贴单篇链接。",
     "open": "打开笔记",
     "retry": "重试",
-    "adminSetup": "管理员接入配置",
-    "adminDescription": "为本套 Nowen 服务配置一个支持参数二维码接口的公众号，并将公网 HTTPS 回调地址配置到微信公众平台。普通用户无需填写这些信息。",
-    "saved": "配置已保存，请在微信公众平台填写下方回调地址并验证。",
-    "keepSecret": "留空保留已配置凭据",
-    "mode": "消息模式",
-    "encrypted": "安全 / 兼容模式",
-    "plain": "明文模式",
-    "save": "保存配置",
-    "callback": "公众号回调地址",
-    "fields": {
-      "publicUrl": "公网 HTTPS 根地址",
-      "appId": "公众号 AppID",
-      "token": "公众号 Token",
-      "appSecret": "公众号 AppSecret",
-      "encodingKey": "EncodingAESKey"
-    },
     "status": {
       "queued": "等待采集",
       "running": "正在采集",
@@ -3028,26 +3000,21 @@
       "cancelled": "已取消"
     }
   },
-  "wechatAccount": {
-    "title": "指定公众号采集",
-    "description": "粘贴目标公众号任意一篇文章，识别账号后读取历史列表，再批量保存为笔记。",
-    "experimental": "阅读会话验证版：名称搜索与自动授权尚未接通，真实历史列表可用性仍需验收。",
-    "article": "目标公众号文章链接",
-    "identify": "识别公众号",
-    "change": "更换公众号并清除会话",
-    "authorization": "请在本人已登录的微信中打开下面的公众号主页，阅读授权需要微信内的有效会话。",
-    "home": "在微信内打开的主页地址",
-    "verifyHelp": "验证本人阅读会话（高级）",
-    "credentialHelp": "仅供本地验证：使用你本人微信中该主页的历史请求地址。此地址含临时登录凭据，请勿发到聊天、Issue 或第三方。提交至当前 Nowen 后端后仅在内存保留最多 10 分钟。这里尚未提供自动捕获或扫码登录。",
-    "readingUrl": "本人微信的历史请求地址",
-    "verify": "验证并读取第一页",
-    "partial": "已读取 {{count}} 篇，历史列表尚未读取完。",
-    "end": "已读取 {{count}} 篇，微信接口已返回列表结束。",
-    "more": "继续读取下一页",
-    "collectSelected": "采集选中的 {{count}} 篇",
-    "collectAll": "采集全部已读取文章",
-    "queued": "已提交 {{completed}} / {{total}} 篇：新增 {{accepted}} 篇，重复 {{duplicates}} 篇。",
-    "messageEntry": "辅助入口：向采集助手发送文章链接",
-    "cookie": "同一历史请求的 Cookie（可选）"
+  "wechatCapture": {
+    "title": "微信文章采集",
+    "description": "复制微信文章链接，返回 Nowen 并确认，即可保存为笔记。",
+    "pluginRequired": "请先安装、授权并启用微信文章采集插件。",
+    "clipboard": "识别剪贴板中的微信文章并提示采集",
+    "clipboardHelp": "桌面端在返回应用时检查；Web 端可通过粘贴识别，已授权剪贴板读取后也会在返回页面时检查。不会自动保存。",
+    "upgrade": "剪贴板提示需要更新到微信文章采集 1.2.0；旧版本仍可粘贴链接采集。",
+    "placeholder": "粘贴 https://mp.weixin.qq.com/s/...\n可一次粘贴多篇，最多 20 篇",
+    "accountHelp": "采集指定公众号：打开该公众号，把想保存的文章链接粘贴到这里。按公众号名称采集全部历史文章暂不支持。",
+    "detected": "发现微信文章链接",
+    "prompt": "是否将这 {{count}} 篇文章保存到微信收件箱？",
+    "dismiss": "暂不采集",
+    "collecting": "正在提交…",
+    "readClipboard": "读取剪贴板 / 授权浏览器",
+    "browserEnabled": "已检查剪贴板；浏览器允许读取后，返回页面时可自动提示。",
+    "cardDescription": "粘贴微信文章链接即可采集，无需配置公众号密钥。"
   }
 }

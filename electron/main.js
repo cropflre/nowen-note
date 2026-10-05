@@ -1,4 +1,4 @@
-const { app, BrowserWindow, shell, dialog, ipcMain, Menu, screen, session } = require("electron");
+const { app, BrowserWindow, shell, dialog, ipcMain, Menu, screen, session, clipboard } = require("electron");
 const path = require("path");
 const { spawn } = require("child_process");
 const fs = require("fs");
@@ -21,6 +21,7 @@ const clipperHost = require(app.isPackaged
   : "./clipper-host");
 const { openSetupWindow } = require("./setupWindow");
 const { openLocalAttachmentWithSystem } = require("./attachment-open");
+const { readWechatArticleClipboard } = require("./wechat-clipboard");
 const { registerTextContextMenu } = require("./text-context-menu");
 const { attachWindowStatePersistence, resolveWindowBounds } = require("./window-state");
 const { attachEncryptedAutoLock } = require("./encrypted-notes-auto-lock");
@@ -1927,6 +1928,12 @@ function registerAppIpc() {
       ugreenWorkspaceWindow = null;
       return { ok: false, error: error?.message || "LOAD_FAILED" };
     }
+  });
+
+  ipcMain.removeHandler("clipboard:wechat-articles");
+  ipcMain.handle("clipboard:wechat-articles", (event) => {
+    if (assertMainWindowSender(event) || !mainWindow?.isFocused()) return "";
+    return readWechatArticleClipboard(clipboard);
   });
 
   // SEC-ELECTRON-01-C: app:info 只返回安全字段

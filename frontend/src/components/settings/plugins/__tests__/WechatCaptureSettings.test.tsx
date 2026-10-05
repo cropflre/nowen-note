@@ -2,10 +2,9 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({ status: vi.fn(), connect: vi.fn(), disconnect: vi.fn(), collect: vi.fn(), retry: vi.fn(), configuration: vi.fn(), configure: vi.fn() }));
-vi.mock("@/lib/pluginApi", () => ({ wechatAssistantApi: mocks }));
-vi.mock("../WechatAccountSettings", () => ({ WechatAccountSettings: () => null }));
+vi.mock("@/lib/pluginApi", () => ({ wechatCaptureApi: mocks, PLUGIN_CONTRIBUTIONS_CHANGED_EVENT: "plugin-changed" }));
 vi.mock("react-i18next", () => ({ useTranslation: () => ({ t: (key: string) => key, i18n: { language: "zh-CN" } }) }));
-import { WechatAssistantSettings } from "../WechatAssistantSettings";
+import { WechatCaptureSettings } from "../WechatCaptureSettings";
 
 describe("WeChat inbox", () => {
   let root: Root, host: HTMLDivElement;
@@ -17,18 +16,16 @@ describe("WeChat inbox", () => {
     host = document.createElement("div"); document.body.append(host); root = createRoot(host);
   });
   afterEach(async () => { await act(async () => root.unmount()); host.remove(); vi.useRealTimers(); vi.restoreAllMocks(); });
-  const render = async (isAdmin = false) => { await act(async () => root.render(<WechatAssistantSettings isAdmin={isAdmin} />)); };
+  const render = async () => { await act(async () => root.render(<WechatCaptureSettings />)); };
   const button = (label: string) => [...host.querySelectorAll("button")].find((item) => item.textContent === label)!;
-  it("offers local capture without pretending an unconfigured WeChat service is connected", async () => {
-    await render(); expect(button("wechatAssistant.connect").disabled).toBe(true);
-    expect(host.textContent).toContain("wechatAssistant.setupRequired"); expect(host.querySelector("img")).toBeNull(); expect(host.textContent).not.toContain("wechatAssistant.adminSetup");
-    expect(host.querySelectorAll("textarea")).toHaveLength(1); expect(host.querySelectorAll("input")).toHaveLength(0);
-  });
-  it("displays only a QR returned by the API and catches connection errors", async () => {
-    mocks.status.mockResolvedValue({ ready: true, pluginReady: true, connected: false, items: [] }); await render();
-    await act(async () => button("wechatAssistant.connect").click()); expect(host.querySelector("img")?.src).toContain("real-api-ticket");
-    mocks.connect.mockRejectedValue(new Error("公众号权限不足")); await act(async () => button("wechatAssistant.connect").click());
-    expect(host.querySelector("[role=alert]")?.textContent).toBe("公众号权限不足");
+  it("offers capture without secret fields, QR codes, or session parameters", async () => {
+    await render();
+    expect(host.querySelector("img")).toBeNull();
+    expect(host.querySelectorAll('input[type="password"]')).toHaveLength(0);
+    expect(host.querySelectorAll("textarea")).toHaveLength(1);
+    expect(host.textContent).not.toContain("wechatAssistant.connect");
+    expect(host.textContent).toContain("wechatCapture.accountHelp");
+    expect(mocks.configuration).not.toHaveBeenCalled();
   });
   it("submits links without notebook IDs or tags and catches failed requests", async () => {
     await render(); const textarea = host.querySelector("textarea")!;
@@ -38,9 +35,9 @@ describe("WeChat inbox", () => {
     mocks.collect.mockRejectedValue(new Error("采集失败")); await act(async () => host.querySelector("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
     expect(host.querySelector("[role=alert]")?.textContent).toBe("采集失败");
   });
-  it("polls while connected so new WeChat messages appear without a manual refresh", async () => {
+  it("polls while queued to show capture results", async () => {
     vi.useFakeTimers();
-    mocks.status.mockResolvedValue({ ready: true, pluginReady: true, connected: true, items: [] });
+    mocks.status.mockResolvedValue({ ready: true, pluginReady: true, connected: true, items: [{ id: "pending", url: "https://mp.weixin.qq.com/s/pending", status: "queued", createdAt: new Date().toISOString(), note: null, error: null }] });
     await render(); expect(mocks.status).toHaveBeenCalledOnce();
     mocks.status.mockResolvedValue({ ready: true, pluginReady: true, connected: true, items: [{ id: "new", url: "https://example.com/new", status: "completed", createdAt: new Date().toISOString(), note: { id: "new-note", title: "新收到的文章" }, error: null }] });
     await act(async () => { await vi.advanceTimersByTimeAsync(2500); });
