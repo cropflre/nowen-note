@@ -31,30 +31,21 @@
 
 > **NAS 远程连接登录**：支持部署到 **绿联 NAS（UGOS / UGOS Pro）** 和 **飞牛 NAS（fnOS）**。部署完成后，可在 Web、桌面端或 Android 客户端中，通过局域网 IP、IPv6 地址或已配置 HTTPS 的公网域名远程连接并登录。
 
-## v1.5.0 发版冻结（尚未正式发布）
+## v1.5.0 正式发布
 
-v1.5.0 进入 Release Candidate 准备阶段：仅接收发布阻塞修复，暂停新功能合入。当前稳定版仍为 [v1.4.16](https://github.com/cropflre/nowen-note/releases/tag/v1.4.16)；本分支源码和候选构建不等同于正式发布产物。
+**v1.5.0 已正式发布，是当前稳定版本。** 这是 Nowen Note 一次较大的功能与架构升级，重点完善了 **Local-first / Sync V2、插件生态、知识树、多形态文档、附件与移动端体验，以及加密笔记能力**。
 
-- **Sync V2 与离线工作区**：增量同步、内容与附件缓存、冲突版本选择和保存恢复。
-- **插件生态**：插件市场、签名 Registry、权限与运行时策略、文章捕获、用户级 Webhook 和微信剪藏示例。
-- **知识树与文档管理**：统一创建入口、目录范围与筛选、根目录文档和统一资源回收站。
-- **附件与编辑体验**：XLSX 预览与轻量表格导入、媒体与附件恢复、Markdown 格式化及列表布局修复。
-- **加密笔记 Beta**：Web / Desktop 支持新建整篇加密文本笔记与选中文字加密。整篇自动保存，局部编辑仍需保存；已有普通笔记整篇加密尚未开放，历史记录和旧备份不会自动清除，移动应用暂不支持。
+> [!IMPORTANT]
+> **从旧版本升级前，请务必先创建一次完整备份，并确认备份文件、数据库和附件数据已妥善保存。** Docker / NAS 用户建议额外保留独立备份。镜像回滚不等于数据库回滚，重要数据请不要在无备份的情况下直接升级。
 
-查看：[v1.5.0 发布说明草稿](./docs/releases/v1.5.0.md) · [冻结与验证进度](./docs/releases/v1.5.0-rc-gate.md) · [更新日志](./CHANGELOG.md)。富文本大增强等后续功能在 v1.5.1 / v1.6.0 重新评估。
+- **Sync V2 与离线工作区**：完善增量同步、离线阅读与编辑、内容和附件缓存、首次同步对账、保存恢复与冲突版本处理。
+- **插件与开放生态**：新增插件市场、签名 Registry、权限与运行时策略、QuickJS Sandbox / Node Action、Host API、用户级 Webhook、文章捕获与微信剪藏等能力。
+- **知识树、思维导图与轻量表格**：进一步统一文档和资源管理，思维导图可嵌入文档并参与搜索、分享与导出，同时加入 XLSX 预览和轻量表格能力。
+- **附件与编辑体验**：增强附件恢复、稳定分享、媒体上传与预览，支持 Live Photo / Motion Photo、HEIC / HEIF 等格式，并持续优化 Markdown、代码块和移动端单工具栏体验。
+- **加密笔记 Beta**：Web / Desktop 支持新建整篇加密文本笔记与选中文字加密，并提供自动保存和自动锁定。当前移动应用暂不支持创建或解锁；已有普通笔记暂不能直接转换为整篇加密笔记，历史记录和旧备份也不会自动清除。
+- **稳定性与发布链路**：继续强化备份恢复、数据保护、插件运行时、桌面客户端、Docker / NAS 与多端兼容性，并补充大量自动化回归测试和发布门禁。
 
-## 当前稳定版 v1.4.16
-
-v1.4.16 聚焦 **笔记切换稳定性、视频附件授权、Markdown / 代码块编辑体验与桌面发布链路**，继续提升 Nowen Note 在多端编辑、局域网媒体访问和桌面客户端分发场景下的可靠性。
-
-- **笔记切换更稳定**：阻止旧富文本保存回执在快速切换后重新抢回激活笔记，并补充“提交后迟到回执”回归覆盖。
-- **视频首次打开更可靠**：首次进入包含视频的笔记前会提前准备附件签名，减少播放器先启动、授权尚未就绪导致的首次加载失败。
-- **Android / 局域网视频授权修复**：局域网附件授权改用原生 HTTP 链路，改善 Android 客户端访问 NAS / 局域网服务时的视频加载稳定性。
-- **编辑器细节修复**：优化代码块全选快捷键逻辑，并重新清理历史 Markdown 块标记，减少旧内容残留标记对编辑体验的影响。
-- **桌面发布链路增强**：完善 Windows SignPath 测试 / 正式签名、Authenticode 严格校验、签名后更新元数据，以及 macOS 双架构产物完整性检查。
-- **分享兼容性**：修复 Edge 浏览器分享链接复制兼容性，并补充剪贴板回归测试。
-
-查看：[v1.4.16 Release](https://github.com/cropflre/nowen-note/releases/tag/v1.4.16) · [完整更新日志](./CHANGELOG.md)
+查看：[v1.5.0 Release](https://github.com/cropflre/nowen-note/releases/tag/v1.5.0) · [完整更新日志](./CHANGELOG.md)。
 
 ## 为什么选择 Nowen Note
 
@@ -213,17 +204,12 @@ docker compose up -d
 需要固定当前稳定版本时：
 
 ```bash
-NOWEN_IMAGE_TAG=v1.4.16 docker compose up -d
-```
-
-v1.5.0 镜像完成发布和升级验证后，可在隔离测试环境使用以下目标命令；冻结期间生产环境继续固定 v1.4.16：
-
-```bash
 NOWEN_IMAGE_TAG=v1.5.0 docker compose pull
 NOWEN_IMAGE_TAG=v1.5.0 docker compose up -d
 ```
 
-> v1.5.0 升级需重点验证 Sync V2、插件、知识树、附件、完整备份恢复与加密笔记 Beta。镜像回滚不等于数据库回滚，生产环境必须保留独立备份。详见 [v1.5.0 发布说明草稿](./docs/releases/v1.5.0.md)。
+> [!IMPORTANT]
+> **从旧版本升级到 v1.5.0 前，请先在管理后台创建完整备份，并确认数据库与附件目录已经持久化。** 建议 Docker / NAS 用户额外保留一份独立备份。镜像回滚不等于数据库回滚；升级后请重点检查 Sync V2、插件、知识树、附件、备份恢复和加密笔记 Beta。详见 [v1.5.0 Release](https://github.com/cropflre/nowen-note/releases/tag/v1.5.0)。
 
 ### Docker 在线升级（可选）
 
@@ -232,7 +218,7 @@ NOWEN_IMAGE_TAG=v1.5.0 docker compose up -d
 ```bash
 cp .env.example .env
 printf '\nNOWEN_UPDATER_TOKEN=%s\n' "$(openssl rand -hex 32)" >> .env
-NOWEN_IMAGE_TAG=v1.4.16 docker compose --profile updater up -d
+NOWEN_IMAGE_TAG=v1.5.0 docker compose --profile updater up -d
 ```
 
 启用后，管理员可在「设置 → 关于 → 版本信息」执行升级前检查、完整备份、升级、健康验证和失败回滚。
@@ -248,7 +234,7 @@ docker run -d \
   -p 3001:3001 \
   -e TZ=Asia/Shanghai \
   -v /opt/nowen-note/data:/app/data \
-  cropflre/nowen-note:v1.4.16
+  cropflre/nowen-note:v1.5.0
 ```
 
 ## 数据、备份与配置
