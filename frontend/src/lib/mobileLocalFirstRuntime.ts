@@ -73,12 +73,13 @@ function scopeFor(workspaceId: unknown): { scopeKey: string; workspaceId: string
 async function secureStorage() {
   const module = await import("@aparajita/capacitor-secure-storage");
   try { await module.SecureStorage.setKeyPrefix("nowen_"); } catch { /* 已设置时可继续 */ }
-  return module.SecureStorage;
+  // 返回模块，避免 Promise 将 Capacitor 插件代理的 then 当成原生方法调用。
+  return module;
 }
 
 async function secureGet(key: string): Promise<string | null> {
   try {
-    const value = await (await secureStorage()).get(key);
+    const value = await (await secureStorage()).SecureStorage.get(key);
     return typeof value === "string" && value ? value : null;
   } catch {
     return null;
@@ -86,7 +87,7 @@ async function secureGet(key: string): Promise<string | null> {
 }
 
 async function secureSet(key: string, value: string): Promise<void> {
-  try { await (await secureStorage()).set(key, value); } catch { /* SQLite 仍可继续工作 */ }
+  try { await (await secureStorage()).SecureStorage.set(key, value); } catch { /* SQLite 仍可继续工作 */ }
 }
 
 async function ensureIdentity(serverUrl: string, userId: string, token: string) {
