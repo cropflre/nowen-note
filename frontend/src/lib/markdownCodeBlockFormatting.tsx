@@ -7,6 +7,7 @@ import { Decoration, EditorView, WidgetType, type DecorationSet } from "@codemir
 import { CodeBlockFormatButton } from "@/components/CodeBlockFormatButton";
 import { CodeBlockFormatError, formatCodeBlock } from "@/lib/codeBlockFormatting";
 import { isMatchingFenceClosing, parseMarkdownFenceOpening } from "@/lib/markdownFenceAuthoring";
+import { resolveMarkdownCodeBlockLanguage } from "@/lib/markdownCodeBlockLanguage";
 
 function fencedRanges(markdown: string): Array<{ from: number; to: number }> {
   const ranges: Array<{ from: number; to: number }> = [];
@@ -54,7 +55,7 @@ export async function formatMarkdownCodeBlock(view: EditorView, source: string, 
   if (lines.some((line) => !line.startsWith(opening.prefix))) throw new CodeBlockFormatError("changed");
   const code = lines.map((line) => line.slice(opening.prefix.length)).join("\n");
   const originalDoc = view.state.doc;
-  const formatted = await formatCodeBlock(code, opening.language);
+  const formatted = await formatCodeBlock(code, resolveMarkdownCodeBlockLanguage(code, opening.language));
   if (!isMarkdownFormattingEditable(view)) throw new CodeBlockFormatError("readOnly");
   if (view.state.doc !== originalDoc) throw new CodeBlockFormatError("changed");
   if (formatted === code) return;

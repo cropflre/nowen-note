@@ -44,7 +44,7 @@
     "format": "Format",
     "formatting": "Formatting…",
     "unsupported": "Formatting is not supported for this language yet",
-    "invalid": "Formatting failed. Check the syntax and language. Without a language, only JSON is supported",
+    "invalid": "Formatting failed. Check the syntax and code block language tag (e.g. html, javascript, json)",
     "changed": "The code changed. Please try formatting again",
     "readOnly": "Read-only notes cannot be formatted"
   },

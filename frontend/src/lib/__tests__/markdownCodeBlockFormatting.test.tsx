@@ -8,6 +8,7 @@ import { markdown } from "@codemirror/lang-markdown";
 import { history, undo } from "@codemirror/commands";
 import { MarkdownPreview } from "@/components/MarkdownPreview";
 import { markdownLivePreviewExtension } from "@/lib/markdownLivePreview";
+import { resolveMarkdownCodeBlockLanguage } from "@/lib/markdownCodeBlockLanguage";
 import {
   formatMarkdownCodeBlock, markdownCodeBlockFormattingExtension, resolveMarkdownCodeBlockSource,
 } from "@/lib/markdownCodeBlockFormatting";
@@ -32,6 +33,62 @@ function editor(doc: string, extensions: any[] = [], anchor = 0) {
 }
 
 describe("Markdown formatting writes through to source", () => {
+  it.each([
+    ["auto", '<html lang="zh-CN"><body>hello</body></html>', "html"],
+    ["js", '\n<!doctype HTML PUBLIC "test"><html></html>', "html"],
+    ["js", "const x = '<!DOCTYPE html>';", "js"],
+    ["javascript", "<html><body>JSX</body></html>", "javascript"],
+    ["jsx", "<html><body>JSX</body></html>", "jsx"],
+    ["json", "<!DOCTYPE html><html></html>", "json"],
+    ["markdown", "<!DOCTYPE html><html></html>", "markdown"],
+    ["python", "<!DOCTYPE html><html></html>", "python"],
+    ["text", "<div>fragment</div>", "text"],
+    ["", "const x=1", ""],
+  ])("resolves %s content conservatively", (language, code, expected) => {
+    expect(resolveMarkdownCodeBlockLanguage(code, language)).toBe(expected);
+  });
+
+  it.each(["javascript", "js", "", "text", "auto"])("formats an HTML document in a %s fence and restores it with undo", async (language) => {
+    const code = '<!DOCTYPE html>\n<html lang="zh-CN"><head><style>body{color:red}</style></head><body><script>const x={a:1};</script></body></html>';
+    const source = `before\n\n\`\`\`${language}\n${code}\n\`\`\`\n\nafter`;
+    const view = editor(source);
+    await formatMarkdownCodeBlock(view, source, source.indexOf("```"));
+    const result = view.state.doc.toString();
+    expect(result).toContain(`before\n\n\`\`\`${language}\n<!DOCTYPE html>\n<html lang="zh-CN">\n  <head>`);
+    expect(result).toContain("body{color:red}");
+    expect(result).toContain("const x={a:1};");
+    expect(result).toMatch(/\n```\n\nafter$/);
+    expect(undo(view)).toBe(true);
+    expect(view.state.doc.toString()).toBe(source);
+  });
+
+  it("keeps explicit JSON validation and invalid JavaScript unchanged", async () => {
+    for (const source of ['```json\n<!DOCTYPE html><html></html>\n```', '```javascript\nconst x=;\n```']) {
+      const view = editor(source);
+      await expect(formatMarkdownCodeBlock(view, source, 0)).rejects.toMatchObject({ reason: "invalid" });
+      expect(view.state.doc.toString()).toBe(source);
+      expect(undo(view)).toBe(false);
+    }
+  });
+
+  it("shows HTML and formats an HTML document through the preview button", async () => {
+    const source = '```javascript\n<!DOCTYPE html><html><head><title>Test</title></head><body>hello</body></html>\n```';
+    const view = editor(source);
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    const onFormat = vi.fn((text, offset) => formatMarkdownCodeBlock(view, text, offset));
+    try {
+      await act(async () => { root.render(<MarkdownPreview markdown={source} onFormatCodeBlock={onFormat} />); });
+      expect(host.querySelector(".font-medium")?.textContent).toBe("HTML");
+      await act(async () => { host.querySelector<HTMLButtonElement>('button[aria-label="codeBlockFormatting.format"]')!.click(); });
+      expect(onFormat).toHaveBeenCalledWith(source, 0);
+      expect(view.state.doc.toString()).toContain("\n  <head>\n    <title>Test</title>");
+    } finally {
+      await act(async () => { root.unmount(); });
+    }
+  });
+
   it.each(["```", "~~~~"])("preserves %s fences, language info and surrounding prose with one undo", async (fence) => {
     const source = `before\n\n${fence}json extra\n{"a":1}\n${fence}\n\nafter`;
     const view = editor(source);

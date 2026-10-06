@@ -44,7 +44,7 @@
     "format": "格式化",
     "formatting": "格式化中…",
     "unsupported": "暂不支持此语言的格式化",
-    "invalid": "格式化失败，请检查语法和代码语言。未指定语言时仅支持 JSON",
+    "invalid": "格式化失败，请检查语法和代码块的语言标记（如 html、javascript、json）",
     "changed": "代码已变更，请重新点击格式化",
     "readOnly": "只读笔记无法格式化"
   },

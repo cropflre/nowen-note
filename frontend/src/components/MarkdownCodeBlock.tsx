@@ -2,6 +2,7 @@ import React, { useMemo, useState, useSyncExternalStore } from "react";
 import { Check, Copy, Maximize2, Minimize2 } from "lucide-react";
 import { createCodeBlockLowlight } from "@/lib/codeBlockLowlight";
 import { getCodeBlockLanguageDisplayLabel } from "@/lib/codeBlockLanguageRegistry";
+import { resolveMarkdownCodeBlockLanguage } from "@/lib/markdownCodeBlockLanguage";
 import { instrumentPhaseALowlight } from "@/lib/phaseAPerfDiagnostics";
 import { isPlainTextLanguage } from "@/lib/codeBlockHighlightPlugin";
 import { copyText } from "@/lib/clipboard";
@@ -60,8 +61,8 @@ function OrdinaryMarkdownCodeBlock({ className, children, onFormat }: MarkdownCo
     getCodeBlockCollapseMode,
     getCodeBlockCollapseMode,
   );
-  const language = normalizeLanguage(className);
   const code = String(children ?? "").replace(/\n$/, "");
+  const language = resolveMarkdownCodeBlockLanguage(code, normalizeLanguage(className));
 
   const highlighted = useMemo(() => {
     if (isPlainTextLanguage(language)) return code;
