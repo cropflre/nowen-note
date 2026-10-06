@@ -19,7 +19,7 @@ import { NoteListItem, Notebook } from "@/types";
 import { cn } from "@/lib/utils";
 import { useTranslation } from "react-i18next";
 import { haptic } from "@/hooks/useCapacitor";
-import CreateNoteMenu, { type NoteType } from "@/components/CreateNoteMenu";
+import CreateNoteMenu from "@/components/CreateNoteMenu";
 import { toast } from "@/lib/toast";
 import { exportSingleNote, exportSingleNoteAsPDF, exportSingleNoteAsImage, exportNoteAsImage } from "@/lib/exportService";
 import { realtime } from "@/lib/realtime"
@@ -1557,10 +1557,7 @@ export default function NoteList({ directorySearchActive = false }: { directoryS
     sourceWorkspaceId: string | null;
   } | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
-  // 新建按钮的下拉菜单（普通笔记 / Word 文档）。
-  // 默认行为是单击 + 按钮直接走 normal；下拉箭头点开后才能选 word。
-  // 三个 + 按钮各自一个 ref（桌面顶部 / 移动顶部 / 移动 FAB）；
-  // openSource 记录是哪一个触发了下拉，避免共用一个 ref 导致的菜单错位。
+  // 三个入口复用目录树的新建菜单，各自的锚点保证菜单位置正确。
   const [createMenuOpen, setCreateNoteMenuOpen] = useState(false);
   const [createMenuSource, setCreateNoteMenuSource] = useState<"desktop" | "mobile" | "fab" | null>(null);
   const createMenuAnchorDesktopRef = useRef<HTMLButtonElement>(null);
@@ -3492,13 +3489,16 @@ export default function NoteList({ directorySearchActive = false }: { directoryS
               ref={createMenuAnchorDesktopRef}
               type="button"
               className="h-8 px-2 flex items-center gap-1 rounded-md text-tx-tertiary hover:bg-app-hover hover:text-tx-secondary transition-colors"
+              title="新建"
+              aria-label="新建"
+              aria-haspopup="menu"
+              aria-expanded={createMenuOpen && createMenuSource === "desktop"}
               onClick={() => {
                 setCreateNoteMenuSource("desktop");
                 setCreateNoteMenuOpen((v) => !v);
               }}
             >
               <Plus size={18} />
-              <ChevronDown size={12} />
             </button>
 
         </div>
@@ -3540,8 +3540,10 @@ export default function NoteList({ directorySearchActive = false }: { directoryS
               ref={createMenuAnchorMobileRef}
               type="button"
               className="h-7 px-1.5 flex items-center gap-0.5 rounded-md text-tx-tertiary hover:bg-app-hover hover:text-tx-secondary transition-colors"
-              title={t("common.newNote")}
-              aria-label={t("common.newNote")}
+              title="新建"
+              aria-label="新建"
+              aria-haspopup="menu"
+              aria-expanded={createMenuOpen && createMenuSource === "mobile"}
               onClick={() => {
                 setCreateNoteMenuSource("mobile");
                 setCreateNoteMenuOpen((v) => !v);
@@ -4191,9 +4193,10 @@ export default function NoteList({ directorySearchActive = false }: { directoryS
         }}
       />
 
-      {/* 新建按钮的下拉（普通笔记 / Word 文档），在 split-button 的 ▾ 旁边 portal 弹出 */}
-      {createMenuOpen && createMenuSource && (
+      {/* 保持挂载，菜单关闭后模板和加密对话框仍可继续操作。 */}
         <CreateNoteMenu
+          open={createMenuOpen}
+          parentId={selectedKnowledgeTreeParentId}
           anchorRef={
             createMenuSource === "desktop"
               ? createMenuAnchorDesktopRef
@@ -4207,7 +4210,6 @@ export default function NoteList({ directorySearchActive = false }: { directoryS
             setCreateNoteMenuSource(null);
           }}
         />
-      )}
 
       {/* AI 批量归类确认面板：扫描完成后弹出，用户逐条审核再执行移动 */}
       <AiClassifyConfirmModal

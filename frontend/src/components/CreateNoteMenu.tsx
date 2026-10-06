@@ -1,119 +1,166 @@
 import { useEffect, useState } from "react";
-import { createPortal } from "react-dom";
-import { FileText, FileCode, FileType2 } from "lucide-react";
+import { KnowledgeTreeCreateDropdown } from "@/components/KnowledgeTreeCreateDropdown";
+import NoteTemplatePickerDialog from "@/components/NoteTemplatePickerDialog";
+import EncryptedNoteCreateDialog from "@/components/EncryptedNoteCreateDialog";
 import {
-  cancelNewNoteTitleFocus,
-  requestNewNoteTitleFocus,
-} from "@/lib/noteTitleFocus";
+  importMarkdownIntoKnowledgeTree,
+  importMarkdownZipIntoKnowledgeTree,
+  importWordIntoKnowledgeTree,
+  importWeChatArticleIntoKnowledgeTree,
+} from "@/components/knowledgeTreeImport";
+import { prompt } from "@/components/ui/confirm";
+import { api, getCurrentWorkspace } from "@/lib/api";
+import { knowledgeTreeApi, type KnowledgeTreeNode } from "@/lib/knowledgeTreeApi";
+import { defaultInlineCreateTitle, type KnowledgeTreeInlineCreateKind } from "@/lib/knowledgeTreeInlineCreate";
+import { isFolderUnlocked, loadUnlockedFolderIds } from "@/lib/knowledgeTreePassword";
+import { revealCreatedKnowledgeTreeNote } from "@/lib/knowledgeTreeCreateVisibility";
+import { emitKnowledgeTreeRefresh } from "@/lib/workspaceRefreshBridge";
+import { isRootDocumentNotebookId } from "@/lib/rootDocumentCreatePolicy";
+import { markNewNoteForImmediateEdit } from "@/lib/newNoteImmediateEdit";
+import { cancelNewNoteTitleFocus, requestNewNoteTitleFocus } from "@/lib/noteTitleFocus";
+import { pushMindMapAppPath } from "@/lib/mindMapDeepLink";
+import { pushSheetAppPath } from "@/lib/sheetDeepLink";
+import { noteTemplatesApi } from "@/lib/noteTemplatesApi";
+import { pluginApi } from "@/lib/pluginApi";
+import { isMobileLocalMode } from "@/lib/mobileLocalMode";
+import { toast } from "@/lib/toast";
+import { useApp, useAppActions } from "@/store/AppContext";
 
 export type NoteType = "normal" | "markdown" | "word";
 
 export interface CreateNoteMenuProps {
+  open: boolean;
+  parentId?: string | null;
   onPick: (type: NoteType) => void | Promise<void>;
   onClose: () => void;
   anchorRef: React.RefObject<HTMLElement | null>;
 }
 
-/**
- * 新建笔记下拉菜单
- *
- * 复用组件：顶部工具栏 "+" 和树形列表笔记本行内 "+" 共用。
- * 菜单项：
- *   - 新建笔记（富文本编辑器）
- *   - 新建 Markdown 笔记（原生 Markdown 编辑器）
- *   - 导入 Word 文档（.docx 转可编辑笔记）
- */
-export default function CreateNoteMenu({ onPick, onClose, anchorRef }: CreateNoteMenuProps) {
-  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
+/** 列表入口复用目录树菜单；侧栏收起时也能创建和导入。 */
+export default function CreateNoteMenu({ open, parentId, onPick, onClose, anchorRef }: CreateNoteMenuProps) {
+  const { state } = useApp();
+  const actions = useAppActions();
+  const [anchor, setAnchor] = useState<DOMRect | null>(null);
+  const [templateParent, setTemplateParent] = useState<{ parentId: string | null } | null>(null);
+  const [encryptedParent, setEncryptedParent] = useState<{ parentId: string | null } | null>(null);
 
   useEffect(() => {
-    const compute = () => {
-      const el = anchorRef.current;
-      if (!el) return;
-      const rect = el.getBoundingClientRect();
-      const left = Math.max(4, Math.min(window.innerWidth - 220, rect.right - 200));
-      const top = Math.min(window.innerHeight - 8, rect.bottom + 4);
-      setPos({ top, left });
-    };
-    compute();
-    window.addEventListener("resize", compute);
-    window.addEventListener("scroll", compute, true);
-    return () => {
-      window.removeEventListener("resize", compute);
-      window.removeEventListener("scroll", compute, true);
-    };
-  }, [anchorRef]);
+    setAnchor(open ? anchorRef.current?.getBoundingClientRect() || null : null);
+  }, [open, anchorRef]);
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  async function resolveTarget() {
+    const [owned, shared] = await Promise.allSettled([knowledgeTreeApi.list(), knowledgeTreeApi.listShared()]);
+    if (owned.status === "rejected") throw owned.reason;
+    const nodes = [...owned.value.nodes, ...(shared.status === "fulfilled" ? shared.value.nodes : [])];
+    const parent = parentId !== undefined
+      ? nodes.find((node) => node.id === parentId) || null
+      : nodes.find((node) => node.resourceType === "notebook" && node.resourceId === state.selectedNotebookId) || null;
+    const expectsParent = parentId !== undefined
+      ? parentId !== null
+      : !!state.selectedNotebookId && !isRootDocumentNotebookId(state.selectedNotebookId);
+    if (expectsParent && !parent) throw new Error("目标目录不存在，请刷新后重试");
+    if (parent && !parent.access.capabilities.canCreate) throw new Error("没有在此处新建内容的权限");
+    if (parent && !isFolderUnlocked(parent, loadUnlockedFolderIds())) throw new Error("请先在目录树中解锁目录后重试");
+    return { parent, nodes, fallbackNotebookId: state.selectedNotebookId || state.notebooks[0]?.id || null };
+  }
 
-  if (!pos) return null;
+  function refresh(targetParentId: string | null, nodeId?: string) {
+    revealCreatedKnowledgeTreeNote(targetParentId, nodeId);
+    emitKnowledgeTreeRefresh("content-created-from-note-list");
+    actions.refreshNotes();
+    actions.refreshNotebooks();
+  }
 
-  const items = [
-    {
-      id: "normal" as NoteType,
-      label: "新建笔记",
-      desc: "富文本编辑器",
-      icon: <FileText size={14} />,
-    },
-    {
-      id: "markdown" as NoteType,
-      label: "新建 Markdown 笔记",
-      desc: "原生 Markdown 编辑器",
-      icon: <FileCode size={14} />,
-    },
-    {
-      id: "word" as NoteType,
-      label: "导入 Word 文档",
-      desc: "选择 .docx 转为可编辑笔记",
-      icon: <FileType2 size={14} />,
-    },
-  ];
+  async function activateNote(note: Awaited<ReturnType<typeof api.getNote>>, newlyCreated = false) {
+    if (newlyCreated) {
+      if (state.viewMode === "favorites") {
+        try { note = await api.updateNote(note.id, { isFavorite: 1 } as any); } catch { /* 收藏失败不阻断打开。 */ }
+      }
+      markNewNoteForImmediateEdit(note.id);
+    }
+    actions.setActiveNote(note);
+    actions.addNoteToList(note);
+    actions.setMobileView("editor");
+  }
 
-  return createPortal(
-    <div
-      onMouseDown={(e) => { if (e.target === e.currentTarget) { e.preventDefault(); onClose(); } }}
-      onContextMenu={(e) => { e.preventDefault(); onClose(); }}
-      style={{ position: "fixed", inset: 0, zIndex: 9998, background: "transparent" }}
-    >
-      <div
-        role="menu"
-        className="rounded-lg border border-app-border bg-app-elevated shadow-xl py-1"
-        style={{
-          position: "fixed", top: pos.top, left: pos.left, width: 200, zIndex: 9999,
-          animation: "contextMenuIn 0.12s ease-out",
-        }}
-        onMouseDown={(e) => e.stopPropagation()}
-      >
-        {items.map((it) => (
-          <button
-            key={it.id}
-            type="button"
-            role="menuitem"
-            onClick={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              const focusRequestId = it.id === "word" ? null : requestNewNoteTitleFocus();
-              onClose();
-              void Promise.resolve(onPick(it.id)).catch((err) => {
-                if (focusRequestId !== null) cancelNewNoteTitleFocus(focusRequestId);
-                console.error("Failed to handle create note menu pick:", err);
-              });
-            }}
-            className="w-full flex items-start gap-2 px-3 py-2 text-left text-tx-secondary hover:bg-app-hover hover:text-tx-primary transition-colors"
-          >
-            <span className="mt-0.5 shrink-0 text-tx-tertiary">{it.icon}</span>
-            <span className="flex-1 min-w-0">
-              <span className="block text-xs font-medium truncate">{it.label}</span>
-              <span className="block text-[10px] text-tx-tertiary truncate">{it.desc}</span>
-            </span>
-          </button>
-        ))}
-      </div>
-    </div>,
-    document.body,
-  );
+  async function create(kind: KnowledgeTreeInlineCreateKind) {
+    onClose();
+    const focusRequestId = kind === "note" || kind === "markdown" ? requestNewNoteTitleFocus() : null;
+    try {
+      if (isMobileLocalMode() && (kind === "note" || kind === "markdown")) {
+        await onPick(kind === "note" ? "normal" : "markdown");
+        return;
+      }
+      const target = await resolveTarget();
+      let title = defaultInlineCreateTitle(kind);
+      if (kind === "folder" || kind === "mindmap" || kind === "sheet") {
+        const entered = await prompt({ title: "新建", defaultValue: title, confirmText: "创建" });
+        if (!entered?.trim()) return;
+        title = entered.trim();
+      }
+      const targetParentId = target.parent?.id ?? null;
+      const node = await knowledgeTreeApi.create({ parentId: targetParentId, nodeType: kind, title });
+      refresh(targetParentId, node.id);
+      if (kind === "folder") toast.success("已创建文件夹");
+      else if (kind === "mindmap") pushMindMapAppPath(node.resourceId);
+      else if (kind === "sheet") pushSheetAppPath(node.resourceId);
+      else await activateNote(await api.getNote(node.resourceId), true);
+    } catch (error: any) {
+      if (focusRequestId !== null) cancelNewNoteTitleFocus(focusRequestId);
+      toast.error(error?.message || "创建失败，请重试");
+    }
+  }
+
+  async function importContent(kind: "markdown" | "markdown-zip" | "word" | "wechat") {
+    onClose();
+    try {
+      const target = await resolveTarget();
+      const importer = kind === "markdown" ? importMarkdownIntoKnowledgeTree
+        : kind === "markdown-zip" ? importMarkdownZipIntoKnowledgeTree
+          : kind === "word" ? importWordIntoKnowledgeTree : importWeChatArticleIntoKnowledgeTree;
+      const note = await importer(target);
+      if (!note) return;
+      refresh(target.parent?.id ?? null);
+      await activateNote(note);
+    } catch (error: any) {
+      toast.error(error?.message || "导入失败，请重试");
+    }
+  }
+
+  async function openDialog(kind: "template" | "encrypted") {
+    onClose();
+    try {
+      const target = await resolveTarget();
+      const selection = { parentId: target.parent?.id ?? null };
+      if (kind === "template") setTemplateParent(selection);
+      else setEncryptedParent(selection);
+    } catch (error: any) {
+      toast.error(error?.message || "无法在此处新建内容");
+    }
+  }
+
+  async function openTemplateNote(result: { noteId: string; node: KnowledgeTreeNode }) {
+    refresh(templateParent!.parentId, result.node.id);
+    await activateNote(await api.getNote(result.noteId), true);
+  }
+
+  return <>
+    <KnowledgeTreeCreateDropdown
+      menu={open && anchor ? { parentId: parentId ?? null, anchor } : null}
+      onClose={onClose}
+      onCreate={(_parentId, kind) => { void create(kind); }}
+      onCreateFromTemplate={() => { void openDialog("template"); }}
+      onCreateEncrypted={() => { void openDialog("encrypted"); }}
+      onImport={(_parentId, kind) => { void importContent(kind); }}
+    />
+    <NoteTemplatePickerDialog
+      open={Boolean(templateParent)} onClose={() => setTemplateParent(null)}
+      onCreate={async (templateId) => { await openTemplateNote(await noteTemplatesApi.createNote(templateId, templateParent!.parentId)); }}
+      onCreatePlugin={async (pluginId, templateId, values) => {
+        const result = await pluginApi.createNoteFromTemplate(pluginId, templateId, { workspaceId: getCurrentWorkspace(), parentId: templateParent!.parentId, values });
+        await openTemplateNote({ noteId: result.noteId, node: result.node as KnowledgeTreeNode });
+      }}
+    />
+    {encryptedParent && <EncryptedNoteCreateDialog parentId={encryptedParent.parentId} onClose={() => setEncryptedParent(null)} />}
+  </>;
 }
