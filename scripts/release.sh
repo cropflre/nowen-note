@@ -12,6 +12,10 @@
 #   6. normalize release-only native/Android toolchains to supported baselines.
 set -euo pipefail
 
+if [[ "${NODE_OPTIONS:-}" != *--max-old-space-size* && "${NODE_OPTIONS:-}" != *--max_old_space_size* ]]; then
+  export NODE_OPTIONS="${NODE_OPTIONS:+${NODE_OPTIONS} }--max-old-space-size=4096"
+fi
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 LEGACY_SCRIPT="${SCRIPT_DIR}/release-legacy.sh"

@@ -54,3 +54,39 @@ test("release dry-run leaves root, backend and Android versions unchanged", { sk
   }
   assert.equal(await readFile(path.join(root, "frontend/android/app/build.gradle"), "utf8"), 'versionCode 10416\nversionName "1.4.16"\n');
 });
+
+test("release entry sets a 4GB heap default while preserving explicit limits and other options", { skip: process.platform === "win32" }, async () => {
+  const guard = await readFile(new URL("../release.sh", import.meta.url), "utf8");
+  const initialization = guard.slice(0, guard.indexOf("SCRIPT_DIR="));
+  for (const [existing, expected] of [
+    ["", "--max-old-space-size=4096"],
+    ["--trace-warnings", "--trace-warnings --max-old-space-size=4096"],
+    ["--max-old-space-size=6144", "--max-old-space-size=6144"],
+    ["--max_old_space_size=3072", "--max_old_space_size=3072"],
+  ]) {
+    const result = spawnSync("bash", ["-c", `${initialization}\nprintf '%s' "$NODE_OPTIONS"`], {
+      encoding: "utf8", env: { ...process.env, NODE_OPTIONS: existing },
+    });
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.stdout, expected);
+  }
+});
+
+test("changelog uses the previous stable tag even after signing bootstrap and RC tags", { skip: process.platform === "win32" }, async (t) => {
+  const root = await fixture(t, 10505, "1.5.0");
+  const git = (...args) => {
+    const result = spawnSync("git", args, { cwd: root, encoding: "utf8" });
+    assert.equal(result.status, 0, result.stderr);
+  };
+  git("init", "-q");
+  git("-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "--allow-empty", "-qm", "fixture");
+  for (const tag of ["v1.4.16", "v1.5.0", "v1.5.0-signing-bootstrap.1", "v1.5.0-rc.1"]) git("tag", tag);
+  const start = source.indexOf("latest_changelog_baseline() {");
+  assert.ok(start >= 0);
+  const definition = source.slice(start, source.indexOf("\n}\n", start) + 3);
+  const result = spawnSync("bash", ["-c", `${definition}\nlatest_changelog_baseline`], {
+    cwd: root, encoding: "utf8", env: { ...process.env, VERSION: "1.5.0" },
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout.trim(), "v1.4.16");
+});

@@ -1353,15 +1353,19 @@ fi
 #   3) frontend/public/changelog.json  —— 应用内「更新日志」Modal 的数据源
 # 仅在非 build-only 流程里跑；不影响 docker build 单跑场景。
 GEN_CHANGELOG_SCRIPT="${REPO_ROOT}/scripts/generate-changelog.mjs"
+latest_changelog_baseline() {
+    git tag --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname 2>/dev/null \
+        | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' \
+        | grep -v -x "v${VERSION}" \
+        | head -n1 || true
+}
 if [ "$BUILD_ONLY" != "1" ] && [ -f "$GEN_CHANGELOG_SCRIPT" ]; then
     info "生成 CHANGELOG / README 区块 / public/changelog.json"
     # 显式传 --since <上一个 v* tag>，避免 generate-changelog.mjs 在 HEAD 已等同于某个
     # v* tag（重跑发布 / 版本号回写后的 tag 点上）时，误把更早版本的 commits 再重新
     # 归入本版 —— 这会导致 README/CHANGELOG 出现巨大的重复分组块（同一个 "✨ 新增"
     # 连续出现两次）。取"除本版外最大的 v* tag"作为起点最稳妥。
-    LAST_RELEASE_TAG="$(git tag --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname 2>/dev/null \
-        | grep -v -x "v${VERSION}" \
-        | head -n1 || true)"
+    LAST_RELEASE_TAG="$(latest_changelog_baseline)"
     GEN_ARGS=(
         "$GEN_CHANGELOG_SCRIPT"
         --version "$VERSION"
@@ -2762,9 +2766,7 @@ if [ "$DO_GITHUB_RELEASE" = "1" ]; then
         # 所以必须显式传 --since 来绕开 HEAD^ 陷阱，避免把上个版本的 commits 再重复收一遍。
         AUTO_NOTES=""
         if [ -f "$GEN_CHANGELOG_SCRIPT" ]; then
-            NOTES_SINCE_TAG="$(git tag --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname 2>/dev/null \
-                | grep -v -x "v${VERSION}" \
-                | head -n1 || true)"
+            NOTES_SINCE_TAG="$(latest_changelog_baseline)"
             SECTION_ARGS=( --version "$VERSION" --section )
             [ -n "$NOTES_SINCE_TAG" ] && SECTION_ARGS+=( --since "$NOTES_SINCE_TAG" )
             CHANGELOG_SECTION="$(node "$GEN_CHANGELOG_SCRIPT" "${SECTION_ARGS[@]}" 2>/dev/null || true)"
