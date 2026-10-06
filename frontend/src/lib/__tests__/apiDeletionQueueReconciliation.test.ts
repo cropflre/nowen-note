@@ -74,6 +74,7 @@ describe("API deletion queue reconciliation", () => {
     expect(getQueue().map((item) => item.noteId)).toEqual(["protected-b"]);
   });
   beforeEach(() => {
+    (window as any).nowenDesktop = { isDesktop: true };
     localStorage.clear();
     localStorage.setItem("nowen-server-url", "http://sync-test.local");
     localStorage.setItem("nowen-token", "test.token.value");
@@ -82,6 +83,7 @@ describe("API deletion queue reconciliation", () => {
   });
 
   afterEach(() => {
+    delete (window as any).nowenDesktop;
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
   });

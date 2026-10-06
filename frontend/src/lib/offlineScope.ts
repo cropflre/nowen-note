@@ -1,4 +1,6 @@
 // Shared server/account identity for offline storage and conversion barriers.
+import { inferBrowserServerBaseUrl, isNativeClientRuntime } from "./serverUrl";
+
 export const STORAGE_KEY_PREFIX = "nowen-offline-queue:v2";
 
 function normalizeScopePart(value: string): string {
@@ -43,6 +45,10 @@ function getServerScope(): string {
     ? window.location.origin
     : "";
   const isDesktop = typeof window !== "undefined" && !!(window as any).nowenDesktop?.isDesktop;
+
+  if (!isNativeClientRuntime()) {
+    return normalizeUrl(inferBrowserServerBaseUrl() || origin) || "same-origin";
+  }
 
   if (isDesktop && ((server && isLoopbackUrl(server)) || (!server && origin && isLoopbackUrl(origin)))) {
     return "local-desktop";

@@ -65,7 +65,7 @@ import { PhaseAPerfProfiler } from "@/components/PhaseAPerfProfiler";
 import { isAccountLoginHistorySupported, saveAccountLoginHistory } from "@/lib/accountLoginHistory";
 import SidebarSearchExperienceBridge from "@/components/SidebarSearchExperienceBridge";
 import FloatingLayerHost from "@/components/FloatingLayerHost";
-import { stripServerBasePath } from "@/lib/serverUrl";
+import { isNativeClientRuntime, stripServerBasePath } from "@/lib/serverUrl";
 import {
   APP_PATH_CHANGED_EVENT,
   replaceAppPathState,
@@ -194,12 +194,6 @@ function getTokenExpiresAt(token: string): number | null {
   } catch {
     return null;
   }
-}
-
-function isNativeClientRuntime(): boolean {
-  return !!(window as any).nowenDesktop?.isDesktop
-    || !!(window as any).Capacitor?.isNativePlatform?.()
-    || (!!(window as any).Capacitor?.platform && (window as any).Capacitor.platform !== "web");
 }
 
 async function fetchWebUiEnabled(): Promise<boolean> {
@@ -1071,20 +1065,7 @@ function AuthGate() {
     }
   }, [isAuthenticated]);
 
-  // 判断是否为客户端模式（Electron / Android / 曾配置过服务器地址）
-  //
-  // Electron 打包后窗口加载的是 http://127.0.0.1:<port>/，protocol 是 "http:" 而非 "file:"，
-  // 所以不能只靠 protocol 判断。preload 会注入 window.nowenDesktop.isDesktop=true，
-  // 用它精确识别 Electron 桌面端 —— 同一个 Electron 窗口既能连"内置 backend"（localhost）
-  // 也能连"远程服务器"（填 IP + 端口），登录页会展示服务器地址输入框。
-  const isCapacitor = !!(window as any).Capacitor?.isNativePlatform?.()
-    || !!(window as any).Capacitor?.platform && (window as any).Capacitor.platform !== "web";
-  const isElectron = !!(window as any).nowenDesktop?.isDesktop;
-  const isClientMode = window.location.protocol === "file:"
-    || window.location.protocol === "capacitor:"
-    || isCapacitor
-    || isElectron
-    || !!getServerUrl();
+  const isClientMode = isNativeClientRuntime();
 
   const checkAuth = useCallback(() => {
     const token = getAccessToken();
@@ -1348,7 +1329,7 @@ function AuthGate() {
         clearAuthTokens();
         setIsAuthenticated(false);
         setUser(null);
-      } else if (ev.key === "nowen-server-url") {
+      } else if (ev.key === "nowen-server-url" && isClientMode) {
         // 服务器地址改了，接下来的 API 调用需要刷新页面才能命中新 base URL
         // 只有已登录（或正在展示列表）才需要 reload，未登录状态本身就在输服务器地址那一步，不用动
         if (isAuthenticated) {
@@ -1358,7 +1339,7 @@ function AuthGate() {
     };
     window.addEventListener("storage", onStorage);
     return () => window.removeEventListener("storage", onStorage);
-  }, [checkAuth, isAuthenticated]);
+  }, [checkAuth, isAuthenticated, isClientMode]);
 
   // Phase 7: 标记"本次登录是否刚通过密码完成"——
   //   只有密码登录的用户才会被引导启用快速登录；

@@ -36,7 +36,7 @@ import {
 interface LoginPageProps {
   onLogin: (token: string, user: any) => void;
   onAccountLogin?: (token: string, user: AuthUser) => void;
-  /** 是否为客户端模式（Electron / Android / 曾配置过服务器地址） */
+  /** 是否为客户端模式（Electron / Android） */
   isClientMode?: boolean;
   onDisconnect?: () => void;
   /** Android 账号登录页返回设备本地模式。 */
@@ -93,6 +93,8 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
   const [isLoading, setIsLoading] = useState(false);
   const [isAuthorizingUgreen, setIsAuthorizingUgreen] = useState(false);
   const [error, setError] = useState("");
+  const [serviceUnavailable, setServiceUnavailable] = useState(false);
+  const [registerConfigRetry, setRegisterConfigRetry] = useState(0);
   const [localLoginHint, setLocalLoginHint] = useState<DesktopLocalLoginHint | null>(null);
   const pendingReauthRef = useRef<{ serverUrl: string; username: string } | null>(null);
   const pendingUgreenLoginRef = useRef(false);
@@ -239,11 +241,15 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
       if (cancelled) return;
       setAllowRegistration(cfg.allowRegistration);
       setHasUsers(!!(cfg as any).hasUsers || Number((cfg as any).userCount || 0) > 0);
+      setServiceUnavailable(false);
     }).catch(() => {
-      if (!cancelled) setAllowRegistration(true);
+      if (!cancelled) {
+        setAllowRegistration(true);
+        if (!isClientMode) setServiceUnavailable(true);
+      }
     });
     return () => { cancelled = true; };
-  }, [isClientMode, serverStatus]);
+  }, [isClientMode, serverStatus, registerConfigRetry]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -350,7 +356,7 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
   };
 
   const resolveBaseUrl = async (): Promise<string | null> => {
-    if (!isClientMode) return "";
+    if (!isClientMode) return getServerUrl();
     const url = buildServerUrl(serverParts);
     if (!url) {
       setError(t("auth.serverRequired"));
@@ -452,6 +458,7 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
+    setServiceUnavailable(false);
     setIsLoading(true);
     try {
       const baseUrl = await resolveBaseUrl();
@@ -494,11 +501,17 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
         });
       } catch {
         console.error("[login] no HTTP response");
-        setError(t("auth.loginNoResponse", { target }));
+        if (isClientMode) setError(t("auth.loginNoResponse", { target }));
+        else setServiceUnavailable(true);
         return;
       }
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
+        if (!isClientMode) {
+          if (res.status >= 500) setServiceUnavailable(true);
+          else setError(data.error || t("auth.loginFailed"));
+          return;
+        }
         setError(t("auth.loginHttpError", {
           status: res.status,
           target,
@@ -529,7 +542,8 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
       onLogin(data.token, data.user);
     } catch (err: any) {
       console.error("[login] setup or session failed", { name: err?.name || "unknown" });
-      setError(t("auth.loginSessionError"));
+      if (!isClientMode && (err?.name === "TypeError" || err?.status >= 500)) setServiceUnavailable(true);
+      else setError(t("auth.loginSessionError"));
     } finally {
       setIsLoading(false);
     }
@@ -549,12 +563,11 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
 
     setIsLoading(true);
     setError("");
+    setServiceUnavailable(false);
 
     try {
-      const baseUrl = twoFactorBaseUrl || (isClientMode ? buildServerUrl(serverParts) : "");
-      const verifyUrl = baseUrl
-        ? `${getResolvedApiBaseUrl(baseUrl)}/auth/2fa/verify`
-        : "/api/auth/2fa/verify";
+      const baseUrl = twoFactorBaseUrl || (isClientMode ? buildServerUrl(serverParts) : getServerUrl());
+      const verifyUrl = `${getResolvedApiBaseUrl(baseUrl)}/auth/2fa/verify`;
       const { getDeviceId } = await import("@/lib/deviceId");
       const res = await fetch(verifyUrl, {
         method: "POST",
@@ -568,6 +581,10 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
       const data = await res.json().catch(() => ({}));
 
       if (!res.ok) {
+        if (!isClientMode && res.status >= 500) {
+          setServiceUnavailable(true);
+          return;
+        }
         if (data.code === "TFA_TICKET_EXPIRED") {
           setLoginStep("password");
           setTwoFactorTicket("");
@@ -594,7 +611,8 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
       await completeLocalLoginHintIfMatched(baseUrl || "", data.user?.username || twoFactorUsername || username.trim());
       onLogin(data.token, data.user);
     } catch (err: any) {
-      setError(err?.message || t("auth.networkError"));
+      if (!isClientMode) setServiceUnavailable(true);
+      else setError(err?.message || t("auth.networkError"));
     } finally {
       setIsLoading(false);
     }
@@ -754,6 +772,19 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
               </motion.div>
             )}
           </AnimatePresence>
+
+          {!isClientMode && serviceUnavailable && (
+            <div role="alert" className="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-600 dark:border-red-500/20 dark:bg-red-500/10 dark:text-red-400">
+              <p>{t("auth.serviceUnavailable")}</p>
+              <button type="button" onClick={() => {
+                setError("");
+                setServiceUnavailable(false);
+                setRegisterConfigRetry((attempt) => attempt + 1);
+              }} className="mt-2 font-medium underline underline-offset-2">
+                {t("auth.retryConnection")}
+              </button>
+            </div>
+          )}
 
           <form ref={formRef} onSubmit={isTwoFactorStep ? handleTwoFactorSubmit : handleSubmit} className="space-y-4">
             {isTwoFactorStep ? (
@@ -988,7 +1019,7 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
             </div>
           )}
 
-          {!isTwoFactorStep && <p className="text-center text-xs text-zinc-400 dark:text-zinc-600 mt-6">
+          {!isTwoFactorStep && !serviceUnavailable && <p className="text-center text-xs text-zinc-400 dark:text-zinc-600 mt-6">
             {isRegister ? t("auth.registerHint") : (hasUsers ? null : t("auth.defaultCredentials"))}
           </p>}
 

@@ -86,6 +86,8 @@
   "auth": {
     "verifying": "Verifying identity...",
     "loginFailed": "Login failed",
+    "serviceUnavailable": "Unable to connect to the service. Check your connection or try again later.",
+    "retryConnection": "Retry",
     "loginNoResponse": "No HTTP response to the login request ({{target}}). Check server availability, address, certificate, CORS/CSP, and reverse proxy; this does not mean the password is wrong.",
     "loginHttpError": "Login request returned HTTP {{status}} ({{target}}): {{reason}}",
     "loginSessionError": "Local session handling failed after login. Please retry or check the application log.",

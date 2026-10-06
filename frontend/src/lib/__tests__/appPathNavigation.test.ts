@@ -6,6 +6,24 @@ import {
 
 describe("app path navigation", () => {
   it.each([
+    ["/notes/note-two", "https://note.example.com/nowen/notes/note-one", "/nowen/notes/note-two"],
+    ["/sheets/sheet-one", "https://note.example.com/nowen/notes/note-one", "/nowen/sheets/sheet-one"],
+    ["/", "https://note.example.com/nowen/notes/note-one", "/nowen/"],
+    ["/notes/note-two", "https://note.example.com/notes/note-one", "/notes/note-two"],
+  ])("应用导航 %s 保留部署前缀", (appPath, currentHref, expected) => {
+    expect(buildAppPathUrl(appPath, currentHref, false)).toBe(expected);
+  });
+
+  it.each([
+    ["https://note.example.com/nowen/notes/note-one", "/notes/note-one"],
+    ["https://note.example.com/nowen/mindmaps/map-one", "/mindmaps/map-one"],
+    ["https://note.example.com/nowen/sheets/sheet-one", "/sheets/sheet-one"],
+    ["https://note.example.com/nowen/trash", "/trash"],
+  ])("子路径 URL %s 解析为应用路由", (href, expected) => {
+    expect(resolveCurrentAppPathname(href, false)).toBe(expected);
+  });
+
+  it.each([
     ["/issues", "https://note.example.com/nowen/", "/nowen/issues"],
     ["/issues/issue-one", "https://note.example.com/nowen/issues", "/nowen/issues/issue-one"],
     ["/", "https://note.example.com/nowen/issues/issue-one", "/nowen/"],
@@ -33,7 +51,7 @@ describe("app path navigation", () => {
   });
 
   it("keeps normal web navigation paths unchanged", () => {
-    expect(buildAppPathUrl("/public", "https://note.example.com/workspace", false)).toBe("/public");
+    expect(buildAppPathUrl("/public", "https://note.example.com/", false)).toBe("/public");
     expect(resolveCurrentAppPathname("https://note.example.com/public/demo", false)).toBe("/public/demo");
   });
 

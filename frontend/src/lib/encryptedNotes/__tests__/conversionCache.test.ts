@@ -1,4 +1,4 @@
-import { beforeEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { Note } from "@/types";
 vi.mock("@/lib/api", () => ({ api: {}, getCurrentWorkspace: () => "personal" }));
 vi.mock("@/lib/localStore", () => ({ isReady: () => true, putNote: vi.fn() }));
@@ -9,7 +9,12 @@ import { markConvertedNote } from "../conversionBarrier";
 import vector from "./fixtures/envelope-v1.json";
 
 const original = { id: "note", userId: "owner", notebookId: "book", title: "title", version: 1, content: "private source", contentText: "private source", contentFormat: "markdown", createdAt: "2026-10-03", updatedAt: "2026-10-03" } as Note;
-beforeEach(() => { localStorage.clear(); vi.clearAllMocks(); });
+beforeEach(() => {
+  (window as any).nowenDesktop = { isDesktop: true };
+  localStorage.clear();
+  vi.clearAllMocks();
+});
+afterEach(() => { delete (window as any).nowenDesktop; });
 it("a deferred cache callback cannot write a former account's body into the current cache", async () => {
   const scope = getOfflineQueueStorageKey();
   localStorage.setItem("nowen-server-url", "https://other.example.test");

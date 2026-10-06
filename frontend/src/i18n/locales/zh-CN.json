@@ -86,6 +86,8 @@
   "auth": {
     "verifying": "正在验证身份...",
     "loginFailed": "登录失败",
+    "serviceUnavailable": "暂时无法连接服务，请检查网络或稍后重试。",
+    "retryConnection": "重试",
     "loginNoResponse": "登录请求未收到 HTTP 响应（{{target}}）。请检查服务器是否运行、地址、证书、CORS/CSP 和反向代理；这不代表密码错误。",
     "loginHttpError": "登录请求返回 HTTP {{status}}（{{target}}）：{{reason}}",
     "loginSessionError": "登录后的本地会话处理失败，请重试或查看应用日志。",

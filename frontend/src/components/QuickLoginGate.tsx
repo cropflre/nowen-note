@@ -36,7 +36,7 @@ import { fetchWithAuthRefresh, getAccessToken, storeAuthTokens } from "@/lib/aut
 import { getResolvedApiBaseUrl } from "@/lib/serverUrl";
 
 interface Props {
-  /** 是否处于客户端模式（Electron / Capacitor / 曾配置过服务器地址） */
+  /** 是否处于客户端模式（Electron / Capacitor） */
   isClientMode: boolean;
   /**
    * 询问 / 处理完毕时回调：

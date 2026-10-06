@@ -51,6 +51,7 @@ import {
   clearResolvedServerConnection as _clearResolvedServerConnection,
   getResolvedApiBaseUrl as _getResolvedApiBaseUrl,
   inferBrowserServerBaseUrl as _inferBrowserServerBaseUrl,
+  isNativeClientRuntime,
   normalizeServerBaseUrl as _normalizeBase,
   type ProxyCompatibilityMode,
   type ServerPathCandidate,
@@ -179,10 +180,11 @@ function shouldPreferInjectedServerUrl(stored: string, injected: string): boolea
  * 不写 localStorage，无副作用。
  */
 export function getServerUrl(): string {
+  if (!isNativeClientRuntime()) return _inferBrowserServerBaseUrl();
   const injected = readServerUrlFromQuery();
   const stored = localStorage.getItem(SERVER_URL_KEY) || "";
   const raw = shouldPreferInjectedServerUrl(stored, injected) ? injected : stored;
-  return _normalizeBase(raw) || _inferBrowserServerBaseUrl();
+  return _normalizeBase(raw);
 }
 
 /**
@@ -217,6 +219,7 @@ export function clearServerUrl() {
  * 调用时机：App.tsx 最顶层 useEffect，仅执行一次。
  */
 export function initializeServerUrlFromRuntime(): void {
+  if (!isNativeClientRuntime()) return;
   const injected = readServerUrlFromQuery();
   const stored = localStorage.getItem(SERVER_URL_KEY) || "";
 
@@ -5248,7 +5251,7 @@ export async function registerAccount(
     body: JSON.stringify(data),
   });
   const json = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(json.error || `注册失败: ${res.status}`);
+  if (!res.ok) throw Object.assign(new Error(json.error || `注册失败: ${res.status}`), { status: res.status });
   return json;
 }
 
@@ -5257,11 +5260,8 @@ export async function registerAccount(
  */
 export async function fetchRegisterConfig(baseUrlOverride?: string): Promise<{ allowRegistration: boolean }> {
   const base = baseUrlOverride ? _getResolvedApiBaseUrl(baseUrlOverride) : getBaseUrl();
-  try {
-    const res = await fetch(`${base}/auth/register/config`);
-    if (!res.ok) return { allowRegistration: true };
-    return await res.json();
-  } catch {
-    return { allowRegistration: true };
-  }
+  const res = await fetch(`${base}/auth/register/config`);
+  if (res.status >= 500) throw new Error(`HTTP ${res.status}`);
+  if (!res.ok) return { allowRegistration: true };
+  return await res.json();
 }

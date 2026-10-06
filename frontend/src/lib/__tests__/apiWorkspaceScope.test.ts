@@ -1,8 +1,13 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api } from "@/lib/api";
 
 describe("API 工作区参数", () => {
+  beforeEach(() => {
+    (window as any).nowenDesktop = { isDesktop: true };
+  });
+
   afterEach(() => {
+    delete (window as any).nowenDesktop;
     vi.restoreAllMocks();
     localStorage.clear();
   });

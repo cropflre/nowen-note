@@ -204,6 +204,17 @@ export function normalizeServerBaseUrl(input: string | null | undefined): string
   return `${protocol}://${url.host}${pathPrefix}`;
 }
 
+/** 客户端身份由运行环境决定，不受服务器配置或当前页面路径影响。 */
+export function isNativeClientRuntime(): boolean {
+  if (typeof window === "undefined") return false;
+  const runtime = window as any;
+  return window.location.protocol === "file:"
+    || window.location.protocol === "capacitor:"
+    || !!runtime.nowenDesktop?.isDesktop
+    || !!runtime.Capacitor?.isNativePlatform?.()
+    || (!!runtime.Capacitor?.platform && runtime.Capacitor.platform !== "web");
+}
+
 /**
  * Web 端被部署在反向代理子路径时，从当前页面地址推断 serverBaseUrl。
  * 原生客户端与 Electron 使用显式服务器地址，不走这里。
@@ -217,8 +228,9 @@ export function inferBrowserServerBaseUrl(
   let pathname = locationLike.pathname.replace(/\/+$/, "");
   const routeSuffix = pathname.match(/\/(?:share|notebook-share)\/[A-Za-z0-9_-]+$/)?.[0]
     || pathname.match(/\/issues(?:\/[A-Za-z0-9-]+)?$/)?.[0]
+    || pathname.match(/\/(?:notes|mindmaps|sheets)(?:\/[^/]+)?$/i)?.[0]
     || pathname.match(/\/public(?:\/[^/]+)?$/)?.[0]
-    || pathname.match(/\/login$/)?.[0]
+    || pathname.match(/\/(?:login|trash)$/)?.[0]
     || "";
   if (routeSuffix) pathname = pathname.slice(0, -routeSuffix.length);
   if (!pathname || pathname === "/") return "";
