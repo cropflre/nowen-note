@@ -1,7 +1,7 @@
 import React, { useEffect, useCallback, useState, useRef, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { Plus, Pin, PinOff, Star, StarOff, Clock, FileText, FileCode, FileType2, Trash2, Menu, MoreHorizontal, FolderInput, ChevronRight, ChevronDown, ChevronLeft, Folder, X, Check, Lock, Unlock, CalendarDays, RefreshCw, Share2, GripVertical, Download, ArrowUpDown, ArrowUp, ArrowDown, Image as ImageIcon, Printer, User as UserIcon, Sparkles, Tag as TagIcon, Loader2, FileUp, AlertTriangle, Copy, LayoutTemplate, SplitSquareHorizontal, SplitSquareVertical, ArrowLeftRight, Pencil, ShieldCheck, Palette } from "lucide-react";
+import { Plus, Pin, PinOff, Star, StarOff, Clock, FileText, FileCode, FileType2, Trash2, Menu, MoreHorizontal, SlidersHorizontal, FolderInput, ChevronRight, ChevronDown, ChevronLeft, Folder, X, Check, Lock, Unlock, CalendarDays, RefreshCw, Share2, GripVertical, Download, ArrowUpDown, ArrowUp, ArrowDown, Image as ImageIcon, Printer, User as UserIcon, Sparkles, Tag as TagIcon, Loader2, FileUp, AlertTriangle, Copy, LayoutTemplate, SplitSquareHorizontal, SplitSquareVertical, ArrowLeftRight, Pencil, ShieldCheck, Palette } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import ContextMenu, { ContextMenuItem } from "@/components/ContextMenu";
@@ -279,6 +279,10 @@ export function SortMenu({
           {/* 分割线 */}
           <div className="my-1 border-t border-app-border" />
 
+          <div className="px-3 py-1 text-[10px] uppercase tracking-wide text-tx-tertiary select-none">
+            {t("noteList.displaySettings")}
+          </div>
+
           {/* 显示更新时间开关 */}
           <button
             type="button"
@@ -327,6 +331,9 @@ export function SortMenu({
           {onToggleCalendar && (
             <>
               <div className="my-1 border-t border-app-border" />
+              <div className="px-3 py-1 text-[10px] uppercase tracking-wide text-tx-tertiary select-none">
+                {t("noteList.filters")}
+              </div>
               <button type="button" role="menuitem" onClick={() => { onToggleCalendar(); onClose(); }}
                 className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-tx-secondary hover:bg-app-hover text-left">
                 <CalendarDays size={12} />{t("noteList.dateFilter")}
@@ -1404,7 +1411,7 @@ export function VirtualNoteList({
   );
 }
 
-export default function NoteList() {
+export default function NoteList({ directorySearchActive = false }: { directorySearchActive?: boolean } = {}) {
   const { state } = useApp();
   const actions = useAppActions();
   const [sidebarTextStyle] = useSidebarTextStyle();
@@ -1874,6 +1881,7 @@ export default function NoteList() {
       )
     : sortedNotes.length;
 
+  const hasActiveFilters = directorySearchActive || !!dateFilter || state.selectedTagIds.length > 0;
   const showNotebookLabel = state.viewMode === "all";
   const notebookLabels = useMemo(() => {
     const paths = new Map<string, string>();
@@ -3498,34 +3506,34 @@ export default function NoteList() {
 
       {/* Desktop Header */}
       <div
-        className="hidden md:flex min-w-0 items-center justify-between gap-1 px-3 py-2 border-b border-app-border relative z-40"
+        className="hidden md:flex min-w-0 shrink-0 flex-wrap items-center justify-between gap-x-2 gap-y-2 px-3 py-2 border-b border-app-border relative z-40"
+        data-note-list-desktop-header
         data-note-workspace-layout={layoutMode}
       >
         <div className="flex min-w-0 flex-1 items-center gap-1.5">
           <FileText size={16} className="shrink-0 text-accent-primary" />
           <h2 className="min-w-0 truncate text-sm font-medium text-tx-primary" title={viewTitles[state.viewMode]}>{viewTitles[state.viewMode]}</h2>
-          <span className="shrink-0 text-xs tabular-nums text-tx-tertiary" title={t('common.noteCount', { count: sortedNotes.length })}>{sortedNotes.length}</span>
         </div>
         <div className="flex shrink-0 items-center gap-1 relative">
-          {/* 排序、日期和显示偏好合并为列表选项，窄栏也保持单行。 */}
+          {/* 列表选项保持可辨认；排序本身不代表筛选已开启。 */}
           {state.viewMode !== "search" && (
             <button
+              type="button"
               onClick={(e) => { sortBtnRef.current = e.currentTarget; setShowSortMenu((v) => !v); }}
               aria-expanded={showSortMenu}
               aria-haspopup="menu"
               className={cn(
-                "p-1.5 rounded-md transition-colors relative",
-                sortPref.by !== "manual"
+                "h-7 px-2 inline-flex shrink-0 items-center gap-1 rounded-md text-xs transition-colors relative",
+                showSortMenu || hasActiveFilters
                   ? "text-accent-primary bg-accent-primary/10"
                   : "text-tx-tertiary hover:bg-app-hover hover:text-tx-secondary"
               )}
               title={t("noteList.listOptions")}
               aria-label={t("noteList.listOptions")}
             >
-              <MoreHorizontal size={16} />
-              {dateFilter && (
-                <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-accent-primary" />
-              )}
+              <SlidersHorizontal size={14} className="shrink-0" />
+              <span>{t("noteList.listOptions")}</span>
+              <ChevronDown size={12} className="shrink-0" />
             </button>
           )}
             <button
@@ -3561,7 +3569,7 @@ export default function NoteList() {
 
       {dateFilter && state.viewMode !== "search" && (
         <div className="flex items-center gap-1.5 px-3 py-1 border-b border-app-border/50 text-xs text-accent-primary">
-          <CalendarDays size={12} /><span className="min-w-0 flex-1 truncate">{dateFilter}</span>
+          <CalendarDays size={12} className="shrink-0" /><span className="min-w-0 flex-1 truncate">{t("noteList.activeDateFilter", { date: dateFilter })}</span>
           <button type="button" onClick={() => setDateFilter(null)} title={t("noteList.clearFilter")} aria-label={t("noteList.clearFilter")} className="p-1 rounded hover:bg-app-hover"><X size={12} /></button>
         </div>
       )}
@@ -3580,8 +3588,8 @@ export default function NoteList() {
 
       {/* TAG-FILTER-MULTI-01: 已选标签 chip 区域 */}
       {state.selectedTagIds.length > 0 && (
-        <div className="flex min-w-0 items-center gap-1.5 px-3 py-1.5 border-b border-app-border/50 overflow-x-auto">
-          <div className="flex min-w-max items-center gap-1.5">
+        <div className="flex min-w-0 flex-wrap items-center gap-1.5 px-3 py-1.5 border-b border-app-border/50">
+          <div className="flex min-w-0 flex-wrap items-center gap-1.5">
             {state.selectedTagIds.map((tagId) => {
               const tag = state.tags.find((t) => t.id === tagId);
               if (!tag) return null;
@@ -3597,6 +3605,8 @@ export default function NoteList() {
                   />
                   <span className="truncate">{tag.name}</span>
                   <button
+                    type="button"
+                    aria-label={t("noteList.removeTagFilter", { name: tag.name })}
                     onClick={() => {
                       actions.toggleSelectedTag(tag.id);
                       // 如果移除后没有标签了，回到之前的视图（笔记本 or 全部）
@@ -3638,19 +3648,19 @@ export default function NoteList() {
 
       {/* 三栏布局：明确区分当前层级和递归范围，避免左侧总数与中栏结果产生“文件丢失”错觉。 */}
       {showThreeColumnFolderContents ? (
-        <div className="flex min-w-0 items-center justify-between gap-2 border-b border-app-border/50 px-3 py-1.5">
-          <span className="min-w-0 truncate text-[10px] text-tx-tertiary">
-            {currentFolderOnly
+        <div className="flex min-w-0 shrink-0 flex-wrap items-center justify-between gap-2 border-b border-app-border/50 px-3 py-1.5">
+          <span className="min-w-0 text-xs text-tx-secondary" role="status">
+            {hasActiveFilters
+              ? t("noteList.matchCount", { count: sortedNotes.length })
+              : currentFolderOnly
               ? t("noteList.currentFolderCount", {
                   direct: displayedDirectNoteCount,
                   total: displayedTotalNoteCount,
-                  folders: visibleChildFolders.length,
-                  defaultValue: "本层 {{direct}} 篇 · 共 {{total}} 篇 · {{folders}} 个子文件夹",
+                  defaultValue: "本层 {{direct}} 篇 · 共 {{total}} 篇",
                 })
               : t("noteList.recursiveFolderCount", {
                   total: displayedTotalNoteCount,
-                  folders: visibleChildFolders.length,
-                  defaultValue: "共 {{total}} 篇 · {{folders}} 个直属子文件夹",
+                  defaultValue: "共 {{total}} 篇",
                 })}
           </span>
           <div
@@ -3671,23 +3681,23 @@ export default function NoteList() {
                     saveThreeColumnFolderScopeMode(nextMode);
                   }}
                   className={cn(
-                    "rounded px-2 py-1 text-[10px] font-medium transition-colors",
+                    "rounded px-2 py-1 text-xs font-medium transition-colors",
                     active
                       ? "bg-app-elevated text-tx-primary shadow-sm"
                       : "text-tx-tertiary hover:text-tx-secondary",
                   )}
                 >
                   {mode === "current"
-                    ? t("noteList.currentLevel", { defaultValue: "当前层级" })
-                    : t("noteList.includeSubfolders", { defaultValue: "包含子文件夹" })}
+                    ? t("noteList.currentLevel", { defaultValue: "本层" })
+                    : t("noteList.includeSubfolders", { defaultValue: "含子目录" })}
                 </button>
               );
             })}
           </div>
         </div>
       ) : (
-        <div className="px-4 py-1.5 md:hidden">
-          <span className="text-[10px] text-tx-tertiary">{t('common.noteCount', { count: sortedNotes.length })}</span>
+        <div className="shrink-0 border-b border-app-border/50 px-3 py-1.5">
+          <span className="text-xs text-tx-secondary" role="status">{t(hasActiveFilters || state.viewMode === "search" ? "noteList.matchCount" : "common.noteCount", { count: sortedNotes.length })}</span>
         </div>
       )}
 

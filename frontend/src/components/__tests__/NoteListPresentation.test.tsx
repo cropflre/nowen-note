@@ -113,9 +113,15 @@ describe("NoteList compact cards and controls", () => {
     expect(calendar).toHaveBeenCalledOnce();
     expect(source.match(/<SortMenu /g)).toHaveLength(1);
     const header = source.slice(source.indexOf("{/* Desktop Header */}"), source.indexOf("{/* 日历筛选面板 */}"));
-    expect(header).not.toContain("flex-wrap");
+    expect(header).toContain("flex-wrap");
+    expect(header).toContain("data-note-list-desktop-header");
+    expect(header).toContain("<SlidersHorizontal");
+    expect(header).toContain("<span>{t(\"noteList.listOptions\")}</span>");
+    expect(header).not.toContain('sortPref.by !== "manual"');
     expect(header).toContain('t("noteList.listOptions")');
     expect(header).toContain('onClick={() => setDateFilter(null)}');
+    expect(document.querySelector('[role="menu"]')?.textContent).toContain("noteList.displaySettings");
+    expect(document.querySelector('[role="menu"]')?.textContent).toContain("noteList.filters");
   });
   it("shares row height in virtual lists and clamps scroll when switching to titles only", () => {
     const notes = Array.from({ length: 200 }, (_, i) => ({ ...note, id: `note-${i}`, title: `笔记 ${i}` }));
