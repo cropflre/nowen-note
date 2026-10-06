@@ -301,7 +301,7 @@ async function createOrLoadConflictCopy(
   }
 }
 
-async function useServerVersion(
+async function applyServerVersion(
   item: OfflineQueueItem,
   remote: Note,
   local: ConflictPayload,
@@ -330,7 +330,7 @@ export async function resolveNoteConflict(
   if (choice === "keep-local") {
     return keepLocalVersion(item, remote, local);
   }
-  return useServerVersion(item, remote, local);
+  return applyServerVersion(item, remote, local);
 }
 
 export async function resolveQueuedNoteConflicts(
@@ -355,7 +355,7 @@ export async function resolveQueuedNoteConflicts(
       // 服务器当前 revision 作为正式版本；清理冲突前先确认本地副本已经落库。
       const remote = await api.getNote(item.noteId);
       if (isProtectedNotePayload(remote)) continue;
-      const result = await useServerVersion(item, remote, getConflictLocalPayload(item, remote));
+      const result = await applyServerVersion(item, remote, getConflictLocalPayload(item, remote));
       if (typeof window !== "undefined") {
         const detail: NoteConflictAutoResolvedDetail = {
           note: result.note,

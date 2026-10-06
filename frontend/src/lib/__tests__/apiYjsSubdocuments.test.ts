@@ -3,11 +3,11 @@ import { api } from "@/lib/api";
 
 describe("Y.js Subdocument API", () => {
   beforeEach(() => {
-    (window as any).nowenDesktop = { isDesktop: true };
+    Object.assign(window, { nowenDesktop: { isDesktop: true } });
   });
 
   afterEach(() => {
-    delete (window as any).nowenDesktop;
+    Reflect.deleteProperty(window, "nowenDesktop");
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
     localStorage.clear();

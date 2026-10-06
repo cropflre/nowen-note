@@ -31,7 +31,7 @@ export async function collectWechatArticles(text: string) {
 // Automatic reads never trigger a browser permission request. A paste event works
 // even when clipboard-read is unavailable (HTTP LAN, Safari, mobile WebViews).
 export async function readWechatClipboard(): Promise<string[]> {
-  const desktop = (window as any).nowenDesktop;
+  const desktop = (window as Window & { nowenDesktop?: { readWechatArticleClipboard?: () => Promise<string> } }).nowenDesktop;
   if (desktop?.readWechatArticleClipboard) return wechatArticleLinks(await desktop.readWechatArticleClipboard());
   if (!document.hasFocus() || !navigator.clipboard?.readText || !navigator.permissions?.query) return [];
   try {

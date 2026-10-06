@@ -20,7 +20,7 @@ export interface OpenCameraOptions {
 
 function isNativeCapacitorRuntime(): boolean {
   try {
-    return Boolean((window as any)?.Capacitor?.isNativePlatform?.());
+    return Boolean((window as Window & { Capacitor?: { isNativePlatform?: () => boolean } })?.Capacitor?.isNativePlatform?.());
   } catch {
     return false;
   }
@@ -48,7 +48,7 @@ export function shouldUseManagedPhotoCapture(input: HTMLInputElement): boolean {
   if (input.dataset.nowenCameraFallback === "1") return false;
   if (isNativeCapacitorRuntime()) return false;
 
-  const desktopRuntime = Boolean((window as any)?.nowenDesktop?.isDesktop);
+  const desktopRuntime = Boolean((window as Window & { nowenDesktop?: { isDesktop?: boolean } })?.nowenDesktop?.isDesktop);
   if (desktopRuntime) return true;
 
   // Preserve iOS/Android browser capture semantics. Desktop browsers, including

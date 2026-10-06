@@ -93,7 +93,7 @@ describe("hostile envelopes and bounded inputs", () => {
   it.each(["wrappedKey.iv", "wrappedKey.ciphertext", "payload.iv", "payload.ciphertext", "kdf.salt"])("rejects tampering with %s and preserves the input", async (field) => {
     const changed = structuredClone(original);
     const [section, key] = field.split(".");
-    const target = (changed as any)[section]; target[key] = flip(target[key]);
+    const target = (changed as unknown as Record<string, Record<string, string>>)[section]; target[key] = flip(target[key]);
     const before = JSON.stringify(changed);
     await expect(decryptEncryptedContent(changed, fixture.passphrase, identity)).rejects.toMatchObject({ code: "unlock-failed" });
     expect(JSON.stringify(changed)).toBe(before);

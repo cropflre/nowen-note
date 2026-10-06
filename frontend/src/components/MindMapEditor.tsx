@@ -3,7 +3,7 @@ import {
   BrainCircuit, Plus, Edit2,
   ZoomIn, ZoomOut, Maximize2, Minimize2, Scan,
   Loader2, Check, Map as MapIcon, Image, FileImage, FileDown, MoreHorizontal,
-  Undo2, Redo2, PanelLeft, ChevronLeft, ChevronRight, ChevronDown, Link as LinkIcon, StickyNote, Palette, ExternalLink, FileText, ArrowDownToLine, Spline, Square, Pipette, Search as SearchIcon, ChevronUp, AlertTriangle, X, Copy
+  Undo2, Redo2, PanelLeft, ChevronLeft, ChevronRight, ChevronDown, Link as LinkIcon, StickyNote, ExternalLink, FileText, ArrowDownToLine, Spline, Square, Search as SearchIcon, ChevronUp, AlertTriangle, X, Copy
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { api } from "@/lib/api";

@@ -6,7 +6,7 @@ import QuickPanel from "../MobileKnowledgeTreePanel";
 import { revealCreatedKnowledgeTreeNote } from "@/lib/knowledgeTreeCreateVisibility";
 import type { KnowledgeTreeNode } from "@/lib/knowledgeTreeApi";
 
-(globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
+Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 if (!HTMLElement.prototype.scrollIntoView) HTMLElement.prototype.scrollIntoView = () => {};
 
 const mock = vi.hoisted(() => ({

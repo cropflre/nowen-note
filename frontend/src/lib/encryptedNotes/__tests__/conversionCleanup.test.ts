@@ -47,7 +47,7 @@ it.each(["id", "userId", "version", "content", "contentText", "contentFormat"])(
   expect(localStorage.getItem("nowen-draft-note")).toBe("private-source");
 });
 it("requires explicit discard consent", async () => {
-  await expect(cleanupConvertedNoteCopies({ ...input, discardLocalCopies: false } as any, load)).rejects.toMatchObject({ code: "invalid_consent" });
+  await expect(cleanupConvertedNoteCopies({ ...input, discardLocalCopies: false } as unknown as ConversionCleanupInput, load)).rejects.toMatchObject({ code: "invalid_consent" });
   expect(load).not.toHaveBeenCalled();
 });
 it.each(["scoped", "legacy"])("refuses %s pending writes instead of silently dropping newer text", async (scope) => {
@@ -78,9 +78,9 @@ it("an uninitialized or other-account cache is unknown, never silently skipped",
   expect(load).not.toHaveBeenCalled();
 });
 it("busy or unavailable coordination performs no server read or deletion", async () => {
-  vi.mocked(navigator.locks.request).mockImplementation(async (_name: any, _options: any, callback: any) => callback(null));
+  vi.mocked(navigator.locks.request).mockImplementation(async (_name: string, _options: LockOptions, callback: LockGrantedCallback) => callback(null));
   await expect(cleanupConvertedNoteCopies(input, load)).rejects.toMatchObject({ code: "busy" });
-  vi.spyOn(navigator, "locks", "get").mockReturnValue(undefined as any);
+  vi.spyOn(navigator, "locks", "get").mockReturnValue(undefined as unknown as LockManager);
   await expect(cleanupConvertedNoteCopies(input, load)).rejects.toMatchObject({ code: "unavailable" });
   expect(load).not.toHaveBeenCalled();
 });
@@ -115,8 +115,8 @@ it("a resurrected cache record cannot be reported as cleaned", async () => {
 it("a failed Yjs delete keeps cache and draft and reveals no browser error", async () => {
   vi.mocked(indexedDB.databases).mockResolvedValue([{ name: "target-yjs" }]);
   vi.mocked(indexedDB.deleteDatabase).mockImplementation(() => {
-    const request: any = {};
-    queueMicrotask(() => request.onerror());
+    const request = {} as IDBOpenDBRequest;
+    queueMicrotask(() => request.onerror?.(new Event("error")));
     return request;
   });
   await expect(cleanupConvertedNoteCopies(input, load)).rejects.toMatchObject({ code: "storage_failed" });

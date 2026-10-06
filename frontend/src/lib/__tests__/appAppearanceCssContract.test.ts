@@ -42,7 +42,7 @@ describe("app appearance css contract", () => {
 
   it("contains no appearance-specific palette values", () => {
     for (const id of ["paper", "minimal", "eye-care", "developer", "magazine"]) {
-      expect(css).not.toContain(`data-app-appearance=\"${id}\"`);
+      expect(css).not.toContain(`data-app-appearance="${id}"`);
     }
     expect(css).not.toMatch(/#[0-9a-f]{3,8}/i);
   });

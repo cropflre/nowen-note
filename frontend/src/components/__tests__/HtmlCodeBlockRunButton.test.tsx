@@ -13,7 +13,7 @@ vi.mock("@tiptap/react", () => ({
   NodeViewContent: (props: React.HTMLAttributes<HTMLElement>) => <code {...props} />,
 }));
 vi.mock("@/components/MermaidView", () => ({ default: () => null }));
-(globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
+Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
 describe("HTML code block manual execution", () => {
   let host: HTMLDivElement;

@@ -39,7 +39,7 @@ function mayLeave() {
   return allowed;
 }
 beforeEach(() => {
-  (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
+  Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
   vi.useFakeTimers(); mocks.scope = "account-a"; mocks.crypto.mockReset(); mocks.save.mockReset(); mocks.setNote.mockReset();
   mocks.crypto.mockImplementation(async (request) => request.operation === "decrypt" ? "Private initial" : request.input.envelope || block);
   mocks.save.mockImplementation(async (base: Note, content: string) => ({ ...base, content, version: base.version + 1 }));
@@ -214,7 +214,7 @@ it("rejects an acknowledgement of different ciphertext instead of claiming the d
   expect(document.body.textContent).toContain("锁定未完成"); expect(mocks.setNote).not.toHaveBeenCalled();
 });
 it.each(["encryption", "write"])("account change during %s prevents a late result from restoring or writing the old session", async (stage) => {
-  let resolve!: (value: any) => void;
+  let resolve!: (value: unknown) => void;
   act(() => root.render(<EncryptedNotePane note={note} />)); await unlockNote(); await fill("加密 Markdown 正文", "Private draft");
   if (stage === "encryption") mocks.crypto.mockImplementationOnce(() => new Promise((done) => { resolve = done; }));
   else mocks.save.mockImplementationOnce(() => new Promise((done) => { resolve = done; }));

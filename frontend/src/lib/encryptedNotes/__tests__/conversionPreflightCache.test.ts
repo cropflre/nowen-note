@@ -6,7 +6,7 @@ vi.mock("idb", () => ({ openDB: vi.fn() }));
 const getKey = vi.fn(); const close = vi.fn();
 beforeEach(() => {
   vi.resetAllMocks(); localStorage.clear(); setCurrentUser(null);
-  vi.mocked(openDB).mockResolvedValue({ getKey, close, get: vi.fn().mockResolvedValue(undefined) } as any);
+  vi.mocked(openDB).mockResolvedValue({ getKey, close, get: vi.fn().mockResolvedValue(undefined) } as unknown as import("idb").IDBPDatabase<unknown>);
   getKey.mockResolvedValue("note");
 });
 afterEach(() => setCurrentUser(null));

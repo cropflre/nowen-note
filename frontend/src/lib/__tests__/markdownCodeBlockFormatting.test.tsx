@@ -2,7 +2,7 @@
 import React, { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { Compartment, EditorState } from "@codemirror/state";
+import { Compartment, EditorState, type Extension } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { markdown } from "@codemirror/lang-markdown";
 import { history, undo } from "@codemirror/commands";
@@ -14,17 +14,17 @@ import {
 } from "@/lib/markdownCodeBlockFormatting";
 
 vi.mock("react-i18next", () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
-(globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
+Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 const views: EditorView[] = [];
 beforeAll(() => {
-  (globalThis as any).ResizeObserver ||= class { observe() {} unobserve() {} disconnect() {} };
+  globalThis.ResizeObserver ||= class { observe() {} unobserve() {} disconnect() {} } as unknown as typeof ResizeObserver;
 });
 afterEach(async () => {
   await act(async () => { views.splice(0).forEach((view) => view.destroy()); });
   document.body.innerHTML = "";
 });
 
-function editor(doc: string, extensions: any[] = [], anchor = 0) {
+function editor(doc: string, extensions: Extension[] = [], anchor = 0) {
   const parent = document.createElement("div");
   document.body.appendChild(parent);
   const view = new EditorView({ parent, state: EditorState.create({ doc, selection: { anchor }, extensions: [history(), markdown(), ...extensions] }) });

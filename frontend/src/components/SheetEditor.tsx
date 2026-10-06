@@ -79,7 +79,8 @@ export default function SheetEditor({ noteId, onRequestClose }: SheetEditorProps
       setSelection(sheet.data.rows[0] && sheet.data.columns[0]
         ? { rowId: sheet.data.rows[0].id, columnId: sheet.data.columns[0].id }
         : null);
-    } catch (error: any) {
+    } catch (caughtError: unknown) {
+      const error = caughtError as Error & { code?: string };
       toast.error(error?.message || "表格加载失败");
       setSaveState("error");
     } finally {
@@ -112,7 +113,8 @@ export default function SheetEditor({ noteId, onRequestClose }: SheetEditorProps
         updatedAtRef.current = result.updatedAt;
         if (revisionRef.current === revision) setSaveState("saved");
         else setSaveState("dirty");
-      } catch (error: any) {
+      } catch (caughtError: unknown) {
+      const error = caughtError as Error & { code?: string };
         if (error?.code === "SHEET_CONFLICT") {
           setSaveState("conflict");
           toast.error("表格已在其他窗口更新，请重新加载后继续编辑");
@@ -172,7 +174,8 @@ export default function SheetEditor({ noteId, onRequestClose }: SheetEditorProps
       anchor.download = `${(title || "轻量表格").replace(/[\\/:*?"<>|]+/g, "_")}.xlsx`;
       anchor.click();
       URL.revokeObjectURL(href);
-    } catch (error: any) {
+    } catch (caughtError: unknown) {
+      const error = caughtError as Error & { code?: string };
       toast.error(error?.message || "XLSX 导出失败");
     }
   }, [data, title]);
@@ -187,7 +190,8 @@ export default function SheetEditor({ noteId, onRequestClose }: SheetEditorProps
         ? { rowId: imported.rows[0].id, columnId: imported.columns[0].id }
         : null);
       toast.success(`已导入 XLSX：${imported.rows.length} 行 × ${imported.columns.length} 列`);
-    } catch (error: any) {
+    } catch (caughtError: unknown) {
+      const error = caughtError as Error & { code?: string };
       toast.error(error?.message || "XLSX 导入失败");
     } finally {
       if (xlsxInputRef.current) xlsxInputRef.current.value = "";
@@ -204,7 +208,8 @@ export default function SheetEditor({ noteId, onRequestClose }: SheetEditorProps
         ? { rowId: imported.rows[0].id, columnId: imported.columns[0].id }
         : null);
       toast.success(`已导入 ${imported.rows.length} 行 × ${imported.columns.length} 列`);
-    } catch (error: any) {
+    } catch (caughtError: unknown) {
+      const error = caughtError as Error & { code?: string };
       toast.error(error?.message || "CSV 导入失败");
     } finally {
       if (csvInputRef.current) csvInputRef.current.value = "";

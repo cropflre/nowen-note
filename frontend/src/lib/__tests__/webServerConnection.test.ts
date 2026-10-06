@@ -11,8 +11,8 @@ describe("Web 与客户端服务器连接", () => {
 
   afterEach(() => {
     vi.unstubAllGlobals();
-    delete (window as any).nowenDesktop;
-    delete (window as any).Capacitor;
+    Reflect.deleteProperty(window, "nowenDesktop");
+    Reflect.deleteProperty(window, "Capacitor");
     localStorage.clear();
     window.history.replaceState(null, "", "/");
   });
@@ -53,7 +53,7 @@ describe("Web 与客户端服务器连接", () => {
   });
 
   it("Electron 保留用户选择的远程服务器", () => {
-    (window as any).nowenDesktop = { isDesktop: true };
+    Object.assign(window, { nowenDesktop: { isDesktop: true } });
     expect(isNativeClientRuntime()).toBe(true);
     localStorage.setItem("nowen-server-url", "https://remote.example.com/nowen");
     window.history.replaceState(null, "", "/notes/demo");
@@ -61,7 +61,7 @@ describe("Web 与客户端服务器连接", () => {
   });
 
   it("Electron 本地服务仍优先使用本次启动注入的端口", () => {
-    (window as any).nowenDesktop = { isDesktop: true };
+    Object.assign(window, { nowenDesktop: { isDesktop: true } });
     localStorage.setItem("nowen-server-url", "http://127.0.0.1:3001");
     window.history.replaceState(null, "", "/?serverUrl=http%3A%2F%2F127.0.0.1%3A43127");
     initializeServerUrlFromRuntime();
@@ -69,7 +69,7 @@ describe("Web 与客户端服务器连接", () => {
   });
 
   it("Android 未连接服务器时不会从 WebView 页面推断服务器", () => {
-    (window as any).Capacitor = { isNativePlatform: () => true, platform: "android" };
+    Object.assign(window, { Capacitor: { isNativePlatform: () => true, platform: "android" } });
     window.history.replaceState(null, "", "/notes/demo");
     expect(getServerUrl()).toBe("");
     localStorage.setItem("nowen-server-url", "https://remote.example.com");

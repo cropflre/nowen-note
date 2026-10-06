@@ -1,7 +1,7 @@
 import React, { useEffect, useCallback, useState, useRef, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { Plus, Pin, PinOff, Star, StarOff, Clock, FileText, FileCode, FileType2, Trash2, Menu, MoreHorizontal, SlidersHorizontal, FolderInput, ChevronRight, ChevronDown, ChevronLeft, Folder, X, Check, Lock, Unlock, CalendarDays, RefreshCw, Share2, GripVertical, Download, ArrowUpDown, ArrowUp, ArrowDown, Image as ImageIcon, Printer, User as UserIcon, Sparkles, Tag as TagIcon, Loader2, FileUp, AlertTriangle, Copy, LayoutTemplate, SplitSquareHorizontal, SplitSquareVertical, ArrowLeftRight, Pencil, ShieldCheck, Palette } from "lucide-react";
+import { Plus, Pin, PinOff, Star, StarOff, Clock, FileText, FileCode, FileType2, Trash2, Menu, SlidersHorizontal, FolderInput, ChevronRight, ChevronDown, ChevronLeft, Folder, X, Check, Lock, Unlock, CalendarDays, RefreshCw, Share2, GripVertical, Download, ArrowUpDown, ArrowUp, ArrowDown, Image as ImageIcon, Printer, User as UserIcon, Sparkles, Tag as TagIcon, Loader2, FileUp, AlertTriangle, Copy, LayoutTemplate, SplitSquareHorizontal, SplitSquareVertical, ArrowLeftRight, Pencil, ShieldCheck, Palette } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import ContextMenu, { ContextMenuItem } from "@/components/ContextMenu";
@@ -2720,9 +2720,9 @@ export default function NoteList({ directorySearchActive = false }: { directoryS
       const raw = actionId.slice("color_mark_".length);
       const nextColor = raw === "none" ? null : (isNoteColorMark(raw) ? raw : null);
       haptic.light();
-      const updated = await api.updateNote(targetId, { colorMark: nextColor } as any);
+      const updated = await api.updateNote(targetId, { colorMark: nextColor });
       actions.updateNoteInList({ id: targetId, colorMark: updated.colorMark ?? nextColor });
-      actions.updateNoteTab({ id: targetId, colorMark: updated.colorMark ?? nextColor } as any);
+      actions.updateNoteTab({ id: targetId, colorMark: updated.colorMark ?? nextColor } as unknown as Partial<import("@/store/AppContext").OpenNoteTab> & { id: string; });
       if (state.activeNote?.id === targetId) {
         actions.setActiveNote({ ...state.activeNote, colorMark: updated.colorMark ?? nextColor });
       }

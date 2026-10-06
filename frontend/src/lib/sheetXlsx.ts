@@ -78,6 +78,7 @@ function boundedXmlReader(zip: JSZip): ReadXml {
 
 function escapeXml(value: string): string {
   return (value || "")
+    // eslint-disable-next-line no-control-regex -- Control characters must be rejected or stripped at this data boundary.
     .replace(/[^\u0009\u000A\u000D\u0020-\uD7FF\uE000-\uFFFD]/g, "")
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
@@ -346,7 +347,7 @@ async function readWorkbook(input: XlsxInput, firstOnly = false): Promise<Workbo
   const size = input instanceof ArrayBuffer || input instanceof Uint8Array ? input.byteLength : input.size;
   if (size > XLSX_PREVIEW_LIMITS.fileBytes) throw new XlsxError("limit", "XLSX file size limit exceeded");
   try {
-    const zip = await JSZip.loadAsync(input as any);
+    const zip = await JSZip.loadAsync(input);
     // Reject declared expansion before inflating; the streaming reader also checks actual bytes.
     const declaredXmlBytes = Object.values(zip.files).reduce((sum, file) => {
       const metadata = file as JSZip.JSZipObject & { _data?: { uncompressedSize?: number } };
@@ -389,7 +390,7 @@ export async function parseSheetXlsx(input: XlsxInput): Promise<SheetDataModel> 
 }
 
 function safeSheetName(value: string): string {
-  const normalized = (value || "Sheet1").replace(/[\\/:*?\[\]]/g, " ").trim();
+  const normalized = (value || "Sheet1").replace(/[\\/:*?[\]]/g, " ").trim();
   return (normalized || "Sheet1").slice(0, 31);
 }
 

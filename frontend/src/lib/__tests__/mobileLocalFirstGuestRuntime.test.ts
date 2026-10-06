@@ -56,11 +56,11 @@ import { initializeMobileLocalFirstRuntime } from "@/lib/mobileLocalFirstRuntime
 describe("Android 本地优先游客运行时", () => {
   beforeEach(() => {
     localStorage.clear();
-    (window as any).Capacitor = {
+    Object.assign(window, { Capacitor: {
       isNativePlatform: () => true,
       getPlatform: () => "android",
       platform: "android",
-    };
+    } });
   });
 
   it("无 token 仍打开独立 SQLite，但不创建同步引擎", async () => {

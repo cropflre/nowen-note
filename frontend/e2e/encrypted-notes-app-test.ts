@@ -1,3 +1,4 @@
+import type { EncryptedTestGlobals } from "./encrypted-notes-runtime";
 import { test as base, expect, _electron, type ElectronApplication, type Page } from "@playwright/test";
 import fs from "node:fs";
 import os from "node:os";
@@ -11,7 +12,8 @@ const executable = createRequire(import.meta.url)("electron") as string;
 export const forbidden = ["PRIVATE_ENCRYPTED_APP_SENTINEL", "test-only-app-encryption-password"];
 type Product = { app: ElectronApplication; page: Page; server: string; directory: string; restart: () => Promise<Page> };
 export const test = base.extend<{ product: Product }>({
-  product: async ({}, use, testInfo) => {
+  product: async ({ browserName }, provide, testInfo) => {
+    void browserName;
     const full = testInfo.project.name.endsWith("full");
     const packaged = testInfo.project.name === "packaged-full";
     const desktopExecutable = packaged ? process.env.NOWEN_ENCRYPTED_PACKAGED_EXECUTABLE : executable;
@@ -61,7 +63,7 @@ export const test = base.extend<{ product: Product }>({
         await expect.poll(() => page.evaluate(() => document.hasFocus())).toBe(true);
         // Failure evidence contains window lifecycle metadata only, never editor contents.
         await app.evaluate(({ BrowserWindow }) => {
-          const events: unknown[] = []; (globalThis as any).encryptedAppWindowEvents = events;
+          const events: EncryptedTestGlobals["encryptedAppWindowEvents"] = []; (globalThis as EncryptedTestGlobals).encryptedAppWindowEvents = events;
           for (const window of BrowserWindow.getAllWindows()) {
             const record = (event: string) => { events.push({ at: Date.now(), event, focused: window.isFocused(), visible: window.isVisible() }); };
             window.on("blur", () => record("blur"));
@@ -80,27 +82,27 @@ export const test = base.extend<{ product: Product }>({
       }
       const page = await start();
       const product: Product = { app: app!, page, server, directory, restart: async () => {
-        const requests = await app!.evaluate(() => JSON.stringify((globalThis as any).encryptedAppRequests));
+        const requests = await app!.evaluate(() => JSON.stringify((globalThis as EncryptedTestGlobals).encryptedAppRequests));
         for (const marker of forbidden) expect(requests).not.toContain(marker);
-        expect(await app!.evaluate((_, markers) => (globalThis as any).encryptedAppScan(markers), forbidden)).toEqual([]);
+        expect(await app!.evaluate((_, markers) => (globalThis as EncryptedTestGlobals).encryptedAppScan(markers), forbidden)).toEqual([]);
         await app!.close(); app = undefined;
         if (full) await expect.poll(() => fetch(`${server}/api/health`).then(() => false).catch(() => true)).toBe(true);
         product.page = await start(); product.app = app!; product.server = server;
         return product.page;
       } };
-      await use(product);
+      await provide(product);
     } finally {
       try {
         if (app) {
           if (testInfo.status !== testInfo.expectedStatus) {
-            const events = await app.evaluate(() => (globalThis as any).encryptedAppWindowEvents || []);
+            const events = await app.evaluate(() => (globalThis as EncryptedTestGlobals).encryptedAppWindowEvents || []);
             const evidence = testInfo.outputPath("native-window-lifecycle.json");
             fs.writeFileSync(evidence, JSON.stringify(events));
             await testInfo.attach("native-window-lifecycle.json", { path: evidence, contentType: "application/json" });
           }
-          const requests = await app.evaluate(() => JSON.stringify((globalThis as any).encryptedAppRequests));
+          const requests = await app.evaluate(() => JSON.stringify((globalThis as EncryptedTestGlobals).encryptedAppRequests));
           for (const marker of forbidden) expect(requests).not.toContain(marker);
-          expect(await app.evaluate((_, markers) => (globalThis as any).encryptedAppScan(markers), forbidden)).toEqual([]);
+          expect(await app.evaluate((_, markers) => (globalThis as EncryptedTestGlobals).encryptedAppScan(markers), forbidden)).toEqual([]);
         }
       } finally {
         try {

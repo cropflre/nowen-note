@@ -6,7 +6,7 @@ import LazyNoteListRuntime from "../LazyNoteListRuntime";
 const store = vi.hoisted(() => ({
   state: {
     viewMode: "notebook", selectedNotebookId: "folder", selectedKnowledgeTreeParentId: "folder",
-    isLoading: false, notes: [] as any[],
+    isLoading: false, notes: [] as { id: string }[],
   },
   actions: { setNotes: vi.fn(), refreshNotes: vi.fn() },
 }));
@@ -21,7 +21,7 @@ vi.mock("../NoteList", () => ({
     </div>
   ),
 }));
-(globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
+Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
 describe("directory search in the list header", () => {
   let root: Root;

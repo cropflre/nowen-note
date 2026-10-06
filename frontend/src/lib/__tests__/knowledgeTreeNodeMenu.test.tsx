@@ -62,7 +62,7 @@ describe("knowledge tree node menu", () => {
       resourceId: "n1",
     }), {
       id: "n1", isPinned: 1, isFavorite: 1, isLocked: 1, contentFormat: "markdown",
-    } as any, null, i18n.getFixedT(language));
+    } as import("@/types").Note, null, i18n.getFixedT(language));
     expect(items.filter((item) => !item.separator).map((item) => item.label)).toEqual(labels);
 
     const flatten = (entries: typeof items): typeof items => entries.flatMap((item) => [item, ...flatten(item.children || [])]);

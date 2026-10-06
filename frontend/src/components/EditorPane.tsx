@@ -1983,14 +1983,14 @@ function OrdinaryEditorPane({
   const setNoteColorMark = useCallback(async (colorMark: NoteColorMark | null) => {
     if (!activeNote || activeNote.isTrashed || !canWriteNote(activeNote)) return;
     haptic.light();
-    const updated = await api.updateNote(activeNote.id, { colorMark } as any);
+    const updated = await api.updateNote(activeNote.id, { colorMark });
     const nextColor = updated.colorMark ?? colorMark;
     actions.setActiveNote({ ...updated, colorMark: nextColor });
     actions.updateNoteInList({ id: updated.id, colorMark: nextColor });
-    actions.updateNoteTab({ id: updated.id, colorMark: nextColor } as any);
+    actions.updateNoteTab({ id: updated.id, colorMark: nextColor } as unknown as Partial<import("@/store/AppContext").OpenNoteTab> & { id: string; });
     try {
       window.dispatchEvent(new CustomEvent("nowen:knowledge-tree-changed", { detail: { reason: "note-color-mark-changed" } }));
-    } catch {}
+    } catch { /* A notification failure must not interrupt editing. */ }
   }, [activeNote, actions]);
 
   const toggleLock = useCallback(async () => {

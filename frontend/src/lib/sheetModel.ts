@@ -31,12 +31,13 @@ export function sheetCellKey(rowId: string, columnId: string): string {
   return `${rowId}:${columnId}`;
 }
 
-export function normalizeSheetData(value: any): SheetDataModel {
-  const rows: SheetRowModel[] = Array.isArray(value?.rows) ? value.rows.slice(0, MAX_SHEET_ROWS).map((row: any, index: number) => ({
+export function normalizeSheetData(input: unknown): SheetDataModel {
+  const value = input as { rows?: Partial<SheetRowModel>[]; columns?: Partial<SheetColumnModel>[]; cells?: Record<string, unknown> } | null | undefined;
+  const rows: SheetRowModel[] = Array.isArray(value?.rows) ? value.rows.slice(0, MAX_SHEET_ROWS).map((row, index: number) => ({
     id: typeof row?.id === "string" && row.id ? row.id : `r${index + 1}`,
     height: Math.max(24, Math.min(120, Number(row?.height) || 32)),
   })) : [];
-  const columns: SheetColumnModel[] = Array.isArray(value?.columns) ? value.columns.slice(0, MAX_SHEET_COLUMNS).map((column: any, index: number) => ({
+  const columns: SheetColumnModel[] = Array.isArray(value?.columns) ? value.columns.slice(0, MAX_SHEET_COLUMNS).map((column, index: number) => ({
     id: typeof column?.id === "string" && column.id ? column.id : `c${index + 1}`,
     title: typeof column?.title === "string" ? column.title : String.fromCharCode(65 + (index % 26)),
     width: Math.max(64, Math.min(480, Number(column?.width) || 120)),

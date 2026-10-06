@@ -1,5 +1,6 @@
 import { api } from "./api";
 import type { NativeDatabase } from "./nativeDatabase";
+import type { JSONContent } from "@tiptap/core";
 
 type LocalNoteRow = {
   id: string;
@@ -42,7 +43,7 @@ const MARKDOWN_BLOCK_ID_RE = /(?:\s+|^)\^(blk_[A-Za-z0-9_-]{6,})\s*$/;
 const WIKI_LINK_RE = /\[\[note:([A-Za-z0-9_-]{6,})(?:#blk:([A-Za-z0-9_-]+))?(?:\|([^\]]*))?\]\]/g;
 const NOTE_HREF_RE = /note:([A-Za-z0-9_-]{6,})(?:#blk:([A-Za-z0-9_-]+))?/g;
 
-function plainText(node: any): string {
+function plainText(node: JSONContent): string {
   if (!node || typeof node !== "object") return "";
   if (node.type === "text") return String(node.text || "");
   if (!Array.isArray(node.content)) return "";
@@ -60,11 +61,11 @@ function parseTiptapBlocks(note: LocalNoteRow): LocalBlock[] | null {
     if (!document || !Array.isArray(document.content)) return null;
     const blocks: LocalBlock[] = [];
     let order = 0;
-    const visit = (nodes: any[], parentBlockId: string | null, path: string) => {
+    const visit = (nodes: JSONContent[], parentBlockId: string | null, path: string) => {
       nodes.forEach((node, index) => {
         if (!node || typeof node !== "object") return;
         const nodePath = `${path}/${index}`;
-        const type = SUPPORTED_BLOCKS.has(node.type) ? node.type as LocalBlock["blockType"] : null;
+        const type = SUPPORTED_BLOCKS.has(node.type as LocalBlock["blockType"]) ? node.type as LocalBlock["blockType"] : null;
         const blockId = type && typeof node.attrs?.blockId === "string" ? node.attrs.blockId : null;
         if (type && blockId) {
           blocks.push({
@@ -163,10 +164,10 @@ function extractTiptapLinks(note: LocalNoteRow): LocalLink[] | null {
     if (!document || !Array.isArray(document.content)) return null;
     const links: LocalLink[] = [];
     const seen = new Set<string>();
-    const visit = (nodes: any[], parentBlockId: string | null) => {
+    const visit = (nodes: JSONContent[], parentBlockId: string | null) => {
       for (const node of nodes) {
         if (!node || typeof node !== "object") continue;
-        const type = SUPPORTED_BLOCKS.has(node.type) ? node.type as LocalBlock["blockType"] : null;
+        const type = SUPPORTED_BLOCKS.has(node.type as LocalBlock["blockType"]) ? node.type as LocalBlock["blockType"] : null;
         const ownBlockId = type && typeof node.attrs?.blockId === "string"
           ? node.attrs.blockId
           : parentBlockId;
@@ -240,7 +241,7 @@ async function listNotes(db: NativeDatabase): Promise<LocalNoteRow[]> {
  * 也不会为了打开编辑器侧栏而请求服务器。
  */
 export function installMobileLocalNoteRelationsBridge(db: NativeDatabase): () => void {
-  const target = api as any;
+  const target = api;
   const originals = {
     getNoteHeadings: target.getNoteHeadings,
     getNoteBlocks: target.getNoteBlocks,
@@ -301,7 +302,7 @@ export function installMobileLocalNoteRelationsBridge(db: NativeDatabase): () =>
 
   const backlinkRows = async (targetNoteId: string, targetBlockId?: string) => {
     const notes = await listNotes(db);
-    const rows: Array<Record<string, unknown>> = [];
+    const rows: Awaited<ReturnType<typeof api.getBacklinks>>["backlinks"] = [];
     for (const note of notes) {
       if (note.id === targetNoteId && !targetBlockId) continue;
       for (const link of extractLinks(note)) {

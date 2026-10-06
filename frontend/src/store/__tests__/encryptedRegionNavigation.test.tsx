@@ -10,7 +10,7 @@ it("an encrypted region in an ordinary note can prevent navigation without block
   const block = (event: Event) => event.preventDefault();
   try {
     act(() => root.render(<AppProvider><Grabber /></AppProvider>));
-    act(() => context.dispatch({ type: "SET_ACTIVE_NOTE", payload: { id: "ordinary", contentFormat: "markdown" } as any }));
+    act(() => context.dispatch({ type: "SET_ACTIVE_NOTE", payload: { id: "ordinary", contentFormat: "markdown" } as unknown as import("@/types/index").Note | null }));
     window.addEventListener("nowen:encrypted-note-before-leave", block);
     act(() => context.dispatch({ type: "SET_ACTIVE_NOTE", payload: null }));
     expect(context!.state.activeNote?.id).toBe("ordinary");

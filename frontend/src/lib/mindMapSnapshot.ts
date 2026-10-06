@@ -222,7 +222,7 @@ export function buildMindMapSnapshot(
   const viewBox = `${rawBounds.minX} ${rawBounds.minY} ${rawBounds.width} ${rawBounds.height}`;
 
   return {
-    nodes: nodes.map(({ children: _children, ...node }) => node),
+    nodes: nodes.map(({ children, ...node }) => { void children; return node; }),
     edges,
     relations: (data.relations || []).filter(
       (relation) => visibleIds.has(relation.fromId) && visibleIds.has(relation.toId),

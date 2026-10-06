@@ -9,7 +9,7 @@ test("XLSX lazy preview scrolls on desktop and mobile and imports only the chose
   zip.file("xl/worksheets/sheet1.xml", `<worksheet><sheetData>${rows}</sheetData></worksheet>`);
   zip.file("xl/worksheets/sheet2.xml", '<worksheet><sheetData><row><c r="A1" t="inlineStr"><is><t>内容</t></is></c></row><row><c r="A2" t="inlineStr"><is><t>第二工作表</t></is></c></row></sheetData></worksheet>');
   const original = await zip.generateAsync({ type: "nodebuffer" });
-  const mutations: any[] = [];
+  const mutations: unknown[] = [];
   await page.route("**/fixture.xlsx*", route => route.fulfill({ body: original, contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }));
   await page.route("**/api/knowledge-tree/**", route => {
     if (route.request().method() === "POST") {

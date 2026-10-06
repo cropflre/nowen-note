@@ -574,8 +574,8 @@ function bytesToDataUrl(bytes: Uint8Array, mime: string): string {
 function tableColumnWidthsFromTip(node: TipNode): number[] | undefined {
   const colgroup = node.attrs?.colgroup;
   if (Array.isArray(colgroup) && colgroup.length > 0) {
-    const widths = colgroup.map((entry: any) =>
-      parsePx(entry && typeof entry === "object" ? entry.width : entry),
+    const widths = colgroup.map((entry: unknown) =>
+      parsePx(entry && typeof entry === "object" ? (entry as { width?: unknown }).width : entry),
     );
     if (widths.every((width): width is number => typeof width === "number")) {
       return widths.map(pxToPt);

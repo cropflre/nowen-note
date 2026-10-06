@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { KnowledgeTreeCreateDropdown } from "../KnowledgeTreeCreateMenuRuntime";
 import { KNOWLEDGE_TREE_CLEAR_SEARCH_EVENT } from "@/lib/knowledgeTreeCreateVisibility";
 
-(globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
+Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 const mock = vi.hoisted(() => ({ resolve: vi.fn(), duplicate: vi.fn(), success: vi.fn(), error: vi.fn() }));
 vi.mock("../KnowledgeTreePanel", () => ({ default: () => null, FOCUS_KNOWLEDGE_TREE_EVENT: "nowen:focus-knowledge-tree", KNOWLEDGE_TREE_CHANGED_EVENT: "nowen:knowledge-tree-changed" }));
 vi.mock("@/lib/knowledgeTreeDuplicateAsChild", () => ({ resolveDuplicableKnowledgeTreeNote: mock.resolve, duplicateKnowledgeTreeNoteAsChild: mock.duplicate }));

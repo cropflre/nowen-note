@@ -79,7 +79,7 @@ const PublicNotebookView = React.lazy(() => import("./components/PublicNotebookV
 
 function reportBootError(source: string, error: unknown, fatal: boolean): void {
   try {
-    const reporter = (window as any).__NOWEN_REPORT_BOOT_ERROR__;
+    const reporter = (window as Window & { __NOWEN_REPORT_BOOT_ERROR__?: (source: string, error: unknown, fatal: boolean) => void }).__NOWEN_REPORT_BOOT_ERROR__;
     if (typeof reporter === "function") reporter(source, error, fatal);
   } catch {
     /* diagnostics must never become another startup failure */

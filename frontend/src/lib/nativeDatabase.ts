@@ -911,12 +911,8 @@ class NativeDatabaseImpl implements NativeDatabase {
 async function ensureConnectionsConsistent(
   state: NativeDatabaseGlobalState,
 ): Promise<void> {
-  try {
-    const result = await state.connection.checkConnectionsConsistency();
-    if (result.result === true) return;
-  } catch (error) {
-    throw error;
-  }
+  const result = await state.connection.checkConnectionsConsistency();
+  if (result.result === true) return;
 
   // v8 会在返回 false 时清空 JS 连接字典并移除不一致的原生连接。
   state.databases.clear();

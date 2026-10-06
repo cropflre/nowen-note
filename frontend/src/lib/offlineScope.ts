@@ -44,7 +44,7 @@ function getServerScope(): string {
   const origin = typeof window !== "undefined" && window.location.origin.startsWith("http")
     ? window.location.origin
     : "";
-  const isDesktop = typeof window !== "undefined" && !!(window as any).nowenDesktop?.isDesktop;
+  const isDesktop = typeof window !== "undefined" && !!(window as Window & { nowenDesktop?: { isDesktop?: boolean } }).nowenDesktop?.isDesktop;
 
   if (!isNativeClientRuntime()) {
     return normalizeUrl(inferBrowserServerBaseUrl() || origin) || "same-origin";

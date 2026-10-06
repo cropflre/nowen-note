@@ -27,7 +27,7 @@ describe("androidNativeHttpBridge", () => {
 
   beforeEach(() => {
     localStorage.clear();
-    delete (window as any).Capacitor;
+    Reflect.deleteProperty(window, "Capacitor");
     capacitorState.native = true;
     capacitorState.platform = "android";
     capacitorState.request.mockReset();
@@ -148,11 +148,11 @@ describe("androidNativeHttpBridge", () => {
   });
 
   it("blocks every API transport while Android is in unsigned local mode", async () => {
-    (window as any).Capacitor = {
+    Object.assign(window, { Capacitor: {
       isNativePlatform: () => true,
       getPlatform: () => "android",
       platform: "android",
-    };
+    } });
     cleanup = installAndroidNativeHttpBridge();
 
     await expect(fetch("https://note.example.com/api/attachments/file-1/download"))

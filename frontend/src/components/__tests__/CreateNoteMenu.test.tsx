@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import CreateNoteMenu from "../CreateNoteMenu";
 import { KnowledgeTreeCreateDropdown } from "../KnowledgeTreeCreateMenuRuntime";
 
-(globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
+Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 const mock = vi.hoisted(() => ({
   list: vi.fn(), listShared: vi.fn(), create: vi.fn(), getNote: vi.fn(), prompt: vi.fn(),
   imports: { markdown: vi.fn(), "markdown-zip": vi.fn(), word: vi.fn(), wechat: vi.fn() },
@@ -27,8 +27,8 @@ vi.mock("@/components/knowledgeTreeImport", () => ({
 vi.mock("@/lib/noteTemplatesApi", () => ({ noteTemplatesApi: { createNote: mock.template } }));
 vi.mock("@/lib/pluginApi", () => ({ pluginApi: { createNoteFromTemplate: mock.pluginTemplate } }));
 vi.mock("@/lib/toast", () => ({ toast: { error: mock.error, success: vi.fn() } }));
-vi.mock("@/components/NoteTemplatePickerDialog", () => ({ default: ({ open, onCreate }: any) => open ? <button onClick={() => { void onCreate("template"); }}>选择模板</button> : null }));
-vi.mock("@/components/EncryptedNoteCreateDialog", () => ({ default: ({ parentId }: any) => <div role="dialog" data-parent-id={parentId}>新建加密笔记</div> }));
+vi.mock("@/components/NoteTemplatePickerDialog", () => ({ default: ({ open, onCreate }: { open: boolean; onCreate: (id: string) => Promise<void> }) => open ? <button onClick={() => { void onCreate("template"); }}>选择模板</button> : null }));
+vi.mock("@/components/EncryptedNoteCreateDialog", () => ({ default: ({ parentId }: { parentId?: string }) => <div role="dialog" data-parent-id={parentId}>新建加密笔记</div> }));
 
 const folder = { id: "folder", resourceId: "book", resourceType: "notebook", nodeType: "folder", title: "目录", access: { capabilities: { canCreate: true } } };
 const note = { id: "new-note", notebookId: "book", title: "新文档" };

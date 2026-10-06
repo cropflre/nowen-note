@@ -89,7 +89,6 @@ import {
 } from "@/lib/knowledgeTreePassword";
 import {
   buildFirstLevelNoteCounts,
-  countOwnedNotes,
 } from "@/lib/knowledgeTreeStats";
 import {
   buildMobileKnowledgeTreePath,
@@ -562,7 +561,6 @@ export default function MobileKnowledgeTreePanel({
   );
   const rootOwned = useMemo(() => currentChildren.filter((node) => !node.sharedRootId), [currentChildren]);
   const rootShared = useMemo(() => currentChildren.filter((node) => Boolean(node.sharedRootId)), [currentChildren]);
-  const ownedNoteCount = useMemo(() => countOwnedNotes(nodes), [nodes]);
   const ownedNotebookCount = useMemo(() => nodes.filter((node) => node.nodeType === "folder" && !node.sharedRootId).length, [nodes]);
 
   const activateNote = useCallback((
@@ -821,7 +819,8 @@ export default function MobileKnowledgeTreePanel({
     const result = await pluginApi.createNoteFromTemplate(pluginId, templateId, { workspaceId: getCurrentWorkspace(), parentId: targetParentId, values });
     emitTreeChanged("plugin-template-created-quick-browse"); await reload(); actions.refreshNotebooks(); actions.refreshNotes();
     const node = result.node as KnowledgeTreeNode; rememberOpened(node.id);
-    try { activateNote(await api.getNote(result.noteId), targetParentId, true); } catch (openError: any) { toast.error(openError?.message || "文档已创建，但自动打开失败"); }
+    try { activateNote(await api.getNote(result.noteId), targetParentId, true); } catch (caughtError: unknown) {
+      const openError = caughtError as Error & { code?: string }; toast.error(openError?.message || "文档已创建，但自动打开失败"); }
     toast.success("已从插件模板创建笔记");
   }, [actions, activateNote, reload, rememberOpened, templatePicker?.parentId]);
 

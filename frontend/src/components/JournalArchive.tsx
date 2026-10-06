@@ -117,7 +117,8 @@ export default function JournalArchive({
       setItems((current) => append ? [...current, ...result.items] : result.items);
       setHasMore(result.hasMore);
       setNextOffset(result.nextOffset);
-    } catch (error: any) {
+    } catch (caughtError: unknown) {
+      const error = caughtError as Error & { code?: string };
       if (error?.code !== "FOLDER_UNLOCK_REQUIRED") console.error("[JournalArchive] load failed", error);
       if (!append) setItems([]);
       setHasMore(false);

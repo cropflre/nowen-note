@@ -3,7 +3,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AccountLoginHistoryList } from "@/components/AccountLoginHistory";
 
-(globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
+Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({ t: (key: string) => key }),
@@ -25,10 +25,10 @@ async function flush() {
 
 describe("账号历史服务器地址编辑", () => {
   let root: Root | null = null;
-  let list: any;
-  let save: any;
-  let loadToken: any;
-  let remove: any;
+  let list: unknown;
+  let save: unknown;
+  let loadToken: unknown;
+  let remove: unknown;
 
   beforeEach(() => {
     vi.stubGlobal("WebSocket", undefined);
@@ -63,7 +63,7 @@ describe("账号历史服务器地址编辑", () => {
     loadToken = vi.fn(async () => ({ ok: true, token: "saved-token", refreshToken: "saved-refresh" }));
     remove = vi.fn(async () => ({ ok: true }));
 
-    (window as any).nowenDesktop = {
+    Object.assign(window, { nowenDesktop: {
       isDesktop: true,
       accountHistory: {
         list,
@@ -72,14 +72,14 @@ describe("账号历史服务器地址编辑", () => {
         markRequiresReauth: vi.fn(async () => ({ ok: true })),
         remove,
       },
-    };
+    } });
   });
 
   afterEach(() => {
     if (root) act(() => root?.unmount());
     root = null;
     document.body.innerHTML = "";
-    delete (window as any).nowenDesktop;
+    Reflect.deleteProperty(window, "nowenDesktop");
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
   });

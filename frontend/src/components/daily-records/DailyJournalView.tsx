@@ -435,7 +435,8 @@ export default function DailyJournalView({
     try {
       const note = await api.getNote(noteId);
       openNote(note);
-    } catch (error: any) {
+    } catch (caughtError: unknown) {
+      const error = caughtError as Error & { code?: string };
       toast.error(error?.message || "打开关联页面失败");
     }
   }, [openNote]);

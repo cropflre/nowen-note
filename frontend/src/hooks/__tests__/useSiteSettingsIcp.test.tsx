@@ -28,7 +28,7 @@ describe("SiteSettingsProvider ICP 备案号", () => {
 
   beforeEach(() => {
     localStorage.clear();
-    (window as any).nowenDesktop = { isDesktop: true };
+    Object.assign(window, { nowenDesktop: { isDesktop: true } });
     document.body.innerHTML = '<div id="root"></div>';
     host = document.getElementById("root")!;
     root = createRoot(host);
@@ -58,7 +58,7 @@ describe("SiteSettingsProvider ICP 备案号", () => {
   afterEach(() => {
     act(() => root.unmount());
     vi.unstubAllGlobals();
-    delete (window as any).nowenDesktop;
+    Reflect.deleteProperty(window, "nowenDesktop");
     localStorage.clear();
     document.body.innerHTML = "";
   });

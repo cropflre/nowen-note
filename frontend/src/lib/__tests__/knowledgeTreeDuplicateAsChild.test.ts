@@ -51,7 +51,7 @@ function duplicatedNote() {
     treeNodeId: "tree-copy",
     treeParentId: "tree-note-1",
     tags: [],
-  } as any;
+  } as unknown as Awaited<ReturnType<typeof import("@/lib/api").api.duplicateNote>>;
 }
 
 describe("knowledge tree duplicate as child", () => {

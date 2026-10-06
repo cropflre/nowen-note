@@ -9,7 +9,7 @@ import type { NoteListItem } from "@/types";
 vi.mock("react-i18next", () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
 vi.mock("@/lib/exportService", () => ({}));
 vi.mock("framer-motion", () => ({
-  motion: { div: React.forwardRef<HTMLDivElement, any>(({ initial, animate, exit, transition, ...props }, ref) => <div ref={ref} {...props} />) },
+  motion: { div: React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement> & { initial?: unknown; animate?: unknown; exit?: unknown; transition?: unknown }>(({ initial, animate, exit, transition, ...props }, ref) => { void [initial, animate, exit, transition]; return <div ref={ref} {...props} />; }) },
   AnimatePresence: ({ children }: { children: React.ReactNode }) => children,
 }));
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;

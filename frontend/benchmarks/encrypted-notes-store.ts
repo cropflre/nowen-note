@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from "react";
-import type { Note } from "../src/types";
-let state: { activeNote: Note | null; tags: any[] } = { activeNote: null, tags: [] };
+import type { Note, Tag } from "../src/types";
+let state: { activeNote: Note | null; tags: Tag[] } = { activeNote: null, tags: [] };
 const listeners = new Set<() => void>();
 export const actions = {
   setActiveNote(note: Note | null) {

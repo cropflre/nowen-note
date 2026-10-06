@@ -8,7 +8,7 @@ describe("search notebook exclusions", () => {
     { id: "child", parentId: "root" },
     { id: "grandchild", parentId: "child" },
     { id: "other", parentId: null },
-  ] as any;
+  ];
 
   it("distinguishes direct, inherited and included notebooks", () => {
     const exclusions = [{ notebookId: "root", includeDescendants: 1 }];
@@ -39,7 +39,7 @@ describe("search notebook exclusions", () => {
     const cyclic = [
       { id: "a", parentId: "b" },
       { id: "b", parentId: "a" },
-    ] as any;
+    ];
     expect(resolveSearchNotebookExclusionStatus("a", [], cyclic)).toEqual({
       kind: "included",
       sourceNotebookId: null,

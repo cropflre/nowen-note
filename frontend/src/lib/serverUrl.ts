@@ -207,7 +207,7 @@ export function normalizeServerBaseUrl(input: string | null | undefined): string
 /** 客户端身份由运行环境决定，不受服务器配置或当前页面路径影响。 */
 export function isNativeClientRuntime(): boolean {
   if (typeof window === "undefined") return false;
-  const runtime = window as any;
+  const runtime = window as Window & { nowenDesktop?: { isDesktop?: boolean }; Capacitor?: { isNativePlatform?: () => boolean; platform?: string } };
   return window.location.protocol === "file:"
     || window.location.protocol === "capacitor:"
     || !!runtime.nowenDesktop?.isDesktop

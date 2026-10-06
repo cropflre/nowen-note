@@ -12,7 +12,7 @@ vi.mock("@/lib/authSession", () => ({
 class MockWebSocket {
   static OPEN = 1;
   readyState = 0;
-  constructor(_url: string) { websocketConstructor(); }
+  constructor(url: string) { websocketConstructor(url); }
   addEventListener() {}
   send() {}
   close() {}
@@ -24,8 +24,8 @@ describe("mobile local realtime guard", () => {
     websocketConstructor.mockClear();
     localStorage.clear();
     localStorage.setItem("nowen-token","still-kept-for-account-switch");
-    (globalThis as any).WebSocket = MockWebSocket;
-    (window as any).WebSocket = MockWebSocket;
+    Object.assign(globalThis, { WebSocket: MockWebSocket });
+    Object.assign(window, { WebSocket: MockWebSocket });
   });
 
   it("does not construct WebSocket even when a preserved account token exists", async () => {

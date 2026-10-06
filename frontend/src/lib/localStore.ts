@@ -271,7 +271,7 @@ export async function putNote(note: CachedNote): Promise<void> {
 export async function putNoteListItems(items: NoteListItem[]): Promise<void> {
   const connection = getDb();
   if (!connection) return;
-  await safe(() => withConversionWriteLease(async (assertScope, scope) => {
+  await safe(() => withConversionWriteLease(async (assertScope) => {
     const db = await connection;
     assertScope();
     const transaction = db.transaction("notes", "readwrite");

@@ -1,4 +1,5 @@
 import { normalizeCodeBlockLanguageId } from "@/lib/codeBlockLanguageRegistry";
+import type { Plugin } from "prettier";
 
 type FormatterPluginGroup =
   | "babel-estree"
@@ -63,7 +64,7 @@ export function canFormatCodeBlock(language: string): boolean {
   return getFormatterSpec(language) !== null;
 }
 
-async function loadFormatterPlugins(group: FormatterPluginGroup): Promise<any[]> {
+async function loadFormatterPlugins(group: FormatterPluginGroup): Promise<Plugin[]> {
   if (group === "babel-estree") {
     return Promise.all([import("prettier/plugins/babel"), import("prettier/plugins/estree")]);
   }

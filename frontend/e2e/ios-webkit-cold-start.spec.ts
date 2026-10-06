@@ -26,7 +26,7 @@ test.beforeEach(async ({ page }) => {
         writable: true,
         value: undefined,
       });
-      (window as any).queueMicrotask = undefined;
+      Object.assign(window, { queueMicrotask: undefined });
     } catch {
       // The test still exercises WebKit cold-start even if a runtime refuses monkey-patching.
     }

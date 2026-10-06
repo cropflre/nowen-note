@@ -1294,8 +1294,9 @@ export default function SharedNoteView({ shareToken }: SharedNoteViewProps) {
                     );
                   },
                   // 图片：有 width 时输出 inline style 控制缩放宽度
-                  audio({ src, node }: any) {
-                    const source = String(src || node?.children?.find((child: any) => child.tagName === "source")?.properties?.src || "");
+                  audio({ src, node }) {
+                    const sourceNode = node?.children?.find((child) => child.type === "element" && child.tagName === "source");
+                    const source = String(src || (sourceNode?.type === "element" ? sourceNode.properties?.src : "") || "");
                     return <VoiceMemoAudio src={source} />;
                   },
                   img({ src, alt, ...imgProps }: any) {

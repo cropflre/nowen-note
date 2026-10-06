@@ -32,7 +32,7 @@ export function renderSharedMindMapPlaceholder(href: string): string {
 export function preprocessSharedMindMapMarkdown(markdown: string): string {
   if (!markdown) return markdown;
   const fenced: string[] = [];
-  let text = markdown.replace(/\`\`\`[\s\S]*?\`\`\`|~~~[\s\S]*?~~~/g, (match) => {
+  let text = markdown.replace(/```[\s\S]*?```|~~~[\s\S]*?~~~/g, (match) => {
     const index = fenced.push(match) - 1;
     return `\u0000NOWEN_SHARED_MINDMAP_CODE_${index}\u0000`;
   });
@@ -42,6 +42,7 @@ export function preprocessSharedMindMapMarkdown(markdown: string): string {
     `\n\n<div class="shared-mindmap-block" data-shared-mindmap-id="${String(id).toLowerCase()}"><span>正在加载思维导图…</span></div>\n\n`
   ));
 
+  // eslint-disable-next-line no-control-regex -- Control characters must be rejected or stripped at this data boundary.
   return text.replace(/\u0000NOWEN_SHARED_MINDMAP_CODE_(\d+)\u0000/g, (_match, index) => (
     fenced[Number(index)] || ""
   ));

@@ -164,7 +164,8 @@ export default function TokenManagement(): JSX.Element {
       setTokens((current) => current.filter((token) => token.id !== item.id));
       toast.success(t("tokens.deleteSuccess", { name: item.name }));
       await reload();
-    } catch (error: any) {
+    } catch (caughtError: unknown) {
+      const error = caughtError as Error & { code?: string };
       toast.error(error?.message || t("tokens.deleteFail"));
     } finally {
       setDeletingId(null);

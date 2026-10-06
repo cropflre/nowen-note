@@ -103,7 +103,7 @@ let originalCreateTask: typeof api.createTask;
 afterEach(() => {
   restore?.();
   restore = null;
-  if (originalCreateTask) (api as any).createTask = originalCreateTask;
+  if (originalCreateTask) api.createTask = originalCreateTask;
   vi.restoreAllMocks();
 });
 
@@ -130,7 +130,7 @@ describe("mobile local advanced task bridge", () => {
     const fetchSpy = vi.spyOn(globalThis,"fetch");
     originalCreateTask = api.createTask;
     const createdTasks: Task[] = [];
-    (api as any).createTask = vi.fn(async (data: Partial<Task>) => {
+    api.createTask = vi.fn(async (data: Partial<Task>) => {
       const task = {
         id:`task-${createdTasks.length + 1}`,
         userId:"android-local-user",

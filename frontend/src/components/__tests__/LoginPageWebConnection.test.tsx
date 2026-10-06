@@ -5,7 +5,7 @@ import { fetchRegisterConfig, getServerUrl, registerAccount, testServerConnectio
 import { inferBrowserServerBaseUrl } from "@/lib/serverUrl";
 import LoginPage from "../LoginPage";
 
-(globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
+Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
 vi.mock("react-i18next", () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
 vi.mock("@/hooks/useSiteSettings", () => ({
@@ -31,11 +31,11 @@ describe("Web 登录自动连接当前站点", () => {
   beforeEach(() => {
     localStorage.clear();
     window.history.replaceState(null, "", "/notes/demo");
-    delete (window as any).nowenDesktop;
-    delete (window as any).Capacitor;
+    Reflect.deleteProperty(window, "nowenDesktop");
+    Reflect.deleteProperty(window, "Capacitor");
     vi.mocked(getServerUrl).mockImplementation(() => inferBrowserServerBaseUrl());
-    vi.mocked(fetchRegisterConfig).mockResolvedValue({ allowRegistration: true, hasUsers: true } as any);
-    vi.mocked(registerAccount).mockResolvedValue({ token: "registered", refreshToken: "refresh", user: { username: "alice" } } as any);
+    vi.mocked(fetchRegisterConfig).mockResolvedValue({ allowRegistration: true, hasUsers: true } as unknown as { allowRegistration: boolean; });
+    vi.mocked(registerAccount).mockResolvedValue({ token: "registered", refreshToken: "refresh", user: { username: "alice" } } as unknown as { token: string; refreshToken: string; user: import("@/types/index").User; });
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ token: "token", user: { username: "alice" } }))));
     vi.stubGlobal("scrollTo", vi.fn());
     host = document.createElement("div");

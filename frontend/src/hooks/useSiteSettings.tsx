@@ -244,7 +244,7 @@ export function SiteSettingsProvider({ children }: { children: React.ReactNode }
       setSiteConfig((previous) => ({ ...previous, publicWebOrigin: "", publicWebOriginSource: "current" }));
       return;
     }
-    const data = await api.updateSiteSettings({ site_public_web_origin: origin } as any);
+    const data = await api.updateSiteSettings({ site_public_web_origin: origin } as unknown as { site_title?: string; site_favicon?: string; site_icp_beian?: string; site_public_web_origin?: string; site_file_public_origin?: string; editor_font_family?: string; feature_personal_export_enabled?: boolean | string; feature_personal_import_enabled?: boolean | string; debug_files_query?: boolean | string; web_ui_enabled?: boolean | string; });
     setSiteConfig((previous) => {
       const config = toSiteConfig(data, previous);
       applyRuntimePublicOrigin(config);

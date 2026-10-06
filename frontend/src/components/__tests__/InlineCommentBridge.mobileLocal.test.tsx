@@ -66,7 +66,7 @@ describe("InlineCommentBridge Android 本地模式", () => {
   let root: Root;
 
   beforeEach(() => {
-    (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
+    Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
     localStorage.clear();
     mocks.createNote.mockReset().mockResolvedValue(NOTE);
     mocks.getNote.mockReset().mockResolvedValue(NOTE);
@@ -83,7 +83,7 @@ describe("InlineCommentBridge Android 本地模式", () => {
     await act(async () => root.unmount());
     host.remove();
     vi.unstubAllGlobals();
-    (globalThis as any).IS_REACT_ACT_ENVIRONMENT = false;
+    Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: false });
   });
 
   it("创建本地笔记后不请求远端评论接口", async () => {

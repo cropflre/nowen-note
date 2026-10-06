@@ -57,7 +57,7 @@ describe("client block patch layout attrs (#772)", () => {
     const normalized = normalizeSafeTiptapReplacementNode(
       table("blk_table772", "center", "full"),
       "blk_table772",
-    ) as any;
+    ) as import("@tiptap/core").JSONContent;
     expect(normalized?.attrs?.tableLayoutAlign).toBe("center");
     expect(normalized?.attrs?.tableWidthMode).toBe("full");
   });

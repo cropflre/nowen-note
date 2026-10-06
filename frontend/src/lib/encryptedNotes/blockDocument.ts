@@ -1,4 +1,5 @@
 import { EncryptedContentError, validateEnvelope, type EncryptedContentEnvelope } from "./envelope";
+import type { JSONContent } from "@tiptap/core";
 
 export const ENCRYPTED_BLOCK_LANGUAGE = "nowen-encrypted-v1";
 export const isEncryptedBlockLanguage = (language: unknown): boolean => typeof language === "string" && language.toLowerCase().startsWith("nowen-encrypted");
@@ -43,15 +44,16 @@ export function markdownEncryptedBlocks(content: string): MarkdownEncryptedBlock
 export function encryptedBlocksInContent(content: string, format?: string): EncryptedContentEnvelope[] {
   if (format === "markdown") return markdownEncryptedBlocks(content).map((block) => block.envelope);
   if (!["tiptap-json", "richtext"].includes(format || "")) return [];
-  let doc: any;
+  let doc: unknown;
   try { doc = JSON.parse(content); } catch { return []; }
   const blocks: EncryptedContentEnvelope[] = [];
-  const walk = (node: any, depth: number): void => {
+  const walk = (value: unknown, depth: number): void => {
     if (depth > 100) throw new EncryptedContentError("invalid");
-    if (!node) return;
+    if (!value) return;
+    const node = value as JSONContent;
     if (node.type === "codeBlock" && isEncryptedBlockLanguage(node.attrs?.language)) {
-      if (!Array.isArray(node.content) || node.content.some((child: any) => child.type !== "text" || typeof child.text !== "string")) throw new EncryptedContentError("invalid");
-      blocks.push(readEncryptedBlock(node.content.map((child: any) => child.text).join(""), node.attrs.language));
+      if (!Array.isArray(node.content) || node.content.some((child) => child.type !== "text" || typeof child.text !== "string")) throw new EncryptedContentError("invalid");
+      blocks.push(readEncryptedBlock(node.content.map((child) => child.text).join(""), node.attrs!.language));
       return;
     }
     if (Array.isArray(node.content)) for (const child of node.content) walk(child, depth + 1);

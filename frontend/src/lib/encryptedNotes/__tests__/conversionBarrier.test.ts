@@ -85,7 +85,7 @@ it.each(["updateNote", "updateNoteConfirmed"] as const)("%s never sends or queue
 });
 
 it.each(["getNote", "getNotes", "updateNoteConfirmed"] as const)("%s discards a late response after account changes", async (method) => {
-  let resolve!: (value: any) => void;
+  let resolve!: (value: unknown) => void;
   const fetch = vi.fn(() => new Promise((ready) => { resolve = ready; })); vi.stubGlobal("fetch", fetch);
   const pending = method === "getNote" ? api.getNote("note") : method === "getNotes" ? api.getNotes() : api.updateNoteConfirmed("note", original);
   await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
@@ -96,15 +96,15 @@ it.each(["getNote", "getNotes", "updateNoteConfirmed"] as const)("%s discards a 
 });
 
 it("late list responses omit converted plaintext summaries but retain unrelated notes", async () => {
-  let resolve!: (value: any) => void;
+  let resolve!: (value: Awaited<ReturnType<typeof api.getNotes>>) => void;
   const pending = readNotesList(() => new Promise((ready) => { resolve = ready; }));
   markConvertedNote("note", 2, getOfflineQueueStorageKey());
-  resolve([original, { ...original, id: "other" }]);
+  resolve([original, { ...original, id: "other" }] as unknown as Awaited<ReturnType<typeof api.getNotes>>);
   await expect(pending).resolves.toEqual([{ ...original, id: "other" }]);
 });
 
 it("a remote confirmation makes a late plaintext GET fail without offline fallback", async () => {
-  let resolve!: (value: any) => void;
+  let resolve!: (value: unknown) => void;
   const fetch = vi.fn(() => new Promise((ready) => { resolve = ready; })); vi.stubGlobal("fetch", fetch);
   const pending = api.getNote("note");
   await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
@@ -128,8 +128,8 @@ it("a late failed save cannot enqueue the old account's plaintext into the new a
 it("a late replay response cannot dequeue or rewrite another account's queue", async () => {
   enqueue({ noteId: "note", type: "updateNote", method: "PUT", url: "/notes/note", body: original });
   const scope = getOfflineQueueStorageKey(); const before = localStorage.getItem(scope);
-  let resolve!: (value: any) => void;
-  const fetch = vi.fn(() => new Promise<any>((ready) => { resolve = ready; }));
+  let resolve!: (value: { ok: boolean; status: number }) => void;
+  const fetch = vi.fn(() => new Promise<{ ok: boolean; status: number }>((ready) => { resolve = ready; }));
   const pending = flushQueue(fetch);
   await vi.waitFor(() => expect(fetch).toHaveBeenCalled());
   localStorage.setItem("nowen-token", `header.${btoa(JSON.stringify({ userId: "other" }))}.signature`);

@@ -4,13 +4,13 @@ import fixture from "./fixtures/envelope-v1.json";
 import { ENCRYPTED_NOTE_FORMAT } from "../noteDocument";
 import { saveEncryptedNoteCiphertext } from "../saveNote";
 import { pendingEncryptedNote } from "../pendingNote";
-const mocks = vi.hoisted(() => ({ save: vi.fn(), queue: [] as any[], scope: "account-a", persist: true }));
+const mocks = vi.hoisted(() => ({ save: vi.fn(), queue: [] as unknown[], scope: "account-a", persist: true }));
 vi.mock("../../api", () => ({ api: { updateNoteConfirmed: mocks.save } }));
 vi.mock("../../offlineQueue", () => ({
   getOfflineQueueStorageKey: () => mocks.scope,
   getQueue: () => mocks.queue,
   enqueue: (item: unknown) => { if (mocks.persist) mocks.queue.push(item); },
-  discardResolvedQueueItems: (item: any) => { mocks.queue = mocks.queue.filter((entry) => entry !== item); },
+  discardResolvedQueueItems: (item: unknown) => { mocks.queue = mocks.queue.filter((entry) => entry !== item); },
 }));
 const note = { id: "note-id", notebookId: "book", userId: "owner", title: "Visible title", content: JSON.stringify(fixture.envelope), contentFormat: ENCRYPTED_NOTE_FORMAT, contentText: "", version: 1 } as Note;
 beforeEach(() => { mocks.save.mockReset(); mocks.queue = []; mocks.scope = "account-a"; mocks.persist = true; });

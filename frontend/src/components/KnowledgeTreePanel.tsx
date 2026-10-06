@@ -94,7 +94,6 @@ import {
 } from "@/lib/knowledgeTreePassword";
 import {
   buildFirstLevelNoteCounts,
-  countOwnedNotes,
 } from "@/lib/knowledgeTreeStats";
 import { toast } from "@/lib/toast";
 import {
@@ -1189,7 +1188,8 @@ export function KnowledgeTreePanel({
       actions.refreshNotebooks();
       actions.refreshNotes();
       toast.success("已移动到根目录");
-    } catch (requestError: any) {
+    } catch (caughtError: unknown) {
+      const requestError = caughtError as Error & { code?: string };
       toast.error(requestError?.message || "移动到根目录失败");
     }
   };
@@ -1508,7 +1508,6 @@ export function KnowledgeTreePanel({
   const rootNodes = children.get(null) || [];
   const ownedRoots = rootNodes.filter((node) => !node.sharedRootId);
   const sharedRoots = rootNodes.filter((node) => Boolean(node.sharedRootId));
-  const ownedNoteCount = countOwnedNotes(nodes);
   const ownedNotebookCount = nodes.filter((node) => node.nodeType === "folder" && !node.sharedRootId).length;
   const currentSortMode = loadKnowledgeTreeSortMode();
   const hasRootDraft = draft?.parentId === null;

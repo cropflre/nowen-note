@@ -17,7 +17,7 @@ describe("mind map foolproof insertion command", () => {
     const handler = vi.fn();
     window.addEventListener("nowen:open-mindmap-insert", handler, { once: true });
 
-    item?.action({} as any);
+    item?.action({} as unknown as Editor);
 
     expect(handler).toHaveBeenCalledTimes(1);
   });

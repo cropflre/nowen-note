@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { readWechatClipboard, wechatArticleLinks } from "../wechatCapture";
 
 describe("WeChat public clipboard URLs", () => {
-  afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); delete (window as any).nowenDesktop; });
+  afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); Reflect.deleteProperty(window, "nowenDesktop"); });
   it("detects public links and strips session and tracking parameters", () => {
     expect(wechatArticleLinks("文章 https://mp.weixin.qq.com/s/abc?key=secret&uin=123#x。私密文本"))
       .toEqual(["https://mp.weixin.qq.com/s/abc"]);

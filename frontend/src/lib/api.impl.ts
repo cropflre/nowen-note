@@ -1062,7 +1062,7 @@ function handleOfflineEnqueue<T>(url: string, method: string, bodyStr: string | 
       updatedAt: new Date().toISOString(),
       ...body,
     };
-    void import("@/lib/syncEngine").then((m) => m.cacheNoteContent(optimisticNote as any, cacheScope)).catch(() => { });
+    void import("@/lib/syncEngine").then((m) => m.cacheNoteContent(optimisticNote as unknown as Note, cacheScope)).catch(() => { });
   } else if (mutationType === "deleteNote") {
     void import("@/lib/localStore").then((m) => m.deleteNote(noteId)).catch(() => { });
   }
@@ -1755,9 +1755,9 @@ export const api = {
     // 后端返回数组或 { items: [...] }，兼容处理
     const items = Array.isArray(data) ? data : (data?.items || []);
     return items
-      .filter((item: any) => item?.resourceType !== "mindmap" && item?.resourceType !== "sheet")
+      .filter((item: { resourceType?: string }) => item?.resourceType !== "mindmap" && item?.resourceType !== "sheet")
       .slice(0, limit)
-      .map((item: any) => ({
+      .map((item: { id: string; title: string; notebookId: string; updatedAt: string }) => ({
       id: item.id,
       title: item.title,
       notebookId: item.notebookId,
@@ -5020,7 +5020,8 @@ async function probeHealthCandidate(candidate: ServerPathCandidate): Promise<Hea
       ok: true,
       proxyRewrittenApiPath: res.headers.get("x-nowen-proxy-compatibility-path") || undefined,
     };
-  } catch (error: any) {
+  } catch (caughtError: unknown) {
+      const error = caughtError as Error & { code?: string };
     if (error?.name === "AbortError") return { ok: false, error: "连接超时" };
     return { ok: false, error: error?.message || "连接失败" };
   } finally {

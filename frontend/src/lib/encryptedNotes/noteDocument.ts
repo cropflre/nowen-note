@@ -1,4 +1,5 @@
 import { EncryptedContentError, validateEnvelope, type EncryptedContentEnvelope } from "./envelope";
+import type { JSONContent } from "@tiptap/core";
 
 export const ENCRYPTED_NOTE_FORMAT = "encrypted-note-v1";
 export const ENCRYPTED_NOTE_LEAVE_EVENT = "nowen:encrypted-note-before-leave";
@@ -22,14 +23,15 @@ export function validateEncryptedNotePlaintext(content: string, format: Encrypte
   try { doc = JSON.parse(content); } catch { throw new EncryptedContentError("invalid"); }
   const nodes = new Set(["doc", "paragraph", "heading", "text", "bulletList", "orderedList", "listItem", "blockquote", "hardBreak", "codeBlock", "horizontalRule"]);
   const marks = new Set(["bold", "italic", "strike", "code"]);
-  const walk = (node: any, depth: number): void => {
-    if (!node || typeof node !== "object" || depth > 100 || !nodes.has(node.type)) throw new EncryptedContentError("invalid");
-    if (node.marks !== undefined && (!Array.isArray(node.marks) || node.marks.some((mark: any) => !marks.has(mark?.type)))) throw new EncryptedContentError("invalid");
+  const walk = (value: unknown, depth: number): void => {
+    const node = value as JSONContent;
+    if (!node || typeof node !== "object" || depth > 100 || !nodes.has(node.type || "")) throw new EncryptedContentError("invalid");
+    if (node.marks !== undefined && (!Array.isArray(node.marks) || node.marks.some((mark) => !marks.has(mark?.type)))) throw new EncryptedContentError("invalid");
     if (node.content !== undefined) {
       if (!Array.isArray(node.content)) throw new EncryptedContentError("invalid");
       for (const child of node.content) walk(child, depth + 1);
     }
   };
-  if ((doc as any)?.type !== "doc") throw new EncryptedContentError("invalid");
+  if ((doc as JSONContent)?.type !== "doc") throw new EncryptedContentError("invalid");
   walk(doc, 0);
 }

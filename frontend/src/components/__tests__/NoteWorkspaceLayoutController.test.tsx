@@ -146,10 +146,10 @@ describe("NoteWorkspaceLayoutController", () => {
 
   it("allows the wide workspace controls on an expanded native window", () => {
     Object.defineProperty(window, "innerWidth", { configurable: true, value: 840 });
-    (window as any).Capacitor = {
+    Object.assign(window, { Capacitor: {
       isNativePlatform: () => true,
       getPlatform: () => "android",
-    };
+    } });
     act(() => root.render(<NoteWorkspaceLayoutController />));
 
     const trigger = document.querySelector('[data-testid="note-workspace-layout-trigger"]');

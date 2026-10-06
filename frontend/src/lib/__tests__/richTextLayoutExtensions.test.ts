@@ -1,3 +1,4 @@
+type LayoutNode = { type?: string; attrs: Record<string, unknown>; content: LayoutNode[] };
 import { Editor, generateHTML, generateJSON } from "@tiptap/core";
 import { describe, expect, it } from "vitest";
 import "@/lib/imageNodeTransformBootstrap";
@@ -36,13 +37,13 @@ describe("rich text layout extensions (#772)", () => {
 
     editor.commands.selectAll();
     expect(editor.commands.setFirstLineIndent(2)).toBe(true);
-    let json = editor.getJSON() as any;
+    let json = editor.getJSON() as LayoutNode;
     expect(json.content[0].attrs.firstLineIndent).toBe(2);
     expect(json.content[1].attrs.firstLineIndent).toBe(2);
     expect(json.content[2].attrs.firstLineIndent).toBeUndefined();
 
     expect(editor.commands.setFirstLineIndent(0)).toBe(true);
-    json = editor.getJSON() as any;
+    json = editor.getJSON() as LayoutNode;
     expect(json.content[0].attrs.firstLineIndent).toBe(0);
     expect(json.content[1].attrs.firstLineIndent).toBe(0);
     editor.destroy();
@@ -93,16 +94,16 @@ describe("rich text layout extensions (#772)", () => {
           }],
         },
       ],
-    } as any;
+    } as unknown as LayoutNode;
 
-    const repaired = repairTiptapJson(input) as any;
+    const repaired = repairTiptapJson(input) as LayoutNode;
     expect(repaired.content[0].attrs.firstLineIndent).toBe(2);
     expect(repaired.content[1].attrs.tableLayoutAlign).toBe("center");
     expect(repaired.content[1].attrs.tableWidthMode).toBe("full");
     expect(repaired.content[1].content[0].content[0].attrs.colwidth).toEqual([160]);
 
     const editor = new Editor({ extensions: tiptapExtensions, content: repaired });
-    const roundTrip = editor.getJSON() as any;
+    const roundTrip = editor.getJSON() as LayoutNode;
     expect(roundTrip.content[0].attrs.firstLineIndent).toBe(2);
     expect(roundTrip.content[1].attrs.tableLayoutAlign).toBe("center");
     expect(roundTrip.content[1].attrs.tableWidthMode).toBe("full");
@@ -116,7 +117,7 @@ describe("rich text layout extensions (#772)", () => {
     expect(html).toMatch(/margin-left:\s*auto/i);
     expect(html).toMatch(/width:\s*100%/i);
 
-    const parsed = generateJSON(html, tiptapExtensions) as any;
+    const parsed = generateJSON(html, tiptapExtensions) as LayoutNode;
     expect(parsed.content[0].attrs.firstLineIndent).toBe(2);
     expect(parsed.content[1].attrs.tableLayoutAlign).toBe("center");
     expect(parsed.content[1].attrs.tableWidthMode).toBe("full");
@@ -150,7 +151,7 @@ describe("rich text layout extensions (#772)", () => {
     expect(editor.commands.setTableLayoutAlign("right")).toBe(true);
     expect(editor.commands.setTableWidthMode("full")).toBe(true);
 
-    const table = (editor.getJSON() as any).content[0];
+    const table = (editor.getJSON() as LayoutNode).content[0];
     expect(table.attrs.tableLayoutAlign).toBe("right");
     expect(table.attrs.tableWidthMode).toBe("full");
     expect(table.attrs.tableAligns).toEqual(["right"]);

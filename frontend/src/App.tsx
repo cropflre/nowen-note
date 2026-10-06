@@ -36,7 +36,7 @@ import { UserPreferencesProvider, useUserPreferences } from "@/hooks/useUserPref
 import { TooltipProvider } from "@/components/ui/tooltip";
 import Toaster from "@/components/Toaster";
 import { User } from "@/types";
-import { getBaseUrl, getServerUrl, setServerUrl, clearServerUrl, broadcastLogout, initializeServerUrlFromRuntime } from "@/lib/api";
+import { getBaseUrl, getServerUrl, setServerUrl, clearServerUrl, broadcastLogout } from "@/lib/api";
 import { markNewNoteForImmediateEdit } from "@/lib/newNoteImmediateEdit";
 import { TASK_VIEW_SHELL_CLASS } from "@/lib/taskLayout";
 import { useReminderNotifier } from "@/components/tasks/useReminderNotifier";

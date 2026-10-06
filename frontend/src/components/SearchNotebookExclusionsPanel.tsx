@@ -32,7 +32,8 @@ export default function SearchNotebookExclusionsPanel({
     setLoading(true);
     try {
       setData(await listSearchNotebookExclusions());
-    } catch (error: any) {
+    } catch (caughtError: unknown) {
+      const error = caughtError as Error & { code?: string };
       console.warn("[SearchNotebookExclusionsPanel] load failed", error);
     } finally {
       setLoading(false);
@@ -77,7 +78,8 @@ export default function SearchNotebookExclusionsPanel({
       await reload();
       onScopeChanged();
       toast.success(`“${item.name}”已重新纳入全局搜索`);
-    } catch (error: any) {
+    } catch (caughtError: unknown) {
+      const error = caughtError as Error & { code?: string };
       toast.error(error?.message || "恢复搜索范围失败");
     } finally {
       setRestoringId(null);

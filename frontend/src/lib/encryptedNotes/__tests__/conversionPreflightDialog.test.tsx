@@ -19,7 +19,7 @@ const close = vi.fn();
 beforeEach(() => {
   vi.resetAllMocks(); localStorage.clear();
   container = document.createElement("div"); document.body.append(container); root = createRoot(container);
-  vi.mocked(api.getMe).mockResolvedValue({ id: "owner" } as any);
+  vi.mocked(api.getMe).mockResolvedValue({ id: "owner" } as unknown as import("@/types/index").User);
   vi.mocked(api.getEncryptionConversionPreflight).mockResolvedValue(report());
   vi.mocked(inspectBrowserConversionCopies).mockResolvedValue({ draft: true, queue: 1, cache: null, collaboration: null });
 });
@@ -28,7 +28,7 @@ const render = (noteId = "note") => act(async () => { root.render(<EncryptedNote
 const buttons = () => [...container.querySelectorAll("button")];
 
 it("shows counts, uncertainty and limits; conversion remains disabled even with a forged ready report", async () => {
-  vi.mocked(api.getEncryptionConversionPreflight).mockResolvedValue({ ...report(), canConvert: true } as any);
+  vi.mocked(api.getEncryptionConversionPreflight).mockResolvedValue({ ...report(), canConvert: true } as unknown as EncryptionConversionPreflight);
   await render();
   expect(container.textContent).toContain("笔记模板"); expect(container.textContent).toContain("检查不完整");
   expect(container.textContent).toContain("未能确认"); expect(container.textContent).toContain("旧备份");

@@ -169,7 +169,7 @@ export function installMobileLocalKnowledgeTreeBridge(
   options: { deviceOnly?: boolean } = {},
   db?: NativeDatabase,
 ): () => void {
-  const target = knowledgeTreeApi as any;
+  const target = knowledgeTreeApi;
   const originals = { ...target };
   const deviceOnly = options.deviceOnly ?? isMobileLocalMode();
 

@@ -74,7 +74,7 @@ export default function CreateNoteMenu({ open, parentId, onPick, onClose, anchor
   async function activateNote(note: Awaited<ReturnType<typeof api.getNote>>, newlyCreated = false) {
     if (newlyCreated) {
       if (state.viewMode === "favorites") {
-        try { note = await api.updateNote(note.id, { isFavorite: 1 } as any); } catch { /* 收藏失败不阻断打开。 */ }
+        try { note = await api.updateNote(note.id, { isFavorite: 1 }); } catch { /* 收藏失败不阻断打开。 */ }
       }
       markNewNoteForImmediateEdit(note.id);
     }
@@ -105,7 +105,8 @@ export default function CreateNoteMenu({ open, parentId, onPick, onClose, anchor
       else if (kind === "mindmap") pushMindMapAppPath(node.resourceId);
       else if (kind === "sheet") pushSheetAppPath(node.resourceId);
       else await activateNote(await api.getNote(node.resourceId), true);
-    } catch (error: any) {
+    } catch (caughtError: unknown) {
+      const error = caughtError as Error & { code?: string };
       if (focusRequestId !== null) cancelNewNoteTitleFocus(focusRequestId);
       toast.error(error?.message || "创建失败，请重试");
     }
@@ -122,7 +123,8 @@ export default function CreateNoteMenu({ open, parentId, onPick, onClose, anchor
       if (!note) return;
       refresh(target.parent?.id ?? null);
       await activateNote(note);
-    } catch (error: any) {
+    } catch (caughtError: unknown) {
+      const error = caughtError as Error & { code?: string };
       toast.error(error?.message || "导入失败，请重试");
     }
   }
@@ -134,7 +136,8 @@ export default function CreateNoteMenu({ open, parentId, onPick, onClose, anchor
       const selection = { parentId: target.parent?.id ?? null };
       if (kind === "template") setTemplateParent(selection);
       else setEncryptedParent(selection);
-    } catch (error: any) {
+    } catch (caughtError: unknown) {
+      const error = caughtError as Error & { code?: string };
       toast.error(error?.message || "无法在此处新建内容");
     }
   }

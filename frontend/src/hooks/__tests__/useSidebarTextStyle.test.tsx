@@ -8,7 +8,7 @@ import {
   useSidebarTextStyle,
 } from "../useSidebarTextStyle";
 
-(globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
+Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
 let root: Root | null = null;
 

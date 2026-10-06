@@ -63,7 +63,8 @@ export default function JournalPrivacyGate({
       // Trust the server verdict on initial load: a locally cached token may have
       // become stale after a password change. The API validates passwordVersion.
       setStatus(next);
-    } catch (requestError: any) {
+    } catch (caughtError: unknown) {
+      const requestError = caughtError as Error & { code?: string };
       setError(requestError?.message || "读取日记隐私状态失败");
     } finally {
       setLoading(false);

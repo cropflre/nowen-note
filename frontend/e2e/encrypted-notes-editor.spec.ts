@@ -1,3 +1,4 @@
+import type { EncryptedTestWindow } from "./encrypted-notes-runtime";
 import { expect, test } from "./encrypted-notes-test";
 import type { Page } from "@playwright/test";
 
@@ -177,10 +178,10 @@ test("background saves rich text before lock and a failed Worker preserves the l
   await page.getByRole("button", { name: "恢复服务器笔记", exact: true }).click();
   await unlock(page); await expect(editor).toHaveText(plaintext);
   await editor.fill(`${plaintext} unsaved failure`);
-  await page.evaluate(() => { (window as any).__fixtureWorker = window.Worker; (window as any).Worker = undefined; window.dispatchEvent(new Event("blur")); });
+  await page.evaluate(() => { (window as unknown as EncryptedTestWindow).__fixtureWorker = window.Worker; (window as unknown as EncryptedTestWindow).Worker = undefined; window.dispatchEvent(new Event("blur")); });
   await expect(page.getByRole("alert")).toContainText("锁定未完成");
   await expect(editor).toHaveText(`${plaintext} unsaved failure`);
-  await page.evaluate(() => { window.Worker = (window as any).__fixtureWorker; delete (window as any).__fixtureWorker; });
+  await page.evaluate(() => { window.Worker = (window as unknown as EncryptedTestWindow).__fixtureWorker!; delete (window as unknown as EncryptedTestWindow).__fixtureWorker; });
   await page.getByRole("button", { name: "重试锁定", exact: true }).click();
   await expect(editor).toHaveCount(0); await expect(page.getByRole("status")).toHaveCount(0);
   await page.reload(); await page.getByRole("button", { name: "恢复服务器笔记", exact: true }).click();

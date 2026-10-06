@@ -129,7 +129,8 @@ export function KnowledgeTreeCreateDropdown({
         detail: { reason: "note-duplicated-as-child", parentId: sourceNodeId },
       }));
       toast.success("副本已创建到子目录");
-    } catch (error: any) {
+    } catch (caughtError: unknown) {
+      const error = caughtError as Error & { code?: string };
       toast.error(error?.message || "创建副本失败");
     } finally {
       setDuplicating(false);

@@ -45,7 +45,7 @@ it("native desktop events lock once and remove the preload subscription when ina
     act(() => root.render(<Session />)); expect(on).toHaveBeenCalledWith("security:auto-lock", expect.any(Function));
     act(() => { background(); background(); }); expect(lock).toHaveBeenCalledTimes(1); expect(lock).toHaveBeenCalledWith("background");
     act(() => root.render(<Session active={false} />)); expect(unsubscribe).toHaveBeenCalledTimes(1);
-  } finally { delete (window as any).nowenDesktop; }
+  } finally { Reflect.deleteProperty(window, "nowenDesktop"); }
 });
 it("rerenders use the current callback without resetting the deadline; inactive sessions remove observers", () => {
   act(() => root.render(<Session />)); act(() => vi.advanceTimersByTime(ENCRYPTED_IDLE_LOCK_MS - 1));

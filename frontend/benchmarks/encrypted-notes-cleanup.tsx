@@ -31,7 +31,7 @@ const harness = {
     localStorage.setItem("nowen-token", `header.${btoa(JSON.stringify({ userId: "owner" }))}.signature`);
     cache.setCurrentUser("owner");
     for (const id of ["note", "other"]) {
-      await cache.putCompleteOfflineNote({ id, content: `private-${id}`, contentText: `private-${id}`, version: 1 } as any);
+      await cache.putCompleteOfflineNote({ id, content: `private-${id}`, contentText: `private-${id}`, version: 1 } as import("../src/types").Note);
       await cache.putOfflineAttachment({ id: `attachment-${id}`, noteId: id, filename: "private.txt", mimeType: "text/plain", size: 5, createdAt: "", cachedAt: 1, blob: new Blob([`private-${id}`]) });
       await cache.putOfflineAttachmentJob({ id: `job-${id}`, noteId: id, filename: "private.txt", mimeType: "text/plain", size: 5, createdAt: "", queuedAt: 1, retryCount: 0 });
       localStorage.setItem(`nowen-draft-${id}`, `private-${id}`);
@@ -74,26 +74,29 @@ const harness = {
   releaseCacheWrite: () => releaseWriter?.(),
   async writeStaleCopies() {
     cache.setCurrentUser("owner");
-    const original = { id: "note", version: 1, content: "private-note", contentText: "private-note", contentFormat: "markdown" } as any;
+    const original = { id: "note", version: 1, content: "private-note", contentText: "private-note", contentFormat: "markdown" } as import("../src/types").Note;
     const errors: string[] = [];
     for (const write of [
       () => cache.putCompleteOfflineNote(original),
       () => cache.putOfflineAttachment({ id: "late-attachment", noteId: "note", filename: "private.txt", mimeType: "text/plain", size: 5, createdAt: "", cachedAt: 1, blob: new Blob(["private-note"]) }),
       () => cache.putOfflineAttachmentJob({ id: "late-job", noteId: "note", filename: "private.txt", mimeType: "text/plain", size: 5, createdAt: "", queuedAt: 1, retryCount: 0 }),
       () => saveDraft({ noteId: "note", content: "private-note", contentText: "private-note", title: "title", editorMode: "md", baseVersion: 1, savedAt: Date.now() }),
-      () => enqueue({ noteId: "note", type: "updateNote", url: "/notes/note", method: "PUT", body: original }),
+      () => enqueue({ noteId: "note", type: "updateNote", url: "/notes/note", method: "PUT", body: original as unknown as Record<string, unknown> }),
     ]) {
-      try { await write(); errors.push("unexpected success"); } catch (error: any) { errors.push(error.code); }
+      try { await write(); errors.push("unexpected success"); } catch (caughtError: unknown) {
+        const error = caughtError as Error & { code?: string };
+        errors.push(error.code!);
+      }
     }
     await cache.putNote(original); // Ordinary best-effort writer also refuses the stale body.
     await cache.putNoteListItems([original]);
     return errors;
   },
-  cacheEncrypted: () => cache.putCompleteOfflineNote(committed as any),
+  cacheEncrypted: () => cache.putCompleteOfflineNote(committed as import("../src/types").Note),
   showApp: () => root.render(<AppProvider><AppStateProbe /></AppProvider>),
   seedAppState() {
     if (!app) throw new Error("State probe missing");
-    const original = { id: "note", version: 1, title: "title", content: "private-note", contentText: "private-note", contentFormat: "markdown" } as any;
+    const original = { id: "note", version: 1, title: "title", content: "private-note", contentText: "private-note", contentFormat: "markdown" } as import("../src/types").Note;
     app.dispatch({ type: "SET_ACTIVE_NOTE", payload: original });
     app.dispatch({ type: "SET_NOTES", payload: [original, { ...original, id: "other" }] });
     app.dispatch({ type: "OPEN_NOTE_TAB", payload: original });

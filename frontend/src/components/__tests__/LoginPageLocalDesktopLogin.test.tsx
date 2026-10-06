@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { testServerConnection } from "@/lib/api";
 import LoginPage from "../LoginPage";
 
-(globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
+Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
 const { localHint, completeLocalLoginHint } = vi.hoisted(() => ({
   localHint: {
@@ -80,7 +80,7 @@ describe("桌面端本地登录信息提示", () => {
     document.body.innerHTML = "";
     completeLocalLoginHint.mockClear();
     vi.mocked(testServerConnection).mockClear();
-    (window as any).nowenDesktop = { isDesktop: true };
+    Object.assign(window, { nowenDesktop: { isDesktop: true } });
     vi.stubGlobal("scrollTo", vi.fn());
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({
       token: "token-local",
@@ -92,7 +92,7 @@ describe("桌面端本地登录信息提示", () => {
   afterEach(() => {
     if (root) act(() => root?.unmount());
     root = null;
-    delete (window as any).nowenDesktop;
+    Reflect.deleteProperty(window, "nowenDesktop");
     vi.unstubAllGlobals();
     localStorage.clear();
     document.body.innerHTML = "";

@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import SheetGrid from "@/components/SheetGrid";
 import { normalizeSheetData } from "@/lib/sheetModel";
 
-(globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
+Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 describe("shared SheetGrid", () => {
   let host: HTMLDivElement; let root: Root;
   beforeEach(() => { host = document.createElement("div"); document.body.appendChild(host); root = createRoot(host); });

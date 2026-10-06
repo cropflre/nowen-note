@@ -15,30 +15,30 @@ function captureInput(accept = "image/*"): HTMLInputElement {
 }
 
 afterEach(() => {
-  delete (window as any).nowenDesktop;
-  delete (window as any).Capacitor;
+  Reflect.deleteProperty(window, "nowenDesktop");
+  Reflect.deleteProperty(window, "Capacitor");
   vi.restoreAllMocks();
 });
 
 describe("managed photo capture capability", () => {
   it("takes over image capture in Electron desktop", () => {
-    (window as any).nowenDesktop = { isDesktop: true, platform: "win32" };
+    Object.assign(window, { nowenDesktop: { isDesktop: true, platform: "win32" } });
     expect(shouldUseManagedPhotoCapture(captureInput("image/*"))).toBe(true);
   });
 
   it("does not take over video capture", () => {
-    (window as any).nowenDesktop = { isDesktop: true, platform: "win32" };
+    Object.assign(window, { nowenDesktop: { isDesktop: true, platform: "win32" } });
     expect(shouldUseManagedPhotoCapture(captureInput("video/*"))).toBe(false);
   });
 
   it("preserves native Capacitor capture behavior", () => {
-    (window as any).nowenDesktop = { isDesktop: true, platform: "win32" };
-    (window as any).Capacitor = { isNativePlatform: () => true };
+    Object.assign(window, { nowenDesktop: { isDesktop: true, platform: "win32" } });
+    Object.assign(window, { Capacitor: { isNativePlatform: () => true } });
     expect(shouldUseManagedPhotoCapture(captureInput("image/*"))).toBe(false);
   });
 
   it("allows the explicit choose-file fallback to bypass camera interception", () => {
-    (window as any).nowenDesktop = { isDesktop: true, platform: "win32" };
+    Object.assign(window, { nowenDesktop: { isDesktop: true, platform: "win32" } });
     const input = captureInput("image/*");
     input.dataset.nowenCameraFallback = "1";
     expect(shouldUseManagedPhotoCapture(input)).toBe(false);

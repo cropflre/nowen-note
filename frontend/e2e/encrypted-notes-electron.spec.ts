@@ -1,3 +1,4 @@
+import type { EncryptedTestWindow } from "./encrypted-notes-runtime";
 import { expect, test } from "./encrypted-notes-test";
 
 const password = "test-only-m2-password";
@@ -10,8 +11,8 @@ test.beforeEach(async ({ page, desktopApp }) => {
   });
   await expect.poll(() => page.evaluate(() => document.hasFocus())).toBe(true);
   expect(await page.evaluate(() => ({
-    node: typeof (window as any).require, process: typeof (window as any).process,
-    desktop: (window as any).nowenDesktop?.isDesktop, secure: isSecureContext,
+    node: typeof (window as unknown as EncryptedTestWindow).require, process: typeof (window as unknown as EncryptedTestWindow).process,
+    desktop: (window as unknown as EncryptedTestWindow).nowenDesktop?.isDesktop, secure: isSecureContext,
   }))).toEqual({ node: "undefined", process: "undefined", desktop: true, secure: true });
   await page.getByRole("button", { name: "新建", exact: true }).click();
   await page.getByLabel("加密笔记标题", { exact: true }).fill("Public native title");

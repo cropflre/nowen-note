@@ -59,6 +59,7 @@ function formatNote(
 
 function uploadName(name: string): string {
   return (name.split(/[\\/]/).pop() || name)
+    // eslint-disable-next-line no-control-regex -- Control characters must be rejected or stripped at this data boundary.
     .replace(/[\u0000-\u001f\u007f<>:"|?*]+/g, "_")
     || "file";
 }

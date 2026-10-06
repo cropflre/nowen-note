@@ -10,7 +10,7 @@ describe("WeChat clipboard consent", () => {
   let root: Root, host: HTMLDivElement;
   const url = "https://mp.weixin.qq.com/s/article";
   beforeEach(() => {
-    (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
+    Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
     vi.resetAllMocks(); mocks.status.mockResolvedValue({ pluginReady: true, clipboardPrompt: true, items: [] });
     mocks.read.mockResolvedValue([url]); mocks.collect.mockResolvedValue({ accepted: 1, duplicates: 0 });
     host = document.createElement("div"); document.body.append(host); root = createRoot(host);

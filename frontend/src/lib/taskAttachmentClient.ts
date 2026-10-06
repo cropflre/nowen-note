@@ -37,15 +37,16 @@ function authHeaders(): Record<string, string> {
 
 async function readJsonResponse<T>(response: Response, fallback: string): Promise<T> {
   const text = await response.text();
-  let payload: any = null;
+  let payload: unknown = null;
   if (text) {
     try { payload = JSON.parse(text); } catch { payload = text; }
   }
   if (!response.ok) {
-    const message = typeof payload?.error === "string"
-      ? payload.error
-      : typeof payload?.message === "string"
-        ? payload.message
+    const detail = payload as { error?: unknown; message?: unknown } | null;
+    const message = typeof detail?.error === "string"
+      ? detail.error
+      : typeof detail?.message === "string"
+        ? detail.message
         : typeof payload === "string" && payload.trim()
           ? payload.slice(0, 240)
           : `${fallback}（HTTP ${response.status}）`;

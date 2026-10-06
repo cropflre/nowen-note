@@ -1,3 +1,4 @@
+import type { EncryptedTestGlobals } from "./encrypted-notes-runtime";
 import { test as base, expect, _electron, type ElectronApplication, type Page } from "@playwright/test";
 import fs from "node:fs";
 import os from "node:os";
@@ -14,7 +15,8 @@ export function encryptedFixtureUrl(name: string) {
     : `http://127.0.0.1:5176/benchmarks/${name}`;
 }
 export const test = base.extend<{ desktopApp: ElectronApplication }>({
-  desktopApp: async ({}, use, testInfo) => {
+  desktopApp: async ({ browserName }, provide, testInfo) => {
+    void browserName;
     if (!desktop) throw new Error("Use playwright.encrypted-notes-electron.config.ts for native window tests");
     const directory = fs.mkdtempSync(path.join(os.tmpdir(), "nowen-encrypted-electron-"));
     const env = Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined));
@@ -35,13 +37,13 @@ export const test = base.extend<{ desktopApp: ElectronApplication }>({
         args: [path.resolve("../scripts/encrypted-notes-electron-fixture.cjs")],
         env, chromiumSandbox: true, timeout: 15_000,
       });
-      await use(app);
+      await provide(app);
     } finally {
       try {
         const forbidden = ["PRIVATE_ENCRYPTED_M2_SENTINEL", "test-only-m2-password", "new-test-only-password", "PRIVATE_ENCRYPTED_M3_SENTINEL", "test-only-m3-password"];
         try {
           if (file && app) {
-            const requests = await app.evaluate(() => JSON.stringify((globalThis as any).encryptedFixtureRequests));
+            const requests = await app.evaluate(() => JSON.stringify((globalThis as EncryptedTestGlobals).encryptedFixtureRequests));
             for (const marker of forbidden) expect(requests).not.toContain(marker);
           }
         } finally { await app?.close(); }
@@ -62,7 +64,7 @@ export const test = base.extend<{ desktopApp: ElectronApplication }>({
     }
   },
   ...(desktop ? {
-    page: async ({ desktopApp }: { desktopApp: ElectronApplication }, use: (page: Page) => Promise<void>) => {
+    page: async ({ desktopApp }: { desktopApp: ElectronApplication }, provide: (page: Page) => Promise<void>) => {
       const page = await desktopApp.firstWindow();
       await page.waitForLoadState();
       // Initial native activation must finish before a test enters passwords.
@@ -70,7 +72,7 @@ export const test = base.extend<{ desktopApp: ElectronApplication }>({
         app.focus({ steal: true }); BrowserWindow.getAllWindows()[0].focus();
       });
       await expect.poll(() => page.evaluate(() => document.hasFocus())).toBe(true);
-      await use(page);
+      await provide(page);
     },
   } : {}),
 });

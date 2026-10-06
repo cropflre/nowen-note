@@ -23,7 +23,7 @@ describe("native mind map document references", () => {
 
   it("preserves the native reference through Markdown to Tiptap and back", () => {
     const document = markdownToTiptapJSON(`前文\n\n${source}\n\n后文`);
-    const embedded = document.content.find((node: any) => node.type === "blockEmbed");
+    const embedded = document.content.find((node: import("@tiptap/core").JSONContent) => node.type === "blockEmbed");
     expect(embedded?.attrs?.href).toBe(`mindmap:${ID}`);
     expect(tiptapJsonToMarkdown(document)).toContain(source);
   });

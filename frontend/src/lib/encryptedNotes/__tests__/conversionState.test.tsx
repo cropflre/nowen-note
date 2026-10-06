@@ -12,7 +12,7 @@ it("drops converted body, summary, tab, split and pending activation, rejecting 
   const root = createRoot(document.createElement("div"));
   let context!: ReturnType<typeof useApp>;
   function Grabber() { context = useApp(); return null; }
-  const original = { id: "note", version: 1, content: "private source", contentText: "private source", contentFormat: "markdown", title: "title" } as any;
+  const original = { id: "note", version: 1, content: "private source", contentText: "private source", contentFormat: "markdown", title: "title" } as import("@/types").Note;
   const other = { ...original, id: "other" };
   try {
     act(() => root.render(<AppProvider><Grabber /></AppProvider>));

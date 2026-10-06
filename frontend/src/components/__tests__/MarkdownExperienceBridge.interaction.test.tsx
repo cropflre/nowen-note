@@ -18,13 +18,13 @@ let bridgeRoot: Root | null = null;
 let bridgeHost: HTMLElement | null = null;
 
 beforeAll(() => {
-  (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
+  Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
   if (!globalThis.ResizeObserver) {
-    (globalThis as any).ResizeObserver = class {
+    Object.assign(globalThis, { ResizeObserver: class {
       observe() {}
       unobserve() {}
       disconnect() {}
-    };
+    } });
   }
   if (!globalThis.requestAnimationFrame) {
     globalThis.requestAnimationFrame = (callback: FrameRequestCallback) =>

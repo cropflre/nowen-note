@@ -15,7 +15,7 @@ vi.mock("@/lib/toast", () => ({ toast: { success: vi.fn(), warning: vi.fn(), err
 vi.mock("@/lib/workspaceRefreshBridge", () => ({ emitKnowledgeTreeRefresh: vi.fn() }));
 vi.mock("@/i18n", () => ({ default: { language: "zh-CN", t: (key: string) => key } }));
 vi.mock("react-i18next", () => ({ useTranslation: () => ({ i18n: { language: "zh-CN" }, t: (key: string, values: Record<string, unknown> = {}) => {
-  let text = key.split(".").reduce((value: any, part) => value?.[part], zh) || key;
+  let text = String(key.split(".").reduce((value: unknown, part) => (value as Record<string, unknown>)?.[part], zh) || key);
   for (const [name, value] of Object.entries(values)) text = text.replaceAll(`{{${name}}}`, String(value));
   return text;
 } }) }));

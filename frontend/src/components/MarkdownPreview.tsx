@@ -393,7 +393,8 @@ function createComponents(
     iframe: PreviewIframe,
     video: ({ src, children, ...props }) => <video src={src} controls preload="metadata" className="my-4 max-h-[520px] w-full rounded-xl border border-app-border bg-black" {...props}>{children}</video>,
     audio: ({ src, node }) => {
-      const source = String(src || node?.children?.find((child: any) => child.tagName === "source")?.properties?.src || "");
+      const sourceNode = node?.children?.find((child: import("hast").ElementContent) => child.type === "element" && child.tagName === "source");
+      const source = String(src || (sourceNode?.type === "element" ? sourceNode.properties?.src : "") || "");
       return <div className="my-4"><VoiceMemoAudio src={source} />{onInsertVoiceTranscript && <VoiceTranscription key={source} src={source} onInsert={onInsertVoiceTranscript} />}</div>;
     },
     details: ({ node, children, open }) => <details {...attrs(node)} open={open} className="my-4 rounded-lg border border-app-border bg-app-surface px-4 py-2">{children}</details>,
@@ -418,7 +419,7 @@ function createComponents(
         ? <div {...props}>{children}</div>
         : <MathView source={source} display />;
     },
-    code: ({ node, className, children }: any) => {
+    code: ({ node, className, children }) => {
       const raw = String(children ?? "");
       const isBlock = isMarkdownBlockCode(className) || raw.endsWith("\n");
       return isBlock

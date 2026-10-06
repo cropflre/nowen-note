@@ -1,3 +1,4 @@
+import type { EncryptedTestWindow, EncryptedTestGlobals } from "./encrypted-notes-runtime";
 import { test, expect, encryptedFixtureUrl } from "./encrypted-notes-test";
 
 const password = "test-only-m2-password";
@@ -16,7 +17,7 @@ test("file entry runs the bundled crypto Worker and WASM without a preview serve
   await page.getByRole("button", { name: "运行核心自检" }).click();
   await expect(page.locator("#result")).toContainText('"status": "passed"');
   await expect.poll(() => closed).toBe(5);
-  expect(await page.evaluate(() => ({ secure: isSecureContext, node: typeof (window as any).require, process: typeof (window as any).process })))
+  expect(await page.evaluate(() => ({ secure: isSecureContext, node: typeof (window as unknown as EncryptedTestWindow).require, process: typeof (window as unknown as EncryptedTestWindow).process })))
     .toEqual({ secure: true, node: "undefined", process: "undefined" });
 });
 
@@ -79,7 +80,7 @@ for (const format of ["markdown", "tiptap-json"]) {
       return JSON.stringify(rows);
     });
     expect(persisted).not.toContain(plaintext); expect(persisted).not.toContain(password);
-    const requests = await desktopApp.evaluate(() => (globalThis as any).encryptedFixtureRequests as Array<{ method: string; body?: string }>);
+    const requests = await desktopApp.evaluate(() => (globalThis as EncryptedTestGlobals).encryptedFixtureRequests as Array<{ method: string; body?: string }>);
     expect(requests.filter((request) => request.method === "PUT")).toHaveLength(2);
     expect(requests.some((request) => request.method === "GET")).toBe(true);
     expect(await (await page.request.get("http://127.0.0.1:5177/api/fixture/scan")).json()).toEqual({ leaks: [] });

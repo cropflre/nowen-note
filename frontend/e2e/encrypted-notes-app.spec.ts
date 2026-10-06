@@ -1,3 +1,4 @@
+import type { EncryptedTestWindow, EncryptedTestGlobals } from "./encrypted-notes-runtime";
 import { test, expect, forbidden } from "./encrypted-notes-app-test";
 import type { Page } from "@playwright/test";
 import path from "node:path";
@@ -31,7 +32,7 @@ test(`full AppShell autosaves encrypted ${format}, persists on background and cl
     const response = await page.request.post(`${server}/api/auth/register`, { data: { username: "encryption_b", password: accountPassword } });
     expect(response.ok()).toBe(true); const account = await response.json();
     // Seed a valid recent login using the real secure-storage IPC, then switch via UI.
-    expect(await page.evaluate(async ({ server, account }) => (window as any).nowenDesktop.accountHistory.save({
+    expect(await page.evaluate(async ({ server, account }) => (window as unknown as EncryptedTestWindow).nowenDesktop.accountHistory.save({
       serverUrl: server, userId: account.user.id, username: account.user.username, displayName: "", avatarUrl: "", token: account.token, refreshToken: account.refreshToken, lastUsedAt: Date.now(),
     }), { server, account })).toMatchObject({ ok: true });
   }
@@ -145,7 +146,7 @@ test(`full ${format} region editor clears unsaved plaintext on a real cross-wind
 test("production native HTTP rejects invalid requests and other windows, and enforces backend auth", async ({ product }) => {
   const { page, app, server } = product;
   const response = await page.evaluate(async (server) => {
-    const http = (window as any).nowenDesktop.http;
+    const http = (window as unknown as EncryptedTestWindow).nowenDesktop.http;
     const request = (url: string, method = "GET") => http.requestJson({ url, method, headers: { Accept: "application/json" } });
     return {
       path: await request(`${server}/outside-api`),
@@ -162,7 +163,7 @@ test("production native HTTP rejects invalid requests and other windows, and enf
   expect(response.method).toMatchObject({ ok: false, error: "INVALID_METHOD" });
   expect(response.auth).toMatchObject({ ok: true, status: 401 });
   expect(response.headers).toMatchObject({ ok: true, status: 200 });
-  const headers = await app.evaluate(() => (globalThis as any).encryptedAppHeaders.find((request: { url: string }) => request.url.endsWith("/api/health?header-filter")).headers as Record<string, string>);
+  const headers = await app.evaluate(() => (globalThis as EncryptedTestGlobals).encryptedAppHeaders.find((request: { url: string }) => request.url.endsWith("/api/health?header-filter"))!.headers as Record<string, string>);
   expect(JSON.stringify(headers)).not.toContain("forbidden-header-marker");
   expect(Object.entries(headers).some(([name, value]) => name.toLowerCase() === "x-encrypted-test" && value === "retained")).toBe(true);
   const rejected = await app.evaluate(async ({ BrowserWindow }, { server, preload }) => {

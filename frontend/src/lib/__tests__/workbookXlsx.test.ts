@@ -19,7 +19,7 @@ describe("XLSX workbook preview", () => {
 
   it("reads prefixed XML, booleans, explicit dates, sparse cells and cached results without executing formulas", async () => {
     const execute = vi.fn();
-    (globalThis as any).xlsxExecute = execute;
+    Object.assign(globalThis, { xlsxExecute: execute });
     const buffer = await workbookFixture([{ name: "值", xml: `<s:worksheet xmlns:s="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><s:sheetData>
       <s:row r="1"><s:c r="A1" t="b"><s:v>1</s:v></s:c><s:c r="B1" t="b"><s:v>0</s:v></s:c><s:c r="C1" t="d"><s:v>2026-10-03T00:00:00Z</s:v></s:c><s:c r="D1"><s:f>xlsxExecute()</s:f><s:v>42</s:v></s:c><s:c r="E1" s="1"><s:f>SUM(A1)</s:f></s:c><s:c r="F1"/></s:row>
       <s:row r="3"><s:c r="C3" t="inlineStr"><s:is><s:t>&lt;script&gt;xlsxExecute()&lt;/script&gt;</s:t></s:is></s:c></s:row>
@@ -29,7 +29,7 @@ describe("XLSX workbook preview", () => {
     expect(data.rows).toHaveLength(3);
     expect(data.columns).toHaveLength(6);
     expect(execute).not.toHaveBeenCalled();
-    delete (globalThis as any).xlsxExecute;
+    Reflect.deleteProperty(globalThis, "xlsxExecute");
   });
 
   it.each(["A1001", "GS1"])("rejects out-of-range cell %s without silently truncating", async (ref) => {

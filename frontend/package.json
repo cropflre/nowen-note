@@ -10,6 +10,7 @@
     "analyze:bundle": "node ../scripts/analyze-frontend-bundle.mjs",
     "verify:bundle": "node ../scripts/analyze-frontend-bundle.mjs --enforce",
     "lint": "eslint .",
+    "lint:baseline": "node ../scripts/frontend-lint-baseline.cjs",
     "preview": "vite preview",
     "test": "vitest",
     "test:run": "vitest run",

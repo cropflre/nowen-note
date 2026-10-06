@@ -25,6 +25,7 @@ import {
 
 const ATTACHMENT_A = "123e4567-e89b-42d3-a456-426614174216";
 const ATTACHMENT_B = "223e4567-e89b-42d3-a456-426614174217";
+const nativeWindow = window as Window & { Capacitor?: { isNativePlatform: () => boolean } };
 
 function signedUrl(id: string, sig: string): string {
   return `/api/attachments/${id}?exp=2000000000&sig=${sig}&scope=v2.scope`;
@@ -35,13 +36,13 @@ describe("noteAttachmentAccessPriming", () => {
     resetAttachmentAccessStateForTests();
     localStorage.clear();
     capacitorHttp.request.mockReset();
-    delete (window as any).Capacitor;
+    delete nativeWindow.Capacitor;
     window.history.replaceState({}, "", "/notes/test");
   });
 
   afterEach(() => {
     vi.unstubAllGlobals();
-    delete (window as any).Capacitor;
+    delete nativeWindow.Capacitor;
   });
 
   it("Case 1/5: detects persisted attachment references in Tiptap, Markdown and legacy absolute URLs", () => {
@@ -57,7 +58,7 @@ describe("noteAttachmentAccessPriming", () => {
   });
 
   it("Case 1/5: primes signed access before a persisted raw attachment reference is rendered", async () => {
-    const fetchImpl = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => new Response(JSON.stringify({
+    const fetchImpl = vi.fn<Parameters<typeof fetch>, ReturnType<typeof fetch>>().mockResolvedValue(new Response(JSON.stringify({
       noteId: "note-1",
       urls: { [ATTACHMENT_A]: signedUrl(ATTACHMENT_A, "signed-a") },
     }), {
@@ -86,7 +87,7 @@ describe("noteAttachmentAccessPriming", () => {
   });
 
   it("uses CapacitorHttp first for an Android clear-text LAN server", async () => {
-    (window as any).Capacitor = { isNativePlatform: () => true };
+    nativeWindow.Capacitor = { isNativePlatform: () => true };
     const webFetch = vi.fn(async () => {
       throw new Error("WebView fetch should not be used for LAN priming");
     });
@@ -122,7 +123,7 @@ describe("noteAttachmentAccessPriming", () => {
   });
 
   it("Case 3: primes all images in a note without converting their persisted references", async () => {
-    const fetchImpl = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => new Response(JSON.stringify({
+    const fetchImpl = vi.fn<Parameters<typeof fetch>, ReturnType<typeof fetch>>().mockResolvedValue(new Response(JSON.stringify({
       urls: {
         [ATTACHMENT_A]: signedUrl(ATTACHMENT_A, "signed-a"),
         [ATTACHMENT_B]: signedUrl(ATTACHMENT_B, "signed-b"),
@@ -143,7 +144,7 @@ describe("noteAttachmentAccessPriming", () => {
   });
 
   it("does not issue an access request when no authenticated session is available", async () => {
-    const fetchImpl = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => new Response());
+    const fetchImpl = vi.fn<Parameters<typeof fetch>, ReturnType<typeof fetch>>().mockResolvedValue(new Response());
     await expect(primeNoteAttachmentAccess("note-1", "/api", {
       token: null,
       fetchImpl,

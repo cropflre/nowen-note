@@ -34,7 +34,7 @@ function joinApiPath(apiBaseUrl: string, path: string): string {
 function isNativeCapacitorRuntime(): boolean {
   if (typeof window === "undefined") return false;
   try {
-    return Boolean((window as any).Capacitor?.isNativePlatform?.());
+    return Boolean((window as Window & { Capacitor?: { isNativePlatform?: () => boolean } }).Capacitor?.isNativePlatform?.());
   } catch {
     return false;
   }

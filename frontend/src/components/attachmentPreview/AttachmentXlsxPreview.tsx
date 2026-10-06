@@ -79,7 +79,8 @@ export default function AttachmentXlsxPreview({ url, filename, size, heightClass
       window.dispatchEvent(new CustomEvent("nowen:knowledge-tree-changed", { detail: { reason: "xlsx-import" } }));
       toast.success(t("xlsxPreview.imported"));
       if (requestGeneration === generation.current) setDestinations(null);
-    } catch (error: any) {
+    } catch (caughtError: unknown) {
+      const error = caughtError as Error & { code?: string };
       toast.error(error?.message || t("xlsxPreview.importFailed"));
     } finally {
       importBusy.current = false;

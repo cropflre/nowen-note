@@ -7,12 +7,12 @@ import { XLSX_PREVIEW_LIMITS } from "@/lib/sheetXlsx";
 import zh from "@/i18n/locales/zh-CN.json";
 
 const mocks = vi.hoisted(() => ({ create: vi.fn(), list: vi.fn(), download: vi.fn(), success: vi.fn(), error: vi.fn(), workspace: "personal" }));
-vi.mock("react-i18next", () => ({ useTranslation: () => ({ t: (key: string, args?: any) => ((zh.xlsxPreview as any)[key.split(".").pop()!] || key).replace("{{name}}", args?.name || "") }) }));
+vi.mock("react-i18next", () => ({ useTranslation: () => ({ t: (key: string, args?: { name?: string }) => ((zh.xlsxPreview as Record<string, string>)[key.split(".").pop()!] || key).replace("{{name}}", args?.name || "") }) }));
 vi.mock("@/lib/api", () => ({ getCurrentWorkspace: () => mocks.workspace }));
 vi.mock("@/lib/knowledgeTreeApi", () => ({ knowledgeTreeApi: { create: mocks.create, list: mocks.list } }));
 vi.mock("@/lib/downloadFile", () => ({ downloadAttachment: mocks.download }));
 vi.mock("@/lib/toast", () => ({ toast: { success: mocks.success, error: mocks.error } }));
-(globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
+Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
 describe("Excel attachment preview", () => {
   let host: HTMLDivElement;
