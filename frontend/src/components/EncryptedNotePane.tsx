@@ -125,7 +125,7 @@ export default function EncryptedNotePane({ note }: { note: Note }) {
     const baseNote = currentNote.current;
     if (!active || native || !canWriteNote(baseNote) || baseNote.isLocked || baseNote.isTrashed) return Promise.resolve(false);
     if (changePassword && getQueue().some((item) => item.noteId === baseNote.id)) { setError("请联网并等待同步完成后再修改密码。"); return Promise.resolve(false); }
-    if (changePassword && (plaintext !== saved || newPassphrase.length < 12 || newPassphrase !== confirmation)) { setError("请先保存正文，并输入两次相同且至少 12 个字符的新密码"); return Promise.resolve(false); }
+    if (changePassword && (plaintext !== saved || newPassphrase.length < 6 || newPassphrase !== confirmation)) { setError("请先保存正文，并输入两次相同且至少 6 个字符的新密码"); return Promise.resolve(false); }
     if (!changePassword && plaintext === saved) return Promise.resolve(true);
     const key = password.current;
     const scope = getOfflineQueueStorageKey();
@@ -224,7 +224,7 @@ export default function EncryptedNotePane({ note }: { note: Note }) {
       {editable && <details className="border-t border-app-border p-4"><summary>修改密码</summary><p className="my-2 text-xs">以前的备份仍需使用当时的密码解锁。</p>
         <input aria-label="新密码" type="password" autoComplete="new-password" value={newPassphrase} disabled={busy} onChange={(event) => setNewPassphrase(event.target.value)} className="border border-app-border bg-app-bg p-2" />
         <input aria-label="确认新密码" type="password" autoComplete="new-password" value={confirmation} disabled={busy} onChange={(event) => setConfirmation(event.target.value)} className="border border-app-border bg-app-bg p-2" />
-        <Button disabled={busy || dirty || newPassphrase.length < 12 || newPassphrase !== confirmation} onClick={() => void save(true)}>确认修改</Button>
+        <Button disabled={busy || dirty || newPassphrase.length < 6 || newPassphrase !== confirmation} onClick={() => void save(true)}>确认修改</Button>
       </details>}
     </>}
   </section>;

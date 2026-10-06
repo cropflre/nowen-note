@@ -25,7 +25,7 @@
 
 随机 256 位正文密钥 DEK 加密正文；口令经 Argon2id 派生 32 字节 KEK，包装 DEK。AES-GCM 使用 128 位标签，`ciphertext` 末尾追加 16 字节标签，与 Web Crypto 返回格式一致。IV 每次随机生成，更新时避免复用当前正文 IV，包装与正文 IV 不同；历史碰撞风险由安全随机数控制，不维护历史 nonce 表。
 
-正文最多 4 MiB UTF-8，可为空；口令为 1–1024 字节 UTF-8。保留空格、BOM 和 Unicode 形式，不 trim/normalize，拒绝不成对 UTF-16 代理项。M2 产品入口要求创建/新口令至少 12 个字符并二次确认；解锁保留核心已有格式兼容。核心只处理字符串，Tiptap JSON schema 由接入层验证。
+正文最多 4 MiB UTF-8，可为空；口令为 1–1024 字节 UTF-8。保留空格、BOM 和 Unicode 形式，不 trim/normalize，拒绝不成对 UTF-16 代理项。M2 产品入口要求创建/新口令至少 6 个字符并二次确认；解锁保留核心已有格式兼容。核心只处理字符串，Tiptap JSON schema 由接入层验证。
 
 AAD 是以下数组经 `JSON.stringify` 序列化后的 UTF-8，无 BOM 或额外空格：
 

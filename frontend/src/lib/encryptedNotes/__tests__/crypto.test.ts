@@ -27,16 +27,17 @@ describe("encrypted content interoperability and lifecycle", () => {
 
   it.each(["note", "block"] as const)("creates fresh, non-plaintext %s envelopes and roundtrips UTF-8 content", async (kind) => {
     const source = "\ufeff私密内容 📝";
-    const first = await createEncryptedContent({ plaintext: source, passphrase: fixture.passphrase, kind, originalFormat: "tiptap-json" });
-    const second = await createEncryptedContent({ plaintext: source, passphrase: fixture.passphrase, kind, originalFormat: "tiptap-json" });
+    const passphrase = "123456";
+    const first = await createEncryptedContent({ plaintext: source, passphrase, kind, originalFormat: "tiptap-json" });
+    const second = await createEncryptedContent({ plaintext: source, passphrase, kind, originalFormat: "tiptap-json" });
     expect(validateEnvelope(first)).toEqual(first);
     expect(first.objectId).not.toBe(second.objectId);
     expect(first.kdf.salt).not.toBe(second.kdf.salt);
     expect(first.payload.iv).not.toBe(second.payload.iv);
     expect(first.payload.iv).not.toBe(first.wrappedKey.iv);
     expect(JSON.stringify(first)).not.toContain(source);
-    expect(JSON.stringify(first)).not.toContain(fixture.passphrase);
-    expect(await decryptEncryptedContent(first, fixture.passphrase, first)).toBe(source);
+    expect(JSON.stringify(first)).not.toContain(passphrase);
+    expect(await decryptEncryptedContent(first, passphrase, first)).toBe(source);
   });
 
   it("updates without changing the wrapped key and authenticates the old payload before saving", async () => {
@@ -52,14 +53,14 @@ describe("encrypted content interoperability and lifecycle", () => {
   });
 
   it("changes passphrase by rewrapping only, leaving old backups usable with their original passphrase", async () => {
-    const changed = await changeEncryptedContentPassphrase(original, fixture.passphrase, identity, "new test passphrase");
+    const changed = await changeEncryptedContentPassphrase(original, fixture.passphrase, identity, "123456");
     expect(changed.payload).toEqual(original.payload);
     expect(changed.kdf.salt).not.toBe(original.kdf.salt);
     expect(changed.wrappedKey).not.toEqual(original.wrappedKey);
-    expect(await decryptEncryptedContent(changed, "new test passphrase", identity)).toBe(fixture.plaintext);
+    expect(await decryptEncryptedContent(changed, "123456", identity)).toBe(fixture.plaintext);
     await expect(decryptEncryptedContent(changed, fixture.passphrase, identity)).rejects.toMatchObject({ code: "unlock-failed" });
     expect(await decryptEncryptedContent(original, fixture.passphrase, identity)).toBe(fixture.plaintext);
-    await expect(changeEncryptedContentPassphrase(original, "wrong", identity, "new test passphrase")).rejects.toMatchObject({ code: "unlock-failed" });
+    await expect(changeEncryptedContentPassphrase(original, "wrong", identity, "123456")).rejects.toMatchObject({ code: "unlock-failed" });
   });
 
   it("can be read by an independent native AES-GCM implementation", async () => {

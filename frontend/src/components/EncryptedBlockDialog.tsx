@@ -76,7 +76,7 @@ export default function EncryptedBlockDialog({ source, initialContent, onCommit,
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; operation.current?.abort(); }; }, []);
   async function perform(save: boolean) {
     if (busy || operation.current || native || (source && !envelope)) return;
-    if (save && (!onCommit || !password || (isNew && (password.length < 12 || password !== confirmation)))) return;
+    if (save && (!onCommit || !password || (isNew && (password.length < 6 || password !== confirmation)))) return;
     const controller = new AbortController(); operation.current = controller; setBusy(true); setError("");
     try {
       if (!save && envelope) {
@@ -108,14 +108,14 @@ export default function EncryptedBlockDialog({ source, initialContent, onCommit,
       {status && <p role="status">{status}</p>}
       {lockFailed && <Button disabled={busy} onClick={() => void autoLock()}>重试自动锁定</Button>}
       {(!unlocked || isNew) && <form id={passwordFormId} onSubmit={(event) => { event.preventDefault(); if (password) void perform(unlocked); }}>
-        <label>{isNew ? "密码（至少 12 个字符）" : "密码"}<input aria-label="密码" type="password" autoComplete={isNew ? "new-password" : "off"} value={password} disabled={busy} onChange={(event) => setPassword(event.target.value)} className="w-full rounded border border-app-border bg-app-bg p-2" /></label>
+        <label>{isNew ? "密码（至少 6 个字符）" : "密码"}<input aria-label="密码" type="password" autoComplete={isNew ? "new-password" : "off"} value={password} disabled={busy} onChange={(event) => setPassword(event.target.value)} className="w-full rounded border border-app-border bg-app-bg p-2" /></label>
         {isNew && <label>确认密码<input aria-label="确认密码" type="password" autoComplete="new-password" value={confirmation} disabled={busy} onChange={(event) => setConfirmation(event.target.value)} className="w-full rounded border border-app-border bg-app-bg p-2" /></label>}
       </form>}
       {unlocked && initialContent && isNew ? null : unlocked ? format === "markdown"
         ? <textarea aria-label="区域临时正文" value={body} readOnly={!onCommit || busy} onChange={(event) => setBody(event.target.value)} spellCheck={false} className="min-h-48 resize-y rounded border border-app-border bg-app-bg p-3 font-mono" />
         : <EncryptedNoteRichTextEditor initialContent={initialBody} editable={Boolean(onCommit) && !busy} onChange={setBody} />
         : <Button type="submit" form={passwordFormId} disabled={native || busy || !envelope || !password}>{busy ? "正在解锁…" : "解锁"}</Button>}
-      <div className="flex gap-2">{unlocked && onCommit && <Button disabled={native || busy || !password || (isNew && (password.length < 12 || password !== confirmation))} onClick={() => void perform(true)}>{busy ? "正在加密…" : initialContent && isNew ? "加密" : "保存"}</Button>}
+      <div className="flex gap-2">{unlocked && onCommit && <Button disabled={native || busy || !password || (isNew && (password.length < 6 || password !== confirmation))} onClick={() => void perform(true)}>{busy ? "正在加密…" : initialContent && isNew ? "加密" : "保存"}</Button>}
         <Button disabled={busy} variant="outline" onClick={close}>关闭</Button></div>
       {!onCommit && <p className="text-xs text-tx-secondary">当前笔记仅可查看。</p>}
     </section>
