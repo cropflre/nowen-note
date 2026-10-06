@@ -4,10 +4,27 @@ import { expect, it, vi } from "vitest";
 import { EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { MarkdownPreview } from "@/components/MarkdownPreview";
+import EncryptedBlockCard from "@/components/EncryptedBlockCard";
 import { encryptedBlockFence } from "../blockDocument";
 import { prepareMarkdownEncryptedRegionEdit } from "../blockAuthoring";
 import fixture from "./fixtures/envelope-v1.json";
 vi.mock("react-i18next", () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
+
+it("the encrypted card has one clickable label and never exposes a copy-data action", () => {
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host); const edit = vi.fn();
+  try {
+    act(() => root.render(<EncryptedBlockCard source={JSON.stringify({ ...fixture.envelope, kind: "block" })} onEdit={edit} />));
+    const buttons = host.querySelectorAll("button"); expect(buttons.length).toBe(1);
+    expect(buttons[0].textContent).toBe("🔒 加密内容");
+    expect(host.textContent).not.toContain("ciphertext");
+    act(() => buttons[0].click()); expect(edit).toHaveBeenCalledTimes(1);
+    act(() => root.render(<EncryptedBlockCard source="unsupported encrypted data" onEdit={edit} />));
+    expect(host.querySelector<HTMLButtonElement>("button")?.disabled).toBe(true);
+    expect(host.querySelector('[role="alert"]')?.textContent).toContain("暂时无法打开");
+    expect(host.textContent).not.toContain("密文");
+  } finally { act(() => root.unmount()); host.remove(); }
+});
 
 it("opens the correct repeated encrypted card through a transformed and segmented preview", () => {
   const source = JSON.stringify({ ...fixture.envelope, kind: "block" });

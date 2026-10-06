@@ -130,12 +130,17 @@ describe("冲突中心批量处理", () => {
     const compare = Array.from(host.querySelectorAll("button")).find((button) => button.textContent?.trim() === "查看");
     expect(compare).toBeDefined();
     await act(async () => compare?.click());
-    await waitFor(() => expect(host.textContent).toContain("加密正文无法在此比较或合并"));
+    await waitFor(() => expect(host.textContent).toContain("请选择保留本机版本或云端版本"));
     expect(host.textContent).not.toContain("手动编辑并合并");
+    expect(host.textContent).not.toContain("opaque envelope");
+    expect(host.textContent).not.toContain("remote envelope");
+    expect(host.textContent).not.toContain("encrypted-note-v1");
+    expect([...host.querySelectorAll("button")].some((button) => button.textContent?.trim() === "保留本机版本")).toBe(true);
+    expect([...host.querySelectorAll("button")].some((button) => button.textContent?.trim() === "保留云端版本")).toBe(true);
     await act(async () => host.querySelector<HTMLInputElement>('input[aria-label="全选冲突"]')?.click());
     const merge = Array.from(host.querySelectorAll("button")).find((button) => button.textContent?.includes("智能合并选中项"));
     await act(async () => merge?.click());
-    await waitFor(() => expect(host.textContent).toContain("加密笔记需明确选择本机或服务器版本"));
+    await waitFor(() => expect(host.textContent).toContain("请选择保留本机版本或云端版本"));
     expect(resolveConflictMock).not.toHaveBeenCalled();
   });
 
@@ -192,7 +197,7 @@ describe("冲突中心批量处理", () => {
     const first = host.querySelector<HTMLInputElement>('input[aria-label="选择冲突 项目计划"]');
     await act(async () => first?.click());
     const bulkRemote = Array.from(host.querySelectorAll("button"))
-      .find((button) => button.textContent === "一键采用服务器");
+      .find((button) => button.textContent === "一键采用云端");
     await act(async () => bulkRemote?.click());
 
     await waitFor(() => expect(resolveConflictMock).toHaveBeenCalledTimes(1));

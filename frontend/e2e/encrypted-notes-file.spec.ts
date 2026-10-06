@@ -44,14 +44,13 @@ for (const format of ["markdown", "tiptap-json"]) {
     await unlock();
     const editor = page.getByLabel(format === "markdown" ? "加密 Markdown 正文" : "加密富文本正文", { exact: true });
     await expect(editor).toBeVisible(); await editor.fill(plaintext);
-    await page.getByRole("button", { name: "保存", exact: true }).click();
     await expect(page.getByRole("status")).toHaveText("已保存");
     const original = await page.evaluate(() => window.encryptedFixtureState().activeNote!.content);
     const draft = `${plaintext} unsaved`;
     await editor.fill(draft);
     await desktopApp.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].hide());
     await expect(editor).toHaveCount(0);
-    await expect(page.getByRole("status")).toContainText("已锁定，修改已保存");
+    await expect(page.getByRole("status")).toHaveCount(0);
     expect(await page.evaluate(() => window.encryptedFixtureState().activeNote!.content)).not.toBe(original);
     await desktopApp.evaluate(({ BrowserWindow }) => { const window = BrowserWindow.getAllWindows()[0]; window.show(); window.focus(); });
     await expect.poll(() => page.evaluate(() => document.hasFocus())).toBe(true);

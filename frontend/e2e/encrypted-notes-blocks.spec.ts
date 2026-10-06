@@ -16,7 +16,7 @@ async function create(page: Page) {
   await expect(page.getByLabel("已锁定加密区域", { exact: true })).toHaveCount(1);
 }
 async function unlock(page: Page, value = password) {
-  await page.getByLabel("已锁定加密区域", { exact: true }).getByRole("button", { name: "解锁", exact: true }).click();
+  await page.getByLabel("已锁定加密区域", { exact: true }).getByRole("button", { name: "解锁加密内容", exact: true }).click();
   await page.getByLabel("密码", { exact: true }).fill(value);
   await page.getByRole("dialog", { name: "局部加密区域", exact: true }).getByRole("button", { name: "解锁", exact: true }).click();
 }
@@ -34,9 +34,9 @@ async function noLeaks(page: Page) {
   expect(persisted).not.toContain(plaintext); expect(persisted).not.toContain(password);
   expect(await (await page.request.get("http://127.0.0.1:5177/api/fixture/scan")).json()).toEqual({ leaks: [] });
 }
-test("real worker, editor history, format conversion, clipboard and persistence retain only ciphertext", async ({ page }) => {
+test("real worker, editor history, format conversion and persistence retain only ciphertext", async ({ page }) => {
   const writes: string[] = [];
-  page.on("request", (request) => { if (/5177\/api\/notes/.test(request.url()) && ["POST", "PUT"].includes(request.method())) writes.push(request.postData() || ""); });
+  page.on("request", (request) => { if (new URL(request.url()).pathname.includes("/api/notes") && ["POST", "PUT"].includes(request.method())) writes.push(request.postData() || ""); });
   await create(page);
   const original = await page.evaluate(() => window.blockFixtureDocument());
   await page.getByRole("button", { name: "撤销", exact: true }).click();
@@ -44,9 +44,7 @@ test("real worker, editor history, format conversion, clipboard and persistence 
   await noLeaks(page);
   await page.getByRole("button", { name: "重做", exact: true }).click();
   expect(await page.evaluate(() => window.blockFixtureDocument())).toBe(original);
-  await page.evaluate(() => { Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: (value: string) => { sessionStorage.setItem("fixture-cipher-copy", value); return Promise.resolve(); } } }); });
-  await page.getByRole("button", { name: "复制加密内容", exact: true }).click();
-  expect(await page.evaluate(() => sessionStorage.getItem("fixture-cipher-copy"))).toContain("```nowen-encrypted-v1");
+  await expect(page.getByRole("button", { name: "复制加密内容", exact: true })).toHaveCount(0);
   await page.getByRole("button", { name: "转换格式", exact: true }).click();
   await expect(page.getByLabel("主文档 Markdown 密文", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "保存主文档", exact: true }).click();

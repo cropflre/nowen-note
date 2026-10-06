@@ -21,7 +21,7 @@ for (const format of ["Markdown", "富文本", "Markdown 协作"]) {
     await expect.poll(() => page.evaluate(() => window.getSelection()?.toString())).toBe(selected);
     await page.locator('[title="加密选中文字"]').click();
     const dialog = page.getByRole("dialog", { name: "局部加密区域", exact: true });
-    await expect(dialog).toContainText("旧历史、旧备份");
+    await expect(dialog).toContainText("历史记录和旧备份中可能仍存在旧内容");
     await expect(dialog.getByLabel("区域临时正文", { exact: true })).toHaveCount(0);
     await dialog.getByLabel("密码", { exact: true }).fill(password);
     await dialog.getByLabel("确认密码", { exact: true }).fill(password);
@@ -41,7 +41,7 @@ for (const format of ["Markdown", "富文本", "Markdown 协作"]) {
     await page.getByRole("button", { name: "重新载入实际笔记", exact: true }).click();
     await expect(page.getByRole("status")).toHaveText("实际笔记已重载");
     if (format.startsWith("Markdown")) await page.locator('[title="markdown.view.preview"]').filter({ visible: true }).first().click();
-    await page.getByRole("button", { name: "解锁", exact: true }).first().click();
+    await page.getByRole("button", { name: "解锁加密内容", exact: true }).first().click();
     await dialog.getByLabel("密码", { exact: true }).fill(password);
     await dialog.getByLabel("密码", { exact: true }).press("Enter");
     if (format.startsWith("Markdown")) await expect(dialog.getByLabel("区域临时正文", { exact: true })).toHaveValue(selected);
@@ -75,7 +75,7 @@ for (const format of ["Markdown", "富文本"]) {
       // Edit from preview without switching to source or locating a ciphertext fence.
       await page.locator('[title="markdown.view.preview"]').filter({ visible: true }).first().click();
       await expect(main).not.toBeVisible();
-      await page.getByLabel("已锁定加密区域", { exact: true }).getByRole("button", { name: "解锁", exact: true }).click();
+      await page.getByLabel("已锁定加密区域", { exact: true }).getByRole("button", { name: "解锁加密内容", exact: true }).click();
       const dialog = page.getByRole("dialog", { name: "局部加密区域", exact: true });
       await expect(dialog).toBeVisible();
       await dialog.getByLabel("密码", { exact: true }).fill(password);
@@ -89,7 +89,7 @@ for (const format of ["Markdown", "富文本"]) {
       await page.getByRole("button", { name: "手动保存编辑器", exact: true }).click();
       await expect(page.getByRole("status")).toHaveText("实际编辑器保存已确认");
       // Restore the same text so the following format-conversion checks cover this saved envelope.
-      await page.getByLabel("已锁定加密区域", { exact: true }).getByRole("button", { name: "解锁", exact: true }).click();
+      await page.getByLabel("已锁定加密区域", { exact: true }).getByRole("button", { name: "解锁加密内容", exact: true }).click();
       await dialog.getByLabel("密码", { exact: true }).fill(password);
       await dialog.getByLabel("密码", { exact: true }).press("Enter");
       await expect(dialog.getByLabel("区域临时正文", { exact: true })).toHaveValue(`${plaintext} preview edit`);
@@ -107,7 +107,7 @@ for (const format of ["Markdown", "富文本"]) {
       await page.getByRole("button", { name: "切换实际编辑器格式", exact: true }).click();
       await expect(page.locator(".tiptap")).toBeVisible();
     }
-    await page.getByRole("button", { name: "解锁", exact: true }).first().click();
+    await page.getByRole("button", { name: "解锁加密内容", exact: true }).first().click();
     await page.getByLabel("密码", { exact: true }).fill(password);
     await page.getByRole("dialog", { name: "局部加密区域", exact: true }).getByRole("button", { name: "解锁", exact: true }).click();
     await expect(page.getByLabel("区域临时正文", { exact: true })).toHaveValue(plaintext);
@@ -119,7 +119,7 @@ for (const format of ["Markdown", "富文本"]) {
     await expect(page.getByRole("dialog")).toHaveCount(0);
     await page.getByRole("button", { name: "手动保存编辑器", exact: true }).click();
     await expect(page.getByRole("status")).toHaveText("实际编辑器保存已确认");
-    await page.getByRole("button", { name: "解锁", exact: true }).first().click();
+    await page.getByRole("button", { name: "解锁加密内容", exact: true }).first().click();
     await page.getByLabel("密码", { exact: true }).fill(password);
     await page.getByRole("dialog", { name: "局部加密区域", exact: true }).getByRole("button", { name: "解锁", exact: true }).click();
     await expect(page.getByLabel("区域临时正文", { exact: true })).toHaveValue(edited);

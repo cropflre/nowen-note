@@ -53,7 +53,7 @@ test(`full AppShell autosaves encrypted ${format}, persists on background and cl
   await editor.fill(`${forbidden[0]} unsaved draft`);
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find((window: { webContents: { getURL(): string } }) => window.webContents.getURL().includes("/frontend/dist/index.html"))!.hide());
   await expect(editor).toHaveCount(0);
-  await expect(page.getByRole("status").filter({ hasText: "已锁定，修改已保存" })).toBeVisible();
+  await expect(page.getByRole("status")).toHaveCount(0);
   await app.evaluate(({ BrowserWindow }) => { const window = BrowserWindow.getAllWindows().find((entry: { webContents: { getURL(): string } }) => entry.webContents.getURL().includes("/frontend/dist/index.html"))!; window.show(); window.focus(); });
   if (format === "markdown") {
     await page.getByRole("button", { name: "退出登录", exact: true }).click();
@@ -113,7 +113,7 @@ test(`full ${format} region editor clears unsaved plaintext on a real cross-wind
       await main.focus(); await page.keyboard.press("ControlOrMeta+Home");
       await page.keyboard.press("ArrowDown"); await page.keyboard.press("ArrowDown");
       await openRegion();
-    } else await page.getByRole("button", { name: "解锁", exact: true }).first().click();
+    } else await page.getByRole("button", { name: "解锁加密内容", exact: true }).first().click();
     await page.getByLabel("密码", { exact: true }).fill(passphrase);
     await page.getByRole("dialog", { name: "局部加密区域", exact: true }).getByRole("button", { name: "解锁", exact: true }).click();
   }

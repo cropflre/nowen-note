@@ -10,6 +10,13 @@ export default defineConfig({
   esbuild: { jsx: "automatic" },
   // A document meta policy alone does not constrain an external worker's own WASM.
   preview: {
+    proxy: {
+      "/api": "http://127.0.0.1:5177",
+      "^/benchmarks/encrypted-notes[^/]*\\.html/api": {
+        target: "http://127.0.0.1:5177",
+        rewrite: (path) => path.replace(/^\/benchmarks\/[^/]+\.html(?=\/api)/, ""),
+      },
+    },
     headers: {
       "Content-Security-Policy": "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' http://127.0.0.1:5177",
     },

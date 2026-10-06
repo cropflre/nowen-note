@@ -23,12 +23,11 @@ for (const format of ["markdown", "tiptap-json"]) {
     const label = format === "markdown" ? "加密 Markdown 正文" : "加密富文本正文";
     const editor = page.getByLabel(label, { exact: true });
     await expect(editor).toBeVisible(); await editor.fill(plaintext);
-    await page.getByRole("button", { name: "保存", exact: true }).click();
     await expect(page.getByRole("status").filter({ hasText: "已保存" })).toBeVisible();
     await editor.fill(`${forbidden[0]} embedded unsaved`);
     await product.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find((window: { webContents: { getURL(): string } }) => window.webContents.getURL().includes("/frontend/dist/index.html"))!.hide());
     await expect(editor).toHaveCount(0);
-    await expect(page.getByRole("status").filter({ hasText: "已锁定，修改已保存" })).toBeVisible();
+    await expect(page.getByRole("status")).toHaveCount(0);
     await product.app.evaluate(({ BrowserWindow }) => { const window = BrowserWindow.getAllWindows().find((window: { webContents: { getURL(): string } }) => window.webContents.getURL().includes("/frontend/dist/index.html"))!; window.show(); window.focus(); });
     page = await product.restart();
     await page.getByText("Public embedded encrypted note", { exact: true }).first().click();
@@ -71,7 +70,7 @@ for (const format of ["markdown", "tiptap-json"]) {
         await source.focus(); await page.keyboard.press("ControlOrMeta+Home");
         await page.keyboard.press("ArrowDown"); await page.keyboard.press("ArrowDown");
         await openRegion();
-      } else await page.getByRole("button", { name: "解锁", exact: true }).first().click();
+      } else await page.getByRole("button", { name: "解锁加密内容", exact: true }).first().click();
       await page.getByLabel("密码", { exact: true }).fill(passphrase);
       await page.getByRole("dialog", { name: "局部加密区域", exact: true }).getByRole("button", { name: "解锁", exact: true }).click();
     }

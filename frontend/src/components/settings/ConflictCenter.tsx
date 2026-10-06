@@ -175,7 +175,7 @@ export function ConflictCenter({
     const targets = items.filter((item) => selectedIds.has(item.id));
     if (targets.length === 0) return;
 
-    const sourceLabel = resolution === "keep-local" ? "本机" : "服务器";
+    const sourceLabel = resolution === "keep-local" ? "本机" : "云端";
     const confirmed = window.confirm(
       `确定将已选 ${targets.length} 条冲突全部采用${sourceLabel}版本吗？另一方版本仍会保留在冲突记录中。`,
     );
@@ -243,7 +243,7 @@ export function ConflictCenter({
             const reason = merged.reason === "missing-base"
               ? "缺少共同基线"
               : merged.reason === "encrypted-content"
-                ? "加密笔记需明确选择本机或服务器版本"
+                ? "请选择保留本机版本或云端版本"
                 : merged.reason === "missing-side"
                   ? "版本内容不完整"
                   : `重叠字段：${merged.conflictFields.join("、")}`;
@@ -393,7 +393,7 @@ export function ConflictCenter({
             onClick={() => { void handleBulkResolve("keep-remote"); }}
             className="rounded border px-2.5 py-1.5 hover:bg-accent disabled:opacity-50"
           >
-            {busy ? "处理中…" : "一键采用服务器"}
+            {busy ? "处理中…" : "一键采用云端"}
           </button>
         </div>
       </div>
@@ -417,7 +417,7 @@ export function ConflictCenter({
                   </p>
                   <p className="mt-0.5 text-muted-foreground">
                     {item.entityType} · 本机 v{item.localVersion ?? "?"} ·
-                    {" "}服务器 v{item.remoteVersion ?? "?"}
+                    {" "}云端 v{item.remoteVersion ?? "?"}
                     {item.diffFields.length > 0
                       ? ` · 差异：${item.diffFields.slice(0, 4).join("、")}`
                       : ""}
@@ -440,7 +440,7 @@ export function ConflictCenter({
                 onClick={() => { void handleResolve(item.id, "keep-local"); }}
                 className="rounded border px-2 py-1 hover:bg-accent disabled:opacity-50"
               >
-                保留本机
+                保留本机版本
               </button>
               <button
                 type="button"
@@ -448,7 +448,7 @@ export function ConflictCenter({
                 onClick={() => { void handleResolve(item.id, "keep-remote"); }}
                 className="rounded border px-2 py-1 hover:bg-accent disabled:opacity-50"
               >
-                保留服务器
+                保留云端版本
               </button>
               <button type="button" disabled={busy}
                 onClick={() => { void openDetail(item.id); }}
@@ -461,9 +461,9 @@ export function ConflictCenter({
                   disabled={busy}
                   onClick={() => { void handleFork(item.id, "remote"); }}
                   className="rounded border px-2 py-1 text-muted-foreground hover:bg-accent disabled:opacity-50"
-                  title="把服务器版本另存为一条新笔记，两个版本都保留"
+                  title="把云端版本另存为一条新笔记，两个版本都保留"
                 >
-                  另存服务器版本
+                  另存云端版本
                 </button>
               ) : null}
             </div>
@@ -690,7 +690,12 @@ function ConflictDiff({
         </button>
       </div>
 
-      {detail.diffFields.length === 0 ? (
+      {encrypted ? (
+        <div className="mt-2 grid grid-cols-2 gap-3">
+          <div><p className="font-medium">本机版本</p><p className="mt-1">{String(detail.local?.title || "加密笔记")}</p><p className="text-muted-foreground">🔒 加密内容</p></div>
+          <div><p className="font-medium">云端版本</p><p className="mt-1">{String(detail.remote?.title || "加密笔记")}</p><p className="text-muted-foreground">🔒 加密内容</p></div>
+        </div>
+      ) : detail.diffFields.length === 0 ? (
         <p className="mt-2 text-muted-foreground">两侧内容一致，可能只是版本号不同。</p>
       ) : (
         <table className="mt-2 w-full table-fixed border-collapse">
@@ -698,15 +703,15 @@ function ConflictDiff({
             <tr className="text-left text-muted-foreground">
               <th className="w-1/5 py-1">字段</th>
               <th className="w-2/5 py-1">本机</th>
-              <th className="w-2/5 py-1">服务器</th>
+              <th className="w-2/5 py-1">云端</th>
             </tr>
           </thead>
           <tbody>
             {detail.diffFields.map((field) => (
               <tr key={field} className="border-t align-top">
                 <td className="py-1 font-mono">{field}</td>
-                <td className="py-1 break-words">{encrypted && field === "content" ? "加密正文（已保留）" : preview(detail.local?.[field])}</td>
-                <td className="py-1 break-words">{encrypted && field === "content" ? "加密正文（已保留）" : preview(detail.remote?.[field])}</td>
+                <td className="py-1 break-words">{preview(detail.local?.[field])}</td>
+                <td className="py-1 break-words">{preview(detail.remote?.[field])}</td>
               </tr>
             ))}
           </tbody>
@@ -718,7 +723,7 @@ function ConflictDiff({
         </p>
       ) : encrypted ? (
         <p className="mt-3 border-t pt-3 text-muted-foreground">
-          加密正文无法在此比较或合并。请选择本机或服务器版本，两侧密文会保留在冲突历史中。
+          请选择保留本机版本或云端版本。另一个版本会保留在历史记录中。
         </p>
       ) : editing ? (
         <div className="mt-3 space-y-2 border-t pt-3">

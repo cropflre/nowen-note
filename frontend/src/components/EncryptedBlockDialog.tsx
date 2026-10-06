@@ -54,7 +54,7 @@ export default function EncryptedBlockDialog({ source, initialContent, onCommit,
       if (!mounted.current || controller.signal.aborted || scope !== getOfflineQueueStorageKey()) return;
       setBody(plaintext); setInitialBody(format === "tiptap-json" ? plaintext : initialBody); setRecoveredDraft(true);
       setPassword(key); setConfirmation(confirmation); setUnlocked(unlocked); setLockFailed(true);
-      setStatus(""); setError("临时草稿加密失败，自动锁定未完成；修改仍保留，请保存或重试锁定。");
+      setStatus(""); setError("自动锁定失败，修改仍保留，请保存或重试锁定。");
     } finally {
       if (operation.current === controller) { operation.current = null; if (mounted.current) { setBusy(false); setSecuring(false); } }
     }
@@ -100,22 +100,18 @@ export default function EncryptedBlockDialog({ source, initialContent, onCommit,
   return createPortal(<div className="fixed inset-0 z-[500] flex items-center justify-center bg-black/40 p-4">
     <section role="dialog" aria-modal="true" aria-label="局部加密区域" className="flex max-h-[90vh] w-full max-w-2xl flex-col gap-3 overflow-auto rounded-xl border border-app-border bg-app-bg p-5 shadow-xl">
       <h2>{initialContent ? "加密选中文字" : !source ? "插入加密内容" : unlocked ? "编辑加密内容" : "解锁加密内容"}</h2>
-      {!source && <p className="text-xs text-tx-secondary">{initialContent
-        ? "仅加密当前正文中的选中内容，旧历史、旧备份和其他副本可能仍含明文。当前编辑器的撤销记录会清除。忘记密码无法恢复。"
-        : "忘记密码无法恢复。仅保护这里新输入的内容，周围正文和以前的备份不受影响。"}</p>}
-      <details className="text-xs text-tx-secondary"><summary>使用说明</summary>
-        <p className="mt-2">当前为试用功能，仅支持文本。5 分钟无操作或窗口进入后台时自动锁定。保存后由笔记自动保存；未保存的修改在关闭窗口后会丢失。</p>
-      </details>
+      {!source && initialContent && <p className="text-xs text-tx-secondary">加密后，新保存的内容会受到保护。历史记录和旧备份中可能仍存在旧内容。</p>}
+      <p className="text-xs text-tx-secondary">忘记密码将无法恢复内容。</p>
       {native && <p role="alert">移动应用暂不支持加密，请使用网页版或桌面端。</p>}
-      {source && !envelope && <p role="alert">密文格式无效，不能解锁或覆盖。</p>}
+      {source && !envelope && <p role="alert">此内容暂时无法打开，请更新应用后重试。</p>}
       {error && <p role="alert" className="text-red-500">{error}</p>}
       {status && <p role="status">{status}</p>}
       {lockFailed && <Button disabled={busy} onClick={() => void autoLock()}>重试自动锁定</Button>}
-      {(!unlocked || isNew) && <form id={passwordFormId} onSubmit={(event) => { event.preventDefault(); if (!unlocked && password) void perform(false); }}>
+      {(!unlocked || isNew) && <form id={passwordFormId} onSubmit={(event) => { event.preventDefault(); if (password) void perform(unlocked); }}>
         <label>{isNew ? "密码（至少 12 个字符）" : "密码"}<input aria-label="密码" type="password" autoComplete={isNew ? "new-password" : "off"} value={password} disabled={busy} onChange={(event) => setPassword(event.target.value)} className="w-full rounded border border-app-border bg-app-bg p-2" /></label>
         {isNew && <label>确认密码<input aria-label="确认密码" type="password" autoComplete="new-password" value={confirmation} disabled={busy} onChange={(event) => setConfirmation(event.target.value)} className="w-full rounded border border-app-border bg-app-bg p-2" /></label>}
       </form>}
-      {unlocked && initialContent && isNew ? <p className="text-xs text-tx-secondary">选中内容已准备好，设置密码后点击“加密”。</p> : unlocked ? format === "markdown"
+      {unlocked && initialContent && isNew ? null : unlocked ? format === "markdown"
         ? <textarea aria-label="区域临时正文" value={body} readOnly={!onCommit || busy} onChange={(event) => setBody(event.target.value)} spellCheck={false} className="min-h-48 resize-y rounded border border-app-border bg-app-bg p-3 font-mono" />
         : <EncryptedNoteRichTextEditor initialContent={initialBody} editable={Boolean(onCommit) && !busy} onChange={setBody} />
         : <Button type="submit" form={passwordFormId} disabled={native || busy || !envelope || !password}>{busy ? "正在解锁…" : "解锁"}</Button>}

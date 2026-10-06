@@ -43,7 +43,7 @@ for (const event of ["hide", "blur", "minimize"] as const) {
       return main.id;
     }, event);
     await expect(page.getByLabel("加密 Markdown 正文", { exact: true })).toHaveCount(0);
-    await expect(page.getByRole("status")).toContainText("已锁定，修改已保存");
+    await expect(page.getByRole("status")).toHaveCount(0);
     await expect(page.getByLabel("密码", { exact: true })).toHaveValue("");
     expect(writes).toHaveLength(1);
     expect(await page.evaluate(() => window.encryptedFixtureState().activeNote!.content)).not.toBe(original);
