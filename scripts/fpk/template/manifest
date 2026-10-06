@@ -1,7 +1,7 @@
 appname               = nowen-note
 version               = {{VERSION}}
 display_name          = 弄文笔记
-desc                  = 自托管私有知识库，对标群晖 Note Station。React 18 + Hono + SQLite + Docker 一键部署。集成 AI 智能写作助手（支持通义千问/OpenAI/DeepSeek/Gemini/Ollama）、思维导图、任务管理、FTS5 全文搜索、多级笔记本、中英双语。
+desc                  = 开源、自托管的个人知识库与笔记应用。支持 Markdown、富文本、思维导图、任务管理、全文搜索、附件、备份同步与 AI 知识问答。支持 Docker 部署，数据自己掌控，轻松打造属于自己的私人知识库。
 arch                  = x86_64
 source                = thirdparty
 maintainer            = Nowen
