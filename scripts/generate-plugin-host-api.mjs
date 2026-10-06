@@ -307,7 +307,7 @@ if (args.has("--check")) {
   const stale = [];
   for (const [target, content] of outputs) {
     const current = await readFile(target, "utf8").catch(() => null);
-    if (current !== content) stale.push(path.relative(ROOT, target));
+    if (current?.replace(/\r\n/g, "\n") !== content) stale.push(path.relative(ROOT, target));
   }
   if (stale.length) {
     console.error(`Extension capability 生成物未同步:\n${stale.map((target) => `- ${target}`).join("\n")}`);
