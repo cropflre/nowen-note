@@ -1038,7 +1038,7 @@ if [ "$BUILD_ONLY" != "1" ]; then
     fi
 
     # 工作区脏检查：自动丢弃所有未提交 / 未暂存的改动
-    if ! git diff-index --quiet HEAD -- || ! git diff --cached --quiet; then
+    if [ "$DRY_RUN" != "1" ] && { ! git diff-index --quiet HEAD -- || ! git diff --cached --quiet; }; then
         warn "工作区有未提交的改动，自动清理中..."
         git status --short | head -20
         git checkout -- .
@@ -1296,6 +1296,7 @@ sync_root_pkg_version() {
     fi
 
     info "更新 package.json version: ${current:-(空)} -> ${target_version}"
+    [ "$DRY_RUN" = "1" ] && return 0
     # 用 sed 原地替换第一处 "version": "..."（根 package.json 不会含嵌套 version）
     # 兼容 BSD sed（macOS）与 GNU sed
     if sed --version >/dev/null 2>&1; then
@@ -1332,6 +1333,7 @@ sync_backend_pkg_version() {
     fi
 
     info "更新 backend/package.json version: ${current:-(空)} -> ${target_version}"
+    [ "$DRY_RUN" = "1" ] && return 0
     if sed --version >/dev/null 2>&1; then
         sed -i -E "0,/\"version\"\s*:\s*\"[^\"]+\"/s//\"version\": \"${target_version}\"/" "$pkg_file"
     else
@@ -1383,7 +1385,7 @@ fi
 # -------------------- Android versionCode / versionName 同步 --------------------
 # frontend/android/app/build.gradle 里有硬编码的 `versionCode N` / `versionName "X"`，
 # 发版前必须改成本次 VERSION。versionCode 用 MAJOR*10000 + MINOR*100 + PATCH 生成
-# （单调递增、不受预发布后缀影响），versionName 直接等于 VERSION。
+# 已有 versionCode 更高时，同版本保持原值，升级版本至少加一；versionName 等于 VERSION。
 android_version_code_of() {
     # 入参: X.Y.Z[-suffix]  ->  整数
     local v="$1"
@@ -1408,12 +1410,18 @@ sync_android_version() {
     cur_name="$(grep -oE 'versionName[[:space:]]+"[^"]+"' "$gradle_file" | head -1 | sed -E 's/.*"([^"]+)"/\1/')"
     cur_code="$(grep -oE 'versionCode[[:space:]]+[0-9]+' "$gradle_file" | head -1 | awk '{print $2}')"
 
+    if [ -n "$cur_code" ] && [ "$cur_code" -ge "$new_code" ]; then
+        new_code="$cur_code"
+        [ "$cur_name" = "$target_version" ] || new_code="$((cur_code + 1))"
+    fi
+
     if [ "$cur_name" = "$target_version" ] && [ "$cur_code" = "$new_code" ]; then
         info "Android build.gradle 版本已是 ${target_version}/${new_code}，无需改写"
         return 0
     fi
 
     info "更新 Android build.gradle: versionName ${cur_name:-?} -> ${target_version}, versionCode ${cur_code:-?} -> ${new_code}"
+    [ "$DRY_RUN" = "1" ] && return 0
 
     # sed 原地替换（兼容 GNU / BSD）
     if sed --version >/dev/null 2>&1; then
