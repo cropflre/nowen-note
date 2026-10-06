@@ -13,9 +13,9 @@ describe("new note lock-on-open contract", () => {
   });
 
   it("marks quick create, note list create, and tab create before opening", () => {
-    expect(component("../App.tsx")).toContain("markNewNoteForImmediateEdit(note.id);\n      actions.setActiveNote(note)");
-    expect(component("NoteList.tsx")).toContain("markNewNoteForImmediateEdit(note.id);\n      actions.setActiveNote(note)");
-    expect(component("NoteTabsBar.tsx")).toContain("markNewNoteForImmediateEdit(note.id);\n      actions.setActiveNote(note)");
+    for (const name of ["../App.tsx", "NoteList.tsx", "NoteTabsBar.tsx"]) {
+      expect(component(name)).toMatch(/markNewNoteForImmediateEdit\(note\.id\);\s+actions\.setActiveNote\(note\)/);
+    }
   });
 
   it("marks inline and template creation in both knowledge tree views", () => {

@@ -11,7 +11,7 @@ describe("NoteList 保存为模板", () => {
   it("在单笔记右键菜单中复用笔记模板保存能力", () => {
     expect(noteListSource).toContain('import { noteTemplatesApi } from "@/lib/noteTemplatesApi";');
     expect(noteListSource).toContain('id: "save_as_template"');
-    expect(noteListSource).toContain('label: "保存为模板"');
+    expect(noteListSource).toContain('label: t("note.contextMenu.saveAsTemplate")');
     expect(noteListSource).toContain('case "save_as_template"');
     expect(noteListSource).toContain('title: "保存为模板"');
     expect(noteListSource).toContain("await noteTemplatesApi.createFromNote(targetId, name.trim())");

@@ -18,7 +18,9 @@ test("knowledge-tree navigation clears a stale failed note load", async () => {
     readRepoFile("frontend/src/lib/noteLoadCoordinator.ts"),
   ]);
 
-  assert.match(main, /installKnowledgeTreeNoteLoadRecovery\(\)/);
+  const install = 'installOptionalRuntime("knowledge-tree-note-load-recovery", installKnowledgeTreeNoteLoadRecovery);';
+  assert.ok(main.includes(install));
+  assert.ok(main.indexOf(install) < main.indexOf("ReactDOM.createRoot(root).render("));
   assert.match(bridge, /data-knowledge-tree-select-id/);
   assert.match(bridge, /primaryNoteLoadCoordinator\.clearFailed\(\)/);
   assert.match(coordinator, /clearFailed\(\): boolean/);

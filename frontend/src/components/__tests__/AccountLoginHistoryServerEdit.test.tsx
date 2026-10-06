@@ -31,6 +31,7 @@ describe("账号历史服务器地址编辑", () => {
   let remove: any;
 
   beforeEach(() => {
+    vi.stubGlobal("WebSocket", undefined);
     localStorage.clear();
     localStorage.setItem("nowen-token", "current-token");
     localStorage.setItem("nowen-server-url", "https://current.example.com");
@@ -80,13 +81,14 @@ describe("账号历史服务器地址编辑", () => {
     document.body.innerHTML = "";
     delete (window as any).nowenDesktop;
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
   });
 
   it("点击铅笔后测试新地址并迁移历史记录，不删除账号凭据", async () => {
-    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue({
-      ok: true,
-      json: async () => ({ status: "ok", version: "1.5.0" }),
-    } as Response);
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(
+      JSON.stringify({ status: "ok", version: "1.5.0" }),
+      { status: 200, headers: { "Content-Type": "application/json" } },
+    ));
     const host = document.createElement("div");
     document.body.appendChild(host);
     root = createRoot(host);
@@ -116,7 +118,7 @@ describe("账号历史服务器地址编辑", () => {
 
     expect(fetchSpy).toHaveBeenCalledWith(
       "http://192.168.10.50:7316/api/health",
-      expect.objectContaining({ method: "GET", cache: "no-store" }),
+      expect.objectContaining({ redirect: "manual", signal: expect.any(AbortSignal) }),
     );
     expect(loadToken).toHaveBeenCalledWith("history-2");
     expect(save).toHaveBeenCalledWith(expect.objectContaining({

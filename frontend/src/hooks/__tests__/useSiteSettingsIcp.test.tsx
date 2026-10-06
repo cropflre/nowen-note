@@ -28,6 +28,7 @@ describe("SiteSettingsProvider ICP 备案号", () => {
 
   beforeEach(() => {
     localStorage.clear();
+    (window as any).nowenDesktop = { isDesktop: true };
     document.body.innerHTML = '<div id="root"></div>';
     host = document.getElementById("root")!;
     root = createRoot(host);
@@ -57,11 +58,12 @@ describe("SiteSettingsProvider ICP 备案号", () => {
   afterEach(() => {
     act(() => root.unmount());
     vi.unstubAllGlobals();
+    delete (window as any).nowenDesktop;
     localStorage.clear();
     document.body.innerHTML = "";
   });
 
-  it("服务器地址确认后重新加载远端备案号并写入 siteConfig", async () => {
+  it("原生客户端服务器地址确认后重新加载远端备案号并写入 siteConfig", async () => {
     function IcpStatus() {
       const { siteConfig } = useSiteSettings();
       return <span data-testid="icp">{siteConfig.icpBeian || "empty"}</span>;

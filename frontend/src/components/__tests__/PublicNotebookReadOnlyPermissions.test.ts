@@ -6,6 +6,7 @@ import { canWriteNote } from "../../lib/notePermissions";
 const editorPaneSource = readFileSync(path.resolve(__dirname, "../EditorPane.tsx"), "utf8");
 const splitViewSource = readFileSync(path.resolve(__dirname, "../EditorSplitView.tsx"), "utf8");
 const publicViewSource = readFileSync(path.resolve(__dirname, "../PublicNotebookView.tsx"), "utf8");
+const publicRendererSource = readFileSync(path.resolve(__dirname, "../PublicKnowledgeResourceRenderer.tsx"), "utf8");
 const tiptapSource = readFileSync(path.resolve(__dirname, "../TiptapEditor.tsx"), "utf8");
 
 describe("shared note read-only permissions", () => {
@@ -36,8 +37,9 @@ describe("shared note read-only permissions", () => {
   });
 
   it("uses a chrome-free Tiptap presentation mode on public pages", () => {
-    expect(publicViewSource).toContain("presentationMode");
-    expect(publicViewSource).toContain("editable={false}");
+    expect(publicViewSource).toContain('<PublicKnowledgeResourceRenderer resource={activeResource} />');
+    expect(publicRendererSource).toContain("presentationMode");
+    expect(publicRendererSource).toContain("editable={false}");
     expect(tiptapSource).toContain("presentationMode?: boolean;");
     expect(tiptapSource).toContain('presentationMode && "tiptap-presentation-mode"');
     expect(tiptapSource).toContain("{!presentationMode && (");
@@ -63,6 +65,6 @@ describe("shared note read-only permissions", () => {
     expect(publicViewSource).toContain(
       "info.allowComment || info.permission !== \"read\"",
     );
-    expect(publicViewSource).toContain("Promise.resolve([] as PublicComment[])");
+    expect(publicViewSource).toMatch(/const nextComments = canComment\s+\? await notebookPublicationApi\.getComments\([^;]+\s+: \[\];/);
   });
 });

@@ -127,7 +127,7 @@ describe("EditorPane save safety", () => {
       "const scheduleSave = useCallback",
     );
 
-    expect(updateListener).toContain("if (!collabEnabledRef.current)");
+    expect(updateListener).toContain('if (!collabEnabledRef.current || /nowen-encrypted/i.test(text))');
     expect(updateListener).toContain("scheduleSave();");
     expect(emitSave).toContain("title !== noteRef.current.title");
   });

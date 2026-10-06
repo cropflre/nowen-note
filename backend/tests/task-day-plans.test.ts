@@ -56,6 +56,7 @@ test("task day plan ids reject oversized values", () => {
 });
 
 test("My Day route works without a trailing slash and persists an empty plan", async () => {
+  const planDate = new Date().toISOString().slice(0, 10);
   const invalid = await request(
     "/user-preferences/task-day-plans?date=invalid&workspaceId=personal",
   );
@@ -64,7 +65,7 @@ test("My Day route works without a trailing slash and persists an empty plan", a
   const saved = await request("/user-preferences/task-day-plans", {
     method: "PUT",
     body: JSON.stringify({
-      date: "2026-08-02",
+      date: planDate,
       workspaceId: "personal",
       taskIds: [],
       focusTaskIds: [],
@@ -72,18 +73,18 @@ test("My Day route works without a trailing slash and persists an empty plan", a
   });
   assert.equal(saved.status, 200);
   const savedPayload = await saved.json() as Record<string, unknown>;
-  assert.equal(savedPayload.date, "2026-08-02");
+  assert.equal(savedPayload.date, planDate);
   assert.equal(savedPayload.workspaceId, "personal");
   assert.deepEqual(savedPayload.taskIds, []);
   assert.deepEqual(savedPayload.focusTaskIds, []);
   assert.equal(typeof savedPayload.updatedAt, "string");
 
   const loaded = await request(
-    "/user-preferences/task-day-plans?date=2026-08-02&workspaceId=personal",
+    `/user-preferences/task-day-plans?date=${planDate}&workspaceId=personal`,
   );
   assert.equal(loaded.status, 200);
   const loadedPayload = await loaded.json() as Record<string, unknown>;
-  assert.equal(loadedPayload.date, "2026-08-02");
+  assert.equal(loadedPayload.date, planDate);
   assert.equal(loadedPayload.workspaceId, "personal");
   assert.deepEqual(loadedPayload.taskIds, []);
   assert.deepEqual(loadedPayload.focusTaskIds, []);

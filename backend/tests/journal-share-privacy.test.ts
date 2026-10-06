@@ -34,7 +34,7 @@ function request(pathname: string, options: {
 
 test("locked personal journals cannot create or enumerate shares until the real folder is unlocked", async () => {
   await import("../src/runtime/knowledge-tree-migration-bootstrap.js");
-  const [{ getDb, closeDb }, { default: journals }, { default: knowledgeTree }, { default: shares }] = await Promise.all([
+  const [{ getDb, closeDb }, { default: journals }, { default: knowledgeTree }, { sharesRouter: shares }] = await Promise.all([
     import("../src/db/schema.js"),
     import("../src/routes/journals.js"),
     import("../src/routes/knowledge-tree.js"),

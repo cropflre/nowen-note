@@ -19,7 +19,7 @@ describe("journal scope", () => {
       kind: "workspace",
       workspaceId: "workspace-one",
       key: "workspace:workspace-one",
-      label: "工作区日记",
+      label: "工作区日志",
     });
   });
 

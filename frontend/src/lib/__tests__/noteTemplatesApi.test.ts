@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/api", () => ({
   getCurrentWorkspace: () => "personal",
-  getServerUrl: () => "https://note.example.com",
+  getBaseUrl: () => "https://note.example.com/api",
 }));
 
 import { noteTemplatesApi } from "@/lib/noteTemplatesApi";

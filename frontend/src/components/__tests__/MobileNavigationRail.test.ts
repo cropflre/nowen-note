@@ -16,7 +16,7 @@ describe("mobile navigation rail contract", () => {
 
   it("uses a full-width mobile drawer and shows the shortcut rail by default", () => {
     expect(appSource).toContain("w-screen max-w-none");
-    expect(appSource).toContain('!mobileRailHidden && <NavRail variant="mobile" />');
+    expect(appSource).toMatch(/!mobileRailHidden && <NavRail variant="mobile"(?:\s|\/)/);
     expect(preferenceSource).toContain("return stored === null ? false");
     expect(preferenceSource).toContain("return false");
     expect(preferenceSource).toContain('nowen-mobile-rail-hidden');
@@ -47,7 +47,7 @@ describe("mobile navigation rail contract", () => {
   });
 
   it("shows the complete labeled shortcut rail in Android local mode", () => {
-    expect(railSource).toContain("const items = localDeviceMode ? NAV_CONFIG : availableItems");
+    expect(railSource).toContain("const capabilityItems = localDeviceMode ? NAV_CONFIG : availableItems");
     expect(railSource).not.toContain('item.mode === "favorites" || item.mode === "trash"');
     for (const mode of ["favorites", "files", "trash", "diary", "tasks", "mindmaps", "ai-chat", "shares"]) {
       expect(railSource).toContain(`mode: "${mode}"`);

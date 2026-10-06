@@ -9,7 +9,9 @@ describe("knowledge tree scrollbar runtime contract", () => {
   it("installs the bridge before the application renders", () => {
     const main = source("../../main.tsx");
     expect(main).toContain('import { installKnowledgeTreeScrollbarBridge } from "./lib/knowledgeTreeScrollbarBridge"');
-    expect(main).toContain("installKnowledgeTreeScrollbarBridge();");
+    const install = 'installOptionalRuntime("knowledge-tree-scrollbar", installKnowledgeTreeScrollbarBridge);';
+    expect(main).toContain(install);
+    expect(main.indexOf(install)).toBeLessThan(main.indexOf("ReactDOM.createRoot(root).render("));
   });
 
   it("targets the real desktop tree scroll element and hides the unreliable native overlay", () => {
@@ -58,7 +60,7 @@ describe("knowledge tree scrollbar runtime contract", () => {
     const tree = source("../../components/KnowledgeTreePanel.tsx");
 
     expect(tree).toContain(
-      'className="relative min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain px-1 pb-3"',
+      '"relative min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain px-1 pb-3"',
     );
   });
 
