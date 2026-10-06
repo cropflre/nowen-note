@@ -381,6 +381,12 @@ fi
 
 echo
 echo "==== 验证 GitHub Release 更新元数据与远端资产 ===="
+WINDOWS_PUBLISHER="$(gh variable get NOWEN_WINDOWS_PUBLISHER_NAME --repo "$GITHUB_REPO_SLUG" 2>/dev/null || true)"
+if [ -z "${WINDOWS_PUBLISHER//[[:space:]]/}" ]; then
+  echo "[release-guard] NOWEN_WINDOWS_PUBLISHER_NAME is unconfirmed; complete release-signing publisher bootstrap before publication; keeping ${TAG} as draft" >&2
+  gh release edit "$TAG" --repo "$GITHUB_REPO_SLUG" --draft=true >/dev/null 2>&1 || true
+  exit 1
+fi
 if ! node "$VERIFY_SCRIPT" remote --repo "$GITHUB_REPO_SLUG" --tag "$TAG" --version "$VERSION"; then
   echo "[release-guard] remote update verification failed; keeping ${TAG} as draft" >&2
   gh release edit "$TAG" --repo "$GITHUB_REPO_SLUG" --draft=true >/dev/null 2>&1 || true

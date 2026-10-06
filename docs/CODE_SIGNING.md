@@ -35,7 +35,6 @@ Repository Variables used by production signing:
 
 - `SIGNPATH_FULL_ARTIFACT_CONFIGURATION_SLUG`
 - `SIGNPATH_LITE_ARTIFACT_CONFIGURATION_SLUG`
-- `NOWEN_WINDOWS_PUBLISHER_NAME`
 
 Optional overrides (the repository has safe defaults for the currently approved SignPath organization/project/policy):
 
@@ -44,6 +43,7 @@ Optional overrides (the repository has safe defaults for the currently approved 
 - `SIGNPATH_SIGNING_POLICY_SLUG`
 
 `NOWEN_WINDOWS_PUBLISHER_NAME` must be copied from the real `SignerCertificate` common name of the first approved SignPath release-signed candidate. Do not guess it.
+It is required for formal artifact verification and publication, but not for the first production signing request. Bootstrap accepts only the `release-signing` policy and valid Full/Lite signatures with the same CN; it never uses a test certificate.
 
 ## First signed bridge release
 
@@ -52,8 +52,8 @@ Existing Windows installations that were unsigned or used a different publisher 
 For the first SignPath-signed bridge release:
 
 1. Build and sign a candidate through GitHub Actions + SignPath.
-2. Confirm `Get-AuthenticodeSignature` reports `Valid` and record the signer common name/thumbprint.
-3. Set `NOWEN_WINDOWS_PUBLISHER_NAME` to that exact common name.
-4. Publish only after signed updater metadata validation passes.
+2. When the publisher variable is absent, the tag workflow reads the returned artifacts using `Get-AuthenticodeSignature`, validates Full/Lite signatures, and prints the detected common name/thumbprints. It deliberately fails before metadata refresh or formal artifact upload; any Release must remain Draft.
+3. Set the GitHub Repository Variable `NOWEN_WINDOWS_PUBLISHER_NAME` to that exact common name. Rerun the entire Windows build/signing job (not just the failed verification step), so both installers embed the confirmed updater publisher identity.
+4. Require an exact CN match on every signed executable and publish only after signed updater metadata validation passes. Never publish bootstrap candidates or substitute a test-signing CN.
 5. Ask existing Windows users to manually install this bridge release.
 6. Publish a second version with the same signer identity and verify in-app update from the bridge release.

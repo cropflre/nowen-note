@@ -80,7 +80,20 @@ function validateWindowsSignatures(records, { expectedPublisher, requiredChannel
   };
 }
 
+function discoverWindowsPublisher(records, { signingPolicy, now = new Date() } = {}) {
+  if (signingPolicy !== "release-signing") throw new Error("publisher discovery requires release-signing, never test-signing");
+  if (!Array.isArray(records) || records.length === 0) throw new Error("publisher discovery requires signed Full/Lite executables");
+  const publisher = records[0]?.signerCommonName;
+  const result = validateWindowsSignatures(records, {
+    expectedPublisher: publisher,
+    requiredChannels: ["full", "lite"],
+    now,
+  });
+  return { ...result, publisher };
+}
+
 module.exports = {
   channelForSetup,
   validateWindowsSignatures,
+  discoverWindowsPublisher,
 };

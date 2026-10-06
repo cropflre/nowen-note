@@ -5,23 +5,29 @@ import path from "node:path";
 import { createRequire } from "node:module";
 
 const require = createRequire(import.meta.url);
-const { validateWindowsSignatures } = require("./lib/windows-signature-validator.cjs");
+const { validateWindowsSignatures, discoverWindowsPublisher } = require("./lib/windows-signature-validator.cjs");
 
 function parseArgs(argv) {
-  const allowed = new Set(["--report", "--publisher", "--require"]);
+  const allowed = new Set(["--report", "--publisher", "--require", "--signing-policy", "--bootstrap-publisher"]);
   const values = {};
   for (let index = 0; index < argv.length; index += 1) {
     const key = argv[index];
     if (!allowed.has(key)) throw new Error(`unknown argument: ${key}`);
+    if (Object.prototype.hasOwnProperty.call(values, key)) throw new Error(`duplicate argument: ${key}`);
+    if (key === "--bootstrap-publisher") {
+      values[key] = true;
+      continue;
+    }
     const value = argv[index + 1];
     if (!value || value.startsWith("--")) throw new Error(`missing value for ${key}`);
-    if (Object.prototype.hasOwnProperty.call(values, key)) throw new Error(`duplicate argument: ${key}`);
     values[key] = value;
     index += 1;
   }
-  for (const key of allowed) {
+  for (const key of ["--report", "--require"]) {
     if (!values[key]) throw new Error(`missing required argument: ${key}`);
   }
+  if (values["--bootstrap-publisher"] && values["--publisher"]) throw new Error("bootstrap cannot replace configured publisher verification");
+  if (!values["--bootstrap-publisher"] && !values["--publisher"]) throw new Error("missing required argument: --publisher");
   return values;
 }
 
@@ -33,6 +39,14 @@ try {
   }
   const records = JSON.parse(fs.readFileSync(reportPath, "utf8").replace(/^\uFEFF/, ""));
   const requiredChannels = args["--require"].split(",").map((value) => value.trim()).filter(Boolean);
+  if (args["--bootstrap-publisher"]) {
+    const result = discoverWindowsPublisher(records, { signingPolicy: args["--signing-policy"] });
+    for (const record of result.records) {
+      console.log(`[windows-signature] file=${record.fileName} status=${record.status} cn=${record.signerCommonName} thumbprint=${record.thumbprint}`);
+    }
+    console.log(`[windows-signature] detected release-signing publisher CN: ${result.publisher}`);
+    throw new Error("publisher bootstrap complete; set GitHub Repository Variable NOWEN_WINDOWS_PUBLISHER_NAME to the exact detected CN, then rerun the entire Windows build and signing job. Formal artifact upload and Release publication remain blocked.");
+  }
   const result = validateWindowsSignatures(records, {
     expectedPublisher: args["--publisher"],
     requiredChannels,

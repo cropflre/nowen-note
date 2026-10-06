@@ -27,3 +27,12 @@ test("SignPath release config accepts all required non-blank values", () => {
   assert.equal(result.ok, true);
   assert.deepEqual(result.missing, []);
 });
+
+test("first production signing request does not require a guessed publisher", () => {
+  assert.ok(!REQUIRED_SIGNPATH_CONFIG.includes("NOWEN_WINDOWS_PUBLISHER_NAME"));
+  const result = validateSignPathReleaseConfig(complete);
+  assert.equal(result.ok, true);
+  assert.equal(result.publisherBootstrapRequired, true);
+  assert.equal(validateSignPathReleaseConfig({ ...complete, NOWEN_WINDOWS_PUBLISHER_NAME: "Confirmed CN" }).publisherBootstrapRequired, false);
+  assert.equal(validateSignPathReleaseConfig({ NOWEN_WINDOWS_PUBLISHER_NAME: "Confirmed CN" }).ok, false);
+});

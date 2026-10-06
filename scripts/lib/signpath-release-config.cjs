@@ -5,7 +5,6 @@ const REQUIRED_SIGNPATH_CONFIG = [
   "SIGNPATH_SIGNING_POLICY_SLUG",
   "SIGNPATH_FULL_ARTIFACT_CONFIGURATION_SLUG",
   "SIGNPATH_LITE_ARTIFACT_CONFIGURATION_SLUG",
-  "NOWEN_WINDOWS_PUBLISHER_NAME",
 ];
 
 function missingSignPathConfig(env = process.env) {
@@ -18,6 +17,7 @@ function validateSignPathReleaseConfig(env = process.env) {
     ok: missing.length === 0,
     missing,
     configured: REQUIRED_SIGNPATH_CONFIG.filter((name) => !missing.includes(name)),
+    publisherBootstrapRequired: !String(env?.NOWEN_WINDOWS_PUBLISHER_NAME ?? "").trim(),
   };
 }
 

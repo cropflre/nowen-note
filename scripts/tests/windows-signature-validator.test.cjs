@@ -1,6 +1,6 @@
 const assert = require("node:assert/strict");
 const test = require("node:test");
-const { validateWindowsSignatures } = require("../lib/windows-signature-validator.cjs");
+const { validateWindowsSignatures, discoverWindowsPublisher } = require("../lib/windows-signature-validator.cjs");
 
 const NOW = new Date("2026-08-11T00:00:00.000Z");
 const PUBLISHER = "SignPath Foundation";
@@ -54,4 +54,19 @@ test("expired signer without timestamp is rejected", () => {
       timestampPresent: false,
     }),
   ]), /outside its validity window/);
+});
+
+test("bootstrap discovers the actual common CN only from valid release Full/Lite signatures", () => {
+  const records = [
+    validRecord("Nowen-Note-1.5.0-setup.exe", { signerCommonName: "Actual Release CN" }),
+    validRecord("Nowen-Note-Lite-1.5.0-setup.exe", { signerCommonName: "Actual Release CN" }),
+  ];
+  const options = { signingPolicy: "release-signing", now: NOW };
+  assert.equal(discoverWindowsPublisher(records, options).publisher, "Actual Release CN");
+  assert.throws(() => discoverWindowsPublisher(records, { ...options, signingPolicy: "test-signing" }), /never test-signing/);
+  assert.throws(() => discoverWindowsPublisher([], options), /requires signed Full\/Lite/);
+  assert.throws(() => discoverWindowsPublisher(records.slice(0, 1), options), /missing required lite/);
+  assert.throws(() => discoverWindowsPublisher([records[0], { ...records[1], status: "NotSigned" }], options), /status is NotSigned/);
+  assert.throws(() => discoverWindowsPublisher([records[0], { ...records[1], signerCommonName: "Different CN" }], options), /does not exactly match/);
+  assert.throws(() => validateWindowsSignatures(records, { requiredChannels: ["full", "lite"], now: NOW }), /expectedPublisher is required/);
 });
