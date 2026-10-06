@@ -31,7 +31,19 @@
 
 > **NAS 远程连接登录**：支持部署到 **绿联 NAS（UGOS / UGOS Pro）** 和 **飞牛 NAS（fnOS）**。部署完成后，可在 Web、桌面端或 Android 客户端中，通过局域网 IP、IPv6 地址或已配置 HTTPS 的公网域名远程连接并登录。
 
-## v1.4.16 已发布
+## v1.5.0 发版冻结（尚未正式发布）
+
+v1.5.0 进入 Release Candidate 准备阶段：仅接收发布阻塞修复，暂停新功能合入。当前稳定版仍为 [v1.4.16](https://github.com/cropflre/nowen-note/releases/tag/v1.4.16)；本分支源码和候选构建不等同于正式发布产物。
+
+- **Sync V2 与离线工作区**：增量同步、内容与附件缓存、冲突版本选择和保存恢复。
+- **插件生态**：插件市场、签名 Registry、权限与运行时策略、文章捕获、用户级 Webhook 和微信剪藏示例。
+- **知识树与文档管理**：统一创建入口、目录范围与筛选、根目录文档和统一资源回收站。
+- **附件与编辑体验**：XLSX 预览与轻量表格导入、媒体与附件恢复、Markdown 格式化及列表布局修复。
+- **加密笔记 Beta**：Web / Desktop 支持新建整篇加密文本笔记与选中文字加密。整篇自动保存，局部编辑仍需保存；已有普通笔记整篇加密尚未开放，历史记录和旧备份不会自动清除，移动应用暂不支持。
+
+查看：[v1.5.0 发布说明草稿](./docs/releases/v1.5.0.md) · [冻结与验证进度](./docs/releases/v1.5.0-rc-gate.md) · [更新日志](./CHANGELOG.md)。富文本大增强等后续功能在 v1.5.1 / v1.6.0 重新评估。
+
+## 当前稳定版 v1.4.16
 
 v1.4.16 聚焦 **笔记切换稳定性、视频附件授权、Markdown / 代码块编辑体验与桌面发布链路**，继续提升 Nowen Note 在多端编辑、局域网媒体访问和桌面客户端分发场景下的可靠性。
 
@@ -93,7 +105,7 @@ Nowen Note 支持 MCP Server，可让 Claude Code、Cursor、VS Code 等 AI 客�
 
 当前正式可用方式为源码构建：安装 Node.js 20+，构建 `packages/nowen-mcp`，在 Nowen Note 创建 restricted Personal API Token，再把 `packages/nowen-mcp/bin/nowen-mcp.mjs` 的绝对路径配置到客户端。`dist/scoped-entry.js` 是启动器加载的内部构建入口，不应直接配置给客户端。
 
-## v1.4.16 重点更新
+## 上一稳定版 v1.4.16 重点更新
 
 ### 笔记切换与编辑稳定性
 
@@ -204,7 +216,14 @@ docker compose up -d
 NOWEN_IMAGE_TAG=v1.4.16 docker compose up -d
 ```
 
-> v1.4.16 重点改善笔记切换稳定性、视频首次打开与 Android / 局域网附件授权、Markdown / 代码块编辑细节，以及桌面客户端签名与发布完整性。升级后建议重点检查快速切换笔记、首次视频播放、Android 连接 NAS / 局域网视频、代码块全选和分享链接复制。镜像回滚不等于数据库回滚，生产环境必须保留独立备份。
+v1.5.0 镜像完成发布和升级验证后，可在隔离测试环境使用以下目标命令；冻结期间生产环境继续固定 v1.4.16：
+
+```bash
+NOWEN_IMAGE_TAG=v1.5.0 docker compose pull
+NOWEN_IMAGE_TAG=v1.5.0 docker compose up -d
+```
+
+> v1.5.0 升级需重点验证 Sync V2、插件、知识树、附件、完整备份恢复与加密笔记 Beta。镜像回滚不等于数据库回滚，生产环境必须保留独立备份。详见 [v1.5.0 发布说明草稿](./docs/releases/v1.5.0.md)。
 
 ### Docker 在线升级（可选）
 
