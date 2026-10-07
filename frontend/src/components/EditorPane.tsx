@@ -1512,7 +1512,7 @@ function OrdinaryEditorPane({
           && !viewLockedIdsRef.current.has(activeNote.id)) {
         // ��齹���Ƿ��ڱ༭���ڲ�������ڱ༭���ڣ�Delete ��Ӧ������ɾ�����֣�
         const activeEl = document.activeElement;
-        const isInEditor = activeEl?.closest(".ProseMirror") || activeEl?.tagName === "INPUT" || activeEl?.tagName === "TEXTAREA";
+        const isInEditor = activeEl?.closest(".ProseMirror, .cm-editor") || activeEl?.tagName === "INPUT" || activeEl?.tagName === "TEXTAREA";
         if (!isInEditor) {
           e.preventDefault();
           setShowDeleteConfirm(true);
