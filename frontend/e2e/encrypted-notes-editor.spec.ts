@@ -126,7 +126,7 @@ test("offline saves persist ciphertext and recover after closing the editor and 
   await create(page); await unlock(page);
   await page.getByLabel("加密 Markdown 正文", { exact: true }).fill(plaintext);
   await page.route("**/api/notes/*", async (route) => route.request().method() === "PUT" ? route.abort("internetdisconnected") : route.continue());
-  await expect(page.getByRole("status")).toHaveText("已保存");
+  await expect(page.getByRole("status")).toHaveText("已保存在本机，等待同步");
   expect(await page.evaluate(() => Object.entries(localStorage).filter(([key]) => key.startsWith("nowen-offline-queue:v2")).length)).toBe(1);
   await assertNoLeaks(page);
   await page.getByRole("button", { name: "锁定", exact: true }).click();

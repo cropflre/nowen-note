@@ -1,3 +1,4 @@
+import { hasStrongNewPassphrase } from "@/lib/encryptedNotes/passphrasePolicy";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Capacitor } from "@capacitor/core";
@@ -37,7 +38,7 @@ export default function EncryptedNoteCreateDialog({ parentId, onClose }: { paren
     };
   }, []);
   async function create() {
-    if (operation.current || native || !title.trim() || passphrase.length < 6 || passphrase !== confirmation) return;
+    if (operation.current || native || !title.trim() || !hasStrongNewPassphrase(passphrase) || passphrase !== confirmation) return;
     const controller = new AbortController(); operation.current = controller; setBusy(true); setError("");
     try {
       const envelope = await runEncryptedContentOperation({ operation: "create", input: {
@@ -68,9 +69,9 @@ export default function EncryptedNoteCreateDialog({ parentId, onClose }: { paren
       {error && <p role="alert" className="text-sm text-red-500">{error}</p>}
       <label>标题<input aria-label="加密笔记标题" value={title} disabled={busy} onChange={(event) => setTitle(event.target.value)} className="w-full rounded border border-app-border bg-app-bg p-2" /></label>
       <label>格式<select aria-label="加密笔记格式" value={format} disabled={busy} onChange={(event) => setFormat(event.target.value as typeof format)} className="w-full rounded border border-app-border bg-app-bg p-2"><option value="markdown">Markdown</option><option value="tiptap-json">富文本</option></select></label>
-      <label>密码（至少 6 个字符）<input aria-label="密码" type="password" autoComplete="new-password" value={passphrase} disabled={busy} onChange={(event) => setPassphrase(event.target.value)} className="w-full rounded border border-app-border bg-app-bg p-2" /></label>
+      <label>密码（至少 12 个字符）<input aria-label="密码" type="password" autoComplete="new-password" value={passphrase} disabled={busy} onChange={(event) => setPassphrase(event.target.value)} className="w-full rounded border border-app-border bg-app-bg p-2" /></label>
       <label>确认密码<input aria-label="确认密码" type="password" autoComplete="new-password" value={confirmation} disabled={busy} onChange={(event) => setConfirmation(event.target.value)} className="w-full rounded border border-app-border bg-app-bg p-2" /></label>
-      <div className="flex justify-end gap-2"><Button type="button" variant="ghost" disabled={busy} onClick={onClose}>取消</Button><Button type="submit" disabled={native || busy || !title.trim() || passphrase.length < 6 || passphrase !== confirmation}>{busy ? "正在创建…" : "创建"}</Button></div>
+      <div className="flex justify-end gap-2"><Button type="button" variant="ghost" disabled={busy} onClick={onClose}>取消</Button><Button type="submit" disabled={native || busy || !title.trim() || !hasStrongNewPassphrase(passphrase) || passphrase !== confirmation}>{busy ? "正在创建…" : "创建"}</Button></div>
     </form>
   </div>, document.body);
 }

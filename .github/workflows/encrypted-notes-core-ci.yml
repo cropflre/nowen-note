@@ -53,6 +53,7 @@ on:
       - "backend/src/db/**"
       - "backend/src/types/**"
       - "backend/src/lib/encryptedNotes.ts"
+      - "backend/src/lib/encryptedContentV2.ts"
       - "backend/src/lib/encryptedBlockWrites.ts"
       - "backend/src/runtime/block-patch.ts"
       - "backend/src/routes/blocks.ts"
@@ -87,6 +88,7 @@ on:
       - "frontend/playwright.encrypted-notes*.config.ts"
       - "frontend/package*.json"
       - "scripts/generate-encrypted-notes-vector.mjs"
+      - "scripts/generate-encrypted-v2-fixture.mjs"
       - "docs/architecture/encrypted-notes*.md"
       - ".github/workflows/encrypted-notes-core-ci.yml"
   pull_request:
@@ -139,6 +141,7 @@ on:
       - "backend/src/db/**"
       - "backend/src/types/**"
       - "backend/src/lib/encryptedNotes.ts"
+      - "backend/src/lib/encryptedContentV2.ts"
       - "backend/src/lib/encryptedBlockWrites.ts"
       - "backend/src/runtime/block-patch.ts"
       - "backend/src/routes/blocks.ts"
@@ -173,6 +176,7 @@ on:
       - "frontend/playwright.encrypted-notes*.config.ts"
       - "frontend/package*.json"
       - "scripts/generate-encrypted-notes-vector.mjs"
+      - "scripts/generate-encrypted-v2-fixture.mjs"
       - "docs/architecture/encrypted-notes*.md"
       - ".github/workflows/encrypted-notes-core-ci.yml"
 

@@ -1,3 +1,4 @@
+import { hasStrongNewPassphrase } from "@/lib/encryptedNotes/passphrasePolicy";
 import { useEffect, useRef, useState } from "react";
 import { Lock, ChevronLeft } from "lucide-react";
 import { Capacitor } from "@capacitor/core";
@@ -33,6 +34,7 @@ export default function EncryptedNotePane({ note }: { note: Note }) {
   const [error, setError] = useState("");
   const [status, setStatus] = useState("");
   const cryptoSession = useRef<EncryptedContentSession | null>(null);
+  const confirmedStatus = useRef("");
   const operation = useRef<AbortController | null>(null);
   const pendingSave = useRef<Promise<boolean> | null>(null);
   const autosaveFailed = useRef(false);
@@ -59,7 +61,7 @@ export default function EncryptedNotePane({ note }: { note: Note }) {
   }
   function edit(content: string) {
     current.current.body = content; setBody(content);
-    setStatus(content !== current.current.savedBody ? "正在保存…" : "已保存");
+    setStatus(content !== current.current.savedBody ? "正在保存…" : confirmedStatus.current);
   }
 
   useEffect(() => {
@@ -142,7 +144,7 @@ export default function EncryptedNotePane({ note }: { note: Note }) {
     const baseNote = currentNote.current;
     if (!active || native || !canWriteNote(baseNote) || baseNote.isLocked || baseNote.isTrashed) return Promise.resolve(false);
     if (changePassword && getQueue().some((item) => item.noteId === baseNote.id)) { setError("请联网并等待同步完成后再修改密码。"); return Promise.resolve(false); }
-    if (changePassword && (plaintext !== saved || !currentPassphrase || newPassphrase.length < 6 || newPassphrase !== confirmation)) { setError("请先保存正文，验证当前密码并输入两次相同且至少 6 个字符的新密码"); return Promise.resolve(false); }
+    if (changePassword && (plaintext !== saved || !currentPassphrase || !hasStrongNewPassphrase(newPassphrase) || newPassphrase !== confirmation)) { setError("请先保存正文，验证当前密码并输入两次相同且至少 12 个字符的新密码"); return Promise.resolve(false); }
     if (!changePassword && plaintext === saved) return Promise.resolve(true);
     const keySession = cryptoSession.current;
     if (!keySession) return Promise.resolve(false);
@@ -173,7 +175,8 @@ export default function EncryptedNotePane({ note }: { note: Note }) {
       current.current.session = nextSession; current.current.savedBody = plaintext;
       setSavedBody(plaintext); setSession(nextSession); setLockFailed(false); setError("");
       actions.setActiveNote(updated); actions.updateNoteInList({ id: updated.id, contentText: "", version: updated.version, updatedAt: updated.updatedAt });
-      setStatus(current.current.body !== plaintext ? "正在保存…" : "已保存");
+      confirmedStatus.current = queued ? "已保存在本机，等待同步" : "已保存";
+      setStatus(current.current.body !== plaintext ? "正在保存…" : confirmedStatus.current);
     });
     setStatus("正在保存…");
     const result = task.then((success) => {
@@ -241,7 +244,7 @@ export default function EncryptedNotePane({ note }: { note: Note }) {
         <input aria-label="当前密码" type="password" autoComplete="off" value={currentPassphrase} disabled={busy} onChange={(event) => setCurrentPassphrase(event.target.value)} className="border border-app-border bg-app-bg p-2" />
         <input aria-label="新密码" type="password" autoComplete="new-password" value={newPassphrase} disabled={busy} onChange={(event) => setNewPassphrase(event.target.value)} className="border border-app-border bg-app-bg p-2" />
         <input aria-label="确认新密码" type="password" autoComplete="new-password" value={confirmation} disabled={busy} onChange={(event) => setConfirmation(event.target.value)} className="border border-app-border bg-app-bg p-2" />
-        <Button disabled={busy || dirty || !currentPassphrase || newPassphrase.length < 6 || newPassphrase !== confirmation} onClick={() => void save(true)}>确认修改</Button>
+        <Button disabled={busy || dirty || !currentPassphrase || !hasStrongNewPassphrase(newPassphrase) || newPassphrase !== confirmation} onClick={() => void save(true)}>确认修改</Button>
       </details>}
     </>}
   </section>;
