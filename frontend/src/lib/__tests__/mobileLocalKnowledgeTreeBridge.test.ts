@@ -139,14 +139,17 @@ describe("mobile local knowledge tree bridge", () => {
     const remoteNode = { id: "mindmap:map-1", workspaceId: null,
       parentId: "note:note-1", resourceType: "mindmap" };
     const remoteList = vi.spyOn(knowledgeTreeApi, "listForWorkspace")
-      .mockResolvedValueOnce({ nodes: [remoteNode] as never })
+      .mockResolvedValueOnce({ nodes: [remoteNode] as never, passwordAuthorizedNotes: [{ noteId: "note-1", folderIds: ["folder-1"] }] })
       .mockRejectedValueOnce(new TypeError("Failed to fetch"));
 
     restoreBridge = installMobileLocalKnowledgeTreeBridge(repository, { deviceOnly: false }, db);
-    expect((await knowledgeTreeApi.listForWorkspace("personal")).nodes).toEqual([remoteNode]);
+    expect(await knowledgeTreeApi.listForWorkspace("personal")).toEqual({
+      nodes: [remoteNode], passwordAuthorizedNotes: [{ noteId: "note-1", folderIds: ["folder-1"] }],
+    });
+    expect([...metadata.values()].map((value) => JSON.parse(value))).toEqual([[remoteNode]]);
     restoreBridge();
     restoreBridge = installMobileLocalKnowledgeTreeBridge(repository, { deviceOnly: false }, db);
-    expect((await knowledgeTreeApi.listForWorkspace("personal")).nodes).toEqual([remoteNode]);
+    expect(await knowledgeTreeApi.listForWorkspace("personal")).toEqual({ nodes: [remoteNode] });
     expect(remoteList).toHaveBeenCalledTimes(2);
     expect(repository.listNotebooksForWorkspace).not.toHaveBeenCalled();
   });

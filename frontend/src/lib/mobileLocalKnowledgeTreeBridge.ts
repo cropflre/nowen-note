@@ -4,6 +4,7 @@ import {
   knowledgeTreeApi,
   type EffectiveKnowledgeAccess,
   type KnowledgeTreeNode,
+  type KnowledgeTreeResponse,
 } from "./knowledgeTreeApi";
 import { applyKnowledgeTreeSort } from "./knowledgeTreeSort";
 import { newLocalId } from "./localRepository";
@@ -202,8 +203,8 @@ export function installMobileLocalKnowledgeTreeBridge(
     const serverFirstList = async (
       workspaceId: string | undefined,
       includeDeleted: boolean,
-      remote: () => Promise<{ nodes: KnowledgeTreeNode[] }>,
-    ): Promise<{ nodes: KnowledgeTreeNode[] }> => {
+      remote: () => Promise<KnowledgeTreeResponse>,
+    ): Promise<KnowledgeTreeResponse> => {
       const key = snapshotKey(workspaceId, includeDeleted);
       const scope = syncScopeKey(workspaceId);
       const validNodes = (nodes: unknown): nodes is KnowledgeTreeNode[] => Array.isArray(nodes)
@@ -214,6 +215,7 @@ export function installMobileLocalKnowledgeTreeBridge(
         if (!validNodes(result.nodes)) throw new Error("服务器知识树数据空间不匹配");
         if (db) {
           try {
+            // 在线解锁确认不能进入离线快照；离线仍需逐篇服务端授权。
             await db.run(`INSERT INTO native_runtime_meta (key,value,updatedAt) VALUES (?,?,?)
               ON CONFLICT(key) DO UPDATE SET value=excluded.value,updatedAt=excluded.updatedAt`,
             [key, JSON.stringify(result.nodes), new Date().toISOString()]);

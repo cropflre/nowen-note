@@ -26,12 +26,14 @@ const note = (id: string, notebookId: string) => ({
   contentText: "private preview", version: 1,
 }) as Note;
 const notes = [note("private", "inner"), note("ordinary", "public")];
+const confirmed = [{ noteId: "private", folderIds: ["outer", "inner"] }, { noteId: "ordinary", folderIds: [] }];
 let restore: (() => void) | undefined;
 
 function setup(deviceOnly = false) {
   const nodes = [folder("outer", null, true), folder("inner", "outer", true), folder("public", null),
     ...notes.map((item) => ({ id: `note:${item.id}`, resourceId: item.id, resourceType: "note",
-      parentId: item.notebookId, workspaceId: null }) as KnowledgeTreeNode)];
+      parentId: item.notebookId, workspaceId: null, isDeleted: 0,
+      access: { capabilities: { canView: true } } }) as KnowledgeTreeNode)];
   const remoteTree = vi.spyOn(knowledgeTreeApi, "listForWorkspace").mockResolvedValue({ nodes });
   const authorize = vi.spyOn(api, "getNoteSlim").mockResolvedValue(notes[0]);
   const repository = {
@@ -59,9 +61,172 @@ beforeEach(() => {
   localStorage.setItem("nowen-token", token({ userId: "user" }));
   Object.assign(window, { Capacitor: { isNativePlatform: () => true, getPlatform: () => "android" } });
 });
-afterEach(() => { restore?.(); restore = undefined; vi.restoreAllMocks(); delete (window as any).Capacitor; });
+afterEach(() => { restore?.(); restore = undefined; vi.restoreAllMocks(); Reflect.deleteProperty(window, "Capacitor"); });
 
 describe("signed-in Android folder password access", () => {
+  it("keeps malformed navigation cycles fail-closed even with live confirmation", async () => {
+    const { remoteTree, nodes } = setup();
+    remoteTree.mockResolvedValue({
+      nodes: nodes.map((node) => node.id === "public" ? { ...node, parentId: "note:ordinary" } : node),
+      passwordAuthorizedNotes: confirmed,
+    });
+    expect(await api.getNotes()).toEqual([]);
+    await expect(api.getNote("ordinary")).rejects.toThrow("目录密码状态无法确认");
+  });
+
+  it.each(["partial", "entire"])("checks the authoritative protection chain when navigation hides the %s parent chain", async (hidden) => {
+    const { remoteTree, authorize, nodes } = setup();
+    const projected = nodes.filter((node) => node.id !== "outer" && (hidden !== "entire" || node.id !== "inner"))
+      .map((node) => node.id === "inner" || (hidden === "entire" && node.resourceId === "private")
+        ? { ...node, parentId: null } : node);
+    remoteTree.mockResolvedValue({ nodes: projected, passwordAuthorizedNotes: confirmed });
+    rememberUnlockedFolder("inner", token({ userId: "user" }));
+    expect((await api.getNotes()).map((item) => item.id)).toEqual(["ordinary"]);
+    await expect(api.getNote("private")).rejects.toMatchObject({ code: "FOLDER_UNLOCK_REQUIRED" });
+    rememberUnlockedFolder("outer", token({ userId: "user" }));
+    expect((await api.getNotes()).map((item) => item.id)).toEqual(["private", "ordinary"]);
+    expect(authorize).not.toHaveBeenCalled();
+    await api.getNote("private");
+    expect(authorize).toHaveBeenCalledWith("private");
+  });
+
+  it.each([
+    ["all notes", () => api.getNotes()],
+    ["favorites", () => api.getNotes({ isFavorite: "1" })],
+    ["tag", () => api.getNotesWithTag("tag")],
+    ["multiple tags", () => api.getNotesWithTags(["tag-a", "tag-b"])],
+    ["search snippets", () => api.search("private")],
+    ["search suggestions", () => api.searchNotes("private")],
+  ])("uses live folder confirmation for %s", async (_name, read) => {
+    const { remoteTree, authorize, nodes } = setup();
+    for (const id of ["outer", "inner"]) rememberUnlockedFolder(id, token({ userId: "user" }));
+    remoteTree.mockResolvedValue({ nodes, passwordAuthorizedNotes: confirmed });
+    expect((await read()).map((item) => item.id)).toEqual(["private", "ordinary"]);
+    expect(authorize).not.toHaveBeenCalled();
+  });
+
+  it.each(["missing", "deleted", "denied"])("does not authorize a %s live note from folder confirmation alone", async (state) => {
+    const { remoteTree, authorize, nodes } = setup();
+    for (const id of ["outer", "inner"]) rememberUnlockedFolder(id, token({ userId: "user" }));
+    const changed = nodes.flatMap((node) => node.resourceId !== "private" ? [node] : state === "missing" ? [] : [{
+      ...node, isDeleted: state === "deleted" ? 1 : 0,
+      access: { ...node.access, capabilities: { ...node.access.capabilities, canView: state !== "denied" } },
+    }]);
+    remoteTree.mockResolvedValue({ nodes: changed, passwordAuthorizedNotes: confirmed });
+    expect((await api.getNotes()).map((item) => item.id)).toEqual(["ordinary"]);
+    expect(authorize).not.toHaveBeenCalled();
+  });
+
+  it("fails closed for malformed live confirmation", async () => {
+    const { remoteTree, authorize, nodes } = setup();
+    for (const id of ["outer", "inner"]) rememberUnlockedFolder(id, token({ userId: "user" }));
+    remoteTree.mockResolvedValue({ nodes, passwordAuthorizedNotes: null as unknown as typeof confirmed });
+    expect(await api.getNotes()).toEqual([]);
+    expect(authorize).not.toHaveBeenCalled();
+  });
+
+  it("authorizes 200 previews from the live tree without per-note requests, but still checks an opened body", async () => {
+    const { remoteTree, authorize, repository, nodes } = setup();
+    const many = Array.from({ length: 200 }, (_, index) => note(`private-${index}`, "inner"));
+    vi.mocked(repository.listNotesForWorkspace).mockResolvedValue(many);
+    remoteTree.mockResolvedValue({ nodes: [...nodes, ...many.map((item) => ({
+      id: `note:${item.id}`, resourceId: item.id, resourceType: "note", parentId: "inner",
+      workspaceId: null, isDeleted: 0, access: { capabilities: { canView: true } },
+    }) as KnowledgeTreeNode)], passwordAuthorizedNotes: [...confirmed,
+      ...many.map((item) => ({ noteId: item.id, folderIds: ["outer", "inner"] }))] });
+    for (const id of ["outer", "inner"]) rememberUnlockedFolder(id, token({ userId: "user" }));
+    expect(await api.getNotes()).toEqual(many);
+    expect(remoteTree).toHaveBeenCalledTimes(1);
+    expect(authorize).not.toHaveBeenCalled();
+    await api.getNote("private");
+    expect(authorize).toHaveBeenCalledWith("private");
+  });
+
+  it("requires every ancestor to be confirmed by the server on each listing", async () => {
+    const { remoteTree, authorize, nodes } = setup();
+    for (const id of ["outer", "inner"]) rememberUnlockedFolder(id, token({ userId: "user" }));
+    remoteTree.mockResolvedValue({ nodes, passwordAuthorizedNotes: [confirmed[1]] });
+    expect((await api.getNotes()).map((item) => item.id)).toEqual(["ordinary"]);
+    expect(authorize).not.toHaveBeenCalled();
+    remoteTree.mockResolvedValue({ nodes, passwordAuthorizedNotes: [] });
+    expect(await api.getNotes()).toEqual([]);
+  });
+
+  it("uses the live parent chain after a note moves to another locked folder", async () => {
+    const { remoteTree, nodes } = setup();
+    for (const id of ["outer", "inner"]) rememberUnlockedFolder(id, token({ userId: "user" }));
+    remoteTree.mockResolvedValue({
+      nodes: [...nodes.map((node) => node.resourceId === "private" ? { ...node, parentId: "other" } : node),
+        folder("other", null, true)], passwordAuthorizedNotes: [{ noteId: "private", folderIds: ["other"] }, confirmed[1]],
+    });
+    expect((await api.getNotes()).map((item) => item.id)).toEqual(["ordinary"]);
+  });
+
+  it("does not reuse live unlock confirmation from an offline snapshot", async () => {
+    const { remoteTree, authorize, nodes } = setup();
+    for (const id of ["outer", "inner"]) rememberUnlockedFolder(id, token({ userId: "user" }));
+    remoteTree.mockResolvedValue({ nodes, passwordAuthorizedNotes: confirmed });
+    await api.getNotes();
+    remoteTree.mockRejectedValue(new TypeError("Failed to fetch"));
+    authorize.mockRejectedValue(new TypeError("Failed to fetch"));
+    expect((await api.getNotes()).map((item) => item.id)).toEqual(["ordinary"]);
+    expect(authorize).toHaveBeenCalledWith("private");
+  });
+
+  it("rejects a live confirmation if a folder was relocked and unlocked while the tree was pending", async () => {
+    const { remoteTree, nodes } = setup();
+    for (const id of ["outer", "inner"]) rememberUnlockedFolder(id, token({ userId: "user" }));
+    let finish!: (value: Awaited<ReturnType<typeof knowledgeTreeApi.listForWorkspace>>) => void;
+    remoteTree.mockImplementation(() => new Promise((resolve) => { finish = resolve; }));
+    const read = api.getNotes();
+    await vi.waitFor(() => expect(remoteTree).toHaveBeenCalled());
+    clearFolderUnlockTokens();
+    for (const id of ["outer", "inner"]) rememberUnlockedFolder(id, token({ userId: "user" }));
+    finish({ nodes, passwordAuthorizedNotes: confirmed });
+    expect((await read).map((item) => item.id)).toEqual(["ordinary"]);
+  });
+
+  it("limits old-server per-note authorization to four concurrent requests", async () => {
+    const { remoteTree, authorize, repository, nodes } = setup();
+    const many = Array.from({ length: 200 }, (_, index) => note(`private-${index}`, "inner"));
+    vi.mocked(repository.listNotesForWorkspace).mockResolvedValue(many);
+    remoteTree.mockResolvedValue({ nodes: [...nodes, ...many.map((item) => ({
+      id: `note:${item.id}`, resourceId: item.id, resourceType: "note", parentId: "inner", workspaceId: null,
+    }) as KnowledgeTreeNode)] });
+    for (const id of ["outer", "inner"]) rememberUnlockedFolder(id, token({ userId: "user" }));
+    let active = 0;
+    let maximum = 0;
+    authorize.mockImplementation(async () => {
+      maximum = Math.max(maximum, ++active);
+      await new Promise((resolve) => setTimeout(resolve, 1));
+      active--;
+      return notes[0];
+    });
+    expect(await api.getNotes()).toEqual(many);
+    expect(authorize).toHaveBeenCalledTimes(200);
+    expect(maximum).toBeLessThanOrEqual(4);
+  });
+
+  it("stops queued old-server requests on relock and removes previews approved earlier in the same read", async () => {
+    const { remoteTree, authorize, repository, nodes } = setup();
+    const many = Array.from({ length: 8 }, (_, index) => note(`private-${index}`, "inner"));
+    vi.mocked(repository.listNotesForWorkspace).mockResolvedValue(many);
+    remoteTree.mockResolvedValue({ nodes: [...nodes, ...many.map((item) => ({
+      id: `note:${item.id}`, resourceId: item.id, resourceType: "note", parentId: "inner", workspaceId: null,
+    }) as KnowledgeTreeNode)] });
+    for (const id of ["outer", "inner"]) rememberUnlockedFolder(id, token({ userId: "user" }));
+    const finishes: Array<(value: Note) => void> = [];
+    authorize.mockImplementation(() => new Promise((resolve) => { finishes.push(resolve); }));
+    const read = api.getNotes();
+    await vi.waitFor(() => expect(authorize).toHaveBeenCalledTimes(4));
+    finishes[0](notes[0]); finishes[1](notes[0]);
+    await vi.waitFor(() => expect(authorize).toHaveBeenCalledTimes(6));
+    clearFolderUnlockTokens();
+    for (const finish of finishes.slice(2)) finish(notes[0]);
+    expect(await read).toEqual([]);
+    expect(authorize).toHaveBeenCalledTimes(6);
+  });
+
   it("keeps a proven unsent local note readable across bridge restart, then denies fallback when its marker is revoked", async () => {
     const { remoteTree, nodes, snapshots, repository } = setup();
     snapshots.set(unsentLocalNoteKey("personal", "ordinary"), "1");

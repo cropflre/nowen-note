@@ -7,7 +7,7 @@ import { MINDMAP_LEGACY_NOTEBOOK_PREFIX } from "../db/knowledgeTreeMindmapFolder
 import { getUserWorkspaceRole, hasRole, isFeatureEnabled, isSystemAdmin, resolveWorkspaceFeatures } from "../middleware/acl.js";
 import { broadcastNotesDeleted } from "../services/realtime.js";
 import { ensureKnowledgeTreePasswordTable } from "../db/knowledgeTreePasswordMigration.js";
-import { signFolderUnlockToken } from "../lib/knowledgeTreePasswordAccess.js";
+import { resolvePasswordAuthorizedNotes, resolveUnlockedFolderNodeIds, signFolderUnlockToken } from "../lib/knowledgeTreePasswordAccess.js";
 import {
   clearKnowledgeNodeRole,
   hasKnowledgeCapability,
@@ -97,12 +97,23 @@ app.get("/roles", (c) => c.json({
 
 app.get("/", (c) => {
   try {
+    const db = getDb();
+    const userId = userIdOf(c);
+    const workspaceId = workspaceIdOf(c);
+    const nodes = listKnowledgeTree({
+      userId,
+      workspaceId,
+      includeDeleted: c.req.query("includeDeleted") === "1",
+      db,
+    });
+    const unlocked = resolveUnlockedFolderNodeIds(db, userId, c.req.header("X-Folder-Unlock-Tokens"));
+    const authorized = resolvePasswordAuthorizedNotes(db,
+      workspaceId ? `workspace:${workspaceId}` : `personal:${userId}`, unlocked);
+    c.header("Cache-Control", "private, no-store");
     return c.json({
-      nodes: listKnowledgeTree({
-        userId: userIdOf(c),
-        workspaceId: workspaceIdOf(c),
-        includeDeleted: c.req.query("includeDeleted") === "1",
-      }),
+      nodes,
+      passwordAuthorizedNotes: nodes.filter((node) => node.resourceType === "note" && authorized.has(node.resourceId))
+        .map((node) => ({ noteId: node.resourceId, folderIds: authorized.get(node.resourceId)! })),
     });
   } catch (error) {
     return mapError(c, error);
