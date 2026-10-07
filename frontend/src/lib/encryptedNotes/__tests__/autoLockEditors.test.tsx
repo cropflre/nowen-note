@@ -11,6 +11,12 @@ import type { Note } from "@/types";
 
 const mocks = vi.hoisted(() => ({ crypto: vi.fn(), save: vi.fn(), setNote: vi.fn(), scope: "account-a" }));
 vi.mock("../workerClient", () => ({ runEncryptedContentOperation: mocks.crypto }));
+vi.mock("../sessionClient", () => ({ EncryptedContentSession: class {
+  open(envelope: unknown, passphrase: string, expected: unknown, signal: AbortSignal) { return mocks.crypto({ operation: "decrypt", input: { envelope, passphrase, expected } }, signal); }
+  update(envelope: unknown, plaintext: string, signal: AbortSignal) { return mocks.crypto({ operation: "update", input: { envelope, plaintext } }, signal); }
+  changePassphrase(envelope: unknown, passphrase: string, newPassphrase: string, signal: AbortSignal) { return mocks.crypto({ operation: "change-passphrase", input: { envelope, passphrase, newPassphrase } }, signal); }
+  close() {}
+} }));
 vi.mock("../saveNote", () => ({ saveEncryptedNoteCiphertext: mocks.save }));
 vi.mock("@/lib/api", () => ({ api: { updateNoteConfirmed: mocks.save }, getCurrentWorkspace: () => "personal" }));
 vi.mock("@/lib/offlineQueue", () => ({ getOfflineQueueStorageKey: () => mocks.scope, getQueue: () => [] }));
@@ -152,6 +158,7 @@ it("locking during password rotation waits for its acknowledgement and retains t
   mocks.save.mockImplementationOnce((_id, payload) => new Promise<Note>((done) => { resolve = () => done({ ...note, ...payload, version: 2 }); }));
   act(() => root.render(<EncryptedNotePane note={note} />)); await unlockNote();
   const change = [...document.querySelectorAll("button")].find((button) => button.textContent === "确认修改")!;
+  await fill("当前密码", fixture.passphrase);
   await fill("新密码", "12345"); await fill("确认新密码", "12345"); expect(change.disabled).toBe(true);
   await click("确认修改"); expect(mocks.save).not.toHaveBeenCalled();
   await fill("新密码", "123456"); expect(change.disabled).toBe(true);
@@ -164,7 +171,7 @@ it("locking during password rotation waits for its acknowledgement and retains t
   expect(document.body.textContent).toContain("此笔记已加密");
   await fill("密码", "123456"); await click("解锁");
   await fill("加密 Markdown 正文", "New private draft"); await autosave();
-  expect(mocks.crypto.mock.calls.at(-1)![0].input.passphrase).toBe("123456");
+  expect(mocks.crypto.mock.calls.at(-1)![0].input.passphrase).toBeUndefined();
   expect(mocks.save).toHaveBeenCalledTimes(2);
 });
 it.each(["crypto", "storage"])("failed %s retains edits, blocks leaving and permits explicit lock retry", async (stage) => {
@@ -172,11 +179,13 @@ it.each(["crypto", "storage"])("failed %s retains edits, blocks leaving and perm
   if (stage === "crypto") mocks.crypto.mockRejectedValueOnce(new Error("unavailable"));
   else mocks.save.mockRejectedValueOnce(new Error("quota or HTTP conflict"));
   await act(async () => window.dispatchEvent(new Event("blur")));
-  expect(input("加密 Markdown 正文").value).toBe("Private draft"); expect(document.body.textContent).toContain("锁定未完成");
+  expect(input("加密 Markdown 正文")).toBeNull(); expect(document.body.textContent).toContain("锁定未完成");
   expect(mayLeave()).toBe(false);
   await act(async () => vi.advanceTimersByTime(ENCRYPTED_IDLE_LOCK_MS));
   expect(mocks.save).toHaveBeenCalledTimes(stage === "storage" ? 1 : 0);
-  await click("重试锁定"); expect(input("加密 Markdown 正文")).toBeNull();
+  await unlockNote();
+  expect(input("加密 Markdown 正文").value).toBe("Private draft");
+  await click("锁定"); expect(input("加密 Markdown 正文")).toBeNull();
   expect(mocks.save).toHaveBeenCalledTimes(stage === "storage" ? 2 : 1);
 });
 it("a failed automatic save is not silently retried, even after further editing", async () => {
@@ -194,7 +203,7 @@ it("automatic background locking does not retry a previously failed autosave", a
   act(() => root.render(<EncryptedNotePane note={note} />)); await unlockNote(); await fill("加密 Markdown 正文", "Private draft");
   await act(async () => vi.advanceTimersByTime(800));
   await act(async () => window.dispatchEvent(new Event("blur")));
-  expect(mocks.save).toHaveBeenCalledTimes(1); expect(input("加密 Markdown 正文").value).toBe("Private draft");
+  expect(mocks.save).toHaveBeenCalledTimes(1); expect(input("加密 Markdown 正文")).toBeNull();
   expect(document.body.textContent).toContain("锁定未完成");
 });
 it("reverting a failed autosave to the saved body can lock without retrying the write", async () => {
@@ -210,8 +219,24 @@ it("rejects an acknowledgement of different ciphertext instead of claiming the d
   const different = { ...envelope, payload: { ...envelope.payload, iv: "MDEyMzQ1Njc4OTo7" } };
   mocks.save.mockResolvedValueOnce({ ...note, content: JSON.stringify(different), version: 2 });
   act(() => root.render(<EncryptedNotePane note={note} />)); await unlockNote(); await fill("加密 Markdown 正文", "Private draft");
-  await click("锁定"); expect(input("加密 Markdown 正文").value).toBe("Private draft");
+  await click("锁定"); expect(input("加密 Markdown 正文")).toBeNull();
   expect(document.body.textContent).toContain("锁定未完成"); expect(mocks.setNote).not.toHaveBeenCalled();
+});
+it("failed background locking requires authentication and clears recovery password on a second blur", async () => {
+  mocks.save.mockRejectedValueOnce(new Error("Storage unavailable"));
+  act(() => root.render(<EncryptedNotePane note={note} />)); await unlockNote();
+  await fill("加密 Markdown 正文", "Private recovery draft");
+  await act(async () => window.dispatchEvent(new Event("blur")));
+  expect(input("加密 Markdown 正文")).toBeNull();
+  await fill("密码", "Wrong password");
+  await act(async () => window.dispatchEvent(new Event("blur")));
+  expect(input("密码").value).toBe(""); expect(mocks.save).toHaveBeenCalledTimes(1);
+  mocks.crypto.mockRejectedValueOnce(Object.assign(new Error("Wrong password"), { code: "unlock-failed" }));
+  await fill("密码", "Wrong password"); await click("解锁");
+  expect(input("加密 Markdown 正文")).toBeNull();
+  await unlockNote(); expect(input("加密 Markdown 正文").value).toBe("Private recovery draft");
+  await act(async () => vi.advanceTimersByTime(800)); expect(mocks.save).toHaveBeenCalledTimes(1);
+  await click("重试保存"); expect(mocks.save).toHaveBeenCalledTimes(2);
 });
 it.each(["encryption", "write"])("account change during %s prevents a late result from restoring or writing the old session", async (stage) => {
   let resolve!: (value: unknown) => void;
@@ -244,6 +269,22 @@ it("region drafts lock without committing, require the password again and retain
   expect(input("区域临时正文").value).toBe("Private region draft");
   await click("保存"); expect(commit).toHaveBeenCalledTimes(1); expect(close).toHaveBeenCalledTimes(1);
   expect(commit.mock.calls[0][0]).not.toContain("Private region draft");
+});
+it.each([false, true])("failed region encryption stays hidden and recovers only with its password (new=%s)", async (newRegion) => {
+  const close = vi.fn();
+  act(() => root.render(<EncryptedBlockDialog source={newRegion ? undefined : JSON.stringify(block)} onCommit={vi.fn()} onClose={close} />));
+  await fill("密码", fixture.passphrase);
+  if (!newRegion) await click("解锁");
+  await fill("区域临时正文", "Hidden region recovery");
+  mocks.crypto.mockRejectedValueOnce(new Error("Worker unavailable"));
+  await act(async () => window.dispatchEvent(new Event("blur")));
+  expect(input("区域临时正文")).toBeNull(); expect(input("密码").value).toBe("");
+  vi.spyOn(window, "confirm").mockReturnValue(false); await click("关闭"); expect(close).not.toHaveBeenCalled();
+  await fill("密码", "Wrong password");
+  if (!newRegion) mocks.crypto.mockRejectedValueOnce(new Error("Wrong password"));
+  await click("解锁"); expect(input("区域临时正文")).toBeNull();
+  await fill("密码", fixture.passphrase); await click("解锁");
+  expect(input("区域临时正文").value).toBe("Hidden region recovery");
 });
 
 it("new note creation needs matching passwords of at least six characters without an acknowledgement checkbox", async () => {

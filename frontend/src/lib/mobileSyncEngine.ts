@@ -5,6 +5,7 @@ import { getResolvedApiBaseUrl } from "./serverUrl";
 import { SERVER_ENDPOINT_CHANGED_EVENT } from "./serverEndpointState";
 import { forgetUnsentLocalNotes } from "./nativeLocalNoteOrigin";
 import { notifyMobileSyncStatusChanged } from "./mobileSyncStatus";
+import { validateEncryptedNoteWrite } from "./encryptedNotes/noteDocument";
 
 type ScopeStatus = "active" | "replan_required" | "access_revoked";
 type EntityType = "notebook" | "note" | "tag" | "note_tag" | "favorite" | "attachment"
@@ -419,6 +420,11 @@ export class MobileSyncEngine {
     }
     const mutations = rows.map((row) => ({ ...row,
       baseVersion:row.baseVersion??undefined,payload:row.payload?JSON.parse(row.payload):undefined }));
+    for (const mutation of mutations) if (mutation.entityType === "note" && mutation.operation === "upsert") {
+      validateEncryptedNoteWrite(mutation.payload || {});
+      const current = await this.readEntity(this.options.db, scope.scopeKey, "note", mutation.entityId);
+      if (current) validateEncryptedNoteWrite(mutation.payload || {}, current);
+    }
     // 请求即使超时也可能已被服务器接收，不能继续把该笔记当作“确定未同步”。
     const noteIds = rows.filter((row) => row.entityType === "note").map((row) => row.entityId);
     if (noteIds.length) await this.options.db.transaction((tx) => forgetUnsentLocalNotes(tx, scope.scopeKey, noteIds));
@@ -426,6 +432,13 @@ export class MobileSyncEngine {
       `/push?scopeKey=${encodeURIComponent(scope.scopeKey)}`,
       { method:"POST",body:JSON.stringify({scopeKey:scope.scopeKey,deviceId:this.options.deviceId,mutations}) },
     );
+    for (const result of response.results) {
+      const source = mutations.find((mutation) => mutation.mutationId === result.mutationId);
+      if (source?.entityType === "note" && result.code === "VERSION_CONFLICT" && result.serverPayload) {
+        validateEncryptedNoteWrite(result.serverPayload);
+        validateEncryptedNoteWrite(result.serverPayload, source.payload);
+      }
+    }
     await this.options.db.transaction(async (tx) => {
       for (const result of response.results) {
         const source = rows.find((row) => row.mutationId===result.mutationId);
@@ -498,12 +511,17 @@ export class MobileSyncEngine {
 
   private async applyEntries(scope: ScopeDescriptor, entries: SnapshotEntry[], bootstrap: boolean): Promise<void> {
     assertMobileSyncItems(entries,"snapshot");
+    for (const entry of entries) if (entry.entityType === "note" && !entry.payload.__delete) validateEncryptedNoteWrite(entry.payload);
     const notebookParents=entries.flatMap((entry)=>entry.entityType==="notebook"
       && typeof entry.payload.parentId==="string" ? [[entry.entityId,entry.payload.parentId] as const] : []);
     await this.options.db.transaction(async (tx) => {
       // 即使远端内容进入冲突中心而未覆盖本地，它的存在也已得到确认。
       await forgetUnsentLocalNotes(tx, scope.scopeKey, entries.filter((entry) => entry.entityType === "note").map((entry) => entry.entityId));
       for(const entry of entries){
+        if (entry.entityType === "note" && !entry.payload.__delete) {
+          const current = await this.readEntity(tx, scope.scopeKey, "note", entry.entityId);
+          if (current) validateEncryptedNoteWrite(entry.payload, current);
+        }
         const conflict=(await tx.query<{id:string}>(`SELECT id FROM sync_conflicts WHERE
           profileId=? AND scopeKey=? AND entityType=? AND entityId=? AND status='unresolved' LIMIT 1`,
         [this.options.profileId,scope.scopeKey,entry.entityType,entry.entityId]))[0];
@@ -545,6 +563,10 @@ export class MobileSyncEngine {
 
   private async applyEntity(db:NativeDatabase,scope:ScopeDescriptor,entry:SnapshotEntry):Promise<void>{
     const p=entry.payload;const deleting=Boolean(p.__delete);const key=scope.scopeKey;const ws=scope.workspaceId;
+    if (entry.entityType === "note" && !deleting) {
+      const current = await this.readEntity(db, key, "note", entry.entityId);
+      validateEncryptedNoteWrite(p, current || undefined);
+    }
     if(entry.entityType==="note_tag"){
       const [noteId,tagId]=entry.entityId.split(":");
       if(deleting)await db.run("DELETE FROM note_tags WHERE scopeKey=? AND noteId=? AND tagId=?",[key,noteId,tagId]);

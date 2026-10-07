@@ -92,28 +92,39 @@ export async function createEncryptedContent(input: {
 }
 
 export async function decryptEncryptedContent(value: unknown, passphrase: string, expected: EncryptedContentIdentity): Promise<string> {
+  return (await unlockEncryptedContentKey(value, passphrase, expected)).plaintext;
+}
+
+/** Worker-only session primitive: the key is non-exportable and never sent to the UI. */
+export async function unlockEncryptedContentKey(value: unknown, passphrase: string, expected: EncryptedContentIdentity): Promise<{ plaintext: string; key: CryptoKey }> {
   const envelope = checkedEnvelope(value, expected);
   const dek = await unlockedKey(envelope, passphrase);
   let plaintext: Uint8Array | undefined;
   try {
-    plaintext = await authenticatedContent(envelope, await importKey(dek));
-    try { return new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(plaintext); }
+    const key = await importKey(dek);
+    plaintext = await authenticatedContent(envelope, key);
+    try { return { plaintext: new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(plaintext), key }; }
     catch { throw new EncryptedContentError("unlock-failed"); }
   } finally { dek.fill(0); plaintext?.fill(0); }
 }
 
 export async function updateEncryptedContent(value: unknown, passphrase: string, expected: EncryptedContentIdentity, plaintext: string): Promise<EncryptedContentEnvelope> {
   const envelope = checkedEnvelope(value, expected);
-  const content = encodeContent(plaintext);
-  let dek: Uint8Array | undefined;
+  const dek = await unlockedKey(envelope, passphrase);
   try {
-    dek = await unlockedKey(envelope, passphrase);
-    const key = await importKey(dek);
+    return await updateEncryptedContentWithKey(envelope, await importKey(dek), expected, plaintext);
+  } finally { dek.fill(0); }
+}
+
+export async function updateEncryptedContentWithKey(value: unknown, key: CryptoKey, expected: EncryptedContentIdentity, plaintext: string): Promise<EncryptedContentEnvelope> {
+  const envelope = checkedEnvelope(value, expected);
+  const content = encodeContent(plaintext);
+  try {
     (await authenticatedContent(envelope, key)).fill(0);
     let payload = await seal(key, content, contentAad(envelope, "content"), envelope.payload.iv);
     while (payload.iv === envelope.wrappedKey.iv) payload = await seal(key, content, contentAad(envelope, "content"), envelope.payload.iv);
     return { ...envelope, payload };
-  } finally { dek?.fill(0); content.fill(0); }
+  } finally { content.fill(0); }
 }
 
 export async function changeEncryptedContentPassphrase(value: unknown, oldPassphrase: string, expected: EncryptedContentIdentity, newPassphrase: string): Promise<EncryptedContentEnvelope> {

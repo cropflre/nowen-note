@@ -10,6 +10,7 @@ import type { NativeDatabase } from "./nativeDatabase";
 import type { NativeAttachmentStore } from "./nativeAttachmentStore";
 import { newLocalId } from "./localRepository";
 import { unsentLocalNoteKey } from "./nativeLocalNoteOrigin";
+import { isEncryptedNoteFormat, validateEncryptedNoteWrite } from "./encryptedNotes/noteDocument";
 
 type EntityType = "notebook" | "note" | "tag" | "note_tag" | "favorite" | "attachment";
 
@@ -375,6 +376,7 @@ export class NativeLocalRepository implements LocalRepository {
   }
 
   private async createNote(input: Partial<Note> & { id: string }): Promise<WriteResult> {
+    validateEncryptedNoteWrite(input as Record<string, unknown>);
     const scope = input.workspaceId !== undefined
       ? this.scopeFromWorkspace(input.workspaceId)
       : this.scope();
@@ -405,18 +407,23 @@ export class NativeLocalRepository implements LocalRepository {
   private async updateNote(id: string, patch: Partial<Note>): Promise<WriteResult> {
     const current = await this.getNote(id);
     if (!current) throw new Error("笔记不存在");
+    validateEncryptedNoteWrite(patch as Record<string, unknown>, current as unknown as Record<string, unknown>);
+    if (isEncryptedNoteFormat(current.contentFormat) && patch.version !== undefined && patch.version !== current.version) throw Object.assign(new Error("笔记版本已改变"), { status: 409, code: "VERSION_CONFLICT" });
+    const encrypted = isEncryptedNoteFormat(current.contentFormat);
+    if (encrypted && patch.content !== undefined && !Number.isSafeInteger(patch.version)) throw Object.assign(new Error("加密正文保存需要明确版本"), { status: 409, code: "VERSION_CONFLICT" });
     const next = { ...current, ...patch, id, updatedAt: now(), version: current.version + 1 };
     const scope = this.scopeFromWorkspace(current.workspaceId);
     await this.assertWritable(scope.scopeKey);
     await this.db.transaction(async (tx) => {
-      await tx.run(`UPDATE notes SET notebookId=?,title=?,content=?,contentText=?,contentFormat=?,colorMark=?,
+      const changed = await tx.run(`UPDATE notes SET notebookId=?,title=?,content=?,contentText=?,contentFormat=?,colorMark=?,
         isPinned=?,isFavorite=?,isLocked=?,isArchived=?,isTrashed=?,trashedAt=?,version=?,sortOrder=?,updatedAt=?
-        WHERE scopeKey=? AND id=?`, [
+        WHERE scopeKey=? AND id=?${encrypted ? " AND version=?" : ""}`, [
         next.notebookId, next.title, next.content, next.contentText, next.contentFormat || "tiptap-json", next.colorMark ?? null,
         bool(next.isPinned), bool(next.isFavorite), bool(next.isLocked), bool(next.isArchived),
         bool(next.isTrashed), next.trashedAt, next.version, next.sortOrder || 0, next.updatedAt,
-        scope.scopeKey, id,
+        scope.scopeKey, id, ...(encrypted ? [current.version] : []),
       ]);
+      if (encrypted && changed.changes !== 1) throw Object.assign(new Error("笔记版本已改变"), { status: 409, code: "VERSION_CONFLICT" });
       await this.enqueue(tx, "note", id, "upsert", next as unknown as Record<string, unknown>, current.version);
     });
     return { id, savedAt: next.updatedAt };

@@ -44,6 +44,10 @@ on:
       - "frontend/src/lib/offlineRead.ts"
       - "frontend/src/lib/syncEngine.ts"
       - "frontend/src/lib/yjsProvider.ts"
+      - "frontend/src/lib/nativeDatabase.ts"
+      - "frontend/src/lib/nativeLocalRepository.ts"
+      - "frontend/src/lib/mobileSyncEngine.ts"
+      - "frontend/src/lib/__tests__/mobileSyncUnknownEntity.test.ts"
       - "frontend/src/lib/api.impl.ts"
       - "frontend/src/store/AppContext.tsx"
       - "backend/src/db/**"
@@ -126,6 +130,10 @@ on:
       - "frontend/src/lib/offlineRead.ts"
       - "frontend/src/lib/syncEngine.ts"
       - "frontend/src/lib/yjsProvider.ts"
+      - "frontend/src/lib/nativeDatabase.ts"
+      - "frontend/src/lib/nativeLocalRepository.ts"
+      - "frontend/src/lib/mobileSyncEngine.ts"
+      - "frontend/src/lib/__tests__/mobileSyncUnknownEntity.test.ts"
       - "frontend/src/lib/api.impl.ts"
       - "frontend/src/store/AppContext.tsx"
       - "backend/src/db/**"
@@ -192,7 +200,7 @@ jobs:
         run: npm ci
         working-directory: backend
       - name: SQLite persistence, backup and old-writer regressions
-        run: node --import tsx --import ./tests/setup-db-isolation.ts --test tests/encrypted-notes-blocks.test.ts tests/encrypted-notes-block-writers.test.ts tests/encrypted-notes-storage.test.ts tests/encrypted-notes-conversion-preflight.test.ts tests/encrypted-notes-conversion.test.ts tests/encrypted-notes-sync.test.ts tests/encrypted-notes-backup.test.ts tests/sync-v2-bootstrap.test.ts tests/sync-v2-engine.test.ts tests/sync-v2-conflict-history-route.test.ts tests/backup-restore-integrity.test.ts tests/backup-restore-large-archive.test.ts tests/backup-restore-corrupt-hotfix.test.ts
+        run: node --import tsx --import ./tests/setup-db-isolation.ts --test tests/encrypted-notes-native-storage.test.ts tests/encrypted-notes-blocks.test.ts tests/encrypted-notes-block-writers.test.ts tests/encrypted-notes-storage.test.ts tests/encrypted-notes-conversion-preflight.test.ts tests/encrypted-notes-conversion.test.ts tests/encrypted-notes-sync.test.ts tests/encrypted-notes-backup.test.ts tests/sync-v2-bootstrap.test.ts tests/sync-v2-engine.test.ts tests/sync-v2-conflict-history-route.test.ts tests/backup-restore-integrity.test.ts tests/backup-restore-large-archive.test.ts tests/backup-restore-corrupt-hotfix.test.ts
         working-directory: backend
       - name: Backend typecheck
         run: npx tsc --noEmit --pretty false
@@ -202,6 +210,8 @@ jobs:
         working-directory: backend
       - name: Crypto core and Worker lifecycle regressions
         run: npm run test:encrypted-notes
+      - name: Native encrypted sync and account boundaries
+        run: npx vitest run src/lib/__tests__/mobileSyncUnknownEntity.test.ts src/lib/__tests__/nativeLocalNoteOrigin.test.ts src/lib/__tests__/mobileLocalApiIsolation.test.ts
       - name: Native locking bridge syntax
         run: node --check ../electron/encrypted-notes-auto-lock.js && node --check ../scripts/encrypted-notes-electron-fixture.cjs && node --check ../scripts/encrypted-notes-app-fixture.cjs && node --check ../scripts/encrypted-notes-backend-fixture.cjs && node --check ../scripts/encrypted-notes-package-fixture.cjs && node --check ../scripts/encrypted-notes-full-acceptance.mjs && node --check ../electron/main.js && node --check ../electron/preload.js
       - name: Ordinary and encrypted cache/conflict regressions

@@ -13,6 +13,24 @@ export function readEncryptedNoteDocument(note: { contentFormat?: string; conten
   return envelope;
 }
 
+/** Native writes/downloads share the server's fail-closed envelope/identity boundary. */
+export function validateEncryptedNoteWrite(patch: Record<string, unknown>, current?: Record<string, unknown>): void {
+  const wasEncrypted = isEncryptedNoteFormat(current?.contentFormat);
+  if (!wasEncrypted && !isEncryptedNoteFormat(patch.contentFormat)) return;
+  if (current && !wasEncrypted) throw new EncryptedContentError("invalid");
+  if (patch.contentFormat !== undefined && patch.contentFormat !== ENCRYPTED_NOTE_FORMAT) throw new EncryptedContentError("invalid");
+  if (patch.contentText !== undefined && patch.contentText !== "") throw new EncryptedContentError("invalid");
+  if (patch.content !== undefined || !current) {
+    if (patch.contentFormat !== ENCRYPTED_NOTE_FORMAT || typeof patch.content !== "string") throw new EncryptedContentError("invalid");
+    const next = readEncryptedNoteDocument({ contentFormat: patch.contentFormat, content: patch.content });
+    if (current) {
+      if (typeof current.content !== "string" || typeof current.contentFormat !== "string") throw new EncryptedContentError("invalid");
+      const previous = readEncryptedNoteDocument({ content: current.content, contentFormat: current.contentFormat });
+      if (next.objectId !== previous.objectId || next.originalFormat !== previous.originalFormat) throw new EncryptedContentError("invalid");
+    }
+  }
+}
+
 /** Text-only first delivery: no attachments, embeds, external images or opaque nodes. */
 export function validateEncryptedNotePlaintext(content: string, format: EncryptedContentEnvelope["originalFormat"]): void {
   if (format === "markdown") {
