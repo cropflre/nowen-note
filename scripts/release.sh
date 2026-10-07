@@ -350,17 +350,9 @@ collect_ci_mac_assets() {
   gh release upload "$TAG" --repo "$GITHUB_REPO_SLUG" --clobber "${mac_assets[@]}"
 }
 
-# Any Windows EXE initially uploaded by the legacy local publisher is only a Draft candidate.
-# Before publication it must be replaced by the artifact produced by the same tag workflow after
-# SignPath release-signing, Authenticode/CN verification, blockmap rebuild and metadata refresh.
-if release_contains_windows_candidates; then
-  if ! collect_ci_signed_windows_assets; then
-    echo "[release-guard] failed to collect SignPath-signed Windows assets; keeping ${TAG} as draft" >&2
-    gh release edit "$TAG" --repo "$GITHUB_REPO_SLUG" --draft=true >/dev/null 2>&1 || true
-    exit 1
-  fi
-fi
-
+# Collect platform-independent macOS artifacts before the Windows signing gate.
+# A SignPath outage or configuration failure must not strand a successful macOS build
+# inside Actions artifacts; the Release stays draft until all later gates pass.
 if grep -q "PC 产物" "$LOG_FILE"; then
   if ! release_has_complete_mac_assets; then
     if ! collect_ci_mac_assets; then
@@ -378,6 +370,17 @@ if grep -q "PC 产物" "$LOG_FILE"; then
 
   if ! ensure_desktop_platform_notes; then
     echo "[release-guard] failed to update desktop platform notes; keeping ${TAG} as draft" >&2
+    gh release edit "$TAG" --repo "$GITHUB_REPO_SLUG" --draft=true >/dev/null 2>&1 || true
+    exit 1
+  fi
+fi
+
+# Any Windows EXE initially uploaded by the legacy local publisher is only a Draft candidate.
+# Before publication it must be replaced by the artifact produced by the same tag workflow after
+# SignPath release-signing, Authenticode/CN verification, blockmap rebuild and metadata refresh.
+if release_contains_windows_candidates; then
+  if ! collect_ci_signed_windows_assets; then
+    echo "[release-guard] failed to collect SignPath-signed Windows assets; keeping ${TAG} as draft" >&2
     gh release edit "$TAG" --repo "$GITHUB_REPO_SLUG" --draft=true >/dev/null 2>&1 || true
     exit 1
   fi
