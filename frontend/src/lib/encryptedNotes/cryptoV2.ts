@@ -1,7 +1,7 @@
 import { deriveKey, encodeContent, importKey, open, randomBytes, seal } from "./crypto";
 import { ARGON2_PROFILE, EncryptedContentError, MAX_CONTENT_BYTES, toBase64, validatePassphrase } from "./envelope";
 import { aadV2, identityV2, matchIdentityV2, strictRecord, validateEnvelopeV2, type ContentEnvelopeV2, type ContentIdentityV2 } from "./envelopeV2";
-import { validateAttachmentManifest, validateHistoryV2, type EncryptedAttachmentManifest, type EncryptedHistoryV2 } from "./attachmentCodec";
+import { authenticateAttachmentKeys, validateAttachmentManifest, validateHistoryV2, type EncryptedAttachmentManifest, type EncryptedHistoryV2 } from "./attachmentCodec";
 import { validateNewPassphrase } from "./passphrasePolicy";
 
 export type EncryptedDocumentV2 = { documentSchemaVersion: 1; content: string; attachments: EncryptedAttachmentManifest[] };
@@ -35,13 +35,19 @@ async function unwrap(envelope: ContentEnvelopeV2, passphrase: string): Promise<
 }
 /** Dedicated Worker entry points; never return these keys through postMessage. */
 export async function createContentV2(input: { document: EncryptedDocumentV2; passphrase: string; identity: ContentIdentityV2 }): Promise<ContentEnvelopeV2> {
+  return (await createContentV2Session(input)).envelope;
+}
+export async function createContentV2Session(input: { document: EncryptedDocumentV2; passphrase: string; identity: ContentIdentityV2 }): Promise<{ envelope: ContentEnvelopeV2; key: CryptoKey }> {
   validateNewPassphrase(input.passphrase);
-  const identity = identityV2(input.identity); const bytes = encodeContent(JSON.stringify(validateDocumentV2(input.document))); const raw = randomBytes(32);
+  const identity = identityV2(input.identity); const document = validateDocumentV2(input.document);
+  // A new root cannot reuse wrapped file keys from another root. Upload/copy files in this new session first.
+  if (document.attachments.length) throw new EncryptedContentError("invalid");
+  const bytes = encodeContent(JSON.stringify(document)); const raw = randomBytes(32);
   try {
     const salt = toBase64(randomBytes(16));
     const wrappedKey = await seal(await deriveKey(input.passphrase, salt), raw, aadV2(identity, "root-key"));
-    const payload = await seal(await importKey(raw), bytes, aadV2(identity, "document"), wrappedKey.iv);
-    return { ...identity, version: 2, algorithm: "AES-256-GCM", kdf: { ...ARGON2_PROFILE, salt }, wrappedKey, payload };
+    const key = await importKey(raw); const payload = await seal(key, bytes, aadV2(identity, "document"), wrappedKey.iv);
+    return { key, envelope: { ...identity, version: 2, algorithm: "AES-256-GCM", kdf: { ...ARGON2_PROFILE, salt }, wrappedKey, payload } };
   } finally { raw.fill(0); bytes.fill(0); }
 }
 export async function unlockContentV2(value: unknown, passphrase: string, expected: ContentIdentityV2): Promise<{ document: EncryptedDocumentV2; key: CryptoKey }> {
@@ -50,9 +56,10 @@ export async function unlockContentV2(value: unknown, passphrase: string, expect
   finally { raw.fill(0); }
 }
 export async function updateContentV2(value: unknown, key: CryptoKey, expected: ContentIdentityV2, document: EncryptedDocumentV2): Promise<ContentEnvelopeV2> {
-  const envelope = checked(value, expected); const bytes = encodeContent(JSON.stringify(validateDocumentV2(document)));
+  const envelope = checked(value, expected); const next = validateDocumentV2(document); const bytes = encodeContent(JSON.stringify(next));
   try {
     await authenticate(envelope, key);
+    await authenticateAttachmentKeys(key, envelope, next.attachments);
     let payload = await seal(key, bytes, aadV2(envelope, "document"), envelope.payload.iv);
     while (payload.iv === envelope.wrappedKey.iv) payload = await seal(key, bytes, aadV2(envelope, "document"), envelope.payload.iv);
     return { ...envelope, payload };
@@ -78,7 +85,7 @@ export async function encryptHistoryV2(key: CryptoKey, identity: ContentIdentity
   const history = validateHistoryV2({ ...context, objectId: identity.objectId, keyEpoch: identity.keyEpoch, encryptionEpoch: identity.encryptionEpoch,
     payload: { iv: toBase64(new Uint8Array(12)), ciphertext: toBase64(new Uint8Array(16)) } });
   const bytes = encodeContent(JSON.stringify(validateHistoryPlaintext({ document, changeSummary })));
-  try { return { ...history, payload: await seal(key, bytes, aadV2(identity, "history", historyContext(history))) }; }
+  try { await authenticateAttachmentKeys(key, identity, validateDocumentV2(document).attachments); return { ...history, payload: await seal(key, bytes, aadV2(identity, "history", historyContext(history))) }; }
   finally { bytes.fill(0); }
 }
 export async function decryptHistoryV2(key: CryptoKey, identity: ContentIdentityV2, value: unknown): Promise<EncryptedHistoryPlaintextV2> {

@@ -9,13 +9,13 @@ import EncryptedBlockDialog from "../../../components/EncryptedBlockDialog";
 import EncryptedNoteCreateDialog from "../../../components/EncryptedNoteCreateDialog";
 import type { Note } from "@/types";
 
-const mocks = vi.hoisted(() => ({ crypto: vi.fn(), save: vi.fn(), setNote: vi.fn(), scope: "account-a" }));
+const mocks = vi.hoisted(() => ({ crypto: vi.fn(), save: vi.fn(), setNote: vi.fn(), close: vi.fn(), scope: "account-a" }));
 vi.mock("../workerClient", () => ({ runEncryptedContentOperation: mocks.crypto }));
 vi.mock("../sessionClient", () => ({ EncryptedContentSession: class {
   open(envelope: unknown, passphrase: string, expected: unknown, signal: AbortSignal) { return mocks.crypto({ operation: "decrypt", input: { envelope, passphrase, expected } }, signal); }
   update(envelope: unknown, plaintext: string, signal: AbortSignal) { return mocks.crypto({ operation: "update", input: { envelope, plaintext } }, signal); }
   changePassphrase(envelope: unknown, passphrase: string, newPassphrase: string, signal: AbortSignal) { return mocks.crypto({ operation: "change-passphrase", input: { envelope, passphrase, newPassphrase } }, signal); }
-  close() {}
+  close() { mocks.close(); }
 } }));
 vi.mock("../saveNote", () => ({ saveEncryptedNoteCiphertext: mocks.save }));
 vi.mock("@/lib/api", () => ({ api: { updateNoteConfirmed: mocks.save }, getCurrentWorkspace: () => "personal" }));
@@ -46,7 +46,7 @@ function mayLeave() {
 }
 beforeEach(() => {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
-  vi.useFakeTimers(); mocks.scope = "account-a"; mocks.crypto.mockReset(); mocks.save.mockReset(); mocks.setNote.mockReset();
+  vi.useFakeTimers(); mocks.scope = "account-a"; mocks.crypto.mockReset(); mocks.save.mockReset(); mocks.setNote.mockReset(); mocks.close.mockReset();
   mocks.crypto.mockImplementation(async (request) => request.operation === "decrypt" ? "Private initial" : request.input.envelope || block);
   mocks.save.mockImplementation(async (base: Note, content: string) => ({ ...base, content, version: base.version + 1 }));
   container = document.createElement("div"); document.body.append(container); root = createRoot(container);
@@ -275,6 +275,31 @@ it("region drafts lock without committing, require the password again and retain
   expect(input("区域临时正文").value).toBe("Private region draft");
   await click("保存"); expect(commit).toHaveBeenCalledTimes(1); expect(close).toHaveBeenCalledTimes(1);
   expect(commit.mock.calls[0][0]).not.toContain("Private region draft");
+});
+it("an unlocked region clears its password and saves through the key worker session", async () => {
+  const commit = vi.fn();
+  act(() => root.render(<EncryptedBlockDialog source={JSON.stringify(block)} onCommit={commit} onClose={vi.fn()} />));
+  await fill("密码", fixture.passphrase); await click("解锁"); await fill("区域临时正文", "Private region edit");
+  expect(input("密码")).toBeNull(); await click("保存");
+  expect(mocks.crypto.mock.calls.at(-1)![0].input).toMatchObject({ plaintext: "Private region edit", envelope: block });
+  expect(mocks.crypto.mock.calls.at(-1)![0].input).not.toHaveProperty("passphrase"); expect(commit).toHaveBeenCalledTimes(1);
+});
+it("a region background lock includes the last keystroke even before React commits its input render", async () => {
+  act(() => root.render(<EncryptedBlockDialog source={JSON.stringify(block)} onCommit={vi.fn()} onClose={vi.fn()} />));
+  await fill("密码", fixture.passphrase); await click("解锁");
+  await act(async () => {
+    const element = input("区域临时正文");
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(element, "Latest private keystroke");
+    element.dispatchEvent(new Event("input", { bubbles: true })); window.dispatchEvent(new Event("blur"));
+  });
+  expect(mocks.crypto.mock.calls.at(-1)![0]).toMatchObject({ operation: "update", input: { plaintext: "Latest private keystroke" } });
+});
+it("unsupported decrypted region schema destroys its new worker and leaves the editor locked", async () => {
+  const rich = { ...block, originalFormat: "tiptap-json" };
+  mocks.crypto.mockResolvedValueOnce('{"type":"doc","content":[{"type":"image","attrs":{"src":"https://example.invalid"}}]}');
+  act(() => root.render(<EncryptedBlockDialog source={JSON.stringify(rich)} onClose={vi.fn()} />));
+  await fill("密码", fixture.passphrase); await click("解锁");
+  expect(document.querySelector('[aria-label="加密富文本正文"]')).toBeNull(); expect(mocks.close).toHaveBeenCalledTimes(1);
 });
 it.each([false, true])("failed region encryption stays hidden and recovers only with its password (new=%s)", async (newRegion) => {
   const close = vi.fn();

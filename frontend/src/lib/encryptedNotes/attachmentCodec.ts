@@ -9,6 +9,7 @@ export type EncryptedAttachmentManifest = {
   name: string; mime: string; size: number; wrappedKey: SealedBytes;
   chunks: Array<{ index: number; ciphertextBytes: number; sha256: string }>;
 };
+export type EncryptedUploadDescriptor = { attachmentId: string; uploadId: string; chunkCount: number; ciphertextBytes: number };
 export function validateAttachmentManifest(value: unknown): EncryptedAttachmentManifest {
   const record = strictRecord(value, ["version", "attachmentId", "uploadId", "noncePrefix", "name", "mime", "size", "wrappedKey", "chunks"]);
   uuid(record.attachmentId); uuid(record.uploadId); fromBase64(record.noncePrefix, 8);
@@ -34,11 +35,22 @@ export function fileChunkNonce(prefix: string, index: number): Uint8Array {
 const hash = async (bytes: Uint8Array): Promise<string> => Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)), (value) => value.toString(16).padStart(2, "0")).join("");
 const cancelled = (signal?: AbortSignal) => { if (signal?.aborted) throw new EncryptedContentError("aborted"); };
 const fileContext = (manifest: Pick<EncryptedAttachmentManifest, "attachmentId" | "uploadId">) => [1, manifest.attachmentId, manifest.uploadId] as const;
+export async function authenticateAttachmentKeys(rootKey: CryptoKey, identity: ContentIdentityV2, attachments: EncryptedAttachmentManifest[]): Promise<void> {
+  for (const manifest of attachments) {
+    let bytes: Uint8Array | undefined;
+    try {
+      bytes = await open(rootKey, manifest.wrappedKey, aadV2(identity, "file-key", fileContext(manifest)));
+      if (bytes.length !== 32) throw new EncryptedContentError("unlock-failed");
+    } catch { throw new EncryptedContentError("unlock-failed"); }
+    finally { bytes?.fill(0); }
+  }
+}
 
 /** Worker-only. One new file key/upload identity per call; a retry reuses emitted ciphertext. */
 export async function encryptAttachment(input: {
   source: Blob; name: string; mime: string; rootKey: CryptoKey; identity: ContentIdentityV2;
   writeChunk: (index: number, ciphertext: Uint8Array) => Promise<void>; signal?: AbortSignal;
+  begin?: (descriptor: EncryptedUploadDescriptor) => Promise<void>;
 }): Promise<EncryptedAttachmentManifest> {
   const identity = identityV2(input.identity);
   if (!Number.isSafeInteger(input.source.size) || input.source.size < 0 || input.source.size > MAX_ENCRYPTED_FILE_BYTES
@@ -53,6 +65,7 @@ export async function encryptAttachment(input: {
     manifest.wrappedKey = await seal(input.rootKey, raw, aadV2(identity, "file-key", fileContext(manifest)));
     raw.fill(0);
     const count = Math.max(1, Math.ceil(manifest.size / ENCRYPTED_FILE_CHUNK_BYTES));
+    await input.begin?.({ attachmentId: manifest.attachmentId, uploadId: manifest.uploadId, chunkCount: count, ciphertextBytes: manifest.size + count * 16 });
     for (let index = 0; index < count; index++) {
       cancelled(input.signal);
       const bytes = new Uint8Array(await input.source.slice(index * ENCRYPTED_FILE_CHUNK_BYTES, (index + 1) * ENCRYPTED_FILE_CHUNK_BYTES).arrayBuffer());

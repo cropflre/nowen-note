@@ -5,6 +5,7 @@ import { Capacitor } from "@capacitor/core";
 import { Button } from "./ui/button";
 import EncryptedNoteRichTextEditor from "./EncryptedNoteRichTextEditor";
 import { runEncryptedContentOperation } from "@/lib/encryptedNotes/workerClient";
+import { EncryptedContentSession } from "@/lib/encryptedNotes/sessionClient";
 import { readEncryptedBlock } from "@/lib/encryptedNotes/blockDocument";
 import { ENCRYPTED_NOTE_LEAVE_EVENT, validateEncryptedNotePlaintext } from "@/lib/encryptedNotes/noteDocument";
 import { getOfflineQueueStorageKey } from "@/lib/offlineQueue";
@@ -25,7 +26,8 @@ export default function EncryptedBlockDialog({ source, initialContent, onCommit,
   const [securing, setSecuring] = useState(false); const [lockFailed, setLockFailed] = useState(false);
   const [status, setStatus] = useState("");
   const operation = useRef<AbortController | null>(null); const mounted = useRef(true);
-  const recovery = useRef<{ plaintext: string; passphrase?: string } | null>(null);
+  const cryptoSession = useRef<EncryptedContentSession | null>(null);
+  const recovery = useRef<{ plaintext: string; passphrase?: string; base?: string } | null>(null);
   const native = Capacitor.isNativePlatform();
   let envelope: ReturnType<typeof readEncryptedBlock> | undefined;
   try { if (source) envelope = readEncryptedBlock(source); } catch { /* malformed input stays locked */ }
@@ -38,27 +40,29 @@ export default function EncryptedBlockDialog({ source, initialContent, onCommit,
     if (lockFailed) { setPassword(""); setConfirmation(""); return; }
     if (initialContent && !password && !draft) { onClose(); return; }
     const plaintext = body; const key = password; const current = envelope;
+    const activeSession = cryptoSession.current;
     const scope = getOfflineQueueStorageKey();
     operation.current?.abort("auto-lock");
     setBody(""); setInitialBody(""); setPassword(""); setConfirmation(""); setUnlocked(false); setError(""); setLockFailed(false);
     setStatus("已自动锁定，请重新输入密码。");
-    if (!dirty && !(initialContent && key)) { if (!source && !draft) setUnlocked(true); return; }
+    if (!dirty && !(initialContent && key)) { activeSession?.close(); cryptoSession.current = null; if (!source && !draft) setUnlocked(true); return; }
     const controller = new AbortController(); operation.current = controller;
     setSecuring(true); setBusy(true); setStatus("正在锁定…");
     try {
       validateEncryptedNotePlaintext(plaintext, format);
       const encrypted = current
-        ? await runEncryptedContentOperation({ operation: "update", input: { envelope: current, expected: current, passphrase: key, plaintext } }, controller.signal)
+        ? await activeSession!.update(current, plaintext, controller.signal)
         : await runEncryptedContentOperation({ operation: "create", input: { kind: "block", originalFormat: format, passphrase: key, plaintext } }, controller.signal);
       if (!mounted.current || controller.signal.aborted || scope !== getOfflineQueueStorageKey()) return;
       setDraft(encrypted); setRecoveredDraft(false);
       setStatus("已自动锁定，重新解锁可恢复未保存的修改。关闭窗口会丢失这些修改。");
     } catch {
       if (!mounted.current || controller.signal.aborted || scope !== getOfflineQueueStorageKey()) return;
-      recovery.current = { plaintext, ...(!current ? { passphrase: key } : {}) };
+      recovery.current = { plaintext, ...(current ? { base: JSON.stringify(current) } : { passphrase: key }) };
       setRecoveredDraft(true); setLockFailed(true);
       setStatus(""); setError("自动锁定失败，修改已隐藏。重新输入密码可恢复；关闭窗口会丢失未保存的修改。");
     } finally {
+      activeSession?.close(); cryptoSession.current = null;
       if (operation.current === controller) { operation.current = null; if (mounted.current) { setBusy(false); setSecuring(false); } }
     }
   }
@@ -67,7 +71,7 @@ export default function EncryptedBlockDialog({ source, initialContent, onCommit,
     const scope = getOfflineQueueStorageKey();
     const leave = (event: BeforeUnloadEvent) => { if (dirty || draft || busy || lockFailed) { event.preventDefault(); event.returnValue = ""; } };
     const escape = (event: KeyboardEvent) => { if (event.key === "Escape") { event.preventDefault(); close(); } };
-    const account = () => { if (getOfflineQueueStorageKey() !== scope) { operation.current?.abort(); onClose(); } };
+    const account = () => { if (getOfflineQueueStorageKey() !== scope) { operation.current?.abort(); cryptoSession.current?.close(); cryptoSession.current = null; recovery.current = null; onClose(); } };
     const navigation = (event: Event) => { if (dirty || draft || busy || lockFailed) event.preventDefault(); else onClose(); };
     window.addEventListener("beforeunload", leave); window.addEventListener("keydown", escape);
     window.addEventListener("nowen:token-changed", account); window.addEventListener("nowen:server-url-changed", account);
@@ -76,32 +80,46 @@ export default function EncryptedBlockDialog({ source, initialContent, onCommit,
       window.removeEventListener("nowen:token-changed", account); window.removeEventListener("nowen:server-url-changed", account); window.removeEventListener(ENCRYPTED_NOTE_LEAVE_EVENT, navigation); };
   }, [dirty, busy, draft, lockFailed]);
   // A separate mount-only cleanup avoids aborting an operation during an ordinary state update.
-  useEffect(() => { mounted.current = true; return () => { mounted.current = false; operation.current?.abort(); recovery.current = null; }; }, []);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; operation.current?.abort(); cryptoSession.current?.close(); cryptoSession.current = null; recovery.current = null; }; }, []);
   async function perform(save: boolean) {
     if (busy || operation.current || native || (source && !envelope)) return;
-    if (save && (!onCommit || !password || (isNew && (!hasStrongNewPassphrase(password) || password !== confirmation)))) return;
+    if (save && (!onCommit || (isNew ? !hasStrongNewPassphrase(password) || password !== confirmation : !cryptoSession.current))) return;
     const controller = new AbortController(); operation.current = controller; setBusy(true); setError("");
     try {
       if (!save && (envelope || recovery.current)) {
         const pending = recovery.current;
         if (!envelope && pending?.passphrase !== password) throw new Error("Recovery authentication failed");
-        const decoded = envelope ? await runEncryptedContentOperation({ operation: "decrypt", input: { envelope, expected: envelope, passphrase: password } }, controller.signal) : pending!.plaintext;
+        if (pending?.base && pending.base !== JSON.stringify(envelope)) throw new Error("Recovery base changed");
+        let decoded: string;
+        if (envelope) {
+          cryptoSession.current?.close();
+          const opened = new EncryptedContentSession(); cryptoSession.current = opened;
+          try { decoded = await opened.open(envelope, password, envelope, controller.signal); }
+          catch (error) { opened.close(); cryptoSession.current = null; throw error; }
+        } else decoded = pending!.plaintext;
         const plaintext = pending?.plaintext ?? decoded;
         validateEncryptedNotePlaintext(plaintext, format);
         if (!mounted.current || controller.signal.aborted) return;
         recovery.current = null;
+        if (envelope) setPassword("");
         setBody(plaintext); setInitialBody(plaintext); setUnlocked(true); setRecoveredDraft(Boolean(draft || pending)); setLockFailed(false);
         if (draft || pending) setStatus("已恢复修改，请保存。");
       } else {
         validateEncryptedNotePlaintext(body, format);
         const encrypted = envelope
-          ? await runEncryptedContentOperation({ operation: "update", input: { envelope, expected: envelope, passphrase: password, plaintext: body } }, controller.signal)
+          ? await cryptoSession.current!.update(envelope, body, controller.signal)
           : await runEncryptedContentOperation({ operation: "create", input: { kind: "block", originalFormat: format, plaintext: body, passphrase: password } }, controller.signal);
         if (!mounted.current || controller.signal.aborted) return;
         await onCommit!(JSON.stringify(encrypted));
-        if (mounted.current && !controller.signal.aborted) { setBody(""); setPassword(""); setConfirmation(""); onClose(); }
+        if (mounted.current && !controller.signal.aborted) {
+          cryptoSession.current?.close(); cryptoSession.current = null;
+          setBody(""); setPassword(""); setConfirmation(""); onClose();
+        }
       }
-    } catch { if (mounted.current && !controller.signal.aborted) setError("操作失败，请检查密码或重新打开内容后重试。原内容和当前修改已保留。"); }
+    } catch {
+      if (!save) { cryptoSession.current?.close(); cryptoSession.current = null; }
+      if (mounted.current && !controller.signal.aborted) setError("操作失败，请检查密码或重新打开内容后重试。原内容和当前修改已保留。");
+    }
     finally { if (operation.current === controller) { operation.current = null; if (mounted.current) setBusy(false); } }
   }
   return createPortal(<div className="fixed inset-0 z-[500] flex items-center justify-center bg-black/40 p-4">
@@ -121,7 +139,7 @@ export default function EncryptedBlockDialog({ source, initialContent, onCommit,
         ? <textarea aria-label="区域临时正文" value={body} readOnly={!onCommit || busy} onChange={(event) => setBody(event.target.value)} spellCheck={false} className="min-h-48 resize-y rounded border border-app-border bg-app-bg p-3 font-mono" />
         : <EncryptedNoteRichTextEditor initialContent={initialBody} editable={Boolean(onCommit) && !busy} onChange={setBody} />
         : <Button type="submit" form={passwordFormId} disabled={native || busy || (!envelope && !lockFailed) || !password}>{busy ? "正在解锁…" : "解锁"}</Button>}
-      <div className="flex gap-2">{unlocked && onCommit && <Button disabled={native || busy || !password || (isNew && (!hasStrongNewPassphrase(password) || password !== confirmation))} onClick={() => void perform(true)}>{busy ? "正在加密…" : initialContent && isNew ? "加密" : "保存"}</Button>}
+      <div className="flex gap-2">{unlocked && onCommit && <Button disabled={native || busy || (isNew ? !hasStrongNewPassphrase(password) || password !== confirmation : !cryptoSession.current)} onClick={() => void perform(true)}>{busy ? "正在加密…" : initialContent && isNew ? "加密" : "保存"}</Button>}
         <Button disabled={busy} variant="outline" onClick={close}>关闭</Button></div>
       {!onCommit && <p className="text-xs text-tx-secondary">当前笔记仅可查看。</p>}
     </section>

@@ -98,6 +98,9 @@ it("requires 12 Unicode characters only for new passwords and creates fresh iden
   const document = { documentSchemaVersion: 1 as const, content: "new", attachments: [] };
   await expect(createContentV2({ document, passphrase: "short", identity: envelope })).rejects.toThrow();
   const identity = { ...envelope, objectId: crypto.randomUUID() };
+  await expect(createContentV2({ document: validateDocumentV2(fixture.document), passphrase: "twelve characters or more", identity })).rejects.toMatchObject({ code: "invalid" });
   const created = await createContentV2({ document, passphrase: "twelve characters or more", identity });
   expect((await unlockContentV2(created, "twelve characters or more", identity)).document).toEqual(document);
+  const createdKey = (await unlockContentV2(created, "twelve characters or more", identity)).key;
+  await expect(updateContentV2(created, createdKey, identity, validateDocumentV2(fixture.document))).rejects.toMatchObject({ code: "unlock-failed" });
 });
