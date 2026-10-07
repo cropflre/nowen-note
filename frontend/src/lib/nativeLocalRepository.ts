@@ -9,6 +9,7 @@ import {
 import type { NativeDatabase } from "./nativeDatabase";
 import type { NativeAttachmentStore } from "./nativeAttachmentStore";
 import { newLocalId } from "./localRepository";
+import { unsentLocalNoteKey } from "./nativeLocalNoteOrigin";
 
 type EntityType = "notebook" | "note" | "tag" | "note_tag" | "favorite" | "attachment";
 
@@ -207,6 +208,7 @@ export class NativeLocalRepository implements LocalRepository {
     await this.db.transaction(async(tx)=>{
       for(const note of notes){
         await tx.run("DELETE FROM notes WHERE scopeKey=? AND id=?",[scopeKey,note.id]);
+        await tx.run("DELETE FROM native_runtime_meta WHERE key=?", [unsentLocalNoteKey(scopeKey, note.id)]);
         await this.enqueue(tx,"note",note.id,"delete",undefined,note.version,scopeKey);
       }
     });
@@ -393,6 +395,8 @@ export class NativeLocalRepository implements LocalRepository {
         id,scopeKey,workspaceId,userId,notebookId,title,content,contentText,contentFormat,colorMark,
         isPinned,isFavorite,isLocked,isArchived,isTrashed,trashedAt,version,sortOrder,createdAt,updatedAt
       ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, Object.values(row));
+      await tx.run(`INSERT INTO native_runtime_meta (key,value,updatedAt) VALUES (?,'1',?)
+        ON CONFLICT(key) DO UPDATE SET value=excluded.value,updatedAt=excluded.updatedAt`, [unsentLocalNoteKey(scope.scopeKey, input.id), savedAt]);
       await this.enqueue(tx, "note", input.id, "upsert", row);
     });
     return { id: input.id, savedAt };
@@ -425,6 +429,7 @@ export class NativeLocalRepository implements LocalRepository {
     await this.assertWritable(scope.scopeKey);
     await this.db.transaction(async (tx) => {
       await tx.run("DELETE FROM notes WHERE scopeKey=? AND id=?", [scope.scopeKey, id]);
+      await tx.run("DELETE FROM native_runtime_meta WHERE key=?", [unsentLocalNoteKey(scope.scopeKey, id)]);
       await this.enqueue(tx, "note", id, "delete", undefined, current?.version ?? null);
     });
   }

@@ -9,6 +9,7 @@ import {
 import type { NativeDatabase } from "@/lib/nativeDatabase";
 import type { NativeLocalRepository } from "@/lib/nativeLocalRepository";
 import type { Note } from "@/types";
+import { unsentLocalNoteKey } from "@/lib/nativeLocalNoteOrigin";
 
 vi.mock("@/lib/mobileLocalModuleBridge", () => ({ installMobileLocalModuleBridge: () => () => {} }));
 vi.mock("@/lib/mobileLocalAdvancedTaskBridge", () => ({ installMobileLocalAdvancedTaskBridge: () => () => {} }));
@@ -50,7 +51,7 @@ function setup(deviceOnly = false) {
   } as unknown as NativeDatabase;
   if (deviceOnly) localStorage.setItem("nowen-mobile-force-local-mode", "1");
   restore = installMobileLocalFirstBridge(repository, db, "user");
-  return { remoteTree, authorize, repository, nodes };
+  return { remoteTree, authorize, repository, nodes, snapshots };
 }
 
 beforeEach(() => {
@@ -61,6 +62,57 @@ beforeEach(() => {
 afterEach(() => { restore?.(); restore = undefined; vi.restoreAllMocks(); delete (window as any).Capacitor; });
 
 describe("signed-in Android folder password access", () => {
+  it("keeps a proven unsent local note readable across bridge restart, then denies fallback when its marker is revoked", async () => {
+    const { remoteTree, nodes, snapshots, repository } = setup();
+    snapshots.set(unsentLocalNoteKey("personal", "ordinary"), "1");
+    remoteTree.mockResolvedValue({ nodes: nodes.filter((node) => node.resourceId !== "ordinary") });
+    expect((await api.getNotes()).map((item) => item.id)).toEqual(["ordinary"]);
+    await expect(api.getNote("ordinary")).resolves.toEqual(notes[1]);
+    remoteTree.mockRejectedValue(new TypeError("Failed to fetch"));
+    restore?.();
+    const db = { query: vi.fn(async (_sql: string, values: unknown[]) => snapshots.has(String(values[0]))
+      ? [{ value: snapshots.get(String(values[0])) }] : []) } as unknown as NativeDatabase;
+    restore = installMobileLocalFirstBridge(repository, db, "user");
+    await expect(api.getNote("ordinary")).resolves.toEqual(notes[1]);
+    snapshots.delete(unsentLocalNoteKey("personal", "ordinary"));
+    await expect(api.getNote("ordinary")).rejects.toThrow("目录密码状态无法确认");
+  });
+
+  it("does not use a marker from another workspace or an invalid marker value", async () => {
+    const { remoteTree, nodes, snapshots } = setup();
+    remoteTree.mockResolvedValue({ nodes: nodes.filter((node) => node.resourceId !== "ordinary") });
+    snapshots.set(unsentLocalNoteKey("workspace:other", "ordinary"), "1");
+    await expect(api.getNote("ordinary")).rejects.toThrow("目录密码状态无法确认");
+    snapshots.set(unsentLocalNoteKey("personal", "ordinary"), "unknown");
+    await expect(api.getNote("ordinary")).rejects.toThrow("目录密码状态无法确认");
+  });
+
+  it("a local marker still requires all inherited password ancestors to be unlocked", async () => {
+    const { remoteTree, nodes, snapshots, authorize } = setup();
+    remoteTree.mockResolvedValue({ nodes: nodes.filter((node) => node.resourceId !== "private") });
+    snapshots.set(unsentLocalNoteKey("personal", "private"), "1");
+    await expect(api.getNote("private")).rejects.toMatchObject({ code: "FOLDER_UNLOCK_REQUIRED" });
+    rememberUnlockedFolder("inner", token({ userId: "user" }));
+    await expect(api.getNote("private")).rejects.toMatchObject({ code: "FOLDER_UNLOCK_REQUIRED" });
+    expect(authorize).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["all notes", () => api.getNotes()],
+    ["favorites", () => api.getNotes({ isFavorite: "1" })],
+    ["tag", () => api.getNotesWithTag("tag")],
+    ["multiple tags", () => api.getNotesWithTags(["tag-a", "tag-b"])],
+    ["search snippets", () => api.search("private")],
+    ["search suggestions", () => api.searchNotes("private")],
+  ])("hides a synced note missing from the cached tree in %s even when its notebook is public", async (_name, read) => {
+    const { remoteTree, nodes } = setup();
+    remoteTree.mockResolvedValue({ nodes: nodes.filter((node) => node.resourceId !== "ordinary") });
+    await api.getNotes(); // persist an older snapshot lacking the synced note's real parent chain
+    remoteTree.mockRejectedValue(new TypeError("Failed to fetch"));
+    expect(await read()).toEqual([]);
+    await expect(api.getNote("ordinary")).rejects.toThrow("目录密码状态无法确认");
+    await expect(api.getNoteSlim("ordinary")).rejects.toThrow("目录密码状态无法确认");
+  });
   it.each([
     ["all notes", () => api.getNotes()],
     ["favorites", () => api.getNotes({ isFavorite: "1" })],
@@ -161,7 +213,9 @@ describe("signed-in Android folder password access", () => {
     const child = { ...privateNode, id: "note:child", resourceId: "child", parentId: privateNode.id };
     const childNote = { id: "child", notebookId: "public" };
     expect(createNoteFolderPasswordResolver([...nodes, child])(childNote)).toEqual(["inner", "outer"]);
-    expect(createNoteFolderPasswordResolver(nodes)({ id: "new-local-note", notebookId: "inner" })).toEqual(["inner", "outer"]);
+    expect(createNoteFolderPasswordResolver([...nodes, child])(childNote, true)).toEqual(["inner", "outer"]);
+    expect(createNoteFolderPasswordResolver(nodes)({ id: "new-local-note", notebookId: "inner" })).toBeNull();
+    expect(createNoteFolderPasswordResolver(nodes)({ id: "new-local-note", notebookId: "inner" }, true)).toEqual(["inner", "outer"]);
     expect(createNoteFolderPasswordResolver([child])(childNote)).toBeNull();
     expect(createNoteFolderPasswordResolver([{ ...child, parentId: child.id }])(childNote)).toBeNull();
     expect(createNoteFolderPasswordResolver([{ ...folder("public", null), isPasswordProtected: undefined }])(childNote)).toBeNull();

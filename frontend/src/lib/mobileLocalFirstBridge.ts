@@ -80,7 +80,7 @@ export function installMobileLocalFirstBridge(
   };
 
   const deviceOnlyMode = isMobileLocalMode();
-  const passwordGuard = createMobileLocalNotePasswordGuard(originals.getNoteSlim);
+  const passwordGuard = createMobileLocalNotePasswordGuard(originals.getNoteSlim, db);
   const restoreKnowledgeTreeBridge = installMobileLocalKnowledgeTreeBridge(repository, { deviceOnly: deviceOnlyMode }, db);
   const restoreModuleBridge = installMobileLocalModuleBridge(repository, db, userId);
   // ModuleBridge 为历史兼容会给项目/模板/依赖/习惯返回空数据。

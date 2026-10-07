@@ -1,5 +1,7 @@
 import { getCurrentWorkspace } from "./api";
 import { knowledgeTreeApi, type KnowledgeTreeNode } from "./knowledgeTreeApi";
+import type { NativeDatabase } from "./nativeDatabase";
+import { unsentLocalNoteKey } from "./nativeLocalNoteOrigin";
 import {
   KNOWLEDGE_TREE_PASSWORD_NOTES_LOCKED_EVENT,
   KNOWLEDGE_TREE_PASSWORD_SESSION_CHANGED_EVENT,
@@ -10,7 +12,7 @@ import {
 type LocalNote = { id: string; notebookId: string; workspaceId?: string | null };
 
 /** Native 同步库没有 notebook_passwords，读取必须依据服务端树或其离线快照。 */
-export function createMobileLocalNotePasswordGuard(authorizeRemote: (id: string) => Promise<unknown>) {
+export function createMobileLocalNotePasswordGuard(authorizeRemote: (id: string) => Promise<unknown>, db: NativeDatabase) {
   const protectedReads = new Map<string, string[]>();
   const onSessionChanged = () => {
     const unlocked = loadUnlockedFolderIds();
@@ -24,6 +26,13 @@ export function createMobileLocalNotePasswordGuard(authorizeRemote: (id: string)
   window.addEventListener(KNOWLEDGE_TREE_PASSWORD_SESSION_CHANGED_EVENT, onSessionChanged);
   const readTree = async (workspaceId: string): Promise<KnowledgeTreeNode[]> =>
     (await knowledgeTreeApi.listForWorkspace(workspaceId, true)).nodes;
+  const resolveNoteFolders = async (note: LocalNote, resolve: ReturnType<typeof createNoteFolderPasswordResolver>) => {
+    const folderIds = resolve(note);
+    if (folderIds !== null) return folderIds;
+    const scopeKey = note.workspaceId ? `workspace:${note.workspaceId}` : "personal";
+    const marker = (await db.query<{ value: string }>("SELECT value FROM native_runtime_meta WHERE key=?", [unsentLocalNoteKey(scopeKey, note.id)]))[0];
+    return marker?.value === "1" ? resolve(note, true) : null;
+  };
 
   const lockedError = () => Object.assign(new Error("请先在目录中解锁笔记所在的密码文件夹"), {
     status: 403, code: "FOLDER_UNLOCK_REQUIRED",
@@ -31,7 +40,7 @@ export function createMobileLocalNotePasswordGuard(authorizeRemote: (id: string)
 
   const assertReadable = async (note: LocalNote): Promise<void> => {
     const nodes = await readTree(note.workspaceId || "personal");
-    const folderIds = createNoteFolderPasswordResolver(nodes)(note);
+    const folderIds = await resolveNoteFolders(note, createNoteFolderPasswordResolver(nodes));
     if (!folderIds) throw new Error("目录密码状态无法确认，请联网刷新目录后重试");
     if (!folderIds.length) { protectedReads.delete(note.id); return; }
     protectedReads.set(note.id, folderIds);
@@ -48,7 +57,7 @@ export function createMobileLocalNotePasswordGuard(authorizeRemote: (id: string)
     const nodes = await readTree(workspaceId);
     const resolveFolders = createNoteFolderPasswordResolver(nodes);
     const visible = await Promise.all(notes.map(async (note) => {
-      const folderIds = resolveFolders(note);
+      const folderIds = await resolveNoteFolders(note, resolveFolders);
       if (!folderIds) return false;
       if (!folderIds.length) { protectedReads.delete(note.id); return true; }
       protectedReads.set(note.id, folderIds);

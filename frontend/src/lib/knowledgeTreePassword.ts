@@ -164,9 +164,10 @@ export function isFolderUnlocked(node: KnowledgeTreeNode, unlockedIds: Set<strin
 export function createNoteFolderPasswordResolver(nodes: KnowledgeTreeNode[]) {
   const byId = new Map(nodes.map((node) => [node.id, node]));
   const byResource = new Map(nodes.map((node) => [`${node.resourceType}:${node.resourceId}`, node]));
-  return (note: { id: string; notebookId: string }): string[] | null => {
-    // 新笔记继承所在文件夹的密码；已同步笔记使用统一树的真实祖先链。
-    let node = byResource.get(`note:${note.id}`) || byResource.get(`notebook:${note.notebookId}`);
+  return (note: { id: string; notebookId: string }, allowNotebookFallback = false): string[] | null => {
+    // 默认要求笔记的真实父链；只有已确认尚未发送的本机新笔记才能继承 notebook。
+    let node = byResource.get(`note:${note.id}`)
+      || (allowNotebookFallback ? byResource.get(`notebook:${note.notebookId}`) : undefined);
     if (!node) return null;
     const folderIds: string[] = [];
     const visited = new Set<string>();

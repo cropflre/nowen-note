@@ -3,6 +3,7 @@ import type { NativeAttachmentStore } from "./nativeAttachmentStore";
 import { newLocalId } from "./localRepository";
 import { getResolvedApiBaseUrl } from "./serverUrl";
 import { SERVER_ENDPOINT_CHANGED_EVENT } from "./serverEndpointState";
+import { forgetUnsentLocalNotes } from "./nativeLocalNoteOrigin";
 
 type ScopeStatus = "active" | "replan_required" | "access_revoked";
 type EntityType = "notebook" | "note" | "tag" | "note_tag" | "favorite" | "attachment"
@@ -402,6 +403,9 @@ export class MobileSyncEngine {
     }
     const mutations = rows.map((row) => ({ ...row,
       baseVersion:row.baseVersion??undefined,payload:row.payload?JSON.parse(row.payload):undefined }));
+    // 请求即使超时也可能已被服务器接收，不能继续把该笔记当作“确定未同步”。
+    const noteIds = rows.filter((row) => row.entityType === "note").map((row) => row.entityId);
+    if (noteIds.length) await this.options.db.transaction((tx) => forgetUnsentLocalNotes(tx, scope.scopeKey, noteIds));
     const response = await this.request<{ serverSequence:number;results:Array<{mutationId:string;status:string;code?:string;serverVersion?:number;serverPayload?:Record<string,unknown>}> }>(
       `/push?scopeKey=${encodeURIComponent(scope.scopeKey)}`,
       { method:"POST",body:JSON.stringify({scopeKey:scope.scopeKey,deviceId:this.options.deviceId,mutations}) },
@@ -480,6 +484,8 @@ export class MobileSyncEngine {
     const notebookParents=entries.flatMap((entry)=>entry.entityType==="notebook"
       && typeof entry.payload.parentId==="string" ? [[entry.entityId,entry.payload.parentId] as const] : []);
     await this.options.db.transaction(async (tx) => {
+      // 即使远端内容进入冲突中心而未覆盖本地，它的存在也已得到确认。
+      await forgetUnsentLocalNotes(tx, scope.scopeKey, entries.filter((entry) => entry.entityType === "note").map((entry) => entry.entityId));
       for(const entry of entries){
         const conflict=(await tx.query<{id:string}>(`SELECT id FROM sync_conflicts WHERE
           profileId=? AND scopeKey=? AND entityType=? AND entityId=? AND status='unresolved' LIMIT 1`,
