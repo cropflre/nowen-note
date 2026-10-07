@@ -13,6 +13,7 @@ import { AlertTriangle, CheckCircle2, Download, FolderInput, Loader2 } from "luc
 
 import { ConflictCenter } from "@/components/settings/ConflictCenter";
 import { SyncSettingsPanel } from "@/components/settings/SyncSettingsPanel";
+import ServerConnectionSettings from "@/components/settings/ServerConnectionSettings";
 import {
   SyncV2DisabledError,
   fetchSyncDiagnostics,
@@ -67,14 +68,16 @@ export default function SyncSettingsTab() {
 
   if (disabled) {
     return (
-      <div className="text-sm text-muted-foreground">
-        当前版本未启用多设备同步。笔记全部保存在此设备。
+      <div className="space-y-8">
+        <ServerConnectionSettings />
+        <p className="text-sm text-muted-foreground">当前版本未启用多设备同步。笔记全部保存在此设备。</p>
       </div>
     );
   }
 
   return (
     <div className="space-y-8">
+      <ServerConnectionSettings />
       <SyncSettingsPanel />
       <WorkspaceScopePanel />
       {/* 冲突解决后刷新 deviceId 与诊断，避免显示已处理的冲突数 */}

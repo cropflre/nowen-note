@@ -58,6 +58,7 @@ import {
 } from "@/lib/serverUrl";
 import { withShareSessionHeader } from "@/lib/shareSession";
 import { clearFolderUnlockTokens, folderUnlockRequestHeaders } from "@/lib/knowledgeTreePassword";
+import { getServerTransportUrl, rememberServerInstanceId } from "./serverEndpointState";
 import { isRootDocumentNotebookId } from "@/lib/rootDocumentCreatePolicy";
 import {
   registerAttachmentAccessUrls,
@@ -568,7 +569,7 @@ export function resolveAttachmentUrl(src: string | null | undefined): string {
     return resolveAttachmentAccessUrl(src);
   }
 
-  const server = getServerUrl() || (typeof window !== "undefined" ? window.location.origin : "");
+  const server = getServerTransportUrl(getServerUrl()) || (typeof window !== "undefined" ? window.location.origin : "");
   const base = server.replace(/\/+$/, "");
 
   // 归一化：确保以 / 开头
@@ -1330,10 +1331,17 @@ export const api = {
      * 不了原生 plugin 不兼容。Web / Electron 无视此字段（它们走各自的升级通道）。
      */
     minClientVersion?: string;
+    serverInstanceId?: string;
   }> => {
+    const serverUrl = getServerUrl();
+    const configuredEndpoint = getServerTransportUrl(serverUrl) === serverUrl;
     const res = await fetch(`${getBaseUrl()}/version`);
     if (!res.ok) throw new Error(`版本信息获取失败: ${res.status}`);
-    return res.json();
+    const version = await res.json();
+    if (configuredEndpoint && typeof version?.serverInstanceId === "string") {
+      rememberServerInstanceId(serverUrl, version.serverInstanceId);
+    }
+    return version;
   },
 
   // 取 GitHub 仓库最新 release（由后端做代理 + 60s 缓存，失败降级）。

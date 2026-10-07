@@ -1,4 +1,4 @@
-import { Capacitor, type PluginListenerHandle } from "@capacitor/core";
+import { Capacitor } from "@capacitor/core";
 import { getCurrentWorkspace, getServerUrl, setCurrentWorkspace, SERVER_URL_CHANGED_EVENT } from "./api.impl";
 import { getAccessToken } from "./authSession";
 import {
@@ -13,6 +13,7 @@ import {
 import { installMobileLocalFirstBridge } from "./mobileLocalFirstBridge";
 import { migrateMobileLocalAccount } from "./mobileLocalAccountMigration";
 import { createMobileSyncEngine, type MobileSyncEngine } from "./mobileSyncEngine";
+import { createMobileServerEndpointRuntime } from "./mobileServerEndpointRuntime";
 import { createNativeAttachmentStore } from "./nativeAttachmentStore";
 import { openNativeDatabase, type NativeDatabase } from "./nativeDatabase";
 import { createNativeLocalRepository } from "./nativeLocalRepository";
@@ -484,6 +485,8 @@ async function configureRuntime(): Promise<void> {
 
   const ids = await ensureIdentity(serverUrl,userId,token);
   const db = await openNativeDatabase(ids.accountId);
+  let endpoints: ReturnType<typeof createMobileServerEndpointRuntime> | undefined;
+  const removeListeners: RuntimeHandle["removeListeners"] = [];
   try {
     await importIndexedDbCache(db,ids.accountId,userId);
     const attachmentStore = await createNativeAttachmentStore(ids.accountId);
@@ -519,6 +522,8 @@ async function configureRuntime(): Promise<void> {
     let repository!:NativeLocalRepository;
     const engine = createMobileSyncEngine({
       db,attachments:attachmentStore,serverUrl,token,userId,profileId:ids.profileId,deviceId:ids.deviceId,
+      beforeSync: () => endpoints?.beforeSync() || Promise.resolve(),
+      onNetworkUnavailable: () => endpoints?.recover(),
       onAttachmentReady:(id)=>{void repository?.refreshAttachmentUrl(id);},
     });
     repository = createNativeLocalRepository({
@@ -526,23 +531,20 @@ async function configureRuntime(): Promise<void> {
       getScopeKey: () => getCurrentWorkspace(),requestSync: () => engine.requestSync(),
     });
     await repository.warmAttachmentUrls();
-    const removeListeners: RuntimeHandle["removeListeners"] = [];
     const [{ App }, { Network }] = await Promise.all([import("@capacitor/app"),import("@capacitor/network")]);
-    const appHandle = await App.addListener("appStateChange", ({ isActive }) => { if (isActive) engine.requestSync(0); });
-    let networkHandle:PluginListenerHandle;
-    try {
-      networkHandle = await Network.addListener("networkStatusChange", ({ connected }) => { if (connected) engine.requestSync(0); });
-    } catch (error) {
-      await appHandle.remove();
-      throw error;
-    }
-    removeListeners.push(() => appHandle.remove(),() => networkHandle.remove());
+    endpoints = createMobileServerEndpointRuntime(serverUrl, Network, () => engine.requestSync(0));
+    removeListeners.push(() => endpoints?.dispose());
+    const appHandle = await App.addListener("appStateChange", ({ isActive }) => { if (isActive) void endpoints?.refresh(); });
+    removeListeners.push(() => appHandle.remove());
+    const networkHandle = await Network.addListener("networkStatusChange", (status) => { void endpoints?.networkChanged(status); });
+    removeListeners.push(() => networkHandle.remove());
     setLocalRepository(repository);
     setSyncLocalAdminAdapter(createNativeAdminAdapter(db,engine,repository,ids.profileId,ids.deviceId,serverUrl));
     const restoreBridge = installMobileLocalFirstBridge(repository,db,userId);
     active = {identity,db,engine,restoreBridge,removeListeners};
     engine.start();
   } catch (error) {
+    for (const remove of removeListeners) await Promise.resolve(remove()).catch(() => undefined);
     await db.close().catch(() => undefined);
     throw error;
   }

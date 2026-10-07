@@ -20,6 +20,7 @@ import {
   normalizeServerBaseUrl,
 } from "@/lib/serverUrl";
 import { isMobileLocalMode } from "@/lib/mobileLocalMode";
+import { SERVER_ENDPOINT_CHANGED_EVENT } from "@/lib/serverEndpointState";
 
 type Listener = (payload: any) => void;
 
@@ -91,6 +92,7 @@ class RealtimeClient {
       this.ws = ws;
 
       ws.addEventListener("open", () => {
+        if (this.ws !== ws) return;
         this.connecting = false;
         this.reconnectAttempts = 0;
         // 重订所有房间
@@ -110,6 +112,7 @@ class RealtimeClient {
       });
 
       ws.addEventListener("message", (ev) => {
+        if (this.ws !== ws) return;
         let msg: any;
         try {
           msg = JSON.parse(typeof ev.data === "string" ? ev.data : "");
@@ -154,6 +157,7 @@ class RealtimeClient {
       });
 
       ws.addEventListener("close", () => {
+        if (this.ws !== ws) return;
         this.connecting = false;
         this.connectionId = null;
         this.stopHeartbeat();
@@ -168,6 +172,21 @@ class RealtimeClient {
       this.connecting = false;
       this.scheduleReconnect();
     }
+  }
+
+  reconnectForEndpoint() {
+    if (this.manualClosed || (!this.ws && !this.reconnectTimer && !this.connecting)) return;
+    const old = this.ws;
+    this.ws = null;
+    this.connecting = false;
+    this.connectionId = null;
+    this.stopHeartbeat();
+    if (this.reconnectTimer) window.clearTimeout(this.reconnectTimer);
+    this.reconnectTimer = null;
+    try { old?.close(); } catch { /* ignore */ }
+    this.emit("close", {});
+    // 保留房间和 presence，连接打开后沿用已有重放机制。
+    this.connect();
   }
 
   disconnect() {
@@ -370,6 +389,10 @@ export const realtime = new RealtimeClient();
 
 // 页面卸载时主动关闭，避免后端堆积连接
 if (typeof window !== "undefined") {
+  window.addEventListener(SERVER_ENDPOINT_CHANGED_EVENT, (event) => {
+    const server = normalizeServerBaseUrl(localStorage.getItem("nowen-server-url"));
+    if ((event as CustomEvent<{ serverUrl: string }>).detail.serverUrl === server) realtime.reconnectForEndpoint();
+  });
   window.addEventListener("beforeunload", () => {
     realtime.disconnect();
   });
