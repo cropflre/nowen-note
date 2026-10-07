@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeRaw from "rehype-raw";
@@ -24,14 +24,7 @@ import { BlockEmbedCard } from "@/components/BlockEmbedExtension";
 import MindMapEmbedCard, { parseMindMapEmbedHref } from "@/components/MindMapEmbedCard";
 import { preprocessInternalNoteLinks } from "@/lib/noteLinkSyntax";
 import { projectMarkdownForUser } from "@/lib/markdownUserContent";
-import { resolveAttachmentUrl } from "@/lib/api";
-import {
-  acquireAttachmentRenderUrl,
-  getAttachmentRenderSource,
-  getAttachmentAccessSnapshot,
-  invalidateOfflineAttachmentRenderUrl,
-  subscribeAttachmentAccess,
-} from "@/lib/noteAttachmentAccessBridge";
+import { useAttachmentImageRenderSource } from "@/hooks/useAttachmentImageRenderSource";
 import {
   MARKDOWN_SEGMENTED_PREVIEW_THRESHOLD,
   splitMarkdownPreview,
@@ -201,24 +194,11 @@ function PreviewIframe({ src, title }: { src?: string; title?: string }) {
 
 function PreviewImage({ src, alt }: { src?: string; alt?: string }) {
   const { t } = useTranslation();
-  const [failedSrc, setFailedSrc] = useState<string | null>(null);
   const [viewer, setViewer] = useState<{ images: FullscreenImageItem[]; initialIndex: number } | null>(null);
-  useSyncExternalStore(
-    subscribeAttachmentAccess,
-    getAttachmentAccessSnapshot,
-    getAttachmentAccessSnapshot,
-  );
-  const renderSource = getAttachmentRenderSource(src);
-  const resolvedSrc = !src
-    ? ""
-    : src.startsWith("//")
-      ? src
-      : resolveAttachmentUrl(renderSource.persistentSrc);
-
-  useEffect(() => acquireAttachmentRenderUrl(resolvedSrc), [resolvedSrc]);
+  const imageRender = useAttachmentImageRenderSource(src);
+  const resolvedSrc = imageRender.renderSrc;
 
   useEffect(() => {
-    setFailedSrc(null);
     setViewer(null);
   }, [resolvedSrc]);
 
@@ -238,27 +218,21 @@ function PreviewImage({ src, alt }: { src?: string; alt?: string }) {
   };
 
   if (!src) return null;
-  if (failedSrc === resolvedSrc) {
+  if (imageRender.error) {
     return <span className="inline-flex items-center gap-2 rounded-lg bg-app-hover px-3 py-2 text-xs text-tx-tertiary">⚠ {t("markdown.preview.imageLoadFailed")} <button type="button" className="underline" onClick={() => { void downloadAttachment(src, alt || "photo"); }}>下载原件</button></span>;
   }
   return (
     <>
       <span className="relative my-4 inline-block max-w-full">
       <img
-        key={resolvedSrc}
+        key={imageRender.renderKey}
         src={resolvedSrc}
         alt={alt || ""}
         loading="lazy"
         className="block max-h-[520px] max-w-full cursor-pointer rounded-xl border border-app-border object-contain shadow-sm transition-opacity hover:opacity-90"
         onClick={(event) => openViewer(event.currentTarget)}
-        onLoad={() => setFailedSrc((current) => current === resolvedSrc ? null : current)}
-        onError={() => {
-          if (invalidateOfflineAttachmentRenderUrl(resolvedSrc)) {
-            setFailedSrc(null);
-            return;
-          }
-          setFailedSrc(resolvedSrc);
-        }}
+        onLoad={imageRender.onLoad}
+        onError={imageRender.onError}
       />
       <MotionPhotoOverlay source={src} />
       </span>

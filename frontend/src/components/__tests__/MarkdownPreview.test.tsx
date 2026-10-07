@@ -10,6 +10,21 @@ import {
   buildMarkdownPreviewHeadingIndex,
   scrollMarkdownPreviewToPosition,
 } from "@/lib/markdownPreviewOutline";
+import { installAndroidNativeHttpBridge } from "@/lib/androidNativeHttpBridge";
+
+const nativeHttp = vi.hoisted(() => ({ platform: "web", request: vi.fn() }));
+vi.mock("@capacitor/core", async (importOriginal) => {
+  const original = await importOriginal<typeof import("@capacitor/core")>();
+  return {
+    ...original,
+    Capacitor: {
+      ...original.Capacitor,
+      getPlatform: () => nativeHttp.platform,
+      isNativePlatform: () => nativeHttp.platform === "android",
+    },
+    CapacitorHttp: { request: nativeHttp.request },
+  };
+});
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -29,8 +44,11 @@ describe("MarkdownPreview task checkboxes", () => {
   let host: HTMLDivElement;
   let root: Root;
   let scrollCalls: HTMLElement[];
+  let cleanupNativeHttp: (() => void) | null = null;
 
   beforeEach(() => {
+    nativeHttp.platform = "web";
+    nativeHttp.request.mockReset();
     resetAttachmentAccessStateForTests();
     host = document.createElement("div");
     document.body.appendChild(host);
@@ -44,9 +62,12 @@ describe("MarkdownPreview task checkboxes", () => {
 
   afterEach(() => {
     act(() => root.unmount());
+    cleanupNativeHttp?.();
+    cleanupNativeHttp = null;
     host.remove();
     document.body.innerHTML = "";
     vi.clearAllMocks();
+    vi.restoreAllMocks();
     vi.unstubAllGlobals();
     delete (HTMLElement.prototype as { scrollIntoView?: unknown }).scrollIntoView;
   });
@@ -124,6 +145,39 @@ describe("MarkdownPreview task checkboxes", () => {
     });
 
     expect(host.querySelector("img")?.getAttribute("src")).toBe("//cdn.example.com/image.png");
+  });
+
+  it("renders LAN HTTP attachment images through a native blob URL on Android (#799)", async () => {
+    nativeHttp.platform = "android";
+    const browserFetch = vi.fn(() => Promise.reject(new Error("Mixed content blocked")));
+    vi.stubGlobal("fetch", browserFetch);
+    const createObjectURL = vi.fn(() => "blob:https://localhost/native-image");
+    const revokeObjectURL = vi.fn();
+    vi.stubGlobal("URL", class extends URL {
+      static createObjectURL = createObjectURL;
+      static revokeObjectURL = revokeObjectURL;
+    });
+    nativeHttp.request.mockResolvedValue({
+      status: 200,
+      headers: { "Content-Type": "image/png" },
+      data: btoa(String.fromCharCode(137, 80, 78, 71, 0, 255)),
+    });
+    cleanupNativeHttp = installAndroidNativeHttpBridge();
+    const signedSrc = `http://192.168.1.10:3002/api/attachments/${ATTACHMENT_ID}?exp=2000000000&sig=lan-signature&scope=v2.scope`;
+    const markdown = `![附件图片](${signedSrc})`;
+
+    await act(async () => { root.render(<MarkdownPreview markdown={markdown} />); });
+
+    expect(nativeHttp.request).toHaveBeenCalledWith(expect.objectContaining({
+      url: signedSrc,
+      responseType: "arraybuffer",
+    }));
+    expect(browserFetch).not.toHaveBeenCalled();
+    expect(host.querySelector("img")?.getAttribute("src")).toBe("blob:https://localhost/native-image");
+    expect(markdown).toBe(`![附件图片](${signedSrc})`);
+
+    await act(async () => { root.render(<MarkdownPreview markdown="图片已移除" />); });
+    expect(revokeObjectURL).toHaveBeenCalledWith("blob:https://localhost/native-image");
   });
 
   it("mounts long previews by viewport segment and preserves global task indices", async () => {

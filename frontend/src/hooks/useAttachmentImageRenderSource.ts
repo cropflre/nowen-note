@@ -71,7 +71,9 @@ export function useAttachmentImageRenderSource(
   // more importantly, lets the attachment access bridge atomically replace a raw/stale
   // attachment URL with the latest signed/offline render URL as soon as that mapping arrives.
   // The persisted document still stays stable through source.persistentSrc.
-  const resolvedSrc = rawSrc ? resolveAttachmentUrl(rawSrc) : "";
+  const resolvedSrc = !rawSrc
+    ? ""
+    : rawSrc.startsWith("//") ? rawSrc : resolveAttachmentUrl(rawSrc);
   const needsAndroidBlob = enabled
     && Capacitor.getPlatform() === "android"
     && !!source.attachmentId
