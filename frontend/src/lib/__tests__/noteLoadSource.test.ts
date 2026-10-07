@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Note } from "@/types";
 import encryptedFixture from "../encryptedNotes/__tests__/fixtures/envelope-v1.json";
 import { enqueue } from "@/lib/offlineQueue";
@@ -105,6 +105,7 @@ describe("canApplyRevalidatedNote", () => {
 });
 
 describe("loadNoteCacheFirst", () => {
+  afterEach(() => { delete (window as any).Capacitor; });
   beforeEach(() => {
     vi.clearAllMocks();
     localStorage.clear();
@@ -122,6 +123,28 @@ describe("loadNoteCacheFirst", () => {
     const remote = vi.fn();
     await expect(loadNoteCacheFirst({ noteId: pending.id, fetchRemote: remote })).resolves.toMatchObject(pending);
     expect(localStore.getNote).not.toHaveBeenCalled(); expect(remote).not.toHaveBeenCalled();
+  });
+
+  it("does not show Android IDB content before the Native folder password check succeeds", async () => {
+    Object.assign(window, { Capacitor: { isNativePlatform: () => true, getPlatform: () => "android" } });
+    localStorage.setItem("nowen-token", "signed-in");
+    localStore.getNote.mockResolvedValue(makeNote());
+    const denied = Object.assign(new Error("folder locked"), { code: "FOLDER_UNLOCK_REQUIRED", status: 403 });
+    const fetchRemote = vi.fn().mockRejectedValue(denied);
+    await expect(loadNoteCacheFirst({ noteId: "note-1", fetchRemote })).rejects.toBe(denied);
+    expect(localStore.getNote).not.toHaveBeenCalled();
+    expect(localStore.putNote).not.toHaveBeenCalled();
+  });
+
+  it("does not let a pending encrypted-note mutation bypass Android folder access", async () => {
+    Object.assign(window, { Capacitor: { isNativePlatform: () => true, getPlatform: () => "android" } });
+    localStorage.setItem("nowen-token", "signed-in");
+    const pending = makeNote({ content: JSON.stringify(encryptedFixture.envelope), contentFormat: "encrypted-note-v1" });
+    enqueue({ type: "updateNote", noteId: pending.id, method: "PUT", url: "/notes/note-1", body: { ...pending } });
+    const denied = new Error("folder locked");
+    const fetchRemote = vi.fn().mockRejectedValue(denied);
+    await expect(loadNoteCacheFirst({ noteId: pending.id, fetchRemote })).rejects.toBe(denied);
+    expect(fetchRemote).toHaveBeenCalledOnce();
   });
 
   it("Case 1/2: preserves explicitly blocking preparation hooks for callers that require them", async () => {

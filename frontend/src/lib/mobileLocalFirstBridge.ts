@@ -11,6 +11,7 @@ import { installMobileLocalNoteRelationsBridge } from "./mobileLocalNoteRelation
 import type { NativeDatabase } from "./nativeDatabase";
 import { resolvePhotoUploadMime } from "./photoUploadMime";
 import { stabilizeNoteMutationPayload } from "./noteContentPersistence";
+import { createMobileLocalNotePasswordGuard } from "./mobileLocalNotePasswordGuard";
 
 let installed = false;
 
@@ -79,6 +80,7 @@ export function installMobileLocalFirstBridge(
   };
 
   const deviceOnlyMode = isMobileLocalMode();
+  const passwordGuard = createMobileLocalNotePasswordGuard(originals.getNoteSlim);
   const restoreKnowledgeTreeBridge = installMobileLocalKnowledgeTreeBridge(repository, { deviceOnly: deviceOnlyMode }, db);
   const restoreModuleBridge = installMobileLocalModuleBridge(repository, db, userId);
   // ModuleBridge 为历史兼容会给项目/模板/依赖/习惯返回空数据。
@@ -155,20 +157,24 @@ export function installMobileLocalFirstBridge(
     return (await repository.notebooks.get(id))!;
   };
 
-  target.getNotes = async (params: Record<string, string> = {}) => repository.listNotesForWorkspace(params.workspaceId, {
-    notebookId: params.notebookId,
-    tagId: params.tagId,
-    keyword: params.q || params.keyword,
-    favoriteOnly: params.isFavorite === "1" || params.isFavorite === "true",
-    trashedOnly: params.isTrashed === "1" || params.isTrashed === "true",
-    includeTrashed: params.includeTrashed === "true" || params.isTrashed === "true",
-    includeArchived: params.includeArchived === "true",
-    limit: params.limit ? Number(params.limit) : undefined,
-    offset: params.offset ? Number(params.offset) : undefined,
-  });
+  target.getNotes = async (params: Record<string, string> = {}) => {
+    const notes = await repository.listNotesForWorkspace(params.workspaceId, {
+      notebookId: params.notebookId,
+      tagId: params.tagId,
+      keyword: params.q || params.keyword,
+      favoriteOnly: params.isFavorite === "1" || params.isFavorite === "true",
+      trashedOnly: params.isTrashed === "1" || params.isTrashed === "true",
+      includeTrashed: params.includeTrashed === "true" || params.isTrashed === "true",
+      includeArchived: params.includeArchived === "true",
+      limit: params.limit ? Number(params.limit) : undefined,
+      offset: params.offset ? Number(params.offset) : undefined,
+    });
+    return deviceOnlyMode ? notes : passwordGuard.filterReadable(notes, params.workspaceId);
+  };
   target.getNote = async (id: string): Promise<Note> => {
     const note = await repository.notes.get(id);
     if (!note) throw new Error("笔记不存在");
+    if (!deviceOnlyMode) await passwordGuard.assertReadable(note);
     return note;
   };
   target.getNoteSlim = target.getNote;
@@ -218,11 +224,17 @@ export function installMobileLocalFirstBridge(
     return { success: true };
   };
   target.getNotesWithTag = async (tagId: string, params: Record<string, string> = {}) =>
-    repository.listNotesForWorkspace(params.workspaceId, { tagId, limit: params.limit ? Number(params.limit) : undefined });
-  target.getNotesWithTags = async (tagIds: string[], params: Record<string, string> = {}) =>
-    repository.listNotesWithTags(tagIds, params.workspaceId, params.limit ? Number(params.limit) : undefined);
-  target.search = async (query: string) => repository.searchNotes(query);
-  target.searchNotes = async (query: string, limit = 10) => (await repository.searchNotes(query, limit))
+    target.getNotes({ ...params, tagId });
+  target.getNotesWithTags = async (tagIds: string[], params: Record<string, string> = {}) => {
+    const notes = await repository.listNotesWithTags(tagIds, params.workspaceId, params.limit ? Number(params.limit) : undefined);
+    return deviceOnlyMode ? notes : passwordGuard.filterReadable(notes, params.workspaceId);
+  };
+  const searchNotes = async (query: string, limit?: number) => {
+    const notes = await repository.searchNotes(query, limit);
+    return deviceOnlyMode ? notes : passwordGuard.filterReadable(notes);
+  };
+  target.search = (query: string) => searchNotes(query);
+  target.searchNotes = async (query: string, limit = 10) => (await searchNotes(query, limit))
     .map(({ id, title, notebookId, updatedAt }) => ({ id, title, notebookId, updatedAt }));
 
   target.attachments.upload = async (noteId: string, file: File) => {
@@ -249,6 +261,7 @@ export function installMobileLocalFirstBridge(
   };
 
   return () => {
+    passwordGuard.dispose();
     // 子 Bridge 按安装的逆序恢复，避免 wrapper 恢复到另一个 wrapper 上。
     restoreNoteRelationsBridge();
     restoreAttachmentFolderBridge();

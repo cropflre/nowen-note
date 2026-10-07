@@ -62,6 +62,11 @@ test("locked folder notes stay hidden from note lists, direct reads and search u
   });
   assert.equal(lockedDirect.status, 404);
 
+  const lockedSlim = await app.request(`http://localhost/api/notes/${note.resourceId}?slim=1`, {
+    headers: lockedHeaders,
+  });
+  assert.equal(lockedSlim.status, 404);
+
   const lockedSearch = await app.request("http://localhost/api/search?q=加密", { headers: lockedHeaders });
   assert.equal(lockedSearch.status, 200);
   assert.deepEqual(await lockedSearch.json(), []);
@@ -85,8 +90,19 @@ test("locked folder notes stay hidden from note lists, direct reads and search u
   });
   assert.equal(unlockedDirect.status, 200);
 
+  const unlockedSlim = await app.request(`http://localhost/api/notes/${note.resourceId}?slim=1`, {
+    headers: unlockedHeaders,
+  });
+  assert.equal(unlockedSlim.status, 200);
+
   const unlockedSearch = await app.request("http://localhost/api/search?q=加密", {
     headers: unlockedHeaders,
   });
   assert.deepEqual(await unlockedSearch.json(), [{ id: note.resourceId, title: "加密笔记" }]);
+
+  db.prepare("UPDATE notebook_passwords SET passwordVersion = 4 WHERE notebookId = ?").run(folder.resourceId);
+  const staleSlim = await app.request(`http://localhost/api/notes/${note.resourceId}?slim=1`, {
+    headers: unlockedHeaders,
+  });
+  assert.equal(staleSlim.status, 404);
 });

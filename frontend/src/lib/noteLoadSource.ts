@@ -4,6 +4,7 @@ import { assertConversionNote } from "./encryptedNotes/conversionBarrier";
 import type { Note } from "@/types";
 import { pendingEncryptedNote } from "./encryptedNotes/pendingNote";
 import { getBaseUrl } from "@/lib/api";
+import { isAndroidNativeRuntime, isMobileLocalMode } from "./mobileLocalMode";
 import {
   getNote as getCachedNote,
   isNoteDetailCached,
@@ -86,9 +87,11 @@ export async function loadNoteCacheFirst({
     if (scope !== getOfflineQueueStorageKey()) throw new ConversionCleanupError("scope_changed");
     assertConversionNote(note);
   };
-  const pending = pendingEncryptedNote(noteId);
+  // 登录态 Android 的 Native API 已检查目录密码。不能在检查前展示另一份 IDB/队列缓存。
+  const nativeAccountRead = isAndroidNativeRuntime() && !isMobileLocalMode();
+  const pending = nativeAccountRead ? null : pendingEncryptedNote(noteId);
   if (pending) return pending;
-  const cached = await getCachedNote(noteId);
+  const cached = nativeAccountRead ? null : await getCachedNote(noteId);
   if (cached && isNoteDetailCached(cached)) {
     // Start freshness revalidation immediately. Runtime/media preparation is best-effort by default;
     // custom callers can still explicitly provide a blocking prerequisite through beforeUseCached.

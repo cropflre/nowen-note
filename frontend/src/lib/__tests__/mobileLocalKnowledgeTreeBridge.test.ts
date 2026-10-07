@@ -180,7 +180,7 @@ describe("mobile local knowledge tree bridge", () => {
     restoreBridge = installMobileLocalKnowledgeTreeBridge(repository, { deviceOnly: false }, db);
     expect((await knowledgeTreeApi.listForWorkspace("ws-a")).nodes).toEqual([remoteNode]);
     expect((await knowledgeTreeApi.listForWorkspace("ws-a")).nodes).toEqual([remoteNode]);
-    expect((await knowledgeTreeApi.listForWorkspace("ws-b")).nodes).not.toContainEqual(remoteNode);
+    await expect(knowledgeTreeApi.listForWorkspace("ws-b")).rejects.toThrow("目录权限和密码信息尚未缓存");
     const denied = Object.assign(new Error("forbidden"), { status: 403 });
     remoteList.mockRejectedValueOnce(denied);
     await expect(knowledgeTreeApi.listForWorkspace("ws-a")).rejects.toBe(denied);
@@ -219,25 +219,23 @@ describe("mobile local knowledge tree bridge", () => {
     expect(repository.listNotebooksForWorkspace).not.toHaveBeenCalled();
   });
 
-  it("falls back to local data only for network failures, not server permission denials", async () => {
+  it("refuses a password-free local projection when a signed-in device has no server snapshot", async () => {
     const { repository } = createRepository();
     const remoteList = vi.spyOn(knowledgeTreeApi, "list").mockRejectedValue(new TypeError("Failed to fetch"));
     restoreBridge = installMobileLocalKnowledgeTreeBridge(repository, { deviceOnly: false });
 
-    expect((await knowledgeTreeApi.list()).nodes).toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: "note:note-1" }),
-    ]));
-    expect(repository.listNotebooksForWorkspace).toHaveBeenCalledOnce();
+    await expect(knowledgeTreeApi.list()).rejects.toThrow("目录权限和密码信息尚未缓存");
+    expect(repository.listNotebooksForWorkspace).not.toHaveBeenCalled();
 
     const denied = Object.assign(new Error("forbidden"), { status: 403 });
     remoteList.mockRejectedValue(denied);
     await expect(knowledgeTreeApi.list()).rejects.toBe(denied);
-    expect(repository.listNotebooksForWorkspace).toHaveBeenCalledOnce();
+    expect(repository.listNotebooksForWorkspace).not.toHaveBeenCalled();
 
     const malformed = new TypeError("Cannot read properties of undefined");
     remoteList.mockRejectedValue(malformed);
     await expect(knowledgeTreeApi.list()).rejects.toBe(malformed);
-    expect(repository.listNotebooksForWorkspace).toHaveBeenCalledOnce();
+    expect(repository.listNotebooksForWorkspace).not.toHaveBeenCalled();
   });
 
   it("lists local notebooks and notes without requesting the remote registry", async () => {
