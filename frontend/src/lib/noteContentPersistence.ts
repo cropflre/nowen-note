@@ -1,5 +1,5 @@
 import { extractAttachmentId, getPersistentAttachmentUrl } from "@/lib/noteAttachmentAccessBridge";
-import { isEncryptedNoteFormat, readEncryptedNoteDocument } from "./encryptedNotes/noteDocument";
+import { isEncryptedNoteFormat, readEncryptedNoteEnvelope } from "./encryptedNotes/noteDocument";
 import { encryptedBlocksInContent } from "./encryptedNotes/blockDocument";
 
 type NoteContentFormat = "tiptap-json" | "markdown" | "html" | string | undefined;
@@ -132,7 +132,7 @@ export function stabilizeNoteContentForPersistence(
   contentFormat?: NoteContentFormat,
 ): string {
   if (isEncryptedNoteFormat(contentFormat)) {
-    readEncryptedNoteDocument({ content, contentFormat });
+    readEncryptedNoteEnvelope({ content, contentFormat });
     return content;
   }
   if (!content) return content;

@@ -6,7 +6,7 @@ vi.mock("@capacitor/core", () => ({ Capacitor: { isNativePlatform: () => mocks.n
 vi.mock("@capacitor/app", () => ({ App: { addListener: mocks.add, getState: mocks.state } }));
 const flush = async () => { for (let index = 0; index < 12; index++) await Promise.resolve(); };
 beforeEach(() => { mocks.native = true; mocks.platform = "android"; mocks.acquire.mockReset(); mocks.release.mockReset(); mocks.add.mockReset(); mocks.state.mockReset(); mocks.state.mockResolvedValue({ isActive: true }); });
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => { vi.restoreAllMocks(); });
 
 it("Web does not request native protection or listeners", async () => {
   mocks.native = false; mocks.platform = "web";

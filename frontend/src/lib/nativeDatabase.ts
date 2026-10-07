@@ -31,7 +31,7 @@ type NativeDatabaseGlobal = typeof globalThis & {
   __nowenNoteNativeDatabaseState?: NativeDatabaseGlobalState;
 };
 
-const SCHEMA_VERSION = 4;
+const SCHEMA_VERSION = 5;
 const DATABASE_PREFIX = "nowen_local_";
 
 const ENTITY_TYPE_CHECK = `
@@ -697,6 +697,7 @@ class NativeDatabaseImpl implements NativeDatabase {
           for (const statement of SCHEMA_V1_STATEMENTS) {
             await this.raw.execute(statement, false);
           }
+          for (const statement of NATIVE_ENCRYPTED_NOTE_GUARDS) await this.raw.execute(statement, false);
           await this.raw.run(
             `INSERT INTO native_runtime_meta (key, value, updatedAt)
              VALUES ('accountHash', ?, datetime('now'))`,
@@ -732,7 +733,7 @@ class NativeDatabaseImpl implements NativeDatabase {
           await upgradeSchemaV2ToV3(this.raw);
           await this.raw.execute(`PRAGMA user_version = ${SCHEMA_VERSION}`, false);
         }
-        if (version < 4) {
+        if (version < 5) {
           for (const statement of NATIVE_ENCRYPTED_NOTE_GUARDS) await this.raw.execute(statement, false);
           await this.raw.execute(`PRAGMA user_version = ${SCHEMA_VERSION}`, false);
         }
