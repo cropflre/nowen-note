@@ -132,7 +132,8 @@ export class NowenAttachmentClient {
     this.username = config.username;
     this.password = config.password;
     this.timeout = config.timeout || 30_000;
-    this.fetchImpl = config.fetch || globalThis.fetch;
+    // 同上：globalThis.fetch 必须 bind，否则浏览器里 Illegal invocation
+    this.fetchImpl = config.fetch || globalThis.fetch.bind(globalThis);
   }
 
   private async login(): Promise<void> {
