@@ -59,14 +59,31 @@ describe("mobile sync transport rerouting", () => {
   });
 
   it("waits for routing before fetching scopes, and keeps local state when the network fails", async () => {
+    vi.useFakeTimers();
     let complete!: () => void;
     const gate = new Promise<void>((resolve) => { complete = resolve; });
     const { engine, db } = createEngine({ beforeSync: () => gate });
     const fetchMock = vi.fn(async () => { throw new TypeError("offline"); }); vi.stubGlobal("fetch", fetchMock);
+    engine.start();
     const pending = engine.syncOnce();
     await Promise.resolve(); expect(fetchMock).not.toHaveBeenCalled();
     complete(); await pending;
+    engine.stop();
     expect(fetchMock).toHaveBeenCalledOnce();
+    expect(db.run).not.toHaveBeenCalled(); expect(db.transaction).not.toHaveBeenCalled();
+  });
+
+  it("does not resume synchronization if disabled during endpoint selection", async () => {
+    vi.useFakeTimers();
+    let complete!: () => void;
+    const gate = new Promise<void>((resolve) => { complete = resolve; });
+    const { engine, db } = createEngine({ beforeSync: () => gate });
+    const fetchMock = vi.fn(); vi.stubGlobal("fetch", fetchMock);
+    engine.start();
+    const pending = engine.syncOnce();
+    engine.stop(); complete(); await pending;
+    await vi.advanceTimersByTimeAsync(15000);
+    expect(fetchMock).not.toHaveBeenCalled();
     expect(db.run).not.toHaveBeenCalled(); expect(db.transaction).not.toHaveBeenCalled();
   });
 });

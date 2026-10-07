@@ -51,7 +51,7 @@ export function requestMobileAccountLogin(): void {
   notifyModeChanged();
 }
 
-/** 保留已登录账号与令牌，只把 Android 当前工作区切换到设备离线库。 */
+/** 保留已登录账号与令牌，进入不自动与账号同步的独立本机空间。 */
 export function enterMobileLocalMode(): void {
   try {
     localStorage.setItem(FORCE_LOCAL_KEY, "1");
@@ -79,7 +79,7 @@ export function getMobileLocalUser(): User {
   return {
     id: MOBILE_LOCAL_USER_ID,
     username: "local",
-    displayName: "本地用户",
+    displayName: "仅此设备",
     email: null,
     avatarUrl: null,
     role: "user",
@@ -91,7 +91,7 @@ export class MobileLocalModeRemoteRequestError extends Error {
   readonly code = "MOBILE_LOCAL_ONLY";
 
   constructor(path: string) {
-    super(`Android 本地模式不会访问服务器：${path}`);
+    super(`Android 仅此设备模式不会访问服务器：${path}`);
     this.name = "MobileLocalModeRemoteRequestError";
   }
 }

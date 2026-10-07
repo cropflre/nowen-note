@@ -173,6 +173,22 @@ afterEach(async () => {
 });
 
 describe("Tiptap Block Patch runtime shell", () => {
+  it("uses the local whole-note save on Android even with optimized and subdocument modes enabled", async () => {
+    Object.assign(window, { Capacitor: { isNativePlatform: () => true, getPlatform: () => "android" } });
+    try {
+      const current = note("android-note", "Before");
+      setActiveEditorRuntimeDecision(current.id, optimizedDecision("x"));
+      localStorage.setItem("nowen:tiptap-subdocuments", "1");
+      const wholeSave = vi.fn();
+      const fetchMock = vi.spyOn(globalThis, "fetch");
+      await act(async () => root.render(<TiptapEditorRuntime note={current} onUpdate={wholeSave} />));
+      expect(fixture.windowedProps).toBeNull();
+      const payload = { title: current.title, content: content("After"), contentText: "After", _noteId: current.id };
+      await act(async () => fixture.baseProps.onUpdate(payload));
+      expect(wholeSave).toHaveBeenCalledWith(payload);
+      expect(fetchMock).not.toHaveBeenCalled();
+    } finally { Reflect.deleteProperty(window, "Capacitor"); }
+  });
   it("applies a subdocument commit to app state without forwarding a whole-note save", async () => {
     const current = note("subdocument-note", "Before");
     const committedContent = content("Committed");

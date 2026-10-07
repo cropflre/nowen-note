@@ -8,7 +8,7 @@ const mocks = vi.hoisted(() => {
   const run = vi.fn(async () => undefined);
   const db = {
     close: vi.fn(async () => undefined),
-    query: vi.fn(async () => [{ value: "complete" }]),
+    query: vi.fn(async () => [{ value: "complete", enabled: 1 }]),
     run,
     transaction: vi.fn(async (callback: (tx: { run: typeof run }) => Promise<void>) => callback({ run })),
   };

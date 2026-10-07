@@ -12,6 +12,8 @@ import {
   saveBackupWebDavConfig,
   testBackupWebDavConnection,
   uploadBackupToWebDav,
+  listRemoteBackups,
+  importRemoteBackup,
   type BackupWebDavConfigInput,
 } from "../services/backup-webdav.js";
 
@@ -39,6 +41,23 @@ router.get("/", (c) => {
     ...getBackupWebDavConfig(),
     remoteDirectory: getBackupWebDavRemoteDirectory(),
   });
+});
+
+router.get("/files", async (c) => {
+  try { return c.json(await listRemoteBackups()); }
+  catch (error) { return errorResponse(c, error); }
+});
+
+router.post("/import/:filename", async (c) => {
+  const denied = requireSudo(c);
+  if (denied) return denied;
+  try {
+    const info = await importRemoteBackup(c.req.param("filename"));
+    logAudit(c.req.header("X-User-Id") || "", "system", "backup_webdav_import", {
+      filename: info.filename, size: info.size,
+    }, { targetType: "backup", targetId: info.filename });
+    return c.json(info);
+  } catch (error) { return errorResponse(c, error); }
 });
 
 router.put("/", async (c) => {
