@@ -2,6 +2,7 @@ import JSZip from "jszip";
 import { saveAs } from "file-saver";
 import { isAndroidNative, saveImageToGallery } from "./nativeImageSave";
 import TurndownService from "turndown";
+import { getRichTextExtensions, addRichTextMarkdownRules } from "./richTextExtensions";
 import i18n from "i18next";
 import { generateHTML, Node, mergeAttributes } from "@tiptap/core";
 import StarterKit from "@tiptap/starter-kit";
@@ -53,8 +54,10 @@ const ExportBlockEmbedExtension = Node.create({
 // TipTap 扩展列表（需与 importService / 编辑器保持一致，否则某些节点会被吞掉）
 const lowlight = createLowlight(common);
 const tiptapExtensions = [
+  ...getRichTextExtensions(),
   StarterKit.configure({
     codeBlock: false,
+    underline: false,
     heading: { levels: [1, 2, 3, 4, 5, 6] },
   }),
   Image.configure({ inline: false, allowBase64: true }),
@@ -971,6 +974,7 @@ function createTurndown(): TurndownService {
   });
 
   td.keep(["audio"]);
+  addRichTextMarkdownRules(td);
   return td;
 }
 

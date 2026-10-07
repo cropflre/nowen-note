@@ -22,6 +22,7 @@ import { formatTiptapCodeBlock } from "@/lib/tiptapCodeBlockFormatting";
 import { formatCodeBlockLanguageLabel } from "@/lib/codeBlockLowlight";
 import { CODE_BLOCK_POPULAR_LANGUAGES } from "@/lib/codeBlockLanguageRegistry";
 import { copyText } from "@/lib/clipboard";
+import { useTranslation } from "react-i18next";
 import { recordPhaseAPerfEvent } from "@/lib/phaseAPerfDiagnostics";
 import {
   getEditorEditableSnapshot,
@@ -70,6 +71,9 @@ function OrdinaryCodeBlockView(props: NodeViewProps) {
   recordPhaseAPerfEvent({ type: "code-block-render", blockId: perfBlockId });
 
   const currentLang: string = node.attrs.language || "auto";
+  const { t } = useTranslation();
+  const [titleDraft, setTitleDraft] = useState<string>(node.attrs.title || "");
+  useEffect(() => setTitleDraft(node.attrs.title || ""), [node.attrs.title]);
   const indent = normalizeCodeBlockIndent(node.attrs.indent);
   const isMermaid = isMermaidLang(currentLang);
   const [copied, setCopied] = useState(false);
@@ -325,9 +329,31 @@ function OrdinaryCodeBlockView(props: NodeViewProps) {
     >
       {/* 顶部工具栏（不可编辑） */}
       <div
-        className={CODE_BLOCK_TOOLBAR_CLASS}
+        className={cn(CODE_BLOCK_TOOLBAR_CLASS, "max-sm:h-auto max-sm:flex-wrap max-sm:gap-2")}
         contentEditable={false}
       >
+        <input
+          value={titleDraft}
+          disabled={!canChangeLanguage}
+          aria-label={t("richText.codeBlockTitle")}
+          placeholder={t("richText.codeBlockTitle")}
+          className="min-w-0 max-w-40 flex-1 rounded bg-transparent px-1 text-xs text-tx-secondary outline-none disabled:cursor-default max-sm:basis-full max-sm:max-w-none"
+          onChange={(event) => setTitleDraft(event.target.value)}
+          onBlur={(event) => {
+            const title = event.currentTarget.value.trim();
+            if (canUseCodeBlockToolbarAction("language", editor) && title !== (node.attrs.title || "")) updateAttributes({ title: title || null });
+          }}
+          onKeyDown={(event) => {
+            if (event.key !== "Enter" && event.key !== "Escape") return;
+            event.preventDefault();
+            event.stopPropagation();
+            if (event.key === "Escape") {
+              event.currentTarget.value = node.attrs.title || "";
+              setTitleDraft(node.attrs.title || "");
+            }
+            event.currentTarget.blur();
+          }}
+        />
         {/* 左侧：mac 风格小圆点 + 语言徽章（可点击切换） */}
         <div className="flex items-center gap-2">
           <span className="flex items-center gap-1">

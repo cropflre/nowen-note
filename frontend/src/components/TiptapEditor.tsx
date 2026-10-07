@@ -1,9 +1,15 @@
+import { emojis } from "@tiptap/extension-emoji";
+import { getRichTextExtensions } from "@/lib/richTextExtensions";
+import { EmojiSuggestionList } from "./EmojiSuggestionList";
+import RichTextBlockControls from "./RichTextBlockControls";
+import { getSlashEditorId } from "./extensions/SlashCommandExtension";
+import "./dragHandle.css";
 import React, { forwardRef, lazy, Suspense, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
 import { Capacitor } from "@capacitor/core";
 import { Keyboard } from "@capacitor/keyboard";
 import { sanitizeForPaste } from "@/lib/sanitizeHtml";
 import { createPortal } from "react-dom";
-import { useEditor, Editor, EditorContent, Extension, ReactNodeViewRenderer } from "@tiptap/react";
+import { useEditor, Editor, EditorContent, Extension, ReactNodeViewRenderer, ReactRenderer } from "@tiptap/react";
 import { Plugin, PluginKey } from "prosemirror-state";
 
 // 懒加载 docx 内联预览：office 解析器（fflate + 自研 OOXML parser）有几十 KB，
@@ -2106,6 +2112,62 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
       VideoExtension,
       VoiceMemo.extend({ addNodeView() { return ReactNodeViewRenderer(VoiceMemoBlock); } }),
       BlockEmbedExtension,
+      ...getRichTextExtensions({
+        suggestion: {
+          items: ({ query }: { query: string }) => {
+            const q = (query || "").toLowerCase().trim();
+            if (!q) {
+              // 空查询：返回一组常用 emoji 子集（覆盖表情/手势/自然/物品/符号等
+              // 多类别）。emojis 数据集共 1949 个，这里先给常用子集，继续输入
+              // 即可在全部 1949 个里按 name/shortcodes/tags 搜索。
+              const popular = new Set<string>([
+                // 表情
+                "grinning", "smile", "slightly_smiling_face", "laughing", "blush",
+                "wink", "heart_eyes", "kissing_heart", "yum", "thinking_face",
+                "sleepy", "tired_face", "cry", "sob", "angry", "rage", "scream",
+                "innocent", "stuck_out_tongue", "sunglasses", "smirk", "relieved",
+                "disappointed", "worried", "sweat_smile", "rofl", "joy",
+                "rolling_on_the_floor_laughing", "mask", "cool", "star_struck",
+                "partying_face", "exploding_head", "zany_face", "woozy_face",
+                // 手势 / 人
+                "wave", "raised_hand", "ok_hand", "thumbsup", "thumbsdown",
+                "punch", "fist", "v", "crossed_fingers", "pray", "hands", "clap",
+                "muscle", "point_up", "point_right", "open_hands", "raised_hands",
+                "facepalm", "handshake",
+                // 心 / 符号
+                "heart", "broken_heart", "two_hearts", "heartpulse",
+                "sparkling_heart", "gift", "balloon", "tada", "fire", "star",
+                "sparkles", "zap", "warning", "white_check_mark", "x",
+                "heavy_check_mark", "heavy_plus_sign", "arrow_right", "arrow_left",
+                "recycle", "lock", "key", "bell", "bulb", "eyes", "speaker",
+                "microphone", "music", "notes", "link", "paperclip", "envelope",
+                // 自然 / 食物
+                "sun", "moon", "cloud", "rain", "snowflake", "earth_africa",
+                "earth_americas", "pizza", "burger", "fries", "apple", "banana",
+                "grapes", "watermelon", "coffee", "tea", "beer", "wine", "cookie",
+                "candy", "cake",
+                // 物品 / 科技
+                "book", "books", "pen", "pencil", "computer", "keyboard", "phone",
+                "camera", "car", "airplane", "rocket", "wrench", "hammer", "gear",
+                "calendar", "alarm_clock", "100", "email", "iphone", "tv",
+              ]);
+              return emojis.filter((e) => popular.has(e.name));
+            }
+            return emojis
+              .filter((item) => {
+                return (
+                  (item.name && item.name.toLowerCase().includes(q)) ||
+                  (item.shortcodes &&
+                    item.shortcodes.some((s: string) => s.toLowerCase().includes(q))) ||
+                  (item.tags &&
+                    item.tags.some((t: string) => t.toLowerCase().includes(q)))
+                );
+              })
+              .slice(0, 200);
+          },
+          render: () => createEmojiSuggestionRenderer(),
+        },
+      }),
     ],
     content: initialEditorContent,
     editable,
@@ -5471,6 +5533,7 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
             toolbarShadow && "shadow-[0_2px_8px_-2px_rgba(0,0,0,0.08)] dark:shadow-[0_2px_8px_-2px_rgba(0,0,0,0.4)]",
           )}
         >
+        <ToolbarButton onClick={() => window.dispatchEvent(new CustomEvent("nowen:open-block-menu", { detail: { editorId: getSlashEditorId(editor) } }))} title={t("slash.blockMenu")}><MoreHorizontal size={iconSize} /></ToolbarButton>
         <ToolbarButton className="max-md:hidden" onClick={() => editor.chain().focus().undo().run()} disabled={!editor.can().undo()} title={t('tiptap.undo')}>
           <Undo size={iconSize} />
         </ToolbarButton>
@@ -6688,6 +6751,7 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
         style={{ paddingBottom: "calc(3rem + var(--keyboard-height, 0px) + var(--outline-scroll-reserve, 0px))" }}
       >
         <EditorContent editor={editor} />
+        <RichTextBlockControls editor={editor} editable={editable} isMobile={isMobile} />
       <NoteLinkHoverPreview root={editor.view.dom} />
       </div>
 
@@ -7166,6 +7230,57 @@ function parseContent(content: string): any {
     type: "doc",
     content: [{ type: "paragraph", content: [{ type: "text", text: content }] }],
   };
+}
+
+function createEmojiSuggestionRenderer() {
+  let component: ReactRenderer | null = null
+  let popup: HTMLDivElement | null = null
+  const close = () => {
+    popup?.remove()
+    component?.destroy()
+    popup = null
+    component = null
+  }
+
+  const updatePosition = (
+    clientRect: (() => DOMRect | null) | null | undefined
+  ) => {
+    if (!popup || !clientRect) return
+    const rect = clientRect()
+    if (!rect) return
+    popup.style.left = `${Math.max(8, Math.min(rect.left, window.innerWidth - popup.offsetWidth - 8))}px`
+    popup.style.top = `${Math.max(8, Math.min(rect.bottom + 6, window.innerHeight - popup.offsetHeight - 8))}px`
+  }
+
+  return {
+    onStart: (props: any) => {
+      component = new ReactRenderer(EmojiSuggestionList, {
+        props,
+        editor: props.editor,
+      })
+      popup = document.createElement('div')
+      popup.className = 'emoji-suggestion-popup'
+      popup.style.position = 'fixed'
+      popup.style.zIndex = '60'
+      popup.appendChild(component.element)
+      document.body.appendChild(popup)
+      updatePosition(props.clientRect)
+    },
+    onUpdate: (props: any) => {
+      component?.updateProps(props)
+      updatePosition(props.clientRect)
+    },
+    onKeyDown: (props: any) => {
+      if (props.event.key === 'Escape') {
+        close()
+        return true
+      }
+      return (component?.ref as any)?.onKeyDown(props) ?? false
+    },
+    onExit: () => {
+      close()
+    },
+  }
 }
 
 function serializeEditorContentForPersistence(editor: Editor, noteId: string): string | null {

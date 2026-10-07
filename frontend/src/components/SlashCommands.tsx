@@ -7,7 +7,7 @@ import {
 export { createSlashExtension } from "@/components/extensions/SlashCommandExtension";
 import {
   Heading1, Heading2, Heading3, Heading4, Heading5, Heading6, List, ListOrdered, CheckSquare,
-  Quote, FileCode, Minus, ImagePlus, Sparkles,
+  Quote, FileCode, Minus, ImagePlus, Sparkles, Columns2, Info, ChevronDown,
   Bold, Italic, Highlighter, Table2,
   Strikethrough, Code, Link as LinkIcon, Workflow, Sigma, BookOpen, Film, FolderSearch, Network, BrainCircuit
 } from "lucide-react";
@@ -17,6 +17,7 @@ import { nextFootnoteIdentifier } from "@/components/FootnoteExtensions";
 import { prompt as promptDialog } from "@/components/ui/confirm";
 import { getDailyRecordSlashCommands } from "@/components/daily-records/dailyRecordSlashCommands";
 import { insertContentPreservingBlockEmbed } from "@/lib/insertContentPreservingBlockEmbed";
+import { convertBlock } from "./blockMenuActions";
 
 export interface SlashCommandItem {
   id: string;
@@ -277,6 +278,16 @@ export function getDefaultSlashCommands(
       keywords: ["todo", "task", "checkbox", "待办", "任务", "复选"],
       action: (editor) => editor.chain().focus().toggleTaskList().run(),
     },
+    // Rich-text containers use structural replacement, preserving column parents.
+    ...(["columns", "callout", "details"] as const).map((type) => ({
+      id: type,
+      label: t(`slash.${type}`),
+      description: t(`slash.${type}Desc`),
+      icon: type === "columns" ? <Columns2 size={16} /> : type === "callout" ? <Info size={16} /> : <ChevronDown size={16} />,
+      category: t("slash.catFormat"),
+      keywords: [type, t(`slash.${type}`)],
+      action: (editor: Editor) => { convertBlock(editor, { type }, editor.state.selection.from); },
+    })),
     // 格式
     {
       id: "blockquote",
