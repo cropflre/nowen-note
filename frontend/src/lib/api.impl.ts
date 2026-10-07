@@ -2370,8 +2370,8 @@ export const api = {
     return res.json() as Promise<{ downloadToken: string; filename: string; size: number }>;
   },
   /** 导出 Nowen 数据包（.nowen.zip） */
-  downloadNowenPackage: async (opts?: { notebookId?: string; includeSubNotebooks?: boolean; includeTrashed?: boolean }) => {
-    const ws = getCurrentWorkspace();
+  downloadNowenPackage: async (opts?: { workspaceId?: string; notebookId?: string; includeSubNotebooks?: boolean; includeTrashed?: boolean }) => {
+    const ws = opts?.workspaceId ?? getCurrentWorkspace();
     const params = new URLSearchParams();
     if (ws && ws !== "personal") params.set("workspaceId", ws);
     if (opts?.notebookId) params.set("notebookId", opts.notebookId);
@@ -2661,11 +2661,13 @@ export const api = {
     }
   },
   /** Nowen 数据包 dry-run 预检 */
-  dryRunNowenPackage: async (file: File) => {
+  dryRunNowenPackage: async (file: File, opts?: { workspaceId?: string }) => {
     const token = getToken();
     const form = new FormData();
     form.append("file", file);
-    const res = await fetch(`${getBaseUrl()}/export/import/nowen-package?dryRun=1`, {
+    const params = new URLSearchParams({ dryRun: "1" });
+    if (opts?.workspaceId) params.set("workspaceId", opts.workspaceId);
+    const res = await fetch(`${getBaseUrl()}/export/import/nowen-package?${params}`, {
       method: "POST",
       credentials: "include",
       headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
@@ -2676,11 +2678,12 @@ export const api = {
     return data;
   },
   /** Nowen 数据包正式导入 */
-  importNowenPackage: async (file: File, opts?: { importMode?: "new-root" | "into-target"; targetNotebookId?: string }) => {
+  importNowenPackage: async (file: File, opts?: { workspaceId?: string; importMode?: "new-root" | "into-target"; targetNotebookId?: string }) => {
     const token = getToken();
     const form = new FormData();
     form.append("file", file);
     const params = new URLSearchParams();
+    if (opts?.workspaceId) params.set("workspaceId", opts.workspaceId);
     if (opts?.importMode) params.set("importMode", opts.importMode);
     if (opts?.targetNotebookId) params.set("targetNotebookId", opts.targetNotebookId);
     const qs = params.toString() ? `?${params.toString()}` : "";

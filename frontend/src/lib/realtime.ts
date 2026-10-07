@@ -19,7 +19,8 @@ import {
   inferBrowserServerBaseUrl,
   normalizeServerBaseUrl,
 } from "@/lib/serverUrl";
-import { isMobileLocalMode } from "@/lib/mobileLocalMode";
+import { isAndroidNativeRuntime, isMobileLocalMode } from "@/lib/mobileLocalMode";
+import { isMobileSyncEnabled, MOBILE_SYNC_SETTINGS_CHANGED_EVENT } from "@/lib/mobileSyncStatus";
 
 type Listener = (payload: any) => void;
 
@@ -61,6 +62,7 @@ class RealtimeClient {
    */
   private resolveWsUrl(): string | null {
     if (isMobileLocalMode()) return null;
+    if (isAndroidNativeRuntime() && !isMobileSyncEnabled()) return null;
     const token = localStorage.getItem("nowen-token");
     if (!token) return null;
 
@@ -170,7 +172,7 @@ class RealtimeClient {
     }
   }
 
-  disconnect() {
+  disconnect(preserveSubscriptions = false) {
     this.manualClosed = true;
     this.stopHeartbeat();
     if (this.reconnectTimer) {
@@ -181,8 +183,10 @@ class RealtimeClient {
       try { this.ws.close(); } catch {}
       this.ws = null;
     }
-    this.subscribedRooms.clear();
-    this.pendingSubs.clear();
+    if (!preserveSubscriptions) {
+      this.subscribedRooms.clear();
+      this.pendingSubs.clear();
+    }
   }
 
   private scheduleReconnect() {
@@ -367,6 +371,14 @@ class RealtimeClient {
 
 // 单例
 export const realtime = new RealtimeClient();
+
+if (typeof window !== "undefined") {
+  window.addEventListener(MOBILE_SYNC_SETTINGS_CHANGED_EVENT, () => {
+    if (!isAndroidNativeRuntime()) return;
+    if (isMobileSyncEnabled()) realtime.connect();
+    else realtime.disconnect(true);
+  });
+}
 
 // 页面卸载时主动关闭，避免后端堆积连接
 if (typeof window !== "undefined") {

@@ -1360,7 +1360,7 @@ function AuthGate() {
 
   // 桌面端 / 移动端把每次已确认的登录态写入安全历史。仅保存 token，绝不保存密码。
   useEffect(() => {
-    if (!user?.id || !isAccountLoginHistorySupported()) return;
+    if (!user?.id || isMobileLocalMode() || !isAccountLoginHistorySupported()) return;
     const token = getAccessToken() || "";
     const refreshToken = getRefreshToken() || undefined;
     const serverUrl = getServerUrl()

@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 
-const source = readFileSync(path.resolve(__dirname, "../DataManager.tsx"), "utf8");
+const source = readFileSync(path.resolve(__dirname, "../dataManagement/BackupCenter.tsx"), "utf8");
 
 describe("DataManager 手动全量备份", () => {
   it("全量备份走后台任务并持续显示任务状态，数据库备份保留同步路径", () => {

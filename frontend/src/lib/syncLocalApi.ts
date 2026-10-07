@@ -52,6 +52,7 @@ export interface SyncDiagnostics {
   lastSyncAt: string | null;
   lastError: string | null;
   pendingMutations: number;
+  pendingAttachments?: number;
   conflictCount: number;
   pendingSample: Array<{
     scopeKey?: string;

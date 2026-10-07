@@ -19,6 +19,7 @@ import { confirmMediaNotePersistence } from "@/lib/mediaInsertionCommit";
 import { parseMermaidMindmap, normalizeMindMapData } from "@/lib/mindmapTransform";
 import { cn } from "@/lib/utils";
 import SyncStatusBadge from "@/components/SyncStatusBadge";
+import { isAndroidNativeRuntime } from "@/lib/mobileLocalMode";
 import {
   applyEditorUpdateToNote,
   PREPARE_EDITOR_SPLIT_CLOSE_EVENT,
@@ -1342,6 +1343,7 @@ function OrdinaryEditorPane({
    * ����������־û��������������Զ��ϲ���
    */
   const collabReady = !!(activeNote && !activeNote.isLocked && selfUser && editorMode === "md"
+    && !isAndroidNativeRuntime()
     && !/nowen-encrypted/i.test(activeNote.content || ""));
   const { doc: collabYDoc, provider: collabProvider, synced: collabSynced } = useYDoc({
     noteId: collabReady ? (activeNote?.id ?? null) : null,
@@ -2590,21 +2592,24 @@ const moveToTrash = useCallback(async () => {
       </MobileEditorToolbarPortal>
       <MobileEditorToolbarPortal location="trailing">
         {compactMobileEditing ? (
-          <Button
-            data-mobile-note-menu-trigger
-            variant="ghost"
-            size="icon"
-            className="h-8 w-8 shrink-0"
-            onClick={() => {
-              const nextOpen = !showMobileMenu;
-              if (nextOpen) window.dispatchEvent(new CustomEvent('nowen:close-search'));
-              setShowMobileMenu(nextOpen);
-              setShowMobileMoveMenu(false);
-            }}
-            aria-label={t('common.more')}
-          >
-            <MoreHorizontal size={17} />
-          </Button>
+          <div className="flex items-center gap-1">
+            <SyncStatusBadge saving={syncStatus === "saving" || syncStatus === "error"} />
+            <Button
+              data-mobile-note-menu-trigger
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 shrink-0"
+              onClick={() => {
+                const nextOpen = !showMobileMenu;
+                if (nextOpen) window.dispatchEvent(new CustomEvent('nowen:close-search'));
+                setShowMobileMenu(nextOpen);
+                setShowMobileMoveMenu(false);
+              }}
+              aria-label={t('common.more')}
+            >
+              <MoreHorizontal size={17} />
+            </Button>
+          </div>
         ) : null}
       </MobileEditorToolbarPortal>
     <motion.div
@@ -2697,8 +2702,8 @@ const moveToTrash = useCallback(async () => {
           {/* 多设备同步状态：与上面的"保存状态"分开显示。
               本地写入成功就是"已保存"，同步失败只叫"等待同步"，
               绝不能让一次网络抖动显示成"保存失败"。
-              一切正常或未开启同步时该组件不渲染，不占空间。 */}
-          <SyncStatusBadge />
+              Android 保留轻量文字，未开启同步时不渲染。 */}
+          {!compactMobileEditing && <SyncStatusBadge saving={syncStatus === "saving" || syncStatus === "error"} />}
           <span className="flex shrink-0 items-center gap-0.5" aria-hidden="true">
             {activeNote.isLocked || isViewLocked ? <Lock size={12} className={activeNote.isLocked ? "text-orange-500" : "text-tx-tertiary"} /> : null}
             {activeNote.isPinned ? <Pin size={12} className="text-accent-primary fill-accent-primary" /> : null}
@@ -4222,6 +4227,7 @@ function SyncIndicator({
   onManualSync: () => void;
 }) {
   const { t } = useTranslation();
+  const android = isAndroidNativeRuntime();
   // 失败、排队和离线状态继续保留在同步状态机中，但不再主动展示为失败提示。
   // 手动同步入口仍保持可见，真正冲突继续走独立的冲突处理流程。
   const displayStatus: SyncStatus =
@@ -4295,7 +4301,7 @@ function SyncIndicator({
       </AnimatePresence>
 
       <span className={cn(
-        "hidden whitespace-nowrap sm:inline transition-colors",
+        android ? "whitespace-nowrap transition-colors" : "hidden whitespace-nowrap sm:inline transition-colors",
         displayStatus === "saving" && "text-accent-primary",
         displayStatus === "saved" && "text-green-500",
         displayStatus === "idle" && "text-tx-tertiary group-hover:text-tx-secondary",
@@ -4303,8 +4309,8 @@ function SyncIndicator({
         {displayStatus === "saving" && t('editor.savingStatus')}
         {displayStatus === "saved" && (
           <>
-            {t('editor.savedStatus')}
-            {lastSyncedAt && (
+            {android ? "已保存到本机" : t('editor.savedStatus')}
+            {!android && lastSyncedAt && (
               <span className="ml-1 opacity-70">
                 · {new Date(lastSyncedAt).toLocaleTimeString()}
               </span>

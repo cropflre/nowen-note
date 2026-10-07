@@ -28,7 +28,8 @@ import {
   type UserPreferencePatch,
   type UserPreferences,
 } from "@/lib/userPreferenceAccountCache";
-import { isMobileLocalMode, MOBILE_LOCAL_USER_ID } from "@/lib/mobileLocalMode";
+import { isAndroidNativeRuntime, isMobileLocalMode, MOBILE_LOCAL_USER_ID, MOBILE_LOCAL_MODE_CHANGED_EVENT } from "@/lib/mobileLocalMode";
+import { isMobileSyncEnabled, MOBILE_SYNC_SETTINGS_CHANGED_EVENT } from "@/lib/mobileSyncStatus";
 import { setCodeBlockCollapseMode } from "@/lib/codeBlockPresentation";
 
 export type {
@@ -81,6 +82,10 @@ function currentIdentity(): { token: string; userId: string } | null {
   } catch {
     return null;
   }
+}
+
+function canSyncPreferences(): boolean {
+  return !isMobileLocalMode() && (!isAndroidNativeRuntime() || isMobileSyncEnabled());
 }
 
 function applyLegacyPreferenceBridges(prefs: UserPreferences, notify = true): void {
@@ -205,6 +210,7 @@ export function UserPreferencesProvider({ children }: { children: React.ReactNod
     changes: UserPreferencePatch,
     migration = false,
   ) => {
+    if (!canSyncPreferences()) return;
     const sanitized = sanitizeUserPreferencePatch(changes);
     const keys = Object.keys(sanitized) as Array<keyof UserPreferences>;
     if (keys.length === 0) return;
@@ -267,12 +273,14 @@ export function UserPreferencesProvider({ children }: { children: React.ReactNod
 
     const { userId } = identity;
     const cachedAtStart = resetForIdentity(userId);
+    if (!canSyncPreferences()) return;
 
     try {
       const remote = await api.getUserPreferences() as RemotePreferences;
       const latestIdentity = currentIdentity();
       if (
         sequence !== syncSequenceRef.current ||
+        !canSyncPreferences() ||
         !latestIdentity ||
         latestIdentity.userId !== userId ||
         (remote.userId && remote.userId !== userId)
@@ -330,9 +338,15 @@ export function UserPreferencesProvider({ children }: { children: React.ReactNod
   useEffect(() => {
     void syncFromServer();
     window.addEventListener("nowen:token-changed", syncFromServer);
+    window.addEventListener(MOBILE_LOCAL_MODE_CHANGED_EVENT, syncFromServer);
+    window.addEventListener(MOBILE_SYNC_SETTINGS_CHANGED_EVENT, syncFromServer);
+    window.addEventListener("online", syncFromServer);
     window.addEventListener("focus", syncFromServer);
     return () => {
       window.removeEventListener("nowen:token-changed", syncFromServer);
+      window.removeEventListener(MOBILE_LOCAL_MODE_CHANGED_EVENT, syncFromServer);
+      window.removeEventListener(MOBILE_SYNC_SETTINGS_CHANGED_EVENT, syncFromServer);
+      window.removeEventListener("online", syncFromServer);
       window.removeEventListener("focus", syncFromServer);
     };
   }, [syncFromServer]);

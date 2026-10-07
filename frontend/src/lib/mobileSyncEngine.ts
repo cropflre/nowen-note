@@ -2,6 +2,7 @@ import type { NativeDatabase } from "./nativeDatabase";
 import type { NativeAttachmentStore } from "./nativeAttachmentStore";
 import { newLocalId } from "./localRepository";
 import { getResolvedApiBaseUrl } from "./serverUrl";
+import { notifyMobileSyncStatusChanged } from "./mobileSyncStatus";
 
 type ScopeStatus = "active" | "replan_required" | "access_revoked";
 type EntityType = "notebook" | "note" | "tag" | "note_tag" | "favorite" | "attachment"
@@ -81,7 +82,8 @@ export class MobileSyncEngine {
   private running = false;
   private rerun = false;
   private debounce: ReturnType<typeof setTimeout> | null = null;
-  private stopped = false;
+  private stopped = true;
+  private syncAbort: AbortController | null = null;
 
   constructor(private readonly options: MobileSyncOptions) {}
 
@@ -92,6 +94,8 @@ export class MobileSyncEngine {
 
   stop(): void {
     this.stopped = true;
+    this.rerun = false;
+    this.syncAbort?.abort();
     if (this.debounce) clearTimeout(this.debounce);
     this.debounce = null;
   }
@@ -109,10 +113,13 @@ export class MobileSyncEngine {
     if (this.stopped) return;
     if (this.running) { this.rerun = true; return; }
     this.running = true;
+    this.syncAbort = new AbortController();
     try {
       const scopes = await this.fetchScopes();
+      if (this.stopped) return;
       await this.refreshScopes(scopes);
       for (const scope of scopes) {
+        if (this.stopped) return;
         const state = (await this.options.db.query<{ accessStatus: ScopeStatus; lastSequence: number }>(
           "SELECT accessStatus,lastSequence FROM sync_state WHERE profileId=? AND scopeKey=?",
           [this.options.profileId, scope.scopeKey],
@@ -123,9 +130,12 @@ export class MobileSyncEngine {
             await this.bootstrap(scope);
           }
           await this.push(scope);
+          if (this.stopped) return;
           await this.pull(scope);
+          if (this.stopped) return;
           await this.transferAttachments(scope);
         } catch (error) {
+          if (this.stopped || this.syncAbort.signal.aborted) return;
           const code = (error as Error & { code?: string }).code;
           if (code === "ACCESS_REVOKED" || code === "SCOPE_FORBIDDEN") {
             await this.freezeScope(scope.scopeKey, code);
@@ -136,12 +146,16 @@ export class MobileSyncEngine {
             this.options.onAuthRequired?.();
             return;
           }
-          await this.options.db.run(`UPDATE sync_state SET lastError=?,lastSyncAt=?
-            WHERE profileId=? AND scopeKey=?`, [code || "NETWORK_UNAVAILABLE",now(),this.options.profileId,scope.scopeKey]);
+          await this.options.db.run(`UPDATE sync_state SET lastError=?
+            WHERE profileId=? AND scopeKey=?`, [code || "NETWORK_UNAVAILABLE",this.options.profileId,scope.scopeKey]);
         }
       }
+    } catch (error) {
+      if (!this.syncAbort.signal.aborted) throw error;
     } finally {
       this.running = false;
+      this.syncAbort = null;
+      notifyMobileSyncStatusChanged();
       if (this.rerun) { this.rerun = false; this.requestSync(0); }
     }
   }
@@ -212,10 +226,12 @@ export class MobileSyncEngine {
   }
 
   private async request<T>(path: string, init: RequestInit = {}): Promise<T> {
+    this.syncAbort?.signal.throwIfAborted();
     let response: Response;
     try {
       response = await fetch(`${getResolvedApiBaseUrl(this.options.serverUrl)}/sync/v2${path}`, {
         ...init,
+        signal: this.syncAbort?.signal,
         headers: {
           Authorization: `Bearer ${this.options.token}`,
           ...(init.body ? { "Content-Type": "application/json" } : {}),
@@ -396,6 +412,7 @@ export class MobileSyncEngine {
         }
       }
     });
+    if (rows.length === 100 && response.results.some((result) => result.status === "applied" || result.status === "duplicate")) this.rerun = true;
   }
 
   private async pull(scope: ScopeDescriptor): Promise<void> {
@@ -574,26 +591,34 @@ export class MobileSyncEngine {
     const rows=await this.options.db.query<{id:string;mimeType:string;size:number;hash:string|null;transferStatus:string}>(`
       SELECT id,mimeType,size,hash,transferStatus FROM attachments WHERE scopeKey=?
         AND transferStatus IN ('pending_upload','failed','pending_download') ORDER BY updatedAt LIMIT 4`,[scope.scopeKey]);
+    let completed = 0;
     for(const row of rows){
+      if(this.stopped)return;
       const url=`${getResolvedApiBaseUrl(this.options.serverUrl)}/sync/v2/blob/${encodeURIComponent(row.id)}?scopeKey=${encodeURIComponent(scope.scopeKey)}`;
       try{
         if(row.transferStatus==="pending_download"){
-          const response=await fetch(url,{headers:{Authorization:`Bearer ${this.options.token}`}});
+          const response=await fetch(url,{signal:this.syncAbort?.signal,headers:{Authorization:`Bearer ${this.options.token}`}});
           if(response.status===409)continue;if(!response.ok)throw new Error(`HTTP ${response.status}`);
           const blob=await response.blob();
           const stored=await this.options.attachments.save({attachmentId:row.id,data:blob,expectedSize:row.size||undefined,expectedHash:row.hash||undefined});
           await this.options.db.run("UPDATE attachments SET localPath=?,hash=?,size=?,available=1,transferStatus='ready',transferError=NULL,updatedAt=? WHERE scopeKey=? AND id=?",[stored.path,stored.sha256,stored.size,now(),scope.scopeKey,row.id]);
           this.options.onAttachmentReady?.(row.id);
         }else{
-          const exists=await fetch(url,{method:"HEAD",headers:{Authorization:`Bearer ${this.options.token}`}});
-          if(exists.ok){await this.options.db.run("UPDATE attachments SET transferStatus='uploaded',transferError=NULL,updatedAt=? WHERE scopeKey=? AND id=?",[now(),scope.scopeKey,row.id]);continue;}
+          const exists=await fetch(url,{signal:this.syncAbort?.signal,method:"HEAD",headers:{Authorization:`Bearer ${this.options.token}`}});
+          if(exists.ok){await this.options.db.run("UPDATE attachments SET transferStatus='uploaded',transferError=NULL,updatedAt=? WHERE scopeKey=? AND id=?",[now(),scope.scopeKey,row.id]);completed++;continue;}
           const blob=await this.options.attachments.read(row.id,row.mimeType);
-          const uploaded=await fetch(url,{method:"PUT",headers:{Authorization:`Bearer ${this.options.token}`,"Content-Type":row.mimeType},body:blob});
+          this.syncAbort?.signal.throwIfAborted();
+          const uploaded=await fetch(url,{signal:this.syncAbort?.signal,method:"PUT",headers:{Authorization:`Bearer ${this.options.token}`,"Content-Type":row.mimeType},body:blob});
           if(!uploaded.ok)throw new Error(`HTTP ${uploaded.status}`);
           await this.options.db.run("UPDATE attachments SET transferStatus='uploaded',transferError=NULL,updatedAt=? WHERE scopeKey=? AND id=?",[now(),scope.scopeKey,row.id]);
         }
-      }catch(error){await this.options.db.run("UPDATE attachments SET transferStatus='failed',transferError=?,updatedAt=? WHERE scopeKey=? AND id=?",[error instanceof Error?error.message:"SERVER_ERROR",now(),scope.scopeKey,row.id]);}
+        completed++;
+      }catch(error){
+        if(this.syncAbort?.signal.aborted)return;
+        await this.options.db.run("UPDATE attachments SET transferStatus='failed',transferError=?,updatedAt=? WHERE scopeKey=? AND id=?",[error instanceof Error?error.message:"SERVER_ERROR",now(),scope.scopeKey,row.id]);
+      }
     }
+    if(rows.length === 4 && completed > 0)this.rerun = true;
   }
 }
 

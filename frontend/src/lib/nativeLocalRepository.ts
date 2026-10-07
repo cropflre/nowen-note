@@ -238,9 +238,9 @@ export class NativeLocalRepository implements LocalRepository {
     const rows = await tx.query<SyncContext>(`
       SELECT p.id AS profileId, d.deviceId
       FROM sync_profiles p JOIN sync_devices d ON d.profileId = p.id
-      WHERE p.enabled = 1 AND p.authStatus = 'ready'
-      ORDER BY d.createdAt LIMIT 1
-    `);
+      WHERE p.remoteUserId = ?
+      ORDER BY p.enabled DESC, p.updatedAt DESC, d.createdAt LIMIT 1
+    `, [this.userId]);
     return rows[0] || null;
   }
 

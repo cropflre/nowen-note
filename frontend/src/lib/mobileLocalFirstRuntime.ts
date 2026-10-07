@@ -12,6 +12,7 @@ import {
 } from "./localStore";
 import { installMobileLocalFirstBridge } from "./mobileLocalFirstBridge";
 import { migrateMobileLocalAccount } from "./mobileLocalAccountMigration";
+import { notifyMobileSyncStatusChanged, setMobileSyncEnabled } from "./mobileSyncStatus";
 import { createMobileSyncEngine, type MobileSyncEngine } from "./mobileSyncEngine";
 import { createNativeAttachmentStore } from "./nativeAttachmentStore";
 import { openNativeDatabase, type NativeDatabase } from "./nativeDatabase";
@@ -294,12 +295,20 @@ function createNativeAdminAdapter(
     }
     if(path==="/settings/disable"&&method==="POST"){
       const count=(await db.query<{count:number}>("SELECT COUNT(*) AS count FROM sync_outbox WHERE profileId=?",[profileId]))[0]?.count||0;
-      await db.run("UPDATE sync_profiles SET enabled=0,updatedAt=? WHERE id=?",[now(),profileId]);engine.stop();
+      engine.stop();
+      try {
+        await db.run("UPDATE sync_profiles SET enabled=0,updatedAt=? WHERE id=?",[now(),profileId]);
+      } catch (error) {
+        if(active?.enabled === 1)engine.start();
+        throw error;
+      }
+      setMobileSyncEnabled(false);
       return {mode:"device-only",retainedPendingMutations:count,message:"已停止同步，此设备中的全部笔记仍完整保留。"} as T;
     }
     if(path==="/settings/server"&&method==="POST"){
       const body=parseBody(init);if(String(body.serverUrl||"").replace(/\/+$/,"")!==serverUrl)throw new Error("移动端请先在登录页切换服务器");
-      await db.run("UPDATE sync_profiles SET enabled=1,authStatus='ready',updatedAt=? WHERE id=?",[now(),profileId]);engine.start();
+      await db.run("UPDATE sync_profiles SET enabled=1,authStatus='ready',updatedAt=? WHERE id=?",[now(),profileId]);
+      setMobileSyncEnabled(true);engine.start();
       return {mode:"server",profile:{id:profileId,name:"当前账号",serverUrl,enabled:true},deviceId,authorized:true,engineRunning:true,message:"已恢复同步"} as T;
     }
     if(path==="/engine"){const state=await repository.sync.getState();return {running:active?.enabled===1,state:state.mode==="server"?(state.conflictCount?"conflict":state.lastError?"error":"idle"):"disabled",pendingCount:state.mode==="server"?state.pendingMutations:0,conflictCount:state.mode==="server"?state.conflictCount:0,lastError:state.mode==="server"?state.lastError:null,localAuthoritative:true} as T;}
@@ -308,8 +317,9 @@ function createNativeAdminAdapter(
       const state=(await db.query<{lastSequence:number;lastSyncAt:string|null;lastError:string|null}>("SELECT lastSequence,lastSyncAt,lastError FROM sync_state WHERE profileId=? AND scopeKey='personal'",[profileId]))[0];
       const pending=await db.query<Record<string,unknown>>("SELECT scopeKey,entityType,entityId,operation,status,retryCount,lastError,createdAt FROM sync_outbox WHERE profileId=? AND status IN ('pending','failed') ORDER BY createdAt LIMIT 20",[profileId]);
       const pendingCount=(await db.query<{count:number}>("SELECT COUNT(*) AS count FROM sync_outbox WHERE profileId=? AND status IN ('pending','failed')",[profileId]))[0]?.count||0;
+      const pendingAttachments=(await db.query<{count:number}>("SELECT COUNT(*) AS count FROM attachments WHERE transferStatus IN ('pending_upload','uploading','pending_download','downloading','failed')"))[0]?.count||0;
       const conflictCount=(await db.query<{count:number}>("SELECT COUNT(*) AS count FROM sync_conflicts WHERE profileId=? AND status='unresolved'",[profileId]))[0]?.count||0;
-      return {profileId,serverUrl,deviceId,lastSeenAt:null,localCursor:state?.lastSequence||0,lastSyncAt:state?.lastSyncAt||null,lastError:state?.lastError||null,pendingMutations:pendingCount,conflictCount,pendingSample:pending} as T;
+      return {profileId,serverUrl,deviceId,lastSeenAt:null,localCursor:state?.lastSequence||0,lastSyncAt:state?.lastSyncAt||null,lastError:state?.lastError||null,pendingMutations:pendingCount,pendingAttachments,conflictCount,pendingSample:pending} as T;
     }
     if(path==="/scopes"){
       const rows=await db.query<Record<string,unknown>>("SELECT * FROM sync_workspace_scopes WHERE profileId=? ORDER BY workspaceName",[profileId]);
@@ -429,6 +439,7 @@ function createDeviceOnlyAdminAdapter(repository: NativeLocalRepository) {
 async function disposeActive(): Promise<void> {
   const current = active;
   active = null;
+  setMobileSyncEnabled(false);
   if (!current) return;
   current.engine?.stop();
   for (const remove of current.removeListeners) await remove();
@@ -441,6 +452,7 @@ async function disposeActive(): Promise<void> {
 async function configureRuntime(): Promise<void> {
   if (!Capacitor.isNativePlatform()) return;
   if (isMobileLocalMode()) {
+    setMobileSyncEnabled(false);
     const identity = `local\n${MOBILE_LOCAL_ACCOUNT_ID}`;
     if (active?.identity === identity) return;
     await disposeActive();
@@ -475,6 +487,7 @@ async function configureRuntime(): Promise<void> {
   const userId = token ? decodeUserId(token) : null;
   const serverUrl = getServerUrl().replace(/\/+$/, "");
   if (!token || !userId || !serverUrl) {
+    setMobileSyncEnabled(false);
     await disposeActive();
     return;
   }
@@ -492,7 +505,7 @@ async function configureRuntime(): Promise<void> {
       await tx.run(`INSERT INTO sync_profiles (
         id,name,serverUrl,remoteUserId,enabled,authStatus,bootstrapStatus,createdAt,updatedAt
       ) VALUES (?,?,?,?,1,'ready','pending',?,?) ON CONFLICT(id) DO UPDATE SET
-        serverUrl=excluded.serverUrl,remoteUserId=excluded.remoteUserId,enabled=1,authStatus='ready',updatedAt=excluded.updatedAt`, [
+        serverUrl=excluded.serverUrl,remoteUserId=excluded.remoteUserId,authStatus='ready',updatedAt=excluded.updatedAt`, [
         ids.profileId,"当前账号",serverUrl,userId,now(),now(),
       ]);
       await tx.run(`INSERT INTO sync_devices (profileId,deviceId,deviceName,platform,createdAt,lastSeenAt)
@@ -531,7 +544,7 @@ async function configureRuntime(): Promise<void> {
     const appHandle = await App.addListener("appStateChange", ({ isActive }) => { if (isActive) engine.requestSync(0); });
     let networkHandle:PluginListenerHandle;
     try {
-      networkHandle = await Network.addListener("networkStatusChange", ({ connected }) => { if (connected) engine.requestSync(0); });
+      networkHandle = await Network.addListener("networkStatusChange", ({ connected }) => { if (connected) engine.requestSync(0); notifyMobileSyncStatusChanged(); });
     } catch (error) {
       await appHandle.remove();
       throw error;
@@ -541,7 +554,9 @@ async function configureRuntime(): Promise<void> {
     setSyncLocalAdminAdapter(createNativeAdminAdapter(db,engine,repository,ids.profileId,ids.deviceId,serverUrl));
     const restoreBridge = installMobileLocalFirstBridge(repository,db,userId);
     active = {identity,db,engine,restoreBridge,removeListeners};
-    engine.start();
+    const profile = (await db.query<{ enabled: number }>("SELECT enabled FROM sync_profiles WHERE id=?",[ids.profileId]))[0];
+    setMobileSyncEnabled(profile?.enabled === 1);
+    if (profile?.enabled === 1) engine.start();
   } catch (error) {
     await db.close().catch(() => undefined);
     throw error;

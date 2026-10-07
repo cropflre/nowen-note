@@ -96,23 +96,7 @@ function formatTime(value: string | null): string {
 }
 
 function findBackupHost(): HTMLElement | null {
-  const existing = document.querySelector<HTMLElement>(`[${HOST_ATTR}]`);
-  if (existing?.isConnected) return existing;
-
-  // The .bak/.zip import input is a stable, unique marker inside DataManager's backup card.
-  // Avoid matching the separate full-system ZIP bridge, whose accept list does not contain .bak.
-  const backupInput = document.querySelector<HTMLInputElement>(
-    'input[type="file"][accept*=".bak"][accept*=".zip"]',
-  );
-  if (!backupInput) return null;
-
-  const card = backupInput.closest<HTMLElement>(".rounded-xl");
-  if (!card) return null;
-  const host = document.createElement("div");
-  host.setAttribute(HOST_ATTR, "true");
-  host.className = "pt-1";
-  card.appendChild(host);
-  return host;
+  return document.querySelector<HTMLElement>(`[${HOST_ATTR}]`);
 }
 
 function useBackupHost(): HTMLElement | null {
@@ -135,7 +119,6 @@ function useBackupHost(): HTMLElement | null {
     return () => {
       observer.disconnect();
       if (frame) window.cancelAnimationFrame(frame);
-      document.querySelector<HTMLElement>(`[${HOST_ATTR}]`)?.remove();
     };
   }, []);
 
@@ -194,6 +177,7 @@ function BackupWebDavPanel() {
     setRemotePath(next.remotePath || "nowen-note/backups");
     setEnabled(next.enabled);
     setUploadOnAutoBackup(next.uploadOnAutoBackup);
+    window.dispatchEvent(new Event("nowen-backup-webdav-config-changed"));
   }, []);
 
   const reload = useCallback(async () => {

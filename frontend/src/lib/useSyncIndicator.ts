@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+import { isAndroidNativeRuntime } from "./mobileLocalMode";
+import { MOBILE_SYNC_STATUS_CHANGED_EVENT } from "./mobileSyncStatus";
 import {
   fetchSyncDiagnostics,
   fetchSyncSettings,
@@ -53,6 +55,7 @@ function resolveState(input: {
   online: boolean;
   pending: number;
   lastError: string | null;
+  lastSyncAt?: string | null;
 }): SyncIndicatorState {
   if (!input.syncEnabled) return "local-only";
   // 断网优先于错误：此时"离线"比"出问题"更准确，也更让人安心。
@@ -60,6 +63,7 @@ function resolveState(input: {
   if (input.lastError === "NETWORK_UNAVAILABLE") return "offline";
   if (input.lastError) return "problem";
   if (input.pending > 0) return "syncing";
+  if (!input.lastSyncAt) return "syncing";
   return "synced";
 }
 
@@ -68,10 +72,10 @@ const POLL_INTERVAL_MS = 15_000;
 /**
  * 轮询同步状态。
  *
- * 用轮询而非 WebSocket 推送：状态展示对实时性要求很低，
- * 15 秒足够，而且不必为一个指示灯维护额外的连接与重连逻辑。
+ * Android 在本机保存完成、同步完成及网络切换时刷新，5 秒轮询兜底；
+ * 其它端保留 15 秒轮询，不为状态灯维护额外的网络连接。
  */
-export function useSyncIndicator(): SyncIndicatorSnapshot {
+export function useSyncIndicator(refreshKey?: unknown): SyncIndicatorSnapshot {
   const [snapshot, setSnapshot] = useState<SyncIndicatorSnapshot>({
     state: "local-only",
     label: LABELS["local-only"],
@@ -82,9 +86,11 @@ export function useSyncIndicator(): SyncIndicatorSnapshot {
 
   useEffect(() => {
     let cancelled = false;
-    let timer: ReturnType<typeof setTimeout> | null = null;
+    let refreshing = false;
 
     const tick = async () => {
+      if (refreshing) return;
+      refreshing = true;
       try {
         const settings = await fetchSyncSettings();
         const syncEnabled = settings.mode === "server";
@@ -103,18 +109,20 @@ export function useSyncIndicator(): SyncIndicatorSnapshot {
         }
 
         const diagnostics = await fetchSyncDiagnostics();
+        const pending = diagnostics.pendingMutations + (diagnostics.pendingAttachments || 0);
         const state = resolveState({
           syncEnabled,
           online: typeof navigator === "undefined" ? true : navigator.onLine,
-          pending: diagnostics.pendingMutations,
+          pending,
           lastError: diagnostics.lastError,
+          lastSyncAt: diagnostics.lastSyncAt,
         });
 
         if (!cancelled) {
           setSnapshot({
             state,
-            label: LABELS[state],
-            pendingMutations: diagnostics.pendingMutations,
+            label: state === "syncing" && pending === 0 ? "等待首次同步" : LABELS[state],
+            pendingMutations: pending,
             conflictCount: diagnostics.conflictCount,
             syncEnabled: true,
           });
@@ -132,22 +140,27 @@ export function useSyncIndicator(): SyncIndicatorSnapshot {
         }
         // 其他异常同样不打扰用户：本地保存不受影响，下次轮询会自愈。
       } finally {
-        if (!cancelled) timer = setTimeout(tick, POLL_INTERVAL_MS);
+        refreshing = false;
       }
     };
 
     void tick();
+    const timer = setInterval(tick, isAndroidNativeRuntime() ? 5000 : POLL_INTERVAL_MS);
 
     // 网络恢复时立即刷新一次，让指示灯不必等下个周期。
     const onOnline = () => { void tick(); };
     if (typeof window !== "undefined") window.addEventListener("online", onOnline);
+    window.addEventListener("offline", onOnline);
+    window.addEventListener(MOBILE_SYNC_STATUS_CHANGED_EVENT, onOnline);
 
     return () => {
       cancelled = true;
-      if (timer) clearTimeout(timer);
+      clearInterval(timer);
       if (typeof window !== "undefined") window.removeEventListener("online", onOnline);
+      window.removeEventListener("offline", onOnline);
+      window.removeEventListener(MOBILE_SYNC_STATUS_CHANGED_EVENT, onOnline);
     };
-  }, []);
+  }, [refreshKey]);
 
   return snapshot;
 }
