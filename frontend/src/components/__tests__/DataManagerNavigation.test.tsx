@@ -3,13 +3,17 @@ import { createRoot, type Root } from "react-dom/client";
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import DataManager from "../DataManager";
 import zh from "@/i18n/locales/zh-CN.json";
-const mocks = vi.hoisted(() => ({ me: vi.fn(), download: vi.fn(), dryRun: vi.fn(), import: vi.fn(), export: vi.fn(), backupStatus: vi.fn(), deviceOnly: false }));
+const mocks = vi.hoisted(() => ({ me: vi.fn(), download: vi.fn(), dryRun: vi.fn(), import: vi.fn(), export: vi.fn(), backupStatus: vi.fn(), deviceOnly: false,
+  workspace: vi.fn(), actions: { refreshNotes: vi.fn(), refreshNotebooks: vi.fn(), setNotebooks: vi.fn(), setSelectedNotebook: vi.fn(), setActiveNote: vi.fn(), setViewMode: vi.fn(), setMobileView: vi.fn() },
+}));
 vi.mock("@/lib/mobileLocalMode", () => ({ isMobileLocalMode: () => mocks.deviceOnly }));
 vi.mock("react-i18next", () => ({ useTranslation: () => ({ t: (key: string) => key.split(".").reduce((value: any, part) => value?.[part], zh) || key }) }));
-vi.mock("@/store/AppContext", () => ({ useApp: () => ({ state: { notebooks: [] } }), useAppActions: () => ({ refreshNotes: vi.fn(), refreshNotebooks: vi.fn() }) }));
-vi.mock("@/lib/api", () => ({ getBaseUrl: () => "/api", getServerUrl: () => "", getCurrentWorkspace: () => "other-global-space", setCurrentWorkspace: vi.fn(), withSudo: vi.fn(), api: {
+vi.mock("@/store/AppContext", () => ({ useApp: () => ({ state: { notebooks: [] } }), useAppActions: () => mocks.actions }));
+vi.mock("@/lib/api", () => ({ getBaseUrl: () => "/api", getServerUrl: () => "", getCurrentWorkspace: () => "other-global-space", setCurrentWorkspace: mocks.workspace, withSudo: vi.fn(), api: {
   getMe: mocks.me, getWorkspaces: async () => [{ id: "chosen-space", name: "工作区 A" }], downloadNowenPackage: mocks.download, dryRunNowenPackage: mocks.dryRun, importNowenPackage: mocks.import,
   backup: { status: mocks.backupStatus, list: async () => [] },
+  getNotebooks: async () => [{ id: "import-folder", name: "语雀导入" }],
+  getNote: async (id: string) => ({ id, notebookId: "import-folder", title: "导入的文档" }),
 } }));
 vi.mock("@/lib/exportService", () => ({ exportAllNotes: mocks.export }));
 vi.mock("@/lib/backupWebDavApi", () => ({ backupWebDavApi: { config: async () => ({ enabled: false, configured: false }) } }));
@@ -19,6 +23,11 @@ vi.mock("@/components/OppoCloudImport", () => ({ default: () => null }));
 vi.mock("@/components/iCloudImport", () => ({ default: () => null }));
 vi.mock("@/components/YoudaoImport", () => ({ default: () => null }));
 vi.mock("@/components/ObsidianImport", () => ({ default: () => null }));
+vi.mock("@/components/YuqueFileImport", () => ({ default: (props: any) => <div>
+  <span>yuque-target:{props.workspaceId}</span>
+  <button onClick={() => props.onBusyChange(true)}>yuque-busy</button>
+  <button onClick={() => void props.onView({ firstNoteId: "imported-note" })}>yuque-view</button>
+</div> }));
 vi.mock("@/components/WeChatFavoritesImport", () => ({ default: () => null }));
 vi.mock("@/components/UrlImport", () => ({ default: () => null }));
 vi.mock("@/components/RemoteImageLocalizationPanel", () => ({ default: () => null }));
@@ -92,5 +101,24 @@ describe("数据管理首页和迁移范围", () => {
     await act(async () => input.dispatchEvent(new Event("change", { bubbles: true })));
     expect(mocks.dryRun).toHaveBeenCalledWith(file, { workspaceId: "chosen-space" });
     expect(mocks.import).toHaveBeenCalledWith(file, { workspaceId: "chosen-space" });
+  });
+  it("语雀使用所选空间，查看结果切换空间并直接打开移动端编辑页", async () => {
+    await mount(); await click("导入数据");
+    const method = Array.from(host.querySelectorAll("button")).find((b) => b.textContent?.includes(zh.yuqueFileImport.sourceDescription))!;
+    await act(async () => method.click());
+    const scope = host.querySelector<HTMLSelectElement>('select[aria-label="选择数据范围"]')!;
+    await act(async () => { scope.value = "workspace"; scope.dispatchEvent(new Event("change", { bubbles: true })); });
+    expect(host.textContent).toContain("yuque-target:chosen-space");
+    const dispatch = vi.spyOn(window, "dispatchEvent");
+    await click("yuque-view");
+    expect(mocks.workspace).toHaveBeenCalledWith("chosen-space");
+    expect(mocks.actions.setActiveNote).toHaveBeenCalledWith(expect.objectContaining({ id: "imported-note" }));
+    expect(mocks.actions.setSelectedNotebook).toHaveBeenCalledWith("import-folder");
+    expect(mocks.actions.setViewMode).toHaveBeenCalledWith("notebook");
+    expect(mocks.actions.setMobileView).toHaveBeenCalledWith("editor");
+    expect(dispatch.mock.calls.some(([event]) => event.type === "nowen:close-settings")).toBe(true);
+    await click("yuque-busy");
+    expect(scope.disabled).toBe(true);
+    expect(method.disabled).toBe(true);
   });
 });

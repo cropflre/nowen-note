@@ -26,7 +26,8 @@ import { posToDOMRect, type Content } from "@tiptap/core";
 import { AnimatePresence, motion } from "framer-motion";import StarterKit from "@tiptap/starter-kit";
 import Placeholder from "@tiptap/extension-placeholder";
 import Image from "@tiptap/extension-image";
-import ResizableImageView from "./ResizableImageView";
+import { createResizableImageNodeView } from "./ResizableImageView";
+import { AttachmentNoteContext } from "@/hooks/useAttachmentImageRenderSource";
 import CollapsibleEditorToolbar, { MobileEditorToolbarSlot } from "./CollapsibleEditorToolbar";
 import ImageEditDialog from "@/components/image-editor/ImageEditDialog";
 import FullscreenImageViewer, { type FullscreenImageItem } from "@/components/FullscreenImageViewer";
@@ -2020,7 +2021,7 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
           };
         },
         addNodeView() {
-          return ReactNodeViewRenderer(ResizableImageView);
+          return createResizableImageNodeView();
         },
       }).configure({
         // inline: true —— 允许图片作为 inline 节点出现在 paragraph / listItem
@@ -6750,7 +6751,9 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
         className={cn(scrollLayout.content, "px-4 md:px-8 pb-12")}
         style={{ paddingBottom: "calc(3rem + var(--keyboard-height, 0px) + var(--outline-scroll-reserve, 0px))" }}
       >
-        <EditorContent editor={editor} />
+        <AttachmentNoteContext.Provider value={isGuest ? null : note.id}>
+          <EditorContent editor={editor} />
+        </AttachmentNoteContext.Provider>
         <RichTextBlockControls editor={editor} editable={editable} isMobile={isMobile} />
       <NoteLinkHoverPreview root={editor.view.dom} />
       </div>

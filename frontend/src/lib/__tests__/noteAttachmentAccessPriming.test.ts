@@ -151,4 +151,30 @@ describe("noteAttachmentAccessPriming", () => {
     })).resolves.toBe(0);
     expect(fetchImpl).not.toHaveBeenCalled();
   });
+
+  it("renews an expired login token and retries the first attachment authorization", async () => {
+    localStorage.setItem("nowen-token", "expired-token");
+    localStorage.setItem("nowen-refresh-token", "refresh-token");
+    const refresh = vi.fn().mockResolvedValue(new Response(JSON.stringify({ token: "renewed-token" }), { status: 200 }));
+    vi.stubGlobal("fetch", refresh);
+    const fetchImpl = vi.fn().mockResolvedValueOnce(new Response("expired", { status: 401 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ urls: { [ATTACHMENT_A]: signedUrl(ATTACHMENT_A, "renewed") } }), { status: 200 }));
+    expect(await primeNoteAttachmentAccess("note-1", "https://notes.example.com/api", { fetchImpl })).toBe(1);
+    expect(refresh).toHaveBeenCalledTimes(1);
+    expect(String(refresh.mock.calls[0][0])).toBe("https://notes.example.com/api/auth/refresh");
+    expect(new Headers(fetchImpl.mock.calls[1][1].headers).get("Authorization")).toBe("Bearer renewed-token");
+    expect(resolveAttachmentAccessUrl(`/api/attachments/${ATTACHMENT_A}`)).toContain("sig=renewed");
+  });
+
+  it("does not publish access URLs from a previous account after a delayed response", async () => {
+    const jwt = (userId: string) => `header.${btoa(JSON.stringify({ userId }))}.signature`;
+    localStorage.setItem("nowen-token", jwt("first-user"));
+    let finish!: (response: Response) => void;
+    const fetchImpl = vi.fn(() => new Promise<Response>((resolve) => { finish = resolve; }));
+    const pending = primeNoteAttachmentAccess("note-1", "https://notes.example.com/api", { fetchImpl });
+    localStorage.setItem("nowen-token", jwt("other-user"));
+    finish(new Response(JSON.stringify({ urls: { [ATTACHMENT_A]: signedUrl(ATTACHMENT_A, "old-account") } }), { status: 200 }));
+    expect(await pending).toBe(0);
+    expect(resolveAttachmentAccessUrl(`/api/attachments/${ATTACHMENT_A}`)).not.toContain("old-account");
+  });
 });

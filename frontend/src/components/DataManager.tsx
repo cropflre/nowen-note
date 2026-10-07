@@ -33,6 +33,7 @@ import OppoCloudImport from "@/components/OppoCloudImport";
 import ICloudImport from "@/components/iCloudImport";
 import YoudaoImport from "@/components/YoudaoImport";
 import ObsidianImport from "@/components/ObsidianImport";
+import YuqueFileImport from "@/components/YuqueFileImport";
 import WeChatFavoritesImport from "@/components/WeChatFavoritesImport";
 import UrlImport from "@/components/UrlImport";
 import RemoteImageLocalizationPanel from "@/components/RemoteImageLocalizationPanel";
@@ -906,6 +907,13 @@ export default function DataManager() {
       tag: t("dataManager.importMethodObsidianTag"),
       iconClass: "text-violet-600 dark:text-violet-400",
     },
+    yuque: {
+      icon: BookOpen,
+      label: t("yuqueFileImport.source"),
+      desc: t("yuqueFileImport.sourceDescription"),
+      tag: t("yuqueFileImport.sourceTag"),
+      iconClass: "text-emerald-600 dark:text-emerald-400",
+    },
     "wechat-favorites": {
       icon: Heart,
       label: t("dataManager.importMethodWechatFavorites"),
@@ -1131,7 +1139,7 @@ export default function DataManager() {
       ) : <DataTransferCenter onImport={() => setActiveSubTab("import")} onExport={() => setActiveSubTab("export")} />) : (
         <div className="space-y-3">
           <button type="button" onClick={() => setActiveSubTab(null)} disabled={isExporting || isExportingNowen || isImporting} className="text-xs text-indigo-600 dark:text-indigo-400">{t("dataManager.overview.back")}</button>
-          {(activeSubTab === "export" || ["siyuan", "generic", "nowen"].includes(activeImportMethod)) && <label className="flex flex-wrap items-center gap-2 text-xs text-zinc-600 dark:text-zinc-300">
+          {(activeSubTab === "export" || ["siyuan", "generic", "nowen", "yuque"].includes(activeImportMethod)) && <label className="flex flex-wrap items-center gap-2 text-xs text-zinc-600 dark:text-zinc-300">
             {t("dataManager.overview.scope")}
             <select aria-label={t("dataManager.overview.scope")} value={scope} onChange={(e) => setScope(e.target.value as Scope)} disabled={isExporting || isExportingNowen || isImporting} className="rounded-lg border border-zinc-300 bg-white px-2 py-1.5 dark:border-zinc-700 dark:bg-zinc-900">
               <option value="personal">{t("dataManager.scope.personal")}</option>
@@ -1362,7 +1370,7 @@ export default function DataManager() {
                           key={method.id}
                           type="button"
                           onClick={() => handleImportMethodChange(method.id)}
-                          disabled={personalImportLocked}
+                          disabled={personalImportLocked || isImporting}
                           aria-pressed={active}
                           className={`min-h-[112px] rounded-xl border p-3 text-left transition-all disabled:cursor-not-allowed disabled:opacity-60 ${getImportMethodClass(active)}`}
                         >
@@ -1387,6 +1395,37 @@ export default function DataManager() {
             </div>
 
             <div key={activeImportMethod} className="mt-5 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/40 p-3 sm:p-4">
+              {activeImportMethod === "yuque" && <YuqueFileImport
+                key={`yuque-${effectiveWorkspaceId}`}
+                workspaceId={effectiveWorkspaceId}
+                workspaceName={scope === "personal" ? t("dataManager.scope.personal") : selectedWorkspaceName}
+                userId={currentUser?.id || ""}
+                disabled={personalImportLocked || workspaceScopeNotReady}
+                onBusyChange={setIsImporting}
+                onImported={() => {
+                  if (effectiveWorkspaceId === (getCurrentWorkspace() || "personal")) {
+                    void api.getNotebooks().then(actions.setNotebooks).catch(console.error);
+                    actions.refreshNotes();
+                    emitKnowledgeTreeRefresh("notes-imported-http");
+                  }
+                }}
+                onView={async (result) => {
+                  if (!result.firstNoteId) return;
+                  if (effectiveWorkspaceId !== (getCurrentWorkspace() || "personal")) {
+                    setCurrentWorkspace(effectiveWorkspaceId);
+                    window.dispatchEvent(new CustomEvent("nowen:workspace-changed", { detail: { workspaceId: effectiveWorkspaceId } }));
+                  }
+                  const [notebooks, note] = await Promise.all([api.getNotebooks(effectiveWorkspaceId), api.getNote(result.firstNoteId)]);
+                  actions.setNotebooks(notebooks);
+                  actions.setSelectedNotebook(note.notebookId);
+                  actions.setActiveNote(note);
+                  actions.setViewMode("notebook");
+                  actions.setMobileView("editor");
+                  actions.refreshNotes();
+                  emitKnowledgeTreeRefresh("notes-imported-http");
+                  window.dispatchEvent(new CustomEvent("nowen:close-settings"));
+                }}
+              />}
               {(activeImportMethod === "siyuan" || activeImportMethod === "generic") && (
                 <>
                   <div className="flex items-start justify-between gap-3 mb-3">

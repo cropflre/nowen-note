@@ -3,6 +3,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { syntaxTree } from "@codemirror/language";
 import {
   EditorState,
+  Facet,
   RangeSetBuilder,
   StateField,
   type Extension,
@@ -24,6 +25,9 @@ import {
 const BLOCK_NODE_RE = /^(?:ATXHeading[1-6]|SetextHeading[12]|Paragraph|Blockquote|BulletList|OrderedList|FencedCode|CodeBlock|HorizontalRule|HTMLBlock|Table)$/;
 const STANDALONE_IAL_RE = /^\s*\{:\s*[\s\S]*\}\s*$/;
 const roots = new WeakMap<HTMLElement, Root>();
+export const markdownLivePreviewNoteId = Facet.define<string | null, string | null>({
+  combine: (values) => values[0] || null,
+});
 
 export interface MarkdownLivePreviewBlock {
   from: number;
@@ -168,12 +172,13 @@ class MarkdownLivePreviewWidget extends WidgetType {
     readonly from: number,
     readonly to: number,
     readonly formattingEnabled: boolean,
+    readonly noteId: string | null,
   ) {
     super();
   }
 
   eq(other: MarkdownLivePreviewWidget): boolean {
-    return this.markdown === other.markdown && this.from === other.from && this.to === other.to && this.formattingEnabled === other.formattingEnabled;
+    return this.markdown === other.markdown && this.from === other.from && this.to === other.to && this.formattingEnabled === other.formattingEnabled && this.noteId === other.noteId;
   }
 
   toDOM(view: EditorView): HTMLElement {
@@ -199,6 +204,7 @@ class MarkdownLivePreviewWidget extends WidgetType {
     root.render(
       <MarkdownPreview
         markdown={this.markdown}
+        noteId={this.noteId || undefined}
         compact
         className="cm-live-preview-render !h-auto !overflow-visible !p-0"
         onFormatCodeBlock={this.formattingEnabled ? (source, offset) => formatMarkdownCodeBlock(view, source, offset, this.from) : undefined}
@@ -241,7 +247,7 @@ function buildDecorations(state: EditorState): DecorationSet {
       block.from,
       block.to,
       Decoration.replace({
-        widget: new MarkdownLivePreviewWidget(block.markdown, block.from, block.to, state.facet(EditorView.editable) && !state.facet(EditorState.readOnly)),
+        widget: new MarkdownLivePreviewWidget(block.markdown, block.from, block.to, state.facet(EditorView.editable) && !state.facet(EditorState.readOnly), state.facet(markdownLivePreviewNoteId)),
         block: true,
       }),
     );

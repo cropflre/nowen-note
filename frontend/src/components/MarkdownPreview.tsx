@@ -24,7 +24,7 @@ import { BlockEmbedCard } from "@/components/BlockEmbedExtension";
 import MindMapEmbedCard, { parseMindMapEmbedHref } from "@/components/MindMapEmbedCard";
 import { preprocessInternalNoteLinks } from "@/lib/noteLinkSyntax";
 import { projectMarkdownForUser } from "@/lib/markdownUserContent";
-import { useAttachmentImageRenderSource } from "@/hooks/useAttachmentImageRenderSource";
+import { AttachmentNoteContext, useAttachmentImageRenderSource } from "@/hooks/useAttachmentImageRenderSource";
 import {
   MARKDOWN_SEGMENTED_PREVIEW_THRESHOLD,
   splitMarkdownPreview,
@@ -36,6 +36,7 @@ import VoiceTranscription from "@/components/VoiceTranscription";
 
 interface MarkdownPreviewProps {
   markdown: string;
+  noteId?: string;
   onInsertVoiceTranscript?: (text: string) => void;
   className?: string;
   compact?: boolean;
@@ -226,7 +227,7 @@ function PreviewImage({ src, alt }: { src?: string; alt?: string }) {
       <span className="relative my-4 inline-block max-w-full">
       <img
         key={imageRender.renderKey}
-        src={resolvedSrc}
+        src={resolvedSrc || undefined}
         alt={alt || ""}
         loading="lazy"
         className="block max-h-[520px] max-w-full cursor-pointer rounded-xl border border-app-border object-contain shadow-sm transition-opacity hover:opacity-90"
@@ -234,7 +235,7 @@ function PreviewImage({ src, alt }: { src?: string; alt?: string }) {
         onLoad={imageRender.onLoad}
         onError={imageRender.onError}
       />
-      <MotionPhotoOverlay source={src} />
+      {!!resolvedSrc && <MotionPhotoOverlay source={src} />}
       </span>
       <FullscreenImageViewer
         open={!!viewer}
@@ -484,7 +485,7 @@ function MarkdownSegment({ segment, onTaskCheckboxChange, headingIds, headingPos
   );
 }
 
-export function MarkdownPreview({ markdown, className, compact, containerRef, onTaskCheckboxChange, onFormatCodeBlock, onInsertVoiceTranscript, onEditEncryptedBlock }: MarkdownPreviewProps) {
+export function MarkdownPreview({ markdown, noteId, className, compact, containerRef, onTaskCheckboxChange, onFormatCodeBlock, onInsertVoiceTranscript, onEditEncryptedBlock }: MarkdownPreviewProps) {
   const { t } = useTranslation();
   const rootRef = useRef<HTMLDivElement | null>(null);
   const renderedMarkdown = useMemo(() => preprocessInternalNoteLinks(preprocessMarkdownMath(preprocessMarkdownVideos(projectMarkdownForUser(markdown || "")
@@ -548,6 +549,7 @@ export function MarkdownPreview({ markdown, className, compact, containerRef, on
   }
 
   return (
+    <AttachmentNoteContext.Provider value={noteId || null}>
     <div
       ref={setContainerRef}
       className={cn(
@@ -578,5 +580,6 @@ export function MarkdownPreview({ markdown, className, compact, containerRef, on
         </ReactMarkdown>
       )}
     </div>
+    </AttachmentNoteContext.Provider>
   );
 }
