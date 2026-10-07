@@ -1,0 +1,89 @@
+name: Repair v1.5.0 macOS Release Assets
+
+on:
+  push:
+    branches:
+      - release/v1.5.0
+    paths:
+      - ".github/workflows/repair-v1.5.0-macos-assets.yml"
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Download original macOS artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p repair
+          gh run download 37491636049 \
+            --repo cropflre/nowen-note \
+            --name nowen-note-mac \
+            --dir repair
+
+      - name: Verify required macOS assets
+        run: |
+          set -euo pipefail
+          required=(
+            "Nowen-Note-1.5.0-x64.dmg"
+            "Nowen-Note-1.5.0-arm64.dmg"
+            "Nowen-Note-1.5.0-x64.zip"
+            "Nowen-Note-1.5.0-arm64.zip"
+            "latest-mac.yml"
+          )
+          for name in "${required[@]}"; do
+            if ! find repair -type f -name "$name" -print -quit | grep -q .; then
+              echo "missing required macOS asset: $name" >&2
+              exit 1
+            fi
+          done
+
+      - name: Upload macOS assets to v1.5.0
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mapfile -d '' assets < <(
+            find repair -type f \( \
+              -name "Nowen-Note-1.5.0-*.dmg" -o \
+              -name "Nowen-Note-1.5.0-*.dmg.blockmap" -o \
+              -name "Nowen-Note-1.5.0-*.zip" -o \
+              -name "Nowen-Note-1.5.0-*.zip.blockmap" -o \
+              -name "latest-mac.yml" \
+            \) -print0
+          )
+          if [ "${#assets[@]}" -eq 0 ]; then
+            echo "no macOS assets found" >&2
+            exit 1
+          fi
+          gh release upload v1.5.0 \
+            --repo cropflre/nowen-note \
+            --clobber \
+            "${assets[@]}"
+
+      - name: Verify GitHub Release now contains macOS assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          names="$(gh release view v1.5.0 --repo cropflre/nowen-note --json assets --jq '.assets[].name')"
+          required=(
+            "Nowen-Note-1.5.0-x64.dmg"
+            "Nowen-Note-1.5.0-arm64.dmg"
+            "Nowen-Note-1.5.0-x64.zip"
+            "Nowen-Note-1.5.0-arm64.zip"
+            "latest-mac.yml"
+          )
+          for name in "${required[@]}"; do
+            printf '%s\n' "$names" | grep -Fxq "$name" || {
+              echo "release verification failed: $name not found" >&2
+              exit 1
+            }
+          done
+          echo "v1.5.0 macOS release assets repaired."
