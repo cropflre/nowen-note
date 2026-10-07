@@ -67,6 +67,14 @@ export function initVecStore(): { loaded: boolean; dim: number | null; error?: s
           ensureVecTable(db, currentDim);
         }
       }
+      // 旧 Docker 部署可能只有 embedding JSON，扩展从未加载成功，也没有 vec_dim。
+      // 直接恢复已计算的向量，不重新调用 embedding API。
+      if (currentDim === null) {
+        const restored = reindexAllVectors();
+        if (restored.written > 0) {
+          console.log(`[vec-store] restored ${restored.written}/${restored.total} existing vectors`);
+        }
+      }
     } catch (e) {
       console.warn("[vec-store] restore dim failed:", e);
     }
@@ -193,7 +201,7 @@ export function upsertVectors(
         continue;
       }
       const buf = Buffer.from(new Float32Array(r.vector).buffer);
-      stmt.run(r.rowid, buf);
+      stmt.run(BigInt(r.rowid), buf);
       written++;
     }
   });

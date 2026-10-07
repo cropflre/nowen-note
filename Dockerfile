@@ -3,6 +3,18 @@
 # =============================================================================
 ARG TARGETARCH=amd64
 
+# ---------- sqlite-vec: 按目标架构编译 musl 扩展（npm Linux 预编译包使用 glibc） ----------
+FROM node:20-alpine AS sqlite-vec-build
+WORKDIR /build
+RUN apk add --no-cache build-base curl sqlite-dev
+# 与 backend/package-lock.json 中的 sqlite-vec 版本一致；源码固定校验和。
+# v0.1.9 的 BSD u_int*_t 别名不适用于 musl；使用源码已包含的 stdint.h 类型。
+RUN curl -fSL --retry 3 https://github.com/asg017/sqlite-vec/releases/download/v0.1.9/sqlite-vec-0.1.9-amalgamation.tar.gz -o sqlite-vec.tar.gz \
+    && echo "3acd67cb4aff080c7050926fd3cf8227905fe5b7ee3829d8ee5024ab1283cf61  sqlite-vec.tar.gz" | sha256sum -c - \
+    && tar -xzf sqlite-vec.tar.gz \
+    && sed -i '/^typedef u_int[0-9]*_t uint[0-9]*_t;$/d' sqlite-vec.c \
+    && cc -O3 -fPIC -shared sqlite-vec.c -o vec0.so -lm
+
 # ---------- Stage 1: 前端构建 ----------
 FROM --platform=$BUILDPLATFORM node:20-alpine AS frontend-build
 ARG TARGETARCH
@@ -59,6 +71,13 @@ COPY --from=backend-build /app/backend/dist ./backend/dist
 COPY backend/templates ./backend/templates
 COPY --from=frontend-build /app/frontend/dist ./frontend/dist
 COPY backend/scripts/smoke-plugin-artifacts.cjs ./backend/scripts/smoke-plugin-artifacts.cjs
+COPY --from=sqlite-vec-build /build/vec0.so /tmp/vec0.so
+COPY backend/scripts/smoke-sqlite-vec.cjs ./backend/scripts/smoke-sqlite-vec.cjs
+# 保持 sqlite-vec 的标准加载路径，同时兼容 amd64/arm64 npm 平台包。
+RUN cd backend \
+    && node -e "require('node:fs').copyFileSync('/tmp/vec0.so', require('sqlite-vec').getLoadablePath())" \
+    && rm /tmp/vec0.so \
+    && node scripts/smoke-sqlite-vec.cjs
 # 仅使用生产依赖与 dist；没有 src，避免开发入口兜底掩盖遗漏的运行器。
 RUN node backend/scripts/smoke-plugin-artifacts.cjs
 

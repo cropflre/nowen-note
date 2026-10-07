@@ -140,6 +140,18 @@ WebSocket Upgrade。自动兼容用于承接已有的 `/public` 重写配置；�
 docker compose logs --tail=200 nowen-note
 ```
 
+### Q：Embedding 已生成，但问答一直使用 BM25？
+
+先在容器内检查向量扩展（使用内存数据库，不修改笔记数据）：
+
+```bash
+docker compose exec nowen-note node backend/scripts/smoke-sqlite-vec.cjs
+```
+
+成功时输出 `extension load, vec0 and KNN passed`，表示扩展加载、向量建表和近邻查询都通过。新版 Docker 构建会编译适配 Alpine musl 的扩展，并执行同一检查；检查失败会阻止镜像构建完成。
+
+旧镜像若出现 `sqlite-vec load failed` 或 `vec0.so.so`，请更新到包含此修复的镜像（源码部署则重新构建）。修复后首次启动会从已有 `note_embeddings` 恢复向量索引，无需重新调用 embedding API。上述检查只验证扩展，实际恢复数量请查看启动日志中的 `[vec-store] restored` 或向量重建日志。
+
 ### Q：为什么没有“立即升级”按钮？
 
 只有官方镜像 Compose 部署、管理员账号、数据库 Schema 就绪、最新稳定版本可用且 updater profile 已连接时才展示可执行按钮。其他部署会显示手动升级或 NAS 应用中心指引。
