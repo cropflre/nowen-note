@@ -88,6 +88,11 @@ test("本地发布守卫在正式校验前汇总完整 CI macOS 产物", async (
   assert.match(releaseGuard, /release_has_complete_mac_assets/);
   assert.match(releaseGuard, /latest-mac\.yml/);
   assert.match(releaseGuard, /failed to collect complete CI macOS assets; keeping \$\{TAG\} as draft/);
+  const macIndex = releaseGuard.indexOf('if grep -q "PC 产物" "$LOG_FILE"; then');
+  const winIndex = releaseGuard.indexOf("if release_contains_windows_candidates");
+  const verifyIndex = releaseGuard.indexOf("==== 验证 GitHub Release 更新元数据与远端资产 ====");
+  assert.ok(macIndex >= 0 && winIndex > macIndex, "macOS 产物必须先于 Windows SignPath 门禁汇总");
+  assert.ok(verifyIndex > winIndex, "Windows 签名门禁仍必须先于最终远端校验");
 });
 
 test("完整桌面 Release 会写明四个平台支持情况", async () => {
