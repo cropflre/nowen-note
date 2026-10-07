@@ -8,6 +8,7 @@ import {
   ChevronsUp,
   CircleAlert,
   FileCode,
+  FileSpreadsheet,
   FileText,
   Folder,
   Loader2,
@@ -51,6 +52,7 @@ import { useSidebarTextStyle } from "@/hooks/useSidebarTextStyle";
 import { api } from "@/lib/api";
 import { getCurrentMindMapAppId, pushMindMapAppPath, subscribeMindMapAppPath } from "@/lib/mindMapDeepLink";
 import { pushSheetAppPath } from "@/lib/sheetDeepLink";
+import { pushExcelAppPath } from "@/lib/excelDeepLink";
 import { markNewNoteForImmediateEdit } from "@/lib/newNoteImmediateEdit";
 import { affectedKnowledgeNoteIds } from "@/lib/knowledgeTreeDeleteReconcile";
 import {
@@ -160,6 +162,7 @@ function nodeIcon(node: KnowledgeTreeNode) {
   if (node.nodeType === "mindmap") return <BrainCircuit size={15} className="text-accent-primary" />;
   if (node.resourceType === "file") return <Paperclip size={15} className="text-amber-500" />;
   if (node.noteType === "sheet") return <Table2 size={15} className="text-sky-500" />;
+  if (node.noteType === "excel") return <FileSpreadsheet size={15} className="text-emerald-600" />;
   return <FileText size={15} className="text-accent-primary" />;
 }
 
@@ -168,6 +171,7 @@ function draftIcon(kind: KnowledgeTreeInlineCreateKind) {
   if (kind === "markdown") return <FileCode size={15} className="text-emerald-500" />;
   if (kind === "mindmap") return <BrainCircuit size={15} className="text-accent-primary" />;
   if (kind === "sheet") return <Table2 size={15} className="text-sky-500" />;
+  if (kind === "excel") return <FileSpreadsheet size={15} className="text-emerald-600" />;
   return <FileText size={15} className="text-accent-primary" />;
 }
 
@@ -730,6 +734,11 @@ export function KnowledgeTreePanel({
     rememberOpened(node.id);
     if (node.noteType === "sheet") {
       pushSheetAppPath(node.resourceId);
+      if (variant === "mobile") actions.setMobileSidebar(false);
+      return;
+    }
+    if (node.noteType === "excel") {
+      pushExcelAppPath(node.resourceId);
       if (variant === "mobile") actions.setMobileSidebar(false);
       return;
     }

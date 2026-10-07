@@ -19,6 +19,7 @@ import TaskCenter from "@/components/TaskCenter";
 import TrashPage from "@/features/trash/TrashPage";
 import MindMapCenter from "@/components/MindMapEditor";
 import SheetEditor from "@/components/SheetEditor";
+import ExcelEditor from "@/components/ExcelEditor";
 import AIChatPanel from "@/components/AIChatPanel";
 import DiaryCenter from "@/components/DiaryCenter";
 import FileManager from "@/components/FileManager";
@@ -79,10 +80,15 @@ import {
   type MindMapAppRoute,
 } from "@/lib/mindMapDeepLink";
 import {
-  getCurrentSheetAppRoute,
-  parseSheetAppPath,
-  type SheetAppRoute,
+getCurrentSheetAppRoute,
+parseSheetAppPath,
+type SheetAppRoute,
 } from "@/lib/sheetDeepLink";
+import {
+getCurrentExcelAppRoute,
+parseExcelAppPath,
+type ExcelAppRoute,
+} from "@/lib/excelDeepLink";
 import {
   clearAuthTokens,
   fetchWithAuthRefresh,
@@ -402,6 +408,7 @@ function AppLayout() {
   const { t } = useTranslation();
   const [mindMapRoute, setMindMapRoute] = useState<MindMapAppRoute>(() => getCurrentMindMapAppRoute());
   const [sheetRoute, setSheetRoute] = useState<SheetAppRoute>(() => getCurrentSheetAppRoute());
+const [excelRoute, setExcelRoute] = useState<ExcelAppRoute>(() => getCurrentExcelAppRoute());
   const [issueRoute, setIssueRoute] = useState(() => parseIssueAppPath(resolveCurrentAppPathname()));
   const [notificationCount, setNotificationCount] = useState(0);
   const [appPathReady, setAppPathReady] = useState(false);
@@ -413,6 +420,8 @@ function AppLayout() {
       const nextSheetRoute = parseSheetAppPath(pathname);
       setMindMapRoute(route);
       setSheetRoute(nextSheetRoute);
+      const nextExcelRoute = parseExcelAppPath(pathname);
+      setExcelRoute(nextExcelRoute);
       const nextIssueRoute = parseIssueAppPath(pathname);
       setIssueRoute(nextIssueRoute);
 
@@ -425,6 +434,10 @@ function AppLayout() {
         actions.setEditorFullscreen(false);
         actions.setMobileSidebar(false);
       } else if (nextSheetRoute.matched) {
+        actions.setViewMode("all");
+        actions.setActiveNote(null);
+        actions.setMobileView("editor");
+      } else if (nextExcelRoute.matched) {
         actions.setViewMode("all");
         actions.setActiveNote(null);
         actions.setMobileView("editor");
@@ -483,6 +496,7 @@ function AppLayout() {
   const [mobileRailHidden] = useMobileRailHidden();
   const railVisible = railMode !== "hidden" || state.sidebarCollapsed;
   const isSheetView = sheetRoute.matched && sheetRoute.sheetId !== null;
+  const isExcelView = excelRoute.matched && excelRoute.excelId !== null;
   const isTaskView = state.viewMode === "tasks";
   const isMindMapView = state.viewMode === "mindmaps";
   const isAIChatView = state.viewMode === "ai-chat";
@@ -894,6 +908,14 @@ function AppLayout() {
           <MobileTopBar />
           <SheetEditor
             noteId={sheetRoute.sheetId!}
+            onRequestClose={() => replaceAppPathState("/")}
+          />
+        </div>
+      ) : isExcelView ? (
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+          <MobileTopBar />
+          <ExcelEditor
+            noteId={excelRoute.excelId!}
             onRequestClose={() => replaceAppPathState("/")}
           />
         </div>
