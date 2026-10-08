@@ -1638,6 +1638,8 @@
     "dueDate": "Due Date",
     "dueAt": "Due Time",
     "sortByDueTime": "Sort by due time",
+    "dueSoonFirst": "Due soon first",
+    "backToManualOrder": "Restore default order",
     "createdAt": "Created",
     "deleteTask": "Delete Task",
     "pendingCount": "{{pending}} pending · {{completed}} completed",
