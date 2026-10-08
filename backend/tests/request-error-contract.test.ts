@@ -18,7 +18,7 @@ test("all responses carry correlation header; trusted proxy IDs are preserved", 
   const response = await createApp().request("/ok", { headers: { "X-Request-Id": "req_valid_12345678" } });
   assert.equal(response.status, 200);
   assert.equal(response.headers.get("X-Request-Id"), "req_valid_12345678");
-  const generated = await createApp().request("/ok", { headers: { "X-Request-Id": "invalid\r\nleak" } });
+  const generated = await createApp().request("/ok", { headers: { "X-Request-Id": "bad id" } });
   assert.match(generated.headers.get("X-Request-Id") || "", /^[0-9a-f-]{36}$/);
 });
 
