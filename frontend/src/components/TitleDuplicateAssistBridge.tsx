@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef } from "react";
 
 import { api } from "@/lib/api";
+import { isRootDocumentNotebookId } from "@/lib/rootDocumentCreatePolicy";
 import { canWriteNote } from "@/lib/notePermissions";
 import {
   findTitleDuplicateRanges,
@@ -304,7 +305,12 @@ export default function TitleDuplicateAssistBridge({
     const version = (requestVersionRef.current.get(notebookId) || 0) + 1;
     requestVersionRef.current.set(notebookId, version);
 
-    const request = api.getNotes({ notebookId, includeDescendants: "1" })
+    // Root-document notebooks are hidden internal containers. ACL-based
+    // notebookId queries will 404; ask the knowledge-tree root scope instead.
+    const params = isRootDocumentNotebookId(notebookId)
+      ? { treeParentId: "root", includeDescendants: "0" }
+      : { notebookId, includeDescendants: "1" };
+    const request = api.getNotes(params)
       .then((notes) => {
         const candidates = notes
           .filter((note) => !note.isTrashed)
