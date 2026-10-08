@@ -696,7 +696,7 @@ export default function AIChatPanel({ onClose, onNavigateToNote }: {
       const notes = await api.getNotes();
       const validIds = notes.filter((note) => !note.isLocked && !note.isTrashed).map((note) => note.id).slice(0, 20);
       if (!validIds.length) {
-        setBatchResult("没有可格式化的笔记");
+        setBatchResult(t("aiChatUi.noNotesToFormat"));
         return;
       }
       const result = await api.batchFormatNotes(validIds);
@@ -807,7 +807,7 @@ export default function AIChatPanel({ onClose, onNavigateToNote }: {
         <div className="flex items-center justify-between px-3 pb-2 pt-3">
           <div>
             <div className="text-xs font-semibold text-tx-primary">{t("aiChat.conversations")}</div>
-            <div className="mt-0.5 text-[10px] text-tx-tertiary">{conversations.length} 个会话</div>
+            <div className="mt-0.5 text-[10px] text-tx-tertiary">{t("aiChatUi.conversationCount", { count: conversations.length })}</div>
           </div>
           <button
             type="button"
@@ -825,15 +825,15 @@ export default function AIChatPanel({ onClose, onNavigateToNote }: {
             <input
               value={conversationQuery}
               onChange={(event) => setConversationQuery(event.target.value)}
-              placeholder="搜索对话"
-              aria-label="搜索历史对话"
+              placeholder={t("aiChatUi.searchConversations")}
+              aria-label={t("aiChatUi.searchHistory")}
               className="min-w-0 flex-1 bg-transparent text-xs text-tx-primary outline-none placeholder:text-tx-tertiary"
             />
             {conversationQuery && (
               <button
                 type="button"
                 onClick={() => setConversationQuery("")}
-                title="清空搜索"
+                title={t("aiChatUi.clearSearch")}
                 className="rounded p-0.5 hover:bg-app-hover hover:text-tx-primary"
               >
                 <X size={10} />
@@ -850,7 +850,7 @@ export default function AIChatPanel({ onClose, onNavigateToNote }: {
               <div className="px-2 py-4 text-center text-[11px] text-tx-tertiary">{t("aiChat.noConversations")}</div>
             )}
             {!!conversations.length && !filteredConversations.length && (
-              <div className="px-2 py-6 text-center text-[11px] text-tx-tertiary">没有匹配的对话</div>
+              <div className="px-2 py-6 text-center text-[11px] text-tx-tertiary">{t("aiChatUi.noMatchingConversations")}</div>
             )}
             {filteredConversations.map((conversation) => {
               const active = conversation.id === currentConvId;
@@ -904,7 +904,7 @@ export default function AIChatPanel({ onClose, onNavigateToNote }: {
                     {!isRenaming && (
                       <div className="mt-1 flex min-w-0 items-center gap-1.5">
                         <span className="min-w-0 flex-1 truncate text-[10px] text-tx-tertiary">
-                          {conversation.lastMessage || "还没有消息"}
+                          {conversation.lastMessage || t("aiChatUi.noMessages")}
                         </span>
                         <span className="shrink-0 text-[9px] text-tx-tertiary">{conversation.messageCount}</span>
                         <div className="ml-0.5 flex shrink-0 items-center gap-0.5 opacity-60 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
@@ -938,7 +938,7 @@ export default function AIChatPanel({ onClose, onNavigateToNote }: {
       {sidebarOpen && (
         <div
           role="separator"
-          aria-label="调整历史对话栏宽度"
+          aria-label={t("aiChatUi.resizeHistory")}
           aria-orientation="vertical"
           aria-valuemin={MIN_CONVERSATION_SIDEBAR_WIDTH}
           aria-valuemax={MAX_CONVERSATION_SIDEBAR_WIDTH}
@@ -953,7 +953,7 @@ export default function AIChatPanel({ onClose, onNavigateToNote }: {
               conversationSidebarWidth + (event.key === "ArrowRight" ? 16 : -16),
             );
           }}
-          title="拖拽调整历史对话栏宽度，双击恢复默认"
+          title={t("aiChatUi.resizeHistoryHint")}
           className="group relative z-10 -ml-0.5 hidden w-1.5 shrink-0 cursor-col-resize items-center justify-center outline-none transition-colors hover:bg-accent-primary/10 focus:bg-accent-primary/10 active:bg-accent-primary/15 md:flex"
         >
           <div className="h-10 w-0.5 rounded-full bg-transparent transition-colors group-hover:bg-accent-primary/60 group-focus:bg-accent-primary/60" />
@@ -1271,7 +1271,7 @@ export default function AIChatPanel({ onClose, onNavigateToNote }: {
                                 onClick={() => { setEditingMessageId(null); setEditDraft(""); }}
                                 className="rounded-md px-2 py-1 text-[11px] text-white/80 hover:bg-white/10"
                               >
-                                取消
+                                {t("aiChatUi.cancel")}
                               </button>
                               <button
                                 type="button"
@@ -1279,7 +1279,7 @@ export default function AIChatPanel({ onClose, onNavigateToNote }: {
                                 disabled={!editDraft.trim()}
                                 className="rounded-md bg-white px-2 py-1 text-[11px] font-medium text-accent-primary disabled:opacity-50"
                               >
-                                保存
+                                {t("aiChatUi.save")}
                               </button>
                             </div>
                           </div>
@@ -1316,7 +1316,7 @@ export default function AIChatPanel({ onClose, onNavigateToNote }: {
                             <span className="ml-0.5 inline-block h-4 w-1.5 animate-pulse rounded-sm bg-accent-primary/60 align-middle" />
                           )}
                           {message.stopped && (
-                            <div className="mt-2 text-[11px] text-tx-tertiary">已停止生成</div>
+                            <div className="mt-2 text-[11px] text-tx-tertiary">{t("aiChatUi.generationStopped")}</div>
                           )}
                         </div>
                       )}
@@ -1383,7 +1383,7 @@ export default function AIChatPanel({ onClose, onNavigateToNote }: {
                           type="button"
                           onClick={() => void handleCopyMessage(message)}
                           disabled={!message.content}
-                          title="复制"
+                          title={t("aiChatUi.copy")}
                           className="rounded p-1 opacity-65 transition hover:bg-app-hover hover:opacity-100 disabled:opacity-30"
                         >
                           {copiedMessageId === message.id ? <Check size={11} /> : <Copy size={11} />}
@@ -1393,7 +1393,7 @@ export default function AIChatPanel({ onClose, onNavigateToNote }: {
                             type="button"
                             onClick={() => handleStartEditMessage(message)}
                             disabled={isLoading}
-                            title="编辑"
+                            title={t("aiChatUi.edit")}
                             className="rounded p-1 opacity-65 transition hover:bg-app-hover hover:opacity-100 disabled:opacity-30"
                           >
                             <Pencil size={11} />
@@ -1404,7 +1404,7 @@ export default function AIChatPanel({ onClose, onNavigateToNote }: {
                             type="button"
                             onClick={() => void handleRegenerate(message.id)}
                             disabled={isLoading}
-                            title="重新生成"
+                            title={t("aiChatUi.regenerate")}
                             className="rounded p-1 opacity-65 transition hover:bg-app-hover hover:opacity-100 disabled:opacity-30"
                           >
                             <RotateCcw size={11} />
@@ -1414,7 +1414,7 @@ export default function AIChatPanel({ onClose, onNavigateToNote }: {
                           type="button"
                           onClick={() => void handleDeleteMessage(message.id)}
                           disabled={isLoading || message.isStreaming}
-                          title="删除"
+                          title={t("aiChatUi.delete")}
                           className="rounded p-1 opacity-65 transition hover:bg-red-500/10 hover:text-red-500 hover:opacity-100 disabled:opacity-30"
                         >
                           <Trash2 size={11} />
@@ -1434,11 +1434,11 @@ export default function AIChatPanel({ onClose, onNavigateToNote }: {
             <div className="flex min-h-8 flex-wrap items-center gap-2 border-b border-app-border/70 px-3 py-1.5 text-[10px]">
               <div className="flex min-w-0 items-center gap-1.5 text-tx-tertiary">
                 <Database size={11} className="shrink-0 text-accent-primary" />
-                <span className="shrink-0">{t("aiChat.knowledgeScope") || "知识库范围"}</span>
+                <span className="shrink-0">{t("aiChat.knowledgeScope")}</span>
                 <AIKnowledgeScopePicker
                   notebooks={appState.notebooks}
                   value={nbScope === "all" ? "" : nbScopeId}
-                  allLabel={t("aiChat.scopeAll") || "当前空间"}
+                  allLabel={t("aiChat.scopeAll")}
                   onChange={(value) => {
                     if (!value) {
                       setNbScope("all");
@@ -1458,11 +1458,11 @@ export default function AIChatPanel({ onClose, onNavigateToNote }: {
                     onChange={(event) => setNbIncludeChildren(event.target.checked)}
                     className="rounded accent-accent-primary"
                   />
-                  <span>{t("aiChat.includeChildren") || "含子笔记本"}</span>
+                  <span>{t("aiChat.includeChildren")}</span>
                 </label>
               )}
               <PluginPromptPicker disabled={isLoading} onSelect={(value) => { setInput(value); requestAnimationFrame(() => inputRef.current?.focus()); }} />
-              <span className="ml-auto hidden text-tx-tertiary lg:inline">Enter 发送 · Shift + Enter 换行</span>
+              <span className="ml-auto hidden text-tx-tertiary lg:inline">{t("aiChatUi.keyboardHint")}</span>
             </div>
             <div className="flex items-end gap-2 p-2">
               <textarea
@@ -1484,7 +1484,7 @@ export default function AIChatPanel({ onClose, onNavigateToNote }: {
                 type="button"
                 onClick={isLoading ? handleStopGeneration : () => void handleSend()}
                 disabled={!isLoading && !input.trim()}
-                title={isLoading ? "停止生成" : "发送"}
+                title={isLoading ? t("aiChatUi.stopGenerating") : t("aiChatUi.send")}
                 className={cn(
                   "flex h-9 w-9 shrink-0 items-center justify-center rounded-xl transition-all",
                   isLoading
@@ -1499,7 +1499,7 @@ export default function AIChatPanel({ onClose, onNavigateToNote }: {
             </div>
           </div>
           {isLoading && (
-            <p className="mx-auto mt-1.5 max-w-4xl text-right text-[10px] text-tx-tertiary">正在生成回答，点击红色方块可随时停止</p>
+            <p className="mx-auto mt-1.5 max-w-4xl text-right text-[10px] text-tx-tertiary">{t("aiChatUi.generationHint")}</p>
           )}
         </div>
       </div>
