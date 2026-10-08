@@ -596,8 +596,8 @@ function registerAttachmentAccessResponse(payload: AttachmentAccessResponse | nu
  * Capacitor WebView 内嵌静态服务、反代把 /api 也 fallback 到 index.html）
  * 时会抛出非常不友好的 `Unexpected token '<'`，让人看不到是哪条请求出了问题。
  *
- * 这里统一读 text → 再判断 content-type / 体内容首字符，失败时抛出包含
- * URL、status、content-type、body 前 200 字符的错，方便一眼定位环境问题。
+ * 这里统一读 text → 再判断 content-type / 体内容首字符。解析失败只输出
+ * 脱敏请求目标、status、content-type，绝不复制响应体或带签名参数的 URL。
  */
 async function safeJson<T>(res: Response, fullUrl: string): Promise<T> {
   const ct = res.headers.get("content-type") || "";
