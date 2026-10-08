@@ -2,7 +2,7 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SiteSettingsProvider, useSiteSettings } from "../useSiteSettings";
-import { setServerUrl } from "@/lib/api";
+import { api, setServerUrl } from "@/lib/api";
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -57,6 +57,7 @@ describe("SiteSettingsProvider ICP 备案号", () => {
 
   afterEach(() => {
     act(() => root.unmount());
+    vi.restoreAllMocks();
     vi.unstubAllGlobals();
     Reflect.deleteProperty(window, "nowenDesktop");
     localStorage.clear();
@@ -91,6 +92,30 @@ describe("SiteSettingsProvider ICP 备案号", () => {
     await waitFor(() => {
       expect(host.querySelector("[data-testid='icp']")?.textContent).toBe("粤ICP备12345678号-1");
     });
+  });
+
+  it("公开读取分享标识，保存和清空后更新上下文", async () => {
+    fetchMock.mockImplementation(async () => new Response(JSON.stringify({
+      site_title: "nowen-note", site_favicon: "", editor_font_family: "",
+      site_share_footer_text: "团队知识库",
+    }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    const updateMock = vi.spyOn(api, "updateSiteSettings").mockImplementation(async (data) => ({
+      site_title: data.site_title!, site_favicon: data.site_favicon!, editor_font_family: "",
+      site_share_footer_text: data.site_share_footer_text?.trim() || "",
+    }));
+    let save: (text: string) => Promise<void>;
+    function FooterStatus() {
+      const { siteConfig, updateSiteConfig } = useSiteSettings();
+      save = (text) => updateSiteConfig(siteConfig.title, siteConfig.favicon, text);
+      return <span>{siteConfig.shareFooterText}</span>;
+    }
+    await act(async () => root.render(<SiteSettingsProvider><FooterStatus /></SiteSettingsProvider>));
+    expect(host.textContent).toBe("团队知识库");
+    await act(async () => save("  新标识  "));
+    expect(updateMock).toHaveBeenLastCalledWith(expect.objectContaining({ site_share_footer_text: "  新标识  " }));
+    expect(host.textContent).toBe("新标识");
+    await act(async () => save(""));
+    expect(host.textContent).toBe("");
   });
 
   it("把公开站点名称和图标应用到浏览器标签页", async () => {

@@ -5,6 +5,7 @@ import { api, resolveAttachmentUrl } from "@/lib/api";
 import VoiceMemoAudio from "@/components/VoiceMemoAudio";
 import { ShareInfo, SharedNoteContent, ShareComment, Note } from "@/types";
 import { cn } from "@/lib/utils";
+import { useSiteSettings } from "@/hooks/useSiteSettings";
 import { toast } from "@/lib/toast";
 import { common, createLowlight } from "lowlight";
 import ReactMarkdown from "react-markdown";
@@ -79,6 +80,7 @@ export function prepareSharedMarkdownForDisplay(markdown: string): string {
 }
 
 export default function SharedNoteView({ shareToken }: SharedNoteViewProps) {
+  const { siteConfig } = useSiteSettings();
   const [shareInfo, setShareInfo] = useState<ShareInfo | null>(null);
   const [content, setContent] = useState<SharedNoteContent | null>(null);
   const [loading, setLoading] = useState(true);
@@ -1484,9 +1486,9 @@ export default function SharedNoteView({ shareToken }: SharedNoteViewProps) {
 
       {/* 底部 */}
       <footer className="border-t border-zinc-200 dark:border-zinc-800 py-6 text-center">
-        <p className="text-xs text-zinc-400">
+        <p className="text-xs text-zinc-400 px-4 break-words">
           <Globe size={12} className="inline mr-1" />
-          通过 Nowen Note 分享
+          {siteConfig.shareFooterText?.trim() || "通过 Nowen Note 分享"}
         </p>
       </footer>
 
