@@ -179,6 +179,9 @@ jobs:
       - name: MAXScript picker tests
         if: always()
         run: npm run test:run -- src/components/__tests__/CodeBlockView.maxscript.test.tsx
+      - name: Tiptap initialization and flushSync regression
+        if: always()
+        run: npm run test:run -- src/components/__tests__/TiptapInitializationFlushSync.test.tsx
       - name: Focused runtime tests
         if: always()
         run: >-
@@ -211,7 +214,6 @@ jobs:
           src/components/__tests__/SearchReplaceRuntime.test.ts
           src/components/__tests__/TiptapBlockPatchRuntime.test.tsx
           src/components/__tests__/TiptapRuntimePublicContext.test.tsx
-          src/components/__tests__/TiptapInitializationFlushSync.test.tsx
       - name: Frontend typecheck
         if: always()
         run: npx tsc -b
