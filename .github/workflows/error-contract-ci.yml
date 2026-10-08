@@ -2,6 +2,15 @@ name: Error Contract CI
 
 on:
   workflow_dispatch:
+  push:
+    branches: ["release/v1.5.1"]
+    paths:
+      - "backend/src/middleware/request-logging.ts"
+      - "backend/src/middleware/request-error.ts"
+      - "backend/src/index.ts"
+      - "backend/src/services/note-write-observability.ts"
+      - "backend/tests/request-logging.test.ts"
+      - ".github/workflows/error-contract-ci.yml"
   pull_request:
     paths:
       - "backend/src/lib/app-error.ts"
