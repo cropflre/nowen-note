@@ -159,7 +159,7 @@ export function TaskCalendarView({
           {/* Weekday labels */}
           <div className="grid grid-cols-7 border-b border-app-border shrink-0">
             {weekDayLabels.map((label, i) => (
-              <div key={i} className="text-center text-[11px] md:text-xs text-tx-tertiary font-medium py-2.5">
+              <div key={i} className="text-center text-xs md:text-sm text-tx-tertiary font-medium py-2.5">
                 {label}
               </div>
             ))}
@@ -189,7 +189,7 @@ export function TaskCalendarView({
                   onDragLeave={isMobile ? undefined : handleDragLeave}
                   onDrop={isMobile ? undefined : (e) => handleDrop(e, dateKey)}
                   className={cn(
-                    "min-w-0 flex flex-col border-b border-r border-app-border/50 p-1 md:p-2 min-h-[54px] md:min-h-[64px] cursor-pointer transition-colors",
+                    "min-w-0 flex flex-col border-b border-r border-app-border/50 p-1 md:p-2 min-h-[54px] md:min-h-[64px] cursor-pointer transition-colors [container-type:inline-size]",
                     !inMonth && "opacity-30",
                     today && "bg-accent-primary/5",
                     selected && "bg-accent-primary/10 ring-1 ring-inset ring-accent-primary/30",
@@ -223,7 +223,7 @@ export function TaskCalendarView({
                           onDragStart={isMobile ? undefined : (e) => handleDragStart(e, task.id)}
                           onDragEnd={isMobile ? undefined : handleDragEnd}
                           className={cn(
-                            "min-w-0 rounded px-1.5 py-1 text-xs xl:text-[13px] leading-4 xl:leading-[18px] cursor-pointer transition-colors break-words line-clamp-2",
+                            "min-w-0 rounded px-1.5 py-1 text-xs md:text-[clamp(11px,11cqw,14px)] leading-4 xl:leading-[18px] cursor-pointer transition-colors break-words line-clamp-2",
                             draggingTaskId === task.id && "opacity-40",
                             task.isCompleted
                               ? "line-through text-tx-tertiary bg-app-elevated/50"
@@ -282,7 +282,7 @@ export function TaskCalendarView({
                     )}
                   >
                     <span className={cn(
-                      "text-xs leading-relaxed break-words [overflow-wrap:anywhere]",
+                      "text-sm leading-relaxed break-words [overflow-wrap:anywhere]",
                       task.isCompleted ? "line-through text-tx-tertiary" : "text-tx-primary"
                     )}>
                       <TitleView title={task.title} compact isCompleted={task.isCompleted === 1} />
@@ -325,7 +325,7 @@ export function TaskCalendarView({
                   )}
                 >
                   <span className={cn(
-                    "text-xs flex-1 truncate",
+                    "text-sm flex-1 truncate",
                     task.isCompleted ? "line-through text-tx-tertiary" : "text-tx-primary"
                   )}>
                     {task.title}

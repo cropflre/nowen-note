@@ -26,7 +26,8 @@ describe("task calendar adaptive layout", () => {
   it("keeps full task titles, larger desktop labels and a compact mobile count", () => {
     expect(calendarSource).toContain('{task.title}');
     expect(calendarSource).not.toContain("task.title.slice(0, 12)");
-    expect(calendarSource).toContain('text-xs xl:text-[13px]');
+    expect(calendarSource).toContain('md:text-[clamp(11px,11cqw,14px)]');
+    expect(calendarSource).toContain('[container-type:inline-size]');
     expect(calendarSource).toContain('aria-label={t("tasks.taskCount"');
     expect(calendarSource).toContain('const MAX_VISIBLE = 3;');
   });
