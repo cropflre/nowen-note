@@ -231,6 +231,8 @@ describe("release i18n coverage", () => {
       "components/EncryptedNotePane.tsx",
       "components/BackupWebDavBridge.tsx",
       "components/ShareModal.tsx",
+      "components/CodeBlockView.tsx",
+      "components/AIChatPanel.tsx",
     ] as const;
     for (const path of criticalFiles) {
       const source = readFileSync(join(process.cwd(), "src", path), "utf8");
@@ -239,6 +241,13 @@ describe("release i18n coverage", () => {
         .replace(/^\s*\/\/.*$/gm, "");
       expect(withoutComments.match(/[\u3400-\u9fff]/u), path).toBeNull();
     }
+  });
+
+  it("keeps desktop data migration copy out of hardcoded JSX and messages", () => {
+    const source = readFileSync(join(process.cwd(), "src/components/DataManager.tsx"), "utf8");
+    const migrationSection = source.split("function DesktopDataSafetyCard")[1]?.split("export default function DataManager()")[0];
+    expect(migrationSection).toBeTruthy();
+    expect(migrationSection!.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "")).not.toMatch(/[\u3400-\u9fff]/u);
   });
 
   it("uses the active language in the note icon picker", () => {
