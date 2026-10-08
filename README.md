@@ -13,6 +13,7 @@
     <a href="https://github.com/cropflre/nowen-note/releases">下载客户端</a> ·
     <a href="./docs/tutorials/README.md">教程中心</a> ·
     <a href="./docs/tutorials/mcp.md">MCP 安装</a> ·
+    <a href="./.agents/skills/nowen-note-development/SKILL.md">AI 开发 Skill</a> ·
     <a href="./CHANGELOG.md">更新日志</a>
   </p>
 </div>
@@ -365,6 +366,19 @@ nowen-note/
 ├── docs/           # 部署、教程与设计文档
 └── scripts/        # 构建、迁移、打包与发布脚本
 ```
+
+## AI Skills：让 AI 理解和操作 Nowen Note
+
+仓库提供两种用途不同的 [Agent Skills](./.agents/skills/)。**Skill 是 AI 助手的工作指引，不是自动连接服务器的插件，也不包含任何私人笔记或 API 密钥。**
+
+- **[nowen-note-development](./.agents/skills/nowen-note-development/SKILL.md)**：面向项目维护者和 AI 编码助手。包含项目定位、模块导航、Issue/PR 分析、UI 设计原则、同步/权限/备份安全边界、开发测试和交付验收规范。
+- **[nowen-note](./.agents/skills/nowen-note/SKILL.md)**：面向知识库使用者。指导 AI 在授权范围内搜索、读取、创建和整理笔记，通过 MCP（优先）或已配置的 CLI 操作。
+
+仓库同时提供 [`.claude/skills/`](./.claude/skills/) 镜像，便于支持该目录的客户端使用。将对应 Skill 放到 AI 客户端支持的 Skills 目录，或让编码助手先阅读对应 `SKILL.md`；**不同客户端的自动发现规则以其文档为准**。
+
+如需 AI **实际读取或写入你的笔记**，还需按 [MCP 安装教程](./docs/tutorials/mcp.md) 连接 Nowen Note，并创建限制笔记本和操作范围的 Personal API Token；仅安装 Skill 不会赋予数据权限。
+
+示例：让 AI “先阅读 `nowen-note-development` Skill，分析 Issue 对应代码、实现最小修复并列出验证结果”。
 
 ## 文档导航
 

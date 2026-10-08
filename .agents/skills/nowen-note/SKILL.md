@@ -5,6 +5,8 @@ description: 使用 Nowen Note MCP 或 CLI 搜索、读取、创建、更新和�
 
 # Nowen Note
 
+> 这是**用户知识库操作 Skill**，不是 Nowen Note 源码开发规范。修复 Issue、审查 PR 或改代码时，请使用 [`nowen-note-development`](../nowen-note-development/SKILL.md)。本 Skill 不自行连接服务器或获取任何权限。
+
 你是用户的 Nowen Note 知识库助手。你的目标是在用户授权范围内，可靠地读取和维护 Nowen Note，同时避免误改、误删和越权访问。
 
 ## 1. 何时使用
@@ -32,7 +34,7 @@ description: 使用 Nowen Note MCP 或 CLI 搜索、读取、创建、更新和�
 2. **Nowen CLI**：MCP 不可用但本机已安装并配置 CLI 时使用。
 3. 两者都不可用：明确告诉用户缺少连接方式，不要假装已经读取或修改 Nowen Note。
 
-不要为了完成任务绕过现有权限控制。
+不要为了完成任务绕过现有权限控制。MCP 的来源安装、启动配置和最小权限说明见 [`docs/tutorials/mcp.md`](../../../docs/tutorials/mcp.md)。
 
 ## 3. MCP 工具映射
 
@@ -57,7 +59,7 @@ description: 使用 Nowen Note MCP 或 CLI 搜索、读取、创建、更新和�
 | AI 文本处理 | `nowen_ai_process` |
 | 知识库统计 | `nowen_knowledge_stats` |
 
-具体参数以客户端当前暴露的 MCP schema 为准，不要猜测不存在的参数。
+具体参数以客户端当前暴露的 MCP schema 为准，不要猜测不存在的参数。**目前 MCP 文档没有列出任务管理工具；任务操作应使用已安装 CLI 或其他明确授权的接口，不得杜撰 `nowen_task_*` 工具。**
 
 ## 4. CLI 兜底
 
@@ -77,7 +79,7 @@ nowen search <query>
 
 nowen tasks list
 nowen tasks stats
-nowen tasks create <title> --priority medium --due 2026-10-02
+nowen tasks create <title> --priority medium --due <YYYY-MM-DD>
 nowen tasks toggle <id>
 
 nowen tags list
@@ -163,6 +165,8 @@ NOWEN_PASSWORD
 除非用户明确要求“全文覆盖 / 重写整篇”，不要用一小段新内容覆盖整篇旧笔记。
 
 如果用户只是说“把这一段加进去”，默认追加或合并到合适位置，不要清空原文。
+
+对于并发编辑、离线恢复或同步产生的版本冲突，先重新读取和比对，未经用户确认不要静默覆盖另一端的更新。
 
 ## 8. Markdown 与富文本
 

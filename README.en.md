@@ -13,6 +13,7 @@
     <a href="https://github.com/cropflre/nowen-note/releases">Downloads</a> ·
     <a href="./docs/tutorials/README.md">Tutorials</a> ·
     <a href="./docs/tutorials/mcp.en.md">MCP Installation</a> ·
+    <a href="./.agents/skills/nowen-note-development/SKILL.md">AI Development Skill</a> ·
     <a href="./CHANGELOG.md">Changelog</a>
   </p>
 </div>
@@ -365,6 +366,19 @@ nowen-note/
 ├── docs/           # Deployment, tutorials, and design documents
 └── scripts/        # Build, migration, packaging, and release scripts
 ```
+
+## AI Skills for users and contributors
+
+This repository provides two distinct [Agent Skills](./.agents/skills/). **A Skill is guidance for an AI assistant, not an authenticated connection to your server; it contains no private notes or API credentials.**
+
+- **[nowen-note-development](./.agents/skills/nowen-note-development/SKILL.md)**: for maintainers and coding agents working on the Nowen Note repository. Covers product decisions, the codebase map, Issue/PR triage, UX principles, sync/security/backups, testing and delivery criteria.
+- **[nowen-note](./.agents/skills/nowen-note/SKILL.md)**: for people who want AI to search, read, create and organize their own notes using authorized MCP tools or an already configured CLI.
+
+Matching copies are available under [`.claude/skills/`](./.claude/skills/) for clients that use that layout. Copy the relevant Skill to the directory supported by your AI client, or ask the agent to read the appropriate `SKILL.md`. **Automatic Skill discovery is client-dependent.**
+
+To **actually access a personal knowledge base**, follow the [MCP setup guide](./docs/tutorials/mcp.en.md) and grant a restricted Personal API Token. Installing a Skill alone does not grant access to your notes.
+
+Example prompt: "Read the nowen-note-development Skill first, inspect the code behind this Issue, implement the smallest safe fix, and report the tests you ran."
 
 ## Documentation
 
