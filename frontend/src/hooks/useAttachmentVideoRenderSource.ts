@@ -1,5 +1,6 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
-import { Capacitor, registerPlugin } from "@capacitor/core";
+import { Capacitor } from "@capacitor/core";
+import { attachmentMediaPlugin as AttachmentMedia } from "@/lib/attachmentMediaPlugin";
 
 import { resolveAttachmentUrl } from "@/lib/api";
 import {
@@ -22,11 +23,7 @@ type AndroidAttachmentPreparation = {
   url: string;
 };
 
-interface AttachmentMediaPlugin {
-  prepare(options: AndroidAttachmentPreparation): Promise<{ uri: string; size: number }>;
-}
 
-const AttachmentMedia = registerPlugin<AttachmentMediaPlugin>("AttachmentMedia");
 
 export function getAndroidAttachmentVideoPreparation(
   resolvedSrc: string,
