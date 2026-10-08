@@ -14,6 +14,12 @@ import { isEncryptedNoteFormat, validateEncryptedNoteWrite } from "./encryptedNo
 
 type EntityType = "notebook" | "note" | "tag" | "note_tag" | "favorite" | "attachment";
 
+const NOTE_LIST_METADATA_COLUMNS = `n.id,n.userId,n.notebookId,n.workspaceId,n.title,n.contentFormat,n.colorMark,
+  n.isPinned,n.isFavorite,n.isLocked,n.isArchived,n.isTrashed,n.version,n.sortOrder,n.createdAt,n.updatedAt`;
+// Bound previews in SQLite, before the native bridge serializes its query result.
+// Bulk AI tags also consume the first 2000 characters from list items.
+const NOTE_LIST_COLUMNS = `${NOTE_LIST_METADATA_COLUMNS},substr(n.contentText,1,2000) AS contentText`;
+
 interface NativeRepositoryOptions {
   db: NativeDatabase;
   attachments: NativeAttachmentStore;
@@ -149,7 +155,7 @@ export class NativeLocalRepository implements LocalRepository {
     if(!uniqueTagIds.length)return this.listNotesForWorkspace(workspaceId,{limit});
     const scopeKey=this.scopeFromWorkspace(workspaceId).scopeKey;
     const placeholders=uniqueTagIds.map(()=>"?").join(",");
-    return this.db.query<NoteListItem>(`SELECT n.* FROM notes n JOIN note_tags nt
+    return this.db.query<NoteListItem>(`SELECT ${NOTE_LIST_COLUMNS} FROM notes n JOIN note_tags nt
       ON nt.scopeKey=n.scopeKey AND nt.noteId=n.id
       WHERE n.scopeKey=? AND n.isTrashed=0 AND n.isArchived=0 AND nt.tagId IN (${placeholders})
       GROUP BY n.scopeKey,n.id HAVING COUNT(DISTINCT nt.tagId)=?
@@ -163,17 +169,26 @@ export class NativeLocalRepository implements LocalRepository {
     const scopeKey=this.scope().scopeKey;
     const needle=`%${query.trim()}%`;
     if(!query.trim())return [];
-    const rows=await this.db.query<NoteListItem>(`SELECT * FROM notes WHERE scopeKey=? AND isTrashed=0
-      AND (title LIKE ? OR contentText LIKE ?) ORDER BY updatedAt DESC LIMIT ?`,[scopeKey,needle,needle,Math.max(1,limit)]);
     const normalized=query.trim().toLocaleLowerCase();
+    const rows=await this.db.query<NoteListItem & {snippet:string;matchIndex:number}>(`
+      WITH matching_notes AS (
+        SELECT ${NOTE_LIST_METADATA_COLUMNS},n.contentText,
+          instr(lower(n.contentText),lower(?)) AS matchIndex
+        FROM notes n WHERE n.scopeKey=? AND n.isTrashed=0
+          AND (n.title LIKE ? OR n.contentText LIKE ?)
+        ORDER BY n.updatedAt DESC LIMIT ?
+      )
+      SELECT ${NOTE_LIST_METADATA_COLUMNS},n.matchIndex,
+        CASE WHEN n.matchIndex=0 THEN substr(n.contentText,1,160)
+          ELSE substr(n.contentText,MAX(1,n.matchIndex-60),MIN(2000,MIN(60,n.matchIndex-1)+?+100))
+        END AS snippet
+      FROM matching_notes n ORDER BY n.updatedAt DESC
+    `,[query.trim(),scopeKey,needle,needle,Math.max(1,limit),normalized.length]);
     return rows.map((row)=>{
       const titleMatch=row.title.toLocaleLowerCase().includes(normalized);
-      const content=row.contentText||"";
-      const index=content.toLocaleLowerCase().indexOf(normalized);
-      const snippet=index<0?content.slice(0,160):content.slice(Math.max(0,index-60),index+normalized.length+100);
-      return {id:row.id,title:row.title,notebookId:row.notebookId,updatedAt:row.updatedAt,
-        isFavorite:row.isFavorite,isPinned:row.isPinned,snippet,userId:row.userId,
-        workspaceId:row.workspaceId,matchedField:titleMatch?(index>=0?"title+content":"title"):"content"};
+      return {id:row.id,title:row.title,notebookId:row.notebookId,updatedAt:row.updatedAt,snippet:row.snippet,
+        isFavorite:row.isFavorite,isPinned:row.isPinned,userId:row.userId,
+        workspaceId:row.workspaceId,matchedField:titleMatch?(row.matchIndex>0?"title+content":"title"):"content"};
     });
   }
 
@@ -356,7 +371,7 @@ export class NativeLocalRepository implements LocalRepository {
     if (!query.includeArchived) where.push("n.isArchived = 0");
     values.push(Math.max(1, query.limit ?? 500), Math.max(0, query.offset ?? 0));
     return await this.db.query<NoteListItem>(`
-      SELECT n.* FROM notes n WHERE ${where.join(" AND ")}
+      SELECT ${NOTE_LIST_COLUMNS} FROM notes n WHERE ${where.join(" AND ")}
       ORDER BY n.isPinned DESC, n.updatedAt DESC LIMIT ? OFFSET ?
     `, values);
   }
