@@ -347,6 +347,41 @@ async function handleTagRequest(request: Request, url: URL): Promise<Response> {
   throw new ScopeDeniedError("scoped MCP 暂不允许全局标签管理；仅允许对作用域内笔记添加或移除标签");
 }
 
+async function handlePersonalTaskRequest(request: Request, url: URL): Promise<Response> {
+  const method = request.method.toUpperCase();
+  const resource = url.pathname.slice('/api/tasks'.length);
+  const workspaceId = url.searchParams.get('workspaceId');
+  if (workspaceId && workspaceId !== 'personal') throw new ScopeDeniedError('MCP 仅允许个人任务');
+  if (resource === '' || resource === '/') {
+    if (method !== 'GET' && method !== 'POST') throw new ScopeDeniedError('任务集合只支持查询与创建');
+    if (method === 'POST') {
+      policy.assertWritable('创建任务');
+      const body = await readJson(request);
+      if (body.workspaceId || body.parentId || body.noteId || body.projectId) {
+        throw new ScopeDeniedError('MCP 任务创建不得关联其他资源');
+      }
+    }
+    return originalFetch(request);
+  }
+  if (resource === '/stats/summary' && method === 'GET') return originalFetch(request);
+  const match = /^\/([A-Za-z0-9-]+)$/.exec(resource);
+  if (!match || !['GET', 'PUT'].includes(method)) throw new ScopeDeniedError('MCP 不允许任务批量或删除操作');
+  if (method === 'PUT') policy.assertWritable('修改任务');
+  const record = await originalFetch(new Request(new URL('/api/tasks/' + encodeURIComponent(match[1]), baseUrl), {
+    headers: requestAuthHeaders(request),
+  }));
+  if (!record.ok) throw new ScopeDeniedError('任务不存在或无权限');
+  const task = await readJsonResponse(record);
+  if (!task || task.workspaceId != null) throw new ScopeDeniedError('MCP 仅允许个人任务');
+  if (method === 'PUT') {
+    const body = await readJson(request);
+    if (body.workspaceId || body.parentId || body.noteId || body.projectId) {
+      throw new ScopeDeniedError('MCP 任务更新不得修改资源关联');
+    }
+    return originalFetch(request);
+  }
+  return replaceJsonResponse(record, task);
+}
 async function scopedFetch(input: string | URL | Request, init?: RequestInit): Promise<Response> {
   let request = new Request(input, init);
   const url = new URL(request.url);
@@ -387,6 +422,9 @@ async function scopedFetch(input: string | URL | Request, init?: RequestInit): P
     }
     if (url.pathname === "/api/tags" || url.pathname.startsWith("/api/tags/")) {
       return await handleTagRequest(request, url);
+    }
+    if (url.pathname === "/api/tasks" || url.pathname.startsWith("/api/tasks/")) {
+      return await handlePersonalTaskRequest(request, url);
     }
     if (url.pathname === "/api/ai/chat") {
       return originalFetch(request);
