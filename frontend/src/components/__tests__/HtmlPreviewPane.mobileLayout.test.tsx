@@ -86,7 +86,7 @@ describe("HtmlPreviewPane responsive clipped article (#789)", () => {
     const html = `<article><p>微信正文</p><img src="/api/attachments/${id}" alt="wechat"></article>`;
     localStorage.setItem("nowen-token", "jwt-token");
     let finish!: (response: Response) => void;
-    const fetchMock = vi.fn(() => new Promise<Response>((resolve) => { finish = resolve; }));
+    const fetchMock = vi.fn((_url: RequestInfo | URL) => new Promise<Response>((resolve) => { finish = resolve; }));
     vi.stubGlobal("fetch", fetchMock);
     const onUpdate = vi.fn();
     await act(async () => {
