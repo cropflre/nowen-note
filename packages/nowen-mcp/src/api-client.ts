@@ -376,6 +376,28 @@ export class NowenApiClient {
     return this.request(`/api/tags/note/${noteId}/tag/${tagId}`, { method: "DELETE" });
   }
 
+  // ==================== 任务 / 待办 ====================
+  // PAT 仅可访问本人个人任务；共享工作区需要登录态并遵守工作区 ACL。
+  async listTasks(filter?: "all" | "today" | "week" | "overdue" | "completed"): Promise<any[]> {
+    return this.request("/api/tasks", { query: { workspaceId: "personal", filter } });
+  }
+
+  async getTask(taskId: string): Promise<any> {
+    return this.request(`/api/tasks/${encodeURIComponent(taskId)}`);
+  }
+
+  async createTask(params: { title: string; priority?: number; dueDate?: string; dueAt?: string; description?: string }): Promise<any> {
+    return this.request("/api/tasks", { method: "POST", query: { workspaceId: "personal" }, body: params });
+  }
+
+  async updateTask(taskId: string, params: Record<string, unknown>): Promise<any> {
+    return this.request(`/api/tasks/${encodeURIComponent(taskId)}`, { method: "PUT", body: params });
+  }
+
+  async taskSummary(): Promise<any> {
+    return this.request("/api/tasks/stats/summary", { query: { workspaceId: "personal" } });
+  }
+
   // ==================== 搜索 ====================
 
   /** 全文搜索笔记 */

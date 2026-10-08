@@ -7,6 +7,8 @@ import { isMobileLocalMode } from "@/lib/mobileLocalMode";
 export interface SiteConfig {
   title: string;
   favicon: string;
+  /** 分享页底部标识文字；空串表示使用默认标识。 */
+  shareFooterText: string;
   /** ICP 备案号；由 Docker/运行时环境变量 NOWEN_ICP_BEIAN 提供。 */
   icpBeian: string;
   /** 公开分享最终使用的 Web 根地址；空串表示继续走构建变量/当前 origin 兜底。 */
@@ -23,6 +25,7 @@ export interface SiteConfig {
 const DEFAULT_CONFIG: SiteConfig = {
   title: "nowen-note",
   favicon: "",
+  shareFooterText: "",
   icpBeian: "",
   publicWebOrigin: "",
   publicWebOriginSource: "current",
@@ -47,7 +50,7 @@ export function getBuiltinFontName(font: typeof BUILTIN_FONTS[number]): string {
 
 interface SiteSettingsContextValue {
   siteConfig: SiteConfig;
-  updateSiteConfig: (title: string, favicon: string) => Promise<void>;
+  updateSiteConfig: (title: string, favicon: string, shareFooterText?: string) => Promise<void>;
   updatePublicWebOrigin: (origin: string) => Promise<void>;
   updateFilePublicOrigin: (origin: string) => Promise<void>;
   updateEditorFont: (fontId: string) => Promise<void>;
@@ -128,6 +131,7 @@ function toSiteConfig(data: any, previous: SiteConfig = DEFAULT_CONFIG): SiteCon
   return {
     title: data?.site_title || "nowen-note",
     favicon: data?.site_favicon || "",
+    shareFooterText: data?.site_share_footer_text || "",
     icpBeian: data?.site_icp_beian || previous.icpBeian || "",
     publicWebOrigin: data?.site_public_web_origin || "",
     publicWebOriginSource: data?.site_public_web_origin_source || "current",
@@ -164,6 +168,7 @@ function writeMobileLocalConfig(config: SiteConfig): void {
     localStorage.setItem(MOBILE_LOCAL_SITE_CONFIG_KEY, JSON.stringify({
       title: config.title,
       favicon: config.favicon,
+      shareFooterText: config.shareFooterText,
       editorFontFamily: config.editorFontFamily,
     }));
   } catch {
@@ -224,15 +229,15 @@ export function SiteSettingsProvider({ children }: { children: React.ReactNode }
     return () => window.removeEventListener(SERVER_URL_CHANGED_EVENT, handleServerUrlChanged);
   }, [loadSiteSettings]);
 
-  const updateSiteConfig = useCallback(async (title: string, favicon: string) => {
+  const updateSiteConfig = useCallback(async (title: string, favicon: string, shareFooterText?: string) => {
     if (isMobileLocalMode()) {
-      const config = { ...siteConfig, title: title || "nowen-note", favicon };
+      const config = { ...siteConfig, title: title || "nowen-note", favicon, shareFooterText: shareFooterText?.trim() ?? siteConfig.shareFooterText };
       setSiteConfig(config);
       writeMobileLocalConfig(config);
       applyToDOM(config.title, config.favicon);
       return;
     }
-    const data = await api.updateSiteSettings({ site_title: title, site_favicon: favicon });
+    const data = await api.updateSiteSettings({ site_title: title, site_favicon: favicon, site_share_footer_text: shareFooterText });
     const config = toSiteConfig(data, siteConfig);
     applyRuntimePublicOrigin(config);
     setSiteConfig(config);

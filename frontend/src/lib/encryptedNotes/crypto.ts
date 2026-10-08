@@ -4,6 +4,7 @@ import {
   fromBase64, toBase64, validateEnvelope, validateIdentity, validatePassphrase,
   type EncryptedContentEnvelope, type EncryptedContentIdentity, type SealedBytes,
 } from "./envelope";
+import { validateNewPassphrase } from "./passphrasePolicy";
 
 function requireCrypto(): Crypto {
   if (!globalThis.crypto?.subtle || !globalThis.crypto?.getRandomValues || !globalThis.crypto?.randomUUID) {
@@ -11,12 +12,12 @@ function requireCrypto(): Crypto {
   }
   return globalThis.crypto;
 }
-const randomBytes = (size: number) => requireCrypto().getRandomValues(new Uint8Array(size));
+export const randomBytes = (size: number) => requireCrypto().getRandomValues(new Uint8Array(size));
 
-async function importKey(bytes: Uint8Array): Promise<CryptoKey> {
+export async function importKey(bytes: Uint8Array): Promise<CryptoKey> {
   return requireCrypto().subtle.importKey("raw", bytes, "AES-GCM", false, ["encrypt", "decrypt"]);
 }
-async function deriveKey(passphrase: string, salt: string): Promise<CryptoKey> {
+export async function deriveKey(passphrase: string, salt: string): Promise<CryptoKey> {
   const password = validatePassphrase(passphrase);
   let derived: Uint8Array | undefined;
   try {
@@ -31,18 +32,18 @@ async function deriveKey(passphrase: string, salt: string): Promise<CryptoKey> {
     throw new EncryptedContentError("unavailable");
   } finally { password.fill(0); derived?.fill(0); }
 }
-async function seal(key: CryptoKey, bytes: Uint8Array, aad: Uint8Array, previousIv?: string): Promise<SealedBytes> {
+export async function seal(key: CryptoKey, bytes: Uint8Array, aad: Uint8Array, previousIv?: string): Promise<SealedBytes> {
   let iv = randomBytes(12);
   while (toBase64(iv) === previousIv) iv = randomBytes(12);
   const ciphertext = await requireCrypto().subtle.encrypt({ name: "AES-GCM", iv, additionalData: aad, tagLength: 128 }, key, bytes);
   return { iv: toBase64(iv), ciphertext: toBase64(new Uint8Array(ciphertext)) };
 }
-async function open(key: CryptoKey, sealed: SealedBytes, aad: Uint8Array): Promise<Uint8Array> {
+export async function open(key: CryptoKey, sealed: SealedBytes, aad: Uint8Array): Promise<Uint8Array> {
   return new Uint8Array(await requireCrypto().subtle.decrypt({
     name: "AES-GCM", iv: fromBase64(sealed.iv, 12), additionalData: aad, tagLength: 128,
   }, key, fromBase64(sealed.ciphertext, 16, MAX_CONTENT_BYTES + 16)));
 }
-function encodeContent(plaintext: string): Uint8Array {
+export function encodeContent(plaintext: string): Uint8Array {
   if (typeof plaintext !== "string" || plaintext.length > MAX_CONTENT_BYTES) throw new EncryptedContentError("invalid");
   const bytes = new TextEncoder().encode(plaintext);
   if (bytes.length > MAX_CONTENT_BYTES
@@ -77,7 +78,7 @@ export async function createEncryptedContent(input: {
   plaintext: string; passphrase: string; kind: EncryptedContentIdentity["kind"]; originalFormat: EncryptedContentIdentity["originalFormat"];
 }): Promise<EncryptedContentEnvelope> {
   requireCrypto();
-  validatePassphrase(input.passphrase).fill(0);
+  validateNewPassphrase(input.passphrase);
   const identity = { objectId: crypto.randomUUID(), kind: input.kind, originalFormat: input.originalFormat };
   validateIdentity(identity);
   const content = encodeContent(input.plaintext);
@@ -92,33 +93,44 @@ export async function createEncryptedContent(input: {
 }
 
 export async function decryptEncryptedContent(value: unknown, passphrase: string, expected: EncryptedContentIdentity): Promise<string> {
+  return (await unlockEncryptedContentKey(value, passphrase, expected)).plaintext;
+}
+
+/** Worker-only session primitive: the key is non-exportable and never sent to the UI. */
+export async function unlockEncryptedContentKey(value: unknown, passphrase: string, expected: EncryptedContentIdentity): Promise<{ plaintext: string; key: CryptoKey }> {
   const envelope = checkedEnvelope(value, expected);
   const dek = await unlockedKey(envelope, passphrase);
   let plaintext: Uint8Array | undefined;
   try {
-    plaintext = await authenticatedContent(envelope, await importKey(dek));
-    try { return new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(plaintext); }
+    const key = await importKey(dek);
+    plaintext = await authenticatedContent(envelope, key);
+    try { return { plaintext: new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(plaintext), key }; }
     catch { throw new EncryptedContentError("unlock-failed"); }
   } finally { dek.fill(0); plaintext?.fill(0); }
 }
 
 export async function updateEncryptedContent(value: unknown, passphrase: string, expected: EncryptedContentIdentity, plaintext: string): Promise<EncryptedContentEnvelope> {
   const envelope = checkedEnvelope(value, expected);
-  const content = encodeContent(plaintext);
-  let dek: Uint8Array | undefined;
+  const dek = await unlockedKey(envelope, passphrase);
   try {
-    dek = await unlockedKey(envelope, passphrase);
-    const key = await importKey(dek);
+    return await updateEncryptedContentWithKey(envelope, await importKey(dek), expected, plaintext);
+  } finally { dek.fill(0); }
+}
+
+export async function updateEncryptedContentWithKey(value: unknown, key: CryptoKey, expected: EncryptedContentIdentity, plaintext: string): Promise<EncryptedContentEnvelope> {
+  const envelope = checkedEnvelope(value, expected);
+  const content = encodeContent(plaintext);
+  try {
     (await authenticatedContent(envelope, key)).fill(0);
     let payload = await seal(key, content, contentAad(envelope, "content"), envelope.payload.iv);
     while (payload.iv === envelope.wrappedKey.iv) payload = await seal(key, content, contentAad(envelope, "content"), envelope.payload.iv);
     return { ...envelope, payload };
-  } finally { dek?.fill(0); content.fill(0); }
+  } finally { content.fill(0); }
 }
 
 export async function changeEncryptedContentPassphrase(value: unknown, oldPassphrase: string, expected: EncryptedContentIdentity, newPassphrase: string): Promise<EncryptedContentEnvelope> {
   const envelope = checkedEnvelope(value, expected);
-  validatePassphrase(newPassphrase).fill(0);
+  validateNewPassphrase(newPassphrase);
   const dek = await unlockedKey(envelope, oldPassphrase);
   try {
     (await authenticatedContent(envelope, await importKey(dek))).fill(0);

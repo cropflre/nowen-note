@@ -9,10 +9,12 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
+import { Capacitor } from "@capacitor/core";
 import { AlertTriangle, CheckCircle2, Download, FolderInput, Loader2 } from "lucide-react";
 
 import { ConflictCenter } from "@/components/settings/ConflictCenter";
 import { SyncSettingsPanel } from "@/components/settings/SyncSettingsPanel";
+import ServerConnectionSettings from "@/components/settings/ServerConnectionSettings";
 import {
   SyncV2DisabledError,
   fetchSyncDiagnostics,
@@ -29,10 +31,18 @@ import {
 } from "@/lib/desktopBridge";
 import { getServerUrl } from "@/lib/api";
 import { getAccessToken } from "@/lib/authSession";
+import { isAndroidNativeRuntime } from "@/lib/mobileLocalMode";
+import MobileSyncSettings from "./MobileSyncSettings";
 
 export default function SyncSettingsTab() {
+  return <SyncSettingsContent mobile={isAndroidNativeRuntime()} />;
+}
+
+function SyncSettingsContent({ mobile }: { mobile: boolean }) {
   const [deviceId, setDeviceId] = useState<string | null>(null);
   const [disabled, setDisabled] = useState(false);
+  const [browserServer, setBrowserServer] = useState(false);
+  const [checkingRuntime, setCheckingRuntime] = useState(!mobile);
   const [reloadKey, setReloadKey] = useState(0);
   const [legacyLite, setLegacyLite] = useState(false);
   const [migration, setMigration] = useState<LiteMigrationProgress | null>(null);
@@ -42,6 +52,10 @@ export default function SyncSettingsTab() {
     (async () => {
       try {
         const appInfo = await getAppInfo();
+        if (!mobile && !appInfo && !Capacitor.isNativePlatform()) {
+          if (!cancelled) setBrowserServer(true);
+          return;
+        }
         const completedThisSession = sessionStorage.getItem("nowen-lite-migration-complete-this-session") === "1";
         if (appInfo?.mode === "lite" && (appInfo.runtime !== "local" || completedThisSession)) {
           const result = await getLiteMigrationProgress();
@@ -56,10 +70,17 @@ export default function SyncSettingsTab() {
       } catch (error) {
         // Flag 关闭是默认状态，不是错误：安静地不渲染同步 UI。
         if (!cancelled && error instanceof SyncV2DisabledError) setDisabled(true);
+      } finally {
+        if (!cancelled) setCheckingRuntime(false);
       }
     })();
     return () => { cancelled = true; };
-  }, [reloadKey]);
+  }, [reloadKey, mobile]);
+
+  if (checkingRuntime) return <p className="text-sm text-muted-foreground">正在读取同步设置…</p>;
+  if (browserServer) return <p className="text-sm text-muted-foreground">
+    浏览器直接操作服务器上的数据，无需另外开启同步。手机和电脑客户端连接同一服务器、登录同一账号并开启同步后，笔记就会自动保持一致。
+  </p>;
 
   if (legacyLite) {
     return <LiteMigrationWizard progress={migration} onProgress={setMigration} />;
@@ -67,15 +88,17 @@ export default function SyncSettingsTab() {
 
   if (disabled) {
     return (
-      <div className="text-sm text-muted-foreground">
-        当前版本未启用多设备同步。笔记全部保存在此设备。
+      <div className="space-y-8">
+        <ServerConnectionSettings />
+        <p className="text-sm text-muted-foreground">当前版本未启用多设备同步。笔记全部保存在此设备。</p>
       </div>
     );
   }
 
   return (
     <div className="space-y-8">
-      <SyncSettingsPanel />
+      <ServerConnectionSettings />
+      {mobile ? <MobileSyncSettings /> : <SyncSettingsPanel />}
       <WorkspaceScopePanel />
       {/* 冲突解决后刷新 deviceId 与诊断，避免显示已处理的冲突数 */}
       <ConflictCenter

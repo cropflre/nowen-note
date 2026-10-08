@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useTranslation } from "react-i18next";
 import {
   BrainCircuit,
   ArrowLeft,
@@ -122,11 +123,11 @@ type MobileView = "recent" | "browse";
 type QuickTreeVisibleDepth = 1 | 2 | 3 | "all";
 
 const SORT_LABELS: Record<MobileKnowledgeTreeSortMode, string> = {
-  "updated-desc": "最近更新",
-  "title-asc": "名称 A–Z",
-  "title-desc": "名称 Z–A",
-  "created-desc": "最近创建",
-  manual: "手动排序",
+  "updated-desc": "recentlyUpdated",
+  "title-asc": "titleAsc",
+  "title-desc": "titleDesc",
+  "created-desc": "recentlyCreated",
+  manual: "manualSort",
 };
 
 function emitTreeChanged(reason: string) {
@@ -167,12 +168,12 @@ function descendantsOf(nodeId: string, nodes: KnowledgeTreeNode[]) {
   return result;
 }
 
-function formatUpdatedAt(value: string): string {
+function formatUpdatedAt(value: string, locale: string): string {
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return "";
   const now = new Date();
   const sameYear = parsed.getFullYear() === now.getFullYear();
-  return new Intl.DateTimeFormat("zh-CN", {
+  return new Intl.DateTimeFormat(locale, {
     ...(sameYear ? {} : { year: "numeric" as const }),
     month: "numeric",
     day: "numeric",
@@ -192,6 +193,7 @@ function MovePanel({
   onMoved: () => void;
   onClose: () => void;
 }) {
+  const { t } = useTranslation();
   const blocked = useMemo(() => {
     const result = descendantsOf(node.id, nodes);
     result.add(node.id);
@@ -217,11 +219,11 @@ function MovePanel({
     try {
       await knowledgeTreeApi.move(node.id, { parentId });
       emitTreeChanged("node-moved");
-      toast.success("已移动");
+      toast.success(t("knowledgeTreeUi.moved"));
       onMoved();
       onClose();
     } catch (error: any) {
-      toast.error(error?.message || "移动失败");
+      toast.error(error?.message || t("knowledgeTreeUi.moveFailed"));
     }
   };
 
@@ -229,8 +231,8 @@ function MovePanel({
     <div className="absolute inset-0 z-[220] flex flex-col bg-app-sidebar">
       <header className="flex h-12 items-center gap-2 border-b border-app-border px-3">
         <Folder size={17} className="text-amber-500" />
-        <div className="min-w-0 flex-1 truncate text-sm font-semibold text-tx-primary">移动“{node.title}”</div>
-        <button type="button" onClick={onClose} className="rounded-md p-2 text-tx-tertiary hover:bg-app-hover" aria-label="关闭移动面板"><X size={17} /></button>
+        <div className="min-w-0 flex-1 truncate text-sm font-semibold text-tx-primary">{t("knowledgeTreeUi.moveTitle", { title: node.title })}</div>
+        <button type="button" onClick={onClose} className="rounded-md p-2 text-tx-tertiary hover:bg-app-hover" aria-label={t("knowledgeTreeUi.closeMove")}><X size={17} /></button>
       </header>
       <div className="min-h-0 flex-1 overflow-y-auto p-2">
         {allowRoot && (
@@ -240,7 +242,7 @@ function MovePanel({
             onClick={() => void move(null)}
             className="mb-1 flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-sm text-tx-secondary hover:bg-app-hover hover:text-tx-primary disabled:cursor-not-allowed disabled:opacity-40"
           >
-            <TreePine size={17} className="text-accent-primary" /><span className="truncate">当前空间根目录</span>
+            <TreePine size={17} className="text-accent-primary" /><span className="truncate">{t("knowledgeTreeUi.mobileRoot")}</span>
           </button>
         )}
         {candidates.map((candidate) => (
@@ -252,7 +254,7 @@ function MovePanel({
             </span>
           </button>
         ))}
-        {candidates.length === 0 && node.parentId === null && <p className="py-10 text-center text-xs text-tx-tertiary">没有可用目标节点</p>}
+        {candidates.length === 0 && node.parentId === null && <p className="py-10 text-center text-xs text-tx-tertiary">{t("knowledgeTreeUi.noTarget")}</p>}
       </div>
     </div>
   );
@@ -263,6 +265,8 @@ export default function MobileKnowledgeTreePanel({
 }: {
   variant?: "mobile" | "desktop";
 } = {}) {
+  const { t, i18n } = useTranslation();
+  const sortLabel = (mode: MobileKnowledgeTreeSortMode) => t(`knowledgeTreeUi.${SORT_LABELS[mode]}`);
   const { state } = useApp();
   const actions = useAppActions();
   const activeMindMapId = useSyncExternalStore(subscribeMindMapAppPath, getCurrentMindMapAppId, () => null);
@@ -916,7 +920,7 @@ export default function MobileKnowledgeTreePanel({
       description: "文件夹始终优先显示。",
       choices: (Object.keys(SORT_LABELS) as MobileKnowledgeTreeSortMode[]).map((mode) => ({
         value: mode,
-        label: `${mode === sortMode ? "✓ " : ""}${SORT_LABELS[mode]}`,
+        label: `${mode === sortMode ? "✓ " : ""}${sortLabel(mode)}`,
       })),
     });
     if (!choice || !(choice in SORT_LABELS)) return;
@@ -1063,7 +1067,7 @@ export default function MobileKnowledgeTreePanel({
     const selected = selectedNodeIds.has(node.id);
     const hasChildren = node.childCount > 0 || nodes.some((candidate) => candidate.parentId === node.id);
     const path = showPath ? buildMobileKnowledgeTreePath(node, nodes) : "";
-    const updatedAt = formatUpdatedAt(node.updatedAt);
+    const updatedAt = formatUpdatedAt(node.updatedAt, i18n.language);
     const actionVisibility = variant === "mobile" ? "flex" : "hidden group-hover:flex";
     const effectiveActionVisibility = multiSelectMode ? "hidden" : actionVisibility;
     const desktopHoverHidden = variant === "desktop" ? "[@media(hover:hover)]:group-hover:hidden" : "";
@@ -1421,8 +1425,8 @@ export default function MobileKnowledgeTreePanel({
               type="button"
               onClick={() => void chooseSortMode()}
               className="flex h-7 w-6 shrink-0 items-center justify-center rounded-md text-accent-primary hover:bg-app-hover"
-              title={`排序：${SORT_LABELS[sortMode]}`}
-              aria-label={`目录排序，当前为${SORT_LABELS[sortMode]}`}
+              title={t("knowledgeTreeUi.sortTitle", { mode: sortLabel(sortMode) })}
+              aria-label={t("knowledgeTreeUi.sortAria", { mode: sortLabel(sortMode) })}
             >
               <ArrowUpDown size={13} />
             </button>
@@ -1470,7 +1474,7 @@ export default function MobileKnowledgeTreePanel({
             ...(view === "browse"
               ? (Object.keys(SORT_LABELS) as MobileKnowledgeTreeSortMode[]).map((mode, index) => ({
                 value: `sort:${mode}`,
-                label: SORT_LABELS[mode],
+                label: sortLabel(mode),
                 checked: sortMode === mode,
                 sectionLabel: index === 0 ? "排序方式" : undefined,
               }))

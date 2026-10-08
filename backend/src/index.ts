@@ -4,11 +4,12 @@ import "./runtime/task-stats-hardening";
 import "./runtime/notebook-publication";
 import "./runtime/knowledge-tree";
 import { Hono } from "hono";
+import { requestErrorTracing, handleUnhandledRequestError } from "./middleware/request-error";
 import wechatCaptureRouter from "./routes/wechat-capture.js";
 import wechatAssistantRouter, { createWechatAssistantCallbackRouter } from "./routes/wechat-assistant.js";
 import pluginInboundRouter from "./routes/plugin-inbound.js";
 import { cors } from "hono/cors";
-import { logger } from "hono/logger";
+import { requestLogMiddleware } from "./middleware/request-logging";
 import { compress } from "hono/compress";
 import path from "path";
 import fs from "fs";
@@ -61,6 +62,7 @@ import pluginExecutionsRouter from "./routes/plugin-executions";
 import automationsRouter from "./routes/automations";
 import automationWebhookRouter from "./automation/webhookTrigger";
 import webhooksRouter from "./routes/webhooks";
+import taskDigestRouter, { dispatchScheduledTaskDigests } from "./routes/task-digest";
 import auditRouter from "./routes/audit";
 import backupsRouter, { handleFullBackupJobDownload } from "./routes/backups";
 import emailRouter from "./routes/email";
@@ -106,6 +108,10 @@ import {
 
 const app = new Hono();
 
+// Preserve legacy route-level error payloads; normalize only uncaught exceptions.
+app.onError(handleUnhandledRequestError);
+app.use("*", requestErrorTracing);
+
 function normalizeProxyCompatibilityPath(pathname: string): string {
   if (pathname === "/public/api" || pathname.startsWith("/public/api/")) {
     return pathname.slice("/public".length) || "/api";
@@ -131,9 +137,11 @@ app.use("*", async (c, next) => {
     ? "/public/api"
     : "/publicapi";
   target.pathname = normalizedPath;
+  const forwardedHeaders = new Headers(c.req.raw.headers);
+  forwardedHeaders.set("X-Request-Id", c.get("requestId"));
   const init: RequestInit & { duplex?: "half" } = {
     method: c.req.raw.method,
-    headers: c.req.raw.headers,
+    headers: forwardedHeaders,
     redirect: c.req.raw.redirect,
     signal: c.req.raw.signal,
   };
@@ -151,8 +159,9 @@ app.use("*", async (c, next) => {
   });
 });
 
-// Capability callback URLs and protocol challenges must not enter request logs.
-app.use("*", (c, next) => (c.req.path.startsWith("/api/plugin-inbound/") || c.req.path === "/api/wechat-assistant/callback") ? next() : logger()(c, next));
+// Log unsuccessful HTTP requests only by default. Do not print signed URLs.
+// Capability callbacks are excluded even when logging is temporarily verbose.
+app.use("*", (c, next) => (c.req.path.startsWith("/api/plugin-inbound/") || c.req.path === "/api/wechat-assistant/callback") ? next() : requestLogMiddleware(c, next));
 
 const isProd = process.env.NODE_ENV === "production";
 const corsOrigins = resolveCorsOrigins();
@@ -163,7 +172,7 @@ app.use("*", cors({
   },
   allowMethods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
   allowHeaders: ["Content-Type", "X-User-Id", "Authorization", "X-Sudo-Token", "X-Folder-Unlock-Tokens", "X-Connection-Id", "X-Share-Session", "X-Requested-With", "X-Request-Id", "X-Export-Filename"],
-  exposeHeaders: ["X-Nowen-Proxy-Compatibility-Path"],
+  exposeHeaders: ["X-Nowen-Proxy-Compatibility-Path", "X-Request-Id"],
   credentials: true,
 }));
 
@@ -357,6 +366,7 @@ app.get("/api/settings", (c) => {
   const result: Record<string, string> = {
     site_title: "nowen-note",
     site_favicon: "",
+    site_share_footer_text: "",
     site_icp_beian: "",
     site_public_web_origin: "",
     site_public_web_origin_source: "current",
@@ -622,6 +632,7 @@ app.route("/api/wechat-capture", wechatCaptureRouter);
 app.route("/api/plugin-executions", pluginExecutionsRouter);
 app.route("/api/automations", automationsRouter);
 app.route("/api/webhooks", webhooksRouter);
+app.route("/api/task-digest", taskDigestRouter);
 app.route("/api/audit", auditRouter);
 app.route("/api/backups", backupsRouter);
 app.route("/api/email", emailRouter);
@@ -946,6 +957,13 @@ try {
   console.warn("[init] automation runtime failed:", e);
 }
 
+// 每分钟检查早晚任务简报。数据库 UNIQUE 约束避免多次投递。
+// 持续推送需要常驻后端，桌面进程关闭时不会运行。
+const taskDigestTimer = process.env.NODE_ENV === "test" ? null : setInterval(() => {
+  try { dispatchScheduledTaskDigests(); }
+  catch (error) { console.error("[task-digest] scan failed:", error); }
+}, 60_000);
+taskDigestTimer?.unref();
 // 启动日历 ICS S3 镜像定时导出
 //   - CALENDAR_EXPORT_TIMER_DISABLED=1 可关闭
 //   - NODE_ENV=test 时不启动
@@ -1023,6 +1041,7 @@ async function gracefulShutdown(signal: string) {
   }, 3000);
   try {
     automationRuntime.stop();
+    if (taskDigestTimer) clearInterval(taskDigestTimer);
     // 先停同步引擎：它可能正在 push，避免它再排下一轮把关停拖长。
     // 已标记 inflight 的条目由下次启动的 recoverInflightMutations 复位，
     // 重复推送由 mutationId 幂等保证安全，不会产生重复数据。

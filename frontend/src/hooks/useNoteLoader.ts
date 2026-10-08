@@ -12,6 +12,7 @@ import {
 } from "@/lib/noteLoadSource";
 import { loadDraft } from "@/lib/draftStorage";
 import { toast } from "@/lib/toast";
+import { api } from "@/lib/api";
 import {
   getEditorRuntimeDecisionForNote,
   getLargeDocumentOriginalFormat,
@@ -100,6 +101,9 @@ export function useNoteLoader() {
         const loaded = await loadNoteCacheFirst({
           noteId: options.noteId,
           fetchRemote,
+          // The slim route checks the same folder-password ACL without
+          // downloading the full note body before displaying cached text.
+          verifyCachedAccess: () => api.getNoteSlim(options.noteId).then(() => undefined),
           onRevalidated: (remote, cached) => {
             const currentState = stateRef.current;
             const current = currentState.activeNote;

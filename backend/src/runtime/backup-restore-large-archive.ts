@@ -10,6 +10,7 @@ import {
   getDbPath,
 } from "../db/schema.js";
 import { BackupManager, type RestoreResult } from "../services/backup.js";
+import { requireSqliteVecForStoredTables } from "../db/sqlite-vec-extension.js";
 import { quarantineRestoredPlugins } from "../plugins/pluginService.js";
 import { quarantineRestoredAutomations } from "../automation/recovery.js";
 import {
@@ -225,6 +226,7 @@ function checkSqliteIntegrity(dbPath: string, label: string): void {
   let db: Database.Database | null = null;
   try {
     db = new Database(dbPath, { readonly: true, fileMustExist: true });
+    requireSqliteVecForStoredTables(db, label);
     const row = db.prepare("PRAGMA integrity_check").get() as { integrity_check: string };
     if (row.integrity_check !== "ok") {
       throw new Error(`${label}完整性检查失败: ${row.integrity_check}`);
@@ -356,6 +358,7 @@ async function buildDryRun(
 
     const backupDb = new Database(tmpDb, { readonly: true, fileMustExist: true });
     try {
+      requireSqliteVecForStoredTables(backupDb, "备份预览");
       const currentDb = getDb() as unknown as Database.Database;
       const tables = listAllTables(backupDb).map((name) => {
         let willClear = 0;

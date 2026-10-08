@@ -211,7 +211,12 @@ export default function NavRail({ variant = "desktop", notificationCount = 0 }: 
     if (isMobile) actions.setMobileSidebar(false);
   }, [actions, isMobile, localDeviceMode]);
 
-  const handleDesktopCloudButton = useCallback(async () => {
+  const handleSwitchToLocal = useCallback(async () => {
+    if (isAndroidNativeRuntime()) {
+      enterMobileLocalMode();
+      window.location.reload();
+      return;
+    }
     if (!canSwitchBackToLocal) return;
 
     const queuedCount = getQueueLength();
@@ -243,6 +248,7 @@ export default function NavRail({ variant = "desktop", notificationCount = 0 }: 
   }, [canSwitchBackToLocal, t]);
 
   const handleLogout = useCallback(async () => {
+    if (isAndroidNativeRuntime()) requestMobileAccountLogin();
     if (isDesktopApp() && !canSwitchBackToLocal) {
       await clearDesktopLocalAuth().catch(() => ({ ok: false }));
       try {
@@ -259,11 +265,6 @@ export default function NavRail({ variant = "desktop", notificationCount = 0 }: 
 
   const handleAccountLogin = useCallback(() => {
     requestMobileAccountLogin();
-    window.location.reload();
-  }, []);
-
-  const handleMobileLocalMode = useCallback(() => {
-    enterMobileLocalMode();
     window.location.reload();
   }, []);
 
@@ -403,29 +404,16 @@ export default function NavRail({ variant = "desktop", notificationCount = 0 }: 
         </button>
       )}
 
-      {isDesktopApp() && canSwitchBackToLocal && (
+      {(canSwitchBackToLocal || (isAndroidNativeRuntime() && !localDeviceMode)) && (
         <button
           data-mobile-drawer-rail-item=""
-          onClick={handleDesktopCloudButton}
+          onClick={handleSwitchToLocal}
           title={showLabel ? undefined : t("sidebar.switchToLocal", "切回本地离线模式")}
           aria-label={t("sidebar.switchToLocal", "切回本地离线模式")}
           className={cn(itemBaseClass, "text-tx-tertiary hover:bg-app-hover hover:text-accent-primary")}
         >
           <CloudOff size={16} />
           {showLabel && <span className="text-[10px] leading-none mt-0.5 max-w-full truncate px-1">{t("sidebar.switchToLocalShort", "本地")}</span>}
-        </button>
-      )}
-
-      {!localDeviceMode && isAndroidNativeRuntime() && (
-        <button
-          data-mobile-drawer-rail-item=""
-          onClick={handleMobileLocalMode}
-          title={showLabel ? undefined : t("sidebar.switchToLocal", "切换离线模式")}
-          aria-label={t("sidebar.switchToLocal", "切换离线模式")}
-          className={cn(itemBaseClass, "text-tx-tertiary hover:bg-app-hover hover:text-accent-primary")}
-        >
-          <CloudOff size={16} />
-          {showLabel && <span className="text-[10px] leading-none mt-0.5 max-w-full truncate px-1">{t("sidebar.switchToLocalShort", "离线")}</span>}
         </button>
       )}
 

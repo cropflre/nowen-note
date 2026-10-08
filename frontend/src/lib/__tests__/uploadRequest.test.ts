@@ -148,6 +148,30 @@ describe("bounded image upload requests", () => {
     });
   });
 
+  it("preserves server error code, non-retryable policy and request ID", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(
+      JSON.stringify({
+        error: "写入文件失败：存储空间不足",
+        code: "ATTACHMENT_STORAGE_NO_SPACE",
+        retryable: false,
+        requestId: "body_12345678",
+      }),
+      { status: 500, headers: { "X-Request-Id": "request_123456789", "Content-Type": "application/json" } },
+    )));
+
+    await expect(fetchJsonWithUploadDeadline(
+      "/api/attachments",
+      { method: "POST" },
+      { timeoutMs: 500, timeoutMessage: "超时", httpErrorMessage: "上传失败" },
+    )).rejects.toMatchObject({
+      code: "HTTP_ERROR",
+      serverCode: "ATTACHMENT_STORAGE_NO_SPACE",
+      retryable: false,
+      requestId: "request_123456789",
+      status: 500,
+    });
+  });
+
   it("preserves HTTP status and retryability for server errors", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response(
       JSON.stringify({ error: "storage unavailable" }),

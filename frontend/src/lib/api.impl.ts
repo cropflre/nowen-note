@@ -58,6 +58,7 @@ import {
 } from "@/lib/serverUrl";
 import { withShareSessionHeader } from "@/lib/shareSession";
 import { clearFolderUnlockTokens, folderUnlockRequestHeaders } from "@/lib/knowledgeTreePassword";
+import { getServerTransportUrl, rememberServerInstanceId } from "./serverEndpointState";
 import { isRootDocumentNotebookId } from "@/lib/rootDocumentCreatePolicy";
 import {
   registerAttachmentAccessUrls,
@@ -75,6 +76,7 @@ import {
   storeAuthTokens,
 } from "@/lib/authSession";
 import { isMobileLocalMode, MobileLocalModeRemoteRequestError } from "@/lib/mobileLocalMode";
+import { createHttpRequestError, safeDiagnosticRequestTarget } from "./httpError";
 
 // 本模块所有显式携带 Authorization 的请求共享同一套 401 刷新与单飞锁；
 // 公共请求不带 Authorization，authSession 会原样透传。
@@ -568,7 +570,7 @@ export function resolveAttachmentUrl(src: string | null | undefined): string {
     return resolveAttachmentAccessUrl(src);
   }
 
-  const server = getServerUrl() || (typeof window !== "undefined" ? window.location.origin : "");
+  const server = getServerTransportUrl(getServerUrl()) || (typeof window !== "undefined" ? window.location.origin : "");
   const base = server.replace(/\/+$/, "");
 
   // 归一化：确保以 / 开头
@@ -594,8 +596,8 @@ function registerAttachmentAccessResponse(payload: AttachmentAccessResponse | nu
  * Capacitor WebView 内嵌静态服务、反代把 /api 也 fallback 到 index.html）
  * 时会抛出非常不友好的 `Unexpected token '<'`，让人看不到是哪条请求出了问题。
  *
- * 这里统一读 text → 再判断 content-type / 体内容首字符，失败时抛出包含
- * URL、status、content-type、body 前 200 字符的错，方便一眼定位环境问题。
+ * 这里统一读 text → 再判断 content-type / 体内容首字符。解析失败只输出
+ * 脱敏请求目标、status、content-type，绝不复制响应体或带签名参数的 URL。
  */
 async function safeJson<T>(res: Response, fullUrl: string): Promise<T> {
   const ct = res.headers.get("content-type") || "";
@@ -603,18 +605,19 @@ async function safeJson<T>(res: Response, fullUrl: string): Promise<T> {
   // 优先按 content-type 判断；但部分后端会返回 text/plain 的 JSON，所以
   // content-type 不像 json 时也尝试 parse，parse 失败再报错。
   const looksJson = /json/i.test(ct) || /^\s*[[{]/.test(text);
+  // Never echo a response body or signed URL into logs/diagnostic bundles.
+  const safeTarget = safeDiagnosticRequestTarget(fullUrl);
+  const safeContentType = ct.slice(0, 80);
   if (!looksJson) {
-    const snippet = text.slice(0, 200).replace(/\s+/g, " ").trim();
     throw new Error(
-      `Expected JSON from ${fullUrl} but got ${ct || "unknown"} (status=${res.status}). Body[0..200]: ${snippet}`,
+      `Expected JSON from ${safeTarget} but got ${safeContentType || "unknown"} (status=${res.status})`,
     );
   }
   try {
     return JSON.parse(text) as T;
-  } catch (e) {
-    const snippet = text.slice(0, 200).replace(/\s+/g, " ").trim();
+  } catch {
     throw new Error(
-      `Invalid JSON from ${fullUrl} (status=${res.status}, ct=${ct}). Body[0..200]: ${snippet}`,
+      `Invalid JSON from ${safeTarget} (status=${res.status}, ct=${safeContentType || "unknown"})`,
     );
   }
 }
@@ -974,27 +977,25 @@ async function requestInternal<T>(url: string, options?: RequestOptions): Promis
       // 桌面端必须等主进程清除本地认证缓存后再刷新，避免旧 token 被重新注入形成循环。
       await broadcastLogout("session_revoked");
       window.location.reload();
-      throw new Error(errBody?.error || "未授权");
+      throw createHttpRequestError(res, errBody, "未授权");
     }
     if (res.status === 401) {
-      throw new Error(errBody?.error || "未授权");
+      throw createHttpRequestError(res, errBody, "未授权");
     }
     // 403 非会话吊销 → 走下方通用错误路径
   }
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    const error = new Error(err.error || `Request failed: ${res.status}`) as Error & {
+    const error = createHttpRequestError(
+      res, err, `Request failed: ${res.status}`,
+    ) as Error & {
       status?: number;
       code?: string;
+      requestId?: string;
+      retryable?: boolean;
       currentVersion?: number;
       manifest?: YjsSubdocumentManifest;
     };
-    error.status = res.status;
-    if (err && typeof err === "object") {
-      if (typeof err.code === "string") error.code = err.code;
-      if (typeof err.currentVersion === "number") error.currentVersion = err.currentVersion;
-      if (err.manifest && typeof err.manifest === "object") error.manifest = err.manifest;
-    }
 
     // ─── 弱网/服务端不稳定状态码入队离线重试 ──────────────
     // 覆盖：5xx（服务端故障）+ 408（请求超时）+ 425（Too Early）+ 429（限流）。
@@ -1274,6 +1275,7 @@ export const api = {
   getSiteSettingsPublic: async (): Promise<{
     site_title: string;
     site_favicon: string;
+    site_share_footer_text?: string;
     site_icp_beian?: string;
     site_public_web_origin?: string;
     site_public_web_origin_source?: string;
@@ -1289,6 +1291,7 @@ export const api = {
       return {
         site_title: "nowen-note",
         site_favicon: "",
+        site_share_footer_text: "",
         site_icp_beian: "",
         site_public_web_origin: "",
         site_public_web_origin_source: "current",
@@ -1330,10 +1333,17 @@ export const api = {
      * 不了原生 plugin 不兼容。Web / Electron 无视此字段（它们走各自的升级通道）。
      */
     minClientVersion?: string;
+    serverInstanceId?: string;
   }> => {
+    const serverUrl = getServerUrl();
+    const configuredEndpoint = getServerTransportUrl(serverUrl) === serverUrl;
     const res = await fetch(`${getBaseUrl()}/version`);
     if (!res.ok) throw new Error(`版本信息获取失败: ${res.status}`);
-    return res.json();
+    const version = await res.json();
+    if (configuredEndpoint && typeof version?.serverInstanceId === "string") {
+      rememberServerInstanceId(serverUrl, version.serverInstanceId);
+    }
+    return version;
   },
 
   // 取 GitHub 仓库最新 release（由后端做代理 + 60s 缓存，失败降级）。
@@ -2370,8 +2380,8 @@ export const api = {
     return res.json() as Promise<{ downloadToken: string; filename: string; size: number }>;
   },
   /** 导出 Nowen 数据包（.nowen.zip） */
-  downloadNowenPackage: async (opts?: { notebookId?: string; includeSubNotebooks?: boolean; includeTrashed?: boolean }) => {
-    const ws = getCurrentWorkspace();
+  downloadNowenPackage: async (opts?: { workspaceId?: string; notebookId?: string; includeSubNotebooks?: boolean; includeTrashed?: boolean }) => {
+    const ws = opts?.workspaceId ?? getCurrentWorkspace();
     const params = new URLSearchParams();
     if (ws && ws !== "personal") params.set("workspaceId", ws);
     if (opts?.notebookId) params.set("notebookId", opts.notebookId);
@@ -2661,11 +2671,13 @@ export const api = {
     }
   },
   /** Nowen 数据包 dry-run 预检 */
-  dryRunNowenPackage: async (file: File) => {
+  dryRunNowenPackage: async (file: File, opts?: { workspaceId?: string }) => {
     const token = getToken();
     const form = new FormData();
     form.append("file", file);
-    const res = await fetch(`${getBaseUrl()}/export/import/nowen-package?dryRun=1`, {
+    const params = new URLSearchParams({ dryRun: "1" });
+    if (opts?.workspaceId) params.set("workspaceId", opts.workspaceId);
+    const res = await fetch(`${getBaseUrl()}/export/import/nowen-package?${params}`, {
       method: "POST",
       credentials: "include",
       headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
@@ -2676,11 +2688,12 @@ export const api = {
     return data;
   },
   /** Nowen 数据包正式导入 */
-  importNowenPackage: async (file: File, opts?: { importMode?: "new-root" | "into-target"; targetNotebookId?: string }) => {
+  importNowenPackage: async (file: File, opts?: { workspaceId?: string; importMode?: "new-root" | "into-target"; targetNotebookId?: string }) => {
     const token = getToken();
     const form = new FormData();
     form.append("file", file);
     const params = new URLSearchParams();
+    if (opts?.workspaceId) params.set("workspaceId", opts.workspaceId);
     if (opts?.importMode) params.set("importMode", opts.importMode);
     if (opts?.targetNotebookId) params.set("targetNotebookId", opts.targetNotebookId);
     const qs = params.toString() ? `?${params.toString()}` : "";
@@ -2700,6 +2713,7 @@ export const api = {
     request<{
       site_title: string;
       site_favicon: string;
+      site_share_footer_text?: string;
       site_icp_beian?: string;
       site_public_web_origin?: string;
       site_public_web_origin_source?: string;
@@ -2715,6 +2729,7 @@ export const api = {
   updateSiteSettings: (data: {
     site_title?: string;
     site_favicon?: string;
+    site_share_footer_text?: string;
     site_icp_beian?: string;
     site_public_web_origin?: string;
     site_file_public_origin?: string;
@@ -2729,6 +2744,7 @@ export const api = {
     request<{
       site_title: string;
       site_favicon: string;
+      site_share_footer_text?: string;
       site_icp_beian?: string;
       site_public_web_origin?: string;
       site_public_web_origin_source?: string;

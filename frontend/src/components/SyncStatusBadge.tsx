@@ -12,47 +12,54 @@
  * 显示规则：
  * - 未启用同步：完全不渲染。纯本地用户不需要看到任何同步字样，
  *   保存指示器的"已保存"已经说明了一切；
- * - 已同步且无待推送：也不渲染。一切正常时保持安静是最好的反馈；
- * - 仅在同步中 / 离线 / 有问题 / 有冲突时才出现。
+ * - Android 始终展示轻量同步文字；其它端在已同步且无冲突时隐藏。
  *
  * 不弹 Toast，不做动画抖动 —— 同步是后台行为。
  */
 
-import { AlertTriangle, CloudOff, RefreshCw } from "lucide-react";
+import { AlertTriangle, Check, CloudOff, RefreshCw } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 import { cn } from "@/lib/utils";
 import { useSyncIndicator } from "@/lib/useSyncIndicator";
+import { isAndroidNativeRuntime } from "@/lib/mobileLocalMode";
 
-export default function SyncStatusBadge({ className }: { className?: string }) {
-  const sync = useSyncIndicator();
+export default function SyncStatusBadge({ className, saving = false }: { className?: string; saving?: boolean }) {
+  const { t } = useTranslation();
+  const sync = useSyncIndicator(saving);
+  const android = isAndroidNativeRuntime();
 
   // 未启用同步：不占用任何空间。
-  if (!sync.syncEnabled) return null;
+  if (!sync.syncEnabled || saving) return null;
 
   // 一切正常时保持安静。有冲突则必须提示，即使状态是 synced ——
   // 冲突不会自动消失，用户需要去处理。
-  if (sync.state === "synced" && sync.conflictCount === 0) return null;
+  if (!android && sync.state === "synced" && sync.conflictCount === 0) return null;
 
   const isConflict = sync.conflictCount > 0;
   const icon = isConflict || sync.state === "problem"
     ? <AlertTriangle size={12} />
     : sync.state === "offline"
       ? <CloudOff size={12} />
-      : <RefreshCw size={12} className="animate-spin" />;
+      : sync.state === "synced" ? <Check size={12} /> : <RefreshCw size={12} />;
 
+  const stateLabel = sync.state === "syncing" && sync.pendingMutations === 0
+    ? t("syncBadge.waitingFirst")
+    : t(`syncBadge.state.${sync.state}`);
   const label = isConflict
-    ? `${sync.conflictCount} 个冲突待处理`
-    : sync.state === "syncing" && sync.pendingMutations > 0
-      // 带上数量让用户知道进度，而不是一个永远转不完的圈。
-      ? `同步中… ${sync.pendingMutations}`
-      : sync.label;
+    ? t("syncBadge.conflicts", { count: sync.conflictCount })
+    : android && sync.pendingMutations > 0
+      ? t("syncBadge.pending", { count: sync.pendingMutations })
+      : sync.state === "syncing" && sync.pendingMutations > 0
+        ? t("syncBadge.syncing", { count: sync.pendingMutations })
+        : stateLabel;
 
   return (
     <span
       title={
         isConflict
-          ? "有内容在多台设备上被同时修改，两个版本都已保留，请到 设置 → 同步 处理"
-          : `${sync.label} · 笔记已保存在此设备`
+          ? t("syncBadge.conflictHint")
+          : t("syncBadge.savedHint", { status: stateLabel })
       }
       className={cn(
         "flex shrink-0 items-center gap-1 whitespace-nowrap px-1.5 py-1 rounded-md text-[11px]",
@@ -63,7 +70,7 @@ export default function SyncStatusBadge({ className }: { className?: string }) {
       )}
     >
       {icon}
-      <span className="hidden sm:inline">{label}</span>
+      <span className={android ? undefined : "hidden sm:inline"}>{label}</span>
     </span>
   );
 }

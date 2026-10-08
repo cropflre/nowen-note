@@ -220,6 +220,57 @@ describe("release i18n coverage", () => {
     ).toEqual([]);
   });
 
+  it("prevents untranslated Chinese UI literals in protected critical flows", () => {
+    const criticalFiles = [
+      "components/settings/MobileAccountSettings.tsx",
+      "components/settings/MobileSyncSettings.tsx",
+      "components/settings/ServerConnectionSettings.tsx",
+      "components/SyncStatusBadge.tsx",
+      "components/EncryptedNoteCreateDialog.tsx",
+      "components/EncryptedBlockDialog.tsx",
+      "components/EncryptedNotePane.tsx",
+      "components/BackupWebDavBridge.tsx",
+      "components/ShareModal.tsx",
+      "components/CodeBlockView.tsx",
+      "components/AIChatPanel.tsx",
+    ] as const;
+    for (const path of criticalFiles) {
+      const source = readFileSync(join(process.cwd(), "src", path), "utf8");
+      const withoutComments = source
+        .replace(/\/\*[\s\S]*?\*\//g, "")
+        .replace(/^\s*\/\/.*$/gm, "");
+      expect(withoutComments.match(/[\u3400-\u9fff]/u), path).toBeNull();
+    }
+  });
+
+  it("keeps desktop data migration copy out of hardcoded JSX and messages", () => {
+    const source = readFileSync(join(process.cwd(), "src/components/DataManager.tsx"), "utf8");
+    const migrationSection = source.split("function DesktopDataSafetyCard")[1]?.split("export default function DataManager()")[0];
+    expect(migrationSection).toBeTruthy();
+    expect(migrationSection!.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "")).not.toMatch(/[\u3400-\u9fff]/u);
+  });
+
+  it("uses the active language in the note icon picker", () => {
+    const source = readFileSync(join(process.cwd(), "src/components/NoteIconPickerModal.tsx"), "utf8");
+    expect(source).toContain("useTranslation()");
+    expect(source).toContain("[language]");
+    expect(source).not.toContain('localStorage.getItem("i18nextLng")');
+  });
+
+  it("covers mobile account, sync status and verified server connection in both languages", () => {
+    for (const namespace of ["mobileAccount", "mobileSync", "serverConnection", "syncBadge", "encryptedUi", "encryptedCreate", "encryptedBlock", "encryptedNote", "webdav", "codeToolbar", "aiChatUi", "shareUi", "editorOps", "editorToolbar", "desktopSafety", "knowledgeTreeUi"]) {
+      const chinese = leafEntries(getPath(zh, namespace));
+      const english = leafEntries(getPath(en, namespace));
+      expect(chinese.map(([key]) => key)).toEqual(english.map(([key]) => key));
+      expect(chinese.length).toBeGreaterThan(0);
+      for (const [key, value] of chinese) {
+        const englishValue = english.find(([name]) => name === key)?.[1];
+        expect(englishValue, `${namespace}.${key}`).toBeTypeOf("string");
+        expect(interpolationNames(value)).toEqual(interpolationNames(englishValue!));
+      }
+    }
+  });
+
   it("defines every literal translation key used by the frontend", () => {
     const keys = literalTranslationKeys(join(process.cwd(), "src"));
     expect(keys.filter((key) => getPath(zh, key) === undefined)).toEqual([]);

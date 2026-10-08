@@ -5,14 +5,15 @@
     "dev": "tsx watch src/index.hardened.ts",
     "build": "node build.bundle.mjs",
     "build:tsc": "tsc",
-    "start": "node dist/index.js",
+    "start": "node dist/index.hardened.js",
     "test": "node scripts/run-tests-serial.mjs",
     "test:serial": "node scripts/run-tests-serial.mjs",
     "fixture:phase-b": "node scripts/phase-b-notebook-fixture.mjs",
     "rebuild:node": "npm rebuild better-sqlite3",
     "rebuild:electron": "node ../scripts/rebuild-native.mjs --prebuild=true",
     "migrate:inline-images": "node ../scripts/migrate-inline-images-to-attachments.mjs",
-    "migrate:inline-images:apply": "node ../scripts/migrate-inline-images-to-attachments.mjs --apply"
+    "migrate:inline-images:apply": "node ../scripts/migrate-inline-images-to-attachments.mjs --apply",
+    "inspect:note-formats": "node --import tsx scripts/inspect-note-formats.ts"
   },
   "dependencies": {
     "@hono/node-server": "^1.13.7",

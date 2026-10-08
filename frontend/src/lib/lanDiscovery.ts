@@ -103,6 +103,7 @@ function getElectronBridge(): ElectronDiscoveryBridge | null {
 
 class ElectronDiscovery implements LanDiscovery {
   private bridge: ElectronDiscoveryBridge;
+  private subscribers = 0;
   constructor(bridge: ElectronDiscoveryBridge) {
     this.bridge = bridge;
   }
@@ -120,7 +121,13 @@ class ElectronDiscovery implements LanDiscovery {
     }
   }
   onUpdate(cb: (list: DiscoveredService[]) => void): () => void {
-    return this.bridge.onUpdate(cb);
+    this.subscribers++;
+    const off = this.bridge.onUpdate(cb);
+    return () => {
+      off();
+      this.subscribers--;
+      if (this.subscribers === 0) void this.stop();
+    };
   }
 }
 
@@ -172,6 +179,7 @@ class CapacitorDiscovery implements LanDiscovery {
   private services = new Map<string, DiscoveredService>();
   private listeners = new Set<(list: DiscoveredService[]) => void>();
   private starting: Promise<StartResult> | null = null;
+  private stopping: Promise<void> | null = null;
   private started = false;
 
   isAvailable() {
@@ -182,11 +190,8 @@ class CapacitorDiscovery implements LanDiscovery {
   private async loadPlugin(): Promise<ZeroconfPluginShape | null> {
     if (this.plugin) return this.plugin;
     try {
-      // 动态 import：Web 端打包时 vite 仍会把它纳入图，但只要这个包真实存在于
-      // node_modules（peer 没装也至少有 ts 入口），构建不会失败。运行期只在
-      // isNativePlatform=true 时才 await 这条路径。
-      // @vite-ignore 让 vite 把它当作真实模块路径而不尝试去做依赖预构建优化。
-      const mod: any = await import(/* @vite-ignore */ "@mhaberler/capacitor-zeroconf-nsd");
+      // 保留动态加载，但必须让 Vite 打包插件，原生 WebView 无法解析裸模块路径。
+      const mod: any = await import("@mhaberler/capacitor-zeroconf-nsd");
       // 该插件命名导出 ZeroConf（C 大写）
       const plugin = mod.ZeroConf || mod.Zeroconf || mod.default || mod;
       if (!plugin || typeof plugin.watch !== "function") {
@@ -260,6 +265,7 @@ class CapacitorDiscovery implements LanDiscovery {
 
   async start(): Promise<StartResult> {
     if (!this.isAvailable()) return { ok: false, available: false };
+    if (this.stopping) await this.stopping;
     if (this.started) return { ok: true, available: true };
     if (this.starting) return this.starting;
 
@@ -291,21 +297,27 @@ class CapacitorDiscovery implements LanDiscovery {
   }
 
   async stop(): Promise<void> {
+    if (this.starting) await this.starting;
+    if (this.stopping) return this.stopping;
     if (!this.started) {
       this.services.clear();
       return;
     }
     this.started = false;
-    try {
-      if (this.plugin) {
-        await this.plugin.unwatch({ type: ZEROCONF_TYPE, domain: ZEROCONF_DOMAIN });
+    this.stopping = (async () => {
+      try {
+        if (this.plugin) {
+          await this.plugin.unwatch({ type: ZEROCONF_TYPE, domain: ZEROCONF_DOMAIN });
+        }
+      } catch (e) {
+        console.warn("[lanDiscovery] zeroconf stop failed:", e);
+      } finally {
+        this.services.clear();
+        this.broadcast();
+        this.stopping = null;
       }
-    } catch (e) {
-      console.warn("[lanDiscovery] zeroconf stop failed:", e);
-    } finally {
-      this.services.clear();
-      this.broadcast();
-    }
+    })();
+    return this.stopping;
   }
 
   onUpdate(cb: (list: DiscoveredService[]) => void): () => void {
@@ -319,9 +331,10 @@ class CapacitorDiscovery implements LanDiscovery {
     return () => {
       this.listeners.delete(cb);
       // 没人订阅了就停（省电）。这里不 await：解订阅是同步的。
-      if (this.listeners.size === 0 && this.started) {
-        this.stop().catch(() => {});
-      }
+      void (async () => {
+        if (this.starting) await this.starting;
+        if (this.listeners.size === 0) await this.stop();
+      })().catch(() => {});
     };
   }
 }

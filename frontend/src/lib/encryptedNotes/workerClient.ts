@@ -1,14 +1,14 @@
 import { EncryptedContentError, type EncryptedContentEnvelope } from "./envelope";
 import type { CryptoRequest, CryptoResponse } from "./protocol";
+import { acquireKdfSlot } from "./kdfGate";
 
-let busy = false;
 export function runEncryptedContentOperation(request: CryptoRequest & { operation: "decrypt" }, signal?: AbortSignal): Promise<string>;
 export function runEncryptedContentOperation(request: CryptoRequest & { operation: "create" | "update" | "change-passphrase" }, signal?: AbortSignal): Promise<EncryptedContentEnvelope>;
 export function runEncryptedContentOperation(request: CryptoRequest, signal?: AbortSignal): Promise<EncryptedContentEnvelope | string> {
   if (signal?.aborted) return Promise.reject(new EncryptedContentError("aborted"));
-  if (busy) return Promise.reject(new EncryptedContentError("busy"));
   if (typeof Worker === "undefined" || !globalThis.crypto?.subtle) return Promise.reject(new EncryptedContentError("unavailable"));
-  busy = true;
+  let release: () => void;
+  try { release = acquireKdfSlot(); } catch (error) { return Promise.reject(error); }
   return new Promise((resolve, reject) => {
     let worker: Worker | undefined;
     let settled = false;
@@ -18,7 +18,7 @@ export function runEncryptedContentOperation(request: CryptoRequest, signal?: Ab
       clearTimeout(timeout);
       signal?.removeEventListener("abort", abort);
       if (worker) { worker.onmessage = null; worker.onerror = null; worker.onmessageerror = null; worker.terminate(); }
-      busy = false;
+      release();
       if (result?.ok) resolve(result.result);
       else reject(new EncryptedContentError(result?.code ?? "unavailable"));
     };

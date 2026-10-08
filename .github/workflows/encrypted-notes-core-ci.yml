@@ -6,6 +6,7 @@ on:
     branches: [main, "release/**"]
     paths:
       - "frontend/src/lib/encryptedNotes/**"
+      - "frontend/src/i18n/**"
       - "frontend/src/lib/desktopBridge.ts"
       - "electron/encrypted-notes*.js"
       - "scripts/encrypted-notes*-fixture.cjs"
@@ -44,11 +45,18 @@ on:
       - "frontend/src/lib/offlineRead.ts"
       - "frontend/src/lib/syncEngine.ts"
       - "frontend/src/lib/yjsProvider.ts"
+      - "frontend/src/lib/nativeDatabase.ts"
+      - "frontend/android/app/src/main/java/com/nowen/note/EncryptedContentGuardPlugin.java"
+      - "frontend/android/app/src/main/java/com/nowen/note/MainActivity.java"
+      - "frontend/src/lib/nativeLocalRepository.ts"
+      - "frontend/src/lib/mobileSyncEngine.ts"
+      - "frontend/src/lib/__tests__/mobileSyncUnknownEntity.test.ts"
       - "frontend/src/lib/api.impl.ts"
       - "frontend/src/store/AppContext.tsx"
       - "backend/src/db/**"
       - "backend/src/types/**"
       - "backend/src/lib/encryptedNotes.ts"
+      - "backend/src/lib/encryptedContentV2.ts"
       - "backend/src/lib/encryptedBlockWrites.ts"
       - "backend/src/runtime/block-patch.ts"
       - "backend/src/routes/blocks.ts"
@@ -83,11 +91,13 @@ on:
       - "frontend/playwright.encrypted-notes*.config.ts"
       - "frontend/package*.json"
       - "scripts/generate-encrypted-notes-vector.mjs"
+      - "scripts/generate-encrypted-v2-fixture.mjs"
       - "docs/architecture/encrypted-notes*.md"
       - ".github/workflows/encrypted-notes-core-ci.yml"
   pull_request:
     paths:
       - "frontend/src/lib/encryptedNotes/**"
+      - "frontend/src/i18n/**"
       - "frontend/src/lib/desktopBridge.ts"
       - "electron/encrypted-notes*.js"
       - "scripts/encrypted-notes*-fixture.cjs"
@@ -126,11 +136,18 @@ on:
       - "frontend/src/lib/offlineRead.ts"
       - "frontend/src/lib/syncEngine.ts"
       - "frontend/src/lib/yjsProvider.ts"
+      - "frontend/src/lib/nativeDatabase.ts"
+      - "frontend/android/app/src/main/java/com/nowen/note/EncryptedContentGuardPlugin.java"
+      - "frontend/android/app/src/main/java/com/nowen/note/MainActivity.java"
+      - "frontend/src/lib/nativeLocalRepository.ts"
+      - "frontend/src/lib/mobileSyncEngine.ts"
+      - "frontend/src/lib/__tests__/mobileSyncUnknownEntity.test.ts"
       - "frontend/src/lib/api.impl.ts"
       - "frontend/src/store/AppContext.tsx"
       - "backend/src/db/**"
       - "backend/src/types/**"
       - "backend/src/lib/encryptedNotes.ts"
+      - "backend/src/lib/encryptedContentV2.ts"
       - "backend/src/lib/encryptedBlockWrites.ts"
       - "backend/src/runtime/block-patch.ts"
       - "backend/src/routes/blocks.ts"
@@ -165,6 +182,7 @@ on:
       - "frontend/playwright.encrypted-notes*.config.ts"
       - "frontend/package*.json"
       - "scripts/generate-encrypted-notes-vector.mjs"
+      - "scripts/generate-encrypted-v2-fixture.mjs"
       - "docs/architecture/encrypted-notes*.md"
       - ".github/workflows/encrypted-notes-core-ci.yml"
 
@@ -180,6 +198,9 @@ jobs:
         working-directory: frontend
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Upgrade regression starts with the actual v1.5.0 release source.
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           # Newer 24.x headers can abort ObjectWrap GC (nodejs/node#65446).
@@ -192,16 +213,18 @@ jobs:
         run: npm ci
         working-directory: backend
       - name: SQLite persistence, backup and old-writer regressions
-        run: node --import tsx --import ./tests/setup-db-isolation.ts --test tests/encrypted-notes-blocks.test.ts tests/encrypted-notes-block-writers.test.ts tests/encrypted-notes-storage.test.ts tests/encrypted-notes-conversion-preflight.test.ts tests/encrypted-notes-conversion.test.ts tests/encrypted-notes-sync.test.ts tests/encrypted-notes-backup.test.ts tests/sync-v2-bootstrap.test.ts tests/sync-v2-engine.test.ts tests/sync-v2-conflict-history-route.test.ts tests/backup-restore-integrity.test.ts tests/backup-restore-large-archive.test.ts tests/backup-restore-corrupt-hotfix.test.ts
+        run: node --import tsx --import ./tests/setup-db-isolation.ts --test tests/encrypted-notes-upgrade.test.ts tests/encrypted-notes-native-storage.test.ts tests/encrypted-notes-blocks.test.ts tests/encrypted-notes-block-writers.test.ts tests/encrypted-notes-storage.test.ts tests/encrypted-notes-conversion-preflight.test.ts tests/encrypted-notes-conversion.test.ts tests/encrypted-notes-sync.test.ts tests/encrypted-notes-backup.test.ts tests/sync-v2-bootstrap.test.ts tests/sync-v2-engine.test.ts tests/sync-v2-conflict-history-route.test.ts tests/backup-restore-integrity.test.ts tests/backup-restore-large-archive.test.ts tests/backup-restore-corrupt-hotfix.test.ts
         working-directory: backend
       - name: Backend typecheck
         run: npx tsc --noEmit --pretty false
         working-directory: backend
       - name: Storage, Sync and recovery fixture typecheck
-        run: npx tsc --noEmit --pretty false --target ES2022 --module ESNext --moduleResolution bundler --esModuleInterop --skipLibCheck --strict tests/encrypted-notes-sync.test.ts tests/encrypted-notes-backup.test.ts tests/encrypted-notes-recovery-worker.ts tests/encrypted-notes-block-writers.test.ts tests/encrypted-notes-postgres.test.ts tests/encrypted-notes-app-server.ts tests/encrypted-notes-conversion-preflight.test.ts tests/encrypted-notes-conversion.test.ts src/types/word-extractor.d.ts src/types/readability.d.ts
+        run: npx tsc --noEmit --pretty false --target ES2022 --module ESNext --moduleResolution bundler --esModuleInterop --skipLibCheck --strict tests/encrypted-notes-upgrade.test.ts tests/encrypted-notes-upgrade-worker.ts tests/encrypted-notes-sync.test.ts tests/encrypted-notes-backup.test.ts tests/encrypted-notes-recovery-worker.ts tests/encrypted-notes-block-writers.test.ts tests/encrypted-notes-postgres.test.ts tests/encrypted-notes-app-server.ts tests/encrypted-notes-conversion-preflight.test.ts tests/encrypted-notes-conversion.test.ts src/types/word-extractor.d.ts src/types/readability.d.ts
         working-directory: backend
       - name: Crypto core and Worker lifecycle regressions
         run: npm run test:encrypted-notes
+      - name: Native encrypted sync and account boundaries
+        run: npx vitest run src/lib/__tests__/mobileSyncUnknownEntity.test.ts src/lib/__tests__/nativeLocalNoteOrigin.test.ts src/lib/__tests__/mobileLocalApiIsolation.test.ts
       - name: Native locking bridge syntax
         run: node --check ../electron/encrypted-notes-auto-lock.js && node --check ../scripts/encrypted-notes-electron-fixture.cjs && node --check ../scripts/encrypted-notes-app-fixture.cjs && node --check ../scripts/encrypted-notes-backend-fixture.cjs && node --check ../scripts/encrypted-notes-package-fixture.cjs && node --check ../scripts/encrypted-notes-full-acceptance.mjs && node --check ../electron/main.js && node --check ../electron/preload.js
       - name: Ordinary and encrypted cache/conflict regressions

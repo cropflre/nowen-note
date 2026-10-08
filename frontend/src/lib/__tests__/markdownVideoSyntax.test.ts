@@ -74,6 +74,15 @@ describe("markdown video source guards", () => {
     expect(previewSource).not.toContain("dangerouslySetInnerHTML");
   });
 
+  it("routes both Markdown video formats through attachment authorization", () => {
+    const source = readFileSync(path.join(componentsDir, "MarkdownVideoPreview.tsx"), "utf8");
+    const renderHook = readFileSync(path.resolve(__dirname, "../../hooks/useAttachmentVideoRenderSource.ts"), "utf8");
+    expect(source).toContain("useAttachmentVideoRenderSource(src)");
+    expect(source).toContain("src={playbackUrl || undefined}");
+    expect(previewSource).toContain("<PreviewRawVideo");
+    expect(renderHook).toContain("requiresVerifiedAttachmentAccess(resolvedSrc)");
+  });
+
   it("adds a video picker without inserting raw video HTML", () => {
     expect(editorSource).toContain('input.accept = "video/*"');
     expect(editorSource).toContain("@[video](");

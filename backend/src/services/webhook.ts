@@ -1,3 +1,4 @@
+import { secureExternalFetch } from "../plugins/secureExternalFetch.js";
 /**
  * Nowen Note Webhook 事件系统
  *
@@ -25,7 +26,7 @@ export type WebhookEvent =
   | "note.created" | "note.updated" | "note.deleted" | "note.trashed" | "note.trash_emptied"
   | "notebook.created" | "notebook.deleted"
   | "tag.created"
-  | "task.created" | "task.completed"
+  | "task.created" | "task.completed" | "task.digest.morning" | "task.digest.evening" | "task.due"
   | "plugin.executed"
   | "*";  // 通配：接收所有事件
 
@@ -153,13 +154,15 @@ class WebhookDispatcher {
     let lastStatus: number | null = null;
     let lastBody = "";
     let success = false;
+    let attemptCount = 0;
 
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      attemptCount = attempt;
       try {
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 10000); // 10秒超时
-
-        const res = await fetch(webhook.url, {
+        // 重用 Host 的 DNS pinning 与公网目标校验，拒绝 SSRF、内网和跳转。
+        const target = new URL(webhook.url);
+        const res = await secureExternalFetch({
+          url: webhook.url,
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -169,12 +172,14 @@ class WebhookDispatcher {
             "User-Agent": "Nowen-Note-Webhook/1.0",
           },
           body: payload,
-          signal: controller.signal,
+        }, {
+          allowedHosts: [target.host],
+          timeoutMs: 10000,
+          maxRedirects: 0,
+          maxResponseBytes: 2048,
         });
-
-        clearTimeout(timeout);
         lastStatus = res.status;
-        lastBody = await res.text().catch(() => "");
+        lastBody = res.body;
 
         if (res.ok) {
           success = true;
@@ -203,7 +208,7 @@ class WebhookDispatcher {
         lastStatus,
         (lastBody || "").slice(0, 2000), // 限制日志大小
         success ? 1 : 0,
-        maxRetries,
+        success ? attemptCount : maxRetries,
       );
     } catch { /* 日志写入失败不影响主流程 */ }
   }

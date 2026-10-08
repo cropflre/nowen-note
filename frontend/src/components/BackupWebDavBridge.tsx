@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { useTranslation } from "react-i18next";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -90,29 +91,13 @@ function formatBytes(bytes: number): string {
   return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`;
 }
 
-function formatTime(value: string | null): string {
-  if (!value) return "尚未执行";
-  try { return new Date(value).toLocaleString(); } catch { return value; }
+function formatTime(value: string | null, emptyLabel: string, locale: string): string {
+  if (!value) return emptyLabel;
+  try { return new Date(value).toLocaleString(locale); } catch { return value; }
 }
 
 function findBackupHost(): HTMLElement | null {
-  const existing = document.querySelector<HTMLElement>(`[${HOST_ATTR}]`);
-  if (existing?.isConnected) return existing;
-
-  // The .bak/.zip import input is a stable, unique marker inside DataManager's backup card.
-  // Avoid matching the separate full-system ZIP bridge, whose accept list does not contain .bak.
-  const backupInput = document.querySelector<HTMLInputElement>(
-    'input[type="file"][accept*=".bak"][accept*=".zip"]',
-  );
-  if (!backupInput) return null;
-
-  const card = backupInput.closest<HTMLElement>(".rounded-xl");
-  if (!card) return null;
-  const host = document.createElement("div");
-  host.setAttribute(HOST_ATTR, "true");
-  host.className = "pt-1";
-  card.appendChild(host);
-  return host;
+  return document.querySelector<HTMLElement>(`[${HOST_ATTR}]`);
 }
 
 function useBackupHost(): HTMLElement | null {
@@ -135,7 +120,6 @@ function useBackupHost(): HTMLElement | null {
     return () => {
       observer.disconnect();
       if (frame) window.cancelAnimationFrame(frame);
-      document.querySelector<HTMLElement>(`[${HOST_ATTR}]`)?.remove();
     };
   }, []);
 
@@ -160,6 +144,7 @@ function NoticeBox({ notice }: { notice: Notice }) {
 }
 
 function BackupWebDavPanel() {
+  const { t, i18n } = useTranslation();
   const [expanded, setExpanded] = useState(true);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<"save" | "test" | "upload" | "clear" | null>(null);
@@ -177,14 +162,14 @@ function BackupWebDavPanel() {
   const sudoTokenRef = useRef<string | null>(null);
 
   const askPassword = useCallback(() => promptDialog({
-    title: "验证管理员身份",
-    description: "WebDAV 配置包含远程存储凭据，保存、测试和上传备份前需要验证当前管理员密码。",
+    title: t("webdav.verifyAdmin"),
+    description: t("webdav.credentialHint"),
     type: "password",
-    placeholder: "管理员密码",
-    confirmText: "验证",
-    cancelText: "取消",
+    placeholder: t("webdav.adminPassword"),
+    confirmText: t("webdav.verify"),
+    cancelText: t("webdav.cancel"),
     danger: true,
-  }), []);
+  }), [t]);
 
   const applyConfig = useCallback((next: WebDavConfig) => {
     setConfig(next);
@@ -194,6 +179,7 @@ function BackupWebDavPanel() {
     setRemotePath(next.remotePath || "nowen-note/backups");
     setEnabled(next.enabled);
     setUploadOnAutoBackup(next.uploadOnAutoBackup);
+    window.dispatchEvent(new Event("nowen-backup-webdav-config-changed"));
   }, []);
 
   const reload = useCallback(async () => {
@@ -228,17 +214,17 @@ function BackupWebDavPanel() {
   }), [enabled, endpoint, password, remotePath, uploadOnAutoBackup, username]);
 
   const validateDraft = useCallback((): string | null => {
-    if (!endpoint.trim()) return "请填写 WebDAV 地址。";
-    if (!/^https?:\/\//i.test(endpoint.trim())) return "WebDAV 地址必须以 http:// 或 https:// 开头。";
-    if (username.trim() && !password && !config?.passwordSet) return "已填写用户名，请同时填写密码。";
+    if (!endpoint.trim()) return t("webdav.endpointRequired");
+    if (!/^https?:\/\//i.test(endpoint.trim())) return t("webdav.protocolRequired");
+    if (username.trim() && !password && !config?.passwordSet) return t("webdav.usernameRequiresPassword");
     return null;
-  }, [config?.passwordSet, endpoint, password, username]);
+  }, [config?.passwordSet, endpoint, password, username, t]);
 
   const handleSave = useCallback(async () => {
     const invalid = validateDraft();
     if (invalid) { setNotice({ type: "error", text: invalid }); return; }
     setBusy("save");
-    setNotice({ type: "info", text: "正在加密并保存 WebDAV 配置…" });
+    setNotice({ type: "info", text: t("webdav.savingConfig") });
     try {
       const out = await withSudo(
         (sudoToken) => requestJson<WebDavConfig>("/backups/webdav", {
@@ -251,19 +237,19 @@ function BackupWebDavPanel() {
       if (!out) { setNotice(null); return; }
       sudoTokenRef.current = out.sudoToken;
       applyConfig(out.result);
-      setNotice({ type: "success", text: "WebDAV 配置已保存，密码已加密存储。" });
+      setNotice({ type: "success", text: t("webdav.configSaved") });
     } catch (error) {
-      setNotice({ type: "error", text: `保存失败：${error instanceof Error ? error.message : String(error)}` });
+      setNotice({ type: "error", text: t("webdav.saveFailed", { error: error instanceof Error ? error.message : String(error) }) });
     } finally {
       setBusy(null);
     }
-  }, [applyConfig, askPassword, draft, validateDraft]);
+  }, [applyConfig, askPassword, draft, validateDraft, t]);
 
   const handleTest = useCallback(async () => {
     const invalid = validateDraft();
     if (invalid) { setNotice({ type: "error", text: invalid }); return; }
     setBusy("test");
-    setNotice({ type: "info", text: "正在连接 WebDAV，并检查目标目录是否可创建和访问…" });
+    setNotice({ type: "info", text: t("webdav.startingTest") });
     try {
       const out = await withSudo(
         (sudoToken) => requestJson<{ success: true; message: string }>("/backups/webdav/test", {
@@ -275,30 +261,30 @@ function BackupWebDavPanel() {
       );
       if (!out) { setNotice(null); return; }
       sudoTokenRef.current = out.sudoToken;
-      setNotice({ type: "success", text: out.result.message });
+      setNotice({ type: "success", text: t("webdav.testSucceeded") });
       await reload();
     } catch (error) {
-      setNotice({ type: "error", text: `连接失败：${error instanceof Error ? error.message : String(error)}` });
+      setNotice({ type: "error", text: t("webdav.testFailed", { error: error instanceof Error ? error.message : String(error) }) });
     } finally {
       setBusy(null);
     }
-  }, [askPassword, draft, reload, validateDraft]);
+  }, [askPassword, draft, reload, validateDraft, t]);
 
   const handleUpload = useCallback(async () => {
     if (!selectedBackup) return;
     const row = backups.find((item) => item.filename === selectedBackup);
     const confirmed = await confirmDialog({
-      title: "上传备份到 WebDAV？",
+      title: t("webdav.uploadTitle"),
       description: row
-        ? `文件：${row.filename}\n大小：${formatBytes(row.size)}\n\n系统会先保留本地备份，再将完整文件上传到远端目录。`
+        ? t("webdav.uploadDetails", { filename: row.filename, size: formatBytes(row.size) })
         : selectedBackup,
-      confirmText: "开始上传",
-      cancelText: "取消",
+      confirmText: t("webdav.startUpload"),
+      cancelText: t("webdav.cancel"),
     });
     if (!confirmed) return;
 
     setBusy("upload");
-    setNotice({ type: "info", text: `正在上传 ${selectedBackup}，大文件可能需要数分钟…` });
+    setNotice({ type: "info", text: t("webdav.uploading", { filename: selectedBackup }) });
     try {
       const out = await withSudo(
         (sudoToken) => requestJson<{ message: string }>(
@@ -311,22 +297,22 @@ function BackupWebDavPanel() {
       );
       if (!out) { setNotice(null); return; }
       sudoTokenRef.current = out.sudoToken;
-      setNotice({ type: "success", text: out.result.message });
-      toast.success(out.result.message, 5000);
+      setNotice({ type: "success", text: t("webdav.uploadSuccess") });
+      toast.success(t("webdav.uploadSuccess"), 5000);
       await reload();
     } catch (error) {
-      setNotice({ type: "error", text: `上传失败：${error instanceof Error ? error.message : String(error)}` });
+      setNotice({ type: "error", text: t("webdav.uploadFailed", { error: error instanceof Error ? error.message : String(error) }) });
     } finally {
       setBusy(null);
     }
-  }, [askPassword, backups, reload, selectedBackup]);
+  }, [askPassword, backups, reload, selectedBackup, t]);
 
   const handleClear = useCallback(async () => {
     const confirmed = await confirmDialog({
-      title: "清除 WebDAV 配置？",
-      description: "将删除服务器中保存的 WebDAV 地址、用户名、加密密码和最近状态。远端已有备份文件不会被删除。",
-      confirmText: "清除配置",
-      cancelText: "取消",
+      title: t("webdav.clearTitle"),
+      description: t("webdav.clearDescription"),
+      confirmText: t("webdav.clearConfig"),
+      cancelText: t("webdav.cancel"),
       danger: true,
     });
     if (!confirmed) return;
@@ -340,13 +326,13 @@ function BackupWebDavPanel() {
       if (!out) return;
       sudoTokenRef.current = out.sudoToken;
       applyConfig(out.result);
-      setNotice({ type: "success", text: "WebDAV 配置已清除，远端文件未受影响。" });
+      setNotice({ type: "success", text: t("webdav.configCleared") });
     } catch (error) {
-      setNotice({ type: "error", text: `清除失败：${error instanceof Error ? error.message : String(error)}` });
+      setNotice({ type: "error", text: t("webdav.clearFailed", { error: error instanceof Error ? error.message : String(error) }) });
     } finally {
       setBusy(null);
     }
-  }, [applyConfig, askPassword]);
+  }, [applyConfig, askPassword, t]);
 
   const insecureHttp = endpoint.trim().toLowerCase().startsWith("http://");
   const disabled = busy !== null || loading;
@@ -360,11 +346,11 @@ function BackupWebDavPanel() {
       >
         {expanded ? <ChevronDown size={14} className="text-zinc-400" /> : <ChevronRight size={14} className="text-zinc-400" />}
         <Cloud size={15} className="text-sky-500" />
-        <span className="text-sm font-medium text-zinc-800 dark:text-zinc-200">WebDAV 远程备份</span>
+        <span className="text-sm font-medium text-zinc-800 dark:text-zinc-200">{t("webdav.panelTitle")}</span>
         <span className={`ml-auto rounded-full px-2 py-0.5 text-[10px] font-medium ${config?.enabled
           ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300"
           : "bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400"}`}>
-          {config?.enabled ? "已启用" : "未启用"}
+          {config?.enabled ? t("webdav.enabled") : t("webdav.disabled")}
         </span>
       </button>
 
@@ -372,7 +358,7 @@ function BackupWebDavPanel() {
         <div className="mt-3 space-y-3 border-t border-zinc-200 pt-3 dark:border-zinc-700">
           <div className="flex items-start gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-[11px] leading-5 text-blue-700 dark:border-blue-900/50 dark:bg-blue-500/10 dark:text-blue-300">
             <ShieldCheck size={14} className="mt-0.5 shrink-0" />
-            <span>Nowen Note 会先在本地生成并校验备份，再上传到 WebDAV。远端断线不会破坏本地备份，也不会把运行中的 SQLite 数据库直接放到网络文件系统。</span>
+            <span>{t("webdav.safetyHint")}</span>
           </div>
 
           <div className="flex flex-wrap items-center justify-between gap-2">
@@ -383,7 +369,7 @@ function BackupWebDavPanel() {
                 onChange={(event) => setEnabled(event.target.checked)}
                 className="h-4 w-4 accent-sky-600"
               />
-              启用 WebDAV 备份通道
+              {t("webdav.enableChannel")}
             </label>
             <button
               type="button"
@@ -391,13 +377,13 @@ function BackupWebDavPanel() {
               disabled={disabled}
               className="inline-flex items-center gap-1 text-[11px] text-zinc-500 hover:text-sky-600 disabled:opacity-50"
             >
-              <RefreshCw size={12} className={loading ? "animate-spin" : ""} />刷新状态
+              <RefreshCw size={12} className={loading ? "animate-spin" : ""} />{t("webdav.refreshStatus")}
             </button>
           </div>
 
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
             <label className="sm:col-span-2">
-              <span className="mb-1 block text-[11px] text-zinc-500">WebDAV 地址</span>
+              <span className="mb-1 block text-[11px] text-zinc-500">{t("webdav.address")}</span>
               <input
                 value={endpoint}
                 onChange={(event) => setEndpoint(event.target.value)}
@@ -406,23 +392,23 @@ function BackupWebDavPanel() {
               />
             </label>
             <label>
-              <span className="mb-1 block text-[11px] text-zinc-500">用户名</span>
+              <span className="mb-1 block text-[11px] text-zinc-500">{t("webdav.username")}</span>
               <input
                 value={username}
                 onChange={(event) => setUsername(event.target.value)}
-                placeholder="WebDAV 用户名"
+                placeholder={t("webdav.usernamePlaceholder")}
                 autoComplete="username"
                 className="w-full rounded-md border border-zinc-300 bg-white px-2.5 py-2 text-xs text-zinc-800 outline-none focus:border-sky-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-200"
               />
             </label>
             <label>
-              <span className="mb-1 block text-[11px] text-zinc-500">密码或应用密码</span>
+              <span className="mb-1 block text-[11px] text-zinc-500">{t("webdav.passwordOrAppPassword")}</span>
               <span className="relative block">
                 <input
                   type={showPassword ? "text" : "password"}
                   value={password}
                   onChange={(event) => setPassword(event.target.value)}
-                  placeholder={config?.passwordSet ? "已加密保存，留空不修改" : "WebDAV 密码"}
+                  placeholder={config?.passwordSet ? t("webdav.encryptedPasswordHint") : t("webdav.passwordPlaceholder")}
                   autoComplete="new-password"
                   className="w-full rounded-md border border-zinc-300 bg-white px-2.5 py-2 pr-9 text-xs text-zinc-800 outline-none focus:border-sky-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-200"
                 />
@@ -430,14 +416,14 @@ function BackupWebDavPanel() {
                   type="button"
                   onClick={() => setShowPassword((value) => !value)}
                   className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-600"
-                  aria-label={showPassword ? "隐藏密码" : "显示密码"}
+                  aria-label={showPassword ? t("webdav.hidePassword") : t("webdav.showPassword")}
                 >
                   {showPassword ? <EyeOff size={14} /> : <Eye size={14} />}
                 </button>
               </span>
             </label>
             <label className="sm:col-span-2">
-              <span className="mb-1 block text-[11px] text-zinc-500">远端目录</span>
+              <span className="mb-1 block text-[11px] text-zinc-500">{t("webdav.remoteDirectory")}</span>
               <input
                 value={remotePath}
                 onChange={(event) => setRemotePath(event.target.value)}
@@ -450,7 +436,7 @@ function BackupWebDavPanel() {
           {insecureHttp && (
             <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-2 text-[11px] text-amber-700 dark:border-amber-900/50 dark:bg-amber-500/10 dark:text-amber-300">
               <AlertTriangle size={13} className="mt-0.5 shrink-0" />
-              当前使用 HTTP，账号、密码和备份内容可能被局域网中的其他设备截获。公网地址必须使用 HTTPS。
+              {t("webdav.httpWarning")}
             </div>
           )}
 
@@ -462,8 +448,8 @@ function BackupWebDavPanel() {
               className="mt-0.5 h-4 w-4 accent-sky-600"
             />
             <span>
-              <span className="block font-medium">自动备份完成后上传到 WebDAV</span>
-              <span className="mt-0.5 block text-[11px] text-zinc-500">WebDAV 上传失败只记录告警，不会把已成功生成的本地备份判定为失败。</span>
+              <span className="block font-medium">{t("webdav.uploadAuto")}</span>
+              <span className="mt-0.5 block text-[11px] text-zinc-500">{t("webdav.uploadAutoHint")}</span>
             </span>
           </label>
 
@@ -475,7 +461,7 @@ function BackupWebDavPanel() {
               className="inline-flex items-center gap-1.5 rounded-md bg-sky-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-sky-700 disabled:opacity-50"
             >
               {busy === "save" ? <Loader2 size={13} className="animate-spin" /> : <Save size={13} />}
-              保存配置
+              {t("webdav.saveConfig")}
             </button>
             <button
               type="button"
@@ -484,7 +470,7 @@ function BackupWebDavPanel() {
               className="inline-flex items-center gap-1.5 rounded-md border border-sky-300 px-3 py-1.5 text-xs font-medium text-sky-700 hover:bg-sky-50 disabled:opacity-50 dark:border-sky-800 dark:text-sky-300 dark:hover:bg-sky-500/10"
             >
               {busy === "test" ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />}
-              测试连接
+              {t("webdav.testConnection")}
             </button>
             {config?.configured && (
               <button
@@ -494,25 +480,25 @@ function BackupWebDavPanel() {
                 className="ml-auto inline-flex items-center gap-1.5 rounded-md border border-red-200 px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 disabled:opacity-50 dark:border-red-900/60 dark:text-red-300 dark:hover:bg-red-500/10"
               >
                 {busy === "clear" ? <Loader2 size={13} className="animate-spin" /> : <Trash2 size={13} />}
-                清除配置
+                {t("webdav.clearConfig")}
               </button>
             )}
           </div>
 
           {config?.configured && (
             <div className="grid grid-cols-1 gap-2 rounded-lg border border-zinc-200 bg-zinc-50 p-2.5 text-[11px] text-zinc-600 sm:grid-cols-2 dark:border-zinc-700 dark:bg-zinc-800/40 dark:text-zinc-400">
-              <div><span className="text-zinc-400">远端目录：</span><span className="break-all font-mono">{config.remoteDirectory || "-"}</span></div>
-              <div><span className="text-zinc-400">最近测试：</span>{formatTime(config.status.lastTestAt)}{config.status.lastTestOk === true ? " · 成功" : config.status.lastTestOk === false ? " · 失败" : ""}</div>
-              <div><span className="text-zinc-400">最近上传：</span>{formatTime(config.status.lastUploadAt)}</div>
-              <div><span className="text-zinc-400">最近文件：</span><span className="break-all font-mono">{config.status.lastFilename || "-"}</span></div>
-              {config.status.lastError && <div className="sm:col-span-2 text-red-500"><span className="text-red-400">最近错误：</span>{config.status.lastError}</div>}
+              <div><span className="text-zinc-400">{t("webdav.remoteDirLabel")}</span><span className="break-all font-mono">{config.remoteDirectory || "-"}</span></div>
+              <div><span className="text-zinc-400">{t("webdav.lastTest")}</span>{formatTime(config.status.lastTestAt, t("webdav.neverExecuted"), i18n.language)}{config.status.lastTestOk === true ? t("webdav.statusSuccess") : config.status.lastTestOk === false ? t("webdav.statusFailed") : ""}</div>
+              <div><span className="text-zinc-400">{t("webdav.lastUpload")}</span>{formatTime(config.status.lastUploadAt, t("webdav.neverExecuted"), i18n.language)}</div>
+              <div><span className="text-zinc-400">{t("webdav.lastFile")}</span><span className="break-all font-mono">{config.status.lastFilename || "-"}</span></div>
+              {config.status.lastError && <div className="sm:col-span-2 text-red-500"><span className="text-red-400">{t("webdav.lastError")}</span>{config.status.lastError}</div>}
             </div>
           )}
 
           <div className="border-t border-zinc-200 pt-3 dark:border-zinc-700">
             <div className="mb-2 flex items-center gap-2">
               <UploadCloud size={14} className="text-sky-500" />
-              <span className="text-xs font-medium text-zinc-700 dark:text-zinc-300">手动上传已有备份</span>
+              <span className="text-xs font-medium text-zinc-700 dark:text-zinc-300">{t("webdav.manualUpload")}</span>
             </div>
             <div className="flex flex-col gap-2 sm:flex-row">
               <select
@@ -521,7 +507,7 @@ function BackupWebDavPanel() {
                 disabled={disabled || backups.length === 0}
                 className="min-w-0 flex-1 rounded-md border border-zinc-300 bg-white px-2.5 py-2 text-xs text-zinc-800 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-200"
               >
-                {backups.length === 0 && <option value="">暂无本地备份</option>}
+                {backups.length === 0 && <option value="">{t("webdav.noLocalBackups")}</option>}
                 {backups.map((row) => (
                   <option key={row.filename} value={row.filename}>
                     {row.filename} · {formatBytes(row.size)}
@@ -533,10 +519,10 @@ function BackupWebDavPanel() {
                 onClick={() => void handleUpload()}
                 disabled={disabled || !config?.enabled || !selectedBackup}
                 className="inline-flex items-center justify-center gap-1.5 rounded-md bg-indigo-600 px-3 py-2 text-xs font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
-                title={!config?.enabled ? "请先保存并启用 WebDAV 通道" : undefined}
+                title={!config?.enabled ? t("webdav.enableFirst") : undefined}
               >
                 {busy === "upload" ? <Loader2 size={13} className="animate-spin" /> : <UploadCloud size={13} />}
-                上传到 WebDAV
+                {t("webdav.uploadToWebdav")}
               </button>
             </div>
           </div>

@@ -310,7 +310,7 @@ export async function importMiCloudRow(input: {
     );
 
     if (!response.ok || payload.success === false || !payload.notes?.[0]?.id) {
-      const detail = safeErrorText(payload.error || raw, `HTTP ${response.status}`);
+      const detail = safeErrorText((Array.isArray(payload.errors) ? payload.errors[0] : undefined) || payload.error || raw, `HTTP ${response.status}`);
       const suffix = payload.code ? ` [${payload.code}]` : "";
       const error = `笔记 ${externalId} 导入失败：${detail}${suffix}`;
       return { success: false, errors: [error], error };

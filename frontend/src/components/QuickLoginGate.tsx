@@ -31,6 +31,7 @@ import {
 } from "@/lib/quickLogin";
 import { setServerUrl, getServerUrl } from "@/lib/api";
 import { hasActiveTwoFactorLoginChallenge } from "@/lib/twoFactorLoginChallenge";
+import { isMobileAccountLoginRequested } from "@/lib/mobileLocalMode";
 import type { User } from "@/types";
 import { fetchWithAuthRefresh, getAccessToken, storeAuthTokens } from "@/lib/authSession";
 import { getResolvedApiBaseUrl } from "@/lib/serverUrl";
@@ -64,7 +65,8 @@ export default function QuickLoginGate({ isClientMode, onSettled }: Props) {
     (async () => {
       // 密码第一步已经签发 2FA ticket 时，必须优先完成该挑战。否则 Android
       // 生物识别弹窗会覆盖验证码层，用户会误以为又被退回普通登录。
-      if (hasActiveTwoFactorLoginChallenge()) {
+      // 主动添加账号或历史账号重登时，也不能用旧账号的生物识别覆盖目标。
+      if (hasActiveTwoFactorLoginChallenge() || isMobileAccountLoginRequested()) {
         if (!cancelled) onSettled(false);
         return;
       }

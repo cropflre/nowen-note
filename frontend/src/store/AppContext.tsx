@@ -5,7 +5,11 @@ import { api } from "@/lib/api";
 import { NOTEBOOKS_INVALIDATED_EVENT } from "@/lib/notebookInvalidation";
 import { PhaseAPerfProfiler } from "@/components/PhaseAPerfProfiler";
 import { recordPhaseAPerfEvent } from "@/lib/phaseAPerfDiagnostics";
-import type { NoteLoadBeginPayload, NoteLoadSummary } from "@/lib/noteLoadCoordinator";
+import { primaryNoteLoadCoordinator, type NoteLoadBeginPayload, type NoteLoadSummary } from "@/lib/noteLoadCoordinator";
+import {
+  KNOWLEDGE_TREE_PASSWORD_LOCKED_EVENT,
+  KNOWLEDGE_TREE_PASSWORD_NOTES_LOCKED_EVENT,
+} from "@/lib/knowledgeTreePassword";
 import { NoteActivationGuard } from "@/lib/noteActivationGuard";
 import {
   mergeAuthoritativeNotebooks,
@@ -85,6 +89,7 @@ interface AppState {
 
 type Action =
   | { type: "INVALIDATE_CONVERTED_NOTE"; payload: string }
+  | { type: "LOCK_FOLDER_NOTES"; payload: string[] }
   | { type: "SET_NOTEBOOKS"; payload: Notebook[] }
   | { type: "ADD_NOTEBOOK"; payload: Notebook }
   | { type: "REPLACE_NOTEBOOK"; payload: { id: string; notebook: Notebook } }
@@ -231,6 +236,20 @@ export { MIN_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH, DEFAULT_SIDEBAR_WIDTH, MIN_NOTELI
 
 function reducer(state: AppState, action: Action): AppState {
   switch (action.type) {
+    case "LOCK_FOLDER_NOTES": {
+      const locked = new Set(action.payload);
+      const pendingLocked = !!state.noteLoadingState.pendingNoteId && locked.has(state.noteLoadingState.pendingNoteId);
+      return {
+        ...state,
+        activeNote: state.activeNote && locked.has(state.activeNote.id) ? null : state.activeNote,
+        notes: state.notes.filter((note) => !locked.has(note.id)),
+        openNoteTabs: state.openNoteTabs.filter((tab) => !locked.has(tab.id)),
+        editorSplit: state.editorSplit && locked.has(state.editorSplit.noteId) ? null : state.editorSplit,
+        noteLoading: pendingLocked ? false : state.noteLoading,
+        noteLoadingState: pendingLocked ? createIdleNoteLoadingState() : state.noteLoadingState,
+        notesRefreshToken: state.notesRefreshToken + 1,
+      };
+    }
     case "INVALIDATE_CONVERTED_NOTE":
       return {
         ...state,
@@ -535,6 +554,35 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => subscribeConversionInvalidation((noteId) => {
     dispatch({ type: "INVALIDATE_CONVERTED_NOTE", payload: noteId });
   }), []);
+
+  useEffect(() => {
+    const lockNotes = (event: Event) => {
+      const { noteIds } = (event as CustomEvent<{ noteIds: string[] }>).detail;
+      const pendingId = stateRef.current.noteLoadingState.pendingNoteId;
+      if (pendingId && noteIds.includes(pendingId)) primaryNoteLoadCoordinator.cancel();
+      // 权限收回必须直接隐藏正文，不能被编辑器的离开确认阻止。
+      dispatch({ type: "LOCK_FOLDER_NOTES", payload: noteIds });
+    };
+    // Until a fresh server list is fetched, immediately hide note titles/body
+    // from a session that was just locked. Do not wait for a network roundtrip.
+    const lockFolderSession = () => {
+      const current = stateRef.current;
+      const noteIds = Array.from(new Set([
+        ...current.notes.map((note) => note.id),
+        ...current.openNoteTabs.map((tab) => tab.id),
+        ...(current.activeNote ? [current.activeNote.id] : []),
+        ...(current.noteLoadingState.pendingNoteId ? [current.noteLoadingState.pendingNoteId] : []),
+      ]));
+      primaryNoteLoadCoordinator.cancel();
+      dispatch({ type: "LOCK_FOLDER_NOTES", payload: noteIds });
+    };
+    window.addEventListener(KNOWLEDGE_TREE_PASSWORD_NOTES_LOCKED_EVENT, lockNotes);
+    window.addEventListener(KNOWLEDGE_TREE_PASSWORD_LOCKED_EVENT, lockFolderSession);
+    return () => {
+      window.removeEventListener(KNOWLEDGE_TREE_PASSWORD_NOTES_LOCKED_EVENT, lockNotes);
+      window.removeEventListener(KNOWLEDGE_TREE_PASSWORD_LOCKED_EVENT, lockFolderSession);
+    };
+  }, []);
 
   useEffect(() => {
     noteActivationGuard.commit(state.activeNote?.id ?? null);

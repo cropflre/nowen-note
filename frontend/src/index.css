@@ -1133,7 +1133,7 @@ body.density-compact {
 }
 
 /* 宸插畬鎴愭€侊細鏂囧瓧鍙樼伆 + 鍒犻櫎绾?*/
-.ProseMirror li[data-type="taskItem"][data-checked="true"] > div p {
+.ProseMirror li[data-type="taskItem"][data-checked="true"] > div > p {
   text-decoration: line-through;
   text-decoration-color: var(--task-done-strike);
   color: var(--pm-task-done);
@@ -1709,10 +1709,26 @@ body.density-compact {
   list-style: none;
   padding-left: 0.5em;
 }
-.shared-note-content li[data-checked="true"] > p,
-.shared-note-content li.task-list-item input:checked ~ * {
-  color: #a1a1aa;
+/* The own text is a separate span so completing a parent does not strike its children. */
+.nowen-md-preview li.task-list-item[data-checked="true"] > .nowen-task-item-text,
+.nowen-md-preview li.task-list-item[data-checked="true"] > .nowen-task-item-text :is(a, strong, em, code),
+.nowen-md-preview li.task-list-item[data-checked="true"] > p > .nowen-task-item-text,
+.nowen-md-preview li.task-list-item[data-checked="true"] > p > .nowen-task-item-text :is(a, strong, em, code) {
+  color: var(--pm-task-done);
   text-decoration: line-through;
+  text-decoration-color: var(--task-done-strike);
+  opacity: 0.82;
+}
+
+/* Shared Tiptap and GFM Markdown have different checkbox markup. */
+.shared-note-content li[data-checked="true"] > p,
+.shared-note-content li[data-checked="true"] > div > p,
+.shared-note-content li.task-item:has(> input[type="checkbox"]:checked) > p,
+.shared-note-content li.task-list-item:has(> p > input[type="checkbox"]:checked) > p {
+  color: var(--pm-task-done, #a1a1aa);
+  text-decoration: line-through;
+  text-decoration-color: currentColor;
+  opacity: 0.82;
 }
 
 /* 寮曠敤鍧?*/

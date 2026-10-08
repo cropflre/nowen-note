@@ -12,6 +12,8 @@ export interface FullBackupJobSnapshot {
   backup?: BackupInfo;
   downloadToken?: string;
   error?: string;
+  errorCode?: string;
+  retryable?: boolean;
 }
 
 interface FullBackupJob extends FullBackupJobSnapshot {
@@ -20,6 +22,26 @@ interface FullBackupJob extends FullBackupJobSnapshot {
 }
 
 type CreateFullBackup = (description?: string) => Promise<BackupInfo>;
+
+/** Public-facing diagnosis: stable error codes and allowlisted messages only. */
+export function classifyFullBackupJobError(error: unknown): {
+  code: string;
+  message: string;
+  retryable: boolean;
+} {
+  const typed = error as { code?: unknown; cause?: { code?: unknown } } | null;
+  const code = typeof typed?.code === "string" ? typed.code
+    : typeof typed?.cause?.code === "string" ? typed.cause.code : "";
+  const message = error instanceof Error ? error.message : "";
+  if (code === "ENOSPC" || code === "EDQUOT" || /磁盘空间不足|no space left on device/i.test(message)) {
+    return { code: "BACKUP_STORAGE_NO_SPACE", message: "磁盘空间不足", retryable: false };
+  }
+  if (code === "EACCES" || code === "EPERM" || code === "EROFS") {
+    return { code: "BACKUP_STORAGE_PERMISSION_DENIED", message: "备份目录没有写入权限", retryable: false };
+  }
+  // Do not expose arbitrary upstream exception messages, private paths, or SQL.
+  return { code: "BACKUP_JOB_FAILED", message: "完整备份生成失败，请检查服务器日志", retryable: false };
+}
 
 function snapshot(job: FullBackupJob): FullBackupJobSnapshot {
   const { expiresAt: _expiresAt, description: _description, ...publicJob } = job;
@@ -101,9 +123,22 @@ export class FullBackupJobStore {
       job.state = "ready";
       job.message = "完整备份已生成";
     } catch (error) {
+      const failure = classifyFullBackupJobError(error);
       job.state = "error";
       job.message = "完整备份生成失败";
-      job.error = error instanceof Error ? error.message : String(error);
+      job.error = failure.message;
+      job.errorCode = failure.code;
+      job.retryable = failure.retryable;
+      // Error details may contain private note content, filesystem paths or
+      // credentials. Log only a safe classification, correlated to the job ID.
+      console.error(JSON.stringify({
+        timestamp: new Date().toISOString(),
+        level: "ERROR",
+        event: "backup.full-job.failed",
+        module: "backup",
+        operationId: job.id,
+        code: failure.code,
+      }));
     } finally {
       job.updatedAt = new Date().toISOString();
       job.expiresAt = Date.now() + this.ttlMs;

@@ -8,7 +8,7 @@ const mocks = vi.hoisted(() => {
   const run = vi.fn(async () => undefined);
   const db = {
     close: vi.fn(async () => undefined),
-    query: vi.fn(async () => [{ value: "complete" }]),
+    query: vi.fn(async () => [{ value: "complete", enabled: 1 }]),
     run,
     transaction: vi.fn(async (callback: (tx: { run: typeof run }) => Promise<void>) => callback({ run })),
   };
@@ -31,6 +31,8 @@ const mocks = vi.hoisted(() => {
   });
   return {
     engine,
+    endpoints: { beforeSync: vi.fn(async () => {}), refresh: vi.fn(async () => {}), networkChanged: vi.fn(async () => {}), recover: vi.fn(), dispose: vi.fn() },
+    networkListener: vi.fn(async () => ({ remove: vi.fn() })),
     secureValues,
     secureApi,
     secureStorage,
@@ -61,7 +63,8 @@ vi.mock("@/lib/api.impl", () => ({
 vi.mock("@/lib/authSession", () => ({ getAccessToken: () => localStorage.getItem("nowen-token") }));
 vi.mock("@aparajita/capacitor-secure-storage", () => ({ SecureStorage: mocks.secureStorage }));
 vi.mock("@capacitor/app", () => ({ App: { addListener: vi.fn(async () => ({ remove: vi.fn() })) } }));
-vi.mock("@capacitor/network", () => ({ Network: { addListener: vi.fn(async () => ({ remove: vi.fn() })) } }));
+vi.mock("@capacitor/network", () => ({ Network: { addListener: mocks.networkListener } }));
+vi.mock("@/lib/mobileServerEndpointRuntime", () => ({ createMobileServerEndpointRuntime: () => mocks.endpoints }));
 vi.mock("@/lib/mobileLocalAccountMigration", () => ({ migrateMobileLocalAccount: vi.fn(async () => undefined) }));
 vi.mock("@/lib/localStore", () => ({
   getAllNotebooks: vi.fn(async () => []),
@@ -116,6 +119,14 @@ describe("Android 本地优先运行时与离线切换", () => {
     }));
     expect(mocks.engine.start).toHaveBeenCalledOnce();
     expect(renderApplication).toHaveBeenCalledOnce();
+    const listener = mocks.networkListener.mock.calls[0] as unknown as [string, (status: unknown) => void];
+    listener[1]({ connected: true, connectionType: "wifi" });
+    listener[1]({ connected: true, connectionType: "cellular" });
+    await initializeMobileLocalFirstRuntime();
+    expect(mocks.endpoints.networkChanged).toHaveBeenCalledTimes(2);
+    expect(mocks.createMobileSyncEngine).toHaveBeenCalledOnce();
+    expect(mocks.engine.stop).not.toHaveBeenCalled();
+    expect(mocks.db.close).toHaveBeenCalledTimes(1); // only the migration source database
   });
 
   it("无 token 仍打开独立 SQLite，但不创建同步引擎", async () => {

@@ -1,7 +1,10 @@
 import { registerAttachmentAccessUrls } from "@/lib/noteAttachmentAccessBridge";
+import { fetchWithAuthRefresh } from "./authSession";
+import { getOfflineQueueStorageKey } from "./offlineScope";
 
 const PERSISTED_ATTACHMENT_REF_RE = /\/api\/attachments\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?:[?"'\\)\s]|$)/i;
 const DEFAULT_PRIME_TIMEOUT_MS = 4_000;
+const primingInFlight = new Map<string, Promise<number>>();
 
 type AttachmentAccessPayload = {
   urls?: Record<string, string>;
@@ -95,25 +98,26 @@ async function requestAccessViaNative(
     readTimeout: timeoutMs,
   });
   if (response.status < 200 || response.status >= 300) {
-    throw new Error(`Attachment access native priming failed: ${response.status}`);
+    throw Object.assign(new Error(`Attachment access native priming failed: ${response.status}`), { status: response.status });
   }
   return parseNativePayload(response.data);
 }
 
 async function requestAccessViaWeb(
   url: string,
+  apiBaseUrl: string,
   token: string,
   fetchImpl: typeof fetch,
   signal?: AbortSignal,
 ): Promise<AttachmentAccessPayload> {
-  const response = await fetchImpl(url, {
+  const response = await fetchWithAuthRefresh(url, {
     method: "GET",
     headers: { Authorization: `Bearer ${token}` },
     cache: "no-store",
     signal,
-  });
+  }, apiBaseUrl, fetchImpl);
   if (!response.ok) {
-    throw new Error(`Attachment access priming failed: ${response.status}`);
+    throw Object.assign(new Error(`Attachment access priming failed: ${response.status}`), { status: response.status });
   }
   return response.json() as Promise<AttachmentAccessPayload>;
 }
@@ -131,15 +135,27 @@ async function requestAccessViaWeb(
  * must not depend on WebView fetch succeeding. Use native HTTP first for that exact runtime, then
  * register the returned signed URLs against the real LAN origin before media nodes are mounted.
  */
-export async function primeNoteAttachmentAccess(
+export function primeNoteAttachmentAccess(
   noteId: string,
   apiBaseUrl: string,
   options: PrimeNoteAttachmentAccessOptions = {},
 ): Promise<number> {
-  if (!noteId) return 0;
-
   const token = options.token !== undefined ? options.token : readStoredToken();
-  if (!token) return 0;
+  if (!noteId || !token) return Promise.resolve(0);
+  const accountScope = getOfflineQueueStorageKey();
+  const key = JSON.stringify([accountScope, apiBaseUrl, noteId, token]);
+  const existing = primingInFlight.get(key);
+  if (existing) return existing;
+  const pending = requestNoteAttachmentAccess(noteId, apiBaseUrl, options, token, accountScope)
+    .finally(() => { if (primingInFlight.get(key) === pending) primingInFlight.delete(key); });
+  primingInFlight.set(key, pending);
+  return pending;
+}
+
+async function requestNoteAttachmentAccess(
+  noteId: string, apiBaseUrl: string, options: PrimeNoteAttachmentAccessOptions,
+  token: string, accountScope: string,
+): Promise<number> {
 
   const timeoutMs = Number.isFinite(options.timeoutMs)
     ? Math.max(250, Number(options.timeoutMs))
@@ -175,17 +191,18 @@ export async function primeNoteAttachmentAccess(
         // Older/custom native shells may not expose CapacitorHttp. Preserve the WebView path as
         // a compatibility fallback instead of turning media preparation into a hard load failure.
         console.warn("[attachment-access] native LAN priming failed; retrying with WebView fetch", nativeError);
-        payload = await requestAccessViaWeb(url, token, fetchImpl, controller?.signal);
+        payload = await requestAccessViaWeb(url, apiBaseUrl, token, fetchImpl, controller?.signal);
       }
     } else {
       try {
-        payload = await requestAccessViaWeb(url, token, fetchImpl, controller?.signal);
+        payload = await requestAccessViaWeb(url, apiBaseUrl, token, fetchImpl, controller?.signal);
       } catch (webError) {
         if (!allowNativeFallback) throw webError;
         payload = await requestAccessViaNative(url, token, timeoutMs);
       }
     }
 
+    if (accountScope !== getOfflineQueueStorageKey()) return 0;
     return registerAttachmentAccessUrls(payload.urls, url);
   } finally {
     if (timer) clearTimeout(timer);

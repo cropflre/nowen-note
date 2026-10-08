@@ -33,6 +33,7 @@ import { clearDraft, saveDraft } from "@/lib/draftStorage";
 import type { YjsSubdocumentUpdateResult } from "@/lib/api";
 import { useAppActions } from "@/store/AppContext";
 import type { Note } from "@/types";
+import { isAndroidNativeRuntime } from "@/lib/mobileLocalMode";
 import BaseTiptapEditor from "./TiptapEditor";
 import WindowedTiptapEditor, { isTiptapSubdocumentWindowingEnabled } from "./WindowedTiptapEditor";
 
@@ -115,7 +116,7 @@ const TiptapEditorRuntime = forwardRef<NoteEditorHandle, RuntimeTiptapEditorProp
     // the runtime decision may inherit its outline and persistence degradation policy.
     const publishRealtimeOutline = !runtimeBelongsToNote
       || shouldPublishRealtimeTiptapOutline(decision);
-    const blockPatchEnabled = runtimeBelongsToNote && resolveTiptapBlockPatchEnabled({
+    const blockPatchEnabled = !isAndroidNativeRuntime() && runtimeBelongsToNote && resolveTiptapBlockPatchEnabled({
       mode: decision.mode,
       override: readBlockPatchOverride(),
       editable: props.editable !== false,
@@ -129,7 +130,7 @@ const TiptapEditorRuntime = forwardRef<NoteEditorHandle, RuntimeTiptapEditorProp
       noteId: string;
       snapshot?: { content: string; contentText: string };
     } | null>(null);
-    const windowingEnabled = windowingFallback?.noteId !== props.note.id
+    const windowingEnabled = !isAndroidNativeRuntime() && windowingFallback?.noteId !== props.note.id
       && runtimeBelongsToNote
       && decision.mode !== "normal"
       && isTiptapSubdocumentWindowingEnabled();

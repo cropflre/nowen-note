@@ -6,6 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import Database from "better-sqlite3";
 import JSZip from "jszip";
+import { loadSqliteVec } from "../src/db/sqlite-vec-extension.js";
 
 const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "nowen-large-restore-"));
 const backupDir = path.join(tmpDir, "backups");
@@ -59,6 +60,7 @@ async function writeFullBackup(
   await getDb().backup(snapshot);
   const snapshotDb = new Database(snapshot);
   try {
+    assert.equal(loadSqliteVec(snapshotDb).loaded, true);
     snapshotDb.prepare("INSERT OR REPLACE INTO system_settings (key, value) VALUES (?, ?)")
       .run(markerKey, "backup");
     if (options.invalidObjectStorageConfig) {
@@ -151,6 +153,31 @@ test("full ZIP dry-run and restore never read the whole archive into a Buffer", 
   }
 });
 
+
+test("full ZIP with vec0 virtual table survives preview, restore and reconnect", async () => {
+  const live = getDb();
+  assert.equal(loadSqliteVec(live).loaded, true);
+  live.exec("CREATE VIRTUAL TABLE vec_note_chunks USING vec0(embedding float[2])");
+  live.prepare("INSERT INTO vec_note_chunks(rowid, embedding) VALUES (?, ?)").run(42n, "[1,0]");
+
+  const filename = "vec0-full.zip";
+  await writeFullBackup(filename);
+  live.prepare("DELETE FROM vec_note_chunks WHERE rowid = ?").run(42);
+
+  const preview = await manager.restoreFromBackup(filename, { dryRun: true });
+  assert.equal(preview.success, true, preview.error);
+  assert.equal(readMarker(), "current");
+  assert.equal((getDb().prepare("SELECT COUNT(*) AS c FROM vec_note_chunks").get() as { c: number }).c, 0);
+
+  const restored = await manager.restoreFromBackup(filename, { dryRun: false });
+  assert.equal(restored.success, true, restored.error);
+  assert.equal(readMarker(), "backup");
+  assert.equal((getDb().prepare("SELECT COUNT(*) AS c FROM vec_note_chunks").get() as { c: number }).c, 1);
+
+  closeDb();
+  assert.equal((getDb().prepare("SELECT COUNT(*) AS c FROM vec_note_chunks").get() as { c: number }).c, 1,
+    "a brand new getDb connection must register sqlite-vec before SQLite schema checks");
+});
 
 test("attachment meta/archive mismatch is rejected before live database or files are touched", async () => {
   const filename = "attachment-count-mismatch.zip";

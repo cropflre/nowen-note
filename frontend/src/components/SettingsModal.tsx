@@ -14,6 +14,8 @@ import TokenManagement from "@/components/TokenManagement";
 import DataManager from "@/components/DataManager";
 import FolderSyncSettings from "@/components/settings/FolderSyncSettings";
 import SyncSettingsTab from "@/components/settings/SyncSettingsTab";
+import MobileAccountSettings from "@/components/settings/MobileAccountSettings";
+import { isAndroidNativeRuntime, isMobileLocalMode } from "@/lib/mobileLocalMode";
 import ShortcutSettingsPanel from "@/components/settings/ShortcutSettingsPanel";
 import PluginSettingsTab from "@/components/settings/plugins/PluginSettingsTab";
 import AutomationCenter from "@/components/automation/AutomationCenter";
@@ -985,6 +987,7 @@ function SwitchesPanel() {
         </h3>
         <p className="text-sm text-zinc-500 dark:text-zinc-400">
           {t('settings.switchesDesc')}
+          {isAndroidNativeRuntime() && " · 编辑器与导航偏好随账号同步；布局选项仅作用于当前设备。"}
         </p>
       </div>
 
@@ -995,6 +998,7 @@ function SwitchesPanel() {
           </div>
           <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
             {t("settings.navigationVisibilityDesc")}
+            {isAndroidNativeRuntime() && " · 开启同步后随账号保存"}
           </p>
         </div>
         <div className="space-y-1.5" data-navigation-module-order-list="">
@@ -1205,6 +1209,7 @@ function SwitchesPanel() {
             </div>
             <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-1 leading-snug">
               {t("settings.mobileRailHiddenDesc")}
+              {" · 仅此设备，不随账号同步"}
             </p>
           </div>
         </label>
@@ -1225,6 +1230,7 @@ function SwitchesPanel() {
             </div>
             <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-1 leading-snug">
               {t("settings.mobileKnowledgeTreeModeDesc")}
+              {" · 仅此设备，不随账号同步"}
             </p>
           </div>
         </label>
@@ -1245,6 +1251,7 @@ function SwitchesPanel() {
             </div>
             <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-1 leading-snug">
               {t("settings.mobileKnowledgeTreeCompactDesc")}
+              {" · 仅此设备，不随账号同步"}
             </p>
           </div>
         </label>
@@ -1265,6 +1272,7 @@ function SwitchesPanel() {
             </div>
             <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-1 leading-snug">
               {t("settings.desktopKnowledgeTreeModeDesc")}
+              {" · 仅此设备，不随账号同步"}
             </p>
           </div>
         </label>
@@ -1322,6 +1330,7 @@ function AppearancePanel() {
   const [sidebarTextStyle, setSidebarTextStyle] = useSidebarTextStyle();
   const [title, setTitle] = useState(siteConfig.title);
   const [previewIcon, setPreviewIcon] = useState(siteConfig.favicon);
+  const [shareFooterText, setShareFooterText] = useState(siteConfig.shareFooterText);
   const [isSaving, setIsSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -1394,7 +1403,8 @@ function AppearancePanel() {
     setIsSaving(true);
     setSaveMessage("");
     try {
-      await updateSiteConfig(title.trim(), previewIcon);
+      await updateSiteConfig(title.trim(), previewIcon, shareFooterText.trim());
+      setShareFooterText(shareFooterText.trim());
       setSaveMessage(t('settings.saveSuccess'));
       setTimeout(() => setSaveMessage(""), 2000);
     } catch {
@@ -1404,7 +1414,7 @@ function AppearancePanel() {
     }
   };
 
-  const hasChanges = title !== siteConfig.title || previewIcon !== siteConfig.favicon;
+  const hasChanges = title !== siteConfig.title || previewIcon !== siteConfig.favicon || shareFooterText !== siteConfig.shareFooterText;
 
   // 当前字体的显示名
   const currentFontName = (() => {
@@ -1533,6 +1543,22 @@ function AppearancePanel() {
                 placeholder={t('settings.siteNamePlaceholder')}
               />
               <p className="text-[10px] text-zinc-400 dark:text-zinc-500 text-right">{title.length} / 20</p>
+            </div>
+
+            <div className="space-y-1.5">
+              <label htmlFor="site-share-footer-text" className="text-xs font-medium text-zinc-500 dark:text-zinc-400">{t('settings.shareFooterText')}</label>
+              <input
+                id="site-share-footer-text"
+                type="text"
+                value={shareFooterText}
+                onChange={(e) => { setShareFooterText(e.target.value); setSaveMessage(""); }}
+                maxLength={100}
+                disabled={!isAdmin}
+                className="w-full px-3 py-2 bg-transparent border border-zinc-200 dark:border-zinc-800 rounded-lg text-sm text-zinc-900 dark:text-zinc-100 focus:ring-2 focus:ring-accent-primary/40 focus:border-accent-primary outline-none transition-all placeholder:text-zinc-400 disabled:opacity-60 disabled:cursor-not-allowed"
+                placeholder="通过 Nowen Note 分享"
+              />
+              <p className="text-[10px] text-zinc-400 dark:text-zinc-500">{t('settings.shareFooterTextHint')}</p>
+              <p className="text-[10px] text-zinc-400 dark:text-zinc-500 text-right">{shareFooterText.length} / 100</p>
             </div>
 
             {isAdmin && (
@@ -1765,7 +1791,7 @@ function AppearancePanel() {
           </div>
         </div>
 
-        {/* 阅读密度：影响编辑器正文段落与列表项的纵向间距/行高（per-device 偏好） */}
+        {/* 阅读密度：影响编辑器正文段落与列表项的纵向间距/行高（账号同步偏好） */}
         <div className="flex items-center justify-between p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-800/30">
           <div className="min-w-0 pr-3">
             <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
@@ -1773,6 +1799,7 @@ function AppearancePanel() {
             </span>
             <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
               {t('settings.readingDensityDesc', { defaultValue: '调节正文段落和列表项的纵向间距，紧凑模式更省空间。' })}
+              {isAndroidNativeRuntime() && " · 开启同步后随账号保存"}
             </p>
           </div>
           <div className="flex items-center gap-1 p-1 rounded-lg bg-zinc-100 dark:bg-zinc-800 flex-shrink-0">
@@ -1850,12 +1877,12 @@ const SettingsModal = React.forwardRef<HTMLDivElement, SettingsModalProps>(
   const [activeTab, setActiveTab] = useState<TabId>(defaultTab);
   const { siteConfig } = useSiteSettings();
   const shortcutSurface = detectShortcutSurface();
-  const [currentUser, setCurrentUser] = useState<{ id: string; role?: string } | null>(null);
+  const [currentUser, setCurrentUser] = useState<{ id: string; role?: string; username?: string; displayName?: string | null } | null>(null);
 
   const fetchCurrentUser = useCallback(() => {
     let cancelled = false;
     api.getMe()
-      .then((u) => { if (!cancelled) setCurrentUser({ id: u.id, role: (u as any).role }); })
+      .then((u) => { if (!cancelled) setCurrentUser({ id: u.id, role: (u as any).role, username: u.username, displayName: u.displayName }); })
       .catch(() => { if (!cancelled) setCurrentUser(null); });
     return () => { cancelled = true; };
   }, []);
@@ -1887,24 +1914,18 @@ const SettingsModal = React.forwardRef<HTMLDivElement, SettingsModalProps>(
     { id: "ai" as const, label: t('settings.ai'), icon: Bot },
     { id: "plugins" as const, label: "插件", icon: Puzzle },
     { id: "automations" as const, label: "自动化", icon: Workflow },
-    { id: "security" as const, label: t('settings.security'), icon: Shield },
+    { id: "security" as const, label: isAndroidNativeRuntime() ? t("mobileAccount.accountAndSecurity") : t('settings.security'), icon: Shield },
     // 【个人访问令牌】任意登录用户都可管理自己的 token；与 security 同为"账号安全"类别，
     // 不需要 isAdmin 判定。
     { id: "tokens" as const, label: t('settings.tokens', { defaultValue: '访问令牌' }), icon: Key },
     ...(isAdmin ? [{ id: "users" as const, label: t('settings.users'), icon: Users }] : []),
     ...(isAdmin ? [{ id: "workspaces" as const, label: t('settings.workspaces'), icon: Building2 }] : []),
-    // 「数据管理」面板：
-    //   - 管理员：展示三个一级 tab（个人空间 / 工作区 / 系统），包含跨用户/全库范围
-    //     的高危操作（备份、灾难恢复、工厂重置、SQLite 文件级导入导出等）；
-    //   - 普通用户：DataManager 内部只渲染"个人空间"scope 的导出/导入 —— 这是
-    //     用户对自己数据的基本自主权。是否可用再叠加后端下发的 feature flag
-    //     （personalExport/Import Enabled），由管理员集中控制。
-    //   组件内部也做了一层防御性闸门，防止用户从深链绕过这里直达 admin-only 区域。
+    // 三端共用数据管理：先呈现备份/恢复/导入/导出目标，再按权限展示范围及高级操作。
     { id: "data" as const, label: t('settings.dataManagement'), icon: Database },
     // 「同步」：Local-first 多设备同步（Sync V2）。产品层只呈现
     // 「不同步，仅此设备」/「我的 Nowen Server」，不暴露 Full/Lite/SQLite 概念。
     // Flag 关闭时组件内部会自行降级为一句说明，不需要在这里做条件渲染。
-    { id: "sync" as const, label: "同步", icon: RefreshCw },
+    { id: "sync" as const, label: isAndroidNativeRuntime() ? "数据与同步" : "同步", icon: RefreshCw },
     // 「文件夹同步」：桌面端专属，Phase B 只做配置 CRUD
     ...((window as any).nowenDesktop?.isDesktop ? [{ id: "folderSync" as const, label: t('folderSync.title'), icon: FolderSync }] : []),
     // 「下载客户端」面板：面向所有用户（含未登录、本地、云端）。需求背景：
@@ -2087,12 +2108,14 @@ const SettingsModal = React.forwardRef<HTMLDivElement, SettingsModalProps>(
             {activeTab === "ai" && <AISettingsPanel />}
             {activeTab === "plugins" && <PluginSettingsTab isAdmin={isAdmin} />}
             {activeTab === "automations" && <AutomationCenter />}
-            {activeTab === "security" && <SecuritySettings />}
+            {activeTab === "security" && <div className="space-y-6">
+              {isAndroidNativeRuntime() && <MobileAccountSettings accountLabel={currentUser?.displayName || currentUser?.username} />}
+              {!isMobileLocalMode() && <SecuritySettings />}
+            </div>}
             {activeTab === "tokens" && <TokenManagement />}
                   {activeTab === "users" && isAdmin && <UserManagement currentUserId={currentUser?.id ?? null} />}
                   {activeTab === "workspaces" && isAdmin && <WorkspaceManagement />}
-                  {/* data tab 对所有用户可见：DataManager 内部会按 isAdmin 自动分流
-                       —— 管理员看到完整三 scope；普通用户只看"个人空间"的导出/导入。 */}
+                  {/* DataManager 内部保留管理员与个人导入/导出的权限限制。 */}
                   {activeTab === "data" && <DataManager />}
                   {activeTab === "sync" && <SyncSettingsTab />}
                   {activeTab === "folderSync" && <FolderSyncSettings />}

@@ -1,0 +1,52 @@
+name: Frontend Runtime Warnings CI
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, "release/v1.5.1"]
+    paths:
+      - "frontend/src/components/TitleDuplicateAssistBridge.tsx"
+      - "frontend/src/components/__tests__/TitleDuplicateAssistBridge.test.tsx"
+      - "frontend/src/lib/attachmentMediaPlugin.ts"
+      - "frontend/src/lib/nativeAttachmentStore.ts"
+      - "frontend/src/hooks/useAttachmentVideoRenderSource.ts"
+      - "frontend/src/lib/__tests__/attachmentMediaPlugin.test.ts"
+      - "frontend/src/lib/attachmentUploadPolicy.ts"
+      - "frontend/src/lib/attachmentUploadPolicyBridge.ts"
+      - "frontend/src/lib/__tests__/attachmentUploadPolicy.test.ts"
+      - ".github/workflows/frontend-runtime-warnings-ci.yml"
+  pull_request:
+    paths:
+      - "frontend/src/components/TitleDuplicateAssistBridge.tsx"
+      - "frontend/src/components/__tests__/TitleDuplicateAssistBridge.test.tsx"
+      - "frontend/src/lib/attachmentMediaPlugin.ts"
+      - "frontend/src/lib/nativeAttachmentStore.ts"
+      - "frontend/src/hooks/useAttachmentVideoRenderSource.ts"
+      - "frontend/src/lib/__tests__/attachmentMediaPlugin.test.ts"
+      - "frontend/src/lib/attachmentUploadPolicy.ts"
+      - "frontend/src/lib/attachmentUploadPolicyBridge.ts"
+      - "frontend/src/lib/__tests__/attachmentUploadPolicy.test.ts"
+      - ".github/workflows/frontend-runtime-warnings-ci.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  runtime-warnings:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - name: Root title, native plugin and upload policy regression tests
+        run: npm run test:run -- src/components/__tests__/TitleDuplicateAssistBridge.test.tsx src/lib/__tests__/attachmentMediaPlugin.test.ts src/lib/__tests__/attachmentUploadPolicy.test.ts
+      - name: Frontend typecheck
+        run: npx tsc -b

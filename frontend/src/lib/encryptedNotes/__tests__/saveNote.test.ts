@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Note } from "@/types";
 import fixture from "./fixtures/envelope-v1.json";
+import v2 from "./fixtures/envelope-v2.json";
 import { ENCRYPTED_NOTE_FORMAT } from "../noteDocument";
 import { saveEncryptedNoteCiphertext } from "../saveNote";
 import { pendingEncryptedNote } from "../pendingNote";
@@ -36,6 +37,20 @@ describe("encrypted offline and conflict saves", () => {
     const result = await saveEncryptedNoteCiphertext(note, note.content, new AbortController().signal);
     expect(result.version).toBe(2); expect(mocks.queue).toHaveLength(0);
     expect(mocks.save).toHaveBeenCalledWith(note.id, { content: note.content, contentText: "", contentFormat: ENCRYPTED_NOTE_FORMAT, version: 1 });
+  });
+  it("persists and reloads v2 ciphertext in the same scoped queue", async () => {
+    const current = { ...note, contentFormat: "encrypted-note-v2", content: JSON.stringify(v2.envelope) };
+    mocks.save.mockRejectedValue(new TypeError("Network failed"));
+    const saved = await saveEncryptedNoteCiphertext(current, current.content, new AbortController().signal);
+    expect(saved.__offlineQueued).toBe(true); expect(pendingEncryptedNote(note.id)?.content).toBe(current.content);
+    expect(pendingEncryptedNote(note.id)?.contentFormat).toBe("encrypted-note-v2");
+    expect(JSON.stringify(mocks.queue)).not.toContain(v2.passphrase);
+  });
+  it.each([{ id: "wrong" }, { content: "Plaintext" }, { contentFormat: "markdown" }, { contentText: "Private preview" }, { version: 1 }])("invalid acknowledgement %j does not discard pending ciphertext", async (patch) => {
+    mocks.queue.push({ id: "old", type: "updateNote", noteId: note.id, body: { content: note.content, contentFormat: ENCRYPTED_NOTE_FORMAT } });
+    mocks.save.mockResolvedValue({ ...note, version: 2, ...patch });
+    await expect(saveEncryptedNoteCiphertext(note, note.content, new AbortController().signal)).rejects.toThrow("acknowledgement mismatch");
+    expect(mocks.queue).toHaveLength(1);
   });
   it("persists only ciphertext on a network failure and reloads it without the detail cache", async () => {
     mocks.save.mockRejectedValue(new TypeError("Failed to fetch"));
