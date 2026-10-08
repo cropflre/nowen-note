@@ -68,6 +68,17 @@ function allowedWorkspace(workspaceId: string | null, userId: string, write = fa
   return write ? hasRole(role, "editor") : role !== null;
 }
 
+/** 个人任务永远只能由所有者读取；工作区任务按当前成员身份判断。 */
+function canReadPluginTask(task: { userId: string; workspaceId: string | null }, actorId: string): boolean {
+  if (!actorId) return false;
+  return task.workspaceId ? allowedWorkspace(task.workspaceId, actorId) : task.userId === actorId;
+}
+
+function canWritePluginTask(task: { userId: string; workspaceId: string | null }, actorId: string): boolean {
+  if (!actorId) return false;
+  return task.workspaceId ? allowedWorkspace(task.workspaceId, actorId, true) : task.userId === actorId;
+}
+
 export class HostApiBroker {
   constructor(
     private readonly permissions = new PluginPermissions(),
@@ -249,12 +260,19 @@ export class HostApiBroker {
     const db = getDb();
     if (operation === "get") {
       const row = db.prepare("SELECT * FROM tasks WHERE id=?").get(requireString(args.id ?? args.taskId, "taskId")) as JsonObject | undefined;
-      if (!row || (row.userId !== context.userId && !allowedWorkspace(row.workspaceId, context.userId))) forbidden("无权读取该任务");
+      if (!row || !canReadPluginTask(row as { userId: string; workspaceId: string | null }, context.userId)) forbidden("无权读取该任务");
       return row;
     }
     if (operation === "list") {
-      const rows = db.prepare("SELECT * FROM tasks ORDER BY updatedAt DESC LIMIT 500").all() as JsonObject[];
-      return rows.filter((row) => row.userId === context.userId || allowedWorkspace(row.workspaceId, context.userId)).slice(0, Math.max(1, Math.min(100, Number(args.limit) || 50)));
+      const limit = Math.max(1, Math.min(100, Number(args.limit) || 50));
+      const offset = Math.max(0, Math.min(50000, Math.trunc(Number(args.offset) || 0)));
+      // 个人任务使用数据库级分页，供定时任务简报逐页统计；默认列表仍兼容工作区任务。
+      if (args.scope === "personal") {
+        return db.prepare("SELECT * FROM tasks WHERE userId=? AND workspaceId IS NULL ORDER BY updatedAt DESC, id DESC LIMIT ? OFFSET ?")
+          .all(context.userId, limit, offset);
+      }
+      const rows = db.prepare("SELECT * FROM tasks ORDER BY updatedAt DESC, id DESC LIMIT ? OFFSET ?").all(500, offset) as JsonObject[];
+      return rows.filter((row) => canReadPluginTask(row as { userId: string; workspaceId: string | null }, context.userId)).slice(0, limit);
     }
     if (operation === "create") {
       const workspaceId = typeof args.workspaceId === "string" && args.workspaceId ? args.workspaceId : null;
@@ -268,7 +286,7 @@ export class HostApiBroker {
     if (operation === "update") {
       const id = requireString(args.id ?? args.taskId, "taskId");
       const current = db.prepare("SELECT * FROM tasks WHERE id=?").get(id) as JsonObject | undefined;
-      if (!current || (current.userId !== context.userId && !allowedWorkspace(current.workspaceId, context.userId, true))) forbidden("无权修改该任务");
+      if (!current || !canWritePluginTask(current as { userId: string; workspaceId: string | null }, context.userId)) forbidden("无权修改该任务");
       const updated = await this.commands.updateTask(context.userId, id, args, context);
       return { id: updated.task?.id || id };
     }
