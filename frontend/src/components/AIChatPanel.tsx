@@ -40,6 +40,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { useApp } from "@/store/AppContext";
 import AIKnowledgeScopePicker from "@/components/AIKnowledgeScopePicker";
 import PluginPromptPicker from "@/components/PluginPromptPicker";
+import { taskDigestApi } from "@/lib/taskDigestApi";
 
 interface ChatReference {
   id: string;
@@ -351,6 +352,20 @@ export default function AIChatPanel({ onClose, onNavigateToNote }: {
     let stopped = false;
 
     try {
+      // 只读任务工具：直接取服务端真实统计，不让大模型猜测任务数据。
+      // 写入任务必须通过显式授权的 MCP 工具或任务中心完成。
+      const taskQuery = /(?:今天|今日).*(?:待办|任务)|(?:待办|任务).*(?:今天|今日)/.test(args.question)
+        || args.question.trim() === "/待办";
+      if (taskQuery) {
+        const mode = /(?:完成|总结|进度|晚上|晚间)/.test(args.question) ? "evening" : "morning";
+        const digest = await taskDigestApi.preview(mode);
+        finalContent = [`### ${digest.date} · ${mode === "morning" ? "今日待办" : "今日进度"}`,
+          digest.summary,
+          ...digest.tasks.map((task) => `- ${task.title}${task.dueAt ? `（${task.dueAt}）` : ""}`),
+          "数据来源：Nowen Note 个人任务（实时读取）。"].join("\n\n");
+        setMessages((previous) => previous.map((message) =>
+          message.id === args.assistantMessage.id ? { ...message, content: finalContent } : message));
+      } else {
       await withAbortableAiFetch(controller, () => api.aiAsk(
         args.question,
         args.history,
@@ -375,6 +390,7 @@ export default function AIChatPanel({ onClose, onNavigateToNote }: {
           includeChildren: nbIncludeChildren,
         } : undefined,
       ));
+      }
     } catch (error: any) {
       stopped = stopRequestedRef.current || controller.signal.aborted || error?.name === "AbortError";
       if (!stopped) {
