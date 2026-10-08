@@ -119,9 +119,9 @@ router.put("/", async (c) => {
   if (!isClock(morningTime) || !isClock(eveningTime) || !isTimezone(timezone)) {
     return c.json({ error: "时间或时区格式不正确" }, 400);
   }
-  const morningEnabled = input.morningEnabled === undefined ? existing.morningEnabled : (input.morningEnabled === true ? 1 : 0);
-  const eveningEnabled = input.eveningEnabled === undefined ? existing.eveningEnabled : (input.eveningEnabled === true ? 1 : 0);
-  const dueEnabled = input.dueEnabled === undefined ? existing.dueEnabled : (input.dueEnabled === true ? 1 : 0);
+  const morningEnabled = input.morningEnabled === undefined ? existing.morningEnabled : (input.morningEnabled === true || input.morningEnabled === 1 ? 1 : 0);
+  const eveningEnabled = input.eveningEnabled === undefined ? existing.eveningEnabled : (input.eveningEnabled === true || input.eveningEnabled === 1 ? 1 : 0);
+  const dueEnabled = input.dueEnabled === undefined ? existing.dueEnabled : (input.dueEnabled === true || input.dueEnabled === 1 ? 1 : 0);
   getDb().prepare(`INSERT INTO task_digest_settings(userId,morningEnabled,eveningEnabled,dueEnabled,morningTime,eveningTime,timezone)
     VALUES (?,?,?,?,?,?,?) ON CONFLICT(userId) DO UPDATE SET
     morningEnabled=excluded.morningEnabled,eveningEnabled=excluded.eveningEnabled,dueEnabled=excluded.dueEnabled,
