@@ -12,7 +12,9 @@ import { getOfflineQueueStorageKey, flushQueue, enqueue } from "../src/lib/offli
 import { getYjsPersistenceName } from "../src/lib/yjsProvider";
 import * as cache from "../src/lib/localStore";
 import vector from "../src/lib/encryptedNotes/__tests__/fixtures/envelope-v1.json";
+import i18n from "../src/i18n";
 
+void i18n.changeLanguage("zh-CN");
 const root = createRoot(document.getElementById("editor")!);
 let blockedConnection: Awaited<ReturnType<typeof openDB>> | undefined;
 let releaseExclusive: (() => void) | undefined;
