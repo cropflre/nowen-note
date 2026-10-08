@@ -257,7 +257,7 @@ export default function ShareModal({ noteId, noteTitle, initialShareId, onClose 
                   />
                   <Button size="sm" variant="outline" disabled={originSaving} onClick={savePublicOrigin} className="h-8 shrink-0">
                     {originSaving && <Loader2 size={13} className="mr-1 animate-spin" />}
-                    保存公开域名
+                    {t("shareUi.saveOrigin")}
                   </Button>
                 </div>
               ) : publicOrigin.requiresAnonymousCheck ? (
