@@ -7,6 +7,7 @@ import { isDesktop } from "@/lib/desktopBridge";
 import { isElectronFullLocalRuntime } from "@/lib/uploadRequest";
 import { confirm as confirmDialog } from "@/components/ui/confirm";
 import { runFullBackupJob } from "@/lib/fullBackupJobClient";
+import { formatSupportError, formatSupportReference } from "@/lib/supportError";
 import { backupWebDavApi } from "@/lib/backupWebDavApi";
 import DataProtectionOverview from "./DataProtectionOverview";
 import RestoreCenter from "./RestoreCenter";
@@ -218,10 +219,13 @@ export default function BackupCenter({ migration, advanced }: { migration: React
           }
         }
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const issue = formatSupportError(err, "备份创建失败，请检查服务器日志");
+      const reference = formatSupportReference(issue);
       setCreateMsg({
         type: "err",
-        text: t("dataManager.backup.createFailed", { error: err.message || "error" }),
+        text: t("dataManager.backup.createFailed", { error: issue.message })
+          + (reference ? `（故障编号：${reference}）` : ""),
       });
     } finally {
       setCreating(null);
@@ -265,10 +269,12 @@ export default function BackupCenter({ migration, advanced }: { migration: React
       });
       reload();
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
+      const issue = formatSupportError(err, "备份导入失败，请检查文件格式或服务器日志");
+      const reference = formatSupportReference(issue);
       setImportMsg({
         type: "err",
-        text: t("dataManager.backup.importFailed", { error: msg }),
+        text: t("dataManager.backup.importFailed", { error: issue.message })
+          + (reference ? `（故障编号：${reference}）` : ""),
       });
     } finally {
       setImporting(false);
@@ -886,6 +892,7 @@ function BackupRestoreDialog(props: {
   const [stage, setStage] = useState<"loading" | "preview" | "restoring" | "done" | "error">("loading");
   const [dryRun, setDryRun] = useState<RestoreDryRun | null>(null);
   const [errorMsg, setErrorMsg] = useState<string>("");
+  const [errorReference, setErrorReference] = useState<string | null>(null);
   const [confirmed, setConfirmed] = useState(false);
 
   // 进入对话框立刻调 dryRun 拿预览
@@ -902,9 +909,11 @@ function BackupRestoreDialog(props: {
         }
         setDryRun(res.dryRun);
         setStage("preview");
-      } catch (err: any) {
+      } catch (err: unknown) {
         if (cancelled) return;
-        setErrorMsg(err.message || "preview failed");
+        const issue = formatSupportError(err, "备份预检失败，请根据故障编号检查服务器日志");
+        setErrorMsg(issue.message);
+        setErrorReference(formatSupportReference(issue));
         setStage("error");
       }
     })();
@@ -917,6 +926,7 @@ function BackupRestoreDialog(props: {
     if (!confirmed) return;
     setStage("restoring");
     setErrorMsg("");
+    setErrorReference(null);
     try {
       const out = await withSudo(
         (tk) => api.backup.restore(target.filename, false, tk),
@@ -937,8 +947,10 @@ function BackupRestoreDialog(props: {
       setStage("done");
       // 给用户 2.5 秒看到"恢复成功，请重启"提示后再回到列表
       setTimeout(() => onSuccess(), 2500);
-    } catch (err: any) {
-      setErrorMsg(err.message || "restore failed");
+    } catch (err: unknown) {
+      const issue = formatSupportError(err, "恢复失败；如已开始恢复，请勿重复提交，请先检查服务器日志");
+      setErrorMsg(issue.message);
+      setErrorReference(formatSupportReference(issue));
       setStage("error");
     }
   };
@@ -1079,6 +1091,21 @@ function BackupRestoreDialog(props: {
               <div>
                 <div className="font-semibold">{t("dataManager.backup.restoreFailed")}</div>
                 <div className="text-xs mt-0.5 break-all">{errorMsg}</div>
+                {errorReference && (
+                  <button type="button"
+                    title="复制故障编号"
+                    className="mt-2 text-xs underline underline-offset-2"
+                    onClick={() => {
+                      if (!navigator.clipboard?.writeText) {
+                        window.prompt("复制故障编号", errorReference);
+                        return;
+                      }
+                      void navigator.clipboard.writeText(errorReference);
+                    }}
+                  >
+                    故障编号：{errorReference}（点击复制）
+                  </button>
+                )}
               </div>
             </div>
           )}

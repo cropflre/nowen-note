@@ -4,6 +4,7 @@ import "./runtime/task-stats-hardening";
 import "./runtime/notebook-publication";
 import "./runtime/knowledge-tree";
 import { Hono } from "hono";
+import { requestErrorTracing, handleUnhandledRequestError } from "./middleware/request-error";
 import wechatCaptureRouter from "./routes/wechat-capture.js";
 import wechatAssistantRouter, { createWechatAssistantCallbackRouter } from "./routes/wechat-assistant.js";
 import pluginInboundRouter from "./routes/plugin-inbound.js";
@@ -106,6 +107,10 @@ import {
 
 const app = new Hono();
 
+// Preserve legacy route-level error payloads; normalize only uncaught exceptions.
+app.onError(handleUnhandledRequestError);
+app.use("*", requestErrorTracing);
+
 function normalizeProxyCompatibilityPath(pathname: string): string {
   if (pathname === "/public/api" || pathname.startsWith("/public/api/")) {
     return pathname.slice("/public".length) || "/api";
@@ -131,9 +136,11 @@ app.use("*", async (c, next) => {
     ? "/public/api"
     : "/publicapi";
   target.pathname = normalizedPath;
+  const forwardedHeaders = new Headers(c.req.raw.headers);
+  forwardedHeaders.set("X-Request-Id", c.get("requestId"));
   const init: RequestInit & { duplex?: "half" } = {
     method: c.req.raw.method,
-    headers: c.req.raw.headers,
+    headers: forwardedHeaders,
     redirect: c.req.raw.redirect,
     signal: c.req.raw.signal,
   };
@@ -163,7 +170,7 @@ app.use("*", cors({
   },
   allowMethods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
   allowHeaders: ["Content-Type", "X-User-Id", "Authorization", "X-Sudo-Token", "X-Folder-Unlock-Tokens", "X-Connection-Id", "X-Share-Session", "X-Requested-With", "X-Request-Id", "X-Export-Filename"],
-  exposeHeaders: ["X-Nowen-Proxy-Compatibility-Path"],
+  exposeHeaders: ["X-Nowen-Proxy-Compatibility-Path", "X-Request-Id"],
   credentials: true,
 }));
 

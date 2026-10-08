@@ -105,7 +105,7 @@ describe("canApplyRevalidatedNote", () => {
 });
 
 describe("loadNoteCacheFirst", () => {
-  afterEach(() => { delete (window as any).Capacitor; });
+  afterEach(() => { delete (window as Window & { Capacitor?: unknown }).Capacitor; });
   beforeEach(() => {
     vi.clearAllMocks();
     localStorage.clear();

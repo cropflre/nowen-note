@@ -36,10 +36,17 @@ describe("runFullBackupJob", () => {
         state: "error",
         message: "失败",
         error: "磁盘空间不足",
+        errorCode: "BACKUP_STORAGE_NO_SPACE",
+        retryable: false,
       }),
     };
 
     await expect(runFullBackupJob(client, "sudo-token", undefined, { delay: async () => {} }))
-      .rejects.toThrow("磁盘空间不足");
+      .rejects.toMatchObject({
+        message: "磁盘空间不足",
+        code: "BACKUP_STORAGE_NO_SPACE",
+        operationId: "job-2",
+        retryable: false,
+      });
   });
 });
