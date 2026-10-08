@@ -1,0 +1,47 @@
+name: Login Server Address CI (#808)
+
+on:
+  pull_request:
+    paths:
+      - "frontend/src/components/ServerAddressInput.tsx"
+      - "frontend/src/components/LoginPage.tsx"
+      - "frontend/src/components/ServerConnect.tsx"
+      - "frontend/src/components/__tests__/ServerAddressInput.issue808.test.tsx"
+      - "frontend/src/components/__tests__/LoginPageWebConnection.test.tsx"
+      - "frontend/src/lib/serverUrl.ts"
+      - ".github/workflows/issue-808-login-server-address-ci.yml"
+  push:
+    branches: [main, "release/**"]
+    paths:
+      - "frontend/src/components/ServerAddressInput.tsx"
+      - "frontend/src/components/LoginPage.tsx"
+      - "frontend/src/components/ServerConnect.tsx"
+      - "frontend/src/components/__tests__/ServerAddressInput.issue808.test.tsx"
+      - "frontend/src/components/__tests__/LoginPageWebConnection.test.tsx"
+      - "frontend/src/lib/serverUrl.ts"
+      - ".github/workflows/issue-808-login-server-address-ci.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  address-input:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci --no-audit --no-fund
+      - name: Frontend TypeScript check
+        working-directory: frontend
+        run: npx tsc -b --pretty false
+      - name: Login address and URL parsing regression
+        working-directory: frontend
+        run: |
+          npx vitest run             src/components/__tests__/ServerAddressInput.issue808.test.tsx             src/components/__tests__/LoginPageWebConnection.test.tsx             src/lib/__tests__/serverUrl.test.ts
