@@ -3,7 +3,7 @@ import { BellRing, Check, Clock3, Eye, Send } from "lucide-react";
 import { taskDigestApi, type TaskDigestConfig, type TaskDigestPreview } from "@/lib/taskDigestApi";
 
 const defaultConfig: TaskDigestConfig = {
-  userId: "", morningEnabled: 0, eveningEnabled: 0,
+  userId: "", morningEnabled: 0, eveningEnabled: 0, dueEnabled: 0,
   morningTime: "09:00", eveningTime: "21:00",
   timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "Asia/Shanghai",
 };
