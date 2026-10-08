@@ -34,6 +34,12 @@ export function wrapGfmTaskInlineContent(children: React.ReactNode): React.React
   let text: React.ReactNode[] = [];
   const flush = () => {
     if (text.length === 0) return;
+    // GFM can emit a whitespace-only text node after a nested <ul>.
+    // That is layout whitespace, not another task text fragment.
+    if (text.every((part) => typeof part === "string" && !part.trim())) {
+      text = [];
+      return;
+    }
     output.push(React.createElement("span", {
       key: "task-text-" + output.length,
       className: "nowen-task-item-text",

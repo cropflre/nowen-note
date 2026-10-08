@@ -33,6 +33,7 @@ describe("GFM task completion presentation", () => {
       " parent",
       React.createElement("strong", { key: "strong" }, "strong"),
       React.createElement("ul", { key: "child" }, React.createElement("li", null, "nested")),
+      "\n",
     ]);
     const output = React.Children.toArray(elements);
     expect(output).toHaveLength(3);
