@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import {
   AlertTriangle,
   CheckCircle2,
+  Copy,
   DatabaseBackup,
   Download,
   FileArchive,
@@ -16,12 +17,14 @@ import { api, getBaseUrl, withSudo } from "@/lib/api";
 import { confirm as confirmDialog, prompt as promptDialog } from "@/components/ui/confirm";
 import { toast } from "@/lib/toast";
 import { runFullBackupJob } from "@/lib/fullBackupJobClient";
+import { formatSupportError, formatSupportReference } from "@/lib/supportError";
+import { createHttpRequestError } from "@/lib/httpError";
 
 const MAX_ARCHIVE_BYTES = 500 * 1024 * 1024;
 const HOST_ATTR = "data-nowen-full-data-transfer-host";
 
 type Operation = "export" | "import" | null;
-type Notice = { type: "success" | "error" | "info"; text: string } | null;
+type Notice = { type: "success" | "error" | "info"; text: string; reference?: string } | null;
 
 type BackupUploadResult = {
   filename: string;
@@ -84,8 +87,8 @@ async function downloadBackup(
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   });
   if (!response.ok) {
-    const body = await response.text().catch(() => "");
-    throw new Error(body || `下载完整备份失败（HTTP ${response.status}）`);
+    const payload: unknown = await response.json().catch(() => ({}));
+    throw createHttpRequestError(response, payload, `下载完整备份失败（HTTP ${response.status}）`);
   }
 
   const blob = await response.blob();
@@ -203,7 +206,27 @@ function NoticeBox({ notice }: { notice: Notice }) {
   return (
     <div className={`flex items-start gap-2 rounded-lg border px-3 py-2 text-xs leading-5 ${styles}`}>
       {notice.type === "success" ? <CheckCircle2 size={14} className="mt-0.5 shrink-0" /> : <AlertTriangle size={14} className="mt-0.5 shrink-0" />}
-      <span className="break-all">{notice.text}</span>
+      <div className="min-w-0 flex-1">
+        <p className="break-words">{notice.text}</p>
+        {notice.reference && (
+          <div className="mt-1.5 flex flex-wrap items-center gap-2">
+            <span className="select-all break-all font-mono text-[11px]">故障编号：{notice.reference}</span>
+            <button
+              type="button"
+              className="inline-flex items-center gap-1 rounded border border-current/20 px-2 py-0.5 hover:bg-black/5 dark:hover:bg-white/5"
+              title="复制故障编号，便于反馈问题"
+              onClick={() => {
+                void navigator.clipboard?.writeText(notice.reference || "").then(
+                  () => toast.success("故障编号已复制"),
+                  () => toast.error("复制失败，请手动选择编号"),
+                );
+              }}
+            >
+              <Copy size={11} /> 复制编号
+            </button>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -255,8 +278,12 @@ function FullDataTransferPanel() {
       setNotice({ type: downloaded.completed ? "success" : "info", text });
       toast.success(text, 5000);
     } catch (error) {
-      const text = error instanceof Error ? error.message : String(error);
-      setNotice({ type: "error", text: `完整数据导出失败：${text}` });
+      const failure = formatSupportError(error, "完整备份导出失败，请检查网络、磁盘空间或服务端日志");
+      setNotice({
+        type: "error",
+        text: `完整数据导出失败：${failure.message}`,
+        reference: formatSupportReference(failure) || undefined,
+      });
     } finally {
       setBusy(null);
     }
@@ -370,8 +397,12 @@ function FullDataTransferPanel() {
       setNotice({ type: "success", text: successText });
       toast.success(successText, 8000);
     } catch (error) {
-      const text = error instanceof Error ? error.message : String(error);
-      setNotice({ type: "error", text: `完整数据导入失败：${text}` });
+      const failure = formatSupportError(error, "完整备份导入或恢复失败；如已开始恢复，请先检查服务端日志，勿重复恢复");
+      setNotice({
+        type: "error",
+        text: `完整数据导入失败：${failure.message}`,
+        reference: formatSupportReference(failure) || undefined,
+      });
     } finally {
       setBusy(null);
     }
