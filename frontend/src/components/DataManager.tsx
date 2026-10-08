@@ -99,6 +99,7 @@ function isSiyuanNativePackageFilename(filename: string): boolean {
 }
 
 function DesktopDataSafetyCard({ currentUser }: { currentUser: Pick<User, "id" | "username"> | null }) {
+  const { t } = useTranslation();
   const [info, setInfo] = useState<AppInfo | null>(null);
   const [dataDirInfo, setDataDirInfo] = useState<DataDirInfo | null>(null);
   const [resetting, setResetting] = useState(false);
@@ -124,57 +125,55 @@ function DesktopDataSafetyCard({ currentUser }: { currentUser: Pick<User, "id" |
 
   const handleOpenDataDir = async () => {
     const res = await openDataDir();
-    if (!res.ok) setMessage("打开数据目录失败");
+    if (!res.ok) setMessage(t("desktopSafety.openFailed"));
   };
 
   const formatMigrationError = (error?: string) => {
     const messages: Record<string, string> = {
-      INVALID_PATH: "请选择有效的绝对路径",
-      TARGET_IS_CURRENT: "新目录不能与当前目录相同",
-      TARGET_INSIDE_CURRENT: "新目录不能放在当前数据目录内部",
-      TARGET_IS_ROOT: "不能选择磁盘根目录",
-      TARGET_INSIDE_APP: "不能选择应用安装目录",
-      TARGET_NOT_DIRECTORY: "目标路径不是文件夹",
-      TARGET_NOT_EMPTY: "目标目录非空，请选择空目录或已有 nowen-note 数据目录",
-      LITE_MODE: "轻量模式不使用本机完整数据库",
-      CREATE_TARGET_FAILED: "创建目标目录失败",
+      INVALID_PATH: t("desktopSafety.invalidPath"),
+      TARGET_IS_CURRENT: t("desktopSafety.samePath"),
+      TARGET_INSIDE_CURRENT: t("desktopSafety.insideCurrent"),
+      TARGET_IS_ROOT: t("desktopSafety.rootPath"),
+      TARGET_INSIDE_APP: t("desktopSafety.insideApp"),
+      TARGET_NOT_DIRECTORY: t("desktopSafety.notFolder"),
+      TARGET_NOT_EMPTY: t("desktopSafety.targetNotEmpty"),
+      LITE_MODE: t("desktopSafety.liteMode"),
+      CREATE_TARGET_FAILED: t("desktopSafety.createTargetFailed"),
     };
     return messages[error || ""] || error || "unknown";
   };
 
   const handleChangeDataDir = async () => {
     if (!isFullLocal) {
-      setMessage("轻量模式连接远端服务器，本机不保存完整数据库。");
+      setMessage(t("desktopSafety.liteInfo"));
       return;
     }
 
     const picked = await chooseDesktopDataDir();
     if (picked.canceled) return;
     if (!picked.ok || !picked.path) {
-      setMessage(`选择目录失败：${formatMigrationError(picked.error)}`);
+      setMessage(t("desktopSafety.chooseFailed", { error: formatMigrationError(picked.error) }));
       return;
     }
 
     const ok = await confirmDialog({
-      title: "迁移本地数据目录？",
-      description:
-        `将把数据库、附件、备份和设置迁移到：\n${picked.path}\n\n` +
-        "迁移会先停止本地后端并在完成后重启应用。迁移成功前请不要关闭应用。旧目录不会自动删除。",
-      confirmText: "迁移并重启",
-      cancelText: "取消",
+      title: t("desktopSafety.migrationTitle"),
+      description: t("desktopSafety.migrationDescription", { path: picked.path }),
+      confirmText: t("desktopSafety.migrateRestart"),
+      cancelText: t("desktopSafety.cancel"),
       danger: true,
     });
     if (!ok) return;
 
     setMigrating(true);
-    setMessage("正在迁移本地数据，请不要关闭应用…");
+    setMessage(t("desktopSafety.migrating"));
     const res = await migrateDesktopDataDir(picked.path);
     setMigrating(false);
     if (res.ok) {
-      setMessage("迁移完成，应用即将重启。");
+      setMessage(t("desktopSafety.migrated"));
     } else {
-      const restartHint = res.restartError ? `；后端恢复失败：${res.restartError}` : "";
-      setMessage(`迁移失败：${formatMigrationError(res.error)}${restartHint}`);
+      const restartHint = res.restartError ? t("desktopSafety.backendRestartFailed", { error: res.restartError }) : "";
+      setMessage(t("desktopSafety.migrationFailed", { error: formatMigrationError(res.error), hint: restartHint }));
     }
   };
 
@@ -186,10 +185,10 @@ function DesktopDataSafetyCard({ currentUser }: { currentUser: Pick<User, "id" |
     setResetting(false);
     if (res.ok && res.token) {
       storeAuthTokens({ token: res.token, refreshToken: res.refreshToken ?? null });
-      setMessage("本地自动登录已恢复，正在刷新。");
+      setMessage(t("desktopSafety.authRestored"));
       window.setTimeout(() => window.location.reload(), 400);
     } else {
-      setMessage(`恢复失败：${res.error || res.reason || "unknown"}`);
+      setMessage(t("desktopSafety.restoreFailed", { error: res.error || res.reason || "unknown" }));
     }
   };
 
@@ -201,17 +200,17 @@ function DesktopDataSafetyCard({ currentUser }: { currentUser: Pick<User, "id" |
             <HardDrive className="w-4 h-4 text-zinc-600 dark:text-zinc-300" />
           </div>
           <div className="min-w-0">
-            <h4 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">本地数据位置</h4>
+            <h4 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">{t("desktopSafety.dataLocation")}</h4>
             <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5 break-all">{currentDataDir}</p>
             <p className="text-xs text-zinc-400 dark:text-zinc-500 mt-1">
               {isFullLocal
-                ? `数据库文件：nowen-note.db · 日志目录：${info.logDir}`
-                : "轻量模式数据存储在远端服务器，本机不保存完整数据库。"}
-              {dataDirInfo?.isCustom ? " · 自定义目录" : ""}
+                ? t("desktopSafety.dbAndLogs", { path: info.logDir })
+                : t("desktopSafety.remoteLite")}
+              {dataDirInfo?.isCustom ? t("desktopSafety.customDirectory") : ""}
             </p>
             {isFullLocal && currentUser && (
               <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1 break-all">
-                当前会话账号：{currentUser.username} · ID：{currentUser.id}（请与旧版本核对；当前会话不一定属于此数据库）
+                {t("desktopSafety.currentAccount", { username: currentUser.username, id: currentUser.id })}
               </p>
             )}
           </div>
@@ -223,7 +222,7 @@ function DesktopDataSafetyCard({ currentUser }: { currentUser: Pick<User, "id" |
             className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-zinc-200 dark:border-zinc-700 text-xs font-medium text-zinc-700 dark:text-zinc-300 hover:bg-white dark:hover:bg-zinc-900 transition-colors"
           >
             <ExternalLink className="w-3.5 h-3.5" />
-            打开数据目录
+            {t("desktopSafety.openFolder")}
           </button>
           {isFullLocal && (
             <button
@@ -233,7 +232,7 @@ function DesktopDataSafetyCard({ currentUser }: { currentUser: Pick<User, "id" |
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-blue-200 dark:border-blue-900/50 text-xs font-medium text-blue-700 dark:text-blue-300 hover:bg-blue-50 dark:hover:bg-blue-500/10 disabled:opacity-60 transition-colors"
             >
               {migrating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <FolderDown className="w-3.5 h-3.5" />}
-              更改位置
+              {t("desktopSafety.changeLocation")}
             </button>
           )}
           {isFullLocal && (
@@ -244,7 +243,7 @@ function DesktopDataSafetyCard({ currentUser }: { currentUser: Pick<User, "id" |
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-amber-200 dark:border-amber-900/50 text-xs font-medium text-amber-700 dark:text-amber-300 hover:bg-amber-50 dark:hover:bg-amber-500/10 disabled:opacity-60 transition-colors"
             >
               {resetting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Lock className="w-3.5 h-3.5" />}
-              恢复本地自动登录
+              {t("desktopSafety.restoreLocalAuth")}
             </button>
           )}
         </div>
