@@ -66,7 +66,7 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
       - name: I18n release regression tests
-        run: npm run test:run -- src/i18n/__tests__/releaseI18nCoverage.test.ts src/components/__tests__/EditorErrorBoundary.test.ts src/components/diary/__tests__/SayMarkdownToolbar.test.ts
+        run: npm run test:run -- src/i18n/__tests__/releaseI18nCoverage.test.ts src/components/__tests__/MobileSyncSettings.test.tsx src/components/__tests__/EditorErrorBoundary.test.ts src/components/diary/__tests__/SayMarkdownToolbar.test.ts
       - name: Frontend typecheck
         if: always()
         run: npx tsc -b
