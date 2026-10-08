@@ -10,6 +10,7 @@ import {
   acquireAttachmentRenderUrl,
   extractAttachmentId,
   getAttachmentRenderSource,
+  requiresVerifiedAttachmentAccess,
   getPersistentAttachmentUrl,
   mergeSignedAttachmentUrl,
   registerAttachmentAccessUrls,
@@ -34,6 +35,15 @@ describe("noteAttachmentAccessBridge", () => {
     });
     resetAttachmentAccessStateForTests();
     window.history.replaceState({}, "", "/note/test");
+  });
+
+  it("defers bare private attachments until access is verified", () => {
+    const id = "5bc403c1-2c1f-4541-ba2a-c8e9ab1b5fbd";
+    expect(requiresVerifiedAttachmentAccess(`/api/attachments/${id}`)).toBe(true);
+    expect(requiresVerifiedAttachmentAccess(`/api/attachments/${id}?inline=1`)).toBe(true);
+    expect(requiresVerifiedAttachmentAccess(`/api/attachments/${id}?exp=123&sig=abc&scope=v2.scope`)).toBe(false);
+    expect(requiresVerifiedAttachmentAccess(`/api/attachments/${id}?share=opaque`)).toBe(false);
+    expect(requiresVerifiedAttachmentAccess("https://example.com/video.mp4")).toBe(false);
   });
 
   it("recognizes only canonical note attachment ids", () => {

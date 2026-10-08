@@ -26,6 +26,7 @@ import MindMapEmbedCard, { parseMindMapEmbedHref } from "@/components/MindMapEmb
 import { preprocessInternalNoteLinks } from "@/lib/noteLinkSyntax";
 import { projectMarkdownForUser } from "@/lib/markdownUserContent";
 import { AttachmentNoteContext, useAttachmentImageRenderSource } from "@/hooks/useAttachmentImageRenderSource";
+import { useAttachmentVideoRenderSource } from "@/hooks/useAttachmentVideoRenderSource";
 import {
   MARKDOWN_SEGMENTED_PREVIEW_THRESHOLD,
   splitMarkdownPreview,
@@ -248,6 +249,14 @@ function PreviewImage({ src, alt }: { src?: string; alt?: string }) {
   );
 }
 
+function PreviewRawVideo({ src, poster }: { src?: string; poster?: string }) {
+  const media = useAttachmentVideoRenderSource(src);
+  const cover = useAttachmentImageRenderSource(poster, { enabled: !!poster });
+  return <video key={media.renderKey} src={media.renderSrc || undefined}
+    poster={cover.renderSrc || undefined} controls playsInline preload="metadata"
+    className="my-4 max-h-[520px] w-full rounded-xl border border-app-border bg-black" />;
+}
+
 function PreviewMediaImage({ src, alt }: { src?: string; alt?: string }) {
   const normalizedAlt = alt || "";
   if (normalizedAlt.startsWith("nowen-video:")) {
@@ -378,7 +387,11 @@ function createComponents(
     a: (props) => <PreviewLink {...props} onInternalAnchorClick={onInternalAnchorClick} />,
     img: PreviewMediaImage,
     iframe: PreviewIframe,
-    video: ({ src, children, ...props }) => <video src={src} controls preload="metadata" className="my-4 max-h-[520px] w-full rounded-xl border border-app-border bg-black" {...props}>{children}</video>,
+    video: ({ src, poster, node }) => {
+      const sourceNode = node?.children?.find((child: import("hast").ElementContent) => child.type === "element" && child.tagName === "source");
+      const source = String(src || (sourceNode?.type === "element" ? sourceNode.properties?.src : "") || "");
+      return <PreviewRawVideo src={source} poster={typeof poster === "string" ? poster : undefined} />;
+    },
     audio: ({ src, node }) => {
       const sourceNode = node?.children?.find((child: import("hast").ElementContent) => child.type === "element" && child.tagName === "source");
       const source = String(src || (sourceNode?.type === "element" ? sourceNode.properties?.src : "") || "");
