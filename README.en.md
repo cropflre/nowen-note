@@ -32,21 +32,20 @@
 
 > **Remote NAS connection and sign-in:** Nowen Note supports deployment on **UGREEN NAS (UGOS / UGOS Pro)** and **Feiniu NAS (fnOS)**. After deployment, connect and sign in from the web, desktop, or Android client using a LAN IP address, an IPv6 address, or a public domain secured with HTTPS.
 
-## v1.5.0 released
+## v1.5.1 released · 2026-10-08
 
-**v1.5.0 is now officially released and is the current stable version.** This is one of the larger Nowen Note feature and architecture upgrades, with major work across **Local-first / Sync V2, the plugin ecosystem, the knowledge tree, multi-format content, attachments, mobile editing, and encrypted notes**.
+**v1.5.1 is released.** This update focuses on **task automation, AI assistance, mobile reliability, and data security**.
 
 > [!IMPORTANT]
-> **Before upgrading from an earlier release, create a full backup and make sure the backup file, database, and attachments are safely persisted.** Docker / NAS users should keep an additional independent backup. Rolling back an image does not roll back the database, so do not upgrade important data without a verified backup.
+> Create a full backup and verify your database and attachments before upgrading. Docker / NAS users should keep an independent backup. **Rolling back a container image does not roll back your data.**
 
-- **Sync V2 and offline workspaces:** improved incremental sync, offline reading and editing, content and attachment caching, first-sync reconciliation, save recovery, and conflict handling.
-- **Plugin and extension ecosystem:** plugin marketplace, signed Registry, permission and runtime policies, QuickJS Sandbox / Node Action, Host APIs, user-scoped webhooks, article capture, and WeChat capture workflows.
-- **Knowledge tree, mind maps, and lightweight sheets:** more resources now share a unified management model; mind maps can be embedded in documents and participate in search, sharing, and export, while XLSX preview and lightweight sheet features are also included.
-- **Attachments and editing:** stronger attachment recovery, stable sharing, media upload and preview flows, Live Photo / Motion Photo and HEIC / HEIF support, plus continued Markdown, code-block, and compact mobile-toolbar improvements.
-- **Encrypted Notes Beta:** Web / Desktop can create fully encrypted text notes and encrypt selected text, with autosave and automatic locking. Mobile apps cannot create or unlock encrypted content yet; existing ordinary notes cannot yet be converted directly into fully encrypted notes, and historical versions or old backups are not automatically removed.
-- **Reliability and release infrastructure:** stronger backup/restore, data protection, plugin runtime, desktop, Docker / NAS, and cross-platform release paths, backed by extensive regression coverage and release gates.
+- **Tasks and reminders:** due-date sorting, improved calendar layout, deadline notifications, and morning/evening task digests with optional webhook delivery.
+- **AI and MCP:** ask about today's tasks and progress, or create and complete personal tasks with confirmation; MCP task access follows token permissions.
+- **Android and sync:** improved account switching, LAN connectivity, and attachments; fixes for background sync failures, inaccessible notes, and server-address input.
+- **Editing and encryption:** richer text blocks, better Markdown / WeChat article previews, and stronger encrypted-content storage and protection.
+- **Reliability:** improvements to backup/restore, attachment authorization, imports, localization, and error diagnostics.
 
-See the [v1.5.0 Release](https://github.com/cropflre/nowen-note/releases/tag/v1.5.0) and the [full changelog](./CHANGELOG.md).
+See the [v1.5.1 release](https://github.com/cropflre/nowen-note/releases/tag/v1.5.1) and the [full changelog](./CHANGELOG.md).
 
 ## Connect AI clients to Nowen Note
 
@@ -78,8 +77,8 @@ The currently supported distribution is a source build: install Node.js 20+, bui
 | **Performance and delivery** | Lazy-loaded workspace, editor, task, journal, file, AI, and sharing surfaces; cache validators, Gzip/Brotli precompression, and bundle-budget checks reduce startup and repeated transfer cost. |
 | **Image editing** | Crop images and add text, freehand drawing, arrows, shapes, and mosaic effects. Existing remote images can be migrated into local attachments or object storage. |
 | **Knowledge organization and search** | Colored tags, favorites, pinning, full-text search, current-directory note search, improved in-document find and replace, backlinks, block references, reverse links, and a knowledge graph. Permission-aware search hides restricted resources before result limits are applied. |
-| **AI** | OpenAI-compatible APIs, Qwen, Gemini, DeepSeek, Doubao, and Ollama. Features include continuation, rewriting, translation, title and tag generation, summaries, embeddings, and RAG knowledge Q&A. |
-| **Tasks and visualization** | Hierarchical tasks, lists, Kanban, calendar, Gantt/timeline, dependencies, recurrence, reminders, templates, AI task breakdown, My Day, Inbox, time planning, offline tasks/habits, native Android reminder scheduling with creator-timezone/date-only deadline consistency, and mind maps. |
+| **AI** | OpenAI-compatible APIs, Qwen, Gemini, DeepSeek, Doubao, and Ollama. Features include continuation, rewriting, translation, title and tag generation, summaries, embeddings, and RAG knowledge Q&A. It also supports task progress queries and confirmed creation/completion of personal tasks. |
+| **Tasks and visualization** | Hierarchical tasks, lists, Kanban, calendar, Gantt/timeline, dependencies, recurrence, reminders, templates, AI task breakdown, My Day, Inbox, time planning, offline tasks/habits, native Android reminder scheduling with creator-timezone/date-only deadline consistency, and mind maps, plus due-date sorting, deadline notifications, and webhook-enabled morning/evening digests. |
 | **Collaboration, permissions, and sharing** | Yjs + WebSocket collaboration, workspaces and roles, directory ACLs, Restricted access, explicit allow/deny policies, ownership transfer, centralized share management, passwords and expiration, guest comments, public knowledge spaces, and rich-text/Markdown inline comments. |
 | **Sync and edit protection** | Incremental sync, persistence acknowledgements, draft recovery, and version checks. Offline attachment validation, quarantine, and recovery signaling keep broken cached blobs away from online rendering while serial saves and Yjs state protection guard Markdown/rich-text transitions. |
 | **Import, export, and migration** | Import Markdown, Word/DOCX, web URLs, WeChat articles, SingleFile HTML, SiYuan ZIP archives, Obsidian, Xiaomi Notes, and other supported sources. Export Markdown, PDF, Word, images, or full ZIP packages with permission mapping, conflict preview, reports, controlled rollback, image access preparation, and footnote handling. Team single-note ZIP export resolves the note's real workspace scope. |
@@ -88,35 +87,9 @@ The currently supported distribution is a source build: install Node.js 20+, bui
 | **Backups, automation, and developer APIs** | Local backups, background full-ZIP jobs, streamed archive/hash processing, native browser downloads, email backup, encrypted WebDAV backup credentials, managed Docker updates and rollback checks, webhooks, plugins, OpenAPI, TypeScript SDK, CLI, [MCP Server](./docs/tutorials/mcp.en.md), and a browser clipper. |
 | **Cross-platform access** | Web, Electron for Windows/macOS/Linux, Android, iOS project, HarmonyOS project, and Docker/NAS deployment. UGREEN UGOS and Feiniu fnOS are supported, and clients can connect through IPv4, IPv6, or a domain name. Android includes in-app gesture image preview and native task notifications. |
 
-## Previous stable release highlights
+## Previous release · v1.5.0
 
-### v1.4.16 · 2026-08-19
-
-#### Note switching and editor stability
-
-- Late rich-text save acknowledgements no longer reactivate the previous note after a rapid switch.
-- Regression coverage now locks down the late-acknowledgement path after a committed switch.
-- Code-block select-all shortcut behavior is refined to reduce conflicts between block-level and document-level selection.
-- Historical Markdown block markers are cleaned again so legacy markers are less likely to affect current editing or rendering.
-
-#### Video, Android, and LAN access
-
-- Attachment signatures are prepared before opening notes containing video, reducing first-open playback failures caused by authorization not being ready yet.
-- Android/LAN attachment authorization now uses the native HTTP path for more reliable NAS and LAN media access.
-- Regression tests cover authorization preparation before first open and Android LAN attachment authorization.
-
-#### Desktop release and distribution
-
-- Windows release signing is hardened around SignPath test/production signing, configuration validation, and strict Authenticode verification.
-- Post-sign Windows update metadata is rebuilt/refreshed so signed artifacts and update metadata stay consistent.
-- macOS release integrity gates now cover complete and dual-architecture downloadable artifacts.
-- Release notes more clearly document the desktop platform matrix.
-
-#### Sharing compatibility
-
-- Edge share-link copying compatibility is fixed with clipboard regression coverage.
-
-See [CHANGELOG.md](./CHANGELOG.md) and the [v1.4.16 Release](https://github.com/cropflre/nowen-note/releases/tag/v1.4.16) for complete details.
+v1.5.0 introduced major improvements to **Sync V2 and offline workspaces, plugins, the unified knowledge tree, lightweight sheets, and Encrypted Notes Beta**. See the [v1.5.0 release notes](https://github.com/cropflre/nowen-note/releases/tag/v1.5.0).
 
 ## Screenshots
 
@@ -198,12 +171,12 @@ docker compose up -d
 To pin the current stable release:
 
 ```bash
-NOWEN_IMAGE_TAG=v1.5.0 docker compose pull
-NOWEN_IMAGE_TAG=v1.5.0 docker compose up -d
+NOWEN_IMAGE_TAG=v1.5.1 docker compose pull
+NOWEN_IMAGE_TAG=v1.5.1 docker compose up -d
 ```
 
 > [!IMPORTANT]
-> **Before upgrading to v1.5.0 from an earlier release, create a full backup and confirm that the database and attachment directory are persisted.** Docker / NAS users should keep an additional independent backup. Rolling back an image does not roll back the database. After upgrading, verify Sync V2, plugins, the knowledge tree, attachments, backup/restore, and Encrypted Notes Beta. See the [v1.5.0 Release](https://github.com/cropflre/nowen-note/releases/tag/v1.5.0).
+> **Before upgrading to v1.5.1, create a full backup and verify persistent database and attachment storage.** Docker / NAS users should keep an independent backup; image rollback does not restore the database. See the [v1.5.1 release notes](https://github.com/cropflre/nowen-note/releases/tag/v1.5.1).
 
 ### Managed Docker updates (optional)
 
@@ -212,7 +185,7 @@ Managed updates only support the official [`docker-compose.yml`](./docker-compos
 ```bash
 cp .env.example .env
 printf '\nNOWEN_UPDATER_TOKEN=%s\n' "$(openssl rand -hex 32)" >> .env
-NOWEN_IMAGE_TAG=v1.5.0 docker compose --profile updater up -d
+NOWEN_IMAGE_TAG=v1.5.1 docker compose --profile updater up -d
 ```
 
 Administrators can then run preflight checks, create a full backup, update, verify health, and roll back the image from Settings → About → Version.
@@ -230,7 +203,7 @@ docker run -d \
   -p 3001:3001 \
   -e TZ=Asia/Shanghai \
   -v /opt/nowen-note/data:/app/data \
-  cropflre/nowen-note:v1.5.0
+  cropflre/nowen-note:v1.5.1
 ```
 
 ## Data, backups, and configuration
