@@ -14,7 +14,7 @@ function serverPolicy(maxAttachmentSizeBytes: number): AttachmentUploadPolicy {
 }
 
 describe("attachment upload policy", () => {
-  afterEach(() => vi.unstubAllGlobals());
+  afterEach(() => { vi.unstubAllGlobals(); });
 
   it("keeps 99 MiB and exactly 100 MiB valid under the default server contract", () => {
     const policy = serverPolicy(DEFAULT_ATTACHMENT_LIMIT_BYTES);
