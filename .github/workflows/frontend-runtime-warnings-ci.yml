@@ -12,6 +12,7 @@ on:
       - "frontend/src/hooks/useAttachmentVideoRenderSource.ts"
       - "frontend/src/lib/__tests__/attachmentMediaPlugin.test.ts"
       - "frontend/src/lib/attachmentUploadPolicy.ts"
+      - "frontend/src/lib/attachmentUploadPolicyBridge.ts"
       - "frontend/src/lib/__tests__/attachmentUploadPolicy.test.ts"
       - ".github/workflows/frontend-runtime-warnings-ci.yml"
   pull_request:
@@ -23,6 +24,7 @@ on:
       - "frontend/src/hooks/useAttachmentVideoRenderSource.ts"
       - "frontend/src/lib/__tests__/attachmentMediaPlugin.test.ts"
       - "frontend/src/lib/attachmentUploadPolicy.ts"
+      - "frontend/src/lib/attachmentUploadPolicyBridge.ts"
       - "frontend/src/lib/__tests__/attachmentUploadPolicy.test.ts"
       - ".github/workflows/frontend-runtime-warnings-ci.yml"
 
