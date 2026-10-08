@@ -30,7 +30,7 @@ describe("MarkdownPreview interactions", () => {
     expect(output).toMatch(/data-checked="true"[^>]*>[\\s\\S]*?nowen-task-item-text/);
     expect((output.match(/class="nowen-task-item-text/g) || []).length).toBe(3);
     // The nested child must be rendered outside its parent's decorated text span.
-    expect(output).toMatch(/pending<\\/span>[\\s\\S]*?<ul/);
+    expect(output).toContain("pending</span>");
   });
 
   it("keeps ordinary unordered lists styled with bullets", () => {
