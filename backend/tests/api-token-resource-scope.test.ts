@@ -226,3 +226,36 @@ test("restricted token cannot create global tags", async () => {
   });
   assert.equal(response.status, 403);
 });
+
+test("PAT task scopes isolate personal tasks even with unrestricted token mode", async () => {
+  db.exec(`
+    INSERT OR IGNORE INTO tasks(id,userId,title,workspaceId) VALUES
+      ('token-own-task','user-1','Mine',NULL),
+      ('token-other-task','user-2','Other',NULL),
+      ('token-team-task','user-2','Team','ws-1');
+  `);
+  for (const mode of ["restricted", "unrestricted"]) {
+    const app = new Hono();
+    app.use("*", async (c, next) => {
+      c.req.raw.headers.set("X-Auth-Mode", "api-token");
+      c.req.raw.headers.set("X-Api-Token-Id", "token-1");
+      c.req.raw.headers.set("X-Api-Resource-Mode", mode);
+      c.req.raw.headers.set("X-Api-Scopes", "tasks:read,tasks:write");
+      c.req.raw.headers.set("X-User-Id", "user-1");
+      return enforceApiTokenAccess(c, next);
+    });
+    app.get("/api/tasks/:id", (c) => c.json({
+      id: c.req.param("id"), children: [{ userId: "user-2", workspaceId: null }, { userId: "user-1", workspaceId: null }],
+    }));
+    app.put("/api/tasks/:id", (c) => c.json({ updated: c.req.param("id") }));
+    app.get("/api/tasks", (c) => c.json([]));
+    assert.equal((await app.request("/api/tasks/token-other-task")).status, 403);
+    assert.equal((await app.request("/api/tasks/token-team-task")).status, 403);
+    assert.equal((await app.request("/api/tasks?workspaceId=ws-1")).status, 403);
+    const result = await app.request("/api/tasks/token-own-task");
+    assert.equal(result.status, 200);
+    assert.equal(((await result.json()) as any).children.length, 1);
+    assert.equal((await app.request("/api/tasks/token-other-task", { method: "PUT" })).status, 403);
+    assert.equal((await app.request("/api/tasks/reorder/batch", { method: "PUT" })).status, 403);
+  }
+});
