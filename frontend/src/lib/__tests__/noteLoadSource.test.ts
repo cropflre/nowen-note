@@ -125,6 +125,31 @@ describe("loadNoteCacheFirst", () => {
     expect(localStore.getNote).not.toHaveBeenCalled(); expect(remote).not.toHaveBeenCalled();
   });
 
+  it("checks online folder permission before displaying a cached web note", async () => {
+    localStore.getNote.mockResolvedValue(makeNote({ content: "secret cached body" }));
+    const denied = Object.assign(new Error("folder locked"), { status: 404 });
+    const verifyCachedAccess = vi.fn().mockRejectedValue(denied);
+    const fetchRemote = vi.fn();
+    await expect(loadNoteCacheFirst({
+      noteId: "note-1", fetchRemote, verifyCachedAccess,
+    })).rejects.toBe(denied);
+    expect(fetchRemote).not.toHaveBeenCalled();
+    expect(attachmentRuntime.primeNoteAttachmentAccess).not.toHaveBeenCalled();
+  });
+
+  it("allows a web cache hit after slim authorization succeeds", async () => {
+    const cached = makeNote({ content: "authorized cache" });
+    localStore.getNote.mockResolvedValue(cached);
+    const verifyCachedAccess = vi.fn().mockResolvedValue(undefined);
+    const pending = deferred<Note>();
+    await expect(loadNoteCacheFirst({
+      noteId: cached.id, fetchRemote: () => pending.promise, verifyCachedAccess,
+    })).resolves.toEqual(cached);
+    expect(verifyCachedAccess).toHaveBeenCalledOnce();
+    pending.resolve(makeNote({ version: 4 }));
+    await vi.waitFor(() => expect(localStore.putNote).toHaveBeenCalled());
+  });
+
   it("does not show Android IDB content before the Native folder password check succeeds", async () => {
     Object.assign(window, { Capacitor: { isNativePlatform: () => true, getPlatform: () => "android" } });
     localStorage.setItem("nowen-token", "signed-in");

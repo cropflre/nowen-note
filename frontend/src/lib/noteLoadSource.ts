@@ -24,6 +24,8 @@ export interface CacheFirstNoteLoadOptions {
   noteId: string;
   fetchRemote: () => Promise<Note>;
   onRevalidated?: (remote: Note, cached: CachedNote) => void | Promise<void>;
+  /** Authorize before exposing any locally cached text on an online Web session. */
+  verifyCachedAccess?: () => Promise<void>;
   /**
    * Optional runtime preparation hook. Custom callers may still return a Promise when they truly
    * need a prerequisite before publishing the note. The default attachment preparation is now
@@ -80,6 +82,7 @@ export async function loadNoteCacheFirst({
   noteId,
   fetchRemote,
   onRevalidated,
+  verifyCachedAccess,
   beforeUseCached = prepareNoteRuntime,
 }: CacheFirstNoteLoadOptions): Promise<Note> {
   const scope = getOfflineQueueStorageKey();
@@ -93,6 +96,13 @@ export async function loadNoteCacheFirst({
   if (pending) return pending;
   const cached = nativeAccountRead ? null : await getCachedNote(noteId);
   if (cached && isNoteDetailCached(cached)) {
+    // A folder may have been locked or its password changed since IDB cached
+    // this plaintext. Validate the server ACL first, not asynchronously after
+    // rendering it. A 404/403 must never fall back to stale protected content.
+    if (verifyCachedAccess && (typeof navigator === "undefined" || navigator.onLine)) {
+      await verifyCachedAccess();
+      assertCurrent(cached);
+    }
     // Start freshness revalidation immediately. Runtime/media preparation is best-effort by default;
     // custom callers can still explicitly provide a blocking prerequisite through beforeUseCached.
     void fetchRemote()

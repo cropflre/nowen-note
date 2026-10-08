@@ -6,7 +6,10 @@ import { NOTEBOOKS_INVALIDATED_EVENT } from "@/lib/notebookInvalidation";
 import { PhaseAPerfProfiler } from "@/components/PhaseAPerfProfiler";
 import { recordPhaseAPerfEvent } from "@/lib/phaseAPerfDiagnostics";
 import { primaryNoteLoadCoordinator, type NoteLoadBeginPayload, type NoteLoadSummary } from "@/lib/noteLoadCoordinator";
-import { KNOWLEDGE_TREE_PASSWORD_NOTES_LOCKED_EVENT } from "@/lib/knowledgeTreePassword";
+import {
+  KNOWLEDGE_TREE_PASSWORD_LOCKED_EVENT,
+  KNOWLEDGE_TREE_PASSWORD_NOTES_LOCKED_EVENT,
+} from "@/lib/knowledgeTreePassword";
 import { NoteActivationGuard } from "@/lib/noteActivationGuard";
 import {
   mergeAuthoritativeNotebooks,
@@ -560,8 +563,25 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // 权限收回必须直接隐藏正文，不能被编辑器的离开确认阻止。
       dispatch({ type: "LOCK_FOLDER_NOTES", payload: noteIds });
     };
+    // Until a fresh server list is fetched, immediately hide note titles/body
+    // from a session that was just locked. Do not wait for a network roundtrip.
+    const lockFolderSession = () => {
+      const current = stateRef.current;
+      const noteIds = Array.from(new Set([
+        ...current.notes.map((note) => note.id),
+        ...current.openNoteTabs.map((tab) => tab.id),
+        ...(current.activeNote ? [current.activeNote.id] : []),
+        ...(current.noteLoadingState.pendingNoteId ? [current.noteLoadingState.pendingNoteId] : []),
+      ]));
+      primaryNoteLoadCoordinator.cancel();
+      dispatch({ type: "LOCK_FOLDER_NOTES", payload: noteIds });
+    };
     window.addEventListener(KNOWLEDGE_TREE_PASSWORD_NOTES_LOCKED_EVENT, lockNotes);
-    return () => window.removeEventListener(KNOWLEDGE_TREE_PASSWORD_NOTES_LOCKED_EVENT, lockNotes);
+    window.addEventListener(KNOWLEDGE_TREE_PASSWORD_LOCKED_EVENT, lockFolderSession);
+    return () => {
+      window.removeEventListener(KNOWLEDGE_TREE_PASSWORD_NOTES_LOCKED_EVENT, lockNotes);
+      window.removeEventListener(KNOWLEDGE_TREE_PASSWORD_LOCKED_EVENT, lockFolderSession);
+    };
   }, []);
 
   useEffect(() => {
