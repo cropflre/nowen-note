@@ -60,10 +60,15 @@ export default function ServerAddressInput({
   const rootRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const protocolRef = useRef<HTMLButtonElement>(null);
+  const optionRefs = useRef<Array<HTMLButtonElement | null>>([]);
 
   useEffect(() => {
     if (!editingRef.current) setDisplayText(partsToDisplayText(value));
   }, [value.protocol, value.host, value.port, value.path]);
+
+  useEffect(() => {
+    if (protocolOpen) optionRefs.current[SCHEMES.indexOf(value.protocol)]?.focus();
+  }, [protocolOpen]);
 
   useEffect(() => {
     if (!protocolOpen) return;
@@ -105,7 +110,7 @@ export default function ServerAddressInput({
     setDisplayText(raw);
     const parsed = parseUserInput(raw, value.protocol);
     if (parsed) onChange(parsed);
-    else if (!raw.trim()) onChange({ ...value, host: "", port: "", path: "" });
+    else onChange({ ...value, host: "", port: "", path: "" });
   };
 
   const handleBlur = (event: React.FocusEvent<HTMLInputElement>) => {
@@ -163,14 +168,22 @@ export default function ServerAddressInput({
           <div
             role="listbox"
             aria-label={t("server.protocolLabel")}
+            onKeyDown={(event) => {
+              if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+              event.preventDefault();
+              const current = optionRefs.current.indexOf(document.activeElement as HTMLButtonElement);
+              const delta = event.key === "ArrowDown" ? 1 : -1;
+              optionRefs.current[(current + delta + SCHEMES.length) % SCHEMES.length]?.focus();
+            }}
             className={
               "absolute left-0 top-full z-50 mt-1.5 min-w-32 overflow-hidden rounded-xl " +
               "border border-zinc-200 bg-white p-1 shadow-lg shadow-zinc-900/10 " +
               "dark:border-zinc-700 dark:bg-zinc-900 dark:shadow-black/30"
             }
           >
-            {SCHEMES.map((protocol) => (
+            {SCHEMES.map((protocol, index) => (
               <button
+                ref={(node) => { optionRefs.current[index] = node; }}
                 key={protocol}
                 type="button"
                 role="option"
@@ -203,7 +216,7 @@ export default function ServerAddressInput({
         disabled={disabled}
         autoCapitalize="none"
         autoCorrect="off"
-        autoComplete="url"
+        autoComplete="off"
         spellCheck={false}
         inputMode="url"
         className={
