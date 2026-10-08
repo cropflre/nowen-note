@@ -46,6 +46,10 @@ function init(): void {
       PRIMARY KEY(userId, taskId, dueAt)
     );
   `);
+  const columns = getDb().prepare("PRAGMA table_info(task_digest_settings)").all() as Array<{ name: string }>;
+  if (!columns.some((column) => column.name === "dueEnabled")) {
+    getDb().exec("ALTER TABLE task_digest_settings ADD COLUMN dueEnabled INTEGER NOT NULL DEFAULT 0");
+  }
   initialized = true;
 }
 function getSettings(userId: string): DigestSettings {
