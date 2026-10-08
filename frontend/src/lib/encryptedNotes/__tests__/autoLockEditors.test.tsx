@@ -8,6 +8,7 @@ import EncryptedNotePane from "../../../components/EncryptedNotePane";
 import EncryptedBlockDialog from "../../../components/EncryptedBlockDialog";
 import EncryptedNoteCreateDialog from "../../../components/EncryptedNoteCreateDialog";
 import type { Note } from "@/types";
+import i18n from "@/i18n";
 
 const mocks = vi.hoisted(() => ({ crypto: vi.fn(), save: vi.fn(), setNote: vi.fn(), close: vi.fn(), scope: "account-a" }));
 vi.mock("../workerClient", () => ({ runEncryptedContentOperation: mocks.crypto }));
@@ -44,7 +45,8 @@ function mayLeave() {
   act(() => { allowed = window.dispatchEvent(new Event("nowen:encrypted-note-before-leave", { cancelable: true })); });
   return allowed;
 }
-beforeEach(() => {
+beforeEach(async () => {
+  await i18n.changeLanguage("zh-CN");
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
   vi.useFakeTimers(); mocks.scope = "account-a"; mocks.crypto.mockReset(); mocks.save.mockReset(); mocks.setNote.mockReset(); mocks.close.mockReset();
   mocks.crypto.mockImplementation(async (request) => request.operation === "decrypt" ? "Private initial" : request.input.envelope || block);
