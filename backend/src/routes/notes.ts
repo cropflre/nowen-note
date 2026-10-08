@@ -7,6 +7,7 @@ import { createKnowledgeChild, KnowledgeTreeError } from "../services/knowledgeT
 import { projectMarkdownNoteForUser } from "../lib/markdownUserContent";
 import { getDb } from "../db/schema";
 import { isLegacyWeChatHtmlImport } from "../lib/legacyWeChatHtmlFormat.js";
+import { diagnoseTiptapContent } from "../lib/tiptap-note-format.js";
 import { v4 as uuid } from "uuid";
 import { emitWebhook } from "../services/webhook";
 import { logAudit } from "../services/audit";
@@ -64,6 +65,14 @@ import { duplicateNote, DuplicateNoteError } from "../services/noteDuplicates";
 import { isValidNoteColorMarkInput, normalizeNoteColorMark } from "../lib/noteColorMark";
 
 const app = new Hono();
+const reportedInvalidTiptapNotes = new Set<string>();
+function reportInvalidTiptapNoteOnce(noteId: string, version: number, reason: string): void {
+  const key = `${noteId}:${version}:${reason}`;
+  if (reportedInvalidTiptapNotes.has(key)) return;
+  if (reportedInvalidTiptapNotes.size >= 256) reportedInvalidTiptapNotes.clear();
+  reportedInvalidTiptapNotes.add(key);
+  console.warn("[notes.get] skipped block authority read repair", { noteId, version, reason });
+}
 
 type TrashScope = { workspaceId: string | null; value: string };
 
@@ -566,7 +575,12 @@ app.get("/:id", (c) => {
     const selected = selectBlockAuthorityRead(resolveBlockAuthorityMode(), authoritative, note.content);
     note.content = selected.content;
     note.blockAuthority = { source: selected.source, status: selected.status };
-    if (selected.shouldRepair && ["tiptap-json", "markdown"].includes(note.contentFormat)) {
+    const formatDiagnosis = note.contentFormat === "tiptap-json"
+      ? diagnoseTiptapContent(note.content) : "valid";
+    if (selected.shouldRepair && formatDiagnosis !== "valid") {
+      // Keep legacy raw content and metadata unchanged; block repair is not a format migration.
+      reportInvalidTiptapNoteOnce(id, note.version, formatDiagnosis);
+    } else if (selected.shouldRepair && ["tiptap-json", "markdown"].includes(note.contentFormat)) {
       try {
         const synced = syncNoteBlocks(db, id, note.content, note.contentFormat);
         if (synced.changed) {
