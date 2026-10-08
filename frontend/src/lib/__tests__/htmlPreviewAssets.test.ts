@@ -98,6 +98,20 @@ describe("htmlPreviewAssets", () => {
     }
   });
 
+  it("defers bare video/audio and poster before authorizing the media URL", () => {
+    const id = "123e4567-e89b-42d3-a456-426614174216";
+    const raw = '<video src="/api/attachments/' + id + '" poster="/api/attachments/' + id + '"><source src="/api/attachments/' + id + '"></video><audio><source src="/api/attachments/' + id + '"></audio>';
+    const deferred = resolveHtmlPreviewAssetUrls(raw, (src) => src, { deferUnsignedAttachments: true });
+    const doc = new DOMParser().parseFromString(deferred, "text/html");
+    expect(doc.querySelector("video")?.hasAttribute("src")).toBe(false);
+    expect(doc.querySelector("video")?.hasAttribute("poster")).toBe(false);
+    expect(doc.querySelector("video source")?.hasAttribute("src")).toBe(false);
+    expect(doc.querySelector("audio source")?.hasAttribute("src")).toBe(false);
+    const signed = resolveHtmlPreviewAssetUrls(raw, (src) => src.includes("/api/attachments/") ? src + "?exp=123&sig=ok&scope=note" : src, { deferUnsignedAttachments: true });
+    expect(signed).toContain("sig=ok");
+    expect(signed).not.toContain("data-nowen-preview-src-token");
+    expect(raw).not.toContain("sig=ok");
+  });
   it("preserves deliberately shared URLs and signed URLs without network gating", () => {
     const id = "123e4567-e89b-42d3-a456-426614174216";
     const html = `<img src="/api/attachments/${id}?share=public-token"><img src="/api/attachments/${id}?exp=123&sig=ok&scope=owner">`;
