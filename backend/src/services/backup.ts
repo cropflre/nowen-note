@@ -1375,7 +1375,7 @@ export class BackupManager {
       try {
         // 用 better-sqlite3 直接打开（独立连接）
         const Database = (await import("better-sqlite3")).default;
-        let tmp: InstanceType<typeof Database>;
+        let tmp: InstanceType<typeof Database> | null = null;
         try {
           tmp = new Database(tmpDb, { readonly: true });
           requireSqliteVecForStoredTables(tmp, "备份预览");
@@ -1388,6 +1388,7 @@ export class BackupManager {
             }`,
           );
         }
+        if (!tmp) throw new Error("预览恢复失败：未能打开备份数据库");
         const attachmentAudit = auditAttachmentBackup(
           tmpDb,
           attachmentArchivePaths,

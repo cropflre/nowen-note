@@ -142,7 +142,7 @@ test("db-only snapshot containing vec0 previews and restores without no such mod
   const db = getDb();
   assert.equal(loadSqliteVec(db).loaded, true);
   db.exec("CREATE VIRTUAL TABLE vec_note_chunks USING vec0(embedding float[2])");
-  db.prepare("INSERT INTO vec_note_chunks(rowid, embedding) VALUES (?, ?)").run(7, "[0,1]");
+  db.prepare("INSERT INTO vec_note_chunks(rowid, embedding) VALUES (?, ?)").run(7n, "[0,1]");
   const backupFile = await createBackupDb("backup");
   const filename = path.basename(backupFile);
   db.prepare("DELETE FROM vec_note_chunks WHERE rowid = ?").run(7);

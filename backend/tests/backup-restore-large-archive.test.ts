@@ -158,7 +158,7 @@ test("full ZIP with vec0 virtual table survives preview, restore and reconnect",
   const live = getDb();
   assert.equal(loadSqliteVec(live).loaded, true);
   live.exec("CREATE VIRTUAL TABLE vec_note_chunks USING vec0(embedding float[2])");
-  live.prepare("INSERT INTO vec_note_chunks(rowid, embedding) VALUES (?, ?)").run(42, "[1,0]");
+  live.prepare("INSERT INTO vec_note_chunks(rowid, embedding) VALUES (?, ?)").run(42n, "[1,0]");
 
   const filename = "vec0-full.zip";
   await writeFullBackup(filename);
