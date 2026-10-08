@@ -15,6 +15,14 @@ on:
       - "backend/src/db/postgres/064_knowledge_tree_structural_guard.sql"
       - "backend/src/runtime/knowledge-tree*.ts"
       - "backend/src/routes/mobile-bootstrap.ts"
+      - "frontend/src/lib/mobileStartupBridge.ts"
+      - "frontend/src/lib/mobileWebStartupBridge.ts"
+      - "frontend/src/lib/noteLoadSource.ts"
+      - "frontend/src/lib/__tests__/noteLoadSource.test.ts"
+      - "frontend/src/lib/__tests__/mobileStartupBridge.test.ts"
+      - "frontend/src/lib/__tests__/mobileWebStartupBridge.test.ts"
+      - "frontend/src/hooks/useNoteLoader.ts"
+      - "frontend/src/store/AppContext.tsx"
       - "backend/src/routes/knowledge-tree.ts"
       - "backend/src/routes/mindmap-folders.ts"
       - "backend/src/routes/sync-v2.ts"
@@ -55,6 +63,14 @@ on:
       - "backend/src/db/postgres/064_knowledge_tree_structural_guard.sql"
       - "backend/src/runtime/knowledge-tree*.ts"
       - "backend/src/routes/mobile-bootstrap.ts"
+      - "frontend/src/lib/mobileStartupBridge.ts"
+      - "frontend/src/lib/mobileWebStartupBridge.ts"
+      - "frontend/src/lib/noteLoadSource.ts"
+      - "frontend/src/lib/__tests__/noteLoadSource.test.ts"
+      - "frontend/src/lib/__tests__/mobileStartupBridge.test.ts"
+      - "frontend/src/lib/__tests__/mobileWebStartupBridge.test.ts"
+      - "frontend/src/hooks/useNoteLoader.ts"
+      - "frontend/src/store/AppContext.tsx"
       - "backend/src/routes/knowledge-tree.ts"
       - "backend/src/routes/mindmap-folders.ts"
       - "backend/src/routes/sync-v2.ts"
@@ -217,6 +233,9 @@ jobs:
       - name: Knowledge tree and workspace layout tests
         run: >-
           npm run test:run --
+          src/lib/__tests__/noteLoadSource.test.ts
+          src/lib/__tests__/mobileStartupBridge.test.ts
+          src/lib/__tests__/mobileWebStartupBridge.test.ts
           src/lib/__tests__/knowledgeTreeModel.test.ts
           src/lib/__tests__/knowledgeTreePerformance.test.ts
           src/lib/__tests__/sharedKnowledgeTree.test.ts
