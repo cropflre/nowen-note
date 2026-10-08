@@ -1096,7 +1096,10 @@ function BackupRestoreDialog(props: {
                     title="复制故障编号"
                     className="mt-2 text-xs underline underline-offset-2"
                     onClick={() => {
-                      if (!navigator.clipboard?.writeText) return;
+                      if (!navigator.clipboard?.writeText) {
+                        window.prompt("复制故障编号", errorReference);
+                        return;
+                      }
                       void navigator.clipboard.writeText(errorReference);
                     }}
                   >
