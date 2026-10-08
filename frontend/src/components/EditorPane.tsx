@@ -295,7 +295,16 @@ function OrdinaryEditorPane({
   // 纯 HTML 预览模式：当
   // 笔记内容被保存为 HTML 格式（如 clipper 导入）时自动进入只读预览，
   // 用户需要手动切换到 Tiptap 编辑器（会有格式丢失风险）。
-  const [htmlPreviewMode, setHtmlPreviewMode] = useState(false);
+  // Import HTML must be routed to the preview *during the first render*.
+  // Waiting for a useEffect causes one Tiptap mount (and unauthorized <img> requests)
+  // before the preview takes over.
+  const [htmlPreviewMode, setHtmlPreviewMode] = useState(
+    () => !!activeNote && detectFormat(activeNote.content) === "html",
+  );
+  const previewInitializedNoteIdRef = useRef(activeNote?.id);
+  const isPendingHtmlNoteSwitch = previewInitializedNoteIdRef.current !== activeNote?.id
+    && !!activeNote && detectFormat(activeNote.content) === "html";
+  const shouldRenderHtmlPreview = htmlPreviewMode || isPendingHtmlNoteSwitch;
   const [showHtmlEditWarning, setShowHtmlEditWarning] = useState(false);
   // 记住当前笔记的原始格式是否为 HTML。
   // 切换到编辑模式后，内容会被 normalize 为 Markdown，此时 detectFormat 返回 "md"。
@@ -1399,6 +1408,7 @@ function OrdinaryEditorPane({
   // ����ʼ����ݸ�ʽΪ "html"���Զ����� HTML Ԥ����������˵�����༭����
   useEffect(() => {
     if (!activeNote) return;
+    previewInitializedNoteIdRef.current = activeNote.id;
     const fmt = detectFormat(activeNote.content);
     const isHtml = fmt === "html";
     const isFullDoc = isHtml && isFullHtmlDocument(activeNote.content);
@@ -3617,7 +3627,7 @@ const moveToTrash = useCallback(async () => {
               yDoc={collabYDoc}
               awareness={collabProvider?.awareness ?? null}
             />
-          ) : htmlPreviewMode ? (
+          ) : shouldRenderHtmlPreview ? (
             <HtmlPreviewPane
               key={`html-${activeNote.id}`}
               ref={editorHandleRef}
