@@ -62,6 +62,23 @@ export interface BlobTransferResult {
   skipped: number;
 }
 
+/** Parse only structured error metadata; never log or rethrow remote response text. */
+async function classifyBlobHttpFailure(res: Response, action: string): Promise<SyncError> {
+  let code: unknown;
+  // HEAD responses have no body; text or HTML from reverse proxies is ignored.
+  if (res.status !== 204 && res.status !== 304) {
+    try {
+      const body: unknown = await res.json();
+      if (body && typeof body === "object" && "code" in body) {
+        code = (body as { code?: unknown }).code;
+      }
+    } catch {
+      // Proxy HTML / empty body: fall back to HTTP semantics.
+    }
+  }
+  return new SyncError(classifyHttpStatus(res.status, code), `${action}: HTTP ${res.status}`);
+}
+
 /** 远端二进制通道客户端。 */
 export class SyncBlobClient {
   private readonly base: string;
@@ -121,7 +138,7 @@ export class SyncBlobClient {
     );
     if (res.status === 200) return true;
     if (res.status === 404) return false;
-    throw new SyncError(classifyHttpStatus(res.status), `HEAD 失败: ${res.status}`);
+    throw await classifyBlobHttpFailure(res, "HEAD 失败");
   }
 
   /** 上传二进制。幂等：重复上传只是覆盖同一内容。 */
@@ -140,12 +157,9 @@ export class SyncBlobClient {
     }, scopeKey);
     if (res.ok) return;
 
-    const text = await res.text().catch(() => "");
-    // 校验失败不可重试：重传同样的坏内容只会一直失败。
-    if (res.status === 409 && text.includes("CHECKSUM_MISMATCH")) {
-      throw new SyncError("VALIDATION_FAILED", "附件内容校验失败");
-    }
-    throw new SyncError(classifyHttpStatus(res.status), `上传失败: ${res.status}`);
+    // Content integrity and access failures must retain a stable code.
+    // Never match against arbitrary response text or echo raw upstream content.
+    throw await classifyBlobHttpFailure(res, "上传失败");
   }
 
   /** 下载二进制。 */
@@ -163,7 +177,7 @@ export class SyncBlobClient {
       throw new SyncError("BLOB_NOT_READY", "远端附件二进制尚未就绪");
     }
     if (!res.ok) {
-      throw new SyncError(classifyHttpStatus(res.status), `下载失败: ${res.status}`);
+      throw await classifyBlobHttpFailure(res, "下载失败");
     }
     const buffer = Buffer.from(await res.arrayBuffer());
     return { buffer, hash: res.headers.get("X-Blob-Hash") };
