@@ -356,8 +356,8 @@ export default function AIChatPanel({ onClose, onNavigateToNote }: {
       // 写入任务必须通过显式授权的 MCP 工具或任务中心完成。
       const taskQuery = /(?:今天|今日).*(?:待办|任务)|(?:待办|任务).*(?:今天|今日)/.test(args.question)
         || args.question.trim() === "/待办";
-      const createCommand = /^\\/待办\\s+创建\\s+(.{1,300})$/.exec(args.question.trim());
-      const completeCommand = /^\\/待办\\s+完成\\s+([a-zA-Z0-9-]+)$/.exec(args.question.trim());
+      const createCommand = new RegExp("^/待办[ ]+创建[ ]+(.{1,300})$").exec(args.question.trim());
+      const completeCommand = new RegExp("^/待办[ ]+完成[ ]+([a-zA-Z0-9-]+)$").exec(args.question.trim());
       if (createCommand || completeCommand) {
         const title = createCommand ? createCommand[1].trim() : completeCommand![1];
         const approved = await confirmDialog({
