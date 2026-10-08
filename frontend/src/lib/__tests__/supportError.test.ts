@@ -22,6 +22,21 @@ describe("backup support reference formatting", () => {
     expect(support.reference).toBe("job_123456789");
   });
 
+  it("does not trust remote messages even when the error code looks valid", () => {
+    const issue = formatSupportError({
+      code: "BACKUP_CREATE_FAILED",
+      message: "password=secret /srv/private/notes.db",
+      requestId: "request_123456789",
+    }, "操作失败");
+    expect(issue).toEqual({
+      code: "BACKUP_CREATE_FAILED",
+      message: "备份创建失败",
+      reference: "request_123456789",
+      referenceKind: "requestId",
+    });
+    expect(JSON.stringify(issue)).not.toMatch(/password|secret|private|notes\\.db/);
+  });
+
   it("does not echo arbitrary server exceptions, unsafe request IDs or paths", () => {
     const support = formatSupportError(new Error("database at /private/path/secret.db"), "操作失败");
     expect(support.message).toBe("操作失败");
