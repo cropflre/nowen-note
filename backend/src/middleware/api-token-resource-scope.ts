@@ -490,6 +490,13 @@ async function handleTokenTasks(c: Context, next: Next, ctx: TokenAccessContext)
     }
   }
   await next();
+  if (method === "GET" && c.res.status >= 200 && c.res.status < 300) {
+    await replaceFilteredResponse(c, (body) => {
+      if (!body || !Array.isArray(body.children)) return body;
+      return { ...body, children: body.children.filter((child: any) =>
+        child.userId === ctx.userId && child.workspaceId == null) };
+    });
+  }
 }
 
 export async function enforceApiTokenAccess(c: Context, next: Next): Promise<Response | void> {
