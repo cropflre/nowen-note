@@ -261,7 +261,7 @@ const HtmlPreviewPane = forwardRef<NoteEditorHandle, NoteEditorProps>(
     }
 
     // ── HTML 片段模式：dangerouslySetInnerHTML 渲染 ──
-    const cleanHtml = resolveHtmlPreviewAssetUrls(sanitize(note.content), resolveAttachmentUrl, { deferUnsignedAttachments: true });
+    const cleanHtml = resolveHtmlPreviewAssetUrls(note.content, resolveAttachmentUrl, { deferUnsignedAttachments: true, sanitizeHtml: sanitize });
 
     return (
       <ScrollArea className="h-full min-w-0">
