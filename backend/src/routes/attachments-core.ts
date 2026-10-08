@@ -57,7 +57,6 @@ import { createUserAttachmentAccessUrls } from "../lib/attachment-signed-url";
 import { extractAttachmentIdsFromContent, syncReferences } from "../lib/attachmentRefs";
 import {
   checkAttachmentObjectExists,
-  classifyAttachmentStorageError,
   deleteObjectStorageConfig,
   deleteAttachmentObject,
   ensureAttachmentsDir as ensureStorageAttachmentsDir,
