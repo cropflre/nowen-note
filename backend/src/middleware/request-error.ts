@@ -5,6 +5,7 @@ import { safeErrorLog, toPublicApiError } from "../lib/app-error";
 declare module "hono" {
   interface ContextVariableMap {
     requestId: string;
+    requestExceptionLogged?: boolean;
   }
 }
 
@@ -29,6 +30,8 @@ export const requestErrorTracing: MiddlewareHandler = async (c, next) => {
 export function handleUnhandledRequestError(error: Error, c: Context): Response {
   const requestId = c.get("requestId") || randomUUID();
   const { payload, status } = toPublicApiError(error, requestId);
+  // This exception already has a structured error log; avoid logging it twice.
+  c.set("requestExceptionLogged", true);
   console.error(safeErrorLog(error, requestId, status, payload.code));
   return new Response(JSON.stringify(payload), {
     status,

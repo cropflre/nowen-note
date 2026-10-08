@@ -9,7 +9,7 @@ import wechatCaptureRouter from "./routes/wechat-capture.js";
 import wechatAssistantRouter, { createWechatAssistantCallbackRouter } from "./routes/wechat-assistant.js";
 import pluginInboundRouter from "./routes/plugin-inbound.js";
 import { cors } from "hono/cors";
-import { logger } from "hono/logger";
+import { requestLogMiddleware } from "./middleware/request-logging";
 import { compress } from "hono/compress";
 import path from "path";
 import fs from "fs";
@@ -158,8 +158,9 @@ app.use("*", async (c, next) => {
   });
 });
 
-// Capability callback URLs and protocol challenges must not enter request logs.
-app.use("*", (c, next) => (c.req.path.startsWith("/api/plugin-inbound/") || c.req.path === "/api/wechat-assistant/callback") ? next() : logger()(c, next));
+// Log unsuccessful HTTP requests only by default. Do not print signed URLs.
+// Capability callbacks are excluded even when logging is temporarily verbose.
+app.use("*", (c, next) => (c.req.path.startsWith("/api/plugin-inbound/") || c.req.path === "/api/wechat-assistant/callback") ? next() : requestLogMiddleware(c, next));
 
 const isProd = process.env.NODE_ENV === "production";
 const corsOrigins = resolveCorsOrigins();

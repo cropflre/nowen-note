@@ -6,6 +6,9 @@ on:
     paths:
       - "backend/src/lib/app-error.ts"
       - "backend/src/middleware/request-error.ts"
+      - "backend/src/middleware/request-logging.ts"
+      - "backend/src/services/note-write-observability.ts"
+      - "backend/tests/request-logging.test.ts"
       - "backend/src/index.ts"
       - "backend/src/sync/errors.ts"
       - "backend/src/sync/blob.ts"
@@ -61,6 +64,7 @@ jobs:
         run: >-
           node --import tsx --import ./tests/setup-db-isolation.ts --test
           tests/request-error-contract.test.ts
+          tests/request-logging.test.ts
           tests/sync-blob-error-contract.test.ts
           tests/full-backup-jobs.test.ts
           tests/backup-error-response.test.ts
