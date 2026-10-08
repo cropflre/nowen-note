@@ -5,6 +5,7 @@ export interface TaskDigestConfig {
   userId: string;
   morningEnabled: number;
   eveningEnabled: number;
+  dueEnabled: number;
   morningTime: string;
   eveningTime: string;
   timezone: string;
