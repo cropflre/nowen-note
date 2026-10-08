@@ -7,9 +7,16 @@ on:
       - "backend/src/lib/app-error.ts"
       - "backend/src/middleware/request-error.ts"
       - "backend/src/index.ts"
-      - "backend/tests/request-error-contract.test.ts"
+      - "backend/src/sync/errors.ts"
+      - "backend/src/sync/blob.ts"
+      - "backend/src/services/full-backup-jobs.ts"
+      - "backend/tests/sync-blob-error-contract.test.ts"
+      - "backend/tests/full-backup-jobs.test.ts"
+      - "backend/tests/request-error-contract.test.ts tests/sync-blob-error-contract.test.ts tests/full-backup-jobs.test.ts"
       - "frontend/src/lib/httpError.ts"
       - "frontend/src/lib/api.impl.ts"
+      - "frontend/src/lib/fullBackupJobClient.ts"
+      - "frontend/src/lib/__tests__/fullBackupJobClient.test.ts"
       - "frontend/src/lib/syncLocalApi.ts"
       - "frontend/src/lib/__tests__/httpError.test.ts"
       - ".github/workflows/error-contract-ci.yml"
@@ -54,4 +61,4 @@ jobs:
       - name: Frontend typecheck
         run: npx tsc -b
       - name: Error response regression
-        run: npm run test:run -- src/lib/__tests__/httpError.test.ts
+        run: npm run test:run -- src/lib/__tests__/httpError.test.ts src/lib/__tests__/fullBackupJobClient.test.ts
