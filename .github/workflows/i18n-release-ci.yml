@@ -3,7 +3,7 @@ name: I18n Release CI
 on:
   pull_request:
     paths:
-      - "frontend/src/i18n/**"
+      - "frontend/src/**"
       - "frontend/src/lib/dateTime.ts"
       - "frontend/src/components/EditorErrorBoundary.tsx"
       - "frontend/src/components/MembersPanel.tsx"
@@ -24,9 +24,9 @@ on:
       - "frontend/src/components/diary/__tests__/SayMarkdownToolbar.test.ts"
       - ".github/workflows/i18n-release-ci.yml"
   push:
-    branches: [main, release/v1.4.6]
+    branches: [main, release/v1.5.0, release/v1.5.1]
     paths:
-      - "frontend/src/i18n/**"
+      - "frontend/src/**"
       - "frontend/src/lib/dateTime.ts"
       - "frontend/src/components/EditorErrorBoundary.tsx"
       - "frontend/src/components/MembersPanel.tsx"

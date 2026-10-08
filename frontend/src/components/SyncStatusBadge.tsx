@@ -18,12 +18,14 @@
  */
 
 import { AlertTriangle, Check, CloudOff, RefreshCw } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 import { cn } from "@/lib/utils";
 import { useSyncIndicator } from "@/lib/useSyncIndicator";
 import { isAndroidNativeRuntime } from "@/lib/mobileLocalMode";
 
 export default function SyncStatusBadge({ className, saving = false }: { className?: string; saving?: boolean }) {
+  const { t } = useTranslation();
   const sync = useSyncIndicator(saving);
   const android = isAndroidNativeRuntime();
 
@@ -41,21 +43,23 @@ export default function SyncStatusBadge({ className, saving = false }: { classNa
       ? <CloudOff size={12} />
       : sync.state === "synced" ? <Check size={12} /> : <RefreshCw size={12} />;
 
+  const stateLabel = sync.state === "syncing" && sync.pendingMutations === 0
+    ? t("syncBadge.waitingFirst")
+    : t(`syncBadge.state.${sync.state}`);
   const label = isConflict
-    ? `${sync.conflictCount} 个冲突待处理`
+    ? t("syncBadge.conflicts", { count: sync.conflictCount })
     : android && sync.pendingMutations > 0
-      ? `待同步 ${sync.pendingMutations}`
+      ? t("syncBadge.pending", { count: sync.pendingMutations })
       : sync.state === "syncing" && sync.pendingMutations > 0
-      // 带上数量让用户知道进度，而不是一个永远转不完的圈。
-      ? `同步中… ${sync.pendingMutations}`
-      : sync.label;
+        ? t("syncBadge.syncing", { count: sync.pendingMutations })
+        : stateLabel;
 
   return (
     <span
       title={
         isConflict
-          ? "有内容在多台设备上被同时修改，两个版本都已保留，请到 设置 → 同步 处理"
-          : `${sync.label} · 笔记已保存在此设备`
+          ? t("syncBadge.conflictHint")
+          : t("syncBadge.savedHint", { status: stateLabel })
       }
       className={cn(
         "flex shrink-0 items-center gap-1 whitespace-nowrap px-1.5 py-1 rounded-md text-[11px]",

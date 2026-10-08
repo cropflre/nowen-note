@@ -220,6 +220,20 @@ describe("release i18n coverage", () => {
     ).toEqual([]);
   });
 
+  it("covers mobile account, sync status and verified server connection in both languages", () => {
+    for (const namespace of ["mobileAccount", "mobileSync", "serverConnection", "syncBadge"]) {
+      const chinese = leafEntries(getPath(zh, namespace));
+      const english = leafEntries(getPath(en, namespace));
+      expect(chinese.map(([key]) => key)).toEqual(english.map(([key]) => key));
+      expect(chinese.length).toBeGreaterThan(0);
+      for (const [key, value] of chinese) {
+        const englishValue = english.find(([name]) => name === key)?.[1];
+        expect(englishValue, `${namespace}.${key}`).toBeTypeOf("string");
+        expect(interpolationNames(value)).toEqual(interpolationNames(englishValue!));
+      }
+    }
+  });
+
   it("defines every literal translation key used by the frontend", () => {
     const keys = literalTranslationKeys(join(process.cwd(), "src"));
     expect(keys.filter((key) => getPath(zh, key) === undefined)).toEqual([]);
