@@ -8,9 +8,9 @@ type HtmlPreviewAssetOptions = {
 };
 
 const ATTACHMENT_PATH = /^\/(?:api|publicapi)\/attachments\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const ASSET_TAG_RE = /<(?:img|source)\b(?:[^>"']|"[^"]*"|'[^']*')*>/gi;
-const NETWORK_ATTR_RE = /\s(src|srcset)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/gi;
-type HiddenAsset = { attribute: "src" | "srcset"; raw: string };
+const ASSET_TAG_RE = /<(?:img|source|video|audio)\b(?:[^>"']|"[^"]*"|'[^']*')*>/gi;
+const NETWORK_ATTR_RE = /\s(src|srcset|poster)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/gi;
+type HiddenAsset = { attribute: "src" | "srcset" | "poster"; raw: string };
 
 function needsAttachmentSignature(src: string): boolean {
   try {
@@ -37,11 +37,12 @@ function maskPreparseImageSources(html: string): {
   const markup = html.replace(ASSET_TAG_RE, (tag) => {
     const isImage = /^<img\b/i.test(tag);
     return tag.replace(NETWORK_ATTR_RE, (original, rawAttr: string, double: string, single: string, bare: string) => {
-      const attribute = rawAttr.toLowerCase() as "src" | "srcset";
+      const attribute = rawAttr.toLowerCase() as "src" | "srcset" | "poster";
       const raw = double ?? single ?? bare ?? "";
-      if (!isImage && (attribute !== "srcset" || !/\/(?:api|publicapi)\/attachments\//i.test(raw))) {
-        return original;
-      }
+      // Mask network-capable HTML media before DOMParser touches them.
+      // <source srcset> in a picture is covered as well.
+      if (attribute === "srcset" && !isImage && !/\/(?:api|publicapi)\/attachments\//i.test(raw)) return original;
+      if (attribute === "poster" && !/^<video\b/i.test(tag)) return original;
       const token = String(assets.size);
       assets.set(token, { attribute, raw });
       return ` data-nowen-preview-${attribute}-token="${token}"`;
@@ -80,10 +81,11 @@ export function resolveHtmlPreviewAssetUrls(
     return options.deferUnsignedAttachments && needsAttachmentSignature(resolved) ? null : resolved;
   };
 
-  doc.querySelectorAll<HTMLImageElement | HTMLSourceElement>("img,source").forEach((element) => {
+  doc.querySelectorAll<HTMLImageElement | HTMLSourceElement | HTMLVideoElement | HTMLAudioElement>("img,source,video,audio").forEach((element) => {
     const isImage = element.tagName.toLowerCase() === "img";
-    for (const attribute of ["src", "srcset"] as const) {
-      if (!isImage && attribute === "src") continue;
+    for (const attribute of ["src", "srcset", "poster"] as const) {
+      if (attribute === "poster" && element.tagName.toLowerCase() !== "video") continue;
+      if (attribute === "srcset" && !isImage && element.tagName.toLowerCase() !== "source") continue;
       const tokenName = `data-nowen-preview-${attribute}-token`;
       const token = element.getAttribute(tokenName);
       const asset = token !== null ? assets.get(token) : undefined;
