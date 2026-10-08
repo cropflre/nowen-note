@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { hasStrongNewPassphrase } from "@/lib/encryptedNotes/passphrasePolicy";
 import { useEffect, useRef, useState } from "react";
 import { Lock, ChevronLeft } from "lucide-react";
@@ -19,6 +20,7 @@ type Session = { envelope: EncryptedContentEnvelope; baseEnvelope: EncryptedCont
 const AUTOSAVE_DELAY_MS = 800;
 
 export default function EncryptedNotePane({ note }: { note: Note }) {
+  const { t } = useTranslation();
   const actions = useAppActions();
   const [session, setSession] = useState<Session | null>(null);
   const [securing, setSecuring] = useState(false);
@@ -61,7 +63,7 @@ export default function EncryptedNotePane({ note }: { note: Note }) {
   }
   function edit(content: string) {
     current.current.body = content; setBody(content);
-    setStatus(content !== current.current.savedBody ? "正在保存…" : confirmedStatus.current);
+    setStatus(content !== current.current.savedBody ? t("encryptedNote.saving") : confirmedStatus.current);
   }
 
   useEffect(() => {
@@ -69,7 +71,7 @@ export default function EncryptedNotePane({ note }: { note: Note }) {
     const scope = getOfflineQueueStorageKey();
     const hasPendingChanges = () => current.current.body !== current.current.savedBody || Boolean(operation.current) || locking.current;
     const beforeLeave = (event: Event) => {
-      if (hasPendingChanges()) { event.preventDefault(); setError("请等待保存完成，或放弃修改后再离开"); }
+      if (hasPendingChanges()) { event.preventDefault(); setError(t("encryptedNote.leaveBlocked")); }
     };
     const beforeUnload = (event: BeforeUnloadEvent) => { if (hasPendingChanges()) { event.preventDefault(); event.returnValue = ""; } };
     const clear = () => {
@@ -104,8 +106,8 @@ export default function EncryptedNotePane({ note }: { note: Note }) {
     try { await task(controller.signal); return mounted.current && !controller.signal.aborted; }
     catch (failure) {
       if (mounted.current && !controller.signal.aborted) setError(failure instanceof EncryptedContentError && failure.code === "unlock-failed"
-        ? "密码错误或内容损坏，原内容已保留"
-        : "保存或解锁失败，原内容和当前修改已保留，请重试。");
+        ? t("encryptedNote.incorrectPassword")
+        : t("encryptedNote.operationFailed"));
       return false;
     } finally {
       if (operation.current === controller) { operation.current = null; if (mounted.current) setBusy(false); }
@@ -135,7 +137,7 @@ export default function EncryptedNotePane({ note }: { note: Note }) {
       const unlocked = { envelope, baseEnvelope: envelope, initialContent: restoredBody };
       current.current = { session: unlocked, body: restoredBody, savedBody: restoredSavedBody };
       setLockFailed(false); setBody(restoredBody); setSavedBody(restoredSavedBody); setSession(unlocked);
-      if (recovery) setError("已恢复未保存的修改，请重试保存或锁定。");
+      if (recovery) setError(t("encryptedNote.recovered"));
     });
   }
   function save(changePassword = false): Promise<boolean> {
@@ -143,8 +145,8 @@ export default function EncryptedNotePane({ note }: { note: Note }) {
     const { session: active, body: plaintext, savedBody: saved } = current.current;
     const baseNote = currentNote.current;
     if (!active || native || !canWriteNote(baseNote) || baseNote.isLocked || baseNote.isTrashed) return Promise.resolve(false);
-    if (changePassword && getQueue().some((item) => item.noteId === baseNote.id)) { setError("请联网并等待同步完成后再修改密码。"); return Promise.resolve(false); }
-    if (changePassword && (plaintext !== saved || !currentPassphrase || !hasStrongNewPassphrase(newPassphrase) || newPassphrase !== confirmation)) { setError("请先保存正文，验证当前密码并输入两次相同且至少 12 个字符的新密码"); return Promise.resolve(false); }
+    if (changePassword && getQueue().some((item) => item.noteId === baseNote.id)) { setError(t("encryptedNote.waitForSync")); return Promise.resolve(false); }
+    if (changePassword && (plaintext !== saved || !currentPassphrase || !hasStrongNewPassphrase(newPassphrase) || newPassphrase !== confirmation)) { setError(t("encryptedNote.changePasswordPrerequisites")); return Promise.resolve(false); }
     if (!changePassword && plaintext === saved) return Promise.resolve(true);
     const keySession = cryptoSession.current;
     if (!keySession) return Promise.resolve(false);
@@ -175,10 +177,10 @@ export default function EncryptedNotePane({ note }: { note: Note }) {
       current.current.session = nextSession; current.current.savedBody = plaintext;
       setSavedBody(plaintext); setSession(nextSession); setLockFailed(false); setError("");
       actions.setActiveNote(updated); actions.updateNoteInList({ id: updated.id, contentText: "", version: updated.version, updatedAt: updated.updatedAt });
-      confirmedStatus.current = queued ? "已保存在本机，等待同步" : "已保存";
-      setStatus(current.current.body !== plaintext ? "正在保存…" : confirmedStatus.current);
+      confirmedStatus.current = queued ? t("encryptedNote.savedLocally") : t("encryptedNote.saved");
+      setStatus(current.current.body !== plaintext ? t("encryptedNote.saving") : confirmedStatus.current);
     });
-    setStatus("正在保存…");
+    setStatus(t("encryptedNote.saving"));
     const result = task.then((success) => {
       if (pendingSave.current === result) {
         pendingSave.current = null; autosaveFailed.current = !success;
@@ -207,7 +209,7 @@ export default function EncryptedNotePane({ note }: { note: Note }) {
       if (!saved) {
         autosaveFailed.current = true; setLockFailed(true); setStatus("");
         cryptoSession.current?.close(); cryptoSession.current = null;
-        setError("保存失败，锁定未完成；修改已隐藏，重新输入密码后可恢复。关闭页面会丢失未保存的修改。"); return false;
+        setError(t("encryptedNote.lockFailed")); return false;
       }
       clearSession(); autosaveFailed.current = false;
       setStatus(""); return true;
@@ -215,36 +217,36 @@ export default function EncryptedNotePane({ note }: { note: Note }) {
       if (mounted.current && scope === getOfflineQueueStorageKey()) { locking.current = false; setSecuring(false); }
     }
   }
-  return <section className="flex min-w-0 flex-1 flex-col bg-app-bg" aria-label="加密笔记">
+  return <section className="flex min-w-0 flex-1 flex-col bg-app-bg" aria-label={t("encryptedNote.ariaNote")}>
     <header className="flex items-center gap-2 border-b border-app-border p-3">
-      <button type="button" aria-label="返回列表" disabled={securing} onClick={async () => { if (await lock()) actions.setMobileView("list"); }}><ChevronLeft size={20} /></button>
+      <button type="button" aria-label={t("encryptedNote.backToList")} disabled={securing} onClick={async () => { if (await lock()) actions.setMobileView("list"); }}><ChevronLeft size={20} /></button>
       <Lock size={16} /><h1 className="min-w-0 flex-1 truncate">{note.title}</h1>
-      {session && !lockFailed && <Button disabled={securing} onClick={() => void lock()}>锁定</Button>}
+      {session && !lockFailed && <Button disabled={securing} onClick={() => void lock()}>{t("encryptedUi.lock")}</Button>}
     </header>
-    {native && <p role="alert" className="px-4 py-2">移动应用暂不支持加密，请使用网页版或桌面端。</p>}
+    {native && <p role="alert" className="px-4 py-2">{t("encryptedUi.nativeUnsupported")}</p>}
     {error && <p role="alert" className="px-4 py-2 text-red-500">{error}</p>}
     {!securing && status && <p role="status" className="px-4 py-2 text-tx-secondary">{status}</p>}
-    {securing ? <p role="status" className="m-auto p-6">正在锁定…</p> : !session || lockFailed ? <form className="m-auto flex w-full max-w-sm flex-col gap-3 p-6" onSubmit={(event) => { event.preventDefault(); void unlock(); }}>
+    {securing ? <p role="status" className="m-auto p-6">{t("encryptedUi.locking")}</p> : !session || lockFailed ? <form className="m-auto flex w-full max-w-sm flex-col gap-3 p-6" onSubmit={(event) => { event.preventDefault(); void unlock(); }}>
       <Lock size={28} className="mx-auto text-tx-secondary" aria-hidden="true" />
-      <h2 className="text-center text-lg font-medium">此笔记已加密</h2>
-      <p className="text-center text-sm text-tx-secondary">输入密码查看内容</p>
-      <input aria-label="密码" placeholder="输入密码" type="password" autoComplete="off" value={passphrase} disabled={busy} onChange={(event) => setPassphrase(event.target.value)} className="w-full rounded border border-app-border bg-app-bg p-2" />
-      <Button type="submit" disabled={native || busy || !passphrase}>{busy ? "正在验证…" : "解锁"}</Button>
-      {lockFailed && <Button disabled={busy} type="button" variant="ghost" onClick={() => { if (window.confirm("放弃未保存的修改？")) void lock(true); }}>放弃修改并锁定</Button>}
-      <p className="text-center text-xs text-tx-secondary">忘记密码将无法恢复内容。</p>
+      <h2 className="text-center text-lg font-medium">{t("encryptedNote.lockedTitle")}</h2>
+      <p className="text-center text-sm text-tx-secondary">{t("encryptedNote.enterPassword")}</p>
+      <input aria-label={t("encryptedUi.password")} placeholder={t("encryptedNote.passwordPlaceholder")} type="password" autoComplete="off" value={passphrase} disabled={busy} onChange={(event) => setPassphrase(event.target.value)} className="w-full rounded border border-app-border bg-app-bg p-2" />
+      <Button type="submit" disabled={native || busy || !passphrase}>{busy ? t("encryptedNote.verifying") : t("encryptedUi.unlock")}</Button>
+      {lockFailed && <Button disabled={busy} type="button" variant="ghost" onClick={() => { if (window.confirm(t("encryptedUi.discardConfirm"))) void lock(true); }}>{t("encryptedNote.discardAndLock")}</Button>}
+      <p className="text-center text-xs text-tx-secondary">{t("encryptedUi.forgotPassword")}</p>
     </form> : <>
       {session.envelope.originalFormat === "markdown"
-        ? <textarea aria-label="加密 Markdown 正文" value={body} readOnly={!editable || (busy && !saving)} onChange={(event) => edit(event.target.value)} className="min-h-64 flex-1 resize-none bg-app-bg p-4 font-mono outline-none" spellCheck={false} />
+        ? <textarea aria-label={t("encryptedNote.markdownBody")} value={body} readOnly={!editable || (busy && !saving)} onChange={(event) => edit(event.target.value)} className="min-h-64 flex-1 resize-none bg-app-bg p-4 font-mono outline-none" spellCheck={false} />
         : <EncryptedNoteRichTextEditor initialContent={session.initialContent} editable={editable && (!busy || saving)} onChange={edit} />}
       {error && dirty && <div className="flex gap-2 p-3">
-        <Button disabled={!editable || busy} onClick={() => void save()}>重试保存</Button>
-        <Button disabled={busy} variant="ghost" onClick={() => void lock(true)}>放弃修改并锁定</Button>
+        <Button disabled={!editable || busy} onClick={() => void save()}>{t("encryptedNote.retrySave")}</Button>
+        <Button disabled={busy} variant="ghost" onClick={() => void lock(true)}>{t("encryptedNote.discardAndLock")}</Button>
       </div>}
-      {editable && <details className="border-t border-app-border p-4"><summary>修改密码</summary><p className="my-2 text-xs">以前的备份仍需使用当时的密码解锁。</p>
-        <input aria-label="当前密码" type="password" autoComplete="off" value={currentPassphrase} disabled={busy} onChange={(event) => setCurrentPassphrase(event.target.value)} className="border border-app-border bg-app-bg p-2" />
-        <input aria-label="新密码" type="password" autoComplete="new-password" value={newPassphrase} disabled={busy} onChange={(event) => setNewPassphrase(event.target.value)} className="border border-app-border bg-app-bg p-2" />
-        <input aria-label="确认新密码" type="password" autoComplete="new-password" value={confirmation} disabled={busy} onChange={(event) => setConfirmation(event.target.value)} className="border border-app-border bg-app-bg p-2" />
-        <Button disabled={busy || dirty || !currentPassphrase || !hasStrongNewPassphrase(newPassphrase) || newPassphrase !== confirmation} onClick={() => void save(true)}>确认修改</Button>
+      {editable && <details className="border-t border-app-border p-4"><summary>{t("encryptedNote.changePassword")}</summary><p className="my-2 text-xs">{t("encryptedNote.oldBackupHint")}</p>
+        <input aria-label={t("encryptedNote.currentPassword")} type="password" autoComplete="off" value={currentPassphrase} disabled={busy} onChange={(event) => setCurrentPassphrase(event.target.value)} className="border border-app-border bg-app-bg p-2" />
+        <input aria-label={t("encryptedNote.newPassword")} type="password" autoComplete="new-password" value={newPassphrase} disabled={busy} onChange={(event) => setNewPassphrase(event.target.value)} className="border border-app-border bg-app-bg p-2" />
+        <input aria-label={t("encryptedNote.confirmNewPassword")} type="password" autoComplete="new-password" value={confirmation} disabled={busy} onChange={(event) => setConfirmation(event.target.value)} className="border border-app-border bg-app-bg p-2" />
+        <Button disabled={busy || dirty || !currentPassphrase || !hasStrongNewPassphrase(newPassphrase) || newPassphrase !== confirmation} onClick={() => void save(true)}>{t("encryptedNote.confirmChange")}</Button>
       </details>}
     </>}
   </section>;

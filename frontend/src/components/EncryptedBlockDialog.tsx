@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { hasStrongNewPassphrase } from "@/lib/encryptedNotes/passphrasePolicy";
 import { useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -16,6 +17,7 @@ export default function EncryptedBlockDialog({ source, initialContent, onCommit,
   source?: string; initialContent?: { plaintext: string; format: "markdown" | "tiptap-json" };
   onCommit?: (ciphertext: string) => void | Promise<void>; onClose: () => void;
 }) {
+  const { t } = useTranslation();
   const passwordFormId = useId();
   const [password, setPassword] = useState(""); const [confirmation, setConfirmation] = useState("");
   const [body, setBody] = useState(initialContent?.plaintext || ""); const [initialBody, setInitialBody] = useState(initialContent?.plaintext || "");
@@ -44,10 +46,10 @@ export default function EncryptedBlockDialog({ source, initialContent, onCommit,
     const scope = getOfflineQueueStorageKey();
     operation.current?.abort("auto-lock");
     setBody(""); setInitialBody(""); setPassword(""); setConfirmation(""); setUnlocked(false); setError(""); setLockFailed(false);
-    setStatus("已自动锁定，请重新输入密码。");
+    setStatus(t("encryptedBlock.autoLocked"));
     if (!dirty && !(initialContent && key)) { activeSession?.close(); cryptoSession.current = null; if (!source && !draft) setUnlocked(true); return; }
     const controller = new AbortController(); operation.current = controller;
-    setSecuring(true); setBusy(true); setStatus("正在锁定…");
+    setSecuring(true); setBusy(true); setStatus(t("encryptedBlock.autoLocking"));
     try {
       validateEncryptedNotePlaintext(plaintext, format);
       const encrypted = current
@@ -55,18 +57,18 @@ export default function EncryptedBlockDialog({ source, initialContent, onCommit,
         : await runEncryptedContentOperation({ operation: "create", input: { kind: "block", originalFormat: format, passphrase: key, plaintext } }, controller.signal);
       if (!mounted.current || controller.signal.aborted || scope !== getOfflineQueueStorageKey()) return;
       setDraft(encrypted); setRecoveredDraft(false);
-      setStatus("已自动锁定，重新解锁可恢复未保存的修改。关闭窗口会丢失这些修改。");
+      setStatus(t("encryptedBlock.autoLockedDraft"));
     } catch {
       if (!mounted.current || controller.signal.aborted || scope !== getOfflineQueueStorageKey()) return;
       recovery.current = { plaintext, ...(current ? { base: JSON.stringify(current) } : { passphrase: key }) };
       setRecoveredDraft(true); setLockFailed(true);
-      setStatus(""); setError("自动锁定失败，修改已隐藏。重新输入密码可恢复；关闭窗口会丢失未保存的修改。");
+      setStatus(""); setError(t("encryptedBlock.autoLockFailed"));
     } finally {
       activeSession?.close(); cryptoSession.current = null;
       if (operation.current === controller) { operation.current = null; if (mounted.current) { setBusy(false); setSecuring(false); } }
     }
   }
-  function close() { if (!busy && (!(dirty || draft || lockFailed) || window.confirm("放弃未保存的修改？"))) onClose(); }
+  function close() { if (!busy && (!(dirty || draft || lockFailed) || window.confirm(t("encryptedUi.discardConfirm")))) onClose(); }
   useEffect(() => {
     const scope = getOfflineQueueStorageKey();
     const leave = (event: BeforeUnloadEvent) => { if (dirty || draft || busy || lockFailed) { event.preventDefault(); event.returnValue = ""; } };
@@ -103,7 +105,7 @@ export default function EncryptedBlockDialog({ source, initialContent, onCommit,
         recovery.current = null;
         if (envelope) setPassword("");
         setBody(plaintext); setInitialBody(plaintext); setUnlocked(true); setRecoveredDraft(Boolean(draft || pending)); setLockFailed(false);
-        if (draft || pending) setStatus("已恢复修改，请保存。");
+        if (draft || pending) setStatus(t("encryptedBlock.recovered"));
       } else {
         validateEncryptedNotePlaintext(body, format);
         const encrypted = envelope
@@ -118,30 +120,30 @@ export default function EncryptedBlockDialog({ source, initialContent, onCommit,
       }
     } catch {
       if (!save) { cryptoSession.current?.close(); cryptoSession.current = null; }
-      if (mounted.current && !controller.signal.aborted) setError("操作失败，请检查密码或重新打开内容后重试。原内容和当前修改已保留。");
+      if (mounted.current && !controller.signal.aborted) setError(t("encryptedBlock.operationFailed"));
     }
     finally { if (operation.current === controller) { operation.current = null; if (mounted.current) setBusy(false); } }
   }
   return createPortal(<div className="fixed inset-0 z-[500] flex items-center justify-center bg-black/40 p-4">
-    <section role="dialog" aria-modal="true" aria-label="局部加密区域" className="flex max-h-[90vh] w-full max-w-2xl flex-col gap-3 overflow-auto rounded-xl border border-app-border bg-app-bg p-5 shadow-xl">
-      <h2>{initialContent ? "加密选中文字" : !source ? "插入加密内容" : unlocked ? "编辑加密内容" : "解锁加密内容"}</h2>
-      {!source && initialContent && <p className="text-xs text-tx-secondary">加密后，新保存的内容会受到保护。历史记录和旧备份中可能仍存在旧内容。</p>}
-      <p className="text-xs text-tx-secondary">忘记密码将无法恢复内容。</p>
-      {native && <p role="alert">移动应用暂不支持加密，请使用网页版或桌面端。</p>}
-      {source && !envelope && <p role="alert">此内容暂时无法打开，请更新应用后重试。</p>}
+    <section role="dialog" aria-modal="true" aria-label={t("encryptedBlock.ariaDialog")} className="flex max-h-[90vh] w-full max-w-2xl flex-col gap-3 overflow-auto rounded-xl border border-app-border bg-app-bg p-5 shadow-xl">
+      <h2>{initialContent ? t("encryptedBlock.selectedText") : !source ? t("encryptedBlock.insert") : unlocked ? t("encryptedBlock.edit") : t("encryptedBlock.unlockContent")}</h2>
+      {!source && initialContent && <p className="text-xs text-tx-secondary">{t("encryptedBlock.historyHint")}</p>}
+      <p className="text-xs text-tx-secondary">{t("encryptedUi.forgotPassword")}</p>
+      {native && <p role="alert">{t("encryptedUi.nativeUnsupported")}</p>}
+      {source && !envelope && <p role="alert">{t("encryptedBlock.unsupportedContent")}</p>}
       {error && <p role="alert" className="text-red-500">{error}</p>}
       {status && <p role="status">{status}</p>}
       {(!unlocked || isNew) && <form id={passwordFormId} onSubmit={(event) => { event.preventDefault(); if (password) void perform(unlocked); }}>
-        <label>{isNew ? "密码（至少 12 个字符）" : "密码"}<input aria-label="密码" type="password" autoComplete={isNew ? "new-password" : "off"} value={password} disabled={busy} onChange={(event) => setPassword(event.target.value)} className="w-full rounded border border-app-border bg-app-bg p-2" /></label>
-        {isNew && !lockFailed && <label>确认密码<input aria-label="确认密码" type="password" autoComplete="new-password" value={confirmation} disabled={busy} onChange={(event) => setConfirmation(event.target.value)} className="w-full rounded border border-app-border bg-app-bg p-2" /></label>}
+        <label>{isNew ? t("encryptedUi.passwordMin") : t("encryptedUi.password")}<input aria-label={t("encryptedUi.password")} type="password" autoComplete={isNew ? "new-password" : "off"} value={password} disabled={busy} onChange={(event) => setPassword(event.target.value)} className="w-full rounded border border-app-border bg-app-bg p-2" /></label>
+        {isNew && !lockFailed && <label>{t("encryptedUi.confirmPassword")}<input aria-label={t("encryptedUi.confirmPassword")} type="password" autoComplete="new-password" value={confirmation} disabled={busy} onChange={(event) => setConfirmation(event.target.value)} className="w-full rounded border border-app-border bg-app-bg p-2" /></label>}
       </form>}
       {unlocked && initialContent && isNew ? null : unlocked ? format === "markdown"
-        ? <textarea aria-label="区域临时正文" value={body} readOnly={!onCommit || busy} onChange={(event) => setBody(event.target.value)} spellCheck={false} className="min-h-48 resize-y rounded border border-app-border bg-app-bg p-3 font-mono" />
+        ? <textarea aria-label={t("encryptedBlock.temporaryBody")} value={body} readOnly={!onCommit || busy} onChange={(event) => setBody(event.target.value)} spellCheck={false} className="min-h-48 resize-y rounded border border-app-border bg-app-bg p-3 font-mono" />
         : <EncryptedNoteRichTextEditor initialContent={initialBody} editable={Boolean(onCommit) && !busy} onChange={setBody} />
-        : <Button type="submit" form={passwordFormId} disabled={native || busy || (!envelope && !lockFailed) || !password}>{busy ? "正在解锁…" : "解锁"}</Button>}
-      <div className="flex gap-2">{unlocked && onCommit && <Button disabled={native || busy || (isNew ? !hasStrongNewPassphrase(password) || password !== confirmation : !cryptoSession.current)} onClick={() => void perform(true)}>{busy ? "正在加密…" : initialContent && isNew ? "加密" : "保存"}</Button>}
-        <Button disabled={busy} variant="outline" onClick={close}>关闭</Button></div>
-      {!onCommit && <p className="text-xs text-tx-secondary">当前笔记仅可查看。</p>}
+        : <Button type="submit" form={passwordFormId} disabled={native || busy || (!envelope && !lockFailed) || !password}>{busy ? t("encryptedUi.unlocking") : t("encryptedUi.unlock")}</Button>}
+      <div className="flex gap-2">{unlocked && onCommit && <Button disabled={native || busy || (isNew ? !hasStrongNewPassphrase(password) || password !== confirmation : !cryptoSession.current)} onClick={() => void perform(true)}>{busy ? t("encryptedBlock.encrypting") : initialContent && isNew ? t("encryptedBlock.encrypt") : t("encryptedUi.save")}</Button>}
+        <Button disabled={busy} variant="outline" onClick={close}>{t("encryptedUi.close")}</Button></div>
+      {!onCommit && <p className="text-xs text-tx-secondary">{t("encryptedUi.readOnly")}</p>}
     </section>
   </div>, document.body);
 }
