@@ -27,10 +27,13 @@ describe("MarkdownPreview interactions", () => {
     expect(output).toContain('data-checked="true"');
     expect(output).toContain('data-checked="false"');
     expect(output).toContain('class="nowen-task-item-text');
-    expect(output).toMatch(/data-checked="true"[^>]*>[\\s\\S]*?nowen-task-item-text/);
     expect((output.match(/class="nowen-task-item-text/g) || []).length).toBe(3);
     // The nested child must be rendered outside its parent's decorated text span.
-    expect(output).toContain("pending</span>");
+    const pendingIndex = output.indexOf('data-checked="false"');
+    const parentTextEnd = output.indexOf("</span>", pendingIndex);
+    const nestedListStart = output.indexOf("<ul", pendingIndex);
+    expect(parentTextEnd).toBeGreaterThan(pendingIndex);
+    expect(nestedListStart).toBeGreaterThan(parentTextEnd);
   });
 
   it("keeps ordinary unordered lists styled with bullets", () => {
