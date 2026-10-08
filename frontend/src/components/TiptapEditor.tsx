@@ -1657,7 +1657,14 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
     const next = getActiveListType(currentEditor);
     if (activeListTypeRef.current === next) return;
     activeListTypeRef.current = next;
-    setActiveListType(next);
+    // Tiptap fires create/transaction callbacks synchronously, including while
+    // React is committing editor NodeViews. Defer React state updates until the
+    // current commit finishes; only publish the newest selection and never update
+    // a destroyed editor's toolbar.
+    queueMicrotask(() => {
+      if (currentEditor?.isDestroyed || activeListTypeRef.current !== next) return;
+      setActiveListType(next);
+    });
   }, []);
   const [showAI, setShowAI] = useState(false);
   const [aiSelectedText, setAiSelectedText] = useState("");
