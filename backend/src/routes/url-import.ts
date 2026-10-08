@@ -378,8 +378,8 @@ app.post("/", async (c) => {
   // content 先用空串占位，下面下载图片完成后再 UPDATE 回真正内容。
   try {
     db.prepare(
-      `INSERT INTO notes (id, userId, notebookId, title, content, contentText, createdAt, updatedAt, workspaceId)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO notes (id, userId, notebookId, title, content, contentText, contentFormat, createdAt, updatedAt, workspaceId)
+       VALUES (?, ?, ?, ?, ?, ?, 'html', ?, ?, ?)`,
     ).run(noteId, userId, targetNotebookId, title, "", "", now, now, workspaceId);
   } catch (err: any) {
     return c.json({ error: `写入笔记失败: ${err?.message || err}` }, 500);
