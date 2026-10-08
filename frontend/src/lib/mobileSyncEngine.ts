@@ -2,6 +2,10 @@ import type { NativeDatabase } from "./nativeDatabase";
 import type { NativeAttachmentStore } from "./nativeAttachmentStore";
 import { newLocalId } from "./localRepository";
 import { getResolvedApiBaseUrl } from "./serverUrl";
+import { SERVER_ENDPOINT_CHANGED_EVENT } from "./serverEndpointState";
+import { forgetUnsentLocalNotes } from "./nativeLocalNoteOrigin";
+import { notifyMobileSyncStatusChanged } from "./mobileSyncStatus";
+import { validateEncryptedNoteWrite } from "./encryptedNotes/noteDocument";
 
 type ScopeStatus = "active" | "replan_required" | "access_revoked";
 type EntityType = "notebook" | "note" | "tag" | "note_tag" | "favorite" | "attachment"
@@ -27,6 +31,8 @@ interface MobileSyncOptions {
   deviceId: string;
   onAuthRequired?: () => void;
   onAttachmentReady?: (attachmentId:string) => void;
+  beforeSync?: () => Promise<void>;
+  onNetworkUnavailable?: () => void;
 }
 
 interface SnapshotEntry {
@@ -81,7 +87,8 @@ export class MobileSyncEngine {
   private running = false;
   private rerun = false;
   private debounce: ReturnType<typeof setTimeout> | null = null;
-  private stopped = false;
+  private stopped = true;
+  private syncAbort: AbortController | null = null;
 
   constructor(private readonly options: MobileSyncOptions) {}
 
@@ -92,6 +99,8 @@ export class MobileSyncEngine {
 
   stop(): void {
     this.stopped = true;
+    this.rerun = false;
+    this.syncAbort?.abort();
     if (this.debounce) clearTimeout(this.debounce);
     this.debounce = null;
   }
@@ -101,7 +110,24 @@ export class MobileSyncEngine {
     if (this.debounce) clearTimeout(this.debounce);
     this.debounce = setTimeout(() => {
       this.debounce = null;
-      void this.syncOnce();
+      // 后台调度不能留下未处理的 Promise rejection。同步游标、Outbox 和原笔记
+      // 在错误时保持不变；仅记录诊断状态，交给用户重试/网络恢复时再次触发。
+      void this.syncOnce().catch((error: unknown) => {
+        if (this.stopped) return;
+        const code = error && typeof error === "object"
+          && "code" in error && typeof error.code === "string"
+          ? error.code
+          : "SYNC_RUNTIME_ERROR";
+        console.error("[mobile-sync] unexpected background sync failure", error);
+        void this.options.db.run(
+          "UPDATE sync_state SET lastError=? WHERE profileId=?",
+          [code, this.options.profileId],
+        ).catch((persistError) => {
+          console.warn("[mobile-sync] unable to persist failure diagnostics", persistError);
+        }).finally(() => {
+          if (!this.stopped) notifyMobileSyncStatusChanged();
+        });
+      });
     }, delayMs);
   }
 
@@ -109,10 +135,15 @@ export class MobileSyncEngine {
     if (this.stopped) return;
     if (this.running) { this.rerun = true; return; }
     this.running = true;
+    this.syncAbort = new AbortController();
     try {
+      await this.options.beforeSync?.();
+      if (this.stopped) return;
       const scopes = await this.fetchScopes();
+      if (this.stopped) return;
       await this.refreshScopes(scopes);
       for (const scope of scopes) {
+        if (this.stopped) return;
         const state = (await this.options.db.query<{ accessStatus: ScopeStatus; lastSequence: number }>(
           "SELECT accessStatus,lastSequence FROM sync_state WHERE profileId=? AND scopeKey=?",
           [this.options.profileId, scope.scopeKey],
@@ -123,9 +154,12 @@ export class MobileSyncEngine {
             await this.bootstrap(scope);
           }
           await this.push(scope);
+          if (this.stopped) return;
           await this.pull(scope);
+          if (this.stopped) return;
           await this.transferAttachments(scope);
         } catch (error) {
+          if (this.stopped || this.syncAbort.signal.aborted) return;
           const code = (error as Error & { code?: string }).code;
           if (code === "ACCESS_REVOKED" || code === "SCOPE_FORBIDDEN") {
             await this.freezeScope(scope.scopeKey, code);
@@ -136,12 +170,17 @@ export class MobileSyncEngine {
             this.options.onAuthRequired?.();
             return;
           }
-          await this.options.db.run(`UPDATE sync_state SET lastError=?,lastSyncAt=?
-            WHERE profileId=? AND scopeKey=?`, [code || "NETWORK_UNAVAILABLE",now(),this.options.profileId,scope.scopeKey]);
+          await this.options.db.run(`UPDATE sync_state SET lastError=?
+            WHERE profileId=? AND scopeKey=?`, [code || "NETWORK_UNAVAILABLE",this.options.profileId,scope.scopeKey]);
         }
       }
+    } catch (error) {
+      // 切网失败保留本地库和待传队列，等待选路/网络恢复后重试。
+      if (!this.syncAbort.signal.aborted && (error as { code?: string }).code !== "NETWORK_UNAVAILABLE") throw error;
     } finally {
       this.running = false;
+      this.syncAbort = null;
+      notifyMobileSyncStatusChanged();
       if (this.rerun) { this.rerun = false; this.requestSync(0); }
     }
   }
@@ -211,20 +250,50 @@ export class MobileSyncEngine {
     this.requestSync(0);return id;
   }
 
-  private async request<T>(path: string, init: RequestInit = {}): Promise<T> {
-    let response: Response;
+  private async fetchResponse(path: string, init: RequestInit = {}): Promise<Response> {
+    const syncSignal = this.syncAbort?.signal;
+    syncSignal?.throwIfAborted();
+    const controller = new AbortController();
+    const cancel = () => controller.abort();
+    const endpointChanged = (event: Event) => {
+      if ((event as CustomEvent<{ serverUrl: string }>).detail.serverUrl === this.options.serverUrl) cancel();
+    };
+    const timer = setTimeout(cancel, 15_000);
+    let abortRequest = () => {};
+    const aborted = new Promise<never>((_resolve, reject) => {
+      abortRequest = () => reject(new DOMException("Aborted", "AbortError"));
+      controller.signal.addEventListener("abort", abortRequest, { once: true });
+    });
+    init.signal?.addEventListener("abort", cancel, { once: true });
+    syncSignal?.addEventListener("abort", cancel, { once: true });
+    window.addEventListener(SERVER_ENDPOINT_CHANGED_EVENT, endpointChanged);
+    if (init.signal?.aborted) cancel();
     try {
-      response = await fetch(`${getResolvedApiBaseUrl(this.options.serverUrl)}/sync/v2${path}`, {
+      // Capacitor 的原生 POST/PUT fetch 不消费 AbortSignal；仍须释放同步循环，
+      // 迟到的响应不再写本地状态，下一轮沿用原 mutationId/附件 ID 安全重试。
+      return await Promise.race([aborted, fetch(`${getResolvedApiBaseUrl(this.options.serverUrl)}/sync/v2${path}`, {
         ...init,
+        signal: controller.signal,
         headers: {
           Authorization: `Bearer ${this.options.token}`,
           ...(init.body ? { "Content-Type": "application/json" } : {}),
           ...(init.headers || {}),
         },
-      });
+      })]);
     } catch (cause) {
+      if (!syncSignal?.aborted) this.options.onNetworkUnavailable?.();
       throw Object.assign(new Error("网络不可用", { cause }), { code: "NETWORK_UNAVAILABLE" });
+    } finally {
+      clearTimeout(timer);
+      controller.signal.removeEventListener("abort", abortRequest);
+      init.signal?.removeEventListener("abort", cancel);
+      syncSignal?.removeEventListener("abort", cancel);
+      window.removeEventListener(SERVER_ENDPOINT_CHANGED_EVENT, endpointChanged);
     }
+  }
+
+  private async request<T>(path: string, init: RequestInit = {}): Promise<T> {
+    const response = await this.fetchResponse(path, init);
     if (!response.ok) {
       const payload = await response.json().catch(() => ({})) as { code?: string; error?: string };
       const code = payload.code || (response.status === 401 ? "AUTH_EXPIRED" : "SERVER_ERROR");
@@ -368,10 +437,25 @@ export class MobileSyncEngine {
     }
     const mutations = rows.map((row) => ({ ...row,
       baseVersion:row.baseVersion??undefined,payload:row.payload?JSON.parse(row.payload):undefined }));
+    for (const mutation of mutations) if (mutation.entityType === "note" && mutation.operation === "upsert") {
+      validateEncryptedNoteWrite(mutation.payload || {});
+      const current = await this.readEntity(this.options.db, scope.scopeKey, "note", mutation.entityId);
+      if (current) validateEncryptedNoteWrite(mutation.payload || {}, current);
+    }
+    // 请求即使超时也可能已被服务器接收，不能继续把该笔记当作“确定未同步”。
+    const noteIds = rows.filter((row) => row.entityType === "note").map((row) => row.entityId);
+    if (noteIds.length) await this.options.db.transaction((tx) => forgetUnsentLocalNotes(tx, scope.scopeKey, noteIds));
     const response = await this.request<{ serverSequence:number;results:Array<{mutationId:string;status:string;code?:string;serverVersion?:number;serverPayload?:Record<string,unknown>}> }>(
       `/push?scopeKey=${encodeURIComponent(scope.scopeKey)}`,
       { method:"POST",body:JSON.stringify({scopeKey:scope.scopeKey,deviceId:this.options.deviceId,mutations}) },
     );
+    for (const result of response.results) {
+      const source = mutations.find((mutation) => mutation.mutationId === result.mutationId);
+      if (source?.entityType === "note" && result.code === "VERSION_CONFLICT" && result.serverPayload) {
+        validateEncryptedNoteWrite(result.serverPayload);
+        validateEncryptedNoteWrite(result.serverPayload, source.payload);
+      }
+    }
     await this.options.db.transaction(async (tx) => {
       for (const result of response.results) {
         const source = rows.find((row) => row.mutationId===result.mutationId);
@@ -396,6 +480,7 @@ export class MobileSyncEngine {
         }
       }
     });
+    if (rows.length === 100 && response.results.some((result) => result.status === "applied" || result.status === "duplicate")) this.rerun = true;
   }
 
   private async pull(scope: ScopeDescriptor): Promise<void> {
@@ -443,10 +528,17 @@ export class MobileSyncEngine {
 
   private async applyEntries(scope: ScopeDescriptor, entries: SnapshotEntry[], bootstrap: boolean): Promise<void> {
     assertMobileSyncItems(entries,"snapshot");
+    for (const entry of entries) if (entry.entityType === "note" && !entry.payload.__delete) validateEncryptedNoteWrite(entry.payload);
     const notebookParents=entries.flatMap((entry)=>entry.entityType==="notebook"
       && typeof entry.payload.parentId==="string" ? [[entry.entityId,entry.payload.parentId] as const] : []);
     await this.options.db.transaction(async (tx) => {
+      // 即使远端内容进入冲突中心而未覆盖本地，它的存在也已得到确认。
+      await forgetUnsentLocalNotes(tx, scope.scopeKey, entries.filter((entry) => entry.entityType === "note").map((entry) => entry.entityId));
       for(const entry of entries){
+        if (entry.entityType === "note" && !entry.payload.__delete) {
+          const current = await this.readEntity(tx, scope.scopeKey, "note", entry.entityId);
+          if (current) validateEncryptedNoteWrite(entry.payload, current);
+        }
         const conflict=(await tx.query<{id:string}>(`SELECT id FROM sync_conflicts WHERE
           profileId=? AND scopeKey=? AND entityType=? AND entityId=? AND status='unresolved' LIMIT 1`,
         [this.options.profileId,scope.scopeKey,entry.entityType,entry.entityId]))[0];
@@ -488,6 +580,10 @@ export class MobileSyncEngine {
 
   private async applyEntity(db:NativeDatabase,scope:ScopeDescriptor,entry:SnapshotEntry):Promise<void>{
     const p=entry.payload;const deleting=Boolean(p.__delete);const key=scope.scopeKey;const ws=scope.workspaceId;
+    if (entry.entityType === "note" && !deleting) {
+      const current = await this.readEntity(db, key, "note", entry.entityId);
+      validateEncryptedNoteWrite(p, current || undefined);
+    }
     if(entry.entityType==="note_tag"){
       const [noteId,tagId]=entry.entityId.split(":");
       if(deleting)await db.run("DELETE FROM note_tags WHERE scopeKey=? AND noteId=? AND tagId=?",[key,noteId,tagId]);
@@ -574,26 +670,34 @@ export class MobileSyncEngine {
     const rows=await this.options.db.query<{id:string;mimeType:string;size:number;hash:string|null;transferStatus:string}>(`
       SELECT id,mimeType,size,hash,transferStatus FROM attachments WHERE scopeKey=?
         AND transferStatus IN ('pending_upload','failed','pending_download') ORDER BY updatedAt LIMIT 4`,[scope.scopeKey]);
+    let completed = 0;
     for(const row of rows){
-      const url=`${getResolvedApiBaseUrl(this.options.serverUrl)}/sync/v2/blob/${encodeURIComponent(row.id)}?scopeKey=${encodeURIComponent(scope.scopeKey)}`;
+      if(this.stopped)return;
+      const path=`/blob/${encodeURIComponent(row.id)}?scopeKey=${encodeURIComponent(scope.scopeKey)}`;
       try{
         if(row.transferStatus==="pending_download"){
-          const response=await fetch(url,{headers:{Authorization:`Bearer ${this.options.token}`}});
+          const response=await this.fetchResponse(path);
           if(response.status===409)continue;if(!response.ok)throw new Error(`HTTP ${response.status}`);
           const blob=await response.blob();
           const stored=await this.options.attachments.save({attachmentId:row.id,data:blob,expectedSize:row.size||undefined,expectedHash:row.hash||undefined});
           await this.options.db.run("UPDATE attachments SET localPath=?,hash=?,size=?,available=1,transferStatus='ready',transferError=NULL,updatedAt=? WHERE scopeKey=? AND id=?",[stored.path,stored.sha256,stored.size,now(),scope.scopeKey,row.id]);
           this.options.onAttachmentReady?.(row.id);
         }else{
-          const exists=await fetch(url,{method:"HEAD",headers:{Authorization:`Bearer ${this.options.token}`}});
-          if(exists.ok){await this.options.db.run("UPDATE attachments SET transferStatus='uploaded',transferError=NULL,updatedAt=? WHERE scopeKey=? AND id=?",[now(),scope.scopeKey,row.id]);continue;}
+          const exists=await this.fetchResponse(path,{method:"HEAD"});
+          if(exists.ok){await this.options.db.run("UPDATE attachments SET transferStatus='uploaded',transferError=NULL,updatedAt=? WHERE scopeKey=? AND id=?",[now(),scope.scopeKey,row.id]);completed++;continue;}
           const blob=await this.options.attachments.read(row.id,row.mimeType);
-          const uploaded=await fetch(url,{method:"PUT",headers:{Authorization:`Bearer ${this.options.token}`,"Content-Type":row.mimeType},body:blob});
+          this.syncAbort?.signal.throwIfAborted();
+          const uploaded=await this.fetchResponse(path,{method:"PUT",headers:{"Content-Type":row.mimeType},body:blob});
           if(!uploaded.ok)throw new Error(`HTTP ${uploaded.status}`);
           await this.options.db.run("UPDATE attachments SET transferStatus='uploaded',transferError=NULL,updatedAt=? WHERE scopeKey=? AND id=?",[now(),scope.scopeKey,row.id]);
         }
-      }catch(error){await this.options.db.run("UPDATE attachments SET transferStatus='failed',transferError=?,updatedAt=? WHERE scopeKey=? AND id=?",[error instanceof Error?error.message:"SERVER_ERROR",now(),scope.scopeKey,row.id]);}
+        completed++;
+      }catch(error){
+        if(this.syncAbort?.signal.aborted)return;
+        await this.options.db.run("UPDATE attachments SET transferStatus='failed',transferError=?,updatedAt=? WHERE scopeKey=? AND id=?",[error instanceof Error?error.message:"SERVER_ERROR",now(),scope.scopeKey,row.id]);
+      }
     }
+    if(rows.length === 4 && completed > 0)this.rerun = true;
   }
 }
 

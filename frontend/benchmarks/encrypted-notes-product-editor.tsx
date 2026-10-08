@@ -2,8 +2,7 @@
 import { useRef, useState } from "react";
 import "./encrypted-notes-desktop";
 import { createRoot } from "react-dom/client";
-import i18n from "i18next";
-import { initReactI18next } from "react-i18next";
+import i18n from "../src/i18n";
 import MarkdownEditor from "../src/components/MarkdownEditorImpl";
 import TiptapEditor from "../src/components/TiptapEditor";
 import { api } from "../src/lib/api";
@@ -15,7 +14,7 @@ import * as Y from "yjs";
 import { Awareness } from "y-protocols/awareness";
 localStorage.setItem("nowen-server-url", "http://127.0.0.1:5177");
 localStorage.setItem("nowen-token", `test.${btoa(JSON.stringify({ userId: "fixture-owner" }))}.test`);
-void i18n.use(initReactI18next).init({ lng: "zh-CN", resources: { "zh-CN": { translation: {} } }, initImmediate: false });
+void i18n.changeLanguage("zh-CN");
 declare global { interface Window { productEditorDocument: () => string; productEditorNoteId: () => string } }
 function Fixture() {
   const [note, setNote] = useState<Note | null>(null);

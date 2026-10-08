@@ -39,6 +39,10 @@ on:
       - ".github/workflows/file-public-origin-ci.yml"
 
 # Targeted regressions plus full typechecks keep public-link changes from hiding unrelated branch breakage.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 permissions:
   contents: read
 

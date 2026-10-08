@@ -7,12 +7,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import HtmlPreviewPane from "@/components/HtmlPreviewPane";
 import type { Note } from "@/types";
 import type { NoteEditorHandle } from "@/components/editors/types";
+import { resetAttachmentAccessStateForTests } from "@/lib/noteAttachmentAccessBridge";
 
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({ t: (key: string) => key }),
 }));
+const signedRender = vi.hoisted(() => ({ query: "" }));
 vi.mock("@/lib/api", () => ({
-  resolveAttachmentUrl: (url: string) => url.startsWith("/api/attachments/") ? `http://127.0.0.1:3000${url}` : url,
+  getBaseUrl: () => "https://notes.example.com/api",
+  resolveAttachmentUrl: (url: string) => url.startsWith("/api/attachments/")
+    ? `http://127.0.0.1:3000${url}${signedRender.query && url.includes("123e4567-e89b-42d3-a456-426614174216") ? `?${signedRender.query}` : ""}`
+    : url,
 }));
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -37,6 +42,9 @@ describe("HtmlPreviewPane responsive clipped article (#789)", () => {
   let root: Root;
 
   beforeEach(() => {
+    resetAttachmentAccessStateForTests();
+    localStorage.clear();
+    signedRender.query = "";
     host = document.createElement("div");
     document.body.appendChild(host);
     root = createRoot(host);
@@ -46,6 +54,8 @@ describe("HtmlPreviewPane responsive clipped article (#789)", () => {
     await act(async () => root.unmount());
     host.remove();
     vi.clearAllMocks();
+    vi.unstubAllGlobals();
+    resetAttachmentAccessStateForTests();
   });
 
   it("keeps imported markup read-only while applying the fragment-only responsive wrapper", async () => {
@@ -67,6 +77,39 @@ describe("HtmlPreviewPane responsive clipped article (#789)", () => {
     expect(article?.querySelector("script")).toBeNull();
     expect(article?.querySelector("pre code")?.textContent).toContain("veryLongLine");
     expect(editorRef.current?.getSnapshot?.()?.content).toBe(fragment);
+    expect(onUpdate).not.toHaveBeenCalled();
+  });
+
+
+  it("defers an imported article's unsigned images, then shows them after note-scoped signing", async () => {
+    const id = "123e4567-e89b-42d3-a456-426614174216";
+    const html = `<article><p>微信正文</p><img src="/api/attachments/${id}" alt="wechat"></article>`;
+    localStorage.setItem("nowen-token", "jwt-token");
+    let finish!: (response: Response) => void;
+    const fetchMock = vi.fn((_url: RequestInfo | URL) => new Promise<Response>((resolve) => { finish = resolve; }));
+    vi.stubGlobal("fetch", fetchMock);
+    const onUpdate = vi.fn();
+    await act(async () => {
+      root.render(<HtmlPreviewPane note={mockNote(html)} onUpdate={onUpdate} />);
+    });
+
+    const before = host.querySelector<HTMLImageElement>('img[alt="wechat"]')!;
+    expect(before.hasAttribute("src")).toBe(false);
+    expect(before.dataset.nowenAttachmentPending).toBe("true");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(String(fetchMock.mock.calls[0][0])).toContain("noteId=note-1");
+
+    signedRender.query = "exp=2000000000&sig=ready&scope=v2.scope";
+    await act(async () => {
+      finish(new Response(JSON.stringify({
+        urls: { [id]: `/api/attachments/${id}?${signedRender.query}` },
+      }), { status: 200, headers: { "content-type": "application/json" } }));
+      await Promise.resolve();
+    });
+
+    const after = host.querySelector<HTMLImageElement>('img[alt="wechat"]')!;
+    expect(after.getAttribute("src")).toContain("sig=ready");
+    expect(after.dataset.nowenAttachmentPending).toBeUndefined();
     expect(onUpdate).not.toHaveBeenCalled();
   });
 

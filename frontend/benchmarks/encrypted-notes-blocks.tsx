@@ -13,6 +13,8 @@ import { convertNoteContent } from "../src/lib/noteFormatConversion";
 import { publishEditorEditable } from "../src/lib/editorEditableStore";
 import { api } from "../src/lib/api";
 import type { Note } from "../src/types";
+import i18n from "../src/i18n";
+void i18n.changeLanguage("zh-CN");
 localStorage.setItem("nowen-server-url", "http://127.0.0.1:5177");
 localStorage.setItem("nowen-token", `test.${btoa(JSON.stringify({ userId: "fixture-owner" }))}.test`);
 declare global { interface Window { blockFixtureDocument: () => string } }

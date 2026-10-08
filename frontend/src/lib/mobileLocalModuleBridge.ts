@@ -108,8 +108,8 @@ export function installMobileLocalModuleBridge(
     const sync = (await db.query<{ profileId: string; deviceId: string }>(`
       SELECT p.id AS profileId,d.deviceId FROM sync_profiles p
       JOIN sync_devices d ON d.profileId=p.id
-      WHERE p.enabled=1 AND p.authStatus='ready' ORDER BY d.createdAt LIMIT 1
-    `))[0];
+      WHERE p.remoteUserId=? ORDER BY p.enabled DESC,p.updatedAt DESC,d.createdAt LIMIT 1
+    `,[userId]))[0];
     if (!sync) return;
     const body = payload ? { ...payload, ...(baseVersion ? { baseUpdatedAt: baseVersion } : {}) } : undefined;
     await db.run(`INSERT INTO sync_outbox (
@@ -160,7 +160,7 @@ export function installMobileLocalModuleBridge(
     await db.run(`INSERT INTO tasks (
       id,scopeKey,workspaceId,userId,title,description,isCompleted,completedAt,priority,dueDate,dueAt,startDate,
       noteId,parentId,sortOrder,projectId,status,createdAt,updatedAt
-    ) VALUES (?,'personal',NULL,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, [
+    ) VALUES (?,'personal',NULL,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, [
       task.id,userId,task.title,task.description,task.isCompleted,task.completedAt,task.priority,task.dueDate,task.dueAt,
       task.startDate,task.noteId,task.parentId,task.sortOrder,task.projectId,task.status,task.createdAt,task.updatedAt,
     ]);

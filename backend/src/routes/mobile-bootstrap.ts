@@ -3,6 +3,14 @@ import { getDb } from "../db/schema";
 import { getUserWorkspaceRole } from "../middleware/acl";
 import { tagsRepository } from "../repositories";
 import { notebookRoleToPermission } from "../services/notebook-permissions";
+import {
+  canViewNoteThroughFolderPasswords,
+  resolveUnlockedFolderNodeIds,
+} from "../lib/knowledgeTreePasswordAccess.js";
+import {
+  hasKnowledgeCapability,
+  resolveResourceKnowledgeAccess,
+} from "../services/knowledgeCapabilities.js";
 
 const app = new Hono();
 
@@ -103,14 +111,14 @@ function readPreferences(userId: string): UserPreferences & { hasPreferences: bo
   }
 }
 
-function listNotes(userId: string, workspaceId: string | null): any[] {
+function listNotes(userId: string, workspaceId: string | null, unlockHeader?: string): any[] {
   const db = getDb();
   const scopeSql = workspaceId
     ? "notes.workspaceId = ?"
     : "notes.userId = ? AND notes.workspaceId IS NULL";
   const scopeParam = workspaceId || userId;
 
-  return db.prepare(`
+  const notes = db.prepare(`
     SELECT
       notes.id,
       notes.userId,
@@ -137,7 +145,17 @@ function listNotes(userId: string, workspaceId: string | null): any[] {
     LEFT JOIN users ON users.id = notes.userId
     WHERE ${scopeSql} AND notes.isTrashed = 0
     ORDER BY notes.isPinned DESC, notes.sortOrder ASC, notes.updatedAt DESC, notes.id ASC
-  `).all(userId, scopeParam) as any[];
+  `).all(userId, scopeParam) as Array<{ id: string; [key: string]: unknown }>;
+
+  // The normal /api/notes collection is guarded by knowledgeCapabilityGuard,
+  // but this compact startup route bypasses that middleware. Never return titles,
+  // contentText previews or note IDs from password-protected folders here.
+  // Validate unlock tokens on the server (including passwordVersion and ancestry).
+  const unlockedFolders = resolveUnlockedFolderNodeIds(db, userId, unlockHeader);
+  return notes.filter((note) =>
+    hasKnowledgeCapability(resolveResourceKnowledgeAccess("note", note.id, userId), "canView")
+    && canViewNoteThroughFolderPasswords(db, note.id, unlockedFolders),
+  );
 }
 
 function listNotebooks(userId: string, workspaceId: string | null): any[] {
@@ -249,7 +267,7 @@ app.get("/", (c) => {
   }
 
   const db = getDb();
-  const notes = listNotes(userId, workspaceId);
+  const notes = listNotes(userId, workspaceId, c.req.header("X-Folder-Unlock-Tokens"));
   const notebooks = listNotebooks(userId, workspaceId);
   const tags = tagsRepository.listByUser(userId, workspaceId, false);
   const sharedNoteIds = (db.prepare(

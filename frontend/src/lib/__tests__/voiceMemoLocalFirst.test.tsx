@@ -44,13 +44,22 @@ function createDatabase() {
       } else if (/INSERT INTO sync_outbox/.test(sql)) {
         outbox.push({ mutationId: values[1], entityType: values[5], entityId: values[6], operation: values[7], baseVersion: values[8], payload: values[9] });
       } else if (/DELETE FROM sync_outbox WHERE mutationId/.test(sql)) {
-        outbox.splice(outbox.findIndex((row) => row.mutationId === values[0]), 1);
+        const index = outbox.findIndex((row) => row.mutationId === values[0]);
+        if (index !== -1) outbox.splice(index, 1);
+      } else if (/INSERT INTO native_runtime_meta/.test(sql) || /DELETE FROM native_runtime_meta/.test(sql)) {
+        // Unsynced-note marker: the fake DB has no persistent native metadata table.
       } else throw new Error(`未覆盖的 SQL: ${sql}`);
       return { changes: 1 };
     },
     async query<T>(sql: string, values: unknown[] = []): Promise<T[]> {
       if (sql.includes("FROM sync_profiles p")) return [{ profileId: "profile", deviceId: "device" }] as T[];
       if (sql.includes("FROM sync_outbox")) return [...outbox] as T[];
+      // Sync V2 reads scoped notes directly, while the local editor fetches by ID.
+      // Both must resolve against the same in-memory rows.
+      if (sql.includes("FROM notes WHERE scopeKey=? AND id=?")) {
+        const row = notes.get(String(values[1]));
+        return (row?.scopeKey === values[0] ? [row] : []) as T[];
+      }
       if (sql.includes("FROM notes WHERE id")) return (notes.has(String(values[0])) ? [notes.get(String(values[0]))!] : []) as T[];
       if (sql.includes("FROM tags")) return [];
       throw new Error(`未覆盖的查询: ${sql}`);

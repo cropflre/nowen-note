@@ -40,6 +40,7 @@ import { getDb } from "../db/schema.js";
 import { verifySudoFromRequest } from "../lib/auth-security.js";
 import { sendMail, EMAIL_ATTACHMENT_LIMIT, readSmtpConfig } from "../services/email.js";
 import { logAudit } from "../services/audit.js";
+import { backupErrorResponse, classifyBackupFailure } from "../lib/backup-error-response.js";
 
 const backupsRouter = new Hono();
 const fullBackupJobs = new FullBackupJobStore((description) =>
@@ -203,12 +204,10 @@ backupsRouter.post("/", async (c) => {
 
     return c.json(info, 201);
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    const busy = err instanceof BackupBusyError;
-    return c.json(
-      { error: `备份失败: ${msg}`, code: busy ? err.code : undefined },
-      busy ? 409 : 500,
-    );
+    if (err instanceof BackupBusyError) {
+      return backupErrorResponse(c, { code: err.code, message: err.message, status: 409, retryable: false });
+    }
+    return backupErrorResponse(c, classifyBackupFailure(err, "create"));
   }
 });
 
@@ -240,7 +239,7 @@ backupsRouter.post("/full-jobs", async (c) => {
 // ===== GET /api/backups/full-jobs/:jobId =====
 backupsRouter.get("/full-jobs/:jobId", (c) => {
   const job = fullBackupJobs.get(c.req.param("jobId"));
-  if (!job) return c.json({ error: "完整备份任务不存在或已过期" }, 404);
+  if (!job) return backupErrorResponse(c, { code: "BACKUP_JOB_NOT_FOUND", message: "完整备份任务不存在或已过期", status: 404, retryable: false });
   return c.json(job);
 });
 
@@ -289,10 +288,7 @@ backupsRouter.post("/upload", async (c) => {
     const info = await manager.ingestUploadedBackup(file.name || "uploaded.bak", bytes, { description });
     return c.json(info, 201);
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    // 文件格式非法 → 400（客户端问题）；其他 → 500
-    const isFormatErr = /文件头|缺少|仅支持|格式|meta\.json|非法|损坏/.test(msg);
-    return c.json({ error: `导入失败: ${msg}` }, isFormatErr ? 400 : 500);
+    return backupErrorResponse(c, classifyBackupFailure(err, "import"));
   }
 });
 
@@ -302,7 +298,7 @@ backupsRouter.get("/:filename/download", (c) => {
   const manager = getBackupManager();
   const filePath = manager.getBackupPath(filename);
 
-  if (!filePath) return c.json({ error: "备份不存在" }, 404);
+  if (!filePath) return backupErrorResponse(c, { code: "BACKUP_NOT_FOUND", message: "备份不存在", status: 404, retryable: false });
 
   const stat = fs.statSync(filePath);
   const fileStream = fs.createReadStream(filePath);
@@ -334,9 +330,16 @@ backupsRouter.post("/:filename/restore", async (c) => {
     if (denied) return denied;
   }
 
-  const result = await manager.restoreFromBackup(filename, { dryRun });
+  // The manager may return error text with disk locations or SQL snippets.
+  // Restoration is not idempotent: never advertise an automatic retry.
+  let result;
+  try {
+    result = await manager.restoreFromBackup(filename, { dryRun });
+  } catch (error) {
+    return backupErrorResponse(c, classifyBackupFailure(error, "restore"));
+  }
   if (!result.success) {
-    return c.json({ error: result.error }, 400);
+    return backupErrorResponse(c, classifyBackupFailure(result.error, "restore"));
   }
 
   // SEC-AUDIT-01

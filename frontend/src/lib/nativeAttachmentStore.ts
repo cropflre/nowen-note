@@ -1,4 +1,5 @@
-import { Capacitor, registerPlugin } from "@capacitor/core";
+import { Capacitor } from "@capacitor/core";
+import { attachmentMediaPlugin as AttachmentMedia } from "./attachmentMediaPlugin";
 import { registerNativeAttachmentUrl } from "./noteAttachmentAccessBridge";
 import {
   Directory,
@@ -8,7 +9,7 @@ import {
 } from "@capacitor/filesystem";
 
 export type NativeAttachmentData = Blob | ArrayBuffer | Uint8Array;
-const AttachmentMedia = registerPlugin<{ preparePhoto(options: { attachmentId: string; uri: string }): Promise<{ uri: string }> }>("AttachmentMedia");
+
 
 export interface NativeAttachmentSaveInput {
   attachmentId: string;

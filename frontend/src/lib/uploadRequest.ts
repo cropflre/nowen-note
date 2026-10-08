@@ -16,6 +16,7 @@ export class UploadRequestError extends Error {
   readonly maxSizeBytes?: number;
   readonly actualSizeBytes?: number;
   readonly serverCode?: string;
+  readonly requestId?: string;
 
   constructor(
     message: string,
@@ -27,6 +28,7 @@ export class UploadRequestError extends Error {
       maxSizeBytes?: number;
       actualSizeBytes?: number;
       serverCode?: string;
+      requestId?: string;
     },
   ) {
     super(message);
@@ -37,6 +39,7 @@ export class UploadRequestError extends Error {
     this.maxSizeBytes = options.maxSizeBytes;
     this.actualSizeBytes = options.actualSizeBytes;
     this.serverCode = options.serverCode;
+    this.requestId = options.requestId;
     if (options.cause !== undefined) {
       (this as Error & { cause?: unknown }).cause = options.cause;
     }
@@ -211,16 +214,20 @@ export async function fetchJsonWithUploadDeadline<T>(
         ? payload as Record<string, unknown>
         : null;
       const serverCode = typeof record?.code === "string" ? record.code : undefined;
+      const requestId = response.headers.get("X-Request-Id")
+        || (typeof record?.requestId === "string" ? record.requestId : undefined);
+      const serverRetryable = typeof record?.retryable === "boolean" ? record.retryable : undefined;
       const attachmentTooLarge = response.status === 413 || serverCode === "ATTACHMENT_TOO_LARGE";
       throw new UploadRequestError(
         responseErrorMessage(payload, response.status, options.httpErrorMessage),
         {
           code: attachmentTooLarge ? "ATTACHMENT_TOO_LARGE" : "HTTP_ERROR",
           serverCode,
+          requestId: requestId || undefined,
           status: response.status,
           retryable: attachmentTooLarge
             ? false
-            : response.status === 408 || response.status === 429 || response.status >= 500,
+            : serverRetryable ?? (response.status === 408 || response.status === 429 || response.status >= 500),
           maxSizeBytes: finitePositive(record?.maxSizeBytes),
           actualSizeBytes: finitePositive(record?.actualSizeBytes) || (multipartFileSize || undefined),
         },
@@ -265,6 +272,8 @@ export function uploadErrorMetadata(error: unknown): {
   status?: number;
   maxSizeBytes?: number;
   actualSizeBytes?: number;
+  serverCode?: string;
+  requestId?: string;
 } {
   if (error instanceof UploadRequestError) {
     return {
@@ -274,6 +283,8 @@ export function uploadErrorMetadata(error: unknown): {
       status: error.status,
       maxSizeBytes: error.maxSizeBytes,
       actualSizeBytes: error.actualSizeBytes,
+      serverCode: error.serverCode,
+      requestId: error.requestId,
     };
   }
   return {

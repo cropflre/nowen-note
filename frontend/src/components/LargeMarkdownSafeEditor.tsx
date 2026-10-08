@@ -715,6 +715,7 @@ const LargeMarkdownSafeEditor = forwardRef<
           >
             <MarkdownPreview
               markdown={previewMarkdown}
+              noteId={isGuest ? undefined : note.id}
               containerRef={previewRootRef}
               className="h-full"
               onTaskCheckboxChange={editable ? handlePreviewTaskCheckboxChange : undefined}

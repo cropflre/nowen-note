@@ -712,6 +712,35 @@ server.tool(
   }
 );
 
+// Personal task tools
+server.tool("nowen_list_tasks", "List personal tasks", {
+  filter: z.enum(["all","today","week","overdue","completed"]).optional()
+}, async ({ filter }) => {
+  try {
+    const result = await api.listTasks(filter);
+    return { content: [{ type: "text" as const, text: JSON.stringify(result) }] };
+  } catch (error: any) {
+    return { content: [{ type: "text" as const, text: String(error.message) }], isError: true };
+  }
+});
+server.tool("nowen_get_task", "Read personal task", { taskId: z.string() }, async ({ taskId }) => {
+  try { return { content: [{ type: "text" as const, text: JSON.stringify(await api.getTask(taskId)) }] }; }
+  catch (error: any) { return { content: [{ type: "text" as const, text: String(error.message) }], isError: true }; }
+});
+server.tool("nowen_create_task", "Create personal task with user approval", {
+  title: z.string().min(1), dueDate: z.string().optional(), priority: z.number().int().min(1).max(3).optional()
+}, async ({ title, dueDate, priority }) => {
+  try { return { content: [{ type: "text" as const, text: JSON.stringify(await api.createTask({ title, dueDate, priority })) }] }; }
+  catch (error: any) { return { content: [{ type: "text" as const, text: String(error.message) }], isError: true }; }
+});
+server.tool("nowen_complete_task", "Complete personal task with user approval", { taskId: z.string() }, async ({ taskId }) => {
+  try { return { content: [{ type: "text" as const, text: JSON.stringify(await api.updateTask(taskId, { isCompleted: true })) }] }; }
+  catch (error: any) { return { content: [{ type: "text" as const, text: String(error.message) }], isError: true }; }
+});
+server.tool("nowen_get_task_summary", "Read personal task counts", {}, async () => {
+  try { return { content: [{ type: "text" as const, text: JSON.stringify(await api.taskSummary()) }] }; }
+  catch (error: any) { return { content: [{ type: "text" as const, text: String(error.message) }], isError: true }; }
+});
 // ==================== 自动化工具 ====================
 
 server.tool(

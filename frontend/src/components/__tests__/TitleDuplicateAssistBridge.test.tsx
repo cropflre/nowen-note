@@ -54,6 +54,7 @@ describe("TitleDuplicateAssistBridge", () => {
   let root: Root;
 
   beforeEach(() => {
+    mocks.activeNote.notebookId = "nb-1";
     mocks.notesRefreshToken = 0;
     mocks.getNotes.mockResolvedValue([{
       id: "other",
@@ -113,6 +114,21 @@ describe("TitleDuplicateAssistBridge", () => {
     expect(mocks.getNotes).toHaveBeenCalledWith({ notebookId: "nb-1", includeDescendants: "1" });
     expect(mirror.textContent).toBe(title);
     expect(Array.from(mirror.querySelectorAll("span.text-red-500")).map((span) => span.textContent)).toEqual(["CM-7023", "ABC_123456"]);
+  });
+
+  it("queries knowledge-tree root instead of an internal root-document notebook", async () => {
+    mocks.activeNote.notebookId = "__nowen_root_documents__:personal:40aab9af-40da-4e66-b312-1234a0b6000a";
+    mocks.getNotes.mockResolvedValueOnce([{
+      id: "root-sibling", title: "ABCDEFGH历史", notebookId: mocks.activeNote.notebookId, isTrashed: 0,
+    }]);
+    await act(async () => root.render(<Harness />));
+    await act(async () => Promise.resolve());
+
+    expect(mocks.getNotes).toHaveBeenCalledWith({ treeParentId: "root", includeDescendants: "0" });
+    expect(mocks.getNotes).not.toHaveBeenCalledWith(expect.objectContaining({ notebookId: mocks.activeNote.notebookId }));
+    const field = host.querySelector<HTMLTextAreaElement>("textarea")!;
+    await act(async () => field.focus());
+    expect(document.querySelector("[data-title-duplicate-mirror]")).not.toBeNull();
   });
 
   it("keeps refreshed descendant candidates when an older request resolves later", async () => {

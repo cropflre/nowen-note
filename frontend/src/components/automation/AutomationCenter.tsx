@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { ChevronDown, CircleStop, Clock3, GitBranch, Loader2, Play, Plus, RefreshCw, Trash2, Zap } from "lucide-react";
 import { automationApi, type AutomationRun, type AutomationStep, type AutomationWorkflow } from "@/lib/automationApi";
 import { pluginApi, type PluginAction } from "@/lib/pluginApi";
+import TaskDigestSettings from "./TaskDigestSettings";
 
 const eventOptions = ["note.created", "note.updated", "task.created", "task.completed", "attachment.created", "diary.created", "mindmap.created"];
 type ActionOption = PluginAction & { pluginId: string; actionId: string };
@@ -44,6 +45,7 @@ export default function AutomationCenter() {
     setCredentials(created.webhookCredentials || null); setEditing(false); setSteps([]); await refresh();
   };
   return <div className="space-y-5">
+    <TaskDigestSettings />
     <div className="relative overflow-hidden rounded-2xl border border-indigo-200 bg-gradient-to-br from-indigo-50 via-white to-cyan-50 p-5 dark:border-indigo-950 dark:from-indigo-950/30 dark:via-zinc-950 dark:to-cyan-950/20">
       <div className="absolute right-5 top-4 font-mono text-5xl font-black text-indigo-100 dark:text-indigo-950">EVENT → ACTION</div>
       <div className="relative flex items-start justify-between gap-4"><div><p className="text-[11px] font-bold uppercase tracking-[0.22em] text-indigo-600">Automation rail</p><h2 className="mt-1 text-xl font-bold">自动化中心</h2><p className="mt-1 max-w-xl text-sm text-zinc-500">事件进入一条可审计的执行轨道；每一步都记录、可重试、可停止，工作区权限始终按工作流所有者检查。</p></div><button onClick={() => setEditing(true)} className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-2 text-xs font-semibold text-white"><Plus size={14}/>新建流程</button></div>

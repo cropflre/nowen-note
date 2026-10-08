@@ -9,8 +9,16 @@ import {
 import type { NativeDatabase } from "./nativeDatabase";
 import type { NativeAttachmentStore } from "./nativeAttachmentStore";
 import { newLocalId } from "./localRepository";
+import { unsentLocalNoteKey } from "./nativeLocalNoteOrigin";
+import { isEncryptedNoteFormat, validateEncryptedNoteWrite } from "./encryptedNotes/noteDocument";
 
 type EntityType = "notebook" | "note" | "tag" | "note_tag" | "favorite" | "attachment";
+
+const NOTE_LIST_METADATA_COLUMNS = `n.id,n.userId,n.notebookId,n.workspaceId,n.title,n.contentFormat,n.colorMark,
+  n.isPinned,n.isFavorite,n.isLocked,n.isArchived,n.isTrashed,n.version,n.sortOrder,n.createdAt,n.updatedAt`;
+// Bound previews in SQLite, before the native bridge serializes its query result.
+// Bulk AI tags also consume the first 2000 characters from list items.
+const NOTE_LIST_COLUMNS = `${NOTE_LIST_METADATA_COLUMNS},substr(n.contentText,1,2000) AS contentText`;
 
 interface NativeRepositoryOptions {
   db: NativeDatabase;
@@ -147,7 +155,7 @@ export class NativeLocalRepository implements LocalRepository {
     if(!uniqueTagIds.length)return this.listNotesForWorkspace(workspaceId,{limit});
     const scopeKey=this.scopeFromWorkspace(workspaceId).scopeKey;
     const placeholders=uniqueTagIds.map(()=>"?").join(",");
-    return this.db.query<NoteListItem>(`SELECT n.* FROM notes n JOIN note_tags nt
+    return this.db.query<NoteListItem>(`SELECT ${NOTE_LIST_COLUMNS} FROM notes n JOIN note_tags nt
       ON nt.scopeKey=n.scopeKey AND nt.noteId=n.id
       WHERE n.scopeKey=? AND n.isTrashed=0 AND n.isArchived=0 AND nt.tagId IN (${placeholders})
       GROUP BY n.scopeKey,n.id HAVING COUNT(DISTINCT nt.tagId)=?
@@ -161,17 +169,26 @@ export class NativeLocalRepository implements LocalRepository {
     const scopeKey=this.scope().scopeKey;
     const needle=`%${query.trim()}%`;
     if(!query.trim())return [];
-    const rows=await this.db.query<NoteListItem>(`SELECT * FROM notes WHERE scopeKey=? AND isTrashed=0
-      AND (title LIKE ? OR contentText LIKE ?) ORDER BY updatedAt DESC LIMIT ?`,[scopeKey,needle,needle,Math.max(1,limit)]);
     const normalized=query.trim().toLocaleLowerCase();
+    const rows=await this.db.query<NoteListItem & {snippet:string;matchIndex:number}>(`
+      WITH matching_notes AS (
+        SELECT ${NOTE_LIST_METADATA_COLUMNS},n.contentText,
+          instr(lower(n.contentText),lower(?)) AS matchIndex
+        FROM notes n WHERE n.scopeKey=? AND n.isTrashed=0
+          AND (n.title LIKE ? OR n.contentText LIKE ?)
+        ORDER BY n.updatedAt DESC LIMIT ?
+      )
+      SELECT ${NOTE_LIST_METADATA_COLUMNS},n.matchIndex,
+        CASE WHEN n.matchIndex=0 THEN substr(n.contentText,1,160)
+          ELSE substr(n.contentText,MAX(1,n.matchIndex-60),MIN(2000,MIN(60,n.matchIndex-1)+?+100))
+        END AS snippet
+      FROM matching_notes n ORDER BY n.updatedAt DESC
+    `,[query.trim(),scopeKey,needle,needle,Math.max(1,limit),normalized.length]);
     return rows.map((row)=>{
       const titleMatch=row.title.toLocaleLowerCase().includes(normalized);
-      const content=row.contentText||"";
-      const index=content.toLocaleLowerCase().indexOf(normalized);
-      const snippet=index<0?content.slice(0,160):content.slice(Math.max(0,index-60),index+normalized.length+100);
-      return {id:row.id,title:row.title,notebookId:row.notebookId,updatedAt:row.updatedAt,
-        isFavorite:row.isFavorite,isPinned:row.isPinned,snippet,userId:row.userId,
-        workspaceId:row.workspaceId,matchedField:titleMatch?(index>=0?"title+content":"title"):"content"};
+      return {id:row.id,title:row.title,notebookId:row.notebookId,updatedAt:row.updatedAt,snippet:row.snippet,
+        isFavorite:row.isFavorite,isPinned:row.isPinned,userId:row.userId,
+        workspaceId:row.workspaceId,matchedField:titleMatch?(row.matchIndex>0?"title+content":"title"):"content"};
     });
   }
 
@@ -207,6 +224,7 @@ export class NativeLocalRepository implements LocalRepository {
     await this.db.transaction(async(tx)=>{
       for(const note of notes){
         await tx.run("DELETE FROM notes WHERE scopeKey=? AND id=?",[scopeKey,note.id]);
+        await tx.run("DELETE FROM native_runtime_meta WHERE key=?", [unsentLocalNoteKey(scopeKey, note.id)]);
         await this.enqueue(tx,"note",note.id,"delete",undefined,note.version,scopeKey);
       }
     });
@@ -238,9 +256,9 @@ export class NativeLocalRepository implements LocalRepository {
     const rows = await tx.query<SyncContext>(`
       SELECT p.id AS profileId, d.deviceId
       FROM sync_profiles p JOIN sync_devices d ON d.profileId = p.id
-      WHERE p.enabled = 1 AND p.authStatus = 'ready'
-      ORDER BY d.createdAt LIMIT 1
-    `);
+      WHERE p.remoteUserId = ?
+      ORDER BY p.enabled DESC, p.updatedAt DESC, d.createdAt LIMIT 1
+    `, [this.userId]);
     return rows[0] || null;
   }
 
@@ -353,7 +371,7 @@ export class NativeLocalRepository implements LocalRepository {
     if (!query.includeArchived) where.push("n.isArchived = 0");
     values.push(Math.max(1, query.limit ?? 500), Math.max(0, query.offset ?? 0));
     return await this.db.query<NoteListItem>(`
-      SELECT n.* FROM notes n WHERE ${where.join(" AND ")}
+      SELECT ${NOTE_LIST_COLUMNS} FROM notes n WHERE ${where.join(" AND ")}
       ORDER BY n.isPinned DESC, n.updatedAt DESC LIMIT ? OFFSET ?
     `, values);
   }
@@ -373,6 +391,7 @@ export class NativeLocalRepository implements LocalRepository {
   }
 
   private async createNote(input: Partial<Note> & { id: string }): Promise<WriteResult> {
+    validateEncryptedNoteWrite(input as Record<string, unknown>);
     const scope = input.workspaceId !== undefined
       ? this.scopeFromWorkspace(input.workspaceId)
       : this.scope();
@@ -393,6 +412,8 @@ export class NativeLocalRepository implements LocalRepository {
         id,scopeKey,workspaceId,userId,notebookId,title,content,contentText,contentFormat,colorMark,
         isPinned,isFavorite,isLocked,isArchived,isTrashed,trashedAt,version,sortOrder,createdAt,updatedAt
       ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, Object.values(row));
+      await tx.run(`INSERT INTO native_runtime_meta (key,value,updatedAt) VALUES (?,'1',?)
+        ON CONFLICT(key) DO UPDATE SET value=excluded.value,updatedAt=excluded.updatedAt`, [unsentLocalNoteKey(scope.scopeKey, input.id), savedAt]);
       await this.enqueue(tx, "note", input.id, "upsert", row);
     });
     return { id: input.id, savedAt };
@@ -401,18 +422,23 @@ export class NativeLocalRepository implements LocalRepository {
   private async updateNote(id: string, patch: Partial<Note>): Promise<WriteResult> {
     const current = await this.getNote(id);
     if (!current) throw new Error("笔记不存在");
+    validateEncryptedNoteWrite(patch as Record<string, unknown>, current as unknown as Record<string, unknown>);
+    if (isEncryptedNoteFormat(current.contentFormat) && patch.version !== undefined && patch.version !== current.version) throw Object.assign(new Error("笔记版本已改变"), { status: 409, code: "VERSION_CONFLICT" });
+    const encrypted = isEncryptedNoteFormat(current.contentFormat);
+    if (encrypted && patch.content !== undefined && !Number.isSafeInteger(patch.version)) throw Object.assign(new Error("加密正文保存需要明确版本"), { status: 409, code: "VERSION_CONFLICT" });
     const next = { ...current, ...patch, id, updatedAt: now(), version: current.version + 1 };
     const scope = this.scopeFromWorkspace(current.workspaceId);
     await this.assertWritable(scope.scopeKey);
     await this.db.transaction(async (tx) => {
-      await tx.run(`UPDATE notes SET notebookId=?,title=?,content=?,contentText=?,contentFormat=?,colorMark=?,
+      const changed = await tx.run(`UPDATE notes SET notebookId=?,title=?,content=?,contentText=?,contentFormat=?,colorMark=?,
         isPinned=?,isFavorite=?,isLocked=?,isArchived=?,isTrashed=?,trashedAt=?,version=?,sortOrder=?,updatedAt=?
-        WHERE scopeKey=? AND id=?`, [
+        WHERE scopeKey=? AND id=?${encrypted ? " AND version=?" : ""}`, [
         next.notebookId, next.title, next.content, next.contentText, next.contentFormat || "tiptap-json", next.colorMark ?? null,
         bool(next.isPinned), bool(next.isFavorite), bool(next.isLocked), bool(next.isArchived),
         bool(next.isTrashed), next.trashedAt, next.version, next.sortOrder || 0, next.updatedAt,
-        scope.scopeKey, id,
+        scope.scopeKey, id, ...(encrypted ? [current.version] : []),
       ]);
+      if (encrypted && changed.changes !== 1) throw Object.assign(new Error("笔记版本已改变"), { status: 409, code: "VERSION_CONFLICT" });
       await this.enqueue(tx, "note", id, "upsert", next as unknown as Record<string, unknown>, current.version);
     });
     return { id, savedAt: next.updatedAt };
@@ -425,6 +451,7 @@ export class NativeLocalRepository implements LocalRepository {
     await this.assertWritable(scope.scopeKey);
     await this.db.transaction(async (tx) => {
       await tx.run("DELETE FROM notes WHERE scopeKey=? AND id=?", [scope.scopeKey, id]);
+      await tx.run("DELETE FROM native_runtime_meta WHERE key=?", [unsentLocalNoteKey(scope.scopeKey, id)]);
       await this.enqueue(tx, "note", id, "delete", undefined, current?.version ?? null);
     });
   }

@@ -564,6 +564,9 @@ function AppLayout() {
 
   useEffect(() => {
     const off = realtime.on("open", () => {
+      // Android 已登录客户端的 Native SQLite + Sync V2 是唯一同步写入链路。
+      // WebSocket 重连不得再触发旧版 IndexedDB 全量补拉，避免双引擎争用与重复加载。
+      if (isAndroidNativeRuntime()) return;
       void syncNow().catch((e) => console.warn("[App] sync after realtime open failed:", e));
     });
     return off;
@@ -1360,7 +1363,7 @@ function AuthGate() {
 
   // 桌面端 / 移动端把每次已确认的登录态写入安全历史。仅保存 token，绝不保存密码。
   useEffect(() => {
-    if (!user?.id || !isAccountLoginHistorySupported()) return;
+    if (!user?.id || isMobileLocalMode() || !isAccountLoginHistorySupported()) return;
     const token = getAccessToken() || "";
     const refreshToken = getRefreshToken() || undefined;
     const serverUrl = getServerUrl()

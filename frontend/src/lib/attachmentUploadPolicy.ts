@@ -105,6 +105,9 @@ export function loadAttachmentUploadPolicy(force = false): Promise<AttachmentUpl
 }
 
 export function warmAttachmentUploadPolicy(): void {
-  if (typeof window === "undefined") return;
+  if (typeof window === "undefined" || !getAccessToken()) return;
+  // main.ts warms this before AuthGate resolves the session. Avoid sending an
+  // unauthenticated request just to discover a policy that can be loaded on
+  // demand when the first authorized upload starts.
   void loadAttachmentUploadPolicy().catch(() => undefined);
 }

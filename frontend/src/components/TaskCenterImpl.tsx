@@ -44,6 +44,7 @@ import { taskMatchesSearch } from "./tasks/taskSearch";
 import { parseTaskQuickAdd, type TaskQuickAddParseResult } from "./tasks/taskSmartRecognition";
 import { resolveTaskQuickAddDraft, type TaskQuickAddManualMeta } from "./tasks/taskQuickAddDraft";
 import { loadTaskViewMode, saveTaskViewMode, type TaskViewMode } from "./tasks/taskViewMode";
+import { loadTaskDueSort, saveTaskDueSort } from "./tasks/taskDueSortPreference";
 import { HabitStatsOverview } from "./tasks/HabitStatsOverview";
 import { HabitRow } from "./tasks/HabitRow";
 import { StatsCenter } from "./tasks/StatsCenter";
@@ -213,7 +214,9 @@ export default function TaskCenter() {
   const [showReminderCenter, setShowReminderCenter] = useState(false);
   const [taskFullscreen, setTaskFullscreen] = useState(false);
   const [reminderBadgeCount, setReminderBadgeCount] = useState(0);
-  const [sortByDueTime, setSortByDueTime] = useState(false);
+  const [sortByDueTime, setSortByDueTime] = useState(loadTaskDueSort);
+  useEffect(() => { saveTaskDueSort(sortByDueTime); }, [sortByDueTime]);
+  const toggleDueSort = () => setSortByDueTime((previous) => !previous);
 
   // Phase 4: batch select mode
   const [selectMode, setSelectMode] = useState(false);
@@ -228,7 +231,7 @@ export default function TaskCenter() {
     const children = tasks.filter((task) => task.parentId);
     return [
       ...orderTasksCompletedLast(roots, sortByDueTime ? compareTasksByDueTime : undefined),
-      ...orderTasksCompletedLast(children),
+      ...orderTasksCompletedLast(children, sortByDueTime ? compareTasksByDueTime : undefined),
     ];
   }, [tasks, sortByDueTime]);
 
@@ -1160,14 +1163,17 @@ export default function TaskCenter() {
                     </select>
                   </label>
                   <button
-                    onClick={() => setSortByDueTime((v) => !v)}
+                    type="button"
+                    onClick={toggleDueSort}
+                    aria-pressed={sortByDueTime}
                     className={cn(
-                      "rounded-md p-1.5 transition-colors",
+                      "inline-flex items-center gap-1.5 rounded-md px-2 py-1.5 text-xs transition-colors",
                       sortByDueTime ? "bg-accent-primary/10 text-accent-primary" : "text-tx-tertiary hover:bg-app-hover hover:text-tx-secondary",
                     )}
-                    title={t("tasks.sortByDueTime")}
+                    title={sortByDueTime ? t("tasks.backToManualOrder") : t("tasks.sortByDueTime")}
                   >
                     <CalendarDays size={14} />
+                    <span>{sortByDueTime ? t("tasks.dueSoonFirst") : t("tasks.sortByDueTime")}</span>
                   </button>
                   <button
                     onClick={() => setSelectMode(true)}
@@ -1270,7 +1276,23 @@ export default function TaskCenter() {
               defaults={getDefaultTaskPatchForFilter(filter)}
               inputRef={inputRef}
             />
-            <div className="mt-2 flex justify-end">
+            <div className="mt-2 flex items-center justify-between gap-2 md:justify-end">
+              {/* In compact layouts the desktop sorting control is not visible. */}
+              <button
+                type="button"
+                onClick={toggleDueSort}
+                aria-pressed={sortByDueTime}
+                className={cn(
+                  "inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs transition-colors md:hidden",
+                  sortByDueTime
+                    ? "bg-accent-primary/10 font-medium text-accent-primary"
+                    : "text-tx-secondary hover:bg-app-hover",
+                )}
+                title={sortByDueTime ? t("tasks.backToManualOrder") : t("tasks.sortByDueTime")}
+              >
+                <CalendarDays size={13} />
+                <span>{sortByDueTime ? t("tasks.dueSoonFirst") : t("tasks.sortByDueTime")}</span>
+              </button>
               <details className="group relative">
                 <summary className="flex cursor-pointer list-none items-center gap-1 rounded-md px-2 py-1 text-xs text-tx-tertiary transition-colors hover:bg-app-hover hover:text-tx-secondary">
                   <MoreHorizontal size={13} />

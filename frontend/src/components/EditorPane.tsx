@@ -19,6 +19,7 @@ import { confirmMediaNotePersistence } from "@/lib/mediaInsertionCommit";
 import { parseMermaidMindmap, normalizeMindMapData } from "@/lib/mindmapTransform";
 import { cn } from "@/lib/utils";
 import SyncStatusBadge from "@/components/SyncStatusBadge";
+import { isAndroidNativeRuntime } from "@/lib/mobileLocalMode";
 import {
   applyEditorUpdateToNote,
   PREPARE_EDITOR_SPLIT_CLOSE_EVENT,
@@ -294,7 +295,16 @@ function OrdinaryEditorPane({
   // 纯 HTML 预览模式：当
   // 笔记内容被保存为 HTML 格式（如 clipper 导入）时自动进入只读预览，
   // 用户需要手动切换到 Tiptap 编辑器（会有格式丢失风险）。
-  const [htmlPreviewMode, setHtmlPreviewMode] = useState(false);
+  // Import HTML must be routed to the preview *during the first render*.
+  // Waiting for a useEffect causes one Tiptap mount (and unauthorized <img> requests)
+  // before the preview takes over.
+  const [htmlPreviewMode, setHtmlPreviewMode] = useState(
+    () => !!activeNote && detectFormat(activeNote.content) === "html",
+  );
+  const previewInitializedNoteIdRef = useRef(activeNote?.id);
+  const isPendingHtmlNoteSwitch = previewInitializedNoteIdRef.current !== activeNote?.id
+    && !!activeNote && detectFormat(activeNote.content) === "html";
+  const shouldRenderHtmlPreview = htmlPreviewMode || isPendingHtmlNoteSwitch;
   const [showHtmlEditWarning, setShowHtmlEditWarning] = useState(false);
   // 记住当前笔记的原始格式是否为 HTML。
   // 切换到编辑模式后，内容会被 normalize 为 Markdown，此时 detectFormat 返回 "md"。
@@ -735,7 +745,7 @@ function OrdinaryEditorPane({
     const initialNote = activeNoteRef.current;
     if (!initialNote || initialNote.id !== noteId || modeSwitchInflightRef.current) return;
     if (initialNote.isLocked || viewLockedIdsRef.current.has(noteId)) {
-      toast.warning("请先解锁笔记再转换格式");
+      toast.warning(t("editorOps.convertLocked"));
       return;
     }
 
@@ -801,7 +811,7 @@ function OrdinaryEditorPane({
       window.dispatchEvent(new CustomEvent("nowen:knowledge-tree-changed", {
         detail: { reason: "note-format-converted", noteId },
       }));
-      toast.success(targetFormat === "markdown" ? "已转换为 Markdown" : "已转换为富文本");
+      toast.success(targetFormat === "markdown" ? t("editorOps.convertedMarkdown") : t("editorOps.convertedRichText"));
     } catch (error) {
       console.error("[EditorPane] convert note format failed:", error);
       const current = activeNoteRef.current;
@@ -826,12 +836,12 @@ function OrdinaryEditorPane({
         } catch { /* ignore */ }
       }
       actions.setSyncStatus("error");
-      toast.error("格式转换失败，当前内容已保留");
+      toast.error(t("editorOps.convertFailed"));
     } finally {
       modeSwitchInflightRef.current = false;
       setModeSwitching(false);
     }
-  }, [actions]);
+  }, [actions, t]);
 
   useEffect(() => {
     const handleRequest = (event: Event) => {
@@ -1342,6 +1352,7 @@ function OrdinaryEditorPane({
    * ����������־û��������������Զ��ϲ���
    */
   const collabReady = !!(activeNote && !activeNote.isLocked && selfUser && editorMode === "md"
+    && !isAndroidNativeRuntime()
     && !/nowen-encrypted/i.test(activeNote.content || ""));
   const { doc: collabYDoc, provider: collabProvider, synced: collabSynced } = useYDoc({
     noteId: collabReady ? (activeNote?.id ?? null) : null,
@@ -1397,6 +1408,7 @@ function OrdinaryEditorPane({
   // ����ʼ����ݸ�ʽΪ "html"���Զ����� HTML Ԥ����������˵�����༭����
   useEffect(() => {
     if (!activeNote) return;
+    previewInitializedNoteIdRef.current = activeNote.id;
     const fmt = detectFormat(activeNote.content);
     const isHtml = fmt === "html";
     const isFullDoc = isHtml && isFullHtmlDocument(activeNote.content);
@@ -1510,7 +1522,7 @@ function OrdinaryEditorPane({
           && !viewLockedIdsRef.current.has(activeNote.id)) {
         // ��齹���Ƿ��ڱ༭���ڲ�������ڱ༭���ڣ�Delete ��Ӧ������ɾ�����֣�
         const activeEl = document.activeElement;
-        const isInEditor = activeEl?.closest(".ProseMirror") || activeEl?.tagName === "INPUT" || activeEl?.tagName === "TEXTAREA";
+        const isInEditor = activeEl?.closest(".ProseMirror, .cm-editor") || activeEl?.tagName === "INPUT" || activeEl?.tagName === "TEXTAREA";
         if (!isInEditor) {
           e.preventDefault();
           setShowDeleteConfirm(true);
@@ -2274,7 +2286,7 @@ const moveToTrash = useCallback(async () => {
       setAiSummaryResult(result.trim());
     } catch (e: any) {
       console.error("AI summary error:", e);
-      toast.error(e?.message || "AI 总结失败");
+      toast.error(e?.message || t("editorOps.summaryFailed"));
       setShowSummaryDialog(false);
     } finally {
       setAiSummaryLoading(false);
@@ -2287,7 +2299,7 @@ const moveToTrash = useCallback(async () => {
       await navigator.clipboard.writeText(aiSummaryResult);
       toast.success(t("editor.aiSummaryCopied") || "已复制");
     } catch {
-      toast.error("复制失败");
+      toast.error(t("common.copyFailed"));
     }
   }, [aiSummaryResult, t]);
 
@@ -2301,7 +2313,7 @@ const moveToTrash = useCallback(async () => {
         await navigator.clipboard.writeText(aiSummaryResult);
       toast.success(t("editor.aiSummaryCopied") || "已复制到剪贴板，请手动粘贴");
       } catch {
-      toast.error("追加失败，请手动插入");
+      toast.error(t("editorOps.appendFailed"));
       }
       return;
     }
@@ -2363,7 +2375,7 @@ const moveToTrash = useCallback(async () => {
       setAiMermaidResult(result);
     } catch (e: any) {
       console.error("AI mermaid error:", e);
-      toast.error(e?.message || "AI 生成失败");
+      toast.error(e?.message || t("editorOps.generateFailed"));
       setShowMermaidDialog(false);
     } finally {
       setAiMermaidLoading(false);
@@ -2378,11 +2390,11 @@ const moveToTrash = useCallback(async () => {
       try {
         navigator.clipboard.writeText("```mermaid\n" + aiMermaidResult + "\n```");
       toast.success(t("editor.aiSummaryCopied") || "已复制到剪贴板，请手动粘贴");
-    } catch { toast.error("复制失败"); }
+    } catch { toast.error(t("common.copyFailed")); }
       return;
     }
     try { editorHandleRef.current?.flushSave(); } catch {}
-      toast.success("已插入笔记");
+      toast.success(t("editorOps.inserted"));
     setShowMermaidDialog(false);
   }, [activeNote, aiMermaidResult, t]);
   /** 将 Mermaid mindmap 源码解析为 MindMapData */
@@ -2400,14 +2412,14 @@ const moveToTrash = useCallback(async () => {
     if (!aiMermaidResult) return;
     const data = parseMermaidToMindMap(aiMermaidResult);
     if (!data) {
-      toast.error("无法将当前 Mermaid 转换为思维导图");
+      toast.error(t("editorOps.mindmapConversionFailed"));
       return;
     }
     setMermaidSavingMindMap(true);
     try {
-      const title = data.root.text.slice(0, 50) || "AI 生成思维导图";
+      const title = data.root.text.slice(0, 50) || t("editorOps.mindmapDefaultTitle");
       const created = await api.createMindMap({ title, data: JSON.stringify(data) });
-      toast.success("已保存为思维导图");
+      toast.success(t("editorOps.mindmapSaved"));
       setShowMermaidDialog(false);
       // 通知 MindMapEditor 打开新图
       // 切换到思维导图视图
@@ -2416,7 +2428,7 @@ const moveToTrash = useCallback(async () => {
       actions.setViewMode("mindmaps");
     } catch (e: any) {
       console.error("Save mindmap error:", e);
-      toast.error(e?.message || "保存失败");
+      toast.error(e?.message || t("editorOps.saveFailed"));
     } finally {
       setMermaidSavingMindMap(false);
     }
@@ -2436,9 +2448,9 @@ const moveToTrash = useCallback(async () => {
     } catch (e: any) {
       const msg = String(e?.message || "");
       if (/CROSS_WORKSPACE_MOVE_FORBIDDEN/.test(msg)) {
-      toast.error("无法在不同工作空间的笔记本之间移动");
+      toast.error(t("editorOps.crossSpaceMove"));
       } else {
-      toast.error(msg || "移动失败");
+      toast.error(msg || t("editorOps.moveFailed"));
       }
       setShowMoveDropdown(false);
     }
@@ -2590,21 +2602,24 @@ const moveToTrash = useCallback(async () => {
       </MobileEditorToolbarPortal>
       <MobileEditorToolbarPortal location="trailing">
         {compactMobileEditing ? (
-          <Button
-            data-mobile-note-menu-trigger
-            variant="ghost"
-            size="icon"
-            className="h-8 w-8 shrink-0"
-            onClick={() => {
-              const nextOpen = !showMobileMenu;
-              if (nextOpen) window.dispatchEvent(new CustomEvent('nowen:close-search'));
-              setShowMobileMenu(nextOpen);
-              setShowMobileMoveMenu(false);
-            }}
-            aria-label={t('common.more')}
-          >
-            <MoreHorizontal size={17} />
-          </Button>
+          <div className="flex items-center gap-1">
+            <SyncStatusBadge saving={syncStatus === "saving" || syncStatus === "error"} />
+            <Button
+              data-mobile-note-menu-trigger
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 shrink-0"
+              onClick={() => {
+                const nextOpen = !showMobileMenu;
+                if (nextOpen) window.dispatchEvent(new CustomEvent('nowen:close-search'));
+                setShowMobileMenu(nextOpen);
+                setShowMobileMoveMenu(false);
+              }}
+              aria-label={t('common.more')}
+            >
+              <MoreHorizontal size={17} />
+            </Button>
+          </div>
         ) : null}
       </MobileEditorToolbarPortal>
     <motion.div
@@ -2697,8 +2712,8 @@ const moveToTrash = useCallback(async () => {
           {/* 多设备同步状态：与上面的"保存状态"分开显示。
               本地写入成功就是"已保存"，同步失败只叫"等待同步"，
               绝不能让一次网络抖动显示成"保存失败"。
-              一切正常或未开启同步时该组件不渲染，不占空间。 */}
-          <SyncStatusBadge />
+              Android 保留轻量文字，未开启同步时不渲染。 */}
+          {!compactMobileEditing && <SyncStatusBadge saving={syncStatus === "saving" || syncStatus === "error"} />}
           <span className="flex shrink-0 items-center gap-0.5" aria-hidden="true">
             {activeNote.isLocked || isViewLocked ? <Lock size={12} className={activeNote.isLocked ? "text-orange-500" : "text-tx-tertiary"} /> : null}
             {activeNote.isPinned ? <Pin size={12} className="text-accent-primary fill-accent-primary" /> : null}
@@ -3612,7 +3627,7 @@ const moveToTrash = useCallback(async () => {
               yDoc={collabYDoc}
               awareness={collabProvider?.awareness ?? null}
             />
-          ) : htmlPreviewMode ? (
+          ) : shouldRenderHtmlPreview ? (
             <HtmlPreviewPane
               key={`html-${activeNote.id}`}
               ref={editorHandleRef}
@@ -4222,6 +4237,7 @@ function SyncIndicator({
   onManualSync: () => void;
 }) {
   const { t } = useTranslation();
+  const android = isAndroidNativeRuntime();
   // 失败、排队和离线状态继续保留在同步状态机中，但不再主动展示为失败提示。
   // 手动同步入口仍保持可见，真正冲突继续走独立的冲突处理流程。
   const displayStatus: SyncStatus =
@@ -4295,7 +4311,7 @@ function SyncIndicator({
       </AnimatePresence>
 
       <span className={cn(
-        "hidden whitespace-nowrap sm:inline transition-colors",
+        android ? "whitespace-nowrap transition-colors" : "hidden whitespace-nowrap sm:inline transition-colors",
         displayStatus === "saving" && "text-accent-primary",
         displayStatus === "saved" && "text-green-500",
         displayStatus === "idle" && "text-tx-tertiary group-hover:text-tx-secondary",
@@ -4303,8 +4319,8 @@ function SyncIndicator({
         {displayStatus === "saving" && t('editor.savingStatus')}
         {displayStatus === "saved" && (
           <>
-            {t('editor.savedStatus')}
-            {lastSyncedAt && (
+            {android ? "已保存到本机" : t('editor.savedStatus')}
+            {!android && lastSyncedAt && (
               <span className="ml-1 opacity-70">
                 · {new Date(lastSyncedAt).toLocaleTimeString()}
               </span>

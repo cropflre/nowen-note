@@ -1,11 +1,16 @@
-import { useEffect, useState, useSyncExternalStore } from "react";
-import { Capacitor, registerPlugin } from "@capacitor/core";
+import { useContext, useEffect, useState, useSyncExternalStore } from "react";
+import { Capacitor } from "@capacitor/core";
+import { attachmentMediaPlugin as AttachmentMedia } from "@/lib/attachmentMediaPlugin";
 
-import { resolveAttachmentUrl } from "@/lib/api";
+import { getBaseUrl, resolveAttachmentUrl } from "@/lib/api";
+import { AttachmentNoteContext } from "@/hooks/useAttachmentImageRenderSource";
+import { primeNoteAttachmentAccess } from "@/lib/noteAttachmentAccessPriming";
+import { getAccessToken } from "@/lib/authSession";
 import {
   acquireAttachmentRenderUrl,
   getAttachmentAccessSnapshot,
   getAttachmentRenderSource,
+  requiresVerifiedAttachmentAccess,
   subscribeAttachmentAccess,
 } from "@/lib/noteAttachmentAccessBridge";
 
@@ -22,11 +27,7 @@ type AndroidAttachmentPreparation = {
   url: string;
 };
 
-interface AttachmentMediaPlugin {
-  prepare(options: AndroidAttachmentPreparation): Promise<{ uri: string; size: number }>;
-}
 
-const AttachmentMedia = registerPlugin<AttachmentMediaPlugin>("AttachmentMedia");
 
 export function getAndroidAttachmentVideoPreparation(
   resolvedSrc: string,
@@ -83,6 +84,7 @@ export function useAttachmentVideoRenderSource(
   options: { enabled?: boolean } = {},
 ): AttachmentVideoRenderSource {
   const enabled = options.enabled !== false;
+  const noteId = useContext(AttachmentNoteContext);
   useSyncExternalStore(
     subscribeAttachmentAccess,
     getAttachmentAccessSnapshot,
@@ -93,7 +95,28 @@ export function useAttachmentVideoRenderSource(
   const resolvedSrc = rawSrc && enabled
     ? resolveAttachmentUrl(rawSrc)
     : "";
-  const preparation = getAndroidAttachmentVideoPreparation(resolvedSrc);
+  const unsignedAttachment = enabled && requiresVerifiedAttachmentAccess(resolvedSrc);
+  const [accessError, setAccessError] = useState<Error | null>(null);
+  useEffect(() => {
+    setAccessError(null);
+    if (!unsignedAttachment) return;
+    if (!noteId || !getAccessToken()) {
+      setAccessError(new Error("未获取到附件授权，请重新打开笔记"));
+      return;
+    }
+    let cancelled = false;
+    void primeNoteAttachmentAccess(noteId, getBaseUrl(), { timeoutMs: 2_500 })
+      .then(() => {
+        if (!cancelled && requiresVerifiedAttachmentAccess(resolveAttachmentUrl(rawSrc))) {
+          setAccessError(new Error("无法获取附件签名地址"));
+        }
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) setAccessError(error instanceof Error ? error : new Error("附件授权失败"));
+      });
+    return () => { cancelled = true; };
+  }, [noteId, rawSrc, unsignedAttachment]);
+  const preparation = unsignedAttachment ? null : getAndroidAttachmentVideoPreparation(resolvedSrc);
   const preparationKey = preparation
     ? `${preparation.attachmentId}\n${preparation.url}`
     : "";
@@ -127,9 +150,11 @@ export function useAttachmentVideoRenderSource(
     };
   }, [enabled, preparationAttachmentId, preparationKey, preparationUrl]);
 
-  const renderSrc = preparation
-    ? (prepared.key === preparationKey ? prepared.src : "")
-    : toAndroidAttachmentVideoUrl(resolvedSrc);
+  const renderSrc = unsignedAttachment
+    ? ""
+    : preparation
+      ? (prepared.key === preparationKey ? prepared.src : "")
+      : toAndroidAttachmentVideoUrl(resolvedSrc);
 
   useEffect(() => (
     enabled && renderSrc
@@ -142,6 +167,6 @@ export function useAttachmentVideoRenderSource(
     persistentSrc: source.persistentSrc,
     renderSrc,
     renderKey: renderSrc || source.persistentSrc || "video-empty",
-    error: preparation && prepared.key === preparationKey ? prepared.error : null,
+    error: accessError || (preparation && prepared.key === preparationKey ? prepared.error : null),
   };
 }

@@ -4,6 +4,7 @@ import { getDeviceId } from "@/lib/deviceId";
 import { loadRememberedCredentials } from "@/lib/rememberLogin";
 import type { User } from "@/types";
 import { clearAuthTokens, refreshAccessToken, storeAuthTokens } from "@/lib/authSession";
+import { completeMobileAccountLogin, isAndroidNativeRuntime, requestMobileAccountLogin } from "@/lib/mobileLocalMode";
 import {
   type AccountLoginHistoryItem,
   CURRENT_ACCOUNT_HISTORY_ID_KEY,
@@ -41,6 +42,7 @@ async function prepareReauth(account: AccountLoginHistoryItem, message?: string)
   await markAccountLoginRequiresReauth(account.id);
   setPendingAccountReauth({ id: account.id, serverUrl: account.serverUrl, username: account.username });
   setServerUrl(account.serverUrl);
+  if (isAndroidNativeRuntime()) requestMobileAccountLogin();
   clearAuthTokens();
   if ((window as any).nowenDesktop?.isDesktop) {
     // 防止刷新到登录页时 Electron full 模式重新注入本地账号，覆盖目标服务器。
@@ -57,6 +59,7 @@ async function commitSwitch(
   user: User,
 ): Promise<AccountLoginSwitchResult> {
   setServerUrl(account.serverUrl);
+  if (isAndroidNativeRuntime()) completeMobileAccountLogin();
   storeAuthTokens({ token, refreshToken: refreshToken ?? null });
   localStorage.setItem(CURRENT_ACCOUNT_HISTORY_ID_KEY, account.id);
   await saveAccountLoginHistory({ serverUrl: account.serverUrl, token, refreshToken, user });

@@ -27,7 +27,7 @@ describe("Android 未登录本地模式", () => {
     expect(getMobileLocalUser()).toMatchObject({
       id: "android-local-user",
       username: "local",
-      displayName: "本地用户",
+      displayName: "仅此设备",
     });
   });
 

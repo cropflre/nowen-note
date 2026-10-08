@@ -370,6 +370,13 @@ function buildStyle(
     .nowen-note-image-export-body li > p { margin: 2px 0; }
     .nowen-note-image-export-body ul[data-type="taskList"], .nowen-note-image-export-body ul.contains-task-list { padding-left: 0.5em; list-style: none; }
     .nowen-note-image-export-body li[data-type="taskItem"], .nowen-note-image-export-body li.task-list-item, .nowen-note-image-export-body ul[data-type="taskList"] > li { display: flex; gap: 9px; align-items: flex-start; list-style: none; }
+    .nowen-note-image-export-body li[data-type="taskItem"][data-checked="true"] > p,
+    .nowen-note-image-export-body li[data-type="taskItem"][data-checked="true"] > div > p,
+    .nowen-note-image-export-body li.task-item[data-checked="true"] > p,
+    .nowen-note-image-export-body li.task-item[data-checked="true"] > div > p,
+    .nowen-note-image-export-body li.task-list-item:has(> p > input[type="checkbox"]:checked) > p {
+      color: ${muted}; text-decoration: line-through; text-decoration-color: currentColor;
+    }
     .nowen-note-image-export-body input[type="checkbox"] { width: 15px; height: 15px; margin: 5px 0 0; accent-color: ${noteTheme.accent}; }
     .nowen-note-image-export-body blockquote { margin: 14px 0; padding: 10px 16px; color: ${muted}; background: ${soft}; border-left: 4px solid ${border}; border-radius: 0 8px 8px 0; }
     .nowen-note-image-export-body hr { margin: 24px 0; border: 0; border-top: 1px solid ${border}; }

@@ -76,4 +76,18 @@ test("完整备份后台失败时保留可读错误", async () => {
   const job = jobs.start();
   await waitForState(jobs, job.id, "error");
   assert.equal(jobs.get(job.id)?.error, "磁盘空间不足");
+  assert.equal(jobs.get(job.id)?.errorCode, "BACKUP_STORAGE_NO_SPACE");
+  assert.equal(jobs.get(job.id)?.retryable, false);
+});
+
+test("unrecognized backend exception is redacted from backup job snapshot", async () => {
+  const jobs = new FullBackupJobStore(async () => {
+    throw new Error("password=secret /srv/private/nowen-note.db");
+  });
+  const job = jobs.start();
+  await waitForState(jobs, job.id, "error");
+  const snapshot = jobs.get(job.id);
+  assert.equal(snapshot?.errorCode, "BACKUP_JOB_FAILED");
+  assert.equal(snapshot?.retryable, false);
+  assert.doesNotMatch(JSON.stringify(snapshot), /secret|private|note\\.db/);
 });

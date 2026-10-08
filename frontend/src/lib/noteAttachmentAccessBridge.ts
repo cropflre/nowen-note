@@ -396,6 +396,15 @@ export function resolveAttachmentAccessUrl(raw: string): string {
   return stableSource;
 }
 
+/** Avoid browser media fetching an attachment ID without verifiable access. */
+export function requiresVerifiedAttachmentAccess(value: string | null | undefined): boolean {
+  if (!value || !extractAttachmentId(value)) return false;
+  const parsed = asAbsoluteUrl(value);
+  if (!parsed) return true;
+  if (parsed.searchParams.has("share")) return false;
+  return !["exp", "sig", "scope"].every((key) => !!parsed.searchParams.get(key));
+}
+
 export interface AttachmentRenderSource {
   attachmentId: string | null;
   persistentSrc: string;

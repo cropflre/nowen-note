@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { ImageIcon, Search, SmilePlus, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/lib/toast";
@@ -21,8 +22,8 @@ interface NoteIconPickerModalProps {
   onSaved?: () => void;
 }
 
-function getCopy() {
-  const language = (localStorage.getItem("i18nextLng") || navigator.language || "").toLowerCase();
+function getCopy(language: string) {
+  language = language.toLowerCase();
   return language.startsWith("zh") ? {
     title: "设置笔记图标",
     subtitle: "选择 emoji，或粘贴一个自定义短图标。",
@@ -70,7 +71,9 @@ export default function NoteIconPickerModal({
   onClose,
   onSaved,
 }: NoteIconPickerModalProps) {
-  const copy = useMemo(() => getCopy(), []);
+  const { i18n } = useTranslation();
+  const language = i18n.resolvedLanguage || i18n.language;
+  const copy = useMemo(() => getCopy(language), [language]);
   const inputRef = useRef<HTMLInputElement>(null);
   const iconScrollRef = useRef<HTMLDivElement>(null);
   const [iconQuery, setIconQuery] = useState("");

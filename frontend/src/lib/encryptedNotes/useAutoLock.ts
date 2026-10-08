@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { onEncryptedAutoLock } from "../desktopBridge";
+import { onNativeEncryptedLifecycle } from "./nativeLifecycle";
 
 export const ENCRYPTED_IDLE_LOCK_MS = 5 * 60 * 1000;
 export type AutoLockReason = "idle" | "background";
@@ -39,6 +40,7 @@ export function useEncryptedAutoLock(active: boolean, onLock: (reason: AutoLockR
     window.addEventListener("blur", background);
     window.addEventListener("focus", check);
     const unsubscribeDesktop = onEncryptedAutoLock(background);
+    const unsubscribeNative = onNativeEncryptedLifecycle(background, check);
     if (document.visibilityState === "hidden") background();
     return () => {
       stopped = true; clearTimeout(timer);
@@ -48,6 +50,7 @@ export function useEncryptedAutoLock(active: boolean, onLock: (reason: AutoLockR
       window.removeEventListener("blur", background);
       window.removeEventListener("focus", check);
       unsubscribeDesktop();
+      unsubscribeNative();
     };
   }, [active]);
 }

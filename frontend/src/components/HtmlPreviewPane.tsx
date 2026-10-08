@@ -21,13 +21,17 @@ import React, {
   useEffect,
   useImperativeHandle,
   useRef,
+  useSyncExternalStore,
 } from "react";
 import DOMPurify from "dompurify";
 import { useTranslation } from "react-i18next";
 import { Eye } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import type { NoteEditorHandle, NoteEditorProps } from "@/components/editors/types";
-import { resolveAttachmentUrl } from "@/lib/api";
+import { getBaseUrl, resolveAttachmentUrl } from "@/lib/api";
+import { getAccessToken } from "@/lib/authSession";
+import { getAttachmentAccessSnapshot, subscribeAttachmentAccess } from "@/lib/noteAttachmentAccessBridge";
+import { hasPersistentNoteAttachmentReference, primeNoteAttachmentAccess } from "@/lib/noteAttachmentAccessPriming";
 import { resolveHtmlPreviewAssetUrls } from "@/lib/htmlPreviewAssets";
 import {
   scrollToHtmlPreviewHeading,
@@ -153,6 +157,20 @@ const HtmlPreviewPane = forwardRef<NoteEditorHandle, NoteEditorProps>(
     const containerRef = useRef<HTMLDivElement>(null);
     const iframeRef = useRef<HTMLIFrameElement>(null);
 
+    // Text/HTML may appear before its signed attachment URLs. React to late
+    // authorization without rewriting the persisted HTML or blocking reading.
+    useSyncExternalStore(
+      subscribeAttachmentAccess,
+      getAttachmentAccessSnapshot,
+      getAttachmentAccessSnapshot,
+    );
+    useEffect(() => {
+      if (!hasPersistentNoteAttachmentReference(note.content) || !getAccessToken()) return;
+      void primeNoteAttachmentAccess(note.id, getBaseUrl()).catch((error) => {
+        console.warn("[HtmlPreviewPane] attachment access preparation failed:", error);
+      });
+    }, [note.id, note.content]);
+
     const isFullDoc = isFullHtmlDocument(note.content);
     const getOutlineRoot = useCallback(
       () => (isFullDoc ? iframeRef.current?.contentDocument?.body ?? null : containerRef.current),
@@ -219,7 +237,7 @@ const HtmlPreviewPane = forwardRef<NoteEditorHandle, NoteEditorProps>(
     // 不再套 ScrollArea，避免出现双重滚动条。
     if (isFullDoc) {
       const iframeSrc = prepareIframeHtml(
-        resolveHtmlPreviewAssetUrls(note.content, resolveAttachmentUrl, { fullDocument: true }),
+        resolveHtmlPreviewAssetUrls(note.content, resolveAttachmentUrl, { fullDocument: true, deferUnsignedAttachments: true }),
       );
       return (
         <div className="flex flex-col h-full overflow-hidden">
@@ -243,7 +261,7 @@ const HtmlPreviewPane = forwardRef<NoteEditorHandle, NoteEditorProps>(
     }
 
     // ── HTML 片段模式：dangerouslySetInnerHTML 渲染 ──
-    const cleanHtml = resolveHtmlPreviewAssetUrls(sanitize(note.content), resolveAttachmentUrl);
+    const cleanHtml = resolveHtmlPreviewAssetUrls(note.content, resolveAttachmentUrl, { deferUnsignedAttachments: true, sanitizeHtml: sanitize });
 
     return (
       <ScrollArea className="h-full min-w-0">

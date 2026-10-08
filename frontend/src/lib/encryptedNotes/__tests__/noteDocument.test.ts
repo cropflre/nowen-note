@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import fixture from "./fixtures/envelope-v1.json";
+import v2 from "./fixtures/envelope-v2.json";
 import { ENCRYPTED_NOTE_FORMAT, readEncryptedNoteDocument, validateEncryptedNotePlaintext } from "../noteDocument";
 import { stabilizeNoteMutationPayload } from "../../noteContentPersistence";
 vi.mock("@/lib/noteAttachmentAccessBridge", () => ({ extractAttachmentId: () => null, getPersistentAttachmentUrl: () => null }));
@@ -10,6 +11,12 @@ describe("encrypted note persistence boundaries", () => {
     expect(stabilizeNoteMutationPayload(note)).toBe(note);
     expect(() => stabilizeNoteMutationPayload({ ...note, contentText: "secret" })).toThrow();
     expect(() => stabilizeNoteMutationPayload({ ...note, content: "secret" })).toThrow();
+  });
+  it("preserves v2 ciphertext without ordinary attachment-source rewriting", () => {
+    const encrypted = { content: JSON.stringify(v2.envelope), contentFormat: "encrypted-note-v2", contentText: "" };
+    expect(stabilizeNoteMutationPayload(encrypted)).toBe(encrypted);
+    expect(() => stabilizeNoteMutationPayload({ ...encrypted, contentText: "Private" })).toThrow();
+    expect(() => stabilizeNoteMutationPayload({ ...encrypted, content: JSON.stringify({ ...v2.envelope, keyEpoch: 0 }) })).toThrow();
   });
   it("fails closed on unknown encrypted formats and block envelopes", () => {
     expect(() => readEncryptedNoteDocument({ ...note, contentFormat: "encrypted-note-v99" })).toThrow();

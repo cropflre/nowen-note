@@ -81,6 +81,8 @@ function formatDate(value: string | null): string {
 
 function scopeLabel(scope: string): string {
   const labels: Record<string, string> = {
+    "tasks:read": "读取个人任务",
+    "tasks:write": "创建和更新个人任务",
     "notes:read": "读取笔记",
     "notes:write": "写入笔记",
     "notebooks:read": "读取笔记本",

@@ -2,7 +2,7 @@ import { defineConfig } from "@playwright/test";
 
 export default defineConfig({
   testDir: "./e2e",
-  testMatch: ["encrypted-notes-core.spec.ts", "encrypted-notes-editor.spec.ts", "encrypted-notes-blocks.spec.ts", "encrypted-notes-product-editor.spec.ts", "encrypted-notes-cleanup.spec.ts"],
+  testMatch: ["encrypted-notes-core.spec.ts", "encrypted-notes-v2.spec.ts", "encrypted-notes-editor.spec.ts", "encrypted-notes-blocks.spec.ts", "encrypted-notes-product-editor.spec.ts", "encrypted-notes-cleanup.spec.ts"],
   workers: 1,
   timeout: 60_000,
   outputDir: "node_modules/.cache/encrypted-notes-browser-results",
