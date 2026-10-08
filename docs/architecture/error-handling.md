@@ -65,6 +65,19 @@ expose a safe `errorCode`, `retryable` and their existing job `id` as
 and return `error/code/requestId/retryable`. Unknown exceptions are hidden
 behind safe messages; automatic retries of restore are prohibited. Data
 manager and full-data transfer views show copyable fault references.
+Attachment **write** failures are also migrated: upload, deduplication and
+administrator repair preserve legacy `ATTACHMENT_DB_WRITE_FAILED` and
+`ATTACHMENT_STORAGE_*` codes, expose `requestId` and `retryable: false`,
+and log only safe metadata. Frontend `UploadRequestError` now retains the
+server correlation ID and explicit retry policy. Legacy download ACL behavior
+is intentionally unchanged: do **not** turn masked 404s into 403s, which
+would disclose whether private attachments exist. Attachment upload failures
+do not imply loss of an existing note or successful remote persistence.
+
+Error messages in user-facing diagnostic cards are **client-owned allowlisted
+text**, even when the server sent a syntactically valid error code. Copy only
+the code and correlation ID, not stack traces, request URLs or note content.
+
 Other domains and non-migrated backup endpoints retain legacy responses.
 Phase 3: opt-in, user-previewable, redacted diagnostic bundle, including
 platform and version. Never silently upload note data.
