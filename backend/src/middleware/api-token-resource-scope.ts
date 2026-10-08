@@ -463,8 +463,8 @@ async function handleTokenTasks(c: Context, next: Next, ctx: TokenAccessContext)
     }
     if (method === "POST") {
       const body = await c.req.raw.clone().json().catch(() => ({})) as Record<string, unknown>;
-      if (body.workspaceId || body.parentId) {
-        throw new ApiTokenAccessError("任务 Token 不允许创建工作区任务或附加到父任务", "API_TOKEN_RESOURCE_DENIED");
+      if (body.workspaceId || body.parentId || body.noteId || body.projectId) {
+        throw new ApiTokenAccessError("任务 Token 不允许关联工作区、父任务、笔记或项目", "API_TOKEN_RESOURCE_DENIED");
       }
     }
     await next();
@@ -485,8 +485,8 @@ async function handleTokenTasks(c: Context, next: Next, ctx: TokenAccessContext)
   }
   if (method === "PUT") {
     const body = await c.req.raw.clone().json().catch(() => ({})) as Record<string, unknown>;
-    if (body.workspaceId || body.parentId) {
-      throw new ApiTokenAccessError("任务 Token 不允许跨空间移动任务", "API_TOKEN_RESOURCE_DENIED");
+    if (body.workspaceId || body.parentId || body.noteId || body.projectId) {
+      throw new ApiTokenAccessError("任务 Token 不允许修改任务资源归属或关联", "API_TOKEN_RESOURCE_DENIED");
     }
   }
   await next();
