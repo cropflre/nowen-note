@@ -2561,8 +2561,8 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
           readOnly={!editable}
           className="block w-full resize-none overflow-hidden break-words bg-transparent p-0 outline-none text-lg leading-7 md:text-xl font-semibold text-tx-primary placeholder:text-tx-tertiary/60"
         />
-        {!isGuest && !compactMobileEditing && (
-          <div className="mt-1">
+        {!isGuest && (
+          <div className={cn("mt-1", compactMobileEditing && "hidden focus-within:block")}>
             <TagInput
               noteId={note.id}
               noteTags={noteTags}

@@ -5962,8 +5962,8 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
       )}
 
       {/* Tag Bar：访客模式下隐藏（TagInput 依赖 AppProvider + 登录态 API） */}
-      {!isGuest && !windowedSection && !compactMobileEditing && (
-        <div className="px-4 md:px-8 pb-1">
+      {!isGuest && !windowedSection && (
+        <div className={cn("px-4 md:px-8 pb-1", compactMobileEditing && "hidden focus-within:block")}>
           <TagInput
             noteId={note.id}
             noteTags={note.tags || []}
