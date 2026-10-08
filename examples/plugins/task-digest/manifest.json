@@ -1,0 +1,39 @@
+{
+  "id": "nowenlab.task-digest",
+  "name": "Task Digest 每日任务简报",
+  "description": "Personal daily task summary plugin. Scheduled webhook delivery is configured in Automation Center.",
+  "version": "1.0.0",
+  "apiVersion": 2,
+  "publisher": "nowenlab",
+  "engines": {
+    "nowen": ">=1.5.1 <2.0.0"
+  },
+  "categories": [
+    "productivity"
+  ],
+  "repository": "https://github.com/cropflre/nowen-note",
+  "license": "AGPL-3.0",
+  "runtime": "sandbox-js",
+  "main": "index.js",
+  "permissions": [
+    "tasks:read"
+  ],
+  "actions": [
+    {
+      "id": "summary",
+      "name": "今日任务简报",
+      "execution": "interactive",
+      "retryable": false,
+      "input": {
+        "mode": {
+          "type": "string",
+          "required": false
+        },
+        "timezoneOffsetMinutes": {
+          "type": "number",
+          "required": false
+        }
+      }
+    }
+  ]
+}
