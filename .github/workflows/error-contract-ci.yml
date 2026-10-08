@@ -22,6 +22,7 @@ on:
       - "frontend/src/lib/supportError.ts"
       - "frontend/src/lib/__tests__/supportError.test.ts"
       - "frontend/src/components/SystemFullDataTransferBridge.tsx"
+      - "frontend/src/components/dataManagement/BackupCenter.tsx"
       - "frontend/src/lib/__tests__/fullBackupJobClient.test.ts"
       - "frontend/src/lib/syncLocalApi.ts"
       - "frontend/src/lib/__tests__/httpError.test.ts"
