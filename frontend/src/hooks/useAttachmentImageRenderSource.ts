@@ -5,7 +5,6 @@ import { getBaseUrl, resolveAttachmentUrl } from "@/lib/api";
 import { extractNoteIdFromSignedAttachmentUrl } from "@/lib/attachmentSignedUrlRecovery";
 import {
   acquireAttachmentRenderUrl,
-  extractAttachmentId,
   getAttachmentAccessSnapshot,
   getAttachmentRenderSource,
   invalidateOfflineAttachmentRenderUrl,
