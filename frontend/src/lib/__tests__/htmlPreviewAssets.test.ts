@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { resolveHtmlPreviewAssetUrls } from "@/lib/htmlPreviewAssets";
 
 describe("htmlPreviewAssets", () => {
@@ -59,6 +59,43 @@ describe("htmlPreviewAssets", () => {
     const doc = new DOMParser().parseFromString(deferredDocument, "text/html");
     expect(doc.querySelector('img[alt="wechat"]')?.hasAttribute("src")).toBe(false);
     expect(doc.querySelector("source")?.hasAttribute("srcset")).toBe(false);
+  });
+
+  it("does not expose unsigned attachment image URLs to DOMParser or sanitizer before authorization", () => {
+    const id = "5bc403c1-2c1f-4541-ba2a-c8e9ab1b5fbd";
+    const raw = `<blockquote><p>微信正文</p></blockquote><picture><source srcset="/api/attachments/${id} 2x"><img src="/api/attachments/${id}" alt="wechat"></picture>`;
+    const parse = DOMParser.prototype.parseFromString;
+    const parserSpy = vi.spyOn(DOMParser.prototype, "parseFromString").mockImplementation(function (
+      this: DOMParser, html: string, type: DOMParserSupportedType,
+    ) {
+      expect(html).not.toMatch(/<img[^>]+src=["']\/api\/attachments\//);
+      expect(html).not.toMatch(/<source[^>]+srcset=["']\/api\/attachments\//);
+      return parse.call(this, html, type);
+    });
+    const sanitize = vi.fn((html: string) => {
+      expect(html).not.toMatch(/<img[^>]+src=["']\/api\/attachments\//);
+      return html;
+    });
+    try {
+      const initial = resolveHtmlPreviewAssetUrls(raw, (src) => src, {
+        deferUnsignedAttachments: true,
+        sanitizeHtml: sanitize,
+      });
+      expect(initial).toContain('data-nowen-attachment-pending="true"');
+      expect(initial).not.toContain(`src="/api/attachments/${id}"`);
+      expect(initial).not.toContain("data-nowen-preview-src-token");
+      expect(sanitize).toHaveBeenCalledTimes(1);
+      expect(parserSpy).toHaveBeenCalledTimes(1);
+
+      const signed = resolveHtmlPreviewAssetUrls(raw, (src) =>
+        src.startsWith("/api/attachments/") ? `${src}?exp=2000000000&sig=ok&scope=note` : src,
+        { deferUnsignedAttachments: true, sanitizeHtml: sanitize },
+      );
+      expect(signed).toContain("sig=ok");
+      expect(signed).not.toContain("data-nowen-preview-src-token");
+    } finally {
+      parserSpy.mockRestore();
+    }
   });
 
   it("preserves deliberately shared URLs and signed URLs without network gating", () => {
