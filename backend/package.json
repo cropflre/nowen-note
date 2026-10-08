@@ -5,7 +5,7 @@
     "dev": "tsx watch src/index.hardened.ts",
     "build": "node build.bundle.mjs",
     "build:tsc": "tsc",
-    "start": "node dist/index.js",
+    "start": "node dist/index.hardened.js",
     "test": "node scripts/run-tests-serial.mjs",
     "test:serial": "node scripts/run-tests-serial.mjs",
     "fixture:phase-b": "node scripts/phase-b-notebook-fixture.mjs",
