@@ -12,6 +12,7 @@ const nativeApp = vi.hoisted(() => ({
 }));
 
 vi.mock("@capacitor/core", () => ({
+  registerPlugin: () => ({ prepare: vi.fn() }),
   Capacitor: {
     getPlatform: () => "android",
     isNativePlatform: () => true,

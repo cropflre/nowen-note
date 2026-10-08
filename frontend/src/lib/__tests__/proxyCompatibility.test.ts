@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   buildServerPathCandidates,
@@ -6,11 +7,11 @@ import {
   getResolvedWebSocketUrl,
 } from "../serverUrl";
 
-const apiSource = fs.readFileSync(new URL("../api.impl.ts", import.meta.url), "utf8");
-const loginSource = fs.readFileSync(new URL("../../components/LoginPage.tsx", import.meta.url), "utf8");
-const backendSource = fs.readFileSync(new URL("../../../../backend/src/index.ts", import.meta.url), "utf8");
-const realtimeServerSource = fs.readFileSync(new URL("../../../../backend/src/services/realtime.ts", import.meta.url), "utf8");
-const electronSetupSource = fs.readFileSync(new URL("../../../../electron/setupWindow.js", import.meta.url), "utf8");
+const apiSource = fs.readFileSync(path.resolve(__dirname, "../api.impl.ts"), "utf8");
+const loginSource = fs.readFileSync(path.resolve(__dirname, "../../components/LoginPage.tsx"), "utf8");
+const backendSource = fs.readFileSync(path.resolve(__dirname, "../../../../backend/src/index.ts"), "utf8");
+const realtimeServerSource = fs.readFileSync(path.resolve(__dirname, "../../../../backend/src/services/realtime.ts"), "utf8");
+const electronSetupSource = fs.readFileSync(path.resolve(__dirname, "../../../../electron/setupWindow.js"), "utf8");
 
 describe("#771 reverse proxy compatibility candidates", () => {
   it("probes standard, /public/api and /publicapi without changing origin", () => {

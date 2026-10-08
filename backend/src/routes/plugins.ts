@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import crypto from "node:crypto";
+import { createInboundWebhook, listInboundWebhooks, removeInboundWebhook } from "../plugins/inboundWebhooks.js";
 import { isSystemAdmin, requireAdmin } from "../middleware/acl.js";
 import { getExtensionPlatformFeatureFlags } from "../plugins/featureFlags.js";
 import { getPluginService } from "../plugins/pluginService.js";
@@ -133,6 +134,14 @@ pluginsRouter.get("/:id/connections", (c) => {
 });
 pluginsRouter.get("/:id/settings", (c) => {
   try { return c.json(getPluginService().getSettings(c.req.param("id"), userId(c))); } catch (error) { return errorResponse(c, error); }
+});
+pluginsRouter.get("/:id/inbound-webhooks", (c) => c.json(listInboundWebhooks(c.req.param("id"), userId(c))));
+pluginsRouter.post("/:id/inbound-webhooks/:hookId", (c) => {
+  try { return c.json(createInboundWebhook(c.req.param("id"), c.req.param("hookId"), userId(c)), 201); } catch (error) { return errorResponse(c, error); }
+});
+pluginsRouter.delete("/:id/inbound-webhooks/:hookId", (c) => {
+  removeInboundWebhook(c.req.param("id"), c.req.param("hookId"), userId(c));
+  return c.json({ success: true });
 });
 pluginsRouter.put("/:id/settings", async (c) => {
   try { return c.json(getPluginService().setSettings(c.req.param("id"), userId(c), await c.req.json())); } catch (error) { return errorResponse(c, error); }

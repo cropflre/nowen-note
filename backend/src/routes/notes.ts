@@ -1,4 +1,9 @@
+import { permanentlyDeleteNote } from "../services/trash/noteTrashAdapter.js";
+import { inspectEncryptedNoteConversion } from "../services/encryptedNoteConversionPreflight.js";
+import { withEncryptedBlockWrite } from "../lib/encryptedBlockWrites.js";
 import { Hono } from "hono";
+import { EncryptedNotePayloadError, guardEncryptedBlockWriter, guardEncryptedNoteMutation, isEncryptedNoteFormat, parseEncryptedNote } from "../lib/encryptedNotes.js";
+import { createKnowledgeChild, KnowledgeTreeError } from "../services/knowledgeTree.js";
 import { projectMarkdownNoteForUser } from "../lib/markdownUserContent";
 import { getDb } from "../db/schema";
 import { v4 as uuid } from "uuid";
@@ -43,7 +48,7 @@ import {
   synchronizeLegacyNotebookHierarchy,
 } from "../services/legacyKnowledgeHierarchy";
 import { syncAutomaticNoteLinkTitles } from "../lib/noteLinkTitles";
-import { noteLinksRepository, noteTagsRepository, noteVersionsRepository, favoritesRepository, noteYsnapshotsRepository, noteYupdatesRepository } from "../repositories";
+import { noteTagsRepository, noteVersionsRepository, favoritesRepository, noteYsnapshotsRepository, noteYupdatesRepository } from "../repositories";
 import { rebuildYjsSubdocumentsIfEnabled } from "../services/yjs-subdocuments";
 import { reclaimSpace } from "../lib/reclaimSpace";
 import { buildFtsSearchTerm } from "../lib/searchQuery";
@@ -571,8 +576,19 @@ app.post("/:id/duplicate", async (c) => {
   const db = getDb();
   const userId = c.req.header("X-User-Id") || "";
   const sourceNoteId = c.req.param("id");
+  let body: { placement?: "sibling" | "child" };
   try {
-    const result = await duplicateNote({ userId, noteId: sourceNoteId });
+    const text = await c.req.text();
+    body = text.trim() ? JSON.parse(text) : {};
+    if (!body || typeof body !== "object" || Array.isArray(body)
+      || (body.placement !== undefined && body.placement !== "sibling" && body.placement !== "child")) {
+      throw new Error("Invalid placement");
+    }
+  } catch {
+    return c.json({ error: "无效的副本位置", code: "NOTE_DUPLICATE_PLACEMENT_INVALID" }, 400);
+  }
+  try {
+    const result = await duplicateNote({ userId, noteId: sourceNoteId, placement: body.placement });
     const responseNote = presentNoteForResponse(db, c, result.note);
     logAudit(userId, "note", "duplicate", {
       sourceNoteId,
@@ -598,6 +614,36 @@ app.post("/", async (c) => {
   const db = getDb();
   const userId = c.req.header("X-User-Id") || "";
   const body = await c.req.json();
+  if (!isEncryptedNoteFormat(body.contentFormat)) {
+    try { guardEncryptedNoteMutation(body); guardEncryptedBlockWriter(body); }
+    catch (error) {
+      if (error instanceof EncryptedNotePayloadError) return c.json({ error: error.message, code: error.code }, 400);
+      throw error;
+    }
+  }
+  if (isEncryptedNoteFormat(body.contentFormat)) {
+    try {
+      guardEncryptedNoteMutation(body);
+      const identity = parseEncryptedNote(body.content);
+      const encryptedNoteId = typeof body.id === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(body.id) ? body.id : undefined;
+      if (encryptedNoteId && db.prepare("SELECT 1 FROM notes WHERE id = ?").get(encryptedNoteId)) {
+        return c.json({ error: "笔记 ID 已存在", code: "NOTE_ID_CONFLICT" }, 409);
+      }
+      const node = createKnowledgeChild({
+        actorUserId: userId, workspaceId: typeof body.workspaceId === "string" ? body.workspaceId : null,
+        parentId: typeof body.treeParentId === "string" ? body.treeParentId : null,
+        nodeType: identity.originalFormat === "markdown" ? "markdown" : "note",
+        title: typeof body.title === "string" ? body.title : "加密笔记",
+        encryptedContent: body.content, encryptedNoteId, db,
+      });
+      const note = db.prepare("SELECT * FROM notes WHERE id = ?").get(node.resourceId) as any;
+      return c.json({ ...note, tags: [], permission: resolveNotePermission(node.resourceId, userId).permission, treeNodeId: node.id }, 201);
+    } catch (error) {
+      if (error instanceof EncryptedNotePayloadError) return c.json({ error: error.message, code: error.code }, 400);
+      if (error instanceof KnowledgeTreeError) return c.json({ error: error.message, code: error.code }, error.status);
+      throw error;
+    }
+  }
   if (body.colorMark !== undefined && !isValidNoteColorMarkInput(body.colorMark)) {
     return c.json({ error: "无效的笔记颜色标记", code: "INVALID_NOTE_COLOR_MARK" }, 400);
   }
@@ -688,7 +734,8 @@ app.post("/", async (c) => {
     try {
       const r = extractInlineBase64Images(body.content, userId, id, inheritedWorkspaceId);
       if (r.replacedCount > 0) {
-        db.prepare("UPDATE notes SET content = ? WHERE id = ?").run(r.content, id);
+        withEncryptedBlockWrite(db, id, r.content, contentFormat, () =>
+          db.prepare("UPDATE notes SET content = ? WHERE id = ?").run(r.content, id));
         finalContent = r.content;
       }
     } catch (e) {
@@ -753,6 +800,20 @@ app.post("/", async (c) => {
   return c.json({ ...responseNote as any, tags: [] }, 201);
 });
 
+// M4 preparation only: disclose counts, never content or a conversion permit.
+app.get("/:id/encryption-preflight", (c) => {
+  c.header("Cache-Control", "no-store");
+  const db = getDb(); const id = c.req.param("id");
+  const userId = c.req.header("X-User-Id") || "";
+  const note = db.prepare("SELECT userId FROM notes WHERE id = ?").get(id) as { userId: string } | undefined;
+  if (!note) return c.json({ error: "笔记不存在", code: "NOT_FOUND" }, 404);
+  const { permission } = resolveNotePermission(id, userId);
+  if (note.userId !== userId || !hasPermission(permission, "manage")) {
+    return c.json({ error: "仅笔记所有者可检查加密转换", code: "FORBIDDEN" }, 403);
+  }
+  return c.json(inspectEncryptedNoteConversion(db, id));
+});
+
 // 更新笔记
 app.put("/:id", async (c) => {
   const db = getDb();
@@ -784,6 +845,18 @@ app.put("/:id", async (c) => {
   }
   if (needsWrite && !hasPermission(permission, "write")) {
     return c.json({ error: "权限不足", code: "FORBIDDEN" }, 403);
+  }
+
+  try {
+    const existing = db.prepare("SELECT content, contentFormat FROM notes WHERE id = ?").get(id) as { content: string; contentFormat: string } | undefined;
+    guardEncryptedNoteMutation(body, existing);
+    const protectedWrite = guardEncryptedBlockWriter(body, existing);
+    if (protectedWrite && existing && (!Number.isSafeInteger(body.version) || body.version < 1)) throw new EncryptedNotePayloadError();
+    if (isEncryptedNoteFormat(existing?.contentFormat) && body.content !== undefined
+      && (!Number.isSafeInteger(body.version) || body.version < 1)) throw new EncryptedNotePayloadError();
+  } catch (error) {
+    if (error instanceof EncryptedNotePayloadError) return c.json({ error: error.message, code: error.code }, 400);
+    throw error;
   }
 
   if (typeof body.content === "string") {
@@ -1185,7 +1258,10 @@ app.put("/:id", async (c) => {
         });
       }
     });
-    legacyNoteUpdateTx();
+    if (typeof body.content === "string") {
+      const format = db.prepare("SELECT contentFormat FROM notes WHERE id = ?").get(id) as { contentFormat: string };
+      withEncryptedBlockWrite(db, id, body.content, body.contentFormat ?? format.contentFormat, legacyNoteUpdateTx, body.encryptedBlocksVersion);
+    } else legacyNoteUpdateTx();
   }
 
   // v11: 同步 attachment_references 倒排（仅在 content 字段被改动时；非内容字段
@@ -1637,96 +1713,15 @@ app.post("/:id/yjs/subdocuments/:sectionId", async (c) => {
   }
 });
 
-// 删除笔记（永久）
+// 删除笔记（永久）：保留原接口，复用回收站生命周期服务。
 app.delete("/:id", (c) => {
-  const db = getDb();
-  const userId = c.req.header("X-User-Id") || "";
-  const id = c.req.param("id");
-
-  // 永久删除只针对回收站生命周期；tombstone 继续按删除前 Knowledge ACL 校验。
-  const { permission } = resolveTrashedNotePermission(id, userId);
-  if (!hasPermission(permission, "manage")) {
-    // editor 不能永久删除，只能放入回收站
-    return c.json({ error: "仅笔记 owner 或工作区管理员可永久删除", code: "FORBIDDEN" }, 403);
-  }
-
-  const note = db.prepare("SELECT isLocked FROM notes WHERE id = ?").get(id) as { isLocked: number } | undefined;
-  if (note && note.isLocked === 1) {
-    return c.json({ error: "Note is locked", code: "NOTE_LOCKED" }, 403);
-  }
-
-  // ⚠ 先清理磁盘附件物理文件（必须在 DELETE FROM notes 之前，否则 CASCADE 后查不到 path）
-  let removedFiles = 0;
   try {
-    removedFiles = deleteAttachmentFilesByNoteIds([id]);
-  } catch (e) {
-    console.warn("[notes.delete] deleteAttachmentFilesByNoteIds failed:", e);
+    permanentlyDeleteNote(c.req.param("id"), c.req.header("X-User-Id") || "");
+    return c.json({ success: true });
+  } catch (error) {
+    if (error instanceof KnowledgeTreeError) return c.json({ error: error.message, code: error.code }, error.status);
+    throw error;
   }
-
-  // BACKLINKS-02-RV1: 永久删除笔记前清理 note_links 引用关系
-  // 作为 source 或 target 的引用记录都需要清除，避免孤儿数据残留
-  try {
-    noteLinksRepository.deleteByNoteId(id);
-  } catch (e) {
-    console.warn("[notes.delete] cleanup note_links failed:", e);
-  }
-
-  // 估算本次释放的字节数——仅用于判断是否值当做全量 VACUUM。
-  // 失败时当作 0，后续只会做 checkpoint + incremental_vacuum，不会误触发 VACUUM。
-  let freedBytesEstimate = 0;
-  try {
-    const attBytes = db
-      .prepare("SELECT COALESCE(SUM(size), 0) AS bytes FROM attachments WHERE noteId = ?")
-      .get(id) as { bytes: number } | undefined;
-    freedBytesEstimate += attBytes?.bytes || 0;
-    const noteBytes = db
-      .prepare(
-        `SELECT COALESCE(LENGTH(content), 0)
-              + COALESCE(LENGTH(contentText), 0)
-              + COALESCE(LENGTH(title), 0) AS bytes
-           FROM notes WHERE id = ?`,
-      )
-      .get(id) as { bytes: number } | undefined;
-    freedBytesEstimate += noteBytes?.bytes || 0;
-  } catch { /* ignore */ }
-
-  db.prepare("DELETE FROM notes WHERE id = ?").run(id);
-
-  // TAG-PRUNE-UNUSED-ON-NOTE-DELETE-01: 永久删除笔记后清理未使用的标签
-  // 删除该用户下没有任何笔记引用的标签（只删除个人空间标签，不删除工作区标签）
-  try {
-    db.prepare(`
-      DELETE FROM tags
-      WHERE userId = ?
-        AND workspaceId IS NULL
-        AND id NOT IN (
-          SELECT DISTINCT nt.tagId
-          FROM note_tags nt
-          JOIN notes n ON n.id = nt.noteId
-          WHERE n.userId = ? AND n.isTrashed = 0
-        )
-    `).run(userId, userId);
-  } catch (e) {
-    console.warn("[notes.delete] prune unused tags failed:", e);
-  }
-
-  // Phase 3: 释放内存 Y.Doc（CASCADE 已清 note_yupdates/note_ysnapshots）
-  try { yDestroyDoc(id); } catch {}
-
-  // 回收磁盘空间：与"清空回收站"一致的 checkpoint + incremental_vacuum 策略。
-  // 没有这一步，单删笔记永远不会让 .db 主文件缩小（SQLite 默认不归还 free page），
-  // 用户感知就是"删了笔记占用不降"，这是此前的缺陷。
-  reclaimSpace(db, { freedBytesEstimate, tag: "notes.delete" });
-
-  emitWebhook("note.deleted", userId, { noteId: id, removedFiles });
-  logAudit(userId, "note", "delete", { noteId: id, removedFiles }, { targetType: "note", targetId: id });
-
-  // Phase 2: 广播永久删除
-  try {
-    broadcastNoteDeleted(id, { actorUserId: userId, trashed: false });
-  } catch {}
-
-  return c.json({ success: true });
 });
 
 export default app;

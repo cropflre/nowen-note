@@ -16,7 +16,7 @@ type ApiError = Error & {
 
 async function parseNoteResponse(response: Response): Promise<Note> {
   const text = await response.text();
-  let payload: any = null;
+  let payload: unknown = null;
   if (text) {
     try {
       payload = JSON.parse(text);
@@ -26,13 +26,14 @@ async function parseNoteResponse(response: Response): Promise<Note> {
   }
 
   if (!response.ok) {
-    if (payload?.code === "FOLDER_UNLOCK_REQUIRED") clearFolderUnlockTokens();
+    const detail = payload as { code?: string; error?: unknown; currentVersion?: unknown } | null;
+    if (detail?.code === "FOLDER_UNLOCK_REQUIRED") clearFolderUnlockTokens();
     const error = new Error(
-      typeof payload?.error === "string" ? payload.error : `HTTP ${response.status}`,
+      typeof detail?.error === "string" ? detail.error : `HTTP ${response.status}`,
     ) as ApiError;
-    error.code = payload?.code;
+    error.code = detail?.code;
     error.status = response.status;
-    if (typeof payload?.currentVersion === "number") error.currentVersion = payload.currentVersion;
+    if (typeof detail?.currentVersion === "number") error.currentVersion = detail.currentVersion;
     throw error;
   }
   return payload as Note;

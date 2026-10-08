@@ -1,4 +1,6 @@
 import { extractAttachmentId, getPersistentAttachmentUrl } from "@/lib/noteAttachmentAccessBridge";
+import { isEncryptedNoteFormat, readEncryptedNoteDocument } from "./encryptedNotes/noteDocument";
+import { encryptedBlocksInContent } from "./encryptedNotes/blockDocument";
 
 type NoteContentFormat = "tiptap-json" | "markdown" | "html" | string | undefined;
 
@@ -129,7 +131,12 @@ export function stabilizeNoteContentForPersistence(
   content: string,
   contentFormat?: NoteContentFormat,
 ): string {
+  if (isEncryptedNoteFormat(contentFormat)) {
+    readEncryptedNoteDocument({ content, contentFormat });
+    return content;
+  }
   if (!content) return content;
+  encryptedBlocksInContent(content, contentFormat || (content.trim().startsWith("{") ? "tiptap-json" : "markdown"));
   const trimmed = content.trim();
   const shouldParseJson = contentFormat === "tiptap-json"
     || (!contentFormat && (trimmed.startsWith("{") || trimmed.startsWith("[")));
@@ -149,7 +156,11 @@ export function stabilizeNoteContentForPersistence(
 export function stabilizeNoteMutationPayload<T extends {
   content?: unknown;
   contentFormat?: unknown;
+  contentText?: unknown;
 }>(payload: T): T {
+  if (isEncryptedNoteFormat(payload.contentFormat) && payload.contentText !== undefined && payload.contentText !== "") {
+    throw new Error("Encrypted notes cannot persist preview text");
+  }
   if (typeof payload.content !== "string") return payload;
   const contentFormat = typeof payload.contentFormat === "string" ? payload.contentFormat : undefined;
   const content = stabilizeNoteContentForPersistence(payload.content, contentFormat);

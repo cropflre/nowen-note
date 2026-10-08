@@ -74,6 +74,10 @@ import {
   type KnowledgeTreeNode,
 } from "@/lib/knowledgeTreeApi";
 import { loadKnowledgeTreeOnEntry } from "@/lib/knowledgeTreeInitialLoad";
+import {
+  KNOWLEDGE_TREE_CLEAR_SEARCH_EVENT,
+  type KnowledgeTreeClearSearchDetail,
+} from "@/lib/knowledgeTreeCreateVisibility";
 import { isActiveKnowledgeTreeDocument } from "@/lib/knowledgeTreeModel";
 import {
   forgetUnlockedFolder,
@@ -85,7 +89,6 @@ import {
 } from "@/lib/knowledgeTreePassword";
 import {
   buildFirstLevelNoteCounts,
-  countOwnedNotes,
 } from "@/lib/knowledgeTreeStats";
 import {
   buildMobileKnowledgeTreePath,
@@ -290,6 +293,7 @@ export default function MobileKnowledgeTreePanel({
   const [movingNode, setMovingNode] = useState<KnowledgeTreeNode | null>(null);
   const [batchMoving, setBatchMoving] = useState(false);
   const [selectedNodeIds, setSelectedNodeIds] = useState<Set<string>>(() => new Set());
+  const [pendingCreatedNodeId, setPendingCreatedNodeId] = useState<string | null>(null);
   const [multiSelectMode, setMultiSelectMode] = useState(false);
   const [unlockedFolderIds, setUnlockedFolderIds] = useState<Set<string>>(() => loadUnlockedFolderIds());
   const [passwordDialog, setPasswordDialog] = useState<{ node: KnowledgeTreeNode; mode: "unlock" | "manage" } | null>(null);
@@ -395,6 +399,23 @@ export default function MobileKnowledgeTreePanel({
   }, [reload]);
 
   useEffect(() => {
+    const revealCreatedNote = (event: Event) => {
+      const { parentId, nodeId } = (event as CustomEvent<KnowledgeTreeClearSearchDetail>).detail || {};
+      if (!nodeId) return;
+      setQuery("");
+      setView("browse");
+      setParentId(parentId || null);
+      if (state.viewMode === "search") {
+        actions.setSearchQuery("");
+        actions.setViewMode(state.selectedNotebookId ? "notebook" : "all");
+      }
+      setPendingCreatedNodeId(nodeId);
+    };
+    window.addEventListener(KNOWLEDGE_TREE_CLEAR_SEARCH_EVENT, revealCreatedNote);
+    return () => window.removeEventListener(KNOWLEDGE_TREE_CLEAR_SEARCH_EVENT, revealCreatedNote);
+  }, [actions, state.selectedNotebookId, state.viewMode]);
+
+  useEffect(() => {
     const focus = (event: Event) => {
       const nextQuery = (event as CustomEvent<{ query?: string }>).detail?.query;
       if (typeof nextQuery === "string") setQuery(nextQuery);
@@ -455,6 +476,18 @@ export default function MobileKnowledgeTreePanel({
     () => hideLockedFolderDescendants(nodes, unlockedFolderIds),
     [nodes, unlockedFolderIds],
   );
+  useEffect(() => {
+    if (!pendingCreatedNodeId || !visibleNodes.some((node) => node.id === pendingCreatedNodeId)) return;
+    setSelectedNodeIds(new Set([pendingCreatedNodeId]));
+    selectionAnchorRef.current = pendingCreatedNodeId;
+    const frame = requestAnimationFrame(() => {
+      Array.from(rootRef.current?.querySelectorAll<HTMLElement>("[data-knowledge-tree-select-id]") || [])
+        .find((element) => element.dataset.knowledgeTreeSelectId === pendingCreatedNodeId)
+        ?.scrollIntoView({ block: "nearest" });
+      setPendingCreatedNodeId(null);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [pendingCreatedNodeId, visibleNodes]);
   const selectedNodes = useMemo(
     () => visibleNodes.filter((node) => selectedNodeIds.has(node.id)),
     [selectedNodeIds, visibleNodes],
@@ -528,7 +561,6 @@ export default function MobileKnowledgeTreePanel({
   );
   const rootOwned = useMemo(() => currentChildren.filter((node) => !node.sharedRootId), [currentChildren]);
   const rootShared = useMemo(() => currentChildren.filter((node) => Boolean(node.sharedRootId)), [currentChildren]);
-  const ownedNoteCount = useMemo(() => countOwnedNotes(nodes), [nodes]);
   const ownedNotebookCount = useMemo(() => nodes.filter((node) => node.nodeType === "folder" && !node.sharedRootId).length, [nodes]);
 
   const activateNote = useCallback((
@@ -787,7 +819,8 @@ export default function MobileKnowledgeTreePanel({
     const result = await pluginApi.createNoteFromTemplate(pluginId, templateId, { workspaceId: getCurrentWorkspace(), parentId: targetParentId, values });
     emitTreeChanged("plugin-template-created-quick-browse"); await reload(); actions.refreshNotebooks(); actions.refreshNotes();
     const node = result.node as KnowledgeTreeNode; rememberOpened(node.id);
-    try { activateNote(await api.getNote(result.noteId), targetParentId, true); } catch (openError: any) { toast.error(openError?.message || "文档已创建，但自动打开失败"); }
+    try { activateNote(await api.getNote(result.noteId), targetParentId, true); } catch (caughtError: unknown) {
+      const openError = caughtError as Error & { code?: string }; toast.error(openError?.message || "文档已创建，但自动打开失败"); }
     toast.success("已从插件模板创建笔记");
   }, [actions, activateNote, reload, rememberOpened, templatePicker?.parentId]);
 

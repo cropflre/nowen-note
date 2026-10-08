@@ -22,7 +22,7 @@ async function request<T>(noteId: string, init?: RequestInit): Promise<T> {
   });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
-    const error = new Error(payload?.error || `请求失败 (${response.status})`) as Error & { code?: string; payload?: any };
+    const error = new Error(payload?.error || `请求失败 (${response.status})`) as Error & { code?: string; payload?: unknown };
     error.code = payload?.code;
     error.payload = payload;
     throw error;
@@ -31,12 +31,12 @@ async function request<T>(noteId: string, init?: RequestInit): Promise<T> {
 }
 
 export async function getSheet(noteId: string): Promise<SheetDocument> {
-  const result = await request<any>(noteId);
+  const result = await request<SheetDocument>(noteId);
   return { ...result, data: normalizeSheetData(result.data) };
 }
 
 export async function saveSheet(noteId: string, data: SheetDataModel, expectedUpdatedAt: string): Promise<Pick<SheetDocument, "data" | "updatedAt" | "canEdit" | "noteId">> {
-  const result = await request<any>(noteId, {
+  const result = await request<SheetDocument>(noteId, {
     method: "PUT",
     body: JSON.stringify({ data, expectedUpdatedAt }),
   });

@@ -9,6 +9,11 @@ on:
       - "frontend/src/components/TiptapEditor.tsx"
       - "frontend/src/components/CodeBlockView.tsx"
       - "frontend/src/components/MarkdownCodeBlock.tsx"
+      - "frontend/src/components/HtmlCodeBlockRunButton.tsx"
+      - "frontend/src/components/__tests__/HtmlCodeBlockRunButton.test.tsx"
+      - "frontend/src/lib/htmlPlayground.ts"
+      - "frontend/src/lib/__tests__/htmlPlayground.test.ts"
+      - "docs/html-code-block-playground.md"
       - "frontend/src/components/NoteIconPickerModal.tsx"
       - "frontend/src/components/KnowledgeTreePanel.tsx"
       - "frontend/src/components/SettingsModal.tsx"
@@ -58,6 +63,8 @@ on:
       - "backend/src/lib/knowledgeTreePasswordAccess.ts"
       - "backend/src/repositories/shareCommentsRepository.ts"
       - "backend/src/db/migrations.ts"
+      - "backend/src/db/schema.ts"
+      - "backend/tests/note-color-mark-startup.test.ts"
       - "backend/src/db/noteCommentNotificationsMigration.ts"
       - "backend/src/db/postgres/migrations/0116-note-comment-notifications.sql"
       - "backend/tests/note-comments-management.test.ts"
@@ -71,6 +78,11 @@ on:
       - "frontend/src/components/TiptapEditor.tsx"
       - "frontend/src/components/CodeBlockView.tsx"
       - "frontend/src/components/MarkdownCodeBlock.tsx"
+      - "frontend/src/components/HtmlCodeBlockRunButton.tsx"
+      - "frontend/src/components/__tests__/HtmlCodeBlockRunButton.test.tsx"
+      - "frontend/src/lib/htmlPlayground.ts"
+      - "frontend/src/lib/__tests__/htmlPlayground.test.ts"
+      - "docs/html-code-block-playground.md"
       - "frontend/src/components/NoteIconPickerModal.tsx"
       - "frontend/src/components/KnowledgeTreePanel.tsx"
       - "frontend/src/components/SettingsModal.tsx"
@@ -108,6 +120,8 @@ on:
       - "backend/src/lib/knowledgeTreePasswordAccess.ts"
       - "backend/src/repositories/shareCommentsRepository.ts"
       - "backend/src/db/migrations.ts"
+      - "backend/src/db/schema.ts"
+      - "backend/tests/note-color-mark-startup.test.ts"
       - "backend/src/db/noteCommentNotificationsMigration.ts"
       - "backend/src/db/postgres/migrations/0116-note-comment-notifications.sql"
       - "backend/tests/note-comments-management.test.ts"
@@ -138,6 +152,8 @@ jobs:
         run: >-
           npx vitest run
           src/lib/__tests__/issue749EditorUx.test.ts
+          src/lib/__tests__/htmlPlayground.test.ts
+          src/components/__tests__/HtmlCodeBlockRunButton.test.tsx
           src/components/__tests__/CodeBlockView.performance.test.tsx
           src/components/__tests__/MarkdownCodeBlock.performance.test.tsx
           src/lib/__tests__/userPreferenceAccountCache.test.ts
@@ -166,6 +182,8 @@ jobs:
           cache: npm
           cache-dependency-path: backend/package-lock.json
       - run: npm ci
+      - name: Legacy note color migration startup regression
+        run: node --import tsx --import ./tests/setup-db-isolation.ts --test tests/note-color-mark-startup.test.ts
       - name: Synced preference regression
         run: node --import tsx --import ./tests/setup-db-isolation.ts --test tests/user-preferences-sync.test.ts
       - name: Note comment management and notification regressions

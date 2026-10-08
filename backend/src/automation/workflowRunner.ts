@@ -7,6 +7,8 @@ import { rowToEvent } from "./eventPublisher.js";
 import { resolveTemplates } from "./templateResolver.js";
 import type { ExecutionVariables, NowenEvent, WorkflowDefinition, WorkflowRecord, WorkflowRunRecord, WorkflowStep } from "./types.js";
 import { WorkflowRepository } from "./workflowRepository.js";
+import { assertAssistantWorkflowOwner } from "../services/wechatAssistant.js";
+import { assertInboundWorkflowOwner } from "../plugins/inboundWebhooks.js";
 
 const RETRYABLE = new Set(["NETWORK_UNAVAILABLE", "RATE_LIMITED", "REMOTE_TIMEOUT", "PLUGIN_WORKER_CRASH", "PLUGIN_TIMEOUT"]);
 const RETRY_DELAYS = [1000, 5000, 30000];
@@ -105,6 +107,8 @@ export class WorkflowRunner {
   }
 
   private async executeAction(run: WorkflowRunRecord, workflow: WorkflowRecord, step: Extract<WorkflowStep, { type: "action" }>, input: Record<string, unknown>, idempotencyKey: string): Promise<unknown> {
+    assertInboundWorkflowOwner(workflow.id);
+    assertAssistantWorkflowOwner(workflow.id, run.id);
     const plugin = getPluginService().get(step.pluginId) as { actions?: Array<{ id: string; idempotent?: boolean; retryable?: boolean }> };
     const action = plugin.actions?.find((candidate) => candidate.id === step.actionId);
     const requestedAttempts = Math.min(3, Math.max(1, step.maxAttempts || 3));

@@ -2,11 +2,13 @@ import React, { useMemo, useState, useSyncExternalStore } from "react";
 import { Check, Copy, Maximize2, Minimize2 } from "lucide-react";
 import { createCodeBlockLowlight } from "@/lib/codeBlockLowlight";
 import { getCodeBlockLanguageDisplayLabel } from "@/lib/codeBlockLanguageRegistry";
+import { resolveMarkdownCodeBlockLanguage } from "@/lib/markdownCodeBlockLanguage";
 import { instrumentPhaseALowlight } from "@/lib/phaseAPerfDiagnostics";
 import { isPlainTextLanguage } from "@/lib/codeBlockHighlightPlugin";
 import { copyText } from "@/lib/clipboard";
 import { cn } from "@/lib/utils";
 import { CodeBlockFormatButton } from "@/components/CodeBlockFormatButton";
+import { HtmlCodeBlockRunButton } from "@/components/HtmlCodeBlockRunButton";
 import {
   CODE_BLOCK_TOOLBAR_CLASS,
   CODE_BLOCK_TOOL_BUTTON_CLASS,
@@ -16,6 +18,8 @@ import {
   subscribeCodeBlockCollapseMode,
 } from "@/lib/codeBlockPresentation";
 import "@/markdown-code-highlight.css";
+import { isEncryptedBlockLanguage } from "@/lib/encryptedNotes/blockDocument";
+import EncryptedBlockCard from "./EncryptedBlockCard";
 
 const lowlight = instrumentPhaseALowlight(createCodeBlockLowlight());
 
@@ -41,10 +45,15 @@ export interface MarkdownCodeBlockProps {
   className?: string;
   children?: React.ReactNode;
   onFormat?: () => Promise<void>;
+  onEditEncryptedBlock?: () => void;
 }
 
 /** Shared Markdown code block with the same core affordances as rich-text code blocks. */
-export function MarkdownCodeBlock({ className, children, onFormat }: MarkdownCodeBlockProps) {
+export function MarkdownCodeBlock({ className, children, onFormat, onEditEncryptedBlock }: MarkdownCodeBlockProps) {
+  if (isEncryptedBlockLanguage(normalizeLanguage(className))) return <EncryptedBlockCard language={normalizeLanguage(className)} source={String(children ?? "").replace(/\n$/, "")} onEdit={onEditEncryptedBlock} />;
+  return <OrdinaryMarkdownCodeBlock className={className} onFormat={onFormat}>{children}</OrdinaryMarkdownCodeBlock>;
+}
+function OrdinaryMarkdownCodeBlock({ className, children, onFormat }: MarkdownCodeBlockProps) {
   const [copied, setCopied] = useState(false);
   const [collapseOverride, setCollapseOverride] = useState<boolean | null>(null);
   const collapseMode = useSyncExternalStore(
@@ -52,8 +61,8 @@ export function MarkdownCodeBlock({ className, children, onFormat }: MarkdownCod
     getCodeBlockCollapseMode,
     getCodeBlockCollapseMode,
   );
-  const language = normalizeLanguage(className);
   const code = String(children ?? "").replace(/\n$/, "");
+  const language = resolveMarkdownCodeBlockLanguage(code, normalizeLanguage(className));
 
   const highlighted = useMemo(() => {
     if (isPlainTextLanguage(language)) return code;
@@ -96,6 +105,7 @@ export function MarkdownCodeBlock({ className, children, onFormat }: MarkdownCod
             <span className="hidden sm:inline">{collapsed ? "展开" : "折叠"}</span>
           </button>
           {onFormat && <CodeBlockFormatButton language={language} onFormat={onFormat} />}
+          <HtmlCodeBlockRunButton language={language} source={code} />
           <button
             type="button"
             onClick={() => void handleCopy()}

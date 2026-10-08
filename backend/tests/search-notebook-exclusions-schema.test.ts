@@ -2,8 +2,9 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 
-const testDir = path.dirname(new URL(import.meta.url).pathname);
+const testDir = path.dirname(fileURLToPath(import.meta.url));
 const migrationsSource = fs.readFileSync(path.join(testDir, "../src/db/migrations.ts"), "utf8");
 const sqliteMigration = fs.readFileSync(
   path.join(testDir, "../src/db/searchNotebookExclusionsMigration.ts"),

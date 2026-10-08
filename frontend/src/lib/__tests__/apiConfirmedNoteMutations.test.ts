@@ -29,6 +29,7 @@ function serverNote() {
 
 describe("server-confirmed note mutations", () => {
   beforeEach(() => {
+    Object.assign(window, { nowenDesktop: { isDesktop: true } });
     localStorage.clear();
     localStorage.setItem("nowen-server-url", "https://sync.test");
     localStorage.setItem("nowen-token", "token");
@@ -37,6 +38,7 @@ describe("server-confirmed note mutations", () => {
   });
 
   afterEach(() => {
+    Reflect.deleteProperty(window, "nowenDesktop");
     vi.unstubAllGlobals();
     Object.defineProperty(navigator, "onLine", { configurable: true, value: true });
   });

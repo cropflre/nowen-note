@@ -10,7 +10,7 @@ export const MOBILE_LOCAL_MODE_CHANGED_EVENT = "nowen:mobile-local-mode-changed"
 export function isAndroidNativeRuntime(): boolean {
   if (typeof window === "undefined") return false;
   try {
-    const capacitor = (window as any).Capacitor;
+    const capacitor = (window as Window & { Capacitor?: { isNativePlatform?: () => boolean; getPlatform?: () => string; platform?: string } }).Capacitor;
     const native = !!capacitor?.isNativePlatform?.()
       || (!!capacitor?.platform && capacitor.platform !== "web");
     const platform = capacitor?.getPlatform?.() || capacitor?.platform;

@@ -9,7 +9,7 @@ const ALLOWED_TRANSITIONS: Readonly<Record<PluginLifecycleState, readonly Plugin
   stable: [],
   rollback_pending: ["rolling_back"],
   rolling_back: ["stable", "disabled"],
-  disabled: [],
+  disabled: ["preflight"],
 });
 
 const ALLOWED_OPERATION_TRANSITIONS: Readonly<Record<PluginUpdateStage, readonly PluginUpdateStage[]>> = Object.freeze({
@@ -150,12 +150,12 @@ export class PluginLifecycle {
     return this.requirePlugin(pluginId);
   }
 
-  /** 普通启用也走 installed -> preflight -> probation；没有更新 operation 时只更新注册表。 */
+  /** 首次启用或失败后重新启用均经过 preflight -> probation；没有更新 operation 时只更新注册表。 */
   beginInstalledPreflight(pluginId: string): void {
     const db = getDb();
     db.transaction(() => {
       const record = this.requirePlugin(pluginId);
-      if (record.lifecycleState !== "installed") throw lifecycleError(record.lifecycleState, "preflight");
+      if (record.lifecycleState !== "installed" && record.lifecycleState !== "disabled") throw lifecycleError(record.lifecycleState, "preflight");
       this.transitionInTransaction(pluginId, "preflight", now());
     })();
   }

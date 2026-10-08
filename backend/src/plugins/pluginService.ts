@@ -18,6 +18,7 @@ import { PluginUpdateCoordinator } from "./pluginUpdateCoordinator.js";
 import { isDeclarativePluginManifest, pluginManifestActions, type PluginManifest, type PluginRegistryRecord } from "./types.js";
 import { createNoteFromPluginTemplate } from "./contributions/noteTemplateContribution.js";
 import { getExtensionPlatformFeatureFlags } from "./featureFlags.js";
+import { removeInboundWebhook } from "./inboundWebhooks.js";
 
 function manifestOf(record: PluginRegistryRecord): PluginManifest {
   return JSON.parse(record.manifestJson) as PluginManifest;
@@ -350,7 +351,7 @@ export class PluginService {
         this.registry.setStatus(pluginId, "enabled");
         return this.get(pluginId);
       }
-      if (record.lifecycleState === "installed") this.lifecycle.beginInstalledPreflight(pluginId);
+      if (record.lifecycleState === "installed" || record.lifecycleState === "disabled") this.lifecycle.beginInstalledPreflight(pluginId);
       await this.executions.preflight(pluginId);
       const afterPreflight = this.registry.get(pluginId)!;
       if (afterPreflight.lifecycleState === "preflight") {
@@ -416,6 +417,8 @@ export class PluginService {
   async uninstall(pluginId: string): Promise<void> {
     const record = this.requireRecord(pluginId);
     await this.executions.shutdown(pluginId);
+    const hooks = getDb().prepare("SELECT hookId,ownerUserId FROM plugin_inbound_webhooks WHERE pluginId=?").all(pluginId) as Array<{ hookId: string; ownerUserId: string }>;
+    for (const hook of hooks) removeInboundWebhook(pluginId, hook.hookId, hook.ownerUserId);
     this.installer.removeFiles(record);
     this.registry.remove(pluginId);
   }

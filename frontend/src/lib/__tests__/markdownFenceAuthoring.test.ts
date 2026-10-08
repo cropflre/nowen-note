@@ -18,12 +18,12 @@ import {
 } from "@/lib/markdownFenceAuthoring";
 
 beforeAll(() => {
-  if (!(globalThis as any).ResizeObserver) {
-    (globalThis as any).ResizeObserver = class ResizeObserver {
+  if (!globalThis.ResizeObserver) {
+    Object.assign(globalThis, { ResizeObserver: class ResizeObserver {
       observe() {}
       unobserve() {}
       disconnect() {}
-    };
+    } });
   }
 });
 

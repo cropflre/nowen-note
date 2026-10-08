@@ -7,13 +7,13 @@ function currentPlatform(): "web" | "desktop" { return typeof window !== "undefi
 export default function PluginPromptPicker({ onSelect, disabled }: { onSelect: (value: string) => void; disabled?: boolean }) {
   const { state } = useApp(); const [items, setItems] = useState<RegisteredPluginPrompt[]>([]); const [open, setOpen] = useState(false);
   const load = useCallback(async () => { try { replacePluginPrompts(await pluginApi.contributions()); setItems(listPluginPrompts(currentPlatform()).filter((item) => !item.context?.includes("selection"))); } catch { setItems([]); } }, []);
-  useEffect(() => { void load(); }, [load]); const note = state.activeNote as any;
+  useEffect(() => { void load(); }, [load]); const note = state.activeNote;
   const select = async (item: RegisteredPluginPrompt) => { const values: Record<string, unknown> = {};
     for (const field of item.inputs || []) { const raw = window.prompt(field.label || field.id, field.default == null ? "" : String(field.default)); if (raw == null) return; values[field.id] = field.type === "number" ? Number(raw) : field.type === "boolean" ? /^(1|true|yes|是)$/i.test(raw.trim()) : raw; }
     let value = renderPluginPrompt(item, values); const context: string[] = [];
     if (item.context?.includes("title") && note?.title) context.push("标题：" + note.title);
     if (item.context?.includes("note") && (note?.contentText || note?.content)) context.push("笔记内容：\n" + String(note.contentText || note.content).slice(0, 12000));
-    if (item.context?.includes("tags") && Array.isArray(note?.tags) && note.tags.length) context.push("标签：" + note.tags.map((tag: any) => tag.name || tag).join(", "));
+    if (item.context?.includes("tags") && Array.isArray(note?.tags) && note.tags.length) context.push("标签：" + note.tags.map((tag) => tag.name || tag).join(", "));
     if (context.length) value += "\n\n以下是 Host 按声明提供的最小上下文：\n" + context.join("\n\n"); onSelect(value); setOpen(false);
   };
   if (!items.length) return null;

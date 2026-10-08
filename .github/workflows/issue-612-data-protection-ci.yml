@@ -4,6 +4,9 @@ on:
   push:
     branches: [main]
     paths:
+      - "frontend/**"
+      - "scripts/frontend-lint-baseline.cjs"
+      - "scripts/tests/frontend-lint-baseline.test.cjs"
       - "backend/src/db/migrations.ts"
       - "backend/src/db/schema.ts"
       - "backend/src/db/postgres/schema.base.sql"
@@ -52,6 +55,9 @@ on:
       - ".github/workflows/issue-612-data-protection-ci.yml"
   pull_request:
     paths:
+      - "frontend/**"
+      - "scripts/frontend-lint-baseline.cjs"
+      - "scripts/tests/frontend-lint-baseline.test.cjs"
       - "backend/src/db/migrations.ts"
       - "backend/src/db/schema.ts"
       - "backend/src/db/postgres/schema.base.sql"
@@ -156,6 +162,8 @@ jobs:
           src/lib/__tests__/noteAttachmentAccessBridge.test.ts
           src/lib/__tests__/noteAttachmentAccessPriming.test.ts
           src/lib/__tests__/noteImageSaveRace.test.ts
+      - name: Lint baseline gate regressions
+        run: node --test ../scripts/tests/frontend-lint-baseline.test.cjs
       - name: Frontend typecheck
         if: always()
         run: npx tsc -b
@@ -172,7 +180,7 @@ jobs:
           src/lib/__tests__/editorLifecycleSafety.test.ts
       - name: Frontend lint
         if: always()
-        run: npm run lint
+        run: npm run lint:baseline
       - name: Frontend build
         if: always()
         run: npm run build

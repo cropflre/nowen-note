@@ -542,9 +542,14 @@ export class SyncEngine {
       }
 
       if (result.code === "VERSION_CONFLICT") {
-        this.recordPushConflict(
-          result.mutationId,result.serverVersion,result.serverPayload,rows,scope.scopeKey,
-        );
+        try {
+          this.recordPushConflict(
+            result.mutationId,result.serverVersion,result.serverPayload,rows,scope.scopeKey,
+          );
+        } catch (error) {
+          recoverInflightMutations(this.db);
+          throw error;
+        }
         // 冲突条目出队：它已经转入冲突台账，继续重试只会反复失败。
         // 本地内容仍在库里，两个版本都可恢复。
         markMutationSynced(this.db, result.mutationId);

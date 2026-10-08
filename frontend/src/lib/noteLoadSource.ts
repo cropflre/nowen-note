@@ -1,4 +1,8 @@
+import { getOfflineQueueStorageKey } from "./offlineScope";
+import { ConversionCleanupError } from "./encryptedNotes/conversionCoordination";
+import { assertConversionNote } from "./encryptedNotes/conversionBarrier";
 import type { Note } from "@/types";
+import { pendingEncryptedNote } from "./encryptedNotes/pendingNote";
 import { getBaseUrl } from "@/lib/api";
 import {
   getNote as getCachedNote,
@@ -77,18 +81,27 @@ export async function loadNoteCacheFirst({
   onRevalidated,
   beforeUseCached = prepareNoteRuntime,
 }: CacheFirstNoteLoadOptions): Promise<Note> {
+  const scope = getOfflineQueueStorageKey();
+  const assertCurrent = (note: Note) => {
+    if (scope !== getOfflineQueueStorageKey()) throw new ConversionCleanupError("scope_changed");
+    assertConversionNote(note);
+  };
+  const pending = pendingEncryptedNote(noteId);
+  if (pending) return pending;
   const cached = await getCachedNote(noteId);
   if (cached && isNoteDetailCached(cached)) {
     // Start freshness revalidation immediately. Runtime/media preparation is best-effort by default;
     // custom callers can still explicitly provide a blocking prerequisite through beforeUseCached.
     void fetchRemote()
       .then(async (remote) => {
+        assertCurrent(remote);
         await persistDetail(remote);
         try {
           await beforeUseCached(remote);
         } catch (error) {
           console.warn("[noteLoadSource] revalidated-note preparation failed:", error);
         }
+        assertCurrent(remote);
         await onRevalidated?.(remote, cached);
       })
       .catch((error) => {
@@ -102,10 +115,12 @@ export async function loadNoteCacheFirst({
       // recover the runtime prerequisite when connectivity returns.
       console.warn("[noteLoadSource] cached-note preparation failed:", error);
     }
+    assertCurrent(cached);
     return cached;
   }
 
   const remote = await fetchRemote();
+  assertCurrent(remote);
   await persistDetail(remote);
   try {
     // The default preparation starts signed-URL priming but resolves synchronously. This keeps
@@ -115,5 +130,6 @@ export async function loadNoteCacheFirst({
   } catch (error) {
     console.warn("[noteLoadSource] remote-note preparation failed:", error);
   }
+  assertCurrent(remote);
   return remote;
 }

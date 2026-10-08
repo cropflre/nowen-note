@@ -1,3 +1,6 @@
+import { getOfflineQueueStorageKey } from "./offlineScope";
+import { withConversionRequestLease } from "./encryptedNotes/conversionBarrier";
+import { withEncryptedBlocksSupport } from "./encryptedNotes/blockDocument";
 export * from "./api.impl";
 
 import { api as baseApi, getBaseUrl, getCurrentWorkspace, getServerUrl } from "./api.impl";
@@ -326,37 +329,39 @@ api.restoreTaskCompletedAt = (taskId: string, completedAt: string) =>
   });
 
 api.createNoteConfirmed = async (data: Partial<Note>) => {
+  const cacheScope = getOfflineQueueStorageKey();
   let payload: Partial<Note> & { id: string };
   try {
-    payload = stabilizeNoteMutationPayload({
+    payload = withEncryptedBlocksSupport(stabilizeNoteMutationPayload({
       ...data,
       id: data.id || generateConfirmedNoteId(),
-    });
+    }));
   } catch (error) {
     reportTransientNoteImageSource(error, { operation: "createNoteConfirmed" });
     throw error;
   }
-  const created = await confirmedNoteJson<Note>("/notes", {
+  const created = await withConversionRequestLease(payload.id, payload, () => confirmedNoteJson<Note>("/notes", {
     method: "POST",
     body: JSON.stringify(payload),
-  });
-  void import("@/lib/syncEngine").then((module) => module.cacheNoteContent(created)).catch(() => {});
+  }));
+  void import("@/lib/syncEngine").then((module) => module.cacheNoteContent(created, cacheScope)).catch(() => {});
   return created;
 };
 
 api.updateNoteConfirmed = async (id: string, data: Partial<Note>) => {
+  const cacheScope = getOfflineQueueStorageKey();
   let payload: Partial<Note>;
   try {
-    payload = stabilizeNoteMutationPayload(data);
+    payload = withEncryptedBlocksSupport(stabilizeNoteMutationPayload(data));
   } catch (error) {
     reportTransientNoteImageSource(error, { operation: "updateNoteConfirmed", noteId: id });
     throw error;
   }
-  const updated = await confirmedNoteJson<Note>(`/notes/${encodeURIComponent(id)}`, {
+  const updated = await withConversionRequestLease(id, payload, () => confirmedNoteJson<Note>(`/notes/${encodeURIComponent(id)}`, {
     method: "PUT",
     body: JSON.stringify(payload),
-  });
-  void import("@/lib/syncEngine").then((module) => module.cacheNoteContent(updated)).catch(() => {});
+  }));
+  void import("@/lib/syncEngine").then((module) => module.cacheNoteContent(updated, cacheScope)).catch(() => {});
   return updated;
 };
 

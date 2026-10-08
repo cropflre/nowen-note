@@ -26,7 +26,7 @@ describe("workspace shared journal contract", () => {
     expect(view).toContain('data-journal-scope-switch=""');
     expect(view).toContain('resolveJournalScope("personal")');
     expect(view).toContain("resolveJournalScope(activeWorkspaceId)");
-    expect(view).toContain('journalScope.kind === "workspace" ? "工作区日记" : "个人日记"');
+    expect(view).toContain('journalScope.kind === "workspace" ? "工作区日志" : "个人日记"');
   });
 
   it("loads and creates notes within the selected scope", () => {

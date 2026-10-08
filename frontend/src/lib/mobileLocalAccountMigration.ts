@@ -249,7 +249,7 @@ export async function migrateMobileLocalAccount(options: MigrationOptions): Prom
 
     for (const row of tasks) {
       const id = mapping.tasks[String(row.id)];
-      const payload: Record<string, any> = {
+      const payload: Record<string, unknown> = {
         ...row,id,scopeKey:"personal",workspaceId:null,userId:options.targetUserId,
         noteId:row.noteId ? mapping.notes[String(row.noteId)] || null : null,
         parentId:row.parentId ? mapping.tasks[String(row.parentId)] || null : null,
@@ -268,7 +268,7 @@ export async function migrateMobileLocalAccount(options: MigrationOptions): Prom
       const id = mapping.taskReminders[String(row.id)];
       const taskId = mapping.tasks[String(row.taskId)];
       if (!taskId) continue;
-      const payload: Record<string, any> = { ...row,id,taskId,userId:options.targetUserId };
+      const payload: Record<string, unknown> = { ...row,id,taskId,userId:options.targetUserId };
       await tx.run(`INSERT OR IGNORE INTO task_reminders (
         id,taskId,userId,offsetMinutes,enabled,lastNotifiedAt,snoozedUntil,createdAt,updatedAt
       ) VALUES (?,?,?,?,?,?,?,?,?)`,[
@@ -279,7 +279,7 @@ export async function migrateMobileLocalAccount(options: MigrationOptions): Prom
 
     for (const row of diaries) {
       const id = mapping.diaries[String(row.id)];
-      const payload: Record<string, any> = { ...row,id,scopeKey:"personal",workspaceId:null,userId:options.targetUserId };
+      const payload: Record<string, unknown> = { ...row,id,scopeKey:"personal",workspaceId:null,userId:options.targetUserId };
       await tx.run(`INSERT OR IGNORE INTO diaries (id,scopeKey,workspaceId,userId,contentText,mood,images,media,createdAt)
         VALUES (?,'personal',NULL,?,?,?,?,?,?)`,[
         id,options.targetUserId,payload.contentText,payload.mood,payload.images,payload.media,payload.createdAt,
@@ -289,7 +289,7 @@ export async function migrateMobileLocalAccount(options: MigrationOptions): Prom
 
     for (const row of mindmaps) {
       const id = mapping.mindmaps[String(row.id)];
-      const payload: Record<string, any> = { ...row,id,scopeKey:"personal",workspaceId:null,userId:options.targetUserId,folderId:null };
+      const payload: Record<string, unknown> = { ...row,id,scopeKey:"personal",workspaceId:null,userId:options.targetUserId,folderId:null };
       await tx.run(`INSERT OR IGNORE INTO mindmaps (
         id,scopeKey,workspaceId,userId,title,data,starred,folderId,createdAt,updatedAt
       ) VALUES (?,'personal',NULL,?,?,?,?,?,?,?)`,[

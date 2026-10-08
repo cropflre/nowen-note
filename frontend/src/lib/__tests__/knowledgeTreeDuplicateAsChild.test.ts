@@ -49,9 +49,9 @@ function duplicatedNote() {
     id: "note-copy",
     title: "原文档（副本）",
     treeNodeId: "tree-copy",
-    treeParentId: "folder-1",
+    treeParentId: "tree-note-1",
     tags: [],
-  } as any;
+  } as unknown as Awaited<ReturnType<typeof import("@/lib/api").api.duplicateNote>>;
 }
 
 describe("knowledge tree duplicate as child", () => {
@@ -92,37 +92,48 @@ describe("knowledge tree duplicate as child", () => {
     })).resolves.toBeNull();
   });
 
-  it("duplicates with the existing API then moves the copy under the source document", async () => {
-    const source = sourceNode();
+  it("allows an editor to duplicate directly under the source without move or delete permissions", async () => {
+    const owner = sourceNode();
+    const source = sourceNode({ access: {
+      ...owner.access,
+      rolePreset: "editor",
+      capabilities: { ...owner.access.capabilities, canMove: false, canDelete: false },
+    } });
     const duplicateNote = vi.fn(async () => duplicatedNote());
-    const moveNode = vi.fn(async () => ({}));
-    const rollbackNode = vi.fn(async () => ({}));
 
     const result = await duplicateKnowledgeTreeNoteAsChild(source.id, {
       listNodes: async () => [source],
       duplicateNote,
-      moveNode,
-      rollbackNode,
     });
 
-    expect(duplicateNote).toHaveBeenCalledWith(source.resourceId);
-    expect(moveNode).toHaveBeenCalledWith("tree-copy", source.id);
-    expect(rollbackNode).not.toHaveBeenCalled();
+    expect(duplicateNote).toHaveBeenCalledTimes(1);
+    expect(duplicateNote).toHaveBeenCalledWith(source.resourceId, { placement: "child" });
     expect(result.treeParentId).toBe(source.id);
   });
 
-  it("rolls back the newly created duplicate when moving it into the child location fails", async () => {
+  it("propagates server failure without attempting a separate move or rollback", async () => {
     const source = sourceNode();
-    const failure = new Error("move failed");
-    const rollbackNode = vi.fn(async () => ({}));
+    const failure = new Error("duplicate failed");
+    const duplicateNote = vi.fn(async () => { throw failure; });
 
     await expect(duplicateKnowledgeTreeNoteAsChild(source.id, {
       listNodes: async () => [source],
-      duplicateNote: async () => duplicatedNote(),
-      moveNode: async () => { throw failure; },
-      rollbackNode,
+      duplicateNote,
     })).rejects.toBe(failure);
 
-    expect(rollbackNode).toHaveBeenCalledWith("tree-copy");
+    expect(duplicateNote).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not call duplicate for a readonly source", async () => {
+    const owner = sourceNode();
+    const source = sourceNode({ access: {
+      ...owner.access,
+      capabilities: { ...owner.access.capabilities, canCreate: false },
+    } });
+    const duplicateNote = vi.fn();
+    await expect(duplicateKnowledgeTreeNoteAsChild(source.id, {
+      listNodes: async () => [source], duplicateNote,
+    })).rejects.toThrow("当前节点不是可创建子内容的文档");
+    expect(duplicateNote).not.toHaveBeenCalled();
   });
 });

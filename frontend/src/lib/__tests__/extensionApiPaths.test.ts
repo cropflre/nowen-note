@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("@/lib/api.impl", () => ({ getBaseUrl: () => "/api" }));
 
 import { automationApi } from "@/lib/automationApi";
-import { pluginApi } from "@/lib/pluginApi";
+import { pluginApi, wechatCaptureApi } from "@/lib/pluginApi";
 
 describe("extension API paths", () => {
   const fetchMock = vi.fn();
@@ -45,17 +45,31 @@ describe("extension API paths", () => {
         id: "nowenlab.example",
         publisher: "nowenlab",
         name: "Example",
-        versions: [{ version: "1.2.0" }, { version: "1.10.0" }],
+        versions: [{ version: "1.2.0", runtime: "sandbox-js" }, { version: "1.10.0", runtime: "node-action" }],
       }],
     }), { status: 200, headers: { "content-type": "application/json" } }));
 
     await expect(pluginApi.registryCatalog()).resolves.toMatchObject([{
       id: "nowenlab.example",
       latestVersion: "1.10.0",
+      runtime: "node-action",
     }]);
     expect(fetchMock).toHaveBeenCalledWith(
       "/api/plugins/ecosystem/catalog?source=official-v2",
       expect.any(Object),
     );
   });
+
+  it("updates only the selected Runtime policy through the existing administrator endpoint", async () => {
+    await pluginApi.getRuntimePolicy(); await pluginApi.setRuntimePolicy(true);
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual(["/api/plugins/policy", "/api/plugins/policy"]);
+    expect(fetchMock.mock.calls[1][1]).toMatchObject({ method: "PUT", body: JSON.stringify({ allowNodeRuntime: true }) });
+  });
+  it("uses authenticated single-prefix paths for the WeChat inbox", async () => {
+    await wechatCaptureApi.status(); await wechatCaptureApi.preferences(true);
+    await wechatCaptureApi.collect("https://example.com/article"); await wechatCaptureApi.retry("item/id");
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual(["/api/wechat-capture", "/api/wechat-capture/preferences", "/api/wechat-capture/collect", "/api/wechat-capture/items/item%2Fid/retry"]);
+    expect(fetchMock.mock.calls[2][1]).toMatchObject({ method: "POST", body: JSON.stringify({ text: "https://example.com/article" }) });
+  });
+
 });

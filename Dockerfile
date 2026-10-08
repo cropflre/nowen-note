@@ -38,7 +38,8 @@ RUN apk add --no-cache ffmpeg
 COPY backend/package.json backend/package-lock.json ./
 RUN FFMPEG_BIN=/usr/bin/ffmpeg npm ci --no-audit --no-fund
 COPY backend/ .
-RUN npx tsc
+RUN npx tsc \
+    && cp src/plugins/runner-child.mjs src/plugins/sandbox-child.mjs dist/plugins/
 RUN apk del .build-deps
 
 # ---------- Stage 3: 运行时镜像 ----------
@@ -57,6 +58,9 @@ RUN apk add --no-cache --virtual .build-deps python3 make g++ linux-headers \
 COPY --from=backend-build /app/backend/dist ./backend/dist
 COPY backend/templates ./backend/templates
 COPY --from=frontend-build /app/frontend/dist ./frontend/dist
+COPY backend/scripts/smoke-plugin-artifacts.cjs ./backend/scripts/smoke-plugin-artifacts.cjs
+# 仅使用生产依赖与 dist；没有 src，避免开发入口兜底掩盖遗漏的运行器。
+RUN node backend/scripts/smoke-plugin-artifacts.cjs
 
 RUN mkdir -p /app/data /var/lib/nowen-updater \
     && chmod 700 /var/lib/nowen-updater

@@ -150,13 +150,13 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
   if (response.status === 404) {
     let code = "";
-    try { code = ((await response.clone().json()) as any)?.code || ""; } catch { /* ignore */ }
+    try { code = ((await response.clone().json()) as { code?: string })?.code || ""; } catch { /* ignore */ }
     if (code === "SYNC_V2_DISABLED") throw new SyncV2DisabledError();
   }
   if (!response.ok) {
     let message = `HTTP ${response.status}`;
     try {
-      const data = await response.json() as any;
+      const data = await response.json() as { error?: unknown };
       if (data?.error) message = String(data.error);
     } catch { /* 保留默认信息 */ }
     throw new Error(message);

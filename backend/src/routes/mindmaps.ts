@@ -24,7 +24,7 @@ import {
 } from "../middleware/acl";
 import { ensureMindmapSchema } from "../lib/mindmap-schema";
 import { deleteKnowledgeNode, KnowledgeTreeError } from "../services/knowledgeTree.js";
-import { resolveResourceKnowledgeAccessForTombstone } from "../services/knowledgeCapabilities.js";
+import { permanentlyDeleteMindmap } from "../services/trash/mindmapTrashAdapter.js";
 
 const app = new Hono();
 
@@ -259,23 +259,13 @@ app.delete("/:id", (c) => {
 // Permanent deletion is deliberately separate from the legacy DELETE action, which now
 // moves a map to the same recoverable tree trash as documents and folders.
 app.delete("/:id/permanent", (c) => {
-  const db = getDb();
-  const userId = c.req.header("X-User-Id") || "";
-  const id = c.req.param("id");
-  const row = db.prepare("SELECT * FROM mindmaps WHERE id = ?").get(id) as MindmapRow | undefined;
-  if (!row) return c.json({ error: "思维导图不存在" }, 404);
-  if (!canManageResource(row.userId, row.workspaceId, userId)) {
-    return c.json({ error: "无权删除此导图", code: "FORBIDDEN" }, 403);
+  try {
+    permanentlyDeleteMindmap(c.req.param("id"), c.req.header("X-User-Id") || "");
+    return c.json({ success: true });
+  } catch (error) {
+    if (error instanceof KnowledgeTreeError) return c.json({ error: error.message, code: error.code }, error.status);
+    throw error;
   }
-  const node = db.prepare(`
-    SELECT isDeleted FROM knowledge_tree_nodes WHERE resourceType = 'mindmap' AND resourceId = ?
-  `).get(id) as { isDeleted: number } | undefined;
-  if (!node?.isDeleted) return c.json({ error: "请先将脑图移入回收站", code: "MINDMAP_NOT_TRASHED" }, 409);
-  if (!resolveResourceKnowledgeAccessForTombstone("mindmap", id, userId, db).capabilities.canDelete) {
-    return c.json({ error: "无权删除此导图", code: "FORBIDDEN" }, 403);
-  }
-  db.prepare("DELETE FROM mindmaps WHERE id = ?").run(id);
-  return c.json({ success: true });
 });
 
 // ---------- ??/???? ----------

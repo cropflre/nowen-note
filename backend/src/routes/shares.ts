@@ -136,8 +136,9 @@ sharesRouter.post("/", async (c) => {
     return c.json({ error: "缺少 noteId 参数" }, 400);
   }
 
-  const note = db.prepare("SELECT id, userId, title FROM notes WHERE id = ?").get(noteId) as any;
+  const note = db.prepare("SELECT id, userId, title, contentFormat FROM notes WHERE id = ?").get(noteId) as any;
   if (!note) return c.json({ error: "笔记不存在" }, 404);
+  if (note.contentFormat?.startsWith("encrypted-")) return c.json({ error: "加密笔记暂不支持公开分享", code: "ENCRYPTED_NOTE_SHARING_FORBIDDEN" }, 400);
   const folderPasswordError = requireUnlockedNoteForShare(c, noteId, userId);
   if (folderPasswordError) return folderPasswordError;
   const capabilities = resolveEffectiveNoteCapabilities(noteId, userId);

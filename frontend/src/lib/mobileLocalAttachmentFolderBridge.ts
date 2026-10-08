@@ -28,7 +28,7 @@ export function installMobileLocalAttachmentFolderBridge(
   db: NativeDatabase,
   userId: string,
 ): () => void {
-  const target = api as any;
+  const target = api;
   const originals = {
     attachmentFolders: { ...target.attachmentFolders },
     filesList: target.files.list,

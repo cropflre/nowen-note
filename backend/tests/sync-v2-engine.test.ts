@@ -585,7 +585,7 @@ test("未知同步实体不能被跳过并推进游标或 ACK", async () => {
   remote.serverSequence = 44;
   remote.changesQueue.push({
     serverSequence: 44, nextSequence: 44, hasMore: false, resetRequired: false,
-    items: [{ sequence: 44, entityType: "knowledge_tree_node", entityId: "note:n1", operation: "delete" }],
+    items: [{ sequence: 44, entityType: "future_unsupported_entity", entityId: "note:n1", operation: "delete" }],
   });
 
   const status = await engine.syncOnce();

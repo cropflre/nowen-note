@@ -3,11 +3,17 @@ name: Linux Desktop Native CI
 on:
   push:
     branches:
-      - release/v1.4.6
+      - "release/**"
     paths:
       - ".github/workflows/linux-desktop-native-ci.yml"
       - ".github/workflows/release.yml"
       - "electron/**"
+      - "build/icons/**"
+      - "frontend/public/favicon.svg"
+      - "scripts/build-icon.mjs"
+      - "scripts/verify-linux-desktop-package.cjs"
+      - "scripts/lib/linux-desktop-package.cjs"
+      - "scripts/tests/linux-desktop-packaging.test.cjs"
       - "scripts/rebuild-native.mjs"
       - "scripts/check-linux-native-compat.cjs"
       - "scripts/smoke-better-sqlite3.cjs"
@@ -22,6 +28,12 @@ on:
       - ".github/workflows/linux-desktop-native-ci.yml"
       - ".github/workflows/release.yml"
       - "electron/**"
+      - "build/icons/**"
+      - "frontend/public/favicon.svg"
+      - "scripts/build-icon.mjs"
+      - "scripts/verify-linux-desktop-package.cjs"
+      - "scripts/lib/linux-desktop-package.cjs"
+      - "scripts/tests/linux-desktop-packaging.test.cjs"
       - "scripts/rebuild-native.mjs"
       - "scripts/check-linux-native-compat.cjs"
       - "scripts/smoke-better-sqlite3.cjs"
@@ -64,6 +76,12 @@ jobs:
       - name: Native compatibility policy tests
         run: npm run test:linux-native
 
+      - name: Linux desktop packaging regression tests
+        run: npm run test:linux-desktop
+
+      - name: Install desktop entry validator
+        run: sudo apt-get update && sudo apt-get install -y desktop-file-utils
+
       - name: Rebuild better-sqlite3 on the glibc 2.31 baseline
         shell: bash
         run: |
@@ -90,11 +108,14 @@ jobs:
       - name: Build backend and frontend
         run: npm run build:all
 
-      - name: Build unpacked Linux desktop application
+      - name: Build Linux Debian package
         env:
           TARGET_ARCH: x64
           npm_config_target_arch: x64
-        run: npx electron-builder --config electron/builder.config.js --linux --dir --publish never
+        run: npx electron-builder --config electron/builder.config.js --linux deb --publish never
+
+      - name: Verify installed desktop metadata and icon resources
+        run: npm run verify:linux-desktop
 
       - name: Verify the copied native module in the final application
         shell: bash

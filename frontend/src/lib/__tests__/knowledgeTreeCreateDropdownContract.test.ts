@@ -7,7 +7,7 @@ function source(relativeUrl: string) {
 
 describe("knowledge tree create dropdown contract", () => {
   it("uses an anchored menu instead of the global confirm dialog", () => {
-    const runtime = source("../../components/KnowledgeTreeCreateMenuRuntime.tsx");
+    const runtime = source("../../components/KnowledgeTreeCreateDropdown.tsx");
 
     expect(runtime).toContain('role="menu"');
     expect(runtime).toContain("createPortal(");

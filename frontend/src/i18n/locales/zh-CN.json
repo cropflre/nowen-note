@@ -1,9 +1,50 @@
 {
+  "trashCenter": {
+    "hiddenPath": "原目录受权限限制",
+    "all": "全部",
+    "note": "笔记",
+    "notebook": "文件夹",
+    "mindmap": "脑图",
+    "sheet": "轻量表格",
+    "types": "资源类型",
+    "empty": "清空回收站",
+    "permanent": "永久删除",
+    "restore": "恢复",
+    "refresh": "刷新回收站",
+    "search": "搜索已删除内容或原位置…",
+    "selectAll": "全选当前列表",
+    "selected": "已选 {{count}} 项",
+    "selectItem": "选择 {{title}}",
+    "restoreItem": "恢复 {{title}}",
+    "deleteItem": "永久删除 {{title}}",
+    "originalPath": "原位置",
+    "root": "根目录",
+    "deletedAt": "删除于 {{date}}",
+    "unknownDate": "删除时间未知",
+    "locked": "已锁定",
+    "emptyState": "回收站是空的",
+    "noMatches": "没有匹配的已删除内容",
+    "loadFailed": "回收站加载失败",
+    "retry": "重试",
+    "operationFailed": "回收站操作失败",
+    "deleteConfirm": "将尝试永久删除 {{count}} 项内容（包含所选目录内的已删除内容），此操作无法撤销。已锁定、无权限的内容及其所在非空目录会保留。",
+    "restoreConfirm": "优先恢复到原位置。必要的已删除祖先目录，以及与目录同时删除的内容也会恢复；更早删除的其他内容仍留在回收站。",
+    "protectedHint": "永久删除逐项检查权限与锁定状态；非空目录会保留。一次批量操作最多选择 500 项。",
+    "partial": "已完成 {{count}} 项，{{failed}} 项未完成，请查看列表中的原因",
+    "success": "已完成 {{count}} 项"
+  },
+  "htmlPlayground": {
+    "run": "运行 HTML",
+    "title": "HTML 运行预览",
+    "rerun": "重新运行",
+    "close": "关闭预览",
+    "description": "支持 HTML、CSS 和内联 JavaScript。预览与笔记隔离，外部脚本和网络请求受限。"
+  },
   "codeBlockFormatting": {
     "format": "格式化",
     "formatting": "格式化中…",
     "unsupported": "暂不支持此语言的格式化",
-    "invalid": "格式化失败，请检查语法和代码语言。未指定语言时仅支持 JSON",
+    "invalid": "格式化失败，请检查语法和代码块的语言标记（如 html、javascript、json）",
     "changed": "代码已变更，请重新点击格式化",
     "readOnly": "只读笔记无法格式化"
   },
@@ -45,6 +86,8 @@
   "auth": {
     "verifying": "正在验证身份...",
     "loginFailed": "登录失败",
+    "serviceUnavailable": "暂时无法连接服务，请检查网络或稍后重试。",
+    "retryConnection": "重试",
     "loginNoResponse": "登录请求未收到 HTTP 响应（{{target}}）。请检查服务器是否运行、地址、证书、CORS/CSP 和反向代理；这不代表密码错误。",
     "loginHttpError": "登录请求返回 HTTP {{status}}（{{target}}）：{{reason}}",
     "loginSessionError": "登录后的本地会话处理失败，请重试或查看应用日志。",
@@ -229,19 +272,6 @@
     "emojiNature": "自然",
     "emojiFood": "食物"
   },
-  "note": {
-    "colorMark": {
-      "action": "颜色标记",
-      "none": "无标记",
-      "red": "红色",
-      "orange": "橙色",
-      "yellow": "黄色",
-      "green": "绿色",
-      "blue": "蓝色",
-      "purple": "紫色",
-      "gray": "灰色"
-    }
-  },
   "noteList": {
     "moveTo": "移动到...",
     "moveNote": "移动笔记",
@@ -276,6 +306,11 @@
     "clearFilter": "清除",
     "sortBy": "排序方式",
     "listOptions": "列表选项",
+    "displaySettings": "显示设置",
+    "filters": "筛选条件",
+    "activeDateFilter": "日期：{{date}}",
+    "removeTagFilter": "移除标签筛选：{{name}}",
+    "matchCount": "匹配 {{count}} 篇",
     "titleOnly": "仅显示标题",
     "mindmapPreview": "思维导图",
     "diagramPreview": "流程图",
@@ -741,6 +776,8 @@
     "switchesDesc": "集中管理功能开关和默认行为",
     "navigationVisibilityTitle": "导航栏显示",
     "navigationVisibilityDesc": "只隐藏不需要的入口，不会删除数据或关闭功能；深链仍可直接访问。",
+    "navigationMoveUp": "上移",
+    "navigationMoveDown": "下移",
     "taskCenterVisibilityTitle": "任务中心显示",
     "taskCenterVisibilityDesc": "任务列表始终保留；可按需隐藏收集箱、我的一天、时间规划、习惯打卡和统计。",
     "journalPrivacyTitle": "日记隐私",
@@ -1976,6 +2013,8 @@
     }
   },
   "tags": {
+    "removeTag": "移除标签 {{name}}",
+    "showMore": "显示其余 {{count}} 个标签",
     "addTagPlaceholder": "添加标签...",
     "createTag": "创建标签 \"{{name}}\"",
     "changeColor": "更换颜色",
@@ -2642,6 +2681,12 @@
     "revokeConfirmDesc": "使用该令牌的所有应用（含「{{name}}」）将立即失去访问权限。此操作不可撤销。",
     "revokeSuccess": "令牌「{{name}}」已吊销",
     "revokeFail": "吊销失败",
+    "delete": "删除",
+    "deleting": "删除中...",
+    "deleteConfirmTitle": "删除已吊销的令牌？",
+    "deleteConfirmDesc": "将永久删除「{{name}}」及其授权配置和使用统计，审计日志仍保留。此操作无法恢复。",
+    "deleteSuccess": "令牌「{{name}}」已删除",
+    "deleteFail": "删除令牌失败",
     "neverExpires": "永不过期",
     "timeJustNow": "刚刚",
     "timeMinAgo": "{{n}} 分钟前",
@@ -2733,6 +2778,34 @@
     }
   },
   "note": {
+    "colorMark": {
+      "action": "颜色标记",
+      "none": "无标记",
+      "red": "红色",
+      "orange": "橙色",
+      "yellow": "黄色",
+      "green": "绿色",
+      "blue": "蓝色",
+      "purple": "紫色",
+      "gray": "灰色"
+    },
+    "contextMenu": {
+      "split": "分屏打开",
+      "splitRight": "在右侧分屏打开",
+      "splitDown": "在下方分屏打开",
+      "duplicate": "创建副本",
+      "create": "新建",
+      "document": "文档",
+      "markdownDocument": "Markdown 文档",
+      "folder": "文件夹",
+      "mindmap": "思维导图",
+      "share": "分享",
+      "more": "更多",
+      "saveAsTemplate": "保存为模板",
+      "permissions": "成员与权限",
+      "convertToRichText": "转换为富文本",
+      "convertToMarkdown": "转换为 Markdown"
+    },
     "print": "打印",
     "printFailed": "无法打开系统打印服务",
     "exportAsPng": "导出为 PNG",
@@ -2868,5 +2941,89 @@
     "searchPlaceholder": "搜索笔记...",
     "noResults": "没有找到匹配的笔记",
     "linkCreated": "笔记引用已插入"
+  },
+  "plugins": {
+    "marketplace": {
+      "install": "安装",
+      "installing": "正在安装…",
+      "policyLoading": "正在读取 Node Runtime 策略…",
+      "policyRequired": "请先开启上方的「允许官方 / 已验证插件使用 Node Runtime」。",
+      "loginRequired": "登录状态已失效，请重新登录后安装。"
+    },
+    "runtimePolicy": {
+      "title": "允许官方 / 已验证插件使用 Node Runtime",
+      "description": "此策略仅用于需要 Node Runtime 的官方或已验证插件。Node 插件具有服务端系统访问能力；社区市场插件使用沙箱，微信文章采集 1.2.0 无需开启此策略。",
+      "confirm": "允许签名的官方 / 已验证插件使用 Node Runtime？这些插件具有服务端系统访问能力，请仅安装你信任的插件。"
+    },
+    "inbound": {
+      "title": "入站 Webhook",
+      "description": "使用公网回调地址连接外部服务，每个地址以当前用户身份保存内容。",
+      "configured": "已配置",
+      "unconfigured": "未配置",
+      "create": "生成回调地址",
+      "rotate": "更换地址",
+      "revoke": "撤销地址",
+      "showOnce": "请现在保存地址，仅显示一次。配置外部服务时请使用公网 HTTPS 地址。",
+      "url": "回调地址",
+      "rotateConfirm": "更换回调地址？旧地址及待处理任务将被移除。",
+      "revokeConfirm": "撤销回调地址，并移除待处理任务？"
+    }
+  },
+  "xlsxPreview": {
+    "loading": "正在加载 Excel 预览…",
+    "readOnly": "Excel 数据预览 · 只读",
+    "download": "下载原文件",
+    "downloadFailed": "原文件下载失败",
+    "import": "导入为轻量表格",
+    "destination": "目标目录",
+    "workspaceRoot": "当前工作区根目录",
+    "confirmImport": "导入工作表：{{name}}",
+    "cancel": "取消",
+    "importHint": "仅导入当前工作表，首行作为列名；创建独立表格，原附件保持不变。",
+    "imported": "已创建独立轻量表格，请在目录树中打开",
+    "importFailed": "轻量表格导入失败",
+    "workspaceChanged": "工作区已切换，请重新选择导入目录",
+    "worksheets": "工作表",
+    "empty": "空工作表",
+    "dataOnly": "仅展示单元格数据和公式缓存结果，不重新计算公式；不保留图表、宏、合并单元格或完整样式。",
+    "importLimit": "当前工作表超过 5 万个有值单元格，仅支持预览或下载。",
+    "limitError": "文件内容超出预览限制（文件 20 MB、展开 XML 64 MB、20 个工作表、每表 1000 行 × 200 列、合计 20 万单元格、单元格 2 万字符）。请下载原文件，使用 Excel / WPS 打开。",
+    "invalidError": "无法预览此 Excel 文件：文件可能已损坏、加密或格式不受支持。请下载原文件，使用 Excel / WPS 打开。"
+  },
+  "wechatAssistant": {
+    "refresh": "刷新采集结果",
+    "loading": "正在加载收件箱…",
+    "paste": "粘贴文章链接",
+    "collect": "保存到收件箱",
+    "accepted": "已接收 {{accepted}} 篇，{{duplicates}} 篇已在收件箱。",
+    "recent": "最近 100 条采集记录",
+    "empty": "还没有采集记录。可以从指定公众号读取文章，或粘贴单篇链接。",
+    "open": "打开笔记",
+    "retry": "重试",
+    "status": {
+      "queued": "等待采集",
+      "running": "正在采集",
+      "waiting": "等待继续",
+      "completed": "采集完成",
+      "failed": "采集失败",
+      "cancelled": "已取消"
+    }
+  },
+  "wechatCapture": {
+    "title": "微信文章采集",
+    "description": "复制微信文章链接，返回 Nowen 并确认，即可保存为笔记。",
+    "pluginRequired": "请先安装、授权并启用微信文章采集插件。",
+    "clipboard": "识别剪贴板中的微信文章并提示采集",
+    "clipboardHelp": "桌面端在返回应用时检查；Web 端可通过粘贴识别，已授权剪贴板读取后也会在返回页面时检查。不会自动保存。",
+    "upgrade": "剪贴板提示需要更新到微信文章采集 1.2.0；旧版本仍可粘贴链接采集。",
+    "placeholder": "粘贴 https://mp.weixin.qq.com/s/...\n可一次粘贴多篇，最多 20 篇",
+    "accountHelp": "采集指定公众号：打开该公众号，把想保存的文章链接粘贴到这里。按公众号名称采集全部历史文章暂不支持。",
+    "detected": "发现微信文章链接",
+    "prompt": "是否将这 {{count}} 篇文章保存到微信收件箱？",
+    "dismiss": "暂不采集",
+    "collecting": "正在提交…",
+    "readClipboard": "读取剪贴板 / 授权浏览器",
+    "browserEnabled": "已检查剪贴板；浏览器允许读取后，返回页面时可自动提示。",
+    "cardDescription": "粘贴微信文章链接即可采集，无需配置公众号密钥。"
   }
 }

@@ -1,0 +1,5 @@
+{
+  "extends": "./tsconfig.app.json",
+  "compilerOptions": { "target": "ES2022", "lib": ["ES2023", "DOM", "DOM.Iterable"], "resolveJsonModule": true },
+  "include": ["src/lib/encryptedNotes/__tests__/conversion*.ts", "src/lib/encryptedNotes/__tests__/conversion*.tsx", "benchmarks/encrypted-notes*.ts", "benchmarks/encrypted-notes*.tsx", "e2e/encrypted-notes-*.spec.ts", "e2e/encrypted-notes*-test.ts", "vite.crypto*.config.ts", "playwright.encrypted-notes*.config.ts", "src/vite-env.d.ts"]
+}

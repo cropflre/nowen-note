@@ -10,6 +10,7 @@
 //
 // 如果将来要加 PDF / xlsx 等新格式，只需新增一个分支 + 懒加载子组件，FileManager 不动。
 import React, { lazy, Suspense } from "react";
+import { useTranslation } from "react-i18next";
 import { Loader2, FileText } from "lucide-react";
 import { cn } from "@/lib/utils";
 import AttachmentTextPreview from "./AttachmentTextPreview";
@@ -22,6 +23,7 @@ import { downloadAttachment } from "@/lib/downloadFile";
 
 // docx 解析器有 ~80KB 的运行时（fflate + 自研 OOXML 解析），与图片/视频路径无关
 // → 懒加载，避免首屏体积。
+const AttachmentXlsxPreview = lazy(() => import("./AttachmentXlsxPreview"));
 const DocxAttachmentPreview = lazy(() => import("@/office/word/DocxAttachmentPreview"));
 
 interface Props {
@@ -53,6 +55,7 @@ export default function AttachmentPreview({
   heightClass,
   imgMaxHeightClass,
 }: Props) {
+  const { t } = useTranslation();
   const kind = detectAttachmentPreviewKind(mimeType, filename);
 
   if (kind === "image") {
@@ -88,6 +91,14 @@ export default function AttachmentPreview({
         }
       >
         <DocxAttachmentPreview url={url} filename={filename} heightClass={heightClass} />
+      </Suspense>
+    );
+  }
+
+  if (kind === "xlsx") {
+    return (
+      <Suspense fallback={<div className={cn("flex items-center justify-center py-10 text-tx-tertiary", heightClass)}><Loader2 size={14} className="mr-2 animate-spin" />{t("xlsxPreview.loading")}</div>}>
+        <AttachmentXlsxPreview key={url} url={url} filename={filename} size={size} heightClass={heightClass} />
       </Suspense>
     );
   }

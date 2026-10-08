@@ -54,11 +54,25 @@ function actorUserId(c: Context): string {
 
 function permissionPath(path: string): { nodeId: string; targetUserId?: string } | null {
   const match = path.match(/^\/api\/knowledge-tree\/?nodes\/([^/]+)\/permissions(?:\/([^/]+))?\/?$/);
-  return match ? { nodeId: match[1], targetUserId: match[2] } : null;
+  if (!match) return null;
+  try {
+    return {
+      nodeId: decodeURIComponent(match[1]),
+      targetUserId: match[2] ? decodeURIComponent(match[2]) : undefined,
+    };
+  } catch {
+    return null;
+  }
 }
 
 function accessModePath(path: string): string | null {
-  return path.match(/^\/api\/knowledge-tree\/?nodes\/([^/]+)\/access-mode\/?$/)?.[1] || null;
+  const nodeId = path.match(/^\/api\/knowledge-tree\/?nodes\/([^/]+)\/access-mode\/?$/)?.[1];
+  if (!nodeId) return null;
+  try {
+    return decodeURIComponent(nodeId);
+  } catch {
+    return null;
+  }
 }
 
 function canManage(nodeId: string, userId: string): boolean {

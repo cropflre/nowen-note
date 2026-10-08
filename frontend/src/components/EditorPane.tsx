@@ -1,4 +1,7 @@
 import React, { useCallback, useRef, useState, useEffect, useMemo } from "react";
+import EncryptedConversionEditorGuard from "./EncryptedConversionEditorGuard";
+import EncryptedNotePane from "./EncryptedNotePane";
+import { isEncryptedNoteFormat } from "@/lib/encryptedNotes/noteDocument";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import { Star, Pin, Trash2, Cloud, RefreshCw, Check, Loader2, ChevronLeft, FolderInput, ChevronRight, ChevronDown, X, ListTree, Lock, Unlock, Tag as TagIcon, Type, MoreHorizontal, Share2, History, MessageCircle, FileCode, FileText, Eye, Pencil, Paperclip, Search, Sparkles, Network, Minimize2, Image, Link2, Printer, Scissors } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -131,7 +134,14 @@ interface EditorPaneProps {
   onSplitDocument?: () => void;
 }
 
-export default function EditorPane({
+export default function EditorPane(props: EditorPaneProps) {
+  const { state } = useApp();
+  return state.activeNote && isEncryptedNoteFormat(state.activeNote.contentFormat)
+    ? <EncryptedNotePane key={state.activeNote.id} note={state.activeNote} />
+    : <EncryptedConversionEditorGuard noteId={state.activeNote?.id ?? null}><OrdinaryEditorPane {...props} /></EncryptedConversionEditorGuard>;
+}
+
+function OrdinaryEditorPane({
   canSplitDocument = false,
   onSplitDocument,
 }: EditorPaneProps) {
@@ -1331,7 +1341,8 @@ export default function EditorPane({
    * ע�����˳�����Ҳ���á�������ֻһ�� client��y-collab �൱�ڿղ������������
    * ����������־û��������������Զ��ϲ���
    */
-  const collabReady = !!(activeNote && !activeNote.isLocked && selfUser && editorMode === "md");
+  const collabReady = !!(activeNote && !activeNote.isLocked && selfUser && editorMode === "md"
+    && !/nowen-encrypted/i.test(activeNote.content || ""));
   const { doc: collabYDoc, provider: collabProvider, synced: collabSynced } = useYDoc({
     noteId: collabReady ? (activeNote?.id ?? null) : null,
     user: selfUser,
@@ -1972,14 +1983,14 @@ export default function EditorPane({
   const setNoteColorMark = useCallback(async (colorMark: NoteColorMark | null) => {
     if (!activeNote || activeNote.isTrashed || !canWriteNote(activeNote)) return;
     haptic.light();
-    const updated = await api.updateNote(activeNote.id, { colorMark } as any);
+    const updated = await api.updateNote(activeNote.id, { colorMark });
     const nextColor = updated.colorMark ?? colorMark;
     actions.setActiveNote({ ...updated, colorMark: nextColor });
     actions.updateNoteInList({ id: updated.id, colorMark: nextColor });
-    actions.updateNoteTab({ id: updated.id, colorMark: nextColor } as any);
+    actions.updateNoteTab({ id: updated.id, colorMark: nextColor } as unknown as Partial<import("@/store/AppContext").OpenNoteTab> & { id: string; });
     try {
       window.dispatchEvent(new CustomEvent("nowen:knowledge-tree-changed", { detail: { reason: "note-color-mark-changed" } }));
-    } catch {}
+    } catch { /* A notification failure must not interrupt editing. */ }
   }, [activeNote, actions]);
 
   const toggleLock = useCallback(async () => {

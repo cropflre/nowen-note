@@ -4,7 +4,6 @@ export const NOTE_WORKSPACE_LAYOUT_KEY = "nowen-note-workspace-layout";
 
 const FUNCTIONAL_NOTE_LIST_VIEWS = new Set([
   "favorites",
-  "trash",
   "tag",
   "search",
 ]);

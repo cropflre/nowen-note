@@ -67,6 +67,7 @@ interface NavConfigItem {
 
 const RAIL_ICON_SIZE = 18;
 const NON_NOTE_WORKSPACE_VIEWS = new Set<ViewMode>([
+  "trash",
   "tasks",
   "mindmaps",
   "ai-chat",

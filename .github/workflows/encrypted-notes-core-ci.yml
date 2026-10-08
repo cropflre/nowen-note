@@ -1,0 +1,244 @@
+name: Encrypted Notes CI
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, "release/**"]
+    paths:
+      - "frontend/src/lib/encryptedNotes/**"
+      - "frontend/src/lib/desktopBridge.ts"
+      - "electron/encrypted-notes*.js"
+      - "scripts/encrypted-notes*-fixture.cjs"
+      - "scripts/encrypted-notes-full-acceptance.mjs"
+      - "electron/main.js"
+      - "electron/preload.js"
+      - "frontend/tsconfig.encrypted-notes.json"
+      - "frontend/src/components/EncryptedNote*.tsx"
+      - "frontend/src/components/EncryptedBlock*.tsx"
+      - "frontend/src/components/EncryptedConversionEditorGuard.tsx"
+      - "frontend/src/components/CodeBlockView.tsx"
+      - "frontend/src/components/MarkdownCodeBlock.tsx"
+      - "frontend/src/components/MarkdownEditorImpl.tsx"
+      - "frontend/src/components/TiptapEditor.tsx"
+      - "frontend/src/lib/noteFormatConversion.ts"
+      - "frontend/src/store/__tests__/encryptedRegionNavigation.test.tsx"
+      - "frontend/src/components/EditorPane.tsx"
+      - "frontend/src/components/EditorSplitView.tsx"
+      - "frontend/src/components/KnowledgeTreeCreateMenuRuntime.tsx"
+      - "frontend/src/lib/noteContentPersistence.ts"
+      - "frontend/src/lib/noteLoadSource.ts"
+      - "frontend/src/lib/conflictResolution.ts"
+      - "frontend/src/lib/syncConflictAutoMerge.ts"
+      - "frontend/src/lib/__tests__/syncConflictAutoMerge.test.ts"
+      - "frontend/src/components/settings/ConflictCenter.tsx"
+      - "frontend/src/components/__tests__/ConflictCenterBulkResolve.test.tsx"
+      - "frontend/src/lib/__tests__/noteContentPersistence.test.ts"
+      - "frontend/src/lib/__tests__/contentFormat.test.ts"
+      - "frontend/src/lib/__tests__/conflictResolution.test.ts"
+      - "frontend/src/lib/__tests__/noteLoadSource.test.ts"
+      - "frontend/src/lib/api.ts"
+      - "frontend/src/lib/localStore.ts"
+      - "frontend/src/lib/draftStorage.ts"
+      - "frontend/src/lib/offlineQueue.ts"
+      - "frontend/src/lib/offlineScope.ts"
+      - "frontend/src/lib/offlineRead.ts"
+      - "frontend/src/lib/syncEngine.ts"
+      - "frontend/src/lib/yjsProvider.ts"
+      - "frontend/src/lib/api.impl.ts"
+      - "frontend/src/store/AppContext.tsx"
+      - "backend/src/db/**"
+      - "backend/src/types/**"
+      - "backend/src/lib/encryptedNotes.ts"
+      - "backend/src/lib/encryptedBlockWrites.ts"
+      - "backend/src/runtime/block-patch.ts"
+      - "backend/src/routes/blocks.ts"
+      - "backend/src/services/yjs-subdocuments.ts"
+      - "backend/src/lib/noteBlocks.ts"
+      - "backend/src/lib/searchIndex.ts"
+      - "backend/src/routes/notes.ts"
+      - "backend/src/routes/shares.ts"
+      - "backend/src/routes/sync-v2.ts"
+      - "backend/src/routes/attachments-core.ts"
+      - "backend/src/services/knowledgeTree*.ts"
+      - "backend/src/services/encryptedNoteConversion*.ts"
+      - "backend/src/services/yjs.ts"
+      - "backend/src/services/remote-image-import.ts"
+      - "backend/src/services/embedding-worker.ts"
+      - "backend/src/sync/apply.ts"
+      - "backend/src/sync/applyLocal.ts"
+      - "backend/src/sync/bootstrap.ts"
+      - "backend/src/sync/conflict.ts"
+      - "backend/src/sync/resolve.ts"
+      - "backend/src/sync/engine.ts"
+      - "backend/src/sync/remote.ts"
+      - "backend/src/services/backup-restore-integrity.ts"
+      - "backend/tests/sync-v2-engine.test.ts"
+      - "backend/src/index.ts"
+      - "backend/tests/encrypted-notes*"
+      - "backend/package*.json"
+      - "frontend/benchmarks/encrypted-notes*"
+      - "frontend/e2e/encrypted-notes-*.spec.ts"
+      - "frontend/e2e/encrypted-notes*-test.ts"
+      - "frontend/vite.crypto*.config.ts"
+      - "frontend/playwright.encrypted-notes*.config.ts"
+      - "frontend/package*.json"
+      - "scripts/generate-encrypted-notes-vector.mjs"
+      - "docs/architecture/encrypted-notes*.md"
+      - ".github/workflows/encrypted-notes-core-ci.yml"
+  pull_request:
+    paths:
+      - "frontend/src/lib/encryptedNotes/**"
+      - "frontend/src/lib/desktopBridge.ts"
+      - "electron/encrypted-notes*.js"
+      - "scripts/encrypted-notes*-fixture.cjs"
+      - "scripts/encrypted-notes-full-acceptance.mjs"
+      - "electron/main.js"
+      - "electron/preload.js"
+      - "frontend/tsconfig.encrypted-notes.json"
+      - "frontend/src/components/EncryptedNote*.tsx"
+      - "frontend/src/components/EncryptedBlock*.tsx"
+      - "frontend/src/components/EncryptedConversionEditorGuard.tsx"
+      - "frontend/src/components/CodeBlockView.tsx"
+      - "frontend/src/components/MarkdownCodeBlock.tsx"
+      - "frontend/src/components/MarkdownEditorImpl.tsx"
+      - "frontend/src/components/TiptapEditor.tsx"
+      - "frontend/src/lib/noteFormatConversion.ts"
+      - "frontend/src/store/__tests__/encryptedRegionNavigation.test.tsx"
+      - "frontend/src/components/EditorPane.tsx"
+      - "frontend/src/components/EditorSplitView.tsx"
+      - "frontend/src/components/KnowledgeTreeCreateMenuRuntime.tsx"
+      - "frontend/src/lib/noteContentPersistence.ts"
+      - "frontend/src/lib/noteLoadSource.ts"
+      - "frontend/src/lib/conflictResolution.ts"
+      - "frontend/src/lib/syncConflictAutoMerge.ts"
+      - "frontend/src/lib/__tests__/syncConflictAutoMerge.test.ts"
+      - "frontend/src/components/settings/ConflictCenter.tsx"
+      - "frontend/src/components/__tests__/ConflictCenterBulkResolve.test.tsx"
+      - "frontend/src/lib/__tests__/noteContentPersistence.test.ts"
+      - "frontend/src/lib/__tests__/contentFormat.test.ts"
+      - "frontend/src/lib/__tests__/conflictResolution.test.ts"
+      - "frontend/src/lib/__tests__/noteLoadSource.test.ts"
+      - "frontend/src/lib/api.ts"
+      - "frontend/src/lib/localStore.ts"
+      - "frontend/src/lib/draftStorage.ts"
+      - "frontend/src/lib/offlineQueue.ts"
+      - "frontend/src/lib/offlineScope.ts"
+      - "frontend/src/lib/offlineRead.ts"
+      - "frontend/src/lib/syncEngine.ts"
+      - "frontend/src/lib/yjsProvider.ts"
+      - "frontend/src/lib/api.impl.ts"
+      - "frontend/src/store/AppContext.tsx"
+      - "backend/src/db/**"
+      - "backend/src/types/**"
+      - "backend/src/lib/encryptedNotes.ts"
+      - "backend/src/lib/encryptedBlockWrites.ts"
+      - "backend/src/runtime/block-patch.ts"
+      - "backend/src/routes/blocks.ts"
+      - "backend/src/services/yjs-subdocuments.ts"
+      - "backend/src/lib/noteBlocks.ts"
+      - "backend/src/lib/searchIndex.ts"
+      - "backend/src/routes/notes.ts"
+      - "backend/src/routes/shares.ts"
+      - "backend/src/routes/sync-v2.ts"
+      - "backend/src/routes/attachments-core.ts"
+      - "backend/src/services/knowledgeTree*.ts"
+      - "backend/src/services/encryptedNoteConversion*.ts"
+      - "backend/src/services/yjs.ts"
+      - "backend/src/services/remote-image-import.ts"
+      - "backend/src/services/embedding-worker.ts"
+      - "backend/src/sync/apply.ts"
+      - "backend/src/sync/applyLocal.ts"
+      - "backend/src/sync/bootstrap.ts"
+      - "backend/src/sync/conflict.ts"
+      - "backend/src/sync/resolve.ts"
+      - "backend/src/sync/engine.ts"
+      - "backend/src/sync/remote.ts"
+      - "backend/src/services/backup-restore-integrity.ts"
+      - "backend/tests/sync-v2-engine.test.ts"
+      - "backend/src/index.ts"
+      - "backend/tests/encrypted-notes*"
+      - "backend/package*.json"
+      - "frontend/benchmarks/encrypted-notes*"
+      - "frontend/e2e/encrypted-notes-*.spec.ts"
+      - "frontend/e2e/encrypted-notes*-test.ts"
+      - "frontend/vite.crypto*.config.ts"
+      - "frontend/playwright.encrypted-notes*.config.ts"
+      - "frontend/package*.json"
+      - "scripts/generate-encrypted-notes-vector.mjs"
+      - "docs/architecture/encrypted-notes*.md"
+      - ".github/workflows/encrypted-notes-core-ci.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  crypto:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          # Newer 24.x headers can abort ObjectWrap GC (nodejs/node#65446).
+          # Keep runtime AND clean-install addon headers on the verified version.
+          node-version: "24.18.1"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - name: Backend fixture dependencies
+        run: npm ci
+        working-directory: backend
+      - name: SQLite persistence, backup and old-writer regressions
+        run: node --import tsx --import ./tests/setup-db-isolation.ts --test tests/encrypted-notes-blocks.test.ts tests/encrypted-notes-block-writers.test.ts tests/encrypted-notes-storage.test.ts tests/encrypted-notes-conversion-preflight.test.ts tests/encrypted-notes-conversion.test.ts tests/encrypted-notes-sync.test.ts tests/encrypted-notes-backup.test.ts tests/sync-v2-bootstrap.test.ts tests/sync-v2-engine.test.ts tests/sync-v2-conflict-history-route.test.ts tests/backup-restore-integrity.test.ts tests/backup-restore-large-archive.test.ts tests/backup-restore-corrupt-hotfix.test.ts
+        working-directory: backend
+      - name: Backend typecheck
+        run: npx tsc --noEmit --pretty false
+        working-directory: backend
+      - name: Storage, Sync and recovery fixture typecheck
+        run: npx tsc --noEmit --pretty false --target ES2022 --module ESNext --moduleResolution bundler --esModuleInterop --skipLibCheck --strict tests/encrypted-notes-sync.test.ts tests/encrypted-notes-backup.test.ts tests/encrypted-notes-recovery-worker.ts tests/encrypted-notes-block-writers.test.ts tests/encrypted-notes-postgres.test.ts tests/encrypted-notes-app-server.ts tests/encrypted-notes-conversion-preflight.test.ts tests/encrypted-notes-conversion.test.ts src/types/word-extractor.d.ts src/types/readability.d.ts
+        working-directory: backend
+      - name: Crypto core and Worker lifecycle regressions
+        run: npm run test:encrypted-notes
+      - name: Native locking bridge syntax
+        run: node --check ../electron/encrypted-notes-auto-lock.js && node --check ../scripts/encrypted-notes-electron-fixture.cjs && node --check ../scripts/encrypted-notes-app-fixture.cjs && node --check ../scripts/encrypted-notes-backend-fixture.cjs && node --check ../scripts/encrypted-notes-package-fixture.cjs && node --check ../scripts/encrypted-notes-full-acceptance.mjs && node --check ../electron/main.js && node --check ../electron/preload.js
+      - name: Ordinary and encrypted cache/conflict regressions
+        run: npx vitest run src/lib/__tests__/conflictResolution.test.ts src/lib/__tests__/noteLoadSource.test.ts src/lib/__tests__/syncConflictAutoMerge.test.ts src/components/__tests__/ConflictCenterBulkResolve.test.tsx src/store/__tests__/encryptedRegionNavigation.test.tsx src/lib/__tests__/noteContentPersistence.test.ts src/lib/__tests__/contentFormat.test.ts src/lib/__tests__/draftStorage.conflict.test.ts src/lib/__tests__/offlineQueue.test.ts src/lib/__tests__/offlineRead.snapshot.test.ts src/lib/__tests__/apiConfirmedNoteMutations.test.ts src/lib/__tests__/apiDesktopSessionRevocation.test.ts src/lib/__tests__/apiNativeHttpFallback.test.ts
+      - name: Application typecheck
+        run: npx tsc -b --pretty false
+      - name: Benchmark and browser test typecheck
+        run: npx tsc --project tsconfig.encrypted-notes.json --pretty false
+      - run: npx playwright install --with-deps chromium
+      - name: Bundled Worker, Web Crypto and WASM under CSP
+        run: npm run test:encrypted-notes:browser
+
+  postgres:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test-only-fixture-password
+          POSTGRES_DB: encrypted_notes_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U test -d encrypted_notes_test"
+          --health-interval 10s --health-timeout 5s --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24.18.1"
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - run: npm ci
+        working-directory: backend
+      - name: PostgreSQL encrypted storage guards
+        run: node --import tsx --test tests/encrypted-notes-postgres.test.ts
+        working-directory: backend
+        env:
+          TEST_PG_DATABASE_URL: postgres://test:test-only-fixture-password@127.0.0.1:5432/encrypted_notes_test

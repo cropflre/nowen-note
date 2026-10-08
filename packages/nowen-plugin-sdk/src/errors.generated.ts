@@ -7,7 +7,7 @@ function deepFreeze<T>(value: T): T {
   return value;
 }
 
-export type NowenPluginErrorCode = "EXTERNAL_FETCH_DENIED" | "EXTERNAL_FETCH_DNS_ERROR" | "EXTERNAL_FETCH_INVALID_REDIRECT" | "EXTERNAL_FETCH_INVALID_URL" | "EXTERNAL_FETCH_NETWORK_ERROR" | "EXTERNAL_FETCH_REDIRECT_LIMIT" | "EXTERNAL_FETCH_RESPONSE_TOO_LARGE" | "EXTERNAL_FETCH_TIMEOUT" | "HOST_ARGS_TOO_LARGE" | "HOST_METHOD_NOT_FOUND" | "HOST_METHOD_UNSUPPORTED" | "HOST_RESULT_TOO_LARGE" | "INVALID_ARGUMENT" | "NETWORK_UNAVAILABLE" | "PLUGIN_ACTION_MISMATCH" | "PLUGIN_CANCELLED" | "PLUGIN_CONTRIBUTION_INVALID" | "PLUGIN_DECLARATIVE_NOT_EXECUTABLE" | "PLUGIN_ERROR" | "PLUGIN_PERMISSION_DENIED" | "PLUGIN_PREFLIGHT_FAILED" | "PLUGIN_TIMEOUT" | "PLUGIN_UI_FEATURE_DISABLED" | "PLUGIN_V21_FEATURE_DISABLED" | "RESOURCE_FORBIDDEN" | "RESOURCE_NOT_FOUND";
+export type NowenPluginErrorCode = "CAPTURE_EXTRACTION_FAILED" | "CAPTURE_FETCH_FAILED" | "CAPTURE_TOO_LARGE" | "CAPTURE_URL_DENIED" | "EXTERNAL_FETCH_DENIED" | "EXTERNAL_FETCH_DNS_ERROR" | "EXTERNAL_FETCH_INVALID_REDIRECT" | "EXTERNAL_FETCH_INVALID_URL" | "EXTERNAL_FETCH_NETWORK_ERROR" | "EXTERNAL_FETCH_REDIRECT_LIMIT" | "EXTERNAL_FETCH_RESPONSE_TOO_LARGE" | "EXTERNAL_FETCH_TIMEOUT" | "HOST_ARGS_TOO_LARGE" | "HOST_METHOD_NOT_FOUND" | "HOST_METHOD_UNSUPPORTED" | "HOST_RESULT_TOO_LARGE" | "INVALID_ARGUMENT" | "NETWORK_UNAVAILABLE" | "PLUGIN_ACTION_MISMATCH" | "PLUGIN_CANCELLED" | "PLUGIN_CONTRIBUTION_INVALID" | "PLUGIN_DECLARATIVE_NOT_EXECUTABLE" | "PLUGIN_ERROR" | "PLUGIN_PERMISSION_DENIED" | "PLUGIN_PREFLIGHT_FAILED" | "PLUGIN_TIMEOUT" | "PLUGIN_UI_FEATURE_DISABLED" | "PLUGIN_V21_FEATURE_DISABLED" | "RESOURCE_FORBIDDEN" | "RESOURCE_NOT_FOUND";
 
 export interface NowenPluginErrorMetadata {
   code: NowenPluginErrorCode;
@@ -16,8 +16,32 @@ export interface NowenPluginErrorMetadata {
   description: string;
 }
 
-export const NOWEN_PLUGIN_ERROR_CONTRACT_VERSION = 1 as const;
+export const NOWEN_PLUGIN_ERROR_CONTRACT_VERSION = 2 as const;
 export const NOWEN_PLUGIN_ERROR_CATALOG: readonly NowenPluginErrorMetadata[] = deepFreeze([
+  {
+    "code": "CAPTURE_EXTRACTION_FAILED",
+    "category": "validation",
+    "retryable": false,
+    "description": "No readable HTML article was found"
+  },
+  {
+    "code": "CAPTURE_FETCH_FAILED",
+    "category": "network",
+    "retryable": true,
+    "description": "Public article capture failed at the network layer"
+  },
+  {
+    "code": "CAPTURE_TOO_LARGE",
+    "category": "budget",
+    "retryable": false,
+    "description": "Capture exceeds the article content budget"
+  },
+  {
+    "code": "CAPTURE_URL_DENIED",
+    "category": "network",
+    "retryable": false,
+    "description": "Capture URL is invalid or resolves to a non-public address"
+  },
   {
     "code": "EXTERNAL_FETCH_DENIED",
     "category": "network",

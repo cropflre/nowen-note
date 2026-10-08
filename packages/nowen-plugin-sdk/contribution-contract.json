@@ -1,8 +1,9 @@
 {
-  "contractVersion": 3,
+  "contractVersion": 4,
   "namespaceTemplate": "<pluginId>/<contributionId>",
   "runtimes": ["declarative", "sandbox-js", "node-action"],
   "types": [
+    {"id":"inboundWebhooks","since":"2.0","runtimes":["sandbox-js","node-action"],"declarative":false,"description":"Host-owned capability-token HTTP callbacks with bounded requests and responses"},
     {"id":"commands","since":"2.0","runtimes":["sandbox-js","node-action"],"declarative":false,"description":"Command palette and host command registrations"},
     {"id":"menus","since":"2.0","runtimes":["sandbox-js","node-action"],"declarative":false,"description":"Host-owned menu placements referencing declared commands"},
     {"id":"settings","since":"2.0","runtimes":["declarative","sandbox-js","node-action"],"declarative":true,"description":"Host-rendered extension settings"},

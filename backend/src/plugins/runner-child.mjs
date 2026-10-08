@@ -32,6 +32,9 @@ const nowen = {
   storage: namespace("storage", ["get", "set", "delete"]),
   external: namespace("external", ["fetch"]),
   runtime: namespace("runtime", ["capabilities"]),
+  capture: namespace("capture", ["importUrl"]),
+  settings: namespace("settings", ["get"]),
+  secrets: namespace("secrets", ["digest", "crypt"]),
   progress: ({ current, total, message } = {}) => {
     const normalizedCurrent = Number.isFinite(Number(current)) ? Math.max(0, Number(current)) : undefined;
     const normalizedTotal = Number.isFinite(Number(total)) ? Math.max(0, Number(total)) : undefined;

@@ -38,7 +38,7 @@ const source = {
 
 function createFakeDb(): NativeDatabase {
   const db: NativeDatabase = {
-    async run(_sql: string, _values: unknown[] = []) { return { changes:0 }; },
+    async run() { return { changes:0 }; },
     async query<T>(sql: string, values: unknown[] = []) {
       const normalized = sql.replace(/\s+/g," ");
       if (normalized.includes("WHERE n.scopeKey='personal' AND n.id=?")) {

@@ -76,7 +76,7 @@ function computeDelta(curr: number, prev: number) {
 // ===========================================================================
 // 主组件
 // ===========================================================================
-export default function TokenUsageStats(): JSX.Element | null {
+export default function TokenUsageStats({ refreshKey }: { refreshKey: string }): JSX.Element | null {
   const { t } = useTranslation();
   const [days, setDays] = useState<RangeDays>(7);
   const [data, setData] = useState<UsageData | null>(null);
@@ -101,7 +101,7 @@ export default function TokenUsageStats(): JSX.Element | null {
 
   useEffect(() => {
     void reload(days);
-  }, [days, reload]);
+  }, [days, reload, refreshKey]);
 
   const delta = useMemo(
     () => (data ? computeDelta(data.total, data.prevTotal) : null),

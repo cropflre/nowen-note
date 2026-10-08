@@ -7,6 +7,7 @@ import {
   resolveResourceKnowledgeAccess,
 } from "../services/knowledgeCapabilities.js";
 import {
+  isManualFileManagerUpload,
   resolveFileAttachmentAccess,
   type FileAttachmentAccessRow,
 } from "../services/fileAttachmentAccess.js";
@@ -135,17 +136,17 @@ function visibleAttachmentStats(workspaceId: string | null, userId: string) {
   const db = getDb();
   const rows = workspaceId
     ? db.prepare(`
-        SELECT a.id, a.noteId, a.userId, a.workspaceId, a.uploadSource, a.mimeType, a.size
+        SELECT a.id, a.noteId, a.userId, a.workspaceId, a.uploadSource, a.mimeType, a.size,
+          EXISTS (SELECT 1 FROM attachment_references ar WHERE ar.attachmentId = a.id) AS isReferenced
         FROM attachments a
-        JOIN notes n ON n.id = a.noteId
         WHERE a.workspaceId = ?
       `).all(workspaceId)
     : db.prepare(`
-        SELECT a.id, a.noteId, a.userId, a.workspaceId, a.uploadSource, a.mimeType, a.size
+        SELECT a.id, a.noteId, a.userId, a.workspaceId, a.uploadSource, a.mimeType, a.size,
+          EXISTS (SELECT 1 FROM attachment_references ar WHERE ar.attachmentId = a.id) AS isReferenced
         FROM attachments a
-        JOIN notes n ON n.id = a.noteId
         WHERE a.workspaceId IS NULL AND a.userId = ?
-      `).all(userId) as Array<FileAttachmentAccessRow & { mimeType: string; size: number }>;
+      `).all(userId);
 
   const byMime = new Map<string, { count: number; bytes: number }>();
   let total = 0;
@@ -154,9 +155,15 @@ function visibleAttachmentStats(workspaceId: string | null, userId: string) {
   let imageBytes = 0;
   let fileCount = 0;
   let fileBytes = 0;
+  let manualCount = 0;
+  let manualReferenced = 0;
 
-  for (const row of rows as Array<FileAttachmentAccessRow & { mimeType: string; size: number }>) {
+  for (const row of rows as Array<FileAttachmentAccessRow & { mimeType: string; size: number; isReferenced: number }>) {
     if (!resolveFileAttachmentAccess(row, userId).canView) continue;
+    if (isManualFileManagerUpload(row)) {
+      manualCount += 1;
+      if (row.isReferenced) manualReferenced += 1;
+    }
     total += 1;
     totalBytes += Number(row.size || 0);
     const mime = row.mimeType || "application/octet-stream";
@@ -179,6 +186,7 @@ function visibleAttachmentStats(workspaceId: string | null, userId: string) {
     images: { count: imageCount, bytes: imageBytes },
     files: { count: fileCount, bytes: fileBytes },
     byMime: [...byMime.entries()].map(([mime, value]) => ({ mime, ...value })),
+    myUploads: { total: manualCount, referenced: manualReferenced, unreferenced: manualCount - manualReferenced },
   };
 }
 

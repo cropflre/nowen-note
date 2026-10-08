@@ -11,9 +11,74 @@ import {
 const XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 const MAX_ROWS = 1000;
 const MAX_COLUMNS = 200;
+export const XLSX_PREVIEW_LIMITS = { fileBytes: 20 * 1024 * 1024, xmlBytes: 64 * 1024 * 1024, sheets: 20, rows: MAX_ROWS, columns: MAX_COLUMNS, cells: 200_000 };
+
+export class XlsxError extends Error {
+  constructor(public code: "limit" | "invalid", message: string) { super(message); }
+}
+
+export interface WorkbookPreviewModel {
+  sheets: Array<{ name: string; data: SheetDataModel }>;
+}
+
+type XlsxInput = File | Blob | ArrayBuffer | Uint8Array;
+type ReadXml = (path: string) => Promise<string>;
+
+// JSZip exposes streaming at runtime, but its object typings omit internalStream.
+interface XmlStream {
+  on(event: "data", callback: (chunk: Uint8Array) => void): XmlStream;
+  on(event: "error", callback: (error: Error) => void): XmlStream;
+  on(event: "end", callback: () => void): XmlStream;
+  pause(): void;
+  resume(): void;
+}
+
+function boundedXmlReader(zip: JSZip): ReadXml {
+  let expandedBytes = 0;
+  return async (path) => {
+    const file = zip.file(path);
+    if (!file) return "";
+    const bytes = await new Promise<Uint8Array>((resolve, reject) => {
+      const stream = (file as JSZip.JSZipObject & { internalStream(type: "uint8array"): XmlStream }).internalStream("uint8array");
+      const chunks: Uint8Array[] = [];
+      let length = 0;
+      let stopped = false;
+      stream.on("data", (chunk) => {
+        if (stopped) return;
+        expandedBytes += chunk.length;
+        if (expandedBytes > XLSX_PREVIEW_LIMITS.xmlBytes) {
+          stopped = true;
+          stream.pause();
+          reject(new XlsxError("limit", "XLSX XML size limit exceeded"));
+          return;
+        }
+        length += chunk.length;
+        chunks.push(chunk);
+      });
+      stream.on("error", reject);
+      stream.on("end", () => {
+        if (stopped) return;
+        const result = new Uint8Array(length);
+        let offset = 0;
+        for (const chunk of chunks) { result.set(chunk, offset); offset += chunk.length; }
+        resolve(result);
+      });
+      stream.resume();
+    });
+    const source = new TextDecoder().decode(bytes);
+    if (/<!DOCTYPE/i.test(source)) throw new XlsxError("invalid", "Workbook XML cannot contain a document type");
+    const document = new DOMParser().parseFromString(source, "application/xml");
+    if (document.getElementsByTagName("parsererror").length) {
+      throw new XlsxError("invalid", "Invalid workbook XML");
+    }
+    // OOXML may use namespace prefixes; the existing cell reader operates on local tag names.
+    return source.replace(/(<\/?)[\w.-]+:/g, "$1");
+  };
+}
 
 function escapeXml(value: string): string {
   return (value || "")
+    // eslint-disable-next-line no-control-regex -- Control characters must be rejected or stripped at this data boundary.
     .replace(/[^\u0009\u000A\u000D\u0020-\uD7FF\uE000-\uFFFD]/g, "")
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
@@ -84,27 +149,23 @@ function normalizeZipPath(basePart: string, target: string): string {
   return base.join("/");
 }
 
-function firstWorksheetPath(zip: JSZip, workbookXml: string, relsXml: string): string | null {
-  const sheetTag = workbookXml.match(/<sheet\b[^>]*>/i)?.[0] || "";
-  const relId = attribute(sheetTag, "r:id");
-  if (relId) {
-    const relPattern = /<Relationship\b[^>]*\/?\s*>/gi;
-    let relation: RegExpExecArray | null;
-    while ((relation = relPattern.exec(relsXml))) {
-      if (attribute(relation[0], "Id") !== relId) continue;
-      const target = attribute(relation[0], "Target");
-      if (target) return normalizeZipPath("xl/workbook.xml", target);
-    }
+function worksheetParts(workbookXml: string, relsXml: string): Array<{ name: string; path: string }> {
+  const relations = new Map<string, string>();
+  for (const relation of relsXml.matchAll(/<Relationship\b[^>]*>/gi)) {
+    if (attribute(relation[0], "TargetMode").toLowerCase() === "external") continue;
+    if (!attribute(relation[0], "Type").endsWith("/worksheet")) continue;
+    const target = attribute(relation[0], "Target");
+    if (target) relations.set(attribute(relation[0], "Id"), normalizeZipPath("xl/workbook.xml", target));
   }
-  const fallback = Object.keys(zip.files)
-    .filter((path) => /^xl\/worksheets\/sheet\d+\.xml$/i.test(path))
-    .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))[0];
-  return fallback || null;
+  return Array.from(workbookXml.matchAll(/<sheet\b[^>]*>/gi), (sheet) => {
+    const path = relations.get(attribute(sheet[0], "r:id"));
+    if (!path) throw new XlsxError("invalid", "Worksheet relationship missing");
+    return { name: attribute(sheet[0], "name") || "Sheet", path };
+  });
 }
 
-async function sharedStrings(zip: JSZip): Promise<string[]> {
-  const source = await zip.file("xl/sharedStrings.xml")?.async("string");
-  if (!source) return [];
+async function sharedStrings(readXml: ReadXml): Promise<string[]> {
+  const source = await readXml("xl/sharedStrings.xml");
   const strings: string[] = [];
   const pattern = /<si\b[^>]*>([\s\S]*?)<\/si>/gi;
   let match: RegExpExecArray | null;
@@ -127,8 +188,8 @@ function looksLikeDateFormat(formatCode: string): boolean {
   return /(^|[^a-z])[ymdhis]/i.test(normalized);
 }
 
-async function dateStyleIndexes(zip: JSZip): Promise<Set<number>> {
-  const source = await zip.file("xl/styles.xml")?.async("string");
+async function dateStyleIndexes(readXml: ReadXml): Promise<Set<number>> {
+  const source = await readXml("xl/styles.xml");
   if (!source) return new Set();
 
   const customDateIds = new Set<number>();
@@ -215,29 +276,23 @@ function matrixToSheet(matrix: string[][]): SheetDataModel {
   return normalizeSheetData({ version: 1, rows, columns, cells });
 }
 
-export async function parseSheetXlsx(input: File | Blob | ArrayBuffer | Uint8Array): Promise<SheetDataModel> {
-  const zip = await JSZip.loadAsync(input as any);
-  const workbookXml = await zip.file("xl/workbook.xml")?.async("string");
-  if (!workbookXml) throw new Error("XLSX 缺少 workbook.xml");
-  const relsXml = await zip.file("xl/_rels/workbook.xml.rels")?.async("string") || "";
-  const sheetPath = firstWorksheetPath(zip, workbookXml, relsXml);
-  if (!sheetPath) throw new Error("XLSX 中未找到工作表");
-  const worksheetXml = await zip.file(sheetPath)?.async("string");
-  if (!worksheetXml) throw new Error("XLSX 工作表内容不存在");
-
-  const strings = await sharedStrings(zip);
-  const dateStyles = await dateStyleIndexes(zip);
-  const use1904Dates = workbookUses1904Dates(workbookXml);
+function worksheetMatrix(worksheetXml: string, strings: string[], dateStyles: Set<number>, use1904Dates: boolean, maxRows: number): string[][] {
+  const dimension = worksheetXml.match(/<dimension\b[^>]*>/i)?.[0];
+  const lastRef = dimension ? attribute(dimension, "ref").split(":").pop() || "" : "";
+  if (lastRef && (rowIndexFromRef(lastRef) >= maxRows || columnIndexFromRef(lastRef) >= MAX_COLUMNS)) {
+    throw new XlsxError("limit", "Worksheet dimensions exceed preview limits");
+  }
   const matrix: string[][] = [];
-  const cellPattern = /<c\b([^>]*)>([\s\S]*?)<\/c>/gi;
+  const cellPattern = /<c\b([^>]*?)(?:\/\s*>|>([\s\S]*?)<\/c>)/gi;
   let cell: RegExpExecArray | null;
   while ((cell = cellPattern.exec(worksheetXml))) {
     const attrs = cell[1];
-    const body = cell[2];
+    const body = cell[2] || "";
     const ref = attribute(attrs, "r");
     const rowIndex = rowIndexFromRef(ref);
     const columnIndex = columnIndexFromRef(ref);
-    if (rowIndex < 0 || rowIndex > MAX_ROWS || columnIndex < 0 || columnIndex >= MAX_COLUMNS) continue;
+    if (rowIndex < 0 || columnIndex < 0) throw new XlsxError("invalid", "Invalid cell reference");
+    if (rowIndex >= maxRows || columnIndex >= MAX_COLUMNS) throw new XlsxError("limit", "Worksheet row or column limit exceeded");
 
     const type = attribute(attrs, "t");
     const styleIndex = Number.parseInt(attribute(attrs, "s"), 10);
@@ -245,30 +300,97 @@ export async function parseSheetXlsx(input: File | Blob | ArrayBuffer | Uint8Arr
     let value = "";
     if (type === "s") {
       const index = Number.parseInt(decodeXml(rawValue), 10);
-      value = Number.isFinite(index) ? strings[index] || "" : "";
+      if (!Number.isInteger(index) || index < 0 || index >= strings.length) throw new XlsxError("invalid", "Invalid shared string index");
+      value = strings[index];
     } else if (type === "inlineStr") {
       value = textRuns(body);
     } else if (type === "b") {
-      value = decodeXml(rawValue) === "1" ? "TRUE" : "FALSE";
+      value = rawValue ? (decodeXml(rawValue) === "1" ? "TRUE" : "FALSE") : "";
     } else if (type === "d") {
       value = decodeXml(rawValue).slice(0, 10);
     } else {
       const decoded = decodeXml(rawValue);
-      value = Number.isFinite(styleIndex) && dateStyles.has(styleIndex)
+      value = decoded !== "" && Number.isFinite(styleIndex) && dateStyles.has(styleIndex)
         ? excelSerialToIsoDate(decoded, use1904Dates) || decoded
         : decoded;
     }
 
     while (matrix.length <= rowIndex) matrix.push([]);
     while (matrix[rowIndex].length <= columnIndex) matrix[rowIndex].push("");
-    matrix[rowIndex][columnIndex] = value.slice(0, 20_000);
+    if (value.length > 20_000) throw new XlsxError("limit", "Cell text limit exceeded");
+    matrix[rowIndex][columnIndex] = value;
   }
 
-  return matrixToSheet(matrix);
+  return matrix;
+}
+
+function matrixToPreview(matrix: string[][]): SheetDataModel {
+  const width = Math.max(1, ...matrix.map((row) => row.length));
+  const columns = Array.from({ length: width }, (_, index) => ({
+    id: `c${index + 1}`, title: columnRef(index), width: 120,
+    type: inferType(matrix.map((row) => row[index] || "")),
+    align: "left" as SheetTextAlign,
+  }));
+  const rows = matrix.map((_, index) => ({ id: `r${index + 1}`, height: 32 }));
+  const cells: Record<string, string> = {};
+  matrix.forEach((row, rowIndex) => row.forEach((value, columnIndex) => {
+    if (value) cells[sheetCellKey(rows[rowIndex].id, columns[columnIndex].id)] = value;
+  }));
+  return { version: 1, rows, columns, cells };
+}
+
+export function workbookSheetToImport(data: SheetDataModel): SheetDataModel {
+  return matrixToSheet(data.rows.map((row) => data.columns.map((column) => data.cells[sheetCellKey(row.id, column.id)] || "")));
+}
+
+async function readWorkbook(input: XlsxInput, firstOnly = false): Promise<WorkbookPreviewModel> {
+  const size = input instanceof ArrayBuffer || input instanceof Uint8Array ? input.byteLength : input.size;
+  if (size > XLSX_PREVIEW_LIMITS.fileBytes) throw new XlsxError("limit", "XLSX file size limit exceeded");
+  try {
+    const zip = await JSZip.loadAsync(input);
+    // Reject declared expansion before inflating; the streaming reader also checks actual bytes.
+    const declaredXmlBytes = Object.values(zip.files).reduce((sum, file) => {
+      const metadata = file as JSZip.JSZipObject & { _data?: { uncompressedSize?: number } };
+      return sum + (/\.(xml|rels)$/i.test(file.name) ? (metadata._data?.uncompressedSize || 0) : 0);
+    }, 0);
+    if (declaredXmlBytes > XLSX_PREVIEW_LIMITS.xmlBytes) throw new XlsxError("limit", "XLSX XML size limit exceeded");
+    const readXml = boundedXmlReader(zip);
+    const workbookXml = await readXml("xl/workbook.xml");
+    if (!workbookXml || !/<workbook\b/i.test(workbookXml)) throw new XlsxError("invalid", "Workbook missing");
+    const parts = worksheetParts(workbookXml, await readXml("xl/_rels/workbook.xml.rels"));
+    if (!parts.length) throw new XlsxError("invalid", "No worksheets found");
+    if (parts.length > XLSX_PREVIEW_LIMITS.sheets) throw new XlsxError("limit", "Worksheet count limit exceeded");
+    const strings = await sharedStrings(readXml);
+    const dateStyles = await dateStyleIndexes(readXml);
+    const sheets: WorkbookPreviewModel["sheets"] = [];
+    let totalCells = 0;
+    for (const part of firstOnly ? parts.slice(0, 1) : parts) {
+      const source = await readXml(part.path);
+      if (!source || !/<worksheet\b/i.test(source)) throw new XlsxError("invalid", "Worksheet missing");
+      const matrix = worksheetMatrix(source, strings, dateStyles, workbookUses1904Dates(workbookXml), firstOnly ? MAX_ROWS + 1 : MAX_ROWS);
+      const data = matrixToPreview(matrix);
+      totalCells += data.rows.length * data.columns.length;
+      if (totalCells > XLSX_PREVIEW_LIMITS.cells + (firstOnly ? MAX_COLUMNS : 0)) throw new XlsxError("limit", "Workbook cell limit exceeded");
+      sheets.push({ name: part.name, data });
+    }
+    return { sheets };
+  } catch (error) {
+    if (error instanceof XlsxError) throw error;
+    throw new XlsxError("invalid", "Invalid or encrypted XLSX workbook");
+  }
+}
+
+export async function parseWorkbookXlsx(input: XlsxInput): Promise<WorkbookPreviewModel> {
+  return readWorkbook(input);
+}
+
+export async function parseSheetXlsx(input: XlsxInput): Promise<SheetDataModel> {
+  const workbook = await readWorkbook(input, true);
+  return workbookSheetToImport(workbook.sheets[0].data);
 }
 
 function safeSheetName(value: string): string {
-  const normalized = (value || "Sheet1").replace(/[\\/:*?\[\]]/g, " ").trim();
+  const normalized = (value || "Sheet1").replace(/[\\/:*?[\]]/g, " ").trim();
   return (normalized || "Sheet1").slice(0, 31);
 }
 

@@ -1,3 +1,4 @@
+import { assertEncryptedBlockCollaborationAllowed } from "../lib/encryptedBlockWrites.js";
 import { createHash } from "node:crypto";
 import type Database from "better-sqlite3";
 import * as Y from "yjs";
@@ -39,6 +40,7 @@ export function rebuildYjsSubdocumentsIfEnabled(
   contentFormat: string,
 ): boolean {
   if (!isYjsSubdocumentsEnabled() || contentFormat !== "tiptap-json") return false;
+  if (/nowen-encrypted/i.test(content)) return false;
   rebuildYjsSubdocuments(db, noteId, content);
   return true;
 }
@@ -208,6 +210,7 @@ export function assertYjsSubdocumentGeneration(
   noteId: string,
   expectedGeneration: number,
 ): YjsSubdocumentManifest {
+  assertEncryptedBlockCollaborationAllowed(db, noteId);
   ensureYjsSubdocumentTables(db);
   const manifest = readManifest(db, noteId);
   if (!manifest) throw new Error("SUBDOCUMENT_NOT_FOUND");
@@ -283,6 +286,8 @@ export function rebuildYjsSubdocuments(
   content: string,
   maxBlocks = 250,
 ): { rootGuid: string; sections: YjsSubdocumentSection[]; generation: number; structureVersion: number } {
+  assertEncryptedBlockCollaborationAllowed(db, noteId);
+  if (/nowen-encrypted/i.test(content)) throw new Error("ENCRYPTED_NOTE_COLLABORATION_FORBIDDEN");
   ensureYjsSubdocumentTables(db);
   const sections = splitYjsSubdocumentSections(noteId, content, maxBlocks);
   if (!sections) throw new Error("INVALID_TIPTAP_SUBDOCUMENT_SOURCE");
@@ -296,6 +301,8 @@ export function prepareYjsSubdocuments(
   content: string,
   maxBlocks = 250,
 ): YjsSubdocumentManifest {
+  assertEncryptedBlockCollaborationAllowed(db, noteId);
+  if (/nowen-encrypted/i.test(content)) throw new Error("ENCRYPTED_NOTE_COLLABORATION_FORBIDDEN");
   ensureYjsSubdocumentTables(db);
   const manifest = db.prepare(`
     SELECT rootGuid, rootSnapshot, contentHash, sectionCount, generation, structureVersion, status
@@ -450,6 +457,7 @@ export function applyYjsSubdocumentUpdate(
   generation: number;
   structureVersion: number;
 } {
+  assertEncryptedBlockCollaborationAllowed(db, noteId);
   if (update.byteLength === 0 || update.byteLength > 1024 * 1024) throw new Error("INVALID_SUBDOCUMENT_UPDATE_SIZE");
   ensureYjsSubdocumentTables(db);
   let materialized = "";
@@ -478,6 +486,7 @@ export function applyYjsSubdocumentUpdate(
       Y.applyUpdate(sectionDoc, new Uint8Array(currentSection.snapshotBlob));
       Y.applyUpdate(sectionDoc, update);
       sectionContent = sectionDoc.getText("content").toString();
+      if (/nowen-encrypted/i.test(sectionContent)) throw new Error("ENCRYPTED_NOTE_COLLABORATION_FORBIDDEN");
       if (!parseDocument(sectionContent)) throw new Error("INVALID_SUBDOCUMENT_CONTENT");
       nextSnapshot = Buffer.from(Y.encodeStateAsUpdate(sectionDoc));
     } finally {

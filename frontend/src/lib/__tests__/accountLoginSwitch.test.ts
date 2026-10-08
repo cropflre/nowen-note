@@ -4,6 +4,13 @@ vi.mock("@capacitor/core", () => ({
   Capacitor: { isNativePlatform: () => false },
 }));
 
+// Connection probing has its own integration suite; these cases exercise the
+// token/credential transitions after the target server has been validated.
+vi.mock("@/lib/api", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/lib/api")>(),
+  testServerConnection: vi.fn(async () => ({ ok: true })),
+}));
+
 import { switchAccountLogin } from "@/lib/accountLoginSwitch";
 import type { AccountLoginHistoryItem } from "@/lib/accountLoginHistory";
 

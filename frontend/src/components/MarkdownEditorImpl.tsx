@@ -1,3 +1,4 @@
+import { commitMarkdownEncryptedRegion, prepareMarkdownEncryptedRegionEdit, prepareMarkdownSelectionEncryption } from "@/lib/encryptedNotes/blockAuthoring";
 /**
  * MarkdownEditor —— 基于 CodeMirror 6 的 Markdown 笔记编辑器
  * ---
@@ -111,6 +112,8 @@ import {
   BrainCircuit,
 } from "lucide-react";
 import { MarkdownPreview } from "./MarkdownPreview";
+import EncryptedBlockDialog from "./EncryptedBlockDialog";
+import { markdownEncryptedBlocks } from "@/lib/encryptedNotes/blockDocument";
 import AttachmentLibraryPicker from "@/components/AttachmentLibraryPicker";
 import VoiceInsertMenu from "@/components/VoiceInsertMenu";
 import { requestVoiceMemo, voiceMemoHtml } from "@/lib/voiceMemo";
@@ -682,6 +685,36 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
   const previewRootRef = useRef<HTMLDivElement | null>(null);
   const splitContainerRef = useRef<HTMLDivElement | null>(null);
   const viewRef = useRef<EditorView | null>(null);
+  const [encryptedRegion, setEncryptedRegion] = useState<{ source?: string; initialContent?: { plaintext: string; format: "markdown" }; commit: (source: string) => void } | null>(null);
+  useEffect(() => { setEncryptedRegion(null); }, [note.id]);
+  const openEncryptedRegion = () => {
+    const view = viewRef.current;
+    if (!view || !editable || isGuest || note.isTrashed) return;
+    const snapshot = view.state.doc; const noteId = note.id; const selection = view.state.selection.main;
+    try {
+      const block = markdownEncryptedBlocks(snapshot.toString()).find((item) => selection.from >= item.from && selection.to <= item.to);
+      if (!block && !selection.empty) {
+        const selected = prepareMarkdownSelectionEncryption(view, historyCompartmentRef.current);
+        setEncryptedRegion({ initialContent: selected, commit: (source) => {
+          if (noteRef.current.id !== noteId || viewRef.current !== view || noteRef.current.isTrashed) throw new Error("Encrypted selection changed");
+          selected.commit(source);
+          collabUndoManagerRef.current?.clear();
+        } });
+        return;
+      }
+      // New regions start on their own line, never inside another code fence.
+      const syntax = syntaxTree(view.state).resolveInner(selection.from, -1);
+      let insideFence = false;
+      for (let parent: typeof syntax | null = syntax; parent; parent = parent.parent) if (parent.name === "FencedCode" || parent.name === "CodeBlock") insideFence = true;
+      if (!block && (view.state.doc.lineAt(selection.from).text.trim() || insideFence)) {
+        toast.error("请在普通正文的空白行插入加密区域"); return;
+      }
+      setEncryptedRegion({ source: block?.source, commit: (source) => {
+        if (noteRef.current.id !== noteId || viewRef.current !== view || !view.state.facet(EditorView.editable) || view.state.doc !== snapshot) throw new Error("Encrypted region changed");
+        commitMarkdownEncryptedRegion(view, snapshot, { from: block?.from ?? selection.from, to: block?.to ?? selection.to, prefix: block?.prefix }, source);
+      } });
+    } catch { toast.error(selection.empty ? "加密区域格式无效，请保留原始密文" : "请选择普通文本，暂不支持图片、附件、链接或代码块内的选区。"); }
+  };
   const titleRef = useRef<HTMLTextAreaElement | null>(null);
   const isTitleComposingRef = useRef(false);
   const lastEmittedTitleRef = useRef(note.title);
@@ -690,6 +723,7 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
   const collabEnabled = !!(yDoc && awareness);
   const collabEnabledRef = useRef(collabEnabled);
   collabEnabledRef.current = collabEnabled;
+  const collabUndoManagerRef = useRef<Y.UndoManager | null>(null);
 
   // �� ref ׷���� note / callbacks�������� CM6 listener ���õ����ڱհ�
   const noteRef = useRef(note);
@@ -735,6 +769,7 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
   }, [viewMode]);
 
   const setMarkdownViewMode = useCallback((nextViewMode: MarkdownViewMode) => {
+    if (previewDebounceRef.current) clearTimeout(previewDebounceRef.current);
     const nextMode = normalizeMarkdownViewModeForMobile(nextViewMode, isMobileMarkdownViewport());
     if (nextMode !== "source") {
       const view = viewRef.current;
@@ -758,6 +793,7 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
 
   // �����л��õ� Compartment
   const themeCompartmentRef = useRef(new Compartment());
+  const historyCompartmentRef = useRef(new Compartment());
   const editableCompartmentRef = useRef(new Compartment());
   const searchPhraseCompartmentRef = useRef(new Compartment());
 
@@ -1171,7 +1207,7 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
     // P0-#2 �޸���CRDT ģʽ�� content ��ȫ�ɷ���� Y.Doc �йܳ־û���
     // �������ٷ� content ���� yjs �� debounce ��д����"���߸���ǰ��"�ľ�̬��
     // ������ meta��title��������˫д��ͻ��
-    if (collabEnabledRef.current) {
+    if (collabEnabledRef.current && !/nowen-encrypted/i.test(md)) {
       if (title !== noteRef.current.title) {
         onUpdateRef.current({ title, _noteId: noteRef.current.id });
       }
@@ -1352,7 +1388,8 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
       });
       setWordStats(computeStats(text));
       onHeadingsChangeRef.current?.(extractHeadings(update.view));
-      if (!collabEnabledRef.current) {
+      // Encrypted regions use the normal ciphertext save path; Yjs rejects them.
+      if (!collabEnabledRef.current || /nowen-encrypted/i.test(text)) {
         scheduleSave();
       }
 
@@ -1441,7 +1478,7 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
         // P3-#14����ʽ���� UndoManager �ó������Ȱ�����ϲ���350ms window��
         ...(collabEnabled && yDoc && awareness
           ? [yCollab(yDoc.getText("content"), awareness, {
-            undoManager: new Y.UndoManager(yDoc.getText("content"), { captureTimeout: 350 }),
+            undoManager: (collabUndoManagerRef.current = new Y.UndoManager(yDoc.getText("content"), { captureTimeout: 350 })),
           })]
           : []),
 
@@ -1451,7 +1488,7 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
           formatNumber: () => "",
         }),
         highlightActiveLineGutter(),
-        history(),
+        historyCompartmentRef.current.of(history()),
         drawSelection(),
         dropCursor(),
         EditorState.allowMultipleSelections.of(true),
@@ -1664,6 +1701,7 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
         debounceTimer.current = null;
       }
       view.destroy();
+      collabUndoManagerRef.current?.destroy(); collabUndoManagerRef.current = null;
       viewRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1675,6 +1713,8 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
   useEffect(() => {
     const view = viewRef.current;
     if (!view) return;
+    // A delayed pre-save preview must not replace the server-confirmed document.
+    if (previewDebounceRef.current) clearTimeout(previewDebounceRef.current);
 
     // �л�ʱ�������� debounce������Ѿɱʼ�����д���±ʼ�
     if (debounceTimer.current) {
@@ -2052,6 +2092,18 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
     setPreviewMarkdown(view.state.doc.toString());
   }, [editable]);
 
+  const handlePreviewEncryptedBlockEdit = useCallback((source: string, rendered: string, offset: number) => {
+    const view = viewRef.current; const noteId = note.id;
+    if (!view || !editable || isGuest || note.isTrashed) throw new Error("Encrypted region is read-only");
+    const region = prepareMarkdownEncryptedRegionEdit(view, source, rendered, offset);
+    // Keep the private dialog outside the preview tree so a refreshed preview cannot discard edits.
+    setEncryptedRegion({ source: region.source, commit: (ciphertext: string) => {
+      if (noteRef.current.id !== noteId || viewRef.current !== view) throw new Error("Encrypted region changed");
+      region.commit(ciphertext);
+      setPreviewMarkdown(view.state.doc.toString());
+    } });
+  }, [editable, isGuest, note.id, note.isTrashed]);
+
   // ---------- ��ǩ�仯 ----------
 
   const noteTags = useMemo(() => note.tags || [], [note.tags]);
@@ -2148,6 +2200,8 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
       data-markdown-mobile-editing-compact={compactMobileEditing ? "true" : "false"}
       className="relative flex flex-col h-full overflow-hidden"
     >
+      {editable && !isGuest && !note.isTrashed && <button type="button" className="border-b border-app-border px-3 py-1 text-left text-xs text-tx-secondary" onClick={openEncryptedRegion}>插入加密内容</button>}
+      {encryptedRegion && <EncryptedBlockDialog source={encryptedRegion.source} initialContent={encryptedRegion.initialContent} onCommit={encryptedRegion.commit} onClose={() => setEncryptedRegion(null)} />}
       {noteLinkMenu.open && (
         <NoteLinkMenu
           position={noteLinkMenu.position}
@@ -2556,6 +2610,7 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
               containerRef={previewRootRef}
               onTaskCheckboxChange={editable ? handlePreviewTaskCheckboxChange : undefined}
               onFormatCodeBlock={editable ? handlePreviewCodeBlockFormat : undefined}
+              onEditEncryptedBlock={editable && !isGuest && !note.isTrashed ? handlePreviewEncryptedBlockEdit : undefined}
               onInsertVoiceTranscript={editable && !isGuest && !note.isTrashed ? insertVoiceTranscript : undefined}
             />
           </div>
@@ -2614,6 +2669,7 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
           >
             <ArrowUp size={14} />
           </ToolbarButton>
+          {!isGuest && !note.isTrashed && <ToolbarButton onClick={openEncryptedRegion} title="加密选中文字">加密</ToolbarButton>}
           {selectedTextAction?.type === "phone" && (
             <ToolbarButton
               onClick={() => {

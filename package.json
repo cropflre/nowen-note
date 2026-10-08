@@ -16,6 +16,8 @@
     "rebuild:native:linux-portable": "NOWEN_LINUX_PORTABLE=1 node scripts/rebuild-native-entry.mjs --target-platform=linux",
     "check:linux-native": "node scripts/check-linux-native-compat.cjs",
     "test:linux-native": "node --test scripts/tests/linux-native-compat.test.cjs",
+    "test:linux-desktop": "node --test scripts/tests/linux-desktop-packaging.test.cjs",
+    "verify:linux-desktop": "node scripts/verify-linux-desktop-package.cjs",
     "test:dev-ports": "node --test scripts/tests/dev-port-manager.test.mjs",
     "test:docker-healthcheck": "node --test scripts/tests/docker-runtime-port-healthcheck.test.mjs",
     "test:loading-ux": "node --test scripts/tests/unified-loading-experience.test.mjs",

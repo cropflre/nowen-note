@@ -188,6 +188,14 @@ const v2BaseShape = {
 };
 
 const executableContributesSchema = z.object({
+  inboundWebhooks: z.array(z.object({
+    id: z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/),
+    path: z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/),
+    action: z.string().min(1).max(64),
+    methods: z.array(z.enum(["GET", "POST"])).min(1).max(2),
+    maxBodyBytes: z.number().int().min(1).max(262144),
+    backgroundAction: z.string().min(1).max(64).optional(),
+  }).strict()).max(10).optional(),
   commands: z.array(commandSchema).max(100).optional(), menus: z.array(menuSchema).max(100).optional(),
   settings: z.array(settingSchema).max(100).optional(), automationTemplates: z.array(automationTemplateSchema).max(50).optional(),
   noteThemes: z.array(noteThemeSchema).max(20).optional(),
@@ -248,6 +256,12 @@ export const pluginManifestV2Schema = z.union([executableV2Schema, declarativeV2
   }
   if (new Set(manifest.actions.map((action) => action.id)).size !== manifest.actions.length) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["actions"], message: "Action id 不能重复" });
   const actionIds = new Set(manifest.actions.map((action) => action.id));
+  const hooks = manifest.contributes?.inboundWebhooks || [];
+  if (new Set(hooks.map((hook) => hook.id)).size !== hooks.length || new Set(hooks.map((hook) => hook.path)).size !== hooks.length) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["contributes", "inboundWebhooks"], message: "Inbound Webhook id/path 不能重复" });
+  for (const hook of hooks) {
+    if (!actionIds.has(hook.action) || (hook.backgroundAction && !manifest.actions.some((action) => action.id === hook.backgroundAction && action.execution === "background"))) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["contributes", "inboundWebhooks"], message: "Inbound Webhook Action 不存在或后台 Action 未声明" });
+    if (new Set(hook.methods).size !== hook.methods.length) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["contributes", "inboundWebhooks"], message: "Inbound Webhook methods 不能重复" });
+  }
   for (const command of manifest.contributes?.commands || []) if (!actionIds.has(command.action)) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["contributes", "commands"], message: `Command Action 不存在: ${command.action}` });
   const commandIds = new Set((manifest.contributes?.commands || []).map((command) => command.id));
   for (const menu of manifest.contributes?.menus || []) if (!commandIds.has(menu.command)) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["contributes", "menus"], message: `Menu Command 不存在: ${menu.command}` });

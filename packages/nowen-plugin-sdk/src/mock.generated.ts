@@ -18,6 +18,7 @@ export function createHostApiCallMock(overrides: HostApiMockOverrides = {}): Hos
     methods: [
   "attachments.get",
   "attachments.list",
+  "capture.importUrl",
   "diary.create",
   "diary.get",
   "diary.list",
@@ -34,6 +35,9 @@ export function createHostApiCallMock(overrides: HostApiMockOverrides = {}): Hos
   "notes.list",
   "notes.update",
   "runtime.capabilities",
+  "secrets.crypt",
+  "secrets.digest",
+  "settings.get",
   "storage.delete",
   "storage.get",
   "storage.set",

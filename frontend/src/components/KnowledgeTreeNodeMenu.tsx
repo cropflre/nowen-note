@@ -1,3 +1,6 @@
+import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
+import i18n from "@/i18n";
 import { useEffect, useMemo, useState, type RefObject } from "react";
 import {
   BrainCircuit,
@@ -102,10 +105,10 @@ function separator(id: string): ContextMenuItem {
   return { id, label: "", separator: true };
 }
 
-function exportChildren(): ContextMenuItem[] {
+function exportChildren(t: TFunction): ContextMenuItem[] {
   return [
     { id: "export_note_md", label: "Markdown", icon: <Download size={14} /> },
-    { id: "export_note_md_zip", label: "Markdown + 附件（ZIP）", icon: <Download size={14} /> },
+    { id: "export_note_md_zip", label: t("noteList.exportAsMarkdownZip"), icon: <Download size={14} /> },
     { id: "export_note_pdf", label: "PDF", icon: <Printer size={14} /> },
     { id: "export_note_png", label: "PNG", icon: <ImageIcon size={14} /> },
     { id: "export_note_jpg", label: "JPG", icon: <ImageIcon size={14} /> },
@@ -113,12 +116,12 @@ function exportChildren(): ContextMenuItem[] {
   ];
 }
 
-function createChildren(): ContextMenuItem[] {
+function createChildren(t: TFunction): ContextMenuItem[] {
   return [
-    { id: "new_note", label: "文档", icon: <FilePlus size={14} /> },
-    { id: "new_markdown", label: "Markdown 文档", icon: <FileCode size={14} /> },
-    { id: "new_mindmap", label: "思维导图", icon: <BrainCircuit size={14} /> },
-    { id: "new_folder", label: "文件夹", icon: <FolderPlus size={14} /> },
+    { id: "new_note", label: t("note.contextMenu.document"), icon: <FilePlus size={14} /> },
+    { id: "new_markdown", label: t("note.contextMenu.markdownDocument"), icon: <FileCode size={14} /> },
+    { id: "new_mindmap", label: t("note.contextMenu.mindmap"), icon: <BrainCircuit size={14} /> },
+    { id: "new_folder", label: t("note.contextMenu.folder"), icon: <FolderPlus size={14} /> },
   ];
 }
 
@@ -136,6 +139,7 @@ export function buildKnowledgeTreeNodeMenuItems(
   node: KnowledgeTreeNode,
   note: LoadedNote | null,
   searchExclusionStatus: SearchNotebookExclusionStatus | null = null,
+  t: TFunction = i18n.t,
 ): ContextMenuItem[] {
   const capabilities = node.access.capabilities;
   const isDocument = node.resourceType === "note";
@@ -160,13 +164,13 @@ export function buildKnowledgeTreeNodeMenuItems(
       flags.push(
         {
           id: "toggle_pin",
-          label: note?.isPinned === 1 ? "取消置顶" : "置顶",
+          label: note?.isPinned === 1 ? t("noteList.unpin") : t("noteList.pin"),
           icon: note?.isPinned === 1 ? <PinOff size={14} /> : <Pin size={14} />,
           disabled: !note,
         },
         {
           id: "toggle_favorite",
-          label: note?.isFavorite === 1 ? "取消收藏" : "收藏",
+          label: note?.isFavorite === 1 ? t("noteList.unfavorite") : t("noteList.favorite"),
           icon: note?.isFavorite === 1 ? <StarOff size={14} /> : <Star size={14} />,
           disabled: !note,
         },
@@ -174,13 +178,13 @@ export function buildKnowledgeTreeNodeMenuItems(
       more.push(
         {
           id: "toggle_lock",
-          label: note?.isLocked === 1 ? "解锁" : "锁定",
+          label: note?.isLocked === 1 ? t("noteList.unlock") : t("noteList.lock"),
           icon: note?.isLocked === 1 ? <Unlock size={14} /> : <Lock size={14} />,
           disabled: !note,
         },
         {
           id: "convert_format",
-          label: note?.contentFormat === "markdown" ? "转换为富文本" : "转换为 Markdown",
+          label: note?.contentFormat === "markdown" ? t("note.contextMenu.convertToRichText") : t("note.contextMenu.convertToMarkdown"),
           icon: <ArrowLeftRight size={14} />,
           disabled: !note || note.isLocked === 1,
         },
@@ -188,19 +192,19 @@ export function buildKnowledgeTreeNodeMenuItems(
     }
 
     if (capabilities.canEdit) {
-      management.push({ id: "rename", label: "重命名", icon: <Pencil size={14} /> });
+      management.push({ id: "rename", label: t("common.rename"), icon: <Pencil size={14} /> });
     }
     if (capabilities.canMove && isOwned) {
-      management.push({ id: "move", label: "移动", icon: <FolderInput size={14} /> });
+      management.push({ id: "move", label: t("noteList.moveButton"), icon: <FolderInput size={14} /> });
     }
     if (isOwned || capabilities.canReshare) {
-      management.push({ id: "share_note", label: "分享", icon: <Share2 size={14} /> });
+      management.push({ id: "share_note", label: t("note.contextMenu.share"), icon: <Share2 size={14} /> });
     }
 
     if (capabilities.canEdit) {
       more.push({
         id: "save_as_template",
-        label: "保存为模板",
+        label: t("note.contextMenu.saveAsTemplate"),
         icon: <LayoutTemplate size={14} />,
         disabled: !note
           || note.isLocked === 1
@@ -208,43 +212,43 @@ export function buildKnowledgeTreeNodeMenuItems(
       });
     }
     if (capabilities.canManageMembers) {
-      more.push({ id: "permissions", label: "成员与权限", icon: <ShieldCheck size={14} /> });
+      more.push({ id: "permissions", label: t("note.contextMenu.permissions"), icon: <ShieldCheck size={14} /> });
     }
     if (capabilities.canDownload) {
-      more.push({ id: "export_note", label: "导出", icon: <Download size={14} />, children: exportChildren() });
+      more.push({ id: "export_note", label: t("noteList.export"), icon: <Download size={14} />, children: exportChildren(t) });
     }
 
     return buildNoteContextMenuLayout({
-      open: { id: "open", label: "打开", icon: <FileText size={14} /> },
+      open: { id: "open", label: t("common.open"), icon: <FileText size={14} /> },
       split: [
-        { id: "split_right", label: "在右侧分屏打开", icon: <SplitSquareHorizontal size={14} /> },
-        { id: "split_down", label: "在下方分屏打开", icon: <SplitSquareVertical size={14} /> },
+        { id: "split_right", label: t("note.contextMenu.splitRight"), icon: <SplitSquareHorizontal size={14} /> },
+        { id: "split_down", label: t("note.contextMenu.splitDown"), icon: <SplitSquareVertical size={14} /> },
       ],
       duplicate: {
         id: "duplicate",
-        label: "创建副本",
+        label: t("note.contextMenu.duplicate"),
         icon: <Copy size={14} />,
         disabled: !capabilities.canCreate || !note || note.isLocked === 1 || note.isTrashed === 1,
       },
-      create: capabilities.canCreate ? createChildren() : undefined,
+      create: capabilities.canCreate ? createChildren(t) : undefined,
       flags,
       management,
       more,
       trash: capabilities.canDelete ? {
         id: "delete",
-        label: "移到回收站",
+        label: t("noteList.moveToTrash"),
         icon: <Trash2 size={14} />,
         danger: true,
         disabled: !note || note.isLocked === 1,
       } : undefined,
-    });
+    }, t);
   }
 
   const items: ContextMenuItem[] = [];
 
   if (capabilities.canCreate) {
     items.push(
-      { id: "create", label: "新建", icon: <Plus size={14} />, children: createChildren() },
+      { id: "create", label: "新建", icon: <Plus size={14} />, children: createChildren(t) },
       { id: "import", label: "导入", icon: <Upload size={14} />, children: importChildren() },
     );
   }
@@ -372,6 +376,7 @@ export default function KnowledgeTreeNodeMenu({
   onReload,
   onNotePatched,
 }: KnowledgeTreeNodeMenuProps) {
+  const { t } = useTranslation();
   const { state } = useApp();
   const actions = useAppActions();
   const [note, setNote] = useState<LoadedNote | null>(null);
@@ -416,8 +421,8 @@ export default function KnowledgeTreeNodeMenu({
   }, [menu.isOpen, node?.id, node?.resourceId, node?.resourceType, state.notebooks]);
 
   const items = useMemo(
-    () => node ? buildKnowledgeTreeNodeMenuItems(node, note, searchExclusionStatus) : [],
-    [node, note, searchExclusionStatus],
+    () => node ? buildKnowledgeTreeNodeMenuItems(node, note, searchExclusionStatus, t) : [],
+    [node, note, searchExclusionStatus, t],
   );
 
   const openLoadedNote = (value: LoadedNote) => {

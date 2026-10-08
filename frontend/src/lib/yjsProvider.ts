@@ -75,7 +75,7 @@ function getServerScope(): string {
   return "same-origin";
 }
 
-function getYjsPersistenceName(noteId: string, userId: string): string {
+export function getYjsPersistenceName(noteId: string, userId: string): string {
   return [
     YJS_IDB_PREFIX,
     normalizeScopePart(getServerScope()),

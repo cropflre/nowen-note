@@ -21,6 +21,8 @@ import { PluginPermissions, type PermissionRow } from "./permissions.js";
 import { PluginRegistry } from "./registry.js";
 import { secureExternalFetch, type ExternalFetchRequest } from "./secureExternalFetch.js";
 import { PluginSecrets } from "./secrets.js";
+import crypto from "node:crypto";
+import { importArticleUrl } from "../services/article-import.js";
 import type { HostCall, PluginExecutionContext, PluginManifest } from "./types.js";
 
 type JsonObject = Record<string, any>;
@@ -97,10 +99,36 @@ export class HostApiBroker {
       case "storage": result = this.storage(context, operation, args); break;
       case "external": result = await this.external(context, operation, args, methodPermission); break;
       case "runtime": result = this.runtime(context, operation); break;
+      case "capture": result = await importArticleUrl(context, args); break;
+      case "settings": result = (await import("./pluginService.js")).getPluginService().getSettings(context.pluginId, context.userId); break;
+      case "secrets": result = this.secretOperation(context, operation, args); break;
       default: throw createHostMethodNotFound(call.method);
     }
     requireJsonBudget(result, contract.maxResultBytes, "HOST_RESULT_TOO_LARGE", "PLUGIN_ERROR", "Host API 结果");
     return result;
+  }
+
+  private secretOperation(context: PluginExecutionContext, operation: string, args: JsonObject): string {
+    const manifest = JSON.parse(this.registry.get(context.pluginId)!.manifestJson) as PluginManifest;
+    if (!manifest.connections?.some((connection) => connection.id === args.connection)) forbidden("未声明的密钥连接", "PLUGIN_PERMISSION_DENIED");
+    const secret = this.secrets.get(context.pluginId, context.userId, args.connection);
+    if (operation === "digest") {
+      if (!["sha1", "sha256"].includes(args.algorithm) || !Array.isArray(args.parts) || args.parts.length > 10 || args.parts.some((part: unknown) => typeof part !== "string")) throw new Error("摘要参数无效");
+      const parts = [...args.parts, secret];
+      if (args.sort === true) parts.sort();
+      return crypto.createHash(args.algorithm).update(parts.join("")).digest("hex");
+    }
+    if (operation === "crypt") {
+      // Raw AES-CBC primitive: framing/padding/protocol stay in the plugin.
+      if (!/^[A-Za-z0-9+/]{43}=?$/.test(secret) || typeof args.data !== "string" || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(args.data)) throw new Error("AES-CBC 参数无效");
+      const key = Buffer.from(secret.replace(/=$/, "") + "=", "base64");
+      const data = Buffer.from(args.data, "base64");
+      if (!data.length || data.length % 16 !== 0 || !["encrypt", "decrypt"].includes(args.operation)) throw new Error("AES-CBC 数据长度/操作无效");
+      const cipher = args.operation === "encrypt" ? crypto.createCipheriv("aes-256-cbc", key, key.subarray(0, 16)) : crypto.createDecipheriv("aes-256-cbc", key, key.subarray(0, 16));
+      cipher.setAutoPadding(false);
+      return Buffer.concat([cipher.update(data), cipher.final()]).toString("base64");
+    }
+    throw createHostMethodNotFound(`secrets.${operation}`);
   }
 
   private runtime(context: PluginExecutionContext, operation: string): unknown {

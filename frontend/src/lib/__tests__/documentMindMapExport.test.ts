@@ -41,7 +41,7 @@ describe("document mind map export snapshots", () => {
 
     expect(extractMindMapEmbedIdsFromHtml(html)).toEqual([ID]);
 
-    const loader = vi.fn(async () => snapshotMap as any);
+    const loader = vi.fn(async () => snapshotMap as import("@/types").MindMap);
     const rendered = await hydrateMindMapEmbedsForExport(html, loader);
 
     expect(loader).toHaveBeenCalledTimes(1);
@@ -65,7 +65,7 @@ describe("document mind map export snapshots", () => {
   });
 
   it("renders a self-contained static SVG card", () => {
-    const rendered = renderMindMapExportSnapshot(snapshotMap as any);
+    const rendered = renderMindMapExportSnapshot(snapshotMap as unknown as Pick<import("@/types/index").MindMap, "id" | "title" | "updatedAt" | "data">);
     expect(rendered).toContain("思维导图静态快照");
     expect(rendered).toContain("data-nowen-mindmap-snapshot");
     expect(rendered).toContain("<svg");
@@ -86,7 +86,7 @@ describe("document mind map export snapshots", () => {
   });
 
   it("freezes Markdown mind maps into printable HTML without private API links", async () => {
-    vi.spyOn(api, "getMindMap").mockResolvedValue(snapshotMap as any);
+    vi.spyOn(api, "getMindMap").mockResolvedValue(snapshotMap as unknown as import("@/types/index").MindMap);
 
     const html = await buildPrintableHtml({
       title: "带脑图文档",

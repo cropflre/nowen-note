@@ -219,6 +219,26 @@ describe("API endpoint construction", () => {
 
 describe("inferBrowserServerBaseUrl", () => {
   it.each([
+    ["/notes/9d38f1e8-1d49-4327-b576-3decdeae51da", ""],
+    ["/notes/onboarding-v1-welcome/", ""],
+    ["/notes/%E7%AC%94%E8%AE%B0", ""],
+    ["/mindmaps/demo", ""],
+    ["/sheets/demo", ""],
+    ["/trash", ""],
+    ["/nowen/notes/demo", "https://notes.example.com/nowen"],
+    ["/nowen/mindmaps/demo", "https://notes.example.com/nowen"],
+    ["/nowen/sheets/demo", "https://notes.example.com/nowen"],
+    ["/nowen/trash/", "https://notes.example.com/nowen"],
+    ["/user:3001/notes/demo", "https://notes.example.com/user:3001"],
+  ])("应用路由 %s 不会混入服务器部署前缀", (pathname, expected) => {
+    expect(inferBrowserServerBaseUrl({
+      protocol: "https:",
+      origin: "https://notes.example.com",
+      pathname,
+    })).toBe(expected);
+  });
+
+  it.each([
     ["/issues", ""],
     ["/issues/", ""],
     ["/issues/04d9d743-2888-4f08-a71f-4463e1d825ac", ""],

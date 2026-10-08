@@ -94,7 +94,6 @@ import {
 } from "@/lib/knowledgeTreePassword";
 import {
   buildFirstLevelNoteCounts,
-  countOwnedNotes,
 } from "@/lib/knowledgeTreeStats";
 import { toast } from "@/lib/toast";
 import {
@@ -349,6 +348,7 @@ export function KnowledgeTreePanel({
   const [movingNode, setMovingNode] = useState<KnowledgeTreeNode | null>(null);
   const [batchMoving, setBatchMoving] = useState(false);
   const [selectedNodeIds, setSelectedNodeIds] = useState<Set<string>>(() => new Set());
+  const [pendingCreatedNodeId, setPendingCreatedNodeId] = useState<string | null>(null);
   const [multiSelectMode, setMultiSelectMode] = useState(false);
   const [unlockedFolderIds, setUnlockedFolderIds] = useState<Set<string>>(() => loadUnlockedFolderIds());
   const [passwordDialog, setPasswordDialog] = useState<{ node: KnowledgeTreeNode; mode: "unlock" | "manage" } | null>(null);
@@ -486,14 +486,22 @@ export function KnowledgeTreePanel({
   useEffect(() => {
     if (!surfaceActive) return;
     const revealCreatedNote = (event: Event) => {
-      const parentId = (event as CustomEvent<KnowledgeTreeClearSearchDetail>).detail?.parentId;
+      const { parentId, nodeId } = (event as CustomEvent<KnowledgeTreeClearSearchDetail>).detail || {};
       // 全文搜索由全局 searchQuery 管理，不能把它当作目录树临时筛选清空。
       if (state.viewMode !== "search") setQuery("");
       if (typeof parentId === "string") setNodeExpanded(parentId, true);
+      if (nodeId) {
+        setQuery("");
+        if (state.viewMode === "search") {
+          actions.setSearchQuery("");
+          actions.setViewMode(state.selectedNotebookId ? "notebook" : "all");
+        }
+        setPendingCreatedNodeId(nodeId);
+      }
     };
     window.addEventListener(KNOWLEDGE_TREE_CLEAR_SEARCH_EVENT, revealCreatedNote);
     return () => window.removeEventListener(KNOWLEDGE_TREE_CLEAR_SEARCH_EVENT, revealCreatedNote);
-  }, [setNodeExpanded, state.viewMode, surfaceActive]);
+  }, [actions, setNodeExpanded, state.selectedNotebookId, state.viewMode, surfaceActive]);
 
   useEffect(() => {
     if (!draft) return;
@@ -508,6 +516,23 @@ export function KnowledgeTreePanel({
     () => hideLockedFolderDescendants(nodes, unlockedFolderIds),
     [nodes, unlockedFolderIds],
   );
+  useEffect(() => {
+    if (!pendingCreatedNodeId || !visibleNodes.some((node) => node.id === pendingCreatedNodeId)) return;
+    let parentId = visibleNodes.find((node) => node.id === pendingCreatedNodeId)?.parentId;
+    while (parentId) {
+      setNodeExpanded(parentId, true);
+      parentId = visibleNodes.find((node) => node.id === parentId)?.parentId;
+    }
+    setSelectedNodeIds(new Set([pendingCreatedNodeId]));
+    selectionAnchorRef.current = pendingCreatedNodeId;
+    const frame = requestAnimationFrame(() => {
+      Array.from(rootRef.current?.querySelectorAll<HTMLElement>("[data-knowledge-tree-select-id]") || [])
+        .find((element) => element.dataset.knowledgeTreeSelectId === pendingCreatedNodeId)
+        ?.scrollIntoView({ block: "nearest" });
+      setPendingCreatedNodeId(null);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [pendingCreatedNodeId, setNodeExpanded, visibleNodes]);
   const allChildren = useMemo(() => buildChildren(nodes), [nodes]);
   const selectedNodes = useMemo(
     () => visibleNodes.filter((node) => selectedNodeIds.has(node.id)),
@@ -1163,7 +1188,8 @@ export function KnowledgeTreePanel({
       actions.refreshNotebooks();
       actions.refreshNotes();
       toast.success("已移动到根目录");
-    } catch (requestError: any) {
+    } catch (caughtError: unknown) {
+      const requestError = caughtError as Error & { code?: string };
       toast.error(requestError?.message || "移动到根目录失败");
     }
   };
@@ -1482,7 +1508,6 @@ export function KnowledgeTreePanel({
   const rootNodes = children.get(null) || [];
   const ownedRoots = rootNodes.filter((node) => !node.sharedRootId);
   const sharedRoots = rootNodes.filter((node) => Boolean(node.sharedRootId));
-  const ownedNoteCount = countOwnedNotes(nodes);
   const ownedNotebookCount = nodes.filter((node) => node.nodeType === "folder" && !node.sharedRootId).length;
   const currentSortMode = loadKnowledgeTreeSortMode();
   const hasRootDraft = draft?.parentId === null;

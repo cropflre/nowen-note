@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-test("supports databases that recorded task migrations as versions 71 through 73", async () => {
+test("repairs task migrations recorded as versions 71 through 73 without replaying unrelated migrations", async () => {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "nowen-task-migration-compat-"));
   const previousDbPath = process.env.DB_PATH;
   process.env.DB_PATH = path.join(tempDir, "test.db");
@@ -21,7 +21,9 @@ test("supports databases that recorded task migrations as versions 71 through 73
     taskMetadataMigration.up(db);
     taskTimePlanningMigration.up(db);
     taskInboxMigration.up(db);
-    db.prepare("DELETE FROM schema_migrations WHERE version >= 74").run();
+    // getDb has initialized the current schema. Remove only the collision repair
+    // ledger entries; unrelated migrations still have their schema and ledger.
+    db.prepare("DELETE FROM schema_migrations WHERE version BETWEEN 74 AND 77").run();
     db.prepare("UPDATE schema_migrations SET name = ? WHERE version = 71")
       .run(taskMetadataMigration.name);
     db.prepare("INSERT INTO schema_migrations (version, name) VALUES (?, ?)")
@@ -31,6 +33,8 @@ test("supports databases that recorded task migrations as versions 71 through 73
     db.exec("DROP TABLE yjs_operation_receipts");
 
     assert.doesNotThrow(() => runMigrations(db));
+    const repaired = db.prepare("SELECT COUNT(*) AS count FROM schema_migrations WHERE version BETWEEN 74 AND 77").get() as { count: number };
+    assert.equal(repaired.count, 4);
     // 原断言硬编码 CURRENT_SCHEMA_VERSION === 77，导致此后每新增一条迁移都会
     // 误报失败（v78/79/80 引入时即已失败）。本用例真正要验证的是
     // "把任务迁移记成 v71-73 的历史库仍能升级到最新版本"，

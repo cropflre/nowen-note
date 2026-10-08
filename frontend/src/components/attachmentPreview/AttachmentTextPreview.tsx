@@ -131,7 +131,8 @@ export default function AttachmentTextPreview({ url, filename, mimeType, size, h
         if (cancelled) return;
         setText(new TextDecoder("utf-8", { fatal: false }).decode(buf));
         setTruncated(tooLarge);
-      } catch (error: any) {
+      } catch (caughtError: unknown) {
+      const error = caughtError as Error & { code?: string };
         if (!cancelled && error?.name !== "AbortError") setErrMsg(String(error?.message || error));
       } finally {
         if (!cancelled) setLoading(false);

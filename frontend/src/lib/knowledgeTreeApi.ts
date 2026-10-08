@@ -1,5 +1,6 @@
 import { getBaseUrl, getCurrentWorkspace } from "@/lib/api";
 import { applyKnowledgeTreeSort } from "@/lib/knowledgeTreeSort";
+import type { SheetDataModel } from "@/lib/sheetModel";
 import type { NoteColorMark } from "@/types";
 
 export type KnowledgeNodeType = "folder" | "note" | "markdown" | "word" | "mindmap" | "file";
@@ -134,7 +135,7 @@ export const knowledgeTreeApi = {
     return request<{ nodes: KnowledgeTreeNode[] }>(`/shared-with-me?${workspaceQuery()}`).then(withDisplaySort);
   },
 
-  create(input: { parentId: string | null; nodeType: "folder" | "note" | "markdown" | "word" | "mindmap" | "sheet"; title: string }) {
+  create(input: { parentId: string | null; nodeType: "folder" | "note" | "markdown" | "word" | "mindmap" | "sheet"; title: string; sheetData?: SheetDataModel }) {
     return request<KnowledgeTreeNode>(`/nodes?${workspaceQuery()}`, {
       method: "POST",
       body: JSON.stringify(input),

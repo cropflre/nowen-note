@@ -7,11 +7,11 @@ function deepFreeze<T>(value: T): T {
   return value;
 }
 
-export const EXTENSION_CAPABILITY_CATALOG_DIGEST = "947b3d67183d1380f17d05791101f50d231afe28bb79d3941346c29be3053ac9" as const;
+export const EXTENSION_CAPABILITY_CATALOG_DIGEST = "9f71e9450fefc6a07f1f33cd1a24c0d556e51b70de2c24da45268b74c4865850" as const;
 export const EXTENSION_CAPABILITY_CATALOG = deepFreeze({
   "catalogVersion": 1,
   "hostApi": {
-    "contractVersion": 2,
+    "contractVersion": 4,
     "budgets": {
       "ipcMessageBytes": 2097152,
       "hostCallArgsBytes": 262144,
@@ -54,6 +54,11 @@ export const EXTENSION_CAPABILITY_CATALOG = deepFreeze({
         "id": "attachments:read",
         "description": "Read attachment metadata visible to the invoking user",
         "risk": "data-read"
+      },
+      {
+        "id": "capture:write",
+        "description": "Import a public HTTPS article and images into an accessible notebook",
+        "risk": "data-write"
       },
       {
         "id": "diary:read",
@@ -112,7 +117,7 @@ export const EXTENSION_CAPABILITY_CATALOG = deepFreeze({
       },
       {
         "id": "secrets:use",
-        "description": "Inject declared connection secrets into brokered requests",
+        "description": "Use declared connection secrets for brokered requests and cryptographic operations",
         "risk": "secret-use"
       },
       {
@@ -199,6 +204,31 @@ export const EXTENSION_CAPABILITY_CATALOG = deepFreeze({
           }
         ],
         "sdkSignature": "list(input?: { limit?: number }): Promise<Attachment[]>;"
+      },
+      {
+        "method": "capture.importUrl",
+        "sinceApiVersion": 2,
+        "permission": "capture:write",
+        "runtimes": [
+          "node-action",
+          "sandbox-js"
+        ],
+        "platforms": [
+          "server",
+          "desktop-full"
+        ],
+        "maxArgsBytes": 262144,
+        "maxResultBytes": 1048576,
+        "inputSchema": {
+          "type": "object"
+        },
+        "outputSchema": {},
+        "examples": [
+          {
+            "input": {}
+          }
+        ],
+        "sdkSignature": "importUrl(input: { url: string; notebookId: string; tags?: string[]; comment?: string }): Promise<{ id: string; title: string; imagesImported: number; imagesSkipped: number }>;"
       },
       {
         "method": "diary.create",
@@ -633,6 +663,81 @@ export const EXTENSION_CAPABILITY_CATALOG = deepFreeze({
         "sdkSignature": "capabilities(): Promise<RuntimeCapabilities>;"
       },
       {
+        "method": "secrets.crypt",
+        "sinceApiVersion": 2,
+        "permission": "secrets:use",
+        "runtimes": [
+          "node-action",
+          "sandbox-js"
+        ],
+        "platforms": [
+          "server",
+          "desktop-full"
+        ],
+        "maxArgsBytes": 262144,
+        "maxResultBytes": 1048576,
+        "inputSchema": {
+          "type": "object"
+        },
+        "outputSchema": {},
+        "examples": [
+          {
+            "input": {}
+          }
+        ],
+        "sdkSignature": "crypt(input: { connection: string; operation: \"encrypt\" | \"decrypt\"; data: string }): Promise<string>;"
+      },
+      {
+        "method": "secrets.digest",
+        "sinceApiVersion": 2,
+        "permission": "secrets:use",
+        "runtimes": [
+          "node-action",
+          "sandbox-js"
+        ],
+        "platforms": [
+          "server",
+          "desktop-full"
+        ],
+        "maxArgsBytes": 262144,
+        "maxResultBytes": 1048576,
+        "inputSchema": {
+          "type": "object"
+        },
+        "outputSchema": {},
+        "examples": [
+          {
+            "input": {}
+          }
+        ],
+        "sdkSignature": "digest(input: { connection: string; algorithm: \"sha1\" | \"sha256\"; parts: string[]; sort?: boolean }): Promise<string>;"
+      },
+      {
+        "method": "settings.get",
+        "sinceApiVersion": 2,
+        "permission": null,
+        "runtimes": [
+          "node-action",
+          "sandbox-js"
+        ],
+        "platforms": [
+          "server",
+          "desktop-full"
+        ],
+        "maxArgsBytes": 262144,
+        "maxResultBytes": 1048576,
+        "inputSchema": {
+          "type": "object"
+        },
+        "outputSchema": {},
+        "examples": [
+          {
+            "input": {}
+          }
+        ],
+        "sdkSignature": "get(): Promise<Record<string, unknown>>;"
+      },
+      {
         "method": "storage.delete",
         "sinceApiVersion": 1,
         "permission": "plugin-storage:write",
@@ -936,7 +1041,7 @@ export const EXTENSION_CAPABILITY_CATALOG = deepFreeze({
     ]
   },
   "contributions": {
-    "contractVersion": 3,
+    "contractVersion": 4,
     "namespaceTemplate": "<pluginId>/<contributionId>",
     "runtimes": [
       "declarative",
@@ -964,6 +1069,16 @@ export const EXTENSION_CAPABILITY_CATALOG = deepFreeze({
         ],
         "declarative": false,
         "description": "Command palette and host command registrations"
+      },
+      {
+        "id": "inboundWebhooks",
+        "since": "2.0",
+        "runtimes": [
+          "sandbox-js",
+          "node-action"
+        ],
+        "declarative": false,
+        "description": "Host-owned capability-token HTTP callbacks with bounded requests and responses"
       },
       {
         "id": "menus",
@@ -1084,8 +1199,32 @@ export const EXTENSION_CAPABILITY_CATALOG = deepFreeze({
     }
   },
   "errors": {
-    "contractVersion": 1,
+    "contractVersion": 2,
     "errors": [
+      {
+        "code": "CAPTURE_EXTRACTION_FAILED",
+        "category": "validation",
+        "retryable": false,
+        "description": "No readable HTML article was found"
+      },
+      {
+        "code": "CAPTURE_FETCH_FAILED",
+        "category": "network",
+        "retryable": true,
+        "description": "Public article capture failed at the network layer"
+      },
+      {
+        "code": "CAPTURE_TOO_LARGE",
+        "category": "budget",
+        "retryable": false,
+        "description": "Capture exceeds the article content budget"
+      },
+      {
+        "code": "CAPTURE_URL_DENIED",
+        "category": "network",
+        "retryable": false,
+        "description": "Capture URL is invalid or resolves to a non-public address"
+      },
       {
         "code": "EXTERNAL_FETCH_DENIED",
         "category": "network",
@@ -1244,5 +1383,5 @@ export const EXTENSION_CAPABILITY_CATALOG = deepFreeze({
       }
     ]
   },
-  "digest": "947b3d67183d1380f17d05791101f50d231afe28bb79d3941346c29be3053ac9"
+  "digest": "9f71e9450fefc6a07f1f33cd1a24c0d556e51b70de2c24da45268b74c4865850"
 } as const);

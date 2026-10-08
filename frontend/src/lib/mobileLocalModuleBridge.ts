@@ -46,7 +46,15 @@ export function installMobileLocalModuleBridge(
   db: NativeDatabase,
   userId: string,
 ): () => void {
-  const target = api as any;
+  const target = api as unknown as Omit<typeof api, "updateTask" | "toggleTask" | "updateTaskReminder" | "dataFile"> & {
+    updateTask: (id: string, patch: Partial<Task>) => Promise<{ task: Task }>;
+    toggleTask: (id: string) => Promise<{ task: Task }>;
+    updateTaskReminder: (id: string, patch: Record<string, unknown>) => Promise<Record<string, unknown>>;
+    dataFile: Omit<typeof api.dataFile, "cleanupOrphans"> & {
+      cleanupOrphans: () => Promise<Partial<Awaited<ReturnType<typeof api.dataFile.cleanupOrphans>>>>;
+    };
+    dataFileCleanupOrphans?: unknown;
+  };
   const originals = {
     getTasks: target.getTasks,
     getTask: target.getTask,
@@ -226,7 +234,7 @@ export function installMobileLocalModuleBridge(
   target.updateTaskReminder = async (id: string, patch: Record<string, unknown>) => {
     const current = (await db.query<Record<string, unknown>>("SELECT * FROM task_reminders WHERE id=?",[id]))[0];
     if (!current) throw new Error("提醒不存在");
-    const reminder: Record<string, any> = { ...current,...patch,updatedAt:now() };
+    const reminder: Record<string, unknown> = { ...current,...patch,updatedAt:now() };
     await db.run("UPDATE task_reminders SET offsetMinutes=?,enabled=?,snoozedUntil=?,updatedAt=? WHERE id=?",[
       reminder.offsetMinutes,reminder.enabled,reminder.snoozedUntil,reminder.updatedAt,id,
     ]);
@@ -321,7 +329,7 @@ export function installMobileLocalModuleBridge(
     });
     return {success:true};
   };
-  target.toggleStarMindMap = async (id:string)=>{const current=await readMindMap(id);await db.run("UPDATE mindmaps SET starred=CASE starred WHEN 1 THEN 0 ELSE 1 END WHERE id=?",[id]);return {...current,starred:(current as any).starred?0:1};};
+  target.toggleStarMindMap = async (id:string)=>{const current=await readMindMap(id);await db.run("UPDATE mindmaps SET starred=CASE starred WHEN 1 THEN 0 ELSE 1 END WHERE id=?",[id]);return {...current,starred:(current as MindMap & { starred?: number }).starred?0:1};};
   target.getMindMapFolders = async ():Promise<MindMapFolder[]> => db.query("SELECT *,0 AS mindmapCount FROM mindmap_folders WHERE scopeKey='personal' ORDER BY sortOrder,createdAt");
   target.createMindMapFolder = async (data:Partial<MindMapFolder>)=>{const createdAt=now();const folder={id:newLocalId(),userId,workspaceId:null,parentId:data.parentId||null,name:data.name||"新建文件夹",sortOrder:data.sortOrder||0,createdAt,updatedAt:createdAt};await db.run("INSERT INTO mindmap_folders (id,scopeKey,workspaceId,userId,parentId,name,sortOrder,createdAt,updatedAt) VALUES (?,'personal',NULL,?,?,?,?,?,?)",[folder.id,userId,folder.parentId,folder.name,folder.sortOrder,createdAt,createdAt]);return folder;};
   target.updateMindMapFolder = async (id:string,patch:Partial<MindMapFolder>)=>{const current=(await db.query<MindMapFolder>("SELECT * FROM mindmap_folders WHERE id=?",[id]))[0];const folder={...current,...patch,updatedAt:now()};await db.run("UPDATE mindmap_folders SET parentId=?,name=?,sortOrder=?,updatedAt=? WHERE id=?",[folder.parentId,folder.name,folder.sortOrder,folder.updatedAt,id]);return folder;};
@@ -341,7 +349,7 @@ export function installMobileLocalModuleBridge(
   target.files.stats = async ():Promise<FileStats>=>{const rows=await fileRows();const images=rows.filter((row)=>String(row.mimeType).startsWith("image/"));const files=rows.filter((row)=>!String(row.mimeType).startsWith("image/"));const sum=(items:Array<Record<string,unknown>>)=>items.reduce((total,row)=>total+(Number(row.size)||0),0);const byMime=[...new Set(rows.map((row)=>String(row.mimeType)))].map((mime)=>{const items=rows.filter((row)=>row.mimeType===mime);return {mime,count:items.length,bytes:sum(items)};});return {total:rows.length,totalBytes:sum(rows),images:{count:images.length,bytes:sum(images)},files:{count:files.length,bytes:sum(files)},unreferenced:{count:0,bytes:0},myUploads:{total:rows.length,referenced:rows.length,unreferenced:0},storage:{mode:"local",driver:"local",source:"default"},byMime};};
   target.files.list = async (params:Record<string,unknown>={}):Promise<FileListResponse>=>{let rows=await fileRows();if(params.category)rows=rows.filter((row)=>(String(row.mimeType).startsWith("image/")?"image":"file")===params.category);if(params.q)rows=rows.filter((row)=>String(row.filename).toLowerCase().includes(String(params.q).toLowerCase()));const items=await Promise.all(rows.map(toFileItem));const page=Number(params.page)||1,pageSize=Number(params.pageSize)||50,start=(page-1)*pageSize;return {items:items.slice(start,start+pageSize),total:items.length,page,pageSize};};
   target.files.get = async (id:string):Promise<FileDetail>=>{const row=(await fileRows()).find((item)=>item.id===id);if(!row)throw new Error("文件不存在");const item=await toFileItem(row);return {...item,references:item.primaryNote?[{...item.primaryNote,updatedAt:String(row.updatedAt),isPrimary:true}]:[]};};
-  target.files.upload = async (file:File):Promise<FileItem>=>{let notebooks=await repository.notebooks.list();let notebook=notebooks[0];if(!notebook){const id=newLocalId();await repository.notebooks.create({id,name:"本地文件",icon:"📁"});notebook=(await repository.notebooks.get(id))!;}let holder=(await repository.notes.list({includeArchived:true,includeTrashed:true})).find((note)=>note.title==="本地文件");if(!holder){const id=newLocalId();await repository.notes.create({id,notebookId:notebook.id,title:"本地文件",isArchived:1});holder=(await repository.notes.get(id))!;}const id=newLocalId();await repository.attachments.save({id,noteId:holder.id,filename:file.name,mimeType:file.type||"application/octet-stream",blob:file});return target.files.get(id);};
+  target.files.upload = async (file:File):Promise<FileItem>=>{const notebooks=await repository.notebooks.list();let notebook=notebooks[0];if(!notebook){const id=newLocalId();await repository.notebooks.create({id,name:"本地文件",icon:"📁"});notebook=(await repository.notebooks.get(id))!;}let holder=(await repository.notes.list({includeArchived:true,includeTrashed:true})).find((note)=>note.title==="本地文件");if(!holder){const id=newLocalId();await repository.notes.create({id,notebookId:notebook.id,title:"本地文件",isArchived:1});holder=(await repository.notes.get(id))!;}const id=newLocalId();await repository.attachments.save({id,noteId:holder.id,filename:file.name,mimeType:file.type||"application/octet-stream",blob:file});return target.files.get(id);};
   target.files.remove = async (id:string)=>{await repository.attachments.remove(id);return {success:true};};
   target.files.batchRemove = async (ids:string[])=>{const failed:Array<{id:string;reason:string}>=[];let deleted=0;for(const id of ids){try{await repository.attachments.remove(id);deleted+=1;}catch(error){failed.push({id,reason:error instanceof Error?error.message:"删除失败"});}}return {success:failed.length===0,deleted,failed};};
   target.files.rename = async (id:string,filename:string)=>{await db.run("UPDATE attachments SET filename=?,updatedAt=? WHERE id=?",[filename,now(),id]);const row=(await db.query<Record<string,unknown>>("SELECT * FROM attachments WHERE id=?",[id]))[0];if(row)await enqueue("attachment",id,"upsert",row);return {success:true,filename};};

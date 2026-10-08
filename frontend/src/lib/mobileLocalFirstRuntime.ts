@@ -340,11 +340,11 @@ function createNativeAdminAdapter(
     }
     const conflictMatch=path.match(/^\/conflicts\/([^/]+)$/);
     if(conflictMatch&&method==="GET"){
-      const id=decodeURIComponent(conflictMatch[1]);const row=(await db.query<any>("SELECT * FROM sync_conflicts WHERE id=?",[id]))[0];if(!row)throw new Error("冲突不存在");
+      const id=decodeURIComponent(conflictMatch[1]);const row=(await db.query<Record<string, unknown> & { localPayload: string | null; remotePayload: string | null; basePayload: string | null }>("SELECT * FROM sync_conflicts WHERE id=?",[id]))[0];if(!row)throw new Error("冲突不存在");
       const local=json(row.localPayload),remote=json(row.remotePayload);return {...row,base:json(row.basePayload),local,remote,diffFields:diff(local,remote),localTitle:typeof local?.title==="string"?local.title:null,remoteTitle:typeof remote?.title==="string"?remote.title:null} as T;
     }
     const resolveMatch=path.match(/^\/conflicts\/([^/]+)\/resolve$/);
-    if(resolveMatch&&method==="POST"){const body=parseBody(init);await engine.resolveLocalConflict(decodeURIComponent(resolveMatch[1]),body.resolution as any,body.mergedPayload as Record<string,unknown>|undefined);const remaining=(await db.query<{count:number}>("SELECT COUNT(*) AS count FROM sync_conflicts WHERE profileId=? AND status='unresolved'",[profileId]))[0]?.count||0;return {conflictId:decodeURIComponent(resolveMatch[1]),resolution:body.resolution,remainingConflicts:remaining} as T;}
+    if(resolveMatch&&method==="POST"){const body=parseBody(init);await engine.resolveLocalConflict(decodeURIComponent(resolveMatch[1]),body.resolution as Parameters<MobileSyncEngine["resolveLocalConflict"]>[1],body.mergedPayload as Record<string,unknown>|undefined);const remaining=(await db.query<{count:number}>("SELECT COUNT(*) AS count FROM sync_conflicts WHERE profileId=? AND status='unresolved'",[profileId]))[0]?.count||0;return {conflictId:decodeURIComponent(resolveMatch[1]),resolution:body.resolution,remainingConflicts:remaining} as T;}
     const reopenMatch=path.match(/^\/conflicts\/([^/]+)\/reopen$/);
     if(reopenMatch&&method==="POST"){
       const conflictId=decodeURIComponent(reopenMatch[1]);
@@ -514,6 +514,7 @@ async function configureRuntime(): Promise<void> {
       await mobileLocalDb.close().catch(() => undefined);
     }
     await migrateLegacyOfflineQueue(db,ids.profileId,ids.deviceId);
+    // eslint-disable-next-line prefer-const -- The callback must also be safe before repository initialization.
     let repository!:NativeLocalRepository;
     const engine = createMobileSyncEngine({
       db,attachments:attachmentStore,serverUrl,token,userId,profileId:ids.profileId,deviceId:ids.deviceId,

@@ -24,12 +24,12 @@ const rows: Row[] = [
 
 describe("knowledge tree visible depth (#762)", () => {
   it("treats roots as level 1 and expands only ancestors needed for the requested level", () => {
-    expect(buildKnowledgeTreeExpandedIdsForDepth(rows as any, 1)).toEqual([]);
-    expect(buildKnowledgeTreeExpandedIdsForDepth(rows as any, 2)).toEqual(["root-a"]);
-    expect(new Set(buildKnowledgeTreeExpandedIdsForDepth(rows as any, 3))).toEqual(
+    expect(buildKnowledgeTreeExpandedIdsForDepth(rows as unknown as readonly Pick<import("@/lib/knowledgeTreeApi").KnowledgeTreeNode, "id" | "parentId" | "nodeType" | "isDeleted">[], 1)).toEqual([]);
+    expect(buildKnowledgeTreeExpandedIdsForDepth(rows as unknown as readonly Pick<import("@/lib/knowledgeTreeApi").KnowledgeTreeNode, "id" | "parentId" | "nodeType" | "isDeleted">[], 2)).toEqual(["root-a"]);
+    expect(new Set(buildKnowledgeTreeExpandedIdsForDepth(rows as unknown as readonly Pick<import("@/lib/knowledgeTreeApi").KnowledgeTreeNode, "id" | "parentId" | "nodeType" | "isDeleted">[], 3))).toEqual(
       new Set(["root-a", "child-a"]),
     );
-    expect(new Set(buildKnowledgeTreeExpandedIdsForDepth(rows as any, "all"))).toEqual(
+    expect(new Set(buildKnowledgeTreeExpandedIdsForDepth(rows as unknown as readonly Pick<import("@/lib/knowledgeTreeApi").KnowledgeTreeNode, "id" | "parentId" | "nodeType" | "isDeleted">[], "all"))).toEqual(
       new Set(["root-a", "child-a", "grandchild-a"]),
     );
   });

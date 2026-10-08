@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ConflictCenter } from "../settings/ConflictCenter";
 
-(globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
+Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
 const {
   fetchConflictDetailMock,
@@ -119,6 +119,31 @@ describe("冲突中心批量处理", () => {
     document.body.innerHTML = "";
   });
 
+  it("加密冲突不开放 JSON 手动合并，批量智能合并也保留两侧版本", async () => {
+    fetchConflictsMock.mockResolvedValue({ total: 1, items: [conflicts[0]] });
+    const encrypted = { id: "note-1", contentFormat: "encrypted-note-v1", content: "opaque envelope", title: "旧标题" };
+    fetchConflictDetailMock.mockResolvedValue({ ...conflicts[0], status: "unresolved", resolvedAt: null,
+      base: encrypted, local: { ...encrypted, title: "本机标题" }, remote: { ...encrypted, content: "remote envelope" } });
+    const host = document.createElement("div"); document.body.appendChild(host); root = createRoot(host);
+    await act(async () => { root?.render(<ConflictCenter deviceId="encrypted-device" />); });
+    await waitFor(() => expect(host.textContent).toContain("冲突（1）"));
+    const compare = Array.from(host.querySelectorAll("button")).find((button) => button.textContent?.trim() === "查看");
+    expect(compare).toBeDefined();
+    await act(async () => compare?.click());
+    await waitFor(() => expect(host.textContent).toContain("请选择保留本机版本或云端版本"));
+    expect(host.textContent).not.toContain("手动编辑并合并");
+    expect(host.textContent).not.toContain("opaque envelope");
+    expect(host.textContent).not.toContain("remote envelope");
+    expect(host.textContent).not.toContain("encrypted-note-v1");
+    expect([...host.querySelectorAll("button")].some((button) => button.textContent?.trim() === "保留本机版本")).toBe(true);
+    expect([...host.querySelectorAll("button")].some((button) => button.textContent?.trim() === "保留云端版本")).toBe(true);
+    await act(async () => host.querySelector<HTMLInputElement>('input[aria-label="全选冲突"]')?.click());
+    const merge = Array.from(host.querySelectorAll("button")).find((button) => button.textContent?.includes("智能合并选中项"));
+    await act(async () => merge?.click());
+    await waitFor(() => expect(host.textContent).toContain("请选择保留本机版本或云端版本"));
+    expect(resolveConflictMock).not.toHaveBeenCalled();
+  });
+
   it("全选后批量采用本机版本", async () => {
     fetchConflictsMock
       .mockResolvedValueOnce({ total: conflicts.length, items: conflicts })
@@ -172,7 +197,7 @@ describe("冲突中心批量处理", () => {
     const first = host.querySelector<HTMLInputElement>('input[aria-label="选择冲突 项目计划"]');
     await act(async () => first?.click());
     const bulkRemote = Array.from(host.querySelectorAll("button"))
-      .find((button) => button.textContent === "一键采用服务器");
+      .find((button) => button.textContent === "一键采用云端");
     await act(async () => bulkRemote?.click());
 
     await waitFor(() => expect(resolveConflictMock).toHaveBeenCalledTimes(1));

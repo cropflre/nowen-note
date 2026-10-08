@@ -4,6 +4,9 @@ import "./runtime/task-stats-hardening";
 import "./runtime/notebook-publication";
 import "./runtime/knowledge-tree";
 import { Hono } from "hono";
+import wechatCaptureRouter from "./routes/wechat-capture.js";
+import wechatAssistantRouter, { createWechatAssistantCallbackRouter } from "./routes/wechat-assistant.js";
+import pluginInboundRouter from "./routes/plugin-inbound.js";
 import { cors } from "hono/cors";
 import { logger } from "hono/logger";
 import { compress } from "hono/compress";
@@ -13,6 +16,7 @@ import { verifyLoginToken, getCachedAuthUser, setCachedAuthUser } from "./lib/au
 import knowledgeTreeRouter from "./routes/knowledge-tree";
 import notebooksRouter from "./routes/notebooks";
 import notesRouter from "./routes/notes";
+import trashRouter from "./routes/trash";
 import noteTemplatesRouter from "./routes/note-templates";
 import offlineSyncRouter from "./routes/offline-sync";
 import syncV2Router from "./routes/sync-v2";
@@ -147,7 +151,8 @@ app.use("*", async (c, next) => {
   });
 });
 
-app.use("*", logger());
+// Capability callback URLs and protocol challenges must not enter request logs.
+app.use("*", (c, next) => (c.req.path.startsWith("/api/plugin-inbound/") || c.req.path === "/api/wechat-assistant/callback") ? next() : logger()(c, next));
 
 const isProd = process.env.NODE_ENV === "production";
 const corsOrigins = resolveCorsOrigins();
@@ -284,7 +289,7 @@ app.use("/api/shared/*", async (c, next) => {
     "Content-Security-Policy",
     [
       "default-src 'self'",
-      "script-src 'self'",
+      "script-src 'self' 'wasm-unsafe-eval'",
       "style-src 'self' 'unsafe-inline'",
       "img-src 'self' data: blob: https:",
       "font-src 'self' data:",
@@ -425,6 +430,8 @@ app.get("/api/diary/attachments/:id", handleDownloadDiaryImage);
 
 // 高熵 capability token + 可选 HMAC，自身完成鉴权；外部系统不会携带 Nowen JWT。
 app.route("/api/automation/webhooks", automationWebhookRouter);
+app.route("/api/plugin-inbound", pluginInboundRouter);
+app.route("/api/wechat-assistant", createWechatAssistantCallbackRouter());
 
 // JWT 鉴权中间件：保护所有 /api/* 路由（auth 和 health 已在上方注册，不受影响）
 //
@@ -579,6 +586,7 @@ app.use("/api/*", automationEventCaptureMiddleware);
 app.route("/api/knowledge-tree/", knowledgeTreeRouter);
 app.route("/api/notebooks", notebooksRouter);
 app.route("/api/notes", notesRouter);
+app.route("/api/trash", trashRouter);
 app.route("/api/note-templates", noteTemplatesRouter);
 app.route("/api/offline-sync", offlineSyncRouter);
 // Sync V2（Local-first）。与 V1 并存：V1 服务已发布客户端，不做任何改动。
@@ -610,6 +618,8 @@ app.route("/api/ai", aiRouter);
 app.route("/api/voice", voiceRouter);
 app.route("/api/plugins/studio", pluginStudioRouter);
 app.route("/api/plugins", pluginsRouter);
+app.route("/api/wechat-assistant", wechatAssistantRouter);
+app.route("/api/wechat-capture", wechatCaptureRouter);
 app.route("/api/plugin-executions", pluginExecutionsRouter);
 app.route("/api/automations", automationsRouter);
 app.route("/api/webhooks", webhooksRouter);
@@ -867,7 +877,7 @@ if (process.env.NODE_ENV === "production") {
         "Content-Security-Policy",
         [
           "default-src 'self'",
-          "script-src 'self'",
+          "script-src 'self' 'wasm-unsafe-eval'",
           "style-src 'self' 'unsafe-inline'",
           "img-src 'self' data: blob: https:",
           "font-src 'self' data:",

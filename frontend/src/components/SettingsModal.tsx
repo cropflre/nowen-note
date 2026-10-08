@@ -1079,7 +1079,7 @@ function SwitchesPanel() {
       <JournalPrivacySettingsCard />
 
       <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-800/30 divide-y divide-zinc-200 dark:divide-zinc-800 overflow-hidden">
-        <div className="flex items-center justify-between gap-3 px-3 py-2.5 hover:bg-white/60 dark:hover:bg-zinc-900/25 transition-colors max-sm:flex-col max-sm:items-stretch">
+        <div data-settings-choice="remote-image-paste" className="flex items-center justify-between gap-3 px-3 py-2.5 hover:bg-white/60 dark:hover:bg-zinc-900/25 transition-colors max-sm:flex-col max-sm:items-stretch">
           <div className="flex-1 min-w-0">
             <div className="text-xs font-medium text-zinc-800 dark:text-zinc-200 leading-none">
               {t("settings.remoteImagePasteMode")}
@@ -1108,7 +1108,7 @@ function SwitchesPanel() {
           </div>
         </div>
 
-        <div className="flex items-center justify-between gap-3 px-3 py-2.5 hover:bg-white/60 dark:hover:bg-zinc-900/25 transition-colors max-sm:flex-col max-sm:items-stretch">
+        <div data-settings-choice="markdown-default-view" className="flex items-center justify-between gap-3 px-3 py-2.5 hover:bg-white/60 dark:hover:bg-zinc-900/25 transition-colors max-sm:flex-col max-sm:items-stretch">
           <div className="flex-1 min-w-0">
             <div className="text-xs font-medium text-zinc-800 dark:text-zinc-200 leading-none">
               {t("settings.markdownDefaultViewMode")}
@@ -1137,6 +1137,7 @@ function SwitchesPanel() {
         </div>
 
         <div
+          data-settings-choice="code-block-collapse"
           data-settings-code-block-collapse=""
           className="flex items-center justify-between gap-3 px-3 py-2.5 hover:bg-white/60 dark:hover:bg-zinc-900/25 transition-colors max-sm:flex-col max-sm:items-stretch"
         >

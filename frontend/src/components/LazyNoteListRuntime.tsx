@@ -67,21 +67,7 @@ type VirtualScrollSnapshot = {
 };
 
 function findDesktopNoteListHeader(shell: HTMLElement): HTMLElement | null {
-  const noteRoot = Array.from(shell.children).find((child) => (
-    child instanceof HTMLElement
-    && child.classList.contains("w-full")
-    && child.classList.contains("h-full")
-    && child.classList.contains("border-r")
-  ));
-  if (!(noteRoot instanceof HTMLElement)) return null;
-
-  return Array.from(noteRoot.children).find((child) => (
-    child instanceof HTMLElement
-    && child.tagName === "DIV"
-    && child.classList.contains("hidden")
-    && child.classList.contains("md:flex")
-    && child.classList.contains("border-b")
-  )) as HTMLElement | null;
+  return shell.querySelector<HTMLElement>("[data-note-list-desktop-header]");
 }
 
 export default function LazyNoteListRuntime() {
@@ -156,42 +142,17 @@ export default function LazyNoteListRuntime() {
     }
   }, [state.notes]);
 
-  // NoteList 是 lazy chunk。等它真实挂载后定位桌面 header，把搜索框通过 portal
-  // 放到“目录标题”和右侧排序/新建按钮之间；不复制/重写 NoteList 的大块布局代码。
+  // NoteList 是 lazy chunk。等它真实挂载后，把目录搜索挂到桌面 header 的独立一行。
   useEffect(() => {
     const shell = shellRef.current;
     if (!shell) return;
 
     let annotatedHeader: HTMLElement | null = null;
-    let titleGroup: HTMLElement | null = null;
-    let actionGroup: HTMLElement | null = null;
-
-    const clearAnnotation = () => {
-      titleGroup?.style.removeProperty("order");
-      actionGroup?.style.removeProperty("order");
-      annotatedHeader?.removeAttribute("data-note-directory-search-header");
-      annotatedHeader = null;
-      titleGroup = null;
-      actionGroup = null;
-    };
-
     const locateHeader = () => {
       const header = findDesktopNoteListHeader(shell);
       if (!header || header === annotatedHeader) return;
 
-      clearAnnotation();
       annotatedHeader = header;
-      titleGroup = header.firstElementChild instanceof HTMLElement
-        ? header.firstElementChild
-        : null;
-      actionGroup = header.lastElementChild instanceof HTMLElement
-        ? header.lastElementChild
-        : null;
-
-      // Portal 节点会被追加到 header 末尾，用 flex order 把它稳定放到左右两组控件中间。
-      if (titleGroup) titleGroup.style.order = "0";
-      if (actionGroup) actionGroup.style.order = "2";
-      header.setAttribute("data-note-directory-search-header", "");
       setDesktopHeaderTarget(header);
     };
 
@@ -201,7 +162,6 @@ export default function LazyNoteListRuntime() {
 
     return () => {
       observer.disconnect();
-      clearAnnotation();
       setDesktopHeaderTarget(null);
     };
   }, []);
@@ -324,12 +284,7 @@ export default function LazyNoteListRuntime() {
     ? createPortal(
         <div
           data-note-directory-search=""
-          className={[
-            "hidden min-w-0 md:flex",
-            desktopHeaderTarget.dataset.noteWorkspaceLayout === "three-column"
-              ? "order-3 basis-full w-full max-w-none px-0"
-              : "order-1 max-w-[190px] flex-1 px-2",
-          ].join(" ")}
+          className="hidden min-w-0 w-full basis-full shrink-0 md:flex"
           title={directoryQuery.trim() && matchCount !== null
             ? `当前目录匹配 ${matchCount} 篇文档`
             : "搜索本目录文档"}
@@ -375,7 +330,7 @@ export default function LazyNoteListRuntime() {
       className="h-full w-full min-h-0 max-md:select-none max-md:[-webkit-touch-callout:none]"
     >
       <Suspense fallback={<LazyWorkspaceFallback label="正在加载笔记列表…" />}>
-        <LazyNoteList />
+        <LazyNoteList directorySearchActive={searchActive} />
       </Suspense>
       {directorySearch}
     </div>

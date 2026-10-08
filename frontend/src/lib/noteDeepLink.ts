@@ -7,6 +7,7 @@ import {
 } from "@/lib/appPathNavigation";
 
 const MAX_NOTE_ID_LENGTH = 512;
+// eslint-disable-next-line no-control-regex -- Control characters must be rejected or stripped at this data boundary.
 const INVALID_NOTE_ID_CHARS_RE = /[\\/\u0000-\u001f\u007f]/;
 
 export interface NoteAppRoute {

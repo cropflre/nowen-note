@@ -99,6 +99,7 @@ export interface InstalledPlugin {
   probationRemaining?: number;
   autoRollbackReason?: string | null;
   contributes?: {
+    inboundWebhooks?: Array<{ id: string; path: string; action: string; methods: Array<"GET" | "POST">; maxBodyBytes: number; backgroundAction?: string }>;
     settings?: Array<{ key: string; title: string; type: "string" | "number" | "boolean" | "select"; description?: string; options?: Array<string | number>; default?: string | number | boolean; secret?: boolean }>;
     automationTemplates?: Array<{ id: string; title: string; description?: string }>;
     commands?: Array<{ id: string; title: string; action: string; category?: string }>;
@@ -140,6 +141,7 @@ export interface RegistryPlugin {
   category?: string;
   keywords?: string[];
   latestVersion: string;
+  runtime?: InstalledPlugin["runtime"];
   trustLevel?: string;
   repository?: string;
 }
@@ -199,14 +201,15 @@ export const pluginApi = {
   registrySources: () => request<RegistrySource[]>("/plugins/ecosystem/sources"),
   setRegistrySource: (source: Pick<RegistrySource, "id" | "name" | "indexUrl" | "registryKeyId" | "registryPublicKey"> & { enabled?: boolean }) => request<RegistrySource[]>("/plugins/ecosystem/sources", { method: "PUT", body: JSON.stringify(source) }),
   registryCatalog: async (source = "official-v2") => {
-    const index = await request<{ extensions: Array<Omit<RegistryPlugin, "latestVersion"> & { versions: Array<{ version: string }> }> }>(`/plugins/ecosystem/catalog?source=${encodeURIComponent(source)}`);
-    return index.extensions.map((extension) => ({
-      ...extension,
-      latestVersion: [...extension.versions]
-        .sort((left, right) => right.version.localeCompare(left.version, undefined, { numeric: true }))[0]?.version || "",
-    }));
+    const index = await request<{ extensions: Array<Omit<RegistryPlugin, "latestVersion"> & { versions: Array<{ version: string; runtime?: InstalledPlugin["runtime"] }> }> }>(`/plugins/ecosystem/catalog?source=${encodeURIComponent(source)}`);
+    return index.extensions.map((extension) => {
+      const latest = [...extension.versions].sort((left, right) => right.version.localeCompare(left.version, undefined, { numeric: true }))[0];
+      return { ...extension, latestVersion: latest?.version || "", runtime: latest?.runtime };
+    });
   },
   installFromRegistry: (sourceId: string, pluginId: string, version?: string) => contributionMutation(request("/plugins/ecosystem/install", { method: "POST", body: JSON.stringify({ sourceId, pluginId, version }) })),
+  getRuntimePolicy: () => request<{ allowNodeRuntime: boolean }>("/plugins/policy"),
+  setRuntimePolicy: (allowNodeRuntime: boolean) => contributionMutation(request<{ allowNodeRuntime: boolean }>("/plugins/policy", { method: "PUT", body: JSON.stringify({ allowNodeRuntime }) })),
   getDeveloperMode: () => request<{ enabled: boolean; available: boolean }>("/plugins/developer-mode"),
   setDeveloperMode: (enabled: boolean) => request<{ enabled: boolean }>("/plugins/developer-mode", { method: "PUT", body: JSON.stringify({ enabled }) }),
   loadDevelopment: (directory: string, confirmNodeRuntime = false) => contributionMutation(request("/plugins/dev/load", { method: "POST", body: JSON.stringify({ directory, confirmNodeRuntime }) })),
@@ -214,7 +217,24 @@ export const pluginApi = {
   applyUpdate: (sourceId: string, pluginId: string, version: string, confirmed = false) => contributionMutation(request("/plugins/ecosystem/update", { method: "POST", body: JSON.stringify({ sourceId, pluginId, version, confirmed }) })),
   setUpdatePolicy: (id: string, policy: "manual" | "notify" | "automatic", pinnedVersion?: string | null) => request(`/plugins/${encodeURIComponent(id)}/update-policy`, { method: "PUT", body: JSON.stringify({ policy, pinnedVersion }) }),
   settings: (id: string) => request<Record<string, unknown>>(`/plugins/${encodeURIComponent(id)}/settings`),
+  inboundWebhooks: (id: string) => request<Array<{ hookId: string }>>(`/plugins/${encodeURIComponent(id)}/inbound-webhooks`),
+  createInboundWebhook: (id: string, hookId: string) => request<{ path: string }>(`/plugins/${encodeURIComponent(id)}/inbound-webhooks/${encodeURIComponent(hookId)}`, { method: "POST" }),
+  removeInboundWebhook: (id: string, hookId: string) => request(`/plugins/${encodeURIComponent(id)}/inbound-webhooks/${encodeURIComponent(hookId)}`, { method: "DELETE" }),
   setSettings: (id: string, values: Record<string, unknown>) => request<Record<string, unknown>>(`/plugins/${encodeURIComponent(id)}/settings`, { method: "PUT", body: JSON.stringify(values) }),
   installAutomationTemplate: (id: string, templateId: string) => request(`/plugins/${encodeURIComponent(id)}/automation-templates/${encodeURIComponent(templateId)}/install`, { method: "POST" }),
   createNoteFromTemplate: (id: string, templateId: string, input: { workspaceId?: string | null; parentId?: string | null; values?: Record<string, unknown> }) => request<{ success: true; noteId: string; node: unknown }>("/plugins/" + encodeURIComponent(id) + "/note-templates/" + encodeURIComponent(templateId) + "/create", { method: "POST", body: JSON.stringify(input) }),
+};
+
+export interface WechatInboxItem {
+  id: string; url: string; status: string; createdAt: string;
+  note: { id: string; title: string } | null; error: string | null;
+}
+export interface WechatCaptureStatus {
+  pluginReady: boolean; clipboardPrompt: boolean; clipboardAvailable?: boolean; items: WechatInboxItem[];
+}
+export const wechatCaptureApi = {
+  status: () => request<WechatCaptureStatus>("/wechat-capture"),
+  preferences: (clipboardPrompt: boolean) => contributionMutation(request<{ clipboardPrompt: boolean }>("/wechat-capture/preferences", { method: "PUT", body: JSON.stringify({ clipboardPrompt }) })),
+  collect: (text: string) => request<{ accepted: number; duplicates: number }>("/wechat-capture/collect", { method: "POST", body: JSON.stringify({ text }) }),
+  retry: (id: string) => request(`/wechat-capture/items/${encodeURIComponent(id)}/retry`, { method: "POST" }),
 };

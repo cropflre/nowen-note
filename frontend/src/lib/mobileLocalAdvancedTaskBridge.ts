@@ -177,7 +177,7 @@ export function installMobileLocalAdvancedTaskBridge(
   db: NativeDatabase,
   userId: string,
 ): () => void {
-  const target = api as any;
+  const target = api;
   const originals = {
     getTaskProjects: target.getTaskProjects,
     createTaskProject: target.createTaskProject,
@@ -533,7 +533,7 @@ export function installMobileLocalAdvancedTaskBridge(
       .filter((row) => habitIds.has(String(row.habitId)));
     const dates = Array.from(new Set(rows.map((row) => String(row.checkinDate)))).sort().reverse();
     let currentStreak = 0;
-    let cursor = new Date(`${checkinDate || dateKey()}T00:00:00`);
+    const cursor = new Date(`${checkinDate || dateKey()}T00:00:00`);
     while (!Number.isNaN(cursor.getTime())) {
       const key = cursor.toISOString().slice(0, 10);
       if (!dates.includes(key)) break;

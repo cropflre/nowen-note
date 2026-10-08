@@ -1,3 +1,4 @@
+import { isConversionMetadataSafe, isConversionNoteSafe, subscribeConversionInvalidation } from "@/lib/encryptedNotes/conversionBarrier";
 import React, { createContext, useCallback, useContext, useEffect, useReducer, useMemo, useRef } from "react";
 import { Notebook, NoteListItem, Note, Tag, ViewMode } from "@/types";
 import { api } from "@/lib/api";
@@ -83,6 +84,7 @@ interface AppState {
 }
 
 type Action =
+  | { type: "INVALIDATE_CONVERTED_NOTE"; payload: string }
   | { type: "SET_NOTEBOOKS"; payload: Notebook[] }
   | { type: "ADD_NOTEBOOK"; payload: Notebook }
   | { type: "REPLACE_NOTEBOOK"; payload: { id: string; notebook: Notebook } }
@@ -229,6 +231,17 @@ export { MIN_SIDEBAR_WIDTH, MAX_SIDEBAR_WIDTH, DEFAULT_SIDEBAR_WIDTH, MIN_NOTELI
 
 function reducer(state: AppState, action: Action): AppState {
   switch (action.type) {
+    case "INVALIDATE_CONVERTED_NOTE":
+      return {
+        ...state,
+        activeNote: state.activeNote?.id === action.payload ? null : state.activeNote,
+        notes: state.notes.filter((note) => note.id !== action.payload),
+        openNoteTabs: state.openNoteTabs.filter((tab) => tab.id !== action.payload),
+        editorSplit: state.editorSplit?.noteId === action.payload ? null : state.editorSplit,
+        noteLoading: state.noteLoadingState.pendingNoteId === action.payload ? false : state.noteLoading,
+        noteLoadingState: state.noteLoadingState.pendingNoteId === action.payload ? createIdleNoteLoadingState() : state.noteLoadingState,
+        notesRefreshToken: state.notesRefreshToken + 1,
+      };
     case "SET_NOTEBOOKS":
       return {
         ...state,
@@ -255,9 +268,9 @@ function reducer(state: AppState, action: Action): AppState {
     case "REMOVE_NOTEBOOK":
       return { ...state, notebooks: state.notebooks.filter((notebook) => notebook.id !== action.payload) };
     case "SET_NOTES":
-      return { ...state, notes: action.payload };
+      return { ...state, notes: action.payload.filter(isConversionNoteSafe) };
     case "SET_ACTIVE_NOTE":
-      return { ...state, activeNote: action.payload };
+      return action.payload && !isConversionNoteSafe(action.payload) ? state : { ...state, activeNote: action.payload };
     case "SET_TAGS":
       return { ...state, tags: action.payload };
     case "SET_SELECTED_NOTEBOOK":
@@ -339,6 +352,7 @@ function reducer(state: AppState, action: Action): AppState {
         }
         : { ...state, noteLoading: false, noteLoadingState: createIdleNoteLoadingState() };
     case "BEGIN_NOTE_LOAD":
+      if (!isConversionMetadataSafe({ id: action.payload.noteId, ...action.payload.summary })) return state;
       return {
         ...state,
         noteLoading: false,
@@ -384,7 +398,7 @@ function reducer(state: AppState, action: Action): AppState {
       return {
         ...state,
         notes: state.notes.map((n) =>
-          n.id === action.payload.id ? { ...n, ...action.payload } : n
+          n.id === action.payload.id && isConversionNoteSafe({ ...n, ...action.payload }) ? { ...n, ...action.payload } : n
         ),
       };
     case "REMOVE_NOTE_FROM_LIST":
@@ -394,7 +408,7 @@ function reducer(state: AppState, action: Action): AppState {
       };
     case "ADD_NOTE_TO_LIST":
       // 如果笔记已存在，不重复添加（避免 AnimatePresence 中出现重复 key）
-      if (state.notes.some((n) => n.id === action.payload.id)) {
+      if (!isConversionNoteSafe(action.payload) || state.notes.some((n) => n.id === action.payload.id)) {
         return state;
       }
       return {
@@ -413,6 +427,7 @@ function reducer(state: AppState, action: Action): AppState {
       return { ...state, notesRefreshToken: state.notesRefreshToken + 1 };
     case "OPEN_NOTE_TAB": {
       const incoming = action.payload;
+      if (!isConversionMetadataSafe(incoming)) return state;
       const existingIndex = state.openNoteTabs.findIndex((tab) => tab.id === incoming.id);
       let tabs = existingIndex >= 0
         ? state.openNoteTabs.map((tab) =>
@@ -433,7 +448,7 @@ function reducer(state: AppState, action: Action): AppState {
       return {
         ...state,
         openNoteTabs: sortOpenNoteTabs(state.openNoteTabs.map((tab) =>
-          tab.id === action.payload.id ? { ...tab, ...action.payload } : tab
+          tab.id === action.payload.id && isConversionMetadataSafe({ ...tab, ...action.payload }) ? { ...tab, ...action.payload } : tab
         )),
       };
     case "CLEAR_NOTE_TABS":
@@ -441,7 +456,7 @@ function reducer(state: AppState, action: Action): AppState {
     case "SET_NOTE_TABS":
       return {
         ...state,
-        openNoteTabs: trimOpenNoteTabs(sortOpenNoteTabs(action.payload), state.activeNote?.id),
+        openNoteTabs: trimOpenNoteTabs(sortOpenNoteTabs(action.payload.filter(isConversionMetadataSafe)), state.activeNote?.id),
         editorSplit: state.editorSplit && action.payload.some((tab) => tab.id === state.editorSplit?.noteId)
           ? state.editorSplit
           : null,
@@ -487,6 +502,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
 
     const current = stateRef.current;
+    const leavingNote = current.activeNote && (
+      (action.type === "SET_ACTIVE_NOTE" && current.activeNote.id !== action.payload?.id)
+      || (action.type === "SET_VIEW_MODE" && current.viewMode !== action.payload)
+      || (action.type === "SET_MOBILE_VIEW" && action.payload !== "editor")
+      || ((action.type === "CLOSE_NOTE_TAB" || action.type === "REMOVE_NOTE_TAB") && action.payload === current.activeNote.id)
+      || action.type === "CLEAR_NOTE_TABS"
+      || (action.type === "SET_NOTE_TABS" && !action.payload.some((tab) => tab.id === current.activeNote!.id))
+    );
+    if (leavingNote) {
+      if (!window.dispatchEvent(new Event("nowen:encrypted-note-before-leave", { cancelable: true }))) return;
+    }
     let changedFields = "";
     if (action.type === "SET_ACTIVE_NOTE") {
       const previous = current.activeNote;
@@ -505,6 +531,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     });
     dispatch(action);
   }, [noteActivationGuard]);
+
+  useEffect(() => subscribeConversionInvalidation((noteId) => {
+    dispatch({ type: "INVALIDATE_CONVERTED_NOTE", payload: noteId });
+  }), []);
 
   useEffect(() => {
     noteActivationGuard.commit(state.activeNote?.id ?? null);

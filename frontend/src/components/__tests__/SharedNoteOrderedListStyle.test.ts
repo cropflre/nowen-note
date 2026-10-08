@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import stylesheet from "../../index.css?raw";
+import { readFileSync } from "node:fs";
+import path from "node:path";
+
+const stylesheet = readFileSync(path.resolve(__dirname, "../../index.css"), "utf8");
 
 function compactCss(css: string): string {
   return css.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\s+/g, " ").trim();

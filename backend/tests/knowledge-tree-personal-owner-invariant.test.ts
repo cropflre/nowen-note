@@ -132,6 +132,6 @@ test("personal owner keeps member-management access when the tree ownership mirr
     targetUserId: "member-invariant",
     actorUserId: "owner-invariant",
     db,
-  }), true);
+  }), false); // Setting deny already replaced the previous allow rule.
   assert.equal(resolveKnowledgeNodeAccess(root.id, "owner-invariant", db).capabilities.canManageMembers, true);
 });

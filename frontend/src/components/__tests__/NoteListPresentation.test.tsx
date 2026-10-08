@@ -9,7 +9,7 @@ import type { NoteListItem } from "@/types";
 vi.mock("react-i18next", () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
 vi.mock("@/lib/exportService", () => ({}));
 vi.mock("framer-motion", () => ({
-  motion: { div: React.forwardRef<HTMLDivElement, any>(({ initial, animate, exit, transition, ...props }, ref) => <div ref={ref} {...props} />) },
+  motion: { div: React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement> & { initial?: unknown; animate?: unknown; exit?: unknown; transition?: unknown }>(({ initial, animate, exit, transition, ...props }, ref) => { void [initial, animate, exit, transition]; return <div ref={ref} {...props} />; }) },
   AnimatePresence: ({ children }: { children: React.ReactNode }) => children,
 }));
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -113,9 +113,15 @@ describe("NoteList compact cards and controls", () => {
     expect(calendar).toHaveBeenCalledOnce();
     expect(source.match(/<SortMenu /g)).toHaveLength(1);
     const header = source.slice(source.indexOf("{/* Desktop Header */}"), source.indexOf("{/* 日历筛选面板 */}"));
-    expect(header).not.toContain("flex-wrap");
+    expect(header).toContain("flex-wrap");
+    expect(header).toContain("data-note-list-desktop-header");
+    expect(header).toContain("<SlidersHorizontal");
+    expect(header).toContain("<span>{t(\"noteList.listOptions\")}</span>");
+    expect(header).not.toContain('sortPref.by !== "manual"');
     expect(header).toContain('t("noteList.listOptions")');
     expect(header).toContain('onClick={() => setDateFilter(null)}');
+    expect(document.querySelector('[role="menu"]')?.textContent).toContain("noteList.displaySettings");
+    expect(document.querySelector('[role="menu"]')?.textContent).toContain("noteList.filters");
   });
   it("shares row height in virtual lists and clamps scroll when switching to titles only", () => {
     const notes = Array.from({ length: 200 }, (_, i) => ({ ...note, id: `note-${i}`, title: `笔记 ${i}` }));

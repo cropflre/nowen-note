@@ -16,7 +16,7 @@ vi.mock("@/lib/documentMindMapRuntime", () => ({
 }));
 
 vi.mock("@/components/MindMapEditor", () => ({
-  default: (props: any) => (
+  default: (props: { embeddedMindMapId?: string; embeddedMode?: boolean }) => (
     <div
       data-testid="embedded-native-mindmap-editor"
       data-map-id={props.embeddedMindMapId}

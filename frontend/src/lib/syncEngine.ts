@@ -1,3 +1,5 @@
+import { getOfflineQueueStorageKey } from "./offlineScope";
+import { assertConversionNote } from "./encryptedNotes/conversionBarrier";
 import { api, getCurrentWorkspace } from "@/lib/api";
 import {
   setCurrentUser,
@@ -357,8 +359,8 @@ export function isCompleteNoteDetail(note: unknown): note is Note {
     typeof value.updatedAt === "string" && value.updatedAt.length > 0;
 }
 
-export async function cacheNoteContent(note: Note): Promise<void> {
-  if (!localStoreReady()) return;
+export async function cacheNoteContent(note: Note, expectedScope = getOfflineQueueStorageKey()): Promise<void> {
+  if (!localStoreReady() || expectedScope !== getOfflineQueueStorageKey()) return;
   if (!isCompleteNoteDetail(note)) {
     console.warn("[syncEngine] refused incomplete note detail cache write", {
       id: (note as any)?.id,
@@ -378,6 +380,8 @@ export async function cacheNoteContent(note: Note): Promise<void> {
     return;
   }
   try {
+    assertConversionNote(stableNote);
+    if (expectedScope !== getOfflineQueueStorageKey()) return;
     await putNote({ ...stableNote, __detailCached: true });
   } catch (error) {
     console.warn("[syncEngine] cacheNoteContent failed:", error);

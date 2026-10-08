@@ -146,8 +146,11 @@ export function createKnowledgeChild(input: {
   actorUserId: string;
   workspaceId: string | null;
   parentId: string | null;
-  nodeType: "folder" | "note" | "markdown" | "word";
+  nodeType: "folder" | "note" | "markdown" | "word" | "mindmap" | "sheet";
   title: string;
+  encryptedContent?: string;
+  encryptedNoteId?: string;
+  sheetData?: unknown;
   db?: Database.Database;
 }): KnowledgeTreeNode {
   if (input.parentId !== null) {

@@ -448,6 +448,12 @@ export function onFormatMenu(
   return bridge.on("menu:format", (p) => handler((p as FormatMenuPayload) ?? {}));
 }
 
+/** Native window locking notification carries no content or credentials. */
+export function onEncryptedAutoLock(handler: () => void): () => void {
+  const bridge = getBridge();
+  return bridge ? bridge.on("security:auto-lock", handler) : () => {};
+}
+
 /** 订阅自动更新事件 */
 export function onUpdaterStatus(
   handler: (payload: UpdaterPayload) => void

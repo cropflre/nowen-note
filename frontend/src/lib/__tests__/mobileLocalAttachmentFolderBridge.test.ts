@@ -87,10 +87,10 @@ let restore:(()=>void)|null=null;
 
 afterEach(()=>{
   restore?.();restore=null;
-  (api.files as any).list=originalFiles.list;
-  (api.files as any).get=originalFiles.get;
-  (api.files as any).upload=originalFiles.upload;
-  (api as any).attachmentFolders={...originalFolders};
+  api.files.list=originalFiles.list;
+  api.files.get=originalFiles.get;
+  api.files.upload=originalFiles.upload;
+  api.attachmentFolders={...originalFolders};
   vi.restoreAllMocks();
 });
 
@@ -100,10 +100,10 @@ describe("mobile local attachment folder bridge",()=>{
     const baseItem={
       id:"file-1",filename:"demo.txt",mimeType:"text/plain",size:4,createdAt:"2026-08-27T00:00:00.000Z",
       category:"file",url:"blob:local",hash:null,folderId:null,folderName:null,primaryNote:null,
-    } as any;
-    (api.files as any).list=vi.fn(async()=>({items:[baseItem],total:1,page:1,pageSize:10}));
-    (api.files as any).get=vi.fn(async()=>baseItem);
-    (api.files as any).upload=vi.fn(async()=>baseItem);
+    } as import("@/types").FileDetail;
+    api.files.list=vi.fn(async()=>({items:[baseItem],total:1,page:1,pageSize:10}));
+    api.files.get=vi.fn(async()=>baseItem);
+    api.files.upload=vi.fn(async()=>baseItem);
     const fetchSpy=vi.spyOn(globalThis,"fetch");
     restore=installMobileLocalAttachmentFolderBridge(db,"android-local-user");
 

@@ -10,8 +10,8 @@ const MARKDOWN_ONBOARDING_ID = "onboarding-v1-user-42-zh-welcome";
 
 const mocks = vi.hoisted(() => ({
   state: {
-    activeNote: null as any,
-    viewMode: "all" as any,
+    activeNote: null as unknown,
+    viewMode: "all" as unknown,
   },
   actions: {
     setActiveNote: vi.fn(),
@@ -78,7 +78,7 @@ describe("NoteDeepLinkBridge", () => {
     mocks.state.activeNote = null;
     mocks.state.viewMode = "all";
     window.history.replaceState(null, "", "/");
-    mocks.loadNote.mockImplementation(async (options: any) => {
+    mocks.loadNote.mockImplementation(async (options: { noteId: string; onSuccess?: (loaded: ReturnType<typeof note>) => void }) => {
       const loaded = note(options.noteId);
       options.onSuccess?.(loaded);
       return loaded;

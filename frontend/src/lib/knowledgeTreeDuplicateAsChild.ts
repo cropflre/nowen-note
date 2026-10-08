@@ -8,9 +8,7 @@ export type DuplicatedKnowledgeTreeNote = Awaited<ReturnType<typeof api.duplicat
 
 type DuplicateChildDependencies = {
   listNodes: () => Promise<KnowledgeTreeNode[]>;
-  duplicateNote: (noteId: string) => Promise<DuplicatedKnowledgeTreeNote>;
-  moveNode: (nodeId: string, parentId: string) => Promise<unknown>;
-  rollbackNode: (nodeId: string) => Promise<unknown>;
+  duplicateNote: (noteId: string, options: { placement: "child" }) => Promise<DuplicatedKnowledgeTreeNote>;
 };
 
 async function listVisibleKnowledgeTreeNodes(): Promise<KnowledgeTreeNode[]> {
@@ -28,9 +26,7 @@ async function listVisibleKnowledgeTreeNodes(): Promise<KnowledgeTreeNode[]> {
 
 const defaultDependencies: DuplicateChildDependencies = {
   listNodes: listVisibleKnowledgeTreeNodes,
-  duplicateNote: (noteId) => api.duplicateNote(noteId),
-  moveNode: (nodeId, parentId) => knowledgeTreeApi.move(nodeId, { parentId }),
-  rollbackNode: (nodeId) => knowledgeTreeApi.remove(nodeId, "subtree"),
+  duplicateNote: (noteId, options) => api.duplicateNote(noteId, options),
 };
 
 export async function resolveDuplicableKnowledgeTreeNote(
@@ -47,14 +43,7 @@ export async function resolveDuplicableKnowledgeTreeNote(
   return source;
 }
 
-/**
- * 复用现有完整 duplicateNote 链路创建副本，再把新副本移入源文档节点。
- *
- * 这是知识树 `+ -> 创建副本` 的最小兼容实现：
- * - `... -> 创建副本` 仍调用原 API，因此继续创建同级副本；
- * - `+` 入口只改变新副本的树层级，不重新实现正文/标签/附件复制；
- * - 移动失败时 best-effort 回滚刚创建的副本，正常错误路径不留下可见半成品。
- */
+/** 由服务端直接创建完整子目录副本，沿用目标节点的创建权限。 */
 export async function duplicateKnowledgeTreeNoteAsChild(
   sourceNodeId: string,
   dependencies: DuplicateChildDependencies = defaultDependencies,
@@ -64,20 +53,5 @@ export async function duplicateKnowledgeTreeNoteAsChild(
     throw new Error("当前节点不是可创建子内容的文档");
   }
 
-  const duplicated = await dependencies.duplicateNote(source.resourceId);
-  try {
-    await dependencies.moveNode(duplicated.treeNodeId, source.id);
-  } catch (error) {
-    try {
-      await dependencies.rollbackNode(duplicated.treeNodeId);
-    } catch {
-      // 回滚失败不覆盖原始移动错误；回收站/孤儿清理由既有维护链处理。
-    }
-    throw error;
-  }
-
-  return {
-    ...duplicated,
-    treeParentId: source.id,
-  };
+  return dependencies.duplicateNote(source.resourceId, { placement: "child" });
 }

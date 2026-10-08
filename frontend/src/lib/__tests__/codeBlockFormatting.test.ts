@@ -46,11 +46,19 @@ describe("local code formatting", () => {
     ["flow", "const x:number=1", "const x: number = 1;"],
     ["handlebars", "<div>{{foo}}</div>", "{{foo}}"],
     ["lwc", "<template><div>{value}</div></template>", "<template>"],
-    ["mjml", "<mjml><mj-body><mj-section></mj-section></mj-body></mjml>", "<mjml>"],
   ])("formats newly supported %s syntax", async (language, source, marker) => {
     const formatted = await formatCodeBlock(source, language);
     expect(formatted).toContain(marker);
     expect(formatted.length).toBeGreaterThan(0);
+  });
+
+  it("formats MJML while preserving its XML structure", async () => {
+    const formatted = await formatCodeBlock("<mjml><mj-body><mj-section></mj-section></mj-body></mjml>", "mjml");
+    const xml = new DOMParser().parseFromString(formatted, "application/xml");
+    expect(xml.querySelector("parsererror")).toBeNull();
+    expect(xml.documentElement.tagName).toBe("mjml");
+    expect(xml.querySelector("mjml > mj-body > mj-section")).not.toBeNull();
+    expect(await formatCodeBlock(formatted, "mjml")).toBe(formatted);
   });
 
   it.each(["gql", "hbs", "mjs", "cjs", "mts", "cts"])("supports formatter aliases (%s)", (language) => {

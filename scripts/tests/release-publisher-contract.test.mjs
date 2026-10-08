@@ -24,7 +24,13 @@ test("tag 构建工作流不让 electron-builder 直接发布 GitHub Release", a
   const workflow = await readRepoFile(".github/workflows/release.yml");
   assert.match(workflow, /node-version:\s*["']22["']/);
   assert.match(workflow, /permissions:\s*\n\s*contents:\s*read\s*\n\s*actions:\s*read/);
-  assert.equal((workflow.match(/--publish never/g) || []).length, 5);
+  const jobs = require("js-yaml").load(workflow).jobs;
+  const builderCommands = Object.values(jobs)
+    .flatMap((job) => job.steps || [])
+    .map((step) => step.run)
+    .filter((command) => typeof command === "string" && command.includes("electron-builder"));
+  assert.equal(builderCommands.length, 5);
+  for (const command of builderCommands) assert.match(command, /--publish never\b/);
   assert.doesNotMatch(workflow, /--publish always/);
   assert.doesNotMatch(workflow, /GH_TOKEN:/);
 });
@@ -82,6 +88,11 @@ test("本地发布守卫在正式校验前汇总完整 CI macOS 产物", async (
   assert.match(releaseGuard, /release_has_complete_mac_assets/);
   assert.match(releaseGuard, /latest-mac\.yml/);
   assert.match(releaseGuard, /failed to collect complete CI macOS assets; keeping \$\{TAG\} as draft/);
+  const macIndex = releaseGuard.indexOf('if grep -q "PC 产物" "$LOG_FILE"; then');
+  const winIndex = releaseGuard.indexOf("if release_contains_windows_candidates");
+  const verifyIndex = releaseGuard.indexOf("==== 验证 GitHub Release 更新元数据与远端资产 ====");
+  assert.ok(macIndex >= 0 && winIndex > macIndex, "macOS 产物必须先于 Windows SignPath 门禁汇总");
+  assert.ok(verifyIndex > winIndex, "Windows 签名门禁仍必须先于最终远端校验");
 });
 
 test("完整桌面 Release 会写明四个平台支持情况", async () => {

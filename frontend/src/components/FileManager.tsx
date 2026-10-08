@@ -269,7 +269,7 @@ export default function FileManager() {
     let cancelled = false;
     api.getMe()
       .then((user) => {
-        if (!cancelled) setCanConfigurePublicOrigin((user as any)?.role === "admin");
+        if (!cancelled) setCanConfigurePublicOrigin(user?.role === "admin");
       })
       .catch(() => {
         if (!cancelled) setCanConfigurePublicOrigin(false);
@@ -350,7 +350,8 @@ export default function FileManager() {
           : "已改为继承公开分享地址",
       );
       setShowPublicOriginEditor(false);
-    } catch (error: any) {
+    } catch (caughtError: unknown) {
+      const error = caughtError as Error & { code?: string };
       toast.error(error?.message || "保存文件公开地址失败");
     } finally {
       setSavingPublicOrigin(false);

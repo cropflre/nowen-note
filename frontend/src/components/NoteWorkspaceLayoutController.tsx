@@ -35,6 +35,7 @@ interface LayoutChoice {
 const LAYOUT_ANCHOR_SELECTOR = "[data-note-workspace-layout-anchor]";
 const FOCUS_HINT_STORAGE_KEY = "nowen-note-focus-mode-hint-shown";
 const NON_NOTE_WORKSPACE_VIEWS = new Set([
+  "trash",
   "tasks",
   "mindmaps",
   "ai-chat",
@@ -77,7 +78,7 @@ export default function NoteWorkspaceLayoutController() {
   const observedCollapsedRef = useRef(state.noteListCollapsed);
   const expectedCollapsedRef = useRef<boolean | null>(null);
 
-  // Favorites, tags, search and Trash are result-set surfaces. They require the
+  // Favorites, tags and search are result-set surfaces. They require the
   // middle list even when the saved everyday workspace mode is "standard".
   // Leaving those views restores the user's standard/three-column preference.
   const automaticCollapseReason = noteWorkspaceActive && !functionalListView

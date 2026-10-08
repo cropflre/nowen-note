@@ -283,6 +283,7 @@ function validateAttachmentId(attachmentId: string): string {
     attachmentId !== attachmentId.trim()
     || !ATTACHMENT_ID_PATTERN.test(attachmentId)
     || attachmentId.includes("..")
+    // eslint-disable-next-line no-control-regex -- Control characters must be rejected or stripped at this data boundary.
     || /[\u0000-\u001f\u007f]/.test(attachmentId)
   ) {
     throw new Error("attachmentId 格式无效，已拒绝访问附件路径");

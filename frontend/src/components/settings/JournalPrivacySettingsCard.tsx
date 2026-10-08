@@ -26,7 +26,8 @@ export default function JournalPrivacySettingsCard() {
     setLoading(true);
     try {
       setStatus(await api.journals.getPrivacyStatus());
-    } catch (error: any) {
+    } catch (caughtError: unknown) {
+      const error = caughtError as Error & { code?: string };
       console.error("[JournalPrivacySettings] load failed", error);
       setStatus(null);
     } finally {
@@ -54,7 +55,8 @@ export default function JournalPrivacySettingsCard() {
         title: next.title || "个人日记",
         isPasswordProtected: next.isPasswordProtected ? 1 : 0,
       });
-    } catch (error: any) {
+    } catch (caughtError: unknown) {
+      const error = caughtError as Error & { code?: string };
       toast.error(error?.message || "准备日记隐私设置失败");
     } finally {
       setPreparing(false);

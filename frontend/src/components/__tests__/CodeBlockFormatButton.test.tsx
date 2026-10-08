@@ -7,7 +7,7 @@ import { toast } from "@/lib/toast";
 
 vi.mock("react-i18next", () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
 vi.mock("@/lib/toast", () => ({ toast: { error: vi.fn() } }));
-(globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
+Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
 describe("code block format affordance", () => {
   let host: HTMLDivElement;

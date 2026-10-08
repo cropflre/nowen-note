@@ -194,6 +194,9 @@ const INTERFACE_NAMES = {
   storage: "StorageApi",
   external: "ExternalApi",
   runtime: "RuntimeApi",
+  capture: "CaptureApi",
+  settings: "SettingsApi",
+  secrets: "SecretsApi",
 };
 
 function renderSdkHost(host) {

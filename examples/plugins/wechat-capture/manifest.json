@@ -1,0 +1,56 @@
+{
+  "id": "nowenlab.wechat-capture",
+  "name": "微信文章采集",
+  "description": "复制微信文章链接，返回 Nowen 后确认采集；也可直接粘贴链接保存到微信收件箱。无需公众号密钥。",
+  "version": "1.2.0",
+  "apiVersion": 2,
+  "publisher": "nowenlab",
+  "engines": {
+    "nowen": ">=1.5.0 <2.0.0"
+  },
+  "categories": [
+    "capture"
+  ],
+  "repository": "https://github.com/cropflre/nowen-note",
+  "license": "AGPL-3.0",
+  "runtime": "sandbox-js",
+  "main": "index.js",
+  "permissions": [
+    "capture:write",
+    "plugin-storage:read",
+    "plugin-storage:write"
+  ],
+  "actions": [
+    {
+      "id": "capture-article",
+      "name": "保存微信文章",
+      "execution": "background",
+      "retryable": false,
+      "input": {
+        "url": {
+          "type": "string",
+          "required": true
+        },
+        "itemId": {
+          "type": "string",
+          "required": true
+        },
+        "notebookId": {
+          "type": "string",
+          "required": true
+        }
+      }
+    }
+  ],
+  "contributes": {
+    "settings": [
+      {
+        "key": "clipboard-prompt",
+        "title": "识别微信文章链接并提示采集",
+        "type": "boolean",
+        "default": true,
+        "description": "仅在返回应用或粘贴时识别微信文章链接，确认后才采集。Web 自动检查需要浏览器剪贴板授权。"
+      }
+    ]
+  }
+}

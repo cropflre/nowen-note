@@ -1,9 +1,50 @@
 {
+  "trashCenter": {
+    "hiddenPath": "Original location is restricted",
+    "all": "All",
+    "note": "Notes",
+    "notebook": "Folders",
+    "mindmap": "Mind maps",
+    "sheet": "Sheets",
+    "types": "Resource types",
+    "empty": "Empty trash",
+    "permanent": "Delete permanently",
+    "restore": "Restore",
+    "refresh": "Refresh trash",
+    "search": "Search deleted content or original location…",
+    "selectAll": "Select visible items",
+    "selected": "{{count}} selected",
+    "selectItem": "Select {{title}}",
+    "restoreItem": "Restore {{title}}",
+    "deleteItem": "Permanently delete {{title}}",
+    "originalPath": "Original location",
+    "root": "Root",
+    "deletedAt": "Deleted {{date}}",
+    "unknownDate": "Unknown deletion time",
+    "locked": "Locked",
+    "emptyState": "Trash is empty",
+    "noMatches": "No matching deleted content",
+    "loadFailed": "Failed to load trash",
+    "retry": "Retry",
+    "operationFailed": "Trash operation failed",
+    "deleteConfirm": "Attempt to permanently delete {{count}} items, including deleted content inside selected containers. This cannot be undone. Locked or unauthorized items and their non-empty containers will remain.",
+    "restoreConfirm": "Restore to the original location, including necessary deleted ancestors and content deleted together with those containers. Other content deleted earlier will stay in trash.",
+    "protectedHint": "Permissions and locks are checked for each item. Non-empty containers are retained. Select up to 500 items per batch.",
+    "partial": "Completed {{count}} items; {{failed}} could not be completed. See the reasons in the list.",
+    "success": "Completed {{count}} items"
+  },
+  "htmlPlayground": {
+    "run": "Run HTML",
+    "title": "HTML Playground",
+    "rerun": "Run again",
+    "close": "Close preview",
+    "description": "Supports HTML, CSS and inline JavaScript. The preview is isolated from your notes; external scripts and network requests are restricted."
+  },
   "codeBlockFormatting": {
     "format": "Format",
     "formatting": "Formatting…",
     "unsupported": "Formatting is not supported for this language yet",
-    "invalid": "Formatting failed. Check the syntax and language. Without a language, only JSON is supported",
+    "invalid": "Formatting failed. Check the syntax and code block language tag (e.g. html, javascript, json)",
     "changed": "The code changed. Please try formatting again",
     "readOnly": "Read-only notes cannot be formatted"
   },
@@ -45,6 +86,8 @@
   "auth": {
     "verifying": "Verifying identity...",
     "loginFailed": "Login failed",
+    "serviceUnavailable": "Unable to connect to the service. Check your connection or try again later.",
+    "retryConnection": "Retry",
     "loginNoResponse": "No HTTP response to the login request ({{target}}). Check server availability, address, certificate, CORS/CSP, and reverse proxy; this does not mean the password is wrong.",
     "loginHttpError": "Login request returned HTTP {{status}} ({{target}}): {{reason}}",
     "loginSessionError": "Local session handling failed after login. Please retry or check the application log.",
@@ -222,19 +265,6 @@
     "emojiNature": "Nature",
     "emojiFood": "Food"
   },
-  "note": {
-    "colorMark": {
-      "action": "Color mark",
-      "none": "No mark",
-      "red": "Red",
-      "orange": "Orange",
-      "yellow": "Yellow",
-      "green": "Green",
-      "blue": "Blue",
-      "purple": "Purple",
-      "gray": "Gray"
-    }
-  },
   "noteList": {
     "moveTo": "Move to...",
     "moveNote": "Move Note",
@@ -269,6 +299,11 @@
     "clearFilter": "Clear",
     "sortBy": "Sort By",
     "listOptions": "List options",
+    "displaySettings": "Display settings",
+    "filters": "Filters",
+    "activeDateFilter": "Date: {{date}}",
+    "removeTagFilter": "Remove tag filter: {{name}}",
+    "matchCount": "{{count}} matches",
     "titleOnly": "Titles only",
     "mindmapPreview": "Mind map",
     "diagramPreview": "Diagram",
@@ -734,6 +769,8 @@
     "switchesDesc": "Manage feature switches and default behavior in one place",
     "navigationVisibilityTitle": "Navigation modules",
     "navigationVisibilityDesc": "Hide entries you do not need without deleting data or disabling features. Deep links remain available.",
+    "navigationMoveUp": "Move up",
+    "navigationMoveDown": "Move down",
     "taskCenterVisibilityTitle": "Task Center visibility",
     "taskCenterVisibilityDesc": "The core task list stays available. You can hide Inbox, My Day, Planner, Habits, and Stats.",
     "journalPrivacyTitle": "Journal privacy",
@@ -1969,6 +2006,8 @@
     }
   },
   "tags": {
+    "removeTag": "Remove tag {{name}}",
+    "showMore": "Show {{count}} more tags",
     "addTagPlaceholder": "Add tag...",
     "createTag": "Create tag \"{{name}}\"",
     "changeColor": "Change color",
@@ -2635,6 +2674,12 @@
     "revokeConfirmDesc": "Any application using this token (including “{{name}}”) will lose access immediately. This action cannot be undone.",
     "revokeSuccess": "Token “{{name}}” has been revoked",
     "revokeFail": "Failed to revoke",
+    "delete": "Delete",
+    "deleting": "Deleting...",
+    "deleteConfirmTitle": "Delete this revoked token?",
+    "deleteConfirmDesc": "Permanently delete “{{name}}”, its resource grants and usage statistics. Audit logs are retained. This cannot be undone.",
+    "deleteSuccess": "Token “{{name}}” has been deleted",
+    "deleteFail": "Failed to delete token",
     "neverExpires": "Never expires",
     "timeJustNow": "just now",
     "timeMinAgo": "{{n}}m ago",
@@ -2726,6 +2771,34 @@
     }
   },
   "note": {
+    "colorMark": {
+      "action": "Color mark",
+      "none": "No mark",
+      "red": "Red",
+      "orange": "Orange",
+      "yellow": "Yellow",
+      "green": "Green",
+      "blue": "Blue",
+      "purple": "Purple",
+      "gray": "Gray"
+    },
+    "contextMenu": {
+      "split": "Open in split view",
+      "splitRight": "Open in right split",
+      "splitDown": "Open in bottom split",
+      "duplicate": "Create a copy",
+      "create": "New",
+      "document": "Document",
+      "markdownDocument": "Markdown document",
+      "folder": "Folder",
+      "mindmap": "Mind map",
+      "share": "Share",
+      "more": "More",
+      "saveAsTemplate": "Save as template",
+      "permissions": "Members and permissions",
+      "convertToRichText": "Convert to rich text",
+      "convertToMarkdown": "Convert to Markdown"
+    },
     "print": "Print",
     "printFailed": "Unable to open the system print service",
     "exportAsPng": "Export as PNG",
@@ -2861,5 +2934,89 @@
     "searchPlaceholder": "Search notes...",
     "noResults": "No matching notes found",
     "linkCreated": "Note link inserted"
+  },
+  "plugins": {
+    "marketplace": {
+      "install": "Install",
+      "installing": "Installing…",
+      "policyLoading": "Loading Node Runtime policy…",
+      "policyRequired": "Enable “Allow Node Runtime for official / verified plugins” above first.",
+      "loginRequired": "Your session has expired. Sign in again to install."
+    },
+    "runtimePolicy": {
+      "title": "Allow Node Runtime for official / verified plugins",
+      "description": "This policy applies to official or verified plugins that require Node Runtime. Node plugins can access the server system. Community plugins use the sandbox; WeChat article capture 1.2.0 does not require this policy.",
+      "confirm": "Allow signed official / verified plugins to use Node Runtime? These plugins can access the server system. Install only plugins you trust."
+    },
+    "inbound": {
+      "title": "Inbound webhooks",
+      "description": "Connect an external service using a public callback URL. Each URL writes as your account.",
+      "configured": "Configured",
+      "unconfigured": "Not configured",
+      "create": "Create callback URL",
+      "rotate": "Rotate URL",
+      "revoke": "Revoke URL",
+      "showOnce": "Save this URL now; it is shown only once. Use your public HTTPS address when configuring external services.",
+      "url": "Callback URL",
+      "rotateConfirm": "Rotate this callback URL? The old URL and pending jobs will be removed.",
+      "revokeConfirm": "Revoke this callback URL and remove its pending jobs?"
+    }
+  },
+  "xlsxPreview": {
+    "loading": "Loading Excel preview…",
+    "readOnly": "Excel data preview · Read only",
+    "download": "Download original",
+    "downloadFailed": "Failed to download original file",
+    "import": "Import as lightweight sheet",
+    "destination": "Destination",
+    "workspaceRoot": "Current workspace root",
+    "confirmImport": "Import worksheet: {{name}}",
+    "cancel": "Cancel",
+    "importHint": "Import the current worksheet using the first row as column names. Creates a separate sheet and keeps the attachment unchanged.",
+    "imported": "Created a separate lightweight sheet. Open it in the navigation tree.",
+    "importFailed": "Failed to import worksheet",
+    "workspaceChanged": "Workspace changed. Please select the import destination again.",
+    "worksheets": "Worksheets",
+    "empty": "Empty worksheet",
+    "dataOnly": "Cell data and cached formula results only. Formulas are not recalculated. Charts, macros, merged cells and full styling are not retained.",
+    "importLimit": "This worksheet exceeds 50,000 populated cells. Preview or download only.",
+    "limitError": "The workbook exceeds preview limits (20 MB file, 64 MB XML, 20 worksheets, 1,000 rows × 200 columns per sheet, 200,000 total cells, 20,000 characters per cell). Download it and open with Excel / WPS.",
+    "invalidError": "Unable to preview this Excel file. It may be damaged, encrypted or unsupported. Download it and open with Excel / WPS."
+  },
+  "wechatAssistant": {
+    "refresh": "Refresh capture results",
+    "loading": "Loading inbox…",
+    "paste": "Paste article links",
+    "collect": "Save to inbox",
+    "accepted": "Received {{accepted}} articles; {{duplicates}} already in your inbox.",
+    "recent": "Latest 100 capture records",
+    "empty": "No capture records yet. Read articles from a specific account or paste individual links.",
+    "open": "Open note",
+    "retry": "Retry",
+    "status": {
+      "queued": "Queued",
+      "running": "Collecting",
+      "waiting": "Waiting",
+      "completed": "Collected",
+      "failed": "Failed",
+      "cancelled": "Cancelled"
+    }
+  },
+  "wechatCapture": {
+    "title": "WeChat article capture",
+    "description": "Copy a WeChat article link, return to Nowen and confirm to save it as a note.",
+    "pluginRequired": "Install, authorize and enable the WeChat article capture plugin first.",
+    "clipboard": "Suggest capturing WeChat links from the clipboard",
+    "clipboardHelp": "Desktop checks when you return to the app. Web detects pasted links and checks on return if clipboard access is already allowed. Nothing is saved automatically.",
+    "upgrade": "Clipboard prompts require WeChat article capture 1.2.0. Older versions can still capture pasted links.",
+    "placeholder": "Paste https://mp.weixin.qq.com/s/...\nUp to 20 article links at once",
+    "accountHelp": "To capture a specific account, open it and paste the links of articles you want to save. Collecting all historical articles by account name is not supported yet.",
+    "detected": "WeChat article links detected",
+    "prompt": "Save these {{count}} articles to your WeChat inbox?",
+    "dismiss": "Not now",
+    "collecting": "Submitting…",
+    "readClipboard": "Read clipboard / Allow browser access",
+    "browserEnabled": "Clipboard checked. If the browser allows reading, returning to this page can trigger capture suggestions.",
+    "cardDescription": "Paste WeChat article links to capture them. No account secrets required."
   }
 }

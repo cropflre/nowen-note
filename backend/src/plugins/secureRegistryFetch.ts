@@ -9,6 +9,7 @@ interface PinnedAddress {
 }
 
 export interface SecureRegistryFetchOptions {
+  timeoutMs?: number;
   /**
    * TUN/透明代理常用 198.18.0.0/15 作为域名占位地址。仅 V2 签名 Registry
    * 可以启用；URL 字面量仍会被拒绝，TLS 仍按原始 hostname 校验证书。
@@ -146,10 +147,15 @@ async function resolvePinned(hostname: string, options: SecureRegistryFetchOptio
     return [{ address: hostname, family: literal as 4 | 6 }];
   }
   let addresses: Array<{ address: string; family: number }>;
+  let dnsTimer: NodeJS.Timeout | undefined;
   try {
-    addresses = await dns.lookup(hostname, { all: true, verbatim: true });
+    addresses = await Promise.race([dns.lookup(hostname, { all: true, verbatim: true }), new Promise<never>((_, reject) => {
+      dnsTimer = setTimeout(() => reject(codedError("DNS 查询超时", "REGISTRY_TIMEOUT")), Math.min(3000, options.timeoutMs || DEFAULT_TIMEOUT_MS));
+    })]);
   } catch {
     throw codedError("Registry DNS 解析失败", "REGISTRY_DNS_ERROR");
+  } finally {
+    if (dnsTimer) clearTimeout(dnsTimer);
   }
   const pinned = addresses
     .filter((item): item is { address: string; family: 4 | 6 } => item.family === 4 || item.family === 6)
@@ -184,12 +190,13 @@ function pinnedLookup(addresses: PinnedAddress[]): LookupFunction {
 async function requestPinned(url: URL, hostname: string, addresses: PinnedAddress[], maxBytes: number, timeoutMs: number): Promise<{
   status: number;
   location: string | undefined;
+  contentType?: string;
   body: Buffer;
 }> {
   return await new Promise((resolve, reject) => {
     let settled = false;
     let timer: NodeJS.Timeout | undefined;
-    const finish = (error: unknown, result?: { status: number; location: string | undefined; body: Buffer }): void => {
+    const finish = (error: unknown, result?: { status: number; location: string | undefined; contentType?: string; body: Buffer }): void => {
       if (settled) return;
       settled = true;
       if (timer) clearTimeout(timer);
@@ -241,7 +248,7 @@ async function requestPinned(url: URL, hostname: string, addresses: PinnedAddres
         }
         chunks.push(buffer);
       });
-      incoming.once("end", () => finish(null, { status, location, body: Buffer.concat(chunks, total) }));
+      incoming.once("end", () => finish(null, { status, location, contentType: incoming.headers["content-type"], body: Buffer.concat(chunks, total) }));
       incoming.once("error", (error) => finish(error));
     });
     timer = setTimeout(() => outgoing.destroy(codedError("Registry 请求超时", "REGISTRY_TIMEOUT")), timeoutMs);
@@ -255,19 +262,23 @@ async function requestPinned(url: URL, hostname: string, addresses: PinnedAddres
  * Registry/Artifact 专用二进制安全传输：先解析并校验 DNS，再把 HTTPS socket 固定到同一批公网 IP。
  * 每次重定向都会重新执行 URL + DNS 校验，避免 validate-then-fetch 的 DNS rebinding/TOCTOU。
  */
-export async function secureRegistryFetch(
+export async function securePublicFetch(
   urlValue: string,
   maxBytes: number,
   options: SecureRegistryFetchOptions = {},
-): Promise<Buffer> {
+): Promise<{ body: Buffer; finalUrl: string; contentType?: string }> {
   if (!Number.isSafeInteger(maxBytes) || maxBytes <= 0) {
     throw codedError("Registry 响应预算无效", "REGISTRY_PAYLOAD_TOO_LARGE");
   }
   let target = normalizeRemoteUrl(urlValue);
+  const deadline = options.timeoutMs ? Date.now() + options.timeoutMs : null;
   for (let redirects = 0; redirects <= MAX_REDIRECTS; redirects += 1) {
-    const addresses = await resolvePinned(target.hostname, options);
-    const response = await requestPinned(target.url, target.hostname, addresses, maxBytes, DEFAULT_TIMEOUT_MS);
-    if (response.status < 300 || response.status >= 400) return response.body;
+    const remaining = () => deadline ? deadline - Date.now() : DEFAULT_TIMEOUT_MS;
+    if (remaining() <= 0) throw codedError("请求超时", "REGISTRY_TIMEOUT");
+    const addresses = await resolvePinned(target.hostname, { ...options, timeoutMs: remaining() });
+    if (remaining() <= 0) throw codedError("请求超时", "REGISTRY_TIMEOUT");
+    const response = await requestPinned(target.url, target.hostname, addresses, maxBytes, Math.min(DEFAULT_TIMEOUT_MS, remaining()));
+    if (response.status < 300 || response.status >= 400) return { body: response.body, finalUrl: target.url.href, contentType: response.contentType };
     if (!response.location) throw codedError("Registry 重定向缺少 Location", "REGISTRY_REDIRECT_INVALID");
     if (redirects === MAX_REDIRECTS) throw codedError("Registry 重定向次数过多", "REGISTRY_REDIRECT_LIMIT");
     let next: string;
@@ -276,4 +287,8 @@ export async function secureRegistryFetch(
     target = normalizeRemoteUrl(next);
   }
   throw codedError("Registry 重定向次数过多", "REGISTRY_REDIRECT_LIMIT");
+}
+
+export async function secureRegistryFetch(urlValue: string, maxBytes: number, options: SecureRegistryFetchOptions = {}): Promise<Buffer> {
+  return (await securePublicFetch(urlValue, maxBytes, options)).body;
 }

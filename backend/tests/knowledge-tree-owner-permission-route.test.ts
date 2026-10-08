@@ -24,7 +24,7 @@ test("personal owner can revoke and deny members through the guarded permission 
 
   closeDatabase = closeDb;
   const db = getDb();
-  for (const userId of ["route-owner", "route-member", "route-stale-user"]) {
+  for (const userId of ["route-owner", "route-member:1", "route-stale-user"]) {
     db.prepare("INSERT INTO users (id, username, passwordHash) VALUES (?, ?, 'hash')")
       .run(userId, userId);
   }
@@ -51,10 +51,17 @@ test("personal owner can revoke and deny members through the guarded permission 
     "X-User-Id": "route-owner",
   };
 
+  const accessMode = await app.request(`http://localhost/api/knowledge-tree/nodes/${encodeURIComponent(root.id)}/access-mode`, {
+    method: "PUT",
+    headers: ownerHeaders,
+    body: JSON.stringify({ accessMode: "restricted" }),
+  });
+  assert.equal(accessMode.status, 200);
+
   const grant = await app.request(`http://localhost/api/knowledge-tree/nodes/${encodeURIComponent(root.id)}/permissions`, {
     method: "PUT",
     headers: ownerHeaders,
-    body: JSON.stringify({ subject: "route-member", rolePreset: "readonly" }),
+    body: JSON.stringify({ subject: "route-member:1", rolePreset: "readonly" }),
   });
   assert.equal(grant.status, 200);
 
@@ -70,7 +77,7 @@ test("personal owner can revoke and deny members through the guarded permission 
   const deny = await app.request(`http://localhost/api/knowledge-tree/nodes/${encodeURIComponent(root.id)}/permissions`, {
     method: "PUT",
     headers: ownerHeaders,
-    body: JSON.stringify({ subject: "route-member", rolePreset: "deny" }),
+    body: JSON.stringify({ subject: "route-member:1", rolePreset: "deny" }),
   });
   assert.equal(deny.status, 200);
   const denyPayload = await deny.json() as any;
@@ -78,7 +85,7 @@ test("personal owner can revoke and deny members through the guarded permission 
   assert.equal(denyPayload.effective.capabilities.canView, false);
 
   const remove = await app.request(
-    `http://localhost/api/knowledge-tree/nodes/${encodeURIComponent(root.id)}/permissions/route-member`,
+    `http://localhost/api/knowledge-tree/nodes/${encodeURIComponent(root.id)}/permissions/${encodeURIComponent("route-member:1")}`,
     { method: "DELETE", headers: { "X-User-Id": "route-owner" } },
   );
   assert.equal(remove.status, 200);
@@ -91,7 +98,7 @@ test("personal owner can revoke and deny members through the guarded permission 
     method: "PUT",
     headers: {
       "Content-Type": "application/json",
-      "X-User-Id": "route-member",
+      "X-User-Id": "route-member:1",
     },
     body: JSON.stringify({ subject: "route-stale-user", rolePreset: "deny" }),
   });

@@ -13,6 +13,7 @@ const allowedChannels = new Set([
   "menu:zoom-in",
   "menu:zoom-out",
   "menu:zoom-reset",
+  "security:auto-lock",
   // 格式菜单：{ mark?: "bold"|"italic"|"underline"|"strike"|"code", node?: "heading"|"paragraph", level?: number }
   "menu:format",
   // Dock Quick Action（macOS）
@@ -42,6 +43,11 @@ contextBridge.exposeInMainWorld("nowenDesktop", {
     const wrapped = (_event, payload) => listener(payload);
     ipcRenderer.on(channel, wrapped);
     return () => ipcRenderer.removeListener(channel, wrapped);
+  },
+
+  // Return only public WeChat article URLs, never arbitrary clipboard text.
+  readWechatArticleClipboard() {
+    return ipcRenderer.invoke("clipboard:wechat-articles");
   },
 
   /** 主动触发更新检查 */

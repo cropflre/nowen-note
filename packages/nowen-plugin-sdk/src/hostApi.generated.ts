@@ -10,8 +10,8 @@ function deepFreeze<T>(value: T): T {
 }
 
 export type PluginHostRuntime = "node-action" | "sandbox-js";
-export type HostApiPermission = "attachments:read" | "diary:read" | "diary:write" | "external:fetch" | "mindmaps:read" | "mindmaps:write" | "notebooks:read" | "notebooks:write" | "notes:read" | "notes:write" | "plugin-storage:read" | "plugin-storage:write" | "secrets:use" | "tags:read" | "tags:write" | "tasks:read" | "tasks:write";
-export type HostApiMethod = "attachments.get" | "attachments.list" | "diary.create" | "diary.get" | "diary.list" | "external.fetch" | "mindmaps.create" | "mindmaps.get" | "mindmaps.list" | "mindmaps.update" | "notebooks.create" | "notebooks.get" | "notebooks.list" | "notes.create" | "notes.get" | "notes.list" | "notes.update" | "runtime.capabilities" | "storage.delete" | "storage.get" | "storage.set" | "tags.addToNote" | "tags.create" | "tags.list" | "tags.removeFromNote" | "tasks.create" | "tasks.get" | "tasks.list" | "tasks.update";
+export type HostApiPermission = "attachments:read" | "capture:write" | "diary:read" | "diary:write" | "external:fetch" | "mindmaps:read" | "mindmaps:write" | "notebooks:read" | "notebooks:write" | "notes:read" | "notes:write" | "plugin-storage:read" | "plugin-storage:write" | "secrets:use" | "tags:read" | "tags:write" | "tasks:read" | "tasks:write";
+export type HostApiMethod = "attachments.get" | "attachments.list" | "capture.importUrl" | "diary.create" | "diary.get" | "diary.list" | "external.fetch" | "mindmaps.create" | "mindmaps.get" | "mindmaps.list" | "mindmaps.update" | "notebooks.create" | "notebooks.get" | "notebooks.list" | "notes.create" | "notes.get" | "notes.list" | "notes.update" | "runtime.capabilities" | "secrets.crypt" | "secrets.digest" | "settings.get" | "storage.delete" | "storage.get" | "storage.set" | "tags.addToNote" | "tags.create" | "tags.list" | "tags.removeFromNote" | "tasks.create" | "tasks.get" | "tasks.list" | "tasks.update";
 
 export interface HostApiContractEntry {
   method: HostApiMethod;
@@ -28,7 +28,7 @@ export interface HostApiBudgets {
   readonly hostCallResultBytes: number;
 }
 
-export const HOST_API_CONTRACT_VERSION = 2 as const;
+export const HOST_API_CONTRACT_VERSION = 4 as const;
 export const HOST_API_BUDGETS: HostApiBudgets = deepFreeze({
   "ipcMessageBytes": 2097152,
   "hostCallArgsBytes": 262144,
@@ -50,6 +50,17 @@ export const HOST_API_CONTRACT: readonly HostApiContractEntry[] = deepFreeze([
     "method": "attachments.list",
     "sinceApiVersion": 1,
     "permission": "attachments:read",
+    "runtimes": [
+      "node-action",
+      "sandbox-js"
+    ],
+    "maxArgsBytes": 262144,
+    "maxResultBytes": 1048576
+  },
+  {
+    "method": "capture.importUrl",
+    "sinceApiVersion": 2,
+    "permission": "capture:write",
     "runtimes": [
       "node-action",
       "sandbox-js"
@@ -225,6 +236,39 @@ export const HOST_API_CONTRACT: readonly HostApiContractEntry[] = deepFreeze([
   {
     "method": "runtime.capabilities",
     "sinceApiVersion": 1,
+    "permission": null,
+    "runtimes": [
+      "node-action",
+      "sandbox-js"
+    ],
+    "maxArgsBytes": 262144,
+    "maxResultBytes": 1048576
+  },
+  {
+    "method": "secrets.crypt",
+    "sinceApiVersion": 2,
+    "permission": "secrets:use",
+    "runtimes": [
+      "node-action",
+      "sandbox-js"
+    ],
+    "maxArgsBytes": 262144,
+    "maxResultBytes": 1048576
+  },
+  {
+    "method": "secrets.digest",
+    "sinceApiVersion": 2,
+    "permission": "secrets:use",
+    "runtimes": [
+      "node-action",
+      "sandbox-js"
+    ],
+    "maxArgsBytes": 262144,
+    "maxResultBytes": 1048576
+  },
+  {
+    "method": "settings.get",
+    "sinceApiVersion": 2,
     "permission": null,
     "runtimes": [
       "node-action",
@@ -431,6 +475,19 @@ export interface RuntimeApi {
   capabilities(): Promise<RuntimeCapabilities>;
 }
 
+export interface CaptureApi {
+  importUrl(input: { url: string; notebookId: string; tags?: string[]; comment?: string }): Promise<{ id: string; title: string; imagesImported: number; imagesSkipped: number }>;
+}
+
+export interface SettingsApi {
+  get(): Promise<Record<string, unknown>>;
+}
+
+export interface SecretsApi {
+  crypt(input: { connection: string; operation: "encrypt" | "decrypt"; data: string }): Promise<string>;
+  digest(input: { connection: string; algorithm: "sha1" | "sha256"; parts: string[]; sort?: boolean }): Promise<string>;
+}
+
 export interface PluginProgress { current?: number; total?: number; message?: string }
 export type PluginProgressCallback = (input: PluginProgress) => void;
 
@@ -445,5 +502,8 @@ export interface NowenHostApi {
   storage: StorageApi;
   external: ExternalApi;
   runtime: RuntimeApi;
+  capture: CaptureApi;
+  settings: SettingsApi;
+  secrets: SecretsApi;
   progress: PluginProgressCallback;
 }

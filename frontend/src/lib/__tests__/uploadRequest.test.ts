@@ -141,7 +141,7 @@ describe("bounded image upload requests", () => {
         httpErrorMessage: "附件上传失败",
       },
     )).rejects.toMatchObject({
-      code: "HTTP_ERROR",
+      code: "ATTACHMENT_TOO_LARGE",
       status: 413,
       retryable: false,
       message: "附件大小超过限制",

@@ -9,11 +9,11 @@ import {
 } from "@/lib/mobileLocalMode";
 
 function installCapacitor(platform: string, native = true): void {
-  (window as any).Capacitor = {
+  Object.assign(window, { Capacitor: {
     isNativePlatform: () => native,
     getPlatform: () => platform,
     platform,
-  };
+  } });
 }
 
 describe("Android 未登录本地模式", () => {

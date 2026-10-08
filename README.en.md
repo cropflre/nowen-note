@@ -31,7 +31,19 @@
 
 > **Remote NAS connection and sign-in:** Nowen Note supports deployment on **UGREEN NAS (UGOS / UGOS Pro)** and **Feiniu NAS (fnOS)**. After deployment, connect and sign in from the web, desktop, or Android client using a LAN IP address, an IPv6 address, or a public domain secured with HTTPS.
 
-## v1.4.16 is available
+## v1.5.0 release freeze (not yet published)
+
+v1.5.0 is entering Release Candidate preparation. Only release-blocking fixes are accepted during the freeze. [v1.4.16](https://github.com/cropflre/nowen-note/releases/tag/v1.4.16) remains the current stable release; source and candidate builds on this branch are not final release artifacts.
+
+- **Sync V2 and offline workspaces:** incremental sync, content and attachment caching, conflict version choices, and save recovery.
+- **Plugin ecosystem:** marketplace, signed registries, permission and runtime policies, article capture, user-scoped inbound webhooks, and a WeChat capture example.
+- **Knowledge tree and document management:** unified creation menus, folder scope and filters, root documents, and a unified resource trash center.
+- **Attachments and editing:** XLSX previews and lightweight sheet imports, media and attachment recovery, Markdown formatting fixes, and clearer note-list layouts.
+- **Encrypted Notes Beta:** Web / Desktop support new encrypted text notes and selected-text encryption. Whole notes autosave; region edits still need saving. Existing ordinary notes cannot yet be encrypted as a whole. Old history and backups are not automatically cleared, and mobile apps are not yet supported.
+
+See the [v1.5.0 release notes draft](./docs/releases/v1.5.0.md), [freeze and validation status](./docs/releases/v1.5.0-rc-gate.md), and [changelog](./CHANGELOG.md). Larger rich-text enhancements will be reconsidered for v1.5.1 / v1.6.0.
+
+## Current stable release: v1.4.16
 
 v1.4.16 focuses on **safer note switching, video attachment authorization, Markdown/code-block editing, and desktop release reliability**, improving multi-client editing, LAN media access, and desktop distribution.
 
@@ -197,7 +209,14 @@ To pin the current stable release:
 NOWEN_IMAGE_TAG=v1.4.16 docker compose up -d
 ```
 
-> v1.4.16 focuses on note-switch stability, first-open video authorization, Android/LAN attachment access, Markdown/code-block editing details, and desktop signing/release integrity. After upgrading, verify rapid note switching, first video playback, Android video access to NAS/LAN services, code-block select-all behavior, and share-link copying. Rolling back an image does not roll back the database.
+After the v1.5.0 image is published and upgrade validation passes, use these target commands in an isolated test environment. Production should remain pinned to v1.4.16 during the freeze:
+
+```bash
+NOWEN_IMAGE_TAG=v1.5.0 docker compose pull
+NOWEN_IMAGE_TAG=v1.5.0 docker compose up -d
+```
+
+> Validate Sync V2, plugins, the knowledge tree, attachments, full backup/restore, and encrypted notes Beta before upgrading production. Rolling back an image does not roll back the database. Keep independent backups. See the [v1.5.0 release notes draft](./docs/releases/v1.5.0.md).
 
 ### Managed Docker updates (optional)
 

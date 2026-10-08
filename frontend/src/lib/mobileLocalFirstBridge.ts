@@ -29,7 +29,11 @@ export function installMobileLocalFirstBridge(
   if (installed) return () => undefined;
   installed = true;
 
-  const target = api as any;
+  const target = api as Omit<typeof api, "getVersion" | "getSiteSettings" | "duplicateNote"> & {
+    getVersion: () => Promise<Partial<Awaited<ReturnType<typeof api.getVersion>>>>;
+    getSiteSettings: () => Promise<Partial<Awaited<ReturnType<typeof api.getSiteSettings>>>>;
+    duplicateNote: (id: string) => Promise<Note>;
+  };
   // 必须在任何子 Bridge 安装前保存服务器原始门面。历史实现先装 ModuleBridge 再快照，
   // teardown 时会把 ModuleBridge 的本地 attachment 函数误当成“原始函数”重新装回去，
   // 导致退出 Native Runtime 后仍残留本地实现。

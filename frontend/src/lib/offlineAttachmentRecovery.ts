@@ -16,6 +16,7 @@ export async function quarantineOfflineAttachmentRecord(
   record: OfflineAttachmentRecord,
   _reason = "本地离线附件无效",
 ): Promise<void> {
+  void _reason; // Retain the optional reason parameter for existing callers.
   await deleteOfflineAttachment(record.id);
 }
 

@@ -1,4 +1,4 @@
-const { app, BrowserWindow, shell, dialog, ipcMain, Menu, screen, session } = require("electron");
+const { app, BrowserWindow, shell, dialog, ipcMain, Menu, screen, session, clipboard } = require("electron");
 const path = require("path");
 const { spawn } = require("child_process");
 const fs = require("fs");
@@ -15,11 +15,16 @@ const { allowVoicePermissionRequest, allowVoicePermissionCheck } = require("./vo
 const { handleArgv, setupMacOpenFile, flushPending } = require("./fileAssoc");
 const { registerDiscoveryIpc, shutdown: shutdownDiscovery } = require("./discovery");
 const { setSettingsPath, readSettings, writeSettings, shouldUseLocalRuntime } = require("./settings");
-const clipperHost = require("./clipper-host");
+// electron-builder places this Native Messaging module outside app.asar.
+const clipperHost = require(app.isPackaged
+  ? path.join(process.resourcesPath, "clipper", "clipper-host.js")
+  : "./clipper-host");
 const { openSetupWindow } = require("./setupWindow");
 const { openLocalAttachmentWithSystem } = require("./attachment-open");
+const { readWechatArticleClipboard } = require("./wechat-clipboard");
 const { registerTextContextMenu } = require("./text-context-menu");
 const { attachWindowStatePersistence, resolveWindowBounds } = require("./window-state");
+const { attachEncryptedAutoLock } = require("./encrypted-notes-auto-lock");
 const { requestLocalAccountBootstrap } = require("./localAccountBootstrap");
 const { isPdfBufferValid, isPdfRenderReady } = require("./pdfExportGuard");
 const {
@@ -1065,6 +1070,7 @@ function createWindow() {
 
   // SEC-ELECTRON-01-B-RV1: 注册主窗口 webContents.id 用于 IPC sender 校验
   setTrustedMainWindowId(mainWindow.webContents.id);
+  attachEncryptedAutoLock(mainWindow);
   registerTextContextMenu(mainWindow, Menu);
   if (restoredWindowState.maximized) mainWindow.maximize();
   attachWindowStatePersistence(mainWindow, (windowState) => {
@@ -1922,6 +1928,12 @@ function registerAppIpc() {
       ugreenWorkspaceWindow = null;
       return { ok: false, error: error?.message || "LOAD_FAILED" };
     }
+  });
+
+  ipcMain.removeHandler("clipboard:wechat-articles");
+  ipcMain.handle("clipboard:wechat-articles", (event) => {
+    if (assertMainWindowSender(event) || !mainWindow?.isFocused()) return "";
+    return readWechatArticleClipboard(clipboard);
   });
 
   // SEC-ELECTRON-01-C: app:info 只返回安全字段
