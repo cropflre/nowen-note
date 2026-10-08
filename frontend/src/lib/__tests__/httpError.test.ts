@@ -37,6 +37,6 @@ describe("unified HTTP error adapter", () => {
     expect(safeDiagnosticRequestTarget(
       "https://user:password@example.com/share/secret-capability?token=private&sig=abc#section",
     )).toBe("https://example.com/share/[redacted]");
-    expect(safeDiagnosticRequestTarget("not a valid https://url")).toBe("(invalid request URL)");
+    expect(safeDiagnosticRequestTarget("http://%zz")).toBe("(invalid request URL)");
   });
 });
