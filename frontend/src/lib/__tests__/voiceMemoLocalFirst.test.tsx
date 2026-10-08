@@ -54,6 +54,12 @@ function createDatabase() {
     async query<T>(sql: string, values: unknown[] = []): Promise<T[]> {
       if (sql.includes("FROM sync_profiles p")) return [{ profileId: "profile", deviceId: "device" }] as T[];
       if (sql.includes("FROM sync_outbox")) return [...outbox] as T[];
+      // Sync V2 reads scoped notes directly, while the local editor fetches by ID.
+      // Both must resolve against the same in-memory rows.
+      if (sql.includes("FROM notes WHERE scopeKey=? AND id=?")) {
+        const row = notes.get(String(values[1]));
+        return (row?.scopeKey === values[0] ? [row] : []) as T[];
+      }
       if (sql.includes("FROM notes WHERE id")) return (notes.has(String(values[0])) ? [notes.get(String(values[0]))!] : []) as T[];
       if (sql.includes("FROM tags")) return [];
       throw new Error(`未覆盖的查询: ${sql}`);
