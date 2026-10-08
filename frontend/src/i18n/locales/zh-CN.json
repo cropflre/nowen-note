@@ -335,6 +335,7 @@
     "releaseToRefresh": "释放刷新",
     "refreshing": "刷新中...",
     "loadErrorTitle": "笔记加载失败",
+    "routeUnavailableHint": "这篇笔记当前无法访问，已返回列表。若所在目录已加密，请先解锁目录。",
     "loadErrorDesc": "无法连接服务器，且当前设备没有可用的离线缓存。请检查服务器地址或网络后重试。",
     "androidLocalhostServerError": "当前服务器地址指向 localhost / 127.0.0.1，Android 手机上无法访问电脑本机地址。请改为局域网 IP 或域名。",
     "retryLoad": "重试",

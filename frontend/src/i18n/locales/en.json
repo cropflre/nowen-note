@@ -328,6 +328,7 @@
     "releaseToRefresh": "Release to refresh",
     "refreshing": "Refreshing...",
     "loadErrorTitle": "Failed to load notes",
+    "routeUnavailableHint": "This note is currently unavailable. Returned to the list. If its folder is password-protected, unlock the folder first.",
     "loadErrorDesc": "Unable to connect to the server, and this device has no offline cache available. Please check the server address or network and try again.",
     "androidLocalhostServerError": "The current server address points to localhost / 127.0.0.1. Android devices cannot access your computer's localhost. Use a LAN IP address or domain instead.",
     "retryLoad": "Retry",

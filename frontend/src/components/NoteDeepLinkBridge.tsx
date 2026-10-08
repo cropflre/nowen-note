@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { useTranslation } from "react-i18next";
 
 import { useApp, useAppActions } from "@/store/AppContext";
 import { useUserPreferences } from "@/hooks/useUserPreferences";
@@ -51,6 +52,7 @@ export default function NoteDeepLinkBridge() {
   const actions = useAppActions();
   const { prefs } = useUserPreferences();
   const { loadNote, cancelNoteLoad } = useNoteLoader();
+  const { t } = useTranslation();
 
   const activeNoteRef = useRef(state.activeNote);
   const viewModeRef = useRef(state.viewMode);
@@ -122,18 +124,28 @@ export default function NoteDeepLinkBridge() {
           actions.setMobileView("editor");
           if (prefs.enableNoteTabs) actions.openNoteTab(tabFromNote(note));
         },
-      }).catch((error: unknown) => {
-        if (disposed || sequence !== routeLoadSequenceRef.current) return;
-        if (getCurrentNoteAppRoute().noteId !== noteId) return;
+        onError: (error) => {
+          if (disposed || sequence !== routeLoadSequenceRef.current) return;
+          if (getCurrentNoteAppRoute().noteId !== noteId) return;
 
-        console.error("[note-deep-link] failed to open routed note", { noteId, error });
-        pendingRouteNoteIdRef.current = null;
-        activeNoteRef.current = null;
-        actions.setActiveNote(null);
-        actions.setMobileView("list");
-        actions.setViewMode("all");
-        replaceAppPathState("/");
-        toast.error(error instanceof Error ? error.message : "无法打开该笔记");
+          console.error("[note-deep-link] failed to open routed note", { noteId, error });
+          // The coordinator resolves failures and keeps their error surface visible.
+          // Dismiss that surface before returning to the list.
+          cancelNoteLoad();
+          pendingRouteNoteIdRef.current = null;
+          activeNoteRef.current = null;
+          actions.setActiveNote(null);
+          actions.setMobileView("list");
+          actions.setViewMode("all");
+          replaceAppPathState("/");
+          const status = (error as { status?: number })?.status;
+          if (status === 404 || status === 403) {
+            // A 404 also hides inaccessible notes and password-protected folders.
+            toast.info(t("noteList.routeUnavailableHint"));
+          } else {
+            toast.error(error instanceof Error ? error.message : t("noteList.loadErrorTitle"));
+          }
+        },
       });
     };
 
@@ -148,7 +160,7 @@ export default function NoteDeepLinkBridge() {
       window.removeEventListener("popstate", onPopState);
       window.removeEventListener(APP_PATH_CHANGED_EVENT, onAppPathChanged);
     };
-  }, [actions, cancelNoteLoad, loadNote, prefs.enableNoteTabs]);
+  }, [actions, cancelNoteLoad, loadNote, prefs.enableNoteTabs, t]);
 
   useEffect(() => {
     const activeNoteId = state.activeNote?.id ?? null;
