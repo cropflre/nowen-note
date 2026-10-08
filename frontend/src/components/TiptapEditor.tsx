@@ -1956,6 +1956,11 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
   const initialEditorContent = initialEditorContentRef.current.content;
 
   const editor: Editor | null = useEditor({
+    // ReactNodeViewRenderer creates React roots for images, code blocks and other rich nodes.
+    // Creating the ProseMirror view during React render can trigger Tiptap's flushSync
+    // warning. Initialize it after mount; EditorContent and all editor effects tolerate
+    // the initial null editor, while note text/loading stays independent of this work.
+    immediatelyRender: false,
     shouldRerenderOnTransaction: false,
     extensions: [
       keyboardExtension.current,
