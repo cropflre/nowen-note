@@ -356,7 +356,28 @@ export default function AIChatPanel({ onClose, onNavigateToNote }: {
       // 写入任务必须通过显式授权的 MCP 工具或任务中心完成。
       const taskQuery = /(?:今天|今日).*(?:待办|任务)|(?:待办|任务).*(?:今天|今日)/.test(args.question)
         || args.question.trim() === "/待办";
-      if (taskQuery) {
+      const createCommand = /^\\/待办\\s+创建\\s+(.{1,300})$/.exec(args.question.trim());
+      const completeCommand = /^\\/待办\\s+完成\\s+([a-zA-Z0-9-]+)$/.exec(args.question.trim());
+      if (createCommand || completeCommand) {
+        const title = createCommand ? createCommand[1].trim() : completeCommand![1];
+        const approved = await confirmDialog({
+          title: createCommand ? "确认创建个人任务" : "确认完成个人任务",
+          description: createCommand ? `新任务：${title}` : `任务 ID：${title}`,
+          confirmText: createCommand ? "创建任务" : "标记完成",
+          cancelText: "取消",
+        });
+        if (!approved) {
+          finalContent = "已取消，本次没有修改任务。";
+        } else if (createCommand) {
+          const task = await taskDigestApi.createPersonalTask(title);
+          finalContent = `已创建个人待办：**${title}**（ID：${task.id}）。`;
+        } else {
+          await taskDigestApi.completePersonalTask(title);
+          finalContent = `任务 \`${title}\` 已标记完成。`;
+        }
+        setMessages((previous) => previous.map((message) =>
+          message.id === args.assistantMessage.id ? { ...message, content: finalContent } : message));
+      } else if (taskQuery) {
         const mode = /(?:完成|总结|进度|晚上|晚间)/.test(args.question) ? "evening" : "morning";
         const digest = await taskDigestApi.preview(mode);
         finalContent = [`### ${digest.date} · ${mode === "morning" ? "今日待办" : "今日进度"}`,
