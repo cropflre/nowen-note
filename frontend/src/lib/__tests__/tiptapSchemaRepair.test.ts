@@ -80,7 +80,7 @@ describe("repairTiptapJson", () => {
     expect(images.map((image) => image.attrs.width)).toEqual([320, 480, 160]);
     expect(writtenImageSources.some((src) => src.includes("/api/attachments/"))).toBe(false);
     expect(JSON.stringify(repaired)).not.toContain("nowen-schema-repair-image-");
-    expect(input.content[0].attrs.src).toBe(firstSrc);
+    expect(input.content[0].attrs?.src).toBe(firstSrc);
   });
 
   it("preserves tableAligns/colgroup and cell align through repair round-trip", () => {
