@@ -26,7 +26,7 @@ export type WebhookEvent =
   | "note.created" | "note.updated" | "note.deleted" | "note.trashed" | "note.trash_emptied"
   | "notebook.created" | "notebook.deleted"
   | "tag.created"
-  | "task.created" | "task.completed" | "task.digest.morning" | "task.digest.evening"
+  | "task.created" | "task.completed" | "task.digest.morning" | "task.digest.evening" | "task.due"
   | "plugin.executed"
   | "*";  // 通配：接收所有事件
 
