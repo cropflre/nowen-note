@@ -8,6 +8,7 @@
 
 import React, { useMemo, useState } from "react";
 import ReactMarkdown from "react-markdown";
+import { getGfmTaskChecked } from "@/lib/gfmTaskChecked";
 import remarkGfm from "remark-gfm";
 import { AlertTriangle, BadgeAlert, Info, Lightbulb, ShieldAlert } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -183,20 +184,29 @@ function createComponents(onTaskCheckboxChange?: (taskIndex: number, checked: bo
   ),
 
   // 段落
-  p: ({ children }) => (
-    <p className="my-3 leading-7 text-tx-primary">{children}</p>
-  ),
+  p: ({ node, children }) => {
+    const checked = getGfmTaskChecked(node);
+    const parts = checked === null ? null : React.Children.toArray(children);
+    return (
+      <p className="my-3 leading-7 text-tx-primary">
+        {parts ? <>{parts[0]}<span className="nowen-task-item-text">{parts.slice(1)}</span></> : children}
+      </p>
+    );
+  },
 
   // 列表
-  ul: ({ children }) => (
-    <ul className="list-disc pl-6 my-3 space-y-1 text-tx-primary">{children}</ul>
+  ul: ({ children, className }) => (
+    <ul className={cn("list-disc pl-6 my-3 space-y-1 text-tx-primary", className)}>{children}</ul>
   ),
   ol: ({ children }) => (
     <ol className="list-decimal pl-6 my-3 space-y-1 text-tx-primary">{children}</ol>
   ),
-  li: ({ children }) => (
-    <li className="leading-7 pl-1">{children}</li>
-  ),
+  li: ({ node, children, className }) => {
+    const isTask = /(?:^|\s)task-list-item(?:\s|$)/.test(className || "");
+    const checked = isTask ? getGfmTaskChecked(node) : null;
+    return <li data-checked={checked === null ? undefined : String(checked)}
+      className={cn("leading-7 pl-1", className)}>{children}</li>;
+  },
 
   // 强调
   strong: ({ children }) => (

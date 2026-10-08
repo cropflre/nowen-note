@@ -1559,6 +1559,14 @@ export async function buildPrintableHtml(note: {
     .content ul[data-type="taskList"] li { display: flex; align-items: flex-start; gap: 8px; margin: 4px 0; }
     .content ul[data-type="taskList"] li > label { user-select: none; }
     .content ul[data-type="taskList"] li > div { flex: 1; }
+    /* Only decorate this item's own paragraph, never nested sub-tasks. */
+    .content li[data-type="taskItem"][data-checked="true"] > p,
+    .content li[data-type="taskItem"][data-checked="true"] > div > p,
+    .content li.task-item[data-checked="true"] > p,
+    .content li.task-item[data-checked="true"] > div > p,
+    .content li.task-list-item:has(> p > input[type="checkbox"]:checked) > p {
+      color: #8a8f98; text-decoration: line-through; text-decoration-color: #b0b5bd;
+    }
     .content input[type="checkbox"] { margin-right: 8px; }
     .content hr { border: 0; border-top: 1px solid #e1e4e8; margin: 20px 0; }
     .content mark { background: #fff3a3; padding: 0 2px; border-radius: 3px; }

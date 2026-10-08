@@ -1843,7 +1843,8 @@ function renderNode(node: any): string {
       return `<ul class="task-list"${renderSharedIndentAttribute(node)}>${renderChildren(node)}</ul>`;
     case "taskItem": {
       const checked = node.attrs?.checked ? "checked" : "";
-      return `<li class="task-item"><input type="checkbox" ${checked} disabled />${renderChildren(node)}</li>`;
+      const status = node.attrs?.checked ? "true" : "false";
+      return `<li class="task-item" data-checked="${status}"><input type="checkbox" ${checked} disabled />${renderChildren(node)}</li>`;
     }
     case "codeBlock":
       return renderCodeBlock(node);

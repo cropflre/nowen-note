@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
+import { getGfmTaskChecked } from "@/lib/gfmTaskChecked";
 import remarkGfm from "remark-gfm";
 import rehypeRaw from "rehype-raw";
 import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
@@ -327,7 +328,16 @@ function createComponents(
     h4: ({ node, children }) => <h4 {...headingAttrs(node)} className="mb-2 mt-4 text-lg font-semibold text-tx-primary">{children}</h4>,
     h5: ({ node, children }) => <h5 {...headingAttrs(node)} className="mb-1.5 mt-3 text-base font-semibold text-tx-primary">{children}</h5>,
     h6: ({ node, children }) => <h6 {...headingAttrs(node)} className="mb-1.5 mt-3 text-sm font-semibold text-tx-secondary">{children}</h6>,
-    p: ({ node, children }) => <p {...attrs(node)} className="my-3 leading-7 text-tx-primary">{children}</p>,
+    p: ({ node, children }) => {
+      const checked = getGfmTaskChecked(node);
+      const parts = checked === null ? null : React.Children.toArray(children);
+      // Isolate task text from the checkbox, including when the paragraph is flex.
+      return (
+        <p {...attrs(node)} className="my-3 leading-7 text-tx-primary">
+          {parts ? <>{parts[0]}<span className="nowen-task-item-text min-w-0 flex-1">{parts.slice(1)}</span></> : children}
+        </p>
+      );
+    },
     ul: ({ node, children, className }) => {
       const isTaskList = /(?:^|\s)contains-task-list(?:\s|$)/.test(className || "");
       return (
@@ -346,9 +356,11 @@ function createComponents(
     ol: ({ node, children, className }) => <ol {...attrs(node)} className={cn("my-3 list-decimal space-y-1 pl-6 text-tx-primary", className)}>{children}</ol>,
     li: ({ node, children, className }) => {
       const isTask = /(?:^|\s)task-list-item(?:\s|$)/.test(className || "");
+      const checked = isTask ? getGfmTaskChecked(node) : null;
       return (
         <li
           {...attrs(node)}
+          data-checked={checked === null ? undefined : String(checked)}
           className={cn(
             "leading-7",
             isTask
