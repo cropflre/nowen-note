@@ -12,6 +12,9 @@ on:
       - "backend/src/services/full-backup-jobs.ts"
       - "backend/src/lib/backup-error-response.ts"
       - "backend/src/routes/backups.ts"
+      - "backend/src/lib/attachment-error-response.ts"
+      - "backend/src/routes/attachments-core.ts"
+      - "backend/tests/attachment-error-response.test.ts"
       - "backend/tests/backup-error-response.test.ts"
       - "backend/tests/sync-blob-error-contract.test.ts"
       - "backend/tests/full-backup-jobs.test.ts"
@@ -20,6 +23,8 @@ on:
       - "frontend/src/lib/api.impl.ts"
       - "frontend/src/lib/fullBackupJobClient.ts"
       - "frontend/src/lib/supportError.ts"
+      - "frontend/src/lib/uploadRequest.ts"
+      - "frontend/src/lib/__tests__/uploadRequest.test.ts"
       - "frontend/src/lib/__tests__/supportError.test.ts"
       - "frontend/src/components/SystemFullDataTransferBridge.tsx"
       - "frontend/src/components/dataManagement/BackupCenter.tsx"
@@ -55,6 +60,7 @@ jobs:
           tests/sync-blob-error-contract.test.ts
           tests/full-backup-jobs.test.ts
           tests/backup-error-response.test.ts
+          tests/attachment-error-response.test.ts
 
   frontend:
     runs-on: ubuntu-latest
@@ -73,4 +79,4 @@ jobs:
       - name: Frontend typecheck
         run: npx tsc -b
       - name: Error response regression
-        run: npm run test:run -- src/lib/__tests__/httpError.test.ts src/lib/__tests__/fullBackupJobClient.test.ts src/lib/__tests__/supportError.test.ts
+        run: npm run test:run -- src/lib/__tests__/httpError.test.ts src/lib/__tests__/fullBackupJobClient.test.ts src/lib/__tests__/supportError.test.ts src/lib/__tests__/uploadRequest.test.ts
