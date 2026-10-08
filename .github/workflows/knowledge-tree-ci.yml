@@ -6,6 +6,7 @@ on:
     branches:
       - main
       - release/v1.5.0
+      - release/v1.5.1
       - feat/issue-370-p0c-p1-knowledge-tree
     paths:
       - "backend/src/db/knowledgeTree*.ts"
@@ -13,6 +14,7 @@ on:
       - "backend/src/db/postgres/063_knowledge_tree_legacy_sync.sql"
       - "backend/src/db/postgres/064_knowledge_tree_structural_guard.sql"
       - "backend/src/runtime/knowledge-tree*.ts"
+      - "backend/src/routes/mobile-bootstrap.ts"
       - "backend/src/routes/knowledge-tree.ts"
       - "backend/src/routes/mindmap-folders.ts"
       - "backend/src/routes/sync-v2.ts"
@@ -52,6 +54,7 @@ on:
       - "backend/src/db/postgres/063_knowledge_tree_legacy_sync.sql"
       - "backend/src/db/postgres/064_knowledge_tree_structural_guard.sql"
       - "backend/src/runtime/knowledge-tree*.ts"
+      - "backend/src/routes/mobile-bootstrap.ts"
       - "backend/src/routes/knowledge-tree.ts"
       - "backend/src/routes/mindmap-folders.ts"
       - "backend/src/routes/sync-v2.ts"
@@ -113,6 +116,7 @@ jobs:
           set -o pipefail
           node --import tsx --import ./tests/setup-db-isolation.ts --test \
             tests/knowledge-tree.test.ts \
+            tests/knowledge-tree-folder-password-visibility.test.ts \
             tests/knowledge-tree-mindmap.test.ts \
             tests/knowledge-tree-mindmap-folders.test.ts \
             tests/knowledge-tree-mindmap-lifecycle.test.ts \

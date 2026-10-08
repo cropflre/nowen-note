@@ -45,12 +45,17 @@ test("locked folder notes stay hidden from note lists, direct reads and search u
   const noteRoutes = new Hono();
   noteRoutes.get("/", (c) => c.json([{ id: note.resourceId, title: "加密笔记" }]));
   noteRoutes.get("/:id", (c) => c.json({ id: c.req.param("id"), title: "加密笔记" }));
+  const { default: mobileBootstrapRoutes } = await import("../src/routes/mobile-bootstrap.js");
+  db.prepare("UPDATE notes SET contentText = ? WHERE id = ?")
+    .run("TOP-SECRET-PREVIEW-805", note.resourceId);
+
   const searchRoutes = new Hono();
   searchRoutes.get("/", (c) => c.json([{ id: note.resourceId, title: "加密笔记" }]));
 
   const app = new Hono();
   app.route("/api/notes", wrapKnowledgeRoute("/api/notes", noteRoutes));
   app.route("/api/search", wrapKnowledgeRoute("/api/search", searchRoutes));
+  app.route("/api/user-preferences/mobile-bootstrap", mobileBootstrapRoutes);
 
   const lockedHeaders = { "X-User-Id": userId };
   const lockedList = await app.request("http://localhost/api/notes", { headers: lockedHeaders });
@@ -70,6 +75,17 @@ test("locked folder notes stay hidden from note lists, direct reads and search u
   const lockedSearch = await app.request("http://localhost/api/search?q=加密", { headers: lockedHeaders });
   assert.equal(lockedSearch.status, 200);
   assert.deepEqual(await lockedSearch.json(), []);
+
+  // Mobile Web/PWA/Android intercept GET /api/notes with this startup snapshot.
+  // It is not under the /api/notes guard and used to leak note titles + preview text.
+  const lockedBootstrap = await app.request(
+    "http://localhost/api/user-preferences/mobile-bootstrap?workspaceId=personal",
+    { headers: lockedHeaders },
+  );
+  assert.equal(lockedBootstrap.status, 200);
+  const lockedPayload = await lockedBootstrap.json() as { notes: Array<{ id: string; contentText: string }> };
+  assert.equal(lockedPayload.notes.some((n) => n.id === note.resourceId), false);
+  assert.equal(JSON.stringify(lockedPayload).includes("TOP-SECRET-PREVIEW-805"), false);
 
   const unlockToken = signFolderUnlockToken({
     userId,
@@ -100,9 +116,23 @@ test("locked folder notes stay hidden from note lists, direct reads and search u
   });
   assert.deepEqual(await unlockedSearch.json(), [{ id: note.resourceId, title: "加密笔记" }]);
 
+  const unlockedBootstrap = await app.request(
+    "http://localhost/api/user-preferences/mobile-bootstrap?workspaceId=personal",
+    { headers: unlockedHeaders },
+  );
+  assert.equal(unlockedBootstrap.status, 200);
+  const unlockedPayload = await unlockedBootstrap.json() as { notes: Array<{ id: string; contentText: string }> };
+  assert.equal(unlockedPayload.notes.some((n) => n.id === note.resourceId), true);
+
   db.prepare("UPDATE notebook_passwords SET passwordVersion = 4 WHERE notebookId = ?").run(folder.resourceId);
   const staleSlim = await app.request(`http://localhost/api/notes/${note.resourceId}?slim=1`, {
     headers: unlockedHeaders,
   });
   assert.equal(staleSlim.status, 404);
+  const staleBootstrap = await app.request(
+    "http://localhost/api/user-preferences/mobile-bootstrap?workspaceId=personal",
+    { headers: unlockedHeaders },
+  );
+  const stalePayload = await staleBootstrap.json() as { notes: Array<{ id: string }> };
+  assert.equal(stalePayload.notes.some((n) => n.id === note.resourceId), false);
 });
