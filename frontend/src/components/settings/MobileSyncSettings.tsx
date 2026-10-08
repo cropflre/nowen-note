@@ -69,8 +69,8 @@ export default function MobileSyncSettings() {
     <section className="space-y-3 rounded-lg border border-app-border p-4">
       <h3 className="text-sm font-medium">{t("mobileSync.statusTitle")}</h3>
       <p className="text-sm text-tx-secondary">{diagnostics?.lastError ? t("mobileSync.waitingRecovery") : diagnostics ? t("mobileSync.enabled") : t("mobileSync.loadingStatus")}</p>
-        <p className="text-xs text-tx-tertiary">{t("mobileSync.pendingChanges", { count: diagnostics?.pendingMutations ?? "—" })}</p>
-        <p className="text-xs text-tx-tertiary">{t("mobileSync.pendingAttachments", { count: diagnostics?.pendingAttachments ?? "—" })}</p>
+        <p className="text-xs text-tx-tertiary">{t("mobileSync.pendingChanges", { pending: diagnostics?.pendingMutations ?? "—" })}</p>
+        <p className="text-xs text-tx-tertiary">{t("mobileSync.pendingAttachments", { pending: diagnostics?.pendingAttachments ?? "—" })}</p>
         <p className="text-xs text-tx-tertiary">{t("mobileSync.lastSync", { time: diagnostics?.lastSyncAt ? new Date(diagnostics.lastSyncAt).toLocaleString(i18n.language) : t("mobileSync.neverSynced") })}</p>
         <button type="button" disabled={busy} className="rounded-md border border-app-border px-3 py-2 text-sm disabled:opacity-50" onClick={async () => {
           setBusy(true);
