@@ -712,6 +712,17 @@ server.tool(
   }
 );
 
+// Personal task tools
+server.tool("nowen_list_tasks", "List personal tasks", {
+  filter: z.enum(["all","today","week","overdue","completed"]).optional()
+}, async ({ filter }) => {
+  try {
+    const result = await api.listTasks(filter);
+    return { content: [{ type: "text" as const, text: JSON.stringify(result) }] };
+  } catch (error: any) {
+    return { content: [{ type: "text" as const, text: String(error.message) }], isError: true };
+  }
+});
 // ==================== 自动化工具 ====================
 
 server.tool(
