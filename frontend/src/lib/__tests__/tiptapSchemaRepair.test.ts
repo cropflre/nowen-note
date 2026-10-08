@@ -54,12 +54,6 @@ describe("repairTiptapJson", () => {
     };
     const writtenImageSources: string[] = [];
     const oldSetAttribute = Element.prototype.setAttribute;
-    const originalCreateElement = Document.prototype.createElement;
-    const elementSpy = vi.spyOn(Document.prototype, "createElement").mockImplementation(function (
-      this: Document, tagName: string, options?: ElementCreationOptions,
-    ) {
-      return originalCreateElement.call(this, tagName, options);
-    });
     const attributeSpy = vi.spyOn(Element.prototype, "setAttribute").mockImplementation(function (
       this: Element, name: string, value: string,
     ) {
@@ -74,7 +68,6 @@ describe("repairTiptapJson", () => {
       repaired = repairTiptapJson(input);
     } finally {
       attributeSpy.mockRestore();
-      elementSpy.mockRestore();
     }
 
     const images: any[] = [];
