@@ -307,7 +307,7 @@ export default function TitleDuplicateAssistBridge({
 
     // Root-document notebooks are hidden internal containers. ACL-based
     // notebookId queries will 404; ask the knowledge-tree root scope instead.
-    const params = isRootDocumentNotebookId(notebookId)
+    const params: Record<string, string> = isRootDocumentNotebookId(notebookId)
       ? { treeParentId: "root", includeDescendants: "0" }
       : { notebookId, includeDescendants: "1" };
     const request = api.getNotes(params)
