@@ -31,7 +31,7 @@ async function request<T>(path: string, init: RequestInit = {}, apiPath = "/task
 }
 export const taskDigestApi = {
   listWebhooks: () => request<Array<{ id: string; url: string; events: string[] }>>("", {}, "/webhooks"),
-  addWebhook: (url: string) => request<{ id: string; secret: string }>("", { method: "POST", body: JSON.stringify({ url, events: ["task.digest.morning", "task.digest.evening"], description: "每日任务简报" }) }, "/webhooks"),
+  addWebhook: (url: string) => request<{ id: string; secret: string }>("", { method: "POST", body: JSON.stringify({ url, events: ["task.digest.morning", "task.digest.evening", "task.due"], description: "每日任务简报" }) }, "/webhooks"),
   get: () => request<TaskDigestConfig>(""),
   save: (body: Omit<TaskDigestConfig, "userId">) => request<TaskDigestConfig>("", { method: "PUT", body: JSON.stringify(body) }),
   preview: (kind: "morning" | "evening") => request<TaskDigestPreview>(`/preview?kind=${kind}`),
