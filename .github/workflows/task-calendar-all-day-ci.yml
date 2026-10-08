@@ -7,6 +7,9 @@ on:
       - backend/tests/task-calendar.test.ts
       - frontend/src/components/tasks/TaskDetailPanel.tsx
       - frontend/src/components/tasks/taskDateUtils.ts
+      - frontend/src/components/tasks/TaskCalendarView.tsx
+      - frontend/src/components/tasks/taskCalendarLayout.ts
+      - frontend/src/components/tasks/__tests__/taskCalendarLayout.test.ts
       - frontend/src/components/TaskCenterImpl.tsx
       - frontend/src/components/tasks/taskDueSortPreference.ts
       - frontend/src/components/tasks/__tests__/taskDueSortPreference.test.ts
@@ -24,6 +27,9 @@ on:
       - backend/tests/task-calendar.test.ts
       - frontend/src/components/tasks/TaskDetailPanel.tsx
       - frontend/src/components/tasks/taskDateUtils.ts
+      - frontend/src/components/tasks/TaskCalendarView.tsx
+      - frontend/src/components/tasks/taskCalendarLayout.ts
+      - frontend/src/components/tasks/__tests__/taskCalendarLayout.test.ts
       - frontend/src/components/TaskCenterImpl.tsx
       - frontend/src/components/tasks/taskDueSortPreference.ts
       - frontend/src/components/tasks/__tests__/taskDueSortPreference.test.ts
@@ -78,7 +84,7 @@ jobs:
 
       - name: Task all-day regressions
         working-directory: frontend
-        run: npx vitest run src/components/tasks/__tests__/taskDueTimeUtils.test.ts src/components/tasks/__tests__/taskDueSortPreference.test.ts src/components/tasks/__tests__/taskAllDayContract.test.ts
+        run: npx vitest run src/components/tasks/__tests__/taskDueTimeUtils.test.ts src/components/tasks/__tests__/taskDueSortPreference.test.ts src/components/tasks/__tests__/taskCalendarLayout.test.ts src/components/tasks/__tests__/taskAllDayContract.test.ts
 
       - name: Frontend production build
         working-directory: frontend

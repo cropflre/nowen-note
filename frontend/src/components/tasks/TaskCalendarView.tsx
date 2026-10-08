@@ -12,6 +12,7 @@ import { isTaskDateOverdue } from "./DateBadge";
 import { getTaskDateKey, moveTaskToDate } from "./taskDateUtils";
 import { TitleView } from "./taskTitleTokens";
 import { TaskEmptyState } from "./TaskEmptyState";
+import { groupCalendarDaysByWeek } from "./taskCalendarLayout";
 
 // Re-export for backward compat
 export { getTaskDateKey, moveTaskToDate } from "./taskDateUtils";
@@ -57,7 +58,8 @@ export function TaskCalendarView({
 
   const taskMap = useMemo(() => groupTasksByDate(tasks), [tasks]);
 
-  // Build calendar grid (6 weeks x 7 days)
+  // The month may need 4, 5 or 6 weeks. A week is one aligned row,
+  // but its height now depends on how many task cards that week contains.
   const calendarDays = useMemo(() => {
     const monthStart = startOfMonth(currentMonth);
     const monthEnd = endOfMonth(currentMonth);
@@ -72,6 +74,8 @@ export function TaskCalendarView({
     }
     return days;
   }, [currentMonth]);
+
+  const calendarWeeks = useMemo(() => groupCalendarDaysByWeek(calendarDays), [calendarDays]);
 
   const weekDayLabels = useMemo(() => {
     const labels: string[] = [];
@@ -93,7 +97,7 @@ export function TaskCalendarView({
     setSelectedDate(new Date());
   }, []);
 
-  const MAX_VISIBLE = 2;
+  const MAX_VISIBLE = 3;
 
   // --- Drag handlers (desktop only) ---
   const handleDragStart = useCallback((e: React.DragEvent, taskId: string) => {
@@ -151,19 +155,23 @@ export function TaskCalendarView({
       {/* Calendar grid + selected date panel */}
       <div className="flex-1 flex overflow-hidden">
         {/* Grid */}
-        <div className="flex-1 flex flex-col min-w-0 overflow-auto">
+        <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
           {/* Weekday labels */}
           <div className="grid grid-cols-7 border-b border-app-border shrink-0">
             {weekDayLabels.map((label, i) => (
-              <div key={i} className="text-center text-[10px] md:text-xs text-tx-tertiary font-medium py-2">
+              <div key={i} className="text-center text-[11px] md:text-xs text-tx-tertiary font-medium py-2.5">
                 {label}
               </div>
             ))}
           </div>
 
-          {/* Day cells */}
-          <div className="grid grid-cols-7 flex-1">
-            {calendarDays.map((day, idx) => {
+          {/* Day cells: one grid per week allows weeks without tasks to be compact.
+              Within a week, the seven date columns remain perfectly aligned. */}
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+            <div className="flex flex-col">
+              {calendarWeeks.map((week) => (
+                <div key={format(week[0], "yyyy-MM-dd")} className="grid grid-cols-7">
+                  {week.map((day) => {
               const dateKey = format(day, "yyyy-MM-dd");
               const dayTasks = taskMap.get(dateKey) || [];
               const inMonth = isSameMonth(day, currentMonth);
@@ -175,13 +183,13 @@ export function TaskCalendarView({
 
               return (
                 <div
-                  key={idx}
+                  key={dateKey}
                   onClick={() => setSelectedDate(day)}
                   onDragOver={isMobile ? undefined : (e) => handleDragOver(e, dateKey)}
                   onDragLeave={isMobile ? undefined : handleDragLeave}
                   onDrop={isMobile ? undefined : (e) => handleDrop(e, dateKey)}
                   className={cn(
-                    "flex flex-col border-b border-r border-app-border/50 p-1 md:p-1.5 min-h-[60px] md:min-h-[80px] cursor-pointer transition-colors",
+                    "min-w-0 flex flex-col border-b border-r border-app-border/50 p-1 md:p-2 min-h-[54px] md:min-h-[64px] cursor-pointer transition-colors",
                     !inMonth && "opacity-30",
                     today && "bg-accent-primary/5",
                     selected && "bg-accent-primary/10 ring-1 ring-inset ring-accent-primary/30",
@@ -189,15 +197,22 @@ export function TaskCalendarView({
                     isDragTarget && "bg-accent-primary/15 ring-2 ring-inset ring-accent-primary/40"
                   )}
                 >
-                  <span className={cn(
-                    "text-[10px] md:text-xs font-medium mb-0.5",
-                    today ? "text-accent-primary font-bold" : "text-tx-secondary"
-                  )}>
-                    {format(day, "d")}
-                  </span>
+                  <div className="flex min-w-0 items-center justify-between gap-1 mb-1">
+                    <span className={cn(
+                      "text-xs md:text-sm font-medium leading-5",
+                      today ? "text-accent-primary font-bold" : "text-tx-secondary"
+                    )}>
+                      {format(day, "d")}
+                    </span>
+                    {dayTasks.length > 0 && (
+                      <span className="md:hidden rounded-full bg-app-hover px-1 text-[10px] tabular-nums text-tx-secondary" aria-label={t("tasks.taskCount", { count: dayTasks.length })}>
+                        {dayTasks.length}
+                      </span>
+                    )}
+                  </div>
 
                   {/* Task dots / mini cards */}
-                  <div className="flex-1 space-y-0.5 overflow-hidden">
+                  <div className="hidden min-w-0 flex-col gap-1 md:flex">
                     {visibleTasks.map((task) => {
                       const overdue = isCalendarTaskOverdue(task);
                       return (
@@ -208,7 +223,7 @@ export function TaskCalendarView({
                           onDragStart={isMobile ? undefined : (e) => handleDragStart(e, task.id)}
                           onDragEnd={isMobile ? undefined : handleDragEnd}
                           className={cn(
-                            "text-[9px] md:text-[10px] leading-tight px-1 py-0.5 rounded truncate cursor-pointer transition-colors",
+                            "min-w-0 rounded px-1.5 py-1 text-xs xl:text-[13px] leading-4 xl:leading-[18px] cursor-pointer transition-colors break-words line-clamp-2",
                             draggingTaskId === task.id && "opacity-40",
                             task.isCompleted
                               ? "line-through text-tx-tertiary bg-app-elevated/50"
@@ -218,17 +233,20 @@ export function TaskCalendarView({
                           )}
                           title={task.title}
                         >
-                          {task.title.length > 12 ? task.title.slice(0, 12) + "\u2026" : task.title}
+                          {task.title}
                         </div>
                       );
                     })}
                     {overflow > 0 && (
-                      <span className="text-[9px] text-tx-tertiary px-1">+{overflow}</span>
+                      <span className="text-xs leading-4 text-tx-tertiary px-1">+{overflow}</span>
                     )}
                   </div>
                 </div>
               );
-            })}
+                  })}
+                </div>
+              ))}
+            </div>
           </div>
         </div>
 
