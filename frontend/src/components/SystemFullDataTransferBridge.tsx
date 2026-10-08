@@ -216,7 +216,11 @@ function NoticeBox({ notice }: { notice: Notice }) {
               className="inline-flex items-center gap-1 rounded border border-current/20 px-2 py-0.5 hover:bg-black/5 dark:hover:bg-white/5"
               title="复制故障编号，便于反馈问题"
               onClick={() => {
-                void navigator.clipboard?.writeText(notice.reference || "").then(
+                if (!navigator.clipboard?.writeText) {
+                  toast.error("浏览器不支持自动复制，请手动选择编号");
+                  return;
+                }
+                void navigator.clipboard.writeText(notice.reference || "").then(
                   () => toast.success("故障编号已复制"),
                   () => toast.error("复制失败，请手动选择编号"),
                 );
