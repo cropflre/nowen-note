@@ -12,7 +12,7 @@ on:
       - "backend/src/services/full-backup-jobs.ts"
       - "backend/tests/sync-blob-error-contract.test.ts"
       - "backend/tests/full-backup-jobs.test.ts"
-      - "backend/tests/request-error-contract.test.ts tests/sync-blob-error-contract.test.ts tests/full-backup-jobs.test.ts"
+      - "backend/tests/request-error-contract.test.ts"
       - "frontend/src/lib/httpError.ts"
       - "frontend/src/lib/api.impl.ts"
       - "frontend/src/lib/fullBackupJobClient.ts"
@@ -42,7 +42,11 @@ jobs:
       - name: Backend typecheck
         run: npm run build:tsc -- --pretty false
       - name: Request correlation and error response contract
-        run: node --import tsx --import ./tests/setup-db-isolation.ts --test tests/request-error-contract.test.ts
+        run: >-
+          node --import tsx --import ./tests/setup-db-isolation.ts --test
+          tests/request-error-contract.test.ts
+          tests/sync-blob-error-contract.test.ts
+          tests/full-backup-jobs.test.ts
 
   frontend:
     runs-on: ubuntu-latest
