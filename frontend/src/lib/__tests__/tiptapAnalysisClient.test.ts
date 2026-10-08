@@ -12,6 +12,9 @@ class FakeWorker {
   respond(message: any) {
     this.onmessage?.({ data: { requestId: message.requestId, result: analyzeTiptapDocument(message.doc) } } as MessageEvent);
   }
+  fail(message: string) {
+    this.onerror?.({ message } as ErrorEvent);
+  }
 }
 
 afterEach(() => { vi.useRealTimers(); });
@@ -48,7 +51,7 @@ describe("Tiptap analysis controller", () => {
     controller.analyze({ type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "old" }] }] });
     const latest = { type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "latest" }] }] };
     const requestId = controller.analyze(latest);
-    worker.onerror?.({ message: "Cannot use import statement outside a module" } as ErrorEvent);
+    worker.fail("Cannot use import statement outside a module");
     expect(worker.terminated).toBe(true);
     expect(onError).toHaveBeenCalledTimes(1);
     await vi.advanceTimersByTimeAsync(32);
