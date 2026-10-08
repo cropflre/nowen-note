@@ -11,6 +11,8 @@ interface FullBackupJobSnapshot {
   backup?: FullBackupJobResult;
   downloadToken?: string;
   error?: string;
+  errorCode?: string;
+  retryable?: boolean;
 }
 
 interface FullBackupJobApi {
@@ -41,7 +43,17 @@ export async function runFullBackupJob(
       if (!job.backup?.filename) throw new Error("完整备份已生成，但服务端未返回下载文件");
       return { ...job.backup, downloadToken: job.downloadToken };
     }
-    if (job.state === "error") throw new Error(job.error || job.message || "完整备份生成失败");
+    if (job.state === "error") {
+      const error = new Error(job.error || job.message || "完整备份生成失败") as Error & {
+        code?: string;
+        operationId: string;
+        retryable: boolean;
+      };
+      error.code = job.errorCode || "BACKUP_JOB_FAILED";
+      error.operationId = job.id;
+      error.retryable = job.retryable === true;
+      throw error;
+    }
     await delay();
     job = await client.get(job.id);
   }
