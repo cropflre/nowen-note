@@ -9,6 +9,7 @@ import {
   getAttachmentAccessSnapshot,
   getAttachmentRenderSource,
   invalidateOfflineAttachmentRenderUrl,
+  requiresVerifiedAttachmentAccess,
   subscribeAttachmentAccess,
 } from "@/lib/noteAttachmentAccessBridge";
 import { primeNoteAttachmentAccess } from "@/lib/noteAttachmentAccessPriming";
@@ -69,9 +70,8 @@ export function useAttachmentImageRenderSource(
   const resolvedSrc = !rawSrc
     ? ""
     : rawSrc.startsWith("//") ? rawSrc : resolveAttachmentUrl(rawSrc);
-  const needsSignedAccess = enabled && !!noteId && !!getAccessToken()
-    && !!source.attachmentId && extractAttachmentId(resolvedSrc) === source.attachmentId
-    && !new URL(resolvedSrc, window.location.href).searchParams.has("sig");
+  const unsignedAttachment = enabled && requiresVerifiedAttachmentAccess(resolvedSrc);
+  const needsSignedAccess = unsignedAttachment && !!noteId && !!getAccessToken();
   const needsAndroidBlob = enabled
     && Capacitor.getPlatform() === "android"
     && !!source.attachmentId
@@ -107,14 +107,21 @@ export function useAttachmentImageRenderSource(
 
     setState({
       requestKey,
-      renderSrc: enabled && !needsSignedAccess ? resolvedSrc : "",
+      renderSrc: enabled && !unsignedAttachment ? resolvedSrc : "",
       loading: enabled && !!resolvedSrc,
       error: null,
       preparingAndroidBlob: needsAndroidBlob,
       imageLoaded: false,
     });
 
-    if (needsSignedAccess) {
+    if (unsignedAttachment && !needsSignedAccess) {
+      setState((current) => current.requestKey === requestKey ? {
+        ...current,
+        loading: false,
+        error: new Error("未获取到图片授权，请重新打开笔记"),
+        preparingAndroidBlob: false,
+      } : current);
+    } else if (needsSignedAccess) {
       const prepare = async () => {
         try { await refreshSignedAccess(noteId!); }
         catch (error) {
@@ -185,13 +192,13 @@ export function useAttachmentImageRenderSource(
       releaseRenderUrl();
       if (ownedBlobUrl) URL.revokeObjectURL(ownedBlobUrl);
     };
-  }, [enabled, needsAndroidBlob, needsSignedAccess, noteId, requestKey, resolvedSrc, source.attachmentId, rawSrc]);
+  }, [enabled, needsAndroidBlob, needsSignedAccess, unsignedAttachment, noteId, requestKey, resolvedSrc, source.attachmentId, rawSrc]);
 
   const activeState = state.requestKey === requestKey
     ? state
     : {
         requestKey,
-        renderSrc: enabled && !needsSignedAccess ? resolvedSrc : "",
+        renderSrc: enabled && !unsignedAttachment ? resolvedSrc : "",
         loading: enabled && !!resolvedSrc,
         error: null,
         preparingAndroidBlob: needsAndroidBlob,
