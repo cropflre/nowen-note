@@ -40,7 +40,7 @@ for (const format of ["Markdown", "富文本", "Markdown 协作"]) {
     expect(saved.content).toContain(before.trim()); expect(saved.content).toContain(after.trim());
     await page.getByRole("button", { name: "重新载入实际笔记", exact: true }).click();
     await expect(page.getByRole("status")).toHaveText("实际笔记已重载");
-    if (format.startsWith("Markdown")) await page.locator('[title="markdown.view.preview"]').filter({ visible: true }).first().click();
+    if (format.startsWith("Markdown")) await page.getByRole("button", { name: "预览", exact: true }).filter({ visible: true }).first().click();
     await page.getByRole("button", { name: "解锁加密内容", exact: true }).first().click();
     await dialog.getByLabel("密码", { exact: true }).fill(password);
     await dialog.getByLabel("密码", { exact: true }).press("Enter");
@@ -73,7 +73,7 @@ for (const format of ["Markdown", "富文本"]) {
     await expect(page.getByRole("status")).toHaveText("实际编辑器保存已确认");
     if (format === "Markdown") {
       // Edit from preview without switching to source or locating a ciphertext fence.
-      await page.locator('[title="markdown.view.preview"]').filter({ visible: true }).first().click();
+      await page.getByRole("button", { name: "预览", exact: true }).filter({ visible: true }).first().click();
       await expect(main).not.toBeVisible();
       await page.getByLabel("已锁定加密区域", { exact: true }).getByRole("button", { name: "解锁加密内容", exact: true }).click();
       const dialog = page.getByRole("dialog", { name: "局部加密区域", exact: true });
