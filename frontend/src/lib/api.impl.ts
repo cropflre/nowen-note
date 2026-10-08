@@ -1239,6 +1239,7 @@ export const api = {
   getSiteSettingsPublic: async (): Promise<{
     site_title: string;
     site_favicon: string;
+    site_share_footer_text?: string;
     site_icp_beian?: string;
     site_public_web_origin?: string;
     site_public_web_origin_source?: string;
@@ -1254,6 +1255,7 @@ export const api = {
       return {
         site_title: "nowen-note",
         site_favicon: "",
+        site_share_footer_text: "",
         site_icp_beian: "",
         site_public_web_origin: "",
         site_public_web_origin_source: "current",
@@ -2657,6 +2659,7 @@ export const api = {
     request<{
       site_title: string;
       site_favicon: string;
+      site_share_footer_text?: string;
       site_icp_beian?: string;
       site_public_web_origin?: string;
       site_public_web_origin_source?: string;
@@ -2672,6 +2675,7 @@ export const api = {
   updateSiteSettings: (data: {
     site_title?: string;
     site_favicon?: string;
+    site_share_footer_text?: string;
     site_icp_beian?: string;
     site_public_web_origin?: string;
     site_file_public_origin?: string;
@@ -2686,6 +2690,7 @@ export const api = {
     request<{
       site_title: string;
       site_favicon: string;
+      site_share_footer_text?: string;
       site_icp_beian?: string;
       site_public_web_origin?: string;
       site_public_web_origin_source?: string;

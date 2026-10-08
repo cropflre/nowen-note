@@ -352,6 +352,7 @@ app.get("/api/settings", (c) => {
   const result: Record<string, string> = {
     site_title: "nowen-note",
     site_favicon: "",
+    site_share_footer_text: "",
     site_icp_beian: "",
     site_public_web_origin: "",
     site_public_web_origin_source: "current",

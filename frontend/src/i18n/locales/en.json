@@ -722,6 +722,8 @@
     "remove": "Remove",
     "siteName": "Site Name",
     "siteNamePlaceholder": "e.g. Admin's Knowledge Base",
+    "shareFooterText": "Share page footer text",
+    "shareFooterTextHint": "Applies to all share pages, up to 100 characters. Leave blank to use the default footer: 通过 Nowen Note 分享.",
     "saveChanges": "Save Changes",
     "saveSuccess": "Saved successfully",
     "saveFailed": "Save failed, please try again",

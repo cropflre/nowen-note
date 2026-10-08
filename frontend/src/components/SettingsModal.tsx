@@ -1321,6 +1321,7 @@ function AppearancePanel() {
   const [sidebarTextStyle, setSidebarTextStyle] = useSidebarTextStyle();
   const [title, setTitle] = useState(siteConfig.title);
   const [previewIcon, setPreviewIcon] = useState(siteConfig.favicon);
+  const [shareFooterText, setShareFooterText] = useState(siteConfig.shareFooterText);
   const [isSaving, setIsSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -1393,7 +1394,8 @@ function AppearancePanel() {
     setIsSaving(true);
     setSaveMessage("");
     try {
-      await updateSiteConfig(title.trim(), previewIcon);
+      await updateSiteConfig(title.trim(), previewIcon, shareFooterText.trim());
+      setShareFooterText(shareFooterText.trim());
       setSaveMessage(t('settings.saveSuccess'));
       setTimeout(() => setSaveMessage(""), 2000);
     } catch {
@@ -1403,7 +1405,7 @@ function AppearancePanel() {
     }
   };
 
-  const hasChanges = title !== siteConfig.title || previewIcon !== siteConfig.favicon;
+  const hasChanges = title !== siteConfig.title || previewIcon !== siteConfig.favicon || shareFooterText !== siteConfig.shareFooterText;
 
   // 当前字体的显示名
   const currentFontName = (() => {
@@ -1532,6 +1534,22 @@ function AppearancePanel() {
                 placeholder={t('settings.siteNamePlaceholder')}
               />
               <p className="text-[10px] text-zinc-400 dark:text-zinc-500 text-right">{title.length} / 20</p>
+            </div>
+
+            <div className="space-y-1.5">
+              <label htmlFor="site-share-footer-text" className="text-xs font-medium text-zinc-500 dark:text-zinc-400">{t('settings.shareFooterText')}</label>
+              <input
+                id="site-share-footer-text"
+                type="text"
+                value={shareFooterText}
+                onChange={(e) => { setShareFooterText(e.target.value); setSaveMessage(""); }}
+                maxLength={100}
+                disabled={!isAdmin}
+                className="w-full px-3 py-2 bg-transparent border border-zinc-200 dark:border-zinc-800 rounded-lg text-sm text-zinc-900 dark:text-zinc-100 focus:ring-2 focus:ring-accent-primary/40 focus:border-accent-primary outline-none transition-all placeholder:text-zinc-400 disabled:opacity-60 disabled:cursor-not-allowed"
+                placeholder="通过 Nowen Note 分享"
+              />
+              <p className="text-[10px] text-zinc-400 dark:text-zinc-500">{t('settings.shareFooterTextHint')}</p>
+              <p className="text-[10px] text-zinc-400 dark:text-zinc-500 text-right">{shareFooterText.length} / 100</p>
             </div>
 
             {isAdmin && (

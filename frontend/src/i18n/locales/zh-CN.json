@@ -729,6 +729,8 @@
     "remove": "移除",
     "siteName": "站点名称",
     "siteNamePlaceholder": "例如: Admin 的知识库",
+    "shareFooterText": "分享页底部标识",
+    "shareFooterTextHint": "用于所有分享页，最多 100 个字符。留空显示「通过 Nowen Note 分享」。",
     "saveChanges": "保存更改",
     "saveSuccess": "保存成功",
     "saveFailed": "保存失败，请重试",
