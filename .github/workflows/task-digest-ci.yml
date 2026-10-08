@@ -1,0 +1,90 @@
+name: Task Digest and Agent CI
+
+on:
+  pull_request:
+    paths:
+      - 'backend/src/routes/task-digest.ts'
+      - 'backend/src/services/webhook.ts'
+      - 'backend/src/plugins/hostApiBroker.ts'
+      - 'backend/src/middleware/api-token-resource-scope.ts'
+      - 'backend/tests/task-digest.test.ts'
+      - 'backend/tests/api-token-resource-scope.test.ts'
+      - 'packages/nowen-mcp/**'
+      - 'frontend/src/components/automation/**'
+      - 'frontend/src/lib/taskDigestApi.ts'
+      - 'frontend/src/components/AIChatPanel.tsx'
+      - '.github/workflows/task-digest-ci.yml'
+  push:
+    branches:
+      - 'release/**'
+      - main
+    paths:
+      - 'backend/src/routes/task-digest.ts'
+      - 'backend/src/services/webhook.ts'
+      - 'backend/src/plugins/hostApiBroker.ts'
+      - 'backend/src/middleware/api-token-resource-scope.ts'
+      - 'backend/tests/task-digest.test.ts'
+      - 'backend/tests/api-token-resource-scope.test.ts'
+      - 'packages/nowen-mcp/**'
+      - 'frontend/src/components/automation/**'
+      - 'frontend/src/lib/taskDigestApi.ts'
+      - 'frontend/src/components/AIChatPanel.tsx'
+      - '.github/workflows/task-digest-ci.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - name: Install backend
+        working-directory: backend
+        run: npm ci --no-audit --no-fund
+      - name: Typecheck backend
+        working-directory: backend
+        run: npx tsc --noEmit
+      - name: Task digest and API token regression
+        working-directory: backend
+        run: npx tsx --test tests/task-digest.test.ts tests/api-token-resource-scope.test.ts
+
+  frontend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install frontend
+        working-directory: frontend
+        run: npm ci --no-audit --no-fund
+      - name: Typecheck frontend
+        working-directory: frontend
+        run: npx tsc -b --pretty false
+
+  mcp:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: packages/nowen-mcp/package-lock.json
+      - name: Install MCP
+        working-directory: packages/nowen-mcp
+        run: npm ci --no-audit --no-fund
+      - name: Build MCP
+        working-directory: packages/nowen-mcp
+        run: npm run build
