@@ -62,6 +62,7 @@ import pluginExecutionsRouter from "./routes/plugin-executions";
 import automationsRouter from "./routes/automations";
 import automationWebhookRouter from "./automation/webhookTrigger";
 import webhooksRouter from "./routes/webhooks";
+import taskDigestRouter, { dispatchScheduledTaskDigests } from "./routes/task-digest";
 import auditRouter from "./routes/audit";
 import backupsRouter, { handleFullBackupJobDownload } from "./routes/backups";
 import emailRouter from "./routes/email";
@@ -631,6 +632,7 @@ app.route("/api/wechat-capture", wechatCaptureRouter);
 app.route("/api/plugin-executions", pluginExecutionsRouter);
 app.route("/api/automations", automationsRouter);
 app.route("/api/webhooks", webhooksRouter);
+app.route("/api/task-digest", taskDigestRouter);
 app.route("/api/audit", auditRouter);
 app.route("/api/backups", backupsRouter);
 app.route("/api/email", emailRouter);
@@ -955,6 +957,13 @@ try {
   console.warn("[init] automation runtime failed:", e);
 }
 
+// 每分钟检查早晚任务简报。数据库 UNIQUE 约束避免多次投递。
+// 持续推送需要常驻后端，桌面进程关闭时不会运行。
+const taskDigestTimer = process.env.NODE_ENV === "test" ? null : setInterval(() => {
+  try { dispatchScheduledTaskDigests(); }
+  catch (error) { console.error("[task-digest] scan failed:", error); }
+}, 60_000);
+taskDigestTimer?.unref();
 // 启动日历 ICS S3 镜像定时导出
 //   - CALENDAR_EXPORT_TIMER_DISABLED=1 可关闭
 //   - NODE_ENV=test 时不启动
@@ -1032,6 +1041,7 @@ async function gracefulShutdown(signal: string) {
   }, 3000);
   try {
     automationRuntime.stop();
+    if (taskDigestTimer) clearInterval(taskDigestTimer);
     // 先停同步引擎：它可能正在 push，避免它再排下一轮把关停拖长。
     // 已标记 inflight 的条目由下次启动的 recoverInflightMutations 复位，
     // 重复推送由 mutationId 幂等保证安全，不会产生重复数据。
