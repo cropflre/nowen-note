@@ -1914,7 +1914,7 @@ const SettingsModal = React.forwardRef<HTMLDivElement, SettingsModalProps>(
     { id: "ai" as const, label: t('settings.ai'), icon: Bot },
     { id: "plugins" as const, label: "插件", icon: Puzzle },
     { id: "automations" as const, label: "自动化", icon: Workflow },
-    { id: "security" as const, label: isAndroidNativeRuntime() ? "账号与安全" : t('settings.security'), icon: Shield },
+    { id: "security" as const, label: isAndroidNativeRuntime() ? t("mobileAccount.accountAndSecurity") : t('settings.security'), icon: Shield },
     // 【个人访问令牌】任意登录用户都可管理自己的 token；与 security 同为"账号安全"类别，
     // 不需要 isAdmin 判定。
     { id: "tokens" as const, label: t('settings.tokens', { defaultValue: '访问令牌' }), icon: Key },

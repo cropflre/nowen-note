@@ -43,6 +43,11 @@ function notifyModeChanged(): void {
   try { window.dispatchEvent(new Event(MOBILE_LOCAL_MODE_CHANGED_EVENT)); } catch { /* ignore */ }
 }
 
+export function isMobileAccountLoginRequested(): boolean {
+  if (!isAndroidNativeRuntime()) return false;
+  try { return localStorage.getItem(LOGIN_REQUESTED_KEY) === "1"; } catch { return false; }
+}
+
 export function requestMobileAccountLogin(): void {
   try {
     localStorage.removeItem(FORCE_LOCAL_KEY);

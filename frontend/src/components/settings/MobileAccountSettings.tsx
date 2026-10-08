@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
+import { ArrowRightLeft } from "lucide-react";
 import { AccountLoginHistoryDialog } from "@/components/AccountLoginHistory";
 import { broadcastLogout } from "@/lib/api";
 import { isMobileLocalMode, requestMobileAccountLogin } from "@/lib/mobileLocalMode";
@@ -21,7 +22,7 @@ export default function MobileAccountSettings({ accountLabel }: { accountLabel?:
         window.location.reload();
       }}>{t("mobileAccount.signInAndSync")}</button>
     </> : <div className="flex flex-wrap gap-2">
-      <button type="button" className="rounded-md border border-app-border px-3 py-2 text-sm" onClick={() => setHistoryOpen(true)}>{t("mobileAccount.loginHistory")}</button>
+      <button type="button" className="flex min-h-11 items-center gap-2 rounded-md border border-app-border px-3 py-2 text-sm" onClick={() => setHistoryOpen(true)}><ArrowRightLeft size={16} />{t("mobileAccount.switchAccount")}</button>
       <button type="button" className="rounded-md border border-app-border px-3 py-2 text-sm text-accent-danger" onClick={async () => {
         if (!window.confirm(t("mobileAccount.signOutConfirm"))) return;
         await broadcastLogout("user_logout");

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@capacitor/core", () => ({
   Capacitor: { isNativePlatform: () => false },
@@ -13,6 +13,7 @@ vi.mock("@/lib/api", async (importOriginal) => ({
 
 import { switchAccountLogin } from "@/lib/accountLoginSwitch";
 import type { AccountLoginHistoryItem } from "@/lib/accountLoginHistory";
+import { isMobileAccountLoginRequested, isMobileLocalMode, requestMobileAccountLogin } from "@/lib/mobileLocalMode";
 
 const account: AccountLoginHistoryItem = {
   id: "history-1",
@@ -42,6 +43,7 @@ function installDesktopHistory(token = "target-token", remembered: any = null) {
 }
 
 describe("账号历史切换", () => {
+  afterEach(() => { Reflect.deleteProperty(window, "Capacitor"); });
   beforeEach(() => {
     localStorage.clear();
     sessionStorage.clear();
@@ -110,6 +112,31 @@ describe("账号历史切换", () => {
     expect(sessionStorage.getItem("nowen-account-history-pending-reauth")).not.toContain("target-token");
     expect(localStorage.getItem("nowen-prefer-cloud")).toBe("1");
     expect((window as any).nowenDesktop.accountHistory.markRequiresReauth).toHaveBeenCalledWith(account.id);
+  });
+
+  it("Android 历史会话失效后进入登录页而不是本机空间", async () => {
+    Object.assign(window, { Capacitor: { isNativePlatform: () => true, getPlatform: () => "android" } });
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
+      code: "TOKEN_REVOKED", error: "登录已失效",
+    }), { status: 401 }));
+
+    expect((await switchAccountLogin(account)).status).toBe("requires_reauth");
+    expect(localStorage.getItem("nowen-token")).toBeNull();
+    expect(isMobileLocalMode()).toBe(false);
+    expect(localStorage.getItem("nowen-mobile-account-login-requested")).toBe("1");
+  });
+
+  it("Android 切换成功后清除主动登录标记并使用目标会话", async () => {
+    Object.assign(window, { Capacitor: { isNativePlatform: () => true, getPlatform: () => "android" } });
+    requestMobileAccountLogin();
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
+      id: account.userId, username: account.username,
+    }), { status: 200 }));
+
+    expect((await switchAccountLogin(account)).status).toBe("switched");
+    expect(isMobileAccountLoginRequested()).toBe(false);
+    expect(isMobileLocalMode()).toBe(false);
+    expect(localStorage.getItem("nowen-token")).toBe("target-token");
   });
 
   it("令牌被撤销但保存了匹配密码时自动重新登录", async () => {

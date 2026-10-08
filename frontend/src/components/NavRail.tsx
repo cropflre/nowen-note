@@ -49,6 +49,7 @@ import { clearLocalIdMap, clearQueue, getQueueLength } from "@/lib/offlineQueue"
 import { AccountLoginHistoryDialog } from "@/components/AccountLoginHistory";
 import { isAccountLoginHistorySupported } from "@/lib/accountLoginHistory";
 import {
+  enterMobileLocalMode,
   isAndroidNativeRuntime,
   isMobileLocalMode,
   requestMobileAccountLogin,
@@ -210,7 +211,12 @@ export default function NavRail({ variant = "desktop", notificationCount = 0 }: 
     if (isMobile) actions.setMobileSidebar(false);
   }, [actions, isMobile, localDeviceMode]);
 
-  const handleDesktopCloudButton = useCallback(async () => {
+  const handleSwitchToLocal = useCallback(async () => {
+    if (isAndroidNativeRuntime()) {
+      enterMobileLocalMode();
+      window.location.reload();
+      return;
+    }
     if (!canSwitchBackToLocal) return;
 
     const queuedCount = getQueueLength();
@@ -242,6 +248,7 @@ export default function NavRail({ variant = "desktop", notificationCount = 0 }: 
   }, [canSwitchBackToLocal, t]);
 
   const handleLogout = useCallback(async () => {
+    if (isAndroidNativeRuntime()) requestMobileAccountLogin();
     if (isDesktopApp() && !canSwitchBackToLocal) {
       await clearDesktopLocalAuth().catch(() => ({ ok: false }));
       try {
@@ -384,7 +391,7 @@ export default function NavRail({ variant = "desktop", notificationCount = 0 }: 
         {showLabel && <span className={cn("mt-0.5 max-w-full truncate px-1", classicText ? "text-[10px] leading-none" : isMobile ? "text-[10px] leading-tight" : "text-[11px] font-medium leading-tight")}>{t("sidebar.settings")}</span>}
       </button>
 
-      {!isAndroidNativeRuntime() && !localDeviceMode && isAccountLoginHistorySupported() && (
+      {!localDeviceMode && isAccountLoginHistorySupported() && (
         <button
           data-mobile-drawer-rail-item=""
           onClick={() => setLoginHistoryOpen(true)}
@@ -397,10 +404,10 @@ export default function NavRail({ variant = "desktop", notificationCount = 0 }: 
         </button>
       )}
 
-      {isDesktopApp() && canSwitchBackToLocal && (
+      {(canSwitchBackToLocal || (isAndroidNativeRuntime() && !localDeviceMode)) && (
         <button
           data-mobile-drawer-rail-item=""
-          onClick={handleDesktopCloudButton}
+          onClick={handleSwitchToLocal}
           title={showLabel ? undefined : t("sidebar.switchToLocal", "切回本地离线模式")}
           aria-label={t("sidebar.switchToLocal", "切回本地离线模式")}
           className={cn(itemBaseClass, "text-tx-tertiary hover:bg-app-hover hover:text-accent-primary")}
@@ -410,7 +417,7 @@ export default function NavRail({ variant = "desktop", notificationCount = 0 }: 
         </button>
       )}
 
-      {!isAndroidNativeRuntime() && (localDeviceMode ? (
+      {localDeviceMode ? (
         <button
           data-mobile-drawer-rail-item=""
           onClick={handleAccountLogin}
@@ -432,7 +439,7 @@ export default function NavRail({ variant = "desktop", notificationCount = 0 }: 
           <LogOut size={16} />
           {showLabel && <span className="text-[10px] leading-none mt-0.5 max-w-full truncate px-1">{t("sidebar.logout")}</span>}
         </button>
-      ))}
+      )}
 
       <AccountLoginHistoryDialog open={loginHistoryOpen} onClose={() => setLoginHistoryOpen(false)} />
     </div>

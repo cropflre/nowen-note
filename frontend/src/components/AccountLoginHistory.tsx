@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { ChevronDown, Loader2, LogIn, Pencil, Trash2, UserPlus, UsersRound, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import {
@@ -16,6 +17,7 @@ import { toast } from "@/lib/toast";
 import { cn } from "@/lib/utils";
 import type { User } from "@/types";
 import { clearAuthTokens } from "@/lib/authSession";
+import { isAndroidNativeRuntime, requestMobileAccountLogin } from "@/lib/mobileLocalMode";
 
 function serverLabel(serverUrl: string): string {
   try {
@@ -36,13 +38,13 @@ async function probeNowenServer(serverUrl: string): Promise<boolean> {
 
 export function AccountLoginHistoryList({
   className,
-  onBeforeSwitch,
+  onBusyChange,
   onSwitched,
   onRequiresReauth,
   title,
 }: {
   className?: string;
-  onBeforeSwitch?: () => void;
+  onBusyChange?: (busy: boolean) => void;
   onSwitched?: (token: string, user: User) => void;
   onRequiresReauth?: (account: AccountLoginHistoryItem, message?: string) => void;
   title?: string;
@@ -72,6 +74,10 @@ export function AccountLoginHistoryList({
     if (items.length <= 2) setExpanded(false);
   }, [items.length]);
 
+  useEffect(() => {
+    onBusyChange?.(!!loadingId || savingServer);
+  }, [loadingId, savingServer, onBusyChange]);
+
   if (!supported || items.length === 0) return null;
 
   const currentServer = getServerUrl().replace(/\/+$/, "").toLowerCase();
@@ -84,7 +90,6 @@ export function AccountLoginHistoryList({
   const handleSwitch = async (item: AccountLoginHistoryItem) => {
     if (loadingId || savingServer) return;
     setLoadingId(item.id);
-    onBeforeSwitch?.();
     const result = await switchAccountLogin(item);
     if (result.status === "switched") {
       if (onSwitched) {
@@ -222,7 +227,7 @@ export function AccountLoginHistoryList({
                   type="button"
                   onClick={() => void handleSwitch(item)}
                   disabled={!!loadingId || savingServer || isCurrent}
-                  className="flex min-w-0 flex-1 items-center gap-2.5 rounded-md px-1.5 py-0.5 text-left disabled:cursor-default disabled:opacity-70"
+                  className="flex min-h-11 min-w-0 flex-1 items-center gap-2.5 rounded-md px-1.5 py-0.5 text-left disabled:cursor-default disabled:opacity-70 sm:min-h-0"
                 >
                   <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-accent-primary/10 text-xs font-semibold text-accent-primary">
                     {item.avatarUrl ? <img src={item.avatarUrl} alt="" className="h-8 w-8 rounded-lg object-cover" /> : initials(item)}
@@ -253,7 +258,7 @@ export function AccountLoginHistoryList({
                 </button>
                 <button
                   type="button"
-                  disabled={isCurrent || savingServer}
+                  disabled={isCurrent || !!loadingId || savingServer}
                   title={t("auth.loginHistory.remove")}
                   aria-label={t("auth.loginHistory.remove")}
                   onClick={(event) => void handleRemove(event, item)}
@@ -350,10 +355,15 @@ export function AccountLoginHistoryList({
 
 export function AccountLoginHistoryDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { t } = useTranslation();
+  const [busy, setBusy] = useState(false);
   if (!open) return null;
+  const dialogTitle = t("auth.loginHistory.title");
+  const handleClose = () => { if (!busy) onClose(); };
 
   const handleAddAccount = () => {
+    if (busy) return;
     try {
+      if (isAndroidNativeRuntime()) requestMobileAccountLogin();
       clearAuthTokens();
       localStorage.setItem("nowen-prefer-cloud", "1");
       window.dispatchEvent(new CustomEvent("nowen:token-changed"));
@@ -361,22 +371,23 @@ export function AccountLoginHistoryDialog({ open, onClose }: { open: boolean; on
     window.location.reload();
   };
 
-  return (
-    <div className="fixed inset-0 z-[220] flex items-end justify-center bg-black/35 p-0 sm:items-center sm:p-4" role="dialog" aria-modal="true" aria-label={t("auth.loginHistory.title")} onMouseDown={onClose}>
-      <div className="max-h-[78dvh] w-full max-w-md overflow-y-auto rounded-t-2xl border border-app-border bg-app-elevated p-4 shadow-2xl sm:rounded-2xl" onMouseDown={(event) => event.stopPropagation()}>
+  return createPortal(
+    <div className="fixed inset-0 z-[220] flex items-end justify-center bg-black/35 p-0 sm:items-center sm:p-4" role="dialog" aria-modal="true" aria-label={dialogTitle} onMouseDown={handleClose}>
+      <div className="max-h-[78dvh] w-full max-w-md overflow-y-auto rounded-t-2xl border border-app-border bg-app-elevated p-4 shadow-2xl sm:rounded-2xl" style={{ paddingBottom: "calc(1rem + var(--safe-area-bottom, 0px))" }} onMouseDown={(event) => event.stopPropagation()}>
         <div className="mb-4 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <UsersRound size={18} className="text-accent-primary" />
-            <h2 className="text-base font-semibold text-tx-primary">{t("auth.loginHistory.title")}</h2>
+            <h2 className="text-base font-semibold text-tx-primary">{dialogTitle}</h2>
           </div>
-          <button type="button" onClick={onClose} className="rounded-lg p-2 text-tx-tertiary hover:bg-app-hover" aria-label={t("common.close")}><X size={16} /></button>
+          <button type="button" onClick={handleClose} disabled={busy} className="rounded-lg p-2 text-tx-tertiary hover:bg-app-hover disabled:opacity-40" aria-label={t("common.close")}><X size={16} /></button>
         </div>
-        <AccountLoginHistoryList onBeforeSwitch={onClose} />
-        <button type="button" onClick={handleAddAccount} className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl border border-dashed border-app-border px-3 py-2.5 text-sm text-tx-secondary hover:border-accent-primary/50 hover:bg-app-hover hover:text-accent-primary">
+        <AccountLoginHistoryList onBusyChange={setBusy} />
+        <button type="button" onClick={handleAddAccount} disabled={busy} className="mt-3 flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-dashed border-app-border px-3 py-2.5 text-sm text-tx-secondary hover:border-accent-primary/50 hover:bg-app-hover hover:text-accent-primary disabled:opacity-40">
           <UserPlus size={16} />
           {t("auth.loginHistory.addAccount")}
         </button>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
