@@ -220,6 +220,25 @@ describe("release i18n coverage", () => {
     ).toEqual([]);
   });
 
+  it("prevents untranslated Chinese UI literals in protected critical flows", () => {
+    const criticalFiles = [
+      "components/settings/MobileAccountSettings.tsx",
+      "components/settings/MobileSyncSettings.tsx",
+      "components/settings/ServerConnectionSettings.tsx",
+      "components/SyncStatusBadge.tsx",
+      "components/EncryptedNoteCreateDialog.tsx",
+      "components/EncryptedBlockDialog.tsx",
+      "components/EncryptedNotePane.tsx",
+    ] as const;
+    for (const path of criticalFiles) {
+      const source = readFileSync(join(process.cwd(), "src", path), "utf8");
+      const withoutComments = source
+        .replace(/\/\*[\s\S]*?\*\//g, "")
+        .replace(/^\s*\/\/.*$/gm, "");
+      expect(withoutComments.match(/[\u3400-\u9fff]/u), path).toBeNull();
+    }
+  });
+
   it("covers mobile account, sync status and verified server connection in both languages", () => {
     for (const namespace of ["mobileAccount", "mobileSync", "serverConnection", "syncBadge", "encryptedUi", "encryptedCreate", "encryptedBlock", "encryptedNote"]) {
       const chinese = leafEntries(getPath(zh, namespace));
