@@ -11,12 +11,13 @@ interface DigestSettings {
   userId: string;
   morningEnabled: number;
   eveningEnabled: number;
+  dueEnabled: number;
   morningTime: string;
   eveningTime: string;
   timezone: string;
 }
 const router = new Hono();
-const DEFAULTS = { morningEnabled: 0, eveningEnabled: 0, morningTime: "09:00", eveningTime: "21:00", timezone: "Asia/Shanghai" };
+const DEFAULTS = { morningEnabled: 0, eveningEnabled: 0, dueEnabled: 0, morningTime: "09:00", eveningTime: "21:00", timezone: "Asia/Shanghai" };
 let initialized = false;
 function init(): void {
   if (initialized) return;
@@ -25,6 +26,7 @@ function init(): void {
       userId TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
       morningEnabled INTEGER NOT NULL DEFAULT 0,
       eveningEnabled INTEGER NOT NULL DEFAULT 0,
+      dueEnabled INTEGER NOT NULL DEFAULT 0,
       morningTime TEXT NOT NULL DEFAULT '09:00',
       eveningTime TEXT NOT NULL DEFAULT '21:00',
       timezone TEXT NOT NULL DEFAULT 'Asia/Shanghai',
@@ -36,6 +38,12 @@ function init(): void {
       kind TEXT NOT NULL,
       emittedAt TEXT NOT NULL DEFAULT (datetime('now')),
       PRIMARY KEY(userId, localDate, kind)
+    );
+    CREATE TABLE IF NOT EXISTS task_digest_deadlines (
+      userId TEXT NOT NULL,
+      taskId TEXT NOT NULL,
+      dueAt TEXT NOT NULL,
+      PRIMARY KEY(userId, taskId, dueAt)
     );
   `);
   initialized = true;
@@ -90,9 +98,6 @@ export function buildTaskDigest(userId: string, kind: DigestKind, now = new Date
     : `今日完成 ${counts.completedToday} 项，今日到期任务完成 ${counts.completedDueToday}/${counts.dueToday} 项，尚未完成 ${counts.pendingToday} 项`;
   return { kind, date: day, timezone: tz, summary, counts, tasks: details };
 }
-function assertLoggedIn(userId: string): void {
-  if (!userId) throw new Error("Unauthorized");
-}
 router.get("/", (c) => {
   const userId = c.req.header("X-User-Id") || "";
   if (!userId) return c.json({ error: "Unauthorized" }, 401);
@@ -112,12 +117,13 @@ router.put("/", async (c) => {
   }
   const morningEnabled = input.morningEnabled === undefined ? existing.morningEnabled : (input.morningEnabled === true ? 1 : 0);
   const eveningEnabled = input.eveningEnabled === undefined ? existing.eveningEnabled : (input.eveningEnabled === true ? 1 : 0);
-  getDb().prepare(`INSERT INTO task_digest_settings(userId,morningEnabled,eveningEnabled,morningTime,eveningTime,timezone)
-    VALUES (?,?,?,?,?,?) ON CONFLICT(userId) DO UPDATE SET
-    morningEnabled=excluded.morningEnabled,eveningEnabled=excluded.eveningEnabled,
+  const dueEnabled = input.dueEnabled === undefined ? existing.dueEnabled : (input.dueEnabled === true ? 1 : 0);
+  getDb().prepare(`INSERT INTO task_digest_settings(userId,morningEnabled,eveningEnabled,dueEnabled,morningTime,eveningTime,timezone)
+    VALUES (?,?,?,?,?,?,?) ON CONFLICT(userId) DO UPDATE SET
+    morningEnabled=excluded.morningEnabled,eveningEnabled=excluded.eveningEnabled,dueEnabled=excluded.dueEnabled,
     morningTime=excluded.morningTime,eveningTime=excluded.eveningTime,
     timezone=excluded.timezone,updatedAt=datetime('now')`
-  ).run(userId, morningEnabled, eveningEnabled, morningTime, eveningTime, timezone);
+  ).run(userId, morningEnabled, eveningEnabled, dueEnabled, morningTime, eveningTime, timezone);
   return c.json(getSettings(userId));
 });
 router.get("/preview", (c) => {
@@ -135,13 +141,37 @@ router.post("/test", async (c) => {
   await emitWebhook(`task.digest.${kind}`, userId, { ...digest, test: true });
   return c.json({ queued: true, digest });
 });
+function dispatchTaskDeadlines(setting: DigestSettings, local: { day: string; time: string }): number {
+  const tasks = getDb().prepare(
+    "SELECT id,title,dueAt FROM tasks WHERE userId=? AND workspaceId IS NULL AND isCompleted=0 AND dueAt IS NOT NULL"
+  ).all(setting.userId) as Array<{ id: string; title: string; dueAt: string }>;
+  let count = 0;
+  for (const task of tasks) {
+    const due = task.dueAt.replace(" ", "T");
+    const hasOffset = /(?:Z|[+-][0-9]{2}:[0-9]{2})$/.test(due);
+    const localDue = hasOffset && Number.isFinite(Date.parse(due))
+      ? localParts(new Date(due), setting.timezone)
+      : { day: due.slice(0, 10), time: due.slice(11, 16) };
+    if (localDue.day !== local.day || localDue.time !== local.time) continue;
+    const result = getDb().prepare("INSERT OR IGNORE INTO task_digest_deadlines(userId,taskId,dueAt) VALUES(?,?,?)")
+      .run(setting.userId, task.id, task.dueAt);
+    if (!result.changes) continue;
+    void emitWebhook("task.due", setting.userId, {
+      taskId: task.id, title: task.title, dueAt: task.dueAt, date: local.day, time: local.time,
+    });
+    count++;
+  }
+  return count;
+}
+
 export function dispatchScheduledTaskDigests(now = new Date()): number {
   init();
-  const settings = getDb().prepare("SELECT * FROM task_digest_settings WHERE morningEnabled=1 OR eveningEnabled=1").all() as DigestSettings[];
+  const settings = getDb().prepare("SELECT * FROM task_digest_settings WHERE morningEnabled=1 OR eveningEnabled=1 OR dueEnabled=1").all() as DigestSettings[];
   let emitted = 0;
   for (const setting of settings) {
     try {
       const local = localParts(now, setting.timezone);
+      if (setting.dueEnabled) emitted += dispatchTaskDeadlines(setting, local);
       const kinds: DigestKind[] = [];
       if (setting.morningEnabled && local.time === setting.morningTime) kinds.push("morning");
       if (setting.eveningEnabled && local.time === setting.eveningTime) kinds.push("evening");
