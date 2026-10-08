@@ -15,7 +15,13 @@ export function quarantineRestoredAutomations(): void {
     }
     // 备份恢复后禁止原订阅在新环境自动推送用户任务。
     if (hasTaskDigest) {
-      db.prepare("UPDATE task_digest_settings SET morningEnabled=0,eveningEnabled=0,dueEnabled=0,updatedAt=datetime('now')").run();
+      const columns = db.prepare("PRAGMA table_info(task_digest_settings)").all() as Array<{ name: string }>;
+      const hasDue = columns.some((column) => column.name === "dueEnabled");
+      if (hasDue) {
+        db.prepare("UPDATE task_digest_settings SET morningEnabled=0,eveningEnabled=0,dueEnabled=0,updatedAt=datetime('now')").run();
+      } else {
+        db.prepare("UPDATE task_digest_settings SET morningEnabled=0,eveningEnabled=0,updatedAt=datetime('now')").run();
+      }
     }
   })();
 }
