@@ -3,9 +3,12 @@ name: Backup Restore Integrity CI
 on:
   workflow_dispatch:
   push:
-    branches: [main, release/v1.5.0]
+    branches: [main, release/v1.5.0, release/v1.5.1]
     paths:
       - "backend/src/services/backup.ts"
+      - "backend/src/db/schema.ts"
+      - "backend/src/db/sqlite-vec-extension.ts"
+      - "backend/src/services/vec-store.ts"
       - "backend/src/services/backup-archive.ts"
       - "backend/src/services/backup-restore-integrity.ts"
       - "backend/src/services/attachment-storage.ts"
@@ -24,6 +27,9 @@ on:
   pull_request:
     paths:
       - "backend/src/services/backup.ts"
+      - "backend/src/db/schema.ts"
+      - "backend/src/db/sqlite-vec-extension.ts"
+      - "backend/src/services/vec-store.ts"
       - "backend/src/services/backup-archive.ts"
       - "backend/src/services/backup-restore-integrity.ts"
       - "backend/src/services/attachment-storage.ts"

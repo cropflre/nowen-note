@@ -30,6 +30,7 @@ import os from "os";
 import JSZip from "jszip";
 import Database from "better-sqlite3";
 import { closeDb, getDb, getDbSchemaVersion } from "../db/schema.js";
+import { requireSqliteVecForStoredTables } from "../db/sqlite-vec-extension.js";
 import { noteVersionsRepository } from "../repositories";
 import {
   createBackupFilename,
@@ -390,6 +391,7 @@ function checkSqliteIntegrity(dbPath: string, label: string): void {
   let db: Database.Database | null = null;
   try {
     db = new Database(dbPath, { readonly: true, fileMustExist: true });
+    requireSqliteVecForStoredTables(db, label);
     const row = db.prepare("PRAGMA integrity_check").get() as { integrity_check: string };
     if (row.integrity_check !== "ok") {
       throw new Error(`${label}完整性检查失败: ${row.integrity_check}`);
@@ -1376,7 +1378,9 @@ export class BackupManager {
         let tmp: InstanceType<typeof Database>;
         try {
           tmp = new Database(tmpDb, { readonly: true });
+          requireSqliteVecForStoredTables(tmp, "备份预览");
         } catch (e) {
+          try { tmp?.close(); } catch { /* ignore */ }
           // 透传 SQLite 错误 + 临时路径，管理员可凭此定位 AV / 权限 / 路径问题
           throw new Error(
             `预览恢复失败：无法打开 zip 内的数据库快照（tmp=${tmpDb}）：${
@@ -1598,6 +1602,12 @@ export class BackupManager {
       // 用 readonly 临时打开备份 DB，统计行数
       const Database = (await import("better-sqlite3")).default;
       const tmp = new Database(filePath, { readonly: true });
+      try {
+        requireSqliteVecForStoredTables(tmp, "备份预览");
+      } catch (error) {
+        tmp.close();
+        throw error;
+      }
       const tables = listAllTables(tmp as unknown as ReturnType<typeof getDb>);
       const cur = getDb();
       const list = tables.map((name) => {
