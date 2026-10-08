@@ -18,10 +18,12 @@ interface DigestSettings {
 }
 const router = new Hono();
 const DEFAULTS = { morningEnabled: 0, eveningEnabled: 0, dueEnabled: 0, morningTime: "09:00", eveningTime: "21:00", timezone: "Asia/Shanghai" };
-let initialized = false;
+let initializedDb: ReturnType<typeof getDb> | null = null;
 function init(): void {
-  if (initialized) return;
-  getDb().exec(`
+  const db = getDb();
+  // Restore/replace reconnects SQLite in the same process; initialize the new connection.
+  if (initializedDb === db) return;
+  db.exec(`
     CREATE TABLE IF NOT EXISTS task_digest_settings (
       userId TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
       morningEnabled INTEGER NOT NULL DEFAULT 0,
@@ -46,11 +48,11 @@ function init(): void {
       PRIMARY KEY(userId, taskId, dueAt)
     );
   `);
-  const columns = getDb().prepare("PRAGMA table_info(task_digest_settings)").all() as Array<{ name: string }>;
+  const columns = db.prepare("PRAGMA table_info(task_digest_settings)").all() as Array<{ name: string }>;
   if (!columns.some((column) => column.name === "dueEnabled")) {
-    getDb().exec("ALTER TABLE task_digest_settings ADD COLUMN dueEnabled INTEGER NOT NULL DEFAULT 0");
+    db.exec("ALTER TABLE task_digest_settings ADD COLUMN dueEnabled INTEGER NOT NULL DEFAULT 0");
   }
-  initialized = true;
+  initializedDb = db;
 }
 function getSettings(userId: string): DigestSettings {
   init();
