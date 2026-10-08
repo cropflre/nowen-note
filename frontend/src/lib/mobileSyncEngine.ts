@@ -110,7 +110,24 @@ export class MobileSyncEngine {
     if (this.debounce) clearTimeout(this.debounce);
     this.debounce = setTimeout(() => {
       this.debounce = null;
-      void this.syncOnce();
+      // 后台调度不能留下未处理的 Promise rejection。同步游标、Outbox 和原笔记
+      // 在错误时保持不变；仅记录诊断状态，交给用户重试/网络恢复时再次触发。
+      void this.syncOnce().catch((error: unknown) => {
+        if (this.stopped) return;
+        const code = error && typeof error === "object"
+          && "code" in error && typeof error.code === "string"
+          ? error.code
+          : "SYNC_RUNTIME_ERROR";
+        console.error("[mobile-sync] unexpected background sync failure", error);
+        void this.options.db.run(
+          "UPDATE sync_state SET lastError=? WHERE profileId=?",
+          [code, this.options.profileId],
+        ).catch((persistError) => {
+          console.warn("[mobile-sync] unable to persist failure diagnostics", persistError);
+        }).finally(() => {
+          if (!this.stopped) notifyMobileSyncStatusChanged();
+        });
+      });
     }, delayMs);
   }
 

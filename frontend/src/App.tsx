@@ -564,6 +564,9 @@ function AppLayout() {
 
   useEffect(() => {
     const off = realtime.on("open", () => {
+      // Android 已登录客户端的 Native SQLite + Sync V2 是唯一同步写入链路。
+      // WebSocket 重连不得再触发旧版 IndexedDB 全量补拉，避免双引擎争用与重复加载。
+      if (isAndroidNativeRuntime()) return;
       void syncNow().catch((e) => console.warn("[App] sync after realtime open failed:", e));
     });
     return off;
