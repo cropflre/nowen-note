@@ -231,6 +231,8 @@ describe("release i18n coverage", () => {
       "components/EncryptedNotePane.tsx",
       "components/BackupWebDavBridge.tsx",
       "components/ShareModal.tsx",
+      "components/CodeBlockView.tsx",
+      "components/AIChatPanel.tsx",
     ] as const;
     for (const path of criticalFiles) {
       const source = readFileSync(join(process.cwd(), "src", path), "utf8");
@@ -241,6 +243,13 @@ describe("release i18n coverage", () => {
     }
   });
 
+  it("keeps desktop data migration copy out of hardcoded JSX and messages", () => {
+    const source = readFileSync(join(process.cwd(), "src/components/DataManager.tsx"), "utf8");
+    const migrationSection = source.split("function DesktopDataSafetyCard")[1]?.split("export default function DataManager()")[0];
+    expect(migrationSection).toBeTruthy();
+    expect(migrationSection!.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "")).not.toMatch(/[\u3400-\u9fff]/u);
+  });
+
   it("uses the active language in the note icon picker", () => {
     const source = readFileSync(join(process.cwd(), "src/components/NoteIconPickerModal.tsx"), "utf8");
     expect(source).toContain("useTranslation()");
@@ -249,7 +258,7 @@ describe("release i18n coverage", () => {
   });
 
   it("covers mobile account, sync status and verified server connection in both languages", () => {
-    for (const namespace of ["mobileAccount", "mobileSync", "serverConnection", "syncBadge", "encryptedUi", "encryptedCreate", "encryptedBlock", "encryptedNote", "webdav", "codeToolbar", "aiChatUi", "shareUi"]) {
+    for (const namespace of ["mobileAccount", "mobileSync", "serverConnection", "syncBadge", "encryptedUi", "encryptedCreate", "encryptedBlock", "encryptedNote", "webdav", "codeToolbar", "aiChatUi", "shareUi", "editorOps", "editorToolbar", "desktopSafety", "knowledgeTreeUi"]) {
       const chinese = leafEntries(getPath(zh, namespace));
       const english = leafEntries(getPath(en, namespace));
       expect(chinese.map(([key]) => key)).toEqual(english.map(([key]) => key));

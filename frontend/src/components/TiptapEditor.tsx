@@ -1080,6 +1080,7 @@ interface FontSizePopoverProps {
   compact?: boolean;
 }
 function FontSizePopover({ editor, iconSize = 15, compact = false }: FontSizePopoverProps) {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const [custom, setCustom] = useState("");
   const ref = useRef<HTMLDivElement | null>(null);
@@ -1147,7 +1148,7 @@ function FontSizePopover({ editor, iconSize = 15, compact = false }: FontSizePop
         ref={btnRef}
         type="button"
         onClick={() => setOpen((v) => !v)}
-        title={`${currentSize ? `字号: ${currentSize}` : "字号"}`}
+        title={currentSize ? t("editorToolbar.fontSizeValue", { value: currentSize }) : t("editorToolbar.fontSize")}
         className={cn(
           "p-1.5 rounded-md transition-colors flex items-center gap-0.5",
           currentSize
@@ -1166,7 +1167,7 @@ function FontSizePopover({ editor, iconSize = 15, compact = false }: FontSizePop
           data-popover=""
           onMouseDown={(e) => e.preventDefault()}
         >
-          <div className="text-[11px] text-tx-tertiary px-1 pb-1">预设</div>
+          <div className="text-[11px] text-tx-tertiary px-1 pb-1">{t("editorToolbar.presets")}</div>
           <div className="grid grid-cols-2 gap-1">
             {FONT_SIZE_PRESETS.map((p) => (
               <button
@@ -1184,12 +1185,12 @@ function FontSizePopover({ editor, iconSize = 15, compact = false }: FontSizePop
               </button>
             ))}
           </div>
-          <div className="text-[11px] text-tx-tertiary px-1 pt-2 pb-1">自定义 (8–96 px)</div>
+          <div className="text-[11px] text-tx-tertiary px-1 pt-2 pb-1">{t("editorToolbar.custom")}</div>
           <div className="flex gap-1">
             <input
               type="text"
               inputMode="numeric"
-              placeholder="如 18 或 18px"
+              placeholder={t("editorToolbar.sizePlaceholder")}
               value={custom}
               onChange={(e) => setCustom(e.target.value)}
               onKeyDown={(e) => {
@@ -1219,7 +1220,7 @@ function FontSizePopover({ editor, iconSize = 15, compact = false }: FontSizePop
             className="w-full px-2 py-1 text-xs rounded text-tx-secondary hover:bg-app-hover flex items-center gap-1"
           >
             <Eraser size={12} />
-            清除字号
+            {t("editorToolbar.clearSize")}
           </button>
         </div>,
         document.body,
@@ -1244,6 +1245,7 @@ interface LineHeightPopoverProps {
   compact?: boolean;
 }
 function LineHeightPopover({ editor, iconSize = 15, compact = false }: LineHeightPopoverProps) {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement | null>(null);
   const btnRef = useRef<HTMLButtonElement | null>(null);
@@ -1301,7 +1303,7 @@ function LineHeightPopover({ editor, iconSize = 15, compact = false }: LineHeigh
         ref={btnRef}
         type="button"
         onClick={() => setOpen((value) => !value)}
-        title={currentLineHeight ? `行距: ${currentLabel || currentLineHeight}` : "行距"}
+        title={currentLineHeight ? t("editorToolbar.lineHeightValue", { value: currentLabel || currentLineHeight }) : t("editorToolbar.lineHeight")}
         className={cn(
           "p-1.5 rounded-md transition-colors flex items-center gap-0.5",
           currentLineHeight
@@ -1320,7 +1322,7 @@ function LineHeightPopover({ editor, iconSize = 15, compact = false }: LineHeigh
           data-popover=""
           onMouseDown={(e) => e.preventDefault()}
         >
-          <div className="text-[11px] text-tx-tertiary px-1 pb-1">行距</div>
+          <div className="text-[11px] text-tx-tertiary px-1 pb-1">{t("editorToolbar.lineHeight")}</div>
           <div className="space-y-1">
             {LINE_HEIGHT_PRESETS.map((preset) => (
               <button
@@ -1344,7 +1346,7 @@ function LineHeightPopover({ editor, iconSize = 15, compact = false }: LineHeigh
             className="w-full px-2 py-1 text-xs rounded text-tx-secondary hover:bg-app-hover flex items-center gap-1"
           >
             <Eraser size={12} />
-            清除行距
+            {t("editorToolbar.clearLineHeight")}
           </button>
         </div>,
         document.body,
@@ -1365,6 +1367,7 @@ interface ColorPopoverProps {
   compact?: boolean;
 }
 function ColorPopover({ editor, iconSize = 15, compact = false }: ColorPopoverProps) {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const [tab, setTab] = useState<"fg" | "bg">("fg");
   const ref = useRef<HTMLDivElement | null>(null);
@@ -1427,7 +1430,7 @@ function ColorPopover({ editor, iconSize = 15, compact = false }: ColorPopoverPr
         ref={btnRef}
         type="button"
         onClick={() => setOpen((v) => !v)}
-        title={isActive ? `颜色: ${fgColor || ""} ${bgColor ? "背景: " + bgColor : ""}`.trim() : "颜色"}
+        title={isActive ? t("editorToolbar.colorValue", { value: `${fgColor || ""} ${bgColor ? t("editorToolbar.bgColorValue", { value: bgColor }) : ""}`.trim() }) : t("editorToolbar.color")}
         className={cn(
           "p-1.5 rounded-md transition-colors flex items-center gap-0.5",
           isActive
@@ -1463,7 +1466,7 @@ function ColorPopover({ editor, iconSize = 15, compact = false }: ColorPopoverPr
                 tab === "fg" ? "bg-app-elevated shadow-sm" : "text-tx-tertiary hover:text-tx-primary",
               )}
             >
-              文字
+              {t("editorToolbar.textColor")}
             </button>
             <button
               type="button"
@@ -1473,7 +1476,7 @@ function ColorPopover({ editor, iconSize = 15, compact = false }: ColorPopoverPr
                 tab === "bg" ? "bg-app-elevated shadow-sm" : "text-tx-tertiary hover:text-tx-primary",
               )}
             >
-              背景
+              {t("editorToolbar.background")}
             </button>
           </div>
           {/* Swatches */}
@@ -1515,7 +1518,7 @@ function ColorPopover({ editor, iconSize = 15, compact = false }: ColorPopoverPr
               className="ml-auto px-2 py-1 text-xs rounded text-tx-secondary hover:bg-app-hover flex items-center gap-1"
             >
               <Eraser size={12} />
-              清除
+              {t("editorToolbar.clear")}
             </button>
           </div>
         </div>,

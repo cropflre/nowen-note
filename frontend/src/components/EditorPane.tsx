@@ -736,7 +736,7 @@ function OrdinaryEditorPane({
     const initialNote = activeNoteRef.current;
     if (!initialNote || initialNote.id !== noteId || modeSwitchInflightRef.current) return;
     if (initialNote.isLocked || viewLockedIdsRef.current.has(noteId)) {
-      toast.warning("请先解锁笔记再转换格式");
+      toast.warning(t("editorOps.convertLocked"));
       return;
     }
 
@@ -802,7 +802,7 @@ function OrdinaryEditorPane({
       window.dispatchEvent(new CustomEvent("nowen:knowledge-tree-changed", {
         detail: { reason: "note-format-converted", noteId },
       }));
-      toast.success(targetFormat === "markdown" ? "已转换为 Markdown" : "已转换为富文本");
+      toast.success(targetFormat === "markdown" ? t("editorOps.convertedMarkdown") : t("editorOps.convertedRichText"));
     } catch (error) {
       console.error("[EditorPane] convert note format failed:", error);
       const current = activeNoteRef.current;
@@ -827,12 +827,12 @@ function OrdinaryEditorPane({
         } catch { /* ignore */ }
       }
       actions.setSyncStatus("error");
-      toast.error("格式转换失败，当前内容已保留");
+      toast.error(t("editorOps.convertFailed"));
     } finally {
       modeSwitchInflightRef.current = false;
       setModeSwitching(false);
     }
-  }, [actions]);
+  }, [actions, t]);
 
   useEffect(() => {
     const handleRequest = (event: Event) => {
@@ -2276,7 +2276,7 @@ const moveToTrash = useCallback(async () => {
       setAiSummaryResult(result.trim());
     } catch (e: any) {
       console.error("AI summary error:", e);
-      toast.error(e?.message || "AI 总结失败");
+      toast.error(e?.message || t("editorOps.summaryFailed"));
       setShowSummaryDialog(false);
     } finally {
       setAiSummaryLoading(false);
@@ -2289,7 +2289,7 @@ const moveToTrash = useCallback(async () => {
       await navigator.clipboard.writeText(aiSummaryResult);
       toast.success(t("editor.aiSummaryCopied") || "已复制");
     } catch {
-      toast.error("复制失败");
+      toast.error(t("common.copyFailed"));
     }
   }, [aiSummaryResult, t]);
 
@@ -2303,7 +2303,7 @@ const moveToTrash = useCallback(async () => {
         await navigator.clipboard.writeText(aiSummaryResult);
       toast.success(t("editor.aiSummaryCopied") || "已复制到剪贴板，请手动粘贴");
       } catch {
-      toast.error("追加失败，请手动插入");
+      toast.error(t("editorOps.appendFailed"));
       }
       return;
     }
@@ -2365,7 +2365,7 @@ const moveToTrash = useCallback(async () => {
       setAiMermaidResult(result);
     } catch (e: any) {
       console.error("AI mermaid error:", e);
-      toast.error(e?.message || "AI 生成失败");
+      toast.error(e?.message || t("editorOps.generateFailed"));
       setShowMermaidDialog(false);
     } finally {
       setAiMermaidLoading(false);
@@ -2380,11 +2380,11 @@ const moveToTrash = useCallback(async () => {
       try {
         navigator.clipboard.writeText("```mermaid\n" + aiMermaidResult + "\n```");
       toast.success(t("editor.aiSummaryCopied") || "已复制到剪贴板，请手动粘贴");
-    } catch { toast.error("复制失败"); }
+    } catch { toast.error(t("common.copyFailed")); }
       return;
     }
     try { editorHandleRef.current?.flushSave(); } catch {}
-      toast.success("已插入笔记");
+      toast.success(t("editorOps.inserted"));
     setShowMermaidDialog(false);
   }, [activeNote, aiMermaidResult, t]);
   /** 将 Mermaid mindmap 源码解析为 MindMapData */
@@ -2402,14 +2402,14 @@ const moveToTrash = useCallback(async () => {
     if (!aiMermaidResult) return;
     const data = parseMermaidToMindMap(aiMermaidResult);
     if (!data) {
-      toast.error("无法将当前 Mermaid 转换为思维导图");
+      toast.error(t("editorOps.mindmapConversionFailed"));
       return;
     }
     setMermaidSavingMindMap(true);
     try {
-      const title = data.root.text.slice(0, 50) || "AI 生成思维导图";
+      const title = data.root.text.slice(0, 50) || t("editorOps.mindmapDefaultTitle");
       const created = await api.createMindMap({ title, data: JSON.stringify(data) });
-      toast.success("已保存为思维导图");
+      toast.success(t("editorOps.mindmapSaved"));
       setShowMermaidDialog(false);
       // 通知 MindMapEditor 打开新图
       // 切换到思维导图视图
@@ -2418,7 +2418,7 @@ const moveToTrash = useCallback(async () => {
       actions.setViewMode("mindmaps");
     } catch (e: any) {
       console.error("Save mindmap error:", e);
-      toast.error(e?.message || "保存失败");
+      toast.error(e?.message || t("editorOps.saveFailed"));
     } finally {
       setMermaidSavingMindMap(false);
     }
@@ -2438,9 +2438,9 @@ const moveToTrash = useCallback(async () => {
     } catch (e: any) {
       const msg = String(e?.message || "");
       if (/CROSS_WORKSPACE_MOVE_FORBIDDEN/.test(msg)) {
-      toast.error("无法在不同工作空间的笔记本之间移动");
+      toast.error(t("editorOps.crossSpaceMove"));
       } else {
-      toast.error(msg || "移动失败");
+      toast.error(msg || t("editorOps.moveFailed"));
       }
       setShowMoveDropdown(false);
     }
