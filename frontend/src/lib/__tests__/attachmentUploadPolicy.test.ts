@@ -1,4 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import {
   DEFAULT_ATTACHMENT_LIMIT_BYTES,
   formatAttachmentLimit,
@@ -55,6 +57,12 @@ describe("attachment upload policy", () => {
 
     warmAttachmentUploadPolicy();
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("fetches the policy on actual upload instead of before AuthGate becomes ready", () => {
+    const source = readFileSync(resolve(process.cwd(), "src/lib/attachmentUploadPolicyBridge.ts"), "utf8");
+    expect(source).toContain("const policy = await loadAttachmentUploadPolicy();");
+    expect(source).not.toContain("warmAttachmentUploadPolicy()");
   });
 
   it("formats MiB and GiB limits consistently", () => {
