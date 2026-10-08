@@ -58,7 +58,14 @@ as crashes.
 
 Phase 1: top-level request IDs, safe unhandled response, web error adapter,
 JSON parse diagnostic hardening, tests.
-Phase 2: migrate route-level errors and background jobs per domain.
+Phase 2 (incremental, in PR #806): Sync V2 blob HEAD/PUT/GET honors explicit
+server codes and treats bare HTTP 403 as `SCOPE_FORBIDDEN`. Full backup jobs
+expose a safe `errorCode`, `retryable` and their existing job `id` as
+`operationId`. Backup create/import/restore routes classify known failures
+and return `error/code/requestId/retryable`. Unknown exceptions are hidden
+behind safe messages; automatic retries of restore are prohibited. Data
+manager and full-data transfer views show copyable fault references.
+Other domains and non-migrated backup endpoints retain legacy responses.
 Phase 3: opt-in, user-previewable, redacted diagnostic bundle, including
 platform and version. Never silently upload note data.
 
