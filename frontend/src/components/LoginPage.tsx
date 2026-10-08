@@ -201,6 +201,7 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
   useEffect(() => {
     if (!isClientMode) return;
     let cancelled = false;
+    const serverEpochAtLoad = serverProbeEpochRef.current;
     void Promise.all([canPersistPassword(), loadRememberedCredentials()]).then(([supported, saved]) => {
       if (cancelled) return;
       setCanSavePassword(supported);
@@ -216,7 +217,9 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
         saved?.serverUrl.replace(/\/+$/, "").toLowerCase() === pending.serverUrl.replace(/\/+$/, "").toLowerCase()
         && saved?.username === pending.username
       );
-      if (!saved || !matchesPending) {
+      if (!saved || !matchesPending || serverEpochAtLoad !== serverProbeEpochRef.current) {
+        // A user has started entering a different server while secure storage was loading.
+        // Never silently replace their current address and associated credentials.
         setRememberMe(true);
         return;
       }
