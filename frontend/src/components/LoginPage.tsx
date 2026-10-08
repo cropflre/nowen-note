@@ -61,6 +61,7 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
   const { siteConfig } = useSiteSettings();
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const formRef = useRef<HTMLFormElement | null>(null);
+  const serverProbeEpochRef = useRef(0);
 
   useKeyboardLayout();
   const { height: keyboardHeight } = useKeyboardVisible();
@@ -295,9 +296,10 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
     return null;
   };
 
-  const handleServerBlur = async () => {
+  const handleServerBlur = async (resolved: ServerAddressParts) => {
     if (!isClientMode) return;
-    const url = buildServerUrl(serverParts);
+    const epoch = ++serverProbeEpochRef.current;
+    const url = buildServerUrl(resolved);
     if (!url) return;
     // UGREENlink 的远程 Docker 域名会先跳转到网关认证页，不能按普通 API 健康检查判失败。
     if (isNativeMobileClient && isUgreenRemoteAccessUrl(url)) {
@@ -309,6 +311,7 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
     setServerStatus("checking");
     setServerNotice("");
     const result = await testServerConnection(url);
+    if (epoch !== serverProbeEpochRef.current) return;
     setServerStatus(result.ok ? "ok" : "fail");
     if (result.ok) {
       const notices = [
@@ -836,11 +839,12 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
             <>
             <AnimatePresence>
               {isClientMode && (
-                <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }} className="space-y-1.5 overflow-hidden">
+                <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }} className="space-y-1.5">
                   <label className="text-sm font-medium text-zinc-700 dark:text-zinc-300">{t("auth.serverAddress")}</label>
                   <ServerAddressInput
                     value={serverParts}
                     onChange={(next) => {
+                      serverProbeEpochRef.current += 1;
                       setServerParts(next);
                       if (serverStatus !== "idle") setServerStatus("idle");
                       if (serverNotice) setServerNotice("");
@@ -860,6 +864,7 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
                     <LanDiscoveryPanel
                       currentHostIsEmpty={!serverParts.host.trim()}
                       onSelect={(next) => {
+                        serverProbeEpochRef.current += 1;
                         setServerParts(next);
                         setServerStatus("idle");
                         setServerNotice("");
