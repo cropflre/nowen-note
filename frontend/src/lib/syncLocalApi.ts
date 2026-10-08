@@ -1,5 +1,6 @@
 import { getBaseUrl } from "@/lib/api";
 import { fetchWithAuthRefresh, getAccessToken } from "@/lib/authSession";
+import { createHttpRequestError } from "./httpError";
 
 /**
  * Sync V2 本地管理 API 客户端（Phase 7）。
@@ -155,12 +156,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     if (code === "SYNC_V2_DISABLED") throw new SyncV2DisabledError();
   }
   if (!response.ok) {
-    let message = `HTTP ${response.status}`;
-    try {
-      const data = await response.json() as { error?: unknown };
-      if (data?.error) message = String(data.error);
-    } catch { /* 保留默认信息 */ }
-    throw new Error(message);
+    const payload: unknown = await response.json().catch(() => ({}));
+    throw createHttpRequestError(response, payload, `HTTP ${response.status}`);
   }
   return await response.json() as T;
 }
