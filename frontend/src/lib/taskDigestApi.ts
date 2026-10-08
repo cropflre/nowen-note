@@ -17,10 +17,10 @@ export interface TaskDigestPreview {
   counts: { dueToday: number; pendingToday: number; completedDueToday: number; completedToday: number; overdue: number };
   tasks: Array<{ taskId: string; title: string; dueAt: string | null; dueDate: string | null }>;
 }
-async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
+async function request<T>(path: string, init: RequestInit = {}, apiPath = "/task-digest"): Promise<T> {
   const token = getAccessToken();
   const baseUrl = getBaseUrl();
-  const response = await fetchWithAuthRefresh(`${baseUrl}/task-digest${path}`, {
+  const response = await fetchWithAuthRefresh(`${baseUrl}${apiPath}${path}`, {
     ...init,
     headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}), "Content-Type": "application/json", ...(init.headers || {}) },
   }, baseUrl);
@@ -29,6 +29,8 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   return result as T;
 }
 export const taskDigestApi = {
+  listWebhooks: () => request<Array<{ id: string; url: string; events: string[] }>>("", {}, "/webhooks"),
+  addWebhook: (url: string) => request<{ id: string; secret: string }>("", { method: "POST", body: JSON.stringify({ url, events: ["task.digest.morning", "task.digest.evening"], description: "每日任务简报" }) }, "/webhooks"),
   get: () => request<TaskDigestConfig>(""),
   save: (body: Omit<TaskDigestConfig, "userId">) => request<TaskDigestConfig>("", { method: "PUT", body: JSON.stringify(body) }),
   preview: (kind: "morning" | "evening") => request<TaskDigestPreview>(`/preview?kind=${kind}`),
