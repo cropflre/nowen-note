@@ -78,6 +78,7 @@ import {
   deleteThumbnailsFor,
 } from "../services/thumbnails";
 import { computeAttachmentEtag, requestMatchesEtag } from "../lib/attachment-etag";
+import { attachmentWriteErrorResponse } from "../lib/attachment-error-response";
 import { isHeifMime, resolveHeifUploadMime, sniffHeifMime } from "../lib/heif-mime";
 import { getOrCreateHeifPreview } from "../services/heif-preview";
 import { analyzeModernMedia } from "../lib/modern-media";
@@ -736,8 +737,8 @@ app.post("/", async (c) => {
   let buffer: Buffer;
   try {
     buffer = Buffer.from(await file.arrayBuffer());
-  } catch (err: any) {
-    return c.json({ error: `读取上传内容失败: ${err?.message || err}` }, 500);
+  } catch (err: unknown) {
+    return attachmentWriteErrorResponse(c, "read", err);
   }
   mime = analyzeModernMedia(buffer, resolveHeifUploadMime(buffer, mime)).mimeType;
   const ext = pickExt(file.name, mime);
@@ -779,18 +780,8 @@ app.post("/", async (c) => {
         filename: file.name || dedupRow.filename,
         hash: sha256,
       });
-    } catch (err: any) {
-      console.error("[attachments.upload] dedup DB write failed", {
-        code: "ATTACHMENT_DB_WRITE_FAILED",
-        message: err?.message || String(err),
-      });
-      return c.json(
-        {
-          error: `写入数据库失败: ${err?.message || err}`,
-          code: "ATTACHMENT_DB_WRITE_FAILED",
-        },
-        500,
-      );
+    } catch (err: unknown) {
+      return attachmentWriteErrorResponse(c, "database", err);
     }
 
     enqueueAttachment({
@@ -819,23 +810,8 @@ app.post("/", async (c) => {
 
   try {
     await writeAttachmentObject(storagePath, buffer, mime);
-  } catch (err: any) {
-    const failure = classifyAttachmentStorageError(err);
-    const storage = getAttachmentStorageInfo();
-    console.error("[attachments.upload] storage write failed", {
-      code: failure.code,
-      driver: storage.driver,
-      storagePath,
-      errno: failure.errno,
-      message: failure.message,
-    });
-    return c.json(
-      {
-        error: `写入文件失败: ${failure.message}`,
-        code: failure.code,
-      },
-      500,
-    );
+  } catch (err: unknown) {
+    return attachmentWriteErrorResponse(c, "storage", err);
   }
 
   // 写 DB。attachments.path 存**文件名**（相对 ATTACHMENTS_DIR）而非绝对路径，
@@ -861,21 +837,10 @@ app.post("/", async (c) => {
       noteWorkspaceId,
       sha256,
     );
-  } catch (err: any) {
-    // DB 写失败时把已落盘文件清掉，避免孤儿
+  } catch (err: unknown) {
+    // Keep the existing orphan-file rollback when database insertion fails.
     try { await deleteAttachmentObject(storagePath); } catch { /* ignore */ }
-    console.error("[attachments.upload] DB write failed", {
-      code: "ATTACHMENT_DB_WRITE_FAILED",
-      storagePath,
-      message: err?.message || String(err),
-    });
-    return c.json(
-      {
-        error: `写入数据库失败: ${err?.message || err}`,
-        code: "ATTACHMENT_DB_WRITE_FAILED",
-      },
-      500,
-    );
+    return attachmentWriteErrorResponse(c, "database", err);
   }
 
   // v8：上传成功后立即把附件入队做内容索引。enqueueAttachment 内部吞错，
@@ -1810,15 +1775,15 @@ app.post("/_repair/missing/:id/upload", async (c) => {
   let buffer: Buffer;
   try {
     buffer = Buffer.from(await file.arrayBuffer());
-  } catch (err: any) {
-    return c.json({ error: `读取上传内容失败: ${err?.message || err}` }, 500);
+  } catch (err: unknown) {
+    return attachmentWriteErrorResponse(c, "read", err);
   }
   const sha256 = crypto.createHash("sha256").update(buffer).digest("hex");
 
   try {
     fs.writeFileSync(abs, buffer);
-  } catch (err: any) {
-    return c.json({ error: `写入附件文件失败: ${err?.message || err}` }, 500);
+  } catch (err: unknown) {
+    return attachmentWriteErrorResponse(c, "repair-storage", err);
   }
 
   const sameRows = db
@@ -1828,8 +1793,8 @@ app.post("/_repair/missing/:id/upload", async (c) => {
   try {
     db.prepare("UPDATE attachments SET mimeType = ?, size = ?, hash = ? WHERE path = ?")
       .run(mime, buffer.length, sha256, row.path);
-  } catch (err: any) {
-    return c.json({ error: `更新附件元数据失败: ${err?.message || err}` }, 500);
+  } catch (err: unknown) {
+    return attachmentWriteErrorResponse(c, "repair-database", err);
   }
 
   const baseName = (row.path || "").replace(/\.[^.]+$/, "");
@@ -1913,8 +1878,8 @@ app.post("/_repair/dangling/remove", async (c) => {
 
   try {
     tx();
-  } catch (err: any) {
-    return c.json({ error: `移除悬空引用失败: ${err?.message || err}` }, 500);
+  } catch (err: unknown) {
+    return attachmentWriteErrorResponse(c, "repair-references", err);
   }
 
   return c.json({
