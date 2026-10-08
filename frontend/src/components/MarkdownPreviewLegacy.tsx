@@ -8,7 +8,7 @@
 
 import React, { useMemo, useState } from "react";
 import ReactMarkdown from "react-markdown";
-import { getGfmTaskChecked } from "@/lib/gfmTaskChecked";
+import { getGfmTaskChecked, wrapGfmTaskInlineContent } from "@/lib/gfmTaskChecked";
 import remarkGfm from "remark-gfm";
 import { AlertTriangle, BadgeAlert, Info, Lightbulb, ShieldAlert } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -205,7 +205,7 @@ function createComponents(onTaskCheckboxChange?: (taskIndex: number, checked: bo
     const isTask = /(?:^|\s)task-list-item(?:\s|$)/.test(className || "");
     const checked = isTask ? getGfmTaskChecked(node) : null;
     return <li data-checked={checked === null ? undefined : String(checked)}
-      className={cn("leading-7 pl-1", className)}>{children}</li>;
+      className={cn("leading-7 pl-1", className)}>{isTask ? wrapGfmTaskInlineContent(children) : children}</li>;
   },
 
   // 强调

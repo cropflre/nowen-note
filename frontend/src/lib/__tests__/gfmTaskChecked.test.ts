@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { getGfmTaskChecked } from "../gfmTaskChecked";
+import React from "react";
+import { getGfmTaskChecked, wrapGfmTaskInlineContent } from "../gfmTaskChecked";
 
 const checkbox = (checked: boolean) => ({
   type: "element", tagName: "input", properties: { type: "checkbox", checked },
@@ -24,6 +25,19 @@ describe("GFM task completion presentation", () => {
         ] },
       ] }],
     })).toBe(null);
+  });
+
+  it("separates inline task text and keeps nested list outside the strike span", () => {
+    const elements = wrapGfmTaskInlineContent([
+      React.createElement("input", { key: "input", type: "checkbox" }),
+      " parent",
+      React.createElement("strong", { key: "strong" }, "strong"),
+      React.createElement("ul", { key: "child" }, React.createElement("li", null, "nested")),
+    ]);
+    const output = React.Children.toArray(elements);
+    expect(output).toHaveLength(3);
+    expect((output[1] as React.ReactElement<{ className: string }>).props.className).toBe("nowen-task-item-text");
+    expect((output[2] as React.ReactElement).type).toBe("ul");
   });
 
   it("ignores ordinary list items and non-checkbox inputs", () => {

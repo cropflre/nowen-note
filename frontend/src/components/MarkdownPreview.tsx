@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
-import { getGfmTaskChecked } from "@/lib/gfmTaskChecked";
+import { getGfmTaskChecked, wrapGfmTaskInlineContent } from "@/lib/gfmTaskChecked";
 import remarkGfm from "remark-gfm";
 import rehypeRaw from "rehype-raw";
 import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
@@ -369,7 +369,7 @@ function createComponents(
             className,
           )}
         >
-          {children}
+          {isTask ? wrapGfmTaskInlineContent(children) : children}
         </li>
       );
     },

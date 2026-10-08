@@ -1710,6 +1710,8 @@ body.density-compact {
   padding-left: 0.5em;
 }
 /* The own text is a separate span so completing a parent does not strike its children. */
+.nowen-md-preview li.task-list-item[data-checked="true"] > .nowen-task-item-text,
+.nowen-md-preview li.task-list-item[data-checked="true"] > .nowen-task-item-text :is(a, strong, em, code),
 .nowen-md-preview li.task-list-item[data-checked="true"] > p > .nowen-task-item-text,
 .nowen-md-preview li.task-list-item[data-checked="true"] > p > .nowen-task-item-text :is(a, strong, em, code) {
   color: var(--pm-task-done);
