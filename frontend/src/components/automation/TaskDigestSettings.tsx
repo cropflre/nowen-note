@@ -23,7 +23,7 @@ export default function TaskDigestSettings() {
       if (!active) return;
       setConfig(saved);
       setWebhookCount(hooks.filter((hook) =>
-        hook.events.includes("*") || hook.events.some((event) => event.startsWith("task.digest."))).length);
+        hook.events.includes("*") || hook.events.some((event) => event.startsWith("task.digest.") || event === "task.due")).length);
     }).catch((reason) => { if (active) setError(String(reason)); })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
@@ -53,6 +53,11 @@ export default function TaskDigestSettings() {
             <input type="time" value={config[time]} onChange={(e) => update({ [time]: e.target.value })} className="rounded-md border border-zinc-200 bg-transparent px-2 py-1 text-zinc-900 dark:border-zinc-700 dark:text-zinc-100" /></span>
         </label>)}
       </div>
+      <label className="flex items-start justify-between rounded-lg border border-zinc-200 p-3 text-xs dark:border-zinc-800">
+        <span><span className="font-medium">任务到点提醒</span>
+          <span className="mt-1 block text-zinc-500">按待办的精确截止时间推送，不包含仅指定日期的任务。</span></span>
+        <input type="checkbox" checked={!!config.dueEnabled} onChange={(e) => update({ dueEnabled: e.target.checked ? 1 : 0 })} className="accent-indigo-600"/>
+      </label>
       <label className="block text-xs font-medium">时区
         <input value={config.timezone} onChange={(e) => update({ timezone: e.target.value })} placeholder="Asia/Shanghai" className="mt-1 w-full rounded-md border border-zinc-200 bg-transparent px-3 py-2 dark:border-zinc-700" />
       </label>
