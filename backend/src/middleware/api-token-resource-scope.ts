@@ -206,6 +206,7 @@ function requiredScope(pathname: string, method: string): string | null {
   const write = !["GET", "HEAD", "OPTIONS"].includes(method);
   if (pathname === "/api/me") return null;
   if (pathname.startsWith("/api/tokens")) return "__login_only__";
+  if (pathname.startsWith("/api/task-digest")) return "__login_only__";
   if (pathname === "/api/tasks" || pathname.startsWith("/api/tasks/")) return write ? "tasks:write" : "tasks:read";
   if (pathname.startsWith("/api/notebooks")) return write ? "notebooks:write" : "notebooks:read";
   if (pathname.startsWith("/api/note-templates")) return write ? "notes:write" : "notes:read";
@@ -502,7 +503,7 @@ export async function enforceApiTokenAccess(c: Context, next: Next): Promise<Res
 
     const required = requiredScope(c.req.path, c.req.method.toUpperCase());
     if (required === "__login_only__") {
-      throw new ApiTokenAccessError("API Token 不能管理或创建其他 Token", "API_TOKEN_SELF_MANAGEMENT_DENIED");
+      throw new ApiTokenAccessError("此操作需要用户登录，API Token 无权访问", "API_TOKEN_SELF_MANAGEMENT_DENIED");
     }
     if (required === "__unsupported__") {
       if (ctx.resourceMode === "restricted") {
