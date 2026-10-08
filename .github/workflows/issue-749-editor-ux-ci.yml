@@ -130,6 +130,10 @@ on:
       - "docs/note-comments.md"
       - ".github/workflows/issue-749-editor-ux-ci.yml"
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 permissions:
   contents: read
 
