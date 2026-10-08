@@ -26,9 +26,17 @@ describe("Android native Sync V2 crash containment", () => {
       deviceId: "d1",
     });
 
+    // Force an unexpected failure above the per-scope network-error handler.
+    // Without this stub the test's missing network returns NETWORK_UNAVAILABLE,
+    // which is intentionally swallowed by the production engine.
+    const scopeRequest = vi.spyOn(
+      engine as unknown as { fetchScopes: () => Promise<unknown[]> },
+      "fetchScopes",
+    ).mockRejectedValue(failure);
     engine.start();
-    await vi.advanceTimersByTimeAsync(0);
+    await vi.runOnlyPendingTimersAsync();
 
+    expect(scopeRequest).toHaveBeenCalledOnce();
     expect(log).toHaveBeenCalledWith(
       "[mobile-sync] unexpected background sync failure",
       failure,
