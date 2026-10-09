@@ -269,7 +269,7 @@ export default function AISettingsPanel() {
     setSaving(true);
     setMessage(null);
     try {
-      const result = await persistDraft(true);
+      const result = await persistDraft(false);
       await loadProfiles(result.profile.id);
       emitAIProfilesChanged(result.activeProfileId);
       setMessage({ type: "success", text: copy.saved });
