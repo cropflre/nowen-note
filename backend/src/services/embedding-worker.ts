@@ -473,12 +473,14 @@ async function tick(): Promise<void> {
   } catch (e) {
     console.warn("[embedding-worker] tick error:", e);
   } finally {
-    running = false;
+    // Keep the tick lock until attachment processing completes to avoid
+    // two overlapping ticks picking the same attachment queue rows.
+    try {
+      await tickAttachments();
+    } finally {
+      running = false;
+    }
   }
-
-  // ---- 附件任务：与笔记任务同一个 tick，共享 BATCH_SIZE 的"大轮询"节奏 ----
-  // 放在 finally 之外的独立 try/catch：笔记分支出错不影响附件分支，反之亦然。
-  await tickAttachments();
 }
 
 async function tickAttachments(): Promise<void> {
