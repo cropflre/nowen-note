@@ -78,6 +78,16 @@ export const aiProfiles = {
       },
     ),
 
+  /** Test a draft without saving or activating a profile. */
+  testDraft: (draft: AIProfileDraft, profileId?: string) =>
+    request<{ success: boolean; message?: string; error?: string; code?: string; preview?: string }>(
+      "/test-draft",
+      {
+        method: "POST",
+        body: JSON.stringify({ ...draft, ...(profileId ? { profileId } : {}) }),
+      },
+    ),
+
   discoverModels: (draft: AIProfileDraft, profileId?: string) =>
     request<{ models: AIModelOption[]; source?: string }>("/discover-models", {
       method: "POST",
