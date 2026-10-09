@@ -111,6 +111,7 @@ function getCopy() {
     fetching: "正在获取模型…",
     fetchModels: "刷新模型",
     noModels: "接口没有返回模型列表，仍可手动填写模型名称。",
+    onlyNonChatModels: "仅发现向量或重排序模型；向量模型请到下方「向量检索」配置。",
     saved: "配置已保存",
     activated: "已切换当前配置",
     testSuccess: "连接成功",
