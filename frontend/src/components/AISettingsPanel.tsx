@@ -203,7 +203,9 @@ export default function AISettingsPanel() {
       if (seq !== discoverySeq.current) return;
       const chatModels = result.models.filter((model) => !getNonChatModelKind(model.id));
       setModels(chatModels);
-      setModelError(chatModels.length === 0 ? copy.noModels : "");
+      setModelError(chatModels.length === 0
+        ? (result.filteredNonChatCount ? copy.onlyNonChatModels : copy.noModels)
+        : "");
       if (chatModels.length > 0 && !draft.model) {
         setDraft((current) => ({ ...current, model: chatModels[0].id }));
       }
