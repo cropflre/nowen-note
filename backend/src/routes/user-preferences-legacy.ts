@@ -394,8 +394,18 @@ app.post("/ai-profiles/discover-models", async (c) => {
         failures.push(`${response.status} ${detail.slice(0, 160)}`.trim());
         continue;
       }
-      const models = extractModels(await response.json());
-      if (models.length > 0) return c.json({ models, source: endpoint });
+      const data = await response.json();
+      const models = extractModels(data);
+      const rows: any[] = Array.isArray(data)
+        ? data
+        : Array.isArray(data?.data) ? data.data : Array.isArray(data?.models) ? data.models : [];
+      const filteredNonChatCount = rows.filter((row) => {
+        const id = typeof row === "string" ? row : String(row?.id || row?.name || row?.model || "").trim();
+        return id && nonChatModelKind(id, row);
+      }).length;
+      if (models.length > 0 || filteredNonChatCount > 0) {
+        return c.json({ models, source: endpoint, filteredNonChatCount });
+      }
       failures.push("接口返回成功，但没有可识别的模型列表");
     } catch (error) {
       failures.push(profileConnectionFailure(error, profile).error);
