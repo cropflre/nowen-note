@@ -25,10 +25,20 @@ describe("AISettingsPanel provider presets", () => {
     });
   });
 
-  it("tests the saved profile instead of the disabled effective runtime config", () => {
+  it("tests the unsaved draft before saving or activating the profile", () => {
     const source = readFileSync(resolve(process.cwd(), "src/components/AISettingsPanel.tsx"), "utf8");
+    const handler = source.slice(source.indexOf("const testConnection = async"), source.indexOf("const activateProfile = async"));
+    expect(handler).toContain("aiProfiles.testDraft(draft, selectedId || undefined)");
+    expect(handler.indexOf("await aiProfiles.testDraft")).toBeLessThan(handler.indexOf("await persistDraft(true)"));
+    expect(handler.indexOf("await persistDraft(true)")).toBeLessThan(handler.indexOf("await aiProfiles.activate"));
+    expect(handler).not.toContain("api.testAIConnection()");
+  });
 
-    expect(source).toContain("aiProfiles.test(saved.profile.id)");
-    expect(source).not.toContain("api.testAIConnection()");
+  it("offers Embedding settings for a non-chat model instead of testing it", () => {
+    const source = readFileSync(resolve(process.cwd(), "src/components/AISettingsPanel.tsx"), "utf8");
+    expect(source).toContain("getNonChatModelKind(draft.model)");
+    expect(source).toContain("const chatModels = result.models.filter");
+    expect(source).toContain('document.querySelector(".nowen-embedding-settings")');
+    expect(source).toContain("copy.goToEmbedding");
   });
 });
