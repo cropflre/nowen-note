@@ -4,6 +4,7 @@ import { getDb } from "../db/schema";
 import { hasPermission, resolveNotePermission } from "../middleware/acl";
 import { broadcastToUser } from "../services/realtime";
 import { callAIChat, sanitizeError, type AISettings } from "../services/ai-client";
+import { chatModelTypeError, nonChatModelKind } from "../services/ai-model-kind";
 import {
   getUserAISetting,
   isManualAIEnabled,
@@ -293,6 +294,7 @@ function extractModels(data: any): Array<{ id: string; name: string }> {
   for (const row of rows) {
     const id = typeof row === "string" ? row : String(row?.id || row?.name || row?.model || "").trim();
     if (!id || seen.has(id)) continue;
+    if (nonChatModelKind(id, row)) continue;
     seen.add(id);
     models.push({ id, name: String(row?.display_name || row?.displayName || row?.name || id) });
   }
@@ -335,6 +337,10 @@ app.post("/ai-profiles", async (c) => {
 
   const profiles = [...state.profiles, profile];
   const activate = body.activate !== false;
+  const nonChatKind = nonChatModelKind(profile.model);
+  if (activate && nonChatKind) {
+    return c.json({ error: chatModelTypeError(nonChatKind), code: "AI_MODEL_NOT_CHAT", modelKind: nonChatKind }, 400);
+  }
   const activeProfileId = activate ? profile.id : state.activeProfileId;
   saveAIProfiles(userId, profiles, activeProfileId);
   if (activate) syncEffectiveAISettings(userId, profile);
@@ -402,13 +408,19 @@ app.post("/ai-profiles/discover-models", async (c) => {
   }, 502);
 });
 
-app.post("/ai-profiles/:profileId/test", async (c) => {
-  const userId = c.req.header("X-User-Id")!;
-  const profileId = c.req.param("profileId");
-  const profile = ensureAIProfiles(userId).profiles.find((item) => item.id === profileId);
-  if (!profile) return c.json({ success: false, error: "AI 配置不存在", code: "AI_PROFILE_NOT_FOUND" }, 404);
+async function testAIProfile(c: any, userId: string, profile: AIProfile) {
   if (!profile.apiUrl) return c.json({ success: false, error: "请先填写 AI API 地址", code: "AI_API_URL_REQUIRED" }, 400);
   if (!profile.model) return c.json({ success: false, error: "请先选择或填写模型名称", code: "AI_MODEL_REQUIRED" }, 400);
+  const modelKind = nonChatModelKind(profile.model);
+  if (modelKind) {
+    return c.json({
+      success: false,
+      error: chatModelTypeError(modelKind),
+      code: "AI_MODEL_NOT_CHAT",
+      modelKind,
+      action: modelKind === "embedding" ? "embedding-settings" : null,
+    }, 400);
+  }
   if (!NO_KEY_AI_PROVIDERS.has(profile.provider) && !profile.apiKey) {
     return c.json({ success: false, error: "请先填写 API Key", code: "AI_API_KEY_REQUIRED" }, 400);
   }
@@ -429,6 +441,37 @@ app.post("/ai-profiles/:profileId/test", async (c) => {
   } catch (error) {
     return c.json({ success: false, ...profileConnectionFailure(error, profile) }, 502);
   }
+}
+
+// Tests unsaved fields without changing the current profile or runtime settings.
+app.post("/ai-profiles/test-draft", async (c) => {
+  const userId = c.req.header("X-User-Id")!;
+  const body = await c.req.json().catch(() => ({})) as Record<string, unknown>;
+  const profileId = typeof body.profileId === "string" ? body.profileId.trim() : "";
+  const stored = profileId
+    ? ensureAIProfiles(userId).profiles.find((profile) => profile.id === profileId)
+    : undefined;
+  if (profileId && !stored) return c.json({ success: false, error: "AI 配置不存在", code: "AI_PROFILE_NOT_FOUND" }, 404);
+  let profile: AIProfile;
+  try {
+    profile = normalizeProfile({
+      ...stored,
+      ...body,
+      id: stored?.id,
+      apiKey: resolveProfileKey(body.apiKey, stored?.apiKey || ""),
+    }, stored, false);
+  } catch (error) {
+    return c.json({ success: false, error: (error as Error).message, code: "AI_PROFILE_INVALID" }, 400);
+  }
+  return testAIProfile(c, userId, profile);
+});
+
+app.post("/ai-profiles/:profileId/test", async (c) => {
+  const userId = c.req.header("X-User-Id")!;
+  const profileId = c.req.param("profileId");
+  const profile = ensureAIProfiles(userId).profiles.find((item) => item.id === profileId);
+  if (!profile) return c.json({ success: false, error: "AI 配置不存在", code: "AI_PROFILE_NOT_FOUND" }, 404);
+  return testAIProfile(c, userId, profile);
 });
 
 app.put("/ai-profiles/:profileId/activate", (c) => {
@@ -437,6 +480,10 @@ app.put("/ai-profiles/:profileId/activate", (c) => {
   const state = ensureAIProfiles(userId);
   const profile = state.profiles.find((item) => item.id === profileId);
   if (!profile) return c.json({ error: "AI 配置不存在" }, 404);
+  const modelKind = nonChatModelKind(profile.model);
+  if (modelKind) {
+    return c.json({ error: chatModelTypeError(modelKind), code: "AI_MODEL_NOT_CHAT", modelKind }, 400);
+  }
   saveAIProfiles(userId, state.profiles, profile.id);
   syncEffectiveAISettings(userId, profile);
   return c.json({ profile: publicAIProfile(profile), activeProfileId: profile.id });
@@ -462,6 +509,10 @@ app.put("/ai-profiles/:profileId", async (c) => {
     return c.json({ error: (error as Error).message }, 400);
   }
 
+  const modelKind = nonChatModelKind(updated.model);
+  if (state.activeProfileId === updated.id && modelKind) {
+    return c.json({ error: chatModelTypeError(modelKind), code: "AI_MODEL_NOT_CHAT", modelKind }, 400);
+  }
   const profiles = [...state.profiles];
   profiles[index] = updated;
   saveAIProfiles(userId, profiles, state.activeProfileId);
