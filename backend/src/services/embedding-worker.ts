@@ -890,6 +890,7 @@ export function getEmbeddingStats(opts: {
     configured: !!cfg,
     model: cfg?.model || null,
     vecAvailable: isVecAvailable(),
+    vecState: getVecEngineState(),
     vecDim: getVecDim(),
   };
 }
