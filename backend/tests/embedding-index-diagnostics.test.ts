@@ -82,7 +82,7 @@ test("only authorized scope's failures are summarized; no raw IDs or keys are ex
   // Team membership is checked by resolveScope in the HTTP route.
   assert.equal(getEmbeddingFailures({ userId: "alice", workspaceId: "team1" }).failed, 1);
   assert.equal(getEmbeddingFailures({ userId: "bob", workspaceId: null }).failed, 1);
-  assert.equal(publicEmbeddingError("Bearer sk-secret123456?api_key=keyhere"), "Bearer ***");
+  assert.equal(publicEmbeddingError("HTTP 429: Bearer sk-secret123456?api_key=keyhere"), "HTTP 429 · 服务商限流或配额不足，请稍后重试");
 });
 
 test("failed-only retry resets only the requested space and preserves pending jobs", () => {
