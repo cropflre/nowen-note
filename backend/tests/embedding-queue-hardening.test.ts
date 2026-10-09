@@ -13,6 +13,7 @@ let getDb: typeof import("../src/db/schema").getDb;
 let recoverInterruptedEmbeddingJobs: typeof import("../src/runtime/embedding-queue-hardening").recoverInterruptedEmbeddingJobs;
 let recoverStaleEmbeddingJobs: typeof import("../src/runtime/embedding-queue-hardening").recoverStaleEmbeddingJobs;
 let wakeAttachmentOnlyQueue: typeof import("../src/runtime/embedding-queue-hardening").wakeAttachmentOnlyQueue;
+let runEmbeddingQueueMaintenance: typeof import("../src/runtime/embedding-queue-hardening").runEmbeddingQueueMaintenance;
 
 function createNote(id: string): void {
   const db = getDb();
@@ -51,6 +52,7 @@ test.before(async () => {
   recoverInterruptedEmbeddingJobs = hardening.recoverInterruptedEmbeddingJobs;
   recoverStaleEmbeddingJobs = hardening.recoverStaleEmbeddingJobs;
   wakeAttachmentOnlyQueue = hardening.wakeAttachmentOnlyQueue;
+  runEmbeddingQueueMaintenance = hardening.runEmbeddingQueueMaintenance;
 });
 
 test.after(() => {
@@ -110,4 +112,21 @@ test("pending attachment work wakes the legacy worker when the note queue is idl
     .get("queue-attachment-only-note") as { status: string; lastError: string | null };
   assert.equal(row.status, "pending");
   assert.equal(row.lastError, "wakeup: pending attachment queue");
+});
+
+test("automatic maintenance no longer requeues an already indexed note for attachment-only work", () => {
+  settleExistingQueues();
+  createNote("queue-attachment-alone-note");
+  getDb().prepare("UPDATE embedding_queue SET status = 'done' WHERE noteId = ?")
+    .run("queue-attachment-alone-note");
+  insertAttachmentQueue("queue-attachment-alone", "queue-attachment-alone-note", "pending", new Date().toISOString());
+
+  runEmbeddingQueueMaintenance();
+
+  const noteRow = getDb().prepare("SELECT status FROM embedding_queue WHERE noteId = ?")
+    .get("queue-attachment-alone-note") as { status: string };
+  const attachmentRow = getDb().prepare("SELECT status FROM attachment_embedding_queue WHERE attachmentId = ?")
+    .get("queue-attachment-alone") as { status: string };
+  assert.equal(noteRow.status, "done", "do not waste API quota by reindexing the parent note");
+  assert.equal(attachmentRow.status, "pending", "attachment stays available for the regular worker");
 });
