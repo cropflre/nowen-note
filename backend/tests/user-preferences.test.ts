@@ -365,6 +365,27 @@ test("chat discovery filters embedding, rerank, and feature-extraction models", 
   }
 });
 
+test("an embedding-only provider catalog is not misreported as a network error", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () => new Response(JSON.stringify({
+    data: [{ id: "BAAI/bge-m3" }, { id: "BAAI/bge-reranker-v2-m3" }],
+  }), { status: 200, headers: { "content-type": "application/json" } })) as typeof fetch;
+  try {
+    const result = await requestJson("POST", "/user-preferences/ai-profiles/discover-models", {
+      name: "Vectors",
+      provider: "custom",
+      apiUrl: "https://api.siliconflow.cn/v1",
+      apiKey: "sf-secret",
+      model: "",
+    });
+    assert.equal(result.status, 200);
+    assert.deepEqual(result.json.models, []);
+    assert.equal(result.json.filteredNonChatCount, 2);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("rejects embedding chat tests and activation without contacting the chat API", async () => {
   const originalFetch = globalThis.fetch;
   let requests = 0;
