@@ -117,6 +117,13 @@ export function getVecDim(): number | null {
   return currentDim;
 }
 
+/** Distinguish a missing native extension from the normal first-index state. */
+export function getVecEngineState(): "ready" | "initializing" | "unavailable" {
+  isVecAvailable();
+  if (!loaded) return "unavailable";
+  return currentDim === null ? "initializing" : "ready";
+}
+
 // ============================================================
 // 内部：建表
 // ============================================================
