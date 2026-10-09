@@ -12,6 +12,7 @@ import {
   reindexAllVectors,
 } from "../services/vec-store";
 import { getUserWorkspaceRole } from "../middleware/acl";
+import { getEmbeddingFailures, retryFailedEmbeddings } from "../services/embedding-index-diagnostics";
 import { callAIChat, callAIChatStream, extractTextFromChatCompletion, sanitizeError, type AISettings } from "../services/ai-client";
 import { aiCustomPromptsRepository } from "../repositories";
 import { getUserAISettings, isManualAIEnabled, setGuardedUserAISettings } from "../services/user-ai-settings";
@@ -1601,6 +1602,22 @@ ai.get("/embeddings/stats", (c) => {
     workspaceId,
   });
   return c.json(stats);
+});
+
+// GET /api/ai/embeddings/failures?workspaceId=xxx
+// Count and classify failed jobs only within an authorized personal/workspace scope.
+ai.get("/embeddings/failures", (c) => {
+  const scope = resolveScope(c);
+  if ("error" in scope) return scope.error;
+  return c.json(getEmbeddingFailures(scope));
+});
+
+// POST /api/ai/embeddings/retry-failed?workspaceId=xxx
+// Retry only failed jobs. Unlike full rebuild, this does not clear saved vectors.
+ai.post("/embeddings/retry-failed", (c) => {
+  const scope = resolveScope(c);
+  if ("error" in scope) return scope.error;
+  return c.json({ ok: true, ...retryFailedEmbeddings(scope) });
 });
 
 // POST /api/ai/embeddings/rebuild?workspaceId=xxx
