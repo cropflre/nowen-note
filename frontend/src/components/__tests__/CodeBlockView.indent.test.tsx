@@ -1,6 +1,7 @@
 import React, { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import i18n from "@/i18n";
 
 const copyTextMock = vi.hoisted(() => vi.fn());
 
@@ -52,7 +53,8 @@ describe("CodeBlockView block indent", () => {
   const roots: Array<ReturnType<typeof createRoot>> = [];
   const containers: HTMLDivElement[] = [];
 
-  beforeEach(() => {
+  beforeEach(async () => {
+    await i18n.changeLanguage("zh-CN");
     (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
     copyTextMock.mockReset();
     copyTextMock.mockResolvedValue(true);
