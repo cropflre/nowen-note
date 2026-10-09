@@ -37,13 +37,22 @@ export function classifyEmbeddingFailure(message: string): EmbeddingFailureGroup
 
 /** Only show a safe, bounded preview of the provider's failure message. */
 export function publicEmbeddingError(message: string): string {
-  return message
-    .replace(/(Bearer\s+)[^\s"'\}]+/gi, "$1***")
-    .replace(/(sk-[a-z0-9_-]{6,})/gi, "***")
-    .replace(/([?&](?:key|token|api_key|apikey|secret)=)[^&\s]+/gi, "$1***")
-    .replace(/("(?:api_key|apikey|token|secret|password)"\s*:\s*")[^"]+/gi, "$1***")
-    .replace(/[\r\n\t]+/g, " ")
-    .slice(0, 180);
+  // Upstream error bodies can echo prompt text, access tokens, URLs, and user
+  // content. Classify on the server, but never send the raw lastError to clients
+  // (especially other members of a shared workspace).
+  const httpStatus = message.match(/\\bHTTP\\s*(\\d{3})\\b/i)?.[1];
+  const reasons: Record<EmbeddingFailureGroup["code"], string> = {
+    rate_limit: "服务商限流或配额不足，请稍后重试",
+    auth: "API Key 无效或权限不足，请检查服务商配置",
+    client: "模型名称或请求参数不符合服务要求",
+    provider: "服务商暂时不可用，稍后自动重试",
+    timeout: "网络连接失败或请求超时",
+    config: "Embedding 配置不完整、未保存或引用已失效",
+    storage: "本地数据库或向量索引写入出错，请检查后端日志",
+    other: "索引任务发生未识别错误，请查看后端日志",
+  };
+  const explanation = reasons[classifyEmbeddingFailure(message)];
+  return httpStatus ? `HTTP ${httpStatus} · ${explanation}` : explanation;
 }
 
 function scopeConditions(scope: EmbeddingIndexScope): { sql: string; params: string[] } {
