@@ -40,7 +40,7 @@ export function publicEmbeddingError(message: string): string {
   // Upstream error bodies can echo prompt text, access tokens, URLs, and user
   // content. Classify on the server, but never send the raw lastError to clients
   // (especially other members of a shared workspace).
-  const httpStatus = message.match(/\\bHTTP\\s*(\\d{3})\\b/i)?.[1];
+  const httpStatus = message.match(/\bHTTP\s*(\d{3})\b/i)?.[1];
   const reasons: Record<EmbeddingFailureGroup["code"], string> = {
     rate_limit: "服务商限流或配额不足，请稍后重试",
     auth: "API Key 无效或权限不足，请检查服务商配置",
