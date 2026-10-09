@@ -26,6 +26,7 @@ import { getDb } from "../db/schema";
 import type Database from "better-sqlite3";
 import {
   isVecAvailable,
+  getVecEngineState,
   upsertVectors,
   deleteVectorsByRowids,
   resetVecTable,
