@@ -434,6 +434,7 @@ function getIndexStatus(scope: Scope) {
     indexedAttachments: stats.indexedAttachments,
     configured: stats.configured,
     vectorAvailable: stats.vecAvailable,
+    vectorState: stats.vecState,
     vectorDimension: stats.vecDim,
     stale,
   };

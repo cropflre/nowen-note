@@ -1,17 +1,47 @@
-name: Embedding Index Copy CI
+name: Embedding Index Resilience CI
 
 on:
   push:
     branches: [main]
     paths:
+      - "backend/src/services/embedding-worker.ts"
+      - "backend/src/runtime/embedding-queue-hardening.ts"
+      - "backend/src/services/embedding-retry-policy.ts"
+      - "backend/src/services/embedding-index-diagnostics.ts"
+      - "backend/src/services/vec-store.ts"
+      - "backend/src/routes/ai.ts"
+      - "backend/src/routes/ai-reliable.ts"
+      - "backend/tests/embedding-retry-policy.test.ts"
+      - "backend/tests/embedding-queue-hardening.test.ts"
+      - "backend/tests/embedding-index-diagnostics.test.ts"
+      - "frontend/src/components/EmbeddingSettingsPanel.tsx"
+      - "frontend/src/components/EmbeddingIndexFailureDetails.tsx"
       - "frontend/src/components/EmbeddingIndexTaskCopyBridge.tsx"
       - "frontend/src/components/__tests__/EmbeddingIndexTaskCopyBridge.test.ts"
+      - "frontend/src/components/__tests__/EmbeddingIndexFailureDetails.test.tsx"
+      - "frontend/src/components/AISettingsReliabilityShell.tsx"
+      - "frontend/src/lib/aiReliable.ts"
       - "frontend/src/main.tsx"
       - ".github/workflows/embedding-index-copy-ci.yml"
   pull_request:
     paths:
+      - "backend/src/services/embedding-worker.ts"
+      - "backend/src/runtime/embedding-queue-hardening.ts"
+      - "backend/src/services/embedding-retry-policy.ts"
+      - "backend/src/services/embedding-index-diagnostics.ts"
+      - "backend/src/services/vec-store.ts"
+      - "backend/src/routes/ai.ts"
+      - "backend/src/routes/ai-reliable.ts"
+      - "backend/tests/embedding-retry-policy.test.ts"
+      - "backend/tests/embedding-queue-hardening.test.ts"
+      - "backend/tests/embedding-index-diagnostics.test.ts"
+      - "frontend/src/components/EmbeddingSettingsPanel.tsx"
+      - "frontend/src/components/EmbeddingIndexFailureDetails.tsx"
       - "frontend/src/components/EmbeddingIndexTaskCopyBridge.tsx"
       - "frontend/src/components/__tests__/EmbeddingIndexTaskCopyBridge.test.ts"
+      - "frontend/src/components/__tests__/EmbeddingIndexFailureDetails.test.tsx"
+      - "frontend/src/components/AISettingsReliabilityShell.tsx"
+      - "frontend/src/lib/aiReliable.ts"
       - "frontend/src/main.tsx"
       - ".github/workflows/embedding-index-copy-ci.yml"
 
@@ -33,7 +63,29 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
-      - name: Embedding index copy tests
-        run: npm run test:run -- src/components/__tests__/EmbeddingIndexTaskCopyBridge.test.ts
+      - name: Embedding settings and failure-detail regression tests
+        run: npm run test:run -- src/components/__tests__/EmbeddingIndexTaskCopyBridge.test.ts src/components/__tests__/EmbeddingIndexFailureDetails.test.tsx
       - name: Frontend typecheck
         run: npx tsc -b
+
+  backend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - run: npm ci
+      - name: Embedding retry and failure diagnostics tests
+        run: |
+          node --import tsx --test tests/embedding-retry-policy.test.ts
+          node --import tsx --test tests/embedding-index-diagnostics.test.ts
+          node --import tsx --test tests/embedding-queue-hardening.test.ts
+      - name: Backend typecheck
+        run: npx tsc --noEmit

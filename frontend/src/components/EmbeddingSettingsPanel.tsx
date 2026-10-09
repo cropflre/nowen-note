@@ -33,6 +33,7 @@ import {
   type EmbeddingCredentialSource,
 } from "@/lib/embeddingProfileSelection";
 import { cn } from "@/lib/utils";
+import EmbeddingIndexFailureDetails from "@/components/EmbeddingIndexFailureDetails";
 
 interface AISettingsResponse {
   ai_provider: string;
@@ -138,7 +139,12 @@ function getCopy() {
       dimension: "dimensions",
       notConfigured: "Configure a valid embedding service and model before rebuilding the index.",
       statusLoading: "Loading index status…",
-      backgroundHint: "Indexing runs in the background. Failed jobs can be retried by rebuilding the index.",
+      backgroundHint: "Search indexing runs in the background and does not modify note contents.",
+      initializing: "Awaiting first index",
+      extensionFailure: "Extension load failed",
+      initializingHint: "The extension is loaded. The first successful index initializes the vector table; pending jobs may run now.",
+      extensionFailureHint: "The sqlite-vec extension failed to load. Check the server logs or native module installation.",
+      retried: (count: number) => `Queued ${count} failed jobs without clearing existing vectors.`,
     };
   }
   return {
@@ -204,7 +210,12 @@ function getCopy() {
     dimension: "维",
     notConfigured: "请先保存有效的 Embedding 服务和模型，再重建索引。",
     statusLoading: "正在读取索引状态…",
-    backgroundHint: "索引在后台异步执行；失败任务可通过重新构建索引再次处理。",
+    backgroundHint: "后台异步建立搜索索引，不会修改原笔记内容。",
+    initializing: "等待首次向量索引",
+    extensionFailure: "扩展加载失败",
+    initializingHint: "向量扩展已加载，首个索引成功后会自动建立向量表；后台任务可以继续处理。",
+    extensionFailureHint: "sqlite-vec 扩展加载失败，请检查服务端日志或原生模块安装，不是 Embedding API 的问题。",
+    retried: (count: number) => `已重新入队 ${count} 个失败任务，已有向量索引保持不变。`,
   };
 }
 
@@ -438,6 +449,7 @@ export default function EmbeddingSettingsPanel() {
 
   const index = status?.index;
   const busy = loading || saving || rebuilding;
+  const vectorState = index?.vectorState || (index?.vectorAvailable ? "ready" : "unavailable");
   const sourceOptions: Array<{
     value: EmbeddingCredentialSource;
     title: string;
@@ -698,9 +710,9 @@ export default function EmbeddingSettingsPanel() {
               <div className="text-[11px] text-zinc-500">{copy.vectorEngine}</div>
               <div className={cn(
                 "mt-1 text-xs font-semibold",
-                index?.vectorAvailable ? "text-emerald-600 dark:text-emerald-400" : "text-amber-600 dark:text-amber-400",
+                vectorState === "ready" ? "text-emerald-600 dark:text-emerald-400" : vectorState === "unavailable" ? "text-red-600 dark:text-red-400" : "text-blue-600 dark:text-blue-400",
               )}>
-                {index?.vectorAvailable ? copy.ready : copy.unavailable}
+                {vectorState === "ready" ? copy.ready : vectorState === "initializing" ? copy.initializing : copy.extensionFailure}
                 {index?.vectorDimension ? ` · ${index.vectorDimension} ${copy.dimension}` : ""}
               </div>
             </div>
@@ -712,7 +724,19 @@ export default function EmbeddingSettingsPanel() {
               <span>{status?.embedding?.error || copy.profileMissingWarning}</span>
             </div>
           )}
-          <p className="mt-2 text-[10px] leading-4 text-zinc-400">{copy.backgroundHint}</p>
+          {index?.configured && vectorState !== "ready" && (
+             <p className="mt-2 text-xs leading-5 text-zinc-500 dark:text-zinc-400">
+               {vectorState === "initializing" ? copy.initializingHint : copy.extensionFailureHint}
+             </p>
+           )}
+           <EmbeddingIndexFailureDetails
+             failed={index?.failed || 0}
+             onRetried={async (count) => {
+               await refreshStatus(true);
+               setMessage({ type: "success", text: copy.retried(count) });
+             }}
+           />
+           <p className="mt-2 text-[10px] leading-4 text-zinc-400">{copy.backgroundHint}</p>
 
           <div className="mt-5 flex flex-wrap items-center gap-2 border-t border-zinc-100 pt-4 dark:border-zinc-800">
             <button

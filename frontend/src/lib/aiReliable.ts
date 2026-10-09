@@ -88,6 +88,7 @@ export interface ReliableStatus {
     indexedAttachments: number;
     configured: boolean;
     vectorAvailable: boolean;
+    vectorState?: "ready" | "initializing" | "unavailable";
     vectorDimension: number | null;
     stale: boolean;
   };
