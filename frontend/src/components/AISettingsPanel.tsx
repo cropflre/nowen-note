@@ -77,6 +77,7 @@ function getCopy() {
       fetching: "Fetching models…",
       fetchModels: "Refresh models",
       noModels: "No model list returned. You can still enter a model manually.",
+      onlyNonChatModels: "Only embedding/reranking models were found. Configure embedding models under Vector search below.",
       saved: "Profile saved",
       activated: "Profile activated",
       testSuccess: "Connection succeeded",
