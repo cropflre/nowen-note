@@ -796,6 +796,7 @@ export function getEmbeddingStats(opts: {
   configured: boolean;
   model: string | null;
   vecAvailable: boolean;
+  vecState: "ready" | "initializing" | "unavailable";
   vecDim: number | null;
 } {
   const db = getDb();
