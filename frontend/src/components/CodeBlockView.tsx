@@ -433,17 +433,16 @@ function OrdinaryCodeBlockView(props: NodeViewProps) {
 
         {/* 右侧：折叠/展开 + mermaid 切换 + 主题切换 + 复制按钮 */}
         <div className="flex items-center gap-1">
-          {!isMermaid && (
-            <button
-              type="button"
-              onClick={() => setCollapseOverride(!collapsed)}
-              className={CODE_BLOCK_TOOL_BUTTON_CLASS}
-              title={collapsed ? t("codeToolbar.expandCode") : t("codeToolbar.collapseCode")}
-            >
-              {collapsed ? <Maximize2 size={12} /> : <Minimize2 size={12} />}
-              <span className="hidden sm:inline">{collapsed ? t("codeToolbar.expand") : t("codeToolbar.collapse")}</span>
-            </button>
-          )}
+          <button
+            type="button"
+            onClick={() => setCollapseOverride(!collapsed)}
+            className={CODE_BLOCK_TOOL_BUTTON_CLASS}
+            title={collapsed ? t("codeToolbar.expandCode") : t("codeToolbar.collapseCode")}
+            aria-label={collapsed ? t("codeToolbar.expandCode") : t("codeToolbar.collapseCode")}
+          >
+            {collapsed ? <Maximize2 size={12} /> : <Minimize2 size={12} />}
+            <span className="hidden sm:inline">{collapsed ? t("codeToolbar.expand") : t("codeToolbar.collapse")}</span>
+          </button>
           {/* 仅 mermaid 语言显示：源码 / 预览 切换。预览时按钮显示"代码"图标
               （提示点击会切回源码视图），源码时显示"眼睛"图标（提示切回预览） */}
           {isMermaid && (
@@ -571,7 +570,7 @@ function OrdinaryCodeBlockView(props: NodeViewProps) {
           {/* 双击预览区进入源码态，便于直接编辑（与脚注/公式 NodeView 交互一致）；
               单击不切换，避免阅读时误触把图变成代码。 */}
           <div
-            className="mermaid-preview-host px-3 py-2 cursor-text"
+            className="mermaid-preview-host relative px-3 py-2 cursor-text"
             contentEditable={false}
             onDoubleClick={(e) => {
               e.stopPropagation();
@@ -579,7 +578,46 @@ function OrdinaryCodeBlockView(props: NodeViewProps) {
             }}
             title={t("codeToolbar.sourceDoubleClick")}
           >
-            <MermaidView source={node.textContent} debounceMs={250} />
+            {collapsed ? (
+              // Keep the ProseMirror contentDOM mounted below while deferring SVG work.
+              <div className="flex min-h-10 items-center justify-between gap-3 rounded-md border border-app-border bg-app-hover/30 px-3 py-2 text-xs text-tx-secondary">
+                <span className="font-medium">Mermaid</span>
+                <button
+                  type="button"
+                  className="mermaid-preview-collapse-button inline-flex items-center gap-1 rounded-md px-2 py-1 font-medium text-tx-secondary hover:bg-app-hover hover:text-tx-primary"
+                  title={t("codeToolbar.expandCode")}
+                  aria-label={t("codeToolbar.expandCode")}
+                  onMouseDown={(event) => event.preventDefault()}
+                  onDoubleClick={(event) => event.stopPropagation()}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setCollapseOverride(false);
+                  }}
+                >
+                  <Maximize2 size={12} />
+                  {t("codeToolbar.expand")}
+                </button>
+              </div>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  className="mermaid-preview-collapse-button absolute left-2 top-2 z-20 inline-flex items-center gap-1 rounded-md border border-app-border bg-app-surface/90 px-2 py-1 text-xs font-medium text-tx-secondary shadow-sm hover:bg-app-hover hover:text-tx-primary"
+                  title={t("codeToolbar.collapseCode")}
+                  aria-label={t("codeToolbar.collapseCode")}
+                  onMouseDown={(event) => event.preventDefault()}
+                  onDoubleClick={(event) => event.stopPropagation()}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setCollapseOverride(true);
+                  }}
+                >
+                  <Minimize2 size={12} />
+                  {t("codeToolbar.collapse")}
+                </button>
+                <MermaidView source={node.textContent} debounceMs={250} />
+              </>
+            )}
           </div>
           {/* 隐藏但保留的可编辑内容承载节点；ProseMirror 需要它存在 */}
           <pre
