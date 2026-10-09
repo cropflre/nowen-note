@@ -1,6 +1,7 @@
 import React, { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import i18n from "@/i18n";
 import { setCodeBlockCollapseMode } from "@/lib/codeBlockPresentation";
 
 vi.mock("@tiptap/react", () => ({
@@ -59,7 +60,8 @@ describe("Mermaid code block folding", () => {
     return { container, editor, updateAttributes };
   }
 
-  beforeEach(() => {
+  beforeEach(async () => {
+    await i18n.changeLanguage("zh-CN");
     (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
     setCodeBlockCollapseMode("expanded");
   });
