@@ -25,7 +25,7 @@ const COPY = {
     pendingReplacement: "waiting $1",
     oldHint: "Indexing runs in the background. Failed jobs can be retried by rebuilding the index.",
     help: "The AI assistant builds search indexes for notes and attachments in the background. These are not to-dos or chat requests, and original note content is not changed.",
-    blocked: "The vector engine is unavailable, so waiting index jobs will not start yet. Configure and test a working embedding model, then rebuild the index.",
+    blocked: "The vector index is not ready yet. This may be first-index initialization or a native extension problem. Check the embedding settings and failure details.",
     unavailable: "Unavailable",
   },
 };
