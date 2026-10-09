@@ -22,6 +22,9 @@ class FakeWorker {
       data: { requestId, result: analyzeMarkdown(markdown) },
     } as MessageEvent);
   }
+  fail(message: string) {
+    this.onerror?.({ message } as ErrorEvent);
+  }
 }
 
 afterEach(() => {
@@ -45,6 +48,28 @@ describe("Markdown analysis controller", () => {
     expect(published).toEqual([second]);
     controller.destroy();
     expect(worker.terminated).toBe(true);
+  });
+
+  it("recovers the latest Markdown analysis after a worker module load error", async () => {
+    vi.useFakeTimers();
+    const worker = new FakeWorker();
+    const onResult = vi.fn();
+    const onError = vi.fn();
+    const controller = createMarkdownAnalysisController({
+      workerFactory: () => worker,
+      fallbackDelayMs: 32,
+      onResult,
+      onError,
+    });
+    controller.analyze("# superseded");
+    const requestId = controller.analyze("# latest");
+    worker.fail("Cannot use import statement outside a module");
+    expect(worker.terminated).toBe(true);
+    expect(onError).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(32);
+    expect(onResult).toHaveBeenCalledOnce();
+    expect(onResult).toHaveBeenCalledWith({ requestId, result: analyzeMarkdown("# latest") });
+    controller.destroy();
   });
 
   it("falls back to delayed local analysis when Worker is unavailable", async () => {

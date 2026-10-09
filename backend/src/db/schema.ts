@@ -5,6 +5,7 @@ import { runMigrations, getCurrentSchemaVersion, CURRENT_SCHEMA_VERSION } from "
 import { enableIncrementalAutoVacuum } from "../lib/reclaimSpace.js";
 import { assertSafeTestDatabasePath } from "./test-db-guard.js";
 import { ensureNormalizedSearchFts } from "../lib/searchIndex.js";
+import { requireSqliteVecForStoredTables } from "./sqlite-vec-extension.js";
 
 const DB_PATH = process.env.DB_PATH || path.join(process.env.ELECTRON_USER_DATA || path.join(process.cwd(), "data"), "nowen-note.db");
 assertSafeTestDatabasePath(DB_PATH);
@@ -74,6 +75,16 @@ export function getDb(): Database.Database {
     // synchronous = NORMAL：WAL 模式下 NORMAL 已经能在断电时保证持久化，
     // 性能比 FULL 好得多；这是 SQLite 官方对 WAL 的推荐值。
     db.pragma("synchronous = NORMAL");
+    // Restore opens a brand-new connection, which must register vec0 before
+    // VACUUM and PRAGMA quick_check touch an existing virtual-table schema.
+    try {
+      requireSqliteVecForStoredTables(db, "当前数据库");
+    } catch (error) {
+      try { db.close(); } catch { /* ignore */ }
+      dbRegistry.delete(DB_PATH);
+      db = undefined;
+      throw error;
+    }
     // auto_vacuum = INCREMENTAL：让 DELETE 产生的 free page 可以通过
     //   PRAGMA incremental_vacuum(...) 真正归还给操作系统，用户看到的
     //   .db 文件大小会随删除动作缩小。

@@ -37,6 +37,7 @@ import TextAlign from "@tiptap/extension-text-align";
 import { IndentExtension } from "@/lib/codeBlockIndent";
 import { common, createLowlight } from "lowlight";
 import TurndownService from "turndown";
+import { getRichTextExtensions, addRichTextMarkdownRules } from "./richTextExtensions";
 import { parser as baseMdParser } from "@lezer/markdown";
 import { GFM } from "@lezer/markdown";
 import type { SyntaxNode } from "@lezer/common";
@@ -141,6 +142,7 @@ export function getTiptapExtensions() {
   _extensions = [
     StarterKit.configure({
       codeBlock: false,
+      underline: false,
       heading: { levels: [1, 2, 3, 4, 5, 6] },
     }),
     Image.extend({
@@ -211,6 +213,7 @@ export function getTiptapExtensions() {
     VideoExtension,
     VoiceMemo,
     BlockEmbedExtension,
+    ...getRichTextExtensions(),
   ];
   return _extensions;
 }
@@ -226,6 +229,7 @@ function getTurndown(): TurndownService {
     // 换行用两个空格 + \n 的形式会破坏一些 MD 解析器，这里用硬换行
     br: "  ",
   });
+  addRichTextMarkdownRules(td);
 
   // 任务列表
   td.addRule("taskListItem", {

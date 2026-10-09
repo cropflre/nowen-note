@@ -1,4 +1,3 @@
-import type { EncryptedTestWindow } from "./encrypted-notes-runtime";
 import { expect, test } from "./encrypted-notes-test";
 import type { Page } from "@playwright/test";
 
@@ -87,6 +86,7 @@ test("Markdown automatically saves, locks and rotates passwords with opaque pers
   await expect(page.getByRole("alert")).toContainText("密码错误或内容损坏");
   await unlock(page); await expect(editor).toHaveValue(`${plaintext} unsaved`);
   await page.getByText("修改密码", { exact: true }).click();
+  await page.getByLabel("当前密码", { exact: true }).fill(password);
   await page.getByLabel("新密码", { exact: true }).fill("new-test-only-password");
   await page.getByLabel("确认新密码", { exact: true }).fill("new-test-only-password");
   await page.getByRole("button", { name: "确认修改", exact: true }).click();
@@ -112,6 +112,10 @@ test("conflict keeps the unsaved body and original ciphertext without an automat
   await page.evaluate(() => window.dispatchEvent(new Event("blur")));
   await expect(page.getByRole("alert")).toContainText("锁定未完成");
   await page.waitForTimeout(1200); expect(attempts).toBe(1);
+  await expect(page.getByLabel("加密 Markdown 正文", { exact: true })).toHaveCount(0);
+  await unlock(page, "wrong-test-password");
+  await expect(page.getByLabel("加密 Markdown 正文", { exact: true })).toHaveCount(0);
+  await unlock(page);
   await expect(page.getByLabel("加密 Markdown 正文", { exact: true })).toHaveValue(plaintext);
   expect(await page.evaluate(() => window.encryptedFixtureState().activeNote!.content)).toBe(original);
   await assertNoLeaks(page);
@@ -122,7 +126,7 @@ test("offline saves persist ciphertext and recover after closing the editor and 
   await create(page); await unlock(page);
   await page.getByLabel("加密 Markdown 正文", { exact: true }).fill(plaintext);
   await page.route("**/api/notes/*", async (route) => route.request().method() === "PUT" ? route.abort("internetdisconnected") : route.continue());
-  await expect(page.getByRole("status")).toHaveText("已保存");
+  await expect(page.getByRole("status")).toHaveText("已保存在本机，等待同步");
   expect(await page.evaluate(() => Object.entries(localStorage).filter(([key]) => key.startsWith("nowen-offline-queue:v2")).length)).toBe(1);
   await assertNoLeaks(page);
   await page.getByRole("button", { name: "锁定", exact: true }).click();
@@ -178,11 +182,20 @@ test("background saves rich text before lock and a failed Worker preserves the l
   await page.getByRole("button", { name: "恢复服务器笔记", exact: true }).click();
   await unlock(page); await expect(editor).toHaveText(plaintext);
   await editor.fill(`${plaintext} unsaved failure`);
-  await page.evaluate(() => { (window as unknown as EncryptedTestWindow).__fixtureWorker = window.Worker; (window as unknown as EncryptedTestWindow).Worker = undefined; window.dispatchEvent(new Event("blur")); });
+  await page.evaluate(() => {
+    const prototype = Worker.prototype as Worker & { fixturePostMessage?: Worker["postMessage"] };
+    prototype.fixturePostMessage = prototype.postMessage;
+    prototype.postMessage = () => { throw new Error("Fixture worker failure"); };
+    window.dispatchEvent(new Event("blur"));
+  });
   await expect(page.getByRole("alert")).toContainText("锁定未完成");
-  await expect(editor).toHaveText(`${plaintext} unsaved failure`);
-  await page.evaluate(() => { window.Worker = (window as unknown as EncryptedTestWindow).__fixtureWorker!; delete (window as unknown as EncryptedTestWindow).__fixtureWorker; });
-  await page.getByRole("button", { name: "重试锁定", exact: true }).click();
+  await expect(editor).toHaveCount(0);
+  await page.evaluate(() => {
+    const prototype = Worker.prototype as Worker & { fixturePostMessage?: Worker["postMessage"] };
+    prototype.postMessage = prototype.fixturePostMessage!; delete prototype.fixturePostMessage;
+  });
+  await unlock(page); await expect(editor).toHaveText(`${plaintext} unsaved failure`);
+  await page.getByRole("button", { name: "锁定", exact: true }).click();
   await expect(editor).toHaveCount(0); await expect(page.getByRole("status")).toHaveCount(0);
   await page.reload(); await page.getByRole("button", { name: "恢复服务器笔记", exact: true }).click();
   await unlock(page); await expect(editor).toHaveText(`${plaintext} unsaved failure`);

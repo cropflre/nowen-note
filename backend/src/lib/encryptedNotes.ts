@@ -7,16 +7,18 @@ export class EncryptedNotePayloadError extends Error {
   readonly code = "INVALID_ENCRYPTED_NOTE";
   constructor() { super("加密笔记仅接受受支持的密文，不能降级或转换既有笔记"); }
 }
-function object(value: unknown, keys: string[]): Record<string, any> {
+export function encryptedRecord(value: unknown, keys: string[]): Record<string, any> {
   if (!value || typeof value !== "object" || Array.isArray(value)
     || Object.keys(value).length !== keys.length || keys.some((key) => !Object.hasOwn(value, key))) throw new EncryptedNotePayloadError();
   return value as Record<string, any>;
 }
-function bytes(value: unknown, min: number, max = min): void {
+export function encryptedBytes(value: unknown, min: number, max = min): void {
   if (typeof value !== "string" || value.length > Math.ceil(max / 3) * 4 || !/^[A-Za-z0-9+/]*={0,2}$/.test(value)) throw new EncryptedNotePayloadError();
   const decoded = Buffer.from(value, "base64");
   if (decoded.length < min || decoded.length > max || decoded.toString("base64") !== value) throw new EncryptedNotePayloadError();
 }
+const object = encryptedRecord;
+const bytes = encryptedBytes;
 /** Structural verification only: the server never has a key and cannot authenticate GCM. */
 export function parseEncryptedNote(content: unknown): { objectId: string; originalFormat: "markdown" | "tiptap-json" } {
   return parseEncryptedContent(content, "note");

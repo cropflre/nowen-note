@@ -3,6 +3,8 @@
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { NoteLoadCoordinator, type NoteLoadOptions, type NoteLoadSink } from "@/lib/noteLoadCoordinator";
+import type { Note } from "@/types";
 
 const NOTE_A = "123e4567-e89b-42d3-a456-426614174216";
 const NOTE_B = "223e4567-e89b-42d3-a456-426614174217";
@@ -25,6 +27,12 @@ const mocks = vi.hoisted(() => ({
   api: {
     getNote: vi.fn(),
   },
+  toast: { error: vi.fn(), info: vi.fn() },
+  t: (key: string) => key,
+}));
+
+vi.mock("react-i18next", () => ({
+  useTranslation: () => ({ t: mocks.t }),
 }));
 
 vi.mock("@/store/AppContext", () => ({
@@ -48,7 +56,7 @@ vi.mock("@/lib/api", () => ({
 }));
 
 vi.mock("@/lib/toast", () => ({
-  toast: { error: vi.fn() },
+  toast: mocks.toast,
 }));
 
 import NoteDeepLinkBridge from "@/components/NoteDeepLinkBridge";
@@ -72,17 +80,28 @@ function note(id: string) {
 describe("NoteDeepLinkBridge", () => {
   let host: HTMLDivElement;
   let root: Root;
+  let loading: boolean;
+  let sink: NoteLoadSink;
 
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.state.activeNote = null;
     mocks.state.viewMode = "all";
     window.history.replaceState(null, "", "/");
-    mocks.loadNote.mockImplementation(async (options: { noteId: string; onSuccess?: (loaded: ReturnType<typeof note>) => void }) => {
-      const loaded = note(options.noteId);
-      options.onSuccess?.(loaded);
-      return loaded;
-    });
+    loading = false;
+    sink = {
+      begin: vi.fn(),
+      show: vi.fn(() => { loading = true; }),
+      markSlow: vi.fn(),
+      finish: vi.fn(() => { loading = false; }),
+      fail: vi.fn(() => { loading = true; }),
+    };
+    const coordinator = new NoteLoadCoordinator();
+    mocks.api.getNote.mockImplementation(async (id: string) => note(id));
+    mocks.loadNote.mockImplementation((options: Omit<NoteLoadOptions<Note>, "sink">) => (
+      coordinator.run({ ...options, sink })
+    ));
+    mocks.cancelNoteLoad.mockImplementation(() => coordinator.cancel());
     host = document.createElement("div");
     document.body.appendChild(host);
     root = createRoot(host);
@@ -92,6 +111,7 @@ describe("NoteDeepLinkBridge", () => {
     act(() => root.unmount());
     host.remove();
     document.body.innerHTML = "";
+    vi.unstubAllGlobals();
   });
 
   it("restores a routed note on refresh/deep-link entry", async () => {
@@ -116,6 +136,73 @@ describe("NoteDeepLinkBridge", () => {
     expect(mocks.actions.openNoteTab).toHaveBeenCalledWith(
       expect.objectContaining({ id: NOTE_A }),
     );
+  });
+
+  it.each([
+    ["web", 404],
+    ["web", 403],
+    ["native", 404],
+  ])("returns %s entry to the list after an inaccessible note (%s)", async (runtime, status) => {
+    if (runtime === "native") {
+      vi.stubGlobal("Capacitor", { isNativePlatform: () => true });
+    }
+    window.history.replaceState(null, "", runtime === "native"
+      ? `/?nowenAppPath=${encodeURIComponent(`/notes/${NOTE_A}`)}`
+      : `/notes/${NOTE_A}`);
+    mocks.api.getNote.mockRejectedValue(Object.assign(new Error("资源不存在"), { status }));
+
+    await act(async () => {
+      root.render(<NoteDeepLinkBridge />);
+    });
+
+    expect(sink.fail).toHaveBeenCalled();
+    expect(mocks.cancelNoteLoad).toHaveBeenCalledTimes(1);
+    expect(sink.finish).toHaveBeenCalled();
+    expect(loading).toBe(false);
+    expect(mocks.actions.setActiveNote).toHaveBeenCalledWith(null);
+    expect(mocks.actions.setMobileView).toHaveBeenLastCalledWith("list");
+    expect(mocks.actions.setViewMode).toHaveBeenCalledWith("all");
+    expect(window.location.pathname).toBe("/");
+    expect(new URL(window.location.href).searchParams.has("nowenAppPath")).toBe(false);
+    expect(mocks.toast.info).toHaveBeenCalledTimes(1);
+    expect(mocks.toast.info).toHaveBeenCalledWith("noteList.routeUnavailableHint");
+    expect(mocks.toast.error).not.toHaveBeenCalled();
+  });
+
+  it("clears the error surface and keeps the cause of a network failure", async () => {
+    window.history.replaceState(null, "", `/notes/${NOTE_A}`);
+    mocks.api.getNote.mockRejectedValue(new Error("网络连接失败"));
+
+    await act(async () => {
+      root.render(<NoteDeepLinkBridge />);
+    });
+
+    expect(loading).toBe(false);
+    expect(sink.finish).toHaveBeenCalled();
+    expect(window.location.pathname).toBe("/");
+    expect(mocks.actions.setMobileView).toHaveBeenLastCalledWith("list");
+    expect(mocks.toast.error).toHaveBeenCalledWith("网络连接失败");
+    expect(mocks.toast.info).not.toHaveBeenCalled();
+  });
+
+  it("does not let an older failed request dismiss a newer routed note", async () => {
+    let rejectFirst!: (error: Error) => void;
+    const first = new Promise<Note>((_resolve, reject) => { rejectFirst = reject; });
+    mocks.api.getNote.mockImplementation((id: string) => (
+      id === NOTE_A ? first : Promise.resolve(note(id))
+    ));
+    window.history.replaceState(null, "", `/notes/${NOTE_A}`);
+    await act(async () => root.render(<NoteDeepLinkBridge />));
+
+    window.history.replaceState(null, "", `/notes/${NOTE_B}`);
+    await act(async () => window.dispatchEvent(new PopStateEvent("popstate")));
+    await act(async () => rejectFirst(Object.assign(new Error("资源不存在"), { status: 404 })));
+
+    expect(window.location.pathname).toBe(`/notes/${NOTE_B}`);
+    expect(mocks.actions.setActiveNote).toHaveBeenLastCalledWith(expect.objectContaining({ id: NOTE_B }));
+    expect(mocks.cancelNoteLoad).not.toHaveBeenCalled();
+    expect(mocks.toast.info).not.toHaveBeenCalled();
+    expect(mocks.toast.error).not.toHaveBeenCalled();
   });
 
   it("publishes /notes/:id whenever a normal note activation changes", async () => {

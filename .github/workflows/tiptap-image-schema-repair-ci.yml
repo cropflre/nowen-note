@@ -1,0 +1,42 @@
+name: Tiptap Image Schema Repair CI
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, "release/v1.5.1"]
+    paths:
+      - "frontend/src/lib/tiptapSchemaRepair.ts"
+      - "frontend/src/lib/__tests__/tiptapSchemaRepair.test.ts"
+      - "frontend/src/components/TiptapEditor.tsx"
+      - "frontend/src/components/ResizableImageView.tsx"
+      - ".github/workflows/tiptap-image-schema-repair-ci.yml"
+  pull_request:
+    paths:
+      - "frontend/src/lib/tiptapSchemaRepair.ts"
+      - "frontend/src/lib/__tests__/tiptapSchemaRepair.test.ts"
+      - "frontend/src/components/TiptapEditor.tsx"
+      - "frontend/src/components/ResizableImageView.tsx"
+      - ".github/workflows/tiptap-image-schema-repair-ci.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - name: Historical JSON repair and signed attachment regression
+        run: npm run test:run -- src/lib/__tests__/tiptapSchemaRepair.test.ts src/components/__tests__/TiptapInitializationFlushSync.test.tsx
+      - name: Frontend typecheck
+        run: npx tsc -b

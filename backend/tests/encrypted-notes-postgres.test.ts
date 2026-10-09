@@ -15,10 +15,10 @@ test("PostgreSQL conversion permits require exact target/version/identity and th
       CREATE TABLE notes (id TEXT PRIMARY KEY, "userId" TEXT DEFAULT 'owner', "workspaceId" TEXT,
         "isLocked" BOOLEAN DEFAULT false, "isTrashed" BOOLEAN DEFAULT false,
         content TEXT, "contentText" TEXT DEFAULT '', "contentFormat" TEXT, version INTEGER DEFAULT 1);
-      CREATE TABLE note_versions (id TEXT PRIMARY KEY, "noteId" TEXT, content TEXT, "contentText" TEXT DEFAULT '', "contentFormat" TEXT);
+      CREATE TABLE note_versions (id TEXT PRIMARY KEY, "noteId" TEXT, content TEXT, "contentText" TEXT DEFAULT '', "contentFormat" TEXT, version INTEGER DEFAULT 1);
       CREATE TABLE embedding_queue ("noteId" TEXT PRIMARY KEY);
       CREATE TABLE block_operations ("noteId" TEXT PRIMARY KEY);`);
-    for (const file of ["0117-encrypted-note-storage-guards.sql", "0118-encrypted-block-write-guards.sql", "0119-encrypted-note-conversion-guards.sql"]) {
+    for (const file of ["0117-encrypted-note-storage-guards.sql", "0118-encrypted-block-write-guards.sql", "0119-encrypted-note-conversion-guards.sql", "0123-encrypted-content-v2-storage.sql"]) {
       await client.query(fs.readFileSync(new URL(`../src/db/postgres/migrations/${file}`, import.meta.url), "utf8"));
     }
     await client.query("INSERT INTO notes (id,content,\"contentFormat\") VALUES ('plain','source','markdown'),('stale','source','markdown')");
@@ -50,6 +50,13 @@ test("PostgreSQL conversion permits require exact target/version/identity and th
     await assert.rejects(client.query(`UPDATE notes SET content = $1, "contentFormat" = 'encrypted-note-v1', version = 2 WHERE id = 'stale'`, [content]), /INVALID_ENCRYPTED_NOTE/);
     await client.query("DELETE FROM encrypted_note_conversion_permits");
     assert.equal((await client.query("SELECT count(*) FROM encrypted_note_conversion_permits")).rows[0].count, "0");
+    const v2 = JSON.parse(fs.readFileSync(new URL("../../frontend/src/lib/encryptedNotes/__tests__/fixtures/envelope-v2.json", import.meta.url), "utf8"));
+    await client.query(`INSERT INTO notes(id,content,"contentFormat") VALUES ('v2',$1,'encrypted-note-v2')`, [JSON.stringify(v2.envelope)]);
+    for (const patch of [{ keyEpoch: 2 }, { encryptionEpoch: 3 }, { objectId: randomUUID() }, { documentSchemaVersion: 2 }, { unknown: true }]) {
+      await assert.rejects(client.query("UPDATE notes SET content = $1 WHERE id = 'v2'", [JSON.stringify({ ...v2.envelope, ...patch })]), /INVALID_ENCRYPTED_NOTE/);
+    }
+    await client.query(`INSERT INTO note_versions(id,"noteId",content,"contentFormat",version) VALUES ($1,'v2',$2,'encrypted-history-v2',3)`, [v2.history.historyId, JSON.stringify(v2.history)]);
+    await assert.rejects(client.query("UPDATE note_versions SET content = $1 WHERE id = $2", [JSON.stringify({ ...v2.history, historyId: randomUUID() }), v2.history.historyId]), /INVALID_ENCRYPTED_NOTE_HISTORY/);
   } finally {
     await client.query("ROLLBACK").catch(() => {});
     await client.query(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`); await client.end();

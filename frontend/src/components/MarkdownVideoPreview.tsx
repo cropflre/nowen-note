@@ -3,6 +3,7 @@ import { Copy, Download, ExternalLink, Film } from "lucide-react";
 import { copyText } from "@/lib/clipboard";
 import { toast } from "@/lib/toast";
 import { cn } from "@/lib/utils";
+import { useAttachmentVideoRenderSource } from "@/hooks/useAttachmentVideoRenderSource";
 
 interface MarkdownVideoPreviewProps {
   src: string;
@@ -24,6 +25,8 @@ function getVideoDisplayStyle(orientation: VideoOrientation): React.CSSPropertie
 export function MarkdownVideoPreview({ src, title }: MarkdownVideoPreviewProps) {
   const [orientation, setOrientation] = useState<VideoOrientation>("unknown");
   const filename = title || "video";
+  const media = useAttachmentVideoRenderSource(src);
+  const playbackUrl = media.renderSrc;
   const displayStyle = useMemo(() => getVideoDisplayStyle(orientation), [orientation]);
 
   const copyUrl = async () => {
@@ -50,26 +53,31 @@ export function MarkdownVideoPreview({ src, title }: MarkdownVideoPreviewProps) 
             <Copy size={13} />
           </button>
           <a
-            href={src}
+            href={playbackUrl || undefined}
             target="_blank"
             rel="noopener noreferrer"
             className="rounded p-1 text-white/70 hover:bg-white/10 hover:text-white"
             title="打开"
+            aria-disabled={!playbackUrl}
+            onClick={(event) => { if (!playbackUrl) event.preventDefault(); }}
           >
             <ExternalLink size={13} />
           </a>
           <a
-            href={src}
+            href={playbackUrl || undefined}
             download={filename}
             className="rounded p-1 text-white/70 hover:bg-white/10 hover:text-white"
             title="下载"
+            aria-disabled={!playbackUrl}
+            onClick={(event) => { if (!playbackUrl) event.preventDefault(); }}
           >
             <Download size={13} />
           </a>
         </div>
         <div className="flex max-h-[70vh] min-h-[160px] items-center justify-center bg-black">
           <video
-            src={src}
+            key={media.renderKey}
+            src={playbackUrl || undefined}
             controls
             playsInline
             preload="metadata"
@@ -86,6 +94,7 @@ export function MarkdownVideoPreview({ src, title }: MarkdownVideoPreviewProps) 
           >
             您的浏览器不支持 video 标签。
           </video>
+          {media.error && <span className="px-3 py-2 text-xs text-amber-300">附件授权失败，请重新打开笔记</span>}
         </div>
       </div>
     </figure>

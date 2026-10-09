@@ -112,6 +112,7 @@ import {
   BrainCircuit,
 } from "lucide-react";
 import { MarkdownPreview } from "./MarkdownPreview";
+import { markdownLivePreviewNoteId } from "@/lib/markdownLivePreview";
 import EncryptedBlockDialog from "./EncryptedBlockDialog";
 import { markdownEncryptedBlocks } from "@/lib/encryptedNotes/blockDocument";
 import AttachmentLibraryPicker from "@/components/AttachmentLibraryPicker";
@@ -793,6 +794,7 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
 
   // �����л��õ� Compartment
   const themeCompartmentRef = useRef(new Compartment());
+  const attachmentNoteCompartmentRef = useRef(new Compartment());
   const historyCompartmentRef = useRef(new Compartment());
   const editableCompartmentRef = useRef(new Compartment());
   const searchPhraseCompartmentRef = useRef(new Compartment());
@@ -1473,6 +1475,7 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
     const state = EditorState.create({
       doc: initialDoc,
       extensions: [
+        attachmentNoteCompartmentRef.current.of(markdownLivePreviewNoteId.of(isGuest ? null : note.id)),
         // Phase 3: CRDT Эͬ��չ�������ã�
         // yCollab ������ڿ�ǰ��λ�ã������ȴ��� doc ���
         // P3-#14����ʽ���� UndoManager �ó������Ȱ�����ϲ���350ms window��
@@ -1710,6 +1713,11 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
   // ---------- �л��ʼ� / �ⲿ�ָ��汾��ͬ���ĵ����� ----------
 
   const lastSyncedNoteIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    viewRef.current?.dispatch({ effects: attachmentNoteCompartmentRef.current.reconfigure(
+      markdownLivePreviewNoteId.of(isGuest ? null : note.id),
+    ) });
+  }, [note.id, isGuest]);
   useEffect(() => {
     const view = viewRef.current;
     if (!view) return;
@@ -2553,8 +2561,8 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
           readOnly={!editable}
           className="block w-full resize-none overflow-hidden break-words bg-transparent p-0 outline-none text-lg leading-7 md:text-xl font-semibold text-tx-primary placeholder:text-tx-tertiary/60"
         />
-        {!isGuest && !compactMobileEditing && (
-          <div className="mt-1">
+        {!isGuest && (
+          <div className={cn("mt-1", compactMobileEditing && "hidden focus-within:block")}>
             <TagInput
               noteId={note.id}
               noteTags={noteTags}
@@ -2605,6 +2613,7 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
           )} style={viewMode === "split" ? { width: `${100 - sourcePaneWidthPercent}%` } : undefined}>
             <MarkdownPreview
               markdown={previewMarkdown}
+              noteId={isGuest ? undefined : note.id}
               className="h-full"
               compact={viewMode === "split"}
               containerRef={previewRootRef}

@@ -11,6 +11,8 @@ import {
   isTaskDateRangeInvalid,
 } from "../taskDateUtils";
 import type { Task } from "@/types";
+import { buildTaskTree } from "../taskProgress";
+import { orderTasksCompletedLast } from "../taskCompletionOrder";
 
 function makeTask(overrides: Partial<Task> = {}): Task {
   const base: Task = {
@@ -75,6 +77,33 @@ describe("due time helpers", () => {
       repeatEndDate: null,
       repeatEndCount: null,
     });
+  });
+
+  it("orders overdue, timed and all-day tasks before undated tasks, keeping completed last", () => {
+    const tasks = [
+      makeTask({ id: "undated", dueDate: null }),
+      makeTask({ id: "done", isCompleted: 1, dueDate: "2026-06-01" }),
+      makeTask({ id: "date-only", dueDate: "2026-06-20" }),
+      makeTask({ id: "timed", dueAt: "2026-06-20T09:00", dueDate: "2026-06-20" }),
+      makeTask({ id: "overdue", dueDate: "2026-06-05" }),
+    ];
+    expect(orderTasksCompletedLast(tasks, compareTasksByDueTime).map((task) => task.id))
+      .toEqual(["overdue", "timed", "date-only", "undated", "done"]);
+  });
+
+  it("sorts children by due date without breaking parent/child hierarchy", () => {
+    const root = makeTask({ id: "root" });
+    const late = makeTask({ id: "late", parentId: root.id, dueDate: "2026-07-09" });
+    const early = makeTask({ id: "early", parentId: root.id, dueDate: "2026-07-07" });
+    const sibling = makeTask({ id: "sibling", dueDate: "2026-07-08" });
+    const tasks = [root, late, early, sibling];
+    const ordered = [
+      ...orderTasksCompletedLast(tasks.filter(t => !t.parentId), compareTasksByDueTime),
+      ...orderTasksCompletedLast(tasks.filter(t => t.parentId), compareTasksByDueTime),
+    ];
+    const tree = buildTaskTree(ordered);
+    expect(tree.map((task) => task.id)).toEqual(["sibling", "root"]);
+    expect(tree[1].children.map((task) => task.id)).toEqual(["early", "late"]);
   });
 
   it("sorts incomplete top-level tasks by effective due time with unscheduled last", () => {

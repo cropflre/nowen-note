@@ -3,7 +3,7 @@ name: Editor Runtime CI
 on:
   workflow_dispatch:
   push:
-    branches: [main]
+    branches: [main, "release/v1.5.1"]
     paths:
       - "frontend/vite.config.ts"
       - "frontend/vitest.config.ts"
@@ -75,6 +75,7 @@ on:
       - "frontend/src/components/__tests__/SearchReplaceRuntime.test.ts"
       - "frontend/src/components/__tests__/TiptapBlockPatchRuntime.test.tsx"
       - "frontend/src/components/__tests__/TiptapRuntimePublicContext.test.tsx"
+      - "frontend/src/components/__tests__/TiptapInitializationFlushSync.test.tsx"
       - ".github/workflows/editor-runtime-ci.yml"
   pull_request:
     paths:
@@ -148,6 +149,7 @@ on:
       - "frontend/src/components/__tests__/SearchReplaceRuntime.test.ts"
       - "frontend/src/components/__tests__/TiptapBlockPatchRuntime.test.tsx"
       - "frontend/src/components/__tests__/TiptapRuntimePublicContext.test.tsx"
+      - "frontend/src/components/__tests__/TiptapInitializationFlushSync.test.tsx"
       - ".github/workflows/editor-runtime-ci.yml"
 
 permissions:
@@ -177,6 +179,9 @@ jobs:
       - name: MAXScript picker tests
         if: always()
         run: npm run test:run -- src/components/__tests__/CodeBlockView.maxscript.test.tsx
+      - name: Tiptap initialization and flushSync regression
+        if: always()
+        run: npm run test:run -- src/components/__tests__/TiptapInitializationFlushSync.test.tsx
       - name: Focused runtime tests
         if: always()
         run: >-

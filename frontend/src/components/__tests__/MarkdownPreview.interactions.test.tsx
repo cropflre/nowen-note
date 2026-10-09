@@ -20,6 +20,22 @@ describe("MarkdownPreview interactions", () => {
     expect(output).toContain("task-list-item");
   });
 
+  it("marks each GFM task and renders isolated text for checked and nested items", () => {
+    const source = "- [x] finished **bold**\n- [ ] pending\n  - [x] completed child";
+    const output = renderToStaticMarkup(<MarkdownPreview markdown={source} />);
+    expect(source).toContain("- [x] finished");
+    expect(output).toContain('data-checked="true"');
+    expect(output).toContain('data-checked="false"');
+    expect(output).toContain('class="nowen-task-item-text');
+    expect((output.match(/class="nowen-task-item-text/g) || []).length).toBe(3);
+    // The nested child must be rendered outside its parent's decorated text span.
+    const pendingIndex = output.indexOf('data-checked="false"');
+    const parentTextEnd = output.indexOf("</span>", pendingIndex);
+    const nestedListStart = output.indexOf("<ul", pendingIndex);
+    expect(parentTextEnd).toBeGreaterThan(pendingIndex);
+    expect(nestedListStart).toBeGreaterThan(parentTextEnd);
+  });
+
   it("keeps ordinary unordered lists styled with bullets", () => {
     const output = renderToStaticMarkup(<MarkdownPreview markdown={"- alpha\n- beta"} />);
     expect(output).toContain("list-disc");

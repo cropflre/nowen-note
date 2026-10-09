@@ -2,6 +2,7 @@ import {
   analyzeMarkdown,
   type MarkdownAnalysisResult,
 } from "@/lib/markdownAnalysis";
+import MarkdownAnalysisWorker from "./markdownAnalysis.worker?worker";
 
 interface WorkerLike {
   onmessage: ((event: MessageEvent<MarkdownAnalysisWorkerResponse>) => void) | null;
@@ -35,12 +36,11 @@ export interface MarkdownAnalysisController {
 
 function createDefaultWorker(): WorkerLike | null {
   if (typeof Worker === "undefined") return null;
-  // Vite bundles this URL as a classic worker by default. Avoid `type: module` so the optimized
-  // path also works in the older Chromium/WebView versions supported by the desktop/mobile apps.
-  return new Worker(
-    new URL("./markdownAnalysis.worker.ts", import.meta.url),
-    { name: "nowen-markdown-analysis" },
-  );
+  // Vite's ?worker wrapper uses module workers for dev ESM imports and the
+  // configured classic IIFE output for production/older WebViews. Bare
+  // new Worker(new URL(...)) defaults to classic even during Vite dev, making
+  // the worker's import statements fail before analysis starts.
+  return new MarkdownAnalysisWorker({ name: "nowen-markdown-analysis" });
 }
 
 /**

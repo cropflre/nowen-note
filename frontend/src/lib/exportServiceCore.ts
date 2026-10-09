@@ -2,6 +2,7 @@ import JSZip from "jszip";
 import { saveAs } from "file-saver";
 import { isAndroidNative, saveImageToGallery } from "./nativeImageSave";
 import TurndownService from "turndown";
+import { getRichTextExtensions, addRichTextMarkdownRules } from "./richTextExtensions";
 import i18n from "i18next";
 import { generateHTML, Node, mergeAttributes } from "@tiptap/core";
 import StarterKit from "@tiptap/starter-kit";
@@ -53,8 +54,10 @@ const ExportBlockEmbedExtension = Node.create({
 // TipTap 扩展列表（需与 importService / 编辑器保持一致，否则某些节点会被吞掉）
 const lowlight = createLowlight(common);
 const tiptapExtensions = [
+  ...getRichTextExtensions(),
   StarterKit.configure({
     codeBlock: false,
+    underline: false,
     heading: { levels: [1, 2, 3, 4, 5, 6] },
   }),
   Image.configure({ inline: false, allowBase64: true }),
@@ -971,6 +974,7 @@ function createTurndown(): TurndownService {
   });
 
   td.keep(["audio"]);
+  addRichTextMarkdownRules(td);
   return td;
 }
 
@@ -1555,6 +1559,14 @@ export async function buildPrintableHtml(note: {
     .content ul[data-type="taskList"] li { display: flex; align-items: flex-start; gap: 8px; margin: 4px 0; }
     .content ul[data-type="taskList"] li > label { user-select: none; }
     .content ul[data-type="taskList"] li > div { flex: 1; }
+    /* Only decorate this item's own paragraph, never nested sub-tasks. */
+    .content li[data-type="taskItem"][data-checked="true"] > p,
+    .content li[data-type="taskItem"][data-checked="true"] > div > p,
+    .content li.task-item[data-checked="true"] > p,
+    .content li.task-item[data-checked="true"] > div > p,
+    .content li.task-list-item:has(> p > input[type="checkbox"]:checked) > p {
+      color: #8a8f98; text-decoration: line-through; text-decoration-color: #b0b5bd;
+    }
     .content input[type="checkbox"] { margin-right: 8px; }
     .content hr { border: 0; border-top: 1px solid #e1e4e8; margin: 20px 0; }
     .content mark { background: #fff3a3; padding: 0 2px; border-radius: 3px; }

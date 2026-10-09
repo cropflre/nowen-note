@@ -643,3 +643,18 @@ stdio MCP Server 正常情况下会等待客户端输入，可能没有任何提
 - [OpenAPI 接入指南](./api.md)
 - [SDK 使用教程](./sdk.md)
 - [CLI 使用教程](./cli.md)
+
+## 通过 MCP 管理个人任务（v1.5.1）
+
+新的个人任务工具可使用长期访问令牌：
+
+- `tasks:read`：`nowen_list_tasks`、`nowen_get_task`、`nowen_get_task_summary`。
+- `tasks:write`：`nowen_create_task`、`nowen_complete_task`。
+- 推荐为外部 Agent 单独创建令牌，选择「限定笔记本」模式也能访问**本人个人任务**；任务授权与笔记本白名单相互独立。
+- 当前令牌无法通过任务 API 访问共享工作区，且明确禁止批量操作、跨工作区移动与删除操作。
+- MCP 的写入工具应由客户端获取用户确认；服务端继续执行令牌 Scope 与任务归属检查。
+
+例如问 Agent：“列出今天的个人待办，并统计逾期任务。”确认授权后，工具会查询 Nowen Note 服务端的真实任务数据。
+
+早晚计划 / 任务到点 Webhook：在「设置 → 自动化 → 每日任务简报」配置时间、时区并绑定 HTTPS URL，具体参见 [Task Digest 示例插件](../../examples/plugins/task-digest/README.md)。
+

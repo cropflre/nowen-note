@@ -2,6 +2,7 @@ import { wechatAssistantQueueColumnsMigration } from "./wechatAssistantQueueColu
 import { wechatAssistantMigration } from "./wechatAssistantMigration.js";
 import { pluginInboundMigration } from "./pluginInboundMigration.js";
 import { encryptedNoteConversionMigration } from "./encryptedNoteConversionMigration.js";
+import { encryptedContentV2Migration } from "./encryptedContentV2Migration.js";
 /**
  * Compatibility wrapper around the historical migration list.
  *
@@ -417,6 +418,7 @@ export const MIGRATIONS: Migration[] = [
   pluginInboundMigration,
   wechatAssistantMigration,
   wechatAssistantQueueColumnsMigration,
+  encryptedContentV2Migration,
 ].sort((a, b) => a.version - b.version);
 
 export const CURRENT_SCHEMA_VERSION: number = MIGRATIONS.reduce(

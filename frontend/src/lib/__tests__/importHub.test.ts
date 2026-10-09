@@ -22,7 +22,7 @@ function memoryStorage(initial?: string): ImportMethodStorage & { value: string 
 }
 
 describe("import hub information architecture", () => {
-  it("exposes eight unique first-level sources in the intended groups", () => {
+  it("exposes nine unique first-level sources in the intended groups", () => {
     const methods = IMPORT_METHOD_GROUPS.flatMap((group) => group.methods);
     expect(IMPORT_METHOD_GROUPS.map((group) => group.id)).toEqual([
       "migration",
@@ -32,6 +32,7 @@ describe("import hub information architecture", () => {
     expect(methods).toEqual([
       "siyuan",
       "obsidian",
+      "yuque",
       "wechat-favorites",
       "youdao",
       "mobile-memo",

@@ -1,8 +1,11 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import {
   DEFAULT_ATTACHMENT_LIMIT_BYTES,
   formatAttachmentLimit,
   validateAttachmentSize,
+  warmAttachmentUploadPolicy,
   type AttachmentUploadPolicy,
 } from "@/lib/attachmentUploadPolicy";
 
@@ -11,6 +14,8 @@ function serverPolicy(maxAttachmentSizeBytes: number): AttachmentUploadPolicy {
 }
 
 describe("attachment upload policy", () => {
+  afterEach(() => { vi.unstubAllGlobals(); });
+
   it("keeps 99 MiB and exactly 100 MiB valid under the default server contract", () => {
     const policy = serverPolicy(DEFAULT_ATTACHMENT_LIMIT_BYTES);
     expect(validateAttachmentSize(99 * 1024 * 1024, policy).ok).toBe(true);
@@ -42,6 +47,22 @@ describe("attachment upload policy", () => {
       source: "fallback",
     };
     expect(validateAttachmentSize(500 * 1024 * 1024, fallback).ok).toBe(true);
+  });
+
+  it("does not warm the authenticated policy endpoint before a login token exists", () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("window", {});
+    vi.stubGlobal("localStorage", { getItem: () => null });
+    vi.stubGlobal("fetch", fetchMock);
+
+    warmAttachmentUploadPolicy();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("fetches the policy on actual upload instead of before AuthGate becomes ready", () => {
+    const source = readFileSync(resolve(process.cwd(), "src/lib/attachmentUploadPolicyBridge.ts"), "utf8");
+    expect(source).toContain("const policy = await loadAttachmentUploadPolicy();");
+    expect(source).not.toContain("warmAttachmentUploadPolicy()");
   });
 
   it("formats MiB and GiB limits consistently", () => {

@@ -6,6 +6,7 @@ import fs from "node:fs";
 import crypto from "node:crypto";
 import Database from "better-sqlite3";
 import JSZip from "jszip";
+import { loadSqliteVec } from "../src/db/sqlite-vec-extension.js";
 
 const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "nowen-backup-restore-hotfix-"));
 const backupDir = path.join(tmpDir, "backups");
@@ -78,6 +79,7 @@ async function createBackupDb(marker: string) {
   await getDb().backup(backupDbPath);
   const db = new Database(backupDbPath);
   try {
+    assert.equal(loadSqliteVec(db).loaded, true);
     db.prepare("INSERT OR REPLACE INTO system_settings (key, value) VALUES (?, ?)").run(markerKey, marker);
   } finally {
     db.close();
@@ -134,6 +136,24 @@ test.beforeEach(() => {
 test.after(() => {
   closeDb();
   fs.rmSync(tmpDir, { recursive: true, force: true });
+});
+
+test("db-only snapshot containing vec0 previews and restores without no such module error", async () => {
+  const db = getDb();
+  assert.equal(loadSqliteVec(db).loaded, true);
+  db.exec("CREATE VIRTUAL TABLE vec_note_chunks USING vec0(embedding float[2])");
+  db.prepare("INSERT INTO vec_note_chunks(rowid, embedding) VALUES (?, ?)").run(7n, "[0,1]");
+  const backupFile = await createBackupDb("backup");
+  const filename = path.basename(backupFile);
+  db.prepare("DELETE FROM vec_note_chunks WHERE rowid = ?").run(7);
+
+  const preview = await manager.restoreFromBackup(filename, { dryRun: true });
+  assert.equal(preview.success, true, preview.error);
+  assert.equal(readMarker(), "current");
+  const restored = await manager.restoreFromBackup(filename, { dryRun: false });
+  assert.equal(restored.success, true, restored.error);
+  assert.equal(readMarker(), "backup");
+  assert.equal((getDb().prepare("SELECT COUNT(*) AS c FROM vec_note_chunks").get() as { c: number }).c, 1);
 });
 
 test("corrupt db-only restore does not poison current database", async () => {

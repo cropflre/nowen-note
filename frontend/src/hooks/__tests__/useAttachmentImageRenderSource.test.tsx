@@ -35,7 +35,7 @@ vi.mock("@/lib/localStore", () => ({
   markOfflineAttachmentsAccessed: vi.fn(async () => undefined),
 }));
 
-import { useAttachmentImageRenderSource } from "@/hooks/useAttachmentImageRenderSource";
+import { AttachmentNoteContext, useAttachmentImageRenderSource } from "@/hooks/useAttachmentImageRenderSource";
 import {
   registerAttachmentAccessUrls,
   resetAttachmentAccessStateForTests,
@@ -56,6 +56,7 @@ function Probe({ src }: { src: string }) {
       data-resolved-src={image.resolvedSrc}
       data-render-src={image.renderSrc}
       data-error={image.error ? "1" : "0"}
+      data-loading={image.loading ? "1" : "0"}
     >
       <button type="button" onClick={image.onError}>fail</button>
     </div>
@@ -68,6 +69,7 @@ describe("useAttachmentImageRenderSource", () => {
 
   beforeEach(() => {
     resetAttachmentAccessStateForTests();
+    localStorage.clear();
     apiMock.resolveAttachmentUrl.mockClear();
     apiMock.state.resolve = (src) => resolveAttachmentAccessUrl(src || "");
     host = document.createElement("div");
@@ -81,6 +83,7 @@ describe("useAttachmentImageRenderSource", () => {
     document.body.innerHTML = "";
     resetAttachmentAccessStateForTests();
     vi.clearAllMocks();
+    vi.unstubAllGlobals();
   });
 
   it("keeps runtime query parameters and upgrades a late signed mapping without changing persistence identity", async () => {
@@ -144,5 +147,64 @@ describe("useAttachmentImageRenderSource", () => {
 
     expect(probe().dataset.error).toBe("0");
     expect(new URL(probe().dataset.renderSrc!).searchParams.get("sig")).toBe("recovered-signature");
+  });
+
+  it("holds unsigned images until access arrives and shares one request across the note", async () => {
+    localStorage.setItem("nowen-token", "jwt-token");
+    let finish!: (response: Response) => void;
+    const fetch = vi.fn((_url: RequestInfo | URL) => new Promise<Response>((resolve) => { finish = resolve; }));
+    vi.stubGlobal("fetch", fetch);
+    const raw = `/api/attachments/${ATTACHMENT_ID}`;
+    await act(async () => root.render(<AttachmentNoteContext.Provider value="note-1"><Probe src={raw}/><Probe src={raw}/></AttachmentNoteContext.Provider>));
+    const probes = () => [...host.querySelectorAll<HTMLElement>('[data-testid="probe"]')];
+    expect(probes().every((node) => node.dataset.renderSrc === "" && node.dataset.loading === "1")).toBe(true);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(String(fetch.mock.calls[0][0])).toContain("noteId=note-1");
+    await act(async () => { finish(new Response(JSON.stringify({ urls: { [ATTACHMENT_ID]: `/api/attachments/${ATTACHMENT_ID}?exp=2000000000&sig=first-access&scope=v2.scope` } }), { status: 200 })); });
+    expect(probes().every((node) => node.dataset.renderSrc?.includes("sig=first-access"))).toBe(true);
+    expect(probes().every((node) => node.dataset.persistentSrc === raw)).toBe(true);
+  });
+
+  it("recovers a transient first authorization failure without a page refresh", async () => {
+    localStorage.setItem("nowen-token", "jwt-token");
+    const fetch = vi.fn().mockResolvedValueOnce(new Response("unavailable", { status: 503 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ urls: { [ATTACHMENT_ID]: `/api/attachments/${ATTACHMENT_ID}?exp=2000000000&sig=recovered&scope=v2.scope` } }), { status: 200 }));
+    vi.stubGlobal("fetch", fetch);
+    await act(async () => root.render(<AttachmentNoteContext.Provider value="note-1"><Probe src={`/api/attachments/${ATTACHMENT_ID}`}/></AttachmentNoteContext.Provider>));
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(host.querySelector<HTMLElement>('[data-testid="probe"]')!.dataset.renderSrc).toContain("sig=recovered");
+  });
+
+  it.each([403, 404])("does not retry authorization denial (%s) or issue an unsigned image request", async (status) => {
+    localStorage.setItem("nowen-token", "jwt-token");
+    const fetch = vi.fn().mockResolvedValue(new Response("denied", { status }));
+    vi.stubGlobal("fetch", fetch);
+    await act(async () => root.render(<AttachmentNoteContext.Provider value="note-1"><Probe src={`/api/attachments/${ATTACHMENT_ID}`}/></AttachmentNoteContext.Provider>));
+    expect(fetch).toHaveBeenCalledTimes(1);
+    const probe = host.querySelector<HTMLElement>('[data-testid="probe"]')!;
+    expect(probe.dataset.renderSrc).toBe(""); expect(probe.dataset.error).toBe("1");
+    expect(probe.dataset.loading).toBe("0");
+  });
+
+  it("stops after one retry when authorization remains unavailable", async () => {
+    localStorage.setItem("nowen-token", "jwt-token");
+    const fetch = vi.fn().mockRejectedValue(new TypeError("Failed to fetch"));
+    vi.stubGlobal("fetch", fetch);
+    await act(async () => root.render(<AttachmentNoteContext.Provider value="note-1"><Probe src={`/api/attachments/${ATTACHMENT_ID}`}/></AttachmentNoteContext.Provider>));
+    expect(fetch).toHaveBeenCalledTimes(2);
+    const probe = host.querySelector<HTMLElement>('[data-testid="probe"]')!;
+    expect(probe.dataset.renderSrc).toBe(""); expect(probe.dataset.error).toBe("1");
+    expect(probe.dataset.loading).toBe("0");
+  });
+
+  it("keeps authorization scoped to each editor when two notes are open", async () => {
+    localStorage.setItem("nowen-token", "jwt-token");
+    const fetch = vi.fn(async (url: string) => {
+      const note = new URL(url).searchParams.get("noteId")!;
+      return new Response(JSON.stringify({ urls: { [ATTACHMENT_ID]: `/api/attachments/${ATTACHMENT_ID}?exp=2000000000&sig=${note}&scope=v2.scope` } }), { status: 200 });
+    });
+    vi.stubGlobal("fetch", fetch);
+    await act(async () => root.render(<><AttachmentNoteContext.Provider value="note-a"><Probe src={`/api/attachments/${ATTACHMENT_ID}`}/></AttachmentNoteContext.Provider><AttachmentNoteContext.Provider value="note-b"><Probe src={`/api/attachments/${ATTACHMENT_ID}`}/></AttachmentNoteContext.Provider></>));
+    expect(fetch.mock.calls.map(([url]) => new URL(url).searchParams.get("noteId")).sort()).toEqual(["note-a", "note-b"]);
   });
 });

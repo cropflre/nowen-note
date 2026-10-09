@@ -39,6 +39,8 @@ export interface MobileWebStartupBridgeOptions {
 }
 
 const bootstrapCache = new Map<string, BootstrapCacheEntry>();
+let cacheRevision = 0;
+let lastPermissionSignature: string | null = null;
 
 function isRequest(input: FetchInput): input is Request {
   return typeof Request !== "undefined" && input instanceof Request;
@@ -248,6 +250,7 @@ export function isMobileWebStartupRuntime(): boolean {
 
 export function clearMobileWebStartupCache(): void {
   bootstrapCache.clear();
+  cacheRevision++;
 }
 
 /**
@@ -269,6 +272,16 @@ export function installMobileWebStartupBridge(
   if (runtime[INSTALL_FLAG]) return null;
 
   const originalFetch: FetchFn = window.fetch.bind(window);
+  // Password/session changes invalidate startup snapshots immediately. This also
+  // rejects in-flight snapshots fetched using now-revoked folder credentials.
+  const onPermissionChanged = () => clearMobileWebStartupCache();
+  const sessionEvents = [
+    "nowen:knowledge-tree-password-session-changed",
+    "nowen:knowledge-tree-password-locked",
+    "nowen:token-changed",
+    "nowen:knowledge-tree-changed",
+  ];
+  sessionEvents.forEach((event) => window.addEventListener(event, onPermissionChanged));
   const bridgedFetch: FetchFn = async (input, init) => {
     const method = getRequestMethod(input, init);
     let url: URL;
@@ -282,8 +295,20 @@ export function installMobileWebStartupBridge(
     const target = classifyMobileBootstrapTarget(url, method);
     if (!target) return originalFetch(input, init);
 
+    // Expiring folder tokens are filtered out of the request headers. Comparing
+    // the actual credentials prevents reuse even if no browser event was fired.
+    const headers = mergeHeaders(input, init);
+    const permissionSignature = [
+      headers.get("authorization") || "",
+      headers.get("x-folder-unlock-tokens") || "",
+    ].join("|");
+    if (lastPermissionSignature !== null && lastPermissionSignature !== permissionSignature) {
+      clearMobileWebStartupCache();
+    }
+    lastPermissionSignature = permissionSignature;
+    const revision = cacheRevision;
     const payload = await getBootstrap(originalFetch, input, init, url, target);
-    if (!payload) return originalFetch(input, init);
+    if (revision !== cacheRevision || !payload) return originalFetch(input, init);
     const data = dataForTarget(payload, target, url);
     return data === null ? originalFetch(input, init) : responseFromJson(data);
   };
@@ -294,6 +319,8 @@ export function installMobileWebStartupBridge(
   return () => {
     if (window.fetch === bridgedFetch) window.fetch = originalFetch;
     delete runtime[INSTALL_FLAG];
+    sessionEvents.forEach((event) => window.removeEventListener(event, onPermissionChanged));
+    lastPermissionSignature = null;
     clearMobileWebStartupCache();
   };
 }

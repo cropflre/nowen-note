@@ -1,11 +1,14 @@
 import { runEncryptedContentOperation as run } from "../src/lib/encryptedNotes/workerClient";
 import { EncryptedContentError, validateEnvelope } from "../src/lib/encryptedNotes/envelope";
 import rawVector from "../src/lib/encryptedNotes/__tests__/fixtures/envelope-v1.json";
+import rawVectorV2 from "../src/lib/encryptedNotes/__tests__/fixtures/envelope-v2.json";
+import { validateEnvelopeV2 } from "../src/lib/encryptedNotes/envelopeV2";
+import { EncryptedContentV2Session } from "../src/lib/encryptedNotes/sessionV2Client";
 
 const vector = { ...rawVector, envelope: validateEnvelope(rawVector.envelope) };
 
 // Exposed only in this separately built developer fixture, never on an application route.
-const harness = { run, vector };
+const harness = { run, vector, vectorV2: { ...rawVectorV2, envelope: validateEnvelopeV2(rawVectorV2.envelope) }, makeV2Session: () => new EncryptedContentV2Session() };
 declare global { interface Window { cryptoBenchmark: typeof harness } }
 window.cryptoBenchmark = harness;
 const button = document.querySelector<HTMLButtonElement>("#run")!;

@@ -18,6 +18,15 @@ on:
       - "frontend/src/lib/__tests__/editorFontAppearanceGuard.test.ts"
       - "frontend/src/lib/__tests__/runtimeCompatibility.test.ts"
       - "frontend/src/index.css"
+      - "frontend/src/editor-list-markers.css"
+      - "frontend/src/components/MarkdownPreview*.tsx"
+      - "frontend/src/components/SharedNoteView.tsx"
+      - "frontend/src/lib/gfmTaskChecked.ts"
+      - "frontend/src/lib/exportServiceCore.ts"
+      - "frontend/src/lib/noteImageExportCore.ts"
+      - "frontend/src/lib/__tests__/gfmTaskChecked.test.ts"
+      - "frontend/src/lib/__tests__/listMarkerRegression.test.ts"
+      - "frontend/src/components/__tests__/MarkdownPreview.interactions.test.tsx"
       - "frontend/src/skins.css"
       - "frontend/tailwind.config.*"
       - "frontend/package.json"
@@ -43,6 +52,15 @@ on:
       - "frontend/src/lib/__tests__/editorFontAppearanceGuard.test.ts"
       - "frontend/src/lib/__tests__/runtimeCompatibility.test.ts"
       - "frontend/src/index.css"
+      - "frontend/src/editor-list-markers.css"
+      - "frontend/src/components/MarkdownPreview*.tsx"
+      - "frontend/src/components/SharedNoteView.tsx"
+      - "frontend/src/lib/gfmTaskChecked.ts"
+      - "frontend/src/lib/exportServiceCore.ts"
+      - "frontend/src/lib/noteImageExportCore.ts"
+      - "frontend/src/lib/__tests__/gfmTaskChecked.test.ts"
+      - "frontend/src/lib/__tests__/listMarkerRegression.test.ts"
+      - "frontend/src/components/__tests__/MarkdownPreview.interactions.test.tsx"
       - "frontend/src/skins.css"
       - "frontend/tailwind.config.*"
       - "frontend/package.json"
@@ -82,6 +100,10 @@ jobs:
             src/lib/__tests__/appAppearanceNeutralCompat.test.ts \
             src/lib/__tests__/editorFontAppearanceGuard.test.ts \
             src/lib/__tests__/runtimeCompatibility.test.ts \
+            src/lib/__tests__/gfmTaskChecked.test.ts \
+            src/lib/__tests__/listMarkerRegression.test.ts \
+            src/lib/__tests__/editorListMarkersCss.test.ts \
+            src/components/__tests__/MarkdownPreview.interactions.test.tsx \
             --reporter=verbose
 
       - name: Build frontend production bundle

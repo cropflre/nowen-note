@@ -1,14 +1,16 @@
 // @vitest-environment jsdom
 
-import { afterEach, beforeAll, describe, expect, it } from "vitest";
-import { EditorSelection, EditorState } from "@codemirror/state";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { Compartment, EditorSelection, EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { markdown } from "@codemirror/lang-markdown";
 import {
   collectMarkdownLivePreviewBlocks,
   markdownLivePreviewEditAnchor,
   markdownLivePreviewExtension,
+  markdownLivePreviewNoteId,
 } from "@/lib/markdownLivePreview";
+import { resetAttachmentAccessStateForTests } from "@/lib/noteAttachmentAccessBridge";
 
 beforeAll(() => {
   if (!(globalThis as any).ResizeObserver) {
@@ -39,6 +41,9 @@ beforeAll(() => {
 
 afterEach(() => {
   document.body.innerHTML = "";
+  localStorage.clear();
+  resetAttachmentAccessStateForTests();
+  vi.unstubAllGlobals();
 });
 
 async function flushPreview() {
@@ -46,6 +51,34 @@ async function flushPreview() {
 }
 
 describe("markdownLivePreviewExtension", () => {
+  it("authorizes Live-mode images for their own note and updates the scope even for identical text", async () => {
+    resetAttachmentAccessStateForTests();
+    localStorage.setItem("nowen-token", "jwt-token");
+    const id = "123e4567-e89b-42d3-a456-426614174216";
+    const fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input), window.location.href);
+      return new Response(JSON.stringify({ urls: { [id]: `/api/attachments/${id}?exp=2000000000&sig=${url.searchParams.get("noteId")}&scope=v2.scope` } }), { status: 200 });
+    });
+    vi.stubGlobal("fetch", fetch);
+    const parent = document.createElement("div"); document.body.appendChild(parent);
+    const scope = new Compartment();
+    const doc = `![image](/api/attachments/${id})\n\nEditing paragraph`;
+    const view = new EditorView({ parent, state: EditorState.create({ doc, selection: { anchor: doc.length },
+      extensions: [markdown(), scope.of(markdownLivePreviewNoteId.of("note-a")), markdownLivePreviewExtension],
+    }) });
+    try {
+      await flushPreview();
+      expect(parent.querySelector("img")?.getAttribute("src")).toContain("sig=note-a");
+      view.dispatch({ effects: scope.reconfigure(markdownLivePreviewNoteId.of("note-b")) });
+      await flushPreview();
+      resetAttachmentAccessStateForTests();
+      await flushPreview();
+      expect(fetch.mock.calls.some(([url]) => String(url).includes("noteId=note-b"))).toBe(true);
+      expect(parent.querySelector("img")?.getAttribute("src")).toContain("sig=note-b");
+      expect(view.state.doc.toString()).toBe(doc);
+    } finally { view.destroy(); }
+  });
+
   it("keeps imported quote lines and trailing SiYuan IAL in one semantic block", () => {
     const doc = [
       "编辑中的段落",

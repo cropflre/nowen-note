@@ -8,6 +8,8 @@
  *   - IPv6 字面量始终使用 URI 标准方括号格式
  */
 
+import { getServerTransportUrl } from "./serverEndpointState";
+
 export type ServerScheme = "http" | "https";
 export type ProxyCompatibilityMode = "standard" | "public-prefix" | "public-concat";
 
@@ -405,14 +407,18 @@ export function clearResolvedServerConnection(): void {
   } catch { /* ignore */ }
 }
 
-export function getResolvedApiBaseUrl(input: string | null | undefined): string {
+export function getConfiguredApiBaseUrl(input: string | null | undefined): string {
   const serverBaseUrl = normalizeServerBaseUrl(input);
   if (!serverBaseUrl) return "/api";
   return readResolvedServerConnection(serverBaseUrl)?.apiBaseUrl || `${serverBaseUrl}/api`;
 }
 
+export function getResolvedApiBaseUrl(input: string | null | undefined): string {
+  return getConfiguredApiBaseUrl(getServerTransportUrl(normalizeServerBaseUrl(input)));
+}
+
 export function getResolvedWebSocketUrl(input: string | null | undefined): string {
-  const candidates = buildServerPathCandidates(input);
+  const candidates = buildServerPathCandidates(getServerTransportUrl(normalizeServerBaseUrl(input)));
   if (candidates.length === 0) return "";
   return readResolvedServerConnection(candidates[0].serverBaseUrl)?.websocketUrl
     || candidates[0].websocketUrl;

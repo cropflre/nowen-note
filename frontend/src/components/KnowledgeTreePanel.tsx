@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useTranslation } from "react-i18next";
 import {
   BrainCircuit,
   Check,
@@ -222,6 +223,7 @@ function MovePanel({
   onMoved: () => void;
   onClose: () => void;
 }) {
+  const { t } = useTranslation();
   const blocked = useMemo(() => {
     const result = descendantsOf(node.id, children);
     result.add(node.id);
@@ -244,11 +246,11 @@ function MovePanel({
     try {
       await knowledgeTreeApi.move(node.id, { parentId });
       emitTreeChanged("node-moved");
-      toast.success("已移动");
+      toast.success(t("knowledgeTreeUi.moved"));
       onMoved();
       onClose();
     } catch (error: any) {
-      toast.error(error?.message || "移动失败");
+      toast.error(error?.message || t("knowledgeTreeUi.moveFailed"));
     }
   };
 
@@ -256,8 +258,8 @@ function MovePanel({
     <div className="absolute inset-0 z-[220] flex flex-col bg-app-sidebar">
       <header className="flex h-11 items-center gap-2 border-b border-app-border px-3">
         <Folder size={16} className="text-amber-500" />
-        <div className="min-w-0 flex-1 truncate text-sm font-semibold text-tx-primary">移动“{node.title}”</div>
-        <button type="button" onClick={onClose} className="rounded-md p-1.5 text-tx-tertiary hover:bg-app-hover" aria-label="关闭移动面板"><X size={16} /></button>
+        <div className="min-w-0 flex-1 truncate text-sm font-semibold text-tx-primary">{t("knowledgeTreeUi.moveTitle", { title: node.title })}</div>
+        <button type="button" onClick={onClose} className="rounded-md p-1.5 text-tx-tertiary hover:bg-app-hover" aria-label={t("knowledgeTreeUi.closeMove")}><X size={16} /></button>
       </header>
       <div className="min-h-0 flex-1 overflow-y-auto p-2">
         {allowRoot && (
@@ -267,7 +269,7 @@ function MovePanel({
             onClick={() => void move(null)}
             className="mb-1 flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm text-tx-secondary hover:bg-app-hover hover:text-tx-primary disabled:cursor-not-allowed disabled:opacity-40"
           >
-            <TreePine size={14} className="text-accent-primary" /><span className="truncate">根目录</span>
+            <TreePine size={14} className="text-accent-primary" /><span className="truncate">{t("knowledgeTreeUi.root")}</span>
           </button>
         )}
         {candidates.map((candidate) => (
@@ -275,7 +277,7 @@ function MovePanel({
             {nodeIcon(candidate)}<span className="truncate">{candidate.title}</span>
           </button>
         ))}
-        {candidates.length === 0 && node.parentId === null && <p className="py-10 text-center text-xs text-tx-tertiary">没有可用目标节点</p>}
+        {candidates.length === 0 && node.parentId === null && <p className="py-10 text-center text-xs text-tx-tertiary">{t("knowledgeTreeUi.noTarget")}</p>}
       </div>
     </div>
   );
@@ -320,6 +322,7 @@ export function KnowledgeTreePanel({
   showAllNotesToolbar = true,
   layoutMode = "standard",
 }: KnowledgeTreePanelProps) {
+  const { t } = useTranslation();
   const { state } = useApp();
   const actions = useAppActions();
   const activeMindMapId = useSyncExternalStore(subscribeMindMapAppPath, getCurrentMindMapAppId, () => null);
@@ -561,7 +564,7 @@ export function KnowledgeTreePanel({
     && (children.get(node.id)?.length || 0) > 0
   )).map((node) => node.id);
   const hasExpandedFolders = !query.trim() && expandableFolderIds.some((id) => expanded.has(id));
-  const toggleAllLabel = hasExpandedFolders ? "全部收起" : "全部展开";
+  const toggleAllLabel = hasExpandedFolders ? t("knowledgeTreeUi.collapseAll") : t("knowledgeTreeUi.expandAll");
 
   const clearSelection = useCallback(() => {
     selectionAnchorRef.current = null;
@@ -645,13 +648,13 @@ export function KnowledgeTreePanel({
   const chooseVisibleDepth = useCallback(async () => {
     if (query.trim()) return;
     const choice = await choose({
-      title: "目录展示层级",
-      description: "根目录为第 1 层；选择后会统一调整当前知识树的展开状态。",
+      title: t("knowledgeTreeUi.depthTitle"),
+      description: t("knowledgeTreeUi.depthDescription"),
       choices: [
-        { value: "1", label: "仅显示第 1 层" },
-        { value: "2", label: "展开到第 2 层" },
-        { value: "3", label: "展开到第 3 层" },
-        { value: "all", label: "展开全部层级" },
+        { value: "1", label: t("knowledgeTreeUi.onlyOne") },
+        { value: "2", label: t("knowledgeTreeUi.depthTwo") },
+        { value: "3", label: t("knowledgeTreeUi.depthThree") },
+        { value: "all", label: t("knowledgeTreeUi.allDepth") },
       ],
     });
     if (!choice) return;
@@ -663,7 +666,7 @@ export function KnowledgeTreePanel({
           ? 3
           : 1;
     applyVisibleDepth(depth);
-  }, [applyVisibleDepth, query]);
+  }, [applyVisibleDepth, query, t]);
 
   const runMobileTreeAction = useCallback((value: string) => {
     setMobileActionsOpen(false);
@@ -1174,7 +1177,7 @@ export function KnowledgeTreePanel({
       emitTreeChanged("node-moved");
       actions.refreshNotebooks();
       actions.refreshNotes();
-      toast.success("已移动");
+      toast.success(t("knowledgeTreeUi.moved"));
     } catch (requestError: any) {
       toast.error(requestError?.message || "移动失败");
     }
@@ -1723,14 +1726,14 @@ export function KnowledgeTreePanel({
             })),
             {
               value: "depth:1",
-              label: "仅显示第 1 层",
+              label: t("knowledgeTreeUi.onlyOne"),
               disabled: Boolean(query.trim()),
               separatorBefore: true,
               sectionLabel: "展示层级",
             },
-            { value: "depth:2", label: "展开到第 2 层", disabled: Boolean(query.trim()) },
-            { value: "depth:3", label: "展开到第 3 层", disabled: Boolean(query.trim()) },
-            { value: "depth:all", label: "展开全部层级", disabled: Boolean(query.trim()) },
+            { value: "depth:2", label: t("knowledgeTreeUi.depthTwo"), disabled: Boolean(query.trim()) },
+            { value: "depth:3", label: t("knowledgeTreeUi.depthThree"), disabled: Boolean(query.trim()) },
+            { value: "depth:all", label: t("knowledgeTreeUi.allDepth"), disabled: Boolean(query.trim()) },
             {
               value: "toggle",
               label: toggleAllLabel,

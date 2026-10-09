@@ -4,6 +4,7 @@ import {
   knowledgeTreeApi,
   type EffectiveKnowledgeAccess,
   type KnowledgeTreeNode,
+  type KnowledgeTreeResponse,
 } from "./knowledgeTreeApi";
 import { applyKnowledgeTreeSort } from "./knowledgeTreeSort";
 import { newLocalId } from "./localRepository";
@@ -161,7 +162,7 @@ function localOnlyUnsupported(message: string): Error & { code?: string } {
  * Android Native 知识树 Bridge。
  *
  * - 纯设备本地模式：列表从 Native Repository 投影，并接管 CRUD / batch / ACL。
- * - 已登录 Local-first：在线读取服务端统一树，断网回退本机列表；mutation / 权限 /
+ * - 已登录 Local-first：在线读取服务端统一树，断网回退服务端快照；mutation / 权限 /
  *   密码等高级能力仍由服务端处理，直到 Native DB 支持完整结构同步。
  */
 export function installMobileLocalKnowledgeTreeBridge(
@@ -196,14 +197,14 @@ export function installMobileLocalKnowledgeTreeBridge(
     return { nodes: projectNodes(notebooks, notes, mindMaps, deviceOnly) };
   };
 
-  // 登录态以服务端统一树为准；断网时保留原有本机列表兜底。
+  // 登录态以服务端统一树为准；断网时只使用保留密码信息的服务端快照。
   // 权限或服务端错误不能当作断网，否则可能显示已撤权的工作区内容。
   if (!deviceOnly) {
     const serverFirstList = async (
       workspaceId: string | undefined,
       includeDeleted: boolean,
-      remote: () => Promise<{ nodes: KnowledgeTreeNode[] }>,
-    ): Promise<{ nodes: KnowledgeTreeNode[] }> => {
+      remote: () => Promise<KnowledgeTreeResponse>,
+    ): Promise<KnowledgeTreeResponse> => {
       const key = snapshotKey(workspaceId, includeDeleted);
       const scope = syncScopeKey(workspaceId);
       const validNodes = (nodes: unknown): nodes is KnowledgeTreeNode[] => Array.isArray(nodes)
@@ -214,6 +215,7 @@ export function installMobileLocalKnowledgeTreeBridge(
         if (!validNodes(result.nodes)) throw new Error("服务器知识树数据空间不匹配");
         if (db) {
           try {
+            // 在线解锁确认不能进入离线快照；离线仍需逐篇服务端授权。
             await db.run(`INSERT INTO native_runtime_meta (key,value,updatedAt) VALUES (?,?,?)
               ON CONFLICT(key) DO UPDATE SET value=excluded.value,updatedAt=excluded.updatedAt`,
             [key, JSON.stringify(result.nodes), new Date().toISOString()]);
@@ -247,10 +249,11 @@ export function installMobileLocalKnowledgeTreeBridge(
             try {
               const nodes = JSON.parse(cached.value) as unknown;
               if (validNodes(nodes)) return { nodes };
-            } catch { /* Corrupt cache falls back to native projection. */ }
+            } catch { /* 损坏的快照不能证明目录没有密码。 */ }
           }
         }
-        return list(workspaceId, includeDeleted);
+        // Native 投影不含文件夹密码，缺失/损坏的服务端快照不能降级成无保护目录。
+        throw new Error("目录权限和密码信息尚未缓存，请联网后重试");
       }
     };
     target.list = (includeDeleted = false) => serverFirstList(

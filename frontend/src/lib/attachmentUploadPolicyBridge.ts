@@ -3,7 +3,6 @@ import {
   formatAttachmentLimit,
   loadAttachmentUploadPolicy,
   validateAttachmentSize,
-  warmAttachmentUploadPolicy,
 } from "@/lib/attachmentUploadPolicy";
 import { UploadRequestError } from "@/lib/uploadRequest";
 
@@ -55,5 +54,7 @@ export function installAttachmentUploadPolicyBridge(): void {
     }
   }) as typeof api.attachments.upload;
 
-  warmAttachmentUploadPolicy();
+  // Application boot happens before AuthGate resolves the current session.
+  // Do not discover an authenticated policy speculatively: stale/missing JWTs
+  // create 401 noise. loadAttachmentUploadPolicy runs on the first real upload.
 }

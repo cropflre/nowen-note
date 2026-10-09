@@ -1,9 +1,15 @@
+import { emojis } from "@tiptap/extension-emoji";
+import { getRichTextExtensions } from "@/lib/richTextExtensions";
+import { EmojiSuggestionList } from "./EmojiSuggestionList";
+import RichTextBlockControls from "./RichTextBlockControls";
+import { getSlashEditorId } from "./extensions/SlashCommandExtension";
+import "./dragHandle.css";
 import React, { forwardRef, lazy, Suspense, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
 import { Capacitor } from "@capacitor/core";
 import { Keyboard } from "@capacitor/keyboard";
 import { sanitizeForPaste } from "@/lib/sanitizeHtml";
 import { createPortal } from "react-dom";
-import { useEditor, Editor, EditorContent, Extension, ReactNodeViewRenderer } from "@tiptap/react";
+import { useEditor, Editor, EditorContent, Extension, ReactNodeViewRenderer, ReactRenderer } from "@tiptap/react";
 import { Plugin, PluginKey } from "prosemirror-state";
 
 // 懒加载 docx 内联预览：office 解析器（fflate + 自研 OOXML parser）有几十 KB，
@@ -20,7 +26,8 @@ import { posToDOMRect, type Content } from "@tiptap/core";
 import { AnimatePresence, motion } from "framer-motion";import StarterKit from "@tiptap/starter-kit";
 import Placeholder from "@tiptap/extension-placeholder";
 import Image from "@tiptap/extension-image";
-import ResizableImageView from "./ResizableImageView";
+import { createResizableImageNodeView } from "./ResizableImageView";
+import { AttachmentNoteContext } from "@/hooks/useAttachmentImageRenderSource";
 import CollapsibleEditorToolbar, { MobileEditorToolbarSlot } from "./CollapsibleEditorToolbar";
 import ImageEditDialog from "@/components/image-editor/ImageEditDialog";
 import FullscreenImageViewer, { type FullscreenImageItem } from "@/components/FullscreenImageViewer";
@@ -1073,6 +1080,7 @@ interface FontSizePopoverProps {
   compact?: boolean;
 }
 function FontSizePopover({ editor, iconSize = 15, compact = false }: FontSizePopoverProps) {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const [custom, setCustom] = useState("");
   const ref = useRef<HTMLDivElement | null>(null);
@@ -1140,7 +1148,7 @@ function FontSizePopover({ editor, iconSize = 15, compact = false }: FontSizePop
         ref={btnRef}
         type="button"
         onClick={() => setOpen((v) => !v)}
-        title={`${currentSize ? `字号: ${currentSize}` : "字号"}`}
+        title={currentSize ? t("editorToolbar.fontSizeValue", { value: currentSize }) : t("editorToolbar.fontSize")}
         className={cn(
           "p-1.5 rounded-md transition-colors flex items-center gap-0.5",
           currentSize
@@ -1159,7 +1167,7 @@ function FontSizePopover({ editor, iconSize = 15, compact = false }: FontSizePop
           data-popover=""
           onMouseDown={(e) => e.preventDefault()}
         >
-          <div className="text-[11px] text-tx-tertiary px-1 pb-1">预设</div>
+          <div className="text-[11px] text-tx-tertiary px-1 pb-1">{t("editorToolbar.presets")}</div>
           <div className="grid grid-cols-2 gap-1">
             {FONT_SIZE_PRESETS.map((p) => (
               <button
@@ -1177,12 +1185,12 @@ function FontSizePopover({ editor, iconSize = 15, compact = false }: FontSizePop
               </button>
             ))}
           </div>
-          <div className="text-[11px] text-tx-tertiary px-1 pt-2 pb-1">自定义 (8–96 px)</div>
+          <div className="text-[11px] text-tx-tertiary px-1 pt-2 pb-1">{t("editorToolbar.custom")}</div>
           <div className="flex gap-1">
             <input
               type="text"
               inputMode="numeric"
-              placeholder="如 18 或 18px"
+              placeholder={t("editorToolbar.sizePlaceholder")}
               value={custom}
               onChange={(e) => setCustom(e.target.value)}
               onKeyDown={(e) => {
@@ -1212,7 +1220,7 @@ function FontSizePopover({ editor, iconSize = 15, compact = false }: FontSizePop
             className="w-full px-2 py-1 text-xs rounded text-tx-secondary hover:bg-app-hover flex items-center gap-1"
           >
             <Eraser size={12} />
-            清除字号
+            {t("editorToolbar.clearSize")}
           </button>
         </div>,
         document.body,
@@ -1237,6 +1245,7 @@ interface LineHeightPopoverProps {
   compact?: boolean;
 }
 function LineHeightPopover({ editor, iconSize = 15, compact = false }: LineHeightPopoverProps) {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement | null>(null);
   const btnRef = useRef<HTMLButtonElement | null>(null);
@@ -1294,7 +1303,7 @@ function LineHeightPopover({ editor, iconSize = 15, compact = false }: LineHeigh
         ref={btnRef}
         type="button"
         onClick={() => setOpen((value) => !value)}
-        title={currentLineHeight ? `行距: ${currentLabel || currentLineHeight}` : "行距"}
+        title={currentLineHeight ? t("editorToolbar.lineHeightValue", { value: currentLabel || currentLineHeight }) : t("editorToolbar.lineHeight")}
         className={cn(
           "p-1.5 rounded-md transition-colors flex items-center gap-0.5",
           currentLineHeight
@@ -1313,7 +1322,7 @@ function LineHeightPopover({ editor, iconSize = 15, compact = false }: LineHeigh
           data-popover=""
           onMouseDown={(e) => e.preventDefault()}
         >
-          <div className="text-[11px] text-tx-tertiary px-1 pb-1">行距</div>
+          <div className="text-[11px] text-tx-tertiary px-1 pb-1">{t("editorToolbar.lineHeight")}</div>
           <div className="space-y-1">
             {LINE_HEIGHT_PRESETS.map((preset) => (
               <button
@@ -1337,7 +1346,7 @@ function LineHeightPopover({ editor, iconSize = 15, compact = false }: LineHeigh
             className="w-full px-2 py-1 text-xs rounded text-tx-secondary hover:bg-app-hover flex items-center gap-1"
           >
             <Eraser size={12} />
-            清除行距
+            {t("editorToolbar.clearLineHeight")}
           </button>
         </div>,
         document.body,
@@ -1358,6 +1367,7 @@ interface ColorPopoverProps {
   compact?: boolean;
 }
 function ColorPopover({ editor, iconSize = 15, compact = false }: ColorPopoverProps) {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const [tab, setTab] = useState<"fg" | "bg">("fg");
   const ref = useRef<HTMLDivElement | null>(null);
@@ -1420,7 +1430,7 @@ function ColorPopover({ editor, iconSize = 15, compact = false }: ColorPopoverPr
         ref={btnRef}
         type="button"
         onClick={() => setOpen((v) => !v)}
-        title={isActive ? `颜色: ${fgColor || ""} ${bgColor ? "背景: " + bgColor : ""}`.trim() : "颜色"}
+        title={isActive ? t("editorToolbar.colorValue", { value: `${fgColor || ""} ${bgColor ? t("editorToolbar.bgColorValue", { value: bgColor }) : ""}`.trim() }) : t("editorToolbar.color")}
         className={cn(
           "p-1.5 rounded-md transition-colors flex items-center gap-0.5",
           isActive
@@ -1456,7 +1466,7 @@ function ColorPopover({ editor, iconSize = 15, compact = false }: ColorPopoverPr
                 tab === "fg" ? "bg-app-elevated shadow-sm" : "text-tx-tertiary hover:text-tx-primary",
               )}
             >
-              文字
+              {t("editorToolbar.textColor")}
             </button>
             <button
               type="button"
@@ -1466,7 +1476,7 @@ function ColorPopover({ editor, iconSize = 15, compact = false }: ColorPopoverPr
                 tab === "bg" ? "bg-app-elevated shadow-sm" : "text-tx-tertiary hover:text-tx-primary",
               )}
             >
-              背景
+              {t("editorToolbar.background")}
             </button>
           </div>
           {/* Swatches */}
@@ -1508,7 +1518,7 @@ function ColorPopover({ editor, iconSize = 15, compact = false }: ColorPopoverPr
               className="ml-auto px-2 py-1 text-xs rounded text-tx-secondary hover:bg-app-hover flex items-center gap-1"
             >
               <Eraser size={12} />
-              清除
+              {t("editorToolbar.clear")}
             </button>
           </div>
         </div>,
@@ -1647,7 +1657,14 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
     const next = getActiveListType(currentEditor);
     if (activeListTypeRef.current === next) return;
     activeListTypeRef.current = next;
-    setActiveListType(next);
+    // Tiptap fires create/transaction callbacks synchronously, including while
+    // React is committing editor NodeViews. Defer React state updates until the
+    // current commit finishes; only publish the newest selection and never update
+    // a destroyed editor's toolbar.
+    queueMicrotask(() => {
+      if (currentEditor?.isDestroyed || activeListTypeRef.current !== next) return;
+      setActiveListType(next);
+    });
   }, []);
   const [showAI, setShowAI] = useState(false);
   const [aiSelectedText, setAiSelectedText] = useState("");
@@ -1946,6 +1963,11 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
   const initialEditorContent = initialEditorContentRef.current.content;
 
   const editor: Editor | null = useEditor({
+    // ReactNodeViewRenderer creates React roots for images, code blocks and other rich nodes.
+    // Creating the ProseMirror view during React render can trigger Tiptap's flushSync
+    // warning. Initialize it after mount; EditorContent and all editor effects tolerate
+    // the initial null editor, while note text/loading stays independent of this work.
+    immediatelyRender: false,
     shouldRerenderOnTransaction: false,
     extensions: [
       keyboardExtension.current,
@@ -2014,7 +2036,7 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
           };
         },
         addNodeView() {
-          return ReactNodeViewRenderer(ResizableImageView);
+          return createResizableImageNodeView();
         },
       }).configure({
         // inline: true —— 允许图片作为 inline 节点出现在 paragraph / listItem
@@ -2106,6 +2128,62 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
       VideoExtension,
       VoiceMemo.extend({ addNodeView() { return ReactNodeViewRenderer(VoiceMemoBlock); } }),
       BlockEmbedExtension,
+      ...getRichTextExtensions({
+        suggestion: {
+          items: ({ query }: { query: string }) => {
+            const q = (query || "").toLowerCase().trim();
+            if (!q) {
+              // 空查询：返回一组常用 emoji 子集（覆盖表情/手势/自然/物品/符号等
+              // 多类别）。emojis 数据集共 1949 个，这里先给常用子集，继续输入
+              // 即可在全部 1949 个里按 name/shortcodes/tags 搜索。
+              const popular = new Set<string>([
+                // 表情
+                "grinning", "smile", "slightly_smiling_face", "laughing", "blush",
+                "wink", "heart_eyes", "kissing_heart", "yum", "thinking_face",
+                "sleepy", "tired_face", "cry", "sob", "angry", "rage", "scream",
+                "innocent", "stuck_out_tongue", "sunglasses", "smirk", "relieved",
+                "disappointed", "worried", "sweat_smile", "rofl", "joy",
+                "rolling_on_the_floor_laughing", "mask", "cool", "star_struck",
+                "partying_face", "exploding_head", "zany_face", "woozy_face",
+                // 手势 / 人
+                "wave", "raised_hand", "ok_hand", "thumbsup", "thumbsdown",
+                "punch", "fist", "v", "crossed_fingers", "pray", "hands", "clap",
+                "muscle", "point_up", "point_right", "open_hands", "raised_hands",
+                "facepalm", "handshake",
+                // 心 / 符号
+                "heart", "broken_heart", "two_hearts", "heartpulse",
+                "sparkling_heart", "gift", "balloon", "tada", "fire", "star",
+                "sparkles", "zap", "warning", "white_check_mark", "x",
+                "heavy_check_mark", "heavy_plus_sign", "arrow_right", "arrow_left",
+                "recycle", "lock", "key", "bell", "bulb", "eyes", "speaker",
+                "microphone", "music", "notes", "link", "paperclip", "envelope",
+                // 自然 / 食物
+                "sun", "moon", "cloud", "rain", "snowflake", "earth_africa",
+                "earth_americas", "pizza", "burger", "fries", "apple", "banana",
+                "grapes", "watermelon", "coffee", "tea", "beer", "wine", "cookie",
+                "candy", "cake",
+                // 物品 / 科技
+                "book", "books", "pen", "pencil", "computer", "keyboard", "phone",
+                "camera", "car", "airplane", "rocket", "wrench", "hammer", "gear",
+                "calendar", "alarm_clock", "100", "email", "iphone", "tv",
+              ]);
+              return emojis.filter((e) => popular.has(e.name));
+            }
+            return emojis
+              .filter((item) => {
+                return (
+                  (item.name && item.name.toLowerCase().includes(q)) ||
+                  (item.shortcodes &&
+                    item.shortcodes.some((s: string) => s.toLowerCase().includes(q))) ||
+                  (item.tags &&
+                    item.tags.some((t: string) => t.toLowerCase().includes(q)))
+                );
+              })
+              .slice(0, 200);
+          },
+          render: () => createEmojiSuggestionRenderer(),
+        },
+      }),
     ],
     content: initialEditorContent,
     editable,
@@ -5471,6 +5549,7 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
             toolbarShadow && "shadow-[0_2px_8px_-2px_rgba(0,0,0,0.08)] dark:shadow-[0_2px_8px_-2px_rgba(0,0,0,0.4)]",
           )}
         >
+        <ToolbarButton onClick={() => window.dispatchEvent(new CustomEvent("nowen:open-block-menu", { detail: { editorId: getSlashEditorId(editor) } }))} title={t("slash.blockMenu")}><MoreHorizontal size={iconSize} /></ToolbarButton>
         <ToolbarButton className="max-md:hidden" onClick={() => editor.chain().focus().undo().run()} disabled={!editor.can().undo()} title={t('tiptap.undo')}>
           <Undo size={iconSize} />
         </ToolbarButton>
@@ -5883,8 +5962,8 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
       )}
 
       {/* Tag Bar：访客模式下隐藏（TagInput 依赖 AppProvider + 登录态 API） */}
-      {!isGuest && !windowedSection && !compactMobileEditing && (
-        <div className="px-4 md:px-8 pb-1">
+      {!isGuest && !windowedSection && (
+        <div className={cn("px-4 md:px-8 pb-1", compactMobileEditing && "hidden focus-within:block")}>
           <TagInput
             noteId={note.id}
             noteTags={note.tags || []}
@@ -6687,7 +6766,10 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
         className={cn(scrollLayout.content, "px-4 md:px-8 pb-12")}
         style={{ paddingBottom: "calc(3rem + var(--keyboard-height, 0px) + var(--outline-scroll-reserve, 0px))" }}
       >
-        <EditorContent editor={editor} />
+        <AttachmentNoteContext.Provider value={isGuest ? null : note.id}>
+          <EditorContent editor={editor} />
+        </AttachmentNoteContext.Provider>
+        <RichTextBlockControls editor={editor} editable={editable} isMobile={isMobile} />
       <NoteLinkHoverPreview root={editor.view.dom} />
       </div>
 
@@ -7166,6 +7248,57 @@ function parseContent(content: string): any {
     type: "doc",
     content: [{ type: "paragraph", content: [{ type: "text", text: content }] }],
   };
+}
+
+function createEmojiSuggestionRenderer() {
+  let component: ReactRenderer | null = null
+  let popup: HTMLDivElement | null = null
+  const close = () => {
+    popup?.remove()
+    component?.destroy()
+    popup = null
+    component = null
+  }
+
+  const updatePosition = (
+    clientRect: (() => DOMRect | null) | null | undefined
+  ) => {
+    if (!popup || !clientRect) return
+    const rect = clientRect()
+    if (!rect) return
+    popup.style.left = `${Math.max(8, Math.min(rect.left, window.innerWidth - popup.offsetWidth - 8))}px`
+    popup.style.top = `${Math.max(8, Math.min(rect.bottom + 6, window.innerHeight - popup.offsetHeight - 8))}px`
+  }
+
+  return {
+    onStart: (props: any) => {
+      component = new ReactRenderer(EmojiSuggestionList, {
+        props,
+        editor: props.editor,
+      })
+      popup = document.createElement('div')
+      popup.className = 'emoji-suggestion-popup'
+      popup.style.position = 'fixed'
+      popup.style.zIndex = '60'
+      popup.appendChild(component.element)
+      document.body.appendChild(popup)
+      updatePosition(props.clientRect)
+    },
+    onUpdate: (props: any) => {
+      component?.updateProps(props)
+      updatePosition(props.clientRect)
+    },
+    onKeyDown: (props: any) => {
+      if (props.event.key === 'Escape') {
+        close()
+        return true
+      }
+      return (component?.ref as any)?.onKeyDown(props) ?? false
+    },
+    onExit: () => {
+      close()
+    },
+  }
 }
 
 function serializeEditorContentForPersistence(editor: Editor, noteId: string): string | null {

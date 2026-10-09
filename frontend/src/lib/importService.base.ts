@@ -3,6 +3,7 @@ import { marked, Renderer } from "marked";
 import i18n from "i18next";
 import { Editor, generateJSON, Extension } from "@tiptap/core";
 import StarterKit from "@tiptap/starter-kit";
+import { getRichTextExtensions } from "./richTextExtensions";
 import Link from "@tiptap/extension-link";
 import Image from "@tiptap/extension-image";
 import CodeBlockLowlight from "@tiptap/extension-code-block-lowlight";
@@ -48,8 +49,11 @@ const lowlight = createLowlight(common);
 // TipTap 扩展列表（与编辑器保持一致）
 // 导出供 tiptapSchemaRepair.ts 复用，避免再复制一份 schema 定义
 export const tiptapExtensions = [
+  ...getRichTextExtensions(),
   StarterKit.configure({
     codeBlock: false,
+    underline: false,
+    link: false,
     heading: { levels: [1, 2, 3, 4, 5, 6] },
   }),
   // BLOCK-LINKS-UI-01-RV3: 显式配置 Link 扩展，允许 note: 协议

@@ -6,6 +6,8 @@ import { EncryptedNotePayloadError, guardEncryptedBlockWriter, guardEncryptedNot
 import { createKnowledgeChild, KnowledgeTreeError } from "../services/knowledgeTree.js";
 import { projectMarkdownNoteForUser } from "../lib/markdownUserContent";
 import { getDb } from "../db/schema";
+import { isLegacyWeChatHtmlImport } from "../lib/legacyWeChatHtmlFormat.js";
+import { diagnoseTiptapContent } from "../lib/tiptap-note-format.js";
 import { v4 as uuid } from "uuid";
 import { emitWebhook } from "../services/webhook";
 import { logAudit } from "../services/audit";
@@ -63,6 +65,14 @@ import { duplicateNote, DuplicateNoteError } from "../services/noteDuplicates";
 import { isValidNoteColorMarkInput, normalizeNoteColorMark } from "../lib/noteColorMark";
 
 const app = new Hono();
+const reportedInvalidTiptapNotes = new Set<string>();
+function reportInvalidTiptapNoteOnce(noteId: string, version: number, reason: string): void {
+  const key = `${noteId}:${version}:${reason}`;
+  if (reportedInvalidTiptapNotes.has(key)) return;
+  if (reportedInvalidTiptapNotes.size >= 256) reportedInvalidTiptapNotes.clear();
+  reportedInvalidTiptapNotes.add(key);
+  console.warn("[notes.get] skipped block authority read repair", { noteId, version, reason });
+}
 
 type TrashScope = { workspaceId: string | null; value: string };
 
@@ -539,12 +549,38 @@ app.get("/:id", (c) => {
   const note = db.prepare(`SELECT ${selectCols} FROM notes WHERE id = ?`).get(userId, id) as any;
   if (!note) return c.json({ error: "Note not found" }, 404);
 
+  // Early URL imports wrote HTML into a row with SQLite's default
+  // contentFormat='tiptap-json'. Repair only its exact WeChat source-marker
+  // signature, before block-authority read-repair attempts JSON.parse("<...").
+  // This corrects metadata only; do not touch body, version or timestamps.
+  if (!slim && isLegacyWeChatHtmlImport(note.content, note.contentFormat)) {
+    try {
+      const changed = db.prepare(`
+        UPDATE notes SET contentFormat = 'html'
+        WHERE id = ? AND contentFormat = 'tiptap-json' AND content = ?
+      `).run(id, note.content);
+      if (changed.changes > 0) {
+        note.contentFormat = "html";
+        console.info("[notes.get] repaired legacy WeChat HTML contentFormat", { noteId: id });
+      }
+    } catch (error) {
+      console.warn("[notes.get] legacy WeChat contentFormat repair failed:", error);
+      // Preserve the correct read-only renderer even when metadata write is denied.
+      note.contentFormat = "html";
+    }
+  }
+
   if (!slim && typeof note.content === "string") {
     const authoritative = readAuthoritativeNoteContent(db, id, note.content);
     const selected = selectBlockAuthorityRead(resolveBlockAuthorityMode(), authoritative, note.content);
     note.content = selected.content;
     note.blockAuthority = { source: selected.source, status: selected.status };
-    if (selected.shouldRepair && ["tiptap-json", "markdown"].includes(note.contentFormat)) {
+    const formatDiagnosis = note.contentFormat === "tiptap-json"
+      ? diagnoseTiptapContent(note.content) : "valid";
+    if (selected.shouldRepair && formatDiagnosis !== "valid") {
+      // Keep legacy raw content and metadata unchanged; block repair is not a format migration.
+      reportInvalidTiptapNoteOnce(id, note.version, formatDiagnosis);
+    } else if (selected.shouldRepair && ["tiptap-json", "markdown"].includes(note.contentFormat)) {
       try {
         const synced = syncNoteBlocks(db, id, note.content, note.contentFormat);
         if (synced.changed) {
