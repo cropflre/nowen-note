@@ -5,12 +5,14 @@ on:
     branches: [main]
     paths:
       - "backend/src/services/embedding-worker.ts"
+      - "backend/src/runtime/embedding-queue-hardening.ts"
       - "backend/src/services/embedding-retry-policy.ts"
       - "backend/src/services/embedding-index-diagnostics.ts"
       - "backend/src/services/vec-store.ts"
       - "backend/src/routes/ai.ts"
       - "backend/src/routes/ai-reliable.ts"
       - "backend/tests/embedding-retry-policy.test.ts"
+      - "backend/tests/embedding-queue-hardening.test.ts"
       - "backend/tests/embedding-index-diagnostics.test.ts"
       - "frontend/src/components/EmbeddingSettingsPanel.tsx"
       - "frontend/src/components/EmbeddingIndexFailureDetails.tsx"
@@ -24,12 +26,14 @@ on:
   pull_request:
     paths:
       - "backend/src/services/embedding-worker.ts"
+      - "backend/src/runtime/embedding-queue-hardening.ts"
       - "backend/src/services/embedding-retry-policy.ts"
       - "backend/src/services/embedding-index-diagnostics.ts"
       - "backend/src/services/vec-store.ts"
       - "backend/src/routes/ai.ts"
       - "backend/src/routes/ai-reliable.ts"
       - "backend/tests/embedding-retry-policy.test.ts"
+      - "backend/tests/embedding-queue-hardening.test.ts"
       - "backend/tests/embedding-index-diagnostics.test.ts"
       - "frontend/src/components/EmbeddingSettingsPanel.tsx"
       - "frontend/src/components/EmbeddingIndexFailureDetails.tsx"
@@ -82,5 +86,6 @@ jobs:
         run: |
           node --import tsx --test tests/embedding-retry-policy.test.ts
           node --import tsx --test tests/embedding-index-diagnostics.test.ts
+          node --import tsx --test tests/embedding-queue-hardening.test.ts
       - name: Backend typecheck
         run: npx tsc --noEmit
