@@ -89,7 +89,7 @@ export const aiProfiles = {
     ),
 
   discoverModels: (draft: AIProfileDraft, profileId?: string) =>
-    request<{ models: AIModelOption[]; source?: string }>("/discover-models", {
+    request<{ models: AIModelOption[]; source?: string; filteredNonChatCount?: number }>("/discover-models", {
       method: "POST",
       body: JSON.stringify({ ...draft, profileId }),
     }),
