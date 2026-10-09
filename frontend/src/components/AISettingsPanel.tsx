@@ -15,6 +15,7 @@ import {
   Zap,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { getNonChatModelKind } from "@/lib/chatModelType";
 import PluginPromptPackSettingsSection from "@/components/settings/PluginPromptPackSettingsSection";
 import SpeechSettingsPanel from "@/components/SpeechSettingsPanel";
 import {
@@ -76,6 +77,7 @@ function getCopy() {
       fetching: "Fetching models…",
       fetchModels: "Refresh models",
       noModels: "No model list returned. You can still enter a model manually.",
+      onlyNonChatModels: "Only embedding/reranking models were found. Configure embedding models under Vector search below.",
       saved: "Profile saved",
       activated: "Profile activated",
       testSuccess: "Connection succeeded",
@@ -85,6 +87,9 @@ function getCopy() {
       nameRequired: "Enter a profile name",
       keyConfigured: "Saved key",
       customModel: "Enter model name",
+      embeddingHint: "This is an embedding model, not a chat model. Configure and test it under Vector search (Embedding) below.",
+      rerankHint: "This is a reranking model and cannot be used for AI chat. Choose a chat model.",
+      goToEmbedding: "Go to Embedding settings",
     };
   }
   return {
@@ -106,6 +111,7 @@ function getCopy() {
     fetching: "正在获取模型…",
     fetchModels: "刷新模型",
     noModels: "接口没有返回模型列表，仍可手动填写模型名称。",
+    onlyNonChatModels: "仅发现向量或重排序模型；向量模型请到下方「向量检索」配置。",
     saved: "配置已保存",
     activated: "已切换当前配置",
     testSuccess: "连接成功",
@@ -115,6 +121,9 @@ function getCopy() {
     nameRequired: "请输入配置名称",
     keyConfigured: "已保存密钥",
     customModel: "手动输入模型名称",
+    embeddingHint: "这是向量模型，不支持 AI 对话。请在下方「向量检索（Embedding）」中配置并测试。",
+    rerankHint: "这是重排序模型，不能用于 AI 对话。请选择聊天模型。",
+    goToEmbedding: "前往向量检索配置",
   };
 }
 
@@ -149,6 +158,8 @@ export default function AISettingsPanel() {
   const selectedProfile = profiles.find((profile) => profile.id === selectedId) || null;
   const preset = PROVIDER_PRESETS.find((item) => item.id === draft.provider) || PROVIDER_PRESETS[PROVIDER_PRESETS.length - 1];
   const needsKey = preset.needsKey;
+  const nonChatKind = getNonChatModelKind(draft.model);
+  const nonChatHint = nonChatKind === "embedding" ? copy.embeddingHint : nonChatKind === "rerank" ? copy.rerankHint : "";
 
   const loadProfiles = useCallback(async (preferredId?: string) => {
     setLoading(true);
@@ -190,10 +201,13 @@ export default function AISettingsPanel() {
     try {
       const result = await aiProfiles.discoverModels(draft, selectedId || undefined);
       if (seq !== discoverySeq.current) return;
-      setModels(result.models);
-      setModelError(result.models.length === 0 ? copy.noModels : "");
-      if (result.models.length > 0 && !draft.model) {
-        setDraft((current) => ({ ...current, model: result.models[0].id }));
+      const chatModels = result.models.filter((model) => !getNonChatModelKind(model.id));
+      setModels(chatModels);
+      setModelError(chatModels.length === 0
+        ? (result.filteredNonChatCount ? copy.onlyNonChatModels : copy.noModels)
+        : "");
+      if (chatModels.length > 0 && !draft.model) {
+        setDraft((current) => ({ ...current, model: chatModels[0].id }));
       }
     } catch (error) {
       if (seq !== discoverySeq.current) return;
@@ -248,10 +262,14 @@ export default function AISettingsPanel() {
   }, [copy.nameRequired, draft, selectedId]);
 
   const saveProfile = async () => {
+    if (nonChatKind) {
+      setMessage({ type: "error", text: nonChatHint });
+      return;
+    }
     setSaving(true);
     setMessage(null);
     try {
-      const result = await persistDraft(true);
+      const result = await persistDraft(false);
       await loadProfiles(result.profile.id);
       emitAIProfilesChanged(result.activeProfileId);
       setMessage({ type: "success", text: copy.saved });
@@ -263,22 +281,32 @@ export default function AISettingsPanel() {
   };
 
   const testConnection = async () => {
+    if (nonChatKind) {
+      setMessage({ type: "error", text: nonChatHint });
+      return;
+    }
+    if (!draft.name.trim()) {
+      setMessage({ type: "error", text: copy.nameRequired });
+      return;
+    }
     setTesting(true);
     setMessage(null);
     try {
+      // Never mutate the active profile on a failed connectivity test.
+      const tested = await aiProfiles.testDraft(draft, selectedId || undefined);
+      if (!tested.success) {
+        setMessage({ type: "error", text: tested.error || tested.message || copy.loadFailed });
+        return;
+      }
       const saved = await persistDraft(true);
       let nextActiveId = saved.activeProfileId;
       if (saved.profile.id !== saved.activeProfileId) {
         const activated = await aiProfiles.activate(saved.profile.id);
         nextActiveId = activated.activeProfileId;
       }
-      const result = await aiProfiles.test(saved.profile.id);
       await loadProfiles(saved.profile.id);
       emitAIProfilesChanged(nextActiveId);
-      setMessage({
-        type: result.success ? "success" : "error",
-        text: result.message || result.error || (result.success ? copy.testSuccess : copy.loadFailed),
-      });
+      setMessage({ type: "success", text: tested.message || copy.testSuccess });
     } catch (error) {
       setMessage({ type: "error", text: (error as Error)?.message || copy.loadFailed });
     } finally {
@@ -453,6 +481,21 @@ export default function AISettingsPanel() {
                 : <span className="text-zinc-400">{copy.autoModels}</span>}
             </div>
           </div>
+
+          {nonChatKind && (
+            <div role="alert" className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200">
+              <span className="flex-1">{nonChatHint}</span>
+              {nonChatKind === "embedding" && (
+                <button
+                  type="button"
+                  className="shrink-0 rounded-md border border-amber-400/50 px-2.5 py-1.5 font-medium transition hover:bg-amber-100 dark:hover:bg-amber-900/50"
+                  onClick={() => document.querySelector(".nowen-embedding-settings")?.scrollIntoView({ behavior: "smooth", block: "start" })}
+                >
+                  {copy.goToEmbedding}
+                </button>
+              )}
+            </div>
+          )}
 
           <div className="flex flex-wrap items-center gap-2 border-t border-zinc-100 pt-4 dark:border-zinc-800">
             <button type="button" onClick={() => void saveProfile()} disabled={saving || testing} className="inline-flex items-center gap-1.5 rounded-lg bg-accent-primary px-4 py-2 text-xs font-medium text-white transition-colors hover:bg-accent-primary/90 disabled:opacity-50">
