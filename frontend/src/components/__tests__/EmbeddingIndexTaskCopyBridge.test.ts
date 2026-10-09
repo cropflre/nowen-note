@@ -32,7 +32,7 @@ describe("EmbeddingIndexTaskCopyBridge", () => {
     expect(applyEmbeddingIndexTaskCopy()).toBe(true);
     expect(document.body.textContent).toContain("索引任务");
     expect(document.body.textContent).toContain("等待 34 · 处理中 0 · 失败 0");
-    expect(document.body.textContent).toContain("向量引擎不可用，等待中的索引任务暂时不会开始处理");
+    expect(document.body.textContent).toContain("可能是首次索引尚未初始化");
 
     const card = document.querySelector<HTMLElement>("#queue-card");
     expect(card?.dataset.embeddingIndexTaskCard).toBe("");
