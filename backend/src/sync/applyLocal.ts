@@ -81,22 +81,21 @@ function bit(value: unknown): number {
 /**
  * 该实体是否有未推送的本地修改。
  *
- * 有则说明本地和远端各改了一份，属于真实冲突，
- * 不能让远端内容静默覆盖本地未上传的编辑。
+ * 返回最早的待推送操作，用其基线区分服务端回传与真正的远端修改。
  */
-function hasPendingLocalChange(
+function getPendingLocalChange(
   db: Database.Database,
   entityType: SyncEntityType,
   entityId: string,
   scopeKey: string,
-): boolean {
+): { baseVersion: number | null } | undefined {
   const row = db.prepare(`
-    SELECT 1 AS hit FROM sync_outbox
+    SELECT baseVersion FROM sync_outbox
     WHERE entityType = ? AND entityId = ? AND scopeKey = ?
       AND status IN ('pending', 'inflight', 'failed')
-    LIMIT 1
-  `).get(entityType, entityId, scopeKey) as { hit: number } | undefined;
-  return !!row;
+    ORDER BY createdAt ASC, rowid ASC LIMIT 1
+  `).get(entityType, entityId, scopeKey) as { baseVersion: number | null } | undefined;
+  return row;
 }
 
 function applyNotebookLocal(db: Database.Database, item: RemoteEntityPayload, options: ApplyLocalOptions): void {
@@ -501,8 +500,14 @@ export function applyRemoteChanges(
   const run = db.transaction(() => {
     for (const item of items) {
       // 本地有未推送的修改 → 不覆盖，交冲突流程。
-      if (hasPendingLocalChange(db,item.entityType,item.entityId,scopeKey)) {
-        result.pendingConflicts.push(item);
+      const pending = getPendingLocalChange(db,item.entityType,item.entityId,scopeKey);
+      if (pending) {
+        // The remote note still equals the base of the unsent edits (including
+        // our own Push echo). Preserve local content without inventing a conflict.
+        if (!(item.entityType === "note" && item.operation === "upsert"
+          && pending.baseVersion !== null && item.payload?.version === pending.baseVersion)) {
+          result.pendingConflicts.push(item);
+        }
         result.skipped += 1;
         continue;
       }
