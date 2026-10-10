@@ -63,6 +63,8 @@ export async function importFolderSyncText(payload: {
   sourcePathHash: string;
   existingNoteId?: string;
   conflictPolicy: FolderSyncConflictPolicy;
+  preserveHierarchy?: boolean;
+  sourceFolderId?: string;
 }): Promise<FolderSyncImportResult> {
   const res = await fetch(`${getBaseUrl()}/folder-sync/import-file`, {
     method: "POST",
@@ -82,6 +84,8 @@ export async function importFolderSyncAttachment(payload: {
   existingNoteId?: string;
   conflictPolicy: FolderSyncConflictPolicy;
   extractText: boolean;
+  preserveHierarchy?: boolean;
+  sourceFolderId?: string;
   file: File | Blob;
 }): Promise<FolderSyncImportResult> {
   const form = new FormData();
@@ -93,6 +97,10 @@ export async function importFolderSyncAttachment(payload: {
   form.append("targetNotebookId", payload.targetNotebookId);
   form.append("conflictPolicy", payload.conflictPolicy);
   form.append("extractText", payload.extractText ? "1" : "0");
+  if (payload.preserveHierarchy) {
+    form.append("preserveHierarchy", "1");
+    form.append("sourceFolderId", payload.sourceFolderId || "");
+  }
   if (payload.existingNoteId) form.append("existingNoteId", payload.existingNoteId);
 
   const res = await fetch(`${getBaseUrl()}/folder-sync/import-attachment`, {
@@ -102,6 +110,20 @@ export async function importFolderSyncAttachment(payload: {
     body: form,
   });
   return readJsonResponse<FolderSyncImportResult>(res);
+}
+
+export async function organizeExistingFolderSyncNote(payload: {
+  relativePath: string;
+  targetNotebookId: string;
+  sourcePathHash: string;
+  sourceFolderId: string;
+}): Promise<{ success: boolean; noteId: string; notebookId: string; moved: boolean }> {
+  const res = await fetch(`${getBaseUrl()}/folder-sync/organize-file`, {
+    method: "POST", credentials: "include",
+    headers: authHeaders({ "Content-Type": "application/json" }),
+    body: JSON.stringify(payload),
+  });
+  return readJsonResponse(res);
 }
 
 export async function handleFolderSyncSourceDeleted(payload: {

@@ -7,6 +7,8 @@ export interface FolderSyncPreferences {
   conflictPolicy: FolderSyncConflictPolicy;
   deletionPolicy: FolderSyncDeletionPolicy;
   extractAttachmentText: boolean;
+  /** Off for existing installations, to avoid surprise moves on upgrade. */
+  preserveHierarchy: boolean;
   excludePatterns: string[];
 }
 
@@ -20,6 +22,7 @@ export const DEFAULT_FOLDER_SYNC_PREFERENCES: FolderSyncPreferences = {
   conflictPolicy: "protect",
   deletionPolicy: "keep",
   extractAttachmentText: true,
+  preserveHierarchy: false,
   excludePatterns: [],
 };
 
@@ -101,6 +104,7 @@ export function normalizeFolderSyncPreferences(input?: Partial<FolderSyncPrefere
     extractAttachmentText: typeof input?.extractAttachmentText === "boolean"
       ? input.extractAttachmentText
       : DEFAULT_FOLDER_SYNC_PREFERENCES.extractAttachmentText,
+    preserveHierarchy: input?.preserveHierarchy === true,
     excludePatterns: sanitizeFolderSyncExcludePatterns(input?.excludePatterns),
   };
 }

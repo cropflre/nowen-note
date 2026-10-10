@@ -231,6 +231,7 @@ export interface FolderSyncUploadCandidate {
   contentText: string | null;
   existingNoteId: string | null;
   skipReason: string | null;
+  action?: "upsert" | "delete" | "organize";
 }
 
 export interface FolderSyncPendingUploads {
