@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { getDb } from "../db/schema";
-import { v4 as uuid } from "uuid";
+import { v4 as uuid, v5 as uuidv5 } from "uuid";
+import { synchronizeLegacyNotebookHierarchy, synchronizeLegacyNoteHierarchy } from "../services/legacyKnowledgeHierarchy";
 import crypto from "crypto";
 import fs from "fs";
 import path from "path";
@@ -150,6 +151,77 @@ function resolveTargetNotebook(targetNotebookId: string, userId: string): { id: 
   if (!notebook || notebook.isDeleted === 1) return null;
   const { permission } = resolveNotebookPermission(targetNotebookId, userId);
   return hasPermission(permission, "write") ? notebook : null;
+}
+
+const FOLDER_SYNC_NAMESPACE = "930dbde1-9d96-45e8-b959-c030ac108a13";
+
+function validFolderSourceId(value: unknown): value is string {
+  return typeof value === "string" && /^[a-zA-Z0-9_-]{6,80}$/.test(value);
+}
+
+/**
+ * An opt-in folder hierarchy uses deterministic, source-owned notebook IDs.
+ * Never reuse an unrelated user's same-name notebook, and never resurrect a
+ * manually deleted/reparented managed folder. Both could lose user data.
+ * Called inside the same transaction as the note mutation.
+ */
+function ensureFolderSyncNotebookHierarchy(args: {
+  userId: string;
+  targetNotebookId: string;
+  sourceFolderId: string;
+  relativePath: string;
+}): { id: string; workspaceId: string | null } {
+  const root = resolveTargetNotebook(args.targetNotebookId, args.userId);
+  if (!root) throw new Error("目标笔记本不存在或无写权限");
+  if (isUnsafePath(args.relativePath) || !validFolderSourceId(args.sourceFolderId)) {
+    throw new Error("文件夹同步来源标识或相对路径无效");
+  }
+  const parts = args.relativePath.replace(/\\/g, "/").split("/");
+  const folders = parts.slice(0, -1);
+  if (folders.length > 32 || folders.some((part) => !part || part === "." || part.length > 255)) {
+    throw new Error("文件夹层级无效（最多 32 层，单层不超过 255 字符）");
+  }
+  let parentId = root.id;
+  const prefix: string[] = [];
+  for (const name of folders) {
+    prefix.push(name);
+    const id = uuidv5(JSON.stringify([args.userId, root.id, args.sourceFolderId, prefix]), FOLDER_SYNC_NAMESPACE);
+    const existing = getDb().prepare(`
+      SELECT id, "parentId" AS parentId, "userId" AS userId,
+             "workspaceId" AS workspaceId, "isDeleted" AS isDeleted
+      FROM notebooks WHERE id = ?
+    `).get(id) as { id: string; parentId: string | null; userId: string; workspaceId: string | null; isDeleted: number } | undefined;
+    if (existing) {
+      if (existing.userId !== args.userId || existing.workspaceId !== root.workspaceId ||
+          existing.parentId !== parentId || existing.isDeleted === 1) {
+        throw new Error("已同步子文件夹曾被移动或删除，为避免覆盖用户操作，已暂停同步此路径");
+      }
+    } else {
+      getDb().prepare(`
+        INSERT INTO notebooks (id, userId, workspaceId, parentId, name, icon, sortOrder)
+        VALUES (?, ?, ?, ?, ?, '📁', 0)
+      `).run(id, args.userId, root.workspaceId, parentId, name);
+      synchronizeLegacyNotebookHierarchy({
+        db: getDb(), notebookId: id, actorUserId: args.userId,
+        reason: "create", parentMode: "resource",
+      });
+    }
+    parentId = id;
+  }
+  return { id: parentId, workspaceId: root.workspaceId };
+}
+
+function requestedHierarchy(input: {
+  preserveHierarchy: unknown;
+  sourceFolderId: unknown;
+  relativePath: string;
+}): boolean {
+  if (input.preserveHierarchy !== true && input.preserveHierarchy !== "1") return false;
+  if (!validFolderSourceId(input.sourceFolderId) || isUnsafePath(input.relativePath) ||
+      input.relativePath.replace(/\\/g, "/").split("/").some((part) => !part || part === ".")) {
+    throw new Error("保留文件夹层级时，来源 ID 或路径不合法");
+  }
+  return true;
 }
 
 function cloneIndependentNote(note: TrackedNote): string {
