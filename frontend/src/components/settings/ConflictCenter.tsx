@@ -145,7 +145,15 @@ export function ConflictCenter({
       await reload();
       onResolved?.();
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      const message = err instanceof Error ? err.message : String(err);
+      const target = items.find((item) => item.id === id);
+      if (target && isTreeConflict(target.entityType)) {
+        // A missing business resource may still reject a structurally valid
+        // choice. Explain that failure next to the entry being inspected.
+        setDetailError({ id, message: `操作未完成：${message}。请先检查知识树及业务资源同步情况。` });
+      } else {
+        setError(message);
+      }
     } finally {
       setBusy(false);
     }
