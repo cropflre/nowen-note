@@ -12,6 +12,7 @@ on:
       - "frontend/src/components/settings/FolderSyncSettings.tsx"
       - "frontend/src/lib/desktopBridge.ts"
       - "electron/folder-sync.js"
+      - "electron/preload.js"
       - "electron/__tests__/folderSyncV2.test.js"
       - ".github/workflows/folder-sync-hierarchy-ci.yml"
   pull_request:
@@ -22,6 +23,7 @@ on:
       - "frontend/src/lib/folderSyncTransport.ts"
       - "frontend/src/lib/folderSyncPreferences.ts"
       - "electron/folder-sync.js"
+      - "electron/preload.js"
       - ".github/workflows/folder-sync-hierarchy-ci.yml"
   workflow_dispatch:
 
