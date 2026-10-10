@@ -41,6 +41,15 @@ describe("#822 manual Chinese typography", () => {
     expect(changed).toContain("最后 English 版本");
   });
 
+  it("preserves frontmatter and Nowen note/mindmap reference identifiers", () => {
+    const md = "---\ntitle: 使用PostgreSQL笔记\n---\n见[[使用PostgreSQL笔记]]或![[mindmap:中文ABC]]和[^脚注A]。";
+    const result = transformCjkTypography(md, "spacing", "markdown");
+    expect(result).toContain("title: 使用PostgreSQL笔记");
+    expect(result).toContain("[[使用PostgreSQL笔记]]");
+    expect(result).toContain("![[mindmap:中文ABC]]");
+    expect(result).toContain("[^脚注A]");
+  });
+
   it("normalizes Chinese punctuation but keeps English clauses and numeric tokens", () => {
     expect(transformCjkTypography("你好,今天很好!欢迎(大家).", "punctuation"))
       .toBe("你好，今天很好！欢迎（大家）。");

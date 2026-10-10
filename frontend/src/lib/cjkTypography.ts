@@ -83,6 +83,15 @@ export function markdownProtectedRanges(text: string): TextRange[] {
     }
   }
 
+  // Protect non-prose metadata and Nowen-style links: changing a link target
+  // would silently invalidate embedded notes/mind maps.
+  if (/^---\r?\n/.test(text)) {
+    const frontmatter = text.match(/^---\r?\n[\s\S]*?\n---[ \t]*(?:\r?\n|$)/);
+    if (frontmatter) ranges.push({ from: 0, to: frontmatter[0].length });
+  }
+  addMatches(/!?\[\[[^\]\n]+\]\]/g);
+  addMatches(/\[\^[^\]\n]+\]/g);
+
   // URLs, emails, HTML tags and numeric tokens protected before punctuation.
   addMatches(/<\/?[A-Za-z][^>\n]*>/g);
   addMatches(/(?:https?:\/\/|www\.)[^\s<>()\[\]"']+/gi);
@@ -92,10 +101,21 @@ export function markdownProtectedRanges(text: string): TextRange[] {
   addMatches(/\.{3,}/g);
   addMatches(/^[ \t]{0,3}\[[^\]\n]+\]:[ \t]*[^\n]+/gm);
 
+  // Per-character parsing must not linearly scan thousands of protected
+  // ranges for every character in a large notebook.
+  const staticProtection = mergeRanges(ranges);
+  let protectedCursor = 0;
+  const isStaticProtected = (position: number) => {
+    while (protectedCursor < staticProtection.length &&
+           staticProtection[protectedCursor].to <= position) protectedCursor++;
+    const range = staticProtection[protectedCursor];
+    return !!range && position >= range.from && position < range.to;
+  };
+
   // Inline code, math and TeX bracket delimiters. Keep unmatched openers
   // untouched rather than stripping a delimiter or consuming following text.
   for (let i = 0; i < text.length; i++) {
-    if (alreadyProtected(i) || escapedAt(text, i)) continue;
+    if (isStaticProtected(i) || escapedAt(text, i)) continue;
     if (text[i] === TICK) {
       let size = 1;
       while (text[i + size] === TICK) size++;
