@@ -10,6 +10,7 @@
  */
 import { EditorView } from "@codemirror/view";
 import { EditorSelection, Line } from "@codemirror/state";
+import { isolateHistory } from "@codemirror/commands";
 import { transformCjkTypography, markdownProtectedRanges, type CjkTypographyAction } from "./cjkTypography";
 
 // ---------------------------------------------------------------------------
@@ -361,7 +362,7 @@ export function applyMarkdownCjkTypography(view: EditorView, action: CjkTypograp
     }
   }
   if (!changes.length) return false;
-  view.dispatch({ changes, userEvent: "input" });
+  view.dispatch({ changes, annotations: isolateHistory.of("full"), userEvent: "input" });
   focus(view);
   return true;
 }
