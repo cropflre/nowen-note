@@ -180,7 +180,7 @@ jobs:
           src/lib/__tests__/editorLifecycleSafety.test.ts
       - name: Frontend lint
         if: always()
-        run: npm run lint:baseline
+        run: npm run lint:baseline -- --emit-delta
       - name: Frontend build
         if: always()
         run: npm run build
