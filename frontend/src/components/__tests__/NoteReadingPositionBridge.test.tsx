@@ -30,6 +30,8 @@ function mount(noteId: string, mode: "richtext" | "markdown" = "richtext") {
   )!;
   Object.defineProperty(scroller, "scrollHeight", { configurable: true, value: 4000 });
   Object.defineProperty(scroller, "clientHeight", { configurable: true, value: 600 });
+  // jsdom has no layout; visible panes report zero client rects by default.
+  Object.defineProperty(scroller, "getClientRects", { configurable: true, value: () => [{ width: 800, height: 600 }] });
   act(() => {
     for (let i = 0; i < 3 && frames.length; i++) {
       const batch = frames.splice(0);
