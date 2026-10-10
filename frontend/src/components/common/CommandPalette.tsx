@@ -16,6 +16,7 @@ import { useApp, useAppActions } from "@/store/AppContext";
 import { api } from "@/lib/api";
 import { pushMindMapAppPath } from "@/lib/mindMapDeepLink";
 import { pushSheetAppPath } from "@/lib/sheetDeepLink";
+import { pushExcelAppPath } from "@/lib/excelDeepLink";
 import { highlightTextNode, sanitizeSearchHtml } from "@/lib/searchHighlight";
 import {
   detectShortcutPlatform,
@@ -222,6 +223,12 @@ export default function CommandPalette({ open, onClose }: CommandPaletteProps) {
         actions.setSearchQuery("");
         actions.setMobileSidebar(false);
         pushSheetAppPath(result.id);
+        return;
+      }
+      if (result.resourceType === "excel") {
+        actions.setSearchQuery("");
+        actions.setMobileSidebar(false);
+        pushExcelAppPath(result.id);
         return;
       }
       if (result.resourceType === "mindmap") {

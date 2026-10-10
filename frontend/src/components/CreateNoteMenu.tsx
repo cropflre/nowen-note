@@ -20,6 +20,7 @@ import { markNewNoteForImmediateEdit } from "@/lib/newNoteImmediateEdit";
 import { cancelNewNoteTitleFocus, requestNewNoteTitleFocus } from "@/lib/noteTitleFocus";
 import { pushMindMapAppPath } from "@/lib/mindMapDeepLink";
 import { pushSheetAppPath } from "@/lib/sheetDeepLink";
+import { pushExcelAppPath } from "@/lib/excelDeepLink";
 import { noteTemplatesApi } from "@/lib/noteTemplatesApi";
 import { pluginApi } from "@/lib/pluginApi";
 import { isMobileLocalMode } from "@/lib/mobileLocalMode";
@@ -93,7 +94,7 @@ export default function CreateNoteMenu({ open, parentId, onPick, onClose, anchor
       }
       const target = await resolveTarget();
       let title = defaultInlineCreateTitle(kind);
-      if (kind === "folder" || kind === "mindmap" || kind === "sheet") {
+      if (kind === "folder" || kind === "mindmap" || kind === "sheet" || kind === "excel") {
         const entered = await prompt({ title: "新建", defaultValue: title, confirmText: "创建" });
         if (!entered?.trim()) return;
         title = entered.trim();
@@ -104,6 +105,7 @@ export default function CreateNoteMenu({ open, parentId, onPick, onClose, anchor
       if (kind === "folder") toast.success("已创建文件夹");
       else if (kind === "mindmap") pushMindMapAppPath(node.resourceId);
       else if (kind === "sheet") pushSheetAppPath(node.resourceId);
+      else if (kind === "excel") pushExcelAppPath(node.resourceId);
       else await activateNote(await api.getNote(node.resourceId), true);
     } catch (caughtError: unknown) {
       const error = caughtError as Error & { code?: string };

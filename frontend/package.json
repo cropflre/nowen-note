@@ -121,7 +121,10 @@
     "y-codemirror.next": "^0.3.5",
     "y-indexeddb": "^9.0.12",
     "y-protocols": "^1.0.7",
-    "yjs": "^13.6.30"
+    "yjs": "^13.6.30",
+    "@univerjs/presets": "^1.0.3",
+    "@univerjs/preset-sheets-core": "^1.0.3",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@capacitor/android": "^8.3.1",
