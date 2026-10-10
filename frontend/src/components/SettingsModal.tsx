@@ -1963,7 +1963,7 @@ const SettingsModal = React.forwardRef<HTMLDivElement, SettingsModalProps>(
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      className="fixed inset-0 z-50 flex items-center justify-center p-0 md:p-4 md:sm:p-6"
+      className="fixed inset-0 z-50 flex min-h-0 items-center justify-center overflow-hidden p-0 md:p-4 md:sm:p-6"
       // data-swipe-blocker：让 App.tsx::useSwipeGesture 在本子树内的 touchstart 上主动跳过
       // 判定。整个 portal 子树（含移动端 tab 栏 / panel 内容）一并受保护。
       data-swipe-blocker="settings-modal"
@@ -1988,7 +1988,7 @@ const SettingsModal = React.forwardRef<HTMLDivElement, SettingsModalProps>(
         animate={{ opacity: 1, scale: 1, y: 0 }}
         exit={{ opacity: 0, scale: 0.95, y: 10 }}
         transition={{ type: "spring", duration: 0.5, bounce: 0 }}
-        className="relative w-full max-w-4xl h-[80vh] min-h-[500px] flex flex-col md:flex-row overflow-hidden bg-white dark:bg-zinc-950 rounded-2xl shadow-2xl border border-zinc-200 dark:border-zinc-800 max-md:h-[100dvh] max-md:max-w-none max-md:rounded-none max-md:border-0"
+        className="relative flex h-[80dvh] max-h-[calc(100dvh-3rem)] min-h-0 w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-2xl dark:border-zinc-800 dark:bg-zinc-950 md:flex-row max-md:h-[100dvh] max-md:max-h-[100dvh] max-md:max-w-none max-md:rounded-none max-md:border-0"
         style={{ touchAction: "pan-y pinch-zoom" }}
         onClick={(e) => e.stopPropagation()}
         onPointerDownCapture={(e) => e.stopPropagation()}
@@ -2031,13 +2031,13 @@ const SettingsModal = React.forwardRef<HTMLDivElement, SettingsModalProps>(
         </div>
 
         {/* 桌面端：左侧导航栏 */}
-        <div className="hidden md:flex w-56 flex-shrink-0 bg-zinc-50 dark:bg-zinc-900/50 border-r border-zinc-200 dark:border-zinc-800 p-4 flex-col">
+        <div className="hidden min-h-0 w-56 flex-shrink-0 flex-col border-r border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-800 dark:bg-zinc-900/50 md:flex">
           <div className="flex items-center gap-2 mb-6 px-2">
             <Settings className="w-4 h-4 text-zinc-500 dark:text-zinc-400" />
             <span className="font-bold text-sm text-zinc-900 dark:text-zinc-100">{t('settings.title')}</span>
           </div>
 
-          <nav className="flex-1 space-y-0.5">
+          <nav aria-label="设置分类" className="min-h-0 flex-1 space-y-0.5 overflow-y-auto overscroll-contain pr-1">
             {SETTING_TABS.map((tab) => {
               const Icon = tab.icon;
               const isActive = activeTab === tab.id;
@@ -2065,7 +2065,7 @@ const SettingsModal = React.forwardRef<HTMLDivElement, SettingsModalProps>(
         </div>
 
         {/* 右侧内容区 */}
-        <div className="flex-1 overflow-y-auto relative">
+        <div className="relative min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain">
           {/* 关闭按钮 — 桌面端 */}
           <button
             onClick={onClose}
@@ -2075,7 +2075,7 @@ const SettingsModal = React.forwardRef<HTMLDivElement, SettingsModalProps>(
           </button>
 
           {/* 动态渲染内容 */}
-          <div className="p-4 md:p-8 md:pr-14">
+          <div className="min-w-0 p-4 pb-[calc(1rem+env(safe-area-inset-bottom))] md:p-8 md:pr-14">
             <AnimatePresence mode="wait">
               <motion.div
                 key={activeTab}
