@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -22,6 +22,7 @@ import {
 } from "@/lib/syncLocalApi";
 import { buildAutomaticConflictMerge } from "@/lib/syncConflictAutoMerge";
 import { isProtectedNotePayload } from "@/lib/encryptedNotes/blockDocument";
+import { TREE_CONFLICT_FIELDS, canSafelyChooseTreeSide, isTreeConflict, treeConflictAvailability, treeConflictExplanation } from "@/lib/syncTreeConflictPresentation";
 
 const HISTORY_PAGE_SIZE = 20;
 const ENTITY_TYPE_LABELS: Record<string, string> = {
@@ -35,6 +36,7 @@ const ENTITY_TYPE_LABELS: Record<string, string> = {
   task_reminder: "任务提醒",
   diary: "日记",
   mindmap: "思维导图",
+  knowledge_tree_node: "知识树节点",
 };
 
 /**
@@ -63,6 +65,9 @@ export function ConflictCenter({
   const [historyLoadingMore, setHistoryLoadingMore] = useState(false);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<ConflictDetail | null>(null);
+  const [detailLoadingId, setDetailLoadingId] = useState<string | null>(null);
+  const [detailError, setDetailError] = useState<{ id: string; message: string } | null>(null);
+  const detailRequestRef = useRef(0);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -97,11 +102,20 @@ export function ConflictCenter({
   useEffect(() => { void reload(); }, [reload]);
 
   const openDetail = async (id: string) => {
+    const requestId = ++detailRequestRef.current;
     setError(null);
+    setDetailError(null);
+    setDetailLoadingId(id);
+    setSelected(null);
     try {
-      setSelected(await fetchConflictDetail(id));
+      const detail = await fetchConflictDetail(id);
+      if (requestId === detailRequestRef.current) setSelected(detail);
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      if (requestId === detailRequestRef.current) {
+        setDetailError({ id, message: err instanceof Error ? err.message : String(err) });
+      }
+    } finally {
+      if (requestId === detailRequestRef.current) setDetailLoadingId(null);
     }
   };
 
@@ -416,20 +430,20 @@ export function ConflictCenter({
                     {item.localTitle || item.remoteTitle || item.entityId}
                   </p>
                   <p className="mt-0.5 text-muted-foreground">
-                    {item.entityType} · 本机 v{item.localVersion ?? "?"} ·
-                    {" "}云端 v{item.remoteVersion ?? "?"}
-                    {item.diffFields.length > 0
-                      ? ` · 差异：${item.diffFields.slice(0, 4).join("、")}`
-                      : ""}
+                    {isTreeConflict(item.entityType)
+                      ? "知识树结构差异 · 不代表正文冲突 · 点击查看本机/云端状态"
+                      : <>{ENTITY_TYPE_LABELS[item.entityType] || item.entityType} · 本机 v{item.localVersion ?? "?"} · 云端 v{item.remoteVersion ?? "?"}{item.diffFields.length > 0 ? ` · 差异：${item.diffFields.slice(0, 4).join("、")}` : ""}</>}
                   </p>
                 </div>
               </div>
               <button
                 type="button"
                 onClick={() => { void openDetail(item.id); }}
-                className="shrink-0 rounded border px-2 py-1 hover:bg-accent"
+                disabled={detailLoadingId === item.id}
+                aria-expanded={selected?.id === item.id}
+                className="shrink-0 rounded border px-2 py-1 hover:bg-accent disabled:opacity-50"
               >
-                查看
+                {detailLoadingId === item.id ? "加载中…" : selected?.id === item.id ? "已展开" : "查看"}
               </button>
             </div>
 
@@ -467,6 +481,18 @@ export function ConflictCenter({
                 </button>
               ) : null}
             </div>
+            {detailLoadingId === item.id ? (
+              <p role="status" className="mt-3 text-muted-foreground">正在读取本机与云端详情…</p>
+            ) : null}
+            {detailError?.id === item.id ? (
+              <p role="alert" className="mt-3 rounded border border-amber-400/50 bg-amber-500/5 p-2 text-amber-700 dark:text-amber-300">{detailError.message}</p>
+            ) : null}
+            {selected?.id === item.id && selected.status !== "resolved" ? (
+              <div className="mt-3" data-conflict-detail-id={item.id}>
+                <ConflictDiff detail={selected} busy={busy} onClose={() => setSelected(null)}
+                  onManual={(payload) => handleManualResolve(selected.id, payload)} />
+              </div>
+            ) : null}
           </li>
         ))}
       </ul>
@@ -510,7 +536,7 @@ export function ConflictCenter({
         />
       ) : null}
 
-      {selected ? (
+      {selected?.status === "resolved" ? (
         <ConflictDiff detail={selected} busy={busy} onClose={() => setSelected(null)}
           onManual={(payload) => handleManualResolve(selected.id,payload)} />
       ) : null}
