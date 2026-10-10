@@ -1,0 +1,111 @@
+name: Data Consistency Contract CI
+
+on:
+  push:
+    branches: [main, "release/v1.5.2"]
+    paths:
+      - "docs/architecture/data-consistency-contract*"
+      - "scripts/data-consistency-contract.mjs"
+      - ".github/pull_request_template.md"
+      - ".github/workflows/data-consistency-contract-ci.yml"
+      - "backend/src/sync/**"
+      - "backend/src/db/**"
+      - "backend/src/routes/notes*"
+      - "backend/src/routes/offline-sync*"
+      - "backend/src/routes/sync*"
+      - "backend/src/services/backup*"
+      - "backend/src/runtime/backup*"
+      - "backend/tests/sync-v2-*.test.ts"
+      - "backend/tests/backup-restore-*.test.ts"
+      - "backend/tests/offline-workspace-sync.test.ts"
+      - "frontend/src/lib/mobileSync*"
+      - "frontend/src/lib/mobileLocalFirst*"
+      - "frontend/src/lib/nativeLocal*"
+      - "frontend/src/lib/offline*"
+      - "frontend/src/lib/noteSyncSafety*"
+      - "frontend/src/lib/syncEngine*"
+      - "frontend/src/lib/__tests__/mobileSync*.test.ts"
+      - "frontend/src/lib/__tests__/noteSyncSafety*.test.ts"
+      - "frontend/src/lib/__tests__/offlineQueue.test.ts"
+  pull_request:
+    paths:
+      - "docs/architecture/data-consistency-contract*"
+      - "scripts/data-consistency-contract.mjs"
+      - ".github/pull_request_template.md"
+      - ".github/workflows/data-consistency-contract-ci.yml"
+      - "backend/src/sync/**"
+      - "backend/src/db/**"
+      - "backend/src/routes/notes*"
+      - "backend/src/routes/offline-sync*"
+      - "backend/src/routes/sync*"
+      - "backend/src/services/backup*"
+      - "backend/src/runtime/backup*"
+      - "backend/tests/sync-v2-*.test.ts"
+      - "backend/tests/backup-restore-*.test.ts"
+      - "backend/tests/offline-workspace-sync.test.ts"
+      - "frontend/src/lib/mobileSync*"
+      - "frontend/src/lib/mobileLocalFirst*"
+      - "frontend/src/lib/nativeLocal*"
+      - "frontend/src/lib/offline*"
+      - "frontend/src/lib/noteSyncSafety*"
+      - "frontend/src/lib/syncEngine*"
+      - "frontend/src/lib/__tests__/mobileSync*.test.ts"
+      - "frontend/src/lib/__tests__/noteSyncSafety*.test.ts"
+      - "frontend/src/lib/__tests__/offlineQueue.test.ts"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: consistency-contract-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  contract:
+    name: Contract coverage mapping
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Verify documented invariants and non-deleted regression cases
+        run: node scripts/data-consistency-contract.mjs --verify
+
+  backend:
+    name: Backend durability and recovery
+    needs: contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - name: Install backend dependencies
+        working-directory: backend
+        run: npm ci --no-audit --no-fund
+      - name: Run real Outbox, conflict, ACK, tombstone and backup rollback tests
+        run: node scripts/data-consistency-contract.mjs --backend
+
+  frontend:
+    name: Client offline and Native safety
+    needs: contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci --no-audit --no-fund
+      - name: Run actual offline queue, ACK, Native restart and account isolation tests
+        run: node scripts/data-consistency-contract.mjs --frontend
