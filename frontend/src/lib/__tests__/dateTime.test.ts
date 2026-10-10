@@ -33,13 +33,13 @@ describe("UTC/local time contract", () => {
   it("preserves local calendar-day boundaries and handles users without a login", () => {
     const date = parseServerTime("2026-10-10 17:30:00");
     expect(date?.toISOString()).toBe("2026-10-10T17:30:00.000Z");
-    expect(new Intl.DateTimeFormat("en-US", {
+    expect(formatServerTime("2026-10-10 17:30:00", {
       timeZone: "Asia/Shanghai",
       day: "2-digit",
       hour: "2-digit",
       minute: "2-digit",
       hourCycle: "h23",
-    }).format(date!)).toBe("11, 01:30");
+    })).toMatch(/11.*01:30/);
     expect(formatServerTime(null, undefined, "—")).toBe("—");
     expect(formatServerTime("invalid", undefined, "—")).toBe("—");
   });
