@@ -15,6 +15,7 @@ import {
   handleFolderSyncSourceDeleted,
   importFolderSyncAttachment,
   importFolderSyncText,
+  organizeExistingFolderSyncNote,
 } from "@/lib/folderSyncTransport";
 
 export interface SyncRunOptions {
@@ -37,7 +38,7 @@ export interface SyncRunResult {
 }
 
 type ExtendedCandidate = FolderSyncUploadCandidate & {
-  action?: "upsert" | "delete";
+  action?: "upsert" | "delete" | "organize";
   previousRelativePath?: string | null;
   attachmentId?: string | null;
 };
@@ -47,6 +48,7 @@ type ExtendedPending = FolderSyncPendingUploads & {
     conflictPolicy?: "protect" | "copy" | "overwrite" | "detach";
     deletionPolicy?: "keep" | "trash" | "detach";
     extractAttachmentText?: boolean;
+    preserveHierarchy?: boolean;
   };
   pending: ExtendedCandidate[];
 };
@@ -158,6 +160,34 @@ export async function runFolderSyncOnce(
   let detached = 0;
 
   for (const candidate of pendingResult.pending) {
+    if (candidate.action === "organize") {
+      // Scope changes are never treated as proof of a deletion/move.
+      if (!preferences.preserveHierarchy ||
+          isOutsideConfiguredScope(candidate, activeConfig, preferences.excludePatterns)) {
+        skipped += 1;
+        continue;
+      }
+      if (!targetNotebookId || !candidate.existingNoteId) { skipped += 1; continue; }
+      try {
+        const outcome = await organizeExistingFolderSyncNote({
+          targetNotebookId, relativePath: candidate.relativePath,
+          sourcePathHash: candidate.sourcePathHash, sourceFolderId: folderId,
+        });
+        await fs.markUploadResult(folderId, candidate.relativePath, {
+          success: true, noteId: outcome.noteId,
+          hierarchyTarget: targetNotebookId + ":" + folderId,
+        });
+        if (outcome.moved) updated += 1;
+        else skipped += 1;
+      } catch (error: any) {
+        failed += 1;
+        await appendSafeLog(folderId, "error",
+          `${candidate.relativePath}: hierarchy organization failed: ${error?.message || "unknown"}`);
+        // Preserve the prior "synced" index state so a later pass retries
+        // without falsely marking the local file as unsynchronized.
+      }
+      continue;
+    }
     if (candidate.action === "delete") {
       try {
         const outsideScope = isOutsideConfiguredScope(candidate, activeConfig, preferences.excludePatterns);
@@ -228,6 +258,8 @@ export async function runFolderSyncOnce(
         sha256: candidate.sha256,
         sourcePathHash: candidate.sourcePathHash,
         targetNotebookId,
+        preserveHierarchy: preferences.preserveHierarchy && !!activeConfig?.includeSubfolders,
+        sourceFolderId: folderId,
         existingNoteId: candidate.existingNoteId || undefined,
         conflictPolicy: effectiveConflictPolicy,
       } as const;
@@ -258,6 +290,8 @@ export async function runFolderSyncOnce(
         skipped: response.skipped,
         noteId: response.noteId,
         attachmentId: response.attachmentId,
+        hierarchyTarget: preferences.preserveHierarchy && activeConfig?.includeSubfolders
+          ? targetNotebookId + ":" + folderId : undefined,
       });
 
       if (response.skipped) skipped += 1;
