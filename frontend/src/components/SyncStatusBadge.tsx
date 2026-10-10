@@ -23,14 +23,29 @@ import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/utils";
 import { useSyncIndicator } from "@/lib/useSyncIndicator";
 import { isAndroidNativeRuntime } from "@/lib/mobileLocalMode";
+import { useNoteSyncReceipt } from "@/lib/useNoteSyncReceipt";
 
-export default function SyncStatusBadge({ className, saving = false }: { className?: string; saving?: boolean }) {
+export default function SyncStatusBadge({ className, saving = false, noteId }: { className?: string; saving?: boolean; noteId?: string }) {
   const { t } = useTranslation();
   const sync = useSyncIndicator(saving);
   const android = isAndroidNativeRuntime();
+  const receipt = useNoteSyncReceipt(noteId, sync.syncEnabled);
 
   // 未启用同步：不占用任何空间。
-  if (!sync.syncEnabled || saving) return null;
+  if (!sync.syncEnabled) return null;
+  if (noteId) {
+    const phase = saving ? "saving" : receipt;
+    const warning = phase === "conflict" || phase === "error";
+    return (
+      <span role="status" aria-live="polite" title={t("syncBadge.receiptHint")}
+        className={cn("flex shrink-0 items-center gap-1 whitespace-nowrap px-1.5 py-1 rounded-md text-[11px]",
+          warning ? "text-amber-600 dark:text-amber-400" : "text-tx-tertiary", className)}>
+        {warning ? <AlertTriangle size={12} /> : phase === "confirmed" ? <Check size={12} /> : <RefreshCw size={12} />}
+        <span>{t(`syncBadge.receipt.${phase}`)}</span>
+      </span>
+    );
+  }
+  if (saving) return null;
 
   // 一切正常时保持安静。有冲突则必须提示，即使状态是 synced ——
   // 冲突不会自动消失，用户需要去处理。

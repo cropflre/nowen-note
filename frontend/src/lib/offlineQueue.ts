@@ -11,6 +11,7 @@ import { getOfflineQueueStorageKey, STORAGE_KEY_PREFIX } from "./offlineScope";
 export { getOfflineQueueStorageKey } from "./offlineScope";
 import { assertConversionMutation } from "./encryptedNotes/conversionBarrier";
 import { CONVERSION_REPLAY_LOCK, ConversionCleanupError } from "./encryptedNotes/conversionCoordination";
+import { getNoteSyncReceipt, acknowledgeRestNoteReceipt } from "./noteSyncReceipt";
 
 export type OfflineMutationType = "createNote" | "updateNote" | "deleteNote";
 
@@ -470,6 +471,7 @@ async function flushQueueInternal(fetchFn: OfflineQueueFetch): Promise<FlushResu
       }
 
       try {
+        const receiptRevision = getNoteSyncReceipt(item.noteId)?.localRevision ?? 0;
         const replayBody = item.type === "createNote" && item.body && !item.body.id && !item.noteId.startsWith("local-")
           ? { ...item.body, id: item.noteId }
           : item.body;
@@ -480,11 +482,23 @@ async function flushQueueInternal(fetchFn: OfflineQueueFetch): Promise<FlushResu
         assertScope();
 
         if (response.ok) {
-          if (item.type === "createNote" && item.noteId.startsWith("local-") && response.data?.id) {
+          // A new edit can replace the same queued item while its previous
+          // payload is in flight. Never dequeue or ACK the newer snapshot.
+          const removal = discardResolvedQueueItems(item);
+          if (removal.discarded && item.type === "createNote" &&
+              item.noteId.startsWith("local-") && response.data?.id) {
             setLocalIdMapping(item.noteId, response.data.id);
           }
-          dequeue(item.id);
-          result.success += 1;
+          if (removal.discarded && !removal.remainingForNote && item.type !== "deleteNote") {
+            const version = response.data?.version;
+            const baseVersion = Number(item.body?.version);
+            const verified = item.type === "createNote"
+              ? typeof version === "number" && Number.isSafeInteger(version) && version > 0
+              : Number.isFinite(baseVersion) && typeof version === "number" &&
+                Number.isSafeInteger(version) && version > baseVersion;
+            if (verified) acknowledgeRestNoteReceipt(item.noteId, receiptRevision, version, typeof item.body?.content === "string");
+          }
+          if (removal.discarded) result.success += 1;
           continue;
         }
 

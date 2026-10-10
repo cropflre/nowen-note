@@ -183,6 +183,77 @@
           "case": "preserves a stale offline edit as one pending conflict without issuing PUT"
         }
       ]
+    },
+    {
+      "id": "DCC-011",
+      "title": "逐笔记同步收据以当前修改的版本/Mutation ACK 为依据",
+      "status": "covered",
+      "checks": [
+        {
+          "file": "frontend/src/lib/__tests__/noteSyncReceipt.test.ts",
+          "case": "requires exact local revision before acknowledging a note write"
+        },
+        {
+          "file": "frontend/src/lib/__tests__/noteSyncReceipt.test.ts",
+          "case": "preserves pending queue and conflict priority over an older ACK"
+        },
+        {
+          "file": "frontend/src/lib/__tests__/noteSyncReceipt.test.ts",
+          "case": "isolates receipt data across account and server scopes"
+        },
+        {
+          "file": "frontend/src/lib/__tests__/mobileNoteSyncReceipt.test.ts",
+          "case": "requires a matching native mutation receipt instead of global sync time"
+        },
+        {
+          "file": "frontend/src/lib/__tests__/mobileNoteSyncReceipt.test.ts",
+          "case": "keeps native pending and conflicts ahead of committed ACK"
+        },
+        {
+          "file": "frontend/src/lib/__tests__/offlineQueue.test.ts",
+          "case": "does not discard a newer queued edit after a stale in-flight HTTP 200"
+        },
+        {
+          "file": "frontend/src/lib/__tests__/noteSyncReceiptBadge.test.tsx",
+          "case": "never uses global synced state to claim a note has cloud confirmation"
+        },
+        {
+          "file": "frontend/src/lib/__tests__/noteSyncReceipt.test.ts",
+          "case": "does not treat an Electron local SQLite response as a cloud ACK"
+        },
+        {
+          "file": "frontend/src/lib/__tests__/noteSyncReceipt.test.ts",
+          "case": "does not confirm a metadata-only REST response while CRDT body is unresolved"
+        },
+        {
+          "file": "frontend/src/lib/__tests__/mobileNativeReceiptIntegration.test.ts",
+          "case": "stores the actual applied and duplicate versions in an atomic mutation ACK"
+        },
+        {
+          "file": "frontend/src/lib/__tests__/mobileNativeReceiptIntegration.test.ts",
+          "case": "keeps conflict.serverVersion separate from successful applied.version"
+        },
+        {
+          "file": "frontend/src/lib/__tests__/mobileNativeReceiptIntegration.test.ts",
+          "case": "ignores only the known own ACK echo with a newer queued edit, without overwriting local"
+        },
+        {
+          "file": "frontend/src/lib/__tests__/mobileNativeReceiptIntegration.test.ts",
+          "case": "keeps real competing remote modifications as conflicts (not own echoes)"
+        },
+        {
+          "file": "frontend/src/lib/__tests__/nativeLocalNoteList.test.ts",
+          "case": "refreshes both Markdown and rich-text notes only after new Outbox commits"
+        },
+        {
+          "file": "frontend/src/lib/__tests__/useNoteSyncReceipt.nativeWiring.test.tsx",
+          "case": "does not repaint an obsolete confirmed query after a newer pending refresh"
+        },
+        {
+          "file": "frontend/src/lib/__tests__/useNoteSyncReceipt.nativeWiring.test.tsx",
+          "case": "updates the real editor badge after a committed Android edit"
+        }
+      ]
     }
   ]
 }

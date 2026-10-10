@@ -2604,7 +2604,7 @@ const moveToTrash = useCallback(async () => {
       <MobileEditorToolbarPortal location="trailing">
         {compactMobileEditing ? (
           <div className="flex items-center gap-1">
-            <SyncStatusBadge saving={syncStatus === "saving" || syncStatus === "error"} />
+            <SyncStatusBadge noteId={activeNote.id} saving={syncStatus === "saving"} />
             <Button
               data-mobile-note-menu-trigger
               variant="ghost"
@@ -2714,7 +2714,7 @@ const moveToTrash = useCallback(async () => {
               本地写入成功就是"已保存"，同步失败只叫"等待同步"，
               绝不能让一次网络抖动显示成"保存失败"。
               Android 保留轻量文字，未开启同步时不渲染。 */}
-          {!compactMobileEditing && <SyncStatusBadge saving={syncStatus === "saving" || syncStatus === "error"} />}
+          {!compactMobileEditing && <SyncStatusBadge noteId={activeNote.id} saving={syncStatus === "saving"} />}
           <span className="flex shrink-0 items-center gap-0.5" aria-hidden="true">
             {activeNote.isLocked || isViewLocked ? <Lock size={12} className={activeNote.isLocked ? "text-orange-500" : "text-tx-tertiary"} /> : null}
             {activeNote.isPinned ? <Pin size={12} className="text-accent-primary fill-accent-primary" /> : null}

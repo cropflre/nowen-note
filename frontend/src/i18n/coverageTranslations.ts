@@ -180,6 +180,15 @@ export const zhCNCoverageTranslations = {
     "verifyFirst": "请先通过已保存地址连接一次，确认服务器身份后即可自动切换。",
   },
   syncBadge: {
+    "receiptHint": "当前笔记的同步收据。确认仅代表服务器收到笔记修改，不代表附件和其他设备已更新。",
+    "receipt": {
+      "unverified": "云端状态待核验",
+      "saving": "正在保存…",
+      "pending": "等待云端确认",
+      "confirmed": "云端已确认",
+      "conflict": "版本冲突待处理",
+      "error": "同步遇到问题"
+    },
     "conflicts": "{{count}} 个冲突待处理",
     "pending": "待同步 {{count}}",
     "syncing": "同步中… {{count}}",
@@ -764,6 +773,15 @@ export const enCoverageTranslations = {
     "verifyFirst": "Connect through the saved address once to verify the server identity before automatic switching.",
   },
   syncBadge: {
+    "receiptHint": "Receipt for this note only. Confirmation does not guarantee attachment uploads or delivery to other devices.",
+    "receipt": {
+      "unverified": "Cloud status unverified",
+      "saving": "Saving…",
+      "pending": "Awaiting cloud confirmation",
+      "confirmed": "Cloud confirmed",
+      "conflict": "Version conflict",
+      "error": "Sync issue"
+    },
     "conflicts": "{{count}} conflicts to resolve",
     "pending": "{{count}} pending changes",
     "syncing": "Syncing… {{count}}",

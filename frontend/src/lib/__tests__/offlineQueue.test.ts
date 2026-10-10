@@ -194,6 +194,23 @@ describe("offlineQueue reliability", () => {
     expect(getQueueLength()).toBe(0);
   });
 
+  it("does not discard a newer queued edit after a stale in-flight HTTP 200", async () => {
+    enqueueUpdate("inflight-race", 2);
+    let resolveRequest: ((value: { ok: boolean; status: number; data: any }) => void) | undefined;
+    const fetchFn = vi.fn(() => new Promise<{ ok: boolean; status: number; data: any }>((resolve) => {
+      resolveRequest = resolve;
+    }));
+    const replay = flushQueue(fetchFn);
+    expect(fetchFn).toHaveBeenCalledOnce();
+    enqueue({
+      type: "updateNote", noteId: "inflight-race", url: "/notes/inflight-race", method: "PUT",
+      body: { content: "newer edit", contentText: "newer edit", title: "newer", version: 2 },
+    });
+    resolveRequest?.({ ok: true, status: 200, data: { id: "inflight-race", version: 3 } });
+    await replay;
+    expect(getQueue()).toHaveLength(1);
+    expect(getQueue()[0].body).toMatchObject({ content: "newer edit" });
+  });
   it("makes concurrent manual and automatic flush callers await the same in-flight work", async () => {
     enqueueUpdate("note-race", 1);
     let resolveRequest: ((value: { ok: boolean; status: number; data: any }) => void) | undefined;
