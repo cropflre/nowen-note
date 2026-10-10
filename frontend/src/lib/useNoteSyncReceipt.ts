@@ -8,7 +8,8 @@ import { fetchNoteSyncReceipt } from "./syncLocalApi";
 
 /** No aggregate "synced" or lastSyncAt may confirm an individual note. */
 export function useNoteSyncReceipt(noteId?: string, syncEnabled = false): NoteReceiptPhase {
-  const [phase, setPhase] = useState<NoteReceiptPhase>("unverified");
+  const [snapshot, setSnapshot] = useState<{ noteId?: string; phase: NoteReceiptPhase }>({ phase: "unverified" });
+  const setPhase = (phase: NoteReceiptPhase) => setSnapshot({ noteId, phase });
   useEffect(() => {
     if (!noteId || !syncEnabled) { setPhase("unverified"); return; }
     let disposed = false;
@@ -40,5 +41,5 @@ export function useNoteSyncReceipt(noteId?: string, syncEnabled = false): NoteRe
       window.removeEventListener(MOBILE_SYNC_STATUS_CHANGED_EVENT, refresh);
     };
   }, [noteId, syncEnabled]);
-  return phase;
+  return syncEnabled && snapshot.noteId === noteId ? snapshot.phase : "unverified";
 }
