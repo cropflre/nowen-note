@@ -171,29 +171,76 @@ export function installMobileLocalFirstBridge(
     });
     return deviceOnlyMode ? notes : passwordGuard.filterReadable(notes, params.workspaceId);
   };
+  // In signed-in Android mode, the knowledge tree is intentionally server-first
+  // (folder ACL/passwords), while note content is local-first. A newly created
+  // server-side tree note can therefore be visible before Sync V2 has pulled it
+  // into Native SQLite. Do not claim that such a note is missing or enqueue a
+  // duplicate local creation. Read it through the original authenticated server
+  // API until the native synchronization catches up.
+  const readRemoteMissingNote = async (id: string): Promise<Note> => {
+    if (typeof navigator !== "undefined" && navigator.onLine === false) {
+      throw new Error("这篇笔记尚未同步到本机，请联网后重试");
+    }
+    // Require an actual server authorization check before the original getNote
+    // (which may have an IndexedDB offline fallback). Never bypass folder ACL.
+    const slim = await originals.getNoteSlim(id);
+    if (slim.id !== id) throw new Error("笔记身份校验失败");
+    const remote = await originals.getNote(id);
+    if (remote.id !== id) throw new Error("笔记身份校验失败");
+    return remote;
+  };
+
   target.getNote = async (id: string): Promise<Note> => {
     const note = await repository.notes.get(id);
-    if (!note) throw new Error("笔记不存在");
+    if (!note) {
+      if (deviceOnlyMode) throw new Error("笔记不存在");
+      return readRemoteMissingNote(id);
+    }
     if (!deviceOnlyMode) await passwordGuard.assertReadable(note);
     return note;
   };
-  target.getNoteSlim = target.getNote;
+  target.getNoteSlim = async (id: string) => {
+    const note = await repository.notes.get(id);
+    if (!note) {
+      if (deviceOnlyMode) throw new Error("笔记不存在");
+      if (typeof navigator !== "undefined" && navigator.onLine === false) {
+        throw new Error("这篇笔记尚未同步到本机，请联网后重试");
+      }
+      return originals.getNoteSlim(id);
+    }
+    if (!deviceOnlyMode) await passwordGuard.assertReadable(note);
+    return note;
+  };
   target.createNote = async (data: Partial<Note>): Promise<Note> => {
     const id = data.id || newLocalId();
     await repository.notes.create(stabilizeNoteMutationPayload({ ...data, id }));
     return (await repository.notes.get(id))!;
   };
   target.updateNote = async (id: string, data: Partial<Note>): Promise<Note> => {
+    // If the tree created this note on the server but it has not reached the
+    // local repository yet, save through the server too. Otherwise editing a
+    // successfully opened remote note would still fail with "笔记不存在".
+    if (!deviceOnlyMode && !(await repository.notes.get(id))) {
+      return originals.updateNote(id, data);
+    }
     await repository.notes.update(id, stabilizeNoteMutationPayload(data));
     return (await repository.notes.get(id))!;
   };
   target.deleteNote = async (id: string) => {
+    if (!deviceOnlyMode && !(await repository.notes.get(id))) {
+      return originals.deleteNote(id);
+    }
     await repository.notes.remove(id);
     return { success: true };
   };
   target.createNoteConfirmed = target.createNote;
   target.updateNoteConfirmed = target.updateNote;
-  target.duplicateNote = async (id: string) => repository.duplicateNote(id);
+  target.duplicateNote = async (id: string) => {
+    if (!deviceOnlyMode && !(await repository.notes.get(id))) {
+      return originals.duplicateNote(id);
+    }
+    return repository.duplicateNote(id);
+  };
   target.reorderNotes = async (items: Array<{ id: string; sortOrder: number }>) => {
     await repository.reorderNotes(items);
     return { success: true };

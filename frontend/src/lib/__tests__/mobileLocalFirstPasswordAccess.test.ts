@@ -64,6 +64,45 @@ beforeEach(() => {
 afterEach(() => { restore?.(); restore = undefined; vi.restoreAllMocks(); Reflect.deleteProperty(window, "Capacitor"); });
 
 describe("signed-in Android folder password access", () => {
+  it("opens and saves a server-tree note missing from Native SQLite without creating a duplicate", async () => {
+    const incoming = note("just-created-on-server", "public");
+    const remoteGet = vi.spyOn(api, "getNote").mockResolvedValue(incoming);
+    const remoteUpdate = vi.spyOn(api, "updateNote").mockResolvedValue({ ...incoming, title: "updated" });
+    const remoteDelete = vi.spyOn(api, "deleteNote").mockResolvedValue({ success: true });
+    const remoteDuplicate = vi.spyOn(api, "duplicateNote").mockResolvedValue({ ...incoming, id: "copy" });
+    const { repository, authorize } = setup();
+    authorize.mockImplementation(async (id: string) => ({ ...incoming, id }));
+
+    await expect(api.getNote(incoming.id)).resolves.toEqual(incoming);
+    expect(authorize).toHaveBeenCalledWith(incoming.id);
+    expect(remoteGet).toHaveBeenCalledWith(incoming.id);
+    expect(repository.notes.get).toHaveBeenCalledWith(incoming.id);
+
+    await expect(api.updateNote(incoming.id, { title: "updated", version: 1 }))
+      .resolves.toMatchObject({ title: "updated" });
+    expect(remoteUpdate).toHaveBeenCalledWith(incoming.id, { title: "updated", version: 1 });
+    await api.deleteNote(incoming.id);
+    expect(remoteDelete).toHaveBeenCalledWith(incoming.id);
+    await api.duplicateNote(incoming.id);
+    expect(remoteDuplicate).toHaveBeenCalledWith(incoming.id);
+  });
+
+  it("fails closed when server authorization rejects a note missing locally", async () => {
+    const remoteGet = vi.spyOn(api, "getNote").mockResolvedValue(note("denied-remote", "public"));
+    const { authorize } = setup();
+    authorize.mockRejectedValue(Object.assign(new Error("not found or forbidden"), { status: 404 }));
+
+    await expect(api.getNote("denied-remote")).rejects.toThrow("not found or forbidden");
+    expect(remoteGet).not.toHaveBeenCalled();
+  });
+
+  it("keeps device-only notes local and never queries the remote server", async () => {
+    const remoteGet = vi.spyOn(api, "getNote").mockResolvedValue(note("only-remote", "public"));
+    setup(true);
+    await expect(api.getNote("only-remote")).rejects.toThrow("笔记不存在");
+    expect(remoteGet).not.toHaveBeenCalled();
+  });
+
   it("keeps malformed navigation cycles fail-closed even with live confirmation", async () => {
     const { remoteTree, nodes } = setup();
     remoteTree.mockResolvedValue({
