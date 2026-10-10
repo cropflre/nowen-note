@@ -216,6 +216,10 @@
         {
           "file": "frontend/src/lib/__tests__/noteSyncReceiptBadge.test.tsx",
           "case": "never uses global synced state to claim a note has cloud confirmation"
+        },
+        {
+          "file": "frontend/src/lib/__tests__/noteSyncReceipt.test.ts",
+          "case": "does not treat an Electron local SQLite response as a cloud ACK"
         }
       ]
     }

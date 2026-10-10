@@ -3,6 +3,7 @@
  * Logical revisions are monotonic per scoped browser account/server.
  */
 import { getOfflineQueueStorageKey } from "./offlineScope";
+import { isNativeClientRuntime } from "./serverUrl";
 
 export type NoteReceiptPhase = "unverified" | "saving" | "pending" | "confirmed" | "conflict" | "error";
 export interface NoteSyncReceipt {
@@ -99,4 +100,9 @@ export function resolveNoteReceiptPhase(
   if (receipt.phase === "pending" || receipt.phase === "conflict" || receipt.phase === "error")
     return receipt.phase;
   return "unverified";
+}
+
+/** A Native/Electron REST write may reach only local SQLite, never the cloud. */
+export function acknowledgeRestNoteReceipt(noteId: string, revision: number, serverVersion: number): boolean {
+  return !isNativeClientRuntime() && acknowledgeNoteReceipt(noteId, revision, serverVersion);
 }

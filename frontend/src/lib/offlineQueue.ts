@@ -11,7 +11,7 @@ import { getOfflineQueueStorageKey, STORAGE_KEY_PREFIX } from "./offlineScope";
 export { getOfflineQueueStorageKey } from "./offlineScope";
 import { assertConversionMutation } from "./encryptedNotes/conversionBarrier";
 import { CONVERSION_REPLAY_LOCK, ConversionCleanupError } from "./encryptedNotes/conversionCoordination";
-import { getNoteSyncReceipt, acknowledgeNoteReceipt } from "./noteSyncReceipt";
+import { getNoteSyncReceipt, acknowledgeRestNoteReceipt } from "./noteSyncReceipt";
 
 export type OfflineMutationType = "createNote" | "updateNote" | "deleteNote";
 
@@ -496,7 +496,7 @@ async function flushQueueInternal(fetchFn: OfflineQueueFetch): Promise<FlushResu
               ? typeof version === "number" && Number.isSafeInteger(version) && version > 0
               : Number.isFinite(baseVersion) && typeof version === "number" &&
                 Number.isSafeInteger(version) && version > baseVersion;
-            if (verified) acknowledgeNoteReceipt(item.noteId, receiptRevision, version);
+            if (verified) acknowledgeRestNoteReceipt(item.noteId, receiptRevision, version);
           }
           if (removal.discarded) result.success += 1;
           continue;

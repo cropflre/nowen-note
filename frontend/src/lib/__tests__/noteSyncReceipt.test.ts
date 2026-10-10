@@ -4,7 +4,7 @@ const scope = vi.hoisted(() => ({ value: "server-a:user-a" }));
 vi.mock("@/lib/offlineScope", () => ({ getOfflineQueueStorageKey: () => scope.value }));
 import {
   beginNoteReceiptWrite, acknowledgeNoteReceipt, getNoteSyncReceipt,
-  markNoteReceiptPending, resolveNoteReceiptPhase,
+  markNoteReceiptPending, resolveNoteReceiptPhase, acknowledgeRestNoteReceipt,
 } from "@/lib/noteSyncReceipt";
 
 describe("per-note sync receipt (browser)", () => {
@@ -36,6 +36,16 @@ describe("per-note sync receipt (browser)", () => {
     expect(resolveNoteReceiptPhase(getNoteSyncReceipt("note-a"), [])).toBe("pending");
   });
 
+  it("does not treat an Electron local SQLite response as a cloud ACK", () => {
+    const revision = beginNoteReceiptWrite("desktop-note");
+    (window as any).nowenDesktop = { isDesktop: true };
+    try {
+      expect(acknowledgeRestNoteReceipt("desktop-note", revision, 12)).toBe(false);
+      expect(resolveNoteReceiptPhase(getNoteSyncReceipt("desktop-note"), [])).toBe("unverified");
+    } finally {
+      delete (window as any).nowenDesktop;
+    }
+  });
   it("isolates receipt data across account and server scopes", () => {
     const revision = beginNoteReceiptWrite("note-a");
     acknowledgeNoteReceipt("note-a", revision, 3);

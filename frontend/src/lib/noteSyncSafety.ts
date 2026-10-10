@@ -10,7 +10,7 @@ import {
 } from "@/lib/offlineRead";
 import { dequeue, enqueue, getQueue, updateItem } from "@/lib/offlineQueue";
 import { saveDraft } from "@/lib/draftStorage";
-import { beginNoteReceiptWrite, acknowledgeNoteReceipt, markNoteReceiptPending, markNoteReceiptError } from "@/lib/noteSyncReceipt";
+import { beginNoteReceiptWrite, acknowledgeRestNoteReceipt, markNoteReceiptPending, markNoteReceiptError } from "@/lib/noteSyncReceipt";
 
 const INSTALL_KEY = "__NOWEN_NOTE_SYNC_SAFETY_V1__" as const;
 const CONFLICT_STORAGE_KEY = "nowen-note-sync-conflicts:v1";
@@ -361,7 +361,7 @@ export function installNoteSyncSafety(): void {
       clearOfflineNoteSnapshot(noteId);
       clearResolvedConflictArtifacts(noteId);
       rememberConfirmedNote(updated, noteId);
-      if (receiptRevision != null) acknowledgeNoteReceipt(noteId, receiptRevision, updated.version);
+      if (receiptRevision != null) acknowledgeRestNoteReceipt(noteId, receiptRevision, updated.version);
       return updated;
     } catch {
       return null;
@@ -434,7 +434,7 @@ export function installNoteSyncSafety(): void {
         if (mutationMatchesNote(fresh, data)) {
           clearResolvedConflictArtifacts(noteId);
           rememberConfirmedNote(fresh, noteId);
-          if (receiptRevision != null) acknowledgeNoteReceipt(noteId, receiptRevision, fresh.version);
+          if (receiptRevision != null) acknowledgeRestNoteReceipt(noteId, receiptRevision, fresh.version);
           return fresh;
         }
         if (previousConfirmed && noteBodiesEqual(fresh, previousConfirmed)) {
@@ -465,7 +465,7 @@ export function installNoteSyncSafety(): void {
       clearOfflineNoteSnapshot(noteId);
       clearResolvedConflictArtifacts(noteId);
       rememberConfirmedNote(updated, noteId);
-      if (receiptRevision != null) acknowledgeNoteReceipt(noteId, receiptRevision, updated.version);
+      if (receiptRevision != null) acknowledgeRestNoteReceipt(noteId, receiptRevision, updated.version);
       return updated;
     } catch (error: any) {
       if (error?.status !== 409 && error?.code !== "VERSION_CONFLICT") {
@@ -478,7 +478,7 @@ export function installNoteSyncSafety(): void {
         clearOfflineNoteSnapshot(noteId);
         clearResolvedConflictArtifacts(noteId);
         rememberConfirmedNote(fresh, noteId);
-        if (receiptRevision != null) acknowledgeNoteReceipt(noteId, receiptRevision, fresh.version);
+        if (receiptRevision != null) acknowledgeRestNoteReceipt(noteId, receiptRevision, fresh.version);
         return fresh;
       }
       if (fresh && previousConfirmed && noteBodiesEqual(fresh, previousConfirmed)) {
