@@ -106,7 +106,7 @@ describe("#822 manual Chinese typography", () => {
     const element = document.createElement("div");
     document.body.append(element);
     const editor = new Editor({ element, extensions: [StarterKit],
-      content: '<p><strong>使用PostgreSQL数据库</strong> <code>代码Python片段</code></p><pre><code>代码ABC</code></pre>',
+      content: '<p><strong>使用PostgreSQL数据库</strong> <code>代码Python片段</code></p><pre><code>代码ABC</code></pre><p>结尾</p>',
     });
     const before = editor.getHTML();
     expect(applyTiptapCjkTypography(editor, "spacing")).toBe(true);
