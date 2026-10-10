@@ -10,6 +10,7 @@
  */
 import { EditorView } from "@codemirror/view";
 import { EditorSelection, Line } from "@codemirror/state";
+import { transformCjkTypography, markdownProtectedRanges, type CjkTypographyAction } from "./cjkTypography";
 
 // ---------------------------------------------------------------------------
 // 基础工具
@@ -327,6 +328,40 @@ export function replaceSelection(view: EditorView, text: string): boolean {
     changes: { from: range.from, to: range.to, insert: text },
     selection: EditorSelection.cursor(range.from + text.length),
   });
+  focus(view);
+  return true;
+}
+
+
+/**
+ * One CodeMirror transaction for all changes, so Mod-Z rolls back the entire
+ * action. Protection ranges are read from the WHOLE original document, even
+ * when the current selection is only a substring of a code span/link URL.
+ */
+export function applyMarkdownCjkTypography(view: EditorView, action: CjkTypographyAction): boolean {
+  if (!view.state.facet(EditorView.editable)) return false;
+  const original = view.state.doc.toString();
+  const protectedRanges = markdownProtectedRanges(original);
+  const selections = view.state.selection.ranges;
+  const targets = selections.some((range) => range.from !== range.to)
+    ? selections.filter((range) => range.from !== range.to)
+    : [{ from: 0, to: original.length }];
+  const changes: Array<{ from: number; to: number; insert: string }> = [];
+  for (const range of targets) {
+    let cursor = range.from;
+    const cuts = protectedRanges.filter((block) => block.to > range.from && block.from < range.to);
+    for (const block of [...cuts, { from: range.to, to: range.to }]) {
+      const end = Math.min(block.from, range.to);
+      if (end > cursor) {
+        const text = original.slice(cursor, end);
+        const insert = transformCjkTypography(text, action);
+        if (insert !== text) changes.push({ from: cursor, to: end, insert });
+      }
+      cursor = Math.max(cursor, Math.min(block.to, range.to));
+    }
+  }
+  if (!changes.length) return false;
+  view.dispatch({ changes, userEvent: "input" });
   focus(view);
   return true;
 }

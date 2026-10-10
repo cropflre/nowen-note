@@ -1,5 +1,6 @@
 import { emojis } from "@tiptap/extension-emoji";
 import { getRichTextExtensions } from "@/lib/richTextExtensions";
+import { applyTiptapCjkTypography } from "@/lib/tiptapCjkTypography";
 import { EmojiSuggestionList } from "./EmojiSuggestionList";
 import RichTextBlockControls from "./RichTextBlockControls";
 import { getSlashEditorId } from "./extensions/SlashCommandExtension";
@@ -3433,6 +3434,10 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
         pendingSaveAckRef.current = ack;
       },
       isReady: () => !!editor && !editor.isDestroyed,
+      applyCjkTypography: (action) => {
+        if (!editor || editor.isDestroyed || !editor.isEditable) return false;
+        return applyTiptapCjkTypography(editor, action);
+      },
       insertMarkdownAtCursor: (md: string) => {
         if (!editor || editor.isDestroyed) return false;
         try {

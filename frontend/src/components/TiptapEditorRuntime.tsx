@@ -143,6 +143,7 @@ const TiptapEditorRuntime = forwardRef<NoteEditorHandle, RuntimeTiptapEditorProp
       isReady: () => baseRef.current?.isReady?.() ?? Boolean(baseRef.current),
       insertMarkdownAtCursor: (markdown) => baseRef.current?.insertMarkdownAtCursor?.(markdown) ?? false,
       appendMarkdown: (markdown) => baseRef.current?.appendMarkdown?.(markdown) ?? false,
+      applyCjkTypography: (action) => baseRef.current?.applyCjkTypography?.(action) ?? false,
     }), []);
 
     useEffect(() => {
