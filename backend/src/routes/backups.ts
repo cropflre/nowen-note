@@ -34,6 +34,7 @@ import fs from "fs";
 import path from "path";
 import { Readable } from "stream";
 import { BackupBusyError, getBackupManager } from "../services/backup.js";
+import { isValidBackupTimeZone } from "../services/backup-schedule.js";
 import { FullBackupJobBusyError, FullBackupJobStore } from "../services/full-backup-jobs.js";
 import { requireAdmin } from "../middleware/acl.js";
 import { getDb } from "../db/schema.js";
@@ -388,6 +389,7 @@ backupsRouter.post("/auto", async (c) => {
     intervalHours?: number;
     mode?: "interval" | "daily";
     dailyAt?: string;
+    timeZone?: string;
     keepCount?: number;
     emailOnSuccess?: boolean;
     emailTo?: string;
@@ -409,6 +411,10 @@ backupsRouter.post("/auto", async (c) => {
     dailyAt = "03:00";
   }
 
+  if (body.timeZone !== undefined && !isValidBackupTimeZone(body.timeZone)) {
+    return c.json({ error: "timeZone 必须是有效的 IANA 时区，例如 Asia/Shanghai" }, 400);
+  }
+
   // keepCount 范围 1~100。启用时缺省 15；停用时若旧客户端未传则保留当前值。
   let keepCount = Number(body.keepCount);
   if (!Number.isFinite(keepCount)) keepCount = 15;
@@ -427,6 +433,7 @@ backupsRouter.post("/auto", async (c) => {
         intervalHours: interval,
         ...(body.mode !== undefined ? { mode } : {}),
         ...(body.dailyAt !== undefined ? { dailyAt } : {}),
+        ...(body.timeZone !== undefined ? { timeZone: body.timeZone } : {}),
         ...(body.keepCount !== undefined ? { keepCount } : {}),
         ...(body.emailOnSuccess !== undefined ? { emailOnSuccess } : {}),
         ...(body.emailTo !== undefined ? { emailTo } : {}),
@@ -440,6 +447,8 @@ backupsRouter.post("/auto", async (c) => {
       intervalHours: status.autoBackupIntervalHours,
       mode: status.autoBackupMode,
       dailyAt: status.autoBackupDailyAt,
+      timeZone: status.autoBackupTimeZone,
+      nextRunAt: status.autoBackupNextRunAt,
       keepCount: status.autoBackupKeepCount,
       emailOnSuccess: status.autoBackupEmailOnSuccess,
       emailTo: status.autoBackupEmailTo,
@@ -452,6 +461,7 @@ backupsRouter.post("/auto", async (c) => {
       intervalHours: interval,
       mode,
       dailyAt,
+      ...(body.timeZone !== undefined ? { timeZone: body.timeZone } : {}),
       keepCount,
       emailOnSuccess,
       emailTo,
@@ -462,12 +472,14 @@ backupsRouter.post("/auto", async (c) => {
     success: true,
     message:
       mode === "daily"
-        ? `自动备份已启动，每天 ${dailyAt} 触发`
+        ? `自动备份已启动，每天 ${dailyAt}（${body.timeZone || "服务器本地时区"}）触发`
         : `自动备份已启动，每 ${interval} 小时触发`,
     enabled: true,
     intervalHours: interval,
     mode,
     dailyAt,
+    timeZone: body.timeZone || null,
+    nextRunAt: manager.getHealth().autoBackupNextRunAt,
     keepCount,
     emailOnSuccess,
     emailTo,

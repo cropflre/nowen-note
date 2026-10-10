@@ -14,6 +14,7 @@ interface AutoBackupConfigLike {
   intervalHours?: number;
   mode?: "interval" | "daily";
   dailyAt?: string;
+  timeZone?: string;
   keepCount?: number;
   emailOnSuccess?: boolean;
   emailTo?: string;
