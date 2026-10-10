@@ -10,10 +10,6 @@ import {
   setMeta,
   getMeta,
   getAllNotes,
-  getAllNotebooks,
-  getAllTags,
-  deleteNotebook,
-  deleteTag,
   isReady as localStoreReady,
 } from "@/lib/localStore";
 import {
@@ -185,11 +181,8 @@ async function pullServerSnapshot(): Promise<void> {
   const pullErrors: string[] = [];
 
   if (notebooksResult.status === "fulfilled") {
-    const local = (await getAllNotebooks()).filter(isCurrentScope);
-    const remoteIds = new Set(notebooksResult.value.map((notebook) => notebook.id));
-    for (const notebook of local) {
-      if (!remoteIds.has(notebook.id)) await deleteNotebook(notebook.id);
-    }
+    // A scoped/filtered snapshot is not a deletion feed. Keep cached notebooks
+    // until the server provides an explicit, verified deletion/tombstone.
     await putNotebooks(notebooksResult.value);
   } else {
     console.warn("[syncEngine] pull notebooks failed:", notebooksResult.reason);
@@ -225,11 +218,7 @@ async function pullServerSnapshot(): Promise<void> {
   }
 
   if (tagsResult.status === "fulfilled") {
-    const local = (await getAllTags()).filter(isCurrentScope);
-    const remoteIds = new Set(tagsResult.value.map((tag) => tag.id));
-    for (const tag of local) {
-      if (!remoteIds.has(tag.id)) await deleteTag(tag.id);
-    }
+    // Missing tags may be filtered or temporarily inaccessible, not deleted.
     await putTags(tagsResult.value);
   } else {
     console.warn("[syncEngine] pull tags failed:", tagsResult.reason);

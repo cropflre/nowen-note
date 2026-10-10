@@ -124,6 +124,10 @@
         {
           "file": "backend/tests/offline-workspace-sync.test.ts",
           "case": "incremental feed returns committed updates and durable deletion tombstones"
+        },
+        {
+          "file": "frontend/src/lib/__tests__/syncEngine.snapshotSafety.test.ts",
+          "case": "does not delete local notebooks or tags missing from a remote listing"
         }
       ]
     },
