@@ -14,6 +14,9 @@ export type KnowledgeFileListDbRow = {
   path: string;
   createdAt: string;
   noteId: string;
+  userId: string;
+  workspaceId: string | null;
+  uploadSource: string | null;
   folderId: string | null;
   hash: string | null;
   noteTitle: string | null;
@@ -95,6 +98,14 @@ export const knowledgeCapabilityGuardRepository = {
     `).all(workspaceId) as Array<{ tagId: string; noteId: string }>;
   },
 
+  getAttachmentAccessRow(attachmentId: string): {
+    id: string; noteId: string; userId: string; workspaceId: string | null; uploadSource: string | null;
+  } | undefined {
+    return getDb().prepare(
+      "SELECT id, noteId, userId, workspaceId, uploadSource FROM attachments WHERE id = ?",
+    ).get(attachmentId) as any;
+  },
+
   getAttachmentNoteId(attachmentId: string): string | null {
     const row = getDb().prepare("SELECT noteId FROM attachments WHERE id = ?")
       .get(attachmentId) as { noteId: string } | undefined;
@@ -104,21 +115,19 @@ export const knowledgeCapabilityGuardRepository = {
   listAttachmentStatsRows(
     workspaceId: string | null,
     userId: string,
-  ): Array<{ id: string; noteId: string; mimeType: string; size: number }> {
+  ): Array<{ id: string; noteId: string; userId: string; workspaceId: string | null; uploadSource: string | null; mimeType: string; size: number }> {
     const db = getDb();
     return (workspaceId
       ? db.prepare(`
-          SELECT a.id, a.noteId, a.mimeType, a.size
+          SELECT a.id, a.noteId, a.userId, a.workspaceId, a.uploadSource, a.mimeType, a.size
           FROM attachments a
-          JOIN notes n ON n.id = a.noteId
           WHERE a.workspaceId = ?
         `).all(workspaceId)
       : db.prepare(`
-          SELECT a.id, a.noteId, a.mimeType, a.size
+          SELECT a.id, a.noteId, a.userId, a.workspaceId, a.uploadSource, a.mimeType, a.size
           FROM attachments a
-          JOIN notes n ON n.id = a.noteId
           WHERE a.workspaceId IS NULL AND a.userId = ?
-        `).all(userId)) as Array<{ id: string; noteId: string; mimeType: string; size: number }>;
+        `).all(userId)) as Array<{ id: string; noteId: string; userId: string; workspaceId: string | null; uploadSource: string | null; mimeType: string; size: number }>;
   },
 
   listNoteContents(scope: KnowledgeFileScope, userId: string): Array<{ content: string }> {
@@ -221,7 +230,7 @@ export const knowledgeCapabilityGuardRepository = {
 
     return getDb().prepare(`
       SELECT a.id, a.filename, a.mimeType, a.size, a.path, a.createdAt, a.hash,
-             a.noteId, a.folderId,
+             a.noteId, a.userId, a.workspaceId, a.uploadSource, a.folderId,
              n.title AS noteTitle, n.notebookId, n.isTrashed,
              nb.name AS notebookName, nb.icon AS notebookIcon,
              af.name AS folderName

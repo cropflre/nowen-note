@@ -4,7 +4,7 @@ import { api } from "@/lib/api";
 import type { ImportProgress, ImportTargetContentFormat } from "@/lib/importService";
 import {
   formatObsidianFileSize, runObsidianImport, scanObsidianFolder, scanObsidianZip,
-  type ObsidianImportResult, type ObsidianScanResult,
+  type ObsidianDuplicateStrategy, type ObsidianImportResult, type ObsidianScanResult,
 } from "@/lib/obsidianImportService";
 import { useAppActions } from "@/store/AppContext";
 
@@ -31,6 +31,8 @@ export default function ObsidianImport() {
   const [progress, setProgress] = useState<ImportProgress | null>(null);
   const [result, setResult] = useState<ObsidianImportResult | null>(null);
   const [contentFormat, setContentFormat] = useState<ImportTargetContentFormat>(readObsidianFormat);
+  const [duplicateStrategy, setDuplicateStrategy] = useState<ObsidianDuplicateStrategy>("skip");
+  const [includeUnusedAttachments, setIncludeUnusedAttachments] = useState(false);
 
   useEffect(() => {
     try { window.localStorage.setItem(OBSIDIAN_FORMAT_STORAGE_KEY, contentFormat); } catch { /* ignore */ }
@@ -72,12 +74,27 @@ export default function ObsidianImport() {
     if (!scan) return;
     setPhase("importing"); setResult(null); setMessage("正在导入 Obsidian Vault…");
     try {
-      const imported = await runObsidianImport(scan, { rootName, contentFormat, onProgress: setProgress });
+      const imported = await runObsidianImport(scan, {
+        rootName,
+        contentFormat,
+        duplicateStrategy,
+        includeUnusedAttachments,
+        onProgress: setProgress,
+      });
       setResult(imported); setPhase(imported.errors.length ? "error" : "done");
-      setMessage(imported.errors.length ? `已导入 ${imported.noteCount} 篇，存在 ${imported.errors.length} 条错误` : `成功导入 ${imported.noteCount} 篇笔记和 ${imported.attachmentCount} 个附件`);
+      const changes = [
+        imported.createdCount ? `新建 ${imported.createdCount} 篇` : "",
+        imported.updatedCount ? `更新 ${imported.updatedCount} 篇` : "",
+        imported.skippedCount ? `跳过 ${imported.skippedCount} 篇重复笔记` : "",
+      ].filter(Boolean).join("，") || "没有笔记变更";
+      setMessage(
+        imported.errors.length
+          ? `${changes}，存在 ${imported.errors.length} 条错误`
+          : `${changes}；导入 ${imported.attachmentCount} 个附件，${imported.fileNodeCount} 个已加入目录树`,
+      );
       try { actions.setNotebooks(await api.getNotebooks()); actions.refreshNotes(); } catch { /* next refresh */ }
     } catch (error) { setPhase("error"); setMessage((error as Error).message || "导入失败"); }
-  }, [actions, contentFormat, rootName, scan]);
+  }, [actions, contentFormat, duplicateStrategy, includeUnusedAttachments, rootName, scan]);
 
   const notes = useMemo(() => scan?.entries.filter((entry) => entry.kind === "note") || [], [scan]);
   const selected = notes.filter((entry) => entry.selected).length;
@@ -107,6 +124,50 @@ export default function ObsidianImport() {
           <p className="mt-1.5 text-[11px] text-zinc-500 dark:text-zinc-400">
             {contentFormat === "markdown" ? "保留原始 Markdown、Frontmatter 和链接语法，附件地址会自动迁移。" : "转换为可视化编辑格式；部分 Obsidian 专有语法可能降级。"}
           </p>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div>
+            <p className="mb-1.5 text-xs font-medium text-zinc-600 dark:text-zinc-300">重复笔记处理</p>
+            <div className="grid grid-cols-3 overflow-hidden rounded-lg border border-zinc-200 dark:border-zinc-700">
+              {([
+                ["skip", "跳过"],
+                ["update", "更新"],
+                ["duplicate", "保留副本"],
+              ] as const).map(([value, label], index) => (
+                <button
+                  key={value}
+                  type="button"
+                  disabled={phase === "importing"}
+                  onClick={() => setDuplicateStrategy(value)}
+                  className={`px-2 py-1.5 text-xs font-medium transition-colors ${index ? "border-l border-zinc-200 dark:border-zinc-700" : ""} ${duplicateStrategy === value ? "bg-violet-600 text-white" : "bg-white text-zinc-600 hover:bg-zinc-50 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"}`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            <p className="mt-1.5 text-[11px] leading-4 text-zinc-500 dark:text-zinc-400">
+              {duplicateStrategy === "skip"
+                ? "按 Vault 根目录 + 原始相对路径识别，已导入的笔记不重复创建。"
+                : duplicateStrategy === "update"
+                  ? "按原始路径更新已导入笔记；找不到来源映射时会新建。"
+                  : "始终创建新副本；原有来源映射保持不变。"}
+            </p>
+          </div>
+          <label className="flex cursor-pointer items-start gap-2 rounded-lg border border-zinc-200 bg-white p-3 dark:border-zinc-700 dark:bg-zinc-900">
+            <input
+              type="checkbox"
+              checked={includeUnusedAttachments}
+              disabled={phase === "importing"}
+              onChange={(event) => setIncludeUnusedAttachments(event.target.checked)}
+              className="mt-0.5"
+            />
+            <span className="min-w-0">
+              <span className="block text-xs font-medium text-zinc-700 dark:text-zinc-200">导入未被引用的附件</span>
+              <span className="mt-1 block text-[11px] leading-4 text-zinc-500 dark:text-zinc-400">
+                默认关闭。开启后，未在 Markdown 中引用的图片、PDF、HTML 等也会按原 Vault 目录作为独立文件进入知识树。
+              </span>
+            </span>
+          </label>
         </div>
         <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
           <Stat n={scan.stats.notes} label="笔记"/><Stat n={scan.stats.folders} label="目录"/><Stat n={scan.stats.attachments} label="附件"/>

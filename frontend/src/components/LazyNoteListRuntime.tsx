@@ -2,6 +2,7 @@ import React, {
   Suspense,
   useDeferredValue,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
 } from "react";
@@ -9,6 +10,9 @@ import { createPortal } from "react-dom";
 import { Search, X } from "lucide-react";
 
 import LazyWorkspaceFallback from "./LazyWorkspaceFallback";
+import {
+  KNOWLEDGE_TREE_CLEAR_SEARCH_EVENT,
+} from "@/lib/knowledgeTreeCreateVisibility";
 import { useApp, useAppActions } from "@/store/AppContext";
 import type { NoteListItem } from "@/types";
 
@@ -57,22 +61,13 @@ type AppliedFilterSnapshot = {
   ids: Set<string>;
 };
 
-function findDesktopNoteListHeader(shell: HTMLElement): HTMLElement | null {
-  const noteRoot = Array.from(shell.children).find((child) => (
-    child instanceof HTMLElement
-    && child.classList.contains("w-full")
-    && child.classList.contains("h-full")
-    && child.classList.contains("border-r")
-  ));
-  if (!(noteRoot instanceof HTMLElement)) return null;
+type VirtualScrollSnapshot = {
+  viewport: HTMLElement;
+  scrollTop: number;
+};
 
-  return Array.from(noteRoot.children).find((child) => (
-    child instanceof HTMLElement
-    && child.tagName === "DIV"
-    && child.classList.contains("hidden")
-    && child.classList.contains("md:flex")
-    && child.classList.contains("border-b")
-  )) as HTMLElement | null;
+function findDesktopNoteListHeader(shell: HTMLElement): HTMLElement | null {
+  return shell.querySelector<HTMLElement>("[data-note-list-desktop-header]");
 }
 
 export default function LazyNoteListRuntime() {
@@ -89,6 +84,15 @@ export default function LazyNoteListRuntime() {
   const sourceNotesRef = useRef<NoteListItem[]>(state.notes);
   const lastAppliedFilterRef = useRef<AppliedFilterSnapshot | null>(null);
   const sourceRefreshPendingRef = useRef(false);
+  const preserveCurrentNotesOnCreateRef = useRef(false);
+
+  // #781：NoteList 的 >100 条虚拟列表历史上把 [notes] 引用变化直接当成“切换列表”，
+  // 导致 autosave/realtime/后台刷新后把 scrollTop 写回 0。真正切换目录/筛选时
+  // NoteList 会先清空 notes，虚拟 viewport 会被卸载；因此这里仅在“同一个 viewport
+  // 节点仍然存活”的刷新中保存并恢复滚动位置，既不会带着旧目录的位置进入新目录，
+  // 也不会因为同 scope 的数据更新把用户拉回顶部。
+  const previousNotesRef = useRef(state.notes);
+  const virtualScrollSnapshotRef = useRef<VirtualScrollSnapshot | null>(null);
 
   const searchContextKey = `${state.viewMode}:${state.selectedNotebookId || ""}:${
     state.selectedKnowledgeTreeParentId === undefined
@@ -99,42 +103,56 @@ export default function LazyNoteListRuntime() {
   const showDirectorySearch = state.viewMode === "notebook" && !!state.selectedNotebookId;
   const searchActive = showDirectorySearch && deferredDirectoryQuery.trim().length > 0;
 
-  // NoteList 是 lazy chunk。等它真实挂载后定位桌面 header，把搜索框通过 portal
-  // 放到“目录标题”和右侧排序/新建按钮之间；不复制/重写 NoteList 的大块布局代码。
+  // 在子组件 passive effect 执行前抓取旧 scrollTop。这里只接受当前仍挂载的虚拟 viewport；
+  // scope 变化时 NoteList 会 setNotes([]) 并卸载它，因此不会错误恢复上一目录的位置。
+  useLayoutEffect(() => {
+    const notesChanged = previousNotesRef.current !== state.notes;
+    previousNotesRef.current = state.notes;
+    if (!notesChanged) return;
+
+    const viewport = shellRef.current?.querySelector<HTMLElement>(
+      '[data-note-list-scroll-viewport="virtual"]',
+    ) || null;
+    if (!viewport || viewport.scrollTop <= 0) {
+      virtualScrollSnapshotRef.current = null;
+      return;
+    }
+    virtualScrollSnapshotRef.current = {
+      viewport,
+      scrollTop: viewport.scrollTop,
+    };
+  }, [state.notes]);
+
+  // React 的子组件 passive effect 会先把旧 VirtualNoteList 的 scrollTop 复位；父层随后
+  // 把同一 DOM viewport 恢复到快照位置。若节点已卸载/替换则直接放弃，保证真正切换
+  // notebook/search/tag/date/sort/folder scope 时仍从顶部开始。
+  useEffect(() => {
+    const snapshot = virtualScrollSnapshotRef.current;
+    virtualScrollSnapshotRef.current = null;
+    if (!snapshot) return;
+
+    const { viewport } = snapshot;
+    const shell = shellRef.current;
+    if (!viewport.isConnected || !shell?.contains(viewport)) return;
+
+    const maxScrollTop = Math.max(0, viewport.scrollHeight - viewport.clientHeight);
+    const nextScrollTop = Math.min(snapshot.scrollTop, maxScrollTop);
+    if (nextScrollTop > 0 && Math.abs(viewport.scrollTop - nextScrollTop) > 1) {
+      viewport.scrollTop = nextScrollTop;
+    }
+  }, [state.notes]);
+
+  // NoteList 是 lazy chunk。等它真实挂载后，把目录搜索挂到桌面 header 的独立一行。
   useEffect(() => {
     const shell = shellRef.current;
     if (!shell) return;
 
     let annotatedHeader: HTMLElement | null = null;
-    let titleGroup: HTMLElement | null = null;
-    let actionGroup: HTMLElement | null = null;
-
-    const clearAnnotation = () => {
-      titleGroup?.style.removeProperty("order");
-      actionGroup?.style.removeProperty("order");
-      annotatedHeader?.removeAttribute("data-note-directory-search-header");
-      annotatedHeader = null;
-      titleGroup = null;
-      actionGroup = null;
-    };
-
     const locateHeader = () => {
       const header = findDesktopNoteListHeader(shell);
       if (!header || header === annotatedHeader) return;
 
-      clearAnnotation();
       annotatedHeader = header;
-      titleGroup = header.firstElementChild instanceof HTMLElement
-        ? header.firstElementChild
-        : null;
-      actionGroup = header.lastElementChild instanceof HTMLElement
-        ? header.lastElementChild
-        : null;
-
-      // Portal 节点会被追加到 header 末尾，用 flex order 把它稳定放到左右两组控件中间。
-      if (titleGroup) titleGroup.style.order = "0";
-      if (actionGroup) actionGroup.style.order = "2";
-      header.setAttribute("data-note-directory-search-header", "");
       setDesktopHeaderTarget(header);
     };
 
@@ -144,7 +162,6 @@ export default function LazyNoteListRuntime() {
 
     return () => {
       observer.disconnect();
-      clearAnnotation();
       setDesktopHeaderTarget(null);
     };
   }, []);
@@ -161,6 +178,16 @@ export default function LazyNoteListRuntime() {
     setDirectoryQuery("");
   }, [searchContextKey, state.notes]);
 
+  useEffect(() => {
+    const clearAfterCreate = () => {
+      if (!directoryQuery.trim()) return;
+      preserveCurrentNotesOnCreateRef.current = true;
+      setDirectoryQuery("");
+    };
+    window.addEventListener(KNOWLEDGE_TREE_CLEAR_SEARCH_EVENT, clearAfterCreate);
+    return () => window.removeEventListener(KNOWLEDGE_TREE_CLEAR_SEARCH_EVENT, clearAfterCreate);
+  }, [directoryQuery]);
+
   // 搜索结果仍复用 NoteList 自己的虚拟列表、右键菜单、多选和打开笔记逻辑。
   // 这里只维护一个可恢复的“源列表 -> 本地筛选结果”视图层，不触发全局 FTS 搜索。
   useEffect(() => {
@@ -169,7 +196,14 @@ export default function LazyNoteListRuntime() {
     if (!showDirectorySearch || !normalizedQuery) {
       setMatchCount(null);
       if (lastAppliedFilterRef.current) {
-        const source = sourceNotesRef.current;
+        let source = sourceNotesRef.current;
+        if (preserveCurrentNotesOnCreateRef.current) {
+          const merged = new Map(source.map((note) => [note.id, note]));
+          for (const note of state.notes) merged.set(note.id, note);
+          source = Array.from(merged.values());
+          sourceNotesRef.current = source;
+        }
+        preserveCurrentNotesOnCreateRef.current = false;
         lastAppliedFilterRef.current = null;
         sourceRefreshPendingRef.current = false;
         if (noteListSignature(state.notes) !== noteListSignature(source)) {
@@ -250,12 +284,7 @@ export default function LazyNoteListRuntime() {
     ? createPortal(
         <div
           data-note-directory-search=""
-          className={[
-            "hidden min-w-0 md:flex",
-            desktopHeaderTarget.dataset.noteWorkspaceLayout === "three-column"
-              ? "order-3 basis-full w-full max-w-none px-0"
-              : "order-1 max-w-[190px] flex-1 px-2",
-          ].join(" ")}
+          className="hidden min-w-0 w-full basis-full shrink-0 md:flex"
           title={directoryQuery.trim() && matchCount !== null
             ? `当前目录匹配 ${matchCount} 篇文档`
             : "搜索本目录文档"}
@@ -296,9 +325,12 @@ export default function LazyNoteListRuntime() {
     : null;
 
   return (
-    <div ref={shellRef} className="h-full w-full min-h-0">
+    <div
+      ref={shellRef}
+      className="h-full w-full min-h-0 max-md:select-none max-md:[-webkit-touch-callout:none]"
+    >
       <Suspense fallback={<LazyWorkspaceFallback label="正在加载笔记列表…" />}>
-        <LazyNoteList />
+        <LazyNoteList directorySearchActive={searchActive} />
       </Suspense>
       {directorySearch}
     </div>

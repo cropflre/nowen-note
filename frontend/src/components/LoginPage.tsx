@@ -10,7 +10,8 @@ import {
   setServerUrl,
   testServerConnection,
 } from "@/lib/api";
-import { buildServerUrl, parseServerUrl, type ServerAddressParts } from "@/lib/serverUrl";
+import { buildServerUrl, getResolvedApiBaseUrl, isLanServerHostname, parseServerUrl, type ServerAddressParts } from "@/lib/serverUrl";
+import { safeLoginRequestTarget } from "@/lib/loginRequestDiagnostics";
 import ServerAddressInput from "@/components/ServerAddressInput";
 import LanDiscoveryPanel from "@/components/LanDiscoveryPanel";
 import { useKeyboardLayout } from "@/hooks/useCapacitor";
@@ -26,13 +27,20 @@ import {
 import type { User as AuthUser } from "@/types";
 import { isUgreenRemoteAccessUrl, openUgreenRemoteWorkspace } from "@/lib/ugreenRemoteAccess";
 import { clearAuthTokens, storeAuthTokens } from "@/lib/authSession";
+import {
+  completeDesktopLocalLoginHint,
+  getDesktopLocalLoginHint,
+  type DesktopLocalLoginHint,
+} from "@/lib/desktopBridge";
 
 interface LoginPageProps {
   onLogin: (token: string, user: any) => void;
   onAccountLogin?: (token: string, user: AuthUser) => void;
-  /** 是否为客户端模式（Electron / Android / 曾配置过服务器地址） */
+  /** 是否为客户端模式（Electron / Android） */
   isClientMode?: boolean;
   onDisconnect?: () => void;
+  /** Android 账号登录页返回设备本地模式。 */
+  onContinueLocal?: () => void;
 }
 
 type Mode = "login" | "register";
@@ -48,11 +56,12 @@ function isMobileNativeClientRuntime(): boolean {
   }
 }
 
-export default function LoginPage({ onLogin, onAccountLogin, isClientMode = false, onDisconnect }: LoginPageProps) {
+export default function LoginPage({ onLogin, onAccountLogin, isClientMode = false, onDisconnect, onContinueLocal }: LoginPageProps) {
   const { t } = useTranslation();
   const { siteConfig } = useSiteSettings();
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const formRef = useRef<HTMLFormElement | null>(null);
+  const serverProbeEpochRef = useRef(0);
 
   useKeyboardLayout();
   const { height: keyboardHeight } = useKeyboardVisible();
@@ -66,6 +75,7 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
     path: "",
   });
   const [serverStatus, setServerStatus] = useState<"idle" | "checking" | "ok" | "fail">("idle");
+  const [serverNotice, setServerNotice] = useState("");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -84,6 +94,9 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
   const [isLoading, setIsLoading] = useState(false);
   const [isAuthorizingUgreen, setIsAuthorizingUgreen] = useState(false);
   const [error, setError] = useState("");
+  const [serviceUnavailable, setServiceUnavailable] = useState(false);
+  const [registerConfigRetry, setRegisterConfigRetry] = useState(0);
+  const [localLoginHint, setLocalLoginHint] = useState<DesktopLocalLoginHint | null>(null);
   const pendingReauthRef = useRef<{ serverUrl: string; username: string } | null>(null);
   const pendingUgreenLoginRef = useRef(false);
 
@@ -94,6 +107,18 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
   const isDesktopClient = !!(window as any).nowenDesktop?.isDesktop;
   const isNativeMobileClient = isMobileNativeClientRuntime() && !isDesktopClient;
   const isMobileUgreenAddress = isNativeMobileClient && isUgreenRemoteAccessUrl(buildServerUrl(serverParts));
+  const showLanDiscovery = !serverParts.host.trim() || isLanServerHostname(serverParts.host);
+
+  useEffect(() => {
+    if (!isClientMode || !isDesktopClient) return;
+    let cancelled = false;
+    void getDesktopLocalLoginHint().then((hint) => {
+      if (!cancelled) setLocalLoginHint(hint);
+    }).catch(() => {
+      if (!cancelled) setLocalLoginHint(null);
+    });
+    return () => { cancelled = true; };
+  }, [isClientMode, isDesktopClient]);
 
   useEffect(() => {
     const desktop = (window as any).nowenDesktop;
@@ -176,6 +201,7 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
   useEffect(() => {
     if (!isClientMode) return;
     let cancelled = false;
+    const serverEpochAtLoad = serverProbeEpochRef.current;
     void Promise.all([canPersistPassword(), loadRememberedCredentials()]).then(([supported, saved]) => {
       if (cancelled) return;
       setCanSavePassword(supported);
@@ -191,7 +217,9 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
         saved?.serverUrl.replace(/\/+$/, "").toLowerCase() === pending.serverUrl.replace(/\/+$/, "").toLowerCase()
         && saved?.username === pending.username
       );
-      if (!saved || !matchesPending) {
+      if (!saved || !matchesPending || serverEpochAtLoad !== serverProbeEpochRef.current) {
+        // A user has started entering a different server while secure storage was loading.
+        // Never silently replace their current address and associated credentials.
         setRememberMe(true);
         return;
       }
@@ -217,11 +245,15 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
       if (cancelled) return;
       setAllowRegistration(cfg.allowRegistration);
       setHasUsers(!!(cfg as any).hasUsers || Number((cfg as any).userCount || 0) > 0);
+      setServiceUnavailable(false);
     }).catch(() => {
-      if (!cancelled) setAllowRegistration(true);
+      if (!cancelled) {
+        setAllowRegistration(true);
+        if (!isClientMode) setServiceUnavailable(true);
+      }
     });
     return () => { cancelled = true; };
-  }, [isClientMode, serverStatus]);
+  }, [isClientMode, serverStatus, registerConfigRetry]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -267,9 +299,10 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
     return null;
   };
 
-  const handleServerBlur = async () => {
+  const handleServerBlur = async (resolved: ServerAddressParts) => {
     if (!isClientMode) return;
-    const url = buildServerUrl(serverParts);
+    const epoch = ++serverProbeEpochRef.current;
+    const url = buildServerUrl(resolved);
     if (!url) return;
     // UGREENlink 的远程 Docker 域名会先跳转到网关认证页，不能按普通 API 健康检查判失败。
     if (isNativeMobileClient && isUgreenRemoteAccessUrl(url)) {
@@ -279,9 +312,26 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
       return;
     }
     setServerStatus("checking");
+    setServerNotice("");
     const result = await testServerConnection(url);
+    if (epoch !== serverProbeEpochRef.current) return;
     setServerStatus(result.ok ? "ok" : "fail");
     if (result.ok) {
+      const notices = [
+        t("server.connectionDiagnostics", {
+          apiPath: result.apiPath,
+          websocketPath: result.websocketPath,
+          mode: t(result.proxyCompatibilityMode === "standard" ? "server.standardMode" : "server.proxyMode"),
+        }),
+        result.proxyCompatibilityMode && result.proxyCompatibilityMode !== "standard"
+          ? t("server.proxyCompatibilityEnabled", {
+            apiPath: result.proxyRewrittenApiPath || result.apiPath,
+            websocketPath: result.proxyRewrittenWebsocketPath || result.websocketPath,
+          })
+          : "",
+        result.websocketOk === false ? t("server.websocketUnavailable") : "",
+      ].filter(Boolean);
+      setServerNotice(notices.join(" "));
       setServerUrl(url);
       localStorage.setItem("nowen-server-url-last", url);
       fetchRegisterConfig(url).then((cfg) => setAllowRegistration(cfg.allowRegistration)).catch(() => {});
@@ -312,7 +362,7 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
   };
 
   const resolveBaseUrl = async (): Promise<string | null> => {
-    if (!isClientMode) return "";
+    if (!isClientMode) return getServerUrl();
     const url = buildServerUrl(serverParts);
     if (!url) {
       setError(t("auth.serverRequired"));
@@ -328,6 +378,7 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
       return null;
     }
     setServerStatus("checking");
+    setServerNotice("");
     const result = await testServerConnection(url);
     if (!result.ok) {
       if (isDesktopClient && isUgreenRemoteAccessUrl(url)) {
@@ -335,10 +386,28 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
         return null;
       }
       setServerStatus("fail");
-      setError(result.error || t("server.connectFailed"));
+      setError(t("auth.serverProbeFailed", {
+        target: safeLoginRequestTarget(url),
+        reason: result.error || t("server.connectFailed"),
+      }));
       return null;
     }
     setServerStatus("ok");
+    const notices = [
+      t("server.connectionDiagnostics", {
+        apiPath: result.apiPath,
+        websocketPath: result.websocketPath,
+        mode: t(result.proxyCompatibilityMode === "standard" ? "server.standardMode" : "server.proxyMode"),
+      }),
+      result.proxyCompatibilityMode && result.proxyCompatibilityMode !== "standard"
+        ? t("server.proxyCompatibilityEnabled", {
+          apiPath: result.proxyRewrittenApiPath || result.apiPath,
+          websocketPath: result.proxyRewrittenWebsocketPath || result.websocketPath,
+        })
+        : "",
+      result.websocketOk === false ? t("server.websocketUnavailable") : "",
+    ].filter(Boolean);
+    setServerNotice(notices.join(" "));
     setServerUrl(url);
     localStorage.setItem("nowen-server-url-last", url);
     return url;
@@ -358,11 +427,45 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
     }
   };
 
+  const completeLocalLoginHintIfMatched = async (baseUrl: string, loginUsername: string) => {
+    const hint = localLoginHint;
+    if (!hint) return;
+    const normalizedBaseUrl = baseUrl.replace(/\/+$/, "").toLowerCase();
+    const normalizedHintUrl = hint.serverUrl.replace(/\/+$/, "").toLowerCase();
+    if (normalizedBaseUrl !== normalizedHintUrl || loginUsername.trim() !== hint.username) return;
+    try {
+      const result = await completeDesktopLocalLoginHint(baseUrl, loginUsername.trim());
+      if (result.ok) setLocalLoginHint(null);
+    } catch {
+      // 登录本身已经成功；提示状态写入失败不能阻断用户进入工作台。
+    }
+  };
+
+  const fillLocalLoginHint = () => {
+    if (!localLoginHint) return;
+    pendingReauthRef.current = null;
+    setMode("login");
+    setLoginStep("password");
+    setServerParts(parseServerUrl(localLoginHint.serverUrl));
+    setServerStatus("ok");
+    setServerUrl(localLoginHint.serverUrl);
+    localStorage.setItem("nowen-server-url-last", localLoginHint.serverUrl);
+    setUsername(localLoginHint.username);
+    setPassword(localLoginHint.password);
+    setError("");
+  };
+
+  const handleAccountSwitched = (token: string, switchedUser: AuthUser) => {
+    const baseUrl = getServerUrl() || buildServerUrl(serverParts);
+    void completeLocalLoginHintIfMatched(baseUrl, switchedUser.username || "");
+    (onAccountLogin || onLogin)(token, switchedUser);
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
+    setServiceUnavailable(false);
     setIsLoading(true);
-    let loginUrl = "";
     try {
       const baseUrl = await resolveBaseUrl();
       if (baseUrl === null) return;
@@ -387,20 +490,39 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
           displayName: displayName.trim() || undefined,
         }, baseUrl || undefined);
         storeAuthTokens({ token: data.token, refreshToken: data.refreshToken ?? null });
+        await completeLocalLoginHintIfMatched(baseUrl || "", data.user?.username || username.trim());
         onLogin(data.token, data.user);
         return;
       }
 
-      loginUrl = baseUrl ? `${baseUrl}/api/auth/login` : "/api/auth/login";
+      const loginUrl = `${getResolvedApiBaseUrl(baseUrl)}/auth/login`;
       const { getDeviceId } = await import("@/lib/deviceId");
-      const res = await fetch(loginUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username: username.trim(), password, deviceId: getDeviceId() }),
-      });
+      const target = safeLoginRequestTarget(loginUrl);
+      let res: Response;
+      try {
+        res = await fetch(loginUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ username: username.trim(), password, deviceId: getDeviceId() }),
+        });
+      } catch {
+        console.error("[login] no HTTP response");
+        if (isClientMode) setError(t("auth.loginNoResponse", { target }));
+        else setServiceUnavailable(true);
+        return;
+      }
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setError(data.error || t("auth.loginFailed"));
+        if (!isClientMode) {
+          if (res.status >= 500) setServiceUnavailable(true);
+          else setError(data.error || t("auth.loginFailed"));
+          return;
+        }
+        setError(t("auth.loginHttpError", {
+          status: res.status,
+          target,
+          reason: data.error || t("auth.loginFailed"),
+        }));
         return;
       }
 
@@ -422,11 +544,12 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
 
       await persistRememberedLogin(baseUrl || "");
       storeAuthTokens({ token: data.token, refreshToken: data.refreshToken ?? null });
+      await completeLocalLoginHintIfMatched(baseUrl || "", data.user?.username || username.trim());
       onLogin(data.token, data.user);
     } catch (err: any) {
-      const message = err?.message || String(err || t("auth.networkError"));
-      console.error("[login] request failed", { url: loginUrl || "(resolveBaseUrl)", error: message });
-      setError(`${message}（请检查服务器地址、CORS/CSP、证书或 /api 反代）`);
+      console.error("[login] setup or session failed", { name: err?.name || "unknown" });
+      if (!isClientMode && (err?.name === "TypeError" || err?.status >= 500)) setServiceUnavailable(true);
+      else setError(t("auth.loginSessionError"));
     } finally {
       setIsLoading(false);
     }
@@ -446,12 +569,11 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
 
     setIsLoading(true);
     setError("");
+    setServiceUnavailable(false);
 
     try {
-      const baseUrl = twoFactorBaseUrl || (isClientMode ? buildServerUrl(serverParts) : "");
-      const verifyUrl = baseUrl
-        ? `${baseUrl}/api/auth/2fa/verify`
-        : "/api/auth/2fa/verify";
+      const baseUrl = twoFactorBaseUrl || (isClientMode ? buildServerUrl(serverParts) : getServerUrl());
+      const verifyUrl = `${getResolvedApiBaseUrl(baseUrl)}/auth/2fa/verify`;
       const { getDeviceId } = await import("@/lib/deviceId");
       const res = await fetch(verifyUrl, {
         method: "POST",
@@ -465,6 +587,10 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
       const data = await res.json().catch(() => ({}));
 
       if (!res.ok) {
+        if (!isClientMode && res.status >= 500) {
+          setServiceUnavailable(true);
+          return;
+        }
         if (data.code === "TFA_TICKET_EXPIRED") {
           setLoginStep("password");
           setTwoFactorTicket("");
@@ -488,9 +614,11 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
 
       await persistRememberedLogin(baseUrl || "");
       storeAuthTokens({ token: data.token, refreshToken: data.refreshToken ?? null });
+      await completeLocalLoginHintIfMatched(baseUrl || "", data.user?.username || twoFactorUsername || username.trim());
       onLogin(data.token, data.user);
     } catch (err: any) {
-      setError(err?.message || t("auth.networkError"));
+      if (!isClientMode) setServiceUnavailable(true);
+      else setError(err?.message || t("auth.networkError"));
     } finally {
       setIsLoading(false);
     }
@@ -509,6 +637,7 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
     clearAuthTokens();
     setServerParts({ protocol: "http", host: "", port: "", path: "" });
     setServerStatus("idle");
+    setServerNotice("");
     setUsername("");
     setPassword("");
     setConfirmPassword("");
@@ -582,7 +711,7 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
             <AccountLoginHistoryList
               className="mb-5"
               title={t("auth.loginHistory.recentAccounts")}
-              onSwitched={(token, switchedUser) => (onAccountLogin || onLogin)(token, switchedUser)}
+              onSwitched={handleAccountSwitched}
               onRequiresReauth={handleHistoryReauth}
             />
           )}
@@ -606,6 +735,61 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
               {t("auth.registerTab")}
             </button>
           </div>
+          )}
+
+          <AnimatePresence>
+            {!isTwoFactorStep && !isRegister && localLoginHint && (
+              <motion.div
+                data-desktop-local-login-hint
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: "auto" }}
+                exit={{ opacity: 0, height: 0 }}
+                className="mb-5 overflow-hidden rounded-xl border border-indigo-200 bg-indigo-50/70 p-3.5 dark:border-indigo-500/25 dark:bg-indigo-500/10"
+              >
+                <div className="mb-2.5">
+                  <p className="text-sm font-medium text-indigo-800 dark:text-indigo-200">{t("auth.localDesktopLogin.title")}</p>
+                  <p className="mt-0.5 text-[11px] leading-4 text-indigo-600/80 dark:text-indigo-300/70">{t("auth.localDesktopLogin.description")}</p>
+                </div>
+                <dl className="space-y-1.5 text-xs">
+                  <div className="flex gap-2">
+                    <dt className="w-14 flex-shrink-0 text-indigo-500 dark:text-indigo-400">{t("auth.localDesktopLogin.address")}</dt>
+                    <dd className="min-w-0 break-all font-mono text-zinc-700 dark:text-zinc-200">{localLoginHint.serverUrl}</dd>
+                  </div>
+                  <div className="flex gap-2">
+                    <dt className="w-14 flex-shrink-0 text-indigo-500 dark:text-indigo-400">{t("auth.localDesktopLogin.username")}</dt>
+                    <dd className="min-w-0 break-all font-mono text-zinc-700 dark:text-zinc-200">{localLoginHint.username}</dd>
+                  </div>
+                  <div className="flex gap-2">
+                    <dt className="w-14 flex-shrink-0 text-indigo-500 dark:text-indigo-400">{t("auth.localDesktopLogin.password")}</dt>
+                    <dd className="min-w-0 break-all font-mono text-zinc-700 dark:text-zinc-200">{localLoginHint.password}</dd>
+                  </div>
+                  <div className="flex gap-2">
+                    <dt className="w-14 flex-shrink-0 text-indigo-500 dark:text-indigo-400">{t("auth.localDesktopLogin.role")}</dt>
+                    <dd className="min-w-0 text-zinc-700 dark:text-zinc-200">{t("auth.localDesktopLogin.roleAdmin")}</dd>
+                  </div>
+                </dl>
+                <button
+                  type="button"
+                  onClick={fillLocalLoginHint}
+                  className="mt-3 w-full rounded-lg border border-indigo-200 bg-white/80 px-3 py-2 text-xs font-medium text-indigo-700 transition-colors hover:bg-white dark:border-indigo-500/30 dark:bg-indigo-950/30 dark:text-indigo-200 dark:hover:bg-indigo-950/50"
+                >
+                  {t("auth.localDesktopLogin.fillButton")}
+                </button>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {!isClientMode && serviceUnavailable && (
+            <div role="alert" className="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-600 dark:border-red-500/20 dark:bg-red-500/10 dark:text-red-400">
+              <p>{t("auth.serviceUnavailable")}</p>
+              <button type="button" onClick={() => {
+                setError("");
+                setServiceUnavailable(false);
+                setRegisterConfigRetry((attempt) => attempt + 1);
+              }} className="mt-2 font-medium underline underline-offset-2">
+                {t("auth.retryConnection")}
+              </button>
+            </div>
           )}
 
           <form ref={formRef} onSubmit={isTwoFactorStep ? handleTwoFactorSubmit : handleSubmit} className="space-y-4">
@@ -658,13 +842,15 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
             <>
             <AnimatePresence>
               {isClientMode && (
-                <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }} className="space-y-1.5 overflow-hidden">
+                <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }} className="space-y-1.5">
                   <label className="text-sm font-medium text-zinc-700 dark:text-zinc-300">{t("auth.serverAddress")}</label>
                   <ServerAddressInput
                     value={serverParts}
                     onChange={(next) => {
+                      serverProbeEpochRef.current += 1;
                       setServerParts(next);
                       if (serverStatus !== "idle") setServerStatus("idle");
+                      if (serverNotice) setServerNotice("");
                     }}
                     onHostBlur={handleServerBlur}
                     autoFocus={isClientMode}
@@ -672,13 +858,22 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
                     rightSlot={serverStatusIcon()}
                   />
                   <p className="text-xs text-zinc-400 dark:text-zinc-500">{t("auth.serverHint")}</p>
-                  <LanDiscoveryPanel
-                    currentHostIsEmpty={!serverParts.host.trim()}
-                    onSelect={(next) => {
-                      setServerParts(next);
-                      setServerStatus("idle");
-                    }}
-                  />
+                  {serverNotice && (
+                    <p className="rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-2 text-xs leading-5 text-amber-700 dark:border-amber-500/25 dark:bg-amber-500/10 dark:text-amber-300">
+                      {serverNotice}
+                    </p>
+                  )}
+                  {showLanDiscovery && (
+                    <LanDiscoveryPanel
+                      currentHostIsEmpty={!serverParts.host.trim()}
+                      onSelect={(next) => {
+                        serverProbeEpochRef.current += 1;
+                        setServerParts(next);
+                        setServerStatus("idle");
+                        setServerNotice("");
+                      }}
+                    />
+                  )}
                 </motion.div>
               )}
             </AnimatePresence>
@@ -817,7 +1012,22 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
             )}
           </form>
 
-          {!isTwoFactorStep && <p className="text-center text-xs text-zinc-400 dark:text-zinc-600 mt-6">
+          {!isTwoFactorStep && onContinueLocal && (
+            <div className="mt-4 border-t border-zinc-100 pt-4 dark:border-zinc-800">
+              <button
+                type="button"
+                onClick={onContinueLocal}
+                className="w-full rounded-xl border border-zinc-200 bg-white px-4 py-2.5 text-sm font-medium text-zinc-700 transition-colors hover:border-indigo-300 hover:text-indigo-600 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:border-indigo-500/50 dark:hover:text-indigo-300"
+              >
+                {t("auth.continueLocal")}
+              </button>
+              <p className="mt-2 text-center text-[11px] leading-5 text-zinc-400 dark:text-zinc-500">
+                {t("auth.localModeNote")}
+              </p>
+            </div>
+          )}
+
+          {!isTwoFactorStep && !serviceUnavailable && <p className="text-center text-xs text-zinc-400 dark:text-zinc-600 mt-6">
             {isRegister ? t("auth.registerHint") : (hasUsers ? null : t("auth.defaultCredentials"))}
           </p>}
 

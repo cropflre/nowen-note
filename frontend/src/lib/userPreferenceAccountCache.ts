@@ -1,5 +1,22 @@
+import { isNoteThemeId, type NoteThemeId } from "@/lib/noteTheme";
+import {
+  normalizeCodeBlockCollapseMode,
+  type CodeBlockCollapseMode,
+} from "@/lib/codeBlockPresentation";
+export type { CodeBlockCollapseMode } from "@/lib/codeBlockPresentation";
+import {
+  normalizeHiddenNavigationModules,
+  normalizeHiddenTaskCenterModules,
+  normalizeNavigationModuleOrder,
+  NAVIGATION_MODULE_IDS,
+  type NavigationModuleId,
+  type TaskCenterOptionalModuleId,
+} from "@/lib/navigationVisibility";
+
 export type ReadingDensity = "cozy" | "compact";
+export type EditorFontSize = 0 | 14 | 16 | 18 | 20 | 22 | 24;
 export type MarkdownViewMode = "source" | "preview" | "split";
+export type RemoteImagePasteMode = "localize" | "ask" | "keep-remote";
 export type EditorMode = "md" | "tiptap";
 export type FolderAutoLockMinutes = 0 | 5 | 15 | 30 | 60;
 export type CodeBlockThemeId =
@@ -18,12 +35,21 @@ export interface UserPreferences {
   folderAutoLockMinutes: FolderAutoLockMinutes;
   folderLockOnBackground: boolean;
   readingDensity: ReadingDensity;
+  editorFontSize: EditorFontSize;
   showNoteListUpdatedTime: boolean;
   enableNoteTabs: boolean;
   markdownDefaultViewMode: MarkdownViewMode;
+  remoteImagePasteMode: RemoteImagePasteMode;
   defaultEditorMode: EditorMode;
   codeBlockTheme: CodeBlockThemeId;
+  codeBlockCollapseMode: CodeBlockCollapseMode;
+  noteTheme: NoteThemeId;
   noteListTitleOnly: boolean;
+  hiddenNavigationModules: NavigationModuleId[];
+  navigationModuleOrder: NavigationModuleId[];
+  hiddenTaskCenterModules: TaskCenterOptionalModuleId[];
+  journalLockOnEntry: boolean;
+  showNoteListDividers: boolean;
 }
 
 export type UserPreferencePatch = Partial<UserPreferences>;
@@ -49,12 +75,21 @@ export const DEFAULT_USER_PREFERENCES: UserPreferences = {
   folderAutoLockMinutes: 15,
   folderLockOnBackground: true,
   readingDensity: "cozy",
+  editorFontSize: 0,
   showNoteListUpdatedTime: true,
   enableNoteTabs: false,
   markdownDefaultViewMode: "source",
+  remoteImagePasteMode: "localize",
   defaultEditorMode: "tiptap",
   codeBlockTheme: "github-dark",
+  codeBlockCollapseMode: "long",
+  noteTheme: "default",
   noteListTitleOnly: false,
+  hiddenNavigationModules: [],
+  navigationModuleOrder: [...NAVIGATION_MODULE_IDS],
+  hiddenTaskCenterModules: [],
+  journalLockOnEntry: false,
+  showNoteListDividers: false,
 };
 
 export const LEGACY_USER_PREFERENCES_KEY = "nowen.user-prefs.v1";
@@ -110,6 +145,16 @@ export function normalizeUserPreferences(
     readingDensity: raw.readingDensity === "compact" || raw.readingDensity === "cozy"
       ? raw.readingDensity
       : fallback.readingDensity,
+    editorFontSize:
+      raw.editorFontSize === 0 ||
+      raw.editorFontSize === 14 ||
+      raw.editorFontSize === 16 ||
+      raw.editorFontSize === 18 ||
+      raw.editorFontSize === 20 ||
+      raw.editorFontSize === 22 ||
+      raw.editorFontSize === 24
+        ? raw.editorFontSize
+        : fallback.editorFontSize,
     showNoteListUpdatedTime: typeof raw.showNoteListUpdatedTime === "boolean"
       ? raw.showNoteListUpdatedTime
       : legacyShowTime ?? fallback.showNoteListUpdatedTime,
@@ -122,6 +167,12 @@ export function normalizeUserPreferences(
       raw.markdownDefaultViewMode === "split"
         ? raw.markdownDefaultViewMode
         : fallback.markdownDefaultViewMode,
+    remoteImagePasteMode:
+      raw.remoteImagePasteMode === "localize" ||
+      raw.remoteImagePasteMode === "ask" ||
+      raw.remoteImagePasteMode === "keep-remote"
+        ? raw.remoteImagePasteMode
+        : fallback.remoteImagePasteMode,
     defaultEditorMode: raw.defaultEditorMode === "md" || raw.defaultEditorMode === "tiptap"
       ? raw.defaultEditorMode
       : fallback.defaultEditorMode,
@@ -129,9 +180,29 @@ export function normalizeUserPreferences(
       typeof raw.codeBlockTheme === "string" && CODE_BLOCK_THEMES.has(raw.codeBlockTheme as CodeBlockThemeId)
         ? raw.codeBlockTheme as CodeBlockThemeId
         : fallback.codeBlockTheme,
+    codeBlockCollapseMode: normalizeCodeBlockCollapseMode(
+      raw.codeBlockCollapseMode,
+      fallback.codeBlockCollapseMode,
+    ),
+    noteTheme: isNoteThemeId(raw.noteTheme) ? raw.noteTheme : fallback.noteTheme,
     noteListTitleOnly: typeof raw.noteListTitleOnly === "boolean"
       ? raw.noteListTitleOnly
       : fallback.noteListTitleOnly,
+    hiddenNavigationModules: Array.isArray(raw.hiddenNavigationModules)
+      ? normalizeHiddenNavigationModules(raw.hiddenNavigationModules)
+      : [...fallback.hiddenNavigationModules],
+    navigationModuleOrder: Array.isArray(raw.navigationModuleOrder)
+      ? normalizeNavigationModuleOrder(raw.navigationModuleOrder)
+      : normalizeNavigationModuleOrder(fallback.navigationModuleOrder),
+    hiddenTaskCenterModules: Array.isArray(raw.hiddenTaskCenterModules)
+      ? normalizeHiddenTaskCenterModules(raw.hiddenTaskCenterModules)
+      : [...fallback.hiddenTaskCenterModules],
+    journalLockOnEntry: typeof raw.journalLockOnEntry === "boolean"
+      ? raw.journalLockOnEntry
+      : fallback.journalLockOnEntry,
+    showNoteListDividers: typeof raw.showNoteListDividers === "boolean"
+      ? raw.showNoteListDividers
+      : fallback.showNoteListDividers,
   };
 }
 

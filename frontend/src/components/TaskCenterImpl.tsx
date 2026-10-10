@@ -42,6 +42,9 @@ import { CalendarExportTargetSettings } from "./tasks/CalendarExportTargetSettin
 import { MobileProjectTrigger, MobileProjectPicker } from "./tasks/MobileProjectPicker";
 import { taskMatchesSearch } from "./tasks/taskSearch";
 import { parseTaskQuickAdd, type TaskQuickAddParseResult } from "./tasks/taskSmartRecognition";
+import { resolveTaskQuickAddDraft, type TaskQuickAddManualMeta } from "./tasks/taskQuickAddDraft";
+import { loadTaskViewMode, saveTaskViewMode, type TaskViewMode } from "./tasks/taskViewMode";
+import { loadTaskDueSort, saveTaskDueSort } from "./tasks/taskDueSortPreference";
 import { HabitStatsOverview } from "./tasks/HabitStatsOverview";
 import { HabitRow } from "./tasks/HabitRow";
 import { StatsCenter } from "./tasks/StatsCenter";
@@ -51,6 +54,8 @@ import { TaskTimePlanner } from "./tasks/TaskTimePlanner";
 import { openTaskQuickCapture } from "@/lib/taskInboxApi";
 import { consumePendingTaskNotificationTaskId } from "@/lib/taskNotifications";
 import { TASK_NOTIFICATION_OPEN_EVENT } from "@/lib/taskNotificationSchedule";
+import { useUserPreferences } from "@/hooks/useUserPreferences";
+import { isTaskCenterModuleVisible } from "@/lib/navigationVisibility";
 
 export function formatLocalDateKey(date = new Date()): string {
   const y = date.getFullYear();
@@ -81,6 +86,7 @@ function getQuickAddCreatePatch(parsed: TaskQuickAddParseResult): Partial<Task> 
 /* ===== Main Component ===== */
 export default function TaskCenter() {
   const { t } = useTranslation();
+  const { prefs: userPrefs } = useUserPreferences();
 
   type CenterMode = "inbox" | "tasks" | "my-day" | "planner" | "habits" | "stats";
   type HabitListMode = "active" | "archived" | "all";
@@ -104,6 +110,13 @@ export default function TaskCenter() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [stats, setStats] = useState<TaskStats | null>(null);
   const [centerMode, setCenterMode] = useState<CenterMode>("tasks");
+
+  useEffect(() => {
+    if (!isTaskCenterModuleVisible(centerMode, userPrefs.hiddenTaskCenterModules)) {
+      setCenterMode("tasks");
+    }
+  }, [centerMode, userPrefs.hiddenTaskCenterModules]);
+
   const [habits, setHabits] = useState<Habit[]>([]);
   const [habitStats, setHabitStats] = useState<HabitStats | null>(null);
   const [habitListMode, setHabitListMode] = useState<HabitListMode>("active");
@@ -124,6 +137,7 @@ export default function TaskCenter() {
   const [statsHabits, setStatsHabits] = useState<Habit[]>([]);
   const [statsHabitCheckins, setStatsHabitCheckins] = useState<HabitCheckinListItem[]>([]);
   const [statsLoading, setStatsLoading] = useState(false);
+  const statsLoadGenerationRef = useRef(0);
 
   const activeHabits = useMemo(
     () => habits.filter((habit) => !habit.archivedAt),
@@ -181,9 +195,11 @@ export default function TaskCenter() {
     return () => window.removeEventListener(TASK_NOTIFICATION_OPEN_EVENT, onOpen);
   }, [openTaskFromNotification]);
 
-  // Phase 4: view mode (list / board)
-  type ViewMode = "list" | "board" | "calendar" | "timeline";
-  const [viewMode, setViewMode] = useState<ViewMode>("list");
+  const [viewMode, setViewMode] = useState<TaskViewMode>(loadTaskViewMode);
+  const changeViewMode = (mode: TaskViewMode) => {
+    setViewMode(mode);
+    saveTaskViewMode(mode);
+  };
 
   // Phase 4: new project dialog
   const [showNewProject, setShowNewProject] = useState(false);
@@ -198,7 +214,9 @@ export default function TaskCenter() {
   const [showReminderCenter, setShowReminderCenter] = useState(false);
   const [taskFullscreen, setTaskFullscreen] = useState(false);
   const [reminderBadgeCount, setReminderBadgeCount] = useState(0);
-  const [sortByDueTime, setSortByDueTime] = useState(false);
+  const [sortByDueTime, setSortByDueTime] = useState(loadTaskDueSort);
+  useEffect(() => { saveTaskDueSort(sortByDueTime); }, [sortByDueTime]);
+  const toggleDueSort = () => setSortByDueTime((previous) => !previous);
 
   // Phase 4: batch select mode
   const [selectMode, setSelectMode] = useState(false);
@@ -213,7 +231,7 @@ export default function TaskCenter() {
     const children = tasks.filter((task) => task.parentId);
     return [
       ...orderTasksCompletedLast(roots, sortByDueTime ? compareTasksByDueTime : undefined),
-      ...orderTasksCompletedLast(children),
+      ...orderTasksCompletedLast(children, sortByDueTime ? compareTasksByDueTime : undefined),
     ];
   }, [tasks, sortByDueTime]);
 
@@ -304,6 +322,7 @@ export default function TaskCenter() {
   }, []);
 
   const loadStatsCenter = useCallback(async () => {
+    const generation = ++statsLoadGenerationRef.current;
     try {
       setStatsLoading(true);
       const checkinDate = formatLocalDateKey();
@@ -314,6 +333,7 @@ export default function TaskCenter() {
         api.getHabitStats(true, checkinDate),
         api.getHabitCheckinLog({ includeArchived: true }),
       ]);
+      if (generation !== statsLoadGenerationRef.current) return;
       setStatsTasks(taskList);
       setStats(taskStatsData);
       setStatsHabits(habitList);
@@ -323,9 +343,9 @@ export default function TaskCenter() {
       console.error("Failed to load stats center:", err);
       toast.error(t("stats.loadFailed"));
     } finally {
-      setStatsLoading(false);
+      if (generation === statsLoadGenerationRef.current) setStatsLoading(false);
     }
-  }, [t, workspaceVersion]);
+  }, [t]);
 
   const loadDependencies = useCallback(async () => {
     try {
@@ -351,10 +371,20 @@ export default function TaskCenter() {
   useEffect(() => { loadTasks(); loadDependencies(); loadReminderBadge(); loadHabits(); }, [loadTasks, loadDependencies, loadReminderBadge, loadHabits]);
 
   useEffect(() => {
-    const onWs = () => { setSelectedTaskId(null); setSearchQuery(""); setSelectedIds(new Set()); setSelectMode(false); setSelectedProjectId(null); setWorkspaceVersion((v) => v + 1); reload(); loadHabits(); };
+    const onWs = () => {
+      setSelectedTaskId(null);
+      setSearchQuery("");
+      setSelectedIds(new Set());
+      setSelectMode(false);
+      setSelectedProjectId(null);
+      setWorkspaceVersion((v) => v + 1);
+      reload();
+      loadHabits();
+      if (centerMode === "stats") void loadStatsCenter();
+    };
     window.addEventListener("nowen:workspace-changed", onWs);
     return () => window.removeEventListener("nowen:workspace-changed", onWs);
-  }, [loadTasks, loadHabits]);
+  }, [centerMode, loadHabits, loadStatsCenter, loadTasks]);
 
   useEffect(() => {
     if (centerMode === "stats") {
@@ -455,17 +485,16 @@ export default function TaskCenter() {
     } catch { loadTasks(); }
   };
 
-  const handleCreate = async (orphanIds: string[] = []): Promise<boolean> => {
+  const handleCreate = async (orphanIds: string[] = [], manual: TaskQuickAddManualMeta = {}): Promise<boolean> => {
     if (!newTitle.trim()) return false;
     const titleToCreate = newTitle.trim();
-    const parsed = parseTaskQuickAdd(titleToCreate);
+    const parsed = resolveTaskQuickAddDraft(titleToCreate, getDefaultTaskPatchForFilter(filter), manual);
     const createPatch = getQuickAddCreatePatch(parsed);
     const taskTitle = parsed.cleanTitle || titleToCreate;
     try {
       const task = await api.createTask({
         title: taskTitle,
         projectId: selectedProjectId || undefined,
-        ...getDefaultTaskPatchForFilter(filter),
         ...createPatch,
       });
       setTasks((prev) => [task, ...prev]);
@@ -800,6 +829,7 @@ export default function TaskCenter() {
             {t("tasks.title")}
           </div>
           <button
+            style={{ display: isTaskCenterModuleVisible("inbox", userPrefs.hiddenTaskCenterModules) ? undefined : "none" }}
             onClick={() => { setCenterMode("inbox"); setSelectedTaskId(null); setSearchQuery(""); setSelectedProjectId(null); }}
             className={cn(
               "flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition-colors",
@@ -829,10 +859,14 @@ export default function TaskCenter() {
             </button>
           ))}
 
-          <div className="px-3 pb-1 pt-3 text-[10px] font-semibold uppercase tracking-wider text-tx-tertiary">
-            {t("tasks.planning", { defaultValue: "计划" })}
-          </div>
+          {(isTaskCenterModuleVisible("my-day", userPrefs.hiddenTaskCenterModules) ||
+            isTaskCenterModuleVisible("planner", userPrefs.hiddenTaskCenterModules)) && (
+            <div className="px-3 pb-1 pt-3 text-[10px] font-semibold uppercase tracking-wider text-tx-tertiary">
+              {t("tasks.planning", { defaultValue: "计划" })}
+            </div>
+          )}
           <button
+            style={{ display: isTaskCenterModuleVisible("my-day", userPrefs.hiddenTaskCenterModules) ? undefined : "none" }}
             onClick={() => { setCenterMode("my-day"); setSelectedTaskId(null); setSearchQuery(""); setSelectedProjectId(null); }}
             className={cn(
               "flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition-colors",
@@ -843,6 +877,7 @@ export default function TaskCenter() {
             <span className="flex-1 text-left">{t("tasks.myDay", { defaultValue: "我的一天" })}</span>
           </button>
           <button
+            style={{ display: isTaskCenterModuleVisible("planner", userPrefs.hiddenTaskCenterModules) ? undefined : "none" }}
             onClick={() => { setCenterMode("planner"); setSelectedTaskId(null); setSearchQuery(""); setSelectedProjectId(null); }}
             className={cn(
               "flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition-colors",
@@ -854,6 +889,7 @@ export default function TaskCenter() {
           </button>
 
           <button
+            style={{ display: isTaskCenterModuleVisible("habits", userPrefs.hiddenTaskCenterModules) ? undefined : "none" }}
             onClick={() => { setCenterMode("habits"); setSelectedTaskId(null); setSearchQuery(""); setSelectedProjectId(null); }}
             className={cn(
               "flex items-center gap-2.5 w-full px-3 py-2 rounded-lg text-sm transition-colors",
@@ -871,6 +907,7 @@ export default function TaskCenter() {
           </button>
 
           <button
+            style={{ display: isTaskCenterModuleVisible("stats", userPrefs.hiddenTaskCenterModules) ? undefined : "none" }}
             onClick={() => { setCenterMode("stats"); setSelectedTaskId(null); setSearchQuery(""); setSelectedProjectId(null); }}
             className={cn(
               "flex items-center gap-2.5 w-full px-3 py-2 rounded-lg text-sm transition-colors",
@@ -953,6 +990,7 @@ export default function TaskCenter() {
         {/* Mobile: horizontal filter bar */}
         <div className={TASK_MOBILE_FILTER_BAR_CLASS}>
           <button
+            style={{ display: isTaskCenterModuleVisible("inbox", userPrefs.hiddenTaskCenterModules) ? undefined : "none" }}
             onClick={() => { setCenterMode("inbox"); setSelectedTaskId(null); setSearchQuery(""); setSelectedProjectId(null); }}
             className={cn(
               "flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-3 py-1.5 text-xs font-medium transition-colors",
@@ -983,6 +1021,7 @@ export default function TaskCenter() {
             </button>
           ))}
           <button
+            style={{ display: isTaskCenterModuleVisible("my-day", userPrefs.hiddenTaskCenterModules) ? undefined : "none" }}
             onClick={() => { setCenterMode("my-day"); setSelectedTaskId(null); setSearchQuery(""); setSelectedProjectId(null); }}
             className={cn(
               "flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-3 py-1.5 text-xs font-medium transition-colors",
@@ -992,6 +1031,7 @@ export default function TaskCenter() {
             <Sun size={14} /> {t("tasks.myDay", { defaultValue: "我的一天" })}
           </button>
           <button
+            style={{ display: isTaskCenterModuleVisible("planner", userPrefs.hiddenTaskCenterModules) ? undefined : "none" }}
             onClick={() => { setCenterMode("planner"); setSelectedTaskId(null); setSearchQuery(""); setSelectedProjectId(null); }}
             className={cn(
               "flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-3 py-1.5 text-xs font-medium transition-colors",
@@ -1001,6 +1041,7 @@ export default function TaskCenter() {
             <CalendarClock size={14} /> {t("tasks.timePlanning", { defaultValue: "时间规划" })}
           </button>
           <button
+            style={{ display: isTaskCenterModuleVisible("habits", userPrefs.hiddenTaskCenterModules) ? undefined : "none" }}
             onClick={() => { setCenterMode("habits"); setSelectedTaskId(null); setSearchQuery(""); setSelectedProjectId(null); }}
             className={cn(
               "flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition-colors shrink-0",
@@ -1017,6 +1058,7 @@ export default function TaskCenter() {
             </span>
           </button>
           <button
+            style={{ display: isTaskCenterModuleVisible("stats", userPrefs.hiddenTaskCenterModules) ? undefined : "none" }}
             onClick={() => { setCenterMode("stats"); setSelectedTaskId(null); setSearchQuery(""); setSelectedProjectId(null); }}
             className={cn(
               "flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition-colors shrink-0",
@@ -1035,13 +1077,14 @@ export default function TaskCenter() {
                 onClick={() => setMobileProjectOpen(true)}
                 t={t}
               />
-              {/* Mobile view toggle (cycle: list -> board -> calendar -> list) */}
+              {/* 移动端依次切换列表、看板、日历、时间线，并记住选择。 */}
               <button
-                onClick={() => setViewMode(viewMode === "list" ? "board" : viewMode === "board" ? "calendar" : "list")}
+                onClick={() => changeViewMode(viewMode === "list" ? "board" : viewMode === "board" ? "calendar" : viewMode === "calendar" ? "timeline" : "list")}
                 className="flex items-center gap-1 px-2 py-1.5 rounded-full text-xs shrink-0 text-tx-secondary bg-app-hover/50 active:bg-app-active"
-                title={viewMode === "list" ? t("tasks.boardView") : viewMode === "board" ? t("tasks.calendarView") : t("tasks.listView")}
+                title={viewMode === "list" ? t("tasks.boardView") : viewMode === "board" ? t("tasks.calendarView") : viewMode === "calendar" ? t("tasks.timelineView") : t("tasks.listView")}
+                aria-label={t("tasks.view", { defaultValue: "视图" })}
               >
-                {viewMode === "list" ? <LayoutGrid size={12} /> : viewMode === "board" ? <CalendarIcon size={12} /> : <LayoutList size={12} />}
+                {viewMode === "list" ? <LayoutGrid size={12} /> : viewMode === "board" ? <CalendarIcon size={12} /> : viewMode === "calendar" ? <CalendarClock size={12} /> : <LayoutList size={12} />}
               </button>
             </>
           )}
@@ -1110,7 +1153,7 @@ export default function TaskCenter() {
                     <span className="text-tx-tertiary">{t("tasks.view", { defaultValue: "视图" })}</span>
                     <select
                       value={viewMode}
-                      onChange={(event) => setViewMode(event.target.value as ViewMode)}
+                      onChange={(event) => changeViewMode(event.target.value as TaskViewMode)}
                       className="bg-transparent text-xs text-tx-primary outline-none"
                     >
                       <option value="list">{t("tasks.listView")}</option>
@@ -1120,14 +1163,17 @@ export default function TaskCenter() {
                     </select>
                   </label>
                   <button
-                    onClick={() => setSortByDueTime((v) => !v)}
+                    type="button"
+                    onClick={toggleDueSort}
+                    aria-pressed={sortByDueTime}
                     className={cn(
-                      "rounded-md p-1.5 transition-colors",
+                      "inline-flex items-center gap-1.5 rounded-md px-2 py-1.5 text-xs transition-colors",
                       sortByDueTime ? "bg-accent-primary/10 text-accent-primary" : "text-tx-tertiary hover:bg-app-hover hover:text-tx-secondary",
                     )}
-                    title={t("tasks.sortByDueTime")}
+                    title={sortByDueTime ? t("tasks.backToManualOrder") : t("tasks.sortByDueTime")}
                   >
                     <CalendarDays size={14} />
+                    <span>{sortByDueTime ? t("tasks.dueSoonFirst") : t("tasks.sortByDueTime")}</span>
                   </button>
                   <button
                     onClick={() => setSelectMode(true)}
@@ -1227,9 +1273,26 @@ export default function TaskCenter() {
               value={newTitle}
               onChange={setNewTitle}
               onSubmit={handleCreate}
+              defaults={getDefaultTaskPatchForFilter(filter)}
               inputRef={inputRef}
             />
-            <div className="mt-2 flex justify-end">
+            <div className="mt-2 flex items-center justify-between gap-2 md:justify-end">
+              {/* In compact layouts the desktop sorting control is not visible. */}
+              <button
+                type="button"
+                onClick={toggleDueSort}
+                aria-pressed={sortByDueTime}
+                className={cn(
+                  "inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs transition-colors md:hidden",
+                  sortByDueTime
+                    ? "bg-accent-primary/10 font-medium text-accent-primary"
+                    : "text-tx-secondary hover:bg-app-hover",
+                )}
+                title={sortByDueTime ? t("tasks.backToManualOrder") : t("tasks.sortByDueTime")}
+              >
+                <CalendarDays size={13} />
+                <span>{sortByDueTime ? t("tasks.dueSoonFirst") : t("tasks.sortByDueTime")}</span>
+              </button>
               <details className="group relative">
                 <summary className="flex cursor-pointer list-none items-center gap-1 rounded-md px-2 py-1 text-xs text-tx-tertiary transition-colors hover:bg-app-hover hover:text-tx-secondary">
                   <MoreHorizontal size={13} />

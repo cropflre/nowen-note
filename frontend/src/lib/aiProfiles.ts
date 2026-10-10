@@ -44,7 +44,21 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return body as T;
 }
 
+export interface AIProxyStatus {
+  enabled: boolean;
+  valid: boolean;
+  message: string;
+}
+
 export const aiProfiles = {
+  proxyStatus: async (): Promise<AIProxyStatus> => {
+    const token = localStorage.getItem("nowen-token") || "";
+    const response = await fetch(`${getBaseUrl()}/ai/proxy-status`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    return await response.json() as AIProxyStatus;
+  },
   list: () => request<{ profiles: AIProfile[]; activeProfileId: string }>(""),
 
   create: (draft: AIProfileDraft, activate = true) =>
@@ -69,8 +83,27 @@ export const aiProfiles = {
       method: "PUT",
     }),
 
+  test: (profileId: string) =>
+    request<{ success: boolean; message?: string; error?: string; code?: string; preview?: string }>(
+      `/${encodeURIComponent(profileId)}/test`,
+      {
+        method: "POST",
+        body: JSON.stringify({}),
+      },
+    ),
+
+  /** Test a draft without saving or activating a profile. */
+  testDraft: (draft: AIProfileDraft, profileId?: string) =>
+    request<{ success: boolean; message?: string; error?: string; code?: string; preview?: string }>(
+      "/test-draft",
+      {
+        method: "POST",
+        body: JSON.stringify({ ...draft, ...(profileId ? { profileId } : {}) }),
+      },
+    ),
+
   discoverModels: (draft: AIProfileDraft, profileId?: string) =>
-    request<{ models: AIModelOption[]; source?: string }>("/discover-models", {
+    request<{ models: AIModelOption[]; source?: string; filteredNonChatCount?: number }>("/discover-models", {
       method: "POST",
       body: JSON.stringify({ ...draft, profileId }),
     }),

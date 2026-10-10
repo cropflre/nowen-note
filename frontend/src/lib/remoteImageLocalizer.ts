@@ -23,6 +23,7 @@ const LOCAL_ATTACHMENT_PATTERNS = [
 
 // 远程图片 URL 模式
 const REMOTE_IMAGE_PATTERN = /^https?:\/\//;
+const MARKDOWN_REMOTE_IMAGE_PATTERN = /!\[[^\]]*\]\(\s*<?(https?:\/\/[^\s)<>]+)>?(?:\s+(?:"[^"]*"|'[^']*'))?\s*\)/g;
 
 // 已知的非图片扩展名（跳过）
 const NON_IMAGE_EXTENSIONS = new Set([
@@ -75,22 +76,19 @@ export function shouldLocalizeUrl(url: string): boolean {
 export function extractRemoteImageUrls(html: string): RemoteImageInfo[] {
   const results: RemoteImageInfo[] = [];
   const seen = new Set<string>();
-
-  // 匹配 <img src="...">
-  const imgTagRegex = /<img[^>]+src\s*=\s*["']([^"']+)["'][^>]*>/gi;
-  let match: RegExpExecArray | null;
-
-  while ((match = imgTagRegex.exec(html)) !== null) {
-    const url = match[1];
+  const root = document.createElement("div");
+  root.innerHTML = html;
+  root.querySelectorAll("img[src]").forEach((image) => {
+    const url = image.getAttribute("src") || "";
     if (shouldLocalizeUrl(url) && !seen.has(url)) {
       seen.add(url);
       results.push({
         originalUrl: url,
-        index: match.index,
-        fullMatch: match[0],
+        index: html.indexOf(image.outerHTML),
+        fullMatch: image.outerHTML,
       });
     }
-  }
+  });
 
   return results;
 }
@@ -102,12 +100,11 @@ export function extractRemoteImageUrlsFromMarkdown(md: string): RemoteImageInfo[
   const results: RemoteImageInfo[] = [];
   const seen = new Set<string>();
 
-  // 匹配 ![alt](url)
-  const mdImageRegex = /!\[([^\]]*)\]\(([^)]+)\)/g;
+  const mdImageRegex = new RegExp(MARKDOWN_REMOTE_IMAGE_PATTERN);
   let match: RegExpExecArray | null;
 
   while ((match = mdImageRegex.exec(md)) !== null) {
-    const url = match[2].trim();
+    const url = match[1];
     if (shouldLocalizeUrl(url) && !seen.has(url)) {
       seen.add(url);
       results.push({
@@ -150,13 +147,12 @@ export async function localizeRemoteImage(
       success: true,
       deduplicated: result.deduplicated,
     };
-  } catch (err: any) {
-    console.error("[remoteImageLocalizer] Failed to localize:", url, err);
+  } catch {
     return {
       originalUrl: url,
       localUrl: url, // 失败时保留原始 URL
       success: false,
-      error: err?.message || "下载失败",
+      error: "下载失败",
     };
   }
 }
@@ -172,22 +168,21 @@ export async function localizeRemoteImages(
   source: string = "paste",
   onProgress?: (completed: number, total: number) => void,
 ): Promise<LocalizeResult[]> {
-  const results: LocalizeResult[] = [];
   const urlMap = new Map<string, LocalizeResult>();
 
   // 去重：相同 URL 只下载一次
   const uniqueUrls = [...new Set(urls)];
 
-  for (let i = 0; i < uniqueUrls.length; i++) {
-    const url = uniqueUrls[i];
-    const result = await localizeRemoteImage(url, noteId, source);
-    urlMap.set(url, result);
-    results.push(result);
-
-    if (onProgress) {
-      onProgress(i + 1, uniqueUrls.length);
+  let nextIndex = 0;
+  let completed = 0;
+  await Promise.all(Array.from({ length: Math.min(4, uniqueUrls.length) }, async () => {
+    while (nextIndex < uniqueUrls.length) {
+      const url = uniqueUrls[nextIndex++];
+      const result = await localizeRemoteImage(url, noteId, source);
+      urlMap.set(url, result);
+      onProgress?.(++completed, uniqueUrls.length);
     }
-  }
+  }));
 
   // 把去重的结果展开回原始顺序
   return urls.map((url) => urlMap.get(url)!);
@@ -200,14 +195,18 @@ export function replaceRemoteUrlsInHtml(
   html: string,
   urlMap: Map<string, string>,
 ): string {
-  let result = html;
-
-  for (const [originalUrl, localUrl] of urlMap) {
-    // 替换所有出现的 URL
-    result = result.split(originalUrl).join(localUrl);
-  }
-
-  return result;
+  if (urlMap.size === 0) return html;
+  const root = document.createElement("div");
+  root.innerHTML = html;
+  root.querySelectorAll("img[src]").forEach((image) => {
+    const originalUrl = image.getAttribute("src") || "";
+    const localUrl = urlMap.get(originalUrl);
+    if (localUrl) {
+      image.setAttribute("src", localUrl);
+      image.removeAttribute("srcset");
+    }
+  });
+  return root.innerHTML;
 }
 
 /**
@@ -217,13 +216,11 @@ export function replaceRemoteUrlsInMarkdown(
   md: string,
   urlMap: Map<string, string>,
 ): string {
-  let result = md;
-
-  for (const [originalUrl, localUrl] of urlMap) {
-    result = result.split(originalUrl).join(localUrl);
-  }
-
-  return result;
+  if (urlMap.size === 0) return md;
+  return md.replace(MARKDOWN_REMOTE_IMAGE_PATTERN, (match, url: string) => {
+    const localUrl = urlMap.get(url);
+    return localUrl ? match.replace(url, localUrl) : match;
+  });
 }
 
 /**

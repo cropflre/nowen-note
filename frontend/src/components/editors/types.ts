@@ -12,6 +12,7 @@
 
 import type { Note, Tag } from "@/types";
 import type * as Y from "yjs";
+import type { CjkTypographyAction } from "@/lib/cjkTypography";
 import type { Awareness } from "y-protocols/awareness";
 
 /** 标题项（大纲/跳转用） */
@@ -81,6 +82,8 @@ export interface NoteEditorProps {
 export interface NoteEditorHandle {
   /** 立即触发一次 onUpdate（跳过 debounce）。无 pending 更新时为 no-op。 */
   flushSave: () => void;
+  /** Manually apply a protected CJK typography action as one undoable edit. */
+  applyCjkTypography?: (action: CjkTypographyAction) => boolean;
   /**
    * 丢弃 pending 的 debounce 更新（清 timer，不派发 onUpdate）。
    * 用于"切换编辑器"这类场景：调用方已经自己以规范化后的内容发起 PUT，
@@ -113,6 +116,12 @@ export interface NoteEditorHandle {
    * 可选：不实现的旧适配返回 undefined，调用方应视为"假定就绪"。
    */
   isReady?: () => boolean;
+  /**
+   * 在当前光标/选区位置插入 Markdown。
+   * 用于“插入脑图/附件”等傻瓜式入口：用户只选择对象，不需要看到或输入底层引用语法。
+   * 未实现时调用方可退回 appendMarkdown。
+   */
+  insertMarkdownAtCursor?: (markdown: string) => boolean;
   /**
    * 向编辑器末尾追加 Markdown 文本。
    * 编辑器内部负责将 Markdown 转为自身格式并插入，调用方不直接操作 content JSON。

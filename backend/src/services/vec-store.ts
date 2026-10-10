@@ -22,7 +22,7 @@
  *   stub：所有写入吞掉，isAvailable() 返回 false。/ask 检测到不可用时回退到
  *   BM25 检索路径，用户体验仍然能用，只是没有"语义"召回。
  */
-import * as sqliteVec from "sqlite-vec";
+import { loadSqliteVec } from "../db/sqlite-vec-extension.js";
 import type Database from "better-sqlite3";
 import { getDb } from "../db/schema";
 import { systemSettingsRepository } from "../repositories";
@@ -30,6 +30,7 @@ import { systemSettingsRepository } from "../repositories";
 // ====== 内部状态 ======
 let loaded = false;          // sqlite-vec 是否成功加载到当前 db 连接
 let loadAttempted = false;   // 是否已尝试加载（避免每次调用都试，noisy log）
+let lastDb: Database.Database | null = null; // 恢复备份后 getDb() 会换连接
 let currentDim: number | null = null; // 当前 vec0 表使用的维度；未建表时为 null
 
 // ====== 配置 ======
@@ -45,15 +46,27 @@ const SETTINGS_KEY_DIM = "vec_dim";
  * 不需要在每个查询前再 load。
  */
 export function initVecStore(): { loaded: boolean; dim: number | null; error?: string } {
-  if (loadAttempted) {
+  let db: Database.Database;
+  try {
+    db = getDb();
+  } catch (error) {
+    loaded = false;
+    currentDim = null;
+    return { loaded: false, dim: null, error: error instanceof Error ? error.message : String(error) };
+  }
+  if (loadAttempted && lastDb === db) {
     return { loaded, dim: currentDim };
   }
+  // Recovery closes the previous connection. Module registrations and dim
+  // metadata must be refreshed for the replacement connection.
+  lastDb = db;
   loadAttempted = true;
+  loaded = false;
+  currentDim = null;
 
   try {
-    const db = getDb();
-    // sqlite-vec 通过 db.loadExtension 加载；package 里直接暴露了 load(db) 帮助函数
-    sqliteVec.load(db);
+    const status = loadSqliteVec(db);
+    if (!status.loaded) throw new Error(status.error || "sqlite-vec unavailable");
     loaded = true;
 
     // 读持久化的维度；如果之前建过 vec0 表，这里恢复 currentDim
@@ -65,6 +78,14 @@ export function initVecStore(): { loaded: boolean; dim: number | null; error?: s
           currentDim = d;
           // 确认表确实存在；不存在则按 currentDim 重建（覆盖重启场景）
           ensureVecTable(db, currentDim);
+        }
+      }
+      // 旧 Docker 部署可能只有 embedding JSON，扩展从未加载成功，也没有 vec_dim。
+      // 直接恢复已计算的向量，不重新调用 embedding API。
+      if (currentDim === null) {
+        const restored = reindexAllVectors();
+        if (restored.written > 0) {
+          console.log(`[vec-store] restored ${restored.written}/${restored.total} existing vectors`);
         }
       }
     } catch (e) {
@@ -86,11 +107,21 @@ export function initVecStore(): { loaded: boolean; dim: number | null; error?: s
  * /ask 决定走向量检索还是回退 BM25 时调用。
  */
 export function isVecAvailable(): boolean {
+  // A database restore closes the previous connection without restarting Node.
+  if (!loadAttempted || !lastDb?.open) initVecStore();
   return loaded && currentDim !== null;
 }
 
 export function getVecDim(): number | null {
+  isVecAvailable();
   return currentDim;
+}
+
+/** Distinguish a missing native extension from the normal first-index state. */
+export function getVecEngineState(): "ready" | "initializing" | "unavailable" {
+  isVecAvailable();
+  if (!loaded) return "unavailable";
+  return currentDim === null ? "initializing" : "ready";
 }
 
 // ============================================================
@@ -193,7 +224,7 @@ export function upsertVectors(
         continue;
       }
       const buf = Buffer.from(new Float32Array(r.vector).buffer);
-      stmt.run(r.rowid, buf);
+      stmt.run(BigInt(r.rowid), buf);
       written++;
     }
   });

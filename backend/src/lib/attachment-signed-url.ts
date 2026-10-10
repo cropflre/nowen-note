@@ -8,6 +8,7 @@
 
 import { attachmentSignedAccessRepository } from "../repositories/attachmentSignedAccessRepository";
 import { resolveEffectiveNoteCapabilities } from "../services/share-capabilities";
+import { isManualFileManagerUpload, resolveFileAttachmentAccess } from "../services/fileAttachmentAccess";
 import {
   createAttachmentSignedUrl,
   createUserAttachmentScope,
@@ -19,6 +20,7 @@ import {
 export {
   createAttachmentSignedParams,
   createAttachmentSignedUrl,
+  createFileAttachmentScope,
   createPublicationAttachmentScope,
   createShareAttachmentScope,
   createUserAttachmentScope,
@@ -58,6 +60,16 @@ export function verifyAttachmentAccessScope(
   const attachment = attachmentSignedAccessRepository.findAttachmentNote(attachmentId);
   if (!attachment) {
     return { valid: false, reason: "attachment_not_found", accessKind: scope.kind };
+  }
+  if (scope.kind === "file") {
+    if (scope.attachmentId !== attachmentId || !isManualFileManagerUpload(attachment)) {
+      return { valid: false, reason: "file_scope_mismatch", accessKind: "file" };
+    }
+    const access = resolveFileAttachmentAccess(attachment, scope.subjectId);
+    if (!access.canView) {
+      return { valid: false, reason: "file_access_revoked", accessKind: "file" };
+    }
+    return { valid: true, accessKind: "file", allowDownload: scope.allowDownload && access.canDownload };
   }
   if (!attachment.noteId || attachment.noteId !== scope.noteId) {
     return { valid: false, reason: "note_mismatch", accessKind: scope.kind };

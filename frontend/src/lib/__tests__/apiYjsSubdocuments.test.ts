@@ -1,8 +1,13 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api } from "@/lib/api";
 
 describe("Y.js Subdocument API", () => {
+  beforeEach(() => {
+    Object.assign(window, { nowenDesktop: { isDesktop: true } });
+  });
+
   afterEach(() => {
+    Reflect.deleteProperty(window, "nowenDesktop");
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
     localStorage.clear();

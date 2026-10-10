@@ -45,11 +45,11 @@ function readStoredChallenge(storage: Storage | null): string | null {
 
 function isValidVerifyUrl(value: string): boolean {
   if (!value) return false;
-  if (value.startsWith("/")) return value.includes("/api/auth/2fa/verify");
+  if (value.startsWith("/")) return /\/(?:api|publicapi)\/auth\/2fa\/verify\/?$/.test(value);
   try {
     const parsed = new URL(value);
     return (parsed.protocol === "http:" || parsed.protocol === "https:")
-      && parsed.pathname.endsWith("/api/auth/2fa/verify");
+      && /\/(?:api|publicapi)\/auth\/2fa\/verify\/?$/.test(parsed.pathname);
   } catch {
     return false;
   }
@@ -74,8 +74,8 @@ export function classifyTwoFactorAuthEndpoint(input: RequestInfo | URL): AuthEnd
   try {
     const base = typeof window !== "undefined" ? window.location.href : "http://localhost/";
     const pathname = new URL(raw, base).pathname.replace(/\/+$/, "");
-    if (pathname.endsWith("/api/auth/login")) return "login";
-    if (pathname.endsWith("/api/auth/2fa/verify")) return "verify";
+    if (/\/(?:api|publicapi)\/auth\/login$/.test(pathname)) return "login";
+    if (/\/(?:api|publicapi)\/auth\/2fa\/verify$/.test(pathname)) return "verify";
   } catch {
     /* ignore */
   }

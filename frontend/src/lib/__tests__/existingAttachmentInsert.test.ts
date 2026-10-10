@@ -54,4 +54,11 @@ describe("existing attachment insertion", () => {
       "[📎 document.pdf (1.5 KB)](/api/attachments/file-id)",
     );
   });
+
+  it("inserts local audio by file identity instead of its device URL", () => {
+    const snippet = buildExistingAttachmentMarkdownSnippet(fileItem({ id: "audio-id", mimeType: "audio/webm", url: "capacitor://localhost/voice.webm" }));
+    expect(snippet).toContain('src="/api/attachments/audio-id"');
+    expect(snippet).toContain('data-attachment-id="audio-id"');
+    expect(snippet).not.toContain("capacitor:");
+  });
 });

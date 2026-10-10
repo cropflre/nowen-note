@@ -31,11 +31,13 @@ import {
 } from "@/lib/quickLogin";
 import { setServerUrl, getServerUrl } from "@/lib/api";
 import { hasActiveTwoFactorLoginChallenge } from "@/lib/twoFactorLoginChallenge";
+import { isMobileAccountLoginRequested } from "@/lib/mobileLocalMode";
 import type { User } from "@/types";
 import { fetchWithAuthRefresh, getAccessToken, storeAuthTokens } from "@/lib/authSession";
+import { getResolvedApiBaseUrl } from "@/lib/serverUrl";
 
 interface Props {
-  /** 是否处于客户端模式（Electron / Capacitor / 曾配置过服务器地址） */
+  /** 是否处于客户端模式（Electron / Capacitor） */
   isClientMode: boolean;
   /**
    * 询问 / 处理完毕时回调：
@@ -63,7 +65,8 @@ export default function QuickLoginGate({ isClientMode, onSettled }: Props) {
     (async () => {
       // 密码第一步已经签发 2FA ticket 时，必须优先完成该挑战。否则 Android
       // 生物识别弹窗会覆盖验证码层，用户会误以为又被退回普通登录。
-      if (hasActiveTwoFactorLoginChallenge()) {
+      // 主动添加账号或历史账号重登时，也不能用旧账号的生物识别覆盖目标。
+      if (hasActiveTwoFactorLoginChallenge() || isMobileAccountLoginRequested()) {
         if (!cancelled) onSettled(false);
         return;
       }
@@ -131,9 +134,8 @@ export default function QuickLoginGate({ isClientMode, onSettled }: Props) {
       }
 
       const baseUrl = ssServer || lsServer || "";
-      const verifyUrl = baseUrl
-        ? `${baseUrl}/api/me`
-        : "/api/me";
+      const apiBaseUrl = getResolvedApiBaseUrl(baseUrl);
+      const verifyUrl = `${apiBaseUrl}/me`;
 
       try {
         const ctrl = new AbortController();
@@ -142,7 +144,7 @@ export default function QuickLoginGate({ isClientMode, onSettled }: Props) {
         const res = await fetchWithAuthRefresh(verifyUrl, {
           headers: { Authorization: `Bearer ${result.token}` },
           signal: ctrl.signal,
-        }, baseUrl ? `${baseUrl}/api` : "/api");
+        }, apiBaseUrl);
         clearTimeout(timer);
         if (!res.ok) {
           // 401 / 403：token 已被吊销 / 改密。secure storage 凭据失效 → 清空

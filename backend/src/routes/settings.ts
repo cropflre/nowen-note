@@ -6,6 +6,10 @@ import {
   resolvePublicWebOriginSettingUpdate,
   syncRuntimePublicWebOriginSetting,
 } from "../lib/public-web-origin";
+import {
+  resolveFilePublicOriginSettingUpdate,
+  syncRuntimeFilePublicOriginSetting,
+} from "../lib/file-public-origin";
 import systemUpdateRouter from "./system-update";
 import importBatchesRouter from "./import-batches";
 import roundTripPermissionsRouter from "./roundtrip-permissions";
@@ -15,12 +19,18 @@ const settings = new Hono();
 export interface SiteSettings {
   site_title: string;
   site_favicon: string;
+  /** 分享页底部标识文字；空串表示使用默认标识。 */
+  site_share_footer_text: string;
   /** ICP 备案号由 Docker/运行时环境变量 NOWEN_ICP_BEIAN 驱动，设置页不可编辑。 */
   site_icp_beian: string;
   /** 访客最终打开的公开 Web 根地址；空串表示沿用当前浏览器 origin。 */
   site_public_web_origin: string;
   /** 地址来源，仅用于 UI 解释：settings / environment / current。 */
   site_public_web_origin_source: string;
+  /** 文件/图床复制直链专用公开地址；空串表示继承公开 Web 地址。 */
+  site_file_public_origin: string;
+  /** settings / environment / inherit。 */
+  site_file_public_origin_source: string;
   editor_font_family: string;
   /** @deprecated v6 起弃用，个人空间导出开关已下沉为 users.personalExportEnabled。 */
   feature_personal_export_enabled: string;
@@ -35,9 +45,12 @@ export interface SiteSettings {
 const DEFAULTS: SiteSettings = {
   site_title: "nowen-note",
   site_favicon: "",
+  site_share_footer_text: "",
   site_icp_beian: "",
   site_public_web_origin: "",
   site_public_web_origin_source: "current",
+  site_file_public_origin: "",
+  site_file_public_origin_source: "inherit",
   editor_font_family: "",
   feature_personal_export_enabled: "true",
   feature_personal_import_enabled: "true",
@@ -48,6 +61,7 @@ const DEFAULTS: SiteSettings = {
 async function readSettings(): Promise<Record<string, string>> {
   try {
     await syncRuntimePublicWebOriginSetting();
+    await syncRuntimeFilePublicOriginSetting();
   } catch (error) {
     console.warn("[settings] failed to initialize PUBLIC_WEB_ORIGIN:", error);
   }
@@ -77,7 +91,9 @@ settings.put("/", async (c) => {
   const wantsSiteIdentity =
     body.site_title !== undefined ||
     body.site_favicon !== undefined ||
-    body.site_public_web_origin !== undefined;
+    body.site_share_footer_text !== undefined ||
+    body.site_public_web_origin !== undefined ||
+    body.site_file_public_origin !== undefined;
   if (wantsSiteIdentity && !isSystemAdmin(userId)) {
     return c.json({ error: "仅管理员可修改该设置", code: "FORBIDDEN" }, 403);
   }
@@ -89,6 +105,12 @@ settings.put("/", async (c) => {
   }
 
   const entries: Array<{ key: string; value: string }> = [];
+  if (body.site_share_footer_text !== undefined) {
+    if (typeof body.site_share_footer_text !== "string" || body.site_share_footer_text.trim().length > 100) {
+      return c.json({ error: "分享页标识必须是最多 100 个字符的文字", code: "INVALID_SHARE_FOOTER_TEXT" }, 400);
+    }
+    entries.push({ key: "site_share_footer_text", value: body.site_share_footer_text.trim() });
+  }
   if (body.site_title !== undefined) {
     entries.push({ key: "site_title", value: body.site_title.trim().slice(0, 20) });
   }
@@ -99,6 +121,13 @@ settings.put("/", async (c) => {
     const resolved = resolvePublicWebOriginSettingUpdate(body.site_public_web_origin);
     if ("error" in resolved) {
       return c.json({ error: resolved.error, code: "INVALID_PUBLIC_WEB_ORIGIN" }, 400);
+    }
+    entries.push(...resolved.entries);
+  }
+  if (body.site_file_public_origin !== undefined) {
+    const resolved = resolveFilePublicOriginSettingUpdate(body.site_file_public_origin);
+    if ("error" in resolved) {
+      return c.json({ error: resolved.error, code: "INVALID_FILE_PUBLIC_ORIGIN" }, 400);
     }
     entries.push(...resolved.entries);
   }

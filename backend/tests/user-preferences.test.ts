@@ -266,3 +266,239 @@ test("discovers Ollama models through the native tags endpoint without an API ke
     globalThis.fetch = originalFetch;
   }
 });
+
+test("tests a saved LM Studio profile while the manual AI runtime is disabled", async () => {
+  writeSetting("ai_manual_enabled", "false");
+  const created = await requestJson("POST", "/user-preferences/ai-profiles", {
+    name: "LAN LM Studio",
+    provider: "lmstudio",
+    apiUrl: "http://192.168.0.111:1234/v1",
+    apiKey: "",
+    model: "lmstudio-community/qwen3.5-9b",
+    activate: true,
+  });
+  const profileId = created.json.profile.id as string;
+  assert.equal(created.status, 201);
+  assert.equal(readSetting("ai_api_url"), "", "disabled runtime must remain empty");
+
+  const originalFetch = globalThis.fetch;
+  let requestedUrl = "";
+  let requestedBody: any = null;
+  let requestedAuth = "";
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    requestedUrl = String(input);
+    requestedBody = JSON.parse(String(init?.body || "{}"));
+    requestedAuth = new Headers(init?.headers).get("authorization") || "";
+    return new Response(JSON.stringify({
+      choices: [{ message: { content: "OK" } }],
+    }), { status: 200, headers: { "content-type": "application/json" } });
+  }) as typeof fetch;
+
+  try {
+    const result = await requestJson("POST", `/user-preferences/ai-profiles/${profileId}/test`, {});
+    assert.equal(result.status, 200);
+    assert.equal(result.json.success, true);
+    assert.match(result.json.message, /开启顶部.*手动 AI 配置/);
+    assert.equal(requestedUrl, "http://192.168.0.111:1234/v1/chat/completions");
+    assert.equal(requestedBody.model, "lmstudio-community/qwen3.5-9b");
+    assert.equal(requestedBody.stream, false);
+    assert.equal(requestedAuth, "");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("returns actionable LAN diagnostics when the Nowen server cannot reach LM Studio", async () => {
+  const created = await requestJson("POST", "/user-preferences/ai-profiles", {
+    name: "Offline LM Studio",
+    provider: "lmstudio",
+    apiUrl: "http://192.168.0.111:1234/v1",
+    apiKey: "",
+    model: "local-model",
+  });
+  const profileId = created.json.profile.id as string;
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () => {
+    const failure = new TypeError("fetch failed") as TypeError & { cause?: { code: string; message: string } };
+    failure.cause = { code: "ECONNREFUSED", message: "connect ECONNREFUSED 192.168.0.111:1234" };
+    throw failure;
+  }) as typeof fetch;
+
+  try {
+    const result = await requestJson("POST", `/user-preferences/ai-profiles/${profileId}/test`, {});
+    assert.equal(result.status, 502);
+    assert.equal(result.json.code, "AI_UPSTREAM_UNREACHABLE");
+    assert.match(result.json.error, /Serve on Local Network/);
+    assert.match(result.json.error, /1234/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("chat discovery filters embedding, rerank, and feature-extraction models", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () => new Response(JSON.stringify({
+    data: [
+      { id: "BAAI/bge-m3" },
+      { id: "deepseek-ai/DeepSeek-V4-Flash" },
+      { id: "BAAI/bge-reranker-v2-m3" },
+      { id: "private-vector-model", task: "feature-extraction" },
+      { id: "my-chat-model", capabilities: { chat: true, embedding: true } },
+    ],
+  }), { status: 200, headers: { "content-type": "application/json" } })) as typeof fetch;
+
+  try {
+    const result = await requestJson("POST", "/user-preferences/ai-profiles/discover-models", {
+      name: "SiliconFlow",
+      provider: "custom",
+      apiUrl: "https://api.siliconflow.cn/v1",
+      apiKey: "siliconflow-key",
+      model: "",
+    });
+    assert.equal(result.status, 200);
+    assert.deepEqual(result.json.models.map((model: any) => model.id), [
+      "deepseek-ai/DeepSeek-V4-Flash",
+      "my-chat-model",
+    ]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("an embedding-only provider catalog is not misreported as a network error", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () => new Response(JSON.stringify({
+    data: [{ id: "BAAI/bge-m3" }, { id: "BAAI/bge-reranker-v2-m3" }],
+  }), { status: 200, headers: { "content-type": "application/json" } })) as typeof fetch;
+  try {
+    const result = await requestJson("POST", "/user-preferences/ai-profiles/discover-models", {
+      name: "Vectors",
+      provider: "custom",
+      apiUrl: "https://api.siliconflow.cn/v1",
+      apiKey: "sf-secret",
+      model: "",
+    });
+    assert.equal(result.status, 200);
+    assert.deepEqual(result.json.models, []);
+    assert.equal(result.json.filteredNonChatCount, 2);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("rejects embedding chat tests and activation without contacting the chat API", async () => {
+  const originalFetch = globalThis.fetch;
+  let requests = 0;
+  globalThis.fetch = (async () => {
+    requests++;
+    throw new Error("non-chat models must not reach chat API");
+  }) as typeof fetch;
+
+  try {
+    const created = await requestJson("POST", "/user-preferences/ai-profiles", {
+      name: "Vector credential profile",
+      provider: "custom",
+      apiUrl: "https://api.siliconflow.cn/v1",
+      apiKey: "sf-secret",
+      model: "BAAI/bge-m3",
+      activate: false,
+    });
+    assert.equal(created.status, 201);
+    const profileId = created.json.profile.id;
+    assert.notEqual(created.json.activeProfileId, profileId);
+
+    const testResult = await requestJson("POST", `/user-preferences/ai-profiles/${profileId}/test`, {});
+    assert.equal(testResult.status, 400);
+    assert.equal(testResult.json.code, "AI_MODEL_NOT_CHAT");
+    assert.equal(testResult.json.action, "embedding-settings");
+    assert.match(testResult.json.error, /向量检索/);
+
+    const activated = await requestJson("PUT", `/user-preferences/ai-profiles/${profileId}/activate`);
+    assert.equal(activated.status, 400);
+    assert.equal(activated.json.code, "AI_MODEL_NOT_CHAT");
+    assert.equal(requests, 0);
+    assert.notEqual((await requestJson("GET", "/user-preferences/ai-profiles")).json.activeProfileId, profileId);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("tests a draft with the stored masked API key without saving or switching active AI settings", async () => {
+  const created = await requestJson("POST", "/user-preferences/ai-profiles", {
+    name: "Working chat model",
+    provider: "custom",
+    apiUrl: "https://api.siliconflow.cn/v1",
+    apiKey: "saved-key-5432",
+    model: "deepseek-ai/DeepSeek-V4-Flash",
+    activate: true,
+  });
+  assert.equal(created.status, 201);
+  const profileId = created.json.profile.id;
+
+  const originalFetch = globalThis.fetch;
+  let requests = 0;
+  let authorization = "";
+  globalThis.fetch = (async (_input: string | URL | Request, init?: RequestInit) => {
+    requests++;
+    authorization = new Headers(init?.headers).get("authorization") || "";
+    return new Response(JSON.stringify({ error: { message: "upstream rejected draft" } }), {
+      status: 400,
+      headers: { "content-type": "application/json" },
+    });
+  }) as typeof fetch;
+
+  try {
+    const draft = {
+      name: "Draft only",
+      provider: "custom",
+      apiUrl: "https://api.siliconflow.cn/v1",
+      apiKey: "****5432",
+      model: "new-chat-model",
+      profileId,
+    };
+    const failed = await requestJson("POST", "/user-preferences/ai-profiles/test-draft", draft);
+    assert.equal(failed.status, 502);
+    assert.equal(failed.json.success, false);
+    assert.equal(requests, 1);
+    assert.equal(authorization, "Bearer saved-key-5432");
+
+    const blocked = await requestJson("POST", "/user-preferences/ai-profiles/test-draft", {
+      ...draft,
+      model: "BAAI/bge-m3",
+    });
+    assert.equal(blocked.status, 400);
+    assert.equal(blocked.json.code, "AI_MODEL_NOT_CHAT");
+    assert.equal(requests, 1, "embedding draft should not call upstream");
+
+    const active = await requestJson("GET", "/user-preferences/ai-profiles");
+    assert.equal(active.json.activeProfileId, profileId);
+    assert.equal(active.json.profiles.find((p: any) => p.id === profileId).model, "deepseek-ai/DeepSeek-V4-Flash");
+    assert.equal(readSetting("ai_model"), "deepseek-ai/DeepSeek-V4-Flash");
+    assert.equal(readSetting("ai_api_key"), "saved-key-5432");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("refuses to replace the active chat profile model with an embedding model", async () => {
+  const created = await requestJson("POST", "/user-preferences/ai-profiles", {
+    name: "Working chat",
+    provider: "custom",
+    apiUrl: "https://api.siliconflow.cn/v1",
+    apiKey: "sf-secret",
+    model: "deepseek-ai/DeepSeek-V4-Flash",
+    activate: true,
+  });
+  assert.equal(created.status, 201);
+  const profileId = created.json.profile.id;
+  const updated = await requestJson("PUT", `/user-preferences/ai-profiles/${profileId}`, {
+    name: "Working chat",
+    provider: "custom",
+    apiUrl: "https://api.siliconflow.cn/v1",
+    apiKey: "****cret",
+    model: "BAAI/bge-m3",
+  });
+  assert.equal(updated.status, 400);
+  assert.equal(updated.json.code, "AI_MODEL_NOT_CHAT");
+  assert.equal(readSetting("ai_model"), "deepseek-ai/DeepSeek-V4-Flash");
+});

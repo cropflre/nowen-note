@@ -12,6 +12,9 @@ class FakeWorker {
   respond(message: any) {
     this.onmessage?.({ data: { requestId: message.requestId, result: analyzeTiptapDocument(message.doc) } } as MessageEvent);
   }
+  fail(message: string) {
+    this.onerror?.({ message } as ErrorEvent);
+  }
 }
 
 afterEach(() => { vi.useRealTimers(); });
@@ -32,6 +35,29 @@ describe("Tiptap analysis controller", () => {
     expect(first).not.toBe(second);
     controller.destroy();
     expect(worker.terminated).toBe(true);
+  });
+
+  it("falls back to the newest document when a worker fails to execute", async () => {
+    vi.useFakeTimers();
+    const worker = new FakeWorker();
+    const onResult = vi.fn();
+    const onError = vi.fn();
+    const controller = createTiptapAnalysisController({
+      workerFactory: () => worker,
+      fallbackDelayMs: 32,
+      onResult,
+      onError,
+    });
+    controller.analyze({ type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "old" }] }] });
+    const latest = { type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "latest" }] }] };
+    const requestId = controller.analyze(latest);
+    worker.fail("Cannot use import statement outside a module");
+    expect(worker.terminated).toBe(true);
+    expect(onError).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(32);
+    expect(onResult).toHaveBeenCalledTimes(1);
+    expect(onResult).toHaveBeenCalledWith({ requestId, result: analyzeTiptapDocument(latest) });
+    controller.destroy();
   });
 
   it("cancels delayed fallback work on destroy", async () => {

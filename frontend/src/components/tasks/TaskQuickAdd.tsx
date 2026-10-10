@@ -1,10 +1,16 @@
 import React, { useState, useRef, useCallback } from "react";
-import { Plus, X, ImagePlus, Loader2 } from "lucide-react";
+import { Plus, X, ImagePlus, Loader2, CalendarDays, Clock, Bell } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { toast } from "@/lib/toast";
-import { parseTaskQuickAdd, type TaskQuickAddRecognizedRange } from "./taskSmartRecognition";
+import type { TaskQuickAddRecognizedRange } from "./taskSmartRecognition";
+import type { Task } from "@/types";
+import { getDateValue, getDueTimeValue } from "./taskDateUtils";
+import { resolveTaskQuickAddDraft, type TaskQuickAddManualMeta } from "./taskQuickAddDraft";
+
+// 与现有提醒接口的提前一年上限保持一致。
+const MAX_REMINDER_OFFSET_MINUTES = 60 * 24 * 365;
 
 /** 素朴的 URL 检测：用于 onPaste 时判断是否要转 markdown 链接。 */
 function isHttpUrl(s: string): boolean {
@@ -56,10 +62,12 @@ export function TaskQuickAdd({
   onChange,
   onSubmit,
   inputRef,
+  defaults = {},
 }: {
   value: string;
   onChange: (v: string) => void;
-  onSubmit: (orphanIds: string[]) => Promise<boolean>;
+  onSubmit: (orphanIds: string[], manual: TaskQuickAddManualMeta) => Promise<boolean>;
+  defaults?: Partial<Task>;
   inputRef: React.RefObject<HTMLInputElement>;
 }) {
   const { t } = useTranslation();
@@ -73,7 +81,36 @@ export function TaskQuickAdd({
   //   1) 在输入框旁渲染缩略图供用户预览/移除；
   //   2) 提交任务后调用 bind 把它们绑回新创建的 task。
   const [orphans, setOrphans] = useState<{ id: string; url: string; filename: string }[]>([]);
-  const quickAddPreview = parseTaskQuickAdd(value);
+  const [manualMeta, setManualMeta] = useState<TaskQuickAddManualMeta>({});
+  const [metaPanel, setMetaPanel] = useState<"deadline" | "reminder" | null>(null);
+  const [customMinutes, setCustomMinutes] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const submitPending = useRef(false);
+  const quickAddPreview = resolveTaskQuickAddDraft(value, defaults, manualMeta);
+  const dueDate = getDateValue(quickAddPreview.taskPatch.dueDate || quickAddPreview.taskPatch.dueAt);
+  const dueTime = getDueTimeValue(quickAddPreview.taskPatch.dueAt);
+  const reminderOffsets = quickAddPreview.reminderOffsets;
+  const reminderLabel = (offset: number) => {
+    if (offset === 0) return t("tasks.reminder.atDue");
+    if (offset === 60) return t("tasks.reminder.before1hour");
+    if (offset === 1440) return t("tasks.reminder.before1day");
+    return t("tasks.reminder.customMinutes", { count: offset });
+  };
+  const reminderOptions = [...new Set([0, 10, 30, 60, 1440, ...reminderOffsets])].sort((a, b) => a - b);
+  const customOffset = Number(customMinutes);
+  const canAddCustom = customMinutes.trim() !== "" && Number.isInteger(customOffset)
+    && customOffset > 0 && customOffset <= MAX_REMINDER_OFFSET_MINUTES;
+  const toggleReminder = (offset: number) => {
+    setManualMeta((prev) => ({
+      ...prev,
+      reminderOffsets: reminderOffsets.includes(offset)
+        ? reminderOffsets.filter((item) => item !== offset)
+        : [...reminderOffsets, offset],
+    }));
+  };
+  const togglePanel = (panel: "deadline" | "reminder") => setMetaPanel((prev) => prev === panel ? null : panel);
+  const chipClass = "flex items-center gap-1.5 rounded-md border border-app-border px-2 py-1 text-xs text-tx-secondary hover:bg-app-hover disabled:opacity-40";
+  const fieldClass = "rounded-md border border-app-border bg-app-bg px-2 py-1.5 text-xs text-tx-primary outline-none focus:border-accent-primary";
   const recognizedRanges = quickAddPreview.recognizedRanges;
   const hasRecognizedRanges = value.length > 0 && recognizedRanges.length > 0;
   const recognizedPreviewParts = hasRecognizedRanges
@@ -128,12 +165,21 @@ export function TaskQuickAdd({
   // 提交：交还给父组件创建任务（附带 orphan ids），成功后清空本地预览
   const handleSubmit = async () => {
     if (!value.trim()) return;
-    if (uploading) return;
-    const orphanIds = orphans.map((o) => o.id);
-    const ok = await onSubmit(orphanIds);
-    if (ok) {
-      setOrphans([]);
-      if (fileRef.current) fileRef.current.value = "";
+    if (uploading || submitPending.current) return;
+    submitPending.current = true;
+    setSubmitting(true);
+    try {
+      const ok = await onSubmit(orphans.map((o) => o.id), manualMeta);
+      if (ok) {
+        setOrphans([]);
+        setManualMeta({});
+        setMetaPanel(null);
+        setCustomMinutes("");
+        if (fileRef.current) fileRef.current.value = "";
+      }
+    } finally {
+      submitPending.current = false;
+      setSubmitting(false);
     }
   };
 
@@ -175,11 +221,12 @@ export function TaskQuickAdd({
 
   return (
     <div
+      data-task-quick-add=""
       className={cn(
-        "px-4 py-2.5 rounded-lg border border-dashed bg-app-elevated/50 transition-colors",
+        "rounded-xl border px-3 py-3 transition-all md:px-4",
         dragOver
-          ? "border-accent-primary bg-accent-primary/5 ring-2 ring-accent-primary/30"
-          : "border-app-border hover:border-accent-primary/40",
+          ? "border-accent-primary bg-accent-primary/10 ring-2 ring-accent-primary/20"
+          : "border-accent-primary/20 bg-accent-primary/[0.035] hover:border-accent-primary/35 focus-within:border-accent-primary/45 focus-within:ring-2 focus-within:ring-accent-primary/10",
       )}
       onDragEnter={(e) => {
         if (!e.dataTransfer.types.includes("Files")) return;
@@ -210,9 +257,27 @@ export function TaskQuickAdd({
         if (files.length > 0) void uploadFiles(files);
       }}
     >
-      <div className="flex items-center gap-3">
-        <Plus size={16} className="text-tx-tertiary flex-shrink-0" />
-        <div className="relative flex-1 min-w-0">
+      <div className="mb-2 flex items-center justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-2">
+          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-accent-primary/12 text-accent-primary">
+            <Plus size={15} strokeWidth={2.2} />
+          </span>
+          <div className="min-w-0">
+            <div className="text-xs font-semibold text-tx-primary">
+              {t("tasks.newTask", { defaultValue: "新建任务" })}
+            </div>
+            <div className="hidden text-[11px] text-tx-tertiary sm:block">
+              {t("tasks.newTaskHint", { defaultValue: "输入任务内容，按 Enter 快速创建" })}
+            </div>
+          </div>
+        </div>
+        <span className="hidden shrink-0 rounded-md border border-app-border bg-app-bg px-1.5 py-0.5 text-[10px] text-tx-tertiary md:inline-flex">
+          Enter
+        </span>
+      </div>
+
+      <div className="flex items-center gap-2 rounded-lg border border-app-border bg-app-bg px-3 py-2 shadow-sm transition-colors focus-within:border-accent-primary/55">
+        <div className="relative min-w-0 flex-1">
           {hasRecognizedRanges && (
             <div
               aria-hidden="true"
@@ -236,6 +301,7 @@ export function TaskQuickAdd({
             onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void handleSubmit(); } }}
             onPaste={handlePaste}
             placeholder={t('tasks.addTaskPlaceholder')}
+            aria-label={t("tasks.newTask", { defaultValue: "新建任务" })}
             className={cn(
               "relative z-10 w-full bg-transparent text-sm text-tx-primary placeholder:text-tx-tertiary focus:outline-none",
               hasRecognizedRanges && "text-transparent caret-tx-primary",
@@ -247,7 +313,7 @@ export function TaskQuickAdd({
           onClick={() => fileRef.current?.click()}
           disabled={uploading}
           title={t('tasks.insertImage')}
-          className="flex-shrink-0 p-1 rounded hover:bg-app-hover text-tx-tertiary hover:text-accent-primary transition-colors disabled:opacity-50"
+          className="flex-shrink-0 rounded-md p-1.5 text-tx-tertiary transition-colors hover:bg-app-hover hover:text-accent-primary disabled:opacity-50"
         >
           {uploading
             ? <Loader2 size={16} className="animate-spin" />
@@ -256,8 +322,9 @@ export function TaskQuickAdd({
         <button
           type="button"
           onClick={() => void handleSubmit()}
-          disabled={!value.trim() || uploading}
-          className="flex-shrink-0 px-2.5 py-1 rounded-full text-xs font-medium bg-accent-primary text-white disabled:opacity-40 md:hidden"
+          aria-label={t("tasks.add")}
+          disabled={!value.trim() || uploading || submitting}
+          className="flex-shrink-0 rounded-lg bg-accent-primary px-3 py-1.5 text-xs font-medium text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-35"
         >
           {t('tasks.add')}
         </button>
@@ -274,6 +341,63 @@ export function TaskQuickAdd({
           }}
         />
       </div>
+
+      <div className="mt-2 flex flex-wrap items-center gap-2">
+        <button type="button" className={chipClass} onClick={() => togglePanel("deadline")} aria-expanded={metaPanel === "deadline"}>
+          <CalendarDays size={13} />{dueDate || t("tasks.dueDate")}
+        </button>
+        <button type="button" className={chipClass} onClick={() => togglePanel("deadline")} aria-expanded={metaPanel === "deadline"}>
+          <Clock size={13} />{dueTime || t("tasks.dueAt")}
+        </button>
+        <button type="button" className={cn(chipClass, "max-w-full")} onClick={() => togglePanel("reminder")} aria-expanded={metaPanel === "reminder"}>
+          <Bell size={13} className="shrink-0" /><span className="truncate">{reminderOffsets.length ? reminderOffsets.map(reminderLabel).join(" · ") : t("tasks.reminder.title")}</span>
+        </button>
+      </div>
+      {metaPanel === "deadline" && (
+        <div className="mt-2 flex flex-wrap items-end gap-2 rounded-lg border border-app-border bg-app-bg p-2">
+          <label className="flex flex-col gap-1 text-xs text-tx-secondary">
+            {t("tasks.dueDate")}
+            <input type="date" aria-label={t("tasks.dueDate")} className={fieldClass} value={dueDate}
+              onChange={(e) => setManualMeta((prev) => ({ ...prev, dueDate: e.target.value || null }))} />
+          </label>
+          <label className="flex flex-col gap-1 text-xs text-tx-secondary">
+            {t("tasks.dueAt")}
+            <input type="time" aria-label={t("tasks.dueAt")} className={fieldClass} value={dueTime} disabled={!dueDate}
+              onChange={(e) => setManualMeta((prev) => ({ ...prev, dueTime: e.target.value || null }))} />
+          </label>
+          <button type="button" className={chipClass} onClick={() => setManualMeta((prev) => ({ ...prev, dueDate: null, dueTime: null, reminderOffsets: [] }))}>
+            {t("tasks.quickAdd.clearDeadline")}
+          </button>
+        </div>
+      )}
+      {metaPanel === "reminder" && (
+        <div className="mt-2 space-y-2 rounded-lg border border-app-border bg-app-bg p-2">
+          {!dueDate && <p className="text-xs text-tx-tertiary">{t("tasks.reminder.needDueDate")}</p>}
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+            {reminderOptions.map((offset) => (
+              <label key={offset} className="flex items-center gap-1 text-xs text-tx-secondary">
+                <input type="checkbox" disabled={!dueDate} checked={reminderOffsets.includes(offset)} onChange={() => toggleReminder(offset)} />
+                {reminderLabel(offset)}
+              </label>
+            ))}
+            <button type="button" className={chipClass} onClick={() => setManualMeta((prev) => ({ ...prev, reminderOffsets: [] }))}>
+              {t("tasks.quickAdd.noReminder")}
+            </button>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <label className="flex items-center gap-2 text-xs text-tx-secondary">
+              {t("tasks.quickAdd.customReminder")}
+              <input type="number" min="1" max={MAX_REMINDER_OFFSET_MINUTES} step="1" disabled={!dueDate} aria-label={t("tasks.quickAdd.customReminder")}
+                className={cn(fieldClass, "w-20")} value={customMinutes} onChange={(e) => setCustomMinutes(e.target.value)} />
+              {t("tasks.reminder.minutesUnit")}
+            </label>
+            <button type="button" disabled={!dueDate || !canAddCustom || reminderOffsets.includes(customOffset)} className={chipClass}
+              onClick={() => { toggleReminder(customOffset); setCustomMinutes(""); }}>
+              {t("tasks.reminder.addCustom")}
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* 已上传图片缩略图条 — 仅在有孤儿时渲染，不占位 */}
       {orphans.length > 0 && (

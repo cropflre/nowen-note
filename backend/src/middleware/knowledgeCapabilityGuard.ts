@@ -11,6 +11,7 @@ import {
   resolveResourceKnowledgeAccessForTombstone,
   type KnowledgeCapabilityName,
 } from "../services/knowledgeCapabilities.js";
+import { repairKnowledgeResourceProjectionIfStale } from "../services/knowledgeCapabilityProjectionRepair.js";
 
 const UUID_SEGMENT = "([0-9a-fA-F-]{36})";
 type GuardedResourceType = "note" | "notebook";
@@ -36,10 +37,24 @@ function resourceAccess(
   capability: KnowledgeCapabilityName,
   options: ResourceAccessOptions = {},
 ) {
-  const access = options.includeDeleted
+  let access = options.includeDeleted
     ? resolveResourceKnowledgeAccessForTombstone(resourceType, resourceId, userId)
     : resolveResourceKnowledgeAccess(resourceType, resourceId, userId);
-  return { access, allowed: hasKnowledgeCapability(access, capability) };
+  let allowed = hasKnowledgeCapability(access, capability);
+
+  // 历史导入/恢复可能留下“业务资源正常，但统一知识树投影仍是旧 scope / deleted”
+  // 的脏状态。只有普通在线资源且当前权限判断失败时才尝试结构自愈；自愈完成后
+  // 仍然重新走同一套 capability resolver，因此不会绕过 deny / restricted / ACL。
+  if (
+    !allowed
+    && !options.includeDeleted
+    && repairKnowledgeResourceProjectionIfStale(resourceType, resourceId, userId)
+  ) {
+    access = resolveResourceKnowledgeAccess(resourceType, resourceId, userId);
+    allowed = hasKnowledgeCapability(access, capability);
+  }
+
+  return { access, allowed };
 }
 
 async function clonedJson(c: Context): Promise<Record<string, any>> {

@@ -1,9 +1,38 @@
 export * from "./exportServiceCore";
 
 import { saveAs } from "file-saver";
-import { api, resolveAttachmentUrl } from "./api";
+import { api, getCurrentWorkspace, resolveAttachmentUrl } from "./api";
 import { normalizeToMarkdown } from "./contentFormat";
 import { exportSingleNote as exportSingleNoteCore } from "./exportServiceCore";
+import { resolveMarkdownExportWorkspaceId } from "./markdownExportWorkspaceScope";
+
+const MARKDOWN_EXPORT_SCOPE_PATCH_KEY = "__nowenMarkdownExportWorkspaceScopePatched";
+
+function installMarkdownExportWorkspaceScope(): void {
+  const scopedApi = api as typeof api & Record<string, unknown>;
+  if (scopedApi[MARKDOWN_EXPORT_SCOPE_PATCH_KEY]) return;
+
+  const nativeCreateMarkdownExportJob = api.createMarkdownExportJob.bind(api);
+  api.createMarkdownExportJob = (async (notes, options) => {
+    const workspaceId = await resolveMarkdownExportWorkspaceId({
+      explicitWorkspaceId: options?.workspaceId,
+      noteIds: notes.map((note) => note.id),
+      currentWorkspace: getCurrentWorkspace(),
+      getNoteWorkspaceId: async (noteId) => (await api.getNote(noteId)).workspaceId,
+    });
+
+    return nativeCreateMarkdownExportJob(notes, {
+      ...options,
+      workspaceId,
+    });
+  }) as typeof api.createMarkdownExportJob;
+
+  scopedApi[MARKDOWN_EXPORT_SCOPE_PATCH_KEY] = true;
+}
+
+// exportServiceCore shares the same mutable api facade, so installing this once covers both
+// native Markdown and rich-text single-note ZIP paths without duplicating scope logic.
+installMarkdownExportWorkspaceScope();
 
 function sanitizeSingleNoteExportFilename(name: string): string {
   return name.replace(/[\/\\?<>:*|"]/g, "_").replace(/\s+/g, " ").trim() || "未命名";

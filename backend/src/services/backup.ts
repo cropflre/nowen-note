@@ -23,13 +23,31 @@
  */
 
 import fs from "fs";
+import { nextDailyBackupRunAt, isValidBackupTimeZone } from "./backup-schedule.js";
+import { markSyncNeedsReconcile } from "../sync/bootstrap";
 import path from "path";
 import crypto from "crypto";
 import os from "os";
 import JSZip from "jszip";
 import Database from "better-sqlite3";
 import { closeDb, getDb, getDbSchemaVersion } from "../db/schema.js";
+import { requireSqliteVecForStoredTables } from "../db/sqlite-vec-extension.js";
 import { noteVersionsRepository } from "../repositories";
+import {
+  createBackupFilename,
+  createFullBackupArchive,
+  hashFileSha256,
+  scrubPluginStudioProjectsFromBackup,
+} from "./backup-archive.js";
+import {
+  auditAttachmentBackup,
+  replaceDirectoriesFromStagingSafe,
+  verifyStagedAttachmentStats,
+  type AttachmentRestoreAudit,
+} from "./backup-restore-integrity.js";
+import { probeAttachmentStorage } from "./attachment-storage.js";
+import { quarantineRestoredPlugins } from "../plugins/pluginService.js";
+import { quarantineRestoredAutomations } from "../automation/recovery.js";
 
 // ===== 常量 =====
 
@@ -96,14 +114,13 @@ const FAILURE_DEGRADE_THRESHOLD = 3;
  *
  * 字段语义：
  *   - mode="interval"：从启动那一刻起每 intervalHours 小时跑一次（旧行为）。
- *   - mode="daily"   ：每天到达 dailyAt（"HH:mm"，服务器本地时区）跑一次；
+ *   - mode="daily"   ：每天到达 dailyAt（"HH:mm"，timeZone 指定的时区）跑一次；
  *                       服务启动时若今日时间点还没到 → 调度到今日；已过 → 明日。
  *                       重启不会立即触发（避免运维半夜重启抖一次备份）。
  *
- *   - keepCount：自动清理保留的 db-only 备份数量。范围 1~100，默认 15。
- *                只清理 type="db-only" 的备份，full 不动；
- *                由"自动备份完成"和"手动备份完成"两条路径共同触发，
- *                避免旧版本"只在 tick 里清理"导致手动产物无限堆积。
+ *   - keepCount：备份保留数量。范围 1~100，默认 15。
+ *                自动备份按当前 type 独立保留，自动 full 不会再无限累积；
+ *                手动创建仍只统一清理 db-only，不删除手动 full 或导入 full。
  *
  *   - emailOnSuccess + emailTo：自动备份成功后自动发邮件（SMTP 需启用且
  *                就绪，否则静默跳过，不阻塞备份）。
@@ -112,9 +129,11 @@ interface AutoBackupConfig {
   enabled: boolean;
   intervalHours: number;
   mode?: "interval" | "daily";
-  /** "HH:mm" 24 小时制（服务器本地时区）；mode="daily" 时使用 */
+  /** "HH:mm" 24 小时制；mode="daily" 时使用 */
   dailyAt?: string;
-  /** 自动清理保留的 db-only 备份数；默认 15 */
+  /** IANA 时区；未设置时保留旧版服务器本地时间调度语义 */
+  timeZone?: string;
+  /** 自动备份保留数；手动创建时也用于清理 db-only。默认 15 */
   keepCount?: number;
   /** 自动备份成功后是否自动发邮件 */
   emailOnSuccess?: boolean;
@@ -203,6 +222,14 @@ export interface BackupOptions {
   description?: string;
 }
 
+export class BackupBusyError extends Error {
+  readonly code = "BACKUP_BUSY";
+
+  constructor() {
+    super("已有备份任务正在运行，请等待当前任务完成");
+  }
+}
+
 export interface BackupHealth {
   /** 上次成功备份时间（ISO） */
   lastSuccessAt: string | null;
@@ -227,7 +254,11 @@ export interface BackupHealth {
   autoBackupMode?: "interval" | "daily";
   /** mode="daily" 时的每日触发时间 "HH:mm" */
   autoBackupDailyAt?: string;
-  /** 自动清理保留的 db-only 备份数 */
+  /** 显式的备份时区；null 表示旧版服务器本地调度 */
+  autoBackupTimeZone?: string | null;
+  /** 用于展示旧调度实际依赖的服务器时区 */
+  autoBackupServerTimeZone?: string;
+  /** 自动备份保留数；手动创建时也用于清理 db-only */
   autoBackupKeepCount?: number;
   /** 是否启用"备份成功后自动发邮件" */
   autoBackupEmailOnSuccess?: boolean;
@@ -261,6 +292,18 @@ export interface RestoreResult {
     tables: { name: string; willClear: number; willInsert: number }[];
     files: { attachments: number; fonts: number; plugins: number };
     schemaVersion: number;
+    backupType?: "full" | "db-only" | "legacy";
+    attachmentAudit?: {
+      metaCount: number | null;
+      metaBytes: number | null;
+      archiveCount: number;
+      stagedCount?: number;
+      stagedBytes?: number;
+      dbRows: number;
+      dbDistinctPaths: number;
+      missingDbPaths: string[];
+      objectStorageEnabled: boolean;
+    };
   };
 }
 
@@ -278,39 +321,6 @@ function listAllTables(db: ReturnType<typeof getDb>): string[] {
   return rows
     .map((r) => r.name)
     .filter((n) => !n.endsWith("_data") && !n.endsWith("_idx") && !n.endsWith("_content") && !n.endsWith("_docsize") && !n.endsWith("_config"));
-}
-
-/** 递归把目录里的文件全部塞进 zip 的某个子目录。空目录会写一个 .keep 占位。 */
-function addDirToZip(zip: JSZip, srcDir: string, zipFolder: string): { count: number; bytes: number } {
-  let count = 0;
-  let bytes = 0;
-  if (!fs.existsSync(srcDir)) {
-    zip.folder(zipFolder)?.file(".keep", "");
-    return { count, bytes };
-  }
-  const folder = zip.folder(zipFolder);
-  if (!folder) return { count, bytes };
-
-  const walk = (cur: string, relBase: string) => {
-    const entries = fs.readdirSync(cur, { withFileTypes: true });
-    for (const ent of entries) {
-      const abs = path.join(cur, ent.name);
-      const rel = path.posix.join(relBase, ent.name);
-      if (ent.isDirectory()) {
-        walk(abs, rel);
-      } else if (ent.isFile()) {
-        const buf = fs.readFileSync(abs);
-        folder.file(rel, buf);
-        count++;
-        bytes += buf.length;
-      }
-    }
-  };
-  walk(srcDir, "");
-  if (count === 0) {
-    folder.file(".keep", "");
-  }
-  return { count, bytes };
 }
 
 /** 从 zip 把某个子目录释放到磁盘目标路径。释放前清空目标目录（仅文件，不动外部）。 */
@@ -388,6 +398,7 @@ function checkSqliteIntegrity(dbPath: string, label: string): void {
   let db: Database.Database | null = null;
   try {
     db = new Database(dbPath, { readonly: true, fileMustExist: true });
+    requireSqliteVecForStoredTables(db, label);
     const row = db.prepare("PRAGMA integrity_check").get() as { integrity_check: string };
     if (row.integrity_check !== "ok") {
       throw new Error(`${label}完整性检查失败: ${row.integrity_check}`);
@@ -412,7 +423,25 @@ function verifyCurrentDbUsable(curDbPath: string): void {
   if (integrity !== "ok") {
     throw new Error(`恢复后完整性检查失败: ${integrity}`);
   }
-  // getDb() 会打开 WAL；验证完成后关闭并清理，避免失败路径残留旧 sidecar。
+
+  // A readable SQLite file is not enough: attachment upload also needs a writable DB.
+  // Use a SAVEPOINT-backed write probe so permissions/read-only mounts fail before restore
+  // is committed, while the probe leaves no persistent row behind.
+  try {
+    cur.exec("SAVEPOINT nowen_restore_write_probe");
+    cur.prepare(
+      `INSERT OR REPLACE INTO system_settings (key, value) VALUES (?, ?)`,
+    ).run("backup:restore-write-probe", String(Date.now()));
+    cur.exec("ROLLBACK TO nowen_restore_write_probe");
+    cur.exec("RELEASE nowen_restore_write_probe");
+  } catch (error) {
+    try { cur.exec("ROLLBACK TO nowen_restore_write_probe"); } catch { /* ignore */ }
+    try { cur.exec("RELEASE nowen_restore_write_probe"); } catch { /* ignore */ }
+    throw new Error(
+      "恢复后数据库写入检查失败: " + (error instanceof Error ? error.message : String(error)),
+    );
+  }
+
   closeDb();
   cleanupWalShm(curDbPath);
 }
@@ -524,6 +553,7 @@ function replaceDirectoriesFromStaging(
 export class BackupManager {
   private backupDir: string;
   private dataDir: string;
+  private backupInProgress = false;
   private autoBackupTimer: NodeJS.Timeout | null = null;
   private autoBackupIntervalHours = 24;
   /** 当前生效的完整自动备份配置，tick 时按它工作；运行期变更必须先 stop 再 start。 */
@@ -747,12 +777,14 @@ export class BackupManager {
       // 关键：不能因为旧行没这些字段就把 enabled 推翻成 false。
       const mode: "interval" | "daily" = parsed.mode === "daily" ? "daily" : "interval";
       const dailyAt = isValidHHmm(parsed.dailyAt) ? parsed.dailyAt : "03:00";
+      // Do not silently shift schedules created before explicit time zones.
+      const timeZone = isValidBackupTimeZone(parsed.timeZone) ? parsed.timeZone : undefined;
       let keepCount = Number(parsed.keepCount);
       if (!Number.isFinite(keepCount)) keepCount = KEEP_COUNT_DEFAULT;
       keepCount = Math.max(KEEP_COUNT_MIN, Math.min(KEEP_COUNT_MAX, Math.round(keepCount)));
       const emailOnSuccess = parsed.emailOnSuccess === true;
       const emailTo = typeof parsed.emailTo === "string" ? parsed.emailTo.trim() : "";
-      return { enabled, intervalHours, mode, dailyAt, keepCount, emailOnSuccess, emailTo };
+      return { enabled, intervalHours, mode, dailyAt, timeZone, keepCount, emailOnSuccess, emailTo };
     } catch {
       return null;
     }
@@ -853,12 +885,14 @@ export class BackupManager {
 
   /** 创建备份。db-only 仍然产出单 .db 快照；full 产出 zip 包。 */
   async createBackup(options: BackupOptions = {}): Promise<BackupInfo> {
+    if (this.backupInProgress) throw new BackupBusyError();
+    this.backupInProgress = true;
     const type = options.type || "db-only";
     const id = crypto.randomUUID();
-    const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
-    const ext = type === "full" ? ".zip" : ".bak";
-    const filename = `nowen-backup-${type}-${timestamp}${ext}`;
+    // 秒级时间戳不足以保证唯一；短 UUID 同时避免多进程或快速重启后撞名。
+    const filename = createBackupFilename(type, id);
     const backupPath = path.join(this.backupDir, filename);
+    const backupPathExisted = fs.existsSync(backupPath);
 
     try {
       const db = getDb();
@@ -868,14 +902,13 @@ export class BackupManager {
       if (type === "db-only") {
         // SQLite 在线 backup —— 事务一致
         await db.backup(backupPath);
+        scrubPluginStudioProjectsFromBackup(backupPath);
       } else {
         await this.createFullBackup(backupPath, db, options.description);
       }
 
-      const content = fs.readFileSync(backupPath);
-      // **完整 sha256**（之前只截 16 字符，碰撞空间大幅缩小，无意义）
-      const checksum = crypto.createHash("sha256").update(content).digest("hex");
-      const size = content.length;
+      // 完整 sha256 使用流式读取，避免大备份完成后再次分配等体积 Buffer。
+      const { checksum, size } = await hashFileSha256(backupPath);
 
       const info: BackupInfo = {
         id,
@@ -927,11 +960,14 @@ export class BackupManager {
       }
       // 失败时清理半成品，避免 listBackups 看到坏文件
       try {
-        if (fs.existsSync(backupPath)) fs.unlinkSync(backupPath);
+        // 若极端情况下目标在本次操作前就存在，绝不能误删已有成功备份。
+        if (!backupPathExisted && fs.existsSync(backupPath)) fs.unlinkSync(backupPath);
       } catch {
         /* ignore */
       }
       throw err;
+    } finally {
+      this.backupInProgress = false;
     }
   }
 
@@ -944,13 +980,42 @@ export class BackupManager {
    *   4) 删除临时 .db
    */
   private async createFullBackup(zipPath: string, db: ReturnType<typeof getDb>, description?: string): Promise<void> {
-    const zip = new JSZip();
-
     // 1) 临时 .db 快照
     const tmpDb = path.join(os.tmpdir(), `nowen-fullbk-${Date.now()}-${crypto.randomBytes(4).toString("hex")}.db`);
     try {
       await db.backup(tmpDb);
-      zip.file("db.sqlite", fs.readFileSync(tmpDb));
+      scrubPluginStudioProjectsFromBackup(tmpDb);
+      // 2) 表行数（动态枚举，不再写死）
+      const tables = listAllTables(db);
+      const tableRowCounts: Record<string, number> = {};
+      for (const t of tables) {
+        if (t.startsWith("plugin_studio_")) {
+          tableRowCounts[t] = 0;
+          continue;
+        }
+        try {
+          tableRowCounts[t] = (db.prepare(`SELECT COUNT(*) as c FROM ${t}`).get() as { c: number }).c;
+        } catch {
+          tableRowCounts[t] = -1;
+        }
+      }
+
+      // 3) 数据库、附件、字体、插件和密钥均通过文件流直接写入 ZIP。
+      await createFullBackupArchive({
+        zipPath,
+        dbPath: tmpDb,
+        dataDir: this.dataDir,
+        buildMeta: (files, hasSecret) => ({
+          formatVersion: BACKUP_FORMAT_VERSION,
+          schemaVersion: getDbSchemaVersion(),
+          type: "full" as const,
+          createdAt: new Date().toISOString(),
+          description: description || "",
+          tables: tableRowCounts,
+          files,
+          hasSecret,
+        }),
+      });
     } finally {
       try {
         if (fs.existsSync(tmpDb)) fs.unlinkSync(tmpDb);
@@ -958,59 +1023,6 @@ export class BackupManager {
         /* ignore */
       }
     }
-
-    // 2) 各业务目录
-    const attDir = path.join(this.dataDir, "attachments");
-    const fontsDir = path.join(this.dataDir, "fonts");
-    const pluginsDir = path.join(this.dataDir, "plugins");
-    const att = addDirToZip(zip, attDir, "attachments");
-    const fnt = addDirToZip(zip, fontsDir, "fonts");
-    const plg = addDirToZip(zip, pluginsDir, "plugins");
-
-    // 3) 密钥（恢复后老 token 不失效；不存在就跳过）
-    const secretFile = path.join(this.dataDir, ".jwt_secret");
-    if (fs.existsSync(secretFile)) {
-      try {
-        zip.file(".jwt_secret", fs.readFileSync(secretFile));
-      } catch {
-        /* 权限不足时忽略，meta 里会标记 hasSecret: false */
-      }
-    }
-
-    // 4) 表行数（动态枚举，不再写死）
-    const tables = listAllTables(db);
-    const tableRowCounts: Record<string, number> = {};
-    for (const t of tables) {
-      try {
-        tableRowCounts[t] = (db.prepare(`SELECT COUNT(*) as c FROM ${t}`).get() as { c: number }).c;
-      } catch {
-        tableRowCounts[t] = -1;
-      }
-    }
-
-    const meta = {
-      formatVersion: BACKUP_FORMAT_VERSION,
-      schemaVersion: getDbSchemaVersion(),
-      type: "full" as const,
-      createdAt: new Date().toISOString(),
-      description: description || "",
-      tables: tableRowCounts,
-      files: {
-        attachments: { count: att.count, bytes: att.bytes },
-        fonts: { count: fnt.count, bytes: fnt.bytes },
-        plugins: { count: plg.count, bytes: plg.bytes },
-      },
-      hasSecret: fs.existsSync(secretFile),
-    };
-    zip.file("meta.json", JSON.stringify(meta, null, 2));
-
-    // 5) 输出 zip
-    const buf = await zip.generateAsync({
-      type: "nodebuffer",
-      compression: "DEFLATE",
-      compressionOptions: { level: 6 },
-    });
-    fs.writeFileSync(zipPath, buf);
   }
 
   /** 列出所有备份。 */
@@ -1254,21 +1266,52 @@ export class BackupManager {
     const isZip = buf.length >= 2 && buf[0] === 0x50 && buf[1] === 0x4b;
 
     try {
+      let result: RestoreResult;
       if (isZip) {
-        return await this.restoreFromZip(buf, !!opts.dryRun);
-      }
-      // 嗅探 JSON 全量备份（旧格式）
-      try {
-        const text = buf.toString("utf-8");
-        const obj = JSON.parse(text);
-        if (obj && obj.data && obj.version) {
-          return await this.restoreFromLegacyJson(obj, !!opts.dryRun);
+        result = await this.restoreFromZip(buf, !!opts.dryRun);
+      } else {
+        // 嗅探 JSON 全量备份（旧格式）
+        let legacy: RestoreResult | null = null;
+        try {
+          const text = buf.toString("utf-8");
+          const obj = JSON.parse(text);
+          if (obj && obj.data && obj.version) {
+            legacy = await this.restoreFromLegacyJson(obj, !!opts.dryRun);
+          }
+        } catch {
+          /* 不是 JSON，落到 db-only */
         }
-      } catch {
-        /* 不是 JSON，落到 db-only */
+        // 否则视为 db-only 快照：替换 DB 文件
+        result = legacy ?? await this.restoreFromDbOnly(filePath, !!opts.dryRun);
       }
-      // 否则视为 db-only 快照：替换 DB 文件
-      return await this.restoreFromDbOnly(filePath, !!opts.dryRun);
+
+      // 阶段 N：恢复成功后同步游标不再可信。
+      //
+      // 备份里的 sync_state 记录的是"备份那一刻已拉到哪个序号"。
+      // 恢复之后本地内容退回到过去，但服务端序号仍在前进 ——
+      // 沿用旧游标会让引擎认为"备份后到现在的远端变更都已应用"，
+      // 从而永久丢失这段时间其他设备的所有修改。
+      //
+      // 因此强制回到 needs_reconcile，下次同步走完整 Bootstrap 对账。
+      // 对账会逐实体比对而不是盲目覆盖，因此恢复旧备份**不会**把
+      // 服务端的新数据冲掉（第二十条）。
+      if (result.success && !opts.dryRun) {
+        // 恢复包中的第三方代码永不自动启用：迁入 quarantine，并清空所有授权。
+        quarantineRestoredPlugins();
+        quarantineRestoredAutomations();
+        try {
+          markSyncNeedsReconcile();
+        } catch (error) {
+          // 标记失败不能让恢复被判为失败 —— 数据已经恢复好了。
+          // 但要留下明确警告，否则用户可能在游标错误的状态下继续同步。
+          console.warn(
+            "[backup] 恢复成功但同步状态标记失败，请手动重置同步对账:",
+            (error as Error)?.message || error,
+          );
+        }
+      }
+
+      return result;
     } catch (err) {
       return { success: false, error: err instanceof Error ? err.message : String(err) };
     }
@@ -1316,6 +1359,10 @@ export class BackupManager {
 
     const dbFile = zip.file("db.sqlite");
     if (!dbFile) throw new Error("zip 备份缺少 db.sqlite");
+    const attachmentArchivePaths = Object.keys(zip.files)
+      .filter((name) => name.startsWith("attachments/") && !zip.files[name].dir)
+      .map((name) => name.slice("attachments/".length))
+      .filter((name) => name && name !== ".keep");
 
     if (dryRun) {
       // 干跑：从 zip 内 .db 临时打开，统计每张表 N 行
@@ -1337,10 +1384,12 @@ export class BackupManager {
       try {
         // 用 better-sqlite3 直接打开（独立连接）
         const Database = (await import("better-sqlite3")).default;
-        let tmp: InstanceType<typeof Database>;
+        let tmp: InstanceType<typeof Database> | null = null;
         try {
           tmp = new Database(tmpDb, { readonly: true });
+          requireSqliteVecForStoredTables(tmp, "备份预览");
         } catch (e) {
+          try { tmp?.close(); } catch { /* ignore */ }
           // 透传 SQLite 错误 + 临时路径，管理员可凭此定位 AV / 权限 / 路径问题
           throw new Error(
             `预览恢复失败：无法打开 zip 内的数据库快照（tmp=${tmpDb}）：${
@@ -1348,6 +1397,12 @@ export class BackupManager {
             }`,
           );
         }
+        if (!tmp) throw new Error("预览恢复失败：未能打开备份数据库");
+        const attachmentAudit = auditAttachmentBackup(
+          tmpDb,
+          attachmentArchivePaths,
+          meta.files?.attachments,
+        );
         const tables = listAllTables(tmp as unknown as ReturnType<typeof getDb>);
         const cur = getDb();
         const list = tables.map((name) => {
@@ -1371,6 +1426,8 @@ export class BackupManager {
               plugins: meta.files?.plugins?.count ?? 0,
             },
             schemaVersion: meta.schemaVersion ?? 1,
+            backupType: "full",
+            attachmentAudit,
           },
         };
       } finally {
@@ -1400,16 +1457,23 @@ export class BackupManager {
     );
     fs.writeFileSync(tmpDb, await dbFile.async("nodebuffer"));
     checkSqliteIntegrity(tmpDb, "备份文件");
+    let attachmentAudit: AttachmentRestoreAudit = auditAttachmentBackup(
+      tmpDb,
+      attachmentArchivePaths,
+      meta.files?.attachments,
+    );
 
     const stagingRoot = path.join(this.dataDir, `.nowen-restore-staging-${restoreId}`);
     const stagedAttDir = path.join(stagingRoot, "attachments");
     const stagedFontsDir = path.join(stagingRoot, "fonts");
-    const stagedPluginsDir = path.join(stagingRoot, "plugins");
+    const hasInstalledLayout = Object.keys(zip.files).some((name) => name.startsWith("plugins/installed/"));
+    const stagedPluginsDir = path.join(stagingRoot, hasInstalledLayout ? "plugins-installed" : "plugins-legacy");
 
     // 先解压到 staging，避免失败时直接清空正式附件/字体/插件目录。
     const attCount = await extractDirFromZip(zip, "attachments", stagedAttDir);
     const fntCount = await extractDirFromZip(zip, "fonts", stagedFontsDir);
-    const plgCount = await extractDirFromZip(zip, "plugins", stagedPluginsDir);
+    const plgCount = await extractDirFromZip(zip, hasInstalledLayout ? "plugins/installed" : "plugins", stagedPluginsDir);
+    attachmentAudit = verifyStagedAttachmentStats(stagedAttDir, attachmentAudit);
 
     const curDbPath = getDbPath();
     const safetyBak = curDbPath + `.before-restore.${Date.now()}.bak`;
@@ -1426,11 +1490,19 @@ export class BackupManager {
       verifyCurrentDbUsable(curDbPath);
 
       // DB 已验证可用后，再安全替换文件目录；任一步失败都回滚 DB。
-      replaceDirectoriesFromStaging([
+      await replaceDirectoriesFromStagingSafe([
         { stagedDir: stagedAttDir, destDir: path.join(this.dataDir, "attachments") },
         { stagedDir: stagedFontsDir, destDir: path.join(this.dataDir, "fonts") },
-        { stagedDir: stagedPluginsDir, destDir: path.join(this.dataDir, "plugins") },
-      ], restoreId);
+        { stagedDir: stagedPluginsDir, destDir: hasInstalledLayout ? path.join(this.dataDir, "plugins", "installed") : path.join(this.dataDir, "plugins") },
+      ], restoreId, async () => {
+        const health = await probeAttachmentStorage();
+        if (!health.ok) {
+          throw new Error(
+            "附件存储健康检查失败 [" + (health.code || "ATTACHMENT_STORAGE_NOT_WRITABLE") + "]: "
+            + (health.error || "unknown storage error"),
+          );
+        }
+      });
     } catch (e) {
       rollbackDb(curDbPath, safetyBak, e);
     } finally {
@@ -1454,10 +1526,23 @@ export class BackupManager {
       }
     }
 
+    const pluginSecretKeyEntry = zip.file(".plugin_secret_key");
+    if (pluginSecretKeyEntry) {
+      const pluginSecretKeyPath = path.join(this.dataDir, ".plugin_secret_key");
+      fs.writeFileSync(pluginSecretKeyPath, await pluginSecretKeyEntry.async("nodebuffer"));
+      try { fs.chmodSync(pluginSecretKeyPath, 0o600); } catch { /* Windows */ }
+    } else {
+      // 没有配套密钥的密文不可恢复；显式清空，避免误用当前机器的另一把密钥。
+      try { getDb().prepare("DELETE FROM plugin_secrets").run(); } catch { /* 老备份没有插件表 */ }
+    }
+
     const stats: Record<string, number> = {
       attachments: attCount,
       fonts: fntCount,
       plugins: plgCount,
+      attachmentDbRows: attachmentAudit.dbRows,
+      attachmentDistinctPaths: attachmentAudit.dbDistinctPaths,
+      attachmentBytes: attachmentAudit.stagedBytes ?? 0,
     };
     for (const [t, n] of Object.entries(meta.tables ?? {})) {
       stats[t] = typeof n === "number" ? n : -1;
@@ -1527,6 +1612,12 @@ export class BackupManager {
       // 用 readonly 临时打开备份 DB，统计行数
       const Database = (await import("better-sqlite3")).default;
       const tmp = new Database(filePath, { readonly: true });
+      try {
+        requireSqliteVecForStoredTables(tmp, "备份预览");
+      } catch (error) {
+        tmp.close();
+        throw error;
+      }
       const tables = listAllTables(tmp as unknown as ReturnType<typeof getDb>);
       const cur = getDb();
       const list = tables.map((name) => {
@@ -1546,6 +1637,7 @@ export class BackupManager {
           tables: list,
           files: { attachments: 0, fonts: 0, plugins: 0 },
           schemaVersion: 1,
+          backupType: "db-only",
         },
       };
     }
@@ -1621,7 +1713,7 @@ export class BackupManager {
       console.log(`[Backup] 自动备份已启动（间隔模式，每 ${cfg.intervalHours} 小时）`);
     } else {
       this.scheduleNextDaily(cfg.dailyAt || "03:00");
-      console.log(`[Backup] 自动备份已启动（每日 ${cfg.dailyAt} 模式）`);
+      console.log(`[Backup] 自动备份已启动（每日 ${cfg.dailyAt}，${cfg.timeZone || "服务器本地时区（旧配置）"}）`);
     }
 
     if (opts.persist) {
@@ -1635,13 +1727,8 @@ export class BackupManager {
    * 触发完后递归调用自己重排下一日，形成稳定的"每天一次"链。
    */
   private scheduleNextDaily(hhmm: string): void {
-    const [hh, mm] = hhmm.split(":").map((n) => Number(n));
     const now = new Date();
-    const next = new Date(now);
-    next.setHours(hh, mm, 0, 0);
-    if (next.getTime() <= now.getTime()) {
-      next.setDate(next.getDate() + 1);
-    }
+    const next = nextDailyBackupRunAt(hhmm, this.autoBackupConfig.timeZone, now);
     const delay = next.getTime() - now.getTime();
     this.autoBackupNextRunAt = next.getTime();
     this.autoBackupTimer = setTimeout(async () => {
@@ -1927,6 +2014,8 @@ export class BackupManager {
       autoBackupIntervalHours: this.autoBackupIntervalHours,
       autoBackupMode: this.autoBackupMode,
       autoBackupDailyAt: this.autoBackupConfig.dailyAt,
+      autoBackupTimeZone: this.autoBackupConfig.timeZone || null,
+      autoBackupServerTimeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
       autoBackupKeepCount: this.autoBackupConfig.keepCount ?? KEEP_COUNT_DEFAULT,
       autoBackupEmailOnSuccess: this.autoBackupConfig.emailOnSuccess === true,
       autoBackupEmailTo: this.autoBackupConfig.emailTo ?? "",

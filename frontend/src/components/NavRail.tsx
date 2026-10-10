@@ -1,12 +1,13 @@
 import React, { useCallback, useEffect, useState } from "react";
 import {
   BrainCircuit,
+  CircleDot,
+  Bell,
   CloudOff,
-  Columns2,
-  Columns3,
   FolderOpen,
   ListTodo,
   Link2,
+  LogIn,
   LogOut,
   NotebookPen,
   PanelLeft,
@@ -16,16 +17,26 @@ import {
   Star,
   Trash2,
   UsersRound,
-  X,
 } from "lucide-react";
-import { AnimatePresence } from "framer-motion";
 import { useTranslation } from "react-i18next";
 import { useApp, useAppActions } from "@/store/AppContext";
 import { api, broadcastLogout, clearServerUrl, getCurrentWorkspace, getServerUrl } from "@/lib/api";
 import { ViewMode, WorkspaceFeatures } from "@/types";
 import { cn } from "@/lib/utils";
-import SettingsModal from "@/components/SettingsModal";
-import { RailMode, useRailMode } from "@/hooks/useRailMode";
+import { openWorkspaceIssue, OPEN_NOTIFICATIONS_EVENT, parseIssueAppPath } from "@/lib/workspaceIssueNavigation";
+import { resolveCurrentAppPathname } from "@/lib/appPathNavigation";
+import { pushAppPathState } from "@/lib/appPathNavigation";
+import { getCurrentMindMapAppRoute, pushMindMapAppPath } from "@/lib/mindMapDeepLink";
+import { useRailMode } from "@/hooks/useRailMode";
+import { useSidebarTextStyle } from "@/hooks/useSidebarTextStyle";
+import { useMobileRailHidden } from "@/hooks/useMobileRailHidden";
+import { useUserPreferences } from "@/hooks/useUserPreferences";
+import {
+  NAVIGATION_MODULE_IDS,
+  isNavigationModuleVisible,
+  normalizeNavigationModuleOrder,
+  type NavigationModuleId,
+} from "@/lib/navigationVisibility";
 import {
   clearDesktopLocalAuth,
   getAppInfo,
@@ -37,6 +48,12 @@ import {
 import { clearLocalIdMap, clearQueue, getQueueLength } from "@/lib/offlineQueue";
 import { AccountLoginHistoryDialog } from "@/components/AccountLoginHistory";
 import { isAccountLoginHistorySupported } from "@/lib/accountLoginHistory";
+import {
+  enterMobileLocalMode,
+  isAndroidNativeRuntime,
+  isMobileLocalMode,
+  requestMobileAccountLogin,
+} from "@/lib/mobileLocalMode";
 
 type NavGroup = "workspace" | "modules" | "tools";
 
@@ -49,6 +66,16 @@ interface NavConfigItem {
 }
 
 const RAIL_ICON_SIZE = 18;
+const NON_NOTE_WORKSPACE_VIEWS = new Set<ViewMode>([
+  "trash",
+  "tasks",
+  "mindmaps",
+  "ai-chat",
+  "diary",
+  "files",
+  "shares",
+  "issues",
+]);
 
 /**
  * The unified content tree is the primary note-navigation surface. The rail
@@ -66,23 +93,30 @@ const NAV_CONFIG: NavConfigItem[] = [
   { icon: <Link2 size={RAIL_ICON_SIZE} />, labelKey: "sidebar.shareManagement", mode: "shares", group: "tools" },
 ];
 
-export default function NavRail({ variant = "desktop" }: { variant?: "desktop" | "mobile" } = {}) {
+export default function NavRail({ variant = "desktop", notificationCount = 0 }: { variant?: "desktop" | "mobile"; notificationCount?: number } = {}) {
   const { t } = useTranslation();
   const { state } = useApp();
   const actions = useAppActions();
-  const [railMode, setRailMode] = useRailMode();
-  const effectiveMode: RailMode = variant === "mobile" && railMode === "hidden" ? "icon" : railMode;
+  const { prefs: userPrefs } = useUserPreferences();
+  const [railMode] = useRailMode();
+  const [sidebarTextStyle] = useSidebarTextStyle();
+  const classicText = sidebarTextStyle === "classic";
+  const [, setMobileRailHidden] = useMobileRailHidden();
+  const effectiveMode = variant === "mobile" ? "label" : railMode;
   const showLabel = effectiveMode === "label";
   const isMobile = variant === "mobile";
+  const localDeviceMode = isMobileLocalMode();
+  const noteWorkspaceActive = !NON_NOTE_WORKSPACE_VIEWS.has(state.viewMode);
 
+  const [workspaceId, setWorkspaceId] = useState(getCurrentWorkspace);
   const [features, setFeatures] = useState<WorkspaceFeatures | null>(null);
-  const [showSettings, setShowSettings] = useState(false);
   const [loginHistoryOpen, setLoginHistoryOpen] = useState(false);
   const [desktopInfo, setDesktopInfo] = useState<AppInfo | null>(null);
 
   useEffect(() => {
     const load = () => {
       const ws = getCurrentWorkspace();
+      setWorkspaceId(ws);
       if (!ws || ws === "personal") {
         setFeatures(null);
         return;
@@ -139,15 +173,50 @@ export default function NavRail({ variant = "desktop" }: { variant?: "desktop" |
     && (usingDesktopLiteMode || !isLoopbackUrl(serverUrl) || (!!currentOrigin && normalizeUrl(serverUrl) !== normalizeUrl(currentOrigin)));
   const canSwitchBackToLocal = isDesktopApp() && (usingRemoteServer || usingDesktopLiteMode);
 
-  const items = features ? NAV_CONFIG.filter((item) => !item.feature || features[item.feature] !== false) : NAV_CONFIG;
+  const availableItems = features ? NAV_CONFIG.filter((item) => !item.feature || features[item.feature] !== false) : NAV_CONFIG;
+  const capabilityItems = localDeviceMode ? NAV_CONFIG : availableItems;
+  const configurableItemById = new Map<NavigationModuleId, NavConfigItem>();
+  for (const item of capabilityItems) {
+    if (NAVIGATION_MODULE_IDS.includes(item.mode as NavigationModuleId)) {
+      configurableItemById.set(item.mode as NavigationModuleId, item);
+    }
+  }
+  const orderedNavigationModuleIds = normalizeNavigationModuleOrder(userPrefs.navigationModuleOrder)
+    .filter((id) => isNavigationModuleVisible(id, userPrefs.hiddenNavigationModules));
+  const trashItem = capabilityItems.find((item) => item.mode === "trash") || null;
 
   const handleClick = useCallback((mode: ViewMode) => {
+    if (localDeviceMode && (mode === "ai-chat" || mode === "shares")) {
+      requestMobileAccountLogin();
+      window.location.reload();
+      return;
+    }
+
+    if (mode === "issues") {
+      openWorkspaceIssue(null);
+    } else if (parseIssueAppPath(resolveCurrentAppPathname()).matched) {
+      pushAppPathState("/");
+    }
+
+    if (mode === "mindmaps") {
+      // 点击模块入口回到 /mindmaps 列表；具体导图选择后再进入 /mindmaps/:id。
+      pushMindMapAppPath(null);
+    } else if (getCurrentMindMapAppRoute().matched) {
+      // 用户主动离开脑图模块时保留一条可 Back 返回的历史记录。
+      pushAppPathState("/");
+    }
+
     actions.setViewMode(mode);
     actions.setSelectedNotebook(null);
     if (isMobile) actions.setMobileSidebar(false);
-  }, [actions, isMobile]);
+  }, [actions, isMobile, localDeviceMode]);
 
-  const handleDesktopCloudButton = useCallback(async () => {
+  const handleSwitchToLocal = useCallback(async () => {
+    if (isAndroidNativeRuntime()) {
+      enterMobileLocalMode();
+      window.location.reload();
+      return;
+    }
     if (!canSwitchBackToLocal) return;
 
     const queuedCount = getQueueLength();
@@ -179,6 +248,7 @@ export default function NavRail({ variant = "desktop" }: { variant?: "desktop" |
   }, [canSwitchBackToLocal, t]);
 
   const handleLogout = useCallback(async () => {
+    if (isAndroidNativeRuntime()) requestMobileAccountLogin();
     if (isDesktopApp() && !canSwitchBackToLocal) {
       await clearDesktopLocalAuth().catch(() => ({ ok: false }));
       try {
@@ -192,6 +262,11 @@ export default function NavRail({ variant = "desktop" }: { variant?: "desktop" |
     }
     window.location.reload();
   }, [canSwitchBackToLocal]);
+
+  const handleAccountLogin = useCallback(() => {
+    requestMobileAccountLogin();
+    window.location.reload();
+  }, []);
 
   const railWidthClass = showLabel ? "w-16" : "w-12";
   const itemBaseClass = showLabel
@@ -212,20 +287,43 @@ export default function NavRail({ variant = "desktop" }: { variant?: "desktop" |
         aria-label={label}
         className={cn(
           itemBaseClass,
-          active ? "bg-accent-primary/12 text-accent-primary" : "text-tx-tertiary hover:bg-app-hover hover:text-tx-primary",
+          active ? "bg-accent-primary/12 text-accent-primary" : `${classicText ? "text-tx-tertiary" : "text-tx-secondary"} hover:bg-app-hover hover:text-tx-primary`,
           item.mode === "trash" && !active && "opacity-70 hover:opacity-100",
         )}
       >
         {active && <span className="absolute left-0 top-1.5 bottom-1.5 w-[2px] rounded-full bg-accent-primary" aria-hidden />}
         {item.icon}
-        {showLabel && <span className="text-[10px] leading-none mt-0.5 max-w-full truncate px-1">{label}</span>}
+        {showLabel && <span className={cn("mt-0.5 max-w-full truncate px-1", classicText ? "text-[10px] leading-none" : isMobile ? "text-[10px] leading-tight" : "text-[11px] font-medium leading-tight")}>{label}</span>}
       </button>
     );
   };
 
-  const groups: NavGroup[] = ["workspace", "modules", "tools"];
-  const mobileNextMode: RailMode = effectiveMode === "label" ? "icon" : "label";
-  const MobileSwitchIcon = effectiveMode === "label" ? Columns2 : Columns3;
+  const renderNotificationItem = () => {
+    if (localDeviceMode) return null;
+    const label = t("sidebar.notifications");
+    return (
+      <button
+        key="notifications"
+        data-mobile-drawer-rail-item=""
+        onClick={() => {
+          actions.setMobileSidebar(false);
+          window.dispatchEvent(new Event(OPEN_NOTIFICATIONS_EVENT));
+        }}
+        aria-label={label}
+        title={showLabel ? undefined : label}
+        className={cn(itemBaseClass, "relative text-tx-tertiary hover:bg-app-hover hover:text-tx-primary")}
+      >
+        <Bell size={RAIL_ICON_SIZE} />
+        {notificationCount > 0 && (
+          <span className="absolute right-0 top-0 rounded-full bg-accent-primary px-1 text-[9px] text-white">
+            {notificationCount > 99 ? "99+" : notificationCount}
+          </span>
+        )}
+        {showLabel && <span className="mt-0.5 max-w-full truncate px-1 text-[10px]">{label}</span>}
+      </button>
+    );
+  };
+
   return (
     <div
       className={cn(
@@ -236,32 +334,27 @@ export default function NavRail({ variant = "desktop" }: { variant?: "desktop" |
       style={{ paddingTop: "calc(var(--safe-area-top) + 4px)", paddingBottom: "8px" }}
     >
       {isMobile ? (
-        <>
-          <button
-            data-mobile-drawer-rail-item=""
-            onClick={() => actions.setMobileSidebar(false)}
-            title={t("common.close")}
-            aria-label={t("common.close")}
-            className="w-10 h-10 rounded-lg flex items-center justify-center text-tx-tertiary hover:bg-app-hover hover:text-tx-primary transition-colors"
-          >
-            <X size={16} />
-          </button>
-          <button
-            data-mobile-drawer-rail-item=""
-            onClick={() => setRailMode(mobileNextMode)}
-            title={t(`sidebar.railMode.switchTo.${mobileNextMode}`)}
-            aria-label={t(`sidebar.railMode.switchTo.${mobileNextMode}`)}
-            className="w-10 h-10 rounded-lg flex items-center justify-center text-tx-tertiary hover:bg-app-hover hover:text-tx-primary transition-colors"
-          >
-            <MobileSwitchIcon size={16} />
-          </button>
-        </>
+        <button
+          type="button"
+          data-mobile-rail-hide=""
+          onClick={() => setMobileRailHidden(true)}
+          title={t("sidebar.hideMobileRail")}
+          aria-label={t("sidebar.hideMobileRail")}
+          className="h-10 w-10 shrink-0 rounded-lg flex items-center justify-center text-tx-tertiary hover:bg-app-hover hover:text-tx-primary transition-colors"
+        >
+          <PanelLeftClose size={16} />
+        </button>
+      ) : noteWorkspaceActive ? (
+        <div
+          data-note-workspace-layout-anchor=""
+          className="h-10 w-10 shrink-0"
+        />
       ) : (
         <button
           data-mobile-drawer-rail-item=""
           onClick={actions.toggleSidebar}
-          title={state.sidebarCollapsed ? t("common.expand") : t("common.collapse")}
-          aria-label={state.sidebarCollapsed ? t("common.expand") : t("common.collapse")}
+          title={t(state.sidebarCollapsed ? "common.expand" : "common.collapse")}
+          aria-label={t(state.sidebarCollapsed ? "common.expand" : "common.collapse")}
           className="w-10 h-10 rounded-lg flex items-center justify-center text-tx-tertiary hover:bg-app-hover hover:text-tx-primary transition-colors"
         >
           {state.sidebarCollapsed ? <PanelLeft size={16} /> : <PanelLeftClose size={16} />}
@@ -271,32 +364,34 @@ export default function NavRail({ variant = "desktop" }: { variant?: "desktop" |
       <div className={cn("my-2 border-t border-app-border/60", showLabel ? "w-8" : "w-6")} aria-hidden />
 
       <div className="flex-1 min-h-0 w-full overflow-y-auto no-scrollbar flex flex-col items-center gap-1 px-1">
-        {groups.map((group, index) => {
-          const groupItems = items.filter((item) => item.group === group);
-          if (groupItems.length === 0) return null;
-          return (
-            <React.Fragment key={group}>
-              {index > 0 && <div className={cn("my-1 border-t border-app-border/60", showLabel ? "w-8" : "w-6")} aria-hidden />}
-              {groupItems.map(renderItem)}
-            </React.Fragment>
-          );
+        {!localDeviceMode && workspaceId !== "personal" && <button onClick={() => handleClick("issues")} aria-label={t("sidebar.issues")} title={t("sidebar.issues")} className={cn(itemBaseClass, state.viewMode === "issues" ? "text-accent-primary bg-app-hover" : "text-tx-tertiary hover:bg-app-hover")}><CircleDot size={RAIL_ICON_SIZE} />{showLabel && <span className="mt-0.5 text-[10px]">{t("sidebar.issues")}</span>}</button>}
+        {orderedNavigationModuleIds.map((id) => {
+          if (id === "notifications") return renderNotificationItem();
+          const item = configurableItemById.get(id);
+          return item ? renderItem(item) : null;
         })}
+        {trashItem && (
+          <>
+            <div className={cn("my-1 border-t border-app-border/60", showLabel ? "w-8" : "w-6")} aria-hidden />
+            {renderItem(trashItem)}
+          </>
+        )}
       </div>
 
       <div className={cn("my-2 border-t border-app-border/60", showLabel ? "w-8" : "w-6")} aria-hidden />
 
       <button
         data-mobile-drawer-rail-item=""
-        onClick={() => setShowSettings(true)}
+        onClick={() => window.dispatchEvent(new CustomEvent("nowen:open-settings"))}
         title={showLabel ? undefined : t("sidebar.settings")}
         aria-label={t("sidebar.settings")}
         className={cn(itemBaseClass, "text-tx-tertiary hover:bg-app-hover hover:text-tx-primary")}
       >
         <Settings size={16} />
-        {showLabel && <span className="text-[10px] leading-none mt-0.5 max-w-full truncate px-1">{t("sidebar.settings")}</span>}
+        {showLabel && <span className={cn("mt-0.5 max-w-full truncate px-1", classicText ? "text-[10px] leading-none" : isMobile ? "text-[10px] leading-tight" : "text-[11px] font-medium leading-tight")}>{t("sidebar.settings")}</span>}
       </button>
 
-      {isAccountLoginHistorySupported() && (
+      {!localDeviceMode && isAccountLoginHistorySupported() && (
         <button
           data-mobile-drawer-rail-item=""
           onClick={() => setLoginHistoryOpen(true)}
@@ -309,10 +404,10 @@ export default function NavRail({ variant = "desktop" }: { variant?: "desktop" |
         </button>
       )}
 
-      {isDesktopApp() && canSwitchBackToLocal && (
+      {(canSwitchBackToLocal || (isAndroidNativeRuntime() && !localDeviceMode)) && (
         <button
           data-mobile-drawer-rail-item=""
-          onClick={handleDesktopCloudButton}
+          onClick={handleSwitchToLocal}
           title={showLabel ? undefined : t("sidebar.switchToLocal", "切回本地离线模式")}
           aria-label={t("sidebar.switchToLocal", "切回本地离线模式")}
           className={cn(itemBaseClass, "text-tx-tertiary hover:bg-app-hover hover:text-accent-primary")}
@@ -322,18 +417,30 @@ export default function NavRail({ variant = "desktop" }: { variant?: "desktop" |
         </button>
       )}
 
-      <button
-        data-mobile-drawer-rail-item=""
-        onClick={handleLogout}
-        title={showLabel ? undefined : t("sidebar.logout")}
-        aria-label={t("sidebar.logout")}
-        className={cn(itemBaseClass, "text-tx-tertiary hover:text-accent-danger hover:bg-accent-danger/10")}
-      >
-        <LogOut size={16} />
-        {showLabel && <span className="text-[10px] leading-none mt-0.5 max-w-full truncate px-1">{t("sidebar.logout")}</span>}
-      </button>
+      {localDeviceMode ? (
+        <button
+          data-mobile-drawer-rail-item=""
+          onClick={handleAccountLogin}
+          title={showLabel ? undefined : t("sidebar.loginAndSync")}
+          aria-label={t("sidebar.loginAndSync")}
+          className={cn(itemBaseClass, "text-tx-tertiary hover:bg-app-hover hover:text-accent-primary")}
+        >
+          <LogIn size={16} />
+          {showLabel && <span className="text-[10px] leading-none mt-0.5 max-w-full truncate px-1">{t("sidebar.loginAndSync")}</span>}
+        </button>
+      ) : (
+        <button
+          data-mobile-drawer-rail-item=""
+          onClick={handleLogout}
+          title={showLabel ? undefined : t("sidebar.logout")}
+          aria-label={t("sidebar.logout")}
+          className={cn(itemBaseClass, "text-tx-tertiary hover:text-accent-danger hover:bg-accent-danger/10")}
+        >
+          <LogOut size={16} />
+          {showLabel && <span className="text-[10px] leading-none mt-0.5 max-w-full truncate px-1">{t("sidebar.logout")}</span>}
+        </button>
+      )}
 
-      <AnimatePresence>{showSettings && <SettingsModal onClose={() => setShowSettings(false)} />}</AnimatePresence>
       <AccountLoginHistoryDialog open={loginHistoryOpen} onClose={() => setLoginHistoryOpen(false)} />
     </div>
   );

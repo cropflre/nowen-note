@@ -14,7 +14,14 @@
  */
 
 import { clearAuthTokens } from "@/lib/authSession";
-import { inferBrowserServerBaseUrl, normalizeServerBaseUrl } from "@/lib/serverUrl";
+import {
+  getResolvedWebSocketUrl,
+  inferBrowserServerBaseUrl,
+  normalizeServerBaseUrl,
+} from "@/lib/serverUrl";
+import { SERVER_ENDPOINT_CHANGED_EVENT } from "@/lib/serverEndpointState";
+import { isAndroidNativeRuntime, isMobileLocalMode } from "@/lib/mobileLocalMode";
+import { isMobileSyncEnabled, MOBILE_SYNC_SETTINGS_CHANGED_EVENT } from "@/lib/mobileSyncStatus";
 
 type Listener = (payload: any) => void;
 
@@ -49,10 +56,14 @@ class RealtimeClient {
 
   /**
    * 解析 WebSocket URL：
-   *   - 优先用自定义 server URL（nowen-server-url）
+   *   - Android 设备本地模式：明确禁用实时协作网络层；即使保留了账号 token，
+   *     也不能因为旧 token 仍在 localStorage 就偷偷连回服务器。
+   *   - 其他模式优先用自定义 server URL（nowen-server-url）
    *   - 否则根据当前页面 origin 推断
    */
   private resolveWsUrl(): string | null {
+    if (isMobileLocalMode()) return null;
+    if (isAndroidNativeRuntime() && !isMobileSyncEnabled()) return null;
     const token = localStorage.getItem("nowen-token");
     if (!token) return null;
 
@@ -66,8 +77,9 @@ class RealtimeClient {
     } else {
       return null;
     }
-    const wsOrigin = origin.replace(/^http/, "ws");
-    return `${wsOrigin}${WS_PATH}?token=${encodeURIComponent(token)}`;
+    const resolvedWebSocketUrl = getResolvedWebSocketUrl(origin)
+      || `${origin.replace(/^http/, "ws")}${WS_PATH}`;
+    return `${resolvedWebSocketUrl}?token=${encodeURIComponent(token)}`;
   }
 
   connect() {
@@ -82,6 +94,7 @@ class RealtimeClient {
       this.ws = ws;
 
       ws.addEventListener("open", () => {
+        if (this.ws !== ws) return;
         this.connecting = false;
         this.reconnectAttempts = 0;
         // 重订所有房间
@@ -101,6 +114,7 @@ class RealtimeClient {
       });
 
       ws.addEventListener("message", (ev) => {
+        if (this.ws !== ws) return;
         let msg: any;
         try {
           msg = JSON.parse(typeof ev.data === "string" ? ev.data : "");
@@ -145,6 +159,7 @@ class RealtimeClient {
       });
 
       ws.addEventListener("close", () => {
+        if (this.ws !== ws) return;
         this.connecting = false;
         this.connectionId = null;
         this.stopHeartbeat();
@@ -161,7 +176,22 @@ class RealtimeClient {
     }
   }
 
-  disconnect() {
+  reconnectForEndpoint() {
+    if (this.manualClosed || (!this.ws && !this.reconnectTimer && !this.connecting)) return;
+    const old = this.ws;
+    this.ws = null;
+    this.connecting = false;
+    this.connectionId = null;
+    this.stopHeartbeat();
+    if (this.reconnectTimer) window.clearTimeout(this.reconnectTimer);
+    this.reconnectTimer = null;
+    try { old?.close(); } catch { /* ignore */ }
+    this.emit("close", {});
+    // 保留房间和 presence，连接打开后沿用已有重放机制。
+    this.connect();
+  }
+
+  disconnect(preserveSubscriptions = false) {
     this.manualClosed = true;
     this.stopHeartbeat();
     if (this.reconnectTimer) {
@@ -172,8 +202,10 @@ class RealtimeClient {
       try { this.ws.close(); } catch {}
       this.ws = null;
     }
-    this.subscribedRooms.clear();
-    this.pendingSubs.clear();
+    if (!preserveSubscriptions) {
+      this.subscribedRooms.clear();
+      this.pendingSubs.clear();
+    }
   }
 
   private scheduleReconnect() {
@@ -359,8 +391,20 @@ class RealtimeClient {
 // 单例
 export const realtime = new RealtimeClient();
 
+if (typeof window !== "undefined") {
+  window.addEventListener(MOBILE_SYNC_SETTINGS_CHANGED_EVENT, () => {
+    if (!isAndroidNativeRuntime()) return;
+    if (isMobileSyncEnabled()) realtime.connect();
+    else realtime.disconnect(true);
+  });
+}
+
 // 页面卸载时主动关闭，避免后端堆积连接
 if (typeof window !== "undefined") {
+  window.addEventListener(SERVER_ENDPOINT_CHANGED_EVENT, (event) => {
+    const server = normalizeServerBaseUrl(localStorage.getItem("nowen-server-url"));
+    if ((event as CustomEvent<{ serverUrl: string }>).detail.serverUrl === server) realtime.reconnectForEndpoint();
+  });
   window.addEventListener("beforeunload", () => {
     realtime.disconnect();
   });

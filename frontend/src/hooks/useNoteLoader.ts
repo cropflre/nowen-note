@@ -11,6 +11,8 @@ import {
   loadNoteCacheFirst,
 } from "@/lib/noteLoadSource";
 import { loadDraft } from "@/lib/draftStorage";
+import { toast } from "@/lib/toast";
+import { api } from "@/lib/api";
 import {
   getEditorRuntimeDecisionForNote,
   getLargeDocumentOriginalFormat,
@@ -73,6 +75,21 @@ export function useNoteLoader() {
   }), [actions]);
 
   const loadNote = useCallback((options: UseNoteLoaderOptions) => {
+    const currentState = stateRef.current;
+    const listedNote = currentState.notes?.find((note) => note.id === options.noteId);
+
+    // 回收站里的 tombstone 不属于普通笔记读取生命周期。
+    // 后端会刻意让 GET /notes/:id 对已删除笔记返回 404，附件 access-url 也会拒绝访问。
+    // 因此必须在进入 cache-first / remote fetch 之前终止，而不是把 404/403 当成加载失败展示。
+    if (currentState.viewMode === "trash" && Number(listedNote?.isTrashed) === 1) {
+      primaryNoteLoadCoordinator.cancel();
+      actions.setNoteLoading(false);
+      actions.setActiveNote(null);
+      actions.setMobileView("list");
+      toast.info("该笔记位于回收站，恢复后即可重新查看和编辑内容");
+      return Promise.resolve(undefined);
+    }
+
     const fetchRemote = options.request;
     return primaryNoteLoadCoordinator.run({
       ...options,
@@ -84,6 +101,9 @@ export function useNoteLoader() {
         const loaded = await loadNoteCacheFirst({
           noteId: options.noteId,
           fetchRemote,
+          // The slim route checks the same folder-password ACL without
+          // downloading the full note body before displaying cached text.
+          verifyCachedAccess: () => api.getNoteSlim(options.noteId).then(() => undefined),
           onRevalidated: (remote, cached) => {
             const currentState = stateRef.current;
             const current = currentState.activeNote;
@@ -137,7 +157,13 @@ export function useNoteLoader() {
   }, [actions, sink]);
 
   const retryNoteLoad = useCallback(() => primaryNoteLoadCoordinator.retry(), []);
-  const cancelNoteLoad = useCallback(() => primaryNoteLoadCoordinator.cancel(), []);
+  const cancelNoteLoad = useCallback(() => {
+    primaryNoteLoadCoordinator.cancel();
+    // Failed requests are no longer "active" inside the coordinator, but the AppContext
+    // still keeps their visible error overlay. Clearing it here lets clicking the note
+    // that is still displayed behind the failure recover immediately without a full refresh.
+    actions.setNoteLoading(false);
+  }, [actions]);
 
   return { loadNote, retryNoteLoad, cancelNoteLoad };
 }

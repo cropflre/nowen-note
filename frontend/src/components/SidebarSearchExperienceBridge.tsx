@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 
 import KnowledgeTreePanel from "@/components/KnowledgeTreeCreateMenuRuntime";
 import KnowledgeTreeSortButton from "@/components/KnowledgeTreeSortButton";
+import NoteAppearanceBridge from "@/components/NoteAppearanceBridge";
 import TaskQuickCaptureBridge from "@/components/tasks/TaskQuickCaptureBridge";
 import {
   applySidebarSearchExperience,
@@ -23,6 +24,65 @@ const MOBILE_TREE_SLOT_ATTRIBUTE = "data-mobile-knowledge-tree-classic-slot";
 const MOBILE_NAVIGATOR_SELECTOR = '[data-sidebar-variant="mobile"] [data-nowen-mobile-knowledge-tree="flat-navigation"]';
 let sortSlotSequence = 0;
 let mobileModeSurfaceSequence = 0;
+
+/**
+ * Android already shortens the WebView with adjustResize when the IME opens. The normal
+ * Markdown editor also adds --keyboard-height as padding to its outer scroll container, which
+ * double-counts that space and creates a second scrollbar around CodeMirror. While the body has
+ * focus we let CodeMirror own scrolling and reclaim the duplicate in-editor title row.
+ */
+export const MOBILE_MARKDOWN_KEYBOARD_LAYOUT_CSS = `
+@media (max-width: 767px) {
+  html[data-keyboard="open"]
+    [data-markdown-mobile-editing-compact="true"][data-markdown-body-focused]
+    [data-markdown-mobile-title] {
+    display: none !important;
+  }
+
+  html[data-keyboard="open"]
+    [data-markdown-mobile-editing-compact="true"][data-markdown-body-focused]
+    [data-markdown-mobile-title] + div {
+    min-height: 0 !important;
+    padding-bottom: 0 !important;
+    overflow: hidden !important;
+    overscroll-behavior: contain;
+  }
+
+  html[data-keyboard="open"]
+    [data-markdown-mobile-editing-compact="true"][data-markdown-body-focused]
+    [data-markdown-mobile-title] + div > div {
+    min-height: 0 !important;
+    height: 100% !important;
+    overflow: hidden !important;
+  }
+
+  html[data-keyboard="open"]
+    [data-markdown-mobile-editing-compact="true"][data-markdown-body-focused]
+    .nowen-md-editor,
+  html[data-keyboard="open"]
+    [data-markdown-mobile-editing-compact="true"][data-markdown-body-focused]
+    .nowen-md-editor > .cm-editor {
+    min-height: 0 !important;
+    height: 100% !important;
+    max-height: 100% !important;
+  }
+
+  html[data-keyboard="open"]
+    [data-markdown-mobile-editing-compact="true"][data-markdown-body-focused]
+    .nowen-md-editor .cm-scroller {
+    overflow: auto !important;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+}
+`;
+
+export function getFocusedMobileMarkdownRoot(target: EventTarget | null): HTMLElement | null {
+  if (!(target instanceof Element)) return null;
+  const content = target.closest(".cm-content");
+  if (!content || !content.closest(".nowen-md-editor")) return null;
+  return content.closest<HTMLElement>('[data-markdown-mobile-editing-compact]');
+}
 
 interface MobileModeSurface {
   id: string;
@@ -185,6 +245,9 @@ function mutationContainsRelevantSurface(node: Node): boolean {
  * - 在统一树工具栏恢复排序入口；
  * - 应用设置中持久化的移动端目录浏览模式；
  * - 同时兼容桌面与移动 Sidebar 的挂载和工作区切换。
+ *
+ * 这个组件本身挂在 AppProvider 内，因此也作为依赖 AppContext 的轻量 runtime bridge
+ * 宿主。NoteAppearanceBridge 必须放在这里或更深层，不能回到 main.tsx 的 Provider 外层。
  */
 export default function SidebarSearchExperienceBridge() {
   const [sortSlots, setSortSlots] = useState<HTMLElement[]>([]);
@@ -226,8 +289,36 @@ export default function SidebarSearchExperienceBridge() {
     };
   }, []);
 
+  useEffect(() => {
+    // DOM-only focus state: do not put per-keystroke Markdown focus/layout data in React/AppContext.
+    const handleFocusIn = (event: FocusEvent) => {
+      const root = getFocusedMobileMarkdownRoot(event.target);
+      if (!root) return;
+      root.setAttribute("data-markdown-body-focused", "");
+    };
+
+    const handleFocusOut = (event: FocusEvent) => {
+      if (!(event.target instanceof Element)) return;
+      const root = event.target.closest<HTMLElement>('[data-markdown-mobile-editing-compact]');
+      if (!root) return;
+      root.removeAttribute("data-markdown-body-focused");
+    };
+
+    document.addEventListener("focusin", handleFocusIn, true);
+    document.addEventListener("focusout", handleFocusOut, true);
+    return () => {
+      document.removeEventListener("focusin", handleFocusIn, true);
+      document.removeEventListener("focusout", handleFocusOut, true);
+      document.querySelectorAll<HTMLElement>('[data-markdown-body-focused]').forEach((root) => {
+        root.removeAttribute("data-markdown-body-focused");
+      });
+    };
+  }, []);
+
   return (
     <>
+      <style data-mobile-markdown-keyboard-layout="">{MOBILE_MARKDOWN_KEYBOARD_LAYOUT_CSS}</style>
+      <NoteAppearanceBridge />
       <TaskQuickCaptureBridge />
       {sortSlots.map((slot) => createPortal(
         <KnowledgeTreeSortButton />,

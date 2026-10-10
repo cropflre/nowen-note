@@ -1,16 +1,22 @@
+import { aiOutboundFetch } from "../services/ai-outbound-fetch.js";
 import { randomUUID } from "node:crypto";
 import { Hono } from "hono";
 import { getDb } from "../db/schema";
 import { hasPermission, resolveNotePermission } from "../middleware/acl";
 import { broadcastToUser } from "../services/realtime";
+import { callAIChat, sanitizeError, type AISettings } from "../services/ai-client";
+import { chatModelTypeError, nonChatModelKind } from "../services/ai-model-kind";
 import {
   getUserAISetting,
+  isManualAIEnabled,
   setGuardedUserAISettings,
   setUserAISettings,
 } from "../services/user-ai-settings";
 
 type MarkdownViewMode = "source" | "preview" | "split";
+type RemoteImagePasteMode = "localize" | "ask" | "keep-remote";
 type ReadingDensity = "cozy" | "compact";
+type EditorFontSize = 0 | 14 | 16 | 18 | 20 | 22 | 24;
 
 interface UserPreferences {
   noteTitleAsAppTitle: boolean;
@@ -18,9 +24,11 @@ interface UserPreferences {
   lockOnOpen: boolean;
   showNotesInNotebookTree: boolean;
   readingDensity: ReadingDensity;
+  editorFontSize: EditorFontSize;
   showNoteListUpdatedTime: boolean;
   enableNoteTabs: boolean;
   markdownDefaultViewMode: MarkdownViewMode;
+  remoteImagePasteMode: RemoteImagePasteMode;
 }
 
 const DEFAULT_PREFS: UserPreferences = {
@@ -29,9 +37,11 @@ const DEFAULT_PREFS: UserPreferences = {
   lockOnOpen: false,
   showNotesInNotebookTree: false,
   readingDensity: "cozy",
+  editorFontSize: 0,
   showNoteListUpdatedTime: true,
   enableNoteTabs: false,
   markdownDefaultViewMode: "source",
+  remoteImagePasteMode: "localize",
 };
 
 const MAX_NOTE_ICON_CODE_POINTS = 32;
@@ -79,6 +89,12 @@ function normalizePrefs(input: unknown, base: UserPreferences = DEFAULT_PREFS): 
     lockOnOpen: typeof raw.lockOnOpen === "boolean" ? raw.lockOnOpen : base.lockOnOpen,
     showNotesInNotebookTree: typeof raw.showNotesInNotebookTree === "boolean" ? raw.showNotesInNotebookTree : base.showNotesInNotebookTree,
     readingDensity: raw.readingDensity === "compact" || raw.readingDensity === "cozy" ? raw.readingDensity : base.readingDensity,
+    editorFontSize:
+      raw.editorFontSize === 0 || raw.editorFontSize === 14 || raw.editorFontSize === 16 ||
+      raw.editorFontSize === 18 || raw.editorFontSize === 20 || raw.editorFontSize === 22 ||
+      raw.editorFontSize === 24
+        ? raw.editorFontSize
+        : base.editorFontSize,
     showNoteListUpdatedTime: typeof raw.showNoteListUpdatedTime === "boolean" ? raw.showNoteListUpdatedTime : base.showNoteListUpdatedTime,
     enableNoteTabs: typeof raw.enableNoteTabs === "boolean" ? raw.enableNoteTabs : base.enableNoteTabs,
     markdownDefaultViewMode:
@@ -87,6 +103,12 @@ function normalizePrefs(input: unknown, base: UserPreferences = DEFAULT_PREFS): 
       raw.markdownDefaultViewMode === "split"
         ? raw.markdownDefaultViewMode
         : base.markdownDefaultViewMode,
+    remoteImagePasteMode:
+      raw.remoteImagePasteMode === "localize" ||
+      raw.remoteImagePasteMode === "ask" ||
+      raw.remoteImagePasteMode === "keep-remote"
+        ? raw.remoteImagePasteMode
+        : base.remoteImagePasteMode,
   };
 }
 
@@ -118,6 +140,7 @@ interface AIProfile {
 const AI_PROFILES_KEY = "ai_profiles_v1";
 const AI_ACTIVE_PROFILE_KEY = "ai_active_profile_id";
 const MAX_AI_PROFILES = 30;
+const NO_KEY_AI_PROVIDERS = new Set(["ollama", "lmstudio"]);
 
 function normalizeProfile(input: unknown, base?: AIProfile, touchUpdatedAt = true): AIProfile {
   const raw = input && typeof input === "object" ? input as Record<string, unknown> : {};
@@ -223,6 +246,42 @@ function modelEndpoint(apiUrl: string): string {
   return /\/models$/i.test(base) ? base : `${base}/models`;
 }
 
+function profileAISettings(profile: AIProfile): AISettings {
+  return {
+    ai_provider: profile.provider,
+    ai_api_url: profile.apiUrl,
+    ai_api_key: profile.apiKey,
+    ai_model: profile.model,
+    ai_embedding_profile_id: "",
+    ai_embedding_url: "",
+    ai_embedding_key: "",
+    ai_embedding_model: "",
+  };
+}
+
+function profileConnectionFailure(error: unknown, profile: AIProfile): { code: string; error: string } {
+  const reason = error as { message?: unknown; cause?: { code?: unknown; message?: unknown } };
+  const detail = sanitizeError([
+    reason?.message,
+    reason?.cause?.code,
+    reason?.cause?.message,
+  ].filter(Boolean).join(" "));
+  const unreachable = /fetch failed|ECONNREFUSED|ECONNRESET|ENETUNREACH|EHOSTUNREACH|ETIMEDOUT|timeout|aborted/i.test(detail);
+  if (!unreachable) {
+    return { code: "AI_UPSTREAM_ERROR", error: detail || "AI 服务连接失败" };
+  }
+
+  let host = profile.apiUrl;
+  try { host = new URL(profile.apiUrl).host; } catch { /* normalizeProfile 已验证 URL */ }
+  const isLMStudio = profile.provider === "lmstudio" || /:1234(?:\/|$)/.test(profile.apiUrl);
+  return {
+    code: "AI_UPSTREAM_UNREACHABLE",
+    error: isLMStudio
+      ? `Nowen Note 服务端无法连接 LM Studio（${host}）。请在 LM Studio 开启 Serve on Local Network，并放行防火墙 1234 端口；如果 Nowen Note 部署在另一台设备，不能填写 localhost。`
+      : `Nowen Note 服务端无法连接 AI 服务（${host}），请检查服务地址、监听网卡和防火墙。`,
+  };
+}
+
 function extractModels(data: any): Array<{ id: string; name: string }> {
   const rows = Array.isArray(data)
     ? data
@@ -236,6 +295,7 @@ function extractModels(data: any): Array<{ id: string; name: string }> {
   for (const row of rows) {
     const id = typeof row === "string" ? row : String(row?.id || row?.name || row?.model || "").trim();
     if (!id || seen.has(id)) continue;
+    if (nonChatModelKind(id, row)) continue;
     seen.add(id);
     models.push({ id, name: String(row?.display_name || row?.displayName || row?.name || id) });
   }
@@ -278,6 +338,10 @@ app.post("/ai-profiles", async (c) => {
 
   const profiles = [...state.profiles, profile];
   const activate = body.activate !== false;
+  const nonChatKind = nonChatModelKind(profile.model);
+  if (activate && nonChatKind) {
+    return c.json({ error: chatModelTypeError(nonChatKind), code: "AI_MODEL_NOT_CHAT", modelKind: nonChatKind }, 400);
+  }
   const activeProfileId = activate ? profile.id : state.activeProfileId;
   saveAIProfiles(userId, profiles, activeProfileId);
   if (activate) syncEffectiveAISettings(userId, profile);
@@ -305,7 +369,7 @@ app.post("/ai-profiles/discover-models", async (c) => {
   }
 
   if (!profile.apiUrl) return c.json({ error: "请先填写 AI API 地址", models: [] }, 400);
-  if (profile.provider !== "ollama" && !profile.apiKey) {
+  if (!NO_KEY_AI_PROVIDERS.has(profile.provider) && !profile.apiKey) {
     return c.json({ error: "请先填写 API Key", models: [] }, 400);
   }
 
@@ -325,17 +389,27 @@ app.post("/ai-profiles/discover-models", async (c) => {
   const failures: string[] = [];
   for (const endpoint of Array.from(new Set(candidates))) {
     try {
-      const response = await fetch(endpoint, { headers, signal: AbortSignal.timeout(12_000) });
+      const response = await aiOutboundFetch(endpoint, { headers, signal: AbortSignal.timeout(12_000) });
       if (!response.ok) {
         const detail = await response.text().catch(() => "");
         failures.push(`${response.status} ${detail.slice(0, 160)}`.trim());
         continue;
       }
-      const models = extractModels(await response.json());
-      if (models.length > 0) return c.json({ models, source: endpoint });
+      const data = await response.json();
+      const models = extractModels(data);
+      const rows: any[] = Array.isArray(data)
+        ? data
+        : Array.isArray(data?.data) ? data.data : Array.isArray(data?.models) ? data.models : [];
+      const filteredNonChatCount = rows.filter((row) => {
+        const id = typeof row === "string" ? row : String(row?.id || row?.name || row?.model || "").trim();
+        return id && nonChatModelKind(id, row);
+      }).length;
+      if (models.length > 0 || filteredNonChatCount > 0) {
+        return c.json({ models, source: endpoint, filteredNonChatCount });
+      }
       failures.push("接口返回成功，但没有可识别的模型列表");
     } catch (error) {
-      failures.push((error as Error)?.message || "模型接口请求失败");
+      failures.push(profileConnectionFailure(error, profile).error);
     }
   }
 
@@ -345,12 +419,82 @@ app.post("/ai-profiles/discover-models", async (c) => {
   }, 502);
 });
 
+async function testAIProfile(c: any, userId: string, profile: AIProfile) {
+  if (!profile.apiUrl) return c.json({ success: false, error: "请先填写 AI API 地址", code: "AI_API_URL_REQUIRED" }, 400);
+  if (!profile.model) return c.json({ success: false, error: "请先选择或填写模型名称", code: "AI_MODEL_REQUIRED" }, 400);
+  const modelKind = nonChatModelKind(profile.model);
+  if (modelKind) {
+    return c.json({
+      success: false,
+      error: chatModelTypeError(modelKind),
+      code: "AI_MODEL_NOT_CHAT",
+      modelKind,
+      action: modelKind === "embedding" ? "embedding-settings" : null,
+    }, 400);
+  }
+  if (!NO_KEY_AI_PROVIDERS.has(profile.provider) && !profile.apiKey) {
+    return c.json({ success: false, error: "请先填写 API Key", code: "AI_API_KEY_REQUIRED" }, 400);
+  }
+
+  try {
+    const text = await callAIChat(profileAISettings(profile), [{ role: "user", content: "Hi" }], {
+      max_tokens: 10,
+      timeout_ms: 15_000,
+    });
+    const runtimeEnabled = isManualAIEnabled(userId);
+    return c.json({
+      success: true,
+      message: runtimeEnabled
+        ? (text ? "连接成功" : "连接成功（模型未返回可展示文本）")
+        : "连接成功；请开启顶部「手动 AI 配置」后使用 AI 助手",
+      ...(text ? { preview: text.slice(0, 100) } : {}),
+    });
+  } catch (error) {
+    return c.json({ success: false, ...profileConnectionFailure(error, profile) }, 502);
+  }
+}
+
+// Tests unsaved fields without changing the current profile or runtime settings.
+app.post("/ai-profiles/test-draft", async (c) => {
+  const userId = c.req.header("X-User-Id")!;
+  const body = await c.req.json().catch(() => ({})) as Record<string, unknown>;
+  const profileId = typeof body.profileId === "string" ? body.profileId.trim() : "";
+  const stored = profileId
+    ? ensureAIProfiles(userId).profiles.find((profile) => profile.id === profileId)
+    : undefined;
+  if (profileId && !stored) return c.json({ success: false, error: "AI 配置不存在", code: "AI_PROFILE_NOT_FOUND" }, 404);
+  let profile: AIProfile;
+  try {
+    profile = normalizeProfile({
+      ...stored,
+      ...body,
+      id: stored?.id,
+      apiKey: resolveProfileKey(body.apiKey, stored?.apiKey || ""),
+    }, stored, false);
+  } catch (error) {
+    return c.json({ success: false, error: (error as Error).message, code: "AI_PROFILE_INVALID" }, 400);
+  }
+  return testAIProfile(c, userId, profile);
+});
+
+app.post("/ai-profiles/:profileId/test", async (c) => {
+  const userId = c.req.header("X-User-Id")!;
+  const profileId = c.req.param("profileId");
+  const profile = ensureAIProfiles(userId).profiles.find((item) => item.id === profileId);
+  if (!profile) return c.json({ success: false, error: "AI 配置不存在", code: "AI_PROFILE_NOT_FOUND" }, 404);
+  return testAIProfile(c, userId, profile);
+});
+
 app.put("/ai-profiles/:profileId/activate", (c) => {
   const userId = c.req.header("X-User-Id")!;
   const profileId = c.req.param("profileId");
   const state = ensureAIProfiles(userId);
   const profile = state.profiles.find((item) => item.id === profileId);
   if (!profile) return c.json({ error: "AI 配置不存在" }, 404);
+  const modelKind = nonChatModelKind(profile.model);
+  if (modelKind) {
+    return c.json({ error: chatModelTypeError(modelKind), code: "AI_MODEL_NOT_CHAT", modelKind }, 400);
+  }
   saveAIProfiles(userId, state.profiles, profile.id);
   syncEffectiveAISettings(userId, profile);
   return c.json({ profile: publicAIProfile(profile), activeProfileId: profile.id });
@@ -376,6 +520,10 @@ app.put("/ai-profiles/:profileId", async (c) => {
     return c.json({ error: (error as Error).message }, 400);
   }
 
+  const modelKind = nonChatModelKind(updated.model);
+  if (state.activeProfileId === updated.id && modelKind) {
+    return c.json({ error: chatModelTypeError(modelKind), code: "AI_MODEL_NOT_CHAT", modelKind }, 400);
+  }
   const profiles = [...state.profiles];
   profiles[index] = updated;
   saveAIProfiles(userId, profiles, state.activeProfileId);

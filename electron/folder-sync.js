@@ -18,6 +18,7 @@ const DEFAULT_ADVANCED = Object.freeze({
   conflictPolicy: "protect",
   deletionPolicy: "keep",
   extractAttachmentText: true,
+  preserveHierarchy: false,
   excludePatterns: [],
 });
 
@@ -81,6 +82,7 @@ function normalizeAdvanced(input) {
     extractAttachmentText: typeof value.extractAttachmentText === "boolean"
       ? value.extractAttachmentText
       : DEFAULT_ADVANCED.extractAttachmentText,
+    preserveHierarchy: value.preserveHierarchy === true,
     excludePatterns: sanitizeExcludePatterns(value.excludePatterns),
   };
 }
@@ -670,6 +672,15 @@ function getPendingUploads(folderId) {
       pending.push(makeCandidate(item, config, { action: "delete" }));
       continue;
     }
+    // Existing flat-mode notes must be moved once when hierarchy is enabled.
+    // Never reupload unchanged content or re-create binary attachments.
+    if ((item.status === "synced" || item.status === "unchanged") &&
+        config.preserveHierarchy && item.noteId &&
+        item.relativePath.includes("/") &&
+        item.hierarchyTarget !== config.targetNotebookId + ":" + folderId) {
+      pending.push(makeCandidate(item, config, { action: "organize" }));
+      continue;
+    }
     if (!PENDING_STATUSES.has(item.status)) continue;
 
     const candidate = makeCandidate(item, config);
@@ -709,6 +720,7 @@ function getPendingUploads(folderId) {
       conflictPolicy: config.conflictPolicy,
       deletionPolicy: config.deletionPolicy,
       extractAttachmentText: config.extractAttachmentText,
+      preserveHierarchy: config.preserveHierarchy,
     },
     pending,
   };
@@ -721,6 +733,9 @@ function markUploadResult(folderId, relativePath, result) {
   const item = index[itemIndex];
   const now = new Date().toISOString();
 
+  if (result.success && result.hierarchyTarget) {
+    item.hierarchyTarget = result.hierarchyTarget;
+  }
   if (item.status === "deleted" && result.success) {
     index.splice(itemIndex, 1);
   } else if (result.skipped) {

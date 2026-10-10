@@ -1,4 +1,5 @@
 import { Capacitor, CapacitorHttp } from "@capacitor/core";
+import { isMobileLocalMode, MobileLocalModeRemoteRequestError } from "./mobileLocalMode";
 
 const BRIDGE_FLAG = "__nowenAndroidNativeHttpBridgeInstalled";
 const DEFAULT_NATIVE_TIMEOUT_MS = 30_000;
@@ -67,8 +68,9 @@ function normalizeResponseHeaders(headers: unknown): Headers {
 }
 
 function nativeResponseBody(data: unknown): string {
-  if (data === undefined || data === null) return "";
-  return typeof data === "string" ? data : JSON.stringify(data);
+  if (data === undefined) return "";
+  if (typeof data === "string") return data;
+  return JSON.stringify(data) ?? "";
 }
 
 function createBridgeError(message: string, name: string): Error {
@@ -126,24 +128,44 @@ function isNativeCapacitorRuntime(): boolean {
 }
 
 function isJsonApiRequest(input: FetchInput, init: FetchInit | undefined, url: URL): boolean {
-  if (!/(?:^|\/)api(?:\/|$)/.test(url.pathname)) return false;
+  if (!/(?:^|\/)(?:api|publicapi)(?:\/|$)/.test(url.pathname)) return false;
 
   const headers = mergeRequestHeaders(input, init);
   const contentType = headers["content-type"] || "";
   const accept = headers.accept || "";
-  if (/text\/event-stream/i.test(accept) || /(?:^|\/)api\/ai(?:\/|$)/.test(url.pathname)) {
+  if (/text\/event-stream/i.test(accept) || /(?:^|\/)(?:api|publicapi)\/ai(?:\/|$)/.test(url.pathname)) {
     return false;
   }
   if (/json/i.test(contentType) || /json/i.test(accept)) return true;
 
   // 这些启动阶段请求直接通过 fetch 发出，不一定携带 JSON header。
-  return /(?:^|\/)api\/(?:auth\/(?:login|refresh|2fa\/verify|register(?:\/config)?)|settings|health|version)\/?$/.test(url.pathname);
+  return /(?:^|\/)(?:api|publicapi)\/(?:auth\/(?:login|verify|refresh|2fa\/verify|register(?:\/config)?)|settings|health|version)\/?$/.test(url.pathname);
+}
+
+function isBinaryAttachmentRequest(input: FetchInput, init: FetchInit | undefined, url: URL): boolean {
+  if (!isAndroidNativeRuntime() || !["GET", "HEAD"].includes(getRequestMethod(input, init))) return false;
+  if (/text\/event-stream/i.test(mergeRequestHeaders(input, init).accept || "")) return false;
+  // Only file endpoints; attachment lists, signing and storage management remain JSON requests.
+  return /(?:^|\/)(?:api|publicapi)\/(?:attachments|sync\/v2\/blob)\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\/?$/i.test(url.pathname);
+}
+
+function nativeAttachmentBody(data: unknown, headers: Headers, status: number): BodyInit {
+  // Android returns base64 for successful binary responses, but error bodies are parsed/text.
+  if (status >= 400) return nativeResponseBody(data);
+  // Capacitor parses application/json even with responseType=arraybuffer. Re-serializing a JSON
+  // file changes its bytes/hash, so let the existing fetch fallback preserve the original file.
+  if (/application\/json/i.test(headers.get("content-type") || "")) {
+    throw new Error("Native HTTP parsed JSON attachment instead of returning its original bytes");
+  }
+  if (typeof data !== "string") throw new Error("Native HTTP returned invalid attachment data");
+  const binary = atob(data);
+  return Uint8Array.from(binary, (character) => character.charCodeAt(0));
 }
 
 /**
- * JSON API requests are routed through CapacitorHttp.
+ * JSON API requests and Android attachment reads are routed through CapacitorHttp.
  *
- * 上传、二进制附件、下载和流式响应继续使用现有 fetch，避免改变 body/stream
+ * 上传、其它下载和流式响应继续使用现有 fetch，避免改变 body/stream
  * 语义。普通 JSON 写请求仍由原有 API 层负责离线队列；这里只替换实际传输通道。
  */
 export function shouldUseAndroidNativeHttp(input: FetchInput, init?: FetchInit): boolean {
@@ -160,7 +182,7 @@ export function shouldUseAndroidNativeHttp(input: FetchInput, init?: FetchInit):
   try {
     const url = new URL(getRequestUrl(input), window.location.href);
     if (url.protocol !== "http:" && url.protocol !== "https:") return false;
-    return isJsonApiRequest(input, init, url);
+    return isBinaryAttachmentRequest(input, init, url) || isJsonApiRequest(input, init, url);
   } catch {
     return false;
   }
@@ -174,13 +196,15 @@ async function androidNativeFetch(
   const method = getRequestMethod(input, init);
   const signal = getRequestSignal(input, init);
   const url = new URL(getRequestUrl(input), window.location.href).toString();
+  if (signal?.aborted) throw createBridgeError("The request was aborted", "AbortError");
+  const binaryAttachment = isBinaryAttachmentRequest(input, init, new URL(url));
   const nativeResponse = await withAbortAndTimeout(
     CapacitorHttp.request({
       url,
       method,
       headers: mergeRequestHeaders(input, init),
       data: bodyToNativeData(getRequestBody(input, init)),
-      responseType: "text",
+      responseType: binaryAttachment ? "arraybuffer" : "text",
     }),
     signal,
     timeoutMs,
@@ -196,10 +220,12 @@ async function androidNativeFetch(
     || nativeResponse.status === 205
     || nativeResponse.status === 304
     ? null
-    : nativeResponseBody(nativeResponse.data);
+    : binaryAttachment
+      ? nativeAttachmentBody(nativeResponse.data, headers, nativeResponse.status)
+      : nativeResponseBody(nativeResponse.data);
 
   if (body && !headers.has("content-type")) {
-    headers.set("content-type", "application/json");
+    headers.set("content-type", binaryAttachment ? "application/octet-stream" : "application/json");
   }
 
   return new Response(body, {
@@ -229,6 +255,16 @@ export function installAndroidNativeHttpBridge(
   const nativeTimeoutMs = Math.max(1000, options.nativeTimeoutMs ?? DEFAULT_NATIVE_TIMEOUT_MS);
 
   const bridgedFetch: FetchFn = async (input, init) => {
+    if (isMobileLocalMode()) {
+      try {
+        const url = new URL(getRequestUrl(input), window.location.href);
+        if (/(?:^|\/)(?:api|publicapi)(?:\/|$)/.test(url.pathname)) {
+          throw new MobileLocalModeRemoteRequestError(url.pathname);
+        }
+      } catch (error) {
+        if (error instanceof MobileLocalModeRemoteRequestError) throw error;
+      }
+    }
     if (!shouldUseAndroidNativeHttp(input, init)) {
       return originalFetch(input, init);
     }

@@ -1,29 +1,7 @@
 # iOS 构建 + 上传 TestFlight
 #
-# ──── 触发方式 ───────────────────────────────────────────────────────────────
-#  1. push tag v*.*.*-ios       → 自动构建并上 TestFlight（推荐：与 PC/Android 解耦）
-#  2. push tag v*.*.*           → 同时触发 release.yml 与本工作流（一键全量）
-#  3. workflow_dispatch         → 手动触发，可选择是否上传 TestFlight
-#
-# ──── 必需的 Secrets（仓库 Settings → Secrets and variables → Actions）────────
-#  IOS_CERTIFICATE_BASE64       : 开发者证书 .p12 文件 base64
-#                                 生成方式：base64 -i Certificates.p12 | pbcopy
-#  IOS_CERTIFICATE_PASSWORD     : .p12 文件解锁密码
-#  IOS_PROVISIONING_PROFILE_BASE64 : Provisioning Profile (.mobileprovision) base64
-#  IOS_KEYCHAIN_PASSWORD        : 临时 keychain 密码（任意字符串，CI 内部用）
-#  APPSTORE_ISSUER_ID           : App Store Connect API Issuer ID（UUID 格式）
-#  APPSTORE_API_KEY_ID          : API Key ID（10 位字母数字）
-#  APPSTORE_API_PRIVATE_KEY     : API Key .p8 文件原文（含 -----BEGIN PRIVATE KEY-----）
-#
-# ──── 首次启动前必须手工做的事（无 Mac 也能完成）──────────────────────────────
-#  1. 注册 Apple Developer Program（$99/年）：https://developer.apple.com/programs/
-#  2. 在 App Store Connect 创建 App ID（Bundle ID 须与 capacitor.config.ts 的
-#     appId 一致：com.nowen.note）
-#  3. 在 https://appstoreconnect.apple.com → Users and Access → Integrations →
-#     App Store Connect API，创建一个 API Key（Role 选 App Manager），下载 .p8
-#  4. 在开发者后台 https://developer.apple.com/account/resources/certificates
-#     创建 Apple Distribution 证书 + Provisioning Profile（App Store 类型）
-#     —— 这一步如果纯 Windows 操作不便，可借助 fastlane match 全自动化（见 README）
+# Tag 发版时把 Git Tag 映射为 iOS Marketing Version，并使用 GITHUB_RUN_NUMBER
+# 作为递增 Build Number，确保 App Store Connect/TestFlight 可以按版本精确追踪。
 
 name: iOS Build & TestFlight
 
@@ -42,19 +20,20 @@ on:
         options:
           - "false"
           - "true"
+      version:
+        description: "iOS 版本号（普通分支手动运行时可填，如 1.4.11；Tag ref 会自动解析）"
+        required: false
+        type: string
 
 permissions:
   contents: write
 
 jobs:
   ios:
-    # macos-14 = Apple Silicon runner，自带 Xcode 15+，构建速度比 macos-latest 稳。
-    # 如果你 Apple Developer 账号关联的最低 iOS 版本要求更高，改 macos-15。
     runs-on: macos-14
     timeout-minutes: 90
 
     env:
-      # 与 frontend/capacitor.config.ts 保持一致；改 bundle id 时两处都要改
       IOS_BUNDLE_ID: com.nowen.note
       IOS_SCHEME: App
       IOS_WORKSPACE: frontend/ios/App/App.xcworkspace
@@ -63,15 +42,40 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Resolve iOS version
+        shell: bash
+        env:
+          MANUAL_VERSION: ${{ github.event.inputs.version }}
+        run: |
+          set -euo pipefail
+
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+            VERSION="${VERSION%-ios}"
+          elif [[ -n "${MANUAL_VERSION:-}" ]]; then
+            VERSION="${MANUAL_VERSION#v}"
+          else
+            VERSION=$(plutil -extract version raw package.json)
+          fi
+
+          # CFBundleShortVersionString 使用三段数字；预发布后缀由 Build Number 区分。
+          VERSION="${VERSION%%-*}"
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Invalid iOS marketing version: $VERSION" >&2
+            exit 1
+          fi
+
+          BUILD_NUMBER="${GITHUB_RUN_NUMBER}"
+          echo "IOS_MARKETING_VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "IOS_BUILD_NUMBER=$BUILD_NUMBER" >> "$GITHUB_ENV"
+          echo "Resolved iOS version: $VERSION ($BUILD_NUMBER)"
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: "20"
           cache: "npm"
 
-      # ─────────────────────────────────────────────────────────────────────
-      # 1) 装依赖 + 构建前端 dist/（capacitor 把 dist/ 拷到 ios/App/App/public/）
-      # ─────────────────────────────────────────────────────────────────────
       - name: Install root deps
         run: npm ci
 
@@ -87,20 +91,10 @@ jobs:
         working-directory: frontend
         run: npx cap sync ios
 
-      # ─────────────────────────────────────────────────────────────────────
-      # 2) CocoaPods —— macos-14 runner 自带 ruby + cocoapods，但版本可能滞后；
-      #    这里跑 pod repo update 一次，避免新版 capacitor 找不到 pod spec。
-      # ─────────────────────────────────────────────────────────────────────
       - name: Install CocoaPods dependencies
         working-directory: frontend/ios/App
-        run: |
-          pod install --repo-update
+        run: pod install --repo-update
 
-      # ─────────────────────────────────────────────────────────────────────
-      # 3) 导入证书 + Provisioning Profile 到临时 keychain
-      #    用临时 keychain 是 GitHub 官方推荐的做法，避免污染 runner 默认 login.keychain
-      #    参考：https://docs.github.com/en/actions/use-cases-and-examples/deploying/installing-an-apple-certificate-on-macos-runners-for-xcode-development
-      # ─────────────────────────────────────────────────────────────────────
       - name: Import signing assets
         env:
           CERT_B64: ${{ secrets.IOS_CERTIFICATE_BASE64 }}
@@ -113,43 +107,29 @@ jobs:
           PROFILE_PATH=$RUNNER_TEMP/profile.mobileprovision
           KEYCHAIN_PATH=$RUNNER_TEMP/build.keychain-db
 
-          echo -n "$CERT_B64" | base64 --decode -o $CERT_PATH
-          echo -n "$PROFILE_B64" | base64 --decode -o $PROFILE_PATH
+          echo -n "$CERT_B64" | base64 --decode -o "$CERT_PATH"
+          echo -n "$PROFILE_B64" | base64 --decode -o "$PROFILE_PATH"
 
-          # 创建临时 keychain
-          security create-keychain -p "$KEYCHAIN_PWD" $KEYCHAIN_PATH
-          security set-keychain-settings -lut 21600 $KEYCHAIN_PATH
-          security unlock-keychain -p "$KEYCHAIN_PWD" $KEYCHAIN_PATH
+          security create-keychain -p "$KEYCHAIN_PWD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PWD" "$KEYCHAIN_PATH"
+          security import "$CERT_PATH" -P "$CERT_PWD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PWD" "$KEYCHAIN_PATH"
+          security list-keychain -d user -s "$KEYCHAIN_PATH" login.keychain
 
-          # 导入证书
-          security import $CERT_PATH -P "$CERT_PWD" -A -t cert -f pkcs12 -k $KEYCHAIN_PATH
-          # 关键：允许 codesign 在不弹 UI 提示的情况下用这个 keychain
-          security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PWD" $KEYCHAIN_PATH
-
-          # 把临时 keychain 加入搜索路径
-          security list-keychain -d user -s $KEYCHAIN_PATH login.keychain
-
-          # 安装 Provisioning Profile 到 Xcode 期望的位置
           mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
-          cp $PROFILE_PATH ~/Library/MobileDevice/Provisioning\ Profiles/
+          cp "$PROFILE_PATH" ~/Library/MobileDevice/Provisioning\ Profiles/
 
-      # ─────────────────────────────────────────────────────────────────────
-      # 4) 解析 Provisioning Profile，把 UUID 和 Team ID 写到 ExportOptions.plist
-      #    （不同账号 UUID/Team ID 不一样，不能写死）
-      # ─────────────────────────────────────────────────────────────────────
       - name: Generate ExportOptions.plist
-        env:
-          ISSUER_ID: ${{ secrets.APPSTORE_ISSUER_ID }}
         run: |
           set -euo pipefail
           PROFILE_PATH=$RUNNER_TEMP/profile.mobileprovision
-          # 提取 UUID & TeamIdentifier
-          PROFILE_PLIST=$(security cms -D -i $PROFILE_PATH)
+          PROFILE_PLIST=$(security cms -D -i "$PROFILE_PATH")
           UUID=$(echo "$PROFILE_PLIST" | plutil -extract UUID raw -)
           TEAM=$(echo "$PROFILE_PLIST" | plutil -extract TeamIdentifier.0 raw -)
           PROFILE_NAME=$(echo "$PROFILE_PLIST" | plutil -extract Name raw -)
 
-          cat > $RUNNER_TEMP/ExportOptions.plist <<EOF
+          cat > "$RUNNER_TEMP/ExportOptions.plist" <<EOF
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
           <plist version="1.0">
@@ -172,25 +152,24 @@ jobs:
           </dict>
           </plist>
           EOF
-          echo "PROFILE_UUID=$UUID" >> $GITHUB_ENV
-          echo "TEAM_ID=$TEAM" >> $GITHUB_ENV
 
-      # ─────────────────────────────────────────────────────────────────────
-      # 5) Archive + Export IPA
-      #    -allowProvisioningUpdates 必加：否则手动签名模式下找不到 profile 直接 fail
-      # ─────────────────────────────────────────────────────────────────────
+          echo "PROFILE_UUID=$UUID" >> "$GITHUB_ENV"
+          echo "TEAM_ID=$TEAM" >> "$GITHUB_ENV"
+
       - name: Build & Archive
         run: |
           set -euo pipefail
           xcodebuild \
-            -workspace $IOS_WORKSPACE \
-            -scheme $IOS_SCHEME \
+            -workspace "$IOS_WORKSPACE" \
+            -scheme "$IOS_SCHEME" \
             -configuration Release \
-            -archivePath $RUNNER_TEMP/App.xcarchive \
+            -archivePath "$RUNNER_TEMP/App.xcarchive" \
             -destination "generic/platform=iOS" \
             CODE_SIGN_STYLE=Manual \
-            DEVELOPMENT_TEAM=$TEAM_ID \
-            PROVISIONING_PROFILE_SPECIFIER=$PROFILE_UUID \
+            DEVELOPMENT_TEAM="$TEAM_ID" \
+            PROVISIONING_PROFILE_SPECIFIER="$PROFILE_UUID" \
+            MARKETING_VERSION="$IOS_MARKETING_VERSION" \
+            CURRENT_PROJECT_VERSION="$IOS_BUILD_NUMBER" \
             archive | xcpretty || exit ${PIPESTATUS[0]}
 
       - name: Export IPA
@@ -198,15 +177,26 @@ jobs:
           set -euo pipefail
           xcodebuild \
             -exportArchive \
-            -archivePath $RUNNER_TEMP/App.xcarchive \
-            -exportOptionsPlist $RUNNER_TEMP/ExportOptions.plist \
-            -exportPath $RUNNER_TEMP/ipa \
+            -archivePath "$RUNNER_TEMP/App.xcarchive" \
+            -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" \
+            -exportPath "$RUNNER_TEMP/ipa" \
             -allowProvisioningUpdates | xcpretty || exit ${PIPESTATUS[0]}
-          ls -lh $RUNNER_TEMP/ipa/
+          ls -lh "$RUNNER_TEMP/ipa/"
 
-      # ─────────────────────────────────────────────────────────────────────
-      # 6) Artifact 留存（无论是否上 TestFlight 都保存，便于 debug）
-      # ─────────────────────────────────────────────────────────────────────
+      - name: Verify IPA version
+        shell: bash
+        run: |
+          set -euo pipefail
+          IPA=$(ls "$RUNNER_TEMP"/ipa/*.ipa | head -n 1)
+          TMP=$(mktemp -d)
+          unzip -q "$IPA" -d "$TMP"
+          PLIST=$(find "$TMP/Payload" -maxdepth 2 -name Info.plist | head -n 1)
+          ACTUAL_VERSION=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$PLIST")
+          ACTUAL_BUILD=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$PLIST")
+          echo "IPA version: $ACTUAL_VERSION ($ACTUAL_BUILD)"
+          [[ "$ACTUAL_VERSION" == "$IOS_MARKETING_VERSION" ]]
+          [[ "$ACTUAL_BUILD" == "$IOS_BUILD_NUMBER" ]]
+
       - name: Upload IPA artifact
         uses: actions/upload-artifact@v4
         with:
@@ -215,10 +205,6 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-      # ─────────────────────────────────────────────────────────────────────
-      # 7) 上传到 TestFlight
-      #    push tag 时默认上传；workflow_dispatch 由 inputs.upload 控制
-      # ─────────────────────────────────────────────────────────────────────
       - name: Upload to TestFlight
         if: github.event_name == 'push' || github.event.inputs.upload == 'true'
         env:
@@ -227,21 +213,25 @@ jobs:
           API_PRIVATE_KEY: ${{ secrets.APPSTORE_API_PRIVATE_KEY }}
         run: |
           set -euo pipefail
-          # altool 需要 API Key 放在 ~/.appstoreconnect/private_keys/AuthKey_<KeyID>.p8
           mkdir -p ~/.appstoreconnect/private_keys
           echo "$API_PRIVATE_KEY" > ~/.appstoreconnect/private_keys/AuthKey_${API_KEY_ID}.p8
 
-          IPA=$(ls $RUNNER_TEMP/ipa/*.ipa | head -n 1)
+          IPA=$(ls "$RUNNER_TEMP"/ipa/*.ipa | head -n 1)
           xcrun altool --upload-app \
             --type ios \
             --file "$IPA" \
             --apiKey "$API_KEY_ID" \
             --apiIssuer "$ISSUER_ID"
 
-      # ─────────────────────────────────────────────────────────────────────
-      # 8) 清理临时 keychain（防止后续步骤误用）
-      # ─────────────────────────────────────────────────────────────────────
-      - name: Cleanup keychain
+      - name: Summary
         if: always()
         run: |
-          security delete-keychain $RUNNER_TEMP/build.keychain-db || true
+          echo "## iOS Release" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Bundle ID: $IOS_BUNDLE_ID" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Version: $IOS_MARKETING_VERSION" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Build: $IOS_BUILD_NUMBER" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Ref: $GITHUB_REF" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Cleanup keychain
+        if: always()
+        run: security delete-keychain "$RUNNER_TEMP/build.keychain-db" || true

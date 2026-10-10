@@ -2,6 +2,10 @@ import { getDb } from "../db/schema";
 
 export interface AttachmentSignedNoteRecord {
   noteId: string;
+  id: string;
+  userId: string;
+  workspaceId: string | null;
+  uploadSource: string | null;
 }
 
 export interface AttachmentSignedShareRecord {
@@ -24,7 +28,7 @@ export interface AttachmentSignedPublicationRecord {
 export const attachmentSignedAccessRepository = {
   findAttachmentNote(attachmentId: string): AttachmentSignedNoteRecord | undefined {
     return getDb()
-      .prepare('SELECT "noteId" FROM attachments WHERE id = ?')
+      .prepare('SELECT id, "noteId", "userId", "workspaceId", "uploadSource" FROM attachments WHERE id = ?')
       .get(attachmentId) as AttachmentSignedNoteRecord | undefined;
   },
 

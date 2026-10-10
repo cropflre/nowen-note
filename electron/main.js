@@ -1,4 +1,4 @@
-const { app, BrowserWindow, shell, dialog, ipcMain, Menu, session } = require("electron");
+const { app, BrowserWindow, shell, dialog, ipcMain, Menu, screen, session, clipboard } = require("electron");
 const path = require("path");
 const { spawn } = require("child_process");
 const fs = require("fs");
@@ -11,12 +11,22 @@ const { createTray, destroyTray, markQuitting, getIsQuitting } = require("./tray
 const { initAutoUpdater, checkForUpdatesManually, setUpdaterContext } = require("./updater");
 const { initLogger, getLogDir } = require("./logger");
 const { createRendererRecoveryGate } = require("./renderer-recovery");
+const { allowVoicePermissionRequest, allowVoicePermissionCheck } = require("./voice-permissions");
 const { handleArgv, setupMacOpenFile, flushPending } = require("./fileAssoc");
 const { registerDiscoveryIpc, shutdown: shutdownDiscovery } = require("./discovery");
-const { setSettingsPath, readSettings, writeSettings } = require("./settings");
+const { setSettingsPath, readSettings, writeSettings, shouldUseLocalRuntime } = require("./settings");
+// electron-builder places this Native Messaging module outside app.asar.
+const clipperHost = require(app.isPackaged
+  ? path.join(process.resourcesPath, "clipper", "clipper-host.js")
+  : "./clipper-host");
 const { openSetupWindow } = require("./setupWindow");
 const { openLocalAttachmentWithSystem } = require("./attachment-open");
+const { readWechatArticleClipboard } = require("./wechat-clipboard");
 const { registerTextContextMenu } = require("./text-context-menu");
+const { attachWindowStatePersistence, resolveWindowBounds } = require("./window-state");
+const { attachEncryptedAutoLock } = require("./encrypted-notes-auto-lock");
+const { requestLocalAccountBootstrap } = require("./localAccountBootstrap");
+const { isPdfBufferValid, isPdfRenderReady } = require("./pdfExportGuard");
 const {
   setCredentialsPath,
   registerCredentialsIpc,
@@ -57,6 +67,10 @@ let backendPort = 0;
 // 当前运行模式快照（在 ready 时读 settings.json 后赋值）
 let currentMode = "full";   // "full" | "lite"
 let currentRemoteUrl = "";  // lite 模式下的远端 URL
+// Local-first 运行时快照（Phase 1）：桌面端的目标终态是恒为 "local"。
+// 现阶段它由 settings.js 从 legacy mode 派生，因此语义与 currentMode 完全等价：
+//   full → local，lite → remote（Lite 迁移完成前不得为 local）。
+let currentRuntime = "local"; // "local" | "remote"
 let currentHideMenuBar = false; // Windows/Linux 是否隐藏菜单栏
 let currentRendererSession = null;
 let currentOfflineCacheDir = "";
@@ -65,8 +79,11 @@ let ugreenWorkspaceWindow = null;
 // ensureLocalAccount() 写入；renderer 通过 ipcMain "desktop:get-local-auth" 拉取。
 // 仅 full 模式有意义；lite 模式（连远端）保持原有手动登录流程。
 let localAuthCache = null;  // { token: string, user: object } | null
+let localAuthBootstrapSucceeded = false;
+let localAccountCreationAllowed = false;
 
 const MAIN_WINDOW_RELOAD_URL = "nowen-reload://main";
+const PREFERRED_BACKEND_PORT = 57892;
 
 // ---------- 单实例锁（防止多开损坏 SQLite） ----------
 const gotTheLock = app.requestSingleInstanceLock();
@@ -168,12 +185,12 @@ function prepareRendererSession(settings) {
 }
 
 function configureRendererSession(rendererSession) {
-  rendererSession.setPermissionRequestHandler((_webContents, permission, callback) => {
-    callback(permission === "notifications" || permission === "fullscreen");
+  rendererSession.setPermissionRequestHandler((webContents, permission, callback, details) => {
+    callback(permission === "notifications" || permission === "fullscreen" || (permission === "media" && allowVoicePermissionRequest(webContents, details)));
   });
   if (typeof rendererSession.setPermissionCheckHandler === "function") {
-    rendererSession.setPermissionCheckHandler((_webContents, permission) => (
-      permission === "notifications" || permission === "fullscreen"
+    rendererSession.setPermissionCheckHandler((webContents, permission, _origin, details) => (
+      permission === "notifications" || permission === "fullscreen" || (permission === "media" && allowVoicePermissionCheck(webContents, details))
     ));
   }
 
@@ -331,16 +348,33 @@ function findNodeExecutable() {
   return { cmd: process.execPath, useElectron: true };
 }
 
-// ---------- 动态获取空闲端口 ----------
+// ---------- 优先使用固定端口；冲突时动态获取空闲端口 ----------
 function getFreePort() {
   return new Promise((resolve, reject) => {
-    const srv = net.createServer();
-    srv.unref();
-    srv.on("error", reject);
-    srv.listen(0, "127.0.0.1", () => {
-      const { port } = srv.address();
-      srv.close(() => resolve(port));
-    });
+    const tryListen = (port, allowFallback) => {
+      const srv = net.createServer();
+      srv.unref();
+      srv.once("error", (error) => {
+        if (allowFallback && (error?.code === "EADDRINUSE" || error?.code === "EACCES")) {
+          console.warn(
+            `[Electron] Preferred backend port ${PREFERRED_BACKEND_PORT} is unavailable (${error.code}); using a random free port instead.`
+          );
+          tryListen(0, false);
+          return;
+        }
+        reject(error);
+      });
+      srv.listen(port, "127.0.0.1", () => {
+        const address = srv.address();
+        const selectedPort = typeof address === "object" && address ? address.port : 0;
+        srv.close((error) => {
+          if (error) reject(error);
+          else resolve(selectedPort);
+        });
+      });
+    };
+
+    tryListen(PREFERRED_BACKEND_PORT, true);
   });
 }
 
@@ -380,7 +414,7 @@ function waitForBackendReady(port, timeoutMs = 30000) {
 //
 // 与 waitForBackendReady 不同：
 //   - 远端可能是 https 自签证书，要走 https 模块；
-//   - 路径优先 /api/health，失败兜底 /；
+//   - 标准 /api/health 失败后尝试两种常见 /public 改写；
 //   - 失败时不立刻 retry，而是给较长间隔（1s），避免在网络中断时狂打目标服务器。
 function waitForRemoteReady(remoteUrl, timeoutMs = 15000) {
   if (!remoteUrl) {
@@ -402,37 +436,58 @@ function waitForRemoteReady(remoteUrl, timeoutMs = 15000) {
     rejectUnauthorized: false, // 容忍自签
   };
   const pathPrefix = parsed.pathname.replace(/\/+$/, "");
+  const healthPaths = [
+    `${pathPrefix}/api/health`,
+    `${pathPrefix}/public/api/health`,
+    `${pathPrefix}/publicapi/health`,
+  ];
 
   const start = Date.now();
   return new Promise((resolve, reject) => {
     let lastErr = null;
-    const tick = () => {
-      const req = lib.get({ ...baseOpts, path: `${pathPrefix}/api/health` }, (res) => {
+    const tryPath = (index) => {
+      let settled = false;
+      const next = () => {
+        if (settled) return;
+        settled = true;
+        if (index + 1 < healthPaths.length) tryPath(index + 1);
+        else retry();
+      };
+      const req = lib.get({ ...baseOpts, path: healthPaths[index] }, (res) => {
         let body = "";
         res.setEncoding("utf8");
         res.on("data", (chunk) => { if (body.length < 4096) body += chunk; });
         res.on("end", () => {
+          if (settled) return;
           let payload = null;
           try { payload = JSON.parse(body); } catch { /* 门户 HTML / 反代错误 */ }
-          if (res.statusCode >= 200 && res.statusCode < 300 && payload?.status === "ok") {
+          const isNowenPayload = payload?.service === "nowen-note" || typeof payload?.version === "string";
+          if (
+            res.statusCode >= 200
+            && res.statusCode < 300
+            && payload?.status === "ok"
+            && isNowenPayload
+          ) {
+            settled = true;
             return resolve();
           }
           lastErr = new Error(
             `HTTP ${res.statusCode}，未检测到 Nowen Note API（可能仍是 NAS 门户或反代路径不正确）`,
           );
-          retry();
+          next();
         });
       });
       req.on("error", (e) => {
         lastErr = e;
-        retry();
+        next();
       });
       req.on("timeout", () => {
         req.destroy();
         lastErr = new Error("连接超时");
-        retry();
+        next();
       });
     };
+    const tick = () => tryPath(0);
     const retry = () => {
       if (Date.now() - start > timeoutMs) {
         return reject(
@@ -499,6 +554,7 @@ async function startBackend() {
   const backendEntry = getBackendEntry();
   const userDataPath = getUserDataPath();
   const dbPath = path.join(userDataPath, "nowen-note.db");
+  localAccountCreationAllowed = !fs.existsSync(dbPath);
   const backendCwd = app.isPackaged
     ? path.join(process.resourcesPath)
     : path.join(__dirname, "..");
@@ -567,6 +623,27 @@ async function startBackend() {
     backendProcess = null;
   });
 
+  // Clipper Native Host 需要知道本次 Backend 的端口。
+  // 首选端口被占用时会动态回退，因此仍须落盘实际端口；未配对时 token 为空。
+  try {
+    clipperHost.setRuntimeDir(userDataPath);
+    clipperHost.publishRuntime({ port: backendPort, token: "" });
+  } catch (e) {
+    console.warn("[Electron] publish clipper runtime failed:", e?.message || e);
+  }
+
+  // 注册 Native Messaging 清单，让浏览器扩展能发现并唤起本机 Desktop。
+  //
+  // 每次启动都注册而不是只在安装时做一次：便携版与 AppImage 的可执行
+  // 路径会随目录移动而变化，清单里的旧路径会让浏览器拉起不存在的程序。
+  //
+  // 失败只降级剪藏（用户需先手动打开 Desktop），绝不影响应用启动。
+  try {
+    registerClipperNativeHost();
+  } catch (e) {
+    console.warn("[Electron] register clipper native host failed:", e?.message || e);
+  }
+
   // 轮询健康端点，确认服务真正就绪
   try {
     await waitForBackendReady(backendPort, 30000);
@@ -579,7 +656,65 @@ async function startBackend() {
   }
 }
 
+/**
+ * 注册 Clipper Native Messaging 宿主。
+ *
+ * 浏览器按清单里的 path 拉起宿主进程，所以 path 必须指向一个
+ * **不依赖 Electron API** 的可执行入口。
+ *
+ * 打包后：应用自带的 Electron 可执行文件 + ELECTRON_RUN_AS_NODE 环境变量
+ * 无法通过清单传递，因此改为让清单直接指向宿主脚本，
+ * 由系统 node 或随包分发的 node 执行。
+ *
+ * 开发态：直接用当前 node 可执行 + 脚本路径，方便本地联调。
+ *
+ * allowedExtensionIds 从环境变量读取，未配置时留空 ——
+ * 空列表意味着暂无扩展获得授权，比写死一个错误 ID 更安全。
+ */
+function registerClipperNativeHost() {
+  // 打包态必须用 asar 外的副本：浏览器 spawn 的是真实文件路径，
+  // 而 asar 是虚拟归档，外部进程无法从中执行脚本。
+  // 这两份由 builder.base.config.js 的 extraResources 复制到 resources/clipper/。
+  const hostScript = app.isPackaged
+    ? path.join(process.resourcesPath, "clipper", "clipper-native-host.js")
+    : path.join(__dirname, "clipper-native-host.js");
+
+  // 清单的 path 必须指向可直接执行的文件。.js 本身不可执行，
+  // 因此生成一个平台启动器（Windows 用 .cmd，其他平台用 sh 脚本），
+  // 由它带上 Electron 自带的 node 运行时去跑宿主脚本 ——
+  // 这样用户机器上没装 Node 也能剪藏。
+  const executablePath = clipperHost.ensureHostLauncher({
+    dir: getUserDataPath(),
+    hostScript,
+    nodeExecutable: process.execPath,
+    // ELECTRON_RUN_AS_NODE 让 Electron 可执行退化为纯 node，
+    // 避免宿主进程意外拉起一个 GUI 窗口。
+    runAsNode: true,
+    // Desktop 未运行时宿主要能把它拉起来。
+    // 打包态与开发态 process.execPath 都指向可启动应用的可执行文件，
+    // 因此无需分支。
+    desktopExecutable: process.execPath,
+  });
+
+  const ids = (process.env.NOWEN_CLIPPER_EXTENSION_IDS || "")
+    .split(",")
+    .map((id) => id.trim())
+    .filter(Boolean);
+
+  const result = clipperHost.ensureNativeHostRegistered({
+    executablePath,
+    allowedExtensionIds: ids,
+  });
+  console.log(
+    `[Electron] clipper native host: installed=${result.installed.length}` +
+      ` failed=${result.failed.length}`
+  );
+  return result;
+}
+
 function stopBackend() {
+  // 先清理 Clipper 运行时文件：否则扩展会连到已失效的端口并长时间等待。
+  try { clipperHost.clearRuntime(); } catch { /* ignore */ }
   if (backendProcess) {
     const proc = backendProcess;
     backendProcess = null;
@@ -617,9 +752,9 @@ function stopBackendForMigration(timeoutMs = 2000) {
 // ---------- Phase A: 桌面零登录的本地账号自动准备 ----------
 //
 // 设计：
-//   - full 模式下，backend 起来后向自身 localhost:port 走一遍 /auth/login；
+//   - full 模式下，backend 起来后向自身 localhost:port 走受保护的 bootstrap；
 //     用户名固定为 "desktop"，密码用 userData/.local_account_secret 持久化的 32B base64。
-//   - 第一次启动找不到用户 → 直接 POST /auth/register 创建（首个用户自动成为 admin）。
+//   - 首次启动仅创建缺失的 desktop 管理员账号；已存在账号绝不在启动时改密或提权。
 //   - 拿到 token 后缓存在主进程，preload 通过 ipcMain "desktop:get-local-auth" 暴露给前端。
 //   - 失败不抛：renderer 拿不到 localAuth 就走原本的登录页，相当于"零登录"功能未生效。
 //
@@ -646,6 +781,10 @@ function getLocalAccountSecret() {
     console.error("[Electron] write .local_account_secret failed:", e?.message || e);
   }
   return secret;
+}
+
+function getLocalLoginServerUrl() {
+  return backendPort > 0 ? `http://127.0.0.1:${backendPort}` : "";
 }
 
 // 简易 JSON POST：只在 127.0.0.1:backendPort 上用，5s 超时
@@ -683,46 +822,36 @@ function localApiRequest(pathname, body, extraHeaders = {}) {
   });
 }
 
+async function provisionLocalAdminAccount(username, password) {
+  const response = await localApiRequest(
+    "/auth/desktop/reset-local",
+    { username, password },
+    { "X-Nowen-Desktop-Secret": password },
+  );
+  if (response.status !== 200 || !response.data?.token || response.data?.user?.role !== "admin") {
+    return null;
+  }
+  return {
+    token: response.data.token,
+    refreshToken: response.data.refreshToken,
+    user: response.data.user,
+  };
+}
+
 async function ensureLocalAccount() {
+  localAuthBootstrapSucceeded = false;
   if (currentMode !== "full") return null;
   if (!backendPort) return null;
 
   const password = getLocalAccountSecret();
-  const username = "desktop";
-
-  // 先尝试登录
-  try {
-    const r = await localApiRequest("/auth/login", { username, password });
-    if (r.status === 200 && r.data?.token) {
-      console.log("[Electron] local desktop account login OK");
-      return { token: r.data.token, refreshToken: r.data.refreshToken, user: r.data.user };
-    }
-    // 401：密码错或用户存在但密码对不上；404 / 400：用户不存在 → 走注册
-  } catch (e) {
-    console.warn("[Electron] local login failed:", e?.message || e);
+  // 密码不匹配、锁定、限流或网络错误都不会触发 reset-local。
+  const result = await requestLocalAccountBootstrap(localApiRequest, password, localAccountCreationAllowed);
+  if (result.account) {
+    localAuthBootstrapSucceeded = true;
+    console.log("[Electron] local desktop admin login OK");
+    return result.account;
   }
-
-  // 注册（首个用户自动 admin；后续用户也能注册成功 —— 即使关闭注册开关，
-  //   首启路径上注册开关本身就是默认开的，且我们要的就是"开箱即用"）
-  try {
-    const r = await localApiRequest("/auth/register", {
-      username,
-      password,
-      displayName: "本机用户",
-    });
-    if ((r.status === 200 || r.status === 201) && r.data?.token) {
-      console.log("[Electron] local desktop account registered");
-      return { token: r.data.token, refreshToken: r.data.refreshToken, user: r.data.user };
-    }
-    // 409：用户名已存在（说明密码被人改了或 secret 文件丢了），
-    //   不去暴力重置，让用户在登录页手动处理
-    console.warn(
-      "[Electron] local register failed: status=" + r.status +
-        " err=" + (r.data?.error || ""),
-    );
-  } catch (e) {
-    console.warn("[Electron] local register error:", e?.message || e);
-  }
+  console.warn("[Electron] local desktop auto-login unavailable:", result.reason);
   return null;
 }
 
@@ -731,16 +860,13 @@ async function resetLocalAccountAuth() {
   if (!backendPort) return { ok: false, error: "backend-not-ready" };
   const password = getLocalAccountSecret();
   try {
-    const r = await localApiRequest(
-      "/auth/desktop/reset-local",
-      { username: "desktop", password },
-      { "X-Nowen-Desktop-Secret": password },
-    );
-    if (r.status === 200 && r.data?.token) {
-      localAuthCache = { token: r.data.token, refreshToken: r.data.refreshToken, user: r.data.user };
-      return { ok: true, token: r.data.token, refreshToken: r.data.refreshToken, user: r.data.user };
+    const account = await provisionLocalAdminAccount("desktop", password);
+    if (account) {
+      localAuthCache = account;
+      localAuthBootstrapSucceeded = true;
+      return { ok: true, ...account };
     }
-    return { ok: false, error: r.data?.error || `status=${r.status}` };
+    return { ok: false, error: "local-admin-provisioning-failed" };
   } catch (e) {
     return { ok: false, error: e?.message || String(e) };
   }
@@ -898,6 +1024,11 @@ function createWindow() {
   const isMac = process.platform === "darwin";
   const hideMenuBar = !isMac && !!currentHideMenuBar;
   const preloadPath = path.join(__dirname, "preload.js");
+  const restoredWindowState = resolveWindowBounds(
+    readSettings().windowState,
+    screen.getAllDisplays().map((display) => display.workArea),
+    screen.getPrimaryDisplay().workArea,
+  );
 
   // macOS 原生观感：
   //   - hiddenInset 把 Traffic Light 嵌入工具栏，不占独立标题栏；
@@ -916,8 +1047,7 @@ function createWindow() {
     : {};
 
   mainWindow = new BrowserWindow({
-    width: 1280,
-    height: 800,
+    ...restoredWindowState.bounds,
     minWidth: 900,
     minHeight: 600,
     title: "Nowen Note",
@@ -940,7 +1070,16 @@ function createWindow() {
 
   // SEC-ELECTRON-01-B-RV1: 注册主窗口 webContents.id 用于 IPC sender 校验
   setTrustedMainWindowId(mainWindow.webContents.id);
+  attachEncryptedAutoLock(mainWindow);
   registerTextContextMenu(mainWindow, Menu);
+  if (restoredWindowState.maximized) mainWindow.maximize();
+  attachWindowStatePersistence(mainWindow, (windowState) => {
+    try {
+      writeSettings({ windowState });
+    } catch (error) {
+      console.warn("[window-state] persist failed:", error?.message || error);
+    }
+  });
   let hasShownMainWindow = false;
   let loadingErrorPage = false;
   let recoveringRenderer = false;
@@ -968,17 +1107,21 @@ function createWindow() {
   }, 10000);
   startupRevealTimer.unref?.();
 
-  // 根据当前模式决定 API 目标：
-  //   full → 本机后端 http://127.0.0.1:{backendPort}
-  //   lite → 用户在 setup 窗里选择并写入 settings.json 的 remoteUrl
+  // 根据当前运行时决定 API 目标：
+  //   runtime=local  → 本机后端 http://127.0.0.1:{backendPort}
+  //   runtime=remote → 用户在 setup 窗里选择并写入 settings.json 的 remoteUrl
+  //
+  // Phase 1 起改用 runtime 而非 mode 判定。当前 runtime 由 legacy mode 派生
+  // （full→local，lite→remote），因此本次改造行为完全等价；等 Lite 迁移能力
+  // 就绪后，Lite 用户迁移完成即自然走 localhost，无需再改这里。
   //
   // 重要：桌面客户端永远加载本地 frontend/dist，而不是远端服务器页面。
   // 这样服务端即使开启「API-only / 关闭网页端」也不会影响 PC 客户端。
   const developmentBackendUrl = getDevelopmentBackendUrl();
-  const targetUrl =
-    currentMode === "lite" && currentRemoteUrl
-      ? currentRemoteUrl
-      : developmentBackendUrl || `http://127.0.0.1:${backendPort}`;
+  const useRemoteRuntime = currentRuntime === "remote" && currentRemoteUrl;
+  const targetUrl = useRemoteRuntime
+    ? currentRemoteUrl
+    : developmentBackendUrl || `http://127.0.0.1:${backendPort}`;
   const frontendIndex = path.join(getFrontendDist(), "index.html");
   const frontendIndexExists = fs.existsSync(frontendIndex);
   const preloadExists = fs.existsSync(preloadPath);
@@ -986,7 +1129,7 @@ function createWindow() {
     `[main-window] resourcesPath=${process.resourcesPath || ""} ` +
       `frontendIndex=${frontendIndex} exists=${frontendIndexExists} ` +
       `preload=${preloadPath} exists=${preloadExists} ` +
-      `targetUrl=${targetUrl} mode=${currentMode} packaged=${app.isPackaged}` +
+      `targetUrl=${targetUrl} mode=${currentMode} runtime=${currentRuntime} packaged=${app.isPackaged}` +
       (developmentBackendUrl ? " devBackend=external" : "")
   );
   const loadApplicationSurface = () => {
@@ -1321,6 +1464,42 @@ function showStartupError(err) {
 //     重启是最干净也最快的方式（< 2s）。
 //   - 切换前清登录态：调用方决定（switchToLite 接受 url 后清，switchToFull 也清）
 //     —— 用户的需求是"切换服务器 = 清空登录态"。
+/**
+ * 只清远端会话凭据，**不动任何权威数据**（阶段 F）。
+ *
+ * Local-first 之后"切换同步服务器"与"切换数据源"是两件完全不同的事：
+ *   - 数据源永远是本机 Embedded Backend + SQLite，切服务器不改变它；
+ *   - 需要失效的只有远端登录态。
+ *
+ * 因此这里刻意**不清** localstorage / indexdb / cachestorage：
+ * 它们承载 renderer 的离线缓存与草稿，清掉会让用户看到"内容突然消失"
+ * （即便 SQLite 里数据完好，UI 也要重新加载一遍，未提交的编辑器状态会丢）。
+ *
+ * 真正的凭据在 cookies 与本机 credentials 文件里，清这两处就够了。
+ *
+ * 旧的 clearWebStorage 只保留给 Legacy Full/Lite 模式切换 ——
+ * 那条路径确实要切换 renderer 的数据源，必须清干净。
+ */
+async function clearRemoteSessionOnly() {
+  try {
+    const rendererSession = currentRendererSession || session.defaultSession;
+    await rendererSession.clearStorageData({ storages: ["cookies"] });
+    console.log("[sync-switch] remote session cleared (local data untouched)");
+  } catch (e) {
+    console.warn("[sync-switch] clear remote session failed:", e?.message || e);
+  }
+  try { clearCredentials(); } catch { /* ignore */ }
+}
+
+/**
+ * 清空 renderer 存储。
+ *
+ * **仅供 Legacy Full/Lite 模式切换使用** —— 那条路径会改变 renderer 的
+ * API baseUrl，旧缓存属于另一个数据源，必须清掉。
+ *
+ * Local-first 的同步服务器切换请用 clearRemoteSessionOnly()：
+ * 切服务器不改变数据源，清本地缓存只会让用户以为数据丢了。
+ */
 async function clearWebStorage() {
   // 清掉默认 session 的 cookie / localStorage / IndexedDB / cache，
   // 这样切到新服务器后是全新登录态。
@@ -1751,6 +1930,12 @@ function registerAppIpc() {
     }
   });
 
+  ipcMain.removeHandler("clipboard:wechat-articles");
+  ipcMain.handle("clipboard:wechat-articles", (event) => {
+    if (assertMainWindowSender(event) || !mainWindow?.isFocused()) return "";
+    return readWechatArticleClipboard(clipboard);
+  });
+
   // SEC-ELECTRON-01-C: app:info 只返回安全字段
   ipcMain.removeHandler("app:info");
   ipcMain.handle("app:info", (event) => {
@@ -1762,6 +1947,7 @@ function registerAppIpc() {
       platform: process.platform,
       arch: process.arch,
       mode: currentMode,
+      runtime: currentRuntime,
       hideMenuBar: currentHideMenuBar,
     };
   });
@@ -1889,6 +2075,97 @@ function registerAppIpc() {
     return { ok: true, path: targetPath, restarting: true };
   });
 
+  // ---- Lite → Local 迁移（阶段 E）----
+  //
+  // renderer 侧持有远端 token（Lite 模式下它就是用这个 token 直连服务器的），
+  // 迁移必须把 token 交给 Embedded Backend 才能下载数据。
+  //
+  // 走 IPC 而不是让 renderer 直接 fetch 本地后端：迁移过程中
+  // renderer 的 API baseUrl 还指向远端，直接 fetch localhost 会被
+  // 它自己的请求封装改写掉 baseUrl。
+  ipcMain.removeHandler("sync:start-lite-migration");
+  ipcMain.handle("sync:start-lite-migration", async (event, payload) => {
+    // SEC-ELECTRON-01-B：高权限 IPC 来源校验（与既有敏感 IPC 一致）。
+    const reject = assertMainWindowSender(event);
+    if (reject) return reject;
+    const serverUrl = String(payload?.serverUrl || "").slice(0, 2048);
+    const token = String(payload?.token || "").slice(0, 8192);
+    if (!/^https?:\/\//i.test(serverUrl) || !token) {
+      return { ok: false, error: "invalid-params" };
+    }
+
+    // Lite 模式下 Backend 可能还没启动（lite 不启后端），先确保它在跑。
+    if (!backendPort) {
+      try {
+        await startBackend();
+      } catch (e) {
+        return { ok: false, error: `backend-start-failed: ${e?.message || e}` };
+      }
+    }
+
+    // Lite 用户此前从未有过本地账号（数据都在远端），
+    // 迁移目标用户就是这个本机账号，必须先建立它。
+    if (!localAuthCache) {
+      try {
+        localAuthCache = await ensureLocalAccount();
+      } catch (e) {
+        return { ok: false, error: `local-account-failed: ${e?.message || e}` };
+      }
+    }
+    if (!localAuthCache?.token) {
+      return { ok: false, error: "local-account-unavailable" };
+    }
+
+    try {
+      const res = await fetch(
+        `http://127.0.0.1:${backendPort}/api/sync/local/lite-migration`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${localAuthCache.token}`,
+          },
+          body: JSON.stringify({ serverUrl, token }),
+        },
+      );
+      const data = await res.json().catch(() => ({}));
+
+      // 只有迁移真正完成才写 settings ——
+      // 提前写会让下次启动切到一个不完整的本地库，那正是最要避免的事故。
+      if (data?.stage === "complete") {
+        const next = writeSettings({ liteMigrationStatus: "complete" });
+        currentRuntime = shouldUseLocalRuntime(next) ? "local" : "remote";
+        console.log("[lite-migration] complete, runtime =", currentRuntime);
+      } else {
+        // 记录中间状态供 UI 显示；非 complete 时 deriveRuntimeFields
+        // 会继续强制 runtime=remote，用户照旧用 Lite。
+        writeSettings({
+          liteMigrationStatus: data?.stage === "failed" ? "failed" : "running",
+        });
+      }
+      return { ok: res.ok, status: res.status, progress: data };
+    } catch (e) {
+      return { ok: false, error: e?.message || String(e) };
+    }
+  });
+
+  ipcMain.removeHandler("sync:lite-migration-progress");
+  ipcMain.handle("sync:lite-migration-progress", async (event) => {
+    const reject = assertMainWindowSender(event);
+    if (reject) return reject;
+    if (!backendPort) return { ok: true, progress: { stage: "pending" } };
+    if (!localAuthCache?.token) return { ok: true, progress: { stage: "pending" } };
+    try {
+      const res = await fetch(
+        `http://127.0.0.1:${backendPort}/api/sync/local/lite-migration`,
+        { headers: { Authorization: `Bearer ${localAuthCache.token}` } },
+      );
+      return { ok: res.ok, progress: await res.json().catch(() => ({})) };
+    } catch (e) {
+      return { ok: false, error: e?.message || String(e) };
+    }
+  });
+
   ipcMain.removeHandler("app:get-data-dir-info");
   ipcMain.handle("app:get-data-dir-info", (event) => {
     const reject = assertMainWindowSender(event);
@@ -1957,7 +2234,47 @@ ipcMain.handle("task:notify-permission", () => {
     // SEC-ELECTRON-01-B: 高权限 IPC 来源校验
     const reject = assertMainWindowSender(event);
     if (reject) return reject;
+    if (localAuthCache && !readSettings().localLoginHintDismissed) {
+      writeSettings({ localLoginHintDismissed: true });
+    }
     return localAuthCache;
+  });
+
+  // Full 本地模式首次手动登录提示。密码只在尚未成功登录时返回给受信任主窗口；
+  // renderer 确认本地 desktop 账号登录成功后，settings.json 会永久关闭提示。
+  ipcMain.removeHandler("desktop:get-local-login-hint");
+  ipcMain.handle("desktop:get-local-login-hint", (event) => {
+    const reject = assertMainWindowSender(event);
+    if (reject) return reject;
+    const serverUrl = getLocalLoginServerUrl();
+    if (currentMode !== "full" || currentRuntime !== "local" || !serverUrl || !localAuthBootstrapSucceeded) return null;
+    if (readSettings().localLoginHintDismissed) return null;
+    return {
+      serverUrl,
+      username: "desktop",
+      password: getLocalAccountSecret(),
+      role: "admin",
+    };
+  });
+
+  ipcMain.removeHandler("desktop:complete-local-login-hint");
+  ipcMain.handle("desktop:complete-local-login-hint", (event, payload) => {
+    const reject = assertMainWindowSender(event);
+    if (reject) return reject;
+    const expectedServerUrl = getLocalLoginServerUrl();
+    const serverUrl = String(payload?.serverUrl || "").replace(/\/+$/, "").toLowerCase();
+    const username = String(payload?.username || "").trim();
+    if (
+      currentMode !== "full"
+      || currentRuntime !== "local"
+      || !expectedServerUrl
+      || serverUrl !== expectedServerUrl.toLowerCase()
+      || username !== "desktop"
+    ) {
+      return { ok: false, reason: "not-local-desktop-login" };
+    }
+    writeSettings({ localLoginHintDismissed: true });
+    return { ok: true };
   });
 
   // Phase A: 切换到云账号时 renderer 调这个清掉本地缓存，避免下次启动又被自动登录。
@@ -1980,7 +2297,7 @@ ipcMain.handle("task:notify-permission", () => {
     const { response } = await dialog.showMessageBox(parentWin || null, {
       type: "warning",
       title: "重置本地账号？",
-      message: "此操作会清除当前桌面端的本地账号认证信息。你可能需要重新登录或重新配置本地账号。是否继续？",
+      message: "此操作会把当前数据目录的 desktop 账号密码重置为本机托管凭据，并使该账号的旧登录会话失效；不会删除笔记或附件。请先确认本地数据位置及备份。是否继续？",
       buttons: ["取消", "重置"],
       defaultId: 0,  // 默认按钮是取消
       cancelId: 0,   // Esc / 关闭弹窗视为取消
@@ -2102,7 +2419,7 @@ ipcMain.handle("task:notify-permission", () => {
       await offscreen.loadURL(dataUrl);
 
       // 等图片全部解码完成（HTML 里可能有 data: 图或 localhost 后端图）
-      await offscreen.webContents.executeJavaScript(`
+      const renderState = await offscreen.webContents.executeJavaScript(`
         (async () => {
           const imgs = Array.from(document.images || []);
           await Promise.all(imgs.map(img => {
@@ -2113,11 +2430,24 @@ ipcMain.handle("task:notify-permission", () => {
               setTimeout(res, 3000); // 兜底 3s
             });
           }));
+          await document.fonts.ready;
           // 再给布局一点时间
           await new Promise(r => setTimeout(r, 100));
-          return true;
+          const title = document.querySelector('.title');
+          const content = document.querySelector('.content');
+          const titleRect = title && title.getBoundingClientRect();
+          return {
+            width: document.documentElement.scrollWidth,
+            height: document.documentElement.scrollHeight,
+            titleWidth: titleRect && titleRect.width,
+            titleHeight: titleRect && titleRect.height,
+            hasContentContainer: !!content,
+          };
         })()
       `, true);
+      if (!isPdfRenderReady(renderState)) {
+        throw new Error('PDF_RENDER_EMPTY');
+      }
 
       const pdfBuffer = await offscreen.webContents.printToPDF({
         printBackground: true,
@@ -2125,6 +2455,9 @@ ipcMain.handle("task:notify-permission", () => {
         margins: { marginType: "default" },
         preferCSSPageSize: true,
       });
+      if (!isPdfBufferValid(pdfBuffer)) {
+        throw new Error('PDF_OUTPUT_EMPTY');
+      }
       fs.writeFileSync(outPath, pdfBuffer);
       return { ok: true, path: outPath };
     } catch (err) {
@@ -2148,6 +2481,7 @@ app.whenReady().then(async () => {
   let settings = readSettings();
   currentMode = settings.mode;
   currentRemoteUrl = settings.remoteUrl;
+  currentRuntime = shouldUseLocalRuntime(settings) ? "local" : "remote";
   currentHideMenuBar = !!settings.hideMenuBar;
 
   await promptDataDirOnFirstRunIfNeeded();
@@ -2159,6 +2493,7 @@ app.whenReady().then(async () => {
   settings = readSettings();
   currentMode = settings.mode;
   currentRemoteUrl = settings.remoteUrl;
+  currentRuntime = shouldUseLocalRuntime(settings) ? "local" : "remote";
   currentHideMenuBar = !!settings.hideMenuBar;
 
   // 主窗口可使用用户指定的持久化会话目录；离线 IndexedDB 与必要的
@@ -2171,7 +2506,9 @@ app.whenReady().then(async () => {
   if (liteOnly && currentMode !== "lite") {
     console.log("[Electron] lite-only build detected, forcing mode=lite");
     currentMode = "lite";
-    writeSettings({ mode: "lite", remoteUrl: currentRemoteUrl });
+    currentRuntime = shouldUseLocalRuntime(writeSettings({ mode: "lite", remoteUrl: currentRemoteUrl }))
+      ? "local"
+      : "remote";
   }
 
   // Lite-only 首启没有服务器地址：立刻弹 setup 窗口
@@ -2185,11 +2522,13 @@ app.whenReady().then(async () => {
       return;
     }
     currentRemoteUrl = r.url;
-    writeSettings({ mode: "lite", remoteUrl: r.url });
+    currentRuntime = shouldUseLocalRuntime(writeSettings({ mode: "lite", remoteUrl: r.url }))
+      ? "local"
+      : "remote";
   }
 
   console.log(
-    `[Electron] mode=${currentMode}${liteOnly ? " (lite-only build)" : ""}` +
+    `[Electron] mode=${currentMode} runtime=${currentRuntime}${liteOnly ? " (lite-only build)" : ""}` +
       (currentMode === "lite" ? ` remoteUrl=${currentRemoteUrl}` : "")
   );
 

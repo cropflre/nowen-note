@@ -41,15 +41,20 @@ export default function KnowledgeTreeDropdownMenu({
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key === "Escape") onClose();
     };
+    const closeOnOutsideScroll = (event: Event) => {
+      const target = event.target;
+      if (target instanceof Node && menuRef.current?.contains(target)) return;
+      onClose();
+    };
     window.addEventListener("pointerdown", closeOutside, true);
     window.addEventListener("keydown", closeOnEscape);
     window.addEventListener("resize", onClose);
-    window.addEventListener("scroll", onClose, true);
+    window.addEventListener("scroll", closeOnOutsideScroll, true);
     return () => {
       window.removeEventListener("pointerdown", closeOutside, true);
       window.removeEventListener("keydown", closeOnEscape);
       window.removeEventListener("resize", onClose);
-      window.removeEventListener("scroll", onClose, true);
+      window.removeEventListener("scroll", closeOnOutsideScroll, true);
     };
   }, [anchor, onClose, open]);
 

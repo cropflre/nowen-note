@@ -1,0 +1,39 @@
+name: Extension V2.1 Productivity Bootstrap
+
+on:
+  push:
+    branches: [release/v1.5.0]
+    paths:
+      - "scripts/bootstrap-productivity-pack-v21.mjs"
+      - ".github/workflows/extension-v2-1-productivity-bootstrap.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  bootstrap:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: release/v1.5.0
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Apply Productivity Pack contribution patch
+        run: node scripts/bootstrap-productivity-pack-v21.mjs
+      - name: Verify patched source syntax
+        run: node --check scripts/bootstrap-productivity-pack-v21.mjs
+      - name: Commit generated implementation
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add backend/src/plugins/types.ts backend/src/plugins/manifest.ts backend/src/plugins/contributions/noteTemplateContribution.ts backend/tests/productivity-contribution.test.ts frontend/src/lib/pluginApi.ts frontend/src/lib/pluginTemplateRegistry.ts frontend/src/lib/pluginPromptRegistry.ts frontend/src/lib/__tests__/pluginProductivityRegistry.test.ts examples/plugins/productivity-pack docs/plugin-platform/note-template-contribution.md docs/plugin-platform/prompt-pack-contribution.md
+          if git diff --cached --quiet; then
+            echo "No changes"
+            exit 0
+          fi
+          git commit -m "feat(extensions): add template and prompt contributions"
+          git push origin HEAD:release/v1.5.0

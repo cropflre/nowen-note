@@ -1,3 +1,6 @@
+import { getOfflineQueueStorageKey } from "./offlineScope";
+import { assertConversionNote, isConversionNoteSafe } from "./encryptedNotes/conversionBarrier";
+import { ConversionCleanupError } from "./encryptedNotes/conversionCoordination";
 import {
   getAllNotebooks,
   getAllNotes,
@@ -126,6 +129,7 @@ async function withFallback<T>(
     hooks.onOnline?.(value);
     return value;
   } catch (error: any) {
+    if (error instanceof ConversionCleanupError) throw error;
     const status = error?.status as number | undefined;
     if (status && status >= 400 && status < 500 && status !== 408 && status !== 429) {
       throw error;
@@ -156,7 +160,7 @@ function matchesActiveWorkspace(value: { workspaceId?: string | null }): boolean
  *
  * 历史实现保存离线附件时曾使用 `blob.size || attachment.size`。如果某次下载得到
  * 0 字节 Blob，它会被伪装成 manifest 的正常大小并长期命中。这里用 Blob 自身的
- * 实际字节数重新校验，发现坏缓存就删除并重新排队，不再污染当前图片渲染。
+ * 实际字节数重新校验，发现坏缓存就删除，后续在线渲染回退到服务端资源。
  */
 async function hydrateValidatedOfflineAttachments(noteId: string): Promise<number> {
   const records = await getOfflineAttachmentsByNote(noteId);
@@ -199,11 +203,15 @@ export function readNotesList(
   online: () => Promise<NoteListItem[]>,
   filter?: (note: Note) => boolean,
 ): Promise<NoteListItem[]> {
+  const scope = getOfflineQueueStorageKey();
   return withFallback(online, async () => {
     const all = await getAllNotes();
     const matched = filter ? all.filter(filter) : all;
     matched.sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1));
     return matched.map(({ content, __detailCached, ...rest }) => rest as unknown as NoteListItem);
+  }).then((notes) => {
+    if (scope !== getOfflineQueueStorageKey()) throw new ConversionCleanupError("scope_changed");
+    return notes.filter(isConversionNoteSafe);
   });
 }
 
@@ -212,6 +220,7 @@ export function readTags(online: () => Promise<Tag[]>): Promise<Tag[]> {
 }
 
 export function readNote(id: string, online: () => Promise<Note>): Promise<Note> {
+  const scope = getOfflineQueueStorageKey();
   return withFallback(
     online,
     async () => {
@@ -236,6 +245,8 @@ export function readNote(id: string, online: () => Promise<Note>): Promise<Note>
     } else {
       clearOfflineAttachmentObjectUrls();
     }
+    if (scope !== getOfflineQueueStorageKey()) throw new ConversionCleanupError("scope_changed");
+    assertConversionNote(note);
     return note;
   });
 }

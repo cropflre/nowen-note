@@ -1,3 +1,4 @@
+import { aiOutboundFetch } from "./ai-outbound-fetch.js";
 /**
  * Embedding Worker — RAG Phase 1
  *
@@ -26,6 +27,7 @@ import { getDb } from "../db/schema";
 import type Database from "better-sqlite3";
 import {
   isVecAvailable,
+  getVecEngineState,
   upsertVectors,
   deleteVectorsByRowids,
   resetVecTable,
@@ -35,11 +37,12 @@ import {
 import { extractAttachmentText, chunkAttachmentText } from "./attachment-indexer";
 import { attachmentChunksRepository, embeddingQueueRepository } from "../repositories";
 import { resolveEmbeddingConfig, type EmbeddingConfig } from "./embedding-config";
+import { EMBEDDING_RETRY_DUE_SQL, MAX_EMBEDDING_RETRIES, embeddingRetryDecision } from "./embedding-retry-policy";
 
 // ====== 调参 ======
 const POLL_INTERVAL_MS = 5_000;          // 轮询间隔（无任务时）
 const BATCH_SIZE = 5;                    // 单轮处理多少条
-const MAX_RETRIES = 3;                   // 单任务最大重试次数
+// Permanent provider errors fail fast; transient errors use bounded retries.
 const MIN_CONTENT_LENGTH = 10;           // 文本短于此长度直接 skip
 const CHUNK_SIZE = 1500;                 // 单 chunk 字符数（粗略，按字符切）
 const MAX_CHUNKS_PER_NOTE = 8;           // 防止超长笔记把队列卡死
@@ -50,6 +53,13 @@ const DEFAULT_DIM = 1536;                // 仅作元数据，实际维度由 pr
 let timer: NodeJS.Timeout | null = null;
 let running = false;            // 是否有 tick 正在执行
 let stopped = false;            // 是否已 stop（防止 tick 在 stop 后再排下一次）
+const providerCooldownUntil = new Map<string, number>();
+function isProviderCoolingDown(userId: string, cfg: EmbeddingConfig): boolean {
+  return (providerCooldownUntil.get(`${userId}:${cfg.url}`) || 0) > Date.now();
+}
+function coolDownProvider(userId: string, cfg: EmbeddingConfig, delaySeconds: number): void {
+  providerCooldownUntil.set(`${userId}:${cfg.url}`, Date.now() + delaySeconds * 1000);
+}
 
 // ============================================================
 // 配置读取
@@ -108,7 +118,7 @@ async function callEmbeddings(
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   if (cfg.apiKey) headers["Authorization"] = `Bearer ${cfg.apiKey}`;
 
-  const res = await fetch(`${cfg.url}/embeddings`, {
+  const res = await aiOutboundFetch(`${cfg.url}/embeddings`, {
     method: "POST",
     headers,
     body: JSON.stringify({ model: cfg.model, input: inputs }),
@@ -147,7 +157,7 @@ async function processOne(
   // 取笔记内容（含 workspaceId，写入 note_embeddings 时同步落表）
   const note = db
     .prepare(
-      "SELECT id, userId, workspaceId, title, contentText, isTrashed FROM notes WHERE id = ?",
+      "SELECT id, userId, workspaceId, title, contentText, contentFormat, isTrashed FROM notes WHERE id = ?",
     )
     .get(task.noteId) as
     | {
@@ -156,11 +166,12 @@ async function processOne(
         workspaceId: string | null;
         title: string;
         contentText: string;
+        contentFormat: string;
         isTrashed: number;
       }
     | undefined;
 
-  if (!note || note.isTrashed) {
+  if (!note || note.isTrashed || note.contentFormat?.startsWith("encrypted-")) {
     // 笔记已不存在或被丢进回收站 → 直接清队列项
     embeddingQueueRepository.deleteByNoteId(task.noteId);
     return;
@@ -404,7 +415,7 @@ async function tick(): Promise<void> {
     const tasks = db.prepare(`
       SELECT q.noteId, q.userId, q.retries
       FROM embedding_queue q
-      WHERE q.status = 'pending' AND q.retries < ?
+      WHERE q.status = 'pending' AND q.retries < ? AND ${EMBEDDING_RETRY_DUE_SQL}
         AND EXISTS (
           SELECT 1 FROM user_ai_settings model
           WHERE model.userId = q.userId
@@ -438,30 +449,24 @@ async function tick(): Promise<void> {
         )
       ORDER BY q.enqueuedAt ASC
       LIMIT ?
-    `).all(MAX_RETRIES, BATCH_SIZE) as Array<{ noteId: string; userId: string; retries: number }>;
+    `).all(MAX_EMBEDDING_RETRIES, BATCH_SIZE) as Array<{ noteId: string; userId: string; retries: number }>;
 
-    if (tasks.length === 0) return;
+    // Continue to process attachments even when the note queue is empty.
 
     for (const task of tasks) {
       const resolution = resolveEmbeddingConfig(task.userId);
-      if (!resolution.config) {
-        embeddingQueueRepository.updateStatus(
-          task.noteId,
-          "failed",
-          MAX_RETRIES,
-          (resolution.error || "Embedding 配置不可用").slice(0, 500),
-        );
-        continue;
-      }
+      if (!resolution.config) continue; // Resume after settings are saved.
       const cfg = resolution.config;
+      if (isProviderCoolingDown(task.userId, cfg)) continue;
       embeddingQueueRepository.markProcessing(task.noteId);
       try {
         await processOne(db, cfg, task);
       } catch (e: any) {
         const msg = (e?.message || String(e)).slice(0, 500);
         const newRetries = task.retries + 1;
-        const newStatus = newRetries >= MAX_RETRIES ? "failed" : "pending";
-        embeddingQueueRepository.updateStatus(task.noteId, newStatus, newRetries, msg);
+        const decision = embeddingRetryDecision(e, newRetries);
+        embeddingQueueRepository.updateStatus(task.noteId, decision.retry ? "pending" : "failed", newRetries, msg);
+        if (decision.retry) coolDownProvider(task.userId, cfg, decision.delaySeconds);
         // 出错后稍微歇一下再继续下一条，避免对 provider 接口连击
         await sleep(500);
       }
@@ -469,12 +474,14 @@ async function tick(): Promise<void> {
   } catch (e) {
     console.warn("[embedding-worker] tick error:", e);
   } finally {
-    running = false;
+    // Keep the tick lock until attachment processing completes to avoid
+    // two overlapping ticks picking the same attachment queue rows.
+    try {
+      await tickAttachments();
+    } finally {
+      running = false;
+    }
   }
-
-  // ---- 附件任务：与笔记任务同一个 tick，共享 BATCH_SIZE 的"大轮询"节奏 ----
-  // 放在 finally 之外的独立 try/catch：笔记分支出错不影响附件分支，反之亦然。
-  await tickAttachments();
 }
 
 async function tickAttachments(): Promise<void> {
@@ -486,7 +493,7 @@ async function tickAttachments(): Promise<void> {
       .prepare(
         `SELECT q.attachmentId, q.userId, q.retries
            FROM attachment_embedding_queue q
-          WHERE q.status = 'pending' AND q.retries < ?
+          WHERE q.status = 'pending' AND q.retries < ? AND ${EMBEDDING_RETRY_DUE_SQL}
             AND EXISTS (
               SELECT 1 FROM user_ai_settings model
               WHERE model.userId = q.userId
@@ -521,40 +528,35 @@ async function tickAttachments(): Promise<void> {
           ORDER BY q.enqueuedAt ASC
           LIMIT ?`,
       )
-      .all(MAX_RETRIES, BATCH_SIZE) as {
+      .all(MAX_EMBEDDING_RETRIES, BATCH_SIZE) as {
       attachmentId: string;
       userId: string;
       retries: number;
     }[];
 
-    if (tasks.length === 0) return;
+    // Continue to process attachments even when the note queue is empty.
 
     const markProcessing = db.prepare(
       "UPDATE attachment_embedding_queue SET status = 'processing', updatedAt = datetime('now') WHERE attachmentId = ?",
     );
     for (const task of tasks) {
       const resolution = resolveEmbeddingConfig(task.userId);
-      if (!resolution.config) {
-        db.prepare(
-          `UPDATE attachment_embedding_queue
-              SET status = 'failed', retries = ?, lastError = ?, updatedAt = datetime('now')
-            WHERE attachmentId = ?`,
-        ).run(MAX_RETRIES, (resolution.error || "Embedding 配置不可用").slice(0, 500), task.attachmentId);
-        continue;
-      }
+      if (!resolution.config) continue;
       const cfg = resolution.config;
+      if (isProviderCoolingDown(task.userId, cfg)) continue;
       markProcessing.run(task.attachmentId);
       try {
         await processAttachmentOne(db, cfg, task);
       } catch (e: any) {
         const msg = (e?.message || String(e)).slice(0, 500);
         const newRetries = task.retries + 1;
-        const newStatus = newRetries >= MAX_RETRIES ? "failed" : "pending";
+        const decision = embeddingRetryDecision(e, newRetries);
         db.prepare(
           `UPDATE attachment_embedding_queue
               SET status = ?, retries = ?, lastError = ?, updatedAt = datetime('now')
             WHERE attachmentId = ?`,
-        ).run(newStatus, newRetries, msg, task.attachmentId);
+        ).run(decision.retry ? "pending" : "failed", newRetries, msg, task.attachmentId);
+        if (decision.retry) coolDownProvider(task.userId, cfg, decision.delaySeconds);
         await sleep(500);
       }
     }
@@ -794,6 +796,7 @@ export function getEmbeddingStats(opts: {
   configured: boolean;
   model: string | null;
   vecAvailable: boolean;
+  vecState: "ready" | "initializing" | "unavailable";
   vecDim: number | null;
 } {
   const db = getDb();
@@ -887,6 +890,7 @@ export function getEmbeddingStats(opts: {
     configured: !!cfg,
     model: cfg?.model || null,
     vecAvailable: isVecAvailable(),
+    vecState: getVecEngineState(),
     vecDim: getVecDim(),
   };
 }

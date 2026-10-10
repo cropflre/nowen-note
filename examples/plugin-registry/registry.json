@@ -1,0 +1,19 @@
+{
+  "plugins": [
+    {
+      "id": "com.example.hello-nowen",
+      "name": "Hello Nowen",
+      "description": "Example registry entry",
+      "latestVersion": "1.0.0",
+      "trustLevel": "community",
+      "versions": [
+        {
+          "version": "1.0.0",
+          "download": "https://example.com/hello-nowen-1.0.0.nowen-plugin",
+          "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+          "nowen": ">=1.5.0 <2.0.0"
+        }
+      ]
+    }
+  ]
+}

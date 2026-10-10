@@ -1,0 +1,69 @@
+name: AI Outbound Proxy CI
+
+on:
+  push:
+    branches: ["release/v1.5.2"]
+    paths:
+      - "backend/src/services/ai-outbound-fetch.ts"
+      - "backend/src/services/ai-client.ts"
+      - "backend/src/services/embedding-worker.ts"
+      - "backend/src/services/embedding-model-discovery.ts"
+      - "backend/src/routes/ai.ts"
+      - "backend/src/routes/user-preferences-legacy.ts"
+      - "backend/tests/ai-outbound-fetch.test.ts"
+      - "backend/package.json"
+      - "backend/package-lock.json"
+      - "frontend/src/components/AISettingsPanel.tsx"
+      - "frontend/src/lib/aiProfiles.ts"
+      - ".github/workflows/ai-outbound-proxy-ci.yml"
+  pull_request:
+    paths:
+      - "backend/src/services/ai-outbound-fetch.ts"
+      - "backend/src/services/ai-client.ts"
+      - "backend/src/services/embedding-model-discovery.ts"
+      - "backend/src/services/embedding-worker.ts"
+      - "backend/src/routes/ai.ts"
+      - "backend/src/routes/user-preferences-legacy.ts"
+      - "backend/tests/ai-outbound-fetch.test.ts"
+      - "frontend/src/components/AISettingsPanel.tsx"
+      - "frontend/src/lib/aiProfiles.ts"
+      - ".github/workflows/ai-outbound-proxy-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  proxy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - run: npm ci --silent
+      - name: AI proxy routing and safety tests
+        run: node --import tsx --test tests/ai-outbound-fetch.test.ts
+      - name: Backend typecheck
+        run: npm run build:tsc -- --pretty false
+  ui:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci --silent
+      - run: npx tsc -b --pretty false

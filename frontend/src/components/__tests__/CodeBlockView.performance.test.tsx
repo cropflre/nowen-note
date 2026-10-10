@@ -107,7 +107,7 @@ describe("CodeBlockView Phase A performance baseline", () => {
       publishEditorEditable(editor);
     });
     expect(events.filter((event) => event.type === "code-block-permission-state-update")).toHaveLength(20);
-    expect(container.querySelectorAll("button[disabled]").length).toBe(40);
+    expect(container.querySelectorAll("button[disabled]").length).toBe(60);
 
     events = [];
     await act(async () => {

@@ -84,7 +84,7 @@ export function ensureWorkspaceDependencies(workspaceDir, label) {
   if (initial.reason) throw new Error(initial.reason)
 
   const installCommand = process.platform === "win32" ? "npm.cmd" : "npm"
-  const installHint = `cd ${JSON.stringify(workspaceDir)} && npm install`
+  const installHint = `cd "${workspaceDir}"${process.platform === "win32" ? ";" : " &&"} npm install`
   if (process.env.NOWEN_DEV_AUTO_INSTALL === "0") {
     throw new Error(
       `${label}依赖未同步（${formatDependencyList(initial)}）。请执行：${installHint}`,
@@ -96,6 +96,7 @@ export function ensureWorkspaceDependencies(workspaceDir, label) {
   const result = spawnSync(installCommand, ["install", "--no-audit", "--no-fund"], {
     cwd: workspaceDir,
     stdio: "inherit",
+    shell: process.platform === "win32",
     windowsHide: false,
   })
   if (result.error || result.status !== 0) {

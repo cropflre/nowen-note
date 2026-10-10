@@ -1,31 +1,48 @@
 import React, { useState, useRef, useEffect, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { Palette, Shield, Database, X, Settings, Camera, Save, Loader2, Trash2, Upload, Type, Check, ChevronDown, Globe, Bot, Users, Info, ExternalLink, Heart, Sparkles, RefreshCw, ZoomIn, Key, Keyboard, Building2, BookOpen, ToggleLeft, Download, FolderSync, CloudDownload, Mail } from "lucide-react";
+import { Palette, Shield, Database, X, Settings, Camera, Save, Loader2, Trash2, Upload, Type, Check, ChevronDown, Globe, Bot, Users, Info, ExternalLink, Heart, Sparkles, RefreshCw, ZoomIn, Key, Keyboard, Building2, BookOpen, ToggleLeft, Download, FolderSync, Mail, Puzzle, Workflow, GripVertical, ArrowUp, ArrowDown } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import wechatSponsorQr from "@/assets/sponsor/weixin.jpg";
 import alipaySponsorQr from "@/assets/sponsor/zhifubao.png";
+import qqGroupQr from "@/assets/feedback/qq-group.jpg";
+import communityQr from "@/assets/community/nowen-lab-wechat.jpg";
 import ThemeToggle from "@/components/ThemeToggle";
 import SkinSwitcher from "@/components/SkinSwitcher";
 import SecuritySettings from "@/components/SecuritySettings";
 import TokenManagement from "@/components/TokenManagement";
 import DataManager from "@/components/DataManager";
 import FolderSyncSettings from "@/components/settings/FolderSyncSettings";
-import OfflineSyncSettings from "@/components/settings/OfflineSyncSettings";
+import SyncSettingsTab from "@/components/settings/SyncSettingsTab";
+import MobileAccountSettings from "@/components/settings/MobileAccountSettings";
+import { isAndroidNativeRuntime, isMobileLocalMode } from "@/lib/mobileLocalMode";
 import ShortcutSettingsPanel from "@/components/settings/ShortcutSettingsPanel";
+import PluginSettingsTab from "@/components/settings/plugins/PluginSettingsTab";
+import AutomationCenter from "@/components/automation/AutomationCenter";
 import AISettingsPanel from "@/components/AISettingsPanel";
 import UserManagement from "@/components/UserManagement";
 import WorkspaceManagement from "@/components/WorkspaceManagement";
 import WhatsNewModal from "@/components/WhatsNewModal";
 import AuthorStoryModal from "@/components/AuthorStoryModal";
 import DownloadPanel from "@/components/DownloadPanel";
+import JournalPrivacySettingsCard from "@/components/settings/JournalPrivacySettingsCard";
 import { useSiteSettings, BUILTIN_FONTS, getBuiltinFontName } from "@/hooks/useSiteSettings";
 import { useUserPreferences } from "@/hooks/useUserPreferences";
+import { useApp, useAppActions } from "@/store/AppContext";
+import { useMobileRailHidden } from "@/hooks/useMobileRailHidden";
+import { useSidebarTextStyle } from "@/hooks/useSidebarTextStyle";
 import { api } from "@/lib/api";
 import { isDesktop, checkForUpdates, onUpdaterStatus, getReleaseChannel, isPortableDesktop, getAppInfo, setDesktopHideMenuBar as setDesktopHideMenuBarPreference, type UpdaterPayload } from "@/lib/desktopBridge";
 import { CustomFont } from "@/types";
 import { cn } from "@/lib/utils";
 import { detectShortcutSurface } from "@/lib/shortcutRegistry";
+import {
+  moveNavigationModule,
+  moveNavigationModuleByOffset,
+  normalizeNavigationModuleOrder,
+  type NavigationModuleId,
+  type TaskCenterOptionalModuleId,
+} from "@/lib/navigationVisibility";
 import {
   DESKTOP_KNOWLEDGE_TREE_VIEW_MODE_CHANGED_EVENT,
   DESKTOP_KNOWLEDGE_TREE_VIEW_MODE_STORAGE_KEY,
@@ -43,7 +60,7 @@ import {
   type MobileKnowledgeTreeViewMode,
 } from "@/lib/mobileKnowledgeTreeViewMode";
 
-type TabId = "appearance" | "switches" | "shortcuts" | "ai" | "security" | "tokens" | "data" | "offlineSync" | "folderSync" | "users" | "workspaces" | "download" | "about";
+type TabId = "appearance" | "switches" | "shortcuts" | "ai" | "plugins" | "automations" | "security" | "tokens" | "data" | "sync" | "folderSync" | "users" | "workspaces" | "download" | "about";
 
 interface SettingsModalProps {
   onClose: () => void;
@@ -398,12 +415,14 @@ function AboutPanel() {
   const { t } = useTranslation();
   const feedbackEmail = "nowenlab@qq.com";
   const feedbackMailto = `mailto:${feedbackEmail}?subject=${encodeURIComponent("[Nowen Note 反馈]")}`;
+  const feedbackQqGroupNumber = "1093473044";
   const [showSponsor, setShowSponsor] = useState(false);
   const [sponsorMethod, setSponsorMethod] = useState<"wechat" | "alipay">("wechat");
   const [showWhatsNew, setShowWhatsNew] = useState(false);
   const [showAuthorStory, setShowAuthorStory] = useState(false);
   // 赞赏码大图预览：点击赞赏码缩略图时弹起 Lightbox
   const [sponsorPreviewOpen, setSponsorPreviewOpen] = useState(false);
+  const [feedbackQqPreviewOpen, setFeedbackQqPreviewOpen] = useState(false);
   const sponsorImage = sponsorMethod === "wechat" ? wechatSponsorQr : alipaySponsorQr;
   const sponsorLabel = sponsorMethod === "wechat"
     ? t('about.sponsorWechat')
@@ -462,6 +481,25 @@ function AboutPanel() {
           <ExternalLink size={12} />
           {t('about.github')}
         </a>
+      </div>
+
+      {/* Nowen 开源实验室公众号 */}
+      <div className="flex items-center justify-between gap-4 p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-800/30">
+        <div className="min-w-0">
+          <div className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
+            {t('about.communityQrTitle')}
+          </div>
+          <div className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
+            {t('about.communityQrDesc')}
+          </div>
+        </div>
+        <img
+          src={communityQr}
+          alt={t('about.communityQrTitle')}
+          className="w-28 h-28 object-contain rounded-lg bg-white p-1 shrink-0"
+          loading="lazy"
+          draggable={false}
+        />
       </div>
 
       {/* 更新日志 */}
@@ -539,6 +577,43 @@ function AboutPanel() {
           </div>
         </div>
       </a>
+
+      {/* QQ 群反馈 */}
+      <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-800/30 overflow-hidden">
+        <div className="flex items-center justify-between gap-3 p-4">
+          <div className="flex items-center gap-3 min-w-0">
+            <span className="flex items-center justify-center w-8 h-8 rounded-lg bg-sky-500/10 text-sky-500 shrink-0">
+              <Users size={16} />
+            </span>
+            <div className="min-w-0">
+              <div className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
+                {t('about.feedbackQqGroup')}
+              </div>
+              <div className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
+                {t('about.feedbackQqGroupDesc')}
+              </div>
+              <div className="text-xs font-medium text-zinc-600 dark:text-zinc-300 mt-1">
+                {t('about.feedbackQqGroupNumber', { number: feedbackQqGroupNumber })}
+              </div>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setFeedbackQqPreviewOpen(true)}
+            className="shrink-0 rounded-lg overflow-hidden cursor-zoom-in focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
+            title={t('about.feedbackQqGroup')}
+            aria-label={t('about.feedbackQqGroup')}
+          >
+            <img
+              src={qqGroupQr}
+              alt={t('about.feedbackQqGroupNumber', { number: feedbackQqGroupNumber })}
+              className="w-16 h-16 object-cover bg-white p-1"
+              loading="lazy"
+              draggable={false}
+            />
+          </button>
+        </div>
+      </div>
 
       {/* 支持作者 / 打赏 */}
       <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-800/30 overflow-hidden">
@@ -659,6 +734,14 @@ function AboutPanel() {
         onClose={() => setShowAuthorStory(false)}
       />
 
+      {feedbackQqPreviewOpen && (
+        <ImageLightbox
+          src={qqGroupQr}
+          alt={t('about.feedbackQqGroupNumber', { number: feedbackQqGroupNumber })}
+          onClose={() => setFeedbackQqPreviewOpen(false)}
+        />
+      )}
+
       {/* 赞赏码大图预览 Lightbox */}
       {sponsorPreviewOpen && (
         <ImageLightbox
@@ -673,18 +756,22 @@ function AboutPanel() {
 
 function SwitchesPanel() {
   const { t } = useTranslation();
+  const { state } = useApp();
+  const actions = useAppActions();
   const { prefs: userPrefs, setPref: setUserPref } = useUserPreferences();
   const [isAdmin, setIsAdmin] = useState(false);
   const [webUiEnabled, setWebUiEnabled] = useState(false);
   const [desktopHideMenuBar, setDesktopHideMenuBar] = useState(true);
   const [desktopPlatform, setDesktopPlatform] = useState<string | null>(null);
   const [savingKey, setSavingKey] = useState<string | null>(null);
+  const [draggedNavigationModule, setDraggedNavigationModule] = useState<NavigationModuleId | null>(null);
   const [mobileKnowledgeTreeMode, setMobileKnowledgeTreeMode] = useState<MobileKnowledgeTreeViewMode>(
     () => loadMobileKnowledgeTreeViewMode(),
   );
   const [mobileKnowledgeTreeCompact, setMobileKnowledgeTreeCompact] = useState(
     () => loadMobileKnowledgeTreeCompact(),
   );
+  const [mobileRailHidden, setMobileRailHidden] = useMobileRailHidden();
   const [desktopKnowledgeTreeMode, setDesktopKnowledgeTreeMode] = useState<DesktopKnowledgeTreeViewMode>(
     () => loadDesktopKnowledgeTreeViewMode(),
   );
@@ -695,6 +782,70 @@ function SwitchesPanel() {
     { value: "preview" as const, label: t("markdown.view.preview") },
     { value: "split" as const, label: t("markdown.view.split") },
   ];
+  const navigationVisibilityItems: Array<{ id: NavigationModuleId; label: string }> = [
+    { id: "notifications", label: t("sidebar.notifications") },
+    { id: "favorites", label: t("sidebar.favorites") },
+    { id: "files", label: t("sidebar.fileManager") },
+    { id: "diary", label: t("sidebar.dailyRecords", { defaultValue: "每日记录" }) },
+    { id: "tasks", label: t("sidebar.tasks") },
+    { id: "mindmaps", label: t("sidebar.mindMaps") },
+    { id: "ai-chat", label: t("sidebar.aiChat") },
+    { id: "shares", label: t("sidebar.shareManagement") },
+  ];
+  const navigationItemById = new Map(navigationVisibilityItems.map((item) => [item.id, item]));
+  const orderedNavigationVisibilityItems = normalizeNavigationModuleOrder(userPrefs.navigationModuleOrder)
+    .map((id) => navigationItemById.get(id))
+    .filter((item): item is { id: NavigationModuleId; label: string } => !!item);
+  const taskCenterVisibilityItems: Array<{ id: TaskCenterOptionalModuleId; label: string }> = [
+    { id: "inbox", label: t("tasks.inbox", { defaultValue: "收集箱" }) },
+    { id: "my-day", label: t("tasks.myDay", { defaultValue: "我的一天" }) },
+    { id: "planner", label: t("tasks.timePlanning", { defaultValue: "时间规划" }) },
+    { id: "habits", label: t("habits.title") },
+    { id: "stats", label: t("stats.title") },
+  ];
+
+  const setNavigationModuleVisible = (id: NavigationModuleId, visible: boolean) => {
+    const hidden = userPrefs.hiddenNavigationModules;
+    setUserPref(
+      "hiddenNavigationModules",
+      visible
+        ? hidden.filter((item) => item !== id)
+        : Array.from(new Set([...hidden, id])),
+    );
+
+    // Hiding is a presentation preference, not an access-control rule. Only
+    // leave the currently open module when the user explicitly hides that
+    // exact entry here; later deep links can still open hidden modules.
+    if (!visible && state.viewMode === id) {
+      actions.setViewMode("all");
+    }
+  };
+
+  const moveNavigationEntry = (id: NavigationModuleId, offset: -1 | 1) => {
+    setUserPref(
+      "navigationModuleOrder",
+      moveNavigationModuleByOffset(userPrefs.navigationModuleOrder, id, offset),
+    );
+  };
+
+  const dropNavigationEntry = (targetId: NavigationModuleId) => {
+    if (!draggedNavigationModule) return;
+    setUserPref(
+      "navigationModuleOrder",
+      moveNavigationModule(userPrefs.navigationModuleOrder, draggedNavigationModule, targetId),
+    );
+    setDraggedNavigationModule(null);
+  };
+
+  const setTaskCenterModuleVisible = (id: TaskCenterOptionalModuleId, visible: boolean) => {
+    const hidden = userPrefs.hiddenTaskCenterModules;
+    setUserPref(
+      "hiddenTaskCenterModules",
+      visible
+        ? hidden.filter((item) => item !== id)
+        : Array.from(new Set([...hidden, id])),
+    );
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -821,6 +972,11 @@ function SwitchesPanel() {
       label: t('settings.enableNoteTabs'),
       hint: t('settings.enableNoteTabsDesc'),
     },
+    {
+      key: "showNoteListDividers" as const,
+      label: t('settings.showNoteListDividers'),
+      hint: t('settings.showNoteListDividersDesc'),
+    },
   ];
 
   return (
@@ -831,11 +987,132 @@ function SwitchesPanel() {
         </h3>
         <p className="text-sm text-zinc-500 dark:text-zinc-400">
           {t('settings.switchesDesc')}
+          {isAndroidNativeRuntime() && " · 编辑器与导航偏好随账号同步；布局选项仅作用于当前设备。"}
         </p>
       </div>
 
+      <div className="space-y-3">
+        <div>
+          <div className="text-sm font-semibold text-zinc-800 dark:text-zinc-200">
+            {t("settings.navigationVisibilityTitle")}
+          </div>
+          <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+            {t("settings.navigationVisibilityDesc")}
+            {isAndroidNativeRuntime() && " · 开启同步后随账号保存"}
+          </p>
+        </div>
+        <div className="space-y-1.5" data-navigation-module-order-list="">
+          {orderedNavigationVisibilityItems.map((item, index) => (
+            <div
+              key={item.id}
+              draggable
+              data-navigation-module-order-item={item.id}
+              onDragStart={() => setDraggedNavigationModule(item.id)}
+              onDragEnd={() => setDraggedNavigationModule(null)}
+              onDragOver={(event) => {
+                event.preventDefault();
+                event.dataTransfer.dropEffect = "move";
+              }}
+              onDrop={(event) => {
+                event.preventDefault();
+                dropNavigationEntry(item.id);
+              }}
+              className={cn(
+                "flex items-center gap-2 rounded-lg border border-zinc-200 bg-white/70 px-2.5 py-2 text-xs text-zinc-700 transition-colors dark:border-zinc-800 dark:bg-zinc-900/40 dark:text-zinc-300",
+                draggedNavigationModule === item.id && "opacity-50 ring-1 ring-accent-primary/40",
+              )}
+            >
+              <GripVertical size={14} className="shrink-0 cursor-grab text-zinc-400 active:cursor-grabbing" aria-hidden />
+              <input
+                type="checkbox"
+                checked={!userPrefs.hiddenNavigationModules.includes(item.id)}
+                onChange={(event) => setNavigationModuleVisible(item.id, event.target.checked)}
+                className="h-3.5 w-3.5 shrink-0 accent-indigo-600"
+                aria-label={item.label}
+              />
+              <span className="min-w-0 flex-1 truncate">{item.label}</span>
+              <button
+                type="button"
+                disabled={index === 0}
+                onClick={() => moveNavigationEntry(item.id, -1)}
+                className="flex h-6 w-6 items-center justify-center rounded text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 disabled:opacity-25 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+                title={t("settings.navigationMoveUp", { defaultValue: "上移" })}
+                aria-label={t("settings.navigationMoveUp", { defaultValue: "上移" })}
+              >
+                <ArrowUp size={13} />
+              </button>
+              <button
+                type="button"
+                disabled={index === orderedNavigationVisibilityItems.length - 1}
+                onClick={() => moveNavigationEntry(item.id, 1)}
+                className="flex h-6 w-6 items-center justify-center rounded text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 disabled:opacity-25 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+                title={t("settings.navigationMoveDown", { defaultValue: "下移" })}
+                aria-label={t("settings.navigationMoveDown", { defaultValue: "下移" })}
+              >
+                <ArrowDown size={13} />
+              </button>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="space-y-3">
+        <div>
+          <div className="text-sm font-semibold text-zinc-800 dark:text-zinc-200">
+            {t("settings.taskCenterVisibilityTitle")}
+          </div>
+          <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+            {t("settings.taskCenterVisibilityDesc")}
+          </p>
+        </div>
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+          {taskCenterVisibilityItems.map((item) => (
+            <label key={item.id} className="flex items-center gap-2 rounded-lg border border-zinc-200 bg-white/70 px-3 py-2 text-xs text-zinc-700 transition-colors hover:border-accent-primary/40 dark:border-zinc-800 dark:bg-zinc-900/40 dark:text-zinc-300">
+              <input
+                type="checkbox"
+                checked={!userPrefs.hiddenTaskCenterModules.includes(item.id)}
+                onChange={(event) => setTaskCenterModuleVisible(item.id, event.target.checked)}
+                className="h-3.5 w-3.5 accent-indigo-600"
+              />
+              <span className="truncate">{item.label}</span>
+            </label>
+          ))}
+        </div>
+      </div>
+
+      <JournalPrivacySettingsCard />
+
       <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-800/30 divide-y divide-zinc-200 dark:divide-zinc-800 overflow-hidden">
-        <div className="flex items-center justify-between gap-3 px-3 py-2.5 hover:bg-white/60 dark:hover:bg-zinc-900/25 transition-colors max-sm:flex-col max-sm:items-stretch">
+        <div data-settings-choice="remote-image-paste" className="flex items-center justify-between gap-3 px-3 py-2.5 hover:bg-white/60 dark:hover:bg-zinc-900/25 transition-colors max-sm:flex-col max-sm:items-stretch">
+          <div className="flex-1 min-w-0">
+            <div className="text-xs font-medium text-zinc-800 dark:text-zinc-200 leading-none">
+              {t("settings.remoteImagePasteMode")}
+            </div>
+            <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-1 leading-snug">
+              {t("settings.remoteImagePasteModeDesc")}
+            </p>
+          </div>
+          <div role="group" aria-label={t("settings.remoteImagePasteMode")} className="flex items-center gap-1 p-1 rounded-lg bg-zinc-100 dark:bg-zinc-800 flex-shrink-0 max-sm:w-full">
+            {(["localize", "ask", "keep-remote"] as const).map((mode) => (
+              <button
+                key={mode}
+                type="button"
+                aria-pressed={userPrefs.remoteImagePasteMode === mode}
+                onClick={() => setUserPref("remoteImagePasteMode", mode)}
+                className={cn(
+                  "px-2.5 py-1 rounded-md text-xs font-medium transition-colors whitespace-nowrap max-sm:flex-1",
+                  userPrefs.remoteImagePasteMode === mode
+                    ? "bg-white dark:bg-zinc-700 text-accent-primary shadow-sm"
+                    : "text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-300",
+                )}
+              >
+                {t(`settings.remoteImagePasteMode_${mode}`)}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div data-settings-choice="markdown-default-view" className="flex items-center justify-between gap-3 px-3 py-2.5 hover:bg-white/60 dark:hover:bg-zinc-900/25 transition-colors max-sm:flex-col max-sm:items-stretch">
           <div className="flex-1 min-w-0">
             <div className="text-xs font-medium text-zinc-800 dark:text-zinc-200 leading-none">
               {t("settings.markdownDefaultViewMode")}
@@ -863,6 +1140,40 @@ function SwitchesPanel() {
           </div>
         </div>
 
+        <div
+          data-settings-choice="code-block-collapse"
+          data-settings-code-block-collapse=""
+          className="flex items-center justify-between gap-3 px-3 py-2.5 hover:bg-white/60 dark:hover:bg-zinc-900/25 transition-colors max-sm:flex-col max-sm:items-stretch"
+        >
+          <div className="flex-1 min-w-0">
+            <div className="text-xs font-medium text-zinc-800 dark:text-zinc-200 leading-none">
+              {t("settings.codeBlockCollapseMode")}
+            </div>
+            <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-1 leading-snug">
+              {t("settings.codeBlockCollapseModeDesc")}
+            </p>
+          </div>
+          <div role="group" aria-label={t("settings.codeBlockCollapseMode")} className="flex items-center gap-1 p-1 rounded-lg bg-zinc-100 dark:bg-zinc-800 flex-shrink-0 max-sm:w-full">
+            {(["expanded", "long", "collapsed"] as const).map((mode) => (
+              <button
+                key={mode}
+                type="button"
+                aria-pressed={userPrefs.codeBlockCollapseMode === mode}
+                onClick={() => setUserPref("codeBlockCollapseMode", mode)}
+                className={cn(
+                  "px-2.5 py-1 rounded-md text-xs font-medium transition-colors whitespace-nowrap max-sm:flex-1",
+                  userPrefs.codeBlockCollapseMode === mode
+                    ? "bg-white dark:bg-zinc-700 text-accent-primary shadow-sm"
+                    : "text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-300",
+                )}
+              >
+                {t(`settings.codeBlockCollapseMode_${mode}`)}
+              </button>
+            ))}
+          </div>
+        </div>
+
+
         {switches.map((item) => (
           <label key={item.key} className="flex items-start gap-2.5 px-3 py-2.5 cursor-pointer hover:bg-white/60 dark:hover:bg-zinc-900/25 transition-colors">
             <input
@@ -883,6 +1194,27 @@ function SwitchesPanel() {
         ))}
 
         <label
+          data-settings-switch="mobile-rail-hidden"
+          className="flex items-start gap-2.5 px-3 py-2.5 cursor-pointer hover:bg-white/60 dark:hover:bg-zinc-900/25 transition-colors"
+        >
+          <input
+            type="checkbox"
+            checked={mobileRailHidden}
+            onChange={(event) => setMobileRailHidden(event.target.checked)}
+            className="mt-0.5 w-3.5 h-3.5 accent-indigo-600 cursor-pointer"
+          />
+          <div className="flex-1 min-w-0">
+            <div className="text-xs font-medium text-zinc-800 dark:text-zinc-200 leading-none">
+              {t("settings.mobileRailHidden")}
+            </div>
+            <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-1 leading-snug">
+              {t("settings.mobileRailHiddenDesc")}
+              {" · 仅此设备，不随账号同步"}
+            </p>
+          </div>
+        </label>
+
+        <label
           data-settings-switch="mobile-knowledge-tree"
           className="flex items-start gap-2.5 px-3 py-2.5 cursor-pointer hover:bg-white/60 dark:hover:bg-zinc-900/25 transition-colors"
         >
@@ -898,6 +1230,7 @@ function SwitchesPanel() {
             </div>
             <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-1 leading-snug">
               {t("settings.mobileKnowledgeTreeModeDesc")}
+              {" · 仅此设备，不随账号同步"}
             </p>
           </div>
         </label>
@@ -918,6 +1251,7 @@ function SwitchesPanel() {
             </div>
             <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-1 leading-snug">
               {t("settings.mobileKnowledgeTreeCompactDesc")}
+              {" · 仅此设备，不随账号同步"}
             </p>
           </div>
         </label>
@@ -938,6 +1272,7 @@ function SwitchesPanel() {
             </div>
             <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-1 leading-snug">
               {t("settings.desktopKnowledgeTreeModeDesc")}
+              {" · 仅此设备，不随账号同步"}
             </p>
           </div>
         </label>
@@ -992,8 +1327,10 @@ function AppearancePanel() {
   const { t, i18n } = useTranslation();
   const { siteConfig, updateSiteConfig, updateEditorFont } = useSiteSettings();
   const { prefs: userPrefs, setPref: setUserPref } = useUserPreferences();
+  const [sidebarTextStyle, setSidebarTextStyle] = useSidebarTextStyle();
   const [title, setTitle] = useState(siteConfig.title);
   const [previewIcon, setPreviewIcon] = useState(siteConfig.favicon);
+  const [shareFooterText, setShareFooterText] = useState(siteConfig.shareFooterText);
   const [isSaving, setIsSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -1066,7 +1403,8 @@ function AppearancePanel() {
     setIsSaving(true);
     setSaveMessage("");
     try {
-      await updateSiteConfig(title.trim(), previewIcon);
+      await updateSiteConfig(title.trim(), previewIcon, shareFooterText.trim());
+      setShareFooterText(shareFooterText.trim());
       setSaveMessage(t('settings.saveSuccess'));
       setTimeout(() => setSaveMessage(""), 2000);
     } catch {
@@ -1076,7 +1414,7 @@ function AppearancePanel() {
     }
   };
 
-  const hasChanges = title !== siteConfig.title || previewIcon !== siteConfig.favicon;
+  const hasChanges = title !== siteConfig.title || previewIcon !== siteConfig.favicon || shareFooterText !== siteConfig.shareFooterText;
 
   // 当前字体的显示名
   const currentFontName = (() => {
@@ -1207,6 +1545,22 @@ function AppearancePanel() {
               <p className="text-[10px] text-zinc-400 dark:text-zinc-500 text-right">{title.length} / 20</p>
             </div>
 
+            <div className="space-y-1.5">
+              <label htmlFor="site-share-footer-text" className="text-xs font-medium text-zinc-500 dark:text-zinc-400">{t('settings.shareFooterText')}</label>
+              <input
+                id="site-share-footer-text"
+                type="text"
+                value={shareFooterText}
+                onChange={(e) => { setShareFooterText(e.target.value); setSaveMessage(""); }}
+                maxLength={100}
+                disabled={!isAdmin}
+                className="w-full px-3 py-2 bg-transparent border border-zinc-200 dark:border-zinc-800 rounded-lg text-sm text-zinc-900 dark:text-zinc-100 focus:ring-2 focus:ring-accent-primary/40 focus:border-accent-primary outline-none transition-all placeholder:text-zinc-400 disabled:opacity-60 disabled:cursor-not-allowed"
+                placeholder="通过 Nowen Note 分享"
+              />
+              <p className="text-[10px] text-zinc-400 dark:text-zinc-500">{t('settings.shareFooterTextHint')}</p>
+              <p className="text-[10px] text-zinc-400 dark:text-zinc-500 text-right">{shareFooterText.length} / 100</p>
+            </div>
+
             {isAdmin && (
               <div className="flex items-center gap-3">
                 <button
@@ -1257,6 +1611,31 @@ function AppearancePanel() {
             <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">{t('settings.themeModeDesc')}</p>
           </div>
           <ThemeToggle />
+        </div>
+
+        <div className="flex items-center justify-between gap-4 p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-800/30 max-sm:flex-col max-sm:items-stretch">
+          <div className="min-w-0">
+            <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">{t('settings.sidebarTextStyle')}</span>
+            <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">{t('settings.sidebarTextStyleDesc')}</p>
+          </div>
+          <div role="group" aria-label={t('settings.sidebarTextStyle')} className="flex shrink-0 gap-1 rounded-lg bg-zinc-100 p-1 dark:bg-zinc-800">
+            {(["readable", "classic"] as const).map((style) => (
+              <button
+                key={style}
+                type="button"
+                aria-pressed={sidebarTextStyle === style}
+                onClick={() => setSidebarTextStyle(style)}
+                className={cn(
+                  "rounded-md px-3 py-1 text-xs font-medium transition-colors",
+                  sidebarTextStyle === style
+                    ? "bg-white text-accent-primary shadow-sm dark:bg-zinc-700"
+                    : "text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200",
+                )}
+              >
+                {t(style === "readable" ? 'settings.sidebarTextReadable' : 'settings.sidebarTextClassic')}
+              </button>
+            ))}
+          </div>
         </div>
 
         {/* 编辑器字体 - 可交互 */}
@@ -1412,7 +1791,7 @@ function AppearancePanel() {
           </div>
         </div>
 
-        {/* 阅读密度：影响编辑器正文段落与列表项的纵向间距/行高（per-device 偏好） */}
+        {/* 阅读密度：影响编辑器正文段落与列表项的纵向间距/行高（账号同步偏好） */}
         <div className="flex items-center justify-between p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-800/30">
           <div className="min-w-0 pr-3">
             <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
@@ -1420,6 +1799,7 @@ function AppearancePanel() {
             </span>
             <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
               {t('settings.readingDensityDesc', { defaultValue: '调节正文段落和列表项的纵向间距，紧凑模式更省空间。' })}
+              {isAndroidNativeRuntime() && " · 开启同步后随账号保存"}
             </p>
           </div>
           <div className="flex items-center gap-1 p-1 rounded-lg bg-zinc-100 dark:bg-zinc-800 flex-shrink-0">
@@ -1443,6 +1823,43 @@ function AppearancePanel() {
           </div>
         </div>
 
+        {/* 编辑器字号：账号级显示偏好，不改写笔记内容中的字号格式 */}
+        <div className="flex items-center justify-between gap-4 p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-800/30 max-sm:flex-col max-sm:items-stretch">
+          <div className="min-w-0">
+            <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
+              {t('settings.editorFontSize', { defaultValue: '编辑器默认字号' })}
+            </span>
+            <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
+              {t('settings.editorFontSizeDesc', { defaultValue: '影响富文本正文、Markdown 源码和预览，仅改变显示，不修改笔记内容。' })}
+            </p>
+          </div>
+          <div
+            role="group"
+            aria-label={t('settings.editorFontSize', { defaultValue: '编辑器默认字号' })}
+            className="grid grid-cols-4 gap-1 p-1 rounded-lg bg-zinc-100 dark:bg-zinc-800 flex-shrink-0 sm:grid-cols-7"
+          >
+            {([
+              { value: 0 as const, label: t('settings.fontSizeDefault', { defaultValue: '默认' }) },
+              ...([14, 16, 18, 20, 22, 24] as const).map(value => ({ value, label: String(value) })),
+            ]).map(option => (
+              <button
+                key={option.value}
+                type="button"
+                aria-pressed={userPrefs.editorFontSize === option.value}
+                onClick={() => setUserPref("editorFontSize", option.value)}
+                className={cn(
+                  "min-w-8 rounded-md px-2 py-1 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary/50 max-sm:min-h-10",
+                  userPrefs.editorFontSize === option.value
+                    ? "bg-white dark:bg-zinc-700 text-accent-primary shadow-sm"
+                    : "text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-300"
+                )}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
         {/*
          * 个人空间导入/导出的功能开关已下沉为 per-user 字段
          * （users.personalExportEnabled / personalImportEnabled，schema v6 起）。
@@ -1460,12 +1877,12 @@ const SettingsModal = React.forwardRef<HTMLDivElement, SettingsModalProps>(
   const [activeTab, setActiveTab] = useState<TabId>(defaultTab);
   const { siteConfig } = useSiteSettings();
   const shortcutSurface = detectShortcutSurface();
-  const [currentUser, setCurrentUser] = useState<{ id: string; role?: string } | null>(null);
+  const [currentUser, setCurrentUser] = useState<{ id: string; role?: string; username?: string; displayName?: string | null } | null>(null);
 
   const fetchCurrentUser = useCallback(() => {
     let cancelled = false;
     api.getMe()
-      .then((u) => { if (!cancelled) setCurrentUser({ id: u.id, role: (u as any).role }); })
+      .then((u) => { if (!cancelled) setCurrentUser({ id: u.id, role: (u as any).role, username: u.username, displayName: u.displayName }); })
       .catch(() => { if (!cancelled) setCurrentUser(null); });
     return () => { cancelled = true; };
   }, []);
@@ -1495,21 +1912,20 @@ const SettingsModal = React.forwardRef<HTMLDivElement, SettingsModalProps>(
     { id: "switches" as const, label: t('settings.switches'), icon: ToggleLeft },
     ...(shortcutSurface !== "android" ? [{ id: "shortcuts" as const, label: "快捷键", icon: Keyboard }] : []),
     { id: "ai" as const, label: t('settings.ai'), icon: Bot },
-    { id: "security" as const, label: t('settings.security'), icon: Shield },
+    { id: "plugins" as const, label: "插件", icon: Puzzle },
+    { id: "automations" as const, label: "自动化", icon: Workflow },
+    { id: "security" as const, label: isAndroidNativeRuntime() ? t("mobileAccount.accountAndSecurity") : t('settings.security'), icon: Shield },
     // 【个人访问令牌】任意登录用户都可管理自己的 token；与 security 同为"账号安全"类别，
     // 不需要 isAdmin 判定。
     { id: "tokens" as const, label: t('settings.tokens', { defaultValue: '访问令牌' }), icon: Key },
     ...(isAdmin ? [{ id: "users" as const, label: t('settings.users'), icon: Users }] : []),
     ...(isAdmin ? [{ id: "workspaces" as const, label: t('settings.workspaces'), icon: Building2 }] : []),
-    // 「数据管理」面板：
-    //   - 管理员：展示三个一级 tab（个人空间 / 工作区 / 系统），包含跨用户/全库范围
-    //     的高危操作（备份、灾难恢复、工厂重置、SQLite 文件级导入导出等）；
-    //   - 普通用户：DataManager 内部只渲染"个人空间"scope 的导出/导入 —— 这是
-    //     用户对自己数据的基本自主权。是否可用再叠加后端下发的 feature flag
-    //     （personalExport/Import Enabled），由管理员集中控制。
-    //   组件内部也做了一层防御性闸门，防止用户从深链绕过这里直达 admin-only 区域。
+    // 三端共用数据管理：先呈现备份/恢复/导入/导出目标，再按权限展示范围及高级操作。
     { id: "data" as const, label: t('settings.dataManagement'), icon: Database },
-    { id: "offlineSync" as const, label: "离线同步", icon: CloudDownload },
+    // 「同步」：Local-first 多设备同步（Sync V2）。产品层只呈现
+    // 「不同步，仅此设备」/「我的 Nowen Server」，不暴露 Full/Lite/SQLite 概念。
+    // Flag 关闭时组件内部会自行降级为一句说明，不需要在这里做条件渲染。
+    { id: "sync" as const, label: isAndroidNativeRuntime() ? "数据与同步" : "同步", icon: RefreshCw },
     // 「文件夹同步」：桌面端专属，Phase B 只做配置 CRUD
     ...((window as any).nowenDesktop?.isDesktop ? [{ id: "folderSync" as const, label: t('folderSync.title'), icon: FolderSync }] : []),
     // 「下载客户端」面板：面向所有用户（含未登录、本地、云端）。需求背景：
@@ -1547,7 +1963,7 @@ const SettingsModal = React.forwardRef<HTMLDivElement, SettingsModalProps>(
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      className="fixed inset-0 z-50 flex items-center justify-center p-0 md:p-4 md:sm:p-6"
+      className="fixed inset-0 z-50 flex min-h-0 items-center justify-center overflow-hidden p-0 md:p-4 md:sm:p-6"
       // data-swipe-blocker：让 App.tsx::useSwipeGesture 在本子树内的 touchstart 上主动跳过
       // 判定。整个 portal 子树（含移动端 tab 栏 / panel 内容）一并受保护。
       data-swipe-blocker="settings-modal"
@@ -1572,7 +1988,7 @@ const SettingsModal = React.forwardRef<HTMLDivElement, SettingsModalProps>(
         animate={{ opacity: 1, scale: 1, y: 0 }}
         exit={{ opacity: 0, scale: 0.95, y: 10 }}
         transition={{ type: "spring", duration: 0.5, bounce: 0 }}
-        className="relative w-full max-w-4xl h-[80vh] min-h-[500px] flex flex-col md:flex-row overflow-hidden bg-white dark:bg-zinc-950 rounded-2xl shadow-2xl border border-zinc-200 dark:border-zinc-800 max-md:h-[100dvh] max-md:max-w-none max-md:rounded-none max-md:border-0"
+        className="relative flex h-[80dvh] max-h-[calc(100dvh-3rem)] min-h-0 w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-2xl dark:border-zinc-800 dark:bg-zinc-950 md:flex-row max-md:h-[100dvh] max-md:max-h-[100dvh] max-md:max-w-none max-md:rounded-none max-md:border-0"
         style={{ touchAction: "pan-y pinch-zoom" }}
         onClick={(e) => e.stopPropagation()}
         onPointerDownCapture={(e) => e.stopPropagation()}
@@ -1615,13 +2031,13 @@ const SettingsModal = React.forwardRef<HTMLDivElement, SettingsModalProps>(
         </div>
 
         {/* 桌面端：左侧导航栏 */}
-        <div className="hidden md:flex w-56 flex-shrink-0 bg-zinc-50 dark:bg-zinc-900/50 border-r border-zinc-200 dark:border-zinc-800 p-4 flex-col">
+        <div className="hidden min-h-0 w-56 flex-shrink-0 flex-col border-r border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-800 dark:bg-zinc-900/50 md:flex">
           <div className="flex items-center gap-2 mb-6 px-2">
             <Settings className="w-4 h-4 text-zinc-500 dark:text-zinc-400" />
             <span className="font-bold text-sm text-zinc-900 dark:text-zinc-100">{t('settings.title')}</span>
           </div>
 
-          <nav className="flex-1 space-y-0.5">
+          <nav aria-label="设置分类" className="min-h-0 flex-1 space-y-0.5 overflow-y-auto overscroll-contain pr-1">
             {SETTING_TABS.map((tab) => {
               const Icon = tab.icon;
               const isActive = activeTab === tab.id;
@@ -1649,7 +2065,7 @@ const SettingsModal = React.forwardRef<HTMLDivElement, SettingsModalProps>(
         </div>
 
         {/* 右侧内容区 */}
-        <div className="flex-1 overflow-y-auto relative">
+        <div className="relative min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain">
           {/* 关闭按钮 — 桌面端 */}
           <button
             onClick={onClose}
@@ -1659,7 +2075,7 @@ const SettingsModal = React.forwardRef<HTMLDivElement, SettingsModalProps>(
           </button>
 
           {/* 动态渲染内容 */}
-          <div className="p-4 md:p-8 md:pr-14">
+          <div className="min-w-0 p-4 pb-[calc(1rem+env(safe-area-inset-bottom))] md:p-8 md:pr-14">
             <AnimatePresence mode="wait">
               <motion.div
                 key={activeTab}
@@ -1690,14 +2106,18 @@ const SettingsModal = React.forwardRef<HTMLDivElement, SettingsModalProps>(
             {activeTab === "switches" && <SwitchesPanel />}
             {activeTab === "shortcuts" && shortcutSurface !== "android" && <ShortcutSettingsPanel />}
             {activeTab === "ai" && <AISettingsPanel />}
-            {activeTab === "security" && <SecuritySettings />}
+            {activeTab === "plugins" && <PluginSettingsTab isAdmin={isAdmin} />}
+            {activeTab === "automations" && <AutomationCenter />}
+            {activeTab === "security" && <div className="space-y-6">
+              {isAndroidNativeRuntime() && <MobileAccountSettings accountLabel={currentUser?.displayName || currentUser?.username} />}
+              {!isMobileLocalMode() && <SecuritySettings />}
+            </div>}
             {activeTab === "tokens" && <TokenManagement />}
                   {activeTab === "users" && isAdmin && <UserManagement currentUserId={currentUser?.id ?? null} />}
                   {activeTab === "workspaces" && isAdmin && <WorkspaceManagement />}
-                  {/* data tab 对所有用户可见：DataManager 内部会按 isAdmin 自动分流
-                       —— 管理员看到完整三 scope；普通用户只看"个人空间"的导出/导入。 */}
+                  {/* DataManager 内部保留管理员与个人导入/导出的权限限制。 */}
                   {activeTab === "data" && <DataManager />}
-                  {activeTab === "offlineSync" && <OfflineSyncSettings />}
+                  {activeTab === "sync" && <SyncSettingsTab />}
                   {activeTab === "folderSync" && <FolderSyncSettings />}
                   {activeTab === "download" && <DownloadPanel />}
                   {activeTab === "about" && <AboutPanel />}

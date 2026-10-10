@@ -65,7 +65,7 @@ export function createTaskAIBreakdownRuntimeRouter(adapter: DatabaseAdapter) {
       return c.json({ error: "Forbidden", code: "FORBIDDEN" }, 403);
     }
 
-    const body = await c.req.json<Record<string, unknown>>().catch(() => ({}));
+    const body: Record<string, unknown> = await c.req.json<Record<string, unknown>>().catch(() => ({} as Record<string, unknown>));
     const lang = typeof body.lang === "string" && body.lang ? body.lang : "zh-CN";
     const settings = await getUserAISettingsAsync(userId, adapter);
     if (!settings.ai_api_url) {

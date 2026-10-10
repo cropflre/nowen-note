@@ -1,0 +1,80 @@
+{
+  "generatedBy": "Independent Node/OpenSSL AES-GCM; native Argon2id KEK from v1 vector",
+  "passphrase": "test-only: 密码 café 🚀",
+  "envelope": {
+    "objectId": "00112233-4455-4677-8899-aabbccddeeff",
+    "kind": "note",
+    "originalFormat": "markdown",
+    "parentObjectId": null,
+    "documentSchemaVersion": 1,
+    "keyEpoch": 1,
+    "encryptionEpoch": 2,
+    "version": 2,
+    "algorithm": "AES-256-GCM",
+    "kdf": {
+      "algorithm": "argon2id",
+      "version": 19,
+      "memoryKiB": 65536,
+      "iterations": 3,
+      "parallelism": 4,
+      "salt": "AAECAwQFBgcICQoLDA0ODw=="
+    },
+    "wrappedKey": {
+      "iv": "EBESExQVFhcYGRob",
+      "ciphertext": "pULUi6hB6bmxfvg9NHFcpjfEvodi0lSoNJ75wFb8ahR9NxCz/F69di0fwTB83Ary"
+    },
+    "payload": {
+      "iv": "ICEiIyQlJicoKSor",
+      "ciphertext": "gAf7P0SKfiH/WzXVXoqlNHmGB8EnqdMiis8UbFi0yBdz80Ej4Bu64fmbFMP0cprFJR6WEpyaP98z3rowan7HOzZb2InNEd0atvvnAMr3z6srCprbVX+M7BW8jnUUo/NP5yo9GlKhfZzfUTlloymAY1DektZj5/kLVgzySNHRvwa5jfL3mApkuWBxippyZMO+onsIgyzQJSd3V5LNnBE/GJu+w/wkKJ9uJC7SEaF3AgM/Moyw3oQw+dgA2JJrhGvcvBBlNAdR3T6j4P0BM21i57IePFni7N4ubicHVaxnm9O+5qgre1J5RHCAj7HVB4sj7V9hhzf1QtPymvDevTBsuRirHaj4gBKgsIBQJpOMJNWIGQCSaB3LK7kDPXIeqQjA7kr+xrc01rY91TYOUpZCqgwHBLExVi8+cLhbmnAkxjXag/jz8LB3OHdScSQlP0D48IB4Q4cAZS8iZrdskaiGe+lt4gchy2iIfuv2iBPYYZm3exg1ocPQl1Y+Ql6KzBufiOVingQjh00j/bE4ldwVizaaIe13MhhJjA7Y1cAIe0xzQGpxALhgUHwTGlofZkFzrIwnfWI5+lmAjyoAh1P0m4G1IIHK+joN9hep5zC7q8VG1qLP4RxGtq9xC663gkQHXx7rAuCzETnnxtmUU4wBkywHvkjmYEntAHgNgsgjZD8qB7iY3rw7rG5GG3RRQMNN1CNaU1FH8KxFWoQWTTs/YRmJXmbyKU5etcPLUlv3jiB4KriZ7WTk/pgJHhXxOEtwqolIDbJW55/8NwZ8v4G73r5AXlMRzhtsPKt8u7HABNOABD/njgeiOR28"
+    }
+  },
+  "document": {
+    "documentSchemaVersion": 1,
+    "content": "# 加密测试\n[文件](nowen-encrypted-attachment:11223344-5566-4788-99aa-bbccddeeff00)\n",
+    "attachments": [
+      {
+        "version": 1,
+        "attachmentId": "11223344-5566-4788-99aa-bbccddeeff00",
+        "uploadId": "22334455-6677-4899-aabb-ccddeeff0011",
+        "noncePrefix": "gIGCg4SFhoc=",
+        "name": "秘密图片.bin",
+        "mime": "application/octet-stream",
+        "size": 7,
+        "wrappedKey": {
+          "iv": "kJGSk5SVlpeYmZqb",
+          "ciphertext": "GXieUN2wQyQg88uWe/FlRehfdbGLZkCN5rTE/uI2oz8g1UV3f/4LojfrkgxratAH"
+        },
+        "chunks": [
+          {
+            "index": 0,
+            "ciphertextBytes": 23,
+            "sha256": "39b1d134d7ae2dd03e1297f14a5fdfacc532bf88ce7f8cd7678e27fb36085be5"
+          }
+        ]
+      }
+    ]
+  },
+  "history": {
+    "version": 1,
+    "objectId": "00112233-4455-4677-8899-aabbccddeeff",
+    "keyEpoch": 1,
+    "encryptionEpoch": 2,
+    "historyId": "33445566-7788-49aa-bbcc-ddeeff001122",
+    "sourceVersion": 3,
+    "originalFormat": "markdown",
+    "payload": {
+      "iv": "MDEyMzQ1Njc4OTo7",
+      "ciphertext": "ITkUFHO1vEMA3UBnjP99cmiHWyndl5dVSjJv11AEoeWych70XmTR7l09naGwovkwsHU6Re1injXGH8LKVbMJEXQGlTrz+W+yTht07vRcax/Svhf3ilW9JBVlZTcsWf3O/LmrtD6NSgp/vEB/K6VfhNOskO5cmafznX7C+ZAx9OYKsJ6KLqrtuieMaqY="
+    }
+  },
+  "historyDocument": {
+    "document": {
+      "documentSchemaVersion": 1,
+      "content": "旧版本 📝",
+      "attachments": []
+    },
+    "changeSummary": "私密的版本说明"
+  },
+  "filePlaintext": "AP+AASoACg==",
+  "fileCiphertext": "PCfmBnc0NHQyRbh2pVsprJtWugG/qtA="
+}

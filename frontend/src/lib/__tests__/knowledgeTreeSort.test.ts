@@ -83,6 +83,25 @@ describe("knowledgeTreeSort", () => {
     expect(plan!.nodes.every((item) => item.parentId === null)).toBe(true);
   });
 
+  it("reorders mind maps and notes together as one manual sibling list", () => {
+    const nodes = [
+      node("rich", "Rich text", 0, { nodeType: "note", resourceType: "note", contentFormat: "tiptap-json" }),
+      node("markdown", "Markdown", 1, { nodeType: "markdown", resourceType: "note", contentFormat: "markdown" }),
+      node("mindmap", "Mind map", 2, { nodeType: "mindmap", resourceType: "mindmap", resourceId: "map-1" }),
+    ];
+
+    const plan = planKnowledgeTreeSiblingReorder(nodes, "mindmap", "rich", "before");
+
+    expect(plan).not.toBeNull();
+    expect(plan!.nodes
+      .slice()
+      .sort((a, b) => a.sortOrder - b.sortOrder)
+      .map((item) => item.id))
+      .toEqual(["mindmap", "rich", "markdown"]);
+    expect(plan!.nodes.find((item) => item.id === "mindmap")?.resourceType).toBe("mindmap");
+    expect(plan!.nodes.every((item) => item.parentId === null)).toBe(true);
+  });
+
   it("rejects drag reorder across hierarchy levels", () => {
     const nodes = [
       node("root", "Root", 0),

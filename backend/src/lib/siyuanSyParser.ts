@@ -237,6 +237,7 @@ function normalizeHeadingAttributeSuffixes(markdown: string): string {
  * live preview and complete preview on the same source representation.
  */
 export function siyuanSyToMarkdown(doc: SiyuanNode): SiyuanSyMarkdownResult {
+    const calloutCount = countNodeType(doc, "NodeCallout");
     const iframeCount = countNodeType(doc, "NodeIFrame");
     const prepared = prepareNode(doc);
     const result = legacySiyuanSyToMarkdown(prepared);
@@ -250,6 +251,12 @@ export function siyuanSyToMarkdown(doc: SiyuanNode): SiyuanSyMarkdownResult {
     if (iframeCount > 0) {
         unsupportedNodes.NodeIFrame = (unsupportedNodes.NodeIFrame || 0) + iframeCount;
         warnings.push("Siyuan iframe is preserved in Markdown; rich text uses a supported video or a downgraded safe link.");
+        warnings.push("iframe downgraded safe link");
+    }
+    const advancedMediaCount = countNodeType(doc, "NodeAudio") + countNodeType(doc, "NodeWidget") + iframeCount;
+    if (calloutCount > 0 && advancedMediaCount > 0) {
+        unsupportedNodes.NodeCallout = (unsupportedNodes.NodeCallout || 0) + calloutCount;
+        warnings.push("callout mapped to styled blockquote");
     }
 
     return {

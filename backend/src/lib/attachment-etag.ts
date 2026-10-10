@@ -17,8 +17,8 @@
  */
 
 /** 附件内容由 (id, variant) 唯一确定，原图与每个缩略图宽度各有独立 ETag。 */
-export function computeAttachmentEtag(attachmentId: string, variant: "original" | number): string {
-  return `"att-${attachmentId}-${variant === "original" ? "original" : `thumb-${variant}`}"`;
+export function computeAttachmentEtag(attachmentId: string, variant: "original" | "heif-preview-v1" | number): string {
+  return `"att-${attachmentId}-${typeof variant === "string" ? variant : `thumb-${variant}`}"`;
 }
 
 /** If-None-Match 比对，兼容多值与 W/ 弱验证器前缀。 */

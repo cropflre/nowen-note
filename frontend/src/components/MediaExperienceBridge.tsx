@@ -47,6 +47,7 @@ type QueuePhase = "choose" | "preflight" | "uploading" | "done";
 type QueueItem = PreparedMediaFile & {
   previewUrl: string;
   validationError: boolean;
+  queued?: boolean;
 };
 
 type VideoEntry = {
@@ -441,7 +442,13 @@ export default function MediaExperienceBridge() {
     setItems((previous) => previous.map((item) => {
       if (item.file !== detail.file) return item;
       if (detail.phase === "start") return { ...item, status: "uploading", error: undefined };
-      if (detail.phase === "success") return { ...item, status: "success", error: undefined };
+      if (detail.phase === "success") return {
+        ...item,
+        status: "success",
+        error: undefined,
+        queued: detail.queued,
+        warning: detail.queued ? "已插入，等待离线同步" : undefined,
+      };
       return { ...item, status: "error", error: detail.error || "上传失败" };
     }));
 
@@ -461,7 +468,7 @@ export default function MediaExperienceBridge() {
     if (watchdogRef.current) window.clearTimeout(watchdogRef.current);
     watchdogRef.current = null;
     setQueuePhase("done");
-    if (uploadable.every((item) => item.status === "success")) {
+    if (uploadable.every((item) => item.status === "success" && !item.queued)) {
       closeTimerRef.current = window.setTimeout(closePicker, 1400);
     }
   }, [items, pickerOpen, queuePhase, closePicker]);
@@ -663,7 +670,8 @@ export default function MediaExperienceBridge() {
     return {
       valid,
       totalBytes: valid.reduce((sum, item) => sum + item.file.size, 0),
-      success: valid.filter((item) => item.status === "success").length,
+      success: valid.filter((item) => item.status === "success" && !item.queued).length,
+      queued: valid.filter((item) => item.status === "success" && item.queued).length,
       failed: valid.filter((item) => item.status === "error").length,
       active: valid.filter((item) => item.status === "uploading").length,
     };
@@ -775,7 +783,7 @@ export default function MediaExperienceBridge() {
             {queuePhase !== "choose" && (
               <footer className="border-t border-app-border px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
                 <div className="mb-2 flex items-center justify-between text-xs text-tx-tertiary">
-                  <span>成功 {queueSummary.success} · 失败 {queueSummary.failed} · 上传中 {queueSummary.active}</span>
+                  <span>成功 {queueSummary.success} · 待同步 {queueSummary.queued} · 失败 {queueSummary.failed} · 上传中 {queueSummary.active}</span>
                   <button type="button" onClick={() => chooseFiles("gallery")} disabled={queuePhase === "uploading"} className="text-accent-primary disabled:opacity-40">重新选择</button>
                 </div>
                 <div className="flex gap-2">

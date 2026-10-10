@@ -7,11 +7,13 @@
   </p>
   <p>
     <a href="./README.en.md">English</a> ·
-    <a href="http://nowen.cn/">官方网站</a> ·
+    <a href="https://cropflre.github.io/">官方网站 / 帮助中心</a> ·
+    <a href="http://nowen.cn/">nowen.cn（维护中）</a> ·
     <a href="http://note.nowen.cn/">在线体验</a> ·
     <a href="https://github.com/cropflre/nowen-note/releases">下载客户端</a> ·
     <a href="./docs/tutorials/README.md">教程中心</a> ·
     <a href="./docs/tutorials/mcp.md">MCP 安装</a> ·
+    <a href="./.agents/skills/nowen-note-development/SKILL.md">AI 开发 Skill</a> ·
     <a href="./CHANGELOG.md">更新日志</a>
   </p>
 </div>
@@ -30,18 +32,20 @@
 
 > **NAS 远程连接登录**：支持部署到 **绿联 NAS（UGOS / UGOS Pro）** 和 **飞牛 NAS（fnOS）**。部署完成后，可在 Web、桌面端或 Android 客户端中，通过局域网 IP、IPv6 地址或已配置 HTTPS 的公网域名远程连接并登录。
 
-## v1.4.10 已发布
+## v1.5.1 正式发布 · 2026-10-08
 
-v1.4.10 聚焦 **编辑效率、移动端媒体稳定性、离线附件恢复、知识树体验与任务提醒可靠性**，并继续补齐模板、导入导出和桌面端细节。
+**v1.5.1 已发布。** 本次重点提升 **任务自动化、AI 助手、移动端稳定性与数据安全**。
 
-- 标题录入新增重复前缀提示，长标题支持自动换行；Markdown 查找替换进一步优化，并新增“当前目录笔记搜索”。
-- 知识树支持拖拽调整节点层级；加密目录中的笔记不会泄露到不应展示的位置。
-- 图片预览新增旋转与独立复原，富文本粘贴默认保留文字颜色与跨笔记格式；桌面端增加原生文本右键菜单，并可用系统默认程序打开本地办公附件。
-- Android / 移动端强化图片、视频上传文件身份与 multipart 上传稳定性，并将图片和视频入口加入紧凑工具栏。
-- 离线附件增加损坏 Blob 校验、隔离与恢复信号，避免异常离线缓存污染在线渲染；离线同步默认关闭，由用户主动启用。
-- 任务提醒补齐创建端时区、全天截止和 PostgreSQL Schema 一致性；同时修复备份保留、思源导入和 Markdown 附件 ZIP 往返导入等问题。
+> [!IMPORTANT]
+> 升级前请先创建完整备份，确认数据库和附件均已妥善保存；Docker / NAS 用户建议额外保留独立备份。**回滚镜像不等于回滚数据。**
 
-查看：[v1.4.10 Release](https://github.com/cropflre/nowen-note/releases/tag/v1.4.10) · [完整更新日志](./CHANGELOG.md)
+- **任务与提醒**：新增按到期时间排序、日历显示优化、任务到期提醒，以及可通过 Webhook 推送的早晚任务摘要。
+- **AI 与 MCP**：可查询今日任务和完成进度；经用户确认后可创建、完成个人任务，MCP 接口遵循令牌权限控制。
+- **Android 与同步**：优化账号切换、局域网连接和附件加载，修复后台同步异常、部分笔记打不开及服务器地址输入问题。
+- **编辑与加密**：增强富文本内容块、Markdown / 微信文章预览及加密内容存储与安全保护。
+- **稳定性修复**：优化备份恢复、附件授权、导入兼容、多语言和错误诊断。
+
+查看 [v1.5.1 发布版本](https://github.com/cropflre/nowen-note/releases/tag/v1.5.1) · [完整更新日志](./CHANGELOG.md)。
 
 ## 为什么选择 Nowen Note
 
@@ -61,13 +65,13 @@ v1.4.10 聚焦 **编辑效率、移动端媒体稳定性、离线附件恢复、
 | **可靠保存与离线工作区** | Yjs 持久化确认、未确认修改补传、IndexedDB 草稿恢复、富文本串行版本保存；支持个人空间、共享目录和工作区离线副本，并针对误冲突、重复副本和格式转换状态做保护；离线附件支持损坏 Blob 校验、隔离与恢复。 |
 | **性能与加载** | 工作区、编辑器、任务、日记、文件管理、AI 等功能按需加载；静态资源支持缓存验证、Gzip / Brotli 预压缩，减少首屏依赖和重复传输。 |
 | **知识组织与检索** | 彩色标签、收藏、置顶、全文搜索、当前目录笔记搜索、文内查找替换、双向链接、块引用、反向链接、知识图谱，以及“全部笔记”固定入口。 |
-| **AI 能力** | OpenAI 兼容接口、通义千问、Gemini、DeepSeek、豆包与 Ollama；支持续写、改写、翻译、标题与标签生成、总结、Embedding 索引和 RAG 知识问答。 |
+| **AI 能力** | OpenAI 兼容接口、通义千问、Gemini、DeepSeek、豆包与 Ollama；支持续写、改写、翻译、标题与标签生成、总结、Embedding 索引和 RAG 知识问答，并支持查询今日任务、查看完成进度以及确认后创建或完成个人任务。 |
 | **每日记录** | 统一“瞬间 / 日历 / 日记”入口，支持短内容、心情、图片、视频、AI 周报 / 月报、自然日期命令、日记实体归档、历史目录整理和工作区共享日记。 |
-| **任务与习惯** | 树形任务、列表、看板、日历、甘特图 / 时间轴、依赖关系、重复规则、提醒和模板；支持 My Day、标签、保存视图、预估时长、时间块、Inbox、快速捕获、离线任务 / 习惯，以及 Android 原生任务提醒调度，并补齐创建端时区、全天截止与服务端解析一致性。 |
+| **任务与习惯** | 树形任务、列表、看板、日历、甘特图 / 时间轴、依赖关系、重复规则、提醒和模板；支持 My Day、标签、保存视图、预估时长、时间块、Inbox、快速捕获、离线任务 / 习惯，以及 Android 原生任务提醒调度，并补齐创建端时区、全天截止与服务端解析一致性；新增到期排序、任务到期提醒和早晚任务摘要 Webhook 推送。 |
 | **协作、权限与分享** | Yjs + WebSocket 实时协作、工作区角色、目录级 ACL、Restricted 受限模式、显式允许 / 拒绝规则、权限继承、所有权转移、分享密码与有效期、访客评论、公开知识空间，以及富文本 / Markdown 划词批注。 |
-| **导入、导出与迁移** | 支持 Markdown、Word / DOCX、网页 URL、微信公众号、SingleFile HTML、思源、Obsidian、小米笔记等；支持选择导入为 Markdown 或富文本，并提供后台任务、进度、重试、远程图片本地化和 Markdown 图片 / 脚注导出。 |
+| **导入、导出与迁移** | 支持 Markdown、Word / DOCX、网页 URL、微信公众号、SingleFile HTML、思源、Obsidian、小米笔记等；支持选择导入为 Markdown 或富文本，并提供后台任务、进度、重试、远程图片本地化和 Markdown 图片 / 脚注导出；团队空间单篇 ZIP 会按笔记真实工作区执行权限校验。 |
 | **附件与存储** | 本地附件按 `YYYY/MM` 归档；支持缩略图、引用检查、孤儿扫描 / 清理、已有附件复用、手动上传文件保护，以及本地磁盘、S3、R2、MinIO，并强化移动端图片 / 视频文件身份与 multipart 上传稳定性。 |
-| **备份与恢复** | 本地自动备份、完整 ZIP、邮件备份、凭据加密的 WebDAV 远程备份、Docker 在线升级前备份与失败回滚检查。 |
+| **备份与恢复** | 本地自动备份、后台完整 ZIP 任务、流式归档与校验、浏览器原生下载、邮件备份、凭据加密的 WebDAV 远程备份、Docker 在线升级前备份与失败回滚检查。 |
 | **多端访问** | Web、Electron（Windows / macOS / Linux）、Android、iOS 工程、HarmonyOS 工程，以及 Docker / NAS 部署；支持绿联 UGOS、飞牛 fnOS，客户端可通过 IPv4、IPv6 或域名远程连接并登录 NAS 服务；Android 支持应用内图片手势预览。 |
 | **开放能力** | OpenAPI 3.0、TypeScript SDK、CLI、Webhook、插件系统、Personal API Token、MCP Server 和浏览器剪藏扩展。 |
 
@@ -90,37 +94,11 @@ Nowen Note 支持 MCP Server，可让 Claude Code、Cursor、VS Code 等 AI 客�
 - [MCP Server English guide](./docs/tutorials/mcp.en.md)
 - [nowen-mcp 独立包说明](./packages/nowen-mcp/README.md)
 
-当前正式可用方式为源码构建：安装 Node.js 20+，构建 `packages/nowen-mcp`，在 Nowen Note 创建 restricted Personal API Token，再把 `dist/scoped-entry.js` 的绝对路径配置到客户端。
+当前正式可用方式为源码构建：安装 Node.js 20+，构建 `packages/nowen-mcp`，在 Nowen Note 创建 restricted Personal API Token，再把 `packages/nowen-mcp/bin/nowen-mcp.mjs` 的绝对路径配置到客户端。`dist/scoped-entry.js` 是启动器加载的内部构建入口，不应直接配置给客户端。
 
-## v1.4.10 重点更新
+## 上一版本 v1.5.0
 
-### 编辑器与检索
-
-- 标题录入新增重复前缀警示：输入过程中即可发现与现有标题的重复前缀，确认后恢复正常标题样式；超长标题会根据编辑区域自动换行。
-- Markdown 查找 / 替换继续优化，搜索面板在窄宽度下可正确换行，并新增当前目录范围的笔记搜索。
-- 富文本跨笔记复制默认保留格式与文字颜色，减少粘贴后重新排版的成本。
-
-### 图片、附件与移动端
-
-- 图片查看器加入旋转和独立复原操作，并修复全屏预览后的旋转状态保持问题。
-- 移动端图片 / 视频上传保留原始 File 身份，稳定 DataTransfer、上传队列、进度映射与 multipart 上传链路，同时校验视频实际字节大小。
-- 紧凑移动工具栏加入图片和视频入口，短屏设备上的笔记菜单与设置页关闭按钮也进一步适配。
-- 离线附件增加 Blob 有效性校验、损坏缓存隔离和恢复信号，异常离线数据不会继续污染在线渲染。
-
-### 知识树、模板与导入导出
-
-- 知识树支持拖拽改变节点层级，并继续收紧加密目录内容的展示边界。
-- 笔记模板支持保存模板、从模板新建、移动端入口和应用内保存弹窗，同时保护模板附件不被清理任务误删。
-- 修复 Markdown 附件 ZIP 往返导入，完善思源导入的拖拽识别、恢复目录持久化和无响应提示。
-
-### 任务、备份与桌面体验
-
-- 任务提醒补齐创建端时区、服务端解析、全天截止语义和 PostgreSQL 字段 / 迁移一致性，快速捕获与普通创建保持相同行为。
-- 备份保留策略统一 db-only 清理逻辑，并持久化停用配置，减少自动与手动备份行为差异。
-- 桌面编辑器新增原生文本右键菜单；本地 Office 等附件可直接交给系统默认程序打开。
-- 下载页增强 GitHub Release 资产回退与平台分组，国内 / 网络受限场景下更容易找到正确安装包。
-
-完整记录请查看 [CHANGELOG.md](./CHANGELOG.md) 和 [v1.4.10 Release](https://github.com/cropflre/nowen-note/releases/tag/v1.4.10)。
+v1.5.0 重点引入了 **Sync V2 与离线工作区、插件生态、统一知识树、轻量表格及加密笔记 Beta**。详情见 [v1.5.0 更新说明](https://github.com/cropflre/nowen-note/releases/tag/v1.5.0)。
 
 ## 截图
 
@@ -138,10 +116,13 @@ Nowen Note 支持 MCP Server，可让 Claude Code、Cursor、VS Code 等 AI 客�
 
 ## 官网与在线体验
 
-- 官方网站：<http://nowen.cn/>
+- 当前官方网站 / 帮助中心：<https://cropflre.github.io/>
+- 后续官网：<http://nowen.cn/>（维护中）
 - 在线体验：<http://note.nowen.cn/>
 - 账号：`demo`
 - 密码：`demo123456`
+
+> `nowen.cn` 仍在维护中。当前请以 <https://cropflre.github.io/> 作为 Nowen 官方帮助与使用文档入口。
 
 > 演示账号仅用于体验，数据可能被定期重置。请勿存放敏感或重要内容。
 
@@ -199,10 +180,12 @@ docker compose up -d
 需要固定当前稳定版本时：
 
 ```bash
-NOWEN_IMAGE_TAG=v1.4.10 docker compose up -d
+NOWEN_IMAGE_TAG=v1.5.1 docker compose pull
+NOWEN_IMAGE_TAG=v1.5.1 docker compose up -d
 ```
 
-> v1.4.10 重点改善标题与 Markdown 编辑、知识树层级拖拽、移动端媒体上传、离线附件恢复和跨时区任务提醒。升级后建议重点检查登录、笔记编辑、图片 / 视频上传、离线附件、任务提醒、模板、导入导出和备份。镜像回滚不等于数据库回滚，生产环境必须保留独立备份。
+> [!IMPORTANT]
+> **升级到 v1.5.1 前请先完成完整备份，确认数据库与附件已持久化。** Docker / NAS 用户建议保留独立备份；镜像回滚不会还原数据库。详见 [v1.5.1 更新说明](https://github.com/cropflre/nowen-note/releases/tag/v1.5.1)。
 
 ### Docker 在线升级（可选）
 
@@ -211,7 +194,7 @@ NOWEN_IMAGE_TAG=v1.4.10 docker compose up -d
 ```bash
 cp .env.example .env
 printf '\nNOWEN_UPDATER_TOKEN=%s\n' "$(openssl rand -hex 32)" >> .env
-NOWEN_IMAGE_TAG=v1.4.10 docker compose --profile updater up -d
+NOWEN_IMAGE_TAG=v1.5.1 docker compose --profile updater up -d
 ```
 
 启用后，管理员可在「设置 → 关于 → 版本信息」执行升级前检查、完整备份、升级、健康验证和失败回滚。
@@ -227,7 +210,7 @@ docker run -d \
   -p 3001:3001 \
   -e TZ=Asia/Shanghai \
   -v /opt/nowen-note/data:/app/data \
-  cropflre/nowen-note:v1.4.10
+  cropflre/nowen-note:v1.5.1
 ```
 
 ## 数据、备份与配置
@@ -260,6 +243,7 @@ docker run -d \
 | `NOWEN_PORT` | `3001` | Compose 对外暴露端口 |
 | `TZ` | `Asia/Shanghai` | 容器时区，会影响任务日期与日记自然日期判断 |
 | `PUBLIC_WEB_ORIGIN` | 空 | 反向代理或公网域名，用于生成正确的分享链接 |
+| `FILE_PUBLIC_ORIGIN` | 继承 `PUBLIC_WEB_ORIGIN` | 文件管理 / 图床复制直链使用的独立公网域名；上传、预览和本人下载仍走当前连接地址 |
 | `JWT_SECRET` | 自动生成并持久化 | 登录、会话与部分加密回退；多实例部署时必须统一配置 |
 | `BACKUP_DIR` | `/app/data/backups` | 自动备份目录 |
 | `BACKUP_WEBDAV_ENCRYPTION_KEY` | 回退到 `JWT_SECRET` | 加密保存 WebDAV 凭据，生产环境建议单独配置 |
@@ -298,7 +282,6 @@ npm install
 npm run install:all
 npm run dev
 ```
-
 也可以分别启动：
 
 ```bash
@@ -359,9 +342,23 @@ nowen-note/
 └── scripts/        # 构建、迁移、打包与发布脚本
 ```
 
+## AI Skills：让 AI 理解和操作 Nowen Note
+
+仓库提供两种用途不同的 [Agent Skills](./.agents/skills/)。**Skill 是 AI 助手的工作指引，不是自动连接服务器的插件，也不包含任何私人笔记或 API 密钥。**
+
+- **[nowen-note-development](./.agents/skills/nowen-note-development/SKILL.md)**：面向项目维护者和 AI 编码助手。包含项目定位、模块导航、Issue/PR 分析、UI 设计原则、同步/权限/备份安全边界、开发测试和交付验收规范。
+- **[nowen-note](./.agents/skills/nowen-note/SKILL.md)**：面向知识库使用者。指导 AI 在授权范围内搜索、读取、创建和整理笔记，通过 MCP（优先）或已配置的 CLI 操作。
+
+仓库同时提供 [`.claude/skills/`](./.claude/skills/) 镜像，便于支持该目录的客户端使用。将对应 Skill 放到 AI 客户端支持的 Skills 目录，或让编码助手先阅读对应 `SKILL.md`；**不同客户端的自动发现规则以其文档为准**。
+
+如需 AI **实际读取或写入你的笔记**，还需按 [MCP 安装教程](./docs/tutorials/mcp.md) 连接 Nowen Note，并创建限制笔记本和操作范围的 Personal API Token；仅安装 Skill 不会赋予数据权限。
+
+示例：让 AI “先阅读 `nowen-note-development` Skill，分析 Issue 对应代码、实现最小修复并列出验证结果”。
+
 ## 文档导航
 
-- [教程与帮助中心](./docs/tutorials/README.md)
+- [Nowen 官方帮助中心](https://cropflre.github.io/#/note)
+- [仓库内教程索引](./docs/tutorials/README.md)
 - [MCP Server 安装与使用](./docs/tutorials/mcp.md)
 - [完整部署指南](./docs/deployment.md)
 - [Docker 在线升级与恢复](./docs/docker-online-update.md)

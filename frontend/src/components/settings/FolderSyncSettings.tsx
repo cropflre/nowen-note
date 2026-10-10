@@ -306,6 +306,16 @@ function ConfigCard({
                 <input type="checkbox" checked={includeSubfolders} onChange={(event) => setIncludeSubfolders(event.target.checked)} />扫描子文件夹
               </label>
               <label className="flex cursor-pointer items-center gap-2 text-xs text-tx-secondary">
+                <input type="checkbox" checked={preferences.preserveHierarchy} disabled={!includeSubfolders}
+                  onChange={(event) => setPreferences((current) => ({ ...current, preserveHierarchy: event.target.checked }))} />
+                保留本地子文件夹层级（新建对应的笔记本）
+              </label>
+              {preferences.preserveHierarchy && (
+                <p className="text-[11px] leading-5 text-amber-600 dark:text-amber-400">
+                  开启后，下一次同步会把已同步笔记整理到对应子笔记本（不改正文，不删除源文件）；默认关闭以保护旧配置。手动移动或删除的目录不会自动覆盖。
+                </p>
+              )}
+              <label className="flex cursor-pointer items-center gap-2 text-xs text-tx-secondary">
                 <input type="checkbox" checked={preferences.extractAttachmentText} onChange={(event) => setPreferences((current) => ({ ...current, extractAttachmentText: event.target.checked }))} />提取 PDF / DOCX 文本用于搜索
               </label>
               <label className="flex cursor-pointer items-center gap-2 text-xs text-tx-secondary">

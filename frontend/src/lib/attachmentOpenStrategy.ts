@@ -5,6 +5,7 @@ export type AttachmentPreviewKind =
   | "audio"
   | "pdf"
   | "docx"
+  | "xlsx"
   | "text"
   | "unsupported";
 
@@ -51,6 +52,7 @@ export function detectAttachmentPreviewKind(mimeType: string, filename: string):
   if (AUDIO_EXTENSIONS.has(extension)) return "audio";
   if (mime === "application/pdf" || extension === "pdf") return "pdf";
   if (mime === DOCX_MIME || extension === "docx") return "docx";
+  if (mime.split(";", 1)[0].trim() === "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" || extension === "xlsx") return "xlsx";
   if (mime.startsWith("text/")) return "text";
   if ([
     "application/json",

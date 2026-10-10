@@ -1,5 +1,7 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Note } from "@/types";
+import encryptedFixture from "../encryptedNotes/__tests__/fixtures/envelope-v1.json";
+import { enqueue } from "@/lib/offlineQueue";
 
 const localStore = vi.hoisted(() => ({
   getNote: vi.fn(),
@@ -103,8 +105,10 @@ describe("canApplyRevalidatedNote", () => {
 });
 
 describe("loadNoteCacheFirst", () => {
+  afterEach(() => { delete (window as Window & { Capacitor?: unknown }).Capacitor; });
   beforeEach(() => {
     vi.clearAllMocks();
+    localStorage.clear();
     localStore.isNoteDetailCached.mockReturnValue(true);
     localStore.putNote.mockResolvedValue(undefined);
     attachmentRuntime.hasPersistentNoteAttachmentReference.mockImplementation((content) =>
@@ -112,7 +116,63 @@ describe("loadNoteCacheFirst", () => {
     attachmentRuntime.primeNoteAttachmentAccess.mockResolvedValue(1);
   });
 
-  it("Case 1/2: prepares a cached image note before it is reopened after a switch", async () => {
+  it("reads pending ciphertext before touching a missing/unavailable detail cache or stale remote", async () => {
+    const content = JSON.stringify(encryptedFixture.envelope);
+    const pending = makeNote({ content, contentText: "", contentFormat: "encrypted-note-v1" });
+    enqueue({ type: "updateNote", noteId: pending.id, method: "PUT", url: "/notes/note-1", body: { ...pending } });
+    const remote = vi.fn();
+    await expect(loadNoteCacheFirst({ noteId: pending.id, fetchRemote: remote })).resolves.toMatchObject(pending);
+    expect(localStore.getNote).not.toHaveBeenCalled(); expect(remote).not.toHaveBeenCalled();
+  });
+
+  it("checks online folder permission before displaying a cached web note", async () => {
+    localStore.getNote.mockResolvedValue(makeNote({ content: "secret cached body" }));
+    const denied = Object.assign(new Error("folder locked"), { status: 404 });
+    const verifyCachedAccess = vi.fn().mockRejectedValue(denied);
+    const fetchRemote = vi.fn();
+    await expect(loadNoteCacheFirst({
+      noteId: "note-1", fetchRemote, verifyCachedAccess,
+    })).rejects.toBe(denied);
+    expect(fetchRemote).not.toHaveBeenCalled();
+    expect(attachmentRuntime.primeNoteAttachmentAccess).not.toHaveBeenCalled();
+  });
+
+  it("allows a web cache hit after slim authorization succeeds", async () => {
+    const cached = makeNote({ content: "authorized cache" });
+    localStore.getNote.mockResolvedValue(cached);
+    const verifyCachedAccess = vi.fn().mockResolvedValue(undefined);
+    const pending = deferred<Note>();
+    await expect(loadNoteCacheFirst({
+      noteId: cached.id, fetchRemote: () => pending.promise, verifyCachedAccess,
+    })).resolves.toEqual(cached);
+    expect(verifyCachedAccess).toHaveBeenCalledOnce();
+    pending.resolve(makeNote({ version: 4 }));
+    await vi.waitFor(() => expect(localStore.putNote).toHaveBeenCalled());
+  });
+
+  it("does not show Android IDB content before the Native folder password check succeeds", async () => {
+    Object.assign(window, { Capacitor: { isNativePlatform: () => true, getPlatform: () => "android" } });
+    localStorage.setItem("nowen-token", "signed-in");
+    localStore.getNote.mockResolvedValue(makeNote());
+    const denied = Object.assign(new Error("folder locked"), { code: "FOLDER_UNLOCK_REQUIRED", status: 403 });
+    const fetchRemote = vi.fn().mockRejectedValue(denied);
+    await expect(loadNoteCacheFirst({ noteId: "note-1", fetchRemote })).rejects.toBe(denied);
+    expect(localStore.getNote).not.toHaveBeenCalled();
+    expect(localStore.putNote).not.toHaveBeenCalled();
+  });
+
+  it("does not let a pending encrypted-note mutation bypass Android folder access", async () => {
+    Object.assign(window, { Capacitor: { isNativePlatform: () => true, getPlatform: () => "android" } });
+    localStorage.setItem("nowen-token", "signed-in");
+    const pending = makeNote({ content: JSON.stringify(encryptedFixture.envelope), contentFormat: "encrypted-note-v1" });
+    enqueue({ type: "updateNote", noteId: pending.id, method: "PUT", url: "/notes/note-1", body: { ...pending } });
+    const denied = new Error("folder locked");
+    const fetchRemote = vi.fn().mockRejectedValue(denied);
+    await expect(loadNoteCacheFirst({ noteId: pending.id, fetchRemote })).rejects.toBe(denied);
+    expect(fetchRemote).toHaveBeenCalledOnce();
+  });
+
+  it("Case 1/2: preserves explicitly blocking preparation hooks for callers that require them", async () => {
     const cached = makeNote({
       content: '{"type":"doc","content":[{"type":"image","attrs":{"src":"/api/attachments/123e4567-e89b-42d3-a456-426614174216"}}]}',
     });
@@ -181,7 +241,7 @@ describe("loadNoteCacheFirst", () => {
     await vi.waitFor(() => expect(localStore.putNote).toHaveBeenCalled());
   });
 
-  it("keeps cached notes available if runtime preparation fails while offline", async () => {
+  it("keeps cached notes available if an explicitly blocking runtime preparation fails", async () => {
     const cached = makeNote();
     localStore.getNote.mockResolvedValue(cached);
     const remoteGate = deferred<Note>();
@@ -202,7 +262,7 @@ describe("loadNoteCacheFirst", () => {
     warn.mockRestore();
   });
 
-  it("uses and persists the remote body when no detailed cache exists", async () => {
+  it("uses and persists the remote body and prepares its runtime when no detailed cache exists", async () => {
     localStore.getNote.mockResolvedValue(null);
     const remote = makeNote({ version: 5 });
     const beforeUseCached = vi.fn();
@@ -213,7 +273,33 @@ describe("loadNoteCacheFirst", () => {
       beforeUseCached,
     })).resolves.toBe(remote);
 
-    expect(beforeUseCached).not.toHaveBeenCalled();
+    expect(beforeUseCached).toHaveBeenCalledTimes(1);
+    expect(beforeUseCached).toHaveBeenCalledWith(remote);
     expect(localStore.putNote).toHaveBeenCalledWith({ ...remote, __detailCached: true });
+  });
+
+  it("does not wait for default attachment priming before the first editor render", async () => {
+    localStore.getNote.mockResolvedValue(null);
+    const remote = makeNote({
+      version: 5,
+      content: '{"type":"doc","content":[{"type":"video","attrs":{"src":"/api/attachments/123e4567-e89b-42d3-a456-426614174216"}}]}',
+    });
+    const primeGate = deferred<number>();
+    attachmentRuntime.primeNoteAttachmentAccess.mockImplementationOnce(() => primeGate.promise);
+
+    const loadPromise = loadNoteCacheFirst({
+      noteId: remote.id,
+      fetchRemote: async () => remote,
+    });
+
+    await vi.waitFor(() => expect(attachmentRuntime.primeNoteAttachmentAccess).toHaveBeenCalledWith(
+      remote.id,
+      "https://notes.example.com/api",
+    ));
+    await expect(loadPromise).resolves.toBe(remote);
+
+    // Background priming may finish later without affecting text visibility.
+    primeGate.resolve(1);
+    await new Promise((resolve) => setTimeout(resolve, 0));
   });
 });

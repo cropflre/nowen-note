@@ -2,8 +2,10 @@ import React, { useState, useEffect, useCallback, useRef, useMemo } from "react"
 import { Globe, Lock, AlertCircle, Loader2, FileText, MessageCircle, Send, RefreshCw, Edit3, Check, UserCircle2, ListTree, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { api, resolveAttachmentUrl } from "@/lib/api";
+import VoiceMemoAudio from "@/components/VoiceMemoAudio";
 import { ShareInfo, SharedNoteContent, ShareComment, Note } from "@/types";
 import { cn } from "@/lib/utils";
+import { useSiteSettings } from "@/hooks/useSiteSettings";
 import { toast } from "@/lib/toast";
 import { common, createLowlight } from "lowlight";
 import ReactMarkdown from "react-markdown";
@@ -12,6 +14,8 @@ import rehypeRaw from "rehype-raw";
 import rehypeSanitize from "rehype-sanitize";
 import { sanitizeForShare, sanitizeSvg } from "@/lib/sanitizeHtml";
 import TiptapEditor from "@/components/TiptapEditor";
+import { MotionPhotoOverlay, SharedPhotoMotionBridge } from "@/components/MotionPhotoOverlay";
+import { AttachmentPhotoPreview } from "@/components/attachmentPreview/AttachmentPreview";
 import type { NoteEditorUpdatePayload } from "@/components/editors/types";
 import { detectFormat } from "@/lib/contentFormat";
 import MermaidView from "@/components/MermaidView";
@@ -20,6 +24,11 @@ import { renderKatex } from "@/lib/katexRenderer";
 import { projectMarkdownForUser } from "@/lib/markdownUserContent";
 import { normalizeIndentValue } from "@/lib/codeBlockIndent";
 import FullscreenImageViewer, { type FullscreenImageItem } from "@/components/FullscreenImageViewer";
+import {
+  hydrateSharedMindMapPlaceholders,
+  preprocessSharedMindMapMarkdown,
+  renderSharedMindMapPlaceholder,
+} from "@/lib/sharedMindMapSnapshots";
 
 // 分享页独立的 lowlight 实例（与编辑器保持一致的 common 语法集合）
 const sharedLowlight = createLowlight(common);
@@ -71,6 +80,7 @@ export function prepareSharedMarkdownForDisplay(markdown: string): string {
 }
 
 export default function SharedNoteView({ shareToken }: SharedNoteViewProps) {
+  const { siteConfig } = useSiteSettings();
   const [shareInfo, setShareInfo] = useState<ShareInfo | null>(null);
   const [content, setContent] = useState<SharedNoteContent | null>(null);
   const [loading, setLoading] = useState(true);
@@ -134,7 +144,7 @@ export default function SharedNoteView({ shareToken }: SharedNoteViewProps) {
   const isReadOnlyContent = !(isEditing && (content?.permission === "edit" || content?.permission === "edit_auth"));
   const sharedMarkdownForDisplay = useMemo(
   () => content && detectFormat(content.content) === "md"
-    ? prepareSharedMarkdownForDisplay(content.content)
+    ? preprocessSharedMindMapMarkdown(prepareSharedMarkdownForDisplay(content.content))
     : "",
   [content?.content],
 );
@@ -169,6 +179,17 @@ export default function SharedNoteView({ shareToken }: SharedNoteViewProps) {
     });
     return () => cancelAnimationFrame(raf);
   }, [content?.content]);
+
+  // #790：分享页只使用 /shared/:token/content 随响应下发的静态脑图快照。
+  // 不从公开页面请求 /api/mindmaps/:id，避免把私有导图 API 暴露给访客。
+  useEffect(() => {
+    const root = pmRenderRef.current;
+    if (!root || !content?.content || !isReadOnlyContent) return;
+    const frame = requestAnimationFrame(() => {
+      hydrateSharedMindMapPlaceholders(root, content.mindMapSnapshots);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [content?.content, content?.mindMapSnapshots, isReadOnlyContent, isEditing]);
 
   // 分享页只读内容里的外部链接默认新标签页打开；HTML/PM 路径需要 DOM 后处理。
   useEffect(() => {
@@ -1223,7 +1244,7 @@ export default function SharedNoteView({ shareToken }: SharedNoteViewProps) {
                       "*": [
                         "className", "id", "title", "dir", "lang", "style",
                         "dataMermaidSource", "dataMathSource", "dataMathSourceMd",
-                        "dataFootnoteId", "dataRendered", "dataWidth",
+                        "dataFootnoteId", "dataRendered", "dataWidth", "dataSharedMindmapId",
                       ],
                       "a": ["href", "target", "rel", "name"],
                       "img": ["src", "alt", "width", "height", "loading", "referrerpolicy"],
@@ -1275,6 +1296,11 @@ export default function SharedNoteView({ shareToken }: SharedNoteViewProps) {
                     );
                   },
                   // 图片：有 width 时输出 inline style 控制缩放宽度
+                  audio({ src, node }) {
+                    const sourceNode = node?.children?.find((child) => child.type === "element" && child.tagName === "source");
+                    const source = String(src || (sourceNode?.type === "element" ? sourceNode.properties?.src : "") || "");
+                    return <VoiceMemoAudio src={source} />;
+                  },
                   img({ src, alt, ...imgProps }: any) {
                     const resolvedSrc = resolveAttachmentUrl(String(src || ""));
                     const rawW = imgProps?.width || imgProps?.["data-width"];
@@ -1283,7 +1309,13 @@ export default function SharedNoteView({ shareToken }: SharedNoteViewProps) {
                       : typeof rawW === "string" && /^\d+(?:\.\d+)?$/.test(rawW.trim())
                         ? Math.round(Number(rawW))
                         : null;
+                    if (/\/(?:api|publicapi)\/attachments\//.test(String(src || ""))) {
+                      return <span className="inline-block max-w-full" style={{ width: w ? `${w}px` : undefined }}>
+                        <AttachmentPhotoPreview url={String(src)} filename={String(alt || "照片")} imgMaxHeightClass="max-h-none" />
+                      </span>;
+                    }
                     return (
+                      <span className="relative inline-block max-w-full">
                       <img
                         {...imgProps}
                         src={resolvedSrc}
@@ -1300,6 +1332,8 @@ export default function SharedNoteView({ shareToken }: SharedNoteViewProps) {
                           margin: "0.25rem 0.375rem",
                         }}
                       />
+                      <MotionPhotoOverlay source={String(src || "")} />
+                      </span>
                     );
                   },
                 }}
@@ -1313,6 +1347,7 @@ export default function SharedNoteView({ shareToken }: SharedNoteViewProps) {
               </ReactMarkdown>
             </div>
           ) : (
+            <>
             <div
               ref={pmRenderRef}
               className="shared-note-content prose prose-sm dark:prose-invert max-w-none
@@ -1325,6 +1360,8 @@ export default function SharedNoteView({ shareToken }: SharedNoteViewProps) {
               // SEC-XSS-01-C: sanitizeForShare 防止 stored XSS（H1 修复）
               dangerouslySetInnerHTML={{ __html: sanitizeForShare(renderContent(content.content)) }}
             />
+            <SharedPhotoMotionBridge rootRef={pmRenderRef} revision={content.content} />
+            </>
           )}
         </section>
 
@@ -1449,9 +1486,9 @@ export default function SharedNoteView({ shareToken }: SharedNoteViewProps) {
 
       {/* 底部 */}
       <footer className="border-t border-zinc-200 dark:border-zinc-800 py-6 text-center">
-        <p className="text-xs text-zinc-400">
+        <p className="text-xs text-zinc-400 px-4 break-words">
           <Globe size={12} className="inline mr-1" />
-          通过 Nowen Note 分享
+          {siteConfig.shareFooterText?.trim() || "通过 Nowen Note 分享"}
         </p>
       </footer>
 
@@ -1808,7 +1845,8 @@ function renderNode(node: any): string {
       return `<ul class="task-list"${renderSharedIndentAttribute(node)}>${renderChildren(node)}</ul>`;
     case "taskItem": {
       const checked = node.attrs?.checked ? "checked" : "";
-      return `<li class="task-item"><input type="checkbox" ${checked} disabled />${renderChildren(node)}</li>`;
+      const status = node.attrs?.checked ? "true" : "false";
+      return `<li class="task-item" data-checked="${status}"><input type="checkbox" ${checked} disabled />${renderChildren(node)}</li>`;
     }
     case "codeBlock":
       return renderCodeBlock(node);
@@ -1845,6 +1883,10 @@ function renderNode(node: any): string {
       const encId = escapeHtml(id);
       return `<div class="shared-footnote-def" id="fn-${encId}" data-footnote-def="${encId}" data-footnote-order="${order}"><span class="shared-footnote-def-marker"><a href="#fnref-${encId}" class="shared-footnote-back" data-footnote-back="${encId}" title="跳回">↩</a><span class="shared-footnote-def-index">${order || "?"}.</span></span><span class="shared-footnote-def-content">${escapeHtml(content)}</span></div>`;
     }
+    case "blockEmbed": {
+      const placeholder = renderSharedMindMapPlaceholder(String(node.attrs?.href || ""));
+      return placeholder || "";
+    }
     case "blockquote":
       return `<blockquote${renderSharedIndentAttribute(node)}>${renderChildren(node)}</blockquote>`;
     case "horizontalRule":
@@ -1863,6 +1905,13 @@ function renderNode(node: any): string {
         ? ` style="width:${w}px;max-width:100%;height:auto"`
         : ` style="max-width:100%;height:auto"`;
       return `<img src="${escapeHtml(src)}" alt="${escapeHtml(alt)}"${wAttr}${style} />`;
+    }
+    case "voiceMemo": {
+      const rawSrc = String(node.attrs?.src || "").trim();
+      if (/^(?!https?:)[a-z][a-z\d+.-]*:/i.test(rawSrc)) return "";
+      const src = resolveAttachmentUrl(rawSrc);
+      const inline = src ? `${src}${src.includes("?") ? "&" : "?"}inline=1` : "";
+      return `<audio controls preload="metadata" src="${escapeHtml(inline)}"></audio>`;
     }
     case "table":
       return `<table>${renderChildren(node)}</table>`;

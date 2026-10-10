@@ -1,0 +1,83 @@
+{
+  "id": "nowenlab.theme-pack",
+  "publisher": "nowenlab",
+  "name": "Nowen Theme Pack",
+  "description": "Official zero-code Note Theme Contribution example",
+  "version": "1.0.0",
+  "apiVersion": 2,
+  "engines": { "nowen": ">=1.6.0 <2.0.0" },
+  "runtime": "declarative",
+  "categories": ["appearance"],
+  "keywords": ["theme", "note", "reading"],
+  "repository": "https://github.com/cropflre/nowen-plugin-theme-pack",
+  "license": "MIT",
+  "permissions": [],
+  "contributes": {
+    "noteThemes": [
+      {
+        "id": "sepia",
+        "name": "暖调纸张",
+        "description": "适合长文阅读的温暖纸色主题。",
+        "base": "nowen.default",
+        "modes": {
+          "light": {
+            "surface": "#fbf6ea",
+            "text": "#514538",
+            "heading": "#2f281f",
+            "muted": "#857562",
+            "border": "#ded1bc",
+            "accent": "#9a5c2f",
+            "accentHover": "#74411e",
+            "inlineCodeBackground": "#eee3d0",
+            "inlineCodeText": "#8a3f2f",
+            "preBackground": "#2b2520",
+            "preText": "#f3eadc",
+            "quoteBorder": "#b7793f",
+            "quoteText": "#6d5d4b",
+            "softBackground": "#f3ead9",
+            "tableStripe": "#f6eedf",
+            "markBackground": "#efd992",
+            "selection": "#9a5c2f38",
+            "contentMaxWidth": "760px",
+            "lineHeight": "1.82"
+          },
+          "dark": {
+            "surface": "#211d18",
+            "text": "#ddd0bd",
+            "heading": "#f3e7d4",
+            "accent": "#d7a06b",
+            "accentHover": "#efbd88",
+            "selection": "#d7a06b3d"
+          }
+        }
+      },
+      {
+        "id": "midnight",
+        "name": "午夜专注",
+        "description": "深色、低眩光的专注写作主题。",
+        "base": "nowen.default",
+        "modes": {
+          "light": {
+            "surface": "#f5f7fb",
+            "text": "#252b37",
+            "accent": "#405d9b",
+            "contentMaxWidth": "800px",
+            "lineHeight": "1.78"
+          },
+          "dark": {
+            "surface": "#0c111b",
+            "text": "#dbe4f3",
+            "heading": "#f4f7fb",
+            "muted": "#8d9ab0",
+            "border": "#283348",
+            "accent": "#86a9ee",
+            "accentHover": "#abc4f5",
+            "softBackground": "#151d2b",
+            "tableStripe": "#111927",
+            "selection": "#86a9ee40"
+          }
+        }
+      }
+    ]
+  }
+}

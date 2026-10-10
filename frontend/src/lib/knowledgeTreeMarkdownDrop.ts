@@ -14,6 +14,7 @@ import {
   getKnowledgeTreeExpansionSnapshot,
   saveKnowledgeTreeExpansion,
 } from "@/lib/knowledgeTreeExpansion";
+import { revealCreatedKnowledgeTreeNote } from "@/lib/knowledgeTreeCreateVisibility";
 import { toast } from "@/lib/toast";
 
 const TREE_SELECTOR = '[data-nowen-knowledge-tree="embedded"]';
@@ -843,6 +844,7 @@ async function handleKnowledgeTreeFileDrop(row: HTMLElement, dataTransfer: DataT
 
     if (successCount > 0) {
       expandImportedTarget(target);
+      revealCreatedKnowledgeTreeNote(target.id);
       emitTreeChanged(target.id, successCount);
     }
   } catch (error) {

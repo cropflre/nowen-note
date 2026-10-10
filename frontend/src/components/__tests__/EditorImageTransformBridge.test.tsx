@@ -1,6 +1,7 @@
 import { Editor } from "@tiptap/core";
 import StarterKit from "@tiptap/starter-kit";
 import Image from "@tiptap/extension-image";
+import { NodeSelection } from "@tiptap/pm/state";
 import { afterEach, describe, expect, it } from "vitest";
 import "@/lib/imageNodeTransformBootstrap";
 import {
@@ -78,6 +79,37 @@ describe("EditorImageTransformBridge", () => {
     expect(badge.style.transform).toBe("");
   });
 
+  it("keeps quarter-turn images on their own line and restores inline flow after reset", () => {
+    document.body.innerHTML = `
+      <p id="parent">
+        before
+        <span class="react-renderer node-image">
+          <span class="resizable-image-wrapper" style="margin: 0">
+            <img src="/image.png" width="600">
+          </span>
+        </span>
+        after
+      </p>
+    `;
+    const parent = document.querySelector<HTMLElement>("#parent")!;
+    const nodeView = document.querySelector<HTMLElement>(".react-renderer.node-image")!;
+    const wrapper = document.querySelector<HTMLElement>(".resizable-image-wrapper")!;
+    const image = wrapper.querySelector<HTMLImageElement>("img")!;
+    Object.defineProperty(parent, "clientWidth", { value: 800, configurable: true });
+    Object.defineProperties(image, {
+      naturalWidth: { value: 1200, configurable: true },
+      naturalHeight: { value: 600, configurable: true },
+      offsetWidth: { value: 600, configurable: true },
+      offsetHeight: { value: 300, configurable: true },
+    });
+
+    expect(applyImageTransformLayout(wrapper, 90, false)).toBe(true);
+    expect(nodeView.style.display).toBe("block");
+
+    expect(applyImageTransformLayout(wrapper, 0, false)).toBe(true);
+    expect(nodeView.style.display).toBe("inline");
+  });
+
   it("lets the first resize gesture pass through the compact mobile sheet backdrop", () => {
     document.body.innerHTML = `
       <button aria-label="关闭图片操作" style="pointer-events:auto"></button>
@@ -91,7 +123,7 @@ describe("EditorImageTransformBridge", () => {
     });
   });
 
-  it("updates a selected inline image without dispatching a focus transaction", () => {
+  it("updates a selected inline image without dispatching focus and keeps its NodeSelection", () => {
     const editor = new Editor({
       extensions: [StarterKit, Image.configure({ inline: true })],
       content: {
@@ -106,9 +138,17 @@ describe("EditorImageTransformBridge", () => {
       },
     });
 
+    editor.view.dispatch(
+      editor.state.tr.setSelection(NodeSelection.create(editor.state.doc, 1)),
+    );
+    expect(editor.state.selection).toBeInstanceOf(NodeSelection);
+
     expect(updateImageAttributesAt(editor, 1, { rotation: 90 })).toBe(true);
     expect(editor.state.doc.nodeAt(1)?.attrs.rotation).toBe(90);
     expect(editor.state.doc.nodeAt(1)?.attrs.src).toBe("/image.png");
+    expect(editor.state.selection).toBeInstanceOf(NodeSelection);
+    expect(editor.state.selection.from).toBe(1);
+    expect((editor.state.selection as NodeSelection).node.attrs.rotation).toBe(90);
     editor.destroy();
   });
 });

@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Nowen Note Web Clipper",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "速记、网页正文、选区和图片一键保存到 Nowen Note。",
   "permissions": [
     "activeTab",

@@ -22,6 +22,7 @@ import { Input } from "@/components/ui/input";
 import { confirm } from "@/components/ui/confirm";
 import { useSiteSettings } from "@/hooks/useSiteSettings";
 import { api } from "@/lib/api";
+import { copyText } from "@/lib/clipboard";
 import {
   buildPublicWebUrl,
   getPublicWebOriginSourceLabel,
@@ -36,6 +37,7 @@ import {
   shareStatusMeta,
 } from "@/lib/shareManagement";
 import { toast } from "@/lib/toast";
+import { openCommentCenter } from "@/lib/noteCommentNavigation";
 import { cn } from "@/lib/utils";
 import { useAppActions } from "@/store/AppContext";
 import type {
@@ -174,10 +176,10 @@ function PublicOriginRiskControl({
 
   const copyOrigin = async () => {
     if (!publicOrigin.origin) return;
-    try {
-      await navigator.clipboard.writeText(publicOrigin.origin);
+    const ok = await copyText(publicOrigin.origin);
+    if (ok) {
       toast.success("公开分享地址已复制");
-    } catch {
+    } else {
       toast.error("复制失败，请手动复制");
     }
   };
@@ -401,10 +403,10 @@ export default function ShareManagementPage() {
   const shareUrl = (item: ShareManagementItem) => buildPublicWebUrl(`/share/${item.shareToken}`, originOptions);
 
   const copyLink = async (item: ShareManagementItem) => {
-    try {
-      await navigator.clipboard.writeText(shareUrl(item));
+    const ok = await copyText(shareUrl(item));
+    if (ok) {
       toast.success("分享链接已复制");
-    } catch {
+    } else {
       toast.error("复制失败，请手动复制");
     }
   };
@@ -514,6 +516,7 @@ export default function ShareManagementPage() {
                 variant="badge"
               />
             )}
+            <Button variant="outline" onClick={openCommentCenter}>评论管理</Button>
             <Button variant="outline" onClick={() => void load(true)} disabled={refreshing}>
               {refreshing ? <Loader2 size={15} className="mr-2 animate-spin" /> : <RefreshCw size={15} className="mr-2" />}
               刷新

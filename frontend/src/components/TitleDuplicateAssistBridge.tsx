@@ -1,9 +1,10 @@
 import React, { useCallback, useEffect, useRef } from "react";
 
 import { api } from "@/lib/api";
+import { isRootDocumentNotebookId } from "@/lib/rootDocumentCreatePolicy";
 import { canWriteNote } from "@/lib/notePermissions";
 import {
-  findTitleDuplicateMatch,
+  findTitleDuplicateRanges,
   type TitleDuplicateCandidate,
 } from "@/lib/titleDuplicateAssist";
 import { useApp } from "@/store/AppContext";
@@ -21,12 +22,18 @@ type Session = {
 type Mirror = {
   root: HTMLDivElement;
   text: HTMLDivElement;
-  prefix: HTMLSpanElement;
-  suffix: HTMLSpanElement;
+  normalColor: string;
   inlineColor: string;
   inlineCaretColor: string;
   inlineTextFillColor: string;
 };
+
+function isTransparentColor(value: string): boolean {
+  const normalized = value.replace(/\s+/g, "").toLowerCase();
+  return normalized === "transparent"
+    || normalized === "rgba(0,0,0,0)"
+    || normalized.endsWith(",0)");
+}
 
 function resolveTitleField(root: HTMLElement, target: EventTarget | null): TitleField | null {
   if (target instanceof HTMLTextAreaElement && root.contains(target)) {
@@ -133,6 +140,7 @@ export default function TitleDuplicateAssistBridge({
   const activeNoteRef = useRef<Note | null>(state.activeNote);
   const cacheRef = useRef<Map<string, TitleDuplicateCandidate[]>>(new Map());
   const inflightRef = useRef<Map<string, Promise<TitleDuplicateCandidate[]>>>(new Map());
+  const requestVersionRef = useRef<Map<string, number>>(new Map());
   const sessionRef = useRef<Session | null>(null);
   const mirrorRef = useRef<Mirror | null>(null);
   const resizeObserverRef = useRef<ResizeObserver | null>(null);
@@ -199,6 +207,13 @@ export default function TitleDuplicateAssistBridge({
     if (!session) return null;
     const field = session.field;
     const style = window.getComputedStyle(field);
+    // getComputedStyle 返回的是实时对象。必须在把真实标题设为透明前保存颜色值，
+    // 否则后续读取到的 caretColor 也会跟随 color 变成透明，镜像光标无法显示。
+    const fieldColor = style.color;
+    const computedCaretColor = style.caretColor;
+    const visibleCaretColor = computedCaretColor === "auto" || isTransparentColor(computedCaretColor)
+      ? fieldColor
+      : computedCaretColor;
 
     const root = document.createElement("div");
     root.dataset.titleDuplicateMirror = "";
@@ -214,19 +229,13 @@ export default function TitleDuplicateAssistBridge({
 
     const text = document.createElement("div");
     Object.assign(text.style, { position: "absolute", left: "0", top: "0" });
-    const prefix = document.createElement("span");
-    prefix.className = "text-red-500 dark:text-red-400";
-    const suffix = document.createElement("span");
-    suffix.style.color = style.color;
-    text.append(prefix, suffix);
     root.appendChild(text);
     document.body.appendChild(root);
 
     const mirror: Mirror = {
       root,
       text,
-      prefix,
-      suffix,
+      normalColor: fieldColor,
       inlineColor: field.style.color,
       inlineCaretColor: field.style.caretColor,
       inlineTextFillColor: field.style.webkitTextFillColor,
@@ -235,7 +244,7 @@ export default function TitleDuplicateAssistBridge({
 
     field.style.color = "transparent";
     field.style.webkitTextFillColor = "transparent";
-    field.style.caretColor = style.caretColor === "auto" ? style.color : style.caretColor;
+    field.style.caretColor = visibleCaretColor;
 
     resizeObserverRef.current = new ResizeObserver(scheduleLayout);
     resizeObserverRef.current.observe(field);
@@ -253,21 +262,36 @@ export default function TitleDuplicateAssistBridge({
     }
 
     const title = session.field.value;
-    const match = findTitleDuplicateMatch({
+    const ranges = findTitleDuplicateRanges({
       title,
       currentNoteId: session.noteId,
       currentNotebookId: session.notebookId,
       candidates: cacheRef.current.get(session.notebookId) || [],
     });
-    if (!match) {
+    if (!ranges.length) {
       clearMirror();
       return;
     }
 
     const mirror = ensureMirror();
     if (!mirror) return;
-    mirror.prefix.textContent = title.slice(0, match.prefixLength);
-    mirror.suffix.textContent = title.slice(match.prefixLength);
+    const segments: HTMLSpanElement[] = [];
+    const appendSegment = (value: string, duplicate: boolean) => {
+      if (!value) return;
+      const span = document.createElement("span");
+      span.textContent = value;
+      if (duplicate) span.className = "text-red-500 dark:text-red-400";
+      else span.style.color = mirror.normalColor;
+      segments.push(span);
+    };
+    let cursor = 0;
+    for (const range of ranges) {
+      appendSegment(title.slice(cursor, range.from), false);
+      appendSegment(title.slice(range.from, range.to), true);
+      cursor = range.to;
+    }
+    appendSegment(title.slice(cursor), false);
+    mirror.text.replaceChildren(...segments);
     scheduleLayout();
   }, [clearMirror, ensureMirror, scheduleLayout]);
 
@@ -276,26 +300,39 @@ export default function TitleDuplicateAssistBridge({
       return Promise.resolve(cacheRef.current.get(notebookId)!);
     }
     const inflight = inflightRef.current.get(notebookId);
-    if (inflight) return inflight;
+    if (inflight && !force) return inflight;
 
-    const request = api.getNotes({ notebookId, includeDescendants: "0" })
+    const version = (requestVersionRef.current.get(notebookId) || 0) + 1;
+    requestVersionRef.current.set(notebookId, version);
+
+    // Root-document notebooks are hidden internal containers. ACL-based
+    // notebookId queries will 404; ask the knowledge-tree root scope instead.
+    const params: Record<string, string> = isRootDocumentNotebookId(notebookId)
+      ? { treeParentId: "root", includeDescendants: "0" }
+      : { notebookId, includeDescendants: "1" };
+    const request = api.getNotes(params)
       .then((notes) => {
         const candidates = notes
-          .filter((note) => note.notebookId === notebookId && !note.isTrashed)
+          .filter((note) => !note.isTrashed)
           .map((note) => ({
             id: note.id,
             title: note.title || "",
             notebookId: note.notebookId,
             isTrashed: note.isTrashed,
           } satisfies TitleDuplicateCandidate));
-        cacheRef.current.set(notebookId, candidates);
-        return candidates;
+        if (requestVersionRef.current.get(notebookId) === version) {
+          cacheRef.current.set(notebookId, candidates);
+          return candidates;
+        }
+        return cacheRef.current.get(notebookId) || [];
       })
       .catch((error) => {
         console.warn("[title-duplicate-assist] failed to load notebook titles", error);
         return cacheRef.current.get(notebookId) || [];
       })
-      .finally(() => inflightRef.current.delete(notebookId));
+      .finally(() => {
+        if (inflightRef.current.get(notebookId) === request) inflightRef.current.delete(notebookId);
+      });
 
     inflightRef.current.set(notebookId, request);
     return request;
@@ -328,7 +365,7 @@ export default function TitleDuplicateAssistBridge({
   }, [clearMirror, rememberEditedTitle]);
 
   // state.notes 不是可靠候选源：搜索、标签、日期以及“本目录搜索”都会把它缩成子集。
-  // 因此只在笔记本变化 / 明确列表刷新时，使用已有 notes list API 拉一次直属笔记并缓存。
+  // 因此只在笔记本变化 / 明确列表刷新时，使用已有 notes list API 拉一次当前目录及子目录并缓存。
   useEffect(() => {
     const note = state.activeNote;
     if (!note?.notebookId) return;
@@ -399,6 +436,12 @@ export default function TitleDuplicateAssistBridge({
       const field = resolveTitleField(root, event.target);
       if (field) startSession(field);
     };
+    const onPointerDown = (event: PointerEvent) => {
+      const field = resolveTitleField(root, event.target);
+      // Enter 会按原逻辑结束提示会话，但 Tiptap 标题仍保持焦点，后续点击不会再次
+      // 触发 focusin。仅在这种“仍聚焦但已无会话”的情况下恢复重复提示。
+      if (field && document.activeElement === field && !sessionRef.current) startSession(field);
+    };
     const onInput = (event: Event) => {
       const session = sessionRef.current;
       if (session && event.target === session.field && !session.composing) renderMatch();
@@ -431,6 +474,7 @@ export default function TitleDuplicateAssistBridge({
     };
 
     root.addEventListener("focusin", onFocusIn, true);
+    root.addEventListener("pointerdown", onPointerDown, true);
     root.addEventListener("input", onInput, true);
     root.addEventListener("compositionstart", onCompositionStart, true);
     root.addEventListener("compositionend", onCompositionEnd, true);
@@ -447,6 +491,7 @@ export default function TitleDuplicateAssistBridge({
 
     return () => {
       root.removeEventListener("focusin", onFocusIn, true);
+      root.removeEventListener("pointerdown", onPointerDown, true);
       root.removeEventListener("input", onInput, true);
       root.removeEventListener("compositionstart", onCompositionStart, true);
       root.removeEventListener("compositionend", onCompositionEnd, true);

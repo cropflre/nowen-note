@@ -1,6 +1,7 @@
 export type ImportMethod =
   | "siyuan"
   | "obsidian"
+  | "yuque"
   | "wechat-favorites"
   | "youdao"
   | "mobile-memo"
@@ -24,7 +25,7 @@ export const IMPORT_METHOD_GROUPS: ReadonlyArray<{
 }> = [
   {
     id: "migration",
-    methods: ["siyuan", "obsidian", "wechat-favorites", "youdao", "mobile-memo"],
+    methods: ["siyuan", "obsidian", "yuque", "wechat-favorites", "youdao", "mobile-memo"],
   },
   { id: "general", methods: ["generic", "url"] },
   { id: "restore", methods: ["nowen"] },

@@ -3,6 +3,18 @@
 # =============================================================================
 ARG TARGETARCH=amd64
 
+# ---------- sqlite-vec: 按目标架构编译 musl 扩展（npm Linux 预编译包使用 glibc） ----------
+FROM node:20-alpine AS sqlite-vec-build
+WORKDIR /build
+RUN apk add --no-cache build-base curl sqlite-dev
+# 与 backend/package-lock.json 中的 sqlite-vec 版本一致；源码固定校验和。
+# v0.1.9 的 BSD u_int*_t 别名不适用于 musl；使用源码已包含的 stdint.h 类型。
+RUN curl -fSL --retry 3 https://github.com/asg017/sqlite-vec/releases/download/v0.1.9/sqlite-vec-0.1.9-amalgamation.tar.gz -o sqlite-vec.tar.gz \
+    && echo "3acd67cb4aff080c7050926fd3cf8227905fe5b7ee3829d8ee5024ab1283cf61  sqlite-vec.tar.gz" | sha256sum -c - \
+    && tar -xzf sqlite-vec.tar.gz \
+    && sed -i '/^typedef u_int[0-9]*_t uint[0-9]*_t;$/d' sqlite-vec.c \
+    && cc -O3 -fPIC -shared sqlite-vec.c -o vec0.so -lm
+
 # ---------- Stage 1: 前端构建 ----------
 FROM --platform=$BUILDPLATFORM node:20-alpine AS frontend-build
 ARG TARGETARCH
@@ -28,29 +40,29 @@ COPY frontend/ .
 COPY scripts/precompress-frontend.mjs /app/scripts/precompress-frontend.mjs
 COPY scripts/verify-sync-notification-ui.cjs /app/scripts/verify-sync-notification-ui.cjs
 # Web/Docker 产物生成 .br/.gz；Electron 与 Capacitor 继续使用普通 build，避免安装包重复携带压缩副本。
-RUN npm run build:web
+RUN NODE_OPTIONS=--max-old-space-size=4096 npm run build:web
 
 # ---------- Stage 2: 后端构建（包含 updater 专用入口） ----------
 FROM node:20-alpine AS backend-build
 WORKDIR /app/backend
 RUN apk add --no-cache --virtual .build-deps python3 make g++ linux-headers
+RUN apk add --no-cache ffmpeg
 COPY backend/package.json backend/package-lock.json ./
-RUN npm ci --no-audit --no-fund
+RUN FFMPEG_BIN=/usr/bin/ffmpeg npm ci --no-audit --no-fund
 COPY backend/ .
-RUN npx tsc
+RUN npx tsc \
+    && cp src/plugins/runner-child.mjs src/plugins/sandbox-child.mjs dist/plugins/
 RUN apk del .build-deps
 
 # ---------- Stage 3: 运行时镜像 ----------
 FROM node:20-alpine
 WORKDIR /app
-# PostgreSQL Runtime 的备份/恢复预检依赖 pg_dump 与 pg_restore。
-# 使用 Alpine 的 postgresql-client 元包，不把 DATABASE_URL 或密码写入镜像层。
-RUN apk add --no-cache tini tzdata postgresql-client
+RUN apk add --no-cache tini tzdata ffmpeg postgresql-client
 
 COPY package.json ./package.json
 COPY backend/package.json backend/package-lock.json ./backend/
 RUN apk add --no-cache --virtual .build-deps python3 make g++ linux-headers \
-    && cd backend && npm ci --omit=dev --no-audit --no-fund \
+    && cd backend && FFMPEG_BIN=/usr/bin/ffmpeg npm ci --omit=dev --no-audit --no-fund \
     && apk del .build-deps \
     && npm cache clean --force \
     && rm -rf /root/.npm /tmp/* /var/cache/apk/*
@@ -58,6 +70,16 @@ RUN apk add --no-cache --virtual .build-deps python3 make g++ linux-headers \
 COPY --from=backend-build /app/backend/dist ./backend/dist
 COPY backend/templates ./backend/templates
 COPY --from=frontend-build /app/frontend/dist ./frontend/dist
+COPY backend/scripts/smoke-plugin-artifacts.cjs ./backend/scripts/smoke-plugin-artifacts.cjs
+COPY --from=sqlite-vec-build /build/vec0.so /tmp/vec0.so
+COPY backend/scripts/smoke-sqlite-vec.cjs ./backend/scripts/smoke-sqlite-vec.cjs
+# 保持 sqlite-vec 的标准加载路径，同时兼容 amd64/arm64 npm 平台包。
+RUN cd backend \
+    && node -e "require('node:fs').copyFileSync('/tmp/vec0.so', require('sqlite-vec').getLoadablePath())" \
+    && rm /tmp/vec0.so \
+    && node scripts/smoke-sqlite-vec.cjs
+# 仅使用生产依赖与 dist；没有 src，避免开发入口兜底掩盖遗漏的运行器。
+RUN node backend/scripts/smoke-plugin-artifacts.cjs
 
 RUN mkdir -p /app/data /var/lib/nowen-updater \
     && chmod 700 /var/lib/nowen-updater
@@ -82,6 +104,7 @@ LABEL org.opencontainers.image.title="Nowen Note" \
 ENV NODE_ENV=production
 ENV DB_PATH=/app/data/nowen-note.db
 ENV PORT=3001
+ENV FFMPEG_PATH=/usr/bin/ffmpeg
 
 EXPOSE 3001
 

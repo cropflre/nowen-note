@@ -197,6 +197,7 @@ function persistUpdate(
  *   - 老 updates 的真正清理由独立的 GC 步骤做（有 safety margin）
  */
 function writeSnapshot(noteId: string, doc: Y.Doc) {
+  yjsPersistenceRepository.assertCollaborationAllowed(noteId);
   const state = Y.encodeStateAsUpdate(doc);
   yjsPersistenceRepository.writeSnapshot(noteId, Buffer.from(state));
 }
@@ -236,6 +237,7 @@ function schedulePersistToNotesTable(room: RoomState) {
 }
 
 function persistToNotesTable(room: RoomState) {
+  yjsPersistenceRepository.assertCollaborationAllowed(room.noteId);
   const ytext = room.doc.getText("content");
   const markdown = ytext.toString();
   // 生成纯文本（给 FTS 用）—— 用最朴素的剥离，复杂的由前端 contentFormat 负责
@@ -276,6 +278,7 @@ function persistToNotesTable(room: RoomState) {
 // ---------------------------------------------------------------------------
 
 function getOrCreateRoom(noteId: string): RoomState {
+  yjsPersistenceRepository.assertCollaborationAllowed(noteId);
   let room = rooms.get(noteId);
   if (!room) {
     const doc = loadDocFromDb(noteId);
@@ -364,6 +367,7 @@ export function yApplyUpdate(
 ): YApplyResult {
   const room = rooms.get(noteId);
   if (!room) return "no_room";
+  try { yjsPersistenceRepository.assertCollaborationAllowed(noteId); } catch { return "invalid"; }
   let update: Uint8Array;
   try {
     update = base64ToUint8(updateBase64);
@@ -377,6 +381,13 @@ export function yApplyUpdate(
     );
     return "too_large";
   }
+  const candidate = new Y.Doc();
+  try {
+    Y.applyUpdate(candidate, Y.encodeStateAsUpdate(room.doc));
+    Y.applyUpdate(candidate, update);
+    if (/nowen-encrypted/i.test(candidate.getText("content").toString())) return "invalid";
+  } catch { return "invalid"; }
+  finally { candidate.destroy(); }
   try {
     Y.applyUpdate(room.doc, update);
   } catch (e) {
@@ -587,6 +598,8 @@ export function yReplaceContentAsUpdate(
   markdown: string,
   userId: string | null,
 ): { updateBase64: string } | null {
+  yjsPersistenceRepository.assertCollaborationAllowed(noteId);
+  if (/nowen-encrypted/i.test(markdown)) throw new Error("ENCRYPTED_NOTE_COLLABORATION_FORBIDDEN");
   // 手动管理 room：调用方其实没有"持有"一个 ws 连接，不能走 getOrCreateRoom + releaseRoom
   // 这对 refCount 的配对（++ / --）——releaseRoom 会把 refCount 减到负再被 Math.max 钳到 0，
   // 并顺便把原本有人在房间里的 room 误标成 idle，结果是活跃协作者还在但 room 启动了 idleTimer。
@@ -680,6 +693,7 @@ export function yReplaceContentAsUpdate(
  * 注意：只在 Y.Doc 为空时生效；如果已有内容会 no-op。
  */
 export function ySeedIfEmpty(noteId: string, markdown: string) {
+  if (/nowen-encrypted/i.test(markdown)) throw new Error("ENCRYPTED_NOTE_COLLABORATION_FORBIDDEN");
   const room = getOrCreateRoom(noteId);
   const ytext = room.doc.getText("content");
   if (ytext.length > 0) {

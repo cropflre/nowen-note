@@ -8,6 +8,7 @@ import { useTranslation } from "react-i18next";
 import { api } from "@/lib/api";
 import { User } from "@/types";
 import { toast } from "@/lib/toast";
+import { formatServerTime } from "@/lib/dateTime";
 
 type StatusFilter = "all" | "active" | "disabled";
 type RoleFilter = "all" | "admin" | "user";
@@ -529,7 +530,7 @@ export default function UserManagement({ currentUserId }: { currentUserId: strin
                           </span>
                           <span className="truncate">
                             {t("userManagement.colLastLogin")}:{" "}
-                            {u.lastLoginAt ? new Date(u.lastLoginAt).toLocaleString() : "—"}
+                            {formatServerTime(u.lastLoginAt, undefined, "—")}
                           </span>
                         </div>
                       </div>

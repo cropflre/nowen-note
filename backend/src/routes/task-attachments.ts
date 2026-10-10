@@ -9,8 +9,6 @@ import type { Context } from "hono";
 import { v4 as uuid } from "uuid";
 import {
   ensureAttachmentsDir,
-  MIME_TO_EXT,
-  isHighRiskMime,
   encodeContentDispositionFilename,
 } from "./attachments";
 import {
@@ -24,19 +22,17 @@ import {
   taskAttachmentOperationsRepository,
   taskAttachmentsRepository,
 } from "../repositories";
+import {
+  getTaskAttachmentExtension,
+  getTaskAttachmentMaxSizeBytes,
+  isBlockedTaskAttachment,
+  shouldInlineTaskAttachment,
+} from "../lib/task-attachment-policy";
 
-const ALLOWED_IMAGE_MIMES = new Set([
-  "image/png",
-  "image/jpeg",
-  "image/gif",
-  "image/webp",
-  "image/bmp",
-  "image/svg+xml",
-  "image/x-icon",
-  "image/vnd.microsoft.icon",
-]);
-
-const MAX_ATTACHMENT_SIZE = 50 * 1024 * 1024;
+function canReadTask(task: { userId: string; workspaceId: string | null }, userId: string): boolean {
+  return task.userId === userId ||
+    (!!task.workspaceId && !!getUserWorkspaceRole(task.workspaceId, userId));
+}
 
 /** 不需要 JWT 的下载 handler，由 index.ts 挂在 JWT 中间件之前。 */
 export async function handleDownloadTaskAttachment(c: Context): Promise<Response> {
@@ -47,19 +43,43 @@ export async function handleDownloadTaskAttachment(c: Context): Promise<Response
   const buffer = await readAttachmentObject(row.path);
   if (!buffer) return c.json({ error: "attachment file missing" }, 404);
 
+  const mime = row.mimeType || "application/octet-stream";
+  const forceDownload = c.req.query("download") === "1" || !shouldInlineTaskAttachment(mime);
   const headers: Record<string, string> = {
-    "Content-Type": row.mimeType || "application/octet-stream",
-    "Cache-Control": "public, max-age=31536000, immutable",
+    "Content-Type": mime,
+    "Cache-Control": "private, max-age=3600",
+    "X-Content-Type-Options": "nosniff",
   };
-  if (isHighRiskMime(row.mimeType)) {
-    headers["Content-Disposition"] = encodeContentDispositionFilename(row.filename || "");
-    headers["X-Content-Type-Options"] = "nosniff";
+  if (forceDownload) {
+    headers["Content-Disposition"] = encodeContentDispositionFilename(row.filename || "attachment");
   }
 
   return new Response(new Uint8Array(buffer), { headers });
 }
 
 const app = new Hono();
+
+/** 列出任务的独立附件。 */
+app.get("/", async (c) => {
+  const userId = c.req.header("X-User-Id") || "";
+  const taskId = (c.req.query("taskId") || "").trim();
+  if (!taskId) return c.json({ error: "taskId 必传" }, 400);
+  const task = await taskAttachmentOperationsRepository.getTaskByIdAsync(taskId);
+  if (!task) return c.json({ error: "任务不存在" }, 404);
+  if (!canReadTask(task, userId)) {
+    return c.json({ error: "无权访问该任务附件", code: "FORBIDDEN" }, 403);
+  }
+  const rows = await taskAttachmentsRepository.listByTaskIdAsync(taskId);
+  return c.json(rows.map(row => ({
+    id: row.id,
+    taskId: row.taskId,
+    filename: row.filename,
+    mimeType: row.mimeType,
+    size: row.size,
+    createdAt: row.createdAt,
+    url: "/api/task-attachments/" + row.id,
+  })));
+});
 
 /** 上传任务附件。 */
 app.post("/", async (c) => {
@@ -95,21 +115,22 @@ app.post("/", async (c) => {
     }
   }
 
-  if (file.size > MAX_ATTACHMENT_SIZE) {
+  const maxSize = getTaskAttachmentMaxSizeBytes();
+  if (file.size > maxSize) {
     return c.json(
-      { error: `文件过大（最大 ${MAX_ATTACHMENT_SIZE / 1024 / 1024}MB）` },
+      { error: `文件过大（最大 ${Math.floor(maxSize / 1024 / 1024)}MB）` },
       413,
     );
   }
 
-  const mime = (file.type || "application/octet-stream").toLowerCase();
-  if (!ALLOWED_IMAGE_MIMES.has(mime)) {
-    return c.json({ error: `不支持的 MIME 类型: ${mime}` }, 415);
+  const mime = (file.type || "application/octet-stream").toLowerCase().split(";")[0].trim();
+  if (isBlockedTaskAttachment(file.name || "", mime)) {
+    return c.json({ error: "出于安全原因，不支持上传可执行或脚本类文件" }, 415);
   }
 
   ensureAttachmentsDir();
   const id = uuid();
-  const ext = MIME_TO_EXT[mime] || "bin";
+  const ext = getTaskAttachmentExtension(file.name || "", mime);
   const monthPath = getUploadMonthPath();
   const storedPath = `${monthPath}/${id}.${ext}`;
 
@@ -126,7 +147,7 @@ app.post("/", async (c) => {
       taskId,
       userId,
       workspaceId: effectiveWorkspaceId,
-      filename: file.name || storedPath,
+      filename: file.name || `${id}.${ext}`,
       mimeType: mime,
       size: file.size,
       path: storedPath,
@@ -146,7 +167,7 @@ app.post("/", async (c) => {
       url: `/api/task-attachments/${id}`,
       mimeType: mime,
       size: file.size,
-      filename: file.name || storedPath,
+      filename: file.name || `${id}.${ext}`,
     },
     201,
   );

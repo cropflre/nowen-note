@@ -1,0 +1,150 @@
+name: Document Mind Map Embed CI
+
+on:
+  push:
+    branches: [release/v1.5.0]
+    paths:
+      - 'backend/src/routes/shares.ts'
+      - 'backend/src/routes/mindmaps.ts'
+      - 'backend/src/services/sharedMindMapSnapshots.ts'
+      - 'backend/tests/shared-mindmap-snapshots.test.ts'
+      - 'backend/tests/mindmap-optimistic-update.test.ts'
+      - 'frontend/src/App.tsx'
+      - 'frontend/src/components/MindMapEmbedCard.tsx'
+      - 'frontend/src/components/MindMapEditor.tsx'
+      - 'frontend/src/components/__tests__/SlashCommands.mindmap.test.tsx'
+      - 'frontend/src/components/__tests__/MindMapToolbarRouting.test.ts'
+      - 'frontend/src/lib/insertContentPreservingBlockEmbed.ts'
+      - 'frontend/src/lib/__tests__/insertContentPreservingBlockEmbed.test.ts'
+      - 'frontend/src/components/MindMapEmbedInsertDialog.tsx'
+      - 'frontend/src/components/SlashCommands.tsx'
+      - 'frontend/src/components/TiptapEditorRuntime.tsx'
+      - 'frontend/src/components/TiptapEditor.tsx'
+      - 'frontend/src/components/LargeMarkdownSafeEditor.tsx'
+      - 'frontend/src/components/MarkdownEditorImpl.tsx'
+      - 'frontend/src/components/editors/types.ts'
+      - 'frontend/src/components/EditorPane.tsx'
+      - 'frontend/src/components/NavRail.tsx'
+      - 'frontend/src/components/__tests__/MindMapEmbedCard.edit.test.tsx'
+      - 'frontend/src/components/__tests__/EditorPaneMobileHeader.test.ts'
+      - 'frontend/src/components/__tests__/MindMapEmbedInsertDialog.scope.test.tsx'
+      - 'frontend/src/lib/mobileLocalModuleBridge.ts'
+      - 'frontend/src/components/SharedNoteView.tsx'
+      - 'frontend/src/lib/mindMapSnapshot.ts'
+      - 'frontend/src/lib/documentMindMapExport.ts'
+      - 'frontend/src/lib/documentMindMapRuntime.ts'
+      - 'frontend/src/lib/localStore.ts'
+      - 'frontend/src/lib/api.impl.ts'
+      - 'frontend/src/lib/__tests__/mindMapDeepLink.test.ts'
+      - 'frontend/src/lib/mindMapDeepLink.ts'
+      - 'frontend/src/lib/appPathNavigation.ts'
+      - 'frontend/src/lib/exportServiceCore.ts'
+      - 'frontend/src/lib/noteImageExportCore.ts'
+      - 'frontend/src/lib/sharedMindMapSnapshots.ts'
+      - 'frontend/src/lib/__tests__/mindMapEmbed.test.ts'
+      - 'frontend/src/lib/__tests__/apiWorkspaceScope.test.ts'
+      - 'frontend/src/lib/__tests__/documentMindMapRuntime.test.ts'
+      - 'frontend/src/lib/__tests__/mindMapSnapshot.test.ts'
+      - 'frontend/src/lib/__tests__/sharedMindMapSnapshots.test.ts'
+      - 'frontend/src/types/index.ts'
+      - '.github/workflows/document-mindmap-embed-ci.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'backend/src/routes/shares.ts'
+      - 'backend/src/routes/mindmaps.ts'
+      - 'backend/src/services/sharedMindMapSnapshots.ts'
+      - 'backend/tests/shared-mindmap-snapshots.test.ts'
+      - 'backend/tests/mindmap-optimistic-update.test.ts'
+      - 'frontend/src/App.tsx'
+      - 'frontend/src/components/MindMapEmbedCard.tsx'
+      - 'frontend/src/components/MindMapEditor.tsx'
+      - 'frontend/src/components/__tests__/SlashCommands.mindmap.test.tsx'
+      - 'frontend/src/components/__tests__/MindMapToolbarRouting.test.ts'
+      - 'frontend/src/lib/insertContentPreservingBlockEmbed.ts'
+      - 'frontend/src/lib/__tests__/insertContentPreservingBlockEmbed.test.ts'
+      - 'frontend/src/components/MindMapEmbedInsertDialog.tsx'
+      - 'frontend/src/components/SlashCommands.tsx'
+      - 'frontend/src/components/TiptapEditorRuntime.tsx'
+      - 'frontend/src/components/TiptapEditor.tsx'
+      - 'frontend/src/components/LargeMarkdownSafeEditor.tsx'
+      - 'frontend/src/components/MarkdownEditorImpl.tsx'
+      - 'frontend/src/components/editors/types.ts'
+      - 'frontend/src/components/EditorPane.tsx'
+      - 'frontend/src/components/NavRail.tsx'
+      - 'frontend/src/components/__tests__/MindMapEmbedCard.edit.test.tsx'
+      - 'frontend/src/components/__tests__/EditorPaneMobileHeader.test.ts'
+      - 'frontend/src/components/__tests__/MindMapEmbedInsertDialog.scope.test.tsx'
+      - 'frontend/src/lib/mobileLocalModuleBridge.ts'
+      - 'frontend/src/components/SharedNoteView.tsx'
+      - 'frontend/src/lib/mindMapSnapshot.ts'
+      - 'frontend/src/lib/api.impl.ts'
+      - 'frontend/src/lib/__tests__/mindMapDeepLink.test.ts'
+      - 'frontend/src/lib/mindMapDeepLink.ts'
+      - 'frontend/src/lib/appPathNavigation.ts'
+      - 'frontend/src/lib/sharedMindMapSnapshots.ts'
+      - 'frontend/src/lib/__tests__/mindMapEmbed.test.ts'
+      - 'frontend/src/lib/__tests__/apiWorkspaceScope.test.ts'
+      - 'frontend/src/lib/__tests__/mindMapSnapshot.test.ts'
+      - 'frontend/src/lib/__tests__/sharedMindMapSnapshots.test.ts'
+      - 'frontend/src/types/index.ts'
+      - '.github/workflows/document-mindmap-embed-ci.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - run: npm ci --silent
+      - name: Shared mind-map permission and optimistic edit regression
+        run: >-
+          node --import tsx --test
+          tests/shared-mindmap-snapshots.test.ts
+          tests/mindmap-optimistic-update.test.ts
+      - name: Backend typecheck
+        run: npm run build:tsc
+
+  frontend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci --silent
+      - name: Document mind-map regression tests
+        run: >-
+          npx vitest run
+          src/lib/__tests__/mindMapEmbed.test.ts
+          src/lib/__tests__/insertContentPreservingBlockEmbed.test.ts
+          src/lib/__tests__/apiWorkspaceScope.test.ts
+          src/lib/__tests__/mindMapSnapshot.test.ts
+          src/lib/__tests__/sharedMindMapSnapshots.test.ts
+          src/lib/__tests__/documentMindMapExport.test.ts
+          src/lib/__tests__/documentMindMapRuntime.test.ts
+          src/lib/__tests__/mindMapDeepLink.test.ts
+          src/components/__tests__/MindMapEmbedCard.edit.test.tsx
+          src/components/__tests__/EditorPaneMobileHeader.test.ts
+          src/components/__tests__/MindMapEmbedInsertDialog.scope.test.tsx
+          src/components/__tests__/SlashCommands.mindmap.test.tsx
+          src/components/__tests__/MindMapToolbarRouting.test.ts
+      - name: Frontend production build
+        run: npm run build

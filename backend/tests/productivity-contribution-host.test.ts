@@ -1,0 +1,3 @@
+import assert from "node:assert/strict"; import test from "node:test";
+import { renderPromptPackContribution, selectPromptContext } from "../src/plugins/contributions/promptPackContribution.js";
+test("Prompt Pack exposes only declared host context", () => { const contribution: any = { id: "summary", name: "Summary", prompt: "{{tone}}", inputs: [{ id: "tone", type: "string", default: "clear" }], context: ["title", "note"] }; assert.equal(renderPromptPackContribution(contribution, {}), "clear"); assert.deepEqual(selectPromptContext(contribution, { title: "T", note: "N", selection: "SECRET", tags: ["x"] }), { title: "T", note: "N" }); });

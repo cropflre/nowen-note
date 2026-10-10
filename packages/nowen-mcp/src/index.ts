@@ -667,13 +667,13 @@ server.tool(
 // ==================== 插件工具 ====================
 
 server.tool(
-  "nowen_list_plugins",
-  "获取 Nowen Note 中已加载的插件列表，每个插件声明了它支持的能力（action）",
+  "nowen_list_plugin_actions",
+  "发现 Nowen Note 中已启用的插件 Action 及其输入结构",
   {},
   async () => {
     try {
-      const plugins = await api.listPlugins();
-      return { content: [{ type: "text" as const, text: JSON.stringify(plugins, null, 2) }] };
+      const actions = await api.listPluginActions();
+      return { content: [{ type: "text" as const, text: JSON.stringify(actions, null, 2) }] };
     } catch (err: any) {
       return { content: [{ type: "text" as const, text: `错误: ${err.message}` }], isError: true };
     }
@@ -681,23 +681,101 @@ server.tool(
 );
 
 server.tool(
-  "nowen_execute_plugin",
-  "执行 Nowen Note 中指定名称的插件，传入参数并获取处理结果",
+  "nowen_execute_plugin_action",
+  "按 pluginId 和 actionId 执行已授权的 Nowen 插件 Action",
   {
-    pluginName: z.string().describe("插件名称"),
-    params: z.record(z.any()).describe("传给插件的参数对象"),
+    pluginId: z.string().describe("Manifest 中稳定的插件 ID"),
+    actionId: z.string().describe("Manifest 中稳定的 Action ID"),
+    input: z.record(z.any()).describe("符合 Action input schema 的参数对象"),
   },
-  async ({ pluginName, params }) => {
+  async ({ pluginId, actionId, input }) => {
     try {
-      const result = await api.executePlugin(pluginName, params);
-      if (result.text) {
-        return { content: [{ type: "text" as const, text: result.text }] };
-      }
+      const result = await api.executePluginAction(pluginId, actionId, input);
       return { content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }] };
     } catch (err: any) {
       return { content: [{ type: "text" as const, text: `错误: ${err.message}` }], isError: true };
     }
   }
+);
+
+server.tool(
+  "nowen_get_plugin_execution",
+  "查询一次插件 Action 的执行状态、错误和截断日志",
+  { executionId: z.string().describe("执行 ID") },
+  async ({ executionId }) => {
+    try {
+      const result = await api.getPluginExecution(executionId);
+      return { content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }] };
+    } catch (err: any) {
+      return { content: [{ type: "text" as const, text: `错误: ${err.message}` }], isError: true };
+    }
+  }
+);
+
+// Personal task tools
+server.tool("nowen_list_tasks", "List personal tasks", {
+  filter: z.enum(["all","today","week","overdue","completed"]).optional()
+}, async ({ filter }) => {
+  try {
+    const result = await api.listTasks(filter);
+    return { content: [{ type: "text" as const, text: JSON.stringify(result) }] };
+  } catch (error: any) {
+    return { content: [{ type: "text" as const, text: String(error.message) }], isError: true };
+  }
+});
+server.tool("nowen_get_task", "Read personal task", { taskId: z.string() }, async ({ taskId }) => {
+  try { return { content: [{ type: "text" as const, text: JSON.stringify(await api.getTask(taskId)) }] }; }
+  catch (error: any) { return { content: [{ type: "text" as const, text: String(error.message) }], isError: true }; }
+});
+server.tool("nowen_create_task", "Create personal task with user approval", {
+  title: z.string().min(1), dueDate: z.string().optional(), priority: z.number().int().min(1).max(3).optional()
+}, async ({ title, dueDate, priority }) => {
+  try { return { content: [{ type: "text" as const, text: JSON.stringify(await api.createTask({ title, dueDate, priority })) }] }; }
+  catch (error: any) { return { content: [{ type: "text" as const, text: String(error.message) }], isError: true }; }
+});
+server.tool("nowen_complete_task", "Complete personal task with user approval", { taskId: z.string() }, async ({ taskId }) => {
+  try { return { content: [{ type: "text" as const, text: JSON.stringify(await api.updateTask(taskId, { isCompleted: true })) }] }; }
+  catch (error: any) { return { content: [{ type: "text" as const, text: String(error.message) }], isError: true }; }
+});
+server.tool("nowen_get_task_summary", "Read personal task counts", {}, async () => {
+  try { return { content: [{ type: "text" as const, text: JSON.stringify(await api.taskSummary()) }] }; }
+  catch (error: any) { return { content: [{ type: "text" as const, text: String(error.message) }], isError: true }; }
+});
+// ==================== 自动化工具 ====================
+
+server.tool(
+  "nowen_list_workflows",
+  "列出当前用户可管理的 Nowen 自动化工作流及其启用状态",
+  {},
+  async () => {
+    try {
+      const workflows = await api.listWorkflows();
+      return { content: [{ type: "text" as const, text: JSON.stringify(workflows.map((item) => ({ id: item.id, name: item.name, enabled: item.enabled, trigger: item.trigger })), null, 2) }] };
+    } catch (err: any) { return { content: [{ type: "text" as const, text: `错误: ${err.message}` }], isError: true }; }
+  },
+);
+
+server.tool(
+  "nowen_run_workflow",
+  "手动运行一个已存在的 Nowen 工作流；不会创建或长期启用工作流",
+  { workflowId: z.string().describe("工作流 ID") },
+  async ({ workflowId }) => {
+    try {
+      const run = await api.runWorkflow(workflowId);
+      return { content: [{ type: "text" as const, text: JSON.stringify(run, null, 2) }] };
+    } catch (err: any) { return { content: [{ type: "text" as const, text: `错误: ${err.message}` }], isError: true }; }
+  },
+);
+
+server.tool(
+  "nowen_get_workflow_run",
+  "查询 Nowen 工作流运行状态和每一步的持久化记录",
+  { runId: z.string().describe("工作流运行 ID") },
+  async ({ runId }) => {
+    try {
+      return { content: [{ type: "text" as const, text: JSON.stringify(await api.getWorkflowRun(runId), null, 2) }] };
+    } catch (err: any) { return { content: [{ type: "text" as const, text: `错误: ${err.message}` }], isError: true }; }
+  },
 );
 
 // ==================== Webhook 工具 ====================

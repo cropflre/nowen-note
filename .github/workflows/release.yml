@@ -1,21 +1,10 @@
-# 三平台打包 + 可选发布到 GitHub Release
+# 三平台构建 + SignPath Windows 签名工作流。
 #
-# 触发方式：
-#   1. push tag v*.*.*  → 自动打包并发布到对应 Release（草稿）
-#   2. workflow_dispatch → 手动触发，可选不发布
-#
-# 需配置的 Secrets（在仓库 Settings → Secrets and variables → Actions）：
-#   GH_TOKEN                      : 默认 ${{ secrets.GITHUB_TOKEN }} 即可
-#   # Windows 代码签名（可选）：
-#   WIN_CSC_LINK                  : 证书 .pfx 的 base64（或可访问的 URL）
-#   WIN_CSC_KEY_PASSWORD          : 证书密码
-#   # macOS 代码签名 + 公证（可选）：
-#   MAC_CSC_LINK 或 CSC_LINK      : .p12 证书 base64
-#   MAC_CSC_KEY_PASSWORD 或 CSC_KEY_PASSWORD : p12 密码
-#   APPLE_API_KEY                 : App Store Connect API Key 文件内容（base64 或 p8 原文）
-#   APPLE_API_KEY_ID              : Key ID
-#   APPLE_API_ISSUER              : Issuer ID
-#   或：APPLE_ID / APPLE_APP_SPECIFIC_PASSWORD / APPLE_TEAM_ID
+# 发布职责约束：
+#   - push tag v*.*.* 构建全部平台；Windows Full/Lite 必须经 SignPath release-signing 后才能成为正式 artifact；
+#   - workflow_dispatch 只使用 test-signing 验证 Windows 签名链路，不会产出正式 Release 资产；
+#   - GitHub Release 仍由 scripts/release.sh 统一创建 Draft、汇总 CI 资产、远端校验后转正式；
+#   - electron-builder 始终 --publish never，避免多发布者并发写 Release。
 
 name: Build & Release
 
@@ -24,18 +13,10 @@ on:
     tags:
       - "v*.*.*"
   workflow_dispatch:
-    inputs:
-      publish:
-        description: "发布到 GitHub Releases（always/never）"
-        required: false
-        default: "never"
-        type: choice
-        options:
-          - never
-          - always
 
 permissions:
-  contents: write
+  contents: read
+  actions: read
 
 jobs:
   build:
@@ -51,7 +32,9 @@ jobs:
             name: linux
 
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 60
+    timeout-minutes: 240
+    env:
+      NODE_OPTIONS: --max-old-space-size=4096
 
     steps:
       - name: Checkout
@@ -60,16 +43,43 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
           cache: "npm"
+
+      - name: Compile Official Registry trust roots
+        if: github.event_name == 'push'
+        shell: bash
+        env:
+          NOWEN_OFFICIAL_REGISTRY_TRUST_ROOTS_JSON: ${{ vars.NOWEN_OFFICIAL_REGISTRY_TRUST_ROOTS_JSON }}
+        run: |
+          if [ -z "$NOWEN_OFFICIAL_REGISTRY_TRUST_ROOTS_JSON" ]; then
+            echo "NOWEN_OFFICIAL_REGISTRY_TRUST_ROOTS_JSON is required for release tags" >&2
+            exit 1
+          fi
+          trust_root_input="$RUNNER_TEMP/nowen-official-registry-trust-roots.json"
+          printf '%s' "$NOWEN_OFFICIAL_REGISTRY_TRUST_ROOTS_JSON" > "$trust_root_input"
+          node scripts/generate-official-registry-trust-roots.mjs --input "$trust_root_input"
+          node scripts/verify-extension-ecosystem-rc1.mjs
+
+      - name: Resolve package version
+        id: package_version
+        shell: bash
+        run: node -e "console.log('version=' + require('./package.json').version)" >> "$GITHUB_OUTPUT"
+
+      - name: Check SignPath production configuration
+        if: matrix.os == 'windows-latest' && github.event_name == 'push'
+        env:
+          SIGNPATH_API_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
+          SIGNPATH_ORGANIZATION_ID: ${{ vars.SIGNPATH_ORGANIZATION_ID || '3fd6029d-c909-43a1-8b30-4d2bcdde4c7a' }}
+          SIGNPATH_PROJECT_SLUG: ${{ vars.SIGNPATH_PROJECT_SLUG || 'nowen-note' }}
+          SIGNPATH_SIGNING_POLICY_SLUG: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG || 'release-signing' }}
+          SIGNPATH_FULL_ARTIFACT_CONFIGURATION_SLUG: ${{ vars.SIGNPATH_FULL_ARTIFACT_CONFIGURATION_SLUG }}
+          SIGNPATH_LITE_ARTIFACT_CONFIGURATION_SLUG: ${{ vars.SIGNPATH_LITE_ARTIFACT_CONFIGURATION_SLUG }}
+          NOWEN_WINDOWS_PUBLISHER_NAME: ${{ vars.NOWEN_WINDOWS_PUBLISHER_NAME }}
+        run: node scripts/check-signpath-release-config.mjs
 
       # ---------------------------------------------------------------
       # 依赖安装
-      # 关键点：
-      #   1. 不使用 --ignore-scripts。better-sqlite3 / sharp 等原生模块需要 postinstall
-      #      下载 prebuilt 或本地编译，跳过会导致后续 rebuild:native 找不到源。
-      #   2. backend 的 better-sqlite3 必须 rebuild 成 Electron ABI（见后续 step），
-      #      仅靠 npm ci 安装的是 Node ABI，运行时会 ERR_DLOPEN_FAILED。
       # ---------------------------------------------------------------
       - name: Install root deps
         run: npm ci
@@ -85,12 +95,6 @@ jobs:
         run: npm ci
         shell: bash
 
-      # ---------------------------------------------------------------
-      # Linux 上 electron 装包后跑 install-app-deps 时需要 build-essential 等；
-      # ubuntu-latest 镜像默认已带 gcc/make/python3，better-sqlite3 能直接编译。
-      # macOS / Windows 镜像也已自带相应工具链，无需额外 setup。
-      # ---------------------------------------------------------------
-
       - name: Fetch embedded Node binary
         run: npm run fetch:node
         shell: bash
@@ -99,26 +103,9 @@ jobs:
         run: npm run build:all
         shell: bash
 
-      # ---------------------------------------------------------------
-      # 把 backend/node_modules/better-sqlite3 重编为当前 Electron ABI
-      # 等价于本地 release.sh 跑的 npm run rebuild:native（@electron/rebuild）
-      # 不做这步，builder.config.js 的 beforeBuild 校验会直接 throw：
-      #   [builder] better-sqlite3 原生模块不存在：.../better_sqlite3.node
-      # ---------------------------------------------------------------
       - name: Rebuild native modules for Electron ABI
         if: matrix.os != 'macos-latest'
         run: npm run rebuild:native
-        shell: bash
-
-      # ========= Windows 代码签名环境变量（可选） =========
-      - name: Export Windows signing env
-        if: matrix.os == 'windows-latest' && env.WIN_CSC_LINK != ''
-        env:
-          WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
-          WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
-        run: |
-          echo "CSC_LINK=$WIN_CSC_LINK" >> $GITHUB_ENV
-          echo "CSC_KEY_PASSWORD=$WIN_CSC_KEY_PASSWORD" >> $GITHUB_ENV
         shell: bash
 
       # ========= macOS 代码签名 + 公证环境变量（可选） =========
@@ -134,69 +121,247 @@ jobs:
           APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
         run: |
-          if [ -n "$MAC_CSC_LINK" ]; then
-            echo "CSC_LINK=$MAC_CSC_LINK" >> $GITHUB_ENV
-          fi
-          if [ -n "$MAC_CSC_KEY_PASSWORD" ]; then
-            echo "CSC_KEY_PASSWORD=$MAC_CSC_KEY_PASSWORD" >> $GITHUB_ENV
-          fi
-          echo "APPLE_ID=$APPLE_ID" >> $GITHUB_ENV
-          echo "APPLE_APP_SPECIFIC_PASSWORD=$APPLE_APP_SPECIFIC_PASSWORD" >> $GITHUB_ENV
-          echo "APPLE_TEAM_ID=$APPLE_TEAM_ID" >> $GITHUB_ENV
-          echo "APPLE_API_KEY=$APPLE_API_KEY" >> $GITHUB_ENV
-          echo "APPLE_API_KEY_ID=$APPLE_API_KEY_ID" >> $GITHUB_ENV
-          echo "APPLE_API_ISSUER=$APPLE_API_ISSUER" >> $GITHUB_ENV
+          if [ -n "$MAC_CSC_LINK" ]; then echo "CSC_LINK=$MAC_CSC_LINK" >> "$GITHUB_ENV"; fi
+          if [ -n "$MAC_CSC_KEY_PASSWORD" ]; then echo "CSC_KEY_PASSWORD=$MAC_CSC_KEY_PASSWORD" >> "$GITHUB_ENV"; fi
+          echo "APPLE_ID=$APPLE_ID" >> "$GITHUB_ENV"
+          echo "APPLE_APP_SPECIFIC_PASSWORD=$APPLE_APP_SPECIFIC_PASSWORD" >> "$GITHUB_ENV"
+          echo "APPLE_TEAM_ID=$APPLE_TEAM_ID" >> "$GITHUB_ENV"
+          echo "APPLE_API_KEY=$APPLE_API_KEY" >> "$GITHUB_ENV"
+          echo "APPLE_API_KEY_ID=$APPLE_API_KEY_ID" >> "$GITHUB_ENV"
+          echo "APPLE_API_ISSUER=$APPLE_API_ISSUER" >> "$GITHUB_ENV"
         shell: bash
 
-      # ========= 打包 =========
-      # 注意：electron-builder 这里不再让它自己 install-app-deps —— 我们已经在上面用
-      #       @electron/rebuild 把 backend 的 better-sqlite3 编好了，再让 builder
-      #       去 npm rebuild 反而会把它退回 Node ABI。所以加 --config.npmRebuild=false
-      #       不行（25.x 没这个 flag），我们改成依赖 builder.config.js 自身的 files 配置 +
-      #       extraResources 直接拷贝 backend/node_modules，不再二次重建。
-      - name: Build Electron (Windows)
+      # ========= Windows Full =========
+      - name: Build Electron Full (Windows)
         if: matrix.os == 'windows-latest'
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npx electron-builder --config electron/builder.config.js --win --publish ${{ github.event_name == 'push' && 'always' || inputs.publish || 'never' }}
+          NOWEN_WINDOWS_PUBLISHER_NAME: ${{ github.event_name == 'push' && vars.NOWEN_WINDOWS_PUBLISHER_NAME || '' }}
+        run: npx electron-builder --config electron/builder.config.js --win --publish never
         shell: bash
 
+      # ========= 手动 test-signing：只验证 Full，不参与正式发布 =========
+      - name: Stage Windows EXEs for SignPath test
+        if: matrix.os == 'windows-latest' && github.event_name == 'workflow_dispatch'
+        shell: pwsh
+        run: |
+          $target = Join-Path $PWD "signpath-input"
+          New-Item -ItemType Directory -Force -Path $target | Out-Null
+          $files = @(
+            Get-ChildItem -Path "dist-electron" -File -Filter "Nowen-Note-*-setup.exe"
+            Get-ChildItem -Path "dist-electron" -File -Filter "Nowen-Note-*-portable.exe"
+          ) | Sort-Object FullName -Unique
+          if ($files.Count -ne 2) { throw "SignPath test requires exactly setup.exe and portable.exe; found $($files.Count)." }
+          foreach ($file in $files) { Copy-Item $file.FullName (Join-Path $target $file.Name) -Force }
+
+      - name: Upload unsigned Windows EXEs for SignPath test
+        id: upload_signpath_test
+        if: matrix.os == 'windows-latest' && github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: nowen-note-win-signpath-input-${{ github.run_id }}
+          path: signpath-input/*.exe
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Submit SignPath test signing request
+        if: matrix.os == 'windows-latest' && github.event_name == 'workflow_dispatch'
+        uses: signpath/github-action-submit-signing-request@v2
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID || '3fd6029d-c909-43a1-8b30-4d2bcdde4c7a' }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG || 'nowen-note' }}
+          signing-policy-slug: "test-signing"
+          artifact-configuration-slug: ${{ vars.SIGNPATH_FULL_ARTIFACT_CONFIGURATION_SLUG }}
+          github-artifact-id: ${{ steps.upload_signpath_test.outputs.artifact-id }}
+          parameters: |
+            version: ${{ toJSON(steps.package_version.outputs.version) }}
+          wait-for-completion: true
+          wait-for-completion-timeout-in-seconds: 1800
+          output-artifact-directory: signpath-test-signed
+
+      - name: Verify SignPath test result exists
+        if: matrix.os == 'windows-latest' && github.event_name == 'workflow_dispatch'
+        shell: pwsh
+        run: |
+          $signed = @(Get-ChildItem -Path "signpath-test-signed" -Recurse -File -Filter "*.exe")
+          if ($signed.Count -ne 2) { throw "SignPath test returned $($signed.Count) EXEs, expected 2." }
+          foreach ($file in $signed) {
+            $signature = Get-AuthenticodeSignature $file.FullName
+            if ($null -eq $signature.SignerCertificate -or $signature.Status.ToString() -eq "NotSigned") {
+              throw "SignPath test result is not Authenticode-signed: $($file.Name)"
+            }
+            Write-Host "test-signing: $($file.Name) status=$($signature.Status) subject=$($signature.SignerCertificate.Subject)"
+          }
+
+      - name: Upload SignPath test signed Windows EXEs
+        if: matrix.os == 'windows-latest' && github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: nowen-note-win-signpath-test
+          path: signpath-test-signed/**/*.exe
+          if-no-files-found: error
+          retention-days: 14
+
+      # ========= tag 正式发布：Full + Lite 分离签名 =========
+      - name: Build Electron Lite (Windows)
+        if: matrix.os == 'windows-latest' && github.event_name == 'push'
+        env:
+          NOWEN_WINDOWS_PUBLISHER_NAME: ${{ vars.NOWEN_WINDOWS_PUBLISHER_NAME }}
+        run: npx electron-builder --config electron/builder.lite.config.js --win --publish never
+        shell: bash
+
+      - name: Upload unsigned Full Windows artifact for SignPath
+        id: upload_full_unsigned
+        if: matrix.os == 'windows-latest' && github.event_name == 'push'
+        uses: actions/upload-artifact@v4
+        with:
+          name: nowen-note-win-full-unsigned-signpath
+          path: |
+            dist-electron/*.exe
+            dist-electron/*.blockmap
+            dist-electron/latest.yml
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload unsigned Lite Windows artifact for SignPath
+        id: upload_lite_unsigned
+        if: matrix.os == 'windows-latest' && github.event_name == 'push'
+        uses: actions/upload-artifact@v4
+        with:
+          name: nowen-note-win-lite-unsigned-signpath
+          path: |
+            dist-electron-lite/*.exe
+            dist-electron-lite/*.blockmap
+            dist-electron-lite/latest-lite.yml
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Submit Full Windows artifact to SignPath release-signing
+        if: matrix.os == 'windows-latest' && github.event_name == 'push'
+        uses: signpath/github-action-submit-signing-request@v2
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID || '3fd6029d-c909-43a1-8b30-4d2bcdde4c7a' }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG || 'nowen-note' }}
+          signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG || 'release-signing' }}
+          artifact-configuration-slug: ${{ vars.SIGNPATH_FULL_ARTIFACT_CONFIGURATION_SLUG }}
+          github-artifact-id: ${{ steps.upload_full_unsigned.outputs.artifact-id }}
+          parameters: |
+            version: ${{ toJSON(steps.package_version.outputs.version) }}
+          wait-for-completion: true
+          wait-for-completion-timeout-in-seconds: 10800
+          output-artifact-directory: signed-windows/full
+
+      - name: Submit Lite Windows artifact to SignPath release-signing
+        if: matrix.os == 'windows-latest' && github.event_name == 'push'
+        uses: signpath/github-action-submit-signing-request@v2
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID || '3fd6029d-c909-43a1-8b30-4d2bcdde4c7a' }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG || 'nowen-note' }}
+          signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG || 'release-signing' }}
+          artifact-configuration-slug: ${{ vars.SIGNPATH_LITE_ARTIFACT_CONFIGURATION_SLUG }}
+          github-artifact-id: ${{ steps.upload_lite_unsigned.outputs.artifact-id }}
+          parameters: |
+            version: ${{ toJSON(steps.package_version.outputs.version) }}
+          wait-for-completion: true
+          wait-for-completion-timeout-in-seconds: 10800
+          output-artifact-directory: signed-windows/lite
+
+      - name: Export signed Windows Authenticode records
+        if: matrix.os == 'windows-latest' && github.event_name == 'push'
+        shell: pwsh
+        run: ./scripts/export-windows-signatures.ps1 -Root signed-windows -Output signed-windows/signatures.json
+
+      - name: Verify signed Windows publisher and required channels
+        if: matrix.os == 'windows-latest' && github.event_name == 'push'
+        env:
+          NOWEN_WINDOWS_PUBLISHER_NAME: ${{ vars.NOWEN_WINDOWS_PUBLISHER_NAME }}
+          SIGNPATH_SIGNING_POLICY_SLUG: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG || 'release-signing' }}
+        run: |
+          if [ -z "$NOWEN_WINDOWS_PUBLISHER_NAME" ]; then
+            node scripts/verify-windows-signatures.mjs --report signed-windows/signatures.json --require full,lite --bootstrap-publisher --signing-policy "$SIGNPATH_SIGNING_POLICY_SLUG"
+          else
+            node scripts/verify-windows-signatures.mjs --report signed-windows/signatures.json --require full,lite --publisher "$NOWEN_WINDOWS_PUBLISHER_NAME"
+          fi
+        shell: bash
+
+      - name: Refresh signed Windows blockmaps and updater metadata
+        if: matrix.os == 'windows-latest' && github.event_name == 'push'
+        shell: pwsh
+        run: |
+          $version = node -p "require('./package.json').version"
+          node scripts/refresh-windows-update-metadata.mjs --metadata signed-windows/full/latest.yml --asset-dir signed-windows/full --channel full --version $version
+          node scripts/refresh-windows-update-metadata.mjs --metadata signed-windows/lite/latest-lite.yml --asset-dir signed-windows/lite --channel lite --version $version
+          New-Item -ItemType Directory -Path signed-windows/release -Force | Out-Null
+          Copy-Item signed-windows/full/* signed-windows/release/ -Force
+          Copy-Item signed-windows/lite/* signed-windows/release/ -Force
+          Remove-Item signed-windows/release/signatures.json -ErrorAction SilentlyContinue
+
+      - name: Verify signed Windows updater assets locally
+        if: matrix.os == 'windows-latest' && github.event_name == 'push'
+        shell: pwsh
+        run: |
+          $version = node -p "require('./package.json').version"
+          node scripts/verify-release-update-assets.mjs local --dir signed-windows/release --version $version
+
+      - name: Upload formal signed Windows artifact
+        if: matrix.os == 'windows-latest' && github.event_name == 'push'
+        uses: actions/upload-artifact@v4
+        with:
+          name: nowen-note-win-signed
+          path: signed-windows/release/*
+          if-no-files-found: error
+          retention-days: 14
+
+      # ========= macOS =========
       - name: Build Electron (macOS x64 / Intel)
         if: matrix.os == 'macos-latest'
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CSC_IDENTITY_AUTO_DISCOVERY: ${{ env.CSC_LINK == '' && 'false' || 'true' }}
           NOWEN_MAC_ARCH: x64
           TARGET_ARCH: x64
           npm_config_target_arch: x64
         run: |
           npm run rebuild:native -- --target-platform=darwin --target-arch=x64
-          npx electron-builder --config electron/builder.config.js --mac --publish ${{ github.event_name == 'push' && 'always' || inputs.publish || 'never' }}
+          npx electron-builder --config electron/builder.config.js --mac --publish never
         shell: bash
 
       - name: Build Electron (macOS arm64 / Apple Silicon)
         if: matrix.os == 'macos-latest'
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CSC_IDENTITY_AUTO_DISCOVERY: ${{ env.CSC_LINK == '' && 'false' || 'true' }}
           NOWEN_MAC_ARCH: arm64
           TARGET_ARCH: arm64
           npm_config_target_arch: arm64
         run: |
           npm run rebuild:native -- --target-platform=darwin --target-arch=arm64
-          npx electron-builder --config electron/builder.config.js --mac --publish ${{ github.event_name == 'push' && 'always' || inputs.publish || 'never' }}
+          npx electron-builder --config electron/builder.config.js --mac --publish never
+        shell: bash
+
+      # ========= Linux =========
+      - name: Linux desktop packaging regression tests
+        if: matrix.os == 'ubuntu-latest'
+        run: npm run test:linux-desktop
+        shell: bash
+
+      - name: Install desktop entry validator
+        if: matrix.os == 'ubuntu-latest'
+        run: sudo apt-get update && sudo apt-get install -y desktop-file-utils
         shell: bash
 
       - name: Build Electron (Linux)
         if: matrix.os == 'ubuntu-latest'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npx electron-builder --config electron/builder.config.js --linux --publish ${{ github.event_name == 'push' && 'always' || inputs.publish || 'never' }}
+        run: npx electron-builder --config electron/builder.config.js --linux --publish never
         shell: bash
 
-      # ========= 上传构建产物作为 workflow artifact（便于下载调试） =========
-      # builder.config.js 中 directories.output 默认为 dist-electron（CI 未设 NOWEN_BUILD_OUT）
-      - name: Upload artifacts
+      - name: Verify Linux Debian desktop integration
+        if: matrix.os == 'ubuntu-latest'
+        run: npm run verify:linux-desktop
+        shell: bash
+
+      # ========= 普通构建产物 =========
+      - name: Upload platform artifacts
         uses: actions/upload-artifact@v4
         with:
           name: nowen-note-${{ matrix.name }}

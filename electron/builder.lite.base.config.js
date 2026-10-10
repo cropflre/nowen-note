@@ -179,6 +179,7 @@ module.exports = {
     icon: "electron/icon.png",
     category: "public.app-category.productivity",
     hardenedRuntime: true,
+    extendInfo: { NSMicrophoneUsageDescription: "Nowen Note 需要访问麦克风，用于录制语音笔记。" },
     gatekeeperAssess: false,
     entitlements: "build/entitlements.mac.plist",
     entitlementsInherit: "build/entitlements.mac.plist",
@@ -191,7 +192,7 @@ module.exports = {
 
   linux: {
     target: ["AppImage", "deb"],
-    icon: "electron/icon.png",
+    icon: "build/icons",
     category: "Office",
     mimeTypes: ["text/markdown", "text/plain"],
     maintainer: LINUX_MAINTAINER,
@@ -199,11 +200,10 @@ module.exports = {
     synopsis: "Nowen Note (Lite) — remote-only client",
     description:
       "Nowen Note Lite — 仅包含前端客户端的轻量发行版，需连接远端 Nowen Note 服务器；安装体积更小，启动更快。",
+    // electron-builder 25 直接把 desktop 的键值写入 [Desktop Entry]。
     desktop: {
-      entry: {
-        StartupWMClass: "Nowen Note Lite",
-        Keywords: "note;markdown;editor;nowen;lite;",
-      },
+      StartupWMClass: "Nowen Note Lite",
+      Keywords: "note;markdown;editor;nowen;lite;",
     },
     artifactName: "${productName}-${version}-lite.${ext}",
   },

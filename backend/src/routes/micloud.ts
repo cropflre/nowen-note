@@ -1,4 +1,6 @@
 import { Hono } from "hono";
+import { normalizeRemoteImageMime, REMOTE_IMAGE_MIME_TO_EXT, sniffRemoteImageMime } from "../lib/remote-image-security.js";
+import { sniffHeifMime } from "../lib/heif-mime.js";
 
 const app = new Hono();
 
@@ -59,30 +61,44 @@ function isImageOnlyLine(line: string): boolean {
   return stripped.length === 0;
 }
 
-// 从 entry 中安全提取 extraInfo.imgs（小米笔记图片附件列表，字段名按实测兼容多种）。
+// 仅把小米图片地址还原为 fileId，下载仍走固定的小米接口，不向任意 src 发送 Cookie。
+function normalizeMiImageFileId(value: unknown): string {
+  if (typeof value !== "string") return "";
+  const raw = value.trim();
+  const validId = /^[A-Za-z0-9][A-Za-z0-9._-]{6,}$/;
+  if (validId.test(raw)) return raw;
+  try {
+    const url = new URL(raw.replace(/&amp;/gi, "&"), MI_NOTE_BASE);
+    if (!/^https?:$/.test(url.protocol) || !(url.hostname === "i.mi.com" || url.hostname.endsWith(".i.mi.com"))) return "";
+    const fileId = url.pathname === "/file/full"
+      ? url.searchParams.get("fileid") || url.searchParams.get("fileId") || ""
+      : /^\/note\/file\/[^/]+$/.test(url.pathname) ? decodeURIComponent(url.pathname.slice("/note/file/".length)) : "";
+    return validId.test(fileId) ? fileId : "";
+  } catch {
+    return "";
+  }
+}
+
+// 从 extraInfo 或 setting.data 中提取图片附件列表。
 // 返回 fileId 数组，顺序即正文中占位符的默认匹配顺序。
 function extractImgFileIds(entry: any): string[] {
   try {
-    const extra =
-      typeof entry?.extraInfo === "string"
-        ? JSON.parse(entry.extraInfo)
-        : entry?.extraInfo;
-    if (!extra) return [];
-    // 兼容几种可能的字段名：imgs / noteImgInfos / images / attachments
-    const list =
-      extra.imgs ||
-      extra.noteImgInfos ||
-      extra.images ||
-      extra.attachments ||
-      [];
-    if (!Array.isArray(list)) return [];
+    const parse = (value: any) => {
+      if (typeof value !== "string") return value;
+      try { return JSON.parse(value); } catch { return null; }
+    };
+    const extra = parse(entry?.extraInfo);
+    const setting = parse(entry?.setting);
+    const list = [extra?.imgs, extra?.noteImgInfos, extra?.images, extra?.attachments, setting?.data]
+      .find((items) => Array.isArray(items) && items.length > 0) || [];
     return list
+      .filter((it: any) => !it?.mimeType || String(it.mimeType).toLowerCase().startsWith("image/"))
       .map((it: any) =>
-        typeof it === "string"
+        normalizeMiImageFileId(typeof it === "string"
           ? it
           : it?.fileId || it?.fileid || it?.id || it?.url || ""
-      )
-      .filter((x: string) => typeof x === "string" && x.length > 0);
+        ))
+      .filter(Boolean);
   } catch {
     return [];
   }
@@ -481,15 +497,14 @@ async function downloadMiNoteImage(fileId: string, cookie: string): Promise<stri
         const res = await miCloudFetch(urlPath, cookie);
         if (!res.ok) continue;
 
-        const contentType = res.headers.get("content-type") || "image/jpeg";
-        // 确保返回的确实是图片
-        if (!contentType.startsWith("image/")) continue;
-
         const buffer = Buffer.from(await res.arrayBuffer());
         if (buffer.length === 0) continue;
-
+        // 下载接口可能返回 octet-stream；常见照片按真实字节识别，不能把登录页当 JPEG。
+        const declaredMime = normalizeRemoteImageMime(res.headers.get("content-type"));
+        const mimeType = sniffRemoteImageMime(buffer) || sniffHeifMime(buffer)
+          || (declaredMime.startsWith("image/") && !REMOTE_IMAGE_MIME_TO_EXT[declaredMime] ? declaredMime : null);
+        if (!mimeType) continue;
         const base64 = buffer.toString("base64");
-        const mimeType = contentType.split(";")[0].trim();
         return `data:${mimeType};base64,${base64}`;
       } catch {
         continue;
@@ -517,11 +532,16 @@ function extractImageFileIds(content: string): string[] {
 }
 
 // 将小米笔记内容转换为 HTML（兼容 Tiptap 编辑器），支持异步下载图片
-// entry 是可选的原始小米笔记条目，用于从 extraInfo.imgs 解析 ☺ 占位符对应的 fileId
+// entry 是可选的原始小米笔记条目，用于解析 ☺ 占位符对应的图片附件。
 async function convertMiNoteToHtmlAsync(content: string, cookie: string, entry?: any): Promise<string> {
   if (!content) return "<p></p>";
 
   let html = content;
+  html = html.replace(/<img\b[^>]*>/gi, (tag) => {
+    const id = normalizeMiImageFileId(tag.match(/\bfileid\s*=\s*["']([^"']+)["']/i)?.[1])
+      || normalizeMiImageFileId(tag.match(/\bsrc\s*=\s*["']([^"']+)["']/i)?.[1]);
+    return id ? `<img fileid="${id}" />` : tag;
+  });
 
   // ☺ 占位符归一化：
   // 小米笔记"纯图片笔记"或正文嵌图的典型 content 形如 `☺<0/>\n☺<1/>` 或 `☺☺`，
@@ -545,7 +565,7 @@ async function convertMiNoteToHtmlAsync(content: string, cookie: string, entry?:
         usedIndices.add(i);
         return `<img fileid="${fid}" />`;
       }
-      return ""; // 拿不到就清空
+      throw new Error("无法解析笔记中的图片附件，请确认小米云原图完整后重试");
     });
 
     // 2) 处理"☺ + 空白 + 裸 fileId"：这是老版小米便签示例笔记的格式，
@@ -669,8 +689,9 @@ async function convertMiNoteToHtmlAsync(content: string, cookie: string, entry?:
     const CONCURRENCY = 5;
     const imageMap = new Map<string, string | null>();
 
-    for (let i = 0; i < imgMatches.length; i += CONCURRENCY) {
-      const batch = imgMatches.slice(i, i + CONCURRENCY);
+    const uniqueImages = [...new Map(imgMatches.map((img) => [img.fileId, img])).values()];
+    for (let i = 0; i < uniqueImages.length; i += CONCURRENCY) {
+      const batch = uniqueImages.slice(i, i + CONCURRENCY);
       const results = await Promise.all(
         batch.map(async (img) => {
           const dataUrl = await downloadMiNoteImage(img.fileId, cookie);
@@ -688,8 +709,8 @@ async function convertMiNoteToHtmlAsync(content: string, cookie: string, entry?:
       if (dataUrl) {
         html = html.replace(img.fullMatch, `<img src="${dataUrl}" />`);
       } else {
-        // 下载失败则移除该图片标签
-        html = html.replace(img.fullMatch, "");
+        // 保留整篇在失败队列中，让用户重试；不能静默导入缺图正文。
+        throw new Error("笔记图片下载失败，请确认小米云原图可查看并更新 Cookie 后重试");
       }
     }
   }

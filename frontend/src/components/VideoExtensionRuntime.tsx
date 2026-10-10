@@ -6,6 +6,7 @@ import {
 } from "@tiptap/react";
 import { resolveAttachmentUrl } from "@/lib/api";
 import { useLazyNodeView } from "@/hooks/useLazyNodeView";
+import { useAttachmentVideoRenderSource } from "@/hooks/useAttachmentVideoRenderSource";
 import {
   Video as BaseVideo,
   getVideoDisplayStyle,
@@ -126,11 +127,8 @@ export const LazyVideoNodeView: React.FC<ReactNodeViewProps> = ({
   const [ratio, setRatio] = useState<number | null>(null);
   const [hovered, setHovered] = useState(false);
   const displayStyle = getVideoDisplayStyle(ratio);
-  const displaySrc = kind === "file" ? resolveAttachmentUrl(src) : src;
   const filename: string = node.attrs.filename || "视频";
   const originalUrl: string = node.attrs.originalUrl || src;
-  const openUrl = resolveAttachmentUrl(originalUrl || src);
-  const downloadUrl = `${openUrl}${openUrl.includes("?") ? "&" : "?"}download=1`;
   const {
     lazyEnabled,
     requiresInteraction,
@@ -142,6 +140,12 @@ export const LazyVideoNodeView: React.FC<ReactNodeViewProps> = ({
     rootMargin: "1200px 0px",
     manualInLightweight: true,
   });
+  const videoRender = useAttachmentVideoRenderSource(kind === "file" ? src : "", {
+    enabled: kind === "file" && shouldRenderHeavyContent,
+  });
+  const displaySrc = kind === "file" ? videoRender.renderSrc : src;
+  const openUrl = resolveAttachmentUrl(originalUrl || videoRender.persistentSrc || src);
+  const downloadUrl = `${openUrl}${openUrl.includes("?") ? "&" : "?"}download=1`;
   const setWrapperRef = useCallback((element: HTMLDivElement | null) => {
     observeRef(element);
   }, [observeRef]);
@@ -160,6 +164,8 @@ export const LazyVideoNodeView: React.FC<ReactNodeViewProps> = ({
       data-video-platform={platform}
       data-selected={selected ? "true" : "false"}
       data-heavy-node-state={shouldRenderHeavyContent ? "mounted" : "deferred"}
+      data-original-url={kind === "file" ? (videoRender.persistentSrc || originalUrl || src) : undefined}
+      data-filename={kind === "file" ? filename : undefined}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       style={{
@@ -186,6 +192,7 @@ export const LazyVideoNodeView: React.FC<ReactNodeViewProps> = ({
       ) : kind === "file" ? (
         <>
           <video
+            key={videoRender.renderKey}
             src={displaySrc}
             controls
             playsInline

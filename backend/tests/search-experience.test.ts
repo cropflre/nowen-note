@@ -20,6 +20,8 @@ const C_NOTE_ID = "search-c";
 const META_NOTE_ID = "search-meta";
 const MUTABLE_NOTE_ID = "search-mutable";
 const STALE_NOTE_ID = "search-stale-content";
+const MINDMAP_ID = "11111111-2222-4333-8444-555555555555";
+const SHEET_ID = "search-sheet";
 
 let app: Hono;
 let getDb: () => Database.Database;
@@ -100,6 +102,43 @@ test.before(async () => {
     "markdown",
     "# Historical note\n\nhistoricalrepairkeyword",
   );
+  db().prepare("INSERT INTO mindmaps (id, userId, title, data) VALUES (?, ?, ?, ?)")
+    .run(
+      MINDMAP_ID,
+      OWNER_ID,
+      "知识星图 唯一脑图检索词",
+      JSON.stringify({
+        root: {
+          id: "root",
+          text: "知识星图",
+          children: [
+            { id: "node-1", text: "Agent 编排中的唯一脑图节点词", children: [] },
+          ],
+        },
+      }),
+    );
+
+  insertNote(SHEET_ID, "服务器清单", "", "tiptap-json", "{}");
+  db().prepare("UPDATE notes SET note_type = 'sheet' WHERE id = ?").run(SHEET_ID);
+  db().prepare("INSERT INTO sheets (noteId, userId, data) VALUES (?, ?, ?)")
+    .run(
+      SHEET_ID,
+      OWNER_ID,
+      JSON.stringify({
+        version: 1,
+        rows: [{ id: "r1", height: 32 }, { id: "r2", height: 32 }],
+        columns: [
+          { id: "c1", title: "机房", width: 120, type: "text", align: "left" },
+          { id: "c2", title: "地址", width: 140, type: "text", align: "left" },
+        ],
+        cells: {
+          "r1:c1": "深圳机房A",
+          "r1:c2": "10.24.8.19",
+          "r2:c1": "上海机房B",
+          "r2:c2": "10.24.9.20",
+        },
+      }),
+    );
 
   db().prepare("INSERT INTO tags (id, userId, name, color) VALUES (?, ?, ?, ?)")
     .run("search-tag", OWNER_ID, "项目代号X9", "#58a6ff");
@@ -192,6 +231,64 @@ test("tag, attachment filename and extracted attachment text expose their hit re
   assert.equal(contentResult.id, META_NOTE_ID);
   assert.equal(contentResult.matchReason, "attachment");
   assert.match(contentResult.snippetHtml, /<mark>火星计划<\/mark>/);
+});
+
+test("mindmap titles participate in global search without leaking inaccessible maps", async () => {
+  const owner = await search(OWNER_ID, "唯一脑图检索词");
+  assert.equal(owner.status, 200);
+  const result = owner.json.find((item) => item.id === MINDMAP_ID);
+  assert.ok(result);
+  assert.equal(result.resourceType, "mindmap");
+  assert.equal(result.contentFormat, "mindmap");
+  assert.equal(result.matchedField, "title");
+  assert.equal(result.notebookId, "");
+  assert.match(result.titleHtml, /<mark>唯一脑图检索词<\/mark>/);
+
+  const other = await search(OTHER_ID, "唯一脑图检索词");
+  assert.equal(other.status, 200);
+  assert.equal(other.json.some((item) => item.id === MINDMAP_ID), false);
+});
+
+test("mindmap topic text participates in global search without leaking inaccessible maps", async () => {
+  const owner = await search(OWNER_ID, "唯一脑图节点词");
+  assert.equal(owner.status, 200);
+  const result = owner.json.find((item) => item.id === MINDMAP_ID);
+  assert.ok(result);
+  assert.equal(result.resourceType, "mindmap");
+  assert.equal(result.matchedField, "content");
+  assert.equal(result.matchReason, "content");
+  assert.match(result.snippetHtml, /<mark>唯一脑图节点词<\/mark>/);
+
+  const splitSource = await search(OWNER_ID, "知识星图 Agent");
+  const combined = splitSource.json.find((item) => item.id === MINDMAP_ID);
+  assert.ok(combined);
+  assert.equal(combined.matchedField, "title+content");
+
+  const other = await search(OTHER_ID, "唯一脑图节点词");
+  assert.equal(other.status, 200);
+  assert.equal(other.json.some((item) => item.id === MINDMAP_ID), false);
+});
+
+test("sheet titles and cell values participate in global search without permission leaks", async () => {
+  const cellOnly = await search(OWNER_ID, "10.24.8.19");
+  assert.equal(cellOnly.status, 200);
+  const cellResult = cellOnly.json.find((item) => item.id === SHEET_ID);
+  assert.ok(cellResult);
+  assert.equal(cellResult.resourceType, "sheet");
+  assert.equal(cellResult.contentFormat, "sheet");
+  assert.equal(cellResult.matchedField, "content");
+  assert.equal(cellResult.matchReason, "content");
+  assert.match(cellResult.snippetHtml, /<mark>10\.24\.8\.19<\/mark>/);
+
+  const splitSource = await search(OWNER_ID, "服务器 深圳机房A");
+  const combined = splitSource.json.find((item) => item.id === SHEET_ID);
+  assert.ok(combined);
+  assert.equal(combined.matchedField, "title+content");
+  assert.deepEqual(combined.matchedFields, ["title", "content"]);
+
+  const other = await search(OTHER_ID, "10.24.8.19");
+  assert.equal(other.status, 200);
+  assert.equal(other.json.some((item) => item.id === SHEET_ID), false);
 });
 
 test("editing, trashing, restoring and deleting a note never leaves ghost results", async () => {

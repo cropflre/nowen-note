@@ -60,6 +60,8 @@ interface BootstrapCacheEntry {
 }
 
 const bootstrapCache = new Map<string, BootstrapCacheEntry>();
+let cacheRevision = 0;
+let lastPermissionSignature: string | null = null;
 
 function isRequest(input: FetchInput): input is Request {
   return typeof Request !== "undefined" && input instanceof Request;
@@ -82,10 +84,9 @@ function mergeHeaders(input: FetchInput, init?: FetchInit): Headers {
 }
 
 function apiPrefix(url: URL): string | null {
-  const marker = "/api/";
-  const index = url.pathname.lastIndexOf(marker);
-  if (index < 0) return null;
-  return url.pathname.slice(0, index + marker.length - 1);
+  const match = url.pathname.match(/\/(?:api|publicapi)(?:\/|$)/);
+  if (!match || match.index === undefined) return null;
+  return url.pathname.slice(0, match.index + match[0].replace(/\/$/, "").length);
 }
 
 function apiRelativePath(url: URL): string | null {
@@ -346,6 +347,7 @@ function invalidatesBootstrap(url: URL, method: string): boolean {
 
 export function clearMobileStartupCache(): void {
   bootstrapCache.clear();
+  cacheRevision++;
 }
 
 /**
@@ -361,6 +363,16 @@ export function installMobileStartupBridge(): (() => void) | null {
   if (runtime[INSTALL_FLAG]) return null;
 
   const originalFetch: FetchFn = window.fetch.bind(window);
+  // Password/session changes invalidate startup snapshots immediately. This also
+  // rejects in-flight snapshots fetched using now-revoked folder credentials.
+  const onPermissionChanged = () => clearMobileStartupCache();
+  const sessionEvents = [
+    "nowen:knowledge-tree-password-session-changed",
+    "nowen:knowledge-tree-password-locked",
+    "nowen:token-changed",
+    "nowen:knowledge-tree-changed",
+  ];
+  sessionEvents.forEach((event) => window.addEventListener(event, onPermissionChanged));
   const bridgedFetch: FetchFn = async (input, init) => {
     const method = getRequestMethod(input, init);
     let url: URL;
@@ -374,8 +386,20 @@ export function installMobileStartupBridge(): (() => void) | null {
     const target = classifyMobileBootstrapTarget(url, method);
     if (!target) return originalFetch(input, init);
 
+    // Expiring folder tokens are filtered out of the request headers. Comparing
+    // the actual credentials prevents reuse even if no browser event was fired.
+    const headers = mergeHeaders(input, init);
+    const permissionSignature = [
+      headers.get("authorization") || "",
+      headers.get("x-folder-unlock-tokens") || "",
+    ].join("|");
+    if (lastPermissionSignature !== null && lastPermissionSignature !== permissionSignature) {
+      clearMobileStartupCache();
+    }
+    lastPermissionSignature = permissionSignature;
+    const revision = cacheRevision;
     const payload = await getBootstrap(originalFetch, input, init, url, target);
-    if (!payload) return originalFetch(input, init);
+    if (revision !== cacheRevision || !payload) return originalFetch(input, init);
     const data = dataForTarget(payload, target, url);
     return data === null ? originalFetch(input, init) : responseFromJson(data);
   };
@@ -386,6 +410,8 @@ export function installMobileStartupBridge(): (() => void) | null {
   return () => {
     if (window.fetch === bridgedFetch) window.fetch = originalFetch;
     delete runtime[INSTALL_FLAG];
+    sessionEvents.forEach((event) => window.removeEventListener(event, onPermissionChanged));
+    lastPermissionSignature = null;
     clearMobileStartupCache();
   };
 }

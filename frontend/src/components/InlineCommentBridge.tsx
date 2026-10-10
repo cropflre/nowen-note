@@ -23,6 +23,7 @@ import {
 import { useTranslation } from "react-i18next";
 
 import { api } from "@/lib/api";
+import { COMMENTS_CHANGED_EVENT } from "@/lib/noteCommentNavigation";
 import { cn } from "@/lib/utils";
 import { toast } from "@/lib/toast";
 import type { Note, ShareComment, User } from "@/types";
@@ -40,6 +41,8 @@ import {
   OPEN_INLINE_COMMENT_PANEL_EVENT,
   type OpenInlineCommentPanelDetail,
 } from "@/lib/inlineCommentEvents";
+import { isMobileLocalMode } from "@/lib/mobileLocalMode";
+import { useVisibleViewport } from "@/hooks/useVisibleViewport";
 
 type SelectionDraft = {
   note: Note;
@@ -524,6 +527,7 @@ export default function InlineCommentBridge() {
   const [comments, setComments] = useState<ShareComment[]>([]);
   const [commentsLoading, setCommentsLoading] = useState(false);
   const [panelOpen, setPanelOpen] = useState(false);
+  const panelViewport = useVisibleViewport(panelOpen);
   const [selectionDraft, setSelectionDraft] = useState<SelectionDraft | null>(null);
   const [pendingAnchor, setPendingAnchor] = useState<TextCommentAnchor | null>(null);
   const [activeCommentId, setActiveCommentId] = useState<string | null>(null);
@@ -534,6 +538,15 @@ export default function InlineCommentBridge() {
   const externalCloseRef = useRef<(() => void) | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const loadRequestRef = useRef(0);
+  const [requestedComment, setRequestedComment] = useState<{ noteId: string; commentId: string } | null>(null);
+  const revealComposer = useCallback(() => {
+    const footer = textareaRef.current?.closest("footer");
+    // 小高度横屏下只滚动输入区，保留面板顶栏和评论列表的位置。
+    if (footer) footer.scrollTop = footer.scrollHeight;
+  }, []);
+  useEffect(() => {
+    if (panelOpen && document.activeElement === textareaRef.current) revealComposer();
+  }, [panelOpen, panelViewport, revealComposer]);
 
   useEffect(() => {
     installNoteApiTracking();
@@ -563,6 +576,11 @@ export default function InlineCommentBridge() {
 
   const loadComments = useCallback(async (noteId: string, quiet = false) => {
     const requestId = ++loadRequestRef.current;
+    if (isMobileLocalMode()) {
+      setComments([]);
+      if (!quiet) setCommentsLoading(false);
+      return;
+    }
     if (!quiet) setCommentsLoading(true);
     try {
       const data = await api.getNoteComments(noteId);
@@ -590,14 +608,17 @@ export default function InlineCommentBridge() {
     const timer = window.setInterval(() => void loadComments(currentNote.id, true), 10_000);
     const onFocus = () => void loadComments(currentNote.id, true);
     window.addEventListener("focus", onFocus);
+    window.addEventListener(COMMENTS_CHANGED_EVENT, onFocus);
     return () => {
       window.clearInterval(timer);
       window.removeEventListener("focus", onFocus);
+      window.removeEventListener(COMMENTS_CHANGED_EVENT, onFocus);
     };
   }, [currentNote?.id, loadComments, panelOpen]);
 
   const closePanel = useCallback(() => {
     setPanelOpen(false);
+    setRequestedComment(null);
     setPendingAnchor(null);
     setReplyTo(null);
     setComposer("");
@@ -613,6 +634,7 @@ export default function InlineCommentBridge() {
       const detail = (event as CustomEvent<OpenInlineCommentPanelDetail>).detail;
       if (!detail?.noteId) return;
       externalCloseRef.current = detail.onClose || null;
+      setRequestedComment(detail.commentId ? { noteId: detail.noteId, commentId: detail.commentId } : null);
       setPendingAnchor(detail.anchor || null);
       setPanelOpen(true);
       setSelectionDraft(null);
@@ -633,6 +655,31 @@ export default function InlineCommentBridge() {
       window.removeEventListener(CLOSE_INLINE_COMMENT_PANEL_EVENT, onClose);
     };
   }, [closePanel, loadComments]);
+
+  useEffect(() => {
+    const target = requestedComment;
+    if (!target || target.noteId !== currentNote?.id) return;
+    let thread = comments.find((comment) => comment.id === target.commentId);
+    if (!thread) return;
+    const visited = new Set<string>();
+    while (thread.parentId && !visited.has(thread.id)) {
+      visited.add(thread.id);
+      const parent = comments.find((comment) => comment.id === thread!.parentId);
+      if (!parent) break;
+      thread = parent;
+    }
+    setRequestedComment(null);
+    setActiveCommentId(thread.id);
+    if (thread.isResolved) setShowResolved(true);
+    focusCommentAnchor(thread);
+  }, [comments, currentNote?.id, requestedComment]);
+
+  useEffect(() => {
+    if (!panelOpen || !activeCommentId || commentsLoading) return;
+    const thread = Array.from(document.querySelectorAll<HTMLElement>("[data-comment-thread-id]"))
+      .find((element) => element.dataset.commentThreadId === activeCommentId);
+    thread?.scrollIntoView?.({ block: "nearest" });
+  }, [panelOpen, activeCommentId, showResolved, commentsLoading]);
 
   useEffect(() => {
     let frame = 0;
@@ -802,15 +849,15 @@ export default function InlineCommentBridge() {
       )}
 
       {panelOpen && (
-        <div className="fixed inset-0 z-[89] pointer-events-none" data-inline-comment-ui>
+        <div className="fixed z-[89] pointer-events-none" style={panelViewport} data-inline-comment-ui>
           <button
             type="button"
             className="absolute inset-0 pointer-events-auto bg-black/20 md:hidden"
             onClick={closePanel}
             aria-label="关闭评论面板"
           />
-          <aside className="nowen-inline-comment-panel pointer-events-auto absolute inset-y-0 right-0 flex w-full flex-col border-l border-app-border bg-app-elevated shadow-2xl sm:w-[390px]">
-            <header className="flex items-center gap-3 border-b border-app-border px-4 py-3">
+          <aside className="nowen-inline-comment-panel pointer-events-auto absolute inset-y-0 right-0 flex min-h-0 w-full flex-col overflow-hidden border-l border-app-border bg-app-elevated shadow-2xl sm:w-[390px]">
+            <header className="flex shrink-0 items-center gap-3 border-b border-app-border px-4 py-3">
               <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-accent-primary/10 text-accent-primary">
                 <MessageCircle size={18} />
               </div>
@@ -830,7 +877,7 @@ export default function InlineCommentBridge() {
               </button>
             </header>
 
-            <div className="flex items-center justify-between border-b border-app-border px-4 py-2">
+            <div className="flex shrink-0 items-center justify-between border-b border-app-border px-4 py-2">
               <span className="text-xs text-tx-tertiary">{topComments.length} 个讨论</span>
               <label className="flex cursor-pointer items-center gap-2 text-xs text-tx-secondary">
                 <input
@@ -843,7 +890,7 @@ export default function InlineCommentBridge() {
               </label>
             </div>
 
-            <div className="flex-1 overflow-y-auto px-3 py-3">
+            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-3">
               {commentsLoading ? (
                 <div className="flex h-40 items-center justify-center text-tx-tertiary">
                   <Loader2 size={20} className="animate-spin" />
@@ -881,7 +928,7 @@ export default function InlineCommentBridge() {
             </div>
 
             {canComment ? (
-              <footer className="border-t border-app-border bg-app-surface/80 px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3">
+              <footer className="min-h-0 shrink overflow-y-auto overscroll-contain border-t border-app-border bg-app-surface/80 px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3">
                 {replyTo && (
                   <div className="mb-2 flex items-center gap-2 rounded-lg bg-app-hover px-2.5 py-1.5 text-xs text-tx-secondary">
                     <Reply size={13} />
@@ -906,6 +953,7 @@ export default function InlineCommentBridge() {
                 <div className="flex items-end gap-2">
                   <textarea
                     ref={textareaRef}
+                    onFocus={revealComposer}
                     value={composer}
                     onChange={(event) => setComposer(event.target.value)}
                     onKeyDown={(event) => {
@@ -931,7 +979,7 @@ export default function InlineCommentBridge() {
                 </div>
               </footer>
             ) : (
-              <footer className="flex items-center gap-2 border-t border-app-border px-4 py-3 text-xs text-tx-tertiary">
+              <footer className="flex shrink-0 items-center gap-2 border-t border-app-border px-4 py-3 text-xs text-tx-tertiary">
                 <AlertTriangle size={14} />
                 当前权限仅允许查看评论
               </footer>

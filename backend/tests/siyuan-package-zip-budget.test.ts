@@ -37,6 +37,18 @@ async function assertBudgetRejected(zipPath: string) {
   );
 }
 
+async function waitForJobFailure(jobId: string): Promise<string> {
+  const deadline = Date.now() + 10_000;
+  while (Date.now() < deadline) {
+    const row = getDb().prepare("SELECT status, error FROM siyuan_import_jobs WHERE id = ?").get(jobId) as
+      | { status: string; error: string | null }
+      | undefined;
+    if (row?.status === "failed") return row.error || "";
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  throw new Error(`思源导入任务超时：${jobId}`);
+}
+
 test.before(async () => {
   const [serviceModule, schemaModule, exportModule] = await Promise.all([
     import("../src/services/siyuanPackageImport"),

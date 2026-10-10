@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { readFileSync } from "node:fs";
 import { Hono } from "hono";
 import { compress } from "hono/compress";
 
@@ -101,4 +102,9 @@ test("Hono compresses large JavaScript assets when gzip is accepted", async () =
   // Hono 4.6's generic compression middleware does not add Vary. The dedicated static delivery
   // runtime owns that header because it performs explicit Brotli/gzip representation negotiation.
   assert.ok((await response.arrayBuffer()).byteLength < source.length);
+});
+
+test("production static route serves ESM assets with a JavaScript MIME type", () => {
+  const indexSource = readFileSync(new URL("../src/index.ts", import.meta.url), "utf8");
+  assert.match(indexSource, /"\.mjs":\s*"application\/javascript"/);
 });

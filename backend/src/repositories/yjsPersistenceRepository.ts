@@ -1,4 +1,5 @@
 import { getDb } from "../db/schema";
+import { assertEncryptedBlockCollaborationAllowed } from "../lib/encryptedBlockWrites.js";
 import { noteYsnapshotsRepository } from "./noteYsnapshotsRepository";
 import { noteYupdatesRepository } from "./noteYupdatesRepository";
 
@@ -25,6 +26,10 @@ export interface YjsNoteVersionRecord {
 }
 
 export const yjsPersistenceRepository = {
+  assertCollaborationAllowed(noteId: string): void { 
+    assertEncryptedBlockCollaborationAllowed(getDb(), noteId);
+  },
+
   getCheckpointNote(noteId: string): YjsCheckpointNoteRecord | undefined {
     return getDb()
       .prepare(

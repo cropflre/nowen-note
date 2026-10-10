@@ -8,6 +8,7 @@ interface NowenBootWindow extends Window {
   __NOWEN_BOOT_TIMER__?: number;
   __NOWEN_BOOT_REVEAL_TIMER__?: number;
   __NOWEN_BOOT_VISIBLE_AT__?: number;
+  __NOWEN_MARK_BOOT_READY__?: () => void;
 }
 
 let dismissed = false;
@@ -66,6 +67,12 @@ function removeSplash(element: HTMLElement): void {
 export function dismissBootSplash(): void {
   if (dismissed || typeof document === "undefined") return;
   dismissed = true;
+  const target = bootWindow();
+  try {
+    if (typeof target.__NOWEN_MARK_BOOT_READY__ === "function") target.__NOWEN_MARK_BOOT_READY__();
+  } catch {
+    /* HTML boot diagnostics are best-effort only. */
+  }
   clearBootTimers();
 
   const element = document.getElementById(BOOT_SPLASH_ID);
@@ -74,7 +81,6 @@ export function dismissBootSplash(): void {
     return;
   }
 
-  const target = bootWindow();
   const visible = element.classList.contains(BOOT_SPLASH_VISIBLE_CLASS);
   if (!visible) {
     revealReactRoot();

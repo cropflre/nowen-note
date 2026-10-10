@@ -28,9 +28,13 @@
 @supports not (color-mix(in srgb, red 50%, transparent)) {
   input:focus-visible:not(.no-focus-ring),
   textarea:focus-visible:not(.no-focus-ring),
-  select:focus-visible:not(.no-focus-ring),
+  select:focus-visible:not(.no-focus-ring) {
+    box-shadow: 0 0 0 1px rgba(37, 99, 235, 0.5);
+  }
+
+  /* Buttons keep a stronger keyboard focus indicator for accessibility. */
   button:focus-visible:not(.no-focus-ring) {
-    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.5);
+    box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.5);
   }
 }
 
@@ -185,6 +189,100 @@ body {
   /* 搴曢儴棰勭暀鍙粴鍔ㄧ殑绌虹櫧锛氬啓鍒版湯灏炬椂浠嶈兘鎶婂厜鏍囪寰€涓婃粴锛岄伩鍏嶈创灞忓箷搴曢儴 */
   padding-bottom: 40vh;
   font-family: var(--editor-font-family);
+  font-size: var(--editor-font-size, inherit);
+}
+
+.nowen-md-preview {
+  font-size: var(--editor-font-size, inherit);
+}
+
+/* ===== Note Theme Engine =====
+ * 主题只作用于编辑/阅读表面。默认主题不进入这组规则，继续继承现有 Skin、
+ * 明暗模式和用户字体；其他内置主题由账号偏好把一组白名单 Token 写到根节点。
+ */
+html[data-note-theme]:not([data-note-theme="default"]) .note-theme-surface {
+  background: var(--note-theme-surface);
+  color: var(--pm-text);
+  transition: background-color 0.18s ease, color 0.18s ease;
+}
+
+html[data-note-theme]:not([data-note-theme="default"]) .note-theme-surface .ProseMirror,
+html[data-note-theme]:not([data-note-theme="default"]) .note-theme-surface .nowen-md-preview {
+  width: 100%;
+  max-width: var(--note-theme-content-width);
+  margin-left: auto;
+  margin-right: auto;
+  color: var(--pm-text);
+  line-height: var(--pm-p-line-height);
+}
+
+html[data-note-theme]:not([data-note-theme="default"]) .note-theme-surface .ProseMirror a,
+html[data-note-theme]:not([data-note-theme="default"]) .note-theme-surface .nowen-md-preview a {
+  color: var(--note-theme-accent);
+  text-decoration-color: currentColor;
+}
+
+html[data-note-theme]:not([data-note-theme="default"]) .note-theme-surface .ProseMirror a:hover,
+html[data-note-theme]:not([data-note-theme="default"]) .note-theme-surface .nowen-md-preview a:hover {
+  color: var(--note-theme-accent-hover);
+}
+
+html[data-note-theme]:not([data-note-theme="default"]) .note-theme-surface .nowen-md-preview h1,
+html[data-note-theme]:not([data-note-theme="default"]) .note-theme-surface .nowen-md-preview h2,
+html[data-note-theme]:not([data-note-theme="default"]) .note-theme-surface .nowen-md-preview h3,
+html[data-note-theme]:not([data-note-theme="default"]) .note-theme-surface .nowen-md-preview h4,
+html[data-note-theme]:not([data-note-theme="default"]) .note-theme-surface .nowen-md-preview h5,
+html[data-note-theme]:not([data-note-theme="default"]) .note-theme-surface .nowen-md-preview h6 {
+  color: var(--pm-heading);
+}
+
+html[data-note-theme]:not([data-note-theme="default"]) .note-theme-surface .nowen-md-preview blockquote {
+  color: var(--pm-blockquote-text);
+  border-left-color: var(--pm-blockquote-border);
+  background: var(--note-theme-soft);
+}
+
+html[data-note-theme]:not([data-note-theme="default"]) .note-theme-surface .nowen-md-preview :not(pre) > code {
+  color: var(--pm-code-text);
+  background: var(--pm-code-bg);
+}
+
+html[data-note-theme]:not([data-note-theme="default"]) .note-theme-surface .nowen-md-preview hr,
+html[data-note-theme]:not([data-note-theme="default"]) .note-theme-surface .nowen-md-preview th,
+html[data-note-theme]:not([data-note-theme="default"]) .note-theme-surface .nowen-md-preview td,
+html[data-note-theme]:not([data-note-theme="default"]) .note-theme-surface .ProseMirror table,
+html[data-note-theme]:not([data-note-theme="default"]) .note-theme-surface .ProseMirror th,
+html[data-note-theme]:not([data-note-theme="default"]) .note-theme-surface .ProseMirror td {
+  border-color: var(--note-theme-border);
+}
+
+html[data-note-theme]:not([data-note-theme="default"]) .note-theme-surface .nowen-md-preview th,
+html[data-note-theme]:not([data-note-theme="default"]) .note-theme-surface .ProseMirror th {
+  color: var(--pm-heading);
+  background: var(--note-theme-soft);
+}
+
+html[data-note-theme]:not([data-note-theme="default"]) .note-theme-surface .nowen-md-preview tr:nth-child(even) td,
+html[data-note-theme]:not([data-note-theme="default"]) .note-theme-surface .ProseMirror tr:nth-child(even) td {
+  color: var(--pm-text);
+  background: var(--note-theme-table-stripe);
+}
+
+html[data-note-theme]:not([data-note-theme="default"]) .note-theme-surface .nowen-md-preview mark {
+  color: inherit;
+  background: var(--note-theme-mark);
+}
+
+html[data-note-theme]:not([data-note-theme="default"]) .note-theme-surface .ProseMirror ::selection,
+html[data-note-theme]:not([data-note-theme="default"]) .note-theme-surface .nowen-md-preview ::selection {
+  background: var(--pm-selection);
+}
+
+html[data-note-theme]:not([data-note-theme="default"]) .note-theme-surface .nowen-md-editor .cm-editor,
+html[data-note-theme]:not([data-note-theme="default"]) .note-theme-surface .nowen-md-editor .cm-scroller,
+html[data-note-theme]:not([data-note-theme="default"]) .note-theme-surface .nowen-md-editor .cm-gutters {
+  color: var(--pm-text);
+  background: var(--note-theme-surface);
 }
 
 /* 缂栬緫鍣ㄥ唴閾炬帴锛氬彲瑙佺殑棰滆壊 + 涓嬪垝绾?+ 鎸囬拡锛汿ypora 椋庢牸鐨勮交閲忔彁绀?*/
@@ -753,7 +851,7 @@ html[data-code-theme="solarized-light"] {
   border-collapse: collapse;
   margin: 0;
   width: auto;
-  max-width: 100%;
+  max-width: none;
   table-layout: fixed;
   border-radius: 6px;
   border: 1px solid var(--color-border);
@@ -1035,7 +1133,7 @@ body.density-compact {
 }
 
 /* 宸插畬鎴愭€侊細鏂囧瓧鍙樼伆 + 鍒犻櫎绾?*/
-.ProseMirror li[data-type="taskItem"][data-checked="true"] > div p {
+.ProseMirror li[data-type="taskItem"][data-checked="true"] > div > p {
   text-decoration: line-through;
   text-decoration-color: var(--task-done-strike);
   color: var(--pm-task-done);
@@ -1558,7 +1656,20 @@ body.density-compact {
   --nowen-ul-marker-size: 1.1em;
   --nowen-ul-marker-top: 0;
 }
-.shared-note-content ol { list-style: decimal; }
+/* 有序列表层级与编辑器保持一致：1. → a. → i. */
+.shared-note-content ol {
+  list-style-type: decimal !important;
+}
+.shared-note-content ol > li {
+  display: list-item !important;
+  list-style-type: decimal !important;
+}
+.shared-note-content ol > li > ol > li {
+  list-style-type: lower-alpha !important;
+}
+.shared-note-content ol > li > ol > li > ol > li {
+  list-style-type: lower-roman !important;
+}
 .shared-note-content ul ul { --nowen-ul-marker: "◦"; --nowen-ul-marker-size: 1.1em; --nowen-ul-marker-top: 0; }
 .shared-note-content ul ul ul { --nowen-ul-marker: "▪"; --nowen-ul-marker-size: 1.2em; --nowen-ul-marker-top: -0.05em; }
 .shared-note-content ul ul ul ul { --nowen-ul-marker: "•"; --nowen-ul-marker-size: 1.1em; --nowen-ul-marker-top: 0; }
@@ -1598,10 +1709,26 @@ body.density-compact {
   list-style: none;
   padding-left: 0.5em;
 }
-.shared-note-content li[data-checked="true"] > p,
-.shared-note-content li.task-list-item input:checked ~ * {
-  color: #a1a1aa;
+/* The own text is a separate span so completing a parent does not strike its children. */
+.nowen-md-preview li.task-list-item[data-checked="true"] > .nowen-task-item-text,
+.nowen-md-preview li.task-list-item[data-checked="true"] > .nowen-task-item-text :is(a, strong, em, code),
+.nowen-md-preview li.task-list-item[data-checked="true"] > p > .nowen-task-item-text,
+.nowen-md-preview li.task-list-item[data-checked="true"] > p > .nowen-task-item-text :is(a, strong, em, code) {
+  color: var(--pm-task-done);
   text-decoration: line-through;
+  text-decoration-color: var(--task-done-strike);
+  opacity: 0.82;
+}
+
+/* Shared Tiptap and GFM Markdown have different checkbox markup. */
+.shared-note-content li[data-checked="true"] > p,
+.shared-note-content li[data-checked="true"] > div > p,
+.shared-note-content li.task-item:has(> input[type="checkbox"]:checked) > p,
+.shared-note-content li.task-list-item:has(> p > input[type="checkbox"]:checked) > p {
+  color: var(--pm-task-done, #a1a1aa);
+  text-decoration: line-through;
+  text-decoration-color: currentColor;
+  opacity: 0.82;
 }
 
 /* 寮曠敤鍧?*/
@@ -2472,7 +2599,7 @@ body.density-compact {
 :root[data-skin="macos"] input:focus-visible:not(.no-focus-ring),
 :root[data-skin="macos"] textarea:focus-visible:not(.no-focus-ring),
 :root[data-skin="macos"] select:focus-visible:not(.no-focus-ring) {
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-accent-primary) 40%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-accent-primary) 40%, transparent);
   border-color: var(--color-accent-primary);
 }
 
@@ -2793,4 +2920,11 @@ html[data-electron="darwin"][data-fullscreen="1"] main::before {
     outline: 2px solid transparent;
     outline-offset: 2px;
   }
+}
+/* Foldable inner displays use a persistent list-detail workspace. The editor remains
+   touch-oriented below the existing desktop breakpoint, but its phone-only back affordance
+   is redundant once the list is already visible beside it. */
+[data-note-workspace-window="medium"] [data-adaptive-editor-back],
+[data-note-workspace-window="medium"] [data-adaptive-editor-empty-header] {
+  display: none !important;
 }

@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import {
   AlertTriangle,
   CheckCircle2,
+  Copy,
   DatabaseBackup,
   Download,
   FileArchive,
@@ -15,12 +16,15 @@ import {
 import { api, getBaseUrl, withSudo } from "@/lib/api";
 import { confirm as confirmDialog, prompt as promptDialog } from "@/components/ui/confirm";
 import { toast } from "@/lib/toast";
+import { runFullBackupJob } from "@/lib/fullBackupJobClient";
+import { formatSupportError, formatSupportReference } from "@/lib/supportError";
+import { createHttpRequestError } from "@/lib/httpError";
 
 const MAX_ARCHIVE_BYTES = 500 * 1024 * 1024;
 const HOST_ATTR = "data-nowen-full-data-transfer-host";
 
 type Operation = "export" | "import" | null;
-type Notice = { type: "success" | "error" | "info"; text: string } | null;
+type Notice = { type: "success" | "error" | "info"; text: string; reference?: string } | null;
 
 type BackupUploadResult = {
   filename: string;
@@ -61,15 +65,30 @@ function extractDownloadFilename(response: Response, fallback: string): string {
   return disposition.match(/filename="?([^";]+)"?/i)?.[1] || fallback;
 }
 
-async function downloadBackup(filename: string): Promise<{ filename: string; size: number }> {
+async function downloadBackup(
+  filename: string,
+  downloadToken?: string,
+  knownSize?: number,
+): Promise<{ filename: string; size: number; completed: boolean }> {
+  if (downloadToken) {
+    const anchor = document.createElement("a");
+    anchor.href = `${getBaseUrl()}/backups/full-download/${encodeURIComponent(downloadToken)}`;
+    anchor.download = filename;
+    anchor.rel = "noopener";
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    return { filename, size: knownSize || 0, completed: false };
+  }
+
   const token = localStorage.getItem("nowen-token");
   const response = await fetch(`${getBaseUrl()}/backups/${encodeURIComponent(filename)}/download`, {
     method: "GET",
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   });
   if (!response.ok) {
-    const body = await response.text().catch(() => "");
-    throw new Error(body || `下载完整备份失败（HTTP ${response.status}）`);
+    const payload: unknown = await response.json().catch(() => ({}));
+    throw createHttpRequestError(response, payload, `下载完整备份失败（HTTP ${response.status}）`);
   }
 
   const blob = await response.blob();
@@ -86,7 +105,7 @@ async function downloadBackup(filename: string): Promise<{ filename: string; siz
   } finally {
     window.setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
-  return { filename: downloadName, size: blob.size };
+  return { filename: downloadName, size: blob.size, completed: true };
 }
 
 function findLegacyTransferSections(): {
@@ -187,7 +206,31 @@ function NoticeBox({ notice }: { notice: Notice }) {
   return (
     <div className={`flex items-start gap-2 rounded-lg border px-3 py-2 text-xs leading-5 ${styles}`}>
       {notice.type === "success" ? <CheckCircle2 size={14} className="mt-0.5 shrink-0" /> : <AlertTriangle size={14} className="mt-0.5 shrink-0" />}
-      <span className="break-all">{notice.text}</span>
+      <div className="min-w-0 flex-1">
+        <p className="break-words">{notice.text}</p>
+        {notice.reference && (
+          <div className="mt-1.5 flex flex-wrap items-center gap-2">
+            <span className="select-all break-all font-mono text-[11px]">故障编号：{notice.reference}</span>
+            <button
+              type="button"
+              className="inline-flex items-center gap-1 rounded border border-current/20 px-2 py-0.5 hover:bg-black/5 dark:hover:bg-white/5"
+              title="复制故障编号，便于反馈问题"
+              onClick={() => {
+                if (!navigator.clipboard?.writeText) {
+                  toast.error("浏览器不支持自动复制，请手动选择编号");
+                  return;
+                }
+                void navigator.clipboard.writeText(notice.reference || "").then(
+                  () => toast.success("故障编号已复制"),
+                  () => toast.error("复制失败，请手动选择编号"),
+                );
+              }}
+            >
+              <Copy size={11} /> 复制编号
+            </button>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -214,7 +257,12 @@ function FullDataTransferPanel() {
     setNotice({ type: "info", text: "正在创建数据库一致性快照并收集全部图片、附件、字体和插件…" });
     try {
       const out = await withSudo(
-        (sudoToken) => api.backup.create("full", sudoToken, "数据管理：完整数据手动导出"),
+        (sudoToken) => runFullBackupJob(
+          api.backup.fullJobs,
+          sudoToken,
+          "数据管理：完整数据手动导出",
+          { onStatus: (text) => setNotice({ type: "info", text }) },
+        ),
         askPassword,
         sudoTokenRef.current,
       );
@@ -223,13 +271,23 @@ function FullDataTransferPanel() {
         return;
       }
       sudoTokenRef.current = out.sudoToken;
-      const downloaded = await downloadBackup(out.result.filename);
-      const text = `完整备份已下载：${downloaded.filename}（${formatBytes(downloaded.size)}）`;
-      setNotice({ type: "success", text });
+      const downloaded = await downloadBackup(
+        out.result.filename,
+        out.result.downloadToken,
+        out.result.size,
+      );
+      const text = downloaded.completed
+        ? `完整备份已下载：${downloaded.filename}（${formatBytes(downloaded.size)}）`
+        : `完整备份已开始下载：${downloaded.filename}（${formatBytes(downloaded.size)}），请在浏览器下载列表中确认完成。`;
+      setNotice({ type: downloaded.completed ? "success" : "info", text });
       toast.success(text, 5000);
     } catch (error) {
-      const text = error instanceof Error ? error.message : String(error);
-      setNotice({ type: "error", text: `完整数据导出失败：${text}` });
+      const failure = formatSupportError(error, "完整备份导出失败，请检查网络、磁盘空间或服务端日志");
+      setNotice({
+        type: "error",
+        text: `完整数据导出失败：${failure.message}`,
+        reference: formatSupportReference(failure) || undefined,
+      });
     } finally {
       setBusy(null);
     }
@@ -306,29 +364,49 @@ function FullDataTransferPanel() {
       }
 
       setNotice({ type: "info", text: "正在创建恢复前完整安全备份，请不要关闭页面…" });
-      const restored = await withSudo(
-        async (sudoToken) => {
-          const safety = await api.backup.create("full", sudoToken, `恢复 ${imported.filename} 前的自动安全备份`);
-          const result = await api.backup.restore(imported.filename, false, sudoToken);
-          return { safety, result };
-        },
+      const safety = await withSudo(
+        (sudoToken) => runFullBackupJob(
+          api.backup.fullJobs,
+          sudoToken,
+          `恢复 ${imported.filename} 前的自动安全备份`,
+          { onStatus: (text) => setNotice({ type: "info", text }) },
+        ),
         askPassword,
         sudoTokenRef.current,
       );
-      if (!restored) return;
+      if (!safety) {
+        setNotice(null);
+        return;
+      }
+      sudoTokenRef.current = safety.sudoToken;
+
+      setNotice({ type: "info", text: "恢复前安全备份已完成，正在恢复全部数据…" });
+      const restored = await withSudo(
+        (sudoToken) => api.backup.restore(imported.filename, false, sudoToken),
+        askPassword,
+        sudoTokenRef.current,
+      );
+      if (!restored) {
+        setNotice({ type: "info", text: `恢复已取消；安全备份已保留：${safety.result.filename}` });
+        return;
+      }
       sudoTokenRef.current = restored.sudoToken;
-      if (!restored.result.result.success) {
-        throw new Error(restored.result.result.error || "完整数据恢复失败");
+      if (!restored.result.success) {
+        throw new Error(restored.result.error || "完整数据恢复失败");
       }
 
-      const successText = `完整数据恢复完成；恢复前安全备份为 ${restored.result.safety.filename}。请立即重启后端或桌面客户端。`;
+      const successText = `完整数据恢复完成；恢复前安全备份为 ${safety.result.filename}。请立即重启后端或桌面客户端。`;
       setSelectedFile(null);
       if (fileInputRef.current) fileInputRef.current.value = "";
       setNotice({ type: "success", text: successText });
       toast.success(successText, 8000);
     } catch (error) {
-      const text = error instanceof Error ? error.message : String(error);
-      setNotice({ type: "error", text: `完整数据导入失败：${text}` });
+      const failure = formatSupportError(error, "完整备份导入或恢复失败；如已开始恢复，请先检查服务端日志，勿重复恢复");
+      setNotice({
+        type: "error",
+        text: `完整数据导入失败：${failure.message}`,
+        reference: formatSupportReference(failure) || undefined,
+      });
     } finally {
       setBusy(null);
     }

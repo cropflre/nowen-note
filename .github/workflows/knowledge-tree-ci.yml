@@ -5,6 +5,8 @@ on:
   push:
     branches:
       - main
+      - release/v1.5.0
+      - release/v1.5.1
       - feat/issue-370-p0c-p1-knowledge-tree
     paths:
       - "backend/src/db/knowledgeTree*.ts"
@@ -12,13 +14,43 @@ on:
       - "backend/src/db/postgres/063_knowledge_tree_legacy_sync.sql"
       - "backend/src/db/postgres/064_knowledge_tree_structural_guard.sql"
       - "backend/src/runtime/knowledge-tree*.ts"
+      - "backend/src/routes/mobile-bootstrap.ts"
+      - "frontend/src/lib/mobileStartupBridge.ts"
+      - "frontend/src/lib/mobileWebStartupBridge.ts"
+      - "frontend/src/lib/noteLoadSource.ts"
+      - "frontend/src/lib/__tests__/noteLoadSource.test.ts"
+      - "frontend/src/lib/__tests__/mobileStartupBridge.test.ts"
+      - "frontend/src/lib/__tests__/mobileWebStartupBridge.test.ts"
+      - "frontend/src/hooks/useNoteLoader.ts"
+      - "frontend/src/store/AppContext.tsx"
       - "backend/src/routes/knowledge-tree.ts"
+      - "backend/src/routes/mindmap-folders.ts"
+      - "backend/src/routes/sync-v2.ts"
+      - "backend/src/sync/knowledgeTree*.ts"
+      - "backend/src/sync/entities.ts"
+      - "backend/src/sync/types.ts"
+      - "backend/src/db/syncV2KnowledgeTree*.ts"
+      - "backend/src/db/lightweightSheetsMigration.ts"
+      - "backend/src/routes/sheets.ts"
       - "backend/src/services/knowledge*.ts"
       - "backend/src/services/notebook-permissions.ts"
       - "backend/src/middleware/knowledgeCapabilityGuard.ts"
       - "backend/src/index.hardened.ts"
       - "backend/tests/knowledge-tree*.test.ts"
+      - "backend/tests/mindmap-folder-route.test.ts"
+      - "backend/tests/sync-v2-knowledge-tree*.test.ts"
+      - "backend/tests/sync-v2-entity-readiness.test.ts"
+      - "backend/tests/sync-v2-protocol.test.ts"
+      - "backend/tests/lightweight-sheets.test.ts"
+      - "backend/tests/lightweight-sheets-route.test.ts"
       - "frontend/src/components/KnowledgeTreeDrawer.tsx"
+      - "frontend/src/components/KnowledgeTreePanel.tsx"
+      - "frontend/src/components/MobileKnowledgeTreePanel.tsx"
+      - "frontend/src/components/MindMapEditor.tsx"
+      - "frontend/src/components/__tests__/MindMap*.test.ts"
+      - "frontend/src/components/SheetEditor.tsx"
+      - "frontend/src/lib/sheet*.ts"
+      - "frontend/src/lib/__tests__/sheet*.test.ts"
       - "frontend/src/components/MobileDrawerUxBridge.tsx"
       - "frontend/src/lib/knowledgeTree*.ts"
       - "frontend/src/lib/__tests__/knowledgeTree*.test.ts"
@@ -30,13 +62,43 @@ on:
       - "backend/src/db/postgres/063_knowledge_tree_legacy_sync.sql"
       - "backend/src/db/postgres/064_knowledge_tree_structural_guard.sql"
       - "backend/src/runtime/knowledge-tree*.ts"
+      - "backend/src/routes/mobile-bootstrap.ts"
+      - "frontend/src/lib/mobileStartupBridge.ts"
+      - "frontend/src/lib/mobileWebStartupBridge.ts"
+      - "frontend/src/lib/noteLoadSource.ts"
+      - "frontend/src/lib/__tests__/noteLoadSource.test.ts"
+      - "frontend/src/lib/__tests__/mobileStartupBridge.test.ts"
+      - "frontend/src/lib/__tests__/mobileWebStartupBridge.test.ts"
+      - "frontend/src/hooks/useNoteLoader.ts"
+      - "frontend/src/store/AppContext.tsx"
       - "backend/src/routes/knowledge-tree.ts"
+      - "backend/src/routes/mindmap-folders.ts"
+      - "backend/src/routes/sync-v2.ts"
+      - "backend/src/sync/knowledgeTree*.ts"
+      - "backend/src/sync/entities.ts"
+      - "backend/src/sync/types.ts"
+      - "backend/src/db/syncV2KnowledgeTree*.ts"
+      - "backend/src/db/lightweightSheetsMigration.ts"
+      - "backend/src/routes/sheets.ts"
       - "backend/src/services/knowledge*.ts"
       - "backend/src/services/notebook-permissions.ts"
       - "backend/src/middleware/knowledgeCapabilityGuard.ts"
       - "backend/src/index.hardened.ts"
       - "backend/tests/knowledge-tree*.test.ts"
+      - "backend/tests/mindmap-folder-route.test.ts"
+      - "backend/tests/sync-v2-knowledge-tree*.test.ts"
+      - "backend/tests/sync-v2-entity-readiness.test.ts"
+      - "backend/tests/sync-v2-protocol.test.ts"
+      - "backend/tests/lightweight-sheets.test.ts"
+      - "backend/tests/lightweight-sheets-route.test.ts"
       - "frontend/src/components/KnowledgeTreeDrawer.tsx"
+      - "frontend/src/components/KnowledgeTreePanel.tsx"
+      - "frontend/src/components/MobileKnowledgeTreePanel.tsx"
+      - "frontend/src/components/MindMapEditor.tsx"
+      - "frontend/src/components/__tests__/MindMap*.test.ts"
+      - "frontend/src/components/SheetEditor.tsx"
+      - "frontend/src/lib/sheet*.ts"
+      - "frontend/src/lib/__tests__/sheet*.test.ts"
       - "frontend/src/components/MobileDrawerUxBridge.tsx"
       - "frontend/src/lib/knowledgeTree*.ts"
       - "frontend/src/lib/__tests__/knowledgeTree*.test.ts"
@@ -68,7 +130,32 @@ jobs:
         continue-on-error: true
         run: |
           set -o pipefail
-          node --import tsx --import ./tests/setup-db-isolation.ts --test tests/knowledge-tree.test.ts 2>&1 | tee .ci/sqlite.log
+          node --import tsx --import ./tests/setup-db-isolation.ts --test \
+            tests/knowledge-tree.test.ts \
+            tests/knowledge-tree-folder-password-visibility.test.ts \
+            tests/knowledge-tree-mindmap.test.ts \
+            tests/knowledge-tree-mindmap-folders.test.ts \
+            tests/knowledge-tree-mindmap-lifecycle.test.ts \
+            tests/mindmap-folder-route.test.ts 2>&1 | tee .ci/sqlite.log
+      - id: tree_sync
+        name: Knowledge tree Sync V2 protocol tests
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          node --import tsx --test \
+            tests/sync-v2-entity-readiness.test.ts \
+            tests/sync-v2-knowledge-tree-feed.test.ts \
+            tests/sync-v2-knowledge-tree-outbox.test.ts \
+            tests/sync-v2-knowledge-tree-readiness.test.ts \
+            tests/sync-v2-knowledge-tree-baseline.test.ts \
+            tests/sync-v2-knowledge-tree-snapshot.test.ts \
+            tests/sync-v2-knowledge-tree-structure.test.ts \
+            tests/sync-v2-knowledge-tree-apply-local.test.ts \
+            tests/sync-v2-knowledge-tree-conflict.test.ts \
+            tests/sync-v2-knowledge-tree-engine.test.ts \
+            tests/sync-v2-protocol.test.ts \
+            tests/lightweight-sheets.test.ts \
+            tests/lightweight-sheets-route.test.ts 2>&1 | tee .ci/tree-sync.log
       - id: postgres
         name: PostgreSQL schema parity test
         if: always()
@@ -126,7 +213,7 @@ jobs:
               });
             }
       - name: Enforce backend result
-        if: always() && (steps.sqlite.outcome == 'failure' || steps.postgres.outcome == 'failure' || steps.backend_typecheck.outcome == 'failure')
+        if: always() && (steps.sqlite.outcome == 'failure' || steps.tree_sync.outcome == 'failure' || steps.postgres.outcome == 'failure' || steps.backend_typecheck.outcome == 'failure')
         run: exit 1
 
   frontend:
@@ -146,8 +233,19 @@ jobs:
       - name: Knowledge tree and workspace layout tests
         run: >-
           npm run test:run --
+          src/lib/__tests__/noteLoadSource.test.ts
+          src/lib/__tests__/mobileStartupBridge.test.ts
+          src/lib/__tests__/mobileWebStartupBridge.test.ts
           src/lib/__tests__/knowledgeTreeModel.test.ts
+          src/lib/__tests__/knowledgeTreePerformance.test.ts
+          src/lib/__tests__/sharedKnowledgeTree.test.ts
+          src/lib/__tests__/knowledgeTreeSort.test.ts
+          src/components/__tests__/MindMapMoveNodes.test.ts
+          src/components/__tests__/MindMapUxGuards.test.ts
+          src/components/__tests__/MindMapOutlineKeyboard.test.ts
           src/lib/__tests__/editorWorkspaceLayout.test.ts
+          src/lib/__tests__/sheetModel.test.ts
+          src/lib/__tests__/sheetXlsx.test.ts
       - name: Frontend typecheck
         if: always()
         run: npx tsc -b

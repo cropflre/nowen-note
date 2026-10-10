@@ -4,12 +4,14 @@ import { FileCode, FileText, LayoutTemplate, Loader2, Paperclip, RefreshCw, Tras
 
 import { confirm } from "@/components/ui/confirm";
 import { noteTemplatesApi, type NoteTemplateSummary } from "@/lib/noteTemplatesApi";
+import PluginNoteTemplatePickerSection from "@/components/PluginNoteTemplatePickerSection";
 import { cn } from "@/lib/utils";
 
 export interface NoteTemplatePickerDialogProps {
   open: boolean;
   onClose: () => void;
   onCreate: (templateId: string) => Promise<void>;
+  onCreatePlugin?: (pluginId: string, templateId: string, values: Record<string, unknown>) => Promise<void>;
 }
 
 function formatUpdatedAt(value: string): string {
@@ -28,6 +30,7 @@ export default function NoteTemplatePickerDialog({
   open,
   onClose,
   onCreate,
+  onCreatePlugin,
 }: NoteTemplatePickerDialogProps) {
   const [templates, setTemplates] = useState<NoteTemplateSummary[]>([]);
   const [loading, setLoading] = useState(false);
@@ -207,6 +210,7 @@ export default function NoteTemplatePickerDialog({
               })}
             </div>
           )}
+          <PluginNoteTemplatePickerSection disabled={Boolean(creatingId || deletingId)} onCreate={onCreatePlugin} />
         </div>
       </section>
     </div>,

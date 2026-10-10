@@ -8,7 +8,32 @@
  *   - IPv6 字面量始终使用 URI 标准方括号格式
  */
 
+import { getServerTransportUrl } from "./serverEndpointState";
+
 export type ServerScheme = "http" | "https";
+export type ProxyCompatibilityMode = "standard" | "public-prefix" | "public-concat";
+
+export interface ServerPathCandidate {
+  mode: ProxyCompatibilityMode;
+  serverBaseUrl: string;
+  apiBaseUrl: string;
+  apiPath: string;
+  websocketUrl: string;
+  websocketPath: string;
+}
+
+export interface ResolvedServerConnection extends ServerPathCandidate {
+  resolvedAt: number;
+}
+
+const RESOLVED_SERVER_CONNECTION_KEY = "nowen-resolved-server-connections-v2";
+const LEGACY_RESOLVED_SERVER_CONNECTION_KEY = "nowen-resolved-server-connection-v1";
+const MAX_RESOLVED_SERVER_CONNECTIONS = 20;
+
+interface ResolvedServerConnectionCache {
+  version: 2;
+  connections: Record<string, Partial<ResolvedServerConnection>>;
+}
 
 export interface ServerAddressParts {
   protocol: ServerScheme;
@@ -56,6 +81,33 @@ export function formatServerHost(host: string): string {
 export function isLoopbackServerHostname(hostname: string): boolean {
   const normalized = removeIpv6Brackets(hostname).toLowerCase();
   return normalized === "localhost" || normalized === "::1" || normalized.startsWith("127.");
+}
+
+/** 判断显式主机名是否属于本机或局域网；公共域名/IP 不应触发 mDNS 发现。 */
+export function isLanServerHostname(hostname: string): boolean {
+  const normalized = removeIpv6Brackets(hostname).trim().replace(/\.$/, "").toLowerCase();
+  if (!normalized) return false;
+  if (isLoopbackServerHostname(normalized)) return true;
+  if (normalized.endsWith(".local")) return true;
+
+  const ipv4 = normalized.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+  if (ipv4) {
+    const octets = ipv4.slice(1).map(Number);
+    if (octets.some((value) => value > 255)) return false;
+    const [a, b] = octets;
+    return a === 10
+      || (a === 100 && b >= 64 && b <= 127)
+      || (a === 169 && b === 254)
+      || (a === 172 && b >= 16 && b <= 31)
+      || (a === 192 && b === 168);
+  }
+
+  if (normalized.includes(":")) {
+    return /^f[cd][0-9a-f]{2}:/.test(normalized) || /^fe[89ab][0-9a-f]:/.test(normalized);
+  }
+
+  // 无点的单标签主机名通常由局域网 DNS/hosts 解析，例如 nas、nowen-note。
+  return !normalized.includes(".");
 }
 
 function authorityFromInput(value: string): string {
@@ -154,6 +206,17 @@ export function normalizeServerBaseUrl(input: string | null | undefined): string
   return `${protocol}://${url.host}${pathPrefix}`;
 }
 
+/** 客户端身份由运行环境决定，不受服务器配置或当前页面路径影响。 */
+export function isNativeClientRuntime(): boolean {
+  if (typeof window === "undefined") return false;
+  const runtime = window as Window & { nowenDesktop?: { isDesktop?: boolean }; Capacitor?: { isNativePlatform?: () => boolean; platform?: string } };
+  return window.location.protocol === "file:"
+    || window.location.protocol === "capacitor:"
+    || !!runtime.nowenDesktop?.isDesktop
+    || !!runtime.Capacitor?.isNativePlatform?.()
+    || (!!runtime.Capacitor?.platform && runtime.Capacitor.platform !== "web");
+}
+
 /**
  * Web 端被部署在反向代理子路径时，从当前页面地址推断 serverBaseUrl。
  * 原生客户端与 Electron 使用显式服务器地址，不走这里。
@@ -166,8 +229,10 @@ export function inferBrowserServerBaseUrl(
 
   let pathname = locationLike.pathname.replace(/\/+$/, "");
   const routeSuffix = pathname.match(/\/(?:share|notebook-share)\/[A-Za-z0-9_-]+$/)?.[0]
+    || pathname.match(/\/issues(?:\/[A-Za-z0-9-]+)?$/)?.[0]
+    || pathname.match(/\/(?:notes|mindmaps|sheets)(?:\/[^/]+)?$/i)?.[0]
     || pathname.match(/\/public(?:\/[^/]+)?$/)?.[0]
-    || pathname.match(/\/login$/)?.[0]
+    || pathname.match(/\/(?:login|trash)$/)?.[0]
     || "";
   if (routeSuffix) pathname = pathname.slice(0, -routeSuffix.length);
   if (!pathname || pathname === "/") return "";
@@ -190,6 +255,173 @@ export function stripServerBasePath(pathname: string, serverBaseUrl: string): st
 
 export function isValidServerUrl(input: string | null | undefined): boolean {
   return normalizeServerBaseUrl(input) !== "";
+}
+
+/**
+ * 反向代理路径候选。所有候选只在用户输入的同一 origin/path-prefix 下扩展，
+ * 不跟随或构造第三方 hostname。
+ */
+export function buildServerPathCandidates(
+  input: string | null | undefined,
+): ServerPathCandidate[] {
+  const serverBaseUrl = normalizeServerBaseUrl(input);
+  if (!serverBaseUrl) return [];
+  const wsBaseUrl = serverBaseUrl.replace(/^http:/, "ws:").replace(/^https:/, "wss:");
+  const paths: Array<Pick<ServerPathCandidate, "mode" | "apiPath" | "websocketPath">> = [
+    { mode: "standard", apiPath: "/api", websocketPath: "/ws" },
+    { mode: "public-prefix", apiPath: "/public/api", websocketPath: "/public/ws" },
+    { mode: "public-concat", apiPath: "/publicapi", websocketPath: "/publicws" },
+  ];
+  return paths.map((candidate) => ({
+    ...candidate,
+    serverBaseUrl,
+    apiBaseUrl: `${serverBaseUrl}${candidate.apiPath}`,
+    websocketUrl: `${wsBaseUrl}${candidate.websocketPath}`,
+  }));
+}
+
+function normalizeCachedResolvedConnection(
+  candidates: ServerPathCandidate[],
+  parsed: Partial<ResolvedServerConnection> | null | undefined,
+): ResolvedServerConnection | null {
+  if (!parsed) return null;
+  const apiCandidate = candidates.find((candidate) => (
+    candidate.mode === parsed.mode
+    && candidate.apiBaseUrl === parsed.apiBaseUrl
+    && candidate.serverBaseUrl === parsed.serverBaseUrl
+  ));
+  const websocketCandidate = candidates.find((candidate) => (
+    candidate.websocketUrl === parsed.websocketUrl
+    && candidate.websocketPath === parsed.websocketPath
+  ));
+  if (!apiCandidate || !websocketCandidate) return null;
+  return {
+    ...apiCandidate,
+    websocketUrl: websocketCandidate.websocketUrl,
+    websocketPath: websocketCandidate.websocketPath,
+    resolvedAt: typeof parsed.resolvedAt === "number" ? parsed.resolvedAt : 0,
+  };
+}
+
+function readResolvedServerConnectionCache(): ResolvedServerConnectionCache {
+  const empty: ResolvedServerConnectionCache = { version: 2, connections: {} };
+  if (typeof localStorage === "undefined") return empty;
+  try {
+    const raw = localStorage.getItem(RESOLVED_SERVER_CONNECTION_KEY);
+    if (!raw) return empty;
+    const parsed = JSON.parse(raw) as Partial<ResolvedServerConnectionCache>;
+    if (parsed?.version !== 2 || !parsed.connections || typeof parsed.connections !== "object") {
+      return empty;
+    }
+    return { version: 2, connections: parsed.connections };
+  } catch {
+    return empty;
+  }
+}
+
+function writeResolvedServerConnectionCache(cache: ResolvedServerConnectionCache): void {
+  if (typeof localStorage === "undefined") return;
+  try {
+    const entries = Object.values(cache.connections)
+      .filter((entry): entry is ResolvedServerConnection => (
+        !!entry
+        && typeof entry.serverBaseUrl === "string"
+        && typeof entry.resolvedAt === "number"
+      ))
+      .sort((a, b) => b.resolvedAt - a.resolvedAt)
+      .slice(0, MAX_RESOLVED_SERVER_CONNECTIONS);
+    const connections: Record<string, ResolvedServerConnection> = {};
+    for (const entry of entries) connections[entry.serverBaseUrl] = entry;
+    localStorage.setItem(RESOLVED_SERVER_CONNECTION_KEY, JSON.stringify({
+      version: 2,
+      connections,
+    }));
+  } catch {
+    // Restricted storage falls back to the standard path for the next request.
+  }
+}
+
+function readResolvedServerConnection(
+  input: string | null | undefined,
+): ResolvedServerConnection | null {
+  const candidates = buildServerPathCandidates(input);
+  if (candidates.length === 0 || typeof localStorage === "undefined") return null;
+  const serverBaseUrl = candidates[0].serverBaseUrl;
+
+  const currentCache = readResolvedServerConnectionCache();
+  const current = normalizeCachedResolvedConnection(
+    candidates,
+    currentCache.connections[serverBaseUrl],
+  );
+  if (current) return current;
+
+  // v1 只保存一个服务器。首次读取时迁移到按 serverBaseUrl 分桶的 v2，避免
+  // 桌面端多服务器/账号切换时后一个探测结果覆盖前一个服务器的代理兼容路径。
+  try {
+    const legacyRaw = localStorage.getItem(LEGACY_RESOLVED_SERVER_CONNECTION_KEY);
+    if (!legacyRaw) return null;
+    const legacy = normalizeCachedResolvedConnection(
+      candidates,
+      JSON.parse(legacyRaw) as Partial<ResolvedServerConnection>,
+    );
+    if (!legacy) return null;
+    currentCache.connections[serverBaseUrl] = legacy;
+    writeResolvedServerConnectionCache(currentCache);
+    localStorage.removeItem(LEGACY_RESOLVED_SERVER_CONNECTION_KEY);
+    return legacy;
+  } catch {
+    return null;
+  }
+}
+
+export function cacheResolvedServerConnection(
+  connection: Omit<ResolvedServerConnection, "resolvedAt"> | ResolvedServerConnection,
+): void {
+  if (typeof localStorage === "undefined") return;
+  const candidates = buildServerPathCandidates(connection.serverBaseUrl);
+  const apiCandidate = candidates.find((candidate) => (
+    candidate.mode === connection.mode && candidate.apiBaseUrl === connection.apiBaseUrl
+  ));
+  const websocketCandidate = candidates.find((candidate) => (
+    candidate.websocketUrl === connection.websocketUrl
+  ));
+  if (!apiCandidate || !websocketCandidate) return;
+
+  const normalized: ResolvedServerConnection = {
+    ...apiCandidate,
+    websocketUrl: websocketCandidate.websocketUrl,
+    websocketPath: websocketCandidate.websocketPath,
+    resolvedAt: Date.now(),
+  };
+  const cache = readResolvedServerConnectionCache();
+  cache.connections[normalized.serverBaseUrl] = normalized;
+  writeResolvedServerConnectionCache(cache);
+  try { localStorage.removeItem(LEGACY_RESOLVED_SERVER_CONNECTION_KEY); } catch { /* ignore */ }
+}
+
+export function clearResolvedServerConnection(): void {
+  if (typeof localStorage === "undefined") return;
+  try {
+    localStorage.removeItem(RESOLVED_SERVER_CONNECTION_KEY);
+    localStorage.removeItem(LEGACY_RESOLVED_SERVER_CONNECTION_KEY);
+  } catch { /* ignore */ }
+}
+
+export function getConfiguredApiBaseUrl(input: string | null | undefined): string {
+  const serverBaseUrl = normalizeServerBaseUrl(input);
+  if (!serverBaseUrl) return "/api";
+  return readResolvedServerConnection(serverBaseUrl)?.apiBaseUrl || `${serverBaseUrl}/api`;
+}
+
+export function getResolvedApiBaseUrl(input: string | null | undefined): string {
+  return getConfiguredApiBaseUrl(getServerTransportUrl(normalizeServerBaseUrl(input)));
+}
+
+export function getResolvedWebSocketUrl(input: string | null | undefined): string {
+  const candidates = buildServerPathCandidates(getServerTransportUrl(normalizeServerBaseUrl(input)));
+  if (candidates.length === 0) return "";
+  return readResolvedServerConnection(candidates[0].serverBaseUrl)?.websocketUrl
+    || candidates[0].websocketUrl;
 }
 
 export function parseServerUrl(input: string | null | undefined): ServerAddressParts {

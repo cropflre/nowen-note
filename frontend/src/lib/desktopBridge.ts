@@ -84,12 +84,29 @@ export interface AppInfo {
   platform: string;
   arch: string;
   mode?: "full" | "lite";
+  runtime?: "local" | "remote";
   hideMenuBar?: boolean;
   // SEC-ELECTRON-01-C: 敏感字段可选，由 getDiagnosticsInfo 获取
   userData?: string;
   logDir?: string;
   backendPort?: number;
   remoteUrl?: string;
+}
+
+export interface LiteMigrationProgress {
+  stage: "pending" | "auth_required" | "preparing" | "downloading" | "applying" | "attachments" | "verifying" | "switching" | "complete" | "failed";
+  downloaded?: number;
+  applied?: number;
+  attachmentsDone?: number;
+  attachmentsPending?: number;
+  error?: string | null;
+}
+
+export interface LiteMigrationResult {
+  ok: boolean;
+  status?: number;
+  progress?: LiteMigrationProgress;
+  error?: string;
 }
 
 /** SEC-ELECTRON-01-C: 诊断信息（敏感字段，仅在需要时获取） */
@@ -214,6 +231,7 @@ export interface FolderSyncUploadCandidate {
   contentText: string | null;
   existingNoteId: string | null;
   skipReason: string | null;
+  action?: "upsert" | "delete" | "organize";
 }
 
 export interface FolderSyncPendingUploads {
@@ -243,7 +261,7 @@ export interface FolderSyncAPI {
   runNow(folderId: string): Promise<FolderSyncScanResult>;
   getIndex(folderId: string): Promise<FolderSyncIndexItem[]>;
   getPendingUploads(folderId: string): Promise<FolderSyncPendingUploads>;
-  markUploadResult(folderId: string, relativePath: string, result: { success: boolean; noteId?: string; attachmentId?: string; skipped?: boolean; error?: string }): Promise<{ ok: boolean }>;
+  markUploadResult(folderId: string, relativePath: string, result: { success: boolean; noteId?: string; attachmentId?: string; skipped?: boolean; error?: string; hierarchyTarget?: string }): Promise<{ ok: boolean }>;
   getUploadFile(folderId: string, relativePath: string): Promise<FolderSyncUploadFileResult>;
   appendLog(folderId: string, type: string, message: string, detail?: unknown): Promise<{ ok: boolean }>;
 }
@@ -330,8 +348,12 @@ interface NowenDesktopAPI {
     migrate?: (targetPath: string) => Promise<DataDirMigrationResult>;
   };
   getLocalAuth?: () => Promise<{ token: string; refreshToken?: string; user: unknown } | null>;
+  getLocalLoginHint?: () => Promise<DesktopLocalLoginHint | null>;
+  completeLocalLoginHint?: (payload: { serverUrl: string; username: string }) => Promise<{ ok: boolean; reason?: string }>;
   clearLocalAuth?: () => Promise<{ ok: boolean }>;
   resetLocalAuth?: () => Promise<{ ok: boolean; token?: string; refreshToken?: string; user?: unknown; error?: string }>;
+  startLiteMigration?: (serverUrl: string, token: string) => Promise<LiteMigrationResult>;
+  getLiteMigrationProgress?: () => Promise<LiteMigrationResult>;
   isDesktop: true;
   platform: string;
   /**
@@ -427,6 +449,12 @@ export function onFormatMenu(
   return bridge.on("menu:format", (p) => handler((p as FormatMenuPayload) ?? {}));
 }
 
+/** Native window locking notification carries no content or credentials. */
+export function onEncryptedAutoLock(handler: () => void): () => void {
+  const bridge = getBridge();
+  return bridge ? bridge.on("security:auto-lock", handler) : () => {};
+}
+
 /** 订阅自动更新事件 */
 export function onUpdaterStatus(
   handler: (payload: UpdaterPayload) => void
@@ -454,11 +482,47 @@ export async function getAppInfo(): Promise<AppInfo | null> {
   return bridge.getAppInfo();
 }
 
+export interface DesktopLocalLoginHint {
+  serverUrl: string;
+  username: string;
+  password: string;
+  role: "admin";
+}
+
+export async function startLiteMigration(serverUrl: string, token: string): Promise<LiteMigrationResult> {
+  const bridge = getBridge();
+  if (!bridge?.startLiteMigration) return { ok:false,error:"当前桌面端不支持数据本地化迁移" };
+  return bridge.startLiteMigration(serverUrl,token);
+}
+
+export async function getLiteMigrationProgress(): Promise<LiteMigrationResult> {
+  const bridge = getBridge();
+  if (!bridge?.getLiteMigrationProgress) return { ok:false,error:"当前桌面端不支持数据本地化迁移" };
+  return bridge.getLiteMigrationProgress();
+}
+
 /** 获取 full 模式内置本地账号会话；非桌面端或 lite 模式返回 null。 */
 export async function getDesktopLocalAuth(): Promise<{ token: string; user: unknown } | null> {
   const bridge = getBridge();
   if (!bridge?.getLocalAuth) return null;
   return bridge.getLocalAuth();
+}
+
+/** 获取 Full 桌面端尚未使用的本地登录信息；成功登录后主进程返回 null。 */
+export async function getDesktopLocalLoginHint(): Promise<DesktopLocalLoginHint | null> {
+  const bridge = getBridge();
+  if (!bridge?.getLocalLoginHint) return null;
+  return bridge.getLocalLoginHint();
+}
+
+/** 确认本地 desktop 账号已登录成功，并持久化关闭明文登录提示。 */
+export async function completeDesktopLocalLoginHint(
+  serverUrl: string,
+  username: string,
+): Promise<{ ok: boolean; reason?: string }> {
+  const bridge = getBridge();
+  if (!bridge?.completeLocalLoginHint) return { ok: false, reason: "not-supported" };
+  return bridge.completeLocalLoginHint({ serverUrl, username });
 }
 
 /** SEC-ELECTRON-01-C: 获取诊断信息（敏感字段，仅在诊断/关于页面调用） */

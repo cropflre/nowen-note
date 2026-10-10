@@ -6,7 +6,7 @@ import {
 } from "@/lib/attachmentOpenStrategy";
 
 describe("附件主操作策略", () => {
-  it.each(["xlsx", "xls", "xlsm", "ods", "ppt", "pptx", "pptm", "odp"])(
+  it.each(["xls", "xlsm", "ods", "ppt", "pptx", "pptm", "odp"])(
     "%s 使用系统默认程序打开",
     (extension) => {
       expect(decideAttachmentPrimaryAction("application/octet-stream", `季度报表.${extension}`))
@@ -18,10 +18,13 @@ describe("附件主操作策略", () => {
     expect(decideAttachmentPrimaryAction(
       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
       "季度报表",
-    )).toBe("desktop-default");
+    )).toBe("preview");
   });
 
   it.each([
+    ["application/octet-stream", "季度报表.XLSX", "xlsx"],
+    ["application/vnd.openxmlformats-officedocument.spreadsheetml.sheet; charset=binary", "季度报表", "xlsx"],
+    ["application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "季度报表", "xlsx"],
     ["application/pdf", "报告.bin", "pdf"],
     ["application/vnd.openxmlformats-officedocument.wordprocessingml.document", "报告.bin", "docx"],
     ["image/png", "图片.bin", "image"],

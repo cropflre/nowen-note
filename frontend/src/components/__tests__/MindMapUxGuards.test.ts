@@ -35,9 +35,33 @@ describe("MindMapEditor UX guardrails", () => {
 
   it("moves selected nodes together through the drag/drop path", () => {
     expect(source).toContain("getMovableNodeIdsForDrag");
-    expect(source).toContain("moveMindMapNodes(mapData.root, targetId, nodeIds)");
-    expect(source).toContain("handleMoveNodes(dragNodeId, n.id)");
-    expect(source).toContain("selectedNodeIds.length > 1 && selectedNodeIds.includes(dragNodeId)");
+    expect(source).toContain("moveMindMapNodes(mapData.root, targetId, nodeIds, placement)");
+    expect(source).toContain("handleMoveNodes(dragNodeId, n.id, placement)");
+    expect(source).toContain("const targetIsSelected =");
+    expect(source).toContain("selectedNodeIds.includes(dragNodeId)");
+    expect(source).toContain("selectedNodeIds.includes(n.id)");
+  });
+
+  it("supports long-press structural dragging on touch devices", () => {
+    expect(source).toContain("touchDragRef");
+    expect(source).toContain("}, 320);");
+    expect(source).toContain("document.elementFromPoint");
+    expect(source).toContain('data-mindmap-node-depth={node.depth}');
+    expect(source).toContain("beginTouchNodeDrag");
+    expect(source).toContain("moveTouchNodeDrag");
+    expect(source).toContain("endTouchNodeDrag");
+    expect(source).toContain('touchAction: isMobile ? "none" : undefined');
+  });
+
+  it("keeps desktop dragging out of edit mode and clears transient drag state", () => {
+    expect(source).toContain("draggable={!!onDragStart && !isEditing}");
+    expect(source).toContain("onDragEnd={() => {");
+    expect(source).toContain("setDragNodeId(null)");
+    expect(source).toContain("setDropTarget(null)");
+  });
+
+  it("surfaces normal mind map autosave failures instead of silently logging them", () => {
+    expect(source).toContain('toast.error(error.message || "思维导图保存失败")');
   });
 
   it("hides the single-node toolbar for multi-selection", () => {
@@ -78,18 +102,16 @@ describe("MindMapEditor UX guardrails", () => {
     expect(source).toContain("handleNodeResizeStart");
     expect(source).toContain("applyNodeWidth");
   });
-  it("clears stale mind map content when switching folders", () => {
+  it("clears stale mind map content when switching routes or workspaces", () => {
     expect(source).toContain("const mapLoadRequestRef = useRef(0)");
     expect(source).toContain("const clearActiveMap = useCallback");
     expect(source).toContain("const requestId = ++mapLoadRequestRef.current");
     expect(source).toContain("if (requestId !== mapLoadRequestRef.current) return");
     expect(source).toContain("setActiveMap((current) => current?.id === updated.id ? updated : current)");
 
-    const folderTree = source.slice(
-      source.indexOf("const renderFolder"),
-      source.indexOf("if (!hasResults && q)"),
-    );
-    expect(folderTree).toContain("clearActiveMap();");
+    expect(source).toContain("if (activeMapRef.current) clearActiveMap();");
+    expect(source).toContain('window.addEventListener("nowen:workspace-changed", onWs)');
+    expect(source).toContain("if (activeMap && current && !current.some((map) => map.id === activeMap.id)) clearActiveMap();");
   });
 
 });

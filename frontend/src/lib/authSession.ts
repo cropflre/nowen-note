@@ -112,16 +112,17 @@ export async function fetchWithAuthRefresh(
   input: RequestInfo | URL,
   init: RequestInit | undefined,
   apiBaseUrl: string,
+  fetchImpl: typeof globalThis.fetch = fetch,
 ): Promise<Response> {
   const initialHeaders = new Headers(init?.headers || {});
   const usesLoginToken = initialHeaders.has("Authorization");
   const requestToken = getAccessToken();
-  const first = await fetch(input, usesLoginToken && requestToken ? withBearer(init, requestToken) : init);
+  const first = await fetchImpl(input, usesLoginToken && requestToken ? withBearer(init, requestToken) : init);
   if (first.status !== 401 || !usesLoginToken || !requestToken) return first;
 
   const latestToken = getAccessToken();
   if (latestToken && latestToken !== requestToken) {
-    return fetch(input, withBearer(init, latestToken));
+    return fetchImpl(input, withBearer(init, latestToken));
   }
 
   let refreshed: string | null;
@@ -132,5 +133,5 @@ export async function fetchWithAuthRefresh(
     return first;
   }
   if (!refreshed) return first;
-  return fetch(input, withBearer(init, refreshed));
+  return fetchImpl(input, withBearer(init, refreshed));
 }

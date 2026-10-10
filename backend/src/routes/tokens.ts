@@ -352,4 +352,23 @@ app.delete("/:id", async (c) => {
   return c.json({ success: true });
 });
 
+/** 永久删除本人已吊销的 Token；外键级联清理授权和使用统计，审计日志独立保留。 */
+app.delete("/:id/permanent", async (c) => {
+  const denied = rejectApiTokenManagement(c);
+  if (denied) return denied;
+  const userId = c.req.header("X-User-Id")!;
+  const id = c.req.param("id");
+  const row = await apiTokensRepository.getByIdAndUserAsync(id, userId);
+  if (!row) return c.json({ error: "token 不存在" }, 404);
+  if (!row.revokedAt) return c.json({ error: "请先吊销 token 再删除" }, 409);
+
+  const deleted = await apiTokensRepository.deleteRevokedByIdAndUserAsync(id, userId);
+  if (!deleted) return c.json({ error: "token 不存在" }, 404);
+  logAudit(userId, "system", "api_token_deleted", { tokenId: id }, {
+    targetType: "api_token",
+    targetId: id,
+  });
+  return c.json({ success: true });
+});
+
 export default app;

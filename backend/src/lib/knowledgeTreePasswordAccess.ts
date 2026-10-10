@@ -92,6 +92,40 @@ export function resolveUnlockedFolderNodeIds(
   return unlocked;
 }
 
+/** 一次查询整棵树的真实保护链，避免导航树提升共享节点后丢失密码祖先。 */
+export function resolvePasswordAuthorizedNotes(
+  db: Database.Database,
+  scopeKey: string,
+  unlockedFolderNodeIds: Set<string>,
+): Map<string, string[]> {
+  const rows = db.prepare(`
+    WITH RECURSIVE ancestors(noteId, id, parentId, resourceType, resourceId) AS (
+      SELECT resourceId, id, parentId, resourceType, resourceId
+        FROM knowledge_tree_nodes
+       WHERE resourceType = 'note' AND scopeKey = ? AND isDeleted = 0
+      UNION
+      SELECT child.noteId, parent.id, parent.parentId, parent.resourceType, parent.resourceId
+        FROM knowledge_tree_nodes parent
+        JOIN ancestors child ON child.parentId = parent.id
+    )
+    SELECT ancestors.noteId,
+           CASE WHEN password.notebookId IS NOT NULL THEN ancestors.id ELSE NULL END AS folderId
+      FROM ancestors
+      LEFT JOIN notebook_passwords password
+        ON ancestors.resourceType = 'notebook' AND password.notebookId = ancestors.resourceId
+     WHERE ancestors.resourceType = 'note' OR password.notebookId IS NOT NULL
+  `).all(scopeKey) as Array<{ noteId: string; folderId: string | null }>;
+  const authorized = new Map<string, string[]>();
+  const denied = new Set<string>();
+  for (const row of rows) {
+    if (!authorized.has(row.noteId)) authorized.set(row.noteId, []);
+    if (row.folderId) authorized.get(row.noteId)!.push(row.folderId);
+    if (row.folderId && !unlockedFolderNodeIds.has(row.folderId)) denied.add(row.noteId);
+  }
+  for (const noteId of denied) authorized.delete(noteId);
+  return authorized;
+}
+
 /**
  * 笔记只有在其每一级加密祖先目录都已解锁时才可见。
  * 没有统一知识树节点的旧数据继续按原权限规则处理，避免升级后误隐藏历史笔记。

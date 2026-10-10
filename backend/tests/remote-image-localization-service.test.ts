@@ -116,7 +116,8 @@ test("scanLocalizationScope reports remote/local/ignored images and permission s
   assert.equal(scan.ignoredReferenceCount, 1);
   assert.equal(scan.uniqueRemoteUrlCount, 1);
   assert.equal(scan.notes.find((note) => note.noteId === LOCKED_NOTE_ID)?.status, "locked");
-  assert.equal(scan.notes.find((note) => note.noteId === TRASHED_NOTE_ID)?.status, "trashed");
+  // Normal note ACL intentionally conceals tombstones; recycle-bin lifecycle routes use the dedicated tombstone resolver.
+  assert.equal(scan.notes.find((note) => note.noteId === TRASHED_NOTE_ID)?.status, "forbidden");
   assert.equal(scan.notes.find((note) => note.noteId === OTHER_NOTE_ID)?.status, "forbidden");
 });
 

@@ -1,4 +1,5 @@
 import type Database from "better-sqlite3";
+import { isEncryptedNoteFormat, isEncryptedBlockLanguage } from "./encryptedNotes.js";
 import { plainTextFromNoteContent, syncNoteBlocks } from "./noteBlocks";
 import { stripLegacyInternalMarkdownMarkers } from "./markdownUserContent";
 import { normalizeSearchText } from "./searchQuery";
@@ -7,7 +8,9 @@ const SEARCH_REBUILT_AT_KEY = "search_index_last_rebuilt_at";
 const SEARCH_CONTENT_EXTRACTOR_VERSION_KEY = "search_content_extractor_version";
 // Bump when user-visible text extraction semantics change. Startup will then
 // normalize affected Markdown, repair contentText and rebuild both search indexes once.
-const SEARCH_CONTENT_EXTRACTOR_VERSION = "2";
+// v3 deliberately reruns the legacy marker repair for databases that already
+// recorded v2 before stale Markdown contentText was discovered in note-list previews.
+const SEARCH_CONTENT_EXTRACTOR_VERSION = "3";
 const normalizedSearchFunctionDatabases = new WeakSet<object>();
 
 type SearchSourceRow = {
@@ -41,6 +44,7 @@ function collectFallbackJsonText(value: unknown, output: string[]): void {
   }
 
   const record = value as Record<string, unknown>;
+  if (record.type === "codeBlock" && isEncryptedBlockLanguage((record.attrs as any)?.language)) return;
   if (record.type === "text" && typeof record.text === "string") output.push(record.text);
   if (record.type === "hardBreak") output.push("\n");
   if (Array.isArray(record.content)) collectFallbackJsonText(record.content, output);
@@ -54,6 +58,7 @@ export function extractSearchableText(
   content: unknown,
   contentFormat: unknown,
 ): string {
+  if (isEncryptedNoteFormat(contentFormat)) return "";
   const source = typeof content === "string" ? content : "";
   const format = normalizeContentFormat(
     typeof contentFormat === "string" ? contentFormat : undefined,

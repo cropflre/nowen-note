@@ -311,6 +311,7 @@ const LINUX_HOMEPAGE =
 //   - better-sqlite3            原生 .node 模块
 //   - sqlite-vec / sqlite-vec-{platform}-{arch}  平台二进制 .so/.dll/.dylib
 //   - bonjour-service           涉及 multicast-dns 的动态行为，传递依赖较深
+//   - quickjs-emscripten        Sandbox 子进程运行时动态加载 JS/WASM 解释器
 // 其他业务依赖已全部 inline 进 bundle，运行时不再需要。
 //
 // 我们用"白名单顶层目录"的方式精准保留这些包及其运行时传递依赖。
@@ -334,6 +335,23 @@ const BACKEND_KEEP_PACKAGES = [
   "dns-packet",
   "@leichtgewicht",        // 整个 scope (含 ip-codec)
   "thunky",
+  // QuickJS Sandbox 子进程 + 运行时 JS/WASM 依赖
+  "quickjs-emscripten",
+  "quickjs-emscripten-core",
+  "@jitl",                 // 整个 scope（WASM variants + FFI types）
+  // HEIF 解码和兼容预览的运行时依赖。
+  "libheif-js",
+  "ffmpeg-static",
+  "sharp",
+  "@img",
+  "color",
+  "color-string",
+  "color-name",
+  "color-convert",
+  "simple-swizzle",
+  "is-arrayish",
+  "detect-libc",
+  "semver",
 ];
 
 // 生成 electron-builder filter 规则（路径相对 from 目录，即 backend/node_modules 根）
@@ -357,6 +375,11 @@ function buildBackendNodeModulesFilter() {
   // 注意：不能排除 *.d.ts ？其实 d.ts 和 .ts 已被上一条覆盖
   rules.push("!**/CHANGELOG*");
   rules.push("!**/LICENSE*");
+  // 保留随 HEIF 解码器分发的许可证。
+  rules.push("libheif-js/LICENSE");
+  // FFmpeg 二进制及随包分发的许可信息必须一起保留。
+  rules.push("ffmpeg-static/*LICENSE*");
+  rules.push("ffmpeg-static/*README*");
   rules.push("!**/{AUTHORS,CONTRIBUTORS,HISTORY}*");
   // better-sqlite3 自带源码（src/ 是 C++ 源码，deps/ 是 sqlite amalgamation；
   // 只要 build/Release/*.node 就够 runtime 跑，src/deps 可以剥掉）
@@ -462,6 +485,17 @@ module.exports = {
       to: "frontend/dist",
       filter: ["**/*"],
     },
+    // Clipper Native Messaging 宿主必须在 asar **之外**。
+    // 浏览器按清单里的 path 直接 spawn 这个文件，而 asar 是虚拟归档，
+    // 外部进程无法从中执行脚本 —— 留在 asar 内会导致剪藏永远唤不起 Desktop。
+    {
+      from: "electron/clipper-native-host.js",
+      to: "clipper/clipper-native-host.js",
+    },
+    {
+      from: "electron/clipper-host.js",
+      to: "clipper/clipper-host.js",
+    },
   ],
   win: {
     target: [
@@ -527,6 +561,7 @@ module.exports = {
     //   APPLE_ID / APPLE_APP_SPECIFIC_PASSWORD    - 公证所需（或用 APPLE_API_KEY）
     //   APPLE_TEAM_ID                             - 团队 ID
     hardenedRuntime: true,
+    extendInfo: { NSMicrophoneUsageDescription: "Nowen Note 需要访问麦克风，用于录制语音笔记。" },
     gatekeeperAssess: false,
     entitlements: "build/entitlements.mac.plist",
     entitlementsInherit: "build/entitlements.mac.plist",
@@ -536,7 +571,7 @@ module.exports = {
   afterSign: "build/afterSign.js",
   linux: {
     target: ["AppImage", "deb"],
-    icon: "electron/icon.png",
+    icon: "build/icons",
     // FreeDesktop 规范分类：https://specifications.freedesktop.org/menu-spec/latest/apa.html
     // Office 是顶级分类；笔记类一般还加 TextTools / Utility
     category: "Office",
@@ -550,11 +585,10 @@ module.exports = {
     description:
       "Nowen Note — 一个现代化的笔记应用，支持 Markdown、全文搜索、跨设备局域网同步。",
     // 桌面文件额外字段
+    // electron-builder 25 直接把 desktop 的键值写入 [Desktop Entry]。
     desktop: {
-      entry: {
-        StartupWMClass: "Nowen Note",
-        Keywords: "note;markdown;editor;nowen;",
-      },
+      StartupWMClass: "Nowen Note",
+      Keywords: "note;markdown;editor;nowen;",
     },
     // Linux x64 / arm64 会分两次构建；文件名必须带架构，避免互相覆盖。
     artifactName: "${productName}-${version}-${arch}.${ext}",

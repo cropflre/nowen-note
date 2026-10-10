@@ -1,6 +1,7 @@
 import crypto from "crypto";
 import fs from "fs";
 import path from "path";
+import JSDOMParser from "@mozilla/readability/JSDOMParser.js";
 
 import { getDb } from "../db/schema.js";
 import { getBackupManager } from "./backup.js";
@@ -482,4 +483,92 @@ export function getBackupWebDavRemoteDirectory(): string | null {
   const config = resolveConfig();
   if (!config.endpoint) return null;
   return remoteDirectoryUrl(config);
+}
+
+export interface RemoteBackupInfo {
+  filename: string;
+  size: number;
+  createdAt: string;
+  type: "full" | "db-only";
+}
+
+function validRemoteBackupFilename(filename: string): boolean {
+  return !!filename && filename === path.basename(filename)
+    && !/[\\/\x00-\x1f]/.test(filename) && !filename.startsWith(".")
+    && /\.(zip|bak)$/i.test(filename);
+}
+
+/** Only accept direct children of the configured directory; never trust DAV hrefs as download URLs. */
+export function parseRemoteBackupList(xml: string, directory: string): RemoteBackupInfo[] {
+  const document = new JSDOMParser().parse(xml);
+  const elements = Array.from(document.getElementsByTagName("*"));
+  const localName = (element: Element) => element.localName.split(":").pop();
+  const rows: RemoteBackupInfo[] = [];
+  const seen = new Set<string>();
+  for (const response of elements.filter((element) => localName(element) === "response")) {
+    const descendants = Array.from(response.getElementsByTagName("*"));
+    const text = (name: string) => descendants.find((element) => localName(element) === name)?.textContent?.trim() || "";
+    if (descendants.some((element) => localName(element) === "collection")) continue;
+    if (!/\s200\s/.test(text("status"))) continue;
+    const href = text("href");
+    if (!href) continue;
+    try {
+      const url = new URL(href, directory);
+      const base = new URL(directory);
+      if (url.origin !== base.origin || url.search || url.hash) continue;
+      const prefix = decodeURIComponent(base.pathname);
+      const filename = decodeURIComponent(url.pathname).slice(prefix.length);
+      if (!decodeURIComponent(url.pathname).startsWith(prefix) || !validRemoteBackupFilename(filename) || seen.has(filename)) continue;
+      const size = Number(text("getcontentlength"));
+      const modified = new Date(text("getlastmodified"));
+      if (!Number.isFinite(size) || size < 0 || !Number.isFinite(modified.getTime())) continue;
+      seen.add(filename);
+      rows.push({ filename, size, createdAt: modified.toISOString(), type: /\.zip$/i.test(filename) ? "full" : "db-only" });
+    } catch { /* Ignore malformed or out-of-scope DAV entries. */ }
+  }
+  return rows.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+}
+
+export async function listRemoteBackups(): Promise<RemoteBackupInfo[]> {
+  const config = resolveConfig();
+  validateResolvedConfig(config);
+  if (!config.enabled) throw new Error("WebDAV 备份通道尚未启用");
+  const directory = remoteDirectoryUrl(config);
+  const response = await timedFetch(directory, config, {
+    method: "PROPFIND",
+    headers: { Depth: "1", "Content-Type": "application/xml; charset=utf-8" },
+    body: '<?xml version="1.0"?><d:propfind xmlns:d="DAV:"><d:prop><d:resourcetype/><d:getcontentlength/><d:getlastmodified/></d:prop></d:propfind>',
+  }, TEST_TIMEOUT_MS);
+  if (![200, 207].includes(response.status)) throw new Error(`读取 WebDAV 备份失败（HTTP ${response.status}）`);
+  return parseRemoteBackupList(await response.text(), directory);
+}
+
+export async function importRemoteBackup(filename: string) {
+  if (!validRemoteBackupFilename(filename)) throw new Error("远程备份文件名格式不合法");
+  const config = resolveConfig();
+  validateResolvedConfig(config);
+  if (!config.enabled) throw new Error("WebDAV 备份通道尚未启用");
+  const url = new URL(encodeURIComponent(filename), remoteDirectoryUrl(config)).toString();
+  const response = await fetch(url, {
+    headers: authHeaders(config), redirect: "error", signal: AbortSignal.timeout(UPLOAD_TIMEOUT_MS),
+  });
+  if (!response.ok || !response.body) throw new Error(`取回 WebDAV 备份失败（HTTP ${response.status}）`);
+  const maxBytes = 500 * 1024 * 1024;
+  const reader = response.body.getReader();
+  const chunks: Buffer[] = [];
+  let size = 0;
+  try {
+    if (Number(response.headers.get("content-length")) > maxBytes) throw new Error("远程备份超过 500 MB，请下载后使用服务器文件系统导入");
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      size += value.byteLength;
+      if (size > maxBytes) throw new Error("远程备份超过 500 MB，请下载后使用服务器文件系统导入");
+      chunks.push(Buffer.from(value));
+    }
+    return await getBackupManager().ingestUploadedBackup(filename, Buffer.concat(chunks), { description: "从 WebDAV 取回的备份" });
+  } finally {
+    await reader.cancel().catch(() => {});
+    reader.releaseLock();
+  }
 }

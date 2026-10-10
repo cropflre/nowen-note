@@ -1,10 +1,8 @@
-import { createHash } from "node:crypto";
-import path from "node:path";
 import type Database from "better-sqlite3";
 import { v4 as uuid } from "uuid";
 
 import { getDb } from "../db/schema.js";
-import { extractAttachmentIdsFromContent, syncReferences } from "../lib/attachmentRefs.js";
+import { syncReferences } from "../lib/attachmentRefs.js";
 import { rebuildBlockAuthorityStore } from "../lib/blockAuthorityStore.js";
 import { syncNoteBlocks } from "../lib/noteBlocks.js";
 import { syncNoteLinks } from "../lib/noteLinks.js";
@@ -14,14 +12,15 @@ import {
   isSystemAdmin,
   resolveNotePermission,
 } from "../middleware/acl.js";
-import {
-  deleteAttachmentObject,
-  getUploadMonthPath,
-  readAttachmentObject,
-  writeAttachmentObject,
-} from "./attachment-storage.js";
 import { createKnowledgeChild, type KnowledgeTreeNode } from "./knowledgeTree.js";
 import { enqueueAttachment } from "./embedding-worker.js";
+import {
+  cleanupCopiedAttachmentObjects,
+  copyReferencedNoteAttachments,
+  copyStoredAttachmentObjects,
+  NoteAttachmentCopyError,
+  rewriteSourceAttachmentUrl,
+} from "./noteAttachmentCopy.js";
 import { rebuildYjsSubdocumentsIfEnabled } from "./yjs-subdocuments.js";
 
 export type NoteTemplateFormat = "tiptap-json" | "markdown";
@@ -56,16 +55,6 @@ interface TemplateAttachmentRow {
   id: string;
   templateId: string;
   sourceAttachmentId: string | null;
-  filename: string;
-  mimeType: string;
-  size: number;
-  path: string;
-  hash: string | null;
-}
-
-interface SourceAttachmentRow {
-  id: string;
-  noteId: string;
   filename: string;
   mimeType: string;
   size: number;
@@ -123,36 +112,9 @@ function validateName(value: string): string {
   return name;
 }
 
-function extensionFor(filename: string, storagePath: string): string {
-  const candidate = path.extname(filename || storagePath).toLowerCase();
-  return /^\.[a-z0-9]{1,8}$/.test(candidate) ? candidate : "";
-}
-
-function newStoragePath(filename: string, sourcePath: string): string {
-  return `${getUploadMonthPath()}/${uuid()}${extensionFor(filename, sourcePath)}`;
-}
-
 function replaceUrl(content: string, from: string, to: string): string {
   if (!content || !from || from === to) return content || "";
   return content.split(from).join(to);
-}
-
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-function replaceSourceAttachmentUrl(content: string, attachmentId: string, to: string): string {
-  if (!content || !attachmentId) return content || "";
-  const attachmentPath = `/api/attachments/${escapeRegExp(attachmentId)}`;
-  const pattern = new RegExp(
-    `(?:https?:\\/\\/[^/\\s"'<>]+)?${attachmentPath}(?:\\?[^\\s"'<>)]*)?`,
-    "gi",
-  );
-  return content.replace(pattern, to);
-}
-
-async function cleanupObjects(paths: string[]): Promise<void> {
-  await Promise.allSettled(Array.from(new Set(paths.filter(Boolean))).map((item) => deleteAttachmentObject(item)));
 }
 
 function templateAssetUrl(id: string): string {
@@ -170,92 +132,37 @@ async function snapshotSourceAttachments(
   content: string,
   contentText: string,
 ): Promise<CopiedTemplateAttachment[]> {
-  const ids = new Set([
-    ...extractAttachmentIdsFromContent(content),
-    ...extractAttachmentIdsFromContent(contentText),
-  ]);
-  const copied: CopiedTemplateAttachment[] = [];
-
   try {
-    for (const sourceId of ids) {
-      const source = db.prepare(`
-        SELECT id, noteId, filename, mimeType, size, path, hash
-        FROM attachments WHERE id = ?
-      `).get(sourceId) as SourceAttachmentRow | undefined;
-      if (!source) {
-        throw new NoteTemplateError(
-          "NOTE_TEMPLATE_ATTACHMENT_UNAVAILABLE",
-          409,
-          `正文引用的附件 ${sourceId} 不存在，无法生成独立模板快照`,
-        );
-      }
-      if (source.noteId !== noteId) {
-        const { permission } = resolveNotePermission(source.noteId, userId);
-        if (!hasPermission(permission, "read")) {
-          throw new NoteTemplateError(
-            "NOTE_TEMPLATE_ATTACHMENT_FORBIDDEN",
-            403,
-            `无权复制正文引用的附件“${source.filename}”`,
-          );
-        }
-      }
-      const buffer = await readAttachmentObject(source.path);
-      if (!buffer) {
-        throw new NoteTemplateError(
-          "NOTE_TEMPLATE_ATTACHMENT_MISSING",
-          409,
-          `附件“${source.filename}”的物理文件不存在，模板未保存`,
-        );
-      }
-      const id = uuid();
-      const storagePath = newStoragePath(source.filename, source.path);
-      await writeAttachmentObject(storagePath, buffer, source.mimeType);
-      copied.push({
-        id,
-        templateId: "",
-        sourceAttachmentId: source.id,
-        sourceId: source.id,
-        filename: source.filename,
-        mimeType: source.mimeType,
-        size: buffer.byteLength,
-        path: storagePath,
-        hash: source.hash || createHash("sha256").update(buffer).digest("hex"),
-      });
-    }
-    return copied;
+    const copied = await copyReferencedNoteAttachments({ db, userId, noteId, content, contentText });
+    return copied.map((item) => ({
+      ...item,
+      templateId: "",
+      sourceAttachmentId: item.sourceId,
+    }));
   } catch (error) {
-    await cleanupObjects(copied.map((item) => item.path));
+    if (error instanceof NoteAttachmentCopyError) {
+      throw new NoteTemplateError(`NOTE_TEMPLATE_${error.code}`, error.status, error.message);
+    }
     throw error;
   }
 }
 
 async function copyTemplateAttachments(rows: TemplateAttachmentRow[]): Promise<CopiedNoteAttachment[]> {
-  const copied: CopiedNoteAttachment[] = [];
   try {
-    for (const source of rows) {
-      const buffer = await readAttachmentObject(source.path);
-      if (!buffer) {
-        throw new NoteTemplateError(
-          "NOTE_TEMPLATE_ATTACHMENT_MISSING",
-          409,
-          `模板附件“${source.filename}”的物理文件不存在`,
-        );
-      }
-      const storagePath = newStoragePath(source.filename, source.path);
-      await writeAttachmentObject(storagePath, buffer, source.mimeType);
-      copied.push({
-        id: uuid(),
-        templateAttachmentId: source.id,
-        filename: source.filename,
-        mimeType: source.mimeType,
-        size: buffer.byteLength,
-        path: storagePath,
-        hash: source.hash || createHash("sha256").update(buffer).digest("hex"),
-      });
-    }
-    return copied;
+    const copied = await copyStoredAttachmentObjects(rows);
+    return copied.map((item) => ({
+      id: item.id,
+      templateAttachmentId: item.sourceId,
+      filename: item.filename,
+      mimeType: item.mimeType,
+      size: item.size,
+      path: item.path,
+      hash: item.hash,
+    }));
   } catch (error) {
-    await cleanupObjects(copied.map((item) => item.path));
+    if (error instanceof NoteAttachmentCopyError) {
+      throw new NoteTemplateError(`NOTE_TEMPLATE_${error.code}`, error.status, error.message);
+    }
     throw error;
   }
 }
@@ -360,8 +267,8 @@ export async function createNoteTemplateFromNote(input: {
   let contentText = source.contentText || "";
   for (const asset of copied) {
     asset.templateId = templateId;
-    content = replaceSourceAttachmentUrl(content, asset.sourceId, templateAssetUrl(asset.id));
-    contentText = replaceSourceAttachmentUrl(contentText, asset.sourceId, templateAssetUrl(asset.id));
+    content = rewriteSourceAttachmentUrl(content, asset.sourceId, templateAssetUrl(asset.id));
+    contentText = rewriteSourceAttachmentUrl(contentText, asset.sourceId, templateAssetUrl(asset.id));
   }
 
   try {
@@ -399,7 +306,7 @@ export async function createNoteTemplateFromNote(input: {
       }
     })();
   } catch (error) {
-    await cleanupObjects(copied.map((item) => item.path));
+    await cleanupCopiedAttachmentObjects(copied);
     throw error;
   }
 
@@ -436,7 +343,7 @@ export async function deleteNoteTemplate(input: {
   const assets = db.prepare("SELECT path FROM note_template_attachments WHERE templateId = ?")
     .all(template.id) as Array<{ path: string }>;
   db.prepare("DELETE FROM note_templates WHERE id = ?").run(template.id);
-  await cleanupObjects(assets.map((item) => item.path));
+  await cleanupCopiedAttachmentObjects(assets.map((item) => ({ path: item.path })));
   return { success: true };
 }
 
@@ -531,7 +438,7 @@ export async function createNoteFromTemplate(input: {
       return created;
     })();
   } catch (error) {
-    await cleanupObjects(copied.map((item) => item.path));
+    await cleanupCopiedAttachmentObjects(copied);
     throw error;
   }
 

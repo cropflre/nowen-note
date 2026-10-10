@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { ChevronDown, ChevronRight, PanelLeft, Tags, Trash2, X } from "lucide-react";
+import { ChevronDown, ChevronRight, PanelLeft, PanelTopClose, PanelTopOpen, Settings, Tags, Trash2, X, CircleDot, Bell } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import KnowledgeTreePanel, {
@@ -11,9 +11,16 @@ import MobileKnowledgeTreePanel from "@/components/MobileKnowledgeTreePanel";
 import { OPEN_KNOWLEDGE_TREE_EVENT } from "@/components/KnowledgeTreeDrawer";
 import TagColorPopover from "@/components/TagColorPopover";
 import WorkspaceSwitcher from "@/components/WorkspaceSwitcher";
-import { useRailMode, nextRailMode } from "@/hooks/useRailMode";
+import { useRailMode } from "@/hooks/useRailMode";
+import { useMobileRailHidden } from "@/hooks/useMobileRailHidden";
+import { useMobileSidebarControlsCollapsed } from "@/hooks/useMobileSidebarControlsCollapsed";
+import { useSidebarTextStyle } from "@/hooks/useSidebarTextStyle";
 import { useSiteSettings } from "@/hooks/useSiteSettings";
-import { api } from "@/lib/api";
+import { useUserPreferences } from "@/hooks/useUserPreferences";
+import { api, getCurrentWorkspace } from "@/lib/api";
+import { openWorkspaceIssue, OPEN_NOTIFICATIONS_EVENT } from "@/lib/workspaceIssueNavigation";
+import { isMobileLocalMode } from "@/lib/mobileLocalMode";
+import { isNavigationModuleVisible } from "@/lib/navigationVisibility";
 import { refreshKnowledgeTreeScrollbars } from "@/lib/knowledgeTreeScrollbarBridge";
 import {
   DESKTOP_KNOWLEDGE_TREE_VIEW_MODE_CHANGED_EVENT,
@@ -84,10 +91,18 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
   const actions = useAppActions();
   const { t } = useTranslation();
   const { siteConfig } = useSiteSettings();
+  const { prefs: userPrefs } = useUserPreferences();
   const [railMode, setRailMode] = useRailMode();
+  const [mobileControlsCollapsed, setMobileControlsCollapsed] = useMobileSidebarControlsCollapsed();
+  const [sidebarTextStyle] = useSidebarTextStyle();
+  const classicText = sidebarTextStyle === "classic";
+  const [mobileRailHidden, setMobileRailHidden] = useMobileRailHidden();
+  const showNotifications = variant === "mobile" && mobileRailHidden
+    && isNavigationModuleVisible("notifications", userPrefs.hiddenNavigationModules);
   const rootRef = useRef<HTMLDivElement>(null);
   const tagLongPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const tagLongPressFired = useRef(false);
+  const noteWorkspaceActive = !["tasks", "mindmaps", "ai-chat", "diary", "files", "shares", "issues"].includes(state.viewMode);
 
   const [tagsExpanded, setTagsExpanded] = useState(() => {
     try {
@@ -229,27 +244,85 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
         className="flex shrink-0 items-center justify-between border-b border-app-border px-4 py-3"
         style={{ paddingTop: "calc(var(--safe-area-top) + 12px)" }}
       >
-        <span className="min-w-0 truncate text-sm font-semibold">{siteConfig.title || "nowen-note"}</span>
-        {variant === "desktop" && (
-          <button
-            type="button"
-            onClick={() => setRailMode(nextRailMode(railMode))}
-            title={t(`sidebar.railMode.switchTo.${nextRailMode(railMode)}`)}
-            aria-label={t(`sidebar.railMode.switchTo.${nextRailMode(railMode)}`)}
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-tx-tertiary transition-colors hover:bg-app-hover hover:text-tx-primary"
-          >
-            <PanelLeft size={16} />
-          </button>
-        )}
+        <div className="flex min-w-0 items-center gap-1">
+          {variant === "mobile" && (
+            <button
+              type="button"
+              onClick={() => setMobileControlsCollapsed(!mobileControlsCollapsed)}
+              title={t(mobileControlsCollapsed ? "sidebar.expandMobileControls" : "sidebar.collapseMobileControls")}
+              aria-label={t(mobileControlsCollapsed ? "sidebar.expandMobileControls" : "sidebar.collapseMobileControls")}
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-tx-tertiary transition-colors hover:bg-app-hover hover:text-tx-primary"
+            >
+              {mobileControlsCollapsed ? <PanelTopOpen size={16} /> : <PanelTopClose size={16} />}
+            </button>
+          )}
+          <span className="min-w-0 truncate text-sm font-semibold">{siteConfig.title || "nowen-note"}</span>
+        </div>
+        {variant === "desktop" && railMode === "hidden" ? (
+          noteWorkspaceActive ? (
+            <div data-note-workspace-layout-anchor="" className="h-8 w-8 shrink-0" />
+          ) : (
+            <button
+              type="button"
+              onClick={() => setRailMode("icon")}
+              title={t("sidebar.railMode.switchTo.icon")}
+              aria-label={t("sidebar.railMode.switchTo.icon")}
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-tx-tertiary transition-colors hover:bg-app-hover hover:text-tx-primary"
+            >
+              <PanelLeft size={16} />
+            </button>
+          )
+        ) : variant === "mobile" ? (
+          <div className="flex shrink-0 items-center gap-1">
+            {mobileRailHidden && (
+              <button
+                type="button"
+                data-mobile-rail-show=""
+                onClick={() => setMobileRailHidden(false)}
+                title={t("sidebar.showMobileRail")}
+                aria-label={t("sidebar.showMobileRail")}
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-tx-tertiary transition-colors hover:bg-app-hover hover:text-tx-primary"
+              >
+                <PanelLeft size={16} />
+              </button>
+            )}
+            {mobileRailHidden && (
+              <button
+                type="button"
+                data-mobile-sidebar-settings=""
+                onClick={() => {
+                  window.dispatchEvent(new CustomEvent("nowen:open-settings"));
+                  actions.setMobileSidebar(false);
+                }}
+                title={t("sidebar.settings")}
+                aria-label={t("sidebar.settings")}
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-tx-tertiary transition-colors hover:bg-app-hover hover:text-tx-primary"
+              >
+                <Settings size={16} />
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => actions.setMobileSidebar(false)}
+              title={t("common.close")}
+              aria-label={t("common.close")}
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-tx-tertiary transition-colors hover:bg-app-hover hover:text-tx-primary"
+            >
+              <X size={16} />
+            </button>
+          </div>
+        ) : null}
       </header>
 
-      <div className="shrink-0 px-3 py-2">
-        <WorkspaceSwitcher />
-      </div>
+      {(variant !== "mobile" || !mobileControlsCollapsed) && (
+        <div className="shrink-0 px-3 py-2">
+          <WorkspaceSwitcher />
+        </div>
+      )}
 
       <section className="flex min-h-0 flex-1 flex-col border-t border-app-border/60">
         {variant === "desktop" && (
-          <div className="shrink-0 px-4 pb-1 pt-2 text-[11px] font-medium text-tx-tertiary">
+          <div className={cn("shrink-0 px-4 pb-1 pt-2 font-medium", classicText ? "text-[11px] text-tx-tertiary" : "text-xs text-tx-secondary")}>
             内容
           </div>
         )}
@@ -264,11 +337,16 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
         </div>
       </section>
 
+      {!isMobileLocalMode() && (getCurrentWorkspace() !== "personal" || showNotifications) && <div className="shrink-0 border-t border-app-border px-2 py-2">
+        {getCurrentWorkspace() !== "personal" && <button className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-tx-secondary hover:bg-app-hover" onClick={() => { openWorkspaceIssue(null); actions.setViewMode("issues"); actions.setMobileSidebar(false); }}><CircleDot size={15} />{t("sidebar.issues")}</button>}
+        {showNotifications && <button className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-tx-secondary hover:bg-app-hover" onClick={() => { actions.setMobileSidebar(false); window.dispatchEvent(new Event(OPEN_NOTIFICATIONS_EVENT)); }}><Bell size={15} />{t("sidebar.notifications")}</button>}
+      </div>}
+
       <section className="shrink-0 border-t border-app-border">
         <button
           type="button"
           onClick={toggleTagsExpanded}
-          className="flex w-full items-center gap-2 px-4 py-2 text-xs font-medium text-tx-tertiary transition-colors hover:bg-app-hover hover:text-tx-primary"
+          className={cn("flex w-full items-center gap-2 px-4 py-2 font-medium transition-colors hover:bg-app-hover hover:text-tx-primary", classicText ? "text-xs text-tx-tertiary" : "text-[13px] text-tx-secondary")}
           aria-expanded={tagsExpanded}
         >
           {tagsExpanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}

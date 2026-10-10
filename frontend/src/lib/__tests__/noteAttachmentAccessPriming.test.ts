@@ -1,6 +1,14 @@
 // @vitest-environment jsdom
 
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+const capacitorHttp = vi.hoisted(() => ({
+  request: vi.fn(),
+}));
+
+vi.mock("@capacitor/core", () => ({
+  CapacitorHttp: { request: capacitorHttp.request },
+}));
 
 vi.mock("@/lib/toast", () => ({
   toast: { error: vi.fn() },
@@ -17,6 +25,7 @@ import {
 
 const ATTACHMENT_A = "123e4567-e89b-42d3-a456-426614174216";
 const ATTACHMENT_B = "223e4567-e89b-42d3-a456-426614174217";
+const nativeWindow = window as Window & { Capacitor?: { isNativePlatform: () => boolean } };
 
 function signedUrl(id: string, sig: string): string {
   return `/api/attachments/${id}?exp=2000000000&sig=${sig}&scope=v2.scope`;
@@ -26,7 +35,14 @@ describe("noteAttachmentAccessPriming", () => {
   beforeEach(() => {
     resetAttachmentAccessStateForTests();
     localStorage.clear();
+    capacitorHttp.request.mockReset();
+    delete nativeWindow.Capacitor;
     window.history.replaceState({}, "", "/notes/test");
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    delete nativeWindow.Capacitor;
   });
 
   it("Case 1/5: detects persisted attachment references in Tiptap, Markdown and legacy absolute URLs", () => {
@@ -42,7 +58,7 @@ describe("noteAttachmentAccessPriming", () => {
   });
 
   it("Case 1/5: primes signed access before a persisted raw attachment reference is rendered", async () => {
-    const fetchImpl = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => new Response(JSON.stringify({
+    const fetchImpl = vi.fn<Parameters<typeof fetch>, ReturnType<typeof fetch>>().mockResolvedValue(new Response(JSON.stringify({
       noteId: "note-1",
       urls: { [ATTACHMENT_A]: signedUrl(ATTACHMENT_A, "signed-a") },
     }), {
@@ -70,8 +86,44 @@ describe("noteAttachmentAccessPriming", () => {
     expect(persistentSrc).toBe(`/api/attachments/${ATTACHMENT_A}`);
   });
 
+  it("uses CapacitorHttp first for an Android clear-text LAN server", async () => {
+    nativeWindow.Capacitor = { isNativePlatform: () => true };
+    const webFetch = vi.fn(async () => {
+      throw new Error("WebView fetch should not be used for LAN priming");
+    });
+    vi.stubGlobal("fetch", webFetch);
+    capacitorHttp.request.mockResolvedValue({
+      status: 200,
+      data: {
+        noteId: "note-lan",
+        urls: { [ATTACHMENT_A]: signedUrl(ATTACHMENT_A, "signed-lan") },
+      },
+      headers: {},
+      url: "http://192.168.1.20:3001/api/attachments/access/urls?noteId=note-lan",
+    });
+
+    const registered = await primeNoteAttachmentAccess(
+      "note-lan",
+      "http://192.168.1.20:3001/api",
+      { token: "jwt-token" },
+    );
+
+    expect(registered).toBe(1);
+    expect(webFetch).not.toHaveBeenCalled();
+    expect(capacitorHttp.request).toHaveBeenCalledWith(expect.objectContaining({
+      url: "http://192.168.1.20:3001/api/attachments/access/urls?noteId=note-lan",
+      method: "GET",
+      headers: { Authorization: "Bearer jwt-token" },
+      responseType: "json",
+    }));
+
+    const resolved = new URL(resolveAttachmentAccessUrl(`/api/attachments/${ATTACHMENT_A}`));
+    expect(resolved.origin).toBe("http://192.168.1.20:3001");
+    expect(resolved.searchParams.get("sig")).toBe("signed-lan");
+  });
+
   it("Case 3: primes all images in a note without converting their persisted references", async () => {
-    const fetchImpl = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => new Response(JSON.stringify({
+    const fetchImpl = vi.fn<Parameters<typeof fetch>, ReturnType<typeof fetch>>().mockResolvedValue(new Response(JSON.stringify({
       urls: {
         [ATTACHMENT_A]: signedUrl(ATTACHMENT_A, "signed-a"),
         [ATTACHMENT_B]: signedUrl(ATTACHMENT_B, "signed-b"),
@@ -92,11 +144,37 @@ describe("noteAttachmentAccessPriming", () => {
   });
 
   it("does not issue an access request when no authenticated session is available", async () => {
-    const fetchImpl = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => new Response());
+    const fetchImpl = vi.fn<Parameters<typeof fetch>, ReturnType<typeof fetch>>().mockResolvedValue(new Response());
     await expect(primeNoteAttachmentAccess("note-1", "/api", {
       token: null,
       fetchImpl,
     })).resolves.toBe(0);
     expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("renews an expired login token and retries the first attachment authorization", async () => {
+    localStorage.setItem("nowen-token", "expired-token");
+    localStorage.setItem("nowen-refresh-token", "refresh-token");
+    const refresh = vi.fn().mockResolvedValue(new Response(JSON.stringify({ token: "renewed-token" }), { status: 200 }));
+    vi.stubGlobal("fetch", refresh);
+    const fetchImpl = vi.fn().mockResolvedValueOnce(new Response("expired", { status: 401 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ urls: { [ATTACHMENT_A]: signedUrl(ATTACHMENT_A, "renewed") } }), { status: 200 }));
+    expect(await primeNoteAttachmentAccess("note-1", "https://notes.example.com/api", { fetchImpl })).toBe(1);
+    expect(refresh).toHaveBeenCalledTimes(1);
+    expect(String(refresh.mock.calls[0][0])).toBe("https://notes.example.com/api/auth/refresh");
+    expect(new Headers(fetchImpl.mock.calls[1][1].headers).get("Authorization")).toBe("Bearer renewed-token");
+    expect(resolveAttachmentAccessUrl(`/api/attachments/${ATTACHMENT_A}`)).toContain("sig=renewed");
+  });
+
+  it("does not publish access URLs from a previous account after a delayed response", async () => {
+    const jwt = (userId: string) => `header.${btoa(JSON.stringify({ userId }))}.signature`;
+    localStorage.setItem("nowen-token", jwt("first-user"));
+    let finish!: (response: Response) => void;
+    const fetchImpl = vi.fn(() => new Promise<Response>((resolve) => { finish = resolve; }));
+    const pending = primeNoteAttachmentAccess("note-1", "https://notes.example.com/api", { fetchImpl });
+    localStorage.setItem("nowen-token", jwt("other-user"));
+    finish(new Response(JSON.stringify({ urls: { [ATTACHMENT_A]: signedUrl(ATTACHMENT_A, "old-account") } }), { status: 200 }));
+    expect(await pending).toBe(0);
+    expect(resolveAttachmentAccessUrl(`/api/attachments/${ATTACHMENT_A}`)).not.toContain("old-account");
   });
 });

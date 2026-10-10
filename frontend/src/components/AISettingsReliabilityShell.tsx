@@ -43,24 +43,21 @@ export default function AISettingsReliabilityShell() {
     return () => window.clearInterval(timer);
   }, [queuedJobs, refresh]);
 
+  const vectorState = status?.index.vectorState || (status?.index.vectorAvailable ? "ready" : "unavailable");
   const vectorEngineText = loading
     ? "读取中…"
     : !status?.index.configured
       ? "未配置"
-      : status.index.vectorAvailable
+      : vectorState === "ready"
         ? `可用${status.index.vectorDimension ? ` · ${status.index.vectorDimension} 维` : ""}`
-        : queuedJobs > 0
-          ? `初始化中 · 剩余 ${queuedJobs}`
-          : status.index.failed > 0
-            ? `索引任务异常 · 失败 ${status.index.failed}`
-            : "仅关键词检索";
-  const vectorEngineTone = status?.index.vectorAvailable
+        : vectorState === "initializing"
+          ? `等待首次索引${queuedJobs ? ` · 待处理 ${queuedJobs}` : ""}`
+          : "sqlite-vec 扩展加载失败";
+  const vectorEngineTone = vectorState === "ready"
     ? "text-emerald-600 dark:text-emerald-400"
-    : queuedJobs > 0
+    : vectorState === "initializing"
       ? "text-blue-600 dark:text-blue-400"
-      : status?.index.failed
-        ? "text-red-600 dark:text-red-400"
-        : "text-amber-600 dark:text-amber-400";
+      : "text-red-600 dark:text-red-400";
 
   const toggle = async () => {
     if (!status || saving) return;

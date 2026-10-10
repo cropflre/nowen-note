@@ -13,7 +13,7 @@ const sharedNoteViewSource = readFileSync(
 );
 
 const markdownEditorSource = readFileSync(
-  path.resolve(__dirname, "../MarkdownEditor.tsx"),
+  path.resolve(__dirname, "../MarkdownEditorImpl.tsx"),
   "utf8",
 );
 
@@ -23,7 +23,7 @@ const tiptapEditorSource = readFileSync(
 );
 
 const apiSource = readFileSync(
-  path.resolve(__dirname, "../../lib/api.ts"),
+  path.resolve(__dirname, "../../lib/api.impl.ts"),
   "utf8",
 );
 
@@ -127,7 +127,7 @@ describe("EditorPane save safety", () => {
       "const scheduleSave = useCallback",
     );
 
-    expect(updateListener).toContain("if (!collabEnabledRef.current)");
+    expect(updateListener).toContain('if (!collabEnabledRef.current || /nowen-encrypted/i.test(text))');
     expect(updateListener).toContain("scheduleSave();");
     expect(emitSave).toContain("title !== noteRef.current.title");
   });
@@ -218,7 +218,7 @@ describe("shared editing save safety", () => {
     const apiUpdateSharedContent = sourceBetween(
       apiSource,
       "updateSharedContent: async (",
-      "// Phase 4: 同步轮询",
+      "pollSharedNote: async (",
     );
     const fakeNote = sourceBetween(
       sharedNoteViewSource,

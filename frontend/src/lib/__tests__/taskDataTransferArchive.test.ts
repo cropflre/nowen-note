@@ -55,7 +55,7 @@ async function archiveFile(path = "images/task-1/screen.png"): Promise<File> {
   const pkg = backup();
   const bytes = new TextEncoder().encode("image-bytes");
   const zip = new JSZip();
-  zip.file(path, bytes);
+  zip.file(path, "image-bytes");
   zip.file("tasks.json", JSON.stringify({
     format: TASK_ARCHIVE_FORMAT,
     version: TASK_ARCHIVE_VERSION,

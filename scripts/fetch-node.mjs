@@ -19,8 +19,6 @@
 import fs from "node:fs";
 import path from "node:path";
 import https from "node:https";
-import { pipeline } from "node:stream/promises";
-import { createGunzip } from "node:zlib";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
@@ -93,17 +91,59 @@ function download(url, dest) {
   });
 }
 
+function powershellLiteral(value) {
+  return `'${String(value).replaceAll("'", "''")}'`;
+}
+
 async function extractZip(zipPath, entry, outFile) {
-  // 优先用系统 tar（Win10+ 内置支持 zip），失败再回退
   const tmpDir = path.join(path.dirname(outFile), ".tmp-zip");
-  ensureDir(tmpDir);
-  const r = spawnSync("tar", ["-xf", zipPath, "-C", tmpDir], { stdio: "inherit" });
-  if (r.status !== 0) {
-    throw new Error("系统 tar 无法解压 zip；请安装 7z 或手动解压。");
-  }
-  const src = path.join(tmpDir, entry);
-  fs.copyFileSync(src, outFile);
   fs.rmSync(tmpDir, { recursive: true, force: true });
+  ensureDir(tmpDir);
+
+  try {
+    let result;
+    if (process.platform === "win32") {
+      // GitHub Windows Runner 下 Git Bash 的 tar 会把 D:\... 误解析成远程主机路径，
+      // 出现 `tar: Cannot connect to D: resolve failed`。Windows ZIP 明确交给
+      // PowerShell Expand-Archive，避免路径语义经过 MSYS/tar 二次转换。
+      const command = [
+        "Expand-Archive",
+        "-LiteralPath",
+        powershellLiteral(zipPath),
+        "-DestinationPath",
+        powershellLiteral(tmpDir),
+        "-Force",
+      ].join(" ");
+      result = spawnSync(
+        "powershell.exe",
+        ["-NoProfile", "-NonInteractive", "-Command", command],
+        { stdio: "inherit", windowsHide: true },
+      );
+      if (result.error) {
+        throw new Error(`PowerShell Expand-Archive 启动失败：${result.error.message}`);
+      }
+      if (result.status !== 0) {
+        throw new Error(`PowerShell Expand-Archive 失败（exit=${result.status ?? "unknown"}）`);
+      }
+    } else {
+      // macOS/Linux 保留系统 tar，bsdtar/gnu tar 都可稳定读取 Node 官方 zip。
+      result = spawnSync("tar", ["-xf", zipPath, "-C", tmpDir], { stdio: "inherit" });
+      if (result.error) {
+        throw new Error(`系统 tar 启动失败：${result.error.message}`);
+      }
+      if (result.status !== 0) {
+        throw new Error(`系统 tar 无法解压 zip（exit=${result.status ?? "unknown"}）`);
+      }
+    }
+
+    const src = path.join(tmpDir, entry);
+    if (!fs.existsSync(src) || fs.statSync(src).size <= 0) {
+      throw new Error(`ZIP 解压成功但未找到目标文件：${entry}`);
+    }
+    fs.copyFileSync(src, outFile);
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
 }
 
 async function extractTarGz(tgzPath, entry, outFile) {

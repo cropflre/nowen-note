@@ -1,0 +1,55 @@
+{
+  "id": "nowenlab.floating-dock",
+  "publisher": "nowenlab",
+  "name": "Nowen Floating Dock",
+  "description": "Official zero-code Floating Layer UI Contribution example",
+  "version": "1.0.0",
+  "apiVersion": 2,
+  "engines": { "nowen": ">=1.6.0 <2.0.0" },
+  "runtime": "declarative",
+  "categories": ["productivity"],
+  "keywords": ["ui", "navigation", "dock"],
+  "repository": "https://github.com/cropflre/nowen-note",
+  "license": "MIT",
+  "permissions": [],
+  "contributes": {
+    "uiComponents": [
+      {
+        "id": "all-notes",
+        "kind": "action",
+        "label": "所有笔记",
+        "icon": "home",
+        "allowedSlots": ["floating-layer"],
+        "defaultPlacement": { "slot": "floating-layer", "order": 10 },
+        "action": { "type": "navigation.open", "target": "all" }
+      },
+      {
+        "id": "tasks",
+        "kind": "action",
+        "label": "任务",
+        "icon": "tasks",
+        "allowedSlots": ["floating-layer"],
+        "defaultPlacement": { "slot": "floating-layer", "order": 20 },
+        "action": { "type": "navigation.open", "target": "tasks" }
+      },
+      {
+        "id": "diary",
+        "kind": "action",
+        "label": "日记",
+        "icon": "diary",
+        "allowedSlots": ["floating-layer"],
+        "defaultPlacement": { "slot": "floating-layer", "order": 30 },
+        "action": { "type": "navigation.open", "target": "diary" }
+      },
+      {
+        "id": "settings",
+        "kind": "action",
+        "label": "设置",
+        "icon": "settings",
+        "allowedSlots": ["floating-layer"],
+        "defaultPlacement": { "slot": "floating-layer", "order": 40 },
+        "action": { "type": "navigation.open", "target": "settings" }
+      }
+    ]
+  }
+}

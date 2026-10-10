@@ -3,7 +3,6 @@ import { createPortal } from "react-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import { AlertCircle, CheckCircle, Loader2 } from "lucide-react";
 
-const SIYUAN_IMPORT_ENDPOINT = "/export/import/siyuan-package";
 const NORMALIZED_INPUT_FLAG = "nowenSiyuanPackageNormalized";
 const PROGRESS_HOST_ATTRIBUTE = "data-nowen-siyuan-import-progress-host";
 
@@ -14,7 +13,6 @@ export interface SiyuanZipInspection {
 }
 
 type FeedbackState = {
-  id: number;
   tone: "working" | "success" | "error";
   title: string;
   detail: string;
@@ -46,20 +44,6 @@ export function normalizeSiyuanPackageName(fileName: string, rootName = ""): str
   if (safeRoot) return `${safeRoot}.sy.zip`;
   const base = fileName.replace(/\.zip$/i, "").replace(/\.sy$/i, "") || "siyuan-workspace";
   return `${base}.sy.zip`;
-}
-
-export function isSiyuanImportRequest(input: RequestInfo | URL): boolean {
-  const url = typeof input === "string"
-    ? input
-    : input instanceof URL
-      ? input.toString()
-      : input.url;
-  try {
-    const pathname = new URL(url, window.location.href).pathname;
-    return pathname.endsWith(SIYUAN_IMPORT_ENDPOINT) || pathname.includes(`${SIYUAN_IMPORT_ENDPOINT}/jobs/`);
-  } catch {
-    return url.includes(SIYUAN_IMPORT_ENDPOINT);
-  }
 }
 
 async function inspectSiyuanWorkspaceZip(file: File): Promise<SiyuanZipInspection> {
@@ -171,7 +155,6 @@ function ProgressCard({ state }: { state: FeedbackState }) {
 export default function SiyuanImportProgressBridge() {
   const [feedback, setFeedback] = useState<FeedbackState | null>(null);
   const [portalHost, setPortalHost] = useState<HTMLElement | null>(null);
-  const nextId = useRef(1);
   const hideTimer = useRef<number | null>(null);
   const panelRef = useRef<HTMLElement | null>(null);
   const hostRef = useRef<HTMLElement | null>(null);
@@ -206,10 +189,10 @@ export default function SiyuanImportProgressBridge() {
       return host;
     };
 
-    const show = (patch: Omit<FeedbackState, "id">, input?: HTMLInputElement | null) => {
+    const show = (patch: FeedbackState, input?: HTMLInputElement | null) => {
       clearHideTimer();
       if (!ensureProgressHost(input)) return;
-      setFeedback({ id: nextId.current++, ...patch });
+      setFeedback(patch);
       window.requestAnimationFrame(() => {
         ensureProgressHost(input);
       });
@@ -283,117 +266,9 @@ export default function SiyuanImportProgressBridge() {
       })();
     };
 
-    const originalFetch = window.fetch.bind(window);
-    const patchedFetch: typeof window.fetch = async (input, init) => {
-      if (!isSiyuanImportRequest(input)) return originalFetch(input, init);
-      const method = (init?.method || (input instanceof Request ? input.method : "GET")).toUpperCase();
-      if (method === "POST") {
-        show({
-          tone: "working",
-          title: "正在创建思源导入任务",
-          detail: "正在上传数据包，请不要关闭页面…",
-          indeterminate: true,
-        });
-      }
-      const processingTimer = method === "POST" ? window.setTimeout(() => {
-        show({
-          tone: "working",
-          title: "正在创建后台任务",
-          detail: "上传完成后会立即返回任务编号，后续进度不依赖当前 HTTP 连接。",
-          indeterminate: true,
-        });
-      }, 900) : null;
-      try {
-        const response = await originalFetch(input, init);
-        if (processingTimer !== null) window.clearTimeout(processingTimer);
-        const data = await response.clone().json().catch(() => ({}));
-        const job = data?.job as {
-          status?: "queued" | "running" | "completed" | "failed";
-          message?: string;
-          error?: string | null;
-          result?: {
-            success?: boolean;
-            count?: number;
-            stats?: {
-              syFiles?: number;
-              parsedNotes?: number;
-              createdNotes?: number;
-              failedNotes?: number;
-            };
-          } | null;
-        } | undefined;
-        const parsedNotes = job?.result?.stats?.parsedNotes ?? job?.result?.stats?.syFiles ?? 0;
-        const createdNotes = job?.result?.stats?.createdNotes ?? job?.result?.count ?? 0;
-        const failedNotes = job?.result?.stats?.failedNotes ?? Math.max(0, parsedNotes - createdNotes);
-        const validCompletedResult = job?.result?.success === true
-          && createdNotes > 0
-          && createdNotes === job.result.count
-          && failedNotes === 0;
-        if (response.ok && job?.status === "completed" && validCompletedResult) {
-          show({
-            tone: "success",
-            title: "思源笔记导入完成",
-            detail: job.message || "内容树和笔记列表正在刷新。",
-            percent: 100,
-          });
-          hideLater(2200);
-        } else if (response.ok && job?.status === "completed") {
-          show({
-            tone: "error",
-            title: "思源笔记写入失败",
-            detail: `已成功解析 ${parsedNotes} 篇思源文档，但 ${createdNotes} 篇写入成功，${failedNotes} 篇失败。`,
-            percent: 100,
-          });
-          hideLater(5000);
-        } else if (response.ok && job?.status === "failed") {
-          show({
-            tone: "error",
-            title: "思源笔记导入失败",
-            detail: job.error || job.message || "后台任务明确返回失败。",
-            percent: 100,
-          });
-          hideLater(5000);
-        } else if (response.ok) {
-          show({
-            tone: "working",
-            title: "正在后台导入思源笔记",
-            detail: job?.message || "任务已经建立，正在等待后台处理…",
-            indeterminate: true,
-          });
-        } else if (response.status === 404 || response.status >= 500) {
-          show({
-            tone: "working",
-            title: "正在确认思源导入任务",
-            detail: `连接返回 HTTP ${response.status}，正在按请求编号查询后台状态…`,
-            indeterminate: true,
-          });
-        } else {
-          show({
-            tone: "error",
-            title: "思源导入请求失败",
-            detail: data?.error || `服务器返回 HTTP ${response.status}。`,
-            percent: 100,
-          });
-          hideLater(5000);
-        }
-        return response;
-      } catch (error) {
-        if (processingTimer !== null) window.clearTimeout(processingTimer);
-        show({
-          tone: "working",
-          title: "正在等待思源导入状态",
-          detail: "连接暂时中断，稍后会继续查询同一个后台任务，不会重新导入。",
-          indeterminate: true,
-        });
-        throw error;
-      }
-    };
-
     document.addEventListener("change", onChangeCapture, true);
-    window.fetch = patchedFetch;
     return () => {
       document.removeEventListener("change", onChangeCapture, true);
-      if (window.fetch === patchedFetch) window.fetch = originalFetch;
       clearHideTimer();
       hostRef.current?.remove();
       hostRef.current = null;
@@ -403,7 +278,7 @@ export default function SiyuanImportProgressBridge() {
 
   if (typeof document === "undefined" || !portalHost) return null;
   return createPortal(
-    <AnimatePresence>{feedback ? <ProgressCard key={feedback.id} state={feedback} /> : null}</AnimatePresence>,
+    <AnimatePresence>{feedback ? <ProgressCard key="siyuan-package-inspection" state={feedback} /> : null}</AnimatePresence>,
     portalHost,
   );
 }

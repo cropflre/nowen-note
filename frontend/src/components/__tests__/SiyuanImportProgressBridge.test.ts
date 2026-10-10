@@ -3,7 +3,6 @@ import { describe, expect, it } from "vitest";
 import {
   findSiyuanImportPanel,
   inspectSiyuanEntryNames,
-  isSiyuanImportRequest,
   normalizeSiyuanPackageName,
 } from "@/components/SiyuanImportProgressBridge";
 
@@ -43,12 +42,6 @@ describe("SiyuanImportProgressBridge", () => {
       syFileCount: 0,
       rootName: "",
     });
-  });
-
-  it("matches only the server-side SiYuan package import endpoint", () => {
-    expect(isSiyuanImportRequest("/api/export/import/siyuan-package?contentFormat=markdown")).toBe(true);
-    expect(isSiyuanImportRequest("/api/export/import")).toBe(false);
-    expect(isSiyuanImportRequest("/api/export/import/nowen-package")).toBe(false);
   });
 
   it("resolves the import panel so progress can render below the import controls", () => {

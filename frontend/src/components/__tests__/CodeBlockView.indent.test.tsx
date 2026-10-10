@@ -1,6 +1,7 @@
 import React, { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import i18n from "@/i18n";
 
 const copyTextMock = vi.hoisted(() => vi.fn());
 
@@ -52,7 +53,8 @@ describe("CodeBlockView block indent", () => {
   const roots: Array<ReturnType<typeof createRoot>> = [];
   const containers: HTMLDivElement[] = [];
 
-  beforeEach(() => {
+  beforeEach(async () => {
+    await i18n.changeLanguage("zh-CN");
     (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
     copyTextMock.mockReset();
     copyTextMock.mockResolvedValue(true);
@@ -96,6 +98,32 @@ describe("CodeBlockView block indent", () => {
       root.render(<CodeBlockView {...createProps(editor, 0)} />);
     });
     expect(container.querySelector(".code-block-wrapper")?.hasAttribute("data-indent")).toBe(false);
+  });
+
+  it("marks a Mermaid preview on the code block itself before its lazy diagram renders", async () => {
+    const editor = new FakeEditor();
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    containers.push(container);
+    const root = createRoot(container);
+    roots.push(root);
+
+    await act(async () => {
+      root.render(<CodeBlockView {...createProps(editor, 0, "mermaid")} />);
+    });
+    const wrapper = container.querySelector<HTMLElement>(".code-block-wrapper");
+    expect(wrapper?.dataset.nowenMermaidInlinePreview).toBe("true");
+    expect(wrapper?.querySelector(".mermaid-preview-host")).not.toBeNull();
+
+    await act(async () => {
+      wrapper?.querySelector<HTMLButtonElement>('button[title="切换到源码"]')?.click();
+    });
+    expect(wrapper?.hasAttribute("data-nowen-mermaid-inline-preview")).toBe(false);
+
+    await act(async () => {
+      root.render(<CodeBlockView {...createProps(editor, 0)} />);
+    });
+    expect(wrapper?.hasAttribute("data-nowen-mermaid-inline-preview")).toBe(false);
   });
 
   it("uses the shared clipboard fallback and reports success after a real copy", async () => {

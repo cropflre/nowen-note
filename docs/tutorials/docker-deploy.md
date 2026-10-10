@@ -115,6 +115,15 @@ server {
 }
 ```
 
+客户端会先探测标准 `/api`、`/ws` 路径；如果反向代理把请求改写成
+`/public/api`、`/publicapi`（WebSocket 对应 `/public/ws`、`/publicws`），
+会自动识别并缓存本次连接使用的路径。服务器地址仍填写用户实际访问的根地址，
+无需把 `/api` 或 `/public` 手动追加到地址中。
+
+Lucky 等 NAS 反向代理仍建议把站点根路径完整转发到 `nowen-note:3001`，并开启
+WebSocket Upgrade。自动兼容用于承接已有的 `/public` 重写配置；如果连接诊断显示
+“API 正常但 WebSocket 不可用”，请检查代理是否转发 `Upgrade` 和 `Connection` 请求头。
+
 不要为 `nowen-note-updater` 配置反向代理或宿主机端口。
 
 ---
@@ -130,6 +139,18 @@ server {
 ```bash
 docker compose logs --tail=200 nowen-note
 ```
+
+### Q：Embedding 已生成，但问答一直使用 BM25？
+
+先在容器内检查向量扩展（使用内存数据库，不修改笔记数据）：
+
+```bash
+docker compose exec nowen-note node backend/scripts/smoke-sqlite-vec.cjs
+```
+
+成功时输出 `extension load, vec0 and KNN passed`，表示扩展加载、向量建表和近邻查询都通过。新版 Docker 构建会编译适配 Alpine musl 的扩展，并执行同一检查；检查失败会阻止镜像构建完成。
+
+旧镜像若出现 `sqlite-vec load failed` 或 `vec0.so.so`，请更新到包含此修复的镜像（源码部署则重新构建）。修复后首次启动会从已有 `note_embeddings` 恢复向量索引，无需重新调用 embedding API。上述检查只验证扩展，实际恢复数量请查看启动日志中的 `[vec-store] restored` 或向量重建日志。
 
 ### Q：为什么没有“立即升级”按钮？
 

@@ -14,6 +14,13 @@ $$;
 \ir schema.base.sql
 \ir migrations/0011_note_block_runtime.sql
 
+-- Note Appearance Engine metadata. Keep appearance separate from editor content/version while
+-- preserving it across PostgreSQL-backed deployments and schema replays.
+ALTER TABLE notes ADD COLUMN IF NOT EXISTS "themeId" TEXT;
+CREATE INDEX IF NOT EXISTS idx_notes_theme_id ON notes("themeId");
+ALTER TABLE notes ADD COLUMN IF NOT EXISTS "colorMark" TEXT;
+CREATE INDEX IF NOT EXISTS idx_notes_color_mark ON notes("colorMark");
+
 ALTER TABLE tasks ADD COLUMN IF NOT EXISTS "estimatedMinutes" INTEGER;
 ALTER TABLE task_reminders ADD COLUMN IF NOT EXISTS "timezoneOffsetMinutes" INTEGER;
 
@@ -175,3 +182,15 @@ CREATE TRIGGER task_inbox_remove_after_task_complete
 AFTER UPDATE OF "isCompleted" ON tasks
 FOR EACH ROW
 EXECUTE FUNCTION clear_task_inbox_after_completion();
+
+-- 扩展生态 RC1 依赖基础结构和用户表，必须在主 Schema 完成后应用。
+\ir 067_extension_ecosystem_rc1.sql
+\ir 068_plugin_update_lifecycle.sql
+\ir 069_extension_advisory_freshness.sql
+\ir 070_plugin_studio.sql
+
+-- 工作区议题、回复、状态历史与站内通知（Issue #756）。
+\ir migrations/0114-workspace-issues.sql
+\ir migrations/0117-encrypted-note-storage-guards.sql
+\ir migrations/0118-encrypted-block-write-guards.sql
+\ir migrations/0119-encrypted-note-conversion-guards.sql

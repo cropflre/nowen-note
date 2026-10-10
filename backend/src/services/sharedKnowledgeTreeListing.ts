@@ -128,6 +128,7 @@ export function listSharedKnowledgeTree(input: {
       CASE WHEN node.resourceType = 'note' THEN COALESCE(note.isLocked, 0) ELSE 0 END AS isLocked,
       CASE WHEN node.resourceType = 'notebook' AND notebook_password.notebookId IS NOT NULL THEN 1 ELSE 0 END AS isPasswordProtected,
       CASE WHEN node.resourceType = 'note' THEN note.contentFormat ELSE NULL END AS contentFormat,
+      CASE WHEN node.resourceType = 'note' THEN note.colorMark ELSE NULL END AS colorMark,
       shared_tree.sharedRootId, shared_tree.sharedDepth,
       shared_tree.rootWeight, shared_tree.sourcePriority
     FROM shared_tree

@@ -48,4 +48,29 @@ describe("MobileKnowledgeTreePanel product contract", () => {
     expect(helperSource).toContain("return [...pinnedDocuments, ...openedDocuments, ...fallbackDocuments]");
     expect(helperSource).toContain('return "updated-desc"');
   });
+
+  it("lets recent users switch between opened and edited ordering", () => {
+    expect(mobileSource).toContain("loadMobileKnowledgeTreeRecentMode");
+    expect(mobileSource).toContain("saveMobileKnowledgeTreeRecentMode");
+    expect(mobileSource).toContain('data-recent-mode-switch=""');
+    expect(mobileSource).toContain('["opened", "最近打开"]');
+    expect(mobileSource).toContain('["edited", "最近编辑"]');
+    expect(helperSource).toContain('mode === "edited"');
+  });
+
+  it("lets desktop quick navigation choose a visible tree depth", () => {
+    expect(mobileSource).toContain('type QuickTreeVisibleDepth = 1 | 2 | 3 | "all"');
+    expect(mobileSource).toContain('value: "depth:1"');
+    expect(mobileSource).toContain('value: "depth:2"');
+    expect(mobileSource).toContain('value: "depth:3"');
+    expect(mobileSource).toContain('value: "depth:all"');
+    expect(mobileSource).toContain('visibleDepth === "all" || depth + 1 < visibleDepth');
+  });
+
+  it("keeps mobile first-level note counts beside the title while retaining desktop badges", () => {
+    expect(mobileSource).toContain('variant !== "mobile" && firstLevelNoteCount !== null');
+    expect(mobileSource).toContain("{firstLevelNoteCount}");
+    expect(mobileSource).toContain("data-mobile-knowledge-tree-first-level-note-count");
+    expect(mobileSource).toContain("{(showPath || updatedAt) && (");
+  });
 });

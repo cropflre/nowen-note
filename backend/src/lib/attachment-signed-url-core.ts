@@ -9,6 +9,7 @@ const EXP_QUANTIZATION_WINDOW_MS = 15 * 60 * 1000;
 export type AttachmentAccessScope =
   | { version: 2; kind: "user"; subjectId: string; noteId: string; allowDownload: boolean }
   | { version: 2; kind: "share"; subjectId: string; noteId: string; allowDownload: boolean }
+  | { version: 2; kind: "file"; subjectId: string; attachmentId: string; allowDownload: boolean }
   | { version: 2; kind: "publication"; subjectId: string; noteId: string; allowDownload: boolean };
 
 export interface AttachmentSignatureVerification {
@@ -48,6 +49,14 @@ export function createUserAttachmentScope(
   });
 }
 
+export function createFileAttachmentScope(
+  userId: string,
+  attachmentId: string,
+  allowDownload = true,
+): string {
+  return encodeScope({ version: 2, kind: "file", subjectId: userId, attachmentId, allowDownload });
+}
+
 export function createShareAttachmentScope(
   shareId: string,
   noteId: string,
@@ -79,20 +88,18 @@ export function createPublicationAttachmentScope(
 export function parseAttachmentAccessScope(raw: string): AttachmentAccessScope | null {
   if (!raw || raw.length > MAX_SCOPE_LENGTH || !raw.startsWith(SCOPE_PREFIX)) return null;
   try {
-    const decoded = Buffer.from(raw.slice(SCOPE_PREFIX.length), "base64url").toString("utf8");
-    const parsed = JSON.parse(decoded) as Partial<AttachmentAccessScope>;
+    const parsed = JSON.parse(Buffer.from(raw.slice(SCOPE_PREFIX.length), "base64url").toString("utf8")) as Record<string, unknown>;
     if (parsed.version !== 2) return null;
-    if (parsed.kind !== "user" && parsed.kind !== "share" && parsed.kind !== "publication") return null;
-    if (typeof parsed.subjectId !== "string" || !parsed.subjectId.trim()) return null;
-    if (typeof parsed.noteId !== "string" || !parsed.noteId.trim()) return null;
-    if (parsed.subjectId.length > 256 || parsed.noteId.length > 256) return null;
-    return {
-      version: 2,
-      kind: parsed.kind,
-      subjectId: parsed.subjectId,
-      noteId: parsed.noteId,
-      allowDownload: parsed.allowDownload !== false,
-    } as AttachmentAccessScope;
+    const kind = parsed.kind;
+    if (kind !== "user" && kind !== "file" && kind !== "share" && kind !== "publication") return null;
+    if (typeof parsed.subjectId !== "string" || !parsed.subjectId.trim() || parsed.subjectId.length > 256) return null;
+    const allowDownload = parsed.allowDownload !== false;
+    if (kind === "file") {
+      if (typeof parsed.attachmentId !== "string" || !parsed.attachmentId.trim() || parsed.attachmentId.length > 256) return null;
+      return { version: 2, kind, subjectId: parsed.subjectId, attachmentId: parsed.attachmentId, allowDownload };
+    }
+    if (typeof parsed.noteId !== "string" || !parsed.noteId.trim() || parsed.noteId.length > 256) return null;
+    return { version: 2, kind, subjectId: parsed.subjectId, noteId: parsed.noteId, allowDownload };
   } catch {
     return null;
   }

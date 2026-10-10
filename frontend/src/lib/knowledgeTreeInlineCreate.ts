@@ -1,4 +1,4 @@
-export type KnowledgeTreeInlineCreateKind = "folder" | "note" | "markdown";
+export type KnowledgeTreeInlineCreateKind = "folder" | "note" | "markdown" | "mindmap" | "sheet";
 
 export interface KnowledgeTreeInlineDraft {
   parentId: string | null;
@@ -11,6 +11,8 @@ export interface KnowledgeTreeInlineDraft {
 export function defaultInlineCreateTitle(kind: KnowledgeTreeInlineCreateKind): string {
   if (kind === "folder") return "未命名文件夹";
   if (kind === "markdown") return "未命名 Markdown";
+  if (kind === "mindmap") return "无标题导图";
+  if (kind === "sheet") return "无标题表格";
   return "未命名文档";
 }
 

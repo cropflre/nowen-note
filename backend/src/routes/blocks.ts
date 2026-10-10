@@ -1,3 +1,5 @@
+import { withEncryptedBlockWrite } from "../lib/encryptedBlockWrites.js";
+import { EncryptedNotePayloadError } from "../lib/encryptedNotes.js";
 import { Hono } from "hono";
 import { v4 as uuid } from "uuid";
 import { getDb } from "../db/schema";
@@ -280,11 +282,11 @@ async function performWrite(c: any, action: "create" | "update" | "delete" | "mo
     const db = getDb();
     const contentText = plainTextFromNoteContent(mutation.content, note.contentFormat);
     const nextVersion = note.version + 1;
-    db.prepare(`
+    withEncryptedBlockWrite(db, noteId, mutation.content, note.contentFormat, () => db.prepare(`
       UPDATE notes
       SET content = ?, contentText = ?, version = ?, updatedAt = datetime('now')
       WHERE id = ?
-    `).run(mutation.content, contentText, nextVersion, noteId);
+    `).run(mutation.content, contentText, nextVersion, noteId));
     const synced = syncNoteBlocks(db, noteId, mutation.content, note.contentFormat);
     syncNoteLinks(db, userId, noteId, synced.content);
     rebuildBlockAuthorityStore(db, noteId, synced.content, note.contentFormat, {
@@ -306,6 +308,7 @@ async function performWrite(c: any, action: "create" | "update" | "delete" | "mo
     logAudit(userId, "note", `block_${action}`, result, { targetType: "note", targetId: noteId });
     return c.json(result, action === "create" ? 201 : 200);
   } catch (cause) {
+    if (cause instanceof EncryptedNotePayloadError) return c.json({ error: "块编辑必须完整保留加密区域", code: cause.code }, 400);
     if (cause instanceof TransientPersistedImageSourceError) {
       reportTransientPersistedImageSource(cause, { operation: "blockWrite", noteId, userId });
       return c.json({

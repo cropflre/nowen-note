@@ -358,6 +358,7 @@ async function scanPackage(zipFilePath: string): Promise<PackageScan> {
   const mediaEntries = safeEntries
     .filter(({ path }) => extensionOf(path) !== "json")
     .map(({ entry }) => entry);
+  await directory.close?.();
   return {
     favorites: Array.from(favorites.values()),
     mediaEntries,

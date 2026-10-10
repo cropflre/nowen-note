@@ -46,6 +46,11 @@ interface ActiveNoteLoad {
   timeoutTimer: ReturnType<typeof setTimeout>;
 }
 
+interface FailedNoteLoad {
+  requestId: number;
+  sink: NoteLoadSink;
+}
+
 function toError(error: unknown): Error {
   return error instanceof Error ? error : new Error(String(error || "笔记加载失败"));
 }
@@ -57,6 +62,7 @@ function wait(ms: number): Promise<void> {
 export class NoteLoadCoordinator {
   private sequence = 0;
   private active: ActiveNoteLoad | null = null;
+  private failed: FailedNoteLoad | null = null;
   private retryOptions: NoteLoadOptions<unknown> | null = null;
 
   private clearTimers(active: ActiveNoteLoad | null): void {
@@ -66,13 +72,31 @@ export class NoteLoadCoordinator {
     clearTimeout(active.timeoutTimer);
   }
 
+  /**
+   * A failed load no longer has an active request, but its sink still owns the visible
+   * error surface in AppContext. A later navigation intent must be able to dismiss that
+   * failure without forcing a full page refresh.
+   */
+  clearFailed(): boolean {
+    const failed = this.failed;
+    if (!failed) return false;
+    this.sequence += 1;
+    this.failed = null;
+    this.retryOptions = null;
+    failed.sink.finish(failed.requestId);
+    return true;
+  }
+
   cancel(): void {
     const active = this.active;
+    const failed = this.failed;
     this.sequence += 1;
     this.clearTimers(active);
     this.active = null;
+    this.failed = null;
     this.retryOptions = null;
     if (active) active.sink.finish(active.requestId);
+    else if (failed) failed.sink.finish(failed.requestId);
   }
 
   async run<T>(options: NoteLoadOptions<T>): Promise<NoteLoadResult<T>> {
@@ -84,6 +108,7 @@ export class NoteLoadCoordinator {
     let shownAt: number | null = null;
     let rejectTimeout: ((reason: Error) => void) | null = null;
 
+    this.failed = null;
     options.sink.begin({
       requestId,
       noteId: options.noteId,
@@ -139,6 +164,7 @@ export class NoteLoadCoordinator {
 
       options.sink.finish(requestId);
       this.active = null;
+      this.failed = null;
       return { status: "success", value };
     } catch (cause) {
       if (this.sequence !== requestId) return { status: "cancelled" };
@@ -146,6 +172,7 @@ export class NoteLoadCoordinator {
       const error = toError(cause);
       this.retryOptions = options as NoteLoadOptions<unknown>;
       this.active = null;
+      this.failed = { requestId, sink: options.sink };
       options.sink.fail(requestId, error.message);
       options.onError?.(error);
       return { status: "error", error };

@@ -70,6 +70,41 @@ export function resolveSelectedCodeBlock(state: IndentState): IndentTarget | nul
 }
 
 /**
+ * Ctrl/Cmd+A inside a code block follows a two-level selection model:
+ *   1. first press selects only the code block text;
+ *   2. when the whole code block is already selected, return false so the
+ *      normal ProseMirror Select All shortcut can select the whole note.
+ *
+ * Empty code blocks deliberately fall through immediately because there is no
+ * inner text range to expand to; trapping Mod-a there would make full-document
+ * selection unreachable.
+ */
+export function selectCodeBlockContentsOnFirstSelectAll(editor: Editor): boolean {
+  const { state, view } = editor;
+  const target = resolveSelectedCodeBlock(state);
+  if (!target || target.node.type.name !== "codeBlock" || target.node.content.size === 0) {
+    return false;
+  }
+
+  const from = target.pos + 1;
+  const to = from + target.node.content.size;
+  const { selection } = state;
+
+  if (
+    selection instanceof TextSelection
+    && selection.from === from
+    && selection.to === to
+  ) {
+    return false;
+  }
+
+  view.dispatch(
+    state.tr.setSelection(TextSelection.create(state.doc, from, to)),
+  );
+  return true;
+}
+
+/**
  * Return stable, non-overlapping indent targets.
  *
  * - Empty selections resolve to the nearest indentable ancestor.
@@ -293,6 +328,12 @@ export const IndentExtension = Extension.create({
         },
       },
     ];
+  },
+
+  addKeyboardShortcuts() {
+    return {
+      "Mod-a": () => selectCodeBlockContentsOnFirstSelectAll(this.editor),
+    };
   },
 
   addCommands() {

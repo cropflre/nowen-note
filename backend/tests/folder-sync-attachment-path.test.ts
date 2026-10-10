@@ -65,9 +65,22 @@ test("PDF imports are written below ELECTRON_USER_DATA instead of the packaged c
   });
   assert.equal(response.status, 200, await response.text());
 
-  const row = getDb().prepare("SELECT path FROM attachments WHERE uploadSource = 'folder_sync'").get() as { path: string };
+  const row = getDb().prepare("SELECT id, path, noteId FROM attachments WHERE uploadSource = 'folder_sync'").get() as {
+    id: string;
+    path: string;
+    noteId: string;
+  };
   assert.ok(row?.path);
   const absolutePath = path.join(electronUserData, "attachments", row.path);
   assert.equal(fs.existsSync(absolutePath), true);
   assert.equal(fs.readFileSync(absolutePath).equals(bytes), true);
+
+  const note = getDb().prepare("SELECT content FROM notes WHERE id = ?").get(row.noteId) as { content: string };
+  assert.match(note.content, new RegExp(`\\[📎 manual\\.pdf\\]\\(/api/attachments/${row.id}\\)`));
+  const reference = getDb().prepare(`
+    SELECT COUNT(*) AS count
+      FROM attachment_references
+     WHERE attachmentId = ? AND noteId = ?
+  `).get(row.id, row.noteId) as { count: number };
+  assert.equal(reference.count, 1);
 });

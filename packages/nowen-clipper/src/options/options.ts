@@ -5,7 +5,7 @@ import {
   setConfig,
   type NowenClipperConfig,
 } from "../lib/storage";
-import { login, ping, verify2FA } from "../lib/api";
+import { login, NowenApiError, ping, verify2FA } from "../lib/api";
 import type { AIEnhanceTasks } from "../lib/protocol";
 
 let pending2FATicket = "";
@@ -34,8 +34,12 @@ async function init() {
         currentConfig = await setConfig({ userId: user.id });
       }
       showLoggedIn(user.username, user.role);
-    } catch {
-      showLoginForm();
+    } catch (error) {
+      if (error instanceof NowenApiError && (error.status === 401 || error.status === 403)) {
+        showLoginForm();
+      } else {
+        showLoggedIn(currentConfig.username, "连接暂不可用，登录状态已保留");
+      }
     }
   } else {
     showLoginForm();
@@ -138,13 +142,14 @@ async function on2FAVerify() {
 async function handleLoginSuccess(
   serverUrl: string,
   username: string,
-  response: { token: string; user: { id: string; role: string; displayName?: string | null } },
+  response: { token: string; refreshToken?: string; user: { id: string; role: string; displayName?: string | null } },
 ) {
   currentConfig = await setConfig({
     serverUrl,
     username,
     userId: response.user.id,
     token: response.token,
+    refreshToken: response.refreshToken || "",
     displayName: response.user.displayName || username,
   });
   showLoggedIn(username, response.user.role);
@@ -152,7 +157,7 @@ async function handleLoginSuccess(
 }
 
 async function onLogout() {
-  currentConfig = await setConfig({ token: "", displayName: "", userId: "" });
+  currentConfig = await setConfig({ token: "", refreshToken: "", displayName: "", userId: "" });
   showLoginForm();
   setInlineStatus(byId("login-result"), "已退出登录", "ok");
   window.setTimeout(() => {

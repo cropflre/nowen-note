@@ -165,6 +165,14 @@ export const apiTokensRepository = {
     await getAdapter().execute("DELETE FROM api_token_usage WHERE day < ?", [cutoffDay]);
   },
 
+  async deleteRevokedByIdAndUserAsync(id: string, userId: string): Promise<boolean> {
+    const result = await getAdapter().execute(
+      `DELETE FROM api_tokens WHERE id = ? AND "userId" = ? AND "revokedAt" IS NOT NULL`,
+      [id, userId],
+    );
+    return result.changes > 0;
+  },
+
   async revokeByIdAsync(id: string): Promise<void> {
     await getAdapter().execute(
       `UPDATE api_tokens SET "revokedAt" = datetime('now') WHERE id = ?`,

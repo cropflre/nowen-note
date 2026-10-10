@@ -5,8 +5,11 @@ export interface MediaUploadLifecycleDetail {
   file: File | Blob;
   filename: string;
   mediaType: "image" | "video";
+  noteId?: string;
   result?: unknown;
   error?: string;
+  /** Content was accepted into the offline note-write queue, not yet confirmed by the server. */
+  queued?: boolean;
 }
 
 export const MEDIA_UPLOAD_LIFECYCLE_EVENT = "nowen:media-upload-lifecycle";
