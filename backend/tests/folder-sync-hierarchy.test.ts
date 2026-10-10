@@ -70,7 +70,9 @@ test("nested paths create an exact notebook tree and preserve distinct same-name
   assert.equal(r.status, 200);
   assert.equal(r.body.skipped, true);
   assert.equal(r.body.noteId, a.body.noteId);
-  assert.equal(db().prepare("SELECT COUNT(*) count FROM notebooks WHERE parentId = ?").get(notebook(frontFolder).parentId)["count"], 2);
+  const childCount = db().prepare("SELECT COUNT(*) AS count FROM notebooks WHERE parentId = ?")
+    .get(notebook(frontFolder).parentId) as { count: number };
+  assert.equal(childCount.count, 2);
 });
 
 test("different sources use separate managed notebook IDs under the same target", async () => {
@@ -124,10 +126,15 @@ test("wrong source hash, forged path, deleted managed folder and manually moved 
   const other = await post("import-file", payload("changed/location.md", "unchanged source", sha("moved")));
   assert.equal(other.status, 200);
   const movedId = other.body.noteId;
-  db().prepare("UPDATE notes SET notebookId = ? WHERE id = ?").run(ROOT, movedId);
+  const manualId = "manually-created-other-folder";
+  db().prepare("INSERT INTO notebooks (id, userId, parentId, name) VALUES (?, ?, ?, ?)")
+    .run(manualId, USER, ROOT, "Moved manually");
+  db().prepare("UPDATE notes SET notebookId = ? WHERE id = ?").run(manualId, movedId);
   const refused = await post("organize-file", {
     relativePath: "changed/location.md", targetNotebookId: ROOT,
     sourcePathHash: sha("moved"), sourceFolderId: FOLDER_ID,
   });
-  assert.equal(refused.status, 200, JSON.stringify(refused.body));
+  assert.equal(refused.status, 409, JSON.stringify(refused.body));
+  assert.equal(refused.body.code, "LOCATION_CONFLICT");
+  assert.equal(note(movedId).notebookId, manualId);
 });
