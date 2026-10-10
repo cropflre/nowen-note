@@ -482,7 +482,7 @@ export class MobileSyncEngine {
     // 请求即使超时也可能已被服务器接收，不能继续把该笔记当作“确定未同步”。
     const noteIds = rows.filter((row) => row.entityType === "note").map((row) => row.entityId);
     if (noteIds.length) await this.options.db.transaction((tx) => forgetUnsentLocalNotes(tx, scope.scopeKey, noteIds));
-    const response = await this.request<{ serverSequence:number;results:Array<{mutationId:string;status:string;code?:string;serverVersion?:number;serverPayload?:Record<string,unknown>}> }>(
+    const response = await this.request<{ serverSequence:number;results:Array<{mutationId:string;status:string;code?:string;version?:number;serverVersion?:number;serverPayload?:Record<string,unknown>}> }>(
       `/push?scopeKey=${encodeURIComponent(scope.scopeKey)}`,
       { method:"POST",body:JSON.stringify({scopeKey:scope.scopeKey,deviceId:this.options.deviceId,mutations}) },
     );
@@ -503,7 +503,9 @@ export class MobileSyncEngine {
             await tx.run(`INSERT INTO native_runtime_meta (key,value,updatedAt) VALUES (?,?,?)
               ON CONFLICT(key) DO UPDATE SET value=excluded.value,updatedAt=excluded.updatedAt`, [
               nativeReceiptKey(this.options.profileId, source.entityId),
-              JSON.stringify({ mutationId: result.mutationId, serverVersion: result.serverVersion ?? null }),
+              JSON.stringify({ mutationId: result.mutationId,
+                serverVersion: typeof result.version === "number" && Number.isSafeInteger(result.version) && result.version > 0
+                  ? result.version : null }),
               now(),
             ]);
           }

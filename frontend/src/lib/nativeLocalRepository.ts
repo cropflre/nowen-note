@@ -10,6 +10,7 @@ import type { NativeDatabase } from "./nativeDatabase";
 import type { NativeAttachmentStore } from "./nativeAttachmentStore";
 import { newLocalId } from "./localRepository";
 import { unsentLocalNoteKey } from "./nativeLocalNoteOrigin";
+import { notifyMobileSyncStatusChanged } from "./mobileSyncStatus";
 import { isEncryptedNoteFormat, validateEncryptedNoteWrite } from "./encryptedNotes/noteDocument";
 
 type EntityType = "notebook" | "note" | "tag" | "note_tag" | "favorite" | "attachment";
@@ -228,6 +229,7 @@ export class NativeLocalRepository implements LocalRepository {
         await this.enqueue(tx,"note",note.id,"delete",undefined,note.version,scopeKey);
       }
     });
+    if (notes.length) notifyMobileSyncStatusChanged();
     await Promise.all(attachments.map(({id})=>this.attachmentStore.remove(id).catch(()=>undefined)));
     for(const {id} of attachments)this.attachmentUrls.delete(id);
     return {success:true,count:notes.length,skipped:0,noteIds:notes.map(({id})=>id),removedFiles:attachments.length};
@@ -416,6 +418,8 @@ export class NativeLocalRepository implements LocalRepository {
         ON CONFLICT(key) DO UPDATE SET value=excluded.value,updatedAt=excluded.updatedAt`, [unsentLocalNoteKey(scope.scopeKey, input.id), savedAt]);
       await this.enqueue(tx, "note", input.id, "upsert", row);
     });
+    // The receipt is invalidated only after the SQLite Outbox transaction commits.
+    notifyMobileSyncStatusChanged();
     return { id: input.id, savedAt };
   }
 
@@ -441,6 +445,8 @@ export class NativeLocalRepository implements LocalRepository {
       if (encrypted && changed.changes !== 1) throw Object.assign(new Error("笔记版本已改变"), { status: 409, code: "VERSION_CONFLICT" });
       await this.enqueue(tx, "note", id, "upsert", next as unknown as Record<string, unknown>, current.version);
     });
+    // Refresh per-note receipt from committed Outbox, even while a push is in flight.
+    notifyMobileSyncStatusChanged();
     return { id, savedAt: next.updatedAt };
   }
 
@@ -454,6 +460,7 @@ export class NativeLocalRepository implements LocalRepository {
       await tx.run("DELETE FROM native_runtime_meta WHERE key=?", [unsentLocalNoteKey(scope.scopeKey, id)]);
       await this.enqueue(tx, "note", id, "delete", undefined, current?.version ?? null);
     });
+    notifyMobileSyncStatusChanged();
   }
 
   private async listNotebooks(requestedScopeKey?: string): Promise<Notebook[]> {
