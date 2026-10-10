@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { confirm } from "@/components/ui/confirm";
 import { api } from "@/lib/api";
 import { copyText } from "@/lib/clipboard";
+import { ShareCopySession, formatShareWithPassword } from "@/lib/shareCopySession";
 import {
   buildPublicWebUrl,
   resolvePublicWebOrigin,
@@ -52,6 +53,11 @@ export default function ShareModal({ noteId, noteTitle, initialShareId, onClose 
   const [originSaving, setOriginSaving] = useState(false);
   const modalRef = useRef<HTMLDivElement>(null);
   const initialShareAppliedRef = useRef<string | null>(null);
+  const copySessionRef = useRef(new ShareCopySession());
+
+  // Never persist plaintext share passwords in storage or across dialogs/notes.
+  useEffect(() => () => copySessionRef.current.clear(), []);
+  useEffect(() => { copySessionRef.current.clear(); }, [noteId]);
 
   const publicOrigin = resolvePublicWebOrigin({
     runtimeOrigin: siteConfig.publicWebOrigin,
@@ -155,19 +161,22 @@ export default function ShareModal({ noteId, noteTitle, initialShareId, onClose 
         maxViews: parsedMax,
       };
       if (editingId) {
-        await api.updateShare(editingId, {
+        const updated = await api.updateShare(editingId, {
           ...common,
           ...(password.trim() ? { password: password.trim() } : {}),
         });
+        if (password.trim()) copySessionRef.current.remember(updated, password);
+        else if (!updated.hasPassword) copySessionRef.current.forget(updated.id);
         toast.success(t("shareUi.shareUpdated"));
       } else {
-        await api.createShare({
+        const created = await api.createShare({
           noteId,
           permission,
           password: password.trim() || undefined,
           expiresAt: common.expiresAt || undefined,
           maxViews: parsedMax || undefined,
         });
+        if (password.trim()) copySessionRef.current.remember(created, password);
         if (publicOrigin.requiresAnonymousCheck) {
           toast.warning(t("shareUi.createdVerify"));
         } else {
@@ -200,14 +209,34 @@ export default function ShareModal({ noteId, noteTitle, initialShareId, onClose 
     }
   };
 
-  const mutate = async (action: () => Promise<unknown>, success: string) => {
-    try { await action(); toast.success(success); await loadShares(); }
-    catch (error: any) { toast.error(error?.message || t("shareUi.operationFailed")); }
+  const copyWithPassword = async (share: Share) => {
+    const knownPassword = copySessionRef.current.get(share);
+    if (!knownPassword) {
+      editShare(share);
+      toast.info(t("shareUi.passwordMustReset"));
+      return;
+    }
+    const text = formatShareWithPassword(noteTitle, shareUrl(share.shareToken), knownPassword, {
+      note: t("shareUi.copyNoteLabel"),
+      link: t("shareUi.copyLinkLabel"),
+      password: t("shareUi.copyPasswordLabel"),
+    });
+    const ok = await copyText(text);
+    if (!ok) { toast.error(t("shareUi.copyFailed")); return; }
+    if (publicOrigin.requiresAnonymousCheck) toast.warning(t("shareUi.copiedVerify"));
+    else toast.success(t("shareUi.copiedWithPassword"));
+  };
+
+  const mutate = async (action: () => Promise<unknown>, success: string): Promise<boolean> => {
+    try { await action(); toast.success(success); await loadShares(); return true; }
+    catch (error: any) { toast.error(error?.message || t("shareUi.operationFailed")); return false; }
   };
 
   const rotate = async (share: Share) => {
     if (!await confirm({ title: t("shareUi.rotateTitle"), description: t("shareUi.rotateWarning") })) return;
-    await mutate(() => api.updateShare(share.id, { rotateToken: true }), t("shareUi.rotated"));
+    if (await mutate(() => api.updateShare(share.id, { rotateToken: true }), t("shareUi.rotated"))) {
+      copySessionRef.current.forget(share.id);
+    }
   };
   const resetViews = async (share: Share) => {
     if (!await confirm({ title: t("shareUi.resetTitle"), description: t("shareUi.resetDescription") })) return;
@@ -215,7 +244,9 @@ export default function ShareModal({ noteId, noteTitle, initialShareId, onClose 
   };
   const remove = async (share: Share) => {
     if (!await confirm({ title: t("shareUi.deleteTitle"), description: t("shareUi.deleteDescription"), danger: true })) return;
-    await mutate(() => api.deleteShare(share.id), t("shareUi.deleted"));
+    if (await mutate(() => api.deleteShare(share.id), t("shareUi.deleted"))) {
+      copySessionRef.current.forget(share.id);
+    }
   };
 
   const riskMessage = publicOrigin.isLikelyProtectedGateway
@@ -290,7 +321,7 @@ export default function ShareModal({ noteId, noteTitle, initialShareId, onClose 
                 const url = shareUrl(share.shareToken);
                 return <article key={share.id} className={cn("rounded-xl border border-app-border p-3", !active && "opacity-60")}>
                   <div className="flex items-start justify-between gap-3"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><span className="text-sm font-medium">{permissionLabel(share.permission)}</span><span className={cn("rounded-full px-2 py-0.5 text-[10px]", active ? "bg-emerald-500/10 text-emerald-600" : "bg-app-hover text-tx-tertiary")}>{active ? t("shareUi.active") : t("shareUi.inactive")}</span>{share.hasPassword && <span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] text-amber-600">{t("shareUi.password")}</span>}</div><p className="mt-1 truncate text-xs text-tx-tertiary">{url}</p><p className="mt-1 text-[11px] text-tx-tertiary">{t("shareUi.viewSessions", { total: share.viewCount || 0 })}{share.maxViews ? ` / ${share.maxViews}` : ""}{share.expiresAt ? t("shareUi.expiresOn", { date: new Date(share.expiresAt).toLocaleString(i18n.language) }) : ""}</p></div><Shield size={16} className="shrink-0 text-tx-tertiary" /></div>
-                  <div className="mt-3 flex flex-wrap gap-1.5"><Button size="sm" variant="outline" onClick={() => copy(url, share.id)}>{copied === share.id ? <Check size={13} /> : <Copy size={13} />}<span className="ml-1">{t("shareUi.copy")}</span></Button><Button size="sm" variant="outline" onClick={() => window.open(url, "_blank", "noopener,noreferrer")}><ExternalLink size={13} /></Button><Button size="sm" variant="outline" onClick={() => editShare(share)}><Pencil size={13} className="mr-1" />{t("shareUi.edit")}</Button><Button size="sm" variant="outline" onClick={() => resetViews(share)}><RotateCcw size={13} className="mr-1" />{t("shareUi.reset")}</Button><Button size="sm" variant="outline" onClick={() => rotate(share)}><RefreshCw size={13} className="mr-1" />{t("shareUi.replaceLink")}</Button><Button size="sm" variant="outline" onClick={() => mutate(() => api.updateShare(share.id, { isActive: active ? 0 : 1 }), active ? t("shareUi.disabledMessage") : t("shareUi.enabledMessage"))}>{active ? t("shareUi.disable") : t("shareUi.enable")}</Button><Button size="sm" variant="outline" className="text-red-500" onClick={() => remove(share)}><Trash2 size={13} /></Button></div>
+                  <div className="mt-3 flex flex-wrap gap-1.5"><Button size="sm" variant="outline" onClick={() => copy(url, share.id)}>{copied === share.id ? <Check size={13} /> : <Copy size={13} />}<span className="ml-1">{t("shareUi.copy")}</span></Button>{share.hasPassword && <Button size="sm" variant="outline" onClick={() => void copyWithPassword(share)} title={copySessionRef.current.get(share) ? t("shareUi.copyWithPasswordHint") : t("shareUi.passwordMustReset")}><Copy size={13} /><span className="ml-1">{copySessionRef.current.get(share) ? t("shareUi.copyWithPassword") : t("shareUi.resetPasswordToCopy")}</span></Button>}<Button size="sm" variant="outline" onClick={() => window.open(url, "_blank", "noopener,noreferrer")}><ExternalLink size={13} /></Button><Button size="sm" variant="outline" onClick={() => editShare(share)}><Pencil size={13} className="mr-1" />{t("shareUi.edit")}</Button><Button size="sm" variant="outline" onClick={() => resetViews(share)}><RotateCcw size={13} className="mr-1" />{t("shareUi.reset")}</Button><Button size="sm" variant="outline" onClick={() => rotate(share)}><RefreshCw size={13} className="mr-1" />{t("shareUi.replaceLink")}</Button><Button size="sm" variant="outline" onClick={() => mutate(() => api.updateShare(share.id, { isActive: active ? 0 : 1 }), active ? t("shareUi.disabledMessage") : t("shareUi.enabledMessage"))}>{active ? t("shareUi.disable") : t("shareUi.enable")}</Button><Button size="sm" variant="outline" className="text-red-500" onClick={() => remove(share)}><Trash2 size={13} /></Button></div>
                 </article>;
               })}</div>}
             </section>
