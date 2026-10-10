@@ -489,6 +489,15 @@ export function copyPersonalNotebookToWorkspace(
                 tag.name,
                 targetWorkspaceId,
               );
+            // Tag names are unique for the user. When moving into a workspace,
+            // reuse a personal tag instead of violating the global unique constraint.
+            if (!targetTag && targetWorkspaceId) {
+              targetTag = workspaceNotebookTransferRepository.findPersonalTagByName<TagRow>(
+                actorUserId,
+                tag.name,
+              );
+              if (targetTag) warnings.push(`tag_reused_due_unique_constraint:${tag.name}`);
+            }
             if (!targetTag) {
               const newTagId = uuid();
               try {
