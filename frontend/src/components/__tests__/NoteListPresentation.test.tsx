@@ -6,7 +6,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { NoteCard, SortMenu, VirtualNoteList } from "../NoteList";
 import type { NoteListItem } from "@/types";
 
-vi.mock("react-i18next", () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
+vi.mock("react-i18next", async (importOriginal) => ({
+  ...await importOriginal<typeof import("react-i18next")>(),
+  useTranslation: () => ({ t: (key: string) => key }),
+}));
 vi.mock("@/lib/exportService", () => ({}));
 vi.mock("framer-motion", () => ({
   motion: { div: React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement> & { initial?: unknown; animate?: unknown; exit?: unknown; transition?: unknown }>(({ initial, animate, exit, transition, ...props }, ref) => { void [initial, animate, exit, transition]; return <div ref={ref} {...props} />; }) },
