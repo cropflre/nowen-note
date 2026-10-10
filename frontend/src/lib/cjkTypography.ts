@@ -8,7 +8,6 @@ export type CjkTypographyFormat = 'plain' | 'markdown';
 export interface TextRange { from: number; to: number }
 
 const HAN = /\p{Script=Han}/u;
-const LATIN_OR_DIGIT = /[A-Za-z0-9]/;
 const TICK = String.fromCharCode(96);
 
 function mergeRanges(input: TextRange[]): TextRange[] {
@@ -94,8 +93,8 @@ export function markdownProtectedRanges(text: string): TextRange[] {
 
   // URLs, emails, HTML tags and numeric tokens protected before punctuation.
   addMatches(/<\/?[A-Za-z][^>\n]*>/g);
-  addMatches(/(?:https?:\/\/|www\.)[^\s<>()\[\]"']+/gi);
-  addMatches(/[^\s<>()\[\]"'@]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g);
+  addMatches(/(?:https?:\/\/|www\.)[^\s<>()[\]"']+/gi);
+  addMatches(/[^\s<>()[\]"'@]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g);
   addMatches(/(?:[A-Za-z0-9-]+\.)+[A-Za-z]{2,}(?:\/[^\s]*)?/g);
   addMatches(/\b[vV]?\d+(?:[.,:]\d+)+(?:-[A-Za-z0-9]+)?\b/g);
   addMatches(/\.{3,}/g);
@@ -232,7 +231,7 @@ export function transformCjkTypography(
   const protectedRanges = format === 'markdown' ? markdownProtectedRanges(text) : [];
   // In plain-text contexts avoid changing numeric, URLs and emails too.
   if (format === 'plain') {
-    const re = /(?:https?:\/\/|www\.)[^\s<>()\[\]"']+|[^\s<>()\[\]"'@]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}|\b[vV]?\d+(?:[.,:]\d+)+(?:-[A-Za-z0-9]+)?\b|\.{3,}|\\\([^\n]*?\\\)|\\\[[^\n]*?\\\]|\$\$[^$]*\$\$|\$[^$\n]+\$/gi;
+    const re = /(?:https?:\/\/|www\.)[^\s<>()[\]"']+|[^\s<>()[\]"'@]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}|\b[vV]?\d+(?:[.,:]\d+)+(?:-[A-Za-z0-9]+)?\b|\.{3,}|\\\([^\n]*?\\\)|\\\[[^\n]*?\\\]|\$\$[^$]*\$\$|\$[^$\n]+\$/gi;
     for (const m of text.matchAll(re)) protectedRanges.push({ from: m.index, to: m.index + m[0].length });
   }
   let result = '';
