@@ -54,6 +54,18 @@ describe("mobile sync transport rerouting", () => {
     expect(localStorage.getItem("nowen-token")).toBe("new-token");
   });
 
+  it("diagnoses proxy HTML instead of treating HTTP 200 as successful sync", async () => {
+    const { internal, db } = createEngine();
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("<html>NodeBao login</html>", {
+      status: 200, headers: { "Content-Type": "text/html" },
+    })));
+    await expect(internal.request("/scopes")).rejects.toMatchObject({
+      code: "SYNC_PROXY_INVALID_RESPONSE",
+    });
+    expect(db.run).not.toHaveBeenCalled();
+    expect(db.transaction).not.toHaveBeenCalled();
+  });
+
   it("blocks cross-account outbox requests during session reconfiguration", async () => {
     const { internal } = createEngine();
     localStorage.setItem("nowen-token", "different-user");

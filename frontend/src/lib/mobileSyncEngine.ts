@@ -321,11 +321,25 @@ export class MobileSyncEngine {
       const code = response.status === 401 ? "AUTH_EXPIRED" : (payload.code || "SERVER_ERROR");
       throw Object.assign(new Error(payload.error || code), { code, status: response.status });
     }
-    return await response.json() as T;
+    try {
+      return await response.json() as T;
+    } catch {
+      // NodeBao/reverse proxies sometimes return their HTML login/home page
+      // with HTTP 200 for an unrecognized /sync/v2 route. This is not a
+      // successful synchronization response; do not advance the local cursor.
+      throw syncFailure(
+        "SYNC_PROXY_INVALID_RESPONSE",
+        "同步接口返回了非 JSON 响应，请检查节点小宝的 API 代理路径与登录状态",
+      );
+    }
   }
 
   private async fetchScopes(): Promise<ScopeDescriptor[]> {
-    return (await this.request<{ items: ScopeDescriptor[] }>("/scopes")).items;
+    const payload = await this.request<{ items: ScopeDescriptor[] }>("/scopes");
+    if (!Array.isArray(payload?.items)) {
+      throw syncFailure("SYNC_PROXY_INVALID_RESPONSE", "同步空间列表格式无效，请检查节点小宝 API 代理路径");
+    }
+    return payload.items;
   }
 
   private async refreshScopes(scopes: ScopeDescriptor[]): Promise<void> {
