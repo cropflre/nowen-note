@@ -362,7 +362,10 @@ function createComponents(
         </ul>
       );
     },
-    ol: ({ node, children, className }) => <ol {...attrs(node)} className={cn("my-3 list-decimal space-y-1 pl-6 text-tx-primary", className)}>{children}</ol>,
+    // Markdown can contain independent ordered lists separated by attachments or paragraphs.
+    // react-markdown supplies the HTML start attribute for each list (e.g. 7. / 8. / 9.).
+    // Preserve it so the browser does not restart every list at 1.
+    ol: ({ node, children, className, start }) => <ol {...attrs(node)} start={start} className={cn("my-3 list-decimal space-y-1 pl-6 text-tx-primary", className)}>{children}</ol>,
     li: ({ node, children, className }) => {
       const isTask = /(?:^|\s)task-list-item(?:\s|$)/.test(className || "");
       const checked = isTask ? getGfmTaskChecked(node) : null;
