@@ -1,4 +1,19 @@
 export const zhCNCoverageTranslations = {
+  aiChatTask: {
+    createTitle: "确认创建个人任务",
+    completeTitle: "确认完成个人任务",
+    newTask: "新任务：{{title}}",
+    taskId: "任务 ID：{{title}}",
+    createConfirm: "创建任务",
+    completeConfirm: "标记完成",
+    cancelled: "已取消，本次没有修改任务。",
+    created: "已创建个人待办：**{{title}}**（ID：{{id}}）。",
+    completed: "任务 `{{title}}` 已标记完成。",
+    todayTasks: "今日待办",
+    todayProgress: "今日进度",
+    dueAt: "（{{dueAt}}）",
+    dataSource: "数据来源：Nowen Note 个人任务（实时读取）。",
+  },
   attachmentDetail: { fileInfo: "文件信息" },
   comments: { addInline: "添加批注" },
   common: {
@@ -568,6 +583,21 @@ export const zhCNCoverageTranslations = {
 } as const;
 
 export const enCoverageTranslations = {
+  aiChatTask: {
+    createTitle: "Create personal task?",
+    completeTitle: "Complete personal task?",
+    newTask: "New task: {{title}}",
+    taskId: "Task ID: {{title}}",
+    createConfirm: "Create task",
+    completeConfirm: "Mark complete",
+    cancelled: "Cancelled. No tasks were changed.",
+    created: "Created personal task: **{{title}}** (ID: {{id}}).",
+    completed: "Task `{{title}}` marked complete.",
+    todayTasks: "Today's tasks",
+    todayProgress: "Today's progress",
+    dueAt: " ({{dueAt}})",
+    dataSource: "Source: Nowen Note personal tasks (live data).",
+  },
   attachmentDetail: { fileInfo: "File information" },
   comments: { addInline: "Add inline comment" },
   common: {
