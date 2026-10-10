@@ -5,7 +5,16 @@ import {
   type KnowledgeFileListDbRow as FileListDbRow,
   type KnowledgeFileScope as FileScope,
 } from "../repositories/knowledgeCapabilityGuardRepository.js";
-import { createUserAttachmentAccessUrls } from "../lib/attachment-signed-url.js";
+import {
+  createUserAttachmentAccessUrls,
+  createFileAttachmentScope,
+  createAttachmentSignedUrl,
+} from "../lib/attachment-signed-url.js";
+import {
+  isManualFileManagerUpload,
+  resolveFileAttachmentAccess,
+  type FileAttachmentAccessRow,
+} from "../services/fileAttachmentAccess.js";
 import {
   hasKnowledgeCapability,
   resolveResourceKnowledgeAccess,
@@ -57,14 +66,37 @@ function accessForNote(noteId: string, userId: string) {
   return resolveResourceKnowledgeAccess("note", noteId, userId);
 }
 
+function attachmentAccessRow(attachmentId: string): FileAttachmentAccessRow | null {
+  if (!attachmentId) return null;
+  return knowledgeCapabilityGuardRepository.getAttachmentAccessRow(attachmentId) || null;
+}
+
+function filePermissions(row: FileAttachmentAccessRow, userId: string): { canView: boolean; canDownload: boolean } {
+  if (isManualFileManagerUpload(row)) {
+    const access = resolveFileAttachmentAccess(row, userId);
+    return { canView: access.canView, canDownload: access.canDownload };
+  }
+  const noteId = row.noteId;
+  if (!noteId) return { canView: false, canDownload: false };
+  const access = accessForNote(noteId, userId);
+  return {
+    canView: hasKnowledgeCapability(access, "canView"),
+    canDownload: hasKnowledgeCapability(access, "canDownload"),
+  };
+}
+
 function canViewFileRow(row: any, userId: string): boolean {
+  if (typeof row?.id === "string") {
+    const record = attachmentAccessRow(row.id);
+    return Boolean(record && filePermissions(record, userId).canView);
+  }
   const noteId = noteIdFromFileRow(row);
   return Boolean(noteId && hasKnowledgeCapability(accessForNote(noteId, userId), "canView"));
 }
 
 function canDownloadAttachment(attachmentId: string, userId: string): boolean {
-  const noteId = attachmentNoteId(attachmentId);
-  return Boolean(noteId && hasKnowledgeCapability(accessForNote(noteId, userId), "canDownload"));
+  const row = attachmentAccessRow(attachmentId);
+  return Boolean(row && filePermissions(row, userId).canDownload);
 }
 
 function filterAccessUrls(value: unknown, userId: string): Record<string, string> {
@@ -108,9 +140,8 @@ function visibleAttachmentStats(workspaceId: string | null, userId: string) {
   let fileCount = 0;
   let fileBytes = 0;
 
-  for (const row of rows as Array<{ id: string; noteId: string; mimeType: string; size: number }>) {
-    const access = accessForNote(row.noteId, userId);
-    if (!hasKnowledgeCapability(access, "canView")) continue;
+  for (const row of rows) {
+    if (!filePermissions(row, userId).canView) continue;
     total += 1;
     totalBytes += Number(row.size || 0);
     const mime = row.mimeType || "application/octet-stream";
@@ -229,34 +260,32 @@ function visibleFileList(c: Context, userId: string) {
     sort: c.req.query("sort") || "created_desc",
   });
 
-  const accessCache = new Map<string, { canView: boolean; canDownload: boolean }>();
-  const permissions = (noteIdValue: string) => {
-    const cached = accessCache.get(noteIdValue);
-    if (cached) return cached;
-    const access = accessForNote(noteIdValue, userId);
-    const resolved = {
-      canView: hasKnowledgeCapability(access, "canView"),
-      canDownload: hasKnowledgeCapability(access, "canDownload"),
-    };
-    accessCache.set(noteIdValue, resolved);
-    return resolved;
-  };
-
-  const visibleRows = rows.filter((row) => row.noteId && permissions(row.noteId).canView);
+  const visibleRows = rows.filter(row => filePermissions(row, userId).canView);
   const start = (page - 1) * pageSize;
   const pageRows = visibleRows.slice(start, start + pageSize);
-  const items = pageRows.map((row) => {
+  const items = pageRows.map(row => {
     const output = toFileOut(row);
-    if (permissions(row.noteId).canDownload) return { ...output, downloadAllowed: true };
+    if (filePermissions(row, userId).canDownload) return { ...output, downloadAllowed: true };
     delete output.url;
     delete output.thumbnailUrl;
     return { ...output, downloadAllowed: false };
   });
-  const downloadableRows = pageRows.filter((row) => permissions(row.noteId).canDownload);
+  const downloadableRows = pageRows.filter(row => filePermissions(row, userId).canDownload);
+  const noteUrls = createUserAttachmentAccessUrls(
+    userId, downloadableRows.filter(row => !isManualFileManagerUpload(row) && Boolean(row.noteId)),
+  );
+  const accessUrls: Record<string, string> = { ...noteUrls };
+  for (const row of downloadableRows) {
+    if (!isManualFileManagerUpload(row)) continue;
+    const scope = createFileAttachmentScope(userId, row.id, true);
+    accessUrls[row.id] = createAttachmentSignedUrl(
+      "/api/attachments/" + row.id, row.id, scope,
+    );
+  }
 
   return {
     items,
-    accessUrls: createUserAttachmentAccessUrls(userId, downloadableRows),
+    accessUrls,
     total: visibleRows.length,
     page,
     pageSize,
