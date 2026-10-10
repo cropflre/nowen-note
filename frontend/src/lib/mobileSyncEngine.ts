@@ -60,6 +60,34 @@ function stable(value: unknown): string {
   return JSON.stringify(value) ?? "undefined";
 }
 
+/** Fail closed: a same-number remote edit is not proof of a local echo.
+ * Only a recorded mutation-specific server ACK may establish provenance. */
+export function isAckedOwnNoteEcho(
+  remote: Record<string, unknown>,
+  local: Record<string, unknown>,
+  pending: { payload: string | null; baseVersion?: number | null },
+  storedReceipt: string | undefined,
+): boolean {
+  if (!storedReceipt) return false;
+  try {
+    const receipt: unknown = JSON.parse(storedReceipt);
+    if (!receipt || typeof receipt !== "object") return false;
+    const { mutationId, serverVersion } = receipt as { mutationId?: unknown; serverVersion?: unknown };
+    const validVersion = (value: unknown): value is number =>
+      typeof value === "number" && Number.isSafeInteger(value) && value > 0;
+    if (typeof mutationId !== "string" || !mutationId ||
+        !validVersion(serverVersion) || !validVersion(remote.version) ||
+        !validVersion(local.version)) return false;
+    if (remote.version !== serverVersion || local.version <= serverVersion) return false;
+    // A newer queued edit must be based on (or later than) the confirmed
+    // version. Missing/older bases might be a genuine concurrent conflict.
+    if (!validVersion(pending.baseVersion) || pending.baseVersion < serverVersion) return false;
+    const payload: unknown = pending.payload ? JSON.parse(pending.payload) : null;
+    return !!payload && typeof payload === "object" &&
+      (payload as { version?: unknown }).version === local.version;
+  } catch { return false; }
+}
+
 function isCoreEntityType(value:unknown):value is EntityType {
   return value === "notebook" || value === "note" || value === "tag"
     || value === "note_tag" || value === "favorite" || value === "attachment"
@@ -595,11 +623,22 @@ export class MobileSyncEngine {
             WHERE id=?`,[JSON.stringify(entry.payload),Number(entry.payload.version)||null,conflict.id]);
           continue;
         }
-        const pending=(await tx.query<{payload:string|null}>(`SELECT payload FROM sync_outbox WHERE
+        const pending=(await tx.query<{payload:string|null;baseVersion:number|null}>(`SELECT payload,baseVersion FROM sync_outbox WHERE
           profileId=? AND scopeKey=? AND entityType=? AND entityId=? AND status IN ('pending','failed','inflight') LIMIT 1`,
         [this.options.profileId,scope.scopeKey,entry.entityType,entry.entityId]))[0];
         if(pending&&!entry.payload.__delete){
           const local=await this.readEntity(tx,scope.scopeKey,entry.entityType,entry.entityId);
+          if (!bootstrap && entry.entityType === "note" && local) {
+            // A previous mutation from THIS profile was already acknowledged,
+            // and the pull sees that exact server version while a newer local
+            // edit waits in Outbox. This is our own echo, not a true conflict.
+            // Keep the newer local body and queued mutation untouched.
+            const receipt = (await tx.query<{value:string}>(
+              "SELECT value FROM native_runtime_meta WHERE key=? LIMIT 1",
+              [nativeReceiptKey(this.options.profileId, entry.entityId)],
+            ))[0];
+            if (isAckedOwnNoteEcho(entry.payload, local, pending, receipt?.value)) continue;
+          }
           if(!bootstrap||stable(local)!==stable(entry.payload)){
             await tx.run(`INSERT INTO sync_conflicts (id,profileId,scopeKey,entityType,entityId,
               localPayload,remotePayload,status,createdAt) VALUES (?,?,?,?,?,?,?,'unresolved',?)`,[
