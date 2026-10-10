@@ -288,6 +288,71 @@ function resolveNoteForImport(userId: string, existingNoteId: string | undefined
   return { note: undefined, syncRow: undefined };
 }
 
+/**
+ * Upgrade path for files already synchronized by flat-mode: relocate only the
+ * tracked note's notebook, never rewrite its content or reupload a PDF/DOCX.
+ * The source row proves ownership; a manually moved note stays untouched.
+ */
+app.post("/organize-file", async (c) => {
+  const userId = c.req.header("X-User-Id") || "";
+  const body = await c.req.json().catch(() => ({})) as Record<string, unknown>;
+  const rootId = typeof body.targetNotebookId === "string" ? body.targetNotebookId : "";
+  const relativePath = typeof body.relativePath === "string" ? body.relativePath : "";
+  const sourcePathHash = body.sourcePathHash;
+  if (!rootId || isUnsafePath(relativePath) || !isSha256(sourcePathHash) ||
+      !validFolderSourceId(body.sourceFolderId) ||
+      relativePath.replace(/\\/g, "/").split("/").some((part) => !part || part === ".") ||
+      relativePath.split(/[\\/]/).length > 33) {
+    return c.json({ error: "目录迁移参数无效", code: "INVALID_HIERARCHY" }, 400);
+  }
+  if (!resolveTargetNotebook(rootId, userId)) {
+    return c.json({ error: "目标笔记本不存在或没有写权限", code: "FORBIDDEN" }, 403);
+  }
+  const row = getSyncRow(userId, sourcePathHash);
+  if (!row || row.relativePath !== relativePath) {
+    return c.json({ error: "来源文件记录不存在或已变更，请重新同步该文件", code: "SOURCE_MISMATCH" }, 409);
+  }
+  const note = getTrackedNote(row.noteId);
+  const owner = assertNoteOwner(note, userId);
+  if (!owner.ok) return c.json({ error: owner.error, code: owner.code }, owner.status);
+  if (!note) return c.json({ error: "同步笔记不存在", code: "NOTE_NOT_FOUND" }, 404);
+
+  // Detect a user moving the tracked note to a separate location since the
+  // previous sync. Only the root and our own deterministic parent are managed.
+  const folders = relativePath.replace(/\\/g, "/").split("/").slice(0, -1);
+  const previousManagedId = folders.length
+    ? uuidv5(JSON.stringify([userId, rootId, body.sourceFolderId, folders]), FOLDER_SYNC_NAMESPACE)
+    : rootId;
+  if (note.notebookId !== rootId && note.notebookId !== previousManagedId) {
+    return c.json({ error: "该笔记在 Nowen 中被手动移动，已保留当前位置，请先确认", code: "LOCATION_CONFLICT" }, 409);
+  }
+
+  let destinationId = rootId;
+  try {
+    getDb().transaction(() => {
+      const target = ensureFolderSyncNotebookHierarchy({
+        userId, targetNotebookId: rootId,
+        sourceFolderId: body.sourceFolderId as string, relativePath,
+      });
+      destinationId = target.id;
+      if (note.notebookId !== destinationId) {
+        getDb().prepare(`
+          UPDATE notes SET "notebookId" = ?, "workspaceId" = ?,
+                 version = version + 1, "updatedAt" = datetime('now')
+          WHERE id = ? AND "userId" = ?
+        `).run(target.id, target.workspaceId, note.id, userId);
+        synchronizeLegacyNoteHierarchy({
+          db: getDb(), noteId: note.id, actorUserId: userId, reason: "move", parentMode: "resource",
+        });
+      }
+    })();
+  } catch (error) {
+    return c.json({ error: error instanceof Error ? error.message : "知识树目录迁移失败", code: "HIERARCHY_CONFLICT" }, 409);
+  }
+  if (destinationId !== note.notebookId) broadcastChanged(note.id, userId, note.title, note.contentText);
+  return c.json({ success: true, noteId: note.id, notebookId: destinationId, moved: destinationId !== note.notebookId });
+});
+
 app.post("/import-file", async (c) => {
   const userId = c.req.header("X-User-Id") || "";
   const body = await c.req.json().catch(() => ({})) as Record<string, unknown>;
