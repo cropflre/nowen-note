@@ -1,6 +1,14 @@
 name: Mobile Knowledge Tree CI
 
 on:
+  push:
+    branches:
+      - "release/v1.5.2"
+    paths:
+      - "frontend/src/lib/mobileLocalFirstBridge.ts"
+      - "frontend/src/lib/mobileLocalKnowledgeTreeBridge.ts"
+      - "frontend/src/lib/__tests__/mobileLocalFirstPasswordAccess.test.ts"
+      - ".github/workflows/mobile-knowledge-tree-ci.yml"
   pull_request:
     paths:
       - "frontend/src/components/MobileKnowledgeTreePanel.tsx"
@@ -10,6 +18,9 @@ on:
       - "frontend/src/components/__tests__/MobileKnowledgeTreeModeSwitch.test.ts"
       - "frontend/src/lib/mobileKnowledgeTree.ts"
       - "frontend/src/lib/mobileKnowledgeTreeViewMode.ts"
+      - "frontend/src/lib/mobileLocalFirstBridge.ts"
+      - "frontend/src/lib/mobileLocalKnowledgeTreeBridge.ts"
+      - "frontend/src/lib/__tests__/mobileLocalFirstPasswordAccess.test.ts"
       - "frontend/src/lib/__tests__/mobileKnowledgeTree.test.ts"
       - ".github/workflows/mobile-knowledge-tree-ci.yml"
   workflow_dispatch:
@@ -33,6 +44,7 @@ jobs:
         run: >-
           npm run test:run --
           src/lib/__tests__/mobileKnowledgeTree.test.ts
+          src/lib/__tests__/mobileLocalFirstPasswordAccess.test.ts
           src/components/__tests__/MobileKnowledgeTreePanel.test.ts
           src/components/__tests__/MobileKnowledgeTreeModeSwitch.test.ts
       - name: Frontend typecheck
