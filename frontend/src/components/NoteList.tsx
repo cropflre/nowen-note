@@ -1127,14 +1127,8 @@ export const NoteCard = React.memo(function NoteCard({
       transition={{ duration: 0.12, ease: "easeOut" }}
       onClick={onClick}
       onContextMenu={onContextMenu}
-      draggable={draggable}
-      // framer-motion 的 motion.div 把 onDragStart/onDragEnd 覆写成 (event, PanInfo) => void，
-      // 与 HTML 原生 DragEvent 签名冲突。我们在这里确实需要 HTML 的 DragEvent（下游会读
-      // dataTransfer），所以用 any 断言绕过类型检查，运行时 React 仍按 HTML 事件派发。
-      onDragStart={onDragStart as any}
-      onDragOver={onDragOver}
-      onDragEnd={onDragEnd as any}
-      onDrop={onDrop}
+      // motion.div consumes onDragStart/onDragEnd as Framer Motion gesture
+      // props, so native HTML5 drag events must live on a plain DOM element.
       onTouchStart={onTouchStart}
       onTouchMove={onTouchMove}
       onTouchEnd={onTouchEnd}
@@ -1167,7 +1161,15 @@ export const NoteCard = React.memo(function NoteCard({
           : "bg-transparent group-hover:bg-app-border"
       )} />
 
-      <div className="h-full flex flex-col justify-center pl-3 pr-2.5 py-1.5 min-w-0">
+      <div
+        className="h-full flex flex-col justify-center pl-3 pr-2.5 py-1.5 min-w-0"
+        draggable={draggable}
+        onDragStart={onDragStart}
+        onDragOver={onDragOver}
+        onDragEnd={onDragEnd}
+        onDrop={onDrop}
+        data-note-native-drag-surface={draggable ? "enabled" : "disabled"}
+      >
         {/* 标题行 + 状态图标 */}
         <div className="flex items-center justify-between gap-2 min-w-0">
           {draggable && <span
