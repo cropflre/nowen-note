@@ -64,8 +64,17 @@ describe("#822 manual Chinese typography", () => {
     expect(numbers).toContain("1,000");
   });
 
+  it("keeps inline and block math untouched in rich-text text nodes", () => {
+    expect(transformCjkTypography("公式$E中文2$混排", "spacing"))
+      .toBe("公式$E中文2$混排");
+    expect(transformCjkTypography("公式\\(x中文3\\)不应改写", "spacing"))
+      .toBe("公式\\(x中文3\\)不应改写");
+  });
+
   it("converts only matched quotation pairs and skips apostrophes", () => {
     expect(transformCjkTypography('“外层‘内层’”', "cornerQuotes"))
+      .toBe("「外层『内层』」");
+    expect(transformCjkTypography('"外层\'内层\'"', "cornerQuotes"))
       .toBe("「外层『内层』」");
     expect(transformCjkTypography("don't students' said 'ok'", "cornerQuotes"))
       .toContain("don't students'");

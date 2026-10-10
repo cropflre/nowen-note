@@ -232,7 +232,7 @@ export function transformCjkTypography(
   const protectedRanges = format === 'markdown' ? markdownProtectedRanges(text) : [];
   // In plain-text contexts avoid changing numeric, URLs and emails too.
   if (format === 'plain') {
-    const re = /(?:https?:\/\/|www\.)[^\s<>()\[\]"']+|[^\s<>()\[\]"'@]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}|\b[vV]?\d+(?:[.,:]\d+)+(?:-[A-Za-z0-9]+)?\b|\.{3,}/gi;
+    const re = /(?:https?:\/\/|www\.)[^\s<>()\[\]"']+|[^\s<>()\[\]"'@]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}|\b[vV]?\d+(?:[.,:]\d+)+(?:-[A-Za-z0-9]+)?\b|\.{3,}|\\\([^\n]*?\\\)|\\\[[^\n]*?\\\]|\$\$[^$]*\$\$|\$[^$\n]+\$/gi;
     for (const m of text.matchAll(re)) protectedRanges.push({ from: m.index, to: m.index + m[0].length });
   }
   let result = '';
