@@ -6,6 +6,7 @@ import { fetchWithAuthRefresh, getAccessToken } from "./authSession";
 import { SERVER_ENDPOINT_CHANGED_EVENT } from "./serverEndpointState";
 import { forgetUnsentLocalNotes } from "./nativeLocalNoteOrigin";
 import { notifyMobileSyncStatusChanged } from "./mobileSyncStatus";
+import { nativeReceiptKey } from "./mobileNoteSyncReceipt";
 import { validateEncryptedNoteWrite } from "./encryptedNotes/noteDocument";
 
 type ScopeStatus = "active" | "replan_required" | "access_revoked";
@@ -497,6 +498,15 @@ export class MobileSyncEngine {
         const source = rows.find((row) => row.mutationId===result.mutationId);
         if (result.status === "applied" || result.status === "duplicate") {
           await tx.run("DELETE FROM sync_outbox WHERE mutationId=?",[result.mutationId]);
+          if (source?.entityType === "note" && source.operation === "upsert") {
+            // Persist the mutation-specific ACK atomically with the Outbox removal.
+            await tx.run(`INSERT INTO native_runtime_meta (key,value,updatedAt) VALUES (?,?,?)
+              ON CONFLICT(key) DO UPDATE SET value=excluded.value,updatedAt=excluded.updatedAt`, [
+              nativeReceiptKey(this.options.profileId, source.entityId),
+              JSON.stringify({ mutationId: result.mutationId, serverVersion: result.serverVersion ?? null }),
+              now(),
+            ]);
+          }
           if (source?.entityType === "attachment" && source.operation === "delete") {
             await this.options.attachments.remove(source.entityId).catch(() => undefined);
           }

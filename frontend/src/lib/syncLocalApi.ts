@@ -302,6 +302,11 @@ export function disableSync(): Promise<{
   return request("/settings/disable", { method: "POST" });
 }
 
+/** Only the Android Native adapter handles this local SQLite endpoint. */
+export function fetchNoteSyncReceipt(noteId: string): Promise<import("./mobileNoteSyncReceipt").NativeNoteSyncReceipt> {
+  return request(`/receipts/${encodeURIComponent(noteId)}`);
+}
+
 export function fetchSyncDiagnostics(): Promise<SyncDiagnostics> {
   return request<SyncDiagnostics>("/diagnostics");
 }

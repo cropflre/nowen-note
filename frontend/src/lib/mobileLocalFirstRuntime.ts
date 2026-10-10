@@ -21,6 +21,7 @@ import { createNativeLocalRepository } from "./nativeLocalRepository";
 import { newLocalId, setLocalRepository } from "./localRepository";
 import { clearQueue, getQueue } from "./offlineQueue";
 import { setSyncLocalAdminAdapter, SYNC_CONFLICT_ENTITY_TYPES } from "./syncLocalApi";
+import { readNativeNoteSyncReceipt } from "./mobileNoteSyncReceipt";
 import type { NativeLocalRepository } from "./nativeLocalRepository";
 import {
   MOBILE_LOCAL_ACCOUNT_ID,
@@ -314,6 +315,13 @@ function createNativeAdminAdapter(
     }
     if(path==="/engine"){const state=await repository.sync.getState();return {running:active?.enabled===1,state:state.mode==="server"?(state.conflictCount?"conflict":state.lastError?"error":"idle"):"disabled",pendingCount:state.mode==="server"?state.pendingMutations:0,conflictCount:state.mode==="server"?state.conflictCount:0,lastError:state.mode==="server"?state.lastError:null,localAuthoritative:true} as T;}
     if(path==="/sync-now"&&method==="POST"){engine.requestSync(0);return {engineRunning:active?.enabled===1,message:"已请求立即同步"} as T;}
+    if (method === "GET" && path.startsWith("/receipts/")) {
+      const noteId = decodeURIComponent(path.slice("/receipts/".length));
+      if (!noteId || active?.enabled !== 1) {
+        return { phase: "unverified", localRevision: null, acknowledgedRevision: null } as T;
+      }
+      return await readNativeNoteSyncReceipt(db, profileId, noteId) as T;
+    }
     if(path==="/diagnostics"){
       const state=(await db.query<{lastSequence:number;lastSyncAt:string|null;lastError:string|null}>("SELECT lastSequence,lastSyncAt,lastError FROM sync_state WHERE profileId=? AND scopeKey='personal'",[profileId]))[0];
       const pending=await db.query<Record<string,unknown>>("SELECT scopeKey,entityType,entityId,operation,status,retryCount,lastError,createdAt FROM sync_outbox WHERE profileId=? AND status IN ('pending','failed') ORDER BY createdAt LIMIT 20",[profileId]);
