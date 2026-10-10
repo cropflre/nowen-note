@@ -1602,7 +1602,7 @@ function OrdinaryEditorPane({
     if (!activeNote || !canEditActiveNote || effectiveLocked || isTrashed ||
         modeSwitching || noteIsFullHtmlDoc) return;
     const applied = editorHandleRef.current?.applyCjkTypography?.(action) === true;
-    if (!applied) toast.info(t("editor.cjkTypography.noChanges"));
+    if (!applied) toast.info(t("cjkTypography.noChanges"));
   };
 
   const handleUpdate = useCallback(async (data: NoteEditorUpdatePayload) => {

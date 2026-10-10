@@ -1,4 +1,5 @@
 import type { Editor } from "@tiptap/core";
+import type { Mark } from "@tiptap/pm/model";
 import { transformCjkTypography, type CjkTypographyAction } from "./cjkTypography";
 
 /**
@@ -11,7 +12,7 @@ export function applyTiptapCjkTypography(editor: Editor, action: CjkTypographyAc
   const hasSelection = !selection.empty;
   const from = hasSelection ? selection.from : 0;
   const to = hasSelection ? selection.to : doc.content.size;
-  const patches: Array<{ from: number; to: number; text: string; marks: readonly any[] }> = [];
+  const patches: Array<{ from: number; to: number; text: string; marks: readonly Mark[] }> = [];
   doc.nodesBetween(from, to, (node, pos, parent) => {
     const type = node.type.name.toLowerCase();
     if (/(?:codeblock|code_block|math|formula|equation|diagram|mermaid)/.test(type)) return false;

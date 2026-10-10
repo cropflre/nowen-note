@@ -20,7 +20,7 @@ export default function CjkTypographyMenuActions({
   return (
     <div data-cjk-typography-actions className="py-1">
       <div className="px-3 py-1 text-[11px] font-medium text-tx-tertiary">
-        {t("editor.cjkTypography.title")}
+        {t("cjkTypography.title")}
       </div>
       {actions.map(({ action, icon: Icon }) => (
         <button key={action} type="button"
@@ -30,7 +30,7 @@ export default function CjkTypographyMenuActions({
             (mobile ? "active:bg-app-hover " : "hover:bg-app-hover ") +
             "transition-colors disabled:opacity-40"}>
           <Icon size={15} className="shrink-0 text-tx-tertiary" />
-          <span>{t("editor.cjkTypography." + action)}</span>
+          <span>{t("cjkTypography." + action)}</span>
         </button>
       ))}
     </div>
