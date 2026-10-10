@@ -164,6 +164,13 @@ export const zhCNCoverageTranslations = {
     "automaticHint": "常用地址不可达时，仅在 Wi-Fi 下尝试经过服务器身份验证的局域网地址。",
     "verifyFirst": "请先通过已保存地址连接一次，确认服务器身份后即可自动切换。",
   },
+  cjkTypography: {
+    "title": "中文排版",
+    "spacing": "中英文 / 数字间加空格",
+    "punctuation": "智能标点规范化",
+    "cornerQuotes": "转换为直角引号",
+    "noChanges": "没有可调整的内容，或当前编辑模式不支持此操作",
+  },
   syncBadge: {
     "conflicts": "{{count}} 个冲突待处理",
     "pending": "待同步 {{count}}",
@@ -732,6 +739,13 @@ export const enCoverageTranslations = {
     "automatic": "Automatically choose the best connection",
     "automaticHint": "If the preferred address is unreachable, try a verified local network address only when connected to Wi-Fi.",
     "verifyFirst": "Connect through the saved address once to verify the server identity before automatic switching.",
+  },
+  cjkTypography: {
+    "title": "Chinese typography",
+    "spacing": "Space between CJK and English / numbers",
+    "punctuation": "Normalize punctuation",
+    "cornerQuotes": "Convert to corner quotation marks",
+    "noChanges": "Nothing to change, or this editor mode does not support the operation",
   },
   syncBadge: {
     "conflicts": "{{count}} conflicts to resolve",

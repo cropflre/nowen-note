@@ -109,6 +109,8 @@ import {
   type NoteFormatConversionRequest,
 } from "@/lib/noteFormatConversion";
 import NoteThemeMenuSelect from "@/components/NoteThemeMenuSelect";
+import CjkTypographyMenuActions from "@/components/CjkTypographyMenuActions";
+import type { CjkTypographyAction } from "@/lib/cjkTypography";
 import NoteColorMarkPicker from "@/components/NoteColorMarkPicker";
 import type { NoteColorMark } from "@/types";
 import MindMapEmbedInsertDialog from "@/components/MindMapEmbedInsertDialog";
@@ -1593,6 +1595,16 @@ function OrdinaryEditorPane({
     };
   }, [showDesktopMoreMenu]);
 
+  const applyCjkTypography = (action: CjkTypographyAction) => {
+    setShowMobileMenu(false);
+    setShowDesktopMoreMenu(false);
+    // The underlying editor checks read-only again, guarding stale menu state.
+    if (!activeNote || !canEditActiveNote || effectiveLocked || isTrashed ||
+        modeSwitching || noteIsFullHtmlDoc) return;
+    const applied = editorHandleRef.current?.applyCjkTypography?.(action) === true;
+    if (!applied) toast.info(t("editor.cjkTypography.noChanges"));
+  };
+
   const handleUpdate = useCallback(async (data: NoteEditorUpdatePayload) => {
     const currentNote = activeNoteRef.current;
     if (!currentNote || currentNote.isLocked || viewLockedIdsRef.current.has(currentNote.id)) return;
@@ -2857,6 +2869,11 @@ const moveToTrash = useCallback(async () => {
                     <span>{t('editor.showOutline')}</span>
                   </button>
                   <NoteThemeMenuSelect noteId={activeNote.id} disabled={!canWriteNote(activeNote)} />
+                  <CjkTypographyMenuActions
+                    mobile
+                    disabled={!canEditActiveNote || effectiveLocked || isTrashed || modeSwitching || noteIsFullHtmlDoc}
+                    onAction={applyCjkTypography}
+                  />
                   <div className="h-px bg-app-border mx-2 my-0.5" />
                   {/* AI ���ɱ��� */}
                   <button
@@ -3463,6 +3480,10 @@ const moveToTrash = useCallback(async () => {
                     <span>{t('editor.attachments')}</span>
                   </button>
                   <NoteThemeMenuSelect noteId={activeNote.id} disabled={!canWriteNote(activeNote)} />
+                  <CjkTypographyMenuActions
+                    disabled={!canEditActiveNote || effectiveLocked || isTrashed || modeSwitching || noteIsFullHtmlDoc}
+                    onAction={applyCjkTypography}
+                  />
                   {canSplitDocument && onSplitDocument && (
                     <button
                       onClick={() => { onSplitDocument(); setShowDesktopMoreMenu(false); }}
