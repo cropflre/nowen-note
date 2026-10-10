@@ -1,0 +1,72 @@
+name: Folder Sync Hierarchy CI
+
+on:
+  push:
+    branches: ["release/v1.5.2"]
+    paths:
+      - "backend/src/routes/folder-sync.ts"
+      - "backend/tests/folder-sync-hierarchy.test.ts"
+      - "frontend/src/lib/folderSyncRunner.ts"
+      - "frontend/src/lib/folderSyncTransport.ts"
+      - "frontend/src/lib/folderSyncPreferences.ts"
+      - "frontend/src/components/settings/FolderSyncSettings.tsx"
+      - "frontend/src/lib/desktopBridge.ts"
+      - "electron/folder-sync.js"
+      - "electron/__tests__/folderSyncV2.test.js"
+      - ".github/workflows/folder-sync-hierarchy-ci.yml"
+  pull_request:
+    paths:
+      - "backend/src/routes/folder-sync.ts"
+      - "backend/tests/folder-sync-hierarchy.test.ts"
+      - "frontend/src/lib/folderSyncRunner.ts"
+      - "frontend/src/lib/folderSyncTransport.ts"
+      - "frontend/src/lib/folderSyncPreferences.ts"
+      - "electron/folder-sync.js"
+      - ".github/workflows/folder-sync-hierarchy-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - run: npm ci --silent
+      - run: node --import tsx --test tests/folder-sync-hierarchy.test.ts tests/folder-sync-conflict-policy.test.ts tests/folder-sync-attachment-path.test.ts
+      - run: npm run build:tsc -- --pretty false
+  frontend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci --silent
+      - run: npx vitest run src/lib/__tests__/folderSyncPreferences.test.ts
+      - run: npx tsc -b --pretty false
+  electron:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: node --test electron/__tests__/folderSyncV2.test.js
