@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { confirm } from "@/components/ui/confirm";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import TiptapEditor from "@/components/TiptapEditor";
+import NoteReadingPositionBridge from "@/components/NoteReadingPositionBridge";
 import { PhaseAPerfProfiler } from "@/components/PhaseAPerfProfiler";
 import type { NoteEditorHeading, NoteEditorUpdatePayload } from "@/components/editors/types";
 import MarkdownEditor from "@/components/MarkdownEditor";
@@ -3672,6 +3673,12 @@ const moveToTrash = useCallback(async () => {
             </PhaseAPerfProfiler>
           )}
           </EditorErrorBoundary>
+          <NoteReadingPositionBridge
+            noteId={activeNote.id}
+            userId={selfUser?.userId || "local"}
+            mode={activeNote.contentFormat === "markdown" || (!shouldRenderHtmlPreview && editorMode === "md") ? "markdown" : shouldRenderHtmlPreview ? "html" : "richtext"}
+            paused={noteLoading || modeSwitching}
+          />
           {/*
             UX1/UX2���༭���л��� overlay��
             - ���ڵ�ǰ�༭���Ϸ����赲���� / �Ӿ���ʾ"�л���"��

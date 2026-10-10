@@ -6763,6 +6763,7 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
           所有格式化命令。 */}
       <div
         ref={setScrollContainerRef}
+        data-note-reading-scroll="richtext"
         className={cn(scrollLayout.content, "px-4 md:px-8 pb-12")}
         style={{ paddingBottom: "calc(3rem + var(--keyboard-height, 0px) + var(--outline-scroll-reserve, 0px))" }}
       >

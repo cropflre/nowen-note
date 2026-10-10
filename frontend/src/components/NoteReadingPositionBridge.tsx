@@ -64,6 +64,13 @@ export default function NoteReadingPositionBridge({
       saveNoteReadingPosition(key, pendingTop, current.scrollHeight, current.clientHeight);
     };
     const onScroll = (event: Event) => {
+      // The rich-text/Markdown viewport can remount on collaboration,
+      // presentation changes and mobile preview switches.
+      const observed = findReadingScroller(host, mode);
+      if (observed && observed !== current) {
+        current = observed;
+        restored = true;
+      }
       if (event.target !== current || !restored) return;
       userInteracted = true;
       pendingTop = current!.scrollTop;
@@ -86,15 +93,17 @@ export default function NoteReadingPositionBridge({
       }
       if (current && !restored && saved) {
         const max = Math.max(0, current.scrollHeight - current.clientHeight);
-        // Wait for the editor content to finish mounting. Do not overwrite
-        // an old bookmark with scrollTop=0 during the loading skeleton.
+        // Wait for editor content to mount, instead of saving the skeleton's
+        // initial scrollTop=0 as a genuine reading position.
         if (max >= Math.min(saved.top, 4) || attempts >= 120) {
           current.scrollTop = resolveNoteReadingScrollTop(saved, current.scrollHeight, current.clientHeight);
           restored = true;
         }
       }
       attempts += 1;
-      if (!restored && attempts < 121) raf = requestAnimationFrame(tick);
+      // New notes without a bookmark also need the asynchronously mounted
+      // CodeMirror/Tiptap scroller to be discovered before capturing scrolls.
+      if ((!current || !restored) && attempts < 121) raf = requestAnimationFrame(tick);
     };
 
     // scroll does not bubble; capture is necessary and restricted to its owner.
