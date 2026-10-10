@@ -4316,6 +4316,8 @@ export const api = {
         autoBackupIntervalHours: number;
         autoBackupMode?: "interval" | "daily";
         autoBackupDailyAt?: string;
+        autoBackupTimeZone?: string | null;
+        autoBackupServerTimeZone?: string;
         autoBackupKeepCount?: number;
         autoBackupEmailOnSuccess?: boolean;
         autoBackupEmailTo?: string;
@@ -4456,6 +4458,7 @@ export const api = {
       extra?: {
         mode?: "interval" | "daily";
         dailyAt?: string;
+        timeZone?: string;
         keepCount?: number;
         emailOnSuccess?: boolean;
         emailTo?: string;
@@ -4468,6 +4471,7 @@ export const api = {
         intervalHours: number;
         mode?: "interval" | "daily";
         dailyAt?: string;
+        timeZone?: string;
         keepCount?: number;
         emailOnSuccess?: boolean;
         emailTo?: string;
