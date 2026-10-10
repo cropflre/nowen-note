@@ -30,7 +30,9 @@ export default function CjkTypographyMenuActions({
             (mobile ? "active:bg-app-hover " : "hover:bg-app-hover ") +
             "transition-colors disabled:opacity-40"}>
           <Icon size={15} className="shrink-0 text-tx-tertiary" />
-          <span>{t("cjkTypography." + action)}</span>
+          <span>{action === "spacing" ? t("cjkTypography.spacing")
+            : action === "punctuation" ? t("cjkTypography.punctuation")
+            : t("cjkTypography.cornerQuotes")}</span>
         </button>
       ))}
     </div>
