@@ -19,6 +19,12 @@ on:
       - "backend/tests/backup-restore-*.test.ts"
       - "backend/tests/offline-workspace-sync.test.ts"
       - "frontend/src/lib/mobileSync*"
+      - "frontend/src/lib/mobileNoteSyncReceipt.ts"
+      - "frontend/src/lib/noteSyncReceipt.ts"
+      - "frontend/src/lib/useNoteSyncReceipt.ts"
+      - "frontend/src/components/SyncStatusBadge.tsx"
+      - "frontend/src/components/EditorPane.tsx"
+      - "frontend/src/i18n/coverageTranslations.ts"
       - "frontend/src/lib/mobileLocalFirst*"
       - "frontend/src/lib/nativeLocal*"
       - "frontend/src/lib/offline*"
@@ -28,6 +34,8 @@ on:
       - "frontend/src/lib/__tests__/syncEngine*.test.ts"
       - "frontend/src/lib/__tests__/noteSyncSafety*.test.ts"
       - "frontend/src/lib/__tests__/offlineQueue.test.ts"
+      - "frontend/src/lib/__tests__/noteSyncReceipt.test.ts"
+      - "frontend/src/lib/__tests__/mobileNoteSyncReceipt.test.ts"
   pull_request:
     paths:
       - "docs/architecture/data-consistency-contract*"
@@ -45,6 +53,12 @@ on:
       - "backend/tests/backup-restore-*.test.ts"
       - "backend/tests/offline-workspace-sync.test.ts"
       - "frontend/src/lib/mobileSync*"
+      - "frontend/src/lib/mobileNoteSyncReceipt.ts"
+      - "frontend/src/lib/noteSyncReceipt.ts"
+      - "frontend/src/lib/useNoteSyncReceipt.ts"
+      - "frontend/src/components/SyncStatusBadge.tsx"
+      - "frontend/src/components/EditorPane.tsx"
+      - "frontend/src/i18n/coverageTranslations.ts"
       - "frontend/src/lib/mobileLocalFirst*"
       - "frontend/src/lib/nativeLocal*"
       - "frontend/src/lib/offline*"
@@ -54,6 +68,8 @@ on:
       - "frontend/src/lib/__tests__/syncEngine*.test.ts"
       - "frontend/src/lib/__tests__/noteSyncSafety*.test.ts"
       - "frontend/src/lib/__tests__/offlineQueue.test.ts"
+      - "frontend/src/lib/__tests__/noteSyncReceipt.test.ts"
+      - "frontend/src/lib/__tests__/mobileNoteSyncReceipt.test.ts"
   workflow_dispatch:
 
 permissions:

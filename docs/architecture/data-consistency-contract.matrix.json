@@ -183,6 +183,33 @@
           "case": "preserves a stale offline edit as one pending conflict without issuing PUT"
         }
       ]
+    },
+    {
+      "id": "DCC-011",
+      "title": "逐笔记同步收据以当前修改的版本/Mutation ACK 为依据",
+      "status": "covered",
+      "checks": [
+        {
+          "file": "frontend/src/lib/__tests__/noteSyncReceipt.test.ts",
+          "case": "requires exact local revision before acknowledging a note write"
+        },
+        {
+          "file": "frontend/src/lib/__tests__/noteSyncReceipt.test.ts",
+          "case": "preserves pending queue and conflict priority over an older ACK"
+        },
+        {
+          "file": "frontend/src/lib/__tests__/noteSyncReceipt.test.ts",
+          "case": "isolates receipt data across account and server scopes"
+        },
+        {
+          "file": "frontend/src/lib/__tests__/mobileNoteSyncReceipt.test.ts",
+          "case": "requires a matching native mutation receipt instead of global sync time"
+        },
+        {
+          "file": "frontend/src/lib/__tests__/mobileNoteSyncReceipt.test.ts",
+          "case": "keeps native pending and conflicts ahead of committed ACK"
+        }
+      ]
     }
   ]
 }
