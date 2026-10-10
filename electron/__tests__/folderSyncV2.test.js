@@ -136,3 +136,12 @@ test("Issue #813: enabling hierarchy reorganizes old synced notes without readin
     fs.rmSync(dataDir, { recursive: true, force: true });
   }
 });
+
+test("preload IPC forwards the hierarchy reconciliation marker after sanitization", () => {
+  const preload = fs.readFileSync(path.join(__dirname, "..", "preload.js"), "utf8");
+  const marker = preload.indexOf("if (typeof result.hierarchyTarget");
+  assert.ok(marker >= 0, "preload must forward the saved notebook placement marker");
+  const safeArea = preload.slice(marker, marker + 260);
+  assert.match(safeArea, /safe\.hierarchyTarget = result\.hierarchyTarget/);
+  assert.match(safeArea, /test\(result\.hierarchyTarget\)/);
+});
