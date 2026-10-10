@@ -1,0 +1,184 @@
+{
+  "version": 1,
+  "description": "Regression contract coverage for Nowen Note sync, offline writes and restore. Tests are executed by scripts/data-consistency-contract.mjs and required by the workflow when protected paths change.",
+  "policies": [
+    {
+      "id": "DCC-001",
+      "title": "已同步的声明必须有服务端版本确认",
+      "status": "covered",
+      "checks": [
+        {
+          "file": "frontend/src/lib/__tests__/noteSyncSafety.test.ts",
+          "case": "requires server revision advancement before a versioned write is considered synced"
+        },
+        {
+          "file": "frontend/src/lib/__tests__/offlineQueue.test.ts",
+          "case": "removes successful queued updates only after the server ACK"
+        }
+      ]
+    },
+    {
+      "id": "DCC-002",
+      "title": "本地业务写入与 Outbox 变更应在持久化后可恢复",
+      "status": "covered",
+      "checks": [
+        {
+          "file": "backend/tests/sync-v2-outbox-capture.test.ts",
+          "case": "创建笔记进入 Outbox，且 upsert 顺序在其笔记本之后"
+        },
+        {
+          "file": "backend/tests/sync-v2-outbox-capture.test.ts",
+          "case": "修改笔记携带 OLD.version 作为 baseVersion"
+        },
+        {
+          "file": "frontend/src/lib/__tests__/mobileSyncSwitch.test.ts",
+          "case": "keeps edits queued without network traffic across reinitialization, then uploads them on enable"
+        }
+      ]
+    },
+    {
+      "id": "DCC-003",
+      "title": "断网、服务端失败或停止调度不得静默丢弃待同步修改",
+      "status": "covered",
+      "checks": [
+        {
+          "file": "backend/tests/sync-v2-engine.test.ts",
+          "case": "服务端错误时条目保留在 Outbox，重试次数增长但不删除"
+        },
+        {
+          "file": "backend/tests/sync-v2-engine.test.ts",
+          "case": "断网时进入 offline，Outbox 原样保留"
+        },
+        {
+          "file": "backend/tests/sync-v2-engine.test.ts",
+          "case": "stop 只停调度，本地数据与 Outbox 一个字不删"
+        },
+        {
+          "file": "frontend/src/lib/__tests__/mobileSyncUnexpectedFailure.test.ts",
+          "case": "captures an unexpected scheduled sync failure without advancing the cursor or dropping local changes"
+        }
+      ]
+    },
+    {
+      "id": "DCC-004",
+      "title": "冲突必须保留本机意图和服务端版本，不能静默覆盖",
+      "status": "covered",
+      "checks": [
+        {
+          "file": "backend/tests/sync-v2-engine.test.ts",
+          "case": "VERSION_CONFLICT 登记冲突台账并保留本地内容"
+        },
+        {
+          "file": "backend/tests/sync-v2-engine.test.ts",
+          "case": "远端变更不覆盖本地未推送的修改，改为登记冲突"
+        },
+        {
+          "file": "frontend/src/lib/__tests__/noteSyncSafety.test.ts",
+          "case": "keeps both local and server snapshots in a bounded conflict vault"
+        }
+      ]
+    },
+    {
+      "id": "DCC-005",
+      "title": "同步游标与 ACK 必须晚于内容校验和本地应用",
+      "status": "covered",
+      "checks": [
+        {
+          "file": "backend/tests/sync-v2-engine.test.ts",
+          "case": "Change Feed upsert 缺少 Snapshot payload 时不推进游标或 ACK"
+        },
+        {
+          "file": "backend/tests/sync-v2-engine.test.ts",
+          "case": "未知同步实体不能被跳过并推进游标或 ACK"
+        },
+        {
+          "file": "frontend/src/lib/__tests__/mobileSyncUnknownEntity.test.ts",
+          "case": "does not apply, ACK, or advance the cursor for an unknown change-feed entity"
+        }
+      ]
+    },
+    {
+      "id": "DCC-006",
+      "title": "跨账号跨服务端 Outbox 不得串用",
+      "status": "covered",
+      "checks": [
+        {
+          "file": "backend/tests/sync-v2-identity-outbox.test.ts",
+          "case": "listPendingMutations 严格按 Profile 隔离"
+        },
+        {
+          "file": "frontend/src/lib/__tests__/mobileSyncEndpoint.test.ts",
+          "case": "blocks cross-account outbox requests during session reconfiguration"
+        }
+      ]
+    },
+    {
+      "id": "DCC-007",
+      "title": "删除必须以明确的删除操作或墓碑同步",
+      "status": "covered",
+      "checks": [
+        {
+          "file": "backend/tests/sync-v2-outbox-capture.test.ts",
+          "case": "删除笔记产生 delete mutation 且带 baseVersion"
+        },
+        {
+          "file": "backend/tests/offline-workspace-sync.test.ts",
+          "case": "incremental feed returns committed updates and durable deletion tombstones"
+        }
+      ]
+    },
+    {
+      "id": "DCC-008",
+      "title": "不完整备份不可直接覆盖线上数据，失败要回滚",
+      "status": "covered",
+      "checks": [
+        {
+          "file": "backend/tests/backup-restore-integrity.test.ts",
+          "case": "attachment audit rejects local DB paths missing from full ZIP"
+        },
+        {
+          "file": "backend/tests/backup-restore-integrity.test.ts",
+          "case": "post-replace verifier failure rolls live directory contents back"
+        },
+        {
+          "file": "backend/tests/backup-restore-corrupt-hotfix.test.ts",
+          "case": "corrupt zip db.sqlite is rejected before touching current database or jwt secret"
+        }
+      ]
+    },
+    {
+      "id": "DCC-009",
+      "title": "Android Native 关闭同步后重启仍保留未发出修改",
+      "status": "covered",
+      "checks": [
+        {
+          "file": "frontend/src/lib/__tests__/mobileSyncSwitch.test.ts",
+          "case": "keeps edits queued without network traffic across reinitialization, then uploads them on enable"
+        },
+        {
+          "file": "frontend/src/lib/__tests__/mobileSyncUnexpectedFailure.test.ts",
+          "case": "handles /scopes HTTP 401 before per-scope processing without deleting local writes"
+        }
+      ]
+    },
+    {
+      "id": "DCC-010",
+      "title": "Web 离线队列失败和冲突均不得被误视为同步成功",
+      "status": "covered",
+      "checks": [
+        {
+          "file": "frontend/src/lib/__tests__/offlineQueue.test.ts",
+          "case": "keeps normal server errors retryable"
+        },
+        {
+          "file": "frontend/src/lib/__tests__/offlineQueue.test.ts",
+          "case": "preserves a permanent client failure and its local payload instead of dropping it"
+        },
+        {
+          "file": "frontend/src/lib/__tests__/noteSyncSafety.integration.test.ts",
+          "case": "preserves a stale offline edit as one pending conflict without issuing PUT"
+        }
+      ]
+    }
+  ]
+}
