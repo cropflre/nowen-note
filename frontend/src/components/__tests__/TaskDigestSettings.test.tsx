@@ -80,8 +80,9 @@ describe("Issue #819 task digest push destination management", () => {
   it("lists dedicated bindings with masked query tokens; never exposes generic hooks for deletion", async () => {
     await ready();
     expect(host.textContent).toContain("1 个专用绑定");
-    expect(host.textContent).toContain("push.example/hooks?•••");
+    expect(host.textContent).toContain("push.example/•••?•••");
     expect(host.textContent).not.toContain("SECRET_123");
+    expect(host.textContent).not.toContain("/hooks");
     expect(host.textContent).toContain("另有 1 个通用或混合事件 Webhook");
     expect(host.querySelectorAll('ul[aria-label="已绑定的任务简报推送地址"] li')).toHaveLength(1);
     expect(host.textContent).not.toContain("general.example/all");
@@ -99,7 +100,7 @@ describe("Issue #819 task digest push destination management", () => {
     expect(mocks.removeWebhook).not.toHaveBeenCalled();
     expect(mocks.addWebhook).not.toHaveBeenCalled();
     expect(host.textContent).toContain("签名密钥和事件订阅保持不变");
-    expect(host.textContent).toContain("next.example/notify");
+    expect(host.textContent).toContain("next.example/•••");
   });
 
   it("rejects invalid URL and cancels unbind without touching persistent data", async () => {

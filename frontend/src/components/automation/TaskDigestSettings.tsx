@@ -14,7 +14,7 @@ function previewDestination(rawUrl: string): string {
   try {
     const url = new URL(rawUrl);
     // Destinations may contain an authentication token in the query string.
-    return `${url.origin}${url.pathname}${url.search ? "?•••" : ""}`;
+    return `${url.origin}${url.pathname === "/" ? "" : "/•••"}${url.search ? "?•••" : ""}`;
   } catch {
     return "HTTPS Webhook";
   }
