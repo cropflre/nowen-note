@@ -41,6 +41,7 @@ import { useApp } from "@/store/AppContext";
 import AIKnowledgeScopePicker from "@/components/AIKnowledgeScopePicker";
 import PluginPromptPicker from "@/components/PluginPromptPicker";
 import { taskDigestApi } from "@/lib/taskDigestApi";
+import { parseAiTaskIntent } from "@/lib/aiTaskIntent";
 
 interface ChatReference {
   id: string;
@@ -352,38 +353,35 @@ export default function AIChatPanel({ onClose, onNavigateToNote }: {
     let stopped = false;
 
     try {
-      // 只读任务工具：直接取服务端真实统计，不让大模型猜测任务数据。
-      // 写入任务必须通过显式授权的 MCP 工具或任务中心完成。
-      const taskQuery = /(?:今天|今日).*(?:待办|任务)|(?:待办|任务).*(?:今天|今日)/.test(args.question)
-        || args.question.trim() === "/待办";
-      const createCommand = new RegExp("^/待办[ ]+创建[ ]+(.{1,300})$").exec(args.question.trim());
-      const completeCommand = new RegExp("^/待办[ ]+完成[ ]+([a-zA-Z0-9-]+)$").exec(args.question.trim());
-      if (createCommand || completeCommand) {
-        const title = createCommand ? createCommand[1].trim() : completeCommand![1];
+      // Keep task command recognition separate from translatable UI copy.
+      // Every task write still requires explicit user confirmation.
+      const taskIntent = parseAiTaskIntent(args.question);
+      if (taskIntent?.kind === "create" || taskIntent?.kind === "complete") {
+        const creating = taskIntent.kind === "create";
+        const title = creating ? taskIntent.title : taskIntent.taskId;
         const approved = await confirmDialog({
-          title: createCommand ? "确认创建个人任务" : "确认完成个人任务",
-          description: createCommand ? `新任务：${title}` : `任务 ID：${title}`,
-          confirmText: createCommand ? "创建任务" : "标记完成",
-          cancelText: "取消",
+          title: t(creating ? "aiChatTask.createTitle" : "aiChatTask.completeTitle"),
+          description: t(creating ? "aiChatTask.newTask" : "aiChatTask.taskId", { title }),
+          confirmText: t(creating ? "aiChatTask.createConfirm" : "aiChatTask.completeConfirm"),
+          cancelText: t("common.cancel"),
         });
         if (!approved) {
-          finalContent = "已取消，本次没有修改任务。";
-        } else if (createCommand) {
+          finalContent = t("aiChatTask.cancelled");
+        } else if (creating) {
           const task = await taskDigestApi.createPersonalTask(title);
-          finalContent = `已创建个人待办：**${title}**（ID：${task.id}）。`;
+          finalContent = t("aiChatTask.created", { title, id: task.id });
         } else {
           await taskDigestApi.completePersonalTask(title);
-          finalContent = `任务 \`${title}\` 已标记完成。`;
+          finalContent = t("aiChatTask.completed", { title });
         }
         setMessages((previous) => previous.map((message) =>
           message.id === args.assistantMessage.id ? { ...message, content: finalContent } : message));
-      } else if (taskQuery) {
-        const mode = /(?:完成|总结|进度|晚上|晚间)/.test(args.question) ? "evening" : "morning";
-        const digest = await taskDigestApi.preview(mode);
-        finalContent = [`### ${digest.date} · ${mode === "morning" ? "今日待办" : "今日进度"}`,
+      } else if (taskIntent?.kind === "digest") {
+        const digest = await taskDigestApi.preview(taskIntent.mode);
+        finalContent = [`### ${digest.date} · ${t(taskIntent.mode === "morning" ? "aiChatTask.todayTasks" : "aiChatTask.todayProgress")}`,
           digest.summary,
-          ...digest.tasks.map((task) => `- ${task.title}${task.dueAt ? `（${task.dueAt}）` : ""}`),
-          "数据来源：Nowen Note 个人任务（实时读取）。"].join("\n\n");
+          ...digest.tasks.map((task) => `- ${task.title}${task.dueAt ? t("aiChatTask.dueAt", { dueAt: task.dueAt }) : ""}`),
+          t("aiChatTask.dataSource")].join("\n\n");
         setMessages((previous) => previous.map((message) =>
           message.id === args.assistantMessage.id ? { ...message, content: finalContent } : message));
       } else {
