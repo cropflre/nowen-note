@@ -472,7 +472,8 @@ export function ConflictCenter({
             <div className="mt-2 flex flex-wrap gap-2">
               <button
                 type="button"
-                disabled={busy}
+                disabled={busy || (isTreeConflict(item.entityType) && (selected?.id !== item.id || !canSafelyChooseTreeSide(selected)))}
+                title={isTreeConflict(item.entityType) ? "先点击查看，只有本机和云端结构均完整才能选择" : undefined}
                 onClick={() => { void handleResolve(item.id, "keep-local"); }}
                 className="rounded border px-2 py-1 hover:bg-accent disabled:opacity-50"
               >
@@ -480,17 +481,20 @@ export function ConflictCenter({
               </button>
               <button
                 type="button"
-                disabled={busy}
+                disabled={busy || (isTreeConflict(item.entityType) && (selected?.id !== item.id || !canSafelyChooseTreeSide(selected)))}
+                title={isTreeConflict(item.entityType) ? "先点击查看，只有本机和云端结构均完整才能选择" : undefined}
                 onClick={() => { void handleResolve(item.id, "keep-remote"); }}
                 className="rounded border px-2 py-1 hover:bg-accent disabled:opacity-50"
               >
                 保留云端版本
               </button>
-              <button type="button" disabled={busy}
-                onClick={() => { void openDetail(item.id); }}
-                className="inline-flex items-center gap-1 rounded border px-2 py-1 hover:bg-accent disabled:opacity-50">
-                <Merge className="h-3.5 w-3.5" />手动合并
-              </button>
+              {!isTreeConflict(item.entityType) ? (
+                <button type="button" disabled={busy}
+                  onClick={() => { void openDetail(item.id); }}
+                  className="inline-flex items-center gap-1 rounded border px-2 py-1 hover:bg-accent disabled:opacity-50">
+                  <Merge className="h-3.5 w-3.5" />手动合并
+                </button>
+              ) : null}
               {item.entityType === "note" ? (
                 <button
                   type="button"
@@ -738,7 +742,34 @@ function ConflictDiff({
         </button>
       </div>
 
-      {encrypted ? (
+      {isTreeConflict(detail.entityType) ? (
+        <div className="mt-3 space-y-2">
+          <p role="status" className="rounded border border-amber-400/40 bg-amber-500/5 p-2 text-amber-700 dark:text-amber-300">
+            {treeConflictExplanation(detail)}
+          </p>
+          <div className="grid grid-cols-2 gap-2">
+            <p>本机结构：<strong>{detail.local ? "已存在" : "缺少/尚未同步"}</strong></p>
+            <p>云端结构：<strong>{detail.remote ? "已存在" : "缺少/尚未同步"}</strong></p>
+          </div>
+          <p className="text-muted-foreground">
+            {treeConflictAvailability(detail) === "both" ? "核对以下结构差异，再选择需要保留的版本。" : "一方缺少完整节点结构，不能将其误判为内容相同。"}
+          </p>
+          <table className="w-full table-fixed border-collapse">
+            <thead>
+              <tr className="text-left text-muted-foreground"><th className="w-1/4 py-1">结构字段</th><th className="w-[37.5%] py-1">本机</th><th className="w-[37.5%] py-1">云端</th></tr>
+            </thead>
+            <tbody>
+              {TREE_CONFLICT_FIELDS.map(([field, label]) => (
+                <tr key={field} className="border-t align-top">
+                  <td className="py-1">{label}</td>
+                  <td className="break-all py-1">{detail.local ? preview(detail.local[field]) : "尚未同步"}</td>
+                  <td className="break-all py-1">{detail.remote ? preview(detail.remote[field]) : "尚未同步"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : encrypted ? (
         <div className="mt-2 grid grid-cols-2 gap-3">
           <div><p className="font-medium">本机版本</p><p className="mt-1">{String(detail.local?.title || "加密笔记")}</p><p className="text-muted-foreground">🔒 加密内容</p></div>
           <div><p className="font-medium">云端版本</p><p className="mt-1">{String(detail.remote?.title || "加密笔记")}</p><p className="text-muted-foreground">🔒 加密内容</p></div>
@@ -768,6 +799,12 @@ function ConflictDiff({
       {detail.status === "resolved" ? (
         <p className="mt-3 border-t pt-3 text-muted-foreground">
           这是已解决冲突的历史记录。如需重新选择版本，请先点击“撤销处理”。
+        </p>
+      ) : isTreeConflict(detail.entityType) ? (
+        <p className="mt-3 border-t pt-3 text-muted-foreground">
+          知识树结构不等于笔记正文，因此不提供 JSON 拼接合并。{canSafelyChooseTreeSide(detail)
+            ? "核对父目录、排序和删除状态后，可通过上方按钮选择保留版本。"
+            : "请先检查同步状态，不要清空本机或云端数据。"}
         </p>
       ) : encrypted ? (
         <p className="mt-3 border-t pt-3 text-muted-foreground">
