@@ -69,7 +69,9 @@ describe("signed-in Android folder password access", () => {
     const remoteGet = vi.spyOn(api, "getNote").mockResolvedValue(incoming);
     const remoteUpdate = vi.spyOn(api, "updateNote").mockResolvedValue({ ...incoming, title: "updated" });
     const remoteDelete = vi.spyOn(api, "deleteNote").mockResolvedValue({ success: true });
-    const remoteDuplicate = vi.spyOn(api, "duplicateNote").mockResolvedValue({ ...incoming, id: "copy" });
+    const remoteDuplicate = vi.spyOn(api, "duplicateNote").mockResolvedValue({
+      ...incoming, id: "copy", tags: [], treeNodeId: "tree-copy", treeParentId: null,
+    });
     const { repository, authorize } = setup();
     authorize.mockImplementation(async (id: string) => ({ ...incoming, id }));
 
