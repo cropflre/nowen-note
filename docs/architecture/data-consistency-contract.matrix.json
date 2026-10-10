@@ -220,6 +220,10 @@
         {
           "file": "frontend/src/lib/__tests__/noteSyncReceipt.test.ts",
           "case": "does not treat an Electron local SQLite response as a cloud ACK"
+        },
+        {
+          "file": "frontend/src/lib/__tests__/noteSyncReceipt.test.ts",
+          "case": "does not confirm a metadata-only REST response while CRDT body is unresolved"
         }
       ]
     }

@@ -496,7 +496,7 @@ async function flushQueueInternal(fetchFn: OfflineQueueFetch): Promise<FlushResu
               ? typeof version === "number" && Number.isSafeInteger(version) && version > 0
               : Number.isFinite(baseVersion) && typeof version === "number" &&
                 Number.isSafeInteger(version) && version > baseVersion;
-            if (verified) acknowledgeRestNoteReceipt(item.noteId, receiptRevision, version);
+            if (verified) acknowledgeRestNoteReceipt(item.noteId, receiptRevision, version, typeof item.body?.content === "string");
           }
           if (removal.discarded) result.success += 1;
           continue;

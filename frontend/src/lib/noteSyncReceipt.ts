@@ -103,6 +103,10 @@ export function resolveNoteReceiptPhase(
 }
 
 /** A Native/Electron REST write may reach only local SQLite, never the cloud. */
-export function acknowledgeRestNoteReceipt(noteId: string, revision: number, serverVersion: number): boolean {
-  return !isNativeClientRuntime() && acknowledgeNoteReceipt(noteId, revision, serverVersion);
+export function acknowledgeRestNoteReceipt(
+  noteId: string, revision: number, serverVersion: number, hasContentSnapshot: boolean,
+): boolean {
+  // CRDT/metadata-only REST updates do not prove the editor body reached the cloud.
+  return hasContentSnapshot && !isNativeClientRuntime() &&
+    acknowledgeNoteReceipt(noteId, revision, serverVersion);
 }

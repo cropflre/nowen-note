@@ -361,7 +361,7 @@ export function installNoteSyncSafety(): void {
       clearOfflineNoteSnapshot(noteId);
       clearResolvedConflictArtifacts(noteId);
       rememberConfirmedNote(updated, noteId);
-      if (receiptRevision != null) acknowledgeRestNoteReceipt(noteId, receiptRevision, updated.version);
+      if (receiptRevision != null) acknowledgeRestNoteReceipt(noteId, receiptRevision, updated.version, typeof data.content === "string");
       return updated;
     } catch {
       return null;
@@ -434,7 +434,7 @@ export function installNoteSyncSafety(): void {
         if (mutationMatchesNote(fresh, data)) {
           clearResolvedConflictArtifacts(noteId);
           rememberConfirmedNote(fresh, noteId);
-          if (receiptRevision != null) acknowledgeRestNoteReceipt(noteId, receiptRevision, fresh.version);
+          if (receiptRevision != null) acknowledgeRestNoteReceipt(noteId, receiptRevision, fresh.version, typeof data.content === "string");
           return fresh;
         }
         if (previousConfirmed && noteBodiesEqual(fresh, previousConfirmed)) {
@@ -465,7 +465,7 @@ export function installNoteSyncSafety(): void {
       clearOfflineNoteSnapshot(noteId);
       clearResolvedConflictArtifacts(noteId);
       rememberConfirmedNote(updated, noteId);
-      if (receiptRevision != null) acknowledgeRestNoteReceipt(noteId, receiptRevision, updated.version);
+      if (receiptRevision != null) acknowledgeRestNoteReceipt(noteId, receiptRevision, updated.version, typeof data.content === "string");
       return updated;
     } catch (error: any) {
       if (error?.status !== 409 && error?.code !== "VERSION_CONFLICT") {
@@ -478,7 +478,7 @@ export function installNoteSyncSafety(): void {
         clearOfflineNoteSnapshot(noteId);
         clearResolvedConflictArtifacts(noteId);
         rememberConfirmedNote(fresh, noteId);
-        if (receiptRevision != null) acknowledgeRestNoteReceipt(noteId, receiptRevision, fresh.version);
+        if (receiptRevision != null) acknowledgeRestNoteReceipt(noteId, receiptRevision, fresh.version, typeof data.content === "string");
         return fresh;
       }
       if (fresh && previousConfirmed && noteBodiesEqual(fresh, previousConfirmed)) {

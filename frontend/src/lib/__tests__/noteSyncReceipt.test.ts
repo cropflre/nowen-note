@@ -36,11 +36,17 @@ describe("per-note sync receipt (browser)", () => {
     expect(resolveNoteReceiptPhase(getNoteSyncReceipt("note-a"), [])).toBe("pending");
   });
 
+  it("does not confirm a metadata-only REST response while CRDT body is unresolved", () => {
+    const revision = beginNoteReceiptWrite("crdt-note");
+    expect(acknowledgeRestNoteReceipt("crdt-note", revision, 10, false)).toBe(false);
+    expect(resolveNoteReceiptPhase(getNoteSyncReceipt("crdt-note"), [])).toBe("unverified");
+    expect(acknowledgeRestNoteReceipt("crdt-note", revision, 10, true)).toBe(true);
+  });
   it("does not treat an Electron local SQLite response as a cloud ACK", () => {
     const revision = beginNoteReceiptWrite("desktop-note");
     (window as any).nowenDesktop = { isDesktop: true };
     try {
-      expect(acknowledgeRestNoteReceipt("desktop-note", revision, 12)).toBe(false);
+      expect(acknowledgeRestNoteReceipt("desktop-note", revision, 12, true)).toBe(false);
       expect(resolveNoteReceiptPhase(getNoteSyncReceipt("desktop-note"), [])).toBe("unverified");
     } finally {
       delete (window as any).nowenDesktop;
