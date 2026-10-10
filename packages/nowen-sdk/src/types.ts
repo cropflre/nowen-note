@@ -207,15 +207,35 @@ export interface UpdateMindMapParams {
 }
 
 // ===== 日记 =====
+/**
+ * 一条说说。
+ *
+ * ⚠️ 字段对齐服务端真实返回（routes/diary.ts）：
+ *    正文在 `contentText`，媒体在 `media`（对象数组）或 `images`（id 数组），
+ *    心情在 `mood`。原来的 `date / content / weather` 都不存在。
+ */
 export interface DiaryEntry {
   id: string;
-  userId: string;
-  date: string;
-  content: string;
-  mood: string;
-  weather: string;
+  contentText: string;
+  mood?: string;
   createdAt: string;
-  updatedAt: string;
+  creatorName?: string | null;
+  /** 媒体（图片/视频），优先用它 */
+  media?: DiaryMedia[];
+  /** 兼容字段：只有图片 id 时用它 */
+  images?: string[];
+}
+
+export interface DiaryMedia {
+  id: string;
+  type?: "image" | "video" | string;
+}
+
+/** `GET /api/diary/timeline` 的返回 */
+export interface DiaryTimeline {
+  items: DiaryEntry[];
+  hasMore: boolean;
+  nextCursor: string | null;
 }
 
 // ===== AI =====

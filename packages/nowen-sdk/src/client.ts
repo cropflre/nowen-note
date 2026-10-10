@@ -10,15 +10,24 @@
  * - 系统设置
  */
 
-import type {
-  NowenConfig, Notebook, CreateNotebookParams, UpdateNotebookParams,
-  Note, NoteSummary, ListNotesParams, CreateNoteParams, UpdateNoteParams,
-  Tag, CreateTagParams,
-  Task, TaskStats, ListTasksParams, CreateTaskParams, UpdateTaskParams,
-  MindMap, CreateMindMapParams, UpdateMindMapParams,
-  AIChatParams, AIAskResult, AISettings, KnowledgeStats,
-  SearchResult, SystemSettings, ExportFormat,
-} from "./types.js";
+import type { NowenConfig, Notebook, CreateNotebookParams, UpdateNotebookParams, Note, NoteSummary, ListNotesParams, CreateNoteParams, UpdateNoteParams, Tag, CreateTagParams, Task, TaskStats, ListTasksParams, CreateTaskParams, UpdateTaskParams, MindMap, CreateMindMapParams, UpdateMindMapParams, AIChatParams, AIAskResult, AISettings, KnowledgeStats, SearchResult, SystemSettings, ExportFormat, DiaryTimeline } from "./types.js";
+
+/** 登录结果：要么直接拿到 token，要么需要两步验证 */
+export type LoginResult =
+  | { requires2FA: false; token: string }
+  | { requires2FA: true; ticket: string; username: string };
+
+/** 服务端返回的用户对象 */
+export interface AuthUser {
+  id: string;
+  username: string;
+  displayName?: string | null;
+  email?: string | null;
+  avatarUrl?: string | null;
+  role?: string;
+  isDemo?: boolean;
+  createdAt?: string;
+}
 
 export class NowenClient {
   private baseUrl: string;
@@ -33,30 +42,102 @@ export class NowenClient {
     this.username = config.username;
     this.password = config.password;
     this.timeout = config.timeout || 30000;
-    this._fetch = config.fetch || globalThis.fetch;
+    // ⚠️ 必须 bind：`globalThis.fetch` 直接取出来调用会丢失 this，
+    //    浏览器里报 "Failed to execute 'fetch' on 'Window': Illegal invocation"。
+    this._fetch = config.fetch || globalThis.fetch.bind(globalThis);
   }
 
   // ==================== 内部方法 ====================
 
-  /** 登录获取 JWT Token */
-  private async login(): Promise<void> {
+  /**
+   * 登录。
+   *
+   * 返回两种结果：
+   *   · { requires2FA: false } —— 已拿到 token，后续请求直接可用
+   *   · { requires2FA: true, ticket } —— 账号开了两步验证，
+   *     需要再调 verifyTwoFactor(ticket, code)
+   *
+   * 浏览器里请用这个公开方法（原来的实现是 private，宿主 App 只能靠构造函数
+   * 塞用户名密码，而那在浏览器里根本走不通）。
+   */
+  async login(
+    username: string = this.username,
+    password: string = this.password,
+  ): Promise<LoginResult> {
     const res = await this._fetch(`${this.baseUrl}/api/auth/login`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username: this.username, password: this.password }),
+      body: JSON.stringify({ username, password }),
       signal: AbortSignal.timeout(this.timeout),
     });
     if (!res.ok) {
       const err = await res.text();
       throw new Error(`登录失败 (${res.status}): ${err}`);
     }
-    const data = await res.json() as { token: string };
-    this.token = data.token;
+    const data = (await res.json()) as {
+      token?: string;
+      requires2FA?: boolean;
+      ticket?: string;
+      username?: string;
+    };
+    if (data.requires2FA) {
+      return {
+        requires2FA: true,
+        ticket: data.ticket || "",
+        username: data.username || username,
+      };
+    }
+    this.username = username;
+    this.password = password;
+    this.token = data.token ?? null;
+    return { requires2FA: false, token: data.token || "" };
+  }
+
+  /**
+   * 用登录返回的 ticket + 动态验证码换取 token。
+   * 支持验证器 6 位动态码，也支持一次性备用码。
+   */
+  async verifyTwoFactor(ticket: string, code: string): Promise<{ token: string }> {
+    const res = await this._fetch(`${this.baseUrl}/api/auth/2fa/verify`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ticket, code }),
+      signal: AbortSignal.timeout(this.timeout),
+    });
+    if (!res.ok) {
+      const err = await res.text();
+      throw new Error(`两步验证失败 (${res.status}): ${err}`);
+    }
+    const data = (await res.json()) as { token?: string };
+    this.token = data.token ?? null;
+    return { token: data.token || "" };
+  }
+
+  /**
+   * 写入一个已有 token（宿主 App 自己管登录态时用，例如移动端把 token
+   * 存在安全存储里、启动时直接恢复）。
+   */
+  setToken(token: string | null): void {
+    this.token = token;
+  }
+
+  /** 读当前 token（不暴露内部字段） */
+  getToken(): string | null {
+    return this.token;
   }
 
   /** 确保已认证 */
   private async ensureAuth(): Promise<void> {
-    if (!this.token) await this.login();
+    if (this.token) return;
+    // ⚠️ 没有 token 且没有可用凭据时，要**明确报错**，不要拿着构造函数里
+    //    可能是占位值的用户名密码去"悄悄登录" —— 那会把"未登录"伪装成
+    //    "网络错误 / 401"，排查方向完全被带偏。
+    if (!this.username || !this.password) {
+      throw new Error(
+        "未登录：请先调用 login() 拿到 token 并用 setToken() 写入（两步验证账号还需 verifyTwoFactor()）",
+      );
+    }
+    await this.login();
   }
 
   /** 通用 API 请求方法 */
@@ -336,8 +417,24 @@ export class NowenClient {
   // ==================== 日记 ====================
 
   /** 获取日记列表 */
-  async listDiaries(params?: { month?: string }): Promise<DiaryEntry[]> {
-    return this.request("/api/diary", { query: params });
+  /**
+   * 拉说说时间线。
+   *
+   * ⚠️ 服务端没有 `GET /api/diary` 这个列表端点（那是 POST 创建用的），
+   *    真实的时间线端点是 `GET /api/diary/timeline`，返回
+   *    `{ items, hasMore, nextCursor }` —— 原实现必 404。
+   */
+  async listDiaries(params?: {
+    cursor?: string;
+    limit?: number;
+  }): Promise<DiaryTimeline> {
+    return this.request("/api/diary/timeline", {
+      // request() 的 query 只接受字符串，数字要自己转
+      query: {
+        cursor: params?.cursor,
+        limit: params?.limit !== undefined ? String(params.limit) : undefined,
+      },
+    });
   }
 
   // ==================== 搜索 ====================
@@ -410,8 +507,14 @@ export class NowenClient {
 
   // ==================== 认证 ====================
 
-  /** 验证 Token 有效性 */
-  async verifyToken(): Promise<{ valid: boolean; userId: string; username: string }> {
+  /**
+   * 验证 Token 有效性。
+   *
+   * ⚠️ 服务端返回的是 `{ user: { id, username, displayName, ... } }`，
+   *    不是 `{ valid, userId, username }` —— 原类型会让 `info.valid` 恒为
+   *    undefined，宿主一律判成"会话已失效"（真实项目里踩到过）。
+   */
+  async verifyToken(): Promise<{ user: AuthUser }> {
     return this.request("/api/auth/verify");
   }
 
