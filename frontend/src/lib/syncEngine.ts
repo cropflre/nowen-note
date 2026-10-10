@@ -12,7 +12,6 @@ import {
   getAllNotes,
   getAllNotebooks,
   getAllTags,
-  deleteNote,
   deleteNotebook,
   deleteTag,
   isReady as localStoreReady,
