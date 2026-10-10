@@ -1,5 +1,5 @@
 -- Private storage permit parity only; no PostgreSQL conversion product/API runtime.
-CREATE TABLE encrypted_note_conversion_permits (
+CREATE TABLE IF NOT EXISTS encrypted_note_conversion_permits (
   "noteId" TEXT PRIMARY KEY REFERENCES notes(id) ON DELETE CASCADE,
   "sourceVersion" INTEGER NOT NULL,
   "sourceFormat" TEXT NOT NULL CHECK ("sourceFormat" IN ('markdown', 'tiptap-json')),
@@ -40,6 +40,7 @@ DECLARE table_name TEXT;
 BEGIN
   FOREACH table_name IN ARRAY ARRAY['note_block_operations', 'block_operations', 'note_block_attachment_refs', 'yjs_operation_receipts', 'embedding_queue', 'note_import_origins'] LOOP
     IF to_regclass(table_name) IS NOT NULL THEN
+      EXECUTE format('DROP TRIGGER IF EXISTS encrypted_conversion_derived_write ON %I', table_name);
       EXECUTE format('CREATE TRIGGER encrypted_conversion_derived_write BEFORE INSERT OR UPDATE ON %I FOR EACH ROW EXECUTE FUNCTION nowen_guard_encrypted_derived_content()', table_name);
     END IF;
   END LOOP;

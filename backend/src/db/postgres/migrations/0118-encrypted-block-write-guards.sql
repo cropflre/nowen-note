@@ -1,6 +1,6 @@
 -- No PostgreSQL product runtime is enabled here; current writers must grant and
 -- consume an exact target in one transaction. txid prevents a leaked permit reuse.
-CREATE TABLE encrypted_block_write_permits (
+CREATE TABLE IF NOT EXISTS encrypted_block_write_permits (
   "noteId" TEXT PRIMARY KEY,
   content TEXT NOT NULL,
   "contentFormat" TEXT NOT NULL,
@@ -17,5 +17,6 @@ BEGIN
   END IF;
   RETURN NEW;
 END $$;
+DROP TRIGGER IF EXISTS encrypted_blocks_update ON notes;
 CREATE TRIGGER encrypted_blocks_update BEFORE UPDATE OF content, "contentFormat" ON notes
   FOR EACH ROW EXECUTE FUNCTION nowen_guard_encrypted_block_write();
