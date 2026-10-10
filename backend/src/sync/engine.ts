@@ -21,12 +21,13 @@ import {
 import {
   countPendingMutations,
   listPendingMutations,
+  listPendingMutationBatch,
   markMutationFailed,
   markMutationInflight,
   markMutationSynced,
   recoverInflightMutations,
 } from "./outbox";
-import { coalesceMutations, markLocalMutationApplied } from "./push";
+import { acknowledgeNotePush, coalesceMutations, markLocalMutationApplied } from "./push";
 import { applyRemoteChanges } from "./applyLocal";
 import type { RemoteEntityPayload } from "./applyLocal";
 import { countUnresolvedConflicts, recordConflict } from "./conflict";
@@ -493,7 +494,7 @@ export class SyncEngine {
     this.phase = "pushing";
     const subscription = this.treeSubscription(scope.scopeKey);
 
-    const rows = listPendingMutations(
+    const rows = listPendingMutationBatch(
       this.db,
       SYNC_PUSH_MAX_MUTATIONS,
       this.profileId,
@@ -529,15 +530,23 @@ export class SyncEngine {
     this.lastPushAt = new Date().toISOString();
 
     const bySupersede = new Map(batch.map((m) => [m.mutationId, m.supersededIds]));
+    const byMutation = new Map(batch.map((m) => [m.mutationId, m]));
 
     for (const result of response.results) {
       const superseded = bySupersede.get(result.mutationId) || [];
 
       if (result.status === "applied" || result.status === "duplicate") {
         // 出队：这是唯一允许删除 Outbox 条目的路径。
-        markLocalMutationApplied(this.db, result.mutationId, this.deviceId);
-        markMutationSynced(this.db, result.mutationId);
-        for (const id of superseded) markMutationSynced(this.db, id);
+        this.db.transaction(() => {
+          markLocalMutationApplied(this.db, result.mutationId, this.deviceId);
+          markMutationSynced(this.db, result.mutationId);
+          for (const id of superseded) markMutationSynced(this.db, id);
+          const mutation = byMutation.get(result.mutationId);
+          if (mutation) acknowledgeNotePush(
+            this.db, mutation, result.version, this.profileId, scope.scopeKey,
+            this.userId, scope.workspaceId,
+          );
+        })();
         continue;
       }
 

@@ -167,6 +167,30 @@ export function listPendingMutations(
   `).all(profileId, limit) as SyncOutboxRow[];
 }
 
+/** Push limits entities after coalescing, so an imported entity's finalization cannot be split off. */
+export function listPendingMutationBatch(
+  db: Database.Database,
+  limit: number,
+  profileId: string,
+  scopeKey: string,
+  includeKnowledgeTree: boolean,
+): SyncOutboxRow[] {
+  const treeFilter = includeKnowledgeTree ? "" : "AND entityType <> 'knowledge_tree_node'";
+  return db.prepare(`
+    WITH entities AS (
+      SELECT entityType, entityId FROM sync_outbox
+      WHERE profileId = ? AND scopeKey = ? AND status IN ('pending', 'failed')
+        ${treeFilter}
+      GROUP BY entityType, entityId
+      ORDER BY MIN(createdAt), MIN(rowid) LIMIT ?
+    )
+    SELECT * FROM sync_outbox
+    WHERE profileId = ? AND scopeKey = ? AND status IN ('pending', 'failed')
+      AND (entityType, entityId) IN (SELECT entityType, entityId FROM entities)
+    ORDER BY createdAt ASC, rowid ASC
+  `).all(profileId, scopeKey, limit, profileId, scopeKey) as SyncOutboxRow[];
+}
+
 /** 统计待同步条目，供设置页诊断信息展示。 */
 export function countPendingMutations(
   db: Database.Database,
