@@ -59,8 +59,10 @@ describe("PR #821 Android receipt ACK and in-flight pull regressions", () => {
     await engine.push(scope);
     const ack = run.mock.calls.find(([sql]) => String(sql).includes("INSERT INTO native_runtime_meta (key,value"));
     expect(ack).toBeTruthy();
-    expect(ack![1][0]).toBe(nativeReceiptKey("profile","note-a"));
-    expect(JSON.parse(String(ack![1][1]))).toEqual({ mutationId: "mutation-1", serverVersion: 4 });
+    const ackValues = ack?.[1] as unknown[] | undefined;
+    expect(ackValues).toBeDefined();
+    expect(ackValues?.[0]).toBe(nativeReceiptKey("profile","note-a"));
+    expect(JSON.parse(String(ackValues?.[1]))).toEqual({ mutationId: "mutation-1", serverVersion: 4 });
     expect(run.mock.calls.some(([sql]) => String(sql).includes("DELETE FROM sync_outbox WHERE mutationId"))).toBe(true);
     }
   });
@@ -81,7 +83,8 @@ describe("PR #821 Android receipt ACK and in-flight pull regressions", () => {
     expect(run.mock.calls.filter(([sql]) => String(sql).includes("INSERT INTO native_runtime_meta (key,value"))).toHaveLength(0);
     const conflict = run.mock.calls.find(([sql]) => String(sql).includes("INSERT INTO sync_conflicts"));
     expect(conflict).toBeTruthy();
-    expect(conflict![1][6]).toBe(21);
+    const conflictValues = conflict?.[1] as unknown[] | undefined;
+    expect(conflictValues?.[6]).toBe(21);
   });
 
   it("ignores only the known own ACK echo with a newer queued edit, without overwriting local", async () => {
