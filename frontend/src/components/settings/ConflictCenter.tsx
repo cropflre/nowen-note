@@ -128,6 +128,18 @@ export function ConflictCenter({
     setNotice(null);
     setWarning(null);
     try {
+      const target = items.find((item) => item.id === id);
+      if (target && isTreeConflict(target.entityType)) {
+        const detail = selected?.id === id ? selected : await fetchConflictDetail(id);
+        if (!canSafelyChooseTreeSide(detail)) {
+          setSelected(detail);
+          setDetailError({
+            id,
+            message: "只有单边知识树结构，无法安全采用版本。请先检查对应业务资源和同步诊断。",
+          });
+          return;
+        }
+      }
       await resolveConflict(id, { resolution, deviceId: deviceId ?? undefined });
       setSelected(null);
       await reload();
@@ -186,7 +198,12 @@ export function ConflictCenter({
   };
 
   const handleBulkResolve = async (resolution: "keep-local" | "keep-remote") => {
-    const targets = items.filter((item) => selectedIds.has(item.id));
+    const selectedTargets = items.filter((item) => selectedIds.has(item.id));
+    const excludedTree = selectedTargets.filter((item) => isTreeConflict(item.entityType)).length;
+    const targets = selectedTargets.filter((item) => !isTreeConflict(item.entityType));
+    if (excludedTree) {
+      setWarning("已跳过 " + excludedTree + " 条知识树结构冲突：须先核对节点及业务资源，不支持一键覆盖。");
+    }
     if (targets.length === 0) return;
 
     const sourceLabel = resolution === "keep-local" ? "本机" : "云端";
@@ -198,7 +215,7 @@ export function ConflictCenter({
     setBusy(true);
     setError(null);
     setNotice(null);
-    setWarning(null);
+    if (!excludedTree) setWarning(null);
     const failed: string[] = [];
     let resolvedCount = 0;
 
@@ -231,7 +248,12 @@ export function ConflictCenter({
   };
 
   const handleAutomaticMerge = async () => {
-    const targets = items.filter((item) => selectedIds.has(item.id));
+    const selectedTargets = items.filter((item) => selectedIds.has(item.id));
+    const excludedTree = selectedTargets.filter((item) => isTreeConflict(item.entityType)).length;
+    const targets = selectedTargets.filter((item) => !isTreeConflict(item.entityType));
+    if (excludedTree) {
+      setWarning("已跳过 " + excludedTree + " 条知识树结构冲突：不能通过自动合并普通字段来重建目录结构。");
+    }
     if (targets.length === 0) return;
 
     const confirmed = window.confirm(
@@ -242,7 +264,7 @@ export function ConflictCenter({
     setBusy(true);
     setError(null);
     setNotice(null);
-    setWarning(null);
+    if (!excludedTree) setWarning(null);
     const blocked: string[] = [];
     const failed: string[] = [];
     let mergedCount = 0;
@@ -284,7 +306,7 @@ export function ConflictCenter({
       if (blocked.length > 0) {
         const sample = blocked.slice(0, 3).join("；");
         const more = blocked.length > 3 ? `；另有 ${blocked.length - 3} 条` : "";
-        setWarning(`已智能合并 ${mergedCount} 条，${blocked.length} 条仍需手动处理：${sample}${more}`);
+        setWarning(`已智能合并 ${mergedCount} 条，${blocked.length} 条仍需手动处理：${sample}${more}${excludedTree ? `；另有 ${excludedTree} 条知识树结构冲突被安全跳过` : ""}`);
       } else if (failed.length === 0) {
         setNotice(`已智能合并 ${mergedCount} 条冲突。`);
       }
