@@ -1,4 +1,5 @@
-﻿import { Hono } from "hono";
+﻿import { aiOutboundFetch } from "../services/ai-outbound-fetch.js";
+import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import { getDb } from "../db/schema";
 import {
@@ -247,7 +248,7 @@ ai.post("/test", async (c) => {
     if (settings.ai_provider === "ollama" && /405|Method Not Allowed/i.test(msg)) {
       const ollamaBase = settings.ai_api_url.replace(/\/+$/, "").replace(/\/v1$/, "");
       try {
-        const fallbackRes = await fetch(`${ollamaBase}/api/tags`, {
+        const fallbackRes = await aiOutboundFetch(`${ollamaBase}/api/tags`, {
           method: "GET",
           signal: AbortSignal.timeout(10000),
         });
@@ -277,7 +278,7 @@ ai.get("/models", async (c) => {
       headers["Authorization"] = `Bearer ${settings.ai_api_key}`;
     }
 
-    const res = await fetch(`${settings.ai_api_url.replace(/\/+$/, "")}/models`, {
+    const res = await aiOutboundFetch(`${settings.ai_api_url.replace(/\/+$/, "")}/models`, {
       headers,
       signal: AbortSignal.timeout(10000),
     });
@@ -843,7 +844,7 @@ ai.post("/parse-document", async (c) => {
     }
 
     const baseUrl = settings.ai_api_url.replace(/\/+$/, "");
-    const res = await fetch(`${baseUrl}/chat/completions`, {
+    const res = await aiOutboundFetch(`${baseUrl}/chat/completions`, {
       method: "POST",
       headers,
       body: JSON.stringify({
@@ -1123,7 +1124,7 @@ Rules: be concise, neutral, faithful to source. If source is unusable, return em
       reqBody.response_format = { type: "json_object" };
     }
 
-    const res = await fetch(`${baseUrl}/chat/completions`, {
+    const res = await aiOutboundFetch(`${baseUrl}/chat/completions`, {
       method: "POST",
       headers: aiHeaders,
       body: JSON.stringify(reqBody),
@@ -1282,7 +1283,7 @@ ai.post("/batch-format", async (c) => {
       }
 
       const batchBaseUrl = settings.ai_api_url.replace(/\/+$/, "");
-      const res = await fetch(`${batchBaseUrl}/chat/completions`, {
+      const res = await aiOutboundFetch(`${batchBaseUrl}/chat/completions`, {
         method: "POST",
         headers: aiHeaders,
         body: JSON.stringify({
@@ -1469,7 +1470,7 @@ ai.post("/import-to-knowledge", async (c) => {
         if (settings.ai_api_url && (NO_KEY_PROVIDERS.includes(settings.ai_provider) || settings.ai_api_key)) {
           try {
             const importBaseUrl = settings.ai_api_url.replace(/\/+$/, "");
-            const res = await fetch(`${importBaseUrl}/chat/completions`, {
+            const res = await aiOutboundFetch(`${importBaseUrl}/chat/completions`, {
               method: "POST",
               headers: aiHeaders,
               body: JSON.stringify({
@@ -2348,7 +2349,7 @@ ai.post("/classify", async (c) => {
   }
 
   try {
-    const res = await fetch(`${baseUrl}/chat/completions`, {
+    const res = await aiOutboundFetch(`${baseUrl}/chat/completions`, {
       method: "POST",
       headers,
       body: JSON.stringify({

@@ -1,3 +1,4 @@
+import { aiOutboundFetch } from "./ai-outbound-fetch.js";
 /**
  * Embedding Worker — RAG Phase 1
  *
@@ -117,7 +118,7 @@ async function callEmbeddings(
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   if (cfg.apiKey) headers["Authorization"] = `Bearer ${cfg.apiKey}`;
 
-  const res = await fetch(`${cfg.url}/embeddings`, {
+  const res = await aiOutboundFetch(`${cfg.url}/embeddings`, {
     method: "POST",
     headers,
     body: JSON.stringify({ model: cfg.model, input: inputs }),

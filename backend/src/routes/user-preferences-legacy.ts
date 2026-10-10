@@ -1,3 +1,4 @@
+import { aiOutboundFetch } from "../services/ai-outbound-fetch.js";
 import { randomUUID } from "node:crypto";
 import { Hono } from "hono";
 import { getDb } from "../db/schema";
@@ -388,7 +389,7 @@ app.post("/ai-profiles/discover-models", async (c) => {
   const failures: string[] = [];
   for (const endpoint of Array.from(new Set(candidates))) {
     try {
-      const response = await fetch(endpoint, { headers, signal: AbortSignal.timeout(12_000) });
+      const response = await aiOutboundFetch(endpoint, { headers, signal: AbortSignal.timeout(12_000) });
       if (!response.ok) {
         const detail = await response.text().catch(() => "");
         failures.push(`${response.status} ${detail.slice(0, 160)}`.trim());

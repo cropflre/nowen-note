@@ -1,3 +1,4 @@
+import { aiOutboundFetch } from "./ai-outbound-fetch.js";
 /**
  * AI Client 适配层
  *
@@ -176,7 +177,7 @@ export async function callAIChat(
   if (options.temperature !== undefined) body.temperature = options.temperature;
   if (options.max_tokens !== undefined) body.max_tokens = options.max_tokens;
 
-  const res = await fetch(`${baseUrl}/chat/completions`, {
+  const res = await aiOutboundFetch(`${baseUrl}/chat/completions`, {
     method: "POST",
     headers,
     body: JSON.stringify(body),
@@ -217,7 +218,7 @@ export async function* callAIChatStream(
   if (options.temperature !== undefined) body.temperature = options.temperature;
   if (options.max_tokens !== undefined) body.max_tokens = options.max_tokens;
 
-  const res = await fetch(`${baseUrl}/chat/completions`, {
+  const res = await aiOutboundFetch(`${baseUrl}/chat/completions`, {
     method: "POST",
     headers,
     body: JSON.stringify(body),
