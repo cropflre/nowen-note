@@ -392,4 +392,84 @@ describe("冲突中心批量处理", () => {
       entityType: "task",
     });
   });
+  it("知识树 28 条基线冲突可就地查看，单边数据不允许批量覆盖或手动合并", async () => {
+    const treeItems = Array.from({ length: 28 }, (_, i) => ({
+      id: "tree-conflict-" + i,
+      entityType: "knowledge_tree_node",
+      entityId: "notebook:folder-" + i,
+      localVersion: null, remoteVersion: null,
+      localTitle: null, remoteTitle: null,
+      diffFields: [],
+      createdAt: "2026-10-10T03:00:00.000Z",
+    }));
+    fetchConflictsMock.mockResolvedValue({ total: 28, items: treeItems });
+    fetchConflictDetailMock.mockResolvedValue({
+      ...treeItems[0],
+      status: "unresolved", resolvedAt: null, base: null,
+      local: {
+        id: treeItems[0].entityId,
+        resourceType: "notebook", resourceId: "folder-0",
+        nodeType: "folder", parentId: null, sortOrder: 5, isDeleted: 0, deletedAt: null,
+      },
+      remote: null,
+    });
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    root = createRoot(host);
+    await act(async () => { root?.render(<ConflictCenter deviceId="tree-device" />); });
+    await waitFor(() => expect(host.textContent).toContain("冲突（28）"));
+
+    const cards = [...host.querySelectorAll("li")].filter((el) => el.textContent?.includes("知识树结构差异"));
+    expect(cards).toHaveLength(28);
+    expect(cards[0].textContent).toContain("不代表正文冲突");
+    const view = [...cards[0].querySelectorAll("button")].find((b) => b.textContent === "查看");
+    expect(view).toBeDefined();
+    await act(async () => { view?.click(); });
+    await waitFor(() => expect(cards[0].textContent).toContain("仅本机有此知识树节点"));
+    expect(cards[0].querySelector('[data-conflict-detail-id="tree-conflict-0"]')).not.toBeNull();
+    expect(cards[0].textContent).toContain("云端结构：");
+    expect(cards[0].textContent).toContain("父目录");
+    expect(cards[0].textContent).not.toContain("两侧内容一致");
+    expect(cards[0].textContent).not.toContain("手动编辑并合并");
+    const buttons = [...cards[0].querySelectorAll("button")];
+    expect(buttons.find((b) => b.textContent === "保留本机版本")?.disabled).toBe(true);
+    expect(buttons.find((b) => b.textContent === "保留云端版本")?.disabled).toBe(true);
+    expect(buttons.find((b) => b.textContent?.includes("手动合并"))).toBeUndefined();
+    await act(async () => { host.querySelector<HTMLInputElement>('[aria-label="全选冲突"]')?.click(); });
+    const bulk = [...host.querySelectorAll("button")].find((b) => b.textContent === "一键采用本机");
+    await act(async () => { bulk?.click(); });
+    expect(resolveConflictMock).not.toHaveBeenCalled();
+    expect(host.textContent).toContain("已跳过 28 条知识树结构冲突");
+    const smart = [...host.querySelectorAll("button")].find((b) => b.textContent?.includes("智能合并选中项"));
+    await act(async () => { smart?.click(); });
+    expect(resolveConflictMock).not.toHaveBeenCalled();
+  });
+
+  it("知识树双方完整时显示结构字段，查看加载失败时在原卡片展示错误", async () => {
+    const item = {
+      id: "tree-both", entityType: "knowledge_tree_node", entityId: "note:n123",
+      localVersion: null, remoteVersion: null, diffFields: ["parentId"],
+      localTitle: null, remoteTitle: null, createdAt: "2026-10-10T03:00:00.000Z",
+    };
+    fetchConflictsMock.mockResolvedValue({ total: 1, items: [item] });
+    fetchConflictDetailMock.mockRejectedValueOnce(new Error("详情暂时不可用")).mockResolvedValue({
+      ...item, status: "unresolved", resolvedAt: null, base: null,
+      local: { resourceType: "note", resourceId: "n123", parentId: "folder-a", sortOrder: 0, isDeleted: 0 },
+      remote: { resourceType: "note", resourceId: "n123", parentId: "folder-b", sortOrder: 0, isDeleted: 0 },
+    });
+    const host = document.createElement("div");
+    document.body.appendChild(host); root = createRoot(host);
+    await act(async () => { root?.render(<ConflictCenter deviceId="tree-device" />); });
+    await waitFor(() => expect(host.textContent).toContain("冲突（1）"));
+    const card = host.querySelector("li")!;
+    const view = () => [...card.querySelectorAll("button")].find((b) => b.textContent === "查看")!;
+    await act(async () => { view()?.click(); });
+    await waitFor(() => expect(card.querySelector('[role="alert"]')?.textContent).toContain("详情暂时不可用"));
+    expect(card.querySelector('[data-conflict-detail-id="tree-both"]')).toBeNull();
+    await act(async () => { view()?.click(); });
+    await waitFor(() => expect(card.textContent).toContain("folder-a"));
+    expect(card.textContent).toContain("folder-b");
+    expect([...card.querySelectorAll("button")].find((b) => b.textContent === "保留本机版本")?.disabled).toBe(false);
+  });
+
 });
