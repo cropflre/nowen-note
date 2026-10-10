@@ -37,7 +37,7 @@
     "sanitize-html": "^2.17.5",
     "sharp": "^0.33.5",
     "sqlite-vec": "^0.1.9",
-    "undici": "6.21.3",
+    "undici": "6.28.1",
     "unpdf": "^1.6.2",
     "unzipper": "^0.12.3",
     "uuid": "^11.0.5",
