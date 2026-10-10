@@ -98,6 +98,25 @@ describe("share password copy UI", () => {
     expect(mocks.copy).toHaveBeenCalledWith("https://notes.example.com/share/secret-link-token");
   });
 
+  it("copies the newly reset password, never the unknown historical password", async () => {
+    rows = [baseShare];
+    await render();
+    await click(buttonContaining("shareUi.resetPasswordToCopy"));
+    const field = host.querySelector('input[type="password"]') as HTMLInputElement;
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+    await act(async () => {
+      setter.call(field, "newPass456");
+      field.dispatchEvent(new Event("input", { bubbles:true }));
+    });
+    await click(buttonContaining("shareUi.saveSettings"));
+    expect(mocks.update).toHaveBeenCalledWith("share-1",
+      expect.objectContaining({ password:"newPass456" }));
+    await click(buttonContaining("shareUi.copyWithPassword"));
+    expect(mocks.copy).toHaveBeenLastCalledWith(expect.stringContaining(
+      "shareUi.copyPasswordLabelnewPass456",
+    ));
+  });
+
   it("offers one-click link and password only after successful creation; loses it on reopen", async () => {
     await render();
     const pw = host.querySelector('input[type="password"]') as HTMLInputElement;
