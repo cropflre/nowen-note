@@ -2,6 +2,7 @@ import type { NativeDatabase } from "./nativeDatabase";
 import type { NativeAttachmentStore } from "./nativeAttachmentStore";
 import { newLocalId } from "./localRepository";
 import { getResolvedApiBaseUrl } from "./serverUrl";
+import { fetchWithAuthRefresh, getAccessToken } from "./authSession";
 import { SERVER_ENDPOINT_CHANGED_EVENT } from "./serverEndpointState";
 import { forgetUnsentLocalNotes } from "./nativeLocalNoteOrigin";
 import { notifyMobileSyncStatusChanged } from "./mobileSyncStatus";
@@ -175,8 +176,20 @@ export class MobileSyncEngine {
         }
       }
     } catch (error) {
-      // 切网失败保留本地库和待传队列，等待选路/网络恢复后重试。
-      if (!this.syncAbort.signal.aborted && (error as { code?: string }).code !== "NETWORK_UNAVAILABLE") throw error;
+      if (this.stopped || this.syncAbort.signal.aborted) return;
+      // The first /scopes request happens outside the per-scope error handler.
+      // Report an expired login rather than silently leaving Native SQLite stale.
+      if ((error as { code?: string })?.code === "AUTH_EXPIRED") {
+        await this.options.db.run(
+          "UPDATE sync_profiles SET authStatus='auth_required',updatedAt=? WHERE id=?",
+          [now(), this.options.profileId],
+        );
+        this.options.onAuthRequired?.();
+        notifyMobileSyncStatusChanged();
+        return;
+      }
+      // Proxy and network errors must not discard local notes or pending writes.
+      if ((error as { code?: string })?.code !== "NETWORK_UNAVAILABLE") throw error;
     } finally {
       this.running = false;
       this.syncAbort = null;
@@ -253,6 +266,11 @@ export class MobileSyncEngine {
   private async fetchResponse(path: string, init: RequestInit = {}): Promise<Response> {
     const syncSignal = this.syncAbort?.signal;
     syncSignal?.throwIfAborted();
+    // Never send this native profile's queued writes under another login.
+    const activeToken = getAccessToken();
+    if (activeToken && activeToken !== this.options.token) {
+      throw syncFailure("AUTH_SESSION_CHANGED", "登录状态已更新，等待同步引擎重新初始化");
+    }
     const controller = new AbortController();
     const cancel = () => controller.abort();
     const endpointChanged = (event: Event) => {
@@ -271,7 +289,10 @@ export class MobileSyncEngine {
     try {
       // Capacitor 的原生 POST/PUT fetch 不消费 AbortSignal；仍须释放同步循环，
       // 迟到的响应不再写本地状态，下一轮沿用原 mutationId/附件 ID 安全重试。
-      return await Promise.race([aborted, fetch(`${getResolvedApiBaseUrl(this.options.serverUrl)}/sync/v2${path}`, {
+      // Sync V2 and regular notes must share the same authenticated refresh
+      // and NodeBao reverse-proxy path resolution.
+      const apiBaseUrl = getResolvedApiBaseUrl(this.options.serverUrl);
+      return await Promise.race([aborted, fetchWithAuthRefresh(`${apiBaseUrl}/sync/v2${path}`, {
         ...init,
         signal: controller.signal,
         headers: {
@@ -279,7 +300,7 @@ export class MobileSyncEngine {
           ...(init.body ? { "Content-Type": "application/json" } : {}),
           ...(init.headers || {}),
         },
-      })]);
+      }, apiBaseUrl, fetch)]);
     } catch (cause) {
       if (!syncSignal?.aborted) this.options.onNetworkUnavailable?.();
       throw Object.assign(new Error("网络不可用", { cause }), { code: "NETWORK_UNAVAILABLE" });
@@ -296,8 +317,9 @@ export class MobileSyncEngine {
     const response = await this.fetchResponse(path, init);
     if (!response.ok) {
       const payload = await response.json().catch(() => ({})) as { code?: string; error?: string };
-      const code = payload.code || (response.status === 401 ? "AUTH_EXPIRED" : "SERVER_ERROR");
-      throw Object.assign(new Error(payload.error || code), { code });
+      // A reverse proxy may use a different JSON error code for HTTP 401.
+      const code = response.status === 401 ? "AUTH_EXPIRED" : (payload.code || "SERVER_ERROR");
+      throw Object.assign(new Error(payload.error || code), { code, status: response.status });
     }
     return await response.json() as T;
   }

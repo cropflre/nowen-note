@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MobileSyncEngine } from "../mobileSyncEngine";
 import { setServerTransportEndpoint } from "../serverEndpointState";
+import { buildServerPathCandidates, cacheResolvedServerConnection, clearResolvedServerConnection } from "../serverUrl";
 
 const url = "https://notes.example.com";
 const lan = "http://192.168.1.10:3001";
@@ -12,9 +13,55 @@ function createEngine(options: { beforeSync?: () => Promise<void>; onNetworkUnav
   return { engine, internal, db };
 }
 beforeEach(() => { localStorage.clear(); sessionStorage.clear(); });
-afterEach(() => { setServerTransportEndpoint(url, url); vi.unstubAllGlobals(); vi.useRealTimers(); });
+afterEach(() => {
+  setServerTransportEndpoint(url, url);
+  clearResolvedServerConnection();
+  vi.unstubAllGlobals();
+  vi.useRealTimers();
+});
 
 describe("mobile sync transport rerouting", () => {
+  it("renews the expired sync token through the same NodeBao proxy API prefix", async () => {
+    const proxy = "https://nodebao.example.net/user:3001";
+    const connection = buildServerPathCandidates(proxy).find((candidate) => candidate.mode === "public-concat")!;
+    cacheResolvedServerConnection(connection);
+    localStorage.setItem("nowen-token", "same-token");
+    localStorage.setItem("nowen-refresh-token", "refresh-token");
+    const requests: Array<{ url: string; auth: string | null }> = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: string, init: RequestInit = {}) => {
+      const auth = new Headers(init.headers).get("Authorization");
+      requests.push({ url: String(input), auth });
+      if (String(input).endsWith("/auth/refresh")) {
+        return new Response(JSON.stringify({ token: "new-token" }), { status: 200 });
+      }
+      if (auth === "Bearer same-token") {
+        return new Response(JSON.stringify({ error: "expired" }), { status: 401 });
+      }
+      return new Response(JSON.stringify({ items: [] }), { status: 200 });
+    }));
+    const db = { query: vi.fn(), run: vi.fn(), transaction: vi.fn() };
+    const engine = new MobileSyncEngine({
+      db: db as never, attachments: {} as never, serverUrl: proxy,
+      token: "same-token", userId: "alice", profileId: "profile", deviceId: "device",
+    });
+    const internal = engine as unknown as { request: (path: string) => Promise<unknown> };
+    expect(await internal.request("/scopes")).toEqual({ items: [] });
+    expect(requests).toEqual([
+      { url: `${connection.apiBaseUrl}/sync/v2/scopes`, auth: "Bearer same-token" },
+      { url: `${connection.apiBaseUrl}/auth/refresh`, auth: null },
+      { url: `${connection.apiBaseUrl}/sync/v2/scopes`, auth: "Bearer new-token" },
+    ]);
+    expect(localStorage.getItem("nowen-token")).toBe("new-token");
+  });
+
+  it("blocks cross-account outbox requests during session reconfiguration", async () => {
+    const { internal } = createEngine();
+    localStorage.setItem("nowen-token", "different-user");
+    const mock = vi.fn(); vi.stubGlobal("fetch", mock);
+    await expect(internal.request("/scopes")).rejects.toMatchObject({ code: "AUTH_SESSION_CHANGED" });
+    expect(mock).not.toHaveBeenCalled();
+  });
+
   it("releases sync even if native POST ignores AbortSignal and returns a late response", async () => {
     vi.useFakeTimers();
     const { internal } = createEngine();
