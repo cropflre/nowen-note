@@ -10,6 +10,7 @@ import {
 } from "@/lib/offlineRead";
 import { dequeue, enqueue, getQueue, updateItem } from "@/lib/offlineQueue";
 import { saveDraft } from "@/lib/draftStorage";
+import { beginNoteReceiptWrite, acknowledgeNoteReceipt, markNoteReceiptPending, markNoteReceiptError } from "@/lib/noteSyncReceipt";
 
 const INSTALL_KEY = "__NOWEN_NOTE_SYNC_SAFETY_V1__" as const;
 const CONFLICT_STORAGE_KEY = "nowen-note-sync-conflicts:v1";
@@ -282,6 +283,7 @@ function preserveConflict(
   persistLocalDraft(noteId, data, baseVersion, { serverVersion: record.serverVersion });
   upsertConflictQueueItem(noteId, data, record.serverVersion);
   recordNoteSyncConflict(record);
+  markNoteReceiptPending(noteId, null, true);
   return record;
 }
 
@@ -341,14 +343,16 @@ export function installNoteSyncSafety(): void {
     baseVersion: number,
     server: Note,
     conflict: boolean,
+    receiptRevision?: number | null,
   ): PendingNote {
+    markNoteReceiptPending(noteId, receiptRevision, conflict);
     persistLocalDraft(noteId, data, baseVersion, conflict ? { serverVersion: server.version } : undefined);
     restorePendingDraft(noteId, data, baseVersion, conflict, server.version);
     dispatchPending(noteId, baseVersion, { conflict, serverVersion: server.version });
     return makePendingNote(server, data);
   }
 
-  async function retryOnFreshVersion(noteId: string, data: NoteMutation, fresh: Note): Promise<Note | null> {
+  async function retryOnFreshVersion(noteId: string, data: NoteMutation, fresh: Note, receiptRevision?: number | null): Promise<Note | null> {
     try {
       const updated = await originalUpdateNote(noteId, { ...data, version: fresh.version } as Partial<Note>);
       if (!isCompleteNote(updated, noteId) || !isServerConfirmedNoteWrite(fresh.version, updated.version)) {
@@ -357,6 +361,7 @@ export function installNoteSyncSafety(): void {
       clearOfflineNoteSnapshot(noteId);
       clearResolvedConflictArtifacts(noteId);
       rememberConfirmedNote(updated, noteId);
+      if (receiptRevision != null) acknowledgeNoteReceipt(noteId, receiptRevision, updated.version);
       return updated;
     } catch {
       return null;
@@ -382,6 +387,8 @@ export function installNoteSyncSafety(): void {
       );
     }
 
+    const receiptRevision = versioned ? beginNoteReceiptWrite(noteId) : null;
+
     if (versioned && !resolvingNoteIds.has(noteId) && hasPendingNoteSyncConflict(noteId)) {
       let server = confirmedNotes.get(noteId) || null;
       if (!server) {
@@ -398,7 +405,7 @@ export function installNoteSyncSafety(): void {
       if (!server) {
         throw syncError("REMOTE_BASE_UNVERIFIED", "无法确认服务端最新版本，已保留本地草稿并阻止覆盖。");
       }
-      return completePendingResponse(noteId, data, baseVersion, server, true);
+      return completePendingResponse(noteId, data, baseVersion, server, true, receiptRevision);
     }
 
     if (versioned) persistLocalDraft(noteId, data, baseVersion);
@@ -409,13 +416,13 @@ export function installNoteSyncSafety(): void {
       const fresh = await fetchCurrentServerNote(noteId);
       if (!fresh) {
         preserveConflict(noteId, data, baseVersion, previousConfirmed, "REMOTE_BASE_UNVERIFIED");
-        if (previousConfirmed) return completePendingResponse(noteId, data, baseVersion, previousConfirmed, true);
+        if (previousConfirmed) return completePendingResponse(noteId, data, baseVersion, previousConfirmed, true, receiptRevision);
         throw syncError("REMOTE_BASE_UNVERIFIED", "无法确认服务端最新版本，已保留本地草稿并阻止覆盖。");
       }
 
       if (isCurrentlyOffline()) {
         preserveConflict(noteId, data, baseVersion, fresh, "REMOTE_BASE_UNVERIFIED");
-        return completePendingResponse(noteId, data, baseVersion, fresh, true);
+        return completePendingResponse(noteId, data, baseVersion, fresh, true, receiptRevision);
       }
 
       clearOfflineNoteSnapshot(noteId);
@@ -427,15 +434,16 @@ export function installNoteSyncSafety(): void {
         if (mutationMatchesNote(fresh, data)) {
           clearResolvedConflictArtifacts(noteId);
           rememberConfirmedNote(fresh, noteId);
+          if (receiptRevision != null) acknowledgeNoteReceipt(noteId, receiptRevision, fresh.version);
           return fresh;
         }
         if (previousConfirmed && noteBodiesEqual(fresh, previousConfirmed)) {
-          const retried = await retryOnFreshVersion(noteId, data, fresh);
+          const retried = await retryOnFreshVersion(noteId, data, fresh, receiptRevision);
           if (retried) return retried;
         }
         preserveConflict(noteId, data, baseVersion, fresh, "STALE_OFFLINE_BASE");
         confirmedNotes.set(noteId, fresh);
-        return completePendingResponse(noteId, data, baseVersion, fresh, true);
+        return completePendingResponse(noteId, data, baseVersion, fresh, true, receiptRevision);
       }
     }
 
@@ -446,7 +454,8 @@ export function installNoteSyncSafety(): void {
         persistLocalDraft(noteId, data, baseVersion);
         markOfflineNoteSnapshot({ id: noteId, version: baseVersion, updatedAt: updated?.updatedAt });
         const server = previousConfirmed || (isCompleteNote(updated, noteId) ? updated : null);
-        if (server) return completePendingResponse(noteId, data, baseVersion, server, false);
+        if (server) return completePendingResponse(noteId, data, baseVersion, server, false, receiptRevision);
+        markNoteReceiptPending(noteId, receiptRevision);
         dispatchPending(noteId, baseVersion, { responseIncomplete: true });
         const error = syncError("OFFLINE_WRITE_QUEUED", "修改已保存在本地并等待上传，尚未得到服务端确认。") as any;
         error.queued = true;
@@ -456,19 +465,24 @@ export function installNoteSyncSafety(): void {
       clearOfflineNoteSnapshot(noteId);
       clearResolvedConflictArtifacts(noteId);
       rememberConfirmedNote(updated, noteId);
+      if (receiptRevision != null) acknowledgeNoteReceipt(noteId, receiptRevision, updated.version);
       return updated;
     } catch (error: any) {
-      if (error?.status !== 409 && error?.code !== "VERSION_CONFLICT") throw error;
+      if (error?.status !== 409 && error?.code !== "VERSION_CONFLICT") {
+        if (receiptRevision != null) markNoteReceiptError(noteId, receiptRevision);
+        throw error;
+      }
 
       const fresh = await fetchCurrentServerNote(noteId);
       if (fresh && mutationMatchesNote(fresh, data)) {
         clearOfflineNoteSnapshot(noteId);
         clearResolvedConflictArtifacts(noteId);
         rememberConfirmedNote(fresh, noteId);
+        if (receiptRevision != null) acknowledgeNoteReceipt(noteId, receiptRevision, fresh.version);
         return fresh;
       }
       if (fresh && previousConfirmed && noteBodiesEqual(fresh, previousConfirmed)) {
-        const retried = await retryOnFreshVersion(noteId, data, fresh);
+        const retried = await retryOnFreshVersion(noteId, data, fresh, receiptRevision);
         if (retried) return retried;
       }
 
@@ -483,7 +497,7 @@ export function installNoteSyncSafety(): void {
       }
       if (server) {
         if (fresh) confirmedNotes.set(noteId, fresh);
-        return completePendingResponse(noteId, data, baseVersion, server, true);
+        return completePendingResponse(noteId, data, baseVersion, server, true, receiptRevision);
       }
       throw syncError("REMOTE_BASE_UNVERIFIED", "无法确认服务端最新版本，已保留本地草稿并阻止覆盖。");
     }
