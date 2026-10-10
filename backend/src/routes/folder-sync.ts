@@ -299,6 +299,13 @@ app.post("/import-file", async (c) => {
   const contentText = typeof body.contentText === "string" ? body.contentText : "";
   const existingNoteId = typeof body.existingNoteId === "string" ? body.existingNoteId : undefined;
   const conflictPolicy = normalizeConflictPolicy(body.conflictPolicy);
+  const preserveHierarchy = body.preserveHierarchy === true;
+  const sourceFolderId = body.sourceFolderId;
+  if (preserveHierarchy && (!validFolderSourceId(sourceFolderId) ||
+      relativePath.replace(/\\/g, "/").split("/").some((part) => !part || part === ".") ||
+      relativePath.split(/[\\/]/).length > 33)) {
+    return c.json({ error: "来源文件夹标识或目录层级无效", code: "INVALID_HIERARCHY" }, 400);
+  }
 
   if (!filename || filename.length > 255) return c.json({ error: "filename 无效", code: "INVALID_FILENAME" }, 400);
   if (isUnsafePath(relativePath)) return c.json({ error: "relativePath 不安全", code: "UNSAFE_PATH" }, 400);
@@ -331,6 +338,11 @@ app.post("/import-file", async (c) => {
   let conflictCopyNoteId: string | undefined;
 
   getDb().transaction(() => {
+    const destination = preserveHierarchy
+      ? ensureFolderSyncNotebookHierarchy({
+          userId, targetNotebookId, sourceFolderId: sourceFolderId as string, relativePath,
+        })
+      : notebook;
     if (conflict && conflictPolicy === "copy" && note) conflictCopyNoteId = cloneIndependentNote(note);
     if (note) {
       getDb().prepare(`
@@ -339,17 +351,21 @@ app.post("/import-file", async (c) => {
                "workspaceId" = ?, "contentFormat" = ?, version = version + 1,
                "updatedAt" = datetime('now')
          WHERE id = ?
-      `).run(title, content, contentText, targetNotebookId, notebook.workspaceId, contentFormat, noteId);
+      `).run(title, content, contentText, destination.id, destination.workspaceId, contentFormat, noteId);
     } else {
       getDb().prepare(`
         INSERT INTO notes (
           id, "userId", "notebookId", "workspaceId", title, content,
           "contentText", "contentFormat"
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(noteId, userId, targetNotebookId, notebook.workspaceId, title, content, contentText, contentFormat);
+      `).run(noteId, userId, destination.id, destination.workspaceId, title, content, contentText, contentFormat);
     }
     if (syncRow) folderSyncFilesRepository.update(syncRow.id, { sha256: sourceSha, relativePath, filename, noteId });
     else folderSyncFilesRepository.create({ id: uuid(), userId, sourcePathHash, relativePath, filename, sha256: sourceSha, noteId });
+    synchronizeLegacyNoteHierarchy({
+      db: getDb(), noteId, actorUserId: userId,
+      reason: note ? "move" : "create", parentMode: preserveHierarchy ? "resource" : "preserve",
+    });
   })();
 
   broadcastChanged(noteId, userId, title, contentText);
@@ -367,7 +383,14 @@ app.post("/import-attachment", async (c) => {
   const targetNotebookId = typeof body.targetNotebookId === "string" ? body.targetNotebookId : "";
   const existingNoteId = typeof body.existingNoteId === "string" ? body.existingNoteId : undefined;
   const conflictPolicy = normalizeConflictPolicy(body.conflictPolicy);
+  const preserveHierarchy = body.preserveHierarchy === "1";
+  const sourceFolderId = body.sourceFolderId;
   const shouldExtractText = body.extractText !== "0";
+  if (preserveHierarchy && (!validFolderSourceId(sourceFolderId) ||
+      relativePath.replace(/\\/g, "/").split("/").some((part) => !part || part === ".") ||
+      relativePath.split(/[\\/]/).length > 33)) {
+    return c.json({ error: "来源文件夹标识或目录层级无效", code: "INVALID_HIERARCHY" }, 400);
+  }
 
   if (!(file instanceof File)) return c.json({ error: "未上传文件", code: "NO_FILE" }, 400);
   if (!filename || filename.length > 255 || isUnsafePath(relativePath)) return c.json({ error: "文件参数无效", code: "INVALID_PARAMS" }, 400);
@@ -428,6 +451,11 @@ app.post("/import-attachment", async (c) => {
 
   try {
     getDb().transaction(() => {
+      const destination = preserveHierarchy
+        ? ensureFolderSyncNotebookHierarchy({
+            userId, targetNotebookId, sourceFolderId: sourceFolderId as string, relativePath,
+          })
+        : notebook;
       if (conflict && conflictPolicy === "copy" && note) conflictCopyNoteId = cloneIndependentNote(note);
       if (note) {
         getDb().prepare(`
@@ -436,21 +464,21 @@ app.post("/import-attachment", async (c) => {
                  "workspaceId" = ?, "contentFormat" = 'markdown',
                  version = version + 1, "updatedAt" = datetime('now')
            WHERE id = ?
-        `).run(title, content, baseContent, targetNotebookId, notebook.workspaceId, noteId);
+        `).run(title, content, baseContent, destination.id, destination.workspaceId, noteId);
       } else {
         getDb().prepare(`
           INSERT INTO notes (
             id, "userId", "notebookId", "workspaceId", title, content,
             "contentText", "contentFormat"
           ) VALUES (?, ?, ?, ?, ?, ?, ?, 'markdown')
-        `).run(noteId, userId, targetNotebookId, notebook.workspaceId, title, content, baseContent);
+        `).run(noteId, userId, destination.id, destination.workspaceId, title, content, baseContent);
       }
       getDb().prepare(`
         INSERT INTO attachments (
           id, "userId", "noteId", filename, "mimeType", size, path,
           "workspaceId", hash, "uploadSource"
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'folder_sync')
-      `).run(attachmentId, userId, noteId, filename, file.type || "application/octet-stream", fileBuffer.length, relativeAttachmentPath, notebook.workspaceId, actualSha);
+      `).run(attachmentId, userId, noteId, filename, file.type || "application/octet-stream", fileBuffer.length, relativeAttachmentPath, destination.workspaceId, actualSha);
       syncReferences(getDb(), noteId, content);
       if (oldAttachments.length) {
         const placeholders = oldAttachments.map(() => "?").join(",");
@@ -458,6 +486,10 @@ app.post("/import-attachment", async (c) => {
       }
       if (syncRow) folderSyncFilesRepository.update(syncRow.id, { sha256: sourceSha, relativePath, filename, noteId });
       else folderSyncFilesRepository.create({ id: uuid(), userId, sourcePathHash, relativePath, filename, sha256: sourceSha, noteId });
+      synchronizeLegacyNoteHierarchy({
+        db: getDb(), noteId, actorUserId: userId,
+        reason: note ? "move" : "create", parentMode: preserveHierarchy ? "resource" : "preserve",
+      });
     })();
   } catch (error) {
     try { fs.unlinkSync(fullPath); } catch { /* best effort */ }
