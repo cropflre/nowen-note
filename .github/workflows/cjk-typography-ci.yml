@@ -1,0 +1,44 @@
+name: CJK Typography CI
+
+on:
+  pull_request:
+    paths:
+      - "frontend/src/lib/cjkTypography.ts"
+      - "frontend/src/lib/tiptapCjkTypography.ts"
+      - "frontend/src/lib/markdownCommands.ts"
+      - "frontend/src/lib/__tests__/cjkTypography.test.ts"
+      - "frontend/src/components/CjkTypographyMenuActions.tsx"
+      - "frontend/src/components/MarkdownEditorImpl.tsx"
+      - "frontend/src/components/TiptapEditor.tsx"
+      - "frontend/src/components/TiptapEditorRuntime.tsx"
+      - "frontend/src/components/EditorPane.tsx"
+      - "frontend/src/components/editors/types.ts"
+      - "frontend/src/i18n/coverageTranslations.ts"
+      - ".github/workflows/cjk-typography-ci.yml"
+  push:
+    branches: ["release/v1.5.2"]
+    paths:
+      - "frontend/src/lib/cjkTypography.ts"
+      - "frontend/src/lib/tiptapCjkTypography.ts"
+      - "frontend/src/lib/__tests__/cjkTypography.test.ts"
+
+jobs:
+  cjk-typography:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - name: Guarded transform, selection, and undo regressions
+        run: npm run test:run -- src/lib/__tests__/cjkTypography.test.ts
+      - name: Lint CJK typography modules
+        run: npx eslint src/lib/cjkTypography.ts src/lib/tiptapCjkTypography.ts src/components/CjkTypographyMenuActions.tsx
+      - name: Frontend TypeScript check
+        run: npx tsc -b

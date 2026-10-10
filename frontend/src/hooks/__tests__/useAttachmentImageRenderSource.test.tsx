@@ -97,8 +97,11 @@ describe("useAttachmentImageRenderSource", () => {
 
     expect(apiMock.resolveAttachmentUrl).toHaveBeenCalledWith(rawSrc);
     expect(probe().dataset.persistentSrc).toBe(`/api/attachments/${ATTACHMENT_ID}`);
-    expect(new URL(probe().dataset.renderSrc!).searchParams.get("w")).toBe("320");
-    expect(new URL(probe().dataset.renderSrc!).searchParams.get("sig")).toBeNull();
+    // An unsigned private attachment must NEVER be exposed as an <img> URL.
+    // The original test expected the pre-auth URL to be renderable, which
+    // contradicts the existing verified-attachment-access security boundary.
+    expect(probe().dataset.renderSrc).toBe("");
+    expect(probe().dataset.error).toBe("1");
 
     await act(async () => {
       registerAttachmentAccessUrls(

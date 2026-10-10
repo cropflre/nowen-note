@@ -176,6 +176,7 @@ import {
   insertLink,
   insertImage,
   replaceSelection,
+  applyMarkdownCjkTypography,
 } from "@/lib/markdownCommands";
 import {
   MarkdownSlashMenu,
@@ -1308,6 +1309,11 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
         };
       },
       isReady: () => !!viewRef.current,
+      applyCjkTypography: (action) => {
+        const view = viewRef.current;
+        if (!view || !editable || !view.state.facet(EditorView.editable)) return false;
+        return applyMarkdownCjkTypography(view, action);
+      },
       insertMarkdownAtCursor: (md: string) => {
         const view = viewRef.current;
         if (!view) return false;

@@ -12,6 +12,7 @@
 
 import type { Note, Tag } from "@/types";
 import type * as Y from "yjs";
+import type { CjkTypographyAction } from "@/lib/cjkTypography";
 import type { Awareness } from "y-protocols/awareness";
 
 /** 标题项（大纲/跳转用） */
@@ -81,6 +82,8 @@ export interface NoteEditorProps {
 export interface NoteEditorHandle {
   /** 立即触发一次 onUpdate（跳过 debounce）。无 pending 更新时为 no-op。 */
   flushSave: () => void;
+  /** Manually apply a protected CJK typography action as one undoable edit. */
+  applyCjkTypography?: (action: CjkTypographyAction) => boolean;
   /**
    * 丢弃 pending 的 debounce 更新（清 timer，不派发 onUpdate）。
    * 用于"切换编辑器"这类场景：调用方已经自己以规范化后的内容发起 PUT，
