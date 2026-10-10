@@ -40,6 +40,10 @@ const external = [
   "sqlite-vec-linux-x64",
   "bonjour-service",
   "unpdf",
+  // Media processors retain runtime file/worker dependencies.
+  "libheif-js",
+  "ffmpeg-static",
+  "sharp",
   // unzipper 的 S3_v3 辅助函数里有可选 AWS SDK require；思源导入只用本地文件。
   "@aws-sdk/client-s3",
 ];
@@ -82,6 +86,10 @@ for (const file of readdirSync(migrationsSourceDir)) {
   if (!file.endsWith(".sql")) continue;
   copyFileSync(join(migrationsSourceDir, file), join(migrationsOutputDir, file));
 }
+
+// Plugin runners must remain separate child-process entrypoints in production bundles.
+copyFileSync(join(__dirname, "src", "plugins", "runner-child.mjs"), join(outdir, "runner-child.mjs"));
+copyFileSync(join(__dirname, "src", "plugins", "sandbox-child.mjs"), join(outdir, "sandbox-child.mjs"));
 
 const ms = Date.now() - start;
 const bundleBytes = statSync(outfile).size;

@@ -19,8 +19,9 @@ import {
   markSearchIndexRebuilt,
   rebuildNormalizedSearchFts,
   repairSearchContentText,
-  extractSearchableText,
 } from "../lib/searchIndex";
+import { ensureSearchNotebookExclusionsTable } from "../services/searchNotebookExclusions";
+import searchExclusionsRouter from "./search-exclusions";
 
 const app = new Hono();
 const registeredSearchDatabases = new WeakSet<object>();
@@ -40,6 +41,7 @@ type SearchRow = {
   isFavorite: number;
   isPinned: number;
   contentFormat?: string;
+  noteType?: string | null;
   notebookName?: string | null;
   tagText: string;
   attachmentNames: string;
@@ -59,6 +61,7 @@ type MatchSource = {
 };
 
 type SearchResultWithScore = Omit<SearchRow, "contentText" | "tagText" | "attachmentNames" | "attachmentText"> & {
+  resourceType: "note" | "mindmap" | "sheet";
   snippet: string;
   titleHtml: string;
   snippetHtml: string;
@@ -191,23 +194,52 @@ function ensureSearchSqlFunctions(db: Database.Database): void {
     { deterministic: true },
     (value: unknown) => normalizeSearchText(value === null || value === undefined ? "" : String(value)),
   );
-  db.function(
-    "nowen_search_content",
-    { deterministic: true },
-    (content: unknown, contentFormat: unknown) => extractSearchableText(content, contentFormat),
-  );
   registeredSearchDatabases.add(db as object);
 }
 
-function buildSearchScope(workspaceId: string | undefined, userId: string): SearchScope | null {
+function exclusionSearchScope(userId: string, includeExcluded: boolean): SearchScope {
+  if (includeExcluded) return { sql: "1 = 1", params: [] };
+  // Materialized by SQLite as a list subquery for each candidate statement. This keeps the
+  // exclusion inside FTS/metadata/literal candidate collection, so large archives cannot consume
+  // MAX_TERM_CANDIDATES before active notes are considered.
+  return {
+    sql: `n.notebookId NOT IN (
+      WITH RECURSIVE excluded(id, expand) AS (
+        SELECT e.notebookId, e.includeDescendants
+        FROM user_search_notebook_exclusions e
+        JOIN notebooks root ON root.id = e.notebookId
+        WHERE e.userId = ? AND root.isDeleted = 0
+
+        UNION
+
+        SELECT child.id, excluded.expand
+        FROM notebooks child
+        JOIN excluded ON child.parentId = excluded.id
+        WHERE excluded.expand = 1 AND child.isDeleted = 0
+      )
+      SELECT id FROM excluded
+    )`,
+    params: [userId],
+  };
+}
+
+function buildSearchScope(
+  workspaceId: string | undefined,
+  userId: string,
+  includeExcluded = false,
+): SearchScope | null {
+  const exclusion = exclusionSearchScope(userId, includeExcluded);
   if (workspaceId && workspaceId !== "personal") {
     const role = getUserWorkspaceRole(workspaceId, userId);
     if (!role) return null;
-    return { sql: "n.workspaceId = ?", params: [workspaceId] };
+    return {
+      sql: `(n.workspaceId = ?) AND (${exclusion.sql})`,
+      params: [workspaceId, ...exclusion.params],
+    };
   }
 
   return {
-    sql: `((n.userId = ? AND n.workspaceId IS NULL)
+    sql: `(((n.userId = ? AND n.workspaceId IS NULL)
       OR EXISTS (
         SELECT 1
         FROM notebook_members nm
@@ -217,8 +249,8 @@ function buildSearchScope(workspaceId: string | undefined, userId: string): Sear
           AND nm.status = 'active'
           AND shared_nb.userId <> ?
           AND shared_nb.isDeleted = 0
-      ))`,
-    params: [userId, userId, userId],
+      ))) AND (${exclusion.sql})`,
+    params: [userId, userId, userId, ...exclusion.params],
   };
 }
 
@@ -378,10 +410,7 @@ function fetchLiteralTermCandidates(
         AND nb.isDeleted = 0
         AND (
 instr(nowen_search_normalize(COALESCE(n.title, '')), ?) > 0
-OR instr(nowen_search_normalize(nowen_search_content(
-  COALESCE(n.content, ''),
-  COALESCE(n.contentFormat, 'tiptap-json')
-)), ?) > 0
+OR instr(nowen_search_normalize(COALESCE(n.contentText, '')), ?) > 0
         )
       ORDER BY n.updatedAt DESC, n.id ASC
       LIMIT ? OFFSET ?
@@ -535,16 +564,14 @@ function fetchCandidateRows(
       n.notebookId,
       n.workspaceId,
       n.title,
-      nowen_search_content(
-        COALESCE(n.content, ''),
-        COALESCE(n.contentFormat, 'tiptap-json')
-      ) AS contentText,
+      COALESCE(n.contentText, '') AS contentText,
       n.updatedAt,
       CASE WHEN EXISTS(
         SELECT 1 FROM favorites f WHERE f.noteId = n.id AND f.userId = ?
       ) THEN 1 ELSE 0 END AS isFavorite,
       n.isPinned,
       n.contentFormat,
+      n.note_type AS noteType,
       nb.name AS notebookName,
       COALESCE((
         SELECT group_concat(t.name, char(10))
@@ -650,6 +677,7 @@ function buildSearchResult(
     - Math.min(matchCount, 20) / 100;
 
   return {
+    resourceType: row.noteType === "sheet" ? "sheet" : "note",
     id: row.id,
     userId: row.userId,
     notebookId: row.notebookId,
@@ -671,6 +699,324 @@ function buildSearchResult(
   };
 }
 
+type MindMapSearchRow = {
+  id: string;
+  userId: string;
+  workspaceId: string | null;
+  title: string;
+  data: string;
+  updatedAt: string;
+};
+
+function parseMindMapSearchValues(raw: string): string[] {
+  try {
+    const parsed = JSON.parse(raw) as { root?: unknown };
+    const root = parsed && typeof parsed === "object" && "root" in parsed ? parsed.root : parsed;
+    const values: string[] = [];
+    const stack: unknown[] = root ? [root] : [];
+    let visited = 0;
+    while (stack.length > 0 && visited < 20_000) {
+      const current = stack.pop();
+      visited += 1;
+      if (!current || typeof current !== "object" || Array.isArray(current)) continue;
+      const node = current as { text?: unknown; children?: unknown };
+      if (typeof node.text === "string" && node.text) values.push(node.text);
+      if (Array.isArray(node.children)) {
+        for (let index = node.children.length - 1; index >= 0; index -= 1) {
+          stack.push(node.children[index]);
+        }
+      }
+    }
+    return values;
+  } catch {
+    return [];
+  }
+}
+
+function fetchMindMapResults(
+  db: Database.Database,
+  userId: string,
+  workspaceId: string | undefined,
+  terms: string[],
+  normalizedQuery: string,
+): SearchResultWithScore[] {
+  const normalizedTerms = terms.map(normalizeSearchText).filter(Boolean);
+  if (normalizedTerms.length === 0) return [];
+
+  const workspaceScope = workspaceId && workspaceId !== "personal";
+  const scopeSql = workspaceScope
+    ? "m.workspaceId = ?"
+    : "m.workspaceId IS NULL AND m.userId = ?";
+  const scopeParams = workspaceScope ? [workspaceId] : [userId];
+  const termSql = normalizedTerms
+    .map(() => `(
+      instr(nowen_search_normalize(COALESCE(m.title, '')), ?) > 0
+      OR instr(nowen_search_normalize(COALESCE(m.data, '')), ?) > 0
+    )`)
+    .join(" AND ");
+  const termParams = normalizedTerms.flatMap((term) => [term, term]);
+
+  const rows = db.prepare(`
+    SELECT m.id, m.userId, m.workspaceId, m.title, m.data, m.updatedAt
+    FROM mindmaps m
+    WHERE ${scopeSql}
+      AND ${termSql}
+    ORDER BY m.updatedAt DESC, m.id ASC
+    LIMIT 200
+  `).all(...scopeParams, ...termParams) as MindMapSearchRow[];
+
+  return rows
+    .filter((row) => {
+      const access = resolveResourceKnowledgeAccess("mindmap", row.id, userId, db);
+      return hasKnowledgeCapability(access, "canView");
+    })
+    .map((row): SearchResultWithScore | null => {
+      const titleNormalized = normalizeSearchText(row.title || "");
+      const titleTermCounts = normalizedTerms.map((term) =>
+        countNormalizedOccurrences(titleNormalized, term)
+      );
+      const contentTermCounts = normalizedTerms.map(() => 0);
+      const matchingValues: string[] = [];
+      let contentExact = false;
+
+      for (const rawValue of parseMindMapSearchValues(row.data)) {
+        const normalized = normalizeSearchText(rawValue);
+        if (!normalized) continue;
+        let matched = false;
+        normalizedTerms.forEach((term, index) => {
+          const count = countNormalizedOccurrences(normalized, term);
+          if (count > 0) {
+            contentTermCounts[index] += count;
+            matched = true;
+          }
+        });
+        if (normalizedQuery && normalized.includes(normalizedQuery)) contentExact = true;
+        if (matched && matchingValues.length < 8) matchingValues.push(rawValue.slice(0, 500));
+      }
+
+      const allTermsExplained = normalizedTerms.every((_, index) =>
+        titleTermCounts[index] > 0 || contentTermCounts[index] > 0
+      );
+      if (!allTermsExplained) return null;
+
+      const titleCount = titleTermCounts.reduce((sum, count) => sum + count, 0);
+      const contentCount = contentTermCounts.reduce((sum, count) => sum + count, 0);
+      const titleCoverage = titleTermCounts.filter((count) => count > 0).length;
+      const contentCoverage = contentTermCounts.filter((count) => count > 0).length;
+      const titleExact = normalizedQuery ? titleNormalized.includes(normalizedQuery) : false;
+      const hasTitle = titleCount > 0;
+      const hasContent = contentCount > 0;
+      const primaryField: "title" | "content" =
+        titleExact || (!contentExact && titleCoverage >= contentCoverage && hasTitle)
+          ? "title"
+          : "content";
+      const matchedField = hasTitle && hasContent ? "title+content" : hasTitle ? "title" : "content";
+      const snippetHtml = hasContent
+        ? buildPlainSnippet(matchingValues.join(" · "), terms, "脑图")
+        : "";
+      const matchCount = titleCount + contentCount;
+      const exact = primaryField === "title" ? titleExact : contentExact;
+
+      return {
+        resourceType: "mindmap",
+        id: row.id,
+        userId: row.userId,
+        notebookId: "",
+        workspaceId: row.workspaceId,
+        title: row.title,
+        updatedAt: row.updatedAt,
+        isFavorite: 0,
+        isPinned: 0,
+        contentFormat: "mindmap",
+        notebookName: null,
+        snippet: snippetHtml,
+        titleHtml: markPlainText(row.title, terms),
+        snippetHtml,
+        matchedField,
+        matchedFields: [
+          ...(hasTitle ? ["title" as const] : []),
+          ...(hasContent ? ["content" as const] : []),
+        ],
+        matchReason: primaryField,
+        matchCount,
+        score: (primaryField === "title" ? 0 : 10)
+          - (exact ? 5 : 0)
+          - Math.min(matchCount, 20) / 100,
+      };
+    })
+    .filter((row): row is SearchResultWithScore => Boolean(row));
+}
+
+type SheetSearchRow = {
+  id: string;
+  userId: string;
+  notebookId: string;
+  workspaceId: string | null;
+  title: string;
+  updatedAt: string;
+  isFavorite: number;
+  isPinned: number;
+  notebookName: string | null;
+  data: string;
+};
+
+function parseSheetSearchValues(raw: string): string[] {
+  try {
+    const data = JSON.parse(raw) as {
+      columns?: Array<{ title?: unknown }>;
+      cells?: Record<string, unknown>;
+    };
+    const values: string[] = [];
+    if (Array.isArray(data.columns)) {
+      for (const column of data.columns.slice(0, 200)) {
+        if (typeof column?.title === "string" && column.title) values.push(column.title);
+      }
+    }
+    if (data.cells && typeof data.cells === "object" && !Array.isArray(data.cells)) {
+      let seen = 0;
+      for (const value of Object.values(data.cells)) {
+        if (seen >= 50_000) break;
+        if (value !== null && value !== undefined && String(value) !== "") {
+          values.push(String(value));
+        }
+        seen += 1;
+      }
+    }
+    return values;
+  } catch {
+    return [];
+  }
+}
+
+function fetchSheetResults(
+  db: Database.Database,
+  userId: string,
+  scope: SearchScope,
+  terms: string[],
+  normalizedQuery: string,
+): SearchResultWithScore[] {
+  const normalizedTerms = terms.map(normalizeSearchText).filter(Boolean);
+  if (normalizedTerms.length === 0) return [];
+
+  // Keep the SQL pass bounded to sheet documents whose title or serialized cells contain every
+  // term. The JS pass below verifies only user-visible values so JSON keys/ids cannot become hits.
+  const termSql = normalizedTerms
+    .map(() => `(
+      instr(nowen_search_normalize(COALESCE(n.title, '')), ?) > 0
+      OR instr(nowen_search_normalize(COALESCE(sheet.data, '')), ?) > 0
+    )`)
+    .join(" AND ");
+  const termParams = normalizedTerms.flatMap((term) => [term, term]);
+
+  const rows = db.prepare(`
+    SELECT
+      n.id,
+      n.userId,
+      n.notebookId,
+      n.workspaceId,
+      n.title,
+      n.updatedAt,
+      CASE WHEN EXISTS(
+        SELECT 1 FROM favorites f WHERE f.noteId = n.id AND f.userId = ?
+      ) THEN 1 ELSE 0 END AS isFavorite,
+      n.isPinned,
+      nb.name AS notebookName,
+      sheet.data
+    FROM sheets sheet
+    JOIN notes n ON n.id = sheet.noteId
+    JOIN notebooks nb ON nb.id = n.notebookId
+    WHERE ${scope.sql}
+      AND n.note_type = 'sheet'
+      AND n.isTrashed = 0
+      AND nb.isDeleted = 0
+      AND ${termSql}
+    ORDER BY n.updatedAt DESC, n.id ASC
+    LIMIT 200
+  `).all(userId, ...scope.params, ...termParams) as SheetSearchRow[];
+
+  return rows
+    .filter((row) => {
+      const access = resolveResourceKnowledgeAccess("note", row.id, userId, db);
+      return hasKnowledgeCapability(access, "canView");
+    })
+    .map((row): SearchResultWithScore | null => {
+      const titleNormalized = normalizeSearchText(row.title || "");
+      const titleTermCounts = normalizedTerms.map((term) =>
+        countNormalizedOccurrences(titleNormalized, term)
+      );
+      const contentTermCounts = normalizedTerms.map(() => 0);
+      const matchingValues: string[] = [];
+      let contentExact = false;
+
+      for (const rawValue of parseSheetSearchValues(row.data)) {
+        const normalized = normalizeSearchText(rawValue);
+        if (!normalized) continue;
+        let matched = false;
+        normalizedTerms.forEach((term, index) => {
+          const count = countNormalizedOccurrences(normalized, term);
+          if (count > 0) {
+            contentTermCounts[index] += count;
+            matched = true;
+          }
+        });
+        if (normalizedQuery && normalized.includes(normalizedQuery)) contentExact = true;
+        if (matched && matchingValues.length < 8) matchingValues.push(rawValue.slice(0, 500));
+      }
+
+      const allTermsExplained = normalizedTerms.every((_, index) =>
+        titleTermCounts[index] > 0 || contentTermCounts[index] > 0
+      );
+      if (!allTermsExplained) return null;
+
+      const titleCount = titleTermCounts.reduce((sum, count) => sum + count, 0);
+      const contentCount = contentTermCounts.reduce((sum, count) => sum + count, 0);
+      const titleCoverage = titleTermCounts.filter((count) => count > 0).length;
+      const contentCoverage = contentTermCounts.filter((count) => count > 0).length;
+      const titleExact = normalizedQuery ? titleNormalized.includes(normalizedQuery) : false;
+      const hasTitle = titleCount > 0;
+      const hasContent = contentCount > 0;
+      const primaryField: "title" | "content" =
+        titleExact || (!contentExact && titleCoverage >= contentCoverage && hasTitle)
+          ? "title"
+          : "content";
+      const matchedField = hasTitle && hasContent ? "title+content" : hasTitle ? "title" : "content";
+      const snippetText = matchingValues.join(" · ");
+      const snippetHtml = hasContent
+        ? buildPlainSnippet(snippetText, terms, "表格")
+        : "";
+      const matchCount = titleCount + contentCount;
+      const exact = primaryField === "title" ? titleExact : contentExact;
+
+      return {
+        resourceType: "sheet",
+        id: row.id,
+        userId: row.userId,
+        notebookId: row.notebookId,
+        workspaceId: row.workspaceId,
+        title: row.title,
+        updatedAt: row.updatedAt,
+        isFavorite: row.isFavorite,
+        isPinned: row.isPinned,
+        contentFormat: "sheet",
+        notebookName: row.notebookName,
+        snippet: snippetHtml,
+        titleHtml: markPlainText(row.title, terms),
+        snippetHtml,
+        matchedField,
+        matchedFields: [
+          ...(hasTitle ? ["title" as const] : []),
+          ...(hasContent ? ["content" as const] : []),
+        ],
+        matchReason: primaryField,
+        matchCount,
+        score: (primaryField === "title" ? 0 : 10)
+          - (exact ? 5 : 0)
+          - Math.min(matchCount, 20) / 100,
+      };
+    })
+    .filter((row): row is SearchResultWithScore => Boolean(row));
+}
+
 function setSearchTimingHeaders(
   c: Context,
   timings: {
@@ -680,11 +1026,15 @@ function setSearchTimingHeaders(
     rankDurationMs: number;
     renderDurationMs: number;
     totalDurationMs: number;
+    additionalCandidateCount?: number;
   },
 ): void {
   const { candidate } = timings;
   c.header("X-Search-Index-Status", candidate.degraded ? "degraded" : "ok");
-  c.header("X-Search-Candidate-Count", String(candidate.ids.size));
+  c.header(
+    "X-Search-Candidate-Count",
+    String(candidate.ids.size + (timings.additionalCandidateCount || 0)),
+  );
   c.header("X-Search-Literal-Fallback", candidate.literalFallback ? "1" : "0");
   c.header(
     "Server-Timing",
@@ -700,6 +1050,8 @@ function setSearchTimingHeaders(
     ].join(", "),
   );
 }
+
+app.route("/excluded-notebooks", searchExclusionsRouter);
 
 app.get("/health", (c) => {
   const db = getDb();
@@ -760,9 +1112,11 @@ app.get("/", (c) => {
   const userId = c.req.header("X-User-Id") || "demo";
   const q = (c.req.query("q") || "").trim().slice(0, 200);
   const workspaceId = c.req.query("workspaceId");
+  const includeExcluded = c.req.query("includeExcluded") === "1";
   if (!q) return c.json([]);
 
-  const scope = buildSearchScope(workspaceId, userId);
+  ensureSearchNotebookExclusionsTable(db);
+  const scope = buildSearchScope(workspaceId, userId, includeExcluded);
   if (!scope) return c.json({ error: "无权访问该工作区" }, 403);
 
   const terms = splitSearchTerms(q);
@@ -773,6 +1127,23 @@ app.get("/", (c) => {
   const candidate = collectCandidates(db, terms, scope, userId);
   candidate.ids = filterVisibleCandidates(db, candidate.ids, userId);
   const candidateDurationMs = performance.now() - candidateStarted;
+  const mindMapResults = fetchMindMapResults(
+    db,
+    userId,
+    workspaceId,
+    terms,
+    normalizedQuery,
+  );
+
+  const sheetResults = fetchSheetResults(
+    db,
+    userId,
+    scope,
+    terms,
+    normalizedQuery,
+  );
+  const additionalResultCount = mindMapResults.length
+    + sheetResults.filter((row) => !candidate.ids.has(row.id)).length;
 
   if (candidate.ids.size === 0) {
     setSearchTimingHeaders(c, {
@@ -782,8 +1153,14 @@ app.get("/", (c) => {
       rankDurationMs: 0,
       renderDurationMs: 0,
       totalDurationMs: performance.now() - totalStarted,
+      additionalCandidateCount: additionalResultCount,
     });
-    return c.json([]);
+    return c.json(
+      [...mindMapResults, ...sheetResults]
+        .sort((a, b) => a.score - b.score || b.updatedAt.localeCompare(a.updatedAt))
+        .slice(0, 100)
+        .map(({ score: _score, ...row }) => row),
+    );
   }
 
   const fetchStarted = performance.now();
@@ -801,9 +1178,14 @@ app.get("/", (c) => {
   const rankDurationMs = performance.now() - rankStarted;
 
   const renderStarted = performance.now();
-  const results = rows
-    .map((row) => buildSearchResult(row, terms, normalizedQuery, fts.scores.get(row.id)))
-    .filter((row): row is SearchResultWithScore => Boolean(row))
+  const results = [
+    ...rows
+      .filter((row) => row.noteType !== "sheet")
+      .map((row) => buildSearchResult(row, terms, normalizedQuery, fts.scores.get(row.id)))
+      .filter((row): row is SearchResultWithScore => Boolean(row)),
+    ...mindMapResults,
+    ...sheetResults,
+  ]
     .sort((a, b) => a.score - b.score || b.updatedAt.localeCompare(a.updatedAt))
     .slice(0, 100)
     .map(({ score: _score, ...row }) => row);
@@ -816,6 +1198,7 @@ app.get("/", (c) => {
     rankDurationMs,
     renderDurationMs,
     totalDurationMs: performance.now() - totalStarted,
+    additionalCandidateCount: additionalResultCount,
   });
   return c.json(results);
 });

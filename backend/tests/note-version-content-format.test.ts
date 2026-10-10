@@ -13,6 +13,9 @@ let app: Hono;
 let getDb: () => Database.Database;
 let closeDb: () => void;
 let noteVersionsRepository: typeof import("../src/repositories/noteVersionsRepository").noteVersionsRepository;
+let blockAuthorityStore: typeof import("../src/lib/blockAuthorityStore");
+let yjsSubdocuments: typeof import("../src/services/yjs-subdocuments");
+let projectMarkdownForUser: typeof import("../src/lib/markdownUserContent").projectMarkdownForUser;
 
 const USER_ID = "user-format";
 const NOTEBOOK_ID = "nb-format";
@@ -21,6 +24,26 @@ const SHARE_TOKEN = "share-format-token";
 
 function db() {
   return getDb();
+}
+
+function withoutTiptapBlockIds(content: string): unknown {
+  const value = JSON.parse(content);
+  const visit = (node: any): any => {
+    if (!node || typeof node !== "object") return node;
+    if (Array.isArray(node)) return node.map(visit);
+    const next: Record<string, unknown> = {};
+    for (const [key, child] of Object.entries(node)) {
+      if (key === "attrs" && child && typeof child === "object") {
+        const attrs = { ...(child as Record<string, unknown>) };
+        delete attrs.blockId;
+        if (Object.keys(attrs).length > 0) next.attrs = attrs;
+      } else {
+        next[key] = visit(child);
+      }
+    }
+    return next;
+  };
+  return visit(value);
 }
 
 function seedBase() {
@@ -63,11 +86,14 @@ async function requestJson(method: string, url: string, body?: unknown, userId =
 }
 
 test.before(async () => {
-  const [notesModule, sharesModule, schemaModule, versionsModule] = await Promise.all([
+  const [notesModule, sharesModule, schemaModule, versionsModule, authorityModule, subdocumentsModule, markdownModule] = await Promise.all([
     import("../src/routes/notes"),
     import("../src/routes/shares"),
     import("../src/db/schema"),
     import("../src/repositories/noteVersionsRepository"),
+    import("../src/lib/blockAuthorityStore"),
+    import("../src/services/yjs-subdocuments"),
+    import("../src/lib/markdownUserContent"),
   ]);
   app = new Hono();
   app.route("/notes", notesModule.default);
@@ -76,6 +102,9 @@ test.before(async () => {
   getDb = schemaModule.getDb;
   closeDb = schemaModule.closeDb;
   noteVersionsRepository = versionsModule.noteVersionsRepository;
+  blockAuthorityStore = authorityModule;
+  yjsSubdocuments = subdocumentsModule;
+  projectMarkdownForUser = markdownModule.projectMarkdownForUser;
   seedBase();
 });
 
@@ -130,6 +159,9 @@ test("notes.put contentFormat change creates a version snapshot with previous fo
 
 test("restoring a markdown version restores contentFormat and returns it", async () => {
   seedNote("tiptap-json");
+  const currentRichTextContent = JSON.stringify({ type: "doc", content: [] });
+  db().prepare("UPDATE notes SET content = ? WHERE id = ?").run(currentRichTextContent, NOTE_ID);
+  blockAuthorityStore.rebuildBlockAuthorityStore(db(), NOTE_ID, currentRichTextContent, "tiptap-json", { noteVersion: 1 });
   await noteVersionsRepository.createAsync({
     id: "version-markdown",
     noteId: NOTE_ID,
@@ -159,6 +191,11 @@ test("restoring a markdown version restores contentFormat and returns it", async
   assert.equal(row.contentText, "Markdown title");
   assert.equal(row.contentFormat, "markdown");
   assert.equal(row.version, 2);
+  const authority = db().prepare(`
+    SELECT contentFormat, noteVersion, status FROM note_block_documents WHERE noteId = ?
+  `).get(NOTE_ID) as any;
+  assert.deepEqual(authority, { contentFormat: "markdown", noteVersion: 2, status: "healthy" });
+  assert.equal(blockAuthorityStore.materializeBlockAuthorityContent(db(), NOTE_ID), row.content);
 });
 
 test("restore creates a reversible snapshot of the current content", async () => {
@@ -232,7 +269,15 @@ test("restoring a rich text version keeps tiptap-json contentFormat", async () =
     changeType: "edit",
   });
 
-  const restoreRes = await requestJson("POST", `/shares/note/${NOTE_ID}/versions/version-rich-text/restore`);
+  const previousSetting = process.env.NOWEN_YJS_SUBDOCUMENTS;
+  process.env.NOWEN_YJS_SUBDOCUMENTS = "1";
+  yjsSubdocuments.rebuildYjsSubdocuments(db(), NOTE_ID, JSON.stringify({
+    type: "doc",
+    content: [{ type: "paragraph", content: [{ type: "text", text: "Stale content" }] }],
+  }));
+
+  try {
+    const restoreRes = await requestJson("POST", `/shares/note/${NOTE_ID}/versions/version-rich-text/restore`);
 
   assert.equal(restoreRes.status, 200);
   assert.equal(restoreRes.json.contentFormat, "tiptap-json");

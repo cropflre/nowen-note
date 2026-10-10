@@ -23,8 +23,11 @@ async function bootstrap(): Promise<void> {
   // Permission routes import ACL services that may initialize database guards, so they must load
   // only after the feature migration list has been registered.
   await import("./runtime/notebook-permission-management.js");
+  // Close Yjs collaboration rooms when changing note content format.
+  await import("./runtime/note-format-yjs-transition.js");
   // Install schema/route hardening before the main backend module evaluates.
   await import("./runtime/task-stats-hardening.js");
+  await import("./runtime/note-appearance.js");
   // Replace the fragile batch Xiaomi import with an isolated, idempotent route before /api/micloud mounts.
   await import("./runtime/micloud-import-hardening.js");
   // Mount persistent Xiaomi background jobs and one SSE progress stream before /api/micloud mounts.
@@ -43,6 +46,9 @@ async function bootstrap(): Promise<void> {
   // Add an atomic Tiptap block patch endpoint while preserving all existing single-block routes.
   await import("./runtime/block-patch.js");
   await import("./runtime/auto-full-backup.js");
+  // Install streaming restore and fail-closed guard before backup routes are mounted.
+  await import("./runtime/backup-restore-large-archive.js");
+  await import("./runtime/backup-restore-large-archive-guard.js");
   // Mount encrypted WebDAV backup configuration and upload routes before /api/backups is registered.
   await import("./runtime/backup-webdav.js");
   await import("./runtime/notebook-publication.js");
@@ -50,6 +56,7 @@ async function bootstrap(): Promise<void> {
   await import("./runtime/knowledge-tree.js");
   // Install before the main Hono app registers its production wildcard static route.
   await import("./runtime/static-precompressed-assets.js");
+  await import("./runtime/attachment-upload-policy.js");
   await import("./index.js");
 }
 
