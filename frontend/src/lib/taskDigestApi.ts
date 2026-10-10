@@ -10,6 +10,14 @@ export interface TaskDigestConfig {
   eveningTime: string;
   timezone: string;
 }
+export interface TaskDigestWebhook {
+  id: string;
+  url: string;
+  events: string[];
+  isActive: number;
+  description?: string;
+}
+
 export interface TaskDigestPreview {
   kind: "morning" | "evening";
   date: string;
@@ -30,8 +38,15 @@ async function request<T>(path: string, init: RequestInit = {}, apiPath = "/task
   return result as T;
 }
 export const taskDigestApi = {
-  listWebhooks: () => request<Array<{ id: string; url: string; events: string[] }>>("", {}, "/webhooks"),
+  listWebhooks: () => request<TaskDigestWebhook[]>("", {}, "/webhooks"),
   addWebhook: (url: string) => request<{ id: string; secret: string }>("", { method: "POST", body: JSON.stringify({ url, events: ["task.digest.morning", "task.digest.evening", "task.due"], description: "每日任务简报" }) }, "/webhooks"),
+  // Updating the URL on the same webhook ID preserves its HMAC secret, events and delivery settings.
+  updateWebhook: (id: string, url: string) => request<TaskDigestWebhook>(
+    `/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify({ url }) }, "/webhooks",
+  ),
+  removeWebhook: (id: string) => request<{ success: boolean }>(
+    `/${encodeURIComponent(id)}`, { method: "DELETE" }, "/webhooks",
+  ),
   createPersonalTask: (title: string) => request<{ id: string }>("?workspaceId=personal", { method: "POST", body: JSON.stringify({ title }) }, "/tasks"),
   completePersonalTask: async (id: string) => {
     const task = await request<{ id: string; workspaceId: string | null }>(`/${encodeURIComponent(id)}`, {}, "/tasks");
