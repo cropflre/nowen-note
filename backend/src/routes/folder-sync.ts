@@ -155,6 +155,13 @@ function resolveTargetNotebook(targetNotebookId: string, userId: string): { id: 
 
 const FOLDER_SYNC_NAMESPACE = "930dbde1-9d96-45e8-b959-c030ac108a13";
 
+class FolderSyncHierarchyError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "FolderSyncHierarchyError";
+  }
+}
+
 function validFolderSourceId(value: unknown): value is string {
   return typeof value === "string" && /^[a-zA-Z0-9_-]{6,80}$/.test(value);
 }
@@ -172,14 +179,14 @@ function ensureFolderSyncNotebookHierarchy(args: {
   relativePath: string;
 }): { id: string; workspaceId: string | null } {
   const root = resolveTargetNotebook(args.targetNotebookId, args.userId);
-  if (!root) throw new Error("目标笔记本不存在或无写权限");
+  if (!root) throw new FolderSyncHierarchyError("目标笔记本不存在或无写权限");
   if (isUnsafePath(args.relativePath) || !validFolderSourceId(args.sourceFolderId)) {
-    throw new Error("文件夹同步来源标识或相对路径无效");
+    throw new FolderSyncHierarchyError("文件夹同步来源标识或相对路径无效");
   }
   const parts = args.relativePath.replace(/\\/g, "/").split("/");
   const folders = parts.slice(0, -1);
   if (folders.length > 32 || folders.some((part) => !part || part === "." || part.length > 255)) {
-    throw new Error("文件夹层级无效（最多 32 层，单层不超过 255 字符）");
+    throw new FolderSyncHierarchyError("文件夹层级无效（最多 32 层，单层不超过 255 字符）");
   }
   let parentId = root.id;
   const prefix: string[] = [];
@@ -194,7 +201,7 @@ function ensureFolderSyncNotebookHierarchy(args: {
     if (existing) {
       if (existing.userId !== args.userId || existing.workspaceId !== root.workspaceId ||
           existing.parentId !== parentId || existing.isDeleted === 1) {
-        throw new Error("已同步子文件夹曾被移动或删除，为避免覆盖用户操作，已暂停同步此路径");
+        throw new FolderSyncHierarchyError("已同步子文件夹曾被移动或删除，为避免覆盖用户操作，已暂停同步此路径");
       }
     } else {
       getDb().prepare(`
@@ -209,19 +216,6 @@ function ensureFolderSyncNotebookHierarchy(args: {
     parentId = id;
   }
   return { id: parentId, workspaceId: root.workspaceId };
-}
-
-function requestedHierarchy(input: {
-  preserveHierarchy: unknown;
-  sourceFolderId: unknown;
-  relativePath: string;
-}): boolean {
-  if (input.preserveHierarchy !== true && input.preserveHierarchy !== "1") return false;
-  if (!validFolderSourceId(input.sourceFolderId) || isUnsafePath(input.relativePath) ||
-      input.relativePath.replace(/\\/g, "/").split("/").some((part) => !part || part === ".")) {
-    throw new Error("保留文件夹层级时，来源 ID 或路径不合法");
-  }
-  return true;
 }
 
 function cloneIndependentNote(note: TrackedNote): string {
@@ -402,7 +396,8 @@ app.post("/import-file", async (c) => {
   const noteId = note?.id || uuid();
   let conflictCopyNoteId: string | undefined;
 
-  getDb().transaction(() => {
+  try {
+    getDb().transaction(() => {
     const destination = preserveHierarchy
       ? ensureFolderSyncNotebookHierarchy({
           userId, targetNotebookId, sourceFolderId: sourceFolderId as string, relativePath,
@@ -431,7 +426,13 @@ app.post("/import-file", async (c) => {
       db: getDb(), noteId, actorUserId: userId,
       reason: note ? "move" : "create", parentMode: preserveHierarchy ? "resource" : "preserve",
     });
-  })();
+    })();
+  } catch (error) {
+    if (error instanceof FolderSyncHierarchyError) {
+      return c.json({ error: error.message, code: "HIERARCHY_CONFLICT" }, 409);
+    }
+    throw error;
+  }
 
   broadcastChanged(noteId, userId, title, contentText);
   return c.json({ success: true, created: !note, updated: !!note, skipped: false, noteId, sha256: sourceSha, conflictCopyNoteId });
@@ -558,6 +559,9 @@ app.post("/import-attachment", async (c) => {
     })();
   } catch (error) {
     try { fs.unlinkSync(fullPath); } catch { /* best effort */ }
+    if (error instanceof FolderSyncHierarchyError) {
+      return c.json({ error: error.message, code: "HIERARCHY_CONFLICT" }, 409);
+    }
     throw error;
   }
 
