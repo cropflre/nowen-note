@@ -37,6 +37,9 @@ on:
       - "frontend/src/lib/__tests__/noteSyncReceipt.test.ts"
       - "frontend/src/lib/__tests__/mobileNoteSyncReceipt.test.ts"
       - "frontend/src/lib/__tests__/noteSyncReceiptBadge.test.tsx"
+      - "frontend/src/lib/__tests__/mobileNativeReceiptIntegration.test.ts"
+      - "frontend/src/lib/__tests__/useNoteSyncReceipt.nativeWiring.test.tsx"
+      - "frontend/src/lib/__tests__/nativeLocalNoteList.test.ts"
   pull_request:
     paths:
       - "docs/architecture/data-consistency-contract*"
@@ -72,6 +75,9 @@ on:
       - "frontend/src/lib/__tests__/noteSyncReceipt.test.ts"
       - "frontend/src/lib/__tests__/mobileNoteSyncReceipt.test.ts"
       - "frontend/src/lib/__tests__/noteSyncReceiptBadge.test.tsx"
+      - "frontend/src/lib/__tests__/mobileNativeReceiptIntegration.test.ts"
+      - "frontend/src/lib/__tests__/useNoteSyncReceipt.nativeWiring.test.tsx"
+      - "frontend/src/lib/__tests__/nativeLocalNoteList.test.ts"
   workflow_dispatch:
 
 permissions:

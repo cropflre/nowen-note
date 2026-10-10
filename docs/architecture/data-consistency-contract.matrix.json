@@ -224,6 +224,34 @@
         {
           "file": "frontend/src/lib/__tests__/noteSyncReceipt.test.ts",
           "case": "does not confirm a metadata-only REST response while CRDT body is unresolved"
+        },
+        {
+          "file": "frontend/src/lib/__tests__/mobileNativeReceiptIntegration.test.ts",
+          "case": "stores the actual %s version in an atomic mutation ACK"
+        },
+        {
+          "file": "frontend/src/lib/__tests__/mobileNativeReceiptIntegration.test.ts",
+          "case": "keeps conflict.serverVersion separate from successful applied.version"
+        },
+        {
+          "file": "frontend/src/lib/__tests__/mobileNativeReceiptIntegration.test.ts",
+          "case": "ignores only the known own ACK echo with a newer queued edit, without overwriting local"
+        },
+        {
+          "file": "frontend/src/lib/__tests__/mobileNativeReceiptIntegration.test.ts",
+          "case": "keeps real competing remote modifications as conflicts (not own echoes)"
+        },
+        {
+          "file": "frontend/src/lib/__tests__/nativeLocalNoteList.test.ts",
+          "case": "refreshes a %s note only after the new Outbox mutation is committed"
+        },
+        {
+          "file": "frontend/src/lib/__tests__/useNoteSyncReceipt.nativeWiring.test.tsx",
+          "case": "invalidates a stale confirmed snapshot for %s editing while ACK is delayed"
+        },
+        {
+          "file": "frontend/src/lib/__tests__/useNoteSyncReceipt.nativeWiring.test.tsx",
+          "case": "does not repaint an obsolete confirmed query after a newer pending refresh"
         }
       ]
     }
