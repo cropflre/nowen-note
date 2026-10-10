@@ -113,6 +113,36 @@ test("opt-in can relocate existing flat-mode files without rewriting their conte
   assert.equal(note(flat.body.noteId).version, after.version);
 });
 
+
+test("moving a source file between folders preserves its tracked note identity", async () => {
+  const trackedHash = sha("file-moved-across-folder");
+  const initial = await post("import-file", payload("old-team/note.md", "same source text", trackedHash));
+  assert.equal(initial.status, 200, JSON.stringify(initial.body));
+  const originalId = initial.body.noteId as string;
+  const originalParent = note(originalId).notebookId;
+  const moved = await post("import-file", payload("new-team/note.md", "same source text", trackedHash));
+  assert.equal(moved.status, 200, JSON.stringify(moved.body));
+  assert.equal(moved.body.noteId, originalId);
+  assert.notEqual(note(originalId).notebookId, originalParent);
+  assert.equal(notebook(note(originalId).notebookId).name, "new-team");
+  assert.equal(notebook(originalParent).name, "old-team", "empty folders are preserved for safety");
+});
+
+test("subsequent source edits cannot silently undo a user-chosen Nowen folder move", async () => {
+  const trackedHash = sha("manually-moved-after-import");
+  const created = await post("import-file", payload("user-folder/tracked.md", "first body", trackedHash));
+  assert.equal(created.status, 200, JSON.stringify(created.body));
+  const changedNotebookId = "user-handmade-bookmark";
+  db().prepare("INSERT INTO notebooks (id, userId, parentId, name) VALUES (?, ?, ?, ?)")
+    .run(changedNotebookId, USER, ROOT, "My curated folder");
+  db().prepare("UPDATE notes SET notebookId = ? WHERE id = ?").run(changedNotebookId, created.body.noteId);
+  const changed = await post("import-file", payload("user-folder/tracked.md", "changed body", trackedHash));
+  assert.equal(changed.status, 409, JSON.stringify(changed.body));
+  assert.equal(changed.body.code, "HIERARCHY_CONFLICT");
+  assert.equal(note(created.body.noteId).notebookId, changedNotebookId);
+  assert.match(note(created.body.noteId).content, /first body/);
+});
+
 test("wrong source hash, forged path, deleted managed folder and manually moved note are blocked", async () => {
   const badSource = await post("organize-file", {
     relativePath: "archive/2026/memo.md", targetNotebookId: ROOT,
