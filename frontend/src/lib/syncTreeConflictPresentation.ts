@@ -42,8 +42,9 @@ export const TREE_CONFLICT_FIELDS = [
 ] as const;
 
 export function canSafelyChooseTreeSide(
-  detail: Pick<ConflictDetail, "local" | "remote">,
+  detail: Pick<ConflictDetail, "local" | "remote"> | null | undefined,
 ): boolean {
+  if (!detail) return false;
   // Knowledge-tree apply needs the existing cloud baseline for a local CAS
   // and an already replicated business resource. Never offer one-click
   // replacement while either structural side is missing.
