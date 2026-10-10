@@ -62,7 +62,10 @@ function EncryptedCodeBlockView({ node, editor, getPos }: NodeViewProps) {
     const current = typeof position === "number" ? editor.state.doc.nodeAt(position) : null;
     if (typeof position !== "number" || !editor.isEditable || !current?.eq(node)) throw new Error("Encrypted region changed");
     if (!editor.commands.insertContentAt({ from: position, to: position + node.nodeSize }, { type: "codeBlock", attrs: node.attrs, content: [{ type: "text", text: next }] })) throw new Error("Encrypted region write failed");
-  } : undefined} /></NodeViewWrapper>;
+  } : undefined} />
+    {/* Keep ProseMirror's ciphertext content inside a hidden container. */}
+    <NodeViewContent hidden aria-hidden="true" contentEditable={false} />
+  </NodeViewWrapper>;
 }
 function OrdinaryCodeBlockView(props: NodeViewProps) {
   const { node, updateAttributes, extension, editor, getPos } = props;

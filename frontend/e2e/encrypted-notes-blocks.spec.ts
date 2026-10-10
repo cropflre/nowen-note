@@ -14,6 +14,9 @@ async function create(page: Page) {
   await page.getByRole("button", { name: "保存", exact: true }).click();
   await expect(page.getByRole("dialog")).toHaveCount(0);
   await expect(page.getByLabel("已锁定加密区域", { exact: true })).toHaveCount(1);
+  await expect(page.locator('.ProseMirror [data-node-view-content-react]')).toBeHidden();
+  expect(await page.locator(".ProseMirror").innerText()).not.toContain("ciphertext");
+  expect(await page.locator(".ProseMirror").innerText()).not.toContain("objectId");
 }
 async function unlock(page: Page, value = password) {
   await page.getByLabel("已锁定加密区域", { exact: true }).getByRole("button", { name: "解锁加密内容", exact: true }).click();

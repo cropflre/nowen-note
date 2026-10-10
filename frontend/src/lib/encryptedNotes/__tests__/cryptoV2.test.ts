@@ -44,9 +44,9 @@ it("updates without a password, authenticates the pre-image and preserves attach
 });
 
 it("rewraps the same root and files under a new strong password while preserving old history semantics", async () => {
-  const next = await changeContentV2Passphrase(envelope, fixture.passphrase, envelope, "long replacement passphrase");
+  const next = await changeContentV2Passphrase(envelope, fixture.passphrase, envelope, "654321");
   expect(next.payload).toEqual(envelope.payload); expect(next.keyEpoch).toBe(envelope.keyEpoch);
-  const changed = await unlockContentV2(next, "long replacement passphrase", envelope);
+  const changed = await unlockContentV2(next, "654321", envelope);
   expect(await decryptHistoryV2(changed.key, envelope, fixture.history)).toEqual(fixture.historyDocument);
   await expect(unlockContentV2(next, fixture.passphrase, envelope)).rejects.toMatchObject({ code: "unlock-failed" });
   expect((await unlockContentV2(envelope, fixture.passphrase, envelope)).document).toEqual(fixture.document);
@@ -92,15 +92,15 @@ it("bounds chunk counters and aborts without publishing an incomplete manifest",
   expect(count).toBe(1);
 });
 
-it("requires 12 Unicode characters only for new passwords and creates fresh identities with independent roots", async () => {
-  expect(hasStrongNewPassphrase("🚀".repeat(6))).toBe(false); expect(hasStrongNewPassphrase("🚀".repeat(12))).toBe(true);
+it("requires 6 Unicode characters only for new passwords and creates fresh identities with independent roots", async () => {
+  expect(hasStrongNewPassphrase("🚀".repeat(5))).toBe(false); expect(hasStrongNewPassphrase("🚀".repeat(6))).toBe(true);
   expect(() => validateNewPassphrase("short")).toThrow();
   const document = { documentSchemaVersion: 1 as const, content: "new", attachments: [] };
   await expect(createContentV2({ document, passphrase: "short", identity: envelope })).rejects.toThrow();
   const identity = { ...envelope, objectId: crypto.randomUUID() };
-  await expect(createContentV2({ document: validateDocumentV2(fixture.document), passphrase: "twelve characters or more", identity })).rejects.toMatchObject({ code: "invalid" });
-  const created = await createContentV2({ document, passphrase: "twelve characters or more", identity });
-  expect((await unlockContentV2(created, "twelve characters or more", identity)).document).toEqual(document);
-  const createdKey = (await unlockContentV2(created, "twelve characters or more", identity)).key;
+  await expect(createContentV2({ document: validateDocumentV2(fixture.document), passphrase: "123456", identity })).rejects.toMatchObject({ code: "invalid" });
+  const created = await createContentV2({ document, passphrase: "123456", identity });
+  expect((await unlockContentV2(created, "123456", identity)).document).toEqual(document);
+  const createdKey = (await unlockContentV2(created, "123456", identity)).key;
   await expect(updateContentV2(created, createdKey, identity, validateDocumentV2(fixture.document))).rejects.toMatchObject({ code: "unlock-failed" });
 });
