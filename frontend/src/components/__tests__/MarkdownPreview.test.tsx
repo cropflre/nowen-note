@@ -72,6 +72,56 @@ describe("MarkdownPreview task checkboxes", () => {
     delete (HTMLElement.prototype as { scrollIntoView?: unknown }).scrollIntoView;
   });
 
+  it("preserves ordered list start values across standalone attachment links (numbering regression)", async () => {
+    // The procurement manual uses separate list items and attachment paragraphs.
+    // Each sequence becomes a distinct <ol start="N"> under CommonMark.
+    const markdown = [
+      "7. 会签部门选：生产团队项目经理",
+      "",
+      "[会签部门](/api/attachments/95ec9280-fd03-44f2-8c6f-2e0198695527)",
+      "",
+      "8. 省公司归口会签选：采购部-张玲",
+      "",
+      "[省公司归口会签](/api/attachments/e66bb0f3-cfaa-4c81-a5c9-c0719a793394)",
+      "",
+      "9. 采购实施方案阐述：复制招标公司提供的方案",
+      "",
+      "[采购实施方案阐述](/api/attachments/a01d13ad-08f0-4a20-92e4-ec6939a5070a)",
+      "",
+      "10. 编辑签报内容（需下载插件）",
+      "",
+      "[编辑签报内容](/api/attachments/c17f2055-8446-434c-ba7a-ee4f98380b82)",
+      "",
+      "11. 其他选项可见下图",
+    ].join("\n");
+
+    await act(async () => { root.render(<MarkdownPreview markdown={markdown} />); });
+
+    const lists = [...host.querySelectorAll<HTMLOListElement>("ol")];
+    expect(lists).toHaveLength(5);
+    expect(lists.map((list) => list.start)).toEqual([7, 8, 9, 10, 11]);
+    expect(lists.map((list) => list.getAttribute("start"))).toEqual(["7", "8", "9", "10", "11"]);
+    expect(host.querySelectorAll('a[href^="/api/attachments/"]')).toHaveLength(4);
+  });
+
+  it("preserves ordered numbering with raw HTML sanitization and nested lists", async () => {
+    const markdown = [
+      "12. 首项",
+      "",
+      "<div>安全导入的 HTML 内容</div>",
+      "",
+      "13. 第二项",
+      "",
+      "1. 外层",
+      "   5. 子项一",
+      "   6. 子项二",
+    ].join("\n");
+    await act(async () => { root.render(<MarkdownPreview markdown={markdown} />); });
+    const lists = [...host.querySelectorAll<HTMLOListElement>("ol")];
+    expect(lists.slice(0, 2).map((list) => list.start)).toEqual([12, 13]);
+    expect(host.textContent).toContain("安全导入的 HTML 内容");
+  });
+
   it("emits the clicked task index and next checked state", async () => {
     const onTaskCheckboxChange = vi.fn();
 
