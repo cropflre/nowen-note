@@ -68,7 +68,15 @@ vi.mock("../api.impl", () => ({
   setCurrentWorkspace: vi.fn(), SERVER_URL_CHANGED_EVENT: "nowen:server-url-changed",
 }));
 vi.mock("../api", () => ({ getBaseUrl: () => "/api", api: { attachments: {}, files: {}, attachmentFolders: {}, dataFile: {} } }));
-vi.mock("../authSession", () => ({ getAccessToken: () => localStorage.getItem("nowen-token") }));
+// Mobile Sync V2 now delegates every request through the shared token-refresh
+// transport. Mode-switch tests are about SQLite/outbox lifecycle, not refresh
+// itself (covered by mobileSyncEndpoint.test.ts), so delegate to the passed
+// fetch implementation rather than silently dropping transport requests.
+vi.mock("../authSession", () => ({
+  getAccessToken: () => localStorage.getItem("nowen-token"),
+  fetchWithAuthRefresh: (url: string, init: RequestInit, _apiBase: string, fetchImpl: typeof fetch) =>
+    fetchImpl(url, init),
+}));
 vi.mock("../mobileLocalFirstBridge", () => ({ installMobileLocalFirstBridge: () => () => undefined }));
 vi.mock("../mobileLocalAccountMigration", () => ({ migrateMobileLocalAccount: async () => undefined }));
 vi.mock("../localStore", () => ({
