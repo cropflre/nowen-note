@@ -9,6 +9,7 @@ on:
       - "frontend/src/components/EditorPane.tsx"
       - "frontend/src/components/TiptapEditor.tsx"
       - "frontend/src/lib/__tests__/noteReadingPosition.test.ts"
+      - "frontend/src/components/__tests__/NoteReadingPositionBridge.test.tsx"
       - ".github/workflows/note-reading-position-ci.yml"
   pull_request:
     paths:
@@ -17,6 +18,7 @@ on:
       - "frontend/src/components/EditorPane.tsx"
       - "frontend/src/components/TiptapEditor.tsx"
       - "frontend/src/lib/__tests__/noteReadingPosition.test.ts"
+      - "frontend/src/components/__tests__/NoteReadingPositionBridge.test.tsx"
       - ".github/workflows/note-reading-position-ci.yml"
   workflow_dispatch:
 
@@ -39,6 +41,6 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci --silent
       - name: Reading position regression
-        run: npx vitest run src/lib/__tests__/noteReadingPosition.test.ts
+        run: npx vitest run src/lib/__tests__/noteReadingPosition.test.ts src/components/__tests__/NoteReadingPositionBridge.test.tsx
       - name: Frontend typecheck
         run: npx tsc -b --pretty false
