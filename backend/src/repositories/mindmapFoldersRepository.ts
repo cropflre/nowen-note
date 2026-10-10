@@ -8,11 +8,11 @@
  */
 
 import { getDb } from "../db/schema";
-import { SqliteAdapter } from "../db/adapters";
+import { getDatabaseAdapter } from "../db/runtime";
 import type Database from "better-sqlite3";
 
 function getAdapter() {
-  return new SqliteAdapter(getDb());
+  return getDatabaseAdapter();
 }
 
 /** mindmap_folders 记录 */
@@ -152,7 +152,7 @@ export const mindmapFoldersRepository = {
     while (currentId && depth <= 3) {
       depth++;
       const row: { parentId: string | null } | undefined = await getAdapter().queryOne<{ parentId: string | null }>(
-        "SELECT parentId FROM mindmap_folders WHERE id = ?",
+        `SELECT "parentId" FROM mindmap_folders WHERE id = ?`,
         [currentId],
       );
       currentId = row?.parentId || null;
@@ -163,12 +163,12 @@ export const mindmapFoldersRepository = {
   async listByUserAsync(userId: string, workspaceId: string | null): Promise<MindmapFolderRecord[]> {
     if (workspaceId) {
       return getAdapter().queryMany<MindmapFolderRecord>(
-        "SELECT * FROM mindmap_folders WHERE workspaceId = ? ORDER BY sortOrder, name",
+        `SELECT * FROM mindmap_folders WHERE "workspaceId" = ? ORDER BY "sortOrder", name`,
         [workspaceId],
       );
     } else {
       return getAdapter().queryMany<MindmapFolderRecord>(
-        "SELECT * FROM mindmap_folders WHERE userId = ? AND workspaceId IS NULL ORDER BY sortOrder, name",
+        `SELECT * FROM mindmap_folders WHERE "userId" = ? AND "workspaceId" IS NULL ORDER BY "sortOrder", name`,
         [userId],
       );
     }
@@ -186,36 +186,36 @@ export const mindmapFoldersRepository = {
     name: string;
   }): Promise<void> {
     await getAdapter().execute(
-      "INSERT INTO mindmap_folders (id, userId, workspaceId, parentId, name) VALUES (?, ?, ?, ?, ?)",
+      `INSERT INTO mindmap_folders (id, "userId", "workspaceId", "parentId", name) VALUES (?, ?, ?, ?, ?)`,
       [input.id, input.userId, input.workspaceId, input.parentId, input.name],
     );
   },
 
   async updateNameAsync(folderId: string, name: string): Promise<void> {
     await getAdapter().execute(
-      "UPDATE mindmap_folders SET name = ?, updatedAt = datetime('now') WHERE id = ?",
-      [name, folderId],
+      `UPDATE mindmap_folders SET name = ?, "updatedAt" = ? WHERE id = ?`,
+      [name, new Date().toISOString(), folderId],
     );
   },
 
   async updateParentIdAsync(folderId: string, parentId: string | null): Promise<void> {
     await getAdapter().execute(
-      "UPDATE mindmap_folders SET parentId = ?, updatedAt = datetime('now') WHERE id = ?",
-      [parentId, folderId],
+      `UPDATE mindmap_folders SET "parentId" = ?, "updatedAt" = ? WHERE id = ?`,
+      [parentId, new Date().toISOString(), folderId],
     );
   },
 
   async updateSortOrderAsync(folderId: string, sortOrder: number): Promise<void> {
     await getAdapter().execute(
-      "UPDATE mindmap_folders SET sortOrder = ?, updatedAt = datetime('now') WHERE id = ?",
-      [sortOrder, folderId],
+      `UPDATE mindmap_folders SET "sortOrder" = ?, "updatedAt" = ? WHERE id = ?`,
+      [sortOrder, new Date().toISOString(), folderId],
     );
   },
 
   async deleteAsync(folderId: string): Promise<void> {
     await getAdapter().execute(
-      "UPDATE mindmap_folders SET parentId = NULL, updatedAt = datetime('now') WHERE parentId = ?",
-      [folderId],
+      `UPDATE mindmap_folders SET "parentId" = NULL, "updatedAt" = ? WHERE "parentId" = ?`,
+      [new Date().toISOString(), folderId],
     );
     await getAdapter().execute("DELETE FROM mindmap_folders WHERE id = ?", [folderId]);
   },
