@@ -353,20 +353,17 @@ app.delete("/:id", async (c) => {
 });
 
 /** 永久删除本人已吊销的 Token；外键级联清理授权和使用统计，审计日志独立保留。 */
-app.delete("/:id/permanent", (c) => {
+app.delete("/:id/permanent", async (c) => {
   const denied = rejectApiTokenManagement(c);
   if (denied) return denied;
   const userId = c.req.header("X-User-Id")!;
   const id = c.req.param("id");
-  const db = getDb();
-  const row = db.prepare("SELECT revokedAt FROM api_tokens WHERE id = ? AND userId = ?")
-    .get(id, userId) as { revokedAt: string | null } | undefined;
+  const row = await apiTokensRepository.getByIdAndUserAsync(id, userId);
   if (!row) return c.json({ error: "token 不存在" }, 404);
   if (!row.revokedAt) return c.json({ error: "请先吊销 token 再删除" }, 409);
 
-  const result = db.prepare("DELETE FROM api_tokens WHERE id = ? AND userId = ? AND revokedAt IS NOT NULL")
-    .run(id, userId);
-  if (result.changes === 0) return c.json({ error: "token 不存在" }, 404);
+  const deleted = await apiTokensRepository.deleteRevokedByIdAndUserAsync(id, userId);
+  if (!deleted) return c.json({ error: "token 不存在" }, 404);
   logAudit(userId, "system", "api_token_deleted", { tokenId: id }, {
     targetType: "api_token",
     targetId: id,

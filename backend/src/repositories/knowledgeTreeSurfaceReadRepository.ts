@@ -313,6 +313,7 @@ export function createKnowledgeTreeSurfaceReadRepository(
           sortOrder: toNumber(candidate.sortOrder),
           isExpanded: toNumber(candidate.isExpanded),
           isDeleted: toNumber(candidate.isDeleted),
+          deletedAt: null,
           childCount: childCounts.get(candidate.id) || 0,
           createdAt: toTimestamp(candidate.createdAt),
           updatedAt: toTimestamp(candidate.updatedAt),
