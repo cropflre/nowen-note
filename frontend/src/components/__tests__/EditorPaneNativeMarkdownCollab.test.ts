@@ -19,7 +19,7 @@ describe("EditorPane native Markdown collaboration", () => {
     expect(useYDocSource).toContain('{ ...prev, doc, status: "synced", synced: true }');
 
     const start = editorPaneSource.indexOf('activeNote.contentFormat === "markdown"');
-    const end = editorPaneSource.indexOf(") : htmlPreviewMode", start);
+    const end = editorPaneSource.indexOf(") : shouldRenderHtmlPreview", start);
 
     expect(start).toBeGreaterThanOrEqual(0);
     expect(end).toBeGreaterThan(start);
@@ -28,4 +28,16 @@ describe("EditorPane native Markdown collaboration", () => {
     );
     expect(editorPaneSource.slice(start, end)).toContain("yDoc={collabYDoc}");
   });
+  it("renders clipped HTML in preview on the first frame and while switching notes", () => {
+    expect(editorPaneSource).toContain('() => !!activeNote && detectFormat(activeNote.content) === "html"');
+    expect(editorPaneSource).toContain("const isPendingHtmlNoteSwitch =");
+    expect(editorPaneSource).toContain("const shouldRenderHtmlPreview = htmlPreviewMode || isPendingHtmlNoteSwitch;");
+    const previewCondition = editorPaneSource.indexOf(") : shouldRenderHtmlPreview ? (");
+    const previewComponent = editorPaneSource.indexOf("<HtmlPreviewPane", previewCondition);
+    const fallbackTiptap = editorPaneSource.indexOf("<TiptapEditor", previewCondition);
+    expect(previewCondition).toBeGreaterThan(-1);
+    expect(previewComponent).toBeGreaterThan(previewCondition);
+    expect(fallbackTiptap).toBeGreaterThan(previewComponent);
+  });
+
 });

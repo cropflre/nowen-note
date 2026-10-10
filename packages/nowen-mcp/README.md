@@ -26,6 +26,8 @@ npm run build
 dist/scoped-entry.js
 ```
 
+该文件是稳定启动器加载的内部构建入口，不应直接配置给 MCP 客户端。
+
 稳定启动器（客户端应配置这个文件）：
 
 ```text
@@ -88,8 +90,10 @@ NOWEN_MCP_HEARTBEAT_MS=300000
 Windows JSON 路径示例：
 
 ```json
-"C:\\Users\\YourName\\nowen-note\\packages\\nowen-mcp\\dist\\scoped-entry.js"
+"C:\\Users\\YourName\\nowen-note\\packages\\nowen-mcp\\bin\\nowen-mcp.mjs"
 ```
+
+Linux、macOS 和 WSL 必须填写以 `/` 开头的真实绝对路径，例如 `/home/user/nowen-note/packages/nowen-mcp/bin/nowen-mcp.mjs`，不能省略开头的 `/`。
 
 VS Code 的 `.vscode/mcp.json` 使用顶层 `servers` 字段：
 
@@ -117,7 +121,7 @@ VS Code 的 `.vscode/mcp.json` 使用顶层 `servers` 字段：
 claude mcp add nowen-note --scope user \
   --env NOWEN_URL=http://192.168.1.20:3001 \
   --env NOWEN_API_TOKEN=nkn_xxx \
-  -- node /absolute/path/to/bin/nowen-mcp.mjs
+  -- node /home/user/nowen-note/packages/nowen-mcp/bin/nowen-mcp.mjs
 ```
 
 验证：

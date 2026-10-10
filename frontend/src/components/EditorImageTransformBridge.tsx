@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { NodeSelection } from "@tiptap/pm/state";
 import { FlipHorizontal, RotateCcw, RotateCw, Scan } from "lucide-react";
 import {
   getPersistentImageTransform,
@@ -23,6 +24,7 @@ interface ImageTarget {
   wrapper: HTMLElement;
   rotation: ImageRotation;
   flipX: boolean;
+  desktopToolbar: HTMLElement | null;
   mobileSheet: HTMLElement | null;
 }
 
@@ -41,6 +43,31 @@ function isCoarsePointer(): boolean {
   return typeof window !== "undefined" && window.matchMedia?.("(pointer: coarse)")?.matches === true;
 }
 
+function findDesktopImageToolbar(): HTMLElement | null {
+  const expectedTitles = isEnglishUi()
+    ? ["View large image", "Download image"]
+    : ["查看大图", "下载图片"];
+  const candidates = Array.from(document.querySelectorAll<HTMLElement>("div.fixed.z-50.flex.items-center"));
+  const toolbar = candidates.find((candidate) => {
+    const titles = Array.from(candidate.querySelectorAll<HTMLButtonElement>("button[title]"))
+      .map((button) => button.title.trim());
+    return expectedTitles.every((title) => titles.includes(title));
+  }) || null;
+
+  if (toolbar) {
+    // Portal 节点会追加在 React 原有子节点之后。把“更多”视觉顺序固定到最右侧，
+    // 让一级工具栏保持：查看 / 替换 / 编辑 / 下载 / 变换 / 更多。
+    const moreButton = Array.from(toolbar.querySelectorAll<HTMLButtonElement>("button[title]"))
+      .find((button) => button.title === "更多" || button.title === "More");
+    const moreContainer = moreButton?.parentElement;
+    if (moreContainer?.parentElement === toolbar && moreContainer.style.order !== "99") {
+      moreContainer.style.order = "99";
+    }
+  }
+
+  return toolbar;
+}
+
 function findCompactMobileSheet(): HTMLElement | null {
   return document.querySelector<HTMLElement>('[data-nowen-image-transform-slot="true"]');
 }
@@ -52,7 +79,7 @@ export function findImageTransformWrapper(dom: HTMLElement | null): HTMLElement 
     || dom.closest<HTMLElement>(".resizable-image-wrapper");
 }
 
-function selectedImageTarget(): Omit<ImageTarget, "mobileSheet"> | null {
+function selectedImageTarget(): Omit<ImageTarget, "desktopToolbar" | "mobileSheet"> | null {
   const editorDom = document.querySelector<HTMLElement>('.ProseMirror[contenteditable="true"]');
   const editor = (editorDom as (HTMLElement & { editor?: TiptapEditorLike }) | null)?.editor;
   if (!editor?.state || !editor?.view) return null;
@@ -160,6 +187,14 @@ export function applyImageTransformLayout(
   setStyle(wrapper, "overflow", "visible");
   setStyle(wrapper, "verticalAlign", "middle");
 
+  // 图片节点在 ProseMirror 模型中保持 inline，以免破坏有序列表结构；但横图旋转为
+  // 竖图后占位宽度会明显变窄，外层若继续参与行内排版就会被塞进上一行的剩余空间。
+  // 仅在 90°/270° 时让 React NodeView 独占一行，复原后恢复原有行内语义。
+  const flowHost = wrapper.closest<HTMLElement>(".react-renderer.node-image") || wrapper;
+  setStyle(flowHost, "display", layout.sideways
+    ? "block"
+    : flowHost === wrapper ? "inline-block" : "inline");
+
   const persistentTransform = getPersistentImageTransform(rotation, flipX);
   const visualTransform = `translate(-50%, -50%)${persistentTransform ? ` ${persistentTransform}` : ""}`;
   image.dataset.nowenImageVisual = "true";
@@ -228,10 +263,24 @@ export function updateImageAttributesAt(
 ): boolean {
   const node = editor.state.doc.nodeAt(pos);
   if (node?.type?.name !== "image") return false;
-  const transaction = editor.state.tr.setNodeMarkup(pos, undefined, {
+
+  const selection = editor.state.selection;
+  const keepNodeSelection = selection?.node?.type?.name === "image"
+    && Number(selection.from) === pos;
+
+  let transaction = editor.state.tr.setNodeMarkup(pos, undefined, {
     ...node.attrs,
     ...attrs,
   });
+
+  if (keepNodeSelection) {
+    const mappedPos = transaction.mapping.map(pos);
+    const updatedNode = transaction.doc.nodeAt(mappedPos);
+    if (updatedNode?.type?.name === "image") {
+      transaction = transaction.setSelection(NodeSelection.create(transaction.doc, mappedPos));
+    }
+  }
+
   editor.view.dispatch(transaction);
   return true;
 }
@@ -283,6 +332,7 @@ export default function EditorImageTransformBridge() {
     allowImageResizeThroughMobileBackdrop();
     const next: ImageTarget = {
       ...selected,
+      desktopToolbar: findDesktopImageToolbar(),
       mobileSheet: findCompactMobileSheet(),
     };
     applyImageTransformLayout(next.wrapper, next.rotation, next.flipX);
@@ -293,6 +343,7 @@ export default function EditorImageTransformBridge() {
       || previous.wrapper !== next.wrapper
       || previous.rotation !== next.rotation
       || previous.flipX !== next.flipX
+      || previous.desktopToolbar !== next.desktopToolbar
       || previous.mobileSheet !== next.mobileSheet;
     targetRef.current = next;
     if (changed) setTarget(next);
@@ -417,6 +468,17 @@ export default function EditorImageTransformBridge() {
   };
   const reset = () => update({ rotation: 0, flipX: false });
 
+  const desktopPortal = target.desktopToolbar ? createPortal(
+    <>
+      <div className="mx-0.5 h-4 w-px shrink-0 bg-app-border" aria-hidden="true" />
+      <TransformButton label={labels.left} onClick={() => rotate(-90)}><RotateCcw size={14} /></TransformButton>
+      <TransformButton label={labels.right} onClick={() => rotate(90)}><RotateCw size={14} /></TransformButton>
+      <TransformButton label={labels.flip} active={target.flipX} onClick={flip}><FlipHorizontal size={14} /></TransformButton>
+      <TransformButton label={labels.reset} onClick={reset}><Scan size={14} /></TransformButton>
+    </>,
+    target.desktopToolbar,
+  ) : null;
+
   const mobilePortal = target.mobileSheet ? createPortal(
     <div className="mt-2" data-nowen-editor-image-transforms="true" role="group" aria-label={labels.group}>
       <div className="grid grid-cols-4 gap-1.5">
@@ -429,5 +491,5 @@ export default function EditorImageTransformBridge() {
     target.mobileSheet,
   ) : null;
 
-  return mobilePortal;
+  return <>{desktopPortal}{mobilePortal}</>;
 }

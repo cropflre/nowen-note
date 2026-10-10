@@ -1,6 +1,13 @@
+import { permanentlyDeleteNote } from "../services/trash/noteTrashAdapter.js";
+import { inspectEncryptedNoteConversion } from "../services/encryptedNoteConversionPreflight.js";
+import { withEncryptedBlockWrite } from "../lib/encryptedBlockWrites.js";
 import { Hono } from "hono";
+import { EncryptedNotePayloadError, guardEncryptedBlockWriter, guardEncryptedNoteMutation, isEncryptedNoteFormat, parseEncryptedNote } from "../lib/encryptedNotes.js";
+import { createKnowledgeChild, KnowledgeTreeError } from "../services/knowledgeTree.js";
 import { projectMarkdownNoteForUser } from "../lib/markdownUserContent";
 import { getDb } from "../db/schema";
+import { isLegacyWeChatHtmlImport } from "../lib/legacyWeChatHtmlFormat.js";
+import { diagnoseTiptapContent } from "../lib/tiptap-note-format.js";
 import { v4 as uuid } from "uuid";
 import { emitWebhook } from "../services/webhook";
 import { logAudit } from "../services/audit";
@@ -43,7 +50,7 @@ import {
   synchronizeLegacyNotebookHierarchy,
 } from "../services/legacyKnowledgeHierarchy";
 import { syncAutomaticNoteLinkTitles } from "../lib/noteLinkTitles";
-import { noteLinksRepository, noteTagsRepository, noteVersionsRepository, favoritesRepository, noteYsnapshotsRepository, noteYupdatesRepository } from "../repositories";
+import { noteTagsRepository, noteVersionsRepository, favoritesRepository, noteYsnapshotsRepository, noteYupdatesRepository } from "../repositories";
 import { rebuildYjsSubdocumentsIfEnabled } from "../services/yjs-subdocuments";
 import { reclaimSpace } from "../lib/reclaimSpace";
 import { buildFtsSearchTerm } from "../lib/searchQuery";
@@ -54,8 +61,18 @@ import {
   stabilizePersistedNoteContent,
   TransientPersistedImageSourceError,
 } from "../lib/noteContentAttachmentIdentity";
+import { duplicateNote, DuplicateNoteError } from "../services/noteDuplicates";
+import { isValidNoteColorMarkInput, normalizeNoteColorMark } from "../lib/noteColorMark";
 
 const app = new Hono();
+const reportedInvalidTiptapNotes = new Set<string>();
+function reportInvalidTiptapNoteOnce(noteId: string, version: number, reason: string): void {
+  const key = `${noteId}:${version}:${reason}`;
+  if (reportedInvalidTiptapNotes.has(key)) return;
+  if (reportedInvalidTiptapNotes.size >= 256) reportedInvalidTiptapNotes.clear();
+  reportedInvalidTiptapNotes.add(key);
+  console.warn("[notes.get] skipped block authority read repair", { noteId, version, reason });
+}
 
 type TrashScope = { workspaceId: string | null; value: string };
 
@@ -147,7 +164,7 @@ app.get("/", (c) => {
     CASE WHEN EXISTS(SELECT 1 FROM favorites f WHERE f.noteId = notes.id AND f.userId = ?) THEN 1 ELSE 0 END AS isFavorite,
     notes.isLocked, notes.isArchived, notes.isTrashed, notes.version, notes.sortOrder,
     notes.createdAt, notes.updatedAt,
-    notes.contentFormat,
+    notes.contentFormat, notes.colorMark,
     (SELECT tree.parentId
        FROM knowledge_tree_nodes tree
       WHERE tree.resourceType = 'note' AND tree.resourceId = notes.id AND tree.isDeleted = 0
@@ -509,6 +526,14 @@ app.get("/:id", (c) => {
 
   const { permission } = resolveNotePermission(id, userId);
   if (!hasPermission(permission, "read")) {
+    // Keep the public 404 opaque, but distinguish a missing row from ACL denial
+    // in server diagnostics so support can identify sync/permission failures.
+    const exists = !!db.prepare("SELECT 1 FROM notes WHERE id = ?").get(id);
+    console.warn("[notes.get] unavailable", {
+      noteId: id,
+      reason: exists ? "access-denied" : "record-missing",
+      authenticated: Boolean(userId),
+    });
     return c.json({ error: "Note not found or forbidden" }, 404);
   }
 
@@ -526,18 +551,44 @@ app.get("/:id", (c) => {
   const favExpr = `CASE WHEN EXISTS(SELECT 1 FROM favorites f WHERE f.noteId = notes.id AND f.userId = ?) THEN 1 ELSE 0 END AS isFavorite`;
   const selectCols = slim
     ? `id, userId, notebookId, workspaceId, title, isPinned, ${favExpr}, isLocked,
-       isArchived, isTrashed, version, sortOrder, createdAt, updatedAt, trashedAt, contentFormat`
+       isArchived, isTrashed, version, sortOrder, createdAt, updatedAt, trashedAt, contentFormat, colorMark`
     : `id, userId, notebookId, workspaceId, title, content, contentText, isPinned, ${favExpr},
-       isLocked, isArchived, isTrashed, version, sortOrder, createdAt, updatedAt, trashedAt, contentFormat`;
+       isLocked, isArchived, isTrashed, version, sortOrder, createdAt, updatedAt, trashedAt, contentFormat, colorMark`;
   const note = db.prepare(`SELECT ${selectCols} FROM notes WHERE id = ?`).get(userId, id) as any;
   if (!note) return c.json({ error: "Note not found" }, 404);
+
+  // Early URL imports wrote HTML into a row with SQLite's default
+  // contentFormat='tiptap-json'. Repair only its exact WeChat source-marker
+  // signature, before block-authority read-repair attempts JSON.parse("<...").
+  // This corrects metadata only; do not touch body, version or timestamps.
+  if (!slim && isLegacyWeChatHtmlImport(note.content, note.contentFormat)) {
+    try {
+      const changed = db.prepare(`
+        UPDATE notes SET contentFormat = 'html'
+        WHERE id = ? AND contentFormat = 'tiptap-json' AND content = ?
+      `).run(id, note.content);
+      if (changed.changes > 0) {
+        note.contentFormat = "html";
+        console.info("[notes.get] repaired legacy WeChat HTML contentFormat", { noteId: id });
+      }
+    } catch (error) {
+      console.warn("[notes.get] legacy WeChat contentFormat repair failed:", error);
+      // Preserve the correct read-only renderer even when metadata write is denied.
+      note.contentFormat = "html";
+    }
+  }
 
   if (!slim && typeof note.content === "string") {
     const authoritative = readAuthoritativeNoteContent(db, id, note.content);
     const selected = selectBlockAuthorityRead(resolveBlockAuthorityMode(), authoritative, note.content);
     note.content = selected.content;
     note.blockAuthority = { source: selected.source, status: selected.status };
-    if (selected.shouldRepair && ["tiptap-json", "markdown"].includes(note.contentFormat)) {
+    const formatDiagnosis = note.contentFormat === "tiptap-json"
+      ? diagnoseTiptapContent(note.content) : "valid";
+    if (selected.shouldRepair && formatDiagnosis !== "valid") {
+      // Keep legacy raw content and metadata unchanged; block repair is not a format migration.
+      reportInvalidTiptapNoteOnce(id, note.version, formatDiagnosis);
+    } else if (selected.shouldRepair && ["tiptap-json", "markdown"].includes(note.contentFormat)) {
       try {
         const synced = syncNoteBlocks(db, id, note.content, note.contentFormat);
         if (synced.changed) {
@@ -564,11 +615,83 @@ app.get("/:id", (c) => {
   return c.json({ ...responseNote as any, tags, permission });
 });
 
+// 创建完整独立副本：正文、标签和本地附件由服务端统一复制。
+app.post("/:id/duplicate", async (c) => {
+  const db = getDb();
+  const userId = c.req.header("X-User-Id") || "";
+  const sourceNoteId = c.req.param("id");
+  let body: { placement?: "sibling" | "child" };
+  try {
+    const text = await c.req.text();
+    body = text.trim() ? JSON.parse(text) : {};
+    if (!body || typeof body !== "object" || Array.isArray(body)
+      || (body.placement !== undefined && body.placement !== "sibling" && body.placement !== "child")) {
+      throw new Error("Invalid placement");
+    }
+  } catch {
+    return c.json({ error: "无效的副本位置", code: "NOTE_DUPLICATE_PLACEMENT_INVALID" }, 400);
+  }
+  try {
+    const result = await duplicateNote({ userId, noteId: sourceNoteId, placement: body.placement });
+    const responseNote = presentNoteForResponse(db, c, result.note);
+    logAudit(userId, "note", "duplicate", {
+      sourceNoteId,
+      noteId: result.node.resourceId,
+    }, { targetType: "note", targetId: result.node.resourceId });
+    return c.json({
+      ...responseNote as any,
+      tags: result.tags,
+      treeNodeId: result.node.id,
+      treeParentId: result.node.parentId,
+    }, 201);
+  } catch (error) {
+    if (error instanceof DuplicateNoteError) {
+      return c.json({ error: error.message, code: error.code }, error.status);
+    }
+    console.error("[notes.duplicate] failed:", error);
+    return c.json({ error: "创建副本失败", code: "NOTE_DUPLICATE_FAILED" }, 500);
+  }
+});
+
 // 创建笔记
 app.post("/", async (c) => {
   const db = getDb();
   const userId = c.req.header("X-User-Id") || "";
   const body = await c.req.json();
+  if (!isEncryptedNoteFormat(body.contentFormat)) {
+    try { guardEncryptedNoteMutation(body); guardEncryptedBlockWriter(body); }
+    catch (error) {
+      if (error instanceof EncryptedNotePayloadError) return c.json({ error: error.message, code: error.code }, 400);
+      throw error;
+    }
+  }
+  if (isEncryptedNoteFormat(body.contentFormat)) {
+    try {
+      guardEncryptedNoteMutation(body);
+      const identity = parseEncryptedNote(body.content);
+      const encryptedNoteId = typeof body.id === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(body.id) ? body.id : undefined;
+      if (encryptedNoteId && db.prepare("SELECT 1 FROM notes WHERE id = ?").get(encryptedNoteId)) {
+        return c.json({ error: "笔记 ID 已存在", code: "NOTE_ID_CONFLICT" }, 409);
+      }
+      const node = createKnowledgeChild({
+        actorUserId: userId, workspaceId: typeof body.workspaceId === "string" ? body.workspaceId : null,
+        parentId: typeof body.treeParentId === "string" ? body.treeParentId : null,
+        nodeType: identity.originalFormat === "markdown" ? "markdown" : "note",
+        title: typeof body.title === "string" ? body.title : "加密笔记",
+        encryptedContent: body.content, encryptedNoteId, db,
+      });
+      const note = db.prepare("SELECT * FROM notes WHERE id = ?").get(node.resourceId) as any;
+      return c.json({ ...note, tags: [], permission: resolveNotePermission(node.resourceId, userId).permission, treeNodeId: node.id }, 201);
+    } catch (error) {
+      if (error instanceof EncryptedNotePayloadError) return c.json({ error: error.message, code: error.code }, 400);
+      if (error instanceof KnowledgeTreeError) return c.json({ error: error.message, code: error.code }, error.status);
+      throw error;
+    }
+  }
+  if (body.colorMark !== undefined && !isValidNoteColorMarkInput(body.colorMark)) {
+    return c.json({ error: "无效的笔记颜色标记", code: "INVALID_NOTE_COLOR_MARK" }, 400);
+  }
+  const initialColorMark = body.colorMark === undefined ? null : normalizeNoteColorMark(body.colorMark);
 
   // 如果指定了 notebookId，必须对其有 write 权限，并从笔记本继承 workspaceId
   let inheritedWorkspaceId: string | null = null;
@@ -622,12 +745,12 @@ app.post("/", async (c) => {
 
   const legacyNoteCreateTx = db.transaction(() => {
     db.prepare(`
-      INSERT INTO notes (id, userId, workspaceId, notebookId, title, content, contentText, contentFormat)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO notes (id, userId, workspaceId, notebookId, title, content, contentText, contentFormat, colorMark)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       id, userId, inheritedWorkspaceId, body.notebookId,
       body.title || "无标题笔记", initialContent,
-      extractSearchableText(initialContent, contentFormat), contentFormat,
+      extractSearchableText(initialContent, contentFormat), contentFormat, initialColorMark,
     );
     synchronizeLegacyNoteHierarchy({
       db,
@@ -651,11 +774,12 @@ app.post("/", async (c) => {
   // 必须放在 INSERT 之后，attachments.noteId 外键要求 note 行先存在。
   // 短路保证常规无内联图的创建零额外成本。
   let finalContent = initialContent;
-  if (typeof body.content === "string" && body.content.indexOf("data:image") >= 0) {
+  if (typeof body.content === "string" && /data:(?:image|audio)\//i.test(body.content)) {
     try {
       const r = extractInlineBase64Images(body.content, userId, id, inheritedWorkspaceId);
       if (r.replacedCount > 0) {
-        db.prepare("UPDATE notes SET content = ? WHERE id = ?").run(r.content, id);
+        withEncryptedBlockWrite(db, id, r.content, contentFormat, () =>
+          db.prepare("UPDATE notes SET content = ? WHERE id = ?").run(r.content, id));
         finalContent = r.content;
       }
     } catch (e) {
@@ -711,13 +835,27 @@ app.post("/", async (c) => {
   const note = db.prepare(`
     SELECT id, userId, notebookId, workspaceId, title, content, contentText, isPinned,
       CASE WHEN EXISTS(SELECT 1 FROM favorites f WHERE f.noteId = notes.id AND f.userId = ?) THEN 1 ELSE 0 END AS isFavorite,
-      isLocked, isArchived, isTrashed, version, sortOrder, createdAt, updatedAt, trashedAt, contentFormat
+      isLocked, isArchived, isTrashed, version, sortOrder, createdAt, updatedAt, trashedAt, contentFormat, colorMark
     FROM notes WHERE id = ?
   `).get(userId, id);
   logAudit(userId, "note", "create", { noteId: id, title: body.title }, { targetType: "note", targetId: id });
 
   const responseNote = presentNoteForResponse(db, c, note);
   return c.json({ ...responseNote as any, tags: [] }, 201);
+});
+
+// M4 preparation only: disclose counts, never content or a conversion permit.
+app.get("/:id/encryption-preflight", (c) => {
+  c.header("Cache-Control", "no-store");
+  const db = getDb(); const id = c.req.param("id");
+  const userId = c.req.header("X-User-Id") || "";
+  const note = db.prepare("SELECT userId FROM notes WHERE id = ?").get(id) as { userId: string } | undefined;
+  if (!note) return c.json({ error: "笔记不存在", code: "NOT_FOUND" }, 404);
+  const { permission } = resolveNotePermission(id, userId);
+  if (note.userId !== userId || !hasPermission(permission, "manage")) {
+    return c.json({ error: "仅笔记所有者可检查加密转换", code: "FORBIDDEN" }, 403);
+  }
+  return c.json(inspectEncryptedNoteConversion(db, id));
 });
 
 // 更新笔记
@@ -738,16 +876,31 @@ app.put("/:id", async (c) => {
 
   // 根据变更字段决定所需权限
   const writeFields = ["title", "content", "contentText", "contentFormat", "notebookId", "isPinned", "isFavorite",
-                       "isArchived", "isTrashed", "sortOrder"];
+                       "isArchived", "isTrashed", "sortOrder", "colorMark"];
   const manageFields = ["isLocked"]; // 锁定需要 manage 权限
   const needsManage = manageFields.some((f) => body[f] !== undefined);
   const needsWrite = writeFields.some((f) => body[f] !== undefined);
+  if (body.colorMark !== undefined && !isValidNoteColorMarkInput(body.colorMark)) {
+    return c.json({ error: "无效的笔记颜色标记", code: "INVALID_NOTE_COLOR_MARK" }, 400);
+  }
 
   if (needsManage && !hasPermission(permission, "manage")) {
     return c.json({ error: "需要 manage 权限", code: "FORBIDDEN" }, 403);
   }
   if (needsWrite && !hasPermission(permission, "write")) {
     return c.json({ error: "权限不足", code: "FORBIDDEN" }, 403);
+  }
+
+  try {
+    const existing = db.prepare("SELECT content, contentFormat FROM notes WHERE id = ?").get(id) as { content: string; contentFormat: string } | undefined;
+    guardEncryptedNoteMutation(body, existing);
+    const protectedWrite = guardEncryptedBlockWriter(body, existing);
+    if (protectedWrite && existing && (!Number.isSafeInteger(body.version) || body.version < 1)) throw new EncryptedNotePayloadError();
+    if (isEncryptedNoteFormat(existing?.contentFormat) && body.content !== undefined
+      && (!Number.isSafeInteger(body.version) || body.version < 1)) throw new EncryptedNotePayloadError();
+  } catch (error) {
+    if (error instanceof EncryptedNotePayloadError) return c.json({ error: error.message, code: error.code }, 400);
+    throw error;
   }
 
   if (typeof body.content === "string") {
@@ -974,7 +1127,7 @@ app.put("/:id", async (c) => {
   //   - 失败保留原 data URI 不阻断保存；
   //   - 抽取改写后会让 contentText 与 content 体积出现"不对称变化"——但 contentText 是
   //     纯文本不含 base64，本身不受影响，FTS 重排逻辑（notes_au）也不会被打扰。
-  if (typeof body.content === "string" && body.content.indexOf("data:image") >= 0) {
+  if (typeof body.content === "string" && /data:(?:image|audio)\//i.test(body.content)) {
     try {
       const r = extractInlineBase64Images(body.content, userId, id, noteWorkspaceId);
       if (r.replacedCount > 0) {
@@ -1012,6 +1165,7 @@ app.put("/:id", async (c) => {
     fields.push("workspaceId = ?"); params.push(newWorkspaceId ?? null);
   }
   if (body.isPinned !== undefined) { fields.push("isPinned = ?"); params.push(body.isPinned); }
+  if (body.colorMark !== undefined) { fields.push("colorMark = ?"); params.push(normalizeNoteColorMark(body.colorMark)); }
   // Y1: isFavorite 不再写 notes 列，改为操作 favorites 表（per-user 语义）。
   // 权限检查已在上面的 writeFields 里做过（仍需 write 权限才能切换自己的收藏）。
   // 幂等：truthy → INSERT OR IGNORE；falsy → DELETE。
@@ -1148,7 +1302,10 @@ app.put("/:id", async (c) => {
         });
       }
     });
-    legacyNoteUpdateTx();
+    if (typeof body.content === "string") {
+      const format = db.prepare("SELECT contentFormat FROM notes WHERE id = ?").get(id) as { contentFormat: string };
+      withEncryptedBlockWrite(db, id, body.content, body.contentFormat ?? format.contentFormat, legacyNoteUpdateTx, body.encryptedBlocksVersion);
+    } else legacyNoteUpdateTx();
   }
 
   // v11: 同步 attachment_references 倒排（仅在 content 字段被改动时；非内容字段
@@ -1206,7 +1363,7 @@ app.put("/:id", async (c) => {
   const note = db.prepare(`
     SELECT id, userId, notebookId, workspaceId, title, content, contentText, isPinned,
       CASE WHEN EXISTS(SELECT 1 FROM favorites f WHERE f.noteId = notes.id AND f.userId = ?) THEN 1 ELSE 0 END AS isFavorite,
-      isLocked, isArchived, isTrashed, version, sortOrder, createdAt, updatedAt, trashedAt, contentFormat
+      isLocked, isArchived, isTrashed, version, sortOrder, createdAt, updatedAt, trashedAt, contentFormat, colorMark
     FROM notes WHERE id = ?
   `).get(userId, id);
 
@@ -1600,96 +1757,15 @@ app.post("/:id/yjs/subdocuments/:sectionId", async (c) => {
   }
 });
 
-// 删除笔记（永久）
+// 删除笔记（永久）：保留原接口，复用回收站生命周期服务。
 app.delete("/:id", (c) => {
-  const db = getDb();
-  const userId = c.req.header("X-User-Id") || "";
-  const id = c.req.param("id");
-
-  // 永久删除只针对回收站生命周期；tombstone 继续按删除前 Knowledge ACL 校验。
-  const { permission } = resolveTrashedNotePermission(id, userId);
-  if (!hasPermission(permission, "manage")) {
-    // editor 不能永久删除，只能放入回收站
-    return c.json({ error: "仅笔记 owner 或工作区管理员可永久删除", code: "FORBIDDEN" }, 403);
-  }
-
-  const note = db.prepare("SELECT isLocked FROM notes WHERE id = ?").get(id) as { isLocked: number } | undefined;
-  if (note && note.isLocked === 1) {
-    return c.json({ error: "Note is locked", code: "NOTE_LOCKED" }, 403);
-  }
-
-  // ⚠ 先清理磁盘附件物理文件（必须在 DELETE FROM notes 之前，否则 CASCADE 后查不到 path）
-  let removedFiles = 0;
   try {
-    removedFiles = deleteAttachmentFilesByNoteIds([id]);
-  } catch (e) {
-    console.warn("[notes.delete] deleteAttachmentFilesByNoteIds failed:", e);
+    permanentlyDeleteNote(c.req.param("id"), c.req.header("X-User-Id") || "");
+    return c.json({ success: true });
+  } catch (error) {
+    if (error instanceof KnowledgeTreeError) return c.json({ error: error.message, code: error.code }, error.status);
+    throw error;
   }
-
-  // BACKLINKS-02-RV1: 永久删除笔记前清理 note_links 引用关系
-  // 作为 source 或 target 的引用记录都需要清除，避免孤儿数据残留
-  try {
-    noteLinksRepository.deleteByNoteId(id);
-  } catch (e) {
-    console.warn("[notes.delete] cleanup note_links failed:", e);
-  }
-
-  // 估算本次释放的字节数——仅用于判断是否值当做全量 VACUUM。
-  // 失败时当作 0，后续只会做 checkpoint + incremental_vacuum，不会误触发 VACUUM。
-  let freedBytesEstimate = 0;
-  try {
-    const attBytes = db
-      .prepare("SELECT COALESCE(SUM(size), 0) AS bytes FROM attachments WHERE noteId = ?")
-      .get(id) as { bytes: number } | undefined;
-    freedBytesEstimate += attBytes?.bytes || 0;
-    const noteBytes = db
-      .prepare(
-        `SELECT COALESCE(LENGTH(content), 0)
-              + COALESCE(LENGTH(contentText), 0)
-              + COALESCE(LENGTH(title), 0) AS bytes
-           FROM notes WHERE id = ?`,
-      )
-      .get(id) as { bytes: number } | undefined;
-    freedBytesEstimate += noteBytes?.bytes || 0;
-  } catch { /* ignore */ }
-
-  db.prepare("DELETE FROM notes WHERE id = ?").run(id);
-
-  // TAG-PRUNE-UNUSED-ON-NOTE-DELETE-01: 永久删除笔记后清理未使用的标签
-  // 删除该用户下没有任何笔记引用的标签（只删除个人空间标签，不删除工作区标签）
-  try {
-    db.prepare(`
-      DELETE FROM tags
-      WHERE userId = ?
-        AND workspaceId IS NULL
-        AND id NOT IN (
-          SELECT DISTINCT nt.tagId
-          FROM note_tags nt
-          JOIN notes n ON n.id = nt.noteId
-          WHERE n.userId = ? AND n.isTrashed = 0
-        )
-    `).run(userId, userId);
-  } catch (e) {
-    console.warn("[notes.delete] prune unused tags failed:", e);
-  }
-
-  // Phase 3: 释放内存 Y.Doc（CASCADE 已清 note_yupdates/note_ysnapshots）
-  try { yDestroyDoc(id); } catch {}
-
-  // 回收磁盘空间：与"清空回收站"一致的 checkpoint + incremental_vacuum 策略。
-  // 没有这一步，单删笔记永远不会让 .db 主文件缩小（SQLite 默认不归还 free page），
-  // 用户感知就是"删了笔记占用不降"，这是此前的缺陷。
-  reclaimSpace(db, { freedBytesEstimate, tag: "notes.delete" });
-
-  emitWebhook("note.deleted", userId, { noteId: id, removedFiles });
-  logAudit(userId, "note", "delete", { noteId: id, removedFiles }, { targetType: "note", targetId: id });
-
-  // Phase 2: 广播永久删除
-  try {
-    broadcastNoteDeleted(id, { actorUserId: userId, trashed: false });
-  } catch {}
-
-  return c.json({ success: true });
 });
 
 export default app;

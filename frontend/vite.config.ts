@@ -151,15 +151,13 @@ export default defineConfig({
     format: "iife",
   },
   build: {
-    target: "chrome64",
-    cssTarget: "chrome64",
+    target: ["chrome64", "safari13"],
+    cssTarget: ["chrome64", "safari13"],
     sourcemap: false,
     manifest: true,
-    // 禁用 modulePreload polyfill 注入，避免某些 rollup 版本将
-    // "vite/modulepreload-polyfill" 误识别为 source phase import 而报错。
-    // 现代浏览器（Chrome 64+、Firefox 115+、Safari 17.5+）已原生支持 modulepreload，
-    // Capacitor WebView 和 Electron 同样无需 polyfill。
-    modulePreload: { polyfill: false },
+    // Safari / WKWebView are first-class web targets. Keep Vite's modulepreload fallback
+    // enabled so older WebKit does not stall while resolving lazy startup chunks.
+    modulePreload: { polyfill: true },
     // 降低 chunk 大小警告阈值
     chunkSizeWarningLimit: 2000,
     rollupOptions: {

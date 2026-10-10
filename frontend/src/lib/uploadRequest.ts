@@ -1,11 +1,11 @@
-export const LOCAL_ATTACHMENT_UPLOAD_TIMEOUT_MS = 20_000;
-export const NATIVE_ATTACHMENT_UPLOAD_MIN_TIMEOUT_MS = 90_000;
-export const NATIVE_ATTACHMENT_UPLOAD_MAX_TIMEOUT_MS = 10 * 60_000;
+export const ATTACHMENT_UPLOAD_MIN_TIMEOUT_MS = 90_000;
+export const ATTACHMENT_UPLOAD_MAX_TIMEOUT_MS = 10 * 60_000;
 
 export type UploadErrorCode =
   | "OFFLINE"
   | "UPLOAD_TIMEOUT"
   | "UPLOAD_ABORTED"
+  | "ATTACHMENT_TOO_LARGE"
   | "HTTP_ERROR"
   | "NETWORK_ERROR";
 
@@ -13,6 +13,10 @@ export class UploadRequestError extends Error {
   readonly code: UploadErrorCode;
   readonly status?: number;
   readonly retryable: boolean;
+  readonly maxSizeBytes?: number;
+  readonly actualSizeBytes?: number;
+  readonly serverCode?: string;
+  readonly requestId?: string;
 
   constructor(
     message: string,
@@ -21,6 +25,10 @@ export class UploadRequestError extends Error {
       status?: number;
       retryable?: boolean;
       cause?: unknown;
+      maxSizeBytes?: number;
+      actualSizeBytes?: number;
+      serverCode?: string;
+      requestId?: string;
     },
   ) {
     super(message);
@@ -28,6 +36,10 @@ export class UploadRequestError extends Error {
     this.code = options.code;
     this.status = options.status;
     this.retryable = options.retryable ?? true;
+    this.maxSizeBytes = options.maxSizeBytes;
+    this.actualSizeBytes = options.actualSizeBytes;
+    this.serverCode = options.serverCode;
+    this.requestId = options.requestId;
     if (options.cause !== undefined) {
       (this as Error & { cause?: unknown }).cause = options.cause;
     }
@@ -75,20 +87,16 @@ export function isNativeCapacitorUploadRuntime(): boolean {
 }
 
 /**
- * 手机端通常通过公网 / Wi-Fi 上传附件，固定 20 秒会把正常的视频上传中途 abort。
- * 按文件大小放宽 deadline，同时保留 10 分钟硬上限，避免真正卡死的请求无限挂起。
+ * 所有平台按文件大小放宽附件上传 deadline：小文件至少 90 秒，大文件按每 MiB
+ * 增加 4 秒计算，同时保留 10 分钟硬上限，避免真正卡死的请求无限挂起。
  */
-export function getAttachmentUploadTimeoutMs(
-  fileSize: number,
-  native = isNativeCapacitorUploadRuntime(),
-): number {
-  if (!native) return LOCAL_ATTACHMENT_UPLOAD_TIMEOUT_MS;
+export function getAttachmentUploadTimeoutMs(fileSize: number): number {
   const safeBytes = Number.isFinite(fileSize) && fileSize > 0 ? fileSize : 0;
   const sizeMiB = safeBytes / (1024 * 1024);
   const scaled = 45_000 + Math.ceil(sizeMiB) * 4_000;
   return Math.min(
-    NATIVE_ATTACHMENT_UPLOAD_MAX_TIMEOUT_MS,
-    Math.max(NATIVE_ATTACHMENT_UPLOAD_MIN_TIMEOUT_MS, scaled),
+    ATTACHMENT_UPLOAD_MAX_TIMEOUT_MS,
+    Math.max(ATTACHMENT_UPLOAD_MIN_TIMEOUT_MS, scaled),
   );
 }
 
@@ -96,6 +104,23 @@ function getMultipartFileSize(body: BodyInit | null | undefined): number {
   if (typeof FormData === "undefined" || !(body instanceof FormData)) return 0;
   const file = body.get("file");
   return typeof Blob !== "undefined" && file instanceof Blob ? file.size : 0;
+}
+
+function appendUploadSizeHint(url: string, fileSize: number): string {
+  if (!fileSize) return url;
+  try {
+    const parsed = new URL(url, typeof window !== "undefined" ? window.location.href : "http://localhost/");
+    // ISSUE-780 metadata belongs only to the canonical attachment POST. Other multipart features
+    // (task attachments/imports/etc.) must not silently gain an unrelated query parameter.
+    if (!/\/attachments\/?$/.test(parsed.pathname)) return url;
+    parsed.searchParams.set("__uploadSize", String(fileSize));
+    if (/^https?:\/\//i.test(url)) return parsed.toString();
+    return `${parsed.pathname}${parsed.search}${parsed.hash}`;
+  } catch {
+    if (!/\/attachments(?:\?|$)/.test(url)) return url;
+    const separator = url.includes("?") ? "&" : "?";
+    return `${url}${separator}__uploadSize=${encodeURIComponent(String(fileSize))}`;
+  }
 }
 
 /**
@@ -143,6 +168,11 @@ function responseErrorMessage(payload: unknown, status: number, fallback: string
   return `${fallback}: HTTP ${status}`;
 }
 
+function finitePositive(value: unknown): number | undefined {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
+}
+
 export async function fetchJsonWithUploadDeadline<T>(
   url: string,
   init: RequestInit,
@@ -166,6 +196,7 @@ export async function fetchJsonWithUploadDeadline<T>(
   const timeoutMs = multipartFileSize > 0
     ? Math.max(options.timeoutMs, getAttachmentUploadTimeoutMs(multipartFileSize))
     : options.timeoutMs;
+  const requestUrl = appendUploadSizeHint(url, multipartFileSize);
 
   const timer = globalThis.setTimeout(() => {
     timedOut = true;
@@ -174,19 +205,31 @@ export async function fetchJsonWithUploadDeadline<T>(
 
   try {
     const requestFetch = resolveUploadFetch(init.body);
-    const response = await requestFetch(url, { ...init, signal: controller.signal });
+    const response = await requestFetch(requestUrl, { ...init, signal: controller.signal });
     const text = await response.text();
     const payload = readResponsePayload(text);
 
     if (!response.ok) {
+      const record = payload && typeof payload === "object"
+        ? payload as Record<string, unknown>
+        : null;
+      const serverCode = typeof record?.code === "string" ? record.code : undefined;
+      const requestId = response.headers.get("X-Request-Id")
+        || (typeof record?.requestId === "string" ? record.requestId : undefined);
+      const serverRetryable = typeof record?.retryable === "boolean" ? record.retryable : undefined;
+      const attachmentTooLarge = response.status === 413 || serverCode === "ATTACHMENT_TOO_LARGE";
       throw new UploadRequestError(
         responseErrorMessage(payload, response.status, options.httpErrorMessage),
         {
-          code: "HTTP_ERROR",
+          code: attachmentTooLarge ? "ATTACHMENT_TOO_LARGE" : "HTTP_ERROR",
+          serverCode,
+          requestId: requestId || undefined,
           status: response.status,
-          retryable: response.status === 408
-            || response.status === 429
-            || response.status >= 500,
+          retryable: attachmentTooLarge
+            ? false
+            : serverRetryable ?? (response.status === 408 || response.status === 429 || response.status >= 500),
+          maxSizeBytes: finitePositive(record?.maxSizeBytes),
+          actualSizeBytes: finitePositive(record?.actualSizeBytes) || (multipartFileSize || undefined),
         },
       );
     }
@@ -226,9 +269,23 @@ export function uploadErrorMetadata(error: unknown): {
   code: UploadErrorCode;
   retryable: boolean;
   message: string;
+  status?: number;
+  maxSizeBytes?: number;
+  actualSizeBytes?: number;
+  serverCode?: string;
+  requestId?: string;
 } {
   if (error instanceof UploadRequestError) {
-    return { code: error.code, retryable: error.retryable, message: error.message };
+    return {
+      code: error.code,
+      retryable: error.retryable,
+      message: error.message,
+      status: error.status,
+      maxSizeBytes: error.maxSizeBytes,
+      actualSizeBytes: error.actualSizeBytes,
+      serverCode: error.serverCode,
+      requestId: error.requestId,
+    };
   }
   return {
     code: "NETWORK_ERROR",

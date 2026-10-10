@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { BackupManager, type BackupInfo } from "../src/services/backup";
-import { normalizeAutoBackupType } from "../src/runtime/auto-full-backup";
+import { automaticBackupsToPrune, normalizeAutoBackupType } from "../src/runtime/auto-full-backup";
 
 function backup(
   filename: string,
@@ -145,8 +145,9 @@ test("creating a full backup still invokes the shared db-only retention", async 
   }
 });
 
-test("automatic full backup never runs a separate full retention pass", async () => {
+test("automatic full backup prunes only excess automatic full archives", async () => {
   const created: Array<{ type?: "full" | "db-only"; description?: string }> = [];
+  const deleted: string[] = [];
   const manager: any = Object.create(BackupManager.prototype);
 
   manager.autoBackupConfig = {
@@ -161,13 +162,32 @@ test("automatic full backup never runs a separate full retention pass", async ()
     created.push(options);
     return backup("auto-full-new.zip", "full", "2026-07-15T03:00:00.000Z", options.description);
   };
-  manager.listBackups = () => assert.fail("runtime 不应自行实现 retention");
-  manager.deleteBackup = () => assert.fail("runtime 不应删除任何 full 备份");
+  manager.listBackups = () => [
+    backup("auto-full-new.zip", "full", "2026-07-15T03:00:00.000Z", "自动备份（全量）"),
+    backup("auto-full-2.zip", "full", "2026-07-15T02:00:00.000Z", "自动备份（全量）"),
+    backup("auto-full-1.zip", "full", "2026-07-15T01:00:00.000Z", "自动备份（全量）"),
+    backup("manual-full.zip", "full", "2026-07-14T23:00:00.000Z", "管理员手动归档"),
+  ];
+  manager.deleteBackup = (filename: string) => {
+    deleted.push(filename);
+    return true;
+  };
   manager.sendAutoBackupEmail = async () => {};
 
   await manager.runAutoTick();
 
   assert.deepEqual(created, [{ type: "full", description: "自动备份（全量）" }]);
+  assert.deepEqual(deleted, ["auto-full-1.zip"]);
+});
+
+test("automatic retention keeps manual and imported full archives", () => {
+  assert.deepEqual(automaticBackupsToPrune([
+    backup("auto-3.zip", "full", "2026-07-15T03:00:00.000Z", "自动备份（全量）"),
+    backup("auto-2.zip", "full", "2026-07-15T02:00:00.000Z", "自动备份（全量）"),
+    backup("auto-1.zip", "full", "2026-07-15T01:00:00.000Z", "自动备份（全量）"),
+    backup("manual.zip", "full", "2026-07-14T23:00:00.000Z", "管理员手动归档"),
+    backup("imported.zip", "full", "2026-07-14T22:00:00.000Z", "[imported] 原始文件"),
+  ], "full", 2), ["auto-1.zip"]);
 });
 
 test("automatic tick skips overlap while a full archive is still being generated", async () => {

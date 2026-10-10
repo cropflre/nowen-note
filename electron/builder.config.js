@@ -11,6 +11,8 @@ const {
   formatCompatibilityReport,
 } = require("../scripts/lib/linux-native-compat.cjs");
 
+const WINDOWS_PUBLISHER_NAME = process.env.NOWEN_WINDOWS_PUBLISHER_NAME?.trim() || "";
+
 function resolveTargetPlatform(context) {
   if (context?.electronPlatformName) return context.electronPlatformName;
   const argv = process.argv.join(" ");
@@ -53,6 +55,10 @@ module.exports = {
     "!electron/builder.base.config.js",
     "!electron/builder.lite.base.config.js",
   ],
+  win: {
+    ...(base.win || {}),
+    ...(WINDOWS_PUBLISHER_NAME ? { publisherName: WINDOWS_PUBLISHER_NAME } : {}),
+  },
   nsis: {
     ...(base.nsis || {}),
     artifactName: "Nowen-Note-${version}-setup.${ext}",

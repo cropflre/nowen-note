@@ -47,6 +47,8 @@ import {
   MIME_TO_EXT,
 } from "./attachments";
 import {
+  checkAttachmentObjectExists,
+  classifyAttachmentStorageError,
   deleteAttachmentObject,
   getAttachmentStorageInfo,
   getUploadMonthPath,
@@ -60,6 +62,14 @@ import {
   requireWorkspaceFeature,
 } from "../middleware/acl";
 import { createUserAttachmentAccessUrls } from "../lib/attachment-signed-url";
+import { isHeifMime, resolveHeifUploadMime } from "../lib/heif-mime";
+import { analyzeModernMedia } from "../lib/modern-media";
+import { recordMediaAnalysis } from "../services/modern-media";
+import {
+  isManualFileManagerUpload,
+  resolveFileAttachmentAccess,
+  type FileAttachmentAccessRow,
+} from "../services/fileAttachmentAccess";
 
 const app = new Hono();
 
@@ -72,6 +82,20 @@ const IMAGE_MIME_PREFIX = "image/";
 /** 判定一个 MIME 是否属于图片（供分类筛选用）。 */
 function isImage(mime: string | null | undefined): boolean {
   return !!mime && mime.toLowerCase().startsWith(IMAGE_MIME_PREFIX);
+}
+
+type MutableFileRow = FileAttachmentAccessRow & { path?: string; filename?: string };
+
+/**
+ * 文件管理手动上传不再依赖隐藏 holder note 的 knowledge-tree projection。
+ * 普通附件继续使用原有笔记 write 权限，避免绕过目录/笔记 ACL。
+ */
+function canWriteManagedFile(row: MutableFileRow, userId: string): boolean {
+  if (isManualFileManagerUpload(row)) {
+    return resolveFileAttachmentAccess(row, userId).canWrite;
+  }
+  const { permission } = resolveNotePermission(row.noteId, userId);
+  return hasPermission(permission, "write");
 }
 
 // ---------------------------------------------------------------------------
@@ -212,7 +236,7 @@ function toFileOut(row: FileRow): FileOut {
         }
       : null,
   };
-  if (isImg && THUMBNAILABLE_MIMES.has(mimeLower)) {
+  if (isImg && (THUMBNAILABLE_MIMES.has(mimeLower) || isHeifMime(mimeLower))) {
     out.thumbnailUrl = `/api/attachments/${row.id}?w=${DEFAULT_THUMBNAIL_WIDTH}`;
   }
   return out;
@@ -809,10 +833,10 @@ app.delete("/:id", async (c) => {
 
   const row = db
     .prepare(
-      "SELECT id, noteId, userId, path FROM attachments WHERE id = ?",
+      "SELECT id, noteId, userId, workspaceId, uploadSource, path FROM attachments WHERE id = ?",
     )
     .get(id) as
-    | { id: string; noteId: string; userId: string; path: string }
+    | (FileAttachmentAccessRow & { id: string; path: string })
     | undefined;
   if (!row) return c.json({ error: "文件不存在" }, 404);
 
@@ -821,9 +845,8 @@ app.delete("/:id", async (c) => {
     return c.json({ error: "无权删除他人文件", code: "FORBIDDEN" }, 403);
   }
 
-  // 同时走笔记 ACL：若笔记在工作区内，只有 write+ 可删
-  const { permission } = resolveNotePermission(row.noteId, userId);
-  if (!hasPermission(permission, "write")) {
+  // 普通附件走笔记 ACL；文件管理手动上传走附件自身 scope 权限。
+  if (!canWriteManagedFile(row, userId)) {
     return c.json({ error: "无权删除该文件", code: "FORBIDDEN" }, 403);
   }
 
@@ -890,9 +913,9 @@ app.patch("/:id", async (c) => {
   }
 
   const row = db
-    .prepare("SELECT id, noteId, userId, filename FROM attachments WHERE id = ?")
+    .prepare("SELECT id, noteId, userId, workspaceId, uploadSource, filename FROM attachments WHERE id = ?")
     .get(id) as
-    | { id: string; noteId: string; userId: string; filename: string }
+    | (FileAttachmentAccessRow & { id: string; filename: string })
     | undefined;
   if (!row) return c.json({ error: "文件不存在" }, 404);
 
@@ -900,8 +923,7 @@ app.patch("/:id", async (c) => {
   if (row.userId !== userId) {
     return c.json({ error: "无权重命名他人文件", code: "FORBIDDEN" }, 403);
   }
-  const { permission } = resolveNotePermission(row.noteId, userId);
-  if (!hasPermission(permission, "write")) {
+  if (!canWriteManagedFile(row, userId)) {
     return c.json({ error: "无权重命名该文件", code: "FORBIDDEN" }, 403);
   }
 
@@ -974,12 +996,11 @@ app.post("/batch-delete", async (c) => {
   const placeholders = ids.map(() => "?").join(",");
   const rows = db
     .prepare(
-      `SELECT id, noteId, userId, path FROM attachments WHERE id IN (${placeholders})`,
+      `SELECT id, noteId, userId, workspaceId, uploadSource, path
+         FROM attachments WHERE id IN (${placeholders})`,
     )
-    .all(...ids) as Array<{
+    .all(...ids) as Array<FileAttachmentAccessRow & {
       id: string;
-      noteId: string;
-      userId: string;
       path: string;
     }>;
 
@@ -996,8 +1017,7 @@ app.post("/batch-delete", async (c) => {
       failed.push({ id: row.id, reason: "无权删除他人文件" });
       continue;
     }
-    const { permission } = resolveNotePermission(row.noteId, userId);
-    if (!hasPermission(permission, "write")) {
+    if (!canWriteManagedFile(row, userId)) {
       failed.push({ id: row.id, reason: "无权删除该文件" });
       continue;
     }
@@ -1183,7 +1203,7 @@ app.post("/upload", requireWorkspaceFeature("files"), async (c) => {
       413,
     );
   }
-  const mime = (file.type || "application/octet-stream").toLowerCase();
+  let mime = (file.type || "application/octet-stream").toLowerCase();
   if (BLOCKED_MIMES.has(mime)) {
     return c.json({ error: `出于安全考虑，不支持该类型: ${mime}` }, 415);
   }
@@ -1192,10 +1212,6 @@ app.post("/upload", requireWorkspaceFeature("files"), async (c) => {
 
   ensureAttachmentsDir();
   const id = uuid();
-  const ext = pickExt(file.name, mime);
-  const monthPath = getUploadMonthPath();
-  const storagePath = `${monthPath}/${id}.${ext}`;
-
   let buffer: Buffer;
   try {
     buffer = Buffer.from(await file.arrayBuffer());
@@ -1206,7 +1222,12 @@ app.post("/upload", requireWorkspaceFeature("files"), async (c) => {
     );
   }
 
-  // v11 hash dedup：同 user + 同 workspace 内查命中。命中 → 复用老 id 不写盘不写 DB。
+  mime = analyzeModernMedia(buffer, resolveHeifUploadMime(buffer, mime)).mimeType;
+  const ext = pickExt(file.name, mime);
+  const monthPath = getUploadMonthPath();
+  const storagePath = `${monthPath}/${id}.${ext}`;
+
+  // 同 user + 同 workspace 内查 hash；复用原 id，并补写缺失的实体文件。
   const sha256 = crypto.createHash("sha256").update(buffer).digest("hex");
   const db = getDb();
 
@@ -1221,18 +1242,44 @@ app.post("/upload", requireWorkspaceFeature("files"), async (c) => {
   const dedupRow = db
     .prepare(
       scope.workspaceId
-        ? `SELECT id, noteId, mimeType, size, filename FROM attachments
+        ? `SELECT id, noteId, mimeType, size, filename, path FROM attachments
             WHERE userId = ? AND workspaceId = ? AND hash = ? LIMIT 1`
-        : `SELECT id, noteId, mimeType, size, filename FROM attachments
+        : `SELECT id, noteId, mimeType, size, filename, path FROM attachments
             WHERE userId = ? AND workspaceId IS NULL AND hash = ? LIMIT 1`,
     )
     .get(
       ...(scope.workspaceId
         ? [userId, scope.workspaceId, sha256]
         : [userId, sha256]),
-    ) as { id: string; noteId: string; mimeType: string; size: number; filename: string } | undefined;
+    ) as { id: string; noteId: string; mimeType: string; size: number; filename: string; path: string } | undefined;
 
   if (dedupRow) {
+    let repaired = false;
+    try {
+      const object = await checkAttachmentObjectExists(dedupRow.path);
+      if (!object.exists) {
+        if (object.error !== undefined || (object.status !== undefined && object.status !== 404)) {
+          throw new Error(object.status !== undefined
+            ? `S3 HEAD failed: ${object.status} ${object.error || ""}`
+            : object.error);
+        }
+        await writeAttachmentObject(dedupRow.path, buffer, mime);
+        repaired = true;
+      }
+    } catch (err) {
+      const failure = classifyAttachmentStorageError(err);
+      return c.json({ error: `检查或修复文件失败: ${failure.message}`, code: failure.code }, 500);
+    }
+
+    if (repaired) {
+      db.prepare("UPDATE attachments SET mimeType = ?, size = ? WHERE id = ?").run(mime, buffer.length, dedupRow.id);
+      dedupRow.mimeType = mime;
+      dedupRow.size = buffer.length;
+      console.info("[files.upload] repaired missing attachment object", { attachmentId: dedupRow.id, path: dedupRow.path });
+    } else if ((isHeifMime(mime) || mime === "image/jpeg" || mime.startsWith("video/")) && dedupRow.mimeType !== mime) {
+      db.prepare("UPDATE attachments SET mimeType = ? WHERE id = ?").run(mime, dedupRow.id);
+      dedupRow.mimeType = mime;
+    }
     // v12：dedup 命中老行时把 uploadSource 升级到 'file_manager'——
     // 用户这次是从文件管理页主动上传同一份内容，理应进入"我的上传"。
     // 用 COALESCE 语义：仅当老行还没标过来源时才写，避免把已有的 'file_manager'
@@ -1251,6 +1298,7 @@ app.post("/upload", requireWorkspaceFeature("files"), async (c) => {
       ).run(folderId, dedupRow.id, folderId);
     }
 
+    recordMediaAnalysis(dedupRow.id, buffer, dedupRow.mimeType);
     return c.json(
       {
         id: dedupRow.id,
@@ -1261,6 +1309,7 @@ app.post("/upload", requireWorkspaceFeature("files"), async (c) => {
         category: isImage(dedupRow.mimeType) ? "image" : "file",
         createdAt: new Date().toISOString(),
         deduplicated: true,
+        ...(repaired ? { repaired: true } : {}),
         accessUrls: createUserAttachmentAccessUrls(userId, [{ id: dedupRow.id, noteId: dedupRow.noteId }]),
       },
       200,
@@ -1302,6 +1351,7 @@ app.post("/upload", requireWorkspaceFeature("files"), async (c) => {
     );
   }
 
+  recordMediaAnalysis(id, buffer, mime);
   return c.json(
     {
       id,

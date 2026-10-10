@@ -1,5 +1,6 @@
 import { common, createLowlight, type LanguageFn } from "lowlight";
 import maxscript from "@/lib/codeBlockLanguages/maxscript";
+import { getCodeBlockLanguageDisplayLabel } from "@/lib/codeBlockLanguageRegistry";
 
 const commonRegistry = common as Record<string, LanguageFn>;
 const EXPLICIT_ONLY_LANGUAGES = new Set(["maxscript"]);
@@ -43,6 +44,5 @@ export function formatCodeBlockLanguageLabel(raw: string | null | undefined): st
   if (!raw) return "auto";
   const language = raw.toLowerCase();
   if (language === "plaintext" || language === "text") return "text";
-  if (language === "maxscript" || language === "ms" || language === "mcr") return "MAXScript";
-  return language;
+  return getCodeBlockLanguageDisplayLabel(raw);
 }

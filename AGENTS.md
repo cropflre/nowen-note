@@ -68,3 +68,8 @@
 ---
 
 **准则在起效的表现：** diff 中不必要的改动更少，因过度复杂而返工更少，澄清问题出现在实现之前而非犯错之后。
+## 5. 项目专用 AI Skills
+
+- 修改项目源码、评估产品需求、排查 Issue/PR：先阅读 [`.agents/skills/nowen-note-development/SKILL.md`](./.agents/skills/nowen-note-development/SKILL.md)。
+- 用户授权后操作其私人笔记：阅读 [`.agents/skills/nowen-note/SKILL.md`](./.agents/skills/nowen-note/SKILL.md)。Skill 本身不提供连接或权限。
+- `.claude/skills/` 提供同内容镜像，更新 Skill 时保持两边同步。

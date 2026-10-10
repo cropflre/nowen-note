@@ -37,7 +37,6 @@ export const zhCNAdditionalTranslations = {
     disableWebUi: "关闭网页端页面",
     disableWebUiDesc: "开启后服务器只保留 API；浏览器访问网页端会显示禁用提示。桌面客户端使用本地界面连接 API，不受影响。",
     shortcuts: "快捷键",
-    offlineSync: "离线同步",
   },
   editorError: {
     runtimeDescription: "当前 Android WebView 版本过旧，编辑器缺少必要的运行时能力。请升级 APP；如已是最新版，可临时更新 Android System WebView 或 Chrome。",
@@ -220,7 +219,6 @@ export const enAdditionalTranslations = {
     disableWebUi: "Disable Web UI",
     disableWebUiDesc: "When enabled, the server exposes only the API and browser visits show a disabled notice. Desktop clients use their local UI and are unaffected.",
     shortcuts: "Shortcuts",
-    offlineSync: "Offline Sync",
   },
   editorError: {
     runtimeDescription: "This Android WebView is too old for the editor runtime. Update the app; if you're already on the latest version, temporarily update Android System WebView or Chrome.",

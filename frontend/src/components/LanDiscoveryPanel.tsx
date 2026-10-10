@@ -110,13 +110,7 @@ export default function LanDiscoveryPanel({
       } catch {
         /* ignore */
       }
-      // discovery.stop() 由 onUpdate 卸载时自动触发（最后一个订阅者解订阅时停浏览器）
-      // Electron 端 stop() 由 IPC 主动停；这里也显式调用以兼容 Electron 桥接 API。
-      try {
-        discovery.stop();
-      } catch {
-        /* ignore */
-      }
+      // 最后一个订阅者离开时由 discovery 停止扫描；不能中断后台端点解析器的订阅。
     };
     // currentHostIsEmpty 只用于首次判定，这里故意只在 mount 时读取 —— 否则用户一填 host
     // 就会移除订阅，违反"持续推送更新"的预期。

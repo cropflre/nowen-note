@@ -1,0 +1,74 @@
+name: Analysis Worker CI
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, "release/v1.5.1"]
+    paths:
+      - "frontend/src/lib/tiptapAnalysisClient.ts"
+      - "frontend/src/lib/tiptapAnalysis.worker.ts"
+      - "frontend/src/lib/markdownAnalysisClient.ts"
+      - "frontend/src/lib/markdownAnalysis.worker.ts"
+      - "frontend/src/lib/__tests__/tiptapAnalysisClient.test.ts"
+      - "frontend/src/lib/__tests__/markdownAnalysisClient.test.ts"
+      - "frontend/vite.config.ts"
+      - ".github/workflows/analysis-worker-ci.yml"
+  pull_request:
+    paths:
+      - "frontend/src/lib/tiptapAnalysisClient.ts"
+      - "frontend/src/lib/tiptapAnalysis.worker.ts"
+      - "frontend/src/lib/markdownAnalysisClient.ts"
+      - "frontend/src/lib/markdownAnalysis.worker.ts"
+      - "frontend/src/lib/__tests__/tiptapAnalysisClient.test.ts"
+      - "frontend/src/lib/__tests__/markdownAnalysisClient.test.ts"
+      - "frontend/vite.config.ts"
+      - ".github/workflows/analysis-worker-ci.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  analysis-workers:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - name: Worker controller regressions
+        run: npm run test:run -- src/lib/__tests__/tiptapAnalysisClient.test.ts src/lib/__tests__/markdownAnalysisClient.test.ts
+      - name: Vite dev serves ESM workers
+        run: |
+          npm run dev -- --host 127.0.0.1 --port 5179 --strictPort > /tmp/nowen-workers-vite.log 2>&1 &
+          VITE_PID=$!
+          trap 'kill "$VITE_PID" 2>/dev/null || true' EXIT
+          node --input-type=module <<'NODE'
+          const base = "http://127.0.0.1:5179";
+          let available = false;
+          for (let i = 0; i < 60; i++) {
+            try {
+              const response = await fetch(base);
+              if (response.ok) { available = true; break; }
+            } catch { /* waiting for Vite */ }
+            await new Promise((resolve) => setTimeout(resolve, 500));
+          }
+          if (!available) throw new Error("Vite dev server was not ready");
+          for (const filename of ["tiptapAnalysis.worker.ts", "markdownAnalysis.worker.ts"]) {
+            const url = `${base}/src/lib/${filename}?worker`;
+            const response = await fetch(url);
+            const code = await response.text();
+            if (!response.ok || !/new Worker\(/.test(code) || !/type\s*:\s*["']module["']/.test(code)) {
+              throw new Error(`Vite dev did not serve ${filename} with an ESM Worker wrapper: HTTP ${response.status}\n${code.slice(0, 600)}`);
+            }
+            console.log(`OK: ${filename} is loaded as a module in Vite dev`);
+          }
+          NODE
+      - name: Production build and typecheck (classic IIFE worker output)
+        run: npm run build

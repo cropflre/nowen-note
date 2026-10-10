@@ -3,8 +3,13 @@ import {
   emitMediaUploadLifecycle,
   resolveMediaUploadLifecycleFile,
 } from "@/lib/mediaUploadLifecycle";
+import { scheduleMediaInsertionCommit } from "@/lib/mediaInsertionCommit";
 
 const VIDEO_EXTENSIONS = new Set(["mp4", "webm", "ogg", "ogv", "m4v", "mov"]);
+const uploadedButNotCommitted = new WeakMap<File | Blob, {
+  noteId: string;
+  result: MediaUploadResult;
+}>();
 
 export interface MediaUploadOptions {
   noteId: string;
@@ -45,6 +50,22 @@ export function toInlineAttachmentUrl(url: string): string {
   return `${base}${sep}inline=1${hash}`;
 }
 
+function scheduleCommit(
+  noteId: string,
+  lifecycleFile: File | Blob,
+  filename: string,
+  result: MediaUploadResult,
+): void {
+  uploadedButNotCommitted.set(lifecycleFile, { noteId, result });
+  scheduleMediaInsertionCommit({
+    noteId,
+    file: lifecycleFile,
+    filename,
+    result,
+    onSuccess: () => uploadedButNotCommitted.delete(lifecycleFile),
+  });
+}
+
 export async function uploadMediaAttachment({
   noteId,
   file,
@@ -57,7 +78,19 @@ export async function uploadMediaAttachment({
     file: lifecycleFile,
     filename: file.name,
     mediaType: "video",
+    noteId,
   });
+
+  // If the previous attempt reached storage but failed only at the editor insertion boundary,
+  // MediaExperienceBridge's existing “重试失败项” should retry insertion, not upload another copy.
+  // Attachment ownership is note-scoped: never reuse an old-note upload after the user switches notes.
+  const pending = uploadedButNotCommitted.get(lifecycleFile);
+  if (pending?.noteId === noteId) {
+    const reused = { ...pending.result, source };
+    scheduleCommit(noteId, lifecycleFile, file.name, reused);
+    return reused;
+  }
+  if (pending && pending.noteId !== noteId) uploadedButNotCommitted.delete(lifecycleFile);
 
   try {
     const uploaded = await api.attachments.upload(noteId, file);
@@ -85,13 +118,11 @@ export async function uploadMediaAttachment({
       size: uploaded.size,
       source,
     };
-    emitMediaUploadLifecycle({
-      phase: "success",
-      file: lifecycleFile,
-      filename: file.name,
-      mediaType: "video",
-      result,
-    });
+
+    // ISSUE-780: 上传附件成功只是中间态。让调用方继续走现有 Tiptap / Markdown
+    // 插入流程，再由 mediaInsertionCommit 确认正文中真正出现该附件后才发最终 success。
+    // 插入失败时保留 result；同一笔记内的面板重试会复用这个附件，不产生重复上传。
+    scheduleCommit(noteId, lifecycleFile, file.name, result);
     return result;
   } catch (error: any) {
     emitMediaUploadLifecycle({
@@ -99,6 +130,7 @@ export async function uploadMediaAttachment({
       file: lifecycleFile,
       filename: file.name,
       mediaType: "video",
+      noteId,
       error: error?.message || "视频上传失败",
     });
     throw error;

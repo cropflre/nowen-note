@@ -1,36 +1,24 @@
 import { useEffect } from "react";
 import { api } from "@/lib/api";
 import { SYNC_SNAPSHOT_APPLIED_EVENT } from "@/lib/syncEngine";
-import { syncOfflineWorkspace } from "@/lib/offlineWorkspaceSync";
-import {
-  installOfflineAttachmentRecoveryCapture,
-  OFFLINE_ATTACHMENT_RETRY_EVENT,
-} from "@/lib/offlineAttachmentRecovery";
+import { installOfflineAttachmentRecoveryCapture } from "@/lib/offlineAttachmentRecovery";
 import { useNetworkStatus } from "@/hooks/useNetworkStatus";
 import { useAppActions } from "@/store/AppContext";
+import { isAndroidNativeRuntime } from "@/lib/mobileLocalMode";
 
 /**
- * Headless sync runtime shared by Web, Electron and mobile.
+ * Web / Electron 使用的旧离线队列 Runtime。
  *
- * Network probing, offline queue replay and collection refresh remain active, but sync state is
- * no longer promoted into a global banner, snackbar or recovery notification.
+ * Android Native 无论是设备本地模式还是已登录账号，都由
+ * mobileLocalFirstRuntime + Native SQLite + MobileSyncEngine 管理持久化/同步。
+ * Android 再挂载这里会产生第二套 /health 探测、syncNow() 和附件恢复链路，
+ * 导致重复请求、状态竞争以及“本地模式仍在访问服务器”的噪声。
  */
-export default function OfflineSyncRuntime() {
+function ServerOfflineSyncRuntime() {
   const actions = useAppActions();
   useNetworkStatus({ signalRecovery: false });
 
   useEffect(() => installOfflineAttachmentRecoveryCapture(), []);
-
-  useEffect(() => {
-    const handleAttachmentRetry = () => {
-      // syncOfflineWorkspace already coalesces concurrent runs. If a broken local Blob is
-      // quarantined while a sync is active, the queued job remains durable and the normal
-      // interval will pick it up even when this call joins the current run.
-      void syncOfflineWorkspace({ force: true, reason: "network" });
-    };
-    window.addEventListener(OFFLINE_ATTACHMENT_RETRY_EVENT, handleAttachmentRetry);
-    return () => window.removeEventListener(OFFLINE_ATTACHMENT_RETRY_EVENT, handleAttachmentRetry);
-  }, []);
 
   useEffect(() => {
     const handleSnapshot = () => {
@@ -45,4 +33,9 @@ export default function OfflineSyncRuntime() {
   }, [actions]);
 
   return null;
+}
+
+export default function OfflineSyncRuntime() {
+  if (isAndroidNativeRuntime()) return null;
+  return <ServerOfflineSyncRuntime />;
 }

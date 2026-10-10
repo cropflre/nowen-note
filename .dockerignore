@@ -19,6 +19,7 @@ LICENSE
 # --- Node 依赖 / 构建产物（容器里会重新 npm ci + build）---
 **/node_modules
 **/dist
+backend/dist.root-owned-backup/
 **/dist-electron
 **/dist-fpk
 **/build

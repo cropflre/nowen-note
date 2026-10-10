@@ -1,3 +1,4 @@
+import { commitMarkdownEncryptedRegion, prepareMarkdownEncryptedRegionEdit, prepareMarkdownSelectionEncryption } from "@/lib/encryptedNotes/blockAuthoring";
 /**
  * MarkdownEditor —— 基于 CodeMirror 6 的 Markdown 笔记编辑器
  * ---
@@ -25,6 +26,7 @@
  */
 
 import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
+import CollapsibleEditorToolbar, { MobileEditorToolbarSlot } from "@/components/CollapsibleEditorToolbar";
 import { EditorState, Compartment, StateEffect } from "@codemirror/state";
 import {
   EditorView,
@@ -45,6 +47,7 @@ import {
   indentWithTab,
 } from "@codemirror/commands";
 import {
+  closeSearchPanel,
   search,
   searchKeymap,
   openSearchPanel,
@@ -95,7 +98,6 @@ import {
   Strikethrough,
   Table2,
   Image as ImagePlus,
-  Paperclip,
   Undo,
   Code as CodeIcon,
   Copy, ArrowUp,
@@ -107,10 +109,22 @@ import {
   Film,
   FolderSearch,
   ClipboardPlus,
+  BrainCircuit,
 } from "lucide-react";
 import { MarkdownPreview } from "./MarkdownPreview";
+import { markdownLivePreviewNoteId } from "@/lib/markdownLivePreview";
+import EncryptedBlockDialog from "./EncryptedBlockDialog";
+import { markdownEncryptedBlocks } from "@/lib/encryptedNotes/blockDocument";
 import AttachmentLibraryPicker from "@/components/AttachmentLibraryPicker";
+import VoiceInsertMenu from "@/components/VoiceInsertMenu";
+import { requestVoiceMemo, voiceMemoHtml } from "@/lib/voiceMemo";
 import { useUserPreferences, type MarkdownViewMode } from "@/hooks/useUserPreferences";
+import {
+  extractRemoteImageUrlsFromMarkdown,
+  localizeRemoteImages,
+  replaceRemoteUrlsInMarkdown,
+} from "@/lib/remoteImageLocalizer";
+import { choose } from "@/components/ui/confirm";
 
 import { Note, Tag, type FileItem } from "@/types";
 import TagInput from "@/components/TagInput";
@@ -119,10 +133,14 @@ import { toast } from "@/lib/toast";
 import { copyText } from "@/lib/clipboard";
 import { openTaskQuickCapture } from "@/lib/taskInboxApi";
 import { findTextAction, type TextAction } from "@/lib/textActions";
+import { resolveEditorBubblePosition } from "@/lib/editorBubbleSelection";
 import { cn } from "@/lib/utils";
 import { normalizeToMarkdown, markdownToPlainText } from "@/lib/contentFormat";
 import { internalMarkdownMarkerExtensions } from "@/lib/markdownInternalMarkers";
-import { sanitizeMarkdownClipboardText } from "@/lib/markdownUserContent";
+import {
+  resolveInternalMarkerSyncSelection,
+  sanitizeMarkdownClipboardText,
+} from "@/lib/markdownUserContent";
 import { shouldEmitTitleUpdate, shouldSkipTitleChange, shouldSyncTitleValue } from "@/lib/titleIme";
 import { resolveEditorLifecycleSave } from "@/lib/editorLifecycleSafety";
 import { scrollMarkdownPreviewToPosition } from "@/lib/markdownPreviewOutline";
@@ -133,9 +151,10 @@ import {
 } from "@/lib/markdownTasks";
 import { clampMarkdownSplitPercent } from "@/lib/markdownSplitPane";
 import { api } from "@/lib/api";
-import { uploadAndInsertImage } from "@/lib/imageUploadService";
+import { uploadAndInsertImage, uploadPhotoSelection } from "@/lib/imageUploadService";
 import { buildExistingAttachmentMarkdownSnippet } from "@/lib/existingAttachmentInsert";
 import { isVideoFile, uploadMediaAttachment, type MediaUploadResult } from "@/lib/mediaUploadService";
+import { listenMediaUploadLifecycle } from "@/lib/mediaUploadLifecycle";
 import type { NoteEditorHandle, NoteEditorHeading, NoteEditorProps } from "@/components/editors/types";
 import type { FormatMenuPayload } from "@/lib/desktopBridge";
 import { NoteLinkMenu, type NoteSearchResult, type NoteLinkBlockItem, type NoteLinkSelectionOptions } from "@/components/NoteLinkExtension";
@@ -157,6 +176,7 @@ import {
   insertLink,
   insertImage,
   replaceSelection,
+  applyMarkdownCjkTypography,
 } from "@/lib/markdownCommands";
 import {
   MarkdownSlashMenu,
@@ -249,8 +269,8 @@ function ToolbarButton({ onClick, disabled, children, title, className }: Toolba
   );
 }
 
-function ToolbarDivider() {
-  return <div className="w-px h-5 bg-app-border mx-1" />;
+function ToolbarDivider({ className }: { className?: string }) {
+  return <div className={cn("w-px h-5 bg-app-border mx-1", className)} />;
 }
 
 // ---------------------------------------------------------------------------
@@ -280,8 +300,8 @@ const nowenMdHighlight = HighlightStyle.define([
   { tag: t.link, color: "var(--color-accent-primary, #3b82f6)", textDecoration: "underline" },
   { tag: t.url, color: "var(--color-accent-primary, #3b82f6)" },
   { tag: t.monospace, fontFamily: "ui-monospace, 'JetBrains Mono', Menlo, Monaco, Consolas, monospace" },
-  { tag: t.quote, fontStyle: "italic", color: "var(--color-tx-secondary, #64748b)" },
-  { tag: t.processingInstruction, color: "var(--color-tx-tertiary, #94a3b8)" },
+  { tag: t.quote, fontStyle: "italic", color: "var(--color-text-secondary, #64748b)" },
+  { tag: t.processingInstruction, color: "var(--color-text-tertiary, #94a3b8)" },
   { tag: t.list, color: "var(--color-accent-primary, #3b82f6)" },
 ]);
 
@@ -517,7 +537,7 @@ const searchPanelTheme = EditorView.theme({
 const baseTheme = EditorView.theme({
   "&": {
     height: "100%",
-    fontSize: "15px",
+    fontSize: "var(--editor-font-size, 15px)",
     backgroundColor: "transparent",
   },
   ".cm-scroller": {
@@ -529,7 +549,7 @@ const baseTheme = EditorView.theme({
   ".cm-content": {
     padding: "12px 0",
     caretColor: "var(--color-accent-primary, #3b82f6)",
-    color: "var(--color-tx-primary, #0f172a)",
+    color: "var(--color-text-primary, #0f172a)",
   },
   ".cm-line": {
     padding: "0 12px",
@@ -550,13 +570,13 @@ const baseTheme = EditorView.theme({
   ".cm-gutters": {
     backgroundColor: "transparent",
     border: "none",
-    color: "var(--color-tx-tertiary, #94a3b8)",
+    color: "var(--color-text-tertiary, #94a3b8)",
   },
   ".cm-cursor": {
     borderLeftWidth: "2px",
   },
   ".cm-placeholder": {
-    color: "var(--color-tx-tertiary, #94a3b8)",
+    color: "var(--color-text-tertiary, #94a3b8)",
     fontStyle: "italic",
   },
 });
@@ -652,6 +672,8 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
 }, ref) {
   const { t: tr, i18n } = useTranslation();
   const { prefs: userPrefs } = useUserPreferences();
+  const remoteImagePasteModeRef = useRef(userPrefs.remoteImagePasteMode);
+  remoteImagePasteModeRef.current = userPrefs.remoteImagePasteMode;
   const { visible: keyboardVisible } = useKeyboardVisible();
   const compactMobileEditing = editable
     && keyboardVisible
@@ -665,6 +687,36 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
   const previewRootRef = useRef<HTMLDivElement | null>(null);
   const splitContainerRef = useRef<HTMLDivElement | null>(null);
   const viewRef = useRef<EditorView | null>(null);
+  const [encryptedRegion, setEncryptedRegion] = useState<{ source?: string; initialContent?: { plaintext: string; format: "markdown" }; commit: (source: string) => void } | null>(null);
+  useEffect(() => { setEncryptedRegion(null); }, [note.id]);
+  const openEncryptedRegion = () => {
+    const view = viewRef.current;
+    if (!view || !editable || isGuest || note.isTrashed) return;
+    const snapshot = view.state.doc; const noteId = note.id; const selection = view.state.selection.main;
+    try {
+      const block = markdownEncryptedBlocks(snapshot.toString()).find((item) => selection.from >= item.from && selection.to <= item.to);
+      if (!block && !selection.empty) {
+        const selected = prepareMarkdownSelectionEncryption(view, historyCompartmentRef.current);
+        setEncryptedRegion({ initialContent: selected, commit: (source) => {
+          if (noteRef.current.id !== noteId || viewRef.current !== view || noteRef.current.isTrashed) throw new Error("Encrypted selection changed");
+          selected.commit(source);
+          collabUndoManagerRef.current?.clear();
+        } });
+        return;
+      }
+      // New regions start on their own line, never inside another code fence.
+      const syntax = syntaxTree(view.state).resolveInner(selection.from, -1);
+      let insideFence = false;
+      for (let parent: typeof syntax | null = syntax; parent; parent = parent.parent) if (parent.name === "FencedCode" || parent.name === "CodeBlock") insideFence = true;
+      if (!block && (view.state.doc.lineAt(selection.from).text.trim() || insideFence)) {
+        toast.error("请在普通正文的空白行插入加密区域"); return;
+      }
+      setEncryptedRegion({ source: block?.source, commit: (source) => {
+        if (noteRef.current.id !== noteId || viewRef.current !== view || !view.state.facet(EditorView.editable) || view.state.doc !== snapshot) throw new Error("Encrypted region changed");
+        commitMarkdownEncryptedRegion(view, snapshot, { from: block?.from ?? selection.from, to: block?.to ?? selection.to, prefix: block?.prefix }, source);
+      } });
+    } catch { toast.error(selection.empty ? "加密区域格式无效，请保留原始密文" : "请选择普通文本，暂不支持图片、附件、链接或代码块内的选区。"); }
+  };
   const titleRef = useRef<HTMLTextAreaElement | null>(null);
   const isTitleComposingRef = useRef(false);
   const lastEmittedTitleRef = useRef(note.title);
@@ -673,10 +725,25 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
   const collabEnabled = !!(yDoc && awareness);
   const collabEnabledRef = useRef(collabEnabled);
   collabEnabledRef.current = collabEnabled;
+  const collabUndoManagerRef = useRef<Y.UndoManager | null>(null);
 
   // �� ref ׷���� note / callbacks�������� CM6 listener ���õ����ڱհ�
   const noteRef = useRef(note);
   noteRef.current = note;
+  useEffect(() => listenMediaUploadLifecycle((detail) => {
+    if (detail.mediaType !== "video" || detail.noteId !== noteRef.current.id || !detail.result) return;
+    if (detail.phase === "success") {
+      if (detail.queued) toast.info("视频已插入，等待离线同步");
+      else toast.success(tr("tiptap.attachmentUploaded") || "Attachment uploaded");
+    } else if (detail.phase === "error") {
+      toast.error(detail.error || tr("tiptap.attachmentUploadFailed") || "Attachment upload failed");
+    }
+  }), [tr]);
+  const pasteNoteScopeRef = useRef({ id: note.id, revision: 0 });
+  if (pasteNoteScopeRef.current.id !== note.id) {
+    pasteNoteScopeRef.current = { id: note.id, revision: pasteNoteScopeRef.current.revision + 1 };
+  }
+  const asyncPasteAnchorsRef = useRef(new Set<{ from: number; to: number }>());
   const onUpdateRef = useRef(onUpdate);
   onUpdateRef.current = onUpdate;
   const onLocalUpdateRef = useRef(onLocalUpdate);
@@ -704,6 +771,7 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
   }, [viewMode]);
 
   const setMarkdownViewMode = useCallback((nextViewMode: MarkdownViewMode) => {
+    if (previewDebounceRef.current) clearTimeout(previewDebounceRef.current);
     const nextMode = normalizeMarkdownViewModeForMobile(nextViewMode, isMobileMarkdownViewport());
     if (nextMode !== "source") {
       const view = viewRef.current;
@@ -727,6 +795,8 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
 
   // �����л��õ� Compartment
   const themeCompartmentRef = useRef(new Compartment());
+  const attachmentNoteCompartmentRef = useRef(new Compartment());
+  const historyCompartmentRef = useRef(new Compartment());
   const editableCompartmentRef = useRef(new Compartment());
   const searchPhraseCompartmentRef = useRef(new Compartment());
 
@@ -903,6 +973,33 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
   }, [closeAttachmentLibrary, tr]);
 
   // slash 菜单项：基础 Markdown、附件、AI 与日期日记命令共享同一个 CodeMirror 菜单。
+  const openVoiceRecorder = useCallback(() => {
+    const view = viewRef.current;
+    if (!view || !editable || isGuest || noteRef.current.isTrashed) return;
+    const noteId = noteRef.current.id;
+    const scope = pasteNoteScopeRef.current;
+    const anchor = { from: view.state.selection.main.from, to: view.state.selection.main.to };
+    asyncPasteAnchorsRef.current.add(anchor);
+    requestVoiceMemo({
+      noteId,
+      release: () => asyncPasteAnchorsRef.current.delete(anchor),
+      insert: (attachment) => {
+        if (noteRef.current.id !== noteId || noteRef.current.isTrashed || viewRef.current !== view || pasteNoteScopeRef.current !== scope || !view.state.facet(EditorView.editable)) return false;
+        const snippet = `\n\n${voiceMemoHtml(attachment)}\n\n`;
+        view.dispatch({ changes: { from: anchor.from, to: anchor.to, insert: snippet }, selection: { anchor: anchor.from + snippet.length } });
+        return true;
+      },
+    });
+  }, [editable, isGuest]);
+
+  const insertVoiceTranscript = useCallback((text: string) => {
+    const view = viewRef.current;
+    if (!view || !editable || isGuest || noteRef.current.id !== note.id || noteRef.current.isTrashed) return;
+    const selection = view.state.selection.main;
+    view.dispatch({ changes: { from: selection.from, to: selection.to, insert: text }, selection: { anchor: selection.from + text.length } });
+    view.focus();
+  }, [editable, isGuest, note.id]);
+
   const slashItems: MdSlashItem[] = useMemo(
     () => [
       ...getDefaultMdSlashItems(tr as unknown as (key: string) => string, {
@@ -910,12 +1007,13 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
           triggerImagePicker();
         },
         onAttachmentLibrary: openAttachmentLibrary,
+        onVoiceRecord: editable && !isGuest && !note.isTrashed ? openVoiceRecorder : undefined,
         onAIAssistant: isGuest ? undefined : openAIAssistant,
       }),
       ...getMarkdownDailyRecordSlashCommands(),
     ],
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [tr, isGuest, openAIAssistant, openAttachmentLibrary],
+    [tr, isGuest, editable, note.isTrashed, openAIAssistant, openAttachmentLibrary, openVoiceRecorder],
   );
 
   // ---------- ͼƬ�ϴ����㹤����/б��/��ק/ճ���� ----------
@@ -962,15 +1060,34 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
   const triggerImagePicker = useCallback(() => {
     const view = viewRef.current;
     if (!view || !editable) return;
+    const noteId = noteRef.current.id;
+    const scope = pasteNoteScopeRef.current;
+    const anchor = { from: view.state.selection.main.from, to: view.state.selection.main.to };
+    asyncPasteAnchorsRef.current.add(anchor);
+    const releaseAnchor = () => { asyncPasteAnchorsRef.current.delete(anchor); };
     const input = document.createElement("input");
     input.type = "file";
-    input.accept = "image/*";
+    input.accept = "image/*,.heic,.heif,.mov";
+    input.multiple = true;
+    input.addEventListener("cancel", releaseAnchor, { once: true });
     input.onchange = () => {
-      const file = input.files?.[0];
-      if (file) insertImageFromFile(file);
+      const files = Array.from(input.files || []);
+      if (!files.length || viewRef.current !== view || pasteNoteScopeRef.current !== scope) { releaseAnchor(); return; }
+      if (!noteId) { toast.error("请先创建笔记，再上传照片"); releaseAnchor(); return; }
+      toast.info(tr("tiptap.imageUploading"));
+      void uploadPhotoSelection(noteId, files)
+        .then((photos) => {
+          // 复用异步粘贴锚点映射，上传完成后恢复原选区；切换笔记则不插入。
+          if (viewRef.current !== view || pasteNoteScopeRef.current !== scope) return;
+          view.dispatch({ selection: { anchor: anchor.from, head: anchor.to } });
+          for (const photo of photos) insertImage(view, photo.url, photo.filename.replace(/\.[^.]+$/, ""));
+          toast.success(tr("tiptap.imageUploadSuccess"));
+        })
+        .catch((error: unknown) => toast.error(error instanceof Error ? error.message : "照片上传失败"))
+        .finally(releaseAnchor);
     };
     input.click();
-  }, [editable, insertImageFromFile]);
+  }, [editable, tr]);
 
   const insertVideoFromFile = useCallback((file: File, source: "editor" | "paste" | "drag-drop" = "editor") => {
     const currentNote = noteRef.current;
@@ -989,7 +1106,6 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
         const v = viewRef.current;
         if (!v) return;
         replaceSelection(v, buildMarkdownVideoSnippet(result));
-        toast.success(tr("tiptap.attachmentUploaded") || "Attachment uploaded");
       })
       .catch((err: any) => {
         console.error("Video upload failed:", err);
@@ -1094,7 +1210,7 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
     // P0-#2 �޸���CRDT ģʽ�� content ��ȫ�ɷ���� Y.Doc �йܳ־û���
     // �������ٷ� content ���� yjs �� debounce ��д����"���߸���ǰ��"�ľ�̬��
     // ������ meta��title��������˫д��ͻ��
-    if (collabEnabledRef.current) {
+    if (collabEnabledRef.current && !/nowen-encrypted/i.test(md)) {
       if (title !== noteRef.current.title) {
         onUpdateRef.current({ title, _noteId: noteRef.current.id });
       }
@@ -1193,6 +1309,27 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
         };
       },
       isReady: () => !!viewRef.current,
+      applyCjkTypography: (action) => {
+        const view = viewRef.current;
+        if (!view || !editable || !view.state.facet(EditorView.editable)) return false;
+        return applyMarkdownCjkTypography(view, action);
+      },
+      insertMarkdownAtCursor: (md: string) => {
+        const view = viewRef.current;
+        if (!view) return false;
+        try {
+          const selection = view.state.selection.main;
+          const from = selection.from;
+          const to = selection.to;
+          view.dispatch({
+            changes: { from, to, insert: md },
+            selection: { anchor: from + md.length },
+            scrollIntoView: true,
+          });
+          view.focus();
+          return true;
+        } catch { return false; }
+      },
       appendMarkdown: (md: string) => {
         const view = viewRef.current;
         if (!view) return false;
@@ -1244,6 +1381,11 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
 
     const updateListener = EditorView.updateListener.of((update) => {
       if (!update.docChanged) return;
+      for (const anchor of asyncPasteAnchorsRef.current) {
+        const collapsed = anchor.from === anchor.to;
+        anchor.from = update.changes.mapPos(anchor.from, collapsed ? 1 : -1);
+        anchor.to = update.changes.mapPos(anchor.to, 1);
+      }
       if (isSettingContent.current) return;
 
       const text = update.state.doc.toString();
@@ -1254,7 +1396,8 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
       });
       setWordStats(computeStats(text));
       onHeadingsChangeRef.current?.(extractHeadings(update.view));
-      if (!collabEnabledRef.current) {
+      // Encrypted regions use the normal ciphertext save path; Yjs rejects them.
+      if (!collabEnabledRef.current || /nowen-encrypted/i.test(text)) {
         scheduleSave();
       }
 
@@ -1302,17 +1445,22 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
       // ��ֱ���ò��ԣ��� Tiptap һ�£���
       //   ���/����  �� ѡ���Ϸ�
       //   ���ڴ��� �� ѡ���·������� Android ϵͳԭ�����Ʋ˵���
-      const isTouch = Date.now() - lastTouchAtRef.current < 800;
+      const isNativeAndroidSurface = document.documentElement.getAttribute("data-native") === "android";
+      const isTouch = isNativeAndroidSurface || Date.now() - lastTouchAtRef.current < 800;
       const bubbleH = 40;
-      let top: number;
-      if (isTouch) {
-        const below = endCoords.bottom + 8;
-        const overflowsBottom = below + bubbleH > window.innerHeight - 16;
-        top = overflowsBottom ? Math.max(8, startCoords.top - bubbleH - 8) : below;
-      } else {
-        top = Math.max(8, startCoords.top - 44); // �˵�Լ 40px �ߣ����� 4px ���
-      }
-      const left = Math.max(8, Math.min(cx - 110, window.innerWidth - 230)); // �˵�Լ 220px ��
+      const visualViewport = window.visualViewport;
+      const { top, left } = resolveEditorBubblePosition({
+        anchorTop: startCoords.top,
+        anchorBottom: endCoords.bottom,
+        centerX: cx,
+        bubbleWidth: 220,
+        bubbleHeight: bubbleH,
+        viewportTop: visualViewport?.offsetTop ?? 0,
+        viewportLeft: visualViewport?.offsetLeft ?? 0,
+        viewportWidth: visualViewport?.width ?? window.innerWidth,
+        viewportHeight: visualViewport?.height ?? window.innerHeight,
+        touchLayout: isTouch,
+      });
       setSelectedTextAction(findTextAction(view.state.doc.sliceString(sel.from, sel.to)));
       setBubble({ open: true, top, left });
     });
@@ -1333,12 +1481,13 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
     const state = EditorState.create({
       doc: initialDoc,
       extensions: [
+        attachmentNoteCompartmentRef.current.of(markdownLivePreviewNoteId.of(isGuest ? null : note.id)),
         // Phase 3: CRDT Эͬ��չ�������ã�
         // yCollab ������ڿ�ǰ��λ�ã������ȴ��� doc ���
         // P3-#14����ʽ���� UndoManager �ó������Ȱ�����ϲ���350ms window��
         ...(collabEnabled && yDoc && awareness
           ? [yCollab(yDoc.getText("content"), awareness, {
-            undoManager: new Y.UndoManager(yDoc.getText("content"), { captureTimeout: 350 }),
+            undoManager: (collabUndoManagerRef.current = new Y.UndoManager(yDoc.getText("content"), { captureTimeout: 350 })),
           })]
           : []),
 
@@ -1348,7 +1497,7 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
           formatNumber: () => "",
         }),
         highlightActiveLineGutter(),
-        history(),
+        historyCompartmentRef.current.of(history()),
         drawSelection(),
         dropCursor(),
         EditorState.allowMultipleSelections.of(true),
@@ -1465,7 +1614,59 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
               }
               return true;
             }
-            return false;
+            const pastedText = event.clipboardData?.getData("text/plain") || "";
+            const remoteImages = extractRemoteImageUrlsFromMarkdown(pastedText);
+            if (remoteImages.length === 0 || remoteImagePasteModeRef.current === "keep-remote") return false;
+            event.preventDefault();
+            const view = viewRef.current;
+            if (!view) return true;
+            const scope = pasteNoteScopeRef.current;
+            const anchor = { from: view.state.selection.main.from, to: view.state.selection.main.to };
+            asyncPasteAnchorsRef.current.add(anchor);
+            void (async () => {
+              try {
+                if (remoteImagePasteModeRef.current === "ask") {
+                  const choice = await choose({
+                    title: tr("settings.remoteImagePasteAskTitle", { count: remoteImages.length }),
+                    description: tr("settings.remoteImagePasteAskDesc"),
+                    choices: [
+                      { value: "localize", label: tr("settings.remoteImagePasteSave") },
+                      { value: "keep-remote", label: tr("settings.remoteImagePasteKeep"), variant: "outline" },
+                    ],
+                  });
+                  if (choice === null) return;
+                  if (choice === "keep-remote") {
+                    if (viewRef.current === view && pasteNoteScopeRef.current === scope) {
+                      asyncPasteAnchorsRef.current.delete(anchor);
+                      view.dispatch({ changes: { from: anchor.from, to: anchor.to, insert: pastedText }, selection: { anchor: anchor.from + pastedText.length } });
+                    }
+                    return;
+                  }
+                }
+                if (viewRef.current !== view || pasteNoteScopeRef.current !== scope) return;
+                const progressToastId = toast.info(tr("settings.remoteImagePasteProgress", { done: 0, total: remoteImages.length }), 0);
+                const results = await localizeRemoteImages(
+                  remoteImages.map((image) => image.originalUrl), scope.id, "paste",
+                ).finally(() => toast.dismiss(progressToastId));
+                if (viewRef.current !== view || pasteNoteScopeRef.current !== scope) return;
+                const saved = results.filter((result) => result.success).length;
+                const replacements = new Map(results.filter((result) => result.success).map((result) => [result.originalUrl, result.localUrl]));
+                const preparedText = replaceRemoteUrlsInMarkdown(pastedText, replacements);
+                asyncPasteAnchorsRef.current.delete(anchor);
+                view.dispatch({ changes: { from: anchor.from, to: anchor.to, insert: preparedText }, selection: { anchor: anchor.from + preparedText.length } });
+                const message = tr("settings.remoteImagePasteResult", { saved, failed: results.length - saved });
+                if (saved === results.length) toast.success(message); else toast.warning(message);
+              } catch {
+                if (viewRef.current === view && pasteNoteScopeRef.current === scope) {
+                  asyncPasteAnchorsRef.current.delete(anchor);
+                  view.dispatch({ changes: { from: anchor.from, to: anchor.to, insert: pastedText }, selection: { anchor: anchor.from + pastedText.length } });
+                  toast.warning(tr("settings.remoteImagePasteResult", { saved: 0, failed: remoteImages.length }));
+                }
+              } finally {
+                asyncPasteAnchorsRef.current.delete(anchor);
+              }
+            })();
+            return true;
           },
           drop(event) {
             if (!editable) return false;
@@ -1509,6 +1710,7 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
         debounceTimer.current = null;
       }
       view.destroy();
+      collabUndoManagerRef.current?.destroy(); collabUndoManagerRef.current = null;
       viewRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1518,8 +1720,15 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
 
   const lastSyncedNoteIdRef = useRef<string | null>(null);
   useEffect(() => {
+    viewRef.current?.dispatch({ effects: attachmentNoteCompartmentRef.current.reconfigure(
+      markdownLivePreviewNoteId.of(isGuest ? null : note.id),
+    ) });
+  }, [note.id, isGuest]);
+  useEffect(() => {
     const view = viewRef.current;
     if (!view) return;
+    // A delayed pre-save preview must not replace the server-confirmed document.
+    if (previewDebounceRef.current) clearTimeout(previewDebounceRef.current);
 
     // �л�ʱ�������� debounce������Ѿɱʼ�����д���±ʼ�
     if (debounceTimer.current) {
@@ -1610,8 +1819,20 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
           nextTo -= 1;
         }
 
+        const currentSelection = view.state.selection.main;
+        const protectedSelection = resolveInternalMarkerSyncSelection({
+          currentMarkdown: currentDoc,
+          nextMarkdown: nextDoc,
+          from,
+          currentTo,
+          nextTo,
+          anchor: currentSelection.anchor,
+          head: currentSelection.head,
+        });
+
         view.dispatch({
           changes: { from, to: currentTo, insert: nextDoc.slice(from, nextTo) },
+          ...(protectedSelection ? { selection: protectedSelection } : {}),
         });
       }
       // ������һ΢������������� Tiptap ��ȼ��߼���
@@ -1877,6 +2098,26 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
     setPreviewMarkdown(nextMarkdown);
   }, [editable]);
 
+  const handlePreviewCodeBlockFormat = useCallback(async (source: string, offset: number) => {
+    const view = viewRef.current;
+    if (!view || !editable) return;
+    const { formatMarkdownCodeBlock } = await import("@/lib/markdownCodeBlockFormatting");
+    await formatMarkdownCodeBlock(view, source, offset);
+    setPreviewMarkdown(view.state.doc.toString());
+  }, [editable]);
+
+  const handlePreviewEncryptedBlockEdit = useCallback((source: string, rendered: string, offset: number) => {
+    const view = viewRef.current; const noteId = note.id;
+    if (!view || !editable || isGuest || note.isTrashed) throw new Error("Encrypted region is read-only");
+    const region = prepareMarkdownEncryptedRegionEdit(view, source, rendered, offset);
+    // Keep the private dialog outside the preview tree so a refreshed preview cannot discard edits.
+    setEncryptedRegion({ source: region.source, commit: (ciphertext: string) => {
+      if (noteRef.current.id !== noteId || viewRef.current !== view) throw new Error("Encrypted region changed");
+      region.commit(ciphertext);
+      setPreviewMarkdown(view.state.doc.toString());
+    } });
+  }, [editable, isGuest, note.id, note.isTrashed]);
+
   // ---------- ��ǩ�仯 ----------
 
   const noteTags = useMemo(() => note.tags || [], [note.tags]);
@@ -1890,6 +2131,7 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
   }, []);
 
   const openMarkdownSearch = useCallback(() => {
+    setMobileToolbarExpanded(false);
     const revealSearch = () => {
       const view = viewRef.current;
       if (!view) return;
@@ -1904,11 +2146,20 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
     revealSearch();
   }, [setMarkdownViewMode]);
 
+  const closeMarkdownSearch = useCallback(() => {
+    const view = viewRef.current;
+    if (!view) return;
+    closeSearchPanel(view);
+  }, []);
+
   useEffect(() => {
-    const handler = () => openMarkdownSearch();
-    window.addEventListener("nowen:open-search", handler);
-    return () => window.removeEventListener("nowen:open-search", handler);
-  }, [openMarkdownSearch]);
+    window.addEventListener("nowen:open-search", openMarkdownSearch);
+    window.addEventListener("nowen:close-search", closeMarkdownSearch);
+    return () => {
+      window.removeEventListener("nowen:open-search", openMarkdownSearch);
+      window.removeEventListener("nowen:close-search", closeMarkdownSearch);
+    };
+  }, [closeMarkdownSearch, openMarkdownSearch]);
 
   useEffect(() => {
     const view = viewRef.current;
@@ -1963,6 +2214,8 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
       data-markdown-mobile-editing-compact={compactMobileEditing ? "true" : "false"}
       className="relative flex flex-col h-full overflow-hidden"
     >
+      {editable && !isGuest && !note.isTrashed && <button type="button" className="border-b border-app-border px-3 py-1 text-left text-xs text-tx-secondary" onClick={openEncryptedRegion}>插入加密内容</button>}
+      {encryptedRegion && <EncryptedBlockDialog source={encryptedRegion.source} initialContent={encryptedRegion.initialContent} onCommit={encryptedRegion.commit} onClose={() => setEncryptedRegion(null)} />}
       {noteLinkMenu.open && (
         <NoteLinkMenu
           position={noteLinkMenu.position}
@@ -1977,67 +2230,77 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
         <>
           <div
             data-markdown-mobile-toolbar="compact"
-            className="sticky top-0 z-20 flex min-w-0 flex-nowrap items-center gap-0.5 overflow-x-auto touch-pan-x border-b border-app-border bg-app-surface/95 px-2 py-1.5 backdrop-blur md:hidden [&>button]:shrink-0 [&>button]:p-1"
+            className="sticky top-0 z-20 flex min-w-0 items-center gap-0.5 border-b border-app-border bg-app-surface/95 px-1 py-1 backdrop-blur md:hidden"
+            style={compactMobileEditing ? { paddingTop: "calc(var(--safe-area-top) + 4px)" } : undefined}
           >
-            <ToolbarButton onClick={() => withView((view) => undo(view))} title={tr("tiptap.undo") || "撤销"}>
-              <Undo size={16} />
-            </ToolbarButton>
-            <ToolbarButton onClick={() => withView((view) => redo(view))} title={tr("tiptap.redo") || "重做"}>
-              <Redo size={16} />
-            </ToolbarButton>
-            <ToolbarButton onClick={openMarkdownSearch} title="查找与替换">
-              <Search size={16} />
-            </ToolbarButton>
-            <ToolbarDivider />
-            <ToolbarButton onClick={() => withView((view) => toggleHeading(view, 1))} title={tr("tiptap.heading1") || "一级标题"}>
-              <Heading1 size={16} />
-            </ToolbarButton>
-            <ToolbarButton onClick={() => withView((view) => toggleHeading(view, 2))} title={tr("tiptap.heading2") || "二级标题"}>
-              <Heading2 size={16} />
-            </ToolbarButton>
-            <ToolbarButton onClick={() => withView((view) => toggleWrap(view, "**"))} title={tr("tiptap.bold") || "加粗"}>
-              <Bold size={16} />
-            </ToolbarButton>
-            <ToolbarButton onClick={() => withView((view) => toggleBulletList(view))} title={tr("tiptap.bulletList") || "无序列表"}>
-              <List size={16} />
-            </ToolbarButton>
-            <ToolbarButton onClick={triggerImagePicker} title={tr("tiptap.insertImage") || "插入图片"}>
-              <ImagePlus size={16} />
-            </ToolbarButton>
-            <ToolbarButton onClick={triggerVideoPicker} title={tr("tiptap.uploadLocalVideo") || "插入本地视频"}>
-              <Film size={16} />
-            </ToolbarButton>
-            <ToolbarButton className="ml-auto" onClick={() => setMobileToolbarExpanded((value) => !value)} title={tr("common.more") || "更多"}>
+            <MobileEditorToolbarSlot location="leading" />
+            <div
+              data-mobile-editor-format-strip=""
+              className="hide-scrollbar flex min-w-0 flex-1 flex-nowrap items-center gap-0.5 overflow-x-auto touch-pan-x px-1 [&>button]:shrink-0 [&>button]:p-1"
+            >
+              <ToolbarButton onClick={() => withView((view) => undo(view))} title={tr("tiptap.undo") || "撤销"}>
+                <Undo size={16} />
+              </ToolbarButton>
+              <ToolbarButton onClick={() => withView((view) => redo(view))} title={tr("tiptap.redo") || "重做"}>
+                <Redo size={16} />
+              </ToolbarButton>
+              <ToolbarDivider />
+              <ToolbarButton onClick={() => withView((view) => toggleHeading(view, 1))} title={tr("tiptap.heading1") || "一级标题"}>
+                <Heading1 size={16} />
+              </ToolbarButton>
+              <ToolbarButton onClick={() => withView((view) => toggleHeading(view, 2))} title={tr("tiptap.heading2") || "二级标题"}>
+                <Heading2 size={16} />
+              </ToolbarButton>
+              <ToolbarButton onClick={() => withView((view) => toggleWrap(view, "**"))} title={tr("tiptap.bold") || "加粗"}>
+                <Bold size={16} />
+              </ToolbarButton>
+              <ToolbarButton onClick={() => withView((view) => toggleBulletList(view))} title={tr("tiptap.bulletList") || "无序列表"}>
+                <List size={16} />
+              </ToolbarButton>
+              <ToolbarButton onClick={triggerImagePicker} title={tr("tiptap.insertImage") || "插入图片"}>
+                <ImagePlus size={16} />
+              </ToolbarButton>
+              <ToolbarButton onClick={triggerVideoPicker} title={tr("tiptap.uploadLocalVideo") || "插入本地视频"}>
+                <Film size={16} />
+              </ToolbarButton>
+            </div>
+            <MobileEditorToolbarSlot location="trailing" />
+            <ToolbarButton onClick={() => setMobileToolbarExpanded((value) => !value)} title={tr("common.more") || "更多"}>
               <ChevronDown size={16} className={cn("transition-transform", mobileToolbarExpanded && "rotate-180")} />
             </ToolbarButton>
           </div>
+          <CollapsibleEditorToolbar>
           <div
             data-markdown-mobile-toolbar="expanded"
             className={cn(
-              "z-30 items-center gap-0.5 overflow-x-auto border-b border-app-border bg-app-elevated/98 px-3 py-2 backdrop-blur hide-scrollbar touch-pan-x transition-colors md:sticky md:top-0 md:z-20 md:flex md:flex-wrap md:bg-app-surface/95 md:px-4 md:supports-[backdrop-filter]:bg-app-surface/70",
+              "z-30 items-center gap-0.5 overflow-x-auto border-b border-app-border bg-app-elevated px-3 py-2 hide-scrollbar touch-pan-x transition-colors md:flex md:flex-wrap md:bg-app-surface/95 md:px-4 md:pr-12 md:backdrop-blur md:supports-[backdrop-filter]:bg-app-surface/70",
               mobileToolbarExpanded
-                ? "flex max-md:absolute max-md:left-0 max-md:right-0 max-md:top-10 max-md:max-h-[38vh] max-md:flex-wrap max-md:overflow-y-auto max-md:shadow-xl"
+                ? "flex max-md:max-h-[38vh] max-md:flex-wrap max-md:overflow-y-auto max-md:shadow-xl"
                 : "hidden md:flex",
             )}
           >
           <ToolbarButton
+            className="max-md:hidden"
             onClick={() => withView((v) => undo(v))}
             title={tr("tiptap.undo") || "����"}
           >
             <Undo size={iconSize} />
           </ToolbarButton>
           <ToolbarButton
+            className="max-md:hidden"
             onClick={() => withView((v) => redo(v))}
             title={tr("tiptap.redo") || "重做"}
           >
             <Redo size={iconSize} />
           </ToolbarButton>
-          <ToolbarButton
-            onClick={openMarkdownSearch}
-            title="查找与替换"
-          >
-            <Search size={iconSize} />
-          </ToolbarButton>
+          <span className="hidden md:inline-flex">
+            <ToolbarButton
+              onClick={openMarkdownSearch}
+              title="查找与替换"
+            >
+              <Search size={iconSize} />
+            </ToolbarButton>
+          </span>
 
           {/* MARKDOWN-MOBILE-PREVIEW-01: 预览入口前置，避免被横向工具栏遮挡。 */}
           <div className="flex shrink-0 items-center gap-0.5 rounded-md border border-app-border sm:hidden">
@@ -2073,15 +2336,17 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
             </button>
           </div>
 
-          <ToolbarDivider />
+          <ToolbarDivider className="max-md:hidden" />
 
           <ToolbarButton
+            className="max-md:hidden"
             onClick={() => withView((v) => toggleHeading(v, 1))}
             title={tr("tiptap.heading1") || "һ������"}
           >
             <Heading1 size={iconSize} />
           </ToolbarButton>
           <ToolbarButton
+            className="max-md:hidden"
             onClick={() => withView((v) => toggleHeading(v, 2))}
             title={tr("tiptap.heading2") || "��������"}
           >
@@ -2115,6 +2380,7 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
           <ToolbarDivider />
 
           <ToolbarButton
+            className="max-md:hidden"
             onClick={() => withView((v) => toggleWrap(v, "**"))}
             title={tr("tiptap.bold") || "�Ӵ�"}
           >
@@ -2142,6 +2408,7 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
           <ToolbarDivider />
 
           <ToolbarButton
+            className="max-md:hidden"
             onClick={() => withView((v) => toggleBulletList(v))}
             title={tr("tiptap.bulletList") || "�����б�"}
           >
@@ -2186,18 +2453,13 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
           >
             <LinkIcon size={iconSize} />
           </ToolbarButton>
-          <ToolbarButton onClick={triggerImagePicker} title={tr("tiptap.insertImage") || "����ͼƬ"}>
+          <ToolbarButton className="max-md:hidden" onClick={triggerImagePicker} title={tr("tiptap.insertImage") || "����ͼƬ"}>
             <ImagePlus size={iconSize} />
           </ToolbarButton>
-          <ToolbarButton onClick={triggerVideoPicker} title={tr("tiptap.insertVideo") || "插入视频"}>
+          <ToolbarButton className="max-md:hidden" onClick={triggerVideoPicker} title={tr("tiptap.uploadLocalVideo") || "插入本地视频"}>
             <Film size={iconSize} />
           </ToolbarButton>
-          <ToolbarButton
-            onClick={triggerAttachmentPicker}
-            title={tr("tiptap.uploadAndInsertAttachment", { defaultValue: "上传新附件" })}
-          >
-            <Paperclip size={iconSize} />
-          </ToolbarButton>
+          <VoiceInsertMenu onUpload={triggerAttachmentPicker} onRecord={openVoiceRecorder} recordDisabled={!editable || isGuest || !!note.isTrashed} iconSize={iconSize} />
           <ToolbarButton
             onClick={openAttachmentLibrary}
             title={tr("tiptap.insertExistingAttachment", { defaultValue: "从文件管理插入" })}
@@ -2209,6 +2471,12 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
             title={tr("tiptap.insertTable") || "�������"}
           >
             <Table2 size={iconSize} />
+          </ToolbarButton>
+          <ToolbarButton
+            onClick={() => window.dispatchEvent(new CustomEvent("nowen:open-mindmap-insert"))}
+            title={tr("tiptap.insertMindMap")}
+          >
+            <BrainCircuit size={iconSize} />
           </ToolbarButton>
 
           {!isGuest && <ToolbarDivider />}
@@ -2232,7 +2500,7 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
               type="button"
               onClick={() => setMarkdownViewMode("source")}
               className={cn(
-                "flex items-center gap-1 px-2 py-1 text-[11px] font-medium transition-colors",
+                "max-md:hidden flex items-center gap-1 px-2 py-1 text-[11px] font-medium transition-colors",
                 viewMode === "source"
                   ? "bg-accent-primary/10 text-accent-primary"
                   : "text-tx-tertiary hover:text-tx-secondary hover:bg-app-hover"
@@ -2246,7 +2514,7 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
               type="button"
               onClick={() => setMarkdownViewMode("preview")}
               className={cn(
-                "flex items-center gap-1 px-2 py-1 text-[11px] font-medium transition-colors",
+                "max-md:hidden flex items-center gap-1 px-2 py-1 text-[11px] font-medium transition-colors",
                 viewMode === "preview"
                   ? "bg-accent-primary/10 text-accent-primary"
                   : "text-tx-tertiary hover:text-tx-secondary hover:bg-app-hover"
@@ -2272,13 +2540,14 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
             </button>
           </div>
           </div>
+          </CollapsibleEditorToolbar>
         </>
       )}
 
       {/* ������ */}
       <div
         data-markdown-mobile-title=""
-        className={cn("px-4 md:px-8 pb-2", compactMobileEditing ? "pt-2" : "pt-3 md:pt-6")}
+        className={cn("px-4 md:px-8 pb-1", compactMobileEditing ? "pt-2" : "pt-3")}
       >
         <textarea
           ref={titleRef}
@@ -2296,17 +2565,15 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
           onKeyDown={handleTitleKeyDown}
           spellCheck={false}
           readOnly={!editable}
-          className={cn(
-            "w-full resize-none overflow-hidden break-words bg-transparent outline-none text-xl md:text-3xl font-bold text-tx-primary placeholder:text-tx-tertiary/60",
-            compactMobileEditing && "text-lg leading-7",
-          )}
+          className="block w-full resize-none overflow-hidden break-words bg-transparent p-0 outline-none text-lg leading-7 md:text-xl font-semibold text-tx-primary placeholder:text-tx-tertiary/60"
         />
-        {!isGuest && !compactMobileEditing && (
-          <div className="mt-2">
+        {!isGuest && (
+          <div className={cn("mt-1", compactMobileEditing && "hidden focus-within:block")}>
             <TagInput
               noteId={note.id}
               noteTags={noteTags}
               onTagsChange={onTagsChange}
+              mobileCompact
             />
           </div>
         )}
@@ -2352,10 +2619,14 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
           )} style={viewMode === "split" ? { width: `${100 - sourcePaneWidthPercent}%` } : undefined}>
             <MarkdownPreview
               markdown={previewMarkdown}
+              noteId={isGuest ? undefined : note.id}
               className="h-full"
               compact={viewMode === "split"}
               containerRef={previewRootRef}
               onTaskCheckboxChange={editable ? handlePreviewTaskCheckboxChange : undefined}
+              onFormatCodeBlock={editable ? handlePreviewCodeBlockFormat : undefined}
+              onEditEncryptedBlock={editable && !isGuest && !note.isTrashed ? handlePreviewEncryptedBlockEdit : undefined}
+              onInsertVoiceTranscript={editable && !isGuest && !note.isTrashed ? insertVoiceTranscript : undefined}
             />
           </div>
         )}
@@ -2413,6 +2684,7 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
           >
             <ArrowUp size={14} />
           </ToolbarButton>
+          {!isGuest && !note.isTrashed && <ToolbarButton onClick={openEncryptedRegion} title="加密选中文字">加密</ToolbarButton>}
           {selectedTextAction?.type === "phone" && (
             <ToolbarButton
               onClick={() => {

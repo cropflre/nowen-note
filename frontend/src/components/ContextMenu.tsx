@@ -1,4 +1,6 @@
-import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import { useVisibleViewport } from "@/hooks/useVisibleViewport";
 import {
   Check,
   ChevronDown,
@@ -47,6 +49,166 @@ interface ContextMenuProps {
 const contextMenuRowClassName =
   "w-full h-9 flex items-center gap-2 px-3 text-sm transition-colors duration-150 ease-out";
 const contextMenuIconClassName = "w-4 h-4 flex items-center justify-center shrink-0";
+
+function DesktopContextMenuItems({
+  items,
+  onAction,
+  menuId,
+}: {
+  items: ContextMenuItem[];
+  onAction: (actionId: string) => void;
+  menuId: string;
+}) {
+  const [activeItemId, setActiveItemId] = useState<string | null>(null);
+  const [placement, setPlacement] = useState({ left: 0, top: 0 });
+  const viewport = useVisibleViewport(!!activeItemId);
+  const anchorRef = useRef<HTMLDivElement | null>(null);
+  const submenuRef = useRef<HTMLDivElement | null>(null);
+  const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useLayoutEffect(() => {
+    if (!activeItemId) return;
+    const anchor = anchorRef.current;
+    const submenu = submenuRef.current;
+    if (!anchor || !submenu) return;
+
+    const updatePlacement = () => {
+      const anchorRect = anchor.getBoundingClientRect();
+      const submenuRect = submenu.getBoundingClientRect();
+      const viewportGap = 8;
+      const menuGap = 4;
+      const minLeft = viewport.left + viewportGap;
+      const rightEdge = viewport.left + viewport.width - viewportGap;
+      const rightSpace = rightEdge - anchorRect.right - menuGap;
+      const leftSpace = anchorRect.left - minLeft - menuGap;
+      const preferredLeft = rightSpace >= submenuRect.width || rightSpace >= leftSpace
+        ? anchorRect.right + menuGap : anchorRect.left - submenuRect.width - menuGap;
+      const left = Math.min(Math.max(preferredLeft, minLeft), Math.max(minLeft, rightEdge - submenuRect.width));
+      const minTop = viewport.top + viewportGap;
+      const maxTop = Math.max(minTop, viewport.top + viewport.height - viewportGap - submenuRect.height);
+      const top = Math.min(Math.max(anchorRect.top, minTop), maxTop);
+      setPlacement({ left, top });
+    };
+
+    updatePlacement();
+    // 根菜单滚动时同步子菜单位置；子菜单通过 portal 保持完整可见。
+    window.addEventListener("scroll", updatePlacement, true);
+    return () => window.removeEventListener("scroll", updatePlacement, true);
+  }, [activeItemId, viewport]);
+
+  useEffect(() => () => {
+    if (closeTimerRef.current) clearTimeout(closeTimerRef.current);
+  }, []);
+
+  return (
+    <>
+      {items.map((item) => {
+        if (item.separator) {
+          return <div key={item.id} className="h-px bg-black/[0.06] dark:bg-white/[0.08] my-1 mx-2" />;
+        }
+
+        if (item.children?.length) {
+          const active = activeItemId === item.id;
+          return (
+            <div
+              key={item.id}
+              ref={active ? anchorRef : undefined}
+              className="relative"
+              onMouseEnter={() => {
+                if (!window.matchMedia("(min-width: 640px) and (hover: hover)").matches) return;
+                if (closeTimerRef.current) clearTimeout(closeTimerRef.current);
+                setActiveItemId(item.id);
+              }}
+              onMouseLeave={() => {
+                if (!window.matchMedia("(min-width: 640px) and (hover: hover)").matches) return;
+                closeTimerRef.current = setTimeout(() => setActiveItemId(null), 150);
+              }}
+            >
+              <button
+                type="button"
+                disabled={item.disabled}
+                aria-haspopup="menu"
+                aria-expanded={active}
+                onClick={() => {
+                  if (!item.disabled) setActiveItemId(active ? null : item.id);
+                }}
+                className={cn(
+                  contextMenuRowClassName,
+                  "justify-between",
+                  item.disabled && "opacity-40 cursor-not-allowed",
+                  active && "bg-black/[0.04] dark:bg-white/[0.06]",
+                  "text-zinc-700 dark:text-zinc-300 hover:bg-black/[0.04] dark:hover:bg-white/[0.06] hover:text-tx-primary",
+                )}
+              >
+                <span className="flex items-center gap-2 min-w-0">
+                  {item.icon && <span className={contextMenuIconClassName}>{item.icon}</span>}
+                  <span className="truncate whitespace-nowrap">{item.label}</span>
+                </span>
+                <ChevronRight size={12} className="text-tx-tertiary shrink-0" />
+              </button>
+              {active && createPortal(
+                <div
+                  ref={submenuRef}
+                  data-context-menu-id={menuId}
+                  data-context-menu-submenu=""
+                  style={{ ...placement, maxHeight: Math.max(0, viewport.height - 16), maxWidth: Math.max(0, viewport.width - 16) }}
+                  className="fixed w-max min-w-[13.5rem] max-w-[calc(100vw-16px)] overflow-y-auto overscroll-contain backdrop-blur-xl bg-white/90 dark:bg-zinc-900/90 rounded-[12px] shadow-lg shadow-black/[0.08] dark:shadow-black/30 border border-black/[0.06] dark:border-white/[0.08] py-1 z-[101]"
+                  onMouseEnter={() => {
+                    if (closeTimerRef.current) clearTimeout(closeTimerRef.current);
+                  }}
+                  onMouseLeave={() => {
+                    closeTimerRef.current = setTimeout(() => setActiveItemId(null), 150);
+                  }}
+                >
+                  <DesktopContextMenuItems items={item.children} onAction={onAction} menuId={menuId} />
+                </div>,
+                document.body,
+              )}
+            </div>
+          );
+        }
+
+        return (
+          <button
+            key={item.id}
+            type="button"
+            disabled={item.disabled}
+            onMouseDown={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              if (!item.disabled) onAction(item.id);
+            }}
+            className={cn(
+              contextMenuRowClassName,
+              item.disabled && "opacity-40 cursor-not-allowed",
+              item.danger
+                ? "text-red-600 dark:text-red-400 hover:bg-red-50/60 dark:hover:bg-red-900/20"
+                : "text-zinc-700 dark:text-zinc-300 hover:bg-black/[0.04] dark:hover:bg-white/[0.06] hover:text-tx-primary",
+            )}
+          >
+            {item.icon && <span className={contextMenuIconClassName}>{item.icon}</span>}
+            <span className="truncate whitespace-nowrap">{item.label}</span>
+          </button>
+        );
+      })}
+    </>
+  );
+}
+
+function resolveMobileMenu(
+  rootItems: ContextMenuItem[],
+  path: string[],
+): { parent: ContextMenuItem | null; items: ContextMenuItem[] } {
+  let items = rootItems;
+  let parent: ContextMenuItem | null = null;
+  for (const id of path) {
+    const next = items.find((item) => item.id === id && item.children?.length);
+    if (!next?.children) break;
+    parent = next;
+    items = next.children;
+  }
+  return { parent, items };
+}
 
 function buildNotebookTree(notebooks: Notebook[]): Notebook[] {
   const map = new Map<string, Notebook>();
@@ -286,17 +448,12 @@ export default function ContextMenu({
   isOpen, x, y, items, menuRef, onAction, header,
 }: ContextMenuProps) {
   const internalRef = useRef<HTMLDivElement | null>(null);
+  const menuId = useId();
+  const viewport = useVisibleViewport(isOpen);
   const [adjustedPos, setAdjustedPos] = useState({ x, y });
   const [moveNoteId, setMoveNoteId] = useState<string | null>(null);
   const [renameNoteId, setRenameNoteId] = useState<string | null>(null);
-  const [submenuParentId, setSubmenuParentId] = useState<string | null>(null);
-  const [submenuPlacement, setSubmenuPlacement] = useState<{ side: "left" | "right"; top: number }>({
-    side: "right",
-    top: 0,
-  });
-  const submenuAnchorRef = useRef<HTMLDivElement | null>(null);
-  const submenuRef = useRef<HTMLDivElement | null>(null);
-  const submenuCloseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [mobileMenuPath, setMobileMenuPath] = useState<string[]>([]);
   const { t, i18n } = useTranslation();
 
   const latestMenu = getLatestContextMenuState();
@@ -356,7 +513,7 @@ export default function ContextMenu({
       isNoteMenu &&
       !isTrashNoteMenu &&
       !isBulkNoteMenu &&
-      !nextItems.some((item) => item.id === "rename_note");
+      !nextItems.some((item) => item.id === "rename_note" || item.id === "rename");
 
     if (!shouldOfferRename) return nextItems;
 
@@ -391,7 +548,7 @@ export default function ContextMenu({
     renameLabel,
     t,
   ]);
-  const activeSubmenu = displayItems.find((item) => item.id === submenuParentId && item.children);
+  const mobileMenu = resolveMobileMenu(displayItems, mobileMenuPath);
 
   useEffect(() => {
     if (!isOpen || !menuRef || !("current" in menuRef)) return;
@@ -406,62 +563,34 @@ export default function ContextMenu({
 
   useEffect(() => {
     if (!isOpen) return;
-    requestAnimationFrame(() => {
+    const frame = requestAnimationFrame(() => {
       const el = internalRef.current;
       if (!el) return;
       const rect = el.getBoundingClientRect();
-      const vw = window.innerWidth;
-      const vh = window.innerHeight;
-      let newX = x;
-      let newY = y;
-      if (newX + rect.width > vw - 8) newX = vw - rect.width - 8;
-      if (newY + rect.height > vh - 8) newY = vh - rect.height - 8;
-      if (newX < 8) newX = 8;
-      if (newY < 8) newY = 8;
-      if (newX !== x || newY !== y) setAdjustedPos({ x: newX, y: newY });
+      const { left: viewportLeft, top: viewportTop, width: viewportWidth, height: viewportHeight } = viewport;
+      const gap = 8;
+      const minX = viewportLeft + gap;
+      const minY = viewportTop + gap;
+      const maxX = Math.max(minX, viewportLeft + viewportWidth - rect.width - gap);
+      const maxY = Math.max(minY, viewportTop + viewportHeight - rect.height - gap);
+      const newX = Math.min(Math.max(x, minX), maxX);
+      const newY = Math.min(Math.max(y, minY), maxY);
+      setAdjustedPos((current) => (
+        current.x === newX && current.y === newY
+          ? current
+          : { x: newX, y: newY }
+      ));
     });
-  }, [isOpen, x, y, displayItems]);
+    return () => cancelAnimationFrame(frame);
+  }, [isOpen, x, y, displayItems, mobileMenuPath, viewport]);
 
   useEffect(() => {
     setAdjustedPos({ x, y });
   }, [x, y]);
 
   useEffect(() => {
-    if (!isOpen) setSubmenuParentId(null);
+    if (!isOpen) setMobileMenuPath([]);
   }, [isOpen]);
-
-  useLayoutEffect(() => {
-    if (!submenuParentId) return;
-
-    const updatePlacement = () => {
-      const anchor = submenuAnchorRef.current;
-      const submenu = submenuRef.current;
-      if (!anchor || !submenu) return;
-
-      const anchorRect = anchor.getBoundingClientRect();
-      const submenuRect = submenu.getBoundingClientRect();
-      const viewportGap = 8;
-      const menuGap = 4;
-      const rightSpace = window.innerWidth - viewportGap - anchorRect.right - menuGap;
-      const leftSpace = anchorRect.left - viewportGap - menuGap;
-      const side = rightSpace >= submenuRect.width || rightSpace >= leftSpace ? "right" : "left";
-      const maxTop = Math.max(viewportGap, window.innerHeight - viewportGap - submenuRect.height);
-      const viewportTop = Math.min(Math.max(anchorRect.top, viewportGap), maxTop);
-      const top = viewportTop - anchorRect.top;
-
-      setSubmenuPlacement((current) => (
-        current.side === side && current.top === top ? current : { side, top }
-      ));
-    };
-
-    updatePlacement();
-    window.addEventListener("resize", updatePlacement);
-    return () => window.removeEventListener("resize", updatePlacement);
-  }, [adjustedPos, submenuParentId]);
-
-  useEffect(() => () => {
-    if (submenuCloseTimer.current) clearTimeout(submenuCloseTimer.current);
-  }, []);
 
   const closeOwnerMenu = () => onAction("__context_menu_internal_close");
 
@@ -590,16 +719,18 @@ export default function ContextMenu({
       {isOpen && (
         <div
           ref={internalRef}
+          data-context-menu-id={menuId}
           style={{
             position: "fixed",
             top: adjustedPos.y,
             left: adjustedPos.x,
             zIndex: 100,
+            maxHeight: Math.max(0, viewport.height - 16),
             animation: "contextMenuIn 0.12s ease-out",
           }}
           className={cn(
-            "w-48 max-h-[calc(100dvh-16px)] overflow-y-auto overscroll-contain sm:max-h-none sm:overflow-visible backdrop-blur-xl bg-white/90 dark:bg-zinc-900/90 rounded-[12px] shadow-lg shadow-black/[0.08] dark:shadow-black/30 border border-black/[0.06] dark:border-white/[0.08] py-1 select-none",
-            activeSubmenu && "max-sm:w-max max-sm:min-w-[13.5rem] max-sm:max-w-[calc(100vw-16px)]",
+            "w-48 overflow-x-hidden overflow-y-auto overscroll-contain backdrop-blur-xl bg-white/90 dark:bg-zinc-900/90 rounded-[12px] shadow-lg shadow-black/[0.08] dark:shadow-black/30 border border-black/[0.06] dark:border-white/[0.08] py-1 select-none",
+            mobileMenuPath.length > 0 && "max-sm:w-max max-sm:min-w-[13.5rem] max-sm:max-w-[calc(100vw-16px)]",
           )}
         >
           {header && (
@@ -607,14 +738,15 @@ export default function ContextMenu({
               {header}
             </div>
           )}
-          {activeSubmenu && (
-            <div className="sm:hidden">
+          <div className="sm:hidden">
+            {mobileMenu.parent && (
+              <>
               <button
                 type="button"
                 onMouseDown={(e) => {
                   e.preventDefault();
                   e.stopPropagation();
-                  setSubmenuParentId(null);
+                  setMobileMenuPath((current) => current.slice(0, -1));
                 }}
                 className={cn(
                   contextMenuRowClassName,
@@ -622,136 +754,54 @@ export default function ContextMenu({
                 )}
               >
                 <ChevronLeft size={14} className="text-tx-tertiary shrink-0" />
-                <span className="truncate whitespace-nowrap">{activeSubmenu.label}</span>
+                <span className="truncate whitespace-nowrap">{mobileMenu.parent.label}</span>
               </button>
               <div className="h-px bg-black/[0.06] dark:bg-white/[0.08] mx-2 mb-1" />
-              {activeSubmenu.children?.map((child) => (
+              </>
+            )}
+            {mobileMenu.items.map((item) => (
+              item.separator ? (
+                <div key={item.id} className="h-px bg-black/[0.06] dark:bg-white/[0.08] my-1 mx-2" />
+              ) : (
                 <button
-                  key={child.id}
+                  key={item.id}
                   type="button"
-                  disabled={child.disabled}
+                  disabled={item.disabled}
                   onMouseDown={(e) => {
                     e.preventDefault();
                     e.stopPropagation();
-                    setSubmenuParentId(null);
-                    if (!child.disabled) void handleSpecialInlineNoteAction(child.id);
+                    if (item.disabled) return;
+                    if (item.children?.length) {
+                      setMobileMenuPath((current) => [...current, item.id]);
+                    } else {
+                      setMobileMenuPath([]);
+                      void handleSpecialInlineNoteAction(item.id);
+                    }
                   }}
                   className={cn(
                     contextMenuRowClassName,
-                    child.disabled && "opacity-40 cursor-not-allowed",
-                    "text-zinc-700 dark:text-zinc-300 hover:bg-black/[0.04] dark:hover:bg-white/[0.06] hover:text-tx-primary",
-                  )}
-                >
-                  {child.icon && <span className={contextMenuIconClassName}>{child.icon}</span>}
-                  <span className="truncate whitespace-nowrap">{child.label}</span>
-                </button>
-              ))}
-            </div>
-          )}
-          <div className={cn(submenuParentId && "hidden sm:block")}>
-            {displayItems.map((item) =>
-              item.separator ? (
-              <div key={item.id} className="h-px bg-black/[0.06] dark:bg-white/[0.08] my-1 mx-2" />
-            ) : item.children ? (
-              <div
-                key={item.id}
-                ref={submenuParentId === item.id ? submenuAnchorRef : undefined}
-                className="relative"
-                onMouseEnter={() => {
-                  if (!window.matchMedia("(min-width: 640px) and (hover: hover)").matches) return;
-                  if (submenuCloseTimer.current) clearTimeout(submenuCloseTimer.current);
-                  setSubmenuParentId(item.id);
-                }}
-                onMouseLeave={() => {
-                  if (!window.matchMedia("(min-width: 640px) and (hover: hover)").matches) return;
-                  submenuCloseTimer.current = setTimeout(() => setSubmenuParentId(null), 150);
-                }}
-              >
-                <button
-                  type="button"
-                  disabled={item.disabled}
-                  aria-haspopup="menu"
-                  aria-expanded={submenuParentId === item.id}
-                  onClick={() => {
-                    if (!item.disabled) setSubmenuParentId(item.id);
-                  }}
-                  className={cn(
-                    contextMenuRowClassName,
-                    "justify-between",
+                    item.children?.length && "justify-between",
                     item.disabled && "opacity-40 cursor-not-allowed",
-                    submenuParentId === item.id && "bg-black/[0.04] dark:bg-white/[0.06]",
-                    "text-zinc-700 dark:text-zinc-300 hover:bg-black/[0.04] dark:hover:bg-white/[0.06] hover:text-tx-primary",
+                    item.danger
+                      ? "text-red-600 dark:text-red-400 hover:bg-red-50/60 dark:hover:bg-red-900/20"
+                      : "text-zinc-700 dark:text-zinc-300 hover:bg-black/[0.04] dark:hover:bg-white/[0.06] hover:text-tx-primary",
                   )}
                 >
                   <span className="flex items-center gap-2 min-w-0">
                     {item.icon && <span className={contextMenuIconClassName}>{item.icon}</span>}
                     <span className="truncate whitespace-nowrap">{item.label}</span>
                   </span>
-                  <ChevronRight size={12} className="text-tx-tertiary shrink-0" />
+                  {item.children?.length ? <ChevronRight size={12} className="text-tx-tertiary shrink-0" /> : null}
                 </button>
-                {submenuParentId === item.id && (
-                  <div
-                    ref={submenuRef}
-                    style={{
-                      top: submenuPlacement.top,
-                      ...(submenuPlacement.side === "left"
-                        ? { right: "calc(100% + 4px)" }
-                        : { left: "calc(100% + 4px)" }),
-                    }}
-                    className="absolute w-max min-w-[13.5rem] max-w-[calc(100vw-16px)] max-h-[calc(100dvh-16px)] overflow-y-auto overscroll-contain backdrop-blur-xl bg-white/90 dark:bg-zinc-900/90 rounded-[12px] shadow-lg shadow-black/[0.08] dark:shadow-black/30 border border-black/[0.06] dark:border-white/[0.08] py-1 z-[101]"
-                    onMouseEnter={() => {
-                      if (submenuCloseTimer.current) clearTimeout(submenuCloseTimer.current);
-                    }}
-                    onMouseLeave={() => {
-                      submenuCloseTimer.current = setTimeout(() => setSubmenuParentId(null), 150);
-                    }}
-                  >
-                    {item.children.map((child) => (
-                      <button
-                        key={child.id}
-                        type="button"
-                        disabled={child.disabled}
-                        onMouseDown={(e) => {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          setSubmenuParentId(null);
-                          if (!child.disabled) void handleSpecialInlineNoteAction(child.id);
-                        }}
-                        className={cn(
-                          contextMenuRowClassName,
-                          child.disabled && "opacity-40 cursor-not-allowed",
-                          "text-zinc-700 dark:text-zinc-300 hover:bg-black/[0.04] dark:hover:bg-white/[0.06] hover:text-tx-primary",
-                        )}
-                      >
-                        {child.icon && <span className={contextMenuIconClassName}>{child.icon}</span>}
-                        <span className="truncate whitespace-nowrap">{child.label}</span>
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            ) : (
-              <button
-                key={item.id}
-                disabled={item.disabled}
-                onMouseDown={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  if (!item.disabled) void handleSpecialInlineNoteAction(item.id);
-                }}
-                className={cn(
-                  contextMenuRowClassName,
-                  item.disabled && "opacity-40 cursor-not-allowed",
-                  item.danger
-                    ? "text-red-600 dark:text-red-400 hover:bg-red-50/60 dark:hover:bg-red-900/20"
-                    : "text-zinc-700 dark:text-zinc-300 hover:bg-black/[0.04] dark:hover:bg-white/[0.06] hover:text-tx-primary",
-                )}
-              >
-                {item.icon && <span className={contextMenuIconClassName}>{item.icon}</span>}
-                <span className="truncate whitespace-nowrap">{item.label}</span>
-              </button>
-              ),
-            )}
+              )
+            ))}
+          </div>
+          <div className="hidden sm:block">
+            <DesktopContextMenuItems
+              items={displayItems}
+              menuId={menuId}
+              onAction={(actionId) => void handleSpecialInlineNoteAction(actionId)}
+            />
           </div>
         </div>
       )}

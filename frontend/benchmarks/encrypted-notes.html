@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self'">
+  <title>Encrypted Notes core self-test</title>
+</head>
+<body>
+  <h1>Encrypted Notes 核心验收</h1>
+  <p>仅使用公开测试向量，不读写笔记。这是内部验收页，整篇与局部加密尚未接入产品。</p>
+  <button id="run">运行核心自检</button>
+  <button id="cancel">取消</button>
+  <pre id="result" aria-live="polite">ready</pre>
+  <script type="module" src="./encrypted-notes.ts"></script>
+</body>
+</html>

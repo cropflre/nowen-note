@@ -3,6 +3,7 @@ import type { KnowledgeTreeNode } from "@/lib/knowledgeTreeApi";
 const SESSION_KEY = "nowen-knowledge-tree-folder-unlock-tokens";
 export const KNOWLEDGE_TREE_PASSWORD_SESSION_CHANGED_EVENT = "nowen:knowledge-tree-password-session-changed";
 export const KNOWLEDGE_TREE_PASSWORD_LOCKED_EVENT = "nowen:knowledge-tree-password-locked";
+export const KNOWLEDGE_TREE_PASSWORD_NOTES_LOCKED_EVENT = "nowen:knowledge-tree-password-notes-locked";
 export const KNOWLEDGE_TREE_PASSWORD_LOCK_BROADCAST_KEY = "nowen:knowledge-tree-password-lock-broadcast";
 
 export type KnowledgeTreeFolderLockReason =
@@ -158,6 +159,29 @@ export function clearFolderUnlockTokens(options: {
 
 export function isFolderUnlocked(node: KnowledgeTreeNode, unlockedIds: Set<string>): boolean {
   return node.isPasswordProtected !== 1 || unlockedIds.has(node.id);
+}
+
+export function createNoteFolderPasswordResolver(nodes: KnowledgeTreeNode[]) {
+  const byId = new Map(nodes.map((node) => [node.id, node]));
+  const byResource = new Map(nodes.map((node) => [`${node.resourceType}:${node.resourceId}`, node]));
+  return (note: { id: string; notebookId: string }, allowNotebookFallback = false): string[] | null => {
+    // 默认要求笔记的真实父链；只有已确认尚未发送的本机新笔记才能继承 notebook。
+    let node = byResource.get(`note:${note.id}`)
+      || (allowNotebookFallback ? byResource.get(`notebook:${note.notebookId}`) : undefined);
+    if (!node) return null;
+    const folderIds: string[] = [];
+    const visited = new Set<string>();
+    while (node) {
+      if (visited.has(node.id)) return null;
+      visited.add(node.id);
+      if (node.resourceType === "notebook" && node.isPasswordProtected !== 0 && node.isPasswordProtected !== 1) return null;
+      if (node.isPasswordProtected === 1) folderIds.push(node.id);
+      if (!node.parentId) return folderIds;
+      node = byId.get(node.parentId);
+      if (!node) return null;
+    }
+    return null;
+  };
 }
 
 export function hideLockedFolderDescendants(

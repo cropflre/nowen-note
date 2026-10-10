@@ -5,6 +5,7 @@ import {
   hasSelectedAncestor,
   isNodeDescendant,
   moveMindMapNodes,
+  resolveMindMapDropPlacement,
 } from "../MindMapEditor";
 
 function makeTree(): MindMapNode {
@@ -41,6 +42,33 @@ describe("mind map node drag moves", () => {
     expect(movable).toEqual({ nodeIds: ["A"] });
     expect(moved.children.map((node) => node.id)).toEqual(["B", "C"]);
     expect(findNode(moved, "B")?.children.map((node) => node.id)).toEqual(["A"]);
+  });
+
+  it("reorders a node before or after a sibling without changing hierarchy", () => {
+    const root = makeTree();
+
+    const before = moveMindMapNodes(root, "B", ["C"], "before");
+    expect(before.children.map((node) => node.id)).toEqual(["A", "C", "B"]);
+    expect(findNode(before, "C")?.children).toEqual([]);
+
+    const after = moveMindMapNodes(root, "B", ["A"], "after");
+    expect(after.children.map((node) => node.id)).toEqual(["B", "A", "C"]);
+    expect(findNode(after, "A")?.children.map((node) => node.id)).toEqual(["A1"]);
+  });
+
+  it("moves nodes across parents and inserts them next to the target sibling", () => {
+    const root = makeTree();
+    const moved = moveMindMapNodes(root, "A1", ["C"], "after");
+
+    expect(moved.children.map((node) => node.id)).toEqual(["A", "B"]);
+    expect(findNode(moved, "A")?.children.map((node) => node.id)).toEqual(["A1", "C"]);
+  });
+
+  it("splits a node surface into before, inside and after drag zones", () => {
+    expect(resolveMindMapDropPlacement(102, 100, 40)).toBe("before");
+    expect(resolveMindMapDropPlacement(120, 100, 40)).toBe("inside");
+    expect(resolveMindMapDropPlacement(138, 100, 40)).toBe("after");
+    expect(resolveMindMapDropPlacement(100, 100, 0)).toBe("inside");
   });
 
   it("moves selected nodes together in tree order", () => {

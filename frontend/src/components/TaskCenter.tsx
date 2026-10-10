@@ -1,26 +1,13 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useEffect } from "react";
 import TaskCenterImpl from "./TaskCenterImpl";
 import { TaskMetadataWorkspace } from "./tasks/TaskMetadataWorkspace";
+import TaskEntryUxBridge from "./tasks/TaskEntryUxBridge";
+import TaskDetailRichExperienceBridge from "./tasks/TaskDetailRichExperienceBridge";
 import { shouldConfirmHabitDelete } from "./tasks/taskCenterHardening";
 
 export * from "./TaskCenterImpl";
 
 export default function TaskCenter() {
-  const [workspaceGeneration, setWorkspaceGeneration] = useState(0);
-
-  const remountTaskWorkspace = useCallback(() => {
-    setWorkspaceGeneration((value) => value + 1);
-  }, []);
-
-  useEffect(() => {
-    const handleWorkspaceChange = () => {
-      // Remount capture, planning state, smart views and the legacy task center together.
-      remountTaskWorkspace();
-    };
-    window.addEventListener("nowen:workspace-changed", handleWorkspaceChange);
-    return () => window.removeEventListener("nowen:workspace-changed", handleWorkspaceChange);
-  }, [remountTaskWorkspace]);
-
   useEffect(() => {
     const handleDeleteCapture = (event: MouseEvent) => {
       if (!shouldConfirmHabitDelete(event.target)) return;
@@ -40,7 +27,9 @@ export default function TaskCenter() {
   }, []);
 
   return (
-    <TaskMetadataWorkspace key={workspaceGeneration}>
+    <TaskMetadataWorkspace>
+      <TaskEntryUxBridge />
+      <TaskDetailRichExperienceBridge />
       <TaskCenterImpl />
     </TaskMetadataWorkspace>
   );

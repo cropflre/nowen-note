@@ -1,6 +1,11 @@
+import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
+import i18n from "@/i18n";
 import { useEffect, useMemo, useState, type RefObject } from "react";
 import {
+  BrainCircuit,
   ArrowLeftRight,
+  Copy,
   Download,
   FileArchive,
   FileCode,
@@ -20,6 +25,8 @@ import {
   PinOff,
   Plus,
   Printer,
+  Search,
+  SearchX,
   ShieldCheck,
   Share2,
   SplitSquareHorizontal,
@@ -32,6 +39,7 @@ import {
 } from "lucide-react";
 
 import ContextMenu, { type ContextMenuItem } from "@/components/ContextMenu";
+import { buildNoteContextMenuLayout } from "@/components/noteContextMenuLayout";
 import EmojiIconPicker from "@/components/EmojiPicker";
 import NotebookShareDialog from "@/components/NotebookShareDialog";
 import ShareModal from "@/components/ShareModal";
@@ -58,6 +66,14 @@ import {
   requestActiveNoteFormatConversion,
 } from "@/lib/noteFormatConversion";
 import { noteTemplatesApi } from "@/lib/noteTemplatesApi";
+import { revealCreatedKnowledgeTreeNote } from "@/lib/knowledgeTreeCreateVisibility";
+import {
+  excludeNotebookFromSearch,
+  includeNotebookInSearch,
+  listSearchNotebookExclusions,
+  resolveSearchNotebookExclusionStatus,
+  type SearchNotebookExclusionStatus,
+} from "@/lib/searchNotebookExclusions";
 import { toast } from "@/lib/toast";
 import { useApp, useAppActions } from "@/store/AppContext";
 import type { Notebook } from "@/types";
@@ -89,10 +105,10 @@ function separator(id: string): ContextMenuItem {
   return { id, label: "", separator: true };
 }
 
-function exportChildren(): ContextMenuItem[] {
+function exportChildren(t: TFunction): ContextMenuItem[] {
   return [
     { id: "export_note_md", label: "Markdown", icon: <Download size={14} /> },
-    { id: "export_note_md_zip", label: "Markdown + 附件（ZIP）", icon: <Download size={14} /> },
+    { id: "export_note_md_zip", label: t("noteList.exportAsMarkdownZip"), icon: <Download size={14} /> },
     { id: "export_note_pdf", label: "PDF", icon: <Printer size={14} /> },
     { id: "export_note_png", label: "PNG", icon: <ImageIcon size={14} /> },
     { id: "export_note_jpg", label: "JPG", icon: <ImageIcon size={14} /> },
@@ -100,11 +116,12 @@ function exportChildren(): ContextMenuItem[] {
   ];
 }
 
-function createChildren(): ContextMenuItem[] {
+function createChildren(t: TFunction): ContextMenuItem[] {
   return [
-    { id: "new_note", label: "文档", icon: <FilePlus size={14} /> },
-    { id: "new_markdown", label: "Markdown 文档", icon: <FileCode size={14} /> },
-    { id: "new_folder", label: "文件夹", icon: <FolderPlus size={14} /> },
+    { id: "new_note", label: t("note.contextMenu.document"), icon: <FilePlus size={14} /> },
+    { id: "new_markdown", label: t("note.contextMenu.markdownDocument"), icon: <FileCode size={14} /> },
+    { id: "new_mindmap", label: t("note.contextMenu.mindmap"), icon: <BrainCircuit size={14} /> },
+    { id: "new_folder", label: t("note.contextMenu.folder"), icon: <FolderPlus size={14} /> },
   ];
 }
 
@@ -121,69 +138,119 @@ function importChildren(): ContextMenuItem[] {
 export function buildKnowledgeTreeNodeMenuItems(
   node: KnowledgeTreeNode,
   note: LoadedNote | null,
+  searchExclusionStatus: SearchNotebookExclusionStatus | null = null,
+  t: TFunction = i18n.t,
 ): ContextMenuItem[] {
-  const items: ContextMenuItem[] = [];
   const capabilities = node.access.capabilities;
   const isDocument = node.resourceType === "note";
   const isNotebook = node.resourceType === "notebook";
   const isOwned = !node.sharedRootId;
 
-  if (isDocument) {
-    items.push(
-      { id: "open", label: "打开", icon: <FileText size={14} /> },
-      { id: "split_right", label: "在右侧分屏打开", icon: <SplitSquareHorizontal size={14} /> },
-      { id: "split_down", label: "在下方分屏打开", icon: <SplitSquareVertical size={14} /> },
-    );
+  if (node.resourceType === "mindmap") {
+    return [
+      { id: "open", label: "打开脑图", icon: <BrainCircuit size={14} /> },
+      ...(capabilities.canEdit ? [{ id: "rename", label: "重命名", icon: <Pencil size={14} /> }] : []),
+      ...(capabilities.canMove && !node.sharedRootId ? [{ id: "move", label: "移动", icon: <FolderInput size={14} /> }] : []),
+      ...(capabilities.canDelete ? [{ id: "delete", label: "移到回收站", icon: <Trash2 size={14} />, danger: true }] : []),
+    ];
   }
+
+  if (isDocument) {
+    const flags: ContextMenuItem[] = [];
+    const management: ContextMenuItem[] = [];
+    const more: ContextMenuItem[] = [];
+
+    if (isOwned && capabilities.canEdit) {
+      flags.push(
+        {
+          id: "toggle_pin",
+          label: note?.isPinned === 1 ? t("noteList.unpin") : t("noteList.pin"),
+          icon: note?.isPinned === 1 ? <PinOff size={14} /> : <Pin size={14} />,
+          disabled: !note,
+        },
+        {
+          id: "toggle_favorite",
+          label: note?.isFavorite === 1 ? t("noteList.unfavorite") : t("noteList.favorite"),
+          icon: note?.isFavorite === 1 ? <StarOff size={14} /> : <Star size={14} />,
+          disabled: !note,
+        },
+      );
+      more.push(
+        {
+          id: "toggle_lock",
+          label: note?.isLocked === 1 ? t("noteList.unlock") : t("noteList.lock"),
+          icon: note?.isLocked === 1 ? <Unlock size={14} /> : <Lock size={14} />,
+          disabled: !note,
+        },
+        {
+          id: "convert_format",
+          label: note?.contentFormat === "markdown" ? t("note.contextMenu.convertToRichText") : t("note.contextMenu.convertToMarkdown"),
+          icon: <ArrowLeftRight size={14} />,
+          disabled: !note || note.isLocked === 1,
+        },
+      );
+    }
+
+    if (capabilities.canEdit) {
+      management.push({ id: "rename", label: t("common.rename"), icon: <Pencil size={14} /> });
+    }
+    if (capabilities.canMove && isOwned) {
+      management.push({ id: "move", label: t("noteList.moveButton"), icon: <FolderInput size={14} /> });
+    }
+    if (isOwned || capabilities.canReshare) {
+      management.push({ id: "share_note", label: t("note.contextMenu.share"), icon: <Share2 size={14} /> });
+    }
+
+    if (capabilities.canEdit) {
+      more.push({
+        id: "save_as_template",
+        label: t("note.contextMenu.saveAsTemplate"),
+        icon: <LayoutTemplate size={14} />,
+        disabled: !note
+          || note.isLocked === 1
+          || (note.contentFormat !== "markdown" && note.contentFormat !== "tiptap-json"),
+      });
+    }
+    if (capabilities.canManageMembers) {
+      more.push({ id: "permissions", label: t("note.contextMenu.permissions"), icon: <ShieldCheck size={14} /> });
+    }
+    if (capabilities.canDownload) {
+      more.push({ id: "export_note", label: t("noteList.export"), icon: <Download size={14} />, children: exportChildren(t) });
+    }
+
+    return buildNoteContextMenuLayout({
+      open: { id: "open", label: t("common.open"), icon: <FileText size={14} /> },
+      split: [
+        { id: "split_right", label: t("note.contextMenu.splitRight"), icon: <SplitSquareHorizontal size={14} /> },
+        { id: "split_down", label: t("note.contextMenu.splitDown"), icon: <SplitSquareVertical size={14} /> },
+      ],
+      duplicate: {
+        id: "duplicate",
+        label: t("note.contextMenu.duplicate"),
+        icon: <Copy size={14} />,
+        disabled: !capabilities.canCreate || !note || note.isLocked === 1 || note.isTrashed === 1,
+      },
+      create: capabilities.canCreate ? createChildren(t) : undefined,
+      flags,
+      management,
+      more,
+      trash: capabilities.canDelete ? {
+        id: "delete",
+        label: t("noteList.moveToTrash"),
+        icon: <Trash2 size={14} />,
+        danger: true,
+        disabled: !note || note.isLocked === 1,
+      } : undefined,
+    }, t);
+  }
+
+  const items: ContextMenuItem[] = [];
 
   if (capabilities.canCreate) {
-    if (items.length) items.push(separator("sep-create"));
     items.push(
-      { id: "create", label: "新建", icon: <Plus size={14} />, children: createChildren() },
+      { id: "create", label: "新建", icon: <Plus size={14} />, children: createChildren(t) },
       { id: "import", label: "导入", icon: <Upload size={14} />, children: importChildren() },
     );
-  }
-
-  if (isDocument && isOwned && capabilities.canEdit) {
-    items.push(separator("sep-note-flags"));
-    items.push(
-      {
-        id: "toggle_pin",
-        label: note?.isPinned === 1 ? "取消置顶" : "置顶",
-        icon: note?.isPinned === 1 ? <PinOff size={14} /> : <Pin size={14} />,
-        disabled: !note,
-      },
-      {
-        id: "toggle_favorite",
-        label: note?.isFavorite === 1 ? "取消收藏" : "收藏",
-        icon: note?.isFavorite === 1 ? <StarOff size={14} /> : <Star size={14} />,
-        disabled: !note,
-      },
-      {
-        id: "toggle_lock",
-        label: note?.isLocked === 1 ? "解锁" : "锁定",
-        icon: note?.isLocked === 1 ? <Unlock size={14} /> : <Lock size={14} />,
-        disabled: !note,
-      },
-      {
-        id: "convert_format",
-        label: note?.contentFormat === "markdown" ? "转换为富文本" : "转换为 Markdown",
-        icon: <ArrowLeftRight size={14} />,
-        disabled: !note || note.isLocked === 1,
-      },
-    );
-  }
-
-  if (isDocument && capabilities.canEdit) {
-    if (!isOwned) items.push(separator("sep-note-template"));
-    items.push({
-      id: "save_as_template",
-      label: "保存为模板",
-      icon: <LayoutTemplate size={14} />,
-      disabled: !note
-        || note.isLocked === 1
-        || (note.contentFormat !== "markdown" && note.contentFormat !== "tiptap-json"),
-    });
   }
 
   const management: ContextMenuItem[] = [];
@@ -198,9 +265,6 @@ export function buildKnowledgeTreeNodeMenuItems(
     });
   }
   if (capabilities.canEdit) management.push({ id: "rename", label: "重命名", icon: <Pencil size={14} /> });
-  if (isDocument && (isOwned || capabilities.canReshare)) {
-    management.push({ id: "share_note", label: "分享", icon: <Share2 size={14} /> });
-  }
   if (isNotebook && (capabilities.canReshare || capabilities.canManageMembers)) {
     management.push({ id: "share", label: "分享与发布", icon: <Link2 size={14} /> });
   }
@@ -210,6 +274,39 @@ export function buildKnowledgeTreeNodeMenuItems(
   if (capabilities.canManageMembers) {
     management.push({ id: "permissions", label: "成员与权限", icon: <ShieldCheck size={14} /> });
   }
+
+  // Search scope is a per-user preference, not a content mutation. Any user who can see the
+  // notebook (including read-only shared members) can exclude it from their own global search.
+  if (isNotebook) {
+    if (!searchExclusionStatus) {
+      management.push({
+        id: "search_scope_loading",
+        label: "正在读取搜索范围…",
+        icon: <Search size={14} />,
+        disabled: true,
+      });
+    } else if (searchExclusionStatus.kind === "direct") {
+      management.push({
+        id: "search_include",
+        label: "重新纳入全局搜索",
+        icon: <Search size={14} />,
+      });
+    } else if (searchExclusionStatus.kind === "inherited") {
+      management.push({
+        id: "search_scope_inherited",
+        label: "已被上级目录排除",
+        icon: <SearchX size={14} />,
+        disabled: true,
+      });
+    } else {
+      management.push({
+        id: "search_exclude",
+        label: "从全局搜索中排除",
+        icon: <SearchX size={14} />,
+      });
+    }
+  }
+
   if (management.length) {
     if (items.length) items.push(separator("sep-manage"));
     items.push(...management);
@@ -219,8 +316,6 @@ export function buildKnowledgeTreeNodeMenuItems(
     if (items.length) items.push(separator("sep-export"));
     if (isNotebook) {
       items.push({ id: "export_folder", label: "导出目录为 Markdown", icon: <Download size={14} /> });
-    } else if (isDocument) {
-      items.push({ id: "export_note", label: "导出", icon: <Download size={14} />, children: exportChildren() });
     }
   }
 
@@ -231,7 +326,6 @@ export function buildKnowledgeTreeNodeMenuItems(
       label: "移到回收站",
       icon: <Trash2 size={14} />,
       danger: true,
-      disabled: isDocument && (!note || note.isLocked === 1),
     });
   }
 
@@ -282,12 +376,14 @@ export default function KnowledgeTreeNodeMenu({
   onReload,
   onNotePatched,
 }: KnowledgeTreeNodeMenuProps) {
+  const { t } = useTranslation();
   const { state } = useApp();
   const actions = useAppActions();
   const [note, setNote] = useState<LoadedNote | null>(null);
   const [shareNotebook, setShareNotebook] = useState<Notebook | null>(null);
   const [shareNote, setShareNote] = useState<{ id: string; title: string } | null>(null);
   const [iconPicker, setIconPicker] = useState<{ notebook: Notebook; top: number; left: number } | null>(null);
+  const [searchExclusionStatus, setSearchExclusionStatus] = useState<SearchNotebookExclusionStatus | null>(null);
 
   useEffect(() => {
     if (!menu.isOpen || node?.resourceType !== "note") {
@@ -301,9 +397,32 @@ export default function KnowledgeTreeNodeMenu({
     return () => { cancelled = true; };
   }, [menu.isOpen, node?.id, node?.resourceId, node?.resourceType]);
 
+  useEffect(() => {
+    if (!menu.isOpen || node?.resourceType !== "notebook") {
+      setSearchExclusionStatus(null);
+      return;
+    }
+    let cancelled = false;
+    setSearchExclusionStatus(null);
+    listSearchNotebookExclusions()
+      .then((response) => {
+        if (cancelled) return;
+        setSearchExclusionStatus(resolveSearchNotebookExclusionStatus(
+          node.resourceId,
+          response.direct,
+          state.notebooks,
+        ));
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        console.warn("[KnowledgeTreeNodeMenu] failed to load search exclusion status", error);
+      });
+    return () => { cancelled = true; };
+  }, [menu.isOpen, node?.id, node?.resourceId, node?.resourceType, state.notebooks]);
+
   const items = useMemo(
-    () => node ? buildKnowledgeTreeNodeMenuItems(node, note) : [],
-    [node, note],
+    () => node ? buildKnowledgeTreeNodeMenuItems(node, note, searchExclusionStatus, t) : [],
+    [node, note, searchExclusionStatus, t],
   );
 
   const openLoadedNote = (value: LoadedNote) => {
@@ -333,6 +452,7 @@ export default function KnowledgeTreeNodeMenu({
       fallbackNotebookId: state.activeNote?.notebookId || state.selectedNotebookId,
     });
     if (!imported) return;
+    revealCreatedKnowledgeTreeNote(node.id);
     openLoadedNote(imported);
     await onReload();
     actions.refreshNotes();
@@ -347,6 +467,7 @@ export default function KnowledgeTreeNodeMenu({
       fallbackNotebookId: state.activeNote?.notebookId || state.selectedNotebookId,
     });
     if (!imported) return;
+    revealCreatedKnowledgeTreeNote(node.id);
     openLoadedNote(imported);
     await onReload();
     actions.refreshNotes();
@@ -361,6 +482,7 @@ export default function KnowledgeTreeNodeMenu({
       fallbackNotebookId: state.activeNote?.notebookId || state.selectedNotebookId,
     });
     if (!imported) return;
+    revealCreatedKnowledgeTreeNote(node.id);
     openLoadedNote(imported);
     await onReload();
     actions.refreshNotes();
@@ -375,6 +497,7 @@ export default function KnowledgeTreeNodeMenu({
       fallbackNotebookId: state.activeNote?.notebookId || state.selectedNotebookId,
     });
     if (!imported) return;
+    revealCreatedKnowledgeTreeNote(node.id);
     openLoadedNote(imported);
     await onReload();
     actions.refreshNotes();
@@ -402,6 +525,18 @@ export default function KnowledgeTreeNodeMenu({
     if (patch.isLocked !== undefined) actions.updateNoteTab({ id: current.id, isLocked: patch.isLocked });
     if (state.activeNote?.id === current.id) actions.setActiveNote({ ...state.activeNote, ...patch } as any);
     actions.refreshNotes();
+  };
+
+  const duplicateCurrentNote = async () => {
+    if (!node || node.resourceType !== "note") return;
+    const duplicated = await api.duplicateNote(node.resourceId);
+    revealCreatedKnowledgeTreeNote(duplicated.treeParentId);
+    openLoadedNote(duplicated);
+    actions.setSelectedKnowledgeTreeParent(duplicated.treeParentId);
+    await onReload();
+    actions.refreshNotes();
+    actions.refreshNotebooks();
+    toast.success("副本已创建");
   };
 
   const convertFormat = async () => {
@@ -527,6 +662,16 @@ export default function KnowledgeTreeNodeMenu({
     }
   };
 
+  const refreshSearchExclusionStatus = async () => {
+    if (!node || node.resourceType !== "notebook") return;
+    const response = await listSearchNotebookExclusions();
+    setSearchExclusionStatus(resolveSearchNotebookExclusionStatus(
+      node.resourceId,
+      response.direct,
+      state.notebooks,
+    ));
+  };
+
   const handleAction = async (actionId: string) => {
     if (actionId === "__context_menu_internal_close") {
       onClose();
@@ -537,6 +682,7 @@ export default function KnowledgeTreeNodeMenu({
     const protectedContentActions = new Set([
       "new_note",
       "new_markdown",
+      "new_mindmap",
       "new_folder",
       "import_markdown",
       "import_markdown_zip",
@@ -554,8 +700,10 @@ export default function KnowledgeTreeNodeMenu({
         case "open": await onOpen(node); break;
         case "split_right": onSplit(node, "right"); break;
         case "split_down": onSplit(node, "down"); break;
+        case "duplicate": await duplicateCurrentNote(); break;
         case "new_note": onCreate(node, "note"); break;
         case "new_markdown": onCreate(node, "markdown"); break;
+        case "new_mindmap": onCreate(node, "mindmap"); break;
         case "new_folder": onCreate(node, "folder"); break;
         case "import_markdown": await importMarkdown(); break;
         case "import_markdown_zip": await importMarkdownZip(); break;
@@ -573,6 +721,20 @@ export default function KnowledgeTreeNodeMenu({
         case "delete": await onDelete(node); break;
         case "share": setShareNotebook(await getNotebook()); break;
         case "share_note": setShareNote({ id: node.resourceId, title: node.title }); break;
+        case "search_exclude":
+          if (node.resourceType === "notebook") {
+            await excludeNotebookFromSearch(node.resourceId);
+            setSearchExclusionStatus({ kind: "direct", sourceNotebookId: node.resourceId });
+            toast.success(`“${node.title}”已从全局搜索中排除`);
+          }
+          break;
+        case "search_include":
+          if (node.resourceType === "notebook") {
+            await includeNotebookInSearch(node.resourceId);
+            await refreshSearchExclusionStatus();
+            toast.success(`“${node.title}”已重新纳入全局搜索`);
+          }
+          break;
         case "change_icon": {
           const notebook = await getNotebook();
           setIconPicker({ notebook, top: menu.y, left: menu.x });

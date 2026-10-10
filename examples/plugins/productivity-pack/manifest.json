@@ -1,0 +1,114 @@
+{
+  "id": "nowenlab.productivity-pack",
+  "publisher": "nowenlab",
+  "name": "Nowen Productivity Pack",
+  "description": "Official zero-code note templates and prompt pack dogfood",
+  "version": "1.0.0",
+  "apiVersion": 2,
+  "engines": {
+    "nowen": ">=1.6.0"
+  },
+  "runtime": "declarative",
+  "categories": [
+    "productivity"
+  ],
+  "repository": "https://github.com/cropflre/nowen-note",
+  "license": "MIT",
+  "permissions": [],
+  "contributes": {
+    "noteTemplates": [
+      {
+        "id": "meeting-notes",
+        "name": "会议纪要",
+        "description": "结构化会议记录",
+        "contentFormat": "markdown",
+        "body": "# {{title}}\n\n## 目标\n\n{{goal}}\n\n## 讨论要点\n\n- \n\n## 决策\n\n- \n\n## Action Items\n\n- [ ] ",
+        "variables": [
+          {
+            "id": "title",
+            "label": "会议主题",
+            "type": "string",
+            "required": true
+          },
+          {
+            "id": "goal",
+            "label": "会议目标",
+            "type": "string",
+            "default": ""
+          }
+        ],
+        "suggestedTags": [
+          "会议"
+        ],
+        "documentTypes": [
+          "markdown"
+        ]
+      },
+      {
+        "id": "weekly-review",
+        "name": "周复盘",
+        "description": "每周复盘与下周计划",
+        "contentFormat": "markdown",
+        "body": "# {{week}} 周复盘\n\n## 本周完成\n\n- \n\n## 阻塞与风险\n\n- \n\n## 下周优先级\n\n1. ",
+        "variables": [
+          {
+            "id": "week",
+            "label": "周次",
+            "type": "string",
+            "required": true
+          }
+        ],
+        "suggestedTags": [
+          "复盘"
+        ],
+        "documentTypes": [
+          "markdown"
+        ]
+      }
+    ],
+    "promptPacks": [
+      {
+        "id": "summarize-note",
+        "name": "总结当前笔记",
+        "description": "将当前笔记压缩成重点、结论和待办",
+        "prompt": "请根据当前笔记内容，输出：1. 三条核心要点；2. 明确结论；3. 可执行待办。不要补充原文不存在的事实。",
+        "context": [
+          "title",
+          "note",
+          "tags"
+        ],
+        "outputMode": "markdown",
+        "uiPlatform": [
+          "web",
+          "desktop",
+          "android",
+          "ios"
+        ]
+      },
+      {
+        "id": "rewrite-selection",
+        "name": "润色选中文本",
+        "description": "保持原意并提升清晰度",
+        "prompt": "请润色当前选中的文本。保持事实和原意，不新增未经提供的信息。语气要求：{{tone}}。",
+        "inputs": [
+          {
+            "id": "tone",
+            "label": "语气",
+            "type": "string",
+            "default": "清晰、专业、自然"
+          }
+        ],
+        "context": [
+          "selection"
+        ],
+        "outputMode": "replace-selection",
+        "uiPlatform": [
+          "web",
+          "desktop",
+          "android",
+          "ios"
+        ]
+      }
+    ]
+  }
+}

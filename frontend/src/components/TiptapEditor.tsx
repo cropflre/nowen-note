@@ -1,9 +1,16 @@
+import { emojis } from "@tiptap/extension-emoji";
+import { getRichTextExtensions } from "@/lib/richTextExtensions";
+import { applyTiptapCjkTypography } from "@/lib/tiptapCjkTypography";
+import { EmojiSuggestionList } from "./EmojiSuggestionList";
+import RichTextBlockControls from "./RichTextBlockControls";
+import { getSlashEditorId } from "./extensions/SlashCommandExtension";
+import "./dragHandle.css";
 import React, { forwardRef, lazy, Suspense, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
 import { Capacitor } from "@capacitor/core";
 import { Keyboard } from "@capacitor/keyboard";
 import { sanitizeForPaste } from "@/lib/sanitizeHtml";
 import { createPortal } from "react-dom";
-import { useEditor, Editor, EditorContent, Extension, ReactNodeViewRenderer } from "@tiptap/react";
+import { useEditor, Editor, EditorContent, Extension, ReactNodeViewRenderer, ReactRenderer } from "@tiptap/react";
 import { Plugin, PluginKey } from "prosemirror-state";
 
 // 懒加载 docx 内联预览：office 解析器（fflate + 自研 OOXML parser）有几十 KB，
@@ -12,11 +19,17 @@ const DocxAttachmentPreview = lazy(() => import("@/office/word/DocxAttachmentPre
 // 复用的附件详情抽屉（与 FileManager 同一份实现）
 import AttachmentDetailDrawer from "@/components/attachmentDetail/AttachmentDetailDrawer";
 import AttachmentLibraryPicker from "@/components/AttachmentLibraryPicker";
+import VoiceInsertMenu from "@/components/VoiceInsertMenu";
+import VoiceMemoBlock from "@/components/VoiceMemoBlock";
+import { VoiceMemo } from "@/components/VoiceMemoExtension";
+import { requestVoiceMemo } from "@/lib/voiceMemo";
 import { posToDOMRect, type Content } from "@tiptap/core";
 import { AnimatePresence, motion } from "framer-motion";import StarterKit from "@tiptap/starter-kit";
 import Placeholder from "@tiptap/extension-placeholder";
 import Image from "@tiptap/extension-image";
-import ResizableImageView from "./ResizableImageView";
+import { createResizableImageNodeView } from "./ResizableImageView";
+import { AttachmentNoteContext } from "@/hooks/useAttachmentImageRenderSource";
+import CollapsibleEditorToolbar, { MobileEditorToolbarSlot } from "./CollapsibleEditorToolbar";
 import ImageEditDialog from "@/components/image-editor/ImageEditDialog";
 import FullscreenImageViewer, { type FullscreenImageItem } from "@/components/FullscreenImageViewer";
 import { editedImageBlobToFile, isSvgImageSource } from "@/components/image-editor/imageEditService";
@@ -52,7 +65,7 @@ import {
 } from "@/lib/codeBlockHighlightPlugin";
 import { DOMParser as ProseMirrorDOMParser, Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { TextSelection, NodeSelection } from "@tiptap/pm/state";
-import { CellSelection } from "@tiptap/pm/tables";
+import { CellSelection, TableMap } from "@tiptap/pm/tables";
 import { markdownToSimpleHtml } from "@/lib/importService";
 import { repairTiptapJson } from "@/lib/tiptapSchemaRepair";
 import { markdownToHtml as mdToFullHtml, detectFormat as detectContentFormat, tiptapJsonToMarkdown } from "@/lib/contentFormat";
@@ -60,10 +73,12 @@ import { findInternalMarkdownMarkerRanges } from "@/lib/markdownUserContent";
 import { shouldEmitTitleUpdate, shouldSkipTitleChange, shouldSyncTitleValue } from "@/lib/titleIme";
 import { resolveEditorLifecycleSave } from "@/lib/editorLifecycleSafety";
 import { api, resolveAttachmentUrl } from "@/lib/api";
-import { uploadAndInsertImage } from "@/lib/imageUploadService";
+import { uploadAndInsertImage, uploadPhotoSelection } from "@/lib/imageUploadService";
+import { resolvePhotoUploadMime } from "@/lib/photoUploadMime";
 import {
   isInlineImageAttachment,
   isInlineVideoAttachment,
+  isInlineAudioAttachment,
 } from "@/lib/existingAttachmentInsert";
 import {
   buildEditedImageAttrs,
@@ -76,9 +91,18 @@ import {
   type ImageNodeAttrs,
 } from "@/lib/imageToolbar";
 import { isVideoFile, toInlineAttachmentUrl, uploadMediaAttachment, type MediaUploadResult } from "@/lib/mediaUploadService";
+import { listenMediaUploadLifecycle } from "@/lib/mediaUploadLifecycle";
 import { extractRtfImagesAsync } from "@/lib/rtfImageWorkerClient";
 import { replaceDataUrlImagesWithAttachments } from "@/lib/rtfImageUploader";
-import { shouldLocalizeUrl } from "@/lib/remoteImageLocalizer";
+import {
+  extractRemoteImageUrls,
+  extractRemoteImageUrlsFromMarkdown,
+  localizeRemoteImages,
+  replaceRemoteUrlsInHtml,
+  replaceRemoteUrlsInMarkdown,
+  shouldLocalizeUrl,
+} from "@/lib/remoteImageLocalizer";
+import { useUserPreferences } from "@/hooks/useUserPreferences";
 import {
   normalizeTiptapAttachmentSources,
   reportTransientNoteImageSource,
@@ -87,6 +111,7 @@ import {
 import {
   normalizeLegacyFontColors,
 } from "@/lib/pasteForegroundColor";
+import { shouldHandleAsMarkdownPaste } from "@/lib/pasteRouting";
 import {
   Bold, Italic, Underline as UnderlineIcon, Strikethrough,
   List, ListOrdered, Heading1, Heading2, Heading3, Heading4, Heading5, Heading6,
@@ -96,9 +121,9 @@ import {
   FileType, Check, AlertCircle, Info, ArrowUp, Copy, Link as LinkIcon,
   ExternalLink, Unlink2, Workflow, Sigma, BookOpen, Download, Phone,
   Type, Palette, Eraser, Paintbrush, ChevronDown, Search, Upload, FolderSearch, ClipboardPlus,
-  FlipHorizontal, MoreHorizontal, RotateCcw, RotateCw, Scan,
+  MoreHorizontal,
   // 表格气泡菜单图标
-  Rows3, Columns3, Merge, Split, Heading, Network,
+  Rows3, Columns3, Merge, Split, Heading, BrainCircuit,
 } from "lucide-react";
 import { downloadAttachment } from "@/lib/downloadFile";
 import { saveImageToGallery, isAndroidNative } from "@/lib/nativeImageSave";
@@ -107,14 +132,19 @@ import {
   resolveTiptapEditorScrollContainer,
   resolveTiptapEditorScrollLayout,
 } from "@/lib/tiptapEditorScrollLayout";
-import { resolveEditorBubbleKind, type BubbleSelectionKind } from "@/lib/editorBubbleSelection";
+import {
+  resolveEditorBubbleKind,
+  resolveEditorBubblePosition,
+  type BubbleSelectionKind,
+} from "@/lib/editorBubbleSelection";
 import { toast } from "@/lib/toast";
+import { formatServerTime } from "@/lib/dateTime";
 import { decideAttachmentPrimaryAction, detectAttachmentPreviewKind } from "@/lib/attachmentOpenStrategy";
 import { copyText } from "@/lib/clipboard";
 import { openTaskQuickCapture } from "@/lib/taskInboxApi";
 import { saveAs } from "file-saver";
 import { findTextAction, type TextAction } from "@/lib/textActions";
-import { prompt as promptDialog } from "@/components/ui/confirm";
+import { choose, prompt as promptDialog } from "@/components/ui/confirm";
 import { normalizeImageFlipX, normalizeImageRotation, type ImageRotation } from "@/lib/imageNodeTransformBootstrap";
 import { registerMobileBackHandler } from "@/lib/mobileBackNavigation";
 import { Note, Tag, type FileDetail, type FileItem } from "@/types";
@@ -128,6 +158,7 @@ import { NoteLinkMenu, type NoteSearchResult, type NoteLinkBlockItem, type NoteL
 import { NoteLinkHoverPreview } from "@/components/NoteLinkPreview";
 import { detectActiveWikiNoteQuery } from "@/lib/noteLinkSyntax";
 import { BlockEmbedExtension } from "@/components/BlockEmbedExtension";
+import { insertContentPreservingBlockEmbed } from "@/lib/insertContentPreservingBlockEmbed";
 import { consumeBlockNavigation, subscribeBlockNavigation } from "@/lib/blockNavigation";
 import { MarkdownEnhancements } from "@/components/MarkdownEnhancements";
 import { MathExtensions } from "@/components/MathExtensions";
@@ -140,6 +171,9 @@ import {
 } from "@/components/FontSizeExtension";
 import { LineHeightExtension, LINE_HEIGHT_PRESETS } from "@/components/LineHeightExtension";
 import CodeBlockView from "@/components/CodeBlockView";
+import EncryptedBlockDialog from "./EncryptedBlockDialog";
+import { ENCRYPTED_BLOCK_LANGUAGE } from "@/lib/encryptedNotes/blockDocument";
+import { prepareTiptapSelectionEncryption } from "@/lib/encryptedNotes/tiptapBlockAuthoring";
 import { IndentExtension } from "@/lib/codeBlockIndent";
 import { SearchReplacePanel, createSearchReplaceExtension, searchReplacePluginKey } from "@/components/SearchReplacePanel";
 import { Video as VideoExtension, createVideoFileAttrs } from "@/components/VideoExtension";
@@ -1030,8 +1064,8 @@ function ToolbarButton({ onClick, isActive, disabled, children, title, compact, 
   );
 }
 
-function ToolbarDivider() {
-  return <div className="h-5 w-px shrink-0 bg-app-border mx-1" />;
+function ToolbarDivider({ className }: { className?: string }) {
+  return <div className={cn("h-5 w-px shrink-0 bg-app-border mx-1", className)} />;
 }
 
 /**
@@ -1047,6 +1081,7 @@ interface FontSizePopoverProps {
   compact?: boolean;
 }
 function FontSizePopover({ editor, iconSize = 15, compact = false }: FontSizePopoverProps) {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const [custom, setCustom] = useState("");
   const ref = useRef<HTMLDivElement | null>(null);
@@ -1114,7 +1149,7 @@ function FontSizePopover({ editor, iconSize = 15, compact = false }: FontSizePop
         ref={btnRef}
         type="button"
         onClick={() => setOpen((v) => !v)}
-        title={`${currentSize ? `字号: ${currentSize}` : "字号"}`}
+        title={currentSize ? t("editorToolbar.fontSizeValue", { value: currentSize }) : t("editorToolbar.fontSize")}
         className={cn(
           "p-1.5 rounded-md transition-colors flex items-center gap-0.5",
           currentSize
@@ -1133,7 +1168,7 @@ function FontSizePopover({ editor, iconSize = 15, compact = false }: FontSizePop
           data-popover=""
           onMouseDown={(e) => e.preventDefault()}
         >
-          <div className="text-[11px] text-tx-tertiary px-1 pb-1">预设</div>
+          <div className="text-[11px] text-tx-tertiary px-1 pb-1">{t("editorToolbar.presets")}</div>
           <div className="grid grid-cols-2 gap-1">
             {FONT_SIZE_PRESETS.map((p) => (
               <button
@@ -1151,12 +1186,12 @@ function FontSizePopover({ editor, iconSize = 15, compact = false }: FontSizePop
               </button>
             ))}
           </div>
-          <div className="text-[11px] text-tx-tertiary px-1 pt-2 pb-1">自定义 (8–96 px)</div>
+          <div className="text-[11px] text-tx-tertiary px-1 pt-2 pb-1">{t("editorToolbar.custom")}</div>
           <div className="flex gap-1">
             <input
               type="text"
               inputMode="numeric"
-              placeholder="如 18 或 18px"
+              placeholder={t("editorToolbar.sizePlaceholder")}
               value={custom}
               onChange={(e) => setCustom(e.target.value)}
               onKeyDown={(e) => {
@@ -1186,7 +1221,7 @@ function FontSizePopover({ editor, iconSize = 15, compact = false }: FontSizePop
             className="w-full px-2 py-1 text-xs rounded text-tx-secondary hover:bg-app-hover flex items-center gap-1"
           >
             <Eraser size={12} />
-            清除字号
+            {t("editorToolbar.clearSize")}
           </button>
         </div>,
         document.body,
@@ -1211,6 +1246,7 @@ interface LineHeightPopoverProps {
   compact?: boolean;
 }
 function LineHeightPopover({ editor, iconSize = 15, compact = false }: LineHeightPopoverProps) {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement | null>(null);
   const btnRef = useRef<HTMLButtonElement | null>(null);
@@ -1268,7 +1304,7 @@ function LineHeightPopover({ editor, iconSize = 15, compact = false }: LineHeigh
         ref={btnRef}
         type="button"
         onClick={() => setOpen((value) => !value)}
-        title={currentLineHeight ? `行距: ${currentLabel || currentLineHeight}` : "行距"}
+        title={currentLineHeight ? t("editorToolbar.lineHeightValue", { value: currentLabel || currentLineHeight }) : t("editorToolbar.lineHeight")}
         className={cn(
           "p-1.5 rounded-md transition-colors flex items-center gap-0.5",
           currentLineHeight
@@ -1287,7 +1323,7 @@ function LineHeightPopover({ editor, iconSize = 15, compact = false }: LineHeigh
           data-popover=""
           onMouseDown={(e) => e.preventDefault()}
         >
-          <div className="text-[11px] text-tx-tertiary px-1 pb-1">行距</div>
+          <div className="text-[11px] text-tx-tertiary px-1 pb-1">{t("editorToolbar.lineHeight")}</div>
           <div className="space-y-1">
             {LINE_HEIGHT_PRESETS.map((preset) => (
               <button
@@ -1311,7 +1347,7 @@ function LineHeightPopover({ editor, iconSize = 15, compact = false }: LineHeigh
             className="w-full px-2 py-1 text-xs rounded text-tx-secondary hover:bg-app-hover flex items-center gap-1"
           >
             <Eraser size={12} />
-            清除行距
+            {t("editorToolbar.clearLineHeight")}
           </button>
         </div>,
         document.body,
@@ -1332,6 +1368,7 @@ interface ColorPopoverProps {
   compact?: boolean;
 }
 function ColorPopover({ editor, iconSize = 15, compact = false }: ColorPopoverProps) {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const [tab, setTab] = useState<"fg" | "bg">("fg");
   const ref = useRef<HTMLDivElement | null>(null);
@@ -1394,7 +1431,7 @@ function ColorPopover({ editor, iconSize = 15, compact = false }: ColorPopoverPr
         ref={btnRef}
         type="button"
         onClick={() => setOpen((v) => !v)}
-        title={isActive ? `颜色: ${fgColor || ""} ${bgColor ? "背景: " + bgColor : ""}`.trim() : "颜色"}
+        title={isActive ? t("editorToolbar.colorValue", { value: `${fgColor || ""} ${bgColor ? t("editorToolbar.bgColorValue", { value: bgColor }) : ""}`.trim() }) : t("editorToolbar.color")}
         className={cn(
           "p-1.5 rounded-md transition-colors flex items-center gap-0.5",
           isActive
@@ -1430,7 +1467,7 @@ function ColorPopover({ editor, iconSize = 15, compact = false }: ColorPopoverPr
                 tab === "fg" ? "bg-app-elevated shadow-sm" : "text-tx-tertiary hover:text-tx-primary",
               )}
             >
-              文字
+              {t("editorToolbar.textColor")}
             </button>
             <button
               type="button"
@@ -1440,7 +1477,7 @@ function ColorPopover({ editor, iconSize = 15, compact = false }: ColorPopoverPr
                 tab === "bg" ? "bg-app-elevated shadow-sm" : "text-tx-tertiary hover:text-tx-primary",
               )}
             >
-              背景
+              {t("editorToolbar.background")}
             </button>
           </div>
           {/* Swatches */}
@@ -1482,7 +1519,7 @@ function ColorPopover({ editor, iconSize = 15, compact = false }: ColorPopoverPr
               className="ml-auto px-2 py-1 text-xs rounded text-tx-secondary hover:bg-app-hover flex items-center gap-1"
             >
               <Eraser size={12} />
-              清除
+              {t("editorToolbar.clear")}
             </button>
           </div>
         </div>,
@@ -1621,7 +1658,14 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
     const next = getActiveListType(currentEditor);
     if (activeListTypeRef.current === next) return;
     activeListTypeRef.current = next;
-    setActiveListType(next);
+    // Tiptap fires create/transaction callbacks synchronously, including while
+    // React is committing editor NodeViews. Defer React state updates until the
+    // current commit finishes; only publish the newest selection and never update
+    // a destroyed editor's toolbar.
+    queueMicrotask(() => {
+      if (currentEditor?.isDestroyed || activeListTypeRef.current !== next) return;
+      setActiveListType(next);
+    });
   }, []);
   const [showAI, setShowAI] = useState(false);
   const [aiSelectedText, setAiSelectedText] = useState("");
@@ -1641,6 +1685,9 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
   // 移动端软键盘是否弹起；用于在原生 + 键盘弹起时隐藏顶部工具栏（走底部浮动工具栏）
 
   const { t, i18n } = useTranslation();
+  const { prefs: userPrefs } = useUserPreferences();
+  const remoteImagePasteModeRef = useRef(userPrefs.remoteImagePasteMode);
+  remoteImagePasteModeRef.current = userPrefs.remoteImagePasteMode;
 
   // ---------- 选区气泡菜单（划词弹出） ----------
   // 手动实现，不依赖 Tiptap 内置 BubbleMenu（v3 下有 overflow-auto 裁剪问题）
@@ -1852,6 +1899,19 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
   // 保持最新的 note ref，避免闭包引用过期
   const noteRef = useRef(note);
   noteRef.current = note;
+  useEffect(() => listenMediaUploadLifecycle((detail) => {
+    if (detail.mediaType !== "video" || detail.noteId !== noteRef.current.id || !detail.result) return;
+    if (detail.phase === "success") {
+      if (detail.queued) toast.info("视频已插入，等待离线同步");
+      else toast.success(t("tiptap.videoUploaded") || "Video uploaded");
+    } else if (detail.phase === "error") {
+      toast.error(detail.error || t("tiptap.videoUploadFailed") || "Video upload failed");
+    }
+  }), [t]);
+  const pasteNoteScopeRef = useRef({ id: note.id, revision: 0 });
+  if (pasteNoteScopeRef.current.id !== note.id) {
+    pasteNoteScopeRef.current = { id: note.id, revision: pasteNoteScopeRef.current.revision + 1 };
+  }
   // 保持最新的 onUpdate ref
   const onUpdateRef = useRef(onUpdate);
   onUpdateRef.current = onUpdate;
@@ -1904,11 +1964,17 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
   const initialEditorContent = initialEditorContentRef.current.content;
 
   const editor: Editor | null = useEditor({
+    // ReactNodeViewRenderer creates React roots for images, code blocks and other rich nodes.
+    // Creating the ProseMirror view during React render can trigger Tiptap's flushSync
+    // warning. Initialize it after mount; EditorContent and all editor effects tolerate
+    // the initial null editor, while note text/loading stays independent of this work.
+    immediatelyRender: false,
     shouldRerenderOnTransaction: false,
     extensions: [
       keyboardExtension.current,
       StarterKit.configure({
         codeBlock: false,
+        underline: false,
         // 行内代码（inline code）使用 StarterKit 默认实现：
         //   - 反引号 `text` 触发 input rule 自动转 code mark
         //   - 快捷键 Mod-E（StarterKit 默认）切换
@@ -1971,7 +2037,7 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
           };
         },
         addNodeView() {
-          return ReactNodeViewRenderer(ResizableImageView);
+          return createResizableImageNodeView();
         },
       }).configure({
         // inline: true —— 允许图片作为 inline 节点出现在 paragraph / listItem
@@ -2061,7 +2127,64 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
       // atom + block + draggable，NodeView 用透明遮罩防 iframe 抢焦点。
       // parseHTML 同时识别 <iframe> / <video>，让剪藏过来的视频内容也能落到此节点。
       VideoExtension,
+      VoiceMemo.extend({ addNodeView() { return ReactNodeViewRenderer(VoiceMemoBlock); } }),
       BlockEmbedExtension,
+      ...getRichTextExtensions({
+        suggestion: {
+          items: ({ query }: { query: string }) => {
+            const q = (query || "").toLowerCase().trim();
+            if (!q) {
+              // 空查询：返回一组常用 emoji 子集（覆盖表情/手势/自然/物品/符号等
+              // 多类别）。emojis 数据集共 1949 个，这里先给常用子集，继续输入
+              // 即可在全部 1949 个里按 name/shortcodes/tags 搜索。
+              const popular = new Set<string>([
+                // 表情
+                "grinning", "smile", "slightly_smiling_face", "laughing", "blush",
+                "wink", "heart_eyes", "kissing_heart", "yum", "thinking_face",
+                "sleepy", "tired_face", "cry", "sob", "angry", "rage", "scream",
+                "innocent", "stuck_out_tongue", "sunglasses", "smirk", "relieved",
+                "disappointed", "worried", "sweat_smile", "rofl", "joy",
+                "rolling_on_the_floor_laughing", "mask", "cool", "star_struck",
+                "partying_face", "exploding_head", "zany_face", "woozy_face",
+                // 手势 / 人
+                "wave", "raised_hand", "ok_hand", "thumbsup", "thumbsdown",
+                "punch", "fist", "v", "crossed_fingers", "pray", "hands", "clap",
+                "muscle", "point_up", "point_right", "open_hands", "raised_hands",
+                "facepalm", "handshake",
+                // 心 / 符号
+                "heart", "broken_heart", "two_hearts", "heartpulse",
+                "sparkling_heart", "gift", "balloon", "tada", "fire", "star",
+                "sparkles", "zap", "warning", "white_check_mark", "x",
+                "heavy_check_mark", "heavy_plus_sign", "arrow_right", "arrow_left",
+                "recycle", "lock", "key", "bell", "bulb", "eyes", "speaker",
+                "microphone", "music", "notes", "link", "paperclip", "envelope",
+                // 自然 / 食物
+                "sun", "moon", "cloud", "rain", "snowflake", "earth_africa",
+                "earth_americas", "pizza", "burger", "fries", "apple", "banana",
+                "grapes", "watermelon", "coffee", "tea", "beer", "wine", "cookie",
+                "candy", "cake",
+                // 物品 / 科技
+                "book", "books", "pen", "pencil", "computer", "keyboard", "phone",
+                "camera", "car", "airplane", "rocket", "wrench", "hammer", "gear",
+                "calendar", "alarm_clock", "100", "email", "iphone", "tv",
+              ]);
+              return emojis.filter((e) => popular.has(e.name));
+            }
+            return emojis
+              .filter((item) => {
+                return (
+                  (item.name && item.name.toLowerCase().includes(q)) ||
+                  (item.shortcodes &&
+                    item.shortcodes.some((s: string) => s.toLowerCase().includes(q))) ||
+                  (item.tags &&
+                    item.tags.some((t: string) => t.toLowerCase().includes(q)))
+                );
+              })
+              .slice(0, 200);
+          },
+          render: () => createEmojiSuggestionRenderer(),
+        },
+      }),
     ],
     content: initialEditorContent,
     editable,
@@ -2269,6 +2392,7 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
                 if (node) view.dispatch(view.state.tr.replaceSelectionWith(node));
               };
               const uploadAll = async () => {
+                let failed = false;
                 for (const file of pastedFiles) {
                   try {
                     if (isVideoFile(file)) {
@@ -2283,10 +2407,12 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
                       }
                     }
                   } catch (err) {
+                    failed = true;
                     console.error("Paste attachment upload failed:", err);
                   }
                 }
-                showPasteToast("success", t("tiptap.attachmentUploaded"));
+                if (failed) showPasteToast("error", t("tiptap.attachmentUploadFailed"));
+                else if (pastedFiles.every((file) => !isVideoFile(file))) showPasteToast("success", t("tiptap.attachmentUploaded"));
               };
               uploadAll();
               return true;
@@ -2298,6 +2424,45 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
           // 保留原始视觉颜色并由 TextStyleKit 承载。
           const rawHtml = event.clipboardData?.getData("text/html") || "";
           const html = sanitizeForPaste(normalizeLegacyFontColors(rawHtml));
+          const prepareRemoteImages = async (content: string, format: "html" | "markdown", scope: { id: string; revision: number }): Promise<string | null> => {
+            const images = format === "html" ? extractRemoteImageUrls(content) : extractRemoteImageUrlsFromMarkdown(content);
+            const mode = remoteImagePasteModeRef.current;
+            if (images.length === 0 || mode === "keep-remote") return content;
+            if (mode === "ask") {
+              const choice = await choose({
+                title: t("settings.remoteImagePasteAskTitle", { count: images.length }),
+                description: t("settings.remoteImagePasteAskDesc"),
+                choices: [
+                  { value: "localize", label: t("settings.remoteImagePasteSave") },
+                  { value: "keep-remote", label: t("settings.remoteImagePasteKeep"), variant: "outline" },
+                ],
+              });
+              if (choice === null) return null;
+              if (choice === "keep-remote") return content;
+            }
+            if (pasteNoteScopeRef.current !== scope) return null;
+            showPasteToast("converting", t("settings.remoteImagePasteProgress", { done: 0, total: images.length }));
+            const results = await localizeRemoteImages(
+              images.map((image) => image.originalUrl),
+              scope.id,
+              "paste",
+              (done, total) => {
+                if (pasteNoteScopeRef.current === scope) {
+                  showPasteToast("converting", t("settings.remoteImagePasteProgress", { done, total }));
+                }
+              },
+            );
+            if (pasteNoteScopeRef.current !== scope) return null;
+            const saved = results.filter((result) => result.success).length;
+            showPasteToast(
+              saved === results.length ? "success" : "error",
+              t("settings.remoteImagePasteResult", { saved, failed: results.length - saved }),
+            );
+            const replacements = new Map(results.filter((result) => result.success).map((result) => [result.originalUrl, result.localUrl]));
+            return format === "html"
+              ? replaceRemoteUrlsInHtml(content, replacements)
+              : replaceRemoteUrlsInMarkdown(content, replacements);
+          };
 
           // 2) 若当前光标在代码块内：不管来源是 html 还是 text，始终保留原始文本 + 换行
           const { state: stCode } = view;
@@ -2536,50 +2701,53 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
 
           // 4) Markdown 纯文本：不自动转换，先原样插入纯文本并弹 confirm toast，
           //    用户点击"立即转换样式"时再用原始文本替换刚插入的那段范围。
-          if (text && looksLikeMarkdown(text)) {
+          const remoteMarkdownImages = extractRemoteImageUrlsFromMarkdown(text);
+          if (text && (
+            shouldHandleAsMarkdownPaste(html, looksLikeMarkdown(text)) ||
+            (remoteMarkdownImages.length > 0 && shouldHandleAsMarkdownPaste({
+              text, html, rtf: event.clipboardData?.getData("text/rtf") || "", markdownLike: true,
+            }))
+          )) {
             console.log("[paste-diag] PATH=markdown (insertText + confirm toast)");
-            const { state } = view;
-            // 记录插入起点，用于后续按 from..to 范围替换
-            const insertFrom = state.selection.from;
-            insertPlainTextPreservingParagraphs(view, text);
-            // 注意：不能用 insertFrom + text.length，因为 ProseMirror 把 \n 转成段落节点，
-            // 每个节点边界占 2 个位置，实际偏移远大于字符数。
-            // insertText 后光标移到末尾，直接读 view.state.selection.to 即为真实终点。
-            const insertTo = view.state.selection.to;
-
-            // 构造转换动作：把 [insertFrom, insertTo] 替换为转换后的 HTML 切片。
-            // 注意 view 在此闭包中长期有效（React 卸载时编辑器会 destroy，届时 isDestroyed 为真）。
-            const doConvert = () => {
-              try {
-                if (view.isDestroyed) return;
-                // SEC-XSS-01-D: marked 输出清洗，防止 markdown 中嵌入的 XSS
-                const convertedHtml = sanitizeForPaste(markdownToSimpleHtml(text));
-                const parser = ProseMirrorDOMParser.fromSchema(view.state.schema);
-                const tempDiv = document.createElement("div");
-                tempDiv.innerHTML = convertedHtml;
-                const slice = parser.parseSlice(tempDiv);
-                // 替换范围要 clamp 到当前文档长度，防止用户此后又编辑/删除了部分内容
-                const docSize = view.state.doc.content.size;
-                const from = Math.min(insertFrom, docSize);
-                const to = Math.min(insertTo, docSize);
-                const replaceTr = view.state.tr.replaceRange(from, to, slice).scrollIntoView();
-                view.dispatch(replaceTr);
-                showPasteToast("success", t("tiptap.markdownConvertSuccess"));
-              } catch (err) {
-                console.error("Markdown paste conversion failed:", err);
-                showPasteToast("error", t("tiptap.markdownConvertError"));
-              }
+            const insertMarkdownText = (preparedText: string) => {
+              const insertScope = pasteNoteScopeRef.current;
+              const insertFrom = view.state.selection.from;
+              insertPlainTextPreservingParagraphs(view, preparedText);
+              const insertTo = view.state.selection.to;
+              showPasteConfirmToast(t("tiptap.markdownDetected"), t("tiptap.markdownConvertNow"), () => {
+                try {
+                  if (view.isDestroyed || pasteNoteScopeRef.current !== insertScope) return;
+                  const convertedHtml = sanitizeForPaste(markdownToSimpleHtml(preparedText));
+                  const parser = ProseMirrorDOMParser.fromSchema(view.state.schema);
+                  const tempDiv = document.createElement("div");
+                  tempDiv.innerHTML = convertedHtml;
+                  const slice = parser.parseSlice(tempDiv);
+                  const docSize = view.state.doc.content.size;
+                  view.dispatch(view.state.tr.replaceRange(Math.min(insertFrom, docSize), Math.min(insertTo, docSize), slice).scrollIntoView());
+                  showPasteToast("success", t("tiptap.markdownConvertSuccess"));
+                } catch (err) {
+                  console.error("Markdown paste conversion failed:", err);
+                  showPasteToast("error", t("tiptap.markdownConvertError"));
+                }
+              });
             };
-
-            showPasteConfirmToast(
-              t("tiptap.markdownDetected"),
-              t("tiptap.markdownConvertNow"),
-              doConvert
-            );
+            if (remoteMarkdownImages.length > 0 && remoteImagePasteModeRef.current !== "keep-remote") {
+              const scope = pasteNoteScopeRef.current;
+              const anchor = captureAsyncInsertAnchor(view);
+              asyncInsertAnchorsRef.current.add(anchor);
+              void prepareRemoteImages(text, "markdown", scope).then((preparedText) => {
+                if (preparedText === null || view.isDestroyed || pasteNoteScopeRef.current !== scope) return;
+                if (restoreAsyncInsertAnchor(view, anchor)) insertMarkdownText(preparedText);
+              }).catch(() => {
+                if (!view.isDestroyed && pasteNoteScopeRef.current === scope && restoreAsyncInsertAnchor(view, anchor)) insertMarkdownText(text);
+              }).finally(() => releaseAsyncInsertAnchor(asyncInsertAnchorsRef.current, anchor));
+            } else {
+              insertMarkdownText(text);
+            }
             return true;
           }
 
-          // 5) 只有 HTML 没有多行纯文本（如从网页复制的富文本片段）：解析插入
+          // 5) 存在可用 HTML（如从网页或办公文档复制的富文本片段）：解析插入
           //    先归一化：把 <div>/<br> 伪多行段落拆成真正的多个 <p>，
           //    避免后续块级操作（toggleHeading 等）误把整段转换。
           if (html && html.trim().length > 0) {
@@ -2631,7 +2799,19 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
               }
             };
 
-            insertPreparedHtml(htmlForParse);
+            if (extractRemoteImageUrls(htmlForParse).length > 0 && remoteImagePasteModeRef.current !== "keep-remote") {
+              const scope = pasteNoteScopeRef.current;
+              const anchor = captureAsyncInsertAnchor(view);
+              asyncInsertAnchorsRef.current.add(anchor);
+              void prepareRemoteImages(htmlForParse, "html", scope).then((preparedHtml) => {
+                if (preparedHtml === null || view.isDestroyed || pasteNoteScopeRef.current !== scope) return;
+                if (restoreAsyncInsertAnchor(view, anchor)) insertPreparedHtml(preparedHtml);
+              }).catch(() => {
+                if (!view.isDestroyed && pasteNoteScopeRef.current === scope && restoreAsyncInsertAnchor(view, anchor)) insertPreparedHtml(htmlForParse);
+              }).finally(() => releaseAsyncInsertAnchor(asyncInsertAnchorsRef.current, anchor));
+            } else {
+              insertPreparedHtml(htmlForParse);
+            }
             return true;
           }
 
@@ -2718,9 +2898,10 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
         showPasteToast("converting", t("tiptap.attachmentUploading"));
         (async () => {
           try {
+            let failed = false;
             for (const file of files) {
               try {
-                const isImage = file.type.startsWith("image/");
+                const isImage = (await resolvePhotoUploadMime(file)).startsWith("image/");
                 if (isImage) {
                   // 图片文件：优先走图床
                   await uploadAndInsertImage(
@@ -2739,10 +2920,12 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
                   insertAttachmentToView(res.filename, res.url, res.size);
                 }
               } catch (err) {
+                failed = true;
                 console.error("Drop attachment upload failed:", err);
               }
             }
-            showPasteToast("success", t("tiptap.attachmentUploaded"));
+            if (failed) showPasteToast("error", t("tiptap.attachmentUploadFailed"));
+            else if (files.every((file) => !isVideoFile(file))) showPasteToast("success", t("tiptap.attachmentUploaded"));
           } finally {
             releaseAsyncInsertAnchor(asyncInsertAnchorsRef.current, dropInsertAnchor);
           }
@@ -2842,6 +3025,30 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
       recordPhaseAPerfEvent({ type: "tiptap-on-update", durationMs: performance.now() - onUpdateStartedAt });
     },
   });
+
+  const [encryptedRegion, setEncryptedRegion] = useState<{ initialContent?: { plaintext: string; format: "tiptap-json" }; commit: (source: string) => void } | null>(null);
+  useEffect(() => { setEncryptedRegion(null); }, [note.id]);
+  const insertEncryptedRegion = () => {
+    if (!editor || !editable || isGuest || note.isTrashed) return;
+    const { selection, doc } = editor.state; const noteId = note.id;
+    if (!selection.empty) {
+      try {
+        const selected = prepareTiptapSelectionEncryption(editor);
+        setEncryptedRegion({ initialContent: selected, commit: (source) => {
+          if (noteRef.current.id !== noteId || noteRef.current.isTrashed) throw new Error("Encrypted selection changed");
+          selected.commit(source);
+        } });
+      } catch { showPasteToast("error", "请选择普通文本，暂不支持图片、附件、链接或代码块内的选区。"); }
+      return;
+    }
+    if (selection.$from.depth !== 1 || selection.$from.parent.type.name !== "paragraph") {
+      showPasteToast("error", "请在普通段落点击“插入加密内容”输入新内容。"); return;
+    }
+    setEncryptedRegion({ commit: (source) => {
+      if (noteRef.current.id !== noteId || !editor.isEditable || editor.state.doc !== doc) throw new Error("Encrypted region changed");
+      if (!editor.commands.insertContentAt(selection.from, { type: "codeBlock", attrs: { language: ENCRYPTED_BLOCK_LANGUAGE }, content: [{ type: "text", text: source }] })) throw new Error("Encrypted region write failed");
+    } });
+  };
 
   useEffect(() => {
     if (!isMobile || !imageBubble.open) return;
@@ -3053,7 +3260,9 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
   }, [cancelFormatPainter, editable, editor, isGuest, note.id, t]);
 
   useEffect(() => {
-    if (!editor) return;
+    if (!editor || !editable || isGuest || editor.isDestroyed || !editor.isInitialized) return;
+
+    const editorDom = editor.view.dom;
 
     const attemptApply = () => {
       const format = formatPainterRef.current;
@@ -3129,7 +3338,7 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
     editor.on("selectionUpdate", handleSelectionUpdate);
     editor.on("transaction", handleTransaction);
     editor.on("blur", handleBlur);
-    editor.view.dom.addEventListener("pointerdown", handlePointerDown, { passive: true });
+    editorDom.addEventListener("pointerdown", handlePointerDown, { passive: true });
     window.addEventListener("pointerup", handlePointerUp, { passive: true });
     window.addEventListener("pointercancel", handlePointerUp, { passive: true });
 
@@ -3137,12 +3346,12 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
       editor.off("selectionUpdate", handleSelectionUpdate);
       editor.off("transaction", handleTransaction);
       editor.off("blur", handleBlur);
-      editor.view.dom.removeEventListener("pointerdown", handlePointerDown);
+      editorDom.removeEventListener("pointerdown", handlePointerDown);
       window.removeEventListener("pointerup", handlePointerUp);
       window.removeEventListener("pointercancel", handlePointerUp);
       if (formatPainterApplyTimerRef.current) clearTimeout(formatPainterApplyTimerRef.current);
     };
-  }, [cancelFormatPainter, editor, t]);
+  }, [cancelFormatPainter, editable, editor, isGuest, t]);
 
   useEffect(() => {
     cancelFormatPainter();
@@ -3225,6 +3434,17 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
         pendingSaveAckRef.current = ack;
       },
       isReady: () => !!editor && !editor.isDestroyed,
+      applyCjkTypography: (action) => {
+        if (!editor || editor.isDestroyed || !editor.isEditable) return false;
+        return applyTiptapCjkTypography(editor, action);
+      },
+      insertMarkdownAtCursor: (md: string) => {
+        if (!editor || editor.isDestroyed) return false;
+        try {
+          const html = mdToFullHtml(md);
+          return insertContentPreservingBlockEmbed(editor, html);
+        } catch { return false; }
+      },
       appendMarkdown: (md: string) => {
         if (!editor || editor.isDestroyed) return false;
         try {
@@ -3653,11 +3873,11 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
     const imagePos = editor.state.selection.from;
     const input = document.createElement("input");
     input.type = "file";
-    input.accept = "image/*";
-    input.onchange = () => {
+    input.accept = "image/*,.heic,.heif";
+    input.onchange = async () => {
       const file = input.files?.[0];
       if (!file) return;
-      if (!file.type.startsWith("image/")) {
+      if (!(await resolvePhotoUploadMime(file)).startsWith("image/")) {
         toast.error(t("tiptap.imageFileInvalid", { defaultValue: "请选择图片文件" }));
         return;
       }
@@ -3747,27 +3967,6 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
       flipX: normalizeImageFlipX(attrs.flipX),
     });
   }, [editor, openImageEditorTarget]);
-
-  const handleRotateSelectedImage = useCallback((delta: -90 | 90) => {
-    if (!editor) return;
-    const attrs = getSelectedImageAttrs();
-    editor.chain().focus().updateAttributes("image", {
-      rotation: normalizeImageRotation(normalizeImageRotation(attrs?.rotation) + delta),
-    }).run();
-  }, [editor, getSelectedImageAttrs]);
-
-  const handleFlipSelectedImage = useCallback(() => {
-    if (!editor) return;
-    const attrs = getSelectedImageAttrs();
-    editor.chain().focus().updateAttributes("image", {
-      flipX: !normalizeImageFlipX(attrs?.flipX),
-    }).run();
-  }, [editor, getSelectedImageAttrs]);
-
-  const handleResetSelectedImageTransform = useCallback(() => {
-    if (!editor) return;
-    editor.chain().focus().updateAttributes("image", { rotation: 0, flipX: false }).run();
-  }, [editor]);
 
   const handleSaveEditedImage = useCallback(async (blob: Blob) => {
     if (!editor || !imageEditDialog) return false;
@@ -3928,7 +4127,7 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
   //   默认显示在**选区上方**。我们的自定义气泡也默认放上方，两者会精确重叠。
   //   - 检测最近一次 pointer 事件 type 是否为 "touch"（350ms 内）；
   //   - 若是，则气泡放在**选区下方**（top = bottom + 8），错开系统菜单；
-  //   - 若选区已经接近视口底部（再往下放会被键盘吞掉），fallback 回上方；
+  //   - 若选区已经接近视口底部，则贴住可视区域底部，不再回到系统菜单所在的上方；
   //   - 鼠标 / 桌面端依然按"上方居中"逻辑，不变。
   const lastTouchAtRef = useRef<number>(0);
   useEffect(() => {
@@ -3950,22 +4149,24 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
      * 根据选区矩形计算气泡位置：
      *   - desktop / 鼠标：上方居中（top = rect.top - 44）
      *   - 触屏：下方居中（top = rect.bottom + 8），错开系统 ActionMode
-     *   - 触屏 & 选区贴近视口底部：fallback 上方
+     *   - 触屏 & 选区贴近视口底部：贴住可视区域底部
      */
     const placeBubble = (rect: { top: number; bottom: number; left: number; right: number; width: number }, bubbleHeight = 40, bubbleWidth = 220) => {
-      const isTouch = Date.now() - lastTouchAtRef.current < 800; // 触屏后 800ms 内都算触屏触发
-      const cx = rect.left + rect.width / 2;
-      let top: number;
-      if (isTouch) {
-        const below = rect.bottom + 8;
-        const overflowsBottom = below + bubbleHeight > window.innerHeight - 16;
-        // 距离底部太近就 fallback 到上方（再上偏 4px，给系统菜单一些视觉缓冲）
-        top = overflowsBottom ? Math.max(8, rect.top - bubbleHeight - 8) : below;
-      } else {
-        top = Math.max(8, rect.top - bubbleHeight - 4);
-      }
-      const left = Math.max(8, Math.min(cx - bubbleWidth / 2, window.innerWidth - bubbleWidth - 10));
-      return { top, left };
+      const visualViewport = window.visualViewport;
+      const isNativeAndroidSurface = document.documentElement.getAttribute("data-native") === "android";
+      return resolveEditorBubblePosition({
+        anchorTop: rect.top,
+        anchorBottom: rect.bottom,
+        centerX: rect.left + rect.width / 2,
+        bubbleHeight,
+        bubbleWidth,
+        viewportTop: visualViewport?.offsetTop ?? 0,
+        viewportLeft: visualViewport?.offsetLeft ?? 0,
+        viewportWidth: visualViewport?.width ?? window.innerWidth,
+        viewportHeight: visualViewport?.height ?? window.innerHeight,
+        // Android long-press selection can arrive after the old 800ms pointer window.
+        touchLayout: isNativeAndroidSurface || Date.now() - lastTouchAtRef.current < 800,
+      });
     };
 
     const getImageSelectionRect = (pos: number) => {
@@ -4546,6 +4747,20 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
     setAttachmentLibraryOpen(true);
   }, [captureEditorInsertAnchor, editor, releaseEditorInsertAnchor]);
 
+  const openVoiceRecorder = useCallback(() => {
+    if (!editor || !editor.isEditable || isGuest || noteRef.current.isTrashed) return;
+    const noteId = noteRef.current.id;
+    const anchor = captureEditorInsertAnchor();
+    requestVoiceMemo({
+      noteId,
+      release: () => releaseEditorInsertAnchor(anchor),
+      insert: (attachment) => {
+        if (noteRef.current.id !== noteId || noteRef.current.isTrashed || !editor.isEditable || editor.isDestroyed || !restoreEditorInsertAnchor(anchor)) return false;
+        return editor.chain().focus().insertContent({ type: "voiceMemo", attrs: attachment }).run();
+      },
+    });
+  }, [editor, isGuest, captureEditorInsertAnchor, restoreEditorInsertAnchor, releaseEditorInsertAnchor]);
+
   const insertExistingAttachment = useCallback((item: FileItem) => {
     const anchor = attachmentLibraryAnchorRef.current;
     if (!editor || !restoreEditorInsertAnchor(anchor)) {
@@ -4563,6 +4778,8 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
         alt: item.filename,
         title: item.filename,
       }).run();
+    } else if (isInlineAudioAttachment(item)) {
+      chain.insertContent({ type: "voiceMemo", attrs: { attachmentId: item.id, src: `/api/attachments/${item.id}`, filename: item.filename, mimeType: item.mimeType, size: item.size, durationMs: 0 } }).run();
     } else if (inlineVideo) {
       chain.setVideoFile({
         previewUrl: toInlineAttachmentUrl(item.url),
@@ -4592,9 +4809,26 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
     const releaseAnchor = () => releaseEditorInsertAnchor(insertAnchor);
     const input = document.createElement("input");
     input.type = "file";
-    input.accept = "image/*";
+    input.accept = "image/*,.heic,.heif,.mov";
+    input.multiple = true;
     input.addEventListener("cancel", releaseAnchor, { once: true });
     input.onchange = () => {
+      const files = Array.from(input.files || []);
+      if (files.length > 1 || files.some((item) => /\.mov$/i.test(item.name))) {
+        const noteId = noteRef.current?.id;
+        if (!noteId) { toast.error("请先创建笔记，再上传动态照片"); releaseAnchor(); return; }
+        toast.info(t("tiptap.imageUploading"));
+        void uploadPhotoSelection(noteId, files)
+          .then((photos) => {
+            if (restoreEditorInsertAnchor(insertAnchor)) {
+              editor.chain().focus().insertContent(photos.map((photo) => ({ type: "image", attrs: { src: photo.url, alt: photo.filename } }))).run();
+            }
+            toast.success(t("tiptap.imageUploadSuccess"));
+          })
+          .catch((error: unknown) => toast.error(error instanceof Error ? error.message : "照片上传失败"))
+          .finally(releaseAnchor);
+        return;
+      }
       const file = input.files?.[0];
       if (!file) {
         releaseAnchor();
@@ -4724,9 +4958,7 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
             mimeType: res.mimeType,
             size: res.size,
           });
-          if (ok) {
-            toast.success(t("tiptap.videoUploaded") || "Video uploaded");
-          } else {
+          if (!ok) {
             toast.error(t("tiptap.videoUploadFailed") || "Video upload failed");
           }
         })
@@ -4999,6 +5231,37 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
     }
   }, [editor, showPasteToast, t]);
 
+  const handleForceMarkdownConversion = useCallback(() => {
+    if (!editor || !editable || isGuest) return;
+    const { from, to } = editor.state.selection;
+    if (from === to) {
+      showPasteToast("error", t("tiptap.markdownForceSelect"), 3000);
+      return;
+    }
+
+    const text = editor.state.doc.textBetween(from, to, "\n");
+    if (!text.trim()) {
+      showPasteToast("error", t("tiptap.markdownForceSelect"), 3000);
+      return;
+    }
+
+    try {
+      const convertedHtml = sanitizeForPaste(mdToFullHtml(text) || markdownToSimpleHtml(text));
+      const parser = ProseMirrorDOMParser.fromSchema(editor.state.schema);
+      const tempDiv = document.createElement("div");
+      tempDiv.innerHTML = convertedHtml;
+      const slice = parser.parseSlice(tempDiv);
+      const tr = editor.state.tr.replaceRange(from, to, slice).scrollIntoView();
+      editor.view.dispatch(tr);
+      editor.chain().focus().run();
+      setBubble((current) => ({ ...current, open: false }));
+      showPasteToast("success", t("tiptap.markdownConvertSuccess"));
+    } catch (err) {
+      console.error("Manual Markdown conversion failed:", err);
+      showPasteToast("error", t("tiptap.markdownForceConvertError"));
+    }
+  }, [editable, editor, isGuest, showPasteToast, t]);
+
   const handleAIInsert = useCallback((text: string) => {
     if (!editor) return;
     const { to } = editor.state.selection;
@@ -5126,9 +5389,17 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
   // 移动端 header 顶部的搜索按钮通过派发自定义事件触发查找面板。
   // 用 CustomEvent 而不是把 setSearchOpen 提到外部，是为了避免改 TiptapEditor 的对外接口。
   useEffect(() => {
-    const onOpen = () => setSearchOpen(true);
+    const onOpen = () => {
+      setMobileToolbarExpanded(false);
+      setSearchOpen(true);
+    };
+    const onClose = () => setSearchOpen(false);
     window.addEventListener("nowen:open-search", onOpen);
-    return () => window.removeEventListener("nowen:open-search", onOpen);
+    window.addEventListener("nowen:close-search", onClose);
+    return () => {
+      window.removeEventListener("nowen:open-search", onOpen);
+      window.removeEventListener("nowen:close-search", onClose);
+    };
   }, []);
 
   if (!editor) return null;
@@ -5137,27 +5408,50 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
   const insertTable = (rows: number, cols: number) => {
     editor.chain().focus().insertTable({ rows, cols, withHeaderRow: true }).run();
   };
-  const insertMermaid = () => {
-    editor
-      .chain()
-      .focus()
-      .insertContent({
-        type: "codeBlock",
-        attrs: { language: "mermaid" },
-        content: [{ type: "text", text: "graph TD\n  A[开始] --> B[结束]" }],
-      })
-      .run();
+
+  const setCurrentTableColumnWidth = (width: number | null) => {
+    const { state } = editor;
+    const { $from } = state.selection;
+    let tableDepth = -1;
+    let cellDepth = -1;
+    for (let depth = $from.depth; depth > 0; depth -= 1) {
+      const type = $from.node(depth).type.name;
+      if (cellDepth < 0 && (type === "tableCell" || type === "tableHeader")) cellDepth = depth;
+      if (type === "table") {
+        tableDepth = depth;
+        break;
+      }
+    }
+    if (tableDepth < 0 || cellDepth < 0) return;
+
+    try {
+      const tableNode = $from.node(tableDepth);
+      const tableStart = $from.start(tableDepth);
+      const currentCellPos = $from.before(cellDepth) - tableStart;
+      const map = TableMap.get(tableNode);
+      const rect = map.findCell(currentCellPos);
+      const anchorCell = tableStart + map.positionAt(0, rect.left, tableNode);
+      const headCell = tableStart + map.positionAt(map.height - 1, rect.left, tableNode);
+      const originalFrom = state.selection.from;
+
+      editor
+        .chain()
+        .focus()
+        .setCellSelection({ anchorCell, headCell })
+        .setCellAttribute("colwidth", width == null ? null : [width])
+        .setTextSelection(originalFrom)
+        .run();
+    } catch (error) {
+      console.warn("Failed to set table column width:", error);
+      toast.error(t("tiptap.tableColumnWidthFailed", { defaultValue: "列宽调整失败" }));
+    }
   };
-  const insertMindMap = () => {
-    editor
-      .chain()
-      .focus()
-      .insertContent({
-        type: "codeBlock",
-        attrs: { language: "mermaid" },
-        content: [{ type: "text", text: "mindmap\n  root((中心主题))\n    主题一\n      子主题一\n      子主题二\n    主题二" }],
-      })
-      .run();
+  const insertMermaid = () => {
+    insertContentPreservingBlockEmbed(editor, {
+      type: "codeBlock",
+      attrs: { language: "mermaid" },
+      content: [{ type: "text", text: "graph TD\n  A[开始] --> B[结束]" }],
+    });
   };
   const insertMath = () => {
     editor.chain().focus().insertContent({ type: "mathBlock", attrs: { latex: "" } }).run();
@@ -5186,6 +5480,7 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
         formatPainterArmed && "[&_.ProseMirror]:cursor-crosshair",
       )}
     >
+      {encryptedRegion && <EncryptedBlockDialog initialContent={encryptedRegion.initialContent} onCommit={encryptedRegion.commit} onClose={() => setEncryptedRegion(null)} />}
       {/* Toolbar
           v2026-05-18：取消「键盘弹起时隐藏 + 浮动工具栏顶替」方案，改为始终保留
           单一顶部工具栏并 sticky 在容器顶端：
@@ -5197,60 +5492,80 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
         <div
           data-mobile-editor-toolbar="compact"
           className={cn(
-            "md:hidden sticky top-0 z-20 flex flex-nowrap items-center gap-0.5 overflow-x-auto touch-pan-x border-b border-app-border bg-app-surface/95 px-2 py-1.5 backdrop-blur transition-shadow duration-200 supports-[backdrop-filter]:bg-app-surface/70",
+            "md:hidden sticky top-0 z-20 flex min-w-0 items-center gap-0.5 border-b border-app-border bg-app-surface/95 px-1 py-1 backdrop-blur transition-shadow duration-200 supports-[backdrop-filter]:bg-app-surface/70",
             toolbarShadow && "shadow-[0_2px_8px_-2px_rgba(0,0,0,0.08)] dark:shadow-[0_2px_8px_-2px_rgba(0,0,0,0.4)]",
           )}
+          style={compactMobileEditing ? { paddingTop: "calc(var(--safe-area-top) + 4px)" } : undefined}
         >
-          <ToolbarButton compact onClick={() => editor.chain().focus().undo().run()} disabled={!editor.can().undo()} title={t('tiptap.undo')}>
-            <Undo size={16} />
-          </ToolbarButton>
-          <ToolbarButton compact onClick={() => editor.chain().focus().redo().run()} disabled={!editor.can().redo()} title={t('tiptap.redo')}>
-            <Redo size={16} />
-          </ToolbarButton>
-          <ToolbarDivider />
-          <ToolbarButton compact onClick={() => toggleHeadingSmart(editor, 1)} isActive={editor.isActive("heading", { level: 1 })} title={t('tiptap.heading1')}>
-            <Heading1 size={16} />
-          </ToolbarButton>
-          <ToolbarButton compact onClick={() => toggleHeadingSmart(editor, 2)} isActive={editor.isActive("heading", { level: 2 })} title={t('tiptap.heading2')}>
-            <Heading2 size={16} />
-          </ToolbarButton>
-          <ToolbarButton compact onClick={() => editor.chain().focus().toggleBold().run()} isActive={editor.isActive("bold")} title={t('tiptap.bold')}>
-            <Bold size={16} />
-          </ToolbarButton>
-          <ToolbarButton compact onClick={() => toggleBulletListSmart(editor)} isActive={activeListType === "bulletList"} title={t('tiptap.bulletList')}>
-            <List size={16} />
-          </ToolbarButton>
-          <ToolbarButton compact onClick={handleImageUpload} title={t('tiptap.insertImage')}>
-            <ImagePlus size={16} />
-          </ToolbarButton>
-          <ToolbarButton compact onClick={handleVideoUpload} title={t('tiptap.uploadLocalVideo')}>
-            <Film size={16} />
-          </ToolbarButton>
-          <ToolbarButton compact className="ml-auto" onClick={() => setMobileToolbarExpanded((value) => !value)} isActive={mobileToolbarExpanded} title={t('common.more')}>
+          <MobileEditorToolbarSlot location="leading" />
+          <div
+            data-mobile-editor-format-strip=""
+            className="hide-scrollbar flex min-w-0 flex-1 flex-nowrap items-center gap-0.5 overflow-x-auto touch-pan-x px-1"
+          >
+            <ToolbarButton compact onClick={() => editor.chain().focus().undo().run()} disabled={!editor.can().undo()} title={t('tiptap.undo')}>
+              <Undo size={16} />
+            </ToolbarButton>
+            <ToolbarButton compact onClick={() => editor.chain().focus().redo().run()} disabled={!editor.can().redo()} title={t('tiptap.redo')}>
+              <Redo size={16} />
+            </ToolbarButton>
+            <ToolbarDivider />
+            <ToolbarButton compact onClick={() => toggleHeadingSmart(editor, 1)} isActive={editor.isActive("heading", { level: 1 })} title={t('tiptap.heading1')}>
+              <Heading1 size={16} />
+            </ToolbarButton>
+            <ToolbarButton compact onClick={() => toggleHeadingSmart(editor, 2)} isActive={editor.isActive("heading", { level: 2 })} title={t('tiptap.heading2')}>
+              <Heading2 size={16} />
+            </ToolbarButton>
+            <ToolbarButton compact onClick={() => editor.chain().focus().toggleBold().run()} isActive={editor.isActive("bold")} title={t('tiptap.bold')}>
+              <Bold size={16} />
+            </ToolbarButton>
+            <ToolbarButton
+              compact
+              onClick={() => editor.chain().focus().toggleFirstLineIndent().run()}
+              isActive={editor.isActive("paragraph", { firstLineIndent: 2 })}
+              disabled={!editor.isActive("paragraph")}
+              title={t("tiptap.firstLineIndent2", { defaultValue: "首行缩进 2 字符" })}
+            >
+              <span className="text-[10px] font-semibold leading-none">首2</span>
+            </ToolbarButton>
+            <ToolbarButton compact onClick={() => toggleBulletListSmart(editor)} isActive={activeListType === "bulletList"} title={t('tiptap.bulletList')}>
+              <List size={16} />
+            </ToolbarButton>
+            <ToolbarButton compact onClick={handleImageUpload} title={t('tiptap.insertImage')}>
+              <ImagePlus size={16} />
+            </ToolbarButton>
+            <ToolbarButton compact onClick={handleVideoUpload} title={t('tiptap.uploadLocalVideo')}>
+              <Film size={16} />
+            </ToolbarButton>
+          </div>
+          <MobileEditorToolbarSlot location="trailing" />
+          <ToolbarButton compact onClick={() => setMobileToolbarExpanded((value) => !value)} isActive={mobileToolbarExpanded} title={t('common.more')}>
             <ChevronDown size={16} className={cn("transition-transform", mobileToolbarExpanded && "rotate-180")} />
           </ToolbarButton>
         </div>
+        <CollapsibleEditorToolbar>
         <div
           ref={outlineToolbarRef}
           data-mobile-editor-toolbar="expanded"
           className={cn(
-            "editor-toolbar-scroll-fade hide-scrollbar z-30 flex-nowrap items-center gap-0.5 overflow-x-auto touch-pan-x border-b border-app-border bg-app-elevated/98 px-3 py-2 backdrop-blur transition-shadow duration-200 supports-[backdrop-filter]:bg-app-elevated/90 md:sticky md:top-0 md:z-20 md:flex md:flex-wrap md:overflow-visible md:touch-auto md:bg-app-surface/95 md:px-4 md:supports-[backdrop-filter]:bg-app-surface/70",
+            "editor-toolbar-scroll-fade hide-scrollbar z-30 flex-nowrap items-center gap-0.5 overflow-x-auto touch-pan-x border-b border-app-border bg-app-elevated px-3 py-2 transition-shadow duration-200 md:flex md:flex-wrap md:overflow-visible md:touch-auto md:bg-app-surface/95 md:px-4 md:pr-12 md:backdrop-blur md:supports-[backdrop-filter]:bg-app-surface/70",
             mobileToolbarExpanded
-              ? "flex max-md:absolute max-md:left-0 max-md:right-0 max-md:top-10 max-md:max-h-[38vh] max-md:flex-wrap max-md:overflow-y-auto max-md:shadow-xl"
+              ? "flex max-md:max-h-[38vh] max-md:flex-wrap max-md:overflow-y-auto max-md:shadow-xl"
               : "hidden md:flex",
             toolbarShadow && "shadow-[0_2px_8px_-2px_rgba(0,0,0,0.08)] dark:shadow-[0_2px_8px_-2px_rgba(0,0,0,0.4)]",
           )}
         >
-        <ToolbarButton onClick={() => editor.chain().focus().undo().run()} disabled={!editor.can().undo()} title={t('tiptap.undo')}>
+        <ToolbarButton onClick={() => window.dispatchEvent(new CustomEvent("nowen:open-block-menu", { detail: { editorId: getSlashEditorId(editor) } }))} title={t("slash.blockMenu")}><MoreHorizontal size={iconSize} /></ToolbarButton>
+        <ToolbarButton className="max-md:hidden" onClick={() => editor.chain().focus().undo().run()} disabled={!editor.can().undo()} title={t('tiptap.undo')}>
           <Undo size={iconSize} />
         </ToolbarButton>
-        <ToolbarButton onClick={() => editor.chain().focus().redo().run()} disabled={!editor.can().redo()} title={t('tiptap.redo')}>
+        <ToolbarButton className="max-md:hidden" onClick={() => editor.chain().focus().redo().run()} disabled={!editor.can().redo()} title={t('tiptap.redo')}>
           <Redo size={iconSize} />
         </ToolbarButton>
 
-        <ToolbarDivider />
+        <ToolbarDivider className="max-md:hidden" />
 
         <ToolbarButton
+          className="max-md:hidden"
           onClick={() => toggleHeadingSmart(editor, 1)}
           isActive={editor.isActive("heading", { level: 1 })}
           title={t('tiptap.heading1')}
@@ -5258,6 +5573,7 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
           <Heading1 size={iconSize} />
         </ToolbarButton>
         <ToolbarButton
+          className="max-md:hidden"
           onClick={() => toggleHeadingSmart(editor, 2)}
           isActive={editor.isActive("heading", { level: 2 })}
           title={t('tiptap.heading2')}
@@ -5296,6 +5612,7 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
         <ToolbarDivider />
 
         <ToolbarButton
+          className="max-md:hidden"
           onClick={() => editor.chain().focus().toggleBold().run()}
           isActive={editor.isActive("bold")}
           title={t('tiptap.bold')}
@@ -5354,6 +5671,7 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
         <ToolbarDivider />
 
         <ToolbarButton
+          className="max-md:hidden"
           onClick={() => toggleBulletListSmart(editor)}
           isActive={activeListType === "bulletList"}
           title={t('tiptap.bulletList')}
@@ -5394,13 +5712,21 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
         >
           <FileCode size={iconSize} />
         </ToolbarButton>
+        <ToolbarButton onClick={insertEncryptedRegion} disabled={!editable || isGuest} title="插入加密内容">🔒</ToolbarButton>
+        <ToolbarButton
+          onClick={handleForceMarkdownConversion}
+          disabled={!editable || isGuest}
+          title={t("tiptap.markdownForceConvert")}
+        >
+          <FileType size={iconSize} />
+        </ToolbarButton>
         <ToolbarButton
           onClick={() => editor.chain().focus().setHorizontalRule().run()}
           title={t('tiptap.horizontalRule')}
         >
           <Minus size={iconSize} />
         </ToolbarButton>
-        <ToolbarButton onClick={handleImageUpload} title={t('tiptap.insertImage')}>
+        <ToolbarButton className="max-md:hidden" onClick={handleImageUpload} title={t('tiptap.insertImage')}>
           <ImagePlus size={iconSize} />
         </ToolbarButton>
         <ToolbarButton onClick={handleImageUrlInsert} title={t('tiptap.insertImageUrl')}>
@@ -5409,15 +5735,10 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
         <ToolbarButton onClick={handleVideoUrlInsert} title={t('tiptap.insertVideoLink')}>
           <Film size={iconSize} />
         </ToolbarButton>
-        <ToolbarButton onClick={handleVideoUpload} title={t('tiptap.uploadLocalVideo')}>
+        <ToolbarButton className="max-md:hidden" onClick={handleVideoUpload} title={t('tiptap.uploadLocalVideo')}>
           <Upload size={iconSize} />
         </ToolbarButton>
-        <ToolbarButton
-          onClick={handleAttachmentUpload}
-          title={t("tiptap.uploadAndInsertAttachment", { defaultValue: "上传新附件" })}
-        >
-          <Paperclip size={iconSize} />
-        </ToolbarButton>
+        <VoiceInsertMenu onUpload={handleAttachmentUpload} onRecord={openVoiceRecorder} recordDisabled={!editable || isGuest || !!note.isTrashed} iconSize={iconSize} />
         <ToolbarButton
           onClick={openAttachmentLibrary}
           title={t("tiptap.insertExistingAttachment", { defaultValue: "从文件管理插入" })}
@@ -5428,8 +5749,12 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
         <ToolbarButton onClick={insertMermaid} title={t('tiptap.insertMermaid')}>
           <Workflow size={iconSize} />
         </ToolbarButton>
-        <ToolbarButton onClick={insertMindMap} title={t('tiptap.insertMindMap')}>
-          <Network size={iconSize} />
+        <ToolbarButton
+          onClick={() => window.dispatchEvent(new CustomEvent("nowen:open-mindmap-insert"))}
+          disabled={!editable || isGuest}
+          title={t('tiptap.insertMindMap')}
+        >
+          <BrainCircuit size={iconSize} />
         </ToolbarButton>
         <ToolbarButton onClick={insertMath} title={t('tiptap.insertMath')}>
           <Sigma size={iconSize} />
@@ -5483,6 +5808,15 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
           title={t('tiptap.outdent')}
         >
           <Outdent size={iconSize} />
+        </ToolbarButton>
+        <ToolbarButton
+          className="max-md:hidden"
+          onClick={() => editor.chain().focus().toggleFirstLineIndent().run()}
+          isActive={editor.isActive("paragraph", { firstLineIndent: 2 })}
+          disabled={!editor.isActive("paragraph")}
+          title={t("tiptap.firstLineIndent2", { defaultValue: "首行缩进 2 字符" })}
+        >
+          <span className="text-[10px] font-semibold leading-none">首2</span>
         </ToolbarButton>
 
         <ToolbarDivider />
@@ -5571,6 +5905,7 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
           </>
         )}
       </div>
+      </CollapsibleEditorToolbar>
       </>
       )}
 
@@ -5589,7 +5924,7 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
       {!presentationMode && (
       <div
         data-mobile-editor-title=""
-        className={cn("px-4 md:px-8 pb-0", compactMobileEditing ? "pt-2" : "pt-3 md:pt-6")}
+        className={cn("px-4 md:px-8 pb-0", compactMobileEditing ? "pt-2" : "pt-3")}
       >
         <textarea
           ref={titleRef}
@@ -5610,18 +5945,17 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
           spellCheck={false}
           readOnly={!editable}
           className={cn(
-            "w-full resize-none overflow-hidden break-words bg-transparent text-xl md:text-2xl font-bold text-tx-primary placeholder:text-tx-tertiary focus:outline-none no-focus-ring",
-            compactMobileEditing && "text-lg leading-7",
+            "block w-full resize-none overflow-hidden break-words bg-transparent p-0 text-lg leading-7 md:text-xl font-semibold text-tx-primary placeholder:text-tx-tertiary focus:outline-none no-focus-ring",
             !editable && "cursor-default"
           )}
         />
         <div
           data-mobile-editor-metadata=""
-          className={cn("flex items-center flex-wrap gap-x-3 gap-y-0.5 mt-2 text-[10px] text-tx-tertiary", compactMobileEditing && "hidden")}
+          className={cn("flex items-center flex-wrap gap-x-3 gap-y-0.5 mt-1 text-[10px] text-tx-tertiary", compactMobileEditing && "hidden")}
         >
           <span>{t('tiptap.version')}{note.version}</span>
           <span className="max-md:hidden">·</span>
-          <span>{t('tiptap.updatedAt')}{new Date(note.updatedAt + "Z").toLocaleString()}</span>
+          <span>{t('tiptap.updatedAt')}{formatServerTime(note.updatedAt)}</span>
           <span className="max-md:hidden">·</span>
           <WordStatsDisplay
             ref={wordStatsDisplayRef}
@@ -5633,12 +5967,13 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
       )}
 
       {/* Tag Bar：访客模式下隐藏（TagInput 依赖 AppProvider + 登录态 API） */}
-      {!isGuest && !windowedSection && !compactMobileEditing && (
-        <div className="px-4 md:px-8 pb-2">
+      {!isGuest && !windowedSection && (
+        <div className={cn("px-4 md:px-8 pb-1", compactMobileEditing && "hidden focus-within:block")}>
           <TagInput
             noteId={note.id}
             noteTags={note.tags || []}
             onTagsChange={onTagsChange}
+            mobileCompact
           />
         </div>
       )}
@@ -5662,6 +5997,7 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
           >
             <ArrowUp size={14} />
           </ToolbarButton>
+          {!isGuest && !note.isTrashed && <ToolbarButton onClick={insertEncryptedRegion} title="加密选中文字">加密</ToolbarButton>}
           <ToolbarButton
             onClick={toggleFormatPainter}
             isActive={formatPainterArmed}
@@ -5745,6 +6081,13 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
             title={t('tiptap.codeBlock')}
           >
             <FileCode size={14} />
+          </ToolbarButton>
+          <ToolbarButton
+            onClick={handleForceMarkdownConversion}
+            disabled={!editable || isGuest}
+            title={t("tiptap.markdownForceConvert")}
+          >
+            <FileType size={14} />
           </ToolbarButton>
           {/* 清除全部 inline 文本格式（Mod-Shift-X 同等效果） */}
           <ToolbarButton
@@ -5908,46 +6251,6 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
                 className="absolute right-0 top-full mt-1 z-50 w-56 rounded-xl border border-app-border bg-app-elevated p-1.5 shadow-xl"
                 data-popover
               >
-                <div className="px-2 pb-1 pt-0.5 text-[10px] font-medium text-tx-tertiary">图片变换（写入笔记）</div>
-                <div className="grid grid-cols-4 gap-1">
-                  <button
-                    type="button"
-                    title="向左旋转 90°"
-                    aria-label="向左旋转 90°"
-                    className="flex h-9 items-center justify-center rounded-lg text-tx-secondary hover:bg-app-hover hover:text-tx-primary"
-                    onClick={() => handleRotateSelectedImage(-90)}
-                  >
-                    <RotateCcw size={15} />
-                  </button>
-                  <button
-                    type="button"
-                    title="向右旋转 90°"
-                    aria-label="向右旋转 90°"
-                    className="flex h-9 items-center justify-center rounded-lg text-tx-secondary hover:bg-app-hover hover:text-tx-primary"
-                    onClick={() => handleRotateSelectedImage(90)}
-                  >
-                    <RotateCw size={15} />
-                  </button>
-                  <button
-                    type="button"
-                    title="水平翻转"
-                    aria-label="水平翻转"
-                    className="flex h-9 items-center justify-center rounded-lg text-tx-secondary hover:bg-app-hover hover:text-tx-primary"
-                    onClick={handleFlipSelectedImage}
-                  >
-                    <FlipHorizontal size={15} />
-                  </button>
-                  <button
-                    type="button"
-                    title="恢复图片变换"
-                    aria-label="恢复图片变换"
-                    className="flex h-9 items-center justify-center rounded-lg text-tx-secondary hover:bg-app-hover hover:text-tx-primary"
-                    onClick={handleResetSelectedImageTransform}
-                  >
-                    <Scan size={15} />
-                  </button>
-                </div>
-                <div className="my-1 h-px bg-app-border" />
                 {IMAGE_SIZE_PRESETS.map((s) => (
                   <button
                     key={s.key}
@@ -6202,6 +6505,26 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
                         className="w-full h-11 rounded-lg px-3 text-left text-sm text-red-500 hover:bg-red-500/10 active:bg-red-500/20 transition-colors">
                         🗑 {t("tiptap.deleteColumn", { defaultValue: "删除当前列" })}
                       </button>
+                      <div className="h-px bg-app-border my-1" />
+                      <div className="px-3 pb-1 pt-1 text-[11px] font-medium text-tx-tertiary">
+                        {t("tiptap.tableColumnWidth", { defaultValue: "当前列宽" })}
+                      </div>
+                      <div className="grid grid-cols-4 gap-1 px-1 pb-1">
+                        {([
+                          ["auto", t("tiptap.tableWidthAuto", { defaultValue: "自动" }), null],
+                          ["narrow", t("tiptap.tableWidthNarrow", { defaultValue: "窄" }), 96],
+                          ["medium", t("tiptap.tableWidthMedium", { defaultValue: "中" }), 160],
+                          ["wide", t("tiptap.tableWidthWide", { defaultValue: "宽" }), 240],
+                        ] as const).map(([key, label, width]) => (
+                          <button
+                            key={key}
+                            onClick={() => { setCurrentTableColumnWidth(width); setTableSheet(null); }}
+                            className="h-10 rounded-lg bg-app-hover px-2 text-xs text-tx-secondary active:bg-accent-primary/15 active:text-accent-primary"
+                          >
+                            {label}
+                          </button>
+                        ))}
+                      </div>
                     </>)}
                     {tableSheet === "more" && (<>
                       <button onClick={() => { editor.chain().focus().mergeCells().run(); setTableSheet(null); }}
@@ -6226,6 +6549,57 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
                         <Heading size={14} className="inline mr-2 -mt-0.5 rotate-90" />
                         {t("tiptap.toggleHeaderColumn", { defaultValue: "切换表头列" })}
                       </button>
+                      <div className="h-px bg-app-border my-1" />
+                      <div className="px-3 pb-1 pt-1 text-[11px] font-medium text-tx-tertiary">
+                        {t("tiptap.tableAlign", { defaultValue: "表格对齐" })}
+                      </div>
+                      <div className="grid grid-cols-3 gap-1 px-1 pb-1">
+                        {([
+                          ["left", t("tiptap.alignLeft", { defaultValue: "左对齐" })],
+                          ["center", t("tiptap.alignCenter", { defaultValue: "居中" })],
+                          ["right", t("tiptap.alignRight", { defaultValue: "右对齐" })],
+                        ] as const).map(([align, label]) => (
+                          <button
+                            key={align}
+                            onClick={() => { editor.chain().focus().setTableLayoutAlign(align).run(); setTableSheet(null); }}
+                            className={cn(
+                              "h-10 rounded-lg px-2 text-xs transition-colors",
+                              editor.getAttributes("table").tableLayoutAlign === align
+                                ? "bg-accent-primary/15 text-accent-primary"
+                                : "bg-app-hover text-tx-secondary",
+                            )}
+                          >
+                            {label}
+                          </button>
+                        ))}
+                      </div>
+                      <div className="px-3 pb-1 pt-1 text-[11px] font-medium text-tx-tertiary">
+                        {t("tiptap.tableWidth", { defaultValue: "表格宽度" })}
+                      </div>
+                      <div className="grid grid-cols-2 gap-1 px-1 pb-1">
+                        <button
+                          onClick={() => { editor.chain().focus().setTableWidthMode("auto").run(); setTableSheet(null); }}
+                          className={cn(
+                            "h-10 rounded-lg px-2 text-xs transition-colors",
+                            editor.getAttributes("table").tableWidthMode !== "full"
+                              ? "bg-accent-primary/15 text-accent-primary"
+                              : "bg-app-hover text-tx-secondary",
+                          )}
+                        >
+                          {t("tiptap.tableWidthAuto", { defaultValue: "自动" })}
+                        </button>
+                        <button
+                          onClick={() => { editor.chain().focus().setTableWidthMode("full").run(); setTableSheet(null); }}
+                          className={cn(
+                            "h-10 rounded-lg px-2 text-xs transition-colors",
+                            editor.getAttributes("table").tableWidthMode === "full"
+                              ? "bg-accent-primary/15 text-accent-primary"
+                              : "bg-app-hover text-tx-secondary",
+                          )}
+                        >
+                          100%
+                        </button>
+                      </div>
                       <button onClick={() => {
                         const view = editor.view;
                         const { from } = view.state.selection;
@@ -6302,6 +6676,47 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
           <ToolbarButton compact title={t("tiptap.toggleHeaderRow")} onClick={() => editor.chain().focus().toggleHeaderRow().run()}>
             <Heading size={14} />
           </ToolbarButton>
+          <div className="w-px h-3 bg-app-border mx-0.5" />
+          <ToolbarButton
+            compact
+            title={t("tiptap.tableAlignLeft", { defaultValue: "表格左对齐" })}
+            isActive={editor.getAttributes("table").tableLayoutAlign !== "center" && editor.getAttributes("table").tableLayoutAlign !== "right"}
+            onClick={() => editor.chain().focus().setTableLayoutAlign("left").run()}
+          >
+            <AlignLeft size={14} />
+          </ToolbarButton>
+          <ToolbarButton
+            compact
+            title={t("tiptap.tableAlignCenter", { defaultValue: "表格居中" })}
+            isActive={editor.getAttributes("table").tableLayoutAlign === "center"}
+            onClick={() => editor.chain().focus().setTableLayoutAlign("center").run()}
+          >
+            <AlignCenter size={14} />
+          </ToolbarButton>
+          <ToolbarButton
+            compact
+            title={t("tiptap.tableAlignRight", { defaultValue: "表格右对齐" })}
+            isActive={editor.getAttributes("table").tableLayoutAlign === "right"}
+            onClick={() => editor.chain().focus().setTableLayoutAlign("right").run()}
+          >
+            <AlignRight size={14} />
+          </ToolbarButton>
+          <ToolbarButton
+            compact
+            title={t("tiptap.tableWidthAuto", { defaultValue: "表格自动宽度" })}
+            isActive={editor.getAttributes("table").tableWidthMode !== "full"}
+            onClick={() => editor.chain().focus().setTableWidthMode("auto").run()}
+          >
+            <span className="text-[9px] font-semibold">AUTO</span>
+          </ToolbarButton>
+          <ToolbarButton
+            compact
+            title={t("tiptap.tableWidthFull", { defaultValue: "表格宽度 100%" })}
+            isActive={editor.getAttributes("table").tableWidthMode === "full"}
+            onClick={() => editor.chain().focus().setTableWidthMode("full").run()}
+          >
+            <span className="text-[9px] font-semibold">100%</span>
+          </ToolbarButton>
           <ToolbarButton compact title={t("tiptap.resizeTable")} onClick={() => {
             const view = editor.view;
             const { from } = view.state.selection;
@@ -6353,10 +6768,14 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
           所有格式化命令。 */}
       <div
         ref={setScrollContainerRef}
+        data-note-reading-scroll="richtext"
         className={cn(scrollLayout.content, "px-4 md:px-8 pb-12")}
         style={{ paddingBottom: "calc(3rem + var(--keyboard-height, 0px) + var(--outline-scroll-reserve, 0px))" }}
       >
-        <EditorContent editor={editor} />
+        <AttachmentNoteContext.Provider value={isGuest ? null : note.id}>
+          <EditorContent editor={editor} />
+        </AttachmentNoteContext.Provider>
+        <RichTextBlockControls editor={editor} editable={editable} isMobile={isMobile} />
       <NoteLinkHoverPreview root={editor.view.dom} />
       </div>
 
@@ -6483,7 +6902,7 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
       {/* 斜杠命令菜单 */}
       <SlashCommandsMenu
         editor={editor}
-        items={getDefaultSlashCommands(t, handleImageUpload, openAIAssistant, openAttachmentLibrary)}
+        items={getDefaultSlashCommands(t, handleImageUpload, openAIAssistant, openAttachmentLibrary, editable && !isGuest && !note.isTrashed ? openVoiceRecorder : undefined)}
       />
 
       <AttachmentLibraryPicker
@@ -6835,6 +7254,57 @@ function parseContent(content: string): any {
     type: "doc",
     content: [{ type: "paragraph", content: [{ type: "text", text: content }] }],
   };
+}
+
+function createEmojiSuggestionRenderer() {
+  let component: ReactRenderer | null = null
+  let popup: HTMLDivElement | null = null
+  const close = () => {
+    popup?.remove()
+    component?.destroy()
+    popup = null
+    component = null
+  }
+
+  const updatePosition = (
+    clientRect: (() => DOMRect | null) | null | undefined
+  ) => {
+    if (!popup || !clientRect) return
+    const rect = clientRect()
+    if (!rect) return
+    popup.style.left = `${Math.max(8, Math.min(rect.left, window.innerWidth - popup.offsetWidth - 8))}px`
+    popup.style.top = `${Math.max(8, Math.min(rect.bottom + 6, window.innerHeight - popup.offsetHeight - 8))}px`
+  }
+
+  return {
+    onStart: (props: any) => {
+      component = new ReactRenderer(EmojiSuggestionList, {
+        props,
+        editor: props.editor,
+      })
+      popup = document.createElement('div')
+      popup.className = 'emoji-suggestion-popup'
+      popup.style.position = 'fixed'
+      popup.style.zIndex = '60'
+      popup.appendChild(component.element)
+      document.body.appendChild(popup)
+      updatePosition(props.clientRect)
+    },
+    onUpdate: (props: any) => {
+      component?.updateProps(props)
+      updatePosition(props.clientRect)
+    },
+    onKeyDown: (props: any) => {
+      if (props.event.key === 'Escape') {
+        close()
+        return true
+      }
+      return (component?.ref as any)?.onKeyDown(props) ?? false
+    },
+    onExit: () => {
+      close()
+    },
+  }
 }
 
 function serializeEditorContentForPersistence(editor: Editor, noteId: string): string | null {

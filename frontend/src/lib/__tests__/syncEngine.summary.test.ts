@@ -21,15 +21,17 @@ describe("syncEngine sync summary", () => {
         { id: "trashed-conflict", isTrashed: 1 },
         { id: "active-conflict", isTrashed: 0 },
         { id: "trashed-without-queue", isTrashed: 1 },
+        { id: "trashed-delete", isTrashed: 1 },
       ],
       [
-        { noteId: "trashed-conflict" },
-        { noteId: "active-conflict" },
+        { noteId: "trashed-conflict", type: "updateNote", conflict: true },
+        { noteId: "active-conflict", type: "updateNote", conflict: true },
+        { noteId: "trashed-delete", type: "deleteNote" },
       ],
     )).toEqual(["trashed-conflict"]);
   });
 
-  it("cleans only conflicts that the server confirms are deleted or trashed", async () => {
+  it("retains ambiguous 404 conflicts and only cleans explicit tombstones", async () => {
     const findServerDeletedQueuedNoteIds = (
       syncEngine as typeof syncEngine & {
         findServerDeletedQueuedNoteIds?: (
@@ -45,7 +47,7 @@ describe("syncEngine sync summary", () => {
       new Set(["listed-conflict"]),
       [
         { noteId: "listed-conflict", type: "updateNote", conflict: true },
-        { noteId: "deleted-conflict", type: "updateNote", errorCode: "VERSION_CONFLICT" },
+        { noteId: "notfound-or-denied-conflict", type: "updateNote", errorCode: "VERSION_CONFLICT" },
         { noteId: "trashed-conflict", type: "updateNote", conflict: true },
         { noteId: "active-conflict", type: "updateNote", conflict: true },
         { noteId: "network-failure", type: "updateNote", conflict: true },
@@ -53,16 +55,16 @@ describe("syncEngine sync summary", () => {
       ],
       async (noteId) => {
         lookedUp.push(noteId);
-        if (noteId === "deleted-conflict") throw Object.assign(new Error("not found"), { status: 404 });
+        if (noteId === "notfound-or-denied-conflict") throw Object.assign(new Error("not found or forbidden"), { status: 404 });
         if (noteId === "trashed-conflict") return { isTrashed: 1 };
         if (noteId === "active-conflict") return { isTrashed: 0 };
         throw Object.assign(new Error("temporary failure"), { status: 503 });
       },
     );
 
-    expect(removed).toEqual(["deleted-conflict", "trashed-conflict"]);
+    expect(removed).toEqual(["trashed-conflict"]);
     expect(lookedUp).toEqual([
-      "deleted-conflict",
+      "notfound-or-denied-conflict",
       "trashed-conflict",
       "active-conflict",
       "network-failure",

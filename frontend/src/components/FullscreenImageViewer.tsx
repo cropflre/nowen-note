@@ -7,6 +7,7 @@ import {
   Copy,
   Download,
   ExternalLink,
+  Loader2,
   MoreHorizontal,
   Palette,
   RotateCw,
@@ -20,6 +21,8 @@ import { copyText } from "@/lib/clipboard";
 import { downloadAttachment } from "@/lib/downloadFile";
 import { toast } from "@/lib/toast";
 import { normalizeImageFlipX, normalizeImageRotation } from "@/lib/imageNodeTransformBootstrap";
+import { useAttachmentImageRenderSource } from "@/hooks/useAttachmentImageRenderSource";
+import { MotionPhotoOverlay } from "./MotionPhotoOverlay";
 
 const MIN_SCALE = 1;
 const MAX_SCALE = 5;
@@ -116,6 +119,9 @@ export default function FullscreenImageViewer({
   const galleryKey = gallery.map((item) => item.src).join("\n");
   const [currentIndex, setCurrentIndex] = useState(0);
   const currentItem = gallery[currentIndex] || gallery[0] || { src: "", alt: "" };
+  const imageRender = useAttachmentImageRenderSource(currentItem.src, {
+    enabled: open && !!currentItem.src,
+  });
   const baseRotation = normalizeImageRotation(currentItem.rotation);
   const baseFlipX = normalizeImageFlipX(currentItem.flipX);
   const stageRef = useRef<HTMLDivElement | null>(null);
@@ -492,9 +498,9 @@ export default function FullscreenImageViewer({
 
   const openOriginal = useCallback(() => {
     if (!currentItem.src) return;
-    window.open(currentItem.src, "_blank", "noopener,noreferrer");
+    window.open(imageRender.resolvedSrc || currentItem.src, "_blank", "noopener,noreferrer");
     setMoreOpen(false);
-  }, [currentItem.src]);
+  }, [currentItem.src, imageRender.resolvedSrc]);
 
   const handleEdit = useCallback(() => {
     if (!canEdit || !onEdit) return;
@@ -556,10 +562,11 @@ export default function FullscreenImageViewer({
         onPointerCancel={(event) => finishPointer(event, true)}
         onWheel={handleWheel}
       >
+        <span className="relative inline-block leading-none" style={{ transform: `translate3d(${position.x}px, ${position.y}px, 0) scale(${scale}) rotate(${rotation}deg)${baseFlipX ? " scaleX(-1)" : ""}`, transformOrigin: "center center" }}>
         <img
-          key={currentItem.src}
+          key={imageRender.renderKey}
           ref={imageRef}
-          src={currentItem.src}
+          src={imageRender.renderSrc}
           alt={currentItem.alt || ""}
           draggable={false}
           data-nowen-image-viewer-image=""
@@ -567,16 +574,33 @@ export default function FullscreenImageViewer({
           style={{
             maxWidth: rotation % 180 !== 0 ? "calc(100dvh - 32px)" : "calc(100vw - 24px)",
             maxHeight: rotation % 180 !== 0 ? "calc(100vw - 24px)" : "calc(100dvh - 32px)",
-            transform: `translate3d(${position.x}px, ${position.y}px, 0) scale(${scale}) rotate(${rotation}deg)${baseFlipX ? " scaleX(-1)" : ""}`,
             transformOrigin: "center center",
             transition: interacting ? "none" : "transform 140ms ease-out",
           }}
           onLoad={() => {
+            imageRender.onLoad();
             updateFitRatio();
             commitTransform(scaleRef.current, positionRef.current);
           }}
+          onError={imageRender.onError}
         />
+        {!imageRender.error && <MotionPhotoOverlay source={currentItem.src} enabled={open} />}
+        </span>
       </div>
+
+      {(imageRender.loading || imageRender.error) && (
+        <div className="pointer-events-none fixed inset-0 z-[1005] flex items-center justify-center px-6 text-white">
+          {imageRender.error ? (
+            <div className="rounded-2xl bg-black/65 px-6 py-4 text-center shadow-2xl ring-1 ring-white/10 backdrop-blur-md">
+              <p className="text-sm font-medium">图片加载失败</p>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2 rounded-full bg-black/50 px-4 py-2 text-xs text-white/85 backdrop-blur-md">
+              <Loader2 size={15} className="animate-spin" /> 图片加载中
+            </div>
+          )}
+        </div>
+      )}
 
       {gallery.length > 1 && (
         <div

@@ -23,6 +23,8 @@ import {
   requireWorkspaceFeature,
 } from "../middleware/acl";
 import { ensureMindmapSchema } from "../lib/mindmap-schema";
+import { deleteKnowledgeNode, KnowledgeTreeError } from "../services/knowledgeTree.js";
+import { permanentlyDeleteMindmap } from "../services/trash/mindmapTrashAdapter.js";
 
 const app = new Hono();
 
@@ -63,6 +65,18 @@ function canReadMindmap(row: MindmapRow, userId: string): boolean {
   return getUserWorkspaceRole(row.workspaceId, userId) !== null;
 }
 
+// The knowledge-tree tombstone is the canonical trash state for mindmaps. A legacy map
+// without a projected tree node remains readable until the migration repairs it.
+const ACTIVE_MINDMAP = `NOT EXISTS (
+  SELECT 1 FROM knowledge_tree_nodes tree
+  WHERE tree.resourceType = 'mindmap' AND tree.resourceId = m.id AND tree.isDeleted = 1
+)`;
+
+function readActiveMindmap(db: ReturnType<typeof getDb>, id: string): MindmapRow | undefined {
+  return db.prepare(`SELECT m.* FROM mindmaps m WHERE m.id = ? AND ${ACTIVE_MINDMAP}`)
+    .get(id) as MindmapRow | undefined;
+}
+
 // ---------- 列表 ----------
 app.get("/", requireWorkspaceFeature("mindmaps"), (c) => {
   const db = getDb();
@@ -77,11 +91,11 @@ app.get("/", requireWorkspaceFeature("mindmaps"), (c) => {
       ? `SELECT m.id, m.userId, m.workspaceId, m.title, m.starred, m.folderId, m.createdAt, m.updatedAt,
                 u.username AS creatorName
          FROM mindmaps m LEFT JOIN users u ON u.id = m.userId
-         WHERE m.workspaceId = ? ORDER BY m.starred DESC, m.updatedAt DESC`
+         WHERE m.workspaceId = ? AND ${ACTIVE_MINDMAP} ORDER BY m.starred DESC, m.updatedAt DESC`
       : `SELECT m.id, m.userId, m.workspaceId, m.title, m.starred, m.folderId, m.createdAt, m.updatedAt,
                 u.username AS creatorName
          FROM mindmaps m LEFT JOIN users u ON u.id = m.userId
-         WHERE m.userId = ? AND m.workspaceId IS NULL ORDER BY m.starred DESC, m.updatedAt DESC`;
+         WHERE m.userId = ? AND m.workspaceId IS NULL AND ${ACTIVE_MINDMAP} ORDER BY m.starred DESC, m.updatedAt DESC`;
   const param = scope.scope === "workspace" ? scope.workspaceId : userId;
   const rows = db.prepare(sql).all(param);
   return c.json(rows);
@@ -93,14 +107,15 @@ app.get("/:id", (c) => {
   const db = getDb();
   const userId = c.req.header("X-User-Id") || "";
   const id = c.req.param("id");
-  const row = db.prepare("SELECT * FROM mindmaps WHERE id = ?").get(id) as
-    | MindmapRow
-    | undefined;
+  const row = readActiveMindmap(db, id);
   if (!row) return c.json({ error: "思维导图不存在" }, 404);
   if (!canReadMindmap(row, userId)) {
     return c.json({ error: "无权访问该导图", code: "FORBIDDEN" }, 403);
   }
-  return c.json(row);
+  return c.json({
+    ...row,
+    canEdit: canManageResource(row.userId, row.workspaceId, userId),
+  });
 });
 
 // ---------- 创建 ----------
@@ -143,15 +158,34 @@ app.put("/:id", async (c) => {
   const db = getDb();
   const userId = c.req.header("X-User-Id") || "";
   const id = c.req.param("id");
-  const body = await c.req.json();
+  const body = await c.req.json<{
+    title?: string;
+    data?: string | Record<string, unknown>;
+    /**
+     * 可选乐观锁。文档内弹层编辑等多入口编辑场景必须携带读取时的 updatedAt，
+     * 防止独立脑图中心/另一个浏览器窗口的更新被静默覆盖。
+     */
+    expectedUpdatedAt?: string;
+  }>();
 
-  const existing = db.prepare("SELECT * FROM mindmaps WHERE id = ?").get(id) as
-    | MindmapRow
-    | undefined;
+  const existing = readActiveMindmap(db, id);
   if (!existing) return c.json({ error: "思维导图不存在" }, 404);
 
   if (!canManageResource(existing.userId, existing.workspaceId, userId)) {
     return c.json({ error: "无权修改此导图", code: "FORBIDDEN" }, 403);
+  }
+
+  const expectedUpdatedAt =
+    typeof body.expectedUpdatedAt === "string" && body.expectedUpdatedAt.trim()
+      ? body.expectedUpdatedAt.trim()
+      : null;
+
+  if (expectedUpdatedAt && expectedUpdatedAt !== existing.updatedAt) {
+    return c.json({
+      error: "思维导图已在其他窗口更新，请重新加载后再保存",
+      code: "MINDMAP_CONFLICT",
+      currentUpdatedAt: existing.updatedAt,
+    }, 409);
   }
 
   const updates: string[] = [];
@@ -168,13 +202,31 @@ app.put("/:id", async (c) => {
   // 显式忽略 body.workspaceId：不允许跨空间迁移
 
   if (updates.length > 0) {
-    updates.push("updatedAt = datetime('now')");
+    // 使用毫秒精度，确保同一秒内连续保存也能可靠参与下一次乐观锁比较。
+    updates.push("updatedAt = strftime('%Y-%m-%d %H:%M:%f', 'now')");
+    const where = expectedUpdatedAt
+      ? "WHERE id = ? AND updatedAt = ?"
+      : "WHERE id = ?";
     values.push(id);
-    db.prepare(`UPDATE mindmaps SET ${updates.join(", ")} WHERE id = ?`).run(...values);
+    if (expectedUpdatedAt) values.push(expectedUpdatedAt);
+    const result = db.prepare(`UPDATE mindmaps SET ${updates.join(", ")} ${where}`).run(...values);
+    if (expectedUpdatedAt && result.changes === 0) {
+      const latest = db.prepare("SELECT updatedAt FROM mindmaps WHERE id = ?").get(id) as
+        | { updatedAt: string }
+        | undefined;
+      return c.json({
+        error: "思维导图已在其他窗口更新，请重新加载后再保存",
+        code: "MINDMAP_CONFLICT",
+        currentUpdatedAt: latest?.updatedAt || null,
+      }, 409);
+    }
   }
 
-  const row = db.prepare("SELECT * FROM mindmaps WHERE id = ?").get(id);
-  return c.json(row);
+  const row = db.prepare("SELECT * FROM mindmaps WHERE id = ?").get(id) as MindmapRow;
+  return c.json({
+    ...row,
+    canEdit: canManageResource(row.userId, row.workspaceId, userId),
+  });
 });
 
 // ---------- 删除 ----------
@@ -183,17 +235,37 @@ app.delete("/:id", (c) => {
   const userId = c.req.header("X-User-Id") || "";
   const id = c.req.param("id");
 
-  const existing = db.prepare("SELECT * FROM mindmaps WHERE id = ?").get(id) as
-    | MindmapRow
-    | undefined;
+  const existing = readActiveMindmap(db, id);
   if (!existing) return c.json({ error: "思维导图不存在" }, 404);
 
   if (!canManageResource(existing.userId, existing.workspaceId, userId)) {
     return c.json({ error: "无权删除此导图", code: "FORBIDDEN" }, 403);
   }
 
-  db.prepare("DELETE FROM mindmaps WHERE id = ?").run(id);
+  const node = db.prepare(`
+    SELECT id FROM knowledge_tree_nodes
+    WHERE resourceType = 'mindmap' AND resourceId = ? AND isDeleted = 0
+  `).get(id) as { id: string } | undefined;
+  if (!node) return c.json({ error: "脑图目录节点不存在，请先修复数据", code: "KNOWLEDGE_NODE_SYNC_FAILED" }, 409);
+  try {
+    deleteKnowledgeNode({ actorUserId: userId, nodeId: node.id, mode: "subtree", db });
+  } catch (error) {
+    if (error instanceof KnowledgeTreeError) return c.json({ error: error.message, code: error.code }, error.status);
+    throw error;
+  }
   return c.json({ success: true });
+});
+
+// Permanent deletion is deliberately separate from the legacy DELETE action, which now
+// moves a map to the same recoverable tree trash as documents and folders.
+app.delete("/:id/permanent", (c) => {
+  try {
+    permanentlyDeleteMindmap(c.req.param("id"), c.req.header("X-User-Id") || "");
+    return c.json({ success: true });
+  } catch (error) {
+    if (error instanceof KnowledgeTreeError) return c.json({ error: error.message, code: error.code }, error.status);
+    throw error;
+  }
 });
 
 // ---------- ??/???? ----------
@@ -202,9 +274,7 @@ app.patch("/:id/star", async (c) => {
   const userId = c.req.header("X-User-Id") || "";
   const id = c.req.param("id");
 
-  const existing = db.prepare("SELECT * FROM mindmaps WHERE id = ?").get(id) as
-    | MindmapRow
-    | undefined;
+  const existing = readActiveMindmap(db, id);
   if (!existing) return c.json({ error: "思维导图不存在" }, 404);
   if (!canManageResource(existing.userId, existing.workspaceId, userId)) {
     return c.json({ error: "无权修改此导图", code: "FORBIDDEN" }, 403);
@@ -223,7 +293,7 @@ app.patch("/:id/move", async (c) => {
   const id = c.req.param("id");
   const body = await c.req.json<{ folderId: string | null }>();
 
-  const existing = db.prepare("SELECT * FROM mindmaps WHERE id = ?").get(id) as any;
+  const existing = readActiveMindmap(db, id);
   if (!existing) return c.json({ error: "Mindmap not found" }, 404);
   if (!canManageResource(existing.userId, existing.workspaceId, userId)) {
     return c.json({ error: "???????", code: "FORBIDDEN" }, 403);
@@ -241,4 +311,3 @@ app.patch("/:id/move", async (c) => {
 });
 
 export default app;
-

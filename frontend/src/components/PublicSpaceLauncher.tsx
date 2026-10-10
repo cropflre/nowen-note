@@ -10,6 +10,7 @@ import {
 import { cn } from "@/lib/utils";
 import { useKeyboardVisible } from "@/hooks/useKeyboardVisible";
 import { navigateToAppPath } from "@/lib/appPathNavigation";
+import { isMobileLocalMode, requestMobileAccountLogin } from "@/lib/mobileLocalMode";
 
 const LEGACY_TRANSFER_TRIGGER = 'button[aria-label="跨空间转移笔记"]';
 const RAIL_MOUNT_ATTRIBUTE = "data-nowen-space-actions-mount";
@@ -229,6 +230,11 @@ export default function PublicSpaceLauncher() {
       <button
         type="button"
         onClick={(event) => {
+          if (isMobileLocalMode()) {
+            requestMobileAccountLogin();
+            window.location.reload();
+            return;
+          }
           const anchor = event.currentTarget.getBoundingClientRect();
           setPanel((current) => current?.sourceId === mount.id
             ? null

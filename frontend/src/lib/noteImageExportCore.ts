@@ -23,6 +23,12 @@ import {
   findOverflowingExportTables,
   normalizeExportTables,
 } from "@/lib/noteImageExportTables";
+import { isMermaidLang, renderMermaid } from "@/lib/mermaidRenderer";
+import { sanitizeSvg } from "@/lib/sanitizeHtml";
+import { rasterizeMermaidSvgForExport } from "@/lib/mermaidExportRaster";
+import { hydrateMindMapEmbedsForExport } from "@/lib/documentMindMapExport";
+import { currentNoteThemeId, resolveNoteThemeTokens, type NoteThemeTokens } from "@/lib/noteTheme";
+import { assertExportCanvasHasContent, assertExportHtmlHasContent, EXPORT_CANVAS_CONTENT_ERROR } from "@/lib/exportCanvasGuard";
 
 const EXPORT_WIDTH = 794;
 const EXPORT_HORIZONTAL_PADDING = 56;
@@ -211,12 +217,83 @@ function hastToHtml(node: any): string {
   return `<${tag}${classAttr}>${(node.children || []).map(hastToHtml).join("")}</${tag}>`;
 }
 
+function codeBlockLanguage(element: HTMLElement): string {
+  const languageClass = Array.from(element.classList).find(
+    (name) => name.startsWith("language-") || name.startsWith("lang-"),
+  );
+  if (languageClass?.startsWith("language-")) return languageClass.slice("language-".length);
+  if (languageClass?.startsWith("lang-")) return languageClass.slice("lang-".length);
+  return element.parentElement?.getAttribute("data-language") || "";
+}
+
+/**
+ * The editor renders Mermaid at runtime, but image export starts from serialized note HTML.
+ * Materialize Mermaid code blocks into browser-rasterized PNG data images before syntax
+ * highlighting and before html2canvas clones the export DOM. Invalid diagrams keep their
+ * original source so one bad block never aborts the whole note export.
+ */
+async function renderMermaidCodeBlocks(root: ParentNode): Promise<void> {
+  const blocks = Array.from(root.querySelectorAll("pre > code")) as HTMLElement[];
+
+  // Render serially because Mermaid owns process-wide render/config state.
+  for (const element of blocks) {
+    if (!isMermaidLang(codeBlockLanguage(element))) continue;
+
+    const source = element.textContent || "";
+    if (!source.trim()) continue;
+
+    const pre = element.parentElement;
+    if (!pre) continue;
+
+    const result = await renderMermaid(source);
+    if (!result.svg) {
+      console.warn(
+        "[note-image-export] Mermaid render failed; keeping source code in exported image.",
+        result.error,
+      );
+      continue;
+    }
+
+    const svg = sanitizeSvg(result.svg);
+    if (!/<svg\b/i.test(svg)) {
+      console.warn(
+        "[note-image-export] Mermaid SVG was empty after sanitization; keeping source code.",
+      );
+      continue;
+    }
+
+    let raster;
+    try {
+      raster = await rasterizeMermaidSvgForExport(svg, EXPORT_CONTENT_WIDTH);
+    } catch (error) {
+      console.warn(
+        "[note-image-export] Mermaid SVG rasterization failed; keeping source code in exported image.",
+        error,
+      );
+      continue;
+    }
+
+    const figure = document.createElement("figure");
+    figure.className = "nowen-note-image-export-mermaid";
+    figure.setAttribute("data-nowen-mermaid-export", "rendered");
+
+    const image = document.createElement("img");
+    image.src = raster.dataUri;
+    image.alt = "Mermaid diagram";
+    image.width = Math.max(1, Math.round(raster.width));
+    image.height = Math.max(1, Math.round(raster.height));
+    image.setAttribute("data-nowen-mermaid-export-image", "true");
+    figure.appendChild(image);
+
+    pre.replaceWith(figure);
+  }
+}
+
 function highlightCodeBlocks(root: ParentNode): void {
   const lowlight = createLowlight(common);
   root.querySelectorAll("pre > code").forEach((code) => {
     const element = code as HTMLElement;
-    const languageClass = Array.from(element.classList).find((name) => name.startsWith("language-"));
-    const language = languageClass?.slice("language-".length) || "";
+    const language = codeBlockLanguage(element);
     const source = element.textContent || "";
     const alreadyHighlighted = !!element.querySelector("[class^='hljs-'], [class*=' hljs-']");
 
@@ -243,14 +320,17 @@ function currentTheme(theme: NoteImageExportTheme): "light" | "dark" {
   return root.classList.contains("dark") || root.getAttribute("data-theme") === "dark" ? "dark" : "light";
 }
 
-function buildStyle(theme: "light" | "dark", fontFamily: string, lineHeight: string): string {
-  const dark = theme === "dark";
-  const bg = dark ? "#111318" : "#ffffff";
-  const fg = dark ? "#e7e9ee" : "#1f2328";
-  const muted = dark ? "#9299a8" : "#6b7280";
-  const border = dark ? "#343943" : "#d0d7de";
-  const soft = dark ? "#1b1f27" : "#f6f8fa";
-  const codeBg = dark ? "#0b0e14" : "#0d1117";
+function buildStyle(
+  fontFamily: string,
+  lineHeight: string,
+  noteTheme: NoteThemeTokens,
+): string {
+  const bg = noteTheme.surface;
+  const fg = noteTheme.text;
+  const muted = noteTheme.muted;
+  const border = noteTheme.border;
+  const soft = noteTheme.softBackground;
+  const codeBg = noteTheme.preBackground;
 
   return `
     .nowen-note-image-export-host, .nowen-note-image-export-host * { box-sizing: border-box; }
@@ -270,7 +350,7 @@ function buildStyle(theme: "light" | "dark", fontFamily: string, lineHeight: str
     .nowen-note-image-export-body h2 { margin: 26px 0 10px; font-size: 21px; line-height: 1.4; font-weight: 700; }
     .nowen-note-image-export-body h3 { margin: 22px 0 8px; font-size: 18px; line-height: 1.45; font-weight: 680; }
     .nowen-note-image-export-body p { margin: 9px 0; white-space: normal; }
-    .nowen-note-image-export-body a { color: ${dark ? "#79b8ff" : "#0969da"}; text-decoration: none; }
+    .nowen-note-image-export-body a { color: ${noteTheme.accent}; text-decoration: none; }
     .nowen-note-image-export-body strong { font-weight: 700; }
     .nowen-note-image-export-body ul, .nowen-note-image-export-body ol { margin: 10px 0; padding-left: 1.6em; }
     .nowen-note-image-export-body ul { list-style: none !important; --nowen-ul-marker: "•"; --nowen-ul-marker-size: 1.1em; --nowen-ul-marker-top: 0; }
@@ -290,7 +370,14 @@ function buildStyle(theme: "light" | "dark", fontFamily: string, lineHeight: str
     .nowen-note-image-export-body li > p { margin: 2px 0; }
     .nowen-note-image-export-body ul[data-type="taskList"], .nowen-note-image-export-body ul.contains-task-list { padding-left: 0.5em; list-style: none; }
     .nowen-note-image-export-body li[data-type="taskItem"], .nowen-note-image-export-body li.task-list-item, .nowen-note-image-export-body ul[data-type="taskList"] > li { display: flex; gap: 9px; align-items: flex-start; list-style: none; }
-    .nowen-note-image-export-body input[type="checkbox"] { width: 15px; height: 15px; margin: 5px 0 0; accent-color: #4f7cff; }
+    .nowen-note-image-export-body li[data-type="taskItem"][data-checked="true"] > p,
+    .nowen-note-image-export-body li[data-type="taskItem"][data-checked="true"] > div > p,
+    .nowen-note-image-export-body li.task-item[data-checked="true"] > p,
+    .nowen-note-image-export-body li.task-item[data-checked="true"] > div > p,
+    .nowen-note-image-export-body li.task-list-item:has(> p > input[type="checkbox"]:checked) > p {
+      color: ${muted}; text-decoration: line-through; text-decoration-color: currentColor;
+    }
+    .nowen-note-image-export-body input[type="checkbox"] { width: 15px; height: 15px; margin: 5px 0 0; accent-color: ${noteTheme.accent}; }
     .nowen-note-image-export-body blockquote { margin: 14px 0; padding: 10px 16px; color: ${muted}; background: ${soft}; border-left: 4px solid ${border}; border-radius: 0 8px 8px 0; }
     .nowen-note-image-export-body hr { margin: 24px 0; border: 0; border-top: 1px solid ${border}; }
     .nowen-note-image-export-body table { width: 100% !important; max-width: 100% !important; min-width: 0 !important; margin: 16px 0; border-collapse: collapse; table-layout: fixed; font-size: 14px; overflow-wrap: anywhere; }
@@ -303,12 +390,14 @@ function buildStyle(theme: "light" | "dark", fontFamily: string, lineHeight: str
     .nowen-note-image-export-body img[align="right"], .nowen-note-image-export-body img[data-align="right"] { margin-left: auto; margin-right: 0; }
     .nowen-note-image-export-body figure { margin: 16px 0; }
     .nowen-note-image-export-body figcaption { margin-top: 6px; color: ${muted}; font-size: 12px; text-align: center; }
+    .nowen-note-image-export-body .nowen-note-image-export-mermaid { margin: 18px 0; break-inside: avoid; page-break-inside: avoid; }
+    .nowen-note-image-export-body .nowen-note-image-export-mermaid img { width: auto; max-width: 100%; margin: 0 auto; border-radius: 0; }
     .nowen-note-image-export-body code { padding: 2px 5px; border-radius: 4px; background: ${soft}; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace; font-size: .91em; }
-    .nowen-note-image-export-body pre { position: relative; margin: 16px 0; padding: 18px 18px 16px; overflow: hidden; border-radius: 10px; background: ${codeBg}; color: #e6edf3; white-space: pre-wrap; overflow-wrap: anywhere; }
+    .nowen-note-image-export-body pre { position: relative; margin: 16px 0; padding: 18px 18px 16px; overflow: hidden; border-radius: 10px; background: ${codeBg}; color: ${noteTheme.preText}; white-space: pre-wrap; overflow-wrap: anywhere; }
     .nowen-note-image-export-body pre[data-language] { padding-top: 32px; }
     .nowen-note-image-export-body pre[data-language]::before { content: attr(data-language); position: absolute; top: 9px; right: 13px; color: #8b949e; font: 600 10px/1.2 ui-monospace, monospace; letter-spacing: .08em; }
     .nowen-note-image-export-body pre code { padding: 0; border-radius: 0; background: transparent; color: inherit; font-size: 12.5px; line-height: 1.6; }
-    .nowen-note-image-export-body mark { padding: 0 2px; border-radius: 3px; background: ${dark ? "#5c4b14" : "#fff3a3"}; color: inherit; }
+    .nowen-note-image-export-body mark { padding: 0 2px; border-radius: 3px; background: ${noteTheme.markBackground}; color: inherit; }
     .nowen-note-image-export-body .hljs-comment, .nowen-note-image-export-body .hljs-quote { color: #8b949e; }
     .nowen-note-image-export-body .hljs-keyword, .nowen-note-image-export-body .hljs-selector-tag, .nowen-note-image-export-body .hljs-type { color: #ff7b72; }
     .nowen-note-image-export-body .hljs-string, .nowen-note-image-export-body .hljs-attr, .nowen-note-image-export-body .hljs-template-tag { color: #a5d6ff; }
@@ -358,6 +447,8 @@ async function prepareHost(
   progress?.({ phase: "prepare", current: 0, total: 1, message: "正在生成最终预览…" });
 
   let bodyHtml = noteContentToExportHtml(note.content || "", note.contentText || "", note.contentFormat);
+  // #790：图片/SVG 导出也必须冻结实时脑图引用，不能依赖导出后的应用运行时。
+  bodyHtml = await hydrateMindMapEmbedsForExport(bodyHtml);
   const attachmentStats: ImgStats = { ok: 0, failed: 0, failures: [] };
   bodyHtml = await inlineRemoteImages(bodyHtml, attachmentStats, { noteId: note.id, noteTitle: note.title });
 
@@ -378,13 +469,17 @@ async function prepareHost(
 
   progress?.({ phase: "assets", current: 0, total: 1, message: "正在加载图片和字体…" });
   bodyHtml = await inlineRemainingImages(bodyHtml, failedResources);
+  assertExportHtmlHasContent(note.contentText || "", bodyHtml, "note-image");
 
   const theme = currentTheme(themeOption);
+  const noteThemeId = currentNoteThemeId();
+  const noteTheme = resolveNoteThemeTokens(noteThemeId, theme);
   const bodyStyle = getComputedStyle(document.body);
   const fontFamily = bodyStyle.fontFamily || '-apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif';
-  const lineHeight = Number.parseFloat(bodyStyle.lineHeight) > 1.2 ? bodyStyle.lineHeight : "1.75";
-  const styleText = buildStyle(theme, fontFamily, lineHeight);
-  const background = theme === "dark" ? "#111318" : "#ffffff";
+  const bodyLineHeight = Number.parseFloat(bodyStyle.lineHeight) > 1.2 ? bodyStyle.lineHeight : "1.75";
+  const lineHeight = noteThemeId === "default" ? bodyLineHeight : noteTheme.lineHeight;
+  const styleText = buildStyle(fontFamily, lineHeight, noteTheme);
+  const background = noteTheme.surface;
 
   const host = document.createElement("div");
   host.className = "nowen-note-image-export-host";
@@ -424,6 +519,7 @@ async function prepareHost(
   body.className = "nowen-note-image-export-body";
   body.innerHTML = bodyHtml || "";
   normalizeExportTables(body, EXPORT_CONTENT_WIDTH);
+  await renderMermaidCodeBlocks(body);
   highlightCodeBlocks(body);
   article.appendChild(body);
   host.appendChild(article);
@@ -455,6 +551,7 @@ function collectBlockBottoms(article: HTMLElement): number[] {
   const articleRect = article.getBoundingClientRect();
   const selector = [
     ":scope > *", "h1", "h2", "h3", "p", "li", "pre", "table", "blockquote", "figure", "img", "hr",
+    ".nowen-note-image-export-mermaid",
   ].join(",");
   return Array.from(article.querySelectorAll(selector))
     .map((element) => Math.ceil((element as HTMLElement).getBoundingClientRect().bottom - articleRect.top))
@@ -528,9 +625,11 @@ export function chooseRasterPlan(args: {
 
 async function canvasToBlob(canvas: HTMLCanvasElement, mimeType: string, quality: number): Promise<Blob> {
   const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, mimeType, quality));
-  if (blob) return blob;
+  if (blob?.size) return blob;
   const response = await fetch(canvas.toDataURL(mimeType, quality));
-  return response.blob();
+  const recovered = await response.blob();
+  if (!recovered.size) throw new Error(EXPORT_CANVAS_CONTENT_ERROR);
+  return recovered;
 }
 
 async function renderSlice(
@@ -553,7 +652,7 @@ async function renderSlice(
   try {
     await waitForHostAssets(clone, []);
     const html2canvas = (await import("html2canvas")).default;
-    return await html2canvas(clone, {
+    const canvas = await html2canvas(clone, {
       backgroundColor: prepared.background,
       scale,
       useCORS: true,
@@ -567,6 +666,8 @@ async function renderSlice(
       scrollY: 0,
       imageTimeout: RESOURCE_TIMEOUT_MS,
     });
+    assertExportCanvasHasContent(canvas, "note-image");
+    return canvas;
   } finally {
     clone.remove();
   }

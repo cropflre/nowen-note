@@ -1,0 +1,241 @@
+name: Extension Platform V2.1
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "backend/src/plugins/**"
+      - "backend/src/routes/plugins.ts"
+      - "backend/src/routes/plugin-studio.ts"
+      - "backend/src/db/pluginStudioMigration.ts"
+      - "backend/src/db/postgres/070_plugin_studio.sql"
+      - "backend/src/services/backup-archive.ts"
+      - "backend/src/services/backup.ts"
+      - "backend/tests/extension-v2-1-*.test.ts"
+      - "backend/tests/extension-capability-catalog.test.ts"
+      - "backend/tests/declarative-extension-lifecycle.test.ts"
+      - "backend/tests/note-theme-plugin-lifecycle.test.ts"
+      - "backend/tests/appearance-contribution.test.ts"
+      - "backend/tests/productivity-contribution*.test.ts"
+      - "backend/tests/extension-platform-v2.test.ts"
+      - "backend/tests/plugin-platform.test.ts"
+      - "backend/tests/plugin-studio-projects.test.ts"
+      - "backend/tests/full-backup-streaming.test.ts"
+      - "packages/nowen-plugin-sdk/**"
+      - "packages/nowen-plugin-cli/**"
+      - "scripts/generate-plugin-host-api.mjs"
+      - "frontend/src/lib/pluginApi.ts"
+      - "frontend/src/lib/pluginStudioApi.ts"
+      - "frontend/src/lib/pluginRuntimePresentation.ts"
+      - "frontend/src/lib/pluginAppearanceRegistry.ts"
+      - "frontend/src/lib/pluginNoteThemeRegistry.ts"
+      - "frontend/src/lib/noteAppearance*.ts"
+      - "frontend/src/components/NoteAppearanceBridge.tsx"
+      - "frontend/src/components/NoteThemeMenuSelect.tsx"
+      - "frontend/src/components/NoteTemplatePickerDialog.tsx"
+      - "frontend/src/components/PluginNoteTemplatePickerSection.tsx"
+      - "frontend/src/components/PluginPromptPicker.tsx"
+      - "frontend/src/components/KnowledgeTreeCreateMenuRuntime.tsx"
+      - "frontend/src/components/AIChatPanel.tsx"
+      - "frontend/src/components/AISettingsPanel.tsx"
+      - "frontend/src/components/settings/PluginPromptPackSettingsSection.tsx"
+      - "frontend/src/components/__tests__/PluginPromptPicker.test.tsx"
+      - "frontend/src/lib/__tests__/pluginNoteThemeRegistry.test.ts"
+      - "frontend/src/lib/pluginTemplateRegistry.ts"
+      - "frontend/src/lib/pluginPromptRegistry.ts"
+      - "frontend/src/lib/__tests__/pluginProductivityRegistry.test.ts"
+      - "frontend/src/lib/__tests__/noteAppearanceProviderBoundary.test.ts"
+      - "backend/src/runtime/note-appearance.ts"
+      - "backend/src/lib/noteThemeId.ts"
+      - "backend/src/db/noteThemeContributionMigration.ts"
+      - "backend/src/db/syncOutboxCaptureMigration.ts"
+      - "backend/src/db/migrations.ts"
+      - "backend/src/db/schema.ts"
+      - "backend/src/sync/**"
+      - "backend/tests/note-appearance.test.ts"
+      - "backend/tests/sync-v2-*.test.ts"
+      - "frontend/src/components/EditorPane.tsx"
+      - "frontend/src/lib/pluginContributionCache.ts"
+      - "frontend/src/lib/appAppearance.ts"
+      - "frontend/src/hooks/useSkin.ts"
+      - "frontend/src/components/SkinSwitcher.tsx"
+      - "frontend/src/components/settings/plugins/PluginSettingsTab.tsx"
+      - "frontend/src/lib/__tests__/pluginRuntimePresentation.test.ts"
+      - "frontend/src/lib/__tests__/pluginAppearanceRegistry.test.ts"
+      - "examples/plugins/theme-pack/**"
+      - "examples/plugins/productivity-pack/**"
+      - "docs/plugin-platform/**"
+      - ".github/workflows/extension-v2-1-ci.yml"
+      - ".github/workflows/app-appearance-ci.yml"
+  push:
+    branches:
+      - main
+      - "release/**"
+    paths:
+      - "backend/src/plugins/**"
+      - "backend/src/routes/plugins.ts"
+      - "backend/src/routes/plugin-studio.ts"
+      - "backend/src/db/pluginStudioMigration.ts"
+      - "backend/src/db/postgres/070_plugin_studio.sql"
+      - "backend/src/services/backup-archive.ts"
+      - "backend/src/services/backup.ts"
+      - "backend/tests/extension-v2-1-*.test.ts"
+      - "backend/tests/extension-capability-catalog.test.ts"
+      - "backend/tests/declarative-extension-lifecycle.test.ts"
+      - "backend/tests/note-theme-plugin-lifecycle.test.ts"
+      - "backend/tests/appearance-contribution.test.ts"
+      - "backend/tests/productivity-contribution*.test.ts"
+      - "backend/tests/extension-platform-v2.test.ts"
+      - "backend/tests/plugin-platform.test.ts"
+      - "backend/tests/plugin-studio-projects.test.ts"
+      - "backend/tests/full-backup-streaming.test.ts"
+      - "packages/nowen-plugin-sdk/**"
+      - "packages/nowen-plugin-cli/**"
+      - "scripts/generate-plugin-host-api.mjs"
+      - "frontend/src/lib/pluginApi.ts"
+      - "frontend/src/lib/pluginStudioApi.ts"
+      - "frontend/src/lib/pluginRuntimePresentation.ts"
+      - "frontend/src/lib/pluginAppearanceRegistry.ts"
+      - "frontend/src/lib/pluginNoteThemeRegistry.ts"
+      - "frontend/src/lib/noteAppearance*.ts"
+      - "frontend/src/components/NoteAppearanceBridge.tsx"
+      - "frontend/src/components/NoteThemeMenuSelect.tsx"
+      - "frontend/src/components/NoteTemplatePickerDialog.tsx"
+      - "frontend/src/components/PluginNoteTemplatePickerSection.tsx"
+      - "frontend/src/components/PluginPromptPicker.tsx"
+      - "frontend/src/components/KnowledgeTreeCreateMenuRuntime.tsx"
+      - "frontend/src/components/AIChatPanel.tsx"
+      - "frontend/src/components/AISettingsPanel.tsx"
+      - "frontend/src/components/settings/PluginPromptPackSettingsSection.tsx"
+      - "frontend/src/components/__tests__/PluginPromptPicker.test.tsx"
+      - "frontend/src/lib/__tests__/pluginNoteThemeRegistry.test.ts"
+      - "frontend/src/lib/pluginTemplateRegistry.ts"
+      - "frontend/src/lib/pluginPromptRegistry.ts"
+      - "frontend/src/lib/__tests__/pluginProductivityRegistry.test.ts"
+      - "frontend/src/lib/__tests__/noteAppearanceProviderBoundary.test.ts"
+      - "backend/src/runtime/note-appearance.ts"
+      - "backend/src/lib/noteThemeId.ts"
+      - "backend/src/db/noteThemeContributionMigration.ts"
+      - "backend/src/db/syncOutboxCaptureMigration.ts"
+      - "backend/src/db/migrations.ts"
+      - "backend/src/db/schema.ts"
+      - "backend/src/sync/**"
+      - "backend/tests/note-appearance.test.ts"
+      - "backend/tests/sync-v2-*.test.ts"
+      - "frontend/src/components/EditorPane.tsx"
+      - "frontend/src/lib/pluginContributionCache.ts"
+      - "frontend/src/lib/appAppearance.ts"
+      - "frontend/src/hooks/useSkin.ts"
+      - "frontend/src/components/SkinSwitcher.tsx"
+      - "frontend/src/components/settings/plugins/PluginSettingsTab.tsx"
+      - "frontend/src/lib/__tests__/pluginRuntimePresentation.test.ts"
+      - "frontend/src/lib/__tests__/pluginAppearanceRegistry.test.ts"
+      - "examples/plugins/theme-pack/**"
+      - "examples/plugins/productivity-pack/**"
+      - "docs/plugin-platform/**"
+      - ".github/workflows/extension-v2-1-ci.yml"
+      - ".github/workflows/app-appearance-ci.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  contract-and-backend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Verify generated extension contracts
+        run: node scripts/generate-plugin-host-api.mjs --check
+      - name: Install SDK dependencies
+        working-directory: packages/nowen-plugin-sdk
+        run: npm ci
+      - name: Build and test SDK
+        working-directory: packages/nowen-plugin-sdk
+        run: npm test
+      - name: Validate CLI entrypoint
+        run: node --check packages/nowen-plugin-cli/bin/nowen-plugin.mjs
+      - name: Install CLI dependencies
+        working-directory: packages/nowen-plugin-cli
+        run: npm ci
+      - name: Validate and pack official declarative Theme Pack
+        working-directory: examples/plugins/theme-pack
+        run: |
+          node ../../../packages/nowen-plugin-cli/bin/nowen-plugin.mjs validate
+          node ../../../packages/nowen-plugin-cli/bin/nowen-plugin.mjs doctor
+          node ../../../packages/nowen-plugin-cli/bin/nowen-plugin.mjs pack
+      - name: Validate and pack official declarative Productivity Pack
+        working-directory: examples/plugins/productivity-pack
+        run: |
+          node ../../../packages/nowen-plugin-cli/bin/nowen-plugin.mjs validate
+          node ../../../packages/nowen-plugin-cli/bin/nowen-plugin.mjs doctor
+          node ../../../packages/nowen-plugin-cli/bin/nowen-plugin.mjs pack
+      - name: Install backend dependencies
+        working-directory: backend
+        run: npm ci
+      - name: V1/V2 compatibility baseline
+        working-directory: backend
+        run: |
+          node --import tsx --import ./tests/setup-db-isolation.ts --test tests/plugin-platform.test.ts
+          node --import tsx --import ./tests/setup-db-isolation.ts --test tests/extension-platform-v2.test.ts
+          node --import tsx --import ./tests/setup-db-isolation.ts --test tests/extension-ecosystem-rc1.test.ts
+      - name: V2.1 capability contracts
+        working-directory: backend
+        run: |
+          node --import tsx --import ./tests/setup-db-isolation.ts --test tests/extension-capability-catalog.test.ts
+          node --import tsx --import ./tests/setup-db-isolation.ts --test tests/appearance-contribution.test.ts
+          node --import tsx --import ./tests/setup-db-isolation.ts --test tests/productivity-contribution.test.ts
+          node --import tsx --import ./tests/setup-db-isolation.ts --test tests/productivity-contribution-host.test.ts
+          node --import tsx --import ./tests/setup-db-isolation.ts --test tests/note-appearance.test.ts
+      - name: V2.1 fail-closed feature gate
+        working-directory: backend
+        run: node --import tsx --import ./tests/setup-db-isolation.ts --test tests/extension-v2-1-feature-gates.test.ts
+      - name: Plugin Studio isolated workspace
+        working-directory: backend
+        run: |
+          node --import tsx --import ./tests/setup-db-isolation.ts --test tests/plugin-studio-projects.test.ts
+          node --import tsx --import ./tests/setup-db-isolation.ts --test tests/full-backup-streaming.test.ts
+      - name: Note Theme persistence and Sync V2
+        working-directory: backend
+        run: |
+          node --import tsx --import ./tests/setup-db-isolation.ts --test tests/sync-v2-outbox-capture.test.ts
+          node --import tsx --import ./tests/setup-db-isolation.ts --test tests/sync-v2-bootstrap.test.ts
+          node --import tsx --import ./tests/setup-db-isolation.ts --test tests/sync-v2-personal-entities.test.ts
+      - name: Declarative extension lifecycle
+        if: ${{ hashFiles('backend/tests/declarative-extension-lifecycle.test.ts') != '' }}
+        working-directory: backend
+        run: |
+          node --import tsx --import ./tests/setup-db-isolation.ts --test tests/declarative-extension-lifecycle.test.ts
+          node --import tsx --import ./tests/setup-db-isolation.ts --test tests/note-theme-plugin-lifecycle.test.ts
+      - name: Backend production typecheck
+        working-directory: backend
+        run: npm run build:tsc
+
+  frontend-release-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+      - name: Declarative runtime presentation
+        working-directory: frontend
+        run: npx vitest run src/lib/__tests__/pluginRuntimePresentation.test.ts --reporter=verbose
+      - name: Appearance compatibility baseline
+        working-directory: frontend
+        run: npx vitest run src/lib/__tests__/appAppearance.test.ts src/lib/__tests__/appAppearanceBootstrapContract.test.ts src/lib/__tests__/editorFontAppearanceGuard.test.ts src/lib/__tests__/noteTheme.test.ts src/lib/__tests__/noteAppearance.test.ts src/lib/__tests__/noteAppearanceProviderBoundary.test.ts src/lib/__tests__/pluginNoteThemeRegistry.test.ts --reporter=verbose
+      - name: Productivity contribution experience
+        working-directory: frontend
+        run: npx vitest run src/lib/__tests__/pluginProductivityRegistry.test.ts src/components/__tests__/PluginPromptPicker.test.tsx src/lib/__tests__/knowledgeTreeCreateDropdownContract.test.ts --reporter=verbose
+      - name: Frontend production build
+        working-directory: frontend
+        run: npm run build

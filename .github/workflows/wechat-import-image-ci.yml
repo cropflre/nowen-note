@@ -1,0 +1,73 @@
+name: WeChat Import Image CI
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, "release/v1.5.1"]
+    paths:
+      - "backend/src/routes/url-import.ts"
+      - "backend/src/routes/notes.ts"
+      - "backend/src/lib/legacyWeChatHtmlFormat.ts"
+      - "backend/tests/legacy-wechat-html-format.test.ts"
+      - "frontend/src/lib/htmlPreviewAssets.ts"
+      - "frontend/src/components/HtmlPreviewPane.tsx"
+      - "frontend/src/components/EditorPane.tsx"
+      - "frontend/src/components/__tests__/EditorPaneNativeMarkdownCollab.test.ts"
+      - "frontend/src/lib/__tests__/htmlPreviewAssets.test.ts"
+      - "frontend/src/components/__tests__/HtmlPreviewPane.mobileLayout.test.tsx"
+      - ".github/workflows/wechat-import-image-ci.yml"
+  pull_request:
+    paths:
+      - "backend/src/routes/url-import.ts"
+      - "backend/src/routes/notes.ts"
+      - "backend/src/lib/legacyWeChatHtmlFormat.ts"
+      - "backend/tests/legacy-wechat-html-format.test.ts"
+      - "frontend/src/lib/htmlPreviewAssets.ts"
+      - "frontend/src/components/HtmlPreviewPane.tsx"
+      - "frontend/src/components/EditorPane.tsx"
+      - "frontend/src/components/__tests__/EditorPaneNativeMarkdownCollab.test.ts"
+      - "frontend/src/lib/__tests__/htmlPreviewAssets.test.ts"
+      - "frontend/src/components/__tests__/HtmlPreviewPane.mobileLayout.test.tsx"
+      - ".github/workflows/wechat-import-image-ci.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - run: npm ci
+      - name: URL import content-format and legacy repair tests
+        run: node --import tsx --test tests/legacy-wechat-html-format.test.ts
+      - name: Backend typecheck
+        run: npx tsc --noEmit
+
+  frontend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - name: HTML preview pre-parse image security tests
+        run: npm run test:run -- src/lib/__tests__/htmlPreviewAssets.test.ts src/components/__tests__/HtmlPreviewPane.mobileLayout.test.tsx src/components/__tests__/EditorPaneNativeMarkdownCollab.test.ts
+      - name: Frontend typecheck
+        run: npx tsc -b

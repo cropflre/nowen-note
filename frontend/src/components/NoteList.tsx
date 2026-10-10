@@ -1,26 +1,33 @@
 import React, { useEffect, useCallback, useState, useRef, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { Plus, Pin, PinOff, Star, StarOff, Clock, FileText, FileCode, FileType2, Trash2, ArchiveRestore, Menu, FolderInput, ChevronRight, ChevronDown, ChevronLeft, Folder, X, Check, Lock, Unlock, CalendarDays, RefreshCw, Share2, GripVertical, Download, ArrowUpDown, ArrowUp, ArrowDown, Image as ImageIcon, Printer, User as UserIcon, Sparkles, Tag as TagIcon, Loader2, FileUp, PanelLeftClose, AlertTriangle } from "lucide-react";
+import { Plus, Pin, PinOff, Star, StarOff, Clock, FileText, FileCode, FileType2, Trash2, Menu, SlidersHorizontal, FolderInput, ChevronRight, ChevronDown, ChevronLeft, Folder, X, Check, Lock, Unlock, CalendarDays, RefreshCw, Share2, GripVertical, Download, ArrowUpDown, ArrowUp, ArrowDown, Image as ImageIcon, Printer, User as UserIcon, Sparkles, Tag as TagIcon, Loader2, FileUp, AlertTriangle, Copy, LayoutTemplate, SplitSquareHorizontal, SplitSquareVertical, ArrowLeftRight, Pencil, ShieldCheck, Palette } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import ContextMenu, { ContextMenuItem } from "@/components/ContextMenu";
+import KnowledgeTreePermissionsDialog from "@/components/KnowledgeTreePermissionsDialog";
+import ShareModal from "@/components/ShareModal";
+import { buildNoteContextMenuLayout } from "@/components/noteContextMenuLayout";
 import { useContextMenu } from "@/hooks/useContextMenu";
 import { useUserPreferences } from "@/hooks/useUserPreferences";
 import { useNoteLoader } from "@/hooks/useNoteLoader";
 import { useApp, useAppActions } from "@/store/AppContext";
+import { useSidebarTextStyle, type SidebarTextStyle } from "@/hooks/useSidebarTextStyle";
 import { api, broadcastLogout, getBaseUrl, getCurrentWorkspace, getServerUrl, isAndroidInvalidServerUrl, isNativeCapacitor } from "@/lib/api";
+import { markNewNoteForImmediateEdit } from "@/lib/newNoteImmediateEdit";
+import { parseServerTime } from "@/lib/dateTime";
+import { noteLocalDayKey } from "@/lib/noteListTime";
 import { NoteListItem, Notebook } from "@/types";
 import { cn } from "@/lib/utils";
 import { useTranslation } from "react-i18next";
 import { haptic } from "@/hooks/useCapacitor";
-import CreateNoteMenu, { type NoteType } from "@/components/CreateNoteMenu";
+import CreateNoteMenu from "@/components/CreateNoteMenu";
 import { toast } from "@/lib/toast";
 import { exportSingleNote, exportSingleNoteAsPDF, exportSingleNoteAsImage, exportNoteAsImage } from "@/lib/exportService";
 import { realtime } from "@/lib/realtime"
 import { syncNow } from "@/lib/syncEngine"
 import { deleteNote as deleteLocalNote, getNote as getLocalNote, putNote as putLocalNote } from "@/lib/localStore"
-import { confirm } from "@/components/ui/confirm";
+import { confirm, prompt } from "@/components/ui/confirm";
 import { highlightTextNode, sanitizeSearchHtml, stripSearchMarks } from "@/lib/searchHighlight";
 import { getNoteListDragHint, reorderNotesWithinNotebook, shouldUseHtmlNoteDragging } from "@/lib/noteManualSort";
 import { sortNotesPinnedFirst } from "@/lib/notePinnedOrder";
@@ -46,6 +53,18 @@ import {
   type ThreeColumnFolderScopeMode,
 } from "@/lib/threeColumnFolderContents";
 import { isRootDocumentNotebookId } from "@/lib/rootDocumentCreatePolicy";
+import { noteTemplatesApi } from "@/lib/noteTemplatesApi";
+import {
+  convertNoteContent,
+  getNoteFormatConversionTarget,
+  requestActiveNoteFormatConversion,
+} from "@/lib/noteFormatConversion";
+import { revealCreatedKnowledgeTreeNote } from "@/lib/knowledgeTreeCreateVisibility";
+import { emitKnowledgeTreeRefresh } from "@/lib/workspaceRefreshBridge";
+import { isMobileLocalMode } from "@/lib/mobileLocalMode";
+import { compactNotebookLabels, noteListPreview, noteListRowHeight } from "@/lib/noteListPresentation";
+import NoteColorMarkDot from "@/components/NoteColorMarkDot";
+import { NOTE_COLOR_MARK_OPTIONS, isNoteColorMark } from "@/lib/noteColorMark";
 // "导入 Word 文档" 走 dynamic import（见 createNoteInNotebook），减少首屏 bundle 体积。
 
 /* ===== 排序模式 ===== */
@@ -104,13 +123,18 @@ function saveShowTimePref(value: boolean) {
  *   4) 菜单项使用真正的 <button>，不附加 onMouseDown 干扰 click；
  *   5) 位置在每次 anchor 变化或 window resize/scroll 时重新计算。
  */
-function SortMenu({
+export function SortMenu({
   value,
   onChange,
   onClose,
   anchorRef,
   showNoteTime,
   onToggleShowTime,
+  showDividers,
+  onToggleDividers,
+  titleOnly,
+  onToggleTitleOnly,
+  onToggleCalendar,
 }: {
   value: { by: SortBy; dir: SortDir };
   onChange: (next: { by: SortBy; dir: SortDir }) => void;
@@ -118,6 +142,11 @@ function SortMenu({
   anchorRef: React.RefObject<HTMLButtonElement | null>;
   showNoteTime: boolean;
   onToggleShowTime: () => void;
+  showDividers: boolean;
+  onToggleDividers: () => void;
+  titleOnly?: boolean;
+  onToggleTitleOnly?: () => void;
+  onToggleCalendar?: () => void;
 }) {
   const { t } = useTranslation();
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
@@ -204,12 +233,13 @@ function SortMenu({
         {/* 菜单本体 */}
         <div
           role="menu"
-          className="rounded-lg border border-app-border bg-app-elevated shadow-xl py-1"
+          className="rounded-lg border border-app-border bg-app-elevated shadow-xl py-1 overflow-y-auto overscroll-contain"
           style={{
             position: "fixed",
             top: pos.top,
             left: pos.left,
             width: 176,
+            maxHeight: Math.max(80, window.innerHeight - pos.top - 8),
             zIndex: 9999,
             animation: "contextMenuIn 0.12s ease-out",
           }}
@@ -251,10 +281,15 @@ function SortMenu({
           {/* 分割线 */}
           <div className="my-1 border-t border-app-border" />
 
+          <div className="px-3 py-1 text-[10px] uppercase tracking-wide text-tx-tertiary select-none">
+            {t("noteList.displaySettings")}
+          </div>
+
           {/* 显示更新时间开关 */}
           <button
             type="button"
-            role="menuitem"
+            role="menuitemcheckbox"
+            aria-checked={showNoteTime}
             onClick={(e) => { e.preventDefault(); e.stopPropagation(); onToggleShowTime(); }}
             className={cn(
               "w-full flex items-center justify-between gap-2 px-3 py-1.5 text-xs transition-colors text-left",
@@ -268,6 +303,45 @@ function SortMenu({
               <span>{t("noteList.showUpdatedTime")}</span>
             </span>
           </button>
+          <button
+            type="button"
+            role="menuitemcheckbox"
+            aria-checked={showDividers}
+            onClick={(e) => { e.preventDefault(); e.stopPropagation(); onToggleDividers(); }}
+            className={cn(
+              "w-full flex items-center gap-2 px-3 py-1.5 text-xs transition-colors text-left",
+              showDividers
+                ? "text-accent-primary bg-accent-primary/10"
+                : "text-tx-secondary hover:bg-app-hover hover:text-tx-primary"
+            )}
+          >
+            {showDividers ? <Check size={12} /> : <span className="w-3" />}
+            {t("noteList.showDividers")}
+          </button>
+          {onToggleTitleOnly && (
+            <button
+              type="button"
+              role="menuitemcheckbox"
+              aria-checked={!!titleOnly}
+              onClick={onToggleTitleOnly}
+              className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-tx-secondary hover:bg-app-hover text-left"
+            >
+              {titleOnly ? <Check size={12} /> : <span className="w-3" />}
+              {t("noteList.titleOnly")}
+            </button>
+          )}
+          {onToggleCalendar && (
+            <>
+              <div className="my-1 border-t border-app-border" />
+              <div className="px-3 py-1 text-[10px] uppercase tracking-wide text-tx-tertiary select-none">
+                {t("noteList.filters")}
+              </div>
+              <button type="button" role="menuitem" onClick={() => { onToggleCalendar(); onClose(); }}
+                className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-tx-secondary hover:bg-app-hover text-left">
+                <CalendarDays size={12} />{t("noteList.dateFilter")}
+              </button>
+            </>
+          )}
         </div>
       </div>
     </>,
@@ -276,7 +350,8 @@ function SortMenu({
 }
 
 function formatTime(dateStr: string, t: (key: string, opts?: any) => string) {
-  const d = new Date(dateStr + "Z");
+  const d = parseServerTime(dateStr);
+  if (!d) return "";
   const now = new Date();
   const diffMs = now.getTime() - d.getTime();
   const diffMin = Math.floor(diffMs / 60000);
@@ -996,11 +1071,12 @@ export function PullToRefresh({
 //   `Warning: ref is not a prop. Trying to access it will result in undefined`。
 // 解决方案：把 ref 改成普通 prop（cardRef），由组件内部直接挂到 motion.div 上，
 // PopChild 检测到 child 没有 ref 属性时就跳过转发路径，警告也就消失了。
-const NoteCard = React.memo(function NoteCard({
+export const NoteCard = React.memo(function NoteCard({
   note, isActive, onClick, onContextMenu, isContextTarget, isShared, isSelected,
   draggable, onDragStart, onDragOver, onDragEnd, onDrop, isDragOver,
   onTouchStart, onTouchMove, onTouchEnd, cardRef, searchQuery,
-  showNoteTime, notebookLabel, dragHint,
+  showNoteTime, showDivider = false, notebookLabel, notebookPath, dragHint, titleOnly = false,
+  sidebarTextStyle,
 }: {
   note: NoteListItem; isActive: boolean; onClick: (e: React.MouseEvent) => void;
   onContextMenu: (e: React.MouseEvent) => void;
@@ -1019,30 +1095,29 @@ const NoteCard = React.memo(function NoteCard({
   cardRef?: (el: HTMLDivElement | null) => void;
   searchQuery?: string;
   showNoteTime?: boolean;
+  showDivider?: boolean;
   notebookLabel?: string;
+  notebookPath?: string;
+  titleOnly?: boolean;
   dragHint?: string;
+  sidebarTextStyle: SidebarTextStyle;
 }) {
-  // 预览文本：普通列表取正文前 100 字；搜索结果使用后端 snippet，不能再截断。
-  // 压成单个空格。否则 markdown 多段落正文里的换行会被 <p> 当作空白渲染，
-  // 配合 line-clamp-2 + break-words 出现"每句被切到独立一行"的错觉
-  // （短标题时不明显，因为预览整体行数少；长标题挤占空间后尤为严重）。
-  const isSearchResult = !!searchQuery;
-  const preview = (
-    isSearchResult
-      ? (note.snippetHtml || note.contentText || "")
-      : (note.contentText?.slice(0, 100) || "")
-  ).replace(/\s+/g, " ").trim();
+  const classicText = sidebarTextStyle === "classic";
   const { t } = useTranslation();
-  const wordCount = note.contentText?.length || 0;
-  // 工作区视图下笔记可能由不同成员创建，需要在卡片底部展示创建者；
-  // 个人空间下创建者一定是当前用户，留白即可。creatorName 由后端 list 接口
-  // LEFT JOIN users 注入，老后端无该字段时退化为不展示。
+  const isSearchResult = !!searchQuery;
+  const compactTitleOnly = titleOnly && !isSearchResult;
+  const preview = isSearchResult
+    ? (note.snippetHtml || note.contentText || "").replace(/\s+/g, " ").trim()
+    : noteListPreview(note.contentText || "", { mindmap: t("noteList.mindmapPreview"), diagram: t("noteList.diagramPreview") });
+  // 工作区保留创建者提示，使用图标和 tooltip，避免挤占目录与时间。
   const showCreator =
     !!note.creatorName && getCurrentWorkspace() !== "personal";
 
   return (
     <motion.div
       ref={cardRef}
+      data-note-list-card
+      style={{ height: noteListRowHeight(titleOnly, searchQuery) - 4 }}
       // 仅做轻量淡入。早期版本用了 y:4 → y:0 的位移，会造成切换笔记本时
       // 整列卡片"先在面板底部出现再上移"的错觉（尤其当 list 项很少、
       // 列表内容贴近底部时尤为明显）。这里去掉 y 位移，让卡片就地淡入。
@@ -1052,28 +1127,25 @@ const NoteCard = React.memo(function NoteCard({
       transition={{ duration: 0.12, ease: "easeOut" }}
       onClick={onClick}
       onContextMenu={onContextMenu}
-      draggable={draggable}
-      // framer-motion 的 motion.div 把 onDragStart/onDragEnd 覆写成 (event, PanInfo) => void，
-      // 与 HTML 原生 DragEvent 签名冲突。我们在这里确实需要 HTML 的 DragEvent（下游会读
-      // dataTransfer），所以用 any 断言绕过类型检查，运行时 React 仍按 HTML 事件派发。
-      onDragStart={onDragStart as any}
-      onDragOver={onDragOver}
-      onDragEnd={onDragEnd as any}
-      onDrop={onDrop}
+      // motion.div consumes onDragStart/onDragEnd as Framer Motion gesture
+      // props, so native HTML5 drag events must live on a plain DOM element.
       onTouchStart={onTouchStart}
       onTouchMove={onTouchMove}
       onTouchEnd={onTouchEnd}
       className={cn(
-        "relative rounded-lg cursor-pointer border transition-all group overflow-hidden",
+        "relative w-full min-w-0 max-w-full rounded-lg cursor-pointer border transition-all group overflow-hidden",
         isSelected
           ? "bg-accent-primary/10 border-accent-primary/40 shadow-sm"
           : isActive
           ? "bg-app-active border-accent-primary/30 shadow-sm"
           : isContextTarget
           ? "bg-app-hover border-accent-primary/20"
+          : showDivider
+          ? "bg-transparent border-x-transparent border-t-transparent border-b-app-border/70 hover:bg-app-hover"
           : "bg-transparent border-transparent hover:bg-app-hover",
         isDragOver && "border-accent-primary/50 bg-accent-primary/5"
       )}
+      data-note-list-divider={showDivider ? "on" : "off"}
     >
       {/* 左侧彩色指示条 */}
       <div className={cn(
@@ -1089,20 +1161,25 @@ const NoteCard = React.memo(function NoteCard({
           : "bg-transparent group-hover:bg-app-border"
       )} />
 
-      <div className="pl-3.5 pr-3 py-2.5 min-w-0">
+      <div
+        className="h-full flex flex-col justify-center pl-3 pr-2.5 py-1.5 min-w-0"
+        draggable={draggable}
+        onDragStart={onDragStart}
+        onDragOver={onDragOver}
+        onDragEnd={onDragEnd}
+        onDrop={onDrop}
+        data-note-native-drag-surface={draggable ? "enabled" : "disabled"}
+      >
         {/* 标题行 + 状态图标 */}
         <div className="flex items-center justify-between gap-2 min-w-0">
-          <span
+          {draggable && <span
             title={dragHint}
-            className={cn(
-              "inline-flex text-tx-tertiary transition-opacity shrink-0",
-              draggable
-                ? "opacity-70 cursor-grab active:cursor-grabbing"
-                : "opacity-30 cursor-help"
-            )}
+            className="absolute left-0 top-2 inline-flex text-tx-tertiary opacity-0 group-hover:opacity-70 transition-opacity cursor-grab active:cursor-grabbing"
+            aria-hidden="true"
           >
-            <GripVertical size={14} />
-          </span>
+            <GripVertical size={12} />
+          </span>}
+          <NoteColorMarkDot value={note.colorMark} title={note.colorMark ? t(`note.colorMark.${note.colorMark}`) : undefined} />
           <h3 className={cn(
             // 标题强制单行：这里**故意**不用 `truncate`（white-space: nowrap）。
             // 历史踩坑：`truncate` 在 flex item 里偶发被外层富文本/prose 全局样式覆盖
@@ -1113,8 +1190,8 @@ const NoteCard = React.memo(function NoteCard({
             // break-all：兜底——遇到极长不可断词（连续超长英文/无空格 URL）也强制裁断，
             // 不让一行的"内容宽度"超过容器，导致 flex 容器再被撑变形。
             "note-card-title text-sm font-medium line-clamp-1 break-all flex-1 min-w-0",
-            isActive ? "text-tx-primary" : "text-tx-secondary group-hover:text-tx-primary"
-          )}>
+            classicText ? (isActive ? "text-tx-primary" : "text-tx-secondary group-hover:text-tx-primary") : "text-tx-primary"
+          )} title={note.title || t('common.untitledNote')}>
             {searchQuery && note.titleHtml ? (
               <span dangerouslySetInnerHTML={{ __html: sanitizeSearchHtml(note.titleHtml) }} />
             ) : searchQuery ? (
@@ -1125,12 +1202,12 @@ const NoteCard = React.memo(function NoteCard({
           </h3>
           <div className="flex items-center gap-1 shrink-0">
             {note.contentFormat === "markdown" ? (
-              <span className="text-[10px] px-1 py-0.5 rounded border border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 leading-none" title={t('note.format.markdown')}>
-                {t('note.format.markdownShort')}
+              <span className="text-emerald-600 dark:text-emerald-400" title={t('note.format.markdown')} aria-label={t('note.format.markdown')}>
+                <FileCode size={12} />
               </span>
             ) : (
-              <span className="text-[10px] px-1 py-0.5 rounded border border-app-border bg-app-hover text-tx-tertiary leading-none" title={t('note.format.richText')}>
-                {t('note.format.richTextShort')}
+              <span className="text-tx-tertiary" title={t('note.format.richText')} aria-label={t('note.format.richText')}>
+                <FileText size={12} />
               </span>
             )}
             {isShared && <Share2 size={11} className="text-emerald-500" />}
@@ -1146,7 +1223,7 @@ const NoteCard = React.memo(function NoteCard({
               break-all 会让英文也按字符硬切，反而更难读；break-words 只在
               "整行装不下的长不可断词"时才强制打破，对中英混排最友好。
             - overflow-wrap-anywhere 避免极长 URL 撑破容器。 */}
-        {preview && (
+        {!compactTitleOnly && preview && (
           searchQuery ? (
             <div className="mt-1.5">
               {/* 命中字段提示 */}
@@ -1157,48 +1234,30 @@ const NoteCard = React.memo(function NoteCard({
                   </span>
                 </div>
               )}
-              <p className="note-card-preview text-xs text-tx-tertiary line-clamp-2 leading-relaxed break-words [overflow-wrap:anywhere]" dangerouslySetInnerHTML={{ __html: sanitizeSearchHtml(preview) }} />
+              <p className={cn("note-card-preview line-clamp-2 leading-relaxed break-words [overflow-wrap:anywhere]", classicText ? "text-xs text-tx-tertiary" : "text-[13px] text-tx-secondary")} dangerouslySetInnerHTML={{ __html: sanitizeSearchHtml(preview) }} />
             </div>
           ) : (
-            <p className="text-xs text-tx-tertiary mt-1.5 line-clamp-2 leading-relaxed break-words [overflow-wrap:anywhere]">{preview}</p>
+            <p className={cn("note-card-preview mt-1 line-clamp-1 leading-[18px] break-words [overflow-wrap:anywhere]", classicText ? "text-xs text-tx-tertiary" : "text-[13px] text-tx-secondary")}>{preview}</p>
           )
         )}
 
-        {/* 底部元信息行
-            - 左侧：更新时间（始终显示）
-            - 右侧：工作区下显示创建者（最高优先级），否则 hover 时显示字数
-            两者互斥渲染——卡片宽度有限，避免徽标挤压标题/预览。 */}
-        <div className="flex items-center justify-between mt-2 text-tx-tertiary gap-2">
-          {(showNoteTime || notebookLabel) && (
-            <div className="flex items-center gap-2 min-w-0">
-              {notebookLabel && (
-                <span className="flex min-w-0 items-center gap-1 text-[10px] text-tx-tertiary" title={notebookLabel}>
-                  <Folder size={10} className="shrink-0" />
-                  <span className="truncate">{notebookLabel}</span>
-                </span>
-              )}
-              {showNoteTime && (
-                <span className="flex shrink-0 items-center gap-1.5">
-              <Clock size={10} />
-              <span className="text-[10px]">{formatTime(note.updatedAt, t)}</span>
-                </span>
-              )}
-            </div>
-          )}
-          {showCreator ? (
-            <span
-              className="flex items-center gap-1 text-[10px] text-tx-secondary/80 truncate max-w-[40%]"
-              title={t('common.createdBy', { name: note.creatorName })}
-            >
-              <UserIcon size={10} className="shrink-0" />
-              <span className="truncate">{note.creatorName}</span>
-            </span>
-          ) : wordCount > 0 ? (
-            <span className="text-[10px] opacity-0 group-hover:opacity-100 transition-opacity tabular-nums">
-              {wordCount > 999 ? `${(wordCount / 1000).toFixed(1)}k` : wordCount} {t('common.chars') || '字'}
-            </span>
-          ) : null}
-        </div>
+        {!compactTitleOnly && (showNoteTime || notebookLabel || showCreator) && (
+          <div className={cn("note-card-metadata flex min-w-0 items-center gap-2 mt-auto leading-4", classicText ? "text-[10px] text-tx-tertiary" : "text-xs text-tx-secondary")}>
+            {notebookLabel && (
+              <span className="flex flex-1 min-w-0 items-center gap-1" title={notebookPath || notebookLabel}>
+                <Folder size={10} className="shrink-0" />
+                <span className="truncate">{notebookLabel}</span>
+              </span>
+            )}
+            {showCreator && <span className="shrink-0" title={t('common.createdBy', { name: note.creatorName })} aria-label={t('common.createdBy', { name: note.creatorName })}><UserIcon size={11} /></span>}
+            {showNoteTime && (
+              <span className="flex shrink-0 items-center gap-1 ml-auto" title={note.updatedAt}>
+                <Clock size={10} />
+                <span>{formatTime(note.updatedAt, t)}</span>
+              </span>
+            )}
+          </div>
+        )}
       </div>
     </motion.div>
   );
@@ -1206,11 +1265,11 @@ const NoteCard = React.memo(function NoteCard({
 NoteCard.displayName = "NoteCard";
 
 /* ===== 虚拟滚动笔记列表 ===== */
-const ITEM_HEIGHT = 90; // 每个笔记卡片的估算高度（px）
 const OVERSCAN = 8; // 上下额外渲染的条目数
 
-function VirtualNoteList({
+export function VirtualNoteList({
   notes,
+  scrollScopeKey,
   activeNoteId,
   menuState,
   sharedNoteIds,
@@ -1229,11 +1288,15 @@ function VirtualNoteList({
   noteCardRefs,
   searchQuery,
   showNoteTime,
+  showDividers,
   showNotebookLabel,
   notebookLabels,
   dragHint,
+  sidebarTextStyle,
+  titleOnly = false,
 }: {
   notes: NoteListItem[];
+  scrollScopeKey: string;
   activeNoteId: string | undefined;
   menuState: { isOpen: boolean; targetId: string | null };
   sharedNoteIds: Set<string>;
@@ -1252,25 +1315,25 @@ function VirtualNoteList({
   noteCardRefs?: React.MutableRefObject<Map<string, HTMLDivElement>>;
   searchQuery?: string;
   showNoteTime?: boolean;
+  showDividers?: boolean;
   showNotebookLabel?: boolean;
-  notebookLabels?: Map<string, string>;
+  notebookLabels?: Map<string, { text: string; path: string }>;
   dragHint?: string;
+  sidebarTextStyle: SidebarTextStyle;
+  titleOnly?: boolean;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [scrollTop, setScrollTop] = useState(0);
   const [containerHeight, setContainerHeight] = useState(600);
 
-  // 切换笔记本/搜索条件/筛选/排序时，notes 引用会整体替换。此时若不复位
-  // scrollTop，浏览器会把"上一组列表"的滚动位置原样保留下来，新列表只显示
-  // 中下部分，配合 framer-motion 的进入动画，肉眼看上去就像"列表先从面板
-  // 底部冒出来再爬到顶部"。这里强制把视口拉回顶部，并清零内部 scrollTop
-  // 状态，保证新列表立即从首条开始呈现。
+  // 只在列表语义 scope 真正变化时复位。自动保存、realtime、后台同步、
+  // notesRefreshToken 等同 scope 刷新会替换 notes 引用，但不能打断用户浏览位置。
   useEffect(() => {
     if (containerRef.current) {
       containerRef.current.scrollTop = 0;
     }
     setScrollTop(0);
-  }, [notes]);
+  }, [scrollScopeKey]);
 
   // 监听容器尺寸变化
   useEffect(() => {
@@ -1290,8 +1353,16 @@ function VirtualNoteList({
     setScrollTop(e.currentTarget.scrollTop);
   }, []);
 
-  const itemHeight = showNotebookLabel ? 104 : ITEM_HEIGHT;
+  const itemHeight = noteListRowHeight(titleOnly, searchQuery);
   const totalHeight = notes.length * itemHeight;
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    // 切到仅标题或列表变短后，旧 scrollTop 可能落到新的总高度之外。
+    const nextTop = Math.min(container.scrollTop, Math.max(0, totalHeight - container.clientHeight));
+    container.scrollTop = nextTop;
+    setScrollTop(nextTop);
+  }, [totalHeight]);
   const startIndex = Math.max(0, Math.floor(scrollTop / itemHeight) - OVERSCAN);
   const endIndex = Math.min(notes.length, Math.ceil((scrollTop + containerHeight) / itemHeight) + OVERSCAN);
   const visibleNotes = notes.slice(startIndex, endIndex);
@@ -1301,12 +1372,12 @@ function VirtualNoteList({
     <div
       ref={containerRef}
       data-note-list-scroll-viewport="virtual"
-      className="flex-1 min-h-0 overflow-auto"
+      className="flex-1 min-h-0 min-w-0 overflow-y-auto overflow-x-hidden"
       onScroll={handleScroll}
     >
       <div style={{ height: totalHeight, position: "relative" }}>
         <div className="px-2 space-y-1" style={{ position: "absolute", top: offsetY, left: 0, right: 0 }}>
-          {visibleNotes.map((note) => (
+          {visibleNotes.map((note, visibleIndex) => (
             <NoteCard
               key={note.id}
               cardRef={(el) => {
@@ -1314,6 +1385,7 @@ function VirtualNoteList({
                 else noteCardRefs?.current.delete(note.id);
               }}
               note={note}
+              sidebarTextStyle={sidebarTextStyle}
               isActive={activeNoteId === note.id}
               isContextTarget={menuState.isOpen && menuState.targetId === note.id}
               isShared={sharedNoteIds.has(note.id)}
@@ -1331,7 +1403,10 @@ function VirtualNoteList({
               onTouchEnd={onTouchEnd}
               searchQuery={searchQuery}
               showNoteTime={showNoteTime}
-              notebookLabel={showNotebookLabel ? notebookLabels?.get(note.notebookId) : undefined}
+              showDivider={!!showDividers && startIndex + visibleIndex < notes.length - 1}
+              titleOnly={titleOnly}
+              notebookLabel={showNotebookLabel ? notebookLabels?.get(note.notebookId)?.text : undefined}
+              notebookPath={showNotebookLabel ? notebookLabels?.get(note.notebookId)?.path : undefined}
               dragHint={dragHint}
             />
           ))}
@@ -1341,14 +1416,15 @@ function VirtualNoteList({
   );
 }
 
-export default function NoteList() {
+export default function NoteList({ directorySearchActive = false }: { directorySearchActive?: boolean } = {}) {
   const { state } = useApp();
   const actions = useAppActions();
+  const [sidebarTextStyle] = useSidebarTextStyle();
   const [layoutMode, setLayoutMode] = useState<NoteWorkspaceLayoutMode>(() =>
     loadNoteWorkspaceLayoutMode(state.noteListCollapsed),
   );
   const [desktopFolderNavigationSurface, setDesktopFolderNavigationSurface] = useState(() =>
-    typeof window === "undefined" ? true : window.matchMedia("(min-width: 768px)").matches,
+    typeof window === "undefined" ? true : window.matchMedia("(min-width: 840px)").matches,
   );
   const [folderScopeMode, setFolderScopeMode] = useState<ThreeColumnFolderScopeMode>(
     loadThreeColumnFolderScopeMode,
@@ -1378,7 +1454,7 @@ export default function NoteList() {
   }, [state.noteListCollapsed]);
 
   useEffect(() => {
-    const media = window.matchMedia("(min-width: 768px)");
+    const media = window.matchMedia("(min-width: 840px)");
     const update = () => setDesktopFolderNavigationSurface(media.matches);
     update();
     media.addEventListener("change", update);
@@ -1474,6 +1550,8 @@ export default function NoteList() {
 
   const { loadNote, cancelNoteLoad } = useNoteLoader();
   const { menu, menuRef, openMenu, closeMenu } = useContextMenu();
+  const [contextShareNote, setContextShareNote] = useState<{ id: string; title: string } | null>(null);
+  const [contextPermissionsNode, setContextPermissionsNode] = useState<KnowledgeTreeNode | null>(null);
   // moveModal 新增 sourceWorkspaceId：源笔记所在工作区（null = 个人空间）。
   // 后端已强制"源/目标同 workspace"，这里把 UI 候选也按同一规则过滤，避免让用户
   // 选到必然会被 400 拒绝的跨空间笔记本。
@@ -1484,10 +1562,7 @@ export default function NoteList() {
     sourceWorkspaceId: string | null;
   } | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
-  // 新建按钮的下拉菜单（普通笔记 / Word 文档）。
-  // 默认行为是单击 + 按钮直接走 normal；下拉箭头点开后才能选 word。
-  // 三个 + 按钮各自一个 ref（桌面顶部 / 移动顶部 / 移动 FAB）；
-  // openSource 记录是哪一个触发了下拉，避免共用一个 ref 导致的菜单错位。
+  // 三个入口复用目录树的新建菜单，各自的锚点保证菜单位置正确。
   const [createMenuOpen, setCreateNoteMenuOpen] = useState(false);
   const [createMenuSource, setCreateNoteMenuSource] = useState<"desktop" | "mobile" | "fab" | null>(null);
   const createMenuAnchorDesktopRef = useRef<HTMLButtonElement>(null);
@@ -1504,8 +1579,10 @@ export default function NoteList() {
   const [sortPref, setSortPref] = useState<{ by: SortBy; dir: SortDir }>(() => loadSortPref());
   const userPrefs = useUserPreferences();
   const showNoteTime = userPrefs.prefs.showNoteListUpdatedTime;
+  const showDividers = userPrefs.prefs.showNoteListDividers;
+  const titleOnly = userPrefs.prefs.noteListTitleOnly;
   const [showSortMenu, setShowSortMenu] = useState(false);
-  const sortBtnRef = useRef<HTMLButtonElement>(null);
+  const sortBtnRef = useRef<HTMLButtonElement | null>(null);
   const [sharedNoteIds, setSharedNoteIds] = useState<Set<string>>(new Set());
   const [dragNoteId, setDragNoteId] = useState<string | null>(null);
   const [dragOverNoteId, setDragOverNoteId] = useState<string | null>(null);
@@ -1609,10 +1686,6 @@ export default function NoteList() {
         const params: Record<string, string> = { isFavorite: "1", ...sortParams };
         if (dateFilter) { params.dateFrom = dateFilter; params.dateTo = dateFilter; }
         notes = await api.getNotes(params);
-      } else if (state.viewMode === "trash") {
-        const params: Record<string, string> = { isTrashed: "1", ...sortParams };
-        if (dateFilter) { params.dateFrom = dateFilter; params.dateTo = dateFilter; }
-        notes = await api.getNotes(params);
       } else if (state.viewMode === "search" && state.searchQuery) {
         const results = await api.search(state.searchQuery);
         notes = results.map((r) => ({
@@ -1702,11 +1775,11 @@ export default function NoteList() {
   //   - 仅在日历面板**首次打开**或视图维度（viewMode/notebook/tag/sortPref/
   //     refreshToken）变化时拉取；
   //   - dateFilter 切换不触发，避免与 fetchNotes 同步重复请求；
-  //   - trash/search 视图不显示日历，无需拉取。
+  //   - search 视图不显示日历，无需拉取。
   const [calendarNotes, setCalendarNotes] = useState<NoteListItem[]>([]);
   useEffect(() => {
     if (!showCalendar) return;
-    if (state.viewMode === "trash" || state.viewMode === "search") return;
+    if (state.viewMode === "search") return;
     let cancelled = false;
     const sortParams: Record<string, string> = { sortBy: sortPref.by, sortOrder: sortPref.dir };
     const fetcher = async (): Promise<NoteListItem[]> => {
@@ -1755,13 +1828,10 @@ export default function NoteList() {
   const dateCounts = useMemo(() => {
     const map: Record<string, number> = {};
     for (const n of calendarNotes) {
-      // updatedAt 形如 "2026-05-12 14:30:00" 或 ISO；统一按本地时区切到 YYYY-MM-DD
-      const raw = n.updatedAt;
-      if (!raw) continue;
-      // 直接取前 10 字符（YYYY-MM-DD）即可：后端存的就是本地时间字符串，
-      // 与 todayStr 的 getFullYear/getMonth/getDate 同基准。
-      const key = String(raw).slice(0, 10);
-      if (key.length !== 10) continue;
+      // SQLite 的无时区时间是 UTC，ISO 也可能带 Z/偏移量；
+      // 日期日历必须按用户设备的本地日历日聚合，不能直接截 UTC 日期。
+      const key = noteLocalDayKey(n.updatedAt);
+      if (!key) continue;
       map[key] = (map[key] || 0) + 1;
     }
     return map;
@@ -1810,19 +1880,18 @@ export default function NoteList() {
       )
     : sortedNotes.length;
 
+  const hasActiveFilters = directorySearchActive || !!dateFilter || state.selectedTagIds.length > 0;
   const showNotebookLabel = state.viewMode === "all";
   const notebookLabels = useMemo(() => {
-    const labels = new Map<string, string>();
-    if (!showNotebookLabel) return labels;
-    for (const note of sortedNotes) {
-      if (labels.has(note.notebookId)) continue;
-      labels.set(
-        note.notebookId,
-        getNotebookPathLabel(state.notebooks, note.notebookId)
-          || t("noteList.unknownNotebook", { defaultValue: "未知笔记本" }),
-      );
+    const paths = new Map<string, string>();
+    if (!showNotebookLabel) return compactNotebookLabels(paths);
+    for (const notebook of state.notebooks) {
+      paths.set(notebook.id, getNotebookPathLabel(state.notebooks, notebook.id) || notebook.name);
     }
-    return labels;
+    for (const note of sortedNotes) {
+      if (!paths.has(note.notebookId)) paths.set(note.notebookId, t("noteList.unknownNotebook"));
+    }
+    return compactNotebookLabels(paths);
   }, [showNotebookLabel, sortedNotes, state.notebooks, t]);
 
   // 监听 WebSocket：外部导入 / 同账号其它设备保存后自动刷新列表
@@ -1847,6 +1916,7 @@ export default function NoteList() {
           isTrashed: note.isTrashed,
           notebookId: note.notebookId,
           workspaceId: note.workspaceId,
+          colorMark: note.colorMark,
         } as any);
       } else {
         // 当前筛选下原本没有这条笔记；可能是移动/恢复/新建，低频场景全量刷新更稳。
@@ -1900,23 +1970,13 @@ export default function NoteList() {
     setLastClickedId(null);
   }, [state.viewMode, state.selectedNotebookId, state.searchQuery, state.selectedTagIds, dateFilter]);
 
-  // 切换笔记本/视图/搜索/标签/日期/排序 时把非虚拟列表的 ScrollArea 滚动复位到顶。
-  // 否则 Radix ScrollArea 会保留前一组列表的 scrollTop，新列表立刻渲染时整组卡片
-  // 视觉上"贴在面板下方再爬上来"，配合卡片自身的淡入动画体感很差。
+  // 普通列表与虚拟列表共用 notesQueryKey 作为滚动 scope；同 scope 数据刷新不改变滚动位置。
   useEffect(() => {
     const root = scrollAreaRef.current;
     if (!root) return;
     const viewport = root.querySelector<HTMLElement>("[data-radix-scroll-area-viewport]");
     if (viewport) viewport.scrollTop = 0;
-  }, [
-    state.viewMode,
-    state.selectedNotebookId,
-    state.searchQuery,
-    state.selectedTagIds,
-    dateFilter,
-    sortPref.by,
-    sortPref.dir,
-  ]);
+  }, [notesQueryKey]);
 
   // 全局 ESC 清空多选（多选状态下）
   useEffect(() => {
@@ -2021,6 +2081,7 @@ export default function NoteList() {
             contentFormat: note.contentFormat,
             isLocked: note.isLocked,
             isTrashed: note.isTrashed,
+            colorMark: note.colorMark,
             updatedAt: note.updatedAt,
           });
         }
@@ -2028,66 +2089,27 @@ export default function NoteList() {
     });
   };
 
-  // 一键清空回收站：只查询数量 → confirm → 单次批量删除 → 刷新列表。
-  // 移动端 Sidebar 未挂载，自定义事件无人监听，因此 NoteList 直接实现完整逻辑。
-  const handleEmptyTrash = async () => {
-    haptic.medium();
-    try {
-      const summary = await api.getTrashSummary();
-      const removable = summary.count;
-      if (removable === 0) {
-        toast.info(t('sidebar.emptyTrashEmpty'));
-        return;
-      }
-      const ok = await confirm({
-        title: t('sidebar.emptyTrashConfirmTitle'),
-        description: t('sidebar.emptyTrashConfirm', { count: removable }),
-        confirmText: t('sidebar.emptyTrash'),
-        danger: true,
-      });
-      if (!ok) return;
-      haptic.heavy();
-      const res = await api.emptyTrash();
-      if (res.skipped && res.skipped > 0) {
-        toast.warning(t('sidebar.emptyTrashSkipped', { count: res.count, skipped: res.skipped }));
-      } else {
-        toast.success(t('sidebar.emptyTrashSuccess', { count: res.count }));
-      }
-      if (!res.vacuumed && (res.freedBytesEstimate || 0) >= 10 * 1024 * 1024) {
-        toast.info(
-          "占用较大但数据库未自动压缩。可在「数据管理」里点击「压缩数据库」进一步回收磁盘空间。",
-        );
-      }
-      try {
-        window.dispatchEvent(new CustomEvent("nowen:storage-changed", { detail: { reason: "trash-emptied" } }));
-      } catch { /* ignore */ }
-      actions.setNotes([]);
-      if (state.activeNote?.isTrashed) {
-        actions.setActiveNote(null);
-      }
-      actions.refreshNotebooks();
-    } catch (err: any) {
-      console.error("清空回收站失败", err);
-      toast.error(err?.message || t('sidebar.emptyTrashFailed'));
-    }
-  };
-
   const handleCreateNote = async (noteType: "normal" | "markdown" | "word" | "journal" = "normal") => {
     haptic.light();
-    // 回收站视图禁止新建笔记
-    if (state.viewMode === "trash") {
-      toast.info(t('noteList.cannotCreateInTrash'));
-      return;
-    }
-
     // 今日日记：不需要选择笔记本，直接调用 API
     if (noteType === "journal") {
       await handleOpenTodayJournal();
       return;
     }
 
-    // 无笔记本时给出提示，无法创建
+    // Android 本地模式首次使用时自动建立默认笔记本，避免把用户卡在空状态。
     if (state.notebooks.length === 0) {
+      if (isMobileLocalMode()) {
+        try {
+          const notebook = await api.createNotebook({ name: "我的笔记", icon: "📒" });
+          actions.addNotebook(notebook);
+          actions.setSelectedNotebook(notebook.id);
+          await createNoteInNotebook(notebook.id, noteType);
+        } catch (err: any) {
+          toast.error(err?.message || t("common.needNotebookFirst"));
+        }
+        return;
+      }
       toast.warning(t('common.needNotebookFirst'));
       return;
     }
@@ -2122,6 +2144,7 @@ export default function NoteList() {
         toast.info(t("journal.opened", { defaultValue: "已打开今日日记" }));
       }
       // 打开笔记
+      if (!result.existed) markNewNoteForImmediateEdit(result.id);
       actions.setActiveNote(result as any);
       // 如果笔记不在列表中，添加到列表
       actions.addNoteToList({
@@ -2185,6 +2208,7 @@ export default function NoteList() {
         }
       }
 
+      markNewNoteForImmediateEdit(note.id);
       actions.setActiveNote(note);
       actions.addNoteToList({
         id: note.id,
@@ -2203,8 +2227,11 @@ export default function NoteList() {
         updatedAt: note.updatedAt,
         createdAt: note.createdAt,
         contentFormat: note.contentFormat,
+        colorMark: note.colorMark ?? null,
       } as NoteListItem);
       actions.setMobileView("editor");
+      revealCreatedKnowledgeTreeNote(selectedKnowledgeTreeParentId);
+      emitKnowledgeTreeRefresh("note-created-from-note-list");
       actions.refreshNotebooks();
 
       // 若新建发生在「所有笔记/收藏/标签」视图且系统自动选择了归属，提示用户
@@ -2462,71 +2489,225 @@ export default function NoteList() {
     const targetNote = state.notes.find((n) => n.id === menu.targetId);
     if (!targetNote) return [];
 
-    const isTrashView = state.viewMode === "trash";
     // 若右键点击的是多选中的一员，批量操作；否则针对该条
     const bulkMode = menu.targetId && selectedIds.has(menu.targetId) && selectedIds.size > 1;
     const bulkCount = bulkMode ? selectedIds.size : 0;
 
-    if (isTrashView) {
+    if (bulkMode) {
       return [
-        { id: "restore", label: t('noteList.restoreNote'), icon: <ArchiveRestore size={14} /> },
+        {
+          id: "toggle_pin",
+          label: targetNote.isPinned === 1 ? t('noteList.unpin') : t('noteList.pin'),
+          icon: targetNote.isPinned === 1 ? <PinOff size={14} /> : <Pin size={14} />,
+        },
+        {
+          id: "toggle_fav",
+          label: targetNote.isFavorite === 1 ? t('noteList.unfavorite') : t('noteList.favorite'),
+          icon: targetNote.isFavorite === 1 ? <StarOff size={14} /> : <Star size={14} />,
+        },
+        {
+          id: "toggle_lock",
+          label: targetNote.isLocked === 1 ? t('noteList.unlock') : t('noteList.lock'),
+          icon: targetNote.isLocked === 1 ? <Unlock size={14} /> : <Lock size={14} />,
+        },
         { id: "sep1", label: "", separator: true },
-        { id: "delete_permanent", label: t('noteList.permanentDelete'), icon: <Trash2 size={14} />, danger: true },
+        {
+          id: "move",
+          label: t('noteList.moveNotesTitle', { count: bulkCount }),
+          icon: <FolderInput size={14} />,
+        },
+        { id: "sep2", label: "", separator: true },
+        {
+          id: "trash",
+          label: `${t('noteList.moveToTrash')} (${bulkCount})`,
+          icon: <Trash2 size={14} />,
+          danger: true,
+        },
       ];
     }
 
-    return [
-      {
-        id: "toggle_pin",
-        label: targetNote.isPinned === 1 ? t('noteList.unpin') : t('noteList.pin'),
-        icon: targetNote.isPinned === 1 ? <PinOff size={14} /> : <Pin size={14} />,
+    return buildNoteContextMenuLayout({
+      open: { id: "open", label: t("common.open"), icon: <FileText size={14} /> },
+      split: [
+        { id: "split_right", label: t("note.contextMenu.splitRight"), icon: <SplitSquareHorizontal size={14} /> },
+        { id: "split_down", label: t("note.contextMenu.splitDown"), icon: <SplitSquareVertical size={14} /> },
+      ],
+      duplicate: {
+        id: "duplicate",
+        label: t("note.contextMenu.duplicate"),
+        icon: <Copy size={14} />,
+        disabled: targetNote.isLocked === 1,
       },
-      {
-        id: "toggle_fav",
-        label: targetNote.isFavorite === 1 ? t('noteList.unfavorite') : t('noteList.favorite'),
-        icon: targetNote.isFavorite === 1 ? <StarOff size={14} /> : <Star size={14} />,
-      },
-      {
-        id: "toggle_lock",
-        label: targetNote.isLocked === 1 ? t('noteList.unlock') : t('noteList.lock'),
-        icon: targetNote.isLocked === 1 ? <Unlock size={14} /> : <Lock size={14} />,
-      },
-      { id: "sep1", label: "", separator: true },
-      {
-        id: "move",
-        label: bulkMode ? t('noteList.moveNotesTitle', { count: bulkCount }) : t('noteList.moveTo'),
-        icon: <FolderInput size={14} />,
-        disabled: !bulkMode && !!targetNote.isLocked,
-      },
-      // 单笔记导出：批量模式暂不提供子菜单，避免一次触发 N 个下载弹窗。
-      ...(bulkMode
-        ? []
-        : [
-            {
-              id: "export_submenu",
-              label: t("noteList.export") || "导出...",
-              icon: <Download size={14} />,
-              children: [
-                { id: "export_md", label: t("noteList.exportAsMarkdown") || "Markdown", icon: <Download size={14} /> },
-                { id: "export_md_zip", label: t("noteList.exportAsMarkdownZip") || "Markdown + 附件（ZIP）", icon: <Download size={14} /> },
-                { id: "export_pdf", label: t("noteList.exportAsPDF") || "PDF", icon: <Printer size={14} /> },
-                { id: "export_png", label: t("note.exportAsPng") || "图片 PNG", icon: <ImageIcon size={14} /> },
-                { id: "export_jpg", label: t("note.exportAsJpg") || "图片 JPG", icon: <ImageIcon size={14} /> },
-                { id: "export_word", label: t("noteList.exportAsWord") || "Word", icon: <FileType2 size={14} /> },
-              ],
-            } as ContextMenuItem,
-          ]),
-      { id: "sep2", label: "", separator: true },
-      {
+      create: [
+        { id: "new_note", label: t("note.contextMenu.document"), icon: <FileText size={14} /> },
+        { id: "new_markdown", label: t("note.contextMenu.markdownDocument"), icon: <FileCode size={14} /> },
+        { id: "new_folder", label: t("note.contextMenu.folder"), icon: <Folder size={14} /> },
+      ],
+      flags: [
+        {
+          id: "color_mark",
+          label: t("note.colorMark.action"),
+          icon: <Palette size={14} />,
+          children: NOTE_COLOR_MARK_OPTIONS.map((option) => ({
+            id: `color_mark_${option.value || "none"}`,
+            label: t(option.labelKey),
+            icon: option.value
+              ? <span className="h-3 w-3 rounded-full ring-1 ring-black/10 dark:ring-white/15" style={{ backgroundColor: option.hex }} />
+              : <X size={13} />,
+          })),
+        },
+        {
+          id: "toggle_pin",
+          label: targetNote.isPinned === 1 ? t('noteList.unpin') : t('noteList.pin'),
+          icon: targetNote.isPinned === 1 ? <PinOff size={14} /> : <Pin size={14} />,
+        },
+        {
+          id: "toggle_fav",
+          label: targetNote.isFavorite === 1 ? t('noteList.unfavorite') : t('noteList.favorite'),
+          icon: targetNote.isFavorite === 1 ? <StarOff size={14} /> : <Star size={14} />,
+        },
+      ],
+      management: [
+        { id: "rename_note", label: t("common.rename"), icon: <Pencil size={14} />, disabled: targetNote.isLocked === 1 },
+        { id: "move", label: t('noteList.moveTo'), icon: <FolderInput size={14} />, disabled: targetNote.isLocked === 1 },
+        { id: "share_note", label: t("note.contextMenu.share"), icon: <Share2 size={14} /> },
+      ],
+      more: [
+        {
+          id: "toggle_lock",
+          label: targetNote.isLocked === 1 ? t('noteList.unlock') : t('noteList.lock'),
+          icon: targetNote.isLocked === 1 ? <Unlock size={14} /> : <Lock size={14} />,
+        },
+        {
+          id: "convert_format",
+          label: targetNote.contentFormat === "markdown" ? t("note.contextMenu.convertToRichText") : t("note.contextMenu.convertToMarkdown"),
+          icon: <ArrowLeftRight size={14} />,
+          disabled: targetNote.isLocked === 1,
+        },
+        {
+          id: "save_as_template",
+          label: t("note.contextMenu.saveAsTemplate"),
+          icon: <LayoutTemplate size={14} />,
+          disabled: targetNote.isLocked === 1
+            || (targetNote.contentFormat !== "markdown" && targetNote.contentFormat !== "tiptap-json"),
+        },
+        { id: "permissions", label: t("note.contextMenu.permissions"), icon: <ShieldCheck size={14} /> },
+        {
+          id: "export_submenu",
+          label: t("noteList.export") || "导出",
+          icon: <Download size={14} />,
+          children: [
+            { id: "export_md", label: t("noteList.exportAsMarkdown") || "Markdown", icon: <Download size={14} /> },
+            { id: "export_md_zip", label: t("noteList.exportAsMarkdownZip") || "Markdown + 附件（ZIP）", icon: <Download size={14} /> },
+            { id: "export_pdf", label: t("noteList.exportAsPDF") || "PDF", icon: <Printer size={14} /> },
+            { id: "export_png", label: t("note.exportAsPng") || "图片 PNG", icon: <ImageIcon size={14} /> },
+            { id: "export_jpg", label: t("note.exportAsJpg") || "图片 JPG", icon: <ImageIcon size={14} /> },
+            { id: "export_word", label: t("noteList.exportAsWord") || "Word", icon: <FileType2 size={14} /> },
+          ],
+        },
+      ],
+      trash: {
         id: "trash",
-        label: bulkMode
-          ? `${t('noteList.moveToTrash')} (${bulkCount})`
-          : t('noteList.moveToTrash'),
+        label: t('noteList.moveToTrash'),
         icon: <Trash2 size={14} />,
         danger: true,
-        disabled: !bulkMode && !!targetNote.isLocked,
+        disabled: targetNote.isLocked === 1,
       },
+    }, t);
+  };
+
+  const loadContextTreeNode = async (noteId: string): Promise<KnowledgeTreeNode> => {
+    const cached = folderTreeNodes.find((node) => (
+      node.resourceType === "note" && node.resourceId === noteId && node.isDeleted !== 1
+    ));
+    if (cached) return cached;
+
+    const [ownedResult, sharedResult] = await Promise.allSettled([
+      knowledgeTreeApi.list(),
+      knowledgeTreeApi.listShared(),
+    ]);
+    const nodes = [
+      ...(ownedResult.status === "fulfilled" ? ownedResult.value.nodes : []),
+      ...(sharedResult.status === "fulfilled" ? sharedResult.value.nodes : []),
     ];
+    const found = nodes.find((node) => (
+      node.resourceType === "note" && node.resourceId === noteId && node.isDeleted !== 1
+    ));
+    if (!found) throw new Error("未找到笔记对应的知识树节点");
+    return found;
+  };
+
+  const createFromContextNote = async (
+    noteId: string,
+    nodeType: "note" | "markdown" | "folder",
+  ) => {
+    const sourceNode = await loadContextTreeNode(noteId);
+    const title = nodeType === "markdown"
+      ? "无标题 Markdown"
+      : nodeType === "folder"
+        ? "新建文件夹"
+        : t('common.untitledNote');
+    const created = sourceNode.workspaceId
+      ? await knowledgeTreeApi.createForWorkspace(sourceNode.workspaceId, {
+          parentId: sourceNode.id,
+          nodeType,
+          title,
+        })
+      : await knowledgeTreeApi.create({ parentId: sourceNode.id, nodeType, title });
+
+    actions.setSelectedKnowledgeTreeParent(sourceNode.id);
+    revealCreatedKnowledgeTreeNote(sourceNode.id);
+    emitKnowledgeTreeRefresh("note-context-menu-created");
+    actions.refreshNotes();
+    actions.refreshNotebooks();
+
+    if (created.resourceType === "note") {
+      await handleSelectNote(created.resourceId);
+    } else {
+      toast.success("文件夹已创建");
+    }
+  };
+
+  const convertContextNote = async (noteId: string) => {
+    const current = await api.getNote(noteId);
+    const targetFormat = getNoteFormatConversionTarget(current.contentFormat);
+    const targetLabel = targetFormat === "markdown" ? "Markdown" : "富文本";
+    const accepted = await confirm({
+      title: `转换为${targetLabel}？`,
+      description: "笔记会在原位置切换编辑器。复杂排版在两种格式之间转换时可能略有差异。",
+      confirmText: "转换",
+    });
+    if (!accepted) return;
+
+    if (state.activeNote?.id === current.id) {
+      requestActiveNoteFormatConversion({ noteId: current.id, targetFormat });
+      return;
+    }
+
+    const converted = convertNoteContent(current.content, current.contentText, targetFormat);
+    const updated = await api.updateNoteConfirmed(current.id, {
+      ...converted,
+      version: current.version,
+      ...(targetFormat === "markdown" ? { syncToYjs: true } : {}),
+    } as any);
+    if (targetFormat === "tiptap-json") {
+      try { await api.releaseYjsRoom(current.id); } catch { /* 下次打开时会重新建立房间 */ }
+    }
+    actions.updateNoteInList({
+      id: updated.id,
+      contentText: updated.contentText,
+      contentFormat: updated.contentFormat,
+      updatedAt: updated.updatedAt,
+      version: updated.version,
+    });
+    actions.updateNoteTab({
+      id: updated.id,
+      contentFormat: updated.contentFormat,
+      updatedAt: updated.updatedAt,
+    });
+    actions.refreshNotes();
+    emitKnowledgeTreeRefresh("note-format-converted-from-note-list");
+    toast.success(`已转换为${targetLabel}`);
   };
 
   const handleMenuAction = async (actionId: string) => {
@@ -2537,7 +2718,144 @@ export default function NoteList() {
     const targetNote = state.notes.find((n) => n.id === targetId);
     if (!targetNote) return;
 
+    if (actionId.startsWith("color_mark_")) {
+      const raw = actionId.slice("color_mark_".length);
+      const nextColor = raw === "none" ? null : (isNoteColorMark(raw) ? raw : null);
+      haptic.light();
+      const updated = await api.updateNote(targetId, { colorMark: nextColor });
+      actions.updateNoteInList({ id: targetId, colorMark: updated.colorMark ?? nextColor });
+      actions.updateNoteTab({ id: targetId, colorMark: updated.colorMark ?? nextColor } as unknown as Partial<import("@/store/AppContext").OpenNoteTab> & { id: string; });
+      if (state.activeNote?.id === targetId) {
+        actions.setActiveNote({ ...state.activeNote, colorMark: updated.colorMark ?? nextColor });
+      }
+      emitKnowledgeTreeRefresh("note-color-mark-changed");
+      return;
+    }
+
     switch (actionId) {
+      case "open": {
+        await handleSelectNote(targetId);
+        break;
+      }
+      case "split_right":
+      case "split_down": {
+        haptic.light();
+        actions.splitEditor({
+          noteId: targetId,
+          direction: actionId === "split_right" ? "right" : "down",
+        });
+        actions.setMobileView("editor");
+        break;
+      }
+      case "new_note":
+      case "new_markdown":
+      case "new_folder": {
+        haptic.light();
+        try {
+          await createFromContextNote(
+            targetId,
+            actionId === "new_markdown" ? "markdown" : actionId === "new_folder" ? "folder" : "note",
+          );
+        } catch (error: any) {
+          toast.error(error?.message || "新建失败");
+        }
+        break;
+      }
+      case "share_note": {
+        haptic.light();
+        setContextShareNote({ id: targetId, title: targetNote.title });
+        break;
+      }
+      case "permissions": {
+        haptic.light();
+        try {
+          setContextPermissionsNode(await loadContextTreeNode(targetId));
+        } catch (error: any) {
+          toast.error(error?.message || "读取成员与权限失败");
+        }
+        break;
+      }
+      case "convert_format": {
+        haptic.light();
+        try {
+          await convertContextNote(targetId);
+        } catch (error: any) {
+          toast.error(error?.message || "转换格式失败");
+        }
+        break;
+      }
+      case "duplicate": {
+        haptic.light();
+        try {
+          const duplicated = await api.duplicateNote(targetId);
+          actions.setSelectedNotebook(duplicated.notebookId);
+          actions.setSelectedKnowledgeTreeParent(duplicated.treeParentId);
+          actions.clearSelectedTags();
+          actions.setViewMode("notebook");
+          actions.setActiveNote(duplicated);
+          actions.addNoteToList({
+            id: duplicated.id,
+            userId: duplicated.userId,
+            title: duplicated.title,
+            contentText: duplicated.contentText || "",
+            notebookId: duplicated.notebookId,
+            workspaceId: duplicated.workspaceId ?? null,
+            isPinned: duplicated.isPinned || 0,
+            isFavorite: duplicated.isFavorite || 0,
+            isLocked: duplicated.isLocked || 0,
+            isArchived: duplicated.isArchived || 0,
+            isTrashed: duplicated.isTrashed || 0,
+            version: duplicated.version || 1,
+            sortOrder: duplicated.sortOrder || 0,
+            updatedAt: duplicated.updatedAt,
+            createdAt: duplicated.createdAt,
+            contentFormat: duplicated.contentFormat,
+          } as NoteListItem);
+          if (userPrefs.prefs.enableNoteTabs) {
+            actions.openNoteTab({
+              id: duplicated.id,
+              title: duplicated.title,
+              notebookId: duplicated.notebookId,
+              workspaceId: duplicated.workspaceId,
+              contentFormat: duplicated.contentFormat,
+              isLocked: duplicated.isLocked,
+              isTrashed: duplicated.isTrashed,
+              updatedAt: duplicated.updatedAt,
+            });
+          }
+          actions.setMobileView("editor");
+          window.requestAnimationFrame(() => revealCreatedKnowledgeTreeNote(duplicated.treeParentId));
+          emitKnowledgeTreeRefresh("note-duplicated-from-note-list");
+          actions.refreshNotes();
+          actions.refreshNotebooks();
+          toast.success("副本已创建");
+        } catch (error: any) {
+          toast.error(error?.message || "创建副本失败");
+        }
+        break;
+      }
+      case "save_as_template": {
+        haptic.light();
+        const name = await prompt({
+          title: "保存为模板",
+          description: "模板会保存当前笔记内容和本地附件的独立快照。",
+          defaultValue: targetNote.title,
+          confirmText: "保存",
+          validate: (value) => {
+            const length = value.trim().length;
+            if (length === 0) return "模板名称不能为空";
+            return length > 200 ? "模板名称不能超过 200 个字符" : null;
+          },
+        });
+        if (name == null) break;
+        try {
+          await noteTemplatesApi.createFromNote(targetId, name.trim());
+          toast.success("已保存为模板");
+        } catch (error: any) {
+          toast.error(error?.message || "保存模板失败");
+        }
+        break;
+      }
       case "toggle_pin": {
         haptic.light();
         const newVal = targetNote.isPinned === 1 ? 0 : 1;
@@ -2769,69 +3087,7 @@ export default function NoteList() {
         }
         break;
       }
-      case "restore": {
-        haptic.success();
-        actions.removeNoteFromList(targetId);
-        api.updateNote(targetId, { isTrashed: 0 } as any)
-          .then(() => {
-            actions.refreshNotebooks();
-            actions.refreshNotes();
-          })
-          .catch((err: any) => {
-            // v14：父笔记本已被软删 → 后端拒绝直接恢复，需要用户先选一个新笔记本。
-            // 当前最小修复：toast 提示并刷新回收站列表（被乐观删掉的项会重新出现）。
-            // 后续若做"还原到指定笔记本"UI，可在此打开笔记本选择器再走 PUT
-            // 带 notebookId 重试。
-            if (err?.code === "NOTEBOOK_TRASHED") {
-              toast.warning(
-                err?.message ||
-                  t("noteList.restoreNotebookTrashed") ||
-                  "原笔记本已删除，请先在「所有笔记」选择一个新的笔记本作为还原位置",
-              );
-              actions.refreshNotes();
-              return;
-            }
-            console.error(err);
-            actions.refreshNotes();
-          });
-        break;
-      }
-      case "delete_permanent": {
-        haptic.heavy();
-        if (state.activeNote?.id === targetId) actions.setActiveNote(null);
-        actions.removeNoteFromList(targetId);
-        api.deleteNote(targetId)
-          .then(() => {
-            actions.refreshNotebooks();
-            actions.refreshNotes();
-            // TAG-PRUNE-UNUSED-ON-NOTE-DELETE-01: 删除笔记后刷新标签列表并清理失效筛选
-            api.getTags().then((tags) => {
-              actions.setTags(tags);
-              // 清理 selectedTagIds 中已消失的标签
-              const validTagIds = new Set(tags.map((t: any) => t.id));
-              const currentSelected = state.selectedTagIds;
-              const invalidIds = currentSelected.filter(id => !validTagIds.has(id));
-              if (invalidIds.length > 0) {
-                const remaining = currentSelected.filter(id => validTagIds.has(id));
-                if (remaining.length > 0) {
-                  actions.setSelectedTags(remaining);
-                } else {
-                  actions.clearSelectedTags();
-                  // RV2: 只在当前是标签视图时才回退，不破坏笔记本/搜索等上下文
-                  if (state.viewMode === "tag") {
-                    if (state.selectedNotebookId) {
-                      actions.setViewMode("notebook");
-                    } else {
-                      actions.setViewMode("all");
-                    }
-                  }
-                }
-              }
-            }).catch(() => {});
-          })
-          .catch(console.error);
-        break;
-      }
+
     }
   };
 
@@ -2982,6 +3238,7 @@ export default function NoteList() {
           updatedAt: note.updatedAt,
           createdAt: note.createdAt,
           contentFormat: note.contentFormat,
+          colorMark: note.colorMark ?? null,
         } as NoteListItem);
         okCount++;
       } catch (err: any) {
@@ -2995,6 +3252,10 @@ export default function NoteList() {
       actions.setActiveNote(firstNote);
       actions.setMobileView("editor");
     }
+    if (okCount > 0) {
+      revealCreatedKnowledgeTreeNote(selectedKnowledgeTreeParentId);
+      emitKnowledgeTreeRefresh("notes-imported-from-note-list");
+    }
     actions.refreshNotebooks();
 
     if (okCount > 0 && failCount === 0) {
@@ -3004,7 +3265,7 @@ export default function NoteList() {
     } else {
       toast.error("导入失败");
     }
-  }, [state.selectedNotebookId, state.notebooks, actions]);
+  }, [state.selectedNotebookId, state.notebooks, actions, selectedKnowledgeTreeParentId]);
 
   // 拖拽排序处理（桌面端 HTML5 Drag API）
   const handleDragStart = useCallback((e: React.DragEvent, noteId: string) => {
@@ -3181,7 +3442,7 @@ export default function NoteList() {
   };
 
   return (
-    <div className="w-full h-full bg-app-surface border-r border-app-border flex flex-col transition-colors relative">
+    <div className="w-full min-w-0 h-full bg-app-surface border-r border-app-border flex flex-col transition-colors relative">
       {/* Mobile Header */}
       <header className="flex items-center justify-between gap-2 px-4 py-3 border-b border-app-border md:hidden relative z-40" style={{ paddingTop: 'calc(var(--safe-area-top) + 4px)' }}>
         <button
@@ -3193,10 +3454,11 @@ export default function NoteList() {
         <h2 className="min-w-0 flex-1 truncate text-center text-sm font-semibold text-tx-primary">{viewTitles[state.viewMode]}</h2>
         <div className="flex shrink-0 items-center gap-1 relative">
           {/* 移动端排序按钮（搜索/回收站不显示） */}
-          {state.viewMode !== "trash" && state.viewMode !== "search" && (
+          {state.viewMode !== "search" && (
             <button
-              ref={sortBtnRef}
-              onClick={() => setShowSortMenu((v) => !v)}
+              onClick={(e) => { sortBtnRef.current = e.currentTarget; setShowSortMenu((v) => !v); }}
+              aria-expanded={showSortMenu}
+              aria-haspopup="menu"
               className={cn(
                 "p-1.5 rounded-md transition-colors relative",
                 sortPref.by !== "manual"
@@ -3209,7 +3471,7 @@ export default function NoteList() {
             </button>
           )}
           {/* 移动端日历筛选按钮 */}
-          {state.viewMode !== "trash" && state.viewMode !== "search" && (
+          {state.viewMode !== "search" && (
             <button
               onClick={() => setShowCalendar(!showCalendar)}
               className={cn(
@@ -3225,154 +3487,99 @@ export default function NoteList() {
               )}
             </button>
           )}
-          {state.viewMode === "trash" ? (
-            // 回收站视图下用"一键清空"按钮替换"新建"——后者在回收站语义不通且会被禁止；
-            // 移动端 Sidebar 未挂载时自定义事件无人监听，改为直接调用 confirm + api.emptyTrash。
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-8 w-8 text-accent-danger hover:bg-accent-danger/10"
-              title={t('sidebar.emptyTrash')}
-              aria-label={t('sidebar.emptyTrash')}
-              onClick={handleEmptyTrash}
-            >
-              <Trash2 size={18} />
-            </Button>
-          ) : (
             <button
               ref={createMenuAnchorDesktopRef}
               type="button"
               className="h-8 px-2 flex items-center gap-1 rounded-md text-tx-tertiary hover:bg-app-hover hover:text-tx-secondary transition-colors"
+              title="新建"
+              aria-label="新建"
+              aria-haspopup="menu"
+              aria-expanded={createMenuOpen && createMenuSource === "desktop"}
               onClick={() => {
                 setCreateNoteMenuSource("desktop");
                 setCreateNoteMenuOpen((v) => !v);
               }}
             >
               <Plus size={18} />
-              <ChevronDown size={12} />
             </button>
-          )}
-          {/* 排序下拉（移动端） */}
-          {showSortMenu && (
-            <SortMenu
-              value={sortPref}
-              anchorRef={sortBtnRef}
-              onChange={(next) => {
-                setSortPref(next);
-                saveSortPref(next);
-              }}
-              onClose={() => setShowSortMenu(false)}
-              showNoteTime={showNoteTime}
-              onToggleShowTime={() => userPrefs.setPref("showNoteListUpdatedTime", !userPrefs.prefs.showNoteListUpdatedTime)}
-            />
-          )}
+
         </div>
       </header>
 
       {/* Desktop Header */}
       <div
-        className={cn(
-          "hidden md:flex items-center justify-between gap-2 px-4 py-3 border-b border-app-border relative z-40",
-          layoutMode === "three-column" && "flex-wrap",
-        )}
+        className="hidden md:flex min-w-0 shrink-0 flex-wrap items-center justify-between gap-x-2 gap-y-2 px-3 py-2 border-b border-app-border relative z-40"
+        data-note-list-desktop-header
         data-note-workspace-layout={layoutMode}
       >
-        <div className="flex min-w-0 items-center gap-2">
-          <FileText size={16} className="text-accent-primary" />
-          <h2 className="min-w-0 truncate text-sm font-medium text-tx-primary">{viewTitles[state.viewMode]}</h2>
+        <div className="flex min-w-0 flex-1 items-center gap-1.5">
+          <FileText size={16} className="shrink-0 text-accent-primary" />
+          <h2 className="min-w-0 truncate text-sm font-medium text-tx-primary" title={viewTitles[state.viewMode]}>{viewTitles[state.viewMode]}</h2>
         </div>
         <div className="flex shrink-0 items-center gap-1 relative">
-          {/* 折叠笔记列表面板（桌面专用；点击后中间整列隐藏，编辑器占满）。
-              与Rail上的 toggleSidebar 互不干扰，均有独立状态。 */}
-          <button
-            type="button"
-            onClick={() => actions.toggleNoteListCollapsed()}
-            title={t("common.collapseList")}
-            aria-label={t("common.collapseList")}
-            className="p-1.5 rounded-md text-tx-tertiary hover:bg-app-hover hover:text-tx-secondary transition-colors"
-          >
-            <PanelLeftClose size={15} />
-          </button>
-          {/* 桌面端排序按钮 */}
-          {state.viewMode !== "trash" && state.viewMode !== "search" && (
+          {/* 列表选项保持可辨认；排序本身不代表筛选已开启。 */}
+          {state.viewMode !== "search" && (
             <button
-              ref={sortBtnRef}
-              onClick={() => setShowSortMenu((v) => !v)}
+              type="button"
+              onClick={(e) => { sortBtnRef.current = e.currentTarget; setShowSortMenu((v) => !v); }}
+              aria-expanded={showSortMenu}
+              aria-haspopup="menu"
               className={cn(
-                "p-1.5 rounded-md transition-colors relative",
-                sortPref.by !== "manual"
+                "h-7 px-2 inline-flex shrink-0 items-center gap-1 rounded-md text-xs transition-colors relative",
+                showSortMenu || hasActiveFilters
                   ? "text-accent-primary bg-accent-primary/10"
                   : "text-tx-tertiary hover:bg-app-hover hover:text-tx-secondary"
               )}
-              title={t("noteList.sortBy")}
+              title={t("noteList.listOptions")}
+              aria-label={t("noteList.listOptions")}
             >
-              <ArrowUpDown size={15} />
+              <SlidersHorizontal size={14} className="shrink-0" />
+              <span>{t("noteList.listOptions")}</span>
+              <ChevronDown size={12} className="shrink-0" />
             </button>
           )}
-          {/* 日历筛选按钮 */}
-          {state.viewMode !== "trash" && state.viewMode !== "search" && (
-            <button
-              onClick={() => setShowCalendar(!showCalendar)}
-              className={cn(
-                "p-1.5 rounded-md transition-colors relative",
-                showCalendar || dateFilter
-                  ? "text-accent-primary bg-accent-primary/10"
-                  : "text-tx-tertiary hover:bg-app-hover hover:text-tx-secondary"
-              )}
-              title={t("noteList.dateFilter")}
-            >
-              <CalendarDays size={15} />
-              {dateFilter && (
-                <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-accent-primary" />
-              )}
-            </button>
-          )}
-          {state.viewMode === "trash" ? (
-            // 回收站视图：将"+"换成"一键清空回收站"——破坏性操作做红色降级 + 标题提示，
-            // 直接调用 confirm + api.emptyTrash，不依赖 Sidebar 自定义事件。
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-7 w-7 text-accent-danger hover:bg-accent-danger/10"
-              title={t('sidebar.emptyTrash')}
-              aria-label={t('sidebar.emptyTrash')}
-              onClick={handleEmptyTrash}
-            >
-              <Trash2 size={15} />
-            </Button>
-          ) : (
             <button
               ref={createMenuAnchorMobileRef}
               type="button"
               className="h-7 px-1.5 flex items-center gap-0.5 rounded-md text-tx-tertiary hover:bg-app-hover hover:text-tx-secondary transition-colors"
+              title="新建"
+              aria-label="新建"
+              aria-haspopup="menu"
+              aria-expanded={createMenuOpen && createMenuSource === "mobile"}
               onClick={() => {
                 setCreateNoteMenuSource("mobile");
                 setCreateNoteMenuOpen((v) => !v);
               }}
             >
               <Plus size={15} />
-              <ChevronDown size={11} />
             </button>
-          )}
-          {/* 排序下拉（桌面端） */}
-          {showSortMenu && (
-            <SortMenu
-              value={sortPref}
-              anchorRef={sortBtnRef}
-              onChange={(next) => {
-                setSortPref(next);
-                saveSortPref(next);
-              }}
-              onClose={() => setShowSortMenu(false)}
-              showNoteTime={showNoteTime}
-              onToggleShowTime={() => userPrefs.setPref("showNoteListUpdatedTime", !userPrefs.prefs.showNoteListUpdatedTime)}
-            />
-          )}
+
         </div>
       </div>
 
+      {showSortMenu && (
+        <SortMenu value={sortPref} anchorRef={sortBtnRef}
+          onChange={(next) => { setSortPref(next); saveSortPref(next); }}
+          onClose={() => setShowSortMenu(false)}
+          showNoteTime={showNoteTime}
+          onToggleShowTime={() => userPrefs.setPref("showNoteListUpdatedTime", !showNoteTime)}
+          showDividers={showDividers}
+          onToggleDividers={() => userPrefs.setPref("showNoteListDividers", !showDividers)}
+          titleOnly={titleOnly}
+          onToggleTitleOnly={() => userPrefs.setPref("noteListTitleOnly", !titleOnly)}
+          onToggleCalendar={() => setShowCalendar((v) => !v)}
+        />
+      )}
+
+      {dateFilter && state.viewMode !== "search" && (
+        <div className="flex items-center gap-1.5 px-3 py-1 border-b border-app-border/50 text-xs text-accent-primary">
+          <CalendarDays size={12} className="shrink-0" /><span className="min-w-0 flex-1 truncate">{t("noteList.activeDateFilter", { date: dateFilter })}</span>
+          <button type="button" onClick={() => setDateFilter(null)} title={t("noteList.clearFilter")} aria-label={t("noteList.clearFilter")} className="p-1 rounded hover:bg-app-hover"><X size={12} /></button>
+        </div>
+      )}
+
       {/* 日历筛选面板 */}
-      {showCalendar && state.viewMode !== "trash" && state.viewMode !== "search" && (
+      {showCalendar && state.viewMode !== "search" && (
         <div className="border-b border-app-border bg-app-surface max-md:animate-in max-md:slide-in-from-top max-md:duration-200">
           <MiniCalendarFilter
             selectedDate={dateFilter}
@@ -3385,8 +3592,8 @@ export default function NoteList() {
 
       {/* TAG-FILTER-MULTI-01: 已选标签 chip 区域 */}
       {state.selectedTagIds.length > 0 && (
-        <div className="flex min-w-0 items-center gap-1.5 px-3 py-1.5 border-b border-app-border/50 overflow-x-auto">
-          <div className="flex min-w-max items-center gap-1.5">
+        <div className="flex min-w-0 flex-wrap items-center gap-1.5 px-3 py-1.5 border-b border-app-border/50">
+          <div className="flex min-w-0 flex-wrap items-center gap-1.5">
             {state.selectedTagIds.map((tagId) => {
               const tag = state.tags.find((t) => t.id === tagId);
               if (!tag) return null;
@@ -3402,6 +3609,8 @@ export default function NoteList() {
                   />
                   <span className="truncate">{tag.name}</span>
                   <button
+                    type="button"
+                    aria-label={t("noteList.removeTagFilter", { name: tag.name })}
                     onClick={() => {
                       actions.toggleSelectedTag(tag.id);
                       // 如果移除后没有标签了，回到之前的视图（笔记本 or 全部）
@@ -3443,19 +3652,19 @@ export default function NoteList() {
 
       {/* 三栏布局：明确区分当前层级和递归范围，避免左侧总数与中栏结果产生“文件丢失”错觉。 */}
       {showThreeColumnFolderContents ? (
-        <div className="flex min-w-0 items-center justify-between gap-2 border-b border-app-border/50 px-3 py-1.5">
-          <span className="min-w-0 truncate text-[10px] text-tx-tertiary">
-            {currentFolderOnly
+        <div className="flex min-w-0 shrink-0 flex-wrap items-center justify-between gap-2 border-b border-app-border/50 px-3 py-1.5">
+          <span className="min-w-0 text-xs text-tx-secondary" role="status">
+            {hasActiveFilters
+              ? t("noteList.matchCount", { count: sortedNotes.length })
+              : currentFolderOnly
               ? t("noteList.currentFolderCount", {
                   direct: displayedDirectNoteCount,
                   total: displayedTotalNoteCount,
-                  folders: visibleChildFolders.length,
-                  defaultValue: "本层 {{direct}} 篇 · 共 {{total}} 篇 · {{folders}} 个子文件夹",
+                  defaultValue: "本层 {{direct}} 篇 · 共 {{total}} 篇",
                 })
               : t("noteList.recursiveFolderCount", {
                   total: displayedTotalNoteCount,
-                  folders: visibleChildFolders.length,
-                  defaultValue: "共 {{total}} 篇 · {{folders}} 个直属子文件夹",
+                  defaultValue: "共 {{total}} 篇",
                 })}
           </span>
           <div
@@ -3476,25 +3685,27 @@ export default function NoteList() {
                     saveThreeColumnFolderScopeMode(nextMode);
                   }}
                   className={cn(
-                    "rounded px-2 py-1 text-[10px] font-medium transition-colors",
+                    "rounded px-2 py-1 text-xs font-medium transition-colors",
                     active
                       ? "bg-app-elevated text-tx-primary shadow-sm"
                       : "text-tx-tertiary hover:text-tx-secondary",
                   )}
                 >
                   {mode === "current"
-                    ? t("noteList.currentLevel", { defaultValue: "当前层级" })
-                    : t("noteList.includeSubfolders", { defaultValue: "包含子文件夹" })}
+                    ? t("noteList.currentLevel", { defaultValue: "本层" })
+                    : t("noteList.includeSubfolders", { defaultValue: "含子目录" })}
                 </button>
               );
             })}
           </div>
         </div>
       ) : (
-        <div className="px-4 py-1.5">
-          <span className="text-[10px] text-tx-tertiary">{t('common.noteCount', { count: sortedNotes.length })}</span>
+        <div className="shrink-0 border-b border-app-border/50 px-3 py-1.5">
+          <span className="text-xs text-tx-secondary" role="status">{t(hasActiveFilters || state.viewMode === "search" ? "noteList.matchCount" : "common.noteCount", { count: sortedNotes.length })}</span>
         </div>
       )}
+
+
 
       {showThreeColumnFolderContents && hasVisibleChildFolders && (
         <section
@@ -3548,7 +3759,7 @@ export default function NoteList() {
             {t('noteList.selectedCount', { count: selectedIds.size })}
           </span>
           <div className="flex min-w-0 shrink items-center gap-1 overflow-x-auto">
-            {state.viewMode !== "trash" && (
+
               <>
                 <button
                   className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded-md bg-accent-primary text-white hover:bg-accent-primary/90 transition-colors"
@@ -3660,7 +3871,7 @@ export default function NoteList() {
                   <Trash2 size={12} />
                 </button>
               </>
-            )}
+
             <button
               className="inline-flex items-center p-1 rounded-md text-tx-secondary hover:bg-app-hover transition-colors"
               onClick={() => {
@@ -3675,7 +3886,8 @@ export default function NoteList() {
         </div>
       )}
 
-      {/* List - 包裹下拉刷新（仅移动端生效，桌面端不影响） */}
+      {/* List - 包裹下拉刷新（仅移动端生效，桌面端不影响）。普通列表限定 Radix
+          内容容器为 block，防止其默认 display:table 被长标题撑宽。 */}
       {/* 拖拽外部文件兜底层：让用户拖到列表的任意位置（含空白处、虚拟列表、骨架屏）
           都能触发文件导入（方案 B）。NoteCard 自身也在 handleDrop 里做了同源判断，
           这里只是兜底处理“没落到任何笔记上”的情况。dragover 必须 preventDefault
@@ -3685,7 +3897,7 @@ export default function NoteList() {
           让用户明确“此区域可以接收文件”。overlay 用 pointer-events:none 以免吃事件。 */}
       <div
         className={cn(
-          "flex-1 min-h-0 flex flex-col relative transition-colors duration-150",
+          "flex-1 min-h-0 min-w-0 flex flex-col relative transition-colors duration-150",
           isFileDragging && "bg-accent-primary/5",
         )}
         onDragEnter={(e) => {
@@ -3743,7 +3955,9 @@ export default function NoteList() {
         {/* 笔记数量较少时使用普通渲染，较多时使用虚拟滚动 */}
         {sortedNotes.length > 100 ? (
           <VirtualNoteList
+            sidebarTextStyle={sidebarTextStyle}
             notes={sortedNotes}
+            scrollScopeKey={notesQueryKey}
             activeNoteId={state.noteLoadingState.pendingNoteId || state.activeNote?.id}
             menuState={{ isOpen: menu.isOpen, targetId: menu.targetId }}
             sharedNoteIds={sharedNoteIds}
@@ -3762,16 +3976,19 @@ export default function NoteList() {
             noteCardRefs={noteCardRefs}
             searchQuery={state.searchQuery || undefined}
             showNoteTime={showNoteTime}
+            showDividers={showDividers}
+            titleOnly={titleOnly}
             showNotebookLabel={showNotebookLabel}
             notebookLabels={notebookLabels}
             dragHint={noteDragHint}
           />
         ) : (
-        <ScrollArea ref={scrollAreaRef} className="flex-1 min-h-0">
-        <div className="px-2 pb-2 space-y-1">
+        <ScrollArea ref={scrollAreaRef} className="flex-1 min-h-0 min-w-0 [&_[data-radix-scroll-area-viewport]>div]:!block [&_[data-radix-scroll-area-viewport]>div]:w-full">
+        <div className="min-w-0 w-full px-2 pb-2 space-y-1">
           <AnimatePresence>
-            {sortedNotes.map((note) => (
+            {sortedNotes.map((note, noteIndex) => (
               <NoteCard
+                sidebarTextStyle={sidebarTextStyle}
                 key={note.id}
                 cardRef={(el) => {
                   if (el) noteCardRefs.current.set(note.id, el);
@@ -3795,7 +4012,10 @@ export default function NoteList() {
                 onTouchEnd={handleTouchEnd}
                 searchQuery={state.searchQuery || undefined}
                 showNoteTime={showNoteTime}
-                notebookLabel={showNotebookLabel ? notebookLabels.get(note.notebookId) : undefined}
+                showDivider={showDividers && noteIndex < sortedNotes.length - 1}
+                titleOnly={titleOnly}
+                notebookLabel={showNotebookLabel ? notebookLabels.get(note.notebookId)?.text : undefined}
+                notebookPath={showNotebookLabel ? notebookLabels.get(note.notebookId)?.path : undefined}
                 dragHint={noteDragHint}
               />
             ))}
@@ -3847,32 +4067,25 @@ export default function NoteList() {
             <div className="flex flex-col items-center justify-center py-16 px-6 text-center">
               <div className={cn(
                 "w-16 h-16 rounded-2xl flex items-center justify-center mb-4",
-                state.viewMode === "trash" ? "bg-app-hover" : "bg-accent-primary/10",
+                "bg-accent-primary/10",
               )}>
-                {state.viewMode === "trash" ? (
-                  <Trash2 size={28} className="text-tx-tertiary/50" />
-                ) : (
                   <FileText size={28} className="text-accent-primary/40" />
-                )}
+
               </div>
               <p className="text-sm font-medium text-tx-secondary mb-1">
-                {state.viewMode === "trash"
-                  ? t('noteList.trashEmptyTitle')
-                  : state.viewMode === "tag" && state.selectedTagIds.length > 1
+                {state.viewMode === "tag" && state.selectedTagIds.length > 1
                   ? (t('noteList.noNotesForTagCombo') || "当前标签组合下没有笔记")
                   : t('common.noNotes')}
               </p>
               <p className={cn(
                 "text-xs text-tx-tertiary max-w-[200px] leading-relaxed",
-                state.viewMode !== "trash" && "mb-5",
+                "mb-5",
               )}>
-                {state.viewMode === "trash"
-                  ? t('noteList.trashEmptyHint')
-                  : state.viewMode === "tag" && state.selectedTagIds.length > 1
+                {state.viewMode === "tag" && state.selectedTagIds.length > 1
                   ? (t('noteList.noNotesForTagComboHint') || "尝试减少标签筛选条件")
                   : t('common.noNotesHint')}
               </p>
-              {state.viewMode !== "trash" && (
+
                 <button
                   onClick={() => handleCreateNote("normal")}
                   className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-accent-primary text-white text-xs font-medium hover:bg-accent-primary/90 active:scale-95 transition-all shadow-sm"
@@ -3880,7 +4093,7 @@ export default function NoteList() {
                   <Plus size={14} />
                   {t('common.newNote')}
                 </button>
-              )}
+
             </div>
           )}
           {/* 骨架屏 Loading */}
@@ -3909,7 +4122,7 @@ export default function NoteList() {
       </div>
 
       {/* Mobile FAB - 新建笔记（点击默认普通笔记，长按弹类型选择） */}
-      {state.viewMode !== "trash" && (
+
         <button
           ref={createMenuAnchorFabRef}
           onClick={() => handleCreateNote("normal")}
@@ -3922,7 +4135,7 @@ export default function NoteList() {
         >
           <Plus size={24} />
         </button>
-      )}
+
 
       {/* Note Context Menu */}
       <ContextMenu
@@ -3934,6 +4147,26 @@ export default function NoteList() {
         onAction={handleMenuAction}
         header={state.notes.find((n) => n.id === menu.targetId)?.title || t('noteList.note')}
       />
+
+      {contextShareNote && (
+        <ShareModal
+          noteId={contextShareNote.id}
+          noteTitle={contextShareNote.title}
+          onClose={() => setContextShareNote(null)}
+        />
+      )}
+
+      {contextPermissionsNode && (
+        <KnowledgeTreePermissionsDialog
+          node={contextPermissionsNode}
+          onClose={() => setContextPermissionsNode(null)}
+          onChanged={(reason) => {
+            emitKnowledgeTreeRefresh(reason);
+            actions.refreshNotes();
+            actions.refreshNotebooks();
+          }}
+        />
+      )}
 
       {/* Move Note Modal */}
       <MoveNoteModal
@@ -3962,9 +4195,10 @@ export default function NoteList() {
         }}
       />
 
-      {/* 新建按钮的下拉（普通笔记 / Word 文档），在 split-button 的 ▾ 旁边 portal 弹出 */}
-      {createMenuOpen && createMenuSource && (
+      {/* 保持挂载，菜单关闭后模板和加密对话框仍可继续操作。 */}
         <CreateNoteMenu
+          open={createMenuOpen}
+          parentId={selectedKnowledgeTreeParentId}
           anchorRef={
             createMenuSource === "desktop"
               ? createMenuAnchorDesktopRef
@@ -3978,7 +4212,6 @@ export default function NoteList() {
             setCreateNoteMenuSource(null);
           }}
         />
-      )}
 
       {/* AI 批量归类确认面板：扫描完成后弹出，用户逐条审核再执行移动 */}
       <AiClassifyConfirmModal

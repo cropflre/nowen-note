@@ -110,6 +110,21 @@ export async function uploadImage(options: ImageUploadOptions): Promise<ImageUpl
   }
 }
 
+/** 照片选择器可以同时接收 Live Photo 原视频；视频先保存，正文只插入照片。 */
+export async function uploadPhotoSelection(noteId: string, files: File[]): Promise<Array<{ url: string; filename: string }>> {
+  const photos = files.filter((file) => file.type.startsWith("image/") || /\.(?:jpe?g|png|webp|gif|bmp|hei[cf])$/i.test(file.name));
+  const companions = files.filter((file) => /\.mov$/i.test(file.name));
+  if (!photos.length || photos.length + companions.length !== files.length) throw new Error("请选择照片，可同时选择 Live Photo 的 MOV 原件");
+  for (const file of companions) await api.attachments.upload(noteId, file);
+  const result: Array<{ url: string; filename: string }> = [];
+  for (const file of photos) {
+    const uploaded = await api.attachments.upload(noteId, file);
+    if (uploaded.category !== "image") throw new Error("该文件无法识别为照片，原件已保留在附件中");
+    result.push({ url: uploaded.url, filename: uploaded.filename || file.name });
+  }
+  return result;
+}
+
 /**
  * 上传图片并插入到编辑器。
  *

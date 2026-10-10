@@ -3,6 +3,7 @@ import {
   type TiptapAnalysisResult,
   type TiptapJsonNode,
 } from "@/lib/tiptapAnalysis";
+import TiptapAnalysisWorker from "./tiptapAnalysis.worker?worker";
 
 interface WorkerRequest { requestId: number; doc: TiptapJsonNode }
 interface WorkerResponse { requestId: number; result?: TiptapAnalysisResult; error?: string }
@@ -20,9 +21,11 @@ export interface TiptapAnalysisController {
 
 function createDefaultWorker(): WorkerLike | null {
   if (typeof Worker === "undefined") return null;
-  return new Worker(new URL("./tiptapAnalysis.worker.ts", import.meta.url), {
-    name: "nowen-tiptap-analysis",
-  });
+  // Vite serves imported Worker dependencies as native ESM in dev, but bundles
+  // a classic IIFE for production (worker.format = "iife"). Using a bare
+  // new Worker(new URL(...)) without type: module runs dev imports as a classic
+  // script and fails with "Cannot use import statement outside a module".
+  return new TiptapAnalysisWorker({ name: "nowen-tiptap-analysis" });
 }
 
 /** Latest-request-wins worker controller; destruction invalidates every pending result. */

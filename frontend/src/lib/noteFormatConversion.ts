@@ -2,7 +2,9 @@ import {
   markdownToPlainText,
   markdownToTiptapJSON,
   normalizeToMarkdown,
+  detectFormat,
 } from "@/lib/contentFormat";
+import { assertEncryptedBlocksPreserved } from "./encryptedNotes/blockDocument";
 
 export type NoteFormatConversionTarget = "markdown" | "tiptap-json";
 
@@ -40,7 +42,7 @@ function repairLegacyUnbalancedFence(markdown: string, removedMarkerCount: numbe
   if (removedMarkerCount === 0) return markdown;
   const lines = markdown.split("\n");
   const fences = lines
-    .map((line, index) => ({ index, match: line.match(/^[ \t]{0,3}(`{3,}|~{3,})[ \t]*$/) }))
+    .map((line, index) => ({ index, match: line.match(/^[ \t]{0,3}(`{3,}|~{3,})(?:[ \t]*|[^`~].*)$/) }))
     .filter((entry) => entry.match) as Array<{ index: number; match: RegExpMatchArray }>;
   if (fences.length % 2 === 0 || fences.length === 0) return markdown;
 
@@ -84,6 +86,7 @@ export function convertNoteContent(
   const plainText = markdownToPlainText(markdown) || contentText || "";
 
   if (targetFormat === "markdown") {
+    assertEncryptedBlocksPreserved(content, detectFormat(content) === "md" ? "markdown" : detectFormat(content), markdown, "markdown");
     return {
       content: markdown,
       contentText: plainText,
@@ -91,8 +94,10 @@ export function convertNoteContent(
     };
   }
 
+  const converted = JSON.stringify(markdownToTiptapJSON(markdown));
+  assertEncryptedBlocksPreserved(content, detectFormat(content) === "md" ? "markdown" : detectFormat(content), converted, "tiptap-json");
   return {
-    content: JSON.stringify(markdownToTiptapJSON(markdown)),
+    content: converted,
     contentText: plainText,
     contentFormat: "tiptap-json" as const,
   };

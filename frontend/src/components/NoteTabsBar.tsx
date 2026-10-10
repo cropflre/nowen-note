@@ -4,10 +4,14 @@ import { Check, ChevronDown, FileCode, FileText, Folder, List, Lock, Pin, Plus, 
 import { useTranslation } from "react-i18next";
 import { useApp, useAppActions, type OpenNoteTab } from "@/store/AppContext";
 import { api } from "@/lib/api";
+import { markNewNoteForImmediateEdit } from "@/lib/newNoteImmediateEdit";
 import { cn } from "@/lib/utils";
 import { toast } from "@/lib/toast";
 import { useNoteLoader } from "@/hooks/useNoteLoader";
 import type { Notebook, NoteListItem } from "@/types";
+import { EditorToolbarExpandSlot } from "@/components/CollapsibleEditorToolbar";
+import { buildNoteDeepLinkUrl } from "@/lib/noteDeepLink";
+import NoteColorMarkDot from "@/components/NoteColorMarkDot";
 
 type TabContextMenuState = {
   tabId: string;
@@ -117,6 +121,7 @@ function NoteTabVisual({
   title,
   active,
   loading,
+  colorMark,
   closeLabel,
   onClose,
 }: {
@@ -124,11 +129,13 @@ function NoteTabVisual({
   title: string;
   active: boolean;
   loading: boolean;
+  colorMark?: import("@/types").NoteColorMark | null;
   closeLabel: string;
   onClose?: (event: React.MouseEvent<HTMLSpanElement>) => void;
 }) {
   return (
     <>
+      <NoteColorMarkDot value={colorMark} />
       {tab.pinned && <Pin size={11} className="shrink-0 text-accent-primary fill-accent-primary/20" />}
       {tab.isLocked ? (
         <Lock size={12} className="shrink-0 text-orange-500" />
@@ -165,7 +172,8 @@ export default function NoteTabsBar() {
   const actions = useAppActions();
   const { loadNote, cancelNoteLoad } = useNoteLoader();
   const { t } = useTranslation();
-  const { openNoteTabs, activeNote, noteLoading, noteLoadingState } = state;
+  const { openNoteTabs, activeNote, noteLoading } = state;
+  const noteLoadingState = state.noteLoadingState ?? { pendingNoteId: null };
   const [contextMenu, setContextMenu] = useState<TabContextMenuState>(null);
   const [createMenu, setCreateMenu] = useState<CreateMenuState>(null);
   const [createNotebookMenu, setCreateNotebookMenu] = useState<CreateNotebookMenuState>(null);
@@ -316,6 +324,7 @@ export default function NoteTabsBar() {
         contentFormat,
         ...(contentFormat === "markdown" ? { content: "", contentText: "" } : {}),
       });
+      markNewNoteForImmediateEdit(note.id);
       actions.setActiveNote(note);
       actions.setMobileView("editor");
       actions.openNoteTab({
@@ -393,13 +402,15 @@ export default function NoteTabsBar() {
 
   const copyFromTab = useCallback(async (
     tab: OpenNoteTab,
-    type: "wiki" | "markdown" | "title" | "id" | "path",
+    type: "internal" | "wiki" | "markdown" | "title" | "id" | "path",
   ) => {
     const title = tab.title || t("editorTabs.noTitle");
     const notebookPath = getNotebookPath(state.notebooks, tab.notebookId);
-    const value = type === "wiki"
-      ? buildWikiNoteLink(tab, t("editorTabs.noTitle"))
-      : type === "markdown"
+    const value = type === "internal"
+      ? buildNoteDeepLinkUrl(tab.id)
+      : type === "wiki"
+        ? buildWikiNoteLink(tab, t("editorTabs.noTitle"))
+        : type === "markdown"
         ? `[${escapeMarkdownLinkText(title)}](note:${tab.id})`
         : type === "title"
           ? title
@@ -409,6 +420,10 @@ export default function NoteTabsBar() {
     const ok = await copyText(value);
     ok ? toast.success(t("editorTabs.copySuccess")) : toast.error(t("editorTabs.copyFailed"));
   }, [state.notebooks, t]);
+
+  const openInNewTab = useCallback((tab: OpenNoteTab) => {
+    window.open(buildNoteDeepLinkUrl(tab.id), "_blank", "noopener,noreferrer");
+  }, []);
 
   const togglePinned = useCallback((tab: OpenNoteTab) => {
     actions.updateNoteTab({ id: tab.id, pinned: !tab.pinned });
@@ -665,6 +680,7 @@ export default function NoteTabsBar() {
                 title={title}
                 active={active}
                 loading={active && noteLoading}
+                colorMark={active ? activeNote?.colorMark : state.notes?.find((note) => note.id === tab.id)?.colorMark}
                 closeLabel={t("editorTabs.close")}
                 onClose={(e) => {
                   e.stopPropagation();
@@ -720,6 +736,7 @@ export default function NoteTabsBar() {
 
       <div className="pointer-events-none w-8 shrink-0 bg-gradient-to-r from-transparent to-app-surface/80" />
       <div className="flex shrink-0 items-center border-l border-app-border/70 px-1">
+        <EditorToolbarExpandSlot location="tabs" />
         <button
           ref={tabListTriggerRef}
           type="button"
@@ -899,6 +916,8 @@ export default function NoteTabsBar() {
           <TabMenuItem label={t("editorTabs.closeSplit")} onClick={() => runMenuAction(actions.closeEditorSplit)} />
           <TabMenuItem label={t("editorTabs.closeAllSplits")} onClick={() => runMenuAction(actions.clearEditorSplits)} />
           <MenuSeparator />
+          <TabMenuItem label={t("editorTabs.openInNewTab")} onClick={() => runMenuAction(() => openInNewTab(targetTab))} />
+          <TabMenuItem label={t("editorTabs.copyInternalLink")} onClick={() => runCopyAction(() => copyFromTab(targetTab, "internal"))} />
           <TabMenuItem label={t("editorTabs.copyWikiLink")} onClick={() => runCopyAction(() => copyFromTab(targetTab, "wiki"))} />
           <TabMenuItem label={t("editorTabs.copyMarkdownLink")} onClick={() => runCopyAction(() => copyFromTab(targetTab, "markdown"))} />
           <TabMenuItem label={t("editorTabs.copyTitle")} onClick={() => runCopyAction(() => copyFromTab(targetTab, "title"))} />

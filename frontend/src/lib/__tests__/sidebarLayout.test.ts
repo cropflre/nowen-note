@@ -16,7 +16,8 @@ describe("sidebarLayout", () => {
 
   it("widens the scrollable tree content by max depth", () => {
     expect(sidebarTreeContentMinWidth(12)).toBe(sidebarTreeRowMinWidth(12));
-    expect(sidebarTreeContentMinWidth(12)).toBeGreaterThan(600);
+    expect(SIDEBAR_TREE_LABEL_RESERVE_WIDTH).toBe(120);
+    expect(sidebarTreeContentMinWidth(12)).toBeLessThanOrEqual(400);
   });
 
   it("reserves room for notebook note counts without manual sidebar widening", () => {

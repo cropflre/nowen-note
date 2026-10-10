@@ -294,6 +294,40 @@ function ensureFoldersInternal(
   };
 }
 
+export function ensureJournalArchiveRoot(input: {
+  db: Database.Database;
+  userId: string;
+}): {
+  rootNotebookId: string;
+  rootNodeId: string;
+  foldersCreated: number;
+  foldersAdopted: number;
+  foldersReused: number;
+} {
+  const stats: FolderStats = { created: 0, adopted: 0, reused: 0 };
+  const execute = () => {
+    ensureKnowledgeTreeTables(input.db);
+    const rootNotebookId = ensureArchiveFolder(input.db, {
+      userId: input.userId,
+      stableId: journalArchiveNotebookId(input.userId, "root"),
+      parentId: null,
+      title: JOURNAL_ARCHIVE_ROOT_TITLE,
+      icon: "📔",
+      sortOrder: -2_000_000_000,
+      kind: "root",
+      archiveKey: "root",
+    }, stats);
+    return { rootNotebookId, rootNodeId: notebookNodeId(rootNotebookId) };
+  };
+  const root = input.db.inTransaction ? execute() : input.db.transaction(execute)();
+  return {
+    ...root,
+    foldersCreated: stats.created,
+    foldersAdopted: stats.adopted,
+    foldersReused: stats.reused,
+  };
+}
+
 export function ensureJournalArchiveFolders(input: {
   db: Database.Database;
   userId: string;

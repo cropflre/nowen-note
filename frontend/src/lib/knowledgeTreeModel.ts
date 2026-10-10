@@ -5,6 +5,17 @@ export interface KnowledgeTreeBranch {
   children: KnowledgeTreeBranch[];
 }
 
+export function isActiveKnowledgeTreeDocument(
+  node: Pick<KnowledgeTreeNode, "resourceType" | "resourceId">,
+  viewMode: string,
+  activeNoteId: string | null | undefined,
+  activeMindMapId: string | null,
+): boolean {
+  return viewMode === "mindmaps"
+    ? node.resourceType === "mindmap" && node.resourceId === activeMindMapId
+    : node.resourceType === "note" && node.resourceId === activeNoteId;
+}
+
 export function buildKnowledgeTreeForest(nodes: KnowledgeTreeNode[]): KnowledgeTreeBranch[] {
   const byParent = new Map<string | null, KnowledgeTreeNode[]>();
   const knownIds = new Set(nodes.map((node) => node.id));

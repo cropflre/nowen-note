@@ -1,0 +1,23 @@
+name: Publish Nowen Extension
+on:
+  push:
+    tags: ["v*"]
+permissions:
+  contents: read
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20, cache: npm }
+      - run: npm ci
+      - run: npx nowen-plugin test
+      - run: npx nowen-plugin pack
+      - run: printf '%s' "$NOWEN_PUBLISHER_PRIVATE_KEY" > "$RUNNER_TEMP/publisher.pem" && chmod 600 "$RUNNER_TEMP/publisher.pem"
+        env: { NOWEN_PUBLISHER_PRIVATE_KEY: "${{ secrets.NOWEN_PUBLISHER_PRIVATE_KEY }}" }
+      - run: npx nowen-plugin sign --key "$RUNNER_TEMP/publisher.pem" --key-id "${{ vars.NOWEN_PUBLISHER_KEY_ID }}"
+      - run: npx nowen-plugin publish
+        env:
+          NOWEN_REGISTRY_URL: "${{ vars.NOWEN_REGISTRY_URL }}"
+          NOWEN_REGISTRY_TOKEN: "${{ secrets.NOWEN_REGISTRY_TOKEN }}"

@@ -1,3 +1,6 @@
+import { getOfflineQueueStorageKey } from "./offlineScope";
+import { withConversionRequestLease } from "./encryptedNotes/conversionBarrier";
+import { withEncryptedBlocksSupport } from "./encryptedNotes/blockDocument";
 export * from "./api.impl";
 
 import { api as baseApi, getBaseUrl, getCurrentWorkspace, getServerUrl } from "./api.impl";
@@ -15,13 +18,31 @@ import { installTaskOfflineApi } from "./taskOfflineApi";
 import { emitTaskReminderScheduleChanged } from "./taskNotificationSchedule";
 import { toast } from "./toast";
 import {
+  ATTACHMENT_UPLOAD_MIN_TIMEOUT_MS,
   fetchJsonWithUploadDeadline,
   isElectronFullLocalRuntime,
-  LOCAL_ATTACHMENT_UPLOAD_TIMEOUT_MS,
   UploadRequestError,
 } from "./uploadRequest";
 import type { Note, SearchResult, Task } from "@/types";
 import { fetchWithAuthRefresh, getAccessToken } from "./authSession";
+
+export interface SpeechSettings { apiUrl: string; model: string; language: string | null; apiKeySet: boolean; configured: boolean }
+async function voiceRequest<T>(path: string, body?: unknown, method = body === undefined ? "GET" : "POST"): Promise<T> {
+  const response = await fetchWithAuthRefresh(`${getBaseUrl()}/voice${path}`, {
+    method,
+    headers: { "Content-Type": "application/json", ...(getAccessToken() ? { Authorization: `Bearer ${getAccessToken()}` } : {}) },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+  }, getBaseUrl());
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(result.error || `HTTP ${response.status}`);
+  return result as T;
+}
+export const voiceApi = {
+  settings: () => voiceRequest<SpeechSettings>("/settings"),
+  saveSettings: (settings: { apiUrl: string; model: string; language: string | null; apiKey?: string }) => voiceRequest<SpeechSettings>("/settings", settings, "PUT"),
+  test: () => voiceRequest<{ success: boolean }>("/test", {}),
+  transcribe: (attachmentId: string, language?: string) => voiceRequest<{ text: string; language: string | null; model: string }>("/transcriptions", { attachmentId, language }),
+};
 
 export type TaskActivityEvent = {
   id: string;
@@ -254,7 +275,7 @@ api.attachments.upload = (async (noteId: string, file: File) => {
       body: form,
     },
     {
-      timeoutMs: LOCAL_ATTACHMENT_UPLOAD_TIMEOUT_MS,
+      timeoutMs: ATTACHMENT_UPLOAD_MIN_TIMEOUT_MS,
       timeoutMessage: "附件上传超时，请检查本地服务或网络后重试",
       httpErrorMessage: "附件上传失败",
     },
@@ -308,37 +329,39 @@ api.restoreTaskCompletedAt = (taskId: string, completedAt: string) =>
   });
 
 api.createNoteConfirmed = async (data: Partial<Note>) => {
+  const cacheScope = getOfflineQueueStorageKey();
   let payload: Partial<Note> & { id: string };
   try {
-    payload = stabilizeNoteMutationPayload({
+    payload = withEncryptedBlocksSupport(stabilizeNoteMutationPayload({
       ...data,
       id: data.id || generateConfirmedNoteId(),
-    });
+    }));
   } catch (error) {
     reportTransientNoteImageSource(error, { operation: "createNoteConfirmed" });
     throw error;
   }
-  const created = await confirmedNoteJson<Note>("/notes", {
+  const created = await withConversionRequestLease(payload.id, payload, () => confirmedNoteJson<Note>("/notes", {
     method: "POST",
     body: JSON.stringify(payload),
-  });
-  void import("@/lib/syncEngine").then((module) => module.cacheNoteContent(created)).catch(() => {});
+  }));
+  void import("@/lib/syncEngine").then((module) => module.cacheNoteContent(created, cacheScope)).catch(() => {});
   return created;
 };
 
 api.updateNoteConfirmed = async (id: string, data: Partial<Note>) => {
+  const cacheScope = getOfflineQueueStorageKey();
   let payload: Partial<Note>;
   try {
-    payload = stabilizeNoteMutationPayload(data);
+    payload = withEncryptedBlocksSupport(stabilizeNoteMutationPayload(data));
   } catch (error) {
     reportTransientNoteImageSource(error, { operation: "updateNoteConfirmed", noteId: id });
     throw error;
   }
-  const updated = await confirmedNoteJson<Note>(`/notes/${encodeURIComponent(id)}`, {
+  const updated = await withConversionRequestLease(id, payload, () => confirmedNoteJson<Note>(`/notes/${encodeURIComponent(id)}`, {
     method: "PUT",
     body: JSON.stringify(payload),
-  });
-  void import("@/lib/syncEngine").then((module) => module.cacheNoteContent(updated)).catch(() => {});
+  }));
+  void import("@/lib/syncEngine").then((module) => module.cacheNoteContent(updated, cacheScope)).catch(() => {});
   return updated;
 };
 

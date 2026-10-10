@@ -13,6 +13,7 @@ const allowedChannels = new Set([
   "menu:zoom-in",
   "menu:zoom-out",
   "menu:zoom-reset",
+  "security:auto-lock",
   // 格式菜单：{ mark?: "bold"|"italic"|"underline"|"strike"|"code", node?: "heading"|"paragraph", level?: number }
   "menu:format",
   // Dock Quick Action（macOS）
@@ -42,6 +43,11 @@ contextBridge.exposeInMainWorld("nowenDesktop", {
     const wrapped = (_event, payload) => listener(payload);
     ipcRenderer.on(channel, wrapped);
     return () => ipcRenderer.removeListener(channel, wrapped);
+  },
+
+  // Return only public WeChat article URLs, never arbitrary clipboard text.
+  readWechatArticleClipboard() {
+    return ipcRenderer.invoke("clipboard:wechat-articles");
   },
 
   /** 主动触发更新检查 */
@@ -378,6 +384,40 @@ contextBridge.exposeInMainWorld("nowenDesktop", {
   getLocalAuth() {
     return ipcRenderer.invoke("desktop:get-local-auth");
   },
+
+  getLocalLoginHint() {
+    return ipcRenderer.invoke("desktop:get-local-login-hint");
+  },
+
+  completeLocalLoginHint(payload) {
+    return ipcRenderer.invoke("desktop:complete-local-login-hint", payload);
+  },
+
+  /**
+   * Lite → Local 数据本地化迁移（阶段 E）。
+   *
+   * 只有 legacy Lite 用户升级后才需要调用：他们的数据完全在远端，
+   * 必须先整体搬到本机 SQLite 才能切到 Local-first，
+   * 否则会打开一个空知识库。
+   *
+   * token 由 renderer 提供（Lite 模式下它就是用这个 token 直连服务器的），
+   * 主进程转交给 Embedded Backend 用于下载。
+   *
+   * 返回 progress.stage：
+   *   complete       迁移成功，重启后即为 Local-first
+   *   auth_required  token 失效，需要用户重新登录
+   *   failed         失败，仍可继续用 Lite，可重试
+   *   其它           进行中
+   */
+  startLiteMigration(serverUrl, token) {
+    return ipcRenderer.invoke("sync:start-lite-migration", {
+      serverUrl: String(serverUrl || "").slice(0, 2048),
+      token: String(token || "").slice(0, 8192),
+    });
+  },
+  getLiteMigrationProgress() {
+    return ipcRenderer.invoke("sync:lite-migration-progress");
+  },
   clearLocalAuth() {
     return ipcRenderer.invoke("desktop:clear-local-auth");
   },
@@ -464,6 +504,10 @@ contextBridge.exposeInMainWorld("nowenDesktop", {
       if (typeof result.skipped === "boolean") safe.skipped = result.skipped;
       if (typeof result.noteId === "string") safe.noteId = result.noteId;
       if (typeof result.attachmentId === "string") safe.attachmentId = result.attachmentId;
+      // Idempotent hierarchy reconciliation acknowledgement, scoped to the current sync root.
+      if (typeof result.hierarchyTarget === "string" && /^[A-Za-z0-9_-]{1,128}:[A-Za-z0-9_-]{6,80}$/.test(result.hierarchyTarget)) {
+        safe.hierarchyTarget = result.hierarchyTarget;
+      }
       if (typeof result.error === "string") safe.error = result.error.slice(0, 1000);
       return ipcRenderer.invoke("folder-sync:mark-upload-result", folderId, relativePath, safe);
     },

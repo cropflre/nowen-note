@@ -21,6 +21,7 @@ export default function ServerConnect({ onConnected }: ServerConnectProps) {
   });
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
   const [status, setStatus] = useState<"idle" | "ok" | "fail">("idle");
   const { t } = useTranslation();
 
@@ -37,12 +38,28 @@ export default function ServerConnect({ onConnected }: ServerConnectProps) {
 
     setIsLoading(true);
     setError("");
+    setNotice("");
     setStatus("idle");
 
     const result = await testServerConnection(serverUrl);
 
     if (result.ok) {
       setStatus("ok");
+      const notices = [
+        t("server.connectionDiagnostics", {
+          apiPath: result.apiPath,
+          websocketPath: result.websocketPath,
+          mode: t(result.proxyCompatibilityMode === "standard" ? "server.standardMode" : "server.proxyMode"),
+        }),
+        result.proxyCompatibilityMode && result.proxyCompatibilityMode !== "standard"
+          ? t("server.proxyCompatibilityEnabled", {
+            apiPath: result.proxyRewrittenApiPath || result.apiPath,
+            websocketPath: result.proxyRewrittenWebsocketPath || result.websocketPath,
+          })
+          : "",
+        result.websocketOk === false ? t("server.websocketUnavailable") : "",
+      ].filter(Boolean);
+      setNotice(notices.join(" "));
       setServerUrl(serverUrl);
       localStorage.setItem("nowen-server-url-last", serverUrl);
       onConnected();
@@ -111,6 +128,7 @@ export default function ServerConnect({ onConnected }: ServerConnectProps) {
                 onChange={(next) => {
                   setParts(next);
                   if (status !== "idle") setStatus("idle");
+                  if (notice) setNotice("");
                 }}
                 autoFocus
                 accent="emerald"
@@ -131,6 +149,12 @@ export default function ServerConnect({ onConnected }: ServerConnectProps) {
                 <div className="w-1.5 h-1.5 rounded-full bg-red-500 flex-shrink-0" />
                 <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
               </motion.div>
+            )}
+
+            {notice && (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm leading-5 text-amber-700 dark:border-amber-500/25 dark:bg-amber-500/10 dark:text-amber-300">
+                {notice}
+              </div>
             )}
 
             {/* 连接按钮 */}

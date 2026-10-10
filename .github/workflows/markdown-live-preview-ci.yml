@@ -1,0 +1,49 @@
+name: Markdown Live Preview CI
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, "release/**"]
+    paths:
+      - "frontend/src/components/MarkdownExperienceBridge.tsx"
+      - "frontend/src/components/MarkdownMobileViewControlsBridge.tsx"
+      - "frontend/src/components/MarkdownEditorImpl.tsx"
+      - "frontend/src/lib/markdownLivePreview.tsx"
+      - "frontend/src/components/__tests__/MarkdownExperienceBridge.interaction.test.tsx"
+      - "frontend/src/components/__tests__/MarkdownEditor.mobilePreview.test.ts"
+      - "frontend/src/lib/__tests__/markdownLivePreview.test.tsx"
+      - ".github/workflows/markdown-live-preview-ci.yml"
+  pull_request:
+    paths:
+      - "frontend/src/components/MarkdownExperienceBridge.tsx"
+      - "frontend/src/components/MarkdownMobileViewControlsBridge.tsx"
+      - "frontend/src/components/MarkdownEditorImpl.tsx"
+      - "frontend/src/lib/markdownLivePreview.tsx"
+      - "frontend/src/components/__tests__/MarkdownExperienceBridge.interaction.test.tsx"
+      - "frontend/src/components/__tests__/MarkdownEditor.mobilePreview.test.ts"
+      - "frontend/src/lib/__tests__/markdownLivePreview.test.tsx"
+      - ".github/workflows/markdown-live-preview-ci.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  live-preview:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+      - name: Live preview and responsive toolbar interaction tests
+        run: npx vitest run src/components/__tests__/MarkdownExperienceBridge.interaction.test.tsx src/components/__tests__/MarkdownEditor.mobilePreview.test.ts src/lib/__tests__/markdownLivePreview.test.tsx --reporter=verbose
+      - name: Production frontend build
+        run: npm run build

@@ -5,11 +5,18 @@ import { runMigrations, getCurrentSchemaVersion, CURRENT_SCHEMA_VERSION } from "
 import { enableIncrementalAutoVacuum } from "../lib/reclaimSpace.js";
 import { assertSafeTestDatabasePath } from "./test-db-guard.js";
 import { ensureNormalizedSearchFts } from "../lib/searchIndex.js";
+import { requireSqliteVecForStoredTables } from "./sqlite-vec-extension.js";
 
 const DB_PATH = process.env.DB_PATH || path.join(process.env.ELECTRON_USER_DATA || path.join(process.cwd(), "data"), "nowen-note.db");
 assertSafeTestDatabasePath(DB_PATH);
 
-let db: Database.Database;
+const DB_REGISTRY_KEY = Symbol.for("nowen-note.sqlite-database-registry");
+const globalState = globalThis as typeof globalThis & {
+  [DB_REGISTRY_KEY]?: Map<string, Database.Database>;
+};
+const dbRegistry = globalState[DB_REGISTRY_KEY] || new Map<string, Database.Database>();
+globalState[DB_REGISTRY_KEY] = dbRegistry;
+let db: Database.Database | undefined;
 
 /**
  * 返回当前 SQLite 数据库文件的绝对路径。
@@ -33,25 +40,30 @@ export function getDbPath(): string {
  * 调用后下次 getDb() 会重新打开。
  */
 export function closeDb(): void {
-  if (db) {
+  const current = db || dbRegistry.get(DB_PATH);
+  if (current) {
     try {
       // TRUNCATE 模式：把 -wal 内的事务全部 checkpoint 进 .db，并把 -wal 截断到 0；
       // 之后冷拷贝 .db 单文件就是完整的一致性快照。
-      db.pragma("wal_checkpoint(TRUNCATE)");
+      current.pragma("wal_checkpoint(TRUNCATE)");
     } catch { /* ignore：实例已损坏或只读时不阻塞关停 */ }
-    try { db.close(); } catch { /* ignore */ }
-    // @ts-expect-error: 允许重新打开
+    try { current.close(); } catch { /* ignore */ }
+    dbRegistry.delete(DB_PATH);
     db = undefined;
   }
 }
 
 export function getDb(): Database.Database {
   if (!db) {
+    db = dbRegistry.get(DB_PATH);
+    if (db) return db;
+
     const dir = path.dirname(DB_PATH);
     if (!fs.existsSync(dir)) {
       fs.mkdirSync(dir, { recursive: true });
     }
     db = new Database(DB_PATH);
+    dbRegistry.set(DB_PATH, db);
     db.pragma("journal_mode = WAL");
     db.pragma("foreign_keys = ON");
     // ---- P1 加固 PRAGMA ----
@@ -63,6 +75,16 @@ export function getDb(): Database.Database {
     // synchronous = NORMAL：WAL 模式下 NORMAL 已经能在断电时保证持久化，
     // 性能比 FULL 好得多；这是 SQLite 官方对 WAL 的推荐值。
     db.pragma("synchronous = NORMAL");
+    // Restore opens a brand-new connection, which must register vec0 before
+    // VACUUM and PRAGMA quick_check touch an existing virtual-table schema.
+    try {
+      requireSqliteVecForStoredTables(db, "当前数据库");
+    } catch (error) {
+      try { db.close(); } catch { /* ignore */ }
+      dbRegistry.delete(DB_PATH);
+      db = undefined;
+      throw error;
+    }
     // auto_vacuum = INCREMENTAL：让 DELETE 产生的 free page 可以通过
     //   PRAGMA incremental_vacuum(...) 真正归还给操作系统，用户看到的
     //   .db 文件大小会随删除动作缩小。
@@ -108,7 +130,7 @@ export function getDb(): Database.Database {
     } catch (e) {
       // 让进程启动失败：迁移失败比"看似能跑"安全得多。
       try { db.close(); } catch { /* ignore */ }
-      // @ts-expect-error: 允许重新打开
+      dbRegistry.delete(DB_PATH);
       db = undefined;
       throw e;
     }
@@ -197,6 +219,8 @@ function initSchema(db: Database.Database) {
       isArchived INTEGER DEFAULT 0,
       isTrashed INTEGER DEFAULT 0,
       trashedAt TEXT,
+      themeId TEXT,
+      colorMark TEXT,
       version INTEGER DEFAULT 1,
       sortOrder INTEGER DEFAULT 0,
       createdAt TEXT NOT NULL DEFAULT (datetime('now')),
@@ -443,6 +467,7 @@ function initSchema(db: Database.Database) {
     CREATE INDEX IF NOT EXISTS idx_notes_user ON notes(userId);
     CREATE INDEX IF NOT EXISTS idx_notes_updated ON notes(updatedAt DESC);
     CREATE INDEX IF NOT EXISTS idx_notes_trashed ON notes(isTrashed);
+    -- idx_notes_color_mark 由 v115 迁移在补齐 colorMark 列后创建，避免旧库启动失败。
     CREATE INDEX IF NOT EXISTS idx_notebooks_parent ON notebooks(parentId);
     CREATE INDEX IF NOT EXISTS idx_notebooks_user ON notebooks(userId);
     CREATE INDEX IF NOT EXISTS idx_note_tags_note ON note_tags(noteId);
@@ -991,6 +1016,8 @@ function initSchema(db: Database.Database) {
   //   - 触发器：notes INSERT / contentText 或 title 变化时自动入队。
   //     和现有的 notes_au FTS 触发器同款条件，避免无意义重排。
   //   - 删除笔记 → CASCADE 清理 note_embeddings；队列也加触发器同步删除。
+  const hasEmbeddingContentFormat = (db.prepare("PRAGMA table_info(notes)").all() as Array<{ name: string }>).some((column) => column.name === "contentFormat");
+  const encryptedEmbeddingFilter = hasEmbeddingContentFormat ? "AND new.contentFormat NOT LIKE 'encrypted-%'" : "";
   db.exec(`
     CREATE TABLE IF NOT EXISTS note_embeddings (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1044,7 +1071,7 @@ function initSchema(db: Database.Database) {
     -- workspaceId 同步从 notes.workspaceId 取（NULL = 个人空间）
     DROP TRIGGER IF EXISTS notes_embed_ai;
     CREATE TRIGGER notes_embed_ai AFTER INSERT ON notes
-    WHEN new.isTrashed = 0
+    WHEN new.isTrashed = 0 ${encryptedEmbeddingFilter}
     BEGIN
       INSERT INTO embedding_queue (noteId, userId, workspaceId, status, retries, enqueuedAt, updatedAt)
       VALUES (new.id, new.userId, new.workspaceId, 'pending', 0, datetime('now'), datetime('now'))
@@ -1064,7 +1091,7 @@ function initSchema(db: Database.Database) {
     CREATE TRIGGER notes_embed_au AFTER UPDATE ON notes
     WHEN (old.title IS NOT new.title OR old.contentText IS NOT new.contentText
           OR old.workspaceId IS NOT new.workspaceId)
-         AND new.isTrashed = 0
+         AND new.isTrashed = 0 ${encryptedEmbeddingFilter}
     BEGIN
       INSERT INTO embedding_queue (noteId, userId, workspaceId, status, retries, enqueuedAt, updatedAt)
       VALUES (new.id, new.userId, new.workspaceId, 'pending', 0, datetime('now'), datetime('now'))
@@ -1127,6 +1154,7 @@ function initSchema(db: Database.Database) {
         SELECT n.id, n.userId, n.workspaceId, 'pending', 0, datetime('now'), datetime('now')
         FROM notes n
         WHERE n.isTrashed = 0
+          ${hasEmbeddingContentFormat ? "AND n.contentFormat NOT LIKE 'encrypted-%'" : ""}
           AND NOT EXISTS (SELECT 1 FROM note_embeddings e WHERE e.noteId = n.id)
         ON CONFLICT(noteId) DO NOTHING
       `).run();

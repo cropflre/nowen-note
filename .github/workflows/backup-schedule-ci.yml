@@ -1,0 +1,68 @@
+name: Backup Timezone Regression CI
+
+on:
+  push:
+    branches:
+      - "release/v1.5.2"
+    paths:
+      - "backend/src/services/backup-schedule.ts"
+      - "backend/src/services/backup.ts"
+      - "backend/src/routes/backups.ts"
+      - "backend/src/runtime/auto-full-backup.ts"
+      - "backend/tests/backup-schedule.test.ts"
+      - "backend/tests/auto-full-backup.test.ts"
+      - "frontend/src/components/dataManagement/BackupCenter.tsx"
+      - "frontend/src/lib/api.impl.ts"
+      - "frontend/src/i18n/locales/zh-CN.json"
+      - "frontend/src/i18n/locales/en.json"
+      - ".github/workflows/backup-schedule-ci.yml"
+  pull_request:
+    paths:
+      - "backend/src/services/backup-schedule.ts"
+      - "backend/src/services/backup.ts"
+      - "backend/src/routes/backups.ts"
+      - "backend/src/runtime/auto-full-backup.ts"
+      - "backend/tests/backup-schedule.test.ts"
+      - "frontend/src/components/dataManagement/BackupCenter.tsx"
+      - "frontend/src/lib/api.impl.ts"
+      - ".github/workflows/backup-schedule-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    name: Backup schedule and server build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - run: npm ci --silent
+      - run: node --import tsx --test tests/backup-schedule.test.ts tests/auto-full-backup.test.ts
+      - run: npm run build:tsc -- --pretty false
+
+  frontend:
+    name: Backup UI typecheck
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci --silent
+      - run: npx tsc -b --pretty false

@@ -4,6 +4,8 @@ import { enhanceSiyuanImportedTiptap } from "../lib/siyuanIssue284Tiptap";
 import {
     importSiyuanPackageFromZipFile as importSiyuanPackageCore,
     SiyuanZipBudgetError,
+    type PreparedSiyuanPackage,
+    type SiyuanImportProgress,
     type SiyuanPackageImportResult,
 } from "./siyuanPackageImportLegacyCore";
 import { localizeSiyuanImportedMarkdownImages } from "./siyuanImportedRemoteImages";
@@ -13,6 +15,8 @@ interface ImportParams {
     workspaceId: string | null;
     targetNotebookId?: string;
     contentFormat?: "tiptap-json" | "markdown";
+    preparedPackage?: PreparedSiyuanPackage;
+    onProgress?: (progress: SiyuanImportProgress) => void;
 }
 
 interface ImportedTagLinkRow {
@@ -34,7 +38,13 @@ const MAX_TAG_NAME_LENGTH = 30;
 const REMOTE_ASSET_MISSING_WARNING_RE = /^Siyuan asset not found:\s*(?:https?:|\/\/|data:)/i;
 
 export { SiyuanZipBudgetError };
-export type { SiyuanPackageImportResult };
+export type {
+    PreparedSiyuanDocument,
+    PreparedSiyuanPackage,
+    SiyuanImportProgress,
+    SiyuanPackageImportResult,
+    ZipEntryLike,
+} from "./siyuanPackageImportLegacyCore";
 
 function uniqueSorted(values: Iterable<string>): string[] {
     return Array.from(new Set(Array.from(values).map((value) => value.trim()).filter(Boolean))).sort((a, b) =>
@@ -199,6 +209,11 @@ export async function importSiyuanPackageFromZipFile(
 ): Promise<SiyuanPackageImportResult> {
     const preExistingTagIds = listExistingTagIds(params.userId);
     const result = await importSiyuanPackageCore(zipFilePath, params);
+    params.onProgress?.({
+        phase: "finalizing",
+        message: "正在完成富文本、图片和标签后处理",
+    });
+    await new Promise<void>((resolve) => setImmediate(resolve));
     const noteIds = result.notes.map((note) => note.id);
     const cleanupWarnings = cleanImportedTagLinks(noteIds, preExistingTagIds);
     let richTextWarnings: string[] = [];

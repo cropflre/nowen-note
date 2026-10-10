@@ -11,7 +11,8 @@ import DiaryCenterImpl from "@/components/DiaryCenterImpl";
 import DiaryExperienceBridge from "@/components/diary/DiaryExperienceBridge";
 import SayCalendarView from "@/components/diary/SayCalendarView";
 import DailyJournalView from "@/components/daily-records/DailyJournalView";
-import { getCurrentWorkspace } from "@/lib/api";
+import JournalPrivacyGate from "@/components/daily-records/JournalPrivacyGate";
+import { getCurrentWorkspace, setCurrentWorkspace } from "@/lib/api";
 import {
   formatCurrentTimestamp,
   loadDailyRecordsView,
@@ -183,14 +184,33 @@ export default function DailyRecordsHub() {
       )}
 
       {view === "journal" && (
-        <DailyJournalView
-          selectedDate={selectedDate}
-          onDateChange={setSelectedDate}
-          onWriteMoment={() => setView("moments")}
-          journalScope={journalScope}
-          onJournalScopeChange={setJournalScope}
+        <JournalPrivacyGate
+          scope={journalScope}
           activeWorkspaceId={activeWorkspaceId}
-        />
+          onUseWorkspace={() => {
+            if (activeWorkspaceId) setJournalScope(resolveJournalScope(activeWorkspaceId));
+          }}
+        >
+          <DailyJournalView
+            selectedDate={selectedDate}
+            onDateChange={setSelectedDate}
+            onWriteMoment={() => {
+              const targetWorkspace = journalScope.kind === "workspace"
+                ? journalScope.workspaceId
+                : "personal";
+              if (getCurrentWorkspace() !== targetWorkspace) {
+                setCurrentWorkspace(targetWorkspace);
+                window.dispatchEvent(new CustomEvent("nowen:workspace-changed", {
+                  detail: { workspaceId: targetWorkspace },
+                }));
+              }
+              setView("moments");
+            }}
+            journalScope={journalScope}
+            onJournalScopeChange={setJournalScope}
+            activeWorkspaceId={activeWorkspaceId}
+          />
+        </JournalPrivacyGate>
       )}
     </div>
   );

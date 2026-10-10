@@ -46,7 +46,7 @@ npm run build
 Test-Path .\dist\scoped-entry.js
 ```
 
-The final command must return `True`.
+The final command must return `True`. This file is the launcher's internal build entry; do not configure MCP clients to run it directly. Clients should run `bin/nowen-mcp.mjs`.
 
 #### macOS / Linux / WSL
 
@@ -84,7 +84,7 @@ Copy the generated token, for example `nkn_xxx`.
 Windows PowerShell:
 
 ```powershell
-(Resolve-Path .\dist\scoped-entry.js).Path
+(Resolve-Path .\bin\nowen-mcp.mjs).Path
 ```
 
 macOS / Linux / WSL:
@@ -96,8 +96,10 @@ realpath ./bin/nowen-mcp.mjs
 Windows paths must be escaped in JSON:
 
 ```json
-"C:\\Users\\YourName\\nowen-note\\packages\\nowen-mcp\\dist\\scoped-entry.js"
+"C:\\Users\\YourName\\nowen-note\\packages\\nowen-mcp\\bin\\nowen-mcp.mjs"
 ```
+
+On macOS, Linux, and WSL, the launcher path must start with `/`. A value such as `home/user/...` is relative, so the client may append it to its own working directory before Node can execute the launcher.
 
 ## Claude Code
 
@@ -116,7 +118,7 @@ Windows PowerShell:
 claude mcp add nowen-note --scope user `
   --env NOWEN_URL=http://192.168.1.20:3001 `
   --env NOWEN_API_TOKEN=nkn_xxx `
-  -- node "C:\Users\YourName\nowen-note\packages\nowen-mcp\dist\scoped-entry.js"
+  -- node "C:\Users\YourName\nowen-note\packages\nowen-mcp\bin\nowen-mcp.mjs"
 ```
 
 Verify it:
@@ -290,7 +292,7 @@ You can add an MCP-side allowlist as a second layer:
   "mcpServers": {
     "nowen-note": {
       "command": "node",
-      "args": ["/absolute/path/to/bin/nowen-mcp.mjs"],
+      "args": ["/absolute/path/to/nowen-note/packages/nowen-mcp/bin/nowen-mcp.mjs"],
       "env": {
         "NOWEN_URL": "http://192.168.1.20:3001",
         "NOWEN_API_TOKEN": "nkn_xxx",
@@ -370,7 +372,7 @@ All of the following must allow writing:
 A stdio MCP server normally waits for client input and can remain silent:
 
 ```bash
-node /absolute/path/to/bin/nowen-mcp.mjs
+node /absolute/path/to/nowen-note/packages/nowen-mcp/bin/nowen-mcp.mjs
 ```
 
 If it stays running without crashing, the script can start. Press `Ctrl+C` to stop it.

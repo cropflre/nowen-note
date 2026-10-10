@@ -376,6 +376,28 @@ export class NowenApiClient {
     return this.request(`/api/tags/note/${noteId}/tag/${tagId}`, { method: "DELETE" });
   }
 
+  // ==================== 任务 / 待办 ====================
+  // PAT 仅可访问本人个人任务；共享工作区需要登录态并遵守工作区 ACL。
+  async listTasks(filter?: "all" | "today" | "week" | "overdue" | "completed"): Promise<any[]> {
+    return this.request("/api/tasks", { query: { workspaceId: "personal", filter } });
+  }
+
+  async getTask(taskId: string): Promise<any> {
+    return this.request(`/api/tasks/${encodeURIComponent(taskId)}`);
+  }
+
+  async createTask(params: { title: string; priority?: number; dueDate?: string; dueAt?: string; description?: string }): Promise<any> {
+    return this.request("/api/tasks", { method: "POST", query: { workspaceId: "personal" }, body: params });
+  }
+
+  async updateTask(taskId: string, params: Record<string, unknown>): Promise<any> {
+    return this.request(`/api/tasks/${encodeURIComponent(taskId)}`, { method: "PUT", body: params });
+  }
+
+  async taskSummary(): Promise<any> {
+    return this.request("/api/tasks/stats/summary", { query: { workspaceId: "personal" } });
+  }
+
   // ==================== 搜索 ====================
 
   /** 全文搜索笔记 */
@@ -584,12 +606,43 @@ export class NowenApiClient {
     return this.request("/api/plugins");
   }
 
+  /** 获取 AI/MCP 可发现的已启用 Plugin Actions。 */
+  async listPluginActions(): Promise<any[]> {
+    return this.request("/api/plugins/actions");
+  }
+
+  /** 按稳定的 pluginId + actionId 协议执行。 */
+  async executePluginAction(pluginId: string, actionId: string, input: Record<string, any>): Promise<any> {
+    return this.request(`/api/plugins/${encodeURIComponent(pluginId)}/actions/${encodeURIComponent(actionId)}/execute`, {
+      method: "POST",
+      body: { input },
+    });
+  }
+
+  async getPluginExecution(executionId: string): Promise<any> {
+    return this.request(`/api/plugin-executions/${encodeURIComponent(executionId)}`);
+  }
+
   /** 执行插件 */
   async executePlugin(name: string, params: Record<string, any>): Promise<any> {
     return this.request("/api/plugins/" + name + "/execute", {
       method: "POST",
       body: params,
     });
+  }
+
+  // ==================== 自动化 ====================
+
+  async listWorkflows(): Promise<any[]> {
+    return this.request("/api/automations");
+  }
+
+  async runWorkflow(workflowId: string): Promise<any> {
+    return this.request(`/api/automations/${encodeURIComponent(workflowId)}/run`, { method: "POST" });
+  }
+
+  async getWorkflowRun(runId: string): Promise<any> {
+    return this.request(`/api/automations/runs/${encodeURIComponent(runId)}`);
   }
 
   // ==================== Webhook ====================

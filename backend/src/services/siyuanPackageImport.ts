@@ -3,7 +3,10 @@ import { decodeSiyuanEmoji, type SiyuanNode } from "../lib/siyuanSyParser";
 import {
     importSiyuanPackageFromZipFile as importLegacySiyuanPackage,
     SiyuanZipBudgetError,
+    type PreparedSiyuanDocument,
+    type SiyuanImportProgress,
     type SiyuanPackageImportResult,
+    type ZipEntryLike,
 } from "./siyuanPackageImportLegacy";
 
 const unzipper = require("unzipper");
@@ -13,14 +16,7 @@ interface ImportParams {
     workspaceId: string | null;
     targetNotebookId?: string;
     contentFormat?: "tiptap-json" | "markdown";
-}
-
-interface ZipEntryLike {
-    path: string;
-    type?: string;
-    uncompressedSize?: number;
-    vars?: { uncompressedSize?: number };
-    buffer(): Promise<Buffer>;
+    onProgress?: (progress: SiyuanImportProgress) => void;
 }
 
 interface BoxMeta {
@@ -43,6 +39,7 @@ interface DocMeta {
 }
 
 interface PackageMetadata {
+    entries: ZipEntryLike[];
     boxes: Map<string, BoxMeta>;
     docs: DocMeta[];
     docsById: Map<string, DocMeta>;
@@ -59,7 +56,7 @@ const CONF_RE = /(^|\/)\.siyuan\/conf\.json$/i;
 const SORT_RE = /(^|\/)\.siyuan\/sort\.json$/i;
 const CUSTOM_ICON_ENTRY_RE = /(^|\/)emojis\/.+\.(?:svg|png|jpe?g|gif|webp|bmp|ico|avif)$/i;
 const CUSTOM_ICON_REF_RE = /\.(?:svg|png|jpe?g|gif|webp|bmp|ico|avif)(?:[?#].*)?$/i;
-const FIDELITY_NODE_TYPES = new Set(["NodeInlineHTML"]);
+const FIDELITY_NODE_TYPES = new Set(["NodeInlineHTML", "NodeHTMLBlock"]);
 const DEFAULT_MAX_ZIP_ENTRIES = 50_000;
 const DEFAULT_MAX_SY_FILES = 20_000;
 const DEFAULT_MAX_SINGLE_SY_BYTES = 20 * 1024 * 1024;
@@ -274,7 +271,13 @@ function normalizeTitle(ast: SiyuanNode, fallback: string): string {
 }
 
 function containsFidelityNode(node: SiyuanNode): boolean {
-    return FIDELITY_NODE_TYPES.has(node.Type) || (node.Children || []).some(containsFidelityNode);
+    if (node.Type === "NodeHTMLBlock") {
+        const raw = String(node.Data || node.Properties?.Data || "");
+        if (/<(?:iframe|script|mark)\b/i.test(raw)) return true;
+    } else if (node.Type === "NodeInlineHTML") {
+        return true;
+    }
+    return (node.Children || []).some(containsFidelityNode);
 }
 
 function resolveBoxId(docPath: string, boxIds: Iterable<string>): string {
@@ -301,7 +304,10 @@ async function readSmallJson(entry: ZipEntryLike): Promise<any> {
     return JSON.parse((await entry.buffer()).toString("utf8").replace(/^\uFEFF/, ""));
 }
 
-async function readPackageMetadata(zipFilePath: string): Promise<PackageMetadata> {
+async function readPackageMetadata(
+    zipFilePath: string,
+    onProgress?: (progress: SiyuanImportProgress) => void,
+): Promise<PackageMetadata> {
     const directory = await unzipper.Open.file(zipFilePath);
     const entries = directory.files as ZipEntryLike[];
     if (entries.length > METADATA_BUDGETS.maxEntries) {
@@ -318,7 +324,22 @@ async function readPackageMetadata(zipFilePath: string): Promise<PackageMetadata
     let syFiles = 0;
     let requiresMarkdown = false;
 
+    onProgress?.({
+        phase: "scanning",
+        message: `正在扫描思源数据包，共 ${entries.length} 个条目`,
+        current: 0,
+        total: entries.length,
+    });
+
     for (const [archiveIndex, entry] of entries.entries()) {
+        if (archiveIndex > 0 && archiveIndex % 100 === 0) {
+            onProgress?.({
+                phase: "scanning",
+                message: `正在扫描数据包条目 ${archiveIndex} / ${entries.length}`,
+                current: archiveIndex,
+                total: entries.length,
+            });
+        }
         if (entry.type === "Directory") continue;
         const entryPath = normalizePath(entry.path);
 
@@ -377,7 +398,7 @@ async function readPackageMetadata(zipFilePath: string): Promise<PackageMetadata
             rawDocs.push({ path: entryPath, ast, archiveIndex });
             if (containsFidelityNode(ast)) requiresMarkdown = true;
         } catch {
-            // The mature legacy importer owns parse warnings and skip behaviour.
+            warnings.add(`Failed to parse Siyuan document: ${entryPath}`);
         }
     }
 
@@ -425,7 +446,7 @@ async function readPackageMetadata(zipFilePath: string): Promise<PackageMetadata
         if (doc.ast.ID && doc.ast.ID !== doc.id) docsById.set(doc.ast.ID, doc);
     }
 
-    return { boxes, docs, docsById, docSortByBox, requiresMarkdown, warnings: [...warnings] };
+    return { entries, boxes, docs, docsById, docSortByBox, requiresMarkdown, warnings: [...warnings] };
 }
 
 function buildDocRanks(metadata: PackageMetadata): Map<string, number> {
@@ -576,12 +597,22 @@ export async function importSiyuanPackageFromZipFile(
     zipFilePath: string,
     params: ImportParams,
 ): Promise<SiyuanPackageImportResult> {
-    const metadata = await readPackageMetadata(zipFilePath);
+    const metadata = await readPackageMetadata(zipFilePath, params.onProgress);
     const existingNotebookIds = listScopeNotebookIds(params.userId, params.workspaceId);
     const forceMarkdown = metadata.requiresMarkdown && params.contentFormat !== "markdown";
     const result = await importLegacySiyuanPackage(zipFilePath, {
         ...params,
         contentFormat: forceMarkdown ? "markdown" : params.contentFormat,
+        preparedPackage: {
+            entries: metadata.entries,
+            documents: metadata.docs.map<PreparedSiyuanDocument>((doc) => ({
+                id: doc.id,
+                path: doc.path,
+                title: doc.title,
+                ast: doc.ast,
+            })),
+            boxNames: new Map(Array.from(metadata.boxes, ([id, box]) => [id, box.name])),
+        },
     });
 
     const warnings = new Set([...(result.warnings || []), ...metadata.warnings]);

@@ -130,10 +130,9 @@ export function TaskCalendarFeedSettings() {
   // 生成完整绝对 URL（手机系统日历需要完整域名，不能用相对路径）
   const getAbsoluteIcsUrl = useCallback(() => {
     if (!feed?.token) return "";
-    const base = getBaseUrl().replace(/\/api$/, "");
-    // 如果 getBaseUrl() 返回相对路径（如 "/api"），base 为空，使用 window.location.origin
-    const origin = base || (typeof window !== "undefined" ? window.location.origin : "");
-    return `${origin}/api/calendar/ics/${feed.token}`;
+    const path = `${getBaseUrl()}/calendar/ics/${feed.token}`;
+    if (typeof window === "undefined") return path;
+    return new URL(path, window.location.origin).toString();
   }, [feed?.token]);
 
   // 检测是否为本机地址（手机无法访问）

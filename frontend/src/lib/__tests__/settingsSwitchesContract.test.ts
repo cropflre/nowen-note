@@ -6,6 +6,21 @@ function source(relativeUrl: string) {
 }
 
 describe("settings switches contract", () => {
+  it("exposes an account-synced note-list divider switch without changing the updated-time placement", () => {
+    const settings = source("../../components/SettingsModal.tsx");
+    const noteList = source("../../components/NoteList.tsx");
+    const zh = source("../../i18n/locales/zh-CN.json");
+    const en = source("../../i18n/locales/en.json");
+
+    expect(settings).toContain('key: "showNoteListDividers" as const');
+    expect(noteList).toContain("userPrefs.prefs.showNoteListDividers");
+    expect(noteList).toContain('data-note-list-divider={showDivider ? "on" : "off"}');
+    expect(noteList).toContain("border-b-app-border/70");
+    expect(noteList).toContain('t("noteList.showDividers")');
+    expect(zh).toContain('"showNoteListDividers"');
+    expect(en).toContain('"showNoteListDividers"');
+  });
+
   it("removes the global updated-time switch while preserving functional note-list support", () => {
     const settings = source("../../components/SettingsModal.tsx");
     const noteList = source("../../components/NoteList.tsx");

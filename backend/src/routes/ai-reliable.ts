@@ -434,6 +434,7 @@ function getIndexStatus(scope: Scope) {
     indexedAttachments: stats.indexedAttachments,
     configured: stats.configured,
     vectorAvailable: stats.vecAvailable,
+    vectorState: stats.vecState,
     vectorDimension: stats.vecDim,
     stale,
   };
@@ -628,7 +629,7 @@ app.post("/ask", async (c) => {
   }
   const settings = getUserAISettings(userId);
   if (!settings.ai_api_url) return c.json({ error: "未配置 AI 服务" }, 400);
-  if (settings.ai_provider !== "ollama" && !settings.ai_api_key) {
+  if (!["ollama", "lmstudio"].includes(settings.ai_provider) && !settings.ai_api_key) {
     return c.json({ error: "未配置 API Key" }, 400);
   }
 

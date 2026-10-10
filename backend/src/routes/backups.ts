@@ -6,6 +6,9 @@
  * - GET    /api/backups/dir                   — 当前备份目录 + 数据目录（管理员）
  * - POST   /api/backups/dir                   — 切换备份目录（管理员 + sudo；?dryRun=1 仅校验）
  * - POST   /api/backups                       — 创建备份（管理员 + sudo）
+ * - POST   /api/backups/full-jobs             — 启动后台完整备份（管理员 + sudo）
+ * - GET    /api/backups/full-jobs/:jobId      — 查询后台完整备份状态（管理员）
+ * - GET    /api/backups/full-download/:token  — 使用临时能力令牌流式下载完整备份
  * - POST   /api/backups/upload                — 导入外部 .bak/.zip 备份（管理员 + sudo）
  * - GET    /api/backups/:filename/download    — 下载备份（管理员）
  * - POST   /api/backups/:filename/restore     — 从备份恢复（管理员 + sudo；支持 ?dryRun=1）
@@ -29,14 +32,48 @@ import { Hono } from "hono";
 import type { Context } from "hono";
 import fs from "fs";
 import path from "path";
-import { getBackupManager } from "../services/backup.js";
+import { Readable } from "stream";
+import { BackupBusyError, getBackupManager } from "../services/backup.js";
+import { isValidBackupTimeZone } from "../services/backup-schedule.js";
+import { FullBackupJobBusyError, FullBackupJobStore } from "../services/full-backup-jobs.js";
 import { requireAdmin } from "../middleware/acl.js";
 import { getDb } from "../db/schema.js";
 import { verifySudoFromRequest } from "../lib/auth-security.js";
 import { sendMail, EMAIL_ATTACHMENT_LIMIT, readSmtpConfig } from "../services/email.js";
 import { logAudit } from "../services/audit.js";
+import { backupErrorResponse, classifyBackupFailure } from "../lib/backup-error-response.js";
 
 const backupsRouter = new Hono();
+const fullBackupJobs = new FullBackupJobStore((description) =>
+  getBackupManager().createBackup({ type: "full", description }),
+);
+
+/** 使用 256-bit 临时能力令牌下载完整备份，供浏览器原生流式下载调用。 */
+export function handleFullBackupJobDownload(c: Context): Response {
+  const job = fullBackupJobs.getByDownloadToken(c.req.param("token"));
+  const filePath = job?.backup?.filename
+    ? getBackupManager().getBackupPath(job.backup.filename)
+    : null;
+  if (!job?.backup || !filePath) {
+    return new Response(JSON.stringify({ error: "下载链接无效或已过期" }), {
+      status: 404,
+      headers: { "Content-Type": "application/json; charset=utf-8" },
+    });
+  }
+
+  const stat = fs.statSync(filePath);
+  const fileStream = fs.createReadStream(filePath);
+  return new Response(Readable.toWeb(fileStream) as ReadableStream, {
+    headers: {
+      "Content-Type": "application/octet-stream",
+      "Content-Length": stat.size.toString(),
+      "Content-Encoding": "identity",
+      "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(job.backup.filename)}`,
+      "Cache-Control": "private, no-store",
+      "X-Content-Type-Options": "nosniff",
+    },
+  });
+}
 
 // ============================================================================
 // 全路由守门：必须是系统管理员
@@ -168,9 +205,43 @@ backupsRouter.post("/", async (c) => {
 
     return c.json(info, 201);
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    return c.json({ error: `备份失败: ${msg}` }, 500);
+    if (err instanceof BackupBusyError) {
+      return backupErrorResponse(c, { code: err.code, message: err.message, status: 409, retryable: false });
+    }
+    return backupErrorResponse(c, classifyBackupFailure(err, "create"));
   }
+});
+
+// ===== POST /api/backups/full-jobs =====
+// 完整备份可能持续数分钟。此入口立即返回任务 ID，避免浏览器、WebView 或反向代理
+// 因长时间没有响应而中止请求；实际生成过程继续在后端运行。
+backupsRouter.post("/full-jobs", async (c) => {
+  const userId = c.req.header("X-User-Id") || "";
+  const denied = requireBackupSudo(c);
+  if (denied) return denied;
+
+  const body = (await c.req.json().catch(() => ({}))) as { description?: string };
+  let job;
+  try {
+    job = fullBackupJobs.start(body.description);
+  } catch (error) {
+    if (error instanceof FullBackupJobBusyError) {
+      return c.json({ error: error.message, code: error.code }, 409);
+    }
+    throw error;
+  }
+  logAudit(userId, "system", "backup_create_start", {
+    jobId: job.id,
+    type: "full",
+  }, { targetType: "backup-job", targetId: job.id });
+  return c.json(job, 202);
+});
+
+// ===== GET /api/backups/full-jobs/:jobId =====
+backupsRouter.get("/full-jobs/:jobId", (c) => {
+  const job = fullBackupJobs.get(c.req.param("jobId"));
+  if (!job) return backupErrorResponse(c, { code: "BACKUP_JOB_NOT_FOUND", message: "完整备份任务不存在或已过期", status: 404, retryable: false });
+  return c.json(job);
 });
 
 // ===== POST /api/backups/upload =====
@@ -218,10 +289,7 @@ backupsRouter.post("/upload", async (c) => {
     const info = await manager.ingestUploadedBackup(file.name || "uploaded.bak", bytes, { description });
     return c.json(info, 201);
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    // 文件格式非法 → 400（客户端问题）；其他 → 500
-    const isFormatErr = /文件头|缺少|仅支持|格式|meta\.json|非法|损坏/.test(msg);
-    return c.json({ error: `导入失败: ${msg}` }, isFormatErr ? 400 : 500);
+    return backupErrorResponse(c, classifyBackupFailure(err, "import"));
   }
 });
 
@@ -231,14 +299,15 @@ backupsRouter.get("/:filename/download", (c) => {
   const manager = getBackupManager();
   const filePath = manager.getBackupPath(filename);
 
-  if (!filePath) return c.json({ error: "备份不存在" }, 404);
+  if (!filePath) return backupErrorResponse(c, { code: "BACKUP_NOT_FOUND", message: "备份不存在", status: 404, retryable: false });
 
-  const content = fs.readFileSync(filePath);
-  return new Response(content, {
+  const stat = fs.statSync(filePath);
+  const fileStream = fs.createReadStream(filePath);
+  return new Response(Readable.toWeb(fileStream) as ReadableStream, {
     headers: {
       "Content-Type": "application/octet-stream",
       "Content-Disposition": `attachment; filename="${filename}"`,
-      "Content-Length": content.length.toString(),
+      "Content-Length": stat.size.toString(),
     },
   });
 });
@@ -262,9 +331,16 @@ backupsRouter.post("/:filename/restore", async (c) => {
     if (denied) return denied;
   }
 
-  const result = await manager.restoreFromBackup(filename, { dryRun });
+  // The manager may return error text with disk locations or SQL snippets.
+  // Restoration is not idempotent: never advertise an automatic retry.
+  let result;
+  try {
+    result = await manager.restoreFromBackup(filename, { dryRun });
+  } catch (error) {
+    return backupErrorResponse(c, classifyBackupFailure(error, "restore"));
+  }
   if (!result.success) {
-    return c.json({ error: result.error }, 400);
+    return backupErrorResponse(c, classifyBackupFailure(result.error, "restore"));
   }
 
   // SEC-AUDIT-01
@@ -300,7 +376,7 @@ backupsRouter.delete("/:filename", (c) => {
 // body: { enabled: boolean, intervalHours?: number, mode?, dailyAt?, keepCount?, email*? }
 //   - enabled=false: 立即停止；intervalHours 仍会被持久化为"下次启用时使用的值"
 //   - enabled=true:  以 intervalHours（缺省 24）启动并持久化
-//   - keepCount:     只控制 db-only 保留数量；full 不参与自动清理
+//   - keepCount:     自动备份按类型保留；手动创建仍只统一清理 db-only
 //
 // 持久化由 BackupManager.startAutoBackup / stopAutoBackup 内部完成，
 // 写入 system_settings 表的 backup:auto 键。重启后启动钩子会读取并恢复完整配置。
@@ -313,6 +389,7 @@ backupsRouter.post("/auto", async (c) => {
     intervalHours?: number;
     mode?: "interval" | "daily";
     dailyAt?: string;
+    timeZone?: string;
     keepCount?: number;
     emailOnSuccess?: boolean;
     emailTo?: string;
@@ -334,6 +411,10 @@ backupsRouter.post("/auto", async (c) => {
     dailyAt = "03:00";
   }
 
+  if (body.timeZone !== undefined && !isValidBackupTimeZone(body.timeZone)) {
+    return c.json({ error: "timeZone 必须是有效的 IANA 时区，例如 Asia/Shanghai" }, 400);
+  }
+
   // keepCount 范围 1~100。启用时缺省 15；停用时若旧客户端未传则保留当前值。
   let keepCount = Number(body.keepCount);
   if (!Number.isFinite(keepCount)) keepCount = 15;
@@ -352,6 +433,7 @@ backupsRouter.post("/auto", async (c) => {
         intervalHours: interval,
         ...(body.mode !== undefined ? { mode } : {}),
         ...(body.dailyAt !== undefined ? { dailyAt } : {}),
+        ...(body.timeZone !== undefined ? { timeZone: body.timeZone } : {}),
         ...(body.keepCount !== undefined ? { keepCount } : {}),
         ...(body.emailOnSuccess !== undefined ? { emailOnSuccess } : {}),
         ...(body.emailTo !== undefined ? { emailTo } : {}),
@@ -365,6 +447,8 @@ backupsRouter.post("/auto", async (c) => {
       intervalHours: status.autoBackupIntervalHours,
       mode: status.autoBackupMode,
       dailyAt: status.autoBackupDailyAt,
+      timeZone: status.autoBackupTimeZone,
+      nextRunAt: status.autoBackupNextRunAt,
       keepCount: status.autoBackupKeepCount,
       emailOnSuccess: status.autoBackupEmailOnSuccess,
       emailTo: status.autoBackupEmailTo,
@@ -377,6 +461,7 @@ backupsRouter.post("/auto", async (c) => {
       intervalHours: interval,
       mode,
       dailyAt,
+      ...(body.timeZone !== undefined ? { timeZone: body.timeZone } : {}),
       keepCount,
       emailOnSuccess,
       emailTo,
@@ -387,12 +472,14 @@ backupsRouter.post("/auto", async (c) => {
     success: true,
     message:
       mode === "daily"
-        ? `自动备份已启动，每天 ${dailyAt} 触发`
+        ? `自动备份已启动，每天 ${dailyAt}（${body.timeZone || "服务器本地时区"}）触发`
         : `自动备份已启动，每 ${interval} 小时触发`,
     enabled: true,
     intervalHours: interval,
     mode,
     dailyAt,
+    timeZone: body.timeZone || null,
+    nextRunAt: manager.getHealth().autoBackupNextRunAt,
     keepCount,
     emailOnSuccess,
     emailTo,
@@ -466,7 +553,11 @@ backupsRouter.post("/:filename/send-email", async (c) => {
       generatedNew = true;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      return c.json({ error: `生成备份失败: ${msg}` }, 500);
+      const busy = err instanceof BackupBusyError;
+      return c.json(
+        { error: `生成备份失败: ${msg}`, code: busy ? err.code : undefined },
+        busy ? 409 : 500,
+      );
     }
   }
 

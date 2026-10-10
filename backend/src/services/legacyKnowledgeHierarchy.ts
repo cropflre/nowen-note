@@ -297,7 +297,10 @@ function ensureNotebookNode(
   db: Database.Database,
   notebookId: string,
   visited = new Set<string>(),
+  cache?: Map<string, KnowledgeNodeRow>,
 ): KnowledgeNodeRow {
+  const cached = cache?.get(notebookId);
+  if (cached) return cached;
   if (visited.has(notebookId)) {
     throw new LegacyKnowledgeHierarchyError(
       "LEGACY_NOTEBOOK_CYCLE",
@@ -308,7 +311,7 @@ function ensureNotebookNode(
   visited.add(notebookId);
   const notebook = readNotebook(db, notebookId);
   const key = scopeKey(notebook.userId, notebook.workspaceId);
-  const parentNode = notebook.parentId ? ensureNotebookNode(db, notebook.parentId, visited) : null;
+  const parentNode = notebook.parentId ? ensureNotebookNode(db, notebook.parentId, visited, cache) : null;
   const initialParentId = parentNode && parentNode.scopeKey === key && parentNode.isDeleted === 0
     ? parentNode.id
     : null;
@@ -332,12 +335,16 @@ function ensureNotebookNode(
     notebook.createdAt,
     notebook.updatedAt,
   );
-  return requireUniqueNode(db, "notebook", notebook.id);
+  const node = requireUniqueNode(db, "notebook", notebook.id);
+  cache?.set(notebook.id, node);
+  return node;
 }
 
-function ensureNoteNode(db: Database.Database, noteId: string): KnowledgeNodeRow {
-  const note = readNote(db, noteId);
-  const notebookNode = ensureNotebookNode(db, note.notebookId);
+function ensureNoteNodeFromRow(
+  db: Database.Database,
+  note: NoteRow,
+  notebookNode: KnowledgeNodeRow,
+): KnowledgeNodeRow {
   const key = scopeKey(note.userId, note.workspaceId);
   const initialParentId = notebookNode.scopeKey === key && notebookNode.isDeleted === 0
     ? notebookNode.id
@@ -362,6 +369,12 @@ function ensureNoteNode(db: Database.Database, noteId: string): KnowledgeNodeRow
     note.updatedAt,
   );
   return requireUniqueNode(db, "note", note.id);
+}
+
+function ensureNoteNode(db: Database.Database, noteId: string): KnowledgeNodeRow {
+  const note = readNote(db, noteId);
+  const notebookNode = ensureNotebookNode(db, note.notebookId);
+  return ensureNoteNodeFromRow(db, note, notebookNode);
 }
 
 export function synchronizeLegacyNotebookHierarchy(input: {
@@ -449,6 +462,73 @@ export function synchronizeLegacyNoteHierarchy(input: {
     },
   });
   return updated;
+}
+
+/**
+ * 批量导入专用同步入口。同一批次缓存目录节点，避免每篇笔记都重复递归父目录；
+ * 普通增删改仍走单资源同步入口，保持既有行为不变。
+ */
+export function synchronizeLegacyImportHierarchy(input: {
+  db: Database.Database;
+  notebookIds: string[];
+  createdNotebookIds?: string[];
+  noteIds: string[];
+  actorUserId: string;
+}): { notebooks: number; notes: number } {
+  ensureKnowledgeTreeStorage(input.db);
+  const notebookCache = new Map<string, KnowledgeNodeRow>();
+  const uniqueNotebookIds = Array.from(new Set(input.notebookIds.filter(Boolean)));
+  const createdNotebookIds = new Set(input.createdNotebookIds || []);
+  const uniqueNoteIds = Array.from(new Set(input.noteIds.filter(Boolean)));
+
+  for (const notebookId of uniqueNotebookIds) {
+    const updated = synchronizeLegacyNotebookHierarchy({
+      db: input.db,
+      notebookId,
+      actorUserId: input.actorUserId,
+      reason: createdNotebookIds.has(notebookId) ? "create" : "metadata",
+      parentMode: "resource",
+    });
+    notebookCache.set(notebookId, updated);
+  }
+
+  for (const noteId of uniqueNoteIds) {
+    const note = readNote(input.db, noteId);
+    const notebookNode = ensureNotebookNode(input.db, note.notebookId, new Set<string>(), notebookCache);
+    const node = ensureNoteNodeFromRow(input.db, note, notebookNode);
+    const before = { parentId: node.parentId, sortOrder: node.sortOrder, isDeleted: node.isDeleted };
+    const updated = updateNode(input.db, {
+      node,
+      userId: note.userId,
+      workspaceId: note.workspaceId,
+      parentId: notebookNode.id,
+      parentMode: "resource",
+      nodeType: noteNodeType(note),
+      sortOrder: note.sortOrder || 0,
+      isExpanded: node.isExpanded ?? 1,
+      isDeleted: note.isTrashed || 0,
+      deletedAt: note.trashedAt,
+      updatedAt: note.updatedAt,
+    });
+    recordHistory(input.db, {
+      nodeId: updated.id,
+      actorUserId: input.actorUserId,
+      reason: "create",
+      fromParentId: before.parentId,
+      toParentId: updated.parentId,
+      metadata: {
+        resourceType: "note",
+        resourceId: note.id,
+        physicalNotebookId: note.notebookId,
+        previousSortOrder: before.sortOrder,
+        sortOrder: updated.sortOrder,
+        previousDeleted: before.isDeleted,
+        isDeleted: updated.isDeleted,
+      },
+    });
+  }
+
+  return { notebooks: uniqueNotebookIds.length, notes: uniqueNoteIds.length };
 }
 
 function nearestNotebookResourceId(db: Database.Database, nodeId: string | null): string | null {

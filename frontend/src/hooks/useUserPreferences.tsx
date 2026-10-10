@@ -28,12 +28,17 @@ import {
   type UserPreferencePatch,
   type UserPreferences,
 } from "@/lib/userPreferenceAccountCache";
+import { isAndroidNativeRuntime, isMobileLocalMode, MOBILE_LOCAL_USER_ID, MOBILE_LOCAL_MODE_CHANGED_EVENT } from "@/lib/mobileLocalMode";
+import { isMobileSyncEnabled, MOBILE_SYNC_SETTINGS_CHANGED_EVENT } from "@/lib/mobileSyncStatus";
+import { setCodeBlockCollapseMode } from "@/lib/codeBlockPresentation";
 
 export type {
   CodeBlockThemeId,
+  EditorFontSize,
   EditorMode,
   FolderAutoLockMinutes,
   MarkdownViewMode,
+  RemoteImagePasteMode,
   ReadingDensity,
   UserPreferences,
 } from "@/lib/userPreferenceAccountCache";
@@ -44,6 +49,9 @@ export type {
  * 账号级偏好以服务端为准，并在浏览器中使用 userId 隔离的缓存作为启动/离线兜底。
  * 窗口位置、下载目录、缓存大小等设备级配置不进入这里；API Key、Token 等敏感信息
  * 也不属于普通偏好白名单。
+ *
+ * `noteTheme` 仅作为旧版本兼容字段保留，不再向 DOM 投影视觉。整个平台外观由
+ * App Appearance Style Capability (`useSkin` / `appAppearance.ts`) 统一负责。
  */
 
 type RemotePreferences = UserPreferences & {
@@ -67,6 +75,7 @@ const UserPreferencesContext = createContext<UserPreferencesContextValue>({
 
 function currentIdentity(): { token: string; userId: string } | null {
   try {
+    if (isMobileLocalMode()) return { token: "device-local", userId: MOBILE_LOCAL_USER_ID };
     const token = localStorage.getItem("nowen-token") || "";
     const userId = decodeUserIdFromToken(token);
     return token && userId ? { token, userId } : null;
@@ -75,12 +84,17 @@ function currentIdentity(): { token: string; userId: string } | null {
   }
 }
 
+function canSyncPreferences(): boolean {
+  return !isMobileLocalMode() && (!isAndroidNativeRuntime() || isMobileSyncEnabled());
+}
+
 function applyLegacyPreferenceBridges(prefs: UserPreferences, notify = true): void {
   try {
     localStorage.setItem(LEGACY_EDITOR_MODE_KEY, prefs.defaultEditorMode);
     localStorage.setItem(LEGACY_CODE_BLOCK_THEME_KEY, prefs.codeBlockTheme);
     localStorage.setItem(LEGACY_NOTE_LIST_TITLE_ONLY_KEY, String(prefs.noteListTitleOnly));
     document.documentElement.setAttribute("data-code-theme", prefs.codeBlockTheme);
+    setCodeBlockCollapseMode(prefs.codeBlockCollapseMode);
     if (!notify) return;
     window.dispatchEvent(new CustomEvent<EditorMode>("nowen:editor-mode-change", {
       detail: prefs.defaultEditorMode,
@@ -108,6 +122,9 @@ function samePreferenceValue<K extends keyof UserPreferences>(
   left: UserPreferences[K] | undefined,
   right: UserPreferences[K] | undefined,
 ): boolean {
+  if (Array.isArray(left) && Array.isArray(right)) {
+    return left.length === right.length && left.every((value, index) => value === right[index]);
+  }
   return left === right;
 }
 
@@ -128,6 +145,19 @@ export function UserPreferencesProvider({ children }: { children: React.ReactNod
     const cls = "density-compact";
     document.body.classList.toggle(cls, prefs.readingDensity === "compact");
   }, [prefs.readingDensity]);
+
+  // 默认字号只改变编辑器的本地展示，不向笔记内容写入 font-size 标记。
+  useEffect(() => {
+    const root = document.documentElement;
+    if (prefs.editorFontSize === 0) {
+      root.style.removeProperty("--editor-font-size");
+    } else {
+      root.style.setProperty("--editor-font-size", `${prefs.editorFontSize}px`);
+    }
+    return () => {
+      root.style.removeProperty("--editor-font-size");
+    };
+  }, [prefs.editorFontSize]);
 
   // 密码文件夹的闲置/后台锁定策略由账号偏好统一驱动。该 Provider 同时服务
   // Web、Electron 和 Capacitor，因此三端共享同一套生命周期与同步行为。
@@ -180,6 +210,7 @@ export function UserPreferencesProvider({ children }: { children: React.ReactNod
     changes: UserPreferencePatch,
     migration = false,
   ) => {
+    if (!canSyncPreferences()) return;
     const sanitized = sanitizeUserPreferencePatch(changes);
     const keys = Object.keys(sanitized) as Array<keyof UserPreferences>;
     if (keys.length === 0) return;
@@ -235,14 +266,21 @@ export function UserPreferencesProvider({ children }: { children: React.ReactNod
       return;
     }
 
+    if (isMobileLocalMode()) {
+      resetForIdentity(identity.userId);
+      return;
+    }
+
     const { userId } = identity;
     const cachedAtStart = resetForIdentity(userId);
+    if (!canSyncPreferences()) return;
 
     try {
       const remote = await api.getUserPreferences() as RemotePreferences;
       const latestIdentity = currentIdentity();
       if (
         sequence !== syncSequenceRef.current ||
+        !canSyncPreferences() ||
         !latestIdentity ||
         latestIdentity.userId !== userId ||
         (remote.userId && remote.userId !== userId)
@@ -300,9 +338,15 @@ export function UserPreferencesProvider({ children }: { children: React.ReactNod
   useEffect(() => {
     void syncFromServer();
     window.addEventListener("nowen:token-changed", syncFromServer);
+    window.addEventListener(MOBILE_LOCAL_MODE_CHANGED_EVENT, syncFromServer);
+    window.addEventListener(MOBILE_SYNC_SETTINGS_CHANGED_EVENT, syncFromServer);
+    window.addEventListener("online", syncFromServer);
     window.addEventListener("focus", syncFromServer);
     return () => {
       window.removeEventListener("nowen:token-changed", syncFromServer);
+      window.removeEventListener(MOBILE_LOCAL_MODE_CHANGED_EVENT, syncFromServer);
+      window.removeEventListener(MOBILE_SYNC_SETTINGS_CHANGED_EVENT, syncFromServer);
+      window.removeEventListener("online", syncFromServer);
       window.removeEventListener("focus", syncFromServer);
     };
   }, [syncFromServer]);
@@ -317,7 +361,8 @@ export function UserPreferencesProvider({ children }: { children: React.ReactNod
       if (!identity) return next;
 
       const existing = readAccountPreferenceCache(localStorage, identity.userId);
-      const pending: UserPreferencePatch = {
+      const localOnly = isMobileLocalMode();
+      const pending: UserPreferencePatch = localOnly ? {} : {
         ...(existing?.pending || pendingRef.current),
         [key]: value,
       };
@@ -332,7 +377,7 @@ export function UserPreferencesProvider({ children }: { children: React.ReactNod
       activeUserIdRef.current = identity.userId;
       revisionRef.current = cache.revision;
       pendingRef.current = pending;
-      void persistPatch(identity.userId, { [key]: value } as UserPreferencePatch);
+      if (!localOnly) void persistPatch(identity.userId, { [key]: value } as UserPreferencePatch);
       return next;
     });
   }, [persistPatch]);

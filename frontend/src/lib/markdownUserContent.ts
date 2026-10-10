@@ -101,6 +101,52 @@ export function projectMarkdownForUser(markdown: string): string {
   return output;
 }
 
+/**
+ * CodeMirror may map a cursor to the far side of a newly inserted hidden marker.
+ * Keep continued text input inside the user-visible block, while allowing Enter
+ * to create a new block after the marker.
+ */
+export function resolveInternalMarkdownTypingPosition(
+  markdown: string,
+  from: number,
+  to: number,
+  text: string,
+): number | null {
+  if (from !== to || !text || /[\r\n]/.test(text)) return null;
+  const marker = findInternalMarkdownMarkerRanges(markdown)
+    .find((range) => range.kind === "inline" && range.to === from);
+  return marker?.from ?? null;
+}
+
+export interface InternalMarkerSyncSelectionInput {
+  currentMarkdown: string;
+  nextMarkdown: string;
+  from: number;
+  currentTo: number;
+  nextTo: number;
+  anchor: number;
+  head: number;
+}
+
+/** Keep a collapsed cursor before a marker-only insertion from server normalization. */
+export function resolveInternalMarkerSyncSelection(
+  input: InternalMarkerSyncSelectionInput,
+): { anchor: number; head: number } | null {
+  if (
+    input.currentTo !== input.from
+    || input.anchor !== input.from
+    || input.head !== input.from
+  ) {
+    return null;
+  }
+
+  const inserted = input.nextMarkdown.slice(input.from, input.nextTo);
+  if (!inserted || projectMarkdownForUser(inserted) !== "") return null;
+  if (findInternalMarkdownMarkerRanges(inserted).length === 0) return null;
+
+  return { anchor: input.from, head: input.from };
+}
+
 interface MarkdownReplacementAnchor {
   pos: number;
   separateLine: boolean;

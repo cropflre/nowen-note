@@ -4,8 +4,12 @@ import "./runtime/task-stats-hardening";
 import "./runtime/notebook-publication";
 import "./runtime/knowledge-tree";
 import { Hono } from "hono";
+import { requestErrorTracing, handleUnhandledRequestError } from "./middleware/request-error";
+import wechatCaptureRouter from "./routes/wechat-capture.js";
+import wechatAssistantRouter, { createWechatAssistantCallbackRouter } from "./routes/wechat-assistant.js";
+import pluginInboundRouter from "./routes/plugin-inbound.js";
 import { cors } from "hono/cors";
-import { logger } from "hono/logger";
+import { requestLogMiddleware } from "./middleware/request-logging";
 import { compress } from "hono/compress";
 import path from "path";
 import fs from "fs";
@@ -13,8 +17,13 @@ import { verifyLoginToken, getCachedAuthUser, setCachedAuthUser } from "./lib/au
 import knowledgeTreeRouter from "./routes/knowledge-tree";
 import notebooksRouter from "./routes/notebooks";
 import notesRouter from "./routes/notes";
+import trashRouter from "./routes/trash";
 import noteTemplatesRouter from "./routes/note-templates";
 import offlineSyncRouter from "./routes/offline-sync";
+import syncV2Router from "./routes/sync-v2";
+import syncV2BlobRouter from "./routes/sync-v2-blob";
+import syncLocalRouter from "./routes/sync-local";
+import clipperLocalRouter from "./routes/clipper-local";
 import blocksRouter from "./routes/blocks";
 import tagsRouter from "./routes/tags";
 import searchRouter from "./routes/search";
@@ -40,18 +49,27 @@ import oppoCloudRouter from "./routes/oppocloud";
 import icloudRouter from "./routes/icloud";
 import mindmapsRouter from "./routes/mindmaps";
 import mindmapFoldersRouter from "./routes/mindmap-folders";
+import sheetsRouter from "./routes/sheets";
 import diaryRouter, { handleDownloadDiaryImage } from "./routes/diary";
 import journalsRouter from "./routes/journals";
 import urlImportRouter from "./routes/url-import";
 
 import aiRouter from "./routes/ai";
+import voiceRouter from "./routes/voice";
 import pluginsRouter from "./routes/plugins";
+import pluginStudioRouter from "./routes/plugin-studio";
+import pluginExecutionsRouter from "./routes/plugin-executions";
+import automationsRouter from "./routes/automations";
+import automationWebhookRouter from "./automation/webhookTrigger";
 import webhooksRouter from "./routes/webhooks";
+import taskDigestRouter, { dispatchScheduledTaskDigests } from "./routes/task-digest";
 import auditRouter from "./routes/audit";
-import backupsRouter from "./routes/backups";
+import backupsRouter, { handleFullBackupJobDownload } from "./routes/backups";
 import emailRouter from "./routes/email";
 import { sharesRouter, sharedRouter } from "./routes/shares";
 import workspacesRouter from "./routes/workspaces";
+import workspaceIssuesRouter from "./routes/workspace-issues";
+import notificationsRouter from "./routes/notifications";
 import authRouter from "./routes/auth";
 import usersRouter from "./routes/users";
 import tokensRouter from "./routes/tokens";
@@ -65,7 +83,13 @@ import { getDb, closeDb } from "./db/schema";
 import { userSessionsRepository } from "./repositories";
 import { generateOpenAPISpec } from "./services/openapi";
 import { getBackupManager } from "./services/backup";
-import { attachRealtimeServer, getRealtimeStats, shutdownRealtime } from "./services/realtime";
+import { attachRealtimeServer, broadcastToUser, getRealtimeStats, shutdownRealtime } from "./services/realtime";
+import { isLocalFirstSyncV2Enabled } from "./sync/flag";
+import { setSyncBroadcaster } from "./sync/notify";
+import { resetChangeFeedSuppression } from "./sync/suppression";
+import { recoverInflightMutations } from "./sync/outbox";
+import { recoverStuckUploads } from "./sync/attachments";
+import { reconcileSyncEngine, stopSyncEngine } from "./sync/runtime";
 import { getYjsStats } from "./services/yjs";
 import { initWebhookTables } from "./services/webhook";
 import { initAuditTables } from "./services/audit";
@@ -74,6 +98,9 @@ import { startEmbeddingWorker, stopEmbeddingWorker } from "./services/embedding-
 import { initVecStore, reindexAllVectors, isVecAvailable } from "./services/vec-store";
 import { startCalendarExportScheduler, stopCalendarExportScheduler } from "./services/calendar-export";
 import { DEFAULT_NATIVE_CORS_ORIGINS, resolveCorsOrigin, resolveCorsOrigins } from "./lib/cors-policy";
+import { automationEventCaptureMiddleware } from "./automation/eventCapture";
+import { automationRuntime } from "./automation/runtime";
+import { recoverPluginUpdates } from "./plugins/pluginUpdateRecovery";
 import {
   createStaticAssetHeaders,
   isStaticAssetNotModified,
@@ -81,7 +108,60 @@ import {
 
 const app = new Hono();
 
-app.use("*", logger());
+// Preserve legacy route-level error payloads; normalize only uncaught exceptions.
+app.onError(handleUnhandledRequestError);
+app.use("*", requestErrorTracing);
+
+function normalizeProxyCompatibilityPath(pathname: string): string {
+  if (pathname === "/public/api" || pathname.startsWith("/public/api/")) {
+    return pathname.slice("/public".length) || "/api";
+  }
+  if (pathname === "/publicapi" || pathname.startsWith("/publicapi/")) {
+    return `/api${pathname.slice("/publicapi".length)}`;
+  }
+  return pathname;
+}
+
+// Lucky/Nginx 的 proxy_pass .../public 可能把 /api/* 改写成
+// /public/api/* 或 /publicapi/*。只接受这两个精确前缀并重新进入原 API
+// 路由，确保 JWT、ACL、限流和公开/私有路由边界全部保持不变。
+app.use("*", async (c, next) => {
+  const target = new URL(c.req.url);
+  const normalizedPath = normalizeProxyCompatibilityPath(target.pathname);
+  if (normalizedPath === target.pathname) {
+    await next();
+    return;
+  }
+
+  const compatibilityPath = target.pathname.startsWith("/public/api")
+    ? "/public/api"
+    : "/publicapi";
+  target.pathname = normalizedPath;
+  const forwardedHeaders = new Headers(c.req.raw.headers);
+  forwardedHeaders.set("X-Request-Id", c.get("requestId"));
+  const init: RequestInit & { duplex?: "half" } = {
+    method: c.req.raw.method,
+    headers: forwardedHeaders,
+    redirect: c.req.raw.redirect,
+    signal: c.req.raw.signal,
+  };
+  if (c.req.raw.method !== "GET" && c.req.raw.method !== "HEAD") {
+    init.body = c.req.raw.body;
+    init.duplex = "half";
+  }
+  const response = await app.fetch(new Request(target.toString(), init));
+  const headers = new Headers(response.headers);
+  headers.set("X-Nowen-Proxy-Compatibility-Path", compatibilityPath);
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+});
+
+// Log unsuccessful HTTP requests only by default. Do not print signed URLs.
+// Capability callbacks are excluded even when logging is temporarily verbose.
+app.use("*", (c, next) => (c.req.path.startsWith("/api/plugin-inbound/") || c.req.path === "/api/wechat-assistant/callback") ? next() : requestLogMiddleware(c, next));
 
 const isProd = process.env.NODE_ENV === "production";
 const corsOrigins = resolveCorsOrigins();
@@ -92,6 +172,7 @@ app.use("*", cors({
   },
   allowMethods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
   allowHeaders: ["Content-Type", "X-User-Id", "Authorization", "X-Sudo-Token", "X-Folder-Unlock-Tokens", "X-Connection-Id", "X-Share-Session", "X-Requested-With", "X-Request-Id", "X-Export-Filename"],
+  exposeHeaders: ["X-Nowen-Proxy-Compatibility-Path", "X-Request-Id"],
   credentials: true,
 }));
 
@@ -114,6 +195,15 @@ app.use("*", compress());
 // 初始化数据库
 getDb();
 seedDatabase();
+try {
+  const recovery = recoverPluginUpdates();
+  if (recovery.recovered > 0 || recovery.disabled > 0) {
+    console.log(`[plugins] 更新恢复完成：recovered=${recovery.recovered}, disabled=${recovery.disabled}`);
+  }
+} catch (error) {
+  console.error("[plugins] 更新恢复失败，插件执行服务不会提前启动:", error);
+  throw error;
+}
 
 // 提前创建 webhooks / audit_logs 表。
 // 这两张表原本是"路由被访问时懒初始化"，但 notes/notebooks/tasks 等路由会在写操作中
@@ -208,7 +298,7 @@ app.use("/api/shared/*", async (c, next) => {
     "Content-Security-Policy",
     [
       "default-src 'self'",
-      "script-src 'self'",
+      "script-src 'self' 'wasm-unsafe-eval'",
       "style-src 'self' 'unsafe-inline'",
       "img-src 'self' data: blob: https:",
       "font-src 'self' data:",
@@ -250,7 +340,11 @@ app.route("/api/shared", sharedRouter);
 
 // 健康检查（无需 JWT）
 // version 字段动态读取根 package.json / ENV，避免常年停在 1.0.0 误导运维。
-app.get("/api/health", (c) => c.json({ status: "ok", version: resolveAppVersion() }));
+app.get("/api/health", (c) => c.json({
+  status: "ok",
+  service: "nowen-note",
+  version: resolveAppVersion(),
+}));
 
 // 版本信息 & GitHub 最新 release（无需 JWT）
 //
@@ -269,7 +363,19 @@ app.get("/api/openapi.json", (c) => c.json(generateOpenAPISpec()));
 app.get("/api/settings", (c) => {
   const db = getDb();
   const rows = db.prepare("SELECT key, value FROM system_settings WHERE key LIKE 'site_%' OR key LIKE 'editor_%' OR key LIKE 'debug_%' OR key = 'web_ui_enabled'").all() as { key: string; value: string }[];
-  const result: Record<string, string> = { site_title: "nowen-note", site_favicon: "", site_icp_beian: "", editor_font_family: "", debug_files_query: "false", web_ui_enabled: "true" };
+  const result: Record<string, string> = {
+    site_title: "nowen-note",
+    site_favicon: "",
+    site_share_footer_text: "",
+    site_icp_beian: "",
+    site_public_web_origin: "",
+    site_public_web_origin_source: "current",
+    site_file_public_origin: "",
+    site_file_public_origin_source: "inherit",
+    editor_font_family: "",
+    debug_files_query: "false",
+    web_ui_enabled: "true",
+  };
   for (const row of rows) {
     result[row.key] = row.value;
   }
@@ -319,6 +425,9 @@ app.get("/api/attachments/:id", handleDownloadAttachment);
 // JWT 中间件之前注册；token 不可枚举、30 分钟过期，且响应禁止缓存。
 app.get("/api/export/download/:token", handleMarkdownExportDownload);
 
+// 完整系统备份使用同款随机能力令牌，避免 response.blob() 再占用一份浏览器内存。
+app.get("/api/backups/full-download/:token", handleFullBackupJobDownload);
+
 // 任务附件下载（无需 JWT），与 attachments 同款"id 不可枚举"授权模型。
 // 任务列表里的图片缩略图通过 <img src="/api/task-attachments/<id>"> 拉取。
 app.get("/api/task-attachments/:id", handleDownloadTaskAttachment);
@@ -327,6 +436,11 @@ app.get("/api/task-attachments/:id", handleDownloadTaskAttachment);
 //   注意路径具体：/api/diary/attachments/:id，必须比 diaryRouter（在 JWT 之后挂的
 //   /api/diary/*）注册得**更早**，否则会被 JWT 中间件拦截。
 app.get("/api/diary/attachments/:id", handleDownloadDiaryImage);
+
+// 高熵 capability token + 可选 HMAC，自身完成鉴权；外部系统不会携带 Nowen JWT。
+app.route("/api/automation/webhooks", automationWebhookRouter);
+app.route("/api/plugin-inbound", pluginInboundRouter);
+app.route("/api/wechat-assistant", createWechatAssistantCallbackRouter());
 
 // JWT 鉴权中间件：保护所有 /api/* 路由（auth 和 health 已在上方注册，不受影响）
 //
@@ -475,13 +589,24 @@ app.use("/api/*", async (c, next) => {
 // API Token scopes + notebook resource scope enforcement.
 // JWT login requests pass through unchanged.
 app.use("/api/*", enforceApiTokenAccess);
+app.use("/api/*", automationEventCaptureMiddleware);
 
 // API 路由（受 JWT 保护）
 app.route("/api/knowledge-tree/", knowledgeTreeRouter);
 app.route("/api/notebooks", notebooksRouter);
 app.route("/api/notes", notesRouter);
+app.route("/api/trash", trashRouter);
 app.route("/api/note-templates", noteTemplatesRouter);
 app.route("/api/offline-sync", offlineSyncRouter);
+// Sync V2（Local-first）。与 V1 并存：V1 服务已发布客户端，不做任何改动。
+// 路由内部有 Feature Flag 守卫，未启用时返回 404。
+// 附件二进制通道必须先挂载：/api/sync/v2 下的 :param 路由会吞掉 /blob/xxx。
+app.route("/api/sync/v2/blob", syncV2BlobRouter);
+app.route("/api/sync/v2", syncV2Router);
+// 本地同步管理（同步设置 / 冲突中心 / 诊断），仅供 Desktop renderer 通过 localhost 调用。
+app.route("/api/sync/local", syncLocalRouter);
+// Clipper 本地通道：浏览器扩展经 127.0.0.1 保存到本机，无需服务器。
+app.route("/api/local/clipper", clipperLocalRouter);
 app.route("/api/blocks", blocksRouter);
 app.route("/api/tags", tagsRouter);
 app.route("/api/search", searchRouter);
@@ -494,17 +619,27 @@ app.route("/api/oppocloud", oppoCloudRouter);
 app.route("/api/icloud", icloudRouter);
 app.route("/api/mindmaps", mindmapsRouter);
 app.route("/api/mindmap-folders", mindmapFoldersRouter);
+app.route("/api/sheets", sheetsRouter);
 app.route("/api/diary", diaryRouter);
 app.route("/api/journals", journalsRouter);
 app.route("/api/url-import", urlImportRouter);
 app.route("/api/ai", aiRouter);
+app.route("/api/voice", voiceRouter);
+app.route("/api/plugins/studio", pluginStudioRouter);
 app.route("/api/plugins", pluginsRouter);
+app.route("/api/wechat-assistant", wechatAssistantRouter);
+app.route("/api/wechat-capture", wechatCaptureRouter);
+app.route("/api/plugin-executions", pluginExecutionsRouter);
+app.route("/api/automations", automationsRouter);
 app.route("/api/webhooks", webhooksRouter);
+app.route("/api/task-digest", taskDigestRouter);
 app.route("/api/audit", auditRouter);
 app.route("/api/backups", backupsRouter);
 app.route("/api/email", emailRouter);
 app.route("/api/shares", sharesRouter);
 app.route("/api/workspaces", workspacesRouter);
+app.route("/api/workspace-issues", workspaceIssuesRouter);
+app.route("/api/notifications", notificationsRouter);
 app.route("/api/users", usersRouter);
 app.route("/api/tokens", tokensRouter);
 app.route("/api/user-preferences", userPreferencesRouter);
@@ -670,6 +805,7 @@ if (process.env.NODE_ENV === "production") {
   const mimeTypes: Record<string, string> = {
     ".html": "text/html",
     ".js": "application/javascript",
+    ".mjs": "application/javascript",
     ".css": "text/css",
     ".json": "application/json",
     ".png": "image/png",
@@ -751,7 +887,7 @@ if (process.env.NODE_ENV === "production") {
         "Content-Security-Policy",
         [
           "default-src 'self'",
-          "script-src 'self'",
+          "script-src 'self' 'wasm-unsafe-eval'",
           "style-src 'self' 'unsafe-inline'",
           "img-src 'self' data: blob: https:",
           "font-src 'self' data:",
@@ -815,6 +951,19 @@ try {
   console.warn("[init] startEmbeddingWorker failed:", e);
 }
 
+try {
+  automationRuntime.start();
+} catch (e) {
+  console.warn("[init] automation runtime failed:", e);
+}
+
+// 每分钟检查早晚任务简报。数据库 UNIQUE 约束避免多次投递。
+// 持续推送需要常驻后端，桌面进程关闭时不会运行。
+const taskDigestTimer = process.env.NODE_ENV === "test" ? null : setInterval(() => {
+  try { dispatchScheduledTaskDigests(); }
+  catch (error) { console.error("[task-digest] scan failed:", error); }
+}, 60_000);
+taskDigestTimer?.unref();
 // 启动日历 ICS S3 镜像定时导出
 //   - CALENDAR_EXPORT_TIMER_DISABLED=1 可关闭
 //   - NODE_ENV=test 时不启动
@@ -832,6 +981,36 @@ console.log(`📖 OpenAPI 文档: http://localhost:${port}/api/openapi.json`);
 const server = serve({ fetch: app.fetch, port });
 // serve() 签名在不同版本返回不同对象；实际运行时是 http.Server
 attachRealtimeServer(server as unknown as import("http").Server);
+
+// ---- Sync V2 运行时接线（Phase 6 + Phase 9）----
+//
+// 只在 Flag 开启时接线，关闭状态下这段完全不产生副作用。
+if (isLocalFirstSyncV2Enabled()) {
+  // Phase 6：把实时通知能力注入 sync 模块。用注入而非直接 import，
+  // 是为了让 sync 在没有 WebSocket 的环境（CLI / 测试 / 迁移脚本）里也能工作。
+  setSyncBroadcaster((userId, message) => {
+    broadcastToUser(userId, message as never);
+  });
+
+  // 崩溃恢复：上次进程若在抑制窗口或上传中途被强杀，
+  // 开关会卡在 1、附件会卡在 uploading，之后永远不再同步。
+  // 启动复位是唯一可靠的兜底。
+  try {
+    const db = getDb();
+    resetChangeFeedSuppression(db);
+    recoverInflightMutations(db);
+    recoverStuckUploads(db);
+
+    // 按数据库里的 SyncProfile 状态决定是否启动引擎。
+    // 必须放在崩溃恢复之后：否则引擎可能先取到仍标记为 inflight 的条目。
+    //
+    // 返回 null 是正常情况（用户选择"仅此设备"、尚未授权），不是错误。
+    // 用户之后在设置页连接服务器时路由会再次 reconcile，无需重启应用。
+    reconcileSyncEngine(db);
+  } catch (error) {
+    console.warn("[sync-v2] startup recovery skipped:", (error as Error)?.message || error);
+  }
+}
 console.log(`🛰  WebSocket endpoint: ws://localhost:${port}/ws`);
 
 // mDNS 广播：让同局域网内的桌面/移动客户端免输入发现本实例。
@@ -861,6 +1040,12 @@ async function gracefulShutdown(signal: string) {
     process.exit(1);
   }, 3000);
   try {
+    automationRuntime.stop();
+    if (taskDigestTimer) clearInterval(taskDigestTimer);
+    // 先停同步引擎：它可能正在 push，避免它再排下一轮把关停拖长。
+    // 已标记 inflight 的条目由下次启动的 recoverInflightMutations 复位，
+    // 重复推送由 mutationId 幂等保证安全，不会产生重复数据。
+    try { stopSyncEngine(); } catch { /* ignore */ }
     await shutdownRealtime();
   } catch (e) {
     console.warn("[shutdown] failed:", e);

@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   findInternalMarkdownMarkerRanges,
   projectMarkdownForUser,
+  resolveInternalMarkerSyncSelection,
+  resolveInternalMarkdownTypingPosition,
   sanitizeMarkdownClipboardText,
 } from "../markdownUserContent";
 
@@ -126,5 +128,68 @@ describe("sanitizeMarkdownClipboardText", () => {
       "普通示例 ^blk_example_text",
     ].join("\n");
     expect(sanitizeMarkdownClipboardText(source)).toBe(source);
+  });
+});
+
+describe("resolveInternalMarkdownTypingPosition", () => {
+  it("keeps continued heading text before a hidden block marker", () => {
+    const source = `# Test ^${HEADING_ID}`;
+    expect(resolveInternalMarkdownTypingPosition(
+      source,
+      source.length,
+      source.length,
+      "T",
+    )).toBe(source.indexOf(` ^${HEADING_ID}`));
+  });
+
+  it("allows Enter to create a new block after the marker", () => {
+    const source = `# Test ^${HEADING_ID}`;
+    expect(resolveInternalMarkdownTypingPosition(
+      source,
+      source.length,
+      source.length,
+      "\n",
+    )).toBeNull();
+  });
+
+  it("does not redirect ordinary input or user-authored marker examples", () => {
+    const source = "普通示例 ^blk_example_text";
+    expect(resolveInternalMarkdownTypingPosition(source, 2, 2, "字")).toBeNull();
+    expect(resolveInternalMarkdownTypingPosition(
+      source,
+      source.length,
+      source.length,
+      "T",
+    )).toBeNull();
+  });
+});
+
+describe("resolveInternalMarkerSyncSelection", () => {
+  it("keeps the cursor before a server-inserted hidden heading marker", () => {
+    const current = "# Test";
+    const next = `${current} ^${HEADING_ID}`;
+    expect(resolveInternalMarkerSyncSelection({
+      currentMarkdown: current,
+      nextMarkdown: next,
+      from: current.length,
+      currentTo: current.length,
+      nextTo: next.length,
+      anchor: current.length,
+      head: current.length,
+    })).toEqual({ anchor: current.length, head: current.length });
+  });
+
+  it("does not override selections away from the normalized block", () => {
+    const current = "# Test\n\n正文";
+    const next = `# Test ^${HEADING_ID}\n\n正文`;
+    expect(resolveInternalMarkerSyncSelection({
+      currentMarkdown: current,
+      nextMarkdown: next,
+      from: "# Test".length,
+      currentTo: "# Test".length,
+      nextTo: `# Test ^${HEADING_ID}`.length,
+      anchor: current.length,
+      head: current.length,
+    })).toBeNull();
   });
 });

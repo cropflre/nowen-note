@@ -1,4 +1,5 @@
-﻿import { Hono } from "hono";
+﻿import { aiOutboundFetch, getAIOutboundProxyStatus } from "../services/ai-outbound-fetch.js";
+import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import { getDb } from "../db/schema";
 import {
@@ -12,9 +13,10 @@ import {
   reindexAllVectors,
 } from "../services/vec-store";
 import { getUserWorkspaceRole } from "../middleware/acl";
+import { getEmbeddingFailures, retryFailedEmbeddings } from "../services/embedding-index-diagnostics";
 import { callAIChat, callAIChatStream, extractTextFromChatCompletion, sanitizeError, type AISettings } from "../services/ai-client";
 import { aiCustomPromptsRepository } from "../repositories";
-import { getUserAISettings, setGuardedUserAISettings } from "../services/user-ai-settings";
+import { getUserAISettings, isManualAIEnabled, setGuardedUserAISettings } from "../services/user-ai-settings";
 import {
   discoverEmbeddingModels,
   embeddingDiscoveryErrorBody,
@@ -28,6 +30,12 @@ const ai = new Hono();
 ai.use("*", async (c, next) => {
   if (!c.req.header("X-User-Id")) return c.json({ error: "Unauthorized" }, 401);
   await next();
+});
+
+// The proxy is configured by the server owner; never expose its URL, password or token.
+ai.get("/proxy-status", (c) => {
+  const { enabled, valid, message } = getAIOutboundProxyStatus();
+  return c.json({ enabled, valid, message });
 });
 
 // ============================================================
@@ -144,7 +152,7 @@ function resolveKnowledgeScope(
 // ===== AI 设置管理 =====
 
 // 不需要 API Key 的 Provider
-const NO_KEY_PROVIDERS = ["ollama"];
+const NO_KEY_PROVIDERS = ["ollama", "lmstudio"];
 
 function getAISettings(c: any): AISettings {
   return getUserAISettings(c.req.header("X-User-Id")!);
@@ -213,6 +221,14 @@ ai.post("/embeddings/test", async (c) => {
 
 // ===== AI 连接测试 =====
 ai.post("/test", async (c) => {
+  const userId = c.req.header("X-User-Id")!;
+  if (!isManualAIEnabled(userId)) {
+    return c.json({
+      success: false,
+      error: "手动 AI 配置已关闭，请先在 AI 设置顶部开启后再测试连接",
+      code: "AI_CONFIG_DISABLED",
+    }, 409);
+  }
   const settings = getAISettings(c);
   if (!settings.ai_api_url) {
     return c.json({ success: false, error: "未配置 API 地址" }, 400);
@@ -238,7 +254,7 @@ ai.post("/test", async (c) => {
     if (settings.ai_provider === "ollama" && /405|Method Not Allowed/i.test(msg)) {
       const ollamaBase = settings.ai_api_url.replace(/\/+$/, "").replace(/\/v1$/, "");
       try {
-        const fallbackRes = await fetch(`${ollamaBase}/api/tags`, {
+        const fallbackRes = await aiOutboundFetch(`${ollamaBase}/api/tags`, {
           method: "GET",
           signal: AbortSignal.timeout(10000),
         });
@@ -268,7 +284,7 @@ ai.get("/models", async (c) => {
       headers["Authorization"] = `Bearer ${settings.ai_api_key}`;
     }
 
-    const res = await fetch(`${settings.ai_api_url.replace(/\/+$/, "")}/models`, {
+    const res = await aiOutboundFetch(`${settings.ai_api_url.replace(/\/+$/, "")}/models`, {
       headers,
       signal: AbortSignal.timeout(10000),
     });
@@ -834,7 +850,7 @@ ai.post("/parse-document", async (c) => {
     }
 
     const baseUrl = settings.ai_api_url.replace(/\/+$/, "");
-    const res = await fetch(`${baseUrl}/chat/completions`, {
+    const res = await aiOutboundFetch(`${baseUrl}/chat/completions`, {
       method: "POST",
       headers,
       body: JSON.stringify({
@@ -1114,7 +1130,7 @@ Rules: be concise, neutral, faithful to source. If source is unusable, return em
       reqBody.response_format = { type: "json_object" };
     }
 
-    const res = await fetch(`${baseUrl}/chat/completions`, {
+    const res = await aiOutboundFetch(`${baseUrl}/chat/completions`, {
       method: "POST",
       headers: aiHeaders,
       body: JSON.stringify(reqBody),
@@ -1273,7 +1289,7 @@ ai.post("/batch-format", async (c) => {
       }
 
       const batchBaseUrl = settings.ai_api_url.replace(/\/+$/, "");
-      const res = await fetch(`${batchBaseUrl}/chat/completions`, {
+      const res = await aiOutboundFetch(`${batchBaseUrl}/chat/completions`, {
         method: "POST",
         headers: aiHeaders,
         body: JSON.stringify({
@@ -1460,7 +1476,7 @@ ai.post("/import-to-knowledge", async (c) => {
         if (settings.ai_api_url && (NO_KEY_PROVIDERS.includes(settings.ai_provider) || settings.ai_api_key)) {
           try {
             const importBaseUrl = settings.ai_api_url.replace(/\/+$/, "");
-            const res = await fetch(`${importBaseUrl}/chat/completions`, {
+            const res = await aiOutboundFetch(`${importBaseUrl}/chat/completions`, {
               method: "POST",
               headers: aiHeaders,
               body: JSON.stringify({
@@ -1543,7 +1559,7 @@ ai.get("/knowledge-stats", (c) => {
   ).get(...userParams, ...wsParams) as { count: number }).count;
 
   const notebookCount = (db.prepare(
-    `SELECT COUNT(*) as count FROM notebooks WHERE ${userClause}${wsClause}`,
+    `SELECT COUNT(*) as count FROM notebooks WHERE ${userClause}${wsClause} AND isDeleted = 0`,
   ).get(...userParams, ...wsParams) as { count: number }).count;
 
   const tagCount = (db.prepare(
@@ -1593,6 +1609,22 @@ ai.get("/embeddings/stats", (c) => {
     workspaceId,
   });
   return c.json(stats);
+});
+
+// GET /api/ai/embeddings/failures?workspaceId=xxx
+// Count and classify failed jobs only within an authorized personal/workspace scope.
+ai.get("/embeddings/failures", (c) => {
+  const scope = resolveScope(c);
+  if ("error" in scope) return scope.error;
+  return c.json(getEmbeddingFailures(scope));
+});
+
+// POST /api/ai/embeddings/retry-failed?workspaceId=xxx
+// Retry only failed jobs. Unlike full rebuild, this does not clear saved vectors.
+ai.post("/embeddings/retry-failed", (c) => {
+  const scope = resolveScope(c);
+  if ("error" in scope) return scope.error;
+  return c.json({ ok: true, ...retryFailedEmbeddings(scope) });
 });
 
 // POST /api/ai/embeddings/rebuild?workspaceId=xxx
@@ -2323,7 +2355,7 @@ ai.post("/classify", async (c) => {
   }
 
   try {
-    const res = await fetch(`${baseUrl}/chat/completions`, {
+    const res = await aiOutboundFetch(`${baseUrl}/chat/completions`, {
       method: "POST",
       headers,
       body: JSON.stringify({

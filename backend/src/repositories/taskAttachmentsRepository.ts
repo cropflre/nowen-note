@@ -41,6 +41,19 @@ export const taskAttachmentsRepository = {
       .get(attachmentId) as { id: string; mimeType: string; path: string; filename: string } | undefined;
   },
 
+  /** 返回某个任务的全部附件，供任务详情附件区与完整备份使用。 */
+  listByTaskId(taskId: string): TaskAttachmentRecord[] {
+    const db = getDb();
+    return db
+      .prepare(
+        `SELECT id, taskId, userId, workspaceId, filename, mimeType, size, path, createdAt
+         FROM task_attachments
+         WHERE taskId = ?
+         ORDER BY createdAt ASC, id ASC`,
+      )
+      .all(taskId) as TaskAttachmentRecord[];
+  },
+
   /**
    * 获取附件详情（用于权限校验）。
    *
@@ -137,6 +150,16 @@ export const taskAttachmentsRepository = {
     return getAdapter().queryOne<{ id: string; mimeType: string; path: string; filename: string }>(
       "SELECT id, mimeType, path, filename FROM task_attachments WHERE id = ?",
       [attachmentId],
+    );
+  },
+
+  async listByTaskIdAsync(taskId: string): Promise<TaskAttachmentRecord[]> {
+    return getAdapter().queryMany<TaskAttachmentRecord>(
+      `SELECT id, taskId, userId, workspaceId, filename, mimeType, size, path, createdAt
+       FROM task_attachments
+       WHERE taskId = ?
+       ORDER BY createdAt ASC, id ASC`,
+      [taskId],
     );
   },
 

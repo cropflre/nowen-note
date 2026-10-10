@@ -1,19 +1,29 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import {
-  BrainCircuit, Plus, Trash2, Edit2,
+  BrainCircuit, Plus, Edit2,
   ZoomIn, ZoomOut, Maximize2, Minimize2, Scan,
-  Loader2, Check, Map as MapIcon, Menu, PanelLeftClose, Image, FileImage, FileDown, MoreHorizontal,
-  User as UserIcon, Undo2, Redo2, PanelLeft, ChevronRight, ChevronDown, Link as LinkIcon, StickyNote, Palette, ExternalLink, FileText, ArrowDownToLine, Spline, Square, Pipette, Search as SearchIcon, ChevronUp, Star, Folder as FolderIcon, FolderPlus
+  Loader2, Check, Map as MapIcon, Image, FileImage, FileDown, MoreHorizontal,
+  Undo2, Redo2, PanelLeft, ChevronLeft, ChevronRight, ChevronDown, Link as LinkIcon, StickyNote, ExternalLink, FileText, ArrowDownToLine, Spline, Square, Search as SearchIcon, ChevronUp, AlertTriangle, X, Copy
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { api, getCurrentWorkspace } from "@/lib/api";
+import { api } from "@/lib/api";
+import MindMapOverview from "@/components/MindMapOverview";
+import { knowledgeTreeApi, type KnowledgeTreeNode } from "@/lib/knowledgeTreeApi";
+import { loadMobileKnowledgeTreeRecentEntries, saveMobileKnowledgeTreeRecentEntries, upsertMobileKnowledgeTreeRecentEntry } from "@/lib/mobileKnowledgeTree";
 import { MindMap, MindMapListItem, MindMapNode, MindMapData, MindMapRelation, MindMapBoundary, MindMapViewport } from "@/types";
 import { cn } from "@/lib/utils";
 import { toast } from "@/lib/toast";
+import { assertExportCanvasHasContent, EXPORT_CANVAS_CONTENT_ERROR } from "@/lib/exportCanvasGuard";
 import { useMindMapHistory } from "@/hooks/useMindMapHistory";
 import { buildXmindContent, buildZip, downloadBlob } from "@/lib/mindmapExport";
 import { markdownToMindMapData, mindMapDataToMarkdown } from "@/lib/mindmapTransform";
 import { computeLayoutBounds, fitMindMapToViewport, isValidViewport } from "@/lib/mindmapViewport";
+import { dispatchDocumentMindMapChanged } from "@/lib/documentMindMapRuntime";
+import {
+  buildMindMapDeepLinkUrl,
+  pushMindMapAppPath,
+  replaceMindMapAppPath,
+} from "@/lib/mindMapDeepLink";
 /* ===== macOS-style Mindmap Theme Tokens ===== */
 const MT = {
   canvasBg: "var(--mm-canvas-bg, #f5f5f7)",
@@ -179,6 +189,19 @@ export function hitTestSelectionElements(
 }
 
 export type MindMapMoveRejectReason = "self" | "target-selected" | "descendant";
+export type MindMapDropPlacement = "before" | "inside" | "after";
+
+export function resolveMindMapDropPlacement(
+  clientY: number,
+  top: number,
+  height: number,
+): MindMapDropPlacement {
+  if (!Number.isFinite(height) || height <= 0) return "inside";
+  const ratio = (clientY - top) / height;
+  if (ratio < 0.28) return "before";
+  if (ratio > 0.72) return "after";
+  return "inside";
+}
 
 function cloneMindMapNode(node: MindMapNode): MindMapNode {
   return {
@@ -274,14 +297,93 @@ function containsMindMapNode(root: MindMapNode, nodeId: string): boolean {
   return root.id === nodeId || root.children.some((child) => containsMindMapNode(child, nodeId));
 }
 
-export function moveMindMapNodes(root: MindMapNode, targetId: string, nodeIds: string[]): MindMapNode {
+function insertMindMapNodesRelative(
+  root: MindMapNode,
+  targetId: string,
+  nodes: MindMapNode[],
+  placement: Exclude<MindMapDropPlacement, "inside">,
+): MindMapNode {
+  const targetIndex = root.children.findIndex((child) => child.id === targetId);
+  if (targetIndex >= 0) {
+    const insertAt = placement === "before" ? targetIndex : targetIndex + 1;
+    return {
+      ...root,
+      children: [
+        ...root.children.slice(0, insertAt),
+        ...nodes,
+        ...root.children.slice(insertAt),
+      ],
+    };
+  }
+  return {
+    ...root,
+    children: root.children.map((child) =>
+      insertMindMapNodesRelative(child, targetId, nodes, placement)),
+  };
+}
+
+export function moveMindMapNodes(
+  root: MindMapNode,
+  targetId: string,
+  nodeIds: string[],
+  placement: MindMapDropPlacement = "inside",
+): MindMapNode {
   if (!containsMindMapNode(root, targetId)) return root;
   const movingIds = new Set(nodeIds);
   const nodesToMove = collectNodesInTreeOrder(root, movingIds);
   if (nodesToMove.length === 0) return root;
 
   const newRoot = removeMindMapNodes(root, movingIds);
-  return appendMindMapChildren(newRoot, targetId, nodesToMove);
+  if (placement === "inside" || targetId === root.id) {
+    return appendMindMapChildren(newRoot, targetId, nodesToMove);
+  }
+  return insertMindMapNodesRelative(newRoot, targetId, nodesToMove, placement);
+}
+
+/** Shift+Tab: move a node immediately after its parent, preserving its subtree. */
+export function promoteMindMapNode(root: MindMapNode, nodeId: string): MindMapNode {
+  for (let index = 0; index < root.children.length; index++) {
+    const parent = root.children[index];
+    const childIndex = parent.children.findIndex((child) => child.id === nodeId);
+    if (childIndex >= 0) {
+      const promoted = parent.children[childIndex];
+      return {
+        ...root,
+        children: [
+          ...root.children.slice(0, index),
+          { ...parent, children: parent.children.filter((child) => child.id !== nodeId) },
+          promoted,
+          ...root.children.slice(index + 1),
+        ],
+      };
+    }
+    const updated = promoteMindMapNode(parent, nodeId);
+    if (updated !== parent) {
+      return { ...root, children: root.children.map((child, at) => at === index ? updated : child) };
+    }
+  }
+  return root;
+}
+
+/** Navigate the visible outline without selecting children hidden by a collapsed node. */
+export function navigateMindMapNode(
+  root: MindMapNode,
+  nodeId: string,
+  direction: "ArrowUp" | "ArrowDown" | "ArrowLeft" | "ArrowRight",
+): string | null {
+  const visible: Array<{ node: MindMapNode; parentId: string | null }> = [];
+  const visit = (node: MindMapNode, parentId: string | null) => {
+    visible.push({ node, parentId });
+    if (!node.collapsed) node.children.forEach((child) => visit(child, node.id));
+  };
+  visit(root, null);
+  const index = visible.findIndex(({ node }) => node.id === nodeId);
+  if (index < 0) return null;
+  if (direction === "ArrowUp") return visible[index - 1]?.node.id ?? null;
+  if (direction === "ArrowDown") return visible[index + 1]?.node.id ?? null;
+  if (direction === "ArrowLeft") return visible[index].parentId;
+  const current = visible[index].node;
+  return current.collapsed ? null : current.children[0]?.id ?? null;
 }
 
 function getSubtreeHeight(node: LayoutNode): number {
@@ -413,6 +515,58 @@ function escapeXml(str: string): string {
     .replace(/'/g, "&apos;");
 }
 
+export function buildMindMapExportSvg(data: MindMapData) {
+  const root = buildLayout(data.root, 0, null);
+  const treeH = getSubtreeHeight(root);
+  layoutTree(root, 0, treeH / 2);
+  const allNodes = flattenNodes(root);
+
+  const edgeList: { from: LayoutNode; to: LayoutNode }[] = [];
+  const collectEdges = (n: LayoutNode) => {
+    n.children.forEach((c) => {
+      edgeList.push({ from: n, to: c });
+      collectEdges(c);
+    });
+  };
+  collectEdges(root);
+
+  if (allNodes.length === 0) return null;
+
+  const pad = 40;
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  allNodes.forEach((n) => {
+    minX = Math.min(minX, n.x);
+    minY = Math.min(minY, n.y);
+    maxX = Math.max(maxX, n.x + n.width);
+    maxY = Math.max(maxY, n.y + n.height);
+  });
+  const w = maxX - minX + pad * 2;
+  const h = maxY - minY + pad * 2;
+
+  let svgContent = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="${minX - pad} ${minY - pad} ${w} ${h}" style="background:#fff">\n`;
+
+  edgeList.forEach((e) => {
+    const x1 = e.from.x + e.from.width;
+    const y1 = e.from.y + e.from.height / 2;
+    const x2 = e.to.x;
+    const y2 = e.to.y + e.to.height / 2;
+    const mx = (x1 + x2) / 2;
+    svgContent += `  <path d="M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}" fill="none" stroke="rgb(203,213,225)" stroke-width="2"/>\n`;
+  });
+
+  allNodes.forEach((n) => {
+    const color = getNodeColor(n.depth);
+    const isRoot = n.depth === 0;
+    const fontSize = isRoot ? 14 : 13;
+    const fontWeight = isRoot ? 700 : 500;
+    svgContent += `  <rect x="${n.x}" y="${n.y}" width="${n.width}" height="${n.height}" rx="8" fill="${color.bg}" stroke="${color.border}" stroke-width="1.5"/>\n`;
+    svgContent += `  <text x="${n.x + 12}" y="${n.y + n.height / 2}" dominant-baseline="central" font-family="system-ui,-apple-system,sans-serif" font-size="${fontSize}" font-weight="${fontWeight}" fill="${color.text}">${escapeXml(n.text)}</text>\n`;
+  });
+
+  svgContent += `</svg>`;
+  return { svgContent, width: w, height: h };
+}
+
 /* ===== CRC-32（用于 ZIP 打包） ===== */
 const crc32Table = (() => {
   const table = new Uint32Array(256);
@@ -508,8 +662,9 @@ const NodeBox = React.memo(function NodeBox({
   node, isSelected, isEditing, editValue,
   onSelect, onDoubleClick, onEditChange, onEditSubmit,
   onToggleCollapse, isMobile, onContextMenu, nodeData,
-  markerIcons, isSearchMatch, isSearchActive, onDragStart, onDragOver, onDragLeave, onDrop, isDragTarget,
-  onResizeStart,
+  markerIcons, isSearchMatch, isSearchActive, onDragStart, onDragOver, onDragLeave, onDrop, onDragEnd,
+  isDragTarget, dragPlacement, onResizeStart, isDragging,
+  onTouchDragStart, onTouchDragMove, onTouchDragEnd,
 }: {
   node: LayoutNode;
   isSelected: boolean;
@@ -530,8 +685,14 @@ const NodeBox = React.memo(function NodeBox({
   onDragOver?: (e: React.DragEvent) => void;
   onDragLeave?: (e: React.DragEvent) => void;
   onDrop?: (e: React.DragEvent) => void;
+  onDragEnd?: (e: React.DragEvent) => void;
   isDragTarget?: boolean;
+  dragPlacement?: MindMapDropPlacement | null;
   onResizeStart?: (e: React.PointerEvent<HTMLButtonElement>) => void;
+  isDragging?: boolean;
+  onTouchDragStart?: (point: { clientX: number; clientY: number }) => void;
+  onTouchDragMove?: (point: { clientX: number; clientY: number }) => void;
+  onTouchDragEnd?: () => void;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const color = getNodeColor(node.depth);
@@ -541,6 +702,14 @@ const NodeBox = React.memo(function NodeBox({
     ? countMindMapDescendants(nodeData)
     : 0;
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const touchDragRef = useRef<{ startX: number; startY: number; active: boolean } | null>(null);
+
+  const clearNodeLongPress = () => {
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
+  };
 
     useEffect(() => {
     if (isEditing && inputRef.current) {
@@ -560,10 +729,20 @@ const NodeBox = React.memo(function NodeBox({
       >
         <div
           data-mindmap-node-id={node.id}
+          data-mindmap-node-depth={node.depth}
           data-mindmap-node-surface="true"
+          data-mindmap-drop-placement={isDragTarget ? dragPlacement ?? undefined : undefined}
           className={cn(
             "relative flex items-center h-full px-3 rounded-[12px] cursor-pointer select-none transition-colors duration-150 ease-out text-sm font-medium whitespace-nowrap overflow-hidden group",
-            isSearchMatch && "ring-2 ring-amber-400/70", isSearchActive && "ring-2 ring-amber-500 shadow-lg shadow-amber-500/20", isDragTarget && "ring-2 ring-emerald-500 bg-emerald-50/50 dark:bg-emerald-900/20"
+            isDragging && "opacity-55 cursor-grabbing",
+            isSearchMatch && "ring-2 ring-amber-400/70",
+            isSearchActive && "ring-2 ring-amber-500 shadow-lg shadow-amber-500/20",
+            isDragTarget && dragPlacement === "inside"
+              && "ring-2 ring-emerald-500 bg-emerald-50/50 dark:bg-emerald-900/20",
+            isDragTarget && dragPlacement === "before"
+              && "before:absolute before:inset-x-1 before:top-0 before:h-0.5 before:bg-emerald-500",
+            isDragTarget && dragPlacement === "after"
+              && "after:absolute after:inset-x-1 after:bottom-0 after:h-0.5 after:bg-emerald-500",
           )}
           style={{
             width: "100%",
@@ -577,36 +756,74 @@ const NodeBox = React.memo(function NodeBox({
               : isRoot ? MT.rootShadow : MT.nodeShadow,
             fontSize: isRoot ? 14 : 13,
             fontWeight: isRoot ? 700 : 500,
+            touchAction: isMobile ? "none" : undefined,
           }}
-          draggable={!!onDragStart}
+          draggable={!!onDragStart && !isEditing}
           onPointerDown={(e) => e.stopPropagation()}
           onDragStart={onDragStart}
           onDragOver={onDragOver}
           onDragLeave={onDragLeave}
           onDrop={onDrop}
+          onDragEnd={onDragEnd}
           onClick={(e) => { e.stopPropagation(); onSelect(e); }}
           onDoubleClick={(e) => { e.stopPropagation(); onDoubleClick(); }}
           onContextMenu={onContextMenu}
           onTouchStart={(e) => {
-            if (isMobile) {
+            if (!isMobile) return;
+            e.stopPropagation();
+            const touch = e.touches[0];
+            if (!touch) return;
+            clearNodeLongPress();
+            touchDragRef.current = {
+              startX: touch.clientX,
+              startY: touch.clientY,
+              active: false,
+            };
+            if (!isRoot && !isEditing && onTouchDragStart) {
+              const point = { clientX: touch.clientX, clientY: touch.clientY };
               longPressTimer.current = setTimeout(() => {
-                e.stopPropagation();
+                longPressTimer.current = null;
+                if (!touchDragRef.current) return;
+                touchDragRef.current.active = true;
                 onSelect();
-                onDoubleClick();
-              }, 500);
+                onTouchDragStart(point);
+                try { navigator.vibrate?.(10); } catch { /* best-effort haptic */ }
+              }, 320);
             }
           }}
-          onTouchEnd={() => {
-            if (longPressTimer.current) {
-              clearTimeout(longPressTimer.current);
-              longPressTimer.current = null;
+          onTouchMove={(e) => {
+            if (!isMobile) return;
+            e.stopPropagation();
+            const touch = e.touches[0];
+            const state = touchDragRef.current;
+            if (!touch || !state) return;
+            const dx = touch.clientX - state.startX;
+            const dy = touch.clientY - state.startY;
+            if (!state.active && dx * dx + dy * dy > 64) {
+              clearNodeLongPress();
+              return;
+            }
+            if (state.active) {
+              e.preventDefault();
+              onTouchDragMove?.({ clientX: touch.clientX, clientY: touch.clientY });
             }
           }}
-          onTouchMove={() => {
-            if (longPressTimer.current) {
-              clearTimeout(longPressTimer.current);
-              longPressTimer.current = null;
+          onTouchEnd={(e) => {
+            if (!isMobile) return;
+            e.stopPropagation();
+            clearNodeLongPress();
+            if (touchDragRef.current?.active) {
+              e.preventDefault();
+              onTouchDragEnd?.();
             }
+            touchDragRef.current = null;
+          }}
+          onTouchCancel={(e) => {
+            if (!isMobile) return;
+            e.stopPropagation();
+            clearNodeLongPress();
+            if (touchDragRef.current?.active) onTouchDragEnd?.();
+            touchDragRef.current = null;
           }}
         >
           {markerIcons}
@@ -717,7 +934,7 @@ function FloatingToolbar({
       onMouseDown={(e) => e.stopPropagation()}
       onClick={(e) => e.stopPropagation()}
     >
-      <button className={cn("flex items-center gap-1 rounded-full bg-blue-500 text-white font-medium hover:bg-blue-600 active:bg-blue-700 transition-colors duration-150 ease-out shadow-md shadow-blue-500/20 border border-blue-400/50", isMobile ? "px-3.5 py-2 text-xs" : "px-3 py-1.5 text-[11px]")}
+      <button className={cn("flex items-center gap-1 rounded-full border border-accent-primary bg-accent-primary text-tx-inverse font-medium shadow-md transition-opacity duration-150 ease-out hover:opacity-90 active:opacity-80", isMobile ? "px-3.5 py-2 text-xs" : "px-3 py-1.5 text-[11px]")}
         onClick={(e) => { e.stopPropagation(); onAddChild(); }}>
         <Plus size={isMobile ? 14 : 10} />
         <span className="hidden sm:inline">{t("mindMap.addChild")}</span>
@@ -769,7 +986,7 @@ function FloatingToolbar({
                 if (link !== null) onSetLink(link);
                 setShowMore(false);
               }}>
-              <LinkIcon size={14} className="text-blue-500" /> {t("mindMap.setLink")}
+              <LinkIcon size={14} className="text-accent-primary" /> {t("mindMap.setLink")}
             </button>
             <button className="w-full flex items-center gap-2 px-3 py-2 text-sm text-tx-primary hover:bg-black/[0.04] dark:hover:bg-white/[0.06] transition-colors duration-150 ease-out"
               onClick={(e) => {
@@ -853,7 +1070,7 @@ function OutlinePanel({
     return (
       <div key={node.id}>
         <div className={cn("flex items-center gap-1 px-2 py-1 rounded cursor-pointer text-sm transition-colors duration-150 ease-out group",
-          isSelected && "bg-blue-50/70 dark:bg-blue-500/15 text-blue-700 dark:text-blue-300",
+          isSelected && "bg-app-active text-accent-primary",
           !isSelected && "hover:bg-black/[0.03] dark:hover:bg-white/[0.04] text-tx-primary"
         )} style={{ paddingLeft: depth * 20 + 8 }}
           onClick={() => onSelectNode(node.id)} onDoubleClick={() => onEdit(node.id, node.text)}>
@@ -866,7 +1083,7 @@ function OutlinePanel({
           {isEditing ? (
             <input ref={inputRef} value={editValue} onChange={(e) => onEditChange(e.target.value)}
               onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); onEditSubmit(); } if (e.key === "Escape") onEditSubmit(); }}
-              onBlur={onEditSubmit} className="flex-1 bg-transparent outline-none border-b border-blue-400 text-sm min-w-0" />
+              onBlur={onEditSubmit} className="flex-1 min-w-0 border-b border-accent-primary bg-transparent text-sm outline-none" />
           ) : <span className="truncate flex-1 text-xs">{node.text}</span>}
         </div>
         {hasChildren && !node.collapsed && <div>{node.children.map((c) => renderNode(c, depth + 1))}</div>}
@@ -877,147 +1094,61 @@ function OutlinePanel({
   return (
     <div className="flex flex-col h-full overflow-hidden">
       <div className="px-3 py-2 border-b border-app-border flex items-center gap-2">
-        <PanelLeft size={14} className="text-blue-500" />
+        <PanelLeft size={14} className="text-accent-primary" />
         <span className="text-xs font-semibold text-tx-primary">{t("mindMap.outline")}</span>
       </div>
       <div className="flex-1 overflow-auto p-1">{renderNode(mapData.root, 0)}</div>
     </div>
   );
 }
-function MindMapListRow({
-  item, isActive, onSelect, onDelete, onContextMenu, onToggleStar, onDragStart, onDragEnd, isDropTarget,
-}: {
-  item: MindMapListItem;
-  isActive: boolean;
-  onSelect: () => void;
-  onDelete: () => void;
-  onContextMenu: (e: React.MouseEvent) => void;
-  onToggleStar?: () => void;
-  onDragStart?: (e: React.DragEvent) => void;
-  onDragEnd?: (e: React.DragEvent) => void;
-  isDropTarget?: boolean;
-}) {
-  const date = new Date(item.updatedAt + (item.updatedAt.endsWith("Z") ? "" : "Z"));
-  const dateStr = date.toLocaleDateString();
-  const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // 工作区下展示创建者（与 Note/Task/Diary 一致）。User 图标本身具语义，
-  // 此处不再额外加 i18n 文案前缀，节省横向空间。
-  const showCreator =
-    !!item.creatorName && getCurrentWorkspace() !== "personal";
-
-  return (
-    <div
-      className={cn(
-        "group flex items-center gap-3 px-3 py-2.5 rounded-md transition-all duration-150 ease-out cursor-pointer border-l-2",
-        isActive
-          ? "border-l-blue-500 bg-blue-50/50 dark:bg-blue-500/10"
-          : isDropTarget
-          ? "border-l-emerald-500 bg-emerald-50/50 dark:bg-emerald-500/10"
-          : "border-l-transparent hover:bg-black/[0.03] dark:hover:bg-white/[0.04]"
-      )}
-      onClick={onSelect}
-      onContextMenu={onContextMenu}
-      draggable={!!onDragStart}
-      onDragStart={onDragStart}
-      onDragEnd={onDragEnd}
-      onTouchStart={(e) => {
-        longPressTimer.current = setTimeout(() => {
-          // 长按触发右键菜单（移动端导出入口）
-          const touch = e.touches[0];
-          if (touch) {
-            const syntheticEvent = {
-              preventDefault: () => {},
-              stopPropagation: () => {},
-              clientX: touch.clientX,
-              clientY: touch.clientY,
-            } as React.MouseEvent;
-            onContextMenu(syntheticEvent);
-          }
-        }, 600);
-      }}
-      onTouchEnd={() => {
-        if (longPressTimer.current) {
-          clearTimeout(longPressTimer.current);
-          longPressTimer.current = null;
-        }
-      }}
-      onTouchMove={() => {
-        if (longPressTimer.current) {
-          clearTimeout(longPressTimer.current);
-          longPressTimer.current = null;
-        }
-      }}
-    >
-      <BrainCircuit size={18} className="text-blue-500 flex-shrink-0" />
-      <div className="flex-1 min-w-0">
-        <div className="text-sm font-medium text-tx-primary truncate">{item.title}</div>
-        <div className="flex items-center gap-2 text-xs text-tx-tertiary mt-0.5 min-w-0">
-          <span className="shrink-0">{dateStr}</span>
-          {showCreator && (
-            <>
-              <span className="text-tx-tertiary/60 shrink-0">·</span>
-              <span
-                className="flex items-center gap-1 truncate"
-                title={item.creatorName ?? ""}
-              >
-                <UserIcon size={11} className="shrink-0" />
-                <span className="truncate">{item.creatorName}</span>
-              </span>
-            </>
-          )}
-        </div>
-      </div>
-      {onToggleStar && (
-        <button
-          onClick={(e) => { e.stopPropagation(); onToggleStar(); }}
-          className="opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-all duration-150 ease-out flex-shrink-0"
-        >
-          <Star size={14} className={item.starred ? "fill-amber-400 text-amber-400" : "text-tx-tertiary hover:text-amber-400"} />
-        </button>
-      )}
-      <button
-        onClick={(e) => { e.stopPropagation(); onDelete(); }}
-        className="opacity-100 md:opacity-0 md:group-hover:opacity-100 text-tx-tertiary hover:text-accent-danger transition-all duration-150 ease-out flex-shrink-0"
-      >
-        <Trash2 size={14} />
-      </button>
-    </div>
-  );
+/* ===== 主组件 ===== */
+export interface MindMapCenterProps {
+  /** 文档内弹层编辑：只打开指定源导图，不展示导图列表/文件夹。 */
+  embeddedMode?: boolean;
+  embeddedMindMapId?: string;
+  /** 从知识树打开单篇导图时，只展示主画布，保留普通路由和保存行为。 */
+  documentMode?: boolean;
+  /** 主应用路由控制：undefined=不参与；null=/mindmaps；uuid=/mindmaps/:id。 */
+  routeMindMapId?: string | null;
+  onRequestClose?: () => void;
+  onSaved?: (map: MindMap) => void;
 }
 
-/* ===== 主组件 ===== */
-export default function MindMapCenter() {
+type MindMapSaveConflict = {
+  localData: MindMapData;
+  title?: string;
+};
+
+export default function MindMapCenter({
+  embeddedMode = false,
+  embeddedMindMapId,
+  documentMode = false,
+  routeMindMapId,
+  onRequestClose,
+  onSaved,
+}: MindMapCenterProps = {}) {
   const { t } = useTranslation();
 
   // 移动端检测
   const [isMobile, setIsMobile] = useState(false);
-  const [sidebarOpen, setSidebarOpen] = useState(true);
-
   useEffect(() => {
-    const check = () => {
-      const mobile = window.innerWidth < 768;
-      setIsMobile(mobile);
-      if (mobile) setSidebarOpen(false);
-      else setSidebarOpen(true);
-    };
+    const check = () => setIsMobile(window.innerWidth < 768);
     check();
     window.addEventListener("resize", check);
     return () => window.removeEventListener("resize", check);
   }, []);
 
   const [maps, setMaps] = useState<MindMapListItem[]>([]);
-  const [folders, setFolders] = useState<any[]>([]);
-  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
-  const [newFolderName, setNewFolderName] = useState("");
-  const [showNewFolder, setShowNewFolder] = useState(false);
-
-  // 加载文件夹
-  const loadFolders = useCallback(async () => {
+  const [treeNodes, setTreeNodes] = useState<KnowledgeTreeNode[]>([]);
+  const treeLoadRequestRef = useRef(0);
+  const loadTree = useCallback(async () => {
+    const requestId = ++treeLoadRequestRef.current;
     try {
-      const data = await api.getMindMapFolders();
-      setFolders(data);
-    } catch (err) {
-      console.error("Failed to load folders:", err);
+      const result = await knowledgeTreeApi.list();
+      if (requestId === treeLoadRequestRef.current) setTreeNodes(result.nodes);
+    } catch (error) {
+      if (requestId === treeLoadRequestRef.current) setTreeNodes([]);
+      console.error("Failed to load knowledge tree for mind maps:", error);
     }
   }, []);
   const [activeMap, setActiveMap] = useState<MindMap | null>(null);
@@ -1028,9 +1159,14 @@ export default function MindMapCenter() {
   const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([]);
   const [clipboard, setClipboard] = useState<{ node: MindMapNode; isCut: boolean } | null>(null);
   const [dragNodeId, setDragNodeId] = useState<string | null>(null);
-  const [dragMapId, setDragMapId] = useState<string | null>(null);
-  const [dropFolderId, setDropFolderId] = useState<string | null>(null);
-  const [dropTargetId, setDropTargetId] = useState<string | null>(null);
+  const [dropTarget, setDropTarget] = useState<{
+    nodeId: string;
+    placement: MindMapDropPlacement;
+  } | null>(null);
+  const touchDropTargetRef = useRef<{
+    nodeId: string;
+    placement: MindMapDropPlacement;
+  } | null>(null);
   const [focusedNodeId, setFocusedNodeId] = useState<string | null>(null);
   useEffect(() => { setSelectedNodeIds([]); setClipboard(null); setFocusedNodeId(null); }, [activeMap?.id]);
   const [editingNodeId, setEditingNodeId] = useState<string | null>(null);
@@ -1071,9 +1207,13 @@ export default function MindMapCenter() {
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<string[]>([]);
   const [searchIndex, setSearchIndex] = useState(0);
-  const [listSearch, setListSearch] = useState("");
-  const [showStarredOnly, setShowStarredOnly] = useState(false);
+  const [createParentId, setCreateParentId] = useState<string | null>(null);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const embeddedPendingSaveRef = useRef<{ data: MindMapData; title?: string } | null>(null);
+  const embeddedSaveRunningRef = useRef(false);
+  const embeddedSaveConflictRef = useRef(false);
+  const embeddedFlushRef = useRef<(() => Promise<void>) | null>(null);
+  const [saveConflict, setSaveConflict] = useState<MindMapSaveConflict | null>(null);
   // 每次选择导图或切换目录都递增，用于丢弃已经失效的异步加载结果。
   const mapLoadRequestRef = useRef(0);
 
@@ -1142,16 +1282,23 @@ export default function MindMapCenter() {
     try {
       const data = await api.getMindMaps();
       setMaps(data);
+      return data;
     } catch (err) {
       console.error("Failed to load mindmaps:", err);
+      return null;
     } finally {
       setIsLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    loadMaps(); loadFolders();
-  }, [loadMaps]);
+    if (embeddedMode) {
+      setIsLoading(false);
+      return;
+    }
+    loadMaps();
+    void loadTree();
+  }, [embeddedMode, loadMaps, loadTree]);
 
   // 切换目录后不保留上一个导图，避免用户误以为目录没有切换成功。
   // 同时递增请求序号，让切换前发出的 getMindMap 请求即使晚返回也不能恢复旧内容。
@@ -1169,15 +1316,29 @@ export default function MindMapCenter() {
     setSearchIndex(0);
   }, []);
 
+  useEffect(() => {
+    if (embeddedMode) return;
+    const onTreeChanged = () => {
+      void loadTree();
+      void loadMaps().then((current) => {
+        if (activeMap && current && !current.some((map) => map.id === activeMap.id)) clearActiveMap();
+      });
+    };
+    window.addEventListener("nowen:knowledge-tree-changed", onTreeChanged);
+    return () => window.removeEventListener("nowen:knowledge-tree-changed", onTreeChanged);
+  }, [activeMap, clearActiveMap, embeddedMode, loadMaps, loadTree]);
+
   // 工作区切换：清空当前打开的导图 + 重拉列表，避免显示其他 scope 的图
   useEffect(() => {
     const onWs = () => {
       clearActiveMap();
+      setTreeNodes([]);
       loadMaps();
+      void loadTree();
     };
     window.addEventListener("nowen:workspace-changed", onWs);
     return () => window.removeEventListener("nowen:workspace-changed", onWs);
-  }, [clearActiveMap, loadMaps]);
+  }, [clearActiveMap, loadMaps, loadTree]);
 
   // 选择一个导图
   // 收藏/取消收藏
@@ -1194,11 +1355,13 @@ export default function MindMapCenter() {
     const requestId = ++mapLoadRequestRef.current;
     try {
       const map = await api.getMindMap(id);
-      if (requestId !== mapLoadRequestRef.current) return;
+      if (requestId !== mapLoadRequestRef.current) return false;
       setActiveMap(map);
+      activeMapRef.current = map;
       try {
         const parsed = JSON.parse(map.data);
         setMapData(parsed);
+        mapDataRef.current = parsed;
         setLayoutMode(parsed.layout || "right");
         if (parsed.viewport?.userSet && isValidViewport(parsed.viewport)) {
           setPan({ x: parsed.viewport.x, y: parsed.viewport.y });
@@ -1217,7 +1380,9 @@ export default function MindMapCenter() {
         setHistory([entry]);
         setHistoryIndex(0);
       } catch {
-        setMapData({ root: { id: "root", text: map.title, children: [] } });
+        const fallback = { root: { id: "root", text: map.title, children: [] } };
+        setMapData(fallback);
+        mapDataRef.current = fallback;
         setPan({ x: 0, y: 0 });
         setZoom(1);
         viewportUserSetRef.current = false;
@@ -1226,13 +1391,42 @@ export default function MindMapCenter() {
       setSelectedNodeId(null);
       setSelectedNodeIds([]);
       setEditingNodeId(null);
+      if (!embeddedMode) {
+        saveMobileKnowledgeTreeRecentEntries(upsertMobileKnowledgeTreeRecentEntry(
+          loadMobileKnowledgeTreeRecentEntries(), `mindmap:${map.id}`,
+        ));
+        pushMindMapAppPath(map.id);
+      }
+      return true;
     } catch (err) {
       console.error("Failed to load mindmap:", err);
+      if (!embeddedMode) {
+        toast.error("思维导图不存在、已删除或当前账号无权访问");
+        replaceMindMapAppPath(null);
+      }
+      return false;
     }
-  }, []);
+  }, [embeddedMode]);
+
+  useEffect(() => {
+    if (!embeddedMode || !embeddedMindMapId) return;
+    void handleSelect(embeddedMindMapId);
+  }, [embeddedMindMapId, embeddedMode, handleSelect]);
+
+
+  useEffect(() => {
+    if (embeddedMode || routeMindMapId === undefined) return;
+    if (routeMindMapId === null) {
+      if (activeMapRef.current) clearActiveMap();
+      return;
+    }
+    if (activeMapRef.current?.id === routeMindMapId) return;
+    void handleSelect(routeMindMapId);
+  }, [clearActiveMap, embeddedMode, handleSelect, routeMindMapId]);
 
   // 监听来自笔记编辑器的"保存为思维导图"事件 + sessionStorage 持久化
   useEffect(() => {
+    if (embeddedMode) return;
     const handler = (e: Event) => {
       const id = (e as CustomEvent).detail?.id;
       if (id) {
@@ -1250,29 +1444,125 @@ export default function MindMapCenter() {
     }
 
     return () => window.removeEventListener("nowen:open-mindmap", handler);
-  }, [loadMaps, handleSelect]);
+  }, [embeddedMode, loadMaps, handleSelect]);
+
+  const applySavedMindMap = useCallback((updated: MindMap) => {
+    const titleChanged = activeMapRef.current?.title !== updated.title;
+    activeMapRef.current = updated;
+    setActiveMap((current) => current?.id === updated.id ? updated : current);
+    setMaps((prev) =>
+      prev.map((m) => (m.id === updated.id ? { ...m, title: updated.title, updatedAt: updated.updatedAt } : m))
+    );
+    dispatchDocumentMindMapChanged({ id: updated.id, kind: "updated" });
+    if (titleChanged) window.dispatchEvent(new Event("nowen:knowledge-tree-changed"));
+    onSaved?.(updated);
+  }, [onSaved]);
+
+  const flushEmbeddedSave = useCallback(async () => {
+    if (!embeddedMode || embeddedSaveRunningRef.current || embeddedSaveConflictRef.current) return;
+    const pending = embeddedPendingSaveRef.current;
+    const currentMap = activeMapRef.current;
+    if (!pending || !currentMap) return;
+
+    embeddedPendingSaveRef.current = null;
+    embeddedSaveRunningRef.current = true;
+    setIsSaving(true);
+    try {
+      const payload: { data: string; title?: string; expectedUpdatedAt: string } = {
+        data: JSON.stringify(pending.data),
+        expectedUpdatedAt: currentMap.updatedAt,
+      };
+      if (pending.title !== undefined) payload.title = pending.title;
+      const updated = await api.updateMindMap(currentMap.id, payload);
+      applySavedMindMap(updated);
+    } catch (err) {
+      const error = err as Error & { status?: number; code?: string };
+      if (error.status === 409 && error.code === "MINDMAP_CONFLICT") {
+        embeddedSaveConflictRef.current = true;
+        setSaveConflict({ localData: pending.data, title: pending.title });
+      } else {
+        console.error("Failed to save embedded mindmap:", err);
+        toast.error(error.message || "思维导图保存失败");
+        // 网络/服务端错误保留最新一次本地数据，后续编辑或手动操作仍可重试。
+        embeddedPendingSaveRef.current = pending;
+      }
+    } finally {
+      embeddedSaveRunningRef.current = false;
+      setIsSaving(false);
+      if (embeddedPendingSaveRef.current && !embeddedSaveConflictRef.current) {
+        window.setTimeout(() => { void embeddedFlushRef.current?.(); }, 0);
+      }
+    }
+  }, [applySavedMindMap, embeddedMode]);
+
+  embeddedFlushRef.current = flushEmbeddedSave;
 
   // 自动保存
   const triggerSave = useCallback((data: MindMapData, title?: string) => {
-    if (!activeMap) return;
+    const currentMap = activeMapRef.current || activeMap;
+    if (!currentMap) return;
+
+    if (embeddedMode && embeddedSaveConflictRef.current) {
+      setSaveConflict((current) => current ? { ...current, localData: data, title } : { localData: data, title });
+      return;
+    }
+
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     saveTimerRef.current = setTimeout(async () => {
+      if (embeddedMode) {
+        embeddedPendingSaveRef.current = { data, title };
+        void embeddedFlushRef.current?.();
+        return;
+      }
+
       setIsSaving(true);
       try {
         const payload: { data: string; title?: string } = { data: JSON.stringify(data) };
         if (title !== undefined) payload.title = title;
-        const updated = await api.updateMindMap(activeMap.id, payload);
-        setActiveMap((current) => current?.id === updated.id ? updated : current);
-        setMaps((prev) =>
-          prev.map((m) => (m.id === updated.id ? { ...m, title: updated.title, updatedAt: updated.updatedAt } : m))
-        );
+        const updated = await api.updateMindMap(currentMap.id, payload);
+        applySavedMindMap(updated);
       } catch (err) {
+        const error = err as Error;
         console.error("Failed to save mindmap:", err);
+        toast.error(error.message || "思维导图保存失败");
       } finally {
         setIsSaving(false);
       }
     }, 600);
-  }, [activeMap]);
+  }, [activeMap, applySavedMindMap, embeddedMode]);
+
+  const reloadConflictVersion = useCallback(async () => {
+    const id = activeMapRef.current?.id || embeddedMindMapId;
+    if (!id) return;
+    embeddedPendingSaveRef.current = null;
+    embeddedSaveConflictRef.current = false;
+    setSaveConflict(null);
+    await handleSelect(id);
+  }, [embeddedMindMapId, handleSelect]);
+
+  const overwriteConflictVersion = useCallback(async () => {
+    const conflict = saveConflict;
+    const currentMap = activeMapRef.current;
+    if (!conflict || !currentMap) return;
+    setIsSaving(true);
+    try {
+      const payload: { data: string; title?: string } = {
+        data: JSON.stringify(conflict.localData),
+      };
+      if (conflict.title !== undefined) payload.title = conflict.title;
+      const updated = await api.updateMindMap(currentMap.id, payload);
+      embeddedSaveConflictRef.current = false;
+      setSaveConflict(null);
+      applySavedMindMap(updated);
+      setMapData(conflict.localData);
+      mapDataRef.current = conflict.localData;
+    } catch (err) {
+      const error = err as Error;
+      toast.error(error.message || "覆盖保存失败");
+    } finally {
+      setIsSaving(false);
+    }
+  }, [applySavedMindMap, saveConflict]);
 
   // Undo/Redo
   const [history, setHistory] = useState<HistoryEntry[]>([]);
@@ -1419,6 +1709,16 @@ export default function MindMapCenter() {
     pushHistory(newData);
     triggerSave(newData);
   }, [mapData, findParentNode, updateNode, triggerSave, t]);
+
+  const handlePromoteNode = useCallback((nodeId: string) => {
+    if (!mapData) return;
+    const newRoot = promoteMindMapNode(mapData.root, nodeId);
+    if (newRoot === mapData.root) return;
+    const newData = { ...mapData, root: newRoot };
+    setMapData(newData);
+    pushHistory(newData);
+    triggerSave(newData);
+  }, [mapData, pushHistory, triggerSave]);
 
   // 操作：删除节点
   const handleDeleteNode = useCallback((nodeId: string) => {
@@ -1657,6 +1957,7 @@ export default function MindMapCenter() {
       const data = markdownToMindMapData(md);
       const title = data.root.text.slice(0, 50) || t("mindMap.untitled");
       const created = await api.createMindMap({ title, data: JSON.stringify(data) });
+      window.dispatchEvent(new Event("nowen:knowledge-tree-changed"));
       setMaps((prev) => [{ id: created.id, userId: created.userId, workspaceId: created.workspaceId, title: created.title, createdAt: created.createdAt, updatedAt: created.updatedAt }, ...prev]);
       handleSelect(created.id);
       toast.success(t("mindMap.importSuccess"));
@@ -1709,16 +2010,27 @@ export default function MindMapCenter() {
     try {
       const template = MINDMAP_TEMPLATES[templateIdx];
       const title = templateIdx === 0 ? t("mindMap.untitled") : template.name;
-      const data = template.data ? JSON.stringify(template.data) : undefined;
-      const map = await api.createMindMap({ title, data });
-      setMaps((prev) => [{ id: map.id, userId: map.userId, workspaceId: map.workspaceId, title: map.title, createdAt: map.createdAt, updatedAt: map.updatedAt }, ...prev]);
-      handleSelect(map.id);
+      const created = await knowledgeTreeApi.create({ parentId: createParentId, nodeType: "mindmap", title });
+      if (template.data) {
+        try {
+          await api.updateMindMap(created.resourceId, { data: JSON.stringify(template.data) });
+        } catch (error) {
+          toast.error("脑图已创建，但模板内容未能保存，请在空白脑图中重试");
+          console.error("Failed to apply mind map template:", error);
+        }
+      }
+      window.dispatchEvent(new Event("nowen:knowledge-tree-changed"));
+      void loadMaps();
+      void loadTree();
+      void handleSelect(created.resourceId);
     } catch (err) {
       console.error("Failed to create mindmap:", err);
+      toast.error(err instanceof Error ? err.message : "创建思维导图失败");
     }
-  }, [handleSelect, t, MINDMAP_TEMPLATES]);
+  }, [createParentId, handleSelect, loadMaps, loadTree, t, MINDMAP_TEMPLATES]);
 
-  const handleCreate = useCallback(async () => {
+  const handleCreate = useCallback((parentId: string | null = null) => {
+    setCreateParentId(parentId);
     setShowTemplates(true);
   }, []);
 
@@ -1727,15 +2039,22 @@ export default function MindMapCenter() {
   const handleDeleteMap = useCallback(async (id: string) => {
     try {
       await api.deleteMindMap(id);
+      window.dispatchEvent(new Event("nowen:knowledge-tree-changed"));
+      dispatchDocumentMindMapChanged({ id, kind: "deleted" });
+      toast.success("已移入回收站");
       setMaps((prev) => prev.filter((m) => m.id !== id));
       if (activeMap?.id === id) {
         setActiveMap(null);
+        activeMapRef.current = null;
         setMapData(null);
+        mapDataRef.current = null;
+        if (!embeddedMode) replaceMindMapAppPath(null);
       }
     } catch (err) {
       console.error("Failed to delete mindmap:", err);
+      toast.error(err instanceof Error ? err.message : "删除思维导图失败");
     }
-  }, [activeMap]);
+  }, [activeMap, embeddedMode]);
 
   const applyViewport = useCallback((viewport: MindMapViewport, options: { userSet?: boolean; persist?: boolean } = {}) => {
     const next = { ...viewport, userSet: options.userSet ?? viewport.userSet };
@@ -1866,21 +2185,25 @@ export default function MindMapCenter() {
     // tap 由 onClick 处理
   }, []);
 
-  // 拖拽移动节点到目标节点下，兼容单选和多选
-  const handleMoveNodes = useCallback((sourceId: string, targetId: string) => {
+  // 拖拽支持 before / inside / after：既可改父子关系，也可精确调整同级顺序。
+  const handleMoveNodes = useCallback((
+    sourceId: string,
+    targetId: string,
+    placement: MindMapDropPlacement,
+  ) => {
     if (!mapData) return;
     const { nodeIds, reason } = getMovableNodeIdsForDrag(mapData.root, sourceId, targetId, selectedNodeIds);
     if (reason === "target-selected") {
-      toast.error("不能移动到已选中的节点下");
+      toast.error("不能移动到已选中的目标位置");
       return;
     }
     if (reason === "descendant") {
-      toast.error("不能移动到自己的子节点下");
+      toast.error("不能移动到自己的子节点位置");
       return;
     }
     if (nodeIds.length === 0) return;
 
-    const newRoot = moveMindMapNodes(mapData.root, targetId, nodeIds);
+    const newRoot = moveMindMapNodes(mapData.root, targetId, nodeIds, placement);
     const newData = { ...mapData, root: newRoot };
     setMapData(newData);
     setSelectedNodeIds(nodeIds);
@@ -1888,6 +2211,63 @@ export default function MindMapCenter() {
     pushHistory(newData);
     triggerSave(newData);
   }, [mapData, selectedNodeIds, pushHistory, triggerSave]);
+
+  const beginTouchNodeDrag = useCallback((sourceId: string) => {
+    if (sourceId === "root") return;
+    if (!selectedNodeIds.includes(sourceId)) {
+      setSelectedNodeIds([sourceId]);
+      setSelectedNodeId(sourceId);
+    }
+    touchDropTargetRef.current = null;
+    setDropTarget(null);
+    setDragNodeId(sourceId);
+  }, [selectedNodeIds]);
+
+  const moveTouchNodeDrag = useCallback((
+    sourceId: string,
+    point: { clientX: number; clientY: number },
+  ) => {
+    const element = document.elementFromPoint(point.clientX, point.clientY);
+    const surface = element?.closest<HTMLElement>("[data-mindmap-node-id]");
+    if (!surface || !svgRef.current?.contains(surface)) {
+      touchDropTargetRef.current = null;
+      setDropTarget(null);
+      return;
+    }
+
+    const targetId = surface.dataset.mindmapNodeId || "";
+    const targetDepth = Number(surface.dataset.mindmapNodeDepth || "0");
+    const targetIsSelected = selectedNodeIds.length > 1
+      && selectedNodeIds.includes(sourceId)
+      && selectedNodeIds.includes(targetId);
+    if (!targetId || targetId === sourceId || targetIsSelected) {
+      touchDropTargetRef.current = null;
+      setDropTarget(null);
+      return;
+    }
+
+    const rect = surface.getBoundingClientRect();
+    const placement: MindMapDropPlacement = targetDepth === 0
+      ? "inside"
+      : resolveMindMapDropPlacement(point.clientY, rect.top, rect.height);
+    const next = { nodeId: targetId, placement };
+    touchDropTargetRef.current = next;
+    setDropTarget((current) => (
+      current?.nodeId === next.nodeId && current.placement === next.placement
+        ? current
+        : next
+    ));
+  }, [selectedNodeIds]);
+
+  const endTouchNodeDrag = useCallback((sourceId: string) => {
+    const target = touchDropTargetRef.current;
+    if (target && target.nodeId !== sourceId) {
+      handleMoveNodes(sourceId, target.nodeId, target.placement);
+    }
+    touchDropTargetRef.current = null;
+    setDropTarget(null);
+    setDragNodeId(null);
+  }, [handleMoveNodes]);
 
   // 复制节点
   const handleCopyNode = useCallback((nodeId: string) => {
@@ -1963,7 +2343,7 @@ export default function MindMapCenter() {
       }
 
       if (editingNodeId) return;
-      const activeNodeId = selectedNodeIds.length === 1 ? selectedNodeIds[0] : selectedNodeId;
+      const activeNodeId = selectedNodeIds.length > 1 ? null : selectedNodeIds[0] || selectedNodeId;
       if ((e.key === "Delete" || e.key === "Backspace") && (selectedNodeIds.length > 0 || selectedNodeId)) {
         e.preventDefault();
         handleDeleteSelectedNodes();
@@ -1972,12 +2352,21 @@ export default function MindMapCenter() {
       if (!activeNodeId) return;
 
 
-      if (e.key === "Tab") {
+      if (e.key === "Tab" && !e.altKey && !e.ctrlKey && !e.metaKey) {
         e.preventDefault();
-        handleAddChild(activeNodeId);
-      } else if (e.key === "Enter") {
+        if (e.shiftKey) handlePromoteNode(activeNodeId);
+        else handleAddChild(activeNodeId);
+      } else if (e.key === "Enter" && !e.altKey && !e.ctrlKey && !e.metaKey) {
         e.preventDefault();
         handleAddSibling(activeNodeId);
+      } else if ((e.key === "ArrowUp" || e.key === "ArrowDown" || e.key === "ArrowLeft" || e.key === "ArrowRight")
+        && !e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey) {
+        const nextId = navigateMindMapNode(mapData.root, activeNodeId, e.key);
+        if (nextId) {
+          e.preventDefault();
+          setSelectedNodeId(nextId);
+          setSelectedNodeIds([nextId]);
+        }
       } else if (e.key === "F2") {
         e.preventDefault();
         const node = findNode(mapData.root, activeNodeId);
@@ -2008,7 +2397,7 @@ export default function MindMapCenter() {
       window.removeEventListener("keydown", handler);
       window.removeEventListener("keyup", keyupHandler);
     };
-  }, [mapData, selectedNodeId, selectedNodeIds, editingNodeId, handleUndo, handleRedo, handleAddChild, handleAddSibling, handleDeleteSelectedNodes, handleToggleCollapse, findNode, handleCopyNode, handleCutNode, handlePasteNode]);
+  }, [mapData, selectedNodeId, selectedNodeIds, editingNodeId, handleUndo, handleRedo, handleAddChild, handleAddSibling, handlePromoteNode, handleDeleteSelectedNodes, handleToggleCollapse, findNode, handleCopyNode, handleCutNode, handlePasteNode]);
 
   // 构建布局
   const { layoutNodes, edges, viewBox, bounds } = useMemo(() => {
@@ -2125,7 +2514,7 @@ export default function MindMapCenter() {
     if (!mapData || mapData.viewport?.userSet || viewportUserSetRef.current) return;
     const frame = requestAnimationFrame(() => fitCurrentMap({ userSet: false, persist: false }));
     return () => cancelAnimationFrame(frame);
-  }, [canvasSize.width, canvasSize.height, fitCurrentMap, isFullscreen, mapData?.viewport?.userSet, showOutline, sidebarOpen]);
+  }, [canvasSize.width, canvasSize.height, fitCurrentMap, isFullscreen, mapData?.viewport?.userSet, showOutline]);
 
   const toCanvasPoint = useCallback((clientX: number, clientY: number) => {
     const rect = canvasEl?.getBoundingClientRect();
@@ -2242,9 +2631,6 @@ export default function MindMapCenter() {
   }, [applyViewport, createSelectionRect, hitTestSelectionByDom, zoom]);
 
   // 列表右键菜单
-  const [folderContextMenu, setFolderContextMenu] = useState<{ x: number; y: number; folderId: string; folderName: string } | null>(null);
-  const [renamingFolderId, setRenamingFolderId] = useState<string | null>(null);
-  const [renamingFolderName, setRenamingFolderName] = useState("");
   const [listContextMenu, setListContextMenu] = useState<{ x: number; y: number; mapId: string; title: string } | null>(null);
 
   const handleListContextMenu = useCallback((e: React.MouseEvent, item: MindMapListItem) => {
@@ -2267,59 +2653,6 @@ export default function MindMapCenter() {
     };
   }, [listContextMenu]);
 
-  // 根据 MindMapData 生成布局并构建导出用的干净 SVG 字符串
-  const buildExportSvgFromData = useCallback((data: MindMapData) => {
-    const root = buildLayout(data.root, 0, null);
-    const treeH = getSubtreeHeight(root);
-    layoutTree(root, 0, treeH / 2);
-    const allNodes = flattenNodes(root);
-
-    const edgeList: { from: LayoutNode; to: LayoutNode }[] = [];
-    const collectEdges = (n: LayoutNode) => {
-      n.children.forEach((c) => {
-        edgeList.push({ from: n, to: c });
-        collectEdges(c);
-      });
-    };
-    collectEdges(root);
-
-    if (allNodes.length === 0) return null;
-
-    const pad = 40;
-    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-    allNodes.forEach((n) => {
-      minX = Math.min(minX, n.x);
-      minY = Math.min(minY, n.y);
-      maxX = Math.max(maxX, n.x + n.width);
-      maxY = Math.max(maxY, n.y + n.height);
-    });
-    const w = maxX - minX + pad * 2;
-    const h = maxY - minY + pad * 2;
-
-    let svgContent = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="${minX - pad} ${minY - pad} ${w} ${h}" style="background:#fff">\n`;
-
-    edgeList.forEach((e) => {
-      const x1 = e.from.x + e.from.width;
-      const y1 = e.from.y + e.from.height / 2;
-      const x2 = e.to.x;
-      const y2 = e.to.y + e.to.height / 2;
-      const mx = (x1 + x2) / 2;
-      svgContent += `  <path d="M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}" fill="none" stroke="rgb(203,213,225)" stroke-width="2"/>\n`;
-    });
-
-    allNodes.forEach((n) => {
-      const color = getNodeColor(n.depth);
-      const isRoot = n.depth === 0;
-      const fontSize = isRoot ? 14 : 13;
-      const fontWeight = isRoot ? 700 : 500;
-      svgContent += `  <rect x="${n.x}" y="${n.y}" width="${n.width}" height="${n.height}" rx="8" fill="${color.bg}" stroke="${color.border}" stroke-width="1.5"/>\n`;
-      svgContent += `  <text x="${n.x + 12}" y="${n.y + n.height / 2}" dominant-baseline="central" font-family="system-ui,-apple-system,sans-serif" font-size="${fontSize}" font-weight="${fontWeight}" fill="${color.text}">${escapeXml(n.text)}</text>\n`;
-    });
-
-    svgContent += `</svg>`;
-    return { svgContent, width: w, height: h };
-  }, []);
-
   // 加载指定导图数据
   const loadMapData = useCallback(async (mapId: string): Promise<{ data: MindMapData; title: string } | null> => {
     try {
@@ -2337,7 +2670,7 @@ export default function MindMapCenter() {
     setListContextMenu(null);
     const result = await loadMapData(mapId);
     if (!result) return;
-    const svgResult = buildExportSvgFromData(result.data);
+    const svgResult = buildMindMapExportSvg(result.data);
     if (!svgResult) return;
     const blob = new Blob([svgResult.svgContent], { type: "image/svg+xml;charset=utf-8" });
     const url = URL.createObjectURL(blob);
@@ -2346,41 +2679,63 @@ export default function MindMapCenter() {
     a.download = `${title || "mindmap"}.svg`;
     a.click();
     URL.revokeObjectURL(url);
-  }, [listContextMenu, loadMapData, buildExportSvgFromData]);
+  }, [listContextMenu, loadMapData]);
 
   const handleListDownloadPNG = useCallback(async () => {
     if (!listContextMenu) return;
     const { mapId, title } = listContextMenu;
     setListContextMenu(null);
     const result = await loadMapData(mapId);
-    if (!result) return;
-    const svgResult = buildExportSvgFromData(result.data);
-    if (!svgResult) return;
+    if (!result) {
+      toast.error(EXPORT_CANVAS_CONTENT_ERROR);
+      return;
+    }
+    const svgResult = buildMindMapExportSvg(result.data);
+    if (!svgResult) {
+      toast.error(EXPORT_CANVAS_CONTENT_ERROR);
+      return;
+    }
     const scale = 2;
     const canvas = document.createElement("canvas");
     canvas.width = svgResult.width * scale;
     canvas.height = svgResult.height * scale;
     const ctx = canvas.getContext("2d");
-    if (!ctx) return;
+    if (!ctx) {
+      toast.error(EXPORT_CANVAS_CONTENT_ERROR);
+      return;
+    }
     const img = new window.Image();
     const svgBlob = new Blob([svgResult.svgContent], { type: "image/svg+xml;charset=utf-8" });
     const url = URL.createObjectURL(svgBlob);
     img.onload = () => {
-      ctx.scale(scale, scale);
-      ctx.drawImage(img, 0, 0);
+      try {
+        ctx.scale(scale, scale);
+        ctx.drawImage(img, 0, 0);
+        assertExportCanvasHasContent(canvas, "mindmap-png");
+        canvas.toBlob((blob) => {
+          if (!blob?.size) {
+            toast.error(EXPORT_CANVAS_CONTENT_ERROR);
+            return;
+          }
+          const pngUrl = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = pngUrl;
+          a.download = `${title || "mindmap"}.png`;
+          a.click();
+          URL.revokeObjectURL(pngUrl);
+        }, "image/png");
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : EXPORT_CANVAS_CONTENT_ERROR);
+      } finally {
+        URL.revokeObjectURL(url);
+      }
+    };
+    img.onerror = () => {
       URL.revokeObjectURL(url);
-      canvas.toBlob((blob) => {
-        if (!blob) return;
-        const pngUrl = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = pngUrl;
-        a.download = `${title || "mindmap"}.png`;
-        a.click();
-        URL.revokeObjectURL(pngUrl);
-      }, "image/png");
+      toast.error(EXPORT_CANVAS_CONTENT_ERROR);
     };
     img.src = url;
-  }, [listContextMenu, loadMapData, buildExportSvgFromData]);
+  }, [listContextMenu, loadMapData]);
 
   // 将 MindMapNode 转换为 xmind 的 content.json 格式
   const buildXmindContent = useCallback((data: MindMapData, title: string) => {
@@ -2512,208 +2867,36 @@ export default function MindMapCenter() {
     URL.revokeObjectURL(url);
   }, [listContextMenu, loadMapData, buildXmindContent]);
 
+  const requestEmbeddedClose = useCallback(() => {
+    if (!onRequestClose) return;
+    const hasUnsaved =
+      isSaving ||
+      embeddedSaveRunningRef.current ||
+      embeddedPendingSaveRef.current !== null ||
+      embeddedSaveConflictRef.current;
+    if (hasUnsaved && !window.confirm("思维导图还有未完成的保存或冲突处理，确定关闭编辑窗口吗？")) {
+      return;
+    }
+    onRequestClose();
+  }, [isSaving, onRequestClose]);
+
   return (
     <div className={cn(
       isFullscreen
         ? "fixed inset-0 z-[80] flex flex-col bg-app-bg"
         : "flex h-full w-full overflow-hidden"
     )}>
-      {/* 移动端遮罩层 */}
-      {isMobile && sidebarOpen && (
-        <div
-          className="fixed inset-0 bg-black/30 z-30"
-          onClick={() => setSidebarOpen(false)}
+      {!isFullscreen && !embeddedMode && !documentMode && !activeMap && (
+        <MindMapOverview
+          maps={maps}
+          treeNodes={treeNodes}
+          loading={isLoading}
+          onOpen={(id) => { void handleSelect(id); }}
+          onCreate={handleCreate}
+          onToggleStar={(id) => { void handleToggleStar(id); }}
+          onDelete={(id) => { void handleDeleteMap(id); }}
+          onContextMenu={handleListContextMenu}
         />
-      )}
-
-      {!isFullscreen && (/* Left: Map List Panel */
-      <div
-        className={cn(
-          "border-r border-app-border/60 bg-app-surface flex flex-col transition-all duration-150 ease-out",
-          isMobile
-            ? "fixed inset-y-0 left-0 z-40 w-[280px] shadow-2xl"
-            : "w-[260px] min-w-[260px] shrink-0",
-          isMobile && !sidebarOpen && "-translate-x-full"
-        )}
-      >
-        <div className="px-4 py-4 border-b border-app-border/40">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <BrainCircuit size={18} className="text-blue-500" />
-              <h2 className="text-sm font-bold text-tx-primary">{t("mindMap.title")}</h2>
-            </div>
-            <div className="flex items-center gap-1">
-              <button
-                onClick={handleCreate}
-                className="p-1.5 rounded-md hover:bg-app-hover transition-colors duration-150 ease-out text-tx-secondary hover:text-blue-500"
-                title={t("mindMap.create")}
-              >
-                <Plus size={16} />
-              </button>
-              {isMobile && (
-                <button
-                  onClick={() => setSidebarOpen(false)}
-                  className="p-1.5 rounded-md hover:bg-app-hover transition-colors duration-150 ease-out text-tx-secondary"
-                >
-                  <PanelLeftClose size={16} />
-                </button>
-              )}
-            </div>
-          </div>
-          <div className="mt-1 text-xs text-tx-tertiary">
-            {t("mindMap.totalCount", { count: maps.length })}
-          </div>
-        </div>
-        <div className="px-3 pb-2">
-          <div className="flex items-center gap-1.5 px-2 py-1.5 rounded-md bg-app-bg border border-app-border shadow-sm">
-            <SearchIcon size={13} className="text-tx-tertiary flex-shrink-0" />
-            <input
-              type="text"
-              value={listSearch}
-              onChange={(e) => setListSearch(e.target.value)}
-              placeholder={t("mindMap.searchNodes")}
-              className="flex-1 bg-transparent text-xs text-tx-primary placeholder:text-tx-tertiary outline-none"
-            />
-            <button onClick={() => setShowStarredOnly(v => !v)} className={cn("p-0.5 rounded transition-colors duration-150 ease-out", showStarredOnly ? "text-amber-400" : "text-tx-tertiary hover:text-amber-400")} title={t("mindMap.starred")}>
-              <Star size={13} className={showStarredOnly ? "fill-amber-400" : ""} />
-            </button>
-            {listSearch && (
-              <button onClick={() => setListSearch("")} className="text-tx-tertiary hover:text-tx-secondary">
-                <span className="text-[10px]">✕</span>
-              </button>
-            )}
-          </div>
-        </div>
-
-        <div className="flex-1 overflow-auto p-2 space-y-0.5">
-          {isLoading ? (
-            <div className="flex items-center justify-center h-20 text-tx-tertiary text-sm">
-              {t("common.loading")}
-            </div>
-          ) : (() => {
-            const q = listSearch.trim().toLowerCase();
-            const filteredMaps = maps.filter(m => (!q || m.title.toLowerCase().includes(q)) && (!showStarredOnly || m.starred));
-            const filteredFolders = folders.filter(f => !q || f.name.toLowerCase().includes(q));
-            const topFolders = filteredFolders.filter((f: any) => !f.parentId);
-            const childFolders = (parentId: string) => filteredFolders.filter((f: any) => f.parentId === parentId);
-            const mapsInFolder = (folderId: string) => filteredMaps.filter(m => m.folderId === folderId);
-            const uncategorized = filteredMaps.filter(m => !m.folderId);
-            const hasResults = filteredMaps.length > 0 || filteredFolders.length > 0;
-
-            const renderFolder = (folder: any, depth: number) => {
-              const isExpanded = expandedFolders.has(folder.id);
-              const children = childFolders(folder.id);
-              const folderMaps = mapsInFolder(folder.id);
-              return (
-                <div key={folder.id}>
-                  <div
-                    className={cn("group flex items-center gap-1.5 px-2 py-1.5 rounded-md cursor-pointer hover:bg-black/[0.03] dark:hover:bg-white/[0.04] text-sm", dropFolderId === folder.id && "ring-2 ring-emerald-400/60 bg-emerald-50/40 dark:bg-emerald-500/10")}
-                    style={{ paddingLeft: depth * 16 + 8 }}
-                    onClick={() => {
-                      clearActiveMap();
-                      setExpandedFolders(prev => {
-                        const next = new Set(prev);
-                        if (next.has(folder.id)) next.delete(folder.id);
-                        else next.add(folder.id);
-                        return next;
-                      });
-                    }}
-                    onDragOver={(e) => { if (dragMapId) { e.preventDefault(); e.dataTransfer.dropEffect = "move"; setDropFolderId(folder.id); } }}
-                    onDragLeave={() => { if (dropFolderId === folder.id) setDropFolderId(null); }}
-                    onDrop={(e) => { e.preventDefault(); if (dragMapId) { api.moveMindMap(dragMapId, folder.id).then(() => { loadMaps(); loadFolders(); }); setDragMapId(null); setDropFolderId(null); } }}
-                    onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setFolderContextMenu({ x: e.clientX, y: e.clientY, folderId: folder.id, folderName: folder.name }); }}
-                  >
-                    <ChevronRight size={12} className={cn("text-tx-tertiary transition-transform flex-shrink-0", isExpanded && "rotate-90")} />
-                    <FolderIcon size={14} className={cn("flex-shrink-0", isExpanded ? "text-amber-500" : "text-tx-tertiary")} />
-                    {renamingFolderId === folder.id ? (
-                      <input
-                        type="text"
-                        value={renamingFolderName}
-                        onChange={(e) => setRenamingFolderName(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter" && renamingFolderName.trim()) {
-                            api.updateMindMapFolder(folder.id, { name: renamingFolderName.trim() }).then(() => { loadFolders(); setRenamingFolderId(null); });
-                          }
-                          if (e.key === "Escape") { setRenamingFolderId(null); }
-                        }}
-                        onBlur={() => {
-                          if (renamingFolderName.trim() && renamingFolderName !== folder.name) {
-                            api.updateMindMapFolder(folder.id, { name: renamingFolderName.trim() }).then(() => { loadFolders(); });
-                          }
-                          setRenamingFolderId(null);
-                        }}
-                        className="flex-1 bg-transparent text-sm text-tx-primary outline-none border-b border-blue-400"
-                        autoFocus
-                        onClick={(e) => e.stopPropagation()}
-                      />
-                    ) : (
-                      <span className="flex-1 truncate text-tx-primary">{folder.name}</span>
-                    )}
-                    <span className="text-[10px] text-tx-tertiary">{filteredMaps.filter(m => m.folderId === folder.id).length}</span>
-                    <button onClick={(e) => { e.stopPropagation(); if (confirm(t("mindMap.confirmDeleteFolder"))) { api.deleteMindMapFolder(folder.id).then(() => { loadFolders(); loadMaps(); }); } }} className="opacity-0 group-hover:opacity-100 text-tx-tertiary hover:text-accent-danger transition-all duration-150 ease-out"><Trash2 size={12} /></button>
-                  </div>
-                  {isExpanded && (
-                    <>
-                      {children.map(f => renderFolder(f, depth + 1))}
-                      {folderMaps.map(m => (
-                        <div key={m.id} style={{ paddingLeft: (depth + 1) * 16 + 8 }}>
-                          <MindMapListRow item={m} isActive={activeMap?.id === m.id} onSelect={() => { handleSelect(m.id); if (isMobile) setSidebarOpen(false); }} onDelete={() => handleDeleteMap(m.id)} onContextMenu={(e) => handleListContextMenu(e, m)} onToggleStar={() => handleToggleStar(m.id)} onDragStart={(e) => { e.stopPropagation(); setDragMapId(m.id); e.dataTransfer.effectAllowed = "move"; }} onDragEnd={() => { setDragMapId(null); setDropFolderId(null); }} isDropTarget={false} />
-                        </div>
-                      ))}
-                    </>
-                  )}
-                </div>
-              );
-            };
-
-            if (!hasResults && q) return (
-              <div className="flex flex-col items-center justify-center h-32 text-tx-tertiary">
-                <SearchIcon size={24} className="mb-2 opacity-30" />
-                <span className="text-xs">{t("mindMap.noResults")}</span>
-              </div>
-            );
-
-            if (!hasResults && !q) return (
-              <div className="flex flex-col items-center justify-center h-32 text-tx-tertiary">
-                <BrainCircuit size={32} className="mb-2 opacity-30" />
-                <span className="text-xs">{t("mindMap.empty")}</span>
-                <button onClick={handleCreate} className="mt-3 text-xs text-blue-500 hover:text-blue-600 font-medium">{t("mindMap.createFirst")}</button>
-              </div>
-            );
-
-            return (
-              <>
-                <div className="pb-2">
-                  <button onClick={() => setShowNewFolder(true)} className="flex items-center gap-1.5 w-full px-2 py-1.5 rounded-md text-xs text-tx-tertiary hover:text-tx-secondary hover:bg-black/[0.03] dark:hover:bg-white/[0.04] transition-colors duration-150 ease-out">
-                    <FolderPlus size={13} /> {t("mindMap.newFolder")}
-                  </button>
-                  {showNewFolder && (
-                    <div className="flex items-center gap-1 px-2 py-1">
-                      <input type="text" value={newFolderName} onChange={(e) => setNewFolderName(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && newFolderName.trim()) { api.createMindMapFolder({ name: newFolderName.trim() }).then(() => { loadFolders(); setShowNewFolder(false); setNewFolderName(""); }); } if (e.key === "Escape") { setShowNewFolder(false); setNewFolderName(""); } }} placeholder={t("mindMap.folderName")} className="flex-1 bg-transparent text-xs text-tx-primary placeholder:text-tx-tertiary outline-none border-b border-app-border py-0.5" autoFocus />
-                    </div>
-                  )}
-                </div>
-                {topFolders.map(f => renderFolder(f, 0))}
-                {uncategorized.length > 0 && (
-                  <div>
-                    <div className={cn("rounded-md transition-colors duration-150 ease-out", dropFolderId === "__uncategorized__" && "ring-2 ring-emerald-400/60 bg-emerald-50/40 dark:bg-emerald-500/10 p-1")} onDragOver={(e) => { if (dragMapId) { e.preventDefault(); e.dataTransfer.dropEffect = "move"; setDropFolderId("__uncategorized__"); } }} onDragLeave={() => { if (dropFolderId === "__uncategorized__") setDropFolderId(null); }} onDrop={(e) => { e.preventDefault(); if (dragMapId) { api.moveMindMap(dragMapId, null).then(() => { loadMaps(); loadFolders(); }); setDragMapId(null); setDropFolderId(null); } }}>
-                    {!q && topFolders.length > 0 && (
-                      <div className="flex items-center gap-1.5 px-2 pt-2 pb-1 text-[10px] text-tx-tertiary uppercase tracking-wider">
-                        {t("mindMap.uncategorized")}
-                      </div>
-                    )}
-                    {uncategorized.map(m => (
-                      <MindMapListRow key={m.id} item={m} isActive={activeMap?.id === m.id} onSelect={() => { handleSelect(m.id); if (isMobile) setSidebarOpen(false); }} onDelete={() => handleDeleteMap(m.id)} onContextMenu={(e) => handleListContextMenu(e, m)} onToggleStar={() => handleToggleStar(m.id)} onDragStart={(e) => { e.stopPropagation(); setDragMapId(m.id); e.dataTransfer.effectAllowed = "move"; }} onDragEnd={() => { setDragMapId(null); setDropFolderId(null); }} isDropTarget={false} />
-                    ))}
-                    </div>
-                  </div>
-                )}
-              </>
-            );
-          })()}
-        </div>
-      </div>
-
       )}
       {/* Template selection modal */}
       {showTemplates && (
@@ -2737,7 +2920,7 @@ export default function MindMapCenter() {
       )}
 
       {/* Center: Mind Map Canvas */}
-      <div className="flex-1 flex flex-col overflow-hidden transition-colors duration-150 ease-out" ref={containerRef} style={{ background: MT.canvasBg }}>
+      <div className={cn("flex-1 flex flex-col overflow-hidden transition-colors duration-150 ease-out", !activeMap && !documentMode && !embeddedMode && "hidden")} ref={containerRef} style={{ background: MT.canvasBg }}>
         {activeMap && mapData ? (
           <>
             {/* Toolbar */}
@@ -2752,17 +2935,36 @@ export default function MindMapCenter() {
                     {t("mindMap.showAll")}
                   </button>
                 )}
-                {isMobile && (
+                {!embeddedMode && !documentMode && (
                   <button
-                    onClick={() => setSidebarOpen(true)}
-                    className="p-1.5 rounded-md hover:bg-app-hover text-tx-secondary transition-colors duration-150 ease-out flex-shrink-0"
+                    onClick={() => pushMindMapAppPath(null)}
+                    className="inline-flex items-center gap-1 rounded-md p-1.5 text-xs text-tx-secondary hover:bg-app-hover transition-colors duration-150 ease-out flex-shrink-0"
+                    aria-label="返回全部脑图"
                   >
-                    <Menu size={16} />
+                    <ChevronLeft size={16} /><span className="hidden sm:inline">全部脑图</span>
                   </button>
                 )}
                 <h1 className="text-sm font-semibold text-tx-primary truncate max-w-[120px] sm:max-w-[300px]">
                   {activeMap.title}
                 </h1>
+                {!embeddedMode && (
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      try {
+                        await navigator.clipboard.writeText(buildMindMapDeepLinkUrl(activeMap.id));
+                        toast.success("已复制思维导图链接");
+                      } catch {
+                        toast.error("复制链接失败");
+                      }
+                    }}
+                    className="hidden sm:inline-flex rounded-md p-1 text-tx-tertiary hover:bg-app-hover hover:text-tx-secondary"
+                    title="复制思维导图链接"
+                    aria-label="复制思维导图链接"
+                  >
+                    <Copy size={13} />
+                  </button>
+                )}
                 {isSaving ? (
                   <span className="flex items-center gap-1 text-xs text-tx-tertiary flex-shrink-0">
                     <Loader2 size={12} className="animate-spin" />
@@ -2846,7 +3048,7 @@ export default function MindMapCenter() {
                   className={cn(
                     "p-1.5 rounded-md transition-colors duration-150 ease-out",
                     showMiniMap
-                      ? "bg-blue-50/70 dark:bg-blue-500/15 text-blue-600 dark:text-blue-300"
+                      ? "bg-app-active text-accent-primary"
                       : "hover:bg-app-hover text-tx-secondary"
                   )}
                   title={t("mindMap.miniMap")}
@@ -2876,8 +3078,51 @@ export default function MindMapCenter() {
                 >
                   <SearchIcon size={16} />
                 </button>
+                {(embeddedMode || documentMode) && onRequestClose && (
+                  <>
+                    <div className="w-px h-4 bg-app-border mx-0.5" />
+                    <button
+                      onClick={requestEmbeddedClose}
+                      className={MT.toolbarBtn}
+                      title={embeddedMode ? "关闭文档内编辑" : "关闭思维导图"}
+                      aria-label={embeddedMode ? "关闭文档内思维导图编辑" : "关闭思维导图"}
+                    >
+                      <X size={16} />
+                    </button>
+                  </>
+                )}
               </div>
             </div>
+            {saveConflict && (
+              <div
+                className="flex flex-wrap items-center justify-between gap-2 border-b border-amber-400/30 bg-amber-500/10 px-3 py-2 text-xs"
+                role="alert"
+                data-mindmap-save-conflict="true"
+              >
+                <div className="flex min-w-0 items-center gap-2 text-amber-700 dark:text-amber-300">
+                  <AlertTriangle size={15} className="shrink-0" />
+                  <span>源导图已在其他窗口更新。为避免覆盖他人修改，自动保存已暂停。</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    disabled={isSaving}
+                    onClick={() => void reloadConflictVersion()}
+                    className="rounded-md border border-app-border bg-app-surface px-2.5 py-1 font-medium text-tx-primary hover:bg-app-hover disabled:opacity-50"
+                  >
+                    载入最新版
+                  </button>
+                  <button
+                    type="button"
+                    disabled={isSaving}
+                    onClick={() => void overwriteConflictVersion()}
+                    className="rounded-md bg-amber-600 px-2.5 py-1 font-medium text-white hover:bg-amber-700 disabled:opacity-50"
+                  >
+                    保留我的版本
+                  </button>
+                </div>
+              </div>
+            )}
             {showSearch && (
               <div className="px-2 sm:px-4 py-1.5 border-b border-app-border/40 bg-app-surface/20 flex items-center gap-2">
                 <SearchIcon size={14} className="text-tx-tertiary flex-shrink-0" />
@@ -2954,7 +3199,7 @@ export default function MindMapCenter() {
                   setSelectedNodeId(null);
                   setEditingNodeId(null);
                   setDragNodeId(null);
-                  setDropTargetId(null);
+                  setDropTarget(null);
                 }}
               >
                 <svg
@@ -3035,11 +3280,61 @@ export default function MindMapCenter() {
                     isSelected={selectedNodeIds.length > 0 ? selectedNodeIds.includes(n.id) : selectedNodeId === n.id}
                     isSearchMatch={searchResults.includes(n.id)}
                     isSearchActive={searchResults.length > 0 && searchIndex >= 0 && searchResults[searchIndex] === n.id}
-                    onDragStart={(e) => { e.stopPropagation(); if (!selectedNodeIds.includes(n.id)) { setSelectedNodeIds([n.id]); setSelectedNodeId(n.id); } setDragNodeId(n.id); e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", n.id); }}
-                    onDragOver={(e) => { const targetIsSelected = !!dragNodeId && selectedNodeIds.length > 1 && selectedNodeIds.includes(dragNodeId) && selectedNodeIds.includes(n.id); if (dragNodeId && dragNodeId !== n.id && !targetIsSelected) { e.preventDefault(); e.stopPropagation(); e.dataTransfer.dropEffect = "move"; setDropTargetId(n.id); } }}
-                    onDragLeave={() => { if (dropTargetId === n.id) setDropTargetId(null); }}
-                    onDrop={(e) => { e.preventDefault(); e.stopPropagation(); if (dragNodeId && dragNodeId !== n.id) { handleMoveNodes(dragNodeId, n.id); } setDragNodeId(null); setDropTargetId(null); }}
-                    isDragTarget={dropTargetId === n.id}
+                    onDragStart={n.depth === 0 ? undefined : (e) => {
+                      e.stopPropagation();
+                      if (!selectedNodeIds.includes(n.id)) {
+                        setSelectedNodeIds([n.id]);
+                        setSelectedNodeId(n.id);
+                      }
+                      setDragNodeId(n.id);
+                      e.dataTransfer.effectAllowed = "move";
+                      e.dataTransfer.setData("text/plain", n.id);
+                    }}
+                    onDragOver={(e) => {
+                      const targetIsSelected = !!dragNodeId
+                        && selectedNodeIds.length > 1
+                        && selectedNodeIds.includes(dragNodeId)
+                        && selectedNodeIds.includes(n.id);
+                      if (!dragNodeId || dragNodeId === n.id || targetIsSelected) return;
+                      e.preventDefault();
+                      e.stopPropagation();
+                      e.dataTransfer.dropEffect = "move";
+                      const rect = e.currentTarget.getBoundingClientRect();
+                      const placement = n.depth === 0
+                        ? "inside"
+                        : resolveMindMapDropPlacement(e.clientY, rect.top, rect.height);
+                      setDropTarget((current) => (
+                        current?.nodeId === n.id && current.placement === placement
+                          ? current
+                          : { nodeId: n.id, placement }
+                      ));
+                    }}
+                    onDragLeave={() => {
+                      setDropTarget((current) => current?.nodeId === n.id ? null : current);
+                    }}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      if (dragNodeId && dragNodeId !== n.id) {
+                        const rect = e.currentTarget.getBoundingClientRect();
+                        const placement = n.depth === 0
+                          ? "inside"
+                          : resolveMindMapDropPlacement(e.clientY, rect.top, rect.height);
+                        handleMoveNodes(dragNodeId, n.id, placement);
+                      }
+                      setDragNodeId(null);
+                      setDropTarget(null);
+                    }}
+                    onDragEnd={() => {
+                      setDragNodeId(null);
+                      setDropTarget(null);
+                    }}
+                    isDragging={dragNodeId === n.id}
+                    onTouchDragStart={n.depth === 0 ? undefined : () => beginTouchNodeDrag(n.id)}
+                    onTouchDragMove={n.depth === 0 ? undefined : (point) => moveTouchNodeDrag(n.id, point)}
+                    onTouchDragEnd={n.depth === 0 ? undefined : () => endTouchNodeDrag(n.id)}
+                    isDragTarget={dropTarget?.nodeId === n.id}
+                    dragPlacement={dropTarget?.nodeId === n.id ? dropTarget.placement : null}
                     isEditing={editingNodeId === n.id}
                     editValue={editValue}
                     onSelect={(e?: React.MouseEvent) => {
@@ -3212,9 +3507,11 @@ export default function MindMapCenter() {
             </div>
             </div>
             {!isMobile && (
-            <div className="px-4 py-1.5 border-t border-app-border/40 bg-app-surface/20 flex items-center gap-4 text-[11px] text-tx-tertiary">
+            <div className="px-4 py-1.5 border-t border-app-border/40 bg-app-surface/20 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-tx-tertiary">
               <span><kbd className="px-1 py-0.5 rounded border border-app-border bg-app-bg text-[10px]">Tab</kbd> {t("mindMap.shortcutAdd")}</span>
-              <span><kbd className="px-1 py-0.5 rounded border border-app-border bg-app-bg text-[10px]">Enter</kbd> {t("mindMap.shortcutEdit")}</span>
+              <span><kbd className="px-1 py-0.5 rounded border border-app-border bg-app-bg text-[10px]">Enter</kbd> {t("mindMap.shortcutSibling")}</span>
+              <span><kbd className="px-1 py-0.5 rounded border border-app-border bg-app-bg text-[10px]">Shift+Tab</kbd> {t("mindMap.shortcutPromote")}</span>
+              <span><kbd className="px-1 py-0.5 rounded border border-app-border bg-app-bg text-[10px]">F2</kbd> {t("mindMap.shortcutEdit")}</span>
               <span><kbd className="px-1 py-0.5 rounded border border-app-border bg-app-bg text-[10px]">Del</kbd> {t("mindMap.shortcutDelete")}</span>
               <span><kbd className="px-1 py-0.5 rounded border border-app-border bg-app-bg text-[10px]">Space</kbd> {t("mindMap.shortcutCollapse")}</span>
                 <span><kbd className="px-1 py-0.5 rounded border border-app-border bg-app-bg text-[10px]">Ctrl+Z</kbd> {t("mindMap.undo")}</span>
@@ -3225,63 +3522,22 @@ export default function MindMapCenter() {
           </>
         ) : (
           <div className="flex-1 flex flex-col items-center justify-center text-tx-tertiary relative">
-            {isMobile && (
+            <BrainCircuit size={48} className="mb-3 opacity-20" />
+            <span className="text-sm">{documentMode ? t("common.loading") : t("mindMap.selectOrCreate")}</span>
+            {!documentMode && (
               <button
-                onClick={() => setSidebarOpen(true)}
-                className="absolute top-3 left-3 p-2 rounded-md hover:bg-app-hover text-tx-secondary transition-colors duration-150 ease-out"
+                onClick={() => handleCreate()}
+                className="mt-4 flex items-center gap-2 rounded-[10px] bg-accent-primary px-4 py-2 text-sm font-medium text-tx-inverse transition-opacity duration-150 ease-out hover:opacity-90"
               >
-                <Menu size={20} />
+                <Plus size={16} />
+                {t("mindMap.create")}
               </button>
             )}
-            <BrainCircuit size={48} className="mb-3 opacity-20" />
-            <span className="text-sm">{t("mindMap.selectOrCreate")}</span>
-            <button
-              onClick={handleCreate}
-              className="mt-4 flex items-center gap-2 px-4 py-2 rounded-[10px] bg-blue-500/90 text-white text-sm font-medium hover:bg-blue-600 transition-colors duration-150 ease-out"
-            >
-              <Plus size={16} />
-              {t("mindMap.create")}
-            </button>
           </div>
         )}
       </div>
 
       {/* 列表右键菜单 */}
-      {/* Folder context menu */}
-      {folderContextMenu && (() => {
-        const close = () => setFolderContextMenu(null);
-        return (
-          <div className="fixed inset-0 z-50" onClick={close} onContextMenu={(e) => { e.preventDefault(); close(); }}>
-            <div
-              className={`fixed z-50 min-w-[160px] py-1 ${MT.menuCls} ${MT.menuBgCls}`}
-              style={{ left: Math.min(folderContextMenu.x, window.innerWidth - 180), top: Math.min(folderContextMenu.y, window.innerHeight - 120) }}
-              onClick={(e) => e.stopPropagation()}
-            >
-              <button
-                className={`w-full flex items-center gap-2.5 px-3 py-2 text-sm text-tx-primary ${MT.menuHover} transition-colors duration-150 ease-out`}
-                onClick={() => { setRenamingFolderId(folderContextMenu.folderId); setRenamingFolderName(folderContextMenu.folderName); close(); }}
-              >
-                <Edit2 size={15} className="text-blue-500" />
-                {t("mindMap.renameFolder")}
-              </button>
-              <div className="h-px bg-black/[0.06] dark:bg-white/[0.08] my-1" />
-              <button
-                className={`w-full flex items-center gap-2.5 px-3 py-2 text-sm text-red-500 ${MT.menuHover} transition-colors duration-150 ease-out`}
-                onClick={() => {
-                  if (confirm(t("mindMap.confirmDeleteFolder"))) {
-                    api.deleteMindMapFolder(folderContextMenu.folderId).then(() => { loadFolders(); loadMaps(); });
-                  }
-                  close();
-                }}
-              >
-                <Trash2 size={15} />
-                {t("mindMap.deleteFolder")}
-              </button>
-            </div>
-          </div>
-        );
-      })()}
-
       {listContextMenu && (
         <MindMapContextMenuOverlay
           menu={listContextMenu}
@@ -3344,7 +3600,7 @@ function MindMapContextMenuOverlay({
         className={`w-full flex items-center gap-2.5 px-3 py-2 text-sm text-tx-primary ${MT.menuHover} transition-colors duration-150 ease-out`}
         onClick={onDownloadPNG}
       >
-        <Image size={15} className="text-blue-500" />
+        <Image size={15} className="text-accent-primary" />
         {t("mindMap.downloadPNG")}
       </button>
       <button
@@ -3365,4 +3621,3 @@ function MindMapContextMenuOverlay({
     </div>
   );
 }
-

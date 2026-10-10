@@ -13,8 +13,11 @@ export interface MobileKnowledgeTreeRecentEntry {
   openedAt: number;
 }
 
+export type MobileKnowledgeTreeRecentMode = "opened" | "edited";
+
 export const MOBILE_KNOWLEDGE_TREE_SORT_STORAGE_KEY = "nowen.mobileKnowledgeTree.sort.v1";
 export const MOBILE_KNOWLEDGE_TREE_RECENT_STORAGE_KEY = "nowen.mobileKnowledgeTree.recent.v1";
+export const MOBILE_KNOWLEDGE_TREE_RECENT_MODE_STORAGE_KEY = "nowen.mobileKnowledgeTree.recentMode.v1";
 export const MOBILE_KNOWLEDGE_TREE_RECENT_LIMIT = 40;
 
 const VALID_SORT_MODES = new Set<MobileKnowledgeTreeSortMode>([
@@ -148,9 +151,23 @@ export function buildMobileKnowledgeTreeRecentNodes(
   nodes: KnowledgeTreeNode[],
   entries: MobileKnowledgeTreeRecentEntry[],
   limit = MOBILE_KNOWLEDGE_TREE_RECENT_LIMIT,
+  mode: MobileKnowledgeTreeRecentMode = "opened",
 ): KnowledgeTreeNode[] {
   const openedAtByNode = new Map(entries.map((entry) => [entry.nodeId, entry.openedAt]));
   const documents = nodes.filter((node) => node.resourceType === "note" && node.isDeleted !== 1);
+
+  if (mode === "edited") {
+    return documents
+      .slice()
+      .sort((a, b) => (
+        compareKnowledgeTreePinnedPriority(a, b)
+        || timestamp(b.updatedAt) - timestamp(a.updatedAt)
+        || compareTitle(a, b)
+        || a.id.localeCompare(b.id)
+      ))
+      .slice(0, limit);
+  }
+
   const compareRecentDocuments = (a: KnowledgeTreeNode, b: KnowledgeTreeNode) => {
     const aOpenedAt = openedAtByNode.get(a.id);
     const bOpenedAt = openedAtByNode.get(b.id);
@@ -168,6 +185,7 @@ export function buildMobileKnowledgeTreeRecentNodes(
     .filter((node) => node.isPinned !== 1 && openedAtByNode.has(node.id))
     .sort((a, b) => (
       (openedAtByNode.get(b.id) || 0) - (openedAtByNode.get(a.id) || 0)
+      || timestamp(b.updatedAt) - timestamp(a.updatedAt)
       || compareTitle(a, b)
       || a.id.localeCompare(b.id)
     ));
@@ -235,5 +253,23 @@ export function saveMobileKnowledgeTreeRecentEntries(entries: MobileKnowledgeTre
     storage.setItem(MOBILE_KNOWLEDGE_TREE_RECENT_STORAGE_KEY, JSON.stringify(entries.slice(0, 100)));
   } catch {
     // Recent items remain available for the current session.
+  }
+}
+
+export function loadMobileKnowledgeTreeRecentMode(): MobileKnowledgeTreeRecentMode {
+  const storage = getLocalStorage();
+  if (!storage) return "opened";
+  return storage.getItem(MOBILE_KNOWLEDGE_TREE_RECENT_MODE_STORAGE_KEY) === "edited"
+    ? "edited"
+    : "opened";
+}
+
+export function saveMobileKnowledgeTreeRecentMode(mode: MobileKnowledgeTreeRecentMode): void {
+  const storage = getLocalStorage();
+  if (!storage) return;
+  try {
+    storage.setItem(MOBILE_KNOWLEDGE_TREE_RECENT_MODE_STORAGE_KEY, mode);
+  } catch {
+    // Keep the in-memory selection usable when local storage is unavailable.
   }
 }

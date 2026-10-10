@@ -9,6 +9,10 @@ function toolbarSection(source: string, compactMarker: string, expandedMarker: s
   return source.split(compactMarker)[1]?.split(expandedMarker)[0] || "";
 }
 
+function expandedToolbarSection(source: string, expandedMarker: string): string {
+  return source.split(expandedMarker)[1]?.split("</div>")[0] || "";
+}
+
 function expectInOrder(source: string, values: string[]): void {
   let previous = -1;
   for (const value of values) {
@@ -28,12 +32,40 @@ describe("Android immersive editor contract", () => {
     expect(source).toContain("nowen:open-search");
   });
 
+  it("keeps note management out of a duplicate mobile title toolbar", () => {
+    const source = read("src/components/EditorPane.tsx");
+    expect(source).not.toContain('flex items-center gap-1", compactMobileEditing ? "px-2 py-1"');
+    expect(source).toContain('MobileEditorToolbarPortal location="leading"');
+    expect(source).toContain('MobileEditorToolbarPortal location="trailing"');
+    expect(source).toContain('data-mobile-note-menu-trigger');
+    expect(source).toContain("toggleLock(); setShowMobileMenu(false)");
+  });
+
+  it("reuses the breadcrumb slot for the title only after the body title scrolls away", () => {
+    const source = read("src/components/EditorPane.tsx");
+    expect(source).toContain("mobileTitlePinned");
+    expect(source).toContain("IntersectionObserver");
+    expect(source).toContain("[data-mobile-editor-title], [data-markdown-mobile-title]");
+    expect(source).toContain("setMobileTitlePinned(!entry?.isIntersecting)");
+  });
+
+  it("does not resurrect the legacy two-row header from global keyboard CSS", () => {
+    const html = read("index.html");
+    expect(html).not.toContain('header[data-mobile-editor-compact="true"] > div:nth-of-type(2)');
+    expect(html).not.toContain('header[data-mobile-editor-compact="true"] > div:first-of-type');
+  });
+
   it("keeps one compact toolbar and exposes advanced formatting on demand", () => {
     const source = read("src/components/TiptapEditor.tsx");
+    const expanded = expandedToolbarSection(source, 'data-mobile-editor-toolbar="expanded"');
     expect(source).toContain('data-mobile-editor-toolbar="compact"');
     expect(source).toContain('data-mobile-editor-toolbar="expanded"');
     expect(source).toContain('mobileToolbarExpanded');
     expect(source).toContain('data-mobile-editing-compact');
+    expect(source).toContain('nowen:close-search');
+    expect(expanded).not.toContain("max-md:absolute");
+    expect(expanded).not.toContain("bg-app-elevated/98");
+    expect(expanded).not.toContain("py-2 backdrop-blur");
   });
 
   it("keeps image and local video actions visible before more in the Tiptap compact toolbar", () => {
@@ -60,7 +92,9 @@ describe("Android immersive editor contract", () => {
     expect(compact).toContain("flex-nowrap");
     expect(compact).toContain("overflow-x-auto");
     expect(source).toContain('compact ? "shrink-0 p-1');
-    expect(compact).toContain('className="ml-auto"');
+    expect(compact).toContain('<MobileEditorToolbarSlot location="leading" />');
+    expect(compact).toContain('<MobileEditorToolbarSlot location="trailing" />');
+    expect(compact).toContain('data-mobile-editor-format-strip');
   });
 
   it("removes nonessential metadata and floating actions from the keyboard viewport", () => {
@@ -72,6 +106,12 @@ describe("Android immersive editor contract", () => {
 
   it("applies the same compact hierarchy to native Markdown documents", () => {
     const source = read("src/components/MarkdownEditorImpl.tsx");
+    const compact = toolbarSection(
+      source,
+      'data-markdown-mobile-toolbar="compact"',
+      'data-markdown-mobile-toolbar="expanded"',
+    );
+    const expanded = expandedToolbarSection(source, 'data-markdown-mobile-toolbar="expanded"');
     expect(source).toContain('data-markdown-mobile-editing-compact');
     expect(source).toContain('data-markdown-mobile-toolbar="compact"');
     expect(source).toContain('data-markdown-mobile-toolbar="expanded"');
@@ -79,6 +119,12 @@ describe("Android immersive editor contract", () => {
     expect(source).toContain('!compactMobileEditing');
     expect(source).toContain('onMouseDown={(event) => event.preventDefault()}');
     expect(source).toContain('[keyboardVisible, note.id]');
+    expect(compact).not.toContain("openMarkdownSearch");
+    expect(expanded).not.toContain("max-md:absolute");
+    expect(expanded).not.toContain("bg-app-elevated/98");
+    expect(expanded).not.toContain("py-2 backdrop-blur");
+    expect(source).toContain('<span className="hidden md:inline-flex">');
+    expect(source).toContain('nowen:close-search');
   });
 
   it("matches the Tiptap image, local video and more order in the Markdown compact toolbar", () => {
@@ -105,7 +151,9 @@ describe("Android immersive editor contract", () => {
     expect(compact).toContain("overflow-x-auto");
     expect(compact).toContain("[&>button]:shrink-0");
     expect(compact).toContain("[&>button]:p-1");
-    expect(compact).toContain('className="ml-auto"');
+    expect(compact).toContain('<MobileEditorToolbarSlot location="leading" />');
+    expect(compact).toContain('<MobileEditorToolbarSlot location="trailing" />');
+    expect(compact).toContain('data-mobile-editor-format-strip');
   });
 
   it("suppresses the mobile space launcher while the IME is open", () => {

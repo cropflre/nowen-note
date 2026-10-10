@@ -15,6 +15,10 @@ import {
 import { resolvePublicOrigin } from "../lib/shareUrlRewrite.js";
 import { logAudit } from "../services/audit.js";
 import { allowAnonymousAction, checkCredentialAttempt, getClientIp, hashClientIp, recordCredentialFailure, recordCredentialSuccess } from "../lib/share-credential-rate-limit.js";
+import {
+  getPublishedKnowledgeResource,
+  listPublishedKnowledgeResources,
+} from "../services/notebookPublicationResources.js";
 
 export type NotebookPublicationAccessMode = "public" | "link" | "code" | "password";
 export type NotebookPublicationPermission = "read" | "comment" | "write";
@@ -351,7 +355,44 @@ sharedRouter.get("/notebook-public/:token/tree", (c) => {
     ORDER BY isPinned DESC, sortOrder ASC, updatedAt DESC
   `).all(p.notebookId);
 
-  return c.json({ notebooks, notes });
+  const resources = listPublishedKnowledgeResources(getDb(), p.notebookId);
+  return c.json({ notebooks, notes, resources });
+});
+
+sharedRouter.get("/notebook-public/:token/resources/:nodeId", (c) => {
+  noStore(c);
+  const checked = validatePublication(publicationByToken(c.req.param("token")));
+  if (!checked.ok) return c.json({ error: checked.error, code: checked.code }, checked.status);
+  const p = checked.publication;
+  if (!verifyPublicationAccess(c, p)) {
+    return c.json({ error: "需要验证访问凭证", code: "PUBLICATION_SECRET_REQUIRED", needSecret: true }, 401);
+  }
+
+  const resource = getPublishedKnowledgeResource(getDb(), p.notebookId, c.req.param("nodeId"));
+  if (!resource) {
+    return c.json({ error: "内容不存在或未发布", code: "PUBLIC_RESOURCE_NOT_FOUND" }, 404);
+  }
+
+  if (resource.resourceType === "note") {
+    const attachmentUrls = attachmentUrlsForNote(c, p, resource.resourceId);
+    return c.json({
+      ...resource,
+      content: rewriteAttachmentUrls(resource.content || "", attachmentUrls),
+      attachmentUrls,
+      permission: p.permission,
+      allowDownload: !!p.allowDownload,
+      allowComment: !!p.allowComment,
+      allowEdit: !!p.allowEdit,
+    });
+  }
+
+  return c.json({
+    ...resource,
+    permission: p.permission,
+    allowDownload: !!p.allowDownload,
+    allowComment: resource.resourceType === "sheet" ? !!p.allowComment : false,
+    allowEdit: false,
+  });
 });
 
 sharedRouter.get("/notebook-public/:token/notes/:noteId", (c) => {

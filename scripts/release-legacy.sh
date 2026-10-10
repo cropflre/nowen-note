@@ -1038,7 +1038,7 @@ if [ "$BUILD_ONLY" != "1" ]; then
     fi
 
     # 工作区脏检查：自动丢弃所有未提交 / 未暂存的改动
-    if ! git diff-index --quiet HEAD -- || ! git diff --cached --quiet; then
+    if [ "$DRY_RUN" != "1" ] && { ! git diff-index --quiet HEAD -- || ! git diff --cached --quiet; }; then
         warn "工作区有未提交的改动，自动清理中..."
         git status --short | head -20
         git checkout -- .
@@ -1296,6 +1296,7 @@ sync_root_pkg_version() {
     fi
 
     info "更新 package.json version: ${current:-(空)} -> ${target_version}"
+    [ "$DRY_RUN" = "1" ] && return 0
     # 用 sed 原地替换第一处 "version": "..."（根 package.json 不会含嵌套 version）
     # 兼容 BSD sed（macOS）与 GNU sed
     if sed --version >/dev/null 2>&1; then
@@ -1332,6 +1333,7 @@ sync_backend_pkg_version() {
     fi
 
     info "更新 backend/package.json version: ${current:-(空)} -> ${target_version}"
+    [ "$DRY_RUN" = "1" ] && return 0
     if sed --version >/dev/null 2>&1; then
         sed -i -E "0,/\"version\"\s*:\s*\"[^\"]+\"/s//\"version\": \"${target_version}\"/" "$pkg_file"
     else
@@ -1351,15 +1353,19 @@ fi
 #   3) frontend/public/changelog.json  —— 应用内「更新日志」Modal 的数据源
 # 仅在非 build-only 流程里跑；不影响 docker build 单跑场景。
 GEN_CHANGELOG_SCRIPT="${REPO_ROOT}/scripts/generate-changelog.mjs"
+latest_changelog_baseline() {
+    git tag --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname 2>/dev/null \
+        | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' \
+        | grep -v -x "v${VERSION}" \
+        | head -n1 || true
+}
 if [ "$BUILD_ONLY" != "1" ] && [ -f "$GEN_CHANGELOG_SCRIPT" ]; then
     info "生成 CHANGELOG / README 区块 / public/changelog.json"
     # 显式传 --since <上一个 v* tag>，避免 generate-changelog.mjs 在 HEAD 已等同于某个
     # v* tag（重跑发布 / 版本号回写后的 tag 点上）时，误把更早版本的 commits 再重新
     # 归入本版 —— 这会导致 README/CHANGELOG 出现巨大的重复分组块（同一个 "✨ 新增"
     # 连续出现两次）。取"除本版外最大的 v* tag"作为起点最稳妥。
-    LAST_RELEASE_TAG="$(git tag --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname 2>/dev/null \
-        | grep -v -x "v${VERSION}" \
-        | head -n1 || true)"
+    LAST_RELEASE_TAG="$(latest_changelog_baseline)"
     GEN_ARGS=(
         "$GEN_CHANGELOG_SCRIPT"
         --version "$VERSION"
@@ -1383,7 +1389,7 @@ fi
 # -------------------- Android versionCode / versionName 同步 --------------------
 # frontend/android/app/build.gradle 里有硬编码的 `versionCode N` / `versionName "X"`，
 # 发版前必须改成本次 VERSION。versionCode 用 MAJOR*10000 + MINOR*100 + PATCH 生成
-# （单调递增、不受预发布后缀影响），versionName 直接等于 VERSION。
+# 已有 versionCode 更高时，同版本保持原值，升级版本至少加一；versionName 等于 VERSION。
 android_version_code_of() {
     # 入参: X.Y.Z[-suffix]  ->  整数
     local v="$1"
@@ -1408,12 +1414,18 @@ sync_android_version() {
     cur_name="$(grep -oE 'versionName[[:space:]]+"[^"]+"' "$gradle_file" | head -1 | sed -E 's/.*"([^"]+)"/\1/')"
     cur_code="$(grep -oE 'versionCode[[:space:]]+[0-9]+' "$gradle_file" | head -1 | awk '{print $2}')"
 
+    if [ -n "$cur_code" ] && [ "$cur_code" -ge "$new_code" ]; then
+        new_code="$cur_code"
+        [ "$cur_name" = "$target_version" ] || new_code="$((cur_code + 1))"
+    fi
+
     if [ "$cur_name" = "$target_version" ] && [ "$cur_code" = "$new_code" ]; then
         info "Android build.gradle 版本已是 ${target_version}/${new_code}，无需改写"
         return 0
     fi
 
     info "更新 Android build.gradle: versionName ${cur_name:-?} -> ${target_version}, versionCode ${cur_code:-?} -> ${new_code}"
+    [ "$DRY_RUN" = "1" ] && return 0
 
     # sed 原地替换（兼容 GNU / BSD）
     if sed --version >/dev/null 2>&1; then
@@ -2754,9 +2766,7 @@ if [ "$DO_GITHUB_RELEASE" = "1" ]; then
         # 所以必须显式传 --since 来绕开 HEAD^ 陷阱，避免把上个版本的 commits 再重复收一遍。
         AUTO_NOTES=""
         if [ -f "$GEN_CHANGELOG_SCRIPT" ]; then
-            NOTES_SINCE_TAG="$(git tag --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname 2>/dev/null \
-                | grep -v -x "v${VERSION}" \
-                | head -n1 || true)"
+            NOTES_SINCE_TAG="$(latest_changelog_baseline)"
             SECTION_ARGS=( --version "$VERSION" --section )
             [ -n "$NOTES_SINCE_TAG" ] && SECTION_ARGS+=( --since "$NOTES_SINCE_TAG" )
             CHANGELOG_SECTION="$(node "$GEN_CHANGELOG_SCRIPT" "${SECTION_ARGS[@]}" 2>/dev/null || true)"

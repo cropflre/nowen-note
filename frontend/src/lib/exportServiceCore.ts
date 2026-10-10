@@ -2,8 +2,9 @@ import JSZip from "jszip";
 import { saveAs } from "file-saver";
 import { isAndroidNative, saveImageToGallery } from "./nativeImageSave";
 import TurndownService from "turndown";
+import { getRichTextExtensions, addRichTextMarkdownRules } from "./richTextExtensions";
 import i18n from "i18next";
-import { generateHTML } from "@tiptap/core";
+import { generateHTML, Node, mergeAttributes } from "@tiptap/core";
 import StarterKit from "@tiptap/starter-kit";
 import Image from "@tiptap/extension-image";
 import CodeBlockLowlight from "@tiptap/extension-code-block-lowlight";
@@ -17,13 +18,46 @@ import { common, createLowlight } from "lowlight";
 import { api, resolveAttachmentUrl } from "./api";
 import { TextStyleKit } from "@/components/FontSizeExtension";
 import { Video as VideoExtension } from "@/components/VideoExtension";
+import { VoiceMemo } from "@/components/VoiceMemoExtension";
 import { detectFormat, markdownToHtml } from "@/lib/contentFormat";
+import { hydrateMindMapEmbedsForExport } from "@/lib/documentMindMapExport";
+import { assertExportCanvasHasContent, assertExportHtmlHasContent, EXPORT_CANVAS_CONTENT_ERROR } from "@/lib/exportCanvasGuard";
+
+// 导出只需要 blockEmbed 的 schema/HTML 序列化，不挂 React NodeView。
+// 这样 Tiptap JSON 中的 mindmap 引用不会在 generateHTML 阶段被 schema 静默吞掉。
+const ExportBlockEmbedExtension = Node.create({
+  name: "blockEmbed",
+  group: "block",
+  atom: true,
+  addAttributes() {
+    return { href: { default: "" } };
+  },
+  parseHTML() {
+    return [{
+      tag: "div[data-nowen-block-embed]",
+      getAttrs: (node) => ({
+        href: (node as HTMLElement).getAttribute("data-nowen-block-embed") || "",
+      }),
+    }];
+  },
+  renderHTML({ HTMLAttributes }) {
+    return [
+      "div",
+      mergeAttributes(HTMLAttributes, {
+        "data-nowen-block-embed": HTMLAttributes.href,
+      }),
+      "引用块",
+    ];
+  },
+});
 
 // TipTap 扩展列表（需与 importService / 编辑器保持一致，否则某些节点会被吞掉）
 const lowlight = createLowlight(common);
 const tiptapExtensions = [
+  ...getRichTextExtensions(),
   StarterKit.configure({
     codeBlock: false,
+    underline: false,
     heading: { levels: [1, 2, 3, 4, 5, 6] },
   }),
   Image.configure({ inline: false, allowBase64: true }),
@@ -42,6 +76,8 @@ const tiptapExtensions = [
   ...TextStyleKit,
   // 视频节点：与编辑器保持一致，否则导出时 video 节点会被吞
   VideoExtension,
+  VoiceMemo,
+  ExportBlockEmbedExtension,
 ];
 
 /**
@@ -137,6 +173,7 @@ const MIME_EXT_MAP: Record<string, string> = {
   "audio/wav": "wav",
   "audio/ogg": "ogg",
   "audio/mp4": "m4a",
+  "audio/webm": "webm",
   "video/mp4": "mp4",
   "video/webm": "webm",
   "video/quicktime": "mov",
@@ -732,21 +769,23 @@ async function processMarkdownAttachments(
   return { content: result, images };
 }
 
-async function fetchRemoteAttachments(
+export async function fetchRemoteAttachments(
   html: string,
   registry: Map<string, string>,
   stats: ImgStats,
   noteContext?: { noteId?: string; noteTitle?: string },
 ): Promise<{ html: string; assets: ExtractedImage[] }> {
-  if (!html || !/<a\b[^>]*\bhref=/i.test(html)) {
+  if (!html || !/<(?:a|audio|source|video)\b[^>]*\b(?:href|src)=/i.test(html)) {
     return { html, assets: [] };
   }
 
   const assets: ExtractedImage[] = [];
-  // 抓 <a ... href="..." ...>，捕获 (前缀, 引号, href, 后缀)；不闭合标签也无所谓
-  const aRe = /<a\b([^>]*?)\bhref\s*=\s*(["'])([^"']+)\2([^>]*)>/gi;
+  // 音频和 source 也复用附件打包链路，不能只扫描下载链接。
+  const aRe = /<(a|audio|source|video)\b([^>]*?)\b(href|src)\s*=\s*(["'])([^"']+)\4([^>]*)>/gi;
 
   type Task = {
+    tag: string;
+    attribute: string;
     fullMatch: string;
     beforeHref: string;
     quote: string;
@@ -756,16 +795,19 @@ async function fetchRemoteAttachments(
   const tasks: Task[] = [];
   let m: RegExpExecArray | null;
   while ((m = aRe.exec(html)) !== null) {
-    const originalHref = m[3];
+    if ((m[1].toLowerCase() === "a") !== (m[3].toLowerCase() === "href")) continue;
+    const originalHref = m[5];
     if (/^(data:|blob:|mailto:|tel:|#)/i.test(originalHref)) continue;
     if (/^\.\/?assets\//i.test(originalHref)) continue;
     if (!isAttachmentUrl(originalHref)) continue;
     tasks.push({
       fullMatch: m[0],
-      beforeHref: m[1] || "",
-      quote: m[2],
+      tag: m[1],
+      attribute: m[3],
+      beforeHref: m[2] || "",
+      quote: m[4],
       originalHref,
-      afterHref: m[4] || "",
+      afterHref: m[6] || "",
     });
   }
   if (tasks.length === 0) return { html, assets: [] };
@@ -828,7 +870,7 @@ async function fetchRemoteAttachments(
         }
 
         const newHref = `./${relPath}`;
-        const rebuilt = `<a${task.beforeHref} href=${task.quote}${newHref}${task.quote}${task.afterHref}>`;
+        const rebuilt = `<${task.tag}${task.beforeHref} ${task.attribute}=${task.quote}${newHref}${task.quote}${task.afterHref}>`;
         results[myIdx] = { task, rebuilt };
         stats.ok++;
       } catch (err) {
@@ -847,7 +889,7 @@ async function fetchRemoteAttachments(
         // 兜底：把死 host 剥成相对路径
         const normalized = normalizeAttachmentSrc(task.originalHref);
         if (normalized !== task.originalHref) {
-          const rebuilt = `<a${task.beforeHref} href=${task.quote}${normalized}${task.quote}${task.afterHref}>`;
+          const rebuilt = `<${task.tag}${task.beforeHref} ${task.attribute}=${task.quote}${normalized}${task.quote}${task.afterHref}>`;
           results[myIdx] = { task, rebuilt };
         }
       }
@@ -931,6 +973,8 @@ function createTurndown(): TurndownService {
     replacement: (content) => `==${content}==`,
   });
 
+  td.keep(["audio"]);
+  addRichTextMarkdownRules(td);
   return td;
 }
 
@@ -1237,6 +1281,15 @@ export async function exportNotebook(
         markdown = html ? postProcessMarkdown(td.turndown(html)) : "";
       }
 
+      // 两种笔记格式都可能包含标准 HTML 音频；内嵌图片模式也必须打包音频。
+      if (markdown) {
+        let registry = perFolderRegistry.get(folder);
+        if (!registry) { registry = new Map(); perFolderRegistry.set(folder, registry); }
+        const media = await fetchRemoteAttachments(markdown, registry, imgStats, { noteId: note.id, noteTitle: note.title });
+        markdown = media.html;
+        extractedImages = extractedImages.concat(media.assets);
+      }
+
       const frontmatter = [
         "---",
         `title: "${note.title.replace(/"/g, '\\"')}"`,
@@ -1436,7 +1489,7 @@ export async function exportSingleNote(
 // ============================================================================
 
 // 公共：把笔记渲染为带样式的完整 HTML 文档字符串
-async function buildPrintableHtml(note: {
+export async function buildPrintableHtml(note: {
   title: string;
   content: string;
   contentText: string;
@@ -1445,6 +1498,9 @@ async function buildPrintableHtml(note: {
   updatedAt: string;
 }): Promise<string> {
   let html = noteContentToExportHtml(note.content, note.contentText, note.contentFormat);
+  // 原生思维导图引用在打印/PDF/图片中必须冻结为静态 SVG 快照；
+  // 不能把 mindmap:<uuid> 或需要登录的 /api/mindmaps/:id 暴露到导出产物。
+  html = await hydrateMindMapEmbedsForExport(html);
   // 把 /api/attachments/<id> 全部 inline 成 data URI（避免新窗口加载失败、canvas tainted）
   const stats: ImgStats = { ok: 0, failed: 0, failures: [] };
   html = await inlineRemoteImages(html, stats);
@@ -1453,6 +1509,7 @@ async function buildPrintableHtml(note: {
     ADD_TAGS: ["img"],
     ADD_ATTR: ["src", "alt", "width", "height", "style", "data-type", "data-checked"],
   });
+  assertExportHtmlHasContent(note.contentText || "", html, "note-pdf-web");
 
   const safeTitle = (note.title || i18n.t('common.untitledNote'))
     .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -1502,6 +1559,14 @@ async function buildPrintableHtml(note: {
     .content ul[data-type="taskList"] li { display: flex; align-items: flex-start; gap: 8px; margin: 4px 0; }
     .content ul[data-type="taskList"] li > label { user-select: none; }
     .content ul[data-type="taskList"] li > div { flex: 1; }
+    /* Only decorate this item's own paragraph, never nested sub-tasks. */
+    .content li[data-type="taskItem"][data-checked="true"] > p,
+    .content li[data-type="taskItem"][data-checked="true"] > div > p,
+    .content li.task-item[data-checked="true"] > p,
+    .content li.task-item[data-checked="true"] > div > p,
+    .content li.task-list-item:has(> p > input[type="checkbox"]:checked) > p {
+      color: #8a8f98; text-decoration: line-through; text-decoration-color: #b0b5bd;
+    }
     .content input[type="checkbox"] { margin-right: 8px; }
     .content hr { border: 0; border-top: 1px solid #e1e4e8; margin: 20px 0; }
     .content mark { background: #fff3a3; padding: 0 2px; border-radius: 3px; }
@@ -1615,6 +1680,7 @@ async function renderPrintableHtmlToPdfBlob(docHtml: string): Promise<Blob> {
       windowWidth: page.scrollWidth,
       windowHeight: fullHeight,
     });
+    assertExportCanvasHasContent(canvas, "note-pdf-web");
 
     // A4: 210mm × 297mm
     const pdf = new jsPDF({ unit: "mm", format: "a4", orientation: "portrait" });
@@ -1671,7 +1737,9 @@ async function renderPrintableHtmlToPdfBlob(docHtml: string): Promise<Blob> {
       }
     }
 
-    return pdf.output("blob");
+    const blob = pdf.output("blob");
+    if (!blob.size) throw new Error(EXPORT_CANVAS_CONTENT_ERROR);
+    return blob;
   } finally {
     cleanup();
   }

@@ -1,6 +1,6 @@
 {
   "name": "@nowen/clipper",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Nowen Note Web Clipper — 速记、网页剪藏、选区保存和图片本地化",
   "private": true,
   "type": "module",

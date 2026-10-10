@@ -12,6 +12,7 @@ export interface ParsedInternalNoteHref {
 
 const INTERNAL_HREF_RE = /^note:([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:#blk:([A-Za-z0-9_-]+))?$/i;
 const WIKI_LINK_RE = /(!?)\[\[(note:[0-9a-f-]{36}(?:#blk:[A-Za-z0-9_-]+)?)(?:\|((?:\\\]|[^\]])*))?\]\]/gi;
+const MINDMAP_EMBED_RE = /!\[\[(mindmap:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\]\]/gi;
 const WIKI_LINK_INPUT_TRIGGERS = ["[[", "【【"] as const;
 const WIKI_LINK_INPUT_CLOSERS = ["]]", "】】"] as const;
 
@@ -56,13 +57,18 @@ function escapeHtml(value: string): string {
     .replace(/'/g, "&#39;");
 }
 
-/** Convert internal wiki links to sanitized HTML placeholders for preview/Tiptap parsing. */
+/** Convert internal wiki links and native mind map references to sanitized HTML placeholders. */
 export function preprocessInternalNoteLinks(markdown: string): string {
   const fenced: string[] = [];
   let source = markdown.replace(/```[\s\S]*?```|~~~[\s\S]*?~~~/g, (match) => {
     const index = fenced.push(match) - 1;
     return `\u0000NOWEN_NOTE_CODE_${index}\u0000`;
   });
+  // Keep the source in the document as ![[mindmap:<uuid>]]; only the preview/converter
+  // sees this placeholder. No title, source data, API address, or access token is stored.
+  source = source.replace(MINDMAP_EMBED_RE, (_match, href) =>
+    `<div data-nowen-block-embed="${escapeHtml(href.toLowerCase())}"></div>`,
+  );
   source = source.replace(WIKI_LINK_RE, (_match, embedPrefix, href, rawAlias) => {
     const alias = String(rawAlias || "").replace(/\\\]/g, "]");
     if (embedPrefix) {

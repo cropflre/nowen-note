@@ -11,7 +11,7 @@
  * 设计要点：
  * - 偏好持久化在 localStorage（key=nowen-rail-mode）。
  * - 跨 tab 同步：监听 storage 事件；同 tab 内多组件同步：自定义事件 nowen:rail-mode-changed。
- *   这样 App.tsx（控制是否渲染）/ NavRail（自身样式）/ Sidebar Header（切换按钮）
+ *   这样 App.tsx（控制是否渲染）/ NavRail（自身样式）/ 布局控制器（显式选择）
  *   可以独立调用而无需 state 提升或塞进 AppContext reducer。
  * - 不进 AppContext：纯 UI 偏好，没有跨业务联动；提到 reducer 反而是过度设计。
  *

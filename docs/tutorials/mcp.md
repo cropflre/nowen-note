@@ -65,6 +65,8 @@ npm run build
 nowen-note\packages\nowen-mcp\dist\scoped-entry.js
 ```
 
+这是稳定启动器内部加载的构建产物，不要把它直接配置为客户端入口；客户端统一运行 `bin/nowen-mcp.mjs`。
+
 检查文件：
 
 ```powershell
@@ -122,19 +124,19 @@ Token 通常只展示一次，请妥善保存。
 在 `packages/nowen-mcp` 目录执行：
 
 ```powershell
-(Resolve-Path .\dist\scoped-entry.js).Path
+(Resolve-Path .\bin\nowen-mcp.mjs).Path
 ```
 
 示例结果：
 
 ```text
-C:\Users\YourName\nowen-note\packages\nowen-mcp\dist\scoped-entry.js
+C:\Users\YourName\nowen-note\packages\nowen-mcp\bin\nowen-mcp.mjs
 ```
 
 写进 JSON 时，Windows 反斜杠需要写成双反斜杠：
 
 ```json
-"C:\\Users\\YourName\\nowen-note\\packages\\nowen-mcp\\dist\\scoped-entry.js"
+"C:\\Users\\YourName\\nowen-note\\packages\\nowen-mcp\\bin\\nowen-mcp.mjs"
 ```
 
 #### macOS / Linux / WSL
@@ -148,6 +150,8 @@ realpath ./bin/nowen-mcp.mjs
 ```text
 /home/yourname/nowen-note/packages/nowen-mcp/bin/nowen-mcp.mjs
 ```
+
+Linux、macOS 和 WSL 路径必须以 `/` 开头。`home/yourname/...` 是相对路径，客户端可能会把它拼接到自身工作目录，导致 Node 在 launcher 执行前就报找不到模块。
 
 然后选择下面对应的客户端配置。
 
@@ -172,7 +176,7 @@ claude mcp add nowen-note --scope user \
 claude mcp add nowen-note --scope user `
   --env NOWEN_URL=http://192.168.1.20:3001 `
   --env NOWEN_API_TOKEN=nkn_xxx `
-  -- node "C:\Users\YourName\nowen-note\packages\nowen-mcp\dist\scoped-entry.js"
+  -- node "C:\Users\YourName\nowen-note\packages\nowen-mcp\bin\nowen-mcp.mjs"
 ```
 
 确认配置：
@@ -222,7 +226,7 @@ Cursor 支持项目级和全局 MCP 配置：
     "nowen-note": {
       "command": "node",
       "args": [
-        "C:\\Users\\YourName\\nowen-note\\packages\\nowen-mcp\\dist\\scoped-entry.js"
+        "C:\\Users\\YourName\\nowen-note\\packages\\nowen-mcp\\bin\\nowen-mcp.mjs"
       ],
       "env": {
         "NOWEN_URL": "http://192.168.1.20:3001",
@@ -284,7 +288,7 @@ VS Code 的顶层字段是 `servers`，不是 Cursor 的 `mcpServers`。
       "type": "stdio",
       "command": "node",
       "args": [
-        "C:\\Users\\YourName\\nowen-note\\packages\\nowen-mcp\\dist\\scoped-entry.js"
+        "C:\\Users\\YourName\\nowen-note\\packages\\nowen-mcp\\bin\\nowen-mcp.mjs"
       ],
       "env": {
         "NOWEN_URL": "http://192.168.1.20:3001",
@@ -333,6 +337,7 @@ MCP: List Servers
 注意：
 
 - 必须使用绝对路径。
+- Linux、macOS 和 WSL 的绝对路径必须以 `/` 开头，不能写成 `home/user/...`。
 - Windows JSON 路径中的 `\` 必须转义为 `\\`。
 - 当前 Claude Desktop 更推荐通过 Settings → Extensions 安装 DXT 扩展；Nowen Note 目前仍以源码 stdio Server 为正式可用方式。使用 Claude Desktop 的本地开发者 MCP 配置时，请以客户端当前版本提供的入口为准。
 - Claude.ai / Claude Desktop 的远程 Connector 不能直接连接这个本地 stdio 脚本；远程 MCP 需要单独的 HTTP 传输和认证实现。
@@ -343,7 +348,7 @@ MCP: List Servers
 
 ## MCP 启动诊断
 
-客户端应运行 `bin/nowen-mcp.mjs`。该启动器与 `dist` 解耦，即使构建入口缺失，也能向 stderr 输出可操作的错误码、绝对入口路径、当前工作目录、Node.js 版本和修复建议。
+客户端应运行 `bin/nowen-mcp.mjs`，由它通过自身路径定位并加载内部的 `dist/scoped-entry.js`。即使构建入口缺失，启动器也能向 stderr 输出可操作的错误码、绝对入口路径、当前工作目录、Node.js 版本和修复建议。
 
 所有普通诊断只写 stderr，stdout 始终保留给 MCP stdio 协议。长会话偶发退出时，可临时增加：
 
@@ -441,7 +446,7 @@ restricted Token 即使被绕过 MCP 直接调用 REST API，也不能访问未�
   "mcpServers": {
     "nowen-note": {
       "command": "node",
-      "args": ["/absolute/path/to/bin/nowen-mcp.mjs"],
+      "args": ["/absolute/path/to/nowen-note/packages/nowen-mcp/bin/nowen-mcp.mjs"],
       "env": {
         "NOWEN_URL": "http://192.168.1.20:3001",
         "NOWEN_API_TOKEN": "nkn_xxx"
@@ -458,7 +463,7 @@ restricted Token 即使被绕过 MCP 直接调用 REST API，也不能访问未�
   "mcpServers": {
     "nowen-note": {
       "command": "node",
-      "args": ["/absolute/path/to/bin/nowen-mcp.mjs"],
+      "args": ["/absolute/path/to/nowen-note/packages/nowen-mcp/bin/nowen-mcp.mjs"],
       "env": {
         "NOWEN_URL": "http://192.168.1.20:3001",
         "NOWEN_API_TOKEN": "nkn_xxx",
@@ -617,7 +622,7 @@ MCP_INCLUDE_DESCENDANTS=true
 直接执行：
 
 ```bash
-node /absolute/path/to/bin/nowen-mcp.mjs
+node /absolute/path/to/nowen-note/packages/nowen-mcp/bin/nowen-mcp.mjs
 ```
 
 stdio MCP Server 正常情况下会等待客户端输入，可能没有任何提示并保持运行。这说明脚本至少能够启动；按 `Ctrl+C` 退出即可。
@@ -638,3 +643,18 @@ stdio MCP Server 正常情况下会等待客户端输入，可能没有任何提
 - [OpenAPI 接入指南](./api.md)
 - [SDK 使用教程](./sdk.md)
 - [CLI 使用教程](./cli.md)
+
+## 通过 MCP 管理个人任务（v1.5.1）
+
+新的个人任务工具可使用长期访问令牌：
+
+- `tasks:read`：`nowen_list_tasks`、`nowen_get_task`、`nowen_get_task_summary`。
+- `tasks:write`：`nowen_create_task`、`nowen_complete_task`。
+- 推荐为外部 Agent 单独创建令牌，选择「限定笔记本」模式也能访问**本人个人任务**；任务授权与笔记本白名单相互独立。
+- 当前令牌无法通过任务 API 访问共享工作区，且明确禁止批量操作、跨工作区移动与删除操作。
+- MCP 的写入工具应由客户端获取用户确认；服务端继续执行令牌 Scope 与任务归属检查。
+
+例如问 Agent：“列出今天的个人待办，并统计逾期任务。”确认授权后，工具会查询 Nowen Note 服务端的真实任务数据。
+
+早晚计划 / 任务到点 Webhook：在「设置 → 自动化 → 每日任务简报」配置时间、时区并绑定 HTTPS URL，具体参见 [Task Digest 示例插件](../../examples/plugins/task-digest/README.md)。
+

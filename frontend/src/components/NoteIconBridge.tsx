@@ -34,6 +34,7 @@ type SnapshotNote = {
   id: string;
   title: string;
   isLocked?: number;
+  isTrashed?: number;
 };
 
 type NoteSnapshot = {
@@ -58,6 +59,7 @@ function captureSnapshot(rows: unknown): void {
       id: typeof row.id === "string" ? row.id : "",
       title: typeof row.title === "string" ? row.title : "",
       isLocked: typeof row.isLocked === "number" ? row.isLocked : undefined,
+      isTrashed: typeof row.isTrashed === "number" ? row.isTrashed : undefined,
     }))
     .filter((note) => note.id);
   if (notes.length === 0) return;
@@ -287,6 +289,15 @@ export default function NoteIconBridge() {
         return;
       }
 
+      const knownNote = resolveKnownNote(menuState.targetId);
+      if (knownNote?.isTrashed === 1) {
+        menuRoot.querySelector<HTMLElement>("[data-nowen-note-icon-menu-host]")?.remove();
+        setMenuHost(null);
+        setMenuNoteId(null);
+        setMenuLocked(false);
+        return;
+      }
+
       let host = menuRoot.querySelector<HTMLElement>("[data-nowen-note-icon-menu-host]");
       if (!host) {
         host = document.createElement("div");
@@ -296,7 +307,6 @@ export default function NoteIconBridge() {
         else menuRoot.prepend(host);
       }
 
-      const knownNote = resolveKnownNote(menuState.targetId);
       setMenuHost(host);
       setMenuNoteId(menuState.targetId);
       setMenuLocked(knownNote?.isLocked === 1);

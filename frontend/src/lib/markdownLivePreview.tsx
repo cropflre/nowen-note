@@ -3,6 +3,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { syntaxTree } from "@codemirror/language";
 import {
   EditorState,
+  Facet,
   RangeSetBuilder,
   StateField,
   type Extension,
@@ -14,6 +15,8 @@ import {
   type DecorationSet,
 } from "@codemirror/view";
 import { MarkdownPreview } from "@/components/MarkdownPreview";
+import { markdownFencedCodeLiveEditingExtension } from "@/lib/markdownFenceAuthoring";
+import { formatMarkdownCodeBlock } from "@/lib/markdownCodeBlockFormatting";
 import {
   applyMarkdownTaskCheckboxChange,
   getMarkdownTaskCheckboxChange,
@@ -22,6 +25,9 @@ import {
 const BLOCK_NODE_RE = /^(?:ATXHeading[1-6]|SetextHeading[12]|Paragraph|Blockquote|BulletList|OrderedList|FencedCode|CodeBlock|HorizontalRule|HTMLBlock|Table)$/;
 const STANDALONE_IAL_RE = /^\s*\{:\s*[\s\S]*\}\s*$/;
 const roots = new WeakMap<HTMLElement, Root>();
+export const markdownLivePreviewNoteId = Facet.define<string | null, string | null>({
+  combine: (values) => values[0] || null,
+});
 
 export interface MarkdownLivePreviewBlock {
   from: number;
@@ -59,17 +65,11 @@ function expandSemanticTail(
     if (!next) break;
     const text = next.text;
 
-    // SiYuan block IAL rows belong to the preceding semantic block. Parsing them
-    // as a separate live-preview paragraph is one of the reasons imported
-    // callouts/tables differed from the complete-document preview.
     if (STANDALONE_IAL_RE.test(text)) {
       to = next.to;
       continue;
     }
 
-    // CodeMirror may expose nested/continued blockquote lines as siblings. Keep
-    // the whole quote together so a GFM alert marker and its body are parsed by
-    // one ReactMarkdown instance.
     if (quoteBlock && /^\s*>/.test(text)) {
       to = next.to;
       continue;
@@ -122,18 +122,17 @@ function mergeSemanticRanges(
 }
 
 /**
- * Collect top-level semantic blocks that do not intersect the current selection.
+ * Collect top-level semantic blocks that do not intersect any current selection.
  *
- * Live preview and full preview both render through MarkdownPreview. The important
- * invariant is therefore the input boundary: quote/callout continuations and
- * SiYuan IAL rows must reach the renderer as one block instead of several isolated
- * Markdown fragments.
+ * Every active cursor must keep its source block visible. Otherwise a secondary cursor in Live
+ * mode can end up inside a Decoration.replace widget owned by another selection, which makes
+ * multi-cursor editing appear to lose a caret.
  */
 export function collectMarkdownLivePreviewBlocks(
   source: EditorView | EditorState,
 ): MarkdownLivePreviewBlock[] {
   const state = getEditorState(source);
-  const selection = state.selection.main;
+  const selections = state.selection.ranges;
   const cursor = syntaxTree(state).cursor();
   const candidates: Array<{ from: number; to: number }> = [];
   const seen = new Set<string>();
@@ -150,11 +149,21 @@ export function collectMarkdownLivePreviewBlocks(
   } while (cursor.nextSibling());
 
   return mergeSemanticRanges(state, candidates)
-    .filter((range) => !(selection.from <= range.to && selection.to >= range.from))
+    .filter((range) => !selections.some(
+      (selection) => selection.from <= range.to && selection.to >= range.from,
+    ))
     .map((range) => ({
       ...range,
       markdown: state.doc.sliceString(range.from, range.to),
     }));
+}
+
+export function markdownLivePreviewEditAnchor(markdown: string, from: number): number {
+  const lineBreak = markdown.indexOf("\n");
+  if (lineBreak < 0) return from;
+  const firstLine = markdown.slice(0, lineBreak);
+  if (!/^\s{0,3}(?:(?:>\s*)*)(?:`{3,}|~{3,})/.test(firstLine)) return from;
+  return from + lineBreak + 1;
 }
 
 class MarkdownLivePreviewWidget extends WidgetType {
@@ -162,12 +171,14 @@ class MarkdownLivePreviewWidget extends WidgetType {
     readonly markdown: string,
     readonly from: number,
     readonly to: number,
+    readonly formattingEnabled: boolean,
+    readonly noteId: string | null,
   ) {
     super();
   }
 
   eq(other: MarkdownLivePreviewWidget): boolean {
-    return this.markdown === other.markdown && this.from === other.from && this.to === other.to;
+    return this.markdown === other.markdown && this.from === other.from && this.to === other.to && this.formattingEnabled === other.formattingEnabled && this.noteId === other.noteId;
   }
 
   toDOM(view: EditorView): HTMLElement {
@@ -180,9 +191,10 @@ class MarkdownLivePreviewWidget extends WidgetType {
       const target = event.target as HTMLElement | null;
       if (target?.closest("input, button, a, video, audio, iframe")) return;
       event.preventDefault();
+      const anchor = markdownLivePreviewEditAnchor(this.markdown, this.from);
       view.dispatch({
-        selection: { anchor: this.from },
-        effects: EditorView.scrollIntoView(this.from, { y: "center" }),
+        selection: { anchor },
+        effects: EditorView.scrollIntoView(anchor, { y: "center" }),
       });
       view.focus();
     });
@@ -192,8 +204,16 @@ class MarkdownLivePreviewWidget extends WidgetType {
     root.render(
       <MarkdownPreview
         markdown={this.markdown}
+        noteId={this.noteId || undefined}
         compact
         className="cm-live-preview-render !h-auto !overflow-visible !p-0"
+        onFormatCodeBlock={this.formattingEnabled ? (source, offset) => formatMarkdownCodeBlock(view, source, offset, this.from) : undefined}
+        onInsertVoiceTranscript={this.formattingEnabled ? (text) => {
+          if (!view.state.facet(EditorView.editable) || view.state.facet(EditorState.readOnly)) return;
+          const selection = view.state.selection.main;
+          view.dispatch({ changes: { from: selection.from, to: selection.to, insert: text }, selection: { anchor: selection.from + text.length } });
+          view.focus();
+        } : undefined}
         onTaskCheckboxChange={(taskIndex, checked) => {
           const change = getMarkdownTaskCheckboxChange(this.markdown, taskIndex, checked);
           if (!change) return;
@@ -219,8 +239,6 @@ class MarkdownLivePreviewWidget extends WidgetType {
 }
 
 function buildDecorations(state: EditorState): DecorationSet {
-  // Large documents stay responsive because CodeMirror's syntax tree is incremental;
-  // this hard ceiling prevents thousands of React roots on pathological imports.
   if (state.doc.length > 350_000) return Decoration.none;
 
   const builder = new RangeSetBuilder<Decoration>();
@@ -229,7 +247,7 @@ function buildDecorations(state: EditorState): DecorationSet {
       block.from,
       block.to,
       Decoration.replace({
-        widget: new MarkdownLivePreviewWidget(block.markdown, block.from, block.to),
+        widget: new MarkdownLivePreviewWidget(block.markdown, block.from, block.to, state.facet(EditorView.editable) && !state.facet(EditorState.readOnly), state.facet(markdownLivePreviewNoteId)),
         block: true,
       }),
     );
@@ -243,7 +261,7 @@ const livePreviewDecorations = StateField.define<DecorationSet>({
   },
   update(value, transaction) {
     const selectionChanged = !transaction.startState.selection.eq(transaction.state.selection);
-    return transaction.docChanged || selectionChanged ? buildDecorations(transaction.state) : value;
+    return transaction.docChanged || transaction.reconfigured || selectionChanged ? buildDecorations(transaction.state) : value;
   },
   provide(field) {
     return EditorView.decorations.from(field);
@@ -269,4 +287,8 @@ const livePreviewTheme = EditorView.theme({
   ".cm-live-preview-block .cm-live-preview-render > :last-child": { marginBottom: "0" },
 });
 
-export const markdownLivePreviewExtension: Extension = [livePreviewDecorations, livePreviewTheme];
+export const markdownLivePreviewExtension: Extension = [
+  livePreviewDecorations,
+  livePreviewTheme,
+  markdownFencedCodeLiveEditingExtension,
+];

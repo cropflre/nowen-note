@@ -1,16 +1,21 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
+  BrainCircuit,
   Columns2,
   FileText,
+  Table2,
   Loader2,
   Maximize2,
   Minimize2,
   Search as SearchIcon,
+  Puzzle,
   X,
 } from "lucide-react";
 import { useApp, useAppActions } from "@/store/AppContext";
 import { api } from "@/lib/api";
+import { pushMindMapAppPath } from "@/lib/mindMapDeepLink";
+import { pushSheetAppPath } from "@/lib/sheetDeepLink";
 import { highlightTextNode, sanitizeSearchHtml } from "@/lib/searchHighlight";
 import {
   detectShortcutPlatform,
@@ -22,6 +27,7 @@ import {
 import type { SearchResult } from "@/types";
 import SearchCenter from "@/components/SearchCenter";
 import MobileDrawerUxBridge from "@/components/MobileDrawerUxBridge";
+import { pluginApi } from "@/lib/pluginApi";
 
 export interface CommandPaletteProps {
   open: boolean;
@@ -54,6 +60,7 @@ export default function CommandPalette({ open, onClose }: CommandPaletteProps) {
   const [results, setResults] = useState<SearchResult[]>([]);
   const [loading, setLoading] = useState(false);
   const [activeIdx, setActiveIdx] = useState(0);
+  const [pluginContributions, setPluginContributions] = useState<Array<{ pluginId: string; commands?: Array<{ id: string; title: string; action: string; category?: string }>; menus?: Array<{ location: string; command: string }> }>>([]);
 
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
@@ -106,7 +113,15 @@ export default function CommandPalette({ open, onClose }: CommandPaletteProps) {
       });
     }
 
-    return commands.map((command) => {
+    const declared = pluginContributions.flatMap((contribution) => {
+      const paletteIds = new Set((contribution.menus || []).filter((menu) => menu.location === "commandPalette").map((menu) => menu.command));
+      return (contribution.commands || []).filter((command) => paletteIds.has(command.id)).map((command): WorkspaceCommand => ({
+        id: command.id, label: command.title, description: command.category ? `插件 · ${command.category}` : `插件 · ${contribution.pluginId}`,
+        keywords: ["插件", contribution.pluginId, command.category || ""], icon: <Puzzle size={16} />,
+        run: () => { void pluginApi.execute(contribution.pluginId, command.action, state.activeNote ? { noteId: state.activeNote.id } : {}).catch((error) => window.alert(error instanceof Error ? error.message : String(error))); },
+      }));
+    });
+    return [...commands, ...declared].map((command) => {
       const shortcut = formatShortcutForCommand(command.id, shortcutPlatform, shortcutSurface);
       return shortcut ? { ...command, shortcut } : command;
     });
@@ -115,6 +130,7 @@ export default function CommandPalette({ open, onClose }: CommandPaletteProps) {
     state.activeNote,
     state.editorFullscreen,
     state.editorSplit,
+    pluginContributions,
     shortcutPlatform,
     shortcutSurface,
   ]);
@@ -139,6 +155,7 @@ export default function CommandPalette({ open, onClose }: CommandPaletteProps) {
     setResults([]);
     setActiveIdx(0);
     requestAnimationFrame(() => inputRef.current?.focus());
+    void pluginApi.contributions().then((rows) => setPluginContributions(rows as typeof pluginContributions)).catch(() => setPluginContributions([]));
   }, [open]);
 
   useEffect(() => {
@@ -199,9 +216,21 @@ export default function CommandPalette({ open, onClose }: CommandPaletteProps) {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [onClose, open, shortcutPlatform, shortcutSurface]);
 
-  const jumpTo = useCallback(async (id: string) => {
+  const jumpTo = useCallback(async (result: SearchResult) => {
     try {
-      const note = await api.getNote(id);
+      if (result.resourceType === "sheet") {
+        actions.setSearchQuery("");
+        actions.setMobileSidebar(false);
+        pushSheetAppPath(result.id);
+        return;
+      }
+      if (result.resourceType === "mindmap") {
+        actions.setSearchQuery("");
+        actions.setMobileSidebar(false);
+        pushMindMapAppPath(result.id);
+        return;
+      }
+      const note = await api.getNote(result.id);
       if (note) {
         actions.setActiveNote(note);
         actions.setSelectedNotebook(note.notebookId || null);
@@ -210,7 +239,7 @@ export default function CommandPalette({ open, onClose }: CommandPaletteProps) {
         actions.setMobileSidebar(false);
       }
     } catch (error) {
-      console.error("[CommandPalette] open note failed:", error);
+      console.error("[CommandPalette] open search result failed:", error);
     } finally {
       onClose();
     }
@@ -237,7 +266,7 @@ export default function CommandPalette({ open, onClose }: CommandPaletteProps) {
     } else if (event.key === "Enter") {
       event.preventDefault();
       const result = results[activeIdx];
-      if (result) void jumpTo(result.id);
+      if (result) void jumpTo(result);
     }
   }, [activeIdx, commandOnly, jumpTo, results, runCommand, visibleCommands]);
 
@@ -272,7 +301,7 @@ export default function CommandPalette({ open, onClose }: CommandPaletteProps) {
               value={query}
               onChange={(event) => setQuery(event.target.value)}
               onKeyDown={onInputKeyDown}
-              placeholder="搜索笔记，或输入 > 执行命令…"
+              placeholder="搜索笔记、脑图、表格，或输入 > 执行命令…"
               className="flex-1 bg-transparent text-sm text-tx-primary outline-none placeholder:text-tx-tertiary"
               autoComplete="off"
               spellCheck={false}
@@ -315,19 +344,19 @@ export default function CommandPalette({ open, onClose }: CommandPaletteProps) {
 
             {!commandOnly && results.length > 0 && (
               <div className="mt-1 border-t border-app-border px-4 pb-1 pt-2 text-[10px] font-medium uppercase tracking-wide text-tx-tertiary">
-                笔记搜索结果
+                知识搜索结果
               </div>
             )}
 
             {showEmptySearch && visibleCommands.length === 0 && (
               <div className="px-4 py-6 text-center text-sm text-tx-tertiary">
-                未找到与 &ldquo;{query}&rdquo; 匹配的笔记或命令
+                未找到与 &ldquo;{query}&rdquo; 匹配的知识内容或命令
               </div>
             )}
 
             {!normalizedQuery && (
               <div className="border-t border-app-border px-4 py-3 text-center text-xs text-tx-tertiary">
-                输入关键词搜索笔记；输入 &gt; 只筛选命令
+                输入关键词搜索笔记、脑图和表格；输入 &gt; 只筛选命令
               </div>
             )}
 
@@ -340,13 +369,17 @@ export default function CommandPalette({ open, onClose }: CommandPaletteProps) {
                   data-idx={index}
                   type="button"
                   onMouseEnter={() => setActiveIdx(index)}
-                  onClick={() => void jumpTo(result.id)}
+                  onClick={() => void jumpTo(result)}
                   className={[
                     "flex w-full items-start gap-3 px-4 py-2 text-left transition-colors",
                     active ? "bg-app-hover" : "hover:bg-app-hover/60",
                   ].join(" ")}
                 >
-                  <FileText size={16} className="mt-0.5 shrink-0 text-tx-tertiary" />
+                  {result.resourceType === "mindmap"
+                    ? <BrainCircuit size={16} className="mt-0.5 shrink-0 text-tx-tertiary" />
+                    : result.resourceType === "sheet"
+                      ? <Table2 size={16} className="mt-0.5 shrink-0 text-tx-tertiary" />
+                      : <FileText size={16} className="mt-0.5 shrink-0 text-tx-tertiary" />}
                   <div className="min-w-0 flex-1">
                     <div className="search-result-html truncate text-sm text-tx-primary">
                       {result.titleHtml ? (

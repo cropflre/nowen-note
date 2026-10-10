@@ -113,17 +113,32 @@
     transform: translateY(-1px);
   }
 
-  /* Markdown 默认模式：作为横跨两列的主设置。 */
+  /* 多选设置横跨两列，避免按钮挤压标题和说明。 */
   [data-swipe-blocker="settings-modal"]
     div[class*="divide-y"][class*="overflow-hidden"]:has(
       > label > input[type="checkbox"].accent-indigo-600
     )
-    > div:first-child {
+    > div[data-settings-choice] {
     --settings-item-tone: 139 92 246;
     --settings-item-icon: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%222%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M14.5%202H6a2%202%200%200%200-2%202v16a2%202%200%200%200%202%202h12a2%202%200%200%200%202-2V7.5z%22%2F%3E%3Cpath%20d%3D%22M14%202v6h6%22%2F%3E%3Cpath%20d%3D%22m10%2013-2%202%202%202%22%2F%3E%3Cpath%20d%3D%22m14%2017%202-2-2-2%22%2F%3E%3C%2Fsvg%3E");
     grid-column: 1 / -1;
+    flex-wrap: wrap;
     min-height: 76px;
     padding: 14px 16px !important;
+  }
+
+  [data-swipe-blocker="settings-modal"]
+    div[data-settings-choice]
+    > div:first-child {
+    flex: 1 1 240px;
+  }
+
+  [data-swipe-blocker="settings-modal"]
+    div[data-settings-choice]
+    > div:last-child {
+    order: 2;
+    max-width: 100%;
+    flex-wrap: wrap;
   }
 
   [data-swipe-blocker="settings-modal"]
@@ -157,7 +172,7 @@
     div[class*="divide-y"][class*="overflow-hidden"]:has(
       > label > input[type="checkbox"].accent-indigo-600
     )
-    > div:first-child
+    > div[data-settings-choice]
     > div:first-child {
     position: relative;
     order: 1;
@@ -175,7 +190,7 @@
     div[class*="divide-y"][class*="overflow-hidden"]:has(
       > label > input[type="checkbox"].accent-indigo-600
     )
-    > div:first-child
+    > div[data-settings-choice]
     > div:first-child::before {
     content: "";
     position: absolute;
@@ -199,7 +214,7 @@
     div[class*="divide-y"][class*="overflow-hidden"]:has(
       > label > input[type="checkbox"].accent-indigo-600
     )
-    > div:first-child
+    > div[data-settings-choice]
     > div:first-child::after {
     content: "";
     position: absolute;
@@ -301,7 +316,7 @@
     div[class*="divide-y"][class*="overflow-hidden"]:has(
       > label > input[type="checkbox"].accent-indigo-600
     )
-    > div:first-child
+    > div[data-settings-choice]
     > div:first-child
     > div:first-child {
     font-size: 13px !important;
@@ -323,7 +338,7 @@
     div[class*="divide-y"][class*="overflow-hidden"]:has(
       > label > input[type="checkbox"].accent-indigo-600
     )
-    > div:first-child
+    > div[data-settings-choice]
     > div:last-child {
     padding: 4px !important;
     border: 1px solid color-mix(in srgb, var(--color-border) 72%, transparent);
@@ -335,9 +350,10 @@
     div[class*="divide-y"][class*="overflow-hidden"]:has(
       > label > input[type="checkbox"].accent-indigo-600
     )
-    > div:first-child
+    > div[data-settings-choice]
     > div:last-child
     button {
+    flex: 1 0 auto;
     min-height: 30px;
     border-radius: 7px !important;
   }
@@ -355,16 +371,23 @@
       div[class*="divide-y"][class*="overflow-hidden"]:has(
         > label > input[type="checkbox"].accent-indigo-600
       )
-      > div:first-child {
+      > div[data-settings-choice] {
       grid-column: auto;
+      flex-direction: column;
       align-items: stretch !important;
+    }
+
+    [data-swipe-blocker="settings-modal"]
+      div[data-settings-choice]
+      > div:first-child {
+      flex-basis: auto;
     }
 
     [data-swipe-blocker="settings-modal"]
       div[class*="divide-y"][class*="overflow-hidden"]:has(
         > label > input[type="checkbox"].accent-indigo-600
       )
-      > div:first-child
+      > div[data-settings-choice]
       > div:last-child {
       width: 100%;
     }

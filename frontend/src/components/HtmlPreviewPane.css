@@ -1,0 +1,60 @@
+/* HTML fragment previews may contain WeChat inline width/nowrap styles. Keep the
+ * imported markup intact; constrain only the read-only presentation layer.
+ * Full-page clones render in a separate iframe and are intentionally unaffected.
+ */
+.html-preview-content {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+.html-preview-content :where(*) {
+  box-sizing: border-box;
+}
+
+/* The imported source URL is often one long unbroken mp.weixin.qq.com link. */
+.html-preview-content :where(a) {
+  overflow-wrap: anywhere !important;
+  word-break: break-word;
+}
+
+/* Preserve aspect ratio and original decorative styling, not fixed desktop sizes. */
+.html-preview-content :where(img, picture, video, canvas, svg) {
+  max-width: 100% !important;
+}
+
+.html-preview-content :where(img, video, canvas) {
+  height: auto !important;
+}
+
+/* Wide data/code should scroll inside its own element, never move the note page. */
+.html-preview-content :where(table, pre) {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+@media (max-width: 639px) {
+  /* These tags frequently inherit fixed widths/min-width from WeChat templates. */
+  .html-preview-content :where(div, section, article, p, blockquote, figure, figcaption, ul, ol, li) {
+    min-width: 0 !important;
+    max-width: 100% !important;
+  }
+
+  /* A section/span can carry white-space:nowrap and keep an entire paragraph on
+   * one line. Reset that presentation-only restriction for phone reading. */
+  .html-preview-content :where(div, section, article, p, blockquote, figure, figcaption, ul, ol, li, span, a, strong, em, b, i) {
+    white-space: normal !important;
+    overflow-wrap: anywhere !important;
+    word-break: break-word !important;
+  }
+
+  /* Keep programming examples verbatim; the pre element scrolls independently. */
+  .html-preview-content :where(pre, pre *, code, code *) {
+    white-space: pre !important;
+    overflow-wrap: normal !important;
+    word-break: normal !important;
+  }
+}

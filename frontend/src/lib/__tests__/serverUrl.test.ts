@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   buildServerUrl,
   inferBrowserServerBaseUrl,
+  isLanServerHostname,
   isLoopbackServerHostname,
   isValidServerUrl,
   normalizeServerBaseUrl,
@@ -217,6 +218,41 @@ describe("API endpoint construction", () => {
 });
 
 describe("inferBrowserServerBaseUrl", () => {
+  it.each([
+    ["/notes/9d38f1e8-1d49-4327-b576-3decdeae51da", ""],
+    ["/notes/onboarding-v1-welcome/", ""],
+    ["/notes/%E7%AC%94%E8%AE%B0", ""],
+    ["/mindmaps/demo", ""],
+    ["/sheets/demo", ""],
+    ["/trash", ""],
+    ["/nowen/notes/demo", "https://notes.example.com/nowen"],
+    ["/nowen/mindmaps/demo", "https://notes.example.com/nowen"],
+    ["/nowen/sheets/demo", "https://notes.example.com/nowen"],
+    ["/nowen/trash/", "https://notes.example.com/nowen"],
+    ["/user:3001/notes/demo", "https://notes.example.com/user:3001"],
+  ])("应用路由 %s 不会混入服务器部署前缀", (pathname, expected) => {
+    expect(inferBrowserServerBaseUrl({
+      protocol: "https:",
+      origin: "https://notes.example.com",
+      pathname,
+    })).toBe(expected);
+  });
+
+  it.each([
+    ["/issues", ""],
+    ["/issues/", ""],
+    ["/issues/04d9d743-2888-4f08-a71f-4463e1d825ac", ""],
+    ["/nowen/issues", "https://notes.example.com/nowen"],
+    ["/nowen/issues/demo-issue/", "https://notes.example.com/nowen"],
+    ["/user:3001/issues/demo-issue", "https://notes.example.com/user:3001"],
+  ])("议题路由 %s 不会混入 API 服务器前缀", (pathname, expected) => {
+    expect(inferBrowserServerBaseUrl({
+      protocol: "https:",
+      origin: "https://notes.example.com",
+      pathname,
+    })).toBe(expected);
+  });
+
   it("不会把公共空间路由误判为服务器路径前缀", () => {
     expect(inferBrowserServerBaseUrl({
       protocol: "https:",
@@ -296,5 +332,17 @@ describe("IPv6 server URL support", () => {
     expect(isLoopbackServerHostname("::1")).toBe(true);
     expect(isLoopbackServerHostname("[::1]")).toBe(true);
     expect(isLoopbackServerHostname(ipv6)).toBe(false);
+  });
+
+  it("distinguishes LAN hosts from public server addresses", () => {
+    expect(isLanServerHostname("127.0.0.1")).toBe(true);
+    expect(isLanServerHostname("192.168.1.20")).toBe(true);
+    expect(isLanServerHostname("172.20.0.5")).toBe(true);
+    expect(isLanServerHostname("nas.local")).toBe(true);
+    expect(isLanServerHostname("nowen-note")).toBe(true);
+    expect(isLanServerHostname("[fd12:3456::1]")).toBe(true);
+    expect(isLanServerHostname("note.nowen.cn")).toBe(false);
+    expect(isLanServerHostname("8.8.8.8")).toBe(false);
+    expect(isLanServerHostname("240e:1234::1")).toBe(false);
   });
 });

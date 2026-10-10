@@ -6,6 +6,8 @@ export interface NowenClipperConfig {
   /** 登录用户稳定 id，用于跨账号隔离最近选择。老配置为空时回退 username。 */
   userId: string;
   token: string;
+  /** 30 天会话刷新凭据；仅用于访问令牌过期后的自动续期。 */
+  refreshToken: string;
   displayName: string;
   defaultNotebook: string;
   defaultTags: string;
@@ -46,6 +48,7 @@ const DEFAULTS: NowenClipperConfig = {
   username: "",
   userId: "",
   token: "",
+  refreshToken: "",
   displayName: "",
   defaultNotebook: "Web 剪藏",
   defaultTags: "",

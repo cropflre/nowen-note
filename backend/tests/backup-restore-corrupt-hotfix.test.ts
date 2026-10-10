@@ -6,6 +6,7 @@ import fs from "node:fs";
 import crypto from "node:crypto";
 import Database from "better-sqlite3";
 import JSZip from "jszip";
+import { loadSqliteVec } from "../src/db/sqlite-vec-extension.js";
 
 const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "nowen-backup-restore-hotfix-"));
 const backupDir = path.join(tmpDir, "backups");
@@ -78,6 +79,7 @@ async function createBackupDb(marker: string) {
   await getDb().backup(backupDbPath);
   const db = new Database(backupDbPath);
   try {
+    assert.equal(loadSqliteVec(db).loaded, true);
     db.prepare("INSERT OR REPLACE INTO system_settings (key, value) VALUES (?, ?)").run(markerKey, marker);
   } finally {
     db.close();
@@ -136,6 +138,24 @@ test.after(() => {
   fs.rmSync(tmpDir, { recursive: true, force: true });
 });
 
+test("db-only snapshot containing vec0 previews and restores without no such module error", async () => {
+  const db = getDb();
+  assert.equal(loadSqliteVec(db).loaded, true);
+  db.exec("CREATE VIRTUAL TABLE vec_note_chunks USING vec0(embedding float[2])");
+  db.prepare("INSERT INTO vec_note_chunks(rowid, embedding) VALUES (?, ?)").run(7n, "[0,1]");
+  const backupFile = await createBackupDb("backup");
+  const filename = path.basename(backupFile);
+  db.prepare("DELETE FROM vec_note_chunks WHERE rowid = ?").run(7);
+
+  const preview = await manager.restoreFromBackup(filename, { dryRun: true });
+  assert.equal(preview.success, true, preview.error);
+  assert.equal(readMarker(), "current");
+  const restored = await manager.restoreFromBackup(filename, { dryRun: false });
+  assert.equal(restored.success, true, restored.error);
+  assert.equal(readMarker(), "backup");
+  assert.equal((getDb().prepare("SELECT COUNT(*) AS c FROM vec_note_chunks").get() as { c: number }).c, 1);
+});
+
 test("corrupt db-only restore does not poison current database", async () => {
   fs.writeFileSync(path.join(backupDir, "broken.bak"), Buffer.from("not a sqlite database"));
 
@@ -170,8 +190,11 @@ test("zip file-stage failure rolls back database and does not update jwt secret"
     const newText = String(newPath);
     if (!simulated && oldText.includes(".nowen-restore-staging") && newText.endsWith(`${path.sep}fonts`)) {
       simulated = true;
-      const err = new Error("simulated fonts restore failure") as NodeJS.ErrnoException;
-      err.code = "EACCES";
+      const err = new Error("simulated unrecoverable fonts restore failure") as NodeJS.ErrnoException;
+      // EACCES/EPERM/EBUSY/EXDEV are intentionally recoverable now: Docker/NAS mount roots
+      // may reject directory rename and should fall back to in-place synchronization.
+      // EIO models a real copy/device failure and must still roll the whole restore back.
+      err.code = "EIO";
       throw err;
     }
     return originalRenameSync(oldPath, newPath);
@@ -181,7 +204,7 @@ test("zip file-stage failure rolls back database and does not update jwt secret"
     const result = await manager.restoreFromBackup("file-stage-fails.zip", { dryRun: false });
 
     assert.equal(result.success, false);
-    assert.match(result.error || "", /已自动回滚|文件目录|fonts|simulated fonts restore failure/);
+    assert.match(result.error || "", /已自动回滚|文件目录|fonts|simulated unrecoverable fonts restore failure/);
     assertNoWalShm();
     assert.equal(readMarker(), "current");
     assert.equal(fs.readFileSync(path.join(tmpDir, ".jwt_secret"), "utf-8"), "old-secret");

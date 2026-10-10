@@ -23,10 +23,11 @@ describe("mobile knowledge tree mode switch contract", () => {
   it("keeps browser and Android tree mode visibly compact", () => {
     expect(compactCssSource).toMatch(/--nowen-mobile-tree-root-folder-row-height:\s*\d+px/);
     expect(compactCssSource).toMatch(/--nowen-mobile-tree-folder-row-height:\s*\d+px/);
-    expect(compactCssSource).toContain("--nowen-mobile-tree-note-row-height: 16px");
+    expect(compactCssSource).toContain("--nowen-mobile-tree-note-row-height: 28px");
     expect(compactCssSource).toMatch(/\[data-knowledge-tree-node-id\]\s*\{[\s\S]*min-height:\s*var\(--nowen-mobile-tree-note-row-height\)\s*!important/);
     expect(compactCssSource).toContain("font-size: 11px !important");
     expect(compactCssSource).toContain("touch-action: manipulation");
+    expect(compactCssSource).toContain("--nowen-mobile-tree-action-width: 30px");
   });
 
   it("exposes one clear tree-mode switch in Settings", () => {
@@ -55,5 +56,15 @@ describe("mobile knowledge tree mode switch contract", () => {
     expect(bridgeMount).toBeGreaterThan(providerStart);
     expect(bridgeMount).toBeLessThan(providerEnd);
     expect(mainSource).not.toContain("<SidebarSearchExperienceBridge />");
+  });
+
+  it("keeps mobile Markdown body editing on one keyboard-sized scroll surface", () => {
+    expect(bridgeSource).toContain("MOBILE_MARKDOWN_KEYBOARD_LAYOUT_CSS");
+    expect(bridgeSource).toContain('[data-markdown-body-focused]');
+    expect(bridgeSource).toContain("padding-bottom: 0 !important");
+    expect(bridgeSource).toContain("overflow: hidden !important");
+    expect(bridgeSource).toContain(".nowen-md-editor .cm-scroller");
+    expect(bridgeSource).toContain("getFocusedMobileMarkdownRoot");
+    expect(bridgeSource).toContain('data-mobile-markdown-keyboard-layout');
   });
 });

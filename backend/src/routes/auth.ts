@@ -307,6 +307,94 @@ auth.post("/register", async (c) => {
   return c.json({ ...tokens, user }, 201);
 });
 
+function issueDesktopLocalAuth(c: Context, userId: string) {
+  const db = getDb();
+  const user = db
+    .prepare(
+      `SELECT id, username, email, avatarUrl, displayName, role, isDemo,
+              personalExportEnabled, personalImportEnabled, tokenVersion, createdAt
+       FROM users WHERE id = ?`,
+    )
+    .get(userId) as any;
+
+  const sessionId = createSession({
+    userId,
+    ip: extractClientIp(c),
+    userAgent: c.req.header("user-agent") || "Nowen Desktop",
+  });
+  const tokens = issueLoginTokens({
+    userId,
+    username: user.username,
+    tokenVersion: user.tokenVersion ?? 0,
+    sessionId,
+  });
+
+  user.personalExportEnabled = user.personalExportEnabled === undefined
+    ? true
+    : user.personalExportEnabled !== 0;
+  user.personalImportEnabled = user.personalImportEnabled === undefined
+    ? true
+    : user.personalImportEnabled !== 0;
+
+  return c.json({ ...tokens, user });
+}
+
+// Startup may create the managed account, but must never repair an existing one
+// by overwriting its password, role, disabled state, or token version.
+auth.post("/desktop/bootstrap-local", async (c) => {
+  if (!verifyDesktopLocalSecret(c)) {
+    return c.json({ error: "forbidden" }, 403);
+  }
+
+  const password = process.env.ELECTRON_LOCAL_ACCOUNT_SECRET!;
+  const db = getDb();
+  const existing = db.prepare(`
+    SELECT id, role, isDisabled, mustChangePassword, twoFactorSecret, passwordHash
+    FROM users WHERE username = 'desktop'
+  `).get() as {
+    id: string;
+    role: string;
+    isDisabled: number;
+    mustChangePassword: number;
+    twoFactorSecret: string | null;
+    passwordHash: string;
+  } | undefined;
+
+  if (existing) {
+    if (existing.isDisabled) return c.json({ code: "LOCAL_ACCOUNT_DISABLED" }, 403);
+    if (checkAccountLock(db, existing.id)) return c.json({ code: "ACCOUNT_LOCKED" }, 423);
+    if (
+      existing.role !== "admin"
+      || existing.mustChangePassword
+      || existing.twoFactorSecret
+      || !verifyPasswordCompat(password, existing.passwordHash)
+    ) {
+      return c.json({ code: "LOCAL_ACCOUNT_REQUIRES_MANUAL_LOGIN" }, 409);
+    }
+    resetLoginFailure(db, existing.id);
+    db.prepare("UPDATE users SET lastLoginAt = datetime('now') WHERE id = ?").run(existing.id);
+    return issueDesktopLocalAuth(c, existing.id);
+  }
+
+  // An existing data directory without a desktop account may belong to a
+  // renamed/older user. Only the Electron first-database startup may create it.
+  if (c.req.header("X-Nowen-Desktop-Allow-Create") !== "1") {
+    return c.json({ code: "LOCAL_ACCOUNT_NOT_FOUND" }, 409);
+  }
+
+  const userId = uuid();
+  const passwordHash = await bcrypt.hash(password, 10);
+  // Recheck after hashing; an account created in the meantime must not be changed.
+  if (db.prepare("SELECT id FROM users WHERE username = 'desktop'").get()) {
+    return c.json({ code: "LOCAL_ACCOUNT_REQUIRES_MANUAL_LOGIN" }, 409);
+  }
+  db.prepare(`
+    INSERT INTO users (id, username, email, passwordHash, role, displayName)
+    VALUES (?, 'desktop', 'desktop@nowen-note.local', ?, 'admin', 'Local Desktop User')
+  `).run(userId, passwordHash);
+  return issueDesktopLocalAuth(c, userId);
+});
+
 auth.post("/desktop/reset-local", async (c) => {
   if (!verifyDesktopLocalSecret(c)) {
     return c.json({ error: "forbidden" }, 403);
@@ -347,34 +435,7 @@ auth.post("/desktop/reset-local", async (c) => {
   resetLoginFailure(db, userId);
   db.prepare("UPDATE users SET lastLoginAt = datetime('now') WHERE id = ?").run(userId);
 
-  const user = db
-    .prepare(
-      `SELECT id, username, email, avatarUrl, displayName, role, isDemo,
-              personalExportEnabled, personalImportEnabled, tokenVersion, createdAt
-       FROM users WHERE id = ?`,
-    )
-    .get(userId) as any;
-
-  const sessionId = createSession({
-    userId,
-    ip: extractClientIp(c),
-    userAgent: c.req.header("user-agent") || "Nowen Desktop",
-  });
-  const tokens = issueLoginTokens({
-    userId,
-    username,
-    tokenVersion: user.tokenVersion ?? 0,
-    sessionId,
-  });
-
-  user.personalExportEnabled = user.personalExportEnabled === undefined
-    ? true
-    : user.personalExportEnabled !== 0;
-  user.personalImportEnabled = user.personalImportEnabled === undefined
-    ? true
-    : user.personalImportEnabled !== 0;
-
-  return c.json({ ...tokens, user });
+  return issueDesktopLocalAuth(c, userId);
 });
 
 auth.post("/desktop/attachment-open-metadata", async (c) => {
@@ -592,6 +653,17 @@ auth.post("/change-password", async (c) => {
     .prepare("SELECT id, username, email, displayName, passwordHash FROM users WHERE id = ?")
     .get(userId) as any;
   if (!user) return c.json({ error: "用户不存在" }, 404);
+
+  if (
+    process.env.ELECTRON_LOCAL_ACCOUNT_SECRET
+    && user.username === "desktop"
+    && (newPassword || (newUsername && newUsername !== "desktop"))
+  ) {
+    return c.json({
+      error: "桌面本地账号由应用托管，不能通过普通账号设置修改密码或用户名",
+      code: "DESKTOP_ACCOUNT_MANAGED",
+    }, 409);
+  }
 
   if (!verifyPasswordCompat(currentPassword, user.passwordHash)) {
     return c.json({ error: "当前密码错误" }, 403);

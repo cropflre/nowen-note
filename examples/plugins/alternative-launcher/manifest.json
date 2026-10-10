@@ -1,0 +1,37 @@
+{
+  "id": "nowenlab.alternative-launcher",
+  "publisher": "nowenlab",
+  "name": "Alternative Launcher",
+  "description": "A second independent Floating Layer contribution proving the slot is reusable",
+  "version": "1.0.0",
+  "apiVersion": 2,
+  "engines": { "nowen": ">=1.6.0 <2.0.0" },
+  "runtime": "declarative",
+  "categories": ["productivity"],
+  "keywords": ["ui", "launcher", "files"],
+  "repository": "https://github.com/cropflre/nowen-note",
+  "license": "MIT",
+  "permissions": [],
+  "contributes": {
+    "uiComponents": [
+      {
+        "id": "files",
+        "kind": "action",
+        "label": "文件",
+        "icon": "files",
+        "allowedSlots": ["floating-layer"],
+        "defaultPlacement": { "slot": "floating-layer", "order": 100 },
+        "action": { "type": "navigation.open", "target": "files" }
+      },
+      {
+        "id": "ai",
+        "kind": "action",
+        "label": "AI 助手",
+        "icon": "ai",
+        "allowedSlots": ["floating-layer"],
+        "defaultPlacement": { "slot": "floating-layer", "order": 110 },
+        "action": { "type": "navigation.open", "target": "ai-chat" }
+      }
+    ]
+  }
+}

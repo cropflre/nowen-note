@@ -1,36 +1,15 @@
-import React, { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { NodeViewWrapper, NodeViewProps } from "@tiptap/react";
-import { Capacitor } from "@capacitor/core";
-import { resolveAttachmentUrl, getServerUrl } from "@/lib/api";
-import {
-  acquireAttachmentRenderUrl,
-  getAttachmentRenderSource,
-  getAttachmentAccessSnapshot,
-  invalidateOfflineAttachmentRenderUrl,
-  subscribeAttachmentAccess,
-} from "@/lib/noteAttachmentAccessBridge";
+import React, { useCallback, useEffect, useRef, useState } from "react";
+import { NodeViewWrapper, NodeViewProps, ReactNodeViewRenderer } from "@tiptap/react";
+import type { NodeViewRendererProps } from "@tiptap/core";
 import {
   getPersistentImageTransform,
   normalizeImageFlipX,
   normalizeImageRotation,
 } from "@/lib/imageNodeTransformBootstrap";
+import { useAttachmentImageRenderSource } from "@/hooks/useAttachmentImageRenderSource";
 import { useLazyNodeView } from "@/hooks/useLazyNodeView";
-
-/** 判断是否为本应用的附件路径（/api/attachments/xxx）。 */
-function isAttachmentPath(src: string): boolean {
-  if (!src) return false;
-  return /^\/?api\/attachments\//.test(src) || src.includes("/api/attachments/");
-}
-
-/**
- * 通过 fetch 下载图片并生成 blob URL，绕过 Android WebView 的混合内容限制。
- */
-async function fetchImageAsBlob(url: string): Promise<string> {
-  const resp = await fetch(url);
-  if (!resp.ok) throw new Error(`fetch image failed: ${resp.status}`);
-  const blob = await resp.blob();
-  return URL.createObjectURL(blob);
-}
+import { MotionPhotoOverlay } from "./MotionPhotoOverlay";
+import { downloadAttachment } from "@/lib/downloadFile";
 
 /**
  * Tiptap Image 扩展的自定义 NodeView。
@@ -42,6 +21,16 @@ type Corner = "nw" | "ne" | "sw" | "se";
 
 const MIN_WIDTH = 40;
 const MAX_WIDTH = 4000;
+
+export function createResizableImageNodeView() {
+  const render = ReactNodeViewRenderer(ResizableImageView);
+  return (props: NodeViewRendererProps) => {
+    const view = render(props);
+    // Before EditorContent mounts, Tiptap returns an empty view and ProseMirror falls back to
+    // <img src="/api/attachments/...">. Keep a placeholder until React owns the signed source.
+    return view.dom ? view : { dom: document.createElement(props.node.isInline ? "span" : "div") };
+  };
+}
 
 export function ResizableImageView(props: NodeViewProps) {
   const { node, updateAttributes, selected, editor } = props;
@@ -198,68 +187,35 @@ export function ResizableImageView(props: NodeViewProps) {
     dragStateRef.current = null;
   }, [handleMouseMove, handleMouseUp, handleTouchMove, handleTouchEnd]);
 
-  const [failedSrc, setFailedSrc] = useState<string | null>(null);
-  const [blobSrc, setBlobSrc] = useState<string | null>(null);
-  const accessStateRevision = useSyncExternalStore(
-    subscribeAttachmentAccess,
-    getAttachmentAccessSnapshot,
-    getAttachmentAccessSnapshot,
-  );
-  const renderSource = getAttachmentRenderSource(src);
-  const resolvedSrc = resolveAttachmentUrl(renderSource.persistentSrc);
-
-  useEffect(() => acquireAttachmentRenderUrl(resolvedSrc), [resolvedSrc]);
-
-  // In progressive modes an offscreen attachment image must not start a fetch/blob conversion.
+  // 图片操作菜单使用 fixed 视口坐标，TiptapEditor 会在 selectionUpdate 时根据
+  // 当前图片 DOMRect 重新计算位置。滚动不会改变 ProseMirror selection，因此
+  // 选中图片后继续滚动时原菜单会停留在旧坐标。仅在图片处于选中态时监听滚动/
+  // resize，并用 rAF 合并高频事件，复用现有 selectionUpdate 定位链路重新锚定。
   useEffect(() => {
-    setFailedSrc(null);
-    setBlobSrc(null);
-    if (!src || !shouldRenderHeavyContent) return;
+    if (!selected || !editable || !editor || editor.isDestroyed) return;
 
-    const serverUrl = getServerUrl();
-    const needsAndroidBlobFallback = Capacitor.getPlatform() === "android";
-    if (needsAndroidBlobFallback && serverUrl && isAttachmentPath(src) && /^https?:/i.test(resolvedSrc)) {
-      let cancelled = false;
-      fetchImageAsBlob(resolvedSrc)
-        .then((url) => {
-          if (!cancelled) setBlobSrc(url);
-        })
-        .catch((err) => {
-          console.error("[ResizableImageView] blob fetch failed:", {
-            attachmentId: renderSource.attachmentId,
-            originalSrc: src,
-            resolvedSrc,
-            finalSrc: resolvedSrc,
-            offlineObjectUrlHit: renderSource.offlineObjectUrlHit,
-            signedUrlPresent: renderSource.signedUrlPresent,
-            accessStateRevision,
-            error: err,
-          });
-        });
-      return () => {
-        cancelled = true;
-      };
-    }
-  }, [
-    accessStateRevision,
-    renderSource.attachmentId,
-    renderSource.offlineObjectUrlHit,
-    renderSource.signedUrlPresent,
-    resolvedSrc,
-    shouldRenderHeavyContent,
-    src,
-  ]);
+    let frame = 0;
+    const scheduleToolbarReposition = () => {
+      if (frame) return;
+      frame = window.requestAnimationFrame(() => {
+        frame = 0;
+        if (editor.isDestroyed) return;
+        editor.emit("selectionUpdate", { editor, transaction: editor.state.tr });
+      });
+    };
 
-  useEffect(() => () => {
-    if (blobSrc) URL.revokeObjectURL(blobSrc);
-  }, [blobSrc]);
+    window.addEventListener("scroll", scheduleToolbarReposition, true);
+    window.addEventListener("resize", scheduleToolbarReposition);
+    return () => {
+      window.removeEventListener("scroll", scheduleToolbarReposition, true);
+      window.removeEventListener("resize", scheduleToolbarReposition);
+      if (frame) window.cancelAnimationFrame(frame);
+    };
+  }, [editable, editor, selected]);
 
-  const finalSrc = blobSrc || resolvedSrc;
-  useEffect(() => {
-    // 当前渲染地址变化时，上一地址的失败状态不能污染新的加载结果。
-    setFailedSrc(null);
-  }, [finalSrc]);
-  const imgError = !!finalSrc && failedSrc === finalSrc;
+  const imageRender = useAttachmentImageRenderSource(src, { enabled: shouldRenderHeavyContent });
+  const finalSrc = imageRender.renderSrc;
+  const imgError = !!imageRender.error;
   const displayWidth = draftWidth ?? (typeof initialWidth === "number" ? initialWidth : null);
   const placeholderWidth = Math.max(120, Math.min(displayWidth || 320, 640));
   const placeholderHeight = Math.max(96, Math.min(Math.round(placeholderWidth * 0.56), 360));
@@ -308,9 +264,9 @@ export function ResizableImageView(props: NodeViewProps) {
     >
       {shouldRenderHeavyContent ? (
         <img
-          key={finalSrc}
+          key={imageRender.renderKey}
           ref={imgRef}
-          src={finalSrc}
+          src={finalSrc || undefined}
           alt={alt ?? ""}
           title={title ?? undefined}
           loading="lazy"
@@ -326,29 +282,8 @@ export function ResizableImageView(props: NodeViewProps) {
             outlineOffset: 0,
           }}
           draggable={false}
-          onLoad={() => {
-            // 只有最终交给 img 的地址成功加载，才确认清除失败状态。
-            setFailedSrc((current) => current === finalSrc ? null : current);
-          }}
-          onError={() => {
-            const recoveredFromOfflineObjectUrl = invalidateOfflineAttachmentRenderUrl(finalSrc);
-            console.error("[ResizableImageView] img load failed:", {
-              attachmentId: renderSource.attachmentId,
-              originalSrc: src,
-              resolvedSrc,
-              finalSrc,
-              offlineObjectUrlHit: renderSource.offlineObjectUrlHit,
-              signedUrlPresent: renderSource.signedUrlPresent,
-              accessStateRevision,
-              recoveredFromOfflineObjectUrl,
-            });
-            if (recoveredFromOfflineObjectUrl) {
-              setFailedSrc(null);
-              return;
-            }
-            // 错误状态绑定到触发失败的地址，不能覆盖随后切换成功的新地址。
-            setFailedSrc(finalSrc);
-          }}
+          onLoad={imageRender.onLoad}
+          onError={imageRender.onError}
         />
       ) : (
         <span
@@ -373,6 +308,7 @@ export function ResizableImageView(props: NodeViewProps) {
         </span>
       )}
 
+      {shouldRenderHeavyContent && !imgError && !!finalSrc && <MotionPhotoOverlay source={src || ""} />}
       {shouldRenderHeavyContent && imgError && (
         <span
           contentEditable={false}
@@ -393,7 +329,7 @@ export function ResizableImageView(props: NodeViewProps) {
         >
           图片加载失败
           <br />
-          <span style={{ fontSize: 10, opacity: 0.7 }}>{resolvedSrc?.slice(0, 80)}</span>
+          <button type="button" onClick={(event) => { event.stopPropagation(); void downloadAttachment(src || "", alt || "photo"); }} style={{ lineHeight: 1.5, textDecoration: "underline" }}>下载原件</button>
         </span>
       )}
 

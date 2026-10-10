@@ -1,9 +1,14 @@
 import React, { useCallback, useRef, useState, useEffect, useMemo } from "react";
+import EncryptedConversionEditorGuard from "./EncryptedConversionEditorGuard";
+import EncryptedNotePane from "./EncryptedNotePane";
+import { isEncryptedNoteFormat } from "@/lib/encryptedNotes/noteDocument";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
-import { Star, Pin, Trash2, Cloud, RefreshCw, Check, Loader2, ChevronLeft, FolderInput, ChevronRight, ChevronDown, X, ListTree, Lock, Unlock, Tag as TagIcon, Type, MoreHorizontal, Share2, History, MessageCircle, FileCode, FileText, Eye, Pencil, PanelLeft, Paperclip, Search, Sparkles, Network, Maximize2, Minimize2, Image, Link2, Printer, Scissors } from "lucide-react";
+import { Star, Pin, Trash2, Cloud, RefreshCw, Check, Loader2, ChevronLeft, FolderInput, ChevronRight, ChevronDown, X, ListTree, Lock, Unlock, Tag as TagIcon, Type, MoreHorizontal, Share2, History, MessageCircle, FileCode, FileText, Eye, Pencil, Paperclip, Search, Sparkles, Network, Minimize2, Image, Link2, Printer, Scissors } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { confirm } from "@/components/ui/confirm";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import TiptapEditor from "@/components/TiptapEditor";
+import NoteReadingPositionBridge from "@/components/NoteReadingPositionBridge";
 import { PhaseAPerfProfiler } from "@/components/PhaseAPerfProfiler";
 import type { NoteEditorHeading, NoteEditorUpdatePayload } from "@/components/editors/types";
 import MarkdownEditor from "@/components/MarkdownEditor";
@@ -11,8 +16,11 @@ import HtmlPreviewPane, { isFullHtmlDocument } from "@/components/HtmlPreviewPan
 import type { NoteEditorHandle } from "@/components/editors/types";
 import { useApp, useAppActions, SyncStatus } from "@/store/AppContext";
 import { api } from "@/lib/api";
+import { confirmMediaNotePersistence } from "@/lib/mediaInsertionCommit";
 import { parseMermaidMindmap, normalizeMindMapData } from "@/lib/mindmapTransform";
 import { cn } from "@/lib/utils";
+import SyncStatusBadge from "@/components/SyncStatusBadge";
+import { isAndroidNativeRuntime } from "@/lib/mobileLocalMode";
 import {
   applyEditorUpdateToNote,
   PREPARE_EDITOR_SPLIT_CLOSE_EVENT,
@@ -34,6 +42,7 @@ import ShareModal from "@/components/ShareModal";
 import VersionHistoryPanel from "@/components/VersionHistoryPanel";
 import CommentPanel from "@/components/CommentPanel";
 import NoteAttachmentsPanel from "@/components/NoteAttachmentsPanel";
+import FolderSyncAttachmentPreviewPane, { isFolderSyncAttachmentNote } from "@/components/FolderSyncAttachmentPreviewPane";
 import BacklinksPanel from "@/components/BacklinksPanel";
 import MermaidView from "@/components/MermaidView";
 import {
@@ -41,6 +50,7 @@ import {
 } from "@/components/PresenceBar";
 import { EditorErrorBoundary } from "@/components/EditorErrorBoundary";
 import NoteTabsBar from "@/components/NoteTabsBar";
+import { EditorToolbarHost, EditorToolbarExpandSlot, MobileEditorToolbarPortal } from "@/components/CollapsibleEditorToolbar";
 import NoteLoadingSkeleton from "@/components/NoteLoadingSkeleton";
 import { useNoteLoader } from "@/hooks/useNoteLoader";
 import { useRealtimeNote } from "@/hooks/useRealtimeNote";
@@ -74,6 +84,7 @@ import {
 } from "@/lib/noteContentPersistence";
 import { useUserPreferences } from "@/hooks/useUserPreferences";
 import { useKeyboardVisible } from "@/hooks/useKeyboardVisible";
+import { useVisibleViewport } from "@/hooks/useVisibleViewport";
 import {
   isRemoteVersionNewer,
   resolveConfirmedTiptapContent,
@@ -97,6 +108,14 @@ import {
   REQUEST_NOTE_FORMAT_CONVERSION_EVENT,
   type NoteFormatConversionRequest,
 } from "@/lib/noteFormatConversion";
+import NoteThemeMenuSelect from "@/components/NoteThemeMenuSelect";
+import CjkTypographyMenuActions from "@/components/CjkTypographyMenuActions";
+import type { CjkTypographyAction } from "@/lib/cjkTypography";
+import NoteColorMarkPicker from "@/components/NoteColorMarkPicker";
+import type { NoteColorMark } from "@/types";
+import MindMapEmbedInsertDialog from "@/components/MindMapEmbedInsertDialog";
+import { pushMindMapAppPath } from "@/lib/mindMapDeepLink";
+import { shouldApplyDefaultViewLock } from "@/lib/newNoteImmediateEdit";
 
 // ---------------------------------------------------------------------------
 // 编辑器模式切换（MD vs Tiptap）
@@ -119,12 +138,29 @@ interface EditorPaneProps {
   onSplitDocument?: () => void;
 }
 
-export default function EditorPane({
+export default function EditorPane(props: EditorPaneProps) {
+  const { state } = useApp();
+  return state.activeNote && isEncryptedNoteFormat(state.activeNote.contentFormat)
+    ? <EncryptedNotePane key={state.activeNote.id} note={state.activeNote} />
+    : <EncryptedConversionEditorGuard noteId={state.activeNote?.id ?? null}><OrdinaryEditorPane {...props} /></EncryptedConversionEditorGuard>;
+}
+
+function OrdinaryEditorPane({
   canSplitDocument = false,
   onSplitDocument,
 }: EditorPaneProps) {
   const { state } = useApp();
   const actions = useAppActions();
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const id = (event as CustomEvent<{ id?: string }>).detail?.id;
+      if (!id || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) return;
+      pushMindMapAppPath(id);
+      actions.setViewMode("mindmaps");
+    };
+    window.addEventListener("nowen:request-open-embedded-mindmap", handler);
+    return () => window.removeEventListener("nowen:request-open-embedded-mindmap", handler);
+  }, [actions]);
   const { loadNote, retryNoteLoad } = useNoteLoader();
   const { activeNote, syncStatus, lastSyncedAt, noteLoading, noteLoadingState } = state;
   const reduceMotion = useReducedMotion();
@@ -139,11 +175,12 @@ export default function EditorPane({
   const [showOutline, setShowOutline] = useState<boolean>(() => userPrefs.outlineDefaultOpen);
   const [outlineWidth, setOutlineWidth] = useState(getSavedOutlineWidth);
   // 视图级只读：除了 DB 的 isLocked，还有用户偏好带来的"会话锁"。
-  // 新笔记打开时如果启用了 lockOnOpen 偏好，就把当前笔记 id 加入集合，
+  // 打开已有笔记时如果启用了 lockOnOpen 偏好，就把当前笔记 id 加入集合，
   // 编辑器变为只读，用户需要点解锁按钮移除，从而恢复编辑能力。
-  // 下一次打开新笔记时再次按偏好应用，不影响其它笔记。
+  // 刚创建后首次自动打开可编辑；离开后再次打开仍按偏好应用，不影响其它笔记。
   // 这样做的好处是：不污染笔记的 isLocked 字段，也不会触发协作广播 / 权限检查。
   const [viewLockedIds, setViewLockedIds] = useState<Set<string>>(() => new Set());
+  const lastOpenedNoteIdRef = useRef<string | null>(null);
   // 用 ref 让 yDoc/snapshot/flushToLocal 等长驻闭包引用最新值。
   // 否则可能读到旧值，导致偏好刚关之后还会往"已锁定的笔记"写 / 写 yDoc。
   const viewLockedIdsRef = useRef(viewLockedIds);
@@ -213,9 +250,12 @@ export default function EditorPane({
   // �������ѿ��شӿ��е��أ������̰ѵ�ǰ�ʼǵĻỰ��Ҳ�����������"�Ҹջ��ڿ���
   // �ܱ����ʼǱ�͵͵������"����ֱ�ۡ����صı仯ֻӰ��"�´δ��±ʼ�ʱ"�ĳ�ֵ��
   useEffect(() => {
-    const id = activeNote?.id;
+    const id = activeNote?.id ?? null;
+    // React StrictMode may replay this effect; only process a given opening once.
+    if (lastOpenedNoteIdRef.current === id) return;
+    lastOpenedNoteIdRef.current = id;
     if (!id) return;
-    if (userPrefs.lockOnOpen) {
+    if (shouldApplyDefaultViewLock(id, userPrefs.lockOnOpen)) {
       setViewLockedIds((prev) => {
         if (prev.has(id)) return prev;
         const next = new Set(prev);
@@ -233,12 +273,14 @@ export default function EditorPane({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeNote?.id]);
 
-  const toggleEditorFullscreen = useCallback(() => {
-    actions.setEditorFullscreen(!state.editorFullscreen);
-  }, [actions, state.editorFullscreen]);
+  const exitEditorFullscreen = useCallback(() => {
+    actions.setEditorFullscreen(false);
+  }, [actions]);
 
   const [showMobileMenu, setShowMobileMenu] = useState(false);
+  const [mobileTitlePinned, setMobileTitlePinned] = useState(false);
   const [showDesktopMoreMenu, setShowDesktopMoreMenu] = useState(false);
+  const noteMenuViewport = useVisibleViewport(showMobileMenu || showDesktopMoreMenu);
   const [showMobileMoveMenu, setShowMobileMoveMenu] = useState(false);
   const [showMobileOutline, setShowMobileOutline] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
@@ -250,12 +292,22 @@ export default function EditorPane({
   const [backlinksLoading, setBacklinksLoading] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const mobileMenuRef = useRef<HTMLDivElement | null>(null);
+  const editorPaneRootRef = useRef<HTMLDivElement | null>(null);
   const desktopMoreMenuRef = useRef<HTMLDivElement | null>(null);
 
   // 纯 HTML 预览模式：当
   // 笔记内容被保存为 HTML 格式（如 clipper 导入）时自动进入只读预览，
   // 用户需要手动切换到 Tiptap 编辑器（会有格式丢失风险）。
-  const [htmlPreviewMode, setHtmlPreviewMode] = useState(false);
+  // Import HTML must be routed to the preview *during the first render*.
+  // Waiting for a useEffect causes one Tiptap mount (and unauthorized <img> requests)
+  // before the preview takes over.
+  const [htmlPreviewMode, setHtmlPreviewMode] = useState(
+    () => !!activeNote && detectFormat(activeNote.content) === "html",
+  );
+  const previewInitializedNoteIdRef = useRef(activeNote?.id);
+  const isPendingHtmlNoteSwitch = previewInitializedNoteIdRef.current !== activeNote?.id
+    && !!activeNote && detectFormat(activeNote.content) === "html";
+  const shouldRenderHtmlPreview = htmlPreviewMode || isPendingHtmlNoteSwitch;
   const [showHtmlEditWarning, setShowHtmlEditWarning] = useState(false);
   // 记住当前笔记的原始格式是否为 HTML。
   // 切换到编辑模式后，内容会被 normalize 为 Markdown，此时 detectFormat 返回 "md"。
@@ -696,7 +748,7 @@ export default function EditorPane({
     const initialNote = activeNoteRef.current;
     if (!initialNote || initialNote.id !== noteId || modeSwitchInflightRef.current) return;
     if (initialNote.isLocked || viewLockedIdsRef.current.has(noteId)) {
-      toast.warning("请先解锁笔记再转换格式");
+      toast.warning(t("editorOps.convertLocked"));
       return;
     }
 
@@ -762,7 +814,7 @@ export default function EditorPane({
       window.dispatchEvent(new CustomEvent("nowen:knowledge-tree-changed", {
         detail: { reason: "note-format-converted", noteId },
       }));
-      toast.success(targetFormat === "markdown" ? "已转换为 Markdown" : "已转换为富文本");
+      toast.success(targetFormat === "markdown" ? t("editorOps.convertedMarkdown") : t("editorOps.convertedRichText"));
     } catch (error) {
       console.error("[EditorPane] convert note format failed:", error);
       const current = activeNoteRef.current;
@@ -787,12 +839,12 @@ export default function EditorPane({
         } catch { /* ignore */ }
       }
       actions.setSyncStatus("error");
-      toast.error("格式转换失败，当前内容已保留");
+      toast.error(t("editorOps.convertFailed"));
     } finally {
       modeSwitchInflightRef.current = false;
       setModeSwitching(false);
     }
-  }, [actions]);
+  }, [actions, t]);
 
   useEffect(() => {
     const handleRequest = (event: Event) => {
@@ -1302,7 +1354,9 @@ export default function EditorPane({
    * ע�����˳�����Ҳ���á�������ֻһ�� client��y-collab �൱�ڿղ������������
    * ����������־û��������������Զ��ϲ���
    */
-  const collabReady = !!(activeNote && !activeNote.isLocked && selfUser && editorMode === "md");
+  const collabReady = !!(activeNote && !activeNote.isLocked && selfUser && editorMode === "md"
+    && !isAndroidNativeRuntime()
+    && !/nowen-encrypted/i.test(activeNote.content || ""));
   const { doc: collabYDoc, provider: collabProvider, synced: collabSynced } = useYDoc({
     noteId: collabReady ? (activeNote?.id ?? null) : null,
     user: selfUser,
@@ -1357,6 +1411,7 @@ export default function EditorPane({
   // ����ʼ����ݸ�ʽΪ "html"���Զ����� HTML Ԥ����������˵�����༭����
   useEffect(() => {
     if (!activeNote) return;
+    previewInitializedNoteIdRef.current = activeNote.id;
     const fmt = detectFormat(activeNote.content);
     const isHtml = fmt === "html";
     const isFullDoc = isHtml && isFullHtmlDocument(activeNote.content);
@@ -1470,7 +1525,7 @@ export default function EditorPane({
           && !viewLockedIdsRef.current.has(activeNote.id)) {
         // ��齹���Ƿ��ڱ༭���ڲ�������ڱ༭���ڣ�Delete ��Ӧ������ɾ�����֣�
         const activeEl = document.activeElement;
-        const isInEditor = activeEl?.closest(".ProseMirror") || activeEl?.tagName === "INPUT" || activeEl?.tagName === "TEXTAREA";
+        const isInEditor = activeEl?.closest(".ProseMirror, .cm-editor") || activeEl?.tagName === "INPUT" || activeEl?.tagName === "TEXTAREA";
         if (!isInEditor) {
           e.preventDefault();
           setShowDeleteConfirm(true);
@@ -1481,10 +1536,38 @@ export default function EditorPane({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [activeNote]);
 
+  // 标题离开正文可视区后，复用现有路径导航位显示标题，不额外增加顶部高度。
+  useEffect(() => {
+    setMobileTitlePinned(false);
+    if (!activeNote || typeof window === "undefined") return;
+    if (!window.matchMedia("(max-width: 767px)").matches) return;
+    if (typeof IntersectionObserver === "undefined") return;
+
+    let observer: IntersectionObserver | null = null;
+    const frame = requestAnimationFrame(() => {
+      const title = editorPaneRootRef.current?.querySelector<HTMLElement>(
+        '[data-mobile-editor-title], [data-markdown-mobile-title]',
+      );
+      if (!title) return;
+      observer = new IntersectionObserver(
+        ([entry]) => setMobileTitlePinned(!entry?.isIntersecting),
+        { threshold: 0.15 },
+      );
+      observer.observe(title);
+    });
+
+    return () => {
+      cancelAnimationFrame(frame);
+      observer?.disconnect();
+    };
+  }, [activeNote?.id]);
+
   // ����ⲿ�ر��ƶ��˲˵�
   useEffect(() => {
     if (!showMobileMenu) return;
     const handler = (e: MouseEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (target?.closest("[data-mobile-note-menu-trigger]")) return;
       if (mobileMenuRef.current && !mobileMenuRef.current.contains(e.target as Node)) {
         setShowMobileMenu(false);
         setShowMobileMoveMenu(false);
@@ -1511,6 +1594,16 @@ export default function EditorPane({
       document.removeEventListener("keydown", onKeyDown);
     };
   }, [showDesktopMoreMenu]);
+
+  const applyCjkTypography = (action: CjkTypographyAction) => {
+    setShowMobileMenu(false);
+    setShowDesktopMoreMenu(false);
+    // The underlying editor checks read-only again, guarding stale menu state.
+    if (!activeNote || !canEditActiveNote || effectiveLocked || isTrashed ||
+        modeSwitching || noteIsFullHtmlDoc) return;
+    const applied = editorHandleRef.current?.applyCjkTypography?.(action) === true;
+    if (!applied) toast.info(t("cjkTypography.noChanges"));
+  };
 
   const handleUpdate = useCallback(async (data: NoteEditorUpdatePayload) => {
     const currentNote = activeNoteRef.current;
@@ -1689,6 +1782,15 @@ export default function EditorPane({
         });
       }
 
+      if (updated && typeof lastSentData.content === "string") {
+        const committedContent = typeof updated.content === "string" ? updated.content : lastSentData.content;
+        confirmMediaNotePersistence(
+          currentNote.id,
+          committedContent,
+          (updated as Note & { __offlineQueued?: boolean }).__offlineQueued ? "queued" : "saved",
+        );
+      }
+
       // ���ڱ���ıʼ����ǵ�ǰ����ʼ�ʱ����״̬����ֹ�����л�ʱ���Ǵ���ʼǣ�
       if (activeNoteRef.current?.id === updated.id) {
         // �ؼ�������Ѹձ���� content / contentText Ҳ��� activeNote��
@@ -1799,6 +1901,7 @@ export default function EditorPane({
               version: currentNote.version,
             },
           });
+          confirmMediaNotePersistence(currentNote.id, snap.content, "queued");
         }
       } catch (queueErr) {
         console.warn("[EditorPane] enqueue offline fallback failed:", queueErr);
@@ -1900,6 +2003,19 @@ export default function EditorPane({
     const updated = await api.updateNote(activeNote.id, { isPinned: activeNote.isPinned ? 0 : 1 } as any);
     actions.setActiveNote(updated);
     actions.updateNoteInList({ id: updated.id, isPinned: updated.isPinned });
+  }, [activeNote, actions]);
+
+  const setNoteColorMark = useCallback(async (colorMark: NoteColorMark | null) => {
+    if (!activeNote || activeNote.isTrashed || !canWriteNote(activeNote)) return;
+    haptic.light();
+    const updated = await api.updateNote(activeNote.id, { colorMark });
+    const nextColor = updated.colorMark ?? colorMark;
+    actions.setActiveNote({ ...updated, colorMark: nextColor });
+    actions.updateNoteInList({ id: updated.id, colorMark: nextColor });
+    actions.updateNoteTab({ id: updated.id, colorMark: nextColor } as unknown as Partial<import("@/store/AppContext").OpenNoteTab> & { id: string; });
+    try {
+      window.dispatchEvent(new CustomEvent("nowen:knowledge-tree-changed", { detail: { reason: "note-color-mark-changed" } }));
+    } catch { /* A notification failure must not interrupt editing. */ }
   }, [activeNote, actions]);
 
   const toggleLock = useCallback(async () => {
@@ -2183,7 +2299,7 @@ const moveToTrash = useCallback(async () => {
       setAiSummaryResult(result.trim());
     } catch (e: any) {
       console.error("AI summary error:", e);
-      toast.error(e?.message || "AI 总结失败");
+      toast.error(e?.message || t("editorOps.summaryFailed"));
       setShowSummaryDialog(false);
     } finally {
       setAiSummaryLoading(false);
@@ -2196,7 +2312,7 @@ const moveToTrash = useCallback(async () => {
       await navigator.clipboard.writeText(aiSummaryResult);
       toast.success(t("editor.aiSummaryCopied") || "已复制");
     } catch {
-      toast.error("复制失败");
+      toast.error(t("common.copyFailed"));
     }
   }, [aiSummaryResult, t]);
 
@@ -2210,7 +2326,7 @@ const moveToTrash = useCallback(async () => {
         await navigator.clipboard.writeText(aiSummaryResult);
       toast.success(t("editor.aiSummaryCopied") || "已复制到剪贴板，请手动粘贴");
       } catch {
-      toast.error("追加失败，请手动插入");
+      toast.error(t("editorOps.appendFailed"));
       }
       return;
     }
@@ -2225,6 +2341,14 @@ const moveToTrash = useCallback(async () => {
   const [aiMermaidResult, setAiMermaidResult] = useState("");
   const [aiMermaidType, setAiMermaidType] = useState<"mermaid_mindmap" | "mermaid_flowchart">("mermaid_mindmap");
   const [showMermaidDialog, setShowMermaidDialog] = useState(false);
+  const [showMindMapInsertDialog, setShowMindMapInsertDialog] = useState(false);
+
+
+  useEffect(() => {
+    const openMindMapInsert = () => setShowMindMapInsertDialog(true);
+    window.addEventListener("nowen:open-mindmap-insert", openMindMapInsert);
+    return () => window.removeEventListener("nowen:open-mindmap-insert", openMindMapInsert);
+  }, []);
 
   const handleAIMermaid = useCallback(async (type: "mermaid_mindmap" | "mermaid_flowchart") => {
     if (!activeNote || aiMermaidLoading) return;
@@ -2264,7 +2388,7 @@ const moveToTrash = useCallback(async () => {
       setAiMermaidResult(result);
     } catch (e: any) {
       console.error("AI mermaid error:", e);
-      toast.error(e?.message || "AI 生成失败");
+      toast.error(e?.message || t("editorOps.generateFailed"));
       setShowMermaidDialog(false);
     } finally {
       setAiMermaidLoading(false);
@@ -2279,11 +2403,11 @@ const moveToTrash = useCallback(async () => {
       try {
         navigator.clipboard.writeText("```mermaid\n" + aiMermaidResult + "\n```");
       toast.success(t("editor.aiSummaryCopied") || "已复制到剪贴板，请手动粘贴");
-    } catch { toast.error("复制失败"); }
+    } catch { toast.error(t("common.copyFailed")); }
       return;
     }
     try { editorHandleRef.current?.flushSave(); } catch {}
-      toast.success("已插入笔记");
+      toast.success(t("editorOps.inserted"));
     setShowMermaidDialog(false);
   }, [activeNote, aiMermaidResult, t]);
   /** 将 Mermaid mindmap 源码解析为 MindMapData */
@@ -2301,23 +2425,23 @@ const moveToTrash = useCallback(async () => {
     if (!aiMermaidResult) return;
     const data = parseMermaidToMindMap(aiMermaidResult);
     if (!data) {
-      toast.error("无法将当前 Mermaid 转换为思维导图");
+      toast.error(t("editorOps.mindmapConversionFailed"));
       return;
     }
     setMermaidSavingMindMap(true);
     try {
-      const title = data.root.text.slice(0, 50) || "AI 生成思维导图";
+      const title = data.root.text.slice(0, 50) || t("editorOps.mindmapDefaultTitle");
       const created = await api.createMindMap({ title, data: JSON.stringify(data) });
-      toast.success("已保存为思维导图");
+      toast.success(t("editorOps.mindmapSaved"));
       setShowMermaidDialog(false);
       // 通知 MindMapEditor 打开新图
       // 切换到思维导图视图
       // 保存 pending ID 到 sessionStorage 并切换到思维导图视图
-      sessionStorage.setItem("pendingOpenMindMapId", created.id);
+      pushMindMapAppPath(created.id);
       actions.setViewMode("mindmaps");
     } catch (e: any) {
       console.error("Save mindmap error:", e);
-      toast.error(e?.message || "保存失败");
+      toast.error(e?.message || t("editorOps.saveFailed"));
     } finally {
       setMermaidSavingMindMap(false);
     }
@@ -2337,9 +2461,9 @@ const moveToTrash = useCallback(async () => {
     } catch (e: any) {
       const msg = String(e?.message || "");
       if (/CROSS_WORKSPACE_MOVE_FORBIDDEN/.test(msg)) {
-      toast.error("无法在不同工作空间的笔记本之间移动");
+      toast.error(t("editorOps.crossSpaceMove"));
       } else {
-      toast.error(msg || "移动失败");
+      toast.error(msg || t("editorOps.moveFailed"));
       }
       setShowMoveDropdown(false);
     }
@@ -2420,27 +2544,14 @@ const moveToTrash = useCallback(async () => {
   if (!activeNote) {
     return (
       <div className="flex-1 flex flex-col bg-app-bg transition-colors relative">
-        {/* ����˿�̬��ҲҪ����"չ���ʼ��б�"��ڣ�����һ���۵�+��ѡ�бʼǣ�������Ļ
-            ��ֻʣ NavRail���û��Ҳ����κλص��б��ķ�ʽ��ͼƬ�������� bug����
-            ���ɾ��Զ�λ�����Ͻǣ������ƻ�ԭ�����еĿ�̬�Ӿ��� */}
-        {state.noteListCollapsed && (
-          <button
-            type="button"
-            onClick={() => actions.toggleNoteListCollapsed()}
-            title={t("common.expandList")}
-            aria-label={t("common.expandList")}
-            className="hidden md:flex absolute top-3 left-3 z-10 p-1.5 rounded-md text-tx-tertiary hover:bg-app-hover hover:text-tx-secondary transition-colors"
-          >
-            <PanelLeft size={16} />
-          </button>
-        )}
         {/* �ƶ��ˣ��������ذ�ť + ��ʾ��
             ������ԭ��̬�� `hidden md:flex` �����ݲ��������ƶ����е� editor ��ͼ��
             ���� activeNote ʱ��ĻһƬ�հף��û��Ҳ����ص��б�����ڣ�ϵͳ���ؼ�
             ��Ȼ�ܴ��� onBackToList���������û�/���Ƶ��������²���ֱ�ۣ���������
             ����"��ʼ�û��Ӧ"�����ﲹһ���ƶ��˿ɼ��ķ���������İ�����Ϊ���ס� */}
-        <header className="flex items-center gap-2 px-3 py-2 border-b border-app-border bg-app-surface/50 md:hidden" style={{ paddingTop: 'calc(var(--safe-area-top) + 8px)' }}>
+        <header data-adaptive-editor-empty-header className="flex items-center gap-2 px-3 py-2 border-b border-app-border bg-app-surface/50 md:hidden" style={{ paddingTop: 'calc(var(--safe-area-top) + 8px)' }}>
           <button
+            data-adaptive-editor-back
             onClick={() => actions.setMobileView("list")}
             className="flex items-center text-accent-primary py-1.5 px-1.5 -ml-1.5 rounded-lg active:bg-app-hover"
           >
@@ -2488,7 +2599,44 @@ const moveToTrash = useCallback(async () => {
   }
 
   return (
+    <EditorToolbarHost>
+    <>
+      <MobileEditorToolbarPortal location="leading">
+        {compactMobileEditing ? (
+          <button
+            data-adaptive-editor-back
+            onClick={() => actions.setMobileView("list")}
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-accent-primary active:bg-app-hover"
+            aria-label={t('editor.back')}
+          >
+            <ChevronLeft size={21} />
+          </button>
+        ) : null}
+      </MobileEditorToolbarPortal>
+      <MobileEditorToolbarPortal location="trailing">
+        {compactMobileEditing ? (
+          <div className="flex items-center gap-1">
+            <SyncStatusBadge noteId={activeNote.id} saving={syncStatus === "saving"} />
+            <Button
+              data-mobile-note-menu-trigger
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 shrink-0"
+              onClick={() => {
+                const nextOpen = !showMobileMenu;
+                if (nextOpen) window.dispatchEvent(new CustomEvent('nowen:close-search'));
+                setShowMobileMenu(nextOpen);
+                setShowMobileMoveMenu(false);
+              }}
+              aria-label={t('common.more')}
+            >
+              <MoreHorizontal size={17} />
+            </Button>
+          </div>
+        ) : null}
+      </MobileEditorToolbarPortal>
     <motion.div
+      ref={editorPaneRootRef}
       key={activeNote.id}
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
@@ -2528,12 +2676,13 @@ const moveToTrash = useCallback(async () => {
             - Presence ͷ����С�����岻���ƶ��˲���Ⱦ������˱����� */}
       <header
         data-mobile-editor-compact={compactMobileEditing ? "true" : "false"}
-        className={cn("flex flex-col border-b border-app-border bg-app-surface/50 md:hidden", compactMobileEditing && "shadow-sm")}
+        className={cn("flex flex-col border-b border-app-border bg-app-surface/50 md:hidden", compactMobileEditing && "hidden")}
         style={{ paddingTop: 'var(--safe-area-top)' }}
       >
         {/* �� 1 �У����� + ���м + ͬ�� */}
-        <div className={cn("flex min-w-0 items-center gap-2 px-3 pt-2 pb-1", compactMobileEditing && "hidden")}>
+        <div className="flex min-w-0 items-center gap-1.5 px-2 py-1.5">
           <button
+            data-adaptive-editor-back
             onClick={() => actions.setMobileView("list")}
             className="flex items-center text-accent-primary py-1 px-1 -ml-1 rounded-lg active:bg-app-hover shrink-0"
             aria-label={t('editor.back')}
@@ -2547,7 +2696,11 @@ const moveToTrash = useCallback(async () => {
             className="flex-1 min-w-0 flex items-center gap-1 text-xs text-tx-tertiary active:bg-app-hover rounded-md px-1.5 py-1 overflow-hidden"
             title={t('editor.moveToNotebook')}
           >
-            {currentPath.length > 0 ? (
+            {mobileTitlePinned ? (
+              <span className="min-w-0 truncate text-sm font-semibold text-tx-primary">
+                {activeNote.title || t('editor.untitled')}
+              </span>
+            ) : currentPath.length > 0 ? (
               <span className="flex min-w-0 items-center gap-1 overflow-hidden">
                 {currentPath.map((nb, idx) => {
                   const isLast = idx === currentPath.length - 1;
@@ -2569,65 +2722,48 @@ const moveToTrash = useCallback(async () => {
           <div className="shrink-0">
             <SyncIndicator syncStatus={syncStatus} lastSyncedAt={lastSyncedAt} onManualSync={handleManualSync} />
           </div>
+          {/* 多设备同步状态：与上面的"保存状态"分开显示。
+              本地写入成功就是"已保存"，同步失败只叫"等待同步"，
+              绝不能让一次网络抖动显示成"保存失败"。
+              Android 保留轻量文字，未开启同步时不渲染。 */}
+          {!compactMobileEditing && <SyncStatusBadge noteId={activeNote.id} saving={syncStatus === "saving"} />}
+          <span className="flex shrink-0 items-center gap-0.5" aria-hidden="true">
+            {activeNote.isLocked || isViewLocked ? <Lock size={12} className={activeNote.isLocked ? "text-orange-500" : "text-tx-tertiary"} /> : null}
+            {activeNote.isPinned ? <Pin size={12} className="text-accent-primary fill-accent-primary" /> : null}
+            {activeNote.isFavorite ? <Star size={12} className="text-amber-400 fill-amber-400" /> : null}
+          </span>
+          <Button
+            data-mobile-note-menu-trigger
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 shrink-0"
+            onClick={() => {
+              const nextOpen = !showMobileMenu;
+              if (nextOpen) window.dispatchEvent(new CustomEvent('nowen:close-search'));
+              setShowMobileMenu(nextOpen);
+              setShowMobileMoveMenu(false);
+            }}
+            aria-label={t('common.more')}
+          >
+            <MoreHorizontal size={17} />
+          </Button>
         </div>
-        {/* �� 2 �У����� + �ղ� + ���� */}
-        <div className={cn("flex items-center gap-1", compactMobileEditing ? "px-2 py-1" : "px-3 pb-2 pt-0.5")}>
-          {compactMobileEditing && (
-            <button
-              onClick={() => actions.setMobileView("list")}
-              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-accent-primary active:bg-app-hover"
-              aria-label={t('editor.back')}
+      </header>
+
+      {/* Mobile document actions popover: triggers live in breadcrumb or compact editor toolbar. */}
+          <div className="absolute right-2 top-[calc(var(--safe-area-top)+2.75rem)] z-[60] shrink-0 md:hidden" ref={mobileMenuRef}>
+            <Button
+              data-mobile-note-menu-trigger
+              variant="ghost"
+              size="icon"
+              className="hidden"
+              onClick={() => {
+                const nextOpen = !showMobileMenu;
+                if (nextOpen) window.dispatchEvent(new CustomEvent('nowen:close-search'));
+                setShowMobileMenu(nextOpen);
+                setShowMobileMoveMenu(false);
+              }}
             >
-              <ChevronLeft size={22} />
-            </button>
-          )}
-          <div className="flex-1 min-w-0 flex items-center gap-1.5">
-            {/* ��/�ö� ״̬���£�ֻ��ʾ�Ѽ���״̬��δ���ռλ��
-                ע�⣺isLocked / isPinned �� SQLite ���� 0/1��ֱ�� `value && <Icon/>`
-                �� value=0 ʱ��·��������� 0��React ��� 0 ���ı���Ⱦ��������
-                ���������������ʽ�����жϣ�����ҳ��������� "0"�� */}
-            {/* ����ǰ����ͼ�꣺���������ó�ɫ��ʾ���־�������
-                ֻ�ǻỰ����ƫ�á��򿪼���������ɣ��ø�ǳ�Ļ�ɫ����������״̬�� */}
-            {activeNote.isLocked
-              ? <Lock size={13} className="text-orange-500 shrink-0" />
-              : isViewLocked
-                ? <Lock size={13} className="text-tx-tertiary shrink-0" />
-                : null}
-            {activeNote.isPinned ? <Pin size={13} className="text-accent-primary fill-accent-primary shrink-0" /> : null}
-            <span className="truncate text-sm font-semibold text-tx-primary">
-              {activeNote.title || t('editor.untitled')}
-            </span>
-          </div>
-          {/* ���� / �������ƶ��˹̶���������ť��࣬���ֳ�������ȶ��ɼ��� */}
-          <Button
-            variant="ghost" size="icon" className={cn("h-8 w-8 shrink-0", compactMobileEditing && "hidden")}
-            onClick={toggleLock}
-            disabled={isTrashed}
-            aria-label={effectiveLocked ? t('editor.unlockTooltip') : t('editor.lockTooltip')}
-            title={isTrashed ? t('editor.trashTooltip') : effectiveLocked ? t('editor.unlockTooltip') : t('editor.lockTooltip')}
-          >
-            {effectiveLocked
-              ? <Lock size={17} className="text-orange-500" />
-              : <Unlock size={17} className="text-tx-tertiary" />}
-          </Button>
-          {/* �����������滻�����ƶ��˸�Ƶ�������ᵽ��������������
-              ͨ���Զ����¼� 'nowen:open-search' ���� TiptapEditor �ڲ��� SearchReplacePanel��
-              ����� TiptapEditor ���ڲ� state �������ⲿ����������ӿڸɾ��� */}
-          <Button
-            variant="ghost" size="icon" className={cn("h-8 w-8 shrink-0", compactMobileEditing && "hidden")}
-            onClick={() => window.dispatchEvent(new CustomEvent('nowen:open-search'))}
-            aria-label={t('editor.searchInNote')}
-          >
-            <Search size={17} />
-          </Button>
-          <Button variant="ghost" size="icon" className={cn("h-8 w-8 shrink-0", compactMobileEditing && "hidden")} onClick={toggleFavorite}
-            disabled={isTrashed}
-            aria-label={activeNote.isFavorite ? t('editor.unfavoriteTooltip') : t('editor.favoriteTooltip')}>
-            <Star size={17} className={cn(activeNote.isFavorite && "text-amber-400 fill-amber-400")} />
-          </Button>
-          {/* ���������ť */}
-          <div className="relative shrink-0" ref={mobileMenuRef}>
-            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => { setShowMobileMenu(!showMobileMenu); setShowMobileMoveMenu(false); }}>
               <MoreHorizontal size={16} />
             </Button>
             {/* ������������˵� */}
@@ -2638,9 +2774,9 @@ const moveToTrash = useCallback(async () => {
                   animate={{ opacity: 1, scale: 1, y: 0 }}
                   exit={{ opacity: 0, scale: 0.95, y: -4 }}
                   transition={{ duration: 0.12 }}
-                  className="absolute top-full right-0 mt-1 w-56 max-h-[calc(100vh-9rem)] bg-app-elevated border border-app-border rounded-lg shadow-xl z-50 py-1 overflow-x-hidden overflow-y-auto overscroll-contain"
+                  className="absolute top-0 right-0 mt-1 w-56 max-h-[calc(100dvh-9rem)] bg-app-elevated border border-app-border rounded-lg shadow-xl z-50 py-1 overflow-x-hidden overflow-y-auto overscroll-contain"
                   style={{
-                    maxHeight: "calc(100dvh - 9rem - env(safe-area-inset-bottom, 0px))",
+                    maxHeight: `calc(${noteMenuViewport.height}px - 9rem - env(safe-area-inset-bottom, 0px))`,
                     WebkitOverflowScrolling: "touch",
                   }}
                 >
@@ -2668,7 +2804,9 @@ const moveToTrash = useCallback(async () => {
                     disabled={isTrashed}
                     className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-tx-secondary active:bg-app-hover transition-colors disabled:opacity-40"
                   >
-                    {effectiveLocked ? <Lock size={15} className="text-orange-500" /> : <Unlock size={15} className="text-tx-tertiary" />}
+                    {effectiveLocked
+                      ? <Lock size={15} className="text-orange-500" />
+                      : <Unlock size={15} className="text-tx-tertiary" />}
                     <span>{effectiveLocked ? t('editor.unlockTooltip') : t('editor.lockTooltip')}</span>
                   </button>
                   <div className="h-px bg-app-border mx-2 my-0.5" />
@@ -2730,6 +2868,12 @@ const moveToTrash = useCallback(async () => {
                     <ListTree size={15} className="text-tx-tertiary" />
                     <span>{t('editor.showOutline')}</span>
                   </button>
+                  <NoteThemeMenuSelect noteId={activeNote.id} disabled={!canWriteNote(activeNote)} />
+                  <CjkTypographyMenuActions
+                    mobile
+                    disabled={!canEditActiveNote || effectiveLocked || isTrashed || modeSwitching || noteIsFullHtmlDoc}
+                    onAction={applyCjkTypography}
+                  />
                   <div className="h-px bg-app-border mx-2 my-0.5" />
                   {/* AI ���ɱ��� */}
                   <button
@@ -2894,8 +3038,6 @@ const moveToTrash = useCallback(async () => {
               )}
             </AnimatePresence>
           </div>
-        </div>
-      </header>
 
       {/* Mobile Outline Panel (ȫ������) */}
       <AnimatePresence>
@@ -2962,19 +3104,6 @@ const moveToTrash = useCallback(async () => {
       {/* Desktop Editor Header */}
       <div className="hidden md:flex min-w-0 items-center justify-between gap-3 px-4 py-2 border-b border-app-border bg-app-surface/30 transition-colors">
         <div className="flex min-w-0 flex-1 items-center gap-1.5">
-          {/* �ʼ��б����۵�ʱ���������ṩ��չ������ť��δ�۵�ʱ���ء�
-              ����������м��࣬�����ڡ���˭���б���ס�ˡ������֪��һ�ۿ����� */}
-          {state.noteListCollapsed && (
-            <button
-              type="button"
-              onClick={() => actions.toggleNoteListCollapsed()}
-              title={t("common.expandList")}
-              aria-label={t("common.expandList")}
-              className="p-1 rounded-md text-tx-tertiary hover:bg-app-hover hover:text-tx-secondary transition-colors shrink-0"
-            >
-              <PanelLeft size={15} />
-            </button>
-          )}
           <div className="relative min-w-0 flex-1">
           <button
             onClick={() => setShowMoveDropdown(!showMoveDropdown)}
@@ -3097,17 +3226,39 @@ const moveToTrash = useCallback(async () => {
               Live
             </span>
           )}
-          {activeNote.contentFormat === "markdown" ? (
-            <span className="inline-flex shrink-0 items-center gap-1 rounded border border-emerald-500/30 bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-mono font-medium text-emerald-500" title={t('note.format.markdown')}>
-              <FileCode size={11} />
-              {t('note.format.markdownShort')}
-            </span>
-          ) : (
-            <span className="inline-flex shrink-0 items-center gap-1 rounded border border-app-border bg-app-hover px-1.5 py-0.5 text-[10px] font-mono text-tx-tertiary" title={t('note.format.richText')}>
-              <FileText size={11} />
-              {t('note.format.richTextShort')}
-            </span>
-          )}
+          <NoteColorMarkPicker
+            value={activeNote.colorMark}
+            disabled={effectiveLocked || activeNote.isTrashed === 1 || !canWriteNote(activeNote)}
+            onChange={setNoteColorMark}
+          />
+          <button
+            type="button"
+            data-note-format-switch=""
+            disabled={modeSwitching || effectiveLocked || noteIsHtml || !canWriteNote(activeNote)}
+            onClick={async () => {
+              const targetFormat = activeNote.contentFormat === "markdown" ? "tiptap-json" : "markdown";
+              const targetLabel = targetFormat === "markdown" ? t("note.format.markdown") : t("note.format.richText");
+              const ok = await confirm({
+                title: t("note.format.convertTitle", { target: targetLabel }),
+                description: t("note.format.convertDesc"),
+                confirmText: t("note.format.convertConfirm"),
+                cancelText: t("common.cancel", { defaultValue: "取消" }),
+              });
+              if (!ok) return;
+              await convertActiveNoteFormat({ noteId: activeNote.id, targetFormat });
+            }}
+            className={cn(
+              "inline-flex shrink-0 items-center gap-1 rounded border px-1.5 py-0.5 text-[10px] font-mono font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50",
+              activeNote.contentFormat === "markdown"
+                ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500/15"
+                : "border-app-border bg-app-hover text-tx-tertiary hover:bg-app-active hover:text-tx-secondary",
+            )}
+            title={activeNote.contentFormat === "markdown" ? t("note.format.convertToRichText") : t("note.format.convertToMarkdown")}
+            aria-label={activeNote.contentFormat === "markdown" ? t("note.format.convertToRichText") : t("note.format.convertToMarkdown")}
+          >
+            {activeNote.contentFormat === "markdown" ? <FileCode size={11} /> : <FileText size={11} />}
+            {activeNote.contentFormat === "markdown" ? t("note.format.markdownShort") : t("note.format.richTextShort")}
+          </button>
         </div>
 
         {/* Sync Indicator + Grouped Actions */}
@@ -3204,17 +3355,19 @@ const moveToTrash = useCallback(async () => {
             </Button>
           </div>
 
-          {/* 全屏 */}
-          <Button
-            variant="ghost" size="icon" className="h-7 w-7 shrink-0"
-            onClick={toggleEditorFullscreen}
-            title={state.editorFullscreen ? '退出全屏' : '编辑器全屏'}
-            aria-label={state.editorFullscreen ? '退出全屏' : '编辑器全屏'}
-          >
-            {state.editorFullscreen
-              ? <Minimize2 size={14} className="text-accent-primary" />
-              : <Maximize2 size={14} />}
-          </Button>
+          {state.editorFullscreen && (
+            <Button
+              data-note-workspace-focus-exit=""
+              variant="ghost"
+              size="icon"
+              className="order-last h-7 w-7 shrink-0 bg-accent-primary/10 text-accent-primary hover:bg-accent-primary/15 hover:text-accent-primary"
+              onClick={exitEditorFullscreen}
+              title={t("workspaceLayout.exitFocus")}
+              aria-label={t("workspaceLayout.exitFocus")}
+            >
+              <Minimize2 size={14} />
+            </Button>
+          )}
 
           {/* �༭��ģʽ�л���MD / Tiptap�� */}
           {/*
@@ -3277,6 +3430,9 @@ const moveToTrash = useCallback(async () => {
             </Button>
           )}
 
+          {(!userPrefs.enableNoteTabs || state.openNoteTabs.length === 0 || state.editorSplit) && (
+            <EditorToolbarExpandSlot location="header" />
+          )}
           <div data-editor-more-menu="desktop" className="relative shrink-0" ref={desktopMoreMenuRef}>
             <Button
               variant="ghost"
@@ -3295,7 +3451,8 @@ const moveToTrash = useCallback(async () => {
                   animate={{ opacity: 1, scale: 1, y: 0 }}
                   exit={{ opacity: 0, scale: 0.96, y: -4 }}
                   transition={{ duration: 0.12 }}
-                  className="absolute right-0 top-full z-50 mt-1 w-72 overflow-hidden rounded-lg border border-app-border bg-app-elevated py-1 shadow-xl"
+                  className="absolute right-0 top-full z-50 mt-1 w-72 overflow-x-hidden overflow-y-auto overscroll-contain rounded-lg border border-app-border bg-app-elevated py-1 shadow-xl"
+                  style={{ maxHeight: `calc(${noteMenuViewport.height}px - 6rem - env(safe-area-inset-bottom, 0px))` }}
                 >
                   <div className="px-3 py-2 border-b border-app-border">
                     <div className="flex items-center justify-between gap-2 text-[11px] text-tx-tertiary">
@@ -3322,6 +3479,11 @@ const moveToTrash = useCallback(async () => {
                     <Paperclip size={15} className="text-amber-500" />
                     <span>{t('editor.attachments')}</span>
                   </button>
+                  <NoteThemeMenuSelect noteId={activeNote.id} disabled={!canWriteNote(activeNote)} />
+                  <CjkTypographyMenuActions
+                    disabled={!canEditActiveNote || effectiveLocked || isTrashed || modeSwitching || noteIsFullHtmlDoc}
+                    onAction={applyCjkTypography}
+                  />
                   {canSplitDocument && onSplitDocument && (
                     <button
                       onClick={() => { onSplitDocument(); setShowDesktopMoreMenu(false); }}
@@ -3426,7 +3588,7 @@ const moveToTrash = useCallback(async () => {
 
       {/* Editor (HTML Ԥ�� / MD / Tiptap ��ģʽ����) + Outline */}
       <div className="flex-1 flex overflow-hidden">
-        <div className="flex-1 overflow-hidden relative">
+        <div className="note-theme-surface flex-1 overflow-hidden relative" data-note-id={activeNote.id}>
           {/* Phase 2: ʵʱЭ����������� / Զ�̸��� / Զ��ɾ�������� absolute ���㣬��ռ�ĵ���������ҳ�涶�� */}
           {false && pendingDraft ? (
             <div
@@ -3462,8 +3624,16 @@ const moveToTrash = useCallback(async () => {
           {/* ErrorBoundary �������ֱ༭�����бʼ�Ϊ key���������Զ����ã�
               �ײ㻹�ܴ� console �� [EditorErrorBoundary] ��־�� window.__lastDirtyDoc */}
           <EditorErrorBoundary resetKey={activeNote.id}>
-          {/* 原生 Markdown 笔记：contentFormat === "markdown" 时始终用 MarkdownEditor */}
-          {activeNote.contentFormat === "markdown" ? (
+          {/* 文件夹同步的 PDF / DOCX 笔记默认直接显示原文件，并隐藏内部同步元数据。 */}
+          {isFolderSyncAttachmentNote(activeNote.content) ? (
+            <FolderSyncAttachmentPreviewPane
+              key={`folder-sync-attachment-${activeNote.id}-${activeNote.version}`}
+              noteId={activeNote.id}
+              revision={activeNote.version}
+              content={activeNote.content}
+              onOpenAttachmentDirectory={() => setShowAttachmentsPanel(true)}
+            />
+          ) : activeNote.contentFormat === "markdown" ? (
             <MarkdownEditor
               // useYDoc only exposes the document after y:sync. Remount at that point so
               // CodeMirror gains yCollab without disabling normal saves while unsynced.
@@ -3479,7 +3649,7 @@ const moveToTrash = useCallback(async () => {
               yDoc={collabYDoc}
               awareness={collabProvider?.awareness ?? null}
             />
-          ) : htmlPreviewMode ? (
+          ) : shouldRenderHtmlPreview ? (
             <HtmlPreviewPane
               key={`html-${activeNote.id}`}
               ref={editorHandleRef}
@@ -3524,6 +3694,12 @@ const moveToTrash = useCallback(async () => {
             </PhaseAPerfProfiler>
           )}
           </EditorErrorBoundary>
+          <NoteReadingPositionBridge
+            noteId={activeNote.id}
+            userId={selfUser?.userId || "local"}
+            mode={activeNote.contentFormat === "markdown" || (!shouldRenderHtmlPreview && editorMode === "md") ? "markdown" : shouldRenderHtmlPreview ? "html" : "richtext"}
+            paused={noteLoading || modeSwitching}
+          />
           {/*
             UX1/UX2���༭���л��� overlay��
             - ���ڵ�ǰ�༭���Ϸ����赲���� / �Ӿ���ʾ"�л���"��
@@ -3737,6 +3913,23 @@ const moveToTrash = useCallback(async () => {
       </AnimatePresence>
 
       {/* AI Mermaid Ԥ������ */}
+      <MindMapEmbedInsertDialog
+        open={showMindMapInsertDialog && !!activeNote && !effectiveLocked && !isTrashed && !noteIsFullHtmlDoc && canEditActiveNote}
+        workspaceId={activeNote?.workspaceId ?? null}
+        onClose={() => setShowMindMapInsertDialog(false)}
+        onInsert={(id) => {
+          if (!activeNote || activeNoteRef.current?.id !== activeNote.id || effectiveLocked || isTrashed || noteIsFullHtmlDoc || !canEditActiveNote) return false;
+          const markdown = `\n\n![[mindmap:${id}]]\n\n`;
+          const editorHandle = editorHandleRef.current;
+          const insertedAtCursor = editorHandle?.insertMarkdownAtCursor?.(markdown) === true;
+          const inserted = insertedAtCursor || editorHandle?.appendMarkdown?.(markdown) === true;
+          if (inserted) {
+            editorHandle?.flushSave?.();
+            toast.success("已插入思维导图");
+          }
+          return inserted;
+        }}
+      />
       <AnimatePresence>
         {showMermaidDialog && (
           <motion.div
@@ -3861,6 +4054,8 @@ const moveToTrash = useCallback(async () => {
         )}
       </div>
     </motion.div>
+    </>
+    </EditorToolbarHost>
   );
 }
 
@@ -4070,6 +4265,7 @@ function SyncIndicator({
   onManualSync: () => void;
 }) {
   const { t } = useTranslation();
+  const android = isAndroidNativeRuntime();
   // 失败、排队和离线状态继续保留在同步状态机中，但不再主动展示为失败提示。
   // 手动同步入口仍保持可见，真正冲突继续走独立的冲突处理流程。
   const displayStatus: SyncStatus =
@@ -4143,7 +4339,7 @@ function SyncIndicator({
       </AnimatePresence>
 
       <span className={cn(
-        "hidden whitespace-nowrap sm:inline transition-colors",
+        android ? "whitespace-nowrap transition-colors" : "hidden whitespace-nowrap sm:inline transition-colors",
         displayStatus === "saving" && "text-accent-primary",
         displayStatus === "saved" && "text-green-500",
         displayStatus === "idle" && "text-tx-tertiary group-hover:text-tx-secondary",
@@ -4151,8 +4347,8 @@ function SyncIndicator({
         {displayStatus === "saving" && t('editor.savingStatus')}
         {displayStatus === "saved" && (
           <>
-            {t('editor.savedStatus')}
-            {lastSyncedAt && (
+            {android ? "已保存到本机" : t('editor.savedStatus')}
+            {!android && lastSyncedAt && (
               <span className="ml-1 opacity-70">
                 · {new Date(lastSyncedAt).toLocaleTimeString()}
               </span>

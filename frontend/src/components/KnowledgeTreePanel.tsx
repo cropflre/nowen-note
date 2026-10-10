@@ -1,5 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useTranslation } from "react-i18next";
 import {
+  BrainCircuit,
   Check,
   ChevronDown,
   ChevronRight,
@@ -12,6 +14,7 @@ import {
   Loader2,
   LockKeyhole,
   MoreHorizontal,
+  Paperclip,
   Pin,
   Plus,
   RefreshCw,
@@ -21,9 +24,11 @@ import {
   Star,
   Trash2,
   TreePine,
+  Table2,
   X,
 } from "lucide-react";
 
+import AttachmentDetailDrawer from "@/components/attachmentDetail/AttachmentDetailDrawer";
 import FolderPasswordDialog from "@/components/FolderPasswordDialog";
 import {
   KnowledgeTreeBatchMovePanel,
@@ -42,7 +47,12 @@ import {
 } from "@/components/knowledgeTreeImport";
 import { choose, confirm, prompt } from "@/components/ui/confirm";
 import { useContextMenu } from "@/hooks/useContextMenu";
+import { useMobileSidebarControlsCollapsed } from "@/hooks/useMobileSidebarControlsCollapsed";
+import { useSidebarTextStyle } from "@/hooks/useSidebarTextStyle";
 import { api } from "@/lib/api";
+import { getCurrentMindMapAppId, pushMindMapAppPath, subscribeMindMapAppPath } from "@/lib/mindMapDeepLink";
+import { pushSheetAppPath } from "@/lib/sheetDeepLink";
+import { markNewNoteForImmediateEdit } from "@/lib/newNoteImmediateEdit";
 import { affectedKnowledgeNoteIds } from "@/lib/knowledgeTreeDeleteReconcile";
 import {
   knowledgeTreeRangeSelection,
@@ -63,13 +73,17 @@ import {
   knowledgeTreeApi,
   type KnowledgeTreeNode,
 } from "@/lib/knowledgeTreeApi";
+import { loadKnowledgeTreeOnEntry } from "@/lib/knowledgeTreeInitialLoad";
+import { isActiveKnowledgeTreeDocument } from "@/lib/knowledgeTreeModel";
 import { noteTemplatesApi } from "@/lib/noteTemplatesApi";
 import {
+  buildKnowledgeTreeExpandedIdsForDepth,
   getKnowledgeTreeExpansionScope,
   getKnowledgeTreeExpansionSnapshot,
   initializeKnowledgeTreeExpansion,
   saveKnowledgeTreeExpansion,
   subscribeKnowledgeTreeExpansion,
+  type KnowledgeTreeVisibleDepth,
 } from "@/lib/knowledgeTreeExpansion";
 import {
   forgetUnlockedFolder,
@@ -81,7 +95,6 @@ import {
 } from "@/lib/knowledgeTreePassword";
 import {
   buildFirstLevelNoteCounts,
-  countOwnedNotes,
 } from "@/lib/knowledgeTreeStats";
 import { toast } from "@/lib/toast";
 import {
@@ -104,10 +117,16 @@ import {
   type KnowledgeTreeOpenFolderDetail,
 } from "@/lib/threeColumnFolderContents";
 import { cn } from "@/lib/utils";
+import NoteColorMarkDot from "@/components/NoteColorMarkDot";
 import {
   filterKnowledgeTreeNodes,
   isSharedRoot,
 } from "@/lib/sharedKnowledgeTree";
+import {
+  KNOWLEDGE_TREE_CLEAR_SEARCH_EVENT,
+  revealCreatedKnowledgeTreeNote,
+  type KnowledgeTreeClearSearchDetail,
+} from "@/lib/knowledgeTreeCreateVisibility";
 import { useApp, useAppActions } from "@/store/AppContext";
 
 export const FOCUS_KNOWLEDGE_TREE_EVENT = "nowen:focus-knowledge-tree";
@@ -139,12 +158,17 @@ function nodeIcon(node: KnowledgeTreeNode) {
       : <Folder size={15} className="text-amber-500" />;
   }
   if (node.nodeType === "markdown") return <FileCode size={15} className="text-emerald-500" />;
+  if (node.nodeType === "mindmap") return <BrainCircuit size={15} className="text-accent-primary" />;
+  if (node.resourceType === "file") return <Paperclip size={15} className="text-amber-500" />;
+  if (node.noteType === "sheet") return <Table2 size={15} className="text-sky-500" />;
   return <FileText size={15} className="text-accent-primary" />;
 }
 
 function draftIcon(kind: KnowledgeTreeInlineCreateKind) {
   if (kind === "folder") return <Folder size={15} className="text-amber-500" />;
   if (kind === "markdown") return <FileCode size={15} className="text-emerald-500" />;
+  if (kind === "mindmap") return <BrainCircuit size={15} className="text-accent-primary" />;
+  if (kind === "sheet") return <Table2 size={15} className="text-sky-500" />;
   return <FileText size={15} className="text-accent-primary" />;
 }
 
@@ -195,6 +219,7 @@ function MovePanel({
   onMoved: () => void;
   onClose: () => void;
 }) {
+  const { t } = useTranslation();
   const blocked = useMemo(() => {
     const result = descendantsOf(node.id, children);
     result.add(node.id);
@@ -217,11 +242,11 @@ function MovePanel({
     try {
       await knowledgeTreeApi.move(node.id, { parentId });
       emitTreeChanged("node-moved");
-      toast.success("已移动");
+      toast.success(t("knowledgeTreeUi.moved"));
       onMoved();
       onClose();
     } catch (error: any) {
-      toast.error(error?.message || "移动失败");
+      toast.error(error?.message || t("knowledgeTreeUi.moveFailed"));
     }
   };
 
@@ -229,8 +254,8 @@ function MovePanel({
     <div className="absolute inset-0 z-[220] flex flex-col bg-app-sidebar">
       <header className="flex h-11 items-center gap-2 border-b border-app-border px-3">
         <Folder size={16} className="text-amber-500" />
-        <div className="min-w-0 flex-1 truncate text-sm font-semibold text-tx-primary">移动“{node.title}”</div>
-        <button type="button" onClick={onClose} className="rounded-md p-1.5 text-tx-tertiary hover:bg-app-hover" aria-label="关闭移动面板"><X size={16} /></button>
+        <div className="min-w-0 flex-1 truncate text-sm font-semibold text-tx-primary">{t("knowledgeTreeUi.moveTitle", { title: node.title })}</div>
+        <button type="button" onClick={onClose} className="rounded-md p-1.5 text-tx-tertiary hover:bg-app-hover" aria-label={t("knowledgeTreeUi.closeMove")}><X size={16} /></button>
       </header>
       <div className="min-h-0 flex-1 overflow-y-auto p-2">
         {allowRoot && (
@@ -240,7 +265,7 @@ function MovePanel({
             onClick={() => void move(null)}
             className="mb-1 flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm text-tx-secondary hover:bg-app-hover hover:text-tx-primary disabled:cursor-not-allowed disabled:opacity-40"
           >
-            <TreePine size={14} className="text-accent-primary" /><span className="truncate">根目录</span>
+            <TreePine size={14} className="text-accent-primary" /><span className="truncate">{t("knowledgeTreeUi.root")}</span>
           </button>
         )}
         {candidates.map((candidate) => (
@@ -248,7 +273,7 @@ function MovePanel({
             {nodeIcon(candidate)}<span className="truncate">{candidate.title}</span>
           </button>
         ))}
-        {candidates.length === 0 && node.parentId === null && <p className="py-10 text-center text-xs text-tx-tertiary">没有可用目标节点</p>}
+        {candidates.length === 0 && node.parentId === null && <p className="py-10 text-center text-xs text-tx-tertiary">{t("knowledgeTreeUi.noTarget")}</p>}
       </div>
     </div>
   );
@@ -293,8 +318,14 @@ export function KnowledgeTreePanel({
   showAllNotesToolbar = true,
   layoutMode = "standard",
 }: KnowledgeTreePanelProps) {
+  const { t } = useTranslation();
   const { state } = useApp();
   const actions = useAppActions();
+  const activeMindMapId = useSyncExternalStore(subscribeMindMapAppPath, getCurrentMindMapAppId, () => null);
+  const [mobileControlsCollapsed] = useMobileSidebarControlsCollapsed();
+  const [sidebarTextStyle] = useSidebarTextStyle();
+  const classicText = sidebarTextStyle === "classic";
+  const controlsCollapsed = variant === "mobile" && mobileControlsCollapsed;
   const threeColumnFolderNavigation = usesThreeColumnFolderNavigation({
     mode: layoutMode,
     noteListCollapsed: state.noteListCollapsed,
@@ -316,9 +347,11 @@ export function KnowledgeTreePanel({
   const [query, setQuery] = useState(() => state.viewMode === "search" ? state.searchQuery : "");
   const [draft, setDraft] = useState<KnowledgeTreeInlineDraft | null>(null);
   const [permissionsNode, setPermissionsNode] = useState<KnowledgeTreeNode | null>(null);
+  const [previewFileId, setPreviewFileId] = useState<string | null>(null);
   const [movingNode, setMovingNode] = useState<KnowledgeTreeNode | null>(null);
   const [batchMoving, setBatchMoving] = useState(false);
   const [selectedNodeIds, setSelectedNodeIds] = useState<Set<string>>(() => new Set());
+  const [pendingCreatedNodeId, setPendingCreatedNodeId] = useState<string | null>(null);
   const [multiSelectMode, setMultiSelectMode] = useState(false);
   const [unlockedFolderIds, setUnlockedFolderIds] = useState<Set<string>>(() => loadUnlockedFolderIds());
   const [passwordDialog, setPasswordDialog] = useState<{ node: KnowledgeTreeNode; mode: "unlock" | "manage" } | null>(null);
@@ -332,6 +365,8 @@ export function KnowledgeTreePanel({
     nodeId: string;
     placement: KnowledgeTreeDropPlacement;
   } | null>(null);
+  const [draggedTreeNodeId, setDraggedTreeNodeId] = useState<string | null>(null);
+  const [rootDropActive, setRootDropActive] = useState(false);
   const draggedTreeNodeIdRef = useRef<string | null>(null);
   const selectionAnchorRef = useRef<string | null>(null);
   const { menu, menuRef, openMenu, openMenuAt, closeMenu } = useContextMenu();
@@ -355,16 +390,22 @@ export function KnowledgeTreePanel({
     saveKnowledgeTreeExpansion(expansionScope, next);
   }, [expansionScope]);
 
-  const reload = useCallback(async () => {
+  const reload = useCallback(async (onEntry = false) => {
     const requestExpansionScope = getKnowledgeTreeExpansionScope();
     setLoading(true);
     setError(null);
     try {
-      const [ownedResult, sharedResult] = await Promise.allSettled([
-        knowledgeTreeApi.list(),
-        knowledgeTreeApi.listShared(),
-      ]);
-      if (ownedResult.status === "rejected") throw ownedResult.reason;
+      const load = async () => {
+        const results = await Promise.allSettled([
+          knowledgeTreeApi.list(),
+          knowledgeTreeApi.listShared(),
+        ]);
+        if (results[0].status === "rejected") throw results[0].reason;
+        return [results[0].value, results[1]] as const;
+      };
+      const [owned, sharedResult] = onEntry
+        ? await loadKnowledgeTreeOnEntry(load)
+        : await load();
       const shared = sharedResult.status === "fulfilled" ? sharedResult.value.nodes : [];
       setSharedLoadError(
         sharedResult.status === "rejected"
@@ -372,7 +413,7 @@ export function KnowledgeTreePanel({
           : null,
       );
       const merged = Array.from(
-        new Map([...ownedResult.value.nodes, ...shared].map((node) => [node.id, node])).values(),
+        new Map([...owned.nodes, ...shared].map((node) => [node.id, node])).values(),
       );
       if (requestExpansionScope !== getKnowledgeTreeExpansionScope()) return;
       const expandableNodeIds = new Set(
@@ -395,7 +436,7 @@ export function KnowledgeTreePanel({
   }, []);
 
   useEffect(() => {
-    if (surfaceActive) void reload();
+    if (surfaceActive) void reload(true);
   }, [reload, surfaceActive]);
 
   useEffect(() => {
@@ -446,6 +487,26 @@ export function KnowledgeTreePanel({
   }, [surfaceActive]);
 
   useEffect(() => {
+    if (!surfaceActive) return;
+    const revealCreatedNote = (event: Event) => {
+      const { parentId, nodeId } = (event as CustomEvent<KnowledgeTreeClearSearchDetail>).detail || {};
+      // 全文搜索由全局 searchQuery 管理，不能把它当作目录树临时筛选清空。
+      if (state.viewMode !== "search") setQuery("");
+      if (typeof parentId === "string") setNodeExpanded(parentId, true);
+      if (nodeId) {
+        setQuery("");
+        if (state.viewMode === "search") {
+          actions.setSearchQuery("");
+          actions.setViewMode(state.selectedNotebookId ? "notebook" : "all");
+        }
+        setPendingCreatedNodeId(nodeId);
+      }
+    };
+    window.addEventListener(KNOWLEDGE_TREE_CLEAR_SEARCH_EVENT, revealCreatedNote);
+    return () => window.removeEventListener(KNOWLEDGE_TREE_CLEAR_SEARCH_EVENT, revealCreatedNote);
+  }, [actions, setNodeExpanded, state.selectedNotebookId, state.viewMode, surfaceActive]);
+
+  useEffect(() => {
     if (!draft) return;
     requestAnimationFrame(() => {
       draftInputRef.current?.focus({ preventScroll: true });
@@ -458,6 +519,23 @@ export function KnowledgeTreePanel({
     () => hideLockedFolderDescendants(nodes, unlockedFolderIds),
     [nodes, unlockedFolderIds],
   );
+  useEffect(() => {
+    if (!pendingCreatedNodeId || !visibleNodes.some((node) => node.id === pendingCreatedNodeId)) return;
+    let parentId = visibleNodes.find((node) => node.id === pendingCreatedNodeId)?.parentId;
+    while (parentId) {
+      setNodeExpanded(parentId, true);
+      parentId = visibleNodes.find((node) => node.id === parentId)?.parentId;
+    }
+    setSelectedNodeIds(new Set([pendingCreatedNodeId]));
+    selectionAnchorRef.current = pendingCreatedNodeId;
+    const frame = requestAnimationFrame(() => {
+      Array.from(rootRef.current?.querySelectorAll<HTMLElement>("[data-knowledge-tree-select-id]") || [])
+        .find((element) => element.dataset.knowledgeTreeSelectId === pendingCreatedNodeId)
+        ?.scrollIntoView({ block: "nearest" });
+      setPendingCreatedNodeId(null);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [pendingCreatedNodeId, setNodeExpanded, visibleNodes]);
   const allChildren = useMemo(() => buildChildren(nodes), [nodes]);
   const selectedNodes = useMemo(
     () => visibleNodes.filter((node) => selectedNodeIds.has(node.id)),
@@ -473,7 +551,7 @@ export function KnowledgeTreePanel({
     && node.scopeKey === selectedNodes[0].scopeKey
     && (node.sharedRootId || null) === (selectedNodes[0].sharedRootId || null)
   ));
-  const firstLevelNoteCounts = useMemo(() => buildFirstLevelNoteCounts(visibleNodes), [visibleNodes]);
+  const firstLevelNoteCounts = useMemo(() => buildFirstLevelNoteCounts(nodes), [nodes]);
   const filteredNodes = useMemo(() => filterKnowledgeTreeNodes(visibleNodes, query), [visibleNodes, query]);
   const children = useMemo(() => buildChildren(filteredNodes), [filteredNodes]);
   const effectiveExpanded = query.trim() ? new Set(filteredNodes.map((node) => node.id)) : expanded;
@@ -482,7 +560,7 @@ export function KnowledgeTreePanel({
     && (children.get(node.id)?.length || 0) > 0
   )).map((node) => node.id);
   const hasExpandedFolders = !query.trim() && expandableFolderIds.some((id) => expanded.has(id));
-  const toggleAllLabel = hasExpandedFolders ? "全部收起" : "全部展开";
+  const toggleAllLabel = hasExpandedFolders ? t("knowledgeTreeUi.collapseAll") : t("knowledgeTreeUi.expandAll");
 
   const clearSelection = useCallback(() => {
     selectionAnchorRef.current = null;
@@ -512,7 +590,9 @@ export function KnowledgeTreePanel({
   const activateNote = useCallback((
     note: Awaited<ReturnType<typeof api.getNote>>,
     treeParentId?: string | null,
+    newlyCreated = false,
   ) => {
+    if (newlyCreated) markNewNoteForImmediateEdit(note.id);
     actions.setActiveNote(note);
     actions.setSelectedNotebook(note.notebookId);
     actions.setSelectedKnowledgeTreeParent(treeParentId);
@@ -544,19 +624,45 @@ export function KnowledgeTreePanel({
     }
   };
 
-  const toggleAll = useCallback(() => {
-    const expanding = !hasExpandedFolders;
-    const targetIds = new Set(expandableFolderIds);
+  const applyVisibleDepth = useCallback((depth: KnowledgeTreeVisibleDepth) => {
+    const targetIds = new Set(buildKnowledgeTreeExpandedIdsForDepth(visibleNodes, depth));
+    saveKnowledgeTreeExpansion(expansionScope, targetIds);
     const changedOwnedFolders = nodes.filter((node) => (
-      node.nodeType === "folder"
-      && targetIds.has(node.id)
-      && !node.sharedRootId
+      node.nodeType === "folder" && !node.sharedRootId
     ));
-    saveKnowledgeTreeExpansion(expansionScope, expanding ? targetIds : []);
     void Promise.allSettled(
-      changedOwnedFolders.map((node) => knowledgeTreeApi.update(node.id, { isExpanded: expanding })),
+      changedOwnedFolders.map((node) => knowledgeTreeApi.update(node.id, {
+        isExpanded: targetIds.has(node.id),
+      })),
     );
-  }, [expandableFolderIds, expansionScope, hasExpandedFolders, nodes]);
+  }, [expansionScope, nodes, visibleNodes]);
+
+  const toggleAll = useCallback(() => {
+    applyVisibleDepth(hasExpandedFolders ? 1 : "all");
+  }, [applyVisibleDepth, hasExpandedFolders]);
+
+  const chooseVisibleDepth = useCallback(async () => {
+    if (query.trim()) return;
+    const choice = await choose({
+      title: t("knowledgeTreeUi.depthTitle"),
+      description: t("knowledgeTreeUi.depthDescription"),
+      choices: [
+        { value: "1", label: t("knowledgeTreeUi.onlyOne") },
+        { value: "2", label: t("knowledgeTreeUi.depthTwo") },
+        { value: "3", label: t("knowledgeTreeUi.depthThree") },
+        { value: "all", label: t("knowledgeTreeUi.allDepth") },
+      ],
+    });
+    if (!choice) return;
+    const depth: KnowledgeTreeVisibleDepth = choice === "all"
+      ? "all"
+      : choice === "2"
+        ? 2
+        : choice === "3"
+          ? 3
+          : 1;
+    applyVisibleDepth(depth);
+  }, [applyVisibleDepth, query, t]);
 
   const runMobileTreeAction = useCallback((value: string) => {
     setMobileActionsOpen(false);
@@ -566,6 +672,16 @@ export function KnowledgeTreePanel({
       if (option) saveKnowledgeTreeSortMode(option.value);
     } else if (value === "toggle") {
       toggleAll();
+    } else if (value.startsWith("depth:")) {
+      const rawDepth = value.slice("depth:".length);
+      const depth: KnowledgeTreeVisibleDepth = rawDepth === "all"
+        ? "all"
+        : rawDepth === "2"
+          ? 2
+          : rawDepth === "3"
+            ? 3
+            : 1;
+      applyVisibleDepth(depth);
     } else if (value === "refresh") {
       void reload();
     } else if (value === "multi-select") {
@@ -573,7 +689,7 @@ export function KnowledgeTreePanel({
       setSelectedNodeIds(new Set());
       selectionAnchorRef.current = null;
     }
-  }, [reload, toggleAll]);
+  }, [applyVisibleDepth, reload, toggleAll]);
 
   const selectFolder = useCallback((node: KnowledgeTreeNode) => {
     if (node.resourceType !== "notebook") return;
@@ -602,8 +718,24 @@ export function KnowledgeTreePanel({
       else await toggle(node);
       return;
     }
+    if (node.resourceType === "mindmap") {
+      rememberOpened(node.id);
+      pushMindMapAppPath(node.resourceId);
+      return;
+    }
+    if (node.resourceType === "file") {
+      rememberOpened(node.id);
+      setPreviewFileId(node.resourceId);
+      if (variant === "mobile") actions.setMobileSidebar(false);
+      return;
+    }
     if (node.resourceType !== "note") return;
     rememberOpened(node.id);
+    if (node.noteType === "sheet") {
+      pushSheetAppPath(node.resourceId);
+      if (variant === "mobile") actions.setMobileSidebar(false);
+      return;
+    }
     try {
       activateNote(await api.getNote(node.resourceId), node.parentId);
     } catch (requestError: any) {
@@ -764,6 +896,7 @@ export function KnowledgeTreePanel({
               ? await importWordIntoKnowledgeTree(options)
               : await importWeChatArticleIntoKnowledgeTree(options);
         if (!imported) return;
+        revealCreatedKnowledgeTreeNote(parent?.id || null);
         activateNote(imported, parent?.id || null);
         emitTreeChanged("node-imported-plus-menu");
         actions.refreshNotes();
@@ -803,6 +936,7 @@ export function KnowledgeTreePanel({
           templateCreateRequest.templateId,
           templateCreateRequest.parentId,
         );
+        revealCreatedKnowledgeTreeNote(templateCreateRequest.parentId);
         if (templateCreateRequest.parentId) {
           setNodeExpanded(templateCreateRequest.parentId, true);
           if (!parent?.sharedRootId) {
@@ -814,7 +948,7 @@ export function KnowledgeTreePanel({
         actions.refreshNotebooks();
         actions.refreshNotes();
         try {
-          activateNote(await api.getNote(result.noteId), templateCreateRequest.parentId);
+          activateNote(await api.getNote(result.noteId), templateCreateRequest.parentId, true);
         } catch (openError: any) {
           toast.error(openError?.message || "文档已创建，但自动打开失败");
         }
@@ -857,17 +991,20 @@ export function KnowledgeTreePanel({
         title,
       });
     } catch (requestError: any) {
+      const message = requestError?.message || "创建失败，请重试";
       setDraft((current) => current ? {
         ...current,
         saving: false,
-        error: requestError?.message || "创建失败，请重试",
+        error: message,
       } : null);
+      toast.error(message);
       requestAnimationFrame(() => draftInputRef.current?.focus());
       return;
     }
 
     setDraft(null);
     if (snapshot.parentId) setNodeExpanded(snapshot.parentId, true);
+    if (snapshot.kind === "note" || snapshot.kind === "markdown") revealCreatedKnowledgeTreeNote(snapshot.parentId);
     emitTreeChanged("node-created-inline");
     await reload();
     actions.refreshNotebooks();
@@ -878,8 +1015,17 @@ export function KnowledgeTreePanel({
       return;
     }
 
+    if (snapshot.kind === "mindmap") {
+      pushMindMapAppPath(created.resourceId);
+      return;
+    }
+    if (snapshot.kind === "sheet") {
+      pushSheetAppPath(created.resourceId);
+      return;
+    }
+
     try {
-      activateNote(await api.getNote(created.resourceId), snapshot.parentId);
+      activateNote(await api.getNote(created.resourceId), snapshot.parentId, true);
     } catch (requestError: any) {
       toast.error(requestError?.message || "文档已创建，但自动打开失败");
     }
@@ -1022,9 +1168,32 @@ export function KnowledgeTreePanel({
       emitTreeChanged("node-moved");
       actions.refreshNotebooks();
       actions.refreshNotes();
-      toast.success("已移动");
+      toast.success(t("knowledgeTreeUi.moved"));
     } catch (requestError: any) {
       toast.error(requestError?.message || "移动失败");
+    }
+  };
+
+  const canDropToRoot = (sourceId: string) => {
+    const source = nodes.find((node) => node.id === sourceId);
+    return !!source
+      && !source.sharedRootId
+      && source.access.capabilities.canMove
+      && source.parentId !== null;
+  };
+
+  const dropToRoot = async (sourceId: string) => {
+    if (!canDropToRoot(sourceId)) return;
+    try {
+      await knowledgeTreeApi.move(sourceId, { parentId: null });
+      await reload();
+      emitTreeChanged("node-moved-root");
+      actions.refreshNotebooks();
+      actions.refreshNotes();
+      toast.success("已移动到根目录");
+    } catch (caughtError: unknown) {
+      const requestError = caughtError as Error & { code?: string };
+      toast.error(requestError?.message || "移动到根目录失败");
     }
   };
 
@@ -1129,7 +1298,7 @@ export function KnowledgeTreePanel({
     const hasChildren = childNodes.length > 0 || node.childCount > 0 || draft?.parentId === node.id;
     const isExpanded = effectiveExpanded.has(node.id);
     const active = (
-      (node.resourceType === "note" && state.activeNote?.id === node.resourceId)
+      isActiveKnowledgeTreeDocument(node, state.viewMode, state.activeNote?.id, activeMindMapId)
       || (
         threeColumnFolderNavigation
         && node.resourceType === "notebook"
@@ -1138,7 +1307,8 @@ export function KnowledgeTreePanel({
       )
     );
     const selected = selectedNodeIds.has(node.id);
-    const actionVisibility = multiSelectMode ? "hidden" : variant === "mobile" ? "flex" : "hidden group-hover:flex";
+    const actionVisibility = variant === "mobile" ? "flex" : "hidden group-hover:flex";
+    const effectiveActionVisibility = multiSelectMode ? "hidden" : actionVisibility;
     const firstLevelNoteCount = depth === 0 && node.nodeType === "folder" && !node.sharedRootId && isFolderUnlocked(node, unlockedFolderIds)
       ? firstLevelNoteCounts.get(node.id) ?? 0
       : null;
@@ -1146,8 +1316,9 @@ export function KnowledgeTreePanel({
       <div key={node.id}>
         <div
           className={cn(
-            "group relative flex min-w-0 items-center text-tx-secondary hover:bg-app-hover hover:text-tx-primary",
-            variant === "mobile" ? "rounded-sm" : "rounded-md",
+            "group relative flex min-w-0 items-center hover:bg-app-hover hover:text-tx-primary",
+            variant === "mobile" || classicText ? "text-tx-secondary" : "text-tx-primary",
+            variant === "mobile" ? "gap-0.5 rounded-sm" : "rounded-md",
             active && "bg-app-active text-tx-primary",
             selected && "bg-accent-primary/10 text-tx-primary ring-1 ring-inset ring-accent-primary/25",
             treeDropTarget?.nodeId === node.id && treeDropTarget.placement === "before"
@@ -1161,6 +1332,8 @@ export function KnowledgeTreePanel({
           draggable={!query.trim() && node.access.capabilities.canMove && !isSharedRoot(node)}
           onDragStart={(event) => {
             draggedTreeNodeIdRef.current = node.id;
+            setDraggedTreeNodeId(node.id);
+            setRootDropActive(false);
             event.dataTransfer.effectAllowed = "move";
             event.dataTransfer.setData("application/x-nowen-tree-node", node.id);
           }}
@@ -1191,6 +1364,8 @@ export function KnowledgeTreePanel({
             const rect = event.currentTarget.getBoundingClientRect();
             const placement = resolveKnowledgeTreeDropPlacement(event.clientY, rect.top, rect.height);
             setTreeDropTarget(null);
+            setDraggedTreeNodeId(null);
+            setRootDropActive(false);
             draggedTreeNodeIdRef.current = null;
             if (!canDropWithTarget(sourceId, node, placement)) return;
             if (placement === "inside") {
@@ -1201,6 +1376,8 @@ export function KnowledgeTreePanel({
           }}
           onDragEnd={() => {
             draggedTreeNodeIdRef.current = null;
+            setDraggedTreeNodeId(null);
+            setRootDropActive(false);
             setTreeDropTarget(null);
           }}
           onContextMenu={(event) => openMenu(event, node.id, "knowledge-node")}
@@ -1218,7 +1395,7 @@ export function KnowledgeTreePanel({
             onClick={() => hasChildren && void toggleDisclosure(node)}
             className={cn(
               "flex shrink-0 items-center justify-center text-tx-tertiary",
-              variant === "mobile" ? "h-6 w-4" : "h-7 w-5",
+              variant === "mobile" ? "h-8 w-5" : "h-7 w-5",
             )}
             aria-label={isExpanded ? "折叠" : "展开"}
           >
@@ -1229,7 +1406,7 @@ export function KnowledgeTreePanel({
             onClick={(event) => handleNodeSelection(event, node)}
             className={cn(
               "flex min-w-0 flex-1 items-center text-left",
-              variant === "mobile" ? "gap-1 py-0.5 text-[11px] leading-4" : "gap-1.5 py-1.5 text-xs",
+              variant === "mobile" ? "gap-1.5 py-1 text-[13px] leading-5" : classicText ? "gap-1.5 py-1.5 text-xs" : "gap-1.5 py-1.5 text-sm leading-5",
             )}
             title={node.title}
           >
@@ -1242,11 +1419,23 @@ export function KnowledgeTreePanel({
               </span>
             )}
             {nodeIcon(node)}
-            <span className="min-w-0 flex-1 truncate">{node.title}</span>
+            {node.resourceType === "note" && <NoteColorMarkDot value={node.colorMark} />}
+            <span className="flex min-w-0 flex-1 items-center gap-1">
+              <span className="min-w-0 truncate">{node.title}</span>
+              {variant === "mobile" && firstLevelNoteCount !== null && (
+                <span
+                  className="shrink-0 text-[10px] tabular-nums text-tx-tertiary"
+                  aria-label={`“${node.title}”下共 ${firstLevelNoteCount} 条笔记`}
+                  data-knowledge-tree-first-level-note-count=""
+                >
+                  {firstLevelNoteCount}
+                </span>
+              )}
+            </span>
             {node.nodeType === "folder" && node.isPasswordProtected === 1 && (
               <LockKeyhole size={11} className="shrink-0 text-tx-tertiary" aria-label="密码保护" />
             )}
-            {firstLevelNoteCount !== null && (
+            {variant !== "mobile" && firstLevelNoteCount !== null && (
               <span
                 className="min-w-4 shrink-0 rounded-full bg-app-hover px-1.5 text-center text-[10px] leading-4 tabular-nums text-tx-tertiary transition-opacity [@media(hover:hover)]:group-hover:opacity-0"
                 aria-label={`“${node.title}”下共 ${firstLevelNoteCount} 条笔记`}
@@ -1283,7 +1472,11 @@ export function KnowledgeTreePanel({
                 event.stopPropagation();
                 startInlineCreate(node, "note");
               }}
-              className={cn("h-6 w-6 items-center justify-center rounded text-tx-tertiary hover:bg-app-active", actionVisibility)}
+              className={cn(
+                "items-center justify-center rounded text-tx-tertiary hover:bg-app-active",
+                variant === "mobile" ? "h-8 w-8" : "h-6 w-6",
+                effectiveActionVisibility,
+              )}
               title="新建文档"
               aria-label={`在“${node.title}”下新建文档`}
             >
@@ -1297,7 +1490,11 @@ export function KnowledgeTreePanel({
               const rect = event.currentTarget.getBoundingClientRect();
               openMenuAt(rect.right, rect.bottom + 4, node.id, "knowledge-node");
             }}
-            className={cn("h-6 w-6 items-center justify-center rounded text-tx-tertiary hover:bg-app-active", actionVisibility)}
+            className={cn(
+              "items-center justify-center rounded text-tx-tertiary hover:bg-app-active",
+              variant === "mobile" ? "h-8 w-8" : "h-6 w-6",
+              effectiveActionVisibility,
+            )}
             title="更多"
           ><MoreHorizontal size={14} /></button>
         </div>
@@ -1314,7 +1511,7 @@ export function KnowledgeTreePanel({
   const rootNodes = children.get(null) || [];
   const ownedRoots = rootNodes.filter((node) => !node.sharedRootId);
   const sharedRoots = rootNodes.filter((node) => Boolean(node.sharedRootId));
-  const ownedNoteCount = countOwnedNotes(nodes);
+  const ownedNotebookCount = nodes.filter((node) => node.nodeType === "folder" && !node.sharedRootId).length;
   const currentSortMode = loadKnowledgeTreeSortMode();
   const hasRootDraft = draft?.parentId === null;
   const compactToolbar = variant === "mobile"
@@ -1399,6 +1596,7 @@ export function KnowledgeTreePanel({
     >
       <div className={cn(
         "flex",
+        controlsCollapsed && "hidden",
         variant === "mobile"
           ? "flex-col items-stretch gap-0.5 px-3 pb-1.5 pt-2"
           : compactToolbar
@@ -1465,6 +1663,17 @@ export function KnowledgeTreePanel({
           <div className="contents">
             <button
               type="button"
+              onClick={() => { void chooseVisibleDepth(); }}
+              disabled={Boolean(query.trim()) || expandableFolderIds.length === 0}
+              className="flex h-7 shrink-0 items-center justify-center rounded-md px-1.5 text-[10px] font-medium text-tx-tertiary hover:bg-app-hover hover:text-tx-primary disabled:cursor-default disabled:opacity-35"
+              title={query.trim() ? "清除筛选后可设置展示层级" : "设置目录展示层级"}
+              aria-label="设置目录展示层级"
+              data-knowledge-tree-depth-control=""
+            >
+              层级
+            </button>
+            <button
+              type="button"
               onClick={toggleAll}
               disabled={Boolean(query.trim()) || expandableFolderIds.length === 0}
               className="flex h-7 w-6 shrink-0 items-center justify-center rounded-md text-tx-tertiary hover:bg-app-hover hover:text-tx-primary disabled:cursor-default disabled:opacity-35 disabled:hover:bg-transparent disabled:hover:text-tx-tertiary"
@@ -1494,7 +1703,7 @@ export function KnowledgeTreePanel({
         ) : null}
       </div>
 
-      {compactToolbar && (
+      {!controlsCollapsed && compactToolbar && (
         <KnowledgeTreeDropdownMenu
           open={mobileActionsOpen}
           anchor={mobileActionsButtonRef.current}
@@ -1506,6 +1715,16 @@ export function KnowledgeTreePanel({
               checked: currentSortMode === option.value,
               sectionLabel: index === 0 ? "排序方式" : undefined,
             })),
+            {
+              value: "depth:1",
+              label: t("knowledgeTreeUi.onlyOne"),
+              disabled: Boolean(query.trim()),
+              separatorBefore: true,
+              sectionLabel: "展示层级",
+            },
+            { value: "depth:2", label: t("knowledgeTreeUi.depthTwo"), disabled: Boolean(query.trim()) },
+            { value: "depth:3", label: t("knowledgeTreeUi.depthThree"), disabled: Boolean(query.trim()) },
+            { value: "depth:all", label: t("knowledgeTreeUi.allDepth"), disabled: Boolean(query.trim()) },
             {
               value: "toggle",
               label: toggleAllLabel,
@@ -1532,7 +1751,10 @@ export function KnowledgeTreePanel({
       )}
 
       <div
-        className="relative min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain px-1 pb-3"
+        className={cn(
+          "relative min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain px-1 pb-3",
+          controlsCollapsed && "pt-1.5",
+        )}
         data-swipe-blocker="knowledge-tree-scroll"
         onClick={(event) => {
           const target = event.target as HTMLElement;
@@ -1542,23 +1764,23 @@ export function KnowledgeTreePanel({
         {loading && nodes.length === 0 ? (
           <div className="flex justify-center py-14"><Loader2 size={20} className="animate-spin text-tx-tertiary" /></div>
         ) : error ? (
-          <div role="status" className="mx-2 mt-4 rounded-xl border border-app-border bg-app-surface/70 px-4 py-5 text-center shadow-sm">
-            <span className="mx-auto flex h-9 w-9 items-center justify-center rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400">
-              <CircleAlert size={18} aria-hidden="true" />
+          <div role="status" className="flex flex-col items-center px-4 py-12 text-center">
+            <span className="flex h-8 w-8 items-center justify-center rounded-full bg-app-hover text-tx-tertiary">
+              <CircleAlert size={16} aria-hidden="true" />
             </span>
-            <p className="mt-3 text-sm font-medium text-tx-primary">内容暂时未加载</p>
+            <p className="mt-2.5 text-xs font-medium text-tx-secondary">内容暂时未加载</p>
             <p className="mx-auto mt-1 max-w-[250px] text-[11px] leading-relaxed text-tx-tertiary">
-              可能是网络波动或服务暂时不可用，本次加载失败不会修改你的笔记数据。
+              连接可能还没准备好，不会影响你的笔记数据。
             </p>
             <button
               type="button"
               onClick={() => void reload()}
-              className="mt-4 inline-flex items-center gap-1.5 rounded-lg bg-accent-primary px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-accent-primary/90"
+              className="mt-3 inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium text-accent-primary hover:bg-app-hover"
             >
               <RefreshCw size={12} aria-hidden="true" />
               重新加载
             </button>
-            <details className="mx-auto mt-3 max-w-[250px] text-left text-[10px] text-tx-tertiary">
+            <details className="mx-auto mt-2 max-w-[250px] text-left text-[10px] text-tx-tertiary">
               <summary className="cursor-pointer select-none text-center hover:text-tx-secondary">查看错误详情</summary>
               <p className="mt-1.5 break-words rounded-md bg-app-bg px-2 py-1.5 leading-relaxed">{error}</p>
             </details>
@@ -1571,17 +1793,59 @@ export function KnowledgeTreePanel({
           </div>
         ) : (
           <>
+            {draggedTreeNodeId && canDropToRoot(draggedTreeNodeId) && (
+              <div
+                data-knowledge-tree-root-drop=""
+                className={cn(
+                  "mx-1 mb-2 flex items-center justify-center gap-2 rounded-lg border border-dashed px-3 py-2 text-xs font-medium transition-colors",
+                  rootDropActive
+                    ? "border-accent-primary bg-accent-primary/10 text-accent-primary"
+                    : "border-app-border text-tx-tertiary",
+                )}
+                onDragOver={(event) => {
+                  if (!event.dataTransfer.types.includes("application/x-nowen-tree-node")) return;
+                  const sourceId = event.dataTransfer.getData("application/x-nowen-tree-node") || draggedTreeNodeIdRef.current || "";
+                  if (!canDropToRoot(sourceId)) return;
+                  event.preventDefault();
+                  event.stopPropagation();
+                  event.dataTransfer.dropEffect = "move";
+                  setRootDropActive(true);
+                  setTreeDropTarget(null);
+                }}
+                onDragLeave={() => setRootDropActive(false)}
+                onDrop={(event) => {
+                  if (!event.dataTransfer.types.includes("application/x-nowen-tree-node")) return;
+                  event.preventDefault();
+                  event.stopPropagation();
+                  const sourceId = event.dataTransfer.getData("application/x-nowen-tree-node") || draggedTreeNodeIdRef.current || "";
+                  setRootDropActive(false);
+                  setDraggedTreeNodeId(null);
+                  draggedTreeNodeIdRef.current = null;
+                  if (canDropToRoot(sourceId)) void dropToRoot(sourceId);
+                }}
+              >
+                <TreePine size={14} />
+                <span>移动到根目录</span>
+              </div>
+            )}
             {(ownedRoots.length > 0 || hasRootDraft) && (
               <div data-knowledge-tree-section="owned">
-                <div className="flex items-center justify-between px-2 pb-1 pt-1 text-[10px] font-semibold uppercase tracking-wider text-tx-tertiary">
+                <div
+                  className={cn(
+                    "flex items-center justify-between px-2 pb-1 pt-1 font-semibold uppercase tracking-wider",
+                    classicText ? "text-[10px] text-tx-tertiary" : variant === "mobile" ? "text-[10px] text-tx-secondary" : "text-xs text-tx-secondary",
+                    controlsCollapsed && "hidden",
+                  )}
+                  data-knowledge-tree-section-heading=""
+                >
                   <span>当前空间</span>
                   {variant !== "mobile" && (
                     <span
                       className="min-w-4 rounded-full bg-app-hover px-1.5 text-center leading-4"
-                      aria-label={`当前空间共 ${ownedNoteCount} 条笔记`}
+                      aria-label={`当前空间共 ${ownedNotebookCount} 个笔记本`}
                       data-knowledge-tree-notebook-count=""
                     >
-                      {ownedNoteCount}
+                      {ownedNotebookCount}
                     </span>
                   )}
                 </div>
@@ -1591,7 +1855,7 @@ export function KnowledgeTreePanel({
             )}
             {sharedRoots.length > 0 && (
               <div className={cn("mt-2 border-t border-app-border pt-2", ownedRoots.length === 0 && !hasRootDraft && "mt-0 border-t-0 pt-0")} data-knowledge-tree-section="shared">
-                <div className="px-2 pb-1 text-[10px] font-semibold uppercase tracking-wider text-tx-tertiary">共享给我</div>
+                <div className={cn("px-2 pb-1 font-semibold uppercase tracking-wider", classicText ? "text-[10px] text-tx-tertiary" : variant === "mobile" ? "text-[10px] text-tx-secondary" : "text-xs text-tx-secondary")}>共享给我</div>
                 {sharedRoots.map((node) => renderNode(node, 0))}
               </div>
             )}
@@ -1602,6 +1866,12 @@ export function KnowledgeTreePanel({
               </div>
             )}
           </>
+        )}
+        {previewFileId && (
+          <AttachmentDetailDrawer
+            attachmentId={previewFileId}
+            onClose={() => setPreviewFileId(null)}
+          />
         )}
         {permissionsNode && (
           <KnowledgeTreePermissionsDialog

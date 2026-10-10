@@ -206,6 +206,8 @@ function requiredScope(pathname: string, method: string): string | null {
   const write = !["GET", "HEAD", "OPTIONS"].includes(method);
   if (pathname === "/api/me") return null;
   if (pathname.startsWith("/api/tokens")) return "__login_only__";
+  if (pathname.startsWith("/api/task-digest")) return "__login_only__";
+  if (pathname === "/api/tasks" || pathname.startsWith("/api/tasks/")) return write ? "tasks:write" : "tasks:read";
   if (pathname.startsWith("/api/notebooks")) return write ? "notebooks:write" : "notebooks:read";
   if (pathname.startsWith("/api/note-templates")) return write ? "notes:write" : "notes:read";
   if (pathname.startsWith("/api/notes")) return write ? "notes:write" : "notes:read";
@@ -445,6 +447,58 @@ async function handleAi(c: Context, next: Next, ctx: TokenAccessContext): Promis
   await next();
 }
 
+/** PAT 的任务访问与笔记本白名单分离：默认仅本人个人任务。
+ * 即使令牌是 unrestricted，也不得通过切换 workspaceId 访问共享工作区。
+ */
+async function handleTokenTasks(c: Context, next: Next, ctx: TokenAccessContext): Promise<void> {
+  const path = c.req.path;
+  const method = c.req.method.toUpperCase();
+  const scope = c.req.query("workspaceId");
+  if (scope && scope !== "personal") {
+    throw new ApiTokenAccessError("任务 Token 暂只支持个人任务", "API_TOKEN_RESOURCE_DENIED");
+  }
+  if (path === "/api/tasks") {
+    if (method !== "GET" && method !== "POST") {
+      throw new ApiTokenAccessError("任务接口不允许该操作", "API_TOKEN_ENDPOINT_DENIED");
+    }
+    if (method === "POST") {
+      const body = await c.req.raw.clone().json().catch(() => ({})) as Record<string, unknown>;
+      if (body.workspaceId || body.parentId || body.noteId || body.projectId) {
+        throw new ApiTokenAccessError("任务 Token 不允许关联工作区、父任务、笔记或项目", "API_TOKEN_RESOURCE_DENIED");
+      }
+    }
+    await next();
+    return;
+  }
+  if (path === "/api/tasks/stats/summary" && method === "GET") {
+    await next();
+    return;
+  }
+  const match = /^\/api\/tasks\/([^/]+)$/.exec(path);
+  if (!match || !["GET", "PUT"].includes(method)) {
+    throw new ApiTokenAccessError("任务 Token 不允许批量、删除或其他高风险操作", "API_TOKEN_ENDPOINT_DENIED");
+  }
+  const task = getDb().prepare("SELECT userId,workspaceId FROM tasks WHERE id=?")
+    .get(decodeURIComponent(match[1])) as { userId: string; workspaceId: string | null } | undefined;
+  if (!task || task.userId !== ctx.userId || task.workspaceId !== null) {
+    throw new ApiTokenAccessError("任务不属于当前用户的个人空间", "API_TOKEN_RESOURCE_DENIED");
+  }
+  if (method === "PUT") {
+    const body = await c.req.raw.clone().json().catch(() => ({})) as Record<string, unknown>;
+    if (body.workspaceId || body.parentId || body.noteId || body.projectId) {
+      throw new ApiTokenAccessError("任务 Token 不允许修改任务资源归属或关联", "API_TOKEN_RESOURCE_DENIED");
+    }
+  }
+  await next();
+  if (method === "GET" && c.res.status >= 200 && c.res.status < 300) {
+    await replaceFilteredResponse(c, (body) => {
+      if (!body || !Array.isArray(body.children)) return body;
+      return { ...body, children: body.children.filter((child: any) =>
+        child.userId === ctx.userId && child.workspaceId == null) };
+    });
+  }
+}
+
 export async function enforceApiTokenAccess(c: Context, next: Next): Promise<Response | void> {
   let ctx: TokenAccessContext | null = null;
   try {
@@ -456,7 +510,7 @@ export async function enforceApiTokenAccess(c: Context, next: Next): Promise<Res
 
     const required = requiredScope(c.req.path, c.req.method.toUpperCase());
     if (required === "__login_only__") {
-      throw new ApiTokenAccessError("API Token 不能管理或创建其他 Token", "API_TOKEN_SELF_MANAGEMENT_DENIED");
+      throw new ApiTokenAccessError("此操作需要用户登录，API Token 无权访问", "API_TOKEN_SELF_MANAGEMENT_DENIED");
     }
     if (required === "__unsupported__") {
       if (ctx.resourceMode === "restricted") {
@@ -466,6 +520,11 @@ export async function enforceApiTokenAccess(c: Context, next: Next): Promise<Res
       return;
     }
     if (required) requireScope(ctx, required);
+    // 对 unrestricted 和 restricted PAT 同样应用个人任务资源边界。
+    if (c.req.path === "/api/tasks" || c.req.path.startsWith("/api/tasks/")) {
+      await handleTokenTasks(c, next, ctx);
+      return;
+    }
 
     if (ctx.resourceMode !== "restricted") {
       await next();

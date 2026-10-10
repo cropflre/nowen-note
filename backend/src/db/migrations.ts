@@ -1,3 +1,8 @@
+import { wechatAssistantQueueColumnsMigration } from "./wechatAssistantQueueColumnsMigration.js";
+import { wechatAssistantMigration } from "./wechatAssistantMigration.js";
+import { pluginInboundMigration } from "./pluginInboundMigration.js";
+import { encryptedNoteConversionMigration } from "./encryptedNoteConversionMigration.js";
+import { encryptedContentV2Migration } from "./encryptedContentV2Migration.js";
 /**
  * Compatibility wrapper around the historical migration list.
  *
@@ -7,6 +12,8 @@
  * activity ledger used by records, trends and heatmaps.
  */
 import type Database from "better-sqlite3";
+import { encryptedBlocksMigration } from "./encryptedBlocksMigration.js";
+import { encryptedNotesMigration } from "./encryptedNotesMigration.js";
 import { markSearchIndexRebuilt, rebuildNormalizedSearchFts, repairSearchContentText } from "../lib/searchIndex.js";
 import {
   MIGRATIONS as BASE_MIGRATIONS,
@@ -21,6 +28,8 @@ import { yjsSubdocumentGenerationMigration } from "./yjsSubdocumentGenerationMig
 import { tagScopeUniquenessMigration } from "./tagScopeUniquenessMigration.js";
 import { knowledgeTreeMigration } from "./knowledgeTreeMigration.js";
 import { knowledgeTreeResourceMigration } from "./knowledgeTreeResourceMigration.js";
+import { knowledgeTreeMindmapMigration } from "./knowledgeTreeMindmapMigration.js";
+import { knowledgeTreeMindmapFolderMigration } from "./knowledgeTreeMindmapFolderMigration.js";
 import { knowledgeTreeParentPreservationMigration } from "./knowledgeTreeParentPreservationMigration.js";
 import { knowledgeTreeLegacySyncMigration } from "./knowledgeTreeLegacySyncMigration.js";
 import { knowledgeTreeStructuralGuardMigration } from "./knowledgeTreeStructuralGuardMigration.js";
@@ -37,6 +46,41 @@ import { taskInboxMigration } from "./taskInboxMigration.js";
 import { workspaceJournalsMigration } from "./workspaceJournalsMigration.js";
 import { noteTemplatesMigration } from "./noteTemplatesMigration.js";
 import { taskReminderTimezoneMigration } from "./taskReminderTimezoneMigration.js";
+import { syncV2LocalStateMigration } from "./syncV2LocalStateMigration.js";
+import { syncChangesV2Migration } from "./syncChangesV2Migration.js";
+import { attachmentSyncStateMigration } from "./attachmentSyncStateMigration.js";
+import { attachmentSyncAutoRegisterMigration } from "./attachmentSyncAutoRegisterMigration.js";
+import { syncOutboxCaptureMigration } from "./syncOutboxCaptureMigration.js";
+import { syncIdentityAndOutboxMigration } from "./syncIdentityAndOutboxMigration.js";
+import { syncBootstrapMigration } from "./syncBootstrapMigration.js";
+import { syncPersonalEntitiesMigration } from "./syncPersonalEntitiesMigration.js";
+import { syncWorkspaceScopeMigration } from "./syncWorkspaceScopeMigration.js";
+import { knowledgeTreeScopeTriggerRepairMigration } from "./knowledgeTreeScopeTriggerRepairMigration.js";
+import { knowledgeTreeRuntimeTriggerRepairMigration } from "./knowledgeTreeRuntimeTriggerRepairMigration.js";
+import { apiTokenUsageMigration } from "./apiTokenUsageMigration.js";
+import { pluginPlatformMigration } from "./pluginPlatformMigration.js";
+import { pluginPlatformV11Migration } from "./pluginPlatformV11Migration.js";
+import { automationPlatformMigration } from "./automationPlatformMigration.js";
+import { extensionEcosystemMigration } from "./extensionEcosystemMigration.js";
+import { extensionEcosystemRc1Migration } from "./extensionEcosystemRc1Migration.js";
+import { pluginUpdateLifecycleMigration } from "./pluginUpdateLifecycleMigration.js";
+import { extensionAdvisoryFreshnessMigration } from "./extensionAdvisoryFreshnessMigration.js";
+import { extensionAdvisorySchemaRepairMigration } from "./extensionAdvisorySchemaRepairMigration.js";
+import { searchNotebookExclusionsMigration } from "./searchNotebookExclusionsMigration.js";
+import { noteThemeContributionMigration } from "./noteThemeContributionMigration.js";
+import { pluginStudioMigration } from "./pluginStudioMigration.js";
+import { syncV2EntitySubscriptionMigration } from "./syncV2EntitySubscriptionMigration.js";
+import { syncV2KnowledgeTreeFeedMigration } from "./syncV2KnowledgeTreeFeedMigration.js";
+import { syncV2KnowledgeTreeOutboxMigration } from "./syncV2KnowledgeTreeOutboxMigration.js";
+import { syncV2KnowledgeTreeReadinessMigration } from "./syncV2KnowledgeTreeReadinessMigration.js";
+import { syncV2KnowledgeTreeConflictMigration } from "./syncV2KnowledgeTreeConflictMigration.js";
+import { syncV2KnowledgeTreeScopeReadinessMigration } from "./syncV2KnowledgeTreeScopeReadinessMigration.js";
+import { lightweightSheetsMigration } from "./lightweightSheetsMigration.js";
+import { attachmentMediaVariantsMigration } from "./attachmentMediaVariantsMigration.js";
+
+import { workspaceIssuesMigration } from "./workspaceIssuesMigration.js";
+import { noteColorMarkMigration } from "./noteColorMarkMigration.js";
+import { noteCommentNotificationsMigration } from "./noteCommentNotificationsMigration.js";
 
 export type { Migration } from "./migrations.impl.js";
 
@@ -330,6 +374,49 @@ export const MIGRATIONS: Migration[] = [
   workspaceJournalsMigration,
   noteTemplatesMigration,
   taskReminderTimezoneMigration,
+  syncV2LocalStateMigration,
+  syncChangesV2Migration,
+  attachmentSyncStateMigration,
+  attachmentSyncAutoRegisterMigration,
+  syncOutboxCaptureMigration,
+  syncIdentityAndOutboxMigration,
+  syncBootstrapMigration,
+  syncPersonalEntitiesMigration,
+  syncWorkspaceScopeMigration,
+  knowledgeTreeScopeTriggerRepairMigration,
+  apiTokenUsageMigration,
+  knowledgeTreeRuntimeTriggerRepairMigration,
+  pluginPlatformMigration,
+  pluginPlatformV11Migration,
+  automationPlatformMigration,
+  extensionEcosystemMigration,
+  extensionEcosystemRc1Migration,
+  pluginUpdateLifecycleMigration,
+  extensionAdvisoryFreshnessMigration,
+  extensionAdvisorySchemaRepairMigration,
+  searchNotebookExclusionsMigration,
+  noteThemeContributionMigration,
+  pluginStudioMigration,
+  knowledgeTreeMindmapMigration,
+  knowledgeTreeMindmapFolderMigration,
+  syncV2EntitySubscriptionMigration,
+  syncV2KnowledgeTreeFeedMigration,
+  syncV2KnowledgeTreeOutboxMigration,
+  syncV2KnowledgeTreeReadinessMigration,
+  syncV2KnowledgeTreeConflictMigration,
+  syncV2KnowledgeTreeScopeReadinessMigration,
+  lightweightSheetsMigration,
+  attachmentMediaVariantsMigration,
+  workspaceIssuesMigration,
+  noteColorMarkMigration,
+  noteCommentNotificationsMigration,
+  encryptedNotesMigration,
+  encryptedBlocksMigration,
+  encryptedNoteConversionMigration,
+  pluginInboundMigration,
+  wechatAssistantMigration,
+  wechatAssistantQueueColumnsMigration,
+  encryptedContentV2Migration,
 ].sort((a, b) => a.version - b.version);
 
 export const CURRENT_SCHEMA_VERSION: number = MIGRATIONS.reduce(

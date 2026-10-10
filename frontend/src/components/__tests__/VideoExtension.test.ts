@@ -5,9 +5,13 @@ import Text from "@tiptap/extension-text";
 import { EditorContent } from "@tiptap/react";
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import * as VideoExtension from "@/components/VideoExtension";
+import {
+  registerAttachmentAccessUrls,
+  resetAttachmentAccessStateForTests,
+} from "@/lib/noteAttachmentAccessBridge";
 
 const { getVideoDisplayStyle, Video } = VideoExtension;
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -29,7 +33,7 @@ function getStopDecision(target: Element): boolean | undefined {
   return decision;
 }
 
-async function renderVideoNodeView() {
+async function renderVideoNodeView(attrs: Record<string, unknown> = {}) {
   const handleMouseDown = vi.fn();
   const editor = new Editor({
     extensions: [Document, Paragraph, Text, Video],
@@ -44,6 +48,7 @@ async function renderVideoNodeView() {
             platform: "file",
             kind: "file",
             filename: "clip.mp4",
+            ...attrs,
           },
         },
       ],
@@ -85,6 +90,10 @@ async function renderVideoNodeView() {
     wrapper: wrapper!,
   };
 }
+
+afterEach(() => {
+  resetAttachmentAccessStateForTests();
+});
 
 describe("VideoExtension file uploads", () => {
   it("inserts uploaded video attachments as file video nodes", () => {
@@ -162,6 +171,41 @@ describe("VideoExtension file uploads", () => {
 });
 
 describe("VideoExtension NodeView events", () => {
+  it("refreshes a mounted video when signed attachment access arrives late", async () => {
+    const attachmentId = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
+    const fixture = await renderVideoNodeView({
+      src: `/api/attachments/${attachmentId}?inline=1`,
+      originalUrl: `/api/attachments/${attachmentId}`,
+      attachmentId,
+    });
+
+    try {
+      expect(fixture.video.getAttribute("src")).not.toContain("sig=");
+
+      await act(async () => {
+        registerAttachmentAccessUrls(
+          {
+            [attachmentId]: `/api/attachments/${attachmentId}?exp=2000000000&sig=server-value&scope=v2.user`,
+          },
+          "http://192.168.1.171:3001/api/attachments/access/urls?noteId=note-1",
+        );
+      });
+
+      const refreshedVideo = fixture.wrapper.querySelector<HTMLVideoElement>("video");
+      expect(refreshedVideo).not.toBe(fixture.video);
+      const refreshed = new URL(refreshedVideo!.src);
+      expect(refreshed.origin).toBe("http://192.168.1.171:3001");
+      expect(refreshed.searchParams.get("inline")).toBe("1");
+      expect(refreshed.searchParams.get("sig")).toBe("server-value");
+    } finally {
+      await act(async () => {
+        fixture.root.unmount();
+      });
+      fixture.editor.destroy();
+      fixture.host.remove();
+    }
+  });
+
   it("keeps native video control events away from ProseMirror", () => {
     const video = document.createElement("video");
 

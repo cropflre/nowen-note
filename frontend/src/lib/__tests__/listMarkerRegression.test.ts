@@ -16,6 +16,23 @@ describe("list marker regressions", () => {
     }
   });
 
+  it("limits completion decoration to own paragraphs across share and exports", () => {
+    const main = read("src/index.css");
+    const markers = read("src/editor-list-markers.css");
+    const htmlExport = read("src/lib/exportServiceCore.ts");
+    const imageExport = read("src/lib/noteImageExportCore.ts");
+    const shared = read("src/components/SharedNoteView.tsx");
+    expect(main).toContain('li.task-list-item[data-checked="true"] > p > .nowen-task-item-text');
+    expect(main).toContain('li[data-type="taskItem"][data-checked="true"] > div > p');
+    expect(markers).toContain('li.task-item[data-checked="true"] > div > p');
+    expect(markers).not.toContain('li.task-item[data-checked="true"] > div,');
+    expect(shared).toContain('class="task-item" data-checked=');
+    for (const source of [htmlExport, imageExport]) {
+      expect(source).toContain('li[data-type="taskItem"][data-checked="true"] > p');
+      expect(source).toContain('li[data-type="taskItem"][data-checked="true"] > div > p');
+    }
+  });
+
   it("keeps ordered markers scoped to direct children", () => {
     const source = read("src/index.css");
     expect(source).toContain(".ProseMirror ol > li");

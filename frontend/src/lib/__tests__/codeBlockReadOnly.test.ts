@@ -18,6 +18,7 @@ const VIEW_ACTIONS: CodeBlockToolbarAction[] = [
 
 const MUTATING_ACTIONS: CodeBlockToolbarAction[] = [
   "language",
+  "format",
   "dissolve",
 ];
 

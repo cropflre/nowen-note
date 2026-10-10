@@ -139,6 +139,27 @@ describe("NoteLoadCoordinator", () => {
     expect(onSuccess).toHaveBeenCalledWith("ok");
   });
 
+  it("lets a later navigation dismiss an already failed request", async () => {
+    vi.useFakeTimers();
+    const coordinator = new NoteLoadCoordinator();
+    const { events, sink } = createSink();
+
+    const result = await coordinator.run({
+      noteId: "trashed-note",
+      summary: { title: "Trash", notebookId: "nb" },
+      sink,
+      request: async () => { throw new Error("资源不存在"); },
+      onSuccess: vi.fn(),
+    });
+
+    expect(result.status).toBe("error");
+    expect(events.at(-1)).toBe("fail:1:资源不存在");
+    expect(coordinator.clearFailed()).toBe(true);
+    expect(events.at(-1)).toBe("finish:1");
+    expect(coordinator.clearFailed()).toBe(false);
+    expect(await coordinator.retry()).toBeNull();
+  });
+
   it("turns a hanging request into a retryable timeout error", async () => {
     vi.useFakeTimers();
     const coordinator = new NoteLoadCoordinator();

@@ -318,6 +318,20 @@ const LargeMarkdownSafeEditor = forwardRef<
       };
     },
     isReady: () => !!viewRef.current,
+    insertMarkdownAtCursor: (markdownText: string) => {
+      const view = viewRef.current;
+      if (!view || !editable) return false;
+      const selection = view.state.selection.main;
+      const from = selection.from;
+      const to = selection.to;
+      view.dispatch({
+        changes: { from, to, insert: markdownText },
+        selection: { anchor: from + markdownText.length },
+        scrollIntoView: true,
+      });
+      view.focus();
+      return true;
+    },
     appendMarkdown: (markdownText: string) => {
       const view = viewRef.current;
       if (!view || !editable) return false;
@@ -701,6 +715,7 @@ const LargeMarkdownSafeEditor = forwardRef<
           >
             <MarkdownPreview
               markdown={previewMarkdown}
+              noteId={isGuest ? undefined : note.id}
               containerRef={previewRootRef}
               className="h-full"
               onTaskCheckboxChange={editable ? handlePreviewTaskCheckboxChange : undefined}

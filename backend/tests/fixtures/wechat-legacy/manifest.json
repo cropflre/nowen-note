@@ -1,0 +1,38 @@
+{
+  "id": "nowenlab.wechat-capture",
+  "name": "微信采集助手",
+  "description": "连接微信后，发送单篇或多篇文章链接，自动保存到微信收件箱。",
+  "version": "1.1.0",
+  "apiVersion": 2,
+  "publisher": "nowenlab",
+  "engines": { "nowen": ">=1.5.0 <2.0.0" },
+  "categories": ["capture"],
+  "repository": "https://github.com/cropflre/nowen-note",
+  "license": "AGPL-3.0",
+  "runtime": "node-action",
+  "main": "index.mjs",
+  "permissions": ["notes:write", "notebooks:read", "tags:read", "tags:write", "plugin-storage:read", "plugin-storage:write", "secrets:use", "capture:write"],
+  "connections": [
+    { "id": "callback-token", "name": "微信公众号 Token", "type": "bearer" },
+    { "id": "encoding-key", "name": "EncodingAESKey（兼容/安全模式）", "type": "bearer" },
+    { "id": "app-secret", "name": "公众号 AppSecret（由部署管理员配置）", "type": "bearer" }
+  ],
+  "actions": [
+    { "id": "bind-code", "name": "生成绑定码", "execution": "interactive", "input": {} },
+    { "id": "unbind", "name": "解除 OpenID 绑定", "execution": "interactive", "input": {} },
+    { "id": "handle-message", "name": "校验并应答微信回调", "execution": "interactive", "input": { "method": { "type": "string", "required": true }, "query": { "type": "object", "required": true }, "headers": { "type": "object", "required": true }, "body": { "type": "string", "required": true } } },
+    { "id": "capture-message", "name": "保存微信消息", "execution": "background", "retryable": false, "input": { "sender": { "type": "string", "required": true }, "messageId": { "type": "string", "required": true }, "text": { "type": "string", "required": true } } },
+    {"id": "verify-message", "name": "校验共享助手消息", "execution": "interactive", "input": {"method": {"type": "string", "required": true}, "query": {"type": "object", "required": true}, "headers": {"type": "object", "required": true}, "body": {"type": "string", "required": true}}},
+    {"id": "reply-message", "name": "回复助手消息", "execution": "interactive", "input": {"message": {"type": "object", "required": true}, "text": {"type": "string", "required": true}, "encrypted": {"type": "boolean", "required": true}}},
+    {"id": "capture-article", "name": "采集收件箱文章", "execution": "background", "retryable": false, "input": {"url": {"type": "string", "required": true}, "itemId": {"type": "string", "required": true}, "notebookId": {"type": "string", "required": true}}}
+  ],
+  "contributes": {
+    "inboundWebhooks": [{ "id": "wechat", "path": "wechat", "action": "handle-message", "methods": ["GET", "POST"], "maxBodyBytes": 131072, "backgroundAction": "capture-message" }],
+    "settings": [
+      { "key": "notebook-id", "title": "目标笔记本 ID", "type": "string", "default": "" },
+      { "key": "tags", "title": "标签（英文逗号分隔）", "type": "string", "default": "微信,稍后阅读" },
+      { "key": "app-id", "title": "公众号 AppID（加密模式必填）", "type": "string", "default": "" },
+      { "key": "mode", "title": "消息模式", "type": "select", "options": ["plain", "encrypted"], "default": "plain", "description": "兼容模式和安全模式均选择 encrypted，避免明文降级。" }
+    ]
+  }
+}

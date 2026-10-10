@@ -1,38 +1,27 @@
-import React, { useMemo, useState } from "react";
-import { Check, Copy } from "lucide-react";
+import React, { useMemo, useState, useSyncExternalStore } from "react";
+import { Check, Copy, Maximize2, Minimize2 } from "lucide-react";
 import { createCodeBlockLowlight } from "@/lib/codeBlockLowlight";
+import { getCodeBlockLanguageDisplayLabel } from "@/lib/codeBlockLanguageRegistry";
+import { resolveMarkdownCodeBlockLanguage } from "@/lib/markdownCodeBlockLanguage";
 import { instrumentPhaseALowlight } from "@/lib/phaseAPerfDiagnostics";
 import { isPlainTextLanguage } from "@/lib/codeBlockHighlightPlugin";
 import { copyText } from "@/lib/clipboard";
 import { cn } from "@/lib/utils";
+import { CodeBlockFormatButton } from "@/components/CodeBlockFormatButton";
+import { HtmlCodeBlockRunButton } from "@/components/HtmlCodeBlockRunButton";
+import {
+  CODE_BLOCK_TOOLBAR_CLASS,
+  CODE_BLOCK_TOOL_BUTTON_CLASS,
+  CODE_BLOCK_WRAPPER_CLASS,
+  getCodeBlockCollapseMode,
+  shouldCollapseCodeBlock,
+  subscribeCodeBlockCollapseMode,
+} from "@/lib/codeBlockPresentation";
+import "@/markdown-code-highlight.css";
+import { isEncryptedBlockLanguage } from "@/lib/encryptedNotes/blockDocument";
+import EncryptedBlockCard from "./EncryptedBlockCard";
 
 const lowlight = instrumentPhaseALowlight(createCodeBlockLowlight());
-
-const LANGUAGE_LABELS: Record<string, string> = {
-  bash: "Bash",
-  shell: "Shell",
-  sh: "Shell",
-  css: "CSS",
-  html: "HTML",
-  xml: "XML",
-  javascript: "JavaScript",
-  js: "JavaScript",
-  jsx: "JSX",
-  json: "JSON",
-  markdown: "Markdown",
-  md: "Markdown",
-  maxscript: "MAXScript",
-  ms: "MAXScript",
-  mcr: "MAXScript",
-  python: "Python",
-  py: "Python",
-  sql: "SQL",
-  typescript: "TypeScript",
-  ts: "TypeScript",
-  tsx: "TSX",
-  yaml: "YAML",
-  yml: "YAML",
-};
 
 function normalizeLanguage(className?: string): string {
   return className?.match(/(?:^|\s)language-([^\s]+)/)?.[1]?.toLowerCase() || "text";
@@ -55,13 +44,25 @@ function renderLowlightNode(node: any, key: React.Key): React.ReactNode {
 export interface MarkdownCodeBlockProps {
   className?: string;
   children?: React.ReactNode;
+  onFormat?: () => Promise<void>;
+  onEditEncryptedBlock?: () => void;
 }
 
 /** Shared Markdown code block with the same core affordances as rich-text code blocks. */
-export function MarkdownCodeBlock({ className, children }: MarkdownCodeBlockProps) {
+export function MarkdownCodeBlock({ className, children, onFormat, onEditEncryptedBlock }: MarkdownCodeBlockProps) {
+  if (isEncryptedBlockLanguage(normalizeLanguage(className))) return <EncryptedBlockCard language={normalizeLanguage(className)} source={String(children ?? "").replace(/\n$/, "")} onEdit={onEditEncryptedBlock} />;
+  return <OrdinaryMarkdownCodeBlock className={className} onFormat={onFormat}>{children}</OrdinaryMarkdownCodeBlock>;
+}
+function OrdinaryMarkdownCodeBlock({ className, children, onFormat }: MarkdownCodeBlockProps) {
   const [copied, setCopied] = useState(false);
-  const language = normalizeLanguage(className);
+  const [collapseOverride, setCollapseOverride] = useState<boolean | null>(null);
+  const collapseMode = useSyncExternalStore(
+    subscribeCodeBlockCollapseMode,
+    getCodeBlockCollapseMode,
+    getCodeBlockCollapseMode,
+  );
   const code = String(children ?? "").replace(/\n$/, "");
+  const language = resolveMarkdownCodeBlockLanguage(code, normalizeLanguage(className));
 
   const highlighted = useMemo(() => {
     if (isPlainTextLanguage(language)) return code;
@@ -80,29 +81,57 @@ export function MarkdownCodeBlock({ className, children }: MarkdownCodeBlockProp
     window.setTimeout(() => setCopied(false), 1400);
   };
 
-  const label = LANGUAGE_LABELS[language] || (language === "text" ? "Text" : language.toUpperCase());
+  const label = getCodeBlockLanguageDisplayLabel(language);
   const lineCount = code ? code.split("\n").length : 0;
+  const collapsed = collapseOverride ?? shouldCollapseCodeBlock(collapseMode, lineCount);
 
   return (
-    <div className="group/code my-4 overflow-hidden rounded-xl border border-app-border bg-app-hover/70 shadow-sm">
-      <div className="flex h-9 items-center gap-2 border-b border-app-border/70 bg-app-surface/80 px-3 text-[11px] text-tx-tertiary">
-        <span className="font-medium text-tx-secondary">{label}</span>
-        <span className="opacity-50">·</span>
-        <span>{lineCount} {lineCount === 1 ? "line" : "lines"}</span>
-        <button
-          type="button"
-          onClick={() => void handleCopy()}
-          className="ml-auto inline-flex h-7 items-center gap-1 rounded-md px-2 transition hover:bg-app-hover hover:text-tx-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary/50"
-          aria-label={copied ? "Copied" : "Copy code"}
-          title={copied ? "Copied" : "Copy code"}
-        >
-          {copied ? <Check size={13} /> : <Copy size={13} />}
-          <span>{copied ? "Copied" : "Copy"}</span>
-        </button>
+    <div className={CODE_BLOCK_WRAPPER_CLASS}>
+      <div className={CODE_BLOCK_TOOLBAR_CLASS}>
+        <div className="flex min-w-0 items-center gap-2">
+          <span className="font-medium text-tx-secondary">{label}</span>
+          <span className="opacity-50">·</span>
+          <span>{lineCount} {lineCount === 1 ? "line" : "lines"}</span>
+        </div>
+        <div className="ml-auto flex items-center gap-1">
+          <button
+            type="button"
+            onClick={() => setCollapseOverride(!collapsed)}
+            className={CODE_BLOCK_TOOL_BUTTON_CLASS}
+            title={collapsed ? "展开代码" : "折叠代码"}
+            aria-label={collapsed ? "展开代码" : "折叠代码"}
+          >
+            {collapsed ? <Maximize2 size={13} /> : <Minimize2 size={13} />}
+            <span className="hidden sm:inline">{collapsed ? "展开" : "折叠"}</span>
+          </button>
+          {onFormat && <CodeBlockFormatButton language={language} onFormat={onFormat} />}
+          <HtmlCodeBlockRunButton language={language} source={code} />
+          <button
+            type="button"
+            onClick={() => void handleCopy()}
+            className={CODE_BLOCK_TOOL_BUTTON_CLASS}
+            aria-label={copied ? "Copied" : "Copy code"}
+            title={copied ? "Copied" : "Copy code"}
+          >
+            {copied ? <Check size={13} /> : <Copy size={13} />}
+            <span>{copied ? "Copied" : "Copy"}</span>
+          </button>
+        </div>
       </div>
-      <pre className="max-w-full overflow-x-auto p-4 text-sm leading-6 [tab-size:2]">
-        <code className={cn("font-mono text-tx-primary", className)}>{highlighted}</code>
-      </pre>
+      <div className="relative">
+        <pre
+          className="code-block-pre max-w-full overflow-x-auto p-4 text-sm leading-6 [tab-size:2]"
+          style={collapsed ? { maxHeight: "120px", overflow: "hidden" } : undefined}
+        >
+          <code className={cn("code-block-content nowen-code-highlight font-mono text-tx-primary", className)}>{highlighted}</code>
+        </pre>
+        {collapsed && (
+          <div
+            className="absolute bottom-0 left-0 right-0 h-12 pointer-events-none"
+            style={{ background: "linear-gradient(transparent, var(--code-bg, #1e1e2e))" }}
+          />
+        )}
+      </div>
     </div>
   );
 }

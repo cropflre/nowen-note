@@ -37,6 +37,7 @@ import TextAlign from "@tiptap/extension-text-align";
 import { IndentExtension } from "@/lib/codeBlockIndent";
 import { common, createLowlight } from "lowlight";
 import TurndownService from "turndown";
+import { getRichTextExtensions, addRichTextMarkdownRules } from "./richTextExtensions";
 import { parser as baseMdParser } from "@lezer/markdown";
 import { GFM } from "@lezer/markdown";
 import type { SyntaxNode } from "@lezer/common";
@@ -44,6 +45,7 @@ import { MathInline, MathBlock } from "@/components/MathExtensions";
 import { FootnoteReference, FootnoteDefinition } from "@/components/FootnoteExtensions";
 import { TextStyleKit } from "@/components/FontSizeExtension";
 import { Video as VideoExtension, videoNodeToMarkdown } from "@/components/VideoExtension";
+import { VoiceMemo } from "@/components/VoiceMemoExtension";
 import { BlockEmbedExtension } from "@/components/BlockEmbedExtension";
 import { preprocessInternalNoteLinks } from "@/lib/noteLinkSyntax";
 import { projectMarkdownForUser } from "@/lib/markdownUserContent";
@@ -140,6 +142,7 @@ export function getTiptapExtensions() {
   _extensions = [
     StarterKit.configure({
       codeBlock: false,
+      underline: false,
       heading: { levels: [1, 2, 3, 4, 5, 6] },
     }),
     Image.extend({
@@ -208,7 +211,9 @@ export function getTiptapExtensions() {
     // 视频节点：必须与 TiptapEditor 保持一致，否则 generateHTML 时 video 节点
     // 会被 schema 过滤，导致切换到 MD 后视频丢失。
     VideoExtension,
+    VoiceMemo,
     BlockEmbedExtension,
+    ...getRichTextExtensions(),
   ];
   return _extensions;
 }
@@ -224,6 +229,7 @@ function getTurndown(): TurndownService {
     // 换行用两个空格 + \n 的形式会破坏一些 MD 解析器，这里用硬换行
     br: "  ",
   });
+  addRichTextMarkdownRules(td);
 
   // 任务列表
   td.addRule("taskListItem", {
@@ -478,6 +484,9 @@ function getTurndown(): TurndownService {
     },
   });
 
+  // 标准 HTML 音频块在两种编辑器之间往返时保留媒体及元数据。
+  td.keep(["audio"]);
+
   // Persist universal block identity in Markdown using the compatible `^blk_xxx` suffix.
   td.addRule("nowenBlockId", {
     filter: (node) => {
@@ -615,6 +624,8 @@ export function markdownToPlainText(md: string): string {
   text = text.replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1");
   // Nowen 内部链接 / 块嵌入：别名保留，自动标题保留稳定 ID 的可读占位。
   text = text.replace(/!?\[\[note:[0-9a-f-]{36}(?:#blk:[A-Za-z0-9_-]+)?(?:\|([^\]]+))?\]\]/gi, (_match, alias) => alias || "关联笔记");
+  // 原生思维导图引用是结构元数据，不把 UUID 暴露到全文摘要。
+  text = text.replace(/!\[\[mindmap:[0-9a-f-]{36}\]\]/gi, "思维导图");
   // 链接
   text = text.replace(/\[([^\]]+)\]\([^)]*\)/g, "$1");
   // HTML 标签（含 <span style="color/font-size"> 这类 inline 样式包装：

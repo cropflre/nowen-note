@@ -19,6 +19,7 @@ import {
   shouldRetryTiptapBlockPatch,
 } from "@/lib/tiptapBlockPatchRuntime";
 import { useAppActions } from "@/store/AppContext";
+import { isAndroidNativeRuntime } from "@/lib/mobileLocalMode";
 
 type AppActions = ReturnType<typeof useAppActions>;
 
@@ -73,7 +74,7 @@ const MarkdownEditor = forwardRef<NoteEditorHandle, MarkdownEditorProps>(
       () => !richTextSafeMode && shouldUseLargeMarkdownOptimizedMode(normalizedMarkdown),
       [normalizedMarkdown, richTextSafeMode],
     );
-    const blockPatchEnabled = note.contentFormat === "markdown"
+    const blockPatchEnabled = !isAndroidNativeRuntime() && note.contentFormat === "markdown"
       && props.editable !== false
       && props.isGuest !== true
       && !props.yDoc;

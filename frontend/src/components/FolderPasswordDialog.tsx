@@ -11,7 +11,7 @@ export default function FolderPasswordDialog({
   onUnlocked,
   onChanged,
 }: {
-  node: KnowledgeTreeNode;
+  node: Pick<KnowledgeTreeNode, "id" | "title" | "isPasswordProtected">;
   mode: "unlock" | "manage";
   onClose: () => void;
   onUnlocked: (nodeId: string, unlockToken: string) => void;

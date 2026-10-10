@@ -15,6 +15,13 @@ import { getDb } from "../db/schema.js";
 import { initWebhookTables, emitWebhook } from "../services/webhook.js";
 
 const webhooksRouter = new Hono();
+function isSafeDestination(raw: unknown): raw is string {
+  if (typeof raw !== "string" || raw.length > 2048) return false;
+  try {
+    const u = new URL(raw);
+    return u.protocol === "https:" && !u.username && !u.password && !u.hash;
+  } catch { return false; }
+}
 
 // 确保表已创建
 let tablesReady = false;
@@ -44,7 +51,7 @@ webhooksRouter.post("/", async (c) => {
   const userId = c.req.header("X-User-Id") || "";
   const body = await c.req.json() as { url: string; events?: string[]; description?: string; secret?: string };
 
-  if (!body.url) return c.json({ error: "url 不能为空" }, 400);
+  if (!isSafeDestination(body.url)) return c.json({ error: "Webhook 仅支持 HTTPS URL" }, 400);
 
   const db = getDb();
   const id = crypto.randomUUID();
@@ -86,7 +93,10 @@ webhooksRouter.put("/:id", async (c) => {
   const updates: string[] = [];
   const values: any[] = [];
 
-  if (body.url !== undefined) { updates.push("url = ?"); values.push(body.url); }
+  if (body.url !== undefined) {
+    if (!isSafeDestination(body.url)) return c.json({ error: "Webhook 仅支持 HTTPS URL" }, 400);
+    updates.push("url = ?"); values.push(body.url);
+  }
   if (body.events !== undefined) { updates.push("events = ?"); values.push(JSON.stringify(body.events)); }
   if (body.description !== undefined) { updates.push("description = ?"); values.push(body.description); }
   if (body.isActive !== undefined) { updates.push("isActive = ?"); values.push(body.isActive); }

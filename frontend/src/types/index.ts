@@ -171,6 +171,8 @@ export interface Notebook {
   children?: Notebook[];
 }
 
+export type NoteColorMark = "red" | "orange" | "yellow" | "green" | "blue" | "purple" | "gray";
+
 export interface Note {
   id: string;
   userId: string;
@@ -187,6 +189,8 @@ export interface Note {
   isArchived: number;
   isTrashed: number;
   trashedAt: string | null;
+  themeId?: string | null;
+  colorMark?: NoteColorMark | null;
   version: number;
   sortOrder: number;
   createdAt: string;
@@ -211,6 +215,7 @@ export interface NoteListItem {
   isLocked: number;
   isArchived: number;
   isTrashed: number;
+  colorMark?: NoteColorMark | null;
   version: number;
   sortOrder?: number;
   createdAt: string;
@@ -238,6 +243,8 @@ export interface Tag {
 }
 
 export interface SearchResult {
+  /** Unified search resource discriminator. Older servers may omit it, which means note. */
+  resourceType?: "note" | "mindmap" | "sheet";
   id: string;
   title: string;
   notebookId: string;
@@ -253,7 +260,7 @@ export interface SearchResult {
   matchedField?: string;
 }
 
-export type ViewMode = "notebook" | "favorites" | "trash" | "all" | "search" | "tasks" | "tag" | "mindmaps" | "ai-chat" | "diary" | "files" | "shares";
+export type ViewMode = "notebook" | "favorites" | "trash" | "all" | "search" | "tasks" | "tag" | "mindmaps" | "ai-chat" | "diary" | "files" | "shares" | "issues";
 
 // ========== 文件管理（/api/files 聚合视图） ==========
 
@@ -658,6 +665,8 @@ export interface MindMap {
   data: string; // JSON string of MindMapData
   createdAt: string;
   updatedAt: string;
+  /** 当前会话是否具备源导图编辑权限；GET /mindmaps/:id 返回。 */
+  canEdit?: boolean;
 }
 
 export interface MindMapListItem {
@@ -740,6 +749,8 @@ export interface Share {
   shareType: string;
   permission: SharePermission;
   hasPassword: boolean;
+  /** Server-side credential epoch; lets an in-memory copy secret detect a reset. */
+  credentialVersion?: number;
   expiresAt: string | null;
   maxViews: number | null;
   viewCount: number;
@@ -797,6 +808,13 @@ export interface ShareInfo {
   createdAt: string;
 }
 
+export interface SharedMindMapSnapshot {
+  id: string;
+  title: string;
+  data: string;
+  updatedAt: string;
+}
+
 export interface SharedNoteContent {
   /** 关联的笔记 ID（访客编辑时作为伪 Note.id 使用） */
   noteId?: string;
@@ -815,6 +833,8 @@ export interface SharedNoteContent {
    * 直接进入编辑模式（自动以作者身份保存）。
    */
   ownerId?: string;
+  /** #790：公开分享只下发正文明确引用且通过服务端权限校验的只读导图快照。 */
+  mindMapSnapshots?: Record<string, SharedMindMapSnapshot>;
 }
 
 // 版本历史
@@ -838,6 +858,15 @@ export interface NoteVersion {
 // userId 为 null 表示未登录访客评论（公开分享 + comment 权限场景）；
 // 此时 guestName 是访客自填的昵称，前端显示用 displayName（后端合成的统一字段）。
 // isGuest=true 时 UI 上可以加"访客"标记或不同颜色，与登录用户区分。
+export interface ManagedNoteComment extends ShareComment {
+  noteTitle: string;
+  workspaceId: string | null;
+}
+export interface NoteCommentListResponse {
+  items: ManagedNoteComment[];
+  total: number;
+}
+
 export interface ShareComment {
   id: string;
   noteId: string;

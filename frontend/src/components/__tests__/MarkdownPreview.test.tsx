@@ -10,6 +10,21 @@ import {
   buildMarkdownPreviewHeadingIndex,
   scrollMarkdownPreviewToPosition,
 } from "@/lib/markdownPreviewOutline";
+import { installAndroidNativeHttpBridge } from "@/lib/androidNativeHttpBridge";
+
+const nativeHttp = vi.hoisted(() => ({ platform: "web", request: vi.fn() }));
+vi.mock("@capacitor/core", async (importOriginal) => {
+  const original = await importOriginal<typeof import("@capacitor/core")>();
+  return {
+    ...original,
+    Capacitor: {
+      ...original.Capacitor,
+      getPlatform: () => nativeHttp.platform,
+      isNativePlatform: () => nativeHttp.platform === "android",
+    },
+    CapacitorHttp: { request: nativeHttp.request },
+  };
+});
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -29,8 +44,11 @@ describe("MarkdownPreview task checkboxes", () => {
   let host: HTMLDivElement;
   let root: Root;
   let scrollCalls: HTMLElement[];
+  let cleanupNativeHttp: (() => void) | null = null;
 
   beforeEach(() => {
+    nativeHttp.platform = "web";
+    nativeHttp.request.mockReset();
     resetAttachmentAccessStateForTests();
     host = document.createElement("div");
     document.body.appendChild(host);
@@ -44,11 +62,64 @@ describe("MarkdownPreview task checkboxes", () => {
 
   afterEach(() => {
     act(() => root.unmount());
+    cleanupNativeHttp?.();
+    cleanupNativeHttp = null;
     host.remove();
     document.body.innerHTML = "";
     vi.clearAllMocks();
+    vi.restoreAllMocks();
     vi.unstubAllGlobals();
     delete (HTMLElement.prototype as { scrollIntoView?: unknown }).scrollIntoView;
+  });
+
+  it("preserves ordered list start values across standalone attachment links (numbering regression)", async () => {
+    // The procurement manual uses separate list items and attachment paragraphs.
+    // Each sequence becomes a distinct <ol start="N"> under CommonMark.
+    const markdown = [
+      "7. 会签部门选：生产团队项目经理",
+      "",
+      "[会签部门](/api/attachments/95ec9280-fd03-44f2-8c6f-2e0198695527)",
+      "",
+      "8. 省公司归口会签选：采购部-张玲",
+      "",
+      "[省公司归口会签](/api/attachments/e66bb0f3-cfaa-4c81-a5c9-c0719a793394)",
+      "",
+      "9. 采购实施方案阐述：复制招标公司提供的方案",
+      "",
+      "[采购实施方案阐述](/api/attachments/a01d13ad-08f0-4a20-92e4-ec6939a5070a)",
+      "",
+      "10. 编辑签报内容（需下载插件）",
+      "",
+      "[编辑签报内容](/api/attachments/c17f2055-8446-434c-ba7a-ee4f98380b82)",
+      "",
+      "11. 其他选项可见下图",
+    ].join("\n");
+
+    await act(async () => { root.render(<MarkdownPreview markdown={markdown} />); });
+
+    const lists = [...host.querySelectorAll<HTMLOListElement>("ol")];
+    expect(lists).toHaveLength(5);
+    expect(lists.map((list) => list.start)).toEqual([7, 8, 9, 10, 11]);
+    expect(lists.map((list) => list.getAttribute("start"))).toEqual(["7", "8", "9", "10", "11"]);
+    expect(host.querySelectorAll('a[href^="/api/attachments/"]')).toHaveLength(4);
+  });
+
+  it("preserves ordered numbering with raw HTML sanitization and nested lists", async () => {
+    const markdown = [
+      "12. 首项",
+      "",
+      "<div>安全导入的 HTML 内容</div>",
+      "",
+      "13. 第二项",
+      "",
+      "1. 外层",
+      "   5. 子项一",
+      "   6. 子项二",
+    ].join("\n");
+    await act(async () => { root.render(<MarkdownPreview markdown={markdown} />); });
+    const lists = [...host.querySelectorAll<HTMLOListElement>("ol")];
+    expect(lists.slice(0, 2).map((list) => list.start)).toEqual([12, 13]);
+    expect(host.textContent).toContain("安全导入的 HTML 内容");
   });
 
   it("emits the clicked task index and next checked state", async () => {
@@ -124,6 +195,39 @@ describe("MarkdownPreview task checkboxes", () => {
     });
 
     expect(host.querySelector("img")?.getAttribute("src")).toBe("//cdn.example.com/image.png");
+  });
+
+  it("renders LAN HTTP attachment images through a native blob URL on Android (#799)", async () => {
+    nativeHttp.platform = "android";
+    const browserFetch = vi.fn(() => Promise.reject(new Error("Mixed content blocked")));
+    vi.stubGlobal("fetch", browserFetch);
+    const createObjectURL = vi.fn(() => "blob:https://localhost/native-image");
+    const revokeObjectURL = vi.fn();
+    vi.stubGlobal("URL", class extends URL {
+      static createObjectURL = createObjectURL;
+      static revokeObjectURL = revokeObjectURL;
+    });
+    nativeHttp.request.mockResolvedValue({
+      status: 200,
+      headers: { "Content-Type": "image/png" },
+      data: btoa(String.fromCharCode(137, 80, 78, 71, 0, 255)),
+    });
+    cleanupNativeHttp = installAndroidNativeHttpBridge();
+    const signedSrc = `http://192.168.1.10:3002/api/attachments/${ATTACHMENT_ID}?exp=2000000000&sig=lan-signature&scope=v2.scope`;
+    const markdown = `![附件图片](${signedSrc})`;
+
+    await act(async () => { root.render(<MarkdownPreview markdown={markdown} />); });
+
+    expect(nativeHttp.request).toHaveBeenCalledWith(expect.objectContaining({
+      url: signedSrc,
+      responseType: "arraybuffer",
+    }));
+    expect(browserFetch).not.toHaveBeenCalled();
+    expect(host.querySelector("img")?.getAttribute("src")).toBe("blob:https://localhost/native-image");
+    expect(markdown).toBe(`![附件图片](${signedSrc})`);
+
+    await act(async () => { root.render(<MarkdownPreview markdown="图片已移除" />); });
+    expect(revokeObjectURL).toHaveBeenCalledWith("blob:https://localhost/native-image");
   });
 
   it("mounts long previews by viewport segment and preserves global task indices", async () => {

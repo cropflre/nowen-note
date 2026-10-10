@@ -23,6 +23,8 @@ import {
   Maximize2,
   Minimize2,
   ShieldCheck,
+  ChevronDown,
+  FileText,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { api, resolveAttachmentUrl } from "@/lib/api";
@@ -41,6 +43,8 @@ import {
   type ImageHostFormat,
 } from "@/lib/imageHostFormats";
 import AttachmentPreview from "@/components/attachmentPreview/AttachmentPreview";
+import { useSiteSettings } from "@/hooks/useSiteSettings";
+import { buildPublicAttachmentUrl } from "@/lib/publicAttachmentUrl";
 
 function humanSize(bytes: number): string {
   if (!bytes || bytes < 0) return "0 B";
@@ -52,6 +56,28 @@ function humanSize(bytes: number): string {
     idx++;
   }
   return `${v.toFixed(v >= 10 || idx === 0 ? 0 : 2)} ${units[idx]}`;
+}
+
+function compactMimeLabel(mimeType: string): string {
+  const normalized = String(mimeType || "").split(";", 1)[0].trim().toLowerCase();
+  if (!normalized) return "FILE";
+  const subtype = normalized.split("/")[1] || normalized;
+  const aliases: Record<string, string> = {
+    jpeg: "JPEG",
+    jpg: "JPEG",
+    png: "PNG",
+    webp: "WEBP",
+    gif: "GIF",
+    "svg+xml": "SVG",
+    pdf: "PDF",
+    plain: "TXT",
+    markdown: "MD",
+    mp4: "MP4",
+    quicktime: "MOV",
+    mpeg: "MPEG",
+    zip: "ZIP",
+  };
+  return aliases[subtype] || subtype.toUpperCase();
 }
 
 function formatLocalTime(s: string): string {
@@ -87,6 +113,7 @@ export default function AttachmentDetailDrawer({
   renderPreview,
 }: AttachmentDetailDrawerProps) {
   const { t } = useTranslation();
+  const { siteConfig } = useSiteSettings();
   const [detail, setDetail] = useState<FileDetail | null>(null);
   const [loading, setLoading] = useState(false);
   const reqIdRef = useRef(0);
@@ -119,13 +146,28 @@ export default function AttachmentDetailDrawer({
   const [renameDraft, setRenameDraft] = useState("");
   const [renameSubmitting, setRenameSubmitting] = useState(false);
   const [expanded, setExpanded] = useState(false);
+  const [isMobile, setIsMobile] = useState(() => (
+    typeof window !== "undefined" ? window.matchMedia("(max-width: 639px)").matches : false
+  ));
+  const [mobileShareOpen, setMobileShareOpen] = useState(false);
+  const [mobileInfoOpen, setMobileInfoOpen] = useState(false);
+
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 639px)");
+    const sync = () => setIsMobile(mq.matches);
+    mq.addEventListener("change", sync);
+    sync();
+    return () => mq.removeEventListener("change", sync);
+  }, []);
 
   useEffect(() => {
     setRenaming(false);
     setRenameDraft("");
     setRenameSubmitting(false);
     setExpanded(false);
-  }, [attachmentId]);
+    setMobileShareOpen(isImageHostMode);
+    setMobileInfoOpen(false);
+  }, [attachmentId, isImageHostMode]);
 
   const startRename = useCallback(() => {
     if (!detail) return;
@@ -169,7 +211,11 @@ export default function AttachmentDetailDrawer({
   const copySnippet = useCallback(
     async (format: ImageHostFormat) => {
       if (!detail) return;
-      const full = resolveAttachmentUrl(detail.url);
+      const resolved = resolveAttachmentUrl(detail.url);
+      const full = buildPublicAttachmentUrl(resolved, {
+        filePublicOrigin: siteConfig.filePublicOrigin,
+        publicWebOrigin: siteConfig.publicWebOrigin,
+      });
       const snippet = formatImageHostSnippet(format, full, detail.filename);
       const ok = await copyText(snippet);
       if (ok) {
@@ -178,7 +224,7 @@ export default function AttachmentDetailDrawer({
         toast.error(t("attachmentDetail.copyFailed"));
       }
     },
-    [detail, t],
+    [detail, siteConfig.filePublicOrigin, siteConfig.publicWebOrigin, t],
   );
 
   const [downloading, setDownloading] = useState(false);
@@ -225,6 +271,131 @@ export default function AttachmentDetailDrawer({
 
   const isAutoCleanupProtected = Boolean(
     (detail as (FileDetail & { isAutoCleanupProtected?: boolean }) | null)?.isAutoCleanupProtected,
+  );
+
+  const renderShareBody = (fullUrl: string) => (
+    <>
+      <input
+        type="text"
+        readOnly
+        value={fullUrl}
+        onFocus={(e) => e.currentTarget.select()}
+        className="w-full px-2 py-1.5 rounded-md border border-app-border bg-app-surface text-[11px] text-tx-primary font-mono outline-none focus:border-accent-primary overflow-x-auto"
+      />
+      <div className="flex flex-wrap gap-1.5">
+        {(["url", "markdown", "html"] as ImageHostFormat[]).map((fmt) => (
+          <button
+            key={fmt}
+            onClick={() => copySnippet(fmt)}
+            className={cn(
+              "px-2.5 py-1 rounded-md text-[11px] flex items-center gap-1 transition-colors",
+              isImageHostMode
+                ? "bg-indigo-500 hover:bg-indigo-600 text-white"
+                : "bg-app-surface border border-app-border hover:bg-app-hover text-tx-primary",
+            )}
+          >
+            <Copy size={11} />
+            {t("attachmentDetail.copyFormat", { format: imageHostFormatLabel(fmt) })}
+          </button>
+        ))}
+      </div>
+    </>
+  );
+
+  const renderMetadataRows = () => (
+    <>
+      <MetaRow
+        label={t("attachmentDetail.filename")}
+        value={
+          renaming ? (
+            <div className="flex items-center gap-1.5">
+              <Input
+                autoFocus
+                value={renameDraft}
+                onChange={(e) => setRenameDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    void submitRename();
+                  } else if (e.key === "Escape") {
+                    e.preventDefault();
+                    cancelRename();
+                  }
+                }}
+                disabled={renameSubmitting}
+                className="h-7 text-xs flex-1 min-w-0"
+                maxLength={255}
+              />
+              <Button
+                size="sm"
+                variant="default"
+                className="h-7 px-2 text-[11px]"
+                onClick={() => void submitRename()}
+                disabled={renameSubmitting || !renameDraft.trim()}
+              >
+                {renameSubmitting ? <Loader2 size={12} className="animate-spin" /> : t("attachmentDetail.save")}
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7 px-2 text-[11px]"
+                onClick={cancelRename}
+                disabled={renameSubmitting}
+              >
+                {t("attachmentDetail.cancel")}
+              </Button>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2">
+              <span className="flex-1 min-w-0 break-words">{detail?.filename}</span>
+              <button
+                type="button"
+                className="shrink-0 text-[11px] text-accent-primary hover:underline"
+                onClick={startRename}
+              >
+                {t("attachmentDetail.rename")}
+              </button>
+            </div>
+          )
+        }
+      />
+      <MetaRow label={t("attachmentDetail.type")} value={<code className="text-[11px]">{detail?.mimeType || "-"}</code>} />
+      <MetaRow label={t("attachmentDetail.size")} value={humanSize(detail?.size || 0)} />
+      <MetaRow label={t("attachmentDetail.uploadedAt")} value={formatLocalTime(detail?.createdAt || "")} />
+      {detail?.hash && (
+        <MetaRow
+          label={t("attachmentDetail.hash")}
+          value={
+            <code
+              className="text-[10px] text-tx-tertiary break-all select-all cursor-pointer"
+              title={t("attachmentDetail.hashTitle")}
+              onClick={async () => {
+                const ok = await copyText(detail.hash || "");
+                if (ok) toast.success(t("attachmentDetail.hashCopied"));
+              }}
+            >
+              {detail.hash}
+            </code>
+          }
+        />
+      )}
+      {detail && (
+        <MetaRow
+          label={t("attachmentDetail.downloadLink")}
+          value={
+            <a
+              href={resolveAttachmentUrl(detail.url)}
+              target="_blank"
+              rel="noreferrer"
+              className="text-accent-primary hover:underline inline-flex items-center gap-1 break-all [overflow-wrap:anywhere]"
+            >
+              <Download size={11} className="shrink-0" />
+              <span>{detail.url}</span>
+            </a>
+          }
+        />
+      )}
+    </>
   );
 
   if (!attachmentId) return null;
@@ -313,7 +484,61 @@ export default function AttachmentDetailDrawer({
               )}
 
               {(() => {
-                const fullUrl = resolveAttachmentUrl(detail.url);
+                const fullUrl = buildPublicAttachmentUrl(
+                  resolveAttachmentUrl(detail.url),
+                  {
+                    filePublicOrigin: siteConfig.filePublicOrigin,
+                    publicWebOrigin: siteConfig.publicWebOrigin,
+                  },
+                );
+                if (isMobile) {
+                  return (
+                    <div
+                      className={cn(
+                        "rounded-xl border overflow-hidden",
+                        isImageHostMode
+                          ? "border-indigo-500/30 bg-indigo-500/5"
+                          : "border-app-border bg-app-bg",
+                      )}
+                      data-mobile-attachment-section="share"
+                    >
+                      <button
+                        type="button"
+                        className="flex w-full items-center gap-2 px-3 py-3 text-left active:bg-app-hover/70"
+                        onClick={() => setMobileShareOpen((v) => !v)}
+                        aria-expanded={mobileShareOpen}
+                      >
+                        <Link2
+                          size={15}
+                          className={cn("shrink-0", isImageHostMode ? "text-indigo-500" : "text-tx-tertiary")}
+                        />
+                        <div className="min-w-0 flex-1">
+                          <div className={cn(
+                            "text-xs font-semibold",
+                            isImageHostMode ? "text-indigo-500" : "text-tx-primary",
+                          )}>
+                            {t("attachmentDetail.shareLink")}
+                          </div>
+                          <div className="mt-0.5 text-[10px] text-tx-tertiary">
+                            {t("attachmentDetail.publicAccess")}
+                          </div>
+                        </div>
+                        <ChevronDown
+                          size={16}
+                          className={cn(
+                            "shrink-0 text-tx-tertiary transition-transform duration-200",
+                            mobileShareOpen && "rotate-180",
+                          )}
+                        />
+                      </button>
+                      {mobileShareOpen && (
+                        <div className="space-y-2 border-t border-app-border px-3 pb-3 pt-2.5">
+                          {renderShareBody(fullUrl)}
+                        </div>
+                      )}
+                    </div>
+                  );
+                }
                 return (
                   <div
                     className={cn(
@@ -340,125 +565,50 @@ export default function AttachmentDetailDrawer({
                         {t("attachmentDetail.publicAccess")}
                       </span>
                     </div>
-                    <input
-                      type="text"
-                      readOnly
-                      value={fullUrl}
-                      onFocus={(e) => e.currentTarget.select()}
-                      className="w-full px-2 py-1.5 rounded-md border border-app-border bg-app-surface text-[11px] text-tx-primary font-mono outline-none focus:border-accent-primary overflow-x-auto"
-                    />
-                    <div className="flex flex-wrap gap-1.5">
-                      {(["url", "markdown", "html"] as ImageHostFormat[]).map((fmt) => (
-                        <button
-                          key={fmt}
-                          onClick={() => copySnippet(fmt)}
-                          className={cn(
-                            "px-2.5 py-1 rounded-md text-[11px] flex items-center gap-1 transition-colors",
-                            isImageHostMode
-                              ? "bg-indigo-500 hover:bg-indigo-600 text-white"
-                              : "bg-app-surface border border-app-border hover:bg-app-hover text-tx-primary",
-                          )}
-                        >
-                          <Copy size={11} />
-                          {t("attachmentDetail.copyFormat", { format: imageHostFormatLabel(fmt) })}
-                        </button>
-                      ))}
-                    </div>
+                    {renderShareBody(fullUrl)}
                   </div>
                 );
               })()}
 
-              <div className="space-y-2 text-xs">
-                <MetaRow
-                  label={t("attachmentDetail.filename")}
-                  value={
-                    renaming ? (
-                      <div className="flex items-center gap-1.5">
-                        <Input
-                          autoFocus
-                          value={renameDraft}
-                          onChange={(e) => setRenameDraft(e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter") {
-                              e.preventDefault();
-                              void submitRename();
-                            } else if (e.key === "Escape") {
-                              e.preventDefault();
-                              cancelRename();
-                            }
-                          }}
-                          disabled={renameSubmitting}
-                          className="h-7 text-xs flex-1 min-w-0"
-                          maxLength={255}
-                        />
-                        <Button
-                          size="sm"
-                          variant="default"
-                          className="h-7 px-2 text-[11px]"
-                          onClick={() => void submitRename()}
-                          disabled={renameSubmitting || !renameDraft.trim()}
-                        >
-                          {renameSubmitting ? <Loader2 size={12} className="animate-spin" /> : t("attachmentDetail.save")}
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          className="h-7 px-2 text-[11px]"
-                          onClick={cancelRename}
-                          disabled={renameSubmitting}
-                        >
-                          {t("attachmentDetail.cancel")}
-                        </Button>
+              {isMobile ? (
+                <div
+                  className="rounded-xl border border-app-border bg-app-bg overflow-hidden"
+                  data-mobile-attachment-section="info"
+                >
+                  <button
+                    type="button"
+                    className="flex w-full items-center gap-2 px-3 py-3 text-left active:bg-app-hover/70"
+                    onClick={() => setMobileInfoOpen((v) => !v)}
+                    aria-expanded={mobileInfoOpen}
+                  >
+                    <FileText size={15} className="shrink-0 text-tx-tertiary" />
+                    <div className="min-w-0 flex-1">
+                      <div className="text-xs font-semibold text-tx-primary">
+                        {t("attachmentDetail.fileInfo", { defaultValue: "文件信息" })}
                       </div>
-                    ) : (
-                      <div className="flex items-center gap-2">
-                        <span className="flex-1 min-w-0 break-words">{detail.filename}</span>
-                        <button
-                          type="button"
-                          className="shrink-0 text-[11px] text-accent-primary hover:underline"
-                          onClick={startRename}
-                        >
-                          {t("attachmentDetail.rename")}
-                        </button>
+                      <div className="mt-0.5 truncate text-[10px] text-tx-tertiary">
+                        {compactMimeLabel(detail.mimeType)} · {humanSize(detail.size)}
                       </div>
-                    )
-                  }
-                />
-                <MetaRow label={t("attachmentDetail.type")} value={<code className="text-[11px]">{detail.mimeType || "-"}</code>} />
-                <MetaRow label={t("attachmentDetail.size")} value={humanSize(detail.size)} />
-                <MetaRow label={t("attachmentDetail.uploadedAt")} value={formatLocalTime(detail.createdAt)} />
-                {detail.hash && (
-                  <MetaRow
-                    label={t("attachmentDetail.hash")}
-                    value={
-                      <code
-                        className="text-[10px] text-tx-tertiary break-all select-all cursor-pointer"
-                        title={t("attachmentDetail.hashTitle")}
-                        onClick={async () => {
-                          const ok = await copyText(detail.hash || "");
-                          if (ok) toast.success(t("attachmentDetail.hashCopied"));
-                        }}
-                      >
-                        {detail.hash}
-                      </code>
-                    }
-                  />
-                )}
-                <MetaRow
-                  label={t("attachmentDetail.downloadLink")}
-                  value={
-                    <a
-                      href={resolveAttachmentUrl(detail.url)}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="text-accent-primary hover:underline inline-flex items-center gap-1 break-all [overflow-wrap:anywhere]"
-                    >
-                      <Download size={11} className="shrink-0" />
-                      <span>{detail.url}</span>
-                    </a>
-                  }
-                />
-              </div>
+                    </div>
+                    <ChevronDown
+                      size={16}
+                      className={cn(
+                        "shrink-0 text-tx-tertiary transition-transform duration-200",
+                        mobileInfoOpen && "rotate-180",
+                      )}
+                    />
+                  </button>
+                  {mobileInfoOpen && (
+                    <div className="space-y-2 border-t border-app-border px-3 pb-3 pt-2.5 text-xs">
+                      {renderMetadataRows()}
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="space-y-2 text-xs">
+                  {renderMetadataRows()}
+                </div>
+              )}
 
               <div>
                 <div className="flex items-center justify-between mb-2">

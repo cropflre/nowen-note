@@ -1,10 +1,11 @@
-import { BackupManager } from "../services/backup.js";
+import { BackupManager, type BackupInfo } from "../services/backup.js";
 import { getDb } from "../db/schema.js";
 import { uploadAutomaticBackupToWebDav } from "../services/backup-webdav.js";
 
 export type AutoBackupType = "full" | "db-only";
 
 const AUTO_CONFIG_KEY = "backup:auto";
+const AUTO_DESCRIPTION_PREFIX = "自动备份";
 const PATCH_FLAG = Symbol.for("nowen.autoFullBackup.patched");
 const RUNNING_FLAG = Symbol.for("nowen.autoFullBackup.running");
 
@@ -13,6 +14,7 @@ interface AutoBackupConfigLike {
   intervalHours?: number;
   mode?: "interval" | "daily";
   dailyAt?: string;
+  timeZone?: string;
   keepCount?: number;
   emailOnSuccess?: boolean;
   emailTo?: string;
@@ -23,6 +25,8 @@ interface AutoBackupConfigLike {
 interface PatchedBackupManager {
   autoBackupConfig: AutoBackupConfigLike;
   createBackup: BackupManager["createBackup"];
+  listBackups: BackupManager["listBackups"];
+  deleteBackup: BackupManager["deleteBackup"];
   sendAutoBackupEmail(filename: string, to: string): Promise<void>;
   [RUNNING_FLAG]?: boolean;
 }
@@ -37,6 +41,23 @@ interface PatchablePrototype extends Record<PropertyKey, unknown> {
 
 export function normalizeAutoBackupType(value: unknown): AutoBackupType {
   return value === "db-only" ? "db-only" : "full";
+}
+
+export function automaticBackupsToPrune(
+  backups: Pick<BackupInfo, "filename" | "type" | "createdAt" | "description">[],
+  type: AutoBackupType,
+  keepCount: number,
+): string[] {
+  const keep = Math.max(1, Math.min(100, Math.round(Number(keepCount) || 15)));
+  return backups
+    .filter((backup) =>
+      backup.type === type
+      && typeof backup.description === "string"
+      && backup.description.startsWith(AUTO_DESCRIPTION_PREFIX),
+    )
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+    .slice(keep)
+    .map((backup) => backup.filename);
 }
 
 function readPersistedAutoBackupType(): AutoBackupType {
@@ -137,6 +158,13 @@ function installAutoFullBackupPatch(): void {
             error instanceof Error ? error.message : error,
           );
         });
+
+      const keepCount = Number(config.keepCount) || 15;
+      for (const filename of automaticBackupsToPrune(manager.listBackups(), backupType, keepCount)) {
+        if (!manager.deleteBackup(filename)) {
+          console.warn(`[Backup] 自动备份保留策略删除失败: ${filename}`);
+        }
+      }
 
       if (config.emailOnSuccess === true && typeof config.emailTo === "string" && config.emailTo) {
         await manager.sendAutoBackupEmail(info.filename, config.emailTo).catch((error: unknown) => {

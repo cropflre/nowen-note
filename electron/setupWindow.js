@@ -32,27 +32,38 @@ let setupWin = null;
  * @param {string} url 形如 "http://192.168.1.10:3000"
  * @returns {Promise<{ok: boolean, status?: number, error?: string}>}
  */
-function probeUrl(url) {
-  return new Promise((resolve) => {
-    let parsed;
-    try {
-      parsed = new URL(url);
-    } catch (e) {
-      return resolve({ ok: false, error: "URL 格式不正确" });
-    }
-    if (!/^https?:$/.test(parsed.protocol)) {
-      return resolve({ ok: false, error: "仅支持 http(s)" });
-    }
+async function probeUrl(url) {
+  let parsed;
+  try {
+    parsed = new URL(url);
+  } catch (e) {
+    return { ok: false, error: "URL 格式不正确" };
+  }
+  if (!/^https?:$/.test(parsed.protocol)) {
+    return { ok: false, error: "仅支持 http(s)" };
+  }
 
-    const lib = parsed.protocol === "https:" ? https : http;
-    const pathPrefix = parsed.pathname.replace(/\/+$/, "");
-    const tryPath = (p, cb) => {
-      const req = lib.request(
+  const lib = parsed.protocol === "https:" ? https : http;
+  const pathPrefix = parsed.pathname.replace(/\/+$/, "");
+  const candidates = [
+    { mode: "standard", apiPath: `${pathPrefix}/api`, websocketPath: `${pathPrefix}/ws` },
+    { mode: "public-prefix", apiPath: `${pathPrefix}/public/api`, websocketPath: `${pathPrefix}/public/ws` },
+    { mode: "public-concat", apiPath: `${pathPrefix}/publicapi`, websocketPath: `${pathPrefix}/publicws` },
+  ];
+
+  const tryPath = (candidate) => new Promise((resolve) => {
+    let settled = false;
+    const finish = (result) => {
+      if (settled) return;
+      settled = true;
+      resolve(result);
+    };
+    const req = lib.request(
         {
           method: "GET",
           host: parsed.hostname,
           port: parsed.port || (parsed.protocol === "https:" ? 443 : 80),
-          path: p,
+          path: `${candidate.apiPath}/health`,
           timeout: 4000,
           // 自签证书也允许（用户输入的局域网地址常见自签）
           rejectUnauthorized: false,
@@ -64,25 +75,45 @@ function probeUrl(url) {
           res.on("end", () => {
             let payload = null;
             try { payload = JSON.parse(body); } catch { /* 门户 HTML / 反代错误 */ }
-            const ok = res.statusCode >= 200 && res.statusCode < 300 && payload?.status === "ok";
-            cb({
+            const isNowenPayload = payload?.service === "nowen-note" || typeof payload?.version === "string";
+            const ok = res.statusCode >= 200 && res.statusCode < 300
+              && payload?.status === "ok"
+              && isNowenPayload;
+            const rewrittenPath = String(res.headers["x-nowen-proxy-compatibility-path"] || "");
+            finish({
               ok,
               status: res.statusCode,
+              proxyCompatibilityMode: rewrittenPath === "/public/api"
+                ? "public-prefix"
+                : rewrittenPath === "/publicapi"
+                  ? "public-concat"
+                  : candidate.mode,
+              apiPath: rewrittenPath || candidate.apiPath,
+              websocketPath: rewrittenPath === "/public/api"
+                ? "/public/ws"
+                : rewrittenPath === "/publicapi"
+                  ? "/publicws"
+                  : candidate.websocketPath,
               error: ok ? undefined : "未检测到 Nowen Note API；该地址可能仍是 NAS 门户或反代路径不正确",
             });
           });
         }
       );
-      req.on("error", (e) => cb({ ok: false, error: e.message }));
+      req.on("error", (e) => finish({ ok: false, error: e.message }));
       req.on("timeout", () => {
         req.destroy();
-        cb({ ok: false, error: "连接超时" });
+        finish({ ok: false, error: "连接超时" });
       });
       req.end();
-    };
-
-    tryPath(`${pathPrefix}/api/health`, resolve);
   });
+
+  let lastError = "未检测到 Nowen Note API";
+  for (const candidate of candidates) {
+    const result = await tryPath(candidate);
+    if (result.ok) return result;
+    lastError = result.error || lastError;
+  }
+  return { ok: false, error: lastError };
 }
 
 const HTML = String.raw`
@@ -266,7 +297,10 @@ const HTML = String.raw`
       if (r.ok) {
         lastProbeOk = true;
         okBtn.disabled = false;
-        setStatus("连接成功（HTTP " + (r.status ?? "?") + "）", "ok");
+        const compatibility = r.proxyCompatibilityMode && r.proxyCompatibilityMode !== "standard"
+          ? "；已启用反向代理兼容（API " + r.apiPath + "，WebSocket " + r.websocketPath + "）"
+          : "";
+        setStatus("连接成功（HTTP " + (r.status ?? "?") + "）" + compatibility, "ok");
       } else {
         lastProbeOk = false;
         okBtn.disabled = true;

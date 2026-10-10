@@ -115,6 +115,64 @@ describe("mobile web startup fetch coalescing", () => {
     cleanup?.();
   });
 
+  it("invalidates protected note snapshots when folder lock state changes", async () => {
+    let locked = false;
+    let bootstrapReads = 0;
+    const transport = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input), "https://nas.test/");
+      if (url.pathname !== "/api/user-preferences/mobile-bootstrap") {
+        throw new Error(`unexpected request: ${url.pathname}`);
+      }
+      bootstrapReads++;
+      return new Response(JSON.stringify({
+        ...payload,
+        notes: locked ? [] : [{ ...payload.notes[0], title: "Previously unlocked secret" }],
+      }), { status: 200, headers: { "Content-Type": "application/json" } });
+    });
+    window.fetch = transport as typeof fetch;
+    const cleanup = installMobileWebStartupBridge({ force: true });
+
+    const url = "https://nas.test/api/notes?workspaceId=personal";
+    const headers = { Authorization: "Bearer active-account" };
+    const first = await window.fetch(url, { headers });
+    expect((await first.json())[0].title).toBe("Previously unlocked secret");
+    locked = true;
+    window.dispatchEvent(new Event("nowen:knowledge-tree-password-session-changed"));
+    const second = await window.fetch(url, { headers });
+    expect(await second.json()).toEqual([]);
+    expect(bootstrapReads).toBe(2);
+    cleanup?.();
+  });
+
+  it("never publishes a snapshot fetched before folder locking", async () => {
+    let release!: (value: Response) => void;
+    const pendingBootstrap = new Promise<Response>((resolve) => { release = resolve; });
+    const transport = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input), "https://nas.test/");
+      if (url.pathname === "/api/user-preferences/mobile-bootstrap") return pendingBootstrap;
+      if (url.pathname === "/api/notes") {
+        return new Response(JSON.stringify([]), {
+          status: 200, headers: { "Content-Type": "application/json" },
+        });
+      }
+      throw new Error(`unexpected: ${url.pathname}`);
+    });
+    window.fetch = transport as typeof fetch;
+    const cleanup = installMobileWebStartupBridge({ force: true });
+    const request = window.fetch("https://nas.test/api/notes?workspaceId=personal", {
+      headers: { Authorization: "Bearer account" },
+    });
+    await vi.waitFor(() => expect(transport).toHaveBeenCalledTimes(1));
+    window.dispatchEvent(new Event("nowen:knowledge-tree-password-locked"));
+    release(new Response(JSON.stringify({
+      ...payload, notes: [{ ...payload.notes[0], title: "SECRET FROM OLD SNAPSHOT" }],
+    }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    const response = await request;
+    expect(await response.json()).toEqual([]);
+    expect(transport).toHaveBeenCalledTimes(2);
+    cleanup?.();
+  });
+
   it("falls back to the original endpoint when an older backend lacks bootstrap", async () => {
     const transport = vi.fn(async (input: RequestInfo | URL) => {
       const url = new URL(String(input), "https://nas.test/");

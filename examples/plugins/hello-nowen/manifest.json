@@ -1,0 +1,21 @@
+{
+  "id": "com.nowen.hello",
+  "name": "Hello Nowen",
+  "description": "Nowen Extension Platform V1 最小示例",
+  "version": "1.0.0",
+  "apiVersion": 1,
+  "engines": { "nowen": ">=1.5.0 <2.0.0" },
+  "runtime": "node-action",
+  "main": "dist/index.mjs",
+  "author": { "name": "Nowen" },
+  "permissions": [],
+  "actions": [
+    {
+      "id": "hello",
+      "name": "Hello Nowen",
+      "description": "返回一条问候语",
+      "execution": "interactive",
+      "input": { "name": { "type": "string", "required": false } }
+    }
+  ]
+}

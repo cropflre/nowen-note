@@ -180,29 +180,56 @@ export default function AIChatReliabilityShell(props: Props) {
   }, [status]);
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-app-bg">
-      <section className="shrink-0 border-b border-app-border bg-app-surface/95 px-3 py-2 shadow-sm backdrop-blur md:px-4">
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="flex min-w-0 items-center gap-2">
-            <Activity size={15} className="text-accent-primary" />
-            <div className="min-w-0">
-              <div className="truncate text-xs font-semibold text-tx-primary">可靠上下文</div>
-              <div className="truncate text-[11px] text-tx-tertiary">
-                {contextCollapsed ? `${currentMode.label} · ${statusSummary}` : statusSummary}
-              </div>
+    <div className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-app-bg">
+      <section className="shrink-0 border-b border-app-border bg-app-surface/95 px-3 py-2 backdrop-blur md:px-5">
+        <div className="flex flex-wrap items-center gap-2.5">
+          <div className="mr-1 flex min-w-0 items-center gap-2">
+            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-accent-primary/10 text-accent-primary">
+              <Activity size={14} />
+            </div>
+            <div className="hidden min-w-0 lg:block">
+              <div className="truncate text-xs font-semibold text-tx-primary">上下文来源</div>
+              <div className="max-w-48 truncate text-[10px] text-tx-tertiary">{statusSummary}</div>
             </div>
           </div>
-          <StatusPill status={status} />
+
+          <div className="flex min-w-0 flex-1 items-center gap-1 rounded-xl bg-app-hover/70 p-1 sm:flex-none">
+            {MODE_OPTIONS.map((item) => {
+              const Icon = item.icon;
+              const disabled = item.id === "current-note" && !activeNote?.id;
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  disabled={disabled}
+                  onClick={() => setMode(item.id)}
+                  title={item.description}
+                  className={cn(
+                    "flex min-w-0 items-center justify-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[11px] font-medium transition",
+                    mode === item.id
+                      ? "bg-app-surface text-accent-primary shadow-sm ring-1 ring-app-border"
+                      : "text-tx-tertiary hover:text-tx-primary",
+                    disabled && "cursor-not-allowed opacity-40",
+                  )}
+                >
+                  <Icon size={12} />
+                  <span className="truncate">{item.label}</span>
+                </button>
+              );
+            })}
+          </div>
+
           <div className="ml-auto flex items-center gap-1">
+            <StatusPill status={status} />
             <button
               type="button"
               onClick={() => setContextCollapsed((value) => !value)}
-              className="inline-flex items-center gap-1 rounded-lg border border-app-border px-2 py-1 text-[11px] font-medium text-tx-secondary hover:bg-app-hover"
-              title={contextCollapsed ? "展开可靠上下文" : "收起可靠上下文"}
+              className="inline-flex items-center gap-1 rounded-lg px-2 py-1.5 text-[11px] font-medium text-tx-tertiary hover:bg-app-hover hover:text-tx-primary"
+              title={contextCollapsed ? "展开上下文详情" : "收起上下文详情"}
               aria-expanded={!contextCollapsed}
             >
               {contextCollapsed ? <ChevronDown size={12} /> : <ChevronUp size={12} />}
-              {contextCollapsed ? "展开" : "收起"}
+              <span className="hidden xl:inline">{contextCollapsed ? "上下文详情" : "收起详情"}</span>
             </button>
             <button
               type="button"
@@ -212,52 +239,11 @@ export default function AIChatReliabilityShell(props: Props) {
             >
               <RefreshCw size={14} className={loadingStatus ? "animate-spin" : ""} />
             </button>
-            {!contextCollapsed && (
-              <button
-                type="button"
-                onClick={() => setExpanded((value) => !value)}
-                className={cn(
-                  "inline-flex items-center gap-1 rounded-lg border px-2 py-1 text-[11px] font-medium",
-                  expanded
-                    ? "border-accent-primary/40 bg-accent-primary/10 text-accent-primary"
-                    : "border-app-border text-tx-secondary hover:bg-app-hover",
-                )}
-              >
-                <Layers3 size={12} />
-                诊断
-              </button>
-            )}
           </div>
         </div>
 
         {!contextCollapsed && (
           <>
-            <div className="mt-2 grid grid-cols-3 gap-1 rounded-xl bg-app-hover/70 p-1">
-              {MODE_OPTIONS.map((item) => {
-                const Icon = item.icon;
-                const disabled = item.id === "current-note" && !activeNote?.id;
-                return (
-                  <button
-                    key={item.id}
-                    type="button"
-                    disabled={disabled}
-                    onClick={() => setMode(item.id)}
-                    title={item.description}
-                    className={cn(
-                      "flex min-w-0 items-center justify-center gap-1 rounded-lg px-2 py-1.5 text-[11px] font-medium transition",
-                      mode === item.id
-                        ? "bg-app-surface text-accent-primary shadow-sm ring-1 ring-app-border"
-                        : "text-tx-tertiary hover:text-tx-primary",
-                      disabled && "cursor-not-allowed opacity-40",
-                    )}
-                  >
-                    <Icon size={12} />
-                    <span className="truncate">{item.label}</span>
-                  </button>
-                );
-              })}
-            </div>
-
             {mode === "selection" && (
               <textarea
                 value={selectedText}
@@ -275,8 +261,31 @@ export default function AIChatReliabilityShell(props: Props) {
             )}
             {statusError && <p className="mt-1 text-[11px] text-red-500">{statusError}</p>}
 
-            {expanded && (
-              <div className="mt-2 h-40 min-h-24 max-h-[45vh] resize-y overflow-auto rounded-xl border border-app-border bg-app-bg p-3 text-[11px] text-tx-secondary">
+            <div className="mt-2 max-h-[45vh] overflow-auto rounded-xl border border-app-border bg-app-bg p-3 text-[11px] text-tx-secondary shadow-sm">
+                <div className="mb-3 flex items-center justify-between gap-3 border-b border-app-border pb-2">
+                  <div>
+                    <div className="font-medium text-tx-primary">上下文详情</div>
+                    <div className="mt-0.5 text-[10px] text-tx-tertiary">本次问答使用的模型、范围与索引状态</div>
+                  </div>
+                  {diagnostics ? (
+                    <button
+                      type="button"
+                      onClick={() => setExpanded((value) => !value)}
+                      className={cn(
+                        "inline-flex shrink-0 items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[10px] font-medium transition-colors",
+                        expanded
+                          ? "bg-accent-primary/10 text-accent-primary"
+                          : "bg-app-hover text-tx-secondary hover:text-tx-primary",
+                      )}
+                    >
+                      <Layers3 size={11} />
+                      {expanded ? "收起检索诊断" : "查看检索诊断"}
+                      {expanded ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
+                    </button>
+                  ) : (
+                    <span className="shrink-0 text-[10px] text-tx-tertiary">完成一次问答后可查看检索诊断</span>
+                  )}
+                </div>
                 <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5">
                   <span className="text-tx-tertiary">本次范围</span>
                   <span>{currentMode.label}{activeNote?.title && mode === "current-note" ? ` · ${activeNote.title}` : ""}</span>
@@ -301,7 +310,7 @@ export default function AIChatReliabilityShell(props: Props) {
                   )}
                 </div>
 
-                {diagnostics?.hits.length ? (
+                {expanded && diagnostics?.hits.length ? (
                   <div className="mt-3 space-y-1.5 border-t border-app-border pt-2">
                     <div className="font-medium text-tx-primary">命中的笔记或分块</div>
                     {diagnostics.hits.map((hit, index) => (
@@ -318,7 +327,7 @@ export default function AIChatReliabilityShell(props: Props) {
                   </div>
                 ) : null}
 
-                {diagnostics && (
+                {expanded && diagnostics && (
                   <button
                     type="button"
                     onClick={() => exportDiagnosticsFile(diagnostics)}
@@ -329,7 +338,6 @@ export default function AIChatReliabilityShell(props: Props) {
                   </button>
                 )}
               </div>
-            )}
           </>
         )}
       </section>

@@ -1,0 +1,150 @@
+/* Markdown preview syntax highlighting.
+ * Lowlight already emits highlight.js-compatible token classes; this file only
+ * supplies the visual theme and keeps it scoped to Markdown code blocks.
+ */
+
+.nowen-code-highlight .hljs-comment,
+.nowen-code-highlight .hljs-quote {
+  color: #6b7280;
+  font-style: italic;
+}
+
+.nowen-code-highlight .hljs-keyword,
+.nowen-code-highlight .hljs-selector-tag,
+.nowen-code-highlight .hljs-literal,
+.nowen-code-highlight .hljs-section,
+.nowen-code-highlight .hljs-link {
+  color: #cf222e;
+}
+
+.nowen-code-highlight .hljs-string,
+.nowen-code-highlight .hljs-regexp,
+.nowen-code-highlight .hljs-attribute,
+.nowen-code-highlight .hljs-template-tag,
+.nowen-code-highlight .hljs-template-variable {
+  color: #0a3069;
+}
+
+.nowen-code-highlight .hljs-number,
+.nowen-code-highlight .hljs-symbol,
+.nowen-code-highlight .hljs-bullet,
+.nowen-code-highlight .hljs-variable,
+.nowen-code-highlight .hljs-variable.constant_ {
+  color: #0550ae;
+}
+
+.nowen-code-highlight .hljs-title,
+.nowen-code-highlight .hljs-title.function_,
+.nowen-code-highlight .hljs-title.class_,
+.nowen-code-highlight .hljs-function .hljs-title {
+  color: #8250df;
+}
+
+.nowen-code-highlight .hljs-built_in,
+.nowen-code-highlight .hljs-type,
+.nowen-code-highlight .hljs-class .hljs-title {
+  color: #953800;
+}
+
+.nowen-code-highlight .hljs-meta,
+.nowen-code-highlight .hljs-meta .hljs-keyword,
+.nowen-code-highlight .hljs-doctag {
+  color: #57606a;
+}
+
+.nowen-code-highlight .hljs-tag,
+.nowen-code-highlight .hljs-name,
+.nowen-code-highlight .hljs-selector-id,
+.nowen-code-highlight .hljs-selector-class {
+  color: #116329;
+}
+
+.nowen-code-highlight .hljs-attr,
+.nowen-code-highlight .hljs-property {
+  color: #0550ae;
+}
+
+.nowen-code-highlight .hljs-params,
+.nowen-code-highlight .hljs-punctuation {
+  color: var(--color-text-primary);
+}
+
+.nowen-code-highlight .hljs-addition {
+  color: #116329;
+  background: rgba(46, 160, 67, 0.12);
+}
+
+.nowen-code-highlight .hljs-deletion {
+  color: #82071e;
+  background: rgba(248, 81, 73, 0.12);
+}
+
+.dark .nowen-code-highlight .hljs-comment,
+.dark .nowen-code-highlight .hljs-quote {
+  color: #8b949e;
+}
+
+.dark .nowen-code-highlight .hljs-keyword,
+.dark .nowen-code-highlight .hljs-selector-tag,
+.dark .nowen-code-highlight .hljs-literal,
+.dark .nowen-code-highlight .hljs-section,
+.dark .nowen-code-highlight .hljs-link {
+  color: #ff7b72;
+}
+
+.dark .nowen-code-highlight .hljs-string,
+.dark .nowen-code-highlight .hljs-regexp,
+.dark .nowen-code-highlight .hljs-attribute,
+.dark .nowen-code-highlight .hljs-template-tag,
+.dark .nowen-code-highlight .hljs-template-variable {
+  color: #a5d6ff;
+}
+
+.dark .nowen-code-highlight .hljs-number,
+.dark .nowen-code-highlight .hljs-symbol,
+.dark .nowen-code-highlight .hljs-bullet,
+.dark .nowen-code-highlight .hljs-variable,
+.dark .nowen-code-highlight .hljs-variable.constant_ {
+  color: #79c0ff;
+}
+
+.dark .nowen-code-highlight .hljs-title,
+.dark .nowen-code-highlight .hljs-title.function_,
+.dark .nowen-code-highlight .hljs-title.class_,
+.dark .nowen-code-highlight .hljs-function .hljs-title {
+  color: #d2a8ff;
+}
+
+.dark .nowen-code-highlight .hljs-built_in,
+.dark .nowen-code-highlight .hljs-type,
+.dark .nowen-code-highlight .hljs-class .hljs-title {
+  color: #ffa657;
+}
+
+.dark .nowen-code-highlight .hljs-meta,
+.dark .nowen-code-highlight .hljs-meta .hljs-keyword,
+.dark .nowen-code-highlight .hljs-doctag {
+  color: #8b949e;
+}
+
+.dark .nowen-code-highlight .hljs-tag,
+.dark .nowen-code-highlight .hljs-name,
+.dark .nowen-code-highlight .hljs-selector-id,
+.dark .nowen-code-highlight .hljs-selector-class {
+  color: #7ee787;
+}
+
+.dark .nowen-code-highlight .hljs-attr,
+.dark .nowen-code-highlight .hljs-property {
+  color: #79c0ff;
+}
+
+.dark .nowen-code-highlight .hljs-addition {
+  color: #aff5b4;
+  background: rgba(46, 160, 67, 0.18);
+}
+
+.dark .nowen-code-highlight .hljs-deletion {
+  color: #ffdcd7;
+  background: rgba(248, 81, 73, 0.18);
+}

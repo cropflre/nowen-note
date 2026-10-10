@@ -33,6 +33,11 @@ export function logNoteWrite(event: {
   outcome: "committed" | "rejected";
   reason?: string;
 }): void {
-  // 只记录并发定位所需元数据，不记录标题或正文等敏感内容。
-  console.info("[note-write]", event);
+  // Successful autosaves are extremely frequent; keep the terminal quiet by default.
+  // Failures must remain visible, and successful writes can be inspected on demand.
+  if (event.outcome === "rejected") {
+    console.warn("[note-write]", event);
+  } else if (process.env.NOTE_WRITE_DEBUG === "1") {
+    console.info("[note-write]", event);
+  }
 }

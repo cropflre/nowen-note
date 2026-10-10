@@ -39,7 +39,13 @@ import {
   enEditorSplitTranslations,
   zhCNEditorSplitTranslations,
 } from "./editorSplitTranslations";
+import {
+  enCoverageTranslations,
+  zhCNCoverageTranslations,
+} from "./coverageTranslations";
+import { enWorkspaceIssuesTranslations, zhCNWorkspaceIssuesTranslations } from "./workspaceIssuesTranslations";
 import { installLegacySettingsI18nBridge } from "./legacySettingsI18nBridge";
+import { enVoiceTranslations, zhCNVoiceTranslations } from "./voiceTranslations";
 
 function mergeTranslations(base: any, patch: any): any {
   if (!patch || typeof patch !== "object" || Array.isArray(patch)) return patch;
@@ -68,6 +74,9 @@ const zhCNWithReleaseTranslations = mergeTranslationPatches(
   zhCNSecurityAddonTranslations,
   zhCNDiaryMarkdownTranslations,
   zhCNEditorSplitTranslations,
+  zhCNCoverageTranslations,
+  zhCNWorkspaceIssuesTranslations,
+  zhCNVoiceTranslations,
 );
 
 const enWithReleaseTranslations = mergeTranslationPatches(
@@ -81,6 +90,9 @@ const enWithReleaseTranslations = mergeTranslationPatches(
   enSecurityAddonTranslations,
   enDiaryMarkdownTranslations,
   enEditorSplitTranslations,
+  enCoverageTranslations,
+  enWorkspaceIssuesTranslations,
+  enVoiceTranslations,
 );
 
 const zhCNWithRuntimeOverrides = mergeTranslations(

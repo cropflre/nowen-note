@@ -66,7 +66,8 @@ export function preserveMindMapNodeStyleInSerializedData(
 function replaceAttribute(tag: string, attribute: string, value: string): string {
   const pattern = new RegExp(`\\s${attribute}="[^"]*"`);
   if (pattern.test(tag)) return tag.replace(pattern, ` ${attribute}="${value}"`);
-  return tag.replace(/\s*\/>$/, ` ${attribute}="${value}"/>`);
+  return tag.replace(/\s*\/>$/, ` ${attribute}="${value}"/>`)
+    .replace(/>$/, ` ${attribute}="${value}">`);
 }
 
 /**

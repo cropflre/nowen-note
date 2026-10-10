@@ -1,8 +1,10 @@
+import { validateSheetData } from "./sheetData.js";
 import type Database from "better-sqlite3";
 import { v4 as uuid } from "uuid";
 
 import { getDb } from "../db/schema.js";
 import { ensureKnowledgeTreeTables } from "../db/knowledgeTreeMigration.js";
+import { MINDMAP_LEGACY_NOTEBOOK_PREFIX } from "../db/knowledgeTreeMindmapFolderMigration.js";
 import {
   hasKnowledgeCapability,
   resolveKnowledgeNodeAccess,
@@ -31,9 +33,12 @@ export interface KnowledgeTreeNode {
   isLocked?: number;
   isPasswordProtected?: number;
   contentFormat?: string | null;
+  colorMark?: string | null;
+  noteType?: string | null;
   sortOrder: number;
   isExpanded: number;
   isDeleted: number;
+  deletedAt: string | null;
   childCount: number;
   createdAt: string;
   updatedAt: string;
@@ -171,6 +176,7 @@ export function listKnowledgeTree(input: {
     SELECT node.id, node.userId, node.workspaceId, node.scopeKey, node.parentId,
            node.nodeType, node.resourceType, node.resourceId, node.sortOrder,
            node.isExpanded, node.isDeleted, node.deletedAt, node.createdAt, node.updatedAt,
+           note.contentFormat AS contentFormat, note.note_type AS noteType,
            ${titleExpression()} AS title,
            (SELECT COUNT(*) FROM knowledge_tree_nodes child
              WHERE child.parentId = node.id AND child.isDeleted = 0) AS childCount
@@ -248,8 +254,11 @@ export function createKnowledgeChild(input: {
   actorUserId: string;
   workspaceId: string | null;
   parentId: string | null;
-  nodeType: "folder" | "note" | "markdown" | "word";
+  nodeType: "folder" | "note" | "markdown" | "word" | "mindmap" | "sheet";
   title: string;
+  encryptedContent?: string;
+  encryptedNoteId?: string;
+  sheetData?: unknown;
   db?: Database.Database;
 }): KnowledgeTreeNode {
   const db = input.db || getDb();
@@ -264,7 +273,20 @@ export function createKnowledgeChild(input: {
     throw new KnowledgeTreeError("KNOWLEDGE_CAPABILITY_FORBIDDEN", 403, "没有在此处新建内容的权限", { required: "canCreate" });
   }
 
-  const title = input.title.trim() || (input.nodeType === "folder" ? "新建文件夹" : "无标题笔记");
+  const sheetData = input.sheetData === undefined ? undefined : validateSheetData(input.sheetData);
+  if (input.sheetData !== undefined && (input.nodeType !== "sheet" || input.encryptedContent || !sheetData)) {
+    throw new KnowledgeTreeError("INVALID_PAYLOAD", 400, "表格数据格式无效");
+  }
+
+  const title = input.title.trim() || (
+    input.nodeType === "folder"
+      ? "新建文件夹"
+      : input.nodeType === "mindmap"
+        ? "无标题导图"
+        : input.nodeType === "sheet"
+          ? "无标题表格"
+          : "无标题笔记"
+  );
   const key = expectedScope;
   const sortOrder = maxSortOrder(db, key, input.parentId);
   let createdNode: NodeRow | null = null;
@@ -278,15 +300,21 @@ export function createKnowledgeChild(input: {
         VALUES (?, ?, ?, ?, ?, '📁', ?)
       `).run(notebookId, resourceOwnerUserId, normalizedWorkspaceId, physicalParentId, title, sortOrder);
       createdNode = nodeForResource(db, "notebook", notebookId);
+    } else if (input.nodeType === "mindmap") {
+      const mindmapId = uuid();
+      db.prepare("INSERT INTO mindmaps (id, userId, workspaceId, title, data) VALUES (?, ?, ?, ?, ?)")
+        .run(mindmapId, resourceOwnerUserId, normalizedWorkspaceId, title,
+          JSON.stringify({ root: { id: "root", text: title, children: [] } }));
+      createdNode = nodeForResource(db, "mindmap", mindmapId);
     } else {
       const notebookId = nearestNotebookContainer(db, input.parentId);
       if (!notebookId) {
         throw new KnowledgeTreeError("KNOWLEDGE_TREE_NOTE_CONTAINER_REQUIRED", 400, "根级文档需要先创建文件夹");
       }
-      const noteId = uuid();
-      const contentFormat = input.nodeType === "markdown" ? "markdown" : "tiptap-json";
-      const noteType = input.nodeType === "word" ? "word" : "normal";
-      const content = contentFormat === "markdown" ? `# ${title}\n\n` : "{}";
+      const noteId = input.encryptedContent && input.encryptedNoteId ? input.encryptedNoteId : uuid();
+      const contentFormat = input.encryptedContent ? "encrypted-note-v1" : input.nodeType === "markdown" ? "markdown" : "tiptap-json";
+      const noteType = input.nodeType === "word" ? "word" : input.nodeType === "sheet" ? "sheet" : "normal";
+      const content = input.encryptedContent || (contentFormat === "markdown" ? `# ${title}\n\n` : "{}");
       db.prepare(`
         INSERT INTO notes (
           id, userId, workspaceId, notebookId, title, content, contentText,
@@ -296,6 +324,28 @@ export function createKnowledgeChild(input: {
         noteId, resourceOwnerUserId, normalizedWorkspaceId, notebookId, title,
         content, contentFormat, noteType, sortOrder,
       );
+      if (input.nodeType === "sheet") {
+        db.prepare(`
+          INSERT INTO sheets (noteId, userId, workspaceId, data)
+          VALUES (?, ?, ?, ?)
+        `).run(
+          noteId,
+          resourceOwnerUserId,
+          normalizedWorkspaceId,
+          JSON.stringify(sheetData || {
+            version: 1,
+            rows: Array.from({ length: 20 }, (_, index) => ({ id: `r${index + 1}`, height: 32 })),
+            columns: Array.from({ length: 8 }, (_, index) => ({
+              id: `c${index + 1}`,
+              width: 120,
+              title: String.fromCharCode(65 + index),
+              type: "text",
+              align: "left",
+            })),
+            cells: {},
+          }),
+        );
+      }
       createdNode = nodeForResource(db, "note", noteId);
     }
 
@@ -320,6 +370,8 @@ export function createKnowledgeChild(input: {
     ...row,
     title,
     childCount: 0,
+    contentFormat: input.encryptedContent ? "encrypted-note-v1" : input.nodeType === "markdown" ? "markdown" : input.nodeType === "folder" || input.nodeType === "mindmap" ? undefined : "tiptap-json",
+    noteType: input.nodeType === "sheet" ? "sheet" : input.nodeType === "word" ? "word" : undefined,
     access: resolveKnowledgeNodeAccess(row.id, input.actorUserId, db),
   };
 }
@@ -350,6 +402,23 @@ function syncBusinessParent(db: Database.Database, node: NodeRow, treeParentId: 
   } else if (node.resourceType === "notebook") {
     db.prepare("UPDATE notebooks SET parentId = ?, updatedAt = datetime('now') WHERE id = ?")
       .run(notebookContainer, node.resourceId);
+    if (node.resourceId.startsWith(MINDMAP_LEGACY_NOTEBOOK_PREFIX)) {
+      db.prepare("UPDATE mindmap_folders SET parentId = ?, updatedAt = datetime('now') WHERE id = ?")
+        .run(
+          notebookContainer?.startsWith(MINDMAP_LEGACY_NOTEBOOK_PREFIX)
+            ? notebookContainer.slice(MINDMAP_LEGACY_NOTEBOOK_PREFIX.length)
+            : null,
+          node.resourceId.slice(MINDMAP_LEGACY_NOTEBOOK_PREFIX.length),
+        );
+    }
+  } else if (node.resourceType === "mindmap") {
+    db.prepare("UPDATE mindmaps SET folderId = ?, updatedAt = datetime('now') WHERE id = ?")
+      .run(
+        notebookContainer?.startsWith(MINDMAP_LEGACY_NOTEBOOK_PREFIX)
+          ? notebookContainer.slice(MINDMAP_LEGACY_NOTEBOOK_PREFIX.length)
+          : null,
+        node.resourceId,
+      );
   }
 }
 
@@ -602,6 +671,10 @@ export function reorderKnowledgeNodes(input: {
         db.prepare("UPDATE notes SET sortOrder = ? WHERE id = ?").run(sortOrder, node.resourceId);
       } else if (node.resourceType === "notebook") {
         db.prepare("UPDATE notebooks SET sortOrder = ? WHERE id = ?").run(sortOrder, node.resourceId);
+        if (node.resourceId.startsWith(MINDMAP_LEGACY_NOTEBOOK_PREFIX)) {
+          db.prepare("UPDATE mindmap_folders SET sortOrder = ? WHERE id = ?")
+            .run(sortOrder, node.resourceId.slice(MINDMAP_LEGACY_NOTEBOOK_PREFIX.length));
+        }
       }
       recordHistory(db, {
         nodeId: node.id,

@@ -43,6 +43,7 @@
 import { Hono } from "hono";
 import type { Context } from "hono";
 import { getDb } from "../db/schema";
+import { isEncryptedNoteFormat } from "../lib/encryptedNotes.js";
 import { v4 as uuid } from "uuid";
 import crypto from "crypto";
 import fs from "fs";
@@ -76,6 +77,12 @@ import {
   deleteThumbnailsFor,
 } from "../services/thumbnails";
 import { computeAttachmentEtag, requestMatchesEtag } from "../lib/attachment-etag";
+import { attachmentWriteErrorResponse } from "../lib/attachment-error-response";
+import { isHeifMime, resolveHeifUploadMime, sniffHeifMime } from "../lib/heif-mime";
+import { getOrCreateHeifPreview } from "../services/heif-preview";
+import { analyzeModernMedia } from "../lib/modern-media";
+import { getOrCreateMotionPreview, inspectPhotoMedia, recordHeifVariant, recordMediaAnalysis } from "../services/modern-media";
+import { parseSingleHttpRange } from "../lib/http-range";
 
 const ATTACHMENTS_DIR = getStorageAttachmentsDir();
 
@@ -210,6 +217,10 @@ const ALLOWED_IMAGE_MIMES = new Set([
   "image/svg+xml",
   "image/x-icon",
   "image/vnd.microsoft.icon",
+  "image/heic",
+  "image/heif",
+  "image/heic-sequence",
+  "image/heif-sequence",
 ]);
 
 export const MIME_TO_EXT: Record<string, string> = {
@@ -221,6 +232,15 @@ export const MIME_TO_EXT: Record<string, string> = {
   "image/svg+xml": "svg",
   "image/x-icon": "ico",
   "image/vnd.microsoft.icon": "ico",
+  "image/heic": "heic",
+  "image/heif": "heif",
+  "image/heic-sequence": "heic",
+  "image/heif-sequence": "heif",
+  "audio/mp4": "m4a",
+  "audio/webm": "webm",
+  "audio/ogg": "ogg",
+  "audio/mpeg": "mp3",
+  "audio/wav": "wav",
 };
 
 // 判断附件是否属于「图片」——供 handleDownloadAttachment / 响应 category 字段共用。
@@ -447,7 +467,7 @@ export async function handleDownloadAttachment(
     }
   }
 
-  const forceDownload = c.req.query("download") === "1";
+  const forceDownload = /^(?:1|true|yes)$/i.test(c.req.query("download") || "");
   // ?inline=1 —— 显式声明"用于浏览器内联预览（如 <video>/<audio>/<iframe>）"。
   // 对于非图片附件，此参数会跳过 Content-Disposition: attachment，让浏览器直接渲染
   // 而不是触发下载。和 forceDownload 互斥（forceDownload 优先级更高，因为是用户明示）。
@@ -458,6 +478,95 @@ export async function handleDownloadAttachment(
   const readObject = dependencies.readAttachmentObject ?? readAttachmentObject;
   const createThumbnailFromBuffer = dependencies.getOrCreateThumbnailFromBufferAsync
     ?? getOrCreateThumbnailFromBufferAsync;
+
+  // 存量附件可能以空 MIME 或 octet-stream 入库；读取字节兜底识别，不依赖扩展名转码。
+  let heifSource: Buffer | null | undefined;
+  const readHeifSource = async () => {
+    if (heifSource === undefined) heifSource = await readObject(row.path);
+    return heifSource;
+  };
+  const mediaVariant = c.req.query("variant");
+  if ((c.req.query("media") === "info" || mediaVariant === "motion" || mediaVariant === "motion-original") && (!forceDownload || mediaVariant === "motion-original")) {
+    try {
+      const media = await inspectPhotoMedia(row.id, readHeifSource);
+      if (c.req.query("media") === "info") {
+        c.header("Cache-Control", "private, no-store");
+        return c.json({
+          kind: media.analysis.kind,
+          mimeType: media.analysis.mimeType,
+          hasMotion: Boolean(media.analysis.motion || media.companion),
+          motionStatus: media.analysis.motion || media.companion ? "available"
+            : media.analysis.kind === "live-photo" ? "missing-companion" : "none",
+          hasMotionOriginal: Boolean(media.companion),
+          canDownloadOriginal: c.get("attachmentAllowDownload") !== false,
+          ...(!sig && userId && !c.req.query("share") ? { accessUrls: createUserAttachmentAccessUrls(userId, [{ id: row.id, noteId: row.noteId }]) } : {}),
+        });
+      }
+      if (mediaVariant === "motion-original") {
+        // 配对原视频的下载仍受照片凭证及 wrapper 的下载权限约束。
+        if (!forceDownload) return c.json({ error: "下载动态原件需要 download=1" }, 400);
+        if (!media.companion) return c.json({ error: "没有配对的动态原件" }, 404);
+        const original = await readObject(media.companion.path);
+        if (!original) return c.json({ error: "attachment file missing" }, 404);
+        return c.body(toResponseBody(original), 200, {
+          "Content-Type": media.companion.mimeType,
+          "Content-Disposition": encodeContentDispositionFilename(media.companion.filename),
+        });
+      }
+      if (!media.analysis.motion && !media.companion) return c.json({ error: "照片没有可播放的动态内容", code: "MOTION_NOT_AVAILABLE" }, 404);
+      const preview = await getOrCreateMotionPreview(row.id, readHeifSource);
+      const etag = `"motion-v1-${crypto.createHash("sha256").update(preview).digest("hex")}"`;
+      const headers = { "Content-Type": "video/mp4", "Accept-Ranges": "bytes", ETag: etag };
+      const rangeHeader = c.req.header("Range");
+      const ifRange = c.req.header("If-Range");
+      const range = !ifRange || ifRange === etag ? parseSingleHttpRange(rangeHeader, preview.length) : null;
+      if (range && !range.ok) return c.body(null, 416, { ...headers, "Content-Range": `bytes */${preview.length}` });
+      if (requestMatchesEtag(new Headers(c.req.raw.headers), etag)) return c.body(null, 304, headers);
+      if (range?.ok) return c.body(toResponseBody(preview.subarray(range.start, range.end + 1)), 206, {
+        ...headers, "Content-Length": String(range.length), "Content-Range": `bytes ${range.start}-${range.end}/${preview.length}`,
+      });
+      return c.body(toResponseBody(preview), 200, { ...headers, "Content-Length": String(preview.length) });
+    } catch (error) {
+      console.warn(`[modern-media] 读取派生媒体失败 attachment=${row.id}:`, error);
+      return c.json({ error: "动态内容暂时无法播放，仍可查看照片或下载原件", code: "MEDIA_PREVIEW_FAILED" }, 422);
+    }
+  }
+  if (!isHeifMime(row.mimeType) && (
+    !row.mimeType || row.mimeType === "application/octet-stream"
+    || /\.hei[cf]$/i.test(row.filename) || /\.hei[cf]$/i.test(row.path)
+  )) {
+    const source = await readHeifSource();
+    const detected = source && sniffHeifMime(source);
+    if (detected) {
+      row.mimeType = detected;
+      db.prepare("UPDATE attachments SET mimeType = ? WHERE id = ?").run(detected, row.id);
+    }
+  }
+  if (isHeifMime(row.mimeType) && !forceDownload) {
+    const previewEtag = computeAttachmentEtag(row.id, requestedWidth || "heif-preview-v1");
+    if (requestMatchesEtag(new Headers(c.req.raw.headers), previewEtag)) {
+      return new Response(null, { status: 304, headers: { ETag: previewEtag } });
+    }
+    try {
+      const preview = await getOrCreateHeifPreview(ATTACHMENTS_DIR, row.id, readHeifSource);
+      recordHeifVariant(row.id);
+      const thumb = requestedWidth
+        ? await createThumbnailFromBuffer(ATTACHMENTS_DIR, row.id, preview, "image/webp", requestedWidth)
+        : null;
+      return c.body(toResponseBody(thumb?.buffer || preview), 200, {
+        "Content-Type": "image/webp",
+        ETag: thumb || !requestedWidth ? previewEtag : computeAttachmentEtag(row.id, "heif-preview-v1"),
+        ...(thumb ? { "X-Thumbnail-Width": String(requestedWidth) } : {}),
+      });
+    } catch (error) {
+      console.warn(`[heif-preview] 生成兼容预览失败 attachment=${row.id}:`, error);
+      if (heifSource === null) return c.json({ error: "attachment file missing" }, 404);
+      return c.json({
+        error: "无法生成 HEIC/HEIF 兼容预览，请下载原文件查看",
+        code: "HEIF_PREVIEW_FAILED",
+      }, 422);
+    }
+  }
 
   // 是否会走缩略图分支只依赖 query 参数 + row.mimeType，不需要读文件内容就能
   // 确定。据此可在读取任何字节之前算出这次响应的 ETag variant，命中
@@ -486,7 +595,7 @@ export async function handleDownloadAttachment(
   //   2) 不是 ?download=1（下载场景必须给原文件）
   //   3) 原图是可缩略的 raster 图片
   // 三者同时满足时尝试。任何一步失败就回退到原图。
-  let sourceBuffer: Buffer | null | undefined;
+  let sourceBuffer: Buffer | null | undefined = heifSource;
   if (willServeThumbnail) {
     const thumb = localExists
       ? await getOrCreateThumbnailAsync(
@@ -603,6 +712,10 @@ app.post("/", async (c) => {
   if (!hasPermission(permission, "write")) {
     return c.json({ error: "无权向该笔记上传附件", code: "FORBIDDEN" }, 403);
   }
+  const noteFormat = db.prepare("SELECT contentFormat FROM notes WHERE id = ?").get(noteId) as { contentFormat: string } | undefined;
+  if (isEncryptedNoteFormat(noteFormat?.contentFormat)) {
+    return c.json({ error: "加密文本笔记暂不支持附件", code: "ENCRYPTED_NOTE_ATTACHMENT_FORBIDDEN" }, 400);
+  }
 
   // 大小 / MIME 校验
   if (file.size > MAX_ATTACHMENT_SIZE) {
@@ -611,7 +724,7 @@ app.post("/", async (c) => {
       413,
     );
   }
-  const mime = (file.type || "application/octet-stream").toLowerCase();
+  let mime = (file.type || "application/octet-stream").toLowerCase();
   // 不限制格式：只拒绝少数高危可执行文件类型，其它任意 MIME 都放行。
   if (BLOCKED_MIMES.has(mime)) {
     return c.json({ error: `出于安全考虑，不支持该类型: ${mime}` }, 415);
@@ -620,16 +733,16 @@ app.post("/", async (c) => {
   // 落盘
   ensureAttachmentsDir();
   const id = uuid();
-  const ext = pickExt(file.name, mime);
-  const monthPath = getUploadMonthPath();
-  const storagePath = `${monthPath}/${id}.${ext}`;
-
   let buffer: Buffer;
   try {
     buffer = Buffer.from(await file.arrayBuffer());
-  } catch (err: any) {
-    return c.json({ error: `读取上传内容失败: ${err?.message || err}` }, 500);
+  } catch (err: unknown) {
+    return attachmentWriteErrorResponse(c, "read", err);
   }
+  mime = analyzeModernMedia(buffer, resolveHeifUploadMime(buffer, mime)).mimeType;
+  const ext = pickExt(file.name, mime);
+  const monthPath = getUploadMonthPath();
+  const storagePath = `${monthPath}/${id}.${ext}`;
 
   // v11 hash 去重：先算 SHA-256，在同 scope（userId + workspaceId）内查命中。
   // 阶段 B 命中策略：
@@ -654,6 +767,8 @@ app.post("/", async (c) => {
     ) as ExistingAttachmentForDedup | undefined;
 
   if (dedupRow) {
+    // 旧附件可能只有通用 MIME，去重新记录按本次上传的真实媒体字节分类。
+    if (isHeifMime(mime) || mime === "image/jpeg" || mime === "image/png" || mime.startsWith("video/")) dedupRow.mimeType = mime;
     let clone: DeduplicatedAttachmentRow;
     try {
       clone = createDeduplicatedAttachmentRow({
@@ -664,8 +779,8 @@ app.post("/", async (c) => {
         filename: file.name || dedupRow.filename,
         hash: sha256,
       });
-    } catch (err: any) {
-      return c.json({ error: `写入数据库失败: ${err?.message || err}` }, 500);
+    } catch (err: unknown) {
+      return attachmentWriteErrorResponse(c, "database", err);
     }
 
     enqueueAttachment({
@@ -674,6 +789,8 @@ app.post("/", async (c) => {
       workspaceId: noteWorkspaceId,
       noteId,
     });
+
+    recordMediaAnalysis(clone.id, buffer, clone.mimeType);
 
     return c.json(
       {
@@ -692,8 +809,8 @@ app.post("/", async (c) => {
 
   try {
     await writeAttachmentObject(storagePath, buffer, mime);
-  } catch (err: any) {
-    return c.json({ error: `写入文件失败: ${err?.message || err}` }, 500);
+  } catch (err: unknown) {
+    return attachmentWriteErrorResponse(c, "storage", err);
   }
 
   // 写 DB。attachments.path 存**文件名**（相对 ATTACHMENTS_DIR）而非绝对路径，
@@ -719,10 +836,10 @@ app.post("/", async (c) => {
       noteWorkspaceId,
       sha256,
     );
-  } catch (err: any) {
-    // DB 写失败时把已落盘文件清掉，避免孤儿
+  } catch (err: unknown) {
+    // Keep the existing orphan-file rollback when database insertion fails.
     try { await deleteAttachmentObject(storagePath); } catch { /* ignore */ }
-    return c.json({ error: `写入数据库失败: ${err?.message || err}` }, 500);
+    return attachmentWriteErrorResponse(c, "database", err);
   }
 
   // v8：上传成功后立即把附件入队做内容索引。enqueueAttachment 内部吞错，
@@ -733,6 +850,8 @@ app.post("/", async (c) => {
     workspaceId: noteWorkspaceId,
     noteId,
   });
+
+  recordMediaAnalysis(id, buffer, mime);
 
   return c.json(
     {
@@ -813,7 +932,7 @@ app.delete("/:id", async (c) => {
 //   - notes.content 99% 情况是序列化的 Tiptap JSON（JSON.stringify 后的字符串），
 //     同一份字符串同时承载 HTML 形式和 JSON 形式里的 src 属性值；
 //   - 用正则替换只操作 src 的值部分，对 JSON / HTML 都安全。
-const INLINE_IMG_BASE64_RE = /(["'])data:(image\/[a-z0-9.+\-]+);base64,([A-Za-z0-9+/=]+)\1/gi;
+const INLINE_IMG_BASE64_RE = /(["'])data:((?:image|audio)\/[a-z0-9.+\-]+);base64,([A-Za-z0-9+/=]+)\1/gi;
 const MARKDOWN_IMG_BASE64_RE = /!\[([^\]]*)\]\(data:(image\/[a-z0-9.+\-]+);base64,([A-Za-z0-9+/=]+)\)/gi;
 
 export interface InlineImageExtractResult {
@@ -849,8 +968,8 @@ export function extractInlineBase64Images(
   if (!content || typeof content !== "string") {
     return { content: content || "", attachmentIds: [], replacedCount: 0 };
   }
-  // 快速预检：没有 "data:image" 字样直接返回，零分配。
-  if (content.indexOf("data:image") < 0) {
+  // 图片及 ZIP 导入的音频都进入现有附件存储。
+  if (!/data:(?:image|audio)\//i.test(content)) {
     return { content, attachmentIds: [], replacedCount: 0 };
   }
 
@@ -875,7 +994,7 @@ export function extractInlineBase64Images(
 
   const createAttachmentUrl = (mime: string, base64: string): string | null => {
     const mimeLower = mime.toLowerCase();
-    if (!ALLOWED_IMAGE_MIMES.has(mimeLower)) {
+    if (!ALLOWED_IMAGE_MIMES.has(mimeLower) && !(mimeLower.startsWith("audio/") && MIME_TO_EXT[mimeLower])) {
       return null;
     }
     let buffer: Buffer;
@@ -1088,6 +1207,11 @@ export function scanOrphanAttachments(graceHours = 24): OrphanScanResult {
     if (n.content) sources.push(n.content);
   }
   const haystack = sources.join("\n");
+  const companionReferences = db.prepare(`SELECT sourceAttachmentId, variantAttachmentId FROM attachment_media_variants
+    WHERE kind = 'original-motion' AND variantAttachmentId IS NOT NULL`).all() as Array<{ sourceAttachmentId: string; variantAttachmentId: string }>;
+  const protectedCompanions = new Set(companionReferences
+    .filter((relation) => haystack.includes(`/api/attachments/${relation.sourceAttachmentId}`))
+    .map((relation) => relation.variantAttachmentId));
 
   const cutoff = Date.now() - graceHours * 3600 * 1000;
   const contentOrphans: OrphanScanResult["contentOrphans"] = [];
@@ -1097,6 +1221,7 @@ export function scanOrphanAttachments(graceHours = 24): OrphanScanResult {
     if (Number.isFinite(created) && created > cutoff) continue;
     // 引用判定：搜 `/api/attachments/<id>`（uuid 不会与其他随机字符串混淆）
     if (haystack.indexOf(`/api/attachments/${r.id}`) >= 0) continue;
+    if (protectedCompanions.has(r.id)) continue;
     contentOrphans.push({
       id: r.id,
       filename: r.path,
@@ -1649,15 +1774,15 @@ app.post("/_repair/missing/:id/upload", async (c) => {
   let buffer: Buffer;
   try {
     buffer = Buffer.from(await file.arrayBuffer());
-  } catch (err: any) {
-    return c.json({ error: `读取上传内容失败: ${err?.message || err}` }, 500);
+  } catch (err: unknown) {
+    return attachmentWriteErrorResponse(c, "read", err);
   }
   const sha256 = crypto.createHash("sha256").update(buffer).digest("hex");
 
   try {
     fs.writeFileSync(abs, buffer);
-  } catch (err: any) {
-    return c.json({ error: `写入附件文件失败: ${err?.message || err}` }, 500);
+  } catch (err: unknown) {
+    return attachmentWriteErrorResponse(c, "repair-storage", err);
   }
 
   const sameRows = db
@@ -1667,8 +1792,8 @@ app.post("/_repair/missing/:id/upload", async (c) => {
   try {
     db.prepare("UPDATE attachments SET mimeType = ?, size = ?, hash = ? WHERE path = ?")
       .run(mime, buffer.length, sha256, row.path);
-  } catch (err: any) {
-    return c.json({ error: `更新附件元数据失败: ${err?.message || err}` }, 500);
+  } catch (err: unknown) {
+    return attachmentWriteErrorResponse(c, "repair-database", err);
   }
 
   const baseName = (row.path || "").replace(/\.[^.]+$/, "");
@@ -1752,8 +1877,8 @@ app.post("/_repair/dangling/remove", async (c) => {
 
   try {
     tx();
-  } catch (err: any) {
-    return c.json({ error: `移除悬空引用失败: ${err?.message || err}` }, 500);
+  } catch (err: unknown) {
+    return attachmentWriteErrorResponse(c, "repair-references", err);
   }
 
   return c.json({

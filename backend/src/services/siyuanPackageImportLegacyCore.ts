@@ -6,8 +6,7 @@ import { syncReferences as syncAttachmentReferences } from "../lib/attachmentRef
 import { siyuanSyToMarkdown, type SiyuanNode } from "../lib/siyuanSyParser";
 import { siyuanSyToTiptapJson } from "../lib/siyuanTiptapConverter";
 import {
-    synchronizeLegacyNotebookHierarchy,
-    synchronizeLegacyNoteHierarchy,
+    synchronizeLegacyImportHierarchy,
 } from "./legacyKnowledgeHierarchy";
 import {
     deleteAttachmentObject,
@@ -17,11 +16,20 @@ import {
 
 const unzipper = require("unzipper");
 
+export type SiyuanImportProgress = {
+    phase: "scanning" | "converting" | "persisting" | "finalizing";
+    message: string;
+    current?: number;
+    total?: number;
+};
+
 interface ImportParams {
     userId: string;
     workspaceId: string | null;
     targetNotebookId?: string;
     contentFormat?: "tiptap-json" | "markdown";
+    preparedPackage?: PreparedSiyuanPackage;
+    onProgress?: (progress: SiyuanImportProgress) => void;
 }
 
 export interface SiyuanPackageImportResult {
@@ -49,7 +57,7 @@ export interface SiyuanPackageImportResult {
     };
 }
 
-interface ZipEntryLike {
+export interface ZipEntryLike {
     path: string;
     type?: string;
     uncompressedSize?: number;
@@ -57,12 +65,20 @@ interface ZipEntryLike {
     buffer(): Promise<Buffer>;
 }
 
-interface SiyuanDocIndex {
+export interface PreparedSiyuanDocument {
     id: string;
     path: string;
     title: string;
     updatedAt?: string;
     ast: SiyuanNode;
+}
+
+type SiyuanDocIndex = PreparedSiyuanDocument;
+
+export interface PreparedSiyuanPackage {
+    entries: ZipEntryLike[];
+    documents: PreparedSiyuanDocument[];
+    boxNames: Map<string, string>;
 }
 
 interface PhysicalAsset {
@@ -554,7 +570,7 @@ export async function importSiyuanPackageFromZipFile(
     const warnings: string[] = [];
     const importedFiles = new Set<string>();
 
-    const entries = await readZipEntries(zipFilePath);
+    const entries = params.preparedPackage?.entries ?? await readZipEntries(zipFilePath);
     for (const entry of entries) {
         if (!isSafeZipPath(entry.path)) {
             throw new Error(`Unsafe path in Siyuan package: ${entry.path}`);
@@ -562,16 +578,24 @@ export async function importSiyuanPackageFromZipFile(
     }
     assertZipBudget(entries);
 
-    const boxNames = new Map<string, string>();
+    const boxNames = new Map<string, string>(params.preparedPackage?.boxNames || []);
     const docById = new Map<string, SiyuanDocIndex>();
     const assetMap = new Map<string, ZipEntryLike>();
     let totalAssets = 0;
+
+    for (const doc of params.preparedPackage?.documents || []) {
+        const preparedDoc = doc.updatedAt ? doc : { ...doc, updatedAt: getSiyuanUpdatedAt(doc.ast) };
+        docById.set(preparedDoc.id, preparedDoc);
+        if (preparedDoc.ast.ID && preparedDoc.ast.ID !== preparedDoc.id) {
+            docById.set(preparedDoc.ast.ID, preparedDoc);
+        }
+    }
 
     for (const entry of entries) {
         const entryPath = normalizeZipPath(entry.path);
         if (entry.type === "Directory" || isIgnoredSiyuanDataEntry(entryPath)) continue;
 
-        if (SIYUAN_CONF_RE.test(entryPath)) {
+        if (!params.preparedPackage && SIYUAN_CONF_RE.test(entryPath)) {
             try {
                 const parsed = JSON.parse((await entry.buffer()).toString("utf8"));
                 const boxId = getBoxIdFromConfPath(entryPath);
@@ -589,7 +613,7 @@ export async function importSiyuanPackageFromZipFile(
             continue;
         }
 
-        if (isSyEntry(entryPath)) {
+        if (!params.preparedPackage && isSyEntry(entryPath)) {
             try {
                 const ast = JSON.parse((await entry.buffer()).toString("utf8")) as SiyuanNode;
                 const id = getDocIdFromPath(entryPath);
@@ -623,7 +647,14 @@ export async function importSiyuanPackageFromZipFile(
     let unresolvedAssets = 0;
 
     try {
-        for (const doc of docs) {
+        params.onProgress?.({
+            phase: "converting",
+            message: `正在转换 ${docs.length} 篇思源文档`,
+            current: 0,
+            total: docs.length,
+        });
+        await new Promise<void>((resolve) => setImmediate(resolve));
+        for (const [docIndex, doc] of docs.entries()) {
             const converted = siyuanSyToMarkdown(doc.ast);
             warnings.push(...converted.warnings);
             mergeUnsupported(unsupportedNodes, converted.stats.unsupportedNodes);
@@ -680,6 +711,7 @@ export async function importSiyuanPackageFromZipFile(
             const rewritten = rewriteAssetRefs(markdown, urlMap);
             const finalContent = targetContentFormat === "markdown"
                 ? rewriteMarkdownAttachmentRender(rewritten, urlMimeMap)
+                    .replace(/\s+\^blk_[A-Za-z0-9_-]{6,}/g, "")
                 : siyuanSyToTiptapJson(doc.ast, { resolveAssetUrl: (raw) => resolveAssetUrl(urlMap, raw) });
             notePlans.push({
                 id: noteId,
@@ -691,6 +723,15 @@ export async function importSiyuanPackageFromZipFile(
                 updatedAt: converted.updatedAt || doc.updatedAt,
                 attachments: attachmentRows,
             });
+            params.onProgress?.({
+                phase: "converting",
+                message: `正在转换思源文档 ${docIndex + 1} / ${docs.length}`,
+                current: docIndex + 1,
+                total: docs.length,
+            });
+            if ((docIndex + 1) % 25 === 0) {
+                await new Promise<void>((resolve) => setImmediate(resolve));
+            }
         }
 
         const notebookIds = new Set<string>();
@@ -748,7 +789,6 @@ export async function importSiyuanPackageFromZipFile(
                     continue;
                 }
                 const existing = findChild.get(params.userId, seg, parentId, params.workspaceId) as { id: string } | undefined;
-                let hierarchyReason: "create" | "metadata" = "metadata";
                 if (existing) {
                     currentId = existing.id;
                 } else {
@@ -758,17 +798,8 @@ export async function importSiyuanPackageFromZipFile(
                         throw new Error(`思源目录创建失败：${seg}`);
                     }
                     createdNotebookIds.add(currentId);
-                    hierarchyReason = "create";
                 }
-                // 自动创建路径不能只写 notebooks。目录节点必须和业务记录在同一事务内同步，
-                // 且同步服务会按 notebooks.parentId 递归保证完整父级链和正确 scopeKey。
-                synchronizeLegacyNotebookHierarchy({
-                    db,
-                    notebookId: currentId,
-                    actorUserId: params.userId,
-                    reason: hierarchyReason,
-                    parentMode: "resource",
-                });
+                notebookIds.add(currentId);
                 nbCache.set(childKey, currentId);
                 parentId = currentId;
             }
@@ -778,6 +809,11 @@ export async function importSiyuanPackageFromZipFile(
         };
 
         const now = new Date().toISOString();
+        params.onProgress?.({
+            phase: "persisting",
+            message: `正在写入 ${notePlans.length} 篇笔记、目录和附件`,
+        });
+        await new Promise<void>((resolve) => setImmediate(resolve));
         const tx = db.transaction(() => {
             for (const note of notePlans) {
                 const notebookId = getOrCreateNotebookByPath(note.notebookPath);
@@ -829,16 +865,16 @@ export async function importSiyuanPackageFromZipFile(
                     insertNoteTag.run(note.id, existing.id);
                 }
                 syncAttachmentReferences(db, note.id, note.content);
-                // 导入与普通新建笔记共用同一知识树同步契约，不能只依赖历史触发器。
-                synchronizeLegacyNoteHierarchy({
-                    db,
-                    noteId: note.id,
-                    actorUserId: params.userId,
-                    reason: "create",
-                    parentMode: "resource",
-                });
                 importedNotes.push({ id: note.id, title: note.title, notebookId, version: 1 });
             }
+
+            synchronizeLegacyImportHierarchy({
+                db,
+                notebookIds: Array.from(new Set([...notebookIds, ...createdNotebookIds])),
+                createdNotebookIds: Array.from(createdNotebookIds),
+                noteIds: importedNotes.map((note) => note.id),
+                actorUserId: params.userId,
+            });
 
             if (importedNotes.length === 0) {
                 throw new Error(`已成功解析 ${docs.length} 篇思源文档，但 0 篇写入成功`);

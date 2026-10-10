@@ -6,6 +6,7 @@ export const CLOSE_INLINE_COMMENT_PANEL_EVENT = "nowen:inline-comments:close";
 export interface OpenInlineCommentPanelDetail {
   noteId: string;
   noteTitle?: string;
+  commentId?: string;
   anchor?: TextCommentAnchor | null;
   onClose?: () => void;
 }

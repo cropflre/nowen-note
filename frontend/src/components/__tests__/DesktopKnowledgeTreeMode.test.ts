@@ -44,6 +44,16 @@ describe("desktop knowledge tree browsing mode", () => {
     expect(expansionSource).toContain("saveKnowledgeTreeExpansion");
   });
 
+  it("supports choosing how many tree levels are visible", () => {
+    expect(treePanelSource).toContain("buildKnowledgeTreeExpandedIdsForDepth");
+    expect(treePanelSource).toContain('data-knowledge-tree-depth-control=""');
+    expect(treePanelSource).toContain('value: "depth:1"');
+    expect(treePanelSource).toContain('value: "depth:2"');
+    expect(treePanelSource).toContain('value: "depth:3"');
+    expect(treePanelSource).toContain('value: "depth:all"');
+    expect(expansionSource).toContain("buildKnowledgeTreeExpandedIdsForDepth");
+  });
+
   it("records tree-view opens for the shared recent list", () => {
     expect(treePanelSource).toContain("saveMobileKnowledgeTreeRecentEntries");
     expect(treePanelSource).toContain("rememberOpened(node.id)");
@@ -57,7 +67,8 @@ describe("desktop knowledge tree browsing mode", () => {
 
   it("reveals quick-browse row actions only on hover outside mobile", () => {
     expect(quickPanelSource).toContain('const actionVisibility = variant === "mobile" ? "flex" : "hidden group-hover:flex";');
-    expect(quickPanelSource.match(/actionVisibility/g)?.length).toBeGreaterThanOrEqual(3);
+    expect(quickPanelSource).toContain('const effectiveActionVisibility = multiSelectMode ? "hidden" : actionVisibility;');
+    expect(quickPanelSource.match(/effectiveActionVisibility/g)?.length).toBeGreaterThanOrEqual(3);
   });
 
   it("keeps desktop quick-browse hover rows limited to create and more actions", () => {
@@ -90,7 +101,7 @@ describe("desktop knowledge tree browsing mode", () => {
 
   it("uses tighter spacing for the mobile recursive tree", () => {
     expect(treePanelSource).toContain('const treeIndent = variant === "mobile" ? 12 : 16;');
-    expect(treePanelSource).toContain('variant === "mobile" ? "h-6 w-4" : "h-7 w-5"');
-    expect(treePanelSource).toContain('variant === "mobile" ? "gap-1 py-0.5 text-[11px] leading-4" : "gap-1.5 py-1.5 text-xs"');
+    expect(treePanelSource).toContain('variant === "mobile" ? "h-8 w-5" : "h-7 w-5"');
+    expect(treePanelSource).toContain('variant === "mobile" ? "gap-1.5 py-1 text-[13px] leading-5" : classicText ? "gap-1.5 py-1.5 text-xs" : "gap-1.5 py-1.5 text-sm leading-5"');
   });
 });

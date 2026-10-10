@@ -14,7 +14,7 @@ const COPY = {
     pendingReplacement: "等待 $1",
     oldHint: "索引在后台异步执行；失败任务可通过重新构建索引再次处理。",
     help: "AI 助手会在后台为笔记和附件建立搜索索引，不是待办事项或聊天排队，也不会修改笔记原文。",
-    blocked: "向量引擎不可用，等待中的索引任务暂时不会开始处理。配置并测试可用的 Embedding 模型后，可重新构建索引。",
+    blocked: "向量索引未就绪：可能是首次索引尚未初始化，也可能是本地扩展异常。请先保存 Embedding 配置，并通过引擎状态和失败详情排查。",
     unavailable: "不可用",
   },
   en: {
@@ -25,7 +25,7 @@ const COPY = {
     pendingReplacement: "waiting $1",
     oldHint: "Indexing runs in the background. Failed jobs can be retried by rebuilding the index.",
     help: "The AI assistant builds search indexes for notes and attachments in the background. These are not to-dos or chat requests, and original note content is not changed.",
-    blocked: "The vector engine is unavailable, so waiting index jobs will not start yet. Configure and test a working embedding model, then rebuild the index.",
+    blocked: "The vector index is not ready yet. This may be first-index initialization or a native extension problem. Check the embedding settings and failure details.",
     unavailable: "Unavailable",
   },
 };

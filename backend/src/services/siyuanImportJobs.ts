@@ -3,6 +3,7 @@ import fs from "node:fs";
 import { getDb } from "../db/schema";
 import { broadcastToUser } from "./realtime";
 import type { SiyuanPackageImportResult } from "./siyuanPackageImport";
+import type { SiyuanImportProgress } from "./siyuanPackageImportLegacyCore";
 
 export type SiyuanImportJobStatus = "queued" | "running" | "completed" | "failed";
 
@@ -21,6 +22,8 @@ type SiyuanImportJobRow = {
   status: SiyuanImportJobStatus;
   phase: string;
   message: string;
+  progressCurrent: number | null;
+  progressTotal: number | null;
   resultJson: string | null;
   error: string | null;
   createdAt: string;
@@ -39,6 +42,8 @@ export type SiyuanImportJobSnapshot = {
   status: SiyuanImportJobStatus;
   phase: string;
   message: string;
+  progressCurrent: number | null;
+  progressTotal: number | null;
   filename: string;
   size: number;
   contentFormat: "tiptap-json" | "markdown";
@@ -56,6 +61,7 @@ type RuntimeState = {
   runningJobs: Set<string>;
   scheduledJobs: Set<string>;
   schemaReady: boolean;
+  schemaDb?: unknown;
 };
 
 const runtimeGlobals = globalThis as typeof globalThis & {
@@ -70,8 +76,9 @@ runtime.scheduledJobs ||= new Set<string>();
 const STALE_RUNNING_JOB_MINUTES = 10;
 
 function ensureSchema(): void {
-  if (runtime.schemaReady) return;
-  getDb().exec(`
+  const db = getDb();
+  if (runtime.schemaReady && runtime.schemaDb === db) return;
+  db.exec(`
     CREATE TABLE IF NOT EXISTS siyuan_import_jobs (
       id TEXT PRIMARY KEY,
       requestId TEXT NOT NULL,
@@ -87,6 +94,8 @@ function ensureSchema(): void {
       status TEXT NOT NULL DEFAULT 'queued',
       phase TEXT NOT NULL DEFAULT 'queued',
       message TEXT NOT NULL DEFAULT '等待后台导入',
+      progressCurrent INTEGER,
+      progressTotal INTEGER,
       resultJson TEXT,
       error TEXT,
       createdAt TEXT NOT NULL DEFAULT (datetime('now')),
@@ -102,7 +111,16 @@ function ensureSchema(): void {
     CREATE INDEX IF NOT EXISTS idx_siyuan_import_jobs_user_status
       ON siyuan_import_jobs(userId, status, createdAt);
   `);
+  const columns = new Set((db.prepare("PRAGMA table_info(siyuan_import_jobs)").all() as Array<{ name: string }>)
+    .map((column) => column.name));
+  if (!columns.has("progressCurrent")) {
+    db.exec("ALTER TABLE siyuan_import_jobs ADD COLUMN progressCurrent INTEGER");
+  }
+  if (!columns.has("progressTotal")) {
+    db.exec("ALTER TABLE siyuan_import_jobs ADD COLUMN progressTotal INTEGER");
+  }
   runtime.schemaReady = true;
+  runtime.schemaDb = db;
 }
 
 function readRow(jobId: string): SiyuanImportJobRow | undefined {
@@ -110,6 +128,7 @@ function readRow(jobId: string): SiyuanImportJobRow | undefined {
   return getDb().prepare(`
     SELECT id, requestId, userId, workspaceId, targetNotebookId, contentFormat,
            fingerprint, filename, size, tmpDir, tmpPath, status, phase, message,
+           progressCurrent, progressTotal,
            resultJson, error, createdAt, startedAt, finishedAt, updatedAt
     FROM siyuan_import_jobs
     WHERE id = ?
@@ -137,6 +156,8 @@ function toSnapshot(row: SiyuanImportJobRow): SiyuanImportJobSnapshot {
     status: row.status,
     phase: row.phase,
     message: row.message,
+    progressCurrent: row.progressCurrent,
+    progressTotal: row.progressTotal,
     filename: row.filename,
     size: row.size,
     contentFormat: row.contentFormat,
@@ -184,6 +205,35 @@ function compactResult(result: SiyuanPackageImportResult): SiyuanImportJobResult
   };
 }
 
+function createProgressReporter(jobId: string): (progress: SiyuanImportProgress) => void {
+  let lastPhase = "";
+  let lastWriteAt = 0;
+  return (progress) => {
+    const now = Date.now();
+    if (progress.phase === lastPhase && now - lastWriteAt < 500) return;
+    const updated = getDb().prepare(`
+      UPDATE siyuan_import_jobs
+      SET phase = ?, message = ?, progressCurrent = ?, progressTotal = ?,
+          updatedAt = datetime('now')
+      WHERE id = ? AND status = 'running'
+    `).run(
+      progress.phase,
+      progress.message,
+      typeof progress.current === "number" && Number.isFinite(progress.current)
+        ? Math.max(0, Math.trunc(progress.current))
+        : null,
+      typeof progress.total === "number" && Number.isFinite(progress.total)
+        ? Math.max(0, Math.trunc(progress.total))
+        : null,
+      jobId,
+    );
+    if (updated.changes === 1) {
+      lastPhase = progress.phase;
+      lastWriteAt = now;
+    }
+  };
+}
+
 async function processJob(jobId: string): Promise<void> {
   runtime.scheduledJobs.delete(jobId);
   if (runtime.runningJobs.has(jobId)) return;
@@ -198,8 +248,8 @@ async function processJob(jobId: string): Promise<void> {
 
     const claimed = getDb().prepare(`
       UPDATE siyuan_import_jobs
-      SET status = 'running', phase = 'importing',
-          message = '正在解析数据包并导入目录、笔记和附件',
+      SET status = 'running', phase = 'scanning',
+          message = '正在扫描思源数据包', progressCurrent = NULL, progressTotal = NULL,
           startedAt = COALESCE(startedAt, datetime('now')),
           updatedAt = datetime('now')
       WHERE id = ? AND status = 'queued'
@@ -221,11 +271,13 @@ async function processJob(jobId: string): Promise<void> {
     }, 15_000);
 
     const { importSiyuanPackageFromZipFile } = await import("./siyuanPackageImport");
+    const reportProgress = createProgressReporter(jobId);
     const result = await importSiyuanPackageFromZipFile(row.tmpPath, {
       userId: row.userId,
       workspaceId: row.workspaceId,
       targetNotebookId: row.targetNotebookId || undefined,
       contentFormat: row.contentFormat,
+      onProgress: reportProgress,
     });
     const parsedNotes = result.stats.parsedNotes ?? result.stats.syFiles;
     const createdNotes = result.stats.createdNotes ?? result.count;
@@ -238,11 +290,14 @@ async function processJob(jobId: string): Promise<void> {
     getDb().prepare(`
       UPDATE siyuan_import_jobs
       SET status = 'completed', phase = 'completed', message = ?,
+          progressCurrent = ?, progressTotal = ?,
           resultJson = ?, error = NULL,
           finishedAt = datetime('now'), updatedAt = datetime('now')
       WHERE id = ?
     `).run(
       `已解析 ${parsedNotes} 篇，成功写入 ${createdNotes} 篇，创建目录 ${result.stats.createdFolders} 个，附件 ${result.stats.createdAttachments} 个`,
+      parsedNotes,
+      parsedNotes,
       JSON.stringify(compact),
       jobId,
     );
@@ -315,6 +370,7 @@ export function getSiyuanImportJobByRequestId(
   const row = getDb().prepare(`
     SELECT id, requestId, userId, workspaceId, targetNotebookId, contentFormat,
            fingerprint, filename, size, tmpDir, tmpPath, status, phase, message,
+           progressCurrent, progressTotal,
            resultJson, error, createdAt, startedAt, finishedAt, updatedAt
     FROM siyuan_import_jobs
     WHERE userId = ? AND requestId = ?
@@ -335,6 +391,7 @@ function findActiveDuplicate(input: {
   return getDb().prepare(`
     SELECT id, requestId, userId, workspaceId, targetNotebookId, contentFormat,
            fingerprint, filename, size, tmpDir, tmpPath, status, phase, message,
+           progressCurrent, progressTotal,
            resultJson, error, createdAt, startedAt, finishedAt, updatedAt
     FROM siyuan_import_jobs
     WHERE userId = ?
