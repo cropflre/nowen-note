@@ -36,6 +36,7 @@ on:
       - "frontend/src/lib/__tests__/offlineQueue.test.ts"
       - "frontend/src/lib/__tests__/noteSyncReceipt.test.ts"
       - "frontend/src/lib/__tests__/mobileNoteSyncReceipt.test.ts"
+      - "frontend/src/lib/__tests__/noteSyncReceiptBadge.test.tsx"
   pull_request:
     paths:
       - "docs/architecture/data-consistency-contract*"
@@ -70,6 +71,7 @@ on:
       - "frontend/src/lib/__tests__/offlineQueue.test.ts"
       - "frontend/src/lib/__tests__/noteSyncReceipt.test.ts"
       - "frontend/src/lib/__tests__/mobileNoteSyncReceipt.test.ts"
+      - "frontend/src/lib/__tests__/noteSyncReceiptBadge.test.tsx"
   workflow_dispatch:
 
 permissions:

@@ -212,6 +212,10 @@
         {
           "file": "frontend/src/lib/__tests__/offlineQueue.test.ts",
           "case": "does not discard a newer queued edit after a stale in-flight HTTP 200"
+        },
+        {
+          "file": "frontend/src/lib/__tests__/noteSyncReceiptBadge.test.tsx",
+          "case": "never uses global synced state to claim a note has cloud confirmation"
         }
       ]
     }
