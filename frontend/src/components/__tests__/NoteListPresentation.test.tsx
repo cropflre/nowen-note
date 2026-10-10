@@ -89,6 +89,42 @@ describe("NoteList compact cards and controls", () => {
     renderCard({ draggable: true });
     expect(document.querySelector(".lucide-grip-vertical")?.parentElement?.className).toContain("group-hover:opacity-70");
   });
+  it("routes native desktop dragstart/drop events through a plain DOM surface (#814)", () => {
+    const onDragStart = vi.fn((event: React.DragEvent) => {
+      event.dataTransfer.setData("application/x-nowen-note", note.id);
+    });
+    const onDragOver = vi.fn((event: React.DragEvent) => { event.preventDefault(); });
+    const onDrop = vi.fn();
+    const onDragEnd = vi.fn();
+    renderCard({ draggable: true, onDragStart, onDragOver, onDrop, onDragEnd });
+
+    const animatedCard = document.querySelector<HTMLElement>("[data-note-list-card]")!;
+    const nativeSurface = animatedCard.querySelector<HTMLElement>("[data-note-native-drag-surface='enabled']")!;
+    expect(animatedCard.draggable).toBe(false);
+    expect(nativeSurface.draggable).toBe(true);
+
+    const payload = new Map<string, string>();
+    const dataTransfer = {
+      effectAllowed: "none",
+      setData(type: string, value: string) { payload.set(type, value); },
+      getData(type: string) { return payload.get(type) || ""; },
+    };
+    const send = (type: string) => {
+      const event = new Event(type, { bubbles: true, cancelable: true });
+      Object.defineProperty(event, "dataTransfer", { value: dataTransfer });
+      act(() => { nativeSurface.dispatchEvent(event); });
+    };
+    send("dragstart");
+    expect(onDragStart).toHaveBeenCalledOnce();
+    expect(dataTransfer.getData("application/x-nowen-note")).toBe(note.id);
+    send("dragover");
+    expect(onDragOver).toHaveBeenCalledOnce();
+    send("drop");
+    expect(onDrop).toHaveBeenCalledOnce();
+    send("dragend");
+    expect(onDragEnd).toHaveBeenCalledOnce();
+  });
+
   it("keeps important pin, favorite, lock and share indicators", () => {
     renderCard({ note: { ...note, isPinned: 1, isFavorite: 1, isLocked: 1 }, isShared: true });
     for (const icon of ["pin", "star", "lock", "share2"]) expect(document.querySelector(`.lucide-${icon}`)).not.toBeNull();
