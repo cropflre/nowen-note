@@ -1,4 +1,4 @@
-﻿import { aiOutboundFetch } from "../services/ai-outbound-fetch.js";
+﻿import { aiOutboundFetch, getAIOutboundProxyStatus } from "../services/ai-outbound-fetch.js";
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import { getDb } from "../db/schema";
@@ -30,6 +30,12 @@ const ai = new Hono();
 ai.use("*", async (c, next) => {
   if (!c.req.header("X-User-Id")) return c.json({ error: "Unauthorized" }, 401);
   await next();
+});
+
+// The proxy is configured by the server owner; never expose its URL, password or token.
+ai.get("/proxy-status", (c) => {
+  const { enabled, valid, message } = getAIOutboundProxyStatus();
+  return c.json({ enabled, valid, message });
 });
 
 // ============================================================
