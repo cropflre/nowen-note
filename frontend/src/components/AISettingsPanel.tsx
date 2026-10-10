@@ -24,6 +24,7 @@ import {
   type AIModelOption,
   type AIProfile,
   type AIProfileDraft,
+  type AIProxyStatus,
 } from "@/lib/aiProfiles";
 
 interface ProviderPreset {
@@ -145,6 +146,7 @@ export default function AISettingsPanel() {
   const [draft, setDraft] = useState<AIProfileDraft>(EMPTY_DRAFT);
   const [models, setModels] = useState<AIModelOption[]>([]);
   const [loading, setLoading] = useState(true);
+  const [proxyStatus, setProxyStatus] = useState<AIProxyStatus | null>(null);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
   const [activating, setActivating] = useState(false);
@@ -182,6 +184,16 @@ export default function AISettingsPanel() {
   }, [copy.loadFailed]);
 
   useEffect(() => { void loadProfiles(); }, [loadProfiles]);
+  useEffect(() => {
+    let alive = true;
+    void aiProfiles.proxyStatus?.().then((status) => {
+      if (alive) setProxyStatus(status);
+    }).catch(() => {
+      // Older versions may not implement this endpoint yet.
+      if (alive) setProxyStatus(null);
+    });
+    return () => { alive = false; };
+  }, []);
 
   const discoverModels = useCallback(async (silent = false) => {
     const seq = ++discoverySeq.current;
@@ -363,6 +375,21 @@ export default function AISettingsPanel() {
           <h3 className="text-lg font-bold text-zinc-900 dark:text-zinc-100">{copy.title}</h3>
           <p className="text-xs text-zinc-500 dark:text-zinc-400">{copy.description}</p>
         </div>
+      </div>
+
+      <div className="rounded-xl border border-zinc-200 bg-zinc-50/60 px-3 py-2.5 text-xs dark:border-zinc-800 dark:bg-zinc-900/30" aria-label="AI 网络代理状态">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="font-semibold">AI 网络代理</span>
+          <span className={proxyStatus?.enabled && proxyStatus.valid ? "text-emerald-600 dark:text-emerald-400" : proxyStatus?.enabled && !proxyStatus.valid ? "text-red-600" : "text-zinc-500"}>
+            {proxyStatus ? proxyStatus.enabled ? proxyStatus.valid ? "服务端已启用" : "配置无效" : "直连" : "状态未知"}
+          </span>
+        </div>
+        <p className="mt-1 text-zinc-500 dark:text-zinc-400">
+          {proxyStatus?.message || "代理由 Nowen Server 管理员通过 NOWEN_AI_PROXY_URL 环境变量配置，设置后需重启服务端。"}
+        </p>
+        <p className="mt-1 text-zinc-400">
+          代理仅影响服务端 AI 请求（包括模型发现、对话及 Embedding），不改变当前设备的连接或笔记同步；本地模型默认直连。
+        </p>
       </div>
 
       <div className="grid gap-4 lg:grid-cols-[220px_minmax(0,1fr)]">

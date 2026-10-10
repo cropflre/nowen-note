@@ -44,7 +44,21 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return body as T;
 }
 
+export interface AIProxyStatus {
+  enabled: boolean;
+  valid: boolean;
+  message: string;
+}
+
 export const aiProfiles = {
+  proxyStatus: async (): Promise<AIProxyStatus> => {
+    const token = localStorage.getItem("nowen-token") || "";
+    const response = await fetch(`${getBaseUrl()}/ai/proxy-status`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    return await response.json() as AIProxyStatus;
+  },
   list: () => request<{ profiles: AIProfile[]; activeProfileId: string }>(""),
 
   create: (draft: AIProfileDraft, activate = true) =>
