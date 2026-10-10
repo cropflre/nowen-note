@@ -218,6 +218,35 @@ function ensureFolderSyncNotebookHierarchy(args: {
   return { id: parentId, workspaceId: root.workspaceId };
 }
 
+/**
+ * Never silently move a tracked note from a user-chosen unrelated notebook.
+ * Folder renames retain the previous source-relative path in folder_sync_files
+ * until the new mapping is committed, so they remain eligible.
+ */
+function verifyManagedSourceLocation(input: {
+  note: TrackedNote | undefined;
+  row: SyncRow | undefined;
+  userId: string;
+  targetNotebookId: string;
+  sourceFolderId: string;
+  workspaceId: string | null;
+}): void {
+  if (!input.note) return;
+  if (input.note.workspaceId !== input.workspaceId) {
+    throw new FolderSyncHierarchyError("同步目标已切换空间；为防止附件和权限错乱，请重新确认目标笔记本");
+  }
+  const previousParts = input.row?.relativePath.replace(/\\/g, "/").split("/").slice(0, -1) || [];
+  const previousFolderId = previousParts.length
+    ? uuidv5(JSON.stringify([
+        input.userId, input.targetNotebookId, input.sourceFolderId, previousParts,
+      ]), FOLDER_SYNC_NAMESPACE)
+    : input.targetNotebookId;
+  if (input.note.notebookId !== input.targetNotebookId &&
+      input.note.notebookId !== previousFolderId) {
+    throw new FolderSyncHierarchyError("笔记在 Nowen 中被手动移动过，已暂停整理以保留用户的目录选择");
+  }
+}
+
 function cloneIndependentNote(note: TrackedNote): string {
   const copyId = uuid();
   const stamp = new Date().toISOString().slice(0, 16).replace("T", " ");
@@ -299,7 +328,8 @@ app.post("/organize-file", async (c) => {
       relativePath.split(/[\\/]/).length > 33) {
     return c.json({ error: "目录迁移参数无效", code: "INVALID_HIERARCHY" }, 400);
   }
-  if (!resolveTargetNotebook(rootId, userId)) {
+  const targetRoot = resolveTargetNotebook(rootId, userId);
+  if (!targetRoot) {
     return c.json({ error: "目标笔记本不存在或没有写权限", code: "FORBIDDEN" }, 403);
   }
   const row = getSyncRow(userId, sourcePathHash);
@@ -310,6 +340,9 @@ app.post("/organize-file", async (c) => {
   const owner = assertNoteOwner(note, userId);
   if (!owner.ok) return c.json({ error: owner.error, code: owner.code }, owner.status);
   if (!note) return c.json({ error: "同步笔记不存在", code: "NOTE_NOT_FOUND" }, 404);
+  if (note.workspaceId !== targetRoot.workspaceId) {
+    return c.json({ error: "不允许在整理目录时跨工作区移动笔记，请先确认目标", code: "LOCATION_CONFLICT" }, 409);
+  }
 
   // Detect a user moving the tracked note to a separate location since the
   // previous sync. Only the root and our own deterministic parent are managed.
@@ -398,6 +431,10 @@ app.post("/import-file", async (c) => {
 
   try {
     getDb().transaction(() => {
+    if (preserveHierarchy) verifyManagedSourceLocation({
+      note, row: syncRow, userId, targetNotebookId,
+      sourceFolderId: sourceFolderId as string, workspaceId: notebook.workspaceId,
+    });
     const destination = preserveHierarchy
       ? ensureFolderSyncNotebookHierarchy({
           userId, targetNotebookId, sourceFolderId: sourceFolderId as string, relativePath,
@@ -517,6 +554,10 @@ app.post("/import-attachment", async (c) => {
 
   try {
     getDb().transaction(() => {
+      if (preserveHierarchy) verifyManagedSourceLocation({
+        note, row: syncRow, userId, targetNotebookId,
+        sourceFolderId: sourceFolderId as string, workspaceId: notebook.workspaceId,
+      });
       const destination = preserveHierarchy
         ? ensureFolderSyncNotebookHierarchy({
             userId, targetNotebookId, sourceFolderId: sourceFolderId as string, relativePath,
