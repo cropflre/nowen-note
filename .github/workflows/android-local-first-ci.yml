@@ -5,11 +5,13 @@ on:
     branches:
       - release/v1.5.0
       - release/v1.5.1
+      - release/v1.5.2
     paths:
       - "frontend/src/lib/mobileLocal*.ts"
       - "frontend/src/lib/realtime.ts"
       - "frontend/src/lib/mobileSyncEngine.ts"
       - "frontend/src/lib/__tests__/mobileSyncUnexpectedFailure.test.ts"
+      - "frontend/src/lib/__tests__/mobileSyncEndpoint.test.ts"
       - "frontend/src/App.tsx"
       - "frontend/src/lib/accountLoginHistory.ts"
       - "frontend/src/components/AccountLoginHistory.tsx"
@@ -20,11 +22,13 @@ on:
     branches:
       - main
       - release/v1.5.1
+      - release/v1.5.2
     paths:
       - "frontend/src/lib/mobileLocal*.ts"
       - "frontend/src/lib/realtime.ts"
       - "frontend/src/lib/mobileSyncEngine.ts"
       - "frontend/src/lib/__tests__/mobileSyncUnexpectedFailure.test.ts"
+      - "frontend/src/lib/__tests__/mobileSyncEndpoint.test.ts"
       - "frontend/src/App.tsx"
       - "frontend/src/lib/accountLoginHistory.ts"
       - "frontend/src/components/AccountLoginHistory.tsx"
@@ -69,5 +73,6 @@ jobs:
           src/lib/__tests__/mobileLocalAttachmentFolderBridge.test.ts
           src/lib/__tests__/mobileLocalRealtimeGuard.test.ts
           src/lib/__tests__/mobileSyncUnexpectedFailure.test.ts
+          src/lib/__tests__/mobileSyncEndpoint.test.ts
           src/components/__tests__/AccountLoginHistory.test.tsx
           src/components/__tests__/AccountLoginHistoryServerEdit.test.tsx
