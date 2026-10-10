@@ -54,6 +54,7 @@ import { useContextMenu } from "@/hooks/useContextMenu";
 import { useMobileSidebarControlsCollapsed } from "@/hooks/useMobileSidebarControlsCollapsed";
 import { useSidebarTextStyle } from "@/hooks/useSidebarTextStyle";
 import { api, getCurrentWorkspace } from "@/lib/api";
+import { formatKnowledgeTreeUpdatedAt } from "@/lib/noteListTime";
 import { getCurrentMindMapAppId, pushMindMapAppPath, subscribeMindMapAppPath } from "@/lib/mindMapDeepLink";
 import { pushSheetAppPath } from "@/lib/sheetDeepLink";
 import { markNewNoteForImmediateEdit } from "@/lib/newNoteImmediateEdit";
@@ -168,19 +169,6 @@ function descendantsOf(nodeId: string, nodes: KnowledgeTreeNode[]) {
   return result;
 }
 
-function formatUpdatedAt(value: string, locale: string): string {
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return "";
-  const now = new Date();
-  const sameYear = parsed.getFullYear() === now.getFullYear();
-  return new Intl.DateTimeFormat(locale, {
-    ...(sameYear ? {} : { year: "numeric" as const }),
-    month: "numeric",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(parsed);
-}
 
 function MovePanel({
   node,
@@ -1067,7 +1055,7 @@ export default function MobileKnowledgeTreePanel({
     const selected = selectedNodeIds.has(node.id);
     const hasChildren = node.childCount > 0 || nodes.some((candidate) => candidate.parentId === node.id);
     const path = showPath ? buildMobileKnowledgeTreePath(node, nodes) : "";
-    const updatedAt = formatUpdatedAt(node.updatedAt, i18n.language);
+    const updatedAt = formatKnowledgeTreeUpdatedAt(node.updatedAt, i18n.language);
     const actionVisibility = variant === "mobile" ? "flex" : "hidden group-hover:flex";
     const effectiveActionVisibility = multiSelectMode ? "hidden" : actionVisibility;
     const desktopHoverHidden = variant === "desktop" ? "[@media(hover:hover)]:group-hover:hidden" : "";

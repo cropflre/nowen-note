@@ -526,6 +526,14 @@ app.get("/:id", (c) => {
 
   const { permission } = resolveNotePermission(id, userId);
   if (!hasPermission(permission, "read")) {
+    // Keep the public 404 opaque, but distinguish a missing row from ACL denial
+    // in server diagnostics so support can identify sync/permission failures.
+    const exists = !!db.prepare("SELECT 1 FROM notes WHERE id = ?").get(id);
+    console.warn("[notes.get] unavailable", {
+      noteId: id,
+      reason: exists ? "access-denied" : "record-missing",
+      authenticated: Boolean(userId),
+    });
     return c.json({ error: "Note not found or forbidden" }, 404);
   }
 

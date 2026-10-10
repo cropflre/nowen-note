@@ -15,6 +15,8 @@ import { useApp, useAppActions } from "@/store/AppContext";
 import { useSidebarTextStyle, type SidebarTextStyle } from "@/hooks/useSidebarTextStyle";
 import { api, broadcastLogout, getBaseUrl, getCurrentWorkspace, getServerUrl, isAndroidInvalidServerUrl, isNativeCapacitor } from "@/lib/api";
 import { markNewNoteForImmediateEdit } from "@/lib/newNoteImmediateEdit";
+import { parseServerTime } from "@/lib/dateTime";
+import { noteLocalDayKey } from "@/lib/noteListTime";
 import { NoteListItem, Notebook } from "@/types";
 import { cn } from "@/lib/utils";
 import { useTranslation } from "react-i18next";
@@ -348,7 +350,8 @@ export function SortMenu({
 }
 
 function formatTime(dateStr: string, t: (key: string, opts?: any) => string) {
-  const d = new Date(dateStr + "Z");
+  const d = parseServerTime(dateStr);
+  if (!d) return "";
   const now = new Date();
   const diffMs = now.getTime() - d.getTime();
   const diffMin = Math.floor(diffMs / 60000);
@@ -1823,13 +1826,10 @@ export default function NoteList({ directorySearchActive = false }: { directoryS
   const dateCounts = useMemo(() => {
     const map: Record<string, number> = {};
     for (const n of calendarNotes) {
-      // updatedAt 形如 "2026-05-12 14:30:00" 或 ISO；统一按本地时区切到 YYYY-MM-DD
-      const raw = n.updatedAt;
-      if (!raw) continue;
-      // 直接取前 10 字符（YYYY-MM-DD）即可：后端存的就是本地时间字符串，
-      // 与 todayStr 的 getFullYear/getMonth/getDate 同基准。
-      const key = String(raw).slice(0, 10);
-      if (key.length !== 10) continue;
+      // SQLite 的无时区时间是 UTC，ISO 也可能带 Z/偏移量；
+      // 日期日历必须按用户设备的本地日历日聚合，不能直接截 UTC 日期。
+      const key = noteLocalDayKey(n.updatedAt);
+      if (!key) continue;
       map[key] = (map[key] || 0) + 1;
     }
     return map;
