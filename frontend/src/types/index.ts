@@ -749,6 +749,8 @@ export interface Share {
   shareType: string;
   permission: SharePermission;
   hasPassword: boolean;
+  /** Server-side credential epoch; lets an in-memory copy secret detect a reset. */
+  credentialVersion?: number;
   expiresAt: string | null;
   maxViews: number | null;
   viewCount: number;
