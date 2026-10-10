@@ -12,7 +12,7 @@ const local = { id: "note-a", scopeKey: "personal", version: 4, title: "RACE NEW
 const ownAck = JSON.stringify({ mutationId: "mutation-old", serverVersion: 3 });
 const pending = { baseVersion: 3, payload: JSON.stringify(local) };
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => { vi.unstubAllGlobals(); });
 
 describe("PR #821 Android receipt ACK and in-flight pull regressions", () => {
   function setupDb(config: {
@@ -27,7 +27,7 @@ describe("PR #821 Android receipt ACK and in-flight pull regressions", () => {
       if (sql.includes("SELECT value FROM native_runtime_meta")) return config.lastAck ? [{ value: config.lastAck }] : [];
       return [];
     });
-    const run = vi.fn(async () => ({ changes: 1 }));
+    const run = vi.fn(async (_sql: string, _params?: unknown[]) => ({ changes: 1 }));
     const db: NativeDatabase = {
       query: query as NativeDatabase["query"],
       run,
@@ -38,8 +38,8 @@ describe("PR #821 Android receipt ACK and in-flight pull regressions", () => {
       db, attachments: {} as never, serverUrl: "https://notes.example.com",
       token: "test", userId: "user", profileId: "profile", deviceId: "device",
     }) as unknown as {
-      push: (scope: typeof scope) => Promise<void>;
-      applyEntries: (scope: typeof scope, entries: Array<{entityType:"note";entityId:string;payload: Record<string,unknown>}>, bootstrap:boolean) => Promise<void>;
+      push: (target: typeof scope) => Promise<void>;
+      applyEntries: (target: typeof scope, entries: Array<{entityType:"note";entityId:string;payload: Record<string,unknown>}>, bootstrap:boolean) => Promise<void>;
     };
     return { engine, query, run };
   }
