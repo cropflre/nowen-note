@@ -8,6 +8,10 @@ const mocks = vi.hoisted(() => ({
   fetchReceipt: vi.fn(),
 }));
 vi.mock("../mobileLocalMode", () => ({ isAndroidNativeRuntime: () => true }));
+vi.mock("../useSyncIndicator", () => ({
+  useSyncIndicator: () => ({ syncEnabled: true, state: "synced", conflictCount: 0, pendingMutations: 0 }),
+}));
+vi.mock("react-i18next", () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
 vi.mock("../syncLocalApi", () => ({ fetchNoteSyncReceipt: mocks.fetchReceipt }));
 vi.mock("../offlineQueue", () => ({ getQueue: () => [], subscribe: () => () => undefined }));
 vi.mock("../noteSyncReceipt", () => ({
@@ -17,6 +21,7 @@ vi.mock("../noteSyncReceipt", () => ({
 vi.mock("../noteSyncSafety", () => ({ getNoteSyncConflict: () => null }));
 
 import { useNoteSyncReceipt } from "../useNoteSyncReceipt";
+import SyncStatusBadge from "@/components/SyncStatusBadge";
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 function ReceiptText({ noteId }: { noteId: string }) {
   const phase = useNoteSyncReceipt(noteId, true);
@@ -38,6 +43,17 @@ const reply = (phase: string) => ({
   phase, localRevision: null, acknowledgedRevision: phase === "confirmed" ? 3 : null,
 });
 describe("PR #821 current-note receipt UI after native Outbox commit", () => {
+  it("updates the real editor badge after a committed Android edit", async () => {
+    let pending = false;
+    mocks.fetchReceipt.mockImplementation(async () => reply(pending ? "pending" : "confirmed"));
+    await act(async () => root.render(<SyncStatusBadge noteId="note-a" saving={false} />));
+    expect(host.textContent).toBe("syncBadge.receipt.confirmed");
+    // Emitted after the SQLite write transaction; the previous ACK is stale.
+    pending = true;
+    await act(async () => window.dispatchEvent(new Event(MOBILE_SYNC_STATUS_CHANGED_EVENT)));
+    expect(host.textContent).toBe("syncBadge.receipt.pending");
+  });
+
   it.each(["Markdown", "rich text"])("invalidates a stale confirmed snapshot for %s editing while ACK is delayed", async () => {
     let actualOutboxCount = 0;
     mocks.fetchReceipt.mockImplementation(async () => reply(actualOutboxCount ? "pending" : "confirmed"));

@@ -248,6 +248,10 @@
         {
           "file": "frontend/src/lib/__tests__/useNoteSyncReceipt.nativeWiring.test.tsx",
           "case": "does not repaint an obsolete confirmed query after a newer pending refresh"
+        },
+        {
+          "file": "frontend/src/lib/__tests__/useNoteSyncReceipt.nativeWiring.test.tsx",
+          "case": "updates the real editor badge after a committed Android edit"
         }
       ]
     }
