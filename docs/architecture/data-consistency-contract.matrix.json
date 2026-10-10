@@ -208,6 +208,10 @@
         {
           "file": "frontend/src/lib/__tests__/mobileNoteSyncReceipt.test.ts",
           "case": "keeps native pending and conflicts ahead of committed ACK"
+        },
+        {
+          "file": "frontend/src/lib/__tests__/offlineQueue.test.ts",
+          "case": "does not discard a newer queued edit after a stale in-flight HTTP 200"
         }
       ]
     }
