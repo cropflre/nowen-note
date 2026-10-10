@@ -8,10 +8,10 @@
  */
 
 import { getDb } from "../db/schema";
-import { SqliteAdapter } from "../db/adapters";
+import { getDatabaseAdapter } from "../db/runtime";
 
 function getAdapter() {
-  return new SqliteAdapter(getDb());
+  return getDatabaseAdapter();
 }
 
 /** task_attachments 记录 */
@@ -148,24 +148,24 @@ export const taskAttachmentsRepository = {
 
   async getByIdAsync(attachmentId: string): Promise<{ id: string; mimeType: string; path: string; filename: string } | undefined> {
     return getAdapter().queryOne<{ id: string; mimeType: string; path: string; filename: string }>(
-      "SELECT id, mimeType, path, filename FROM task_attachments WHERE id = ?",
+      `SELECT id, "mimeType", path, filename FROM task_attachments WHERE id = ?`,
       [attachmentId],
     );
   },
 
   async listByTaskIdAsync(taskId: string): Promise<TaskAttachmentRecord[]> {
     return getAdapter().queryMany<TaskAttachmentRecord>(
-      `SELECT id, taskId, userId, workspaceId, filename, mimeType, size, path, createdAt
+      `SELECT id, "taskId", "userId", "workspaceId", filename, "mimeType", size, path, "createdAt"
        FROM task_attachments
-       WHERE taskId = ?
-       ORDER BY createdAt ASC, id ASC`,
+       WHERE "taskId" = ?
+       ORDER BY "createdAt" ASC, id ASC`,
       [taskId],
     );
   },
 
   async getByIdForPermissionAsync(attachmentId: string): Promise<{ id: string; userId: string } | undefined> {
     return getAdapter().queryOne<{ id: string; userId: string }>(
-      "SELECT id, userId FROM task_attachments WHERE id = ?",
+      `SELECT id, "userId" FROM task_attachments WHERE id = ?`,
       [attachmentId],
     );
   },
@@ -181,7 +181,7 @@ export const taskAttachmentsRepository = {
     path: string;
   }): Promise<void> {
     await getAdapter().execute(
-      `INSERT INTO task_attachments (id, taskId, userId, workspaceId, filename, mimeType, size, path)
+      `INSERT INTO task_attachments (id, "taskId", "userId", "workspaceId", filename, "mimeType", size, path)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       [input.id, input.taskId, input.userId, input.workspaceId, input.filename, input.mimeType, input.size, input.path],
     );
@@ -189,14 +189,14 @@ export const taskAttachmentsRepository = {
 
   async updateTaskAssociationAsync(attachmentId: string, taskId: string, workspaceId: string | null): Promise<void> {
     await getAdapter().execute(
-      "UPDATE task_attachments SET taskId = ?, workspaceId = ? WHERE id = ?",
+      `UPDATE task_attachments SET "taskId" = ?, "workspaceId" = ? WHERE id = ?`,
       [taskId, workspaceId, attachmentId],
     );
   },
 
   async getByIdForDeleteAsync(attachmentId: string): Promise<{ id: string; userId: string; taskId: string | null; workspaceId: string | null; path: string } | undefined> {
     return getAdapter().queryOne<any>(
-      "SELECT id, userId, taskId, workspaceId, path FROM task_attachments WHERE id = ?",
+      `SELECT id, "userId", "taskId", "workspaceId", path FROM task_attachments WHERE id = ?`,
       [attachmentId],
     );
   },
