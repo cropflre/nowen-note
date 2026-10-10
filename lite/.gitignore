@@ -1,0 +1,23 @@
+node_modules/
+dist/
+*.local
+.DS_Store
+
+# vite 重载配置时会生成瞬时临时文件，别让 git add -A 撞上
+vite.config.ts.timestamp-*
+
+# 测试失败时生成的截图：只是调试产物，不该进版本库
+screenshots/99-failure.png
+
+# 安卓签名（密钥不进仓库）
+keystore.properties
+*.keystore
+*.jks
+
+# 构建产物（根目录留的安装包副本）
+*.apk
+
+# Windows 外壳的构建产物
+windows/**/bin/
+windows/**/obj/
+windows/**/wwwroot/

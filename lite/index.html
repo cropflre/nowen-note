@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
+    />
+    <meta name="theme-color" content="#F5F3EE" />
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%93%9D%3C/text%3E%3C/svg%3E" />
+    <title>Nowen Note Lite</title>
+    <script>
+      // 首帧前定主题，避免深色下先闪一下白。
+      // ⚠️ 这段与 src/lib/theme.ts 是【同一套逻辑的两份实现】，故意保留：
+      //    走 JS bundle 就一定会先渲染一帧浅色。
+      //    改 theme.ts 的键名 / 取值时，这里必须同步改。
+      (function () {
+        try {
+          var pref = localStorage.getItem("nowen-lite.theme") || "auto";
+          var dark =
+            pref === "dark" ||
+            (pref === "auto" &&
+              window.matchMedia &&
+              window.matchMedia("(prefers-color-scheme: dark)").matches);
+          var theme = dark ? "dark" : "light";
+          document.documentElement.dataset.theme = theme;
+          document.documentElement.style.colorScheme = theme;
+          // 皮肤：默认原生。必须和 src/lib/uiStyle.ts 的 key / 默认值一致。
+          var style = localStorage.getItem("nowen-lite.ui-style") || "native";
+          document.documentElement.dataset.style = style;
+          var meta = document.querySelector('meta[name="theme-color"]');
+          if (meta) {
+            meta.setAttribute(
+              "content",
+              style === "liquid"
+                ? (dark ? "#0f1116" : "#eef1f7")
+                : (dark ? "#0d1117" : "#f9fafb")
+            );
+          }
+        } catch (e) {
+          /* 隐私模式下读不到 localStorage：用浅色兜底 */
+        }
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
