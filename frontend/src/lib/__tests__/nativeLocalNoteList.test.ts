@@ -57,32 +57,35 @@ async function insertNote(id: string, content = "full body", contentText = "prev
 }
 
 describe("PR #821 native committed-write receipt notifications", () => {
-  it.each(["markdown", "tiptap-json"])("refreshes a %s note only after the new Outbox mutation is committed", async (format) => {
+  it("refreshes both Markdown and rich-text notes only after new Outbox commits", async () => {
     await db.run("INSERT INTO sync_profiles (id,name,serverUrl,remoteUserId,enabled,createdAt,updatedAt) VALUES ('profile','A','https://example.com','user',1,'now','now')");
     await db.run("INSERT INTO sync_devices (profileId,deviceId,platform,createdAt) VALUES ('profile','device','android','now')");
-    await insertNote("receipt-note");
-    await db.run("UPDATE notes SET contentFormat=? WHERE id='receipt-note'", [format]);
+    for (const format of ["markdown", "tiptap-json"]) {
+    const noteId = "receipt-" + format;
+    await insertNote(noteId);
+    await db.run("UPDATE notes SET contentFormat=? WHERE id=?", [format, noteId]);
     await db.run("INSERT INTO native_runtime_meta (key,value,updatedAt) VALUES (?,?,?)", [
-      nativeReceiptKey("profile", "receipt-note"),
+      nativeReceiptKey("profile", noteId),
       JSON.stringify({ mutationId:"previous-ack", serverVersion:7 }), "now",
     ]);
-    expect((await readNativeNoteSyncReceipt(db, "profile", "receipt-note")).phase).toBe("confirmed");
+    expect((await readNativeNoteSyncReceipt(db, "profile", noteId)).phase).toBe("confirmed");
     const observed: Array<Promise<string>> = [];
     const onChanged = () => observed.push(
-      readNativeNoteSyncReceipt(db, "profile", "receipt-note").then((result) => result.phase),
+      readNativeNoteSyncReceipt(db, "profile", noteId).then((result) => result.phase),
     );
     window.addEventListener(MOBILE_SYNC_STATUS_CHANGED_EVENT, onChanged);
     try {
-      await repository.notes.update("receipt-note", { content:"new local text" });
+      await repository.notes.update(noteId, { content:"new local text" });
       expect(observed).toHaveLength(1);
       expect(await observed[0]).toBe("pending");
       const rows = await db.query<{mutationId:string}>(
-        "SELECT mutationId FROM sync_outbox WHERE entityType='note' AND entityId='receipt-note'",
+        "SELECT mutationId FROM sync_outbox WHERE entityType='note' AND entityId=?", [noteId],
       );
       expect(rows).toHaveLength(1);
       expect(rows[0].mutationId).not.toBe("previous-ack");
     } finally {
       window.removeEventListener(MOBILE_SYNC_STATUS_CHANGED_EVENT, onChanged);
+    }
     }
   });
 });

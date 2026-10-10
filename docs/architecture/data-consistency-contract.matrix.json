@@ -227,7 +227,7 @@
         },
         {
           "file": "frontend/src/lib/__tests__/mobileNativeReceiptIntegration.test.ts",
-          "case": "stores the actual %s version in an atomic mutation ACK"
+          "case": "stores the actual applied and duplicate versions in an atomic mutation ACK"
         },
         {
           "file": "frontend/src/lib/__tests__/mobileNativeReceiptIntegration.test.ts",
@@ -243,11 +243,7 @@
         },
         {
           "file": "frontend/src/lib/__tests__/nativeLocalNoteList.test.ts",
-          "case": "refreshes a %s note only after the new Outbox mutation is committed"
-        },
-        {
-          "file": "frontend/src/lib/__tests__/useNoteSyncReceipt.nativeWiring.test.tsx",
-          "case": "invalidates a stale confirmed snapshot for %s editing while ACK is delayed"
+          "case": "refreshes both Markdown and rich-text notes only after new Outbox commits"
         },
         {
           "file": "frontend/src/lib/__tests__/useNoteSyncReceipt.nativeWiring.test.tsx",

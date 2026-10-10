@@ -44,7 +44,8 @@ describe("PR #821 Android receipt ACK and in-flight pull regressions", () => {
     return { engine, query, run };
   }
 
-  it.each(["applied", "duplicate"])("stores the actual %s version in an atomic mutation ACK", async (status) => {
+  it("stores the actual applied and duplicate versions in an atomic mutation ACK", async () => {
+    for (const status of ["applied", "duplicate"]) {
     const row = {
       mutationId: "mutation-1", entityType: "note", entityId: "note-a",
       operation: "upsert", baseVersion: 3, payload: JSON.stringify(local),
@@ -61,6 +62,7 @@ describe("PR #821 Android receipt ACK and in-flight pull regressions", () => {
     expect(ack![1][0]).toBe(nativeReceiptKey("profile","note-a"));
     expect(JSON.parse(String(ack![1][1]))).toEqual({ mutationId: "mutation-1", serverVersion: 4 });
     expect(run.mock.calls.some(([sql]) => String(sql).includes("DELETE FROM sync_outbox WHERE mutationId"))).toBe(true);
+    }
   });
 
   it("keeps conflict.serverVersion separate from successful applied.version", async () => {
