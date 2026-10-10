@@ -38,5 +38,7 @@ jobs:
       - run: npm ci
       - name: Guarded transform, selection, and undo regressions
         run: npm run test:run -- src/lib/__tests__/cjkTypography.test.ts
+      - name: Lint CJK typography modules
+        run: npx eslint src/lib/cjkTypography.ts src/lib/tiptapCjkTypography.ts src/components/CjkTypographyMenuActions.tsx
       - name: Frontend TypeScript check
         run: npx tsc -b
