@@ -1,0 +1,37 @@
+# 可选 HTTPS 覆盖文件，需要 Docker Compose 2.24.4+。
+# 在 .env 中设置 NOWEN_DOMAIN，然后始终同时使用两个 Compose 文件：
+# docker compose -f docker-compose.yml -f docker-compose.https.yml up -d
+services:
+  nowen-note:
+    # 普通列表合并不会删除原来的 3001 映射，必须显式重置。
+    ports: !reset []
+    environment:
+      PUBLIC_WEB_ORIGIN: https://${NOWEN_DOMAIN:?Set NOWEN_DOMAIN to your public hostname in .env}
+
+  caddy:
+    image: caddy:2.11.7-alpine
+    restart: unless-stopped
+    depends_on:
+      nowen-note:
+        condition: service_healthy
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      NOWEN_DOMAIN: ${NOWEN_DOMAIN:?Set NOWEN_DOMAIN to your public hostname in .env}
+    volumes:
+      - type: bind
+        source: ./deploy/caddy/Caddyfile
+        target: /etc/caddy/Caddyfile
+        read_only: true
+        bind:
+          create_host_path: false
+      - nowen-caddy-data:/data
+      - nowen-caddy-config:/config
+    networks:
+      - nowen-network
+
+volumes:
+  nowen-caddy-data:
+  nowen-caddy-config:

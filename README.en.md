@@ -140,6 +140,21 @@ Password: admin123
 
 > Change the default password immediately. Public deployments should also use HTTPS, backups, a correct public origin, and restricted CORS settings.
 
+### HTTPS deployment (optional)
+
+Reuse an existing Nginx, Lucky, or NAS reverse proxy if available. For a new deployment, the companion Caddy template automatically obtains and renews certificates. It requires Docker Compose **2.24.4+**, a correctly resolved public domain, and reachable ports 80/443.
+
+Set `NOWEN_DOMAIN=note.example.com` in `.env`, then run:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.https.yml config --quiet
+docker compose -f docker-compose.yml -f docker-compose.https.yml up -d
+```
+
+Open `https://note.example.com`. The template removes the application's host port 3001 mapping, sets the public share origin, and persists Caddy certificates. Keep specifying both files for subsequent management commands.
+
+For an existing instance, retain its Compose project name and data mounts, back up before switching, and reconnect clients using the domain once HTTPS is ready. See [HTTPS deployment and acceptance](./docs/https-deployment.md) for prerequisites, existing-proxy examples, and verification steps.
+
 ### UGREEN NAS / Feiniu NAS remote connection and sign-in
 
 Nowen Note can be deployed on **UGREEN NAS (UGOS / UGOS Pro)** and **Feiniu NAS (fnOS)**. Use the corresponding `.upk` or `.fpk` package from Releases, or deploy with Docker Compose.
@@ -235,6 +250,7 @@ See [`.env.example`](./.env.example) for the complete template.
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `NOWEN_PORT` | `3001` | Exposed Compose port |
+| `NOWEN_DOMAIN` | empty | Public hostname used by the optional Caddy HTTPS template |
 | `TZ` | `Asia/Shanghai` | Container timezone |
 | `PUBLIC_WEB_ORIGIN` | empty | Public or reverse-proxy origin used to generate share links |
 | `FILE_PUBLIC_ORIGIN` | inherits `PUBLIC_WEB_ORIGIN` | Optional public origin used when copying File Manager / image-host direct links; uploads, previews, and owner downloads keep using the current server connection |

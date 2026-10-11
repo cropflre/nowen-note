@@ -149,6 +149,21 @@ docker compose up -d
 
 > 首次登录后请立即修改默认密码。公网部署还应配置 HTTPS、备份、正确的公开访问地址，并按需收紧 CORS。
 
+### HTTPS 部署（可选）
+
+已有 Nginx、Lucky 或 NAS 反代的用户可继续复用现有入口。新部署可使用配套的 Caddy 模板自动申请和续期证书，需要 Docker Compose **2.24.4+**、正确解析的公网域名及可达的 80/443 端口。
+
+在 `.env` 中设置 `NOWEN_DOMAIN=note.example.com`，然后执行：
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.https.yml config --quiet
+docker compose -f docker-compose.yml -f docker-compose.https.yml up -d
+```
+
+访问 `https://note.example.com`。此模板取消主应用的 3001 宿主机映射，自动设置公开分享地址，并持久化 Caddy 证书。后续管理命令也需同时指定这两个文件。
+
+已有实例请保持原 Compose 项目名和数据挂载，先备份再切换；HTTPS 就绪后，客户端改用域名地址。详见 [HTTPS 部署与验收](./docs/https-deployment.md)。
+
 ### 绿联 NAS / 飞牛 NAS 远程连接登录
 
 Nowen Note 支持部署在 **绿联 NAS（UGOS / UGOS Pro）** 与 **飞牛 NAS（fnOS）** 上。可使用 Releases 中对应的 `.upk` / `.fpk` 安装包，也可以直接通过 Docker Compose 部署。
@@ -241,6 +256,7 @@ docker run -d \
 | 变量 | 默认值 | 用途 |
 | --- | --- | --- |
 | `NOWEN_PORT` | `3001` | Compose 对外暴露端口 |
+| `NOWEN_DOMAIN` | 空 | 可选 Caddy HTTPS 模板的公网域名，仅填写主机名 |
 | `TZ` | `Asia/Shanghai` | 容器时区，会影响任务日期与日记自然日期判断 |
 | `PUBLIC_WEB_ORIGIN` | 空 | 反向代理或公网域名，用于生成正确的分享链接 |
 | `FILE_PUBLIC_ORIGIN` | 继承 `PUBLIC_WEB_ORIGIN` | 文件管理 / 图床复制直链使用的独立公网域名；上传、预览和本人下载仍走当前连接地址 |

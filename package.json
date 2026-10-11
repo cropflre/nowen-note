@@ -20,6 +20,7 @@
     "verify:linux-desktop": "node scripts/verify-linux-desktop-package.cjs",
     "test:dev-ports": "node --test scripts/tests/dev-port-manager.test.mjs",
     "test:docker-healthcheck": "node --test scripts/tests/docker-runtime-port-healthcheck.test.mjs",
+    "test:docker-https": "node --test scripts/tests/docker-https.test.mjs",
     "test:loading-ux": "node --test scripts/tests/unified-loading-experience.test.mjs",
     "test:renderer-recovery": "node --test scripts/tests/renderer-recovery.test.cjs",
     "smoke:linux-native": "ELECTRON_RUN_AS_NODE=1 ./node_modules/.bin/electron scripts/smoke-better-sqlite3.cjs",

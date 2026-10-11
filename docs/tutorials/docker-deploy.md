@@ -97,23 +97,50 @@ docker compose --profile updater up -d
 
 ## 反向代理
 
-Nginx 配置示例：
+Docker 新部署可使用 [配套 Caddy HTTPS 模板](../https-deployment.md)，自动申请和续期证书。已有 Lucky / NAS 反代的配置要求与验收步骤也见该文档。
+
+以下为已有 Nginx 的 HTTPS 示例，`map` 和 `server` 放在 Nginx 的 `http` 上下文中。先通过现有证书工具申请证书，替换域名、证书路径和实际后端端口，并配置证书续期：
 
 ```nginx
+map $http_upgrade $connection_upgrade {
+    default upgrade;
+    '' close;
+}
+
 server {
     listen 80;
     server_name note.example.com;
+    return 308 https://note.example.com$request_uri;
+}
+
+server {
+    listen 443 ssl;
+    server_name note.example.com;
+    ssl_certificate /etc/nginx/certs/note.example.com/fullchain.pem;
+    ssl_certificate_key /etc/nginx/certs/note.example.com/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+
+    # 应用默认允许 100 MB，预留 multipart 开销；应用调整上限时同步调整。
+    client_max_body_size 110m;
+
     location / {
-        proxy_pass http://localhost:3001;
+        proxy_pass http://127.0.0.1:3001;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $remote_addr;
         proxy_set_header X-Forwarded-Host $host;
+        proxy_set_header X-Forwarded-Proto $scheme;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "upgrade";
+        proxy_set_header Connection $connection_upgrade;
+        proxy_buffering off;
+        proxy_request_buffering off;
+        proxy_read_timeout 3600s;
     }
 }
 ```
+
+此例假定 Nginx 运行在宿主机；Nginx 在容器内时应改用其能访问的后端地址。为应用配置 `PUBLIC_WEB_ORIGIN=https://note.example.com`，并确认管理员手动公开地址没有保留旧值。仅设置公开地址不会开启 HTTPS。
 
 客户端会先探测标准 `/api`、`/ws` 路径；如果反向代理把请求改写成
 `/public/api`、`/publicapi`（WebSocket 对应 `/public/ws`、`/publicws`），
