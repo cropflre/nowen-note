@@ -1,5 +1,7 @@
 # Nowen Release Center：审计与 Phase 1 设计
 
+> Phase 2B 已编写既有正式构建接管、完整桌面复核、Draft/审批/发布源码；写操作默认关闭，运行测试按要求延后，独立正式构建编排仍待实现。见 [Phase 2B 范围与风险](../qa/v1.5.2/release-center-phase2b.md)。下文为各阶段历史审计，不代表新增流程验收通过。
+
 > Phase 3 渠道追踪与交接适配已接入，并完成隔离供应商夹具的单元/API、浏览器和生产构建回归；范围、证据与未验证项见 [Phase 3 实现记录](../qa/v1.5.2/release-center-phase3.md)。正式发布和渠道自动上传仍未实现，未进行真实平台联调。
 
 > 后续实现进展见文末 Phase 2A 补充和 [真实三平台调试验收](../qa/v1.5.2/release-center-remote-debug.md)；[Phase 2A 本地记录](../qa/v1.5.2/release-center-artifact-review.md)保留历史状态。

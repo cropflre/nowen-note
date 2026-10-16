@@ -68,7 +68,7 @@ export function createApp(
           "Set-Cookie",
           `rc_session=${session}; HttpOnly; SameSite=Strict; Path=/`,
         );
-        json({ phase: "3", formalPublishing: false, formalDistribution: false });
+        json({ phase: "2b/3", formalPublishing: engine.publication.view().publishEnabled, formalDistribution: false });
         return;
       }
       if (path.startsWith("/api/")) {
@@ -85,6 +85,25 @@ export function createApp(
           throw new AppError(401, "请刷新页面以建立本机会话");
         if (req.method !== "GET" && req.headers["x-release-center"] !== "1")
           throw new AppError(403, "缺少同源操作标识");
+        if (path === "/api/publication" && req.method === "GET") {
+          json(engine.publication.view());
+          return;
+        }
+        if (path === "/api/publication/import" && req.method === "POST") {
+          json(await engine.publication.importRun(await body(req)), 202);
+          void engine.tick();
+          return;
+        }
+        const publication = path.match(/^\/api\/publication\/([a-f0-9-]{36})\/(draft|approve|publish)$/);
+        if (publication && req.method === "POST") {
+          const input = await body(req);
+          if (publication[2] === "approve") json(await engine.publication.approve(publication[1], input));
+          else {
+            json(await engine.publication.submit(publication[1], publication[2] as "draft" | "publish", input), 202);
+            void engine.tick();
+          }
+          return;
+        }
         if (path === "/api/channels" && req.method === "GET") {
           json(channels.view(url.searchParams.get("version")));
           return;
@@ -246,6 +265,7 @@ export function createApp(
         {
           error: redact(error instanceof Error ? error.message : "服务错误", [
             engine.planner.github.token,
+            engine.publication.writer.token,
           ]),
         },
         status >= 400 && status < 600 ? status : 500,

@@ -12,6 +12,7 @@ import {
   Clock3,
   ExternalLink,
   FileText,
+  FileCheck,
   GitBranch,
   GitCommitHorizontal,
   History,
@@ -36,9 +37,12 @@ import { Button, Card, Input, cn } from "./components/ui";
 import "./style.css";
 import { ArtifactReview } from "./components/ArtifactReview";
 import { ChannelsPanel } from "./components/ChannelsPanel";
+import { PublicationPanel } from "./components/PublicationPanel";
 
 const modeName = (mode: Task["mode"]) =>
-  mode === "debug" ? "调试构建" : mode === "verify" ? "产物复核" : "Dry Run";
+  mode === "debug" ? "调试构建" : mode === "verify" ? "产物复核" : mode === "publication" ? "正式候选操作" : "Dry Run";
+const runningLabel = (task: Task) => task.state !== "running" ? undefined : task.mode === "verify" ? "校验中"
+  : task.mode === "publication" ? ({ verify: "正式复核中", draft: "准备 Draft", publish: "发布中" }[task.publication!.operation]) : undefined;
 
 const pages = [
   { id: "overview", label: "发布总览", icon: LayoutDashboard },
@@ -47,6 +51,7 @@ const pages = [
   { id: "builds", label: "构建任务", icon: Terminal },
   { id: "artifacts", label: "产物管理", icon: Package },
   { id: "channels", label: "渠道分发", icon: Radio },
+  { id: "formal", label: "正式候选", icon: FileCheck },
   { id: "history", label: "发布历史", icon: History },
 ];
 const stateNames: Record<string, string> = {
@@ -300,9 +305,7 @@ function App() {
               </div>
             </div>
             <Badge state={task.state}>
-              {task.mode === "verify" && task.state === "running"
-                ? "校验中"
-                : undefined}
+              {runningLabel(task)}
             </Badge>
             <ChevronRight size={16} className="text-slate-400" />
           </button>
@@ -1014,10 +1017,7 @@ function App() {
                             </p>
                           </div>
                           <Badge state={focused.state}>
-                            {focused.mode === "verify" &&
-                            focused.state === "running"
-                              ? "校验中"
-                              : undefined}
+                            {runningLabel(focused)}
                           </Badge>
                         </div>
                         <dl className="mt-5 grid gap-4 text-xs sm:grid-cols-2">
@@ -1057,6 +1057,10 @@ function App() {
                               size="sm"
                               disabled={busy}
                               onClick={() => {
+                                if (focused.mode === "publication") {
+                                  navigate("formal");
+                                  return;
+                                }
                                 if (focused.mode === "verify") {
                                   navigate("artifacts");
                                   return;
@@ -1071,7 +1075,7 @@ function App() {
                                 });
                               }}
                             >
-                              {focused.mode === "verify"
+                              {focused.mode === "publication" ? "查看正式候选与后续操作" : focused.mode === "verify"
                                 ? "查看校验结果与重试"
                                 : "重新预检并重试"}
                             </Button>
@@ -1163,6 +1167,8 @@ function App() {
                               ? "计划检查详情见下方审计日志。"
                               : focused.mode === "verify"
                                 ? "下载与校验进度见审计日志；不会建立新的 GitHub Run。"
+                                : focused.mode === "publication"
+                                  ? "正式候选操作进度见审计日志；使用已有构建，不建立新的 Run。"
                                 : "等待 GitHub 建立构建任务。"}
                           </Empty>
                         )}
@@ -1202,6 +1208,7 @@ function App() {
                 </div>
               )}
               {page === "channels" && <ChannelsPanel initialVersion={data?.localVersion || "1.5.2"} revision={audit[0]?.seq || 0} request={api} />}
+              {page === "formal" && <PublicationPanel revision={audit[0]?.seq || 0} tasks={tasks} request={api} />}
               {page === "artifacts" && (
                 <div className="space-y-6">
                   <ArtifactReview

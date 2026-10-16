@@ -67,7 +67,7 @@ export interface Verification {
 export interface Task {
   id: string;
   key: string;
-  mode: "dry-run" | "debug" | "verify";
+  mode: "dry-run" | "debug" | "verify" | "publication";
   plan: Plan;
   state: TaskState;
   createdAt: string;
@@ -81,6 +81,12 @@ export interface Task {
   error?: string;
   sourceTaskId?: string;
   verifications?: Verification[];
+  publication?: {
+    candidateId: string;
+    operation: "verify" | "draft" | "publish";
+    intent?: { kind: "draft" | "asset" | "publish"; name?: string };
+    retryAt?: number;
+  };
   acceptance?: {
     at: string;
     digest: string;
@@ -197,4 +203,29 @@ export interface ChannelView {
   plans: DistributionPlan[];
   receipts: DistributionReceipt[];
   formalDistribution: false;
+}
+
+export interface ReleaseCandidate {
+  id: string;
+  version: string;
+  tag: string;
+  sha: string;
+  runId: number;
+  runAttempt: number;
+  notes: string;
+  createdAt: string;
+  state: "verifying" | "verified" | "drafting" | "draft" | "approved" | "publishing" | "published" | "failed" | "blocked";
+  artifacts: Artifact[];
+  verifications: Verification[];
+  digest?: string;
+  draftId?: number;
+  authorId?: number;
+  approval?: { at: string; actorId: number; login: string; digest: string };
+  error?: string;
+}
+export interface PublicationView {
+  candidates: ReleaseCandidate[];
+  draftsEnabled: boolean;
+  publishEnabled: boolean;
+  buildDispatchEnabled: false;
 }
