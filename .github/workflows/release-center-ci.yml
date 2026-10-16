@@ -5,6 +5,7 @@ on:
     paths:
       - 'tools/release-center/**'
       - 'scripts/release-center-assets.mjs'
+      - 'scripts/release-center-formal-assets.mjs'
       - 'scripts/lib/release-platform-assets.cjs'
       - 'scripts/lib/update-metadata-validator.cjs'
       - '.github/workflows/release-center-*.yml'
@@ -13,6 +14,7 @@ on:
     paths:
       - 'tools/release-center/**'
       - 'scripts/release-center-assets.mjs'
+      - 'scripts/release-center-formal-assets.mjs'
       - 'scripts/lib/release-platform-assets.cjs'
       - 'scripts/lib/update-metadata-validator.cjs'
       - '.github/workflows/release-center-*.yml'

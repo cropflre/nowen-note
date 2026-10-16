@@ -4,6 +4,7 @@ import { Store } from "./store.ts";
 import { Planner } from "./planner.ts";
 import { AppError } from "./errors.ts";
 import { verifyArtifacts } from "./verification.ts";
+import { Publication } from "./publication.ts";
 
 const active = (task: Task) =>
   ["queued", "running", "reconciling", "cancelling"].includes(task.state);
@@ -19,6 +20,7 @@ export class Engine {
     readonly planner: Planner,
     private now = () => Date.now(),
     private timeoutMs = 4 * 60 * 60 * 1000,
+    readonly publication = new Publication(store, planner.github),
   ) {}
   claim() {
     this.store.db.exec(
@@ -58,6 +60,7 @@ export class Engine {
   }
   async stop() {
     this.stopping = true;
+    this.publication.stop();
     if (this.timer) clearInterval(this.timer);
     for (const controller of this.verificationControllers.values())
       controller.abort(new Error("服务停止；校验将在重启后恢复"));
@@ -211,7 +214,10 @@ export class Engine {
     if (!active(task)) return task;
     // Cancellation remains active until the remote workflow acknowledges completion.
     task.cancelReason = "cancelled";
-    if (task.mode === "verify" && this.verificationControllers.has(id)) {
+    if (task.mode === "publication") {
+      task.state = "cancelling";
+      this.publication.cancel(id);
+    } else if (task.mode === "verify" && this.verificationControllers.has(id)) {
       task.state = "cancelling";
       this.verificationControllers
         .get(id)!
@@ -221,7 +227,7 @@ export class Engine {
     this.store.save(
       task,
       "task.cancel_requested",
-      task.mode === "verify"
+      task.mode === "publication" ? "用户请求停止正式候选操作；不明写入仅对账，已有远端资产不自动撤销" : task.mode === "verify"
         ? "用户请求取消本地产物校验；等待下载和校验停止"
         : "用户请求取消；已派发任务等待远端确认",
     );
@@ -266,6 +272,10 @@ export class Engine {
   private async advance(id: string) {
     let task = this.store.task(id);
     if (!active(task)) return;
+    if (task.mode === "publication") {
+      await this.publication.advance(id);
+      return;
+    }
     if (task.mode === "verify") {
       await this.verify(id);
       return;

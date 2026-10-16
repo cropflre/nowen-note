@@ -1,5 +1,7 @@
 # Release Center Phase 3：实现范围与回归记录
 
+> 后续 [Phase 2B 源码实现](./release-center-phase2b.md)增加 GitHub 正式候选、Draft 和审批路径，但未进行运行验收、写开关关闭。GitHub Release 审批不授权渠道分发；本页保留 Phase 3 当时的验证范围与结果。
+
 2026-10-16，基线 `release/v1.5.2` / `e249719c`，实现分支 `codex/release-center-phase3`。最初按“直接实现 Phase 3，后续再测试”只进行静态检查；在用户后续要求“根据你的建议实现”后，补齐本地功能回归、修复和截图。**本轮通过隔离供应商夹具的单元/API、真实 Chromium 与构建验证，不代表真实渠道联调或正式发布验收。** 不复用前轮 59/59、4/4 或真实调试包校验结果作为本轮通过证据。
 
 ## 本轮代码

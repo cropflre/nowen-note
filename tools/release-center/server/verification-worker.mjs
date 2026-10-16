@@ -2,9 +2,14 @@ import { parentPort, workerData } from "node:worker_threads";
 import { readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { createManifest } from "../../../scripts/release-center-assets.mjs";
+import { verifyFormalDirectory } from "../../../scripts/release-center-formal-assets.mjs";
 
 try {
   const { directory, context } = workerData;
+  if (context.purpose === "formal-import") {
+    const manifest = await verifyFormalDirectory(directory, context);
+    parentPort.postMessage({ ok: true, manifest });
+  } else {
   const original = JSON.parse(
     await readFile(join(directory, "release-center-manifest.json"), "utf8"),
   );
@@ -51,6 +56,7 @@ try {
       "manifest 文件清单、大小、SHA-256 或更新元数据与实际内容不一致",
     );
   parentPort.postMessage({ ok: true, manifest: actual });
+  }
 } catch (error) {
   parentPort.postMessage({ ok: false, error: error.message || "产物校验失败" });
 }

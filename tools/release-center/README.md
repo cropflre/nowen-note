@@ -1,6 +1,8 @@
 # Nowen Release Center · Phase 3
 
-独立维护者控制台，面向本机单人使用。与 Nowen Note 的前端、后端、Electron 和用户数据隔离。提供只读总览、版本预检、发布计划、Dry Run、隔离桌面调试构建、任务进度、日志和审计；Phase 2A 增加调试产物下载复核与本地验收记录。**没有 Draft 创建、正式发布审批或正式发布 API**。
+独立维护者控制台，面向本机单人使用。与 Nowen Note 的前端、后端、Electron 和用户数据隔离。提供只读总览、版本预检、发布计划、Dry Run、隔离桌面调试构建、任务进度、日志和审计；Phase 2A 增加调试产物下载复核与本地验收记录。
+
+**Phase 2B 新增正式候选接管、Draft、审批和发布接口源码，默认写开关关闭；按要求尚未运行功能测试、构建或平台联调，不能视为验收通过。** 仅接管既有 `release.yml` 的成功完整桌面 Tag 构建，不推 Tag、不 dispatch，不接管其他发布器的 Draft，也不允许调试包晋升。独立构建编排仍待实现，详见 [Phase 2B 实现与未验收记录](../../docs/qa/v1.5.2/release-center-phase2b.md)。
 
 Phase 3 增加“渠道分发”页、Store / Docker Hub / NAS 状态观察、不可执行的分发交接计划、JSON 导出与人工平台回执。后续回归已通过工具单元/接口测试、真实浏览器测试和生产构建；外部平台使用隔离夹具，**尚未实际联调或验证渠道自动发布**。正式上传与商店提交仍未开放，须先完成 Phase 2 正式审批和渠道产物校验。
 
@@ -27,8 +29,12 @@ npm start
 | `NOWEN_RELEASE_DEBUG` | 关闭 | 明确设置为 `1` 才允许 dispatch |
 | `NOWEN_RELEASE_WORKFLOW_REF` | `release/v1.5.2` | 管理员控制的可信 workflow 分支；不能由网页输入改变 |
 | `NOWEN_RELEASE_STORE_ACCESS_TOKEN` | 未配置 | 服务端 Partner Center Access Token；仅用于 GET 应用/提交查询，不接受浏览器配置，不保存或导出 |
+| `NOWEN_RELEASE_PUBLISH_TOKEN` | 未配置 | 独立服务端用户 PAT，正式 Draft/发布使用 Contents 写权限，不能放前端 |
+| `NOWEN_RELEASE_MAINTAINER_ID` | `0` | 固定有写权限的 GitHub User 数值 ID；需与发布 PAT 主体一致 |
+| `NOWEN_RELEASE_DRAFTS` | 关闭 | `1` 才开放 Draft 与审批；本轮未验收，保持关闭 |
+| `NOWEN_RELEASE_PUBLISH` | 关闭 | `1` 才允许已有审批的正式发布，还需每次明确确认；本轮保持关闭 |
 
-Token 最小权限：目标仓库 Contents 读取、Actions 读取；启用调试才需要 Actions 写入。**不需要 Contents 写入、Packages 写入或商店凭据**。Token 从服务进程环境读取；不接受浏览器提交，不返回浏览器，不传递到打包脚本，不写入任务数据库。凭据轮换后重启服务，持久化任务继续对账。
+只读/调试 Token 最小权限：目标仓库 Contents 读取、Actions 读取；启用调试才需要 Actions 写入，无需 Contents 或 Packages 写入。正式写操作另用发布 PAT，不借用调试 Token；目标提交含 workflow 变更时还可能需要 GitHub 要求的 Workflows 写权限。所有 Token 从服务进程环境读取；不接受浏览器提交，不返回浏览器，不传递到打包脚本，不写入任务数据库。凭据轮换后重启服务，持久化任务继续对账。
 
 启用调试前，应先由维护者审查并将 `.github/workflows/release-center-debug.yml`、`scripts/release-center-assets.mjs` 和工具代码纳入仓库。GitHub 要求 dispatch 工作流在默认分支可被识别；工作流控制分支也必须包含该工作流。2026-10-16 已通过 PR #859 注册默认分支的专用工作流，PR #858 随后合入 `release/v1.5.2`。历史真实调试使用 `NOWEN_RELEASE_WORKFLOW_REF=codex/release-center-debug-v1.5.2`，源码固定为 `f1066e49`。控制分支应受保护、限制修改发布工作流；临时候选分支没有配置保护，不能据此宣称生产发布治理已就绪。服务会比较远端与本地审计过的 workflow 内容，并记录工作流 SHA；还会检查候选源码 SHA 中的 manifest 生成脚本及平台资产清单是否与已审计版本一致，缺失或不一致都不会派发。
 
@@ -64,7 +70,7 @@ archive 上限 2 GiB，单文件上限 2 GiB，每个平台解压总量上限 6 
 
 下载与解压目录仅为本任务创建的临时目录，结束、失败或取消后清理。数据库保存校验文件名、架构、大小、SHA、archive digest 和时间，不永久缓存安装包。失败保留已完成平台的结果，但不能建立验收记录；重试需要新校验任务。取消和超时等待本地下载/worker 停止后释放互斥，不取消源 GitHub Run。服务停止时中断只读校验，重启后重新下载复核，不重新构建。
 
-本地验收要求全部所选平台通过，输入准确版本号并明确勾选“仅调试验收”。记录绑定源码/工作流 SHA 与产物证据摘要，重复确认幂等，不能覆盖不同证据。它由本机维护者操作，**不是多人身份审批、四眼审批或正式发布许可**。
+本地验收要求全部所选平台通过，输入准确版本号并明确勾选“仅调试验收”。记录绑定源码/工作流 SHA 与产物证据摘要，重复确认幂等，不能覆盖不同证据。它由本机维护者操作，**不是多人身份审批、四眼审批或正式发布许可**。Phase 2B 正式候选使用独立的来源、证据与审批路径，不复用调试验收。
 
 已存在的 Phase 1 JSON 任务与审计可在新版本继续读取；本工具尚未正式发布。
 
@@ -94,6 +100,8 @@ npm audit
 
 ## English scope
 
-An independent, loopback-only maintainer console. Phase 2A adds read-only archive downloads, safe extraction, archive/file hash and updater-metadata validation, plus explicit local acceptance of unsigned debug artifacts. Existing read-only visibility, immutable plans, preflight, dry runs and isolated debug builds remain. GitHub credentials remain server-side. SQLite records idempotency, mutual exclusion and audit history; ambiguous dispatches are reconciled and never automatically repeated. Formal release, tag pushes, Docker uploads and store submissions have no API in this phase. Local debug acceptance never grants release authority. The isolated workflow is registered and actual Windows/macOS/Linux debug builds plus all 16 files passed archive/file/updater verification. Physical installation, human acceptance and production branch governance remain pending. Downloads are bounded to 30 minutes per archive and 90 minutes per verification task, with earlier cancellation/deadline enforcement.
+An independent, loopback-only maintainer console. Phase 2A adds read-only archive downloads, safe extraction, archive/file hash and updater-metadata validation, plus explicit local acceptance of unsigned debug artifacts. Existing read-only visibility, immutable plans, preflight, dry runs and isolated debug builds remain. GitHub credentials remain server-side. SQLite records idempotency, mutual exclusion and audit history; ambiguous dispatches are reconciled and never automatically repeated. Local debug acceptance never grants release authority. The isolated workflow is registered and actual Windows/macOS/Linux debug builds plus all 16 files passed archive/file/updater verification. Physical installation, human acceptance and production branch governance remain pending. Downloads are bounded to 30 minutes per archive and 90 minutes per verification task, with earlier cancellation/deadline enforcement.
+
+Phase 2B adds source implementation for importing completed legacy Tag builds, full desktop artifact verification, owned Draft staging, identity-bound approval and separately confirmed publication. All write switches default off. Runtime, browser, build and provider tests for this addition are explicitly deferred; it is not accepted for publishing. New formal build orchestration remains pending. The console has no tag push, Docker upload or store submission API.
 
 Phase 3 adds persistent channel observations, fixed-source handoff plans and explicitly unverified manual receipts for Microsoft Store, Docker Hub and NAS packages. Provider requests are GET-only; exported plans are non-executable and cannot grant publishing approval. Store credentials stay in the server environment. Submission IDs are checked against the requested IDs, and an already published package version takes precedence over pending revisions and blocks replacement. Follow-up unit/API and real Chromium checks plus the production build passed using isolated provider fixtures. Live provider integration and automatic distribution remain unverified and unavailable.

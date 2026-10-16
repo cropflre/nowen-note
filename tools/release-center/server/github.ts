@@ -7,7 +7,8 @@ import {
   type Run,
 } from "../shared.ts";
 import { AppError } from "./errors.ts";
-import { createWriteStream } from "node:fs";
+import { createWriteStream, createReadStream } from "node:fs";
+import { stat } from "node:fs/promises";
 import { Readable, Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 
@@ -16,6 +17,38 @@ export class GitHub {
     readonly token = "",
     private transport: typeof fetch = fetch,
   ) {}
+  async authenticatedUser(): Promise<{ id: number; login: string; type: string }> {
+    const response = await this.transport("https://api.github.com/user", {
+      headers: { Accept: "application/vnd.github+json", Authorization: `Bearer ${this.token}`, "X-GitHub-Api-Version": "2022-11-28" },
+      redirect: "error", signal: AbortSignal.timeout(20_000),
+    });
+    if (!response.ok) throw new AppError(response.status, "无法核验服务端发布凭据的 GitHub 身份");
+    return response.json();
+  }
+  async tagCommit(tag: string): Promise<string> {
+    let object = (await this.request(`git/ref/tags/${encodeURIComponent(tag)}`)).object;
+    for (let depth = 0; object?.type === "tag" && depth < 5; depth++) {
+      if (!/^[a-f0-9]{40}$/.test(object.sha)) throw new AppError(502, "无效 Tag SHA");
+      object = (await this.request(`git/tags/${object.sha}`)).object;
+    }
+    if (object?.type !== "commit" || !/^[a-f0-9]{40}$/.test(object.sha)) throw new AppError(409, "不能固定 Tag Commit");
+    return object.sha;
+  }
+  async uploadReleaseAsset(releaseId: number, name: string, path: string, signal: AbortSignal) {
+    if (!Number.isSafeInteger(releaseId) || releaseId <= 0 || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,199}$/.test(name))
+      throw new AppError(400, "无效产物上传参数");
+    const file = createReadStream(path);
+    try {
+      const response = await this.transport(`https://uploads.github.com/repos/${REPO}/releases/${releaseId}/assets?name=${encodeURIComponent(name)}`, {
+        method: "POST", redirect: "error", signal: AbortSignal.any([signal, AbortSignal.timeout(30 * 60_000)]),
+        headers: { Authorization: `Bearer ${this.token}`, Accept: "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28",
+          "Content-Type": "application/octet-stream", "Content-Length": String((await stat(path)).size) },
+        body: file as any, duplex: "half",
+      } as RequestInit);
+      if (!response.ok) throw new AppError(response.status, `GitHub 产物上传失败 (${response.status})；禁止覆盖或删除重传`);
+      return await response.json();
+    } finally { file.destroy(); }
+  }
   async request(path: string, method = "GET", body?: unknown): Promise<any> {
     const response = await this.transport(
       `https://api.github.com/repos/${REPO}/${path}`,
