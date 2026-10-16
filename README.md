@@ -33,20 +33,20 @@
 
 > **NAS 远程连接登录**：支持部署到 **绿联 NAS（UGOS / UGOS Pro）** 和 **飞牛 NAS（fnOS）**。部署完成后，可在 Web、桌面端或 Android 客户端中，通过局域网 IP、IPv6 地址或已配置 HTTPS 的公网域名远程连接并登录。
 
-## v1.5.1 正式发布 · 2026-10-08
+## v1.5.2 更新亮点 · 2026-10-16
 
-**v1.5.1 已发布。** 本次重点提升 **任务自动化、AI 助手、移动端稳定性与数据安全**。
+**v1.5.2 的功能代码已合并到 `main`。** 本轮围绕 **文件中心、AI / MCP、任务工作台、同步可靠性和多平台发布** 进行升级。正式安装包与可用平台以 [GitHub Releases](https://github.com/cropflre/nowen-note/releases) 实际公开的资产为准。
 
 > [!IMPORTANT]
-> 升级前请先创建完整备份，确认数据库和附件均已妥善保存；Docker / NAS 用户建议额外保留独立备份。**回滚镜像不等于回滚数据。**
+> 升级前请创建完整备份，确认数据库与附件已持久化；Docker / NAS 用户建议保留独立备份。**回滚程序或容器镜像不等于回滚数据库与附件。**
 
-- **任务与提醒**：新增按到期时间排序、日历显示优化、任务到期提醒，以及可通过 Webhook 推送的早晚任务摘要。
-- **AI 与 MCP**：可查询今日任务和完成进度；经用户确认后可创建、完成个人任务，MCP 接口遵循令牌权限控制。
-- **Android 与同步**：优化账号切换、局域网连接和附件加载，修复后台同步异常、部分笔记打不开及服务器地址输入问题。
-- **编辑与加密**：增强富文本内容块、Markdown / 微信文章预览及加密内容存储与安全保护。
-- **稳定性修复**：优化备份恢复、附件授权、导入兼容、多语言和错误诊断。
+- **文件中心升级**：资源管理器式导航、瀑布流、文件夹、标签、智能文件夹、上传进度、批量重命名、回收站与恢复；支持个人附件目录同步、复用已有附件，以及先预览再确认的 AI 元数据整理和语义搜索。
+- **MCP 能力扩展**：新增受令牌权限约束的知识树与任务项目能力，支持受控的树结构操作、任务编辑与归档、文件整理及任务详情保存为笔记；高风险写入采用预览确认、版本校验和资源授权。新增可选的本机回环 Streamable HTTP 接入及 MCP 连接面板。
+- **任务与效率**：支持 AI 生成任务并确认创建、今日完成清单、任务树归档、任务详情另存为笔记，以及 Excel / Markdown 导出。
+- **同步与编辑**：加强单篇笔记同步确认、个人目录结构同步与恢复，并新增纯文本笔记、中文排版操作及阅读位置恢复。
+- **发布与部署**：新增可视化版本发布中心、发布资产校验、可选 Caddy HTTPS 部署，并为 Microsoft Store 独立 AppX 打包和商店更新适配建立隔离流程；**商店适配不代表已经在 Microsoft Store 上架**。
 
-查看 [v1.5.1 发布版本](https://github.com/cropflre/nowen-note/releases/tag/v1.5.1) · [完整更新日志](./CHANGELOG.md)。
+查看 [完整更新日志](./CHANGELOG.md) · [多平台下载](https://nowen.cn/#/note/download) · [GitHub Releases](https://github.com/cropflre/nowen-note/releases)。
 
 ## 为什么选择 Nowen Note
 
@@ -62,19 +62,19 @@
 | 模块 | 当前能力 |
 | --- | --- |
 | **统一知识树** | 文件夹、富文本与 Markdown 文档混合组织；支持根目录文档、无限层级、拖拽排序与层级调整、统一创建菜单、全部展开 / 收起、筛选搜索、数量统计、回收站和共享目录；三栏布局可展示子文件夹与层级范围。 |
-| **富文本与 Markdown** | Tiptap 3、CodeMirror 6、格式互转、实时预览与分屏、大纲、斜杠命令、表格、代码块、KaTeX、Mermaid、脚注、Callout、媒体嵌入、跨笔记格式粘贴、标题重复前缀提示、评论和版本历史。 |
-| **可靠保存与离线工作区** | Yjs 持久化确认、未确认修改补传、IndexedDB 草稿恢复、富文本串行版本保存；支持个人空间、共享目录和工作区离线副本，并针对误冲突、重复副本和格式转换状态做保护；离线附件支持损坏 Blob 校验、隔离与恢复。 |
+| **富文本与 Markdown** | Tiptap 3、CodeMirror 6、富文本 / Markdown 双编辑器与格式互转、纯文本笔记、实时预览与分屏、大纲、表格、代码块、KaTeX、Mermaid、脚注、Callout、媒体嵌入、中文排版、阅读位置恢复、批注与版本历史。 |
+| **可靠保存与离线工作区** | Yjs 持久化确认、按笔记作用域的同步回执、未确认修改补传、IndexedDB 草稿恢复、富文本串行版本保存；支持个人空间、共享目录和离线工作区，包含个人目录结构同步、回收站恢复及误冲突防护；离线附件支持损坏 Blob 校验与恢复。 |
 | **性能与加载** | 工作区、编辑器、任务、日记、文件管理、AI 等功能按需加载；静态资源支持缓存验证、Gzip / Brotli 预压缩，减少首屏依赖和重复传输。 |
 | **知识组织与检索** | 彩色标签、收藏、置顶、全文搜索、当前目录笔记搜索、文内查找替换、双向链接、块引用、反向链接、知识图谱，以及“全部笔记”固定入口。 |
 | **AI 能力** | OpenAI 兼容接口、通义千问、Gemini、DeepSeek、豆包与 Ollama；支持续写、改写、翻译、标题与标签生成、总结、Embedding 索引和 RAG 知识问答，并支持查询今日任务、查看完成进度以及确认后创建或完成个人任务。 |
 | **每日记录** | 统一“瞬间 / 日历 / 日记”入口，支持短内容、心情、图片、视频、AI 周报 / 月报、自然日期命令、日记实体归档、历史目录整理和工作区共享日记。 |
-| **任务与习惯** | 树形任务、列表、看板、日历、甘特图 / 时间轴、依赖关系、重复规则、提醒和模板；支持 My Day、标签、保存视图、预估时长、时间块、Inbox、快速捕获、离线任务 / 习惯，以及 Android 原生任务提醒调度，并补齐创建端时区、全天截止与服务端解析一致性；新增到期排序、任务到期提醒和早晚任务摘要 Webhook 推送。 |
+| **任务与习惯** | 树形任务、列表、看板、日历、甘特图 / 时间轴、依赖、重复规则、提醒、模板、My Day、Inbox、离线任务 / 习惯和 Android 原生提醒；支持 AI 生成任务后确认创建、今日完成汇总、任务树归档、任务详情另存为笔记（保留原任务）、任务报表及子树导出 Excel / Markdown，并提供到期排序和 Webhook 早晚摘要。 |
 | **协作、权限与分享** | Yjs + WebSocket 实时协作、工作区角色、目录级 ACL、Restricted 受限模式、显式允许 / 拒绝规则、权限继承、所有权转移、分享密码与有效期、访客评论、公开知识空间，以及富文本 / Markdown 划词批注。 |
 | **导入、导出与迁移** | 支持 Markdown、Word / DOCX、网页 URL、微信公众号、SingleFile HTML、思源、Obsidian、小米笔记等；支持选择导入为 Markdown 或富文本，并提供后台任务、进度、重试、远程图片本地化和 Markdown 图片 / 脚注导出；团队空间单篇 ZIP 会按笔记真实工作区执行权限校验。 |
-| **附件与存储** | 本地附件按 `YYYY/MM` 归档；支持缩略图、引用检查、已有附件复用、手动上传文件保护，以及本地磁盘、S3、R2、MinIO。`1.5.2` 开发分支已集成文件中心导航、标签、智能文件夹、已有文件插入和文件回收站，尚未发布（[整理说明](./docs/user/file-asset-organization.md)、[回收站说明](./docs/user/file-recycle-bin.md)）。[个人附件目录多端同步](./docs/user/file-folder-sync.md) 正在独立分支验收。 [AI 辅助整理与文本元数据语义检索](./docs/user/file-ai-organization.md) 正在独立分支验收；预览后确认执行，不发送文件内容，Native 和启用桌面同步的整理写入暂不支持。 |
+| **附件与存储** | 文件中心提供资源管理器式文件夹导航、瀑布流、标签、智能文件夹、批量上传进度、移动 / 重命名、文件回收站及恢复、个人附件目录同步和已有附件插入；支持远程图片安全转存与逐图进度。AI 文件整理采用元数据建议、人工确认和权限校验，语义检索基于文件名 / 标签 / 描述，不读取文件字节，且受 [平台与作用域限制](./docs/user/file-ai-organization.md)。附件可存储于本地磁盘、S3、R2、MinIO；参见[文件整理](./docs/user/file-asset-organization.md)、[回收站](./docs/user/file-recycle-bin.md)与[目录同步](./docs/user/file-folder-sync.md)。 |
 | **备份与恢复** | 本地自动备份、后台完整 ZIP 任务、流式归档与校验、浏览器原生下载、邮件备份、凭据加密的 WebDAV 远程备份、Docker 在线升级前备份与失败回滚检查。 |
 | **多端访问** | Web、Electron（Windows / macOS / Linux）、Android、iOS 工程、HarmonyOS 工程，以及 Docker / NAS 部署；支持绿联 UGOS、飞牛 fnOS，客户端可通过 IPv4、IPv6 或域名远程连接并登录 NAS 服务；Android 支持应用内图片手势预览。 |
-| **开放能力** | OpenAPI 3.0、TypeScript SDK、CLI、Webhook、插件系统、Personal API Token、MCP Server 和浏览器剪藏扩展。 |
+| **开放能力** | OpenAPI 3.0、TypeScript SDK、CLI、Webhook、插件系统、受限 Personal API Token、[MCP Server](./docs/tutorials/mcp.md) 和浏览器剪藏扩展；MCP 覆盖授权笔记 / 知识树、个人任务 / 项目、文件管理和个人自动化，敏感操作需要显式授权及预览确认；可选本机回环 HTTP 传输。 |
 
 ## AI 问答与隐私
 
@@ -89,17 +89,17 @@ Nowen Note 的知识库问答采用 RAG 检索增强方式，**不会在每次�
 
 ## 让 AI 客户端连接 Nowen Note
 
-Nowen Note 支持 MCP Server，可让 Claude Code、Cursor、VS Code 等 AI 客户端在授权范围内搜索、读取、创建和更新笔记。
+Nowen Note 的 MCP Server 可连接 Claude Code、Cursor、VS Code 等客户端。在 **Personal API Token 授权范围**内使用笔记、知识树、个人任务 / 项目、文件管理及个人自动化能力；部分新增写入工具要求先预览、明确确认，并通过并发版本校验。高风险功能默认不开放，不能绕过笔记本范围与用户权限。
 
 - [MCP Server 中文安装教程](./docs/tutorials/mcp.md)
 - [MCP Server English guide](./docs/tutorials/mcp.en.md)
-- [nowen-mcp 独立包说明](./packages/nowen-mcp/README.md)
+- [nowen-mcp 包说明](./packages/nowen-mcp/README.md)
 
-当前正式可用方式为源码构建：安装 Node.js 20+，构建 `packages/nowen-mcp`，在 Nowen Note 创建 restricted Personal API Token，再把 `packages/nowen-mcp/bin/nowen-mcp.mjs` 的绝对路径配置到客户端。`dist/scoped-entry.js` 是启动器加载的内部构建入口，不应直接配置给客户端。
+目前可通过源码构建 `packages/nowen-mcp` 并使用 `bin/nowen-mcp.mjs` 作为客户端入口（Node.js 20+）；`dist/scoped-entry.js` 仅供启动器内部加载。标准接入以 stdio 为主；v1.5.2 另提供**需要明确开启、仅限本机回环地址且要求认证**的 Streamable HTTP 接入。请为不同客户端创建独立、最小权限的 Token，勿在配置中写入管理员密码。
 
-## 上一版本 v1.5.0
+## 上一版本 v1.5.1
 
-v1.5.0 重点引入了 **Sync V2 与离线工作区、插件生态、统一知识树、轻量表格及加密笔记 Beta**。详情见 [v1.5.0 更新说明](https://github.com/cropflre/nowen-note/releases/tag/v1.5.0)。
+v1.5.1 重点改进 **任务提醒与摘要、AI 任务操作、Android 同步与登录体验、富文本和加密保护**。详情见 [v1.5.1 发布说明](https://github.com/cropflre/nowen-note/releases/tag/v1.5.1)；更早版本见 [更新日志](./CHANGELOG.md)。
 
 ## 截图
 
@@ -193,7 +193,7 @@ docker compose pull
 docker compose up -d
 ```
 
-需要固定当前稳定版本时：
+需要固定 Docker 镜像时，请先确认目标标签已经在 [Docker Hub](https://hub.docker.com/r/cropflre/nowen-note/tags) 发布。以下使用已公开可用的 v1.5.1 标签示例（v1.5.2 镜像可用后再替换）：
 
 ```bash
 NOWEN_IMAGE_TAG=v1.5.1 docker compose pull
@@ -201,7 +201,7 @@ NOWEN_IMAGE_TAG=v1.5.1 docker compose up -d
 ```
 
 > [!IMPORTANT]
-> **升级到 v1.5.1 前请先完成完整备份，确认数据库与附件已持久化。** Docker / NAS 用户建议保留独立备份；镜像回滚不会还原数据库。详见 [v1.5.1 更新说明](https://github.com/cropflre/nowen-note/releases/tag/v1.5.1)。
+> **升级前请先完成完整备份，确认数据库与附件已持久化。** Docker / NAS 用户建议保留独立备份；镜像回滚不会还原数据库。版本详情见 [更新日志](./CHANGELOG.md) 与 [公开 Releases](https://github.com/cropflre/nowen-note/releases)。
 
 ### Docker 在线升级（可选）
 

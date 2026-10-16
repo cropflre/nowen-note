@@ -33,30 +33,30 @@
 
 > **Remote NAS connection and sign-in:** Nowen Note supports deployment on **UGREEN NAS (UGOS / UGOS Pro)** and **Feiniu NAS (fnOS)**. After deployment, connect and sign in from the web, desktop, or Android client using a LAN IP address, an IPv6 address, or a public domain secured with HTTPS.
 
-## v1.5.1 released · 2026-10-08
+## v1.5.2 highlights · 2026-10-16
 
-**v1.5.1 is released.** This update focuses on **task automation, AI assistance, mobile reliability, and data security**.
+**The v1.5.2 code is merged into `main`.** This update focuses on the **file center, AI/MCP integrations, task workflows, reliable sync, and release tooling**. Downloadable builds and supported platforms depend on what is publicly available in [GitHub Releases](https://github.com/cropflre/nowen-note/releases).
 
 > [!IMPORTANT]
-> Create a full backup and verify your database and attachments before upgrading. Docker / NAS users should keep an independent backup. **Rolling back a container image does not roll back your data.**
+> Create a full backup and verify persistent database and attachment storage before upgrading, especially on Docker and NAS installations. **Rolling back an app or container image does not roll back your data.**
 
-- **Tasks and reminders:** due-date sorting, improved calendar layout, deadline notifications, and morning/evening task digests with optional webhook delivery.
-- **AI and MCP:** ask about today's tasks and progress, or create and complete personal tasks with confirmation; MCP task access follows token permissions.
-- **Android and sync:** improved account switching, LAN connectivity, and attachments; fixes for background sync failures, inaccessible notes, and server-address input.
-- **Editing and encryption:** richer text blocks, better Markdown / WeChat article previews, and stronger encrypted-content storage and protection.
-- **Reliability:** improvements to backup/restore, attachment authorization, imports, localization, and error diagnostics.
+- **File center:** Explorer-style folders, masonry view, tags, smart folders, upload progress, batch rename, recycle-bin recovery, personal folder synchronization, and existing-file reuse. AI-assisted metadata organization requires review and confirmation; semantic search works over metadata, with explicit platform and permission limits.
+- **Expanded MCP:** Permission-scoped knowledge-tree and personal task/project workflows, safe file organization, task-to-note snapshots, and preview-confirm writes with revision checks. Includes a native MCP connection dashboard and optional authenticated loopback-only Streamable HTTP transport.
+- **Tasks:** Confirmed AI task generation, today's completed-task summary, task-tree archiving, save-task-details-as-note without deleting the task, and Excel/Markdown exports.
+- **Sync and editing:** Per-note sync receipts, personal folder structure reconciliation and recovery, plain-text notes, Chinese typography actions, and restored reading positions.
+- **Release and deployment:** Release center, artifact verification, optional Caddy HTTPS configuration, and isolated AppX packaging / update handling for Microsoft Store. **Store integration does not mean the app is already listed in the Store.**
 
-See the [v1.5.1 release](https://github.com/cropflre/nowen-note/releases/tag/v1.5.1) and the [full changelog](./CHANGELOG.md).
+See the [full changelog](./CHANGELOG.md), [download center](https://nowen.cn/#/note/download), and [GitHub Releases](https://github.com/cropflre/nowen-note/releases).
 
 ## Connect AI clients to Nowen Note
 
-Nowen Note includes a supported MCP Server. Claude Code, Cursor, VS Code, and other compatible AI clients can search, read, create, and update notes within the permissions granted by your account and token.
+The Nowen Note MCP Server connects to Claude Code, Cursor, VS Code, and other compatible clients. It exposes notes, scoped knowledge-tree resources, personal tasks/projects, personal file management, and personal automations **within Personal API Token permissions**. Sensitive mutations require explicit authorization, preview/confirmation, and concurrency revision checks; dangerous capabilities are disabled by default.
 
 - [MCP Server installation guide](./docs/tutorials/mcp.en.md)
 - [中文安装教程](./docs/tutorials/mcp.md)
 - [Standalone nowen-mcp package README](./packages/nowen-mcp/README.md)
 
-The currently supported distribution is a source build: install Node.js 20+, build `packages/nowen-mcp`, create a restricted Personal API Token in Nowen Note, and configure the absolute path to `packages/nowen-mcp/bin/nowen-mcp.mjs` in your client. `dist/scoped-entry.js` is an internal build entry used by the launcher and should not be configured directly. The guide covers Windows, macOS, Linux/WSL, NAS addresses, Claude Code, Cursor, VS Code, verification, updates, and troubleshooting.
+The supported source-build launcher uses Node.js 20+ and `packages/nowen-mcp/bin/nowen-mcp.mjs`. Do not point clients directly to the internal `dist/scoped-entry.js`. The normal transport is stdio; v1.5.2 also introduces **explicitly enabled, authenticated, loopback-only Streamable HTTP**. Create a separate least-privilege token for each client; never embed administrator passwords in MCP configurations.
 
 ## Why Nowen Note
 
@@ -73,24 +73,24 @@ The currently supported distribution is a source build: install Node.js 20+, bui
 | --- | --- |
 | **Unified knowledge tree** | Mixed folders, rich-text notes, and Markdown notes; root-level documents, unlimited nesting, drag sorting, drag-to-change hierarchy, a unified create menu, expand/collapse all, Markdown drag-and-drop or file import, filtering, search, note counts, trash, shared tree views, and three-column browsing with child-folder scope. |
 | **Folder security and access control** | Folder passwords, short-lived unlock tokens, directory ACLs, Restricted mode, explicit allow/deny rules, inherited policy evaluation, and protected import/export flows. |
-| **Rich text and Markdown** | Tiptap 3, CodeMirror 6, per-note format conversion, live preview, split view, outline navigation, format painter, slash commands, tables, code blocks, KaTeX, Mermaid, footnotes, Callouts, media embeds, cross-note format-preserving paste, duplicate-title prefix warnings, comments, and version history. |
+| **Rich text and Markdown** | Tiptap 3, CodeMirror 6, per-note rich-text/Markdown conversion, plain-text notes, live and split preview, outlines, formatting tools, tables, code blocks, KaTeX, Mermaid, footnotes, Callouts, media embeds, Chinese typography, reading-position restoration, comments, and version history. |
 | **Long documents and editor stability** | Complexity detection, Worker analysis, viewport rendering, windowed editing, incremental saves, large-document safe modes, outline navigation, and recovery logic for hidden Markdown markers and cursor state. |
 | **Performance and delivery** | Lazy-loaded workspace, editor, task, journal, file, AI, and sharing surfaces; cache validators, Gzip/Brotli precompression, and bundle-budget checks reduce startup and repeated transfer cost. |
 | **Image editing** | Crop images and add text, freehand drawing, arrows, shapes, and mosaic effects. Existing remote images can be migrated into local attachments or object storage. |
 | **Knowledge organization and search** | Colored tags, favorites, pinning, full-text search, current-directory note search, improved in-document find and replace, backlinks, block references, reverse links, and a knowledge graph. Permission-aware search hides restricted resources before result limits are applied. |
 | **AI** | OpenAI-compatible APIs, Qwen, Gemini, DeepSeek, Doubao, and Ollama. Features include continuation, rewriting, translation, title and tag generation, summaries, embeddings, and RAG knowledge Q&A. It also supports task progress queries and confirmed creation/completion of personal tasks. |
-| **Tasks and visualization** | Hierarchical tasks, lists, Kanban, calendar, Gantt/timeline, dependencies, recurrence, reminders, templates, AI task breakdown, My Day, Inbox, time planning, offline tasks/habits, native Android reminder scheduling with creator-timezone/date-only deadline consistency, and mind maps, plus due-date sorting, deadline notifications, and webhook-enabled morning/evening digests. |
+| **Tasks and visualization** | Hierarchical tasks, lists, Kanban, calendar, Gantt/timeline, dependencies, recurrence, reminders, templates, My Day, Inbox, offline tasks/habits, Android reminders, and mind maps. v1.5.2 adds confirmed AI task generation, daily completion summaries, task-tree archiving, task details saved as a separate note, Excel/Markdown exports, plus due-date sorting and webhook digests. |
 | **Collaboration, permissions, and sharing** | Yjs + WebSocket collaboration, workspaces and roles, directory ACLs, Restricted access, explicit allow/deny policies, ownership transfer, centralized share management, passwords and expiration, guest comments, public knowledge spaces, and rich-text/Markdown inline comments. |
-| **Sync and edit protection** | Incremental sync, persistence acknowledgements, draft recovery, and version checks. Offline attachment validation, quarantine, and recovery signaling keep broken cached blobs away from online rendering while serial saves and Yjs state protection guard Markdown/rich-text transitions. |
+| **Sync and edit protection** | Incremental sync, per-note server acknowledgements, persistence receipts, draft recovery, serial saves, revision checks, and offline workspace support. Personal folder-structure sync and recoverable trash flows improve consistency, while invalid cached attachment blobs are quarantined and repaired. |
 | **Import, export, and migration** | Import Markdown, Word/DOCX, web URLs, WeChat articles, SingleFile HTML, SiYuan ZIP archives, Obsidian, Xiaomi Notes, and other supported sources. Export Markdown, PDF, Word, images, or full ZIP packages with permission mapping, conflict preview, reports, controlled rollback, image access preparation, and footnote handling. Team single-note ZIP export resolves the note's real workspace scope. |
-| **Attachments and storage** | Local attachments organized under `YYYY/MM`, thumbnails, reference checks, reusable attachments, protected manual uploads, and local disk or S3/R2/MinIO storage. The `1.5.2` development branch includes file-center navigation, tags, smart folders, existing-file insertion and a recycle bin, not yet released ([organization](./docs/user/file-asset-organization.md), [recycle bin](./docs/user/file-recycle-bin.md)). [Personal attachment directory synchronization](./docs/user/file-folder-sync.md) is under acceptance on a separate branch. [AI organization and metadata semantic search](./docs/user/file-ai-organization.md) are under acceptance on a separate branch, with editable previews and explicit confirmation, without sending file contents. Native and organization writes on desktop sync instances are unavailable. |
+| **Attachments and storage** | Explorer-style file-center navigation, masonry view, folders, tags, smart folders, upload progress, scoped moves/renames, recoverable trash, personal attachment-folder synchronization, inserting existing files, and progress-tracked external-image migration. [AI-assisted organization and semantic search](./docs/user/file-ai-organization.md) use file metadata, preview-confirmation and access checks rather than file bytes, with platform limitations. Storage backends include local disk, S3, R2, and MinIO. See [organization](./docs/user/file-asset-organization.md), [recycle bin](./docs/user/file-recycle-bin.md), and [folder sync](./docs/user/file-folder-sync.md). |
 | **Accounts and security** | Multiple-account history, remembered accounts, auto-login, remote server connections, session validation and revocation, 2FA, scoped Personal API Tokens, audit logs, protected attachment access, and concealment of restricted-resource existence. |
-| **Backups, automation, and developer APIs** | Local backups, background full-ZIP jobs, streamed archive/hash processing, native browser downloads, email backup, encrypted WebDAV backup credentials, managed Docker updates and rollback checks, webhooks, plugins, OpenAPI, TypeScript SDK, CLI, [MCP Server](./docs/tutorials/mcp.en.md), and a browser clipper. |
+| **Backups, automation, and developer APIs** | Full and scheduled local backups, ZIP verification, email and encrypted WebDAV backups, managed Docker update checks, webhooks, signed/scoped plugins, OpenAPI, TypeScript SDK, CLI, and browser clipper. The [MCP Server](./docs/tutorials/mcp.en.md) supports permission-scoped notes, knowledge-tree, personal task/project and file tools plus opt-in local HTTP transport; sensitive changes require explicit preview-confirm flows. |
 | **Cross-platform access** | Web, Electron for Windows/macOS/Linux, Android, iOS project, HarmonyOS project, and Docker/NAS deployment. UGREEN UGOS and Feiniu fnOS are supported, and clients can connect through IPv4, IPv6, or a domain name. Android includes in-app gesture image preview and native task notifications. |
 
-## Previous release · v1.5.0
+## Previous release · v1.5.1
 
-v1.5.0 introduced major improvements to **Sync V2 and offline workspaces, plugins, the unified knowledge tree, lightweight sheets, and Encrypted Notes Beta**. See the [v1.5.0 release notes](https://github.com/cropflre/nowen-note/releases/tag/v1.5.0).
+v1.5.1 improved **task reminders and digests, AI-driven task actions, Android sync and sign-in, rich-text editing, and encrypted-content safeguards**. See the [v1.5.1 release notes](https://github.com/cropflre/nowen-note/releases/tag/v1.5.1), or the [changelog](./CHANGELOG.md) for earlier versions.
 
 ## Screenshots
 
@@ -184,7 +184,7 @@ docker compose pull
 docker compose up -d
 ```
 
-To pin the current stable release:
+To pin a Docker image, first verify the tag in [Docker Hub](https://hub.docker.com/r/cropflre/nowen-note/tags). The following example uses the publicly available v1.5.1 tag; replace it only once the v1.5.2 image is published:
 
 ```bash
 NOWEN_IMAGE_TAG=v1.5.1 docker compose pull
@@ -192,7 +192,7 @@ NOWEN_IMAGE_TAG=v1.5.1 docker compose up -d
 ```
 
 > [!IMPORTANT]
-> **Before upgrading to v1.5.1, create a full backup and verify persistent database and attachment storage.** Docker / NAS users should keep an independent backup; image rollback does not restore the database. See the [v1.5.1 release notes](https://github.com/cropflre/nowen-note/releases/tag/v1.5.1).
+> **Before upgrading, create a full backup and verify persistent database and attachment storage.** Docker / NAS users should keep an independent backup; image rollback does not restore the database. See the [changelog](./CHANGELOG.md) and [public releases](https://github.com/cropflre/nowen-note/releases).
 
 ### Managed Docker updates (optional)
 
