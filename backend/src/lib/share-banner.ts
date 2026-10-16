@@ -1,4 +1,3 @@
-import sharp from "sharp";
 import { sniffRemoteImageMime } from "./remote-image-security";
 
 const MAX_IMAGE_BYTES = 1024 * 1024;
@@ -16,6 +15,7 @@ export async function normalizeShareBannerImage(value: unknown): Promise<string>
     throw new Error("横幅图片格式无效");
   }
   // 重新解码并编码为固定横幅，拒绝损坏图片和超大像素输入，去除原始元数据。
+  const { default: sharp } = await import("sharp");
   const output = await sharp(bytes, { limitInputPixels: 16_000_000 })
     .rotate().resize(1600, 400, { fit: "cover" }).flatten({ background: "#ffffff" }).jpeg({ quality: 82 }).toBuffer();
   return `data:image/jpeg;base64,${output.toString("base64")}`;

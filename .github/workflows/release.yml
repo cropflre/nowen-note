@@ -100,6 +100,10 @@ jobs:
         run: npm ci
         shell: bash
 
+      - name: Validate desktop image runtime packaging
+        run: npm run test:desktop-native
+        shell: bash
+
       - name: Install frontend deps
         working-directory: frontend
         run: npm ci
