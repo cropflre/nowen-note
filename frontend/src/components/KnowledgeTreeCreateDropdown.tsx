@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { BrainCircuit, Copy, FileArchive, FileCode, FileText, FileType2, Folder, LayoutTemplate, Link2, Table2 } from "lucide-react";
+import { BrainCircuit, Copy, FileArchive, FileCode, FileSpreadsheet, FileText, FileType2, Folder, LayoutTemplate, Link2, Table2 } from "lucide-react";
 import type { KnowledgeTreeInlineCreateKind } from "@/lib/knowledgeTreeInlineCreate";
 import { duplicateKnowledgeTreeNoteAsChild, resolveDuplicableKnowledgeTreeNote } from "@/lib/knowledgeTreeDuplicateAsChild";
 import { revealCreatedKnowledgeTreeNote } from "@/lib/knowledgeTreeCreateVisibility";
@@ -15,6 +15,7 @@ const CREATE_ITEMS = [
   { kind: "markdown", label: "Markdown 文档", icon: FileCode },
   { kind: "mindmap", label: "思维导图", icon: BrainCircuit },
   { kind: "sheet", label: "轻量表格", icon: Table2 },
+  { kind: "excel", label: "Excel 表格", icon: FileSpreadsheet },
 ] as const;
 const FOLDER_CREATE_ITEM = { kind: "folder", label: "文件夹" } as const;
 

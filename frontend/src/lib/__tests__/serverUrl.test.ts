@@ -224,10 +224,12 @@ describe("inferBrowserServerBaseUrl", () => {
     ["/notes/%E7%AC%94%E8%AE%B0", ""],
     ["/mindmaps/demo", ""],
     ["/sheets/demo", ""],
+    ["/excel/demo", ""],
     ["/trash", ""],
     ["/nowen/notes/demo", "https://notes.example.com/nowen"],
     ["/nowen/mindmaps/demo", "https://notes.example.com/nowen"],
     ["/nowen/sheets/demo", "https://notes.example.com/nowen"],
+    ["/nowen/excel/demo", "https://notes.example.com/nowen"],
     ["/nowen/trash/", "https://notes.example.com/nowen"],
     ["/user:3001/notes/demo", "https://notes.example.com/user:3001"],
   ])("应用路由 %s 不会混入服务器部署前缀", (pathname, expected) => {

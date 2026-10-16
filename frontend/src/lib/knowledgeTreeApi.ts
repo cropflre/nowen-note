@@ -145,7 +145,7 @@ export const knowledgeTreeApi = {
     return request<{ nodes: KnowledgeTreeNode[] }>(`/shared-with-me?${workspaceQuery()}`).then(withDisplaySort);
   },
 
-  create(input: { parentId: string | null; nodeType: "folder" | "note" | "markdown" | "word" | "mindmap" | "sheet"; title: string; sheetData?: SheetDataModel }) {
+  create(input: { parentId: string | null; nodeType: "folder" | "note" | "markdown" | "word" | "mindmap" | "sheet" | "excel"; title: string; sheetData?: SheetDataModel; excelData?: Record<string, unknown> }) {
     return request<KnowledgeTreeNode>(`/nodes?${workspaceQuery()}`, {
       method: "POST",
       body: JSON.stringify(input),

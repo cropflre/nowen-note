@@ -21,7 +21,7 @@
     "@types/ws": "^8.18.1",
     "archiver": "^7.0.1",
     "bcryptjs": "^3.0.3",
-    "better-sqlite3": "^11.7.0",
+    "better-sqlite3": "^12.4.1",
     "bonjour-service": "^1.2.1",
     "busboy": "^1.6.0",
     "cron-parser": "^4.9.0",
