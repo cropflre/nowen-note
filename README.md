@@ -383,6 +383,7 @@ nowen-note/
 - [邮件备份配置](./docs/backup-email-smtp.md)
 - [ARM64 部署](./docs/deploy-arm64.md)
 - [iOS 发布指南](./docs/iOS-Release.md)
+- [GitHub 桌面产物汇总与发布校验](./docs/releases/github-release-assets.md)
 - [隐私策略](./docs/PRIVACY.md)
 - [浏览器剪藏扩展](https://chromewebstore.google.com/detail/nowen-note-web-clipper/nglkodhfdbnfielchjpkjhenfaecafpg)
 - OpenAPI：服务启动后访问 `/api/openapi.json`
