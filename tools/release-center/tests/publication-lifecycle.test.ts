@@ -80,6 +80,7 @@ class SimulatedGitHub extends GitHub {
   uploadCount = 0;
   failDraftAfterCommit = false;
   failPublishAfterCommit = false;
+  failAssetAfterCommit = false;
 
   constructor() { super("fixture-token-never-sent"); }
 
@@ -174,6 +175,10 @@ class SimulatedGitHub extends GitHub {
       id: this.nextAsset++, name, size: data.length, digest: digestFile(data), state: "uploaded",
     };
     this.assets.push(record);
+    if (this.failAssetAfterCommit) {
+      this.failAssetAfterCommit = false;
+      throw Error("Fixture connection dropped AFTER remote asset upload");
+    }
     return structuredClone(record);
   }
 }
@@ -280,4 +285,27 @@ test("Remote asset tampering after approval blocks publish without any PATCH", a
   assert.equal(f.github.publishCount, 0);
   assert.equal(f.github.releaseRecord?.draft, true);
   assert.equal(f.publication.candidate(candidate.id).state, "blocked");
+});
+
+test("Asset upload response lost: recover by remote digest without duplicate upload", async (t) => {
+  const f = await setup(t);
+  const candidate = await verify(f);
+  f.github.failAssetAfterCommit = true;
+  const task = await f.publication.submit(candidate.id, "draft",
+    { key: randomUUID(), tag, digest: candidate.digest, confirmDraft: true });
+  await f.publication.advance(task.id);
+  assert.equal(f.store.task(task.id).state, "reconciling");
+  assert.equal(f.store.task(task.id).publication?.intent?.kind, "asset");
+  assert.equal(f.github.assets.length, 1);
+  const interrupted = f.store.task(task.id);
+  interrupted.publication!.retryAt = 0;
+  f.store.save(interrupted, "fixture.restart", "Simulated crash following asset upload");
+  const restarted = new Publication(f.store, f.github, f.github,
+    { drafts: true, publish: true, maintainerId: 42 });
+  await restarted.advance(task.id);
+  assert.equal(f.store.task(task.id).state, "succeeded", f.store.task(task.id).error);
+  assert.equal(restarted.candidate(candidate.id).state, "draft");
+  assert.equal(f.github.createCount, 1);
+  assert.equal(f.github.assets.length, 16);
+  assert.equal(f.github.uploadCount, 16);
 });
