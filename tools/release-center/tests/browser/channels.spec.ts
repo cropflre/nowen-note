@@ -75,17 +75,24 @@ test("channel errors and missing formal source never create a plan or enable dis
 });
 
 test("late channel reads cannot replace the newly selected version, including SSE reloads", async ({ page }) => {
+  // Hold the first response until the new version is visible. A fixed sleep or
+  // a transient loading spinner can disappear before Playwright observes it.
   let first = true;
+  let releaseFirst!: () => void;
+  const firstHeld = new Promise<void>((resolve) => { releaseFirst = resolve; });
   await page.route("**/api/channels?version=1.5.2", async (route) => {
-    if (first) { first = false; await new Promise((r) => setTimeout(r, 500)); }
+    if (first) { first = false; await firstHeld; }
     await route.continue();
   });
   await page.goto("/#channels");
-  await expect(page.getByRole("status")).toContainText("加载渠道记录");
+  await expect.poll(() => first, { message: "initial channels request was intercepted" }).toBe(false);
   await page.getByLabel("渠道版本（X.Y.Z）").fill("2.0.0");
   await page.getByRole("button", { name: "查看本地记录", exact: true }).click();
   await expect(page.getByText("当前查看 v2.0.0 · 外部状态以观察时间为准", { exact: true })).toBeVisible();
-  await page.waitForTimeout(700);
+  const staleResponse = page.waitForResponse((response) => response.url().includes("/api/channels?version=1.5.2"));
+  releaseFirst();
+  await staleResponse;
+  await page.waitForTimeout(100); // allow React to process the deliberately stale response
   await expect(page.getByText("当前查看 v2.0.0 · 外部状态以观察时间为准", { exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "v1.5.2 · 交接计划", exact: true })).toHaveCount(0);
 });
