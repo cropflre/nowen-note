@@ -385,6 +385,7 @@ Example prompt: "Read the nowen-note-development Skill first, inspect the code b
 - [Email backup](./docs/backup-email-smtp.md)
 - [ARM64 deployment](./docs/deploy-arm64.md)
 - [iOS release guide](./docs/iOS-Release.md)
+- [GitHub desktop asset collection and release verification](./docs/releases/github-release-assets.md)
 - [Privacy policy](./docs/PRIVACY.md)
 - [Browser clipper](https://chromewebstore.google.com/detail/nowen-note-web-clipper/nglkodhfdbnfielchjpkjhenfaecafpg)
 - OpenAPI is available at `/api/openapi.json` after startup.

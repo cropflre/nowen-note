@@ -2,17 +2,38 @@
 #
 # 发布职责约束：
 #   - push tag v*.*.* 构建全部平台；Windows Full/Lite 均由同一 tag CI 生成并校验；
-#   - workflow_dispatch 仅构建调试；不会产出正式 Release 资产；
-#   - GitHub Release 仍由 scripts/release.sh 统一创建 Draft、汇总 CI 资产、远端校验后转正式；
+#   - workflow_dispatch 默认仅调试；release-assets 模式在 GitHub 内汇总同 Tag 产物并校验；
+#   - scripts/release.sh 创建 Draft，校对 CI 回执后决定是否转正式；CI 不发布正式版本；
 #   - electron-builder 始终 --publish never，避免多发布者并发写 Release。
 
 name: Build & Release
+run-name: ${{ inputs.mode == 'release-assets' && format('Release assets {0}', inputs.request_id) || github.event.head_commit.message || github.ref_name }}
 
 on:
   push:
     tags:
       - "v*.*.*"
   workflow_dispatch:
+    inputs:
+      mode:
+        description: Debug build or collect existing tag artifacts into Draft
+        type: choice
+        options: [debug, release-assets]
+        default: debug
+      source_run_id:
+        description: Existing release.yml tag-push build run ID (release-assets only)
+        type: string
+      request_id:
+        description: Unique local release request UUID (release-assets only)
+        type: string
+      desktop:
+        description: Collect both macOS architectures
+        type: boolean
+        default: true
+      windows:
+        description: Replace Windows Full/Lite candidates with same-tag CI assets
+        type: boolean
+        default: true
 
 permissions:
   contents: read
@@ -20,6 +41,7 @@ permissions:
 
 jobs:
   build:
+    if: github.event_name == 'push' || inputs.mode == 'debug'
     strategy:
       fail-fast: false
       matrix:
@@ -239,4 +261,39 @@ jobs:
             dist-electron/*.blockmap
             dist-electron/latest*.yml
           if-no-files-found: ignore
+          retention-days: 14
+
+  release-assets:
+    if: github.event_name == 'workflow_dispatch' && inputs.mode == 'release-assets' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    permissions:
+      contents: write
+      actions: read
+    concurrency:
+      group: release-assets-${{ github.ref }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Collect same-tag assets and verify Draft in GitHub
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+          RELEASE_REQUEST_ID: ${{ inputs.request_id }}
+          COLLECT_DESKTOP: ${{ inputs.desktop }}
+          COLLECT_WINDOWS: ${{ inputs.windows }}
+        run: node scripts/release-ci-assets.mjs collect
+      - name: Upload CI verification receipt
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-verification-${{ inputs.request_id }}
+          path: ${{ runner.temp }}/nowen-release-verification.json
+          if-no-files-found: error
+          overwrite: true
           retention-days: 14

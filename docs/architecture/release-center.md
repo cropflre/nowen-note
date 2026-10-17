@@ -12,9 +12,9 @@
 
 | 入口 | 触发与资产 | 副作用与边界 |
 | --- | --- | --- |
-| `scripts/release.sh` | 包装 legacy 发布入口，Node 堆内存与原生/Android 工具链基线；Draft 汇总 | 真实发布会清理指定旧构建目录；Windows 候选替换为同 Tag `nowen-note-win-direct` CI 产物；补齐 `nowen-note-mac`；远端验证后可将 Draft 转为正式 |
+| `scripts/release.sh` | 包装 legacy 发布入口，Node 堆内存与原生/Android 工具链基线；Draft 编排 | 真实发布会清理指定旧构建目录；dispatch 同 Tag 的 GitHub 汇总/校验任务，本地只核对回执和当前资产清单，通过后可将 Draft 转为正式；[新流程与启用边界](../releases/github-release-assets.md) |
 | `scripts/release-legacy.sh` | 约 2,900 行；Docker、PC、Android、Lite、FPK/UPK 等组合 | 可 fetch/rebase/merge、改写版本、commit、push HEAD/Tag、Docker push、创建 Release；已有 Release 可 `upload --clobber`。`--build-only` 是 Docker 模式，支持推自定义 registry，并非“所有平台无发布”通用开关 |
-| `release.yml` | `v*.*.*` Tag push 和无输入的手动 dispatch；Windows/macOS/Linux matrix | Tag 构建正式 Windows Full/Lite，输出 `nowen-note-win-direct`；手动构建不提供完整正式 Windows资产；macOS 签名/公证可读已有 secrets；所有 builder `--publish never`，不充当 Release 发布者 |
+| `release.yml` | `v*.*.*` Tag push，手动 dispatch 默认 `debug`；独立 `release-assets` 模式 | Tag 构建正式 Windows Full/Lite、macOS/Linux；builder 只读且 `--publish never`；独立汇总任务有 Draft 资产写权限，复核同 Tag/Commit、执行远端验证并上传小型回执，不将 Draft 转正式 |
 | `microsoft-store-appx.yml` | 指定分支和 paths 的 PR、手动 dispatch | 合同与类型检查后 AppX 打包、manifest/identity 校验；输出 `nowen-note-store-appx`，7 天；无 GitHub EXE 发布、无自动商店提交 |
 | `ios-release.yml` | `v*.*.*-ios` 和通用 `v*.*.*` Tag、手动 dispatch | 签名 IPA artifact `nowen-note-ios`，14 天；**Tag push 自动上传 TestFlight**；手动上传开关默认 false |
 | `verify-release-update-assets.mjs` | local / remote 校验 | remote 经 gh 下载；校验命名、SHA-512、大小、blockmap、Full/Lite 隔离；Windows + Linux 更新元数据同时存在时还要求完整 macOS 资产 |
