@@ -71,4 +71,4 @@ jobs:
           cache-dependency-path: tools/release-center/package-lock.json
       - run: npm ci
       - name: Verify formal import, reservation, approvals, cancellation, and uncertainty handling
-        run: npx tsx --test tests/publication.test.ts
+        run: npx tsx --test tests/publication.test.ts tests/publication-lifecycle.test.ts
