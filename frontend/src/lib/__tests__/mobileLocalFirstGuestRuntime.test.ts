@@ -52,7 +52,7 @@ const mocks = vi.hoisted(() => {
 });
 
 vi.mock("@capacitor/core", () => ({
-  Capacitor: { isNativePlatform: () => true, getPlatform: () => "android" },
+  Capacitor: { isNativePlatform: () => true, getPlatform: () => Reflect.get(window, "Capacitor")?.getPlatform?.() || "android" },
 }));
 vi.mock("@/lib/api.impl", () => ({
   getCurrentWorkspace: () => "personal",
@@ -146,6 +146,26 @@ describe("Android 本地优先运行时与离线切换", () => {
     );
     expect(mocks.setSyncLocalAdminAdapter).toHaveBeenCalledWith(expect.any(Function));
     expect(mocks.createMobileSyncEngine).not.toHaveBeenCalled();
+  });
+
+  it("Harmony device-only startup opens the shared local repository without starting sync", async () => {
+    // Dispose the prior test's cached device-only runtime before cold startup.
+    localStorage.setItem("nowen-mobile-account-login-requested", "1");
+    await initializeMobileLocalFirstRuntime();
+    localStorage.removeItem("nowen-mobile-account-login-requested");
+    vi.clearAllMocks();
+    Object.assign(window, { Capacitor: {
+      isNativePlatform: () => true, getPlatform: () => "harmony", platform: "harmony",
+    } });
+    await initializeMobileLocalFirstRuntime();
+
+    expect(mocks.openNativeDatabase).toHaveBeenCalledWith("android-device-local");
+    expect(mocks.createNativeLocalRepository).toHaveBeenCalledWith(expect.objectContaining({
+      accountId: "android-device-local", userId: "android-local-user",
+    }));
+    expect(mocks.installMobileLocalFirstBridge).toHaveBeenCalledWith(mocks.repository, mocks.db, "android-local-user");
+    expect(mocks.createMobileSyncEngine).not.toHaveBeenCalled();
+    expect(mocks.secureApi.set).not.toHaveBeenCalled();
   });
 
   it("登录后读写安全存储而不访问插件 then，并可切换到离线库", async () => {

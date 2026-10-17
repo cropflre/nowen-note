@@ -11,15 +11,25 @@ import { window } from '@kit.ArkUI';
 import { initPreferenceStore } from '../services/PreferenceStore';
 
 export default class EntryAbility extends UIAbility {
-  async onCreate(want: Want, launchParam: AbilityConstant.LaunchParam): Promise<void> {
+  private preferencesReady: Promise<void> = Promise.resolve();
+
+  onCreate(want: Want, launchParam: AbilityConstant.LaunchParam): void {
     // 初始化偏好存储
-    await initPreferenceStore(this.context);
+    this.preferencesReady = initPreferenceStore(this.context);
   }
 
   onWindowStageCreate(windowStage: window.WindowStage): void {
-    windowStage.getMainWindow((err: Error | undefined, win: window.Window) => {
-      if (err) {
-        console.error('[EntryAbility] getMainWindow failed:', JSON.stringify(err));
+    this.preferencesReady.then(() => {
+      windowStage.loadContent('pages/Index', (err) => {
+        if (err.code) {
+          console.error('[EntryAbility] loadContent failed:', err.code);
+        }
+      });
+    });
+
+    windowStage.getMainWindow((err, win: window.Window) => {
+      if (err.code) {
+        console.error('[EntryAbility] getMainWindow failed:', err.code);
         return;
       }
 

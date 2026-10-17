@@ -23,6 +23,7 @@
       "title": "本地业务写入与 Outbox 变更应在持久化后可恢复",
       "status": "covered",
       "checks": [
+        { "file": "frontend/src/lib/__tests__/harmonyNativeAdapters.test.ts", "case": "Harmony adapters retain committed data and pending Outbox on reopen, rollback and account isolation" },
         {"file": "backend/tests/sync-v2-note-deletion-lifecycle.test.ts", "case": "desktop delete durably retains the last body and attachment bytes until the delete ACK"},
         { "file": "backend/tests/asset-ai.test.ts", "case": "a database failure rolls back metadata, folders, tags, result records and existing Outbox" },
         { "file": "backend/tests/asset-ai.test.ts", "case": "desktop sync refuses unsynced AI metadata writes rather than claiming success" },
@@ -87,6 +88,7 @@
       "title": "断网、服务端失败或停止调度不得静默丢弃待同步修改",
       "status": "covered",
       "checks": [
+        { "file": "frontend/src/lib/__tests__/harmonyNativeAdapters.test.ts", "case": "Harmony adapters retain committed data and pending Outbox on reopen, rollback and account isolation" },
         {"file": "backend/tests/sync-v2-mobile-multidevice.test.ts", "case": "native offline trash then permanent delete acknowledges trash before deletion and replays a lost ACK"},
         { "file": "backend/tests/asset-organization-sync.test.ts", "case": "desktop directory CRUD captures durable organization mutations and converges through real Sync V2 routes" },
         {
@@ -175,6 +177,7 @@
       "title": "跨账号跨服务端 Outbox 不得串用",
       "status": "covered",
       "checks": [
+        { "file": "frontend/src/lib/__tests__/harmonyNativeAdapters.test.ts", "case": "Harmony adapters retain committed data and pending Outbox on reopen, rollback and account isolation" },
         { "file": "backend/tests/asset-ai.test.ts", "case": "consent, authentication, restricted tokens, scope and protected files fail before the model is called" },
         { "file": "backend/tests/asset-ai.test.ts", "case": "confirmation retries are persistent and payload conflicts or revoked access cannot replay results" },
         { "file": "backend/tests/asset-ai.test.ts", "case": "file scope transfers cannot expose a description from its previous owner or workspace" },
@@ -302,6 +305,8 @@
       "title": "Android Native 关闭同步后重启仍保留未发出修改",
       "status": "covered",
       "checks": [
+        { "file": "frontend/src/lib/__tests__/mobileLocalFirstGuestRuntime.test.ts", "case": "Harmony device-only startup opens the shared local repository without starting sync" },
+        { "file": "frontend/src/lib/__tests__/harmonyNativeAdapters.test.ts", "case": "Harmony adapters retain committed data and pending Outbox on reopen, rollback and account isolation" },
         { "file": "backend/tests/sync-v2-mobile-multidevice.test.ts", "case": "asset folders survive offline restart and converge with nested ancestry on three devices" },
         {
           "file": "backend/tests/sync-v2-mobile-multidevice.test.ts",
