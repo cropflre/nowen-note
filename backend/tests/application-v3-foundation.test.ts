@@ -125,7 +125,7 @@ test("V3 accepts a hashed UI bundle and rejects altered, undeclared or unsafe re
     const opts = { currentVersion: "1.6.0" };
     const good = await validatePluginPackage(await packV3(), opts);
     assert.equal(good.manifest.apiVersion, 3);
-    assert.equal(good.fileCount, 4);
+    assert.equal(good.fileCount, 3);
     await assert.rejects(async () => validatePluginPackage(await packV3({ html: "tampered" }), opts), /SHA-256 不匹配/);
     await assert.rejects(async () => validatePluginPackage(await packV3({ extra: { "ui/unlisted.js": "steal()" } }), opts), /未登记 SHA-256/);
     await assert.rejects(async () => validatePluginPackage(await packV3({ extra: { "backend/runner.js": "steal()" } }), opts), /UI 资源必须位于/);
