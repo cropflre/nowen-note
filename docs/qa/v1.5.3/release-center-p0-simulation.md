@@ -34,7 +34,10 @@ GitHub Actions：[ Release Center CI #39038298494 ](https://github.com/cropflre/
 ## 2026-10-17 CI 实测
 
 - 独立 `formal-safety` Job：**23/23 通过，失败 0**。
-- 控制台 `npm test` / `npm run build` / Chromium：见上述同一个工作流各步骤的最终结论；不得使用第一轮 CI 的结果代替本次最终结果。
+- 控制台 `npm test`：**122/122 通过，失败 0**。
+- TypeScript 检查和 Vite 生产构建：**通过**。
+- Chromium 浏览器：**9/9 通过**，包含新增正式候选页面安全及窄屏暗色检查。
+- 两个 CI Job `console-contracts` 与 `formal-safety`：**均 success**。以上均为 [Run #39038298494](https://github.com/cropflre/nowen-note/actions/runs/39038298494) 的真实执行结果。
 
 ## 不可冒充的验收边界
 
