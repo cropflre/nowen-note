@@ -4,6 +4,7 @@ import crypto from "node:crypto";
 import { createInboundWebhook, listInboundWebhooks, removeInboundWebhook } from "../plugins/inboundWebhooks.js";
 import { isSystemAdmin, requireAdmin } from "../middleware/acl.js";
 import { getExtensionPlatformFeatureFlags } from "../plugins/featureFlags.js";
+import { getApplicationV3FeatureFlags, type AppPlatformV3 } from "../plugins/applicationV3.js";
 import { getPluginService } from "../plugins/pluginService.js";
 import { EXTENSION_V21_TARGET_NOWEN_VERSION, NOWEN_VERSION } from "../plugins/types.js";
 
@@ -38,10 +39,16 @@ pluginsRouter.get("/", (c) => {
 
 pluginsRouter.get("/features", (c) => c.json({
   ...getExtensionPlatformFeatureFlags(),
+  applicationV3: getApplicationV3FeatureFlags(),
   currentNowenVersion: NOWEN_VERSION,
   targetNowenVersion: EXTENSION_V21_TARGET_NOWEN_VERSION,
 }));
 pluginsRouter.get("/actions", (c) => c.json(getPluginService().listActions()));
+pluginsRouter.get("/apps", (c) => {
+  const raw = c.req.query("platform") || "web";
+  if (!["web", "desktop", "android", "ios"].includes(raw)) return c.json({ code: "INVALID_PLATFORM" }, 400);
+  return c.json(getPluginService().listApplicationPages(raw as AppPlatformV3));
+});
 pluginsRouter.get("/contributions", (c) => c.json(getPluginService().contributions()));
 pluginsRouter.get("/ecosystem/sources", (c) => c.json(getPluginService().ecosystem.listSources()));
 pluginsRouter.put("/ecosystem/sources", requireAdmin, async (c) => {

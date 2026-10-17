@@ -50,3 +50,11 @@ V1/V2 的既有解析、安装、权限声明、更新、安全策略在本阶�
 ## 下一阶段开发顺序
 
 Phase 1A：Manifest V3 合同、包签名完整性、配置隔离；1B：iframe 与 Bridge Broker；1C：UI App Registry 接入 App/侧栏及 Hello Nowen App。之后才开始 Dashboard/Plugin Data。Phase 3 Inspector/Previewer/Background/AI 和 Phase 4 SDK/市场应在 P0 可用后推进。
+
+## Phase 1A 更新（Manifest / 安装包安全）
+
+- 新增 API V3 声明式应用 Manifest Schema：appPages 与 uiAssets SHA-256 清单。
+- 沿用 ZIP 包验证，仅允许已声明的 ui/ 静态资源，HTML/JS/CSS 验证 SHA-256；旧 V2 声明式 JavaScript 禁令不变。
+- V3 默认关闭，仍要求真实 Nowen 1.6.0 以上兼容版本，当前 1.5.0 运行时不能启用 V3。
+- 应用注册读取 GET /plugins/apps?platform=web|desktop|android|ios，仅返回已启用、符合策略且授权的页面声明。不会执行 UI 代码。
+- **未完成**：安全 iframe 静态文件服务、CSP、MessageChannel、Host Broker 授权及 UI E2E。

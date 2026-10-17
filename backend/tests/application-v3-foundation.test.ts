@@ -1,5 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import crypto from "node:crypto";
+import JSZip from "jszip";
+import { parsePluginManifest } from "../src/plugins/manifest.js";
+import { validatePluginPackage } from "../src/plugins/packageValidator.js";
 import { getApplicationV3FeatureFlags, parseAppPageDeclarationsV3, buildAppRegistryV3, validatePackagedHtmlEntry } from "../src/plugins/applicationV3.js";
 import { AppBridgeSessionGuardV3, APP_BRIDGE_V3_PROTOCOL, validateAppBridgeRequestV3 } from "../src/plugins/appBridgeV3.js";
 
@@ -68,4 +72,63 @@ test("Host Bridge session guard enforces concurrency, deduplication and immediat
   guard.accept(request("next"), 500_000);
   guard.revoke();
   assert.throws(() => guard.accept(request("after"), 500_000), /SESSION_REVOKED/);
+});
+
+
+const GATES = ["NOWEN_EXTENSIONS_V21", "NOWEN_UI_EXTENSIONS", "NOWEN_UI_LAYOUT_EDITOR", "NOWEN_SANDBOXED_PLUGIN_UI", "NOWEN_EXTENSION_V3_CORE", "NOWEN_EXTENSION_V3_APP_PAGES"] as const;
+async function enabledV3<T>(fn: () => Promise<T> | T): Promise<T> {
+  const saved = GATES.map((k) => process.env[k]);
+  try {
+    GATES.forEach((k) => { process.env[k] = "1"; });
+    return await fn();
+  } finally {
+    GATES.forEach((k, i) => { if (saved[i] === undefined) delete process.env[k]; else process.env[k] = saved[i]; });
+  }
+}
+const asset = (s: string) => "sha256:" + crypto.createHash("sha256").update(s).digest("hex");
+const html = '<!DOCTYPE html><html><head><meta charset="utf-8"></head><body>Hello Nowen V3</body></html>';
+const script = 'document.body.dataset.v3 = "1";';
+function manifestV3() {
+  return {
+    id: "nowenlab.demo", name: "Hello V3", description: "UI asset installation test", version: "0.1.0",
+    apiVersion: 3, publisher: "nowenlab", engines: { nowen: ">=1.6.0" },
+    runtime: "declarative", categories: ["productivity"],
+    repository: "https://github.com/cropflre/nowen-note", license: "MIT",
+    permissions: ["plugin-storage:read"],
+    contributes: { appPages: pages, uiAssets: { "ui/index.html": asset(html), "ui/app.js": asset(script) } },
+  };
+}
+async function packV3(overrides: { manifest?: any; html?: string; extra?: Record<string, string> } = {}) {
+  const zip = new JSZip();
+  zip.file("manifest.json", JSON.stringify(overrides.manifest || manifestV3()));
+  zip.file("ui/index.html", overrides.html ?? html);
+  zip.file("ui/app.js", script);
+  for (const [path, content] of Object.entries(overrides.extra || {})) zip.file(path, content);
+  return zip.generateAsync({ type: "nodebuffer" });
+}
+test("V3 does not bypass the existing version and capability gates", async () => {
+  assert.throws(() => parsePluginManifest(manifestV3(), { currentVersion: "1.6.0" }), (e: Error & { code?: string }) => {
+    return e.code === "PLUGIN_V3_FEATURE_DISABLED";
+  });
+  await enabledV3(() => {
+    assert.equal(parsePluginManifest(manifestV3(), { currentVersion: "1.6.0" }).apiVersion, 3);
+    assert.throws(() => parsePluginManifest(manifestV3()), /当前版本为 1.5.0/);
+    assert.throws(() => parsePluginManifest({ ...manifestV3(), apiVersion: 2 }, { currentVersion: "1.6.0" }));
+    assert.throws(() => parsePluginManifest({ ...manifestV3(), engines: { nowen: ">=1.5.0" } }, { currentVersion: "1.6.0" }), /V3 插件必须/);
+    const bad = manifestV3();
+    bad.contributes.appPages = [{ ...pages[0], entry: "https://evil.test/attack.html" }];
+    assert.throws(() => parsePluginManifest(bad, { currentVersion: "1.6.0" }));
+  });
+});
+test("V3 accepts a hashed UI bundle and rejects altered, undeclared or unsafe resources", async () => {
+  await enabledV3(async () => {
+    const opts = { currentVersion: "1.6.0" };
+    const good = await validatePluginPackage(await packV3(), opts);
+    assert.equal(good.manifest.apiVersion, 3);
+    assert.equal(good.fileCount, 4);
+    await assert.rejects(async () => validatePluginPackage(await packV3({ html: "tampered" }), opts), /SHA-256 不匹配/);
+    await assert.rejects(async () => validatePluginPackage(await packV3({ extra: { "ui/unlisted.js": "steal()" } }), opts), /未登记 SHA-256/);
+    await assert.rejects(async () => validatePluginPackage(await packV3({ extra: { "backend/runner.js": "steal()" } }), opts), /UI 资源必须位于/);
+    await assert.rejects(async () => validatePluginPackage(await packV3({ extra: { "ui/evil.wasm": "code" } }), opts), /UI 资源必须位于/);
+  });
 });

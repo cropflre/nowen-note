@@ -4,6 +4,16 @@ on:
   pull_request:
     paths:
       - "backend/src/plugins/applicationV3.ts"
+      - "backend/src/plugins/manifest.ts"
+      - "backend/src/plugins/types.ts"
+      - "backend/src/plugins/packageValidator.ts"
+      - "backend/src/plugins/packageInstaller.ts"
+      - "backend/src/plugins/extensionCompatibility.ts"
+      - "backend/src/plugins/pluginService.ts"
+      - "backend/src/plugins/registry.ts"
+      - "backend/src/plugins/pluginLifecycle.ts"
+      - "backend/src/plugins/permissions.ts"
+      - "backend/src/routes/plugins.ts"
       - "backend/src/plugins/appBridgeV3.ts"
       - "backend/tests/application-v3-foundation.test.ts"
       - "docs/plugin-platform/extension-platform-v3-phase0.md"
