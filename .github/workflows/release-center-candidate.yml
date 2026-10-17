@@ -1,0 +1,188 @@
+# Phase 2C: unsigned desktop candidates only. No version tag or GitHub Release.
+name: Release Center Candidate (isolated)
+run-name: Release Center candidate ${{ inputs.request_id }}
+on:
+  workflow_dispatch:
+    inputs:
+      request_id:
+        description: Unique request UUID
+        required: true
+        type: string
+      commit_sha:
+        description: Immutable 40-character lowercase Commit SHA
+        required: true
+        type: string
+      version:
+        description: Expected stable X.Y.Z version
+        required: true
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: release-center-candidate-${{ inputs.request_id }}
+  cancel-in-progress: false
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Validate inputs before source checkout
+        env:
+          RC_REQUEST_ID: ${{ inputs.request_id }}
+          RC_SHA: ${{ inputs.commit_sha }}
+          RC_VERSION: ${{ inputs.version }}
+        run: |
+          node <<'NODE'
+          const e = process.env;
+          if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(e.RC_REQUEST_ID || "") ||
+              !/^[a-f0-9]{40}$/.test(e.RC_SHA || "") ||
+              !/^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/.test(e.RC_VERSION || ""))
+            throw Error("Invalid candidate UUID, immutable SHA or stable version");
+          NODE
+  contracts:
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.commit_sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - name: Validate exact checkout SHA and all version files
+        shell: bash
+        env:
+          RC_SHA: ${{ inputs.commit_sha }}
+          RC_VERSION: ${{ inputs.version }}
+        run: |
+          test "$(git rev-parse HEAD)" = "$RC_SHA"
+          node <<'NODE'
+          const fs = require("node:fs");
+          const expected = process.env.RC_VERSION;
+          for (const path of ["package.json", "package-lock.json", "backend/package.json", "backend/package-lock.json"]) {
+            const data = JSON.parse(fs.readFileSync(path, "utf8"));
+            if (data.version !== expected || (path.endsWith("package-lock.json") && data.packages?.[""]?.version !== expected))
+              throw Error("Candidate version mismatch: " + path);
+          }
+          const android = fs.readFileSync("frontend/android/app/build.gradle", "utf8");
+          if (android.match(/versionName\s+["']([^"']+)/)?.[1] !== expected)
+            throw Error("Candidate Android version mismatch");
+          NODE
+      - run: npm ci
+      - name: Existing release and Store isolation tests
+        run: npm run test:update-release && npm run test:microsoft-store
+  build:
+    needs: [validate, contracts]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { platform: windows, os: windows-latest }
+          - { platform: macos, os: macos-latest }
+          - { platform: linux, os: ubuntu-latest }
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 240
+    env:
+      NODE_OPTIONS: --max-old-space-size=4096
+      CSC_IDENTITY_AUTO_DISCOVERY: "false"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.commit_sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - name: Verify exact source
+        shell: bash
+        env:
+          RC_SHA: ${{ inputs.commit_sha }}
+          RC_VERSION: ${{ inputs.version }}
+        run: |
+          test "$(git rev-parse HEAD)" = "$RC_SHA"
+          test "$(node -p "require('./package.json').version")" = "$RC_VERSION"
+      - name: Build app source
+        shell: bash
+        run: |
+          npm ci
+          (cd backend && npm ci)
+          (cd frontend && npm ci)
+          npm run fetch:node
+          npm run build:all
+      - name: Rebuild native modules (Windows)
+        if: matrix.platform == 'windows'
+        shell: bash
+        run: npm run rebuild:native
+      - name: Build unsigned Windows Full
+        if: matrix.platform == 'windows'
+        shell: bash
+        run: npx electron-builder --config electron/builder.config.js --win --publish never
+      - name: Build unsigned Windows Lite
+        if: matrix.platform == 'windows'
+        shell: bash
+        run: npx electron-builder --config electron/builder.lite.config.js --win --publish never
+      - name: Verify macOS packaging contracts
+        if: matrix.platform == 'macos'
+        shell: bash
+        run: node --test scripts/tests/macos-sharp.test.cjs scripts/tests/rebuild-native.test.cjs
+      - name: Build unsigned macOS Intel
+        if: matrix.platform == 'macos'
+        shell: bash
+        env:
+          NOWEN_MAC_ARCH: x64
+          TARGET_ARCH: x64
+          npm_config_target_arch: x64
+        run: |
+          npm run rebuild:native -- --target-platform=darwin --target-arch=x64
+          npx electron-builder --config electron/builder.config.js --mac --publish never
+      - name: Build unsigned macOS Apple Silicon
+        if: matrix.platform == 'macos'
+        shell: bash
+        env:
+          NOWEN_MAC_ARCH: arm64
+          TARGET_ARCH: arm64
+          npm_config_target_arch: arm64
+        run: |
+          npm run rebuild:native -- --target-platform=darwin --target-arch=arm64
+          npx electron-builder --config electron/builder.config.js --mac --publish never
+      - name: Linux desktop contract tests
+        if: matrix.platform == 'linux'
+        shell: bash
+        run: npm run test:linux-desktop
+      - name: Install Linux desktop validator
+        if: matrix.platform == 'linux'
+        shell: bash
+        run: sudo apt-get update && sudo apt-get install -y desktop-file-utils
+      - name: Build unsigned Linux
+        if: matrix.platform == 'linux'
+        shell: bash
+        run: |
+          npm run rebuild:native
+          npx electron-builder --config electron/builder.config.js --linux --publish never
+          npm run verify:linux-desktop
+      - name: Check exact candidate assets and stage evidence
+        shell: bash
+        env:
+          RC_PLATFORM: ${{ matrix.platform }}
+          RC_SHA: ${{ inputs.commit_sha }}
+          RC_VERSION: ${{ inputs.version }}
+          RC_REQUEST_ID: ${{ inputs.request_id }}
+        run: node scripts/release-center-stage-candidate.mjs
+      - name: Upload nonpublishing candidate packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: rc-candidate-${{ inputs.request_id }}-${{ matrix.platform }}
+          path: rc-candidate/${{ matrix.platform }}/assets/*
+          if-no-files-found: error
+          retention-days: 7
+      - name: Upload separate SHA evidence, not approval
+        uses: actions/upload-artifact@v4
+        with:
+          name: rc-candidate-evidence-${{ inputs.request_id }}-${{ matrix.platform }}
+          path: rc-candidate/${{ matrix.platform }}/candidate-evidence.json
+          if-no-files-found: error
+          retention-days: 7
