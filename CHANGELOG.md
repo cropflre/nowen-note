@@ -14,6 +14,8 @@
 
 ## 未发布 / Unreleased
 
+- **macOS / #861**：为 Intel 与 Apple Silicon 构建补齐匹配后端 sharp 版本的目标架构依赖，打包前后校验原生库版本与 Mach-O 架构；分享横幅按需加载图片处理库，避免其加载失败阻断后端启动。Prepare target-specific sharp/libvips packages for both macOS architectures, validate native versions and Mach-O headers before and after packing, and load banner processing on demand. 本地回归已通过，Intel 设备安装验收与发布待完成。Local regressions passed; Intel device acceptance and release remain pending. [验证记录 / Validation](./docs/qa/issue-861-macos-sharp.md)。
+
 - **maintenance / Release Center Phase 2B**：新增既有正式 Tag 构建接管、Windows Full/Lite 与三平台内容复核、独立凭据的 Draft/审批/发布源码，加入写入意图对账与防覆盖约束。写开关默认关闭，测试按要求延后，正式构建编排仍待实现，不能视为可发布。Add source implementation for legacy formal-run import, complete desktop verification and gated Draft/approval/publication with durable write reconciliation; runtime acceptance and new formal build orchestration remain pending. [源码与未验收记录](./docs/qa/v1.5.2/release-center-phase2b.md)。
 
 - **maintenance / Release Center Phase 3**：新增 Store、Docker Hub 与 NAS 渠道观察、历史记录、固定 Commit 的分发交接计划/JSON 导出和未核实的人工回执；修复 Store 已发布记录被待审修订遮蔽、提交 ID 校验和窄屏输入布局。完成隔离夹具的单元/API、浏览器与构建回归，修复 RC1 CI 测试入口的数据库隔离预加载；保持实际分发禁用，等待 Phase 2 正式审批与内容校验，未进行真实平台联调。Add channel observations, immutable handoff plans and unverified manual receipts; fix published Store status precedence, submission ID validation, narrow layout and RC1 test DB setup. Local unit/API, browser and build checks passed with isolated fixtures; actual distribution stays disabled and live provider integration remains pending. [实现与验证记录](./docs/qa/v1.5.2/release-center-phase3.md)。

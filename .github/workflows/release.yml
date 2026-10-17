@@ -175,6 +175,11 @@ jobs:
           retention-days: 14
 
       # ========= macOS =========
+      - name: Test macOS native dependency packaging
+        if: matrix.os == 'macos-latest'
+        run: node --test scripts/tests/macos-sharp.test.cjs scripts/tests/rebuild-native.test.cjs
+        shell: bash
+
       - name: Build Electron (macOS x64 / Intel)
         if: matrix.os == 'macos-latest'
         env:
