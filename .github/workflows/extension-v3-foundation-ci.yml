@@ -1,0 +1,40 @@
+name: Extension Platform V3 Foundation
+
+on:
+  pull_request:
+    paths:
+      - "backend/src/plugins/applicationV3.ts"
+      - "backend/src/plugins/appBridgeV3.ts"
+      - "backend/tests/application-v3-foundation.test.ts"
+      - "docs/plugin-platform/extension-platform-v3-phase0.md"
+      - ".github/workflows/extension-v3-foundation-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  protocol-foundation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - name: Install backend dependencies
+        working-directory: backend
+        run: npm ci
+      - name: V3 foundation tests
+        working-directory: backend
+        run: node --import tsx --test tests/application-v3-foundation.test.ts
+      - name: V2.1 compatibility regression
+        working-directory: backend
+        run: node --import tsx --import ./tests/setup-db-isolation.ts --test tests/extension-v2-1-feature-gates.test.ts tests/ui-contribution.test.ts
+      - name: Typecheck
+        working-directory: backend
+        run: npm run build:tsc
