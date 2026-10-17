@@ -1,4 +1,4 @@
-// Source-only regression cases in this round; execution is deferred by the maintainer.
+// Deterministic, credential-free formal release regressions; never access real GitHub.
 import test from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID, createHash } from "node:crypto";
@@ -225,4 +225,21 @@ test("a cancelled request with an uncertain publish intent records the confirmed
   assert.equal(f.store.task(task.id).state, "succeeded");
   assert.equal(f.publication.candidate(candidate.id).state, "published");
   assert.ok(f.github.calls.every((c) => c.startsWith("GET ")));
+});
+
+test("a failed task creation never leaves a formal version reservation behind", async (t) => {
+  const f = await verifiedFixture(t);
+  const occupied = f.submit("dry-run");
+  const body = { key: randomUUID(), tag: f.candidate.tag, digest: f.candidate.digest, confirmDraft: true };
+  await assert.rejects(f.publication.submit(f.candidate.id, "draft", body), /已有活动任务/);
+  assert.equal(f.store.db.prepare("SELECT COUNT(*) AS count FROM release_reservations").get()!.count, 0);
+  assert.equal(f.store.tasks(true).length, 1);
+  occupied.state = "cancelled";
+  f.store.save(occupied, "fixture.released", "No external action");
+  const created = await f.publication.submit(f.candidate.id, "draft", body);
+  assert.equal(created.mode, "publication");
+  assert.equal(created.publication?.operation, "draft");
+  assert.equal(f.store.db.prepare("SELECT candidateId FROM release_reservations WHERE version=?").get(f.candidate.version)!.candidateId, f.candidate.id);
+  assert.equal(f.store.tasks(true).length, 1);
+  assert.ok(f.github.calls.every((call) => call.startsWith("GET ")));
 });
