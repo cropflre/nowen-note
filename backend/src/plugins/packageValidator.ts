@@ -4,6 +4,7 @@ import { Readable } from "node:stream";
 import JSZip from "jszip";
 import { parsePluginManifest, type ParsePluginManifestOptions } from "./manifest.js";
 import { isDeclarativePluginManifest, type PluginManifest } from "./types.js";
+import { validateUiAssetPathV3 } from "./applicationV3.js";
 
 const unzipper = require("unzipper") as { Parse(options: { forceStream: true }): NodeJS.ReadWriteStream };
 
@@ -111,7 +112,29 @@ export async function validatePluginPackage(bytes: Buffer, options: ParsePluginM
     throw new Error("manifest.json 不是有效 JSON");
   }
   const manifest = parsePluginManifest(rawManifest, options);
-  if (isDeclarativePluginManifest(manifest)) {
+  if (manifest.apiVersion === 3) {
+    const assets = manifest.contributes.uiAssets;
+    const ancillary = new Set(["manifest.json", manifest.icon, ...(manifest.screenshots || [])].filter((s): s is string => typeof s === "string"));
+    const normalizedFiles = new Set<string>();
+    for (const file of files) {
+      const original = (file as JSZip.JSZipObject & { unsafeOriginalName?: string }).unsafeOriginalName || file.name;
+      const normalized = normalizeEntryName(original);
+      if (original !== normalized || normalizedFiles.has(normalized)) throw new Error(`V3 ZIP 资源路径不规范或重复: ${original}`);
+      normalizedFiles.add(normalized);
+      if (ancillary.has(normalized)) continue;
+      validateUiAssetPathV3(normalized);
+      if (!Object.prototype.hasOwnProperty.call(assets, normalized)) throw new Error(`V3 UI 资源未登记 SHA-256: ${normalized}`);
+    }
+    for (const [asset, digest] of Object.entries(assets)) {
+      validateUiAssetPathV3(asset);
+      if (!normalizedFiles.has(asset)) throw new Error(`V3 UI 资源不存在: ${asset}`);
+      const bytes = await zip.file(asset)!.async("nodebuffer");
+      const actual = crypto.createHash("sha256").update(bytes).digest("hex");
+      if (digest !== "sha256:" + actual) {
+        throw Object.assign(new Error(`V3 UI 资源 SHA-256 不匹配: ${asset}`), { code: "PLUGIN_UI_INTEGRITY_INVALID" });
+      }
+    }
+  } else if (isDeclarativePluginManifest(manifest)) {
     for (const file of files) {
       const normalized = normalizeEntryName((file as JSZip.JSZipObject & { unsafeOriginalName?: string }).unsafeOriginalName || file.name);
       if (/\.(?:mjs|cjs|js|wasm)$/i.test(normalized)) throw Object.assign(new Error(`声明式插件禁止可执行代码资源: ${normalized}`), { code: "PLUGIN_CONTRIBUTION_INVALID" });

@@ -1,15 +1,16 @@
 import { getExtensionPlatformFeatureFlags } from "./featureFlags.js";
 import { PLUGIN_PERMISSIONS, type PluginPermission } from "./types.js";
 
-// Phase 1 contract: no executable V3 package is accepted until installation,
-// resource integrity, UI isolation and the Host Broker are connected end-to-end.
+// Packaged UI files must not be interpreted as Node/QuickJS plugin actions.
+// Rendering stays disabled until the isolated iframe Host/Bridge is wired.
 export const APPLICATION_V3_API_VERSION = 3 as const;
 export const APPLICATION_V3_TARGET_NOWEN = "1.6.0";
 export type AppPlatformV3 = "web" | "desktop" | "android" | "ios";
 
 const PLUGIN_ID = /^[a-z0-9]+(?:[.-][a-z0-9]+)+$/;
 const PAGE_ID = /^[a-z][a-z0-9-]{0,63}$/;
-const SAFE_PACKAGED_HTML = /^(?:[A-Za-z0-9_-]+\/)*[A-Za-z0-9_-]+\.html$/;
+const SAFE_PACKAGED_HTML = /^ui\/(?:[A-Za-z0-9_-]+\/)*[A-Za-z0-9_-]+\.html$/;
+const SAFE_UI_ASSET = /^ui\/(?:[A-Za-z0-9_-]+\/)*[A-Za-z0-9_-]+(?:[.-][A-Za-z0-9_-]+)*\.(?:html|js|css|json|png|jpg|jpeg|webp|gif|woff2)$/;
 const ALLOWED_PERMISSIONS = new Set<string>(PLUGIN_PERMISSIONS);
 const PLATFORMS = new Set<AppPlatformV3>(["web", "desktop", "android", "ios"]);
 const TRUE = new Set(["1", "true", "yes", "on", "enabled"]);
@@ -54,6 +55,13 @@ export function getApplicationV3FeatureFlags(): Readonly<ApplicationV3FeatureFla
 
 function invalid(reason: string): never {
   throw Object.assign(new Error(reason), { code: "PLUGIN_V3_APP_INVALID" });
+}
+
+export function validateUiAssetPathV3(entry: unknown): string {
+  if (typeof entry !== "string" || entry.length > 240 || !SAFE_UI_ASSET.test(entry)) {
+    invalid("UI 资源必须位于 ui/ 下且使用受支持的静态文件扩展名");
+  }
+  return entry;
 }
 
 export function validatePackagedHtmlEntry(entry: unknown): string {
