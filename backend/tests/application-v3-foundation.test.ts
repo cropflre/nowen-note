@@ -1,0 +1,134 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import crypto from "node:crypto";
+import JSZip from "jszip";
+import { parsePluginManifest } from "../src/plugins/manifest.js";
+import { validatePluginPackage } from "../src/plugins/packageValidator.js";
+import { getApplicationV3FeatureFlags, parseAppPageDeclarationsV3, buildAppRegistryV3, validatePackagedHtmlEntry } from "../src/plugins/applicationV3.js";
+import { AppBridgeSessionGuardV3, APP_BRIDGE_V3_PROTOCOL, validateAppBridgeRequestV3 } from "../src/plugins/appBridgeV3.js";
+
+const pages = [{ id: "home", title: "Home", entry: "ui/index.html", platforms: ["web", "desktop"], requiredPermissions: ["plugin-storage:read"] }];
+const declared = ["plugin-storage:read"];
+
+test("V3 gates are fail closed and depend on the pre-existing sandbox gates", () => {
+  const keys = ["NOWEN_EXTENSIONS_V21", "NOWEN_UI_EXTENSIONS", "NOWEN_UI_LAYOUT_EDITOR", "NOWEN_SANDBOXED_PLUGIN_UI", "NOWEN_EXTENSION_V3_CORE", "NOWEN_EXTENSION_V3_APP_PAGES", "NOWEN_EXTENSION_V3_DASHBOARD_WIDGETS", "NOWEN_EXTENSION_V3_PLUGIN_DATA"];
+  const previous = keys.map((key) => process.env[key]);
+  try {
+    for (const key of keys) delete process.env[key];
+    assert.deepEqual(getApplicationV3FeatureFlags(), { core: false, appPages: false, dashboardWidgets: false, pluginData: false });
+    process.env.NOWEN_EXTENSION_V3_CORE = "1";
+    process.env.NOWEN_EXTENSION_V3_APP_PAGES = "1";
+    assert.equal(getApplicationV3FeatureFlags().appPages, false);
+    for (const key of keys) process.env[key] = "1";
+    assert.deepEqual(getApplicationV3FeatureFlags(), { core: true, appPages: true, dashboardWidgets: true, pluginData: true });
+  } finally {
+    keys.forEach((key, i) => { if (previous[i] === undefined) delete process.env[key]; else process.env[key] = previous[i]; });
+  }
+});
+
+test("app declaration is namespaced, packaged, scoped and validated", () => {
+  assert.deepEqual(parseAppPageDeclarationsV3("nowenlab.demo", pages, declared), pages);
+  for (const entry of ["../index.html", "/index.html", "https://evil.test/index.html", "//evil/index.html", "ui/%2e%2e/index.html", "ui/script.js", "ui/index.html?x=1"]) {
+    assert.throws(() => validatePackagedHtmlEntry(entry), /应用入口/);
+  }
+  assert.throws(() => parseAppPageDeclarationsV3("nowenlab.demo", [...pages, pages[0]], declared), /重复/);
+  assert.throws(() => parseAppPageDeclarationsV3("nowenlab.demo", pages, []), /权限/);
+});
+
+test("registry ignores unenabled, malformed, unsupported and legacy manifests", () => {
+  const candidate = (id: string, status: string, apiVersion = 3) => ({
+    id, status, manifestJson: JSON.stringify({ id, apiVersion, permissions: declared, contributes: { appPages: pages } }),
+  });
+  const registered = buildAppRegistryV3([
+    candidate("nowenlab.demo", "enabled"), candidate("other.demo", "enabled"),
+    candidate("legacy.demo", "enabled", 2), candidate("disabled.demo", "disabled"),
+    { id: "broken.demo", status: "enabled", manifestJson: "{" },
+  ], "web", true);
+  assert.deepEqual(registered.map((app) => app.route), ["/apps/nowenlab.demo/home", "/apps/other.demo/home"]);
+  assert.equal(buildAppRegistryV3([candidate("nowenlab.demo", "enabled")], "ios", true).length, 0);
+  assert.deepEqual(buildAppRegistryV3([candidate("nowenlab.demo", "enabled")], "web", false), []);
+});
+
+const session = { pluginId: "nowenlab.demo", instanceId: "instance_A_123", nonce: "nonce_0123456789abcdef0123456789" };
+const request = (requestId: string, params: Record<string, unknown> = {}) => ({
+  protocol: APP_BRIDGE_V3_PROTOCOL, kind: "request", ...session, requestId, method: "storage.get", params,
+});
+
+test("Host Bridge wire contract rejects spoofed identities, unexpected methods, oversized and unsafe payloads", () => {
+  assert.equal(validateAppBridgeRequestV3(request("req-1"), session).method, "storage.get");
+  assert.throws(() => validateAppBridgeRequestV3({ ...request("r1"), nonce: "fake_0123456789012345678901234567" }, session), /INVALID_MESSAGE/);
+  assert.throws(() => validateAppBridgeRequestV3({ ...request("r2"), method: "electron.execute" }, session), /INVALID_MESSAGE/);
+  assert.throws(() => validateAppBridgeRequestV3(request("r3", { content: "a".repeat(70_000) }), session), /TOO_LARGE/);
+  assert.throws(() => validateAppBridgeRequestV3(request("r4", JSON.parse('{"__proto__":{"a":1}}')), session), /INVALID_PAYLOAD/);
+});
+
+test("Host Bridge session guard enforces concurrency, deduplication and immediate revocation", () => {
+  const guard = new AppBridgeSessionGuardV3(session);
+  guard.accept(request("dup"), 500_000);
+  assert.throws(() => guard.accept(request("dup"), 500_000), /DUPLICATE_REQUEST/);
+  for (let i = 0; i < 15; i++) guard.accept(request("r" + i), 500_000);
+  assert.throws(() => guard.accept(request("overflow"), 500_000), /RATE_LIMITED/);
+  guard.complete("dup");
+  guard.accept(request("next"), 500_000);
+  guard.revoke();
+  assert.throws(() => guard.accept(request("after"), 500_000), /SESSION_REVOKED/);
+});
+
+
+const GATES = ["NOWEN_EXTENSIONS_V21", "NOWEN_UI_EXTENSIONS", "NOWEN_UI_LAYOUT_EDITOR", "NOWEN_SANDBOXED_PLUGIN_UI", "NOWEN_EXTENSION_V3_CORE", "NOWEN_EXTENSION_V3_APP_PAGES"] as const;
+async function enabledV3<T>(fn: () => Promise<T> | T): Promise<T> {
+  const saved = GATES.map((k) => process.env[k]);
+  try {
+    GATES.forEach((k) => { process.env[k] = "1"; });
+    return await fn();
+  } finally {
+    GATES.forEach((k, i) => { if (saved[i] === undefined) delete process.env[k]; else process.env[k] = saved[i]; });
+  }
+}
+const asset = (s: string) => "sha256:" + crypto.createHash("sha256").update(s).digest("hex");
+const html = '<!DOCTYPE html><html><head><meta charset="utf-8"></head><body>Hello Nowen V3</body></html>';
+const script = 'document.body.dataset.v3 = "1";';
+function manifestV3() {
+  return {
+    id: "nowenlab.demo", name: "Hello V3", description: "UI asset installation test", version: "0.1.0",
+    apiVersion: 3, publisher: "nowenlab", engines: { nowen: ">=1.6.0" },
+    runtime: "declarative", categories: ["productivity"],
+    repository: "https://github.com/cropflre/nowen-note", license: "MIT",
+    permissions: ["plugin-storage:read"],
+    contributes: { appPages: pages, uiAssets: { "ui/index.html": asset(html), "ui/app.js": asset(script) } },
+  };
+}
+async function packV3(overrides: { manifest?: any; html?: string; extra?: Record<string, string> } = {}) {
+  const zip = new JSZip();
+  zip.file("manifest.json", JSON.stringify(overrides.manifest || manifestV3()));
+  zip.file("ui/index.html", overrides.html ?? html);
+  zip.file("ui/app.js", script);
+  for (const [path, content] of Object.entries(overrides.extra || {})) zip.file(path, content);
+  return zip.generateAsync({ type: "nodebuffer" });
+}
+test("V3 does not bypass the existing version and capability gates", async () => {
+  assert.throws(() => parsePluginManifest(manifestV3(), { currentVersion: "1.6.0" }), (e: Error & { code?: string }) => {
+    return e.code === "PLUGIN_V3_FEATURE_DISABLED";
+  });
+  await enabledV3(() => {
+    assert.equal(parsePluginManifest(manifestV3(), { currentVersion: "1.6.0" }).apiVersion, 3);
+    assert.throws(() => parsePluginManifest(manifestV3()), /当前版本为 1.5.0/);
+    assert.throws(() => parsePluginManifest({ ...manifestV3(), apiVersion: 2 }, { currentVersion: "1.6.0" }));
+    assert.throws(() => parsePluginManifest({ ...manifestV3(), engines: { nowen: ">=1.5.0" } }, { currentVersion: "1.6.0" }), /V3 插件必须/);
+    const bad = manifestV3();
+    bad.contributes.appPages = [{ ...pages[0], entry: "https://evil.test/attack.html" }];
+    assert.throws(() => parsePluginManifest(bad, { currentVersion: "1.6.0" }));
+  });
+});
+test("V3 accepts a hashed UI bundle and rejects altered, undeclared or unsafe resources", async () => {
+  await enabledV3(async () => {
+    const opts = { currentVersion: "1.6.0" };
+    const good = await validatePluginPackage(await packV3(), opts);
+    assert.equal(good.manifest.apiVersion, 3);
+    assert.equal(good.fileCount, 3);
+    await assert.rejects(async () => validatePluginPackage(await packV3({ html: "tampered" }), opts), /SHA-256 不匹配/);
+    await assert.rejects(async () => validatePluginPackage(await packV3({ extra: { "ui/unlisted.js": "steal()" } }), opts), /未登记 SHA-256/);
+    await assert.rejects(async () => validatePluginPackage(await packV3({ extra: { "backend/runner.js": "steal()" } }), opts), /UI 资源必须位于/);
+    await assert.rejects(async () => validatePluginPackage(await packV3({ extra: { "ui/evil.wasm": "code" } }), opts), /UI 资源必须位于/);
+  });
+});
