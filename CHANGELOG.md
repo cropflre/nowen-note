@@ -12,6 +12,10 @@
 
 <!-- ADD_NEW_HERE -->
 
+## 未发布 / Unreleased
+
+- **macOS / #861**：为 Intel 与 Apple Silicon 构建补齐匹配后端 sharp 版本的目标架构依赖，打包前后校验原生库版本与 Mach-O 架构；分享横幅按需加载图片处理库，避免其加载失败阻断后端启动。Prepare target-specific sharp/libvips packages for both macOS architectures, validate native versions and Mach-O headers before and after packing, and load banner processing on demand. 本地回归已通过，Intel 设备安装验收与发布待完成。Local regressions passed; Intel device acceptance and release remain pending. [验证记录 / Validation](./docs/qa/issue-861-macos-sharp.md)。
+
 ## v1.5.2 - 2026-10-16
 
 ### ✨ 新增
