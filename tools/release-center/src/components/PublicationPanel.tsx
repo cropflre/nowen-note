@@ -44,6 +44,19 @@ export function PublicationPanel({ revision, tasks, request }: { revision: numbe
       控制台不推 Tag，不触发新的构建；Tag 已触发的 iOS 等任务由原流程负责。调试包不能晋升为正式包。
       新流程尚待回归验证，正式写操作默认关闭。
     </div>
+    <Card className="space-y-3 border-dashed p-5">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h2 className="font-semibold">Phase 2C · 独立桌面候选构建</h2>
+        <span className="text-xs text-slate-500">候选包 · 不可直接发布</span>
+      </div>
+      <p className="text-sm leading-6 text-slate-500">可使用独立 GitHub Actions 构建完整 Windows Full/Lite、macOS 双架构及 Linux。
+        输入固定 Commit SHA、稳定版本 X.Y.Z 和新 UUID；不会推 Tag，也不会创建 Draft、正式 Release、TestFlight 或商店上传。
+        生成的候选 ZIP 与证据分开保存，未签名、未审批，不能冒充下方允许接管的 Tag 正式构建。</p>
+      <a className="inline-flex rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-primary hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-800"
+        href="https://github.com/cropflre/nowen-note/actions/workflows/release-center-candidate.yml"
+        target="_blank" rel="noreferrer">在 GitHub Actions 打开独立候选构建 ↗</a>
+      <p className="text-xs text-amber-700 dark:text-amber-300">工作流需先登记到默认分支且在目标 Commit 中包含脚本；当前控制台不提供远端派发和生产晋升入口。完成真实调试验收前不应打开正式发布开关。</p>
+    </Card>
     {error && <p role="alert" className="rounded-xl bg-red-50 p-4 text-sm text-red-700 dark:bg-red-950 dark:text-red-200">{error}</p>}
     <Card className="p-5">
       <h2 className="font-semibold">接管已有正式构建</h2>
