@@ -57,10 +57,14 @@ export class Publication {
       createdAt: new Date().toISOString(), checks: [], ready: true, debugReady: false, workflowRef: candidate.tag, workflowSha: candidate.sha,
       effects: ["导入已存在 Tag 的正式三平台构建；不推 Tag、不 dispatch，也不上传 TestFlight、Docker 或商店", "Windows Full 与 Lite、macOS 双架构、Linux 全部校验后才能准备 Draft；审批与发布分开确认"] };
   }
-  private task(candidate: ReleaseCandidate, operation: "verify" | "draft" | "publish", requestKey: string, fingerprint: string, jobs: Job[] = []) {
+  private task(candidate: ReleaseCandidate, operation: "verify" | "draft" | "publish", requestKey: string, fingerprint: string, jobs: Job[] = [], reserveVersion = false) {
     const at = new Date().toISOString();
     return this.store.create({ id: randomUUID(), key: requestKey, mode: "publication", plan: this.plan(candidate), state: "queued", createdAt: at, updatedAt: at,
-      deadline: Date.now() + 90 * 60_000, runId: candidate.runId, jobs, artifacts: candidate.artifacts, publication: { candidateId: candidate.id, operation } }, fingerprint);
+      deadline: Date.now() + 90 * 60_000, runId: candidate.runId, jobs, artifacts: candidate.artifacts, publication: { candidateId: candidate.id, operation } }, fingerprint, reserveVersion ? () => {
+        const reserved = this.store.db.prepare("SELECT candidateId FROM release_reservations WHERE version=?").get(candidate.version);
+        if (reserved && reserved.candidateId !== candidate.id) throw new AppError(409, "版本已由另一个候选占用，禁止覆盖");
+        this.store.db.prepare("INSERT OR IGNORE INTO release_reservations VALUES(?,?)").run(candidate.version, candidate.id);
+      } : undefined);
   }
   private async checkSource(candidate: ReleaseCandidate) {
     const [run, tagSha, checks] = await Promise.all([this.github.run(candidate.runId), this.github.tagCommit(candidate.tag),
@@ -139,10 +143,8 @@ export class Publication {
       throw new AppError(403, "正式发布未启用或尚未审批");
     const current = this.candidate(id);
     if (current.state === "published" || (operation === "publish" && current.state !== "approved")) throw new AppError(409, "候选状态已变化或已发布，禁止覆盖");
-    const reserved = this.store.db.prepare("SELECT candidateId FROM release_reservations WHERE version=?").get(candidate.version);
-    if (reserved && reserved.candidateId !== candidate.id) throw new AppError(409, "版本已由另一个候选占用，禁止覆盖");
-    this.store.db.prepare("INSERT OR IGNORE INTO release_reservations VALUES(?,?)").run(candidate.version, candidate.id);
-    return this.task(candidate, operation, requestKey, fingerprint);
+    // Reserve the version only if the task is successfully inserted. Both writes commit atomically.
+    return this.task(candidate, operation, requestKey, fingerprint, [], true);
   }
   private assetsMatch(candidate: ReleaseCandidate, assets: any[]) {
     const expected = files(candidate);

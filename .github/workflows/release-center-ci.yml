@@ -46,3 +46,29 @@ jobs:
         run: npx playwright install --with-deps chromium
       - name: Browser contracts (mock GitHub boundary, no dispatch)
         run: npm run test:browser
+
+  formal-safety:
+    name: Formal release fail-closed contracts
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: tools/release-center
+    env:
+      NOWEN_RELEASE_DRAFTS: '0'
+      NOWEN_RELEASE_PUBLISH: '0'
+      NOWEN_RELEASE_DEBUG: '0'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: tools/release-center/package-lock.json
+      - run: npm ci
+      - name: Verify formal import, reservation, approvals, cancellation, and uncertainty handling
+        run: npx tsx --test tests/publication.test.ts
