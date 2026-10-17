@@ -89,7 +89,10 @@ test("late channel reads cannot replace the newly selected version, including SS
   await page.getByLabel("渠道版本（X.Y.Z）").fill("2.0.0");
   await page.getByRole("button", { name: "查看本地记录", exact: true }).click();
   await expect(page.getByText("当前查看 v2.0.0 · 外部状态以观察时间为准", { exact: true })).toBeVisible();
+  const staleResponse = page.waitForResponse((response) => response.url().includes("/api/channels?version=1.5.2"));
   releaseFirst();
+  await staleResponse;
+  await page.waitForTimeout(100); // allow React to process the deliberately stale response
   await expect(page.getByText("当前查看 v2.0.0 · 外部状态以观察时间为准", { exact: true })).toBeVisible();
   await expect(page.getByText("当前查看 v2.0.0 · 外部状态以观察时间为准", { exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "v1.5.2 · 交接计划", exact: true })).toHaveCount(0);
