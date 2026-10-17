@@ -4,7 +4,7 @@
 开发分支：`codex/release-center-phase2b-lifecycle-20261017`  
 目标：`release/v1.5.3`  
 PR：[ #863 ](https://github.com/cropflre/nowen-note/pull/863)  
-GitHub Actions：[ Release Center CI #39038298494 ](https://github.com/cropflre/nowen-note/actions/runs/39038298494)
+GitHub Actions：[ Release Center CI #39038677240 ](https://github.com/cropflre/nowen-note/actions/runs/39038677240)
 
 ## 实施内容
 
@@ -37,7 +37,11 @@ GitHub Actions：[ Release Center CI #39038298494 ](https://github.com/cropflre/
 - 控制台 `npm test`：**122/122 通过，失败 0**。
 - TypeScript 检查和 Vite 生产构建：**通过**。
 - Chromium 浏览器：**9/9 通过**，包含新增正式候选页面安全及窄屏暗色检查。
-- 两个 CI Job `console-contracts` 与 `formal-safety`：**均 success**。以上均为 [Run #39038298494](https://github.com/cropflre/nowen-note/actions/runs/39038298494) 的真实执行结果。
+- 两个 CI Job `console-contracts` 与 `formal-safety`：**均 success**。以上均为 [Run #39038677240](https://github.com/cropflre/nowen-note/actions/runs/39038677240) 的真实执行结果。
+
+## 浏览器竞态测试稳定性修复
+
+复核过程中捕获一次已有渠道页面用例的偶发失败：断言依赖瞬时 `role=status` 加载提示，网络较快时提示会在断言执行前消失。改为 Playwright 在页面开始时明确拦截旧版本查询、阻塞旧响应，先切换并观察新版本，再释放旧响应并等待其返回，确保旧结果不会覆盖新选择。最新 CI 该项与其余 8 项 Chromium 测试全部通过。
 
 ## 不可冒充的验收边界
 
