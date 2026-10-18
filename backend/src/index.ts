@@ -57,7 +57,8 @@ import urlImportRouter from "./routes/url-import";
 import aiRouter from "./routes/ai";
 import aiTaskPlanRouter from "./routes/ai-task-plan";
 import voiceRouter from "./routes/voice";
-import pluginsRouter from "./routes/plugins";
+import pluginsRouter, { pluginAppDocumentResponse } from "./routes/plugins";
+import { getApplicationV3FeatureFlags } from "./plugins/applicationV3";
 import pluginStudioRouter from "./routes/plugin-studio";
 import pluginExecutionsRouter from "./routes/plugin-executions";
 import automationsRouter from "./routes/automations";
@@ -501,6 +502,8 @@ function touchSessionLastSeen(sessionId: string) {
   }
 }
 
+app.get("/api/plugin-ui-v3/:ticket", pluginAppDocumentResponse);
+
 app.use("/api/*", async (c, next) => {
   const authHeader = c.req.header("Authorization");
 
@@ -898,7 +901,7 @@ if (process.env.NODE_ENV === "production") {
           "font-src 'self' data:",
           "connect-src 'self' ws: wss:",
           "media-src 'self' blob: https:",
-          "frame-src https://www.youtube.com https://www.youtube-nocookie.com https://player.bilibili.com https://v.qq.com https://player.vimeo.com",
+          `frame-src ${getApplicationV3FeatureFlags().appPages ? "'self' " : ""}https://www.youtube.com https://www.youtube-nocookie.com https://player.bilibili.com https://v.qq.com https://player.vimeo.com`,
           "object-src 'none'",
           "base-uri 'self'",
           "frame-ancestors 'none'",

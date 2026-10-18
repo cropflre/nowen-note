@@ -14,9 +14,35 @@ on:
       - "backend/src/plugins/pluginLifecycle.ts"
       - "backend/src/plugins/permissions.ts"
       - "backend/src/routes/plugins.ts"
+      - "backend/src/index.ts"
+      - "electron/main.js"
       - "backend/src/plugins/appBridgeV3.ts"
+      - "backend/src/plugins/appDocumentV3.ts"
+      - "backend/src/plugins/appRuntimeV3.ts"
+      - "backend/src/plugins/hostApiBroker.ts"
       - "backend/tests/application-v3-foundation.test.ts"
+      - "backend/tests/application-v3-*.ts"
+      - "frontend/src/components/PluginApps.tsx"
+      - "frontend/src/components/NavRail.tsx"
+      - "frontend/src/components/SettingsModal.tsx"
+      - "frontend/src/components/settings/plugins/PluginSettingsTab.tsx"
+      - "frontend/src/App.tsx"
+      - "frontend/src/hooks/usePluginApps.ts"
+      - "frontend/src/lib/pluginApp*.ts"
+      - "frontend/src/lib/pluginApi.ts"
+      - "frontend/src/lib/serverUrl.ts"
+      - "frontend/src/lib/pluginRuntimePresentation.ts"
+      - "frontend/src/lib/__tests__/pluginApps.test.ts"
+      - "frontend/src/lib/__tests__/pluginRuntimePresentation.test.ts"
+      - "frontend/src/lib/__tests__/appPathNavigation.test.ts"
+      - "frontend/src/i18n/pluginAppTranslations.ts"
+      - "frontend/e2e/plugin-apps.spec.ts"
+      - "frontend/playwright.plugin-apps.config.ts"
+      - "packages/nowen-plugin-cli/**"
+      - "packages/nowen-plugin-sdk/**"
+      - "examples/plugins/hello-nowen-app/**"
       - "docs/plugin-platform/extension-platform-v3-phase0.md"
+      - "docs/plugin-platform/extension-platform-v3-app-runtime.md"
       - ".github/workflows/extension-v3-foundation-ci.yml"
   workflow_dispatch:
 
@@ -42,9 +68,54 @@ jobs:
       - name: V3 foundation tests
         working-directory: backend
         run: node --import tsx --import ./tests/setup-db-isolation.ts --test tests/application-v3-foundation.test.ts
+      - name: V3 future-host runtime and isolation contracts
+        working-directory: backend
+        run: node --import tsx --import ./tests/setup-db-isolation.ts --test tests/application-v3-runtime.test.ts
       - name: V2.1 compatibility regression
         working-directory: backend
         run: node --import tsx --import ./tests/setup-db-isolation.ts --test tests/extension-v2-1-feature-gates.test.ts tests/ui-contribution.test.ts
       - name: Typecheck
         working-directory: backend
         run: npm run build:tsc
+
+  browser-app-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: |
+            backend/package-lock.json
+            frontend/package-lock.json
+            packages/nowen-plugin-cli/package-lock.json
+      - run: npm ci
+        working-directory: backend
+      - run: npm ci
+        working-directory: frontend
+      - run: npm ci
+        working-directory: packages/nowen-plugin-cli
+      - name: Build SDK and verify existing contracts
+        run: |
+          node frontend/node_modules/typescript/bin/tsc -p packages/nowen-plugin-sdk/tsconfig.json
+          node packages/nowen-plugin-sdk/tests/generated-contract.test.mjs
+      - name: Pack the example with the existing CLI
+        working-directory: examples/plugins/hello-nowen-app
+        run: node ../../../packages/nowen-plugin-cli/bin/nowen-plugin.mjs pack
+      - name: Navigation and MessageChannel contracts
+        working-directory: frontend
+        run: npx vitest run src/lib/__tests__/pluginApps.test.ts src/lib/__tests__/appPathNavigation.test.ts src/lib/__tests__/serverUrl.test.ts src/lib/__tests__/pluginRuntimePresentation.test.ts
+      - run: npm run build
+        working-directory: frontend
+      - run: npx playwright install --with-deps chromium
+        working-directory: frontend
+      - name: Future-compatible host browser acceptance
+        working-directory: frontend
+        run: npx playwright test --config playwright.plugin-apps.config.ts --reporter=line
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: plugin-app-browser-evidence
+          path: frontend/node_modules/.cache/plugin-app-results

@@ -40,6 +40,17 @@ export interface AppBridgeSessionV3 {
   nonce: string;
 }
 
+export interface AppBridgeResponseV3 {
+  protocol: typeof APP_BRIDGE_V3_PROTOCOL;
+  kind: "response";
+  pluginId: string;
+  instanceId: string;
+  requestId: string;
+  ok: boolean;
+  data?: unknown;
+  error?: { code: string; message: string };
+}
+
 function reject(code: string): never {
   throw Object.assign(new Error(code), { code });
 }

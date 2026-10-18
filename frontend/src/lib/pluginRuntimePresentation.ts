@@ -1,4 +1,5 @@
 export type PluginRuntimeLike = {
+  apiVersion?: number;
   runtime?: string | null;
   executionMode?: string | null;
   permissions?: readonly unknown[] | null;
@@ -16,10 +17,14 @@ export type PluginRuntimePresentation = {
 };
 
 export function isDeclarativePluginRuntime(plugin: PluginRuntimeLike): boolean {
+  if (plugin.apiVersion === 3 || plugin.executionMode === "sandboxed-ui") return false;
   return plugin.runtime === "declarative" || plugin.executionMode === "declarative-zero-code";
 }
 
 export function getPluginRuntimePresentation(plugin: PluginRuntimeLike): PluginRuntimePresentation {
+  if (plugin.apiVersion === 3 || plugin.executionMode === "sandboxed-ui") {
+    return { declarative: false, runtimeLabel: "沙箱应用", executionLabel: "隔离界面代码", permissionLabel: "需要权限确认", canExecuteActions: false, requiresPermissionConfirmation: true, enableLabel: "确认权限并启用" };
+  }
   if (isDeclarativePluginRuntime(plugin)) {
     return {
       declarative: true,

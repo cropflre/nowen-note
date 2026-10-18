@@ -1,0 +1,6 @@
+:root { color-scheme: light; font-family: system-ui, sans-serif; background: #fff; color: #18181b; }
+:root[data-theme=dark] { color-scheme: dark; background: #18181b; color: #fafafa; }
+main { max-width: 46rem; margin: 2rem auto; padding: 1rem; }
+label { display: block; margin-bottom: .5rem; }
+input { box-sizing: border-box; display: block; width: 100%; padding: .75rem; margin-bottom: 1rem; }
+button { padding: .6rem 1rem; margin: 0 .5rem .5rem 0; cursor: pointer; }

@@ -11,7 +11,15 @@ export interface ExtensionPlatformFeatureFlags {
   experimentalDocumentTypes: boolean;
   currentNowenVersion: string;
   targetNowenVersion: string;
+  applicationV3?: { core: boolean; appPages: boolean; dashboardWidgets: boolean; pluginData: boolean };
 }
+
+export interface PluginAppPage {
+  id: string; title: string; entry: string; pluginId: string; runtimeId: string; route: string;
+  platforms: Array<"web" | "desktop" | "android" | "ios">; requiredPermissions: string[];
+}
+export interface PluginAppSession { pluginId: string; instanceId: string; nonce: string; expiresAt: number; documentPath: string }
+export function pluginAppDocumentUrl(session: PluginAppSession): string { return `${getBaseUrl()}${session.documentPath}`; }
 
 export interface PluginPermissionRow {
   permission: string;
@@ -74,12 +82,13 @@ export interface PluginContributionRecord {
 }
 
 export interface InstalledPlugin {
+  apiVersion?: 1 | 2 | 3;
   id: string;
   name: string;
   description: string;
   version: string;
   runtime: "node-action" | "sandbox-js" | "declarative";
-  executionMode?: "executable" | "declarative-zero-code";
+  executionMode?: "executable" | "declarative-zero-code" | "sandboxed-ui";
   source: string;
   trustLevel: string;
   status: "quarantined" | "disabled" | "enabled" | "error" | "incompatible";
@@ -108,6 +117,7 @@ export interface InstalledPlugin {
     noteTemplates?: PluginNoteTemplateContribution[];
     promptPacks?: PluginPromptPackContribution[];
     uiComponents?: PluginUiActionContribution[];
+    appPages?: Array<Pick<PluginAppPage, "id" | "title" | "entry" | "platforms" | "requiredPermissions">>;
   };
   versions?: PluginVersion[];
   permissionDiff?: { added: string[]; removed: string[] };
@@ -179,6 +189,13 @@ export const pluginApi = {
   list: () => request<InstalledPlugin[]>("/plugins"),
   actions: () => request<Array<PluginAction & { pluginId: string; actionId: string }>>("/plugins/actions"),
   contributions: () => request<PluginContributionRecord[]>("/plugins/contributions"),
+  apps: (platform: string) => request<PluginAppPage[]>(`/plugins/apps?platform=${encodeURIComponent(platform)}`),
+  appSession: (page: PluginAppPage, context: { workspaceId: string; platform: string; theme: string }, signal?: AbortSignal) => request<PluginAppSession>(`/plugins/apps/${encodeURIComponent(page.pluginId)}/${encodeURIComponent(page.id)}/session`, { method: "POST", body: JSON.stringify(context), signal }),
+  appCall: (id: string, message: unknown, signal?: AbortSignal) => request<{ protocol: "nowen.plugin-ui.v3"; kind: "response"; pluginId: string; instanceId: string; requestId: string; ok: boolean; data: unknown }>(`/plugins/app-sessions/${encodeURIComponent(id)}/call`, { method: "POST", body: JSON.stringify(message), signal }),
+  closeAppSession: (id: string, nonce: string) => request(`/plugins/app-sessions/${encodeURIComponent(id)}/close`, { method: "POST", body: JSON.stringify({ nonce }) }),
+  appEvents: (id: string, nonce: string, signal: AbortSignal) => fetchWithAuthRefresh(`${getBaseUrl()}/plugins/app-sessions/${encodeURIComponent(id)}/events`, {
+    method: "POST", signal, headers: { Authorization: `Bearer ${getAccessToken() || ""}`, "Content-Type": "application/json" }, body: JSON.stringify({ nonce }),
+  }, getBaseUrl()),
   get: (id: string) => request<InstalledPlugin>(`/plugins/${encodeURIComponent(id)}`),
   install: (file: File, confirmNodeRuntime = false) => {
     const form = new FormData();
@@ -186,11 +203,11 @@ export const pluginApi = {
     if (confirmNodeRuntime) form.append("confirmNodeRuntime", "true");
     return contributionMutation(request<{ success: true; plugin: InstalledPlugin }>("/plugins/install", { method: "POST", body: form }));
   },
-  grant: (id: string, granted: string[]) => request(`/plugins/${encodeURIComponent(id)}/permissions`, { method: "PUT", body: JSON.stringify({ granted }) }),
+  grant: (id: string, granted: string[]) => contributionMutation(request(`/plugins/${encodeURIComponent(id)}/permissions`, { method: "PUT", body: JSON.stringify({ granted }) })),
   enable: (id: string) => contributionMutation(request(`/plugins/${encodeURIComponent(id)}/enable`, { method: "POST" })),
   disable: (id: string) => contributionMutation(request(`/plugins/${encodeURIComponent(id)}/disable`, { method: "POST" })),
   reload: (id: string) => contributionMutation(request(`/plugins/${encodeURIComponent(id)}/reload`, { method: "POST" })),
-  uninstall: (id: string) => contributionMutation(request(`/plugins/${encodeURIComponent(id)}`, { method: "DELETE" })),
+  uninstall: (id: string, deleteAppData = false) => contributionMutation(request(`/plugins/${encodeURIComponent(id)}`, { method: "DELETE", body: JSON.stringify({ deleteAppData }) })),
   execute: (pluginId: string, actionId: string, input: Record<string, unknown>) => request<{ success: boolean; executionId: string; data: unknown }>(`/plugins/${encodeURIComponent(pluginId)}/actions/${encodeURIComponent(actionId)}/execute`, { method: "POST", body: JSON.stringify({ input }) }),
   executions: (id: string) => request<PluginExecution[]>(`/plugins/${encodeURIComponent(id)}/executions`),
   versions: (id: string) => request<PluginVersion[]>(`/plugins/${encodeURIComponent(id)}/versions`),
