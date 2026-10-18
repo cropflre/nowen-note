@@ -99,6 +99,27 @@ function signPayload(payload: string, secret: string): string {
   return crypto.createHmac("sha256", secret).update(payload).digest("hex");
 }
 
+function webhookTimestamp(event: WebhookEvent, timezone: unknown): string {
+  const now = new Date();
+  const utc = now.toISOString();
+  if (!(event === "task.digest.morning" || event === "task.digest.evening" || event === "task.due")
+    || typeof timezone !== "string" || !timezone) return utc;
+  try {
+    const parts = new Intl.DateTimeFormat("en-CA", {
+      timeZone: timezone, year: "numeric", month: "2-digit", day: "2-digit",
+      hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23",
+      timeZoneName: "longOffset",
+    }).formatToParts(now);
+    const value = (type: string) => parts.find((part) => part.type === type)!.value;
+    const offset = value("timeZoneName").replace("GMT", "") || "+00:00";
+    // Preserve the instant and milliseconds; include the offset for webhook consumers.
+    return `${value("year")}-${value("month")}-${value("day")}T${value("hour")}:${value("minute")}:${value("second")}${utc.slice(19, 23)}${offset}`;
+  } catch {
+    // Legacy/custom events may not carry a valid timezone. Keep them deliverable.
+    return utc;
+  }
+}
+
 // ===== 事件分发器 =====
 
 class WebhookDispatcher {
@@ -145,7 +166,7 @@ class WebhookDispatcher {
 
     const payload = JSON.stringify({
       event,
-      timestamp: new Date().toISOString(),
+      timestamp: webhookTimestamp(event, data.timezone),
       data,
     });
 
