@@ -73,8 +73,8 @@ function PluginCard({ plugin, isAdmin, refresh }: { plugin: InstalledPlugin; isA
     const next = !expanded; setExpanded(next);
     if (next) {
       const [runs, configured, settings] = await Promise.all([
-        runtimePresentation.declarative ? Promise.resolve([] as PluginExecution[]) : pluginApi.executions(plugin.id).catch(() => []),
-        runtimePresentation.declarative ? Promise.resolve([] as PluginConnection[]) : pluginApi.connections(plugin.id).catch(() => []),
+        runtimePresentation.canExecuteActions ? pluginApi.executions(plugin.id).catch(() => []) : Promise.resolve([] as PluginExecution[]),
+        runtimePresentation.canExecuteActions ? pluginApi.connections(plugin.id).catch(() => []) : Promise.resolve([] as PluginConnection[]),
         pluginApi.settings(plugin.id).catch(() => ({})),
       ]);
       setExecutions(runs); setConnections(configured); setSettingValues(settings);
@@ -95,7 +95,7 @@ function PluginCard({ plugin, isAdmin, refresh }: { plugin: InstalledPlugin; isA
         <span className="rounded-full bg-indigo-500/10 px-2 py-0.5 text-indigo-600 dark:text-indigo-300">{runtimePresentation.runtimeLabel}</span>
         <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-emerald-600 dark:text-emerald-300">{runtimePresentation.executionLabel}</span>
         <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-emerald-600 dark:text-emerald-300">{runtimePresentation.permissionLabel}</span>
-      </> : <span>{runtimePresentation.executionLabel}</span>}
+      </> : <span>{plugin.apiVersion === 3 ? t("pluginApps.executionLabel") : runtimePresentation.executionLabel}</span>}
     </div>
     {runtimePresentation.declarative && <div className="rounded-md border border-emerald-200/70 bg-emerald-50 p-2.5 text-xs leading-relaxed text-emerald-800 dark:border-emerald-900/60 dark:bg-emerald-950/20 dark:text-emerald-300"><div className="flex gap-2"><ShieldCheck className="mt-0.5 shrink-0" size={14} /><span>此扩展只注册声明式资源：不会启动 Worker / Node / QuickJS，不可执行 Action，也不能申请笔记、附件、网络或密钥数据权限。</span></div></div>}
     {plugin.nodeRuntimeConfirmedAt && <div className="rounded-md bg-amber-50 p-2 text-xs text-amber-700 dark:bg-amber-950/20 dark:text-amber-300">Node Runtime 已由 {plugin.nodeRuntimeConfirmedBy || "管理员"} 于 {new Date(plugin.nodeRuntimeConfirmedAt).toLocaleString()} 确认。</div>}
@@ -106,9 +106,9 @@ function PluginCard({ plugin, isAdmin, refresh }: { plugin: InstalledPlugin; isA
       <button onClick={toggleDetails} className="inline-flex items-center gap-1 rounded-md border border-zinc-200 dark:border-zinc-700 px-2.5 py-1.5 text-xs">详情 {expanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}</button>
       {isAdmin && plugin.status === "enabled" && <button disabled={busy} onClick={() => act(() => pluginApi.disable(plugin.id))} className="rounded-md border px-2.5 py-1.5 text-xs">禁用</button>}
       {isAdmin && plugin.status !== "enabled" && <button disabled={busy} onClick={() => act(async () => { if (runtimePresentation.requiresPermissionConfirmation) await pluginApi.grant(plugin.id, plugin.permissions.map((item) => item.permission)); await pluginApi.enable(plugin.id); })} className="rounded-md bg-indigo-600 px-2.5 py-1.5 text-xs text-white">{runtimePresentation.enableLabel}</button>}
-      {isAdmin && !runtimePresentation.declarative && <button disabled={busy} onClick={() => act(() => pluginApi.reload(plugin.id))} className="rounded-md border px-2.5 py-1.5 text-xs disabled:opacity-40"><RefreshCw size={12} /></button>}
+      {isAdmin && runtimePresentation.canExecuteActions && <button disabled={busy} onClick={() => act(() => pluginApi.reload(plugin.id))} className="rounded-md border px-2.5 py-1.5 text-xs disabled:opacity-40"><RefreshCw size={12} /></button>}
       {isAdmin && plugin.previousVersion && <button disabled={busy} onClick={() => window.confirm(`回滚到 ${plugin.previousVersion}？插件数据不会回滚。`) && act(() => pluginApi.rollback(plugin.id, plugin.previousVersion || undefined))} className="inline-flex items-center gap-1 rounded-md border px-2.5 py-1.5 text-xs"><RotateCcw size={12} />回滚 {plugin.previousVersion}</button>}
-      {isAdmin && <button disabled={busy} onClick={() => window.confirm(`确定卸载 ${plugin.name}？`) && act(() => pluginApi.uninstall(plugin.id))} className="rounded-md border border-red-200 px-2.5 py-1.5 text-xs text-red-600"><Trash2 size={12} /></button>}
+      {isAdmin && <button disabled={busy} onClick={() => window.confirm(plugin.contributes?.appPages?.length ? t("pluginApps.uninstallData", { name: plugin.name }) : `确定卸载 ${plugin.name}？`) && act(() => pluginApi.uninstall(plugin.id, Boolean(plugin.contributes?.appPages?.length)))} className="rounded-md border border-red-200 px-2.5 py-1.5 text-xs text-red-600"><Trash2 size={12} /></button>}
     </div>
     {expanded && <div className="space-y-4 border-t border-zinc-200 dark:border-zinc-800 pt-3">
       {plugin.id !== "nowenlab.wechat-capture" && !!plugin.contributes?.inboundWebhooks?.length && <PluginInboundSettings plugin={plugin} />}

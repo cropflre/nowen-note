@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
+import { streamSSE } from "hono/streaming";
 import crypto from "node:crypto";
 import { createInboundWebhook, listInboundWebhooks, removeInboundWebhook } from "../plugins/inboundWebhooks.js";
 import { isSystemAdmin, requireAdmin } from "../middleware/acl.js";
@@ -7,6 +8,7 @@ import { getExtensionPlatformFeatureFlags } from "../plugins/featureFlags.js";
 import { getApplicationV3FeatureFlags, type AppPlatformV3 } from "../plugins/applicationV3.js";
 import { getPluginService } from "../plugins/pluginService.js";
 import { EXTENSION_V21_TARGET_NOWEN_VERSION, NOWEN_VERSION } from "../plugins/types.js";
+import { APP_DOCUMENT_V3_CSP } from "../plugins/appDocumentV3.js";
 
 const pluginsRouter = new Hono();
 
@@ -48,6 +50,65 @@ pluginsRouter.get("/apps", (c) => {
   const raw = c.req.query("platform") || "web";
   if (!["web", "desktop", "android", "ios"].includes(raw)) return c.json({ code: "INVALID_PLATFORM" }, 400);
   return c.json(getPluginService().listApplicationPages(raw as AppPlatformV3));
+});
+function appActor(c: any) {
+  const token = c.req.header("Authorization") || "";
+  return { userId: c.req.header("X-Auth-Mode") === "api-token" ? "" : userId(c), credential: token ? crypto.createHash("sha256").update(token).digest("hex") : "" };
+}
+// Mounted before bearer auth. A one-use 256-bit ticket reads verified code only, never Host API data.
+export function pluginAppDocumentResponse(c: any) {
+  if (!getApplicationV3FeatureFlags().appPages || !/^[a-f0-9]{64}$/.test(c.req.param("ticket"))) return c.text("App document unavailable", 404);
+  if (c.req.header("Sec-Fetch-Dest") !== "iframe") return c.text("Iframe required", 403);
+  try {
+    const html = getPluginService().appRuntime.takeDocument(c.req.param("ticket"));
+    c.header("Content-Security-Policy", `sandbox allow-scripts; ${APP_DOCUMENT_V3_CSP}; frame-ancestors 'self'`);
+    c.header("X-Frame-Options", "SAMEORIGIN");
+    c.header("Referrer-Policy", "no-referrer"); c.header("Cache-Control", "no-store");
+    return c.html(html);
+  } catch { return c.text("App document unavailable", 404); }
+}
+pluginsRouter.post("/apps/:pluginId/:pageId/session", bodyLimit({ maxSize: 2048 }), async (c) => {
+  try {
+    const session = getPluginService().appRuntime.create(c.req.param("pluginId"), c.req.param("pageId"), appActor(c), await c.req.json());
+    c.header("Cache-Control", "no-store");
+    return c.json(session, 201);
+  } catch (error) { return errorResponse(c, error); }
+});
+pluginsRouter.post("/app-sessions/:id/call", bodyLimit({ maxSize: 64 * 1024 }), async (c) => {
+  try { return c.json(await getPluginService().appRuntime.call(c.req.param("id"), appActor(c), await c.req.json())); }
+  catch (error) { return errorResponse(c, error); }
+});
+pluginsRouter.post("/app-sessions/:id/close", bodyLimit({ maxSize: 2048 }), async (c) => {
+  try {
+    const runtime = getPluginService().appRuntime;
+    runtime.check(c.req.param("id"), (await c.req.json()).nonce, appActor(c));
+    runtime.revoke(c.req.param("id"));
+    return c.json({ success: true });
+  } catch (error) { return errorResponse(c, error); }
+});
+pluginsRouter.post("/app-sessions/:id/events", bodyLimit({ maxSize: 2048 }), async (c) => {
+  const runtime = getPluginService().appRuntime;
+  const id = c.req.param("id"), actor = appActor(c);
+  const nonce = (await c.req.json().catch(() => ({}))).nonce;
+  try { runtime.check(id, nonce, actor); } catch (error) { return errorResponse(c, error); }
+  c.header("Cache-Control", "no-store");
+  c.header("X-Accel-Buffering", "no");
+  return streamSSE(c, async stream => {
+    await new Promise<void>(resolve => {
+      let ticks = 0;
+      const unsubscribe = runtime.subscribe(id, nonce, actor, () => {
+        void stream.writeSSE({ event: "revoked", data: "{}" }).catch(() => undefined).finally(finish);
+      });
+      const timer = setInterval(() => {
+        try { runtime.check(id, nonce, actor); } catch { /* check revokes and notifies */ }
+        if (++ticks % 15 === 0) void stream.writeSSE({ event: "ping", data: "{}" }).catch(() => { finish(); runtime.revoke(id); });
+      }, 1000);
+      function finish() { clearInterval(timer); unsubscribe(); resolve(); }
+      stream.onAbort(() => { finish(); runtime.revoke(id); });
+      // Subscribe before yielding the initial event: revocation may race the first read.
+      void stream.writeSSE({ event: "ready", data: "{}" }).catch(() => { finish(); runtime.revoke(id); });
+    });
+  });
 });
 pluginsRouter.get("/contributions", (c) => c.json(getPluginService().contributions()));
 pluginsRouter.get("/ecosystem/sources", (c) => c.json(getPluginService().ecosystem.listSources()));
@@ -210,7 +271,8 @@ for (const [action, handler] of [
 
 pluginsRouter.delete("/:id", requireAdmin, async (c) => {
   try {
-    await getPluginService().uninstall(c.req.param("id"));
+    const body = await c.req.json().catch(() => ({}));
+    await getPluginService().uninstall(c.req.param("id"), body.deleteAppData === true);
     return c.json({ success: true });
   } catch (error) {
     return errorResponse(c, error);

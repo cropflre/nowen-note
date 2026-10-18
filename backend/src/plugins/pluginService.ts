@@ -20,6 +20,7 @@ import { createNoteFromPluginTemplate } from "./contributions/noteTemplateContri
 import { getExtensionPlatformFeatureFlags } from "./featureFlags.js";
 import { buildAppRegistryV3, type AppPlatformV3 } from "./applicationV3.js";
 import { removeInboundWebhook } from "./inboundWebhooks.js";
+import { AppRuntimeV3 } from "./appRuntimeV3.js";
 
 function manifestOf(record: PluginRegistryRecord): PluginManifest {
   return JSON.parse(record.manifestJson) as PluginManifest;
@@ -34,6 +35,7 @@ export class PluginService {
   readonly ecosystem = new EcosystemRegistry();
   readonly policy = new ExtensionPolicy();
   readonly broker = new HostApiBroker(this.permissions, this.secrets);
+  readonly appRuntime = new AppRuntimeV3(this.registry, this.permissions, this.policy, this.broker);
   readonly lifecycle = new PluginLifecycle();
   readonly executions = new PluginExecutionManager(this.broker, this.registry, this.policy, this.lifecycle);
   readonly updates = new PluginUpdateCoordinator(
@@ -338,6 +340,7 @@ export class PluginService {
 
   grantPermissions(pluginId: string, grants: string[], grantedBy: string): Record<string, unknown> {
     this.requireRecord(pluginId);
+    this.appRuntime.revokePlugin(pluginId);
     return { pluginId, permissions: this.permissions.replaceGrants(pluginId, grants, grantedBy) };
   }
 
@@ -405,6 +408,7 @@ export class PluginService {
   }
 
   async disable(pluginId: string): Promise<Record<string, unknown>> {
+    this.appRuntime.revokePlugin(pluginId);
     const record = this.requireRecord(pluginId);
     if (record.activeOperationId && record.lifecycleState !== "probation") {
       throw Object.assign(new Error("插件正在更新，暂时不能禁用"), { code: "PLUGIN_UPDATE_IN_PROGRESS" });
@@ -416,6 +420,7 @@ export class PluginService {
   }
 
   async reload(pluginId: string): Promise<Record<string, unknown>> {
+    this.appRuntime.revokePlugin(pluginId);
     const record = this.requireRecord(pluginId);
     if (record.status !== "enabled") throw new Error("只有已启用插件可以重新加载");
     if (record.activeOperationId) throw Object.assign(new Error("插件正在更新，暂时不能重新加载"), { code: "PLUGIN_UPDATE_IN_PROGRESS" });
@@ -424,8 +429,14 @@ export class PluginService {
     return this.get(pluginId);
   }
 
-  async uninstall(pluginId: string): Promise<void> {
+  async uninstall(pluginId: string, deleteAppData = false): Promise<void> {
     const record = this.requireRecord(pluginId);
+    if (record.apiVersion === 3 && !deleteAppData && getDb().prepare("SELECT 1 FROM plugin_storage WHERE pluginId=? LIMIT 1").get(pluginId)) {
+      throw Object.assign(new Error("卸载此应用将删除所有用户和工作区的专属数据，请明确确认；取消卸载并停用可保留数据"), { code: "PLUGIN_DATA_DELETE_CONFIRMATION_REQUIRED" });
+    }
+    // Stop new UI sessions before shutdown yields; an empty-data check must not race a new write.
+    if (record.apiVersion === 3) this.registry.setStatus(pluginId, "disabled");
+    this.appRuntime.revokePlugin(pluginId);
     await this.executions.shutdown(pluginId);
     const hooks = getDb().prepare("SELECT hookId,ownerUserId FROM plugin_inbound_webhooks WHERE pluginId=?").all(pluginId) as Array<{ hookId: string; ownerUserId: string }>;
     for (const hook of hooks) removeInboundWebhook(pluginId, hook.hookId, hook.ownerUserId);
@@ -505,7 +516,7 @@ export class PluginService {
       version: record.version,
       apiVersion: record.apiVersion,
       runtime: manifest.runtime,
-      executionMode: isDeclarativePluginManifest(manifest) ? "declarative-zero-code" : "executable",
+      executionMode: manifest.apiVersion === 3 ? "sandboxed-ui" : isDeclarativePluginManifest(manifest) ? "declarative-zero-code" : "executable",
       source: record.source,
       trustLevel: record.trustLevel,
       status: record.status,

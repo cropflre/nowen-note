@@ -67,6 +67,8 @@ import { PhaseAPerfProfiler } from "@/components/PhaseAPerfProfiler";
 import { isAccountLoginHistorySupported, saveAccountLoginHistory } from "@/lib/accountLoginHistory";
 import SidebarSearchExperienceBridge from "@/components/SidebarSearchExperienceBridge";
 import FloatingLayerHost from "@/components/FloatingLayerHost";
+import PluginApps from "@/components/PluginApps";
+import { parsePluginAppPath } from "@/lib/pluginApps";
 import { isNativeClientRuntime, stripServerBasePath } from "@/lib/serverUrl";
 import { reportBootStage } from "@/lib/bootSplash";
 import {
@@ -405,13 +407,25 @@ function AppLayout() {
   const { t } = useTranslation();
   const [mindMapRoute, setMindMapRoute] = useState<MindMapAppRoute>(() => getCurrentMindMapAppRoute());
   const [sheetRoute, setSheetRoute] = useState<SheetAppRoute>(() => getCurrentSheetAppRoute());
+  const [pluginAppRoute, setPluginAppRoute] = useState(() => parsePluginAppPath(resolveCurrentAppPathname()));
   const [issueRoute, setIssueRoute] = useState(() => parseIssueAppPath(resolveCurrentAppPathname()));
   const [notificationCount, setNotificationCount] = useState(0);
   const [appPathReady, setAppPathReady] = useState(false);
 
   useEffect(() => {
+    const resetPluginApp = () => {
+      if (!parsePluginAppPath(resolveCurrentAppPathname()).matched) return;
+      replaceAppPathState("/"); actions.setViewMode("all");
+    };
+    window.addEventListener("nowen:token-changed", resetPluginApp);
+    return () => window.removeEventListener("nowen:token-changed", resetPluginApp);
+  }, [actions]);
+
+  useEffect(() => {
     const applyRoute = (event?: Event) => {
       const pathname = resolveCurrentAppPathname();
+      const nextPluginAppRoute = parsePluginAppPath(pathname);
+      setPluginAppRoute(nextPluginAppRoute);
       const route = parseMindMapAppPath(pathname);
       const nextSheetRoute = parseSheetAppPath(pathname);
       setMindMapRoute(route);
@@ -419,7 +433,11 @@ function AppLayout() {
       const nextIssueRoute = parseIssueAppPath(pathname);
       setIssueRoute(nextIssueRoute);
 
-      if (pathname === "/trash") {
+      if (nextPluginAppRoute.matched) {
+        actions.setViewMode("plugin-apps");
+        actions.setEditorFullscreen(false);
+        actions.setMobileSidebar(false);
+      } else if (pathname === "/trash") {
         actions.setViewMode("trash");
         actions.setEditorFullscreen(false);
         actions.setMobileSidebar(false);
@@ -452,6 +470,12 @@ function AppLayout() {
 
   useEffect(() => {
     if (!appPathReady) return;
+    const currentPluginAppRoute = parsePluginAppPath(resolveCurrentAppPathname());
+    if (state.viewMode === "plugin-apps") {
+      if (!currentPluginAppRoute.matched) replaceAppPathState("/apps");
+      return;
+    }
+    if (currentPluginAppRoute.matched) replaceAppPathState("/");
     const currentRoute = getCurrentMindMapAppRoute();
     const currentIssueRoute = parseIssueAppPath(resolveCurrentAppPathname());
     if (state.viewMode === "trash") {
@@ -765,6 +789,7 @@ function AppLayout() {
       actions.setMobileView("list");
       actions.setSearchQuery("");
       actions.clearNoteTabs();
+      if (parsePluginAppPath(resolveCurrentAppPathname()).matched) replaceAppPathState("/");
       actions.refreshNotes();
       actions.refreshNotebooks();
     };
@@ -879,7 +904,7 @@ function AppLayout() {
           v16 P3 后续：Rail 三档模式（icon=48px 纯图标 / label=64px 图标+文字 / hidden=完全隐藏）；
           hidden 模式下若主侧栏也折叠，强制保留 Rail（避免完全无侧栏入口）。 */}
       {showRail && <PhaseAPerfProfiler id="NavRail"><NavRail notificationCount={notificationCount} /></PhaseAPerfProfiler>}
-      {showSidebar && !mediumNoteWorkspace && !isFilesView && (
+      {showSidebar && !mediumNoteWorkspace && !isFilesView && state.viewMode !== "plugin-apps" && (
         <div
           className="hidden md:flex shrink-0"
           style={{ width: `${state.sidebarWidth}px` }}
@@ -887,10 +912,12 @@ function AppLayout() {
           <PhaseAPerfProfiler id="Sidebar"><Sidebar variant="desktop" /></PhaseAPerfProfiler>
         </div>
       )}
-      {showSidebar && !mediumNoteWorkspace && !isFilesView && <SidebarResizeHandle />}
+      {showSidebar && !mediumNoteWorkspace && !isFilesView && state.viewMode !== "plugin-apps" && <SidebarResizeHandle />}
 
       {/* ===== 主内容区 ===== */}
-      {state.viewMode === "trash" ? (
+      {state.viewMode === "plugin-apps" ? (
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"><MobileTopBar /><PluginApps pluginId={pluginAppRoute.pluginId} pageId={pluginAppRoute.pageId} /></div>
+      ) : state.viewMode === "trash" ? (
         <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
           <MobileTopBar />
           <TrashPage />

@@ -89,8 +89,9 @@ export class HostApiBroker {
 
   async call(context: PluginExecutionContext, call: HostCall): Promise<unknown> {
     const record = this.registry.get(context.pluginId);
-    const apiVersion = record?.apiVersion === 2 ? 2 : 1;
-    const runtime: HostRuntime = record?.runtime === "sandbox-js" ? "sandbox-js" : "node-action";
+    // V3 UI uses the existing V2 sandbox permission contract, through its allowlisted adapter.
+    const apiVersion = record?.apiVersion === 2 || record?.apiVersion === 3 ? 2 : 1;
+    const runtime: HostRuntime = record?.runtime === "sandbox-js" || record?.apiVersion === 3 ? "sandbox-js" : "node-action";
     const contract = requireHostMethod(call.method, apiVersion, runtime);
     const methodPermission = contract.permission === null
       ? null
@@ -145,8 +146,8 @@ export class HostApiBroker {
   private runtime(context: PluginExecutionContext, operation: string): unknown {
     if (operation !== "capabilities") throw createHostMethodNotFound(`runtime.${operation}`);
     const record = this.registry.get(context.pluginId);
-    const apiVersion = record?.apiVersion === 2 ? 2 : 1;
-    const runtime: HostRuntime = record?.runtime === "sandbox-js" ? "sandbox-js" : "node-action";
+    const apiVersion = record?.apiVersion === 2 || record?.apiVersion === 3 ? 2 : 1;
+    const runtime: HostRuntime = record?.runtime === "sandbox-js" || record?.apiVersion === 3 ? "sandbox-js" : "node-action";
     const supportedMethods = Object.freeze(HOST_API_CONTRACT.filter(
       (entry) => apiVersion >= entry.sinceApiVersion && entry.runtimes.includes(runtime),
     ));

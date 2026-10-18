@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { Palette, Shield, Database, X, Settings, Camera, Save, Loader2, Trash2, Upload, Type, Check, ChevronDown, Globe, Bot, Users, Info, ExternalLink, Heart, Sparkles, RefreshCw, ZoomIn, Key, Keyboard, Building2, BookOpen, ToggleLeft, Download, FolderSync, Mail, Puzzle, Workflow, GripVertical, ArrowUp, ArrowDown } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { usePluginApps } from "@/hooks/usePluginApps";
 import wechatSponsorQr from "@/assets/sponsor/weixin.jpg";
 import alipaySponsorQr from "@/assets/sponsor/zhifubao.png";
 import qqGroupQr from "@/assets/feedback/qq-group.jpg";
@@ -1933,10 +1934,18 @@ function AppearancePanel() {
   );
 }
 
+const PluginSettingsTab = React.lazy(() => import("@/components/settings/plugins/PluginSettingsTab"));
 const SettingsModal = React.forwardRef<HTMLDivElement, SettingsModalProps>(
   function SettingsModal({ onClose, defaultTab = "appearance" }, ref) {
   const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState<TabId>(defaultTab === "plugins" ? "appearance" : defaultTab);
+  const { enabled: pluginAppsEnabled } = usePluginApps();
+  useEffect(() => {
+    if (defaultTab === "plugins" && pluginAppsEnabled) setActiveTab("plugins");
+  }, [defaultTab, pluginAppsEnabled]);
+  useEffect(() => {
+    if (!pluginAppsEnabled && activeTab === "plugins") setActiveTab("appearance");
+  }, [pluginAppsEnabled, activeTab]);
   const { siteConfig } = useSiteSettings();
   const shortcutSurface = detectShortcutSurface();
   const [currentUser, setCurrentUser] = useState<{ id: string; role?: string; username?: string; displayName?: string | null } | null>(null);
@@ -2067,7 +2076,7 @@ const SettingsModal = React.forwardRef<HTMLDivElement, SettingsModalProps>(
             {SETTING_TABS.map((tab) => {
               const Icon = tab.icon;
               const isActive = activeTab === tab.id;
-              const isDisabled = tab.id === "plugins";
+              const isDisabled = tab.id === "plugins" && !pluginAppsEnabled;
               return (
                 <button
                   key={tab.id}
@@ -2108,7 +2117,7 @@ const SettingsModal = React.forwardRef<HTMLDivElement, SettingsModalProps>(
             {SETTING_TABS.map((tab) => {
               const Icon = tab.icon;
               const isActive = activeTab === tab.id;
-              const isDisabled = tab.id === "plugins";
+              const isDisabled = tab.id === "plugins" && !pluginAppsEnabled;
               return (
                 <button
                   key={tab.id}
@@ -2189,6 +2198,7 @@ const SettingsModal = React.forwardRef<HTMLDivElement, SettingsModalProps>(
                   {/* DataManager 内部保留管理员与个人导入/导出的权限限制。 */}
                   {activeTab === "data" && <DataManager />}
                   {activeTab === "sync" && <SyncSettingsTab />}
+                  {activeTab === "plugins" && pluginAppsEnabled && <React.Suspense fallback={<Loader2 className="animate-spin" />}><PluginSettingsTab isAdmin={isAdmin} /></React.Suspense>}
                   {activeTab === "folderSync" && <FolderSyncSettings />}
                   {activeTab === "download" && <DownloadPanel />}
                   {activeTab === "about" && <AboutPanel />}
