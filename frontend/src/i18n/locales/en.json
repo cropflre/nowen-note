@@ -92,6 +92,17 @@
     "loginHttpError": "Login request returned HTTP {{status}} ({{target}}): {{reason}}",
     "loginSessionError": "Local session handling failed after login. Please retry or check the application log.",
     "serverProbeFailed": "Connection probe failed ({{target}}): {{reason}}. Your account password has not been checked yet.",
+    "recheckConnection": "Recheck connection",
+    "connectionIssues": {
+      "httpsRequired": "This port requires HTTPS. Select https to the left of the server address, then recheck",
+      "certificateExpired": "The server's HTTPS certificate has expired. Ask the administrator to renew the reverse proxy certificate and reload its configuration. Also check your device's date and time",
+      "certificateNotYetValid": "The server's HTTPS certificate is not valid yet. Check your device's date and time and ask the administrator to check the certificate",
+      "hostnameMismatch": "The HTTPS certificate does not match the server hostname. Check the address and ask the administrator to configure a certificate for that hostname",
+      "certificateUntrusted": "The device does not trust the HTTPS certificate. Ask the administrator to check its issuer and complete certificate chain; private CAs require trusted certificate configuration",
+      "tlsFailed": "Unable to verify the HTTPS connection. Check your device's time, the server certificate and TLS configuration. This environment may not expose the specific certificate error",
+      "expiresAt": ". Certificate expiry reported by the server: {{date}}",
+      "validFrom": ". Certificate validity starts: {{date}}"
+    },
     "networkError": "Network error, please check if the server is running",
     "appTitle": "nowen-note",
     "subtitle": "Private Knowledge Base · Welcome Back",
@@ -110,7 +121,7 @@
     "resetServer": "Clear server config",
     "continueLocal": "Continue on this device only",
     "localModeNote": "Data stays on this device. Sign in and enable sync to sync your notes automatically with your server.",
-    "clientNote": "Make sure the server is running and reachable from this device",
+    "clientNote": "Make sure the server is running and reachable. Select HTTP or HTTPS to match its configuration",
     "ugreenAccess": {
       "title": "UGREEN authentication required",
       "description": "The UGREEN gateway blocked the native login request. Sign in with UGREEN first, then use nowen-note in the web workspace.",

@@ -80,6 +80,7 @@ import {
 } from "@/lib/authSession";
 import { isMobileLocalMode, MobileLocalModeRemoteRequestError } from "@/lib/mobileLocalMode";
 import { createHttpRequestError, safeDiagnosticRequestTarget } from "./httpError";
+import { classifyConnectionFailure, inspectAndroidServerTls, type ServerConnectionDiagnostic } from "./serverConnectionDiagnostics";
 
 // 本模块所有显式携带 Authorization 的请求共享同一套 401 刷新与单飞锁；
 // 公共请求不带 Authorization，authSession 会原样透传。
@@ -5115,6 +5116,7 @@ export async function withSudo<T>(
 export interface ServerProbeResult {
   ok: boolean;
   error?: string;
+  diagnostic?: ServerConnectionDiagnostic;
   serverBaseUrl?: string;
   apiBaseUrl?: string;
   websocketUrl?: string;
@@ -5130,6 +5132,8 @@ export interface ServerProbeResult {
 interface HealthProbeAttempt {
   ok: boolean;
   error?: string;
+  diagnostic?: ServerConnectionDiagnostic;
+  transportError?: boolean;
   htmlResponse?: boolean;
   proxyRewrittenApiPath?: string;
 }
@@ -5142,6 +5146,9 @@ async function probeHealthCandidate(candidate: ServerPathCandidate): Promise<Hea
     const res = await globalThis.fetch(url, { signal: controller.signal, redirect: "manual" });
     const contentType = res.headers.get("content-type") || "";
     const text = await res.text();
+    if (res.status === 400 && url.startsWith("http:") && /The plain HTTP request was sent to HTTPS port/i.test(text)) {
+      return { ok: false, error: "HTTP 400", diagnostic: { kind: "httpsRequired" } };
+    }
     if (!res.ok) return { ok: false, error: `HTTP ${res.status}` };
     if (contentType.includes("text/html") || /^\s*</.test(text)) {
       return { ok: false, htmlResponse: true, error: "返回了网页 HTML，而不是 Nowen Note API" };
@@ -5161,9 +5168,9 @@ async function probeHealthCandidate(candidate: ServerPathCandidate): Promise<Hea
       proxyRewrittenApiPath: res.headers.get("x-nowen-proxy-compatibility-path") || undefined,
     };
   } catch (caughtError: unknown) {
-      const error = caughtError as Error & { code?: string };
+    const error = caughtError as Error & { code?: string };
     if (error?.name === "AbortError") return { ok: false, error: "连接超时" };
-    return { ok: false, error: error?.message || "连接失败" };
+    return { ok: false, error: error?.message || "连接失败", transportError: true, diagnostic: classifyConnectionFailure(error?.message || "") };
   } finally {
     clearTimeout(timeout);
   }
@@ -5218,12 +5225,21 @@ export async function testServerConnection(serverUrl: string): Promise<ServerPro
   let sawHtml = false;
   let resolved: ServerPathCandidate | null = null;
   let proxyRewrittenApiPath: string | undefined;
+  let inspectedTls = false;
   for (const candidate of candidates) {
     const attempt = await probeHealthCandidate(candidate);
     if (attempt.ok) {
       resolved = candidate;
       proxyRewrittenApiPath = attempt.proxyRewrittenApiPath;
       break;
+    }
+    let diagnostic = attempt.diagnostic;
+    if (attempt.transportError && base.startsWith("https:") && !inspectedTls) {
+      inspectedTls = true;
+      diagnostic = await inspectAndroidServerTls(base) || diagnostic;
+    }
+    if (diagnostic) {
+      return { ok: false, apiOk: false, websocketOk: false, error: attempt.error, diagnostic };
     }
     sawHtml ||= attempt.htmlResponse === true;
     errors.push(`${candidate.apiPath}: ${attempt.error || "不可用"}`);

@@ -17,7 +17,9 @@ const { localHint, completeLocalLoginHint } = vi.hoisted(() => ({
 }));
 
 vi.mock("react-i18next", () => ({
-  useTranslation: () => ({ t: (key: string) => key }),
+  useTranslation: () => ({ t: (key: string, options?: Record<string, unknown>) => options
+    ? `${key} ${options.target || ""} ${options.reason || ""} ${options.date || ""}`
+    : key }),
 }));
 
 vi.mock("@/hooks/useSiteSettings", () => ({
@@ -79,7 +81,7 @@ describe("桌面端本地登录信息提示", () => {
     localStorage.clear();
     document.body.innerHTML = "";
     completeLocalLoginHint.mockClear();
-    vi.mocked(testServerConnection).mockClear();
+    vi.mocked(testServerConnection).mockReset().mockResolvedValue({ ok: true });
     Object.assign(window, { nowenDesktop: { isDesktop: true } });
     vi.stubGlobal("scrollTo", vi.fn());
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({
@@ -192,5 +194,61 @@ describe("桌面端本地登录信息提示", () => {
     } finally {
       errorLog.mockRestore();
     }
+  });
+
+  it("证书过期展示到期时间，重新检测不提交密码，并保留设备本地入口", async () => {
+    const expiresAt = Date.UTC(2026, 5, 28, 23, 59, 59);
+    vi.mocked(testServerConnection)
+      .mockResolvedValueOnce({ ok: false, diagnostic: { kind: "certificateExpired", expiresAt } })
+      .mockResolvedValueOnce({ ok: true });
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    root = createRoot(host);
+    const onLogin = vi.fn();
+    const onContinueLocal = vi.fn();
+    await act(async () => root?.render(<LoginPage isClientMode onLogin={onLogin} onContinueLocal={onContinueLocal} />));
+    await waitFor(() => expect(host.textContent).toContain(localHint.serverUrl));
+    await act(async () => Array.from(host.querySelectorAll("button"))
+      .find((button) => button.textContent === "auth.localDesktopLogin.fillButton")?.click());
+    await act(async () => host.querySelector("form")
+      ?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
+    await waitFor(() => {
+      expect(host.querySelector('[role="alert"]')?.textContent).toContain("auth.connectionIssues.certificateExpired");
+      expect(host.textContent).toContain(new Date(expiresAt).toLocaleString());
+    });
+    expect(fetch).not.toHaveBeenCalled();
+    await act(async () => Array.from(host.querySelectorAll("button"))
+      .find((button) => button.textContent === "auth.recheckConnection")?.click());
+    await waitFor(() => expect(host.querySelector('[role="alert"]')).toBeNull());
+    expect(testServerConnection).toHaveBeenCalledTimes(2);
+    expect(fetch).not.toHaveBeenCalled();
+    expect(onLogin).not.toHaveBeenCalled();
+    expect(host.querySelector<HTMLInputElement>('input[autocomplete="current-password"]')?.value).toBe(localHint.password);
+    await act(async () => Array.from(host.querySelectorAll("button"))
+      .find((button) => button.textContent === "auth.continueLocal")?.click());
+    expect(onContinueLocal).toHaveBeenCalledTimes(1);
+  });
+
+  it("更换服务器后丢弃旧地址的迟到证书错误", async () => {
+    let finishProbe!: (result: { ok: boolean; diagnostic: { kind: "certificateExpired" } }) => void;
+    vi.mocked(testServerConnection).mockImplementationOnce(() => new Promise((resolve) => { finishProbe = resolve; }));
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    root = createRoot(host);
+    await act(async () => root?.render(<LoginPage isClientMode onLogin={vi.fn()} />));
+    await waitFor(() => expect(host.textContent).toContain(localHint.serverUrl));
+    await act(async () => Array.from(host.querySelectorAll("button"))
+      .find((button) => button.textContent === "auth.localDesktopLogin.fillButton")?.click());
+    await act(async () => Array.from(host.querySelectorAll("button"))
+      .find((button) => button.textContent === "auth.recheckConnection")?.click());
+    const address = host.querySelector<HTMLInputElement>('input[aria-label="server.addressLabel"]')!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(address, "new.example.com:443");
+      address.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => finishProbe({ ok: false, diagnostic: { kind: "certificateExpired" } }));
+    expect(address.value).toBe("new.example.com:443");
+    expect(host.querySelector('[role="alert"]')).toBeNull();
+    expect(fetch).not.toHaveBeenCalled();
   });
 });

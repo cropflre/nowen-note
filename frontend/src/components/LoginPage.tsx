@@ -9,6 +9,7 @@ import {
   registerAccount,
   setServerUrl,
   testServerConnection,
+  type ServerProbeResult,
 } from "@/lib/api";
 import { buildServerUrl, getResolvedApiBaseUrl, isLanServerHostname, parseServerUrl, type ServerAddressParts } from "@/lib/serverUrl";
 import { safeLoginRequestTarget } from "@/lib/loginRequestDiagnostics";
@@ -282,7 +283,7 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
   }, []);
 
   const submitDisabled = useMemo(() => {
-    if (isLoading || isAuthorizingUgreen) return true;
+    if (isLoading || isAuthorizingUgreen || serverStatus === "checking") return true;
     if (isTwoFactorStep) return false;
     // 绿联远程域名需要先在绿联网关页面完成认证；本地表单账号不会提交给网关。
     if (!isRegister && isMobileUgreenAddress) return false;
@@ -290,13 +291,25 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
     if (isClientMode && !serverParts.host.trim()) return true;
     if (isRegister && !confirmPassword) return true;
     return false;
-  }, [confirmPassword, isAuthorizingUgreen, isClientMode, isLoading, isMobileUgreenAddress, isRegister, isTwoFactorStep, password, serverParts.host, username]);
+  }, [confirmPassword, isAuthorizingUgreen, isClientMode, isLoading, isMobileUgreenAddress, isRegister, isTwoFactorStep, password, serverParts.host, serverStatus, username]);
 
   const serverStatusIcon = () => {
     if (serverStatus === "checking") return <Loader2 className="w-4 h-4 animate-spin text-amber-500" />;
     if (serverStatus === "ok") return <CheckCircle2 className="w-4 h-4 text-emerald-500" />;
     if (serverStatus === "fail") return <AlertCircle className="w-4 h-4 text-red-500" />;
     return null;
+  };
+
+  const serverProbeError = (url: string, result: ServerProbeResult) => {
+    const diagnostic = result.diagnostic;
+    let reason = diagnostic
+      ? t(`auth.connectionIssues.${diagnostic.kind}`)
+      : result.error || t("server.connectFailed");
+    if (diagnostic?.expiresAt) reason += t("auth.connectionIssues.expiresAt", { date: new Date(diagnostic.expiresAt).toLocaleString() });
+    if (diagnostic?.kind === "certificateNotYetValid" && diagnostic.validFrom) {
+      reason += t("auth.connectionIssues.validFrom", { date: new Date(diagnostic.validFrom).toLocaleString() });
+    }
+    return t("auth.serverProbeFailed", { target: safeLoginRequestTarget(url), reason });
   };
 
   const handleServerBlur = async (resolved: ServerAddressParts) => {
@@ -313,6 +326,7 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
     }
     setServerStatus("checking");
     setServerNotice("");
+    setError("");
     const result = await testServerConnection(url);
     if (epoch !== serverProbeEpochRef.current) return;
     setServerStatus(result.ok ? "ok" : "fail");
@@ -335,6 +349,8 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
       setServerUrl(url);
       localStorage.setItem("nowen-server-url-last", url);
       fetchRegisterConfig(url).then((cfg) => setAllowRegistration(cfg.allowRegistration)).catch(() => {});
+    } else {
+      setError(serverProbeError(url, result));
     }
   };
 
@@ -363,6 +379,7 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
 
   const resolveBaseUrl = async (): Promise<string | null> => {
     if (!isClientMode) return getServerUrl();
+    const epoch = ++serverProbeEpochRef.current;
     const url = buildServerUrl(serverParts);
     if (!url) {
       setError(t("auth.serverRequired"));
@@ -380,16 +397,14 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
     setServerStatus("checking");
     setServerNotice("");
     const result = await testServerConnection(url);
+    if (epoch !== serverProbeEpochRef.current) return null;
     if (!result.ok) {
       if (isDesktopClient && isUgreenRemoteAccessUrl(url)) {
         await beginUgreenAuthorization(url);
         return null;
       }
       setServerStatus("fail");
-      setError(t("auth.serverProbeFailed", {
-        target: safeLoginRequestTarget(url),
-        reason: result.error || t("server.connectFailed"),
-      }));
+      setError(serverProbeError(url, result));
       return null;
     }
     setServerStatus("ok");
@@ -849,15 +864,26 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
                     onChange={(next) => {
                       serverProbeEpochRef.current += 1;
                       setServerParts(next);
+                      if (serverStatus === "fail") setError("");
                       if (serverStatus !== "idle") setServerStatus("idle");
                       if (serverNotice) setServerNotice("");
                     }}
                     onHostBlur={handleServerBlur}
                     autoFocus={isClientMode}
+                    disabled={isLoading}
                     accent="indigo"
                     rightSlot={serverStatusIcon()}
                   />
                   <p className="text-xs text-zinc-400 dark:text-zinc-500">{t("auth.serverHint")}</p>
+                  <button
+                    type="button"
+                    disabled={!serverParts.host || serverStatus === "checking" || isLoading}
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={() => void handleServerBlur(serverParts)}
+                    className="text-xs text-indigo-600 hover:text-indigo-700 disabled:cursor-not-allowed disabled:opacity-50 dark:text-indigo-400 dark:hover:text-indigo-300"
+                  >
+                    {t("auth.recheckConnection")}
+                  </button>
                   {serverNotice && (
                     <p className="rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-2 text-xs leading-5 text-amber-700 dark:border-amber-500/25 dark:bg-amber-500/10 dark:text-amber-300">
                       {serverNotice}
@@ -981,9 +1007,9 @@ export default function LoginPage({ onLogin, onAccountLogin, isClientMode = fals
 
             <AnimatePresence>
               {error && (
-                <motion.div initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} className="flex items-center gap-2 px-3 py-2 rounded-lg bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/20">
+                <motion.div role={isClientMode ? "alert" : undefined} initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} className="flex items-center gap-2 px-3 py-2 rounded-lg bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/20">
                   <div className="w-1.5 h-1.5 rounded-full bg-red-500 flex-shrink-0" />
-                  <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
+                  <p className="min-w-0 break-words text-sm text-red-600 dark:text-red-400">{error}</p>
                 </motion.div>
               )}
             </AnimatePresence>

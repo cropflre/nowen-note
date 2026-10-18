@@ -92,6 +92,17 @@
     "loginHttpError": "登录请求返回 HTTP {{status}}（{{target}}）：{{reason}}",
     "loginSessionError": "登录后的本地会话处理失败，请重试或查看应用日志。",
     "serverProbeFailed": "连接探测失败（{{target}}）：{{reason}}。尚未验证账号密码。",
+    "recheckConnection": "重新检测连接",
+    "connectionIssues": {
+      "httpsRequired": "此端口要求 HTTPS，请将服务器地址左侧的协议改为 https 后重新检测",
+      "certificateExpired": "服务器 HTTPS 证书已过期，请管理员更新反向代理证书并重新加载配置，同时确认设备日期和时间正确",
+      "certificateNotYetValid": "服务器 HTTPS 证书尚未生效，请确认设备日期和时间正确，并请管理员检查证书",
+      "hostnameMismatch": "HTTPS 证书与服务器域名不匹配，请核对服务器地址，并请管理员配置对应域名的证书",
+      "certificateUntrusted": "HTTPS 证书不受设备信任，请管理员检查证书颁发机构和完整证书链；私有 CA 需配置可信证书",
+      "tlsFailed": "无法验证 HTTPS 安全连接，请检查设备时间、服务器证书及 TLS 配置；当前环境可能无法提供具体证书原因",
+      "expiresAt": "。服务器提供的证书到期时间：{{date}}",
+      "validFrom": "。服务器提供的证书生效时间：{{date}}"
+    },
     "networkError": "网络错误，请检查服务是否运行",
     "appTitle": "nowen-note",
     "subtitle": "私有化知识库 · 欢迎回来",
@@ -110,7 +121,7 @@
     "resetServer": "清除服务器配置",
     "continueLocal": "继续使用仅此设备",
     "localModeNote": "数据保存在这台设备。登录并开启同步后，笔记会自动同步到你的服务器。",
-    "clientNote": "请确保服务器已启动且网络可达，客户端通过 HTTP 连接到服务器",
+    "clientNote": "请确保服务器已启动且网络可达，所选 HTTP / HTTPS 协议应与服务器配置一致",
     "ugreenAccess": {
       "title": "此地址需要绿联认证",
       "description": "绿联网关拦截了原生登录请求。请先通过绿联登录，再在 Web 工作台中使用 nowen-note。",
