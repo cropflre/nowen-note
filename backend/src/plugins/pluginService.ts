@@ -109,6 +109,18 @@ export class PluginService {
     return buildAppRegistryV3(trusted, platform);
   }
 
+  listInspectors(platform: AppPlatformV3, resourceType: "note" | "task" | "attachment") {
+    if (!getApplicationV3FeatureFlags().inspectors || !["web", "desktop"].includes(platform)) return [];
+    return this.listApplicationPages(platform).flatMap(page => {
+      try {
+        const record = this.appRuntime.eligible(page.pluginId);
+        const manifest = JSON.parse(record.manifestJson) as PluginManifestV3;
+        return (manifest.contributes.inspectors || []).filter(item => item.pageId === page.id && item.resourceTypes.includes(resourceType))
+          .map(item => ({ ...page, title: item.title, inspectorId: item.id, resourceTypes: item.resourceTypes }));
+      } catch { return []; }
+    }).slice(0, 32);
+  }
+
   async listDashboardWidgets(userId: string, workspaceId: string | null, platform: AppPlatformV3) {
     if (!getApplicationV3FeatureFlags().dashboardWidgets) return [];
     const pages = this.listApplicationPages(platform), result = [];

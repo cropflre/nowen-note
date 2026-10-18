@@ -12,7 +12,7 @@ npm run dev
 npm run pack
 ```
 
-`npm run pack` 生成 `.nowen-plugin` 文件。管理员在“设置 → 插件”选择该文件，阅读第三方代码警告和权限说明后安装。新插件先进入 `quarantined`，管理员确认权限后才能启用。
+`npm run pack` 生成 `.nowen-plugin` 文件。管理员在“应用 → 应用管理”选择该文件，阅读第三方代码警告和权限说明后安装。新插件先进入 `quarantined`，管理员确认权限后才能启用。
 
 插件默认导出：
 
@@ -46,3 +46,5 @@ V1.1 增加版本升级/回滚、Preflight、进度与重启恢复、强类型 S
 V1.2 增加持久事件账本、工作流、时区调度、签名 Webhook、重试/幂等/死信、自动化中心与 MCP 工具。参见 [Event & Automation V1.2](./automation-v1.2.md)。
 
 V2 增加 Publisher/Registry 双重签名、QuickJS/WASM 沙箱、不可变多版本更新、安全公告、企业策略、声明式 UI/Automation 模板和独立 Marketplace 服务。参见 [Extension Platform V2](./extension-platform-v2.md)、[GitHub Static Registry V2](./github-static-registry.md) 与 [GitHub Actions 发布模板](./plugin-publish-action.yml)。
+
+V3 在 1.5.3 提供[隔离应用页面](./extension-platform-v3-app-runtime.md)及 [Dashboard 与插件数据](./extension-platform-v3-dashboard-data.md)。Phase 3A 的[资源检查器](./extension-platform-v3-inspector.md)需显式开启，可参考 [Resource Inspector 示例](../../examples/plugins/resource-inspector/README.md)。各阶段的平台验收与安全限制见对应文档。

@@ -33,6 +33,7 @@ export interface ApplicationV3FeatureFlags {
   appPages: boolean;
   dashboardWidgets: boolean;
   pluginData: boolean;
+  inspectors: boolean;
 }
 
 function envEnabled(name: string, defaultValue = false): boolean {
@@ -49,6 +50,7 @@ export function getApplicationV3FeatureFlags(): Readonly<ApplicationV3FeatureFla
     appPages,
     dashboardWidgets: appPages && envEnabled("NOWEN_EXTENSION_V3_DASHBOARD_WIDGETS", true),
     pluginData: core && envEnabled("NOWEN_EXTENSION_V3_PLUGIN_DATA", true),
+    inspectors: appPages && envEnabled("NOWEN_EXTENSION_V3_INSPECTORS"),
   });
 }
 

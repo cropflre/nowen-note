@@ -9,6 +9,7 @@ export const APP_BRIDGE_V3_MAX_REQUESTS_PER_SESSION = 4096;
 
 export const APP_BRIDGE_V3_METHODS = [
   "context.get",
+  "inspector.getResource",
   "storage.get",
   "storage.set",
   "storage.delete",

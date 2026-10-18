@@ -1,8 +1,9 @@
 import { getOfflineQueueStorageKey } from "./offlineScope";
 
-export function parsePluginAppPath(path: string): { matched: boolean; dashboard?: boolean; pluginId?: string; pageId?: string } {
+export function parsePluginAppPath(path: string): { matched: boolean; dashboard?: boolean; manage?: boolean; pluginId?: string; pageId?: string } {
   if (path === "/apps") return { matched: true };
   if (path === "/apps/dashboard") return { matched: true, dashboard: true };
+  if (path === "/apps/manage") return { matched: true, manage: true };
   const match = /^\/apps\/([a-z0-9]+(?:[.-][a-z0-9]+)+)\/([a-z][a-z0-9-]{0,63})$/.exec(path);
   return match && match[1].length <= 150 ? { matched: true, pluginId: match[1], pageId: match[2] } : { matched: false };
 }

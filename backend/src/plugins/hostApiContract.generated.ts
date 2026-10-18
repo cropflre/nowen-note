@@ -10,7 +10,7 @@ function deepFreeze<T>(value: T): T {
   return value;
 }
 
-export const HOST_API_CONTRACT_VERSION = 5 as const;
+export const HOST_API_CONTRACT_VERSION = 6 as const;
 
 export const HOST_API_BUDGETS = deepFreeze({
   "ipcMessageBytes": 2097152,
@@ -25,6 +25,16 @@ export const HOST_API_CONTRACT = deepFreeze([
     "permission": "attachments:read",
     "runtimes": [
       "node-action",
+      "sandbox-js"
+    ],
+    "maxArgsBytes": 262144,
+    "maxResultBytes": 1048576
+  },
+  {
+    "method": "attachments.inspect",
+    "sinceApiVersion": 3,
+    "permission": "attachments:read",
+    "runtimes": [
       "sandbox-js"
     ],
     "maxArgsBytes": 262144,
@@ -276,6 +286,16 @@ export const HOST_API_CONTRACT = deepFreeze([
     "maxResultBytes": 1048576
   },
   {
+    "method": "notes.inspect",
+    "sinceApiVersion": 3,
+    "permission": "notes:read",
+    "runtimes": [
+      "sandbox-js"
+    ],
+    "maxArgsBytes": 262144,
+    "maxResultBytes": 1048576
+  },
+  {
     "method": "notes.list",
     "sinceApiVersion": 1,
     "permission": "notes:read",
@@ -435,6 +455,16 @@ export const HOST_API_CONTRACT = deepFreeze([
     "permission": "tasks:read",
     "runtimes": [
       "node-action",
+      "sandbox-js"
+    ],
+    "maxArgsBytes": 262144,
+    "maxResultBytes": 1048576
+  },
+  {
+    "method": "tasks.inspect",
+    "sinceApiVersion": 3,
+    "permission": "tasks:read",
+    "runtimes": [
       "sandbox-js"
     ],
     "maxArgsBytes": 262144,

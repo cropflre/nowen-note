@@ -10,6 +10,7 @@ import type { PluginPermissions } from "./permissions.js";
 import type { ExtensionPolicy } from "./extensionPolicy.js";
 import type { HostApiBroker } from "./hostApiBroker.js";
 import type { PluginManifestV3 } from "./types.js";
+import { inspectorContextV3Schema, INSPECTOR_METHODS, type InspectorResourceV3 } from "./inspectorV3.js";
 
 const TTL = 20 * 60 * 1000;
 const NAVIGATION = new Set(["all", "favorites", "files", "diary", "tasks", "mindmaps", "ai-chat", "shares"]);
@@ -18,6 +19,7 @@ interface AppSessionV3 {
   guard: AppBridgeSessionGuardV3; actor: AppActorV3; workspaceId: string | null;
   version: string; checksum: string; grants: string; expiresAt: number;
   platform: AppPlatformV3; theme: "light" | "dark"; listeners: Set<() => void>;
+  resource?: InspectorResourceV3;
 }
 function deny(code = "PLUGIN_UI_SESSION_REVOKED"): never { throw Object.assign(new Error(code), { code }); }
 
@@ -36,7 +38,7 @@ export class AppRuntimeV3 {
     this.policy.assertAllowed(compatibilityInputFromRecord(record));
     return record;
   }
-  create(pluginId: string, pageId: string, actor: AppActorV3, input: { workspaceId?: unknown; platform?: unknown; theme?: unknown }) {
+  create(pluginId: string, pageId: string, actor: AppActorV3, input: { workspaceId?: unknown; platform?: unknown; theme?: unknown; inspector?: unknown }) {
     if (!actor.userId || !actor.credential) deny("RESOURCE_FORBIDDEN");
     const platform = input.platform || "web";
     if (platform !== "web" && platform !== "desktop") deny("PLUGIN_UI_PLATFORM_UNSUPPORTED");
@@ -47,6 +49,16 @@ export class AppRuntimeV3 {
     const manifest = pluginManifestV3Schema.parse(JSON.parse(record.manifestJson)) as PluginManifestV3;
     const page = buildAppRegistryV3([record], platform).find(page => page.id === pageId);
     if (!page) deny("PLUGIN_UI_PAGE_NOT_FOUND");
+    let resource: InspectorResourceV3 | undefined;
+    if (input.inspector !== undefined) {
+      if (!getApplicationV3FeatureFlags().inspectors) deny("PLUGIN_V3_FEATURE_DISABLED");
+      const inspector = inspectorContextV3Schema.safeParse(input.inspector);
+      if (!inspector.success) deny("PLUGIN_UI_INVALID_PAYLOAD");
+      const declaration = manifest.contributes.inspectors?.find(item => item.id === inspector.data.id && item.pageId === pageId && item.resourceTypes.includes(inspector.data.resource.type));
+      if (!declaration) deny("PLUGIN_UI_PAGE_NOT_FOUND");
+      resource = inspector.data.resource;
+      this.broker.inspectResource({ executionId: "inspector", pluginId, actionId: "inspector", userId: actor.userId, workspaceId }, resource);
+    }
     for (const [id, session] of this.sessions) if (session.expiresAt <= Date.now()) this.revoke(id);
     for (const document of this.documents.values()) if (document.expiresAt <= Date.now()) this.revoke(document.id);
     if (this.sessions.size >= 128 || [...this.sessions.values()].filter(session => session.actor.userId === actor.userId).length >= 8) deny("PLUGIN_UI_RATE_LIMITED");
@@ -58,6 +70,7 @@ export class AppRuntimeV3 {
       guard: new AppBridgeSessionGuardV3(identity), actor: { ...actor }, workspaceId,
       version: record.version, checksum: record.checksum, grants: this.grants(pluginId), expiresAt,
       platform, theme: input.theme === "dark" ? "dark" : "light", listeners: new Set(),
+      resource,
     });
     const ticket = crypto.randomBytes(32).toString("hex");
     this.documents.set(ticket, { id: identity.instanceId, html: document, expiresAt: Date.now() + 30000 });
@@ -77,6 +90,10 @@ export class AppRuntimeV3 {
       const record = this.eligible(session.guard.session.pluginId);
       if (session.expiresAt <= Date.now() || record.version !== session.version || record.checksum !== session.checksum || session.grants !== this.grants(record.id)) deny();
       if (session.workspaceId && !getUserWorkspaceRole(session.workspaceId, actor.userId)) deny("RESOURCE_FORBIDDEN");
+      if (session.resource) {
+        if (!getApplicationV3FeatureFlags().inspectors) deny("PLUGIN_V3_FEATURE_DISABLED");
+        this.broker.inspectResource({ executionId: id, pluginId: record.id, actionId: "inspector", userId: actor.userId, workspaceId: session.workspaceId }, session.resource);
+      }
     } catch (error) { this.revoke(id); throw error; }
     return session;
   }
@@ -86,7 +103,15 @@ export class AppRuntimeV3 {
     const request = session.guard.accept(message);
     try {
       let data: unknown;
-      if (request.method === "context.get") data = { protocol: "nowen.plugin-ui.v3", methods: ["context.get", "storage.get", "storage.set", "storage.delete", "navigation.open", "data.query", "data.get", "data.put", "data.delete", "data.migrate", "data.restore", "notes.list", "tasks.list"], workspaceId: session.workspaceId, theme: session.theme, platform: session.platform };
+      if (session.resource && !["context.get", "inspector.getResource"].includes(request.method)) deny("HOST_METHOD_UNSUPPORTED");
+      if (request.method === "context.get") {
+        if (Object.keys(request.params).length) deny("PLUGIN_UI_INVALID_PAYLOAD");
+        data = { protocol: "nowen.plugin-ui.v3", methods: session.resource ? ["context.get", "inspector.getResource"] : ["context.get", "storage.get", "storage.set", "storage.delete", "navigation.open", "data.query", "data.get", "data.put", "data.delete", "data.migrate", "data.restore", "notes.list", "tasks.list"], workspaceId: session.workspaceId, theme: session.theme, platform: session.platform, ...(session.resource ? { selection: { ...session.resource } } : {}) };
+      }
+      else if (request.method === "inspector.getResource") {
+        if (!session.resource || Object.keys(request.params).length) deny("PLUGIN_UI_INVALID_PAYLOAD");
+        data = await this.broker.call({ executionId: id, pluginId: session.guard.session.pluginId, actionId: "inspector", userId: actor.userId, workspaceId: session.workspaceId }, { method: INSPECTOR_METHODS[session.resource.type], args: { id: session.resource.id } });
+      }
       else if (request.method.startsWith("data.") || ["notes.list", "tasks.list"].includes(request.method)) {
         const context = { executionId: id, pluginId: session.guard.session.pluginId, actionId: "ui", userId: actor.userId, workspaceId: session.workspaceId };
         if (request.method.startsWith("data.")) data = await this.broker.call(context, { method: request.method, args: request.params });

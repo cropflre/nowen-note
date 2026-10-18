@@ -916,7 +916,7 @@ function AppLayout() {
 
       {/* ===== 主内容区 ===== */}
       {state.viewMode === "plugin-apps" ? (
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"><MobileTopBar /><PluginApps dashboard={pluginAppRoute.dashboard} pluginId={pluginAppRoute.pluginId} pageId={pluginAppRoute.pageId} /></div>
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"><MobileTopBar /><PluginApps dashboard={pluginAppRoute.dashboard} manage={pluginAppRoute.manage} pluginId={pluginAppRoute.pluginId} pageId={pluginAppRoute.pageId} /></div>
       ) : state.viewMode === "trash" ? (
         <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
           <MobileTopBar />

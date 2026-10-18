@@ -231,7 +231,7 @@ export function inferBrowserServerBaseUrl(
   const routeSuffix = pathname.match(/\/(?:share|notebook-share)\/[A-Za-z0-9_-]+$/)?.[0]
     || pathname.match(/\/issues(?:\/[A-Za-z0-9-]+)?$/)?.[0]
     || pathname.match(/\/apps\/[a-z0-9]+(?:[.-][a-z0-9]+)+\/[a-z][a-z0-9-]{0,63}$/)?.[0]
-    || pathname.match(/\/apps\/dashboard$/)?.[0]
+    || pathname.match(/\/apps\/(?:dashboard|manage)$/)?.[0]
     || (!locationLike.pathname.endsWith("/") ? pathname.match(/\/apps$/)?.[0] : "")
     || pathname.match(/\/(?:notes|mindmaps|sheets)(?:\/[^/]+)?$/i)?.[0]
     || pathname.match(/\/public(?:\/[^/]+)?$/)?.[0]

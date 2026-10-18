@@ -6,12 +6,13 @@ import { usePluginApps } from "@/hooks/usePluginApps";
 import { getCurrentWorkspace } from "@/lib/api";
 import { pushAppPathState, replaceAppPathState } from "@/lib/appPathNavigation";
 import { loadPluginAppPins, savePluginAppPins } from "@/lib/pluginApps";
-import { pluginApi, pluginAppDocumentUrl, PLUGIN_CONTRIBUTIONS_CHANGED_EVENT, type PluginAppPage, type PluginAppSession } from "@/lib/pluginApi";
+import { pluginApi, pluginAppDocumentUrl, PLUGIN_CONTRIBUTIONS_CHANGED_EVENT, type PluginAppPage, type PluginAppSession, type PluginInspectorContext } from "@/lib/pluginApi";
 import { currentUiPlatform } from "@/lib/pluginUiRegistry";
 import { connectPluginAppFrame } from "@/lib/pluginAppChannel";
 import type { ViewMode } from "@/types";
 import PluginDashboard from "./PluginDashboard";
 import PluginDataActions from "./PluginDataActions";
+import PluginManagementPanel from "./PluginManagementPanel";
 
 export function PluginAppNavigation({ showLabel }: { showLabel: boolean }) {
   const { enabled, dashboardEnabled, pages, pinned } = usePluginApps();
@@ -28,7 +29,7 @@ export function PluginAppNavigation({ showLabel }: { showLabel: boolean }) {
   </>;
 }
 
-export function PluginAppFrame({ page, compact = false }: { page: PluginAppPage; compact?: boolean }) {
+export function PluginAppFrame({ page, compact = false, inspector, workspaceId }: { page: PluginAppPage; compact?: boolean; inspector?: PluginInspectorContext; workspaceId?: string }) {
   const { t } = useTranslation();
   const actions = useAppActions();
   const frame = useRef<HTMLIFrameElement>(null);
@@ -51,7 +52,7 @@ export function PluginAppFrame({ page, compact = false }: { page: PluginAppPage;
     setError(false); setReady(false);
     const start = async () => {
       try {
-        created = await pluginApi.appSession(page, { workspaceId: getCurrentWorkspace(), platform: currentUiPlatform(), theme: document.documentElement.classList.contains("dark") ? "dark" : "light" }, controller.signal);
+        created = await pluginApi.appSession(page, { workspaceId: workspaceId ?? getCurrentWorkspace(), platform: currentUiPlatform(), theme: document.documentElement.classList.contains("dark") ? "dark" : "light", ...(inspector ? { inspector } : {}) }, controller.signal);
         if (!active || controller.signal.aborted) { void pluginApi.closeAppSession(created.instanceId, created.nonce).catch(() => undefined); return; }
         const events = await pluginApi.appEvents(created.instanceId, created.nonce, controller.signal);
         if (!events.ok || !events.body) throw new Error("PLUGIN_UI_SESSION_REVOKED");
@@ -84,7 +85,7 @@ export function PluginAppFrame({ page, compact = false }: { page: PluginAppPage;
       window.removeEventListener("nowen:token-changed", fail); window.removeEventListener("nowen:workspace-changed", fail); window.removeEventListener(PLUGIN_CONTRIBUTIONS_CHANGED_EVENT, fail);
       if (created) void pluginApi.closeAppSession(created.instanceId, created.nonce).catch(() => undefined);
     };
-  }, [page.pluginId, page.id, attempt]);
+  }, [page.pluginId, page.id, attempt, inspector?.id, inspector?.resource.type, inspector?.resource.id, workspaceId]);
 
   const loaded = () => {
     const current = activeSession.current;
@@ -114,16 +115,22 @@ export function PluginAppFrame({ page, compact = false }: { page: PluginAppPage;
   </div>;
 }
 
-export default function PluginApps({ pluginId, pageId, dashboard = false }: { pluginId?: string; pageId?: string; dashboard?: boolean }) {
+export default function PluginApps({ pluginId, pageId, dashboard = false, manage = false }: { pluginId?: string; pageId?: string; dashboard?: boolean; manage?: boolean }) {
   const { enabled, dashboardEnabled, pages, pinned } = usePluginApps();
   const { t } = useTranslation();
   const selected = pages.find(page => page.pluginId === pluginId && page.id === pageId);
   if (dashboard) return <PluginDashboard />;
   if (selected && enabled) return <PluginAppFrame key={selected.runtimeId} page={selected} />;
-  return <div className="min-h-0 flex-1 overflow-y-auto p-6"><h1 className="mb-4 text-xl font-semibold">{t("pluginApps.title")}</h1>{dashboardEnabled && <button className="mb-4 rounded border border-app-border px-3 py-2" onClick={() => pushAppPathState("/apps/dashboard")}>{t("pluginApps.dashboard")}</button>}
+  return <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6"><h1 className="mb-4 text-xl font-semibold">{t("pluginApps.title")}</h1>
+    <nav aria-label={t("pluginApps.sections")} className="mb-5 flex flex-wrap gap-2">
+      {[{ title: t("pluginApps.myApps"), route: "/apps", active: !manage }, { title: t("pluginApps.manage"), route: "/apps/manage", active: manage }].map(item => <button key={item.route} type="button" aria-current={item.active ? "page" : undefined} onClick={() => pushAppPathState(item.route)} className={`rounded-lg border border-app-border px-3 py-2 text-sm ${item.active ? "bg-accent-primary/10 text-accent-primary" : "hover:bg-app-hover"}`}>{item.title}</button>)}
+      {dashboardEnabled && <button className="rounded-lg border border-app-border px-3 py-2 text-sm hover:bg-app-hover" onClick={() => pushAppPathState("/apps/dashboard")}>{t("pluginApps.dashboard")}</button>}
+    </nav>
+    {manage ? enabled ? <PluginManagementPanel /> : <p>{t("pluginApps.unavailable")}</p> : <>
     {!enabled || pages.length === 0 || pluginId ? <p>{t(pluginId ? "pluginApps.unavailable" : "pluginApps.empty")}</p> : <ul className="space-y-3">{pages.map(page => <li key={page.runtimeId} className="flex items-center justify-between gap-4 rounded-lg border border-app-border p-4">
       <div className="min-w-0"><button aria-label={page.title} className="mb-2 text-left" onClick={() => pushAppPathState(page.route)}><span className="block font-medium">{page.title}</span><span className="text-sm text-tx-secondary">{page.pluginId}</span></button><PluginDataActions pluginId={page.pluginId} /></div>
       <button aria-label={t(pinned(page) ? "pluginApps.unpin" : "pluginApps.pin")} onClick={() => { const pins = loadPluginAppPins(); savePluginAppPins(pinned(page) ? pins.filter(id => id !== page.runtimeId) : [...pins, page.runtimeId]); }}>{pinned(page) ? <PinOff size={18} /> : <Pin size={18} />}</button>
     </li>)}</ul>}
+    </>}
   </div>;
 }

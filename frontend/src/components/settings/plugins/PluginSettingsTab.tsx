@@ -125,6 +125,7 @@ function PluginCard({ plugin, isAdmin, refresh }: { plugin: InstalledPlugin; isA
 }
 
 export default function PluginSettingsTab({ isAdmin }: { isAdmin: boolean }) {
+  const { t } = useTranslation();
   const [tab, setTab] = useState<"installed" | "discover" | "updates" | "developer">("installed");
   const [plugins, setPlugins] = useState<InstalledPlugin[]>([]);
   const [loading, setLoading] = useState(true);
@@ -210,7 +211,7 @@ export default function PluginSettingsTab({ isAdmin }: { isAdmin: boolean }) {
     setTab("installed");
   };
   return <div className="space-y-5">
-    <div className="flex items-start justify-between gap-3"><div><h2 className="text-xl font-bold">扩展生态</h2><p className="mt-1 text-sm text-zinc-500">V2 可执行插件默认运行在 QuickJS/WASM 沙箱；声明式扩展不执行代码、零数据权限。签名、权限变化和安全公告会在安装前核验。</p></div>{isAdmin && tab === "installed" && <><input ref={inputRef} type="file" accept=".nowen-plugin" className="hidden" onChange={(event) => void choosePackage(event.target.files?.[0])} /><button onClick={() => inputRef.current?.click()} className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-2 text-xs font-medium text-white"><PackagePlus size={14} />安装插件</button></>}</div>
+    <div className="flex items-start justify-between gap-3"><div><h2 className="text-xl font-bold">{t("pluginApps.manage")}</h2><p className="mt-1 text-sm text-zinc-500">{t("pluginApps.managementDescription")}</p></div>{isAdmin && tab === "installed" && <><input ref={inputRef} type="file" accept=".nowen-plugin" className="hidden" onChange={(event) => void choosePackage(event.target.files?.[0])} /><button onClick={() => inputRef.current?.click()} className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-2 text-xs font-medium text-white"><PackagePlus size={14} />{t("pluginApps.install")}</button></>}</div>
     <div className="flex gap-1 rounded-lg bg-zinc-100 p-1 dark:bg-zinc-900">{(["installed", "discover", "updates", "developer"] as const).map((item) => <button key={item} onClick={() => setTab(item)} className={`flex-1 rounded-md px-3 py-2 text-xs font-medium ${tab === item ? "bg-white shadow-sm dark:bg-zinc-800" : "text-zinc-500"}`}>{item === "installed" ? "已安装" : item === "discover" ? "市场" : item === "updates" ? "更新与安全" : "开发者"}</button>)}</div>
     {isAdmin && (tab === "discover" || tab === "installed") && <PluginRuntimePolicySettings onPolicyChange={setNodeRuntimeAllowed} />}
     {tab === "installed" && (loading ? <div className="flex items-center gap-2 py-12 text-sm text-zinc-500"><Loader2 className="animate-spin" size={16} />正在加载插件</div> : plugins.length ? <div className="grid gap-3">{plugins.map((plugin) => <PluginCard key={plugin.id} plugin={plugin} isAdmin={isAdmin} refresh={refresh} />)}</div> : <div className="rounded-xl border border-dashed border-zinc-300 dark:border-zinc-700 py-12 text-center text-sm text-zinc-500">尚未安装插件</div>)}

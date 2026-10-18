@@ -17,6 +17,7 @@ export function createHostApiCallMock(overrides: HostApiMockOverrides = {}): Hos
   return {
     methods: [
   "attachments.get",
+  "attachments.inspect",
   "attachments.list",
   "capture.importUrl",
   "data.delete",
@@ -40,6 +41,7 @@ export function createHostApiCallMock(overrides: HostApiMockOverrides = {}): Hos
   "notebooks.list",
   "notes.create",
   "notes.get",
+  "notes.inspect",
   "notes.list",
   "notes.update",
   "runtime.capabilities",
@@ -55,6 +57,7 @@ export function createHostApiCallMock(overrides: HostApiMockOverrides = {}): Hos
   "tags.removeFromNote",
   "tasks.create",
   "tasks.get",
+  "tasks.inspect",
   "tasks.list",
   "tasks.update"
 ] as readonly HostApiMethod[],

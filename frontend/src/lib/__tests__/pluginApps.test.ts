@@ -2,11 +2,20 @@ import { describe, expect, it, vi, afterEach } from "vitest";
 import { MessageChannel } from "node:worker_threads";
 import { parsePluginAppPath, loadPluginAppPins, savePluginAppPins } from "../pluginApps";
 import { connectPluginAppFrame } from "../pluginAppChannel";
+import { inferBrowserServerBaseUrl } from "../serverUrl";
+import { buildAppPathUrl, resolveCurrentAppPathname } from "../appPathNavigation";
 
 afterEach(() => { localStorage.clear(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 describe("V3 app navigation and account-local pins", () => {
+  it("keeps app management routes distinct from server proxy prefixes", () => {
+    expect(inferBrowserServerBaseUrl({ protocol: "https:", origin: "https://notes.example", pathname: "/apps/manage" })).toBe("");
+    expect(inferBrowserServerBaseUrl({ protocol: "https:", origin: "https://notes.example", pathname: "/nowen/apps/manage" })).toBe("https://notes.example/nowen");
+    expect(resolveCurrentAppPathname("https://notes.example/nowen/apps/manage")).toBe("/apps/manage");
+    expect(buildAppPathUrl("/apps", "https://notes.example/nowen/apps/manage")).toBe("/nowen/apps");
+  });
   it("accepts only namespaced app routes without encoded or core-route overrides", () => {
     expect(parsePluginAppPath("/apps").matched).toBe(true);
+    expect(parsePluginAppPath("/apps/manage")).toEqual({ matched: true, manage: true });
     expect(parsePluginAppPath("/apps/nowenlab.hello-app/home")).toEqual({ matched: true, pluginId: "nowenlab.hello-app", pageId: "home" });
     for (const path of ["/settings", "/apps/../settings", "/apps/%2e%2e/home", "/apps/nowenlab.app/home?x=1", "/apps/core/home"]) expect(parsePluginAppPath(path).matched).toBe(false);
   });
