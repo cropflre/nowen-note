@@ -3,7 +3,7 @@ import { z } from "zod";
 import { getExtensionPlatformFeatureFlags, isExtensionV21Enabled } from "./featureFlags.js";
 import { isV2SupportedPluginPermission } from "./hostApiContract.js";
 import { NOWEN_VERSION, PLUGIN_PERMISSIONS, type PluginActionManifest, type PluginManifest, type PluginManifestV1, type PluginManifestV2 } from "./types.js";
-import { getApplicationV3FeatureFlags, parseAppPageDeclarationsV3, validateUiAssetPathV3, APPLICATION_V3_TARGET_NOWEN } from "./applicationV3.js";
+import { getApplicationV3FeatureFlags, parseAppPageDeclarationsV3, validateUiAssetPathV3, validatePackagedImageV3, APPLICATION_V3_TARGET_NOWEN } from "./applicationV3.js";
 
 const inputFieldSchema = z.object({
   type: z.enum(["string", "number", "boolean", "object", "array"]),
@@ -319,6 +319,13 @@ export const pluginManifestV3Schema = z.object({
       ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["contributes", "appPages", page.id], message: "应用 HTML 入口必须在 uiAssets 中声明 SHA-256" });
     }
   }
+  for (const image of [manifest.icon, ...(manifest.screenshots || [])].filter((item): item is string => item !== undefined)) {
+    try { validatePackagedImageV3(image); }
+    catch (error) { ctx.addIssue({ code: z.ZodIssueCode.custom, path: image === manifest.icon ? ["icon"] : ["screenshots"], message: (error as Error).message }); }
+    if (!Object.prototype.hasOwnProperty.call(manifest.contributes.uiAssets, image)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["contributes", "uiAssets", image], message: "V3 图标和截图必须在 uiAssets 中声明 SHA-256" });
+    }
+  }
 });
 
 function parseVersion(value: string): [number, number, number] | null {
@@ -355,6 +362,17 @@ export function nowenVersionSatisfies(range: string, current = NOWEN_VERSION): b
   });
 }
 
+function requiresApplicationV3Version(range: string): boolean {
+  // V3 accepts the existing AND comparator syntax, with complete stable versions.
+  const clauses = range.trim().split(/\s+/).map((clause) => /^(>=|<=|>|<|=|\^|~)?(\d+\.\d+\.\d+)$/.exec(clause));
+  if (clauses.some((clause) => !clause || !parseVersion(clause[2])!.every(Number.isSafeInteger))) return false;
+  const minimum = parseVersion(APPLICATION_V3_TARGET_NOWEN)!;
+  return clauses.some((clause) => {
+    const operator = clause![1] || "=";
+    return !["<", "<="].includes(operator) && compareVersion(parseVersion(clause![2])!, minimum) >= 0;
+  });
+}
+
 export interface ParsePluginManifestOptions {
   currentVersion?: string;
   extensionsV21?: boolean;
@@ -371,8 +389,7 @@ export function parsePluginManifest(value: unknown, options: ParsePluginManifest
     if (!getApplicationV3FeatureFlags().appPages) {
       throw Object.assign(new Error("V3 应用级插件尚未启用完整沙箱功能"), { code: "PLUGIN_V3_FEATURE_DISABLED" });
     }
-    if (!nowenVersionSatisfies(manifest.engines.nowen, APPLICATION_V3_TARGET_NOWEN) ||
-      nowenVersionSatisfies(manifest.engines.nowen, "1.5.0")) {
+    if (!requiresApplicationV3Version(manifest.engines.nowen)) {
       throw Object.assign(new Error("V3 插件必须声明真实 Nowen >=1.6.0 兼容范围"), { code: "PLUGIN_NOWEN_INCOMPATIBLE" });
     }
   }

@@ -64,6 +64,12 @@ export function validateUiAssetPathV3(entry: unknown): string {
   return entry;
 }
 
+export function validatePackagedImageV3(entry: unknown): string {
+  const asset = validateUiAssetPathV3(entry);
+  if (!/\.(?:png|jpg|jpeg|webp|gif)$/.test(asset)) invalid("V3 图标和截图必须是 ui/ 下的图片资源");
+  return asset;
+}
+
 export function validatePackagedHtmlEntry(entry: unknown): string {
   if (typeof entry !== "string" || entry.length > 240 || !SAFE_PACKAGED_HTML.test(entry)) {
     invalid("应用入口必须是安装包内的相对 HTML 路径");

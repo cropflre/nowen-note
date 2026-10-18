@@ -114,14 +114,13 @@ export async function validatePluginPackage(bytes: Buffer, options: ParsePluginM
   const manifest = parsePluginManifest(rawManifest, options);
   if (manifest.apiVersion === 3) {
     const assets = manifest.contributes.uiAssets;
-    const ancillary = new Set(["manifest.json", manifest.icon, ...(manifest.screenshots || [])].filter((s): s is string => typeof s === "string"));
     const normalizedFiles = new Set<string>();
     for (const file of files) {
       const original = (file as JSZip.JSZipObject & { unsafeOriginalName?: string }).unsafeOriginalName || file.name;
       const normalized = normalizeEntryName(original);
       if (original !== normalized || normalizedFiles.has(normalized)) throw new Error(`V3 ZIP 资源路径不规范或重复: ${original}`);
       normalizedFiles.add(normalized);
-      if (ancillary.has(normalized)) continue;
+      if (normalized === "manifest.json") continue;
       validateUiAssetPathV3(normalized);
       if (!Object.prototype.hasOwnProperty.call(assets, normalized)) throw new Error(`V3 UI 资源未登记 SHA-256: ${normalized}`);
     }

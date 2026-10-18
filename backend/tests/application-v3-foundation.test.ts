@@ -1,11 +1,15 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import crypto from "node:crypto";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import JSZip from "jszip";
 import { parsePluginManifest } from "../src/plugins/manifest.js";
 import { validatePluginPackage } from "../src/plugins/packageValidator.js";
+import { PluginPackageInstaller } from "../src/plugins/packageInstaller.js";
 import { getApplicationV3FeatureFlags, parseAppPageDeclarationsV3, buildAppRegistryV3, validatePackagedHtmlEntry } from "../src/plugins/applicationV3.js";
-import { AppBridgeSessionGuardV3, APP_BRIDGE_V3_PROTOCOL, validateAppBridgeRequestV3 } from "../src/plugins/appBridgeV3.js";
+import { AppBridgeSessionGuardV3, APP_BRIDGE_V3_PROTOCOL, APP_BRIDGE_V3_MAX_REQUESTS_PER_SESSION, validateAppBridgeRequestV3 } from "../src/plugins/appBridgeV3.js";
 
 const pages = [{ id: "home", title: "Home", entry: "ui/index.html", platforms: ["web", "desktop"], requiredPermissions: ["plugin-storage:read"] }];
 const declared = ["plugin-storage:read"];
@@ -85,7 +89,7 @@ async function enabledV3<T>(fn: () => Promise<T> | T): Promise<T> {
     GATES.forEach((k, i) => { if (saved[i] === undefined) delete process.env[k]; else process.env[k] = saved[i]; });
   }
 }
-const asset = (s: string) => "sha256:" + crypto.createHash("sha256").update(s).digest("hex");
+const asset = (s: string | Buffer) => "sha256:" + crypto.createHash("sha256").update(s).digest("hex");
 const html = '<!DOCTYPE html><html><head><meta charset="utf-8"></head><body>Hello Nowen V3</body></html>';
 const script = 'document.body.dataset.v3 = "1";';
 function manifestV3() {
@@ -98,7 +102,7 @@ function manifestV3() {
     contributes: { appPages: pages, uiAssets: { "ui/index.html": asset(html), "ui/app.js": asset(script) } },
   };
 }
-async function packV3(overrides: { manifest?: any; html?: string; extra?: Record<string, string> } = {}) {
+async function packV3(overrides: { manifest?: any; html?: string; extra?: Record<string, string | Buffer> } = {}) {
   const zip = new JSZip();
   zip.file("manifest.json", JSON.stringify(overrides.manifest || manifestV3()));
   zip.file("ui/index.html", overrides.html ?? html);
@@ -131,4 +135,94 @@ test("V3 accepts a hashed UI bundle and rejects altered, undeclared or unsafe re
     await assert.rejects(async () => validatePluginPackage(await packV3({ extra: { "backend/runner.js": "steal()" } }), opts), /UI 资源必须位于/);
     await assert.rejects(async () => validatePluginPackage(await packV3({ extra: { "ui/evil.wasm": "code" } }), opts), /UI 资源必须位于/);
   });
+});
+
+test("V3 icons and screenshots cannot exempt scripts from the UI asset contract", async () => {
+  await enabledV3(async () => {
+    for (const field of ["icon", "screenshots"] as const) {
+      for (const file of ["backend/payload.js", "ui/payload.js"]) {
+        const manifest = { ...manifestV3(), [field]: field === "icon" ? file : [file] };
+        await assert.rejects(async () => validatePluginPackage(await packV3({ manifest, extra: { [file]: script } }), { currentVersion: "1.6.0" }));
+        (manifest.contributes.uiAssets as Record<string, string>)[file] = asset(script);
+        await assert.rejects(async () => validatePluginPackage(await packV3({ manifest, extra: { [file]: script } }), { currentVersion: "1.6.0" }));
+      }
+    }
+  });
+});
+
+test("V3 ZIP and development resources share image path and integrity rules", async () => {
+  await enabledV3(async () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), "nowen-v3-assets-test-"));
+    assert.ok(path.resolve(directory).startsWith(path.resolve(os.tmpdir()) + path.sep));
+    try {
+      const image = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jD1sAAAAASUVORK5CYII=", "base64");
+      const files = { "ui/index.html": html, "ui/app.js": script, "ui/icon.png": image, "ui/screenshot.png": image };
+      const manifest = { ...manifestV3(), icon: "ui/icon.png", screenshots: ["ui/screenshot.png"] };
+      const assets = manifest.contributes.uiAssets as Record<string, string>;
+      assets[manifest.icon] = asset(image);
+      assets[manifest.screenshots[0]] = asset(image);
+      fs.mkdirSync(path.join(directory, "ui"));
+      for (const [file, bytes] of Object.entries(files)) fs.writeFileSync(path.join(directory, file), bytes);
+      const installer = new PluginPackageInstaller();
+      const options = { currentVersion: "1.6.0" };
+      const inspect = async () => {
+        fs.writeFileSync(path.join(directory, "manifest.json"), JSON.stringify(manifest));
+        await validatePluginPackage(await packV3({ manifest, extra: files }), options);
+        await installer.inspectDevelopmentDirectory(directory, options);
+      };
+      await inspect();
+      for (const file of [manifest.icon, manifest.screenshots[0]]) {
+        delete assets[file];
+        fs.writeFileSync(path.join(directory, "manifest.json"), JSON.stringify(manifest));
+        await assert.rejects(() => installer.inspectDevelopmentDirectory(directory, options));
+        await assert.rejects(async () => validatePluginPackage(await packV3({ manifest, extra: files }), options));
+        assets[file] = asset(image);
+        fs.writeFileSync(path.join(directory, "manifest.json"), JSON.stringify(manifest));
+        fs.writeFileSync(path.join(directory, file), "tampered");
+        await assert.rejects(() => installer.inspectDevelopmentDirectory(directory, options), /完整性/);
+        await assert.rejects(async () => validatePluginPackage(await packV3({ manifest, extra: { ...files, [file]: "tampered" } }), options), /SHA-256/);
+        fs.writeFileSync(path.join(directory, file), image);
+      }
+      manifest.icon = "assets/icon.png";
+      fs.writeFileSync(path.join(directory, "manifest.json"), JSON.stringify(manifest));
+      await assert.rejects(() => installer.inspectDevelopmentDirectory(directory, options));
+      await assert.rejects(async () => validatePluginPackage(await packV3({ manifest, extra: { ...files, [manifest.icon]: image } }), options));
+    } finally {
+      fs.rmSync(directory, { recursive: true, force: true });
+    }
+  });
+});
+
+test("V3 rejects ranges admitting pre-1.6 hosts and malformed comparator suffixes", async () => {
+  await enabledV3(() => {
+    for (const range of [">=1.5.1", ">=1.5.99", ">1.5.999", "^1.5.1", ">=1.6.0garbage", ">=1.6.0-rc.1"]) {
+      assert.throws(() => parsePluginManifest({ ...manifestV3(), engines: { nowen: range } }, { currentVersion: "1.6.0" }), /V3 插件必须/);
+    }
+    for (const range of [">=1.6.0", ">=1.6.0 <2.0.0", "^1.6.0", "~1.6.0", "1.6.0", ">=1.5.1 >=1.6.0"]) {
+      assert.equal(parsePluginManifest({ ...manifestV3(), engines: { nowen: range } }, { currentVersion: "1.6.0" }).apiVersion, 3);
+    }
+    assert.equal(parsePluginManifest({ ...manifestV3(), engines: { nowen: ">=1.7.0" } }, { currentVersion: "1.7.0" }).apiVersion, 3);
+  });
+});
+
+test("Host Bridge rejects completed request replays after the rate window expires", () => {
+  const guard = new AppBridgeSessionGuardV3(session);
+  const write = { ...request("write-once"), method: "action.execute" };
+  guard.accept(write, 500_000);
+  guard.complete(write.requestId);
+  assert.throws(() => guard.accept(write, 561_000), /DUPLICATE_REQUEST/);
+  guard.accept(request("another"), 561_000);
+});
+
+test("Host Bridge bounds replay history by revoking exhausted sessions without evicting old IDs", () => {
+  const guard = new AppBridgeSessionGuardV3(session);
+  for (let i = 0; i < APP_BRIDGE_V3_MAX_REQUESTS_PER_SESSION; i++) {
+    const id = "r" + i;
+    guard.accept(request(id), i * 1000);
+    guard.complete(id);
+  }
+  const now = APP_BRIDGE_V3_MAX_REQUESTS_PER_SESSION * 1000;
+  assert.throws(() => guard.accept(request("r0"), now), /DUPLICATE_REQUEST/);
+  assert.throws(() => guard.accept(request("overflow"), now), /SESSION_EXHAUSTED/);
+  assert.throws(() => guard.accept(request("new"), now), /SESSION_REVOKED/);
 });

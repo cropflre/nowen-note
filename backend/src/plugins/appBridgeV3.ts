@@ -5,6 +5,7 @@ export const APP_BRIDGE_V3_PROTOCOL = "nowen.plugin-ui.v3";
 export const APP_BRIDGE_V3_MAX_BYTES = 64 * 1024;
 export const APP_BRIDGE_V3_MAX_IN_FLIGHT = 16;
 export const APP_BRIDGE_V3_MAX_CALLS_PER_MINUTE = 120;
+export const APP_BRIDGE_V3_MAX_REQUESTS_PER_SESSION = 4096;
 
 export const APP_BRIDGE_V3_METHODS = [
   "context.get",
@@ -91,6 +92,7 @@ export function validateAppBridgeRequestV3(value: unknown, session: AppBridgeSes
 
 export class AppBridgeSessionGuardV3 {
   private readonly pending = new Set<string>();
+  private readonly seen = new Set<string>();
   private readonly calls: number[] = [];
   private active = true;
 
@@ -104,11 +106,16 @@ export class AppBridgeSessionGuardV3 {
     if (!this.active) reject("PLUGIN_UI_SESSION_REVOKED");
     const parsed = validateAppBridgeRequestV3(message, this.session);
     while (this.calls.length && this.calls[0] <= nowMs - 60_000) this.calls.shift();
-    if (this.pending.has(parsed.requestId)) reject("PLUGIN_UI_DUPLICATE_REQUEST");
+    if (this.seen.has(parsed.requestId)) reject("PLUGIN_UI_DUPLICATE_REQUEST");
+    if (this.seen.size >= APP_BRIDGE_V3_MAX_REQUESTS_PER_SESSION) {
+      this.revoke();
+      reject("PLUGIN_UI_SESSION_EXHAUSTED");
+    }
     if (this.pending.size >= APP_BRIDGE_V3_MAX_IN_FLIGHT || this.calls.length >= APP_BRIDGE_V3_MAX_CALLS_PER_MINUTE) {
       reject("PLUGIN_UI_RATE_LIMITED");
     }
     this.pending.add(parsed.requestId);
+    this.seen.add(parsed.requestId);
     this.calls.push(nowMs);
     return parsed;
   }
@@ -120,6 +127,7 @@ export class AppBridgeSessionGuardV3 {
   revoke(): void {
     this.active = false;
     this.pending.clear();
+    this.seen.clear();
     this.calls.length = 0;
   }
 }
