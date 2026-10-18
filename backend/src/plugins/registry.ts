@@ -125,7 +125,7 @@ export class PluginRegistry {
     const manifest = JSON.parse(target.manifestJson) as PluginManifest;
     const sameRuntimeBoundary = current.apiVersion === manifest.apiVersion
       && current.runtime === manifest.runtime
-      && (current.apiVersion === 2 ? current.publisher : null) === (manifest.apiVersion === 2 ? manifest.publisher : null)
+      && (current.apiVersion === 2 ? current.publisher : null) === (manifest.apiVersion !== 1 ? manifest.publisher : null)
       && current.trustLevel === target.trustLevel;
     return {
       ...current,
@@ -139,7 +139,7 @@ export class PluginRegistry {
       checksum: target.checksum,
       manifestJson: target.manifestJson,
       installedPath: target.installedPath,
-      publisher: manifest.apiVersion === 2 ? manifest.publisher : null,
+      publisher: manifest.apiVersion !== 1 ? manifest.publisher : null,
       signatureState: target.signatureState || "unsigned",
       nodeRuntimeConfirmedAt: options.nodeRuntimeConfirmedBy ? now() : sameRuntimeBoundary ? current.nodeRuntimeConfirmedAt : null,
       nodeRuntimeConfirmedBy: options.nodeRuntimeConfirmedBy || (sameRuntimeBoundary ? current.nodeRuntimeConfirmedBy : null),

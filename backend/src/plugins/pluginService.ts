@@ -18,6 +18,7 @@ import { PluginUpdateCoordinator } from "./pluginUpdateCoordinator.js";
 import { isDeclarativePluginManifest, pluginManifestActions, type PluginManifest, type PluginRegistryRecord } from "./types.js";
 import { createNoteFromPluginTemplate } from "./contributions/noteTemplateContribution.js";
 import { getExtensionPlatformFeatureFlags } from "./featureFlags.js";
+import { buildAppRegistryV3, type AppPlatformV3 } from "./applicationV3.js";
 import { removeInboundWebhook } from "./inboundWebhooks.js";
 
 function manifestOf(record: PluginRegistryRecord): PluginManifest {
@@ -95,6 +96,15 @@ export class PluginService {
     });
   }
 
+  listApplicationPages(platform: AppPlatformV3): ReturnType<typeof buildAppRegistryV3> {
+    const trusted = this.registry.list().filter((record) =>
+      record.status === "enabled" &&
+      this.permissions.allDeclaredGranted(record.id) &&
+      this.policy.resolve(compatibilityInputFromRecord(record)).allowed,
+    );
+    return buildAppRegistryV3(trusted, platform);
+  }
+
   getSettings(pluginId: string, ownerUserId: string): Record<string, unknown> {
     const manifest = manifestOf(this.requireRecord(pluginId));
     if (manifest.apiVersion !== 2) return {};
@@ -157,7 +167,7 @@ export class PluginService {
       const addedHosts = (candidate.permissionConfig?.externalFetchHosts || []).filter((host) => !oldHosts.has(host));
       const currentVersion = this.registry.getVersion(record.id, record.version);
       const candidateTrust = extension.trustLevel || "community";
-      const currentPublisher = current.apiVersion === 2 ? current.publisher : null;
+      const currentPublisher = current.apiVersion !== 1 ? current.publisher : null;
       const confirmationRequired = added.length > 0
         || addedHosts.length > 0
         || current.apiVersion !== candidate.apiVersion
@@ -514,9 +524,9 @@ export class PluginService {
         removed: previousManifest.permissions.filter((permission) => !currentPermissions.has(permission)),
       } : { added: [], removed: [] },
       author: manifest.apiVersion === 1 ? manifest.author : { name: manifest.publisher },
-      publisher: manifest.apiVersion === 2 ? manifest.publisher : null,
+      publisher: manifest.apiVersion !== 1 ? manifest.publisher : null,
       category: manifest.apiVersion === 1 ? manifest.category : manifest.categories[0],
-      categories: manifest.apiVersion === 2 ? manifest.categories : manifest.category ? [manifest.category] : [],
+      categories: manifest.apiVersion !== 1 ? manifest.categories : manifest.category ? [manifest.category] : [],
       keywords: manifest.keywords || [],
       repository: manifest.repository,
       homepage: manifest.homepage,
@@ -532,7 +542,7 @@ export class PluginService {
       pinnedVersion: record.pinnedVersion || null,
       probationRemaining: record.probationRemaining || 0,
       autoRollbackReason: record.autoRollbackReason || null,
-      contributes: manifest.apiVersion === 2 ? manifest.contributes || {} : {},
+      contributes: manifest.apiVersion !== 1 ? manifest.contributes || {} : {},
       platforms: manifest.apiVersion === 2 ? manifest.platforms || manifest.runtimePlatform || [] : [],
       connections: manifest.connections || [],
       actions: pluginManifestActions(manifest),

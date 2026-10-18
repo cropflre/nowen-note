@@ -265,10 +265,44 @@ export interface PluginManifestV2Declarative extends PluginManifestV2Base {
 }
 
 export type PluginManifestV2 = PluginManifestV2Executable | PluginManifestV2Declarative;
-export type PluginManifest = PluginManifestV1 | PluginManifestV2;
+export interface PluginManifestV3 {
+  id: string;
+  name: string;
+  description: string;
+  version: string;
+  apiVersion: 3;
+  publisher: string;
+  engines: { nowen: string };
+  runtime: "declarative";
+  categories: string[];
+  repository: string;
+  license: string;
+  keywords?: string[];
+  homepage?: string;
+  icon?: string;
+  screenshots?: string[];
+  permissions: PluginPermission[];
+  permissionConfig?: never;
+  main?: never;
+  connections?: never;
+  actions?: never;
+  contributes: {
+    appPages: Array<{
+      id: string;
+      title: string;
+      entry: string;
+      platforms: Array<"web" | "desktop" | "android" | "ios">;
+      requiredPermissions: PluginPermission[];
+    }>;
+    uiAssets: Record<string, string>;
+  };
+}
 
-export function isDeclarativePluginManifest(manifest: PluginManifest): manifest is PluginManifestV2Declarative {
-  return manifest.apiVersion === 2 && manifest.runtime === "declarative";
+// V3 apps have no Node/QuickJS entry; UI scripts are isolated browser assets.
+export type PluginManifest = PluginManifestV1 | PluginManifestV2 | PluginManifestV3;
+
+export function isDeclarativePluginManifest(manifest: PluginManifest): manifest is PluginManifestV2Declarative | PluginManifestV3 {
+  return manifest.runtime === "declarative";
 }
 
 export function pluginManifestMain(manifest: PluginManifest): string {
