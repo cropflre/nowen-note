@@ -23,7 +23,7 @@ test("V3 apps open by default on 1.5.3 while explicit shutdown and legacy gates 
     keys.forEach(key => delete process.env[key]);
     assert.equal(NOWEN_VERSION, "1.5.3");
     assert.equal(NOWEN_VERSION, JSON.parse(fs.readFileSync(new URL("../../package.json", import.meta.url), "utf8")).version);
-    assert.deepEqual(getApplicationV3FeatureFlags(), { core: true, appPages: true, dashboardWidgets: false, pluginData: false });
+    assert.deepEqual(getApplicationV3FeatureFlags(), { core: true, appPages: true, dashboardWidgets: true, pluginData: true });
     assert.equal(getExtensionPlatformFeatureFlags().extensionsV21, false);
     for (const key of keys.slice(0, 6)) {
       process.env[key] = "0";

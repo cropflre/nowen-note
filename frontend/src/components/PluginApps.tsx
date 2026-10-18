@@ -10,15 +10,17 @@ import { pluginApi, pluginAppDocumentUrl, PLUGIN_CONTRIBUTIONS_CHANGED_EVENT, ty
 import { currentUiPlatform } from "@/lib/pluginUiRegistry";
 import { connectPluginAppFrame } from "@/lib/pluginAppChannel";
 import type { ViewMode } from "@/types";
+import PluginDashboard from "./PluginDashboard";
+import PluginDataActions from "./PluginDataActions";
 
 export function PluginAppNavigation({ showLabel }: { showLabel: boolean }) {
-  const { enabled, pages, pinned } = usePluginApps();
+  const { enabled, dashboardEnabled, pages, pinned } = usePluginApps();
   const { t } = useTranslation();
   const actions = useAppActions();
   if (!enabled) return null;
   const open = (path: string) => { pushAppPathState(path); actions.setMobileSidebar(false); };
   return <>
-    {[{ runtimeId: "apps", title: t("pluginApps.title"), route: "/apps" }, ...pages.filter(pinned)].map(page => (
+    {[{ runtimeId: "apps", title: t("pluginApps.title"), route: "/apps" }, ...(dashboardEnabled ? [{ runtimeId: "dashboard", title: t("pluginApps.dashboard"), route: "/apps/dashboard" }] : []), ...pages.filter(pinned)].map(page => (
       <button key={page.runtimeId} type="button" title={page.title} aria-label={page.title} onClick={() => open(page.route)} className="flex w-10 min-h-10 flex-col items-center justify-center rounded-lg text-tx-secondary hover:bg-app-hover">
         <Blocks size={17} />{showLabel && <span className="max-w-full truncate text-[10px]">{page.title}</span>}
       </button>
@@ -26,7 +28,7 @@ export function PluginAppNavigation({ showLabel }: { showLabel: boolean }) {
   </>;
 }
 
-function PluginAppFrame({ page }: { page: PluginAppPage }) {
+export function PluginAppFrame({ page, compact = false }: { page: PluginAppPage; compact?: boolean }) {
   const { t } = useTranslation();
   const actions = useAppActions();
   const frame = useRef<HTMLIFrameElement>(null);
@@ -91,32 +93,36 @@ function PluginAppFrame({ page }: { page: PluginAppPage }) {
     connection.current = connectPluginAppFrame(frame.current, current, async message => {
       const response = await pluginApi.appCall(current.instanceId, message, requestController.current?.signal);
       if (activeSession.current !== current) throw new Error("PLUGIN_UI_SESSION_REVOKED");
+      if (response.pluginId !== current.pluginId || response.instanceId !== current.instanceId || response.requestId !== message.requestId || response.protocol !== "nowen.plugin-ui.v3" || response.kind !== "response") throw new Error("PLUGIN_UI_INVALID_RESPONSE");
       if (message.method === "navigation.open" && response.ok) {
         const target = (response.data as { target?: string })?.target;
         if (["all", "favorites", "files", "diary", "tasks", "mindmaps", "ai-chat", "shares"].includes(target || "")) {
           replaceAppPathState("/"); actions.setViewMode(target as ViewMode); actions.setMobileView("list");
+          const noteId = (response.data as { noteId?: string }).noteId;
+          if (target === "all" && typeof noteId === "string") window.dispatchEvent(new CustomEvent("nowen:open-note-link", { detail: { noteId, blockId: null, href: `nowen://note/${noteId}` } }));
         }
       }
       return response;
     }, () => failRef.current(), () => setReady(true));
   };
   return <div className="flex min-h-0 flex-1 flex-col">
-    <div className="flex items-center gap-3 border-b border-app-border p-3">
+    {!compact && <div className="flex items-center gap-3 border-b border-app-border p-3">
       <button onClick={() => pushAppPathState("/apps")} className="rounded px-2 py-1 hover:bg-app-hover">{t("pluginApps.back")}</button><h1 className="font-medium">{page.title}</h1>
-    </div>
+    </div>}
     {error ? <div role="alert" className="p-6"><p>{t("pluginApps.failed")}</p><button className="mt-3 rounded border border-app-border px-3 py-2" onClick={() => { connection.current = undefined; setAttempt(value => value + 1); }}>{t("pluginApps.retry")}</button></div>
       : <>{!ready && <p role="status" className="p-4">{t("pluginApps.loading")}</p>}{session && <iframe ref={frame} title={page.title} sandbox="allow-scripts" referrerPolicy="no-referrer" allow="camera 'none'; microphone 'none'; geolocation 'none'; clipboard-read 'none'; clipboard-write 'none'" src={pluginAppDocumentUrl(session)} onLoad={loaded} className="min-h-0 w-full flex-1 border-0 bg-white" />}</>}
   </div>;
 }
 
-export default function PluginApps({ pluginId, pageId }: { pluginId?: string; pageId?: string }) {
-  const { enabled, pages, pinned } = usePluginApps();
+export default function PluginApps({ pluginId, pageId, dashboard = false }: { pluginId?: string; pageId?: string; dashboard?: boolean }) {
+  const { enabled, dashboardEnabled, pages, pinned } = usePluginApps();
   const { t } = useTranslation();
   const selected = pages.find(page => page.pluginId === pluginId && page.id === pageId);
+  if (dashboard) return <PluginDashboard />;
   if (selected && enabled) return <PluginAppFrame key={selected.runtimeId} page={selected} />;
-  return <div className="min-h-0 flex-1 overflow-y-auto p-6"><h1 className="mb-4 text-xl font-semibold">{t("pluginApps.title")}</h1>
+  return <div className="min-h-0 flex-1 overflow-y-auto p-6"><h1 className="mb-4 text-xl font-semibold">{t("pluginApps.title")}</h1>{dashboardEnabled && <button className="mb-4 rounded border border-app-border px-3 py-2" onClick={() => pushAppPathState("/apps/dashboard")}>{t("pluginApps.dashboard")}</button>}
     {!enabled || pages.length === 0 || pluginId ? <p>{t(pluginId ? "pluginApps.unavailable" : "pluginApps.empty")}</p> : <ul className="space-y-3">{pages.map(page => <li key={page.runtimeId} className="flex items-center justify-between gap-4 rounded-lg border border-app-border p-4">
-      <button className="min-w-0 text-left" onClick={() => pushAppPathState(page.route)}><span className="block font-medium">{page.title}</span><span className="text-sm text-tx-secondary">{page.pluginId}</span></button>
+      <div className="min-w-0"><button aria-label={page.title} className="mb-2 text-left" onClick={() => pushAppPathState(page.route)}><span className="block font-medium">{page.title}</span><span className="text-sm text-tx-secondary">{page.pluginId}</span></button><PluginDataActions pluginId={page.pluginId} /></div>
       <button aria-label={t(pinned(page) ? "pluginApps.unpin" : "pluginApps.pin")} onClick={() => { const pins = loadPluginAppPins(); savePluginAppPins(pinned(page) ? pins.filter(id => id !== page.runtimeId) : [...pins, page.runtimeId]); }}>{pinned(page) ? <PinOff size={18} /> : <Pin size={18} />}</button>
     </li>)}</ul>}
   </div>;

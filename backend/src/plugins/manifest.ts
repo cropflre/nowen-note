@@ -3,6 +3,7 @@ import { z } from "zod";
 import { getExtensionPlatformFeatureFlags, isExtensionV21Enabled } from "./featureFlags.js";
 import { isV2SupportedPluginPermission } from "./hostApiContract.js";
 import { NOWEN_VERSION, PLUGIN_PERMISSIONS, type PluginActionManifest, type PluginManifest, type PluginManifestV1, type PluginManifestV2 } from "./types.js";
+import { widgetV3Schema } from "./dashboardV3.js";
 import { getApplicationV3FeatureFlags, parseAppPageDeclarationsV3, validateUiAssetPathV3, validatePackagedImageV3, APPLICATION_V3_TARGET_NOWEN } from "./applicationV3.js";
 
 const inputFieldSchema = z.object({
@@ -296,6 +297,7 @@ export const pluginManifestV3Schema = z.object({
       platforms: z.array(z.enum(["web", "desktop", "android", "ios"])),
       requiredPermissions: z.array(z.enum(PLUGIN_PERMISSIONS)),
     }).strict()).min(1).max(16),
+    widgets: z.array(widgetV3Schema).max(8).optional(),
     uiAssets: z.record(z.string().regex(/^sha256:[a-f0-9]{64}$/))
       .refine((v) => Object.keys(v).length > 0 && Object.keys(v).length <= 200),
   }).strict(),
@@ -318,6 +320,12 @@ export const pluginManifestV3Schema = z.object({
     if (!Object.prototype.hasOwnProperty.call(manifest.contributes.uiAssets, page.entry)) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["contributes", "appPages", page.id], message: "应用 HTML 入口必须在 uiAssets 中声明 SHA-256" });
     }
+  }
+  const widgetIds = new Set<string>();
+  for (const widget of manifest.contributes.widgets || []) {
+    if (widgetIds.has(widget.id) || !manifest.contributes.appPages.some(page => page.id === widget.pageId)) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["contributes", "widgets"], message: "Widget ID 重复或关联页面不存在" });
+    if (["statistic", "status", "list"].includes(widget.type) && !manifest.permissions.includes("plugin-storage:read")) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["permissions"], message: "数据卡片需要 plugin-storage:read" });
+    widgetIds.add(widget.id);
   }
   for (const image of [manifest.icon, ...(manifest.screenshots || [])].filter((item): item is string => item !== undefined)) {
     try { validatePackagedImageV3(image); }

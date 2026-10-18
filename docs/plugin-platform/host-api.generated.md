@@ -1,7 +1,7 @@
 <!-- 此文件由 scripts/generate-plugin-host-api.mjs 生成，请勿手动修改。 -->
 # Host API 合同
 
-合同版本：4
+合同版本：5
 
 固定预算：IPC 消息 2097152 字节，Host Call 参数 262144 字节，Host Call 结果 1048576 字节。
 
@@ -10,6 +10,14 @@
 | `attachments.get` | V1 | `attachments:read` | `node-action`, `sandbox-js` | `server`, `desktop-full` | 262144 | 1048576 |
 | `attachments.list` | V1 | `attachments:read` | `node-action`, `sandbox-js` | `server`, `desktop-full` | 262144 | 1048576 |
 | `capture.importUrl` | V2 | `capture:write` | `node-action`, `sandbox-js` | `server`, `desktop-full` | 262144 | 1048576 |
+| `data.delete` | V3 | `plugin-storage:write` | `sandbox-js` | `server`, `desktop-full` | 262144 | 1048576 |
+| `data.export` | V3 | `plugin-storage:read` | `sandbox-js` | `server`, `desktop-full` | 262144 | 1048576 |
+| `data.get` | V3 | `plugin-storage:read` | `sandbox-js` | `server`, `desktop-full` | 262144 | 1048576 |
+| `data.import` | V3 | `plugin-storage:write` | `sandbox-js` | `server`, `desktop-full` | 262144 | 1048576 |
+| `data.migrate` | V3 | `plugin-storage:write` | `sandbox-js` | `server`, `desktop-full` | 262144 | 1048576 |
+| `data.put` | V3 | `plugin-storage:write` | `sandbox-js` | `server`, `desktop-full` | 262144 | 1048576 |
+| `data.query` | V3 | `plugin-storage:read` | `sandbox-js` | `server`, `desktop-full` | 262144 | 1048576 |
+| `data.restore` | V3 | `plugin-storage:write` | `sandbox-js` | `server`, `desktop-full` | 262144 | 1048576 |
 | `diary.create` | V1 | `diary:write` | `node-action`, `sandbox-js` | `server`, `desktop-full` | 262144 | 1048576 |
 | `diary.get` | V1 | `diary:read` | `node-action`, `sandbox-js` | `server`, `desktop-full` | 262144 | 1048576 |
 | `diary.list` | V1 | `diary:read` | `node-action`, `sandbox-js` | `server`, `desktop-full` | 262144 | 1048576 |

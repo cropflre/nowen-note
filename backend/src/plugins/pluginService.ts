@@ -21,6 +21,8 @@ import { getExtensionPlatformFeatureFlags } from "./featureFlags.js";
 import { buildAppRegistryV3, type AppPlatformV3 } from "./applicationV3.js";
 import { removeInboundWebhook } from "./inboundWebhooks.js";
 import { AppRuntimeV3 } from "./appRuntimeV3.js";
+import { getApplicationV3FeatureFlags } from "./applicationV3.js";
+import type { PluginManifestV3 } from "./types.js";
 
 function manifestOf(record: PluginRegistryRecord): PluginManifest {
   return JSON.parse(record.manifestJson) as PluginManifest;
@@ -105,6 +107,30 @@ export class PluginService {
       this.policy.resolve(compatibilityInputFromRecord(record)).allowed,
     );
     return buildAppRegistryV3(trusted, platform);
+  }
+
+  async listDashboardWidgets(userId: string, workspaceId: string | null, platform: AppPlatformV3) {
+    if (!getApplicationV3FeatureFlags().dashboardWidgets) return [];
+    const pages = this.listApplicationPages(platform), result = [];
+    for (const record of this.registry.list()) {
+      if (record.apiVersion !== 3 || !pages.some(page => page.pluginId === record.id)) continue;
+      try { this.appRuntime.eligible(record.id); } catch { continue; }
+      const manifest = JSON.parse(record.manifestJson) as PluginManifestV3;
+      for (const widget of manifest.contributes.widgets || []) {
+        const page = pages.find(page => page.pluginId === record.id && page.id === widget.pageId); if (!page || result.length >= 32) continue;
+        let preview: unknown = null, error: string | undefined;
+        try {
+          if (widget.collection) {
+            const context = { pluginId: record.id, userId, workspaceId, actionId: "widget", executionId: "widget-preview" };
+            const data = await this.broker.call(context, { method: "data.query", args: { collection: widget.collection, limit: 5, orderBy: "updatedAt", descending: true } }) as any;
+            const done = widget.type === "status" ? await this.broker.call(context, { method: "data.query", args: { collection: widget.collection, where: { [widget.field || "status"]: "done" }, limit: 1 } }) as any : null;
+            preview = { total: data.total, items: data.items.map((item: any) => ({ id: item.id, title: typeof item.value.title === "string" ? item.value.title.slice(0, 200) : item.id })), ...(done ? { done: done.total, open: data.total - done.total } : {}) };
+          }
+        } catch (cause) { error = (cause as { code?: string }).code || "PLUGIN_DATA_UNAVAILABLE"; }
+        result.push({ ...widget, pluginId: record.id, runtimeId: record.id + "/" + widget.id, page, preview, error });
+      }
+    }
+    return result;
   }
 
   getSettings(pluginId: string, ownerUserId: string): Record<string, unknown> {
@@ -230,9 +256,11 @@ export class PluginService {
       "unsigned",
       Boolean(confirmedBy || inheritedConfirmation),
     ));
-    return this.publicRecord(await this.updates.installUpdate(candidate, installedBy, {
+    const installed = await this.updates.installUpdate(candidate, installedBy, {
       nodeRuntimeConfirmedBy: confirmedBy,
-    }));
+    });
+    if (candidate.manifest.apiVersion === 3) this.registry.restoreRetainedStorage(candidate.manifest.id, candidate.manifest.publisher);
+    return this.publicRecord(installed);
   }
 
   async loadDevelopmentDirectory(
@@ -256,6 +284,7 @@ export class PluginService {
       Boolean(confirmedBy),
     ));
     const record = this.installer.loadDevelopmentDirectory(validated, installedBy, confirmedBy);
+    if (validated.manifest.apiVersion === 3) this.registry.restoreRetainedStorage(validated.manifest.id, validated.manifest.publisher);
     return this.publicRecord(record);
   }
 
@@ -429,9 +458,9 @@ export class PluginService {
     return this.get(pluginId);
   }
 
-  async uninstall(pluginId: string, deleteAppData = false): Promise<void> {
+  async uninstall(pluginId: string, deleteAppData = false, retainAppData = false): Promise<void> {
     const record = this.requireRecord(pluginId);
-    if (record.apiVersion === 3 && !deleteAppData && getDb().prepare("SELECT 1 FROM plugin_storage WHERE pluginId=? LIMIT 1").get(pluginId)) {
+    if (record.apiVersion === 3 && !deleteAppData && !retainAppData && getDb().prepare("SELECT 1 FROM plugin_storage WHERE pluginId=? LIMIT 1").get(pluginId)) {
       throw Object.assign(new Error("卸载此应用将删除所有用户和工作区的专属数据，请明确确认；取消卸载并停用可保留数据"), { code: "PLUGIN_DATA_DELETE_CONFIRMATION_REQUIRED" });
     }
     // Stop new UI sessions before shutdown yields; an empty-data check must not race a new write.
@@ -441,7 +470,14 @@ export class PluginService {
     const hooks = getDb().prepare("SELECT hookId,ownerUserId FROM plugin_inbound_webhooks WHERE pluginId=?").all(pluginId) as Array<{ hookId: string; ownerUserId: string }>;
     for (const hook of hooks) removeInboundWebhook(pluginId, hook.hookId, hook.ownerUserId);
     this.installer.removeFiles(record);
-    this.registry.remove(pluginId);
+    const db = getDb();
+    db.transaction(() => {
+      if (record.apiVersion === 3 && retainAppData && !deleteAppData) {
+        db.prepare(`INSERT OR REPLACE INTO plugin_retained_storage(pluginId,publisher,scopeType,scopeId,key,value,updatedAt)
+          SELECT pluginId,?,scopeType,scopeId,key,value,updatedAt FROM plugin_storage WHERE pluginId=?`).run(record.publisher || JSON.parse(record.manifestJson).publisher, pluginId);
+      } else if (record.apiVersion === 3 && deleteAppData) db.prepare("DELETE FROM plugin_retained_storage WHERE pluginId=?").run(pluginId);
+      this.registry.remove(pluginId);
+    })();
   }
 
   listVersions(pluginId: string): Array<Record<string, unknown>> {

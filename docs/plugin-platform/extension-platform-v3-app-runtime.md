@@ -2,6 +2,8 @@
 
 2026-10-18，Phase 1B/1C 闭环已合入 `release/v1.5.3` 的 `b852fed1`；按维护者要求，V3 应用页面现作为 1.5.3 功能默认开放，不等待 1.6.0。默认开放不代表跨平台安全验收或正式发布完成。
 
+> 后续 [Phase 2：Dashboard 与插件数据](./extension-platform-v3-dashboard-data.md) 已在同一 1.5.3 分支实现。以下基础运行约束继续生效，Phase 2 的方法、容量、布局和保留卸载规则见新文档。
+
 ## 可运行范围
 
 复用现有 Manifest、ZIP 安装器、Registry、权限、策略和 HostApiBroker，新增应用目录、独立页面、固定侧栏和 MessageChannel 适配。没有第二套插件安装或业务数据系统。
@@ -21,7 +23,7 @@ NOWEN_EXTENSION_V3_CORE
 NOWEN_EXTENSION_V3_APP_PAGES
 ```
 
-V3 的默认值不打开旧 V2.1 声明式 UI/布局编辑、Plugin Studio、文件处理或文档类型；这些能力仍保留原来的开关和 1.6.0 兼容合同。Dashboard Widget、结构化 Plugin Data 默认也仍关闭，当前不提供其功能。`/api/plugins/features` 的 `targetNowenVersion: 1.6.0` 属于旧 V2.1，V3 应用按真实 `currentNowenVersion: 1.5.3` 运行。
+V3 的默认值不打开旧 V2.1 声明式 UI/布局编辑、Plugin Studio、文件处理或文档类型；这些能力仍保留原来的开关和 1.6.0 兼容合同。Phase 2 的 Dashboard Widget 和结构化 Plugin Data 已默认开放，可分别使用专用开关关闭。`/api/plugins/features` 的 `targetNowenVersion: 1.6.0` 属于旧 V2.1，V3 应用按真实 `currentNowenVersion: 1.5.3` 运行。
 
 设置中的现有插件管理页受应用开关控制；管理员沿用现有安装、权限确认和启停流程。V3 UI 明确标为“隔离应用界面代码”，不能按旧声明式零代码扩展展示或跳过授权。
 
@@ -59,7 +61,7 @@ V3 的默认值不打开旧 V2.1 声明式 UI/布局编辑、Plugin Studio、文
 
 KV 复用 `plugin_storage`，不修改核心笔记、任务、Outbox 或 Sync V2。服务重启后数据保留；禁用/重新启用也保留。侧栏 pin 仅保存于当前设备，按服务器与账号隔离，不是跨设备同步功能。
 
-卸载包含 KV 数据的 V3 应用，服务器要求显式 `deleteAppData: true`；管理界面告知管理员这将删除所有用户和工作区的该插件数据。取消卸载并禁用可保留数据。没有提供卸载保留、数据导出、集合查询、迁移或 Dashboard；这些留给后续 Plugin Data 阶段。
+卸载包含 KV 数据的 V3 应用，服务器要求显式 `deleteAppData: true`；管理界面告知管理员这将删除所有用户和工作区的该插件数据。取消卸载并禁用可保留数据。后续 Phase 2 已提供保留卸载、当前 scope 导出/恢复、集合查询、声明式迁移和 Dashboard，详见 Phase 2 文档。
 
 ## 验证与证据边界
 
@@ -87,4 +89,4 @@ npx playwright test --config playwright.plugin-apps.config.ts --reporter=line
 
 Windows 的本地 better-sqlite3 如绑定 Electron ABI，可通过 `NOWEN_QA_NODE` 指定 Electron 可执行文件；测试以 `ELECTRON_RUN_AS_NODE=1` 启动，使用独立临时配置。`NOWEN_QA_BROWSER_CHANNEL=chrome` 可使用本机 Chrome。CI 使用 Node 22 安装匹配的依赖及 Chromium。
 
-V3 专项 CI 已增加 `release/v1.5.3` 推送触发；新增 CI 配置不代表远程 Actions 已运行。Electron 成品、Docker/NAS、Android/iOS/HarmonyOS 及真实用户环境均未验收；当前不能宣称完整 V3 MVP 或跨平台安全验收完成。维护者可在 1.5.3 分支进行发布验收；下一阶段补齐安全边界与平台验收，再开始 Dashboard Widget / 结构化插件数据。
+V3 专项 CI 已增加 `release/v1.5.3` 推送触发；新增 CI 配置不代表远程 Actions 已运行。Electron 成品、Docker/NAS、Android/iOS/HarmonyOS 及真实用户环境均未验收；当前不能宣称完整 V3 MVP 或跨平台安全验收完成。维护者可在 1.5.3 分支进行发布验收；Phase 2 的交付与未覆盖范围另见专门文档，安全边界与平台验收仍需补齐。

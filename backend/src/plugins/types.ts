@@ -295,6 +295,7 @@ export interface PluginManifestV3 {
       requiredPermissions: PluginPermission[];
     }>;
     uiAssets: Record<string, string>;
+    widgets?: import("./dashboardV3.js").PluginWidgetV3[];
   };
 }
 

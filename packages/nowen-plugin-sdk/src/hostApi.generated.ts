@@ -11,11 +11,11 @@ function deepFreeze<T>(value: T): T {
 
 export type PluginHostRuntime = "node-action" | "sandbox-js";
 export type HostApiPermission = "attachments:read" | "capture:write" | "diary:read" | "diary:write" | "external:fetch" | "mindmaps:read" | "mindmaps:write" | "notebooks:read" | "notebooks:write" | "notes:read" | "notes:write" | "plugin-storage:read" | "plugin-storage:write" | "secrets:use" | "tags:read" | "tags:write" | "tasks:read" | "tasks:write";
-export type HostApiMethod = "attachments.get" | "attachments.list" | "capture.importUrl" | "diary.create" | "diary.get" | "diary.list" | "external.fetch" | "mindmaps.create" | "mindmaps.get" | "mindmaps.list" | "mindmaps.update" | "notebooks.create" | "notebooks.get" | "notebooks.list" | "notes.create" | "notes.get" | "notes.list" | "notes.update" | "runtime.capabilities" | "secrets.crypt" | "secrets.digest" | "settings.get" | "storage.delete" | "storage.get" | "storage.set" | "tags.addToNote" | "tags.create" | "tags.list" | "tags.removeFromNote" | "tasks.create" | "tasks.get" | "tasks.list" | "tasks.update";
+export type HostApiMethod = "attachments.get" | "attachments.list" | "capture.importUrl" | "data.delete" | "data.export" | "data.get" | "data.import" | "data.migrate" | "data.put" | "data.query" | "data.restore" | "diary.create" | "diary.get" | "diary.list" | "external.fetch" | "mindmaps.create" | "mindmaps.get" | "mindmaps.list" | "mindmaps.update" | "notebooks.create" | "notebooks.get" | "notebooks.list" | "notes.create" | "notes.get" | "notes.list" | "notes.update" | "runtime.capabilities" | "secrets.crypt" | "secrets.digest" | "settings.get" | "storage.delete" | "storage.get" | "storage.set" | "tags.addToNote" | "tags.create" | "tags.list" | "tags.removeFromNote" | "tasks.create" | "tasks.get" | "tasks.list" | "tasks.update";
 
 export interface HostApiContractEntry {
   method: HostApiMethod;
-  sinceApiVersion: 1 | 2;
+  sinceApiVersion: 1 | 2 | 3;
   permission: HostApiPermission | null;
   runtimes: readonly PluginHostRuntime[];
   maxArgsBytes: number;
@@ -28,7 +28,7 @@ export interface HostApiBudgets {
   readonly hostCallResultBytes: number;
 }
 
-export const HOST_API_CONTRACT_VERSION = 4 as const;
+export const HOST_API_CONTRACT_VERSION = 5 as const;
 export const HOST_API_BUDGETS: HostApiBudgets = deepFreeze({
   "ipcMessageBytes": 2097152,
   "hostCallArgsBytes": 262144,
@@ -63,6 +63,86 @@ export const HOST_API_CONTRACT: readonly HostApiContractEntry[] = deepFreeze([
     "permission": "capture:write",
     "runtimes": [
       "node-action",
+      "sandbox-js"
+    ],
+    "maxArgsBytes": 262144,
+    "maxResultBytes": 1048576
+  },
+  {
+    "method": "data.delete",
+    "sinceApiVersion": 3,
+    "permission": "plugin-storage:write",
+    "runtimes": [
+      "sandbox-js"
+    ],
+    "maxArgsBytes": 262144,
+    "maxResultBytes": 1048576
+  },
+  {
+    "method": "data.export",
+    "sinceApiVersion": 3,
+    "permission": "plugin-storage:read",
+    "runtimes": [
+      "sandbox-js"
+    ],
+    "maxArgsBytes": 262144,
+    "maxResultBytes": 1048576
+  },
+  {
+    "method": "data.get",
+    "sinceApiVersion": 3,
+    "permission": "plugin-storage:read",
+    "runtimes": [
+      "sandbox-js"
+    ],
+    "maxArgsBytes": 262144,
+    "maxResultBytes": 1048576
+  },
+  {
+    "method": "data.import",
+    "sinceApiVersion": 3,
+    "permission": "plugin-storage:write",
+    "runtimes": [
+      "sandbox-js"
+    ],
+    "maxArgsBytes": 262144,
+    "maxResultBytes": 1048576
+  },
+  {
+    "method": "data.migrate",
+    "sinceApiVersion": 3,
+    "permission": "plugin-storage:write",
+    "runtimes": [
+      "sandbox-js"
+    ],
+    "maxArgsBytes": 262144,
+    "maxResultBytes": 1048576
+  },
+  {
+    "method": "data.put",
+    "sinceApiVersion": 3,
+    "permission": "plugin-storage:write",
+    "runtimes": [
+      "sandbox-js"
+    ],
+    "maxArgsBytes": 262144,
+    "maxResultBytes": 1048576
+  },
+  {
+    "method": "data.query",
+    "sinceApiVersion": 3,
+    "permission": "plugin-storage:read",
+    "runtimes": [
+      "sandbox-js"
+    ],
+    "maxArgsBytes": 262144,
+    "maxResultBytes": 1048576
+  },
+  {
+    "method": "data.restore",
+    "sinceApiVersion": 3,
+    "permission": "plugin-storage:write",
+    "runtimes": [
       "sandbox-js"
     ],
     "maxArgsBytes": 262144,
@@ -467,6 +547,17 @@ export interface StorageApi {
   set(input: { key: string; value: unknown; scopeType?: "user" | "workspace"; scopeId?: string }): Promise<{ success: true }>;
 }
 
+export interface PluginDataApi {
+  delete(input: { collection: string; id: string; schemaVersion: number; expectedRevision: number }): Promise<{ success: true }>;
+  export(): Promise<{ format: 1; pluginId: string; digest: string; entries: Array<{ key: string; value: unknown }> }>;
+  get(input: { collection: string; id: string }): Promise<{ schemaVersion: number; revision: number; item: { id: string; value: Record<string, unknown>; revision: number; updatedAt: string } | null }>;
+  import(input: { expectedDigest: string; snapshot: { format: 1; pluginId: string; digest: string; entries: Array<{ key: string; value: unknown }> } }): Promise<{ success: true; digest: string }>;
+  migrate(input: { collection: string; expectedRevision: number; fromVersion: number; toVersion: number; defaults: Record<string, unknown> }): Promise<{ schemaVersion: number; revision: number; total: number; items: unknown[] }>;
+  put(input: { collection: string; id: string; value: Record<string, unknown>; schemaVersion: number; expectedRevision: number }): Promise<{ id: string; value: Record<string, unknown>; revision: number; updatedAt: string }>;
+  query(input: { collection: string; where?: Record<string, string | number | boolean | null>; orderBy?: string; descending?: boolean; offset?: number; limit?: number }): Promise<{ schemaVersion: number; revision: number; total: number; items: Array<{ id: string; value: Record<string, unknown>; revision: number; updatedAt: string }> }>;
+  restore(input: { collection: string; expectedRevision: number }): Promise<{ schemaVersion: number; revision: number; total: number; items: unknown[] }>;
+}
+
 export interface ExternalApi {
   fetch(input: { url: string; method?: string; headers?: Record<string, string>; body?: unknown; connection?: string }): Promise<{ status: number; ok: boolean; headers: { "content-type": string | null }; body: string }>;
 }
@@ -500,6 +591,7 @@ export interface NowenHostApi {
   diary: DiaryApi;
   mindmaps: MindmapsApi;
   storage: StorageApi;
+  data: PluginDataApi;
   external: ExternalApi;
   runtime: RuntimeApi;
   capture: CaptureApi;

@@ -30,6 +30,11 @@
     {"code":"PLUGIN_UI_FEATURE_DISABLED","category":"feature-gate","retryable":false,"description":"UI contributions are disabled by the host"},
     {"code":"PLUGIN_DECLARATIVE_NOT_EXECUTABLE","category":"runtime","retryable":false,"description":"Declarative extensions cannot execute actions"},
     {"code":"PLUGIN_CONTRIBUTION_INVALID","category":"validation","retryable":false,"description":"A declarative contribution failed validation"},
-    {"code":"PLUGIN_ERROR","category":"runtime","retryable":false,"description":"Unclassified extension failure"}
+    {"code":"PLUGIN_ERROR","category":"runtime","retryable":false,"description":"Unclassified extension failure"},
+    {"code":"PLUGIN_DATA_INVALID","category":"validation","retryable":false,"description":"Invalid structured data input"},
+    {"code":"PLUGIN_DATA_CONFLICT","category":"validation","retryable":false,"description":"Record, schema or snapshot changed; reload before retrying"},
+    {"code":"PLUGIN_DATA_QUOTA_EXCEEDED","category":"validation","retryable":false,"description":"Plugin data capacity or record budget exceeded"},
+    {"code":"PLUGIN_DATA_DISABLED","category":"validation","retryable":false,"description":"Structured plugin data is disabled"},
+    {"code":"PLUGIN_DATA_BACKUP_MISSING","category":"validation","retryable":false,"description":"No collection migration snapshot is available"}
   ]
 }

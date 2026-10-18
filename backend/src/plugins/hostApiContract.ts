@@ -11,7 +11,7 @@ export type HostRuntime = "node-action" | "sandbox-js";
 
 export interface HostApiContractEntry {
   method: string;
-  sinceApiVersion: 1 | 2;
+  sinceApiVersion: 1 | 2 | 3;
   permission: PluginPermission | null;
   runtimes: readonly HostRuntime[];
   maxArgsBytes: number;
@@ -38,7 +38,7 @@ function hostMethodError(method: string, code: "HOST_METHOD_NOT_FOUND" | "HOST_M
 
 export function requireHostMethod(
   method: string,
-  apiVersion: 1 | 2,
+  apiVersion: 1 | 2 | 3,
   runtime: HostRuntime,
 ): HostApiContractEntry {
   const entry = methods.get(method);

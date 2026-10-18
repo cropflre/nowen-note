@@ -186,6 +186,10 @@ async function contributionMutation<T>(operation: Promise<T>): Promise<T> {
 
 export const pluginApi = {
   features: () => request<ExtensionPlatformFeatureFlags>("/plugins/features"),
+  widgets: (platform: string, workspaceId: string) => request<PluginDashboardWidget[]>(`/plugins/widgets?platform=${encodeURIComponent(platform)}&workspaceId=${encodeURIComponent(workspaceId)}`),
+  widgetEvents: (workspaceId: string, signal: AbortSignal) => fetchWithAuthRefresh(`${getBaseUrl()}/plugins/widget-events`, { method: "POST", signal, headers: { Authorization: `Bearer ${getAccessToken() || ""}`, "Content-Type": "application/json" }, body: JSON.stringify({ workspaceId }) }, getBaseUrl()),
+  exportData: (id: string, workspaceId: string) => request<PluginDataSnapshot>(`/plugins/data/${encodeURIComponent(id)}/export?workspaceId=${encodeURIComponent(workspaceId)}`),
+  importData: (id: string, workspaceId: string, snapshot: PluginDataSnapshot, expectedDigest: string) => contributionMutation(request(`/plugins/data/${encodeURIComponent(id)}/import`, { method: "POST", body: JSON.stringify({ workspaceId, snapshot, expectedDigest }) })),
   list: () => request<InstalledPlugin[]>("/plugins"),
   actions: () => request<Array<PluginAction & { pluginId: string; actionId: string }>>("/plugins/actions"),
   contributions: () => request<PluginContributionRecord[]>("/plugins/contributions"),
@@ -207,7 +211,7 @@ export const pluginApi = {
   enable: (id: string) => contributionMutation(request(`/plugins/${encodeURIComponent(id)}/enable`, { method: "POST" })),
   disable: (id: string) => contributionMutation(request(`/plugins/${encodeURIComponent(id)}/disable`, { method: "POST" })),
   reload: (id: string) => contributionMutation(request(`/plugins/${encodeURIComponent(id)}/reload`, { method: "POST" })),
-  uninstall: (id: string, deleteAppData = false) => contributionMutation(request(`/plugins/${encodeURIComponent(id)}`, { method: "DELETE", body: JSON.stringify({ deleteAppData }) })),
+  uninstall: (id: string, deleteAppData = false, retainAppData = false) => contributionMutation(request(`/plugins/${encodeURIComponent(id)}`, { method: "DELETE", body: JSON.stringify({ deleteAppData, retainAppData }) })),
   execute: (pluginId: string, actionId: string, input: Record<string, unknown>) => request<{ success: boolean; executionId: string; data: unknown }>(`/plugins/${encodeURIComponent(pluginId)}/actions/${encodeURIComponent(actionId)}/execute`, { method: "POST", body: JSON.stringify({ input }) }),
   executions: (id: string) => request<PluginExecution[]>(`/plugins/${encodeURIComponent(id)}/executions`),
   versions: (id: string) => request<PluginVersion[]>(`/plugins/${encodeURIComponent(id)}/versions`),
@@ -255,3 +259,10 @@ export const wechatCaptureApi = {
   collect: (text: string) => request<{ accepted: number; duplicates: number }>("/wechat-capture/collect", { method: "POST", body: JSON.stringify({ text }) }),
   retry: (id: string) => request(`/wechat-capture/items/${encodeURIComponent(id)}/retry`, { method: "POST" }),
 };
+
+export interface PluginDashboardWidget {
+  id: string; title: string; type: "shortcut" | "statistic" | "status" | "list" | "app";
+  pageId: string; defaultSize: "small" | "medium" | "large"; pluginId: string; runtimeId: string;
+  page: PluginAppPage; preview: { total: number; done?: number; open?: number; items: Array<{ id: string; title: string }> } | null; error?: string;
+}
+export interface PluginDataSnapshot { format: 1; pluginId: string; digest: string; entries: Array<{ key: string; value: unknown }> }

@@ -12,6 +12,8 @@ export const APP_BRIDGE_V3_METHODS = [
   "storage.get",
   "storage.set",
   "storage.delete",
+  "data.query", "data.get", "data.put", "data.delete", "data.migrate", "data.restore",
+  "notes.list", "tasks.list",
   "action.execute",
   "navigation.open",
   "notification.show",

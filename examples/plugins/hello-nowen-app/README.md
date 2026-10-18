@@ -18,3 +18,5 @@ Output is under `dist/`. After editing `ui/`, update manifest SHA-256 values and
 Personal data is isolated by plugin/user; workspace data by plugin/workspace. Disable and restart retain data. Storage requires the server; this is not an offline or cross-device sync example. If a save times out, reopen and read before retrying. Uninstall deletes the app data of all users/workspaces; cancel and disable to retain it.
 
 安全边界、真实 1.5.3 宿主测试与未验收平台见 [运行文档](../../../docs/plugin-platform/extension-platform-v3-app-runtime.md)。See the runtime document for security limits, real 1.5.3 host tests and unverified platforms.
+
+Phase 2 新增快捷卡片和手动启动的交互卡片，可在“工作台→编辑布局”添加。Phase 2 adds a shortcut widget and a manually activated app widget, available in Dashboard → Edit layout.

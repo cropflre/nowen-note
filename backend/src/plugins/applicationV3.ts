@@ -47,8 +47,8 @@ export function getApplicationV3FeatureFlags(): Readonly<ApplicationV3FeatureFla
   return Object.freeze({
     core,
     appPages,
-    dashboardWidgets: appPages && envEnabled("NOWEN_EXTENSION_V3_DASHBOARD_WIDGETS"),
-    pluginData: core && envEnabled("NOWEN_EXTENSION_V3_PLUGIN_DATA"),
+    dashboardWidgets: appPages && envEnabled("NOWEN_EXTENSION_V3_DASHBOARD_WIDGETS", true),
+    pluginData: core && envEnabled("NOWEN_EXTENSION_V3_PLUGIN_DATA", true),
   });
 }
 

@@ -7,11 +7,11 @@ function deepFreeze<T>(value: T): T {
   return value;
 }
 
-export const EXTENSION_CAPABILITY_CATALOG_DIGEST = "9f71e9450fefc6a07f1f33cd1a24c0d556e51b70de2c24da45268b74c4865850" as const;
+export const EXTENSION_CAPABILITY_CATALOG_DIGEST = "c4530c260d3208c35a9fd4be036e45170375e2b4b946b1011eb888446496fb60" as const;
 export const EXTENSION_CAPABILITY_CATALOG = deepFreeze({
   "catalogVersion": 1,
   "hostApi": {
-    "contractVersion": 4,
+    "contractVersion": 5,
     "budgets": {
       "ipcMessageBytes": 2097152,
       "hostCallArgsBytes": 262144,
@@ -229,6 +229,198 @@ export const EXTENSION_CAPABILITY_CATALOG = deepFreeze({
           }
         ],
         "sdkSignature": "importUrl(input: { url: string; notebookId: string; tags?: string[]; comment?: string }): Promise<{ id: string; title: string; imagesImported: number; imagesSkipped: number }>;"
+      },
+      {
+        "method": "data.delete",
+        "sinceApiVersion": 3,
+        "permission": "plugin-storage:write",
+        "runtimes": [
+          "sandbox-js"
+        ],
+        "platforms": [
+          "server",
+          "desktop-full"
+        ],
+        "maxArgsBytes": 262144,
+        "maxResultBytes": 1048576,
+        "inputSchema": {
+          "type": "object"
+        },
+        "outputSchema": {},
+        "examples": [
+          {
+            "input": {}
+          }
+        ],
+        "sdkSignature": "delete(input: { collection: string; id: string; schemaVersion: number; expectedRevision: number }): Promise<{ success: true }>;"
+      },
+      {
+        "method": "data.export",
+        "sinceApiVersion": 3,
+        "permission": "plugin-storage:read",
+        "runtimes": [
+          "sandbox-js"
+        ],
+        "platforms": [
+          "server",
+          "desktop-full"
+        ],
+        "maxArgsBytes": 262144,
+        "maxResultBytes": 1048576,
+        "inputSchema": {
+          "type": "object"
+        },
+        "outputSchema": {},
+        "examples": [
+          {
+            "input": {}
+          }
+        ],
+        "sdkSignature": "export(): Promise<{ format: 1; pluginId: string; digest: string; entries: Array<{ key: string; value: unknown }> }>;"
+      },
+      {
+        "method": "data.get",
+        "sinceApiVersion": 3,
+        "permission": "plugin-storage:read",
+        "runtimes": [
+          "sandbox-js"
+        ],
+        "platforms": [
+          "server",
+          "desktop-full"
+        ],
+        "maxArgsBytes": 262144,
+        "maxResultBytes": 1048576,
+        "inputSchema": {
+          "type": "object"
+        },
+        "outputSchema": {},
+        "examples": [
+          {
+            "input": {}
+          }
+        ],
+        "sdkSignature": "get(input: { collection: string; id: string }): Promise<{ schemaVersion: number; revision: number; item: { id: string; value: Record<string, unknown>; revision: number; updatedAt: string } | null }>;"
+      },
+      {
+        "method": "data.import",
+        "sinceApiVersion": 3,
+        "permission": "plugin-storage:write",
+        "runtimes": [
+          "sandbox-js"
+        ],
+        "platforms": [
+          "server",
+          "desktop-full"
+        ],
+        "maxArgsBytes": 262144,
+        "maxResultBytes": 1048576,
+        "inputSchema": {
+          "type": "object"
+        },
+        "outputSchema": {},
+        "examples": [
+          {
+            "input": {}
+          }
+        ],
+        "sdkSignature": "import(input: { expectedDigest: string; snapshot: { format: 1; pluginId: string; digest: string; entries: Array<{ key: string; value: unknown }> } }): Promise<{ success: true; digest: string }>;"
+      },
+      {
+        "method": "data.migrate",
+        "sinceApiVersion": 3,
+        "permission": "plugin-storage:write",
+        "runtimes": [
+          "sandbox-js"
+        ],
+        "platforms": [
+          "server",
+          "desktop-full"
+        ],
+        "maxArgsBytes": 262144,
+        "maxResultBytes": 1048576,
+        "inputSchema": {
+          "type": "object"
+        },
+        "outputSchema": {},
+        "examples": [
+          {
+            "input": {}
+          }
+        ],
+        "sdkSignature": "migrate(input: { collection: string; expectedRevision: number; fromVersion: number; toVersion: number; defaults: Record<string, unknown> }): Promise<{ schemaVersion: number; revision: number; total: number; items: unknown[] }>;"
+      },
+      {
+        "method": "data.put",
+        "sinceApiVersion": 3,
+        "permission": "plugin-storage:write",
+        "runtimes": [
+          "sandbox-js"
+        ],
+        "platforms": [
+          "server",
+          "desktop-full"
+        ],
+        "maxArgsBytes": 262144,
+        "maxResultBytes": 1048576,
+        "inputSchema": {
+          "type": "object"
+        },
+        "outputSchema": {},
+        "examples": [
+          {
+            "input": {}
+          }
+        ],
+        "sdkSignature": "put(input: { collection: string; id: string; value: Record<string, unknown>; schemaVersion: number; expectedRevision: number }): Promise<{ id: string; value: Record<string, unknown>; revision: number; updatedAt: string }>;"
+      },
+      {
+        "method": "data.query",
+        "sinceApiVersion": 3,
+        "permission": "plugin-storage:read",
+        "runtimes": [
+          "sandbox-js"
+        ],
+        "platforms": [
+          "server",
+          "desktop-full"
+        ],
+        "maxArgsBytes": 262144,
+        "maxResultBytes": 1048576,
+        "inputSchema": {
+          "type": "object"
+        },
+        "outputSchema": {},
+        "examples": [
+          {
+            "input": {}
+          }
+        ],
+        "sdkSignature": "query(input: { collection: string; where?: Record<string, string | number | boolean | null>; orderBy?: string; descending?: boolean; offset?: number; limit?: number }): Promise<{ schemaVersion: number; revision: number; total: number; items: Array<{ id: string; value: Record<string, unknown>; revision: number; updatedAt: string }> }>;"
+      },
+      {
+        "method": "data.restore",
+        "sinceApiVersion": 3,
+        "permission": "plugin-storage:write",
+        "runtimes": [
+          "sandbox-js"
+        ],
+        "platforms": [
+          "server",
+          "desktop-full"
+        ],
+        "maxArgsBytes": 262144,
+        "maxResultBytes": 1048576,
+        "inputSchema": {
+          "type": "object"
+        },
+        "outputSchema": {},
+        "examples": [
+          {
+            "input": {}
+          }
+        ],
+        "sdkSignature": "restore(input: { collection: string; expectedRevision: number }): Promise<{ schemaVersion: number; revision: number; total: number; items: unknown[] }>;"
       },
       {
         "method": "diary.create",
@@ -1328,6 +1520,36 @@ export const EXTENSION_CAPABILITY_CATALOG = deepFreeze({
         "description": "A declarative contribution failed validation"
       },
       {
+        "code": "PLUGIN_DATA_BACKUP_MISSING",
+        "category": "validation",
+        "retryable": false,
+        "description": "No collection migration snapshot is available"
+      },
+      {
+        "code": "PLUGIN_DATA_CONFLICT",
+        "category": "validation",
+        "retryable": false,
+        "description": "Record, schema or snapshot changed; reload before retrying"
+      },
+      {
+        "code": "PLUGIN_DATA_DISABLED",
+        "category": "validation",
+        "retryable": false,
+        "description": "Structured plugin data is disabled"
+      },
+      {
+        "code": "PLUGIN_DATA_INVALID",
+        "category": "validation",
+        "retryable": false,
+        "description": "Invalid structured data input"
+      },
+      {
+        "code": "PLUGIN_DATA_QUOTA_EXCEEDED",
+        "category": "validation",
+        "retryable": false,
+        "description": "Plugin data capacity or record budget exceeded"
+      },
+      {
         "code": "PLUGIN_DECLARATIVE_NOT_EXECUTABLE",
         "category": "runtime",
         "retryable": false,
@@ -1383,5 +1605,5 @@ export const EXTENSION_CAPABILITY_CATALOG = deepFreeze({
       }
     ]
   },
-  "digest": "9f71e9450fefc6a07f1f33cd1a24c0d556e51b70de2c24da45268b74c4865850"
+  "digest": "c4530c260d3208c35a9fd4be036e45170375e2b4b946b1011eb888446496fb60"
 } as const);

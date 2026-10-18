@@ -71,7 +71,7 @@ export class PluginRegistry {
       input.manifest.apiVersion, input.manifest.runtime, pluginManifestMain(input.manifest),
       input.source, input.trustLevel, input.status, input.checksum,
       JSON.stringify(input.manifest), input.installedPath, input.installedBy,
-      timestamp, timestamp, input.manifest.apiVersion === 2 ? input.manifest.publisher : null, input.signatureState || "unsigned",
+      timestamp, timestamp, input.manifest.apiVersion !== 1 ? input.manifest.publisher : null, input.signatureState || "unsigned",
       input.manifest.runtime === "sandbox-js" && input.trustLevel === "official" ? "automatic" : "manual",
       timestamp, confirmedAt, input.nodeRuntimeConfirmedBy || null,
     );
@@ -173,5 +173,15 @@ export class PluginRegistry {
 
   remove(id: string): void {
     getDb().prepare("DELETE FROM plugin_registry WHERE id = ?").run(id);
+  }
+
+  restoreRetainedStorage(id: string, publisher: string): void {
+    const db = getDb();
+    db.transaction(() => {
+      if (db.prepare("SELECT 1 FROM plugin_storage WHERE pluginId=? LIMIT 1").get(id)) return;
+      db.prepare(`INSERT OR IGNORE INTO plugin_storage(pluginId,scopeType,scopeId,key,value,updatedAt)
+        SELECT pluginId,scopeType,scopeId,key,value,updatedAt FROM plugin_retained_storage WHERE pluginId=? AND publisher=?`).run(id, publisher);
+      db.prepare("DELETE FROM plugin_retained_storage WHERE pluginId=? AND publisher=?").run(id, publisher);
+    })();
   }
 }

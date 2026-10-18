@@ -22,6 +22,7 @@ import { PluginRegistry } from "./registry.js";
 import { secureExternalFetch, type ExternalFetchRequest } from "./secureExternalFetch.js";
 import { PluginSecrets } from "./secrets.js";
 import crypto from "node:crypto";
+import { callPluginDataV3, checkPluginStorageQuota, COLLECTION_PREFIX } from "./pluginDataV3.js";
 import { importArticleUrl } from "../services/article-import.js";
 import type { HostCall, PluginExecutionContext, PluginManifest } from "./types.js";
 
@@ -90,7 +91,7 @@ export class HostApiBroker {
   async call(context: PluginExecutionContext, call: HostCall): Promise<unknown> {
     const record = this.registry.get(context.pluginId);
     // V3 UI uses the existing V2 sandbox permission contract, through its allowlisted adapter.
-    const apiVersion = record?.apiVersion === 2 || record?.apiVersion === 3 ? 2 : 1;
+    const apiVersion = record?.apiVersion === 3 ? 3 : record?.apiVersion === 2 ? 2 : 1;
     const runtime: HostRuntime = record?.runtime === "sandbox-js" || record?.apiVersion === 3 ? "sandbox-js" : "node-action";
     const contract = requireHostMethod(call.method, apiVersion, runtime);
     const methodPermission = contract.permission === null
@@ -109,6 +110,12 @@ export class HostApiBroker {
       case "diary": result = await this.diary(context, operation, args); break;
       case "mindmaps": result = await this.mindmaps(context, operation, args); break;
       case "storage": result = this.storage(context, operation, args); break;
+      case "data": {
+        if (record?.apiVersion !== 3) forbidden("V3 data is unavailable", "HOST_METHOD_UNSUPPORTED");
+        const write = !["query", "get", "export"].includes(operation);
+        if (context.workspaceId && !allowedWorkspace(context.workspaceId, context.userId, write)) forbidden("无权访问工作区插件数据");
+        result = callPluginDataV3(context, operation, args); break;
+      }
       case "external": result = await this.external(context, operation, args, methodPermission); break;
       case "runtime": result = this.runtime(context, operation); break;
       case "capture": result = await importArticleUrl(context, args); break;
@@ -146,10 +153,10 @@ export class HostApiBroker {
   private runtime(context: PluginExecutionContext, operation: string): unknown {
     if (operation !== "capabilities") throw createHostMethodNotFound(`runtime.${operation}`);
     const record = this.registry.get(context.pluginId);
-    const apiVersion = record?.apiVersion === 2 || record?.apiVersion === 3 ? 2 : 1;
+    const apiVersion = record?.apiVersion === 3 ? 3 : record?.apiVersion === 2 ? 2 : 1;
     const runtime: HostRuntime = record?.runtime === "sandbox-js" || record?.apiVersion === 3 ? "sandbox-js" : "node-action";
     const supportedMethods = Object.freeze(HOST_API_CONTRACT.filter(
-      (entry) => apiVersion >= entry.sinceApiVersion && entry.runtimes.includes(runtime),
+      (entry) => apiVersion >= entry.sinceApiVersion && (entry.runtimes as readonly HostRuntime[]).includes(runtime),
     ));
     return {
       apiVersion, runtime,
@@ -172,6 +179,10 @@ export class HostApiBroker {
     }
     if (operation === "list") {
       const limit = Math.max(1, Math.min(100, Number(args.limit) || 50));
+      if (args.metadataOnly === true && this.registry.get(context.pluginId)?.apiVersion === 3) {
+        const rows = db.prepare("SELECT id,title,workspaceId,updatedAt FROM notes WHERE isTrashed=0 AND workspaceId IS ? ORDER BY updatedAt DESC LIMIT 500").all(context.workspaceId || null) as JsonObject[];
+        return rows.filter(row => hasPermission(resolveNotePermission(row.id, context.userId).permission, "read")).slice(0, limit);
+      }
       const rows = db.prepare("SELECT id, notebookId, title, contentText, contentFormat, workspaceId, version, createdAt, updatedAt FROM notes WHERE isTrashed=0 ORDER BY updatedAt DESC LIMIT 500").all() as JsonObject[];
       return rows.filter((row) => hasPermission(resolveNotePermission(row.id, context.userId).permission, "read")).slice(0, limit);
     }
@@ -266,6 +277,10 @@ export class HostApiBroker {
     }
     if (operation === "list") {
       const limit = Math.max(1, Math.min(100, Number(args.limit) || 50));
+      if (args.metadataOnly === true && this.registry.get(context.pluginId)?.apiVersion === 3) {
+        const rows = db.prepare("SELECT id,userId,title,status,workspaceId,updatedAt FROM tasks WHERE workspaceId IS ? ORDER BY updatedAt DESC LIMIT 500").all(context.workspaceId || null) as JsonObject[];
+        return rows.filter(row => canReadPluginTask(row as { userId: string; workspaceId: string | null }, context.userId)).slice(0, limit);
+      }
       const offset = Math.max(0, Math.min(50000, Math.trunc(Number(args.offset) || 0)));
       // 个人任务使用数据库级分页，供定时任务简报逐页统计；默认列表仍兼容工作区任务。
       if (args.scope === "personal") {
@@ -371,6 +386,8 @@ export class HostApiBroker {
     const scopeId = scopeType === "workspace" ? requireString(args.scopeId ?? context.workspaceId, "workspace scopeId") : context.userId;
     if (scopeType === "workspace" && !allowedWorkspace(scopeId, context.userId, operation !== "get")) forbidden("无权访问该工作区插件存储");
     const key = requireString(args.key, "key");
+    const v3 = this.registry.get(context.pluginId)?.apiVersion === 3;
+    if (v3 && key.startsWith(COLLECTION_PREFIX)) forbidden("集合数据只能通过 data API 访问", "PLUGIN_DATA_INVALID");
     if (Buffer.byteLength(key) > 200) throw new Error("storage key 过长");
     if (operation === "get") {
       const row = db.prepare("SELECT value FROM plugin_storage WHERE pluginId=? AND scopeType=? AND scopeId=? AND key=?")
@@ -380,10 +397,14 @@ export class HostApiBroker {
     if (operation === "set") {
       const value = JSON.stringify(args.value);
       if (Buffer.byteLength(value) > 256 * 1024) throw new Error("plugin storage value 超过 256KB");
-      db.prepare(`INSERT INTO plugin_storage(pluginId,scopeType,scopeId,key,value,updatedAt) VALUES (?,?,?,?,?,?)
-        ON CONFLICT(pluginId,scopeType,scopeId,key) DO UPDATE SET value=excluded.value,updatedAt=excluded.updatedAt`)
-        .run(context.pluginId, scopeType, scopeId, key, value, new Date().toISOString());
-      return { success: true };
+      const write = () => {
+        if (v3) checkPluginStorageQuota({ ...context, workspaceId: scopeType === "workspace" ? scopeId : null }, key, value);
+        db.prepare(`INSERT INTO plugin_storage(pluginId,scopeType,scopeId,key,value,updatedAt) VALUES (?,?,?,?,?,?)
+          ON CONFLICT(pluginId,scopeType,scopeId,key) DO UPDATE SET value=excluded.value,updatedAt=excluded.updatedAt`)
+          .run(context.pluginId, scopeType, scopeId, key, value, new Date().toISOString());
+        return { success: true };
+      };
+      return v3 ? db.transaction(write)() : write();
     }
     if (operation === "delete") {
       db.prepare("DELETE FROM plugin_storage WHERE pluginId=? AND scopeType=? AND scopeId=? AND key=?")

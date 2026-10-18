@@ -10,7 +10,7 @@ function deepFreeze<T>(value: T): T {
   return value;
 }
 
-export const HOST_API_CONTRACT_VERSION = 4 as const;
+export const HOST_API_CONTRACT_VERSION = 5 as const;
 
 export const HOST_API_BUDGETS = deepFreeze({
   "ipcMessageBytes": 2097152,
@@ -47,6 +47,86 @@ export const HOST_API_CONTRACT = deepFreeze([
     "permission": "capture:write",
     "runtimes": [
       "node-action",
+      "sandbox-js"
+    ],
+    "maxArgsBytes": 262144,
+    "maxResultBytes": 1048576
+  },
+  {
+    "method": "data.delete",
+    "sinceApiVersion": 3,
+    "permission": "plugin-storage:write",
+    "runtimes": [
+      "sandbox-js"
+    ],
+    "maxArgsBytes": 262144,
+    "maxResultBytes": 1048576
+  },
+  {
+    "method": "data.export",
+    "sinceApiVersion": 3,
+    "permission": "plugin-storage:read",
+    "runtimes": [
+      "sandbox-js"
+    ],
+    "maxArgsBytes": 262144,
+    "maxResultBytes": 1048576
+  },
+  {
+    "method": "data.get",
+    "sinceApiVersion": 3,
+    "permission": "plugin-storage:read",
+    "runtimes": [
+      "sandbox-js"
+    ],
+    "maxArgsBytes": 262144,
+    "maxResultBytes": 1048576
+  },
+  {
+    "method": "data.import",
+    "sinceApiVersion": 3,
+    "permission": "plugin-storage:write",
+    "runtimes": [
+      "sandbox-js"
+    ],
+    "maxArgsBytes": 262144,
+    "maxResultBytes": 1048576
+  },
+  {
+    "method": "data.migrate",
+    "sinceApiVersion": 3,
+    "permission": "plugin-storage:write",
+    "runtimes": [
+      "sandbox-js"
+    ],
+    "maxArgsBytes": 262144,
+    "maxResultBytes": 1048576
+  },
+  {
+    "method": "data.put",
+    "sinceApiVersion": 3,
+    "permission": "plugin-storage:write",
+    "runtimes": [
+      "sandbox-js"
+    ],
+    "maxArgsBytes": 262144,
+    "maxResultBytes": 1048576
+  },
+  {
+    "method": "data.query",
+    "sinceApiVersion": 3,
+    "permission": "plugin-storage:read",
+    "runtimes": [
+      "sandbox-js"
+    ],
+    "maxArgsBytes": 262144,
+    "maxResultBytes": 1048576
+  },
+  {
+    "method": "data.restore",
+    "sinceApiVersion": 3,
+    "permission": "plugin-storage:write",
+    "runtimes": [
       "sandbox-js"
     ],
     "maxArgsBytes": 262144,

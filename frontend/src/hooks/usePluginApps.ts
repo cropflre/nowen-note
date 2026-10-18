@@ -6,6 +6,7 @@ import { loadPluginAppPins } from "@/lib/pluginApps";
 export function usePluginApps() {
   const [enabled, setEnabled] = useState(false), [pages, setPages] = useState<PluginAppPage[]>([]);
   const [pins, setPins] = useState<string[]>(loadPluginAppPins);
+  const [dashboardEnabled, setDashboardEnabled] = useState(false);
   useEffect(() => {
     let generation = 0, active = true;
     const load = async () => {
@@ -17,7 +18,7 @@ export function usePluginApps() {
         const features = await pluginApi.features();
         const allowed = features.applicationV3?.appPages === true;
         const result = allowed ? await pluginApi.apps(platform) : [];
-        if (active && current === generation) { setEnabled(allowed); setPages(result); }
+        if (active && current === generation) { setEnabled(allowed); setDashboardEnabled(allowed && features.applicationV3?.dashboardWidgets === true); setPages(result); }
       } catch { if (active && current === generation) { setEnabled(false); setPages([]); } }
     };
     const reset = () => { generation++; setEnabled(false); setPages([]); void load(); };
@@ -39,5 +40,5 @@ export function usePluginApps() {
     };
   }, []);
   const pinned = useCallback((page: PluginAppPage) => pins.includes(page.runtimeId), [pins]);
-  return { enabled, pages, pins, pinned };
+  return { enabled, dashboardEnabled: enabled && dashboardEnabled, pages, pins, pinned };
 }

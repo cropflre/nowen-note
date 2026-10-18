@@ -29,7 +29,7 @@ export class AppRuntimeV3 {
   private grants(pluginId: string): string {
     return JSON.stringify(this.permissions.list(pluginId).map(row => [row.permission, row.granted, row.configJson, row.grantedAt]));
   }
-  private eligible(pluginId: string) {
+  eligible(pluginId: string) {
     if (!getApplicationV3FeatureFlags().appPages) deny("PLUGIN_V3_FEATURE_DISABLED");
     const record = this.registry.get(pluginId);
     if (!record || record.apiVersion !== 3 || record.status !== "enabled" || record.activeOperationId || record.lifecycleState !== "stable" || !this.permissions.allDeclaredGranted(pluginId)) deny();
@@ -86,7 +86,16 @@ export class AppRuntimeV3 {
     const request = session.guard.accept(message);
     try {
       let data: unknown;
-      if (request.method === "context.get") data = { protocol: "nowen.plugin-ui.v3", methods: ["context.get", "storage.get", "storage.set", "storage.delete", "navigation.open"], workspaceId: session.workspaceId, theme: session.theme, platform: session.platform };
+      if (request.method === "context.get") data = { protocol: "nowen.plugin-ui.v3", methods: ["context.get", "storage.get", "storage.set", "storage.delete", "navigation.open", "data.query", "data.get", "data.put", "data.delete", "data.migrate", "data.restore", "notes.list", "tasks.list"], workspaceId: session.workspaceId, theme: session.theme, platform: session.platform };
+      else if (request.method.startsWith("data.") || ["notes.list", "tasks.list"].includes(request.method)) {
+        const context = { executionId: id, pluginId: session.guard.session.pluginId, actionId: "ui", userId: actor.userId, workspaceId: session.workspaceId };
+        if (request.method.startsWith("data.")) data = await this.broker.call(context, { method: request.method, args: request.params });
+        else {
+          if (Object.keys(request.params).length) deny("PLUGIN_UI_INVALID_PAYLOAD");
+          const items = await this.broker.call(context, { method: request.method, args: { limit: 20, metadataOnly: true } }) as Array<Record<string, unknown>>;
+          data = items.filter(row => (row.workspaceId || null) === session.workspaceId).map(row => ({ id: row.id, title: row.title, updatedAt: row.updatedAt, ...(request.method === "tasks.list" ? { status: row.status } : {}) }));
+        }
+      }
       else if (["storage.get", "storage.set", "storage.delete"].includes(request.method)) {
         if (Object.keys(request.params).some(key => !["key", "value"].includes(key))) deny("PLUGIN_UI_INVALID_PAYLOAD");
         // Scope and identity come exclusively from the authenticated host session.
@@ -94,8 +103,15 @@ export class AppRuntimeV3 {
           method: request.method, args: { ...request.params, scopeType: session.workspaceId ? "workspace" : "user", scopeId: session.workspaceId },
         });
       } else if (request.method === "navigation.open") {
+        if (Object.keys(request.params).some(key => !["target", "noteId"].includes(key))) deny("PLUGIN_UI_INVALID_PAYLOAD");
         if (typeof request.params.target !== "string" || !NAVIGATION.has(request.params.target)) deny("PLUGIN_UI_NAVIGATION_DENIED");
         data = { target: request.params.target };
+        if (request.params.noteId !== undefined) {
+          if (request.params.target !== "all" || typeof request.params.noteId !== "string") deny("PLUGIN_UI_NAVIGATION_DENIED");
+          const note = await this.broker.call({ executionId: id, pluginId: session.guard.session.pluginId, actionId: "ui", userId: actor.userId, workspaceId: session.workspaceId }, { method: "notes.get", args: { id: request.params.noteId } }) as { workspaceId?: string } | null;
+          if (!note || (note.workspaceId || null) !== session.workspaceId) deny("RESOURCE_FORBIDDEN");
+          data = { target: "all", noteId: request.params.noteId };
+        }
       } else deny("HOST_METHOD_UNSUPPORTED");
       this.check(id, nonce!, actor);
       const response: AppBridgeResponseV3 = { protocol: request.protocol, kind: "response", pluginId: request.pluginId, instanceId: id, requestId: request.requestId, ok: true, data };

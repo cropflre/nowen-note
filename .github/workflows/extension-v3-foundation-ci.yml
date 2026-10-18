@@ -5,6 +5,7 @@ on:
     branches: ["release/v1.5.3"]
     paths:
       - "backend/src/plugins/**"
+      - "backend/src/db/pluginRetainedStorageMigration.ts"
       - "backend/src/routes/plugins.ts"
       - "backend/src/index.ts"
       - "backend/tests/application-v3-*.ts"
@@ -13,6 +14,7 @@ on:
       - "frontend/playwright.plugin-apps.config.ts"
       - "packages/nowen-plugin-*/**"
       - "examples/plugins/hello-nowen-app/**"
+      - "examples/plugins/personal-dashboard/**"
       - "package*.json"
       - "backend/package*.json"
       - ".github/workflows/extension-v3-foundation-ci.yml"
@@ -34,10 +36,15 @@ on:
       - "backend/src/plugins/appBridgeV3.ts"
       - "backend/src/plugins/appDocumentV3.ts"
       - "backend/src/plugins/appRuntimeV3.ts"
+      - "backend/src/plugins/dashboardV3.ts"
+      - "backend/src/plugins/pluginDataV3.ts"
+      - "backend/src/db/pluginRetainedStorageMigration.ts"
       - "backend/src/plugins/hostApiBroker.ts"
       - "backend/tests/application-v3-foundation.test.ts"
       - "backend/tests/application-v3-*.ts"
       - "frontend/src/components/PluginApps.tsx"
+      - "frontend/src/components/PluginDashboard.tsx"
+      - "frontend/src/components/PluginDataActions.tsx"
       - "frontend/src/components/NavRail.tsx"
       - "frontend/src/components/SettingsModal.tsx"
       - "frontend/src/components/settings/plugins/PluginSettingsTab.tsx"
@@ -48,6 +55,7 @@ on:
       - "frontend/src/lib/serverUrl.ts"
       - "frontend/src/lib/pluginRuntimePresentation.ts"
       - "frontend/src/lib/__tests__/pluginApps.test.ts"
+      - "frontend/src/lib/__tests__/pluginDashboard.test.ts"
       - "frontend/src/lib/__tests__/pluginRuntimePresentation.test.ts"
       - "frontend/src/lib/__tests__/appPathNavigation.test.ts"
       - "frontend/src/i18n/pluginAppTranslations.ts"
@@ -56,6 +64,7 @@ on:
       - "packages/nowen-plugin-cli/**"
       - "packages/nowen-plugin-sdk/**"
       - "examples/plugins/hello-nowen-app/**"
+      - "examples/plugins/personal-dashboard/**"
       - "docs/plugin-platform/extension-platform-v3-phase0.md"
       - "docs/plugin-platform/extension-platform-v3-app-runtime.md"
       - ".github/workflows/extension-v3-foundation-ci.yml"
@@ -85,7 +94,9 @@ jobs:
         run: node --import tsx --import ./tests/setup-db-isolation.ts --test tests/application-v3-foundation.test.ts
       - name: V3 1.5.3 runtime and isolation contracts
         working-directory: backend
-        run: node --import tsx --import ./tests/setup-db-isolation.ts --test tests/application-v3-runtime.test.ts
+        run: |
+          node --import tsx --import ./tests/setup-db-isolation.ts --test tests/application-v3-runtime.test.ts
+          node --import tsx --import ./tests/setup-db-isolation.ts --test tests/application-v3-dashboard-data.test.ts
       - name: V2.1 compatibility regression
         working-directory: backend
         run: node --import tsx --import ./tests/setup-db-isolation.ts --test tests/extension-v2-1-feature-gates.test.ts tests/ui-contribution.test.ts
@@ -119,9 +130,12 @@ jobs:
       - name: Pack the example with the existing CLI
         working-directory: examples/plugins/hello-nowen-app
         run: node ../../../packages/nowen-plugin-cli/bin/nowen-plugin.mjs pack
+      - name: Pack Personal Dashboard
+        working-directory: examples/plugins/personal-dashboard
+        run: node ../../../packages/nowen-plugin-cli/bin/nowen-plugin.mjs pack
       - name: Navigation and MessageChannel contracts
         working-directory: frontend
-        run: npx vitest run src/lib/__tests__/pluginApps.test.ts src/lib/__tests__/appPathNavigation.test.ts src/lib/__tests__/serverUrl.test.ts src/lib/__tests__/pluginRuntimePresentation.test.ts
+        run: npx vitest run src/lib/__tests__/pluginDataActions.test.tsx src/lib/__tests__/pluginApps.test.ts src/lib/__tests__/pluginDashboard.test.ts src/lib/__tests__/appPathNavigation.test.ts src/lib/__tests__/serverUrl.test.ts src/lib/__tests__/pluginRuntimePresentation.test.ts
       - run: npm run build
         working-directory: frontend
       - run: npx playwright install --with-deps chromium

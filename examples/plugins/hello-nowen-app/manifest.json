@@ -38,6 +38,22 @@
         "title": "Hello Nowen App",
         "id": "home"
       }
+    ],
+    "widgets": [
+      {
+        "id": "hello",
+        "title": "Hello Nowen App",
+        "type": "shortcut",
+        "pageId": "home",
+        "defaultSize": "small"
+      },
+      {
+        "id": "interactive",
+        "title": "Hello interactive",
+        "type": "app",
+        "pageId": "home",
+        "defaultSize": "medium"
+      }
     ]
   }
 }

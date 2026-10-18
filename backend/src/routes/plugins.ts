@@ -3,7 +3,7 @@ import { bodyLimit } from "hono/body-limit";
 import { streamSSE } from "hono/streaming";
 import crypto from "node:crypto";
 import { createInboundWebhook, listInboundWebhooks, removeInboundWebhook } from "../plugins/inboundWebhooks.js";
-import { isSystemAdmin, requireAdmin } from "../middleware/acl.js";
+import { isSystemAdmin, requireAdmin, getUserWorkspaceRole } from "../middleware/acl.js";
 import { getExtensionPlatformFeatureFlags } from "../plugins/featureFlags.js";
 import { getApplicationV3FeatureFlags, type AppPlatformV3 } from "../plugins/applicationV3.js";
 import { getPluginService } from "../plugins/pluginService.js";
@@ -21,7 +21,7 @@ function errorResponse(c: any, error: unknown) {
   const status = coded.code === "PLUGIN_NOT_FOUND" || coded.code === "PLUGIN_ACTION_NOT_FOUND" ? 404
     : coded.code === "RESOURCE_FORBIDDEN" || coded.code === "PLUGIN_PERMISSION_DENIED" ? 403
       : coded.code === "PLUGIN_TIMEOUT" ? 408
-        : coded.code === "PLUGIN_NODE_RUNTIME_CONFIRMATION_REQUIRED" ? 409
+        : coded.code === "PLUGIN_NODE_RUNTIME_CONFIRMATION_REQUIRED" || coded.code === "PLUGIN_DATA_CONFLICT" ? 409
           : 400;
   return c.json({
     success: false,
@@ -55,6 +55,70 @@ function appActor(c: any) {
   const token = c.req.header("Authorization") || "";
   return { userId: c.req.header("X-Auth-Mode") === "api-token" ? "" : userId(c), credential: token ? crypto.createHash("sha256").update(token).digest("hex") : "" };
 }
+function dataContext(c: any, workspace: unknown) {
+  const actor = appActor(c);
+  if (!actor.userId) throw Object.assign(new Error("RESOURCE_FORBIDDEN"), { code: "RESOURCE_FORBIDDEN" });
+  const workspaceId = workspace === undefined || workspace === null || workspace === "personal" ? null : workspace;
+  if (workspaceId !== null && (typeof workspaceId !== "string" || !getUserWorkspaceRole(workspaceId, actor.userId))) throw Object.assign(new Error("RESOURCE_FORBIDDEN"), { code: "RESOURCE_FORBIDDEN" });
+  return { userId: actor.userId, workspaceId: workspaceId as string | null, actionId: "data-management", executionId: "data-management" };
+}
+pluginsRouter.get("/widgets", async c => {
+  try {
+    const platform = c.req.query("platform") || "web";
+    if (platform !== "web" && platform !== "desktop") return c.json([], 200);
+    const context = dataContext(c, c.req.query("workspaceId"));
+    c.header("Cache-Control", "no-store");
+    return c.json(await getPluginService().listDashboardWidgets(context.userId, context.workspaceId, platform));
+  } catch (error) { return errorResponse(c, error); }
+});
+const widgetWatchers = new Map<string, number>();
+pluginsRouter.post("/widget-events", bodyLimit({ maxSize: 2048 }), async c => {
+  let context: ReturnType<typeof dataContext>;
+  try { context = dataContext(c, (await c.req.json()).workspaceId); } catch (error) { return errorResponse(c, error); }
+  const credential = appActor(c).credential;
+  if (widgetWatchers.size >= 128 || (widgetWatchers.get(credential) || 0) >= 4) return c.json({ code: "PLUGIN_UI_RATE_LIMITED" }, 429);
+  widgetWatchers.set(credential, (widgetWatchers.get(credential) || 0) + 1);
+  c.header("Cache-Control", "no-store"); c.header("X-Accel-Buffering", "no");
+  return streamSSE(c, async stream => {
+    try {
+      const service = getPluginService();
+      const fingerprint = () => JSON.stringify([service.listApplicationPages("web"), service.registry.list().map(row => [row.id, row.status, row.checksum, row.lifecycleState]), service.registry.list().map(row => service.permissions.list(row.id)), getApplicationV3FeatureFlags()]);
+      let previous = fingerprint(), ticks = 0;
+      await new Promise<void>(resolve => {
+        const finish = () => { clearInterval(timer); resolve(); };
+        const timer = setInterval(() => {
+          try {
+            if (context.workspaceId && !getUserWorkspaceRole(context.workspaceId, context.userId) || !getApplicationV3FeatureFlags().dashboardWidgets || ++ticks >= 1200) { void stream.writeSSE({ event: "revoked", data: "{}" }).catch(() => undefined).finally(finish); return; }
+            const next = fingerprint();
+            if (next !== previous) { previous = next; void stream.writeSSE({ event: "changed", data: "{}" }).catch(finish); }
+            else if (ticks % 15 === 0) void stream.writeSSE({ event: "ping", data: "{}" }).catch(finish);
+          } catch { finish(); }
+        }, 1000);
+        stream.onAbort(finish); void stream.writeSSE({ event: "ready", data: "{}" }).catch(finish);
+      });
+    } finally {
+      const count = (widgetWatchers.get(credential) || 1) - 1;
+      if (count) widgetWatchers.set(credential, count); else widgetWatchers.delete(credential);
+    }
+  });
+});
+pluginsRouter.get("/data/:id/export", async c => {
+  try {
+    const service = getPluginService(), pluginId = c.req.param("id"); service.appRuntime.eligible(pluginId);
+    const context = { ...dataContext(c, c.req.query("workspaceId")), pluginId };
+    c.header("Cache-Control", "no-store");
+    return c.json(await service.broker.call(context, { method: "data.export", args: {} }));
+  } catch (error) { return errorResponse(c, error); }
+});
+pluginsRouter.post("/data/:id/import", bodyLimit({ maxSize: 256 * 1024 }), async c => {
+  try {
+    const service = getPluginService(), pluginId = c.req.param("id"), body = await c.req.json(); service.appRuntime.eligible(pluginId);
+    const context = { ...dataContext(c, body.workspaceId), pluginId };
+    const result = await service.broker.call(context, { method: "data.import", args: { snapshot: body.snapshot, expectedDigest: body.expectedDigest } });
+    service.appRuntime.revokePlugin(pluginId);
+    return c.json(result);
+  } catch (error) { return errorResponse(c, error); }
+});
 // Mounted before bearer auth. A one-use 256-bit ticket reads verified code only, never Host API data.
 export function pluginAppDocumentResponse(c: any) {
   if (!getApplicationV3FeatureFlags().appPages || !/^[a-f0-9]{64}$/.test(c.req.param("ticket"))) return c.text("App document unavailable", 404);
@@ -272,7 +336,7 @@ for (const [action, handler] of [
 pluginsRouter.delete("/:id", requireAdmin, async (c) => {
   try {
     const body = await c.req.json().catch(() => ({}));
-    await getPluginService().uninstall(c.req.param("id"), body.deleteAppData === true);
+    await getPluginService().uninstall(c.req.param("id"), body.deleteAppData === true, body.retainAppData === true);
     return c.json({ success: true });
   } catch (error) {
     return errorResponse(c, error);
