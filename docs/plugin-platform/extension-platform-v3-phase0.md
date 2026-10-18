@@ -46,7 +46,7 @@ V3 复用现有解析、安装、权限声明、更新与安全策略链路；V1
 
 ## 测试
 
-新增 backend/tests/application-v3-foundation.test.ts 覆盖开关、入口路径、页面 ID 与声明权限、隔离路由、消息伪造、超限与撤销。计划执行：cd backend && node --import tsx --test tests/application-v3-foundation.test.ts。还需跑 backend/npm test、frontend 测试和跨平台端到端；不能在未执行时标为通过。
+新增 backend/tests/application-v3-foundation.test.ts 覆盖开关、入口路径、页面 ID 与声明权限、隔离路由、消息伪造、超限与撤销。执行：cd backend && node --import tsx --import ./tests/setup-db-isolation.ts --test tests/application-v3-foundation.test.ts。还需跑 backend/npm test、frontend 测试和跨平台端到端；不能在未执行时标为通过。
 
 ## 下一阶段开发顺序
 
@@ -67,4 +67,5 @@ Phase 1A：Manifest V3 合同、包签名完整性、配置隔离；1B：iframe 
 - Bridge 在整个会话中拒绝重复的已接受请求 ID，包括请求完成、速率窗口过期后。最多记录 4096 个请求 ID；达到上限后，新请求撤销会话并返回 `PLUGIN_UI_SESSION_EXHAUSTED`，后续调用返回 `PLUGIN_UI_SESSION_REVOKED`。未来 UI Host 必须重新握手并生成新 nonce，不能通过淘汰旧 ID 重新接受旧请求。拒绝的请求不进入去重记录；本阶段仍不执行 Host API。
 - 修复前新增的 4 类回归用例均失败，修复后 V3 12/12、V2.1/UI 8/8 通过，后端 TypeScript `--noEmit` 通过；DCC 映射校验通过。测试使用临时目录和隔离数据库，不修改用户数据。
 - 另以 Electron Node ABI 130 和仓库串行测试运行器验证插件 V1/V2、声明式生命周期、权限路由、生态、供应链、沙箱攻击及更新恢复，共 8 个文件、31 项测试通过，0 失败、0 跳过。未运行全量后端或真实安装包/设备验收。
+- V3 CI 同样预加载 `setup-db-isolation.ts`；开发目录验证测试会加载数据库模块，必须在导入前设置临时数据库目录，不能打开仓库数据库。安全护栏已实际阻止缺少隔离配置的 CI 启动，补齐预加载后重跑验证。
 - 集成目标按维护者授权改为 `release/v1.5.3`。V3 默认关闭，iframe、Broker、完整应用页面与跨平台 E2E 仍未交付；本次集成不代表 V3 MVP 验收或正式发布。

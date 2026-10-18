@@ -41,7 +41,7 @@ jobs:
         run: npm ci
       - name: V3 foundation tests
         working-directory: backend
-        run: node --import tsx --test tests/application-v3-foundation.test.ts
+        run: node --import tsx --import ./tests/setup-db-isolation.ts --test tests/application-v3-foundation.test.ts
       - name: V2.1 compatibility regression
         working-directory: backend
         run: node --import tsx --import ./tests/setup-db-isolation.ts --test tests/extension-v2-1-feature-gates.test.ts tests/ui-contribution.test.ts
