@@ -133,6 +133,9 @@ jobs:
       - name: Build unsigned Windows Full debug packages
         if: matrix.platform == 'windows'
         run: npx electron-builder --config electron/builder.config.js --win --publish never
+      - name: Test macOS native dependency packaging
+        if: matrix.platform == 'macos'
+        run: node --test scripts/tests/macos-sharp.test.cjs scripts/tests/rebuild-native.test.cjs
       - name: Build unsigned macOS Intel debug packages
         if: matrix.platform == 'macos'
         shell: bash

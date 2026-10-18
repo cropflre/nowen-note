@@ -2826,7 +2826,7 @@ if [ "$DO_GITHUB_RELEASE" = "1" ]; then
                 run_argv gh "${CREATE_ARGS[@]}"
             fi
             RELEASE_URL="https://github.com/${GITHUB_REPO_SLUG}/releases/tag/${VERSION_TAG}"
-            ok "GitHub Release 已发布：${RELEASE_URL}"
+            ok "GitHub Release 产物已上传：${RELEASE_URL}"
         fi
     fi
 fi
@@ -2835,7 +2835,11 @@ fi
 END_TS=$(date +%s)
 TOTAL=$((END_TS - START_TS))
 
-step "发布完成"
+if [ "${NOWEN_RELEASE_GUARDED:-0}" = "1" ] && [ -n "$RELEASE_URL" ]; then
+    step "本地产物处理完成，等待 GitHub CI 校验"
+else
+    step "发布完成"
+fi
 if [ "$HAS_DOCKER" = "1" ]; then
     echo "  ${C_GREEN}${IMAGE_NAME}:${VERSION_TAG}${C_RESET}  ←  已推送到 Docker Hub"
     [ "$DO_LATEST" = "1" ] && echo "  ${C_GREEN}${IMAGE_NAME}:latest${C_RESET}  ←  已推送到 Docker Hub"
@@ -2883,7 +2887,13 @@ echo "  总耗时        : ${TOTAL}s  (docker:${BUILD_DURATION}s push:${PUSH_DUR
 [ -n "$DIGEST" ] && echo "  docker digest : ${DIGEST}"
 
 echo
-ok "发布成功 🎉"
+if [ "${NOWEN_RELEASE_GUARDED:-0}" = "1" ] && [ -n "$RELEASE_URL" ]; then
+    info "本地产物已上传，发布守卫将继续汇总和校验；尚未完成发布"
+elif [ "$RELEASE_DRAFT" = "1" ] && [ -n "$RELEASE_URL" ]; then
+    ok "Draft 产物已上传，尚未正式发布"
+else
+    ok "发布成功 🎉"
+fi
 echo
 
 if [ "$HAS_DOCKER" = "1" ]; then
@@ -2893,6 +2903,10 @@ if [ "$HAS_DOCKER" = "1" ]; then
 fi
 if [ -n "$RELEASE_URL" ]; then
     echo
-    echo "用户下载入口："
+    if [ "${NOWEN_RELEASE_GUARDED:-0}" = "1" ] || [ "$RELEASE_DRAFT" = "1" ]; then
+        echo "候选版本入口（尚待最终校验）："
+    else
+        echo "用户下载入口："
+    fi
     echo "    $RELEASE_URL"
 fi
