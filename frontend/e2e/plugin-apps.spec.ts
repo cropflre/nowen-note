@@ -6,7 +6,7 @@ import net from "node:net";
 import { spawn } from "node:child_process";
 import { pathToFileURL } from "node:url";
 
-test("future compatible host installs CLI package and runs an isolated, persistent app through production routes", async ({ page }) => {
+test("1.5.3 host installs CLI package and runs an isolated, persistent app through production routes", async ({ page }) => {
   const root = path.resolve(".."), directory = fs.mkdtempSync(path.join(os.tmpdir(), "nowen-v3-browser-"));
   expect(path.dirname(directory)).toBe(path.resolve(os.tmpdir()));
   const executable = process.env.NOWEN_QA_NODE || process.execPath;
@@ -26,6 +26,10 @@ test("future compatible host installs CLI package and runs an isolated, persiste
     const registered = await page.request.post(`${url}/api/auth/login`, { data: { username: "v3_browser", password: "v3-browser-test-password" } });
     expect(registered.ok()).toBe(true); const account = await registered.json();
     const headers = { Authorization: `Bearer ${account.token}` };
+    const features = await (await page.request.get(`${url}/api/plugins/features`, { headers })).json();
+    expect(features.currentNowenVersion).toBe("1.5.3");
+    expect(features.applicationV3).toEqual({ core: true, appPages: true, dashboardWidgets: false, pluginData: false });
+    expect(features.extensionsV21).toBe(false);
     const artifact = path.join(root, "examples/plugins/hello-nowen-app/dist/nowenlab.hello-app-0.1.0.nowen-plugin");
     expect(fs.existsSync(artifact), "Pack Hello Nowen App with the existing CLI before running this test").toBe(true);
     const uiVersion = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8")).version;

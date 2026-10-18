@@ -1,10 +1,9 @@
-import { getExtensionPlatformFeatureFlags } from "./featureFlags.js";
 import { PLUGIN_PERMISSIONS, type PluginPermission } from "./types.js";
 
 // Packaged UI files must not be interpreted as Node/QuickJS plugin actions.
-// Rendering stays disabled until the isolated iframe Host/Bridge is wired.
+// The isolated app Host/Bridge ships in 1.5.3; unfinished capabilities stay opt-in.
 export const APPLICATION_V3_API_VERSION = 3 as const;
-export const APPLICATION_V3_TARGET_NOWEN = "1.6.0";
+export const APPLICATION_V3_TARGET_NOWEN = "1.5.3";
 export type AppPlatformV3 = "web" | "desktop" | "android" | "ios";
 
 const PLUGIN_ID = /^[a-z0-9]+(?:[.-][a-z0-9]+)+$/;
@@ -36,15 +35,15 @@ export interface ApplicationV3FeatureFlags {
   pluginData: boolean;
 }
 
-function envEnabled(name: string): boolean {
-  return TRUE.has(String(process.env[name] || "").trim().toLowerCase());
+function envEnabled(name: string, defaultValue = false): boolean {
+  const value = process.env[name]?.trim();
+  return value ? TRUE.has(value.toLowerCase()) : defaultValue;
 }
 
 export function getApplicationV3FeatureFlags(): Readonly<ApplicationV3FeatureFlags> {
-  const old = getExtensionPlatformFeatureFlags();
-  // V3 never bypasses existing V2.1, layout editor or sandbox gates.
-  const core = old.extensionsV21 && envEnabled("NOWEN_EXTENSION_V3_CORE");
-  const appPages = core && old.sandboxedPluginUi && envEnabled("NOWEN_EXTENSION_V3_APP_PAGES");
+  // Legacy flags remain explicit shutdown overrides without enabling unrelated V2.1 features.
+  const core = envEnabled("NOWEN_EXTENSIONS_V21", true) && envEnabled("NOWEN_EXTENSION_V3_CORE", true);
+  const appPages = core && ["NOWEN_UI_EXTENSIONS", "NOWEN_UI_LAYOUT_EDITOR", "NOWEN_SANDBOXED_PLUGIN_UI", "NOWEN_EXTENSION_V3_APP_PAGES"].every(name => envEnabled(name, true));
   return Object.freeze({
     core,
     appPages,

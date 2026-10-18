@@ -390,7 +390,7 @@ export function parsePluginManifest(value: unknown, options: ParsePluginManifest
       throw Object.assign(new Error("V3 应用级插件尚未启用完整沙箱功能"), { code: "PLUGIN_V3_FEATURE_DISABLED" });
     }
     if (!requiresApplicationV3Version(manifest.engines.nowen)) {
-      throw Object.assign(new Error("V3 插件必须声明真实 Nowen >=1.6.0 兼容范围"), { code: "PLUGIN_NOWEN_INCOMPATIBLE" });
+      throw Object.assign(new Error(`V3 插件必须声明真实 Nowen >=${APPLICATION_V3_TARGET_NOWEN} 兼容范围`), { code: "PLUGIN_NOWEN_INCOMPATIBLE" });
     }
   }
   if (manifest.apiVersion === 2 && manifest.runtime === "declarative") {

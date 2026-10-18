@@ -7,20 +7,23 @@ import { Hono } from "hono";
 import { getDb, closeDb } from "../src/db/schema.js";
 import { getPluginService } from "../src/plugins/pluginService.js";
 import router, { pluginAppDocumentResponse } from "../src/routes/plugins.js";
-import { examplePackage, futureCompatibleFixture, V3_GATES } from "./application-v3-fixture.js";
+import { examplePackage, V3_GATES } from "./application-v3-fixture.js";
+import { validatePluginPackage } from "../src/plugins/packageValidator.js";
 import { buildAppDocumentV3 } from "../src/plugins/appDocumentV3.js";
 import type { PluginManifestV3 } from "../src/plugins/types.js";
 
-test("V3 future-host HTTP lifecycle isolates users, plugins, workspace scopes and revoked credentials", async () => {
-  V3_GATES.forEach(key => { process.env[key] = "1"; });
+test("V3 1.5.3 HTTP lifecycle isolates users, plugins, workspace scopes and revoked credentials", async () => {
+  V3_GATES.forEach(key => delete process.env[key]);
   const db = getDb(), service = getPluginService();
   for (const [id, role] of [["v3-admin", "admin"], ["v3-user", "user"]]) db.prepare("INSERT INTO users(id,username,passwordHash,role) VALUES (?,?,?,?)").run(id, id, "hash", role);
   db.prepare("INSERT INTO workspaces(id,name,ownerId) VALUES ('v3-workspace','V3','v3-admin')").run();
   db.prepare("INSERT INTO workspace_members(workspaceId,userId,role) VALUES ('v3-workspace','v3-admin','owner'),('v3-workspace','v3-user','viewer')").run();
-  // The production installation gate must still reject the real 1.5.x runtime.
+  // No policy/installer monkey-patches: use the real release host and default flags.
   const bytes = await examplePackage();
-  await assert.rejects(() => service.install(bytes, "v3-admin"), /当前版本为 1.5.0/);
-  futureCompatibleFixture(service);
+  await assert.rejects(() => validatePluginPackage(bytes, { currentVersion: "1.5.2" }), /当前版本为 1.5.2/);
+  process.env.NOWEN_EXTENSION_V3_APP_PAGES = "0";
+  await assert.rejects(() => service.install(bytes, "v3-admin"), (error: any) => error.code === "PLUGIN_V3_FEATURE_DISABLED");
+  delete process.env.NOWEN_EXTENSION_V3_APP_PAGES;
   const app = new Hono(); app.route("/plugins", router); app.get("/api/plugin-ui-v3/:ticket", pluginAppDocumentResponse);
   const headers = (user = "v3-admin", token = "test-session") => ({ "X-User-Id": user, Authorization: `Bearer ${token}`, "Content-Type": "application/json" });
   async function request(route: string, body: unknown, user = "v3-admin", token = "test-session") { return app.request(`/plugins/${route}`, { method: "POST", headers: headers(user, token), body: JSON.stringify(body) }); }
@@ -86,6 +89,11 @@ test("V3 future-host HTTP lifecycle isolates users, plugins, workspace scopes an
     assert.throws(() => buildAppDocumentV3(installed.installedPath, manifest, "ui/index.html", resumed), /资源/);
   }
   fs.writeFileSync(htmlFile, originalHtml);
+  const shutdown = await create();
+  process.env.NOWEN_EXTENSION_V3_APP_PAGES = "0";
+  assert.notEqual((await call(shutdown, "storage.get", { key: "message" })).status, 200);
+  assert.deepEqual(await app.request("/plugins/apps?platform=web").then(response => response.json()), []);
+  delete process.env.NOWEN_EXTENSION_V3_APP_PAGES;
   await assert.rejects(() => service.uninstall(a.pluginId), (error: any) => error.code === "PLUGIN_DATA_DELETE_CONFIRMATION_REQUIRED");
   assert.ok(db.prepare("SELECT 1 FROM plugin_storage WHERE pluginId=?").get(a.pluginId));
   await service.uninstall(a.pluginId, true);

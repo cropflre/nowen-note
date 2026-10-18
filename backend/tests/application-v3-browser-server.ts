@@ -1,4 +1,4 @@
-// Disposable future-compatible-host simulation. Never loaded by production entrypoints.
+// Disposable 1.5.3 host using production version checks and defaults. Not a product entrypoint.
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
@@ -12,10 +12,8 @@ process.env.JWT_SECRET = "v3-browser-only-test-session-secret"; process.env.BACK
 process.env.DISABLE_MDNS = "1"; process.env.BACKUP_AUTO_ENABLED = "false"; process.env.CALENDAR_EXPORT_TIMER_DISABLED = "1";
 process.env.NODE_ENV = "test";
 async function start() {
-  const { V3_GATES, futureCompatibleFixture } = await import("./application-v3-fixture.js");
-  V3_GATES.forEach(key => { process.env[key] = "1"; });
-  const { getPluginService } = await import("../src/plugins/pluginService.js");
-  futureCompatibleFixture(getPluginService());
+  const { V3_GATES } = await import("./application-v3-fixture.js");
+  V3_GATES.forEach(key => delete process.env[key]);
   const { getDb } = await import("../src/db/schema.js");
   const { default: bcrypt } = await import("bcryptjs");
   getDb().prepare("INSERT OR IGNORE INTO users(id,username,passwordHash,role) VALUES ('v3-browser-admin','v3_browser',?,'admin')").run(await bcrypt.hash("v3-browser-test-password", 10));

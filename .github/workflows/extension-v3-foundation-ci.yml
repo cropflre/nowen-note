@@ -1,6 +1,21 @@
 name: Extension Platform V3 Foundation
 
 on:
+  push:
+    branches: ["release/v1.5.3"]
+    paths:
+      - "backend/src/plugins/**"
+      - "backend/src/routes/plugins.ts"
+      - "backend/src/index.ts"
+      - "backend/tests/application-v3-*.ts"
+      - "frontend/src/**"
+      - "frontend/e2e/plugin-apps.spec.ts"
+      - "frontend/playwright.plugin-apps.config.ts"
+      - "packages/nowen-plugin-*/**"
+      - "examples/plugins/hello-nowen-app/**"
+      - "package*.json"
+      - "backend/package*.json"
+      - ".github/workflows/extension-v3-foundation-ci.yml"
   pull_request:
     paths:
       - "backend/src/plugins/applicationV3.ts"
@@ -68,7 +83,7 @@ jobs:
       - name: V3 foundation tests
         working-directory: backend
         run: node --import tsx --import ./tests/setup-db-isolation.ts --test tests/application-v3-foundation.test.ts
-      - name: V3 future-host runtime and isolation contracts
+      - name: V3 1.5.3 runtime and isolation contracts
         working-directory: backend
         run: node --import tsx --import ./tests/setup-db-isolation.ts --test tests/application-v3-runtime.test.ts
       - name: V2.1 compatibility regression
@@ -111,7 +126,7 @@ jobs:
         working-directory: frontend
       - run: npx playwright install --with-deps chromium
         working-directory: frontend
-      - name: Future-compatible host browser acceptance
+      - name: 1.5.3 host browser acceptance
         working-directory: frontend
         run: npx playwright test --config playwright.plugin-apps.config.ts --reporter=line
       - uses: actions/upload-artifact@v4

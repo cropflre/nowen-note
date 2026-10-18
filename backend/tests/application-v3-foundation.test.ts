@@ -9,21 +9,30 @@ import { parsePluginManifest } from "../src/plugins/manifest.js";
 import { validatePluginPackage } from "../src/plugins/packageValidator.js";
 import { PluginPackageInstaller } from "../src/plugins/packageInstaller.js";
 import { getApplicationV3FeatureFlags, parseAppPageDeclarationsV3, buildAppRegistryV3, validatePackagedHtmlEntry } from "../src/plugins/applicationV3.js";
+import { NOWEN_VERSION } from "../src/plugins/types.js";
+import { getExtensionPlatformFeatureFlags } from "../src/plugins/featureFlags.js";
 import { AppBridgeSessionGuardV3, APP_BRIDGE_V3_PROTOCOL, APP_BRIDGE_V3_MAX_REQUESTS_PER_SESSION, validateAppBridgeRequestV3 } from "../src/plugins/appBridgeV3.js";
 
 const pages = [{ id: "home", title: "Home", entry: "ui/index.html", platforms: ["web", "desktop"], requiredPermissions: ["plugin-storage:read"] }];
 const declared = ["plugin-storage:read"];
 
-test("V3 gates are fail closed and depend on the pre-existing sandbox gates", () => {
+test("V3 apps open by default on 1.5.3 while explicit shutdown and legacy gates remain effective", () => {
   const keys = ["NOWEN_EXTENSIONS_V21", "NOWEN_UI_EXTENSIONS", "NOWEN_UI_LAYOUT_EDITOR", "NOWEN_SANDBOXED_PLUGIN_UI", "NOWEN_EXTENSION_V3_CORE", "NOWEN_EXTENSION_V3_APP_PAGES", "NOWEN_EXTENSION_V3_DASHBOARD_WIDGETS", "NOWEN_EXTENSION_V3_PLUGIN_DATA"];
-  const previous = keys.map((key) => process.env[key]);
+  const previous = keys.map(key => process.env[key]);
   try {
-    for (const key of keys) delete process.env[key];
-    assert.deepEqual(getApplicationV3FeatureFlags(), { core: false, appPages: false, dashboardWidgets: false, pluginData: false });
-    process.env.NOWEN_EXTENSION_V3_CORE = "1";
-    process.env.NOWEN_EXTENSION_V3_APP_PAGES = "1";
+    keys.forEach(key => delete process.env[key]);
+    assert.equal(NOWEN_VERSION, "1.5.3");
+    assert.equal(NOWEN_VERSION, JSON.parse(fs.readFileSync(new URL("../../package.json", import.meta.url), "utf8")).version);
+    assert.deepEqual(getApplicationV3FeatureFlags(), { core: true, appPages: true, dashboardWidgets: false, pluginData: false });
+    assert.equal(getExtensionPlatformFeatureFlags().extensionsV21, false);
+    for (const key of keys.slice(0, 6)) {
+      process.env[key] = "0";
+      assert.equal(getApplicationV3FeatureFlags().appPages, false, key);
+      delete process.env[key];
+    }
+    process.env.NOWEN_EXTENSION_V3_CORE = "unrecognized";
     assert.equal(getApplicationV3FeatureFlags().appPages, false);
-    for (const key of keys) process.env[key] = "1";
+    keys.forEach(key => { process.env[key] = "1"; });
     assert.deepEqual(getApplicationV3FeatureFlags(), { core: true, appPages: true, dashboardWidgets: true, pluginData: true });
   } finally {
     keys.forEach((key, i) => { if (previous[i] === undefined) delete process.env[key]; else process.env[key] = previous[i]; });
@@ -95,7 +104,7 @@ const script = 'document.body.dataset.v3 = "1";';
 function manifestV3() {
   return {
     id: "nowenlab.demo", name: "Hello V3", description: "UI asset installation test", version: "0.1.0",
-    apiVersion: 3, publisher: "nowenlab", engines: { nowen: ">=1.6.0" },
+    apiVersion: 3, publisher: "nowenlab", engines: { nowen: ">=1.5.3" },
     runtime: "declarative", categories: ["productivity"],
     repository: "https://github.com/cropflre/nowen-note", license: "MIT",
     permissions: ["plugin-storage:read"],
@@ -110,23 +119,25 @@ async function packV3(overrides: { manifest?: any; html?: string; extra?: Record
   for (const [path, content] of Object.entries(overrides.extra || {})) zip.file(path, content);
   return zip.generateAsync({ type: "nodebuffer" });
 }
-test("V3 does not bypass the existing version and capability gates", async () => {
-  assert.throws(() => parsePluginManifest(manifestV3(), { currentVersion: "1.6.0" }), (e: Error & { code?: string }) => {
-    return e.code === "PLUGIN_V3_FEATURE_DISABLED";
-  });
+test("V3 installs on the real 1.5.3 host and still enforces version and shutdown gates", async () => {
   await enabledV3(() => {
-    assert.equal(parsePluginManifest(manifestV3(), { currentVersion: "1.6.0" }).apiVersion, 3);
-    assert.throws(() => parsePluginManifest(manifestV3()), /当前版本为 1.5.0/);
-    assert.throws(() => parsePluginManifest({ ...manifestV3(), apiVersion: 2 }, { currentVersion: "1.6.0" }));
-    assert.throws(() => parsePluginManifest({ ...manifestV3(), engines: { nowen: ">=1.5.0" } }, { currentVersion: "1.6.0" }), /V3 插件必须/);
+    assert.equal(parsePluginManifest(manifestV3()).apiVersion, 3);
+    assert.throws(() => parsePluginManifest(manifestV3(), { currentVersion: "1.5.2" }), /当前版本为 1.5.2/);
+    assert.throws(() => parsePluginManifest({ ...manifestV3(), engines: { nowen: ">=1.6.0" } }), /当前版本为 1.5.3/);
+    assert.throws(() => parsePluginManifest({ ...manifestV3(), apiVersion: 2 }));
+    assert.throws(() => parsePluginManifest({ ...manifestV3(), engines: { nowen: ">=1.5.0" } }), /V3 插件必须/);
+    process.env.NOWEN_EXTENSION_V3_APP_PAGES = "0";
+    assert.throws(() => parsePluginManifest(manifestV3()), (error: any) => error.code === "PLUGIN_V3_FEATURE_DISABLED");
+    process.env.NOWEN_EXTENSION_V3_APP_PAGES = "1";
     const bad = manifestV3();
     bad.contributes.appPages = [{ ...pages[0], entry: "https://evil.test/attack.html" }];
-    assert.throws(() => parsePluginManifest(bad, { currentVersion: "1.6.0" }));
+    assert.throws(() => parsePluginManifest(bad));
   });
 });
+
 test("V3 accepts a hashed UI bundle and rejects altered, undeclared or unsafe resources", async () => {
   await enabledV3(async () => {
-    const opts = { currentVersion: "1.6.0" };
+    const opts = { currentVersion: "1.5.3" };
     const good = await validatePluginPackage(await packV3(), opts);
     assert.equal(good.manifest.apiVersion, 3);
     assert.equal(good.fileCount, 3);
@@ -142,9 +153,9 @@ test("V3 icons and screenshots cannot exempt scripts from the UI asset contract"
     for (const field of ["icon", "screenshots"] as const) {
       for (const file of ["backend/payload.js", "ui/payload.js"]) {
         const manifest = { ...manifestV3(), [field]: field === "icon" ? file : [file] };
-        await assert.rejects(async () => validatePluginPackage(await packV3({ manifest, extra: { [file]: script } }), { currentVersion: "1.6.0" }));
+        await assert.rejects(async () => validatePluginPackage(await packV3({ manifest, extra: { [file]: script } }), { currentVersion: "1.5.3" }));
         (manifest.contributes.uiAssets as Record<string, string>)[file] = asset(script);
-        await assert.rejects(async () => validatePluginPackage(await packV3({ manifest, extra: { [file]: script } }), { currentVersion: "1.6.0" }));
+        await assert.rejects(async () => validatePluginPackage(await packV3({ manifest, extra: { [file]: script } }), { currentVersion: "1.5.3" }));
       }
     }
   });
@@ -164,7 +175,7 @@ test("V3 ZIP and development resources share image path and integrity rules", as
       fs.mkdirSync(path.join(directory, "ui"));
       for (const [file, bytes] of Object.entries(files)) fs.writeFileSync(path.join(directory, file), bytes);
       const installer = new PluginPackageInstaller();
-      const options = { currentVersion: "1.6.0" };
+      const options = { currentVersion: "1.5.3" };
       const inspect = async () => {
         fs.writeFileSync(path.join(directory, "manifest.json"), JSON.stringify(manifest));
         await validatePluginPackage(await packV3({ manifest, extra: files }), options);
@@ -193,13 +204,13 @@ test("V3 ZIP and development resources share image path and integrity rules", as
   });
 });
 
-test("V3 rejects ranges admitting pre-1.6 hosts and malformed comparator suffixes", async () => {
+test("V3 rejects ranges admitting pre-1.5.3 hosts and malformed comparator suffixes", async () => {
   await enabledV3(() => {
-    for (const range of [">=1.5.1", ">=1.5.99", ">1.5.999", "^1.5.1", ">=1.6.0garbage", ">=1.6.0-rc.1"]) {
-      assert.throws(() => parsePluginManifest({ ...manifestV3(), engines: { nowen: range } }, { currentVersion: "1.6.0" }), /V3 插件必须/);
+    for (const range of [">=1.5.0", ">=1.5.1", ">=1.5.2", ">1.5.2", "^1.5.1", ">=1.5.3garbage", ">=1.5.3-rc.1"]) {
+      assert.throws(() => parsePluginManifest({ ...manifestV3(), engines: { nowen: range } }, { currentVersion: "1.5.3" }), /V3 插件必须/);
     }
-    for (const range of [">=1.6.0", ">=1.6.0 <2.0.0", "^1.6.0", "~1.6.0", "1.6.0", ">=1.5.1 >=1.6.0"]) {
-      assert.equal(parsePluginManifest({ ...manifestV3(), engines: { nowen: range } }, { currentVersion: "1.6.0" }).apiVersion, 3);
+    for (const range of [">=1.5.3", ">=1.5.3 <2.0.0", "^1.5.3", "~1.5.3", "1.5.3", ">=1.5.1 >=1.5.3"]) {
+      assert.equal(parsePluginManifest({ ...manifestV3(), engines: { nowen: range } }, { currentVersion: "1.5.3" }).apiVersion, 3);
     }
     assert.equal(parsePluginManifest({ ...manifestV3(), engines: { nowen: ">=1.7.0" } }, { currentVersion: "1.7.0" }).apiVersion, 3);
   });

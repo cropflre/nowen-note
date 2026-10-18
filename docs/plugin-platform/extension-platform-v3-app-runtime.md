@@ -1,6 +1,6 @@
 # Extension Platform V3：实验性应用运行闭环
 
-2026-10-18，基于 `release/v1.5.3` 的 `ec223b46`。本增量覆盖 Phase 1B 和 Phase 1C 的受限 Web 应用闭环；默认关闭，不是 V3 正式发布或跨平台安全验收。
+2026-10-18，Phase 1B/1C 闭环已合入 `release/v1.5.3` 的 `b852fed1`；按维护者要求，V3 应用页面现作为 1.5.3 功能默认开放，不等待 1.6.0。默认开放不代表跨平台安全验收或正式发布完成。
 
 ## 可运行范围
 
@@ -8,7 +8,9 @@
 
 应用必须是已启用、生命周期稳定、权限全部授予且策略和真实宿主版本兼容的 V3 插件。仅支持 Web 和同源部署的 DesktopFull；Capacitor 原生客户端不展示入口。ElectronLite 的 `file://` 页面与服务器跨源，不在本次支持范围。
 
-当前 `NOWEN_VERSION` 仍是 `1.5.0`，V3 要求至少 `1.6.0`。**打开功能开关仍不能在真实 1.5.x 宿主安装或运行 V3**。代码没有修改版本号或加入生产绕过。未来兼容宿主还必须启用以下全部开关，缺一即关闭：
+根项目、后端包/锁文件和插件系统 `NOWEN_VERSION` 统一为 `1.5.3`；V3 Manifest 最低兼容范围改为 `>=1.5.3`。仍严格验证完整稳定版本范围，拒绝声明兼容更早宿主的包，并按真实宿主检查更高版本要求：例如 `>=1.6.0` 的插件仍不能安装到 1.5.3。没有伪造安装版本或策略绕过。
+
+无需额外环境变量即可显示“应用”和插件管理入口。可设置 `NOWEN_EXTENSION_V3_APP_PAGES=0` 或 `NOWEN_EXTENSION_V3_CORE=0` 关闭，重启生效。既有以下开关若被显式设为 `0`/`false` 或其他非真值，也继续作为关闭覆盖；缺省/空值允许已完成的 V3 应用能力：
 
 ```text
 NOWEN_EXTENSIONS_V21
@@ -19,7 +21,9 @@ NOWEN_EXTENSION_V3_CORE
 NOWEN_EXTENSION_V3_APP_PAGES
 ```
 
-设置中的现有插件管理页也受应用开关控制；管理员沿用现有安装、权限确认和启停流程。V3 UI 明确标为“隔离应用界面代码”，不能按旧声明式零代码扩展展示或跳过授权。
+V3 的默认值不打开旧 V2.1 声明式 UI/布局编辑、Plugin Studio、文件处理或文档类型；这些能力仍保留原来的开关和 1.6.0 兼容合同。Dashboard Widget、结构化 Plugin Data 默认也仍关闭，当前不提供其功能。`/api/plugins/features` 的 `targetNowenVersion: 1.6.0` 属于旧 V2.1，V3 应用按真实 `currentNowenVersion: 1.5.3` 运行。
+
+设置中的现有插件管理页受应用开关控制；管理员沿用现有安装、权限确认和启停流程。V3 UI 明确标为“隔离应用界面代码”，不能按旧声明式零代码扩展展示或跳过授权。
 
 ## 资源和隔离边界
 
@@ -59,14 +63,14 @@ KV 复用 `plugin_storage`，不修改核心笔记、任务、Outbox 或 Sync V2
 
 ## 验证与证据边界
 
-测试均使用临时数据库/安装目录，不触碰用户数据。`futureCompatibleFixture` 仅在 `NODE_ENV=test` 可安装：它模拟安装校验的 1.6.0 版本，并仅在测试实例中调整策略输入的版本范围，其余安装/权限/ACL 保留。浏览器服务在安装 fixture 后使用生产路由和静态构建。此 fixture **不等于正式宿主已经具备 1.6.0 兼容性**；后端另有真实 1.5.0 安装拒绝断言。
+测试均使用临时数据库/安装目录，不触碰用户数据。已移除 `futureCompatibleFixture` 和安装器/策略 monkey-patch；后端及浏览器都使用真实 1.5.3 版本校验和默认开关。浏览器服务仅隔离数据库、测试账号及监听地址，使用生产认证路由和静态构建。另验证 1.5.2 拒绝安装、更高版本插件被真实 1.5.3 拒绝，以及显式关闭时的安装/运行阻断。
 
 本地已执行：
 
 - 插件后端专项及 V1/V2、声明式生命周期、权限路由、供应链、沙箱和恢复回归：12 文件、52 项通过。
 - 前端导航、服务器路径、运行模式和 MessageChannel：4 文件、102 项通过。
-- Chrome 真实安装授权与应用运行浏览器验收：1 项通过（9.8 秒），包括后端进程重启后的持久化读取。
-- 后端 TypeScript、前端生产构建、SDK 构建/既有合同及真实 CLI 打包通过。
+- Chrome 安装授权与应用运行浏览器验收：1 项通过（16.0 秒），覆盖后端进程重启后的持久化读取；使用真实 1.5.3 宿主并核验默认开关，不再模拟未来版本。
+- 后端 TypeScript、后端生产 bundle、前端生产构建和真实 CLI 打包通过；另有包/锁文件版本一致性检查通过。SDK 构建/既有合同在上一增量已通过，本轮没有修改 SDK。
 - DCC 映射检查通过；Node 22 下前端 DCC：28 文件、238 项通过。
 - 后端 DCC 未全通过：运行在 `sync-v2-mobile-multidevice.test.ts` 停止；该文件 76 项中 61 项失败，首个错误为任务不存在/无权限。在未修改的 `ec223b46` 独立工作树、相同 Electron Node ABI 130 环境复现同样的 15 通过/61 失败。其余未执行文件不能记为通过。
 
@@ -83,4 +87,4 @@ npx playwright test --config playwright.plugin-apps.config.ts --reporter=line
 
 Windows 的本地 better-sqlite3 如绑定 Electron ABI，可通过 `NOWEN_QA_NODE` 指定 Electron 可执行文件；测试以 `ELECTRON_RUN_AS_NODE=1` 启动，使用独立临时配置。`NOWEN_QA_BROWSER_CHANNEL=chrome` 可使用本机 Chrome。CI 使用 Node 22 安装匹配的依赖及 Chromium。
 
-新增 CI 配置不代表远程 Actions 已运行。Electron 成品、Docker/NAS、Android/iOS/HarmonyOS 及真实用户环境均未验收；当前不能宣称完整 V3 MVP 或跨平台安全验收完成。下一阶段应先补齐安全边界与实际兼容版本的平台验收，再开始 Dashboard Widget / 结构化插件数据。
+V3 专项 CI 已增加 `release/v1.5.3` 推送触发；新增 CI 配置不代表远程 Actions 已运行。Electron 成品、Docker/NAS、Android/iOS/HarmonyOS 及真实用户环境均未验收；当前不能宣称完整 V3 MVP 或跨平台安全验收完成。维护者可在 1.5.3 分支进行发布验收；下一阶段补齐安全边界与平台验收，再开始 Dashboard Widget / 结构化插件数据。

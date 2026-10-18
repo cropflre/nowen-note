@@ -65,7 +65,7 @@ test("dependent V2.1 gates cannot bypass their parent capability", () => {
   });
 });
 
-test("development branch does not impersonate the V2.1 release version", () => {
-  assert.equal(NOWEN_VERSION, "1.5.0");
+test("1.5.3 host keeps the independent V2.1 compatibility target", () => {
+  assert.equal(NOWEN_VERSION, "1.5.3");
   assert.equal(EXTENSION_V21_TARGET_NOWEN_VERSION, "1.6.0");
 });
