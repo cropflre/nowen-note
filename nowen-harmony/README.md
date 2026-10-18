@@ -82,6 +82,8 @@ npm run test:harmony:emulator
 
 ## 尚需验收
 
+华为应用市场上架材料和当前缺项见 [上架准备记录](distribution/release-readiness.md) 与[文案草稿](distribution/store-listing.zh-CN.md)。
+
 共用前端并不意味着每个 Android 插件已经移植。以下能力不能据此视为完成：
 
 - 实际服务器登录、Sync V2 双设备往返与故障恢复，需要可用服务器和测试账号验证。
