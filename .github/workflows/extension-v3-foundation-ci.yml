@@ -11,10 +11,12 @@ on:
       - "backend/tests/application-v3-*.ts"
       - "frontend/src/**"
       - "frontend/e2e/plugin-apps.spec.ts"
+      - "frontend/e2e/plugin-inspectors.spec.ts"
       - "frontend/playwright.plugin-apps.config.ts"
       - "packages/nowen-plugin-*/**"
       - "examples/plugins/hello-nowen-app/**"
       - "examples/plugins/personal-dashboard/**"
+      - "examples/plugins/resource-inspector/**"
       - "package*.json"
       - "backend/package*.json"
       - ".github/workflows/extension-v3-foundation-ci.yml"
@@ -45,6 +47,13 @@ on:
       - "frontend/src/components/PluginApps.tsx"
       - "frontend/src/components/PluginDashboard.tsx"
       - "frontend/src/components/PluginDataActions.tsx"
+      - "frontend/src/components/PluginInspector.tsx"
+      - "frontend/src/components/EditorPane.tsx"
+      - "frontend/src/components/tasks/TaskDetailPanel.tsx"
+      - "frontend/src/components/attachmentDetail/AttachmentDetailDrawer.tsx"
+      - "backend/src/plugins/inspectorV3.ts"
+      - "frontend/src/lib/__tests__/pluginInspector.test.tsx"
+      - "frontend/e2e/plugin-inspectors.spec.ts"
       - "frontend/src/components/NavRail.tsx"
       - "frontend/src/components/SettingsModal.tsx"
       - "frontend/src/components/settings/plugins/PluginSettingsTab.tsx"
@@ -65,6 +74,7 @@ on:
       - "packages/nowen-plugin-sdk/**"
       - "examples/plugins/hello-nowen-app/**"
       - "examples/plugins/personal-dashboard/**"
+      - "examples/plugins/resource-inspector/**"
       - "docs/plugin-platform/extension-platform-v3-phase0.md"
       - "docs/plugin-platform/extension-platform-v3-app-runtime.md"
       - ".github/workflows/extension-v3-foundation-ci.yml"
@@ -97,6 +107,7 @@ jobs:
         run: |
           node --import tsx --import ./tests/setup-db-isolation.ts --test tests/application-v3-runtime.test.ts
           node --import tsx --import ./tests/setup-db-isolation.ts --test tests/application-v3-dashboard-data.test.ts
+          node --import tsx --import ./tests/setup-db-isolation.ts --test tests/application-v3-inspector.test.ts
       - name: V2.1 compatibility regression
         working-directory: backend
         run: node --import tsx --import ./tests/setup-db-isolation.ts --test tests/extension-v2-1-feature-gates.test.ts tests/ui-contribution.test.ts
@@ -133,9 +144,12 @@ jobs:
       - name: Pack Personal Dashboard
         working-directory: examples/plugins/personal-dashboard
         run: node ../../../packages/nowen-plugin-cli/bin/nowen-plugin.mjs pack
+      - name: Pack Resource Inspector
+        working-directory: examples/plugins/resource-inspector
+        run: node ../../../packages/nowen-plugin-cli/bin/nowen-plugin.mjs pack
       - name: Navigation and MessageChannel contracts
         working-directory: frontend
-        run: npx vitest run src/lib/__tests__/pluginDataActions.test.tsx src/lib/__tests__/pluginApps.test.ts src/lib/__tests__/pluginDashboard.test.ts src/lib/__tests__/appPathNavigation.test.ts src/lib/__tests__/serverUrl.test.ts src/lib/__tests__/pluginRuntimePresentation.test.ts
+        run: npx vitest run src/lib/__tests__/pluginInspector.test.tsx src/lib/__tests__/pluginDataActions.test.tsx src/lib/__tests__/pluginApps.test.ts src/lib/__tests__/pluginDashboard.test.ts src/lib/__tests__/appPathNavigation.test.ts src/lib/__tests__/serverUrl.test.ts src/lib/__tests__/pluginRuntimePresentation.test.ts src/i18n/__tests__/releaseI18nCoverage.test.ts
       - run: npm run build
         working-directory: frontend
       - run: npx playwright install --with-deps chromium

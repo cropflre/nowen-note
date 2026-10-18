@@ -71,6 +71,15 @@ pluginsRouter.get("/widgets", async c => {
     return c.json(await getPluginService().listDashboardWidgets(context.userId, context.workspaceId, platform));
   } catch (error) { return errorResponse(c, error); }
 });
+pluginsRouter.get("/inspectors", c => {
+  try {
+    dataContext(c, c.req.query("workspaceId"));
+    const platform = c.req.query("platform") || "web", resourceType = c.req.query("resourceType");
+    if (!["note", "task", "attachment"].includes(resourceType || "")) return c.json({ code: "PLUGIN_UI_INVALID_PAYLOAD" }, 400);
+    c.header("Cache-Control", "no-store");
+    return c.json(getPluginService().listInspectors(platform as AppPlatformV3, resourceType as "note" | "task" | "attachment"));
+  } catch (error) { return errorResponse(c, error); }
+});
 const widgetWatchers = new Map<string, number>();
 pluginsRouter.post("/widget-events", bodyLimit({ maxSize: 2048 }), async c => {
   let context: ReturnType<typeof dataContext>;

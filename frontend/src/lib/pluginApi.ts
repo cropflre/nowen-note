@@ -11,7 +11,7 @@ export interface ExtensionPlatformFeatureFlags {
   experimentalDocumentTypes: boolean;
   currentNowenVersion: string;
   targetNowenVersion: string;
-  applicationV3?: { core: boolean; appPages: boolean; dashboardWidgets: boolean; pluginData: boolean };
+  applicationV3?: { core: boolean; appPages: boolean; dashboardWidgets: boolean; pluginData: boolean; inspectors?: boolean };
 }
 
 export interface PluginAppPage {
@@ -19,6 +19,9 @@ export interface PluginAppPage {
   platforms: Array<"web" | "desktop" | "android" | "ios">; requiredPermissions: string[];
 }
 export interface PluginAppSession { pluginId: string; instanceId: string; nonce: string; expiresAt: number; documentPath: string }
+export interface PluginInspectorResource { type: "note" | "task" | "attachment"; id: string }
+export interface PluginInspector extends PluginAppPage { inspectorId: string; resourceTypes: PluginInspectorResource["type"][] }
+export interface PluginInspectorContext { id: string; resource: PluginInspectorResource }
 export function pluginAppDocumentUrl(session: PluginAppSession): string { return `${getBaseUrl()}${session.documentPath}`; }
 
 export interface PluginPermissionRow {
@@ -194,7 +197,8 @@ export const pluginApi = {
   actions: () => request<Array<PluginAction & { pluginId: string; actionId: string }>>("/plugins/actions"),
   contributions: () => request<PluginContributionRecord[]>("/plugins/contributions"),
   apps: (platform: string) => request<PluginAppPage[]>(`/plugins/apps?platform=${encodeURIComponent(platform)}`),
-  appSession: (page: PluginAppPage, context: { workspaceId: string; platform: string; theme: string }, signal?: AbortSignal) => request<PluginAppSession>(`/plugins/apps/${encodeURIComponent(page.pluginId)}/${encodeURIComponent(page.id)}/session`, { method: "POST", body: JSON.stringify(context), signal }),
+  inspectors: (platform: string, resourceType: PluginInspectorResource["type"], workspaceId: string) => request<PluginInspector[]>(`/plugins/inspectors?platform=${encodeURIComponent(platform)}&resourceType=${resourceType}&workspaceId=${encodeURIComponent(workspaceId)}`),
+  appSession: (page: PluginAppPage, context: { workspaceId: string; platform: string; theme: string; inspector?: PluginInspectorContext }, signal?: AbortSignal) => request<PluginAppSession>(`/plugins/apps/${encodeURIComponent(page.pluginId)}/${encodeURIComponent(page.id)}/session`, { method: "POST", body: JSON.stringify(context), signal }),
   appCall: (id: string, message: unknown, signal?: AbortSignal) => request<{ protocol: "nowen.plugin-ui.v3"; kind: "response"; pluginId: string; instanceId: string; requestId: string; ok: boolean; data: unknown }>(`/plugins/app-sessions/${encodeURIComponent(id)}/call`, { method: "POST", body: JSON.stringify(message), signal }),
   closeAppSession: (id: string, nonce: string) => request(`/plugins/app-sessions/${encodeURIComponent(id)}/close`, { method: "POST", body: JSON.stringify({ nonce }) }),
   appEvents: (id: string, nonce: string, signal: AbortSignal) => fetchWithAuthRefresh(`${getBaseUrl()}/plugins/app-sessions/${encodeURIComponent(id)}/events`, {

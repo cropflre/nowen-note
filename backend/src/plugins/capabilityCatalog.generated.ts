@@ -7,11 +7,11 @@ function deepFreeze<T>(value: T): T {
   return value;
 }
 
-export const EXTENSION_CAPABILITY_CATALOG_DIGEST = "c4530c260d3208c35a9fd4be036e45170375e2b4b946b1011eb888446496fb60" as const;
+export const EXTENSION_CAPABILITY_CATALOG_DIGEST = "7177e5719e2e90a04a002566b883982bcb6ce3f4558738dc8239f52de6baf487" as const;
 export const EXTENSION_CAPABILITY_CATALOG = deepFreeze({
   "catalogVersion": 1,
   "hostApi": {
-    "contractVersion": 5,
+    "contractVersion": 6,
     "budgets": {
       "ipcMessageBytes": 2097152,
       "hostCallArgsBytes": 262144,
@@ -177,6 +177,43 @@ export const EXTENSION_CAPABILITY_CATALOG = deepFreeze({
           }
         ],
         "sdkSignature": "get(input: { attachmentId: string }): Promise<Attachment>;"
+      },
+      {
+        "method": "attachments.inspect",
+        "sinceApiVersion": 3,
+        "permission": "attachments:read",
+        "runtimes": [
+          "sandbox-js"
+        ],
+        "platforms": [
+          "server",
+          "desktop-full"
+        ],
+        "maxArgsBytes": 262144,
+        "maxResultBytes": 1048576,
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id"
+          ],
+          "additionalProperties": false
+        },
+        "outputSchema": {
+          "type": "object"
+        },
+        "examples": [
+          {
+            "input": {
+              "id": "selected-resource-id"
+            }
+          }
+        ],
+        "sdkSignature": "inspect(input: { id: string }): Promise<Record<string, unknown>>;"
       },
       {
         "method": "attachments.list",
@@ -775,6 +812,43 @@ export const EXTENSION_CAPABILITY_CATALOG = deepFreeze({
         "sdkSignature": "get(input: { noteId: string }): Promise<Note | null>;"
       },
       {
+        "method": "notes.inspect",
+        "sinceApiVersion": 3,
+        "permission": "notes:read",
+        "runtimes": [
+          "sandbox-js"
+        ],
+        "platforms": [
+          "server",
+          "desktop-full"
+        ],
+        "maxArgsBytes": 262144,
+        "maxResultBytes": 1048576,
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id"
+          ],
+          "additionalProperties": false
+        },
+        "outputSchema": {
+          "type": "object"
+        },
+        "examples": [
+          {
+            "input": {
+              "id": "selected-resource-id"
+            }
+          }
+        ],
+        "sdkSignature": "inspect(input: { id: string }): Promise<Record<string, unknown>>;"
+      },
+      {
         "method": "notes.list",
         "sinceApiVersion": 1,
         "permission": "notes:read",
@@ -1174,6 +1248,43 @@ export const EXTENSION_CAPABILITY_CATALOG = deepFreeze({
           }
         ],
         "sdkSignature": "get(input: { taskId: string }): Promise<Task>;"
+      },
+      {
+        "method": "tasks.inspect",
+        "sinceApiVersion": 3,
+        "permission": "tasks:read",
+        "runtimes": [
+          "sandbox-js"
+        ],
+        "platforms": [
+          "server",
+          "desktop-full"
+        ],
+        "maxArgsBytes": 262144,
+        "maxResultBytes": 1048576,
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id"
+          ],
+          "additionalProperties": false
+        },
+        "outputSchema": {
+          "type": "object"
+        },
+        "examples": [
+          {
+            "input": {
+              "id": "selected-resource-id"
+            }
+          }
+        ],
+        "sdkSignature": "inspect(input: { id: string }): Promise<Record<string, unknown>>;"
       },
       {
         "method": "tasks.list",
@@ -1605,5 +1716,5 @@ export const EXTENSION_CAPABILITY_CATALOG = deepFreeze({
       }
     ]
   },
-  "digest": "c4530c260d3208c35a9fd4be036e45170375e2b4b946b1011eb888446496fb60"
+  "digest": "7177e5719e2e90a04a002566b883982bcb6ce3f4558738dc8239f52de6baf487"
 } as const);

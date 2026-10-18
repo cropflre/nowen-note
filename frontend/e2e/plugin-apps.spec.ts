@@ -28,7 +28,7 @@ test("1.5.3 host installs CLI package and runs an isolated, persistent app throu
     const headers = { Authorization: `Bearer ${account.token}` };
     const features = await (await page.request.get(`${url}/api/plugins/features`, { headers })).json();
     expect(features.currentNowenVersion).toBe("1.5.3");
-    expect(features.applicationV3).toEqual({ core: true, appPages: true, dashboardWidgets: true, pluginData: true });
+    expect(features.applicationV3).toEqual({ core: true, appPages: true, dashboardWidgets: true, pluginData: true, inspectors: false });
     expect(features.extensionsV21).toBe(false);
     const artifact = path.join(root, "examples/plugins/hello-nowen-app/dist/nowenlab.hello-app-0.1.0.nowen-plugin");
     expect(fs.existsSync(artifact), "Pack Hello Nowen App with the existing CLI before running this test").toBe(true);

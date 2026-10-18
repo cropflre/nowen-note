@@ -11,7 +11,7 @@ function deepFreeze<T>(value: T): T {
 
 export type PluginHostRuntime = "node-action" | "sandbox-js";
 export type HostApiPermission = "attachments:read" | "capture:write" | "diary:read" | "diary:write" | "external:fetch" | "mindmaps:read" | "mindmaps:write" | "notebooks:read" | "notebooks:write" | "notes:read" | "notes:write" | "plugin-storage:read" | "plugin-storage:write" | "secrets:use" | "tags:read" | "tags:write" | "tasks:read" | "tasks:write";
-export type HostApiMethod = "attachments.get" | "attachments.list" | "capture.importUrl" | "data.delete" | "data.export" | "data.get" | "data.import" | "data.migrate" | "data.put" | "data.query" | "data.restore" | "diary.create" | "diary.get" | "diary.list" | "external.fetch" | "mindmaps.create" | "mindmaps.get" | "mindmaps.list" | "mindmaps.update" | "notebooks.create" | "notebooks.get" | "notebooks.list" | "notes.create" | "notes.get" | "notes.list" | "notes.update" | "runtime.capabilities" | "secrets.crypt" | "secrets.digest" | "settings.get" | "storage.delete" | "storage.get" | "storage.set" | "tags.addToNote" | "tags.create" | "tags.list" | "tags.removeFromNote" | "tasks.create" | "tasks.get" | "tasks.list" | "tasks.update";
+export type HostApiMethod = "attachments.get" | "attachments.inspect" | "attachments.list" | "capture.importUrl" | "data.delete" | "data.export" | "data.get" | "data.import" | "data.migrate" | "data.put" | "data.query" | "data.restore" | "diary.create" | "diary.get" | "diary.list" | "external.fetch" | "mindmaps.create" | "mindmaps.get" | "mindmaps.list" | "mindmaps.update" | "notebooks.create" | "notebooks.get" | "notebooks.list" | "notes.create" | "notes.get" | "notes.inspect" | "notes.list" | "notes.update" | "runtime.capabilities" | "secrets.crypt" | "secrets.digest" | "settings.get" | "storage.delete" | "storage.get" | "storage.set" | "tags.addToNote" | "tags.create" | "tags.list" | "tags.removeFromNote" | "tasks.create" | "tasks.get" | "tasks.inspect" | "tasks.list" | "tasks.update";
 
 export interface HostApiContractEntry {
   method: HostApiMethod;
@@ -28,7 +28,7 @@ export interface HostApiBudgets {
   readonly hostCallResultBytes: number;
 }
 
-export const HOST_API_CONTRACT_VERSION = 5 as const;
+export const HOST_API_CONTRACT_VERSION = 6 as const;
 export const HOST_API_BUDGETS: HostApiBudgets = deepFreeze({
   "ipcMessageBytes": 2097152,
   "hostCallArgsBytes": 262144,
@@ -41,6 +41,16 @@ export const HOST_API_CONTRACT: readonly HostApiContractEntry[] = deepFreeze([
     "permission": "attachments:read",
     "runtimes": [
       "node-action",
+      "sandbox-js"
+    ],
+    "maxArgsBytes": 262144,
+    "maxResultBytes": 1048576
+  },
+  {
+    "method": "attachments.inspect",
+    "sinceApiVersion": 3,
+    "permission": "attachments:read",
+    "runtimes": [
       "sandbox-js"
     ],
     "maxArgsBytes": 262144,
@@ -292,6 +302,16 @@ export const HOST_API_CONTRACT: readonly HostApiContractEntry[] = deepFreeze([
     "maxResultBytes": 1048576
   },
   {
+    "method": "notes.inspect",
+    "sinceApiVersion": 3,
+    "permission": "notes:read",
+    "runtimes": [
+      "sandbox-js"
+    ],
+    "maxArgsBytes": 262144,
+    "maxResultBytes": 1048576
+  },
+  {
     "method": "notes.list",
     "sinceApiVersion": 1,
     "permission": "notes:read",
@@ -457,6 +477,16 @@ export const HOST_API_CONTRACT: readonly HostApiContractEntry[] = deepFreeze([
     "maxResultBytes": 1048576
   },
   {
+    "method": "tasks.inspect",
+    "sinceApiVersion": 3,
+    "permission": "tasks:read",
+    "runtimes": [
+      "sandbox-js"
+    ],
+    "maxArgsBytes": 262144,
+    "maxResultBytes": 1048576
+  },
+  {
     "method": "tasks.list",
     "sinceApiVersion": 1,
     "permission": "tasks:read",
@@ -499,6 +529,7 @@ export interface RuntimeCapabilities {
 export interface NotesApi {
   create(input: { notebookId: string; title?: string; content?: string; contentFormat?: "markdown" | "html" | "tiptap-json" }): Promise<{ id: string; version?: number }>;
   get(input: { noteId: string }): Promise<Note | null>;
+  inspect(input: { id: string }): Promise<Record<string, unknown>>;
   list(input?: { limit?: number }): Promise<NoteSummary[]>;
   update(input: { noteId: string; title?: string; content?: string; contentFormat?: "markdown" | "html" | "tiptap-json" }): Promise<{ id: string; version: number }>;
 }
@@ -519,12 +550,14 @@ export interface TagsApi {
 export interface TasksApi {
   create(input: { title: string; workspaceId?: string | null; description?: string; priority?: number; dueDate?: string | null; noteId?: string | null }): Promise<{ id: string }>;
   get(input: { taskId: string }): Promise<Task>;
+  inspect(input: { id: string }): Promise<Record<string, unknown>>;
   list(input?: { limit?: number }): Promise<Task[]>;
   update(input: { taskId: string; title?: string; description?: string; isCompleted?: boolean; priority?: number; dueDate?: string | null }): Promise<{ id: string }>;
 }
 
 export interface AttachmentsApi {
   get(input: { attachmentId: string }): Promise<Attachment>;
+  inspect(input: { id: string }): Promise<Record<string, unknown>>;
   list(input?: { limit?: number }): Promise<Attachment[]>;
 }
 

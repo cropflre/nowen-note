@@ -7,8 +7,8 @@ import {
 import { HOST_API_CONTRACT_VERSION } from "../src/plugins/hostApiContract";
 
 test("unified capability catalog keeps host, contribution and AI boundaries in sync", () => {
-  assert.equal(HOST_API_CONTRACT_VERSION, 5);
-  assert.equal(EXTENSION_CAPABILITY_CATALOG.hostApi.contractVersion, 5);
+  assert.equal(HOST_API_CONTRACT_VERSION, 6);
+  assert.equal(EXTENSION_CAPABILITY_CATALOG.hostApi.contractVersion, 6);
   assert.equal(EXTENSION_CAPABILITY_CATALOG.hostApi.templates.v21EngineRange, ">=1.6.0");
   assert.match(EXTENSION_CAPABILITY_CATALOG_DIGEST, /^[a-f0-9]{64}$/);
   assert.equal(EXTENSION_CAPABILITY_CATALOG.digest, EXTENSION_CAPABILITY_CATALOG_DIGEST);

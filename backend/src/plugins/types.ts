@@ -296,6 +296,7 @@ export interface PluginManifestV3 {
     }>;
     uiAssets: Record<string, string>;
     widgets?: import("./dashboardV3.js").PluginWidgetV3[];
+    inspectors?: import("./inspectorV3.js").PluginInspectorV3[];
   };
 }
 

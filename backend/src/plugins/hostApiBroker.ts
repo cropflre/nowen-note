@@ -24,6 +24,8 @@ import { PluginSecrets } from "./secrets.js";
 import crypto from "node:crypto";
 import { callPluginDataV3, checkPluginStorageQuota, COLLECTION_PREFIX } from "./pluginDataV3.js";
 import { importArticleUrl } from "../services/article-import.js";
+import { INSPECTOR_METHODS, INSPECTOR_PERMISSIONS, type InspectorResourceV3 } from "./inspectorV3.js";
+import { getApplicationV3FeatureFlags } from "./applicationV3.js";
 import type { HostCall, PluginExecutionContext, PluginManifest } from "./types.js";
 
 type JsonObject = Record<string, any>;
@@ -127,6 +129,28 @@ export class HostApiBroker {
     return result;
   }
 
+  /** Inspector UI receives metadata for one host-bound resource, never bodies or file URLs. */
+  inspectResource(context: PluginExecutionContext, resource: InspectorResourceV3): JsonObject {
+    if (!getApplicationV3FeatureFlags().inspectors) forbidden("Inspector is disabled", "PLUGIN_V3_FEATURE_DISABLED");
+    if (this.registry.get(context.pluginId)?.apiVersion !== 3) throw createHostMethodNotFound(INSPECTOR_METHODS[resource.type]);
+    this.permissions.require(context.pluginId, INSPECTOR_PERMISSIONS[resource.type]);
+    const db = getDb(), workspaceId = context.workspaceId || null;
+    let row: JsonObject | undefined;
+    if (resource.type === "note") {
+      if (!hasPermission(resolveNotePermission(resource.id, context.userId).permission, "read")) forbidden("无权检查该资源");
+      row = db.prepare("SELECT id,title,contentFormat,version,createdAt,updatedAt,length(contentText) AS characterCount FROM notes WHERE id=? AND isTrashed=0 AND workspaceId IS ? AND contentFormat NOT LIKE 'encrypted-%'").get(resource.id, workspaceId) as JsonObject | undefined;
+    } else if (resource.type === "task") {
+      const task = db.prepare("SELECT id,userId,workspaceId,title,status,priority,dueDate,createdAt,updatedAt FROM tasks WHERE id=? AND workspaceId IS ?").get(resource.id, workspaceId) as JsonObject | undefined;
+      if (!task || !canReadPluginTask(task as { userId: string; workspaceId: string | null }, context.userId)) forbidden("无权检查该资源");
+      const { userId: _user, workspaceId: _workspace, ...metadata } = task; row = metadata;
+    } else {
+      row = db.prepare("SELECT a.id,a.noteId,a.filename AS title,a.mimeType,a.size,a.createdAt FROM attachments a JOIN notes n ON n.id=a.noteId WHERE a.id=? AND a.trashedAt IS NULL AND a.workspaceId IS ? AND (a.userId=? OR a.workspaceId IS NOT NULL) AND n.isTrashed=0 AND n.workspaceId IS ? AND n.contentFormat NOT LIKE 'encrypted-%'").get(resource.id, workspaceId, context.userId, workspaceId) as JsonObject | undefined;
+      if (row && !hasPermission(resolveNotePermission(row.noteId, context.userId).permission, "read")) forbidden("无权检查该资源");
+    }
+    if (!row) forbidden("无权检查该资源");
+    return { type: resource.type, ...row };
+  }
+
   private secretOperation(context: PluginExecutionContext, operation: string, args: JsonObject): string {
     const manifest = JSON.parse(this.registry.get(context.pluginId)!.manifestJson) as PluginManifest;
     if (!manifest.connections?.some((connection) => connection.id === args.connection)) forbidden("未声明的密钥连接", "PLUGIN_PERMISSION_DENIED");
@@ -171,6 +195,7 @@ export class HostApiBroker {
   }
 
   private async notes(context: PluginExecutionContext, operation: string, args: JsonObject): Promise<unknown> {
+    if (operation === "inspect") return this.inspectResource(context, { type: "note", id: requireString(args.id, "id") });
     const db = getDb();
     if (operation === "get") {
       const id = requireString(args.id ?? args.noteId, "noteId");
@@ -269,6 +294,7 @@ export class HostApiBroker {
   }
 
   private async tasks(context: PluginExecutionContext, operation: string, args: JsonObject): Promise<unknown> {
+    if (operation === "inspect") return this.inspectResource(context, { type: "task", id: requireString(args.id, "id") });
     const db = getDb();
     if (operation === "get") {
       const row = db.prepare("SELECT * FROM tasks WHERE id=?").get(requireString(args.id ?? args.taskId, "taskId")) as JsonObject | undefined;
@@ -310,6 +336,7 @@ export class HostApiBroker {
   }
 
   private attachments(context: PluginExecutionContext, operation: string, args: JsonObject): unknown {
+    if (operation === "inspect") return this.inspectResource(context, { type: "attachment", id: requireString(args.id, "id") });
     const db = getDb();
     if (operation === "get") {
       const row = db.prepare("SELECT id,noteId,filename,mimeType,size,createdAt FROM attachments WHERE id=?").get(requireString(args.id ?? args.attachmentId, "attachmentId")) as JsonObject | undefined;

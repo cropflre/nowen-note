@@ -6,7 +6,7 @@ import { usePluginApps } from "@/hooks/usePluginApps";
 import { getCurrentWorkspace } from "@/lib/api";
 import { pushAppPathState, replaceAppPathState } from "@/lib/appPathNavigation";
 import { loadPluginAppPins, savePluginAppPins } from "@/lib/pluginApps";
-import { pluginApi, pluginAppDocumentUrl, PLUGIN_CONTRIBUTIONS_CHANGED_EVENT, type PluginAppPage, type PluginAppSession } from "@/lib/pluginApi";
+import { pluginApi, pluginAppDocumentUrl, PLUGIN_CONTRIBUTIONS_CHANGED_EVENT, type PluginAppPage, type PluginAppSession, type PluginInspectorContext } from "@/lib/pluginApi";
 import { currentUiPlatform } from "@/lib/pluginUiRegistry";
 import { connectPluginAppFrame } from "@/lib/pluginAppChannel";
 import type { ViewMode } from "@/types";
@@ -28,7 +28,7 @@ export function PluginAppNavigation({ showLabel }: { showLabel: boolean }) {
   </>;
 }
 
-export function PluginAppFrame({ page, compact = false }: { page: PluginAppPage; compact?: boolean }) {
+export function PluginAppFrame({ page, compact = false, inspector, workspaceId }: { page: PluginAppPage; compact?: boolean; inspector?: PluginInspectorContext; workspaceId?: string }) {
   const { t } = useTranslation();
   const actions = useAppActions();
   const frame = useRef<HTMLIFrameElement>(null);
@@ -51,7 +51,7 @@ export function PluginAppFrame({ page, compact = false }: { page: PluginAppPage;
     setError(false); setReady(false);
     const start = async () => {
       try {
-        created = await pluginApi.appSession(page, { workspaceId: getCurrentWorkspace(), platform: currentUiPlatform(), theme: document.documentElement.classList.contains("dark") ? "dark" : "light" }, controller.signal);
+        created = await pluginApi.appSession(page, { workspaceId: workspaceId ?? getCurrentWorkspace(), platform: currentUiPlatform(), theme: document.documentElement.classList.contains("dark") ? "dark" : "light", ...(inspector ? { inspector } : {}) }, controller.signal);
         if (!active || controller.signal.aborted) { void pluginApi.closeAppSession(created.instanceId, created.nonce).catch(() => undefined); return; }
         const events = await pluginApi.appEvents(created.instanceId, created.nonce, controller.signal);
         if (!events.ok || !events.body) throw new Error("PLUGIN_UI_SESSION_REVOKED");
@@ -84,7 +84,7 @@ export function PluginAppFrame({ page, compact = false }: { page: PluginAppPage;
       window.removeEventListener("nowen:token-changed", fail); window.removeEventListener("nowen:workspace-changed", fail); window.removeEventListener(PLUGIN_CONTRIBUTIONS_CHANGED_EVENT, fail);
       if (created) void pluginApi.closeAppSession(created.instanceId, created.nonce).catch(() => undefined);
     };
-  }, [page.pluginId, page.id, attempt]);
+  }, [page.pluginId, page.id, attempt, inspector?.id, inspector?.resource.type, inspector?.resource.id, workspaceId]);
 
   const loaded = () => {
     const current = activeSession.current;

@@ -1,4 +1,5 @@
 export const zhCNPluginAppTranslations = { pluginApps: {
+  inspectorTitle: "插件检查器", chooseInspector: "选择检查器", closeInspector: "关闭检查器", inspectorReadOnly: "仅向所选插件提供当前资源的只读信息。切换资源或关闭窗口会停止检查器。",
   editLayout: "编辑布局", finishLayout: "完成编辑",
   dashboard: "工作台", refresh: "刷新卡片", localLayout: "布局仅保存在本设备，按账号、服务器、工作区和屏幕类型分别保存。自定义应用卡片需手动启动，同一时间只运行一张。",
   layout: "工作台布局", layoutName: "新布局名称", addLayout: "保存新布局", resetLayout: "恢复默认布局", deleteLayout: "删除当前布局", addCard: "添加卡片",
@@ -16,6 +17,7 @@ export const zhCNPluginAppTranslations = { pluginApps: {
   failed: "应用已停止或连接中断。请重新打开；若保存响应未收到，请先读取数据核验。", retry: "重新打开",
 } };
 export const enPluginAppTranslations = { pluginApps: {
+  inspectorTitle: "Plugin inspector", chooseInspector: "Choose inspector", closeInspector: "Close inspector", inspectorReadOnly: "Share read-only metadata for this resource with the selected plugin. Switching resources or closing this window stops the inspector.",
   editLayout: "Edit layout", finishLayout: "Finish editing",
   dashboard: "Dashboard", refresh: "Refresh cards", localLayout: "Layouts stay on this device, separated by account, server, workspace and screen type. Start custom app cards manually; only one runs at a time.",
   layout: "Dashboard layout", layoutName: "New layout name", addLayout: "Save new layout", resetLayout: "Reset layout", deleteLayout: "Delete current layout", addCard: "Add cards",

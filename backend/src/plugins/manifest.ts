@@ -5,6 +5,7 @@ import { isV2SupportedPluginPermission } from "./hostApiContract.js";
 import { NOWEN_VERSION, PLUGIN_PERMISSIONS, type PluginActionManifest, type PluginManifest, type PluginManifestV1, type PluginManifestV2 } from "./types.js";
 import { widgetV3Schema } from "./dashboardV3.js";
 import { getApplicationV3FeatureFlags, parseAppPageDeclarationsV3, validateUiAssetPathV3, validatePackagedImageV3, APPLICATION_V3_TARGET_NOWEN } from "./applicationV3.js";
+import { inspectorV3Schema, INSPECTOR_PERMISSIONS } from "./inspectorV3.js";
 
 const inputFieldSchema = z.object({
   type: z.enum(["string", "number", "boolean", "object", "array"]),
@@ -298,6 +299,7 @@ export const pluginManifestV3Schema = z.object({
       requiredPermissions: z.array(z.enum(PLUGIN_PERMISSIONS)),
     }).strict()).min(1).max(16),
     widgets: z.array(widgetV3Schema).max(8).optional(),
+    inspectors: z.array(inspectorV3Schema).max(8).optional(),
     uiAssets: z.record(z.string().regex(/^sha256:[a-f0-9]{64}$/))
       .refine((v) => Object.keys(v).length > 0 && Object.keys(v).length <= 200),
   }).strict(),
@@ -322,6 +324,12 @@ export const pluginManifestV3Schema = z.object({
     }
   }
   const widgetIds = new Set<string>();
+  const inspectorIds = new Set<string>();
+  for (const inspector of manifest.contributes.inspectors || []) {
+    if (inspectorIds.has(inspector.id) || !manifest.contributes.appPages.some(page => page.id === inspector.pageId)) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["contributes", "inspectors"], message: "Inspector ID 重复或关联页面不存在" });
+    if (inspector.resourceTypes.some(type => !manifest.permissions.includes(INSPECTOR_PERMISSIONS[type]))) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["permissions"], message: "Inspector 需要对应资源的读取权限" });
+    inspectorIds.add(inspector.id);
+  }
   for (const widget of manifest.contributes.widgets || []) {
     if (widgetIds.has(widget.id) || !manifest.contributes.appPages.some(page => page.id === widget.pageId)) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["contributes", "widgets"], message: "Widget ID 重复或关联页面不存在" });
     if (["statistic", "status", "list"].includes(widget.type) && !manifest.permissions.includes("plugin-storage:read")) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["permissions"], message: "数据卡片需要 plugin-storage:read" });
