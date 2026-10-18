@@ -61,3 +61,11 @@ NOWEN_QA_NODE="$PWD/../node_modules/electron/dist/Electron.app/Contents/MacOS/El
 CI 使用 Node 22 及 Chromium，无需 `NOWEN_QA_NODE` / Chrome 覆盖。现有 V3 工作流已加入新包打包、新后端用例、前端及浏览器用例；改动尚未推送。
 
 手动使用：`NOWEN_EXTENSION_V3_INSPECTORS=1 npm run dev`，再按[示例说明](../../../examples/plugins/resource-inspector/README.md)安装并打开检查器。
+
+## 2026-10-18 补充：管理入口并入应用
+
+设置中的桌面/移动端插件分类与面板已移除；在“应用”中通过“我的应用”和“应用管理”切换运行目录与管理页面。安装、授权、启停、市场、更新和开发者功能复用原实现；管理页重新确认当前账号角色，身份切换清掉旧管理界面，迟到的管理员信息不能覆盖新账号。`/apps/manage` 支持刷新，服务器地址推断已补充该路由及反代子路径回归。
+
+本次前端定向回归为 8 文件 / 139 项通过，包含管理角色、身份切换、失败重试、设置导航、路由、服务器路径、安装策略和翻译覆盖。前端 TypeScript/生产构建、DCC 映射及 `git diff --check` 通过。浏览器 2 项通过，覆盖桌面与 390px 窄屏设置中不再存在“插件”、管理页直接刷新、新入口安装授权、原有应用/Dashboard 与 Inspector 闭环。
+
+截图：[应用管理 / 桌面](./artifacts/extension-v3-inspector/app-management-desktop.png)、[应用管理 / 窄屏](./artifacts/extension-v3-inspector/app-management-narrow.png)。此补充已提交到本地开发分支，尚未推送；不改变上述平台验收边界。

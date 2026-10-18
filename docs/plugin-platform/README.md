@@ -12,7 +12,7 @@ npm run dev
 npm run pack
 ```
 
-`npm run pack` 生成 `.nowen-plugin` 文件。管理员在“设置 → 插件”选择该文件，阅读第三方代码警告和权限说明后安装。新插件先进入 `quarantined`，管理员确认权限后才能启用。
+`npm run pack` 生成 `.nowen-plugin` 文件。管理员在“应用 → 应用管理”选择该文件，阅读第三方代码警告和权限说明后安装。新插件先进入 `quarantined`，管理员确认权限后才能启用。
 
 插件默认导出：
 

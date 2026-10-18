@@ -45,6 +45,9 @@ on:
       - "backend/tests/application-v3-foundation.test.ts"
       - "backend/tests/application-v3-*.ts"
       - "frontend/src/components/PluginApps.tsx"
+      - "frontend/src/components/PluginManagementPanel.tsx"
+      - "frontend/src/components/__tests__/SettingsModalSiteIdentity.test.tsx"
+      - "frontend/src/components/settings/plugins/**"
       - "frontend/src/components/PluginDashboard.tsx"
       - "frontend/src/components/PluginDataActions.tsx"
       - "frontend/src/components/PluginInspector.tsx"
@@ -53,6 +56,7 @@ on:
       - "frontend/src/components/attachmentDetail/AttachmentDetailDrawer.tsx"
       - "backend/src/plugins/inspectorV3.ts"
       - "frontend/src/lib/__tests__/pluginInspector.test.tsx"
+      - "frontend/src/lib/__tests__/pluginManagement.test.tsx"
       - "frontend/e2e/plugin-inspectors.spec.ts"
       - "frontend/src/components/NavRail.tsx"
       - "frontend/src/components/SettingsModal.tsx"
@@ -149,7 +153,7 @@ jobs:
         run: node ../../../packages/nowen-plugin-cli/bin/nowen-plugin.mjs pack
       - name: Navigation and MessageChannel contracts
         working-directory: frontend
-        run: npx vitest run src/lib/__tests__/pluginInspector.test.tsx src/lib/__tests__/pluginDataActions.test.tsx src/lib/__tests__/pluginApps.test.ts src/lib/__tests__/pluginDashboard.test.ts src/lib/__tests__/appPathNavigation.test.ts src/lib/__tests__/serverUrl.test.ts src/lib/__tests__/pluginRuntimePresentation.test.ts src/i18n/__tests__/releaseI18nCoverage.test.ts
+        run: npx vitest run src/lib/__tests__/pluginManagement.test.tsx src/components/__tests__/SettingsModalSiteIdentity.test.tsx src/lib/__tests__/pluginInspector.test.tsx src/lib/__tests__/pluginDataActions.test.tsx src/lib/__tests__/pluginApps.test.ts src/lib/__tests__/pluginDashboard.test.ts src/lib/__tests__/appPathNavigation.test.ts src/lib/__tests__/serverUrl.test.ts src/lib/__tests__/pluginRuntimePresentation.test.ts src/i18n/__tests__/releaseI18nCoverage.test.ts
       - run: npm run build
         working-directory: frontend
       - run: npx playwright install --with-deps chromium

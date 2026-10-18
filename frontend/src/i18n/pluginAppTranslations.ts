@@ -1,5 +1,6 @@
 export const zhCNPluginAppTranslations = { pluginApps: {
   inspectorTitle: "插件检查器", chooseInspector: "选择检查器", closeInspector: "关闭检查器", inspectorReadOnly: "仅向所选插件提供当前资源的只读信息。切换资源或关闭窗口会停止检查器。",
+  myApps: "我的应用", manage: "应用管理", sections: "应用导航", install: "安装应用", managementFailed: "无法加载应用管理，请重新登录或重试。", managementDescription: "安装和管理应用、插件及扩展，查看权限、更新和运行状态。",
   editLayout: "编辑布局", finishLayout: "完成编辑",
   dashboard: "工作台", refresh: "刷新卡片", localLayout: "布局仅保存在本设备，按账号、服务器、工作区和屏幕类型分别保存。自定义应用卡片需手动启动，同一时间只运行一张。",
   layout: "工作台布局", layoutName: "新布局名称", addLayout: "保存新布局", resetLayout: "恢复默认布局", deleteLayout: "删除当前布局", addCard: "添加卡片",
@@ -12,12 +13,13 @@ export const zhCNPluginAppTranslations = { pluginApps: {
   title: "应用", back: "返回应用", pin: "固定到侧栏", unpin: "取消固定", loading: "正在启动应用…",
   executionLabel: "隔离应用界面代码",
   uninstallData: "卸载 {{name}} 将删除所有用户和工作区的应用专属数据。确定删除数据并卸载？取消并选择停用可保留数据。",
-  empty: "暂无可用应用。请在插件管理中安装并启用兼容的应用插件。",
+  empty: "暂无可用应用。请在应用管理中安装并启用兼容应用。",
   unavailable: "此应用不可用，可能已停用、权限发生变更或当前客户端不支持。",
   failed: "应用已停止或连接中断。请重新打开；若保存响应未收到，请先读取数据核验。", retry: "重新打开",
 } };
 export const enPluginAppTranslations = { pluginApps: {
   inspectorTitle: "Plugin inspector", chooseInspector: "Choose inspector", closeInspector: "Close inspector", inspectorReadOnly: "Share read-only metadata for this resource with the selected plugin. Switching resources or closing this window stops the inspector.",
+  myApps: "My apps", manage: "Manage apps", sections: "App navigation", install: "Install app", managementFailed: "Unable to load app management. Sign in again or retry.", managementDescription: "Install and manage apps, plugins and extensions, including permissions, updates and runtime status.",
   editLayout: "Edit layout", finishLayout: "Finish editing",
   dashboard: "Dashboard", refresh: "Refresh cards", localLayout: "Layouts stay on this device, separated by account, server, workspace and screen type. Start custom app cards manually; only one runs at a time.",
   layout: "Dashboard layout", layoutName: "New layout name", addLayout: "Save new layout", resetLayout: "Reset layout", deleteLayout: "Delete current layout", addCard: "Add cards",
@@ -30,7 +32,7 @@ export const enPluginAppTranslations = { pluginApps: {
   title: "Apps", back: "Back to apps", pin: "Pin to sidebar", unpin: "Unpin", loading: "Starting app…",
   executionLabel: "Isolated app UI code",
   uninstallData: "Uninstalling {{name}} deletes its private data for all users and workspaces. Delete the data and uninstall? Cancel and disable the app to retain data.",
-  empty: "No apps available. Install and enable a compatible app in plugin management.",
+  empty: "No apps available. Install and enable a compatible app in Manage apps.",
   unavailable: "This app is unavailable. It may be disabled, its permissions changed, or this client is unsupported.",
   failed: "The app stopped or disconnected. Reopen it; if a save response was lost, read the data to verify it first.", retry: "Reopen",
 } };

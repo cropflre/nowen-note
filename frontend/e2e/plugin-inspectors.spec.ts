@@ -24,13 +24,15 @@ test("installed V3 inspector follows resource selection and retires old credenti
     await page.getByPlaceholder("admin", { exact: true }).fill("v3_browser"); await page.locator("input[type=password]").fill("v3-browser-test-password"); await page.locator("button[type=submit]").click();
     await expect(page.getByRole("textbox", { name: "Note Title", exact: true })).toHaveValue("欢迎使用 Nowen Note");
     await expect(page.getByRole("button", { name: "Plugin inspector", exact: true })).toHaveCount(0);
-    await page.getByRole("button", { name: "Settings", exact: true }).filter({ visible: true }).click();
-    await page.getByRole("button", { name: "Plugins", exact: true }).filter({ visible: true }).click();
+    await page.getByRole("button", { name: "Apps", exact: true }).filter({ visible: true }).click();
+    await page.getByRole("button", { name: "Manage apps", exact: true }).click();
     await page.locator('input[type="file"][accept=".nowen-plugin"]').setInputFiles(path.join(root, "examples/plugins/resource-inspector/dist/nowenlab.resource-inspector-0.1.0.nowen-plugin"));
     await page.getByRole("button", { name: /继续安装|Continue install/, exact: true }).click();
     await page.getByRole("button", { name: /确认权限并启用|Confirm permissions and enable/, exact: true }).click();
     await expect.poll(async () => (await (await page.request.get(`${url}/api/plugins/nowenlab.resource-inspector`, { headers })).json()).status).toBe("enabled");
-    await page.evaluate(() => window.dispatchEvent(new Event("nowen:close-settings")));
+    await page.goto(url);
+    await page.getByRole("button", { name: /^欢迎使用 Nowen Note/ }).filter({ visible: true }).first().click();
+    await expect(page.getByRole("textbox", { name: "Note Title", exact: true })).toHaveValue("欢迎使用 Nowen Note");
     const created = page.waitForResponse(r => r.url().includes("/home/session") && r.status() === 201);
     await page.getByRole("button", { name: "Plugin inspector", exact: true }).filter({ visible: true }).click();
     const session = await (await created).json();

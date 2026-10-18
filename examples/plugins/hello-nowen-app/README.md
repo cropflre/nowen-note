@@ -9,9 +9,9 @@ node ../../../packages/nowen-plugin-cli/bin/nowen-plugin.mjs doctor
 node ../../../packages/nowen-plugin-cli/bin/nowen-plugin.mjs pack
 ```
 
-产物在 `dist/`。修改 `ui/` 文件后，必须更新 `manifest.json` 的 SHA-256；请保留 LF 换行。Nowen 1.5.3 默认开放 V3 应用，1.5.2 及更早版本不支持。由管理员在设置→插件上传包，确认 storage 读写权限并启用，再从应用目录固定到侧栏。
+产物在 `dist/`。修改 `ui/` 文件后，必须更新 `manifest.json` 的 SHA-256；请保留 LF 换行。Nowen 1.5.3 默认开放 V3 应用，1.5.2 及更早版本不支持。由管理员在应用→应用管理上传包，确认 storage 读写权限并启用，再从应用目录固定到侧栏。
 
-Output is under `dist/`. After editing `ui/`, update manifest SHA-256 values and preserve LF line endings. Nowen 1.5.3 enables V3 apps by default; 1.5.2 and earlier are unsupported. An administrator uploads the package in Settings → Plugins, grants storage read/write and enables it, then pins it from Apps.
+Output is under `dist/`. After editing `ui/`, update manifest SHA-256 values and preserve LF line endings. Nowen 1.5.3 enables V3 apps by default; 1.5.2 and earlier are unsupported. An administrator uploads the package in Apps → Manage apps, grants storage read/write and enables it, then pins it from Apps.
 
 个人空间按插件/用户隔离，工作区按插件/工作区隔离；禁用及重启保留数据。存储需在线连接服务器，不是离线或跨端同步示例。写入超时请先重新打开并读取核对。卸载删除所有用户和工作区的应用数据，取消并禁用可保留。
 
