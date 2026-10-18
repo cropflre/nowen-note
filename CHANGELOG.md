@@ -14,6 +14,8 @@
 
 ## 未发布 / Unreleased
 
+- **macOS / #861**：为 Intel 与 Apple Silicon 构建补齐匹配后端 sharp 版本的目标架构依赖，打包前后校验原生库版本与 Mach-O 架构；分享横幅按需加载图片处理库，避免其加载失败阻断后端启动。Prepare target-specific sharp/libvips packages for both macOS architectures, validate native versions and Mach-O headers before and after packing, and load banner processing on demand. 本地回归、GitHub 双架构构建和包内运行检查通过，已替换 1.5.2 macOS 分发资产；Intel 真机安装验收待完成。Local regressions, GitHub builds and packaged-runtime checks passed; v1.5.2 macOS assets replaced, with Intel hardware installation acceptance still pending. [验证记录 / Validation](./docs/qa/issue-861-macos-sharp.md)。
+
 - **maintenance / Release Center Phase 2B**：新增既有正式 Tag 构建接管、Windows Full/Lite 与三平台内容复核、独立凭据的 Draft/审批/发布源码，加入写入意图对账与防覆盖约束。写开关默认关闭，测试按要求延后，正式构建编排仍待实现，不能视为可发布。Add source implementation for legacy formal-run import, complete desktop verification and gated Draft/approval/publication with durable write reconciliation; runtime acceptance and new formal build orchestration remain pending. [源码与未验收记录](./docs/qa/v1.5.2/release-center-phase2b.md)。
 
 - **maintenance / 发布流程**：将同 Tag 的 macOS、Windows CI 产物汇总与远端更新校验移至 GitHub Runner；本地仅轮询进度并核对绑定请求和资产清单的小型回执，保留 Draft/最终发布门禁，修正提前显示“发布成功”。Move same-tag desktop asset collection and remote updater verification to GitHub; keep local receipt checks and Draft/final publication gates, and report success only after verification. 尚未进行真实 Actions 发布联调，见 [维护者说明](./docs/releases/github-release-assets.md)。

@@ -5,6 +5,7 @@
 const path = require("path");
 const os = require("os");
 const fs = require("fs");
+const { verifyMacSharp } = require("../scripts/lib/macos-sharp.cjs");
 const {
   verifySyncNotificationUi,
 } = require("../scripts/verify-sync-notification-ui.cjs");
@@ -394,10 +395,20 @@ module.exports = {
   appId: "com.nowen.note",
   productName: "Nowen Note",
   // 打包前自动校验原生模块，避免漏跑 rebuild:native 导致安装后崩溃
-  beforeBuild() {
+  beforeBuild(context) {
     checkNativeModule();
+    const platform = context?.platform?.nodeName || inferTargetPlatformFromArgv();
+    if (platform === "darwin") {
+      verifyMacSharp(path.resolve(__dirname, "../backend/node_modules"), context?.arch || inferTargetArch(platform));
+    }
     verifySyncNotificationUi();
     return true; // 返回 true 表示继续打包
+  },
+  afterPack(context) {
+    if (context.electronPlatformName !== "darwin") return;
+    const arch = require("builder-util").Arch[context.arch];
+    const resources = path.join(context.appOutDir, `${context.packager.appInfo.productFilename}.app`, "Contents/Resources");
+    verifyMacSharp(path.join(resources, "backend/node_modules"), arch);
   },
   directories: {
     output: OUT_DIR,

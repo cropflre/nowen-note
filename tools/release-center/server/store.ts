@@ -96,12 +96,15 @@ export class Store {
       throw new AppError(409, "幂等键已用于其他请求");
     return JSON.parse(String(row.data));
   }
-  create(task: Task, fingerprint: string): Task {
+  create(task: Task, fingerprint: string, beforeInsert?: () => void): Task {
     return this.transaction(() => {
       const existing = this.byKey(task.key, fingerprint);
       if (existing) return existing;
       if (this.tasks(true).length)
         throw new AppError(409, "已有活动任务，请等待完成或取消");
+      // Keep an optional version reservation in the same SQLite transaction.
+      // If the task cannot be created, no version remains accidentally reserved.
+      beforeInsert?.();
       this.db
         .prepare("INSERT INTO tasks VALUES(?,?,?,?,?)")
         .run(

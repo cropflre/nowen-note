@@ -62,4 +62,14 @@ describe("Android 未登录本地模式", () => {
     installCapacitor("ios");
     expect(isMobileLocalMode()).toBe(false);
   });
+
+  it("Harmony uses the same device-only lifecycle without pretending to be Android", () => {
+    installCapacitor("harmony");
+    expect(isMobileLocalMode()).toBe(true);
+    requestMobileAccountLogin();
+    expect(isMobileLocalMode()).toBe(false);
+    continueMobileLocalMode();
+    expect(isMobileLocalMode()).toBe(true);
+    expect(Reflect.get(window, "Capacitor").getPlatform()).toBe("harmony");
+  });
 });

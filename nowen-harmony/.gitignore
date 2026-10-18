@@ -7,4 +7,5 @@
 *.har
 *.hap
 /local.properties
+/entry/src/main/resources/rawfile/web/
 /.cxx

@@ -2,9 +2,15 @@
 
 独立维护者控制台，面向本机单人使用。与 Nowen Note 的前端、后端、Electron 和用户数据隔离。提供只读总览、版本预检、发布计划、Dry Run、隔离桌面调试构建、任务进度、日志和审计；Phase 2A 增加调试产物下载复核与本地验收记录。
 
-**Phase 2B 新增正式候选接管、Draft、审批和发布接口源码，默认写开关关闭；按要求尚未运行功能测试、构建或平台联调，不能视为验收通过。** 仅接管既有 `release.yml` 的成功完整桌面 Tag 构建，不推 Tag、不 dispatch，不接管其他发布器的 Draft，也不允许调试包晋升。独立构建编排仍待实现，详见 [Phase 2B 实现与未验收记录](../../docs/qa/v1.5.2/release-center-phase2b.md)。
+**Phase 2B 新增正式候选接管、Draft、审批和发布接口源码；已通过本地隔离 GitHub API 的完整发布链 CI 测试（含真实 ZIP/摘要校验、Draft、16 个文件模拟上传、审批、发布及网络中断恢复），但真实 GitHub Release API 联调、真实签名/安装和商店分发仍未验收。正式写开关继续默认关闭。** 仅接管既有 `release.yml` 的成功完整桌面 Tag 构建，不推 Tag、不 dispatch，不接管其他发布器的 Draft，也不允许调试包晋升。独立构建编排仍待实现，详见 [Phase 2B 原始实现与未验收记录](../../docs/qa/v1.5.2/release-center-phase2b.md) 和 [后续模拟发布闭环验收](../../docs/qa/v1.5.3/release-center-p0-simulation.md)。
 
 Phase 3 增加“渠道分发”页、Store / Docker Hub / NAS 状态观察、不可执行的分发交接计划、JSON 导出与人工平台回执。后续回归已通过工具单元/接口测试、真实浏览器测试和生产构建；外部平台使用隔离夹具，**尚未实际联调或验证渠道自动发布**。正式上传与商店提交仍未开放，须先完成 Phase 2 正式审批和渠道产物校验。
+
+## Phase 2C · 独立桌面候选构建（不发布）
+
+新增 [release-center-candidate.yml](../../.github/workflows/release-center-candidate.yml)，在 GitHub Actions 中手动输入固定源码 SHA、稳定版号 X.Y.Z 和 UUID，即可尝试编译 Windows Full/Lite、macOS Intel/Apple Silicon 与 Linux 候选包。使用服务端只读权限和 `--publish never`，不创建 Tag、Draft、Release，不推 Docker 或 TestFlight。每个平台分别输出安装候选和来源/摘要 JSON 证据；**候选包未签名、未正式审批，不能导入 Phase 2B 作为正式 Tag Release**。
+
+独立工作流须先注册至 GitHub 默认分支、候选 SHA 必须包含 staging 脚本，并经受控实际三平台验证才能作为可靠构建入口。正式发布写权限仍应关闭。细节与未验收项见 [Phase 2C 实现记录](../../docs/qa/v1.5.3/release-center-phase2c.md)。
 
 ## 启动
 

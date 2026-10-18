@@ -1,6 +1,4 @@
 import { router } from '@kit.ArkUI';
-import { getString } from '../services/PreferenceStore';
-import { PREF_KEY_SERVER_URL } from '../utils/Constants';
 
 @Entry
 @Component
@@ -11,15 +9,8 @@ struct Index {
     this.go();
   }
 
-  private async go(): Promise<void> {
-    const url: string = await getString(PREF_KEY_SERVER_URL, '');
-    if (url.length > 0) {
-      const opts: router.RouterOptions = { url: 'pages/WebViewPage', params: { serverUrl: url } };
-      router.replaceUrl(opts);
-    } else {
-      const opts: router.RouterOptions = { url: 'pages/ServerConfigPage' };
-      router.replaceUrl(opts);
-    }
+  private go(): void {
+    router.replaceUrl({ url: 'pages/WebViewPage' });
   }
 
   build() {
