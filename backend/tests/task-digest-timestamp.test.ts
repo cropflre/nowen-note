@@ -113,7 +113,7 @@ test("Issue #867 task push timestamps use the configured timezone without shifti
       });
     }
     await t.test("PushPlus JSON webhook gets a readable Chinese digest without leaking its token", async () => {
-      t.mock.timers.setTime(new Date("2026-10-08T01:00:00.123Z"));
+      t.mock.timers.setTime(Date.parse("2026-10-08T01:00:00.123Z"));
       await save("Asia/Shanghai");
       db.prepare("UPDATE webhooks SET url=? WHERE id='timestamp-hook'")
         .run("https://www.pushplus.plus/send/sample-secret-token?template=json");
