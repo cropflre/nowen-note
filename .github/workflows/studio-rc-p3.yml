@@ -29,12 +29,12 @@ jobs:
           node-version: "22"
       - name: Check #873 → #874 → #876 → P3 without changing release
         env:
-          GITHUB_TOKEN: ${ github.token }}
+          GITHUB_TOKEN: ${{ github.token }}
           STUDIO_RC_HEAD: feature/nowen-studio-rc-p3
         run: node scripts/studio-release-candidate.mjs
 
   sync-v2-matrix:
-    name: Full Sync V2 contract / ${ matrix.target }}
+    name: Full Sync V2 contract / ${{ matrix.target }}
     runs-on: ubuntu-latest
     timeout-minutes: 35
     strategy:
@@ -48,7 +48,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${ matrix.ref }}
+          ref: ${{ matrix.ref }}
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
@@ -63,7 +63,7 @@ jobs:
           set +e
           node scripts/data-consistency-contract.mjs --backend > sync-v2-contract.log 2>&1
           result=$?
-          echo "### Sync V2: ${ matrix.target }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "### Sync V2: ${{ matrix.target }}" >> "$GITHUB_STEP_SUMMARY"
           if [ "$result" -eq 0 ]; then
             echo "PASS — full backend data consistency" >> "$GITHUB_STEP_SUMMARY"
           else
@@ -76,14 +76,14 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: studio-rc-sync-v2-${ matrix.target }}
+          name: studio-rc-sync-v2-${{ matrix.target }}
           path: sync-v2-contract.log
           if-no-files-found: ignore
           retention-days: 7
 
   studio-native-sqlite:
-    name: Desktop-class SQLite smoke / ${ matrix.platform }}
-    runs-on: ${ matrix.platform }}
+    name: Desktop-class SQLite smoke / ${{ matrix.platform }}
+    runs-on: ${{ matrix.platform }}
     timeout-minutes: 20
     strategy:
       fail-fast: false
@@ -116,9 +116,9 @@ jobs:
     steps:
       - name: Block any release unless all independent gates pass
         env:
-          LINEAGE: ${ needs.stacked-pr-lineage.result }}
-          SYNC: ${ needs.sync-v2-matrix.result }}
-          SQLITE: ${ needs.studio-native-sqlite.result }}
+          LINEAGE: ${{ needs.stacked-pr-lineage.result }}
+          SYNC: ${{ needs.sync-v2-matrix.result }}
+          SQLITE: ${{ needs.studio-native-sqlite.result }}
         shell: bash
         run: |
           {
