@@ -43,7 +43,7 @@ test("installed V3 inspector follows resource selection and retires old credenti
     await expect(frame.locator('[data-field="content"]')).toHaveCount(0);
     const oldId = await frame.locator('[data-field="id"]').textContent();
     const notes = await (await page.request.get(`${url}/api/notes`, { headers })).json();
-    const first = notes.find((note: any) => note.id === oldId);
+    const first = notes.find((note: { id: string; notebookId: string }) => note.id === oldId);
     const nextResponse = await page.request.post(`${url}/api/notes`, { headers, data: { notebookId: first.notebookId, title: "Inspector second note", content: "Private text", contentFormat: "markdown" } });
     expect(nextResponse.ok()).toBe(true); const next = await nextResponse.json();
     await page.evaluate(noteId => window.dispatchEvent(new CustomEvent("nowen:open-note-link", { detail: { noteId, blockId: null, href: `nowen://note/${noteId}` } })), next.id);

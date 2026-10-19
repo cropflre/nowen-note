@@ -5,7 +5,7 @@ const state = vi.hoisted(() => ({ features: vi.fn(), inspectors: vi.fn(), platfo
 vi.mock("react-i18next", () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
 vi.mock("@/lib/pluginApi", () => ({ pluginApi: { features: state.features, inspectors: state.inspectors }, PLUGIN_CONTRIBUTIONS_CHANGED_EVENT: "plugins-changed" }));
 vi.mock("@/lib/pluginUiRegistry", () => ({ currentUiPlatform: state.platform }));
-vi.mock("../../components/PluginApps", () => ({ PluginAppFrame: ({ inspector }: any) => <div data-resource={JSON.stringify(inspector)} /> }));
+vi.mock("../../components/PluginApps", () => ({ PluginAppFrame: ({ inspector }: { inspector?: unknown }) => <div data-resource={JSON.stringify(inspector)} /> }));
 import PluginInspector from "../../components/PluginInspector";
 
 const inspector = { pluginId: "nowenlab.inspect", inspectorId: "summary", id: "home", title: "Summary", resourceTypes: ["note"] };
@@ -14,7 +14,7 @@ const dialogMethods = ["showModal", "close"] as const;
 const originalDialogMethods = dialogMethods.map(name => Object.getOwnPropertyDescriptor(HTMLDialogElement.prototype, name));
 afterAll(() => dialogMethods.forEach((name, index) => {
   const original = originalDialogMethods[index];
-  if (original) Object.defineProperty(HTMLDialogElement.prototype, name, original); else delete (HTMLDialogElement.prototype as any)[name];
+  if (original) Object.defineProperty(HTMLDialogElement.prototype, name, original); else Reflect.deleteProperty(HTMLDialogElement.prototype, name);
 }));
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
