@@ -58,7 +58,8 @@ test("1.5.3 host installs CLI package and runs an isolated, persistent app throu
     await page.route("**/api/plugins/personal-apps/ai-preview", async route => {
       const input = route.request().postDataJSON() as { spec: { name: string; fields: Array<{ id: string; label: string; type: string }>; [key: string]: unknown } };
       expect(input.spec.name).toBe("我的待办清单");
-      const { items: _privateItems, ...schema } = input.spec as { items?: unknown; [key:string]:unknown };
+      const schema = { ...input.spec };
+      delete schema.items;
       await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({
         spec: { ...schema, name: "AI Project Board", layout: "board", items: input.spec.items, fields: [...input.spec.fields, { id: "owner", label: "Owner", type: "text" }] }
       }) });
