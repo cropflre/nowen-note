@@ -1797,41 +1797,6 @@ export function KnowledgeTreePanel({
           </div>
         ) : (
           <>
-            {draggedTreeNodeId && canDropToRoot(draggedTreeNodeId) && (
-              <div
-                data-knowledge-tree-root-drop=""
-                className={cn(
-                  "mx-1 mb-2 flex items-center justify-center gap-2 rounded-lg border border-dashed px-3 py-2 text-xs font-medium transition-colors",
-                  rootDropActive
-                    ? "border-accent-primary bg-accent-primary/10 text-accent-primary"
-                    : "border-app-border text-tx-tertiary",
-                )}
-                onDragOver={(event) => {
-                  if (!event.dataTransfer.types.includes("application/x-nowen-tree-node")) return;
-                  const sourceId = event.dataTransfer.getData("application/x-nowen-tree-node") || draggedTreeNodeIdRef.current || "";
-                  if (!canDropToRoot(sourceId)) return;
-                  event.preventDefault();
-                  event.stopPropagation();
-                  event.dataTransfer.dropEffect = "move";
-                  setRootDropActive(true);
-                  setTreeDropTarget(null);
-                }}
-                onDragLeave={() => setRootDropActive(false)}
-                onDrop={(event) => {
-                  if (!event.dataTransfer.types.includes("application/x-nowen-tree-node")) return;
-                  event.preventDefault();
-                  event.stopPropagation();
-                  const sourceId = event.dataTransfer.getData("application/x-nowen-tree-node") || draggedTreeNodeIdRef.current || "";
-                  setRootDropActive(false);
-                  setDraggedTreeNodeId(null);
-                  draggedTreeNodeIdRef.current = null;
-                  if (canDropToRoot(sourceId)) void dropToRoot(sourceId);
-                }}
-              >
-                <TreePine size={14} />
-                <span>移动到根目录</span>
-              </div>
-            )}
             {(ownedRoots.length > 0 || hasRootDraft) && (
               <div data-knowledge-tree-section="owned">
                 <div
@@ -1936,6 +1901,42 @@ export function KnowledgeTreePanel({
           />
         )}
       </div>
+      {/* Keep the root target outside the scroll flow so starting a child drag never shifts its source. */}
+      {draggedTreeNodeId && canDropToRoot(draggedTreeNodeId) && (
+        <div
+          data-knowledge-tree-root-drop=""
+          className={cn(
+            "absolute inset-x-2 bottom-2 z-20 flex items-center justify-center gap-2 rounded-lg border border-dashed bg-app-surface px-3 py-2 text-xs font-medium shadow-sm transition-colors",
+            rootDropActive
+              ? "border-accent-primary bg-accent-primary/10 text-accent-primary"
+              : "border-app-border text-tx-tertiary",
+          )}
+          onDragOver={(event) => {
+            if (!event.dataTransfer.types.includes("application/x-nowen-tree-node")) return;
+            const sourceId = event.dataTransfer.getData("application/x-nowen-tree-node") || draggedTreeNodeIdRef.current || "";
+            if (!canDropToRoot(sourceId)) return;
+            event.preventDefault();
+            event.stopPropagation();
+            event.dataTransfer.dropEffect = "move";
+            setRootDropActive(true);
+            setTreeDropTarget(null);
+          }}
+          onDragLeave={() => setRootDropActive(false)}
+          onDrop={(event) => {
+            if (!event.dataTransfer.types.includes("application/x-nowen-tree-node")) return;
+            event.preventDefault();
+            event.stopPropagation();
+            const sourceId = event.dataTransfer.getData("application/x-nowen-tree-node") || draggedTreeNodeIdRef.current || "";
+            setRootDropActive(false);
+            setDraggedTreeNodeId(null);
+            draggedTreeNodeIdRef.current = null;
+            if (canDropToRoot(sourceId)) void dropToRoot(sourceId);
+          }}
+        >
+          <TreePine size={14} />
+          <span>移动到根目录</span>
+        </div>
+      )}
       <KnowledgeTreeNodeMenu
         menu={menu}
         menuRef={menuRef}
