@@ -1,4 +1,6 @@
 import { Hono } from "hono";
+import { getDb } from "../db/schema.js";
+import { listPersonalStudioApps, getPersonalStudioApp, createPersonalStudioApp, updatePersonalStudioApp, deletePersonalStudioApp } from "../plugins/personalStudioApps.js";
 import { bodyLimit } from "hono/body-limit";
 import { streamSSE } from "hono/streaming";
 import crypto from "node:crypto";
@@ -18,7 +20,9 @@ function userId(c: any): string {
 
 function errorResponse(c: any, error: unknown) {
   const coded = error as Error & { code?: string; executionId?: string; confirmationRequired?: boolean };
-  const status = coded.code === "PLUGIN_NOT_FOUND" || coded.code === "PLUGIN_ACTION_NOT_FOUND" ? 404
+  const status = coded.code === "STUDIO_APP_NOT_FOUND" ? 404
+    : coded.code === "STUDIO_CONFLICT" || coded.code === "STUDIO_APP_LIMIT" ? 409
+    : coded.code === "PLUGIN_NOT_FOUND" || coded.code === "PLUGIN_ACTION_NOT_FOUND" ? 404
     : coded.code === "RESOURCE_FORBIDDEN" || coded.code === "PLUGIN_PERMISSION_DENIED" ? 403
       : coded.code === "PLUGIN_TIMEOUT" ? 408
         : coded.code === "PLUGIN_NODE_RUNTIME_CONFIRMATION_REQUIRED" || coded.code === "PLUGIN_DATA_CONFLICT" ? 409
@@ -62,6 +66,44 @@ function dataContext(c: any, workspace: unknown) {
   if (workspaceId !== null && (typeof workspaceId !== "string" || !getUserWorkspaceRole(workspaceId, actor.userId))) throw Object.assign(new Error("RESOURCE_FORBIDDEN"), { code: "RESOURCE_FORBIDDEN" });
   return { userId: actor.userId, workspaceId: workspaceId as string | null, actionId: "data-management", executionId: "data-management" };
 }
+
+function studioActor(c: any): string {
+  // Personal Studio never accepts API tokens, client-supplied user IDs or
+  // workspaces. The global auth middleware supplies this authenticated actor.
+  const id = appActor(c).userId;
+  if (!id) throw Object.assign(new Error("RESOURCE_FORBIDDEN"), { code: "RESOURCE_FORBIDDEN" });
+  return id;
+}
+pluginsRouter.get("/personal-apps", c => {
+  try { c.header("Cache-Control", "no-store"); return c.json(listPersonalStudioApps(getDb(), studioActor(c))); }
+  catch (error) { return errorResponse(c, error); }
+});
+pluginsRouter.post("/personal-apps", bodyLimit({ maxSize: 64 * 1024 }), async c => {
+  try {
+    const actor = studioActor(c);
+    return c.json(createPersonalStudioApp(getDb(), actor, await c.req.json()), 201);
+  } catch (error) { return errorResponse(c, error); }
+});
+pluginsRouter.get("/personal-apps/:appId", c => {
+  try { c.header("Cache-Control", "no-store"); return c.json(getPersonalStudioApp(getDb(), studioActor(c), c.req.param("appId"))); }
+  catch (error) { return errorResponse(c, error); }
+});
+pluginsRouter.put("/personal-apps/:appId", bodyLimit({ maxSize: 64 * 1024 }), async c => {
+  try {
+    const actor = studioActor(c);
+    const body = await c.req.json() as { expectedRevision?: number; spec?: unknown };
+    return c.json(updatePersonalStudioApp(getDb(), actor, c.req.param("appId"), body.expectedRevision as number, body.spec));
+  } catch (error) { return errorResponse(c, error); }
+});
+pluginsRouter.delete("/personal-apps/:appId", bodyLimit({ maxSize: 1024 }), async c => {
+  try {
+    const actor = studioActor(c);
+    const body = await c.req.json() as { expectedRevision?: number };
+    deletePersonalStudioApp(getDb(), actor, c.req.param("appId"), body.expectedRevision as number);
+    return c.json({ success: true });
+  } catch (error) { return errorResponse(c, error); }
+});
+
 pluginsRouter.get("/widgets", async c => {
   try {
     const platform = c.req.query("platform") || "web";

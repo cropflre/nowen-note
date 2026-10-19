@@ -1,9 +1,14 @@
 import { getOfflineQueueStorageKey } from "./offlineScope";
 
-export function parsePluginAppPath(path: string): { matched: boolean; dashboard?: boolean; manage?: boolean; pluginId?: string; pageId?: string } {
+export function parsePluginAppPath(path: string): { matched: boolean; dashboard?: boolean; manage?: boolean; studio?: boolean; studioId?: string; personalId?: string; pluginId?: string; pageId?: string } {
   if (path === "/apps") return { matched: true };
   if (path === "/apps/dashboard") return { matched: true, dashboard: true };
   if (path === "/apps/manage") return { matched: true, manage: true };
+  if (path === "/apps/studio") return { matched: true, studio: true };
+  const studioId = /^\/apps\/studio\/([0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})$/.exec(path);
+  if (studioId) return { matched: true, studio: true, studioId: studioId[1] };
+  const personalId = /^\/apps\/personal\/([0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})$/.exec(path);
+  if (personalId) return { matched: true, personalId: personalId[1] };
   const match = /^\/apps\/([a-z0-9]+(?:[.-][a-z0-9]+)+)\/([a-z][a-z0-9-]{0,63})$/.exec(path);
   return match && match[1].length <= 150 ? { matched: true, pluginId: match[1], pageId: match[2] } : { matched: false };
 }

@@ -13,6 +13,7 @@ import type { ViewMode } from "@/types";
 import PluginDashboard from "./PluginDashboard";
 import PluginDataActions from "./PluginDataActions";
 import PluginManagementPanel from "./PluginManagementPanel";
+import { PersonalStudio, PersonalStudioRuntime, PersonalStudioLibrary } from "./PersonalStudio";
 
 export function PluginAppNavigation({ showLabel }: { showLabel: boolean }) {
   const { enabled, dashboardEnabled, pages, pinned } = usePluginApps();
@@ -115,10 +116,12 @@ export function PluginAppFrame({ page, compact = false, inspector, workspaceId }
   </div>;
 }
 
-export default function PluginApps({ pluginId, pageId, dashboard = false, manage = false }: { pluginId?: string; pageId?: string; dashboard?: boolean; manage?: boolean }) {
+export default function PluginApps({ pluginId, pageId, dashboard = false, manage = false, studio = false, studioId, personalId }: { pluginId?: string; pageId?: string; dashboard?: boolean; manage?: boolean; studio?: boolean; studioId?: string; personalId?: string }) {
   const { enabled, dashboardEnabled, pages, pinned } = usePluginApps();
   const { t } = useTranslation();
   const selected = pages.find(page => page.pluginId === pluginId && page.id === pageId);
+  if (personalId) return <PersonalStudioRuntime key={personalId} appId={personalId} />;
+  if (studio) return <PersonalStudio key={studioId || "new"} appId={studioId} />;
   if (dashboard) return <PluginDashboard />;
   if (selected && enabled) return <PluginAppFrame key={selected.runtimeId} page={selected} />;
   return <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6"><h1 className="mb-4 text-xl font-semibold">{t("pluginApps.title")}</h1>
@@ -127,6 +130,8 @@ export default function PluginApps({ pluginId, pageId, dashboard = false, manage
       {dashboardEnabled && <button className="rounded-lg border border-app-border px-3 py-2 text-sm hover:bg-app-hover" onClick={() => pushAppPathState("/apps/dashboard")}>{t("pluginApps.dashboard")}</button>}
     </nav>
     {manage ? enabled ? <PluginManagementPanel /> : <p>{t("pluginApps.unavailable")}</p> : <>
+    <PersonalStudioLibrary />
+    <h2 className="my-4 text-sm font-semibold text-tx-secondary">{t("pluginApps.installedExtensions", "已安装的扩展应用")}</h2>
     {!enabled || pages.length === 0 || pluginId ? <p>{t(pluginId ? "pluginApps.unavailable" : "pluginApps.empty")}</p> : <ul className="space-y-3">{pages.map(page => <li key={page.runtimeId} className="flex items-center justify-between gap-4 rounded-lg border border-app-border p-4">
       <div className="min-w-0"><button aria-label={page.title} className="mb-2 text-left" onClick={() => pushAppPathState(page.route)}><span className="block font-medium">{page.title}</span><span className="text-sm text-tx-secondary">{page.pluginId}</span></button><PluginDataActions pluginId={page.pluginId} /></div>
       <button aria-label={t(pinned(page) ? "pluginApps.unpin" : "pluginApps.pin")} onClick={() => { const pins = loadPluginAppPins(); savePluginAppPins(pinned(page) ? pins.filter(id => id !== page.runtimeId) : [...pins, page.runtimeId]); }}>{pinned(page) ? <PinOff size={18} /> : <Pin size={18} />}</button>
