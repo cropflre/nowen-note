@@ -1,5 +1,7 @@
 import { Hono } from "hono";
 import { getDb } from "../db/schema.js";
+import { previewPersonalAIApp } from "../plugins/personalStudioAI.js";
+import { listPersonalStudioVersions, restorePersonalStudioVersion } from "../plugins/personalStudioHistory.js";
 import { listPersonalStudioApps, getPersonalStudioApp, createPersonalStudioApp, updatePersonalStudioApp, deletePersonalStudioApp } from "../plugins/personalStudioApps.js";
 import { bodyLimit } from "hono/body-limit";
 import { streamSSE } from "hono/streaming";
@@ -20,7 +22,10 @@ function userId(c: any): string {
 
 function errorResponse(c: any, error: unknown) {
   const coded = error as Error & { code?: string; executionId?: string; confirmationRequired?: boolean };
-  const status = coded.code === "STUDIO_APP_NOT_FOUND" ? 404
+  const status = coded.code === "STUDIO_APP_NOT_FOUND" || coded.code === "STUDIO_VERSION_NOT_FOUND" ? 404
+    : coded.code === "STUDIO_AI_RATE_LIMIT" || coded.code === "STUDIO_AI_BUSY" ? 429
+    : coded.code === "STUDIO_AI_NOT_CONFIGURED" || coded.code === "STUDIO_AI_UNAVAILABLE" ? 409
+    : coded.code === "STUDIO_AI_INVALID_OUTPUT" || coded.code === "STUDIO_AI_DESTRUCTIVE_CHANGE" ? 422
     : coded.code === "STUDIO_CONFLICT" || coded.code === "STUDIO_APP_LIMIT" ? 409
     : coded.code === "PLUGIN_NOT_FOUND" || coded.code === "PLUGIN_ACTION_NOT_FOUND" ? 404
     : coded.code === "RESOURCE_FORBIDDEN" || coded.code === "PLUGIN_PERMISSION_DENIED" ? 403
@@ -74,6 +79,34 @@ function studioActor(c: any): string {
   if (!id) throw Object.assign(new Error("RESOURCE_FORBIDDEN"), { code: "RESOURCE_FORBIDDEN" });
   return id;
 }
+
+pluginsRouter.post("/personal-apps/ai-preview", bodyLimit({ maxSize: 64 * 1024 }), async c => {
+  try {
+    const actor = studioActor(c);
+    const body = await c.req.json() as { instruction?: string; spec?: unknown };
+    c.header("Cache-Control", "no-store");
+    // Never persists a proposal; user must accept it and save explicitly.
+    return c.json({ spec: await previewPersonalAIApp(actor, { instruction: body.instruction as string, spec: body.spec as any }) });
+  } catch (error) {
+    const coded = error as { code?: string };
+    // Provider errors can contain upstream URLs or other details. Do not echo
+    // them to unprivileged clients or log raw private prompts.
+    if (!coded.code) return c.json({ success: false, code: "STUDIO_AI_PROVIDER_FAILED", error: "AI 生成失败，请核对模型配置后重试" }, 502);
+    return errorResponse(c, error);
+  }
+});
+pluginsRouter.get("/personal-apps/:appId/versions", c => {
+  try { c.header("Cache-Control", "no-store"); return c.json(listPersonalStudioVersions(getDb(), studioActor(c), c.req.param("appId"))); }
+  catch (error) { return errorResponse(c, error); }
+});
+pluginsRouter.post("/personal-apps/:appId/restore", bodyLimit({ maxSize: 1024 }), async c => {
+  try {
+    const actor = studioActor(c);
+    const body = await c.req.json() as { revision?: number; expectedRevision?: number };
+    return c.json(restorePersonalStudioVersion(getDb(), actor, c.req.param("appId"), body.revision as number, body.expectedRevision as number));
+  } catch (error) { return errorResponse(c, error); }
+});
+
 pluginsRouter.get("/personal-apps", c => {
   try { c.header("Cache-Control", "no-store"); return c.json(listPersonalStudioApps(getDb(), studioActor(c))); }
   catch (error) { return errorResponse(c, error); }

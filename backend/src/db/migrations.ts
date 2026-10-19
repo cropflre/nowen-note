@@ -1,6 +1,7 @@
 import { noteDeletionLifecycleMigration } from "./noteDeletionLifecycleMigration.js";
 import { pluginRetainedStorageMigration } from "./pluginRetainedStorageMigration.js";
 import { nowenStudioMigration } from "./nowenStudioMigration.js";
+import { nowenStudioHistoryMigration } from "./nowenStudioHistoryMigration.js";
 import { assetAIMigration } from "./assetAIMigration.js";
 import { assetSyncMigration } from "./assetSyncMigration.js";
 import { attachmentTrashMigration } from "./attachmentTrashMigration.js";
@@ -437,6 +438,7 @@ export const MIGRATIONS: Migration[] = [
   noteDeletionLifecycleMigration,
   pluginRetainedStorageMigration,
   nowenStudioMigration,
+  nowenStudioHistoryMigration,
 ].sort((a, b) => a.version - b.version);
 
 export const CURRENT_SCHEMA_VERSION: number = MIGRATIONS.reduce(
