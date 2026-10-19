@@ -16,7 +16,11 @@ const blueprintSchema = z.object({
   fields: z.array(field).min(1).max(8),
 }).strict();
 type Blueprint = z.infer<typeof blueprintSchema>;
-export interface PersonalAIRequest { instruction: string; spec?: PersonalAppSpec }
+export const personalAIRequestSchema = z.object({
+  instruction: z.string().trim().min(1).max(1200),
+  spec: z.unknown().optional(),
+}).strict();
+export interface PersonalAIRequest { instruction: string; spec?: unknown }
 const active = new Set<string>();
 const attempts = new Map<string, { count: number; resetAt: number }>();
 function fail(code: string): never { throw Object.assign(new Error(code), { code }); }
@@ -61,9 +65,10 @@ export async function previewPersonalAIApp(
   if (!isManualAIEnabled(userId)) fail("STUDIO_AI_UNAVAILABLE");
   const settings = getUserAISettings(userId);
   if (!settings.ai_api_url || !settings.ai_model || (!settings.ai_api_key && !["ollama", "lmstudio"].includes(settings.ai_provider))) fail("STUDIO_AI_NOT_CONFIGURED");
-  const instruction = request.instruction?.trim();
-  if (!instruction || instruction.length > 1200) fail("STUDIO_AI_INVALID_INPUT");
-  const source = request.spec === undefined ? undefined : parsePersonalAppSpec(request.spec);
+  const checked = personalAIRequestSchema.safeParse(request);
+  if (!checked.success) fail("STUDIO_AI_INVALID_INPUT");
+  const instruction = checked.data.instruction;
+  const source = checked.data.spec === undefined ? undefined : parsePersonalAppSpec(checked.data.spec);
   if (active.has(userId)) fail("STUDIO_AI_BUSY");
   rateLimit(userId);
   active.add(userId);
