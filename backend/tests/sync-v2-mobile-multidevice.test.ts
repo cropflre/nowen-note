@@ -29,6 +29,7 @@ let closeServerDb: () => void;
 let httpServer: ReturnType<typeof serve>;
 let serverUrl: string;
 const clients: Client[] = [];
+let syncDiagnostics = 0;
 let afterPush: ((response: Response) => Promise<Response>) | undefined;
 let afterSnapshot: ((response: Response) => Promise<Response>) | undefined;
 let afterAck: ((response: Response) => Promise<Response>) | undefined;
@@ -96,7 +97,19 @@ async function client(name: string): Promise<Client> {
   const engine = new MobileSyncEngine({ db, attachments: { remove: async (id: string) => { removedFiles.push(id); } } as never, profileId, deviceId: name, serverUrl, token: USER, userId: USER });
   const result = { db, file, repository, engine, profileId, removedFiles, async sync() {
     engine.start();
-    try { await engine.syncOnce(); } finally { engine.stop(); }
+    try {
+      await engine.syncOnce();
+      // The engine deliberately reports scope failures in durable lastError
+      // instead of rejecting. Print bounded, credential-free diagnostics when
+      // the test observes an unsuccessful sync, without changing test outcomes.
+      const diagnostics = await db.query<{ scopeKey: string; lastError: string; lastSequence: number }>(
+        "SELECT scopeKey,lastError,lastSequence FROM sync_state WHERE profileId=? AND lastError IS NOT NULL", [profileId],
+      );
+      if (diagnostics.length && syncDiagnostics < 12) {
+        syncDiagnostics++;
+        console.error("[multidevice-sync-diagnostic]", JSON.stringify({ client: name, diagnostics }));
+      }
+    } finally { engine.stop(); }
   } };
   clients.push(result);
   return result;

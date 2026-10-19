@@ -19,7 +19,10 @@ afterEach(() => {
 
 describe("server connection failure diagnostics", () => {
   it("identifies HTTP sent to an HTTPS port without retrying credentials or changing protocol", async () => {
-    const fetch = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => new Response("<h1>The plain HTTP request was sent to HTTPS port</h1>", { status: 400 }));
+    const fetch = vi.fn(async (...args: [RequestInfo | URL, RequestInit?]) => {
+      void args;
+      return new Response("<h1>The plain HTTP request was sent to HTTPS port</h1>", { status: 400 });
+    });
     vi.stubGlobal("fetch", fetch);
     const result = await testServerConnection("http://notes.example.com:12151");
     expect(result).toMatchObject({ ok: false, diagnostic: { kind: "httpsRequired" } });
