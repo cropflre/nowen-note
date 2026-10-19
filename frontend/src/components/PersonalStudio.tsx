@@ -154,3 +154,51 @@ export function PersonalStudioRuntime({ appId }: { appId: string }) {
     <StudioSpecPreview spec={app.spec} onChange={change} disabled={busy}/>
   </section>;
 }
+
+
+export function PersonalStudioLibrary() {
+  const t = useCopy();
+  const [apps, setApps] = useState<StudioApp[]>([]);
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(true);
+  useEffect(() => {
+    let active = true, revision = 0;
+    const load = () => {
+      const request = ++revision;
+      setLoading(true); setApps([]); setError("");
+      void pluginApi.personalApps().then(items => {
+        if (active && revision === request) setApps(items);
+      }).catch(() => {
+        if (active && revision === request) setError(t.failed);
+      }).finally(() => {
+        if (active && revision === request) setLoading(false);
+      });
+    };
+    const reset = () => { revision++; setApps([]); load(); };
+    load();
+    window.addEventListener("nowen:token-changed", reset);
+    return () => { active = false; revision++; window.removeEventListener("nowen:token-changed", reset); };
+  }, []);
+  return <section className="space-y-4">
+    <div className="flex flex-wrap items-center justify-between gap-2">
+      <div><h2 className="text-lg font-semibold">{t.create}</h2><p className="text-xs text-tx-secondary">{t.personal}</p></div>
+      <button type="button" className={primaryClass} onClick={() => pushAppPathState("/apps/studio")}><Plus size={16}/>{t.create}</button>
+    </div>
+    {error && <p role="alert" className="text-sm text-red-500">{error}</p>}
+    {loading ? <p role="status" className="text-sm text-tx-secondary">{t.busy}</p> : apps.length > 0 ? (
+      <ul className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+        {apps.map(app => <li key={app.id} className="rounded-xl border border-app-border bg-app-surface p-4">
+          <button className="block w-full text-left" onClick={() => pushAppPathState("/apps/personal/" + app.id)} aria-label={app.spec.name}>
+            <div className="flex items-center gap-2"><LayoutGrid size={18} className="text-accent-primary"/><strong className="truncate">{app.spec.name}</strong></div>
+            <p className="mt-2 line-clamp-2 text-sm text-tx-secondary">{app.spec.description || t.noCode}</p>
+            <p className="mt-2 text-xs text-tx-secondary">{app.spec.items.length} / 100</p>
+          </button>
+          <div className="mt-3 flex justify-end gap-2">
+            <button className={actionClass} onClick={() => pushAppPathState("/apps/studio/" + app.id)}><Pencil size={14} className="mr-1 inline"/>{t.editApp}</button>
+            <button className={actionClass} onClick={() => pushAppPathState("/apps/personal/" + app.id)}>{t.view}</button>
+          </div>
+        </li>)}
+      </ul>
+    ) : <button type="button" onClick={() => pushAppPathState("/apps/studio")} className="flex min-h-28 w-full items-center justify-center gap-2 rounded-xl border border-dashed border-app-border text-sm text-tx-secondary hover:bg-app-hover"><Plus size={18}/>{t.template}</button>}
+  </section>;
+}
