@@ -1,0 +1,135 @@
+name: Nowen Studio P3 Release Candidate Gate
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "scripts/studio-release-candidate.mjs"
+      - ".github/workflows/studio-rc-p3.yml"
+      - "backend/src/plugins/personalStudio*.ts"
+      - "backend/src/db/nowenStudio*"
+      - "backend/src/routes/plugins.ts"
+      - "backend/tests/personal-studio-*.test.ts"
+      - "frontend/src/components/PersonalStudio*.tsx"
+      - "frontend/e2e/plugin-apps.spec.ts"
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  stacked-pr-lineage:
+    name: Locked release base and stacked PR lineage
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Check #873 → #874 → #876 → P3 without changing release
+        env:
+          GITHUB_TOKEN: ${ github.token }}
+          STUDIO_RC_HEAD: feature/nowen-studio-rc-p3
+        run: node scripts/studio-release-candidate.mjs
+
+  sync-v2-matrix:
+    name: Full Sync V2 contract / ${ matrix.target }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: untouched-release-baseline
+            ref: release/v1.5.3
+          - target: stacked-studio-candidate
+            ref: feature/nowen-studio-rc-p3
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${ matrix.ref }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - name: Install isolated backend dependencies
+        working-directory: backend
+        run: npm ci --prefer-offline --no-audit --no-fund
+      - name: Execute identical full data consistency contracts (never ignore failures)
+        shell: bash
+        run: |
+          set +e
+          node scripts/data-consistency-contract.mjs --backend > sync-v2-contract.log 2>&1
+          result=$?
+          echo "### Sync V2: ${ matrix.target }}" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$result" -eq 0 ]; then
+            echo "PASS — full backend data consistency" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "FAIL — release blocker; see log artifact for case names" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          grep -E "^\[data-consistency\] regression suite failed|^not ok [0-9]+|# fail [0-9]+" sync-v2-contract.log | tail -n 80 || true
+          tail -n 20 sync-v2-contract.log
+          exit "$result"
+      - name: Upload independent full contract log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: studio-rc-sync-v2-${ matrix.target }}
+          path: sync-v2-contract.log
+          if-no-files-found: ignore
+          retention-days: 7
+
+  studio-native-sqlite:
+    name: Desktop-class SQLite smoke / ${ matrix.platform }}
+    runs-on: ${ matrix.platform }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - name: Install backend native dependencies
+        working-directory: backend
+        run: npm ci --prefer-offline --no-audit --no-fund
+      - name: AppSpec SQLite migration, WAL snapshot and AI adapter contracts
+        working-directory: backend
+        shell: bash
+        run: |
+          node --import tsx --import ./tests/setup-db-isolation.ts --test tests/personal-studio-apps.test.ts
+          node --import tsx --import ./tests/setup-db-isolation.ts --test tests/personal-studio-ai.test.ts
+          node --import tsx --import ./tests/setup-db-isolation.ts --test tests/personal-studio-provider-contract.test.ts
+          node --import tsx --import ./tests/setup-db-isolation.ts --test tests/personal-studio-backup-restore.test.ts
+
+  release-decision:
+    name: RC release decision (fail closed)
+    if: always()
+    runs-on: ubuntu-latest
+    needs: [stacked-pr-lineage, sync-v2-matrix, studio-native-sqlite]
+    steps:
+      - name: Block any release unless all independent gates pass
+        env:
+          LINEAGE: ${ needs.stacked-pr-lineage.result }}
+          SYNC: ${ needs.sync-v2-matrix.result }}
+          SQLITE: ${ needs.studio-native-sqlite.result }}
+        shell: bash
+        run: |
+          {
+            echo "## Nowen Studio Release Candidate"
+            echo "- Stacked PR ancestry: $LINEAGE"
+            echo "- Full Sync V2 baseline and candidate: $SYNC"
+            echo "- Linux/Windows native SQLite: $SQLITE"
+            echo "- Scope: no real external model credentials, packaged Electron installer or physical NAS/Android validation."
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$LINEAGE" != success ] || [ "$SYNC" != success ] || [ "$SQLITE" != success ]; then
+            echo "::error::STUDIO_RC_BLOCKED. Do not merge #873, #874 or #876 into the release branch."
+            exit 1
+          fi
+          echo "STUDIO_RC_SCOPED_GATES_PASS. Manual platform acceptance is still required."
