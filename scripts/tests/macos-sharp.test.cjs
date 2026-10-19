@@ -18,6 +18,9 @@ function fixture(t, arch = "x64") {
   const addon = `@img/sharp-darwin-${arch}`;
   const vips = `@img/sharp-libvips-darwin-${arch}`;
   json("sharp", { optionalDependencies: { [addon]: "0.33.5", [vips]: "1.0.4" } });
+  // Fake native headers cannot be loaded; provide the JS entry used by the host runtime probe.
+  fs.writeFileSync(path.join(modules, "sharp/index.js"),
+    'module.exports = () => ({ png: () => ({ toBuffer: async () => Buffer.from("fixture-only PNG") }) });\n');
   json(addon, { version: "0.33.5", exports: {
     "./package": "./package.json", "./sharp.node": `./lib/sharp-darwin-${arch}.node`,
   } });
@@ -106,6 +109,20 @@ test("afterPack checks the actual app resources for both macOS architectures", a
     fs.rmSync(path.join(resources, f.vips), { recursive: true });
     await assert.rejects(config.afterPack(context), /sharp-libvips/);
   }
+});
+
+test("afterPack rejects a broken host sharp entry even with complete native headers", {
+  skip: process.platform !== "darwin",
+}, async t => {
+  const config = require("../../electron/builder.config.js");
+  const { Arch } = require("../../node_modules/builder-util");
+  const f = fixture(t, process.arch);
+  const resources = path.join(f.root, "Nowen Note.app/Contents/Resources/backend/node_modules");
+  fs.mkdirSync(path.dirname(resources), { recursive: true });
+  fs.cpSync(f.modules, resources, { recursive: true });
+  fs.writeFileSync(path.join(resources, "sharp/index.js"), 'throw new Error("sharp fixture load failed");');
+  await assert.rejects(config.afterPack({ appOutDir: f.root, electronPlatformName: "darwin", arch: Arch[process.arch],
+    packager: { appInfo: { productFilename: "Nowen Note" } } }), /sharp fixture load failed/);
 });
 
 test("share banner module loads without sharp; valid image processing still reports failure", t => {
