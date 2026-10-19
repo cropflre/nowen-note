@@ -66,7 +66,7 @@ test("1.5.3 host installs CLI package and runs an isolated, persistent app throu
     await iframe.getByLabel("Message", { exact: true }).fill("kept across app restarts"); await iframe.getByRole("button", { name: "Save", exact: true }).click();
     await expect(iframe.locator("#status")).toHaveText("Saved");
     const inner = page.frames().find(frame => frame.url().includes("/api/plugin-ui-v3/"))!;
-    expect(await inner.evaluate(() => { let parentBlocked = false, storageBlocked = false; try { void parent.document.body; } catch { parentBlocked = true; } try { void localStorage.getItem("nowen-token"); } catch { storageBlocked = true; } return { parentBlocked, storageBlocked, native: typeof (window as any).nowenDesktop, node: typeof (window as any).require }; })).toEqual({ parentBlocked: true, storageBlocked: true, native: "undefined", node: "undefined" });
+    expect(await inner.evaluate(() => { let parentBlocked = false, storageBlocked = false; try { void parent.document.body; } catch { parentBlocked = true; } try { void localStorage.getItem("nowen-token"); } catch { storageBlocked = true; } return { parentBlocked, storageBlocked, native: typeof (window as Window & { nowenDesktop?: unknown; require?: unknown }).nowenDesktop, node: typeof (window as Window & { nowenDesktop?: unknown; require?: unknown }).require }; })).toEqual({ parentBlocked: true, storageBlocked: true, native: "undefined", node: "undefined" });
     expect(await inner.evaluate(() => new Promise<string>(resolve => {
       document.addEventListener("securitypolicyviolation", event => resolve(event.effectiveDirective), { once: true });
       void fetch("https://example.invalid/").catch(() => undefined);
@@ -119,7 +119,9 @@ test("1.5.3 host installs CLI package and runs an isolated, persistent app throu
     await personal.getByRole("button", { name: "Add item", exact: true }).click();
     await expect(personal.locator("#status")).toHaveText("Saved");
     await personal.getByRole("button", { name: "Complete", exact: true }).click();
-    await expect(personal.locator("#status")).toHaveText("Saved");
+    // The previous "Saved" label was already visible before Complete.
+    // Wait for the actual persisted completion transition before restarting.
+    await expect(personal.getByRole("button", { name: "Reopen", exact: true })).toBeVisible();
     const personalStopped = new Promise<void>(resolve => server.once("exit", () => resolve())); server.kill(); await personalStopped;
     server = launch(); await expect.poll(() => fetch(`${url}/api/health`).then(response => response.ok).catch(() => false), { timeout: 30000 }).toBe(true);
     await page.reload(); await expect(personal.locator("#status")).toHaveText("Ready");

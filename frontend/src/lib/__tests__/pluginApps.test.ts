@@ -28,7 +28,7 @@ describe("V3 app navigation and account-local pins", () => {
 });
 describe("V3 MessageChannel identity", () => {
   const session = { instanceId: "instance_12345", pluginId: "nowenlab.hello-app", nonce: "nonce_12345678", documentPath: "/plugin-ui-v3/one-use-ticket", expiresAt: Date.now() + 10000 };
-  function setup(call: (message: any) => Promise<unknown> = vi.fn(async () => ({ ok: true }))) {
+  function setup(call: (message: Record<string, unknown>) => Promise<unknown> = vi.fn(async () => ({ ok: true }))) {
     vi.stubGlobal("MessageChannel", MessageChannel);
     const frame = document.createElement("iframe"); document.body.append(frame);
     const post = vi.spyOn(frame.contentWindow!, "postMessage").mockImplementation(() => undefined);
@@ -53,7 +53,7 @@ describe("V3 MessageChannel identity", () => {
     try {
       const identity = { protocol: "nowen.plugin-ui.v3", pluginId: session.pluginId, instanceId: session.instanceId, nonce: session.nonce };
       host.port.postMessage({ ...identity, kind: "ready" }); await vi.waitFor(() => expect(host.ready).toHaveBeenCalledOnce());
-      const params: any = {}; params.self = params;
+      const params: Record<string, unknown> = {}; params.self = params;
       host.port.postMessage({ ...identity, kind: "request", requestId: "cycle", method: "storage.set", params });
       await vi.waitFor(() => expect(host.fail).toHaveBeenCalledOnce()); expect(host.call).not.toHaveBeenCalled();
     } finally { host.cleanup(); }
@@ -61,7 +61,7 @@ describe("V3 MessageChannel identity", () => {
   it("relays only responses bound to this plugin, instance and request", async () => {
     const identity = { protocol: "nowen.plugin-ui.v3", pluginId: session.pluginId, instanceId: session.instanceId, nonce: session.nonce };
     const call = vi.fn(async message => ({ ...identity, kind: "response", requestId: message.requestId, ok: true, data: "stored" }));
-    const host = setup(call), replies: any[] = []; host.port.onmessage = event => replies.push(event.data);
+    const host = setup(call), replies: Array<{ kind?: string; data?: unknown }> = []; host.port.onmessage = event => replies.push(event.data);
     try {
       host.port.postMessage({ ...identity, kind: "ready" }); await vi.waitFor(() => expect(host.ready).toHaveBeenCalledOnce());
       host.port.postMessage({ ...identity, kind: "request", requestId: "read-1", method: "storage.get", params: { key: "message" } });
@@ -71,7 +71,7 @@ describe("V3 MessageChannel identity", () => {
   });
   it("closes the channel instead of delivering a response for another plugin", async () => {
     const identity = { protocol: "nowen.plugin-ui.v3", pluginId: session.pluginId, instanceId: session.instanceId, nonce: session.nonce };
-    const host = setup(vi.fn(async message => ({ ...identity, pluginId: "other.app", kind: "response", requestId: message.requestId, ok: true, data: "foreign private data" }))), replies: any[] = [];
+    const host = setup(vi.fn(async message => ({ ...identity, pluginId: "other.app", kind: "response", requestId: message.requestId, ok: true, data: "foreign private data" }))), replies: Array<{ kind?: string; data?: unknown }> = [];
     host.port.onmessage = event => replies.push(event.data);
     try {
       host.port.postMessage({ ...identity, kind: "ready" }); await vi.waitFor(() => expect(host.ready).toHaveBeenCalledOnce());

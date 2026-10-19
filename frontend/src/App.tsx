@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Menu, Sparkles, X } from "lucide-react";
+import { Menu, Sparkles } from "lucide-react";
 import { openAICollaboration } from "@/lib/aiCollaboration";
 import AICollaborationCenter from "@/components/AICollaborationCenter";
 import { useTranslation } from "react-i18next";

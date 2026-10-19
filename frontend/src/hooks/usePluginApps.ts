@@ -13,7 +13,7 @@ export function usePluginApps() {
       const current = ++generation;
       setPins(loadPluginAppPins());
       const platform = currentUiPlatform();
-      if (platform !== "web" && platform !== "desktop" || (window as any).Capacitor?.isNativePlatform?.()) { setEnabled(false); setPages([]); return; }
+      if (platform !== "web" && platform !== "desktop" || (window as Window & { Capacitor?: { isNativePlatform?: () => boolean } }).Capacitor?.isNativePlatform?.()) { setEnabled(false); setPages([]); return; }
       try {
         const features = await pluginApi.features();
         const allowed = features.applicationV3?.appPages === true;
