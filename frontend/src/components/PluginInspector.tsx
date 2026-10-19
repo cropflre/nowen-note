@@ -45,7 +45,7 @@ export default function PluginInspector({ resource, workspaceId: scope }: { reso
       const current = ++generation;
       setAvailable(undefined); setOpened(undefined);
       const platform = currentUiPlatform();
-      if (!["web", "desktop"].includes(platform) || (window as any).Capacitor?.isNativePlatform?.()) return;
+      if (!["web", "desktop"].includes(platform) || (window as Window & { Capacitor?: { isNativePlatform?: () => boolean } }).Capacitor?.isNativePlatform?.()) return;
       try {
         const features = await pluginApi.features();
         const items = features.applicationV3?.inspectors ? await pluginApi.inspectors(platform, resource.type, workspaceId) : [];
