@@ -89,7 +89,7 @@ export function PersonalStudio({ appId }: { appId?: string }) {
     </button>)}</div>}
   </section>;
   return <section className="mx-auto w-full max-w-6xl space-y-5 p-4 pb-14 sm:p-6">
-    <div className="flex flex-wrap items-center justify-between gap-3"><button className={actionClass} onClick={() => pushAppPathState(app ? "/apps/personal/" + app.id : "/apps")}><ArrowLeft size={15} className="inline"/> {t.back}</button><div className="flex items-center gap-2"><span className="text-xs text-tx-secondary">{t.personal}</span><button className={primaryClass} disabled={busy} onClick={() => void save()}><Save size={16}/>{busy ? t.saving : t.save}</button></div></div>
+    <div className="flex flex-wrap items-center justify-between gap-3"><button className={actionClass} onClick={() => pushAppPathState("/apps")}><ArrowLeft size={15} className="inline"/> {t.back}</button><div className="flex items-center gap-2"><span className="text-xs text-tx-secondary">{t.personal}</span><button className={primaryClass} disabled={busy} onClick={() => void save()}><Save size={16}/>{busy ? t.saving : t.save}</button></div></div>
     <div><h1 className="text-xl font-semibold">{t.edit}</h1><p className="mt-1 text-sm text-tx-secondary">{t.noCode}</p></div>
     {error && <p role="alert" className="rounded-lg bg-red-500/10 p-3 text-sm text-red-500">{error}</p>}
     <PersonalStudioAI spec={spec} onAccept={next => { setSpec(next); setError(""); }} />
