@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import dns from "node:dns/promises";
 import https from "node:https";
 import { EventEmitter } from "node:events";
@@ -7,11 +10,17 @@ import { Readable } from "node:stream";
 import { setImmediate } from "node:timers/promises";
 import test from "node:test";
 import { Hono } from "hono";
-import { getDb, closeDb } from "../src/db/schema.js";
-import router, { dispatchScheduledTaskDigests } from "../src/routes/task-digest.js";
-import { initWebhookTables, webhookDispatcher, type WebhookEvent } from "../src/services/webhook.js";
+import type { WebhookEvent } from "../src/services/webhook.js";
 
 test("Issue #867 task push timestamps use the configured timezone without shifting the instant", async (t) => {
+  // This repository refuses test databases outside os.tmpdir(). Configure it
+  // before dynamically loading schema.ts, which initializes SQLite on import.
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "nowen-task-digest-timestamp-"));
+  process.env.NODE_ENV = "test";
+  process.env.DB_PATH = path.join(tmpDir, "test.db");
+  const { getDb, closeDb } = await import("../src/db/schema.js");
+  const { default: router, dispatchScheduledTaskDigests } = await import("../src/routes/task-digest.js");
+  const { initWebhookTables, webhookDispatcher } = await import("../src/services/webhook.js");
   const db = getDb();
   initWebhookTables();
   db.prepare("INSERT INTO users(id,username,passwordHash) VALUES ('timestamp-user','timestamp-user','hash')").run();
@@ -148,5 +157,6 @@ test("Issue #867 task push timestamps use the configured timezone without shifti
     t.mock.timers.reset();
     t.mock.restoreAll();
     closeDb();
+    fs.rmSync(tmpDir, { recursive: true, force: true });
   }
 });
