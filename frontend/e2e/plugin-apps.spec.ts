@@ -43,6 +43,16 @@ test("1.5.3 host installs CLI package and runs an isolated, persistent app throu
     await page.evaluate(() => window.dispatchEvent(new Event("nowen:close-settings")));
     await page.setViewportSize({ width: 1440, height: 960 });
     await page.getByRole("button", { name: "Apps", exact: true }).filter({ visible: true }).click();
+    // A non-admin user can create a real persisted application without uploading executable code.
+    await page.getByRole("button", { name: "Create your own app", exact: true }).click();
+    await page.getByRole("button", { name: "Checklist", exact: true }).click();
+    await page.getByRole("button", { name: "Save app", exact: true }).click();
+    await expect(page.getByRole("heading", { name: "我的待办清单", exact: true })).toBeVisible();
+    await page.getByLabel("事项", { exact: true }).fill("Studio smoke record");
+    await page.getByRole("button", { name: "Add record", exact: true }).click();
+    await expect(page.getByText("Studio smoke record", { exact: true })).toBeVisible();
+    await page.reload(); await expect(page.getByText("Studio smoke record", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Back to my apps", exact: true }).click();
     await page.getByRole("button", { name: "Manage apps", exact: true }).click();
     await page.reload();
     await expect(page.getByRole("button", { name: "Install app", exact: true })).toBeVisible();

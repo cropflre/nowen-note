@@ -3,7 +3,7 @@ import { ArrowLeft, Check, LayoutGrid, List, Pencil, Plus, Save, Trash2 } from "
 import { useTranslation } from "react-i18next";
 import { pushAppPathState } from "@/lib/appPathNavigation";
 import { pluginApi } from "@/lib/pluginApi";
-import { addStudioField, addStudioItem, removeStudioField, updateStudioItem, newStudioSpec, type StudioApp, type StudioField, type StudioSpec, type StudioTemplate } from "@/lib/personalApps";
+import { addStudioField, addStudioItem, removeStudioField, updateStudioItem, newStudioId, newStudioSpec, type StudioApp, type StudioField, type StudioSpec, type StudioTemplate } from "@/lib/personalApps";
 
 const UI = {
   zh: { back: "返回我的应用", create: "创建自己的应用", template: "选择一个模板开始，无需编写代码", checklist: "待办清单", records: "个人资料库", tracker: "项目进度板", edit: "可视化编辑", name: "应用名称", description: "用途说明", layout: "展示方式", list: "列表", board: "卡片", fields: "记录字段", field: "新字段名称", text: "文本", checkbox: "勾选", addField: "添加字段", preview: "实时预览", save: "保存应用", saving: "正在保存…", saved: "保存成功", error: "操作失败，请核对数据后重试。若出现版本冲突，请刷新页面后检查最新内容。", addRecord: "添加记录", empty: "还没有记录，试着添加第一条", deleted: "删除应用", deleteConfirm: "确定删除这个应用及全部记录吗？删除后无法恢复。", editApp: "编辑应用", personal: "仅自己可见 · 保存在当前服务器，暂不参与 Sync V2 离线同步", count: "最多 8 个字段、100 条记录", noCode: "安全声明式应用：不会运行自定义 JavaScript，也不会自动访问 Nowen 笔记或任务", view: "打开应用", busy: "正在加载…", failed: "无法加载应用，请重新登录或重试", remove: "删除", close: "取消", required: "请填写应用名称与字段名称", limit: "字段已达上限", maxItems: "记录已达上限" },
@@ -21,7 +21,7 @@ export function StudioSpecPreview({ spec, onChange, disabled = false }: { spec: 
   const commit = (next: StudioSpec) => { if (!disabled) onChange?.(next); };
   const add = () => {
     if (!onChange || disabled || spec.items.length >= 100) return;
-    commit(addStudioItem(spec, draft, crypto.randomUUID()));
+    commit(addStudioItem(spec, draft, newStudioId()));
     setDraft({});
   };
   return <div className="space-y-4">
@@ -104,7 +104,7 @@ export function PersonalStudio({ appId }: { appId?: string }) {
           </div>)}</div>
           <div className="mt-3 flex flex-wrap gap-2"><input aria-label={t.field} placeholder={t.field} maxLength={40} className={inputClass + " min-w-0 flex-1"} value={newField} onChange={e => setNewField(e.target.value)}/>
             <select className={actionClass} value={newType} onChange={e => setNewType(e.target.value as StudioField["type"])}><option value="text">{t.text}</option><option value="checkbox">{t.checkbox}</option></select>
-            <button className={actionClass} disabled={!newField.trim() || spec.fields.length >= 8} onClick={() => { setSpec(s => s ? addStudioField(s, newField, newType, "f_" + crypto.randomUUID().slice(0, 8)) : s); setNewField(""); }}><Plus size={15} className="inline"/> {t.addField}</button>
+            <button className={actionClass} disabled={!newField.trim() || spec.fields.length >= 8} onClick={() => { setSpec(s => s ? addStudioField(s, newField, newType, "f_" + newStudioId().slice(0, 8)) : s); setNewField(""); }}><Plus size={15} className="inline"/> {t.addField}</button>
           </div>
         </div>
       </div>

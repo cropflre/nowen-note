@@ -6,6 +6,8 @@ on:
     paths:
       - "backend/src/plugins/**"
       - "backend/src/db/pluginRetainedStorageMigration.ts"
+      - "backend/src/db/nowenStudioMigration.ts"
+      - "backend/tests/personal-studio-apps.test.ts"
       - "backend/src/routes/plugins.ts"
       - "backend/src/index.ts"
       - "backend/tests/application-v3-*.ts"
@@ -112,6 +114,7 @@ jobs:
           node --import tsx --import ./tests/setup-db-isolation.ts --test tests/application-v3-runtime.test.ts
           node --import tsx --import ./tests/setup-db-isolation.ts --test tests/application-v3-dashboard-data.test.ts
           node --import tsx --import ./tests/setup-db-isolation.ts --test tests/application-v3-inspector.test.ts
+          node --import tsx --import ./tests/setup-db-isolation.ts --test tests/personal-studio-apps.test.ts
       - name: V2.1 compatibility regression
         working-directory: backend
         run: node --import tsx --import ./tests/setup-db-isolation.ts --test tests/extension-v2-1-feature-gates.test.ts tests/ui-contribution.test.ts
@@ -153,7 +156,7 @@ jobs:
         run: node ../../../packages/nowen-plugin-cli/bin/nowen-plugin.mjs pack
       - name: Navigation and MessageChannel contracts
         working-directory: frontend
-        run: npx vitest run src/lib/__tests__/pluginManagement.test.tsx src/components/__tests__/SettingsModalSiteIdentity.test.tsx src/lib/__tests__/pluginInspector.test.tsx src/lib/__tests__/pluginDataActions.test.tsx src/lib/__tests__/pluginApps.test.ts src/lib/__tests__/pluginDashboard.test.ts src/lib/__tests__/appPathNavigation.test.ts src/lib/__tests__/serverUrl.test.ts src/lib/__tests__/pluginRuntimePresentation.test.ts src/i18n/__tests__/releaseI18nCoverage.test.ts
+        run: npx vitest run src/lib/__tests__/pluginManagement.test.tsx src/components/__tests__/SettingsModalSiteIdentity.test.tsx src/lib/__tests__/pluginInspector.test.tsx src/lib/__tests__/pluginDataActions.test.tsx src/lib/__tests__/pluginApps.test.ts src/lib/__tests__/pluginDashboard.test.ts src/lib/__tests__/personalApps.test.ts src/lib/__tests__/appPathNavigation.test.ts src/lib/__tests__/serverUrl.test.ts src/lib/__tests__/pluginRuntimePresentation.test.ts src/i18n/__tests__/releaseI18nCoverage.test.ts
       - run: npm run build
         working-directory: frontend
       - run: npx playwright install --with-deps chromium

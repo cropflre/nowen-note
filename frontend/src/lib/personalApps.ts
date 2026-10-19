@@ -6,6 +6,17 @@ export type StudioSpec = {
 export type StudioApp = { id: string; spec: StudioSpec; revision: number; createdAt: string; updatedAt: string };
 export type StudioTemplate = "checklist" | "records" | "tracker";
 
+// getRandomValues also works on private LAN HTTP (randomUUID requires secure context).
+export function newStudioId(): string {
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  bytes[6] = (bytes[6] & 15) | 64;
+  bytes[8] = (bytes[8] & 63) | 128;
+  const hex = Array.from(bytes, byte => byte.toString(16).padStart(2, "0")).join("");
+  return `${hex.slice(0,8)}-${hex.slice(8,12)}-${hex.slice(12,16)}-${hex.slice(16,20)}-${hex.slice(20)}`;
+}
+
+
 export function newStudioSpec(template: StudioTemplate): StudioSpec {
   switch (template) {
     case "checklist": return { schemaVersion: 1, name: "我的待办清单", description: "把日常事项整理到一张清单", layout: "list",
