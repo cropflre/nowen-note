@@ -119,7 +119,8 @@ test("1.5.3 host installs CLI package and runs an isolated, persistent app throu
     await personal.getByRole("button", { name: "Add item", exact: true }).click();
     await expect(personal.locator("#status")).toHaveText("Saved");
     await personal.getByRole("button", { name: "Complete", exact: true }).click();
-    await expect(personal.locator("#status")).toHaveText("Saved");
+    // "Saved" was already visible after creation; wait for the actual mutation.
+    await expect(personal.getByRole("button", { name: "Reopen", exact: true })).toBeVisible();
     const personalStopped = new Promise<void>(resolve => server.once("exit", () => resolve())); server.kill(); await personalStopped;
     server = launch(); await expect.poll(() => fetch(`${url}/api/health`).then(response => response.ok).catch(() => false), { timeout: 30000 }).toBe(true);
     await page.reload(); await expect(personal.locator("#status")).toHaveText("Ready");
