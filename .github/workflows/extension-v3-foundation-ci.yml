@@ -7,6 +7,8 @@ on:
       - "backend/src/plugins/**"
       - "backend/src/db/pluginRetainedStorageMigration.ts"
       - "backend/src/db/nowenStudioMigration.ts"
+      - "backend/src/db/nowenStudioHistoryMigration.ts"
+      - "backend/tests/personal-studio-ai.test.ts"
       - "backend/tests/personal-studio-apps.test.ts"
       - "backend/src/routes/plugins.ts"
       - "backend/src/index.ts"
@@ -115,6 +117,7 @@ jobs:
           node --import tsx --import ./tests/setup-db-isolation.ts --test tests/application-v3-dashboard-data.test.ts
           node --import tsx --import ./tests/setup-db-isolation.ts --test tests/application-v3-inspector.test.ts
           node --import tsx --import ./tests/setup-db-isolation.ts --test tests/personal-studio-apps.test.ts
+          node --import tsx --import ./tests/setup-db-isolation.ts --test tests/personal-studio-ai.test.ts
       - name: V2.1 compatibility regression
         working-directory: backend
         run: node --import tsx --import ./tests/setup-db-isolation.ts --test tests/extension-v2-1-feature-gates.test.ts tests/ui-contribution.test.ts

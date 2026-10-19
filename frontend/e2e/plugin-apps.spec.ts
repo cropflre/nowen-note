@@ -52,7 +52,32 @@ test("1.5.3 host installs CLI package and runs an isolated, persistent app throu
     await page.getByRole("button", { name: "Add record", exact: true }).click();
     await expect(page.getByText("Studio smoke record", { exact: true })).toBeVisible();
     await page.reload(); await expect(page.getByText("Studio smoke record", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Edit app", exact: true }).click();
+    // Mock only the upstream AI preview at the browser boundary; the actual
+    // save, revision history and rollback still use the production backend.
+    await page.route("**/api/plugins/personal-apps/ai-preview", async route => {
+      const input = route.request().postDataJSON() as { spec: { name: string; fields: Array<{ id: string; label: string; type: string }>; [key: string]: unknown } };
+      expect(input.spec.name).toBe("我的待办清单");
+      const { items: _privateItems, ...schema } = input.spec as { items?: unknown; [key:string]:unknown };
+      await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({
+        spec: { ...schema, name: "AI Project Board", layout: "board", items: input.spec.items, fields: [...input.spec.fields, { id: "owner", label: "Owner", type: "text" }] }
+      }) });
+    });
+    await page.getByRole("textbox", { name: "AI App Builder", exact: true }).fill("Add an owner field and use card layout");
+    await page.getByRole("button", { name: "Generate preview", exact: true }).click();
+    await expect(page.getByRole("region", { name: "AI draft" })).toContainText("AI Project Board");
+    await page.getByRole("button", { name: "Use this draft", exact: true }).click();
+    await page.getByRole("button", { name: "Save app", exact: true }).click();
+    await expect(page.getByRole("heading", { name: "AI Project Board", exact: true })).toBeVisible();
+    await expect(page.getByText("Studio smoke record", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Edit app", exact: true }).click();
+    await page.getByText("Version history", { exact: true }).click();
+    await expect(page.getByText("v2 · 我的待办清单", { exact: false })).toBeVisible();
+    page.once("dialog", dialog => dialog.accept());
+    await page.getByRole("button", { name: "Restore version", exact: true }).first().click();
+    await expect(page.getByRole("textbox", { name: "App name", exact: true })).toHaveValue("我的待办清单");
     await page.getByRole("button", { name: "Back to my apps", exact: true }).click();
+
     await page.getByRole("button", { name: "Manage apps", exact: true }).click();
     await page.reload();
     await expect(page.getByRole("button", { name: "Install app", exact: true })).toBeVisible();
