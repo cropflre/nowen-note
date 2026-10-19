@@ -138,11 +138,11 @@ jobs:
             backend/package-lock.json
             frontend/package-lock.json
             packages/nowen-plugin-cli/package-lock.json
-      - run: npm ci
+      - run: npm ci --prefer-offline || (sleep 5 && npm ci --prefer-offline) || (sleep 10 && npm ci --prefer-offline)
         working-directory: backend
-      - run: npm ci
+      - run: npm ci --prefer-offline || (sleep 5 && npm ci --prefer-offline) || (sleep 10 && npm ci --prefer-offline)
         working-directory: frontend
-      - run: npm ci
+      - run: npm ci --prefer-offline || (sleep 5 && npm ci --prefer-offline) || (sleep 10 && npm ci --prefer-offline)
         working-directory: packages/nowen-plugin-cli
       - name: Build SDK and verify existing contracts
         run: |
