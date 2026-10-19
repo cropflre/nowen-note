@@ -2,7 +2,8 @@ import React, { useCallback, useMemo, useState, useEffect, useRef, useSyncExtern
 import { isEncryptedBlockLanguage } from "@/lib/encryptedNotes/blockDocument";
 import EncryptedBlockCard from "./EncryptedBlockCard";
 import { createPortal } from "react-dom";
-import { NodeViewWrapper, NodeViewContent, NodeViewProps } from "@tiptap/react";
+import { NodeViewWrapper, NodeViewContent, NodeViewProps, ReactNodeViewRenderer } from "@tiptap/react";
+import type { NodeViewRenderer } from "@tiptap/core";
 import { Copy, Check, ChevronDown, Palette, Eye, Code2, FileText, Minimize2, Maximize2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -53,6 +54,28 @@ export function normalizeCodeBlockIndent(value: unknown): number {
 export function CodeBlockView(props: NodeViewProps) {
   if (isEncryptedBlockLanguage(props.node.attrs.language)) return <EncryptedCodeBlockView {...props} />;
   return <OrdinaryCodeBlockView {...props} />;
+}
+
+export function createCodeBlockNodeView(): NodeViewRenderer {
+  const render = ReactNodeViewRenderer(CodeBlockView);
+  return props => {
+    const nodeView = render(props);
+    const ignoreMutation = nodeView.ignoreMutation?.bind(nodeView);
+    nodeView.ignoreMutation = mutation => {
+      const content = nodeView.contentDOM;
+      // React moves Tiptap's contentDOM into NodeViewContent after mounting its
+      // wrapper. The mobile childList heuristic otherwise reparses and remounts
+      // this view forever. Keep actual content edits on Tiptap's normal path.
+      if (mutation.type === "childList" && content && nodeView.dom.contains(content)
+        && !content.contains(mutation.target)) {
+        const changed = [...mutation.addedNodes, ...mutation.removedNodes];
+        if (changed.length > 0 && changed.every(node => node === content
+          || (node instanceof HTMLElement && node.hasAttribute("data-node-view-wrapper")))) return true;
+      }
+      return ignoreMutation?.(mutation) ?? false;
+    };
+    return nodeView;
+  };
 }
 function EncryptedCodeBlockView({ node, editor, getPos }: NodeViewProps) {
   const editable = useSyncExternalStore((listener) => subscribeEditorEditable(editor, listener), () => getEditorEditableSnapshot(editor), () => false);

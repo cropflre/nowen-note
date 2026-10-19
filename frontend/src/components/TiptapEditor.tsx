@@ -171,7 +171,7 @@ import {
   HIGHLIGHT_PRESETS,
 } from "@/components/FontSizeExtension";
 import { LineHeightExtension, LINE_HEIGHT_PRESETS } from "@/components/LineHeightExtension";
-import CodeBlockView from "@/components/CodeBlockView";
+import { createCodeBlockNodeView } from "@/components/CodeBlockView";
 import EncryptedBlockDialog from "./EncryptedBlockDialog";
 import { ENCRYPTED_BLOCK_LANGUAGE } from "@/lib/encryptedNotes/blockDocument";
 import { prepareTiptapSelectionEncryption } from "@/lib/encryptedNotes/tiptapBlockAuthoring";
@@ -1884,7 +1884,7 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
           ];
         },
         addNodeView() {
-          return ReactNodeViewRenderer(CodeBlockView);
+          return createCodeBlockNodeView();
         },
       }).configure({ lowlight, defaultLanguage: null }),
       Underline,
