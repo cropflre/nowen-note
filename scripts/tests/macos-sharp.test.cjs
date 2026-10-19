@@ -26,7 +26,7 @@ function fixture(t, arch = "x64") {
   } });
   json(vips, { version: "1.0.4" });
   const binaries = [path.join(modules, addon, `lib/sharp-darwin-${arch}.node`),
-    path.join(modules, vips, "lib/libvips-cpp.42.dylib")];
+    path.join(modules, vips, "lib/libvips-cpp.42.dylib"), path.join(modules, "ffmpeg-static/ffmpeg")];
   const header = Buffer.alloc(32);
   header.writeUInt32LE(0xfeedfacf);
   header.writeUInt32LE(arch === "x64" ? 0x01000007 : 0x0100000c, 4);
@@ -106,6 +106,13 @@ test("afterPack checks the actual app resources for both macOS architectures", a
     const context = { appOutDir: f.root, electronPlatformName: "darwin", arch: Arch[arch],
       packager: { appInfo: { productFilename: "Nowen Note" } } };
     await config.afterPack(context);
+    const ffmpeg = path.join(resources, "ffmpeg-static/ffmpeg");
+    const original = fs.readFileSync(ffmpeg);
+    const wrongArch = Buffer.from(original);
+    wrongArch.writeUInt32LE(arch === "x64" ? 0x0100000c : 0x01000007, 4);
+    fs.writeFileSync(ffmpeg, wrongArch);
+    await assert.rejects(config.afterPack(context), /FFmpeg.*架构/);
+    fs.writeFileSync(ffmpeg, original);
     fs.rmSync(path.join(resources, f.vips), { recursive: true });
     await assert.rejects(config.afterPack(context), /sharp-libvips/);
   }

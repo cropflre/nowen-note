@@ -40,6 +40,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import macSharp from "./lib/macos-sharp.cjs";
+import macFfmpeg from "./lib/macos-ffmpeg.cjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -219,6 +220,7 @@ async function main() {
 
   if (targetPlatform === "darwin") {
     macSharp.prepareMacSharp(backendDir, targetArch);
+    macFfmpeg.prepareMacFfmpeg(backendDir, targetArch);
   }
 
   // ===== 关键步骤 1：清掉旧产物（npm ci 时 prebuild-install 拉的 Node 版 .node）=====
