@@ -34,8 +34,8 @@ const pullRequests = [];
 try {
   for (const item of expected) {
     const pr = await api("/pulls/" + item.number);
-    if (pr.state !== "open") problems.push("#" + item.number + " must still be open for stacked acceptance");
-    if (pr.head.ref !== item.head || pr.base.ref !== item.base) problems.push("#" + item.number + " unexpectedly changed its base/head");
+    if (pr.state !== "open" && pr.merged !== true) problems.push("#" + item.number + " closed without merge");
+    if (pr.head.ref !== item.head || ![item.base, "release/v1.5.3"].includes(pr.base.ref)) problems.push("#" + item.number + " unexpectedly changed its base/head");
     if (pr.head.repo.full_name !== repository || pr.base.repo.full_name !== repository) problems.push("#" + item.number + " cross-repository ref is unsupported");
     pullRequests.push(pr);
   }
@@ -50,17 +50,27 @@ try {
   const ancestry = await api("/compare/" + last + "..." + rc.commit.sha);
   if (!["ahead", "identical"].includes(ancestry.status)) problems.push("RC head does not contain #876");
   const release = await api("/branches/release%2Fv1.5.3");
-  if (release.commit.sha !== pullRequests[0].base.sha) problems.push("release/v1.5.3 advanced; rebase and redo all gates");
+  const allMerged = pullRequests.every(pr => pr.merged === true);
+  if (allMerged) {
+    // Post-merge: compare individual merged heads to the actual release tip.
+    // GitHub merge commits preserve these heads as ancestors.
+    for (const pr of pullRequests) {
+      const contains = await api("/compare/" + pr.head.sha + "..." + release.commit.sha);
+      if (!["ahead", "identical"].includes(contains.status)) problems.push("release is missing merged #" + pr.number);
+    }
+  } else if (release.commit.sha !== pullRequests[0].base.sha) {
+    problems.push("release/v1.5.3 advanced before stack merged; rebase and redo all gates");
+  }
   const currentPr = await api("/pulls?head=" + encodeURIComponent(repository.split("/")[0] + ":" + candidate) + "&state=open");
   const rcPr = currentPr.find(p => p.head.ref === candidate);
-  if (rcPr && rcPr.base.ref !== "feature/nowen-studio-release-gates-p2") {
-    problems.push("RC PR must target P2 development branch until it is ready");
+  if (rcPr && rcPr.base.ref !== (allMerged ? "release/v1.5.3" : "feature/nowen-studio-release-gates-p2")) {
+    problems.push("RC PR base does not match staged merge status");
   }
   if (problems.length) {
     console.error("RC_LINEAGE_BLOCKED\n" + problems.map(s => "- " + s).join("\n"));
     process.exitCode = 1;
   } else {
-    console.log("RC_LINEAGE_PASS: release base, #873 → #874 → #876 and current RC branch match.");
+    console.log("RC_LINEAGE_PASS: checked merged #873 → #874 → #876, release ancestry and RC base.");
     console.log("Does NOT authorize merging: Sync V2, native platform and release gates must also pass.");
   }
 } catch (err) {
