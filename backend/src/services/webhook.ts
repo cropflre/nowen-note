@@ -1,4 +1,5 @@
 import { secureExternalFetch } from "../plugins/secureExternalFetch.js";
+import { formatPushPlusTaskEvent, isPushPlusJsonWebhook, isPushPlusAccepted } from "./pushPlusDigest.js";
 /**
  * Nowen Note Webhook 事件系统
  *
@@ -164,11 +165,14 @@ class WebhookDispatcher {
     const db = getDb();
     const deliveryId = crypto.randomUUID();
 
-    const payload = JSON.stringify({
-      event,
-      timestamp: webhookTimestamp(event, data.timezone),
-      data,
-    });
+    const timestamp = webhookTimestamp(event, data.timezone);
+    // PushPlus webhook-only JSON accepts the entire POST body as message content.
+    // Only rewrite task digest events for the verified provider endpoint.
+    const pushPlusJson = isPushPlusJsonWebhook(webhook.url)
+      && (event === "task.digest.morning" || event === "task.digest.evening" || event === "task.due");
+    const payload = JSON.stringify(pushPlusJson
+      ? formatPushPlusTaskEvent(event as "task.digest.morning" | "task.digest.evening" | "task.due", timestamp, data)
+      : { event, timestamp, data });
 
     const signature = signPayload(payload, webhook.secret);
 
@@ -202,9 +206,14 @@ class WebhookDispatcher {
         lastStatus = res.status;
         lastBody = res.body;
 
-        if (res.ok) {
+        if (res.ok && (!pushPlusJson || isPushPlusAccepted(res.body))) {
           success = true;
           break;
+        }
+        if (res.ok && pushPlusJson) {
+          // PushPlus can return HTTP 200 while rejecting the message. Do not
+          // mark a failed provider response as a successful delivery.
+          lastBody = "PushPlus API rejected the message";
         }
       } catch (err: any) {
         lastBody = err.message;
