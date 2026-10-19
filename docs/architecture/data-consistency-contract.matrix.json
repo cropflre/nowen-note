@@ -285,6 +285,7 @@
       "title": "不完整备份不可直接覆盖线上数据，失败要回滚",
       "status": "covered",
       "checks": [
+        { "file": "frontend/src/lib/__tests__/nativeAttachmentStore.test.ts", "case": "retains the old attachment after a chunk write fails and can retry (DCC-008)" },
         { "file": "backend/tests/application-v3-dashboard-data.test.ts", "case": "retained storage migration is repeatable and included in SQLite backup restoration" },
         {"file": "backend/tests/sync-v2-note-deletion-lifecycle.test.ts", "case": "failed mutation ledger rolls back deletion, cleanup job and knowledge tree atomically"},
         { "file": "backend/tests/asset-organization-sync.test.ts", "case": "incoming trash visibility cannot reopen a previously public link after restoration" },
