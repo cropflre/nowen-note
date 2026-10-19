@@ -3,7 +3,7 @@ import test from "node:test";
 import Database from "better-sqlite3";
 import { nowenStudioMigration } from "../src/db/nowenStudioMigration.js";
 import { nowenStudioHistoryMigration } from "../src/db/nowenStudioHistoryMigration.js";
-import { parsePersonalAIResponse } from "../src/plugins/personalStudioAI.js";
+import { parsePersonalAIResponse, studioAIOutline } from "../src/plugins/personalStudioAI.js";
 import { createPersonalStudioApp, deletePersonalStudioApp, getPersonalStudioApp, updatePersonalStudioApp } from "../src/plugins/personalStudioApps.js";
 import { listPersonalStudioVersions, restorePersonalStudioVersion } from "../src/plugins/personalStudioHistory.js";
 
@@ -21,6 +21,14 @@ function fixture() {
   db.exec("PRAGMA foreign_keys=ON; CREATE TABLE users (id TEXT PRIMARY KEY); INSERT INTO users(id) VALUES('alice'),('bob');");
   nowenStudioMigration.up(db); nowenStudioHistoryMigration.up(db); return db;
 }
+test("only app metadata and field definitions enter the AI context", () => {
+  const outline = JSON.stringify(studioAIOutline(original as any));
+  assert.ok(outline.includes("Tracker"));
+  assert.ok(outline.includes("title"));
+  assert.ok(!outline.includes("private item"));
+  assert.ok(!outline.includes("items"));
+  assert.ok(!outline.includes("values"));
+});
 test("AI proposal adds fields and changes layout without deleting private records", () => {
   const proposal = parsePersonalAIResponse("json\n"+JSON.stringify(model), original as any);
   assert.equal(proposal.layout, "board");

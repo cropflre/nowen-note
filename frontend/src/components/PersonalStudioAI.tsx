@@ -7,7 +7,7 @@ import type { StudioApp, StudioSpec, StudioVersion } from "@/lib/personalApps";
 const copy = {
   zh: {
     ai: "AI 创建应用", modify: "AI 修改应用", helper: "描述你想要的应用，AI 会先生成草稿。确认满意后，再点击“保存应用”。",
-    external: "仅将需求与字段结构发送给你已配置的 AI 服务，不会发送记录内容、笔记或密钥。",
+    external: "仅将需求、应用名称、说明和字段结构发送给已配置的 AI 服务，不会发送记录内容、笔记或密钥。",
     placeholder: "例如：做一个用于跟踪开源项目开发进度的看板，包含任务、优先级和完成状态",
     example: "创建项目进度看板", improve: "增加一个负责人字段，并改成卡片布局",
     generate: "生成草稿", generating: "正在生成…", accept: "应用此草稿", discard: "放弃草稿",
@@ -22,7 +22,7 @@ const copy = {
   },
   en: {
     ai: "AI App Builder", modify: "Edit with AI", helper: "Describe an app. Review the proposed design, then Save app to persist it.",
-    external: "Only your request and field structure go to the configured AI provider—not records, notes, or API keys.",
+    external: "Only your request, app title, description and field definitions go to the AI provider—not records, notes or API keys.",
     placeholder: "For example: a project board with tasks, priorities, owners and completion status",
     example: "Create a project tracker", improve: "Add an owner field and switch to cards",
     generate: "Generate preview", generating: "Generating…", accept: "Use this draft", discard: "Discard",

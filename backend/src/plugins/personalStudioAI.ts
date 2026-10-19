@@ -46,6 +46,12 @@ export function parsePersonalAIResponse(raw: string, source?: PersonalAppSpec): 
   return parsePersonalAppSpec({ ...blueprint, items: source?.items ?? [] });
 }
 
+/** The only private app context ever serialized into an upstream AI request. */
+export function studioAIOutline(source?: PersonalAppSpec) {
+  return source ? { schemaVersion: source.schemaVersion, name: source.name,
+    description: source.description, layout: source.layout, fields: source.fields } : null;
+}
+
 export async function previewPersonalAIApp(
   userId: string,
   request: PersonalAIRequest,
@@ -63,10 +69,7 @@ export async function previewPersonalAIApp(
   active.add(userId);
   try {
     // User records and private content never leave the server for model generation.
-    const outline = source ? {
-      schemaVersion: source.schemaVersion, name: source.name,
-      description: source.description, layout: source.layout, fields: source.fields,
-    } : null;
+    const outline = studioAIOutline(source);
     const response = await complete(settings, [
       { role: "system", content: [
         "You are the Nowen Studio AppSpec planner, NOT a coding assistant.",
