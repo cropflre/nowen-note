@@ -117,3 +117,15 @@ test("application, lockfile and Android version labels stay aligned without bump
   const android = await readFile(new URL("frontend/android/app/build.gradle", root), "utf8");
   assert.equal(android.match(/versionName\s+["']([^"']+)/)?.[1], version);
 });
+
+test("desktop build lockfiles fetch npm tarballs from the official registry", async () => {
+  const root = new URL("../../", import.meta.url);
+  for (const file of ["package-lock.json", "backend/package-lock.json", "frontend/package-lock.json"]) {
+    const lock = JSON.parse(await readFile(new URL(file, root), "utf8"));
+    for (const [name, pkg] of Object.entries(lock.packages)) {
+      if (pkg.resolved && new URL(pkg.resolved).pathname.endsWith(".tgz")) {
+        assert.equal(new URL(pkg.resolved).origin, "https://registry.npmjs.org", `${file}: ${name}`);
+      }
+    }
+  }
+});
