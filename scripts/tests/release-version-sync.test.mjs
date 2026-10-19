@@ -104,7 +104,7 @@ test("package sync changes only the application version and preserves dependenci
   }
 });
 
-test("application and lockfile version labels stay aligned without bumping release version", async () => {
+test("application, lockfile and Android version labels stay aligned without bumping release version", async () => {
   const root = new URL("../../", import.meta.url);
   const version = JSON.parse(await readFile(new URL("package.json", root), "utf8")).version;
   for (const directory of ["", "backend/"]) {
@@ -114,4 +114,6 @@ test("application and lockfile version labels stay aligned without bumping relea
     assert.equal(lock.version, version);
     assert.equal(lock.packages[""].version, version);
   }
+  const android = await readFile(new URL("frontend/android/app/build.gradle", root), "utf8");
+  assert.equal(android.match(/versionName\s+["']([^"']+)/)?.[1], version);
 });
