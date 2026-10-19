@@ -2,8 +2,70 @@
 
 import { Editor } from "@tiptap/core";
 import StarterKit from "@tiptap/starter-kit";
-import { describe, expect, it, vi } from "vitest";
-import { getDefaultSlashCommands } from "@/components/SlashCommands";
+import React, { act } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createSlashEventHandlers, createSlashExtension, getDefaultSlashCommands, SlashCommandsMenu } from "@/components/SlashCommands";
+
+(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
+describe("grouped slash menu command selection", () => {
+  let editor: Editor, root: Root, host: HTMLDivElement;
+  const opened = vi.fn();
+  const scrollIntoView = Element.prototype.scrollIntoView;
+
+  beforeEach(async () => {
+    Element.prototype.scrollIntoView = vi.fn();
+    const handlers = createSlashEventHandlers();
+    editor = new Editor({ extensions: [StarterKit, createSlashExtension(handlers.onActivate, handlers.onDeactivate, handlers.onQueryChange)], content: "<p></p>" });
+    host = document.createElement("div");
+    document.body.append(host);
+    root = createRoot(host);
+    const items = getDefaultSlashCommands(key => key === "slash.catInsert" ? "插入" : key, undefined, undefined, undefined, vi.fn());
+    await act(async () => root.render(<SlashCommandsMenu editor={editor} items={items} />));
+    opened.mockClear();
+    window.addEventListener("nowen:open-mindmap-insert", opened);
+    await act(async () => editor.commands.insertContent("/"));
+  });
+
+  afterEach(async () => {
+    window.removeEventListener("nowen:open-mindmap-insert", opened);
+    await act(async () => { root.unmount(); editor.destroy(); });
+    host.remove();
+    Element.prototype.scrollIntoView = scrollIntoView;
+    vi.restoreAllMocks();
+  });
+
+  const key = async (value: string) => act(async () => document.dispatchEvent(new KeyboardEvent("keydown", { key: value, bubbles: true, cancelable: true })));
+  const mindmap = () => Array.from(host.querySelectorAll("button")).find(button => button.textContent?.includes("选择已有脑图"))!;
+
+  it("opens the highlighted mind map after ArrowDown and Enter instead of inserting the timestamp", async () => {
+    expect(host.querySelectorAll("button")[1]).toBe(mindmap());
+    await key("ArrowDown");
+    await key("Enter");
+    expect(opened).toHaveBeenCalledTimes(1);
+    expect(editor.getText()).toBe("");
+  });
+
+  it("executes the hovered mind map through Enter", async () => {
+    await act(async () => mindmap().dispatchEvent(new MouseEvent("mouseover", { bubbles: true })));
+    await key("Enter");
+    expect(opened).toHaveBeenCalledTimes(1);
+    expect(editor.getText()).toBe("");
+  });
+
+  it("keeps mouse clicks and filtered keyboard selection on the same mind map command", async () => {
+    await act(async () => mindmap().click());
+    expect(opened).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      editor.commands.insertContent("/");
+      editor.commands.insertContent("思维导图");
+    });
+    await key("Enter");
+    expect(opened).toHaveBeenCalledTimes(2);
+    expect(editor.getText()).toBe("");
+  });
+});
 
 describe("mind map foolproof insertion command", () => {
   it("exposes a searchable /思维导图 command and opens the picker without requiring an ID", () => {
