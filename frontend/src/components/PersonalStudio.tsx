@@ -82,7 +82,7 @@ export function PersonalStudio({ appId }: { appId?: string }) {
     <button className={actionClass} onClick={() => pushAppPathState("/apps")}><ArrowLeft size={15} className="inline"/> {t.back}</button>
     <div><h1 className="text-2xl font-semibold">{t.create}</h1><p className="mt-2 text-sm text-tx-secondary">{t.template}</p></div>
     {error && <p role="alert" className="text-sm text-red-500">{error}</p>}
-    {!appId && <div className="grid gap-3 sm:grid-cols-3">{(["checklist","records","tracker"] as StudioTemplate[]).map(template => <button type="button" key={template} className="min-h-32 rounded-2xl border border-app-border bg-app-surface p-5 text-left hover:border-accent-primary hover:bg-app-hover" onClick={() => { setSpec(newStudioSpec(template)); setError(""); }}>
+    {!appId && <div className="grid gap-3 sm:grid-cols-3">{(["checklist","records","tracker"] as StudioTemplate[]).map(template => <button type="button" key={template} aria-label={t[template]} className="min-h-32 rounded-2xl border border-app-border bg-app-surface p-5 text-left hover:border-accent-primary hover:bg-app-hover" onClick={() => { setSpec(newStudioSpec(template)); setError(""); }}>
       <LayoutGrid size={24} className="mb-4 text-accent-primary"/><strong className="block">{t[template]}</strong><span className="mt-2 block text-xs text-tx-secondary">{newStudioSpec(template).description}</span>
     </button>)}</div>}
   </section>;
