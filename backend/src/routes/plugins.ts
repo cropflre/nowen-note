@@ -83,15 +83,25 @@ function studioActor(c: any): string {
 pluginsRouter.post("/personal-apps/ai-preview", bodyLimit({ maxSize: 64 * 1024 }), async c => {
   try {
     const actor = studioActor(c);
-    const body = await c.req.json() as { instruction?: string; spec?: unknown };
+    const body: unknown = await c.req.json();
     c.header("Cache-Control", "no-store");
+    // The service validates the entire untrusted request (including extra keys).
     // Never persists a proposal; user must accept it and save explicitly.
-    return c.json({ spec: await previewPersonalAIApp(actor, { instruction: body.instruction as string, spec: body.spec as any }) });
+    return c.json({ spec: await previewPersonalAIApp(actor, body as Parameters<typeof previewPersonalAIApp>[1]) });
   } catch (error) {
     const coded = error as { code?: string };
-    // Provider errors can contain upstream URLs or other details. Do not echo
-    // them to unprivileged clients or log raw private prompts.
-    if (!coded.code) return c.json({ success: false, code: "STUDIO_AI_PROVIDER_FAILED", error: "AI 生成失败，请核对模型配置后重试" }, 502);
+    // Only Nowen-issued, bounded error codes may reach the client. Errors from
+    // fetch/Undici/providers can contain API URLs, keys or private response bodies,
+    // sometimes with their OWN "code" property.
+    const safeCodes = new Set([
+      "RESOURCE_FORBIDDEN", "STUDIO_INVALID_SPEC", "STUDIO_SPEC_TOO_LARGE",
+      "STUDIO_AI_INVALID_INPUT", "STUDIO_AI_NOT_CONFIGURED", "STUDIO_AI_UNAVAILABLE",
+      "STUDIO_AI_BUSY", "STUDIO_AI_RATE_LIMIT", "STUDIO_AI_INVALID_OUTPUT",
+      "STUDIO_AI_DESTRUCTIVE_CHANGE",
+    ]);
+    if (!coded.code || !safeCodes.has(coded.code)) return c.json({
+      success: false, code: "STUDIO_AI_PROVIDER_FAILED", error: "AI 生成失败，请核对模型配置后重试",
+    }, 502);
     return errorResponse(c, error);
   }
 });
