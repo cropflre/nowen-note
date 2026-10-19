@@ -22,7 +22,7 @@ export function loadDashboardLayouts(key: string, defaults: WidgetPlacement[]): 
           if (!value || typeof value !== "object") throw new Error();
           const item = value as Record<string, unknown>;
           if (typeof item.id !== "string" || !/^[a-z0-9]+(?:[.-][a-z0-9]+)+\/[a-z][a-z0-9-]{0,63}$/.test(item.id)
-            || ids.has(item.id) || !["small", "medium", "large"].includes(item.size)
+            || ids.has(item.id) || typeof item.size !== "string" || !["small", "medium", "large"].includes(item.size)
             || typeof item.hidden !== "boolean") throw new Error();
           ids.add(item.id);
           return { id: item.id, size: item.size as WidgetSize, hidden: item.hidden };
