@@ -43,6 +43,7 @@ function useLabels() { const { i18n } = useTranslation(); return i18n.language.s
 export function PersonalStudioAI({ spec, onAccept }: { spec: StudioSpec | null; onAccept: (proposal: StudioSpec) => void }) {
   const t = useLabels();
   const [prompt, setPrompt] = useState("");
+  const [turns, setTurns] = useState<Array<{ instruction: string; result: string }>>([]);
   const [proposal, setProposal] = useState<StudioSpec | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -53,7 +54,7 @@ export function PersonalStudioAI({ spec, onAccept }: { spec: StudioSpec | null; 
     return () => request.current?.abort();
   }, [spec]);
   useEffect(() => {
-    const cancel = () => { request.current?.abort(); setProposal(null); };
+    const cancel = () => { request.current?.abort(); setProposal(null); setTurns([]); setPrompt(""); };
     window.addEventListener("nowen:token-changed", cancel);
     window.addEventListener("nowen:workspace-changed", cancel);
     return () => { request.current?.abort(); window.removeEventListener("nowen:token-changed", cancel); window.removeEventListener("nowen:workspace-changed", cancel); };
@@ -81,6 +82,7 @@ export function PersonalStudioAI({ spec, onAccept }: { spec: StudioSpec | null; 
   return <section aria-label={t.ai} className="space-y-3 rounded-2xl border border-accent-primary/30 bg-app-surface p-4">
     <div className="flex items-center gap-2"><Sparkles size={18} className="text-accent-primary"/><h2 className="font-semibold">{spec ? t.modify : t.ai}</h2></div>
     <p className="text-sm text-tx-secondary">{t.helper}</p>
+    {turns.length > 0 && <ol className="space-y-2" aria-label={t.modify}>{turns.slice(-5).map((turn,index)=><li key={index} className="space-y-1 text-sm"><p className="ml-auto w-fit max-w-[90%] rounded-xl bg-app-hover px-3 py-2">{turn.instruction}</p><p className="mr-auto w-fit max-w-[90%] rounded-xl border border-app-border px-3 py-2"><Sparkles size={13} className="mr-2 inline text-accent-primary"/>{turn.result}</p></li>)}</ol>}
     <label className="block">
       <span className="sr-only">{t.ai}</span>
       <textarea aria-label={t.ai} value={prompt} maxLength={1200} rows={3} className="w-full rounded-lg border border-app-border bg-app-surface p-3 text-sm focus:outline-none focus:ring-2 focus:ring-accent-primary/30" placeholder={spec ? t.improve : t.placeholder} onChange={e=>setPrompt(e.target.value)}/>
@@ -97,7 +99,7 @@ export function PersonalStudioAI({ spec, onAccept }: { spec: StudioSpec | null; 
       <p className="text-xs text-tx-secondary">{t.saved}</p>
       <div className="flex justify-end gap-2">
         <button type="button" className={action} onClick={()=>setProposal(null)}>{t.discard}</button>
-        <button type="button" className={primary} onClick={()=>{onAccept(proposal);setProposal(null);setPrompt("");}}>{t.accept}</button>
+        <button type="button" className={primary} onClick={()=>{setTurns(history=>[...history.slice(-4),{instruction:prompt.trim(),result:proposal.name}]);onAccept(proposal);setProposal(null);setPrompt("");}}>{t.accept}</button>
       </div>
     </div>}
   </section>;
