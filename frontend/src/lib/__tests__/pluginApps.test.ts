@@ -16,8 +16,11 @@ describe("V3 app navigation and account-local pins", () => {
   it("accepts only namespaced app routes without encoded or core-route overrides", () => {
     expect(parsePluginAppPath("/apps").matched).toBe(true);
     expect(parsePluginAppPath("/apps/manage")).toEqual({ matched: true, manage: true });
+    expect(parsePluginAppPath("/apps/studio")).toEqual({ matched: true, studio: true });
+    expect(parsePluginAppPath("/apps/personal/01234567-89ab-cdef-0123-456789abcdef")).toEqual({ matched: true, personalId: "01234567-89ab-cdef-0123-456789abcdef" });
+    expect(parsePluginAppPath("/apps/studio/01234567-89ab-cdef-0123-456789abcdef")).toEqual({ matched: true, studio: true, studioId: "01234567-89ab-cdef-0123-456789abcdef" });
     expect(parsePluginAppPath("/apps/nowenlab.hello-app/home")).toEqual({ matched: true, pluginId: "nowenlab.hello-app", pageId: "home" });
-    for (const path of ["/settings", "/apps/../settings", "/apps/%2e%2e/home", "/apps/nowenlab.app/home?x=1", "/apps/core/home"]) expect(parsePluginAppPath(path).matched).toBe(false);
+    for (const path of ["/settings", "/apps/../settings", "/apps/%2e%2e/home", "/apps/nowenlab.app/home?x=1", "/apps/core/home", "/apps/personal/../settings", "/apps/studio/bad"]) expect(parsePluginAppPath(path).matched).toBe(false);
   });
   it("does not inherit another account's pinned apps", () => {
     const token = (id: string) => `x.${btoa(JSON.stringify({ userId: id }))}.x`;

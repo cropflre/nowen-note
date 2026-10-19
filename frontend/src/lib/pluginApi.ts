@@ -1,3 +1,4 @@
+import type { StudioApp, StudioSpec } from "./personalApps";
 import { getBaseUrl } from "./api.impl";
 import { fetchWithAuthRefresh, getAccessToken } from "./authSession";
 
@@ -188,6 +189,11 @@ async function contributionMutation<T>(operation: Promise<T>): Promise<T> {
 }
 
 export const pluginApi = {
+  personalApps: () => request<StudioApp[]>("/plugins/personal-apps"),
+  personalApp: (id: string) => request<StudioApp>(`/plugins/personal-apps/${encodeURIComponent(id)}`),
+  createPersonalApp: (spec: StudioSpec) => request<StudioApp>("/plugins/personal-apps", { method: "POST", body: JSON.stringify(spec) }),
+  updatePersonalApp: (id: string, expectedRevision: number, spec: StudioSpec) => request<StudioApp>(`/plugins/personal-apps/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify({ expectedRevision, spec }) }),
+  deletePersonalApp: (id: string, expectedRevision: number) => request<{ success: true }>(`/plugins/personal-apps/${encodeURIComponent(id)}`, { method: "DELETE", body: JSON.stringify({ expectedRevision }) }),
   features: () => request<ExtensionPlatformFeatureFlags>("/plugins/features"),
   widgets: (platform: string, workspaceId: string) => request<PluginDashboardWidget[]>(`/plugins/widgets?platform=${encodeURIComponent(platform)}&workspaceId=${encodeURIComponent(workspaceId)}`),
   widgetEvents: (workspaceId: string, signal: AbortSignal) => fetchWithAuthRefresh(`${getBaseUrl()}/plugins/widget-events`, { method: "POST", signal, headers: { Authorization: `Bearer ${getAccessToken() || ""}`, "Content-Type": "application/json" }, body: JSON.stringify({ workspaceId }) }, getBaseUrl()),
