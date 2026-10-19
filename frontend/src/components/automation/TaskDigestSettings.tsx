@@ -148,6 +148,7 @@ export default function TaskDigestSettings() {
           <span className="text-zinc-500">· {webhooks.length} 个专用绑定</span>
         </div>
         <p className="text-zinc-500">绑定地址必须为公网 HTTPS。列表隐藏 URL 中的密钥参数；修改地址会保留原签名密钥及订阅事件。</p>
+        <p className="text-zinc-500">PushPlus 用户可直接填入 <code className="break-all">https://www.pushplus.plus/send/你的Token?template=json</code>。该地址会自动将早晚简报、到点提醒整理为中文 JSON 消息；其他 Webhook 不受影响。请勿在截图或公开日志中泄露 Token。</p>
         {webhooks.length === 0 ? (
           <p className="rounded-lg border border-dashed border-zinc-200 p-3 text-zinc-500 dark:border-zinc-800">尚未绑定任务简报的专用接收地址。</p>
         ) : (
