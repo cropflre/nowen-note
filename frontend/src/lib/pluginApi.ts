@@ -1,4 +1,4 @@
-import type { StudioApp, StudioSpec } from "./personalApps";
+import type { StudioApp, StudioSpec, StudioVersion } from "./personalApps";
 import { getBaseUrl } from "./api.impl";
 import { fetchWithAuthRefresh, getAccessToken } from "./authSession";
 
@@ -189,6 +189,9 @@ async function contributionMutation<T>(operation: Promise<T>): Promise<T> {
 }
 
 export const pluginApi = {
+  previewPersonalAppAI: (instruction: string, spec?: StudioSpec, signal?: AbortSignal) => request<{ spec: StudioSpec }>("/plugins/personal-apps/ai-preview", { method: "POST", body: JSON.stringify({ instruction, ...(spec ? {spec}: {}) }), signal }),
+  personalAppVersions: (id: string) => request<StudioVersion[]>(`/plugins/personal-apps/${encodeURIComponent(id)}/versions`),
+  restorePersonalApp: (id: string, revision: number, expectedRevision: number) => request<StudioApp>(`/plugins/personal-apps/${encodeURIComponent(id)}/restore`, { method: "POST", body: JSON.stringify({ revision, expectedRevision }) }),
   personalApps: () => request<StudioApp[]>("/plugins/personal-apps"),
   personalApp: (id: string) => request<StudioApp>(`/plugins/personal-apps/${encodeURIComponent(id)}`),
   createPersonalApp: (spec: StudioSpec) => request<StudioApp>("/plugins/personal-apps", { method: "POST", body: JSON.stringify(spec) }),
