@@ -78,3 +78,14 @@ export function formatPushPlusTaskEvent(
     "重点任务": taskTitles.length > 0 ? taskTitles : "暂无需要关注的任务",
   };
 }
+
+/** PushPlus returns an application-level result even for HTTP 200. */
+export function isPushPlusAccepted(body: string): boolean {
+  try {
+    const response: unknown = JSON.parse(body);
+    return response !== null && typeof response === "object"
+      && "code" in response && (response as { code?: unknown }).code === 200;
+  } catch {
+    return false;
+  }
+}
