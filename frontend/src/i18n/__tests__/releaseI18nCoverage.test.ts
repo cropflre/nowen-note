@@ -143,6 +143,17 @@ function expectPatchParity(
 }
 
 describe("release i18n coverage", () => {
+  it.each(["zh-CN", "en"])("defines dynamic slash block labels and descriptions in %s", (language) => {
+    for (const type of ["columns", "callout", "details"]) {
+      const label = `slash.${type}`;
+      const description = `${label}Desc`;
+      expect(i18n.getResource(language, "translation", label), label)
+        .toBe(i18n.getResource(language, "translation", `slash.convert.${type}`));
+      expect(i18n.getResource(language, "translation", description), description).toBeTypeOf("string");
+      expect(i18n.t(description, { lng: language })).not.toBe(description);
+    }
+  });
+
   it("keeps plugin app and inspector translations in parity", () => {
     expectPatchParity(zhCNPluginAppTranslations, enPluginAppTranslations, "pluginApps");
   });
