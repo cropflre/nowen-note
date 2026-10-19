@@ -3,6 +3,7 @@ export type StudioItem = { id: string; values: Record<string, string | boolean> 
 export type StudioSpec = {
   schemaVersion: 1; name: string; description: string; layout: "list" | "board"; fields: StudioField[]; items: StudioItem[];
 };
+export type StudioVersion = { revision: number; createdAt: string; name: string; layout: string; fieldCount: number; itemCount: number };
 export type StudioApp = { id: string; spec: StudioSpec; revision: number; createdAt: string; updatedAt: string };
 export type StudioTemplate = "checklist" | "records" | "tracker";
 

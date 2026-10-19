@@ -3,6 +3,7 @@ import { ArrowLeft, Check, LayoutGrid, List, Pencil, Plus, Save, Trash2 } from "
 import { useTranslation } from "react-i18next";
 import { pushAppPathState } from "@/lib/appPathNavigation";
 import { pluginApi } from "@/lib/pluginApi";
+import { PersonalStudioAI, PersonalStudioVersionHistory } from "./PersonalStudioAI";
 import { addStudioField, addStudioItem, removeStudioField, updateStudioItem, newStudioId, newStudioSpec, type StudioApp, type StudioField, type StudioSpec, type StudioTemplate } from "@/lib/personalApps";
 
 const UI = {
@@ -82,6 +83,7 @@ export function PersonalStudio({ appId }: { appId?: string }) {
     <button className={actionClass} onClick={() => pushAppPathState("/apps")}><ArrowLeft size={15} className="inline"/> {t.back}</button>
     <div><h1 className="text-2xl font-semibold">{t.create}</h1><p className="mt-2 text-sm text-tx-secondary">{t.template}</p></div>
     {error && <p role="alert" className="text-sm text-red-500">{error}</p>}
+    {!appId && <PersonalStudioAI spec={null} onAccept={next => { setSpec(next); setError(""); }} />}
     {!appId && <div className="grid gap-3 sm:grid-cols-3">{(["checklist","records","tracker"] as StudioTemplate[]).map(template => <button type="button" key={template} aria-label={t[template]} className="min-h-32 rounded-2xl border border-app-border bg-app-surface p-5 text-left hover:border-accent-primary hover:bg-app-hover" onClick={() => { setSpec(newStudioSpec(template)); setError(""); }}>
       <LayoutGrid size={24} className="mb-4 text-accent-primary"/><strong className="block">{t[template]}</strong><span className="mt-2 block text-xs text-tx-secondary">{newStudioSpec(template).description}</span>
     </button>)}</div>}
@@ -90,6 +92,8 @@ export function PersonalStudio({ appId }: { appId?: string }) {
     <div className="flex flex-wrap items-center justify-between gap-3"><button className={actionClass} onClick={() => pushAppPathState(app ? "/apps/personal/" + app.id : "/apps")}><ArrowLeft size={15} className="inline"/> {t.back}</button><div className="flex items-center gap-2"><span className="text-xs text-tx-secondary">{t.personal}</span><button className={primaryClass} disabled={busy} onClick={() => void save()}><Save size={16}/>{busy ? t.saving : t.save}</button></div></div>
     <div><h1 className="text-xl font-semibold">{t.edit}</h1><p className="mt-1 text-sm text-tx-secondary">{t.noCode}</p></div>
     {error && <p role="alert" className="rounded-lg bg-red-500/10 p-3 text-sm text-red-500">{error}</p>}
+    <PersonalStudioAI spec={spec} onAccept={next => { setSpec(next); setError(""); }} />
+    {app && <PersonalStudioVersionHistory app={app} onRestored={next => { setApp(next); setSpec(next.spec); setError(""); }} />}
     <div className="grid gap-5 lg:grid-cols-[minmax(0,380px)_1fr]">
       <div className="space-y-4 rounded-2xl border border-app-border bg-app-surface p-4">
         <label className="block text-sm">{t.name}<input className={inputClass + " mt-1"} maxLength={64} value={spec.name} onChange={e => setSpec(s => s ? { ...s, name: e.target.value } : s)} /></label>
