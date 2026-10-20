@@ -1,0 +1,41 @@
+export const zhCNAutomationTranslations = { automation: {
+  rail: "自动化轨道", flow: "事件 → 动作", title: "自动化中心",
+  description: "事件进入一条可审计的执行轨道；每一步都记录、可重试、可停止，工作区权限始终按工作流所有者检查。",
+  newWorkflow: "新建流程", createTitle: "建立执行轨道", name: "名称",
+  defaultName: "新笔记处理", createdDescription: "由自动化中心创建",
+  triggerType: "触发方式", event: "事件", cron: "Cron 表达式", timezone: "时区", steps: "步骤",
+  triggers: { event: "Nowen 事件", schedule: "定时", webhook: "Webhook", manual: "仅手动" },
+  events: {
+    note: { created: "笔记创建", updated: "笔记更新" },
+    task: { created: "任务创建", completed: "任务完成" },
+    attachment: { created: "附件创建" }, diary: { created: "日记创建" }, mindmap: { created: "思维导图创建" },
+  },
+  stepTypes: { action: "执行动作", condition: "条件判断", delay: "延迟", transform: "数据转换", stop: "停止流程" },
+  saveDisabled: "保存为停用状态", loading: "加载自动化", enabled: "运行中", disabled: "已停用",
+  nextRun: "下次 {{time}}", deleteConfirm: "删除 {{name}}？", run: "立即运行", removeStep: "删除步骤",
+  empty: "还没有自动化。先把一个事件连接到插件动作。",
+  history: "运行记录", recentRuns: "最近运行", noRuns: "尚无执行记录",
+  statuses: { queued: "排队中", running: "运行中", waiting: "等待中", completed: "已完成", failed: "失败", cancelled: "已取消", interrupted: "已中断" },
+  credentialsOnce: "Webhook 凭据只显示一次：", token: "令牌", secret: "密钥", credentialsSaved: "我已保存",
+} };
+
+export const enAutomationTranslations = { automation: {
+  rail: "Automation rail", flow: "EVENT → ACTION", title: "Automation center",
+  description: "Events enter an auditable workflow. Every step is recorded and can be retried or stopped. Workspace permissions are always checked against the workflow owner.",
+  newWorkflow: "New workflow", createTitle: "Create execution workflow", name: "Name",
+  defaultName: "New note processing", createdDescription: "Created from the automation center",
+  triggerType: "Trigger type", event: "Event", cron: "Cron expression", timezone: "Time zone", steps: "Steps",
+  triggers: { event: "Nowen event", schedule: "Schedule", webhook: "Webhook", manual: "Manual only" },
+  events: {
+    note: { created: "Note created", updated: "Note updated" },
+    task: { created: "Task created", completed: "Task completed" },
+    attachment: { created: "Attachment created" }, diary: { created: "Diary created" }, mindmap: { created: "Mind map created" },
+  },
+  stepTypes: { action: "Action", condition: "Condition", delay: "Delay", transform: "Transform", stop: "Stop" },
+  saveDisabled: "Save as disabled", loading: "Loading automations", enabled: "Enabled", disabled: "Disabled",
+  nextRun: "Next {{time}}", deleteConfirm: "Delete {{name}}?", run: "Run now", removeStep: "Remove step",
+  empty: "No automations yet. Connect an event to a plugin action to get started.",
+  history: "Run history", recentRuns: "Recent runs", noRuns: "No runs yet",
+  statuses: { queued: "Queued", running: "Running", waiting: "Waiting", completed: "Completed", failed: "Failed", cancelled: "Cancelled", interrupted: "Interrupted" },
+  credentialsOnce: "Webhook credentials are shown only once:", token: "Token", secret: "Secret", credentialsSaved: "I have saved them",
+} };
