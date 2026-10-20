@@ -11,10 +11,25 @@ on:
       - "backend/src/plugins/personalStudio*.ts"
       - "backend/src/db/nowenStudio*.ts"
       - "backend/src/routes/plugins.ts"
+  push:
+    branches: ["release/v1.5.3"]
+    paths:
+      - "scripts/studio-rc-runtime-smoke.mjs"
+      - "scripts/studio-rc-docker-run.sh"
+      - ".github/workflows/studio-production-docker-rc.yml"
+      - "Dockerfile"
+      - "docker-entrypoint.sh"
+      - "backend/src/plugins/personalStudio*.ts"
+      - "backend/src/db/nowenStudio*.ts"
+      - "backend/src/routes/plugins.ts"
   workflow_dispatch:
 
 permissions:
   contents: read
+
+concurrency:
+  group: studio-production-rc-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   real-production-docker:
