@@ -1,4 +1,4 @@
-import { changeEncryptedContentPassphrase, unlockEncryptedContentKey, updateEncryptedContentWithKey } from "./crypto";
+import { changeEncryptedContentPassphrase, readEncryptedContentWithKey, unlockEncryptedContentKey, updateEncryptedContentWithKey } from "./crypto";
 import { EncryptedContentError, type EncryptedContentIdentity } from "./envelope";
 import type { SessionRequest, SessionResponse } from "./sessionProtocol";
 
@@ -19,6 +19,7 @@ self.onmessage = async (event: MessageEvent<SessionRequest>) => {
     } else {
       if (!key || !identity) throw new EncryptedContentError("invalid");
       if (request.operation === "update") result = await updateEncryptedContentWithKey(request.input.envelope, key, identity, request.input.plaintext);
+      else if (request.operation === "read") result = await readEncryptedContentWithKey(request.input.envelope, key, identity);
       else if (request.operation === "change-passphrase") result = await changeEncryptedContentPassphrase(request.input.envelope, request.input.passphrase, identity, request.input.newPassphrase);
       else throw new EncryptedContentError("invalid");
     }

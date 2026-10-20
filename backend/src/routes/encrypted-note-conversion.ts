@@ -1,4 +1,4 @@
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { getDb } from "../db/schema.js";
 import { hasPermission, resolveNotePermission } from "../middleware/acl.js";
@@ -9,6 +9,7 @@ import { ENCRYPTED_NOTE_V2_FORMAT, isEncryptedHistoryId } from "../lib/encrypted
 import { canRetireRoomForEncryption, yDestroyDoc } from "../services/yjs.js";
 import { broadcastNoteUpdated, getRealtimeStats } from "../services/realtime.js";
 import { canViewNoteThroughFolderPasswords, resolveUnlockedFolderNodeIds } from "../lib/knowledgeTreePasswordAccess.js";
+import { decryptEncryptedNoteStorage, readNoteDecryptionSource } from "../services/encryptedNoteDecryption.js";
 
 const app = new Hono();
 app.use("*", async (c, next) => {
@@ -52,6 +53,25 @@ function readSource(id: string) {
 
 // Private transient source: no GET read repair, Yjs flush, cache, or offline fallback.
 app.get("/source", (c) => c.json(readSource(c.req.param("id")!)));
+
+function decryptionError(c: Context, error: unknown): Response {
+  if (error instanceof EncryptedNoteConversionError) return c.json({ code: error.code, blockers: error.blockers }, error.code === "FORBIDDEN" ? 403 : error.code === "INVALID_CONVERSION" ? 400 : 409);
+  if (error instanceof EncryptedNotePayloadError || error instanceof SyntaxError || error instanceof TypeError) return c.json({ code: "INVALID_CONVERSION" }, 400);
+  return c.json({ code: "DECRYPTION_FAILED" }, 500);
+}
+app.get("/decryption-source", (c) => {
+  try { return c.json(readNoteDecryptionSource(getDb(), c.req.param("id")!)); }
+  catch (error) { return decryptionError(c, error); }
+});
+app.post("/decrypt", bodyLimit({ maxSize: 48 * 1024 * 1024, onError: c => c.json({ code: "INVALID_CONVERSION" }, 413) }), async (c) => {
+  try {
+    const body = await c.req.json();
+    if (!body || body.confirmPlaintext !== true) return c.json({ code: "INVALID_CONVERSION" }, 400);
+    const note = decryptEncryptedNoteStorage(getDb(), { ...body, noteId: c.req.param("id")!, userId: c.req.header("X-User-Id")! });
+    broadcastNoteUpdated(note.id, { version: note.version, updatedAt: note.updatedAt, contentText: note.contentText, actorUserId: c.req.header("X-User-Id")! });
+    return c.json(note);
+  } catch (error) { return decryptionError(c, error); }
+});
 
 app.post("/cancel", async (c) => {
   try {
