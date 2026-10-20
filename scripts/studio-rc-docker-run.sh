@@ -13,7 +13,11 @@ chmod 700 "$root"
 mkdir -m 700 "$root/data" "$root/restore"
 cleanup() {
   docker rm -f "$name" >/dev/null 2>&1 || true
-  rm -rf -- "$root"
+  # Production images can create root-owned 0700 subdirectories (e.g. jobs).
+  # Clean only THIS mktemp volume as container root, never touch host paths.
+  docker run --rm --entrypoint /bin/sh -v "$root:/rc" "$RC_IMAGE" \
+    -c 'rm -rf /rc/data /rc/restore' >/dev/null 2>&1 || true
+  rm -rf -- "$root" || true
 }
 trap cleanup EXIT
 start() {
@@ -47,7 +51,7 @@ docker exec --workdir /app/backend "$name" node -e "
 "
 test -s "$root/data/studio-rc-snapshot.db"
 cp "$root/data/studio-rc-snapshot.db" "$root/restore/nowen-note.db"
-docker run --rm --entrypoint node --workdir /app/backend -v "$root/restore:/app/data:ro" "$RC_IMAGE" -e "
+docker run --rm --entrypoint node --workdir /app/backend -v "$root/restore:/app/data" "$RC_IMAGE" -e "
   const DB=require('better-sqlite3');
   const db=new DB('/app/data/nowen-note.db',{readonly:true,fileMustExist:true});
   if(db.pragma('quick_check',{simple:true})!=='ok')process.exit(1);
