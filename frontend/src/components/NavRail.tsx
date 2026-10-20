@@ -19,7 +19,6 @@ import {
   UsersRound,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { PluginAppNavigation } from "./PluginApps";
 import { useApp, useAppActions } from "@/store/AppContext";
 import { api, broadcastLogout, clearServerUrl, getCurrentWorkspace, getServerUrl } from "@/lib/api";
 import { ViewMode, WorkspaceFeatures } from "@/types";
@@ -373,7 +372,6 @@ export default function NavRail({ variant = "desktop", notificationCount = 0 }: 
           const item = configurableItemById.get(id);
           return item ? renderItem(item) : null;
         })}
-        <PluginAppNavigation showLabel={showLabel} />
         {trashItem && (
           <>
             <div className={cn("my-1 border-t border-app-border/60", showLabel ? "w-8" : "w-6")} aria-hidden />

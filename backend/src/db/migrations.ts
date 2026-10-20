@@ -436,6 +436,8 @@ export const MIGRATIONS: Migration[] = [
   assetSyncMigration,
   assetAIMigration,
   noteDeletionLifecycleMigration,
+  // Keep v132-v134 compatible with databases already upgraded before the
+  // Apps/Studio feature split; their runtime and UI continue in release/v1.6.0.
   pluginRetainedStorageMigration,
   nowenStudioMigration,
   nowenStudioHistoryMigration,

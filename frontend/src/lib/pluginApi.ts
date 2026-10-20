@@ -1,4 +1,3 @@
-import type { StudioApp, StudioSpec, StudioVersion } from "./personalApps";
 import { getBaseUrl } from "./api.impl";
 import { fetchWithAuthRefresh, getAccessToken } from "./authSession";
 
@@ -12,18 +11,7 @@ export interface ExtensionPlatformFeatureFlags {
   experimentalDocumentTypes: boolean;
   currentNowenVersion: string;
   targetNowenVersion: string;
-  applicationV3?: { core: boolean; appPages: boolean; dashboardWidgets: boolean; pluginData: boolean; inspectors?: boolean };
 }
-
-export interface PluginAppPage {
-  id: string; title: string; entry: string; pluginId: string; runtimeId: string; route: string;
-  platforms: Array<"web" | "desktop" | "android" | "ios">; requiredPermissions: string[];
-}
-export interface PluginAppSession { pluginId: string; instanceId: string; nonce: string; expiresAt: number; documentPath: string }
-export interface PluginInspectorResource { type: "note" | "task" | "attachment"; id: string }
-export interface PluginInspector extends PluginAppPage { inspectorId: string; resourceTypes: PluginInspectorResource["type"][] }
-export interface PluginInspectorContext { id: string; resource: PluginInspectorResource }
-export function pluginAppDocumentUrl(session: PluginAppSession): string { return `${getBaseUrl()}${session.documentPath}`; }
 
 export interface PluginPermissionRow {
   permission: string;
@@ -86,13 +74,12 @@ export interface PluginContributionRecord {
 }
 
 export interface InstalledPlugin {
-  apiVersion?: 1 | 2 | 3;
   id: string;
   name: string;
   description: string;
   version: string;
   runtime: "node-action" | "sandbox-js" | "declarative";
-  executionMode?: "executable" | "declarative-zero-code" | "sandboxed-ui";
+  executionMode?: "executable" | "declarative-zero-code";
   source: string;
   trustLevel: string;
   status: "quarantined" | "disabled" | "enabled" | "error" | "incompatible";
@@ -121,7 +108,6 @@ export interface InstalledPlugin {
     noteTemplates?: PluginNoteTemplateContribution[];
     promptPacks?: PluginPromptPackContribution[];
     uiComponents?: PluginUiActionContribution[];
-    appPages?: Array<Pick<PluginAppPage, "id" | "title" | "entry" | "platforms" | "requiredPermissions">>;
   };
   versions?: PluginVersion[];
   permissionDiff?: { added: string[]; removed: string[] };
@@ -189,30 +175,10 @@ async function contributionMutation<T>(operation: Promise<T>): Promise<T> {
 }
 
 export const pluginApi = {
-  previewPersonalAppAI: (instruction: string, spec?: StudioSpec, signal?: AbortSignal) => request<{ spec: StudioSpec }>("/plugins/personal-apps/ai-preview", { method: "POST", body: JSON.stringify({ instruction, ...(spec ? {spec}: {}) }), signal }),
-  personalAppVersions: (id: string) => request<StudioVersion[]>(`/plugins/personal-apps/${encodeURIComponent(id)}/versions`),
-  restorePersonalApp: (id: string, revision: number, expectedRevision: number) => request<StudioApp>(`/plugins/personal-apps/${encodeURIComponent(id)}/restore`, { method: "POST", body: JSON.stringify({ revision, expectedRevision }) }),
-  personalApps: () => request<StudioApp[]>("/plugins/personal-apps"),
-  personalApp: (id: string) => request<StudioApp>(`/plugins/personal-apps/${encodeURIComponent(id)}`),
-  createPersonalApp: (spec: StudioSpec) => request<StudioApp>("/plugins/personal-apps", { method: "POST", body: JSON.stringify(spec) }),
-  updatePersonalApp: (id: string, expectedRevision: number, spec: StudioSpec) => request<StudioApp>(`/plugins/personal-apps/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify({ expectedRevision, spec }) }),
-  deletePersonalApp: (id: string, expectedRevision: number) => request<{ success: true }>(`/plugins/personal-apps/${encodeURIComponent(id)}`, { method: "DELETE", body: JSON.stringify({ expectedRevision }) }),
   features: () => request<ExtensionPlatformFeatureFlags>("/plugins/features"),
-  widgets: (platform: string, workspaceId: string) => request<PluginDashboardWidget[]>(`/plugins/widgets?platform=${encodeURIComponent(platform)}&workspaceId=${encodeURIComponent(workspaceId)}`),
-  widgetEvents: (workspaceId: string, signal: AbortSignal) => fetchWithAuthRefresh(`${getBaseUrl()}/plugins/widget-events`, { method: "POST", signal, headers: { Authorization: `Bearer ${getAccessToken() || ""}`, "Content-Type": "application/json" }, body: JSON.stringify({ workspaceId }) }, getBaseUrl()),
-  exportData: (id: string, workspaceId: string) => request<PluginDataSnapshot>(`/plugins/data/${encodeURIComponent(id)}/export?workspaceId=${encodeURIComponent(workspaceId)}`),
-  importData: (id: string, workspaceId: string, snapshot: PluginDataSnapshot, expectedDigest: string) => contributionMutation(request(`/plugins/data/${encodeURIComponent(id)}/import`, { method: "POST", body: JSON.stringify({ workspaceId, snapshot, expectedDigest }) })),
   list: () => request<InstalledPlugin[]>("/plugins"),
   actions: () => request<Array<PluginAction & { pluginId: string; actionId: string }>>("/plugins/actions"),
   contributions: () => request<PluginContributionRecord[]>("/plugins/contributions"),
-  apps: (platform: string) => request<PluginAppPage[]>(`/plugins/apps?platform=${encodeURIComponent(platform)}`),
-  inspectors: (platform: string, resourceType: PluginInspectorResource["type"], workspaceId: string) => request<PluginInspector[]>(`/plugins/inspectors?platform=${encodeURIComponent(platform)}&resourceType=${resourceType}&workspaceId=${encodeURIComponent(workspaceId)}`),
-  appSession: (page: PluginAppPage, context: { workspaceId: string; platform: string; theme: string; inspector?: PluginInspectorContext }, signal?: AbortSignal) => request<PluginAppSession>(`/plugins/apps/${encodeURIComponent(page.pluginId)}/${encodeURIComponent(page.id)}/session`, { method: "POST", body: JSON.stringify(context), signal }),
-  appCall: (id: string, message: unknown, signal?: AbortSignal) => request<{ protocol: "nowen.plugin-ui.v3"; kind: "response"; pluginId: string; instanceId: string; requestId: string; ok: boolean; data: unknown }>(`/plugins/app-sessions/${encodeURIComponent(id)}/call`, { method: "POST", body: JSON.stringify(message), signal }),
-  closeAppSession: (id: string, nonce: string) => request(`/plugins/app-sessions/${encodeURIComponent(id)}/close`, { method: "POST", body: JSON.stringify({ nonce }) }),
-  appEvents: (id: string, nonce: string, signal: AbortSignal) => fetchWithAuthRefresh(`${getBaseUrl()}/plugins/app-sessions/${encodeURIComponent(id)}/events`, {
-    method: "POST", signal, headers: { Authorization: `Bearer ${getAccessToken() || ""}`, "Content-Type": "application/json" }, body: JSON.stringify({ nonce }),
-  }, getBaseUrl()),
   get: (id: string) => request<InstalledPlugin>(`/plugins/${encodeURIComponent(id)}`),
   install: (file: File, confirmNodeRuntime = false) => {
     const form = new FormData();
@@ -220,11 +186,11 @@ export const pluginApi = {
     if (confirmNodeRuntime) form.append("confirmNodeRuntime", "true");
     return contributionMutation(request<{ success: true; plugin: InstalledPlugin }>("/plugins/install", { method: "POST", body: form }));
   },
-  grant: (id: string, granted: string[]) => contributionMutation(request(`/plugins/${encodeURIComponent(id)}/permissions`, { method: "PUT", body: JSON.stringify({ granted }) })),
+  grant: (id: string, granted: string[]) => request(`/plugins/${encodeURIComponent(id)}/permissions`, { method: "PUT", body: JSON.stringify({ granted }) }),
   enable: (id: string) => contributionMutation(request(`/plugins/${encodeURIComponent(id)}/enable`, { method: "POST" })),
   disable: (id: string) => contributionMutation(request(`/plugins/${encodeURIComponent(id)}/disable`, { method: "POST" })),
   reload: (id: string) => contributionMutation(request(`/plugins/${encodeURIComponent(id)}/reload`, { method: "POST" })),
-  uninstall: (id: string, deleteAppData = false, retainAppData = false) => contributionMutation(request(`/plugins/${encodeURIComponent(id)}`, { method: "DELETE", body: JSON.stringify({ deleteAppData, retainAppData }) })),
+  uninstall: (id: string) => contributionMutation(request(`/plugins/${encodeURIComponent(id)}`, { method: "DELETE" })),
   execute: (pluginId: string, actionId: string, input: Record<string, unknown>) => request<{ success: boolean; executionId: string; data: unknown }>(`/plugins/${encodeURIComponent(pluginId)}/actions/${encodeURIComponent(actionId)}/execute`, { method: "POST", body: JSON.stringify({ input }) }),
   executions: (id: string) => request<PluginExecution[]>(`/plugins/${encodeURIComponent(id)}/executions`),
   versions: (id: string) => request<PluginVersion[]>(`/plugins/${encodeURIComponent(id)}/versions`),
@@ -272,10 +238,3 @@ export const wechatCaptureApi = {
   collect: (text: string) => request<{ accepted: number; duplicates: number }>("/wechat-capture/collect", { method: "POST", body: JSON.stringify({ text }) }),
   retry: (id: string) => request(`/wechat-capture/items/${encodeURIComponent(id)}/retry`, { method: "POST" }),
 };
-
-export interface PluginDashboardWidget {
-  id: string; title: string; type: "shortcut" | "statistic" | "status" | "list" | "app";
-  pageId: string; defaultSize: "small" | "medium" | "large"; pluginId: string; runtimeId: string;
-  page: PluginAppPage; preview: { total: number; done?: number; open?: number; items: Array<{ id: string; title: string }> } | null; error?: string;
-}
-export interface PluginDataSnapshot { format: 1; pluginId: string; digest: string; entries: Array<{ key: string; value: unknown }> }

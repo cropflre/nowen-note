@@ -39,4 +39,3 @@ export class NowenPluginError extends Error {
 
 /** 编译期保留完整类型，运行时原样返回，不夹带业务实现或凭证。 */
 export function definePlugin<T extends NowenPluginDefinition>(plugin: T): T { return plugin; }
-export { getPluginAppClient, type PluginAppClient, type PluginInspectorResource, type PluginInspectorMetadata } from "./appUi.js";

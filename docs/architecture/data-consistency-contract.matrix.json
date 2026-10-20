@@ -23,7 +23,6 @@
       "title": "本地业务写入与 Outbox 变更应在持久化后可恢复",
       "status": "covered",
       "checks": [
-        { "file": "backend/tests/application-v3-dashboard-data.test.ts", "case": "V3 collections isolate scopes, reject stale writes and restore migrations and retained uninstall data" },
         { "file": "frontend/src/lib/__tests__/harmonyNativeAdapters.test.ts", "case": "Harmony adapters retain committed data and pending Outbox on reopen, rollback and account isolation" },
         {"file": "backend/tests/sync-v2-note-deletion-lifecycle.test.ts", "case": "desktop delete durably retains the last body and attachment bytes until the delete ACK"},
         { "file": "backend/tests/asset-ai.test.ts", "case": "a database failure rolls back metadata, folders, tags, result records and existing Outbox" },
@@ -89,7 +88,6 @@
       "title": "断网、服务端失败或停止调度不得静默丢弃待同步修改",
       "status": "covered",
       "checks": [
-        { "file": "backend/tests/application-v3-dashboard-data.test.ts", "case": "V3 collections isolate scopes, reject stale writes and restore migrations and retained uninstall data" },
         { "file": "frontend/src/lib/__tests__/harmonyNativeAdapters.test.ts", "case": "Harmony adapters retain committed data and pending Outbox on reopen, rollback and account isolation" },
         {"file": "backend/tests/sync-v2-mobile-multidevice.test.ts", "case": "native offline trash then permanent delete acknowledges trash before deletion and replays a lost ACK"},
         { "file": "backend/tests/asset-organization-sync.test.ts", "case": "desktop directory CRUD captures durable organization mutations and converges through real Sync V2 routes" },
@@ -180,12 +178,6 @@
       "status": "covered",
       "checks": [
         { "file": "backend/tests/api-token-resource-scope.test.ts", "case": "PAT reminder scopes persist personal reminders and reject foreign, team and privileged routes" },
-        { "file": "backend/tests/application-v3-inspector.test.ts", "case": "V3 inspector sessions bind one ACL-checked resource and revoke on resource or feature changes" },
-        { "file": "frontend/src/lib/__tests__/pluginInspector.test.tsx", "case": "closes the inspector on account or workspace change" },
-        { "file": "frontend/src/lib/__tests__/pluginDataActions.test.tsx", "case": "rejects an account change while the confirmation dialog is open" },
-        { "file": "frontend/src/lib/__tests__/pluginDashboard.test.ts", "case": "separates workspace, account and mobile layouts" },
-        { "file": "backend/tests/application-v3-dashboard-data.test.ts", "case": "V3 collections isolate scopes, reject stale writes and restore migrations and retained uninstall data" },
-        { "file": "backend/tests/application-v3-runtime.test.ts", "case": "V3 1.5.3 HTTP lifecycle isolates users, plugins, workspace scopes and revoked credentials" },
         { "file": "frontend/src/lib/__tests__/harmonyNativeAdapters.test.ts", "case": "Harmony adapters retain committed data and pending Outbox on reopen, rollback and account isolation" },
         { "file": "backend/tests/asset-ai.test.ts", "case": "consent, authentication, restricted tokens, scope and protected files fail before the model is called" },
         { "file": "backend/tests/asset-ai.test.ts", "case": "confirmation retries are persistent and payload conflicts or revoked access cannot replay results" },
@@ -223,8 +215,6 @@
       "title": "删除必须以明确的删除操作或墓碑同步",
       "status": "covered",
       "checks": [
-        { "file": "backend/tests/application-v3-dashboard-data.test.ts", "case": "V3 collections isolate scopes, reject stale writes and restore migrations and retained uninstall data" },
-        { "file": "backend/tests/application-v3-runtime.test.ts", "case": "V3 1.5.3 HTTP lifecycle isolates users, plugins, workspace scopes and revoked credentials" },
         {"file": "backend/tests/sync-v2-note-deletion-lifecycle.test.ts", "case": "direct Sync delete refuses an active note without changing body, tree, history or attachments"},
         { "file": "backend/tests/sync-v2-mobile-multidevice.test.ts", "case": "asset tombstones reject stale offline resurrection without losing the offline name" },
         {
@@ -286,8 +276,8 @@
       "title": "不完整备份不可直接覆盖线上数据，失败要回滚",
       "status": "covered",
       "checks": [
+        { "file": "backend/tests/migration-task-version-compatibility.test.ts", "case": "reopens pre-split v134 databases without losing retained app data or Studio history" },
         { "file": "frontend/src/lib/__tests__/nativeAttachmentStore.test.ts", "case": "retains the old attachment after a chunk write fails and can retry (DCC-008)" },
-        { "file": "backend/tests/application-v3-dashboard-data.test.ts", "case": "retained storage migration is repeatable and included in SQLite backup restoration" },
         {"file": "backend/tests/sync-v2-note-deletion-lifecycle.test.ts", "case": "failed mutation ledger rolls back deletion, cleanup job and knowledge tree atomically"},
         { "file": "backend/tests/asset-organization-sync.test.ts", "case": "incoming trash visibility cannot reopen a previously public link after restoration" },
         { "file": "backend/tests/asset-organization-sync.test.ts", "case": "asset migration preserves queue order, failed retry state, conflict history and the feed high-water mark" },

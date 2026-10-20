@@ -11,7 +11,7 @@ cd examples/plugins/task-digest
 node ../../../packages/nowen-plugin-cli/bin/nowen-plugin.mjs pack
 ```
 
-在「应用 → 应用管理」安装生成的插件包并启用，授权「读取任务」，即可从插件动作中执行 `summary`。
+在「设置 → 插件」安装生成的插件包并启用，授权「读取任务」，即可从插件动作中执行 `summary`。
 
 输入示例：
 

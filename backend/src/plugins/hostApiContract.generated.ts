@@ -10,7 +10,7 @@ function deepFreeze<T>(value: T): T {
   return value;
 }
 
-export const HOST_API_CONTRACT_VERSION = 6 as const;
+export const HOST_API_CONTRACT_VERSION = 4 as const;
 
 export const HOST_API_BUDGETS = deepFreeze({
   "ipcMessageBytes": 2097152,
@@ -25,16 +25,6 @@ export const HOST_API_CONTRACT = deepFreeze([
     "permission": "attachments:read",
     "runtimes": [
       "node-action",
-      "sandbox-js"
-    ],
-    "maxArgsBytes": 262144,
-    "maxResultBytes": 1048576
-  },
-  {
-    "method": "attachments.inspect",
-    "sinceApiVersion": 3,
-    "permission": "attachments:read",
-    "runtimes": [
       "sandbox-js"
     ],
     "maxArgsBytes": 262144,
@@ -57,86 +47,6 @@ export const HOST_API_CONTRACT = deepFreeze([
     "permission": "capture:write",
     "runtimes": [
       "node-action",
-      "sandbox-js"
-    ],
-    "maxArgsBytes": 262144,
-    "maxResultBytes": 1048576
-  },
-  {
-    "method": "data.delete",
-    "sinceApiVersion": 3,
-    "permission": "plugin-storage:write",
-    "runtimes": [
-      "sandbox-js"
-    ],
-    "maxArgsBytes": 262144,
-    "maxResultBytes": 1048576
-  },
-  {
-    "method": "data.export",
-    "sinceApiVersion": 3,
-    "permission": "plugin-storage:read",
-    "runtimes": [
-      "sandbox-js"
-    ],
-    "maxArgsBytes": 262144,
-    "maxResultBytes": 1048576
-  },
-  {
-    "method": "data.get",
-    "sinceApiVersion": 3,
-    "permission": "plugin-storage:read",
-    "runtimes": [
-      "sandbox-js"
-    ],
-    "maxArgsBytes": 262144,
-    "maxResultBytes": 1048576
-  },
-  {
-    "method": "data.import",
-    "sinceApiVersion": 3,
-    "permission": "plugin-storage:write",
-    "runtimes": [
-      "sandbox-js"
-    ],
-    "maxArgsBytes": 262144,
-    "maxResultBytes": 1048576
-  },
-  {
-    "method": "data.migrate",
-    "sinceApiVersion": 3,
-    "permission": "plugin-storage:write",
-    "runtimes": [
-      "sandbox-js"
-    ],
-    "maxArgsBytes": 262144,
-    "maxResultBytes": 1048576
-  },
-  {
-    "method": "data.put",
-    "sinceApiVersion": 3,
-    "permission": "plugin-storage:write",
-    "runtimes": [
-      "sandbox-js"
-    ],
-    "maxArgsBytes": 262144,
-    "maxResultBytes": 1048576
-  },
-  {
-    "method": "data.query",
-    "sinceApiVersion": 3,
-    "permission": "plugin-storage:read",
-    "runtimes": [
-      "sandbox-js"
-    ],
-    "maxArgsBytes": 262144,
-    "maxResultBytes": 1048576
-  },
-  {
-    "method": "data.restore",
-    "sinceApiVersion": 3,
-    "permission": "plugin-storage:write",
-    "runtimes": [
       "sandbox-js"
     ],
     "maxArgsBytes": 262144,
@@ -280,16 +190,6 @@ export const HOST_API_CONTRACT = deepFreeze([
     "permission": "notes:read",
     "runtimes": [
       "node-action",
-      "sandbox-js"
-    ],
-    "maxArgsBytes": 262144,
-    "maxResultBytes": 1048576
-  },
-  {
-    "method": "notes.inspect",
-    "sinceApiVersion": 3,
-    "permission": "notes:read",
-    "runtimes": [
       "sandbox-js"
     ],
     "maxArgsBytes": 262144,
@@ -455,16 +355,6 @@ export const HOST_API_CONTRACT = deepFreeze([
     "permission": "tasks:read",
     "runtimes": [
       "node-action",
-      "sandbox-js"
-    ],
-    "maxArgsBytes": 262144,
-    "maxResultBytes": 1048576
-  },
-  {
-    "method": "tasks.inspect",
-    "sinceApiVersion": 3,
-    "permission": "tasks:read",
-    "runtimes": [
       "sandbox-js"
     ],
     "maxArgsBytes": 262144,

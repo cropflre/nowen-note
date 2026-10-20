@@ -94,7 +94,7 @@ function validateHostContract(value) {
     if (typeof entry.method !== "string" || !/^[a-z][A-Za-z0-9]*\.[a-z][A-Za-z0-9]*$/.test(entry.method)) fail(`非法 method ${String(entry.method)}`);
     if (methods.has(entry.method)) fail(`重复 method ${entry.method}`);
     methods.add(entry.method);
-    if (![1, 2, 3].includes(entry.sinceApiVersion)) fail(`${entry.method} sinceApiVersion 无效`);
+    if (![1, 2].includes(entry.sinceApiVersion)) fail(`${entry.method} sinceApiVersion 无效`);
     if (entry.permission !== null && !permissions.has(entry.permission)) fail(`${entry.method} 使用未知权限 ${String(entry.permission)}`);
     uniqueStrings(entry.runtimes, `${entry.method}.runtimes`, HOST_RUNTIMES);
     const platforms = uniqueStrings(entry.platforms, `${entry.method}.platforms`);
@@ -192,7 +192,6 @@ const INTERFACE_NAMES = {
   diary: "DiaryApi",
   mindmaps: "MindmapsApi",
   storage: "StorageApi",
-  data: "PluginDataApi",
   external: "ExternalApi",
   runtime: "RuntimeApi",
   capture: "CaptureApi",
@@ -220,7 +219,7 @@ function renderSdkHost(host) {
   const hostProperties = Object.entries(INTERFACE_NAMES)
     .map(([namespace, interfaceName]) => `  ${namespace}: ${interfaceName};`)
     .join("\n");
-  return `${generatedHeader(["packages/nowen-plugin-sdk/host-api-contract.json"])}import type { Attachment, DiaryEntry, Mindmap, Note, Notebook, NoteSummary, Tag, Task } from "./index.js";\n\n${deepFreezeSource()}\nexport type PluginHostRuntime = "node-action" | "sandbox-js";\nexport type HostApiPermission = ${supportedPermissions.map((permission) => JSON.stringify(permission)).join(" | ")};\nexport type HostApiMethod = ${methods.map((method) => JSON.stringify(method)).join(" | ")};\n\nexport interface HostApiContractEntry {\n  method: HostApiMethod;\n  sinceApiVersion: 1 | 2 | 3;\n  permission: HostApiPermission | null;\n  runtimes: readonly PluginHostRuntime[];\n  maxArgsBytes: number;\n  maxResultBytes: number;\n}\n\nexport interface HostApiBudgets {\n  readonly ipcMessageBytes: number;\n  readonly hostCallArgsBytes: number;\n  readonly hostCallResultBytes: number;\n}\n\nexport const HOST_API_CONTRACT_VERSION = ${host.contractVersion} as const;\nexport const HOST_API_BUDGETS: HostApiBudgets = deepFreeze(${JSON.stringify(host.budgets, null, 2)});\nexport const HOST_API_CONTRACT: readonly HostApiContractEntry[] = deepFreeze(${JSON.stringify(hostRuntimeEntries(host), null, 2)});\n\nexport interface RuntimeCapabilities {\n  apiVersion: number;\n  runtime: PluginHostRuntime;\n  platform: "server" | "desktop-full";\n  contractVersion: number;\n  budgets: HostApiBudgets;\n  methods: readonly HostApiContractEntry[];\n  hostApis: string[];\n  notes?: { read: number; write: number };\n  notebooks?: { read: number; write: number };\n  tasks?: { read: number; write: number };\n  automation?: number;\n  workspace?: number;\n  declarativeContributions?: number;\n}\n\n${interfaces}\n\nexport interface PluginProgress { current?: number; total?: number; message?: string }\nexport type PluginProgressCallback = (input: PluginProgress) => void;\n\nexport interface NowenHostApi {\n${hostProperties}\n  progress: PluginProgressCallback;\n}\n`;
+  return `${generatedHeader(["packages/nowen-plugin-sdk/host-api-contract.json"])}import type { Attachment, DiaryEntry, Mindmap, Note, Notebook, NoteSummary, Tag, Task } from "./index.js";\n\n${deepFreezeSource()}\nexport type PluginHostRuntime = "node-action" | "sandbox-js";\nexport type HostApiPermission = ${supportedPermissions.map((permission) => JSON.stringify(permission)).join(" | ")};\nexport type HostApiMethod = ${methods.map((method) => JSON.stringify(method)).join(" | ")};\n\nexport interface HostApiContractEntry {\n  method: HostApiMethod;\n  sinceApiVersion: 1 | 2;\n  permission: HostApiPermission | null;\n  runtimes: readonly PluginHostRuntime[];\n  maxArgsBytes: number;\n  maxResultBytes: number;\n}\n\nexport interface HostApiBudgets {\n  readonly ipcMessageBytes: number;\n  readonly hostCallArgsBytes: number;\n  readonly hostCallResultBytes: number;\n}\n\nexport const HOST_API_CONTRACT_VERSION = ${host.contractVersion} as const;\nexport const HOST_API_BUDGETS: HostApiBudgets = deepFreeze(${JSON.stringify(host.budgets, null, 2)});\nexport const HOST_API_CONTRACT: readonly HostApiContractEntry[] = deepFreeze(${JSON.stringify(hostRuntimeEntries(host), null, 2)});\n\nexport interface RuntimeCapabilities {\n  apiVersion: number;\n  runtime: PluginHostRuntime;\n  platform: "server" | "desktop-full";\n  contractVersion: number;\n  budgets: HostApiBudgets;\n  methods: readonly HostApiContractEntry[];\n  hostApis: string[];\n  notes?: { read: number; write: number };\n  notebooks?: { read: number; write: number };\n  tasks?: { read: number; write: number };\n  automation?: number;\n  workspace?: number;\n  declarativeContributions?: number;\n}\n\n${interfaces}\n\nexport interface PluginProgress { current?: number; total?: number; message?: string }\nexport type PluginProgressCallback = (input: PluginProgress) => void;\n\nexport interface NowenHostApi {\n${hostProperties}\n  progress: PluginProgressCallback;\n}\n`;
 }
 
 function renderContributions(contributions) {

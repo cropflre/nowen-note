@@ -132,7 +132,7 @@ export class PluginLifecycle {
           target.installedPath,
           current.version,
           current.previousStableVersion,
-          manifest.apiVersion !== 1 ? manifest.publisher : null,
+          manifest.apiVersion === 2 ? manifest.publisher : null,
           target.signatureState || "unsigned",
           operationId,
           timestamp,
@@ -294,7 +294,7 @@ export class PluginLifecycle {
       const sameRuntimeBoundary = currentManifest.apiVersion === manifest.apiVersion
         && currentManifest.runtime === manifest.runtime
         && (currentManifest.apiVersion === 2 ? currentManifest.publisher : null)
-          === (manifest.apiVersion !== 1 ? manifest.publisher : null)
+          === (manifest.apiVersion === 2 ? manifest.publisher : null)
         && current.trustLevel === previous.trustLevel;
       this.transitionInTransaction(pluginId, "stable", timestamp);
       db.prepare(`UPDATE plugin_registry SET
@@ -315,7 +315,7 @@ export class PluginLifecycle {
           previous.manifestJson,
           previous.installedPath,
           current.version === previous.version ? current.previousVersion : current.version,
-          manifest.apiVersion !== 1 ? manifest.publisher : null,
+          manifest.apiVersion === 2 ? manifest.publisher : null,
           previous.signatureState || "unsigned",
           sameRuntimeBoundary ? current.nodeRuntimeConfirmedAt : null,
           sameRuntimeBoundary ? current.nodeRuntimeConfirmedBy : null,
