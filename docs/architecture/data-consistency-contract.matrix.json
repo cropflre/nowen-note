@@ -177,6 +177,8 @@
       "title": "跨账号跨服务端 Outbox 不得串用",
       "status": "covered",
       "checks": [
+        { "file": "backend/tests/attachment-file-share.test.ts", "case": "named image URLs retain bytes, MIME and ACL through upload, deduplication, sharing and revocation (DCC-006)" },
+        { "file": "frontend/src/lib/__tests__/fileShareClipboard.test.ts", "case": "does not silently copy private named images when sharing is denied (DCC-006)" },
         { "file": "backend/tests/api-token-resource-scope.test.ts", "case": "PAT reminder scopes persist personal reminders and reject foreign, team and privileged routes" },
         { "file": "frontend/src/lib/__tests__/harmonyNativeAdapters.test.ts", "case": "Harmony adapters retain committed data and pending Outbox on reopen, rollback and account isolation" },
         { "file": "backend/tests/asset-ai.test.ts", "case": "consent, authentication, restricted tokens, scope and protected files fail before the model is called" },

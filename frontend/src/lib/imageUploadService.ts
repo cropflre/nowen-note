@@ -74,7 +74,7 @@ function failedResult(prefix: string, error: unknown): ImageUploadResult {
  * 本地磁盘、S3、R2 或 MinIO。图片始终拥有附件记录、权限、哈希、备份和迁移关系。
  */
 export async function uploadImage(options: ImageUploadOptions): Promise<ImageUploadResult> {
-  const { file, filename, noteId } = options;
+  const { file, filename, noteId, source } = options;
   const online = browserOnlineState();
   const fullLocalRuntime = isDesktopFullLocalRuntime();
 
@@ -100,7 +100,7 @@ export async function uploadImage(options: ImageUploadOptions): Promise<ImageUpl
     const result = await api.attachments.upload(noteId, asFile(file, filename));
     return {
       success: true,
-      url: result.url,
+      url: source === "markdown" ? result.imageUrl || result.url : result.url,
       filename: result.filename || filename,
       target: "local",
       attachmentId: result.id,
@@ -111,7 +111,7 @@ export async function uploadImage(options: ImageUploadOptions): Promise<ImageUpl
 }
 
 /** 照片选择器可以同时接收 Live Photo 原视频；视频先保存，正文只插入照片。 */
-export async function uploadPhotoSelection(noteId: string, files: File[]): Promise<Array<{ url: string; filename: string }>> {
+export async function uploadPhotoSelection(noteId: string, files: File[], source: "editor" | "markdown" = "editor"): Promise<Array<{ url: string; filename: string }>> {
   const photos = files.filter((file) => file.type.startsWith("image/") || /\.(?:jpe?g|png|webp|gif|bmp|hei[cf])$/i.test(file.name));
   const companions = files.filter((file) => /\.mov$/i.test(file.name));
   if (!photos.length || photos.length + companions.length !== files.length) throw new Error("请选择照片，可同时选择 Live Photo 的 MOV 原件");
@@ -120,7 +120,7 @@ export async function uploadPhotoSelection(noteId: string, files: File[]): Promi
   for (const file of photos) {
     const uploaded = await api.attachments.upload(noteId, file);
     if (uploaded.category !== "image") throw new Error("该文件无法识别为照片，原件已保留在附件中");
-    result.push({ url: uploaded.url, filename: uploaded.filename || file.name });
+    result.push({ url: source === "markdown" ? uploaded.imageUrl || uploaded.url : uploaded.url, filename: uploaded.filename || file.name });
   }
   return result;
 }

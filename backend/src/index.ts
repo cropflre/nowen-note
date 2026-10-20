@@ -33,7 +33,7 @@ import { handleMarkdownExportDownload } from "./services/markdownExportJobs";
 import dataFileRouter from "./routes/data-file";
 import settingsRouter from "./routes/settings";
 import fontsRouter from "./routes/fonts";
-import attachmentsRouter, { handleDownloadAttachment } from "./routes/attachments";
+import attachmentsRouter, { handleDownloadAttachment, handleNamedImageAttachment } from "./routes/attachments";
 import taskAttachmentsRouter, { handleDownloadTaskAttachment } from "./routes/task-attachments";
 import taskRemindersRouter from "./routes/task-reminders";
 import taskProjectsRouter from "./routes/task-projects";
@@ -423,6 +423,7 @@ app.get("/api/fonts/file/:id", (c) => {
 //     走 JWT 中间件必然 401。和字体一样把下载 handler 注册在 JWT 中间件之前。
 //   - 授权靠附件 id 不可枚举（uuid）保护；详细权衡见 routes/attachments.ts 顶部注释。
 app.get("/api/attachments/:id", handleDownloadAttachment);
+app.get("/api/attachments/:id/:filename{image\\.[a-z]+}", handleNamedImageAttachment);
 
 // 导出任务生成的 ZIP 使用随机 256-bit capability token 下载。
 // 浏览器原生下载请求无法携带 localStorage 中的 Authorization header，因此必须在
