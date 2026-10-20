@@ -3288,5 +3288,34 @@
     "pasteFailed": "粘贴失败，请检查剪贴板权限或重试",
     "codeBlockTitle": "代码块标题",
     "convertUnsupported": "此块暂不支持该转换，原内容已保留"
+  },
+  "holidayCalendar": {
+    "settings": "日历显示设置",
+    "enable": "中国大陆法定节假日",
+    "description": "显示放假与调休。此设备的任务日历与瞬间日历共用此开关。",
+    "updates": "启用后由浏览器每天最多自动从 Nowen Note 项目数据源检查一次更新；离线仍可使用内置或缓存数据。",
+    "source": "数据来源：国务院办公厅年度放假通知",
+    "unknown": "{{year}} 年暂无已确认的节假日数据，不推算调休。",
+    "builtin": "{{year}} 年 · 内置数据",
+    "cached": "{{year}} 年 · 已缓存数据",
+    "session": "{{year}} 年 · 本次更新数据",
+    "refresh": "检查更新",
+    "loading": "正在检查更新…",
+    "updated": "已检查更新",
+    "fallback": "更新未完成，继续使用可用数据。",
+    "storageError": "浏览器存储不可用，设置或更新可能仅在本次打开时有效。",
+    "holiday": "休",
+    "makeup-workday": "班",
+    "holidayLabel": "{{name}} · 放假",
+    "makeupLabel": "{{name}} · 调休上班",
+    "names": {
+      "newYear": "元旦",
+      "springFestival": "春节",
+      "qingming": "清明节",
+      "labourDay": "劳动节",
+      "dragonBoat": "端午节",
+      "midAutumn": "中秋节",
+      "nationalDay": "国庆节"
+    }
   }
 }

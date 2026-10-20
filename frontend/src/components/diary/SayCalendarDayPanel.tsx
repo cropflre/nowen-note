@@ -5,6 +5,8 @@ import { cn } from "@/lib/utils";
 import type { Diary } from "@/types";
 import { getCurrentWorkspace } from "@/lib/api";
 import { formatServerTime } from "@/lib/dateTime";
+import type { HolidayDay } from "@/lib/holidayCalendar";
+import { HolidayDayLabel } from "@/components/calendar/HolidayDayLabel";
 
 function DiarySummaryRow({
   item,
@@ -44,11 +46,13 @@ function DiarySummaryRow({
 }
 
 export default function SayCalendarDayPanel({
+  holiday,
   dateKey,
   items,
   onWriteEntry,
   onLocateItem,
 }: {
+  holiday?: HolidayDay;
   dateKey: string;
   items: Diary[];
   onWriteEntry: () => void;
@@ -82,6 +86,8 @@ export default function SayCalendarDayPanel({
           {t("diary.calendarWriteEntry")}
         </button>
       </div>
+
+      <HolidayDayLabel day={holiday} />
 
       {items.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-8 text-center">
