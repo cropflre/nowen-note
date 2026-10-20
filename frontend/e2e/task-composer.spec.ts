@@ -40,6 +40,55 @@ const test = base.extend<{ product: { server: string; provider: string; director
   },
 });
 
+test("Issue 871 creates timed subtasks on desktop and narrow mobile screens", async ({ page, product }) => {
+  const password = "issue-871-test-password";
+  const registered = await page.request.post(`${product.server}/api/auth/register`, { data: { username: "issue_871", password } });
+  expect(registered.ok()).toBe(true);
+  const account = await registered.json();
+  const headers = { Authorization: `Bearer ${account.token}` };
+  const response = await page.request.post(`${product.server}/api/tasks`, { headers, data: { title: "Parent 871" } });
+  expect(response.ok()).toBe(true);
+  const parent = await response.json();
+  await page.goto(product.server);
+  await page.evaluate(() => { localStorage.setItem("i18nextLng", "zh-CN"); localStorage.setItem("nowen-seen-version", "1.5.3"); });
+  await page.reload();
+  await page.getByPlaceholder("admin", { exact: true }).fill("issue_871");
+  await page.locator("input[type=password]").fill(password);
+  await page.locator("button[type=submit]").click();
+  await expect(page.getByRole("textbox", { name: "笔记标题", exact: true })).toHaveValue("欢迎使用 Nowen Note");
+  await page.getByRole("button", { name: "待办事项", exact: true }).click();
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 900 });
+    const row = page.locator(`[data-task-context-id="${parent.id}"]`).first();
+    await row.hover();
+    await row.getByTitle("添加子任务", { exact: true }).click();
+    const input = page.getByPlaceholder("输入子任务标题，按 Enter 确认...");
+    await input.fill(`Timed child ${width}`);
+    const editor = input.locator("../..");
+    await editor.locator('input[type="date"]').fill("2099-10-21");
+    await editor.locator('input[type="time"]').fill("09:30");
+    await editor.locator('input[type="time"]').click({ trial: true });
+    expect(await editor.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
+    await editor.screenshot({ path: test.info().outputPath(`issue-871-subtask-${width}.png`), animations: "disabled" });
+    await editor.getByRole("button", { name: "添加", exact: true }).click();
+    await expect.poll(async () => {
+      const tasks = await (await page.request.get(`${product.server}/api/tasks`, { headers })).json();
+      return tasks.find((task: { title: string; dueAt: string | null }) => task.title === `Timed child ${width}`)?.dueAt;
+    }).toBe("2099-10-21T09:30");
+    await page.reload();
+    if (width < 768) {
+      await page.getByRole("button", { name: "返回", exact: true }).click();
+      await page.getByRole("banner").getByRole("button").first().click();
+    }
+    await page.getByRole("button", { name: "待办事项", exact: true }).click();
+    const reopenedParent = page.locator(`[data-task-context-id="${parent.id}"]`).first();
+    await expect(reopenedParent).toBeVisible();
+    const expand = reopenedParent.getByTitle("展开", { exact: true });
+    if (await expand.count()) await expand.click();
+    await expect(page.getByText(`Timed child ${width}`, { exact: true }).first()).toBeVisible();
+  }
+});
+
 for (const locale of ["zh-CN", "en"] as const) {
   test(`task reports download full descriptions and progress on desktop and mobile (${locale})`, async ({ page, product }) => {
     const chinese = locale === "zh-CN";

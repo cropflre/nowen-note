@@ -58,7 +58,7 @@ import { consumePendingTaskNotificationTaskId } from "@/lib/taskNotifications";
 import { TASK_NOTIFICATION_OPEN_EVENT } from "@/lib/taskNotificationSchedule";
 import { useUserPreferences } from "@/hooks/useUserPreferences";
 import { useContextMenu } from "@/hooks/useContextMenu";
-import { SubtaskInput } from "./tasks/SubtaskInput";
+import { SubtaskInput, type SubtaskSchedule } from "./tasks/SubtaskInput";
 import { isTaskCenterModuleVisible } from "@/lib/navigationVisibility";
 const TaskSaveNoteDialog = React.lazy(() => import("./tasks/TaskSaveNoteDialog").then(module => ({ default: module.TaskSaveNoteDialog })));
 const TaskRecurrenceDeleteDialog = React.lazy(() => import("./tasks/TaskRecurrenceDeleteDialog").then(module => ({ default: module.TaskRecurrenceDeleteDialog })));
@@ -557,7 +557,7 @@ export default function TaskCenter() {
     }
   };
 
-  const handleCreateChild = async (title: string, parentId: string): Promise<void> => {
+  const handleCreateChild = async (title: string, parentId: string, schedule?: SubtaskSchedule): Promise<void> => {
     const childTitleToCreate = title.trim();
     const childParsed = parseTaskQuickAdd(childTitleToCreate);
     const childCreatePatch = getQuickAddCreatePatch(childParsed);
@@ -571,6 +571,7 @@ export default function TaskCenter() {
         parentId,
         projectId: childProjectId,
         ...childCreatePatch,
+        ...schedule,
       });
       setTasks((prev) => [task, ...prev]);
       if (childParsed.reminderOffsets.length) {

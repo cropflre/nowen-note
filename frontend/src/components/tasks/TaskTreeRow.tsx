@@ -13,7 +13,7 @@ import type { TaskTreeNode } from "./taskProgress";
 import { calculateTaskProgress } from "./taskProgress";
 import { TitleView } from "./taskTitleTokens";
 import { DateBadge } from "./DateBadge";
-import { SubtaskInput } from "./SubtaskInput";
+import { SubtaskInput, type SubtaskSchedule } from "./SubtaskInput";
 import { hasEnabledReminder } from "./taskReminderUtils";
 
 /* ===== Tree task row ===== */
@@ -26,7 +26,7 @@ export const TaskTreeRow = React.forwardRef<HTMLDivElement, {
   onSelect: (task: Task) => void;
   onDelete: (id: string) => void;
   onToggleExpand: (id: string) => void;
-  onCreateChild: (title: string, parentId: string) => Promise<void>;
+  onCreateChild: (title: string, parentId: string, schedule?: SubtaskSchedule) => Promise<void>;
   blockedByDependency?: boolean;
 }>(({
   task,

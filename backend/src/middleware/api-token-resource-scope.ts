@@ -211,6 +211,7 @@ function requiredScope(pathname: string, method: string): string | null {
   if (pathname.startsWith("/api/task-digest")) return "__login_only__";
   if (pathname === "/api/automations" || pathname.startsWith("/api/automations/")) return write ? "automations:write" : "automations:read";
   if (pathname.startsWith("/api/ai/task-plan")) return "__login_only__";
+  if (pathname === "/api/task-reminders" || pathname.startsWith("/api/task-reminders/")) return write ? "tasks:write" : "tasks:read";
   if (pathname === "/api/tasks" || pathname.startsWith("/api/tasks/") || pathname === "/api/task-projects" || pathname.startsWith("/api/task-projects/")) return write ? "tasks:write" : "tasks:read";
   if (pathname === "/api/knowledge-tree" || pathname.startsWith("/api/knowledge-tree/")) return write ? "notebooks:write" : "notebooks:read";
   if (pathname.startsWith("/api/notebooks")) return write ? "notebooks:write" : "notebooks:read";
@@ -919,6 +920,22 @@ async function assertTokenPersonalTaskLinks(ctx: TokenAccessContext, body: Recor
   }
 }
 
+async function handleTokenTaskReminders(c: Context, next: Next, ctx: TokenAccessContext): Promise<void> {
+  const match = /^\/api\/task-reminders\/([^/]+)$/.exec(c.req.path);
+  const method = c.req.method.toUpperCase();
+  // Keep global schedules, delivery ACK and test-now outside PAT access.
+  if (!match || !["GET", "POST"].includes(method)
+    || ["overview", "schedule", "recent", "test-now"].includes(match[1])) {
+    throw new ApiTokenAccessError("API Token 仅支持读取或创建个人任务提醒");
+  }
+  const task = getDb().prepare("SELECT userId, workspaceId FROM tasks WHERE id = ?")
+    .get(decodeURIComponent(match[1])) as { userId: string; workspaceId: string | null } | undefined;
+  if (!task || task.userId !== ctx.userId || task.workspaceId !== null) {
+    throw new ApiTokenAccessError("只能访问本人个人任务的提醒");
+  }
+  await next();
+}
+
 /** PAT 的任务访问与笔记本白名单分离：默认仅本人个人任务。
  * 即使令牌是 unrestricted，也不得通过切换 workspaceId 访问共享工作区。
  */
@@ -1030,6 +1047,10 @@ export async function enforceApiTokenAccess(c: Context, next: Next): Promise<Res
     }
     if (c.req.path === "/api/tasks" || c.req.path.startsWith("/api/tasks/")) {
       await handleTokenTasks(c, next, ctx);
+      return;
+    }
+    if (c.req.path === "/api/task-reminders" || c.req.path.startsWith("/api/task-reminders/")) {
+      await handleTokenTaskReminders(c, next, ctx);
       return;
     }
     if (c.req.path === "/api/task-projects" || c.req.path.startsWith("/api/task-projects/")) {

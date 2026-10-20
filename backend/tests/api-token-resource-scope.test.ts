@@ -11,6 +11,72 @@ process.env.DB_PATH = path.join(tmpDir, "test.db");
 let db: any;
 let enforceApiTokenAccess: any;
 
+test("PAT reminder scopes persist personal reminders and reject foreign, team and privileged routes", async () => {
+  const { default: reminders } = await import("../src/routes/task-reminders");
+  const { default: tasks } = await import("../src/routes/tasks");
+  db.exec(`INSERT OR IGNORE INTO tasks(id,userId,title,workspaceId,dueDate,dueAt) VALUES
+    ('reminder-own','user-1','Mine',NULL,'2099-10-21','2099-10-21T09:30'),
+    ('reminder-foreign','user-2','Other',NULL,'2099-10-21',NULL),
+    ('reminder-team','user-2','Team','ws-1','2099-10-21',NULL)`);
+  for (const mode of ["restricted", "unrestricted"]) {
+    const app = new Hono();
+    let scopes = "tasks:read,tasks:write";
+    app.use("*", async (c, next) => {
+      c.req.raw.headers.set("X-Auth-Mode", "api-token");
+      c.req.raw.headers.set("X-Api-Token-Id", "token-1");
+      c.req.raw.headers.set("X-Api-Resource-Mode", mode);
+      c.req.raw.headers.set("X-Api-Scopes", scopes);
+      c.req.raw.headers.set("X-User-Id", "user-1");
+      return enforceApiTokenAccess(c, next);
+    });
+    app.route("/api/task-reminders", reminders);
+    app.route("/api/tasks", tasks);
+    const child = await app.request("/api/tasks?workspaceId=personal", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title: "Timed child", parentId: "reminder-own", dueDate: "2099-10-21", dueAt: "2099-10-21T09:30" }),
+    });
+    assert.equal(child.status, 201);
+    const childId = (await child.json() as any).id;
+    const reopened = await (await app.request(`/api/tasks/${childId}`)).json() as any;
+    assert.equal(reopened.parentId, "reminder-own");
+    assert.equal(reopened.dueAt, "2099-10-21T09:30");
+    const create = (id: string) => app.request(`/api/task-reminders/${id}`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ offsetMinutes: 30, timezoneOffsetMinutes: -480 }),
+    });
+    const created = await create("reminder-own");
+    assert.equal(created.status, 201);
+    const saved = await created.json() as any;
+    assert.equal(saved.timezoneOffsetMinutes, -480);
+    const read = await app.request("/api/task-reminders/reminder-own");
+    assert.equal(read.status, 200);
+    assert.ok((await read.json() as any[]).some(row => row.id === saved.id && row.offsetMinutes === 30));
+    const { scanDueReminders } = await import("../src/routes/task-reminders");
+    const originalNow = Date.now;
+    try {
+      Date.now = () => Date.parse("2099-10-21T00:59:59Z");
+      assert.ok(!scanDueReminders().some(row => row.reminderId === saved.id));
+      Date.now = () => Date.parse("2099-10-21T01:00:00Z");
+      assert.ok(scanDueReminders().some(row => row.reminderId === saved.id));
+    } finally { Date.now = originalNow; }
+    assert.equal((await create("reminder-foreign")).status, 403);
+    assert.equal((await create("reminder-team")).status, 403);
+    for (const id of ["reminder-foreign", "reminder-team", "overview", "schedule", "recent"]) {
+      assert.equal((await app.request(`/api/task-reminders/${id}`)).status, 403);
+    }
+    assert.equal((await create("test-now")).status, 403);
+    assert.equal((await app.request(`/api/task-reminders/${saved.id}`, { method: "DELETE" })).status, 403);
+    assert.equal((await app.request("/api/task-reminders/recent/ack", { method: "POST" })).status, 403);
+    scopes = "tasks:read";
+    assert.equal((await create("reminder-own")).status, 403);
+    assert.equal((await app.request("/api/task-reminders/reminder-own")).status, 200);
+    scopes = "notes:read";
+    assert.equal((await app.request("/api/task-reminders/reminder-own")).status, 403);
+    db.prepare("DELETE FROM task_reminders WHERE id = ?").run(saved.id);
+    db.prepare("DELETE FROM tasks WHERE id = ?").run(childId);
+  }
+});
+
 before(async () => {
   const schemaModule = await import("../src/db/schema");
   const tokenModule = await import("../src/lib/api-tokens");

@@ -179,6 +179,7 @@
       "title": "跨账号跨服务端 Outbox 不得串用",
       "status": "covered",
       "checks": [
+        { "file": "backend/tests/api-token-resource-scope.test.ts", "case": "PAT reminder scopes persist personal reminders and reject foreign, team and privileged routes" },
         { "file": "backend/tests/application-v3-inspector.test.ts", "case": "V3 inspector sessions bind one ACL-checked resource and revoke on resource or feature changes" },
         { "file": "frontend/src/lib/__tests__/pluginInspector.test.tsx", "case": "closes the inspector on account or workspace change" },
         { "file": "frontend/src/lib/__tests__/pluginDataActions.test.tsx", "case": "rejects an account change while the confirmation dialog is open" },
