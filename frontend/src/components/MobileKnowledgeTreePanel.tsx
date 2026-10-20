@@ -394,7 +394,8 @@ export default function MobileKnowledgeTreePanel({
 
   useEffect(() => {
     const revealCreatedNote = (event: Event) => {
-      const { parentId, nodeId } = (event as CustomEvent<KnowledgeTreeClearSearchDetail>).detail || {};
+      const { parentId, nodeId, clearOnly } = (event as CustomEvent<KnowledgeTreeClearSearchDetail>).detail || {};
+      if (clearOnly) { setQuery(""); return; }
       if (!nodeId) return;
       setQuery("");
       setView("browse");

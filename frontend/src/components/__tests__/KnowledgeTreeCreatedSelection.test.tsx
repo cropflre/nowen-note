@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import TreePanel from "../KnowledgeTreePanel";
 import QuickPanel from "../MobileKnowledgeTreePanel";
 import { saveKnowledgeTreeDisplaySize } from "@/hooks/useKnowledgeTreeDisplaySize";
-import { revealCreatedKnowledgeTreeNote } from "@/lib/knowledgeTreeCreateVisibility";
+import { KNOWLEDGE_TREE_CLEAR_SEARCH_EVENT, revealCreatedKnowledgeTreeNote } from "@/lib/knowledgeTreeCreateVisibility";
 import type { KnowledgeTreeNode } from "@/lib/knowledgeTreeApi";
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
@@ -75,6 +75,20 @@ describe("created knowledge tree note selection", () => {
     expect(row.getAttribute("aria-selected")).toBe(selected);
     await act(async () => saveKnowledgeTreeDisplaySize("default"));
     expect(panel.getAttribute("data-knowledge-tree-size")).toBe("default");
+  });
+
+  it.each(["tree", "desktop quick", "mobile quick"])("%s clears the local tree filter when opening all notes", async (surface) => {
+    mock.list.mockResolvedValue({ nodes: [node("source", null, "目录文档")] });
+    await act(async () => root.render(surface === "tree" ? <TreePanel /> : <QuickPanel variant={surface === "mobile quick" ? "mobile" : "desktop"} />));
+    const input = host.querySelector<HTMLInputElement>('input[data-search-scope]')!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, "not-found");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    expect(host.querySelector('[data-knowledge-tree-select-id="source"]')).toBeNull();
+    await act(async () => window.dispatchEvent(new CustomEvent(KNOWLEDGE_TREE_CLEAR_SEARCH_EVENT, { detail: { clearOnly: true } })));
+    expect(input.value).toBe("");
+    expect(host.querySelector('[data-knowledge-tree-select-id="source"]')).not.toBeNull();
   });
 
   it.each(["tree", "desktop quick", "mobile quick"])("%s waits for refresh, reveals the source children and selects the copy", async (surface) => {

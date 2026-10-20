@@ -9,7 +9,7 @@ const mocks = vi.hoisted(() => ({ reload: vi.fn() }));
 
 vi.mock("react-i18next", () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
 vi.mock("@/store/AppContext", () => ({
-  useApp: () => ({ state: { viewMode: "notes", sidebarCollapsed: false } }),
+  useApp: () => ({ state: { viewMode: "notes", sidebarCollapsed: false, selectedNotebookId: null, selectedTagIds: [], searchQuery: "" } }),
   useAppActions: () => ({}),
 }));
 vi.mock("@/hooks/useUserPreferences", () => ({ useUserPreferences: () => ({ prefs: DEFAULT_USER_PREFERENCES }) }));
