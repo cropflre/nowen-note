@@ -653,6 +653,7 @@
     "imageEditRenderFailed": "图片渲染失败",
     "imageEditSaveFailed": "图片保存失败",
     "imageEditSaveSuccess": "图片已保存",
+    "imageTargetMissing": "图片已变更，请关闭预览后重试",
     "imageEditUploading": "正在保存编辑后的图片...",
     "imageEditSvgUnsupported": "SVG 暂不支持编辑",
     "imageRotateLeft": "左转",

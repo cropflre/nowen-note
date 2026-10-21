@@ -646,6 +646,7 @@
     "imageEditRenderFailed": "Image render failed",
     "imageEditSaveFailed": "Image save failed",
     "imageEditSaveSuccess": "Image saved",
+    "imageTargetMissing": "The image has changed. Close the preview and try again.",
     "imageEditUploading": "Saving edited image...",
     "imageEditSvgUnsupported": "SVG editing is not supported yet",
     "imageRotateLeft": "Rotate left",
