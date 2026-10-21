@@ -1,3 +1,4 @@
+﻿import EditorAgentPanel from "@/components/agent/EditorAgentPanel";
 import React, { useCallback, useRef, useState, useEffect, useMemo } from "react";
 import EncryptedConversionEditorGuard from "./EncryptedConversionEditorGuard";
 import EncryptedNotePane from "./EncryptedNotePane";
@@ -312,6 +313,12 @@ function OrdinaryEditorPane({
   const [showShareModal, setShowShareModal] = useState(false);
   const [showVersionHistory, setShowVersionHistory] = useState(false);
   const [showCommentPanel, setShowCommentPanel] = useState(false);
+  const [showAgent, setShowAgent] = useState(false);
+  useEffect(() => {
+    const open = () => setShowAgent(true);
+    window.addEventListener("nowen:open-editor-agent", open);
+    return () => window.removeEventListener("nowen:open-editor-agent", open);
+  }, []);
   const [showAttachmentsPanel, setShowAttachmentsPanel] = useState(false);
   const [showBacklinksPanel, setShowBacklinksPanel] = useState(false);
   const [backlinksCount, setBacklinksCount] = useState<number | null>(null);
@@ -3649,6 +3656,9 @@ const moveToTrash = useCallback(async () => {
         </div>
       </div>
 
+      {canEditActiveNote && !effectiveLocked && !isTrashed && ["markdown", "tiptap-json"].includes(activeNote.contentFormat || "") && (
+        <div className="flex justify-end px-3 py-1 border-b border-app-border"><Button size="sm" variant="ghost" onClick={() => setShowAgent(value => !value)}><Sparkles size={14} className="mr-1" />{t("agent.title")}</Button></div>
+      )}
       {userPrefs.enableNoteTabs && !state.editorSplit && <NoteTabsBar />}
 
       {/* Editor (HTML Ԥ�� / MD / Tiptap ��ģʽ����) + Outline */}
@@ -3791,6 +3801,10 @@ const moveToTrash = useCallback(async () => {
             )}
           </AnimatePresence>
         </div>
+        {showAgent && canEditActiveNote && !effectiveLocked && !isTrashed && !modeSwitching && (
+          <EditorAgentPanel key={`${selfUser?.userId}-${activeNote.id}-${editorMode}`} note={activeNote} editor={() => editorHandleRef.current} onClose={() => setShowAgent(false)} />
+        )}
+
       {/* �������� */}
       {showShareModal && (
         <ShareModal

@@ -1,3 +1,4 @@
+import agentRouter from "./routes/agent";
 import { serve } from "@hono/node-server";
 import "./runtime/knowledge-tree-migration-bootstrap";
 import "./runtime/task-stats-hardening";
@@ -628,6 +629,7 @@ app.route("/api/sheets", sheetsRouter);
 app.route("/api/diary", diaryRouter);
 app.route("/api/journals", journalsRouter);
 app.route("/api/url-import", urlImportRouter);
+app.route("/api/agent", agentRouter);
 app.route("/api/ai", aiRouter);
 app.route("/api/ai/task-plan", aiTaskPlanRouter);
 app.route("/api/voice", voiceRouter);

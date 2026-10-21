@@ -1,3 +1,5 @@
+﻿import { isolateHistory } from "@codemirror/commands";
+import { agentTextRanges } from "@/lib/agentEdits";
 import { commitMarkdownEncryptedRegion, prepareMarkdownEncryptedRegionEdit, prepareMarkdownSelectionEncryption } from "@/lib/encryptedNotes/blockAuthoring";
 /**
  * MarkdownEditor —— 基于 CodeMirror 6 的 Markdown 笔记编辑器
@@ -1311,6 +1313,18 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
         };
       },
       isReady: () => !!viewRef.current,
+      getAgentSelection: () => { const view = viewRef.current; return view ? view.state.sliceDoc(view.state.selection.main.from, view.state.selection.main.to) : ""; },
+      applyAgentEdits: (original, edits) => {
+        const view = viewRef.current;
+        if (!view || !editable || view.state.doc.toString() !== original) return false;
+        try {
+          const changes = agentTextRanges([{ text: original, pos: 0 }], edits).map(({ from, to, insert }) => ({ from, to, insert }));
+          collabUndoManagerRef.current?.stopCapturing();
+          view.dispatch({ changes, userEvent: "input.agent", annotations: isolateHistory.of("full") });
+          collabUndoManagerRef.current?.stopCapturing();
+          return true;
+        } catch { return false; }
+      },
       applyCjkTypography: (action) => {
         const view = viewRef.current;
         if (!view || !editable || !view.state.facet(EditorView.editable)) return false;

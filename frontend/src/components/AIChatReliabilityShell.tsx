@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Activity,
@@ -72,6 +73,8 @@ function StatusPill({ status }: { status: ReliableStatus | null }) {
 }
 
 export default function AIChatReliabilityShell(props: Props) {
+  const { t } = useTranslation();
+  const [agentMode, setAgentMode] = useState(false);
   const { state } = useApp();
   const activeNote = state.activeNote;
   const [mode, setMode] = useState<ReliableAskMode>("knowledge");
@@ -182,7 +185,12 @@ export default function AIChatReliabilityShell(props: Props) {
 
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-app-bg">
-      <section className="max-md:max-h-[50dvh] shrink-0 max-md:overflow-y-auto border-b border-app-border bg-app-surface/95 px-3 py-2 backdrop-blur md:px-5">
+      <div className="flex gap-2 px-3 py-2 border-b border-app-border">
+        <button aria-pressed={!agentMode} onClick={() => setAgentMode(false)}>{t("agent.question")}</button>
+        <button aria-pressed={agentMode} onClick={() => setAgentMode(true)}>{t("agent.mode")}</button>
+      </div>
+      {agentMode && <div className="p-4 space-y-3"><p>{t("agent.entryHint")}</p><button disabled={!activeNote} onClick={() => { if (activeNote) props.onNavigateToNote?.(activeNote.id); window.dispatchEvent(new Event("nowen:open-editor-agent")); props.onClose(); }}>{t("agent.open")}</button></div>}
+      <section hidden={agentMode} className="max-md:max-h-[50dvh] shrink-0 max-md:overflow-y-auto border-b border-app-border bg-app-surface/95 px-3 py-2 backdrop-blur md:px-5">
         <div className="flex flex-wrap items-center gap-2.5">
           <div className="mr-1 hidden min-w-0 items-center gap-2 md:flex">
             <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-accent-primary/10 text-accent-primary">
@@ -344,7 +352,7 @@ export default function AIChatReliabilityShell(props: Props) {
       </section>
 
       <div className={cn("min-h-0 flex-1", (currentNoteUnavailable || selectionUnavailable) && "opacity-70")}>
-        <OriginalAIChatPanel {...props} />
+        <div className="h-full" hidden={agentMode}><OriginalAIChatPanel {...props} /></div>
       </div>
     </div>
   );

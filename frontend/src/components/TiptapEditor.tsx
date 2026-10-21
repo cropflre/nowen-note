@@ -1,3 +1,5 @@
+﻿import { closeHistory } from "@tiptap/pm/history";
+import { agentTextRanges, sameAgentSnapshot } from "@/lib/agentEdits";
 import { emojis } from "@tiptap/extension-emoji";
 import { getRichTextExtensions } from "@/lib/richTextExtensions";
 import { applyTiptapCjkTypography } from "@/lib/tiptapCjkTypography";
@@ -3255,6 +3257,25 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
         pendingSaveAckRef.current = ack;
       },
       isReady: () => !!editor && !editor.isDestroyed,
+      getAgentSelection: () => editor ? editor.state.doc.textBetween(editor.state.selection.from, editor.state.selection.to, "\n") : "",
+      applyAgentEdits: (original, edits) => {
+        if (!editor || editor.isDestroyed || !editor.isEditable) return false;
+        const current = serializeEditorContentForPersistence(editor, noteRef.current.id);
+        if (!current || !sameAgentSnapshot(current, original, "tiptap-json")) return false;
+        try {
+          const parts: Array<{ text: string; pos: number; marks: import("@tiptap/pm/model").Mark[] | readonly import("@tiptap/pm/model").Mark[] }> = [];
+          editor.state.doc.descendants((node, pos) => { if (node.isText) parts.push({ text: node.text!, pos, marks: node.marks }); });
+          const ranges = agentTextRanges(parts, edits);
+          const tr = editor.state.tr;
+          for (const range of ranges.reverse()) {
+            if (range.insert) tr.replaceWith(range.from, range.to, editor.schema.text(range.insert, parts[range.part].marks));
+            else tr.delete(range.from, range.to);
+          }
+          editor.view.dispatch(closeHistory(tr));
+          editor.view.dispatch(closeHistory(editor.state.tr));
+          return true;
+        } catch { return false; }
+      },
       applyCjkTypography: (action) => {
         if (!editor || editor.isDestroyed || !editor.isEditable) return false;
         return applyTiptapCjkTypography(editor, action);

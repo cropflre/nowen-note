@@ -1,4 +1,4 @@
-import type { AssetFilters, AssetTag, AssetSmartFolder, AssetOrganization, SimilarImageResult, FileRenameItem } from "@/types";
+﻿import type { AssetFilters, AssetTag, AssetSmartFolder, AssetOrganization, SimilarImageResult, FileRenameItem } from "@/types";
 import { getOfflineQueueStorageKey } from "./offlineScope";
 import { withConversionRequestLease } from "./encryptedNotes/conversionBarrier";
 import { ConversionCleanupError } from "./encryptedNotes/conversionCoordination";
@@ -1287,6 +1287,14 @@ async function requireTaskSeriesSupport(): Promise<void> {
 }
 
 export const api = {
+  agent: {
+    latest: (noteId: string) => request<import("./agentEdits").AgentRun | null>(`/agent/runs?noteId=${encodeURIComponent(noteId)}`),
+    capabilities: () => request<{ enabled: boolean; toolCalling: string | boolean }>("/agent/capabilities"),
+    create: (input: { noteId: string; instruction: string; selectedText?: string; content: string; format: string; version: number }) => request<{ id: string }>("/agent/runs", { method: "POST", body: JSON.stringify(input) }),
+    get: (id: string) => request<import("./agentEdits").AgentRun>(`/agent/runs/${encodeURIComponent(id)}`),
+    approve: (id: string, token: string, snapshot: string) => request<import("./agentEdits").AgentProposal>(`/agent/runs/${encodeURIComponent(id)}/approve`, { method: "POST", body: JSON.stringify({ token, snapshot }) }),
+    action: (id: string, action: "cancel" | "reject" | "receipt") => request<import("./agentEdits").AgentRun>(`/agent/runs/${encodeURIComponent(id)}/${action}`, { method: "POST", body: "{}" }),
+  },
   trash: {
     list: (workspaceId: string) => request<{ items: import("@/features/trash/trashTypes").TrashItem[] }>(`/trash?workspaceId=${encodeURIComponent(workspaceId)}`),
     mutate: (workspaceId: string, action: "restore" | "permanent", ids: string[]) =>
