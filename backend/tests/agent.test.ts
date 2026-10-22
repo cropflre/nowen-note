@@ -84,6 +84,19 @@ test("stop aborts upstream and prevents a late proposal", async () => {
   const id = (await (await create()).json()).id; assert.equal((await (await send(`/runs/${id}/cancel`)).json()).status, "cancelled");
   await new Promise(r => setTimeout(r, 10)); assert.equal(runtime.get(id, "agent-a").status, "cancelled"); assert.equal(requests.length, 1);
 });
+test("upstream request timeout ends the run with a specific timeout error", async t => {
+  const timeout = AbortSignal.timeout;
+  t.mock.method(AbortSignal, "timeout", (ms: number) => timeout(ms === 45_000 ? 1 : ms));
+  model = async (_body, signal) => new Promise((_resolve, reject) => {
+    if (signal.aborted) reject(signal.reason);
+    else signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+  });
+  const run = await settled((await (await create()).json()).id);
+  assert.equal(run.status, "failed");
+  assert.equal(run.errorCode, "MODEL_TIMEOUT");
+  assert.equal(requests.length, 1);
+  assert.equal(run.proposal, undefined);
+});
 test("unsupported model, unauthorized tools, invalid arguments and loops fail closed", async () => {
   for (const [response, code] of [[new Response(JSON.stringify({ choices: [{ message: { content: '```apply_note_edit```' } }] })), "TOOL_CALLING_UNSUPPORTED"], [reply([call("shell", {})]), "TOOL_NOT_ALLOWED"], [reply([call("propose_note_edit", { edits: [{ before: "Original", after: "New", userId: "agent-b" }] })]), "INVALID_TOOL_ARGUMENTS"]] as const) {
     model = async () => response.clone(); const run = await settled((await (await create()).json()).id); assert.equal(run.errorCode, code);
@@ -113,6 +126,19 @@ test("streaming tool arguments keep IDs and multiple interleaved calls across by
   const parsed = await readAgentResponse(response);
   assert.deepEqual(parsed.choices[0].message.tool_calls.map((c: any) => [c.id, JSON.parse(c.function.arguments)]), [["one", {}], ["two", { value: "中文" }]]);
   await assert.rejects(readAgentResponse(new Response('data: {"choices":[]}\n\n', { headers: { "Content-Type": "text/event-stream" } })));
+});
+test("DeepSeek required tool calls explicitly disable thinking without changing other providers", async () => {
+  const { callAgentModel } = await import("../src/agent/model.js");
+  const { getUserAISettings } = await import("../src/services/user-ai-settings.js");
+  const { toolRegistry } = await import("../src/agent/tools.js");
+  const base = getUserAISettings("agent-a");
+  for (const settings of [
+    { ...base, ai_provider: "deepseek" },
+    { ...base, ai_provider: "openai", ai_api_url: "https://api.deepseek.com/v1" },
+    { ...base, ai_provider: "openai" },
+  ]) await callAgentModel(settings, [{ role: "user", content: "Improve wording" }], toolRegistry, new AbortController().signal);
+  assert.deepEqual(requests.map(body => body.thinking), [{ type: "disabled" }, { type: "disabled" }, undefined]);
+  assert.ok(requests.every(body => body.tool_choice === "required"));
 });
 test("password folders and workspace viewers cannot send content to the model", async () => {
   db.prepare("INSERT INTO notebook_passwords(notebookId,passwordHash) VALUES ('book-a','hash')").run();
@@ -152,4 +178,15 @@ test("approved editor save captures Outbox intent and keeps it after reopening (
   closeDb(); db = (await import("../src/db/schema.js")).getDb();
   assert.deepEqual(db.prepare("SELECT * FROM sync_outbox WHERE entityId='note-a'").all(), pending);
   assert.ok((db.prepare("SELECT content FROM notes WHERE id='note-a'").get() as any).content.includes("Improved text"));
+});
+test("same-version collaborative changes invalidate approval; exact durable results can confirm coalesced Yjs saves", async () => {
+  const first = await settled((await (await create()).json()).id);
+  db.prepare("UPDATE notes SET content='Concurrent Yjs content' WHERE id='note-a'").run();
+  assert.equal((await send(`/runs/${first.id}/approve`, { token: first.proposal!.token, snapshot: "Original text" })).status, 409);
+  runtime.cancel(first.id, "agent-a");
+  db.prepare("UPDATE notes SET content='Original text' WHERE id='note-a'").run();
+  const next = await settled((await (await create()).json()).id);
+  assert.equal((await send(`/runs/${next.id}/approve`, { token: next.proposal!.token, snapshot: "Original text" })).status, 200);
+  db.prepare("UPDATE notes SET content='Improved text' WHERE id='note-a'").run();
+  assert.equal((await (await send(`/runs/${next.id}/receipt`)).json()).status, "completed");
 });

@@ -698,6 +698,7 @@ test.before(async () => {
   });
   app.route("/api/sync/v2", routes.default);
   app.route("/api/knowledge-tree/", treeRoutes.default);
+  app.route("/api/agent", (await import("../src/routes/agent")).default);
   httpServer = serve({ fetch: app.fetch, hostname: "127.0.0.1", port: 0 });
   await new Promise<void>((resolve) => httpServer.once("listening", resolve));
   const address = httpServer.address(); assert.ok(address && typeof address !== "string");
@@ -1480,4 +1481,71 @@ test("native holds a terminal delete against an older server and resumes without
     assert.equal((await c.db.query<{lastError:string}>("SELECT lastError FROM sync_state WHERE profileId=? AND scopeKey='personal'",[c.profileId]))[0].lastError,"NOTE_DELETION_UPGRADE_REQUIRED");
   } finally {legacyNoteDeletionCapabilities=false;}
   await c.sync();assert.equal(serverDb.prepare("SELECT id FROM notes WHERE id=?").get(id),undefined);
+});
+
+test("Agent approved edits survive offline restart and lost ACK before peer convergence", async () => {
+  for (const format of ["markdown", "tiptap-json"] as const) {
+  const a = await client(`agent-${format}-a`), b = await client(`agent-${format}-b`);
+  const book = randomUUID(), id = randomUUID();
+  const content = format === "markdown" ? "Original sentence\n\n[Keep](https://example.com)" : JSON.stringify({ type: "doc", content: [{ type: "paragraph", attrs: { blockId: "preserve" }, content: [{ type: "text", text: "Original sentence", marks: [{ type: "bold" }] }] }] });
+  await a.repository.notebooks.create({ id: book, name: "Agent sync fixture" });
+  await a.repository.notes.create({ id, notebookId: book, content, contentFormat: format });
+  await a.sync(); await b.sync();
+  const { setUserAISettings } = await import("../src/services/user-ai-settings");
+  setUserAISettings(USER, [{ key: "ai_api_url", value: "https://agent-provider.example" }, { key: "ai_model", value: "fixture" }]);
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    if (String(input) !== "https://agent-provider.example/chat/completions") return realFetch(input, init);
+    const body = JSON.parse(String(init?.body));
+    const hasContext = body.messages.some((m: any) => m.role === "tool");
+    const fn = hasContext ? { name: "propose_note_edit", arguments: JSON.stringify({ edits: [{ before: "Original", after: "Improved" }] }) } : { name: "get_current_note_context", arguments: "{}" };
+    return Response.json({ choices: [{ message: { tool_calls: [{ id: hasContext ? "edit" : "read", type: "function", function: fn }] } }] });
+  }) as typeof fetch;
+  const headers = { Authorization: `Bearer ${USER}`, "Content-Type": "application/json" };
+  const post = (url: string, body = {}) => realFetch(`${serverUrl}/api/agent${url}`, { method: "POST", headers, body: JSON.stringify(body) });
+  let runId: string | undefined;
+  try {
+    const snapshot = (await a.repository.notes.get(id))!;
+    const created = await post("/runs", { noteId: id, instruction: "Improve wording without changing links or formatting", content: snapshot.content, format, version: snapshot.version });
+    assert.equal(created.status, 202); runId = (await created.json()).id;
+    let run: any;
+    for (let attempt = 0; attempt < 50; attempt++) {
+      run = await (await realFetch(`${serverUrl}/api/agent/runs/${runId}`, { headers })).json();
+      if (!["queued", "running"].includes(run.status)) break;
+      await new Promise(resolve => setTimeout(resolve, 5));
+    }
+    assert.equal(run.status, "waiting_approval");
+    const approved = await post(`/runs/${runId}/approve`, { token: run.proposal.token, snapshot: snapshot.content });
+    assert.equal(approved.status, 200); const proposal = await approved.json();
+    await a.repository.notes.update(id, { content: proposal.result, contentText: "Improved sentence" });
+    const queued = await pending(a); assert.equal(queued.length, 1);
+    assert.equal((await post(`/runs/${runId}/receipt`)).status, 409);
+    assert.equal((await b.repository.notes.get(id))?.content, snapshot.content);
+    await a.db.close(); const reopened = await client(`agent-${format}-a`);
+    assert.deepEqual(await pending(reopened), queued);
+    assert.equal((await reopened.repository.notes.get(id))?.content, proposal.result);
+    afterPush = async response => {
+      const result = await response.json(); for (const item of result.results) delete item.version;
+      return Response.json(result);
+    };
+    try { await assert.rejects((reopened.engine as unknown as { push(s: typeof scope): Promise<void> }).push(scope), /ACK/); }
+    finally { afterPush = undefined; }
+    assert.deepEqual((await pending(reopened)).map(row => row.mutationId), queued.map(row => row.mutationId));
+    assert.equal((await readNativeNoteSyncReceipt(reopened.db, reopened.profileId, id)).phase, "pending");
+    // Agent persistence confirmation must not acknowledge a native client's Outbox.
+    assert.equal((await (await post(`/runs/${runId}/receipt`)).json()).status, "completed");
+    assert.deepEqual((await pending(reopened)).map(row => row.mutationId), queued.map(row => row.mutationId));
+    const version = (serverDb.prepare("SELECT version FROM notes WHERE id=?").get(id) as { version: number }).version;
+    await reopened.sync(); await b.sync();
+    assert.equal((await pending(reopened)).length, 0);
+    assert.equal((await readNativeNoteSyncReceipt(reopened.db, reopened.profileId, id)).phase, "confirmed");
+    assert.equal((serverDb.prepare("SELECT version FROM notes WHERE id=?").get(id) as { version: number }).version, version);
+    assert.equal((await b.repository.notes.get(id))?.content, proposal.result);
+    assert.equal((await reopened.repository.notes.get(id))?.content, proposal.result);
+    assert.equal((await conflicts(reopened)).length, 0);
+  } finally {
+    globalThis.fetch = realFetch; afterPush = undefined;
+    if (runId) await post(`/runs/${runId}/cancel`);
+  }
+  }
 });

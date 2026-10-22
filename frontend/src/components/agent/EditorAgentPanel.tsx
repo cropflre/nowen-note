@@ -16,6 +16,8 @@ export default function EditorAgentPanel({ note, editor, onClose }: { note: Note
   const alive = useRef(true), lock = useRef(false), runId = useRef<string | null>(null);
   const cancelled = useRef(false);
   const pollTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const steps = (run?.steps || []).filter((step, index, all) => step.toolName !== "run"
+    && !all.slice(index + 1).some(next => next.toolName === step.toolName));
   const canStart = !run || ["completed", "failed", "cancelled", "interrupted"].includes(run.status);
   const errorText = useCallback((value: unknown) => {
     const code = (value as { code?: string; message?: string }).code || (value as Error).message || "AGENT_REQUEST_FAILED";
@@ -23,18 +25,19 @@ export default function EditorAgentPanel({ note, editor, onClose }: { note: Note
   }, [t]);
   useEffect(() => {
     alive.current = true; cancelled.current = false;
-    void Promise.all([api.agent.capabilities(), api.agent.latest(note.id)]).then(([capabilities, latest]) => {
+    void api.agent.capabilities().then(async capabilities => {
+      const latest = capabilities.enabled ? await api.agent.latest(note.id) : null;
       if (alive.current) { setEnabled(capabilities.enabled); setRun(latest); runId.current = latest?.id || null; }
-    }).catch(() => { if (alive.current) setError(t("agent.errors.AGENT_REQUEST_FAILED")); });
+    }).catch(e => { if (alive.current) setError(errorText(e)); });
     return () => {
       alive.current = false; cancelled.current = true;
       if (pollTimer.current) clearTimeout(pollTimer.current);
       if (runId.current) void api.agent.action(runId.current, "cancel").catch(() => undefined);
     };
-  }, [t, note.id]);
+  }, [errorText, note.id]);
   useEffect(() => {
     if (!run || !["queued", "running"].includes(run.status)) return;
-    const timer = setTimeout(() => { void api.agent.get(run.id).then(next => { if (alive.current) setRun(next); }).catch(e => { if (alive.current) setError(errorText(e)); }); }, 700);
+    const timer = setTimeout(() => { void api.agent.get(run.id).then(next => { if (alive.current && !cancelled.current && runId.current === run.id) setRun(next); }).catch(e => { if (alive.current) setError(errorText(e)); }); }, 700);
     return () => clearTimeout(timer);
   }, [run, errorText]); // Each authoritative state response schedules the next bounded poll.
 
@@ -49,7 +52,8 @@ export default function EditorAgentPanel({ note, editor, onClose }: { note: Note
       const created = await api.agent.create({ noteId: note.id, instruction, selectedText: handle.getAgentSelection?.(), content: snapshot.content, format: note.contentFormat!, version: persisted.version });
       runId.current = created.id;
       if (!alive.current || cancelled.current) { await api.agent.action(created.id, "cancel"); return; }
-      setRun(await api.agent.get(created.id));
+      const latest = await api.agent.get(created.id);
+      if (alive.current && !cancelled.current) setRun(latest);
     } catch (e) { if (alive.current) setError(errorText(e)); }
     finally { lock.current = false; if (alive.current) setBusy(false); }
   }
@@ -101,7 +105,7 @@ export default function EditorAgentPanel({ note, editor, onClose }: { note: Note
     {!enabled && <p role="status">{t("agent.disabled")}</p>}
     <div className="flex-1 overflow-auto min-h-0 space-y-2">
       {run && <p role="status">{t(`agent.states.${run.status}`)}</p>}
-      {run?.steps.filter(s => s.toolName !== "run").map(step => <div className="rounded border border-app-border p-2 text-sm" key={step.sequence}>{t(`agent.tools.${step.toolName}`, { defaultValue: t("agent.step") })} · {t(`agent.states.${step.status}`)}</div>)}
+      {steps.map(step => <div className="rounded border border-app-border p-2 text-sm" key={step.sequence}>{t(`agent.tools.${step.toolName}`, { defaultValue: t("agent.step") })} · {t(`agent.states.${step.status === "running" && run && ["failed", "cancelled", "interrupted"].includes(run.status) ? run.status : step.status}`)}</div>)}
       {run?.proposal?.edits.map((edit, index) => <div className="rounded border border-app-border p-2 text-sm whitespace-pre-wrap break-words" key={index}>
         <div className="text-xs text-tx-secondary">{t("agent.before")}</div><del className="block bg-red-500/10">{edit.before}</del>
         <div className="text-xs text-tx-secondary">{t("agent.after")}</div><ins className="block bg-green-500/10 no-underline">{edit.after}</ins>

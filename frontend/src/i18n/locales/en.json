@@ -3332,7 +3332,7 @@
     "step": "Step",
     "before": "Before",
     "after": "After",
-    "saved": "The note save was verified on the server. Check sync receipts for other devices.",
+    "saved": "The note save was verified. Check sync receipts for other devices.",
     "accept": "Accept edits",
     "reject": "Reject",
     "request": "What would you like to change?",

@@ -61,10 +61,13 @@ export async function readAgentResponse(response: Response): Promise<any> {
 
 /** Separate from legacy text extraction: tool arguments are never interpreted as Markdown. */
 export async function callAgentModel(settings: AISettings, messages: AgentMessage[], tools: ToolDefinition[], signal: AbortSignal) {
+  // DeepSeek rejects required tool_choice in thinking mode. Select by provider
+  // or official endpoint, never by a guessed model-name capability.
+  const deepseek = settings.ai_provider === "deepseek" || new URL(settings.ai_api_url).hostname === "api.deepseek.com";
   const response = await aiOutboundFetch(`${settings.ai_api_url.replace(/\/+$/, "")}/chat/completions`, {
     method: "POST",
     headers: { "Content-Type": "application/json", ...(settings.ai_api_key ? { Authorization: `Bearer ${settings.ai_api_key}` } : {}) },
-    body: JSON.stringify({ model: settings.ai_model, messages, tools, tool_choice: "required", stream: true, max_tokens: 4096 }),
+    body: JSON.stringify({ model: settings.ai_model, messages, tools, tool_choice: "required", stream: true, max_tokens: 4096, ...(deepseek ? { thinking: { type: "disabled" } } : {}) }),
     signal: AbortSignal.any([signal, AbortSignal.timeout(45_000)]),
   });
   if (!response.ok) { await response.body?.cancel(); throw new Error(response.status === 400 || response.status === 422 ? "TOOL_CALLING_UNSUPPORTED" : "MODEL_REQUEST_FAILED"); }
@@ -74,5 +77,5 @@ export async function callAgentModel(settings: AISettings, messages: AgentMessag
   evidence.set(configurationKey(settings), { toolCalling: calls.success, streaming: response.headers.get("content-type")?.includes("text/event-stream") || false, checkedAt: Date.now() });
   if (!calls.success) throw new Error("TOOL_CALLING_UNSUPPORTED");
   if (new Set(calls.data.map(c => c.id)).size !== calls.data.length) throw new Error("INVALID_TOOL_CALL");
-  return { calls: calls.data, usage: typeof data.usage?.total_tokens === "number" ? data.usage.total_tokens : null };
+  return { calls: calls.data, usage: Number.isSafeInteger(data.usage?.total_tokens) && data.usage.total_tokens >= 0 ? data.usage.total_tokens : null };
 }

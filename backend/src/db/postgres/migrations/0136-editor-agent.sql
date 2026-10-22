@@ -2,7 +2,7 @@
 CREATE TABLE IF NOT EXISTS agent_runs (
       id TEXT PRIMARY KEY, "userId" TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       "noteId" TEXT NOT NULL, "workspaceId" TEXT, status TEXT NOT NULL, model TEXT NOT NULL,
-      "expectedVersion" INTEGER NOT NULL, "snapshotDigest" TEXT NOT NULL, "resultDigest" TEXT,
+      "expectedVersion" INTEGER NOT NULL, "snapshotDigest" TEXT NOT NULL, "serverDigest" TEXT NOT NULL, "resultDigest" TEXT,
       "createdAt" TEXT NOT NULL, "updatedAt" TEXT NOT NULL, "errorCode" TEXT, usage INTEGER
     );
     CREATE INDEX IF NOT EXISTS agent_runs_user ON agent_runs("userId","createdAt");
