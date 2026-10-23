@@ -35,7 +35,7 @@ for (const arch of ["x64", "arm64"]) {
     });
     verifyMacFfmpeg(source.binary, arch);
     assert.equal(fs.readFileSync(source.binary + ".LICENSE", "utf8"), "target license");
-    assert.ok(fs.statSync(source.binary).mode & 0o111);
+    if (process.platform !== "win32") assert.ok(fs.statSync(source.binary).mode & 0o111);
     prepareMacFfmpeg(source.root, arch, () => assert.fail("must reuse matching binary"));
   });
 }

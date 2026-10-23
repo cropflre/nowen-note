@@ -29,7 +29,7 @@ describe("image transform controls in the owning editor toolbar", () => {
     document.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`)!.click();
   });
   beforeEach(() => {
-    (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     language.value = "zh-CN";
     const host = document.createElement("div");
     document.body.append(host);
