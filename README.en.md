@@ -1,7 +1,7 @@
 <div align="center">
   <img src="./electron/icon.png" alt="Nowen Note" width="104" />
   <h1>Nowen Note</h1>
-  <p><strong>An open-source, self-hosted knowledge base, collaborative note app, and task workspace</strong></p>
+  <p><strong>An open-source, self-hosted knowledge base, collaborative note app, and task management platform</strong></p>
   <p>
     Unified knowledge tree · Rich text / Markdown editors · AI knowledge Q&A · Real-time collaboration · Tasks and mind maps · Cross-platform clients
   </p>
@@ -46,6 +46,8 @@
 - **Security and editing:** Permanently decrypt an encrypted note through **Unlock → Remove encryption → Confirm** (#875). Shareable Markdown image links now retain file extensions for compatibility.
 - **Calendar and automation:** Add mainland China holiday markers (#848), improve Chinese PushPlus task digests and JSON webhook provider verification, and fix digest timezone (#867) and MCP scheduling/reminder issues (#871).
 - **Release workflow:** Strengthen release-center candidate builds, asset verification, approval gates, and multi-platform packaging. **Build pipeline improvements do not imply store availability or completed physical-device acceptance.**
+
+**Release scope:** The **Personal App Studio** in v1.5.3 is for creating and managing personal applications. It is **not the full Workspace feature**. The standalone **Workspace** capability has been moved to the **v1.6.0 development plan** and is **not included in v1.5.3**. Do not present Workspace as shipped until it has been built, tested, and publicly released.
 
 See the [full changelog](./CHANGELOG.md), [website release notes](https://nowen.cn/#/note/changelog), and [download center](https://nowen.cn/#/note/download).
 
