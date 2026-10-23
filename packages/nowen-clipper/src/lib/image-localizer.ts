@@ -1,3 +1,5 @@
+import { clearImageRefererRule, installImageRefererRule } from "./image-referer";
+
 export interface ImageFailure {
   url: string;
   error: string;
@@ -18,6 +20,8 @@ export interface ImageLocalizationOptions {
   maxSingleBytes?: number;
   maxTotalBytes?: number;
   timeoutMs?: number;
+  /** 当前页面地址；用于给启用防盗链的站点补上页面 Referer。 */
+  pageUrl?: string;
 }
 
 interface DownloadResult {
@@ -140,6 +144,8 @@ export async function localizeRemoteImages(
     unique.push(checked.url);
   }
 
+  const refererRule = await installImageRefererRule(options.pageUrl ?? "", unique);
+
   const downloads = new Map<string, DownloadResult>();
   let totalBytes = 0;
   let cursor = 0;
@@ -149,7 +155,11 @@ export async function localizeRemoteImages(
       const index = cursor++;
       if (index >= unique.length) return;
       const url = unique[index];
-      const downloaded = await downloadImage(url, { maxSingleBytes, timeoutMs });
+      const downloaded = await downloadImage(url, {
+        maxSingleBytes,
+        timeoutMs,
+        referer: refererRule.referer,
+      });
       if (downloaded.dataUrl && downloaded.bytes) {
         if (totalBytes + downloaded.bytes > maxTotalBytes) {
           downloads.set(url, { error: `图片总量超过 ${formatBytes(maxTotalBytes)} 限制` });
@@ -161,7 +171,11 @@ export async function localizeRemoteImages(
     }
   };
 
-  await Promise.all(Array.from({ length: Math.min(concurrency, unique.length || 1) }, () => worker()));
+  try {
+    await Promise.all(Array.from({ length: Math.min(concurrency, unique.length || 1) }, () => worker()));
+  } finally {
+    await clearImageRefererRule(refererRule);
+  }
 
   let resultHtml = html;
   for (const entry of entries) {
@@ -191,7 +205,7 @@ export async function localizeRemoteImages(
 
 async function downloadImage(
   url: string,
-  options: { maxSingleBytes: number; timeoutMs: number },
+  options: { maxSingleBytes: number; timeoutMs: number; referer?: string },
 ): Promise<DownloadResult> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), options.timeoutMs);
@@ -204,7 +218,14 @@ async function downloadImage(
       referrerPolicy: "no-referrer",
       signal: controller.signal,
     });
-    if (!response.ok) return { error: `HTTP ${response.status}` };
+    if (!response.ok) {
+      // 401/403 且已注入 Referer 时，说明站点用了签名、UA 或 JS 校验，提示用户不要再怀疑 Referer
+      const hint =
+        options.referer && (response.status === 401 || response.status === 403)
+          ? `（已按 ${options.referer}/ 发送 Referer 仍被拒绝）`
+          : "";
+      return { error: `HTTP ${response.status}${hint}` };
+    }
 
     const mime = (response.headers.get("content-type") || "").split(";")[0].trim().toLowerCase();
     if (!mime.startsWith("image/")) return { error: "响应不是图片" };
