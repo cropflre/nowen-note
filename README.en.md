@@ -35,19 +35,18 @@
 
 ## v1.5.3 highlights · 2026-10-23
 
-**The v1.5.3 feature code is now on `main`.** As of October 23, 2026, the v1.5.3 GitHub Release is still a **draft**. These are code-level release highlights, **not a claim that all installers are publicly available**. Check [GitHub Releases](https://github.com/cropflre/nowen-note/releases) for the actual published version and assets.
+**The v1.5.3 updates are in `main`.** For actual availability of the public release and downloadable installers, check [GitHub Releases](https://github.com/cropflre/nowen-note/releases). Merged code does not mean the installers have been published.
 
 > [!IMPORTANT]
-> Back up your database, attachments, and deployment configuration before upgrading, and verify you can restore them. **Rolling back an app or Docker image does not restore persisted data.**
+> Back up your database, attachments, and deployment configuration before upgrading, and test restoration. **Rolling back an app or Docker image does not restore persisted data.**
 
-- **Personal App Studio:** A private app library, no-code templates, preview and runnable personal apps. AI can suggest AppSpec drafts and conversational revisions, with review before applying changes and reversible version history. Model prompts must not include personal record values; ownership and resource permissions remain enforced.
-- **Extension Platform V3:** Plugins share an Apps entry point, with gated app execution, dashboards, and resource-scoped inspectors. Package manifests and UI hashes are validated before use. **Third-party applications do not receive unrestricted access to notes or files.**
-- **Notes and images:** Fix nested knowledge-tree dragging (#869), mobile code-block interaction, and slash-menu stability. Add search within favorites, persisted image rotation, the restored All Notes entry, and one-click remote-image localization scoped to personal content.
-- **Security and editing:** Permanently decrypt an encrypted note through **Unlock → Remove encryption → Confirm** (#875). Shareable Markdown image links now retain file extensions for compatibility.
-- **Calendar and automation:** Add mainland China holiday markers (#848), improve Chinese PushPlus task digests and JSON webhook provider verification, and fix digest timezone (#867) and MCP scheduling/reminder issues (#871).
-- **Release workflow:** Strengthen release-center candidate builds, asset verification, approval gates, and multi-platform packaging. **Build pipeline improvements do not imply store availability or completed physical-device acceptance.**
+- **Smoother note editing:** More reliable nested note dragging (#869), mobile code-block and slash-menu interactions, a restored All Notes entry, and search within favorites.
+- **Safer image handling:** One-click remote-image localization for personal content, persisted image rotation, and shareable image links with filename extensions.
+- **More flexible encryption:** Unlock an encrypted note and explicitly confirm permanent removal of note encryption (#875).
+- **Better calendars and reminders:** Mainland China holidays (#848), improved Chinese PushPlus task digests and webhook response checks, timezone fixes (#867), and MCP scheduling/reminder fixes (#871).
+- **Cross-platform stability:** Clearer Android server connection errors, verified macOS packaging dependencies, and stronger release build validation.
 
-**Release scope:** The **Personal App Studio** in v1.5.3 is for creating and managing personal applications. It is **not the full Workspace feature**. The standalone **Workspace** capability has been moved to the **v1.6.0 development plan** and is **not included in v1.5.3**. Do not present Workspace as shipped until it has been built, tested, and publicly released.
+**Planned for v1.6.0:** The full **Workspace**, **Personal App Studio**, and **Extension Platform V3** are reserved for **v1.6.0**, **not shipped as v1.5.3 release highlights**. Actual delivery remains subject to implementation, testing, and publication.
 
 See the [full changelog](./CHANGELOG.md), [website release notes](https://nowen.cn/#/note/changelog), and [download center](https://nowen.cn/#/note/download).
 
@@ -92,7 +91,6 @@ The supported source-build launcher uses Node.js 20+ and `packages/nowen-mcp/bin
 | **Import, export, and migration** | Import Markdown, Word/DOCX, web URLs, WeChat articles, SingleFile HTML, SiYuan ZIP archives, Obsidian, Xiaomi Notes, and other supported sources. Export Markdown, PDF, Word, images, or full ZIP packages with permission mapping, conflict preview, reports, controlled rollback, image access preparation, and footnote handling. Team single-note ZIP export resolves the note's real workspace scope. |
 | **Attachments and storage** | Explorer-style file-center navigation, masonry view, folders, tags, smart folders, upload progress, scoped moves/renames, recoverable trash, personal attachment-folder synchronization, inserting existing files, and progress-tracked external-image migration. [AI-assisted organization and semantic search](./docs/user/file-ai-organization.md) use file metadata, preview-confirmation and access checks rather than file bytes, with platform limitations. Storage backends include local disk, S3, R2, and MinIO. See [organization](./docs/user/file-asset-organization.md), [recycle bin](./docs/user/file-recycle-bin.md), and [folder sync](./docs/user/file-folder-sync.md). |
 | **Accounts and security** | Multiple-account history, remembered accounts, auto-login, remote server connections, session validation and revocation, 2FA, scoped Personal API Tokens, audit logs, protected attachment access, and concealment of restricted-resource existence. |
-| **Personal apps and Extension V3** | Private app library, no-code AppSpec templates and preview, reviewed AI drafts, and reversible revisions. Unified plugin management includes gated V3 application runtime, dashboards, resource-scoped inspectors, and validated packages. Capabilities remain subject to authorization and platform constraints. |
 | **Backups, automation, and developer APIs** | Full and scheduled local backups, ZIP verification, email and encrypted WebDAV backups, managed Docker update checks, webhooks, signed/scoped plugins, OpenAPI, TypeScript SDK, CLI, and browser clipper. The [MCP Server](./docs/tutorials/mcp.en.md) supports permission-scoped notes, knowledge-tree, personal task/project and file tools plus opt-in local HTTP transport; sensitive changes require explicit preview-confirm flows. |
 | **Cross-platform access** | Web, Electron for Windows/macOS/Linux, Android, iOS project, HarmonyOS project, and Docker/NAS deployment. UGREEN UGOS and Feiniu fnOS are supported, and clients can connect through IPv4, IPv6, or a domain name. Android includes in-app gesture image preview and native task notifications. |
 
