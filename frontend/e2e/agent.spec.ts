@@ -1,4 +1,4 @@
-import { test as base, expect } from "@playwright/test";
+import { test as base, expect, _electron } from "@playwright/test";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -13,6 +13,25 @@ const root = fileURLToPath(new URL("../..", import.meta.url));
 const providerFile = process.env.NOWEN_AGENT_LIVE_PROVIDER_FILE;
 const electron = process.env.NOWEN_AGENT_TEST_RUNTIME || createRequire(import.meta.url)("electron") as string;
 const test = base.extend<{ product: { server: string; provider: { url: string; key: string; model: string }; directory: string; finishChat: () => void; chatRequests: Array<{ role: string; content: string }[]>; restart: () => Promise<void> } }>({
+  page: async ({ page, product }, provide) => {
+    if (process.env.NOWEN_AGENT_ELECTRON !== "1") { await provide(page); return; }
+    const env = Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined));
+    delete env.ELECTRON_RUN_AS_NODE;
+    env.TASK_COMPOSER_ELECTRON_PROFILE = path.join(product.directory, "electron");
+    env.TASK_COMPOSER_ELECTRON_URL = product.server;
+    const app = await _electron.launch({ executablePath: electron, args: [path.join(root, "frontend/e2e/fixtures/task-composer-electron.cjs")], env });
+    try {
+      const runtimePath = test.info().outputPath("electron-runtime.json");
+      fs.writeFileSync(runtimePath, JSON.stringify(await app.evaluate(() => ({ electron: process.versions.electron, chromium: process.versions.chrome, platform: process.platform, arch: process.arch })), null, 2));
+      await test.info().attach("electron-runtime.json", { path: runtimePath, contentType: "application/json" });
+      const window = await app.firstWindow();
+      await window.waitForLoadState();
+      await provide(window);
+    } finally {
+      await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().forEach(window => window.destroy()));
+      await app.close();
+    }
+  },
   product: async ({ browserName }, provide) => {
     void browserName;
     const directory = fs.mkdtempSync(path.join(os.tmpdir(), "nowen-task-composer-browser-"));

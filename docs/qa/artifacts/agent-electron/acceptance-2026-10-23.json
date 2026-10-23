@@ -1,0 +1,20 @@
+{
+  "sourceBaseline": "37a3b283f71f0102124bf62de13748f35abd9b04",
+  "testFile": "frontend/e2e/agent.spec.ts",
+  "testFileSha256": "ba6120aaa8828009de911dc535a56f64409f8fcec4625076fe21f65e515cb3e2",
+  "runtime": {
+    "electron": "33.0.0",
+    "chromium": "130.0.6723.44",
+    "platform": "darwin",
+    "arch": "arm64"
+  },
+  "passed": [
+    "agent-editor-Agent-markdow-91a44-oad-and-second-browser-read",
+    "agent-editor-Agent-tiptap--364be-oad-and-second-browser-read",
+    "agent-existing-Q-A-history-a1e14-witches-and-process-restart"
+  ],
+  "passedCount": 3,
+  "skippedLiveModelCount": 1,
+  "seconds": 21.5,
+  "scope": "Isolated Electron BrowserWindow loading production frontend and real API routing; not the packaged application or native platform bridge."
+}
