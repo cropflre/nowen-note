@@ -35,7 +35,7 @@
 
 ## v1.5.3 highlights · 2026-10-23
 
-**The v1.5.3 updates are in `main`.** For actual availability of the public release and downloadable installers, check [GitHub Releases](https://github.com/cropflre/nowen-note/releases). Merged code does not mean the installers have been published.
+**v1.5.3 is publicly released on GitHub.** Check the [v1.5.3 release assets](https://github.com/cropflre/nowen-note/releases/tag/v1.5.3) for platform-specific downloads and compatibility.
 
 > [!IMPORTANT]
 > Back up your database, attachments, and deployment configuration before upgrading, and test restoration. **Rolling back an app or Docker image does not restore persisted data.**
