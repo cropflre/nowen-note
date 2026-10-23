@@ -17,7 +17,7 @@ const run = () => ({ id: 202, event: "workflow_dispatch", head_branch: options.t
 
 function fixture(settings = {}) {
   let nextId = 10;
-  const release = { tag_name: options.tag, draft: true, assets: [
+  const release = { id: 9, tag_name: options.tag, draft: true, assets: [
     { id: 1, name: "Nowen-Note-1.5.2.apk", size: 3, digest: "sha256:android", updated_at: "2026-10-16T00:00:00Z" },
   ] };
   const state = { release, uploads: [], downloads: [], source: source(), verified: 0, ...settings };
@@ -35,11 +35,17 @@ function fixture(settings = {}) {
       const endpoint = args[1].replace(`repos/${REPO}/`, "");
       if (endpoint === `git/ref/tags/${options.tag}`) return JSON.stringify({ object: { type: "tag", sha: "b".repeat(40) } });
       if (endpoint === `git/tags/${"b".repeat(40)}`) return JSON.stringify({ object: { type: "commit", sha: state.tagSha || options.sha } });
-      if (endpoint === `releases/tags/${options.tag}`) return JSON.stringify(release);
+      // The by-tag REST endpoint only returns published releases.
+      if (endpoint === `releases/tags/${options.tag}`) throw new Error("gh: Not Found (HTTP 404)");
+      if (endpoint === "releases/9") return JSON.stringify(release);
       if (endpoint === "actions/runs/101") return JSON.stringify(state.source);
       if (endpoint === "actions/runs/101/jobs?per_page=100") return JSON.stringify({ jobs });
       if (endpoint === "actions/runs/101/artifacts?per_page=100") return JSON.stringify({ artifacts });
       throw new Error(`unexpected API request: ${endpoint}`);
+    }
+    if (args[0] === "release" && args[1] === "view") {
+      assert.deepEqual(args, ["release", "view", options.tag, "--repo", REPO, "--json", "databaseId"]);
+      return JSON.stringify({ databaseId: 9 });
     }
     if (args[0] === "run" && args[1] === "download") {
       const name = args[args.indexOf("--name") + 1];
@@ -139,6 +145,20 @@ test("all desktop platforms can be collected without local release assets", asyn
   assert.equal(receipt.assets.length, 17);
 });
 
+test("an invalid Release ID or a mismatched tag is rejected before any upload", async () => {
+  for (const databaseId of [undefined, "9", 0]) {
+    const f = fixture();
+    const client = (args) => args[0] === "release" && args[1] === "view"
+      ? JSON.stringify({ databaseId }) : f.client(args);
+    await assert.rejects(collectRelease(options, { ...f, client }), /invalid Release ID/);
+    assert.equal(f.state.uploads.length, 0);
+  }
+  const f = fixture();
+  f.state.release.tag_name = "v1.5.1";
+  await assert.rejects(collectRelease(options, f), /Release tag mismatch/);
+  assert.equal(f.state.uploads.length, 0);
+});
+
 for (const [field, value] of [["event", "workflow_dispatch"], ["head_branch", "main"], ["head_sha", "c".repeat(40)], ["path", ".github/workflows/other.yml"], ["repository", { full_name: "other/repo" }]]) {
   test(`collector rejects source ${field} mismatch before any upload`, async () => {
     const f = fixture({ source: { ...source(), [field]: value } });
@@ -229,7 +249,7 @@ test("local check downloads only the small receipt and rechecks the live asset i
   };
   assert.doesNotThrow(() => checkRelease(options, { client }));
   assert.equal(calls.filter((args) => args[0] === "run").length, 1);
-  assert.equal(calls.filter((args) => args[0] === "api" && args[1].endsWith(`releases/tags/${options.tag}`)).length, 2);
+  assert.equal(calls.filter((args) => args[0] === "api" && args[1].endsWith("releases/9")).length, 2);
   f.state.release.assets[0].size++;
   assert.throws(() => checkRelease(options, { client }), /changed after CI/);
 });

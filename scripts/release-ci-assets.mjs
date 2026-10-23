@@ -33,6 +33,15 @@ function api(client, endpoint) {
   return JSON.parse(client(["api", `repos/${REPO}/${endpoint}`]));
 }
 
+function releaseByTag(client, tag) {
+  // REST's by-tag endpoint excludes Drafts. gh resolves both states via GraphQL.
+  const { databaseId } = JSON.parse(client(["release", "view", tag, "--repo", REPO, "--json", "databaseId"]));
+  assert.ok(Number.isSafeInteger(databaseId) && databaseId > 0, "invalid Release ID");
+  const release = api(client, `releases/${databaseId}`);
+  assert.equal(release.tag_name, tag, "Release tag mismatch");
+  return release;
+}
+
 export function validateOptions(options) {
   assert.match(options.tag, /^v\d+\.\d+\.\d+(?:-[A-Za-z0-9.-]+)?$/, "invalid release tag");
   assert.match(options.sha, /^[a-f0-9]{40}$/, "invalid source SHA");
@@ -123,7 +132,7 @@ export async function collectRelease(options, { client = gh, verify = () => comm
   assert.ok(Number.isSafeInteger(attempt) && attempt > 0, "invalid CI attempt");
   validateRemoteTag(client, options);
   const readRelease = () => {
-    const release = api(client, `releases/tags/${options.tag}`);
+    const release = releaseByTag(client, options.tag);
     assert.equal(release.tag_name, options.tag);
     if (options.desktop || options.windows || options.linux) assert.equal(release.draft, true, "CI only writes an existing Draft Release");
     return release;
@@ -186,7 +195,7 @@ export async function collectRelease(options, { client = gh, verify = () => comm
 export function checkRelease(options, { client = gh } = {}) {
   validateOptions(options);
   validateRemoteTag(client, options);
-  const release = api(client, `releases/tags/${options.tag}`);
+  const release = releaseByTag(client, options.tag);
   const name = `release-verification-${options.requestId}`;
   const artifacts = api(client, `actions/runs/${options.runId}/artifacts?per_page=100`).artifacts.filter((item) => item.name === name && !item.expired);
   assert.equal(artifacts.length, 1, "missing or ambiguous CI verification receipt");
@@ -204,7 +213,7 @@ export function checkRelease(options, { client = gh } = {}) {
     const receipt = JSON.parse(fs.readFileSync(file, "utf8"));
     validateReceipt(receipt, options, release, api(client, `actions/runs/${options.runId}`));
     // Re-read after fetching the receipt, immediately before local publication.
-    assert.deepEqual(assetSnapshot(api(client, `releases/tags/${options.tag}`)), receipt.assets, "Release changed while checking receipt");
+    assert.deepEqual(assetSnapshot(releaseByTag(client, options.tag)), receipt.assets, "Release changed while checking receipt");
   } finally { fs.rmSync(directory, { recursive: true, force: true }); }
 }
 
