@@ -33,20 +33,25 @@
 
 > **Remote NAS connection and sign-in:** Nowen Note supports deployment on **UGREEN NAS (UGOS / UGOS Pro)** and **Feiniu NAS (fnOS)**. After deployment, connect and sign in from the web, desktop, or Android client using a LAN IP address, an IPv6 address, or a public domain secured with HTTPS.
 
-## v1.5.2 highlights · 2026-10-16
+## v1.5.3 highlights · 2026-10-23
 
-**The v1.5.2 code is merged into `main`.** This update focuses on the **file center, AI/MCP integrations, task workflows, reliable sync, and release tooling**. Downloadable builds and supported platforms depend on what is publicly available in [GitHub Releases](https://github.com/cropflre/nowen-note/releases).
+**The v1.5.3 feature code is now on `main`.** As of October 23, 2026, the v1.5.3 GitHub Release is still a **draft**. These are code-level release highlights, **not a claim that all installers are publicly available**. Check [GitHub Releases](https://github.com/cropflre/nowen-note/releases) for the actual published version and assets.
 
 > [!IMPORTANT]
-> Create a full backup and verify persistent database and attachment storage before upgrading, especially on Docker and NAS installations. **Rolling back an app or container image does not roll back your data.**
+> Back up your database, attachments, and deployment configuration before upgrading, and verify you can restore them. **Rolling back an app or Docker image does not restore persisted data.**
 
-- **File center:** Explorer-style folders, masonry view, tags, smart folders, upload progress, batch rename, recycle-bin recovery, personal folder synchronization, and existing-file reuse. AI-assisted metadata organization requires review and confirmation; semantic search works over metadata, with explicit platform and permission limits.
-- **Expanded MCP:** Permission-scoped knowledge-tree and personal task/project workflows, safe file organization, task-to-note snapshots, and preview-confirm writes with revision checks. Includes a native MCP connection dashboard and optional authenticated loopback-only Streamable HTTP transport.
-- **Tasks:** Confirmed AI task generation, today's completed-task summary, task-tree archiving, save-task-details-as-note without deleting the task, and Excel/Markdown exports.
-- **Sync and editing:** Per-note sync receipts, personal folder structure reconciliation and recovery, plain-text notes, Chinese typography actions, and restored reading positions.
-- **Release and deployment:** Release center, artifact verification, optional Caddy HTTPS configuration, and isolated AppX packaging / update handling for Microsoft Store. **Store integration does not mean the app is already listed in the Store.**
+- **Personal App Studio:** A private app library, no-code templates, preview and runnable personal apps. AI can suggest AppSpec drafts and conversational revisions, with review before applying changes and reversible version history. Model prompts must not include personal record values; ownership and resource permissions remain enforced.
+- **Extension Platform V3:** Plugins share an Apps entry point, with gated app execution, dashboards, and resource-scoped inspectors. Package manifests and UI hashes are validated before use. **Third-party applications do not receive unrestricted access to notes or files.**
+- **Notes and images:** Fix nested knowledge-tree dragging (#869), mobile code-block interaction, and slash-menu stability. Add search within favorites, persisted image rotation, the restored All Notes entry, and one-click remote-image localization scoped to personal content.
+- **Security and editing:** Permanently decrypt an encrypted note through **Unlock → Remove encryption → Confirm** (#875). Shareable Markdown image links now retain file extensions for compatibility.
+- **Calendar and automation:** Add mainland China holiday markers (#848), improve Chinese PushPlus task digests and JSON webhook provider verification, and fix digest timezone (#867) and MCP scheduling/reminder issues (#871).
+- **Release workflow:** Strengthen release-center candidate builds, asset verification, approval gates, and multi-platform packaging. **Build pipeline improvements do not imply store availability or completed physical-device acceptance.**
 
-See the [full changelog](./CHANGELOG.md), [download center](https://nowen.cn/#/note/download), and [GitHub Releases](https://github.com/cropflre/nowen-note/releases).
+See the [full changelog](./CHANGELOG.md), [website release notes](https://nowen.cn/#/note/changelog), and [download center](https://nowen.cn/#/note/download).
+
+## Previous stable release · v1.5.2
+
+Released on October 16, 2026, v1.5.2 improved file management, scoped MCP capabilities, AI task workflows, cross-device sync, and deployment tools. Read the [v1.5.2 release notes](https://github.com/cropflre/nowen-note/releases/tag/v1.5.2).
 
 ## Connect AI clients to Nowen Note
 
@@ -85,12 +90,13 @@ The supported source-build launcher uses Node.js 20+ and `packages/nowen-mcp/bin
 | **Import, export, and migration** | Import Markdown, Word/DOCX, web URLs, WeChat articles, SingleFile HTML, SiYuan ZIP archives, Obsidian, Xiaomi Notes, and other supported sources. Export Markdown, PDF, Word, images, or full ZIP packages with permission mapping, conflict preview, reports, controlled rollback, image access preparation, and footnote handling. Team single-note ZIP export resolves the note's real workspace scope. |
 | **Attachments and storage** | Explorer-style file-center navigation, masonry view, folders, tags, smart folders, upload progress, scoped moves/renames, recoverable trash, personal attachment-folder synchronization, inserting existing files, and progress-tracked external-image migration. [AI-assisted organization and semantic search](./docs/user/file-ai-organization.md) use file metadata, preview-confirmation and access checks rather than file bytes, with platform limitations. Storage backends include local disk, S3, R2, and MinIO. See [organization](./docs/user/file-asset-organization.md), [recycle bin](./docs/user/file-recycle-bin.md), and [folder sync](./docs/user/file-folder-sync.md). |
 | **Accounts and security** | Multiple-account history, remembered accounts, auto-login, remote server connections, session validation and revocation, 2FA, scoped Personal API Tokens, audit logs, protected attachment access, and concealment of restricted-resource existence. |
+| **Personal apps and Extension V3** | Private app library, no-code AppSpec templates and preview, reviewed AI drafts, and reversible revisions. Unified plugin management includes gated V3 application runtime, dashboards, resource-scoped inspectors, and validated packages. Capabilities remain subject to authorization and platform constraints. |
 | **Backups, automation, and developer APIs** | Full and scheduled local backups, ZIP verification, email and encrypted WebDAV backups, managed Docker update checks, webhooks, signed/scoped plugins, OpenAPI, TypeScript SDK, CLI, and browser clipper. The [MCP Server](./docs/tutorials/mcp.en.md) supports permission-scoped notes, knowledge-tree, personal task/project and file tools plus opt-in local HTTP transport; sensitive changes require explicit preview-confirm flows. |
 | **Cross-platform access** | Web, Electron for Windows/macOS/Linux, Android, iOS project, HarmonyOS project, and Docker/NAS deployment. UGREEN UGOS and Feiniu fnOS are supported, and clients can connect through IPv4, IPv6, or a domain name. Android includes in-app gesture image preview and native task notifications. |
 
-## Previous release · v1.5.1
+## Earlier releases
 
-v1.5.1 improved **task reminders and digests, AI-driven task actions, Android sync and sign-in, rich-text editing, and encrypted-content safeguards**. See the [v1.5.1 release notes](https://github.com/cropflre/nowen-note/releases/tag/v1.5.1), or the [changelog](./CHANGELOG.md) for earlier versions.
+See the [v1.5.1 release notes](https://github.com/cropflre/nowen-note/releases/tag/v1.5.1) for task reminders, AI actions, Android sync, and encrypted-note safeguards, or the [full changelog](./CHANGELOG.md) for historical updates.
 
 ## Screenshots
 
