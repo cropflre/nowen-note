@@ -5,9 +5,12 @@ on:
     paths:
       - 'backend/src/routes/task-digest.ts'
       - 'backend/src/services/webhook.ts'
+      - 'backend/src/services/pushPlusDigest.ts'
       - 'backend/src/plugins/hostApiBroker.ts'
       - 'backend/src/middleware/api-token-resource-scope.ts'
       - 'backend/tests/task-digest.test.ts'
+      - 'backend/tests/task-digest-timestamp.test.ts'
+      - 'backend/tests/pushplus-task-digest.test.ts'
       - 'backend/tests/api-token-resource-scope.test.ts'
       - 'packages/nowen-mcp/**'
       - 'frontend/src/components/automation/**'
@@ -21,9 +24,12 @@ on:
     paths:
       - 'backend/src/routes/task-digest.ts'
       - 'backend/src/services/webhook.ts'
+      - 'backend/src/services/pushPlusDigest.ts'
       - 'backend/src/plugins/hostApiBroker.ts'
       - 'backend/src/middleware/api-token-resource-scope.ts'
       - 'backend/tests/task-digest.test.ts'
+      - 'backend/tests/task-digest-timestamp.test.ts'
+      - 'backend/tests/pushplus-task-digest.test.ts'
       - 'backend/tests/api-token-resource-scope.test.ts'
       - 'packages/nowen-mcp/**'
       - 'frontend/src/components/automation/**'
@@ -53,7 +59,7 @@ jobs:
         run: npx tsc --noEmit
       - name: Task digest and API token regression
         working-directory: backend
-        run: npx tsx --test tests/task-digest.test.ts tests/api-token-resource-scope.test.ts
+        run: npx tsx --test tests/task-digest.test.ts tests/task-digest-timestamp.test.ts tests/pushplus-task-digest.test.ts tests/api-token-resource-scope.test.ts
 
   frontend:
     runs-on: ubuntu-latest

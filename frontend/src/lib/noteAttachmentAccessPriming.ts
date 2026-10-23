@@ -2,7 +2,7 @@ import { registerAttachmentAccessUrls } from "@/lib/noteAttachmentAccessBridge";
 import { fetchWithAuthRefresh } from "./authSession";
 import { getOfflineQueueStorageKey } from "./offlineScope";
 
-const PERSISTED_ATTACHMENT_REF_RE = /\/api\/attachments\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?:[?"'\\)\s]|$)/i;
+const PERSISTED_ATTACHMENT_REF_RE = /\/api\/attachments\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?:\/image\.(?:jpg|png|gif|webp|avif|bmp|svg|tiff|ico|heic|heif))?(?:[?"'\\)\s]|$)/i;
 const DEFAULT_PRIME_TIMEOUT_MS = 4_000;
 const primingInFlight = new Map<string, Promise<number>>();
 

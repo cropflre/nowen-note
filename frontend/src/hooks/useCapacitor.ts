@@ -70,8 +70,6 @@ export function useBackButton({
   stateRef.current = { mobileView, mobileSidebarOpen, onBackToList, onCloseSidebar };
 
   useEffect(() => {
-    // HarmonyOS: back button handled by ArkTS WebViewPage.onBackPress()
-    if (isHarmonyWebView()) return;
     if (!isNativePlatform()) return;
 
     const handler = CapApp.addListener("backButton", () => {
@@ -125,11 +123,6 @@ export function hideSplashScreen() {
  */
 export function useStatusBarSync() {
   useEffect(() => {
-    // HarmonyOS: only set data-native, skip Capacitor plugins
-    if (isHarmonyWebView()) {
-      document.documentElement.setAttribute("data-native", "harmony");
-      return;
-    }
     if (!isNativePlatform()) return;
 
     // 标注当前原生平台：CSS 里根据 html[data-native="android"] 切换 --safe-area-top
@@ -243,8 +236,6 @@ export function useStatusBarSync() {
  */
 export function useKeyboardLayout() {
   useEffect(() => {
-    // HarmonyOS: keyboard handled by ArkTS layer
-    if (isHarmonyWebView()) return;
     if (!isNativePlatform()) return;
 
     // 键盘弹出策略（重要 —— 别再回退到旧版做法）

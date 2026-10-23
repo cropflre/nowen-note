@@ -376,6 +376,22 @@ async function assertPersonalTaskLinks(body: Record<string, unknown>, request: R
   }
 }
 
+async function handlePersonalReminderRequest(request: Request, url: URL): Promise<Response> {
+  const match = /^\/api\/task-reminders\/([^/]+)$/.exec(url.pathname);
+  if (!match || !["GET", "POST"].includes(request.method.toUpperCase())
+    || ["overview", "schedule", "recent", "test-now"].includes(match[1])) {
+    throw new ScopeDeniedError("MCP 仅允许读取或创建个人任务提醒");
+  }
+  const task = await originalFetch(new Request(new URL(`/api/tasks/${match[1]}`, baseUrl), {
+    headers: requestAuthHeaders(request),
+  }));
+  const record = task.ok ? await readJsonResponse(task) : null;
+  if (!record || record.workspaceId != null) {
+    throw new ScopeDeniedError("任务不存在、无权限或不属于个人空间");
+  }
+  return originalFetch(request);
+}
+
 async function handlePersonalTaskRequest(request: Request, url: URL): Promise<Response> {
   const method = request.method.toUpperCase();
   const resource = url.pathname.slice('/api/tasks'.length);
@@ -627,6 +643,9 @@ async function scopedFetch(input: string | URL | Request, init?: RequestInit): P
     }
     if (url.pathname === "/api/tasks" || url.pathname.startsWith("/api/tasks/")) {
       return await handlePersonalTaskRequest(request, url);
+    }
+    if (url.pathname.startsWith("/api/task-reminders/")) {
+      return await handlePersonalReminderRequest(request, url);
     }
     if (url.pathname === "/api/task-projects" || url.pathname.startsWith("/api/task-projects/")) {
       return await handlePersonalProjectRequest(request, url);

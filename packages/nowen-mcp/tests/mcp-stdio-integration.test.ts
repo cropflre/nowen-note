@@ -12,6 +12,91 @@ type TextResult = { content?: Array<{ type: string; text?: string }>; isError?: 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const entry = path.resolve(here, "../dist/scoped-entry.js");
 
+test("task tools preserve wall times, label UTC metadata and create scoped reminders", async () => {
+  const writes: Array<{ path: string; body: any }> = [];
+  const backend = createServer(async (req, res) => {
+    const url = new URL(req.url || "/", "http://127.0.0.1");
+    const chunks: Buffer[] = [];
+    for await (const chunk of req) chunks.push(Buffer.from(chunk));
+    const raw = Buffer.concat(chunks).toString("utf8");
+    const body = raw ? JSON.parse(raw) : {};
+    res.setHeader("Content-Type", "application/json");
+    const reply = (value: unknown) => res.end(JSON.stringify(value));
+    if (req.method !== "GET") writes.push({ path: url.pathname, body });
+    if (url.pathname === "/api/notes/n-871") return reply({
+      id: "n-871", notebookId: "root", title: "Time", contentFormat: "markdown",
+      contentText: "2026-10-20 01:30:00", createdAt: "2026-10-20 01:30:00", updatedAt: "2026-10-20T09:30:00+08:00",
+    });
+    if (url.pathname === "/api/task-reminders/task-1") return reply([{ id: "reminder-1", ...body }]);
+    if (url.pathname.startsWith("/api/tasks")) return reply({
+      id: "task-1", workspaceId: url.pathname.endsWith("team") ? "ws-1" : null,
+      createdAt: "2026-10-20 01:30:00", updatedAt: "2026-10-20 01:30:00",
+      dueDate: "2026-10-21", dueAt: "2026-10-21T09:30", ...body,
+    });
+    res.statusCode = 404;
+    reply({ error: "unsupported" });
+  });
+  backend.listen(0, "127.0.0.1");
+  await once(backend, "listening");
+  const address = backend.address();
+  assert.ok(address && typeof address !== "string");
+  try {
+    for (const mode of ["read-write", "read-only"]) {
+      const client = new Client({ name: "issue-871", version: "1" }, { capabilities: {} });
+      const transport = new StdioClientTransport({ command: process.execPath, args: [entry], env: {
+        ...process.env, NOWEN_URL: `http://127.0.0.1:${address.port}`,
+        NOWEN_API_TOKEN: "nkn_test", ALLOWED_NOTEBOOK_IDS: "root", MCP_ACCESS_MODE: mode,
+      } as Record<string, string> });
+      try {
+        await client.connect(transport);
+        const names = (await client.listTools()).tools.map(tool => tool.name);
+        assert.ok(names.includes("nowen_create_task_reminder"));
+        assert.ok(names.includes("nowen_list_task_reminders"));
+        const read = await client.callTool({ name: "nowen_get_task", arguments: { taskId: "task-1" } });
+        const task = JSON.parse(resultText(read));
+        assert.equal(task.createdAt, "2026-10-20T01:30:00Z");
+        assert.equal(task.dueAt, "2026-10-21T09:30");
+        assert.equal(new Date(task.createdAt).toLocaleString("sv-SE", { timeZone: "Asia/Shanghai" }), "2026-10-20 09:30:00");
+        const noteResult = await client.callTool({ name: "nowen_read_note", arguments: { noteId: "n-871" } });
+        assert.ok(!noteResult.isError, resultText(noteResult));
+        const note = JSON.parse(resultText(noteResult));
+        assert.equal(note.createdAt, "2026-10-20T01:30:00Z");
+        assert.equal(note.updatedAt, "2026-10-20T09:30:00+08:00");
+        assert.equal(note.contentText, "2026-10-20 01:30:00");
+        const count = writes.length;
+        for (const name of ["nowen_create_task", "nowen_create_subtask", "nowen_update_task"]) {
+          const result = await client.callTool({ name, arguments: {
+            title: "Meeting", taskId: "task-1", parentTaskId: "task-1",
+            dueDate: "2026-10-21", dueAt: "2026-10-21T09:30",
+          } });
+          if (mode === "read-only") assert.equal(result.isError, true);
+          else {
+            assert.ok(!result.isError, resultText(result));
+            assert.equal(writes.at(-1)?.body.dueAt, "2026-10-21T09:30");
+          }
+        }
+        const reminderArgs = { taskId: "task-1", offsetMinutes: 30, timezoneOffsetMinutes: -480 };
+        const created = await client.callTool({ name: "nowen_create_task_reminder", arguments: reminderArgs });
+        if (mode === "read-only") {
+          assert.equal(created.isError, true);
+          assert.equal(writes.length, count);
+        } else {
+          assert.ok(!created.isError, resultText(created));
+          assert.deepEqual(writes.at(-1), { path: "/api/task-reminders/task-1", body: {
+            offsetMinutes: 30, timezoneOffsetMinutes: -480,
+          } });
+        }
+        const listed = await client.callTool({ name: "nowen_list_task_reminders", arguments: { taskId: "task-1" } });
+        assert.ok(!listed.isError, resultText(listed));
+        const team = await client.callTool({ name: "nowen_create_task_reminder", arguments: { ...reminderArgs, taskId: "team" } });
+        assert.equal(team.isError, true);
+        const invalid = await client.callTool({ name: "nowen_create_task_reminder", arguments: { ...reminderArgs, timezoneOffsetMinutes: 9999 } });
+        assert.equal(invalid.isError, true);
+      } finally { await client.close(); }
+    }
+  } finally { await new Promise<void>(resolve => backend.close(() => resolve())); }
+});
+
 function resultText(value: TextResult): string {
   return value.content?.map((item) => item.text || "").join("\n") || "";
 }

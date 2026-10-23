@@ -1,158 +1,92 @@
-﻿# Nowen Note - HarmonyOS App
+# Nowen Note · HarmonyOS
 
-鸿蒙版 Nowen Note，基于 ArkTS + ArkWeb (WebView) 实现。
+鸿蒙版直接打包安卓使用的 React 前端，首页、导航、笔记列表、编辑器、任务、设置和登录入口共用业务代码。
+ArkWeb 从应用内的 `https://localhost/` 加载资源，无需服务器也能进入“仅此设备”模式。
 
-## 架构方案
+## 架构与数据边界
 
-**方案：ArkWeb WebView 壳应用 + 渐进式原生化**
+- `scripts/build-harmony-web.mjs` 构建共用前端并复制到被 Git 忽略的 `entry/src/main/resources/rawfile/web/`。
+- `runtime/harmony-runtime.js` 在业务代码之前注册 Harmony 原生平台和 Capacitor 插件适配。平台标识保持 `harmony`。
+- `NativeDatabase.ets` 将共用 `NativeDatabase` / `NativeLocalRepository` 的 SQL 映射到 Harmony RDB；沿用账号哈希、数据库迁移、事务、Outbox 和同步引擎。
+- `NativeFiles.ets` 提供应用私有目录内的附件读写、分块校验和重命名；`WebAssets.ets` 提供内置资源和本地附件 URL。
+- `NativeHost.ets` 提供原生 HTTP、系统 Asset Store 安全存储、网络、状态栏和外部浏览器。SQLite 操作串行，慢网络请求不会占用本地数据库队列。
+- `WebViewPage.ets` 接入共享返回键逻辑、键盘、安全区、网络变化和系统文件选择器。原生代理只授权内置 HTTPS origin，阻止主页面跳转到其他来源。
 
-复用现有 React/Vite/Web 前端，通过鸿蒙 ArkWeb 加载已部署的 nowen-note 服务端。
-原生层负责：服务端地址配置、返回键处理、桥接通信、文件选择。
+业务数据和 Outbox 在同一事务内提交，失败时共同回滚。仅此设备模式不发送同步请求；本地保存成功不表示服务器已确认。
+安全存储仅在 Harmony 构建中替换第三方 Web 实现，凭据写入系统 Asset Store，失败时不会退回明文 localStorage。
+原有服务器配置页和偏好保留用于旧版兼容，新的服务器绑定和登录入口使用共用前端。升级不会清空旧来源的 Web 存储或迁移其中的凭据。
 
-## 项目结构
+## 构建
 
-```
-nowen-harmony/
-├── AppScope/                       # 应用级配置（DevEco 必需）
-│   ├── app.json5                   # 应用 bundleName / 版本
-│   └── resources/
-├── entry/
-│   ├── build-profile.json5
-│   ├── hvigorfile.ts
-│   ├── oh-package.json5
-│   └── src/main/
-│       ├── module.json5            # 模块配置 + 权限（INTERNET）
-│       ├── ets/
-│       │   ├── entryability/
-│       │   │   └── EntryAbility.ets    # 应用入口，初始化存储，窗口管理
-│       │   ├── pages/
-│       │   │   ├── Index.ets           # 路由分发（有配置→WebView，无→配置页）
-│       │   │   ├── ServerConfigPage.ets # 服务端地址配置（协议选择+地址+health校验）
-│       │   │   └── WebViewPage.ets     # ArkWeb 主页面（核心，11.6KB）
-│       │   ├── bridge/
-│       │   │   ├── JsBridge.ets        # ArkTS ↔ WebView 双向通信协议
-│       │   │   └── FilePicker.ets      # 原生文件/图片选择器（阶段3完善）
-│       │   ├── services/
-│       │   │   ├── PreferenceStore.ets # @ohos.data.preferences 持久化存储
-│       │   │   ├── HealthChecker.ets   # @ohos.net.http 连通性校验
-│       │   │   └── NetworkMonitor.ets  # 网络状态检测
-│       │   └── utils/
-│       │       ├── Constants.ets       # 全局常量
-│       │       └── UrlValidator.ets    # URL 校验/规范化
-│       └── resources/                  # 图标、字符串、颜色、路由配置
-├── build-profile.json5             # 项目构建配置
-├── hvigor-config.json5            # 构建工具配置
-├── hvigorfile.ts                  # 构建入口
-├── oh-package.json5               # 依赖配置
-├── .gitignore
-└── README.md
+需安装前端依赖、DevEco Studio 和 HarmonyOS SDK，并完成首次运行协议确认。
+以下命令在仓库根目录执行，默认 DevEco 安装在 `/Applications/DevEco-Studio.app`：
+
+```bash
+npm run build:harmony:web
+cd nowen-harmony
+env NODE_HOME=/Applications/DevEco-Studio.app/Contents/tools/node \
+  JAVA_HOME=/Applications/DevEco-Studio.app/Contents/jbr/Contents/Home \
+  DEVECO_SDK_HOME=/Applications/DevEco-Studio.app/Contents/sdk \
+  /Applications/DevEco-Studio.app/Contents/tools/hvigor/bin/hvigorw \
+  --mode module -p product=default -p module=entry@default \
+  -p buildMode=debug assembleHap --no-daemon
 ```
 
-## 功能清单
+未配置签名时输出 `entry/build/default/outputs/default/entry-default-unsigned.hap`。
+每次更新前端后都必须重新执行 `build:harmony:web` 再构建 HAP。
+也可在 DevEco 中打开 `nowen-harmony/`、同步项目并运行。
 
-### P0 - MVP（✅ 已完成）
-- [x] AppScope 完整配置（app.json5、图标、字符串）
-- [x] 服务端地址配置页（协议切换 + 地址输入 + `/api/health` 校验）
-- [x] ArkWeb 加载 Web 前端（domStorage、database、JS、mixedMode 全启用）
-- [x] 返回键分层处理（WebView 后退 → 双击退出）
-- [x] 菜单：刷新页面 / 重新配置服务器 / 显示当前服务器
-- [x] 错误页（加载失败 → 重新加载 / 重新配置）
-- [x] JsBridge 双向通信（postMessage / _dispatch / on / off）
-- [x] PreferenceStore 持久化（替代 localStorage）
-- [x] HealthChecker（@ohos.net.http，带超时和错误处理）
-- [x] NetworkMonitor（@ohos.net.connection）
-- [x] 前端鸿蒙检测（isHarmonyOS / data-native="harmony"）
-- [x] CSS safe-area 适配（--safe-area-top/bottom）
-- [x] Capacitor 插件 HarmonyOS 跳过逻辑
+`agconnect-services.json` 是服务配置，不能替代签名证书和 Provision Profile。
+真机安装和发布需要单独配置签名；模拟器安装成功不代表真机或发布验收通过。
 
-### P1 - 核心体验（待实现）
-- [ ] 原生文件选择器桥接（FilePicker → WebView input[type=file]）
-- [ ] 深色模式跟随系统（Configuration.onConfigurationUpdate）
-- [ ] 启动页配置
-- [ ] 正式 PNG 应用图标（替换 SVG 占位）
+## 模拟器
 
-### P2 - 增强能力（待实现）
-- [ ] 网络状态变化 → JsBridge 通知 WebView
-- [ ] 分享到 nowen-note
-- [ ] 推送通知
+已使用 DevEco Studio 26.0.0.851、HarmonyOS 6.1.1 / API 24 ARM64 手机镜像构建调试。
+通过 Device Manager 下载镜像并创建设备后，可使用官方 CLI 启动：
 
-## 开发环境
-
-- DevEco Studio 5.0+
-- HarmonyOS SDK API 12+
-- 真机（推荐）或模拟器
-
-## 如何运行
-
-1. 用 DevEco Studio 打开 `nowen-harmony/` 目录
-2. File → Sync and Refresh Project
-3. 连接真机（需要开启开发者模式 + USB调试）
-4. 点击 Run ▶
-
-## JsBridge 通信协议
-
-### 前端 → ArkTS
-```javascript
-window.__harmonyBridge__.postMessage('eventName', { key: value });
-// 底层：console.log('[HARMONY_BRIDGE]JSON')，ArkTS 在 onConsole 中拦截
+```bash
+/Applications/DevEco-Studio.app/Contents/tools/emulator/Emulator \
+  -start NowenNote_API24 \
+  -instancePath "$HOME/.Huawei/Emulator/deployed" \
+  -imageRoot "$HOME/Library/Huawei/Sdk"
 ```
 
-### ArkTS → 前端
-```javascript
-window.__harmonyBridge__._dispatch('eventName', data);
-// ArkTS 通过 webviewController.runJavaScript() 调用
+设备名和路径按本机配置替换。首次启动需要完成系统输入法设置。安装和启动：
+
+```bash
+/Applications/DevEco-Studio.app/Contents/sdk/default/openharmony/toolchains/hdc \
+  -t 127.0.0.1:5555 install nowen-harmony/entry/build/default/outputs/default/entry-default-unsigned.hap
+/Applications/DevEco-Studio.app/Contents/sdk/default/openharmony/toolchains/hdc \
+  -t 127.0.0.1:5555 shell aa start -a EntryAbility -b com.nowen.note
 ```
 
-### 便捷 API
-```javascript
-// 获取网络状态
-const type = await window.__harmonyBridge__.getNetworkType(); // 'wifi' | 'cellular' | 'none'
+## 回归验证
 
-// 选择文件
-const file = await window.__harmonyBridge__.pickFile({ accept: 'image/*' });
-
-// 清除配置
-window.__harmonyBridge__.clearServerConfig();
-
-// 监听原生事件
-window.__harmonyBridge__.on('networkChange', (data) => { ... });
-window.__harmonyBridge__.on('darkModeChange', (data) => { ... });
+```bash
+npm run test:harmony
+node scripts/data-consistency-contract.mjs --verify
+# 先构建内置前端并启动模拟器，再运行：
+npm run test:harmony:emulator
 ```
 
-### 环境检测
-```typescript
-// React/TypeScript
-import { isHarmonyOS } from '@/hooks/useCapacitor';
-if (isHarmonyOS()) { /* 鸿蒙特定逻辑 */ }
+`test:harmony` 执行真实 ArkTS 适配器的 SQLite 持久化、事务回滚、账号隔离、桥接回调、附件分块和启动顺序测试。
+前端 `harmonyNativeAdapters.test.ts` 将同一适配器测试纳入 DCC-002/003/006/009；
+`harmonySecureStorage.test.ts` 检查安全存储桥、作用域隔离及失败不降级。
 
-// CSS
-html[data-native="harmony"] { /* 鸿蒙特定样式 */ }
+模拟器测试临时打包测试页面，直接调用共用 Repository、附件存储和安全存储，在隔离测试账号中写入中文笔记及 500KB 附件，
+强制停止并重启应用后核对内容、Outbox、事务失败回滚和账号隔离。测试结束（包括失败）恢复正常应用入口、移除测试页面并重新构建安装。
+不会清空用户账号、数据库或待同步数据。可通过 `HDC_TARGET` 和 `DEVECO_STUDIO_HOME` 覆盖设备标识及 DevEco Contents 路径。
 
-// 原生 JS
-if (window.__harmonyBridge__?.isHarmonyOS) { ... }
-```
+2026-10-17：上述模拟器数据测试通过；正常界面也完成新建富文本笔记、中文标题/正文输入、显示“已保存到本机”、强制重启后列表及正文恢复验证。
+临时界面测试笔记已移到回收站，正常应用入口已恢复。此结果不包含服务器往返或真机验收。
 
-## 前端改动说明
+## 尚需验收
 
-### `frontend/src/hooks/useCapacitor.ts`
-| 改动 | 说明 |
-|------|------|
-| `isHarmonyWebView()` | 检测 UA "HarmonyOS" 或 `window.__HARMONY__` |
-| `isHarmonyOS()` | 导出给业务层 |
-| data-native="harmony" | 模块加载时自动设置 |
-| useStatusBarSync | HarmonyOS 跳过 Capacitor StatusBar 调用 |
-| useBackButton | HarmonyOS 跳过（返回键由 ArkTS 处理） |
-| useKeyboardLayout | HarmonyOS 跳过（键盘由 ArkTS 管理） |
+华为应用市场上架材料和当前缺项见 [上架准备记录](distribution/release-readiness.md) 与[文案草稿](distribution/store-listing.zh-CN.md)。
 
-### `frontend/src/index.css`
-| 改动 | 说明 |
-|------|------|
-| `html[data-native="harmony"]` | safe-area 变量：top 32px, bottom 16px |
+共用前端并不意味着每个 Android 插件已经移植。以下能力不能据此视为完成：
 
-## 已知限制
-
-1. **应用图标**：当前是 SVG 占位，需替换为 PNG（108x108, 1024x1024）
-2. **文件上传**：`<input type="file">` 在 ArkWeb 的兼容性需真机验证
-3. **中文输入法**：Tiptap contenteditable 在鸿蒙 IME 下的光标行为需测试
-4. **启动页**：需在 DevEco 中配置 startWindow 相关资源
-5. **签名配置**：release 构建需要配置签名证书
+- 实际服务器登录、Sync V2 双设备往返与故障恢复，需要可用服务器和测试账号验证。
+- 中文输入法下的光标/候选词、文件选择和取消、大附件/视频播放需真机交互验收。
+- Android 专有的相册导出、HEIC 转码、媒体缓存、指纹快捷登录、分享接收和推送需要对应 Harmony 原生实现。
+- 当前 HAP 未签名；尚未完成真机签名安装、商店审核或发布。

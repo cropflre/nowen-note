@@ -163,7 +163,7 @@ function dispatchTaskDeadlines(setting: DigestSettings, local: { day: string; ti
       .run(setting.userId, task.id, task.dueAt);
     if (!result.changes) continue;
     void emitWebhook("task.due", setting.userId, {
-      taskId: task.id, title: task.title, dueAt: task.dueAt, date: local.day, time: local.time,
+      taskId: task.id, title: task.title, dueAt: task.dueAt, date: local.day, time: local.time, timezone: setting.timezone,
     });
     count++;
   }

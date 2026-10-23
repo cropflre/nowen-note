@@ -9,6 +9,8 @@ import { getSlashEditorId } from "./extensions/SlashCommandExtension";
 import { addBlockBelow, convertBlock, copyBlock, cutBlock, deleteBlock, pasteBlock, type AddBelowType, type BlockTarget } from "./blockMenuActions";
 import { toast } from "@/lib/toast";
 
+const dragHandlePosition = { placement: "left-start" as const };
+
 const targets: { key: string; target: BlockTarget; insert: AddBelowType }[] = [
   { key: "paragraph", target: { type: "paragraph" }, insert: "paragraph" },
   ...([1, 2, 3, 4, 5, 6] as const).map((level) => ({ key: `heading${level}`, target: { type: "heading" as const, level }, insert: `heading${level}` as AddBelowType })),
@@ -80,7 +82,7 @@ export default function RichTextBlockControls({ editor, editable, isMobile }: { 
   return <>
     {!isMobile && <>
       <ColumnToolbar editor={editor} editable={editable} />
-      <DragHandle editor={editor} className="tiptap-drag-handle" computePositionConfig={{ placement: "left-start" }} nested={{ edgeDetection: "none" }} onNodeChange={({ node, pos }) => {
+      <DragHandle editor={editor} className="tiptap-drag-handle" computePositionConfig={dragHandlePosition} nested={{ edgeDetection: "none" }} onNodeChange={({ node, pos }) => {
         hovered.current = node && pos >= 0 ? { pos, leaf: node.isLeaf } : null;
       }}>
         <button type="button" className="tiptap-drag-handle__grip" aria-label={t("slash.blockMenu")} onClick={(event) => {

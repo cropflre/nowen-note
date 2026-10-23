@@ -58,20 +58,14 @@ async function authenticatedJson<T>(path: string, init?: RequestInit): Promise<T
 }
 
 const ROOT = "/attachments/remote-image-localization";
-let confirmedSnapshot: RemoteImageLocalizationScan["snapshot"] | null = null;
 
 export const remoteImageLocalizationApi = {
   async scan(scope: RemoteImageLocalizationScope): Promise<RemoteImageLocalizationScan> {
     const result = await authenticatedJson<RemoteImageLocalizationScan>(`${ROOT}/scan`, { method: "POST", body: JSON.stringify(scope) });
-    confirmedSnapshot = result.snapshot;
     return result;
   },
   createJob(scope: RemoteImageLocalizationScope): Promise<RemoteImageLocalizationJob> {
-    const requestScope = confirmedSnapshot?.noteIds.length
-      ? { noteIds: confirmedSnapshot.noteIds, expectedVersions: confirmedSnapshot.expectedVersions }
-      : scope;
-    confirmedSnapshot = null;
-    return authenticatedJson(`${ROOT}/jobs`, { method: "POST", body: JSON.stringify(requestScope) });
+    return authenticatedJson(`${ROOT}/jobs`, { method: "POST", body: JSON.stringify(scope) });
   },
   getJob(jobId: string): Promise<RemoteImageLocalizationJob> { return authenticatedJson(`${ROOT}/jobs/${encodeURIComponent(jobId)}`); },
   listJobs(limit = 20): Promise<{ jobs: RemoteImageLocalizationJob[] }> { return authenticatedJson(`${ROOT}/jobs?limit=${encodeURIComponent(String(limit))}`); },

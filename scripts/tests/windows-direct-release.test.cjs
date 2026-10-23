@@ -29,9 +29,9 @@ test("Release CI does not require a third-party signing service", () => {
   assert.match(yml, /Nowen-Note-Lite-\$version-setup\.exe\.blockmap/);
   assert.match(yml, /latest-lite\.yml/);
   assert.match(yml, /--publish never/g);
-  assert.match(guard, /collect_ci_direct_windows_assets/);
+  assert.match(guard, /-f mode=release-assets/);
   assert.match(guard, /gh release edit "\$TAG".*--draft=true/);
-  assert.match(guard, /node "\$VERIFY_SCRIPT" remote/);
+  assert.match(guard, /node "\$CI_ASSETS_SCRIPT" check/);
 });
 
 test("Deprecated signer support files are removed rather than left active", () => {

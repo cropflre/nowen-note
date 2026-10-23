@@ -1,0 +1,135 @@
+{
+  "sourceEvidence": {
+    "schema": 1,
+    "purpose": "candidate-build-only",
+    "releaseEligible": false,
+    "signed": false,
+    "approved": false,
+    "source": {
+      "repository": "cropflre/nowen-note",
+      "sha": "6283de3791a4e02975a37b6c72b1f63c35d7a7e1",
+      "version": "1.5.3",
+      "requestId": "ea064266-0713-4795-8489-1c2811ad8810",
+      "runId": 39188437154,
+      "runAttempt": 1,
+      "platform": "linux"
+    },
+    "updaterVerification": [
+      "latest-linux.yml"
+    ],
+    "files": [
+      {
+        "name": "Nowen-Note-1.5.3-amd64.deb",
+        "architecture": "x64",
+        "size": 110292728,
+        "sha256": "77b35d3039bcdb43f27b6cc7e015af1c294b3128838399fd3943525a5bbcb5c5",
+        "updaterMetadata": false
+      },
+      {
+        "name": "Nowen-Note-1.5.3-x86_64.AppImage",
+        "architecture": "x64",
+        "size": 163983913,
+        "sha256": "722aa22b9c7ca57e4472f54f1bbb97c834474a3ab253dc38b8711edf29d8402f",
+        "updaterMetadata": false
+      },
+      {
+        "name": "latest-linux.yml",
+        "architecture": "metadata",
+        "size": 543,
+        "sha256": "cbbc54bff9abce433404431fa81f10a4e8647b1ba3b48a624aa5a326df1235b6",
+        "updaterMetadata": true
+      }
+    ],
+    "filesDigest": "sha256:adc14d9e6f2556f65774f021526f769db5ba9b32bc7770c154a66005580f3408"
+  },
+  "archiveVerification": [
+    {
+      "id": 12159003599,
+      "name": "rc-candidate-ea064266-0713-4795-8489-1c2811ad8810-linux",
+      "digest": "sha256:04bfe5ccdea3d85748feebe7051a93d6beb537a11c0e63ec3af9003e0ad75240",
+      "size": 273707863
+    },
+    {
+      "id": 12158878890,
+      "name": "rc-candidate-evidence-ea064266-0713-4795-8489-1c2811ad8810-linux",
+      "digest": "sha256:db7963753b8b5e8ea38cbcb896abb2d70ddea566ea013a7df43ddcc8a6eb8ef3",
+      "size": 752
+    }
+  ],
+  "contentVerification": {
+    "platform": "linux",
+    "source": {
+      "repository": "cropflre/nowen-note",
+      "sha": "6283de3791a4e02975a37b6c72b1f63c35d7a7e1",
+      "version": "1.5.3",
+      "requestId": "ea064266-0713-4795-8489-1c2811ad8810",
+      "runId": 39188437154,
+      "runAttempt": 1,
+      "platform": "linux"
+    },
+    "files": [
+      {
+        "name": "Nowen-Note-1.5.3-amd64.deb",
+        "size": 110292728,
+        "sha256": "77b35d3039bcdb43f27b6cc7e015af1c294b3128838399fd3943525a5bbcb5c5",
+        "architecture": "x64",
+        "updaterMetadata": false
+      },
+      {
+        "name": "Nowen-Note-1.5.3-x86_64.AppImage",
+        "size": 163983913,
+        "sha256": "722aa22b9c7ca57e4472f54f1bbb97c834474a3ab253dc38b8711edf29d8402f",
+        "architecture": "x64",
+        "updaterMetadata": false
+      },
+      {
+        "name": "latest-linux.yml",
+        "size": 543,
+        "sha256": "cbbc54bff9abce433404431fa81f10a4e8647b1ba3b48a624aa5a326df1235b6",
+        "architecture": "metadata",
+        "updaterMetadata": true
+      }
+    ],
+    "updaterVerification": [
+      "latest-linux.yml"
+    ],
+    "verified": true
+  },
+  "nativePackageInspection": {
+    "appImage": {
+      "path": "Nowen-Note-1.5.3-x86_64.AppImage",
+      "format": "ELF64",
+      "architecture": "x64"
+    },
+    "desktopEntry": {
+      "path": "./usr/share/applications/nowen-note.desktop",
+      "content": "[Desktop Entry]\nName=Nowen Note\nExec=\"/opt/Nowen Note/nowen-note\" %U\nTerminal=false\nType=Application\nIcon=nowen-note\nStartupWMClass=Nowen Note\nKeywords=note;markdown;editor;nowen;\nComment=Nowen Note — 一个现代化的笔记应用，支持 Markdown、全文搜索、跨设备局域网同步。\nMimeType=text/markdown;text/plain;\nCategories=Office;\n"
+    },
+    "sharp": {
+      "path": "./opt/Nowen Note/resources/backend/node_modules/@img/sharp-linux-x64/lib/sharp-linux-x64.node",
+      "size": 269472,
+      "format": "ELF64",
+      "architecture": "x64"
+    },
+    "libvips": {
+      "path": "./opt/Nowen Note/resources/backend/node_modules/@img/sharp-libvips-linux-x64/lib/libvips-cpp.so.42",
+      "size": 16227056,
+      "format": "ELF64",
+      "architecture": "x64"
+    },
+    "sqlite": {
+      "path": "./opt/Nowen Note/resources/backend/node_modules/better-sqlite3/build/Release/obj.target/better_sqlite3.node",
+      "size": 2072960,
+      "format": "ELF64",
+      "architecture": "x64",
+      "electronAbi": [
+        130
+      ]
+    },
+    "sqliteLink": {
+      "path": "./opt/Nowen Note/resources/backend/node_modules/better-sqlite3/build/Release/better_sqlite3.node",
+      "target": "./opt/Nowen Note/resources/backend/node_modules/better-sqlite3/build/Release/obj.target/better_sqlite3.node"
+    },
+    "backendVersion": "1.5.3"
+  }
+}

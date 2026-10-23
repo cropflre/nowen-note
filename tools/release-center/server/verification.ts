@@ -21,6 +21,7 @@ export interface ArtifactContext {
   sha: string;
   version: string;
   platform: Platform;
+  purpose?: "formal-import";
 }
 
 async function unpack(
@@ -156,6 +157,7 @@ export async function verifyArchive(
   digest: string,
   signal: AbortSignal,
   limits = ARCHIVE_LIMITS,
+  consume?: (directory: string, result: Awaited<ReturnType<typeof checkFiles>>) => Promise<void>,
 ) {
   if (!/^sha256:[a-f0-9]{64}$/.test(digest))
     throw new AppError(
@@ -173,7 +175,10 @@ export async function verifyArchive(
   try {
     await unpack(path, directory, signal, limits);
     signal.throwIfAborted();
-    return await checkFiles(directory, context, signal);
+    const result = await checkFiles(directory, context, signal);
+    signal.throwIfAborted();
+    if (consume) await consume(directory, result);
+    return result;
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

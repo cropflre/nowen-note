@@ -1021,14 +1021,13 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
 
   // ---------- ͼƬ�ϴ����㹤����/б��/��ק/ճ���� ----------
 
-  /** 上传图片文件到 /api/attachments 或图床，插入 Markdown 图片语法 */
+  /** 上传图片附件，插入带真实图片扩展名的完整 URL。 */
   const insertImageFromFile = useCallback((file: File) => {
     const view = viewRef.current;
     if (!view) return;
     const currentNote = noteRef.current;
     const alt = file.name.replace(/\.[^.]+$/, "");
     if (currentNote?.id) {
-      // 优先走图床，失败时回退本地附件
       uploadAndInsertImage(
         file,
         file.name,
@@ -1078,7 +1077,7 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
       if (!files.length || viewRef.current !== view || pasteNoteScopeRef.current !== scope) { releaseAnchor(); return; }
       if (!noteId) { toast.error("请先创建笔记，再上传照片"); releaseAnchor(); return; }
       toast.info(tr("tiptap.imageUploading"));
-      void uploadPhotoSelection(noteId, files)
+      void uploadPhotoSelection(noteId, files, "markdown")
         .then((photos) => {
           // 复用异步粘贴锚点映射，上传完成后恢复原选区；切换笔记则不插入。
           if (viewRef.current !== view || pasteNoteScopeRef.current !== scope) return;

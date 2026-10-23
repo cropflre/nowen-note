@@ -1,4 +1,7 @@
 import { noteDeletionLifecycleMigration } from "./noteDeletionLifecycleMigration.js";
+import { pluginRetainedStorageMigration } from "./pluginRetainedStorageMigration.js";
+import { nowenStudioMigration } from "./nowenStudioMigration.js";
+import { nowenStudioHistoryMigration } from "./nowenStudioHistoryMigration.js";
 import { assetAIMigration } from "./assetAIMigration.js";
 import { assetSyncMigration } from "./assetSyncMigration.js";
 import { attachmentTrashMigration } from "./attachmentTrashMigration.js";
@@ -9,6 +12,7 @@ import { wechatAssistantQueueColumnsMigration } from "./wechatAssistantQueueColu
 import { wechatAssistantMigration } from "./wechatAssistantMigration.js";
 import { pluginInboundMigration } from "./pluginInboundMigration.js";
 import { encryptedNoteConversionMigration } from "./encryptedNoteConversionMigration.js";
+import { encryptedNoteDecryptionMigration } from "./encryptedNoteDecryptionMigration.js";
 import { encryptedContentV2Migration } from "./encryptedContentV2Migration.js";
 import { taskComposerMigration } from "./taskComposerMigration.js";
 /**
@@ -433,6 +437,12 @@ export const MIGRATIONS: Migration[] = [
   assetSyncMigration,
   assetAIMigration,
   noteDeletionLifecycleMigration,
+  // Keep v132-v134 compatible with databases already upgraded before the
+  // Apps/Studio feature split; their runtime and UI continue in release/v1.6.0.
+  pluginRetainedStorageMigration,
+  nowenStudioMigration,
+  nowenStudioHistoryMigration,
+  encryptedNoteDecryptionMigration,
 ].sort((a, b) => a.version - b.version);
 
 export const CURRENT_SCHEMA_VERSION: number = MIGRATIONS.reduce(

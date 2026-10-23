@@ -184,6 +184,15 @@ export function createSlashExtension(
   return Extension.create({
     name: "slashCommands",
 
+    onBeforeCreate() {
+      const editor = this.editor;
+      editor.on("unmount", () => {
+        if (slashPluginKey.getState(editor.state)?.active) {
+          onDeactivate(getSlashEditorId(editor));
+        }
+      });
+    },
+
     addProseMirrorPlugins() {
       const editor = this.editor;
       const sourceId = getSlashEditorId(editor);
@@ -196,7 +205,7 @@ export function createSlashExtension(
             apply: stateAfterTransaction,
           },
           props: {
-            handleTextInput(view, from, to, text) {
+            handleTextInput(view, from, _to, text, defaultTransaction) {
               const current = slashPluginKey.getState(view.state);
               // Do not interrupt an in-progress IME composition. Let the DOM
               // commit finish; stateAfterTransaction will detect the new slash.
@@ -209,11 +218,11 @@ export function createSlashExtension(
                 return false;
               }
 
-              // Insert and activate in one transaction. There is no timer, so
-              // a close/select transaction cannot race a delayed activation.
+              // Preserve the DOM input selection from ProseMirror. On desktop,
+              // text input can arrive before selectionchange updates EditorState.
+              // Rebuilding insertText(from, to) would retain that stale selection.
               view.dispatch(
-                view.state.tr
-                  .insertText(text, from, to)
+                defaultTransaction()
                   .setMeta(slashPluginKey, { active: true, from, query: "" } satisfies SlashPluginState),
               );
               return true;
@@ -245,7 +254,9 @@ export function createSlashExtension(
                 }
               },
               destroy() {
-                if (slashPluginKey.getState(editor.state)?.active) {
+                // ProseMirror rebuilds every plugin view when an unrelated
+                // plugin is registered. Only removal ends this slash session.
+                if (!slashPluginKey.get(editor.state)) {
                   onDeactivate(sourceId);
                 }
               },

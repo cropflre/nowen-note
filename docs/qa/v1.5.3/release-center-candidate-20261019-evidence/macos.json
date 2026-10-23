@@ -1,0 +1,332 @@
+{
+  "sourceEvidence": {
+    "schema": 1,
+    "purpose": "candidate-build-only",
+    "releaseEligible": false,
+    "signed": false,
+    "approved": false,
+    "source": {
+      "repository": "cropflre/nowen-note",
+      "sha": "6283de3791a4e02975a37b6c72b1f63c35d7a7e1",
+      "version": "1.5.3",
+      "requestId": "ea064266-0713-4795-8489-1c2811ad8810",
+      "runId": 39188437154,
+      "runAttempt": 1,
+      "platform": "macos"
+    },
+    "updaterVerification": [
+      "latest-mac.yml"
+    ],
+    "files": [
+      {
+        "name": "Nowen-Note-1.5.3-arm64.dmg",
+        "architecture": "arm64",
+        "size": 154533509,
+        "sha256": "dca73a73ff669209a65e82c324607393c5a2de62584030241eb678ac93b074d3",
+        "updaterMetadata": false
+      },
+      {
+        "name": "Nowen-Note-1.5.3-arm64.dmg.blockmap",
+        "architecture": "arm64",
+        "size": 163296,
+        "sha256": "a2f93e7961bcd38882eb09424f393d1cd2f2f7fb8ae69d7261c1f61741d89d73",
+        "updaterMetadata": false
+      },
+      {
+        "name": "Nowen-Note-1.5.3-arm64.zip",
+        "architecture": "arm64",
+        "size": 149325749,
+        "sha256": "c42b711ddddfbc92874638a012c22e371dc7200dad7737e4ae85c031e4c6c4e3",
+        "updaterMetadata": false
+      },
+      {
+        "name": "Nowen-Note-1.5.3-arm64.zip.blockmap",
+        "architecture": "arm64",
+        "size": 157245,
+        "sha256": "f97b4fdbe50cc0469a71486c833ded725ac4fa6a9a4e7da88ac7c7ea11b2c740",
+        "updaterMetadata": false
+      },
+      {
+        "name": "Nowen-Note-1.5.3-x64.dmg",
+        "architecture": "x64",
+        "size": 160749048,
+        "sha256": "03238329c0615c030784a90a6f03cea449698eec5d63aaf6c88ca999c14d259a",
+        "updaterMetadata": false
+      },
+      {
+        "name": "Nowen-Note-1.5.3-x64.dmg.blockmap",
+        "architecture": "x64",
+        "size": 169200,
+        "sha256": "494eb7a65c45ad625581b3ae278076e43cebcc7cca67167ed29738f5d4322caa",
+        "updaterMetadata": false
+      },
+      {
+        "name": "Nowen-Note-1.5.3-x64.zip",
+        "architecture": "x64",
+        "size": 155527612,
+        "sha256": "734dffc14c964d257875c2fbfbda1f6fcf7b77575532cedc619428ceeb454879",
+        "updaterMetadata": false
+      },
+      {
+        "name": "Nowen-Note-1.5.3-x64.zip.blockmap",
+        "architecture": "x64",
+        "size": 163434,
+        "sha256": "bfa24e431eeb3d5df81af3798a58063359f64bdff6724346d3b559eca0b8362f",
+        "updaterMetadata": false
+      },
+      {
+        "name": "latest-mac.yml",
+        "architecture": "metadata",
+        "size": 506,
+        "sha256": "b361cb89f98db4ed752313e97a413f9194f2fab5a1ccd10f0905e8f4ca4deda5",
+        "updaterMetadata": true
+      }
+    ],
+    "filesDigest": "sha256:194faf4b659f920264918c9865f00ad8c087d55474a86aea5325ac2be589de75"
+  },
+  "archiveVerification": [
+    {
+      "id": 12158749789,
+      "name": "rc-candidate-ea064266-0713-4795-8489-1c2811ad8810-macos",
+      "digest": "sha256:952f8f3ae6373e943b18cb025e2c06c359e8b3630f2bc9caad2bbdb7949ce2ae",
+      "size": 619528457
+    },
+    {
+      "id": 12159003879,
+      "name": "rc-candidate-evidence-ea064266-0713-4795-8489-1c2811ad8810-macos",
+      "digest": "sha256:477fba9258125184c150e2ec0ac212f506c676c940a02b4918c9b88a56152ddc",
+      "size": 1047
+    }
+  ],
+  "contentVerification": {
+    "platform": "macos",
+    "source": {
+      "repository": "cropflre/nowen-note",
+      "sha": "6283de3791a4e02975a37b6c72b1f63c35d7a7e1",
+      "version": "1.5.3",
+      "requestId": "ea064266-0713-4795-8489-1c2811ad8810",
+      "runId": 39188437154,
+      "runAttempt": 1,
+      "platform": "macos"
+    },
+    "files": [
+      {
+        "name": "Nowen-Note-1.5.3-arm64.dmg",
+        "size": 154533509,
+        "sha256": "dca73a73ff669209a65e82c324607393c5a2de62584030241eb678ac93b074d3",
+        "architecture": "arm64",
+        "updaterMetadata": false
+      },
+      {
+        "name": "Nowen-Note-1.5.3-arm64.dmg.blockmap",
+        "size": 163296,
+        "sha256": "a2f93e7961bcd38882eb09424f393d1cd2f2f7fb8ae69d7261c1f61741d89d73",
+        "architecture": "arm64",
+        "updaterMetadata": false
+      },
+      {
+        "name": "Nowen-Note-1.5.3-arm64.zip",
+        "size": 149325749,
+        "sha256": "c42b711ddddfbc92874638a012c22e371dc7200dad7737e4ae85c031e4c6c4e3",
+        "architecture": "arm64",
+        "updaterMetadata": false
+      },
+      {
+        "name": "Nowen-Note-1.5.3-arm64.zip.blockmap",
+        "size": 157245,
+        "sha256": "f97b4fdbe50cc0469a71486c833ded725ac4fa6a9a4e7da88ac7c7ea11b2c740",
+        "architecture": "arm64",
+        "updaterMetadata": false
+      },
+      {
+        "name": "Nowen-Note-1.5.3-x64.dmg",
+        "size": 160749048,
+        "sha256": "03238329c0615c030784a90a6f03cea449698eec5d63aaf6c88ca999c14d259a",
+        "architecture": "x64",
+        "updaterMetadata": false
+      },
+      {
+        "name": "Nowen-Note-1.5.3-x64.dmg.blockmap",
+        "size": 169200,
+        "sha256": "494eb7a65c45ad625581b3ae278076e43cebcc7cca67167ed29738f5d4322caa",
+        "architecture": "x64",
+        "updaterMetadata": false
+      },
+      {
+        "name": "Nowen-Note-1.5.3-x64.zip",
+        "size": 155527612,
+        "sha256": "734dffc14c964d257875c2fbfbda1f6fcf7b77575532cedc619428ceeb454879",
+        "architecture": "x64",
+        "updaterMetadata": false
+      },
+      {
+        "name": "Nowen-Note-1.5.3-x64.zip.blockmap",
+        "size": 163434,
+        "sha256": "bfa24e431eeb3d5df81af3798a58063359f64bdff6724346d3b559eca0b8362f",
+        "architecture": "x64",
+        "updaterMetadata": false
+      },
+      {
+        "name": "latest-mac.yml",
+        "size": 506,
+        "sha256": "b361cb89f98db4ed752313e97a413f9194f2fab5a1ccd10f0905e8f4ca4deda5",
+        "architecture": "metadata",
+        "updaterMetadata": true
+      }
+    ],
+    "updaterVerification": [
+      "latest-mac.yml"
+    ],
+    "verified": true
+  },
+  "nativePackageInspection": [
+    {
+      "architecture": "x64",
+      "version": "1.5.3",
+      "binaries": {
+        "electron": {
+          "path": "Nowen Note.app/Contents/MacOS/Nowen Note",
+          "architectures": [
+            "x64"
+          ],
+          "targetSupported": true
+        },
+        "sqlite": {
+          "path": "Nowen Note.app/Contents/Resources/backend/node_modules/better-sqlite3/build/Release/better_sqlite3.node",
+          "architectures": [
+            "x64"
+          ],
+          "targetSupported": true,
+          "electronAbi": [
+            130
+          ]
+        },
+        "sharp": {
+          "path": "Nowen Note.app/Contents/Resources/backend/node_modules/@img/sharp-darwin-x64/lib/sharp-darwin-x64.node",
+          "architectures": [
+            "x64"
+          ],
+          "targetSupported": true
+        },
+        "libvips": {
+          "path": "Nowen Note.app/Contents/Resources/backend/node_modules/@img/sharp-libvips-darwin-x64/lib/libvips-cpp.42.dylib",
+          "architectures": [
+            "x64"
+          ],
+          "targetSupported": true
+        },
+        "ffmpeg": {
+          "path": "Nowen Note.app/Contents/Resources/backend/node_modules/ffmpeg-static/ffmpeg",
+          "architectures": [
+            "x64"
+          ],
+          "targetSupported": true
+        }
+      }
+    },
+    {
+      "architecture": "arm64",
+      "version": "1.5.3",
+      "binaries": {
+        "electron": {
+          "path": "Nowen Note.app/Contents/MacOS/Nowen Note",
+          "architectures": [
+            "arm64"
+          ],
+          "targetSupported": true
+        },
+        "sqlite": {
+          "path": "Nowen Note.app/Contents/Resources/backend/node_modules/better-sqlite3/build/Release/better_sqlite3.node",
+          "architectures": [
+            "arm64"
+          ],
+          "targetSupported": true,
+          "electronAbi": [
+            130
+          ]
+        },
+        "sharp": {
+          "path": "Nowen Note.app/Contents/Resources/backend/node_modules/@img/sharp-darwin-arm64/lib/sharp-darwin-arm64.node",
+          "architectures": [
+            "arm64"
+          ],
+          "targetSupported": true
+        },
+        "libvips": {
+          "path": "Nowen Note.app/Contents/Resources/backend/node_modules/@img/sharp-libvips-darwin-arm64/lib/libvips-cpp.42.dylib",
+          "architectures": [
+            "arm64"
+          ],
+          "targetSupported": true
+        },
+        "ffmpeg": {
+          "path": "Nowen Note.app/Contents/Resources/backend/node_modules/ffmpeg-static/ffmpeg",
+          "architectures": [
+            "arm64"
+          ],
+          "targetSupported": true
+        }
+      }
+    }
+  ],
+  "dmgComparison": [
+    {
+      "architecture": "x64",
+      "version": "1.5.3",
+      "readOnlyMounted": true,
+      "binaries": {
+        "electron": {
+          "sha256": "5d2c2b0d936ec08b4a0098ff5f512044a1f4fd1b1728990e646984a7f3b123cb",
+          "matchesVerifiedZip": true
+        },
+        "sqlite": {
+          "sha256": "4070b11df0ed6f185c9b2699a301b62dbda341151e90ff121c3eb47e7dd12be0",
+          "matchesVerifiedZip": true
+        },
+        "sharp": {
+          "sha256": "cd7e298512d7320c80592a3d25d50746f1486042131cda4a29375eb017b450c5",
+          "matchesVerifiedZip": true
+        },
+        "libvips": {
+          "sha256": "abd2783a73b054229e1e2d99968ed1482246b52173cd09ed87f8aa8e4895532f",
+          "matchesVerifiedZip": true
+        },
+        "ffmpeg": {
+          "sha256": "ebdddc936f61e14049a2d4b549a412b8a40deeff6540e58a9f2a2da9e6b18894",
+          "matchesVerifiedZip": true
+        }
+      }
+    },
+    {
+      "architecture": "arm64",
+      "version": "1.5.3",
+      "readOnlyMounted": true,
+      "binaries": {
+        "electron": {
+          "sha256": "1137688b3d7260ebb158a20eab8569a87bd9717fed8df021154de7cf5f1532bd",
+          "matchesVerifiedZip": true
+        },
+        "sqlite": {
+          "sha256": "c0c54dadb3c73954d16398c94ffb7de82e71a129bf73b9f763645238b26041c5",
+          "matchesVerifiedZip": true
+        },
+        "sharp": {
+          "sha256": "72f7425d4d14c7934b793a2b386768a41ea361dbe5a249305f09dbc575e0707a",
+          "matchesVerifiedZip": true
+        },
+        "libvips": {
+          "sha256": "7bff6d21e3f547a7ecaf61bbe359d43e17241280e15ce4e3d153dbe07b9c4769",
+          "matchesVerifiedZip": true
+        },
+        "ffmpeg": {
+          "sha256": "a90e3db6a3fd35f6074b013f948b1aa45b31c6375489d39e572bea3f18336584",
+          "matchesVerifiedZip": true
+        }
+      }
+    }
+  ],
+  "dmgInternalChecksumVerified": {
+    "x64": true,
+    "arm64": true
+  }
+}

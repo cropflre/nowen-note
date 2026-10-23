@@ -20,7 +20,7 @@ import { registerMobileBackHandler } from "@/lib/mobileBackNavigation";
 import { copyText } from "@/lib/clipboard";
 import { downloadAttachment } from "@/lib/downloadFile";
 import { toast } from "@/lib/toast";
-import { normalizeImageFlipX, normalizeImageRotation } from "@/lib/imageNodeTransformBootstrap";
+import { normalizeImageFlipX, normalizeImageRotation, type ImageRotation } from "@/lib/imageNodeTransformBootstrap";
 import { useAttachmentImageRenderSource } from "@/hooks/useAttachmentImageRenderSource";
 import { MotionPhotoOverlay } from "./MotionPhotoOverlay";
 
@@ -66,6 +66,7 @@ export interface FullscreenImageViewerProps {
   onDownload?: (item: FullscreenImageItem, index: number) => void | Promise<void>;
   onCopy?: (item: FullscreenImageItem, index: number) => void | Promise<void>;
   canEdit?: boolean;
+  onRotate?: (item: FullscreenImageItem, index: number, rotation: ImageRotation) => boolean | void;
   onEdit?: (item: FullscreenImageItem, index: number) => void;
 }
 
@@ -110,6 +111,7 @@ export default function FullscreenImageViewer({
   onDownload,
   onCopy,
   canEdit = false,
+  onRotate,
   onEdit,
 }: FullscreenImageViewerProps) {
   const gallery = useMemo<FullscreenImageItem[]>(() => {
@@ -200,11 +202,12 @@ export default function FullscreenImageViewer({
   }, [currentIndex, gallery.length, resetTransform]);
 
   const rotateClockwise = useCallback(() => {
-    const nextRotation = (rotationRef.current + 90) % 360;
+    const nextRotation = normalizeImageRotation(rotationRef.current + 90);
+    if (canEdit && onRotate?.(currentItem, currentIndex, nextRotation) === false) return;
     rotationRef.current = nextRotation;
     setRotation(nextRotation);
     setInteracting(false);
-  }, []);
+  }, [canEdit, currentItem, currentIndex, onRotate]);
 
   useLayoutEffect(() => {
     if (!open) return;

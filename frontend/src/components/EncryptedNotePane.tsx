@@ -15,6 +15,8 @@ import { EncryptedNoteSession, type NoteEnvelope } from "@/lib/encryptedNotes/no
 import { EncryptedContentError } from "@/lib/encryptedNotes/envelope";
 import { ENCRYPTED_NOTE_LEAVE_EVENT, readEncryptedNoteEnvelope, validateEncryptedNotePlaintext } from "@/lib/encryptedNotes/noteDocument";
 import { useEncryptedAutoLock } from "@/lib/encryptedNotes/useAutoLock";
+import { decryptNotePermanently, NoteDecryptionError } from "@/lib/encryptedNotes/decryptNote";
+import { ConversionCleanupError } from "@/lib/encryptedNotes/conversionCoordination";
 
 type Session = { envelope: NoteEnvelope; baseEnvelope: NoteEnvelope; initialContent: string };
 const AUTOSAVE_DELAY_MS = 800;
@@ -31,6 +33,9 @@ export default function EncryptedNotePane({ note }: { note: Note }) {
   const [newPassphrase, setNewPassphrase] = useState("");
   const [currentPassphrase, setCurrentPassphrase] = useState("");
   const [confirmation, setConfirmation] = useState("");
+  const [decryptionPassword, setDecryptionPassword] = useState("");
+  const [decryptionConsent, setDecryptionConsent] = useState(false);
+  const decrypting = useRef(false);
   const [busy, setBusy] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -53,7 +58,7 @@ export default function EncryptedNotePane({ note }: { note: Note }) {
   const dirty = body !== savedBody;
   const editable = canWriteNote(note) && !note.isLocked && !note.isTrashed;
   const native = Capacitor.isNativePlatform();
-  useEncryptedAutoLock(!securing && Boolean((!lockFailed && session) || passphrase || currentPassphrase || newPassphrase || confirmation || busy), () => {
+  useEncryptedAutoLock(!securing && Boolean((!lockFailed && session) || passphrase || currentPassphrase || newPassphrase || confirmation || decryptionPassword || busy), () => {
     if (lockFailed) { setPassphrase(""); return; }
     void lock(false, true);
   });
@@ -63,6 +68,7 @@ export default function EncryptedNotePane({ note }: { note: Note }) {
     current.current = { session: null, body: "", savedBody: "" };
     setSession(null); setBody(""); setSavedBody("");
     setPassphrase(""); setCurrentPassphrase(""); setNewPassphrase(""); setConfirmation("");
+    setDecryptionPassword(""); setDecryptionConsent(false);
     setHistory(null); setHistoryVersions([]); setHistoryTotal(0);
   }
   function edit(content: string) {
@@ -111,6 +117,8 @@ export default function EncryptedNotePane({ note }: { note: Note }) {
     catch (failure) {
       if (mounted.current && !controller.signal.aborted) setError(failure instanceof EncryptedContentError && failure.code === "unlock-failed"
         ? t("encryptedNote.incorrectPassword")
+        : failure instanceof NoteDecryptionError || failure instanceof ConversionCleanupError
+        ? t(`encryptedDecryption.errors.${failure instanceof NoteDecryptionError ? failure.blockers[0] || failure.code : failure.code}`, { defaultValue: t("encryptedDecryption.failed") })
         : t("encryptedNote.operationFailed"));
       return false;
     } finally {
@@ -219,6 +227,7 @@ export default function EncryptedNotePane({ note }: { note: Note }) {
   }
   async function lock(discard = false, automatic = false): Promise<boolean> {
     if (locking.current) return false;
+    if (decrypting.current) operation.current?.abort();
     if (discard) {
       if (operation.current) return false;
       clearSession(); autosaveFailed.current = false; setLockFailed(false); setError(""); setStatus(""); return true;
@@ -226,6 +235,7 @@ export default function EncryptedNotePane({ note }: { note: Note }) {
     const scope = getOfflineQueueStorageKey();
     locking.current = true; setSecuring(true); setLockFailed(false); setError("");
     setPassphrase(""); setCurrentPassphrase(""); setNewPassphrase(""); setConfirmation("");
+    setDecryptionPassword(""); setDecryptionConsent(false);
     // Cancel only an unlock. Never abort a submitted save or start a competing write.
     if (!current.current.session) operation.current?.abort();
     try {
@@ -242,6 +252,27 @@ export default function EncryptedNotePane({ note }: { note: Note }) {
     } finally {
       if (mounted.current && scope === getOfflineQueueStorageKey()) { locking.current = false; setSecuring(false); }
     }
+  }
+  async function removeEncryption() {
+    const baseNote = currentNote.current;
+    if (native || busy || operation.current || decrypting.current || dirty || saving || securing || !decryptionPassword || !decryptionConsent || !editable) return;
+    const password = decryptionPassword;
+    setDecryptionPassword(""); decrypting.current = true;
+    try {
+      await execute(async (signal) => {
+        const assertCurrent = () => {
+          const latest = currentNote.current;
+          if (!mounted.current || !canWriteNote(latest) || latest.isLocked || latest.isTrashed || latest.id !== baseNote.id
+            || latest.content !== baseNote.content || latest.version !== baseNote.version || current.current.body !== current.current.savedBody)
+            throw new NoteDecryptionError("VERSION_CONFLICT");
+        };
+        const updated = await decryptNotePermanently(baseNote, password, signal, assertCurrent);
+        if (signal.aborted || !mounted.current) return;
+        clearSession();
+        actions.setActiveNote(updated);
+        actions.updateNoteInList({ id: updated.id, contentText: updated.contentText, contentFormat: updated.contentFormat, version: updated.version, updatedAt: updated.updatedAt });
+      });
+    } finally { decrypting.current = false; }
   }
   return <section className="flex min-w-0 flex-1 flex-col bg-app-bg" aria-label={t("encryptedNote.ariaNote")}>
     <header className="flex items-center gap-2 border-b border-app-border p-3">
@@ -285,6 +316,14 @@ export default function EncryptedNotePane({ note }: { note: Note }) {
         <input aria-label={t("encryptedNote.newPassword")} type="password" autoComplete="new-password" value={newPassphrase} disabled={busy} onChange={(event) => setNewPassphrase(event.target.value)} className="border border-app-border bg-app-bg p-2" />
         <input aria-label={t("encryptedNote.confirmNewPassword")} type="password" autoComplete="new-password" value={confirmation} disabled={busy} onChange={(event) => setConfirmation(event.target.value)} className="border border-app-border bg-app-bg p-2" />
         <Button disabled={busy || dirty || !currentPassphrase || !hasStrongNewPassphrase(newPassphrase) || newPassphrase !== confirmation} onClick={() => void save(true)}>{t("encryptedNote.confirmChange")}</Button>
+      </details>}
+      {editable && (note.permission == null || note.permission === "manage") && <details className="border-t border-app-border p-4">
+        <summary>{t("encryptedDecryption.title")}</summary>
+        <p className="my-2 text-sm text-tx-secondary">{t("encryptedDecryption.description")}</p>
+        <p className="my-2 text-xs text-tx-secondary">{t("encryptedDecryption.warning")}</p>
+        <input aria-label={t("encryptedDecryption.password")} placeholder={t("encryptedDecryption.password")} type="password" autoComplete="off" value={decryptionPassword} disabled={busy || securing} onChange={event => setDecryptionPassword(event.target.value)} className="w-full rounded border border-app-border bg-app-bg p-2" />
+        <label className="my-2 flex items-start gap-2 text-sm"><input type="checkbox" checked={decryptionConsent} disabled={busy || securing} onChange={event => setDecryptionConsent(event.target.checked)} />{t("encryptedDecryption.consent")}</label>
+        <Button disabled={busy || dirty || saving || securing || !decryptionPassword || !decryptionConsent} onClick={() => void removeEncryption()}>{busy && decrypting.current ? t("encryptedDecryption.working") : t("encryptedDecryption.confirm")}</Button>
       </details>}
     </>}
   </section>;

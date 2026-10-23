@@ -5,7 +5,7 @@ import { toast } from "@/lib/toast";
 
 const capabilities = [
   { title: "笔记与知识树", detail: "搜索、整理、版本冲突保护", scope: "notes:read · notes:write · notebooks:write" },
-  { title: "个人任务", detail: "任务管理、归档、任务转笔记", scope: "tasks:read · tasks:write" },
+  { title: "个人任务", detail: "任务与子任务、具体截止时间、提醒、归档、任务转笔记", scope: "tasks:read · tasks:write" },
   { title: "个人网盘", detail: "文件整理、恢复，不支持永久删除", scope: "notes:read · attachments:write" },
   { title: "个人自动化", detail: "工作流预览、编辑、启停和运行历史", scope: "automations:read · automations:write" },
 ];

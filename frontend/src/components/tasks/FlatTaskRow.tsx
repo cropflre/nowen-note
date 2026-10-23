@@ -10,7 +10,7 @@ import type { Task } from "@/types";
 import { TitleView } from "./taskTitleTokens";
 import { DateBadge } from "./DateBadge";
 import { isRepeatingTask } from "./taskRepeatUtils";
-import { SubtaskInput } from "./SubtaskInput";
+import { SubtaskInput, type SubtaskSchedule } from "./SubtaskInput";
 import { hasEnabledReminder } from "./taskReminderUtils";
 
 /**
@@ -43,7 +43,7 @@ export const FlatTaskRow = React.forwardRef<HTMLDivElement, {
   onToggle: (id: string) => void;
   onSelect: (task: Task) => void;
   onDelete: (id: string) => void;
-  onCreateChild?: (title: string, parentId: string) => Promise<void>;
+  onCreateChild?: (title: string, parentId: string, schedule?: SubtaskSchedule) => Promise<void>;
   onSelectTask?: (taskId: string) => void;
   blockedByDependency?: boolean;
 }>(({ task, allTasks, onToggle, onSelect, onDelete, onCreateChild, onSelectTask, blockedByDependency }, ref) => {

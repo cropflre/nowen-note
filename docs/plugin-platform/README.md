@@ -2,6 +2,8 @@
 
 V1 只支持服务端 Action 插件。Web、Desktop、Mobile、MCP 和 AI 都调用同一组服务端 Action API；移动端不会加载本地 Node 插件。
 
+版本分工：应用 V3、工作台（Dashboard）及 Studio 个人应用构建功能在 `release/v1.6.0` 开发；其他功能与修复保留在 `release/v1.5.3`。`1.5.3` 保留已登记的数据库迁移 v132–v134，确保此前已升级的数据库仍可打开并保留应用数据，不提供这些功能的运行入口。
+
 ## 五分钟开始
 
 ```bash

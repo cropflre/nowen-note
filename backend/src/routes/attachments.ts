@@ -7,6 +7,7 @@ import remoteImageImportRouter from "./remote-image-import";
 import { handleAttachmentMediaRange } from "./attachment-media-range";
 import { getDb } from "../db/schema";
 import { inferVideoMime } from "../lib/media-mime";
+import { imageAttachmentPath, imageAttachmentUrl } from "../lib/attachment-image-url";
 import { resolvePublicOrigin } from "../lib/shareUrlRewrite";
 import { hasPermission, resolveNotePermission } from "../middleware/acl";
 import { resolveEffectiveNoteCapabilities } from "../services/share-capabilities";
@@ -75,6 +76,9 @@ function buildSignedAttachmentUrls(noteId: string, scope: string, origin: string
 }
 
 function buildStableFileShareUrl(c: Context, attachmentId: string, token: string): string {
+  const row = getDb().prepare("SELECT mimeType FROM attachments WHERE id = ?").get(attachmentId) as { mimeType: string } | undefined;
+  const imageUrl = row && imageAttachmentUrl(c, attachmentId, row.mimeType);
+  if (imageUrl) return `${imageUrl}?share=${encodeURIComponent(token)}`;
   const path = `/api/attachments/${encodeURIComponent(attachmentId)}?share=${encodeURIComponent(token)}`;
   const origin = requestPublicOrigin(c).replace(/\/+$/, "");
   return origin ? `${origin}${path}` : path;
@@ -273,6 +277,17 @@ attachmentsRouter.route("/", remoteImageImportRouter);
 attachmentsRouter.route("/", attachmentsCoreRouter);
 
 export default attachmentsRouter;
+
+/** Filename aliases share the exact same ACL, signatures, revocation and storage handler. */
+export async function handleNamedImageAttachment(c: Context): Promise<Response> {
+  const id = c.req.param("id");
+  const row = getDb().prepare("SELECT mimeType FROM attachments WHERE id = ?").get(id) as { mimeType: string } | undefined;
+  const expected = row && imageAttachmentPath(id, row.mimeType);
+  if (!expected || expected.split("/").pop() !== c.req.param("filename")) {
+    return c.json({ error: "图片不存在" }, 404);
+  }
+  return handleDownloadAttachment(c);
+}
 
 function hardenScopedResponse(response: Response, _attachmentId: string, _requestHeaders: Headers): Response {
   const headers = new Headers(response.headers);

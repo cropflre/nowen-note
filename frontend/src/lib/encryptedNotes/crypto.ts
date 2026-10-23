@@ -96,6 +96,15 @@ export async function decryptEncryptedContent(value: unknown, passphrase: string
   return (await unlockEncryptedContentKey(value, passphrase, expected)).plaintext;
 }
 
+/** Read an authenticated historical snapshot using the session's non-exportable key. */
+export async function readEncryptedContentWithKey(value: unknown, key: CryptoKey, expected: EncryptedContentIdentity): Promise<string> {
+  const envelope = checkedEnvelope(value, expected);
+  const plaintext = await authenticatedContent(envelope, key);
+  try { return new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(plaintext); }
+  catch { throw new EncryptedContentError("unlock-failed"); }
+  finally { plaintext.fill(0); }
+}
+
 /** Worker-only session primitive: the key is non-exportable and never sent to the UI. */
 export async function unlockEncryptedContentKey(value: unknown, passphrase: string, expected: EncryptedContentIdentity): Promise<{ plaintext: string; key: CryptoKey }> {
   const envelope = checkedEnvelope(value, expected);
