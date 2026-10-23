@@ -102,14 +102,14 @@ test("Markdown uploaded image suffix survives save/reopen and source copy opens 
 
   await page.evaluate(() => {
     Object.defineProperty(navigator, "clipboard", { configurable: true, value: {
-      writeText: async (text: string) => { (window as any).__imageMarkdownClipboard = text; },
+      writeText: async (text: string) => { (window as Window & { __imageMarkdownClipboard?: string }).__imageMarkdownClipboard = text; },
     } });
   });
   await editor.click();
   await page.keyboard.press("ControlOrMeta+A");
   await page.keyboard.press("ControlOrMeta+C");
-  await expect.poll(() => page.evaluate(() => (window as any).__imageMarkdownClipboard || "")).toContain("?share=");
-  const copied = await page.evaluate(() => (window as any).__imageMarkdownClipboard as string);
+  await expect.poll(() => page.evaluate(() => (window as Window & { __imageMarkdownClipboard?: string }).__imageMarkdownClipboard || "")).toContain("?share=");
+  const copied = await page.evaluate(() => (window as Window & { __imageMarkdownClipboard?: string }).__imageMarkdownClipboard || "");
   const url = copied.match(/!\[[^\]]*\]\((https?:[^)]+)\)/)?.[1];
   expect(url).toMatch(/\/image\.png\?share=/);
   expect(url).not.toMatch(/[?&](exp|sig|scope)=/);

@@ -12,12 +12,12 @@ vi.mock("@/store/AppContext", () => ({
   useAppActions: () => mocks.actions,
 }));
 vi.mock("react-i18next", () => ({
-  useTranslation: () => ({ i18n: { language: "zh-CN" }, t: (_key: string, options: any) => options.defaultValue }),
+  useTranslation: () => ({ i18n: { language: "zh-CN" }, t: (_key: string, options: { defaultValue: string }) => options.defaultValue }),
 }));
 vi.mock("@/lib/toast", () => ({ toast: { success: vi.fn() } }));
 vi.mock("@/lib/api", () => ({ api: { getNote: vi.fn() } }));
 vi.mock("@/lib/remoteImageLocalizationApi", async (original) => ({
-  ...await original<any>(), remoteImageLocalizationApi: mocks,
+  ...await original<typeof import("@/lib/remoteImageLocalizationApi")>(), remoteImageLocalizationApi: mocks,
 }));
 import Panel from "../RemoteImageLocalizationPanel";
 
@@ -36,7 +36,7 @@ async function click(label: string) {
   await act(async () => button!.click());
 }
 beforeEach(() => {
-  (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
+  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   vi.clearAllMocks();
   mocks.listJobs.mockResolvedValue({ jobs: [] });
   mocks.createJob.mockResolvedValue(job());

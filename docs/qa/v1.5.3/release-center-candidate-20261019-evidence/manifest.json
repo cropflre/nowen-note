@@ -1,0 +1,138 @@
+{
+  "date": "2026-10-19",
+  "candidateSourceSha": "6283de3791a4e02975a37b6c72b1f63c35d7a7e1",
+  "candidateVersion": "1.5.3",
+  "requestId": "ea064266-0713-4795-8489-1c2811ad8810",
+  "candidateBuildAccepted": true,
+  "productionReleaseEligible": false,
+  "fileCount": 20,
+  "run": {
+    "id": 39188437154,
+    "run_attempt": 1,
+    "head_sha": "ab2e2941b9c922e86a7c2a1a873f5400f787761d",
+    "head_branch": "main",
+    "path": ".github/workflows/release-center-candidate.yml",
+    "event": "workflow_dispatch",
+    "conclusion": "success",
+    "created_at": "2026-10-19T02:07:07Z",
+    "updated_at": "2026-10-19T02:15:10Z",
+    "html_url": "https://github.com/cropflre/nowen-note/actions/runs/39188437154"
+  },
+  "jobs": [
+    {
+      "id": 117855718770,
+      "name": "validate",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-19T02:07:10Z",
+      "completed_at": "2026-10-19T02:07:12Z",
+      "html_url": "https://github.com/cropflre/nowen-note/actions/runs/39188437154/job/117855718770"
+    },
+    {
+      "id": 117855736831,
+      "name": "contracts",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-19T02:07:14Z",
+      "completed_at": "2026-10-19T02:07:39Z",
+      "html_url": "https://github.com/cropflre/nowen-note/actions/runs/39188437154/job/117855736831"
+    },
+    {
+      "id": 117855841722,
+      "name": "build (macos, macos-latest)",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-19T02:07:48Z",
+      "completed_at": "2026-10-19T02:15:10Z",
+      "html_url": "https://github.com/cropflre/nowen-note/actions/runs/39188437154/job/117855841722"
+    },
+    {
+      "id": 117855841736,
+      "name": "build (windows, windows-latest)",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-19T02:07:41Z",
+      "completed_at": "2026-10-19T02:13:42Z",
+      "html_url": "https://github.com/cropflre/nowen-note/actions/runs/39188437154/job/117855841736"
+    },
+    {
+      "id": 117855841758,
+      "name": "build (linux, ubuntu-latest)",
+      "status": "completed",
+      "conclusion": "success",
+      "started_at": "2026-10-19T02:07:41Z",
+      "completed_at": "2026-10-19T02:13:07Z",
+      "html_url": "https://github.com/cropflre/nowen-note/actions/runs/39188437154/job/117855841758"
+    }
+  ],
+  "artifacts": [
+    {
+      "id": 12159625228,
+      "name": "rc-candidate-evidence-ea064266-0713-4795-8489-1c2811ad8810-windows",
+      "size_in_bytes": 1006,
+      "digest": "sha256:7d3e2fd60cbb236190925b5cc8ced4228e9210d40af77a7a7931a63aaf3f3535",
+      "created_at": "2026-10-19T02:13:38Z",
+      "expires_at": "2026-10-26T02:13:37Z",
+      "expired": false
+    },
+    {
+      "id": 12159455981,
+      "name": "rc-candidate-ea064266-0713-4795-8489-1c2811ad8810-windows",
+      "size_in_bytes": 438908199,
+      "digest": "sha256:0acdaf47c14248fee20b9bf00c35c24811aac22a8c8a040dd1c98678ba433ff1",
+      "created_at": "2026-10-19T02:13:37Z",
+      "expires_at": "2026-10-26T02:13:25Z",
+      "expired": false
+    },
+    {
+      "id": 12159003879,
+      "name": "rc-candidate-evidence-ea064266-0713-4795-8489-1c2811ad8810-macos",
+      "size_in_bytes": 1047,
+      "digest": "sha256:477fba9258125184c150e2ec0ac212f506c676c940a02b4918c9b88a56152ddc",
+      "created_at": "2026-10-19T02:15:05Z",
+      "expires_at": "2026-10-26T02:15:04Z",
+      "expired": false
+    },
+    {
+      "id": 12159003599,
+      "name": "rc-candidate-ea064266-0713-4795-8489-1c2811ad8810-linux",
+      "size_in_bytes": 273707863,
+      "digest": "sha256:04bfe5ccdea3d85748feebe7051a93d6beb537a11c0e63ec3af9003e0ad75240",
+      "created_at": "2026-10-19T02:13:04Z",
+      "expires_at": "2026-10-26T02:12:55Z",
+      "expired": false
+    },
+    {
+      "id": 12158878890,
+      "name": "rc-candidate-evidence-ea064266-0713-4795-8489-1c2811ad8810-linux",
+      "size_in_bytes": 752,
+      "digest": "sha256:db7963753b8b5e8ea38cbcb896abb2d70ddea566ea013a7df43ddcc8a6eb8ef3",
+      "created_at": "2026-10-19T02:13:05Z",
+      "expires_at": "2026-10-26T02:13:04Z",
+      "expired": false
+    },
+    {
+      "id": 12158749789,
+      "name": "rc-candidate-ea064266-0713-4795-8489-1c2811ad8810-macos",
+      "size_in_bytes": 619528457,
+      "digest": "sha256:952f8f3ae6373e943b18cb025e2c06c359e8b3630f2bc9caad2bbdb7949ce2ae",
+      "created_at": "2026-10-19T02:15:04Z",
+      "expires_at": "2026-10-26T02:14:41Z",
+      "expired": false
+    }
+  ],
+  "verificationScope": [
+    "archive SHA-256",
+    "source SHA / request / run / attempt",
+    "per-file SHA-256 / size / inventory",
+    "updater metadata SHA-512",
+    "native package format / architecture / Electron SQLite ABI",
+    "macOS DMG checksum and binary equality with ZIP"
+  ],
+  "notVerified": [
+    "real installation / application startup / upgrade",
+    "signing / notarization",
+    "real Draft / asset upload / Publish API",
+    "candidate promotion / distribution / recovery"
+  ]
+}
