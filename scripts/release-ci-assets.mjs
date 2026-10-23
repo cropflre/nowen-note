@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
 
 const require = createRequire(import.meta.url);
-const { requiredMacReleaseAssets } = require("./lib/release-platform-assets.cjs");
+const { requiredMacReleaseAssets, requiredDebugReleaseAssets } = require("./lib/release-platform-assets.cjs");
 const { verifyLocalDirectory } = require("./lib/update-metadata-validator.cjs");
 export const REPO = "cropflre/nowen-note";
 export const RECEIPT = "nowen-release-verification.json";
@@ -39,6 +39,7 @@ export function validateOptions(options) {
   assert.match(options.requestId, /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/, "invalid request ID");
   for (const key of ["sourceRunId", "runId"]) assert.match(String(options[key]), /^[1-9]\d*$/, `invalid ${key}`);
   for (const key of ["desktop", "windows"]) assert.equal(typeof options[key], "boolean", `invalid ${key}`);
+  if (options.linux !== undefined) assert.equal(typeof options.linux, "boolean", "invalid linux");
 }
 
 export function validateSource(run, options) {
@@ -66,13 +67,13 @@ function validateRemoteTag(client, options) {
 }
 
 export function selectPlatformFiles(directory, platform, version) {
-  const required = platform === "mac" ? requiredMacReleaseAssets(version) : [
+  const required = platform === "mac" ? requiredMacReleaseAssets(version) : platform === "linux" ? requiredDebugReleaseAssets("linux", version) : [
     `Nowen-Note-${version}-setup.exe`, `Nowen-Note-${version}-portable.exe`,
     `Nowen-Note-${version}-setup.exe.blockmap`, "latest.yml",
     `Nowen-Note-Lite-${version}-setup.exe`, `Nowen-Note-Lite-${version}-portable.exe`,
     `Nowen-Note-Lite-${version}-setup.exe.blockmap`, "latest-lite.yml",
   ];
-  const allowed = new Set([...required, ...(platform === "mac" ? required.filter((name) => /\.(dmg|zip)$/.test(name)).map((name) => `${name}.blockmap`) : [])]);
+  const allowed = new Set([...required, ...(platform === "mac" || platform === "linux" ? required.filter((name) => /\.(dmg|zip|AppImage)$/.test(name)).map((name) => `${name}.blockmap`) : [])]);
   const entries = fs.readdirSync(directory, { withFileTypes: true });
   for (const entry of entries) {
     assert.ok(entry.isFile() && allowed.has(entry.name), `unexpected ${platform} artifact entry: ${entry.name}`);
@@ -98,6 +99,7 @@ export function validateReceipt(receipt, options, release, run) {
   assert.equal(receipt.schema, 1, "unknown verification receipt");
   assert.equal(receipt.repo, REPO);
   for (const key of ["tag", "sha", "requestId", "desktop", "windows"]) assert.equal(receipt[key], options[key], `receipt ${key} mismatch`);
+  assert.equal(receipt.linux ?? false, options.linux ?? false, "receipt linux mismatch");
   for (const key of ["sourceRunId", "runId"]) assert.equal(String(receipt[key]), String(options[key]), `receipt ${key} mismatch`);
   assert.equal(run.event, "workflow_dispatch");
   assert.equal(run.path, ".github/workflows/release.yml");
@@ -123,7 +125,7 @@ export async function collectRelease(options, { client = gh, verify = () => comm
   const readRelease = () => {
     const release = api(client, `releases/tags/${options.tag}`);
     assert.equal(release.tag_name, options.tag);
-    if (options.desktop || options.windows) assert.equal(release.draft, true, "CI only writes an existing Draft Release");
+    if (options.desktop || options.windows || options.linux) assert.equal(release.draft, true, "CI only writes an existing Draft Release");
     return release;
   };
   readRelease();
@@ -143,11 +145,11 @@ export async function collectRelease(options, { client = gh, verify = () => comm
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "nowen-release-ci-"));
   try {
     // Keep successful Mac assets available in Draft even if Windows packaging failed.
-    for (const platform of [options.desktop && "mac", options.windows && "win"].filter(Boolean)) {
-      const jobName = platform === "mac" ? "build (macos-latest, mac)" : "build (windows-latest, win)";
+    for (const platform of [options.desktop && "mac", options.windows && "win", options.linux && "linux"].filter(Boolean)) {
+      const jobName = platform === "mac" ? "build (macos-latest, mac)" : platform === "win" ? "build (windows-latest, win)" : "build (ubuntu-latest, linux)";
       const job = jobs.find((item) => item.name === jobName);
       assert.equal(job?.conclusion, "success", `${jobName} did not succeed`);
-      const name = platform === "mac" ? "nowen-note-mac" : "nowen-note-win-direct";
+      const name = platform === "mac" ? "nowen-note-mac" : platform === "win" ? "nowen-note-win-direct" : "nowen-note-linux";
       const matches = artifacts.filter((artifact) => artifact.name === name && !artifact.expired);
       assert.equal(matches.length, 1, `expected one current ${name} artifact`);
       const artifact = matches[0];
@@ -208,12 +210,12 @@ export function checkRelease(options, { client = gh } = {}) {
 
 function parseOptions(args) {
   const options = {};
-  const names = { "--tag": "tag", "--sha": "sha", "--source-run": "sourceRunId", "--run": "runId", "--request": "requestId", "--desktop": "desktop", "--windows": "windows" };
+  const names = { "--tag": "tag", "--sha": "sha", "--source-run": "sourceRunId", "--run": "runId", "--request": "requestId", "--desktop": "desktop", "--windows": "windows", "--linux": "linux" };
   while (args.length) {
     const key = names[args.shift()];
     const value = args.shift();
     assert.ok(key && value !== undefined, "invalid argument");
-    if (["desktop", "windows"].includes(key)) {
+    if (["desktop", "windows", "linux"].includes(key)) {
       assert.ok(["true", "false"].includes(value), "invalid boolean");
       options[key] = value === "true";
     } else options[key] = value;
@@ -234,6 +236,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
         "--source-run", process.env.SOURCE_RUN_ID, "--run", process.env.GITHUB_RUN_ID,
         "--request", process.env.RELEASE_REQUEST_ID, "--desktop", process.env.COLLECT_DESKTOP,
         "--windows", process.env.COLLECT_WINDOWS,
+        "--linux", process.env.COLLECT_LINUX || "false",
       ]);
       assert.equal(JSON.parse(fs.readFileSync(new URL("../package.json", import.meta.url))).version, options.tag.slice(1));
       const receipt = await collectRelease(options, { attempt: Number(process.env.GITHUB_RUN_ATTEMPT) });

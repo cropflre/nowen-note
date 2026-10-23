@@ -34,6 +34,10 @@ on:
         description: Replace Windows Full/Lite candidates with same-tag CI assets
         type: boolean
         default: true
+      linux:
+        description: Collect Linux x64 AppImage and Debian packages
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -292,6 +296,7 @@ jobs:
           RELEASE_REQUEST_ID: ${{ inputs.request_id }}
           COLLECT_DESKTOP: ${{ inputs.desktop }}
           COLLECT_WINDOWS: ${{ inputs.windows }}
+          COLLECT_LINUX: ${{ inputs.linux }}
         run: node scripts/release-ci-assets.mjs collect
       - name: Upload CI verification receipt
         uses: actions/upload-artifact@v4

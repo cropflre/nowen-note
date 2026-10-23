@@ -24,8 +24,9 @@ function fixture(settings = {}) {
   const jobs = [
     { name: "build (macos-latest, mac)", conclusion: "success" },
     { name: "build (windows-latest, win)", conclusion: settings.windowsFailed ? "failure" : "success" },
+    { name: "build (ubuntu-latest, linux)", conclusion: settings.linuxFailed ? "failure" : "success" },
   ];
-  const artifacts = ["nowen-note-mac", "nowen-note-win-direct"].map((name, id) => ({
+  const artifacts = ["nowen-note-mac", "nowen-note-win-direct", "nowen-note-linux"].map((name, id) => ({
     id, name, expired: false, workflow_run: { id: 101, head_sha: options.sha },
   }));
   state.artifacts = artifacts;
@@ -45,25 +46,28 @@ function fixture(settings = {}) {
       const dir = args[args.indexOf("--dir") + 1];
       state.downloads.push(dir);
       fs.mkdirSync(dir, { recursive: true });
-      const platform = name.endsWith("mac") ? "mac" : "win";
+      const platform = name.endsWith("mac") ? "mac" : name.endsWith("linux") ? "linux" : "win";
       const metadata = (prefix, channel, suffix) => {
         const asset = `${prefix}-1.5.2-${suffix}`;
         const bytes = Buffer.from(asset);
         fs.writeFileSync(path.join(dir, asset), bytes);
         if (/\.(exe|zip)$/.test(asset)) fs.writeFileSync(path.join(dir, `${asset}.blockmap`), "blockmap");
         const sha = createHash("sha512").update(bytes).digest("base64");
-        fs.writeFileSync(path.join(dir, channel), `version: 1.5.2\nfiles:\n  - url: ${asset}\n    sha512: ${sha}\n    size: ${bytes.length}\npath: ${asset}\nsha512: ${sha}\n`);
+        fs.writeFileSync(path.join(dir, channel), `version: 1.5.2\nfiles:\n  - url: ${asset}\n    sha512: ${sha}\n    size: ${bytes.length}\n${asset.endsWith(".AppImage") ? "    blockMapSize: 8\n" : ""}path: ${asset}\nsha512: ${sha}\n`);
       };
       if (platform === "mac") {
         metadata("Nowen-Note", "latest-mac.yml", "arm64.zip");
         for (const suffix of ["x64.dmg", "arm64.dmg", "x64.zip"]) fs.writeFileSync(path.join(dir, `Nowen-Note-1.5.2-${suffix}`), suffix);
+      } else if (platform === "linux") {
+        metadata("Nowen-Note", "latest-linux.yml", "x86_64.AppImage");
+        fs.writeFileSync(path.join(dir, "Nowen-Note-1.5.2-amd64.deb"), "deb");
       } else {
         for (const [prefix, channel] of [["Nowen-Note", "latest.yml"], ["Nowen-Note-Lite", "latest-lite.yml"]]) {
           metadata(prefix, channel, "setup.exe");
           fs.writeFileSync(path.join(dir, `${prefix}-1.5.2-portable.exe`), "portable");
         }
       }
-      if (state.corrupt === platform) fs.writeFileSync(path.join(dir, platform === "mac" ? "Nowen-Note-1.5.2-arm64.zip" : "Nowen-Note-1.5.2-setup.exe"), "corrupt");
+      if (state.corrupt === platform) fs.writeFileSync(path.join(dir, platform === "mac" ? "Nowen-Note-1.5.2-arm64.zip" : platform === "linux" ? "Nowen-Note-1.5.2-x86_64.AppImage" : "Nowen-Note-1.5.2-setup.exe"), "corrupt");
       if (state.extra === platform) fs.writeFileSync(path.join(dir, "old-version.dmg"), "old");
       return "";
     }
@@ -102,6 +106,37 @@ test("GitHub collector verifies both architectures and Full/Lite, preserves othe
   assert.deepEqual(receipt.assets, assetSnapshot(f.state.release));
   validateReceipt(receipt, options, f.state.release, run());
   for (const dir of f.state.downloads) assert.equal(fs.existsSync(dir), false, "temporary download must be cleaned");
+});
+
+test("Linux-only collection uploads AppImage, Debian package and updater metadata with a bound receipt", async () => {
+  const linuxOptions = { ...options, desktop: false, windows: false, linux: true };
+  const f = fixture();
+  f.state.release.assets = [];
+  const receipt = await collectRelease(linuxOptions, f);
+  assert.equal(f.state.uploads.length, 1);
+  assert.deepEqual(f.state.uploads[0], ["Nowen-Note-1.5.2-amd64.deb", "Nowen-Note-1.5.2-x86_64.AppImage", "latest-linux.yml"]);
+  validateReceipt(receipt, linuxOptions, f.state.release, run());
+  assert.throws(() => validateReceipt({ ...receipt, linux: false }, linuxOptions, f.state.release, run()), /linux mismatch/);
+  assert.equal(f.state.release.draft, true);
+});
+
+for (const settings of [{ linuxFailed: true }, { corrupt: "linux" }, { extra: "linux" }]) {
+  test(`Linux CI failure or invalid assets cannot yield a publication receipt: ${JSON.stringify(settings)}`, async () => {
+    const f = fixture(settings);
+    await assert.rejects(collectRelease({ ...options, desktop: false, windows: false, linux: true }, f));
+    assert.equal(f.state.uploads.length, 0);
+    assert.equal(f.state.verified, 0);
+    assert.equal(f.state.release.draft, true);
+  });
+}
+
+test("all desktop platforms can be collected without local release assets", async () => {
+  const f = fixture();
+  f.state.release.assets = [];
+  const receipt = await collectRelease({ ...options, linux: true }, f);
+  assert.equal(f.state.uploads.length, 3);
+  assert.equal(f.state.verified, 1);
+  assert.equal(receipt.assets.length, 17);
 });
 
 for (const [field, value] of [["event", "workflow_dispatch"], ["head_branch", "main"], ["head_sha", "c".repeat(40)], ["path", ".github/workflows/other.yml"], ["repository", { full_name: "other/repo" }]]) {

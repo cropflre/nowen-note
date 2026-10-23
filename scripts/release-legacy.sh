@@ -107,6 +107,8 @@ RELEASE_PRERELEASE=0   # --prerelease（版本号带 -rc 等预发布后缀时�
 #   macOS:            mac,linux  （macOS 上也能打 Linux；Win 要 wine 比较折腾，默认不打）
 #   Windows:          win        （原生打 Windows，通过 safe-build.mjs 做日志降噪）
 PC_PLATFORMS=""        # --pc-platform，留空交给下面自动推断
+DESKTOP_BUILD="local"  # --desktop-build local / github
+DESKTOP_BUILD_EXPLICIT=0
 
 # ===== Linux 桌面端架构选择（仅 PC_HAS_LINUX=1 时生效，实验性）=====
 # 逗号分隔，可选 x64 / arm64；默认 x64。
@@ -194,8 +196,11 @@ usage() {
                            绿联 .upk 要打进包的镜像名（默认 同 fpk-dockerhub-repo : v版本号）
       --upk-build N        绿联 .upk 的构建号（默认 1，会拼成 X.Y.Z.N 写入包名）
       --pc-platform LIST   PC 端要打的平台，逗号分隔：win / linux / mac
-                           默认：Linux 宿主 => win,linux；macOS => mac,linux；Windows => win
-                           在 Debian 上打 Windows exe 需要 wine64 + mono（首次 apt install 一次）
+                           local 默认：Linux => win,linux；macOS => mac,linux；Windows => win
+                           在 Debian 上本地打 Windows exe 需要 wine64 + mono
+      --desktop-build MODE 桌面包构建位置：local（默认）/ github
+                           github 跳过本地 PC/Lite 打包，由同 Tag Actions 构建并上传 Draft；
+                           PC 默认 win,mac,linux；Windows Full/Lite 成套收集，Linux 仅 x64
       --linux-arch LIST    Linux 桌面端 CPU 架构，逗号分隔：x64 / arm64（默认 x64）
                            arm64 属于 experimental，本地验证通过前不会进入正式 Release 矩阵
       --mac-arch LIST      mac 要打的 CPU 架构，逗号分隔：x64 / arm64（默认 x64）
@@ -296,6 +301,7 @@ while [ $# -gt 0 ]; do
         --push)         DO_PUSH_CUSTOM=1; shift ;;
         --target)       TARGETS="${2:-}"; TARGETS_EXPLICIT=1; shift 2 ;;
         --pc-platform)  PC_PLATFORMS="${2:-}"; shift 2 ;;
+        --desktop-build) DESKTOP_BUILD="${2:-}"; DESKTOP_BUILD_EXPLICIT=1; shift 2 ;;
         --linux-arch)   LINUX_ARCHES="${2:-}"; shift 2 ;;
         --mac-arch)     MAC_ARCHES="${2:-}"; shift 2 ;;
         --android-docker) ANDROID_USE_DOCKER=1; shift ;;
@@ -335,7 +341,7 @@ if [ "$TARGETS_EXPLICIT" = "0" ] && [ "$BUILD_ONLY" = "0" ] && [ "$ASSUME_YES" =
     echo "  ${C_CYAN}2${C_RESET})  PC 客户端                 打包 exe / AppImage / deb / dmg"
     echo "  ${C_CYAN}3${C_RESET})  Android APK               打包 Android 安装包"
     echo "  ${C_CYAN}4${C_RESET})  PC + Android              同时打 PC 和 Android"
-    echo "  ${C_BOLD}${C_GREEN}5${C_RESET})  ${C_BOLD}🚀 一键全量发布${C_RESET}          git tag + Docker(amd64+arm64) + PC/Linux 安装包 + APK + .fpk + lite + clipper + GitHub Releases（不含 .upk，单独走选项 10）"
+    echo "  ${C_BOLD}${C_GREEN}5${C_RESET})  ${C_BOLD}🚀 一键全量发布${C_RESET}          git tag + Docker(amd64+arm64) + PC/Lite（默认 GitHub 打包）+ APK + .fpk + clipper + GitHub Releases（不含 .upk，单独走选项 10）"
     echo "  ${C_CYAN}6${C_RESET})  自定义组合                手动输入 docker,pc,linux-app,android,fpk,upk,lite,clipper 组合"
     echo "  ${C_CYAN}7${C_RESET})  飞牛 .fpk                 仅打包飞牛 NAS 安装包（要求镜像已发到 Docker Hub）"
     echo "  ${C_CYAN}8${C_RESET})  Lite 版（无后端）          仅打 PC 端 lite 安装包（builder.lite.config.js）"
@@ -359,6 +365,7 @@ if [ "$TARGETS_EXPLICIT" = "0" ] && [ "$BUILD_ONLY" = "0" ] && [ "$ASSUME_YES" =
             # 经常因为 ugcli/绿联模板自身原因卡住主流程，故独立到选项 10。
             TARGETS="docker,pc,linux-app,android,fpk,lite,clipper"
             _ONE_SHOT=1
+            if [ "$DESKTOP_BUILD_EXPLICIT" = "0" ]; then DESKTOP_BUILD="github"; fi
             # ---- 一键全量：Docker 多架构 ----
             ARCH="multi"
             # ---- 一键全量：PC 平台按宿主自动推断 ----
@@ -369,6 +376,7 @@ if [ "$TARGETS_EXPLICIT" = "0" ] && [ "$BUILD_ONLY" = "0" ] && [ "$ASSUME_YES" =
                     Darwin) PC_PLATFORMS="mac,linux" ;;
                     *)      PC_PLATFORMS="win" ;;
                 esac
+                if [ "$DESKTOP_BUILD" = "github" ]; then PC_PLATFORMS="win,mac,linux"; fi
             fi
             # ---- 一键全量：Android 按本机 SDK 是否可用自动选 ----
             if { [ -n "${JAVA_HOME:-}" ] || command -v javac >/dev/null 2>&1; } \
@@ -395,6 +403,7 @@ if [ "$TARGETS_EXPLICIT" = "0" ] && [ "$BUILD_ONLY" = "0" ] && [ "$ASSUME_YES" =
             info "🚀 已进入 ${C_BOLD}${C_GREEN}一键全量发布${C_RESET} 模式："
             info "   - Docker 架构: ${C_GREEN}multi (amd64+arm64)${C_RESET}"
             info "   - PC 平台:     ${C_GREEN}${PC_PLATFORMS}${C_RESET}"
+            info "   - 桌面打包:    ${C_GREEN}${DESKTOP_BUILD}${C_RESET}（github 由 Actions 构建、上传和校验）"
             info "   - Linux 安装包:${C_GREEN}是${C_RESET}（AppImage + deb）"
             if [ "$ANDROID_USE_DOCKER" = "1" ]; then
                 info "   - Android:     ${C_GREEN}Docker 构建${C_RESET}"
@@ -408,7 +417,7 @@ info "   - 飞牛 .fpk:   ${C_GREEN}是${C_RESET}（在 Docker push 后构建）
             info "   - 绿联 .upk:   ${C_YELLOW}否${C_RESET}（独立选项 10，避免 ugcli 问题阻断主流程）"
             info "   - Lite 版:     ${C_GREEN}是${C_RESET}（无后端 PC 安装包）"
             info "   - 浏览器扩展:  ${C_GREEN}是${C_RESET}（nowen-clipper zip）"
-            info "   - 原子发布:    ${C_GREEN}是${C_RESET}（三端全部构建成功才推送）"
+            info "   - 原子发布:    ${C_GREEN}是${C_RESET}（本地目标成功后推送；GitHub 桌面构建失败时保留 Draft，不回滚 Docker）"
             ;;
         6)
             echo
@@ -479,6 +488,7 @@ info "   - 飞牛 .fpk:   ${C_GREEN}是${C_RESET}（在 Docker push 后构建）
             Darwin) _default_plat="mac,linux" ;;
             *)      _default_plat="win" ;;
         esac
+        [ "$DESKTOP_BUILD" = "github" ] && _default_plat="win,mac,linux"
         echo "  ${C_CYAN}1${C_RESET})  ${_default_plat}       自动推荐（基于当前系统: ${_UNAME_W}）"
         echo "  ${C_CYAN}2${C_RESET})  win                 仅 Windows（exe + portable）"
         echo "  ${C_CYAN}3${C_RESET})  linux               仅 Linux（AppImage + deb）"
@@ -659,6 +669,39 @@ if [ "$DO_GITHUB_RELEASE" = "0" ] && [ "$NO_GITHUB_RELEASE_EXPLICIT" = "0" ] \
     DO_GITHUB_RELEASE=1
 fi
 
+# GitHub 模式必须经过 release.sh 的同 Tag 收集与回执校验门禁。
+CI_DESKTOP_PLATFORMS=""
+case "$DESKTOP_BUILD" in
+    local) ;;
+    github)
+        [ "${NOWEN_RELEASE_GUARDED:-0}" = "1" ] || die "--desktop-build github 请通过 scripts/release.sh 执行"
+        [ "$BUILD_ONLY" = "0" ] && [ "$DO_GITHUB_RELEASE" = "1" ] \
+            || die "--desktop-build github 需要发布模式和 GitHub Release"
+        { [ "$HAS_PC" = "1" ] || [ "$HAS_LITE" = "1" ]; } \
+            || die "--desktop-build github 需要 pc/linux-app/lite target"
+        [ -z "$LINUX_ARCHES" ] || [ "$LINUX_ARCHES" = "x64" ] \
+            || die "GitHub Linux CI 仅支持 x64；其他架构请使用 --desktop-build local"
+        [ -z "$MAC_ARCHES" ] || die "GitHub macOS CI 固定构建 x64/arm64；请移除 --mac-arch"
+        [ "$RESTORE_BACKEND_ABI" = "0" ] || die "GitHub 模式无需 --restore-backend-abi"
+        RELEASE_DRAFT=1
+        if [ "$HAS_PC" = "1" ]; then
+            PC_PLATFORMS="${PC_PLATFORMS:-win,mac,linux}"
+            PC_PLATFORMS="$(echo "$PC_PLATFORMS" | tr ',' '\n' | awk 'NF{print}' | sort -u | tr '\n' ',' | sed 's/,$//')"
+            [ -n "$PC_PLATFORMS" ] || die "--pc-platform 至少包含一个平台"
+            for p in $(echo "$PC_PLATFORMS" | tr ',' ' '); do
+                case "$p" in win|mac|linux) ;; *) die "--pc-platform 未知值: $p" ;; esac
+            done
+            CI_DESKTOP_PLATFORMS="$PC_PLATFORMS"
+        fi
+        [ "$HAS_LITE" = "1" ] && CI_DESKTOP_PLATFORMS="${CI_DESKTOP_PLATFORMS:+${CI_DESKTOP_PLATFORMS},}win"
+        if [[ ",${CI_DESKTOP_PLATFORMS}," == *,win,* && ",${CI_DESKTOP_PLATFORMS}," == *,linux,* && ",${CI_DESKTOP_PLATFORMS}," != *,mac,* ]]; then
+            die "Windows + Linux 发布需要同时包含 macOS 以通过现有完整桌面校验；请使用 --pc-platform win,mac,linux"
+        fi
+        info "桌面包交由 GitHub Actions 构建：${CI_DESKTOP_PLATFORMS}（不在本地打包或传输）"
+        ;;
+    *) die "--desktop-build 只能是 local / github" ;;
+esac
+
 # ===== 自动推断 --atomic（原子发布） =====
 # 多端组合（任意 ≥2 个 target）时自动开启：
 # 先把所有构建完成，最后统一执行 docker push / git tag / GitHub Release，
@@ -792,7 +835,7 @@ if [ "$HAS_DOCKER" = "1" ] || [ "$BUILD_ONLY" = "1" ]; then
 fi
 
 # PC target 前置检查
-if [ "$HAS_PC" = "1" ]; then
+if [ "$HAS_PC" = "1" ] && [ "$DESKTOP_BUILD" = "local" ]; then
     [ -f "scripts/safe-build.mjs" ] || die "未找到 scripts/safe-build.mjs（PC 端打包脚本）"
     command -v node >/dev/null 2>&1 || die "未安装 node（PC 端打包需要）"
 
@@ -1008,7 +1051,7 @@ fi
 
 # Lite 版完全复用 PC 端的 electron-builder 链路，但走 builder.lite.config.js，
 # 不打 backend，因此无需 wine + better-sqlite3 等 PC target 的重型依赖。
-if [ "$HAS_LITE" = "1" ]; then
+if [ "$HAS_LITE" = "1" ] && [ "$DESKTOP_BUILD" = "local" ]; then
     [ -f "scripts/build-lite.mjs" ]                  || die "未找到 scripts/build-lite.mjs（lite 打包脚本）"
     [ -f "electron/builder.lite.config.js" ]         || die "未找到 electron/builder.lite.config.js"
     command -v node >/dev/null 2>&1                  || die "未安装 node（lite 打包需要）"
@@ -1467,13 +1510,16 @@ else
     step "发布摘要"
     echo "  版本 tag      : ${VERSION_TAG}"
     echo "  目标集合      : ${TARGETS}"
+    echo "  桌面构建位置  : ${DESKTOP_BUILD}"
     if [ "$HAS_DOCKER" = "1" ]; then
         echo "  Docker 仓库   : ${IMAGE_NAME}"
         echo "  Docker 架构   : ${PLATFORM_DESC}"
         echo "  Docker latest : $([ "$DO_LATEST" = "1" ] && echo yes || echo no)"
     fi
     if [ "$HAS_PC" = "1" ]; then
-        if [ "$HAS_LINUX_APP" = "1" ]; then
+        if [ "$DESKTOP_BUILD" = "github" ]; then
+            echo "  PC 打包       : GitHub Actions（平台: ${PC_PLATFORMS}）"
+        elif [ "$HAS_LINUX_APP" = "1" ]; then
             echo "  Linux 安装包  : electron-builder（AppImage + deb，架构: ${LINUX_ARCHES:-x64}）"
         else
             echo "  PC 打包       : electron-builder（平台: ${PC_PLATFORMS}）"
@@ -1506,7 +1552,9 @@ else
             echo "                  ${C_YELLOW}(未同时构建 docker target，将依赖本地已有镜像或 docker pull --pull)${C_RESET}"
         fi
     fi
-    if [ "$HAS_LITE" = "1" ]; then
+    if [ "$HAS_LITE" = "1" ] && [ "$DESKTOP_BUILD" = "github" ]; then
+        echo "  Lite 版       : GitHub Actions（Windows Full/Lite 成套收集）"
+    elif [ "$HAS_LITE" = "1" ]; then
         echo "  Lite 版       : scripts/build-lite.mjs（electron/builder.lite.config.js）"
     fi
     if [ "$HAS_CLIPPER" = "1" ]; then
@@ -1527,6 +1575,25 @@ if [ "$ASSUME_YES" != "1" ]; then
     echo
     read -r -p "确认？[y/N] " ans
     case "$ans" in [yY]|[yY][eE][sS]) ;; *) die "已取消" ;; esac
+fi
+
+# 交互菜单已确定构建位置，仅本地桌面构建清理旧输出。
+if [ "${NOWEN_RELEASE_GUARDED:-0}" = "1" ] && [ "$DRY_RUN" = "0" ] && [ "$BUILD_ONLY" = "0" ] && [ "$DESKTOP_BUILD" = "local" ]; then
+    clean_directory() {
+        local directory="$1"
+        [ -e "$directory" ] || return 0
+        info "cleaning stale build output: $directory"
+        rm -rf -- "$directory"
+    }
+    TEMP_ROOT="$(node -e 'process.stdout.write(require("os").tmpdir())')"
+    if [ "$HAS_PC" = "1" ]; then
+        clean_directory "${REPO_ROOT}/dist-electron"
+        clean_directory "${TEMP_ROOT}/nowen-note-build"
+    fi
+    if [ "$HAS_LITE" = "1" ]; then
+        clean_directory "${REPO_ROOT}/dist-electron-lite"
+        clean_directory "${TEMP_ROOT}/nowen-note-lite-build"
+    fi
 fi
 
 if [ "$BUILD_ONLY" != "1" ]; then
@@ -1740,7 +1807,7 @@ fi
 #                     跨平台打 win 需要 wine + mono（前置检查已过）
 PC_ARTIFACTS=()
 PC_BUILD_DURATION=0
-if [ "$HAS_PC" = "1" ]; then
+if [ "$HAS_PC" = "1" ] && [ "$DESKTOP_BUILD" = "local" ]; then
     step "PC 端打包（electron-builder）"
     PC_START=$(date +%s)
 
@@ -2434,7 +2501,7 @@ fi
 # 内部会跑 build:frontend，缺包会直接 TS2307。
 LITE_ARTIFACTS=()
 LITE_BUILD_DURATION=0
-if [ "$HAS_LITE" = "1" ]; then
+if [ "$HAS_LITE" = "1" ] && [ "$DESKTOP_BUILD" = "local" ]; then
     step "Lite 版打包（scripts/build-lite.mjs）"
     LITE_START=$(date +%s)
 
@@ -2792,7 +2859,7 @@ if [ "$DO_GITHUB_RELEASE" = "1" ]; then
     [ "${#LITE_ARTIFACTS[@]}" -gt 0 ]    && ALL_ASSETS+=( "${LITE_ARTIFACTS[@]}" )
     [ "${#CLIPPER_ARTIFACTS[@]}" -gt 0 ] && ALL_ASSETS+=( "${CLIPPER_ARTIFACTS[@]}" )
 
-    if [ "${#ALL_ASSETS[@]}" -eq 0 ]; then
+    if [ "${#ALL_ASSETS[@]}" -eq 0 ] && [ -z "$CI_DESKTOP_PLATFORMS" ]; then
         warn "没有产物需要上传到 GitHub Release，跳过"
     else
         info "将上传 ${#ALL_ASSETS[@]} 个产物到 ${GITHUB_REPO_SLUG} @ ${VERSION_TAG}"
@@ -2817,11 +2884,17 @@ if [ "$DO_GITHUB_RELEASE" = "1" ]; then
         else
             # 已存在的 release 就改用 upload（常见于补传失败的那次）
             if gh release view "$VERSION_TAG" --repo "$GITHUB_REPO_SLUG" >/dev/null 2>&1; then
-                info "Release ${VERSION_TAG} 已存在，改用 gh release upload --clobber"
-                run_argv gh release upload "$VERSION_TAG" \
-                    --repo "$GITHUB_REPO_SLUG" \
-                    --clobber \
-                    "${ALL_ASSETS[@]}"
+                if [ -n "$CI_DESKTOP_PLATFORMS" ]; then
+                    [ "$(gh release view "$VERSION_TAG" --repo "$GITHUB_REPO_SLUG" --json isDraft --jq '.isDraft')" = "true" ] \
+                        || die "GitHub 桌面构建只允许写入 Draft，不能替换已发布版本"
+                fi
+                if [ "${#ALL_ASSETS[@]}" -gt 0 ]; then
+                    info "Release ${VERSION_TAG} 已存在，改用 gh release upload --clobber"
+                    run_argv gh release upload "$VERSION_TAG" \
+                        --repo "$GITHUB_REPO_SLUG" \
+                        --clobber \
+                        "${ALL_ASSETS[@]}"
+                fi
             else
                 run_argv gh "${CREATE_ARGS[@]}"
             fi
@@ -2829,6 +2902,10 @@ if [ "$DO_GITHUB_RELEASE" = "1" ]; then
             ok "GitHub Release 产物已上传：${RELEASE_URL}"
         fi
     fi
+fi
+
+if [ -n "$CI_DESKTOP_PLATFORMS" ]; then
+    echo "NOWEN_RELEASE_CI_PLATFORMS=${CI_DESKTOP_PLATFORMS}"
 fi
 
 # -------------------- 完成 --------------------

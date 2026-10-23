@@ -30,9 +30,6 @@ DRY_RUN=0
 BUILD_ONLY=0
 USER_REQUESTED_DRAFT=0
 HELP_ONLY=0
-ASSUME_YES=0
-TARGETS=""
-TARGETS_EXPLICIT=0
 ANDROID_DOCKER_REQUESTED=0
 ANDROID_DOCKER_SYNC_REQUESTED=0
 ANDROID_DOCKER_IMAGE_EXPLICIT=0
@@ -44,17 +41,9 @@ for ((i = 0; i < ${#ARGS[@]}; i += 1)); do
     --build-only) BUILD_ONLY=1 ;;
     --draft) USER_REQUESTED_DRAFT=1 ;;
     -h|--help) HELP_ONLY=1 ;;
-    -y|--yes) ASSUME_YES=1 ;;
     --android-docker) ANDROID_DOCKER_REQUESTED=1 ;;
     --android-docker-sync) ANDROID_DOCKER_SYNC_REQUESTED=1 ;;
     --android-docker-image|--android-docker-image=*) ANDROID_DOCKER_IMAGE_EXPLICIT=1 ;;
-    --target)
-      if (( i + 1 < ${#ARGS[@]} )); then
-        TARGETS="${ARGS[$((i + 1))]}"
-        TARGETS_EXPLICIT=1
-        i=$((i + 1))
-      fi
-      ;;
   esac
 done
 
@@ -87,42 +76,16 @@ if [ "$HELP_ONLY" = "0" ] && [ "$BUILD_ONLY" = "0" ]; then
   fi
 fi
 
-clean_directory() {
-  local directory="$1"
-  [ -e "$directory" ] || return 0
-  echo "[release-guard] cleaning stale build output: $directory"
-  rm -rf -- "$directory"
-}
-
-if [ "$HELP_ONLY" = "0" ] && [ "$DRY_RUN" = "0" ] && [ "$BUILD_ONLY" = "0" ]; then
-  CLEAN_FULL=0
-  CLEAN_LITE=0
-  if [ "$TARGETS_EXPLICIT" = "1" ]; then
-    case ",${TARGETS}," in *,all,*|*,pc,*|*,linux-app,*) CLEAN_FULL=1 ;; esac
-    case ",${TARGETS}," in *,all,*|*,lite,*) CLEAN_LITE=1 ;; esac
-  elif [ "$ASSUME_YES" = "0" ]; then
-    CLEAN_FULL=1
-    CLEAN_LITE=1
-  fi
-
-  TEMP_ROOT="$(node -e 'process.stdout.write(require("os").tmpdir())')"
-  if [ "$CLEAN_FULL" = "1" ]; then
-    clean_directory "${REPO_ROOT}/dist-electron"
-    clean_directory "${TEMP_ROOT}/nowen-note-build"
-  fi
-  if [ "$CLEAN_LITE" = "1" ]; then
-    clean_directory "${REPO_ROOT}/dist-electron-lite"
-    clean_directory "${TEMP_ROOT}/nowen-note-lite-build"
-  fi
-fi
-
 LEGACY_ARGS=("${ARGS[@]}")
 if [ "$HELP_ONLY" = "0" ] && [ "$DRY_RUN" = "0" ] && [ "$BUILD_ONLY" = "0" ] && [ "$USER_REQUESTED_DRAFT" = "0" ]; then
   LEGACY_ARGS+=("--draft")
 fi
 
-if [ "$HELP_ONLY" = "1" ] || [ "$DRY_RUN" = "1" ] || [ "$BUILD_ONLY" = "1" ]; then
+if [ "$HELP_ONLY" = "1" ] || [ "$BUILD_ONLY" = "1" ]; then
   exec bash "$LEGACY_SCRIPT" "${LEGACY_ARGS[@]}"
+fi
+if [ "$DRY_RUN" = "1" ]; then
+  NOWEN_RELEASE_GUARDED=1 exec bash "$LEGACY_SCRIPT" "${LEGACY_ARGS[@]}"
 fi
 
 LOG_FILE="$(mktemp "${TMPDIR:-/tmp}/nowen-release-guard.XXXXXX.log")"
@@ -189,11 +152,21 @@ wait_for_tag_workflow_run() {
 # Desktop binaries and remote verification stay inside GitHub's network.
 COLLECT_DESKTOP=false
 COLLECT_WINDOWS=false
+COLLECT_LINUX=false
 if grep -q "PC 产物" "$LOG_FILE"; then
   COLLECT_DESKTOP=true
   ensure_desktop_platform_notes
 fi
 if grep -Eq "PC 产物|Lite 版产物" "$LOG_FILE" && release_contains_windows_candidates; then COLLECT_WINDOWS=true; fi
+CI_PLATFORMS="$(sed -n 's/^NOWEN_RELEASE_CI_PLATFORMS=//p' "$LOG_FILE" | tail -n 1)"
+if [ -n "$CI_PLATFORMS" ]; then
+  case ",${CI_PLATFORMS}," in *,mac,*) COLLECT_DESKTOP=true ;; esac
+  case ",${CI_PLATFORMS}," in *,win,*) COLLECT_WINDOWS=true ;; esac
+  case ",${CI_PLATFORMS}," in *,linux,*) COLLECT_LINUX=true ;; esac
+  if [ "$COLLECT_DESKTOP" = "true" ] && [ "$COLLECT_WINDOWS" = "true" ] && [ "$COLLECT_LINUX" = "true" ]; then
+    ensure_desktop_platform_notes
+  fi
+fi
 
 TAG_SHA="$(git -C "$REPO_ROOT" rev-list -n 1 "$TAG")"
 TIMEOUT_SECONDS="${NOWEN_RELEASE_CI_ARTIFACT_TIMEOUT_SECONDS:-10800}"
@@ -207,7 +180,7 @@ REQUEST_ID="$(node -e 'console.log(require("node:crypto").randomUUID())')"
 echo "==== GitHub 内汇总产物并校验 Draft ===="
 gh workflow run release.yml --repo "$GITHUB_REPO_SLUG" --ref "$TAG" \
   -f mode=release-assets -f source_run_id="$SOURCE_RUN_ID" -f request_id="$REQUEST_ID" \
-  -F desktop="$COLLECT_DESKTOP" -F windows="$COLLECT_WINDOWS"
+  -F desktop="$COLLECT_DESKTOP" -F windows="$COLLECT_WINDOWS" -F linux="$COLLECT_LINUX"
 
 CI_RUN_ID=""
 while [ "$SECONDS" -lt "$DEADLINE" ]; do
@@ -233,7 +206,7 @@ if [ "${CI_STATE:-}" != "completed:success" ]; then
 fi
 node "$CI_ASSETS_SCRIPT" check --tag "$TAG" --sha "$TAG_SHA" \
   --source-run "$SOURCE_RUN_ID" --run "$CI_RUN_ID" --request "$REQUEST_ID" \
-  --desktop "$COLLECT_DESKTOP" --windows "$COLLECT_WINDOWS"
+  --desktop "$COLLECT_DESKTOP" --windows "$COLLECT_WINDOWS" --linux "$COLLECT_LINUX"
 
 if [ "$USER_REQUESTED_DRAFT" = "1" ]; then
   gh release edit "$TAG" --repo "$GITHUB_REPO_SLUG" --draft=true >/dev/null
