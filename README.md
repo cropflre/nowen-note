@@ -33,20 +33,25 @@
 
 > **NAS 远程连接登录**：支持部署到 **绿联 NAS（UGOS / UGOS Pro）** 和 **飞牛 NAS（fnOS）**。部署完成后，可在 Web、桌面端或 Android 客户端中，通过局域网 IP、IPv6 地址或已配置 HTTPS 的公网域名远程连接并登录。
 
-## v1.5.2 更新亮点 · 2026-10-16
+## v1.5.3 更新亮点 · 2026-10-23
 
-**v1.5.2 的功能代码已合并到 `main`。** 本轮围绕 **文件中心、AI / MCP、任务工作台、同步可靠性和多平台发布** 进行升级。正式安装包与可用平台以 [GitHub Releases](https://github.com/cropflre/nowen-note/releases) 实际公开的资产为准。
+**v1.5.3 的功能代码已进入 `main`。** 截至 2026-10-23，GitHub 上的 v1.5.3 Release 仍为**草稿**；以下是代码更新说明，**不表示所有客户端安装包已经公开发布**。正式版下载与各平台资产请以 [GitHub Releases](https://github.com/cropflre/nowen-note/releases) 为准。
 
 > [!IMPORTANT]
-> 升级前请创建完整备份，确认数据库与附件已持久化；Docker / NAS 用户建议保留独立备份。**回滚程序或容器镜像不等于回滚数据库与附件。**
+> 升级前先完整备份数据库、附件及部署配置，并验证备份可恢复。**回滚客户端或 Docker 镜像不会自动回滚数据。**
 
-- **文件中心升级**：资源管理器式导航、瀑布流、文件夹、标签、智能文件夹、上传进度、批量重命名、回收站与恢复；支持个人附件目录同步、复用已有附件，以及先预览再确认的 AI 元数据整理和语义搜索。
-- **MCP 能力扩展**：新增受令牌权限约束的知识树与任务项目能力，支持受控的树结构操作、任务编辑与归档、文件整理及任务详情保存为笔记；高风险写入采用预览确认、版本校验和资源授权。新增可选的本机回环 Streamable HTTP 接入及 MCP 连接面板。
-- **任务与效率**：支持 AI 生成任务并确认创建、今日完成清单、任务树归档、任务详情另存为笔记，以及 Excel / Markdown 导出。
-- **同步与编辑**：加强单篇笔记同步确认、个人目录结构同步与恢复，并新增纯文本笔记、中文排版操作及阅读位置恢复。
-- **发布与部署**：新增可视化版本发布中心、发布资产校验、可选 Caddy HTTPS 部署，并为 Microsoft Store 独立 AppX 打包和商店更新适配建立隔离流程；**商店适配不代表已经在 Microsoft Store 上架**。
+- **个人应用工作台（App Studio）**：提供个人应用库、无代码模板编辑器、预览与运行能力；可通过 AI 辅助生成 AppSpec 草稿、对话迭代编辑并查看和恢复历史版本。AI 草稿需由用户确认后应用，模型请求不应携带用户记录内容；应用与数据按所有者和资源权限隔离。
+- **扩展平台 V3**：在统一“应用”入口中管理插件，新增受控的应用运行时、仪表盘与资源检查视图；安装过程校验 V3 清单和 UI 资源哈希，资源访问经过授权。**不是任意第三方代码都可直接访问全部笔记和文件。**
+- **笔记、图片与文件体验**：修复多级知识树节点拖拽位移（#869）、移动端代码块与斜杠菜单交互；增加收藏笔记搜索、图片旋转持久化、恢复“全部笔记”入口，以及个人范围内的一键扫描并转存外链图片。
+- **数据安全与编辑保护**：整篇加密笔记支持“解锁 → 解除加密 → 确认”后永久解密（#875）；分享图片地址保留扩展名，提升外链使用兼容性。
+- **日程与自动化**：日历增加中国大陆节假日标记（#848）；优化 PushPlus 中文任务摘要、JSON Webhook 和服务商回执验证；修复任务摘要时区（#867）及 MCP 提醒与日程问题（#871）。
+- **发布与兼容性**：持续完善发布中心的候选构建、资产校验与审批门禁，以及 Windows、macOS、Linux 等打包流程；**构建流程改进不等于商店上架或各平台真机验收完成**。
 
-查看 [完整更新日志](./CHANGELOG.md) · [多平台下载](https://nowen.cn/#/note/download) · [GitHub Releases](https://github.com/cropflre/nowen-note/releases)。
+查看 [完整更新日志](./CHANGELOG.md) · [官网版本说明](https://nowen.cn/#/note/changelog) · [下载中心](https://nowen.cn/#/note/download)。
+
+## 上一正式版 v1.5.2
+
+v1.5.2 于 2026-10-16 发布，重点升级了文件中心、MCP 授权能力、AI 任务与复盘、多端同步以及发布部署流程。详情见 [v1.5.2 Release](https://github.com/cropflre/nowen-note/releases/tag/v1.5.2)。
 
 ## 为什么选择 Nowen Note
 
@@ -74,6 +79,7 @@
 | **附件与存储** | 文件中心提供资源管理器式文件夹导航、瀑布流、标签、智能文件夹、批量上传进度、移动 / 重命名、文件回收站及恢复、个人附件目录同步和已有附件插入；支持远程图片安全转存与逐图进度。AI 文件整理采用元数据建议、人工确认和权限校验，语义检索基于文件名 / 标签 / 描述，不读取文件字节，且受 [平台与作用域限制](./docs/user/file-ai-organization.md)。附件可存储于本地磁盘、S3、R2、MinIO；参见[文件整理](./docs/user/file-asset-organization.md)、[回收站](./docs/user/file-recycle-bin.md)与[目录同步](./docs/user/file-folder-sync.md)。 |
 | **备份与恢复** | 本地自动备份、后台完整 ZIP 任务、流式归档与校验、浏览器原生下载、邮件备份、凭据加密的 WebDAV 远程备份、Docker 在线升级前备份与失败回滚检查。 |
 | **多端访问** | Web、Electron（Windows / macOS / Linux）、Android、iOS 工程、HarmonyOS 工程，以及 Docker / NAS 部署；支持绿联 UGOS、飞牛 fnOS，客户端可通过 IPv4、IPv6 或域名远程连接并登录 NAS 服务；Android 支持应用内图片手势预览。 |
+| **个人应用与扩展 V3** | 个人应用库、无代码模板与预览、AI 草稿审阅及历史版本恢复；插件统一进入应用管理，V3 运行时、仪表盘与资源检查视图受权限和包校验约束。不同应用的可用能力取决于授权、运行环境与配置。 |
 | **开放能力** | OpenAPI 3.0、TypeScript SDK、CLI、Webhook、插件系统、受限 Personal API Token、[MCP Server](./docs/tutorials/mcp.md) 和浏览器剪藏扩展；MCP 覆盖授权笔记 / 知识树、个人任务 / 项目、文件管理和个人自动化，敏感操作需要显式授权及预览确认；可选本机回环 HTTP 传输。 |
 
 ## AI 问答与隐私
@@ -97,9 +103,9 @@ Nowen Note 的 MCP Server 可连接 Claude Code、Cursor、VS Code 等客户端�
 
 目前可通过源码构建 `packages/nowen-mcp` 并使用 `bin/nowen-mcp.mjs` 作为客户端入口（Node.js 20+）；`dist/scoped-entry.js` 仅供启动器内部加载。标准接入以 stdio 为主；v1.5.2 另提供**需要明确开启、仅限本机回环地址且要求认证**的 Streamable HTTP 接入。请为不同客户端创建独立、最小权限的 Token，勿在配置中写入管理员密码。
 
-## 上一版本 v1.5.1
+## 更早版本
 
-v1.5.1 重点改进 **任务提醒与摘要、AI 任务操作、Android 同步与登录体验、富文本和加密保护**。详情见 [v1.5.1 发布说明](https://github.com/cropflre/nowen-note/releases/tag/v1.5.1)；更早版本见 [更新日志](./CHANGELOG.md)。
+v1.5.1 的任务提醒、AI 任务操作与 Android 同步修复见 [v1.5.1 发布说明](https://github.com/cropflre/nowen-note/releases/tag/v1.5.1)；历史内容见 [更新日志](./CHANGELOG.md)。
 
 ## 截图
 
