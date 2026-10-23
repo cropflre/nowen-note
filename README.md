@@ -35,7 +35,7 @@
 
 ## v1.5.3 更新亮点 · 2026-10-23
 
-**v1.5.3 的更新代码已进入 `main`。** 版本安装包与公开发布状态请以 [GitHub Releases](https://github.com/cropflre/nowen-note/releases) 为准；提交到仓库不等于正式安装包已发布。
+**v1.5.3 已在 GitHub Releases 正式公开发布。** 下载安装包前仍请核对 [GitHub Release v1.5.3](https://github.com/cropflre/nowen-note/releases/tag/v1.5.3) 的实际附件与设备架构。
 
 > [!IMPORTANT]
 > 升级前请完整备份数据库、附件及部署配置，并确认备份可恢复。**回滚程序或 Docker 镜像不会自动回滚持久化数据。**
