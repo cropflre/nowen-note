@@ -228,6 +228,8 @@ test("existing Q&A history and streaming survive Agent tab switches and process 
   await page.getByPlaceholder("admin", { exact: true }).fill("agent_chat");
   await page.locator("input[type=password]").fill("agent-chat-test-password");
   await page.locator("button[type=submit]").click();
+  // First-login onboarding must finish before this scenario navigates to chat.
+  await expect(page.getByRole("textbox", { name: "Note Title", exact: true })).toHaveValue("欢迎使用 Nowen Note");
   await page.getByRole("button", { name: "AI Chat", exact: true }).click();
   await expect(page.locator("p").filter({ hasText: /^Historical answer$/ })).toBeVisible();
   const input = page.getByPlaceholder("Ask a question, AI will answer based on your knowledge base...");
@@ -249,6 +251,8 @@ test("existing Q&A history and streaming survive Agent tab switches and process 
   await expect(page.locator("p").filter({ hasText: /^Compatibility stream started and completed\.$/ })).toBeVisible();
   await product.restart();
   await page.reload();
+  // First-login onboarding must finish before this scenario navigates to chat.
+  await expect(page.getByRole("textbox", { name: "Note Title", exact: true })).toHaveValue("欢迎使用 Nowen Note");
   await page.getByRole("button", { name: "AI Chat", exact: true }).click();
   await expect(page.locator("p").filter({ hasText: /^Historical answer$/ })).toBeVisible();
   await expect(page.locator("p").filter({ hasText: /^Compatibility stream started and completed\.$/ })).toBeVisible();
