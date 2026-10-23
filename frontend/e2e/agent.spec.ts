@@ -12,17 +12,28 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const root = fileURLToPath(new URL("../..", import.meta.url));
 const providerFile = process.env.NOWEN_AGENT_LIVE_PROVIDER_FILE;
 const electron = process.env.NOWEN_AGENT_TEST_RUNTIME || createRequire(import.meta.url)("electron") as string;
-const test = base.extend<{ product: { server: string; provider: { url: string; key: string; model: string }; directory: string; restart: () => Promise<void> } }>({
+const test = base.extend<{ product: { server: string; provider: { url: string; key: string; model: string }; directory: string; finishChat: () => void; chatRequests: Array<{ role: string; content: string }[]>; restart: () => Promise<void> } }>({
   product: async ({ browserName }, provide) => {
     void browserName;
     const directory = fs.mkdtempSync(path.join(os.tmpdir(), "nowen-task-composer-browser-"));
     let backend: ChildProcess | undefined, logs = "";
+    let finishChat = () => {};
+    const chatRequests: Array<{ role: string; content: string }[]> = [];
 
     const provider = http.createServer((request, response) => {
       let raw = "";
       request.on("data", chunk => { raw += chunk; });
-      request.on("end", () => {
+      request.on("end", async () => {
         const body = JSON.parse(raw);
+        if (!body.tools) {
+          chatRequests.push(body.messages);
+          response.setHeader("Content-Type", "text/event-stream");
+          const finished = new Promise<void>(resolve => { finishChat = resolve; });
+          response.write(`data: ${JSON.stringify({ choices: [{ delta: { content: "Compatibility stream started" } }] })}\n\n`);
+          await finished;
+          response.end(`data: ${JSON.stringify({ choices: [{ delta: { content: " and completed." } }] })}\n\ndata: [DONE]\n\n`);
+          return;
+        }
         const context = body.messages.find((m: { role: string }) => m.role === "tool");
         const tool = context
           ? { name: "propose_note_edit", arguments: JSON.stringify({ edits: [{ before: "Agent original sentence", after: "Agent improved sentence" }] }) }
@@ -42,12 +53,13 @@ const test = base.extend<{ product: { server: string; provider: { url: string; k
       await expect.poll(() => fetch(`${server}/api/health`).then(r => r.ok).catch(() => false), { timeout: 20000, message: "Isolated backend must start" }).toBe(true);
       };
       await start();
-      await provide({ server, provider: providerFile ? JSON.parse(fs.readFileSync(providerFile, "utf8")) : { url: providerUrl, key: "test-key", model: "tool-test" }, directory, restart: async () => {
+      await provide({ server, finishChat: () => finishChat(), chatRequests, provider: providerFile ? JSON.parse(fs.readFileSync(providerFile, "utf8")) : { url: providerUrl, key: "test-key", model: "tool-test" }, directory, restart: async () => {
         const exited = new Promise<void>(resolve => backend!.once("exit", () => resolve()));
         backend!.kill(); await exited;
         await start();
       } });
     } finally {
+      finishChat();
       if (backend && backend.exitCode === null) { const exited = new Promise<void>(resolve => backend!.once("exit", () => resolve())); backend.kill(); await exited; }
       await new Promise<void>(resolve => provider.close(() => resolve()));
       fs.rmSync(directory, { recursive: true, force: true });
@@ -110,7 +122,9 @@ for (const format of ["markdown", "tiptap-json"] as const) test(`editor Agent ${
   if (format === "tiptap-json") expect(saved.content).toContain('"bold"');
   await editable.click(); await page.keyboard.press("ControlOrMeta+z");
   await expect.poll(async () => (await (await page.request.get(`${product.server}/api/notes/${note.id}`, { headers })).json()).content).toContain("Agent original sentence");
-  await page.keyboard.press("ControlOrMeta+Shift+z");
+  // Shift produces uppercase Z; lowercase z can match CodeMirror Undo on Linux.
+  expect((await (await page.request.get(`${product.server}/api/notes/${note.id}`, { headers })).json()).content).toContain("Local changes preserved");
+  await page.keyboard.press("ControlOrMeta+Shift+Z");
   await expect.poll(async () => (await (await page.request.get(`${product.server}/api/notes/${note.id}`, { headers })).json()).content).toContain("Agent improved sentence");
   // Restart the actual backend process with the same isolated on-disk database.
   const pendingNote = await (await page.request.post(`${product.server}/api/notes`, { headers, data: { title: "Interrupted proposal", notebookId: books[0].id, contentFormat: format, content } })).json();
@@ -172,4 +186,52 @@ test("live model optimizes a Chinese note through preview and verified editor sa
   expect(completed.status).toBe("completed");
   // Only synthetic content and bounded public metadata enter the evidence file.
   fs.writeFileSync(test.info().outputPath("live-evidence.json"), JSON.stringify({ provider: product.provider.url, model: product.provider.model, status: completed.status, usage: completed.usage, original: proposed.proposal.original, result: reopened.content, tools: completed.steps.map((step: { toolName: string; status: string }) => ({ tool: step.toolName, status: step.status })), persistedAfterProcessRestart: true }, null, 2));
+});
+
+
+test("existing Q&A history and streaming survive Agent tab switches and process restart", async ({ page, product }) => {
+  test.skip(!!providerFile, "Uses a controlled stream to switch tabs before completion");
+  const registered = await page.request.post(`${product.server}/api/auth/register`, { data: { username: "agent_chat", password: "agent-chat-test-password" } });
+  expect(registered.ok()).toBe(true);
+  const account = await registered.json();
+  const headers = { Authorization: `Bearer ${account.token}` };
+  expect((await page.request.put(`${product.server}/api/ai/settings`, { headers, data: { ai_provider: "openai", ai_api_url: product.provider.url, ai_api_key: product.provider.key, ai_model: product.provider.model } })).ok()).toBe(true);
+  const created = await page.request.post(`${product.server}/api/ai/conversations`, { headers, data: { title: "Existing conversation" } });
+  expect(created.ok()).toBe(true);
+  const { conversation } = await created.json();
+  for (const message of [{ role: "user", content: "Historical question" }, { role: "assistant", content: "Historical answer" }]) {
+    expect((await page.request.post(`${product.server}/api/ai/chat-history`, { headers, data: { ...message, conversationId: conversation.id } })).ok()).toBe(true);
+  }
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(product.server);
+  await page.evaluate(() => { localStorage.setItem("i18nextLng", "en"); localStorage.setItem("nowen-seen-version", "1.5.3"); });
+  await page.reload();
+  await page.getByPlaceholder("admin", { exact: true }).fill("agent_chat");
+  await page.locator("input[type=password]").fill("agent-chat-test-password");
+  await page.locator("button[type=submit]").click();
+  await page.getByRole("button", { name: "AI Chat", exact: true }).click();
+  await expect(page.locator("p").filter({ hasText: /^Historical answer$/ })).toBeVisible();
+  const input = page.getByPlaceholder("Ask a question, AI will answer based on your knowledge base...");
+  await input.fill("Continue the previous conversation");
+  await page.getByRole("button", { name: "Agent", exact: true }).click();
+  await expect(input).toBeHidden();
+  await page.getByRole("button", { name: "Q&A", exact: true }).click();
+  await expect(input).toHaveValue("Continue the previous conversation");
+  await expect(page.getByText("Historical question", { exact: true })).toBeVisible();
+  await input.press("Enter");
+  await expect(page.locator("p").filter({ hasText: /^Compatibility stream started$/ })).toBeVisible();
+  await page.getByRole("button", { name: "Agent", exact: true }).click();
+  product.finishChat();
+  const history = async () => (await (await page.request.get(`${product.server}/api/ai/chat-history?conversationId=${conversation.id}`, { headers })).json()).messages;
+  await expect.poll(async () => (await history()).map((message: { content: string }) => message.content)).toEqual(["Historical question", "Historical answer", "Continue the previous conversation", "Compatibility stream started and completed."]);
+  expect(product.chatRequests).toHaveLength(1);
+  expect(product.chatRequests[0]).toEqual(expect.arrayContaining([{ role: "user", content: "Historical question" }, { role: "assistant", content: "Historical answer" }]));
+  await page.getByRole("button", { name: "Q&A", exact: true }).click();
+  await expect(page.locator("p").filter({ hasText: /^Compatibility stream started and completed\.$/ })).toBeVisible();
+  await product.restart();
+  await page.reload();
+  await page.getByRole("button", { name: "AI Chat", exact: true }).click();
+  await expect(page.locator("p").filter({ hasText: /^Historical answer$/ })).toBeVisible();
+  await expect(page.locator("p").filter({ hasText: /^Compatibility stream started and completed\.$/ })).toBeVisible();
+  expect(await history()).toHaveLength(4);
 });
