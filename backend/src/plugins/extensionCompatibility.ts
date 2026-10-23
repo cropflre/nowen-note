@@ -1,6 +1,5 @@
 import { getDb } from "../db/schema.js";
 import { nowenVersionSatisfies } from "./manifest.js";
-import { getApplicationV3FeatureFlags } from "./applicationV3.js";
 import type { ExtensionPolicyDocument } from "./extensionPolicy.js";
 import type { PluginManifest, PluginRegistryRecord, PluginSource, PluginTrustLevel } from "./types.js";
 
@@ -52,15 +51,12 @@ export function resolveExtensionCompatibility(input: ExtensionCompatibilityInput
     if (runtimePlatforms?.length && !runtimePlatforms.includes(currentRuntimePlatform())) return denied("PLUGIN_RUNTIME_PLATFORM_INCOMPATIBLE", "插件与当前 Runtime 平台不兼容");
   }
 
-  if (manifest.apiVersion === 3 && (!getApplicationV3FeatureFlags().appPages || manifest.runtime !== "declarative")) {
-    return denied("PLUGIN_V3_FEATURE_DISABLED", "V3 UI Host 尚未启用或运行时无效");
-  }
   if (manifest.apiVersion === 1 && manifest.runtime !== "node-action") return denied("PLUGIN_API_RUNTIME_INCOMPATIBLE", "API V1 仅支持 node-action Runtime");
   if (manifest.apiVersion === 2 && !["node-action", "sandbox-js", "declarative"].includes(manifest.runtime)) return denied("PLUGIN_API_RUNTIME_INCOMPATIBLE", "API V2 Runtime 不受支持");
 
   if (policy.blockedExtensions.includes(manifest.id)) return denied("PLUGIN_POLICY_DENIED", "插件被企业策略阻止");
   if (policy.allowedExtensions.length && !policy.allowedExtensions.includes(manifest.id)) return denied("PLUGIN_POLICY_DENIED", "插件不在企业允许列表");
-  if (manifest.apiVersion !== 1 && policy.allowedPublishers.length && !policy.allowedPublishers.includes(manifest.publisher)) return denied("PLUGIN_POLICY_DENIED", "Publisher 不在企业允许列表");
+  if (manifest.apiVersion === 2 && policy.allowedPublishers.length && !policy.allowedPublishers.includes(manifest.publisher)) return denied("PLUGIN_POLICY_DENIED", "Publisher 不在企业允许列表");
   if (
     input.trustLevel === "official" && !policy.allowOfficial
     || input.trustLevel === "verified" && !policy.allowVerified

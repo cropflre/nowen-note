@@ -3,6 +3,7 @@ export const KNOWLEDGE_TREE_CLEAR_SEARCH_EVENT = "nowen:knowledge-tree-clear-sea
 export type KnowledgeTreeClearSearchDetail = {
   parentId?: string | null;
   nodeId?: string;
+  clearOnly?: boolean;
 };
 
 /** 文档创建成功后展开目标目录；传入新节点 ID 时，在刷新后定位并选中。 */

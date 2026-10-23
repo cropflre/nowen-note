@@ -445,6 +445,14 @@ export class NowenApiClient {
     return this.request("/api/tasks/stats/summary", { query: { workspaceId: "personal" } });
   }
 
+  async listTaskReminders(taskId: string): Promise<any[]> {
+    return this.request(`/api/task-reminders/${encodeURIComponent(taskId)}`);
+  }
+
+  async createTaskReminder(taskId: string, params: { offsetMinutes: number; timezoneOffsetMinutes: number }): Promise<any> {
+    return this.request(`/api/task-reminders/${encodeURIComponent(taskId)}`, { method: "POST", body: params });
+  }
+
   /** 个人任务归档或恢复；后端会校验子任务全部完成。 */
   async archiveTask(taskId: string, archived: boolean): Promise<any> {
     return this.request(`/api/tasks/${encodeURIComponent(taskId)}/archive`, {

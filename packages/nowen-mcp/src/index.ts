@@ -15,6 +15,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import { NowenApiClient } from "./api-client.js";
+import { stringifyTimedResult } from "./result-time.js";
 import { registerP1Tools } from "./p1-tools.js";
 import { registerP2Tools } from "./p2-tools.js";
 import { treeMutationRevision, treeMutationPreconditions, type TreeMutationNode } from "./tree-mutation.js";
@@ -65,7 +66,7 @@ server.tool(
         noteCount: nb.noteCount,
       }));
       return {
-        content: [{ type: "text" as const, text: JSON.stringify(summary, null, 2) }],
+        content: [{ type: "text" as const, text: stringifyTimedResult(summary) }],
       };
     } catch (err: any) {
       return { content: [{ type: "text" as const, text: `错误: ${err.message}` }], isError: true };
@@ -130,7 +131,7 @@ server.tool(
         contentPreview: n.contentText?.slice(0, 100),
       }));
       return {
-        content: [{ type: "text" as const, text: JSON.stringify(summary, null, 2) }],
+        content: [{ type: "text" as const, text: stringifyTimedResult(summary) }],
       };
     } catch (err: any) {
       return { content: [{ type: "text" as const, text: `错误: ${err.message}` }], isError: true };
@@ -176,7 +177,7 @@ server.tool(
         : buildReadNoteResult(note);
       if (includeBlockIds) result.blocks = await api.listNoteBlocks(noteId, maxBlocks || 500);
       return {
-        content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }],
+        content: [{ type: "text" as const, text: stringifyTimedResult(result) }],
       };
     } catch (err: any) {
       return { content: [{ type: "text" as const, text: `错误: ${err.message}` }], isError: true };
@@ -559,7 +560,7 @@ server.tool(
         updatedAt: r.updatedAt,
       }));
       return {
-        content: [{ type: "text" as const, text: `找到 ${results.length} 条结果:\n${JSON.stringify(summary, null, 2)}` }],
+        content: [{ type: "text" as const, text: `找到 ${results.length} 条结果:\n${stringifyTimedResult(summary)}` }],
       };
     } catch (err: any) {
       return { content: [{ type: "text" as const, text: `错误: ${err.message}` }], isError: true };
@@ -583,7 +584,7 @@ server.tool(
         noteCount: t.noteCount,
       }));
       return {
-        content: [{ type: "text" as const, text: JSON.stringify(summary, null, 2) }],
+        content: [{ type: "text" as const, text: stringifyTimedResult(summary) }],
       };
     } catch (err: any) {
       return { content: [{ type: "text" as const, text: `错误: ${err.message}` }], isError: true };
@@ -742,23 +743,25 @@ server.tool("nowen_list_tasks", "List personal tasks", {
 }, async ({ filter }) => {
   try {
     const result = await api.listTasks(filter);
-    return { content: [{ type: "text" as const, text: JSON.stringify(result) }] };
+    return { content: [{ type: "text" as const, text: stringifyTimedResult(result) }] };
   } catch (error: any) {
     return { content: [{ type: "text" as const, text: String(error.message) }], isError: true };
   }
 });
 server.tool("nowen_get_task", "Read personal task", { taskId: z.string() }, async ({ taskId }) => {
-  try { return { content: [{ type: "text" as const, text: JSON.stringify(await api.getTask(taskId)) }] }; }
+  try { return { content: [{ type: "text" as const, text: stringifyTimedResult(await api.getTask(taskId)) }] }; }
   catch (error: any) { return { content: [{ type: "text" as const, text: String(error.message) }], isError: true }; }
 });
-server.tool("nowen_create_task", "Create personal task with user approval", {
-  title: z.string().min(1), dueDate: z.string().optional(), priority: z.number().int().min(1).max(3).optional()
-}, async ({ title, dueDate, priority }) => {
-  try { return { content: [{ type: "text" as const, text: JSON.stringify(await api.createTask({ title, dueDate, priority })) }] }; }
+const dueAtSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2})?$/)
+  .describe("本地截止时间 YYYY-MM-DDTHH:mm，不带时区；与 dueDate 日期一致。提醒时区由 timezoneOffsetMinutes 指定");
+server.tool("nowen_create_task", "Create personal task with user approval; use nowen_create_task_reminder afterwards to set a reminder", {
+  title: z.string().min(1), dueDate: z.string().optional(), dueAt: dueAtSchema.optional(), priority: z.number().int().min(1).max(3).optional()
+}, async ({ title, dueDate, dueAt, priority }) => {
+  try { return { content: [{ type: "text" as const, text: stringifyTimedResult(await api.createTask({ title, dueDate, dueAt, priority })) }] }; }
   catch (error: any) { return { content: [{ type: "text" as const, text: String(error.message) }], isError: true }; }
 });
 server.tool("nowen_complete_task", "Complete personal task with user approval", { taskId: z.string() }, async ({ taskId }) => {
-  try { return { content: [{ type: "text" as const, text: JSON.stringify(await api.updateTask(taskId, { isCompleted: true })) }] }; }
+  try { return { content: [{ type: "text" as const, text: stringifyTimedResult(await api.updateTask(taskId, { isCompleted: true })) }] }; }
   catch (error: any) { return { content: [{ type: "text" as const, text: String(error.message) }], isError: true }; }
 });
 server.tool("nowen_get_task_summary", "Read personal task counts", {}, async () => {
@@ -769,26 +772,28 @@ server.tool("nowen_get_task_summary", "Read personal task counts", {}, async () 
 
 server.tool(
   "nowen_update_task",
-  "更新本人个人任务的标题、描述、到期日期、优先级或状态；不会修改空间、项目或父子关系",
+  "更新本人个人任务的标题、描述、到期日期/具体时间、优先级或状态；不会修改空间、项目或父子关系",
   {
     taskId: z.string().min(1),
     title: z.string().min(1).optional(),
     description: z.string().optional(),
     dueDate: z.string().nullable().optional(),
+    dueAt: dueAtSchema.nullable().optional(),
     priority: z.number().int().min(1).max(3).optional(),
     status: z.enum(["todo", "doing", "blocked", "done"]).optional(),
   },
-  async ({ taskId, title, description, dueDate, priority, status }) => {
+  async ({ taskId, title, description, dueDate, dueAt, priority, status }) => {
     try {
       const body: Record<string, unknown> = {};
       if (title !== undefined) body.title = title;
       if (description !== undefined) body.description = description;
       if (dueDate !== undefined) body.dueDate = dueDate;
+      if (dueAt !== undefined) body.dueAt = dueAt;
       if (priority !== undefined) body.priority = priority;
       if (status !== undefined) body.status = status;
       if (!Object.keys(body).length) throw new Error("至少指定一个待更新字段");
       const task = await api.updateTask(taskId, body);
-      return { content: [{ type: "text" as const, text: JSON.stringify(task, null, 2) }] };
+      return { content: [{ type: "text" as const, text: stringifyTimedResult(task) }] };
     } catch (error: any) {
       return { content: [{ type: "text" as const, text: `错误: ${error.message}` }], isError: true };
     }
@@ -803,16 +808,33 @@ server.tool(
     title: z.string().min(1),
     priority: z.number().int().min(1).max(3).optional(),
     dueDate: z.string().optional(),
+    dueAt: dueAtSchema.optional(),
   },
-  async ({ parentTaskId, title, priority, dueDate }) => {
+  async ({ parentTaskId, title, priority, dueDate, dueAt }) => {
     try {
-      const task = await api.createTask({ parentId: parentTaskId, title, priority, dueDate });
-      return { content: [{ type: "text" as const, text: JSON.stringify(task, null, 2) }] };
+      const task = await api.createTask({ parentId: parentTaskId, title, priority, dueDate, dueAt });
+      return { content: [{ type: "text" as const, text: stringifyTimedResult(task) }] };
     } catch (error: any) {
       return { content: [{ type: "text" as const, text: `错误: ${error.message}` }], isError: true };
     }
   },
 );
+
+server.tool("nowen_list_task_reminders", "读取本人个人任务的提醒，需要 tasks:read", {
+  taskId: z.string().min(1),
+}, async ({ taskId }) => {
+  try { return { content: [{ type: "text" as const, text: stringifyTimedResult(await api.listTaskReminders(taskId)) }] }; }
+  catch (error: any) { return { content: [{ type: "text" as const, text: String(error.message) }], isError: true }; }
+});
+
+server.tool("nowen_create_task_reminder", "经用户批准为已有个人任务设置提醒，需要 tasks:write。先创建含 dueDate/dueAt 的任务，再设置提醒；不代表已获设备通知权限", {
+  taskId: z.string().min(1),
+  offsetMinutes: z.number().int().min(0).max(525600).describe("提前分钟数，0 为到期时；全天任务按用户时区次日零点倒推"),
+  timezoneOffsetMinutes: z.number().int().min(-840).max(840).describe("用户在截止日期的 UTC 偏移分钟，采用 JS getTimezoneOffset 符号：UTC+8 为 -480，UTC-5 为 300；不要使用服务器时区"),
+}, async ({ taskId, offsetMinutes, timezoneOffsetMinutes }) => {
+  try { return { content: [{ type: "text" as const, text: stringifyTimedResult(await api.createTaskReminder(taskId, { offsetMinutes, timezoneOffsetMinutes })) }] }; }
+  catch (error: any) { return { content: [{ type: "text" as const, text: String(error.message) }], isError: true }; }
+});
 
 server.tool(
   "nowen_assign_task_project",
@@ -824,7 +846,7 @@ server.tool(
   async ({ taskId, projectId }) => {
     try {
       const result = await api.updateTask(taskId, { projectId });
-      return { content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }] };
+      return { content: [{ type: "text" as const, text: stringifyTimedResult(result) }] };
     } catch (error: any) {
       return { content: [{ type: "text" as const, text: `错误: ${error.message}` }], isError: true };
     }
@@ -841,7 +863,7 @@ server.tool(
   async ({ taskId, archived }) => {
     try {
       const result = await api.archiveTask(taskId, archived);
-      return { content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }] };
+      return { content: [{ type: "text" as const, text: stringifyTimedResult(result) }] };
     } catch (error: any) {
       return { content: [{ type: "text" as const, text: `错误: ${error.message}` }], isError: true };
     }

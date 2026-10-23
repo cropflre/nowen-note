@@ -43,6 +43,81 @@ const test = base.extend<{ server: string }>({
   },
 });
 
+for (const width of [320, 1440]) {
+  test(`Issue 848 holiday layer shares settings and stays within ${width}px calendars`, async ({ page, server }) => {
+    const password = "holiday-calendar-test-password";
+    const registration = await page.request.post(`${server}/api/auth/register`, { data: { username: "holiday_user", password } });
+    expect(registration.ok()).toBe(true);
+    const account = await registration.json();
+    const headers = { Authorization: `Bearer ${account.token}` };
+    const created = await page.request.post(`${server}/api/tasks`, { headers, data: { title: "Holiday task", dueDate: "2026-10-01", dueAt: "2026-10-01T09:30:00" } });
+    expect(created.ok()).toBe(true);
+    const task = await created.json();
+    await page.addInitScript(version => {
+      localStorage.setItem("i18nextLng", "zh-CN");
+      localStorage.setItem("nowen-seen-version", version);
+      localStorage.setItem("nowen.taskCenter.viewMode.v1", "calendar");
+    }, version);
+    let updateRequests = 0;
+    let serveUpdate = false;
+    await page.route("https://raw.githubusercontent.com/cropflre/nowen-note/main/frontend/public/holidays/**", route => {
+      updateRequests++;
+      if (serveUpdate) {
+        const data = JSON.parse(fs.readFileSync(path.join(root, "frontend/public/holidays/cn-2026.json"), "utf8"));
+        data.revision++;
+        data.days["2026-10-08"] = { type: "holiday", name: "nationalDay" };
+        return route.fulfill({ json: data, headers: { "access-control-allow-origin": "*" } });
+      }
+      return route.abort();
+    });
+    await page.clock.setFixedTime(new Date("2026-10-15T04:00:00Z"));
+    // A non-file route exercises the production SPA document CSP as well as the UI.
+    await page.goto(`${server}/login`);
+    await page.getByPlaceholder("admin", { exact: true }).fill("holiday_user");
+    await page.locator("input[type=password]").fill(password);
+    await page.locator("button[type=submit]").click();
+    await expect.poll(() => page.evaluate(() => Object.keys(localStorage).some(key => key.startsWith("nowen:onboarding-welcome-opened:v1:")))).toBe(true);
+    await page.getByRole("button", { name: "待办事项", exact: true }).click();
+    await expect(page.locator("[data-calendar-date='2026-10-01']")).toBeVisible();
+    expect(updateRequests).toBe(0);
+    await page.setViewportSize({ width, height: 900 });
+    await page.getByText("日历显示设置", { exact: true }).click();
+    await page.getByRole("checkbox", { name: "中国大陆法定节假日", exact: true }).check();
+    await expect(page.getByText("更新未完成，继续使用可用数据。", { exact: true })).toBeVisible();
+    await expect(page.locator("[data-calendar-date='2026-10-01'] [data-holiday-type='holiday']")).toBeVisible();
+    await expect(page.locator("[data-calendar-date='2026-10-10'] [data-holiday-type='makeup-workday']")).toBeVisible();
+    expect(await page.locator("[data-calendar-date='2026-10-10']").evaluate(element => element.getBoundingClientRect().right)).toBeLessThanOrEqual(width);
+    await page.screenshot({ path: test.info().outputPath(`holiday-tasks-${width}.png`) });
+    await page.setViewportSize({ width: 1440, height: 960 });
+    await page.getByRole("button", { name: "每日记录", exact: true }).click();
+    const hub = page.locator("[data-daily-records-hub]");
+    await hub.locator("[data-daily-records-views]").getByRole("button", { name: "瞬间日历", exact: true }).click();
+    await page.setViewportSize({ width, height: 900 });
+    await hub.getByText("日历显示设置", { exact: true }).click();
+    await expect(hub.getByRole("checkbox", { name: "中国大陆法定节假日", exact: true })).toBeChecked();
+    await expect(hub.locator("button[aria-label='2026-10-01'] [data-holiday-type='holiday']")).toBeVisible();
+    await expect(hub.locator("button[aria-label='2026-10-10'] [data-holiday-type='makeup-workday']")).toBeVisible();
+    expect(await hub.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
+    expect(updateRequests).toBe(1);
+    await page.screenshot({ path: test.info().outputPath(`holiday-moments-${width}.png`) });
+    serveUpdate = true;
+    await hub.getByRole("button", { name: "检查更新", exact: true }).click();
+    await expect(hub.getByText("2026 年 · 已缓存数据", { exact: true })).toBeVisible();
+    await expect(hub.locator("button[aria-label='2026-10-08'] [data-holiday-type='holiday']")).toBeVisible();
+    expect(updateRequests).toBe(2);
+    await hub.getByText("日历显示设置", { exact: true }).click();
+    await hub.getByRole("button", { name: "2026-10-10", exact: true }).click();
+    await expect(hub.getByLabel("国庆节 · 调休上班", { exact: true }).filter({ visible: true })).toHaveCount(2);
+    await hub.getByText("日历显示设置", { exact: true }).click();
+    await hub.getByRole("checkbox", { name: "中国大陆法定节假日", exact: true }).uncheck();
+    await expect(hub.locator("[data-holiday-type]")).toHaveCount(0);
+    const tasks = await (await page.request.get(`${server}/api/tasks`, { headers })).json();
+    const unchanged = tasks.find((item: { id: string }) => item.id === task.id);
+    expect(unchanged.dueDate).toBe("2026-10-01");
+    expect(unchanged.dueAt).toBe("2026-10-01T09:30:00");
+  });
+}
+
 for (const width of [320, 360, 393, 430, 1440]) {
   test(`date selection keeps the daily records content aligned at ${width}px`, async ({ page, server }) => {
     const registration = await page.request.post(`${server}/api/auth/register`, {

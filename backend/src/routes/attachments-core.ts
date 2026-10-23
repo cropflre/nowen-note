@@ -61,6 +61,7 @@ import { resolveNotePermission, hasPermission } from "../middleware/acl";
 import { enqueueAttachment } from "../services/embedding-worker";
 import { verifySudoFromRequest } from "../lib/auth-security";
 import { createUserAttachmentAccessUrls } from "../lib/attachment-signed-url";
+import { imageAttachmentUrl } from "../lib/attachment-image-url";
 import { extractAttachmentIdsFromContent, syncReferences } from "../lib/attachmentRefs";
 import {
   checkAttachmentObjectExists,
@@ -812,6 +813,7 @@ app.post("/", async (c) => {
       {
         id: clone.id,
         url: clone.url,
+        imageUrl: imageAttachmentUrl(c, clone.id, clone.mimeType),
         mimeType: clone.mimeType,
         size: clone.size,
         filename: clone.filename,
@@ -873,6 +875,7 @@ app.post("/", async (c) => {
     {
       id,
       url: `/api/attachments/${id}`,
+      imageUrl: imageAttachmentUrl(c, id, mime),
       mimeType: mime,
       size: file.size,
       filename: file.name || storagePath,

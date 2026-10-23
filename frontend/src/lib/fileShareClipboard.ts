@@ -1,8 +1,8 @@
 import { getBaseUrl } from "@/lib/api.impl";
 import { fetchWithAuthRefresh, getAccessToken } from "@/lib/authSession";
 
-const SIGNED_ATTACHMENT_URL_RE = /(?:https?:\/\/[^\s"'<>]+)?\/(?:api|publicapi|public\/api)\/attachments\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\?[^\s"'<>()]+/gi;
-const ATTACHMENT_PATH_RE = /\/(?:api|publicapi|public\/api)\/attachments\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i;
+const ATTACHMENT_URL_RE = /(?:https?:\/\/[^\s"'<>()]+)?\/(?:api|publicapi|public\/api)\/attachments\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?:\/image\.(?:jpg|png|gif|webp|avif|bmp|svg|tiff|ico|heic|heif))?(?:\?[^\s"'<>()]+)?(?=[\s"'<>()#]|$)/gi;
+const ATTACHMENT_PATH_RE = /\/(?:api|publicapi|public\/api)\/attachments\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(\/image\.(?:jpg|png|gif|webp|avif|bmp|svg|tiff|ico|heic|heif))?$/i;
 
 interface SignedAttachmentCandidate {
   attachmentId: string;
@@ -52,11 +52,16 @@ function inspectSignedAttachmentUrl(raw: string): SignedAttachmentCandidate | nu
     return null;
   }
 
-  const attachmentId = ATTACHMENT_PATH_RE.exec(url.pathname)?.[1];
+  const path = ATTACHMENT_PATH_RE.exec(url.pathname);
+  const attachmentId = path?.[1];
   if (!attachmentId) return null;
+  if (url.searchParams.has("share")) return null;
   const exp = url.searchParams.get("exp");
   const sig = url.searchParams.get("sig");
   const scope = url.searchParams.get("scope");
+  // Named Markdown image URLs persist without session credentials. Copying is the
+  // explicit external-sharing boundary; the server still checks reshare/privacy ACLs.
+  if (path?.[2] && !exp && !sig && !scope) return { attachmentId, htmlEscaped };
   if (!exp || !sig || !scope) return null;
 
   // 只有登录态 user scope 才是“文件管理里被误复制出去的运行时 URL”。
@@ -105,7 +110,8 @@ async function createStableFileShareUrl(attachmentId: string): Promise<string> {
  * 剪贴板是“运行时 URL 泄漏到产品分享 URL”的统一边界。
  *
  * 任何通过统一 copyText() 复制出去的 user-scope 附件签名 URL，都会先换成稳定
- * file-share capability。普通文本、普通 URL、公开分享页自己的 share scope 均保持原样。
+ * file-share capability；Markdown 的命名图片地址也使用同一权限校验生成外链。
+ * 普通文本、普通 URL、公开分享页自己的 share scope 均保持原样。
  * 如果稳定链接创建失败，调用方应停止复制，而不是回退泄漏会过期的 exp/sig/scope URL。
  */
 export async function stabilizeClipboardAttachmentLinks(
@@ -115,12 +121,11 @@ export async function stabilizeClipboardAttachmentLinks(
   if (
     !text
     || !/\/(?:api|publicapi|public\/api)\/attachments\//i.test(text)
-    || !/[?&](?:exp|sig|scope)=/i.test(text.replace(/&amp;/g, "&"))
   ) {
     return text;
   }
 
-  const matches = [...text.matchAll(SIGNED_ATTACHMENT_URL_RE)];
+  const matches = [...text.matchAll(ATTACHMENT_URL_RE)];
   if (matches.length === 0) return text;
 
   const sharePromises = new Map<string, Promise<string>>();

@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { Palette, Shield, Database, X, Settings, Camera, Save, Loader2, Trash2, Upload, Type, Check, ChevronDown, Globe, Bot, Users, Info, ExternalLink, Heart, Sparkles, RefreshCw, ZoomIn, Key, Keyboard, Building2, BookOpen, ToggleLeft, Download, FolderSync, Mail, Workflow, GripVertical, ArrowUp, ArrowDown } from "lucide-react";
+import { Palette, Shield, Database, X, Settings, Camera, Save, Loader2, Trash2, Upload, Type, Check, ChevronDown, Globe, Bot, Users, Info, ExternalLink, Heart, Sparkles, RefreshCw, ZoomIn, Key, Keyboard, Building2, BookOpen, ToggleLeft, Download, FolderSync, Mail, Puzzle, Workflow, GripVertical, ArrowUp, ArrowDown } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import wechatSponsorQr from "@/assets/sponsor/weixin.jpg";
 import alipaySponsorQr from "@/assets/sponsor/zhifubao.png";
@@ -63,7 +63,7 @@ import {
   type MobileKnowledgeTreeViewMode,
 } from "@/lib/mobileKnowledgeTreeViewMode";
 
-type TabId = "appearance" | "switches" | "shortcuts" | "ai" | "automations" | "security" | "tokens" | "data" | "sync" | "folderSync" | "users" | "workspaces" | "download" | "about";
+type TabId = "appearance" | "switches" | "shortcuts" | "ai" | "plugins" | "automations" | "security" | "tokens" | "data" | "sync" | "folderSync" | "users" | "workspaces" | "download" | "about";
 
 interface SettingsModalProps {
   onClose: () => void;
@@ -436,9 +436,21 @@ function AboutPanel() {
       <div className="text-center py-4">
         <h2 className="text-2xl font-bold text-zinc-900 dark:text-zinc-100">{t('about.appName')}</h2>
         <p className="text-sm text-zinc-500 dark:text-zinc-400 mt-1">{t('about.slogan')}</p>
-        <span className="inline-block mt-2 px-3 py-0.5 rounded-full bg-accent-primary/10 text-accent-primary text-xs font-medium">
-          {t('about.version')} {__APP_VERSION__}
-        </span>
+        <div className="mt-2 flex flex-wrap items-center justify-center gap-3">
+          <span className="inline-block px-3 py-0.5 rounded-full bg-accent-primary/10 text-accent-primary text-xs font-medium">
+            {t('about.version')} {__APP_VERSION__}
+          </span>
+          <a
+            href="https://nowen.cn/"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1 text-xs text-zinc-500 hover:text-accent-primary dark:text-zinc-400 dark:hover:text-accent-primary transition-colors"
+          >
+            <Globe size={12} />
+            {t('about.website')}
+            <ExternalLink size={11} />
+          </a>
+        </div>
       </div>
 
       {/* 版本对比卡（客户端 / 服务端 / GitHub 最新 release） */}
@@ -1936,7 +1948,7 @@ function AppearancePanel() {
 const SettingsModal = React.forwardRef<HTMLDivElement, SettingsModalProps>(
   function SettingsModal({ onClose, defaultTab = "appearance" }, ref) {
   const { t } = useTranslation();
-  const [activeTab, setActiveTab] = useState<TabId>(defaultTab);
+  const [activeTab, setActiveTab] = useState<TabId>(defaultTab === "plugins" ? "appearance" : defaultTab);
   const { siteConfig } = useSiteSettings();
   const shortcutSurface = detectShortcutSurface();
   const [currentUser, setCurrentUser] = useState<{ id: string; role?: string; username?: string; displayName?: string | null } | null>(null);
@@ -1974,6 +1986,7 @@ const SettingsModal = React.forwardRef<HTMLDivElement, SettingsModalProps>(
     { id: "switches" as const, label: t('settings.switches'), icon: ToggleLeft },
     ...(shortcutSurface !== "android" ? [{ id: "shortcuts" as const, label: "快捷键", icon: Keyboard }] : []),
     { id: "ai" as const, label: t('settings.ai'), icon: Bot },
+    { id: "plugins" as const, label: t("settings.plugins"), icon: Puzzle },
     { id: "automations" as const, label: "自动化", icon: Workflow },
     { id: "security" as const, label: isAndroidNativeRuntime() ? t("mobileAccount.accountAndSecurity") : t('settings.security'), icon: Shield },
     // 【个人访问令牌】任意登录用户都可管理自己的 token；与 security 同为"账号安全"类别，
@@ -2066,13 +2079,18 @@ const SettingsModal = React.forwardRef<HTMLDivElement, SettingsModalProps>(
             {SETTING_TABS.map((tab) => {
               const Icon = tab.icon;
               const isActive = activeTab === tab.id;
+              const isDisabled = tab.id === "plugins";
               return (
                 <button
                   key={tab.id}
+                  disabled={isDisabled}
+                  title={isDisabled ? t("settings.pluginsUnavailable") : undefined}
                   onClick={() => setActiveTab(tab.id)}
                   className={cn(
                     "flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium whitespace-nowrap transition-colors shrink-0",
-                    isActive
+                    isDisabled
+                      ? "text-zinc-400 dark:text-zinc-600 opacity-60 cursor-not-allowed"
+                      : isActive
                       ? "bg-zinc-200/70 dark:bg-zinc-800 text-indigo-600 dark:text-indigo-400"
                       : "text-zinc-500 dark:text-zinc-400 active:bg-zinc-200/40 dark:active:bg-zinc-800/50"
                   )}
@@ -2102,12 +2120,17 @@ const SettingsModal = React.forwardRef<HTMLDivElement, SettingsModalProps>(
             {SETTING_TABS.map((tab) => {
               const Icon = tab.icon;
               const isActive = activeTab === tab.id;
+              const isDisabled = tab.id === "plugins";
               return (
                 <button
                   key={tab.id}
+                  disabled={isDisabled}
+                  title={isDisabled ? t("settings.pluginsUnavailable") : undefined}
                   onClick={() => setActiveTab(tab.id)}
                   className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                    isActive
+                    isDisabled
+                      ? "text-zinc-400 dark:text-zinc-600 opacity-60 cursor-not-allowed"
+                      : isActive
                       ? "bg-zinc-200/70 dark:bg-zinc-800 text-indigo-600 dark:text-indigo-400"
                       : "text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200/40 dark:hover:bg-zinc-800/50 hover:text-zinc-900 dark:hover:text-zinc-200"
                   }`}

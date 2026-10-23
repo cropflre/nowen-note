@@ -46,6 +46,7 @@ describe("noteAttachmentAccessPriming", () => {
   });
 
   it("Case 1/5: detects persisted attachment references in Tiptap, Markdown and legacy absolute URLs", () => {
+    expect(hasPersistentNoteAttachmentReference(`![photo](https://files.example/api/attachments/${ATTACHMENT_A}/image.png)`)).toBe(true);
     expect(hasPersistentNoteAttachmentReference(JSON.stringify({
       type: "image",
       attrs: { src: `/api/attachments/${ATTACHMENT_A}` },

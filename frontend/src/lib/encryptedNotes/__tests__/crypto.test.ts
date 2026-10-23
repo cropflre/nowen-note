@@ -5,6 +5,7 @@ import { argon2id } from "hash-wasm";
 import fixture from "./fixtures/envelope-v1.json";
 import {
   createEncryptedContent, decryptEncryptedContent, updateEncryptedContent, changeEncryptedContentPassphrase,
+  readEncryptedContentWithKey, unlockEncryptedContentKey,
 } from "../crypto";
 import {
   contentAad, validateEnvelope, validatePassphrase, fromBase64, MAX_CONTENT_BYTES,
@@ -16,6 +17,13 @@ const identity: EncryptedContentIdentity = { objectId: original.objectId, kind: 
 afterEach(() => { vi.unstubAllGlobals(); });
 
 describe("encrypted content interoperability and lifecycle", () => {
+  it("reads old authenticated snapshots with the current session key after password rewrapping", async () => {
+    const opened = await unlockEncryptedContentKey(original, fixture.passphrase, identity);
+    const changed = await changeEncryptedContentPassphrase(original, fixture.passphrase, identity, "different-history-password");
+    expect(await readEncryptedContentWithKey(original, opened.key, identity)).toBe(fixture.plaintext);
+    expect(await readEncryptedContentWithKey(changed, opened.key, identity)).toBe(fixture.plaintext);
+    await expect(readEncryptedContentWithKey({ ...original, objectId: "11111111-1111-4111-8111-111111111111" }, opened.key, identity)).rejects.toMatchObject({ code: "unlock-failed" });
+  });
   it("matches native Argon2id and fixed AAD vectors, then decrypts the independent OpenSSL envelope", async () => {
     const derived = await argon2id({ password: fixture.passphrase, salt: fromBase64(original.kdf.salt, 16),
       memorySize: 65536, iterations: 3, parallelism: 4, hashLength: 32, outputType: "hex" });

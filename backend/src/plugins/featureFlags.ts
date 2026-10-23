@@ -7,8 +7,8 @@ function envFlag(name: string): boolean {
 }
 
 /**
- * Legacy V2.1 capabilities remain opt-in and retain their >=1.6.0 compatibility contract.
- * V3 app pages ship independently in 1.5.3; see applicationV3.ts for their defaults and overrides.
+ * V2.1 capabilities remain opt-in and retain their >=1.6.0 compatibility contract.
+ * Feature flags do not override the actual host version.
  */
 export function getExtensionPlatformFeatureFlags(): Readonly<ExtensionPlatformFeatureFlags> {
   const extensionsV21 = envFlag("NOWEN_EXTENSIONS_V21");

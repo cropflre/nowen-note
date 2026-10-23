@@ -2873,6 +2873,7 @@ export const api = {
     ): Promise<{
       id: string;
       url: string;
+      imageUrl?: string;
       mimeType: string;
       size: number;
       filename: string;

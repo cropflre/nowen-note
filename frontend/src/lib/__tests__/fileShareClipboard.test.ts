@@ -23,6 +23,31 @@ function signedUrl(kind: "user" | "file" | "share" | "publication" = "user"): st
 }
 
 describe("stabilizeClipboardAttachmentLinks", () => {
+  it("copies a whole Markdown article with named images as permanent public URLs", async () => {
+    const named = `https://files.example/api/attachments/${ATTACHMENT_ID}/image.png`;
+    const stable = `${named}?share=stable-token`;
+    const createShare = vi.fn(async () => stable);
+    expect(await stabilizeClipboardAttachmentLinks(`# Article\n\n![photo](${named})`, createShare))
+      .toBe(`# Article\n\n![photo](${stable})`);
+    expect(createShare).toHaveBeenCalledWith(ATTACHMENT_ID);
+    expect(await stabilizeClipboardAttachmentLinks(stable, createShare)).toBe(stable);
+    expect(createShare).toHaveBeenCalledTimes(1);
+  });
+  it("keeps adjacent Markdown links separate and leaves unrelated paths unchanged", async () => {
+    const named = `https://files.example/api/attachments/${ATTACHMENT_ID}/image.jpg`;
+    const stable = `${named}?share=stable-token`;
+    const createShare = vi.fn(async () => stable);
+    expect(await stabilizeClipboardAttachmentLinks(`![a](${named})![b](${named})`, createShare))
+      .toBe(`![a](${stable})![b](${stable})`);
+    const unrelated = `${named}x`;
+    expect(await stabilizeClipboardAttachmentLinks(unrelated, createShare)).toBe(unrelated);
+    expect(createShare).toHaveBeenCalledTimes(1);
+  });
+  it("does not silently copy private named images when sharing is denied (DCC-006)", async () => {
+    await expect(stabilizeClipboardAttachmentLinks(`![private](https://files.example/api/attachments/${ATTACHMENT_ID}/image.png)`, async () => {
+      throw new Error("FILE_EXTERNAL_ACCESS_DISABLED");
+    })).rejects.toThrow("FILE_EXTERNAL_ACCESS_DISABLED");
+  });
   it("exchanges manual-upload file scopes for revocable links and propagates privacy denial", async () => {
     const createShare = vi.fn(async () => STABLE_URL);
     await expect(stabilizeClipboardAttachmentLinks(signedUrl("file"), createShare)).resolves.toBe(STABLE_URL);

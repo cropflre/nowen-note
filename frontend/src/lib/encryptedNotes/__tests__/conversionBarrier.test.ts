@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { assertConversionNote, convertedNoteVersion, markConvertedNote, subscribeConversionInvalidation } from "../conversionBarrier";
+import { assertConversionNote, clearDecryptedNoteBarrier, convertedNoteVersion, markConvertedNote, subscribeConversionInvalidation } from "../conversionBarrier";
 import { getOfflineQueueStorageKey } from "../../offlineScope";
 import { enqueue, flushQueue, getQueue } from "../../offlineQueue";
 import { loadDraft, saveDraft } from "../../draftStorage";
@@ -28,6 +28,17 @@ it("retains only a monotonic metadata version and rejects stale details, text su
   }
   expect(() => assertConversionNote(note)).not.toThrow();
   expect(() => assertConversionNote({ ...note, content: "" })).not.toThrow();
+});
+
+it("only a newer confirmed decryption can release the current scope's encryption barrier", () => {
+  const scope = getOfflineQueueStorageKey();
+  markConvertedNote("note", 2, scope);
+  expect(() => clearDecryptedNoteBarrier("note", 2, scope)).toThrow("not_committed");
+  expect(() => clearDecryptedNoteBarrier("note", 3, "other-scope")).toThrow("scope_changed");
+  expect(convertedNoteVersion("note")).toBe(2);
+  clearDecryptedNoteBarrier("note", 3, scope);
+  expect(convertedNoteVersion("note")).toBeNull();
+  expect(() => assertConversionNote({ ...original, version: 3 })).not.toThrow();
 });
 
 it("shares markers across token refresh but isolates another account or server", () => {

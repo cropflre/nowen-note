@@ -29,7 +29,7 @@ export interface CreatedAttachment {
 
 class WholeNoteMutationConflict extends Error {}
 
-export function currentWriteState(userId: string, noteId: string, version: number, content: string): {
+export function currentWriteState(userId: string, noteId: string, version: number, content: string, personalOnly = false): {
   note: NoteRow;
   workspaceId: string | null;
 } | null {
@@ -39,7 +39,7 @@ export function currentWriteState(userId: string, noteId: string, version: numbe
     return null;
   }
   const permission = resolveNotePermission(noteId, userId);
-  if (!hasPermission(permission.permission, "write")) return null;
+  if (!hasPermission(permission.permission, "write") || (personalOnly && (note.userId !== userId || note.workspaceId))) return null;
   return { note, workspaceId: permission.workspaceId || null };
 }
 
@@ -51,8 +51,9 @@ function commitWholeNoteContent(args: {
   nextContent: string;
   contentFormat: string;
   replacedCount: number;
+  personalOnly?: boolean;
 }): { final: NoteRow; warnings: string[] } | null {
-  if (!currentWriteState(args.userId, args.noteId, args.expectedVersion, args.expectedContent)) return null;
+  if (!currentWriteState(args.userId, args.noteId, args.expectedVersion, args.expectedContent, args.personalOnly)) return null;
   const db = getDb();
   let committedContent = args.nextContent;
   let committedText = "";
@@ -65,6 +66,7 @@ function commitWholeNoteContent(args: {
       !current
       || current.version !== args.expectedVersion
       || current.content !== args.expectedContent
+      || (args.personalOnly && (current.userId !== args.userId || current.workspaceId))
       || current.isLocked
       || current.isTrashed
       || !hasPermission(permission.permission, "write")
@@ -175,8 +177,9 @@ export function applyLocalizedContent(args: {
   scannedContent: string;
   contentFormat: string;
   replacements: ReadonlyMap<string, string>;
+  personalOnly?: boolean;
 }): { updated: boolean; conflict: boolean; replacedCount: number; finalVersion?: number; warnings: string[] } {
-  const state = currentWriteState(args.userId, args.noteId, args.scannedVersion, args.scannedContent);
+  const state = currentWriteState(args.userId, args.noteId, args.scannedVersion, args.scannedContent, args.personalOnly);
   if (!state) return { updated: false, conflict: true, replacedCount: 0, warnings: [] };
   const replacement = replaceRemoteImages(state.note.content || "", args.contentFormat, args.replacements);
   if (replacement.parseError) throw new Error(replacement.parseError);
@@ -191,6 +194,7 @@ export function applyLocalizedContent(args: {
     nextContent: replacement.content,
     contentFormat: args.contentFormat,
     replacedCount: replacement.replacedCount,
+    personalOnly: args.personalOnly,
   });
   if (!committed) return { updated: false, conflict: true, replacedCount: 0, warnings: [] };
   return {

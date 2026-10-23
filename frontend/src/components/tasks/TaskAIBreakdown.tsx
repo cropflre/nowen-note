@@ -4,11 +4,13 @@ import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/utils";
 import { api } from "@/lib/api";
 import type { Task } from "@/types";
+import { buildDueAtFromDateAndTime, getDueTimeValue } from "./taskDateUtils";
 
 interface SubtaskSuggestion {
   title: string;
   priority: number;
   dueDate: string | null;
+  dueAt?: string | null;
   reason: string;
   selected: boolean;
 }
@@ -65,6 +67,7 @@ export function TaskAIBreakdown({
           title: s.title,
           priority: s.priority as 1 | 2 | 3,
           dueDate: s.dueDate || undefined,
+          dueAt: s.dueAt || undefined,
           parentId: task.id,
           projectId: task.projectId || undefined,
           status: "todo",
@@ -148,9 +151,21 @@ export function TaskAIBreakdown({
                       </select>
                       <input
                         type="date"
+                        aria-label={t("tasks.dueDate")}
                         value={s.dueDate || ""}
-                        onChange={(e) => updateSuggestion(idx, "dueDate", e.target.value || null)}
+                        onChange={(e) => {
+                          updateSuggestion(idx, "dueDate", e.target.value || null);
+                          updateSuggestion(idx, "dueAt", buildDueAtFromDateAndTime(e.target.value, getDueTimeValue(s.dueAt)));
+                        }}
                         className="text-[10px] px-1.5 py-0.5 rounded bg-app-bg border border-app-border text-tx-secondary"
+                      />
+                      <input
+                        type="time"
+                        aria-label={t("tasks.dueAt")}
+                        value={getDueTimeValue(s.dueAt)}
+                        disabled={!s.dueDate}
+                        onChange={(e) => updateSuggestion(idx, "dueAt", buildDueAtFromDateAndTime(s.dueDate, e.target.value))}
+                        className="text-[10px] px-1.5 py-0.5 rounded bg-app-bg border border-app-border text-tx-secondary disabled:opacity-40"
                       />
                     </div>
                     {s.reason && <p className="text-[10px] text-tx-tertiary">{s.reason}</p>}

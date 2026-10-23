@@ -33,7 +33,7 @@ import { handleMarkdownExportDownload } from "./services/markdownExportJobs";
 import dataFileRouter from "./routes/data-file";
 import settingsRouter from "./routes/settings";
 import fontsRouter from "./routes/fonts";
-import attachmentsRouter, { handleDownloadAttachment } from "./routes/attachments";
+import attachmentsRouter, { handleDownloadAttachment, handleNamedImageAttachment } from "./routes/attachments";
 import taskAttachmentsRouter, { handleDownloadTaskAttachment } from "./routes/task-attachments";
 import taskRemindersRouter from "./routes/task-reminders";
 import taskProjectsRouter from "./routes/task-projects";
@@ -57,8 +57,7 @@ import urlImportRouter from "./routes/url-import";
 import aiRouter from "./routes/ai";
 import aiTaskPlanRouter from "./routes/ai-task-plan";
 import voiceRouter from "./routes/voice";
-import pluginsRouter, { pluginAppDocumentResponse } from "./routes/plugins";
-import { getApplicationV3FeatureFlags } from "./plugins/applicationV3";
+import pluginsRouter from "./routes/plugins";
 import pluginStudioRouter from "./routes/plugin-studio";
 import pluginExecutionsRouter from "./routes/plugin-executions";
 import automationsRouter from "./routes/automations";
@@ -424,6 +423,7 @@ app.get("/api/fonts/file/:id", (c) => {
 //     走 JWT 中间件必然 401。和字体一样把下载 handler 注册在 JWT 中间件之前。
 //   - 授权靠附件 id 不可枚举（uuid）保护；详细权衡见 routes/attachments.ts 顶部注释。
 app.get("/api/attachments/:id", handleDownloadAttachment);
+app.get("/api/attachments/:id/:filename{image\\.[a-z]+}", handleNamedImageAttachment);
 
 // 导出任务生成的 ZIP 使用随机 256-bit capability token 下载。
 // 浏览器原生下载请求无法携带 localStorage 中的 Authorization header，因此必须在
@@ -501,8 +501,6 @@ function touchSessionLastSeen(sessionId: string) {
     }
   }
 }
-
-app.get("/api/plugin-ui-v3/:ticket", pluginAppDocumentResponse);
 
 app.use("/api/*", async (c, next) => {
   const authHeader = c.req.header("Authorization");
@@ -899,9 +897,9 @@ if (process.env.NODE_ENV === "production") {
           "style-src 'self' 'unsafe-inline'",
           "img-src 'self' data: blob: https:",
           "font-src 'self' data:",
-          "connect-src 'self' ws: wss:",
+          "connect-src 'self' ws: wss: https://raw.githubusercontent.com/cropflre/nowen-note/main/frontend/public/holidays/",
           "media-src 'self' blob: https:",
-          `frame-src ${getApplicationV3FeatureFlags().appPages ? "'self' " : ""}https://www.youtube.com https://www.youtube-nocookie.com https://player.bilibili.com https://v.qq.com https://player.vimeo.com`,
+          "frame-src https://www.youtube.com https://www.youtube-nocookie.com https://player.bilibili.com https://v.qq.com https://player.vimeo.com",
           "object-src 'none'",
           "base-uri 'self'",
           "frame-ancestors 'none'",

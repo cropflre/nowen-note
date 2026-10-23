@@ -1,4 +1,16 @@
 export const zhCNEncryptedConversionTranslations = {
+  encryptedDecryption: {
+    title: "解除加密", description: "将此笔记的正文和历史版本恢复为普通笔记，保留位置、标题、标签和格式，以后查看无需输入加密密码。",
+    warning: "解除后，正文将以明文保存，并可被搜索、同步和备份。已有加密备份不会改变，仍需要原密码。",
+    password: "确认当前加密密码", consent: "我确认将正文和历史版本保存为明文。", confirm: "确认解除加密", working: "正在解除加密…", failed: "未能解除加密，请保留当前页面并检查连接后重试。",
+    errors: {
+      VERSION_CONFLICT: "笔记或历史版本已经改变，请重新打开笔记后重试。", pending_writes: "请先完成保存、同步或冲突处理，再解除加密。",
+      sync_conversion_not_supported: "当前服务器已配置同步，暂不支持原地解除加密。", note_unavailable: "请先解锁笔记或从回收站恢复。",
+      shared_workspace: "工作空间笔记暂不支持原地解除加密。", FORBIDDEN: "仅笔记所有者可以解除加密，请确认账号及权限。",
+      source_too_large: "正文或历史版本过多，暂不支持解除加密。", unavailable: "请使用支持安全存储的 HTTPS 网页或桌面端。",
+      busy: "笔记正在其他窗口使用，请关闭后重试。", storage_failed: "无法确认本机存储状态，请检查后重试。",
+    },
+  },
   encryptedConversion: {
     title: "加密笔记", description: "在原位置加密正文和历史版本，保留标题、标签及格式。", checking: "正在检查是否可以安全加密…",
     warning: "忘记密码将无法恢复正文。标题等信息仍可见，旧备份、导出文件和其他设备可能保留加密前的内容。",
@@ -25,6 +37,18 @@ export const zhCNEncryptedConversionTranslations = {
   },
 };
 export const enEncryptedConversionTranslations = {
+  encryptedDecryption: {
+    title: "Remove encryption", description: "Restore this note and its version history as an ordinary note, keeping its location, title, tags and format. Viewing will no longer require an encryption password.",
+    warning: "The body will be stored as readable text and may be searched, synchronized and backed up. Existing encrypted backups remain unchanged and still require their original password.",
+    password: "Confirm current encryption password", consent: "I confirm that the body and version history will be stored as readable text.", confirm: "Confirm removal", working: "Removing encryption…", failed: "Encryption could not be removed. Keep this page open, check the connection and retry.",
+    errors: {
+      VERSION_CONFLICT: "The note or its history changed. Reopen the note and retry.", pending_writes: "Finish saving, synchronization or conflict resolution before removing encryption.",
+      sync_conversion_not_supported: "In-place decryption is not supported on a server with synchronization profiles yet.", note_unavailable: "Unlock the note or restore it from trash first.",
+      shared_workspace: "In-place decryption is not supported for workspace notes yet.", FORBIDDEN: "Only the note owner can remove encryption. Check the account and permissions.",
+      source_too_large: "The body or version history is too large for decryption.", unavailable: "Use a supported HTTPS browser or desktop app.",
+      busy: "Another window is using this note. Close it and retry.", storage_failed: "Local storage could not be verified. Check it and retry.",
+    },
+  },
   encryptedConversion: {
     title: "Encrypt note", description: "Encrypt the body and version history in place, preserving the title, tags and supported formatting.", checking: "Checking whether this note can be encrypted safely…",
     warning: "A forgotten password cannot recover the body. The title and other metadata remain visible. Older backups, exports and other devices may retain the original content.",

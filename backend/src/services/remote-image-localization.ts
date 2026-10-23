@@ -20,6 +20,10 @@ function hasActiveLocalizationJob(userId: string): boolean {
 }
 
 export function createLocalizationJob(userId: string, input: LocalizationScopeInput): Omit<LocalizationJob, "userId" | "expectedVersions"> {
+  return createJob(userId, input, input.allPersonal === true);
+}
+
+function createJob(userId: string, input: LocalizationScopeInput, automaticBatching: boolean): Omit<LocalizationJob, "userId" | "expectedVersions"> {
   if (hasActiveLocalizationJob(userId)) {
     throw new LocalizationJobError(
       "已有网络图片本地化任务正在排队或执行，请等待完成后重试",
@@ -27,9 +31,9 @@ export function createLocalizationJob(userId: string, input: LocalizationScopeIn
       409,
     );
   }
-  const scope = resolveScopeNoteIds(userId, input);
-  const scan = scanLocalizationScope(userId, input);
-  if (scan.uniqueRemoteUrlCount > scan.limits.maxImages) {
+  const scope = resolveScopeNoteIds(userId, input, automaticBatching);
+  const scan = automaticBatching ? null : scanLocalizationScope(userId, input);
+  if (scan && scan.uniqueRemoteUrlCount > scan.limits.maxImages) {
     throw new LocalizationJobError(
       `待处理唯一图片 ${scan.uniqueRemoteUrlCount} 张，超过单次 ${scan.limits.maxImages} 张限制`,
       "IMAGE_LIMIT_EXCEEDED",
@@ -37,7 +41,7 @@ export function createLocalizationJob(userId: string, input: LocalizationScopeIn
     );
   }
 
-  const noteResults = scan.notes.map(createInitialNoteResult);
+  const noteResults = scan?.notes.map(createInitialNoteResult) ?? [];
   const initialSkipped = noteResults.filter((result) => result.status !== "queued").length;
   const initialConflicts = noteResults.filter((result) => result.status === "conflict").length;
   const job: LocalizationJob = {
@@ -49,25 +53,26 @@ export function createLocalizationJob(userId: string, input: LocalizationScopeIn
     startedAt: null,
     completedAt: null,
     cancelRequested: false,
+    automaticBatching,
     source: scope.source,
     notebookId: scope.notebookId,
-    noteIds: scan.snapshot.noteIds,
-    expectedVersions: scan.snapshot.expectedVersions,
+    noteIds: scan?.snapshot.noteIds ?? scope.noteIds,
+    expectedVersions: scan?.snapshot.expectedVersions ?? scope.expectedVersions,
     currentNoteId: null,
     currentNoteTitle: null,
     currentUrl: null,
     error: null,
     summary: {
-      totalNotes: scan.noteCount,
-      scannedNotes: scan.noteCount,
+      totalNotes: scan?.noteCount ?? scope.noteIds.length,
+      scannedNotes: scan?.noteCount ?? 0,
       processedNotes: initialSkipped,
       updatedNotes: 0,
       skippedNotes: initialSkipped,
       conflictNotes: initialConflicts,
       notesWithFailures: noteResults.filter((result) => result.failures.length > 0).length,
-      totalImageReferences: scan.totalImageReferences,
-      remoteReferenceCount: scan.remoteReferenceCount,
-      uniqueRemoteUrlCount: scan.uniqueRemoteUrlCount,
+      totalImageReferences: scan?.totalImageReferences ?? 0,
+      remoteReferenceCount: scan?.remoteReferenceCount ?? 0,
+      uniqueRemoteUrlCount: scan?.uniqueRemoteUrlCount ?? 0,
       totalImageOperations: noteResults.reduce((sum, result) => sum + result.uniqueRemoteUrlCount, 0),
       processedImageOperations: noteResults.filter((result) => result.status !== "queued")
         .reduce((sum, result) => sum + result.uniqueRemoteUrlCount, 0),
@@ -124,11 +129,16 @@ export function retryLocalizationJob(userId: string, jobId: string) {
     throw new LocalizationJobError("任务仍在执行，不能重试", "JOB_STILL_RUNNING", 409);
   }
   const retryIds = job.noteResults
-    .filter((result) => ["failed", "partial", "conflict", "parse_error"].includes(result.status))
+    .filter((result) => ["failed", "partial", "conflict", "parse_error"].includes(result.status)
+      || (job.status === "failed" && result.status === "queued"))
     .map((result) => result.noteId)
     .filter(Boolean);
+  if (job.status === "failed" && job.automaticBatching) {
+    const scanned = new Set(job.noteResults.map((result) => result.noteId));
+    retryIds.push(...job.noteIds.filter((id) => !scanned.has(id)));
+  }
   if (retryIds.length === 0) throw new LocalizationJobError("没有可重试的失败笔记", "NO_RETRYABLE_NOTES", 409);
-  return createLocalizationJob(userId, { noteIds: retryIds });
+  return createJob(userId, { noteIds: retryIds }, job.automaticBatching === true);
 }
 
 export { scanLocalizationScope, LocalizationJobError } from "./remote-image-localization-core";

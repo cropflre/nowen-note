@@ -3,9 +3,6 @@ import { z } from "zod";
 import { getExtensionPlatformFeatureFlags, isExtensionV21Enabled } from "./featureFlags.js";
 import { isV2SupportedPluginPermission } from "./hostApiContract.js";
 import { NOWEN_VERSION, PLUGIN_PERMISSIONS, type PluginActionManifest, type PluginManifest, type PluginManifestV1, type PluginManifestV2 } from "./types.js";
-import { widgetV3Schema } from "./dashboardV3.js";
-import { getApplicationV3FeatureFlags, parseAppPageDeclarationsV3, validateUiAssetPathV3, validatePackagedImageV3, APPLICATION_V3_TARGET_NOWEN } from "./applicationV3.js";
-import { inspectorV3Schema, INSPECTOR_PERMISSIONS } from "./inspectorV3.js";
 
 const inputFieldSchema = z.object({
   type: z.enum(["string", "number", "boolean", "object", "array"]),
@@ -275,75 +272,6 @@ export const pluginManifestV2Schema = z.union([executableV2Schema, declarativeV2
   if (manifest.runtime === "sandbox-js" && !normalized.endsWith(".js")) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["main"], message: "sandbox-js 入口必须是 .js IIFE bundle" });
 });
 
-export const pluginManifestV3Schema = z.object({
-  id: v2BaseShape.id,
-  name: v2BaseShape.name,
-  description: v2BaseShape.description,
-  version: v2BaseShape.version,
-  apiVersion: z.literal(3),
-  publisher: v2BaseShape.publisher,
-  engines: v2BaseShape.engines,
-  categories: v2BaseShape.categories,
-  keywords: v2BaseShape.keywords,
-  repository: v2BaseShape.repository,
-  homepage: v2BaseShape.homepage,
-  license: v2BaseShape.license,
-  icon: v2BaseShape.icon,
-  screenshots: v2BaseShape.screenshots,
-  runtime: z.literal("declarative"),
-  permissions: z.array(z.enum(PLUGIN_PERMISSIONS)).max(16),
-  contributes: z.object({
-    appPages: z.array(z.object({
-      id: z.string(), title: z.string(), entry: z.string(),
-      platforms: z.array(z.enum(["web", "desktop", "android", "ios"])),
-      requiredPermissions: z.array(z.enum(PLUGIN_PERMISSIONS)),
-    }).strict()).min(1).max(16),
-    widgets: z.array(widgetV3Schema).max(8).optional(),
-    inspectors: z.array(inspectorV3Schema).max(8).optional(),
-    uiAssets: z.record(z.string().regex(/^sha256:[a-f0-9]{64}$/))
-      .refine((v) => Object.keys(v).length > 0 && Object.keys(v).length <= 200),
-  }).strict(),
-}).strict().superRefine((manifest, ctx) => {
-  if (!manifest.id.startsWith(manifest.publisher + ".")) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["id"], message: "插件 ID 必须位于 Publisher namespace" });
-  if (new Set(manifest.permissions).size !== manifest.permissions.length ||
-    manifest.permissions.some((p) => !isV2SupportedPluginPermission(p))) {
-    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["permissions"], message: "V3 权限必须是允许的现有 Host API 权限且不能重复" });
-  }
-  try {
-    parseAppPageDeclarationsV3(manifest.id, manifest.contributes.appPages, manifest.permissions);
-  } catch (error) {
-    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["contributes", "appPages"], message: (error as Error).message });
-  }
-  for (const asset of Object.keys(manifest.contributes.uiAssets)) {
-    try { validateUiAssetPathV3(asset); }
-    catch (error) { ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["contributes", "uiAssets", asset], message: (error as Error).message }); }
-  }
-  for (const page of manifest.contributes.appPages) {
-    if (!Object.prototype.hasOwnProperty.call(manifest.contributes.uiAssets, page.entry)) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["contributes", "appPages", page.id], message: "应用 HTML 入口必须在 uiAssets 中声明 SHA-256" });
-    }
-  }
-  const widgetIds = new Set<string>();
-  const inspectorIds = new Set<string>();
-  for (const inspector of manifest.contributes.inspectors || []) {
-    if (inspectorIds.has(inspector.id) || !manifest.contributes.appPages.some(page => page.id === inspector.pageId)) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["contributes", "inspectors"], message: "Inspector ID 重复或关联页面不存在" });
-    if (inspector.resourceTypes.some(type => !manifest.permissions.includes(INSPECTOR_PERMISSIONS[type]))) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["permissions"], message: "Inspector 需要对应资源的读取权限" });
-    inspectorIds.add(inspector.id);
-  }
-  for (const widget of manifest.contributes.widgets || []) {
-    if (widgetIds.has(widget.id) || !manifest.contributes.appPages.some(page => page.id === widget.pageId)) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["contributes", "widgets"], message: "Widget ID 重复或关联页面不存在" });
-    if (["statistic", "status", "list"].includes(widget.type) && !manifest.permissions.includes("plugin-storage:read")) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["permissions"], message: "数据卡片需要 plugin-storage:read" });
-    widgetIds.add(widget.id);
-  }
-  for (const image of [manifest.icon, ...(manifest.screenshots || [])].filter((item): item is string => item !== undefined)) {
-    try { validatePackagedImageV3(image); }
-    catch (error) { ctx.addIssue({ code: z.ZodIssueCode.custom, path: image === manifest.icon ? ["icon"] : ["screenshots"], message: (error as Error).message }); }
-    if (!Object.prototype.hasOwnProperty.call(manifest.contributes.uiAssets, image)) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["contributes", "uiAssets", image], message: "V3 图标和截图必须在 uiAssets 中声明 SHA-256" });
-    }
-  }
-});
-
 function parseVersion(value: string): [number, number, number] | null {
   const match = /^(\d+)\.(\d+)\.(\d+)/.exec(value);
   return match ? [Number(match[1]), Number(match[2]), Number(match[3])] : null;
@@ -378,17 +306,6 @@ export function nowenVersionSatisfies(range: string, current = NOWEN_VERSION): b
   });
 }
 
-function requiresApplicationV3Version(range: string): boolean {
-  // V3 accepts the existing AND comparator syntax, with complete stable versions.
-  const clauses = range.trim().split(/\s+/).map((clause) => /^(>=|<=|>|<|=|\^|~)?(\d+\.\d+\.\d+)$/.exec(clause));
-  if (clauses.some((clause) => !clause || !parseVersion(clause[2])!.every(Number.isSafeInteger))) return false;
-  const minimum = parseVersion(APPLICATION_V3_TARGET_NOWEN)!;
-  return clauses.some((clause) => {
-    const operator = clause![1] || "=";
-    return !["<", "<="].includes(operator) && compareVersion(parseVersion(clause![2])!, minimum) >= 0;
-  });
-}
-
 export interface ParsePluginManifestOptions {
   currentVersion?: string;
   extensionsV21?: boolean;
@@ -397,18 +314,7 @@ export interface ParsePluginManifestOptions {
 
 export function parsePluginManifest(value: unknown, options: ParsePluginManifestOptions = {}): PluginManifest {
   const apiVersion = Number((value as { apiVersion?: unknown } | null)?.apiVersion);
-  const manifest = (apiVersion === 1 ? pluginManifestV1Schema.parse(value)
-    : apiVersion === 2 ? pluginManifestV2Schema.parse(value)
-      : apiVersion === 3 ? pluginManifestV3Schema.parse(value)
-        : (() => { throw new Error(`不支持 Plugin API V${apiVersion || "unknown"}`); })()) as PluginManifest;
-  if (manifest.apiVersion === 3) {
-    if (!getApplicationV3FeatureFlags().appPages) {
-      throw Object.assign(new Error("V3 应用级插件尚未启用完整沙箱功能"), { code: "PLUGIN_V3_FEATURE_DISABLED" });
-    }
-    if (!requiresApplicationV3Version(manifest.engines.nowen)) {
-      throw Object.assign(new Error(`V3 插件必须声明真实 Nowen >=${APPLICATION_V3_TARGET_NOWEN} 兼容范围`), { code: "PLUGIN_NOWEN_INCOMPATIBLE" });
-    }
-  }
+  const manifest = (apiVersion === 1 ? pluginManifestV1Schema.parse(value) : apiVersion === 2 ? pluginManifestV2Schema.parse(value) : (() => { throw new Error(`不支持 Plugin API V${apiVersion || "unknown"}`); })()) as PluginManifest;
   if (manifest.apiVersion === 2 && manifest.runtime === "declarative") {
     if (!(options.extensionsV21 ?? isExtensionV21Enabled())) throw Object.assign(new Error("声明式 Extension 当前未启用"), { code: "PLUGIN_V21_FEATURE_DISABLED" });
     if (!nowenVersionSatisfies(manifest.engines.nowen, "1.6.0") || nowenVersionSatisfies(manifest.engines.nowen, "1.5.0")) {

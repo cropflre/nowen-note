@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import dns from "node:dns/promises";
 import https from "node:https";
 import { EventEmitter } from "node:events";
@@ -7,11 +10,17 @@ import { Readable } from "node:stream";
 import { setImmediate } from "node:timers/promises";
 import test from "node:test";
 import { Hono } from "hono";
-import { getDb, closeDb } from "../src/db/schema.js";
-import router, { dispatchScheduledTaskDigests } from "../src/routes/task-digest.js";
-import { initWebhookTables, webhookDispatcher, type WebhookEvent } from "../src/services/webhook.js";
+import type { WebhookEvent } from "../src/services/webhook.js";
 
 test("Issue #867 task push timestamps use the configured timezone without shifting the instant", async (t) => {
+  // This repository refuses test databases outside os.tmpdir(). Configure it
+  // before dynamically loading schema.ts, which initializes SQLite on import.
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "nowen-task-digest-timestamp-"));
+  process.env.NODE_ENV = "test";
+  process.env.DB_PATH = path.join(tmpDir, "test.db");
+  const { getDb, closeDb } = await import("../src/db/schema.js");
+  const { default: router, dispatchScheduledTaskDigests } = await import("../src/routes/task-digest.js");
+  const { initWebhookTables, webhookDispatcher } = await import("../src/services/webhook.js");
   const db = getDb();
   initWebhookTables();
   db.prepare("INSERT INTO users(id,username,passwordHash) VALUES ('timestamp-user','timestamp-user','hash')").run();
@@ -29,7 +38,7 @@ test("Issue #867 task push timestamps use the configured timezone without shifti
     outgoing.write = (chunk: Buffer) => chunks.push(Buffer.from(chunk));
     outgoing.end = () => queueMicrotask(() => {
       captured.push({ body: Buffer.concat(chunks).toString(), headers: options.headers as Record<string, string> });
-      const incoming = Readable.from([Buffer.from("ok")]) as any;
+      const incoming = Readable.from([Buffer.from(_url.hostname.endsWith("pushplus.plus") ? '{"code":200,"msg":"success"}' : "ok")]) as any;
       incoming.statusCode = 200;
       incoming.headers = {};
       callback(incoming);
@@ -112,9 +121,42 @@ test("Issue #867 task push timestamps use the configured timezone without shifti
         assert.equal(payload.timestamp, new Date().toISOString());
       });
     }
+    await t.test("PushPlus JSON webhook gets a readable Chinese digest without leaking its token", async () => {
+      t.mock.timers.setTime(Date.parse("2026-10-08T01:00:00.123Z"));
+      await save("Asia/Shanghai");
+      db.prepare("UPDATE webhooks SET url=? WHERE id='timestamp-hook'")
+        .run("https://www.pushplus.plus/send/sample-secret-token?template=json");
+      const expectedCount = captured.length + 1;
+      const response = await app.request("/api/task-digest/test", {
+        method: "POST", headers, body: JSON.stringify({ kind: "evening" }),
+      });
+      assert.equal(response.status, 200);
+      const payload = (await deliveries(expectedCount)).at(-1);
+      assert.equal(payload["标题"], "每日任务简报 · 晚间总结（测试）");
+      assert.equal(payload["日期"], "2026-10-08");
+      assert.equal(payload["推送时间"], "2026-10-08 09:00:00+08:00（Asia/Shanghai）");
+      assert.deepEqual(payload["任务统计"], {
+        "今日到期": 1, "今日待完成": 1, "今日到期已完成": 0,
+        "今日已完成": 0, "逾期未完成": 0,
+      });
+      assert.equal("event" in payload, false);
+      assert.equal(JSON.stringify(payload).includes("sample-secret-token"), false);
+    });
+
+    await t.test("PushPlus task deadline has localized task labels", async () => {
+      const expectedCount = captured.length + 1;
+      await webhookDispatcher.emit("task.due", "timestamp-user", {
+        timezone: "Asia/Shanghai", title: "完成回归", dueAt: "2026-10-08T09:00:00",
+      });
+      const payload = (await deliveries(expectedCount)).at(-1);
+      assert.equal(payload["标题"], "任务到点提醒");
+      assert.equal(payload["任务名称"], "完成回归");
+      assert.equal(payload["截止时间"], "2026-10-08 09:00:00");
+    });
   } finally {
     t.mock.timers.reset();
     t.mock.restoreAll();
     closeDb();
+    fs.rmSync(tmpDir, { recursive: true, force: true });
   }
 });
