@@ -24,6 +24,7 @@
       "title": "本地业务写入与 Outbox 变更应在持久化后可恢复",
       "status": "covered",
       "checks": [
+        {"file": "backend/tests/agent-workflow.test.ts", "case": "DCC-002: Outbox failure preserves the completed note, retries only tasks and survives reopening"},
         { "file": "backend/tests/agent.test.ts", "case": "approved editor save captures Outbox intent and keeps it after reopening (DCC-002)" },
         { "file": "backend/tests/sync-v2-mobile-multidevice.test.ts", "case": "Agent approved" },
         { "file": "backend/tests/encrypted-notes-decryption.test.ts", "case": "permanent decryption preserves note identity and favorites (DCC-002)" },
@@ -185,6 +186,7 @@
       "title": "跨账号跨服务端 Outbox 不得串用",
       "status": "covered",
       "checks": [
+        {"file": "backend/tests/agent-workflow.test.ts", "case": "explicit scope excludes child notebooks when requested and never reads foreign notes"},
         { "file": "backend/tests/agent.test.ts", "case": "cross user, restricted tokens, locked notes and disabled AI are denied before model access" },
         { "file": "backend/tests/remote-image-localization-service.test.ts", "case": "automatic scan skips notes moved into a workspace after the job was created (DCC-006)" },
         { "file": "backend/tests/remote-image-localization-service.test.ts", "case": "automatic batches save images past all batch bounds and preserve failed links (DCC-006)" },

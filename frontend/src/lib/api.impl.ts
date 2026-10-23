@@ -1287,6 +1287,12 @@ async function requireTaskSeriesSupport(): Promise<void> {
 }
 
 export const api = {
+  agentWorkflows: {
+    list: (workspaceId: string) => request<import("./agentWorkflow").AgentWorkflow[]>(`/agent/workflows?workspaceId=${encodeURIComponent(workspaceId)}`),
+    create: (workspaceId: string, input: import("./agentWorkflow").AgentWorkflowInput) => request<{ id: string }>(`/agent/workflows?workspaceId=${encodeURIComponent(workspaceId)}`, { method: "POST", body: JSON.stringify(input), _skipOfflineQueue: true }),
+    get: (workspaceId: string, id: string) => request<import("./agentWorkflow").AgentWorkflow>(`/agent/workflows/${encodeURIComponent(id)}?workspaceId=${encodeURIComponent(workspaceId)}`),
+    action: (workspaceId: string, id: string, action: "approve" | "retry" | "cancel" | "reject", token?: string) => request<import("./agentWorkflow").AgentWorkflow>(`/agent/workflows/${encodeURIComponent(id)}/${action}?workspaceId=${encodeURIComponent(workspaceId)}`, { method: "POST", body: JSON.stringify(token ? { token } : {}), _skipOfflineQueue: true }),
+  },
   agent: {
     latest: (noteId: string) => request<import("./agentEdits").AgentRun | null>(`/agent/runs?noteId=${encodeURIComponent(noteId)}`),
     capabilities: () => request<{ enabled: boolean; toolCalling: string | boolean }>("/agent/capabilities"),

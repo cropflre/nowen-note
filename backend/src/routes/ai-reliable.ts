@@ -56,6 +56,7 @@ interface AskBody {
 
 interface Scope {
   userId: string;
+  authorizedNotebookScope?: boolean;
   workspaceId: string | null;
   notebookIds: string[] | null;
 }
@@ -201,8 +202,8 @@ function scopeSql(scope: Scope, alias = "n"): { sql: string; params: any[] } {
   const clauses = [`${alias}.isTrashed = 0`];
   const params: any[] = [];
   if (scope.workspaceId === null) {
-    clauses.push(`${alias}.userId = ?`, `${alias}.workspaceId IS NULL`);
-    params.push(scope.userId);
+    if (scope.authorizedNotebookScope && scope.notebookIds?.length) clauses.push(`${alias}.workspaceId IS NULL`);
+    else { clauses.push(`${alias}.userId = ?`, `${alias}.workspaceId IS NULL`); params.push(scope.userId); }
   } else {
     clauses.push(`${alias}.workspaceId = ?`);
     params.push(scope.workspaceId);
@@ -295,7 +296,7 @@ async function retrieveCandidates(scope: Scope, question: string): Promise<{
         if (hits.length) retrieval.push("vector");
       }
     } catch (error) {
-      console.warn("[ai-reliable] vector retrieval failed:", error);
+      console.warn("[ai-reliable] vector retrieval failed:", scope.authorizedNotebookScope ? "AGENT_RETRIEVAL_FAILED" : error);
     }
   }
 
@@ -335,7 +336,7 @@ async function retrieveCandidates(scope: Scope, question: string): Promise<{
         if (rows.length) retrieval.push("fts");
       }
     } catch (error) {
-      console.warn("[ai-reliable] FTS retrieval failed:", error);
+      console.warn("[ai-reliable] FTS retrieval failed:", scope.authorizedNotebookScope ? "AGENT_RETRIEVAL_FAILED" : error);
     }
 
     try {
@@ -362,7 +363,7 @@ async function retrieveCandidates(scope: Scope, question: string): Promise<{
       }
       if (rows.length) retrieval.push("like");
     } catch (error) {
-      console.warn("[ai-reliable] LIKE retrieval failed:", error);
+      console.warn("[ai-reliable] LIKE retrieval failed:", scope.authorizedNotebookScope ? "AGENT_RETRIEVAL_FAILED" : error);
     }
   }
 
@@ -401,6 +402,20 @@ async function retrieveCandidates(scope: Scope, question: string): Promise<{
     .sort((a, b) => priority[a.reason] - priority[b.reason] || (b.score || 0) - (a.score || 0))
     .slice(0, 10);
   return { candidates, retrieval: Array.from(new Set(retrieval)) };
+}
+
+/** Agent shares RAG ranking; filter protected notes before any body reaches context. */
+export async function retrieveAgentNotebookContext(scope: Scope, question: string) {
+  const { candidates, retrieval } = await retrieveCandidates(scope, question);
+  const safe = candidates.filter(candidate => {
+    if (candidate.kind !== "note") return false;
+    const note = getDb().prepare("SELECT * FROM notes WHERE id=?").get(candidate.noteId) as CollaborationNote & { isLocked: number } | undefined;
+    if (!note || note.isLocked || isEncryptedNoteFormat(note.contentFormat)
+      || !canViewNoteThroughFolderPasswords(getDb(), note.id, new Set())
+      || getDb().prepare("SELECT 1 FROM notebook_passwords WHERE notebookId=?").get(note.notebookId)) return false;
+    try { return !encryptedBlocksInContent(note.content, note.contentFormat).length; } catch { return false; }
+  });
+  return { ...buildKnowledgeContext(safe), retrieval };
 }
 
 function getIndexStatus(scope: Scope) {

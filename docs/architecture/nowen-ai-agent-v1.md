@@ -51,4 +51,4 @@ DeepSeek explicitly uses non-thinking mode for required tool calls, selected by 
 
 ## P1/P2 boundary
 
-P1 remains gated on P0 acceptance. Reuse task composer and note domain services for search, new notes and task batches, with server-side transactional idempotency and partial-result states. Do not expand the P0 editor approval into a generic REST proxy. P2 plugin/automation/external MCP requires a separate trust/network/credential design. No new heavy Agent dependency, telemetry or public SDK is introduced.
+The maintainer explicitly requested P1 implementation on 2026-10-23 while P0 physical-device acceptance remains open. The notebook workflow implementation, reuse of task composer/RAG, transactional writes and partial-result recovery are documented in [P1 architecture](agent-p1-notebook-workflows.md). The P0 editor approval is not expanded into a generic REST proxy. P2 plugin/automation/external MCP requires a separate trust/network/credential design. No new heavy Agent dependency, telemetry or public SDK is introduced.

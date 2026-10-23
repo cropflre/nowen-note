@@ -94,7 +94,7 @@ export class AgentRuntime {
     if (encryptedBlocksInContent(input.content, input.format).length) throw new AgentError("PROTECTED_DOCUMENT", 403);
     const settings = getUserAISettings(userId);
     if (!settings.ai_api_url || !settings.ai_model) throw new AgentError("AI_NOT_CONFIGURED", 400);
-    if (getDb().prepare("SELECT 1 FROM agent_runs WHERE userId=? AND status IN ('queued','running','waiting_approval','applying')").get(userId)) throw new AgentError("RUN_ALREADY_ACTIVE");
+    if (getDb().prepare("SELECT 1 FROM agent_runs WHERE userId=? AND status IN ('queued','running','waiting_approval','applying') UNION ALL SELECT 1 FROM agent_workflows WHERE userId=? AND status IN ('queued','running','waiting_approval','applying')").get(userId, userId)) throw new AgentError("RUN_ALREADY_ACTIVE");
     const id = randomUUID(), now = new Date().toISOString();
     getDb().prepare("INSERT INTO agent_runs(id,userId,noteId,workspaceId,status,model,expectedVersion,snapshotDigest,serverDigest,createdAt,updatedAt) VALUES (?,?,?,?,'queued',?,?,?,?,?,?)")
       .run(id, userId, note.id, note.workspaceId, settings.ai_model, note.version, contentDigest(input.content, input.format), contentDigest(note.content, note.contentFormat), now, now);

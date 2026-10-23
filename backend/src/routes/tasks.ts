@@ -353,7 +353,7 @@ class TaskCreateError extends Error {
 }
 
 // The normal endpoint and AI batch share the same creation validation and SQL.
-function createTaskRecord(db: ReturnType<typeof getDb>, userId: string, workspaceId: string | null, body: any): Record<string, unknown> {
+export function createTaskRecord(db: ReturnType<typeof getDb>, userId: string, workspaceId: string | null, body: any): Record<string, unknown> {
   const invalidDate = invalidTaskDateField(body);
   if (invalidDate) throw new TaskCreateError({error:`Invalid ${invalidDate}`,code:"INVALID_TASK_DATE"},400);
   const id = crypto.randomUUID();

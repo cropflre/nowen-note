@@ -3359,11 +3359,18 @@
       "completed": "已完成",
       "cancelled": "已取消",
       "failed": "执行失败",
-      "interrupted": "已中断，需核查"
+      "interrupted": "已中断，需核查",
+      "partial": "部分完成",
+      "pending": "待执行"
     },
     "tools": {
       "get_current_note_context": "读取当前笔记",
-      "propose_note_edit": "生成编辑提案"
+      "propose_note_edit": "生成编辑提案",
+      "search_notebook": "检索笔记本",
+      "propose_workflow": "生成流程预览",
+      "draft_tasks": "生成任务草稿",
+      "create_note": "创建笔记",
+      "create_tasks": "批量创建任务"
     },
     "errors": {
       "AGENT_REQUEST_FAILED": "请求失败，请检查连接后重试。",
@@ -3388,7 +3395,53 @@
       "TOOL_LIMIT": "已达到工具调用上限。",
       "MODEL_ROUND_LIMIT": "已达到执行轮数上限。",
       "REPEATED_TOOL_CALL": "检测到重复调用，执行已停止。",
-      "TOOL_NOT_ALLOWED": "模型请求了未授权的操作，执行已停止。"
+      "TOOL_NOT_ALLOWED": "模型请求了未授权的操作，执行已停止。",
+      "AI_NOT_CONFIGURED": "请先配置 AI 模型。",
+      "CONTEXT_LIMIT": "上下文达到预算上限，请缩小笔记本范围。",
+      "SOURCE_REQUIRED": "模型未引用检索到的笔记，请重新生成。",
+      "FEATURE_DISABLED": "此工作区未开启任务功能。",
+      "RETRY_UNAVAILABLE": "上次草稿无法恢复，请检查已有结果后重新发起。",
+      "WRITE_FAILED": "此动作失败，已完成结果仍保留；重试前请重新预览尚未完成的动作。",
+      "CHECK_CREATED_RESULTS": "执行已停止，已创建的结果仍保留。",
+      "TASK_DUPLICATE": "已有相同待办，请检查后重新生成其余任务草稿。",
+      "AI_REQUEST_FAILED": "任务草稿生成失败，未创建任务。",
+      "AI_INVALID_JSON": "任务模型返回了无效 JSON，请重新生成。",
+      "AI_INVALID_FORMAT": "任务草稿格式无效，请重新生成。",
+      "AI_INVALID_DATES": "任务模型返回了无效日期，请重新生成。",
+      "AI_TIMEOUT": "任务草稿生成超时，请重新发起。"
+    },
+    "workflow": {
+      "title": "笔记本 Agent",
+      "privacy": "所选范围内已保存的笔记与指令将发送给你配置的 AI 服务。笔记和任务草稿须审批后才保存，受保护笔记不参与读取。",
+      "notebook": "笔记本范围",
+      "choose": "请选择笔记本",
+      "children": "包含子笔记本",
+      "linkCurrent": "将任务关联当前笔记：{{title}}",
+      "placeholder": "总结这个笔记本，创建一篇总结笔记，并提取可执行待办。",
+      "unavailable": "请选择有权访问的笔记本，并在设置中开启 AI。执行需要联网。",
+      "history": "执行记录",
+      "summary": "总结",
+      "truncated": "本次仅使用了部分上下文，总结不代表已读取全部笔记。",
+      "newNote": "新建笔记草稿",
+      "tasks": "任务草稿（{{count}} 项）",
+      "linkPreview": "若创建新笔记，任务会关联新笔记；否则使用你选择的当前笔记关联（如有）。",
+      "taskDetails": "优先级 {{priority}} · 开始 {{start}} · 截止 {{due}} · {{repeat}}",
+      "reviewWarning": "请在创建前核对这项任务。",
+      "approve": "审批并创建上述草稿",
+      "retry": "重新预览尚未完成的动作",
+      "saved": "流程已完成。可打开下方创建结果，其他设备的同步状态须另行核验。",
+      "expired": "草稿详情已过期或执行已中断，已创建结果的入口仍保留；继续执行需重新发起。",
+      "refreshWarning": "结果已创建，但本机任务缓存刷新失败。请检查结果入口与同步状态，不要再次创建。",
+      "action": {
+        "note": "创建笔记",
+        "tasks": "批量创建任务"
+      },
+      "openNote": "打开已创建笔记",
+      "openTask": "打开任务 {{count}}",
+      "repeatDetails": "时区 {{timezone}} · 重复间隔 {{interval}} · 截止 {{end}} · 总次数 {{repeatCount}}",
+      "checkResults": "核查执行状态",
+      "uncertain": "审批执行结果暂不确定，请先核查执行状态，再决定后续操作。",
+      "sourceVersion": "读取时版本 {{version}}"
     }
   }
 }

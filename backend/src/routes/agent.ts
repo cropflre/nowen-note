@@ -4,11 +4,15 @@ import { streamSSE } from "hono/streaming";
 import { AgentError, agentRuntime, runInput } from "../agent/runtime.js";
 import { agentModelCapabilities } from "../agent/model.js";
 import { getUserAISettings, isManualAIEnabled } from "../services/user-ai-settings.js";
+import { bodyLimit } from "hono/body-limit";
+import { agentWorkflowRuntime } from "../agent/workflowRuntime.js";
+import { workflowInput } from "../agent/workflowTools.js";
 const app = new Hono();
 app.use("*", async (c, next) => {
   if (!c.req.header("X-User-Id")) return c.json({ code: "UNAUTHORIZED" }, 401);
   // Built-in interactive sessions only. PATs (including restricted tokens) fail closed.
   if (c.req.header("X-Auth-Mode") === "api-token") return c.json({ code: "AGENT_SESSION_REQUIRED" }, 403);
+  agentRuntime.initialize(); agentWorkflowRuntime.initialize();
   await next();
 });
 app.onError((error, c) => {
@@ -17,6 +21,26 @@ app.onError((error, c) => {
   return c.json({ code, error: code }, 400);
 });
 app.get("/capabilities", c => c.json({ enabled: process.env.NOWEN_AGENT_ENABLED !== "false" && isManualAIEnabled(c.req.header("X-User-Id")!), ...agentModelCapabilities(getUserAISettings(c.req.header("X-User-Id")!)), verification: "actual_run", formats: ["markdown", "tiptap-json"], maxContextChars: 48000 }));
+const workspace = (value: string | undefined) => !value || value === "personal" ? null : value;
+app.use("/workflows/*", bodyLimit({ maxSize: 64000 }));
+app.get("/workflows", c => c.json(agentWorkflowRuntime.list(c.req.header("X-User-Id")!, workspace(c.req.query("workspaceId")))));
+app.post("/workflows", bodyLimit({ maxSize: 64000 }), async c => c.json(agentWorkflowRuntime.create(c.req.header("X-User-Id")!, workspace(c.req.query("workspaceId")), workflowInput.parse(await c.req.json()), c.req.header("X-Session-Id")), 202));
+app.use("/workflows/:id/*", async (c, next) => {
+  const run = agentWorkflowRuntime.get(c.req.param("id")!, c.req.header("X-User-Id")!);
+  if (run.workspaceId !== workspace(c.req.query("workspaceId"))) throw new AgentError("NOTE_ACCESS_DENIED", 403);
+  await next();
+});
+app.get("/workflows/:id", c => {
+  const run = agentWorkflowRuntime.get(c.req.param("id"), c.req.header("X-User-Id")!);
+  if (run.workspaceId !== workspace(c.req.query("workspaceId"))) throw new AgentError("NOTE_ACCESS_DENIED", 403);
+  return c.json(run);
+});
+app.post("/workflows/:id/approve", async c => {
+  const { token } = z.object({ token: z.string().length(64) }).strict().parse(await c.req.json());
+  return c.json(await agentWorkflowRuntime.approve(c.req.param("id"), c.req.header("X-User-Id")!, token));
+});
+app.post("/workflows/:id/retry", c => c.json(agentWorkflowRuntime.retry(c.req.param("id"), c.req.header("X-User-Id")!)));
+for (const action of ["cancel", "reject"]) app.post(`/workflows/:id/${action}`, c => c.json(agentWorkflowRuntime.cancel(c.req.param("id"), c.req.header("X-User-Id")!)));
 app.get("/runs", c => c.json(agentRuntime.latest(c.req.header("X-User-Id")!, c.req.query("noteId") || "")));
 app.post("/runs", async c => c.json(agentRuntime.create(c.req.header("X-User-Id")!, runInput.parse(await c.req.json()), c.req.header("X-Session-Id")), 202));
 app.get("/runs/:id", c => c.json(agentRuntime.get(c.req.param("id"), c.req.header("X-User-Id")!)));

@@ -3352,11 +3352,18 @@
       "completed": "Completed",
       "cancelled": "Cancelled",
       "failed": "Failed",
-      "interrupted": "Interrupted; check the note"
+      "interrupted": "Interrupted; check the note",
+      "partial": "Partially completed",
+      "pending": "Pending"
     },
     "tools": {
       "get_current_note_context": "Read current note",
-      "propose_note_edit": "Prepare edit proposal"
+      "propose_note_edit": "Prepare edit proposal",
+      "search_notebook": "Search notebook",
+      "propose_workflow": "Prepare workflow preview",
+      "draft_tasks": "Prepare task drafts",
+      "create_note": "Create note",
+      "create_tasks": "Create task batch"
     },
     "errors": {
       "AGENT_REQUEST_FAILED": "Request failed. Check your connection and retry.",
@@ -3381,7 +3388,53 @@
       "TOOL_LIMIT": "Tool call limit reached.",
       "MODEL_ROUND_LIMIT": "Model round limit reached.",
       "REPEATED_TOOL_CALL": "Repeated tool call detected. Execution stopped.",
-      "TOOL_NOT_ALLOWED": "The model requested an unauthorized operation. Execution stopped."
+      "TOOL_NOT_ALLOWED": "The model requested an unauthorized operation. Execution stopped.",
+      "AI_NOT_CONFIGURED": "Configure an AI model first.",
+      "CONTEXT_LIMIT": "The context budget was reached. Narrow the notebook scope.",
+      "SOURCE_REQUIRED": "The model did not cite the retrieved notes. Generate again.",
+      "FEATURE_DISABLED": "Tasks are disabled in this workspace.",
+      "RETRY_UNAVAILABLE": "The previous draft cannot be resumed. Check existing results and generate a new request.",
+      "WRITE_FAILED": "This action failed. Completed results were preserved. Review remaining actions before retrying.",
+      "CHECK_CREATED_RESULTS": "Execution stopped. Already created results remain saved.",
+      "TASK_DUPLICATE": "A task already exists. Check it and regenerate the remaining task drafts.",
+      "AI_REQUEST_FAILED": "Task draft generation failed. No task was created.",
+      "AI_INVALID_JSON": "The task model returned invalid JSON. Generate again.",
+      "AI_INVALID_FORMAT": "The task draft format is invalid. Generate again.",
+      "AI_INVALID_DATES": "The task model returned invalid dates. Generate again.",
+      "AI_TIMEOUT": "Task draft generation timed out. Retry the request."
+    },
+    "workflow": {
+      "title": "Notebook Agent",
+      "privacy": "Saved notes in your selected notebook scope and your instruction are sent to your configured AI service. Note and task drafts are saved only after approval. Protected notes are excluded.",
+      "notebook": "Notebook scope",
+      "choose": "Choose a notebook",
+      "children": "Include subnotebooks",
+      "linkCurrent": "Link tasks to the current note: {{title}}",
+      "placeholder": "Summarize this notebook, create a summary note and extract actionable tasks.",
+      "unavailable": "Choose an accessible notebook and enable AI in settings. An online connection is required.",
+      "history": "Execution history",
+      "summary": "Summary",
+      "truncated": "Only part of the available context was included. This summary does not cover every note.",
+      "newNote": "New note draft",
+      "tasks": "Task drafts ({{count}})",
+      "linkPreview": "Tasks link to the new note when one is created; otherwise they use your selected current-note link, if any.",
+      "taskDetails": "Priority {{priority}} · Starts {{start}} · Due {{due}} · {{repeat}}",
+      "reviewWarning": "Review this task before creating it.",
+      "approve": "Approve and create the displayed drafts",
+      "retry": "Review remaining actions again",
+      "saved": "Workflow completed. Open any created results below; other-device sync requires its own receipt.",
+      "expired": "Draft details have expired or were interrupted. Created result links remain available; generate a new request to continue.",
+      "refreshWarning": "Results were created, but refreshing the local task cache failed. Check the result links and sync status; do not create them again.",
+      "action": {
+        "note": "Create note",
+        "tasks": "Create task batch"
+      },
+      "openNote": "Open created note",
+      "openTask": "Open task {{count}}",
+      "repeatDetails": "Timezone {{timezone}} · Repeat every {{interval}} · Until {{end}} · Count {{repeatCount}}",
+      "checkResults": "Check execution status",
+      "uncertain": "The approval result is unknown. Check execution status before trying any write again.",
+      "sourceVersion": "Read version {{version}}"
     }
   }
 }

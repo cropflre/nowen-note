@@ -1,3 +1,5 @@
+import NotebookAgentPanel from "./agent/NotebookAgentPanel";
+import { getCurrentWorkspace } from "@/lib/api";
 import { useTranslation } from "react-i18next";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -75,6 +77,12 @@ function StatusPill({ status }: { status: ReliableStatus | null }) {
 export default function AIChatReliabilityShell(props: Props) {
   const { t } = useTranslation();
   const [agentMode, setAgentMode] = useState(false);
+  const [workflowWorkspace, setWorkflowWorkspace] = useState(getCurrentWorkspace);
+  useEffect(() => {
+    const changed = () => setWorkflowWorkspace(getCurrentWorkspace());
+    window.addEventListener("nowen:workspace-changed", changed);
+    return () => window.removeEventListener("nowen:workspace-changed", changed);
+  }, []);
   const { state } = useApp();
   const activeNote = state.activeNote;
   const [mode, setMode] = useState<ReliableAskMode>("knowledge");
@@ -190,6 +198,7 @@ export default function AIChatReliabilityShell(props: Props) {
         <button aria-pressed={agentMode} onClick={() => setAgentMode(true)}>{t("agent.mode")}</button>
       </div>
       {agentMode && <div className="p-4 space-y-3"><p>{t("agent.entryHint")}</p><button disabled={!activeNote} onClick={() => { if (activeNote) props.onNavigateToNote?.(activeNote.id); window.dispatchEvent(new Event("nowen:open-editor-agent")); props.onClose(); }}>{t("agent.open")}</button></div>}
+      <div hidden={!agentMode} className={cn("min-h-0", agentMode && "flex min-h-0 flex-1 flex-col overflow-hidden")}><NotebookAgentPanel key={workflowWorkspace} workspaceId={workflowWorkspace} onNavigateToNote={props.onNavigateToNote} /></div>
       <section hidden={agentMode} className="max-md:max-h-[50dvh] shrink-0 max-md:overflow-y-auto border-b border-app-border bg-app-surface/95 px-3 py-2 backdrop-blur md:px-5">
         <div className="flex flex-wrap items-center gap-2.5">
           <div className="mr-1 hidden min-w-0 items-center gap-2 md:flex">
@@ -351,7 +360,7 @@ export default function AIChatReliabilityShell(props: Props) {
         )}
       </section>
 
-      <div className={cn("min-h-0 flex-1", (currentNoteUnavailable || selectionUnavailable) && "opacity-70")}>
+      <div hidden={agentMode} className={cn("min-h-0 flex-1", (currentNoteUnavailable || selectionUnavailable) && "opacity-70")}>
         <div className="h-full" hidden={agentMode}><OriginalAIChatPanel {...props} /></div>
       </div>
     </div>

@@ -44,6 +44,19 @@ const test = base.extend<{ product: { server: string; provider: { url: string; k
       request.on("data", chunk => { raw += chunk; });
       request.on("end", async () => {
         const body = JSON.parse(raw);
+        if (!body.tools && body.messages?.[0]?.content?.includes("You compose task DRAFTS")) {
+          response.setHeader("Content-Type", "application/json");
+          response.end(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ tasks: [{ title: "Review workflow sources", priority: 3 }, { title: "Publish workflow summary", priority: 2 }] }) } }] }));
+          return;
+        }
+        if (body.tools?.some((tool: { function: { name: string } }) => tool.function.name === "search_notebook")) {
+          const context = body.messages.find((message: { role: string }) => message.role === "tool");
+          const proposed = context ? { name: "propose_workflow", arguments: JSON.stringify({ summary: "Agent workflow summary based on two sources", sourceNoteIds: JSON.parse(context.content).sources.map((source: { id: string }) => source.id), note: { title: "Agent workflow result", content: "# Agent workflow result\n\nBoth workflowmarker source details are retained." }, taskRequest: "Review workflow sources and publish the summary" }) }
+            : { name: "search_notebook", arguments: JSON.stringify({ query: "workflowmarker" }) };
+          response.setHeader("Content-Type", "application/json");
+          response.end(JSON.stringify({ choices: [{ message: { tool_calls: [{ id: context ? "workflow-plan" : "workflow-search", type: "function", function: proposed }] } }] }));
+          return;
+        }
         if (!body.tools) {
           chatRequests.push(body.messages);
           response.setHeader("Content-Type", "text/event-stream");
@@ -257,4 +270,67 @@ test("existing Q&A history and streaming survive Agent tab switches and process 
   await expect(page.locator("p").filter({ hasText: /^Historical answer$/ })).toBeVisible();
   await expect(page.locator("p").filter({ hasText: /^Compatibility stream started and completed\.$/ })).toBeVisible();
   expect(await history()).toHaveLength(4);
+});
+
+
+test("notebook Agent previews scoped sources, approves linked notes and tasks, and restores result links", async ({ page, product }) => {
+  test.skip(!!providerFile, "Uses the deterministic workflow provider");
+  const registered = await page.request.post(`${product.server}/api/auth/register`, { data: { username: "workflow_browser", password: "workflow-browser-test-password" } });
+  expect(registered.ok()).toBe(true); const account = await registered.json();
+  const headers = { Authorization: `Bearer ${account.token}` };
+  expect((await page.request.put(`${product.server}/api/ai/settings`, { headers, data: { ai_provider: "openai", ai_api_url: product.provider.url, ai_api_key: product.provider.key, ai_model: product.provider.model } })).ok()).toBe(true);
+  const books = await (await page.request.get(`${product.server}/api/notebooks`, { headers })).json();
+  const sources = [];
+  for (let i = 1; i <= 2; i++) {
+    const response = await page.request.post(`${product.server}/api/notes`, { headers, data: { title: `Workflow source ${i}`, notebookId: books[0].id, contentFormat: "markdown", content: `workflowmarker source ${i}: keep all technical details.` } });
+    expect(response.ok()).toBe(true); sources.push(await response.json());
+  }
+  const noteList = async () => (await (await page.request.get(`${product.server}/api/notes`, { headers })).json());
+  const originalCount = (await noteList()).length;
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(product.server);
+  await page.evaluate(() => { localStorage.setItem("i18nextLng", "en"); localStorage.setItem("nowen-seen-version", "1.5.3"); });
+  await page.reload();
+  await page.getByPlaceholder("admin", { exact: true }).fill("workflow_browser");
+  await page.locator("input[type=password]").fill("workflow-browser-test-password");
+  await page.locator("button[type=submit]").click();
+  await expect(page.getByRole("textbox", { name: "Note Title", exact: true })).toHaveValue("欢迎使用 Nowen Note");
+  await page.getByRole("button", { name: "AI Chat", exact: true }).click();
+  await page.getByRole("button", { name: "Agent", exact: true }).click();
+  const panel = page.getByRole("region", { name: "Notebook Agent", exact: true });
+  await panel.getByLabel("Notebook scope", { exact: true }).selectOption(books[0].id);
+  await panel.getByLabel("What would you like to change?").fill("Summarize workflowmarker sources, create a new note and extract two tasks.");
+  await panel.getByRole("button", { name: "Generate proposal", exact: true }).click();
+  await expect(panel.getByRole("button", { name: "Approve and create the displayed drafts", exact: true })).toBeVisible({ timeout: 15000 });
+  for (const source of sources) await expect(panel.getByRole("button", { name: source.title, exact: true })).toBeVisible();
+  expect((await noteList()).length).toBe(originalCount);
+  expect(await (await page.request.get(`${product.server}/api/tasks`, { headers })).json()).toHaveLength(0);
+  await panel.getByRole("button", { name: "Reject", exact: true }).click();
+  expect((await noteList()).length).toBe(originalCount);
+  await panel.getByRole("button", { name: "Generate proposal", exact: true }).click();
+  await expect(panel.getByRole("button", { name: "Approve and create the displayed drafts", exact: true })).toBeVisible({ timeout: 15000 });
+  await panel.screenshot({ path: test.info().outputPath("notebook-workflow-preview.png") });
+  // The server commits, but the approval response is lost. The UI must reconcile by GET.
+  await page.route(/\/api\/agent\/workflows\/[^/?]+\/approve(?:\?.*)?$/, async route => { await route.fetch(); await route.abort("failed"); }, { times: 1 });
+  await panel.getByRole("button", { name: "Approve and create the displayed drafts", exact: true }).click();
+  await expect(panel.getByRole("button", { name: "Open created note", exact: true })).toBeVisible({ timeout: 15000 });
+  const createdNote = (await noteList()).find((note: { title: string }) => note.title === "Agent workflow result");
+  expect(createdNote).toBeTruthy(); expect((await noteList()).length).toBe(originalCount + 1);
+  const tasks = await (await page.request.get(`${product.server}/api/tasks`, { headers })).json();
+  expect(tasks).toHaveLength(2); expect(tasks.every((task: { noteId: string }) => task.noteId === createdNote.id)).toBe(true);
+  await panel.getByRole("button", { name: "Open task 1", exact: true }).click();
+  await expect(page.getByText("Review workflow sources", { exact: true }).first()).toBeVisible();
+  await page.getByRole("button", { name: "AI Chat", exact: true }).click();
+  await page.getByRole("button", { name: "Agent", exact: true }).click();
+  await panel.getByRole("button", { name: "Open created note", exact: true }).click();
+  await expect(page.getByRole("textbox", { name: "Note Title", exact: true })).toHaveValue("Agent workflow result");
+  await product.restart(); await page.reload();
+  await expect(page.getByRole("textbox", { name: "Note Title", exact: true })).toHaveValue("Agent workflow result");
+  await page.getByRole("button", { name: "AI Chat", exact: true }).click();
+  await page.getByRole("button", { name: "Agent", exact: true }).click();
+  await expect(panel.getByRole("button", { name: "Open created note", exact: true })).toBeVisible();
+  await expect(panel.getByText("Draft details have expired or were interrupted. Created result links remain available; generate a new request to continue.", { exact: true })).toBeVisible();
+  expect(await (await page.request.get(`${product.server}/api/tasks`, { headers })).json()).toHaveLength(2);
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await panel.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
 });

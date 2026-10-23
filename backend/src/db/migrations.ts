@@ -1,3 +1,4 @@
+import { agentWorkflowMigration } from "./agentWorkflowMigration.js";
 import { agentMigration } from "./agentMigration.js";
 import { noteDeletionLifecycleMigration } from "./noteDeletionLifecycleMigration.js";
 import { pluginRetainedStorageMigration } from "./pluginRetainedStorageMigration.js";
@@ -445,6 +446,7 @@ export const MIGRATIONS: Migration[] = [
   nowenStudioHistoryMigration,
   encryptedNoteDecryptionMigration,
   agentMigration,
+  agentWorkflowMigration,
 ].sort((a, b) => a.version - b.version);
 
 export const CURRENT_SCHEMA_VERSION: number = MIGRATIONS.reduce(
