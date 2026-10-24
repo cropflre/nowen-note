@@ -1737,9 +1737,9 @@ ai.get("/conversations", (c) => {
       conv.updatedAt,
       (SELECT COUNT(*) FROM ai_chat_messages m WHERE m.conversationId = conv.id) AS messageCount,
       (SELECT content FROM ai_chat_messages m WHERE m.conversationId = conv.id
-        ORDER BY createdAt DESC, id DESC LIMIT 1) AS lastMessage,
+        ORDER BY createdAt DESC, rowid DESC LIMIT 1) AS lastMessage,
       (SELECT role FROM ai_chat_messages m WHERE m.conversationId = conv.id
-        ORDER BY createdAt DESC, id DESC LIMIT 1) AS lastRole
+        ORDER BY createdAt DESC, rowid DESC LIMIT 1) AS lastRole
     FROM ai_chat_conversations conv
     WHERE conv.userId = ?
     ORDER BY conv.updatedAt DESC, conv.createdAt DESC
@@ -1881,12 +1881,13 @@ ai.get("/chat-history", (c) => {
     convId = row.id;
   }
 
+  // 同秒消息按 SQLite 插入顺序排列，不能按 u-/a- 消息 ID 排序。
   // 按时间倒序取最近 N 条，再在内存里反转成升序；SQL 里直接 ORDER BY ASC LIMIT 无法拿"最近 N 条"
   const rows = db.prepare(`
     SELECT id, role, content, referencesJson, createdAt
     FROM ai_chat_messages
     WHERE userId = ? AND conversationId = ?
-    ORDER BY createdAt DESC, id DESC
+    ORDER BY createdAt DESC, rowid DESC
     LIMIT ?
   `).all(userId, convId, limit) as {
     id: string;
@@ -1989,7 +1990,7 @@ ai.post("/chat-history", async (c) => {
       WHERE id IN (
         SELECT id FROM ai_chat_messages
         WHERE conversationId = ?
-        ORDER BY createdAt ASC, id ASC
+        ORDER BY createdAt ASC, rowid ASC
         LIMIT ?
       )
     `).run(conversationId, excess);

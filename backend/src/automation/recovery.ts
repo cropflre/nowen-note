@@ -7,6 +7,9 @@ export function quarantineRestoredAutomations(): void {
   if (!hasAutomation && !hasTaskDigest) return;
   const now = new Date().toISOString();
   db.transaction(() => {
+    if (db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='agent_mcp_connections'").get()) {
+      db.prepare("UPDATE agent_mcp_connections SET toolsJson='[]',secretJson=NULL,revision='RESTORE_REVOKED'").run();
+    }
     if (hasAutomation) {
       db.prepare("UPDATE automation_workflows SET enabled=0,updatedAt=?").run(now);
       db.prepare("UPDATE automation_schedules SET enabled=0,lockedBy=NULL,lockedAt=NULL").run();

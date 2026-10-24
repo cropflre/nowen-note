@@ -1,0 +1,47 @@
+{
+  "provider": "https://api.deepseek.com",
+  "model": "deepseek-flash",
+  "status": "completed",
+  "usage": 1474,
+  "original": "# 保存说明 ^blk_62666577-64e4-48cf-b5fa-fba9804880a1\n\n服务会每隔5分钟去进行一次笔记保存这个操作，这个操作的目的主要是为了把笔记内容保存下来。 ^blk_eaff7ecb-cd03-4a7b-ae5d-506a2b384a2c\n\n网络断开的时候修改会保留在本地的待发送队列里面，等网络恢复之后再把这些修改发送出去。 ^blk_88144d99-ebbe-42d9-b16a-a48c4ae39814\n\n[技术说明](https://example.com/sync) ^blk_8d776892-1cb2-4761-9842-0df047d3ce03",
+  "result": "# 保存说明 ^blk_62666577-64e4-48cf-b5fa-fba9804880a1\n\n服务每隔5分钟自动保存一次笔记内容。 ^blk_eaff7ecb-cd03-4a7b-ae5d-506a2b384a2c\n\n网络断开时，修改会保留在本地待发送队列中；网络恢复后，再将这些修改发送出去。 ^blk_88144d99-ebbe-42d9-b16a-a48c4ae39814\n\n[技术说明](https://example.com/sync) ^blk_8d776892-1cb2-4761-9842-0df047d3ce03",
+  "tools": [
+    {
+      "tool": "run",
+      "status": "queued"
+    },
+    {
+      "tool": "run",
+      "status": "running"
+    },
+    {
+      "tool": "get_current_note_context",
+      "status": "running"
+    },
+    {
+      "tool": "get_current_note_context",
+      "status": "completed"
+    },
+    {
+      "tool": "propose_note_edit",
+      "status": "running"
+    },
+    {
+      "tool": "propose_note_edit",
+      "status": "completed"
+    },
+    {
+      "tool": "run",
+      "status": "waiting_approval"
+    },
+    {
+      "tool": "run",
+      "status": "applying"
+    },
+    {
+      "tool": "run",
+      "status": "completed"
+    }
+  ],
+  "persistedAfterProcessRestart": true
+}

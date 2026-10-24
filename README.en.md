@@ -382,6 +382,7 @@ Example prompt: "Read the nowen-note-development Skill first, inspect the code b
 - [Nowen download center](https://nowen.cn/#/note/download)
 - [Nowen official help center](https://nowen.cn/#/note/tutorials)
 - [MCP Server installation and usage](./docs/tutorials/mcp.en.md)
+- [Editor Agent P0 usage and limitations (development branch)](./docs/user/editor-agent.md)
 - [MCP Server 中文安装教程](./docs/tutorials/mcp.md)
 - [Tutorial center](./docs/tutorials/README.md)
 - [Feature overview](https://nowen.cn/#/note/features)

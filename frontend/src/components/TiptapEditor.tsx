@@ -1,3 +1,5 @@
+﻿import { closeHistory } from "@tiptap/pm/history";
+import { agentTextRanges, sameAgentSnapshot } from "@/lib/agentEdits";
 import { emojis } from "@tiptap/extension-emoji";
 import { getRichTextExtensions } from "@/lib/richTextExtensions";
 import { applyTiptapCjkTypography } from "@/lib/tiptapCjkTypography";
@@ -3255,6 +3257,28 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
         pendingSaveAckRef.current = ack;
       },
       isReady: () => !!editor && !editor.isDestroyed,
+      getAgentSelection: () => editor ? editor.state.doc.textBetween(editor.state.selection.from, editor.state.selection.to, "\n") : "",
+      applyAgentEdits: (original, edits) => {
+        if (!editor || editor.isDestroyed || !editor.isEditable) return false;
+        const current = serializeEditorContentForPersistence(editor, noteRef.current.id);
+        if (!current || !sameAgentSnapshot(current, original, "tiptap-json")) return false;
+        try {
+          const parts: Array<{ text: string; pos: number; marks: import("@tiptap/pm/model").Mark[] | readonly import("@tiptap/pm/model").Mark[] }> = [];
+          editor.state.doc.descendants((node, pos) => { if (node.isText) parts.push({ text: node.text!, pos, marks: node.marks }); });
+          if (editor.state.doc.childCount === 1 && editor.state.doc.firstChild?.type.name === "paragraph" && editor.state.doc.firstChild.content.size === 0) {
+            parts.push({ text: "", pos: 1, marks: [] });
+          }
+          const ranges = agentTextRanges(parts, edits);
+          const tr = editor.state.tr;
+          for (const range of ranges.reverse()) {
+            if (range.insert) tr.replaceWith(range.from, range.to, editor.schema.text(range.insert, parts[range.part].marks));
+            else tr.delete(range.from, range.to);
+          }
+          editor.view.dispatch(closeHistory(tr));
+          editor.view.dispatch(closeHistory(editor.state.tr));
+          return true;
+        } catch { return false; }
+      },
       applyCjkTypography: (action) => {
         if (!editor || editor.isDestroyed || !editor.isEditable) return false;
         return applyTiptapCjkTypography(editor, action);
@@ -5729,9 +5753,6 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
             >
               <ClipboardPlus size={iconSize} className="text-blue-500" />
             </ToolbarButton>
-            <ToolbarButton onClick={openAIAssistant} title={t('tiptap.aiAssistant')}>
-              <Sparkles size={iconSize} className="text-violet-500" />
-            </ToolbarButton>
           </>
         )}
       </div>
@@ -5947,7 +5968,7 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
               >
                 <ClipboardPlus size={14} className="text-blue-500" />
               </ToolbarButton>
-              <ToolbarButton onClick={openAIAssistant} title={t('tiptap.aiAssistant')}>
+              <ToolbarButton onClick={openAIAssistant} title={t('agent.quickRewrite')}>
                 <Sparkles size={14} className="text-violet-500" />
               </ToolbarButton>
             </>

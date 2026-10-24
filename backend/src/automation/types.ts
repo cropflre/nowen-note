@@ -22,6 +22,7 @@ export interface NowenEvent<T = Record<string, unknown>> {
 }
 
 export type WorkflowStep =
+  | { id: string; type: "agent"; templateId: string; templateRevision: string }
   | { id: string; type: "action"; pluginId: string; actionId: string; input?: unknown; maxAttempts?: number }
   | { id: string; type: "condition"; if: { left: unknown; operator: string; right?: unknown }; then?: string; else?: string }
   | { id: string; type: "delay"; seconds: number }

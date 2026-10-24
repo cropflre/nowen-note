@@ -7,6 +7,8 @@
       "title": "已同步的声明必须有服务端版本确认",
       "status": "covered",
       "checks": [
+        { "file": "backend/tests/agent.test.ts", "case": "real tool loop preserves unsaved snapshot; approval never writes; receipt requires durable content" },
+        { "file": "backend/tests/agent.test.ts", "case": "empty-note drafts stay proposals until approved and saved through the editor path" },
         { "file": "backend/tests/sync-v2-mobile-multidevice.test.ts", "case": "asset ACK without a version retains its original durable mutation for retry" },
         {
           "file": "frontend/src/lib/__tests__/noteSyncSafety.test.ts",
@@ -23,6 +25,9 @@
       "title": "本地业务写入与 Outbox 变更应在持久化后可恢复",
       "status": "covered",
       "checks": [
+        {"file": "backend/tests/agent-workflow.test.ts", "case": "DCC-002: Outbox failure preserves the completed note, retries only tasks and survives reopening"},
+        { "file": "backend/tests/agent.test.ts", "case": "approved editor save captures Outbox intent and keeps it after reopening (DCC-002)" },
+        { "file": "backend/tests/sync-v2-mobile-multidevice.test.ts", "case": "Agent approved" },
         { "file": "backend/tests/encrypted-notes-decryption.test.ts", "case": "permanent decryption preserves note identity and favorites (DCC-002)" },
         { "file": "frontend/src/lib/__tests__/harmonyNativeAdapters.test.ts", "case": "Harmony adapters retain committed data and pending Outbox on reopen, rollback and account isolation" },
         {"file": "backend/tests/sync-v2-note-deletion-lifecycle.test.ts", "case": "desktop delete durably retains the last body and attachment bytes until the delete ACK"},
@@ -128,6 +133,7 @@
       "title": "冲突必须保留本机意图和服务端版本，不能静默覆盖",
       "status": "covered",
       "checks": [
+        { "file": "backend/tests/agent.test.ts", "case": "expired editor snapshots and concurrent versions cannot approve (DCC-004)" },
         { "file": "backend/tests/remote-image-localization-service.test.ts", "case": "an edit during automatic download retains the newer body and creates no attachment (DCC-004)" },
         { "file": "backend/tests/encrypted-notes-decryption.test.ts", "case": "a history write failure rolls back plaintext, search projections and the temporary permit (DCC-004)" },
         {"file": "backend/tests/sync-v2-mobile-multidevice.test.ts", "case": "native deletion conflicts preserve both bodies and honor explicit keep-local and keep-remote choices"},
@@ -181,6 +187,9 @@
       "title": "跨账号跨服务端 Outbox 不得串用",
       "status": "covered",
       "checks": [
+        {"file": "backend/tests/agent-workflow.test.ts", "case": "P2 management routes reject PATs, foreign templates and forged schema properties"},
+        {"file": "backend/tests/agent-workflow.test.ts", "case": "explicit scope excludes child notebooks when requested and never reads foreign notes"},
+        { "file": "backend/tests/agent.test.ts", "case": "cross user, restricted tokens, locked notes and disabled AI are denied before model access" },
         { "file": "backend/tests/remote-image-localization-service.test.ts", "case": "automatic scan skips notes moved into a workspace after the job was created (DCC-006)" },
         { "file": "backend/tests/remote-image-localization-service.test.ts", "case": "automatic batches save images past all batch bounds and preserve failed links (DCC-006)" },
         { "file": "frontend/src/lib/encryptedNotes/__tests__/decryptNote.test.ts", "case": "rejects account changes while decrypting (DCC-006)" },

@@ -1,0 +1,121 @@
+name: Nowen Agent CI
+on:
+  workflow_dispatch:
+  push:
+    branches: [feat/ai-agent-v1, codex/ai-agent-p1, codex/ai-agent-p2]
+  pull_request:
+    paths:
+      - "backend/src/agent/**"
+      - "backend/src/automation/**"
+      - "backend/src/plugins/pluginService.ts"
+      - "backend/src/plugins/secureExternalFetch.ts"
+      - "backend/src/routes/agent.ts"
+      - "backend/src/db/agentMigration.ts"
+      - "backend/src/db/agentWorkflowMigration.ts"
+      - "backend/src/db/agentP2Migration.ts"
+      - "backend/src/db/postgres/migrations/0136-editor-agent.sql"
+      - "backend/src/db/postgres/migrations/0137-agent-notebook-workflows.sql"
+      - "backend/src/db/postgres/migrations/0138-agent-templates.sql"
+      - "backend/src/db/migrations.ts"
+      - "backend/src/index.ts"
+      - "backend/tests/agent*.test.ts"
+      - "backend/tests/ai-chat-history.test.ts"
+      - "backend/tests/automation-platform.test.ts"
+      - "backend/tests/task-composer.test.ts"
+      - "backend/tests/sync-v2-mobile-multidevice.test.ts"
+      - "frontend/src/components/agent/**"
+      - "frontend/src/components/*Editor*.tsx"
+      - "frontend/src/components/editors/types.ts"
+      - "frontend/src/components/AIChatReliabilityShell.tsx"
+      - "frontend/src/lib/agentEdits.ts"
+      - "frontend/src/lib/agentWorkflow.ts"
+      - "frontend/src/lib/agentTemplates.ts"
+      - "frontend/src/lib/taskComposerApi.ts"
+      - "frontend/src/lib/taskNotifications.ts"
+      - "frontend/src/lib/automationApi.ts"
+      - "frontend/src/i18n/automationTranslations.ts"
+      - "frontend/src/components/__tests__/AutomationCenter.i18n.test.tsx"
+      - "frontend/src/lib/__tests__/taskComposerApi.test.ts"
+      - "frontend/src/lib/api.impl.ts"
+      - "frontend/src/i18n/locales/*.json"
+      - "frontend/e2e/agent.spec.ts"
+      - "frontend/playwright.agent.config.ts"
+      - ".github/workflows/editor-agent-ci.yml"
+permissions:
+  contents: read
+concurrency:
+  group: editor-agent-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            backend/package-lock.json
+            frontend/package-lock.json
+      - run: npm ci --prefix backend
+      - run: npm ci --prefix frontend
+      - run: npm --prefix backend run build:tsc
+      - run: npm --prefix backend run build
+      - name: Agent templates, approval, tools, automation and persistence
+        working-directory: backend
+        run: >-
+          node --import tsx --import ./tests/setup-db-isolation.ts --test
+          tests/agent.test.ts tests/agent-workflow.test.ts tests/agent-mcp.test.ts tests/agent-mcp-live.test.ts
+          tests/ai-chat-history.test.ts tests/automation-platform.test.ts tests/task-composer.test.ts
+          tests/user-ai-settings-isolation.test.ts tests/migration-task-version-compatibility.test.ts
+          tests/sync-v2-outbox-capture.test.ts
+      - name: Agent offline restart and independent SQLite sync
+        working-directory: backend
+        run: node --import tsx --import ./tests/setup-db-isolation.ts --test tests/sync-v2-mobile-multidevice.test.ts
+      - run: node scripts/data-consistency-contract.mjs --verify
+      - run: >-
+          npm --prefix frontend run test:run -- src/components/agent/__tests__
+          src/components/__tests__/AutomationCenter.i18n.test.tsx src/lib/__tests__/taskComposerApi.test.ts
+          src/lib/__tests__/noteSyncSafety.test.ts src/lib/__tests__/noteSyncReceipt.test.ts
+          src/lib/__tests__/offlineQueue.test.ts src/lib/__tests__/aiTaskIntent.test.ts
+      - run: npm --prefix frontend run build
+      - run: npx playwright install --with-deps chromium
+        working-directory: frontend
+      - name: Actual editor, saving and fresh browser reads
+        working-directory: frontend
+        env:
+          NOWEN_AGENT_TEST_RUNTIME: node
+        run: npx playwright test --config playwright.agent.config.ts
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: editor-agent-browser-evidence
+          path: docs/qa/artifacts/agent
+  postgres-schema:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test-only-fixture-password
+          POSTGRES_DB: agent_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci --prefix backend
+      - run: node --import tsx --test tests/agent-postgres.test.ts
+        working-directory: backend
+        env:
+          TEST_PG_DATABASE_URL: postgres://test:test-only-fixture-password@127.0.0.1:5432/agent_test

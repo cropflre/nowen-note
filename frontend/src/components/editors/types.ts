@@ -80,6 +80,8 @@ export interface NoteEditorProps {
  *   也不会因为 mount 时的 effect 误把旧内容当作"权威来源"反向覆盖用户输入。
  */
 export interface NoteEditorHandle {
+  getAgentSelection?: () => string;
+  applyAgentEdits?: (original: string, edits: import("@/lib/agentEdits").AgentEdit[]) => boolean;
   /** 立即触发一次 onUpdate（跳过 debounce）。无 pending 更新时为 no-op。 */
   flushSave: () => void;
   /** Manually apply a protected CJK typography action as one undoable edit. */

@@ -385,6 +385,7 @@ nowen-note/
 - [Nowen 官方帮助中心](https://nowen.cn/#/note/tutorials)
 - [仓库内教程索引](./docs/tutorials/README.md)
 - [MCP Server 安装与使用](./docs/tutorials/mcp.md)
+- [编辑器 Agent P0 使用与限制（开发分支）](./docs/user/editor-agent.md)
 - [完整部署指南](./docs/deployment.md)
 - [Docker 在线升级与恢复](./docs/docker-online-update.md)
 - [WebDAV 远程备份](./docs/webdav-backup.md)

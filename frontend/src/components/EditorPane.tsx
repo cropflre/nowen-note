@@ -1,3 +1,4 @@
+﻿import EditorAgentPanel from "@/components/agent/EditorAgentPanel";
 import React, { useCallback, useRef, useState, useEffect, useMemo } from "react";
 import EncryptedConversionEditorGuard from "./EncryptedConversionEditorGuard";
 import EncryptedNotePane from "./EncryptedNotePane";
@@ -312,6 +313,12 @@ function OrdinaryEditorPane({
   const [showShareModal, setShowShareModal] = useState(false);
   const [showVersionHistory, setShowVersionHistory] = useState(false);
   const [showCommentPanel, setShowCommentPanel] = useState(false);
+  const [showAgent, setShowAgent] = useState(false);
+  useEffect(() => {
+    const open = () => setShowAgent(true);
+    window.addEventListener("nowen:open-editor-agent", open);
+    return () => window.removeEventListener("nowen:open-editor-agent", open);
+  }, []);
   const [showAttachmentsPanel, setShowAttachmentsPanel] = useState(false);
   const [showBacklinksPanel, setShowBacklinksPanel] = useState(false);
   const [backlinksCount, setBacklinksCount] = useState<number | null>(null);
@@ -2789,6 +2796,14 @@ const moveToTrash = useCallback(async () => {
             {activeNote.isPinned ? <Pin size={12} className="text-accent-primary fill-accent-primary" /> : null}
             {activeNote.isFavorite ? <Star size={12} className="text-amber-400 fill-amber-400" /> : null}
           </span>
+          {canEditActiveNote && !effectiveLocked && !modeSwitching && ["markdown", "tiptap-json"].includes(activeNote.contentFormat || "") && <Button
+            data-editor-ai-entry="mobile"
+            variant="ghost" size="icon" className="h-11 w-11 shrink-0 text-accent-primary"
+            onMouseDown={event => event.preventDefault()}
+            onClick={() => setShowAgent(value => !value)}
+            aria-label={t("agent.title")} aria-expanded={showAgent} aria-controls="editor-ai-assistant"
+            title={t("agent.title")}
+          ><Sparkles size={17} /></Button>}
           <Button
             data-mobile-note-menu-trigger
             variant="ghost"
@@ -3398,6 +3413,14 @@ const moveToTrash = useCallback(async () => {
           )}
 
           <div className="flex shrink-0 items-center gap-0.5 rounded-lg bg-violet-500/5 px-1 py-0.5 dark:bg-violet-500/10">
+            {canEditActiveNote && !effectiveLocked && !modeSwitching && ["markdown", "tiptap-json"].includes(activeNote.contentFormat || "") && <Button
+              data-editor-ai-entry="desktop"
+              variant="ghost" size="sm" className={cn("h-7 gap-1.5 rounded-md px-2 text-accent-primary hover:text-accent-primary", showAgent && "bg-accent-primary/10")}
+              onMouseDown={event => event.preventDefault()}
+              onClick={() => setShowAgent(value => !value)}
+              aria-expanded={showAgent} aria-controls="editor-ai-assistant"
+              title={t("agent.title")}
+            ><Sparkles size={14} />{t("agent.title")}</Button>}
             <Button
               variant="ghost" size="icon" className="h-7 w-7 rounded-md"
               onClick={handleAITitle}
@@ -3791,6 +3814,10 @@ const moveToTrash = useCallback(async () => {
             )}
           </AnimatePresence>
         </div>
+        {showAgent && canEditActiveNote && !effectiveLocked && !isTrashed && !modeSwitching && (
+          <EditorAgentPanel key={`${selfUser?.userId}-${activeNote.id}-${editorMode}`} note={activeNote} editor={() => editorHandleRef.current} onClose={() => setShowAgent(false)} />
+        )}
+
       {/* �������� */}
       {showShareModal && (
         <ShareModal
