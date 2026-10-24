@@ -13,6 +13,7 @@ export const GUARDED_USER_AI_KEYS = [
   "ai_embedding_url",
   "ai_embedding_key",
   "ai_embedding_model",
+  "ai_embedding_timeout_seconds",
 ] as const;
 
 const USER_AI_SETTING_KEYS = new Set([
@@ -31,6 +32,7 @@ const AI_DEFAULTS: AISettings = {
   ai_embedding_url: "",
   ai_embedding_key: "",
   ai_embedding_model: "",
+  ai_embedding_timeout_seconds: "30",
 };
 
 const OLLAMA_DOCKER_URL = process.env.OLLAMA_URL || "";

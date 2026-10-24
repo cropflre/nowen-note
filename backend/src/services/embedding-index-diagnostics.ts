@@ -37,6 +37,10 @@ export function classifyEmbeddingFailure(message: string): EmbeddingFailureGroup
 
 /** Only show a safe, bounded preview of the provider's failure message. */
 export function publicEmbeddingError(message: string): string {
+  const timeout = message.match(/^Embedding request timed out after (\d{1,9})ms \(limit: (\d{1,6})ms\)$/);
+  if (timeout) {
+    return `Embedding 请求超时（已等待 ${(Number(timeout[1]) / 1000).toFixed(1)} 秒，当前上限 ${Number(timeout[2]) / 1000} 秒）`;
+  }
   // Upstream error bodies can echo prompt text, access tokens, URLs, and user
   // content. Classify on the server, but never send the raw lastError to clients
   // (especially other members of a shared workspace).

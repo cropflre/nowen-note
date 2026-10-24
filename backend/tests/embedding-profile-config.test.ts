@@ -69,6 +69,7 @@ test("fixed profile credentials are independent from the active chat config", ()
     model: "bge-m3",
     apiKey: "profile-secret",
     provider: "openai",
+    indexTimeoutMs: 30_000,
   });
   assert.equal(getUserAISetting(USER_ID, "ai_embedding_key"), "");
 
@@ -91,6 +92,7 @@ test("profile edits are read dynamically without copying the secret", () => {
     model: "bge-m3",
     apiKey: "profile-new-secret",
     provider: "openai",
+    indexTimeoutMs: 30_000,
   });
   assert.equal(getUserAISetting(USER_ID, "ai_embedding_key"), "");
 });

@@ -122,3 +122,11 @@ test("SQL retry guard defers recent requests but accepts new or elapsed retry ta
     .all() as Array<{ noteId: string }>;
   assert.deepEqual(eligible.map((r) => r.noteId), ["fresh", "limited", "timed"]);
 });
+
+test("timeout summaries retain safe timing details without exposing upstream content", () => {
+  insertJob("note", "timeout-note", "alice", null, "failed", "Embedding request timed out after 30012ms (limit: 30000ms)");
+  const reason = getEmbeddingFailures({ userId: "alice", workspaceId: null }).reasons[0];
+  assert.equal(reason.code, "timeout");
+  assert.equal(reason.example, "Embedding 请求超时（已等待 30.0 秒，当前上限 30 秒）");
+  assert.equal(publicEmbeddingError("Embedding request timed out after 30012ms (limit: 30000ms) secret note and key"), "网络连接失败或请求超时");
+});

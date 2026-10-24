@@ -49,4 +49,10 @@ describe("embedding profile selection", () => {
       ai_embedding_model: "embed-model",
     });
   });
+
+  it("includes the indexing deadline without changing the credential source", () => {
+    expect(buildEmbeddingSettingsPayload({
+      source: "chat", profileId: "", url: "", key: "", keySet: false, model: "bge-m3", timeoutSeconds: "120",
+    })).toMatchObject({ ai_embedding_profile_id: "", ai_embedding_model: "bge-m3", ai_embedding_timeout_seconds: "120" });
+  });
 });

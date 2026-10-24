@@ -17,6 +17,7 @@ import { getEmbeddingFailures, retryFailedEmbeddings } from "../services/embeddi
 import { callAIChat, callAIChatStream, extractTextFromChatCompletion, sanitizeError, type AISettings } from "../services/ai-client";
 import { aiCustomPromptsRepository } from "../repositories";
 import { getUserAISettings, isManualAIEnabled, setGuardedUserAISettings } from "../services/user-ai-settings";
+import { parseEmbeddingTimeoutSeconds } from "../services/embedding-timeout";
 import {
   discoverEmbeddingModels,
   embeddingDiscoveryErrorBody,
@@ -176,6 +177,11 @@ ai.put("/settings", async (c) => {
   const userId = c.req.header("X-User-Id")!;
   const body = await c.req.json() as Partial<AISettings>;
   const entries: Array<{ key: string; value: string }> = [];
+  if (body.ai_embedding_timeout_seconds !== undefined) {
+    const seconds = parseEmbeddingTimeoutSeconds(body.ai_embedding_timeout_seconds);
+    if (seconds === null) return c.json({ error: "索引请求超时必须为 30～600 秒的整数" }, 400);
+    entries.push({ key: "ai_embedding_timeout_seconds", value: String(seconds) });
+  }
   if (body.ai_provider !== undefined) entries.push({ key: "ai_provider", value: body.ai_provider });
   if (body.ai_api_url !== undefined) entries.push({ key: "ai_api_url", value: body.ai_api_url.replace(/\/+$/, "") });
   if (body.ai_api_key !== undefined && !body.ai_api_key.includes("****")) entries.push({ key: "ai_api_key", value: body.ai_api_key });

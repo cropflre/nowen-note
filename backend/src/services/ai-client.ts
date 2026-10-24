@@ -17,6 +17,7 @@ export interface AISettings {
   ai_embedding_url: string;
   ai_embedding_key: string;
   ai_embedding_model: string;
+  ai_embedding_timeout_seconds?: string;
 }
 
 export interface ChatMessage {

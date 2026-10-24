@@ -1,4 +1,5 @@
 import { getUserAISetting, getUserAISettings } from "./user-ai-settings";
+import { DEFAULT_EMBEDDING_TIMEOUT_SECONDS, parseEmbeddingTimeoutSeconds } from "./embedding-timeout";
 
 export type EmbeddingCredentialSource = "chat" | "profile" | "custom";
 
@@ -7,6 +8,7 @@ export interface EmbeddingConfig {
   model: string;
   apiKey: string;
   provider: string;
+  indexTimeoutMs?: number;
 }
 
 export interface EmbeddingConfigResolution {
@@ -88,6 +90,8 @@ function failure(
  */
 export function resolveEmbeddingConfig(userId: string): EmbeddingConfigResolution {
   const settings = getUserAISettings(userId);
+  const indexTimeoutMs = (parseEmbeddingTimeoutSeconds(settings.ai_embedding_timeout_seconds)
+    ?? DEFAULT_EMBEDDING_TIMEOUT_SECONDS) * 1000;
   const model = settings.ai_embedding_model.trim();
   const profileId = settings.ai_embedding_profile_id.trim();
 
@@ -130,6 +134,7 @@ export function resolveEmbeddingConfig(userId: string): EmbeddingConfigResolutio
         model,
         apiKey: profile.apiKey,
         provider: profile.provider,
+        indexTimeoutMs,
       },
       errorCode: null,
       error: null,
@@ -154,7 +159,7 @@ export function resolveEmbeddingConfig(userId: string): EmbeddingConfigResolutio
     source,
     profileId: null,
     profileName: null,
-    config: { url, model, apiKey, provider },
+    config: { url, model, apiKey, provider, indexTimeoutMs },
     errorCode: null,
     error: null,
   };

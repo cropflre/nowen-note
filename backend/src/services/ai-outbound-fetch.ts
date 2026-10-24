@@ -5,7 +5,7 @@
  * not enable an unrestricted system-wide proxy because sync, attachments,
  * private user URLs and the plugin SSRF boundary must remain unaffected.
  */
-import { ProxyAgent, fetch as undiciFetch } from "undici";
+import { Agent, ProxyAgent, fetch as undiciFetch } from "undici";
 
 const DEFAULT_BYPASS = ["localhost", "127.0.0.1", "::1", "host.docker.internal", ".localhost", ".local"];
 
@@ -67,20 +67,31 @@ export function getAIOutboundProxyStatus(env: NodeJS.ProcessEnv = process.env): 
   }
 }
 
-let cachedProxyUrl: string | null = null;
-let cachedAgent: ProxyAgent | null = null;
+const cachedProxyAgents = new Map<string, ProxyAgent>();
+let longRequestAgent: Agent | null = null;
+const LONG_REQUEST_TIMEOUT_MS = 600_000;
 
 /** Mirrors fetch/Response semantics, including SSE streaming and AbortSignal. */
-export async function aiOutboundFetch(input: string | URL, init?: RequestInit): Promise<Response> {
+export async function aiOutboundFetch(input: string | URL, init?: RequestInit, timeoutMs?: number): Promise<Response> {
   const target = new URL(String(input));
   const proxy = parseProxyURL(process.env);
-  if (!proxy || shouldBypassAIProxy(target)) return fetch(target, init);
-  if (cachedProxyUrl !== proxy || !cachedAgent) {
-    // Env vars are intended to change only on process restart; avoid mutating
-    // the global dispatcher or closing in-flight provider connections.
-    cachedAgent = new ProxyAgent(proxy);
-    cachedProxyUrl = proxy;
+  // Undici's default header/body deadlines are 300s. Longer indexing requests
+  // need a separate pool so their selected deadline can actually reach 600s.
+  const longRequest = (timeoutMs || 0) > 300_000;
+  const deadlines = { headersTimeout: LONG_REQUEST_TIMEOUT_MS, bodyTimeout: LONG_REQUEST_TIMEOUT_MS };
+  let dispatcher: Agent | ProxyAgent;
+  if (!proxy || shouldBypassAIProxy(target)) {
+    if (!longRequest) return fetch(target, init);
+    dispatcher = longRequestAgent ??= new Agent(deadlines);
+  } else {
+    const key = `${proxy}:${longRequest}`;
+    let agent = cachedProxyAgents.get(key);
+    if (!agent) {
+      agent = new ProxyAgent({ uri: proxy, ...(longRequest ? deadlines : {}) });
+      cachedProxyAgents.set(key, agent);
+    }
+    dispatcher = agent;
   }
-  const options = { ...init, dispatcher: cachedAgent } as unknown as Parameters<typeof undiciFetch>[1];
+  const options = { ...init, dispatcher } as unknown as Parameters<typeof undiciFetch>[1];
   return await undiciFetch(target.toString(), options) as unknown as Response;
 }
