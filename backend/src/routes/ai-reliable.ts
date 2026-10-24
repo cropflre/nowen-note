@@ -1,3 +1,4 @@
+import { hasAIAuth, normalizeAIHeaders } from "../services/ai-provider-config";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { aiCustomPromptsRepository } from "../repositories";
@@ -37,6 +38,7 @@ const GUARDED_AI_KEYS = [
   "ai_provider",
   "ai_api_url",
   "ai_api_key",
+  "ai_custom_headers",
   "ai_model",
   "ai_embedding_profile_id",
   "ai_embedding_url",
@@ -109,6 +111,7 @@ function restoreActiveProfile(userId: string): void {
         { key: "ai_provider", value: String(active.provider || "openai") },
         { key: "ai_api_url", value: String(active.apiUrl || "") },
         { key: "ai_api_key", value: String(active.apiKey || "") },
+        { key: "ai_custom_headers", value: JSON.stringify(normalizeAIHeaders(active.customHeaders)) },
         { key: "ai_model", value: String(active.model || "") },
       ]);
       restored = true;
@@ -117,7 +120,7 @@ function restoreActiveProfile(userId: string): void {
     /* use backups below */
   }
   if (!restored) {
-    setUserAISettings(userId, ["ai_provider", "ai_api_url", "ai_api_key", "ai_model"].map((key) => ({
+    setUserAISettings(userId, ["ai_provider", "ai_api_url", "ai_api_key", "ai_custom_headers", "ai_model"].map((key) => ({
       key,
       value: getUserAISetting(userId, `ai_disabled_backup_${key}`),
     })));
@@ -648,7 +651,7 @@ app.post("/ask", async (c) => {
   }
   const settings = getUserAISettings(userId);
   if (!settings.ai_api_url) return c.json({ error: "未配置 AI 服务" }, 400);
-  if (!["ollama", "lmstudio"].includes(settings.ai_provider) && !settings.ai_api_key) {
+  if (!hasAIAuth(settings)) {
     return c.json({ error: "未配置 API Key" }, 400);
   }
 
@@ -878,7 +881,7 @@ app.post("/collaboration/compose", async (c) => {
   }
   if (!isUserManualAIEnabled(scope.userId)) return c.json({ error: "请先在 AI 设置中启用 AI", code: "AI_CONFIG_DISABLED" }, 409);
   const settings = getUserAISettings(scope.userId);
-  if (!settings.ai_api_url || (!["ollama", "lmstudio"].includes(settings.ai_provider) && !settings.ai_api_key)) {
+  if (!settings.ai_api_url || !hasAIAuth(settings)) {
     return c.json({ error: "请先配置 AI 服务", code: "AI_NOT_CONFIGURED" }, 400);
   }
   // A quick idea without a chosen project never searches the rest of the library.

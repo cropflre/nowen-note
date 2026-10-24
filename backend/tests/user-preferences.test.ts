@@ -205,6 +205,76 @@ test("updating a profile with its masked key preserves the stored secret", async
   assert.equal(readSetting("ai_model"), "gpt-4o");
 });
 
+test("custom gateway headers survive save, masked edits and switching without crossing users", async () => {
+  const first = await requestJson("POST", "/user-preferences/ai-profiles", {
+    name: "Gateway", provider: "custom", apiUrl: "https://gateway.example/v1", apiKey: "", model: "chat",
+    customHeaders: { "X-Session": "session-secret", Authorization: "Session gateway-auth" },
+  });
+  assert.equal(first.status, 201);
+  assert.deepEqual(first.json.profile.customHeaders, { "x-session": "****", authorization: "****" });
+  assert.ok(!JSON.stringify(first.json).includes("session-secret"));
+  assert.equal(JSON.parse(readSetting("ai_custom_headers"))["x-session"], "session-secret");
+  const list = await requestJson("GET", "/user-preferences/ai-profiles");
+  const reopened = list.json.profiles.find((profile: any) => profile.id === first.json.profile.id);
+  assert.deepEqual(reopened.customHeaders, first.json.profile.customHeaders);
+  const updated = await requestJson("PUT", `/user-preferences/ai-profiles/${reopened.id}`, {
+    name: "Renamed profile", customHeaders: { "x-session": "****", authorization: "****" },
+  });
+  assert.equal(updated.status, 200);
+  assert.equal(JSON.parse(readSetting("ai_custom_headers"))["x-session"], "session-secret");
+  const second = await requestJson("POST", "/user-preferences/ai-profiles", {
+    name: "Other protocol", provider: "anthropic", apiUrl: "https://gateway.example/anthropic/v1", model: "claude-test",
+    customHeaders: { "x-session": "second-secret" },
+  });
+  assert.equal(JSON.parse(readSetting("ai_custom_headers"))["x-session"], "second-secret");
+  await requestJson("PUT", `/user-preferences/ai-profiles/${reopened.id}/activate`);
+  assert.equal(JSON.parse(readSetting("ai_custom_headers"))["x-session"], "session-secret");
+  assert.equal(readSetting("ai_custom_headers", OTHER_ID), "");
+  assert.equal((await requestJson("POST", `/user-preferences/ai-profiles/${reopened.id}/test`, {}, OTHER_ID)).status, 404);
+  const removed = await requestJson("PUT", `/user-preferences/ai-profiles/${reopened.id}`, { customHeaders: {} });
+  assert.equal(removed.status, 200);
+  assert.deepEqual(JSON.parse(readSetting("ai_custom_headers")), {});
+  assert.equal(second.status, 201);
+});
+
+test("tests and discovers header-only Anthropic gateway profiles without mutating active settings", async () => {
+  const original = globalThis.fetch;
+  const requests: string[] = [];
+  globalThis.fetch = (async (url, init) => {
+    requests.push(String(url));
+    assert.equal(new Headers(init?.headers).get("x-session"), "gateway-only-secret");
+    assert.equal(new Headers(init?.headers).get("anthropic-version"), "2023-06-01");
+    return String(url).endsWith("/models")
+      ? Response.json({ data: [{ id: "claude-test", display_name: "Claude" }] })
+      : Response.json({ content: [{ type: "text", text: "Hello" }] });
+  }) as typeof fetch;
+  try {
+    const draft = { name: "Native", provider: "anthropic", apiUrl: "https://gateway.example/anthropic/v1", model: "claude-test", customHeaders: { "x-session": "gateway-only-secret" } };
+    const tested = await requestJson("POST", "/user-preferences/ai-profiles/test-draft", draft);
+    assert.equal(tested.status, 200);
+    assert.equal(tested.json.preview, "Hello");
+    assert.equal(readSetting("ai_custom_headers"), "");
+    const models = await requestJson("POST", "/user-preferences/ai-profiles/discover-models", draft);
+    assert.equal(models.status, 200);
+    assert.equal(models.json.models[0].id, "claude-test");
+    assert.deepEqual(requests, ["https://gateway.example/anthropic/v1/messages", "https://gateway.example/anthropic/v1/models"]);
+  } finally { globalThis.fetch = original; }
+});
+
+test("rejects malformed, duplicate, transport and unresolved masked headers before saving", async () => {
+  for (const customHeaders of [
+    { "x-session": "value\r\ninjected: yes" }, { Host: "other.example" }, { "Content-Type": "text/plain" },
+    { "X-Session": "one", "x-session": "two" }, { "x-renamed": "****" }, ["bad"],
+  ]) {
+    const result = await requestJson("POST", "/user-preferences/ai-profiles", {
+      name: "Bad", provider: "custom", apiUrl: "https://gateway.example/v1", model: "chat", customHeaders,
+    });
+    assert.equal(result.status, 400);
+  }
+  const unauthenticated = await app.request("/user-preferences/ai-profiles", { method: "GET" });
+  assert.equal(unauthenticated.status, 401);
+});
+
 test("discovers and normalizes OpenAI-compatible model lists", async () => {
   const originalFetch = globalThis.fetch;
   let requestedUrl = "";

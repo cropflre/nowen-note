@@ -40,6 +40,7 @@ interface ProviderPreset {
 export const PROVIDER_PRESETS: ProviderPreset[] = [
   { id: "qwen", name: "通义千问", desc: "DashScope OpenAI 兼容接口", url: "https://dashscope.aliyuncs.com/compatible-mode/v1", defaultModel: "qwen-plus", needsKey: true, color: "from-violet-500 to-blue-500" },
   { id: "openai", name: "OpenAI", desc: "OpenAI 官方接口", url: "https://api.openai.com/v1", defaultModel: "gpt-4o-mini", needsKey: true, color: "from-emerald-500 to-teal-500" },
+  { id: "anthropic", name: "Anthropic", desc: "Anthropic Messages 原生接口", url: "https://api.anthropic.com/v1", defaultModel: "", needsKey: true, color: "from-orange-500 to-amber-500" },
   { id: "gemini", name: "Google Gemini", desc: "Gemini OpenAI 兼容接口", url: "https://generativelanguage.googleapis.com/v1beta/openai", defaultModel: "gemini-2.0-flash", needsKey: true, color: "from-blue-500 to-cyan-500" },
   { id: "deepseek", name: "DeepSeek", desc: "DeepSeek 官方接口", url: "https://api.deepseek.com/v1", defaultModel: "deepseek-chat", needsKey: true, color: "from-sky-500 to-indigo-500" },
   { id: "doubao", name: "豆包（火山引擎）", desc: "火山方舟 OpenAI 兼容接口", url: "https://ark.cn-beijing.volces.com/api/v3", defaultModel: "doubao-1.5-pro-32k", needsKey: true, color: "from-orange-500 to-pink-500" },
@@ -53,6 +54,7 @@ const EMPTY_DRAFT: AIProfileDraft = {
   provider: "openai",
   apiUrl: "https://api.openai.com/v1",
   apiKey: "",
+  customHeaders: {},
   model: "gpt-4o-mini",
 };
 
@@ -68,6 +70,14 @@ function getCopy() {
       provider: "Provider",
       apiUrl: "API URL",
       apiKey: "API key",
+      advancedHeaders: "Advanced: custom request headers",
+      headerName: "Header name",
+      headerValue: "Header value",
+      addHeader: "Add header",
+      removeHeader: "Remove header",
+      duplicateHeader: "Header names must be unique (case-insensitive).",
+      headerHint: "Saved values are hidden. Re-enter the value when renaming a header. Custom authentication headers can replace the API key.",
+      apiUrlHint: "Enter the base URL including /v1 if required. The chat endpoint is appended automatically; Gemini uses the OpenAI-compatible API.",
       model: "Model",
       active: "Active",
       activate: "Use this profile",
@@ -102,6 +112,14 @@ function getCopy() {
     provider: "服务商",
     apiUrl: "API 地址",
     apiKey: "API Key",
+    advancedHeaders: "高级：自定义请求头",
+    headerName: "请求头名称",
+    headerValue: "请求头值",
+    addHeader: "添加请求头",
+    removeHeader: "移除请求头",
+    duplicateHeader: "请求头名称不能重复（不区分大小写）。",
+    headerHint: "已保存的值会隐藏；重命名请求头后请重新输入值。使用自定义鉴权头时，API Key 可留空。",
+    apiUrlHint: "填写基础地址，按服务要求包含 /v1，系统会自动追加聊天路径。Gemini 使用 OpenAI 兼容接口。",
     model: "模型",
     active: "当前使用",
     activate: "设为当前配置",
@@ -134,6 +152,7 @@ function profileToDraft(profile: AIProfile): AIProfileDraft {
     provider: profile.provider,
     apiUrl: profile.apiUrl,
     apiKey: profile.apiKey,
+    customHeaders: profile.customHeaders || {},
     model: profile.model,
   };
 }
@@ -202,7 +221,7 @@ export default function AISettingsPanel() {
       setModelError("");
       return;
     }
-    if (needsKey && !draft.apiKey.trim() && !selectedProfile?.apiKeySet) {
+    if (needsKey && !draft.apiKey.trim() && !selectedProfile?.apiKeySet && !Object.values(draft.customHeaders || {}).some(Boolean)) {
       setModels([]);
       setModelError("");
       return;
@@ -233,7 +252,7 @@ export default function AISettingsPanel() {
   useEffect(() => {
     const timer = window.setTimeout(() => void discoverModels(true), 700);
     return () => window.clearTimeout(timer);
-  }, [draft.provider, draft.apiUrl, draft.apiKey, selectedId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [draft.provider, draft.apiUrl, draft.apiKey, draft.customHeaders, selectedId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const selectProfile = (profile: AIProfile) => {
     setSelectedId(profile.id);
@@ -260,10 +279,21 @@ export default function AISettingsPanel() {
       provider: providerId,
       apiUrl: next.url,
       apiKey: "",
+      customHeaders: {},
       model: next.defaultModel,
     }));
     setModels([]);
     setModelError("");
+  };
+
+  const updateHeader = (index: number, name: string, value: string) => {
+    const entries = Object.entries(draft.customHeaders || {});
+    if (entries.some(([key], i) => i !== index && key.trim().toLowerCase() === name.trim().toLowerCase())) {
+      setMessage({ type: "error", text: copy.duplicateHeader });
+      return;
+    }
+    entries[index] = [name, value];
+    setDraft((current) => ({ ...current, customHeaders: Object.fromEntries(entries) }));
   };
 
   const persistDraft = useCallback(async (activateNew = true) => {
@@ -465,6 +495,8 @@ export default function AISettingsPanel() {
             <input value={draft.apiUrl} onChange={(event) => setDraft((current) => ({ ...current, apiUrl: event.target.value }))} placeholder="https://api.example.com/v1" className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-accent-primary focus:ring-2 focus:ring-accent-primary/20 dark:border-zinc-700 dark:bg-zinc-900" />
           </label>
 
+          <p className="text-xs text-zinc-400">{copy.apiUrlHint}</p>
+
           {needsKey && (
             <label className="block space-y-1.5">
               <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400">{copy.apiKey}</span>
@@ -476,6 +508,21 @@ export default function AISettingsPanel() {
               </div>
             </label>
           )}
+
+          <details className="rounded-lg border border-zinc-200 p-3 dark:border-zinc-700">
+            <summary className="cursor-pointer text-xs font-medium text-zinc-500 dark:text-zinc-400">{copy.advancedHeaders}</summary>
+            <div className="mt-3 space-y-2">
+              <p className="text-xs text-zinc-400">{copy.headerHint}</p>
+              {Object.entries(draft.customHeaders || {}).map(([name, value], index) => (
+                <div key={index} className="flex flex-wrap items-center gap-2">
+                  <input aria-label={`${copy.headerName} ${index + 1}`} value={name} onChange={(event) => updateHeader(index, event.target.value, value)} placeholder="x-session" className="min-w-0 flex-1 rounded-lg border border-zinc-200 bg-transparent px-2 py-1.5 text-xs dark:border-zinc-700" />
+                  <input aria-label={`${copy.headerValue} ${index + 1}`} type="password" autoComplete="new-password" value={value} onChange={(event) => updateHeader(index, name, event.target.value)} placeholder={copy.headerValue} className="min-w-0 flex-1 rounded-lg border border-zinc-200 bg-transparent px-2 py-1.5 text-xs dark:border-zinc-700" />
+                  <button type="button" aria-label={`${copy.removeHeader} ${index + 1}`} onClick={() => setDraft((current) => ({ ...current, customHeaders: Object.fromEntries(Object.entries(current.customHeaders || {}).filter((_, i) => i !== index)) }))} className="p-1.5 text-zinc-400 hover:text-red-500"><Trash2 size={14} /></button>
+                </div>
+              ))}
+              <button type="button" disabled={Object.hasOwn(draft.customHeaders || {}, "") || Object.keys(draft.customHeaders || {}).length >= 32} onClick={() => setDraft((current) => ({ ...current, customHeaders: { ...current.customHeaders, "": "" } }))} className="inline-flex items-center gap-1 text-xs text-accent-primary disabled:opacity-40"><Plus size={12} />{copy.addHeader}</button>
+            </div>
+          </details>
 
           <div className="space-y-1.5">
             <div className="flex items-center justify-between gap-2">

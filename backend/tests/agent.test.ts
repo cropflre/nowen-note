@@ -170,6 +170,28 @@ test("DeepSeek required tool calls explicitly disable thinking without changing 
   assert.deepEqual(requests.map(body => body.thinking), [{ type: "disabled" }, { type: "disabled" }, undefined]);
   assert.ok(requests.every(body => body.tool_choice === "required"));
 });
+test("header-only gateway credentials work for Agent without changing its tool protocol", async () => {
+  const { callAgentModel, agentModelConfigured } = await import("../src/agent/model.js");
+  const { getUserAISettings } = await import("../src/services/user-ai-settings.js");
+  const { toolRegistry } = await import("../src/agent/tools.js");
+  const settings = { ...getUserAISettings("agent-a"), ai_api_key: "", ai_custom_headers: '{"x-session":"agent-session"}' };
+  assert.equal(agentModelConfigured(settings), true);
+  globalThis.fetch = (async (_url, init) => {
+    assert.equal(new Headers(init?.headers).get("x-session"), "agent-session");
+    assert.equal(new Headers(init?.headers).has("authorization"), false);
+    return reply([call("get_current_note_context", {})]);
+  }) as typeof fetch;
+  assert.equal((await callAgentModel(settings, [{ role: "user", content: "Improve wording" }], toolRegistry, new AbortController().signal)).calls.length, 1);
+});
+test("native Anthropic text support does not advertise or send unsupported Agent tool calls", async () => {
+  const { callAgentModel, agentModelCapabilities } = await import("../src/agent/model.js");
+  const { getUserAISettings } = await import("../src/services/user-ai-settings.js");
+  const { toolRegistry } = await import("../src/agent/tools.js");
+  const settings = { ...getUserAISettings("agent-a"), ai_provider: "anthropic" };
+  assert.equal(agentModelCapabilities(settings).toolCalling, false);
+  await assert.rejects(callAgentModel(settings, [{ role: "user", content: "Improve wording" }], toolRegistry, new AbortController().signal), /TOOL_CALLING_UNSUPPORTED/);
+  assert.equal(requests.length, 0);
+});
 test("password folders and workspace viewers cannot send content to the model", async () => {
   db.prepare("INSERT INTO notebook_passwords(notebookId,passwordHash) VALUES ('book-a','hash')").run();
   assert.equal((await create()).status, 403); db.prepare("DELETE FROM notebook_passwords WHERE notebookId='book-a'").run();

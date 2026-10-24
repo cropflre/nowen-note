@@ -6,6 +6,7 @@ export interface AIProfile {
   provider: string;
   apiUrl: string;
   apiKey: string;
+  customHeaders?: Record<string, string>;
   apiKeySet: boolean;
   model: string;
   createdAt: string;
@@ -17,6 +18,7 @@ export interface AIProfileDraft {
   provider: string;
   apiUrl: string;
   apiKey: string;
+  customHeaders?: Record<string, string>;
   model: string;
 }
 

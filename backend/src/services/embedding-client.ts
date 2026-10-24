@@ -1,3 +1,4 @@
+import { buildAIHeaders, readAIResponse, redactAICredentials } from "./ai-provider-config";
 import { aiOutboundFetch } from "./ai-outbound-fetch.js";
 import type { EmbeddingConfig } from "./embedding-config.js";
 import { DEFAULT_EMBEDDING_TIMEOUT_SECONDS } from "./embedding-timeout";
@@ -8,8 +9,7 @@ export async function callEmbeddings(
   signal?: AbortSignal,
   timeoutMs = DEFAULT_EMBEDDING_TIMEOUT_SECONDS * 1000,
 ): Promise<number[][]> {
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
-  if (cfg.apiKey) headers["Authorization"] = `Bearer ${cfg.apiKey}`;
+  const headers = buildAIHeaders("openai", cfg.apiKey, cfg.customHeaders);
 
   const startedAt = performance.now();
   const deadline = AbortSignal.timeout(timeoutMs);
@@ -20,13 +20,14 @@ export async function callEmbeddings(
       headers,
       body: JSON.stringify({ model: cfg.model, input: inputs }),
       signal: requestSignal,
+      redirect: "error",
     }, timeoutMs);
 
     if (!res.ok) {
       const errText = await res.text().catch(() => "");
-      throw new Error(`HTTP ${res.status}: ${errText.slice(0, 300)}`);
+      throw new Error(`HTTP ${res.status}: ${redactAICredentials(errText, cfg.apiKey, cfg.customHeaders).slice(0, 300)}`);
     }
-    const data = (await res.json()) as {
+    const data = (await readAIResponse(res)) as {
       data?: { embedding: number[]; index?: number }[];
     };
     if (!data.data || !Array.isArray(data.data)) {

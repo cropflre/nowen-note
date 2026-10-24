@@ -2,10 +2,12 @@ import { createHash } from "node:crypto";
 import { z } from "zod";
 import { aiOutboundFetch } from "../services/ai-outbound-fetch.js";
 import type { AISettings } from "../services/ai-client.js";
+import { buildAIHeaders, hasAIAuth } from "../services/ai-provider-config.js";
 
 const evidence = new Map<string, { toolCalling: boolean; streaming: boolean; checkedAt: number }>();
 const configurationKey = (settings: AISettings) => createHash("sha256").update(JSON.stringify(settings)).digest("hex");
 export function agentModelCapabilities(settings: AISettings) {
+  if (settings.ai_provider === "anthropic") return { chat: true, toolCalling: false, streaming: true, structuredOutput: "unverified", embedding: false, vision: "unverified", reasoning: "unverified", contextWindow: null };
   const observed = evidence.get(configurationKey(settings));
   return { chat: true, toolCalling: observed && Date.now() - observed.checkedAt < 3600000 ? observed.toolCalling : "unverified", streaming: observed?.streaming ?? "unverified", structuredOutput: "unverified", embedding: "unverified", vision: "unverified", reasoning: "unverified", contextWindow: null };
 }
@@ -17,7 +19,7 @@ export interface AgentMessage { role: "system" | "user" | "assistant" | "tool"; 
 /** Match the existing AI routes: local providers may run without an API key. */
 export function agentModelConfigured(settings: AISettings): boolean {
   return Boolean(settings.ai_api_url.trim() && settings.ai_model.trim()
-    && (settings.ai_api_key.trim() || ["ollama", "lmstudio"].includes(settings.ai_provider)));
+    && hasAIAuth(settings));
 }
 
 /** Incremental SSE parsing keeps separate indices and concatenates only protocol argument deltas. */
@@ -68,14 +70,16 @@ export async function readAgentResponse(response: Response): Promise<any> {
 /** Separate from legacy text extraction: tool arguments are never interpreted as Markdown. */
 export async function callAgentModel(settings: AISettings, messages: AgentMessage[], tools: ToolDefinition[], signal: AbortSignal) {
   if (!agentModelConfigured(settings)) throw Object.assign(new Error("AI_NOT_CONFIGURED"), { code: "AI_NOT_CONFIGURED", status: 400 });
+  if (settings.ai_provider === "anthropic") throw new Error("TOOL_CALLING_UNSUPPORTED");
   // DeepSeek rejects required tool_choice in thinking mode. Select by provider
   // or official endpoint, never by a guessed model-name capability.
   const deepseek = settings.ai_provider === "deepseek" || new URL(settings.ai_api_url).hostname === "api.deepseek.com";
   const response = await aiOutboundFetch(`${settings.ai_api_url.replace(/\/+$/, "")}/chat/completions`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", ...(settings.ai_api_key ? { Authorization: `Bearer ${settings.ai_api_key}` } : {}) },
+    headers: buildAIHeaders(settings.ai_provider, settings.ai_api_key, settings.ai_custom_headers),
     body: JSON.stringify({ model: settings.ai_model, messages, tools, tool_choice: "required", stream: true, max_tokens: 4096, ...(deepseek ? { thinking: { type: "disabled" } } : {}) }),
     signal: AbortSignal.any([signal, AbortSignal.timeout(45_000)]),
+    redirect: "error",
   });
   if (!response.ok) { await response.body?.cancel(); throw new Error(response.status === 400 || response.status === 422 ? "TOOL_CALLING_UNSUPPORTED" : "MODEL_REQUEST_FAILED"); }
   const data = await readAgentResponse(response);

@@ -1,3 +1,4 @@
+import { buildAIHeaders, hasAIAuth, maskAIHeaders, normalizeAIHeaders, readAIResponse } from "../services/ai-provider-config";
 ﻿import { aiOutboundFetch, getAIOutboundProxyStatus } from "../services/ai-outbound-fetch.js";
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
@@ -14,7 +15,7 @@ import {
 } from "../services/vec-store";
 import { getUserWorkspaceRole } from "../middleware/acl";
 import { getEmbeddingFailures, retryFailedEmbeddings } from "../services/embedding-index-diagnostics";
-import { callAIChat, callAIChatStream, extractTextFromChatCompletion, sanitizeError, type AISettings } from "../services/ai-client";
+import { callAIChat, callAIChatStream, requestAIChat, extractTextFromChatCompletion, sanitizeError, type AISettings } from "../services/ai-client";
 import { aiCustomPromptsRepository } from "../repositories";
 import { getUserAISettings, isManualAIEnabled, setGuardedUserAISettings } from "../services/user-ai-settings";
 import { parseEmbeddingTimeoutSeconds } from "../services/embedding-timeout";
@@ -152,8 +153,6 @@ function resolveKnowledgeScope(
 
 // ===== AI 设置管理 =====
 
-// 不需要 API Key 的 Provider
-const NO_KEY_PROVIDERS = ["ollama", "lmstudio"];
 
 function getAISettings(c: any): AISettings {
   return getUserAISettings(c.req.header("X-User-Id")!);
@@ -165,6 +164,7 @@ ai.get("/settings", (c) => {
   // 不返回完整 API Key，只返回掩码
   return c.json({
     ...settings,
+    ai_custom_headers: JSON.stringify(maskAIHeaders(settings.ai_custom_headers)),
     ai_api_key: settings.ai_api_key ? "sk-****" + settings.ai_api_key.slice(-4) : "",
     ai_api_key_set: !!settings.ai_api_key,
     ai_embedding_key: settings.ai_embedding_key ? "sk-****" + settings.ai_embedding_key.slice(-4) : "",
@@ -177,6 +177,14 @@ ai.put("/settings", async (c) => {
   const userId = c.req.header("X-User-Id")!;
   const body = await c.req.json() as Partial<AISettings>;
   const entries: Array<{ key: string; value: string }> = [];
+  if (body.ai_custom_headers !== undefined) {
+    try {
+      const current = normalizeAIHeaders(getAISettings(c).ai_custom_headers);
+      entries.push({ key: "ai_custom_headers", value: JSON.stringify(normalizeAIHeaders(body.ai_custom_headers, current)) });
+    } catch (error) {
+      return c.json({ error: (error as Error).message }, 400);
+    }
+  }
   if (body.ai_embedding_timeout_seconds !== undefined) {
     const seconds = parseEmbeddingTimeoutSeconds(body.ai_embedding_timeout_seconds);
     if (seconds === null) return c.json({ error: "索引请求超时必须为 30～600 秒的整数" }, 400);
@@ -195,6 +203,7 @@ ai.put("/settings", async (c) => {
   const settings = getAISettings(c);
   return c.json({
     ...settings,
+    ai_custom_headers: JSON.stringify(maskAIHeaders(settings.ai_custom_headers)),
     ai_api_key: settings.ai_api_key ? "sk-****" + settings.ai_api_key.slice(-4) : "",
     ai_api_key_set: !!settings.ai_api_key,
     ai_embedding_key: settings.ai_embedding_key ? "sk-****" + settings.ai_embedding_key.slice(-4) : "",
@@ -239,7 +248,7 @@ ai.post("/test", async (c) => {
   if (!settings.ai_api_url) {
     return c.json({ success: false, error: "未配置 API 地址" }, 400);
   }
-  if (!NO_KEY_PROVIDERS.includes(settings.ai_provider) && !settings.ai_api_key) {
+  if (!hasAIAuth(settings)) {
     return c.json({ success: false, error: "未配置 API Key" }, 400);
   }
 
@@ -262,6 +271,8 @@ ai.post("/test", async (c) => {
       try {
         const fallbackRes = await aiOutboundFetch(`${ollamaBase}/api/tags`, {
           method: "GET",
+          headers: buildAIHeaders(settings.ai_provider, settings.ai_api_key, settings.ai_custom_headers),
+          redirect: "error",
           signal: AbortSignal.timeout(10000),
         });
         if (fallbackRes.ok) {
@@ -285,14 +296,12 @@ ai.get("/models", async (c) => {
   }
 
   try {
-    const headers: Record<string, string> = {};
-    if (settings.ai_api_key) {
-      headers["Authorization"] = `Bearer ${settings.ai_api_key}`;
-    }
+    const headers = buildAIHeaders(settings.ai_provider, settings.ai_api_key, settings.ai_custom_headers);
 
     const res = await aiOutboundFetch(`${settings.ai_api_url.replace(/\/+$/, "")}/models`, {
       headers,
       signal: AbortSignal.timeout(10000),
+      redirect: "error",
     });
 
     if (!res.ok) {
@@ -339,7 +348,7 @@ ai.post("/chat", async (c) => {
   if (!settings.ai_api_url) {
     return c.json({ error: "未配置 AI 服务" }, 400);
   }
-  if (!NO_KEY_PROVIDERS.includes(settings.ai_provider) && !settings.ai_api_key) {
+  if (!hasAIAuth(settings)) {
     return c.json({ error: "未配置 API Key" }, 400);
   }
 
@@ -495,7 +504,7 @@ ai.post("/ask", async (c) => {
   if (!settings.ai_api_url) {
     return c.json({ error: "未配置 AI 服务" }, 400);
   }
-  if (!NO_KEY_PROVIDERS.includes(settings.ai_provider) && !settings.ai_api_key) {
+  if (!hasAIAuth(settings)) {
     return c.json({ error: "未配置 API Key" }, 400);
   }
 
@@ -766,7 +775,7 @@ ai.post("/parse-document", async (c) => {
   if (!settings.ai_api_url) {
     return c.json({ error: "未配置 AI 服务" }, 400);
   }
-  if (!NO_KEY_PROVIDERS.includes(settings.ai_provider) && !settings.ai_api_key) {
+  if (!hasAIAuth(settings)) {
     return c.json({ error: "未配置 API Key" }, 400);
   }
 
@@ -850,31 +859,15 @@ ai.post("/parse-document", async (c) => {
       { role: "user", content: `${aiPrompt}\n\n${rawText.slice(0, 8000)}` },
     ];
 
-    const headers: Record<string, string> = { "Content-Type": "application/json" };
-    if (settings.ai_api_key) {
-      headers["Authorization"] = `Bearer ${settings.ai_api_key}`;
-    }
-
-    const baseUrl = settings.ai_api_url.replace(/\/+$/, "");
-    const res = await aiOutboundFetch(`${baseUrl}/chat/completions`, {
-      method: "POST",
-      headers,
-      body: JSON.stringify({
-        model: settings.ai_model,
-        messages,
-        stream: false,
-        temperature: 0.3,
-        max_tokens: 4000,
-      }),
-    });
+    const res = await requestAIChat(settings, messages, { temperature: 0.3, max_tokens: 4000 });
 
     if (!res.ok) {
       const err = await res.text();
       return c.json({ error: `AI 服务错误: ${res.status} ${err.slice(0, 200)}` }, 502);
     }
 
-    const data = await res.json();
-    const markdownContent = data.choices?.[0]?.message?.content || rawText;
+    const data = await readAIResponse(res);
+    const markdownContent = extractTextFromChatCompletion(data) || rawText;
 
     // 如果指定了 notebookId，直接创建笔记
     if (notebookId) {
@@ -967,7 +960,7 @@ ai.post("/clip-enhance", async (c) => {
   if (!settings.ai_api_url) {
     return c.json({ ok: false, error: "未配置 AI 服务" }, 400);
   }
-  if (!NO_KEY_PROVIDERS.includes(settings.ai_provider) && !settings.ai_api_key) {
+  if (!hasAIAuth(settings)) {
     return c.json({ ok: false, error: "未配置 API Key" }, 400);
   }
 
@@ -1105,13 +1098,6 @@ Rules: be concise, neutral, faithful to source. If source is unusable, return em
     (isChinese ? "正文：\n" : "Content:\n") +
     inputText;
 
-  const aiHeaders: Record<string, string> = { "Content-Type": "application/json" };
-  if (settings.ai_api_key) {
-    aiHeaders["Authorization"] = `Bearer ${settings.ai_api_key}`;
-  }
-
-  const baseUrl = settings.ai_api_url.replace(/\/+$/, "");
-
   try {
     // 优先用 OpenAI 风格的 response_format: { type: "json_object" }
     // 某些 provider（Ollama 老版本、自建 vLLM 等）不支持，失败后会自动回退到普通模式。
@@ -1136,11 +1122,9 @@ Rules: be concise, neutral, faithful to source. If source is unusable, return em
       reqBody.response_format = { type: "json_object" };
     }
 
-    const res = await aiOutboundFetch(`${baseUrl}/chat/completions`, {
-      method: "POST",
-      headers: aiHeaders,
-      body: JSON.stringify(reqBody),
-      signal: AbortSignal.timeout(45000),
+    const res = await requestAIChat(settings, reqBody.messages, {
+      temperature: reqBody.temperature, max_tokens: reqBody.max_tokens,
+      response_format: reqBody.response_format, timeout_ms: 45000,
     });
 
     if (!res.ok) {
@@ -1151,8 +1135,8 @@ Rules: be concise, neutral, faithful to source. If source is unusable, return em
       );
     }
 
-    const data = await res.json();
-    let raw = data?.choices?.[0]?.message?.content;
+    const data = await readAIResponse(res);
+    let raw = extractTextFromChatCompletion(data);
     if (!raw || typeof raw !== "string") {
       return c.json({ ok: false, error: "AI 返回内容为空" }, 200);
     }
@@ -1250,7 +1234,7 @@ ai.post("/batch-format", async (c) => {
   if (!settings.ai_api_url) {
     return c.json({ error: "未配置 AI 服务" }, 400);
   }
-  if (!NO_KEY_PROVIDERS.includes(settings.ai_provider) && !settings.ai_api_key) {
+  if (!hasAIAuth(settings)) {
     return c.json({ error: "未配置 API Key" }, 400);
   }
 
@@ -1267,11 +1251,6 @@ ai.post("/batch-format", async (c) => {
 
   const db = getDb();
   const results: { id: string; title: string; success: boolean; error?: string }[] = [];
-
-  const aiHeaders: Record<string, string> = { "Content-Type": "application/json" };
-  if (settings.ai_api_key) {
-    aiHeaders["Authorization"] = `Bearer ${settings.ai_api_key}`;
-  }
 
   for (const noteId of noteIds) {
     try {
@@ -1294,29 +1273,18 @@ ai.post("/batch-format", async (c) => {
         continue;
       }
 
-      const batchBaseUrl = settings.ai_api_url.replace(/\/+$/, "");
-      const res = await aiOutboundFetch(`${batchBaseUrl}/chat/completions`, {
-        method: "POST",
-        headers: aiHeaders,
-        body: JSON.stringify({
-          model: settings.ai_model,
-          messages: [
-            { role: "system", content: "你是一个专业的文档格式化助手。请将内容转换为规范的 Markdown 格式，合理使用标题层级、列表、表格、代码块、引用等元素。保持原始图片链接（![...](...)）不变。保持代码块的语言标记正确。保持内嵌表格格式完整。直接输出结果，不要添加额外解释。" },
-            { role: "user", content: `请将以下笔记内容格式化为规范的 Markdown：\n\n${note.contentText.slice(0, 6000)}` },
-          ],
-          stream: false,
-          temperature: 0.2,
-          max_tokens: 4000,
-        }),
-      });
+      const res = await requestAIChat(settings, [
+        { role: "system", content: "你是一个专业的文档格式化助手。请将内容转换为规范的 Markdown 格式，合理使用标题层级、列表、表格、代码块、引用等元素。保持原始图片链接（![...](...)）不变。保持代码块的语言标记正确。保持内嵌表格格式完整。直接输出结果，不要添加额外解释。" },
+        { role: "user", content: `请将以下笔记内容格式化为规范的 Markdown：\n\n${note.contentText.slice(0, 6000)}` },
+      ], { temperature: 0.2, max_tokens: 4000 });
 
       if (!res.ok) {
         results.push({ id: noteId, title: note.title, success: false, error: `AI 返回 ${res.status}` });
         continue;
       }
 
-      const data = await res.json();
-      const formatted = data.choices?.[0]?.message?.content;
+      const data = await readAIResponse(res);
+      const formatted = extractTextFromChatCompletion(data);
 
       if (formatted) {
         const contentText = formatted.replace(/[#*`>\-|_\[\]()]/g, "").replace(/\n{2,}/g, "\n").trim();
@@ -1414,11 +1382,6 @@ ai.post("/import-to-knowledge", async (c) => {
     }
 
     const results: { fileName: string; success: boolean; noteId?: string; error?: string }[] = [];
-    const aiHeaders: Record<string, string> = { "Content-Type": "application/json" };
-    if (settings.ai_api_key) {
-      aiHeaders["Authorization"] = `Bearer ${settings.ai_api_key}`;
-    }
-
     for (const file of files) {
       try {
         const fileName = file.name.toLowerCase();
@@ -1479,27 +1442,15 @@ ai.post("/import-to-knowledge", async (c) => {
 
         // 如果配置了 AI，使用 AI 优化格式；否则直接存储原始内容
         let finalContent = rawText;
-        if (settings.ai_api_url && (NO_KEY_PROVIDERS.includes(settings.ai_provider) || settings.ai_api_key)) {
+        if (settings.ai_api_url && hasAIAuth(settings)) {
           try {
-            const importBaseUrl = settings.ai_api_url.replace(/\/+$/, "");
-            const res = await aiOutboundFetch(`${importBaseUrl}/chat/completions`, {
-              method: "POST",
-              headers: aiHeaders,
-              body: JSON.stringify({
-                model: settings.ai_model,
-                messages: [
-                  { role: "system", content: "你是一个文档格式化助手。请将文档内容整理为结构清晰的 Markdown 笔记格式，保留原始信息。直接输出结果。" },
-                  { role: "user", content: `请格式化以下文档内容：\n\n${rawText.slice(0, 6000)}` },
-                ],
-                stream: false,
-                temperature: 0.2,
-                max_tokens: 4000,
-              }),
-              signal: AbortSignal.timeout(30000),
-            });
+            const res = await requestAIChat(settings, [
+                { role: "system", content: "你是一个文档格式化助手。请将文档内容整理为结构清晰的 Markdown 笔记格式，保留原始信息。直接输出结果。" },
+                { role: "user", content: `请格式化以下文档内容：\n\n${rawText.slice(0, 6000)}` },
+              ], { temperature: 0.2, max_tokens: 4000 });
             if (res.ok) {
-              const data = await res.json();
-              const aiContent = data.choices?.[0]?.message?.content;
+              const data = await readAIResponse(res);
+              const aiContent = extractTextFromChatCompletion(data);
               if (aiContent) finalContent = aiContent;
             }
           } catch {
@@ -2248,7 +2199,7 @@ ai.post("/classify", async (c) => {
   if (!settings.ai_api_url) {
     return c.json({ error: "未配置 AI 服务" }, 400);
   }
-  if (!NO_KEY_PROVIDERS.includes(settings.ai_provider) && !settings.ai_api_key) {
+  if (!hasAIAuth(settings)) {
     return c.json({ error: "未配置 API Key" }, 400);
   }
 
@@ -2355,38 +2306,19 @@ ai.post("/classify", async (c) => {
       : "") +
     `笔记摘要：\n${noteSnippet || "（无内容）"}`;
 
-  const baseUrl = settings.ai_api_url.replace(/\/+$/, "");
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
-  if (settings.ai_api_key) {
-    headers["Authorization"] = `Bearer ${settings.ai_api_key}`;
-  }
-
   try {
-    const res = await aiOutboundFetch(`${baseUrl}/chat/completions`, {
-      method: "POST",
-      headers,
-      body: JSON.stringify({
-        model: settings.ai_model,
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: userMessage },
-        ],
-        stream: false,
-        temperature: 0.1,
-        max_tokens: 600,
-      }),
-      signal: AbortSignal.timeout(30000),
-    });
+    const res = await requestAIChat(settings, [
+      { role: "system", content: systemPrompt },
+      { role: "user", content: userMessage },
+    ], { temperature: 0.1, max_tokens: 600 });
 
     if (!res.ok) {
       const errText = await res.text().catch(() => "");
       return c.json({ error: `AI 服务返回错误：${res.status} ${errText.slice(0, 200)}` }, 502);
     }
 
-    const data = await res.json() as {
-      choices?: { message?: { content?: string } }[];
-    };
-    const raw = data.choices?.[0]?.message?.content || "";
+    const data = await readAIResponse(res);
+    const raw = extractTextFromChatCompletion(data);
 
     const parsed = extractJsonObject(raw);
     if (!parsed || !Array.isArray(parsed.suggestions)) {

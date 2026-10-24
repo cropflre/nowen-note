@@ -1,3 +1,4 @@
+import { buildAIHeaders, readAIResponse, redactAICredentials } from "./ai-provider-config";
 import { aiOutboundFetch } from "./ai-outbound-fetch.js";
 /**
  * AI Client 适配层
@@ -12,6 +13,7 @@ export interface AISettings {
   ai_provider: string;
   ai_api_url: string;
   ai_api_key: string;
+  ai_custom_headers?: string;
   ai_model: string;
   ai_embedding_profile_id: string;
   ai_embedding_url: string;
@@ -30,6 +32,7 @@ export interface CallAIOptions {
   max_tokens?: number;
   timeout_ms?: number;
   signal?: AbortSignal;
+  response_format?: { type: "json_object" };
 }
 
 const FINAL_MARKER_RE = /(?:^|\n)\s*(最终答案|最终标题|标题|答案|Final|Answer|Result)\s*[:：]\s*/gi;
@@ -156,130 +159,105 @@ export function normalizeAiAssistantMessage(data: Record<string, unknown>): stri
 
 // ===== 核心函数 =====
 
-/**
- * 向上游发 non-stream 请求，返回完整文本。
- * 兼容 OpenAI / Gemini / 通义 / 豆包 / DeepSeek 等常见响应格式。
- */
+/** Shared request builder for chat, document processing and structured AI features. */
+export async function requestAIChat(
+  settings: AISettings,
+  messages: ChatMessage[],
+  options: CallAIOptions = {},
+  stream = false,
+): Promise<Response> {
+  const anthropic = settings.ai_provider === "anthropic";
+  const baseUrl = settings.ai_api_url.replace(/\/+$/, "");
+  const body: Record<string, unknown> = {
+    model: settings.ai_model,
+    messages: anthropic ? messages.filter((message) => message.role !== "system") : messages,
+    stream,
+  };
+  if (anthropic) {
+    const system = messages.filter((message) => message.role === "system").map((message) => message.content).join("\n\n");
+    if (system) body.system = system;
+    body.max_tokens = options.max_tokens ?? 4096;
+  } else {
+    if (options.max_tokens !== undefined) body.max_tokens = options.max_tokens;
+    if (options.response_format) body.response_format = options.response_format;
+  }
+  if (options.temperature !== undefined) body.temperature = options.temperature;
+  const deadline = AbortSignal.timeout(options.timeout_ms ?? (stream ? 60000 : 30000));
+  try {
+    const response = await aiOutboundFetch(`${baseUrl}/${anthropic ? "messages" : "chat/completions"}`, {
+      method: "POST",
+      headers: buildAIHeaders(settings.ai_provider, settings.ai_api_key, settings.ai_custom_headers),
+      body: JSON.stringify(body),
+      signal: options.signal ? AbortSignal.any([options.signal, deadline]) : deadline,
+      // A redirect must not forward gateway credentials to another origin.
+      redirect: "error",
+    });
+    if (response.ok) return response;
+    const detail = redactAICredentials(await response.text().catch(() => ""), settings.ai_api_key, settings.ai_custom_headers);
+    return new Response(sanitizeError(detail), { status: response.status, statusText: response.statusText });
+  } catch (error) {
+    if (error instanceof Error && (error.name === "AbortError" || error.name === "TimeoutError")) throw error;
+    throw new Error(sanitizeError(redactAICredentials((error as Error)?.message || error, settings.ai_api_key, settings.ai_custom_headers)));
+  }
+}
+
+/** Non-streaming text shared by every provider. */
 export async function callAIChat(
   settings: AISettings,
   messages: ChatMessage[],
   options: CallAIOptions = {},
 ): Promise<string> {
-  const baseUrl = settings.ai_api_url.replace(/\/+$/, "");
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
-  if (settings.ai_api_key) {
-    headers["Authorization"] = `Bearer ${settings.ai_api_key}`;
-  }
-
-  const body: Record<string, unknown> = {
-    model: settings.ai_model,
-    messages,
-    stream: false,
-  };
-  if (options.temperature !== undefined) body.temperature = options.temperature;
-  if (options.max_tokens !== undefined) body.max_tokens = options.max_tokens;
-
-  const res = await aiOutboundFetch(`${baseUrl}/chat/completions`, {
-    method: "POST",
-    headers,
-    body: JSON.stringify(body),
-    signal: options.signal ? AbortSignal.any([options.signal, AbortSignal.timeout(options.timeout_ms ?? 30000)]) : AbortSignal.timeout(options.timeout_ms ?? 30000),
-  });
-
-  if (!res.ok) {
-    const errText = await res.text().catch(() => "");
-    throw new Error(
-      `AI 服务错误 (${settings.ai_provider}): ${res.status} ${sanitizeError(errText)}`,
-    );
-  }
-
-  const data = (await res.json()) as Record<string, unknown>;
-  return normalizeAiAssistantMessage(data);
+  const res = await requestAIChat(settings, messages, options);
+  if (!res.ok) throw new Error(`AI 服务错误 (${settings.ai_provider}): ${res.status} ${await res.text()}`);
+  return normalizeAiAssistantMessage(await readAIResponse(res));
 }
 
-/**
- * 向上游发 stream 请求，逐块 yield 文本片段。
- * 返回 AsyncGenerator，调用方用 for await 消费。
- */
+/** Text deltas only; thinking and tool-use blocks are never exposed as final text. */
 export async function* callAIChatStream(
   settings: AISettings,
   messages: ChatMessage[],
   options: CallAIOptions = {},
 ): AsyncGenerator<string, void, undefined> {
-  const baseUrl = settings.ai_api_url.replace(/\/+$/, "");
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
-  if (settings.ai_api_key) {
-    headers["Authorization"] = `Bearer ${settings.ai_api_key}`;
-  }
-
-  const body: Record<string, unknown> = {
-    model: settings.ai_model,
-    messages,
-    stream: true,
-  };
-  if (options.temperature !== undefined) body.temperature = options.temperature;
-  if (options.max_tokens !== undefined) body.max_tokens = options.max_tokens;
-
-  const res = await aiOutboundFetch(`${baseUrl}/chat/completions`, {
-    method: "POST",
-    headers,
-    body: JSON.stringify(body),
-    signal: AbortSignal.timeout(options.timeout_ms ?? 60000),
-  });
-
-  if (!res.ok) {
-    const errText = await res.text().catch(() => "");
-    throw new Error(
-      `AI 服务错误 (${settings.ai_provider}): ${res.status} ${sanitizeError(errText)}`,
-    );
-  }
-
+  const res = await requestAIChat(settings, messages, options, true);
+  if (!res.ok) throw new Error(`AI 服务错误 (${settings.ai_provider}): ${res.status} ${await res.text()}`);
   const reader = res.body?.getReader();
-  if (!reader) {
-    throw new Error("AI 服务未返回可读流");
-  }
-
+  if (!reader) throw new Error("AI 服务未返回可读流");
   const decoder = new TextDecoder();
   let buffer = "";
-
+  function parseLine(line: string): { text?: string; done?: boolean } {
+    const trimmed = line.trim();
+    if (!trimmed.startsWith("data:")) return {};
+    const data = trimmed.slice(5).trimStart();
+    if (data === "[DONE]") return { done: true };
+    let json: Record<string, any>;
+    try { json = JSON.parse(data); } catch { return {}; }
+    if (json.type === "error" || json.error) {
+      throw new Error(sanitizeError(redactAICredentials(json.error?.message || "AI 流式请求失败", settings.ai_api_key, settings.ai_custom_headers)));
+    }
+    if (settings.ai_provider === "anthropic") {
+      if (json.type === "message_stop") return { done: true };
+      if (json.type === "content_block_start" && json.content_block?.type === "text") return { text: json.content_block.text };
+      return { text: json.type === "content_block_delta" && json.delta?.type === "text_delta" ? json.delta.text : "" };
+    }
+    return { text: parseOpenAIStreamDelta(json) };
+  }
   try {
     while (true) {
       const { done, value } = await reader.read();
-      if (done) break;
-
-      buffer += decoder.decode(value, { stream: true });
+      buffer += decoder.decode(value, { stream: !done });
       const lines = buffer.split("\n");
-      buffer = lines.pop() || "";
-
+      buffer = done ? "" : lines.pop() || "";
       for (const line of lines) {
-        const trimmed = line.trim();
-        if (!trimmed || !trimmed.startsWith("data: ")) continue;
-        const data = trimmed.slice(6);
-        if (data === "[DONE]") return;
-        try {
-          const json = JSON.parse(data);
-          const content = parseOpenAIStreamDelta(json);
-          if (content) yield content;
-        } catch {
-          // skip malformed JSON
-        }
+        const parsed = parseLine(line);
+        if (parsed.done) return;
+        if (parsed.text) yield parsed.text;
       }
+      if (done) break;
     }
-    // 收尾 buffer
-    if (buffer.trim()) {
-      const trimmed = buffer.trim();
-      if (trimmed.startsWith("data: ")) {
-        const data = trimmed.slice(6);
-        if (data !== "[DONE]") {
-          try {
-            const json = JSON.parse(data);
-            const content = parseOpenAIStreamDelta(json);
-            if (content) yield content;
-          } catch { /* skip */ }
-        }
-      }
-    }
+  } catch (error) {
+    throw new Error(sanitizeError(redactAICredentials((error as Error)?.message || error, settings.ai_api_key, settings.ai_custom_headers)));
   } finally {
+    await reader.cancel().catch(() => {});
     reader.releaseLock();
   }
 }
@@ -307,6 +285,11 @@ function readContentPart(value: unknown): string {
  * 兼容多种 provider 的返回格式。
  */
 export function extractTextFromChatCompletion(data: Record<string, unknown>): string {
+  // Anthropic Messages: only visible text blocks, never thinking/tool blocks.
+  if (Array.isArray(data.content)) {
+    return data.content.filter((block) => block?.type === "text" && typeof block.text === "string")
+      .map((block) => block.text).join("");
+  }
   // 1. OpenAI standard: choices[0].message.content
   const choices = data.choices;
   if (Array.isArray(choices) && choices.length > 0) {
