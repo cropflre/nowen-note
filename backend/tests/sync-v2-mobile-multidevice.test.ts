@@ -1492,7 +1492,7 @@ test("Agent approved edits survive offline restart and lost ACK before peer conv
   await a.repository.notes.create({ id, notebookId: book, content, contentFormat: format });
   await a.sync(); await b.sync();
   const { setUserAISettings } = await import("../src/services/user-ai-settings");
-  setUserAISettings(USER, [{ key: "ai_api_url", value: "https://agent-provider.example" }, { key: "ai_model", value: "fixture" }]);
+  setUserAISettings(USER, [{ key: "ai_api_url", value: "https://agent-provider.example" }, { key: "ai_model", value: "fixture" }, { key: "ai_api_key", value: "agent-sync-fixture-key" }]);
   const realFetch = globalThis.fetch;
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     if (String(input) !== "https://agent-provider.example/chat/completions") return realFetch(input, init);

@@ -434,3 +434,43 @@ test("P2 the existing event dispatcher creates a scoped Agent proposal exactly o
   assert.equal(proposal!.status,"waiting_approval");assert.equal(count("notes"),3);assert.ok(!JSON.stringify(requests).includes("DISPATCH_INJECTION"));
   agentWorkflowRuntime.cancel(mapping.agentRunId,userId);repository.setEnabled(workflow.id,false);
 });
+
+test("unconfigured users cannot dispatch editor or notebook context to default model settings", async () => {
+  const id = "workflow-no-model";
+  db.prepare("INSERT INTO users(id,username,passwordHash) VALUES (?,?,?)").run(id,id,"hash");
+  db.prepare("INSERT INTO notebooks(id,userId,name) VALUES ('workflow-no-model-book',?,'No model')").run(id);
+  db.prepare("INSERT INTO notes(id,userId,notebookId,title,content,contentText,contentFormat) VALUES ('workflow-no-model-note',?,'workflow-no-model-book','Synthetic','SYNTHETIC_NOT_CONFIGURED','SYNTHETIC_NOT_CONFIGURED','markdown')").run(id);
+  const ownHeaders = { ...headers, "X-User-Id": id };
+  const editor = await app.request("http://test/api/agent/runs", { method:"POST",headers:ownHeaders,body:JSON.stringify({noteId:"workflow-no-model-note",instruction:"Improve wording",content:"SYNTHETIC_NOT_CONFIGURED",format:"markdown",version:1}) });
+  assert.equal(editor.status,400,`Unconfigured editor must reject before model dispatch; observed ${requests.length} model requests`);
+  assert.equal((await editor.json() as {code:string}).code,"AI_NOT_CONFIGURED");
+  const notebook = await app.request("http://test/api/agent/workflows",{method:"POST",headers:ownHeaders,body:JSON.stringify(input({notebookId:"workflow-no-model-book"}))});
+  assert.equal(notebook.status,400);assert.equal((await notebook.json() as {code:string}).code,"AI_NOT_CONFIGURED");
+  assert.equal(requests.length,0);
+  assert.equal((db.prepare("SELECT count(*) AS n FROM agent_runs WHERE userId=?").get(id) as {n:number}).n,0);
+  assert.equal((db.prepare("SELECT count(*) AS n FROM agent_workflows WHERE userId=?").get(id) as {n:number}).n,0);
+  const { setUserAISettings } = await import("../src/services/user-ai-settings.js");
+  const { agentWorkflowRuntime } = await import("../src/agent/workflowRuntime.js");
+  for (const provider of ["ollama","lmstudio"]) {
+    setUserAISettings(id,[{key:"ai_provider",value:provider},{key:"ai_api_url",value:"http://127.0.0.1:11434/v1"},{key:"ai_model",value:"local-fixture"}]);
+    const local = await app.request("http://test/api/agent/workflows",{method:"POST",headers:ownHeaders,body:JSON.stringify(input({notebookId:"workflow-no-model-book"}))});
+    assert.equal(local.status,202,`${provider} must remain usable without an API key`);
+    agentWorkflowRuntime.cancel((await local.json() as {id:string}).id,id);
+  }
+});
+
+test("clearing model credentials during a run blocks the next context-bearing request", async () => {
+  const { setUserAISetting } = await import("../src/services/user-ai-settings.js");
+  const previous = respond;
+  respond = async (body, signal) => {
+    const result = await previous(body, signal);
+    setUserAISetting(userId,"ai_api_key","");
+    return result;
+  };
+  try {
+    const run = await settled(runtime.create(userId,null,input()).id);
+    assert.equal(run.status,"failed");assert.equal(run.errorCode,"AI_NOT_CONFIGURED");
+    assert.equal(requests.length,1);
+    assert.equal(count("notes"),3);assert.equal(count("tasks"),0);
+  } finally { setUserAISetting(userId,"ai_api_key","test-key"); }
+});

@@ -5,7 +5,7 @@ import { hasPermission, resolveNotePermission } from "../middleware/acl.js";
 import { canViewNoteThroughFolderPasswords } from "../lib/knowledgeTreePasswordAccess.js";
 import { encryptedBlocksInContent } from "../lib/encryptedNotes.js";
 import { getUserAISettings, isManualAIEnabled } from "../services/user-ai-settings.js";
-import { callAgentModel, type AgentMessage } from "./model.js";
+import { agentModelConfigured, callAgentModel, type AgentMessage } from "./model.js";
 import { applyProposal, proposalSchema, toolRegistry, type Format, type TextEdit } from "./tools.js";
 
 export class AgentError extends Error { constructor(readonly code: string, readonly status = 409) { super(code); } }
@@ -93,7 +93,7 @@ export class AgentRuntime {
     if (note.version !== input.version || note.contentFormat !== input.format) throw new AgentError("VERSION_CONFLICT");
     if (encryptedBlocksInContent(input.content, input.format).length) throw new AgentError("PROTECTED_DOCUMENT", 403);
     const settings = getUserAISettings(userId);
-    if (!settings.ai_api_url || !settings.ai_model) throw new AgentError("AI_NOT_CONFIGURED", 400);
+    if (!agentModelConfigured(settings)) throw new AgentError("AI_NOT_CONFIGURED", 400);
     if (getDb().prepare("SELECT 1 FROM agent_runs WHERE userId=? AND status IN ('queued','running','waiting_approval','applying') UNION ALL SELECT 1 FROM agent_workflows WHERE userId=? AND status IN ('queued','running','waiting_approval','applying')").get(userId, userId)) throw new AgentError("RUN_ALREADY_ACTIVE");
     const id = randomUUID(), now = new Date().toISOString();
     getDb().prepare("INSERT INTO agent_runs(id,userId,noteId,workspaceId,status,model,expectedVersion,snapshotDigest,serverDigest,createdAt,updatedAt) VALUES (?,?,?,?,'queued',?,?,?,?,?,?)")

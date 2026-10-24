@@ -14,6 +14,12 @@ export type ToolCall = z.infer<typeof callSchema>;
 export interface ToolDefinition { type: "function"; function: { name: string; description: string; parameters: Record<string, unknown> } }
 export interface AgentMessage { role: "system" | "user" | "assistant" | "tool"; content: string | null; tool_calls?: ToolCall[]; tool_call_id?: string }
 
+/** Match the existing AI routes: local providers may run without an API key. */
+export function agentModelConfigured(settings: AISettings): boolean {
+  return Boolean(settings.ai_api_url.trim() && settings.ai_model.trim()
+    && (settings.ai_api_key.trim() || ["ollama", "lmstudio"].includes(settings.ai_provider)));
+}
+
 /** Incremental SSE parsing keeps separate indices and concatenates only protocol argument deltas. */
 export async function readAgentResponse(response: Response): Promise<any> {
   const reader = response.body?.getReader();
@@ -61,6 +67,7 @@ export async function readAgentResponse(response: Response): Promise<any> {
 
 /** Separate from legacy text extraction: tool arguments are never interpreted as Markdown. */
 export async function callAgentModel(settings: AISettings, messages: AgentMessage[], tools: ToolDefinition[], signal: AbortSignal) {
+  if (!agentModelConfigured(settings)) throw Object.assign(new Error("AI_NOT_CONFIGURED"), { code: "AI_NOT_CONFIGURED", status: 400 });
   // DeepSeek rejects required tool_choice in thinking mode. Select by provider
   // or official endpoint, never by a guessed model-name capability.
   const deepseek = settings.ai_provider === "deepseek" || new URL(settings.ai_api_url).hostname === "api.deepseek.com";

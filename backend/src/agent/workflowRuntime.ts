@@ -14,7 +14,7 @@ import { retrieveAgentNotebookContext } from "../routes/ai-reliable.js";
 import { createTaskRecord } from "../routes/tasks.js";
 import { batchInputSchema, createComposerBatch, generateTaskPreview, previewInputSchema, TaskComposerError } from "../services/task-composer.js";
 import { getUserAISettings, isManualAIEnabled } from "../services/user-ai-settings.js";
-import { callAgentModel, type AgentMessage } from "./model.js";
+import { agentModelConfigured, callAgentModel, type AgentMessage } from "./model.js";
 import { AgentError, digest } from "./runtime.js";
 import { getAgentTemplate, p2Error, hash, type AgentTemplate } from "./templates.js";
 import { grantedExtensions, assertExtensionRevisions, executeExtension, type ExtensionGrant } from "./extensions.js";
@@ -163,7 +163,7 @@ export class AgentWorkflowRuntime {
     const grants = template ? grantedExtensions(userId, template.config.toolIds) : [];
     workflowScope(userId, input.notebookId, workspaceId, input.includeChildren);
     const user = assertUser(userId), settings = getUserAISettings(userId);
-    if (!settings.ai_api_url || !settings.ai_model) throw new AgentError("AI_NOT_CONFIGURED", 400);
+    if (!agentModelConfigured(settings)) throw new AgentError("AI_NOT_CONFIGURED", 400);
     if (getDb().prepare("SELECT 1 FROM agent_workflows WHERE userId=? AND status IN ('queued','running','waiting_approval','applying') UNION ALL SELECT 1 FROM agent_runs WHERE userId=? AND status IN ('queued','running','waiting_approval','applying')").get(userId, userId)) throw new AgentError("RUN_ALREADY_ACTIVE");
     const id = randomUUID(), now = new Date().toISOString();
     getDb().prepare("INSERT INTO agent_workflows(id,userId,notebookId,workspaceId,status,model,createdAt,updatedAt) VALUES (?,?,?,?,'queued',?,?,?)").run(id, userId, input.notebookId, workspaceId, settings.ai_model, now, now);
