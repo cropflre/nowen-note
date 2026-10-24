@@ -8,6 +8,7 @@
       "status": "covered",
       "checks": [
         { "file": "backend/tests/agent.test.ts", "case": "real tool loop preserves unsaved snapshot; approval never writes; receipt requires durable content" },
+        { "file": "backend/tests/agent.test.ts", "case": "empty-note drafts stay proposals until approved and saved through the editor path" },
         { "file": "backend/tests/sync-v2-mobile-multidevice.test.ts", "case": "asset ACK without a version retains its original durable mutation for retry" },
         {
           "file": "frontend/src/lib/__tests__/noteSyncSafety.test.ts",

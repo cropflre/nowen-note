@@ -108,6 +108,36 @@ test("restart interrupts approvals and never replays a write", async () => {
   const restarted = new (await import("../src/agent/runtime.js")).AgentRuntime(); assert.equal(restarted.get(run.id, "agent-a").status, "interrupted");
   assert.throws(() => restarted.approve(run.id, "agent-a", run.proposal!.token!, "Original text"));
 });
+test("empty-note drafts stay proposals until approved and saved through the editor path", async () => {
+  for (const format of ["markdown", "tiptap-json"] as const) {
+    db.exec("DELETE FROM agent_runs");
+    const content = format === "markdown" ? "" : JSON.stringify({ type: "doc", content: [{ type: "paragraph", attrs: { blockId: "blk_11111111-1111-4111-8111-111111111111" } }] });
+    db.prepare("UPDATE notes SET content=?,contentText='',contentFormat=?,version=1 WHERE id='note-a'").run(content, format);
+    model = async body => body.messages.some((m: any) => m.role === "tool") ? reply([call("propose_note_edit", { edits: [{ before: "", after: "A new draft" }] })]) : reply([call("get_current_note_context", {})]);
+    const run = await settled((await (await create({ content, format })).json()).id);
+    assert.equal(run.status, "waiting_approval");
+    assert.equal((db.prepare("SELECT content FROM notes WHERE id='note-a'").get() as any).content, content);
+    assert.ok(run.proposal?.result.includes("A new draft"));
+    const approved = await send(`/runs/${run.id}/approve`, { token: run.proposal!.token, snapshot: content });
+    assert.equal(approved.status, 200);
+    assert.equal((db.prepare("SELECT content FROM notes WHERE id='note-a'").get() as any).content, content);
+    const saved = await app.request("/api/notes/note-a", { method: "PUT", headers, body: JSON.stringify({ content: run.proposal!.result, contentText: "A new draft", contentFormat: format, version: 1 }) });
+    assert.equal(saved.status, 200, await saved.text());
+    const receipt = await (await send(`/runs/${run.id}/receipt`)).json();
+    assert.equal(receipt.status, "completed", JSON.stringify({ format, receipt, expected: run.proposal!.result, saved: db.prepare("SELECT content,version FROM notes WHERE id='note-a'").get() }));
+    closeDb(); db = (await import("../src/db/schema.js")).getDb();
+    assert.ok((db.prepare("SELECT content FROM notes WHERE id='note-a'").get() as any).content.includes("A new draft"));
+  }
+});
+test("draft insertion rejects existing text, attachments, multiple blocks and mixed edits", () => {
+  const draft = [{ before: "", after: "Draft" }];
+  for (const content of ["Existing", "![file](attachment:keep)", " "]) assert.throws(() => applyProposal(content, "markdown", draft));
+  for (const content of [[{ type: "image", attrs: { src: "attachment:keep" } }], [{ type: "paragraph" }, { type: "paragraph" }], [{ type: "paragraph", content: [{ type: "text", text: "Existing" }] }]]) {
+    assert.throws(() => applyProposal(JSON.stringify({ type: "doc", content }), "tiptap-json", draft));
+  }
+  assert.throws(() => applyProposal("", "markdown", [...draft, ...draft]));
+  assert.throws(() => applyProposal("", "markdown", [{ before: "", after: "" }]));
+});
 test("rich edits preserve block IDs, marks and attachments; ambiguous or destructive edits fail", () => {
   const doc = { type: "doc", content: [{ type: "paragraph", attrs: { blockId: "keep" }, content: [{ type: "text", text: "Original text", marks: [{ type: "bold" }, { type: "link", attrs: { href: "nowen://keep" } }] }] }, { type: "image", attrs: { src: "attachment:keep" } }] };
   const next = JSON.parse(applyProposal(JSON.stringify(doc), "tiptap-json", [{ before: "Original", after: "Better" }]));

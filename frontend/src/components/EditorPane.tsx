@@ -2796,6 +2796,14 @@ const moveToTrash = useCallback(async () => {
             {activeNote.isPinned ? <Pin size={12} className="text-accent-primary fill-accent-primary" /> : null}
             {activeNote.isFavorite ? <Star size={12} className="text-amber-400 fill-amber-400" /> : null}
           </span>
+          {canEditActiveNote && !effectiveLocked && !modeSwitching && ["markdown", "tiptap-json"].includes(activeNote.contentFormat || "") && <Button
+            data-editor-ai-entry="mobile"
+            variant="ghost" size="icon" className="h-11 w-11 shrink-0 text-accent-primary"
+            onMouseDown={event => event.preventDefault()}
+            onClick={() => setShowAgent(value => !value)}
+            aria-label={t("agent.title")} aria-expanded={showAgent} aria-controls="editor-ai-assistant"
+            title={t("agent.title")}
+          ><Sparkles size={17} /></Button>}
           <Button
             data-mobile-note-menu-trigger
             variant="ghost"
@@ -3405,6 +3413,14 @@ const moveToTrash = useCallback(async () => {
           )}
 
           <div className="flex shrink-0 items-center gap-0.5 rounded-lg bg-violet-500/5 px-1 py-0.5 dark:bg-violet-500/10">
+            {canEditActiveNote && !effectiveLocked && !modeSwitching && ["markdown", "tiptap-json"].includes(activeNote.contentFormat || "") && <Button
+              data-editor-ai-entry="desktop"
+              variant="ghost" size="sm" className={cn("h-7 gap-1.5 rounded-md px-2 text-accent-primary hover:text-accent-primary", showAgent && "bg-accent-primary/10")}
+              onMouseDown={event => event.preventDefault()}
+              onClick={() => setShowAgent(value => !value)}
+              aria-expanded={showAgent} aria-controls="editor-ai-assistant"
+              title={t("agent.title")}
+            ><Sparkles size={14} />{t("agent.title")}</Button>}
             <Button
               variant="ghost" size="icon" className="h-7 w-7 rounded-md"
               onClick={handleAITitle}
@@ -3656,9 +3672,6 @@ const moveToTrash = useCallback(async () => {
         </div>
       </div>
 
-      {canEditActiveNote && !effectiveLocked && !isTrashed && ["markdown", "tiptap-json"].includes(activeNote.contentFormat || "") && (
-        <div className="flex justify-end px-3 py-1 border-b border-app-border"><Button size="sm" variant="ghost" onClick={() => setShowAgent(value => !value)}><Sparkles size={14} className="mr-1" />{t("agent.title")}</Button></div>
-      )}
       {userPrefs.enableNoteTabs && !state.editorSplit && <NoteTabsBar />}
 
       {/* Editor (HTML Ԥ�� / MD / Tiptap ��ģʽ����) + Outline */}

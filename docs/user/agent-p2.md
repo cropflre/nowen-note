@@ -2,6 +2,10 @@
 
 ## 中文
 
+编辑当前笔记时，从顶部操作栏打开「AI 助手」；手机上点击顶部星光按钮。空白笔记提供起草和提纲引导，有正文时提供润色、摘要和表达整理，选中文字后会显示选区提示。快捷操作只填入指令，点击「生成提案」才会发送当前笔记快照和指令。修改先展示差异，确认后经编辑器保存；可撤销、重做。编辑器选区浮层中的「改写选中文字」保留原有快捷写作流程。
+
+从零起草仅适用于完全空白的 Markdown 或只有一个空段落的富文本笔记；含附件或其他内容的笔记继续使用精确文本修改。富文本草稿按纯文本插入，不自动解析 Markdown 排版。发送范围与确认方式可在助手底部展开；助手内按 Escape 或点击关闭按钮收起。
+
 进入「AI 对话 → Agent → 模板与自动整理」。创建模板，选择固定笔记本、是否包含子笔记本和整理指令。也可以从自己的已有 Prompt 复制内容。新模板默认只有读取和总结能力；需要创建笔记、任务或调用外部工具时，逐项勾选授权并保存。
 
 选择「使用模板」后按原 Agent 流程生成、查看来源并审批。模板执行使用已保存的范围和指令；若需临时自由输入，选择「改用自定义请求」，该请求不会继承模板的外部工具授权。模板修改或工具更新后，旧提案不能继续审批，需要重新生成。
@@ -17,6 +21,10 @@
 如果外部调用返回不确定结果，先到目标服务核查，不能直接重试。停止可以阻止后续动作，但无法撤销已经发送的远端请求。模板、计划和连接属于服务器配置，不经 Sync V2 分发；其创建的笔记、任务仍走原有保存与同步流程。备份恢复会暂停计划并撤销外部凭据，需要重新配置和授权。
 
 ## English
+
+Open **AI Assistant** in the note's top action bar (the sparkle button on mobile). Empty notes offer drafting/outline guidance; existing notes offer polishing, a summary and clearer wording. Selected text is shown as the target. Shortcuts only fill the instruction; **Generate proposal** sends the current note snapshot and instruction. Preview and approve changes before the editor saves them; undo/redo remain available. **Rewrite selected text** in the selection toolbar keeps the existing quick-writing flow.
+
+Draft insertion is limited to empty Markdown or rich text with one empty paragraph. Notes containing attachments or other content retain precise text edits. Rich-text drafts insert plain text, without interpreting Markdown formatting. Expand the disclosure below the input to review what is sent. Press Escape within the assistant or use its close button to collapse it.
 
 Open **AI Chat → Agent → Templates and recurring organization**. Save a template with a fixed notebook scope and instruction, or copy one of your personal saved Prompts. New templates start with read/summary permission only. Explicitly select permission to propose notes, tasks and individual extension tools before saving.
 

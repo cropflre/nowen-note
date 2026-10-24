@@ -77,8 +77,10 @@ const test = base.extend<{ product: { server: string; provider: { url: string; k
           return;
         }
         const context = body.messages.find((m: { role: string }) => m.role === "tool");
+        const document = context ? JSON.parse(context.content).untrustedDocument : undefined;
+        const empty = document === "" || (typeof document === "string" && document.startsWith("{") && !JSON.parse(document).content?.some((node: { content?: unknown[] }) => node.content?.length));
         const tool = context
-          ? { name: "propose_note_edit", arguments: JSON.stringify({ edits: [{ before: "Agent original sentence", after: "Agent improved sentence" }] }) }
+          ? { name: "propose_note_edit", arguments: JSON.stringify({ edits: [{ before: empty ? "" : "Agent original sentence", after: empty ? "A new draft for review" : "Agent improved sentence" }] }) }
           : { name: "get_current_note_context", arguments: "{}" };
         response.setHeader("Content-Type", "application/json");
         response.end(JSON.stringify({ choices: [{ message: { tool_calls: [{ id: context ? "proposal" : "context", type: "function", function: tool }] } }] }));
@@ -132,8 +134,8 @@ for (const format of ["markdown", "tiptap-json"] as const) test(`editor Agent ${
   await page.locator("button[type=submit]").click();
   await page.getByText("Agent test note", { exact: true }).first().click();
   await expect(page.getByRole("textbox", { name: "Note Title", exact: true })).toHaveValue("Agent test note");
-  await page.getByRole("button", { name: "Editor Agent", exact: true }).click();
-  const panel = page.getByRole("complementary", { name: "Editor Agent" });
+  await page.getByRole("button", { name: "AI Assistant", exact: true }).click();
+  const panel = page.getByRole("complementary", { name: "AI Assistant" });
   await panel.getByLabel("What would you like to change?").fill("Replace only the exact text Agent original sentence with Agent improved sentence. Keep every other character, link and formatting unchanged.");
   await panel.getByRole("button", { name: "Generate proposal", exact: true }).click();
   await expect(panel.getByRole("button", { name: "Accept edits" })).toBeVisible({ timeout: providerFile ? 60000 : 5000 });
@@ -183,9 +185,90 @@ for (const format of ["markdown", "tiptap-json"] as const) test(`editor Agent ${
   const second = await browser.newContext();
   try { const read = await second.request.get(`${product.server}/api/notes/${note.id}`, { headers }); expect((await read.json()).content).toBe(saved.content); } finally { await second.close(); }
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.getByRole("button", { name: "Editor Agent", exact: true }).click();
+  await page.getByRole("button", { name: "AI Assistant", exact: true }).click();
   await expect(panel.getByRole("button", { name: "Collapse" })).toBeVisible();
   expect(await panel.evaluate(e => e.scrollWidth <= e.clientWidth)).toBe(true);
+});
+
+for (const format of ["markdown", "tiptap-json"] as const) test(`AI assistant entry, guidance and approved empty draft (${format})`, async ({ page, product }) => {
+  test.skip(!!providerFile, "Uses the isolated deterministic model fixture");
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  const account = await (await page.request.post(`${product.server}/api/auth/register`, { data: { username: "assistant_ux", password: "assistant-ux-test-password" } })).json();
+  const headers = { Authorization: `Bearer ${account.token}` };
+  expect((await page.request.put(`${product.server}/api/ai/settings`, { headers, data: { ai_provider: "openai", ai_api_url: product.provider.url, ai_api_key: product.provider.key, ai_model: product.provider.model } })).ok()).toBe(true);
+  const books = await (await page.request.get(`${product.server}/api/notebooks`, { headers })).json();
+  const created = await page.request.post(`${product.server}/api/notes`, { headers, data: { title: "Assistant layout review", notebookId: books[0].id, contentFormat: format, content: format === "markdown" ? "" : JSON.stringify({ type: "doc", content: [{ type: "paragraph" }] }), contentText: "" } });
+  expect(created.ok()).toBe(true); const note = await created.json();
+  await page.goto(product.server);
+  await page.evaluate(() => { localStorage.setItem("i18nextLng", "en"); localStorage.setItem("nowen-seen-version", "1.5.3"); });
+  await page.reload();
+  await page.getByPlaceholder("admin", { exact: true }).fill("assistant_ux");
+  await page.locator("input[type=password]").fill("assistant-ux-test-password");
+  await page.locator("button[type=submit]").click();
+  await page.getByText("Assistant layout review", { exact: true }).first().click();
+  await expect(page.getByRole("textbox", { name: "Note Title", exact: true })).toHaveValue("Assistant layout review");
+  const entry = page.locator('[data-editor-ai-entry="desktop"]');
+  await expect(entry).toBeVisible();
+  // The AI entry belongs to the existing header rather than a separate horizontal strip.
+  const header = entry.locator('xpath=ancestor::div[contains(@class, "hidden md:flex")]');
+  await expect(header).toHaveCount(1);
+  await expect.poll(async () => (await header.boundingBox())?.height ?? Infinity).toBeLessThan(75);
+  for (const width of [1024, 900, 1440]) {
+    await page.setViewportSize({ width, height: 1000 });
+    await expect.poll(() => header.evaluate(e => e.scrollWidth <= e.clientWidth)).toBe(true);
+  }
+  await page.screenshot({ path: test.info().outputPath(`${format}-entry-light.png`) });
+  await entry.click();
+  const panel = page.getByRole("complementary", { name: "AI Assistant", exact: true });
+  await expect(panel.getByText("Current note", { exact: true })).toBeVisible();
+  await expect(panel.getByText("Start with an idea", { exact: true })).toBeVisible();
+  await expect(panel.getByLabel("What would you like to change?")).toBeFocused();
+  await panel.getByRole("button", { name: "Draft content", exact: true }).click();
+  expect((await (await page.request.get(`${product.server}/api/agent/runs?noteId=${note.id}`, { headers })).json())).toBeNull();
+  await page.screenshot({ path: test.info().outputPath(`${format}-empty-light.png`) });
+  await page.emulateMedia({ colorScheme: "dark", reducedMotion: "reduce" });
+  await page.evaluate(() => { document.documentElement.classList.add("dark"); });
+  await page.screenshot({ path: test.info().outputPath(`${format}-empty-dark.png`) });
+  await panel.getByLabel("What would you like to change?").fill("Draft a short note about this week's progress for my approval.");
+  await panel.getByRole("button", { name: "Generate proposal", exact: true }).click();
+  await expect(panel.getByRole("button", { name: "Accept edits" })).toBeVisible();
+  await expect(panel.getByText("Empty note", { exact: true })).toBeVisible();
+  expect((await (await page.request.get(`${product.server}/api/notes/${note.id}`, { headers })).json()).content).not.toContain("A new draft for review");
+  await panel.getByRole("button", { name: "Accept edits" }).click();
+  await expect(panel.getByText("The note save was verified. Check sync receipts for other devices.", { exact: true })).toBeVisible();
+  expect((await (await page.request.get(`${product.server}/api/notes/${note.id}`, { headers })).json()).content).toContain("A new draft for review");
+  const editable = page.locator('.cm-content[contenteditable="true"], .ProseMirror[contenteditable="true"]').first();
+  await editable.click(); await page.keyboard.press("ControlOrMeta+z");
+  await expect.poll(async () => (await (await page.request.get(`${product.server}/api/notes/${note.id}`, { headers })).json()).content).not.toContain("A new draft for review");
+  await page.keyboard.press("ControlOrMeta+Shift+Z");
+  await expect.poll(async () => (await (await page.request.get(`${product.server}/api/notes/${note.id}`, { headers })).json()).content).toContain("A new draft for review");
+  await panel.getByLabel("What would you like to change?").focus();
+  await page.keyboard.press("Escape"); await expect(panel).not.toBeVisible();
+  await editable.click(); await page.keyboard.press("ControlOrMeta+a");
+  await entry.click();
+  await expect(panel.getByText("Selected text", { exact: true })).toBeVisible();
+  await expect(panel.getByRole("button", { name: "Polish selection", exact: true })).toBeVisible();
+  await page.screenshot({ path: test.info().outputPath(`${format}-selection-dark.png`) });
+  await panel.getByRole("button", { name: "Collapse", exact: true }).click();
+  await page.setViewportSize({ width: 390, height: 667 });
+  await page.locator('[data-editor-ai-entry="mobile"]').click();
+  await expect(panel).toBeVisible();
+  await expect(panel.getByRole("button", { name: "Collapse", exact: true })).toBeInViewport();
+  await expect(panel.getByLabel("What would you like to change?")).toBeInViewport();
+  expect(await panel.evaluate(e => e.scrollWidth <= e.clientWidth)).toBe(true);
+  await panel.getByRole("button", { name: "Collapse", exact: true }).focus();
+  await page.keyboard.press("Shift+Tab");
+  await expect(panel.locator("summary")).toBeFocused();
+  await page.screenshot({ path: test.info().outputPath(`${format}-mobile-dark.png`) });
+  await page.evaluate(() => { localStorage.setItem("i18nextLng", "zh-CN"); localStorage.setItem("nowen-note-theme", "dark"); });
+  await page.reload();
+  await page.locator('[data-editor-ai-entry="mobile"]').click();
+  const chinesePanel = page.getByRole("complementary", { name: "AI 助手", exact: true });
+  await expect(chinesePanel.getByText("当前笔记", { exact: true })).toBeVisible();
+  await expect(chinesePanel.getByRole("button", { name: "润色全文", exact: true })).toBeEnabled();
+  await page.screenshot({ path: test.info().outputPath(`${format}-mobile-zh-dark.png`) });
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.screenshot({ path: test.info().outputPath(`${format}-desktop-zh-dark.png`) });
 });
 
 test("live model optimizes a Chinese note through preview and verified editor saving", async ({ page, product }) => {
@@ -206,8 +289,8 @@ test("live model optimizes a Chinese note through preview and verified editor sa
   await page.locator("input[type=password]").fill("agent-natural-test-password");
   await page.locator("button[type=submit]").click();
   await page.getByText("中文优化验收", { exact: true }).first().click();
-  await page.getByRole("button", { name: "Editor Agent", exact: true }).click();
-  const panel = page.getByRole("complementary", { name: "Editor Agent" });
+  await page.getByRole("button", { name: "AI Assistant", exact: true }).click();
+  const panel = page.getByRole("complementary", { name: "AI Assistant" });
   await panel.getByLabel("What would you like to change?").fill("帮我优化这篇文档，让表达简洁清晰，保留全部技术细节，包括5分钟、本地队列和恢复网络后发送的行为。不要修改标题或链接。");
   await panel.getByRole("button", { name: "Generate proposal", exact: true }).click();
   await expect(panel.getByRole("button", { name: "Accept edits" })).toBeVisible({ timeout: 60000 });

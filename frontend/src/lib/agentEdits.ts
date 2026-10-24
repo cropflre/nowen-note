@@ -7,6 +7,9 @@ export function sameAgentSnapshot(a: string, b: string, format: string): boolean
 /** Validate every range before dispatching a single undoable transaction. */
 export function agentTextRanges(parts: Array<{ text: string; pos: number }>, edits: AgentEdit[]) {
   const ranges: Array<{ from: number; to: number; insert: string; part: number }> = [];
+  if (parts.length === 1 && parts[0].text === "" && edits.length === 1 && edits[0].before === "" && edits[0].after.trim()) {
+    return [{ from: parts[0].pos, to: parts[0].pos, insert: edits[0].after, part: 0 }];
+  }
   for (const edit of edits) {
     if (!edit.before) throw new Error("INVALID_TOOL_ARGUMENTS");
     const matches: typeof ranges = [];

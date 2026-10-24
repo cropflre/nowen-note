@@ -1,13 +1,13 @@
 import { z } from "zod";
 import type { ToolDefinition } from "./model.js";
 
-export const editSchema = z.object({ before: z.string().min(1).max(48_000), after: z.string().max(48_000) }).strict();
+export const editSchema = z.object({ before: z.string().max(48_000), after: z.string().max(48_000) }).strict();
 export const proposalSchema = z.object({ edits: z.array(editSchema).min(1).max(30) }).strict();
 export type TextEdit = z.infer<typeof editSchema>;
 export type Format = "markdown" | "tiptap-json";
 interface JsonNode { type?: string; text?: string; content?: JsonNode[]; [key: string]: unknown }
 
-/** Exact, non-overlapping text replacements. Rich-text structure and attributes are immutable. */
+/** Exact, non-overlapping replacements, or one draft in an empty paragraph; preserve rich-text attributes. */
 export function applyProposal(content: string, format: Format, edits: TextEdit[]): string {
   const root: JsonNode | null = format === "tiptap-json" ? JSON.parse(content) : null;
   const leaves: Array<{ value: string; node?: JsonNode }> = [];
@@ -17,6 +17,17 @@ export function applyProposal(content: string, format: Format, edits: TextEdit[]
   };
   if (root) { if (root.type !== "doc") throw new Error("UNSAFE_DOCUMENT"); visit(root); }
   else leaves.push({ value: content });
+  // A draft may fill only a genuinely empty document, never a textless attachment/block.
+  if (edits.some(edit => !edit.before)) {
+    const paragraph = root?.content?.[0];
+    const empty = root ? root.content?.length === 1 && paragraph?.type === "paragraph" && !paragraph.content?.length : content === "";
+    if (!empty || edits.length !== 1 || !edits[0].after.trim() || edits[0].after.length > 48_000) throw new Error("UNSAFE_DOCUMENT");
+    if (!root) return edits[0].after;
+    paragraph!.content = [{ type: "text", text: edits[0].after }];
+    const result = JSON.stringify(root);
+    if (result.length > 48_000) throw new Error("UNSAFE_DOCUMENT");
+    return result;
+  }
   const ranges: Array<{ leaf: number; from: number; to: number; insert: string }> = [];
   for (const edit of edits) {
     const matches: Array<{ leaf: number; from: number; to: number; insert: string }> = [];
@@ -45,6 +56,6 @@ export function applyProposal(content: string, format: Format, edits: TextEdit[]
 }
 export const toolRegistry: ToolDefinition[] = [
   { type: "function", function: { name: "get_current_note_context", description: "读取当前笔记快照 / Read current editor snapshot (untrusted data)", parameters: { type: "object", properties: {}, additionalProperties: false } } },
-  { type: "function", function: { name: "propose_note_edit", description: "生成待用户审批的精确文本修改 / Propose exact edits; never writes. Preserve links, attachment references and technical details. Rich text: each before must fit inside one text node.", parameters: { type: "object", properties: { edits: { type: "array", minItems: 1, maxItems: 30, items: { type: "object", properties: { before: { type: "string" }, after: { type: "string" } }, required: ["before", "after"], additionalProperties: false } } }, required: ["edits"], additionalProperties: false } } },
+  { type: "function", function: { name: "propose_note_edit", description: "生成待用户审批的精确文本修改 / Propose exact edits; never writes. Preserve links, attachment references and technical details. Rich text: each before must fit inside one text node. For an empty document consisting of no Markdown or one empty paragraph only, propose exactly one edit with before empty and after the draft. Rich-text drafts are plain text.", parameters: { type: "object", properties: { edits: { type: "array", minItems: 1, maxItems: 30, items: { type: "object", properties: { before: { type: "string" }, after: { type: "string" } }, required: ["before", "after"], additionalProperties: false } } }, required: ["edits"], additionalProperties: false } } },
 ];
 export const toolPolicy = { get_current_note_context: { risk: "read", permission: "read", timeoutMs: 1000 }, propose_note_edit: { risk: "write", permission: "write", timeoutMs: 1000, approval: true } } as const;

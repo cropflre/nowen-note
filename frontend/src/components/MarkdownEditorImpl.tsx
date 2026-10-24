@@ -2504,9 +2504,6 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
               >
                 <ClipboardPlus size={iconSize} className="text-blue-500" />
               </ToolbarButton>
-              <ToolbarButton onClick={openAIAssistant} title={tr("tiptap.aiAssistant") || "AI 助手"}>
-                <Sparkles size={iconSize} className="text-violet-500" />
-              </ToolbarButton>
             </>
           )}
 
@@ -2759,7 +2756,7 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
               </ToolbarButton>
               <ToolbarButton
                 onClick={openAIAssistant}
-                title={tr("tiptap.aiAssistant") || "AI ����"}
+                title={tr("agent.quickRewrite")}
               >
                 <Sparkles size={14} className="text-violet-500" />
               </ToolbarButton>

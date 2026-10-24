@@ -22,3 +22,10 @@ it("rich text offsets remain inside one node and snapshot checks detect concurre
   expect(sameAgentSnapshot('{"type":"doc"}', '{ "type": "doc" }', "tiptap-json")).toBe(true);
   expect(sameAgentSnapshot("original", "new typing", "markdown")).toBe(false);
 });
+it("inserts an approved draft into one empty text target and rejects mixed or empty drafts", () => {
+  expect(agentTextRanges([{ text: "", pos: 0 }], [{ before: "", after: "Draft" }])).toEqual([{ from: 0, to: 0, insert: "Draft", part: 0 }]);
+  expect(agentTextRanges([{ text: "", pos: 1 }], [{ before: "", after: "Draft" }])[0].from).toBe(1);
+  for (const edits of [[{ before: "", after: "" }], [{ before: "", after: "Draft" }, { before: "", after: "Another" }]]) {
+    expect(() => agentTextRanges([{ text: "", pos: 0 }], edits)).toThrow();
+  }
+});

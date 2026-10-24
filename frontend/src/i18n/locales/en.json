@@ -3325,7 +3325,58 @@
     }
   },
   "agent": {
-    "title": "Editor Agent",
+    "title": "AI Assistant",
+    "quickRewrite": "Rewrite selected text",
+    "privacySummary": "What is sent and how edits are applied",
+    "loading": "Preparing your assistant…",
+    "emptyNote": "Empty note",
+    "scope": {
+      "note": "Current note",
+      "selection": "Selected text"
+    },
+    "guidance": {
+      "empty": {
+        "title": "Start with an idea",
+        "description": "Describe your topic, audience and key points. Preview a draft before adding it to your note.",
+        "placeholder": "For example: draft a weekly update with progress, risks and next steps",
+        "actions": {
+          "draft": "Draft content",
+          "outline": "Create an outline"
+        },
+        "prompts": {
+          "draft": "Draft content on the following topic. Propose it for my approval first. Topic: ",
+          "outline": "Create a clear outline on the following topic. Propose it for my approval first. Topic: "
+        }
+      },
+      "note": {
+        "title": "Make this note work better",
+        "description": "Polish the wording, add a summary or clarify the flow. Preview and approve every change.",
+        "placeholder": "For example: make this note clearer while preserving all technical details",
+        "actions": {
+          "polish": "Polish note",
+          "summarize": "Add a summary",
+          "structure": "Clarify wording"
+        },
+        "prompts": {
+          "polish": "Polish this note for clarity. Preserve all facts, technical details, links and formatting.",
+          "summarize": "Add a concise summary at the start of this note. Preserve the original body, facts and links.",
+          "structure": "Improve the flow and clarity of this note. Preserve paragraph structure, formatting, facts and links."
+        }
+      },
+      "selection": {
+        "title": "How should this passage change?",
+        "description": "Target the selected text. The current note is also sent as context. Preview changes before applying them.",
+        "placeholder": "For example: make this passage concise while keeping the key facts",
+        "actions": {
+          "polish": "Polish selection",
+          "shorten": "Shorten selection"
+        },
+        "prompts": {
+          "polish": "Polish only the selected text. Preserve facts, technical details, links and formatting. Leave other content unchanged.",
+          "shorten": "Shorten only the selected text. Preserve key facts, technical details, links and formatting. Leave other content unchanged."
+        }
+      }
+    },
     "close": "Collapse",
     "privacy": "Sending shares the current note snapshot and your instruction with your configured AI service. Edits require preview and approval. Encrypted and password-protected content is unavailable.",
     "disabled": "Agent is disabled or unavailable.",

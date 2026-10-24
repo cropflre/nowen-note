@@ -3265,6 +3265,9 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
         try {
           const parts: Array<{ text: string; pos: number; marks: import("@tiptap/pm/model").Mark[] | readonly import("@tiptap/pm/model").Mark[] }> = [];
           editor.state.doc.descendants((node, pos) => { if (node.isText) parts.push({ text: node.text!, pos, marks: node.marks }); });
+          if (editor.state.doc.childCount === 1 && editor.state.doc.firstChild?.type.name === "paragraph" && editor.state.doc.firstChild.content.size === 0) {
+            parts.push({ text: "", pos: 1, marks: [] });
+          }
           const ranges = agentTextRanges(parts, edits);
           const tr = editor.state.tr;
           for (const range of ranges.reverse()) {
@@ -5750,9 +5753,6 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
             >
               <ClipboardPlus size={iconSize} className="text-blue-500" />
             </ToolbarButton>
-            <ToolbarButton onClick={openAIAssistant} title={t('tiptap.aiAssistant')}>
-              <Sparkles size={iconSize} className="text-violet-500" />
-            </ToolbarButton>
           </>
         )}
       </div>
@@ -5968,7 +5968,7 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
               >
                 <ClipboardPlus size={14} className="text-blue-500" />
               </ToolbarButton>
-              <ToolbarButton onClick={openAIAssistant} title={t('tiptap.aiAssistant')}>
+              <ToolbarButton onClick={openAIAssistant} title={t('agent.quickRewrite')}>
                 <Sparkles size={14} className="text-violet-500" />
               </ToolbarButton>
             </>
