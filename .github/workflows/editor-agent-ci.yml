@@ -2,7 +2,7 @@ name: Nowen Agent CI
 on:
   workflow_dispatch:
   push:
-    branches: [feat/ai-agent-v1, codex/ai-agent-p1, codex/ai-agent-p2]
+    branches: [feat/ai-agent-v1, codex/ai-agent-p1, codex/ai-agent-p2, release/v1.5.4]
   pull_request:
     paths:
       - "backend/src/agent/**"

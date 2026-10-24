@@ -3415,12 +3415,12 @@ const moveToTrash = useCallback(async () => {
           <div className="flex shrink-0 items-center gap-0.5 rounded-lg bg-violet-500/5 px-1 py-0.5 dark:bg-violet-500/10">
             {canEditActiveNote && !effectiveLocked && !modeSwitching && ["markdown", "tiptap-json"].includes(activeNote.contentFormat || "") && <Button
               data-editor-ai-entry="desktop"
-              variant="ghost" size="sm" className={cn("h-7 gap-1.5 rounded-md px-2 text-accent-primary hover:text-accent-primary", showAgent && "bg-accent-primary/10")}
+              variant="ghost" size="sm" className={cn("h-7 gap-1.5 rounded-md px-2 text-accent-primary hover:text-accent-primary max-lg:w-7 max-lg:px-0", showAgent && "bg-accent-primary/10")}
               onMouseDown={event => event.preventDefault()}
               onClick={() => setShowAgent(value => !value)}
-              aria-expanded={showAgent} aria-controls="editor-ai-assistant"
+              aria-label={t("agent.title")} aria-expanded={showAgent} aria-controls="editor-ai-assistant"
               title={t("agent.title")}
-            ><Sparkles size={14} />{t("agent.title")}</Button>}
+            ><Sparkles size={14} /><span className="hidden lg:inline">{t("agent.title")}</span></Button>}
             <Button
               variant="ghost" size="icon" className="h-7 w-7 rounded-md"
               onClick={handleAITitle}
