@@ -12,6 +12,15 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 const root = fileURLToPath(new URL("../..", import.meta.url));
 const providerFile = process.env.NOWEN_AGENT_LIVE_PROVIDER_FILE;
+function liveProvider(file: string): { url: string; key: string; model: string } {
+  try {
+    const value = JSON.parse(fs.readFileSync(file, "utf8"));
+    if (typeof value.url !== "string" || typeof value.key !== "string" || typeof value.model !== "string" || !value.model.trim()) throw new Error();
+    const url = new URL(value.url);
+    if (!["http:", "https:"].includes(url.protocol) || url.username || url.password || url.search || url.hash) throw new Error();
+    return { url: value.url, key: value.key, model: value.model };
+  } catch { throw new Error("Invalid live-provider configuration file"); }
+}
 const electron = process.env.NOWEN_AGENT_TEST_RUNTIME || createRequire(import.meta.url)("electron") as string;
 const test = base.extend<{ product: { server: string; provider: { url: string; key: string; model: string }; directory: string; finishChat: () => void; chatRequests: Array<{ role: string; content: string }[]>; restart: () => Promise<void> } }>({
   page: async ({ page, product }, provide) => {
@@ -86,7 +95,7 @@ const test = base.extend<{ product: { server: string; provider: { url: string; k
       await expect.poll(() => fetch(`${server}/api/health`).then(r => r.ok).catch(() => false), { timeout: 20000, message: "Isolated backend must start" }).toBe(true);
       };
       await start();
-      await provide({ server, finishChat: () => finishChat(), chatRequests, provider: providerFile ? JSON.parse(fs.readFileSync(providerFile, "utf8")) : { url: providerUrl, key: "test-key", model: "tool-test" }, directory, restart: async () => {
+      await provide({ server, finishChat: () => finishChat(), chatRequests, provider: providerFile ? liveProvider(providerFile) : { url: providerUrl, key: "test-key", model: "tool-test" }, directory, restart: async () => {
         const exited = new Promise<void>(resolve => backend!.once("exit", () => resolve()));
         backend!.kill(); await exited;
         await start();
@@ -406,4 +415,52 @@ test("P2 template UI and signed webhook generate an approval-bound workflow", as
   expect(await library.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
   await library.screenshot({ path: test.info().outputPath("p2-template-library.png") });
   await library.getByRole("button", { name: "Pause", exact: true }).click();
+});
+
+test("live P2 template retrieves two notes and persists an approved summary", async ({ page, product }) => {
+  test.skip(!providerFile, "Requires an explicitly supplied live-provider credential file");
+  test.setTimeout(180000);
+  const registered = await page.request.post(`${product.server}/api/auth/register`, { data: { username: "p2_live", password: "p2-live-test-password" } });
+  expect(registered.ok()).toBe(true); const account = await registered.json();
+  const headers = { Authorization: `Bearer ${account.token}` };
+  expect((await page.request.put(`${product.server}/api/ai/settings`, { headers, data: { ai_provider: "openai", ai_api_url: product.provider.url, ai_api_key: product.provider.key, ai_model: product.provider.model } })).ok()).toBe(true);
+  const books = await (await page.request.get(`${product.server}/api/notebooks`, { headers })).json();
+  const sources = [];
+  for (const [index, content] of ["p2livemarker：服务每隔5分钟保存笔记。离线修改保留在本地待发送队列。", "p2livemarker：恢复网络后发送待发送队列，失败最多重试3次。"].entries()) {
+    const created = await page.request.post(`${product.server}/api/notes`, { headers, data: { title: `P2 live source ${index + 1}`, notebookId: books[0].id, contentFormat: "markdown", content } });
+    expect(created.ok()).toBe(true); sources.push(await created.json());
+  }
+  const noteList = async () => (await page.request.get(`${product.server}/api/notes`, { headers })).json();
+  const before = (await noteList()).length;
+  const input = { notebookId: books[0].id, includeChildren: false, timezone: "Asia/Shanghai", lang: "zh-CN", instruction: "Search for p2livemarker and summarize both source notes in Chinese. Propose exactly one new Markdown note titled P2 真实模型验收总结. Preserve every technical fact: 5分钟保存、离线时本地待发送队列、恢复网络后发送、失败最多重试3次. Do not create tasks or call extensions. Do not change source notes." };
+  const templateResponse = await page.request.post(`${product.server}/api/agent/library/templates?workspaceId=personal`, { headers, data: { name: "Live P2 summary", input, allowNote: true, allowTasks: false, toolIds: [] } });
+  expect(templateResponse.ok()).toBe(true); const template = await templateResponse.json();
+  const start = await page.request.post(`${product.server}/api/agent/workflows?workspaceId=personal`, { headers, data: { ...input, templateId: template.id, templateRevision: template.revision } });
+  expect(start.status()).toBe(202); const { id } = await start.json();
+  const workflow = async () => (await page.request.get(`${product.server}/api/agent/workflows/${id}?workspaceId=personal`, { headers })).json();
+  await expect.poll(async () => (await workflow()).status, { timeout: 120000 }).toBe("waiting_approval");
+  const proposed = await workflow();
+  for (const source of sources) expect(proposed.preview.sources.map((item: { id: string }) => item.id)).toContain(source.id);
+  expect(proposed.preview.tasks).toBeUndefined(); expect(proposed.preview.extensionCalls || []).toHaveLength(0);
+  expect((await noteList()).length).toBe(before);
+  await page.goto(product.server);
+  await page.evaluate(() => { localStorage.setItem("i18nextLng", "en"); localStorage.setItem("nowen-seen-version", "1.5.3"); });
+  await page.reload(); await page.getByPlaceholder("admin", { exact: true }).fill("p2_live");
+  await page.locator("input[type=password]").fill("p2-live-test-password"); await page.locator("button[type=submit]").click();
+  await expect(page.getByRole("textbox", { name: "Note Title", exact: true })).toHaveValue(/欢迎|Welcome/);
+  await page.getByRole("button", { name: "AI Chat", exact: true }).click();
+  await page.getByRole("button", { name: "Agent", exact: true }).click();
+  const panel = page.getByRole("region", { name: "Notebook Agent", exact: true });
+  await panel.getByRole("button", { name: "Approve and create the displayed drafts", exact: true }).click();
+  await expect(panel.getByRole("button", { name: "Open created note", exact: true })).toBeVisible();
+  const completed = await workflow(); expect(completed.status).toBe("completed");
+  const noteId = completed.actions.find((action: { kind: string }) => action.kind === "note").resourceIds[0];
+  const readNote = async () => (await page.request.get(`${product.server}/api/notes/${noteId}`, { headers: { ...headers, Accept: "application/vnd.nowen.internal-note+json" } })).json();
+  const saved = await readNote();
+  expect(saved.content).toBeTruthy(); expect((await noteList()).length).toBe(before + 1);
+  for (const fact of [/[5五]\s*分钟/, /[3三]\s*次/, /队列/, /网络/]) expect(saved.content).toMatch(fact);
+  await product.restart();
+  expect((await readNote()).content).toBe(saved.content);
+  expect((await workflow()).status).toBe("completed");
+  fs.writeFileSync(test.info().outputPath("p2-live-evidence.json"), JSON.stringify({ model: product.provider.model, status: completed.status, sourceCount: proposed.preview.sources.length, createdNotes: 1, persistedAfterRestart: true }, null, 2));
 });
