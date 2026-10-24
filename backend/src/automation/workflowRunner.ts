@@ -90,7 +90,10 @@ export class WorkflowRunner {
         step.type === "action" ? Math.min(3, Math.max(1, step.maxAttempts || 3)) : 1, idempotencyKey, startedAt, preview(input));
     try {
       let result: { output?: unknown; nextStepId?: string; waitUntil?: string; stop?: boolean };
-      if (step.type === "action") result = { output: await this.executeAction(run, workflow, step, input as Record<string, unknown>, idempotencyKey) };
+      if (step.type === "agent") {
+        const { triggerAgentTemplate } = await import("../agent/triggerTemplate.js");
+        result = { output: triggerAgentTemplate(run, workflow, step.templateId, step.templateRevision) };
+      } else if (step.type === "action") result = { output: await this.executeAction(run, workflow, step, input as Record<string, unknown>, idempotencyKey) };
       else if (step.type === "condition") {
         const condition = input as { left: unknown; operator: string; right?: unknown };
         const passed = evaluateCondition(condition.left, condition.operator, condition.right);

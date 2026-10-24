@@ -34,7 +34,7 @@ test.before(async () => {
   originalFetch = globalThis.fetch;
 });
 test.beforeEach(() => {
-  db.exec("DELETE FROM agent_workflows; DELETE FROM agent_runs; DELETE FROM tasks; DELETE FROM task_composer_batches; DELETE FROM notes WHERE id NOT IN ('workflow-source','workflow-child-source','workflow-secret'); DELETE FROM notebook_passwords; UPDATE notes SET isLocked=0,isTrashed=0,content='Alpha evidence: review the report',contentText='Alpha evidence: review the report',version=1 WHERE id='workflow-source';");
+  db.exec("DELETE FROM agent_templates; DELETE FROM agent_mcp_connections; DELETE FROM agent_workflows; DELETE FROM agent_runs; DELETE FROM tasks; DELETE FROM task_composer_batches; DELETE FROM notes WHERE id NOT IN ('workflow-source','workflow-child-source','workflow-secret'); DELETE FROM notebook_passwords; UPDATE notes SET isLocked=0,isTrashed=0,content='Alpha evidence: review the report',contentText='Alpha evidence: review the report',version=1 WHERE id='workflow-source';");
   runtime = new WorkflowRuntime(); runtime.initialize(); requests = [];
   plan = { summary: "Alpha summary", sourceNoteIds: ["workflow-source"], note: { title: "Alpha summary", content: "# Alpha summary\n\nReview the report." }, taskRequest: "Review the report" };
   respond = async body => body.tools
@@ -224,4 +224,213 @@ test("workspace owner can create scoped results; a viewer cannot approve new not
   let failed;
   for (let i = 0; i < 100; i++) { failed = runtime.get(viewer.id, "workflow-b"); if (failed.status === "failed") break; await new Promise(resolve => setTimeout(resolve, 10)); }
   assert.equal(failed!.errorCode, "NOTE_ACCESS_DENIED"); assert.equal(count("tasks"), 1);
+});
+
+
+test("P2 templates copy owned prompts without granting actions; scope and owner stay server authoritative", async () => {
+  const { saveAgentTemplate, getAgentTemplate, promptForAgent } = await import("../src/agent/templates.js");
+  db.prepare("INSERT INTO ai_custom_prompts(id,userId,name,prompt) VALUES ('workflow-prompt',?,'Prompt','Summarize alpha')").run(userId);
+  assert.equal(promptForAgent("workflow-prompt", userId).instruction, "Summarize alpha");
+  assert.throws(() => promptForAgent("workflow-prompt", "workflow-b"), /TEMPLATE_NOT_FOUND/);
+  const template = saveAgentTemplate(userId, null, { name: "Read only", input: input(), allowNote: false, allowTasks: false });
+  assert.throws(() => getAgentTemplate(template.id, "workflow-b", null), /TEMPLATE_NOT_FOUND/);
+  assert.throws(() => getAgentTemplate(template.id, userId, "foreign"), /TEMPLATE_NOT_FOUND/);
+  const denied = await settled(runtime.create(userId, null, input({ templateId: template.id, templateRevision: template.revision })).id);
+  assert.equal(denied.errorCode, "TOOL_GRANT_REVOKED"); assert.equal(count("notes"), 3);
+  plan = { summary: "Read only", sourceNoteIds: ["workflow-source"] };
+  const run = await settled(runtime.create(userId, null, input({ templateId: template.id, templateRevision: template.revision, notebookId: "workflow-other", instruction: "FORGED_INSTRUCTION" })).id);
+  assert.equal(run.status, "completed"); assert.equal(run.notebookId, "workflow-book");
+  assert.ok(!JSON.stringify(requests).includes("FORGED_INSTRUCTION"));
+});
+
+test("P2 changed template invalidates old approval and still permits cancellation", async () => {
+  const { saveAgentTemplate } = await import("../src/agent/templates.js");
+  const config = { name: "Writer", input: input(), allowNote: true, allowTasks: true };
+  const template = saveAgentTemplate(userId, null, config);
+  const run = await settled(runtime.create(userId, null, input({ templateId: template.id, templateRevision: template.revision })).id);
+  saveAgentTemplate(userId, null, { ...config, allowNote: false }, template.id, template.revision);
+  assert.throws(() => runtime.create(userId, null, input({templateId:template.id,templateRevision:template.revision})), /TEMPLATE_CHANGED/);
+  await assert.rejects(runtime.approve(run.id, userId, run.preview!.token!), /TEMPLATE_CHANGED/);
+  assert.equal(runtime.get(run.id, userId).preview, undefined);
+  assert.equal(runtime.cancel(run.id, userId).status, "interrupted"); assert.equal(count("notes"), 3);
+});
+
+test("P2 extension allowlist rejects forged calls without making a remote request", async () => {
+  const { saveAgentTemplate } = await import("../src/agent/templates.js");
+  const template = saveAgentTemplate(userId, null, { name: "No tools", input: input(), allowNote: true, allowTasks: true });
+  plan.extensionCalls = [{ toolId: "mcp:forged:delete", input: {} }];
+  const run = await settled(runtime.create(userId, null, input({ templateId: template.id, templateRevision: template.revision })).id);
+  assert.equal(run.errorCode, "TOOL_GRANT_REVOKED"); assert.equal(count("tasks"), 0);
+  const ordinary = await settled(runtime.create(userId, null, input()).id);
+  assert.equal(ordinary.errorCode, "TOOL_GRANT_REVOKED");
+});
+
+test("P2 trigger identity commits with proposal; event payload cannot replace instructions or scope", async () => {
+  const { saveAgentTemplate } = await import("../src/agent/templates.js");
+  const { WorkflowRepository } = await import("../src/automation/workflowRepository.js");
+  const { triggerAgentTemplate } = await import("../src/agent/triggerTemplate.js");
+  const { eventPublisher } = await import("../src/automation/eventPublisher.js");
+  const template = saveAgentTemplate(userId, null, { name: "Daily", input: input(), allowNote: true, allowTasks: true });
+  const repository = new WorkflowRepository();
+  const workflow = repository.create(userId, { name: "Daily", definition: { version: 1, trigger: { type: "event", event: "note.created" }, steps: [{ id: "agent", type: "agent", templateId: template.id, templateRevision: template.revision }] } }).workflow;
+  const enabled = repository.setEnabled(workflow.id, true);
+  const event = eventPublisher.publish({ type: "note.created", userId, resourceType: "note", resourceId: "workflow-source", data: { instruction: "PAYLOAD_INJECTION", notebookId: "workflow-other" } });
+  const job = repository.createRun(enabled, event.id);
+  const created = triggerAgentTemplate(job, enabled, template.id, template.revision);
+  assert.deepEqual(triggerAgentTemplate(job, enabled, template.id, template.revision), created);
+  const run = await settled(created.agentRunId);
+  assert.equal(run.status, "waiting_approval"); assert.equal(count("notes"), 3); assert.equal(count("tasks"), 0);
+  assert.ok(!JSON.stringify(requests).includes("PAYLOAD_INJECTION"));
+  const foreign = eventPublisher.publish({ type: "note.created", userId: "workflow-b", resourceType: "note", resourceId: "workflow-secret" });
+  const foreignJob = repository.createRun(enabled, foreign.id);
+  assert.throws(() => triggerAgentTemplate(foreignJob, enabled, template.id, template.revision), /AGENT_TRIGGER_DENIED/);
+});
+
+test("P2 uncertain extension receipts survive restart and block retry", async () => {
+  const run = await settled(runtime.create(userId, null, input()).id);
+  db.prepare("INSERT INTO agent_extension_receipts(runId,callIndex,toolId,status,argumentDigest,createdAt) VALUES (?,0,'mcp:fixture:write','attempted','hash',?)").run(run.id, new Date().toISOString());
+  const restarted = new WorkflowRuntime(); restarted.initialize();
+  assert.equal((restarted.get(run.id, userId).extensionReceipts[0] as { status: string }).status, "uncertain");
+  await assert.rejects(restarted.approve(run.id, userId, run.preview!.token!), /APPROVAL_EXPIRED/);
+  assert.equal(count("notes"), 3);
+});
+
+
+test("P2 connection credentials stay encrypted and revoked connections invalidate grants", async () => {
+  const { createConnection, discoverConnection, listConnections, grantedExtensions, assertExtensionRevisions } = await import("../src/agent/extensions.js");
+  const { AgentMcpClient } = await import("../src/agent/mcpClient.js");
+  const linked = createConnection(userId, { name: "Search", url: "https://mcp.example.com/mcp", token: "PRIVATE_MCP_CREDENTIAL", allowedTools: ["search"] });
+  const row = db.prepare("SELECT * FROM agent_mcp_connections WHERE id=?").get(linked.id);
+  assert.ok(!JSON.stringify(row).includes("PRIVATE_MCP_CREDENTIAL"));
+  assert.ok(!JSON.stringify(listConnections(userId)).includes("secretJson"));
+  assert.deepEqual(listConnections("workflow-b"), []);
+  const client = new AgentMcpClient(async request => ({ ok: true, status: 200, headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: (request.body as { id: string }).id, result: { tools: [{ name: "search", inputSchema: { type: "object" } }, { name: "delete", inputSchema: { type: "object" } }] } }) }));
+  const tools = await discoverConnection(linked.id, userId, client); assert.equal(tools.length, 1);
+  const grants = grantedExtensions(userId, [`mcp:${linked.id}:search`]);
+  assert.throws(() => grantedExtensions("workflow-b", [grants[0].id]), /TOOL_GRANT_REVOKED/);
+  db.prepare("DELETE FROM agent_mcp_connections WHERE id=?").run(linked.id);
+  assert.throws(() => assertExtensionRevisions(userId, grants), /TOOL_GRANT_REVOKED/);
+});
+
+
+test("P2 the existing scheduler creates exactly one pending Agent proposal without business writes", async () => {
+  const { saveAgentTemplate } = await import("../src/agent/templates.js");
+  const { WorkflowRepository } = await import("../src/automation/workflowRepository.js");
+  const { automationRuntime } = await import("../src/automation/runtime.js");
+  const template = saveAgentTemplate(userId, null, { name: "Scheduled", input: input(), allowNote: true, allowTasks: true });
+  const repository = new WorkflowRepository();
+  const workflow = repository.create(userId, { name: "Scheduled", definition: { version: 1, trigger: { type: "schedule", cron: "0 9 * * *", timezone: "Asia/Shanghai" }, steps: [{ id: "agent", type: "agent", templateId: template.id, templateRevision: template.revision }] } }).workflow;
+  repository.setEnabled(workflow.id, true);
+  db.prepare("UPDATE automation_schedules SET nextRunAt=? WHERE workflowId=?").run(new Date(Date.now()-1000).toISOString(), workflow.id);
+  await automationRuntime.tick();
+  for (let i=0;i<100;i++) { if (repository.listRuns(workflow.id)[0]?.status === "completed") break; await new Promise(resolve => setTimeout(resolve,10)); }
+  await automationRuntime.tick();
+  assert.equal(repository.listRuns(workflow.id).length, 1);
+  const mapping = db.prepare("SELECT agentRunId FROM agent_trigger_runs WHERE automationRunId=?").get(repository.listRuns(workflow.id)[0].id) as { agentRunId: string };
+  // The trigger uses the singleton runtime, which owns this proposal's memory.
+  const { agentWorkflowRuntime } = await import("../src/agent/workflowRuntime.js");
+  let proposal;
+  for (let i=0;i<100;i++) { proposal = agentWorkflowRuntime.get(mapping.agentRunId,userId); if(proposal.status === "waiting_approval") break; await new Promise(resolve=>setTimeout(resolve,10)); }
+  assert.equal(proposal!.status,"waiting_approval"); assert.equal(count("notes"),3); assert.equal(count("tasks"),0);
+  agentWorkflowRuntime.cancel(mapping.agentRunId,userId);
+  repository.setEnabled(workflow.id,false);
+});
+
+
+test("P2 approved plugin Action executes in QuickJS once; Node and community tools never enter the catalog", async () => {
+  const fs = await import("node:fs"); const path = await import("node:path");
+  const { getPluginService } = await import("../src/plugins/pluginService.js");
+  const { extensionCatalog } = await import("../src/agent/extensions.js");
+  const { saveAgentTemplate } = await import("../src/agent/templates.js");
+  const directory = path.join(process.env.ELECTRON_USER_DATA!, "agent-plugin"); fs.mkdirSync(directory,{recursive:true});
+  fs.writeFileSync(path.join(directory,"index.js"),'globalThis.__nowenPluginModule={actions:{format:async({input})=>({success:true,data:{text:input.text.toUpperCase()}})}}');
+  const service = getPluginService();
+  service.registry.upsert({ manifest: { id: "nowen.agentfixture", publisher: "nowen", name: "Format", description: "test", version: "1.0.0", apiVersion: 2, engines: { nowen: ">=1.5.0 <2.0.0" }, runtime: "sandbox-js", main: "index.js", categories: ["productivity"], repository: "https://example.com/source", license: "MIT", permissions: [], actions: [{ id: "format", name: "Format text", input: { text: { type: "string", required: true } } }] }, source: "official", trustLevel: "official", status: "enabled", signatureState: "verified", checksum: "p2-fixture", installedPath: directory, installedBy: userId });
+  db.prepare("UPDATE plugin_registry SET lifecycleState='stable' WHERE id='nowen.agentfixture'").run();
+  const toolId = "plugin:nowen.agentfixture:format";
+  assert.ok(extensionCatalog(userId).some(t=>t.id===toolId));
+  const template = saveAgentTemplate(userId,null,{name:"Format",input:input(),toolIds:[toolId]});
+  plan = { summary:"Format text after approval",sourceNoteIds:["workflow-source"],extensionCalls:[{toolId,input:{text:"alpha"}}] };
+  try {
+    const run = await settled(runtime.create(userId,null,input({templateId:template.id,templateRevision:template.revision})).id);
+    assert.equal(run.status,"waiting_approval"); assert.equal(count("plugin_executions"),0);
+    const saved = await runtime.approve(run.id,userId,run.preview!.token!);
+    assert.equal(saved.status,"completed"); assert.equal(count("plugin_executions"),1);
+    assert.deepEqual(saved.preview!.extensionResults,[{success:true,data:{text:"ALPHA"}}]);
+    await assert.rejects(runtime.approve(run.id,userId,run.preview!.token!),/APPROVAL_INVALID/);
+    db.prepare("UPDATE plugin_registry SET trustLevel='community' WHERE id='nowen.agentfixture'").run();
+    assert.ok(!extensionCatalog(userId).some(t=>t.id===toolId));
+    db.prepare("UPDATE plugin_registry SET trustLevel='official',runtime='node-action',manifestJson=replace(manifestJson,'sandbox-js','node-action') WHERE id='nowen.agentfixture'").run();
+    assert.ok(!extensionCatalog(userId).some(t=>t.id===toolId));
+  } finally { await service.executions.shutdown("nowen.agentfixture"); db.prepare("DELETE FROM plugin_executions WHERE pluginId='nowen.agentfixture'").run(); db.prepare("DELETE FROM plugin_versions WHERE pluginId='nowen.agentfixture'").run(); db.prepare("DELETE FROM plugin_registry WHERE id='nowen.agentfixture'").run(); fs.rmSync(directory,{recursive:true,force:true}); }
+});
+
+
+test("P2 an unknown remote outcome cannot replay the call or repeat committed notes", async () => {
+  const { createConnection, discoverConnection } = await import("../src/agent/extensions.js");
+  const { saveAgentTemplate } = await import("../src/agent/templates.js");
+  const { AgentMcpClient } = await import("../src/agent/mcpClient.js");
+  const connection = createConnection(userId,{name:"Remote",url:"https://mcp.example.com/mcp",allowedTools:["write"]});
+  await discoverConnection(connection.id,userId,new AgentMcpClient(async request=>({ok:true,status:200,headers:{"content-type":"application/json"},body:JSON.stringify({jsonrpc:"2.0",id:(request.body as {id:string}).id,result:{tools:[{name:"write",inputSchema:{type:"object"}}]}})})));
+  const toolId = `mcp:${connection.id}:write`;
+  const template = saveAgentTemplate(userId,null,{name:"Remote",input:input(),allowNote:true,toolIds:[toolId]});
+  let calls=0;
+  runtime = new WorkflowRuntime(async()=>{calls++; throw new Error("lost after send");}); runtime.initialize();
+  plan = {summary:"Create then call",sourceNoteIds:["workflow-source"],note:{title:"Saved first",content:"Saved"},extensionCalls:[{toolId,input:{value:"approved"}}]};
+  const run = await settled(runtime.create(userId,null,input({templateId:template.id,templateRevision:template.revision})).id);
+  assert.equal(calls,0);
+  const partial = await runtime.approve(run.id,userId,run.preview!.token!);
+  assert.equal(partial.status,"partial"); assert.equal(partial.errorCode,"EXTENSION_RESULT_UNCERTAIN");
+  assert.equal(calls,1); assert.equal(count("notes"),4);
+  assert.throws(()=>runtime.retry(run.id,userId),/EXTENSION_RESULT_UNCERTAIN/);
+  await assert.rejects(runtime.approve(run.id,userId,run.preview!.token!),/APPROVAL_INVALID/);
+  assert.equal(calls,1); assert.equal(partial.extensionReceipts[0].status,"uncertain");
+});
+
+
+test("P2 management routes reject PATs, foreign templates and forged schema properties", async () => {
+  const config = { name:"API template",input:input(),allowNote:true,allowTasks:true,toolIds:[] };
+  const created = await app.request("http://test/api/agent/library/templates",{method:"POST",headers,body:JSON.stringify(config)});
+  assert.equal(created.status,201); const template = await created.json() as {id:string;revision:string};
+  const foreign = await app.request("http://test/api/agent/library/templates",{headers:{...headers,"X-User-Id":"workflow-b"}});
+  assert.deepEqual(await foreign.json(),[]);
+  const changed = await app.request(`http://test/api/agent/library/templates/${template.id}`,{method:"PUT",headers:{...headers,"X-User-Id":"workflow-b"},body:JSON.stringify({revision:template.revision,config})});
+  assert.equal(changed.status,404);
+  const pat = await app.request("http://test/api/agent/library/templates",{headers:{...headers,"X-Auth-Mode":"api-token"}}); assert.equal(pat.status,403);
+  const forged = await app.request("http://test/api/agent/library/templates",{method:"POST",headers,body:JSON.stringify({...config,execute:true})}); assert.equal(forged.status,400);
+  const unsigned = await app.request(`http://test/api/agent/library/templates/${template.id}/automations`,{method:"POST",headers,body:JSON.stringify({revision:template.revision,trigger:{type:"webhook",requireSignature:false}})}); assert.equal(unsigned.status,400);
+});
+
+
+test("P2 backup restoration revokes connection credentials and discovered tool grants", async () => {
+  const { createConnection } = await import("../src/agent/extensions.js");
+  const { quarantineRestoredAutomations } = await import("../src/automation/recovery.js");
+  const connection = createConnection(userId,{name:"Restore fixture",url:"https://mcp.example.com/mcp",token:"restore-fixture-secret",allowedTools:["search"]});
+  db.prepare("UPDATE agent_mcp_connections SET toolsJson=? WHERE id=?").run(JSON.stringify([{name:"search",inputSchema:{type:"object"}}]),connection.id);
+  quarantineRestoredAutomations();
+  const row = db.prepare("SELECT secretJson,toolsJson,revision FROM agent_mcp_connections WHERE id=?").get(connection.id) as {secretJson:string|null;toolsJson:string;revision:string};
+  assert.equal(row.secretJson,null);assert.equal(row.toolsJson,"[]");assert.equal(row.revision,"RESTORE_REVOKED");
+});
+
+
+test("P2 the existing event dispatcher creates a scoped Agent proposal exactly once", async () => {
+  const { saveAgentTemplate } = await import("../src/agent/templates.js");
+  const { WorkflowRepository } = await import("../src/automation/workflowRepository.js");
+  const { eventPublisher } = await import("../src/automation/eventPublisher.js");
+  const { automationRuntime } = await import("../src/automation/runtime.js");
+  const { agentWorkflowRuntime } = await import("../src/agent/workflowRuntime.js");
+  const template = saveAgentTemplate(userId,null,{name:"Event",input:input(),allowNote:true,allowTasks:true});
+  const repository = new WorkflowRepository();
+  const workflow = repository.create(userId,{name:"Event",definition:{version:1,trigger:{type:"event",event:"note.updated"},steps:[{id:"agent",type:"agent",templateId:template.id,templateRevision:template.revision}]}}).workflow;
+  repository.setEnabled(workflow.id,true);
+  const event = eventPublisher.publish({type:"note.updated",userId,resourceType:"note",resourceId:"workflow-source",data:{instruction:"DISPATCH_INJECTION"}});
+  await automationRuntime.tick();
+  for(let i=0;i<100;i++){if(repository.listRuns(workflow.id).some(r=>r.eventId===event.id&&r.status==="completed"))break;await new Promise(resolve=>setTimeout(resolve,10));}
+  await automationRuntime.tick();
+  const runs=repository.listRuns(workflow.id).filter(r=>r.eventId===event.id);assert.equal(runs.length,1);
+  const mapping=db.prepare("SELECT agentRunId FROM agent_trigger_runs WHERE automationRunId=?").get(runs[0].id) as {agentRunId:string};
+  let proposal;
+  for(let i=0;i<100;i++){proposal=agentWorkflowRuntime.get(mapping.agentRunId,userId);if(proposal.status==="waiting_approval")break;await new Promise(resolve=>setTimeout(resolve,10));}
+  assert.equal(proposal!.status,"waiting_approval");assert.equal(count("notes"),3);assert.ok(!JSON.stringify(requests).includes("DISPATCH_INJECTION"));
+  agentWorkflowRuntime.cancel(mapping.agentRunId,userId);repository.setEnabled(workflow.id,false);
 });

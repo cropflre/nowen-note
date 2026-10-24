@@ -1287,6 +1287,9 @@ async function requireTaskSeriesSupport(): Promise<void> {
 }
 
 export const api = {
+  agentLibrary: {
+    request: <T>(workspaceId: string, path: string, method = "GET", body?: unknown) => request<T>(`/agent/library${path}?workspaceId=${encodeURIComponent(workspaceId)}`, { method, ...(body === undefined ? {} : { body: JSON.stringify(body) }), _skipOfflineQueue: true }),
+  },
   agentWorkflows: {
     list: (workspaceId: string) => request<import("./agentWorkflow").AgentWorkflow[]>(`/agent/workflows?workspaceId=${encodeURIComponent(workspaceId)}`),
     create: (workspaceId: string, input: import("./agentWorkflow").AgentWorkflowInput) => request<{ id: string }>(`/agent/workflows?workspaceId=${encodeURIComponent(workspaceId)}`, { method: "POST", body: JSON.stringify(input), _skipOfflineQueue: true }),

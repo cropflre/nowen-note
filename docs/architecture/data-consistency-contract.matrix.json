@@ -186,6 +186,7 @@
       "title": "跨账号跨服务端 Outbox 不得串用",
       "status": "covered",
       "checks": [
+        {"file": "backend/tests/agent-workflow.test.ts", "case": "P2 management routes reject PATs, foreign templates and forged schema properties"},
         {"file": "backend/tests/agent-workflow.test.ts", "case": "explicit scope excludes child notebooks when requested and never reads foreign notes"},
         { "file": "backend/tests/agent.test.ts", "case": "cross user, restricted tokens, locked notes and disabled AI are denied before model access" },
         { "file": "backend/tests/remote-image-localization-service.test.ts", "case": "automatic scan skips notes moved into a workspace after the job was created (DCC-006)" },

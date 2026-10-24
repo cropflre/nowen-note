@@ -3361,7 +3361,10 @@
       "failed": "执行失败",
       "interrupted": "已中断，需核查",
       "partial": "部分完成",
-      "pending": "待执行"
+      "pending": "待执行",
+      "attempted": "调用已发出",
+      "confirmed": "结果已确认",
+      "uncertain": "结果待核查"
     },
     "tools": {
       "get_current_note_context": "读取当前笔记",
@@ -3370,7 +3373,8 @@
       "propose_workflow": "生成流程预览",
       "draft_tasks": "生成任务草稿",
       "create_note": "创建笔记",
-      "create_tasks": "批量创建任务"
+      "create_tasks": "批量创建任务",
+      "create_extensions": "执行已审批工具"
     },
     "errors": {
       "AGENT_REQUEST_FAILED": "请求失败，请检查连接后重试。",
@@ -3408,7 +3412,21 @@
       "AI_INVALID_JSON": "任务模型返回了无效 JSON，请重新生成。",
       "AI_INVALID_FORMAT": "任务草稿格式无效，请重新生成。",
       "AI_INVALID_DATES": "任务模型返回了无效日期，请重新生成。",
-      "AI_TIMEOUT": "任务草稿生成超时，请重新发起。"
+      "AI_TIMEOUT": "任务草稿生成超时，请重新发起。",
+      "TEMPLATE_NOT_FOUND": "模板不存在或无权访问。",
+      "TEMPLATE_CHANGED": "模板已更改，请重新选择模板并生成提案。",
+      "TOOL_GRANT_REVOKED": "所需能力未授权、已撤销或工具已更新，请重新核对模板。",
+      "EXTENSION_RESULT_UNCERTAIN": "外部调用结果无法安全重试，请先到目标服务核查，避免重复操作。",
+      "MCP_URL_DENIED": "仅支持无 URL 凭据或查询参数的公网 HTTPS 接口。",
+      "MCP_REQUEST_FAILED": "外部工具请求失败，请核对协议版本与连接配置。",
+      "MCP_RESPONSE_INVALID": "外部工具返回的协议数据无效。",
+      "MCP_SCHEMA_UNSUPPORTED": "此工具的参数声明不受支持。",
+      "MCP_CATALOG_LIMIT": "工具目录超出支持范围，请缩小工具列表。",
+      "CONNECTION_NOT_FOUND": "连接不存在或无权访问。",
+      "CONNECTION_LIMIT": "已达到连接数量上限。",
+      "TEMPLATE_LIMIT": "已达到模板数量上限。",
+      "AGENT_TRIGGER_DENIED": "触发事件超出模板范围，未运行 Agent。",
+      "WEBHOOK_SIGNATURE_REQUIRED": "Agent Webhook 必须启用签名验证。"
     },
     "workflow": {
       "title": "笔记本 Agent",
@@ -3434,7 +3452,8 @@
       "refreshWarning": "结果已创建，但本机任务缓存刷新失败。请检查结果入口与同步状态，不要再次创建。",
       "action": {
         "note": "创建笔记",
-        "tasks": "批量创建任务"
+        "tasks": "批量创建任务",
+        "extensions": "外部工具动作"
       },
       "openNote": "打开已创建笔记",
       "openTask": "打开任务 {{count}}",
@@ -3442,6 +3461,52 @@
       "checkResults": "核查执行状态",
       "uncertain": "审批执行结果暂不确定，请先核查执行状态，再决定后续操作。",
       "sourceVersion": "读取时版本 {{version}}"
+    },
+    "templates": {
+      "title": "模板与自动整理",
+      "boundary": "模板限定范围与工具。自动触发只生成提案，所有创建与外部调用仍需审批。",
+      "select": "选择 Agent 模板",
+      "new": "新建模板",
+      "fromPrompt": "从已有 Prompt 创建",
+      "choosePrompt": "选择个人 Prompt",
+      "name": "模板名称",
+      "scope": "模板笔记本范围",
+      "instruction": "模板指令",
+      "permissions": "允许的能力",
+      "allowNote": "允许提议新建笔记",
+      "allowTasks": "允许提议批量任务",
+      "save": "保存模板",
+      "use": "使用模板",
+      "remove": "删除模板",
+      "custom": "改用自定义请求",
+      "recurring": "定期或事件触发整理",
+      "trigger": "触发方式",
+      "daily": "每天",
+      "weekly": "每周",
+      "event": "事件发生时",
+      "webhook": "签名 Webhook",
+      "time": "执行时间",
+      "timezone": "时区",
+      "weekday": "星期",
+      "note_created": "新建笔记",
+      "note_updated": "笔记更新",
+      "task_completed": "任务完成",
+      "createAutomation": "创建待启用整理计划",
+      "credentials": "Webhook 凭据仅显示本次，请安全保存；启用后按接口文档签名调用。",
+      "enabled": "已启用",
+      "disabled": "已暂停",
+      "enable": "启用",
+      "disable": "暂停",
+      "connections": "外部工具连接（MCP）",
+      "mcpBoundary": "仅支持公网 HTTPS、MCP 2026-07-28；不允许本机、内网或重定向。只开放列出的工具，调用前仍需核对参数并审批。插件仅开放官方或已验证的沙箱工具，不授予笔记库或网络访问权限。",
+      "connectionName": "连接名称",
+      "url": "HTTPS 接口地址",
+      "token": "访问令牌（可选）",
+      "toolNames": "允许的工具名称（逗号分隔）",
+      "saveConnection": "保存连接",
+      "discover": "核查可用工具",
+      "revoke": "撤销连接",
+      "externalApproval": "外部动作：审批后发送以下参数"
     }
   }
 }

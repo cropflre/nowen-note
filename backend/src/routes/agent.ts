@@ -7,6 +7,7 @@ import { getUserAISettings, isManualAIEnabled } from "../services/user-ai-settin
 import { bodyLimit } from "hono/body-limit";
 import { agentWorkflowRuntime } from "../agent/workflowRuntime.js";
 import { workflowInput } from "../agent/workflowTools.js";
+import p2Routes from "../agent/p2Routes.js";
 const app = new Hono();
 app.use("*", async (c, next) => {
   if (!c.req.header("X-User-Id")) return c.json({ code: "UNAUTHORIZED" }, 401);
@@ -17,10 +18,13 @@ app.use("*", async (c, next) => {
 });
 app.onError((error, c) => {
   if (error instanceof AgentError) return c.json({ code: error.code, error: error.code }, error.status as 400);
+  const coded = error as { code?: string; status?: number };
+  if (coded.code && coded.status) return c.json({ code: coded.code, error: coded.code }, coded.status as 400);
   const code = error instanceof z.ZodError || error instanceof SyntaxError ? "INVALID_INPUT" : "AGENT_REQUEST_FAILED";
   return c.json({ code, error: code }, 400);
 });
 app.get("/capabilities", c => c.json({ enabled: process.env.NOWEN_AGENT_ENABLED !== "false" && isManualAIEnabled(c.req.header("X-User-Id")!), ...agentModelCapabilities(getUserAISettings(c.req.header("X-User-Id")!)), verification: "actual_run", formats: ["markdown", "tiptap-json"], maxContextChars: 48000 }));
+app.route("/library", p2Routes);
 const workspace = (value: string | undefined) => !value || value === "personal" ? null : value;
 app.use("/workflows/*", bodyLimit({ maxSize: 64000 }));
 app.get("/workflows", c => c.json(agentWorkflowRuntime.list(c.req.header("X-User-Id")!, workspace(c.req.query("workspaceId")))));

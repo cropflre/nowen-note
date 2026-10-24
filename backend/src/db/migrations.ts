@@ -1,3 +1,4 @@
+import { agentP2Migration } from "./agentP2Migration.js";
 import { agentWorkflowMigration } from "./agentWorkflowMigration.js";
 import { agentMigration } from "./agentMigration.js";
 import { noteDeletionLifecycleMigration } from "./noteDeletionLifecycleMigration.js";
@@ -447,6 +448,7 @@ export const MIGRATIONS: Migration[] = [
   encryptedNoteDecryptionMigration,
   agentMigration,
   agentWorkflowMigration,
+  agentP2Migration,
 ].sort((a, b) => a.version - b.version);
 
 export const CURRENT_SCHEMA_VERSION: number = MIGRATIONS.reduce(

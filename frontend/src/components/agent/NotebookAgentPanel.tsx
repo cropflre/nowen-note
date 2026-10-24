@@ -1,3 +1,5 @@
+import AgentTemplates from "./AgentTemplates";
+import type { AgentTemplate } from "@/lib/agentTemplates";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { api } from "@/lib/api";
@@ -17,6 +19,7 @@ export default function NotebookAgentPanel({ workspaceId, onNavigateToNote }: { 
   const [run, setRun] = useState<AgentWorkflow | null>(null), [history, setHistory] = useState<AgentWorkflow[]>([]);
   const [busy, setBusy] = useState(false), [enabled, setEnabled] = useState(false), [error, setError] = useState("");
   const [uncertain, setUncertain] = useState(false);
+  const [showLibrary, setShowLibrary] = useState(false), [template, setTemplate] = useState<AgentTemplate | null>(null);
   const alive = useRef(true), lock = useRef(false), stopped = useRef(false), pendingId = useRef<string | null>(null), currentRun = useRef<AgentWorkflow | null>(null);
   const current = useCallback(() => alive.current && isTaskComposerContextCurrent(context), [context]);
   const errorText = useCallback((value: unknown) => {
@@ -50,6 +53,12 @@ export default function NotebookAgentPanel({ workspaceId, onNavigateToNote }: { 
     return () => clearTimeout(timer);
   }, [run, workspaceId, current, update, errorText]);
 
+  useEffect(() => {
+    if (busy || workflowActive(run)) return;
+    const timer = setInterval(() => { void reloadHistory().catch(() => undefined); }, 5000);
+    return () => clearInterval(timer);
+  }, [busy, run, reloadHistory]);
+
   async function openHistory(id: string) {
     if (lock.current || !current()) return;
     lock.current = true; setBusy(true); setError("");
@@ -63,7 +72,7 @@ export default function NotebookAgentPanel({ workspaceId, onNavigateToNote }: { 
     lock.current = true; stopped.current = false; pendingId.current = null; setBusy(true); setError("");
     try {
       const created = await api.agentWorkflows.create(workspaceId, {
-        notebookId: bookId, includeChildren, instruction, lang: i18n.language.startsWith("zh") ? "zh-CN" : "en",
+        ...(template ? { templateId: template.id, templateRevision: template.revision } : {}), notebookId: bookId, includeChildren, instruction, lang: i18n.language.startsWith("zh") ? "zh-CN" : "en",
         timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
         ...(linkCurrent && state.activeNote ? { linkNoteId: state.activeNote.id } : {}),
       });
@@ -128,11 +137,14 @@ export default function NotebookAgentPanel({ workspaceId, onNavigateToNote }: { 
   return <section aria-label={t("agent.workflow.title")} className="flex min-h-0 flex-1 flex-col gap-3 overflow-auto p-3 md:p-5">
     <h2 className="font-semibold">{t("agent.workflow.title")}</h2>
     <p className="text-xs text-tx-secondary">{t("agent.workflow.privacy")}</p>
-    <label className="text-sm">{t("agent.workflow.notebook")}<select aria-label={t("agent.workflow.notebook")} className="mt-1 block w-full rounded border border-app-border bg-app-bg p-2" value={bookId} disabled={busy || workflowActive(run)} onChange={e => setBookId(e.target.value)}><option value="">{t("agent.workflow.choose")}</option>{books.map(book => <option key={book.id} value={book.id}>{book.name}</option>)}</select></label>
-    <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={includeChildren} disabled={busy || workflowActive(run)} onChange={e => setIncludeChildren(e.target.checked)} />{t("agent.workflow.children")}</label>
-    {state.activeNote && <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={linkCurrent} disabled={busy || workflowActive(run)} onChange={e => setLinkCurrent(e.target.checked)} />{t("agent.workflow.linkCurrent", { title: state.activeNote.title })}</label>}
+    <Button variant="outline" disabled={busy || workflowActive(run)} onClick={() => setShowLibrary(!showLibrary)}>{t("agent.templates.title")}</Button>
+    {showLibrary && <AgentTemplates workspaceId={workspaceId} books={books} onUse={value => { setTemplate(value); setBookId(value.config.input.notebookId); setInstruction(value.config.input.instruction); setIncludeChildren(value.config.input.includeChildren); setLinkCurrent(false); setShowLibrary(false); }} />}
+    {template && <div className="flex items-center gap-2 text-sm"><span>{template.name}</span><Button variant="outline" size="sm" disabled={busy || workflowActive(run)} onClick={() => setTemplate(null)}>{t("agent.templates.custom")}</Button></div>}
+    <label className="text-sm">{t("agent.workflow.notebook")}<select aria-label={t("agent.workflow.notebook")} className="mt-1 block w-full rounded border border-app-border bg-app-bg p-2" value={bookId} disabled={busy || workflowActive(run) || !!template} onChange={e => setBookId(e.target.value)}><option value="">{t("agent.workflow.choose")}</option>{books.map(book => <option key={book.id} value={book.id}>{book.name}</option>)}</select></label>
+    <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={includeChildren} disabled={busy || workflowActive(run) || !!template} onChange={e => setIncludeChildren(e.target.checked)} />{t("agent.workflow.children")}</label>
+    {state.activeNote && <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={linkCurrent} disabled={busy || workflowActive(run) || !!template} onChange={e => setLinkCurrent(e.target.checked)} />{t("agent.workflow.linkCurrent", { title: state.activeNote.title })}</label>}
     <label className="text-sm" htmlFor="notebook-agent-request">{t("agent.request")}</label>
-    <textarea id="notebook-agent-request" className="min-h-24 w-full rounded border border-app-border bg-app-bg p-2 text-sm" value={instruction} maxLength={4000} placeholder={t("agent.workflow.placeholder")} onChange={e => setInstruction(e.target.value)} />
+    <textarea id="notebook-agent-request" disabled={!!template} className="min-h-24 w-full rounded border border-app-border bg-app-bg p-2 text-sm" value={instruction} maxLength={4000} placeholder={t("agent.workflow.placeholder")} onChange={e => setInstruction(e.target.value)} />
     <div className="flex flex-wrap gap-2"><Button disabled={!enabled || busy || workflowActive(run) || !bookId || !instruction.trim()} onClick={() => void generate()}>{t("agent.generate")}</Button>{(busy || workflowActive(run)) && <Button variant="outline" onClick={() => void act("cancel")}>{t("agent.stop")}</Button>}</div>
     {(!enabled || !books.length) && <p className="text-sm text-tx-secondary">{t("agent.workflow.unavailable")}</p>}
     {history.length > 0 && <label className="text-sm">{t("agent.workflow.history")}<select aria-label={t("agent.workflow.history")} value={run?.id || ""} disabled={busy || workflowActive(run)} className="mt-1 block w-full rounded border border-app-border bg-app-bg p-2" onChange={e => { if (e.target.value) void openHistory(e.target.value); }}><option value="">{t("agent.workflow.choose")}</option>{history.map(item => <option value={item.id} key={item.id}>{new Date(item.createdAt).toLocaleString()} · {t(`agent.states.${item.status}`)}</option>)}</select></label>}
@@ -146,6 +158,9 @@ export default function NotebookAgentPanel({ workspaceId, onNavigateToNote }: { 
       {run.preview.note && <div className="rounded border border-app-border p-3"><h3 className="font-medium">{t("agent.workflow.newNote")}: {run.preview.note.title}</h3><pre className="mt-2 whitespace-pre-wrap break-words text-sm">{run.preview.note.content}</pre></div>}
       {run.preview.tasks && <div className="space-y-2"><h3 className="font-medium">{t("agent.workflow.tasks", { count: run.preview.tasks.tasks.length })}</h3><p className="text-xs text-tx-secondary">{t("agent.workflow.linkPreview")}</p>{run.preview.tasks.tasks.map(task => <div key={task.clientId} className="rounded border border-app-border p-3 text-sm"><strong>{task.title}</strong><p className="whitespace-pre-wrap break-words">{task.description}</p><p className="text-xs text-tx-secondary">{t("agent.workflow.taskDetails", { priority: task.priority, start: task.startDate || "—", due: task.dueAt || task.dueDate || "—", repeat: t(`taskComposer.repeat.${task.repeatRule}`, { defaultValue: task.repeatRule }) })}</p><p className="text-xs text-tx-secondary">{t("agent.workflow.repeatDetails", { timezone: run.preview!.tasks!.timezone, interval: task.repeatInterval, end: task.repeatEndDate || "—", repeatCount: task.repeatEndCount || "—" })}</p>{task.reason && <p className="text-xs">{task.reason}</p>}{task.warnings.length > 0 && <p className="text-xs text-amber-600">{task.warnings.map(warning => t(`taskComposer.warnings.${warning}`, { defaultValue: t("agent.workflow.reviewWarning") })).join(" · ")}</p>}</div>)}</div>}
     </>}
+    {run?.preview?.extensionCalls?.map((call, index) => <div key={index} className="rounded border border-app-border p-3 text-sm"><h3 className="font-medium">{t("agent.templates.externalApproval")}</h3><p className="break-all">{call.tool?.name || call.toolId} · {call.tool?.destination}</p><pre className="whitespace-pre-wrap break-all">{JSON.stringify(call.input, null, 2)}</pre></div>)}
+    {run?.preview?.extensionResults?.map((result, index) => <pre key={index} className="whitespace-pre-wrap break-all rounded border border-app-border p-3 text-xs">{JSON.stringify(result, null, 2)}</pre>)}
+    {run?.extensionReceipts?.map(receipt => <p className="break-all text-xs" key={receipt.callIndex}>{receipt.toolId} · {t(`agent.states.${receipt.status}`, { defaultValue: receipt.status })}</p>)}
     {uncertain && run && <div role="alert" className="space-y-2 text-sm"><p>{t("agent.workflow.uncertain")}</p><Button variant="outline" disabled={busy} onClick={() => void openHistory(run.id)}>{t("agent.workflow.checkResults")}</Button></div>}
     {run?.status === "waiting_approval" && <div className="sticky bottom-0 flex flex-wrap gap-2 border-t border-app-border bg-app-surface py-3"><Button disabled={busy || uncertain} onClick={() => void act("approve")}>{t("agent.workflow.approve")}</Button><Button variant="outline" disabled={busy} onClick={() => void act("reject")}>{t("agent.reject")}</Button></div>}
     {run?.actions.map(action => <div key={action.kind} className="rounded border border-app-border p-3 text-sm"><p>{t(`agent.workflow.action.${action.kind}`)} · {t(`agent.states.${action.status}`)}</p><div className="mt-2 flex flex-wrap gap-2">{action.resourceIds.map((id, index) => <Button variant="outline" size="sm" disabled={busy} key={id} onClick={() => { if (action.kind === "note") onNavigateToNote?.(id); else void openTask(id); }}>{t(action.kind === "note" ? "agent.workflow.openNote" : "agent.workflow.openTask", { count: index + 1 })}</Button>)}</div></div>)}

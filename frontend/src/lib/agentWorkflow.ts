@@ -5,15 +5,20 @@ export interface AgentWorkflow {
   createdAt: string; updatedAt: string; errorCode: string | null;
   steps: Array<{ sequence: number; toolName: string; status: string }>;
   sources?: Array<{ id: string; title: string; version: number }>;
-  actions: Array<{ kind: "note" | "tasks"; status: string; resourceIds: string[]; errorCode: string | null }>;
+  actions: Array<{ kind: "note" | "tasks" | "extensions"; status: string; resourceIds: string[]; errorCode: string | null }>;
+  extensionReceipts?: Array<{ callIndex: number; toolId: string; status: string }>;
   preview?: {
     summary: string; note?: { title: string; content: string };
     tasks?: { previewId: string; timezone: string; warnings: string[]; tasks: Omit<TaskCandidate, "selected" | "allowDuplicate">[] };
     sources: Array<{ id: string; title: string; version: number }>;
     contextTruncated: boolean; linkNoteId: string | null; token?: string;
+    extensionCalls?: Array<{ toolId: string; input: Record<string, unknown>; tool: import("./agentTemplates").AgentExtension }>;
+    extensionResults?: unknown[];
   };
 }
 export interface AgentWorkflowInput {
+  templateId?: string;
+  templateRevision?: string;
   notebookId: string; includeChildren: boolean; instruction: string;
   lang: "zh-CN" | "en"; timezone: string; linkNoteId?: string;
 }

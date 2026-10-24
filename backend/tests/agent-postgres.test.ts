@@ -14,6 +14,10 @@ test("PostgreSQL Agent metadata migration is repeatable and enforces active-run 
     await client.query(sql); await client.query(sql);
     const workflows = fs.readFileSync(new URL("../src/db/postgres/migrations/0137-agent-notebook-workflows.sql", import.meta.url), "utf8");
     await client.query(workflows); await client.query(workflows);
+    await client.query('CREATE TABLE automation_workflow_runs(id TEXT PRIMARY KEY)');
+    const p2 = fs.readFileSync(new URL("../src/db/postgres/migrations/0138-agent-templates.sql", import.meta.url), "utf8");
+    await client.query(p2); await client.query(p2);
+    await client.query(`INSERT INTO agent_templates(id,"userId",name,"configJson",revision,"createdAt","updatedAt") VALUES ('template','owner','Test','{}','revision','2026-10-24','2026-10-24')`);
     await client.query(`INSERT INTO agent_workflows(id,"userId","notebookId",status,model,"createdAt","updatedAt") VALUES ('workflow','owner','notebook','running','model','2026-10-23','2026-10-23')`);
     await assert.rejects(client.query(`INSERT INTO agent_workflows(id,"userId","notebookId",status,model,"createdAt","updatedAt") SELECT 'duplicate',"userId","notebookId",status,model,"createdAt","updatedAt" FROM agent_workflows`), /duplicate key/);
     assert.equal((await client.query('SELECT "sourceRefs" FROM agent_workflows')).rows[0].sourceRefs, "[]");
@@ -28,5 +32,6 @@ test("PostgreSQL Agent metadata migration is repeatable and enforces active-run 
     await client.query("DELETE FROM users WHERE id='owner'");
     assert.equal((await client.query("SELECT count(*)::int AS n FROM agent_approvals")).rows[0].n, 0);
     assert.equal((await client.query("SELECT count(*)::int AS n FROM agent_workflow_actions")).rows[0].n, 0);
+    assert.equal((await client.query("SELECT count(*)::int AS n FROM agent_templates")).rows[0].n, 0);
   } finally { await client.query("ROLLBACK").catch(() => undefined); await client.query(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`); await client.end(); }
 });
