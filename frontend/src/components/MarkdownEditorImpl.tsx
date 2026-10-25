@@ -135,6 +135,7 @@ import { toast } from "@/lib/toast";
 import { copyText } from "@/lib/clipboard";
 import { openTaskQuickCapture } from "@/lib/taskInboxApi";
 import { findTextAction, type TextAction } from "@/lib/textActions";
+import { resolveAttachmentAccessUrl } from "@/lib/noteAttachmentAccessBridge";
 import { resolveEditorBubblePosition } from "@/lib/editorBubbleSelection";
 import { cn } from "@/lib/utils";
 import { normalizeToMarkdown, markdownToPlainText } from "@/lib/contentFormat";
@@ -2715,7 +2716,7 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
           )}
           {selectedTextAction?.type === "url" && (
             <ToolbarButton
-              onClick={() => window.open(selectedTextAction.href, '_blank', 'noopener')}
+              onClick={() => window.open(resolveAttachmentAccessUrl(selectedTextAction.href), '_blank', 'noopener')}
               title={selectedTextAction.value}
             >
               <ExternalLink size={14} />
