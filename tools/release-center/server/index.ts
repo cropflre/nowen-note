@@ -7,6 +7,7 @@ import { Store } from "./store.ts";
 import { Engine } from "./engine.ts";
 import { createApp } from "./app.ts";
 import { Channels } from "./channels.ts";
+import { Cloud } from "./cloud.ts";
 import { Publication } from "./publication.ts";
 
 const root = fileURLToPath(new URL("../../../", import.meta.url));
@@ -46,7 +47,9 @@ if (process.argv.includes("--dev")) {
   });
 }
 engine.start();
+const cloud = new Cloud(store, planner.github, root, process.env.NOWEN_RELEASE_CLOUD_PUBLISH === "1");
 const server = createApp(engine, {
+  cloud,
   dist: join(tool, "dist"),
   dev: vite?.middlewares,
   channels: new Channels(store, planner.github, { storeToken }),

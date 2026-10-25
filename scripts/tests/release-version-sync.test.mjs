@@ -56,7 +56,7 @@ test("release dry-run leaves root, backend and Android versions unchanged", { sk
 });
 
 test("release entry sets a 4GB heap default while preserving explicit limits and other options", { skip: process.platform === "win32" }, async () => {
-  const guard = await readFile(new URL("../release.sh", import.meta.url), "utf8");
+  const guard = await readFile(new URL("../release-local.sh", import.meta.url), "utf8");
   const initialization = guard.slice(0, guard.indexOf("SCRIPT_DIR="));
   for (const [existing, expected] of [
     ["", "--max-old-space-size=4096"],

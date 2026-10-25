@@ -1,0 +1,122 @@
+name: Publish Verified Release
+run-name: Release publish ${{ inputs.request_id }}
+on:
+  workflow_dispatch:
+    inputs:
+      request_id: { description: Unique publication request UUID, required: true, type: string }
+      source_run_id: { description: Successful Unified Release Build run ID, required: true, type: string }
+      source_attempt: { description: Exact build attempt, required: true, type: string }
+      version: { description: Built X.Y.Z version, required: true, type: string }
+      channels: { description: 'Explicit destinations: github,docker,testflight', required: true, type: string }
+      confirmation: { description: Retype the exact version to authorize the selected destinations, required: true, type: string }
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: release-publish-${{ inputs.version }}
+  cancel-in-progress: false
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    outputs:
+      channels: ${{ steps.channels.outputs.channels }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { persist-credentials: false }
+      - uses: actions/setup-node@v4
+        with: { node-version: '22' }
+      - name: Validate inputs and exact successful build before downloading
+        id: channels
+        env: &publish-inputs
+          GH_TOKEN: ${{ github.token }}
+          RC_VERSION: ${{ inputs.version }}
+          RC_REQUEST_ID: ${{ inputs.request_id }}
+          RC_SOURCE_RUN: ${{ inputs.source_run_id }}
+          RC_SOURCE_ATTEMPT: ${{ inputs.source_attempt }}
+          RC_CHANNELS: ${{ inputs.channels }}
+          RC_CONFIRMATION: ${{ inputs.confirmation }}
+          RC_PUBLISH_ENABLED: ${{ vars.NOWEN_RELEASE_CLOUD_PUBLISH }}
+        run: node scripts/release-cloud-publish.mjs preflight
+      - uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.source_run_id }}
+          pattern: release-*
+          path: cloud-artifacts
+      - run: npm ci --ignore-scripts
+      - run: node scripts/release-cloud-ci.mjs verify
+        env: *publish-inputs
+  docker:
+    needs: verify
+    if: contains(fromJSON(needs.verify.outputs.channels), 'docker')
+    environment: release-docker
+    concurrency:
+      group: release-docker-hub
+      cancel-in-progress: false
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with: { persist-credentials: false }
+      - uses: actions/setup-node@v4
+        with: { node-version: '22' }
+      - uses: actions/download-artifact@v4
+        with: &download
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.source_run_id }}
+          pattern: release-*
+          path: cloud-artifacts
+      - run: npm ci --ignore-scripts
+      - run: node scripts/release-cloud-ci.mjs verify
+        env: *publish-inputs
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - run: node scripts/release-cloud-publish.mjs docker
+        env: *publish-inputs
+  github:
+    needs: [verify, docker]
+    if: ${{ !cancelled() && needs.verify.result == 'success' && contains(fromJSON(needs.verify.outputs.channels), 'github') && (needs.docker.result == 'success' || needs.docker.result == 'skipped') }}
+    environment: release-github
+    permissions:
+      contents: write
+      actions: read
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with: { persist-credentials: false }
+      - uses: actions/setup-node@v4
+        with: { node-version: '22' }
+      - uses: actions/download-artifact@v4
+        with: *download
+      - run: npm ci --ignore-scripts
+      - run: node scripts/release-cloud-ci.mjs verify
+        env: *publish-inputs
+      - run: node scripts/release-cloud-publish.mjs github
+        env: *publish-inputs
+  testflight:
+    needs: verify
+    if: contains(fromJSON(needs.verify.outputs.channels), 'testflight')
+    environment: release-testflight
+    runs-on: macos-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with: { persist-credentials: false }
+      - uses: actions/setup-node@v4
+        with: { node-version: '22' }
+      - uses: actions/download-artifact@v4
+        with: *download
+      - run: npm ci --ignore-scripts
+      - run: node scripts/release-cloud-ci.mjs verify
+        env: *publish-inputs
+      - name: Upload the verified IPA without rebuilding
+        env:
+          APPSTORE_ISSUER_ID: ${{ secrets.APPSTORE_ISSUER_ID }}
+          APPSTORE_API_KEY_ID: ${{ secrets.APPSTORE_API_KEY_ID }}
+          APPSTORE_API_PRIVATE_KEY: ${{ secrets.APPSTORE_API_PRIVATE_KEY }}
+        run: node scripts/release-cloud-publish.mjs testflight

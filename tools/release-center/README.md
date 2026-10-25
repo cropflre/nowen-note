@@ -1,3 +1,11 @@
+# Nowen Release Center · GitHub Actions
+
+新版“新建发布”以 GitHub Actions 为统一构建入口，脚本和页面只触发、跟踪和展示结果。覆盖桌面、Android、iOS、Store AppX、Docker 双架构、NAS 包与扩展；正式发布使用同次已校验产物，需独立确认，默认关闭。配置、命令和边界见 [GitHub Actions 使用说明](CLOUD-RELEASE.md)。
+
+本轮通过本地契约、构建及模拟 GitHub 边界的浏览器检查；尚未提交/注册新入口，也未进行新的真实远端全平台构建或正式发布验收。以下 Phase 1–3 内容保留为历史路径说明，不能替代新版验收。
+
+The new release flow builds exclusively in GitHub Actions. The script and console dispatch and follow the same workflows. Publishing reuses verified artifacts and remains explicitly confirmed and disabled by default. See [the current guide](CLOUD-RELEASE.md); the older phase descriptions below are historical.
+
 # Nowen Release Center · Phase 3
 
 独立维护者控制台，面向本机单人使用。与 Nowen Note 的前端、后端、Electron 和用户数据隔离。提供只读总览、版本预检、发布计划、Dry Run、隔离桌面调试构建、任务进度、日志和审计；Phase 2A 增加调试产物下载复核与本地验收记录。

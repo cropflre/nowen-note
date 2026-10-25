@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-const guard = (await readFile(new URL("../release.sh", import.meta.url), "utf8")).replace(/\r\n/g, "\n");
+const guard = (await readFile(new URL("../release-local.sh", import.meta.url), "utf8")).replace(/\r\n/g, "\n");
 const legacy = (await readFile(new URL("../release-legacy.sh", import.meta.url), "utf8")).replace(/\r\n/g, "\n");
 
 async function runGuard(t, { args = [], state = "completed:success", checkStatus = 0, upload = true, failMetadata = false, realLegacy = false, releaseExists = false, published = false, wizardOnly = false, ciPlatforms = "" } = {}) {

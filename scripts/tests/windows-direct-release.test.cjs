@@ -22,7 +22,7 @@ test("Direct Windows Full/Lite builds keep NSIS and portable targets", () => {
 
 test("Release CI does not require a third-party signing service", () => {
   const yml = text(".github/workflows/release.yml");
-  const guard = text("scripts/release.sh");
+  const guard = text("scripts/release-local.sh");
   assert.doesNotMatch(yml, /signpath|SIGNPATH|NOWEN_WINDOWS_PUBLISHER_NAME/i);
   assert.doesNotMatch(guard, /signpath|SIGNPATH|NOWEN_WINDOWS_PUBLISHER_NAME/i);
   assert.match(yml, /nowen-note-win-direct/);

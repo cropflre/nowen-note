@@ -58,7 +58,7 @@ test("Windows GitHub Direct EXE never requires third-party signer", async () => 
 });
 
 test("local release waits for same-tag CI collection and checks receipt before publication without transferring binaries", async () => {
-  const guard = await readRepoFile("scripts/release.sh");
+  const guard = await readRepoFile("scripts/release-local.sh");
   assert.match(guard, /--event push/);
   assert.match(guard, /--commit "\$tag_sha"/);
   assert.match(guard, /--branch "\$TAG"/);
@@ -97,7 +97,7 @@ test("legacy upload messages do not announce completed guarded publication", asy
 });
 
 test("完整桌面 Release 会写明四个平台支持情况", async () => {
-  const releaseGuard = await readRepoFile("scripts/release.sh");
+  const releaseGuard = await readRepoFile("scripts/release-local.sh");
   assert.match(releaseGuard, /ensure_desktop_platform_notes/);
   assert.match(releaseGuard, /### 桌面端支持/);
   assert.match(releaseGuard, /Windows x64（GitHub 直接下载，安装包当前未提供代码签名）/);

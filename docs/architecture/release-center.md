@@ -1,3 +1,5 @@
+> 2026-10-25：新增统一 Actions 构建、触发脚本与页面、独立发布工作流。当前范围、配置及未验收边界见 [新版说明](../../tools/release-center/CLOUD-RELEASE.md)。以下为历史设计和验收记录。
+
 # Nowen Release Center：审计与 Phase 1 设计
 
 > Phase 2B 已编写既有正式构建接管、完整桌面复核、Draft/审批/发布源码；写操作默认关闭，运行测试按要求延后，独立正式构建编排仍待实现。见 [Phase 2B 范围与风险](../qa/v1.5.2/release-center-phase2b.md)。下文为各阶段历史审计，不代表新增流程验收通过。
