@@ -16,9 +16,16 @@ const root = path.resolve(__dirname, "..");
 const srcSvg = path.join(root, "frontend/public/favicon.svg");
 const outPng = path.join(root, "electron/icon.png");
 const linuxIconsDir = path.join(root, "build/icons");
+const appxIconsDir = path.join(root, "build/appx");
 
 const SIZE = 1024; // electron-builder 推荐的母图尺寸
 const LINUX_ICON_SIZES = [16, 24, 32, 48, 64, 128, 256, 512];
+const APPX_ICONS = {
+  "StoreLogo.png": [50, 50],
+  "Square150x150Logo.png": [150, 150],
+  "Square44x44Logo.png": [44, 44],
+  "Wide310x150Logo.png": [310, 150],
+};
 
 async function main() {
   if (!fs.existsSync(srcSvg)) {
@@ -39,6 +46,7 @@ async function main() {
     .toBuffer();
 
   fs.mkdirSync(linuxIconsDir, { recursive: true });
+  fs.mkdirSync(appxIconsDir, { recursive: true });
   fs.writeFileSync(outPng, masterPng);
   await Promise.all(
     LINUX_ICON_SIZES.map((size) =>
@@ -46,6 +54,17 @@ async function main() {
         .resize(size, size)
         .png({ compressionLevel: 9 })
         .toFile(path.join(linuxIconsDir, `${size}x${size}.png`)),
+    ),
+  );
+  await Promise.all(
+    Object.entries(APPX_ICONS).map(([name, [width, height]]) =>
+      sharp(masterPng)
+        .resize(width, height, {
+          fit: "contain",
+          background: { r: 0, g: 0, b: 0, alpha: 0 },
+        })
+        .png({ compressionLevel: 9 })
+        .toFile(path.join(appxIconsDir, name)),
     ),
   );
 
@@ -56,6 +75,7 @@ async function main() {
   console.log(
     `[build-icon] 已生成 Linux 图标集 ${linuxIconsDir} (${LINUX_ICON_SIZES.join(", ")}px)`,
   );
+  console.log(`[build-icon] 已生成 Microsoft Store 磁贴图标 ${appxIconsDir}`);
 }
 
 main().catch((err) => {
