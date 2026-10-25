@@ -5,6 +5,8 @@ on:
     branches: [release/v1.5.2]
     paths:
       - 'electron/**'
+      - 'build/appx/**'
+      - 'scripts/build-icon.mjs'
       - 'frontend/src/components/DesktopUpdateCenterCore.tsx'
       - 'frontend/src/lib/desktopBridge.ts'
       - 'frontend/src/lib/updateExperience.ts'
@@ -32,6 +34,8 @@ jobs:
           node --check electron/storeIdentity.js
           node --check electron/updater.js
           node --check electron/preload.js
+      - name: Install packaging dependencies for contract tests
+        run: npm ci --ignore-scripts
       - name: Store/NSIS packaging isolation and runtime tests
         run: npm run test:microsoft-store
       - name: Install frontend dependencies for Store UI type-check
@@ -56,12 +60,12 @@ jobs:
         with:
           node-version: '22'
           cache: 'npm'
+      - name: Install root dependencies
+        run: npm ci
       - name: Validate Partner Center identity before heavy build
         shell: pwsh
         run: |
           node -e "const c=require('./electron/builder.store.config.js'); if(c.win.target[0].target!=='appx'||c.publish!==null) process.exit(1); console.log('Partner Center identity and isolated appx target validated')"
-      - name: Install root dependencies
-        run: npm ci
       - name: Install backend dependencies
         working-directory: backend
         run: npm ci
@@ -106,6 +110,16 @@ jobs:
             # accepted by the schema of that pinned release.
             $trust = @($manifest.SelectNodes("//*[local-name()='Capability' and @Name='runFullTrust']"))
             if ($trust.Count -eq 0) { throw 'runFullTrust capability missing from generated AppX manifest' }
+            foreach ($name in @('StoreLogo.png', 'Square150x150Logo.png', 'Square44x44Logo.png', 'Wide310x150Logo.png')) {
+              $asset = $package.GetEntry("assets/$name")
+              if (-not $asset) { throw "Store tile asset missing: $name" }
+              $stream = $asset.Open()
+              $hasher = [System.Security.Cryptography.SHA256]::Create()
+              try { $actual = [Convert]::ToHexString($hasher.ComputeHash($stream)) }
+              finally { $stream.Dispose(); $hasher.Dispose() }
+              $expected = (Get-FileHash -LiteralPath "build/appx/$name" -Algorithm SHA256).Hash
+              if ($actual -cne $expected) { throw "Store tile asset differs from Nowen branding: $name" }
+            }
             Write-Host "Verified Store package: $($files[0].Name), version=$($identity.Version), identity=$($identity.Name), runFullTrust=yes"
           } finally { $package.Dispose() }
       - name: Upload Store submission candidate (workflow artifact only)

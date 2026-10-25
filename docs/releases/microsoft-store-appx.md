@@ -24,12 +24,19 @@ Identity values are *public*, unlike signing keys. Accidentally overriding ident
 
 ## Build
 1. AppX candidate now builds automatically in the PR when the Store code changes (or open [Microsoft Store AppX workflow](https://github.com/cropflre/nowen-note/actions/workflows/microsoft-store-appx.yml).
-2. For a manual build, select `feat/ms-store-appx-v1-5-2` and click **Run workflow**. Once reviewed, official builds should use `release/v1.5.2`.
+2. For a manual build, select the reviewed release tag or Store repair branch and click **Run workflow**. Record the resolved commit SHA with the artifact; do not reuse a package from an older version.
 3. Wait for `contracts` and `store-package` jobs. Download `nowen-note-store-appx` artifact from this run.
 4. Upload the verified `.appx` to your reserved Nowen Note application's Partner Center submission. Microsoft Store signs the release as part of its publication process. An unsigned local package may not install via `Add-AppxPackage`.
 5. Provide store listing description, screenshots, privacy/support policy, category, age rating, availability, and certification notes. Publish only after passing Store certification.
 
 Local test/config: `npm run test:microsoft-store`. On a Windows machine, `npm run electron:build:store` prepares the embedded runtime, backend, frontend and native modules, then invokes the independent Store builder. No GitHub Actions Variables are needed.
+
+## Tile assets and certification resubmission
+- The October 16, 2026 certification report rejected `Nowen-Note-Store-1.5.1-x64.appx` under **10.1.1.11 On Device Tiles** because it contained a default tile image.
+- `build/appx/` supplies all four assets that electron-builder otherwise replaces with sample artwork: StoreLogo, Square44x44Logo, Square150x150Logo and Wide310x150Logo. Regenerate these from the existing Nowen SVG with `npm run build:icon`.
+- Store contract tests exercise electron-builder's asset selection to reject sample fallback. The Windows workflow also compares each packaged asset's SHA-256 with the reviewed source asset before uploading the candidate.
+- Both workflow jobs install root packaging dependencies before loading builder configuration. A local test run with preinstalled dependencies alone does not verify a clean CI checkout.
+- Keep a repaired Store candidate's commit SHA separate from the original release tag. Passing these checks does not establish Microsoft certification or real-Windows acceptance.
 
 ## Mandatory real-Windows acceptance before publication
 - Validate package identity, version, **full-trust execution**, launch via Start Menu, and actual Microsoft Store signing on a private Store flight. No CI test can substitute for installation.

@@ -2,6 +2,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const path = require("node:path");
+const fs = require("node:fs");
 const { spawnSync } = require("node:child_process");
 const repoRoot = path.resolve(__dirname, "../..");
 const configPath = path.join(repoRoot, "electron", "builder.store.config.js");
@@ -83,4 +84,29 @@ test("existing NSIS Full/Lite builder targets are unchanged", () => {
   assert.ok(full.win.target.some(t => t.target === "portable"));
   assert.ok(lite.win.target.some(t => t.target === "nsis"));
   assert.equal(full.directories.output, "dist-electron");
+});
+
+test("AppX uses Nowen tile assets without electron-builder sample fallback", async () => {
+  require("app-builder-lib");
+  const AppXTarget = require("app-builder-lib/out/targets/AppxTarget").default;
+  const assetsDir = path.join(repoRoot, "build/appx");
+  const sizes = {
+    "StoreLogo.png": [50, 50],
+    "Square150x150Logo.png": [150, 150],
+    "Square44x44Logo.png": [44, 44],
+    "Wide310x150Logo.png": [310, 150],
+  };
+  const assets = await AppXTarget.computeUserAssets(
+    { toVmFile: file => file, pathSep: path.sep },
+    path.join(repoRoot, "unused-vendor-assets"),
+    fs.existsSync(assetsDir) ? assetsDir : null,
+  );
+  assert.deepEqual(assets.userAssets.sort(), Object.keys(sizes).sort());
+  assert.equal(assets.allAssets.length, Object.keys(sizes).length);
+  for (const file of assets.allAssets) {
+    assert.equal(path.dirname(file), assetsDir, "sample AppX asset must never be used");
+    const png = fs.readFileSync(file);
+    assert.equal(png.subarray(0, 8).toString("hex"), "89504e470d0a1a0a");
+    assert.deepEqual([png.readUInt32BE(16), png.readUInt32BE(20)], sizes[path.basename(file)]);
+  }
 });
