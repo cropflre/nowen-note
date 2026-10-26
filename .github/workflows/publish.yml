@@ -1,0 +1,350 @@
+name: Publish all platforms (GitHub hosted)
+run-name: Publish ${{ github.ref_name }} (${{ inputs.publish && 'release' || 'draft' }})
+
+# Select an existing vX.Y.Z Tag under Run workflow. Never runs on PR code.
+on:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish Release and Docker images after all checks (false = Draft only)
+        type: boolean
+        default: false
+      update_latest:
+        description: Update Docker latest when publishing (disable for older maintenance releases)
+        type: boolean
+        default: true
+      upk:
+        description: Include both UGOS UPK architectures (existing separate packaging target)
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: nowen-full-release
+  cancel-in-progress: false
+defaults:
+  run:
+    shell: bash
+env:
+  NODE_OPTIONS: --max-old-space-size=4096
+
+jobs:
+  prepare:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    outputs:
+      version: ${{ steps.prepare.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - name: Check immutable tag, versions, Draft and required credentials
+        id: prepare
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HAS_ANDROID_SIGNING: ${{ secrets.NOWEN_ANDROID_KEYSTORE_B64 != '' && secrets.NOWEN_ANDROID_KEYSTORE_PASSWORD != '' && secrets.NOWEN_ANDROID_KEY_ALIAS != '' && secrets.NOWEN_ANDROID_KEY_PASSWORD != '' }}
+          HAS_ANDROID_CERT: ${{ vars.NOWEN_ANDROID_CERT_SHA256 != '' }}
+          HAS_DOCKER_LOGIN: ${{ secrets.DOCKERHUB_USERNAME != '' && secrets.DOCKERHUB_TOKEN != '' }}
+          HAS_TRUST_ROOTS: ${{ vars.NOWEN_OFFICIAL_REGISTRY_TRUST_ROOTS_JSON != '' }}
+        run: node scripts/release-github.mjs prepare
+      - name: Release regressions
+        run: npm run test:update-release
+
+  desktop:
+    needs: prepare
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    outputs:
+      source_run_id: ${{ steps.desktop.outputs.source_run_id }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - name: Wait for same-tag Windows Full/Lite, macOS and Linux build
+        id: desktop
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/release-github.mjs desktop
+
+  android:
+    needs: prepare
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            frontend/package-lock.json
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+      - run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0'
+      - run: npm ci --ignore-scripts && npm ci --prefix frontend
+      - name: Restore existing release signing identity
+        env:
+          NOWEN_ANDROID_KEYSTORE_B64: ${{ secrets.NOWEN_ANDROID_KEYSTORE_B64 }}
+          NOWEN_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.NOWEN_ANDROID_KEYSTORE_PASSWORD }}
+          NOWEN_ANDROID_KEY_ALIAS: ${{ secrets.NOWEN_ANDROID_KEY_ALIAS }}
+          NOWEN_ANDROID_KEY_PASSWORD: ${{ secrets.NOWEN_ANDROID_KEY_PASSWORD }}
+        run: node scripts/release-github.mjs signing
+      - name: Build signed APK
+        run: |
+          npm run build --prefix frontend
+          (cd frontend && npx cap sync android)
+          (cd frontend/android && bash gradlew --no-daemon assembleRelease)
+      - name: Verify signature, application ID and version
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+          CERT_SHA256: ${{ vars.NOWEN_ANDROID_CERT_SHA256 }}
+        run: |
+          apk=frontend/android/app/build/outputs/apk/release/app-release.apk
+          test "$(apkanalyzer manifest application-id "$apk")" = com.nowen.note
+          test "$(apkanalyzer manifest version-name "$apk")" = "$VERSION"
+          expected_code=$(sed -nE 's/^[[:space:]]*versionCode[[:space:]]+([0-9]+).*/\1/p' frontend/android/app/build.gradle)
+          test "$(apkanalyzer manifest version-code "$apk")" = "$expected_code"
+          cert=$("$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --print-certs "$apk" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')
+          test -n "$cert"
+          test "${cert,,}" = "${CERT_SHA256,,}"
+          mkdir -p release-out/android
+          cp "$apk" "release-out/android/Nowen-Note-$VERSION.apk"
+          node scripts/release-github.mjs stage android release-out/android
+      - name: Remove temporary signing files
+        if: always()
+        run: rm -f frontend/android/app/github-release.keystore frontend/android/keystore.properties
+      - uses: actions/upload-artifact@v4
+        with:
+          name: full-android
+          path: release-out/android/*
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 14
+
+  docker:
+    needs: prepare
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { arch: amd64, os: ubuntu-24.04 }
+          - { arch: arm64, os: ubuntu-24.04-arm }
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - name: Compile Official Registry trust roots
+        env:
+          NOWEN_OFFICIAL_REGISTRY_TRUST_ROOTS_JSON: ${{ vars.NOWEN_OFFICIAL_REGISTRY_TRUST_ROOTS_JSON }}
+        run: |
+          printf '%s' "$NOWEN_OFFICIAL_REGISTRY_TRUST_ROOTS_JSON" > "$RUNNER_TEMP/trust-roots.json"
+          node scripts/generate-official-registry-trust-roots.mjs --input "$RUNNER_TEMP/trust-roots.json"
+          node scripts/verify-extension-ecosystem-rc1.mjs
+      - uses: docker/setup-buildx-action@v3
+      - name: Build and test native architecture without publishing
+        env:
+          ARCH: ${{ matrix.arch }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          image="nowen-release:$GITHUB_SHA-$ARCH"
+          docker buildx build --load --platform "linux/$ARCH" --tag "$image" \
+            --build-arg "APP_VERSION=$VERSION" --build-arg "BUILD_DATE=$(date -u +%FT%TZ)" \
+            --label "org.opencontainers.image.revision=$GITHUB_SHA" \
+            --label "org.opencontainers.image.version=$GITHUB_REF_NAME" \
+            --label "org.opencontainers.image.source=https://github.com/$GITHUB_REPOSITORY" .
+          docker run --rm --entrypoint node "$image" backend/scripts/smoke-plugin-artifacts.cjs
+          docker run --rm --entrypoint node "$image" backend/scripts/smoke-sqlite-vec.cjs
+          docker run -d --name release-smoke "$image"
+          trap 'docker rm -fv release-smoke >/dev/null 2>&1 || true' EXIT
+          healthy=false
+          for attempt in {1..60}; do
+            if docker exec release-smoke node -e "fetch('http://127.0.0.1:3001/api/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"; then
+              healthy=true
+              break
+            fi
+            sleep 2
+          done
+          test "$healthy" = true
+          mkdir -p "release-out/docker-$ARCH"
+          docker save --output "release-out/docker-$ARCH/image-$ARCH.tar" "$image"
+          node scripts/release-github.mjs stage "docker-$ARCH" "release-out/docker-$ARCH"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: full-docker-${{ matrix.arch }}
+          path: release-out/docker-${{ matrix.arch }}/*
+          compression-level: 0
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 14
+
+  packages:
+    needs: prepare
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci && npm ci --prefix packages/nowen-clipper
+      - name: Download the same fnpack version as WSL and verify SHA-256
+        run: |
+          curl --fail --location --retry 3 https://static2.fnnas.com/fnpack/fnpack-1.2.1-linux-amd64 -o "$RUNNER_TEMP/fnpack"
+          echo "72d2a4095da676b64510b023731a227b369d80f8079bc45ff8a2f802ec0480c1  $RUNNER_TEMP/fnpack" | sha256sum --check
+          chmod +x "$RUNNER_TEMP/fnpack"
+      - name: Build FPK and Clipper using existing scripts
+        env:
+          DOCKERHUB_REPO: cropflre/nowen-note
+          FPK_VERSION: ${{ needs.prepare.outputs.version }}
+          FPK_IMAGE_TAG: ${{ github.ref_name }}
+          FNPACK_BIN: ${{ runner.temp }}/fnpack
+        run: |
+          node scripts/fpk/build-fpk.mjs
+          npm run pack --prefix packages/nowen-clipper
+          mkdir -p release-out/packages
+          cp "dist-fpk/nowen-note-$FPK_VERSION.fpk" release-out/packages/
+          clipper_version=$(node -p "require('./packages/nowen-clipper/package.json').version")
+          cp "packages/nowen-clipper/releases/nowen-clipper-$clipper_version.zip" release-out/packages/
+          node scripts/release-github.mjs stage packages release-out/packages
+      - uses: actions/upload-artifact@v4
+        with:
+          name: full-packages
+          path: release-out/packages/*
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 14
+
+  upk:
+    if: inputs.upk
+    needs: [prepare, docker]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: full-docker-*
+          path: incoming
+      - name: Build both UPK architectures from this run's tested Docker images
+        env:
+          DOCKERHUB_REPO: cropflre/nowen-note
+          UGCLI_BIN: ${{ github.workspace }}/ugcli
+        run: |
+          for arch in amd64 arm64; do
+            node scripts/release-github.mjs verify-artifact "docker-$arch" "incoming/full-docker-$arch"
+            docker load --input "incoming/full-docker-$arch/image-$arch.tar"
+            docker tag "nowen-release:$GITHUB_SHA-$arch" "cropflre/nowen-note:$GITHUB_REF_NAME-$arch"
+          done
+          node scripts/upk/build-upk.mjs --arch all --image "cropflre/nowen-note:$GITHUB_REF_NAME"
+          mkdir -p release-out/upk
+          cp dist-upk/*.upk release-out/upk/
+          node scripts/release-github.mjs stage upk release-out/upk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: full-upk
+          path: release-out/upk/*
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 14
+
+  publish:
+    needs: [prepare, desktop, android, docker, packages, upk]
+    if: >-
+      always() && !cancelled() && needs.prepare.result == 'success' &&
+      needs.desktop.result == 'success' && needs.android.result == 'success' &&
+      needs.docker.result == 'success' && needs.packages.result == 'success' &&
+      (needs.upk.result == 'success' || needs.upk.result == 'skipped')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    permissions:
+      contents: write
+      actions: read
+    # Shared with the existing desktop collector to serialize writes to this Tag.
+    concurrency:
+      group: release-assets-${{ github.ref }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - uses: docker/setup-buildx-action@v3
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: full-*
+          path: incoming
+      - uses: docker/login-action@v3
+        if: inputs.publish
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Collect, verify and publish in GitHub
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN_ID: ${{ needs.desktop.outputs.source_run_id }}
+          PUBLISH_RELEASE: ${{ inputs.publish }}
+          UPDATE_LATEST: ${{ inputs.update_latest }}
+          INCLUDE_UPK: ${{ inputs.upk }}
+        run: node scripts/release-github.mjs publish
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: full-release-receipt-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/full-release-receipt.json
+          if-no-files-found: warn
+          retention-days: 14
+
+  sync-gitee:
+    needs: publish
+    if: inputs.publish
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: write
+    steps:
+      # Releases published with GITHUB_TOKEN do not emit another workflow run.
+      - name: Dispatch existing asynchronous Gitee mirror explicitly
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: gh workflow run sync-gitee-release.yml --repo cropflre/nowen-note --ref main -f tag="$RELEASE_TAG"
