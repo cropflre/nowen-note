@@ -80,6 +80,33 @@ export interface MermaidRenderResult {
   error: string;
 }
 
+/** Render-only compatibility for common flowchart input; never rewrite note source. */
+function compatibleFlowchartSource(source: string): string {
+  // Node text (including multiline labels) and native comments must remain literal.
+  const code = source.replace(/"[^"]*"|%%[^\n]*|\[[^\]]*\]|\{[^}]*\}|\([^)]*\)|^[\t ]*\/\/[^\n]*/gm, (token) =>
+    token.trimStart().startsWith("//") ? "" : token,
+  );
+  if (!/^(?:\s|%%[^\n]*\n)*(?:flowchart|graph)\b/.test(code)) return source;
+
+  const shapeEnds: Record<string, readonly string[]> = {
+    "[": ["]"], "{": ["}"], "[[": ["]]"], "{{": ["}}"],
+    "[(": [")]"], "[/": ["/]", "\\]"], "[\\": ["\\]", "/]"],
+  };
+  return code.replace(
+    /"[^"]*"|%%[^\n]*|@\{[^}]*\}|([\p{L}\p{N}_-]+)(\[\[|\[\(|\[\/|\[\\|\{\{|\[|\{)([^"[\]{}\n]*)(\]\]|\)\]|\/\]|\\\]|\}\}|\]|\})/gu,
+    (token, id: string | undefined, open: string, label: string, close: string) => {
+      if (!id) return token;
+      // Resolve the closing delimiter from the opening shape, not label punctuation.
+      const tail = label + close;
+      const end = shapeEnds[open]?.find((candidate) => tail.endsWith(candidate));
+      if (!end) return token;
+      const text = tail.slice(0, -end.length);
+      if (!/[()]/.test(text)) return token;
+      return `${id}${open}"${text}"${end}`;
+    },
+  );
+}
+
 /**
  * 把一段 mermaid 源码渲染为 SVG 字符串。
  *
@@ -95,9 +122,15 @@ export async function renderMermaid(source: string): Promise<MermaidRenderResult
   if (!code) return { svg: "", error: "" };
   try {
     const mermaid = await loadMermaid();
-    const id = `mermaid-svg-${++renderSeq}`;
     // mermaid.render 在 v10+ 返回 { svg, bindFunctions? }
-    const { svg } = await mermaid.render(id, code);
+    let svg: string;
+    try {
+      ({ svg } = await mermaid.render(`mermaid-svg-${++renderSeq}`, code));
+    } catch (error) {
+      const compatible = compatibleFlowchartSource(code);
+      if (compatible === code) throw error;
+      ({ svg } = await mermaid.render(`mermaid-svg-${++renderSeq}`, compatible));
+    }
     return { svg, error: "" };
   } catch (e: any) {
     // mermaid 抛出来的错误对象可能是 Error，也可能是 { str } 这种自定义结构
