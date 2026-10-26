@@ -120,7 +120,7 @@ import {
   Bold, Italic, Underline as UnderlineIcon, Strikethrough,
   List, ListOrdered, Heading1, Heading2, Heading3, Heading4, Heading5, Heading6,
   Quote, ImagePlus, Film, Paperclip, CheckSquare, Highlighter, Minus, Undo, Redo,
-  Code, FileCode, Sparkles, X,
+  Code, FileCode, FileLock2, Sparkles, X,
   Indent, Outdent, AlignLeft, AlignCenter, AlignRight, Trash2,
   FileType, Check, AlertCircle, Info, ArrowUp, Copy, Link as LinkIcon,
   ExternalLink, Unlink2, Workflow, Sigma, BookOpen, Download, Phone,
@@ -5566,7 +5566,11 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
         >
           <FileCode size={iconSize} />
         </ToolbarButton>
-        <ToolbarButton onClick={insertEncryptedRegion} disabled={!editable || isGuest} title="插入加密内容">🔒</ToolbarButton>
+        {!isGuest && !note.isTrashed && (
+          <ToolbarButton onClick={insertEncryptedRegion} disabled={!editable} title={t("encryptedBlock.insertTooltip")}>
+            <FileLock2 size={iconSize} />
+          </ToolbarButton>
+        )}
         <ToolbarButton
           onClick={handleForceMarkdownConversion}
           disabled={!editable || isGuest}
@@ -5848,7 +5852,7 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
           >
             <ArrowUp size={14} />
           </ToolbarButton>
-          {!isGuest && !note.isTrashed && <ToolbarButton onClick={insertEncryptedRegion} title="加密选中文字">加密</ToolbarButton>}
+          {!isGuest && !note.isTrashed && <ToolbarButton onClick={insertEncryptedRegion} title={t("encryptedBlock.selectedText")}>{t("encryptedBlock.encrypt")}</ToolbarButton>}
           <ToolbarButton
             onClick={toggleFormatPainter}
             isActive={formatPainterArmed}

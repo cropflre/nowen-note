@@ -82,6 +82,7 @@ import {
   Bold,
   CheckSquare,
   FileCode,
+  FileLock2,
   Heading1,
   Heading2,
   Heading3,
@@ -2231,7 +2232,6 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
       data-markdown-mobile-editing-compact={compactMobileEditing ? "true" : "false"}
       className="relative flex flex-col h-full overflow-hidden"
     >
-      {editable && !isGuest && !note.isTrashed && <button type="button" className="border-b border-app-border px-3 py-1 text-left text-xs text-tx-secondary" onClick={openEncryptedRegion}>插入加密内容</button>}
       {encryptedRegion && <EncryptedBlockDialog source={encryptedRegion.source} initialContent={encryptedRegion.initialContent} onCommit={encryptedRegion.commit} onClose={() => setEncryptedRegion(null)} />}
       {noteLinkMenu.open && (
         <NoteLinkMenu
@@ -2458,6 +2458,11 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
           >
             <FileCode size={iconSize} />
           </ToolbarButton>
+          {!isGuest && !note.isTrashed && (
+            <ToolbarButton onClick={openEncryptedRegion} title={tr("encryptedBlock.insertTooltip")}>
+              <FileLock2 size={iconSize} />
+            </ToolbarButton>
+          )}
           <ToolbarButton
             onClick={() => withView((v) => insertHorizontalRule(v))}
             title={tr("tiptap.horizontalRule") || "�ָ���"}
@@ -2701,7 +2706,7 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
           >
             <ArrowUp size={14} />
           </ToolbarButton>
-          {!isGuest && !note.isTrashed && <ToolbarButton onClick={openEncryptedRegion} title="加密选中文字">加密</ToolbarButton>}
+          {!isGuest && !note.isTrashed && <ToolbarButton onClick={openEncryptedRegion} title={tr("encryptedBlock.selectedText")}>{tr("encryptedBlock.encrypt")}</ToolbarButton>}
           {selectedTextAction?.type === "phone" && (
             <ToolbarButton
               onClick={() => {
