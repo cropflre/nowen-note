@@ -1,6 +1,8 @@
 # 编辑器 Agent / Editor Agent
 
-打开 Markdown 或富文本笔记，点击“编辑器 Agent”。输入目标，例如“帮我优化这篇文档，保留技术细节”，点击“生成提案”。Agent 使用当前编辑器快照，包括尚未保存的修改，并可读取选区。
+打开 Markdown 或富文本笔记，点击顶部“AI 助手”。输入目标，例如“帮我优化这篇文档，保留技术细节”，点击“生成提案”。Agent 使用当前编辑器快照，包括尚未保存的修改，并可读取选区。
+
+百炼模型使用其 OpenAI 兼容接口配置。已验证 `deepseek-v4.1-flash-1017` 的 Markdown、富文本与两篇笔记短摘要流程；Agent 请求会关闭思考模式以执行工具调用。请使用支持 Function Calling 的模型，具体接入地址以百炼控制台为准。
 
 生成前会说明外发范围：当前笔记、选区和指令会发送给你配置的 AI 服务。密码保护目录、加密内容、回收站和无写权限的笔记不可用。关闭已有 AI 开关或由管理员设置 `NOWEN_AGENT_ENABLED=false` 可以禁用。
 
@@ -14,7 +16,9 @@
 
 ---
 
-Open a Markdown or rich-text note and choose **Editor Agent**. Describe the change and generate a proposal. Agent reads the live editor snapshot, including unsaved changes and selection. The privacy notice explains that this content goes to your configured AI provider.
+Open a Markdown or rich-text note and choose **AI Assistant** in the top bar. Describe the change and generate a proposal. Agent reads the live editor snapshot, including unsaved changes and selection. The privacy notice explains that this content goes to your configured AI provider.
+
+Configure Bailian through its OpenAI-compatible endpoint. `deepseek-v4.1-flash-1017` has been verified with Markdown, rich text and a short two-note summary. Agent tool requests disable thinking mode. Select a model with Function Calling support and use the endpoint shown in your Bailian console.
 
 Review the before/after text, then accept or reject. Accepted changes use the existing editor save path and support undo/redo. If you edit while approval is pending, reject the stale proposal and generate again. Password-protected, encrypted, trashed and non-editable notes are unavailable.
 

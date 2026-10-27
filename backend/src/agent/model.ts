@@ -23,9 +23,11 @@ export function agentModelConfigured(settings: AISettings): boolean {
 }
 
 /** Incremental SSE parsing keeps separate indices and concatenates only protocol argument deltas. */
-export async function readAgentResponse(response: Response): Promise<any> {
+export async function readAgentResponse(response: Response, signal?: AbortSignal): Promise<any> {
   const reader = response.body?.getReader();
   if (!reader) throw new Error("MODEL_REQUEST_FAILED");
+  const abort = () => { void reader.cancel().catch(() => undefined); };
+  signal?.addEventListener("abort", abort, { once: true });
   const streaming = response.headers.get("content-type")?.includes("text/event-stream");
   const decoder = new TextDecoder();
   let buffer = "", total = 0, done = false, usage: unknown;
@@ -48,15 +50,18 @@ export async function readAgentResponse(response: Response): Promise<any> {
     }
   };
   try {
+    signal?.throwIfAborted();
     while (true) {
       const chunk = await reader.read();
+      signal?.throwIfAborted();
       if (chunk.done) break;
       total += chunk.value.byteLength;
       if (total > 400_000) throw new Error("MODEL_OUTPUT_LIMIT");
       buffer += decoder.decode(chunk.value, { stream: true });
       if (streaming) {
         let end: number;
-        while ((end = buffer.indexOf("\n")) >= 0) { consume(buffer.slice(0, end).replace(/\r$/, "")); buffer = buffer.slice(end + 1); }
+        while (!done && (end = buffer.indexOf("\n")) >= 0) { consume(buffer.slice(0, end).replace(/\r$/, "")); buffer = buffer.slice(end + 1); }
+        if (done) { buffer = ""; break; }
       }
     }
     buffer += decoder.decode();
@@ -64,7 +69,10 @@ export async function readAgentResponse(response: Response): Promise<any> {
     if (buffer.trim()) consume(buffer);
     if (!done) throw new Error("MODEL_REQUEST_FAILED");
     return { choices: [{ message: { tool_calls: [...calls.entries()].sort(([a], [b]) => a - b).map(([, value]) => value) } }], usage };
-  } finally { await reader.cancel().catch(() => undefined); reader.releaseLock(); }
+  } catch (error) {
+    if (signal?.aborted) throw Object.assign(new Error("MODEL_TIMEOUT"), { code: "MODEL_TIMEOUT", name: "TimeoutError" });
+    throw error;
+  } finally { signal?.removeEventListener("abort", abort); void reader.cancel().catch(() => undefined); reader.releaseLock(); }
 }
 
 /** Separate from legacy text extraction: tool arguments are never interpreted as Markdown. */
@@ -73,20 +81,32 @@ export async function callAgentModel(settings: AISettings, messages: AgentMessag
   if (settings.ai_provider === "anthropic") throw new Error("TOOL_CALLING_UNSUPPORTED");
   // DeepSeek rejects required tool_choice in thinking mode. Select by provider
   // or official endpoint, never by a guessed model-name capability.
-  const deepseek = settings.ai_provider === "deepseek" || new URL(settings.ai_api_url).hostname === "api.deepseek.com";
-  const response = await aiOutboundFetch(`${settings.ai_api_url.replace(/\/+$/, "")}/chat/completions`, {
-    method: "POST",
-    headers: buildAIHeaders(settings.ai_provider, settings.ai_api_key, settings.ai_custom_headers),
-    body: JSON.stringify({ model: settings.ai_model, messages, tools, tool_choice: "required", stream: true, max_tokens: 4096, ...(deepseek ? { thinking: { type: "disabled" } } : {}) }),
-    signal: AbortSignal.any([signal, AbortSignal.timeout(45_000)]),
-    redirect: "error",
-  });
-  if (!response.ok) { await response.body?.cancel(); throw new Error(response.status === 400 || response.status === 422 ? "TOOL_CALLING_UNSUPPORTED" : "MODEL_REQUEST_FAILED"); }
-  const data = await readAgentResponse(response);
-  const calls = z.array(callSchema).min(1).max(12).safeParse(data?.choices?.[0]?.message?.tool_calls);
-  if (evidence.size >= 256) evidence.delete(evidence.keys().next().value!);
-  evidence.set(configurationKey(settings), { toolCalling: calls.success, streaming: response.headers.get("content-type")?.includes("text/event-stream") || false, checkedAt: Date.now() });
-  if (!calls.success) throw new Error("TOOL_CALLING_UNSUPPORTED");
-  if (new Set(calls.data.map(c => c.id)).size !== calls.data.length) throw new Error("INVALID_TOOL_CALL");
-  return { calls: calls.data, usage: Number.isSafeInteger(data.usage?.total_tokens) && data.usage.total_tokens >= 0 ? data.usage.total_tokens : null };
+  const host = new URL(settings.ai_api_url).hostname;
+  const deepseek = settings.ai_provider === "deepseek" || host === "api.deepseek.com";
+  const bailian = ["dashscope.aliyuncs.com", "dashscope-intl.aliyuncs.com", "dashscope-us.aliyuncs.com"].includes(host) || host.endsWith(".maas.aliyuncs.com");
+  const deadline = new AbortController();
+  const abort = () => deadline.abort(signal.reason);
+  if (signal.aborted) abort(); else signal.addEventListener("abort", abort, { once: true });
+  const timer = setTimeout(() => deadline.abort(new DOMException("Model deadline exceeded", "TimeoutError")), 45_000);
+  const requestSignal = deadline.signal;
+  try {
+    const response = await aiOutboundFetch(`${settings.ai_api_url.replace(/\/+$/, "")}/chat/completions`, {
+      method: "POST",
+      headers: buildAIHeaders(settings.ai_provider, settings.ai_api_key, settings.ai_custom_headers),
+      body: JSON.stringify({ model: settings.ai_model, messages, tools, tool_choice: "required", stream: true, max_tokens: 4096, ...(bailian ? { enable_thinking: false } : deepseek ? { thinking: { type: "disabled" } } : {}) }),
+      signal: requestSignal,
+      redirect: "error",
+    });
+    if (!response.ok) { void response.body?.cancel().catch(() => undefined); throw new Error(response.status === 400 || response.status === 422 ? "TOOL_CALLING_UNSUPPORTED" : "MODEL_REQUEST_FAILED"); }
+    const data = await readAgentResponse(response, requestSignal);
+    const calls = z.array(callSchema).min(1).max(12).safeParse(data?.choices?.[0]?.message?.tool_calls);
+    if (evidence.size >= 256) evidence.delete(evidence.keys().next().value!);
+    evidence.set(configurationKey(settings), { toolCalling: calls.success, streaming: response.headers.get("content-type")?.includes("text/event-stream") || false, checkedAt: Date.now() });
+    if (!calls.success) throw new Error("TOOL_CALLING_UNSUPPORTED");
+    if (new Set(calls.data.map(c => c.id)).size !== calls.data.length) throw new Error("INVALID_TOOL_CALL");
+    return { calls: calls.data, usage: Number.isSafeInteger(data.usage?.total_tokens) && data.usage.total_tokens >= 0 ? data.usage.total_tokens : null };
+  } catch (error) {
+    if (requestSignal.aborted) throw Object.assign(new Error("MODEL_TIMEOUT"), { code: "MODEL_TIMEOUT", name: "TimeoutError" });
+    throw error;
+  } finally { clearTimeout(timer); signal.removeEventListener("abort", abort); }
 }

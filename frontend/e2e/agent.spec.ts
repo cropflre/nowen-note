@@ -271,7 +271,7 @@ for (const format of ["markdown", "tiptap-json"] as const) test(`AI assistant en
   await page.screenshot({ path: test.info().outputPath(`${format}-desktop-zh-dark.png`) });
 });
 
-test("live model optimizes a Chinese note through preview and verified editor saving", async ({ page, product }) => {
+for (const format of ["markdown", "tiptap-json"] as const) test(`live model optimizes a Chinese note through preview and verified editor saving (${format})`, async ({ page, product }) => {
   test.skip(!providerFile, "Requires an explicitly supplied live-provider credential file");
   test.setTimeout(180000);
   const registered = await page.request.post(`${product.server}/api/auth/register`, { data: { username: "agent_natural", password: "agent-natural-test-password" } });
@@ -279,8 +279,14 @@ test("live model optimizes a Chinese note through preview and verified editor sa
   const headers = { Authorization: `Bearer ${account.token}` };
   expect((await page.request.put(`${product.server}/api/ai/settings`, { headers, data: { ai_provider: "openai", ai_api_url: product.provider.url, ai_api_key: product.provider.key, ai_model: product.provider.model } })).ok()).toBe(true);
   const books = await (await page.request.get(`${product.server}/api/notebooks`, { headers })).json();
-  const content = "# 保存说明\n\n服务会每隔5分钟去进行一次笔记保存这个操作，这个操作的目的主要是为了把笔记内容保存下来。\n\n网络断开的时候修改会保留在本地的待发送队列里面，等网络恢复之后再把这些修改发送出去。\n\n[技术说明](https://example.com/sync)";
-  const created = await page.request.post(`${product.server}/api/notes`, { headers, data: { title: "中文优化验收", notebookId: books[0].id, contentFormat: "markdown", content } });
+  const paragraphs = ["服务会每隔5分钟去进行一次笔记保存这个操作，这个操作的目的主要是为了把笔记内容保存下来。", "网络断开的时候修改会保留在本地的待发送队列里面，等网络恢复之后再把这些修改发送出去。"];
+  const content = format === "markdown" ? `# 保存说明\n\n${paragraphs.join("\n\n")}\n\n[技术说明](https://example.com/sync)` : JSON.stringify({ type: "doc", content: [
+    { type: "heading", attrs: { level: 1 }, content: [{ type: "text", text: "保存说明" }] },
+    { type: "paragraph", content: [{ type: "text", text: paragraphs[0], marks: [{ type: "bold" }] }] },
+    { type: "paragraph", content: [{ type: "text", text: paragraphs[1] }] },
+    { type: "paragraph", content: [{ type: "text", text: "技术说明", marks: [{ type: "link", attrs: { href: "https://example.com/sync" } }] }] },
+  ] });
+  const created = await page.request.post(`${product.server}/api/notes`, { headers, data: { title: "中文优化验收", notebookId: books[0].id, contentFormat: format, content } });
   expect(created.ok()).toBe(true); const note = await created.json();
   await page.goto(product.server);
   await page.evaluate(() => { localStorage.setItem("i18nextLng", "en"); localStorage.setItem("nowen-seen-version", "1.5.3"); });
@@ -296,7 +302,14 @@ test("live model optimizes a Chinese note through preview and verified editor sa
   await expect(panel.getByRole("button", { name: "Accept edits" })).toBeVisible({ timeout: 60000 });
   const proposed = await (await page.request.get(`${product.server}/api/agent/runs?noteId=${note.id}`, { headers })).json();
   expect(proposed.proposal.result).not.toBe(proposed.proposal.original);
-  expect(proposed.proposal.result).toContain("5分钟"); expect(proposed.proposal.result).toContain("https://example.com/sync");
+  expect(proposed.proposal.result).toMatch(/(?<!\d)(?:5|五)\s*分钟/);
+  expect(proposed.proposal.result).toMatch(/本地.{0,8}队列/);
+  expect(proposed.proposal.result).toMatch(/网络恢复|恢复网络|联网后/);
+  expect(proposed.proposal.result).toContain("https://example.com/sync");
+  if (format === "tiptap-json") {
+    const structure = (value: string) => JSON.stringify(JSON.parse(value), (key, field) => key === "text" ? "" : field);
+    expect(structure(proposed.proposal.result)).toBe(structure(proposed.proposal.original));
+  }
   expect(proposed.steps.some((step: { toolName: string; status: string }) => step.toolName === "get_current_note_context" && step.status === "completed")).toBe(true);
   await panel.screenshot({ path: test.info().outputPath("chinese-live-diff.png") });
   await panel.getByRole("button", { name: "Accept edits" }).click();
@@ -310,7 +323,7 @@ test("live model optimizes a Chinese note through preview and verified editor sa
   const completed = await (await page.request.get(`${product.server}/api/agent/runs/${proposed.id}`, { headers })).json();
   expect(completed.status).toBe("completed");
   // Only synthetic content and bounded public metadata enter the evidence file.
-  fs.writeFileSync(test.info().outputPath("live-evidence.json"), JSON.stringify({ provider: product.provider.url, model: product.provider.model, status: completed.status, usage: completed.usage, original: proposed.proposal.original, result: reopened.content, tools: completed.steps.map((step: { toolName: string; status: string }) => ({ tool: step.toolName, status: step.status })), persistedAfterProcessRestart: true }, null, 2));
+  fs.writeFileSync(test.info().outputPath("live-evidence.json"), JSON.stringify({ provider: product.provider.url, model: product.provider.model, format, status: completed.status, usage: completed.usage, original: proposed.proposal.original, result: reopened.content, tools: completed.steps.map((step: { toolName: string; status: string }) => ({ tool: step.toolName, status: step.status })), persistedAfterProcessRestart: true }, null, 2));
 });
 
 
@@ -515,14 +528,20 @@ test("live P2 template retrieves two notes and persists an approved summary", as
   }
   const noteList = async () => (await page.request.get(`${product.server}/api/notes`, { headers })).json();
   const before = (await noteList()).length;
-  const input = { notebookId: books[0].id, includeChildren: false, timezone: "Asia/Shanghai", lang: "zh-CN", instruction: "Search for p2livemarker and summarize both source notes in Chinese. Propose exactly one new Markdown note titled P2 真实模型验收总结. Preserve every technical fact: 5分钟保存、离线时本地待发送队列、恢复网络后发送、失败最多重试3次. Do not create tasks or call extensions. Do not change source notes." };
+  const input = { notebookId: books[0].id, includeChildren: false, timezone: "Asia/Shanghai", lang: "zh-CN", instruction: "Search for p2livemarker and summarize both source notes in Chinese. Propose exactly one new Markdown note titled P2 真实模型验收总结. Preserve every technical fact: 5分钟保存、离线时本地待发送队列、恢复网络后发送、失败最多重试3次. Keep the summary to one sentence and the new note under 150 Chinese characters. Do not create tasks or call extensions. Do not change source notes." };
   const templateResponse = await page.request.post(`${product.server}/api/agent/library/templates?workspaceId=personal`, { headers, data: { name: "Live P2 summary", input, allowNote: true, allowTasks: false, toolIds: [] } });
   expect(templateResponse.ok()).toBe(true); const template = await templateResponse.json();
   const start = await page.request.post(`${product.server}/api/agent/workflows?workspaceId=personal`, { headers, data: { ...input, templateId: template.id, templateRevision: template.revision } });
   expect(start.status()).toBe(202); const { id } = await start.json();
   const workflow = async () => (await page.request.get(`${product.server}/api/agent/workflows/${id}?workspaceId=personal`, { headers })).json();
-  await expect.poll(async () => (await workflow()).status, { timeout: 120000 }).toBe("waiting_approval");
+  try {
+    await expect.poll(async () => (await workflow()).status, { timeout: 120000 }).toMatch(/^(waiting_approval|failed|cancelled|interrupted)$/);
+  } finally {
+    const state = await workflow();
+    fs.writeFileSync(test.info().outputPath("p2-live-state.json"), JSON.stringify({ model: product.provider.model, status: state.status, errorCode: state.errorCode, steps: state.steps?.map((step: { sequence: number; toolName: string; status: string; createdAt: string }) => ({ sequence: step.sequence, toolName: step.toolName, status: step.status, createdAt: step.createdAt })) }, null, 2));
+  }
   const proposed = await workflow();
+  expect(proposed.status, JSON.stringify({ errorCode: proposed.errorCode, steps: proposed.steps })).toBe("waiting_approval");
   for (const source of sources) expect(proposed.preview.sources.map((item: { id: string }) => item.id)).toContain(source.id);
   expect(proposed.preview.tasks).toBeUndefined(); expect(proposed.preview.extensionCalls || []).toHaveLength(0);
   expect((await noteList()).length).toBe(before);

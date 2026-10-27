@@ -1,4 +1,4 @@
-import test from "node:test";
+import test, { type TestContext } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
@@ -19,6 +19,10 @@ const call = (name: string, args: unknown, id = "call-1") => ({ id, type: "funct
 const reply = (calls: unknown[]) => new Response(JSON.stringify({ choices: [{ message: { tool_calls: calls } }], usage: { total_tokens: 10 } }));
 const send = (url: string, body = {}, extra = {}) => app.request(`/api/agent${url}`, { method: "POST", headers: { ...headers, ...extra }, body: JSON.stringify(body) });
 const create = (patch = {}, extra = {}) => send("/runs", { noteId: "note-a", instruction: "Improve wording", content: "Original text", format: "markdown", version: 1, ...patch }, extra);
+function shortenModelDeadline(t: TestContext, ms: number) {
+  const timeout = globalThis.setTimeout;
+  t.mock.method(globalThis, "setTimeout", ((callback: (...args: any[]) => void, delay?: number, ...args: any[]) => timeout(callback, delay === 45_000 ? ms : delay, ...args)) as typeof setTimeout);
+}
 async function settled(id: string) { for (let i = 0; i < 50; i++) { const r = runtime.get(id, "agent-a"); if (!["running", "queued"].includes(r.status)) return r; await new Promise(r => setTimeout(r, 5)); } throw new Error("run did not settle"); }
 test.before(async () => {
   const schema = await import("../src/db/schema.js"); db = schema.getDb(); closeDb = schema.closeDb;
@@ -85,8 +89,7 @@ test("stop aborts upstream and prevents a late proposal", async () => {
   await new Promise(r => setTimeout(r, 10)); assert.equal(runtime.get(id, "agent-a").status, "cancelled"); assert.equal(requests.length, 1);
 });
 test("upstream request timeout ends the run with a specific timeout error", async t => {
-  const timeout = AbortSignal.timeout;
-  t.mock.method(AbortSignal, "timeout", (ms: number) => timeout(ms === 45_000 ? 1 : ms));
+  shortenModelDeadline(t, 1);
   model = async (_body, signal) => new Promise((_resolve, reject) => {
     if (signal.aborted) reject(signal.reason);
     else signal.addEventListener("abort", () => reject(signal.reason), { once: true });
@@ -102,6 +105,21 @@ test("unsupported model, unauthorized tools, invalid arguments and loops fail cl
     model = async () => response.clone(); const run = await settled((await (await create()).json()).id); assert.equal(run.errorCode, code);
   }
   model = async () => reply([call("get_current_note_context", {})]); assert.equal((await settled((await (await create()).json()).id)).errorCode, "REPEATED_TOOL_CALL");
+});
+test("upstream streaming timeout cancels an unfinished body before any proposal or write", async t => {
+  shortenModelDeadline(t, 10);
+  let cancelled = false, timer: ReturnType<typeof setTimeout>;
+  model = async () => new Response(new ReadableStream({
+    start(controller) {
+      controller.enqueue(new TextEncoder().encode('data: {"choices":[{"delta":{"reasoning_content":"working"}}]}\n\n'));
+      timer = setTimeout(() => controller.close(), 100);
+    },
+    cancel() { cancelled = true; clearTimeout(timer); return new Promise<void>(() => {}); },
+  }), { headers: { "Content-Type": "text/event-stream" } });
+  const run = await settled((await (await create()).json()).id);
+  assert.equal(run.status, "failed"); assert.equal(run.errorCode, "MODEL_TIMEOUT");
+  assert.equal(cancelled, true); assert.equal(run.proposal, undefined);
+  assert.equal((db.prepare("SELECT content FROM notes WHERE id='note-a'").get() as any).content, "Original text");
 });
 test("restart interrupts approvals and never replays a write", async () => {
   const run = await settled((await (await create()).json()).id);
@@ -157,6 +175,21 @@ test("streaming tool arguments keep IDs and multiple interleaved calls across by
   assert.deepEqual(parsed.choices[0].message.tool_calls.map((c: any) => [c.id, JSON.parse(c.function.arguments)]), [["one", {}], ["two", { value: "中文" }]]);
   await assert.rejects(readAgentResponse(new Response('data: {"choices":[]}\n\n', { headers: { "Content-Type": "text/event-stream" } })));
 });
+test("a complete SSE terminal frame finishes without waiting for the upstream connection to close", async () => {
+  const { readAgentResponse } = await import("../src/agent/model.js");
+  let cancelled = false, timer: ReturnType<typeof setTimeout>;
+  const response = new Response(new ReadableStream({
+    start(controller) {
+      const event = { choices: [{ delta: { tool_calls: [{ index: 0, id: "finished", type: "function", function: { name: "get_current_note_context", arguments: "{}" } }] } }] };
+      controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify(event)}\n\ndata: [DONE]\n\n`));
+      timer = setTimeout(() => controller.close(), 100);
+    },
+    cancel() { cancelled = true; clearTimeout(timer); return new Promise<void>(() => {}); },
+  }), { headers: { "Content-Type": "text/event-stream" } });
+  const result = await readAgentResponse(response);
+  assert.equal(result.choices[0].message.tool_calls[0].function.name, "get_current_note_context");
+  assert.equal(cancelled, true);
+});
 test("DeepSeek required tool calls explicitly disable thinking without changing other providers", async () => {
   const { callAgentModel } = await import("../src/agent/model.js");
   const { getUserAISettings } = await import("../src/services/user-ai-settings.js");
@@ -182,6 +215,16 @@ test("header-only gateway credentials work for Agent without changing its tool p
     return reply([call("get_current_note_context", {})]);
   }) as typeof fetch;
   assert.equal((await callAgentModel(settings, [{ role: "user", content: "Improve wording" }], toolRegistry, new AbortController().signal)).calls.length, 1);
+});
+test("Bailian Agent tool calls disable thinking with its protocol parameter only on official endpoints", async () => {
+  const { callAgentModel } = await import("../src/agent/model.js");
+  const { getUserAISettings } = await import("../src/services/user-ai-settings.js");
+  const { toolRegistry } = await import("../src/agent/tools.js");
+  for (const url of ["https://dashscope.aliyuncs.com/compatible-mode/v1", "https://test.cn-beijing.maas.aliyuncs.com/compatible-mode/v1", "https://dashscope-intl.aliyuncs.com/compatible-mode/v1", "https://dashscope.aliyuncs.com.example/v1", "https://agent.example/v1"]) {
+    await callAgentModel({ ...getUserAISettings("agent-a"), ai_provider: "openai", ai_api_url: url }, [{ role: "user", content: "Improve wording" }], toolRegistry, new AbortController().signal);
+  }
+  assert.deepEqual(requests.map(body => body.enable_thinking), [false, false, false, undefined, undefined]);
+  assert.ok(requests.every(body => body.thinking === undefined && body.tool_choice === "required"));
 });
 test("native Anthropic text support does not advertise or send unsupported Agent tool calls", async () => {
   const { callAgentModel, agentModelCapabilities } = await import("../src/agent/model.js");
