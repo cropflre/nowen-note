@@ -1,0 +1,23 @@
+{
+  "model": "deepseek-v4.1-flash-1017",
+  "status": "failed",
+  "errorCode": "MODEL_TIMEOUT",
+  "steps": [
+    {
+      "toolName": "search_notebook",
+      "status": "running"
+    },
+    {
+      "toolName": "search_notebook",
+      "status": "completed"
+    },
+    {
+      "toolName": "search_notebook",
+      "status": "running"
+    },
+    {
+      "toolName": "search_notebook",
+      "status": "completed"
+    }
+  ]
+}

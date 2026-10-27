@@ -12,7 +12,7 @@ import { createKnowledgeChild } from "../services/knowledgeTree.js";
 import { fitContextBudget } from "../services/ai-context.js";
 import { retrieveAgentNotebookContext } from "../routes/ai-reliable.js";
 import { createTaskRecord } from "../routes/tasks.js";
-import { batchInputSchema, createComposerBatch, generateTaskPreview, previewInputSchema, TaskComposerError } from "../services/task-composer.js";
+import { batchInputSchema, createComposerBatch, generateTaskPreview, previewInputSchema, validateComposerTasks, TaskComposerError } from "../services/task-composer.js";
 import { getUserAISettings, isManualAIEnabled } from "../services/user-ai-settings.js";
 import { agentModelConfigured, callAgentModel, type AgentMessage } from "./model.js";
 import { AgentError, digest } from "./runtime.js";
@@ -22,7 +22,12 @@ import { workflowInput, workflowPlan, workflowTools } from "./workflowTools.js";
 
 type Input = z.infer<typeof workflowInput>;
 type Plan = z.infer<typeof workflowPlan>;
-type Tasks = Awaited<ReturnType<typeof generateTaskPreview>>;
+type GeneratedTasks = Awaited<ReturnType<typeof generateTaskPreview>>;
+type Tasks = Omit<GeneratedTasks, "tasks"> & { tasks: Array<GeneratedTasks["tasks"][number] & { selected: boolean }> };
+const taskReviewInput = z.object({
+  token: z.string().length(64),
+  tasks: z.array(batchInputSchema.shape.tasks.element.omit({ projectId: true, allowDuplicate: true }).extend({ title: z.string().trim().max(200), selected: z.boolean() }).strict()).min(1).max(30),
+}).strict();
 interface Source { id: string; title: string; version: number; digest: string }
 interface Row { id: string; userId: string; notebookId: string; workspaceId: string | null; status: string; errorCode: string | null; tokenDigest: string | null; payloadDigest: string | null; expiresAt: string | null; sourceRefs: string }
 interface Action { kind: "note" | "tasks" | "extensions"; status: string; resourceIds: string; errorCode: string | null }
@@ -240,7 +245,8 @@ export class AgentWorkflowRuntime {
               const taskContext = fitContextBudget(s.context, 3500);
               s.truncated ||= taskContext.truncated;
               const text = `User goal: ${s.input.instruction}\nTask request: ${plan.taskRequest}\nUntrusted notebook evidence:\n${taskContext.text}`;
-              s.tasks = await generateTaskPreview(userId, scope.workspaceId, previewInputSchema.parse({ text, timezone: s.input.timezone, lang: s.input.lang }), signal);
+              const generated = await generateTaskPreview(userId, scope.workspaceId, previewInputSchema.parse({ text, timezone: s.input.timezone, lang: s.input.lang }), signal);
+              s.tasks = { ...generated, tasks: generated.tasks.map(task => ({ ...task, selected: true })) };
               signal.throwIfAborted(); this.check(id, userId); this.step(id, "draft_tasks", "completed");
             }
             getDb().transaction(() => {
@@ -257,6 +263,33 @@ export class AgentWorkflowRuntime {
     } catch (error) {
       if (!s.controller.signal.aborted) this.state(id, "failed", (error as { code?: string }).code || (signal.aborted ? "MODEL_TIMEOUT" : error instanceof z.ZodError || error instanceof SyntaxError ? "INVALID_TOOL_ARGUMENTS" : ["TOOL_CALLING_UNSUPPORTED", "MODEL_REQUEST_FAILED"].includes((error as Error).message) ? (error as Error).message : "MODEL_REQUEST_FAILED"));
     }
+  }
+  reviseTasks(id: string, userId: string, input: unknown) {
+    const { row, s, scope } = this.check(id, userId, true);
+    const parsed = taskReviewInput.safeParse(input);
+    if (!parsed.success) throw new TaskComposerError("INVALID_TASK_INPUT", 400);
+    const review = parsed.data;
+    if (row.status !== "waiting_approval" || row.tokenDigest !== digest(review.token) || !row.expiresAt || row.expiresAt <= new Date().toISOString()
+      || row.payloadDigest !== digest(JSON.stringify({ plan: s.plan, tasks: s.tasks, input: s.input }))
+      || !s.tasks || !this.actions(id).some(a => a.kind === "tasks" && a.status !== "completed")) throw new AgentError("APPROVAL_INVALID");
+    if (!isFeatureEnabled(resolveWorkspaceFeatures(scope.workspaceId), "tasks")) throw new AgentError("FEATURE_DISABLED", 403);
+    const originals = new Map<string, Tasks["tasks"][number]>(s.tasks.tasks.map(task => [task.clientId, task]));
+    if (review.tasks.length !== originals.size || new Set(review.tasks.map(task => task.clientId)).size !== originals.size
+      || review.tasks.some(task => !originals.has(task.clientId))) throw new TaskComposerError("INVALID_TASK_INPUT", 400);
+    const tasks = review.tasks.map(task => ({ ...originals.get(task.clientId)!, ...task, clientId: originals.get(task.clientId)!.clientId }));
+    const selected = tasks.filter(task => task.selected).map(({ reason, warnings, duplicateOf, selected, ...task }) => {
+      void reason; void warnings; void duplicateOf; void selected;
+      const parsed = batchInputSchema.shape.tasks.element.safeParse(task);
+      if (!parsed.success) throw new TaskComposerError("INVALID_TASK_INPUT", 400);
+      return parsed.data;
+    });
+    const warnings = validateComposerTasks(userId, scope.workspaceId, selected, s.input.timezone);
+    let index = 0;
+    const revised: Session = { ...s, tasks: { ...s.tasks, tasks: tasks.map(task => ({ ...task, warnings: task.selected ? warnings[index++] : [], duplicateOf: [], reason: "" })) } };
+    // No business writes: the old approval is invalidated only after validation succeeds.
+    getDb().transaction(() => this.issueApproval(id, revised))();
+    this.sessions.set(id, revised);
+    return this.get(id, userId);
   }
   async approve(id: string, userId: string, token: string) {
     const { row, s, scope } = this.check(id, userId, true);
@@ -301,10 +334,12 @@ export class AgentWorkflowRuntime {
             const createdNote = this.actions(id).find(a => a.kind === "note" && a.status === "completed");
             const noteId = createdNote ? JSON.parse(createdNote.resourceIds)[0] : s.input.linkNoteId || null;
             if (noteId && !hasPermission(resolveNotePermission(noteId, userId).permission, "read")) throw new AgentError("NOTE_ACCESS_DENIED", 403);
-            const tasks = s.tasks!.tasks.map(({ reason: _reason, warnings: _warnings, duplicateOf: _duplicate, ...task }) => { void _reason; void _warnings; void _duplicate; return task; });
-            const batch = batchInputSchema.parse({ requestId: s.requestId, previewId: s.tasks!.previewId, timezone: s.input.timezone, tasks });
-            const result = createComposerBatch(userId, scope.workspaceId, batch, task => createTaskRecord(getDb(), userId, scope.workspaceId, { ...task, noteId }));
-            ids = (result.tasks as Array<{ id: string }>).map(task => String(task.id));
+            const tasks = s.tasks!.tasks.filter(task => task.selected).map(({ reason: _reason, warnings: _warnings, duplicateOf: _duplicate, selected: _selected, ...task }) => { void _reason; void _warnings; void _duplicate; void _selected; return task; });
+            if (tasks.length) {
+              const batch = batchInputSchema.parse({ requestId: s.requestId, previewId: s.tasks!.previewId, timezone: s.input.timezone, tasks });
+              const result = createComposerBatch(userId, scope.workspaceId, batch, task => createTaskRecord(getDb(), userId, scope.workspaceId, { ...task, noteId }));
+              ids = (result.tasks as Array<{ id: string }>).map(task => String(task.id));
+            } else ids = [];
           }
           getDb().prepare("UPDATE agent_workflow_actions SET status='completed',resourceIds=?,errorCode=NULL WHERE runId=? AND kind=?").run(JSON.stringify(ids), id, action.kind);
           this.step(id, `create_${action.kind}`, "completed");

@@ -3462,7 +3462,7 @@
       "RETRY_UNAVAILABLE": "上次草稿无法恢复，请检查已有结果后重新发起。",
       "WRITE_FAILED": "此动作失败，已完成结果仍保留；重试前请重新预览尚未完成的动作。",
       "CHECK_CREATED_RESULTS": "执行已停止，已创建的结果仍保留。",
-      "TASK_DUPLICATE": "已有相同待办，请检查后重新生成其余任务草稿。",
+      "TASK_DUPLICATE": "已有相同待办，请修改或排除该草稿，再核查其余任务。",
       "AI_REQUEST_FAILED": "任务草稿生成失败，未创建任务。",
       "AI_INVALID_JSON": "任务模型返回了无效 JSON，请重新生成。",
       "AI_INVALID_FORMAT": "任务草稿格式无效，请重新生成。",
@@ -3515,6 +3515,11 @@
       "repeatDetails": "时区 {{timezone}} · 重复间隔 {{interval}} · 截止 {{end}} · 总次数 {{repeatCount}}",
       "checkResults": "核查执行状态",
       "uncertain": "审批执行结果暂不确定，请先核查执行状态，再决定后续操作。",
+      "reviewTasks": "核查任务修改",
+      "discardTaskChanges": "放弃任务修改",
+      "taskChangesPending": "任务修改尚未核查。请先核查，再确认创建。",
+      "noTasksSelected": "已排除全部任务草稿，确认后不会创建任务；展示的笔记或外部动作仍需确认。",
+      "taskSchedule": "日期与重复规则",
       "sourceVersion": "读取时版本 {{version}}"
     },
     "templates": {

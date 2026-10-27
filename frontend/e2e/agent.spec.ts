@@ -415,6 +415,17 @@ test("notebook Agent previews scoped sources, approves linked notes and tasks, a
   expect((await noteList()).length).toBe(originalCount);
   await panel.getByRole("button", { name: "Generate proposal", exact: true }).click();
   await expect(panel.getByRole("button", { name: "Approve and create the displayed drafts", exact: true })).toBeVisible({ timeout: 15000 });
+  await panel.getByRole("textbox", { name: "Task title 1", exact: true }).fill("Review selected workflow evidence");
+  await panel.getByRole("textbox", { name: "Description 1", exact: true }).fill("Reviewed by the user before creation.");
+  await panel.getByLabel("Priority 1", { exact: true }).selectOption("1");
+  await panel.getByLabel("Select task 2", { exact: true }).uncheck();
+  await expect(panel.getByRole("button", { name: "Approve and create the displayed drafts", exact: true })).toBeDisabled();
+  // Review also commits no business resources, even if its response is lost.
+  await page.route(/\/api\/agent\/workflows\/[^/?]+\/tasks(?:\?.*)?$/, async route => { await route.fetch(); await route.abort("failed"); }, { times: 1 });
+  await panel.getByRole("button", { name: "Review task changes", exact: true }).click();
+  await expect(panel.getByRole("button", { name: "Approve and create the displayed drafts", exact: true })).toBeEnabled();
+  expect(await (await page.request.get(`${product.server}/api/tasks`, { headers })).json()).toHaveLength(0);
+  expect((await noteList()).length).toBe(originalCount);
   await panel.screenshot({ path: test.info().outputPath("notebook-workflow-preview.png") });
   // The server commits, but the approval response is lost. The UI must reconcile by GET.
   await page.route(/\/api\/agent\/workflows\/[^/?]+\/approve(?:\?.*)?$/, async route => { await route.fetch(); await route.abort("failed"); }, { times: 1 });
@@ -423,9 +434,10 @@ test("notebook Agent previews scoped sources, approves linked notes and tasks, a
   const createdNote = (await noteList()).find((note: { title: string }) => note.title === "Agent workflow result");
   expect(createdNote).toBeTruthy(); expect((await noteList()).length).toBe(originalCount + 1);
   const tasks = await (await page.request.get(`${product.server}/api/tasks`, { headers })).json();
-  expect(tasks).toHaveLength(2); expect(tasks.every((task: { noteId: string }) => task.noteId === createdNote.id)).toBe(true);
+  expect(tasks).toHaveLength(1); expect(tasks.every((task: { noteId: string }) => task.noteId === createdNote.id)).toBe(true);
+  expect(tasks[0]).toMatchObject({ title: "Review selected workflow evidence", description: "Reviewed by the user before creation.", priority: 1 });
   await panel.getByRole("button", { name: "Open task 1", exact: true }).click();
-  await expect(page.getByText("Review workflow sources", { exact: true }).first()).toBeVisible();
+  await expect(page.getByText("Review selected workflow evidence", { exact: true }).first()).toBeVisible();
   await page.getByRole("button", { name: "AI Chat", exact: true }).click();
   await page.getByRole("button", { name: "Agent", exact: true }).click();
   await panel.getByRole("button", { name: "Open created note", exact: true }).click();
@@ -436,7 +448,7 @@ test("notebook Agent previews scoped sources, approves linked notes and tasks, a
   await page.getByRole("button", { name: "Agent", exact: true }).click();
   await expect(panel.getByRole("button", { name: "Open created note", exact: true })).toBeVisible();
   await expect(panel.getByText("Draft details have expired or were interrupted. Created result links remain available; generate a new request to continue.", { exact: true })).toBeVisible();
-  expect(await (await page.request.get(`${product.server}/api/tasks`, { headers })).json()).toHaveLength(2);
+  expect(await (await page.request.get(`${product.server}/api/tasks`, { headers })).json()).toHaveLength(1);
   await page.setViewportSize({ width: 390, height: 844 });
   expect(await panel.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
 });
@@ -565,4 +577,85 @@ test("live P2 template retrieves two notes and persists an approved summary", as
   expect((await readNote()).content).toBe(saved.content);
   expect((await workflow()).status).toBe("completed");
   fs.writeFileSync(test.info().outputPath("p2-live-evidence.json"), JSON.stringify({ model: product.provider.model, status: completed.status, sourceCount: proposed.preview.sources.length, createdNotes: 1, persistedAfterRestart: true }, null, 2));
+});
+
+test("live notebook Agent reviews individual drafts and persists only the approved task batch", async ({ page, product }) => {
+  test.skip(!providerFile, "Requires an explicitly supplied live-provider credential file");
+  test.setTimeout(240000);
+  const registered = await page.request.post(`${product.server}/api/auth/register`, { data: { username: "task_review_live", password: "task-review-live-test-password" } });
+  expect(registered.ok()).toBe(true); const account = await registered.json();
+  const headers = { Authorization: `Bearer ${account.token}` };
+  expect((await page.request.put(`${product.server}/api/ai/settings`, { headers, data: { ai_provider: "openai", ai_api_url: product.provider.url, ai_api_key: product.provider.key, ai_model: product.provider.model } })).ok()).toBe(true);
+  const books = await (await page.request.get(`${product.server}/api/notebooks`, { headers })).json();
+  const sources = [];
+  for (const [index, content] of ["tasklivemarker：开发任务一：实现离线待发送队列。开发任务二：实现失败最多重试3次。", "tasklivemarker：开发任务三：补充恢复网络后的同步测试。没有截止日期、负责人和周期要求。"].entries()) {
+    const created = await page.request.post(`${product.server}/api/notes`, { headers, data: { title: `Task live source ${index + 1}`, notebookId: books[0].id, contentFormat: "markdown", content } });
+    expect(created.ok()).toBe(true); sources.push(await created.json());
+  }
+  const taskList = async () => (await page.request.get(`${product.server}/api/tasks`, { headers })).json();
+  const noteList = async () => (await page.request.get(`${product.server}/api/notes`, { headers })).json();
+  const before = (await noteList()).length;
+  const input = { notebookId: books[0].id, includeChildren: false, timezone: "Asia/Shanghai", lang: "zh-CN", linkNoteId: sources[0].id, instruction: "检索tasklivemarker两篇来源，生成且仅生成三项开发任务草稿：实现离线待发送队列、实现失败最多重试3次、补充恢复网络后的同步测试。调用taskRequest复用任务生成流程。摘要一句话，不创建笔记，不调用外部工具。来源没有日期或周期，所有日期留空，不设置重复规则，不捏造负责人。" };
+  const start = await page.request.post(`${product.server}/api/agent/workflows?workspaceId=personal`, { headers, data: input });
+  expect(start.status()).toBe(202); const { id } = await start.json();
+  const workflow = async () => (await page.request.get(`${product.server}/api/agent/workflows/${id}?workspaceId=personal`, { headers })).json();
+  try {
+    await expect.poll(async () => (await workflow()).status, { timeout: 125000 }).toMatch(/^(waiting_approval|failed|cancelled|interrupted)$/);
+  } finally {
+    const state = await workflow();
+    fs.writeFileSync(test.info().outputPath("task-live-state.json"), JSON.stringify({ model: product.provider.model, status: state.status, errorCode: state.errorCode, steps: state.steps?.map((step: { toolName: string; status: string }) => ({ toolName: step.toolName, status: step.status })) }, null, 2));
+  }
+  const proposed = await workflow();
+  expect(proposed.status, JSON.stringify({ errorCode: proposed.errorCode, steps: proposed.steps })).toBe("waiting_approval");
+  expect(proposed.preview.note).toBeUndefined(); expect(proposed.preview.extensionCalls || []).toHaveLength(0);
+  expect(proposed.preview.tasks.tasks).toHaveLength(3);
+  for (const task of proposed.preview.tasks.tasks) expect(task).toMatchObject({ startDate: null, dueDate: null, dueAt: null, repeatRule: "none" });
+  for (const source of sources) expect(proposed.preview.sources.map((item: { id: string }) => item.id)).toContain(source.id);
+  const draftText = JSON.stringify(proposed.preview.tasks.tasks);
+  for (const fact of [/离线|队列/, /重试/, /测试/]) expect(draftText).toMatch(fact);
+  expect(await taskList()).toHaveLength(0); expect((await noteList()).length).toBe(before);
+
+  await page.goto(product.server);
+  await page.evaluate(() => { localStorage.setItem("i18nextLng", "en"); localStorage.setItem("nowen-seen-version", "1.5.3"); });
+  await page.reload(); await page.getByPlaceholder("admin", { exact: true }).fill("task_review_live");
+  await page.locator("input[type=password]").fill("task-review-live-test-password"); await page.locator("button[type=submit]").click();
+  await expect(page.getByRole("textbox", { name: "Note Title", exact: true })).toHaveValue(/欢迎|Welcome/);
+  await page.getByRole("button", { name: "AI Chat", exact: true }).click();
+  await page.getByRole("button", { name: "Agent", exact: true }).click();
+  const panel = page.getByRole("region", { name: "Notebook Agent", exact: true });
+  const title = `用户核查：${proposed.preview.tasks.tasks[0].title}`;
+  await panel.getByRole("textbox", { name: "Task title 1", exact: true }).fill(title);
+  await panel.getByRole("textbox", { name: "Description 1", exact: true }).fill("保留原技术要求，完成后人工核查。用户在审批前修改。");
+  await panel.getByLabel("Priority 1", { exact: true }).selectOption("3");
+  await panel.getByRole("group", { name: "Candidate 1", exact: true }).getByText("Dates and recurrence", { exact: true }).click();
+  await panel.getByLabel("Due date 1", { exact: true }).fill("2026-11-02");
+  await panel.getByLabel("Due time 1", { exact: true }).fill("09:30");
+  await panel.getByLabel("Recurrence 1", { exact: true }).selectOption("weekly");
+  await panel.getByLabel("Repeat interval 1", { exact: true }).fill("2");
+  await panel.getByLabel("Total occurrences 1", { exact: true }).fill("4");
+  await panel.getByLabel("Select task 3", { exact: true }).uncheck();
+  const approve = panel.getByRole("button", { name: "Approve and create the displayed drafts", exact: true });
+  await expect(approve).toBeDisabled();
+  await panel.getByRole("button", { name: "Review task changes", exact: true }).click();
+  await expect(approve).toBeEnabled();
+  const reviewed = await workflow(); expect(reviewed.preview.token).not.toBe(proposed.preview.token);
+  expect(await taskList()).toHaveLength(0); expect((await noteList()).length).toBe(before);
+  const old = await page.request.post(`${product.server}/api/agent/workflows/${id}/approve?workspaceId=personal`, { headers, data: { token: proposed.preview.token } });
+  expect((await old.json()).code).toBe("APPROVAL_INVALID");
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await panel.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
+  await panel.screenshot({ path: test.info().outputPath("task-live-reviewed.png") });
+  await approve.click();
+  await expect(panel.getByRole("button", { name: "Open task 2", exact: true })).toBeVisible();
+  const completed = await workflow(); expect(completed.status).toBe("completed");
+  const tasks = await taskList(); expect(tasks).toHaveLength(2);
+  expect(tasks.find((task: { title: string }) => task.title === title)).toMatchObject({ description: "保留原技术要求，完成后人工核查。用户在审批前修改。", priority: 3, dueDate: "2026-11-02", dueAt: "2026-11-02T09:30", repeatRule: "weekly", repeatInterval: 2, repeatEndCount: 4 });
+  expect(tasks.every((task: { noteId: string }) => task.noteId === sources[0].id)).toBe(true);
+  expect(tasks.some((task: { title: string }) => task.title === proposed.preview.tasks.tasks[2].title)).toBe(false);
+  expect((await noteList()).length).toBe(before);
+  const duplicate = await page.request.post(`${product.server}/api/agent/workflows/${id}/approve?workspaceId=personal`, { headers, data: { token: reviewed.preview.token } });
+  expect((await duplicate.json()).code).toBe("APPROVAL_INVALID"); expect(await taskList()).toHaveLength(2);
+  await product.restart();
+  expect(await taskList()).toEqual(tasks); expect((await workflow()).status).toBe("completed");
+  fs.writeFileSync(test.info().outputPath("task-live-evidence.json"), JSON.stringify({ model: product.provider.model, status: completed.status, sourceCount: proposed.preview.sources.length, generatedDrafts: 3, excludedDrafts: 1, createdTasks: 2, linkedNoteId: sources[0].id, savedTasks: tasks, persistedAfterRestart: true, oldApprovalRejected: true, duplicateApprovalRejected: true }, null, 2));
 });

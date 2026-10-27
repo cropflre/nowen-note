@@ -79,6 +79,100 @@ test("explicit scope excludes child notebooks when requested and never reads for
   assert.throws(() => runtime.get(run.id, "workflow-b"), /RUN_NOT_FOUND/);
 });
 
+function reviewInput(run: ReturnType<AgentWorkflowRuntime["get"]>, patches: Record<string, unknown>[] = []) {
+  return { token: run.preview!.token!, tasks: run.preview!.tasks!.tasks.map(({ reason: _reason, warnings: _warnings, duplicateOf: _duplicates, projectId: _project, ...task }, index) => ({ ...task, selected: true, ...patches[index] })) };
+}
+
+test("reviewed task edits rotate approval, exclude drafts and persist only the selected fields once (DCC-002)", async () => {
+  const baseRespond = respond;
+  respond = async (body, signal) => body.tools ? baseRespond(body, signal) : new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ tasks: [{ title: "Review alpha" }, { title: "Excluded alpha" }] }) } }] }));
+  const run = await settled(runtime.create(userId, null, input()).id);
+  const edited = runtime.reviseTasks(run.id, userId, reviewInput(run, [{ title: "Reviewed title", description: "User-approved details", priority: 3, dueDate: "2026-11-02" }, { selected: false }]));
+  assert.equal(count("tasks"), 0); assert.equal(count("notes"), 3);
+  assert.notEqual(edited.preview!.token, run.preview!.token);
+  await assert.rejects(runtime.approve(run.id, userId, run.preview!.token!), /APPROVAL_INVALID/);
+  const completed = await runtime.approve(run.id, userId, edited.preview!.token!);
+  assert.equal(completed.status, "completed"); assert.equal(count("tasks"), 1);
+  const stored = db.prepare("SELECT title,description,priority,dueDate,noteId FROM tasks").get() as Record<string, unknown>;
+  assert.deepEqual(stored, { title: "Reviewed title", description: "User-approved details", priority: 3, dueDate: "2026-11-02", noteId: completed.actions.find(a => a.kind === "note")!.resourceIds[0] });
+  await assert.rejects(runtime.approve(run.id, userId, edited.preview!.token!), /APPROVAL_INVALID/);
+  assert.throws(() => runtime.reviseTasks(run.id, userId, reviewInput(edited)), /APPROVAL_INVALID/);
+  closeDb(); db = (await import("../src/db/schema.js")).getDb();
+  assert.deepEqual(db.prepare("SELECT title,description,priority,dueDate,noteId FROM tasks").get(), stored);
+});
+
+test("task review rejects forged identities, fields, dates, duplicates and stale approvals without changing drafts", async () => {
+  const run = await settled(runtime.create(userId, null, input()).id);
+  for (const patch of [{ clientId: "forged" }, { title: "" }, { userId: "workflow-b" }, { projectId: "foreign-project" }, { allowDuplicate: true }, { startDate: "2026-11-03", dueDate: "2026-11-01" }, { repeatRule: "daily" }]) {
+    assert.throws(() => runtime.reviseTasks(run.id, userId, reviewInput(run, [patch])));
+    assert.equal(runtime.get(run.id, userId).preview!.token, run.preview!.token);
+  }
+  const valid = reviewInput(run);
+  assert.throws(() => runtime.reviseTasks(run.id, "workflow-b", valid), /RUN_NOT_FOUND/);
+  assert.throws(() => runtime.reviseTasks(run.id, userId, { ...valid, tasks: [] }));
+  assert.throws(() => runtime.reviseTasks(run.id, userId, { ...valid, tasks: [...valid.tasks, ...valid.tasks] }));
+  const revised = runtime.reviseTasks(run.id, userId, reviewInput(run, [{ title: "New title" }]));
+  assert.throws(() => runtime.reviseTasks(run.id, userId, valid), /APPROVAL_INVALID/);
+  db.prepare("UPDATE notes SET content='Changed source' WHERE id='workflow-source'").run();
+  assert.throws(() => runtime.reviseTasks(run.id, userId, reviewInput(revised)), /VERSION_CONFLICT/);
+  assert.equal(count("tasks"), 0); assert.equal(count("notes"), 3);
+});
+
+test("all tasks may be excluded without calling batch creation; note approval remains explicit", async () => {
+  const run = await settled(runtime.create(userId, null, input()).id);
+  const revised = runtime.reviseTasks(run.id, userId, reviewInput(run, [{ selected: false, title: "" }]));
+  assert.equal(count("notes"), 3);
+  const completed = await runtime.approve(run.id, userId, revised.preview!.token!);
+  assert.equal(completed.status, "completed"); assert.equal(count("tasks"), 0); assert.equal(count("task_composer_batches"), 0);
+  assert.equal(count("notes"), 4); assert.deepEqual(completed.actions.find(a => a.kind === "tasks")!.resourceIds, []);
+});
+
+test("review cannot alter completed task actions or expired and cancelled previews", async () => {
+  const run = await settled(runtime.create(userId, null, input()).id);
+  const original = reviewInput(run);
+  runtime.cancel(run.id, userId);
+  assert.throws(() => runtime.reviseTasks(run.id, userId, original), /APPROVAL_EXPIRED|AbortError/);
+  const next = await settled(runtime.create(userId, null, input()).id);
+  const restarted = new WorkflowRuntime(); restarted.initialize();
+  assert.throws(() => restarted.reviseTasks(next.id, userId, reviewInput(next)), /APPROVAL_EXPIRED/);
+  assert.equal(count("tasks"), 0);
+});
+
+test("task review detects duplicates before approval and permits excluding the conflicting candidate", async () => {
+  const baseRespond = respond;
+  respond = async (body, signal) => body.tools ? baseRespond(body, signal) : new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ tasks: [{ title: "First alpha" }, { title: "Second alpha" }] }) } }] }));
+  const run = await settled(runtime.create(userId, null, input()).id);
+  assert.throws(() => runtime.reviseTasks(run.id, userId, reviewInput(run, [{ title: "Same" }, { title: "Same" }])), /DUPLICATE_CANDIDATE/);
+  db.prepare("INSERT INTO tasks(id,userId,title) VALUES ('existing-alpha',?,'Existing alpha')").run(userId);
+  assert.throws(() => runtime.reviseTasks(run.id, userId, reviewInput(run, [{ title: "Existing alpha" }])), /TASK_DUPLICATE/);
+  const reviewed = runtime.reviseTasks(run.id, userId, reviewInput(run, [{ title: "Same" }, { title: "Same", selected: false }]));
+  assert.equal(reviewed.status, "waiting_approval"); assert.equal(count("tasks"), 1);
+});
+
+test("task review API enforces session, workspace, owner and strict input before changing approval (DCC-006)", async () => {
+  const send = (path: string, body: unknown, patch = {}) => app.request(`/api/agent${path}`, { method: "POST", headers: { ...headers, ...patch }, body: JSON.stringify(body) });
+  const start = await send("/workflows", input());
+  assert.equal(start.status, 202); const { id } = await start.json();
+  let run: ReturnType<AgentWorkflowRuntime["get"]>;
+  for (let i = 0; i < 150; i++) {
+    run = await (await app.request(`/api/agent/workflows/${id}`, { headers })).json();
+    if (run!.status === "waiting_approval") break;
+    await new Promise(resolve => setTimeout(resolve, 10));
+  }
+  assert.equal(run!.status, "waiting_approval");
+  const draft = reviewInput(run!);
+  assert.equal((await send(`/workflows/${id}/tasks`, draft, { "X-Auth-Mode": "api-token" })).status, 403);
+  assert.equal((await send(`/workflows/${id}/tasks?workspaceId=forged`, draft)).status, 403);
+  assert.equal((await send(`/workflows/${id}/tasks`, draft, { "X-User-Id": "workflow-b" })).status, 404);
+  assert.equal((await send(`/workflows/${id}/tasks`, { ...draft, execute: true })).status, 400);
+  const revised = await send(`/workflows/${id}/tasks`, draft);
+  assert.equal(revised.status, 200); assert.notEqual((await revised.json()).preview.token, draft.token);
+  const oldApproval = await send(`/workflows/${id}/approve`, { token: draft.token });
+  assert.equal((await oldApproval.json()).code, "APPROVAL_INVALID");
+  assert.equal(count("tasks"), 0); assert.equal(count("notes"), 3);
+  await send(`/workflows/${id}/cancel`, {});
+});
+
 test("locked notes and password folders are excluded before model context", async () => {
   db.prepare("UPDATE notes SET isLocked=1 WHERE id='workflow-source'").run();
   plan = { summary: "Child summary", sourceNoteIds: ["workflow-child-source"] };
@@ -171,12 +265,14 @@ test("DCC-002: Outbox failure preserves the completed note, retries only tasks a
   assert.ok(db.prepare("SELECT 1 FROM sync_outbox WHERE entityType='note' AND entityId=? AND profileId=?").get(noteId, profile.id));
   db.exec("DROP TRIGGER workflow_outbox_failure");
   const retry = runtime.retry(run.id, userId);
-  const saved = await runtime.approve(run.id, userId, retry.preview!.token!);
+  const revised = runtime.reviseTasks(run.id, userId, reviewInput(retry, [{ title: "Reviewed after Outbox recovery" }]));
+  const saved = await runtime.approve(run.id, userId, revised.preview!.token!);
   assert.equal(saved.status, "completed"); assert.equal(count("tasks"), 1);
   const ids = saved.actions.flatMap(action => action.resourceIds);
   closeDb(); db = (await import("../src/db/schema.js")).getDb();
   for (const id of ids) assert.ok(db.prepare("SELECT 1 FROM sync_outbox WHERE entityId=? AND profileId=?").get(id, profile.id));
   assert.equal((db.prepare("SELECT noteId FROM tasks").get() as { noteId: string }).noteId, noteId);
+  assert.equal((db.prepare("SELECT title FROM tasks").get() as { title: string }).title, "Reviewed after Outbox recovery");
 });
 
 test("source permission revocation and account token revocation block approval", async () => {

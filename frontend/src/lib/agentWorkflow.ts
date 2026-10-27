@@ -1,4 +1,5 @@
 import type { TaskCandidate } from "./taskComposerApi";
+export type AgentTaskDraft = Omit<TaskCandidate, "projectId" | "allowDuplicate" | "reason" | "warnings" | "duplicateOf">;
 
 export interface AgentWorkflow {
   id: string; notebookId: string; workspaceId: string | null; status: string;
@@ -9,7 +10,7 @@ export interface AgentWorkflow {
   extensionReceipts?: Array<{ callIndex: number; toolId: string; status: string }>;
   preview?: {
     summary: string; note?: { title: string; content: string };
-    tasks?: { previewId: string; timezone: string; warnings: string[]; tasks: Omit<TaskCandidate, "selected" | "allowDuplicate">[] };
+    tasks?: { previewId: string; timezone: string; warnings: string[]; tasks: (Omit<TaskCandidate, "selected" | "allowDuplicate"> & { selected?: boolean })[] };
     sources: Array<{ id: string; title: string; version: number }>;
     contextTruncated: boolean; linkNoteId: string | null; token?: string;
     extensionCalls?: Array<{ toolId: string; input: Record<string, unknown>; tool: import("./agentTemplates").AgentExtension }>;

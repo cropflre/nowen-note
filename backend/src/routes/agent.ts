@@ -43,6 +43,7 @@ app.post("/workflows/:id/approve", async c => {
   const { token } = z.object({ token: z.string().length(64) }).strict().parse(await c.req.json());
   return c.json(await agentWorkflowRuntime.approve(c.req.param("id"), c.req.header("X-User-Id")!, token));
 });
+app.post("/workflows/:id/tasks", async c => c.json(agentWorkflowRuntime.reviseTasks(c.req.param("id"), c.req.header("X-User-Id")!, await c.req.json())));
 app.post("/workflows/:id/retry", c => c.json(agentWorkflowRuntime.retry(c.req.param("id"), c.req.header("X-User-Id")!)));
 for (const action of ["cancel", "reject"]) app.post(`/workflows/:id/${action}`, c => c.json(agentWorkflowRuntime.cancel(c.req.param("id"), c.req.header("X-User-Id")!)));
 app.get("/runs", c => c.json(agentRuntime.latest(c.req.header("X-User-Id")!, c.req.query("noteId") || "")));

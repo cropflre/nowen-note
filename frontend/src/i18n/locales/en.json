@@ -3455,7 +3455,7 @@
       "RETRY_UNAVAILABLE": "The previous draft cannot be resumed. Check existing results and generate a new request.",
       "WRITE_FAILED": "This action failed. Completed results were preserved. Review remaining actions before retrying.",
       "CHECK_CREATED_RESULTS": "Execution stopped. Already created results remain saved.",
-      "TASK_DUPLICATE": "A task already exists. Check it and regenerate the remaining task drafts.",
+      "TASK_DUPLICATE": "A matching task already exists. Edit or exclude that draft, then review the remaining tasks.",
       "AI_REQUEST_FAILED": "Task draft generation failed. No task was created.",
       "AI_INVALID_JSON": "The task model returned invalid JSON. Generate again.",
       "AI_INVALID_FORMAT": "The task draft format is invalid. Generate again.",
@@ -3508,6 +3508,11 @@
       "repeatDetails": "Timezone {{timezone}} · Repeat every {{interval}} · Until {{end}} · Count {{repeatCount}}",
       "checkResults": "Check execution status",
       "uncertain": "The approval result is unknown. Check execution status before trying any write again.",
+      "reviewTasks": "Review task changes",
+      "discardTaskChanges": "Discard task changes",
+      "taskChangesPending": "Task changes have not been reviewed. Review them before approving any creation.",
+      "noTasksSelected": "All task drafts are excluded. Approval will create no tasks; any displayed note or external action still requires confirmation.",
+      "taskSchedule": "Dates and recurrence",
       "sourceVersion": "Read version {{version}}"
     },
     "templates": {

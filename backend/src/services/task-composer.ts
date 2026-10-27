@@ -148,6 +148,20 @@ For explicit daily/weekly activities use one repeating task, never one task per 
   return { previewId: crypto.randomUUID(), timezone: input.timezone, tasks, warnings: [...new Set(warnings)], status: "ready" as const };
 }
 
+export function validateComposerTasks(userId: string, workspaceId: string | null, tasks: ComposerTask[], timezone: string) {
+  const seen = new Set<string>(), clientIds = new Set<string>();
+  return tasks.map(task => {
+    assertComposerProject(userId, workspaceId, task.projectId);
+    const warnings = validateComposerDates(task, timezone);
+    const key = duplicateKey(task);
+    if (seen.has(key) || clientIds.has(task.clientId)) throw new TaskComposerError("DUPLICATE_CANDIDATE", 400, { clientId: task.clientId });
+    seen.add(key); clientIds.add(task.clientId);
+    const duplicates = duplicateIds(userId, workspaceId, task);
+    if (duplicates.length && !task.allowDuplicate) throw new TaskComposerError("TASK_DUPLICATE", 409, { clientId: task.clientId, duplicateOf: duplicates });
+    return warnings;
+  });
+}
+
 export function createComposerBatch(userId: string, workspaceId: string | null, input: z.infer<typeof batchInputSchema>, create: (task: ComposerTask) => Record<string, unknown>) {
   const db = getDb();
   const scopeKey = workspaceId || "personal";
@@ -161,17 +175,7 @@ export function createComposerBatch(userId: string, workspaceId: string | null, 
       const tasks = ids.map(id => db.prepare("SELECT * FROM tasks WHERE id=? AND workspaceId IS ? AND (? IS NOT NULL OR userId=?)").get(id, workspaceId, workspaceId, userId)).filter(Boolean);
       return { tasks, createdCount: ids.length, replayed: true };
     }
-    const seen = new Set<string>();
-    const clientIds = new Set<string>();
-    for (const task of input.tasks) {
-      assertComposerProject(userId, workspaceId, task.projectId);
-      validateComposerDates(task, input.timezone);
-      const key = duplicateKey(task);
-      if (seen.has(key) || clientIds.has(task.clientId)) throw new TaskComposerError("DUPLICATE_CANDIDATE", 400, { clientId: task.clientId });
-      seen.add(key); clientIds.add(task.clientId);
-      const duplicates = duplicateIds(userId, workspaceId, task);
-      if (duplicates.length && !task.allowDuplicate) throw new TaskComposerError("TASK_DUPLICATE", 409, { clientId: task.clientId, duplicateOf: duplicates });
-    }
+    validateComposerTasks(userId, workspaceId, input.tasks, input.timezone);
     const tasks = input.tasks.map(task => create(task));
     for (const task of tasks) captureBusinessMutation({
       area: "tasks", path: "/", method: "POST", userId, workspaceId,
