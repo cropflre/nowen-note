@@ -51,6 +51,35 @@ async function flushPreview() {
 }
 
 describe("markdownLivePreviewExtension", () => {
+  it("opens an image without replacing its preview with Markdown source", async () => {
+    const parent = document.createElement("div");
+    document.body.appendChild(parent);
+    const doc = "![photo](https://example.com/photo.png)\n\nEditing paragraph";
+    const view = new EditorView({
+      parent,
+      state: EditorState.create({
+        doc,
+        selection: { anchor: doc.length },
+        extensions: [markdown(), markdownLivePreviewExtension],
+      }),
+    });
+    try {
+      await vi.waitFor(() => expect(parent.querySelector("img")).not.toBeNull());
+      const image = parent.querySelector("img")!;
+      const selection = view.state.selection;
+      image.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }));
+      expect(view.state.selection.eq(selection)).toBe(true);
+      expect(parent.querySelector("img")).toBe(image);
+      image.click();
+      await vi.waitFor(() => expect(document.querySelector('[role="dialog"][aria-label="图片预览"]')).not.toBeNull());
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+      await vi.waitFor(() => expect(document.querySelector('[role="dialog"][aria-label="图片预览"]')).toBeNull());
+      expect(view.state.selection.eq(selection)).toBe(true);
+      expect(parent.querySelector("img")).toBe(image);
+      expect(view.state.doc.toString()).toBe(doc);
+    } finally { view.destroy(); }
+  });
+
   it("authorizes Live-mode images for their own note and updates the scope even for identical text", async () => {
     resetAttachmentAccessStateForTests();
     localStorage.setItem("nowen-token", "jwt-token");
