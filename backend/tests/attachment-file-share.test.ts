@@ -62,6 +62,7 @@ test.before(async () => {
   closeDb = schemaModule.closeDb;
 
   app = new Hono();
+  app.get("/f/:key", attachmentsModule.handleShortFileShareAttachment);
   app.get("/attachments/:id", attachmentsModule.handleDownloadAttachment);
   app.get("/attachments/:id/:filename{image\\.[a-z]+}", attachmentsModule.handleNamedImageAttachment);
   app.route("/attachments", attachmentsModule.default);
@@ -109,7 +110,8 @@ test("stable file-share URL contains no temporary attachment signature and survi
   const parsed = new URL(share.url, "http://localhost");
 
   assert.equal(share.attachmentId, attachmentId);
-  assert.ok(parsed.searchParams.get("share"));
+  assert.match(parsed.pathname, /^\/api\/f\/[A-Za-z0-9_-]{32}$/);
+  assert.equal(parsed.search, "");
   assert.equal(parsed.searchParams.get("exp"), null);
   assert.equal(parsed.searchParams.get("sig"), null);
   assert.equal(parsed.searchParams.get("scope"), null);
@@ -121,6 +123,9 @@ test("stable file-share URL contains no temporary attachment signature and survi
     response.headers.get("cache-control"),
     "private, no-cache, must-revalidate, no-transform",
   );
+  const head = await app.request(publicRoute(share.url), { method: "HEAD" });
+  assert.equal(head.status, 200);
+  assert.equal(await head.text(), "");
 });
 
 test("revoke invalidates the stable URL before ETag short-circuiting", async () => {
@@ -228,8 +233,19 @@ test("named image URLs retain bytes, MIME and ACL through upload, deduplication,
     const created = await createShare();
     assert.equal(created.status, 200);
     const share = await responseJson<{ url: string }>(created);
-    assert.ok(share.url.startsWith(`${image.imageUrl}?share=`));
-    const shareQuery = new URL(share.url).search;
+    const shortUrl = new URL(share.url);
+    assert.match(shortUrl.pathname, /^\/nowen\/api\/f\/[A-Za-z0-9_-]{32}\.png$/);
+    assert.equal(shortUrl.search, "");
+    const token = shortUrl.pathname.split("/").pop()!.replace(/\.png$/, "");
+    const shortRoute = `/f/${token}.png`;
+    const shortResponse = await app.request(shortRoute);
+    assert.equal(shortResponse.status, 200);
+    assert.equal(shortResponse.headers.get("content-type"), "image/png");
+    assert.deepEqual(Buffer.from(await shortResponse.arrayBuffer()), bytes);
+    assert.equal((await app.request(`/f/${token}.jpg`)).status, 404);
+    assert.equal((await app.request(`/f/${"x".repeat(32)}.png`, { headers: { "X-User-Id": OWNER_ID } })).status, 404);
+    // Existing long URLs use the same capability and remain compatible.
+    const shareQuery = `?share=${token}`;
     const anonymous = await app.request(`${namedPath}${shareQuery}`);
     assert.equal(anonymous.status, 200);
     assert.deepEqual(Buffer.from(await anonymous.arrayBuffer()), bytes);
@@ -242,6 +258,7 @@ test("named image URLs retain bytes, MIME and ACL through upload, deduplication,
 
     const { setAttachmentExternalAccessEnabled } = await import("../src/services/attachment-link-policy");
     setAttachmentExternalAccessEnabled(image.id, false);
+    assert.equal((await app.request(shortRoute)).status, 403);
     assert.equal((await app.request(`${namedPath}${shareQuery}`)).status, 403);
     assert.equal((await createShare()).status, 403);
     // Disabling public links must not remove the owner's signed access.
@@ -250,6 +267,7 @@ test("named image URLs retain bytes, MIME and ACL through upload, deduplication,
 
     const revoke = await app.request(`/attachments/file-share/${image.id}`, { method: "DELETE", headers: { "X-User-Id": OWNER_ID } });
     assert.equal(revoke.status, 200);
+    assert.equal((await app.request(shortRoute)).status, 410);
     assert.equal((await app.request(`${namedPath}${shareQuery}`)).status, 410);
   } finally {
     if (previousOrigin === undefined) delete process.env.FILE_PUBLIC_ORIGIN;

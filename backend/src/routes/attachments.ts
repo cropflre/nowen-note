@@ -77,9 +77,11 @@ function buildSignedAttachmentUrls(noteId: string, scope: string, origin: string
 
 function buildStableFileShareUrl(c: Context, attachmentId: string, token: string): string {
   const row = getDb().prepare("SELECT mimeType FROM attachments WHERE id = ?").get(attachmentId) as { mimeType: string } | undefined;
+  const imagePath = row && imageAttachmentPath(attachmentId, row.mimeType);
+  const suffix = imagePath ? imagePath.slice(imagePath.lastIndexOf(".")) : "";
+  const path = `/api/f/${encodeURIComponent(token)}${suffix}`;
   const imageUrl = row && imageAttachmentUrl(c, attachmentId, row.mimeType);
-  if (imageUrl) return `${imageUrl}?share=${encodeURIComponent(token)}`;
-  const path = `/api/attachments/${encodeURIComponent(attachmentId)}?share=${encodeURIComponent(token)}`;
+  if (imageUrl && imagePath) return `${imageUrl.slice(0, -imagePath.length)}${path}`;
   const origin = requestPublicOrigin(c).replace(/\/+$/, "");
   return origin ? `${origin}${path}` : path;
 }
@@ -277,6 +279,31 @@ attachmentsRouter.route("/", remoteImageImportRouter);
 attachmentsRouter.route("/", attachmentsCoreRouter);
 
 export default attachmentsRouter;
+
+// Reuse the complete download pipeline, including Range, ETag and current ACL checks.
+const fileShareDownloads = new Hono();
+fileShareDownloads.get("/:id", handleDownloadAttachment);
+
+export async function handleShortFileShareAttachment(c: Context): Promise<Response> {
+  const match = /^([A-Za-z0-9_-]+)(\.[a-z]+)?$/.exec(c.req.param("key") || "");
+  if (!match) return noStoreJson(c, { error: "文件分享链接不存在", code: "FILE_SHARE_NOT_FOUND" }, 404);
+  const [, token, suffix] = match;
+  try {
+    const access = resolveStableFileShare(token);
+    if (suffix) {
+      const row = getDb().prepare("SELECT mimeType FROM attachments WHERE id = ?").get(access.attachmentId) as { mimeType: string } | undefined;
+      if (!row || !imageAttachmentPath(access.attachmentId, row.mimeType)?.endsWith(`/image${suffix}`)) {
+        return noStoreJson(c, { error: "图片不存在", code: "FILE_SHARE_NOT_FOUND" }, 404);
+      }
+    }
+    const url = new URL(c.req.url);
+    url.pathname = `/${access.attachmentId}`;
+    url.searchParams.set("share", token);
+    return await fileShareDownloads.fetch(new Request(url, c.req.raw), c.env);
+  } catch (error) {
+    return fileShareErrorResponse(c, error);
+  }
+}
 
 /** Filename aliases share the exact same ACL, signatures, revocation and storage handler. */
 export async function handleNamedImageAttachment(c: Context): Promise<Response> {

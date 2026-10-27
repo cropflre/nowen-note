@@ -86,6 +86,7 @@ test.before(async () => {
   db.prepare("INSERT INTO notebooks (id, userId, name) VALUES (?, ?, ?)").run("photo-book", owner, "照片");
   for (const id of ["photo-note", "private-note"]) db.prepare("INSERT INTO notes (id, userId, notebookId, title, content) VALUES (?, ?, ?, ?, ?)").run(id, owner, "photo-book", id, "{}");
   app = new Hono(); app.route("/api/attachment-trash", (await import("../src/routes/attachment-trash")).default);
+  app.get("/api/f/:key", routes.handleShortFileShareAttachment);
   app.get("/api/attachments/:id", routes.handleDownloadAttachment); app.route("/api/attachments", routes.default);
 });
 test.after(() => { schema?.closeDb(); fs.rmSync(tmp, { recursive: true, force: true }); });
