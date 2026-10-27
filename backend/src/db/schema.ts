@@ -6,6 +6,7 @@ import { enableIncrementalAutoVacuum } from "../lib/reclaimSpace.js";
 import { assertSafeTestDatabasePath } from "./test-db-guard.js";
 import { ensureNormalizedSearchFts } from "../lib/searchIndex.js";
 import { requireSqliteVecForStoredTables } from "./sqlite-vec-extension.js";
+import { assertSchemaCompatibility } from "./schema-compatibility.js";
 
 const DB_PATH = process.env.DB_PATH || path.join(process.env.ELECTRON_USER_DATA || path.join(process.cwd(), "data"), "nowen-note.db");
 assertSafeTestDatabasePath(DB_PATH);
@@ -63,6 +64,14 @@ export function getDb(): Database.Database {
       fs.mkdirSync(dir, { recursive: true });
     }
     db = new Database(DB_PATH);
+    // Refuse incompatible data before baseline DDL, WAL setup or VACUUM can write it.
+    try {
+      assertSchemaCompatibility(db, CURRENT_SCHEMA_VERSION);
+    } catch (error) {
+      db.close();
+      db = undefined;
+      throw error;
+    }
     dbRegistry.set(DB_PATH, db);
     db.pragma("journal_mode = WAL");
     db.pragma("foreign_keys = ON");

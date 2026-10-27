@@ -27,6 +27,7 @@ import { taskComposerMigration } from "./taskComposerMigration.js";
  * activity ledger used by records, trends and heatmaps.
  */
 import type Database from "better-sqlite3";
+import { assertSchemaCompatibility } from "./schema-compatibility.js";
 import { encryptedBlocksMigration } from "./encryptedBlocksMigration.js";
 import { encryptedNotesMigration } from "./encryptedNotesMigration.js";
 import { markSearchIndexRebuilt, rebuildNormalizedSearchFts, repairSearchContentText } from "../lib/searchIndex.js";
@@ -502,16 +503,9 @@ export function getCurrentSchemaVersion(db: Database.Database): number {
 }
 
 export function runMigrations(db: Database.Database): number {
+  assertSchemaCompatibility(db, CURRENT_SCHEMA_VERSION);
   ensureMigrationsTable(db);
   validateMigrationRegistry();
-
-  const current = getCurrentSchemaVersion(db);
-  if (current > CURRENT_SCHEMA_VERSION) {
-    throw new Error(
-      `[migrations] 数据库版本 ${current} 高于当前程序支持的 ${CURRENT_SCHEMA_VERSION}。\n` +
-      "请升级程序或从兼容版本备份恢复，禁止旧程序继续写入新版数据库。",
-    );
-  }
 
   // schema_migrations is an applied-migration ledger, not a single cursor.
   // Looking only at MAX(version) permanently skips a migration added later with
