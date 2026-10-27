@@ -294,6 +294,7 @@
       "title": "不完整备份不可直接覆盖线上数据，失败要回滚",
       "status": "covered",
       "checks": [
+        { "file": "backend/tests/docker-updater-jobs.test.ts", "case": "DCC-008: Docker upgrade lifecycle refuses unsafe rollback" },
         { "file": "backend/tests/migration-task-version-compatibility.test.ts", "case": "reopens pre-split v134 databases without losing retained app data or Studio history" },
         { "file": "frontend/src/lib/__tests__/nativeAttachmentStore.test.ts", "case": "retains the old attachment after a chunk write fails and can retry (DCC-008)" },
         {"file": "backend/tests/sync-v2-note-deletion-lifecycle.test.ts", "case": "failed mutation ledger rolls back deletion, cleanup job and knowledge tree atomically"},

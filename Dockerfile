@@ -91,6 +91,8 @@ RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 ARG BUILD_DATE=""
 ARG APP_VERSION=""
 ARG VCS_REF=""
+# Refuse an image tagged as a new release when its packaged server is still old.
+RUN node -e 'const app=require("./package.json").version; const backend=require("./backend/package.json").version; const expected=(process.env.APP_VERSION||app).replace(/^v/, ""); if(app!==expected||backend!==expected) throw new Error("Docker version mismatch: "+JSON.stringify({app,backend,expected}))'
 ENV NOWEN_BUILD_TIME=${BUILD_DATE}
 ENV NOWEN_APP_VERSION=${APP_VERSION}
 LABEL org.opencontainers.image.title="Nowen Note" \

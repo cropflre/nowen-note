@@ -21,6 +21,7 @@ import {
   resolveDigest,
   startContainer,
   stopContainer,
+  validateImageVersion,
   validateTargetVersion,
   type DockerContainerInspect,
   type DockerImageInspect,
@@ -74,6 +75,7 @@ export interface UpdateJob {
   targetImageId: string;
   targetDigest: string | null;
   sourceVersion: string | null;
+  sourceCodeSchemaVersion?: number | null;
   sourceImage: string;
   sourceImageId: string;
   sourceDigest: string | null;
@@ -239,10 +241,29 @@ async function fetchJson<T>(url: string, timeoutMs = 8_000): Promise<T> {
   }
 }
 
-async function readApplicationVersion(): Promise<string | null> {
+interface ApplicationVersion {
+  appVersion?: string;
+  schemaVersion?: number | null;
+  codeSchemaVersion?: number | null;
+}
+
+function schemaReady(version: ApplicationVersion): boolean {
+  return Number.isSafeInteger(version.schemaVersion) && (version.schemaVersion as number) >= 0 &&
+    version.schemaVersion === version.codeSchemaVersion;
+}
+
+function assertApplicationReady(version: ApplicationVersion, expectedVersion: string | null): void {
+  if (expectedVersion && version.appVersion !== expectedVersion) {
+    throw new Error(`版本校验失败：期望 ${expectedVersion}，实际 ${version.appVersion || "unknown"}`);
+  }
+  if (!schemaReady(version)) {
+    throw new Error(`数据库 Schema 未就绪或信息缺失：${version.schemaVersion}/${version.codeSchemaVersion}`);
+  }
+}
+
+async function readApplicationVersion(): Promise<ApplicationVersion | null> {
   try {
-    const data = await fetchJson<{ appVersion?: string }>(`${APP_BASE_URL}/api/version`);
-    return data.appVersion || null;
+    return await fetchJson<ApplicationVersion>(`${APP_BASE_URL}/api/version`);
   } catch {
     return null;
   }
@@ -316,6 +337,11 @@ export async function runUpdaterPreflight(targetVersionInput: unknown): Promise<
   ]);
   const engineArch = normalizeArchitecture(engine.Architecture);
   const targetArch = normalizeArchitecture(targetImageInspect.Architecture);
+  try {
+    validateImageVersion(targetImageInspect, targetVersion);
+  } catch (error) {
+    blockers.push({ code: "IMAGE_METADATA_INVALID", message: (error as Error).message });
+  }
   if (!engineArch || !["amd64", "arm64"].includes(engineArch)) {
     blockers.push({ code: "UNSUPPORTED_ARCH", message: `当前 Docker 架构不受支持：${engineArch || "unknown"}` });
   }
@@ -386,6 +412,7 @@ async function waitForReplacement(job: UpdateJob, containerId: string): Promise<
   let stableSince = 0;
   while (Date.now() - startedAt < HEALTH_TIMEOUT_MS) {
     const inspect = await inspectContainer(containerId);
+    if (inspect.Image !== job.targetImageId) throw new Error("新容器实际镜像与预检镜像 ID 不一致");
     const health = inspect.State.Health?.Status;
     if (!inspect.State.Running && !inspect.State.Restarting) {
       throw new Error(`新容器已退出（exit=${inspect.State.ExitCode ?? "?"}）：${inspect.State.Error || "unknown"}`);
@@ -397,30 +424,26 @@ async function waitForReplacement(job: UpdateJob, containerId: string): Promise<
     let versionOk = false;
     try {
       const healthPayload = await fetchJson<{ status?: string }>(`${APP_BASE_URL}/api/health`, 5_000);
-      const versionPayload = await fetchJson<{ appVersion?: string; schemaVersion?: number | null; codeSchemaVersion?: number | null }>(
+      const versionPayload = await fetchJson<ApplicationVersion>(
         `${APP_BASE_URL}/api/version`,
         5_000,
       );
-      versionOk = healthPayload.status === "ok" && versionPayload.appVersion === job.targetVersion;
-      if (
-        versionPayload.schemaVersion !== null &&
-        versionPayload.codeSchemaVersion !== null &&
-        versionPayload.schemaVersion !== versionPayload.codeSchemaVersion
-      ) {
-        throw new Error(`新容器数据库 Schema 未就绪：${versionPayload.schemaVersion}/${versionPayload.codeSchemaVersion}`);
-      }
+      assertApplicationReady(versionPayload, job.targetVersion);
+      versionOk = healthPayload.status === "ok";
     } catch (error) {
       stableSince = 0;
       addLog(job, `等待新服务就绪：${error instanceof Error ? error.message : String(error)}`, "warn");
     }
 
-    const dockerHealthy = health ? health === "healthy" : true;
+    const dockerHealthy = inspect.State.Running === true && !inspect.State.Restarting && (!health || health === "healthy");
     if (dockerHealthy && versionOk) {
       if (!stableSince) {
         stableSince = Date.now();
         setPhase(job, "observing_stability", `版本已验证为 v${job.targetVersion}，进入稳定观察窗口`);
       }
       if (Date.now() - stableSince >= STABILITY_WINDOW_MS) return;
+    } else {
+      stableSince = 0;
     }
     await new Promise((resolve) => setTimeout(resolve, 2_000));
   }
@@ -432,8 +455,9 @@ async function waitForRollback(job: UpdateJob): Promise<void> {
   while (Date.now() < deadline) {
     try {
       const health = await fetchJson<{ status?: string }>(`${APP_BASE_URL}/api/health`, 5_000);
-      const version = await fetchJson<{ appVersion?: string }>(`${APP_BASE_URL}/api/version`, 5_000);
-      if (health.status === "ok" && (!job.sourceVersion || version.appVersion === job.sourceVersion)) return;
+      const version = await fetchJson<ApplicationVersion>(`${APP_BASE_URL}/api/version`, 5_000);
+      assertApplicationReady(version, job.sourceVersion);
+      if (health.status === "ok") return;
     } catch {
       // Keep polling while the previous container starts.
     }
@@ -446,15 +470,27 @@ async function rollback(
   job: UpdateJob,
   oldContainer: DockerContainerInspect,
   networks: SavedNetworkAttachment[],
+  replacementStartAttempted: boolean,
 ): Promise<void> {
   setPhase(job, "rolling_back_image", "升级失败，开始执行旧镜像容器回滚");
   if (job.replacementContainerId) {
-    try {
-      await removeContainer(job.replacementContainerId, true);
-      addLog(job, "已移除失败的新容器");
-    } catch (error) {
-      addLog(job, `移除新容器失败，将继续尝试恢复旧容器：${error instanceof Error ? error.message : String(error)}`, "warn");
+    // A failed start request may still have started the process and migrated data.
+    // Without an offline schema proof, an unavailable API cannot authorize rollback.
+    const version = replacementStartAttempted ? await readApplicationVersion() : null;
+    await stopContainer(job.replacementContainerId, 30);
+    const stopped = await inspectContainer(job.replacementContainerId);
+    if (stopped.State.Running !== false || stopped.State.Restarting) {
+      throw new Error("无法确认新容器已经停止，禁止同时启动旧容器");
     }
+    if (replacementStartAttempted && (
+      !version || version.appVersion !== job.targetVersion || !schemaReady(version) ||
+      !Number.isSafeInteger(job.sourceCodeSchemaVersion) ||
+      (version.codeSchemaVersion as number) > (job.sourceCodeSchemaVersion as number)
+    )) {
+      throw new Error("无法确认当前数据库兼容旧程序，已停止新容器并保留两个容器及数据，禁止自动回滚。请使用兼容的新镜像恢复服务；如需恢复升级前备份，先另行备份当前数据");
+    }
+    await removeContainer(job.replacementContainerId, false);
+    addLog(job, "已确认兼容并移除停止的新容器；未覆盖数据库");
   }
 
   setPhase(job, "restoring_previous_container", "恢复旧容器名称、网络与启动状态");
@@ -475,6 +511,7 @@ async function executeJob(job: UpdateJob): Promise<void> {
   let oldContainer: DockerContainerInspect | null = null;
   let networks: SavedNetworkAttachment[] = [];
   let replacementStarted = false;
+  let replacementStartAttempted = false;
   try {
     setPhase(job, "preparing_replacement", "重新校验受管容器与目标镜像");
     assertNotCancelled(job);
@@ -489,7 +526,10 @@ async function executeJob(job: UpdateJob): Promise<void> {
     if (targetImage.Id !== job.targetImageId) {
       throw new Error("目标镜像 ID 已变化，拒绝使用过期预检结果");
     }
-    job.sourceVersion = await readApplicationVersion();
+    const targetDigest = validateImageVersion(targetImage, job.targetVersion);
+    const sourceVersion = await readApplicationVersion();
+    job.sourceVersion = sourceVersion?.appVersion || null;
+    job.sourceCodeSchemaVersion = sourceVersion && schemaReady(sourceVersion) ? sourceVersion.codeSchemaVersion : null;
     job.oldContainerId = oldContainer.Id;
     job.originalContainerName = getContainerName(oldContainer);
     job.rollbackContainerName = `${job.originalContainerName}-rollback-${job.id.slice(0, 8)}`;
@@ -506,20 +546,21 @@ async function executeJob(job: UpdateJob): Promise<void> {
     replacementStarted = true;
 
     setPhase(job, "replacing_container", "按原端口、卷、环境、网络和重启策略创建新容器");
-    const createPayload = buildReplacementCreatePayload(oldContainer, job.targetImage, networks, oldImage, targetImage);
+    const createPayload = buildReplacementCreatePayload(oldContainer, targetDigest, networks, oldImage, targetImage);
     const replacementId = await createContainer(job.originalContainerName, createPayload);
     job.replacementContainerId = replacementId;
     persistJob(job);
+    const replacement = await inspectContainer(replacementId);
+    if (replacement.Image !== job.targetImageId) throw new Error("创建的容器未使用已校验的镜像，拒绝启动");
+    replacementStartAttempted = true;
     await startContainer(replacementId);
 
     setPhase(job, "waiting_health", "等待新容器 running/healthy");
     await waitForReplacement(job, replacementId);
 
     setPhase(job, "verifying_version", `确认 /api/version 已切换到 v${job.targetVersion}`);
-    const version = await fetchJson<{ appVersion?: string }>(`${APP_BASE_URL}/api/version`, 5_000);
-    if (version.appVersion !== job.targetVersion) {
-      throw new Error(`版本校验失败：期望 ${job.targetVersion}，实际 ${version.appVersion || "unknown"}`);
-    }
+    const version = await fetchJson<ApplicationVersion>(`${APP_BASE_URL}/api/version`, 5_000);
+    assertApplicationReady(version, job.targetVersion);
 
     await removeContainer(oldContainer.Id, false);
     job.oldContainerId = null;
@@ -536,9 +577,9 @@ async function executeJob(job: UpdateJob): Promise<void> {
       setPhase(job, "failed_before_replace", "升级在替换容器前失败，旧容器继续运行");
       return;
     }
-    setPhase(job, "failed_after_replace", "新容器未通过验证，将恢复旧容器");
+    setPhase(job, "failed_after_replace", "新容器未通过验证，将先检查能否安全恢复旧容器");
     try {
-      await rollback(job, oldContainer, networks);
+      await rollback(job, oldContainer, networks, replacementStartAttempted);
     } catch (rollbackError) {
       job.rollbackError = rollbackError instanceof Error ? rollbackError.message : String(rollbackError);
       addLog(job, `自动回滚失败：${job.rollbackError}`, "error");
@@ -566,6 +607,7 @@ export async function createUpdateJob(input: CreateJobInput): Promise<UpdateJob>
   if (targetImage.Id !== input.targetImageId) {
     throw new Error("目标镜像已变化，请重新预检");
   }
+  validateImageVersion(targetImage, targetVersion);
   if (targetImage.Id === current.Image) throw new Error("当前已运行目标镜像，无需升级");
 
   const id = crypto.randomUUID();
