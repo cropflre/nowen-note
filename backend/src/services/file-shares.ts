@@ -201,7 +201,7 @@ export function ensureStableFileShare(
 
 export function resolveStableFileShare(
   token: string,
-  attachmentId: string,
+  attachmentId?: string,
 ): FileShareAccess {
   ensureFileSharesTable();
   const normalizedToken = token.trim();
@@ -213,9 +213,9 @@ export function resolveStableFileShare(
   const share = db.prepare(`
     SELECT *
     FROM file_shares
-    WHERE token = ? AND attachmentId = ?
-  `).get(normalizedToken, attachmentId) as FileShareRecord | undefined;
-  if (!share) {
+    WHERE token = ?
+  `).get(normalizedToken) as FileShareRecord | undefined;
+  if (!share || (attachmentId !== undefined && share.attachmentId !== attachmentId)) {
     throw new FileShareError("文件分享链接不存在或已失效", 404, "FILE_SHARE_NOT_FOUND");
   }
   if (!share.isActive) {
@@ -225,14 +225,14 @@ export function resolveStableFileShare(
     throw new FileShareError("文件分享已过期", 410, "FILE_SHARE_EXPIRED");
   }
 
-  const attachment = loadAttachmentForSharing(attachmentId);
+  const attachment = loadAttachmentForSharing(share.attachmentId);
   if (!attachment) {
     throw new FileShareError("分享的文件不存在", 404, "FILE_SHARE_ATTACHMENT_NOT_FOUND");
   }
   if (attachment.noteId !== share.noteId) {
     throw new FileShareError("文件分享已失效", 410, "FILE_SHARE_SCOPE_CHANGED");
   }
-  if (!isAttachmentExternalAccessEnabled(attachmentId)) {
+  if (!isAttachmentExternalAccessEnabled(share.attachmentId)) {
     throw new FileShareError("此文件已关闭公开外链", 403, "FILE_EXTERNAL_ACCESS_DISABLED");
   }
 
