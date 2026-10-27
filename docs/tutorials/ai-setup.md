@@ -109,6 +109,21 @@ nowen-note 支持以下 AI 服务商和接口：
 
 向量检索复用 OpenAI 兼容的聊天配置或绑定配置时，会使用该配置的请求头；单独填写的向量服务地址不会继承聊天配置的请求头。Anthropic Messages 不提供向量接口，需要另选 OpenAI 兼容的 Embedding 配置。AI Agent 的工具调用当前仍要求 OpenAI 兼容协议，支持使用该配置的自定义请求头；Anthropic 原生配置可用于文本功能，暂不支持 Agent 工具调用。本次不支持 Responses API 或 Gemini 原生协议，仅修改路径不能切换协议。
 
+### OpenCode Go：MissingSessionID / x-opencode-session
+
+如果自定义 API 返回 `400`、`MissingSessionID` 和 `Request is missing x-opencode-session`，表示上游要求会话请求头。仅填写 API Key、地址和模型还不够。
+
+[OpenCode Go 官方接入要求](https://opencode.ai/docs/go/#where-can-i-use-it)包括：编程 Agent 类型的请求、客户端自己的 User-Agent，以及每个对话独立且稳定的 `x-opencode-session`。
+
+在「AI 设置 → 高级：自定义请求头」可手动添加：
+
+| 名称 | 值 |
+|---|---|
+| `x-opencode-session` | 为当前对话生成的随机 UUID；同一对话内保持不变 |
+| `User-Agent` | 例如 `Nowen-Note/1.5.4`，版本按实际安装版本填写 |
+
+保存后重新测试连接。当前自定义请求头按 AI 配置保存，所有使用该配置的请求共享这些值，**不会自动随对话切换**。手动配置可用于排查缺少请求头的问题；固定一个值供多个对话共用不满足官方的会话要求，完整接入仍需按对话管理会话 ID。普通笔记问答、写作和总结是否适用于 Go 套餐，请向服务方确认；补齐请求头不代表服务方已认可这些用途。
+
 ### Ollama（本地部署，无需 API Key）
 
 Ollama 在本地电脑上运行 AI 模型，不需要联网。

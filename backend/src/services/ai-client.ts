@@ -193,7 +193,14 @@ export async function requestAIChat(
       redirect: "error",
     });
     if (response.ok) return response;
-    const detail = redactAICredentials(await response.text().catch(() => ""), settings.ai_api_key, settings.ai_custom_headers);
+    let detail = redactAICredentials(await response.text().catch(() => ""), settings.ai_api_key, settings.ai_custom_headers);
+    if (response.status === 400) {
+      try {
+        if (JSON.parse(detail)?.error?.type === "MissingSessionID") {
+          detail = "OpenCode Go 缺少会话标识（MissingSessionID）。请在 AI 设置的「高级：自定义请求头」配置 x-opencode-session（每个对话使用独立且稳定的 ID），并配置 User-Agent（如 Nowen-Note/1.5.4）。当前请求头按配置保存，不会自动随对话切换。Go 面向编程 Agent，套餐适用范围请参考 https://opencode.ai/docs/go/#where-can-i-use-it";
+        }
+      } catch { /* 非 JSON 错误保留原始诊断信息。 */ }
+    }
     return new Response(sanitizeError(detail), { status: response.status, statusText: response.statusText });
   } catch (error) {
     if (error instanceof Error && (error.name === "AbortError" || error.name === "TimeoutError")) throw error;
