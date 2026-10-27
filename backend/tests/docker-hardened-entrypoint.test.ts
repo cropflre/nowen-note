@@ -58,3 +58,36 @@ test("Docker build rejects release versions that differ from packaged app or bac
     fs.rmSync(directory, { recursive: true, force: true });
   }
 });
+
+test("Docker entrypoint checks app startup and hands incompatible data to the prompt only", () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "nowen-entrypoint-test-"));
+  try {
+    fs.writeFileSync(path.join(directory, "node"), `#!/bin/sh
+case "$1" in
+  -e) printf '1.5.3' ;;
+  /app/backend/dist/startup-check.js)
+    if [ "\$\{2:-\}" = '--serve' ]; then printf 'TEST_PROMPT_STARTED'; else exit "$TEST_STARTUP_STATUS"; fi ;;
+  backend/dist/index.hardened.js|backend/dist/index.js) printf 'TEST_APP_STARTED' ;;
+  backend/dist/updater/index.js) printf 'TEST_UPDATER_STARTED' ;;
+  *) exit 99 ;;
+esac
+`, { mode: 0o755 });
+    for (const [status, command, expected, marker] of [
+      ["0", "backend/dist/index.hardened.js", 0, "TEST_APP_STARTED"],
+      ["0", "backend/dist/index.js", 0, "TEST_APP_STARTED"],
+      ["78", "backend/dist/index.hardened.js", 0, "TEST_PROMPT_STARTED"],
+      ["78", "backend/dist/updater/index.js", 0, "TEST_UPDATER_STARTED"],
+      ["1", "backend/dist/index.hardened.js", 1, ""],
+    ] as const) {
+      const result = spawnSync("/bin/sh", [findRepoFile("docker-entrypoint.sh"), "node", command], {
+        env: { ...process.env, PATH: `${directory}:${process.env.PATH}`, NOWEN_DATA_DIR: directory,
+          JWT_SECRET: "test-secret-for-entrypoint-only", TEST_STARTUP_STATUS: status }, encoding: "utf8",
+      });
+      assert.equal(result.status, expected, result.stderr);
+      if (marker) assert.ok(result.stdout.includes(marker), result.stdout);
+      if (marker !== "TEST_APP_STARTED") assert.ok(!result.stdout.includes("TEST_APP_STARTED"));
+    }
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});

@@ -294,6 +294,8 @@
       "title": "不完整备份不可直接覆盖线上数据，失败要回滚",
       "status": "covered",
       "checks": [
+        { "file": "backend/tests/database-startup-compatibility.test.ts", "case": "DCC-008: a newer database is rejected before baseline DDL or vacuum can modify it" },
+        { "file": "backend/tests/database-startup-compatibility.test.ts", "case": "DCC-008: incompatible startup serves an upgrade prompt but never a healthy or writable app" },
         { "file": "backend/tests/docker-updater-jobs.test.ts", "case": "DCC-008: Docker upgrade lifecycle refuses unsafe rollback" },
         { "file": "backend/tests/migration-task-version-compatibility.test.ts", "case": "reopens pre-split v134 databases without losing retained app data or Studio history" },
         { "file": "frontend/src/lib/__tests__/nativeAttachmentStore.test.ts", "case": "retains the old attachment after a chunk write fails and can retry (DCC-008)" },
