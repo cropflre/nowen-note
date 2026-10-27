@@ -15,6 +15,7 @@ import type { NativeDatabase } from "../../frontend/src/lib/nativeDatabase";
 import { NATIVE_TASK_DELETION_STATEMENTS } from "../../frontend/src/lib/nativeTaskRecurrenceDeletion";
 import { nativeReceiptKey, readNativeNoteSyncReceipt } from "../../frontend/src/lib/mobileNoteSyncReceipt";
 import { applyNativePersonalTree } from "../../frontend/src/lib/nativeKnowledgeTreeSync";
+import { readMobileOfflineReadiness } from '../../frontend/src/lib/mobileOfflineReadiness';
 
 const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "nowen-sync-multidevice-"));
 process.env.DB_PATH = path.join(tmpDir, "server.db");
@@ -114,6 +115,28 @@ async function client(name: string): Promise<Client> {
   clients.push(result);
   return result;
 }
+test('DCC-005: native offline availability checks actual files without treating local edits as server ACKs', async () => {
+  const c = await client('offline-availability');
+  await c.sync();
+  const book = randomUUID(), note = randomUUID(), attachment = randomUUID();
+  await c.repository.notebooks.create({id:book,name:'Offline'});
+  await c.repository.notes.create({id:note,notebookId:book,content:'local unsent body'});
+  await c.db.run(`INSERT INTO attachments(id,scopeKey,noteId,userId,filename,mimeType,size,available,localPath,transferStatus,createdAt,updatedAt)
+    VALUES (?,'personal',?,?,'file','text/plain',3,1,'local-file','pending_upload','now','now')`, [attachment,note,USER]);
+  const store = { stat: async () => ({size:3,sha256:'abc'}) };
+  const before = await pending(c);
+  const ready = await readMobileOfflineReadiness(c.db,store as never,c.profileId,USER);
+  assert.equal(ready.contentState,'ready');
+  assert.equal(ready.attachments.available,1);
+  assert.deepEqual(await pending(c),before);
+  await c.db.run("UPDATE attachments SET hash='changed' WHERE id=?",[attachment]);
+  const missing = await readMobileOfflineReadiness(c.db,{stat:async()=>null} as never,c.profileId,USER);
+  assert.equal(missing.fullyAvailable,false);
+  assert.equal(missing.attachments.missingFiles,1);
+  assert.equal((await c.db.query<{transferStatus:string}>('SELECT transferStatus FROM attachments WHERE id=?',[attachment]))[0].transferStatus,'pending_download');
+  assert.equal((await c.repository.notes.get(note))?.content,'local unsent body');
+});
+
 async function pending(c: Client) { return c.db.query<{ mutationId: string; baseVersion: number; payload: string }>("SELECT mutationId,baseVersion,payload FROM sync_outbox WHERE profileId=? ORDER BY createdAt,rowid", [c.profileId]); }
 async function conflicts(c: Client) { return c.db.query<{ localPayload: string; remotePayload: string }>("SELECT localPayload,remotePayload FROM sync_conflicts WHERE profileId=? AND status='unresolved'", [c.profileId]); }
 

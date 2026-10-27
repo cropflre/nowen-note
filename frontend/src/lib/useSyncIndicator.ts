@@ -114,7 +114,7 @@ export function useSyncIndicator(refreshKey?: unknown): SyncIndicatorSnapshot {
           syncEnabled,
           online: typeof navigator === "undefined" ? true : navigator.onLine,
           pending,
-          lastError: diagnostics.lastError,
+          lastError: settings.authorizationState === "expired" ? "AUTH_EXPIRED" : diagnostics.lastError,
           lastSyncAt: diagnostics.lastSyncAt,
         });
 

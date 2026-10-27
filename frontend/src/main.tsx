@@ -3,6 +3,7 @@ import "./lib/runtimeCompatibility";
 import React from "react";
 import ReactDOM from "react-dom/client";
 import { initializeMobileLocalFirstRuntime } from "./lib/mobileLocalFirstRuntime";
+import { initializeDesktopLocalSession } from './lib/desktopLocalSession';
 import "./lib/androidCompat";
 import "./lib/noteTransferRefreshBridge";
 import "./lib/workspaceRefreshBridge";
@@ -264,6 +265,7 @@ function renderApplication() {
 }
 
 Promise.resolve()
+  .then(() => initializeDesktopLocalSession().catch(error => reportBootError('desktop-local-session',error,false)))
   .then(() => initializeMobileLocalFirstRuntime())
   .then(
     () => renderApplication(),

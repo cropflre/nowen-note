@@ -109,7 +109,7 @@ class FakeRemote {
   failOn: "plan" | "snapshot" | "push" | null = null;
   snapshotCallCount = 0;
   /** push 返回的冲突 mutationId 集合。 */
-  conflictMutations = new Set<string>();
+  conflictEntities = new Set<string>();
 
   async plan() {
     if (this.failOn === "plan") throw new SyncError("NETWORK_UNAVAILABLE", "断网");
@@ -150,7 +150,7 @@ class FakeRemote {
     return {
       serverSequence: this.planSequence,
       results: mutations.map((m) => (
-        this.conflictMutations.has(m.mutationId)
+        this.conflictEntities.has(`${m.entityType}:${m.entityId}`)
           ? { mutationId: m.mutationId, status: "conflict" as const, serverVersion: 9 }
           : { mutationId: m.mutationId, status: "applied" as const }
       )),
@@ -477,6 +477,69 @@ test("Snapshot 分页续传，游标落库", async () => {
   assert.ok(remote.snapshotCallCount >= 2);
 });
 
+test("DCC-005: a crashed in-memory bootstrap rereads every snapshot page", async () => {
+  resetAll();
+  const ids = seedProfile();
+  const first = randomUUID();
+  const second = randomUUID();
+  // A killed process left a durable cursor but never applied the first page.
+  db().prepare("UPDATE sync_profiles SET bootstrapStatus='pulling',bootstrapSequence=7,bootstrapCursor='page-2' WHERE id=?").run(ids.profileId);
+  const remote = new FakeRemote();
+  remote.planSequence = 7;
+  const cursors: Array<string | null> = [];
+  remote.snapshot = async (cursor) => {
+    cursors.push(cursor);
+    return { snapshotSequence: 7, hasMore: !cursor, nextCursor: cursor ? null : 'page-2', items: [{ entityType: 'notebook', entityId: cursor ? second : first, payload: { name: cursor ? 'second' : 'first' } }] };
+  };
+  await run(remote, ids, 1);
+  assert.equal(cursors[0], null);
+  assert.ok(db().prepare('SELECT 1 FROM notebooks WHERE id=?').get(first));
+  assert.ok(db().prepare('SELECT 1 FROM notebooks WHERE id=?').get(second));
+});
+
+test("DCC-002: an edit during bootstrap ACK remains queued after initialization", async () => {
+  resetAll();
+  const ids = seedProfile();
+  const book = makeNotebook();
+  const note = makeNote(book);
+  const remote = new FakeRemote();
+  remote.ack = async (_device, sequence) => {
+    db().prepare("UPDATE notes SET content='offline final edit',version=version+1 WHERE id=?").run(note);
+    return { lastSequence: sequence };
+  };
+  await run(remote, ids);
+  const pending = listPendingMutations(db(), 100, ids.profileId).find(item => item.entityId === note);
+  assert.ok(pending, 'the final local edit needs durable sync intent');
+  assert.equal(JSON.parse(pending.payload!).content, 'offline final edit');
+});
+
+test('DCC-001: incomplete bootstrap push confirmation cannot mark a baseline ready', async () => {
+  resetAll(); const ids=seedProfile(), book=makeNotebook(), note=makeNote(book);
+  const remote=new FakeRemote();
+  remote.push=async () => ({serverSequence:0,results:[]});
+  await assert.rejects(run(remote,ids), /完整确认/);
+  assert.equal(isBootstrapReady(db(),ids.profileId),false);
+  assert.ok(db().prepare('SELECT content FROM notes WHERE id=?').get(note));
+});
+
+test('DCC-003: changed bootstrap content has a new idempotency identity after a lost response', async () => {
+  resetAll(); const ids=seedProfile(), book=makeNotebook(), note=makeNote(book);
+  const remote=new FakeRemote(), original=remote.push.bind(remote);
+  let fail=true;
+  remote.push=async (device,mutations) => {
+    const result=await original(device,mutations);
+    if(fail && mutations.some(item=>item.entityId===note)) throw new SyncError('NETWORK_UNAVAILABLE','lost response');
+    return result;
+  };
+  await assert.rejects(run(remote,ids));
+  const first=remote.pushCalls.flat().find(item=>item.entityId===note)!.mutationId;
+  db().prepare("UPDATE notes SET content='new local body',version=version+1 WHERE id=?").run(note);
+  remote.pushCalls=[]; fail=false;
+  await run(remote,ids);
+  const second=remote.pushCalls.flat().find(item=>item.entityId===note)!.mutationId;
+  assert.notEqual(second,first);
+});
+
 test("verifying 阶段补齐 snapshot 窗口期的服务端增量，sequence 不丢", async () => {
   resetAll();
   const ids = seedProfile();
@@ -660,7 +723,7 @@ test("上传时服务端回冲突 → 记入台账，不覆盖也不丢失", asy
   const nb = makeNotebook("本");
 
   const remote = new FakeRemote();
-  remote.conflictMutations.add(`bootstrap-${ids.profileId}-notebook-${nb}`);
+  remote.conflictEntities.add(`notebook:${nb}`);
 
   const progress = await run(remote, ids);
   assert.equal(progress.status, "ready");

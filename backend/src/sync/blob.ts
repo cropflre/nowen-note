@@ -14,6 +14,8 @@
 //   否则会产生一个无人引用的孤儿文件。因此上传器只处理 metadata 已 synced 的条目。
 
 import crypto from "node:crypto";
+import fs from 'node:fs/promises';
+import path from 'node:path';
 import type Database from "better-sqlite3";
 
 import { SYNC_V2_BLOB_PATH } from "./constants";
@@ -34,6 +36,8 @@ import {
   writeAttachmentObject,
   ensureAttachmentsDir,
   getUploadMonthPath,
+  getAttachmentStorageInfo,
+  getLocalAttachmentPath,
 } from "../services/attachment-storage";
 
 /** 单轮处理的附件数量上限。 */
@@ -333,6 +337,11 @@ export async function pullAttachmentBlobs(
           return;
         }
       }
+      if (meta.size !== null && meta.size !== buffer.length) {
+        markUploadFailed(db, row.attachmentId, 'SIZE_MISMATCH');
+        result.failed += 1;
+        return;
+      }
 
       // path 可能为空（元数据先于二进制同步过来），此时分配本地路径。
       let relPath = meta.path;
@@ -343,11 +352,21 @@ export async function pullAttachmentBlobs(
       }
 
       ensureAttachmentsDir();
-      await writeAttachmentObject(relPath, buffer, meta.mimeType || undefined);
+      if (getAttachmentStorageInfo().driver === 'local') {
+        const target = getLocalAttachmentPath(relPath);
+        const root = path.resolve(getAttachmentStorageInfo().localDir);
+        if (!path.resolve(target).startsWith(`${root}${path.sep}`)) throw new Error('Invalid attachment path');
+        await fs.mkdir(path.dirname(target), { recursive: true });
+        const temporary = `${target}.${crypto.randomUUID()}.tmp`;
+        try {
+          await fs.writeFile(temporary, buffer, { flag: 'wx' });
+          await fs.rename(temporary, target);
+        } finally { await fs.rm(temporary, { force: true }); }
+      } else await writeAttachmentObject(relPath, buffer, meta.mimeType || undefined);
 
       // 落盘成功后才更新元数据与状态，顺序不能颠倒：
       // 先置 available 再写盘，中途崩溃会让 UI 以为图片已就绪。
-      db.prepare(`
+      db.transaction(() => { db.prepare(`
         UPDATE attachments
            SET path = ?, size = ?, hash = COALESCE(hash, ?)
          WHERE id = ?
@@ -358,6 +377,7 @@ export async function pullAttachmentBlobs(
         row.attachmentId,
       );
       markAttachmentDownloaded(db, row.attachmentId);
+      })();
       result.downloaded += 1;
     } catch (error) {
       const code = error instanceof SyncError ? error.code : "SERVER_ERROR";

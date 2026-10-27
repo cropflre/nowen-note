@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { OfflineAvailability } from "./OfflineAvailability";
 import {
   AlertTriangle,
   Cloud,
@@ -53,7 +54,7 @@ export function SyncSettingsPanel() {
       setUnavailable(false);
       setDiagnostics(null);
       setDiagnosticsError(null);
-      if (next.mode === "server") {
+      if (next.profiles.length > 0) {
         try {
           setDiagnostics(await fetchSyncDiagnostics());
         } catch (err) {
@@ -73,7 +74,11 @@ export function SyncSettingsPanel() {
     }
   }, []);
 
-  useEffect(() => { void reload(); }, [reload]);
+  useEffect(() => {
+    void reload();
+    const timer = window.setInterval(() => { void reload(); }, 5000);
+    return () => window.clearInterval(timer);
+  }, [reload]);
 
   const bootstrap = async () => {
     setAction("bootstrap");
@@ -350,6 +355,8 @@ export function SyncSettingsPanel() {
           </form>
         ) : null}
 
+        <p className="text-xs text-muted-foreground">连接后，本机已有笔记也将同步到该账号。请确认服务器与账号正确。</p>
+        <OfflineAvailability offline={diagnostics?.offline} />
         {notice ? (
           <p role="status" className="flex items-start gap-2 text-xs text-muted-foreground">
             <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />

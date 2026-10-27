@@ -1,4 +1,23 @@
 {
+  "offlineAvailability": {
+    "downloadTitle": "Download to this device for offline use",
+    "installFull": "The Lite package provides online access. Install the Full client, connect to your existing NAS account in sync settings, then download your notes and attachments.",
+    "keepLiteData": "Upload any pending changes before installing. Your account configuration and local cache are retained.",
+    "pendingWrites": "Upload pending changes before downloading to this device. Existing edits are retained.",
+    "migrationHint": "You are accessing the server directly. Downloading copies and verifies notes and attachments while retaining the current access method and remote data. Existing local notes will also sync to this account.",
+    "migrationComplete": "Notes are stored on this device. Quit and reopen the app to continue downloading remaining attachments. Check offline availability in sync settings.",
+    "title": "Offline copy on this device",
+    "unverified": "Full offline availability has not been verified. Downloaded content remains accessible.",
+    "downloading": "Downloading notes and folders. Keep the connection available.",
+    "ready": "Current personal notes and managed attachments are available offline.",
+    "verifying": "Checking local files.",
+    "failed": "Some attachments could not be downloaded or local files are missing. Retry sync.",
+    "attachments": "Notes are stored locally. Attachments are still downloading.",
+    "counts": "Attachments {{available}} / {{total}} · Downloads pending {{pending}} · Errors {{failed}}",
+    "verifiedAt": "Content sync verified: {{time}}",
+    "hint": "Offline availability and server confirmation are tracked separately. External images, AI and online services require a connection.",
+    "authExpired": "Sign in again to resume sync. Local notes and pending changes are retained."
+  },
   "trashCenter": {
     "hiddenPath": "Original location is restricted",
     "all": "All",

@@ -1,4 +1,5 @@
 import { withEncryptedBlocksSupport } from "../lib/encryptedNotes.js";
+import { createHash } from 'node:crypto';
 /**
  * Bootstrap / Reconcile：首次开启同步时的基线建立（阶段 D）。
  *
@@ -45,13 +46,14 @@ import { SyncError } from "./errors";
 import { logSyncInfo, logSyncWarn } from "./log";
 import { getDb } from "../db/schema";
 import { recordConflict } from "./conflict";
+import { enqueueMutation } from './outbox';
 import { advanceSyncState } from "./profile";
 import { runWithOutboxSuppressed } from "./context";
 import { runChangeFeedSuppressed } from "./suppression";
 import { applyRemoteChanges, validateEncryptedRemoteNotes } from "./applyLocal";
 import type { RemoteEntityPayload } from "./applyLocal";
 import type { RemoteSnapshotPage, SyncRemoteClient } from "./remote";
-import type { SyncEntityType } from "./types";
+import { isSyncEntityType, type SyncEntityType } from "./types";
 import {
   resetAllKnowledgeTreeSyncReadiness,
   resetKnowledgeTreeSyncReadiness,
@@ -66,6 +68,15 @@ export type BootstrapStatus =
   | "verifying"
   | "ready"
   | "failed";
+
+export function validateBootstrapPage(items: RemoteSnapshotPage['items']): void {
+  for (const item of items) {
+    if (!isSyncEntityType(item.entityType) || !item.entityId || !item.payload
+      || (item.entityType === 'note' && item.payload.__delete !== true && typeof item.payload.content !== 'string')) {
+      throw new SyncError('INVALID_PAYLOAD', '首次下载包含未知实体或缺失正文，未确认完整基线');
+    }
+  }
+}
 
 export interface BootstrapProgress {
   status: BootstrapStatus;
@@ -518,6 +529,8 @@ export async function runBootstrap(
     }
 
     const snapshotSequence = profile.bootstrapSequence ?? 0;
+    setStatus(db, profileId, "pulling", { cursor: null });
+    profile = readProfile(db, profileId);
 
     // --- pulling：分页下载 snapshot ---
     //
@@ -525,9 +538,12 @@ export async function runBootstrap(
     // 边下边写会让"只在本地存在"的判定失准。
     const remoteItems: RemoteEntityPayload[] = [];
     if (profile.bootstrapStatus === "pulling" || profile.bootstrapStatus === "reconciling") {
-      let cursor = profile.bootstrapCursor;
+      // The accumulated payload is in memory, so a persisted page cursor cannot
+      // resume it after a process restart. Reread the complete baseline.
+      let cursor: string | null = null;
       for (;;) {
-        const page = await client.snapshot(cursor, snapshotSequence, pageSize);
+        const page: RemoteSnapshotPage = await client.snapshot(cursor, snapshotSequence, pageSize);
+        validateBootstrapPage(page.items);
         validateEncryptedRemoteNotes(db, page.items.map((item) => ({ ...item, operation: "upsert" as const })), { userId });
         for (const item of page.items) {
           remoteItems.push({
@@ -617,12 +633,30 @@ export async function runBootstrap(
     }
 
     setStatus(db, profileId, "pushing");
+    const readCurrent = () => new Map(BOOTSTRAP_ENTITY_ORDER.flatMap(type => readLocalState(db, userId, type))
+      .map(item => [`${item.entityType}:${item.entityId}`, item] as const));
+    let observedLocal = readCurrent();
+    const captureLocalEdits = () => {
+      const current = readCurrent();
+      for (const [key, item] of current) {
+        const previous = observedLocal.get(key);
+        if (JSON.stringify(previous?.payload) === JSON.stringify(item.payload)) continue;
+        enqueueMutation(db, { profileId, deviceId, entityType: item.entityType, entityId: item.entityId,
+          operation: 'upsert', baseVersion: item.entityType === 'note' ? Number(previous?.payload?.version) || 0 : null, payload: item.payload });
+      }
+      for (const [key, previous] of observedLocal) if (!current.has(key)) {
+        enqueueMutation(db, { profileId, deviceId, entityType: previous.entityType, entityId: previous.entityId,
+          operation: 'delete', baseVersion: Number(previous.payload?.version) || null });
+      }
+      observedLocal = current;
+    };
 
     // --- pushing：上传本地独有的实体 ---
     //
     // 直接调 client.push 而不走 Outbox：Bootstrap 期间触发器不写 Outbox
     // （闸门要求 ready），这里上传的是"当前最终状态"而非操作流。
     if (toPushAll.length > 0) {
+      const mutationIdFor = (item: RemoteEntityPayload) => `bootstrap-${profileId}-${item.entityType}-${item.entityId}-${createHash('sha256').update(JSON.stringify(item.payload ?? null)).digest('hex').slice(0, 24)}`;
       for (const entityType of BOOTSTRAP_ENTITY_ORDER) {
         const items = toPushAll.filter((i) => i.entityType === entityType);
         for (let i = 0; i < items.length; i += PUSH_BATCH_SIZE) {
@@ -630,7 +664,7 @@ export async function runBootstrap(
           const response = await client.push(
             deviceId,
             batch.map((item) => ({
-              mutationId: `bootstrap-${profileId}-${item.entityType}-${item.entityId}`,
+              mutationId: mutationIdFor(item),
               entityType: item.entityType,
               entityId: item.entityId,
               operation: "upsert" as const,
@@ -640,12 +674,17 @@ export async function runBootstrap(
               payload: item.payload,
             })),
           );
+          const expectedIds = new Set(batch.map(mutationIdFor));
+          if (response.results.length !== expectedIds.size || new Set(response.results.map(result => result.mutationId)).size !== expectedIds.size
+            || response.results.some(result => !expectedIds.has(result.mutationId) || !['applied','duplicate','conflict'].includes(result.status))) {
+            throw new SyncError('SERVER_ERROR', '首次同步尚未获得完整确认，本机内容已保留，请重试');
+          }
           for (const r of response.results) {
-            if (r.status === "applied") {
+            if (r.status === "applied" || r.status === "duplicate") {
               pushed += 1;
             } else if (r.status === "conflict") {
               const item = batch.find(
-                (b) => `bootstrap-${profileId}-${b.entityType}-${b.entityId}` === r.mutationId,
+                (b) => mutationIdFor(b) === r.mutationId,
               );
               if (item) {
                 recordConflict(db, {
@@ -731,6 +770,7 @@ export async function runBootstrap(
     }
 
     const windowItems = [...windowUpserts, ...pendingDeletes];
+    db.transaction(captureLocalEdits)();
     if (windowItems.length > 0) {
       runWithOutboxSuppressed(() => {
         runChangeFeedSuppressed(db, () => {
@@ -739,18 +779,28 @@ export async function runBootstrap(
             const batch = windowItems.filter((i) => i.entityType === entityType);
             if (batch.length === 0) continue;
             const result = applyRemoteChanges(db, batch, { userId });
+            for (const item of result.pendingConflicts) {
+              const local = readLocalState(db, userId, item.entityType).find(row => row.entityId === item.entityId);
+              recordConflict(db, { profileId, entityType: item.entityType, entityId: item.entityId,
+                localPayload: local?.payload ?? null, remotePayload: item.payload ?? { __delete: true }, basePayload: null,
+                localVersion: Number(local?.payload?.version) || null, remoteVersion: Number(item.payload?.version) || null });
+            }
             pulled += result.applied;
           }
         });
       });
     }
 
+    observedLocal = readCurrent();
     // 游标落到收敛点，之后由增量引擎接手。
     advanceSyncState(db, profileId, cursor, SYNC_PERSONAL_SCOPE_KEY);
     await client.ack(deviceId, cursor);
 
     // --- ready：基线建立完成，触发器开始写 Outbox，增量引擎可启动 ---
-    setStatus(db, profileId, "ready", { cursor: null, error: null });
+    db.transaction(() => {
+      captureLocalEdits();
+      setStatus(db, profileId, "ready", { cursor: null, error: null });
+    })();
     logSyncInfo("bootstrap.ready", {
       profileId,
       deviceId,

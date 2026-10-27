@@ -17,7 +17,8 @@
         {
           "file": "frontend/src/lib/__tests__/offlineQueue.test.ts",
           "case": "removes successful queued updates only after the server ACK"
-        }
+        },
+        { "file": "backend/tests/sync-v2-bootstrap.test.ts", "case": "DCC-001: incomplete bootstrap push confirmation cannot mark a baseline ready" }
       ]
     },
     {
@@ -87,7 +88,8 @@
         {
           "file": "frontend/src/lib/__tests__/nativeTreeSchemaMigration.test.ts",
           "case": "native deletion and stop roll back tasks and lifecycle markers when Outbox insertion fails"
-        }
+        },
+        { "file": "backend/tests/sync-v2-bootstrap.test.ts", "case": "DCC-002: an edit during bootstrap ACK remains queued after initialization" }
       ]
     },
     {
@@ -126,7 +128,9 @@
         {
           "file": "backend/tests/sync-v2-mobile-multidevice.test.ts",
           "case": "native recurrence intent stays durable until the server advertises support"
-        }
+        },
+        { "file": "frontend/src/lib/__tests__/mobileAttachmentDownloadRetry.test.ts", "case": "DCC-003: retries a failed remote download with GET after engine recreation" },
+        { "file": "backend/tests/sync-v2-bootstrap.test.ts", "case": "DCC-003: changed bootstrap content has a new idempotency identity after a lost response" }
       ]
     },
     {
@@ -180,7 +184,11 @@
         {
           "file": "frontend/src/lib/__tests__/mobileSyncUnknownEntity.test.ts",
           "case": "does not apply, ACK, or advance the cursor for an unknown change-feed entity"
-        }
+        },
+        { "file": "backend/tests/sync-v2-bootstrap.test.ts", "case": "DCC-005: a crashed in-memory bootstrap rereads every snapshot page" },
+        { "file": "backend/tests/offline-readiness.test.ts", "case": "DCC-005: offline readiness verifies bounded batches of actual files, including when sync is paused" },
+        { "file": "backend/tests/sync-v2-mobile-multidevice.test.ts", "case": "DCC-005: native offline availability checks actual files without treating local edits as server ACKs" },
+        { "file": "backend/tests/sync-v2-lite-blob.test.ts", "case": "DCC-005: migration does not acknowledge change-feed payloads it has not applied" }
       ]
     },
     {
@@ -227,7 +235,9 @@
         {
           "file": "backend/tests/asset-note-linking.test.ts",
           "case": "insertion rejects foreign files, cross-space reuse, read-only and trashed targets without writes"
-        }
+        },
+        { "file": "frontend/src/lib/__tests__/offlineSessions.test.ts", "case": "DCC-006: a completed desktop migration replaces NAS auth with local credentials and address" },
+        { "file": "frontend/src/lib/__tests__/offlineSessions.test.ts", "case": "DCC-006: providers start only after migrated desktop address and credentials are replaced together" }
       ]
     },
     {
@@ -288,7 +298,8 @@
         {
           "file": "backend/tests/attachment-trash.test.ts",
           "case": "purge requires explicit confirmation, trash state and a fresh backend reference check"
-        }
+        },
+        { "file": "backend/tests/offline-readiness.test.ts", "case": "DCC-007: a missing file remains visible and queued for download without deleting its note" }
       ]
     },
     {
@@ -353,7 +364,8 @@
         {
           "file": "frontend/src/lib/__tests__/mobileFileScope.test.ts",
           "case": "rejects Native organization and metadata filters before personal SQL or server calls"
-        }
+        },
+        { "file": "frontend/src/lib/__tests__/offlineSessions.test.ts", "case": "DCC-009: native expiration retains the bound token for offline access, revocation still clears it" }
       ]
     },
     {

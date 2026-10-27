@@ -203,6 +203,16 @@ test("Lite 迁移把远端数据完整搬到本地，绝不出现空知识库", 
   }
 });
 
+test('DCC-005: migration does not acknowledge change-feed payloads it has not applied', async () => {
+  resetAll(); const remote=new FakeRemote(); seedRemote(remote,1);
+  const highWater=remote.serverSequence;
+  remote.changes=async () => ({serverSequence:highWater+5,nextSequence:highWater+5,hasMore:false,resetRequired:false,items:[]});
+  const progress=await runLiteMigration({db:db(),remoteUrl:REMOTE,userId:USER_ID,remoteUserId:'account-a',client:remote as never});
+  assert.equal(progress.stage,'complete');
+  assert.equal(getSyncState(db(),progress.profileId!)?.lastSequence,highWater);
+  await assert.rejects(runLiteMigration({db:db(),remoteUrl:REMOTE,userId:USER_ID,remoteUserId:'account-b',client:remote as never}),/账号已改变/);
+});
+
 test("迁移完成后建立 SyncProfile 且基线直接就绪，不再重复全量下载", async () => {
   resetAll();
   const remote = new FakeRemote();

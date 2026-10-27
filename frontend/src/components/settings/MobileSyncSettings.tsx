@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { connectSyncServer, disableSync, fetchSyncDiagnostics, fetchSyncSettings, triggerSyncNow, type SyncDiagnostics, type SyncSettingsResponse } from "@/lib/syncLocalApi";
 import { getServerUrl } from "@/lib/api";
 import { isMobileLocalMode, requestMobileAccountLogin } from "@/lib/mobileLocalMode";
+import { OfflineAvailability } from "./OfflineAvailability";
 
 export default function MobileSyncSettings() {
   const { t, i18n } = useTranslation();
@@ -15,7 +16,7 @@ export default function MobileSyncSettings() {
     try {
       const next = await fetchSyncSettings();
       setSettings(next);
-      setDiagnostics(next.mode === "server" ? await fetchSyncDiagnostics() : null);
+      setDiagnostics(await fetchSyncDiagnostics());
       setError(null);
     } catch {
       setError("mobileSync.settingsReadFailed");
@@ -65,6 +66,11 @@ export default function MobileSyncSettings() {
         <p className="text-xs text-tx-tertiary">{t("mobileSync.devicesHint")}</p>
       </> : <p className="text-sm text-tx-tertiary">{error ? t(error) : t("mobileSync.loadingSettings")}</p>}
     </section>
+    <OfflineAvailability offline={diagnostics?.offline} />
+    {settings?.authorizationState === "expired" && <div className="space-y-2 text-xs">
+      <p>{t("offlineAvailability.authExpired")}</p>
+      <button type="button" className="rounded border px-3 py-2" onClick={() => { requestMobileAccountLogin(); window.location.reload(); }}>{t("auth.login")}</button>
+    </div>}
     {syncEnabled &&
     <section className="space-y-3 rounded-lg border border-app-border p-4">
       <h3 className="text-sm font-medium">{t("mobileSync.statusTitle")}</h3>

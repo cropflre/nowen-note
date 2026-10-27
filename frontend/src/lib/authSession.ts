@@ -1,4 +1,5 @@
 import { getOfflineQueueStorageKey } from "./offlineScope";
+import { shouldRetainNativeOfflineSession, MOBILE_SYNC_AUTH_REQUIRED_EVENT } from './nativeOfflineSession';
 
 const ACCESS_TOKEN_KEY = "nowen-token";
 const REFRESH_TOKEN_KEY = "nowen-refresh-token";
@@ -84,8 +85,10 @@ async function readNewAccessToken(apiBaseUrl: string, refreshToken: string, sign
     if (response.status >= 500 || response.status === 408 || response.status === 429) {
       throw new RefreshUnavailableError();
     }
-    const error = new Error("登录续期失败") as Error & { terminal?: boolean };
+    const body = await response.json().catch(() => ({})) as {code?: string};
+    const error = new Error("登录续期失败") as Error & { terminal?: boolean; code?: string };
     error.terminal = true;
+    error.code = body.code;
     throw error;
   }
 
@@ -119,7 +122,9 @@ export async function refreshAccessToken(
   } catch (error) {
     if ((error as { terminal?: boolean })?.terminal && options?.persist !== false
       && getOfflineQueueStorageKey() === accountScope && getRefreshToken() === refreshToken) {
-      clearAuthTokens();
+      if (shouldRetainNativeOfflineSession((error as {code?: string}).code, getAccessToken())) {
+        window.dispatchEvent(new Event(MOBILE_SYNC_AUTH_REQUIRED_EVENT));
+      } else clearAuthTokens();
     }
     throw error;
   }

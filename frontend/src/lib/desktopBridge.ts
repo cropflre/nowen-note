@@ -86,6 +86,9 @@ export interface AppInfo {
   arch: string;
   mode?: "full" | "lite";
   runtime?: "local" | "remote";
+  localRuntimeAvailable?: boolean;
+  localMigrationComplete?: boolean;
+  localServerUrl?: string | null;
   hideMenuBar?: boolean;
   // SEC-ELECTRON-01-C: 敏感字段可选，由 getDiagnosticsInfo 获取
   userData?: string;
