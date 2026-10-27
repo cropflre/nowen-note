@@ -40,6 +40,9 @@ describe("compact note list presentation", () => {
   });
   it("shares row geometry across ordinary, title-only and search lists", () => {
     expect(noteListRowHeight(false)).toBe(80);
+    expect(noteListRowHeight(false, undefined, 2)).toBe(160);
+    expect(noteListRowHeight(true, undefined, 1.3)).toBe(52);
+    expect(noteListRowHeight(true, "命中", 1.5)).toBe(186);
     expect(noteListRowHeight(true)).toBe(40);
     expect(noteListRowHeight(true, "命中")).toBe(124);
     expect(noteListRowHeight(false, "命中")).toBe(124);
