@@ -1952,7 +1952,7 @@ function registerAppIpc() {
       runtime: currentRuntime,
       localRuntimeAvailable: !isLiteOnlyBuild(),
       localMigrationComplete: readSettings().liteMigrationStatus === "complete",
-      localServerUrl: currentRuntime === "local" && backendPort ? `http://127.0.0.1:${backendPort}` : null,
+      localServerUrl: currentRuntime === "local" ? (getDevelopmentBackendUrl() || (backendPort ? `http://127.0.0.1:${backendPort}` : null)) : null,
       hideMenuBar: currentHideMenuBar,
     };
   });
@@ -2094,7 +2094,7 @@ function registerAppIpc() {
     const reject = assertMainWindowSender(event);
     if (reject) return reject;
     if (isLiteOnlyBuild()) return { ok: false, error: "请安装完整版客户端后下载到本机。" };
-    const serverUrl = String(payload?.serverUrl || "").slice(0, 2048);
+    const serverUrl = String(payload?.serverUrl || "").trim().slice(0, 2048).replace(/\/+$/, "");
     const token = String(payload?.token || "").slice(0, 8192);
     if (!/^https?:\/\//i.test(serverUrl) || !token) {
       return { ok: false, error: "invalid-params" };
@@ -2122,8 +2122,11 @@ function registerAppIpc() {
       return { ok: false, error: "local-account-unavailable" };
     }
 
+    const previousSettings = readSettings();
     try {
-      writeSettings({ liteMigrationStatus: "running", remoteUrl: serverUrl });
+      if (previousSettings.liteMigrationStatus !== "complete") {
+        writeSettings({ liteMigrationStatus: "running", remoteUrl: serverUrl });
+      }
       const res = await fetch(
         `http://127.0.0.1:${backendPort}/api/sync/local/lite-migration`,
         {
@@ -2139,19 +2142,22 @@ function registerAppIpc() {
 
       // 只有迁移真正完成才写 settings ——
       // 提前写会让下次启动切到一个不完整的本地库，那正是最要避免的事故。
-      if (data?.stage === "complete") {
-        const next = writeSettings({ liteMigrationStatus: "complete", runtime: "local", activeSyncProfileId: data.profileId || null });
-        // The current window still has the remote query URL. Switch its data
-        // runtime only on the next launch, together with the local auth handoff.
-        console.log("[lite-migration] complete, next runtime =", next.runtime);
-      } else {
+      const completed = res.ok && data?.stage === "complete"
+        && typeof data.profileId === "string" && !!data.profileId
+        && typeof data.remoteUrl === "string" && data.remoteUrl.replace(/\/+$/, "") === serverUrl;
+      if (completed) {
+        const next = writeSettings({ liteMigrationStatus: "complete", runtime: "local", remoteUrl: serverUrl, activeSyncProfileId: data.profileId });
+        currentRuntime = "local";
+        console.log("[lite-migration] complete, runtime =", next.runtime);
+      } else if (previousSettings.liteMigrationStatus !== "complete") {
         // 记录中间状态供 UI 显示；非 complete 时 deriveRuntimeFields
         // 会继续强制 runtime=remote，用户照旧用 Lite。
         writeSettings({
-          liteMigrationStatus: data?.stage === "failed" ? "failed" : "running",
+          liteMigrationStatus: !res.ok || ["failed", "complete"].includes(data?.stage) ? "failed" : "running",
         });
       }
-      return { ok: res.ok, status: res.status, progress: data };
+      return { ok: res.ok && (data?.stage !== "complete" || completed), status: res.status, progress: data,
+        error: data?.stage === "complete" && !completed ? (data.error || "服务器来源未通过核验，原本地副本已保留") : undefined };
     } catch (e) {
       return { ok: false, error: e?.message || String(e) };
     }

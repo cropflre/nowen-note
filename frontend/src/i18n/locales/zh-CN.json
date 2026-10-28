@@ -1,5 +1,10 @@
 {
   "offlineAvailability": {
+    "automaticDownload": "正在自动下载到本机",
+    "automaticHint": "首次同步请保持连接。完成后自动进入本地副本，断网可继续编辑；恢复连接后，修改会自动上传同步。",
+    "legacyEditsRetained": "旧版客户端仍有 {{count}} 条失败或冲突修改，原内容已保留。可先导出待同步修改，再重试；冲突不会被重试操作清除。",
+    "exportLegacyEdits": "导出待同步修改",
+    "retryLegacyEdits": "重新尝试",
     "downloadTitle": "下载到本机，支持离线使用",
     "installFull": "当前 Lite 安装包提供在线访问。请安装完整版客户端，在同步设置连接原 NAS 账号后下载笔记和附件。",
     "keepLiteData": "安装前请先完成当前设备待同步修改的上传；原账号配置和本机缓存会保留。",

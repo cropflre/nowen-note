@@ -3,8 +3,12 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_USER_PREFERENCES } from "@/lib/userPreferenceAccountCache";
 import NavRail from "../NavRail";
+import type { AppInfo } from '@/lib/desktopBridge';
+import { clearDesktopLocalAuth } from '@/lib/desktopBridge';
+import { broadcastLogout } from '@/lib/api';
 
 const mock = vi.hoisted(() => ({
+  desktop:false,serverUrl:'',appInfo:null as AppInfo|null,
   state: { viewMode: "tasks", selectedNotebookId: null as string | null, selectedTagIds: [] as string[], searchQuery: "", noteListCollapsed: true, sidebarCollapsed: false },
   actions: {
     setViewMode: vi.fn(), setSelectedNotebook: vi.fn(), clearSelectedTags: vi.fn(),
@@ -18,8 +22,8 @@ vi.mock("@/hooks/useUserPreferences", () => ({ useUserPreferences: () => ({ pref
 vi.mock("@/hooks/useRailMode", () => ({ useRailMode: () => ["label"] }));
 vi.mock("@/hooks/useSidebarTextStyle", () => ({ useSidebarTextStyle: () => ["classic"] }));
 vi.mock("@/hooks/useMobileRailHidden", () => ({ useMobileRailHidden: () => [false, vi.fn()] }));
-vi.mock("@/lib/api", () => ({ api: {}, getCurrentWorkspace: () => "personal", getServerUrl: () => "", broadcastLogout: vi.fn(), clearServerUrl: vi.fn() }));
-vi.mock("@/lib/desktopBridge", () => ({ isDesktop: () => false, getAppInfo: vi.fn(), getDiagnosticsInfo: vi.fn(), clearDesktopLocalAuth: vi.fn(), switchDesktopToFull: vi.fn() }));
+vi.mock("@/lib/api", () => ({ api: {}, getCurrentWorkspace: () => "personal", getServerUrl: () => mock.serverUrl, broadcastLogout: vi.fn(async()=>{}), clearServerUrl: vi.fn() }));
+vi.mock("@/lib/desktopBridge", () => ({ isDesktop: () => mock.desktop, getAppInfo: vi.fn(async()=>mock.appInfo), getDiagnosticsInfo: vi.fn(async()=>null), clearDesktopLocalAuth: vi.fn(async()=>({ok:true})), switchDesktopToFull: vi.fn() }));
 vi.mock("@/lib/offlineQueue", () => ({ clearQueue: vi.fn(), clearLocalIdMap: vi.fn(), getQueueLength: () => 0 }));
 vi.mock("@/lib/accountLoginHistory", () => ({ isAccountLoginHistorySupported: () => false }));
 vi.mock("@/components/AccountLoginHistory", () => ({ AccountLoginHistoryDialog: () => null }));
@@ -28,6 +32,7 @@ Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 let host: HTMLDivElement, root: Root;
 beforeEach(() => {
   vi.clearAllMocks(); localStorage.clear(); window.history.replaceState({}, "", "/");
+  mock.desktop=false;mock.serverUrl='';mock.appInfo=null;
   Object.assign(mock.state, { viewMode: "tasks", selectedNotebookId: null, selectedTagIds: [], searchQuery: "", noteListCollapsed: true });
   host = document.createElement("div"); document.body.append(host); root = createRoot(host);
 });
@@ -36,6 +41,18 @@ async function render(variant: "desktop" | "mobile" = "desktop") { await act(asy
 function entry() { return host.querySelector<HTMLButtonElement>('[aria-label="sidebar.allNotes"]')!; }
 
 describe("All Notes primary navigation", () => {
+  it('DCC-006: migrated desktop logout clears local auto-login before returning to account login', async () => {
+    mock.desktop=true;mock.serverUrl='http://127.0.0.1:4555';
+    mock.appInfo={version:'1.5.3',name:'Nowen Note',platform:'darwin',arch:'arm64',mode:'lite',runtime:'local',localServerUrl:mock.serverUrl,localMigrationComplete:true};
+    await render();
+    expect(host.querySelector('[aria-label="sidebar.switchToLocal"]')).toBeNull();
+    const logout=host.querySelector<HTMLButtonElement>('[aria-label="sidebar.logout"]');
+    expect(logout).not.toBeNull();
+    await act(async()=>logout!.click());
+    expect(clearDesktopLocalAuth).toHaveBeenCalledOnce();
+    expect(localStorage.getItem('nowen-prefer-cloud')).toBe('1');
+    expect(broadcastLogout).toHaveBeenCalledWith('desktop_logout_session');
+  });
   it("is a labeled fixed entry before favorites", async () => {
     await render();
     expect(entry()).not.toBeNull();

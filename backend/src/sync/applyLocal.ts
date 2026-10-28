@@ -8,6 +8,8 @@ import type { SyncEntityType } from "./types";
 import { isSyncEntityType, isSyncOperation } from "./types";
 import { SyncError } from "./errors";
 import { normalizeNoteThemeId } from "../lib/noteThemeId";
+import { registerRemoteAttachment } from './attachments';
+import { getActiveProfile } from './profile';
 import { EncryptedNotePayloadError, guardEncryptedNoteMutation, guardEncryptedBlockWriter } from "../lib/encryptedNotes.js";
 
 /**
@@ -279,6 +281,7 @@ function applyAttachmentLocal(db: Database.Database, item: RemoteEntityPayload, 
   const p = item.payload || {};
   const noteId = str(p.noteId);
   if (!noteId || !db.prepare("SELECT 1 FROM notes WHERE id = ? AND workspaceId IS ?").get(noteId,workspaceId)) return;
+  const previous = db.prepare('SELECT path,hash,size FROM attachments WHERE id=? AND workspaceId IS ?').get(item.entityId,workspaceId) as {path:string;hash:string|null;size:number} | undefined;
 
   db.prepare(`
     INSERT INTO attachments (id, noteId, userId, filename, mimeType, size, path, createdAt, workspaceId, hash)
@@ -299,6 +302,12 @@ function applyAttachmentLocal(db: Database.Database, item: RemoteEntityPayload, 
     workspaceId,
     typeof p.hash === "string" ? p.hash : null,
   );
+  // Metadata can arrive before bytes, including during the initial automatic
+  // download. Preserve a completed local file when replaying unchanged metadata.
+  if (!previous || !previous.path || previous.path.startsWith('pending-sync:')
+    || previous.size !== num(p.size) || (typeof p.hash === 'string' && p.hash !== previous.hash)) {
+    registerRemoteAttachment(db,item.entityId,getActiveProfile(db)?.id ?? null);
+  }
 }
 
 // ---------------------------------------------------------------------------

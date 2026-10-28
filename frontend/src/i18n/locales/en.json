@@ -1,5 +1,10 @@
 {
   "offlineAvailability": {
+    "automaticDownload": "Downloading to this device automatically",
+    "automaticHint": "Stay connected for the first sync. Your local copy opens automatically when ready. Edit offline; changes upload automatically when the connection returns.",
+    "legacyEditsRetained": "The previous client has {{count}} failed or conflicting edits. Their contents are retained. Export pending edits before retrying; retrying does not clear conflicts.",
+    "exportLegacyEdits": "Export pending edits",
+    "retryLegacyEdits": "Try again",
     "downloadTitle": "Download to this device for offline use",
     "installFull": "The Lite package provides online access. Install the Full client, connect to your existing NAS account in sync settings, then download your notes and attachments.",
     "keepLiteData": "Upload any pending changes before installing. Your account configuration and local cache are retained.",

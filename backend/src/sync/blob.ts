@@ -345,7 +345,7 @@ export async function pullAttachmentBlobs(
 
       // path 可能为空（元数据先于二进制同步过来），此时分配本地路径。
       let relPath = meta.path;
-      if (!relPath) {
+      if (!relPath || relPath.startsWith('pending-sync:')) {
         const dot = (meta.filename || "").lastIndexOf(".");
         const ext = dot > 0 ? (meta.filename as string).slice(dot + 1) : "bin";
         relPath = `${getUploadMonthPath()}/${row.attachmentId}.${ext}`;

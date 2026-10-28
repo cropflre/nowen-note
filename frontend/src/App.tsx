@@ -103,6 +103,7 @@ import {
   isMobileLocalMode,
 } from "@/lib/mobileLocalMode";
 import { getDesktopStartupSession } from "@/lib/desktopLocalSession";
+import DesktopOfflineSyncGate from '@/components/DesktopOfflineSyncGate';
 import { isExpiredNativeSession, shouldRetainNativeOfflineSession, MOBILE_SYNC_AUTH_REQUIRED_EVENT } from '@/lib/nativeOfflineSession';
 import { hasMobileBoundLocalAccount } from '@/lib/mobileLocalFirstRuntime';
 import { getOfflineQueueStorageKey } from '@/lib/offlineScope';
@@ -1531,6 +1532,7 @@ function AuthGate() {
 
   // 已登录
   return (
+    <DesktopOfflineSyncGate key={`${getServerUrl()}:${user?.id}`}>
     <AppProvider>
       <AICollaborationCenter />
       <SidebarSearchExperienceBridge />
@@ -1557,6 +1559,7 @@ function AuthGate() {
         />
       </TooltipProvider>
     </AppProvider>
+    </DesktopOfflineSyncGate>
   );
 }
 

@@ -320,7 +320,7 @@ export interface DesktopHttpAPI {
   }>;
 }
 
-interface NowenDesktopAPI {
+export interface NowenDesktopAPI {
   on: (channel: string, listener: (payload: unknown) => void) => () => void;
   checkForUpdates: () => Promise<{ ok: boolean; reason?: string; version?: string }>;
   openMicrosoftStoreUpdates?: () => Promise<{ ok: boolean; reason?: string }>;

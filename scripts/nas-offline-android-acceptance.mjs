@@ -7,6 +7,7 @@ import net from 'node:net';
 import { spawn, execFileSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { seedOfflineAttachments, verifyOfflineAttachmentPreviews } from './nas-offline-attachment-fixtures.mjs';
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 const require=createRequire(path.join(root,'frontend/package.json'));
 const {_android,expect}=require('@playwright/test');
@@ -41,7 +42,7 @@ async function nativeSnapshot(noteId){
     const target=path.join(directory,file);
     fs.writeFileSync(target,execFileSync(adbPath,['-s',serial,'exec-out','run-as',pkg,'cat',`databases/${file}`]));
     try{fs.writeFileSync(`${target}-wal`,execFileSync(adbPath,['-s',serial,'exec-out','run-as',pkg,'cat',`databases/${file}-wal`],{stdio:['ignore','pipe','ignore']}));}catch{}
-    const script=`const Database=require(${JSON.stringify(path.join(root,'backend/node_modules/better-sqlite3'))});const db=new Database(process.argv[1],{readonly:true});const row=db.prepare("SELECT content,version FROM notes WHERE scopeKey='personal' AND id=?").get(process.argv[2]);const pending=db.prepare('SELECT COUNT(*) AS n FROM sync_outbox WHERE entityId=?').get(process.argv[2]).n;console.log(JSON.stringify({row,pending}));db.close();`;
+    const script=`const Database=require(${JSON.stringify(path.join(root,'backend/node_modules/better-sqlite3'))});const db=new Database(process.argv[1],{readonly:true});const row=db.prepare("SELECT content,version FROM notes WHERE scopeKey='personal' AND id=?").get(process.argv[2]);const pending=db.prepare('SELECT COUNT(*) AS n FROM sync_outbox WHERE entityId=?').get(process.argv[2]).n;const attachments=db.prepare("SELECT id,available,transferStatus FROM attachments WHERE scopeKey='personal' AND noteId=?").all(process.argv[2]);console.log(JSON.stringify({row,pending,attachments}));db.close();`;
     const result=JSON.parse(execFileSync(electron,['-e',script,target,noteId],{env:{...process.env,ELECTRON_RUN_AS_NODE:'1'},encoding:'utf8'}));
     if(result.row)return result;
   }
@@ -56,6 +57,7 @@ try{
   const book=await api('/notebooks',{name:'Native NAS Notes'});
   const note=await api('/notes',{notebookId:book.id,title:'Native Offline Editable',contentFormat:'markdown',content:'native NAS body',contentText:'native NAS body'});
   const unread=await api('/notes',{notebookId:book.id,title:'Native Previously Unread',contentFormat:'markdown',content:'native unread survives restart',contentText:'native unread survives restart'});
+  await seedOfflineAttachments(base,account.token,unread);
   adb('reverse',`tcp:${port}`,`tcp:${port}`);
   adb('shell','am','force-stop',pkg);adb('shell','am','start','-n',`${pkg}/com.nowen.note.MainActivity`);
   await attach();
@@ -77,11 +79,14 @@ try{
   await page.getByRole('button',{name:/^(登录工作台|Sign In)$/}).click({noWaitAfter:true});
   await expect(page.getByText('Native Offline Editable',{exact:true}).first()).toBeVisible({timeout:30_000});
   record('full APK logged into loopback NAS and downloaded notes');
+  await wait(async()=>{const snapshot=await nativeSnapshot(unread.id);return snapshot?.attachments.length===2&&snapshot.attachments.every(file=>file.available===1);},'native attachments did not finish downloading');
   await stopNas();adb('reverse','--remove',`tcp:${port}`);
   await restart();
   await page.getByText('Native Previously Unread',{exact:true}).first().click();
   await expect(page.locator('.cm-content').first()).toContainText('native unread survives restart');
   record('NAS stopped and app force-stopped: previously unread native note opens');
+  await verifyOfflineAttachmentPreviews(page,expect,output,true);
+  record('NAS stopped: first-open native text and image attachment previews read local bytes');
   // Back to the note list via the editor's mobile back control.
   await page.locator('button:has(svg.lucide-chevron-left)').first().click();
   await page.getByText('Native Offline Editable',{exact:true}).first().click();

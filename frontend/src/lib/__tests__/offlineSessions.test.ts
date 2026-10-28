@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from 'vitest';
-import { getDesktopStartupSession, initializeDesktopLocalSession } from '../desktopLocalSession';
+import { getDesktopStartupSession, initializeDesktopLocalSession, automaticallyDownloadDesktopCopy } from '../desktopLocalSession';
 import { fetchWithAuthRefresh, storeAuthTokens, getAccessToken } from '../authSession';
 import { refreshAccessToken } from '../authSession';
 import { shouldRetainNativeOfflineSession } from '../nativeOfflineSession';
@@ -7,6 +7,32 @@ const nativeWindow = window as Window & {Capacitor?: {isNativePlatform: () => bo
 vi.mock('../api',()=>({setServerUrl:(url:string)=>localStorage.setItem('nowen-server-url',url)}));
 
 afterEach(() => { vi.unstubAllGlobals(); localStorage.clear(); delete nativeWindow.Capacitor; });
+
+it('DCC-009: a desktop NAS login automatically downloads once before editors open, without a migration button', async () => {
+  const bridge = {
+    getAppInfo: async()=>({runtime:'remote',localRuntimeAvailable:true}),
+    getLocalAuth:async()=>null,
+    startLiteMigration:vi.fn(async()=>({ok:true,progress:{stage:'complete'}})),
+  };
+  expect(await Promise.all([automaticallyDownloadDesktopCopy(bridge,'https://nas.test','nas-token',()=>0),automaticallyDownloadDesktopCopy(bridge,'https://nas.test','nas-token',()=>0)])).toEqual([true,true]);
+  expect(bridge.startLiteMigration).toHaveBeenCalledTimes(1);
+  expect(bridge.startLiteMigration).toHaveBeenCalledWith('https://nas.test','nas-token');
+});
+
+it('DCC-006: automatic download preserves pending old writes and leaves local and true Lite sessions alone', async () => {
+  const bridge = {getAppInfo:async()=>({runtime:'local',localRuntimeAvailable:true,localServerUrl:'http://127.0.0.1:3001'}),getLocalAuth:async()=>null,startLiteMigration:vi.fn()};
+  expect(await automaticallyDownloadDesktopCopy(bridge,'http://127.0.0.1:3001','local',()=>0)).toBe(false);
+  await expect(automaticallyDownloadDesktopCopy(bridge,'https://nas.test','nas',()=>1)).rejects.toThrow('待同步修改');
+  bridge.getAppInfo=async()=>({runtime:'remote',localRuntimeAvailable:false,localServerUrl:''});
+  expect(await automaticallyDownloadDesktopCopy(bridge,'https://nas.test','nas',()=>0)).toBe(false);
+  expect(bridge.startLiteMigration).not.toHaveBeenCalled();
+});
+
+it('DCC-003: failed automatic download retains its session and can retry after connectivity returns', async () => {
+  const bridge={getAppInfo:async()=>({runtime:'remote',localRuntimeAvailable:true}),getLocalAuth:async()=>null,startLiteMigration:vi.fn().mockResolvedValueOnce({ok:false,error:'offline'}).mockResolvedValue({ok:true,progress:{stage:'complete'}})};
+  await expect(automaticallyDownloadDesktopCopy(bridge,'https://nas.test','nas',()=>0)).rejects.toThrow('offline');
+  expect(await automaticallyDownloadDesktopCopy(bridge,'https://nas.test','nas',()=>0)).toBe(true);
+});
 
 it('DCC-006: providers start only after migrated desktop address and credentials are replaced together', async () => {
   const desktopWindow = window as Window & {nowenDesktop?: object};
@@ -31,11 +57,33 @@ it('DCC-006: a completed desktop migration replaces NAS auth with local credenti
     getAppInfo: async () => ({ runtime: 'local', localMigrationComplete: true, localServerUrl: 'http://127.0.0.1:12345' }),
     getLocalAuth: vi.fn(async () => auth),
   };
-  expect(await getDesktopStartupSession(bridge, 'nas-token', true)).toEqual({ ...auth, serverUrl: 'http://127.0.0.1:12345' });
+  expect(await getDesktopStartupSession(bridge, 'nas-token', false)).toEqual({ ...auth, serverUrl: 'http://127.0.0.1:12345' });
   bridge.getAppInfo = async () => ({ runtime: 'remote', localMigrationComplete: false, localServerUrl: '' });
   bridge.getLocalAuth.mockClear();
   expect(await getDesktopStartupSession(bridge, 'nas-token', true)).toBeNull();
   expect(bridge.getLocalAuth).not.toHaveBeenCalled();
+});
+
+it('DCC-006: explicit desktop logout survives reopening a completed local copy', async () => {
+  const desktopWindow = window as Window & {nowenDesktop?: object};
+  const getLocalAuth = vi.fn(async()=>({token:'old-local-token',user:{id:'old-local-user'}}));
+  desktopWindow.nowenDesktop = {
+    isDesktop:true,
+    getAppInfo:async()=>({runtime:'local',localMigrationComplete:true,localServerUrl:'http://127.0.0.1:12345'}),
+    getLocalAuth,
+  };
+  localStorage.setItem('nowen-prefer-cloud','1');
+  localStorage.setItem('nowen-server-url','http://127.0.0.1:12345');
+  try {
+    await initializeDesktopLocalSession();
+    expect(getAccessToken()).toBeNull();
+    expect(localStorage.getItem('nowen-prefer-cloud')).toBe('1');
+    expect(getLocalAuth).not.toHaveBeenCalled();
+    storeAuthTokens({token:'new-nas-token'});
+    await initializeDesktopLocalSession();
+    expect(getAccessToken()).toBe('new-nas-token');
+    expect(getLocalAuth).not.toHaveBeenCalled();
+  } finally { delete desktopWindow.nowenDesktop; }
 });
 
 it('DCC-009: native expiration retains the bound token for offline access, revocation still clears it', async () => {

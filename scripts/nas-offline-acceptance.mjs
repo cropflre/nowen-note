@@ -4,14 +4,16 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import net from 'node:net';
-import { spawn } from 'node:child_process';
+import { spawn, execFileSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { seedOfflineAttachments, verifyOfflineAttachmentPreviews } from './nas-offline-attachment-fixtures.mjs';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const require = createRequire(path.join(root, 'frontend/package.json'));
 const { _electron, expect } = require('@playwright/test');
 const electron = createRequire(path.join(root, 'package.json'))('electron');
 const packaged = process.argv.includes('--packaged');
+const interrupted = process.argv.includes('--interrupt-first-download');
 const executable = packaged
   ? path.join(root, `frontend/node_modules/.cache/nas-offline-packaged/mac${process.arch === 'arm64' ? '-arm64' : ''}/Nowen Note.app/Contents/MacOS/Nowen Note`)
   : electron;
@@ -21,6 +23,7 @@ const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'nowen-nas-offline-'));
 const report = {platform:process.platform,arch:process.arch,packaged,startedAt:new Date().toISOString(),checks:[],passed:false};
 let nas, desktop, page, logs='', account;
 const env = {...process.env,NOWEN_NAS_OFFLINE_PROFILE:directory};
+if(interrupted)env.NOWEN_NAS_OFFLINE_INTERRUPT='1';
 delete env.NODE_OPTIONS; delete env.NOWEN_DEV_BACKEND_URL; delete env.NOWEN_LITE_ONLY; delete env.ELECTRON_RUN_AS_NODE;
 const port = await new Promise(resolve => {
   const socket=net.createServer(); socket.listen(0,'127.0.0.1',()=>{const port=socket.address().port;socket.close(()=>resolve(port));});
@@ -50,6 +53,12 @@ async function api(endpoint,body,method=body?'POST':'GET'){
   assert.ok(response.ok,`${endpoint}: HTTP ${response.status}`);
   return response.json();
 }
+function readAttachmentStorage() {
+  const dbFile=path.join(directory,'desktop/nowen-data/nowen-note.db');
+  if(!fs.existsSync(dbFile)) return null;
+  const script=`const fs=require('node:fs'),path=require('node:path'),Database=require(${JSON.stringify(path.join(root,'backend/node_modules/better-sqlite3'))});const db=new Database(process.argv[1],{readonly:true});const rows=db.prepare('SELECT a.id,a.filename,a.path,s.remoteOnly,s.status,s.lastError FROM attachments a LEFT JOIN attachment_sync_state s ON s.attachmentId=a.id').all();console.log(JSON.stringify(rows.map(row=>({...row,fileExists:fs.existsSync(path.join(path.dirname(process.argv[1]),'attachments',row.path))}))));db.close();`;
+  return JSON.parse(execFileSync(electron,['-e',script,dbFile],{env:{...process.env,ELECTRON_RUN_AS_NODE:'1'},encoding:'utf8'}));
+}
 async function startDesktop(){
   desktop=await _electron.launch({executablePath:executable,args:packaged?[]:[path.join(root,'scripts/nas-offline-app-fixture.cjs')],cwd:root,env,chromiumSandbox:true});
   for(const stream of [desktop.process().stdout,desktop.process().stderr])stream?.on('data',data=>{logs=(logs+data).slice(-24_000);});
@@ -64,19 +73,20 @@ try {
   const book=await api('/notebooks',{name:'NAS Offline Acceptance'});
   const editable=await api('/notes',{notebookId:book.id,title:'Offline Editable',contentFormat:'markdown',content:'initial NAS body',contentText:'initial NAS body'});
   const unread=await api('/notes',{notebookId:book.id,title:'Offline Previously Unread',contentFormat:'markdown',content:'unread content survives NAS loss',contentText:'unread content survives NAS loss'});
+  await seedOfflineAttachments(server,account.token,unread);
   record('real NAS routes seeded',{notes:[editable.id,unread.id]});
   await startDesktop();
+  await page.evaluate(()=>localStorage.setItem('nowen-prefer-cloud','1'));
   await page.getByPlaceholder('fnos.net/user:3001 或 192.168.1.10:3001',{exact:true}).fill(new URL(server).host);
   await page.getByPlaceholder('admin',{exact:true}).fill('offline_acceptance');
   await page.locator('input[type=password]').fill('isolated-offline-password');
   await page.getByRole('button',{name:'登录工作台',exact:true}).click();
-  await expect(page.getByRole('button',{name:'在根目录新建',exact:true})).toBeVisible();
-  await page.getByRole('button',{name:'设置',exact:true}).click();
-  await page.getByRole('button',{name:'同步',exact:true}).click();
-  await expect(page.getByText('下载到本机，支持离线使用',{exact:true})).toBeVisible();
-  await page.getByRole('button',{name:'开始迁移',exact:true}).click();
-  await expect(page.getByText('笔记已保存到本机。退出并重新打开应用后，可继续下载剩余附件；附件离线状态请在同步设置中核验。',{exact:true})).toBeVisible({timeout:60_000});
-  record('migration completed through product UI');
+  await expect(page.getByRole('button',{name:'在根目录新建',exact:true})).toBeVisible({timeout:60_000});
+  const automatic=await page.evaluate(()=>window.nowenDesktop.getAppInfo());
+  assert.equal(automatic.runtime,'local');assert.equal(automatic.localMigrationComplete,true);
+  record('NAS login automatically downloads and opens the local workspace without settings or restart');
+  if(interrupted){assert.ok(fs.existsSync(path.join(directory,'snapshot-outage-injected')));record('first download interrupted: connection recovery retries automatically without a button');}
+  report.migrationAttachmentStorage=readAttachmentStorage();
   await desktop.close(); desktop=undefined;
   await stop(nas); nas=undefined;
   assert.equal(await fetch(`${server}/api/health`).then(()=>true).catch(()=>false),false);
@@ -87,6 +97,8 @@ try {
   await page.getByText('Offline Previously Unread',{exact:true}).first().click();
   await expect(page.locator('.cm-content').first()).toContainText('unread content survives NAS loss');
   record('NAS stopped: full restart and previously unread note are local',{runtime:local.info.runtime,packaged:await desktop.evaluate(({app})=>app.isPackaged)});
+  await verifyOfflineAttachmentPreviews(page,expect,output);
+  record('NAS stopped: first-open text and image attachment previews read local bytes');
   await page.getByText('Offline Editable',{exact:true}).first().click();
   const editor=page.locator('.cm-content').first();
   await editor.click();await page.keyboard.press('Meta+End');await page.keyboard.type('\noffline acceptance edit');
@@ -107,9 +119,17 @@ try {
   assert.ok(read.content.includes('offline acceptance edit'));
   record('reconnected: independent authenticated service read sees the exact offline edit',{version:read.version});
   await page.screenshot({path:path.join(output,'offline-note.png')});
+  await page.getByRole('button',{name:'退出登录',exact:true}).click({noWaitAfter:true});
+  await expect(page.getByRole('button',{name:'登录工作台',exact:true})).toBeVisible();
+  await desktop.close();desktop=undefined;
+  await startDesktop();
+  await expect(page.getByRole('button',{name:'登录工作台',exact:true})).toBeVisible();
+  assert.equal(await page.evaluate(()=>localStorage.getItem('nowen-token')),null);
+  record('explicit sign-out remains signed out across a complete desktop restart');
   report.passed=true;
 } catch(error){
   report.error=error instanceof Error?error.message:String(error);
+  report.attachmentStorage=readAttachmentStorage();
   if(page) report.session=await page.evaluate(async()=>{
     let userId=null;try{userId=JSON.parse(atob((localStorage.getItem('nowen-token')||'').split('.')[1])).userId;}catch{}
     return {serverUrl:localStorage.getItem('nowen-server-url'),hasToken:!!localStorage.getItem('nowen-token'),userId,info:await window.nowenDesktop.getAppInfo()};

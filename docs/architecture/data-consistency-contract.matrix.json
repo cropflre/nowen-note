@@ -97,6 +97,10 @@
       "title": "断网、服务端失败或停止调度不得静默丢弃待同步修改",
       "status": "covered",
       "checks": [
+        { "file": "frontend/src/lib/__tests__/desktopAutomaticDownloadGate.test.tsx", "case": "DCC-003: blocked legacy edits remain exportable and retry preserves unresolved conflicts" },
+        { "file": "frontend/src/lib/__tests__/desktopAutomaticDownloadGate.test.tsx", "case": "DCC-003: automatic download replays retained legacy edits before starting the NAS baseline" },
+        { "file": "frontend/src/lib/__tests__/offlineSessions.test.ts", "case": "DCC-003: failed automatic download retains its session and can retry after connectivity returns" },
+        { "file": "backend/tests/sync-v2-lite-blob.test.ts", "case": "DCC-003: initial NAS download automatically fetches attachment bytes without manually registering downloads" },
         { "file": "frontend/src/lib/encryptedNotes/__tests__/decryptNote.test.ts", "case": "a failed server write preserves the encrypted barrier and does not queue plaintext (DCC-003)" },
         { "file": "frontend/src/lib/__tests__/harmonyNativeAdapters.test.ts", "case": "Harmony adapters retain committed data and pending Outbox on reopen, rollback and account isolation" },
         {"file": "backend/tests/sync-v2-mobile-multidevice.test.ts", "case": "native offline trash then permanent delete acknowledges trash before deletion and replays a lost ACK"},
@@ -196,6 +200,8 @@
       "title": "跨账号跨服务端 Outbox 不得串用",
       "status": "covered",
       "checks": [
+        { "file": "frontend/src/lib/__tests__/offlineSessions.test.ts", "case": "DCC-006: explicit desktop logout survives reopening a completed local copy" },
+        { "file": "frontend/src/lib/__tests__/offlineSessions.test.ts", "case": "DCC-006: automatic download preserves pending old writes and leaves local and true Lite sessions alone" },
         {"file": "backend/tests/agent-workflow.test.ts", "case": "P2 management routes reject PATs, foreign templates and forged schema properties"},
         {"file": "backend/tests/agent-workflow.test.ts", "case": "task review API enforces session, workspace, owner and strict input before changing approval (DCC-006)"},
         {"file": "backend/tests/agent-workflow.test.ts", "case": "explicit scope excludes child notebooks when requested and never reads foreign notes"},
@@ -342,6 +348,8 @@
       "title": "Android Native 关闭同步后重启仍保留未发出修改",
       "status": "covered",
       "checks": [
+        { "file": "frontend/src/lib/__tests__/desktopAutomaticDownloadGate.test.tsx", "case": "DCC-009: Web and Android without a desktop bridge open their existing workspace without desktop sync" },
+        { "file": "frontend/src/lib/__tests__/offlineSessions.test.ts", "case": "DCC-009: a desktop NAS login automatically downloads once before editors open, without a migration button" },
         { "file": "frontend/src/lib/__tests__/mobileLocalFirstGuestRuntime.test.ts", "case": "Harmony device-only startup opens the shared local repository without starting sync" },
         { "file": "frontend/src/lib/__tests__/harmonyNativeAdapters.test.ts", "case": "Harmony adapters retain committed data and pending Outbox on reopen, rollback and account isolation" },
         { "file": "backend/tests/sync-v2-mobile-multidevice.test.ts", "case": "asset folders survive offline restart and converge with nested ancestry on three devices" },

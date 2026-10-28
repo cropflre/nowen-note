@@ -7,6 +7,42 @@ const vm = require('node:vm');
 const settings = require('../settings');
 const source = fs.readFileSync(path.join(__dirname, '../main.js'), 'utf8');
 
+function migrationHandler(context) {
+  const start = source.indexOf('  ipcMain.handle("sync:start-lite-migration",');
+  const end = source.indexOf('\n  });',start);
+  assert.ok(start>=0 && end>start);
+  context.ipcMain={handle:(_name,handler)=>{context.migrate=handler;}};
+  vm.createContext(context);vm.runInContext(source.slice(start,end+6),context);
+  return context.migrate;
+}
+
+test('DCC-006: a refused NAS switch cannot persist an old complete profile as the new source', async () => {
+  for (const [status,remoteUrl] of [[500,'https://nas-a.test'],[200,'https://nas-a.test'],[500,'https://nas-b.test']]) {
+    const saved={liteMigrationStatus:'complete',remoteUrl:'https://nas-a.test',activeSyncProfileId:'profile-a'};
+    const context={backendPort:1234,localAuthCache:{token:'local'},currentRuntime:'local',console,
+      assertMainWindowSender:()=>null,isLiteOnlyBuild:()=>false,
+      readSettings:()=>({...saved}),writeSettings:(patch)=>Object.assign(saved,patch),
+      fetch:async()=>({ok:status===200,status,json:async()=>({stage:'complete',remoteUrl,profileId:'profile-a',error:'source refused'})})};
+    const result=await migrationHandler(context)({}, {serverUrl:'https://nas-b.test',token:'remote-b'});
+    assert.equal(result.ok,false);
+    assert.equal(saved.remoteUrl,'https://nas-a.test');
+    assert.equal(saved.liteMigrationStatus,'complete');
+    assert.equal(saved.activeSyncProfileId,'profile-a');
+  }
+});
+
+test('DCC-009: verified automatic download activates the matching local profile immediately', async () => {
+  const saved={liteMigrationStatus:'running',remoteUrl:'https://nas.test'};
+  const context={backendPort:1234,localAuthCache:{token:'local'},currentRuntime:'remote',console,
+    assertMainWindowSender:()=>null,isLiteOnlyBuild:()=>false,
+    readSettings:()=>({...saved}),writeSettings:(patch)=>Object.assign(saved,patch),
+    fetch:async()=>({ok:true,status:200,json:async()=>({stage:'complete',remoteUrl:'https://nas.test',profileId:'profile'})})};
+  const result=await migrationHandler(context)({}, {serverUrl:'https://nas.test/',token:'remote'});
+  assert.equal(result.ok,true);assert.equal(saved.remoteUrl,'https://nas.test');
+  assert.equal(saved.liteMigrationStatus,'complete');assert.equal(saved.activeSyncProfileId,'profile');
+  assert.equal(context.currentRuntime,'local');
+});
+
 test('DCC-009: a completed remote migration reopens the local runtime', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nowen-offline-runtime-'));
   try {

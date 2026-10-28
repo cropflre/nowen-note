@@ -3,6 +3,7 @@ const path = require('node:path');
 const os = require('node:os');
 const http = require('node:http');
 const https = require('node:https');
+const fs = require('node:fs');
 const directory = path.resolve(process.env.NOWEN_NAS_OFFLINE_PROFILE || '');
 if (path.dirname(directory) !== path.resolve(os.tmpdir()) || !path.basename(directory).startsWith('nowen-nas-offline-')) throw new Error('An isolated offline acceptance profile is required');
 const isLoopback = hostname => ['127.0.0.1','localhost','::1','[::1]'].includes(hostname);
@@ -12,7 +13,17 @@ function assertLocal(input) {
   if (!isLoopback(hostname)) throw new Error('Acceptance network is restricted to loopback');
 }
 const fetch = globalThis.fetch;
-globalThis.fetch = (input, ...args) => { assertLocal(input); return fetch(input, ...args); };
+globalThis.fetch = (input, ...args) => {
+  assertLocal(input);
+  const url = new URL(typeof input === 'string' || input instanceof URL ? input : input.url);
+  const marker = path.join(directory,'snapshot-outage-injected');
+  if (process.env.NOWEN_NAS_OFFLINE_INTERRUPT === '1' && url.pathname === '/api/sync/v2/snapshot' && !fs.existsSync(marker)) {
+    fs.writeFileSync(marker,'injected');
+    console.warn('[offline-acceptance] injected first-download outage');
+    return Promise.resolve(new Response(JSON.stringify({error:'isolated test interruption'}),{status:503}));
+  }
+  return fetch(input, ...args);
+};
 for (const module of [http,https]) for (const method of ['get','request']) {
   const original = module[method];
   module[method] = function (input,...args) { assertLocal(input); return original.call(this,input,...args); };
