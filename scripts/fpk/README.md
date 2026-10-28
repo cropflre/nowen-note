@@ -11,7 +11,7 @@
     - 也可以通过环境变量 `FNPACK_BIN=/abs/path/to/fnpack` 显式指定
     - 官方下载：<https://developer.fnnas.com/>
 2. **Docker 镜像已发布到 Docker Hub**：飞牛不会现场构建，必须用预构建镜像。
-3. **Node.js 20+**。
+3. **Node.js 24.22.1+（24.x LTS）**。
 
 ## 一、推荐：用 release.sh 一键发布
 

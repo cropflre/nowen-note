@@ -78,10 +78,20 @@ test("runtime config rejects unsupported URL protocols before loading the entry"
   assert.throws(
     () => validateRuntimeConfig({
       env: { NOWEN_URL: "file:///tmp/nowen" },
-      nodeVersion: "24.15.0",
+      nodeVersion: "24.22.1",
     }),
     (error) => error?.code === "INVALID_NOWEN_URL_PROTOCOL",
   );
+});
+
+test("runtime config rejects runtimes below the security baseline", () => {
+  for (const nodeVersion of ["20.20.2", "22.23.4", "24.18.0", "24.22.0", "25.0.0", "invalid"]) {
+    assert.throws(() => validateRuntimeConfig({ env: {}, nodeVersion }),
+      error => error.code === "UNSUPPORTED_NODE_VERSION");
+  }
+  for (const nodeVersion of ["24.22.1", "24.22.2", "24.23.0"]) {
+    assert.doesNotThrow(() => validateRuntimeConfig({ env: {}, nodeVersion }));
+  }
 });
 
 test("missing dist entry reports a friendly actionable stderr error", async () => {

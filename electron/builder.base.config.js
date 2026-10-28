@@ -111,6 +111,7 @@ const NODE_MODULE_VERSION_BY_ELECTRON_MAJOR = {
   33: 130,
   34: 133,
   35: 136,
+  43: 148,
 };
 
 function detectNodeAbiVersion(nodeFile) {
@@ -546,6 +547,7 @@ module.exports = {
     artifactName: "${productName}-${version}-portable.${ext}",
   },
   mac: {
+    minimumSystemVersion: "12.0.0",
     // ==== mac 架构选择 ====
     // 历史教训（2026-05 Intel Mac ERR_DLOPEN_FAILED）：
     //   原配置 arch: ["arm64", "x64"]，electron-builder 一次构建会同时输出

@@ -22,7 +22,7 @@ async function readRepoFile(relativePath) {
 
 test("tag 构建工作流不让 electron-builder 直接发布 GitHub Release", async () => {
   const workflow = await readRepoFile(".github/workflows/release.yml");
-  assert.match(workflow, /node-version:\s*["']22["']/);
+  assert.match(workflow, /node-version:\s*["']24\.22\.1["']/);
   assert.match(workflow, /permissions:\s*\n\s*contents:\s*read\s*\n\s*actions:\s*read/);
   const jobs = require("js-yaml").load(workflow).jobs;
   const builderCommands = Object.values(jobs)

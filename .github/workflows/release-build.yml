@@ -26,7 +26,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '24.22.1'
       - id: plan
         env:
           RC_REQUEST_ID: ${{ inputs.request_id }}
@@ -90,7 +90,7 @@ jobs:
       - uses: actions/checkout@v4
         with: { ref: '${{ inputs.commit_sha }}', persist-credentials: false }
       - uses: actions/setup-node@v4
-        with: { node-version: '22', cache: npm }
+        with: { node-version: '24.22.1', cache: npm }
       - uses: actions/setup-java@v4
         with: { distribution: temurin, java-version: '21' }
       - name: Prepare and build frontend
@@ -140,7 +140,7 @@ jobs:
       - uses: actions/checkout@v4
         with: { ref: '${{ inputs.commit_sha }}', persist-credentials: false }
       - uses: actions/setup-node@v4
-        with: { node-version: '22' }
+        with: { node-version: '24.22.1' }
       - uses: docker/setup-buildx-action@v3
       - name: Prepare source and build image without pushing
         env:
@@ -167,7 +167,7 @@ jobs:
       - uses: actions/checkout@v4
         with: { ref: '${{ inputs.commit_sha }}', persist-credentials: false }
       - uses: actions/setup-node@v4
-        with: { node-version: '22', cache: npm }
+        with: { node-version: '24.22.1', cache: npm }
       - run: npm ci
       - uses: actions/download-artifact@v4
         with:
@@ -195,7 +195,7 @@ jobs:
       - uses: actions/checkout@v4
         with: { ref: '${{ inputs.commit_sha }}', persist-credentials: false }
       - uses: actions/setup-node@v4
-        with: { node-version: '22', cache: npm, cache-dependency-path: packages/nowen-clipper/package-lock.json }
+        with: { node-version: '24.22.1', cache: npm, cache-dependency-path: packages/nowen-clipper/package-lock.json }
       - run: npm ci && npm run pack:all
         working-directory: packages/nowen-clipper
       - uses: actions/upload-artifact@v4
@@ -209,7 +209,7 @@ jobs:
       - uses: actions/checkout@v4
         with: { ref: '${{ inputs.commit_sha }}', persist-credentials: false }
       - uses: actions/setup-node@v4
-        with: { node-version: '22' }
+        with: { node-version: '24.22.1' }
       - uses: actions/download-artifact@v4
         with: { pattern: 'release-*', path: cloud-artifacts }
       - run: npm ci --ignore-scripts

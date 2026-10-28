@@ -24,7 +24,7 @@
 [![GitHub Release](https://img.shields.io/github/v/release/cropflre/nowen-note?display_name=tag&sort=semver)](https://github.com/cropflre/nowen-note/releases)
 [![Docker Pulls](https://img.shields.io/docker/pulls/cropflre/nowen-note?logo=docker&logoColor=white)](https://hub.docker.com/r/cropflre/nowen-note)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](./LICENSE)
-[![Node.js 20+](https://img.shields.io/badge/Node.js-20%2B-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
+[![Node.js 24.22.1+ (24.x LTS)](https://img.shields.io/badge/Node.js-24.22.1%2B-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
 [![Docker](https://img.shields.io/badge/Docker-Compose%20v2-2496ED?logo=docker&logoColor=white)](./docker-compose.yml)
 
 </div>
@@ -61,7 +61,7 @@ The Nowen Note MCP Server connects to Claude Code, Cursor, VS Code, and other co
 - [中文安装教程](./docs/tutorials/mcp.md)
 - [Standalone nowen-mcp package README](./packages/nowen-mcp/README.md)
 
-The supported source-build launcher uses Node.js 20+ and `packages/nowen-mcp/bin/nowen-mcp.mjs`. Do not point clients directly to the internal `dist/scoped-entry.js`. The normal transport is stdio; v1.5.2 also introduces **explicitly enabled, authenticated, loopback-only Streamable HTTP**. Create a separate least-privilege token for each client; never embed administrator passwords in MCP configurations.
+The supported source-build launcher uses Node.js 24.22.1+ (24.x LTS) and `packages/nowen-mcp/bin/nowen-mcp.mjs`. Do not point clients directly to the internal `dist/scoped-entry.js`. The normal transport is stdio; v1.5.2 also introduces **explicitly enabled, authenticated, loopback-only Streamable HTTP**. Create a separate least-privilege token for each client; never embed administrator passwords in MCP configurations.
 
 ## Why Nowen Note
 
@@ -289,9 +289,11 @@ See [`.env.example`](./.env.example) for the complete template.
 
 > Available packages vary by release. Check [GitHub Releases](https://github.com/cropflre/nowen-note/releases).
 
+Desktop builds require macOS 12 (Monterey) or later; macOS 11 users will not be offered this version through automatic updates. See the [Node 24 migration notes](./docs/node24-upgrade.md).
+
 ## Local development
 
-Requires Node.js 20+, npm, and Git. Electron and native builds also require platform toolchains.
+Requires Node.js 24.22.1+ (24.x LTS), npm, and Git. Electron and native builds also require platform toolchains.
 
 ```bash
 git clone https://github.com/cropflre/nowen-note.git
@@ -330,7 +332,7 @@ npm run cap:build
 npx cap open android
 ```
 
-> Capacitor 8 requires Node.js 22+ for Android release tooling. Regular web and Electron development can continue to use the project's Node.js 20+ baseline.
+> Web, Electron, and mobile builds use Node.js 24.22.1 (24.x LTS). Run `nvm install && nvm use` to select the project version.
 
 iOS:
 
@@ -344,8 +346,8 @@ npm run cap:open:ios
 | Layer | Main technologies |
 | --- | --- |
 | **Frontend** | React 19, TypeScript, Vite 5, Tailwind CSS, Tiptap 3, CodeMirror 6, Yjs, IndexedDB |
-| **Backend** | Node.js 20, Hono 4, WebSocket, better-sqlite3, FTS5, sqlite-vec, sharp |
-| **Desktop** | Electron 33, electron-builder, electron-updater |
+| **Backend** | Node.js 24 LTS, Hono 4, WebSocket, better-sqlite3, FTS5, sqlite-vec, sharp |
+| **Desktop** | Electron 43, electron-builder, electron-updater |
 | **Mobile** | Capacitor 8 for Android/iOS, ArkTS + ArkWeb for HarmonyOS |
 | **Storage and backup** | SQLite, local attachments, S3/Cloudflare R2/MinIO, email and WebDAV backups; PostgreSQL is under validation |
 | **Developer APIs** | OpenAPI 3.0, TypeScript SDK, CLI, MCP Server, Webhook |

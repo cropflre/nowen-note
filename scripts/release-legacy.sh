@@ -127,7 +127,7 @@ MAC_ARCHES=""          # --mac-arch x64,arm64
 # ===== Android 端 Docker 构建支持 =====
 # 主机没装 JDK/Android SDK 时，用 docker 镜像挂载仓库跑 gradle。
 ANDROID_USE_DOCKER=0                                     # --android-docker
-ANDROID_DOCKER_IMAGE="cimg/android:2024.01.1-node"       # --android-docker-image NAME:TAG
+ANDROID_DOCKER_IMAGE="nowen-note-android:node24.22.1"   # --android-docker-image NAME:TAG
 ANDROID_DOCKER_SYNC=0                                    # --android-docker-sync：把 frontend build + cap sync 也挪进 Docker
 
 # ===== PC 端打包后恢复 backend better-sqlite3 的 Node ABI =====
@@ -2201,6 +2201,10 @@ if [ "$HAS_ANDROID" = "1" ]; then
     step "Android 端打包（Capacitor + gradlew assembleRelease）"
     ANDROID_START=$(date +%s)
 
+    if [ "$ANDROID_USE_DOCKER" = "1" ] && [ "$ANDROID_DOCKER_IMAGE" = "nowen-note-android:node24.22.1" ]; then
+        run_argv docker build -f "$REPO_ROOT/scripts/Dockerfile.android" -t "$ANDROID_DOCKER_IMAGE" "$REPO_ROOT"
+    fi
+
     # 0. 先从环境变量还原 keystore（如有）
     prepare_android_keystore
 
@@ -2252,7 +2256,7 @@ if [ "$HAS_ANDROID" = "1" ]; then
     # 2. gradle assembleRelease —— 本机 or Docker
     if [ "$ANDROID_USE_DOCKER" = "1" ]; then
         # Docker 模式：把仓库挂进容器里跑 gradlew。
-        # cimg/android:2024.01.1-node 自带 JDK 17 + Android SDK + Node，国内机器首次拉会慢些。
+        # 默认镜像在 Android SDK 镜像上安装项目固定的 Node 24 安全版本。
         # - 用 host 的 UID/GID 避免产物文件变成 root
         # - 挂载 ~/.gradle 作为缓存，避免每次重跑都下载依赖
         GRADLE_CACHE_VOL="${HOME}/.gradle-docker-nowen-note"
@@ -2863,7 +2867,7 @@ if [ "$DO_GITHUB_RELEASE" = "1" ]; then
         warn "没有产物需要上传到 GitHub Release，跳过"
     else
         info "将上传 ${#ALL_ASSETS[@]} 个产物到 ${GITHUB_REPO_SLUG} @ ${VERSION_TAG}"
-        for f in "${ALL_ASSETS[@]}"; do
+        for f in ${ALL_ASSETS[@]+"${ALL_ASSETS[@]}"}; do
             echo "    - $(basename "$f")  ($(du -h "$f" 2>/dev/null | awk '{print $1}'))"
         done
 
@@ -2877,7 +2881,7 @@ if [ "$DO_GITHUB_RELEASE" = "1" ]; then
         [ "$IS_PRERELEASE" = "1" ] && CREATE_ARGS+=( --prerelease )
         [ "$RELEASE_DRAFT" = "1" ] && CREATE_ARGS+=( --draft )
         CREATE_ARGS+=( "${NOTES_ARGS[@]}" )
-        CREATE_ARGS+=( "${ALL_ASSETS[@]}" )
+        CREATE_ARGS+=( ${ALL_ASSETS[@]+"${ALL_ASSETS[@]}"} )
 
         if [ "$DRY_RUN" = "1" ]; then
             echo "  (dry-run) gh ${CREATE_ARGS[*]}"

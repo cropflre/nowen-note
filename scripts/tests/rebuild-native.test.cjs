@@ -74,3 +74,36 @@ test("removes the build-root native module that shadows the verified Release bin
   assert.ok(cleanupIndex > declarationIndex);
   assert.ok(cleanupIndex < reuseCheckIndex);
 });
+
+for (const arch of ["x64", "arm64"]) {
+  test(`prepares and validates the ${arch} vector extension without replacing a valid cached runtime`, t => {
+    const { prepareMacSqliteVec, verifyMacSqliteVec } = require("../lib/macos-sqlite-vec.cjs");
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "nowen-vec-test-"));
+    t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+    const name = `sqlite-vec-darwin-${arch}`;
+    fs.mkdirSync(path.join(root, "node_modules/sqlite-vec"), { recursive: true });
+    fs.writeFileSync(path.join(root, "node_modules/sqlite-vec/package.json"), JSON.stringify({ optionalDependencies: { [name]: "0.1.9" } }));
+    const writeBinary = (directory, valid) => {
+      const destination = path.join(directory, "node_modules", name);
+      fs.mkdirSync(destination, { recursive: true });
+      fs.writeFileSync(path.join(destination, "package.json"), JSON.stringify({ version: "0.1.9" }));
+      const header = Buffer.alloc(8);
+      header.writeUInt32LE(0xfeedfacf);
+      header.writeUInt32LE(valid ? arch === "x64" ? 0x01000007 : 0x0100000c : 0, 4);
+      fs.writeFileSync(path.join(destination, "vec0.dylib"), header);
+    };
+    writeBinary(root, false);
+    assert.throws(() => prepareMacSqliteVec(root, arch, (_command, _args, options) => {
+      writeBinary(options.cwd, false);
+      return { status: 0 };
+    }), /架构/);
+    assert.throws(() => verifyMacSqliteVec(root, arch), /架构/);
+    prepareMacSqliteVec(root, arch, (_command, args, options) => {
+      assert.ok(args.includes(`--cpu=${arch}`));
+      writeBinary(options.cwd, true);
+      return { status: 0 };
+    });
+    verifyMacSqliteVec(root, arch);
+    prepareMacSqliteVec(root, arch, () => assert.fail("must reuse matching binary"));
+  });
+}

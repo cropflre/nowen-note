@@ -53,7 +53,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: '24.22.1'
           cache: npm
           cache-dependency-path: tools/release-center/package-lock.json
       - run: npm ci
@@ -84,7 +84,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: '24.22.1'
           cache: npm
           cache-dependency-path: tools/release-center/package-lock.json
       - run: npm ci
@@ -98,7 +98,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
-        with: { node-version: '24', cache: npm }
+        with: { node-version: '24.22.1', cache: npm }
       - run: npm ci --ignore-scripts
       - run: node --test scripts/tests/release-cloud.test.mjs
       - uses: actions/setup-go@v5

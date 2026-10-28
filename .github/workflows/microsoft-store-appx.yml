@@ -31,7 +31,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '24.22.1'
       - name: Check Store-only JavaScript files
         run: |
           node --check electron/storeChannel.js
@@ -64,7 +64,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '24.22.1'
           cache: 'npm'
       - name: Validate Partner Center identity before heavy build
         shell: pwsh

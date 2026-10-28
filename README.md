@@ -24,7 +24,7 @@
 [![GitHub Release](https://img.shields.io/github/v/release/cropflre/nowen-note?display_name=tag&sort=semver)](https://github.com/cropflre/nowen-note/releases)
 [![Docker Pulls](https://img.shields.io/docker/pulls/cropflre/nowen-note?logo=docker&logoColor=white)](https://hub.docker.com/r/cropflre/nowen-note)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](./LICENSE)
-[![Node.js 20+](https://img.shields.io/badge/Node.js-20%2B-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
+[![Node.js 24.22.1+（24.x LTS）](https://img.shields.io/badge/Node.js-24.22.1%2B-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
 [![Docker](https://img.shields.io/badge/Docker-Compose%20v2-2496ED?logo=docker&logoColor=white)](./docker-compose.yml)
 
 </div>
@@ -101,7 +101,7 @@ Nowen Note 的 MCP Server 可连接 Claude Code、Cursor、VS Code 等客户端�
 - [MCP Server English guide](./docs/tutorials/mcp.en.md)
 - [nowen-mcp 包说明](./packages/nowen-mcp/README.md)
 
-目前可通过源码构建 `packages/nowen-mcp` 并使用 `bin/nowen-mcp.mjs` 作为客户端入口（Node.js 20+）；`dist/scoped-entry.js` 仅供启动器内部加载。标准接入以 stdio 为主；v1.5.2 另提供**需要明确开启、仅限本机回环地址且要求认证**的 Streamable HTTP 接入。请为不同客户端创建独立、最小权限的 Token，勿在配置中写入管理员密码。
+目前可通过源码构建 `packages/nowen-mcp` 并使用 `bin/nowen-mcp.mjs` 作为客户端入口（Node.js 24.22.1+（24.x LTS））；`dist/scoped-entry.js` 仅供启动器内部加载。标准接入以 stdio 为主；v1.5.2 另提供**需要明确开启、仅限本机回环地址且要求认证**的 Streamable HTTP 接入。请为不同客户端创建独立、最小权限的 Token，勿在配置中写入管理员密码。
 
 ## 更早版本
 
@@ -294,9 +294,11 @@ docker run -d \
 
 > 各平台实际发布的安装包以 [GitHub Releases](https://github.com/cropflre/nowen-note/releases) 为准。
 
+桌面端最低要求 macOS 12（Monterey）；macOS 11 用户不会收到该版本的自动更新。完整升级说明见 [Node 24 迁移说明](./docs/node24-upgrade.md)。
+
 ## 本地开发
 
-要求 Node.js 20+、npm、Git。Electron 和原生依赖构建还需要对应平台的编译工具链。
+要求 Node.js 24.22.1+（24.x LTS）、npm、Git。Electron 和原生依赖构建还需要对应平台的编译工具链。
 
 ```bash
 git clone https://github.com/cropflre/nowen-note.git
@@ -332,7 +334,7 @@ npm run cap:build
 npx cap open android
 ```
 
-> Capacitor 8 的 Android 发布工具链要求 Node.js 22+；日常 Web / Electron 开发仍可使用项目当前 Node.js 20+ 基线。
+> Web、Electron 和移动端构建统一使用 Node.js 24.22.1（24.x LTS）；运行 `nvm install && nvm use` 可切换到项目版本。
 
 iOS：
 
@@ -346,8 +348,8 @@ npm run cap:open:ios
 | 层 | 主要技术 |
 | --- | --- |
 | **前端** | React 19、TypeScript、Vite 5、Tailwind CSS、Tiptap 3、CodeMirror 6、Yjs、IndexedDB |
-| **后端** | Node.js 20、Hono 4、WebSocket、better-sqlite3、FTS5、sqlite-vec、sharp |
-| **桌面端** | Electron 33、electron-builder、electron-updater |
+| **后端** | Node.js 24 LTS、Hono 4、WebSocket、better-sqlite3、FTS5、sqlite-vec、sharp |
+| **桌面端** | Electron 43、electron-builder、electron-updater |
 | **移动端** | Capacitor 8（Android / iOS）、ArkTS + ArkWeb（HarmonyOS） |
 | **存储与备份** | SQLite、本地附件、S3 / Cloudflare R2 / MinIO、邮件与 WebDAV；PostgreSQL 处于适配验证阶段 |
 | **开放能力** | OpenAPI 3.0、TypeScript SDK、CLI、MCP Server、Webhook |

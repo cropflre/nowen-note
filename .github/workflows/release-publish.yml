@@ -25,7 +25,7 @@ jobs:
       - uses: actions/checkout@v4
         with: { persist-credentials: false }
       - uses: actions/setup-node@v4
-        with: { node-version: '22' }
+        with: { node-version: '24.22.1' }
       - name: Validate inputs and exact successful build before downloading
         id: channels
         env: &publish-inputs
@@ -60,7 +60,7 @@ jobs:
       - uses: actions/checkout@v4
         with: { persist-credentials: false }
       - uses: actions/setup-node@v4
-        with: { node-version: '22' }
+        with: { node-version: '24.22.1' }
       - uses: actions/download-artifact@v4
         with: &download
           github-token: ${{ github.token }}
@@ -90,7 +90,7 @@ jobs:
       - uses: actions/checkout@v4
         with: { persist-credentials: false }
       - uses: actions/setup-node@v4
-        with: { node-version: '22' }
+        with: { node-version: '24.22.1' }
       - uses: actions/download-artifact@v4
         with: *download
       - run: npm ci --ignore-scripts
@@ -108,7 +108,7 @@ jobs:
       - uses: actions/checkout@v4
         with: { persist-credentials: false }
       - uses: actions/setup-node@v4
-        with: { node-version: '22' }
+        with: { node-version: '24.22.1' }
       - uses: actions/download-artifact@v4
         with: *download
       - run: npm ci --ignore-scripts

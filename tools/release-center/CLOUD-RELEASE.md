@@ -48,7 +48,7 @@ NAS 目标自动包含 Docker：FPK 引用本次版本镜像；UPK 从同次构�
 
 Windows GitHub Direct Full/Lite 沿用现有不要求第三方签名的策略。Store AppX 仍为独立提交包，平台上架由 Partner Center 处理。
 
-iOS Runner 固定为 `macos-26`，使用 Node 22，并在依赖安装前检查 Xcode 26+，匹配 [Capacitor 8 工具链要求](https://capacitorjs.com/docs/updating/8-0)。
+iOS Runner 固定为 `macos-26`，使用 Node 24.22.1，并在依赖安装前检查 Xcode 26+，匹配 [Capacitor 8 工具链要求](https://capacitorjs.com/docs/updating/8-0)。
 
 ## 产物与恢复
 

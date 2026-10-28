@@ -1,0 +1,6 @@
+# Keep the existing glibc 2.31 packaging baseline while using the supported Node runtime.
+FROM node:24.22.1-bookworm AS node-runtime
+# GCC 12 supplies the C++20 headers required by Electron 43's V8.
+FROM gcc:12-bullseye
+COPY --from=node-runtime /usr/local/ /usr/local/
+WORKDIR /workspace

@@ -19,14 +19,20 @@ if ! command -v docker >/dev/null 2>&1; then
 fi
 
 cd "$ROOT"
-echo "[linux-native] rebuilding better-sqlite3 in node:20-bullseye for linux-$ARCH"
+IMAGE="nowen-note-linux-native:node24.22.1-bullseye"
+docker build -f scripts/Dockerfile.linux-native -t "$IMAGE" .
+echo "[linux-native] rebuilding better-sqlite3 with Node 24.22.1 on glibc 2.31 for linux-$ARCH"
+# GCC 12 cannot combine V8's deprecation and visibility attributes. Disable only
+# those annotations; static C++ runtimes keep the existing GLIBCXX baseline.
 docker run --rm \
   -e HOME=/tmp/nowen-home \
   -e npm_config_cache=/tmp/nowen-npm-cache \
+  -e CXXFLAGS=-UV8_DEPRECATION_WARNINGS \
+  -e 'LDFLAGS=-static-libstdc++ -static-libgcc' \
   -e NOWEN_LINUX_BASELINE_CONTAINER=1 \
   -v "$ROOT:/workspace" \
   -w /workspace \
-  node:20-bullseye \
+  "$IMAGE" \
   bash -lc "node scripts/rebuild-native.mjs --target-platform=linux --target-arch=$ARCH"
 
 if command -v sudo >/dev/null 2>&1; then

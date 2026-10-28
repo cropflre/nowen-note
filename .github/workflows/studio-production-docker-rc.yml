@@ -42,7 +42,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@v4
         with:
-          node-version: "22"
+          node-version: "24.22.1"
       - name: Syntax check for smoke runner
         run: |
           node --check scripts/studio-rc-runtime-smoke.mjs

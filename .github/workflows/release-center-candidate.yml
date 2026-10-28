@@ -63,7 +63,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@v4
         with:
-          node-version: "22"
+          node-version: "24.22.1"
           cache: npm
       - name: Validate exact checkout SHA and all version files
         shell: bash
@@ -106,7 +106,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@v4
         with:
-          node-version: "22"
+          node-version: "24.22.1"
           cache: npm
       - name: Verify exact source
         shell: bash

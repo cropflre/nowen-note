@@ -21,7 +21,7 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 LEGACY_SCRIPT="${SCRIPT_DIR}/release-legacy.sh"
 CI_ASSETS_SCRIPT="${SCRIPT_DIR}/release-ci-assets.mjs"
 GITHUB_REPO_SLUG="cropflre/nowen-note"
-ANDROID_NODE22_IMAGE="cimg/android:2025.10.1-node"
+ANDROID_NODE24_IMAGE="nowen-note-android:node24.22.1"
 
 [ -f "$LEGACY_SCRIPT" ] || { echo "[release-guard] missing $LEGACY_SCRIPT" >&2; exit 1; }
 
@@ -57,26 +57,26 @@ if [ "$(uname -s 2>/dev/null || true)" = "Linux" ] && [ -z "${NOWEN_LINUX_PORTAB
 fi
 
 if [ "$HELP_ONLY" = "0" ] && [ "$BUILD_ONLY" = "0" ]; then
-  HOST_NODE_MAJOR=0
+  HOST_NODE_SUPPORTED=0
   HOST_NODE_VERSION="missing"
   if command -v node >/dev/null 2>&1; then
     HOST_NODE_VERSION="$(node -p 'process.versions.node' 2>/dev/null || echo unknown)"
-    HOST_NODE_MAJOR="$(node -p 'Number(process.versions.node.split(".")[0])' 2>/dev/null || echo 0)"
+    HOST_NODE_SUPPORTED="$(node -p 'const [a,b,c]=process.versions.node.split(".").map(Number); Number(a===24 && (b>22 || (b===22 && c>=1)))' 2>/dev/null || echo 0)"
   fi
 
-  if [ "${HOST_NODE_MAJOR:-0}" -lt 22 ]; then
+  if [ "${HOST_NODE_SUPPORTED:-0}" != "1" ]; then
     if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
       if [ "$ANDROID_DOCKER_REQUESTED" = "0" ]; then ARGS+=("--android-docker"); fi
       if [ "$ANDROID_DOCKER_SYNC_REQUESTED" = "0" ]; then ARGS+=("--android-docker-sync"); fi
-      if [ "$ANDROID_DOCKER_IMAGE_EXPLICIT" = "0" ]; then ARGS+=("--android-docker-image" "$ANDROID_NODE22_IMAGE"); fi
-      echo "[release-guard] host Node ${HOST_NODE_VERSION} < 22; Android build/sync will use Docker (${ANDROID_NODE22_IMAGE})"
+      if [ "$ANDROID_DOCKER_IMAGE_EXPLICIT" = "0" ]; then ARGS+=("--android-docker-image" "$ANDROID_NODE24_IMAGE"); fi
+      echo "[release-guard] host Node ${HOST_NODE_VERSION} is outside the Node 24.22.1+ LTS baseline; Android build/sync will use Docker (${ANDROID_NODE24_IMAGE})"
     else
-      echo "[release-guard] host Node ${HOST_NODE_VERSION} < 22 and Docker is unavailable; Capacitor 8 Android targets require Node.js >= 22" >&2
+      echo "[release-guard] host Node ${HOST_NODE_VERSION} is unsupported and Docker is unavailable; use Node.js 24.22.1+ (24.x LTS)" >&2
     fi
   fi
 fi
 
-LEGACY_ARGS=("${ARGS[@]}")
+LEGACY_ARGS=(${ARGS[@]+"${ARGS[@]}"})
 if [ "$HELP_ONLY" = "0" ] && [ "$DRY_RUN" = "0" ] && [ "$BUILD_ONLY" = "0" ] && [ "$USER_REQUESTED_DRAFT" = "0" ]; then
   LEGACY_ARGS+=("--draft")
 fi
