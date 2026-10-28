@@ -40,6 +40,8 @@
 
 ## 既有失败
 
+本节记录初次升级的基线；这些失败已在文末的第二阶段本地回归中全部修复。
+
 以下失败在 React 18 的同一工作区已存在，本次未修改这些功能来使测试通过：
 
 - `LargeMarkdownSafeEditor.preview`、`MarkdownPreview.calloutTypes`、`MarkdownPreview.html`、`StatsCenter`、`markdownCodeBlockFormatting`：`react-i18next` mock 缺少 `initReactI18next`。
@@ -56,3 +58,37 @@
 - Release Center 浏览器测试生成的已有截图已恢复，新的测试截图留在临时目录。
 - Vite 仍报告既有大 chunk / Browserslist 数据提示。
 - 尚未执行 Android / iOS / HarmonyOS 真机验收、远程 CI 或发布。
+
+## 第二阶段：测试收尾（2026-10-28）
+
+起点为 `fc0b6eed382648e9593420e04f47811641ea7dda`，本节记录其上的测试收尾变更。上述初次升级的测试与环境限制保留为历史证据，以本节更新项为准。
+
+先定向重现全部 12 个失败文件，再逐项修复：
+
+- 6 个 i18n mock 改为保留真实模块导出，只覆盖组件所需的翻译 hook，避免丢失 `initReactI18next`。
+- 列表行高、桌面工具栏和只读编辑入口断言与当前代码对齐；四个可编辑入口均继续受权限、锁定和切换状态约束。
+- 文件组织用例使用当前目录选择按钮，并校验移动请求携带原目录前置条件；标签与描述组件使用独立 mock，其各自的回归另行通过。保留移动失败、只读文件、外部访问失败及迟到响应保护用例。
+- 上传断言兼容标准 `Headers`，同时检查 Bearer 授权和由浏览器设置 multipart Content-Type。
+- 唯一产品代码修改是授权过期时的登录按钮复用已有 `auth.loginButton` 翻译键；新增中英文显示回归。没有更改登录动作或同步流程。
+
+最终本地结果：
+
+| 检查 | 结果 |
+| --- | --- |
+| `npm --prefix frontend run test:run -- --maxWorkers=4 --minWorkers=1` | **723 个文件、4150 个用例全部通过**，退出码 0 |
+| `npm --prefix frontend run build` | TypeScript、Vite 和同步提示 UI 检查通过 |
+| 文件组织、移动同步设置、标签与描述定向回归 | 通过；全量检查包含新增的过期授权翻译用例 |
+| `git diff --check` | 通过 |
+
+全量测试仍输出 jsdom Canvas 等非阻塞环境提示，生产构建仍有既有 chunk 大小和 Browserslist 提示。
+
+已在线核实起点提交 `fc0b6eed` 触发的以下 6 项 Actions 均已完成且成功：
+
+- [Editor UX](https://github.com/cropflre/nowen-note/actions/runs/40664918100)
+- [Extension Ecosystem V2 RC1](https://github.com/cropflre/nowen-note/actions/runs/40664917969)
+- [Extension Platform V2.1](https://github.com/cropflre/nowen-note/actions/runs/40664917995)
+- [Voice Memo](https://github.com/cropflre/nowen-note/actions/runs/40664917963)
+- [Editor Agent P0](https://github.com/cropflre/nowen-note/actions/runs/40664917953)
+- [Encrypted Notes](https://github.com/cropflre/nowen-note/actions/runs/40664918060)
+
+这些 CI 结果仅覆盖起点提交，不覆盖本节修复，也不代表正式发布验收。仍需本轮修复对应的 CI、签名安装包与旧版覆盖升级验证、移动端真机和真实 NAS / 生产环境验收。

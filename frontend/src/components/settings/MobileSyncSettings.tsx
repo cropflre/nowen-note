@@ -69,7 +69,7 @@ export default function MobileSyncSettings() {
     <OfflineAvailability offline={diagnostics?.offline} />
     {settings?.authorizationState === "expired" && <div className="space-y-2 text-xs">
       <p>{t("offlineAvailability.authExpired")}</p>
-      <button type="button" className="rounded border px-3 py-2" onClick={() => { requestMobileAccountLogin(); window.location.reload(); }}>{t("auth.login")}</button>
+      <button type="button" className="rounded border px-3 py-2" onClick={() => { requestMobileAccountLogin(); window.location.reload(); }}>{t("auth.loginButton")}</button>
     </div>}
     {syncEnabled &&
     <section className="space-y-3 rounded-lg border border-app-border p-4">
