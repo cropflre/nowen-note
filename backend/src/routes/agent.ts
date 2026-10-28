@@ -1,9 +1,10 @@
+import { resolveUserChatSettings } from "../services/user-chat-settings.js";
 import { Hono } from "hono";
 import { z } from "zod";
 import { streamSSE } from "hono/streaming";
 import { AgentError, agentRuntime, runInput } from "../agent/runtime.js";
 import { agentModelCapabilities } from "../agent/model.js";
-import { getUserAISettings, isManualAIEnabled } from "../services/user-ai-settings.js";
+import { isManualAIEnabled } from "../services/user-ai-settings.js";
 import { bodyLimit } from "hono/body-limit";
 import { agentWorkflowRuntime } from "../agent/workflowRuntime.js";
 import { workflowInput } from "../agent/workflowTools.js";
@@ -23,7 +24,11 @@ app.onError((error, c) => {
   const code = error instanceof z.ZodError || error instanceof SyntaxError ? "INVALID_INPUT" : "AGENT_REQUEST_FAILED";
   return c.json({ code, error: code }, 400);
 });
-app.get("/capabilities", c => c.json({ enabled: process.env.NOWEN_AGENT_ENABLED !== "false" && isManualAIEnabled(c.req.header("X-User-Id")!), ...agentModelCapabilities(getUserAISettings(c.req.header("X-User-Id")!)), verification: "actual_run", formats: ["markdown", "tiptap-json"], maxContextChars: 48000 }));
+app.get("/capabilities", c => {
+  const userId = c.req.header("X-User-Id")!;
+  const enabled = process.env.NOWEN_AGENT_ENABLED !== "false" && isManualAIEnabled(userId);
+  return c.json({ enabled, ...(enabled ? agentModelCapabilities(resolveUserChatSettings(userId)) : { chat: false, toolCalling: false }), verification: "actual_run", formats: ["markdown", "tiptap-json"], maxContextChars: 48000 });
+});
 app.route("/library", p2Routes);
 const workspace = (value: string | undefined) => !value || value === "personal" ? null : value;
 app.use("/workflows/*", bodyLimit({ maxSize: 64000 }));

@@ -21,6 +21,7 @@ const USER_AI_SETTING_KEYS = new Set([
   ...GUARDED_USER_AI_KEYS,
   "ai_profiles_v1",
   "ai_active_profile_id",
+  "ai_active_shared_profile_id",
   "ai_manual_enabled",
 ]);
 

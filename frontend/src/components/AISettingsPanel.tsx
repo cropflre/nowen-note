@@ -25,6 +25,10 @@ import {
   type AIProfile,
   type AIProfileDraft,
   type AIProxyStatus,
+  getAIProfilesScope,
+  type AvailableAIProfiles,
+  type ManagedSharedAIProfile,
+  type AIProfileMember,
 } from "@/lib/aiProfiles";
 
 interface ProviderPreset {
@@ -62,6 +66,8 @@ function getCopy() {
   const language = (localStorage.getItem("i18nextLng") || navigator.language || "").toLowerCase();
   if (!language.startsWith("zh")) {
     return {
+      managementHint: "Manage shared profiles on the current server here. In desktop local mode, manage team profiles through the team server website.",
+      disabledMember: "Disabled", personal: "Personal profiles", shared: "Shared profiles", manageShared: "Manage shared profiles", publish: "Publish as shared profile", provided: "Provided by administrator", unavailable: "The selected shared profile is unavailable. Choose another profile.", sharedHint: "Shared chat credentials stay on the server. Vector search requires its own configuration.", enabled: "Allow shared use", members: "Members allowed to use this profile", noShared: "No shared profiles are available to you.", noMembers: "No members available", sharedTest: "Save & test shared profile", sharedDelete: "Delete this shared profile and revoke all access?", publishHint: "Published as an independent shared profile. Select members and save to grant access.", unsupported: "This server does not support shared AI profiles.",
       title: "AI service profiles",
       description: "Save multiple providers and switch them directly in AI Chat.",
       profiles: "Saved profiles",
@@ -104,6 +110,8 @@ function getCopy() {
     };
   }
   return {
+    managementHint: "此处管理当前服务器的共享配置。桌面本地模式下，团队配置请通过团队服务器网页管理。",
+    disabledMember: "已停用", personal: "个人配置", shared: "共享配置", manageShared: "管理共享配置", publish: "发布为共享配置", provided: "管理员提供", unavailable: "当前共享配置不可用，请重新选择模型。", sharedHint: "共享聊天凭据仅保留在服务器；向量检索仍需独立配置。", enabled: "允许共享使用", members: "允许使用的成员", noShared: "暂无可使用的共享配置。", noMembers: "暂无成员", sharedTest: "保存并测试共享配置", sharedDelete: "确定删除共享配置并撤销所有成员的使用权限吗？", publishHint: "已发布为独立共享配置，请选择成员并保存授权。", unsupported: "当前服务器不支持共享 AI 配置。",
     title: "AI 服务配置",
     description: "保存多个 AI 服务，并可在 AI 问答标题栏直接切换。",
     profiles: "已保存配置",
@@ -159,6 +167,13 @@ function profileToDraft(profile: AIProfile): AIProfileDraft {
 
 export default function AISettingsPanel() {
   const copy = useMemo(getCopy, []);
+  const [available, setAvailable] = useState<AvailableAIProfiles | null>(null);
+  const [manageShared, setManageShared] = useState(false);
+  const [managedProfiles, setManagedProfiles] = useState<ManagedSharedAIProfile[]>([]);
+  const [members, setMembers] = useState<AIProfileMember[]>([]);
+  const [memberIds, setMemberIds] = useState<string[]>([]);
+  const [sharedEnabled, setSharedEnabled] = useState(true);
+  const loadSeq = useRef(0);
   const [profiles, setProfiles] = useState<AIProfile[]>([]);
   const [activeProfileId, setActiveProfileId] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -182,27 +197,75 @@ export default function AISettingsPanel() {
   const nonChatKind = getNonChatModelKind(draft.model);
   const nonChatHint = nonChatKind === "embedding" ? copy.embeddingHint : nonChatKind === "rerank" ? copy.rerankHint : "";
 
-  const loadProfiles = useCallback(async (preferredId?: string) => {
+  const identity = useRef(getAIProfilesScope());
+  const preferredSelection = useRef<string | undefined>(undefined);
+  const readAvailable = useCallback(() => aiProfiles.available(), []);
+
+  const loadProfiles = useCallback(async (preferredId?: string, shared = manageShared) => {
+    preferredId ||= preferredSelection.current;
+    const seq = ++loadSeq.current;
+    discoverySeq.current++;
+    setModels([]); setModelError(""); setModelOpen(false); setLoadingModels(false);
+    const scope = getAIProfilesScope();
     setLoading(true);
     try {
-      const result = await aiProfiles.list();
-      setProfiles(result.profiles);
-      setActiveProfileId(result.activeProfileId);
-      const target = result.profiles.find((item) => item.id === preferredId)
-        || result.profiles.find((item) => item.id === result.activeProfileId)
-        || result.profiles[0];
-      if (target) {
-        setSelectedId(target.id);
-        setDraft(profileToDraft(target));
-      }
+      const result = await readAvailable();
+      const managed = shared && result.isAdmin ? await aiProfiles.shared.list() : null;
+      if (seq !== loadSeq.current || scope !== getAIProfilesScope()) return;
+      setAvailable(result);
+      if (!result.isAdmin) setManageShared(false);
+      if (managed) { setManagedProfiles(managed.profiles); setMembers(managed.members); }
+      const rows = managed ? managed.profiles : result.personalProfiles;
+      const activeId = result.active.scope === (managed ? "shared" : "personal") ? result.active.id : "";
+      setProfiles(rows);
+      setActiveProfileId(activeId);
+      const target = rows.find((item) => item.id === preferredId) || rows.find((item) => item.id === activeId) || rows[0];
+      preferredSelection.current = undefined;
+      setSelectedId(target?.id || null);
+      setDraft(target ? profileToDraft(target) : { ...EMPTY_DRAFT });
+      const sharedTarget = managed?.profiles.find((item) => item.id === target?.id);
+      setMemberIds(sharedTarget?.memberIds || []);
+      setSharedEnabled(sharedTarget?.enabled ?? true);
     } catch (error) {
-      setMessage({ type: "error", text: (error as Error)?.message || copy.loadFailed });
+      if (seq === loadSeq.current && scope === getAIProfilesScope()) setMessage({ type: "error", text: (error as Error)?.message || copy.loadFailed });
     } finally {
-      setLoading(false);
+      if (seq === loadSeq.current) setLoading(false);
     }
-  }, [copy.loadFailed]);
+  }, [copy.loadFailed, manageShared, readAvailable]);
 
-  useEffect(() => { void loadProfiles(); }, [loadProfiles]);
+  useEffect(() => { void loadProfiles(); return () => { loadSeq.current++; }; }, [loadProfiles]);
+  useEffect(() => {
+    const refresh = () => {
+      const scope = getAIProfilesScope();
+      void readAvailable().then((result) => {
+        if (scope !== getAIProfilesScope()) return;
+        setAvailable(result);
+        setActiveProfileId(result.active.scope === (manageShared ? "shared" : "personal") ? result.active.id : "");
+      }).catch((error: Error) => { if (scope === getAIProfilesScope()) setMessage({ type: "error", text: error.message }); });
+    };
+    const reset = () => {
+      if (identity.current === getAIProfilesScope()) return;
+      identity.current = getAIProfilesScope();
+      loadSeq.current++;
+      discoverySeq.current++;
+      setProxyStatus(null); setAvailable(null); setProfiles([]); setManagedProfiles([]); setMembers([]); setMemberIds([]); setDraft({ ...EMPTY_DRAFT }); setSelectedId(null); setActiveProfileId(""); setMessage(null);
+      void loadProfiles();
+    };
+    window.addEventListener("focus", refresh);
+    window.addEventListener("nowen:ai-profiles-changed", refresh);
+    window.addEventListener("nowen:token-changed", reset);
+    window.addEventListener("nowen:server-url-changed", reset);
+    window.addEventListener("nowen:mobile-local-mode-changed", reset);
+    window.addEventListener("storage", reset);
+    return () => {
+      window.removeEventListener("focus", refresh);
+      window.removeEventListener("nowen:ai-profiles-changed", refresh);
+      window.removeEventListener("nowen:token-changed", reset);
+      window.removeEventListener("nowen:server-url-changed", reset);
+      window.removeEventListener("nowen:mobile-local-mode-changed", reset);
+      window.removeEventListener("storage", reset);
+    };
+  }, [loadProfiles, manageShared, readAvailable]);
   useEffect(() => {
     let alive = true;
     void aiProfiles.proxyStatus?.().then((status) => {
@@ -216,6 +279,7 @@ export default function AISettingsPanel() {
 
   const discoverModels = useCallback(async (silent = false) => {
     const seq = ++discoverySeq.current;
+    if (manageShared) return;
     if (!draft.apiUrl.trim()) {
       setModels([]);
       setModelError("");
@@ -247,7 +311,7 @@ export default function AISettingsPanel() {
     } finally {
       if (seq === discoverySeq.current) setLoadingModels(false);
     }
-  }, [copy.noModels, draft, needsKey, selectedId, selectedProfile?.apiKeySet]);
+  }, [copy.noModels, draft, needsKey, selectedId, selectedProfile?.apiKeySet, manageShared]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => void discoverModels(true), 700);
@@ -257,6 +321,9 @@ export default function AISettingsPanel() {
   const selectProfile = (profile: AIProfile) => {
     setSelectedId(profile.id);
     setDraft(profileToDraft(profile));
+    const shared = managedProfiles.find((item) => item.id === profile.id);
+    setMemberIds(shared?.memberIds || []);
+    setSharedEnabled(shared?.enabled ?? true);
     setModels([]);
     setModelError("");
     setMessage(null);
@@ -265,6 +332,7 @@ export default function AISettingsPanel() {
 
   const startNew = () => {
     setSelectedId(null);
+    setMemberIds([]); setSharedEnabled(true);
     setDraft({ ...EMPTY_DRAFT, name: profiles.length ? `AI ${profiles.length + 1}` : "默认配置" });
     setModels([]);
     setModelError("");
@@ -298,12 +366,18 @@ export default function AISettingsPanel() {
 
   const persistDraft = useCallback(async (activateNew = true) => {
     if (!draft.name.trim()) throw new Error(copy.nameRequired);
+    if (manageShared) {
+      const payload = { ...draft, enabled: sharedEnabled, memberIds, revision: managedProfiles.find((item) => item.id === selectedId)?.revision };
+      const result = selectedId ? await aiProfiles.shared.update(selectedId, payload) : await aiProfiles.shared.create(payload);
+      return { ...result, activeProfileId };
+    }
     return selectedId
       ? aiProfiles.update(selectedId, draft)
       : aiProfiles.create(draft, activateNew);
-  }, [copy.nameRequired, draft, selectedId]);
+  }, [copy.nameRequired, draft, selectedId, manageShared, sharedEnabled, memberIds, managedProfiles, activeProfileId]);
 
   const saveProfile = async () => {
+    const operationScope = getAIProfilesScope();
     if (nonChatKind) {
       setMessage({ type: "error", text: nonChatHint });
       return;
@@ -312,10 +386,13 @@ export default function AISettingsPanel() {
     setMessage(null);
     try {
       const result = await persistDraft(false);
+      if (operationScope !== getAIProfilesScope()) return;
       await loadProfiles(result.profile.id);
+      if (operationScope !== getAIProfilesScope()) return;
       emitAIProfilesChanged(result.activeProfileId);
       setMessage({ type: "success", text: copy.saved });
     } catch (error) {
+      if (operationScope !== getAIProfilesScope()) return;
       setMessage({ type: "error", text: (error as Error)?.message || copy.loadFailed });
     } finally {
       setSaving(false);
@@ -323,6 +400,7 @@ export default function AISettingsPanel() {
   };
 
   const testConnection = async () => {
+    const operationScope = getAIProfilesScope();
     if (nonChatKind) {
       setMessage({ type: "error", text: nonChatHint });
       return;
@@ -334,22 +412,38 @@ export default function AISettingsPanel() {
     setTesting(true);
     setMessage(null);
     try {
+      if (manageShared) {
+        const saved = await persistDraft(false);
+        if (operationScope !== getAIProfilesScope()) return;
+        const tested = await aiProfiles.shared.test(saved.profile.id);
+        if (operationScope !== getAIProfilesScope()) return;
+        await loadProfiles(saved.profile.id);
+        if (operationScope !== getAIProfilesScope()) return;
+        emitAIProfilesChanged();
+        setMessage({ type: tested.success ? "success" : "error", text: tested.message || tested.error || copy.testSuccess });
+        return;
+      }
       // Never mutate the active profile on a failed connectivity test.
       const tested = await aiProfiles.testDraft(draft, selectedId || undefined);
+      if (operationScope !== getAIProfilesScope()) return;
       if (!tested.success) {
         setMessage({ type: "error", text: tested.error || tested.message || copy.loadFailed });
         return;
       }
       const saved = await persistDraft(true);
+      if (operationScope !== getAIProfilesScope()) return;
       let nextActiveId = saved.activeProfileId;
       if (saved.profile.id !== saved.activeProfileId) {
         const activated = await aiProfiles.activate(saved.profile.id);
         nextActiveId = activated.activeProfileId;
       }
+      if (operationScope !== getAIProfilesScope()) return;
       await loadProfiles(saved.profile.id);
+      if (operationScope !== getAIProfilesScope()) return;
       emitAIProfilesChanged(nextActiveId);
       setMessage({ type: "success", text: tested.message || copy.testSuccess });
     } catch (error) {
+      if (operationScope !== getAIProfilesScope()) return;
       setMessage({ type: "error", text: (error as Error)?.message || copy.loadFailed });
     } finally {
       setTesting(false);
@@ -357,15 +451,26 @@ export default function AISettingsPanel() {
   };
 
   const activateProfile = async () => {
+    const operationScope = getAIProfilesScope();
     if (!selectedId || selectedId === activeProfileId) return;
     setActivating(true);
     setMessage(null);
     try {
-      const result = await aiProfiles.activate(selectedId);
-      setActiveProfileId(result.activeProfileId);
-      emitAIProfilesChanged(result.activeProfileId);
+      if (manageShared) {
+        await aiProfiles.activateSelection({ scope: "shared", id: selectedId });
+        if (operationScope !== getAIProfilesScope()) return;
+        await loadProfiles(selectedId);
+        if (operationScope !== getAIProfilesScope()) return;
+        emitAIProfilesChanged();
+      } else {
+        const result = await aiProfiles.activate(selectedId);
+        if (operationScope !== getAIProfilesScope()) return;
+        setActiveProfileId(result.activeProfileId);
+        emitAIProfilesChanged(result.activeProfileId);
+      }
       setMessage({ type: "success", text: copy.activated });
     } catch (error) {
+      if (operationScope !== getAIProfilesScope()) return;
       setMessage({ type: "error", text: (error as Error)?.message || copy.loadFailed });
     } finally {
       setActivating(false);
@@ -373,22 +478,64 @@ export default function AISettingsPanel() {
   };
 
   const deleteProfile = async () => {
+    const operationScope = getAIProfilesScope();
     if (!selectedId) return;
-    if (profiles.length <= 1) {
+    if (!manageShared && profiles.length <= 1) {
       setMessage({ type: "error", text: copy.atLeastOne });
       return;
     }
-    if (!window.confirm(copy.deleteConfirm)) return;
+    if (!window.confirm(manageShared ? copy.sharedDelete : copy.deleteConfirm)) return;
     setSaving(true);
     try {
-      const result = await aiProfiles.remove(selectedId);
-      await loadProfiles(result.activeProfileId);
-      emitAIProfilesChanged(result.activeProfileId);
+      if (manageShared) {
+        const profile = managedProfiles.find((item) => item.id === selectedId)!;
+        await aiProfiles.shared.remove(profile.id, profile.revision);
+        if (operationScope !== getAIProfilesScope()) return;
+        await loadProfiles();
+        if (operationScope !== getAIProfilesScope()) return;
+        emitAIProfilesChanged();
+      } else {
+        const result = await aiProfiles.remove(selectedId);
+        if (operationScope !== getAIProfilesScope()) return;
+        await loadProfiles(result.activeProfileId);
+        if (operationScope !== getAIProfilesScope()) return;
+        emitAIProfilesChanged(result.activeProfileId);
+      }
     } catch (error) {
+      if (operationScope !== getAIProfilesScope()) return;
       setMessage({ type: "error", text: (error as Error)?.message || copy.loadFailed });
     } finally {
       setSaving(false);
     }
+  };
+
+  const activateShared = async (id: string) => {
+    const operationScope = getAIProfilesScope();
+    setActivating(true); setMessage(null);
+    try {
+      await aiProfiles.activateSelection({ scope: "shared", id });
+      if (operationScope !== getAIProfilesScope()) return;
+      const result = await readAvailable();
+      if (operationScope !== getAIProfilesScope()) return;
+      setAvailable(result);
+      setActiveProfileId(manageShared ? id : "");
+      emitAIProfilesChanged();
+    } catch (error) { if (operationScope !== getAIProfilesScope()) return; setMessage({ type: "error", text: (error as Error).message }); }
+    finally { setActivating(false); }
+  };
+
+  const publishProfile = async () => {
+    const operationScope = getAIProfilesScope();
+    if (!selectedId) return;
+    setSaving(true); setMessage(null);
+    try {
+      const result = await aiProfiles.shared.create({ sourceProfileId: selectedId, enabled: true, memberIds: [] });
+      if (operationScope !== getAIProfilesScope()) return;
+      preferredSelection.current = result.profile.id;
+      setManageShared(true);
+      setMessage({ type: "success", text: copy.publishHint });
+    } catch (error) { if (operationScope !== getAIProfilesScope()) return; setMessage({ type: "error", text: (error as Error).message }); }
+    finally { setSaving(false); }
   };
 
   if (loading) {
@@ -422,8 +569,27 @@ export default function AISettingsPanel() {
         </p>
       </div>
 
+      {available && (
+        <section aria-label={copy.shared} className="space-y-3 rounded-xl border border-zinc-200 p-4 dark:border-zinc-800">
+          <h4 className="text-sm font-semibold">{copy.shared}</h4>
+          <p className="text-xs text-zinc-500">{copy.sharedHint}</p>
+          {available.remoteError && <p role="alert" className="text-xs text-amber-600">{available.remoteError}</p>}
+          {available.unavailable && <p role="alert" className="text-xs text-amber-600">{copy.unavailable}</p>}
+          {!available.sharedSupported && <p className="text-xs text-zinc-500">{copy.unsupported}</p>}
+          {available.sharedSupported && !available.remoteError && !available.sharedProfiles.length && <p className="text-xs text-zinc-500">{copy.noShared}</p>}
+          {available.sharedProfiles.map((profile) => <div key={profile.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-zinc-50 px-3 py-2 dark:bg-zinc-800/40">
+            <div className="min-w-0 flex-1"><p className="flex min-w-0 items-center gap-2 text-sm font-medium"><span className="truncate">{profile.name}</span><span className="shrink-0 text-[10px] font-normal text-zinc-500">{copy.provided}</span></p><p className="break-all text-xs text-zinc-500">{profile.model} · {profile.provider}</p></div>
+            <button type="button" disabled={activating || (available.active.scope === "shared" && available.active.id === profile.id)} onClick={() => void activateShared(profile.id)} className="rounded-lg border border-emerald-500/30 px-3 py-1.5 text-xs text-emerald-600 disabled:opacity-50">{available.active.scope === "shared" && available.active.id === profile.id ? copy.active : copy.activate}</button>
+          </div>)}
+        </section>
+      )}
+      {available?.isAdmin && <div className="flex gap-2" role="group" aria-label={copy.profiles}>
+        <button type="button" aria-pressed={!manageShared} onClick={() => setManageShared(false)} className="rounded-lg border border-zinc-200 px-3 py-2 text-xs aria-pressed:bg-accent-primary/10 dark:border-zinc-700">{copy.personal}</button>
+        <button type="button" aria-pressed={manageShared} onClick={() => setManageShared(true)} className="rounded-lg border border-zinc-200 px-3 py-2 text-xs aria-pressed:bg-accent-primary/10 dark:border-zinc-700">{copy.manageShared}</button>
+      </div>}
+      {manageShared && <p className="text-xs leading-5 text-zinc-500">{copy.managementHint}</p>}
       <div className="grid gap-4 lg:grid-cols-[220px_minmax(0,1fr)]">
-        <aside className="rounded-xl border border-zinc-200 bg-zinc-50/70 p-2 dark:border-zinc-800 dark:bg-zinc-900/30">
+        <aside className="min-w-0 rounded-xl border border-zinc-200 bg-zinc-50/70 p-2 dark:border-zinc-800 dark:bg-zinc-900/30">
           <div className="mb-2 flex items-center justify-between px-1">
             <span className="text-xs font-semibold text-zinc-500 dark:text-zinc-400">{copy.profiles}</span>
             <button type="button" onClick={startNew} className="rounded-md p-1.5 text-zinc-500 hover:bg-white hover:text-accent-primary dark:hover:bg-zinc-800" title={copy.newProfile}>
@@ -462,7 +628,7 @@ export default function AISettingsPanel() {
           </div>
         </aside>
 
-        <section className="space-y-4 rounded-xl border border-zinc-200 p-4 dark:border-zinc-800">
+        <section className="min-w-0 space-y-4 rounded-xl border border-zinc-200 p-4 dark:border-zinc-800">
           <div className="grid gap-3 sm:grid-cols-2">
             <label className="space-y-1.5">
               <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400">{copy.profileName}</span>
@@ -527,7 +693,7 @@ export default function AISettingsPanel() {
           <div className="space-y-1.5">
             <div className="flex items-center justify-between gap-2">
               <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400">{copy.model}</span>
-              <button type="button" onClick={() => void discoverModels(false)} disabled={loadingModels || !draft.apiUrl} className="inline-flex items-center gap-1 text-[10px] text-accent-primary disabled:opacity-40">
+              <button type="button" onClick={() => void discoverModels(false)} disabled={manageShared || loadingModels || !draft.apiUrl} className="inline-flex items-center gap-1 text-[10px] text-accent-primary disabled:opacity-40">
                 {loadingModels ? <Loader2 size={11} className="animate-spin" /> : <RefreshCw size={11} />}
                 {copy.fetchModels}
               </button>
@@ -552,7 +718,7 @@ export default function AISettingsPanel() {
             <div className="min-h-4 text-[10px]">
               {loadingModels ? <span className="text-zinc-400">{copy.fetching}</span>
                 : modelError ? <span className="text-amber-600 dark:text-amber-400">{modelError}</span>
-                : <span className="text-zinc-400">{copy.autoModels}</span>}
+                : <span className="text-zinc-400">{manageShared ? copy.customModel : copy.autoModels}</span>}
             </div>
           </div>
 
@@ -571,6 +737,16 @@ export default function AISettingsPanel() {
             </div>
           )}
 
+          {manageShared && (
+            <fieldset className="space-y-3 rounded-lg border border-zinc-200 p-3 dark:border-zinc-700">
+              <legend className="px-1 text-xs font-medium">{copy.members}</legend>
+              <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={sharedEnabled} onChange={(event) => setSharedEnabled(event.target.checked)} />{copy.enabled}</label>
+              <div className="grid max-h-48 gap-2 overflow-auto sm:grid-cols-2">
+                {members.map((member) => <label key={member.id} className="flex min-w-0 items-center gap-2 text-xs"><input type="checkbox" checked={memberIds.includes(member.id)} disabled={!!member.isDisabled && !memberIds.includes(member.id)} onChange={(event) => setMemberIds((ids) => event.target.checked ? [...ids, member.id] : ids.filter((id) => id !== member.id))} /><span className="truncate">{member.displayName || member.username}{member.isDisabled ? ` · ${copy.disabledMember}` : ""}</span></label>)}
+                {!members.length && <p className="text-xs text-zinc-500">{copy.noMembers}</p>}
+              </div>
+            </fieldset>
+          )}
           <div className="flex flex-wrap items-center gap-2 border-t border-zinc-100 pt-4 dark:border-zinc-800">
             <button type="button" onClick={() => void saveProfile()} disabled={saving || testing} className="inline-flex items-center gap-1.5 rounded-lg bg-accent-primary px-4 py-2 text-xs font-medium text-white transition-colors hover:bg-accent-primary/90 disabled:opacity-50">
               {saving ? <Loader2 size={13} className="animate-spin" /> : <Save size={13} />}
@@ -578,13 +754,16 @@ export default function AISettingsPanel() {
             </button>
             <button type="button" onClick={() => void testConnection()} disabled={testing || saving || !draft.apiUrl} className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-200 px-4 py-2 text-xs font-medium text-zinc-700 hover:border-accent-primary/50 hover:text-accent-primary disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300">
               {testing ? <Loader2 size={13} className="animate-spin" /> : <Bot size={13} />}
-              {copy.test}
+              {manageShared ? copy.sharedTest : copy.test}
             </button>
-            {selectedId && selectedId !== activeProfileId && (
+            {selectedId && selectedId !== activeProfileId && (!manageShared || available?.sharedProfiles.some((item) => item.id === selectedId)) && (
               <button type="button" onClick={() => void activateProfile()} disabled={activating || testing} className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-500/30 px-4 py-2 text-xs font-medium text-emerald-600 hover:bg-emerald-500/5 disabled:opacity-50 dark:text-emerald-400">
                 {activating ? <Loader2 size={13} className="animate-spin" /> : <CheckCircle2 size={13} />}
                 {copy.activate}
               </button>
+            )}
+            {selectedId && !manageShared && available?.isAdmin && (
+              <button type="button" onClick={() => void publishProfile()} disabled={saving || testing} className="rounded-lg border border-zinc-200 px-3 py-2 text-xs text-accent-primary disabled:opacity-50 dark:border-zinc-700">{copy.publish}</button>
             )}
             {selectedId && (
               <button type="button" onClick={() => void deleteProfile()} disabled={saving || testing} className="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium text-red-500 hover:bg-red-500/5 disabled:opacity-50">

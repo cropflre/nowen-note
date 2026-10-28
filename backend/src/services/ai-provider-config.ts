@@ -50,8 +50,8 @@ export function buildAIHeaders(provider: string, apiKey: string, customHeaders?:
   return { ...headers, ...normalizeAIHeaders(customHeaders) };
 }
 
-export function hasAIAuth(settings: { ai_provider: string; ai_api_key: string; ai_custom_headers?: string }): boolean {
-  return ["ollama", "lmstudio"].includes(settings.ai_provider)
+export function hasAIAuth(settings: { ai_provider: string; ai_api_key: string; ai_custom_headers?: string; ai_remote_shared?: unknown }): boolean {
+  return !!settings.ai_remote_shared || ["ollama", "lmstudio"].includes(settings.ai_provider)
     || !!settings.ai_api_key
     || Object.values(normalizeAIHeaders(settings.ai_custom_headers)).some(Boolean);
 }

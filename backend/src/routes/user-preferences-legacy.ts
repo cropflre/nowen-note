@@ -206,6 +206,7 @@ function saveAIProfiles(userId: string, profiles: AIProfile[], activeProfileId: 
 }
 
 function syncEffectiveAISettings(userId: string, profile: AIProfile): void {
+  setUserAISettings(userId, [{ key: "ai_active_shared_profile_id", value: "" }]);
   setGuardedUserAISettings(userId, [
     { key: "ai_provider", value: profile.provider },
     { key: "ai_api_url", value: profile.apiUrl },
@@ -215,7 +216,7 @@ function syncEffectiveAISettings(userId: string, profile: AIProfile): void {
   ]);
 }
 
-function ensureAIProfiles(userId: string): { profiles: AIProfile[]; activeProfileId: string } {
+export function ensureAIProfiles(userId: string): { profiles: AIProfile[]; activeProfileId: string } {
   let profiles = parseStoredProfiles(userId);
   let activeProfileId = getUserAISetting(userId, AI_ACTIVE_PROFILE_KEY);
   if (profiles.length === 0) {
@@ -231,7 +232,7 @@ function ensureAIProfiles(userId: string): { profiles: AIProfile[]; activeProfil
   return { profiles, activeProfileId };
 }
 
-function publicAIProfile(profile: AIProfile) {
+export function publicAIProfile(profile: AIProfile) {
   return {
     ...profile,
     apiKey: profile.apiKey ? `****${profile.apiKey.slice(-4)}` : "",
@@ -361,6 +362,7 @@ app.post("/ai-profiles/discover-models", async (c) => {
   const stored = typeof body.profileId === "string"
     ? state.profiles.find((profile) => profile.id === body.profileId)
     : undefined;
+  if (body.profileId && !stored) return c.json({ error: "AI 配置不存在", code: "AI_PROFILE_NOT_FOUND", models: [] }, 404);
 
   let profile: AIProfile;
   try {

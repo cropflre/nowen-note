@@ -3,11 +3,14 @@ import { z } from "zod";
 import { aiOutboundFetch } from "../services/ai-outbound-fetch.js";
 import type { AISettings } from "../services/ai-client.js";
 import { buildAIHeaders, hasAIAuth } from "../services/ai-provider-config.js";
+import { resolveUserChatSettings } from "../services/user-chat-settings.js";
+import { requestRemoteSharedChat } from "../services/remote-shared-ai.js";
+import { redactSharedAIResponse } from "../services/shared-ai-response.js";
 
 const evidence = new Map<string, { toolCalling: boolean; streaming: boolean; checkedAt: number }>();
 const configurationKey = (settings: AISettings) => createHash("sha256").update(JSON.stringify(settings)).digest("hex");
 export function agentModelCapabilities(settings: AISettings) {
-  if (settings.ai_provider === "anthropic") return { chat: true, toolCalling: false, streaming: true, structuredOutput: "unverified", embedding: false, vision: "unverified", reasoning: "unverified", contextWindow: null };
+  if (settings.ai_provider === "anthropic" && !settings.ai_remote_shared) return { chat: true, toolCalling: false, streaming: true, structuredOutput: "unverified", embedding: false, vision: "unverified", reasoning: "unverified", contextWindow: null };
   const observed = evidence.get(configurationKey(settings));
   return { chat: true, toolCalling: observed && Date.now() - observed.checkedAt < 3600000 ? observed.toolCalling : "unverified", streaming: observed?.streaming ?? "unverified", structuredOutput: "unverified", embedding: "unverified", vision: "unverified", reasoning: "unverified", contextWindow: null };
 }
@@ -77,8 +80,9 @@ export async function readAgentResponse(response: Response, signal?: AbortSignal
 
 /** Separate from legacy text extraction: tool arguments are never interpreted as Markdown. */
 export async function callAgentModel(settings: AISettings, messages: AgentMessage[], tools: ToolDefinition[], signal: AbortSignal) {
+  if (settings.shared_ai_user_id) settings = resolveUserChatSettings(settings.shared_ai_user_id);
   if (!agentModelConfigured(settings)) throw Object.assign(new Error("AI_NOT_CONFIGURED"), { code: "AI_NOT_CONFIGURED", status: 400 });
-  if (settings.ai_provider === "anthropic") throw new Error("TOOL_CALLING_UNSUPPORTED");
+  if (settings.ai_provider === "anthropic" && !settings.ai_remote_shared) throw new Error("TOOL_CALLING_UNSUPPORTED");
   // DeepSeek rejects required tool_choice in thinking mode. Select by provider
   // or official endpoint, never by a guessed model-name capability.
   const host = new URL(settings.ai_api_url).hostname;
@@ -90,14 +94,18 @@ export async function callAgentModel(settings: AISettings, messages: AgentMessag
   const timer = setTimeout(() => deadline.abort(new DOMException("Model deadline exceeded", "TimeoutError")), 45_000);
   const requestSignal = deadline.signal;
   try {
-    const response = await aiOutboundFetch(`${settings.ai_api_url.replace(/\/+$/, "")}/chat/completions`, {
+    const body = { model: settings.ai_model, messages, tools, tool_choice: "required", stream: true, max_tokens: 4096, ...(bailian ? { enable_thinking: false } : deepseek ? { thinking: { type: "disabled" } } : {}) };
+    const rawResponse = settings.ai_remote_shared
+      ? await requestRemoteSharedChat(settings, { messages, tools, tool_choice: "required", stream: true, max_tokens: 4096 }, requestSignal)
+      : await aiOutboundFetch(`${settings.ai_api_url.replace(/\/+$/, "")}/chat/completions`, {
       method: "POST",
       headers: buildAIHeaders(settings.ai_provider, settings.ai_api_key, settings.ai_custom_headers),
-      body: JSON.stringify({ model: settings.ai_model, messages, tools, tool_choice: "required", stream: true, max_tokens: 4096, ...(bailian ? { enable_thinking: false } : deepseek ? { thinking: { type: "disabled" } } : {}) }),
+      body: JSON.stringify(body),
       signal: requestSignal,
       redirect: "error",
     });
-    if (!response.ok) { void response.body?.cancel().catch(() => undefined); throw new Error(response.status === 400 || response.status === 422 ? "TOOL_CALLING_UNSUPPORTED" : "MODEL_REQUEST_FAILED"); }
+    if (!rawResponse.ok) { void rawResponse.body?.cancel().catch(() => undefined); throw new Error(rawResponse.status === 400 || rawResponse.status === 422 ? "TOOL_CALLING_UNSUPPORTED" : "MODEL_REQUEST_FAILED"); }
+    const response = settings.shared_ai_user_id && !settings.ai_remote_shared ? await redactSharedAIResponse(rawResponse, settings) : rawResponse;
     const data = await readAgentResponse(response, requestSignal);
     const calls = z.array(callSchema).min(1).max(12).safeParse(data?.choices?.[0]?.message?.tool_calls);
     if (evidence.size >= 256) evidence.delete(evidence.keys().next().value!);

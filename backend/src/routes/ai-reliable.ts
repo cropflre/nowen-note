@@ -25,6 +25,8 @@ import {
   setUserAISettings,
 } from "../services/user-ai-settings";
 import { resolveEmbeddingConfig } from "../services/embedding-config";
+import { resolveUserChatSettings } from "../services/user-chat-settings";
+import { AppError } from "../lib/app-error";
 
 const app = new Hono();
 app.use("*", async (c, next) => {
@@ -463,14 +465,26 @@ function getIndexStatus(scope: Scope) {
 }
 
 function publicStatus(scope: Scope) {
-  const settings = getUserAISettings(scope.userId);
+  const personal = getUserAISettings(scope.userId);
+  const sharedId = getUserAISetting(scope.userId, "ai_active_shared_profile_id");
+  let settings = personal;
+  let configurationError: { code: string; error: string } | null = null;
+  if (isUserManualAIEnabled(scope.userId)) {
+    try { settings = resolveUserChatSettings(scope.userId); }
+    catch (error) {
+      if (!(error instanceof AppError)) throw error;
+      configurationError = { code: error.code, error: error.message };
+    }
+  }
   const embedding = resolveEmbeddingConfig(scope.userId);
   return {
     enabled: isUserManualAIEnabled(scope.userId),
-    provider: settings.ai_provider || null,
-    model: settings.ai_model || null,
-    apiHost: apiHost(settings.ai_api_url),
-    embeddingModel: settings.ai_embedding_model || null,
+    provider: configurationError ? null : settings.ai_provider || null,
+    model: configurationError ? null : settings.ai_model || null,
+    apiHost: sharedId ? null : apiHost(settings.ai_api_url),
+    source: sharedId ? "shared" : "personal",
+    configurationError,
+    embeddingModel: personal.ai_embedding_model || null,
     embedding: {
       source: embedding.source,
       profileId: embedding.profileId,
@@ -649,7 +663,7 @@ app.post("/ask", async (c) => {
   if (!isUserManualAIEnabled(userId)) {
     return c.json({ error: "AI 手动配置已关闭，请先在 AI 设置中开启", code: "AI_CONFIG_DISABLED" }, 409);
   }
-  const settings = getUserAISettings(userId);
+  const settings = resolveUserChatSettings(userId);
   if (!settings.ai_api_url) return c.json({ error: "未配置 AI 服务" }, 400);
   if (!hasAIAuth(settings)) {
     return c.json({ error: "未配置 API Key" }, 400);
@@ -880,7 +894,7 @@ app.post("/collaboration/compose", async (c) => {
     return c.json({ error: "Skill 不能为空且不能超过 64000 字" }, 400);
   }
   if (!isUserManualAIEnabled(scope.userId)) return c.json({ error: "请先在 AI 设置中启用 AI", code: "AI_CONFIG_DISABLED" }, 409);
-  const settings = getUserAISettings(scope.userId);
+  const settings = resolveUserChatSettings(scope.userId);
   if (!settings.ai_api_url || !hasAIAuth(settings)) {
     return c.json({ error: "请先配置 AI 服务", code: "AI_NOT_CONFIGURED" }, 400);
   }

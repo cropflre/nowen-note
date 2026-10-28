@@ -1,3 +1,4 @@
+import { resolveUserChatSettings } from "../services/user-chat-settings.js";
 import { randomBytes, randomUUID } from "node:crypto";
 import { z } from "zod";
 import { getDb } from "../db/schema.js";
@@ -13,7 +14,7 @@ import { fitContextBudget } from "../services/ai-context.js";
 import { retrieveAgentNotebookContext } from "../routes/ai-reliable.js";
 import { createTaskRecord } from "../routes/tasks.js";
 import { batchInputSchema, createComposerBatch, generateTaskPreview, previewInputSchema, validateComposerTasks, TaskComposerError } from "../services/task-composer.js";
-import { getUserAISettings, isManualAIEnabled } from "../services/user-ai-settings.js";
+import { isManualAIEnabled } from "../services/user-ai-settings.js";
 import { agentModelConfigured, callAgentModel, type AgentMessage } from "./model.js";
 import { AgentError, digest } from "./runtime.js";
 import { getAgentTemplate, p2Error, hash, type AgentTemplate } from "./templates.js";
@@ -167,7 +168,7 @@ export class AgentWorkflowRuntime {
     if (template) input = { ...template.config.input, templateId: template.id, templateRevision: template.revision };
     const grants = template ? grantedExtensions(userId, template.config.toolIds) : [];
     workflowScope(userId, input.notebookId, workspaceId, input.includeChildren);
-    const user = assertUser(userId), settings = getUserAISettings(userId);
+    const user = assertUser(userId), settings = resolveUserChatSettings(userId);
     if (!agentModelConfigured(settings)) throw new AgentError("AI_NOT_CONFIGURED", 400);
     if (getDb().prepare("SELECT 1 FROM agent_workflows WHERE userId=? AND status IN ('queued','running','waiting_approval','applying') UNION ALL SELECT 1 FROM agent_runs WHERE userId=? AND status IN ('queued','running','waiting_approval','applying')").get(userId, userId)) throw new AgentError("RUN_ALREADY_ACTIVE");
     const id = randomUUID(), now = new Date().toISOString();
@@ -209,7 +210,7 @@ export class AgentWorkflowRuntime {
     try {
       for (let round = 0; round < 8; round++) {
         signal.throwIfAborted(); this.check(id, userId);
-        const response = await callAgentModel(getUserAISettings(userId), messages, workflowTools, signal);
+        const response = await callAgentModel(resolveUserChatSettings(userId), messages, workflowTools, signal);
         signal.throwIfAborted(); messages.push({ role: "assistant", content: null, tool_calls: response.calls });
         for (const call of response.calls) {
           signal.throwIfAborted(); const { scope } = this.check(id, userId);

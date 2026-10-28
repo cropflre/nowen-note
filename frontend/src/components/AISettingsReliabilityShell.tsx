@@ -103,7 +103,7 @@ export default function AISettingsReliabilityShell() {
               )}
             </div>
             <p className="mt-1 text-xs leading-5 text-zinc-500 dark:text-zinc-400">
-              关闭后会清空运行时 AI 地址与密钥，并阻止配置切换重新写回；已保存的配置档案仍保留，重新开启时恢复当前配置。
+              关闭后停止个人和共享 AI 调用；已保存的配置与选择仍保留，重新开启时会重新检查共享授权。
             </p>
           </div>
           <button
@@ -155,15 +155,15 @@ export default function AISettingsReliabilityShell() {
           </div>
         </div>
 
-        {(saving || error) && (
+        {(saving || error || status?.configurationError) && (
           <div className={cn(
             "mt-3 flex items-center gap-2 rounded-xl border px-3 py-2 text-xs",
-            error
+            error || status?.configurationError
               ? "border-red-300 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-950/30 dark:text-red-300"
               : "border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-800 dark:bg-blue-950/30 dark:text-blue-300",
           )}>
             {saving ? <Loader2 size={14} className="animate-spin" /> : <AlertTriangle size={14} />}
-            {saving ? "正在安全切换配置状态…" : error}
+            {saving ? "正在安全切换配置状态…" : error || status?.configurationError?.error}
           </div>
         )}
       </section>

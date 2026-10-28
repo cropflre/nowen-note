@@ -2,8 +2,8 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const mocks = vi.hoisted(() => ({ list: vi.fn(), update: vi.fn(), discoverModels: vi.fn(), changed: vi.fn() }));
-vi.mock("@/lib/aiProfiles", () => ({ aiProfiles: mocks, emitAIProfilesChanged: mocks.changed }));
+const mocks = vi.hoisted(() => ({ list: vi.fn(), available: vi.fn(), update: vi.fn(), discoverModels: vi.fn(), changed: vi.fn() }));
+vi.mock("@/lib/aiProfiles", () => ({ aiProfiles: mocks, emitAIProfilesChanged: mocks.changed, getAIProfilesScope: () => "session-a" }));
 vi.mock("@/components/settings/PluginPromptPackSettingsSection", () => ({ default: () => null }));
 vi.mock("@/components/SpeechSettingsPanel", () => ({ default: () => null }));
 import AISettingsPanel from "../AISettingsPanel";
@@ -18,6 +18,7 @@ describe("AI gateway profile editing", () => {
     vi.clearAllMocks();
     localStorage.setItem("i18nextLng", "zh-CN");
     mocks.list.mockResolvedValue({ profiles: [profile], activeProfileId: profile.id });
+    mocks.available.mockImplementation(async () => { const result = await mocks.list(); return { personalProfiles: result.profiles, sharedProfiles: [], active: {scope: "personal", id: result.activeProfileId}, sharedSupported: false, isAdmin: false }; });
     mocks.update.mockResolvedValue({ profile, activeProfileId: profile.id });
     mocks.discoverModels.mockResolvedValue({ models: [{ id: "chat-test", name: "Chat" }] });
     host = document.createElement("div");

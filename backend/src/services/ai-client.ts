@@ -1,5 +1,8 @@
 import { buildAIHeaders, readAIResponse, redactAICredentials } from "./ai-provider-config";
 import { aiOutboundFetch } from "./ai-outbound-fetch.js";
+import { resolveUserChatSettings } from "./user-chat-settings";
+import { requestRemoteSharedChat } from "./remote-shared-ai";
+import { redactSharedAIResponse } from "./shared-ai-response";
 /**
  * AI Client 适配层
  *
@@ -10,6 +13,14 @@ import { aiOutboundFetch } from "./ai-outbound-fetch.js";
 // ===== 类型定义 =====
 
 export interface AISettings {
+  shared_ai_user_id?: string;
+  ai_remote_shared?: {
+    localUserId: string;
+    syncProfileId: string;
+    remoteUserId: string;
+    serverUrl: string;
+    sharedProfileId: string;
+  };
   ai_provider: string;
   ai_api_url: string;
   ai_api_key: string;
@@ -159,6 +170,12 @@ export function normalizeAiAssistantMessage(data: Record<string, unknown>): stri
 
 // ===== 核心函数 =====
 
+const responseSettings = new WeakMap<Response, AISettings>();
+function rememberResponse(response: Response, settings: AISettings): Response {
+  responseSettings.set(response, settings);
+  return response;
+}
+
 /** Shared request builder for chat, document processing and structured AI features. */
 export async function requestAIChat(
   settings: AISettings,
@@ -166,6 +183,16 @@ export async function requestAIChat(
   options: CallAIOptions = {},
   stream = false,
 ): Promise<Response> {
+  // Each concurrent response keeps its own provider and credential redaction context.
+  settings = settings.shared_ai_user_id ? resolveUserChatSettings(settings.shared_ai_user_id) : { ...settings };
+  if (settings.ai_remote_shared) {
+    const deadline = AbortSignal.timeout(options.timeout_ms ?? (stream ? 60000 : 30000));
+    return rememberResponse(await requestRemoteSharedChat(settings, { messages, stream,
+      ...(options.temperature !== undefined ? { temperature: options.temperature } : {}),
+      ...(options.max_tokens !== undefined ? { max_tokens: options.max_tokens } : {}),
+      ...(options.response_format ? { response_format: options.response_format } : {}),
+    }, options.signal ? AbortSignal.any([options.signal, deadline]) : deadline), settings);
+  }
   const anthropic = settings.ai_provider === "anthropic";
   const baseUrl = settings.ai_api_url.replace(/\/+$/, "");
   const body: Record<string, unknown> = {
@@ -192,7 +219,11 @@ export async function requestAIChat(
       // A redirect must not forward gateway credentials to another origin.
       redirect: "error",
     });
-    if (response.ok) return response;
+    if (response.ok) return rememberResponse(settings.shared_ai_user_id ? await redactSharedAIResponse(response, settings) : response, settings);
+    if (settings.shared_ai_user_id) {
+      void response.body?.cancel().catch(() => undefined);
+      return rememberResponse(new Response("共享模型服务请求失败，请联系管理员检查配置", { status: response.status }), settings);
+    }
     let detail = redactAICredentials(await response.text().catch(() => ""), settings.ai_api_key, settings.ai_custom_headers);
     if (response.status === 400) {
       try {
@@ -201,9 +232,10 @@ export async function requestAIChat(
         }
       } catch { /* 非 JSON 错误保留原始诊断信息。 */ }
     }
-    return new Response(sanitizeError(detail), { status: response.status, statusText: response.statusText });
+    return rememberResponse(new Response(sanitizeError(detail), { status: response.status, statusText: response.statusText }), settings);
   } catch (error) {
     if (error instanceof Error && (error.name === "AbortError" || error.name === "TimeoutError")) throw error;
+    if (settings.shared_ai_user_id) throw new Error("共享模型服务连接失败，请联系管理员检查配置");
     throw new Error(sanitizeError(redactAICredentials((error as Error)?.message || error, settings.ai_api_key, settings.ai_custom_headers)));
   }
 }
@@ -215,6 +247,7 @@ export async function callAIChat(
   options: CallAIOptions = {},
 ): Promise<string> {
   const res = await requestAIChat(settings, messages, options);
+  settings = responseSettings.get(res) || settings;
   if (!res.ok) throw new Error(`AI 服务错误 (${settings.ai_provider}): ${res.status} ${await res.text()}`);
   return normalizeAiAssistantMessage(await readAIResponse(res));
 }
@@ -226,6 +259,7 @@ export async function* callAIChatStream(
   options: CallAIOptions = {},
 ): AsyncGenerator<string, void, undefined> {
   const res = await requestAIChat(settings, messages, options, true);
+  settings = responseSettings.get(res) || settings;
   if (!res.ok) throw new Error(`AI 服务错误 (${settings.ai_provider}): ${res.status} ${await res.text()}`);
   const reader = res.body?.getReader();
   if (!reader) throw new Error("AI 服务未返回可读流");
@@ -241,7 +275,7 @@ export async function* callAIChatStream(
     if (json.type === "error" || json.error) {
       throw new Error(sanitizeError(redactAICredentials(json.error?.message || "AI 流式请求失败", settings.ai_api_key, settings.ai_custom_headers)));
     }
-    if (settings.ai_provider === "anthropic") {
+    if ((res.headers.get("X-Nowen-AI-Provider") || settings.ai_provider) === "anthropic") {
       if (json.type === "message_stop") return { done: true };
       if (json.type === "content_block_start" && json.content_block?.type === "text") return { text: json.content_block.text };
       return { text: json.type === "content_block_delta" && json.delta?.type === "text_delta" ? json.delta.text : "" };

@@ -1,10 +1,11 @@
+import { resolveUserChatSettings } from "../services/user-chat-settings.js";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { z } from "zod";
 import { getDb } from "../db/schema.js";
 import { hasPermission, resolveNotePermission } from "../middleware/acl.js";
 import { canViewNoteThroughFolderPasswords } from "../lib/knowledgeTreePasswordAccess.js";
 import { encryptedBlocksInContent } from "../lib/encryptedNotes.js";
-import { getUserAISettings, isManualAIEnabled } from "../services/user-ai-settings.js";
+import { isManualAIEnabled } from "../services/user-ai-settings.js";
 import { agentModelConfigured, callAgentModel, type AgentMessage } from "./model.js";
 import { applyProposal, proposalSchema, toolRegistry, type Format, type TextEdit } from "./tools.js";
 
@@ -92,7 +93,7 @@ export class AgentRuntime {
     const note = authorizeAgent(userId, input.noteId);
     if (note.version !== input.version || note.contentFormat !== input.format) throw new AgentError("VERSION_CONFLICT");
     if (encryptedBlocksInContent(input.content, input.format).length) throw new AgentError("PROTECTED_DOCUMENT", 403);
-    const settings = getUserAISettings(userId);
+    const settings = resolveUserChatSettings(userId);
     if (!agentModelConfigured(settings)) throw new AgentError("AI_NOT_CONFIGURED", 400);
     if (getDb().prepare("SELECT 1 FROM agent_runs WHERE userId=? AND status IN ('queued','running','waiting_approval','applying') UNION ALL SELECT 1 FROM agent_workflows WHERE userId=? AND status IN ('queued','running','waiting_approval','applying')").get(userId, userId)) throw new AgentError("RUN_ALREADY_ACTIVE");
     const id = randomUUID(), now = new Date().toISOString();
@@ -128,7 +129,7 @@ export class AgentRuntime {
     try {
       for (let round = 0; round < 8; round++) {
         signal.throwIfAborted(); session.authorize(); authorizeAgent(userId, input.noteId);
-        const result = await callAgentModel(getUserAISettings(userId), messages, toolRegistry, signal);
+        const result = await callAgentModel(resolveUserChatSettings(userId), messages, toolRegistry, signal);
         signal.throwIfAborted();
         if (result.usage !== null) usage += result.usage; else hasUsage = false;
         messages.push({ role: "assistant", content: null, tool_calls: result.calls });

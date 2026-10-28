@@ -1,3 +1,4 @@
+import { resolveUserChatSettings } from "../services/user-chat-settings";
 import { buildAIHeaders, hasAIAuth, maskAIHeaders, normalizeAIHeaders, readAIResponse } from "../services/ai-provider-config";
 ﻿import { aiOutboundFetch, getAIOutboundProxyStatus } from "../services/ai-outbound-fetch.js";
 import { Hono } from "hono";
@@ -17,7 +18,7 @@ import { getUserWorkspaceRole } from "../middleware/acl";
 import { getEmbeddingFailures, retryFailedEmbeddings } from "../services/embedding-index-diagnostics";
 import { callAIChat, callAIChatStream, requestAIChat, extractTextFromChatCompletion, sanitizeError, type AISettings } from "../services/ai-client";
 import { aiCustomPromptsRepository } from "../repositories";
-import { getUserAISettings, isManualAIEnabled, setGuardedUserAISettings } from "../services/user-ai-settings";
+import { getUserAISettings, isManualAIEnabled, setGuardedUserAISettings, setUserAISettings } from "../services/user-ai-settings";
 import { parseEmbeddingTimeoutSeconds } from "../services/embedding-timeout";
 import {
   discoverEmbeddingModels,
@@ -155,12 +156,12 @@ function resolveKnowledgeScope(
 
 
 function getAISettings(c: any): AISettings {
-  return getUserAISettings(c.req.header("X-User-Id")!);
+  return resolveUserChatSettings(c.req.header("X-User-Id")!);
 }
 
 // GET /api/ai/settings
 ai.get("/settings", (c) => {
-  const settings = getAISettings(c);
+  const settings = getUserAISettings(c.req.header("X-User-Id")!);
   // 不返回完整 API Key，只返回掩码
   return c.json({
     ...settings,
@@ -179,7 +180,7 @@ ai.put("/settings", async (c) => {
   const entries: Array<{ key: string; value: string }> = [];
   if (body.ai_custom_headers !== undefined) {
     try {
-      const current = normalizeAIHeaders(getAISettings(c).ai_custom_headers);
+      const current = normalizeAIHeaders(getUserAISettings(userId).ai_custom_headers);
       entries.push({ key: "ai_custom_headers", value: JSON.stringify(normalizeAIHeaders(body.ai_custom_headers, current)) });
     } catch (error) {
       return c.json({ error: (error as Error).message }, 400);
@@ -198,9 +199,12 @@ ai.put("/settings", async (c) => {
   if (body.ai_embedding_url !== undefined) entries.push({ key: "ai_embedding_url", value: body.ai_embedding_url.replace(/\/+$/, "") });
   if (body.ai_embedding_key !== undefined && !body.ai_embedding_key.includes("****")) entries.push({ key: "ai_embedding_key", value: body.ai_embedding_key });
   if (body.ai_embedding_model !== undefined) entries.push({ key: "ai_embedding_model", value: body.ai_embedding_model });
+  if (entries.some(entry => ["ai_provider", "ai_api_url", "ai_api_key", "ai_custom_headers", "ai_model"].includes(entry.key))) {
+    setUserAISettings(userId, [{ key: "ai_active_shared_profile_id", value: "" }]);
+  }
   setGuardedUserAISettings(userId, entries);
 
-  const settings = getAISettings(c);
+  const settings = getUserAISettings(c.req.header("X-User-Id")!);
   return c.json({
     ...settings,
     ai_custom_headers: JSON.stringify(maskAIHeaders(settings.ai_custom_headers)),
@@ -290,7 +294,7 @@ ai.post("/test", async (c) => {
 
 // ===== 获取模型列表 =====
 ai.get("/models", async (c) => {
-  const settings = getAISettings(c);
+  const settings = getUserAISettings(c.req.header("X-User-Id")!);
   if (!settings.ai_api_url) {
     return c.json({ models: [] });
   }
@@ -1317,7 +1321,8 @@ ai.post("/batch-format", async (c) => {
 //   - 工作区（workspaceId=<uuid>）：按 workspaceId 维度共享一个"知识库文档"笔记本，
 //     不限作者（与 stats 的"工作区不限 userId"语义一致），创建时 owner 记当前用户。
 ai.post("/import-to-knowledge", async (c) => {
-  const settings = getAISettings(c);
+  const settings = isManualAIEnabled(c.req.header("X-User-Id")!)
+    ? getAISettings(c) : getUserAISettings(c.req.header("X-User-Id")!);
   const scope = resolveScope(c);
   if ("error" in scope) return scope.error;
   const { userId, workspaceId } = scope;
