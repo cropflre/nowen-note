@@ -1,4 +1,7 @@
 import { getBaseUrl } from "@/lib/api";
+import { fetchWithAuthRefresh } from "@/lib/authSession";
+import { getOfflineQueueStorageKey } from "@/lib/offlineScope";
+import { isMobileLocalMode, MobileLocalModeRemoteRequestError } from "@/lib/mobileLocalMode";
 
 export interface AIProfile {
   id: string;
@@ -6,6 +9,7 @@ export interface AIProfile {
   provider: string;
   apiUrl: string;
   apiKey: string;
+  customHeaders?: Record<string, string>;
   apiKeySet: boolean;
   model: string;
   createdAt: string;
@@ -17,6 +21,7 @@ export interface AIProfileDraft {
   provider: string;
   apiUrl: string;
   apiKey: string;
+  customHeaders?: Record<string, string>;
   model: string;
 }
 
@@ -27,20 +32,62 @@ export interface AIModelOption {
 
 const BASE_PATH = "/user-preferences/ai-profiles";
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+export interface AIProfileSelection { scope: "personal" | "shared"; id: string }
+export interface SharedAIProfile {
+  id: string;
+  name: string;
+  provider: string;
+  model: string;
+  enabled: boolean;
+  revision?: number;
+  createdAt?: string;
+  updatedAt?: string;
+}
+export interface ManagedSharedAIProfile extends AIProfile {
+  enabled: boolean;
+  revision: number;
+  memberIds: string[];
+}
+export interface SharedAIProfileDraft extends AIProfileDraft {
+  enabled: boolean;
+  memberIds: string[];
+  revision?: number;
+}
+export interface AIProfileMember { id: string; username: string; displayName?: string | null; isDisabled?: boolean | number }
+export interface AvailableAIProfiles {
+  personalProfiles: AIProfile[];
+  sharedProfiles: SharedAIProfile[];
+  active: AIProfileSelection;
+  unavailable: boolean;
+  sharedSupported: boolean;
+  isAdmin: boolean;
+  aiEnabled: boolean;
+  remoteError?: string;
+}
+
+export function getAIProfilesScope(): string {
+  return `${getBaseUrl()}\n${getOfflineQueueStorageKey()}`;
+}
+
+async function request<T>(path: string, init?: RequestInit, basePath = BASE_PATH): Promise<T> {
+  if (isMobileLocalMode()) throw new MobileLocalModeRemoteRequestError(path);
+  const baseUrl = getBaseUrl();
+  const scope = getAIProfilesScope();
   const token = localStorage.getItem("nowen-token") || "";
   const headers = new Headers(init?.headers);
   headers.set("Content-Type", "application/json");
   if (token) headers.set("Authorization", `Bearer ${token}`);
 
-  const response = await fetch(`${getBaseUrl()}${BASE_PATH}${path}`, {
+  const response = await fetchWithAuthRefresh(`${baseUrl}${basePath}${path}`, {
     ...init,
     headers,
-  });
-  const body = await response.json().catch(() => ({}));
+  }, baseUrl);
+  const body = await response.json().catch(() => null);
+  if (scope !== getAIProfilesScope()) throw new Error("AI profile session changed");
   if (!response.ok) {
-    throw new Error(body?.error || `Request failed: ${response.status}`);
+    throw Object.assign(new Error(body?.error || `Request failed: ${response.status}`), { status: response.status, code: body?.code });
   }
+  if (!body || typeof body !== "object" || Array.isArray(body)) throw new Error("Invalid AI profile response");
   return body as T;
 }
 
@@ -51,13 +98,30 @@ export interface AIProxyStatus {
 }
 
 export const aiProfiles = {
-  proxyStatus: async (): Promise<AIProxyStatus> => {
-    const token = localStorage.getItem("nowen-token") || "";
-    const response = await fetch(`${getBaseUrl()}/ai/proxy-status`, {
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
-    });
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    return await response.json() as AIProxyStatus;
+  proxyStatus: () => request<AIProxyStatus>("/proxy-status", undefined, "/ai"),
+  available: async (): Promise<AvailableAIProfiles> => {
+    try {
+      const result = await request<AvailableAIProfiles>("/profiles/available", undefined, "/ai");
+      if (!Array.isArray(result.personalProfiles) || !Array.isArray(result.sharedProfiles) || !result.active || !["personal", "shared"].includes(result.active.scope)) throw new Error("Invalid AI profile directory");
+      return result;
+    } catch (error) {
+      if ((error as { status?: number }).status !== 404) throw error;
+      const personal = await aiProfiles.list();
+      return { personalProfiles: personal.profiles, sharedProfiles: [], active: { scope: "personal", id: personal.activeProfileId }, unavailable: false, sharedSupported: false, isAdmin: false, aiEnabled: true };
+    }
+  },
+  activateSelection: (active: AIProfileSelection) =>
+    request<{ active: AIProfileSelection }>("/profiles/active", { method: "PUT", body: JSON.stringify(active) }, "/ai"),
+  shared: {
+    list: () => request<{ profiles: ManagedSharedAIProfile[]; members: AIProfileMember[] }>("/shared-profiles", undefined, "/ai"),
+    create: (draft: SharedAIProfileDraft | { sourceProfileId: string; enabled: boolean; memberIds: string[] }) =>
+      request<{ profile: ManagedSharedAIProfile }>("/shared-profiles", { method: "POST", body: JSON.stringify(draft) }, "/ai"),
+    update: (id: string, draft: SharedAIProfileDraft) =>
+      request<{ profile: ManagedSharedAIProfile }>(`/shared-profiles/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify(draft) }, "/ai"),
+    remove: (id: string, revision: number) =>
+      request<{ success: true }>(`/shared-profiles/${encodeURIComponent(id)}`, { method: "DELETE", body: JSON.stringify({ revision }) }, "/ai"),
+    test: (id: string) =>
+      request<{ success: boolean; message?: string; error?: string }>(`/shared-profiles/${encodeURIComponent(id)}/test`, { method: "POST", body: "{}" }, "/ai"),
   },
   list: () => request<{ profiles: AIProfile[]; activeProfileId: string }>(""),
 

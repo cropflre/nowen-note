@@ -26,8 +26,8 @@ export function compactNotebookLabels(paths: Map<string, string>): Map<string, {
   }));
 }
 
-/** Includes the 4px gap; shared with the rendered row to prevent virtual-list drift. */
-export function noteListRowHeight(titleOnly: boolean, searchQuery?: string): number {
+/** Minimum row height including the 4px gap, scaled to the rendered text for virtualization. */
+export function noteListRowHeight(titleOnly: boolean, searchQuery?: string, textScale = 1): number {
   // Searching always retains its matched-field badge and two-line snippet.
-  return searchQuery ? 124 : titleOnly ? 40 : 80;
+  return Math.ceil((searchQuery ? 124 : titleOnly ? 40 : 80) * textScale);
 }

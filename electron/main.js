@@ -841,7 +841,7 @@ async function provisionLocalAdminAccount(username, password) {
 
 async function ensureLocalAccount() {
   localAuthBootstrapSucceeded = false;
-  if (currentMode !== "full") return null;
+  if (isLiteOnlyBuild()) return null;
   if (!backendPort) return null;
 
   const password = getLocalAccountSecret();
@@ -1951,6 +1951,9 @@ function registerAppIpc() {
       arch: process.arch,
       mode: currentMode,
       runtime: currentRuntime,
+      localRuntimeAvailable: !isLiteOnlyBuild(),
+      localMigrationComplete: readSettings().liteMigrationStatus === "complete",
+      localServerUrl: currentRuntime === "local" ? (getDevelopmentBackendUrl() || (backendPort ? `http://127.0.0.1:${backendPort}` : null)) : null,
       hideMenuBar: currentHideMenuBar,
     };
   });
@@ -2091,7 +2094,8 @@ function registerAppIpc() {
     // SEC-ELECTRON-01-B：高权限 IPC 来源校验（与既有敏感 IPC 一致）。
     const reject = assertMainWindowSender(event);
     if (reject) return reject;
-    const serverUrl = String(payload?.serverUrl || "").slice(0, 2048);
+    if (isLiteOnlyBuild()) return { ok: false, error: "请安装完整版客户端后下载到本机。" };
+    const serverUrl = String(payload?.serverUrl || "").trim().slice(0, 2048).replace(/\/+$/, "");
     const token = String(payload?.token || "").slice(0, 8192);
     if (!/^https?:\/\//i.test(serverUrl) || !token) {
       return { ok: false, error: "invalid-params" };
@@ -2119,7 +2123,11 @@ function registerAppIpc() {
       return { ok: false, error: "local-account-unavailable" };
     }
 
+    const previousSettings = readSettings();
     try {
+      if (previousSettings.liteMigrationStatus !== "complete") {
+        writeSettings({ liteMigrationStatus: "running", remoteUrl: serverUrl });
+      }
       const res = await fetch(
         `http://127.0.0.1:${backendPort}/api/sync/local/lite-migration`,
         {
@@ -2135,18 +2143,22 @@ function registerAppIpc() {
 
       // 只有迁移真正完成才写 settings ——
       // 提前写会让下次启动切到一个不完整的本地库，那正是最要避免的事故。
-      if (data?.stage === "complete") {
-        const next = writeSettings({ liteMigrationStatus: "complete" });
-        currentRuntime = shouldUseLocalRuntime(next) ? "local" : "remote";
-        console.log("[lite-migration] complete, runtime =", currentRuntime);
-      } else {
+      const completed = res.ok && data?.stage === "complete"
+        && typeof data.profileId === "string" && !!data.profileId
+        && typeof data.remoteUrl === "string" && data.remoteUrl.replace(/\/+$/, "") === serverUrl;
+      if (completed) {
+        const next = writeSettings({ liteMigrationStatus: "complete", runtime: "local", remoteUrl: serverUrl, activeSyncProfileId: data.profileId });
+        currentRuntime = "local";
+        console.log("[lite-migration] complete, runtime =", next.runtime);
+      } else if (previousSettings.liteMigrationStatus !== "complete") {
         // 记录中间状态供 UI 显示；非 complete 时 deriveRuntimeFields
         // 会继续强制 runtime=remote，用户照旧用 Lite。
         writeSettings({
-          liteMigrationStatus: data?.stage === "failed" ? "failed" : "running",
+          liteMigrationStatus: !res.ok || ["failed", "complete"].includes(data?.stage) ? "failed" : "running",
         });
       }
-      return { ok: res.ok, status: res.status, progress: data };
+      return { ok: res.ok && (data?.stage !== "complete" || completed), status: res.status, progress: data,
+        error: data?.stage === "complete" && !completed ? (data.error || "服务器来源未通过核验，原本地副本已保留") : undefined };
     } catch (e) {
       return { ok: false, error: e?.message || String(e) };
     }
@@ -2237,6 +2249,7 @@ ipcMain.handle("task:notify-permission", () => {
     // SEC-ELECTRON-01-B: 高权限 IPC 来源校验
     const reject = assertMainWindowSender(event);
     if (reject) return reject;
+    if (currentRuntime !== "local") return null;
     if (localAuthCache && !readSettings().localLoginHintDismissed) {
       writeSettings({ localLoginHintDismissed: true });
     }
@@ -2476,6 +2489,41 @@ ipcMain.handle("task:notify-permission", () => {
 // macOS 双击 .md 的 open-file 事件需要在 ready 之前监听
 setupMacOpenFile(() => mainWindow);
 
+async function initializeDesktopDataRuntime() {
+  if (currentRuntime === "remote") {
+    await waitForRemoteReady(currentRemoteUrl, 15000);
+  } else if (getDevelopmentBackendUrl()) {
+    await waitForRemoteReady(getDevelopmentBackendUrl(), 15000);
+  } else {
+    if (!backendPort) await startBackend();
+    try {
+      localAuthCache = await ensureLocalAccount();
+    } catch (e) {
+      console.warn("[Electron] ensureLocalAccount failed:", e?.message || e);
+      localAuthCache = null;
+    }
+  }
+}
+
+async function recoverCompletedLocalMigration() {
+  if (isLiteOnlyBuild() || !["running", "failed"].includes(readSettings().liteMigrationStatus)) return;
+  try {
+    if (!backendPort) await startBackend();
+    localAuthCache = await ensureLocalAccount();
+    if (!localAuthCache?.token) return;
+    const res = await fetch(`http://127.0.0.1:${backendPort}/api/sync/local/lite-migration`, {
+      headers: { Authorization: `Bearer ${localAuthCache.token}` },
+    });
+    const progress = await res.json();
+    if (res.ok && progress.stage === "complete" && progress.remoteUrl === currentRemoteUrl) {
+      writeSettings({ liteMigrationStatus: "complete", runtime: "local", activeSyncProfileId: progress.profileId });
+      currentRuntime = "local";
+    }
+  } catch (error) {
+    console.warn("[lite-migration] recovery deferred:", error?.code || "LOCAL_RECOVERY_UNAVAILABLE");
+  }
+}
+
 app.whenReady().then(async () => {
   const liteOnly = isLiteOnlyBuild();
 
@@ -2513,6 +2561,8 @@ app.whenReady().then(async () => {
       ? "local"
       : "remote";
   }
+  // A Lite package has no embedded backend, even if settings were copied from Full.
+  if (liteOnly) currentRuntime = "remote";
 
   // Lite-only 首启没有服务器地址：立刻弹 setup 窗口
   if (liteOnly && currentMode === "lite" && !currentRemoteUrl) {
@@ -2536,7 +2586,7 @@ app.whenReady().then(async () => {
   );
 
   createSplash(
-    currentMode === "lite"
+    currentRuntime === "remote"
       ? `正在连接 ${safeHost(currentRemoteUrl)}`
       : getDevelopmentBackendUrl()
         ? `正在连接开发服务 ${safeHost(getDevelopmentBackendUrl())}`
@@ -2548,22 +2598,8 @@ app.whenReady().then(async () => {
   registerDiscoveryIpc();
 
   try {
-    if (currentMode === "lite") {
-      // Lite：探测远端可达后直接建窗口；不启 backend、不建 DB
-      await waitForRemoteReady(currentRemoteUrl, 15000);
-    } else if (getDevelopmentBackendUrl()) {
-      // 开发模式：复用 npm run dev:backend 的数据库与登录会话，不再启动第二个 backend。
-      await waitForRemoteReady(getDevelopmentBackendUrl(), 15000);
-    } else {
-      await startBackend();
-      // Phase A: 后端就绪后立即准备本地零登录账号；失败不阻塞启动
-      try {
-        localAuthCache = await ensureLocalAccount();
-      } catch (e) {
-        console.warn("[Electron] ensureLocalAccount failed:", e?.message || e);
-        localAuthCache = null;
-      }
-    }
+    await recoverCompletedLocalMigration();
+    await initializeDesktopDataRuntime();
     createWindow();
   } catch (err) {
     console.error("[Electron] Startup failed:", err);

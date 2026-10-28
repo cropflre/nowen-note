@@ -8,5 +8,6 @@
   "exports": { ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" } },
   "files": ["dist", "README.md"],
   "scripts": { "build": "tsc", "test": "npm run build && node tests/generated-contract.test.mjs" },
-  "devDependencies": { "typescript": "^5.7.3" }
+  "devDependencies": { "typescript": "^5.7.3" },
+  "engines": { "node": ">=24.22.1 <25" }
 }

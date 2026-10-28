@@ -101,6 +101,7 @@ describe("Android 本地优先运行时与离线切换", () => {
     } });
   });
 
+
   it("已有登录凭据时冷启动能完成初始化并继续渲染（#798）", async () => {
     const token = `header.${btoa(JSON.stringify({ userId: "user-1" }))}.signature`;
     localStorage.setItem("nowen-token", token);
@@ -204,4 +205,14 @@ describe("Android 本地优先运行时与离线切换", () => {
     }));
     expect(localStorage.getItem("nowen-token")).toBe(token);
   });
+  it('expired credentials reopen the same bound native account without starting remote sync', async () => {
+    const token=`header.${btoa(JSON.stringify({userId:'expired-user',exp:1}))}.signature`;
+    localStorage.setItem('nowen-token',token);
+    await initializeMobileLocalFirstRuntime();
+    expect(mocks.openNativeDatabase).toHaveBeenCalledWith('https://notes.example.com\nexpired-user');
+    expect(mocks.setLocalRepository).toHaveBeenCalledWith(expect.anything());
+    expect(mocks.engine.start).not.toHaveBeenCalled();
+    expect(localStorage.getItem('nowen-token')).toBe(token);
+  });
+
 });

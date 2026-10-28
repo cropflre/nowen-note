@@ -1,0 +1,6 @@
+// Independent debug package; never installs over the user's production app.
+allprojects {
+    afterEvaluate { p ->
+        if (p.name == 'app') p.android.defaultConfig.applicationId = 'com.nowen.note.offlineacceptance'
+    }
+}

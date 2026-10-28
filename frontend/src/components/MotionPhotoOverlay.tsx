@@ -101,7 +101,7 @@ export function MotionPhotoOverlay({ source, enabled = true }: { source: string;
 }
 
 /** 分享页的只读 HTML 保留原渲染器，照片上的交互通过 Portal 复用。 */
-export function SharedPhotoMotionBridge({ rootRef, revision }: { rootRef: RefObject<HTMLDivElement>; revision: string }) {
+export function SharedPhotoMotionBridge({ rootRef, revision }: { rootRef: RefObject<HTMLDivElement | null>; revision: string }) {
   const accessRevision = useSyncExternalStore(subscribeAttachmentAccess, getAttachmentAccessSnapshot, getAttachmentAccessSnapshot);
   const [photos, setPhotos] = useState<Array<{ host: HTMLSpanElement; source: string; image: HTMLImageElement }>>([]);
   useEffect(() => {

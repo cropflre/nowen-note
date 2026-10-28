@@ -13,6 +13,7 @@ const win = {
 
 module.exports = {
   ...base,
+  artifactBuildCompleted: require("../scripts/lib/macos-update-runtime.cjs"),
   publish: (base.publish || []).map((provider) => ({
     ...provider,
     channel: "latest-lite",

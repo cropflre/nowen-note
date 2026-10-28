@@ -1,0 +1,207 @@
+{
+  "date": "2026-10-24",
+  "baseline": {
+    "sourceSha": "71ec568dd71d4b74ad5916cd68286237a8d677c7",
+    "image": "sha256:1a6ab3f5345eb6dbe04a1349529caabdb0ab09293a09590fad07b2246bfa4b54",
+    "runtime": {
+      "node": "v22.23.4",
+      "platform": "linux",
+      "arch": "x64",
+      "abi": "127"
+    },
+    "startedAt": "2026-10-24T03:25:22.029Z",
+    "steps": [
+      {
+        "name": "extract",
+        "status": "passed",
+        "startedAt": "2026-10-24T03:25:22.034Z",
+        "exitCode": 0,
+        "finishedAt": "2026-10-24T03:25:22.109Z",
+        "logSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "backend-install",
+        "status": "passed",
+        "startedAt": "2026-10-24T03:25:22.110Z",
+        "exitCode": 0,
+        "finishedAt": "2026-10-24T03:26:20.685Z",
+        "logSha256": "64eee127b8f4285d6f3c17d45314e245b1e6b8c109c02d555cd7909cf32020c9"
+      },
+      {
+        "name": "frontend-install",
+        "status": "passed",
+        "startedAt": "2026-10-24T03:26:20.686Z",
+        "exitCode": 0,
+        "finishedAt": "2026-10-24T03:28:56.981Z",
+        "logSha256": "239eb1bbd2be92de57967316c80fca7f81d2c085f68815de674fbb064387cbb8"
+      },
+      {
+        "name": "backend-types",
+        "status": "passed",
+        "startedAt": "2026-10-24T03:28:56.982Z",
+        "exitCode": 0,
+        "finishedAt": "2026-10-24T03:29:14.508Z",
+        "logSha256": "f56775d2e9466484dc373db666cc3dfa42df9cebad76d0f3e8ac7ba0b761fcdd"
+      },
+      {
+        "name": "backend-build",
+        "status": "passed",
+        "startedAt": "2026-10-24T03:29:14.509Z",
+        "exitCode": 0,
+        "finishedAt": "2026-10-24T03:29:15.619Z",
+        "logSha256": "a1f160d99388e0b551feb2010d86269fcedfb45c1d8a551ee28b06975019165d"
+      },
+      {
+        "name": "backend-tests",
+        "status": "passed",
+        "startedAt": "2026-10-24T03:29:15.620Z",
+        "exitCode": 0,
+        "finishedAt": "2026-10-24T03:29:24.147Z",
+        "logSha256": "8aa1038e911c937801907af895e72d80c4b0925144b285a2b4f9b8f658d6ba41"
+      },
+      {
+        "name": "sync-tests",
+        "status": "passed",
+        "startedAt": "2026-10-24T03:29:24.147Z",
+        "exitCode": 0,
+        "finishedAt": "2026-10-24T03:29:39.588Z",
+        "logSha256": "dc9e5ade1fb4a49f29de60be20ef549ea348d403768593b126eb3bb413b11ca1"
+      },
+      {
+        "name": "dcc",
+        "status": "passed",
+        "startedAt": "2026-10-24T03:29:39.588Z",
+        "exitCode": 0,
+        "finishedAt": "2026-10-24T03:29:39.856Z",
+        "logSha256": "788c9ba77e469866e8d6e6c741ee743ebb4b29085587be44414539fb62784937"
+      },
+      {
+        "name": "frontend-tests",
+        "status": "passed",
+        "startedAt": "2026-10-24T03:29:39.856Z",
+        "exitCode": 0,
+        "finishedAt": "2026-10-24T03:29:44.028Z",
+        "logSha256": "55f473d6232ee6ecfdc1d8b95a59b81f71ede782e475bcd9a10a9ef97af386e4"
+      },
+      {
+        "name": "frontend-build",
+        "status": "passed",
+        "startedAt": "2026-10-24T03:29:44.029Z",
+        "exitCode": 0,
+        "finishedAt": "2026-10-24T03:31:45.357Z",
+        "logSha256": "9aa512cb5b85470d4e0f8afe9842c9a35a3ff6f750a09292defba095e0729180"
+      }
+    ],
+    "browserStatus": "not_run_cross_arch_base",
+    "status": "passed",
+    "finishedAt": "2026-10-24T03:31:45.358Z",
+    "backend": {
+      "tests": 90,
+      "pass": 89,
+      "fail": 0,
+      "skipped": 1
+    },
+    "sync": {
+      "tests": 77,
+      "pass": 77,
+      "fail": 0,
+      "skipped": 0
+    }
+  },
+  "configurationFix": {
+    "sourceSha": "7ed2764947ac3bfb0d1948d53ca7103c4da3d95d",
+    "image": "sha256:dfb4cefa4c6b42b915acb26deb46b57e4fd7df6955601b7d815195c988ab60eb",
+    "runtime": {
+      "node": "v22.23.4",
+      "platform": "linux",
+      "arch": "x64",
+      "abi": "127"
+    },
+    "startedAt": "2026-10-24T03:34:32.198Z",
+    "steps": [
+      {
+        "name": "extract",
+        "status": "passed",
+        "startedAt": "2026-10-24T03:34:32.203Z",
+        "exitCode": 0,
+        "finishedAt": "2026-10-24T03:34:32.443Z",
+        "logSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "name": "backend-types",
+        "status": "passed",
+        "startedAt": "2026-10-24T03:34:32.444Z",
+        "exitCode": 0,
+        "finishedAt": "2026-10-24T03:34:49.920Z",
+        "logSha256": "f56775d2e9466484dc373db666cc3dfa42df9cebad76d0f3e8ac7ba0b761fcdd"
+      },
+      {
+        "name": "backend-build",
+        "status": "passed",
+        "startedAt": "2026-10-24T03:34:49.920Z",
+        "exitCode": 0,
+        "finishedAt": "2026-10-24T03:34:51.009Z",
+        "logSha256": "dd970bea55862abf6402376c74941e8790605a510eb1a91ca93f33f943a9fb40"
+      },
+      {
+        "name": "backend-tests",
+        "status": "passed",
+        "startedAt": "2026-10-24T03:34:51.009Z",
+        "exitCode": 0,
+        "finishedAt": "2026-10-24T03:34:57.934Z",
+        "logSha256": "fbcdf11ee7405b248f57e82b871e24a97ad5288383d0b2b92b31f28711ff973f"
+      },
+      {
+        "name": "sync-tests",
+        "status": "passed",
+        "startedAt": "2026-10-24T03:34:57.935Z",
+        "exitCode": 0,
+        "finishedAt": "2026-10-24T03:35:13.109Z",
+        "logSha256": "6b65d2eb73a3c3c32a48230002c52880e17a61e9cc0c9268d515e8b65c1d87f6"
+      },
+      {
+        "name": "dcc",
+        "status": "passed",
+        "startedAt": "2026-10-24T03:35:13.110Z",
+        "exitCode": 0,
+        "finishedAt": "2026-10-24T03:35:13.356Z",
+        "logSha256": "788c9ba77e469866e8d6e6c741ee743ebb4b29085587be44414539fb62784937"
+      }
+    ],
+    "browserStatus": "not_run_cross_arch_base",
+    "status": "passed",
+    "finishedAt": "2026-10-24T03:35:13.356Z",
+    "backend": {
+      "tests": 92,
+      "pass": 91,
+      "fail": 0,
+      "skipped": 1
+    },
+    "sync": {
+      "tests": 77,
+      "pass": 77,
+      "fail": 0,
+      "skipped": 0
+    }
+  },
+  "frontendUnchangedBetweenVerifiedCommits": true,
+  "nodeArchive": {
+    "name": "node-v22.23.4-linux-x64.tar.xz",
+    "sha256": "1805bcd35e6815559bd2eb97db438d3fdb0eb3a5e6a977b7c1badca76337e9ce",
+    "checksumSource": "https://nodejs.org/dist/v22.23.4/SHASUMS256.txt"
+  },
+  "baseImage": {
+    "id": "sha256:1a6ab3f5345eb6dbe04a1349529caabdb0ab09293a09590fad07b2246bfa4b54",
+    "distribution": "Debian 13",
+    "imageArchitecture": "arm64"
+  },
+  "execution": "Linux x64 Node 22 emulated on Docker Desktop; x64 C/C++ runtime added in the disposable container",
+  "temporaryEvidenceDirectory": "/tmp/nowen-agent-p2-linux-6ptvqwdf",
+  "limits": [
+    "No GitHub Actions run was dispatched.",
+    "No Linux browser or PostgreSQL job was run in this audit.",
+    "The frontend 53 tests and build passed on baseline; frontend sources are unchanged in the configuration fix.",
+    "No real model or third-party MCP credentials were supplied.",
+    "Windows/Android physical devices and packaged application main processes remain unverified."
+  ]
+}

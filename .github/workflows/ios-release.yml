@@ -1,36 +1,31 @@
-# iOS 构建 + 上传 TestFlight
-#
-# Tag 发版时把 Git Tag 映射为 iOS Marketing Version，并使用 GITHUB_RUN_NUMBER
-# 作为递增 Build Number，确保 App Store Connect/TestFlight 可以按版本精确追踪。
+# iOS build/sign/export only. TestFlight uploads use the verified release-publish.yml path.
 
-name: iOS Build & TestFlight
+name: iOS Build (no upload)
 
 on:
-  push:
-    tags:
-      - "v*.*.*-ios"
-      - "v*.*.*"
+  workflow_call:
+    inputs:
+      commit_sha: { required: true, type: string }
+      version: { required: true, type: string }
+      artifact_name: { required: true, type: string }
+    secrets:
+      IOS_CERTIFICATE_BASE64: { required: true }
+      IOS_CERTIFICATE_PASSWORD: { required: true }
+      IOS_PROVISIONING_PROFILE_BASE64: { required: true }
+      IOS_KEYCHAIN_PASSWORD: { required: true }
   workflow_dispatch:
     inputs:
-      upload:
-        description: "上传到 TestFlight（true/false）"
-        required: false
-        default: "false"
-        type: choice
-        options:
-          - "false"
-          - "true"
       version:
         description: "iOS 版本号（普通分支手动运行时可填，如 1.4.11；Tag ref 会自动解析）"
         required: false
         type: string
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   ios:
-    runs-on: macos-14
+    runs-on: macos-26
     timeout-minutes: 90
 
     env:
@@ -41,6 +36,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.commit_sha || github.sha }}
+          persist-credentials: false
 
       - name: Resolve iOS version
         shell: bash
@@ -73,9 +71,18 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "24.22.1"
           cache: "npm"
 
+      - name: Prepare unified release source
+        if: inputs.commit_sha != ''
+        env:
+          NOWEN_OFFICIAL_REGISTRY_TRUST_ROOTS_JSON: ${{ vars.NOWEN_OFFICIAL_REGISTRY_TRUST_ROOTS_JSON }}
+        run: node scripts/release-cloud-ci.mjs prepare
+      - name: Verify Capacitor 8 Xcode baseline
+        run: |
+          xcodebuild -version
+          node -e "const cp=require('node:child_process');const major=Number(cp.execFileSync('xcodebuild',['-version'],{encoding:'utf8'}).match(/Xcode (\d+)/)?.[1]);if(!(major>=26))process.exit(1)"
       - name: Install root deps
         run: npm ci
 
@@ -200,28 +207,10 @@ jobs:
       - name: Upload IPA artifact
         uses: actions/upload-artifact@v4
         with:
-          name: nowen-note-ios
+          name: ${{ inputs.artifact_name || 'nowen-note-ios' }}
           path: ${{ runner.temp }}/ipa/*.ipa
           if-no-files-found: error
           retention-days: 14
-
-      - name: Upload to TestFlight
-        if: github.event_name == 'push' || github.event.inputs.upload == 'true'
-        env:
-          ISSUER_ID: ${{ secrets.APPSTORE_ISSUER_ID }}
-          API_KEY_ID: ${{ secrets.APPSTORE_API_KEY_ID }}
-          API_PRIVATE_KEY: ${{ secrets.APPSTORE_API_PRIVATE_KEY }}
-        run: |
-          set -euo pipefail
-          mkdir -p ~/.appstoreconnect/private_keys
-          echo "$API_PRIVATE_KEY" > ~/.appstoreconnect/private_keys/AuthKey_${API_KEY_ID}.p8
-
-          IPA=$(ls "$RUNNER_TEMP"/ipa/*.ipa | head -n 1)
-          xcrun altool --upload-app \
-            --type ios \
-            --file "$IPA" \
-            --apiKey "$API_KEY_ID" \
-            --apiIssuer "$ISSUER_ID"
 
       - name: Summary
         if: always()

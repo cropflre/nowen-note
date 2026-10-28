@@ -56,6 +56,69 @@ const test = base.extend<{ server: string }>({
   },
 });
 
+test("Markdown uploaded image suffix survives save/reopen and source copy opens anonymously", async ({ page, server }) => {
+  const mediaRequests: string[] = [];
+  page.on("response", response => { if (/\/attachments\//.test(response.url())) mediaRequests.push(`${response.status()} ${response.url().split("?")[0]}`); });
+  page.on("requestfailed", request => { if (/\/attachments\//.test(request.url())) mediaRequests.push(`${request.failure()?.errorText} ${request.url().split("?")[0]}`); });
+  const password = "image-url-browser-test-password";
+  const registration = await page.request.post(`${server}/api/auth/register`, { data: { username: "markdown_image_url_user", password } });
+  expect(registration.ok()).toBe(true);
+  const account = await registration.json();
+  const headers = { Authorization: `Bearer ${account.token}` };
+  const notebooks = await (await page.request.get(`${server}/api/notebooks`, { headers })).json();
+  const created = await page.request.post(`${server}/api/notes`, { headers, data: {
+    notebookId: notebooks[0].id, title: "图片后缀测试", contentFormat: "markdown", content: "# 图片后缀测试\n\n",
+  } });
+  expect(created.status()).toBe(201);
+  const note = await created.json();
+  await page.addInitScript(version => { localStorage.setItem("i18nextLng", "zh-CN"); localStorage.setItem("nowen-seen-version", version); }, version);
+  await page.goto(server);
+  await page.getByPlaceholder("admin", { exact: true }).fill("markdown_image_url_user");
+  await page.locator("input[type=password]").fill(password);
+  await page.locator("button[type=submit]").click();
+  await expect(page.getByPlaceholder("admin", { exact: true })).not.toBeVisible({ timeout: 20000 });
+  await page.goto(`${server}/notes/${note.id}`);
+  const editor = page.locator(".cm-content[contenteditable=true]").filter({ visible: true });
+  await expect(editor).toBeVisible();
+  await editor.click();
+  await page.keyboard.press("ControlOrMeta+End");
+  const chooser = page.waitForEvent("filechooser");
+  await page.getByTitle("插入图片", { exact: true }).filter({ visible: true }).click();
+  await (await chooser).setFiles({ name: "照片.jpg", mimeType: "image/png", buffer: Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a5e0AAAAASUVORK5CYII=", "base64") });
+  await expect(editor).toContainText(/https?:\/\/[^\s)]+\/api\/attachments\/[0-9a-f-]+\/image\.png/);
+  await expect.poll(async () => (await (await page.request.get(`${server}/api/notes/${note.id}`, { headers })).json()).content).toMatch(/https?:\/\/[^\s)]+\/image\.png/);
+  await page.reload();
+  await expect(editor).toContainText(/https?:\/\/[^\s)]+\/image\.png/);
+  await page.getByRole("button", { name: "预览", exact: true }).click();
+  try {
+    await expect.poll(() => page.locator('img[src*="/api/attachments/"]').evaluateAll(images =>
+      images.some(image => (image as HTMLImageElement).naturalWidth > 0),
+    )).toBe(true);
+  } catch (error) {
+    console.error(mediaRequests);
+    throw error;
+  }
+  await page.getByRole("button", { name: "源码", exact: true }).click();
+
+  await page.evaluate(() => {
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: {
+      writeText: async (text: string) => { (window as Window & { __imageMarkdownClipboard?: string }).__imageMarkdownClipboard = text; },
+    } });
+  });
+  await editor.click();
+  await page.keyboard.press("ControlOrMeta+A");
+  await page.keyboard.press("ControlOrMeta+C");
+  await expect.poll(() => page.evaluate(() => (window as Window & { __imageMarkdownClipboard?: string }).__imageMarkdownClipboard || "")).toContain("/api/f/");
+  const copied = await page.evaluate(() => (window as Window & { __imageMarkdownClipboard?: string }).__imageMarkdownClipboard || "");
+  const url = copied.match(/!\[[^\]]*\]\((https?:[^)]+)\)/)?.[1];
+  expect(url).toMatch(/\/api\/f\/[^/?#]+\.png$/);
+  expect(url).not.toMatch(/[?&](exp|sig|scope)=/);
+  const anonymous = await page.request.get(url!);
+  expect(anonymous.status()).toBe(200);
+  expect(anonymous.headers()["content-type"]).toBe("image/png");
+  await page.screenshot({ path: test.info().outputPath("markdown-image-suffix.png") });
+});
+
 for (const width of [1440, 390]) {
   test.describe(`Rich-text / commands at ${width}px`, () => {
     test.use({ hasTouch: width < 640, viewport: { width, height: 900 },

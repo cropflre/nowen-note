@@ -15,6 +15,9 @@ on:
       - "scripts/lib/linux-desktop-package.cjs"
       - "scripts/tests/linux-desktop-packaging.test.cjs"
       - "scripts/rebuild-native.mjs"
+      - "scripts/rebuild-native-entry.mjs"
+      - "scripts/rebuild-linux-portable.sh"
+      - "scripts/Dockerfile.linux-native"
       - "scripts/check-linux-native-compat.cjs"
       - "scripts/smoke-better-sqlite3.cjs"
       - "scripts/lib/linux-native-compat.cjs"
@@ -35,6 +38,9 @@ on:
       - "scripts/lib/linux-desktop-package.cjs"
       - "scripts/tests/linux-desktop-packaging.test.cjs"
       - "scripts/rebuild-native.mjs"
+      - "scripts/rebuild-native-entry.mjs"
+      - "scripts/rebuild-linux-portable.sh"
+      - "scripts/Dockerfile.linux-native"
       - "scripts/check-linux-native-compat.cjs"
       - "scripts/smoke-better-sqlite3.cjs"
       - "scripts/lib/linux-native-compat.cjs"
@@ -59,7 +65,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "24.22.1"
           cache: "npm"
 
       - name: Install root dependencies
@@ -85,13 +91,7 @@ jobs:
       - name: Rebuild better-sqlite3 on the glibc 2.31 baseline
         shell: bash
         run: |
-          docker run --rm \
-            -e HOME=/tmp/nowen-home \
-            -e npm_config_cache=/tmp/nowen-npm-cache \
-            -v "$PWD:/workspace" \
-            -w /workspace \
-            node:20-bullseye \
-            bash -lc 'npm run rebuild:native -- --target-platform=linux --target-arch=x64'
+          npm run rebuild:native:linux-portable -- --target-platform=linux --target-arch=x64
           sudo chown -R "$(id -u):$(id -g)" backend/node_modules/better-sqlite3
 
       - name: Enforce Linux ABI and runtime baseline

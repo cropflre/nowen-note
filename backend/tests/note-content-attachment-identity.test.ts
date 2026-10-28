@@ -8,6 +8,12 @@ import {
 
 const ATTACHMENT_ID = "123e4567-e89b-42d3-a456-426614174216";
 
+test("Markdown keeps named absolute image URLs after save, without temporary credentials", () => {
+  const url = `https://files.example/nowen/api/attachments/${ATTACHMENT_ID}/image.png`;
+  assert.equal(stabilizePersistedNoteContent(`![image](${url})`, "markdown"), `![image](${url})`);
+  assert.equal(stabilizePersistedNoteContent(`![image](${url}?exp=1&sig=temporary&scope=user)`, "markdown"), `![image](${url})`);
+});
+
 test("Tiptap 附件签名地址落库前恢复为稳定身份", () => {
   const content = JSON.stringify({
     type: "doc",

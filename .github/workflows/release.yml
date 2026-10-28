@@ -34,6 +34,10 @@ on:
         description: Replace Windows Full/Lite candidates with same-tag CI assets
         type: boolean
         default: true
+      linux:
+        description: Collect Linux x64 AppImage and Debian packages
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -65,7 +69,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "22"
+          node-version: "24.22.1"
           cache: "npm"
 
       - name: Compile Official Registry trust roots
@@ -283,7 +287,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '24.22.1'
       - name: Collect same-tag assets and verify Draft in GitHub
         env:
           GH_TOKEN: ${{ github.token }}
@@ -292,6 +296,7 @@ jobs:
           RELEASE_REQUEST_ID: ${{ inputs.request_id }}
           COLLECT_DESKTOP: ${{ inputs.desktop }}
           COLLECT_WINDOWS: ${{ inputs.windows }}
+          COLLECT_LINUX: ${{ inputs.linux }}
         run: node scripts/release-ci-assets.mjs collect
       - name: Upload CI verification receipt
         uses: actions/upload-artifact@v4

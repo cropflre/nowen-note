@@ -89,3 +89,34 @@ test("upgrades lifecycle schema 124 with composer idempotency without losing arc
     fs.rmSync(tempDir, { recursive: true, force: true });
   }
 });
+
+test("reopens pre-split v134 databases without losing retained app data or Studio history", async () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "nowen-release-split-compat-"));
+  const previousDbPath = process.env.DB_PATH;
+  process.env.DB_PATH = path.join(tempDir, "test.db");
+  const [{ getDb, closeDb }, { runMigrations, CURRENT_SCHEMA_VERSION }] = await Promise.all([
+    import("../src/db/schema.js"), import("../src/db/migrations.js"),
+  ]);
+  try {
+    assert.ok(CURRENT_SCHEMA_VERSION >= 134, "the release split must retain existing schema compatibility");
+    const db = getDb();
+    db.prepare("INSERT INTO users(id,username,passwordHash) VALUES ('split-user','split-user','hash')").run();
+    db.prepare("INSERT INTO personal_studio_apps(id,userId,specJson,createdAt,updatedAt) VALUES ('app','split-user','{}','created','updated')").run();
+    db.prepare("INSERT INTO plugin_retained_storage VALUES ('plugin','publisher','user','split-user','key','value','updated')").run();
+    const tables = ["personal_studio_apps", "personal_studio_app_versions", "plugin_retained_storage"];
+    const before = tables.map(table => db.prepare(`SELECT * FROM ${table}`).all());
+    const ledger = db.prepare("SELECT * FROM schema_migrations ORDER BY version").all();
+    closeDb();
+
+    const reopened = getDb();
+    assert.equal(runMigrations(reopened), 0);
+    assert.deepEqual(tables.map(table => reopened.prepare(`SELECT * FROM ${table}`).all()), before);
+    assert.deepEqual(reopened.prepare("SELECT * FROM schema_migrations ORDER BY version").all(), ledger);
+    assert.equal(reopened.pragma("quick_check", { simple: true }), "ok");
+  } finally {
+    closeDb();
+    if (previousDbPath === undefined) delete process.env.DB_PATH;
+    else process.env.DB_PATH = previousDbPath;
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});

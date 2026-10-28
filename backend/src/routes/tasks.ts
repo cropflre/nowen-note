@@ -7,7 +7,7 @@ import { Hono } from "hono";
 import type { Context } from "hono";
 import { getDb } from "../db/schema";
 import { callAIChat } from "../services/ai-client";
-import { getUserAISettings } from "../services/user-ai-settings";
+import { resolveUserChatSettings } from "../services/user-chat-settings";
 import crypto from "crypto";
 import { bodyLimit } from "hono/body-limit";
 import { batchInputSchema, createComposerBatch, TaskComposerError } from "../services/task-composer.js";
@@ -353,7 +353,7 @@ class TaskCreateError extends Error {
 }
 
 // The normal endpoint and AI batch share the same creation validation and SQL.
-function createTaskRecord(db: ReturnType<typeof getDb>, userId: string, workspaceId: string | null, body: any): Record<string, unknown> {
+export function createTaskRecord(db: ReturnType<typeof getDb>, userId: string, workspaceId: string | null, body: any): Record<string, unknown> {
   const invalidDate = invalidTaskDateField(body);
   if (invalidDate) throw new TaskCreateError({error:`Invalid ${invalidDate}`,code:"INVALID_TASK_DATE"},400);
   const id = crypto.randomUUID();
@@ -870,7 +870,7 @@ tasks.post("/:id/ai-breakdown", async (c) => {
   const body = await c.req.json().catch(() => ({}));
   const lang = body.lang || "zh-CN";
 
-  const settings = getUserAISettings(userId);
+  const settings = resolveUserChatSettings(userId);
 
   if (!settings.ai_api_url) {
     return c.json({ error: "AI not configured", code: "AI_NOT_CONFIGURED" }, 400);

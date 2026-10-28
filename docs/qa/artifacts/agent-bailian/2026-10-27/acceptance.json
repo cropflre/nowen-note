@@ -1,0 +1,55 @@
+{
+  "date": "2026-10-27",
+  "baseSha": "872f1f7852e1eec1063ecc102f0d35bbad161da4",
+  "model": "deepseek-v4.1-flash-1017",
+  "endpoint": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+  "sourceHashes": {
+    "backend/src/agent/model.ts": "3451b6fec538474599e150c4af3d79c686004004c66c635d7207de23d28954a3",
+    "backend/tests/agent.test.ts": "926167e3bf7a418efb36a5d56ab260247ebb9eed99a3030f7ff4b211bf8d4f29",
+    "frontend/e2e/agent.spec.ts": "16e72ee85d94f8c82bb78d36ab6fb08e23d0c7cdfea370d64bfcea732cbfa296"
+  },
+  "liveTests": {
+    "pass": 3,
+    "fail": 0,
+    "skip": 0,
+    "cases": [
+      {
+        "case": "markdown",
+        "status": "completed",
+        "persistedAfterRestart": true,
+        "file": "markdown-evidence.json"
+      },
+      {
+        "case": "tiptap-json",
+        "status": "completed",
+        "persistedAfterRestart": true,
+        "file": "tiptap-json-evidence.json"
+      },
+      {
+        "case": "template-two-note-summary",
+        "model": "deepseek-v4.1-flash-1017",
+        "status": "completed",
+        "sourceCount": 2,
+        "createdNotes": 1,
+        "persistedAfterRestart": true,
+        "file": "p2-live-evidence.json"
+      }
+    ]
+  },
+  "regression": {
+    "pass": 188,
+    "fail": 0,
+    "skip": 1,
+    "skipReason": "Real third-party MCP connection not supplied"
+  },
+  "credentialScan": {
+    "matchedFiles": 0
+  },
+  "remaining": [
+    "Real third-party MCP service",
+    "Windows/Android packaged native clients",
+    "Real multi-device synchronization"
+  ],
+  "published": false,
+  "temporaryCredentialsRemoved": true
+}

@@ -33,6 +33,7 @@ test.before(async () => {
   db.prepare("INSERT INTO notes (id, userId, notebookId, title, content) VALUES (?, ?, ?, ?, ?)")
     .run(noteId, owner, "heif-book", "HEIF", "{}");
   app = new Hono();
+  app.get("/api/f/:key", attachments.handleShortFileShareAttachment);
   app.get("/api/attachments/:id", attachments.handleDownloadAttachment);
   app.route("/api/attachments", attachments.default);
   app.route("/api/files", files.default);

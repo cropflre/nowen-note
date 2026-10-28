@@ -1,0 +1,55 @@
+name: Studio 1.5.3 Production Docker RC
+
+on:
+  pull_request:
+    paths:
+      - "scripts/studio-rc-runtime-smoke.mjs"
+      - "scripts/studio-rc-docker-run.sh"
+      - ".github/workflows/studio-production-docker-rc.yml"
+      - "Dockerfile"
+      - "docker-entrypoint.sh"
+      - "backend/src/plugins/personalStudio*.ts"
+      - "backend/src/db/nowenStudio*.ts"
+      - "backend/src/routes/plugins.ts"
+  push:
+    branches: ["release/v1.5.3"]
+    paths:
+      - "scripts/studio-rc-runtime-smoke.mjs"
+      - "scripts/studio-rc-docker-run.sh"
+      - ".github/workflows/studio-production-docker-rc.yml"
+      - "Dockerfile"
+      - "docker-entrypoint.sh"
+      - "backend/src/plugins/personalStudio*.ts"
+      - "backend/src/db/nowenStudio*.ts"
+      - "backend/src/routes/plugins.ts"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: studio-production-rc-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  real-production-docker:
+    name: Production Docker auth, restart and independent WAL restore
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24.22.1"
+      - name: Syntax check for smoke runner
+        run: |
+          node --check scripts/studio-rc-runtime-smoke.mjs
+          bash -n scripts/studio-rc-docker-run.sh
+      - name: Build actual production image (no mock backend)
+        run: docker build --pull --tag "nowen-studio-rc:${{  github.sha }}" .
+      - name: Start isolated production, assert account ACL/CAS, restart and WAL restore
+        env:
+          RC_IMAGE: nowen-studio-rc:${{  github.sha }}
+        run: bash scripts/studio-rc-docker-run.sh

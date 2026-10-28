@@ -1,6 +1,10 @@
 name: Microsoft Store AppX (isolated)
 
 on:
+  workflow_call:
+    inputs:
+      commit_sha: { required: true, type: string }
+      artifact_name: { required: true, type: string }
   pull_request:
     branches: [release/v1.5.2]
     paths:
@@ -22,9 +26,12 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.commit_sha || github.sha }}
+          persist-credentials: false
       - uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '24.22.1'
       - name: Check Store-only JavaScript files
         run: |
           node --check electron/storeChannel.js
@@ -52,14 +59,22 @@ jobs:
       NODE_OPTIONS: --max-old-space-size=4096
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.commit_sha || github.sha }}
+          persist-credentials: false
       - uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '24.22.1'
           cache: 'npm'
       - name: Validate Partner Center identity before heavy build
         shell: pwsh
         run: |
           node -e "const c=require('./electron/builder.store.config.js'); if(c.win.target[0].target!=='appx'||c.publish!==null) process.exit(1); console.log('Partner Center identity and isolated appx target validated')"
+      - name: Prepare unified release source
+        if: inputs.commit_sha != ''
+        env:
+          NOWEN_OFFICIAL_REGISTRY_TRUST_ROOTS_JSON: ${{ vars.NOWEN_OFFICIAL_REGISTRY_TRUST_ROOTS_JSON }}
+        run: node scripts/release-cloud-ci.mjs prepare
       - name: Install root dependencies
         run: npm ci
       - name: Install backend dependencies
@@ -111,7 +126,7 @@ jobs:
       - name: Upload Store submission candidate (workflow artifact only)
         uses: actions/upload-artifact@v4
         with:
-          name: nowen-note-store-appx
+          name: ${{ inputs.artifact_name || 'nowen-note-store-appx' }}
           path: dist-electron-store/*.appx
           if-no-files-found: error
           retention-days: 7

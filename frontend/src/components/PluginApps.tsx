@@ -34,11 +34,11 @@ export function PluginAppFrame({ page, compact = false, inspector, workspaceId }
   const { t } = useTranslation();
   const actions = useAppActions();
   const frame = useRef<HTMLIFrameElement>(null);
-  const connection = useRef<ReturnType<typeof connectPluginAppFrame>>();
+  const connection = useRef<ReturnType<typeof connectPluginAppFrame> | undefined>(undefined);
   const activeSession = useRef<PluginAppSession | null>(null);
   const [session, setSession] = useState<PluginAppSession | null>(null);
   const [error, setError] = useState(false), [ready, setReady] = useState(false), [attempt, setAttempt] = useState(0);
-  const requestController = useRef<AbortController>();
+  const requestController = useRef<AbortController | undefined>(undefined);
   const failRef = useRef<() => void>(() => undefined);
   useEffect(() => {
     const controller = new AbortController(); requestController.current = controller;

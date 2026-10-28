@@ -6,9 +6,11 @@ import {
   Search, X as XIcon, GripVertical,
   CheckSquare, Trash2, Square,
   LayoutGrid, LayoutList, Calendar as CalendarIcon, BarChart3, FolderOpen, Plus, ChevronRight, Bell, Maximize2, Minimize2,
-  Archive, MoreHorizontal, FileText, ClipboardPlus, Sun, CalendarClock, Download,
+  Archive, MoreHorizontal, FileText, ClipboardPlus, Sun, CalendarClock, Download, Info,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { Portal as TooltipPortal } from "@radix-ui/react-tooltip";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { Task, TaskFilter, TaskStats, TaskStatus, TaskProject, TaskDependency, Habit, HabitStats, HabitCheckinStatus, HabitCheckinListItem } from "@/types";
@@ -692,6 +694,10 @@ export default function TaskCenter() {
     if (!name) return;
     const p = await createProject(name);
     if (p) {
+      setCenterMode("tasks");
+      setFilter("all");
+      setSelectedTaskId(null);
+      setSearchQuery("");
       setSelectedProjectId(p.id);
       setNewProjectName("");
       setShowNewProject(false);
@@ -935,7 +941,8 @@ export default function TaskCenter() {
       {/* Left: Sidebar Filters + Projects (desktop) */}
       <div className="hidden md:flex w-56 shrink-0 flex-col border-r border-app-border bg-app-surface overflow-y-auto" style={{ paddingTop: "var(--safe-area-top)" }}>
         <nav className="flex-1 px-2 py-1.5 space-y-0.5">
-          <div className="px-3 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-wider text-tx-tertiary">
+          <div className="flex items-center gap-2 px-3 pb-2 pt-2 text-sm font-semibold text-tx-primary">
+            <ListTodo size={16} className="text-accent-primary" />
             {t("tasks.title")}
           </div>
           <button
@@ -967,6 +974,105 @@ export default function TaskCenter() {
                 {filterCount(f.key)}
               </span>
             </button>
+          ))}
+
+          {/* Projects section */}
+          <div className="!mt-3 border-t border-app-border px-3 pb-2 pt-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="flex items-center gap-2 text-sm font-semibold text-tx-primary">
+                <FolderOpen size={16} className="text-accent-primary" />
+                {t("tasks.projects")}
+                <TooltipProvider delayDuration={200}>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        aria-label={t("tasks.projectsHelp")}
+                        className="rounded text-tx-tertiary transition-colors hover:text-accent-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary"
+                      >
+                        <Info size={14} />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipPortal>
+                      <TooltipContent side="right" collisionPadding={12} className="max-w-64 font-normal leading-relaxed">
+                        {t("tasks.projectsDescription")}
+                      </TooltipContent>
+                    </TooltipPortal>
+                  </Tooltip>
+                </TooltipProvider>
+              </span>
+              <button
+                onClick={() => setShowNewProject(true)}
+                className="inline-flex items-center gap-1 rounded-md bg-accent-primary/10 px-2 py-1.5 text-xs font-medium text-accent-primary transition-colors hover:bg-accent-primary/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary"
+                aria-expanded={showNewProject}
+              >
+                <Plus size={14} />
+                {t("tasks.newProject")}
+              </button>
+            </div>
+          </div>
+
+          {showNewProject && (
+            <form
+              className="px-3 pb-2"
+              onSubmit={(e) => { e.preventDefault(); void handleCreateProject(); }}
+            >
+              <input
+                type="text"
+                value={newProjectName}
+                onChange={(e) => setNewProjectName(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Escape") setShowNewProject(false); }}
+                aria-label={t("tasks.projectName")}
+                placeholder={t("tasks.projectName")}
+                className="w-full px-2 py-1.5 text-sm rounded-md bg-app-bg border border-app-border text-tx-primary focus:outline-none focus:border-accent-primary"
+                autoFocus
+              />
+              <div className="mt-2 flex flex-wrap gap-2">
+                <button type="submit" disabled={!newProjectName.trim()} className="rounded-md bg-accent-primary px-2 py-1.5 text-xs font-medium text-white disabled:opacity-50">
+                  {t("tasks.newProject")}
+                </button>
+                <button type="button" onClick={() => setShowNewProject(false)} className="rounded-md px-2 py-1.5 text-xs text-tx-secondary hover:bg-app-hover">
+                  {t("common.cancel")}
+                </button>
+              </div>
+            </form>
+          )}
+
+          {projects.map((p) => (
+            <div key={p.id} className="relative">
+              <button
+                onClick={() => { setCenterMode("tasks"); setSelectedProjectId(p.id); setFilter("all"); setSelectedTaskId(null); setSearchQuery(""); }}
+                className={cn(
+                  "flex items-center gap-2.5 w-full px-3 py-1.5 rounded-lg text-sm transition-colors group",
+                  centerMode === "tasks" && selectedProjectId === p.id ? "bg-accent-primary/10 text-accent-primary font-medium" : "text-tx-secondary hover:bg-app-hover"
+                )}
+              >
+                <FolderOpen size={14} style={{ color: p.color }} />
+                <span className="flex-1 text-left truncate">{p.name}</span>
+                <span className="text-[10px] text-tx-tertiary">{p.completedCount ?? 0}/{p.taskCount ?? 0}</span>
+                <button
+                  onClick={(e) => { e.stopPropagation(); setShowProjectMenu(showProjectMenu === p.id ? null : p.id); }}
+                  className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-app-hover text-tx-tertiary transition-all"
+                >
+                  <MoreHorizontal size={12} />
+                </button>
+              </button>
+              {/* Progress bar */}
+              {(p.taskCount ?? 0) > 0 && (
+                <div className="mx-3 mb-1 h-1 rounded-full bg-app-border overflow-hidden">
+                  <div className="h-full rounded-full bg-accent-primary transition-all" style={{ width: `${p.progress ?? 0}%` }} />
+                </div>
+              )}
+              {/* Project menu */}
+              {showProjectMenu === p.id && (
+                <div className="absolute right-0 top-full z-20 mt-1 w-36 rounded-lg border border-app-border bg-app-surface shadow-lg py-1">
+                  <button onClick={() => { setEditingProject(p); setEditProjectName(p.name); setEditProjectColor(p.color); setShowProjectMenu(null); }}
+                    className="w-full text-left px-3 py-1.5 text-xs text-tx-secondary hover:bg-app-hover">{t("tasks.projectName")}</button>
+                  <button onClick={() => handleDeleteProject(p.id)}
+                    className="w-full text-left px-3 py-1.5 text-xs text-accent-danger hover:bg-accent-danger/10">{t("tasks.deleteProject")}</button>
+                </div>
+              )}
+            </div>
           ))}
 
           {(isTaskCenterModuleVisible("my-day", userPrefs.hiddenTaskCenterModules) ||
@@ -1027,71 +1133,6 @@ export default function TaskCenter() {
             <BarChart3 size={16} />
             <span className="flex-1 text-left">{t("stats.title")}</span>
           </button>
-
-          {/* Projects section */}
-          <div className="mt-3 mb-0.5 px-3">
-            <div className="flex items-center justify-between">
-              <span className="text-[10px] font-semibold text-tx-tertiary uppercase tracking-wider">{t("tasks.projects")}</span>
-              <button
-                onClick={() => setShowNewProject(true)}
-                className="p-0.5 rounded hover:bg-app-hover text-tx-tertiary hover:text-accent-primary transition-colors"
-                title={t("tasks.newProject")}
-              >
-                <Plus size={12} />
-              </button>
-            </div>
-          </div>
-
-          {showNewProject && (
-            <div className="px-2 pb-1">
-              <input
-                type="text"
-                value={newProjectName}
-                onChange={(e) => setNewProjectName(e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Enter") handleCreateProject(); if (e.key === "Escape") setShowNewProject(false); }}
-                placeholder={t("tasks.projectName")}
-                className="w-full px-2 py-1 text-xs rounded-md bg-app-bg border border-app-border text-tx-primary focus:outline-none focus:border-accent-primary"
-                autoFocus
-              />
-            </div>
-          )}
-
-          {projects.map((p) => (
-            <div key={p.id} className="relative">
-              <button
-                onClick={() => { setCenterMode("tasks"); setSelectedProjectId(p.id); setFilter("all"); setSelectedTaskId(null); setSearchQuery(""); }}
-                className={cn(
-                  "flex items-center gap-2.5 w-full px-3 py-1.5 rounded-lg text-sm transition-colors group",
-                  centerMode === "tasks" && selectedProjectId === p.id ? "bg-accent-primary/10 text-accent-primary font-medium" : "text-tx-secondary hover:bg-app-hover"
-                )}
-              >
-                <FolderOpen size={14} style={{ color: p.color }} />
-                <span className="flex-1 text-left truncate">{p.name}</span>
-                <span className="text-[10px] text-tx-tertiary">{p.completedCount ?? 0}/{p.taskCount ?? 0}</span>
-                <button
-                  onClick={(e) => { e.stopPropagation(); setShowProjectMenu(showProjectMenu === p.id ? null : p.id); }}
-                  className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-app-hover text-tx-tertiary transition-all"
-                >
-                  <MoreHorizontal size={12} />
-                </button>
-              </button>
-              {/* Progress bar */}
-              {(p.taskCount ?? 0) > 0 && (
-                <div className="mx-3 mb-1 h-1 rounded-full bg-app-border overflow-hidden">
-                  <div className="h-full rounded-full bg-accent-primary transition-all" style={{ width: `${p.progress ?? 0}%` }} />
-                </div>
-              )}
-              {/* Project menu */}
-              {showProjectMenu === p.id && (
-                <div className="absolute right-0 top-full z-20 mt-1 w-36 rounded-lg border border-app-border bg-app-surface shadow-lg py-1">
-                  <button onClick={() => { setEditingProject(p); setEditProjectName(p.name); setEditProjectColor(p.color); setShowProjectMenu(null); }}
-                    className="w-full text-left px-3 py-1.5 text-xs text-tx-secondary hover:bg-app-hover">{t("tasks.projectName")}</button>
-                  <button onClick={() => handleDeleteProject(p.id)}
-                    className="w-full text-left px-3 py-1.5 text-xs text-accent-danger hover:bg-accent-danger/10">{t("tasks.deleteProject")}</button>
-                </div>
-              )}
-            </div>
-          ))}
         </nav>
       </div>
 

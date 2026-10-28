@@ -46,6 +46,7 @@ interface AISettingsResponse {
   ai_embedding_key?: string;
   ai_embedding_key_set?: boolean;
   ai_embedding_model?: string;
+  ai_embedding_timeout_seconds?: string;
 }
 
 interface EmbeddingDraft {
@@ -55,6 +56,7 @@ interface EmbeddingDraft {
   key: string;
   keySet: boolean;
   model: string;
+  timeoutSeconds: string;
 }
 
 type EmbeddingMessage = {
@@ -69,6 +71,7 @@ const EMPTY_DRAFT: EmbeddingDraft = {
   key: "",
   keySet: false,
   model: "",
+  timeoutSeconds: "30",
 };
 
 const MODEL_SUGGESTIONS = ["text-embedding-3-small", "text-embedding-v3", "bge-m3"];
@@ -114,6 +117,10 @@ function getCopy() {
       modelRequired: "Enter an embedding model before testing.",
       discoverFailed: "Failed to refresh embedding models",
       testFailed: "Embedding model test failed",
+      advanced: "Advanced settings",
+      indexTimeout: "Index request timeout (seconds)",
+      indexTimeoutHint: "30–600 seconds, default 30. Applies to background note and attachment indexing. For a slow local model, try 120 or 300 seconds. Search keeps its 30-second limit; the model test uses 15 seconds. After saving, retry failed jobs below without rebuilding the index.",
+      invalidTimeout: "Enter a whole number from 30 to 600 seconds.",
       save: "Save embedding settings",
       rebuild: "Rebuild vector index",
       refresh: "Refresh status",
@@ -185,6 +192,10 @@ function getCopy() {
     modelRequired: "请先填写要测试的 Embedding 模型。",
     discoverFailed: "刷新 Embedding 模型失败",
     testFailed: "Embedding 模型测试失败",
+    advanced: "高级设置",
+    indexTimeout: "索引请求超时（秒）",
+    indexTimeoutHint: "范围 30～600 秒，默认 30 秒，仅用于笔记和附件的后台索引。本地模型较慢时可设为 120 或 300 秒。在线搜索仍限时 30 秒，模型测试限时 15 秒。保存后可在下方重试失败任务，无需重建索引。",
+    invalidTimeout: "请输入 30～600 秒之间的整数。",
     save: "保存 Embedding 配置",
     rebuild: "重建向量索引",
     refresh: "刷新状态",
@@ -284,6 +295,7 @@ export default function EmbeddingSettingsPanel() {
         key: "",
         keySet: !!settings.ai_embedding_key_set,
         model: settings.ai_embedding_model || "",
+        timeoutSeconds: settings.ai_embedding_timeout_seconds || "30",
       });
       setDiscoveredModels([]);
       setTestResult(null);
@@ -384,6 +396,11 @@ export default function EmbeddingSettingsPanel() {
   };
 
   const saveSettings = async () => {
+    const timeoutSeconds = Number(draft.timeoutSeconds);
+    if (!Number.isInteger(timeoutSeconds) || timeoutSeconds < 30 || timeoutSeconds > 600) {
+      setMessage({ type: "warning", text: copy.invalidTimeout });
+      return;
+    }
     if (draft.source === "profile" && !draft.profileId) {
       setMessage({ type: "warning", text: copy.profileRequired });
       return;
@@ -410,6 +427,7 @@ export default function EmbeddingSettingsPanel() {
         key: "",
         keySet: !!result.ai_embedding_key_set,
         model: nextModel,
+        timeoutSeconds: result.ai_embedding_timeout_seconds || "30",
       }));
       await refreshStatus(true);
       window.dispatchEvent(new CustomEvent("nowen:ai-settings-changed"));
@@ -684,6 +702,24 @@ export default function EmbeddingSettingsPanel() {
               </div>
             )}
           </label>
+
+          <details className="mt-4 rounded-xl border border-zinc-200 p-3 dark:border-zinc-700">
+            <summary className="cursor-pointer text-xs font-medium text-zinc-600 dark:text-zinc-300">{copy.advanced}</summary>
+            <label className="mt-3 block space-y-1.5">
+              <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400">{copy.indexTimeout}</span>
+              <input
+                type="number"
+                min={30}
+                max={600}
+                step={1}
+                value={draft.timeoutSeconds}
+                disabled={busy}
+                onChange={(event) => setDraft((current) => ({ ...current, timeoutSeconds: event.target.value }))}
+                className="block w-32 rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-accent-primary focus:ring-2 focus:ring-accent-primary/20 dark:border-zinc-700 dark:bg-zinc-900"
+              />
+              <p className="text-xs leading-5 text-zinc-500 dark:text-zinc-400">{copy.indexTimeoutHint}</p>
+            </label>
+          </details>
 
           <div className="mt-5 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
             <div className="rounded-xl bg-zinc-50 p-3 dark:bg-zinc-800/60">

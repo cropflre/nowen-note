@@ -4,6 +4,14 @@ on:
   pull_request:
     paths:
       - 'tools/release-center/**'
+      - 'scripts/release.sh'
+      - 'scripts/release-cloud*.mjs'
+      - 'scripts/lib/release-cloud-contract.*'
+      - 'scripts/tests/release-cloud.test.mjs'
+      - '.github/workflows/release-build.yml'
+      - '.github/workflows/release-publish.yml'
+      - '.github/workflows/ios-release.yml'
+      - '.github/workflows/microsoft-store-appx.yml'
       - 'scripts/release-center-assets.mjs'
       - 'scripts/release-center-formal-assets.mjs'
       - 'scripts/release-center-stage-candidate.mjs'
@@ -14,6 +22,14 @@ on:
     branches: [main, 'release/**']
     paths:
       - 'tools/release-center/**'
+      - 'scripts/release.sh'
+      - 'scripts/release-cloud*.mjs'
+      - 'scripts/lib/release-cloud-contract.*'
+      - 'scripts/tests/release-cloud.test.mjs'
+      - '.github/workflows/release-build.yml'
+      - '.github/workflows/release-publish.yml'
+      - '.github/workflows/ios-release.yml'
+      - '.github/workflows/microsoft-store-appx.yml'
       - 'scripts/release-center-assets.mjs'
       - 'scripts/release-center-formal-assets.mjs'
       - 'scripts/release-center-stage-candidate.mjs'
@@ -37,7 +53,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: '24.22.1'
           cache: npm
           cache-dependency-path: tools/release-center/package-lock.json
       - run: npm ci
@@ -68,9 +84,24 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: '24.22.1'
           cache: npm
           cache-dependency-path: tools/release-center/package-lock.json
       - run: npm ci
       - name: Verify formal import, reservation, approvals, cancellation, and uncertainty handling
         run: npx tsx --test tests/publication.test.ts tests/publication-lifecycle.test.ts
+
+  cloud-contracts:
+    name: Unified build and publish contracts
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '24.22.1', cache: npm }
+      - run: npm ci --ignore-scripts
+      - run: node --test scripts/tests/release-cloud.test.mjs
+      - uses: actions/setup-go@v5
+        with: { go-version: '1.25' }
+      - name: Check reusable workflows and expressions
+        run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12 -shellcheck= .github/workflows/release-build.yml .github/workflows/release-publish.yml .github/workflows/release-center-candidate.yml .github/workflows/ios-release.yml .github/workflows/microsoft-store-appx.yml

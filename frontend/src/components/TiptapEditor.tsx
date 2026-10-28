@@ -1,3 +1,5 @@
+﻿import { closeHistory } from "@tiptap/pm/history";
+import { agentTextRanges, sameAgentSnapshot } from "@/lib/agentEdits";
 import { emojis } from "@tiptap/extension-emoji";
 import { getRichTextExtensions } from "@/lib/richTextExtensions";
 import { applyTiptapCjkTypography } from "@/lib/tiptapCjkTypography";
@@ -31,6 +33,7 @@ import Image from "@tiptap/extension-image";
 import { createResizableImageNodeView } from "./ResizableImageView";
 import { AttachmentNoteContext } from "@/hooks/useAttachmentImageRenderSource";
 import CollapsibleEditorToolbar, { MobileEditorToolbarSlot } from "./CollapsibleEditorToolbar";
+import { EditorImageTransformControls, updateImageAttributesAt } from "./EditorImageTransformBridge";
 import ImageEditDialog from "@/components/image-editor/ImageEditDialog";
 import FullscreenImageViewer, { type FullscreenImageItem } from "@/components/FullscreenImageViewer";
 import { editedImageBlobToFile, isSvgImageSource } from "@/components/image-editor/imageEditService";
@@ -117,7 +120,7 @@ import {
   Bold, Italic, Underline as UnderlineIcon, Strikethrough,
   List, ListOrdered, Heading1, Heading2, Heading3, Heading4, Heading5, Heading6,
   Quote, ImagePlus, Film, Paperclip, CheckSquare, Highlighter, Minus, Undo, Redo,
-  Code, FileCode, Sparkles, X,
+  Code, FileCode, FileLock2, Sparkles, X,
   Indent, Outdent, AlignLeft, AlignCenter, AlignRight, Trash2,
   FileType, Check, AlertCircle, Info, ArrowUp, Copy, Link as LinkIcon,
   ExternalLink, Unlink2, Workflow, Sigma, BookOpen, Download, Phone,
@@ -1365,6 +1368,8 @@ type EditorImageTarget = {
 };
 
 type ImageViewerState = {
+  noteId: string;
+  document: ProseMirrorNode;
   images: FullscreenImageItem[];
   targets: Array<EditorImageTarget | null>;
   initialIndex: number;
@@ -3252,6 +3257,28 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
         pendingSaveAckRef.current = ack;
       },
       isReady: () => !!editor && !editor.isDestroyed,
+      getAgentSelection: () => editor ? editor.state.doc.textBetween(editor.state.selection.from, editor.state.selection.to, "\n") : "",
+      applyAgentEdits: (original, edits) => {
+        if (!editor || editor.isDestroyed || !editor.isEditable) return false;
+        const current = serializeEditorContentForPersistence(editor, noteRef.current.id);
+        if (!current || !sameAgentSnapshot(current, original, "tiptap-json")) return false;
+        try {
+          const parts: Array<{ text: string; pos: number; marks: import("@tiptap/pm/model").Mark[] | readonly import("@tiptap/pm/model").Mark[] }> = [];
+          editor.state.doc.descendants((node, pos) => { if (node.isText) parts.push({ text: node.text!, pos, marks: node.marks }); });
+          if (editor.state.doc.childCount === 1 && editor.state.doc.firstChild?.type.name === "paragraph" && editor.state.doc.firstChild.content.size === 0) {
+            parts.push({ text: "", pos: 1, marks: [] });
+          }
+          const ranges = agentTextRanges(parts, edits);
+          const tr = editor.state.tr;
+          for (const range of ranges.reverse()) {
+            if (range.insert) tr.replaceWith(range.from, range.to, editor.schema.text(range.insert, parts[range.part].marks));
+            else tr.delete(range.from, range.to);
+          }
+          editor.view.dispatch(closeHistory(tr));
+          editor.view.dispatch(closeHistory(editor.state.tr));
+          return true;
+        } catch { return false; }
+      },
       applyCjkTypography: (action) => {
         if (!editor || editor.isDestroyed || !editor.isEditable) return false;
         return applyTiptapCjkTypography(editor, action);
@@ -3520,11 +3547,15 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
     const sourceIndex = images.findIndex((item) => item.src === targetSrc || item.src === resolvedTarget);
     const initialIndex = Math.max(0, positionIndex >= 0 ? positionIndex : sourceIndex);
     setImageViewer({
+      noteId: note.id,
+      document: editor.state.doc,
       images: images.length ? images : [{ src: resolvedTarget, alt: targetAlt }],
       targets: images.length ? targets : [null],
       initialIndex,
     });
-  }, [editor]);
+  }, [editor, note.id]);
+
+  useEffect(() => { setImageViewer(null); }, [note.id]);
 
   // 编辑态单击只选中图片，双击直达 Viewer；只读态单击直接查看。
   // 四角 resize handle 会拦截事件，不会误触发预览。
@@ -4003,10 +4034,14 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
       const { selection } = state;
       const { from, to, empty } = selection;
 
-      // 编辑器失焦 → 关闭所有气泡
+      // 编辑器失焦时关闭文本气泡；图片选区保留操作入口。
       if (!view.hasFocus()) {
         setBubble(b => b.open ? { ...b, open: false } : b);
-        setImageBubble(b => b.open ? { ...b, open: false } : b);
+        // The mobile image sheet deliberately blurs the editor to hide the keyboard.
+        // Attribute updates retain its image selection and must keep the sheet open.
+        if (!shouldKeepImageActionsOpenOnBlur(selection)) {
+          setImageBubble(b => b.open ? { ...b, open: false } : b);
+        }
         setLinkBubble(b => b.open ? { ...b, open: false } : b);
         setTableBubble(b => b.open ? { ...b, open: false } : b);
         return;
@@ -5531,7 +5566,11 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
         >
           <FileCode size={iconSize} />
         </ToolbarButton>
-        <ToolbarButton onClick={insertEncryptedRegion} disabled={!editable || isGuest} title="插入加密内容">🔒</ToolbarButton>
+        {!isGuest && !note.isTrashed && (
+          <ToolbarButton onClick={insertEncryptedRegion} disabled={!editable} title={t("encryptedBlock.insertTooltip")}>
+            <FileLock2 size={iconSize} />
+          </ToolbarButton>
+        )}
         <ToolbarButton
           onClick={handleForceMarkdownConversion}
           disabled={!editable || isGuest}
@@ -5718,9 +5757,6 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
             >
               <ClipboardPlus size={iconSize} className="text-blue-500" />
             </ToolbarButton>
-            <ToolbarButton onClick={openAIAssistant} title={t('tiptap.aiAssistant')}>
-              <Sparkles size={iconSize} className="text-violet-500" />
-            </ToolbarButton>
           </>
         )}
       </div>
@@ -5816,7 +5852,7 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
           >
             <ArrowUp size={14} />
           </ToolbarButton>
-          {!isGuest && !note.isTrashed && <ToolbarButton onClick={insertEncryptedRegion} title="加密选中文字">加密</ToolbarButton>}
+          {!isGuest && !note.isTrashed && <ToolbarButton onClick={insertEncryptedRegion} title={t("encryptedBlock.selectedText")}>{t("encryptedBlock.encrypt")}</ToolbarButton>}
           <ToolbarButton
             onClick={toggleFormatPainter}
             isActive={formatPainterArmed}
@@ -5936,7 +5972,7 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
               >
                 <ClipboardPlus size={14} className="text-blue-500" />
               </ToolbarButton>
-              <ToolbarButton onClick={openAIAssistant} title={t('tiptap.aiAssistant')}>
+              <ToolbarButton onClick={openAIAssistant} title={t('agent.quickRewrite')}>
                 <Sparkles size={14} className="text-violet-500" />
               </ToolbarButton>
             </>
@@ -6057,6 +6093,7 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
           <ToolbarButton title={t("tiptap.imageDownload")} onClick={() => { void handleDownloadSelectedImage(); }}>
             <Download size={14} />
           </ToolbarButton>
+          <EditorImageTransformControls editor={editor} />
           <div className="relative">
             <ToolbarButton
               title={t("common.more", { defaultValue: "更多" })}
@@ -6169,6 +6206,7 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
               {t("common.more", { defaultValue: "更多" })}
             </button>
           </div>
+          <EditorImageTransformControls editor={editor} mobile />
           {imageSizeMenuOpen && (
             <div className="mt-2 rounded-xl border border-app-border bg-app-hover/40 p-2">
               <div className="mb-1.5 text-[10px] font-medium text-tx-tertiary">{t("tiptap.imageMoreSizes")}</div>
@@ -6191,7 +6229,6 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
                   {t("tiptap.imageSizeOriginal")}
                 </button>
               </div>
-              <div data-nowen-image-transform-slot="true" />
               <div className="mt-2 grid grid-cols-2 gap-1.5">
                 {selectedImageCanLocalize && (
                   <button
@@ -6761,7 +6798,27 @@ const TiptapEditor = forwardRef<NoteEditorHandle, TiptapEditorProps>(function Ti
         open={!!imageViewer}
         images={imageViewer?.images}
         initialIndex={imageViewer?.initialIndex || 0}
-        canEdit={editable}
+        canEdit={editable && !isGuest && !note.isTrashed}
+        onRotate={(_, index, rotation) => {
+          const target = imageViewer?.targets[index];
+          if (!editor || editor.isDestroyed || !editor.isEditable || !editable || isGuest || note.isTrashed
+            || imageViewer?.noteId !== note.id || !target) return false;
+          const pos = imageViewer.document === editor.state.doc
+            ? resolveEditorImageTargetPosition(editor, target)
+            : null;
+          if (pos === null || !updateImageAttributesAt(editor, pos, { rotation })) {
+            toast.error(t("tiptap.imageTargetMissing", { defaultValue: "图片已变更，请关闭预览后重试" }));
+            return false;
+          }
+          const nextDocument = editor.state.doc;
+          setImageViewer((current) => current && ({
+            ...current,
+            document: nextDocument,
+            images: current.images.map((item, i) => i === index ? { ...item, rotation } : item),
+            targets: current.targets.map((item, i) => item && i === index ? { ...item, imagePos: pos, rotation } : item),
+          }));
+          return true;
+        }}
         onEdit={(_, index) => {
           const target = imageViewer?.targets[index];
           if (target) openImageEditorTarget(target);

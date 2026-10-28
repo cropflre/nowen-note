@@ -12,7 +12,7 @@ test("wizard, durable Dry Run, SSE logs, and server-enforced disabled publicatio
   await expect(
     page.getByRole("button", { name: "正式发布 · Phase 2" }),
   ).toBeDisabled();
-  await page.getByRole("button", { name: "创建发布计划" }).click();
+  await page.goto("/#legacy");
   await page.getByLabel("候选版本").fill("1.5.2");
   await page.getByLabel("发布说明").fill("浏览器回归：计划和 Dry Run");
   await page.getByRole("button", { name: "检查并预览计划" }).click();
@@ -37,7 +37,7 @@ test("wizard, durable Dry Run, SSE logs, and server-enforced disabled publicatio
 test("conflicting version remains blocked and renders a failed Dry Run without dispatch", async ({
   page,
 }) => {
-  await page.goto("/#new");
+  await page.goto("/#legacy");
   await page.getByLabel("候选版本").fill("9.9.9");
   await page.getByRole("button", { name: "检查并预览计划" }).click();
   await expect(page.getByText("存在阻断项")).toBeVisible();

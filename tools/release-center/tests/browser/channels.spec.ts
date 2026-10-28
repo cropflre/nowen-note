@@ -94,6 +94,5 @@ test("late channel reads cannot replace the newly selected version, including SS
   await staleResponse;
   await page.waitForTimeout(100); // allow React to process the deliberately stale response
   await expect(page.getByText("当前查看 v2.0.0 · 外部状态以观察时间为准", { exact: true })).toBeVisible();
-  await expect(page.getByText("当前查看 v2.0.0 · 外部状态以观察时间为准", { exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "v1.5.2 · 交接计划", exact: true })).toHaveCount(0);
 });

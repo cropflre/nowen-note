@@ -37,6 +37,7 @@ import { Button, Card, Input, cn } from "./components/ui";
 import "./style.css";
 import { ArtifactReview } from "./components/ArtifactReview";
 import { ChannelsPanel } from "./components/ChannelsPanel";
+import { CloudPanel } from "./components/CloudPanel";
 import { PublicationPanel } from "./components/PublicationPanel";
 
 const modeName = (mode: Task["mode"]) =>
@@ -51,6 +52,7 @@ const pages = [
   { id: "builds", label: "构建任务", icon: Terminal },
   { id: "artifacts", label: "产物管理", icon: Package },
   { id: "channels", label: "渠道分发", icon: Radio },
+  { id: "legacy", label: "历史调试工具", icon: Monitor },
   { id: "formal", label: "正式候选", icon: FileCheck },
   { id: "history", label: "发布历史", icon: History },
 ];
@@ -353,10 +355,10 @@ function App() {
         <div className="mx-4 mt-8 rounded-xl border border-dashed border-slate-200 p-4 dark:border-slate-700">
           <div className="flex items-center gap-2 text-xs font-medium">
             <LockKeyhole size={14} />
-            安全模式 · 渠道追踪
+            GitHub Actions 构建
           </div>
           <p className="mt-2 text-xs leading-5 text-slate-400">
-            预检、产物复核与渠道交接。正式发布和分发执行尚未开放。
+            新建发布使用远端构建。构建完成后，使用已有产物单独确认发布。
           </p>
         </div>
         <div className="mt-auto border-t border-slate-100 p-5 dark:border-slate-800">
@@ -701,7 +703,8 @@ function App() {
                   </div>
                 </>
               )}
-              {page === "new" && (
+              {page === "new" && <CloudPanel request={api} branch={data?.branch || ""} version={data?.localVersion || ""} />}
+              {page === "legacy" && (
                 <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_340px]">
                   <Card className="p-6">
                     <div className="mb-6 flex items-center gap-3 text-sm">
@@ -996,6 +999,8 @@ function App() {
                   </Card>
                 ))}
               {page === "builds" && (
+                <div className="space-y-6">
+                <CloudPanel request={api} branch={data?.branch || ""} version={data?.localVersion || ""} tasksOnly />
                 <div className="grid items-start gap-6 xl:grid-cols-[330px_minmax(0,1fr)]">
                   <Card>
                     <div className="panel-title">
@@ -1205,6 +1210,7 @@ function App() {
                       <Empty>选择任务以查看实时进度与日志。</Empty>
                     </Card>
                   )}
+                </div>
                 </div>
               )}
               {page === "channels" && <ChannelsPanel initialVersion={data?.localVersion || "1.5.2"} revision={audit[0]?.seq || 0} request={api} />}

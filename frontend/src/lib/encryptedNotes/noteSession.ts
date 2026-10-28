@@ -31,14 +31,24 @@ export class EncryptedNoteSession {
     if (envelope.version !== 2 || !this.v2) throw new EncryptedContentError("invalid");
     return this.v2.changePassphrase(envelope, passphrase, next, signal);
   }
-  async readVersion(row: { id: string; version: number; content?: string | null; contentFormat?: string | null }, signal?: AbortSignal) {
-    if (!this.v2 || typeof row.content !== "string") throw new EncryptedContentError("invalid");
+  async readVersion(row: { id: string; version: number; content?: string | null; contentFormat?: string | null; changeSummary?: string | null }, signal?: AbortSignal) {
+    if (typeof row.content !== "string") throw new EncryptedContentError("invalid");
+    if (this.v1) {
+      const envelope = readEncryptedNoteEnvelope({ content: row.content, contentFormat: row.contentFormat ?? undefined });
+      if (envelope.version !== 1) throw new EncryptedContentError("invalid");
+      const content = await this.v1.read(envelope, signal);
+      validateEncryptedNotePlaintext(content, envelope.originalFormat);
+      return { content, format: envelope.originalFormat, changeSummary: row.changeSummary ?? null };
+    }
+    if (!this.v2) throw new EncryptedContentError("invalid");
     let content: string; let format: "markdown" | "tiptap-json";
+    let changeSummary = row.changeSummary ?? null;
     if (row.contentFormat === "encrypted-history-v2") {
       const history = validateHistoryV2(JSON.parse(row.content));
       if (history.historyId !== row.id || history.sourceVersion !== row.version) throw new EncryptedContentError("invalid");
       const opened = await this.v2.decryptHistory(history, signal); this.assertTextOnly(opened.document.attachments);
       content = opened.document.content; format = history.originalFormat;
+      changeSummary = opened.changeSummary;
     } else {
       const envelope = readEncryptedNoteEnvelope({ content: row.content, contentFormat: row.contentFormat ?? undefined });
       if (envelope.version !== 2) throw new EncryptedContentError("invalid");
@@ -46,7 +56,7 @@ export class EncryptedNoteSession {
       content = document.content; format = envelope.originalFormat;
     }
     validateEncryptedNotePlaintext(content, format);
-    return { content, format };
+    return { content, format, changeSummary };
   }
   private assertTextOnly(attachments: EncryptedAttachmentManifest[]) {
     if (attachments.length) { this.close(); throw new EncryptedContentError("invalid"); }

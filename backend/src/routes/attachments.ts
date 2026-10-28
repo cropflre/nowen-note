@@ -7,6 +7,7 @@ import remoteImageImportRouter from "./remote-image-import";
 import { handleAttachmentMediaRange } from "./attachment-media-range";
 import { getDb } from "../db/schema";
 import { inferVideoMime } from "../lib/media-mime";
+import { imageAttachmentPath, imageAttachmentUrl } from "../lib/attachment-image-url";
 import { resolvePublicOrigin } from "../lib/shareUrlRewrite";
 import { hasPermission, resolveNotePermission } from "../middleware/acl";
 import { resolveEffectiveNoteCapabilities } from "../services/share-capabilities";
@@ -75,7 +76,12 @@ function buildSignedAttachmentUrls(noteId: string, scope: string, origin: string
 }
 
 function buildStableFileShareUrl(c: Context, attachmentId: string, token: string): string {
-  const path = `/api/attachments/${encodeURIComponent(attachmentId)}?share=${encodeURIComponent(token)}`;
+  const row = getDb().prepare("SELECT mimeType FROM attachments WHERE id = ?").get(attachmentId) as { mimeType: string } | undefined;
+  const imagePath = row && imageAttachmentPath(attachmentId, row.mimeType);
+  const suffix = imagePath ? imagePath.slice(imagePath.lastIndexOf(".")) : "";
+  const path = `/api/f/${encodeURIComponent(token)}${suffix}`;
+  const imageUrl = row && imageAttachmentUrl(c, attachmentId, row.mimeType);
+  if (imageUrl && imagePath) return `${imageUrl.slice(0, -imagePath.length)}${path}`;
   const origin = requestPublicOrigin(c).replace(/\/+$/, "");
   return origin ? `${origin}${path}` : path;
 }
@@ -273,6 +279,42 @@ attachmentsRouter.route("/", remoteImageImportRouter);
 attachmentsRouter.route("/", attachmentsCoreRouter);
 
 export default attachmentsRouter;
+
+// Reuse the complete download pipeline, including Range, ETag and current ACL checks.
+const fileShareDownloads = new Hono();
+fileShareDownloads.get("/:id", handleDownloadAttachment);
+
+export async function handleShortFileShareAttachment(c: Context): Promise<Response> {
+  const match = /^([A-Za-z0-9_-]+)(\.[a-z]+)?$/.exec(c.req.param("key") || "");
+  if (!match) return noStoreJson(c, { error: "文件分享链接不存在", code: "FILE_SHARE_NOT_FOUND" }, 404);
+  const [, token, suffix] = match;
+  try {
+    const access = resolveStableFileShare(token);
+    if (suffix) {
+      const row = getDb().prepare("SELECT mimeType FROM attachments WHERE id = ?").get(access.attachmentId) as { mimeType: string } | undefined;
+      if (!row || !imageAttachmentPath(access.attachmentId, row.mimeType)?.endsWith(`/image${suffix}`)) {
+        return noStoreJson(c, { error: "图片不存在", code: "FILE_SHARE_NOT_FOUND" }, 404);
+      }
+    }
+    const url = new URL(c.req.url);
+    url.pathname = `/${access.attachmentId}`;
+    url.searchParams.set("share", token);
+    return await fileShareDownloads.fetch(new Request(url, c.req.raw), c.env);
+  } catch (error) {
+    return fileShareErrorResponse(c, error);
+  }
+}
+
+/** Filename aliases share the exact same ACL, signatures, revocation and storage handler. */
+export async function handleNamedImageAttachment(c: Context): Promise<Response> {
+  const id = c.req.param("id");
+  const row = getDb().prepare("SELECT mimeType FROM attachments WHERE id = ?").get(id) as { mimeType: string } | undefined;
+  const expected = row && imageAttachmentPath(id, row.mimeType);
+  if (!expected || expected.split("/").pop() !== c.req.param("filename")) {
+    return c.json({ error: "图片不存在" }, 404);
+  }
+  return handleDownloadAttachment(c);
+}
 
 function hardenScopedResponse(response: Response, _attachmentId: string, _requestHeaders: Headers): Response {
   const headers = new Headers(response.headers);

@@ -13,12 +13,14 @@ export interface EmbeddingSettingsDraftLike {
   key: string;
   keySet: boolean;
   model: string;
+  timeoutSeconds?: string;
 }
 
 export interface EmbeddingSettingsPayload {
   ai_embedding_profile_id: string;
   ai_embedding_url: string;
   ai_embedding_model: string;
+  ai_embedding_timeout_seconds?: string;
   ai_embedding_key?: string;
 }
 
@@ -40,6 +42,7 @@ export function buildEmbeddingSettingsPayload(
     ai_embedding_profile_id: draft.source === "profile" ? draft.profileId.trim() : "",
     ai_embedding_url: draft.source === "custom" ? draft.url.trim() : "",
     ai_embedding_model: draft.model.trim(),
+    ...(draft.timeoutSeconds !== undefined ? { ai_embedding_timeout_seconds: draft.timeoutSeconds } : {}),
   };
 
   if (draft.source !== "custom") {

@@ -101,8 +101,14 @@ import {
   continueMobileLocalMode,
   getMobileLocalUser,
   isAndroidNativeRuntime,
+  isMobileAccountLoginRequested,
   isMobileLocalMode,
 } from "@/lib/mobileLocalMode";
+import { getDesktopStartupSession } from "@/lib/desktopLocalSession";
+import DesktopOfflineSyncGate from '@/components/DesktopOfflineSyncGate';
+import { isExpiredNativeSession, shouldRetainNativeOfflineSession, MOBILE_SYNC_AUTH_REQUIRED_EVENT } from '@/lib/nativeOfflineSession';
+import { hasMobileBoundLocalAccount } from '@/lib/mobileLocalFirstRuntime';
+import { getOfflineQueueStorageKey } from '@/lib/offlineScope';
 
 const AUTH_USER_CACHE_PREFIX = "nowen-auth-user:";
 
@@ -1105,6 +1111,10 @@ function AuthGate() {
   const checkAuth = useCallback(() => {
     reportBootStage("authentication");
     const token = getAccessToken();
+    if (isAndroidNativeRuntime() && isMobileAccountLoginRequested()) {
+      setIsAuthenticated(false);
+      return;
+    }
     if (isMobileLocalMode()) {
       setUser(getMobileLocalUser());
       setIsAuthenticated(true);
@@ -1127,6 +1137,8 @@ function AuthGate() {
       return;
     }
     const baseUrl = getBaseUrl();
+    const requestScope = getOfflineQueueStorageKey();
+    const isCurrentSession = () => !!getAccessToken() && !isMobileLocalMode() && getOfflineQueueStorageKey() === requestScope;
     const cachedUser = loadCachedAuthUser(authScope, token);
     if (cachedUser) {
       setUser(cachedUser);
@@ -1144,12 +1156,18 @@ function AuthGate() {
       signal: controller.signal,
     }, baseUrl)
       .then(async (res) => {
+        if (!isCurrentSession()) return null;
         if (res.ok) return res.json();
         let body: any = {};
         try { body = await res.clone().json(); } catch { /* ignore */ }
         // 401 / 会话吊销类 403 才是真正的"登录态失效"，需要清 token。
         // 网络抖动、远端 5xx、超时不应把用户踢回登录页，否则云端离线缓存无法使用。
         const code = body?.code as string | undefined;
+        if (res.status === 401 && code === 'TOKEN_INVALID' && cachedUser
+          && hasMobileBoundLocalAccount() && isExpiredNativeSession(token)) {
+          window.dispatchEvent(new Event(MOBILE_SYNC_AUTH_REQUIRED_EVENT));
+          return cachedUser;
+        }
         const authInvalid =
           res.status === 401 ||
           code === "ACCOUNT_DISABLED" ||
@@ -1169,12 +1187,14 @@ function AuthGate() {
         throw err;
       })
       .then((data) => {
+        if (!data || !isCurrentSession()) return;
         const verifiedUser = data as User;
         saveCachedAuthUser(authScope, getAccessToken() || token, verifiedUser);
         setUser(verifiedUser);
         setIsAuthenticated(true);
       })
       .catch((err) => {
+        if (!isCurrentSession()) return;
         if ((err as any)?.authInvalid) {
           // 只有明确的鉴权失效才广播登出；网络/远端不可达不能清 token。
           broadcastLogout("verify_failed");
@@ -1229,12 +1249,16 @@ function AuthGate() {
     const preferCloud = (() => {
       try { return localStorage.getItem("nowen-prefer-cloud") === "1"; } catch { return false; }
     })();
-    if (!existingToken && !preferCloud && desktopApi?.isDesktop && desktopApi?.getLocalAuth) {
+    if (desktopApi?.isDesktop && desktopApi?.getLocalAuth) {
       let cancelled = false;
-      desktopApi.getLocalAuth().then((auth: { token: string; refreshToken?: string; user: User } | null) => {
+      getDesktopStartupSession(desktopApi, existingToken, preferCloud).then((auth) => {
         if (cancelled) return;
         if (auth?.token) {
           try {
+            if (auth.serverUrl) {
+              setServerUrl(auth.serverUrl);
+              localStorage.removeItem("nowen-prefer-cloud");
+            }
             storeAuthTokens({ token: auth.token, refreshToken: auth.refreshToken ?? null });
             // 桌面端首启把 origin 当作 serverUrl 落盘，让后续同源 API 调用顺利通过
             if (!getServerUrl() && window.location.origin.startsWith("http")) {
@@ -1289,12 +1313,18 @@ function AuthGate() {
     const renew = async () => {
       if (cancelled) return;
       const baseUrl = getBaseUrl();
+      const renewalScope = getOfflineQueueStorageKey();
       try {
         const token = await refreshAccessToken(baseUrl);
         if (!token) return;
         schedule();
       } catch (error: any) {
+        if (cancelled || getOfflineQueueStorageKey() !== renewalScope) return;
         if (error?.terminal) {
+          if (hasMobileBoundLocalAccount() && shouldRetainNativeOfflineSession(error.code, getAccessToken())) {
+            window.dispatchEvent(new Event(MOBILE_SYNC_AUTH_REQUIRED_EVENT));
+            return;
+          }
           await broadcastLogout("refresh_rejected");
           if (!cancelled) {
             setUser(null);
@@ -1374,7 +1404,14 @@ function AuthGate() {
       }
     };
     window.addEventListener("storage", onStorage);
-    return () => window.removeEventListener("storage", onStorage);
+    const onTokenChanged = () => {
+      if (!getAccessToken()) { setUser(null); setIsAuthenticated(false); }
+    };
+    window.addEventListener('nowen:token-changed', onTokenChanged);
+    return () => {
+      window.removeEventListener("storage", onStorage);
+      window.removeEventListener('nowen:token-changed', onTokenChanged);
+    };
   }, [checkAuth, isAuthenticated, isClientMode]);
 
   // Phase 7: 标记"本次登录是否刚通过密码完成"——
@@ -1522,6 +1559,7 @@ function AuthGate() {
 
   // 已登录
   return (
+    <DesktopOfflineSyncGate key={`${getServerUrl()}:${user?.id}`}>
     <AppProvider>
       <AICollaborationCenter />
       <SidebarSearchExperienceBridge />
@@ -1548,6 +1586,7 @@ function AuthGate() {
         />
       </TooltipProvider>
     </AppProvider>
+    </DesktopOfflineSyncGate>
   );
 }
 

@@ -108,7 +108,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: "22"
+          node-version: "24.22.1"
       - name: Verify documented invariants and non-deleted regression cases
         run: node scripts/data-consistency-contract.mjs --verify
 
@@ -121,7 +121,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: "22"
+          node-version: "24.22.1"
           cache: npm
           cache-dependency-path: backend/package-lock.json
       - name: Install backend dependencies
@@ -139,7 +139,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: "22"
+          node-version: "24.22.1"
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - name: Install frontend dependencies

@@ -16,7 +16,7 @@ nowen-note 是一款自托管的私有化笔记应用，采用现代前后端分
 
 | 层级 | 技术 |
 |------|------|
-| 前端框架 | React 18 + TypeScript + Vite 5 |
+| 前端框架 | React 19 + TypeScript + Vite 5 |
 | 编辑器 | Tiptap 3（代码高亮、图片、任务列表、下划线、高亮等） |
 | UI 组件 | Radix UI + shadcn/ui 风格组件 |
 | 样式 | Tailwind CSS 3.4 + Framer Motion |
@@ -163,7 +163,7 @@ nowen-note is a self-hosted private note-taking application with a modern fronte
 
 | Layer | Technology |
 |-------|-----------|
-| Frontend | React 18 + TypeScript + Vite 5 |
+| Frontend | React 19 + TypeScript + Vite 5 |
 | Editor | Tiptap 3 (code highlight, image, task list, underline, highlight, etc.) |
 | UI Components | Radix UI + shadcn/ui style components |
 | Styling | Tailwind CSS 3.4 + Framer Motion |

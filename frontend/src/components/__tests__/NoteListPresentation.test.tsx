@@ -28,11 +28,16 @@ const source = readFileSync(path.resolve(__dirname, "../NoteList.tsx"), "utf8");
 describe("NoteList compact cards and controls", () => {
   let root: Root;
   let host: HTMLDivElement;
+  let resize: ResizeObserverCallback;
   beforeEach(() => {
     host = document.createElement("div");
     document.body.appendChild(host);
     root = createRoot(host);
-    vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} });
+    vi.stubGlobal("ResizeObserver", class {
+      constructor(callback: ResizeObserverCallback) { resize = callback; }
+      observe() {}
+      disconnect() {}
+    });
   });
   afterEach(() => {
     act(() => root.unmount());
@@ -60,13 +65,22 @@ describe("NoteList compact cards and controls", () => {
     expect(document.querySelector('[aria-label="note.format.markdown"] svg')).not.toBeNull();
     expect(document.querySelector("[data-note-list-card]")?.textContent).not.toContain("MD");
     expect(document.querySelector(".note-card-metadata .ml-auto")).not.toBeNull();
-    expect((document.querySelector("[data-note-list-card]") as HTMLElement).style.height).toBe("76px");
+    expect((document.querySelector("[data-note-list-card]") as HTMLElement).style.minHeight).toBe("76px");
+  });
+  it.each(["readable", "classic"] as const)("lets enlarged %s text grow cards without fixed line boxes", (sidebarTextStyle) => {
+    renderCard({ sidebarTextStyle });
+    const card = document.querySelector<HTMLElement>("[data-note-list-card]")!;
+    expect(card.style.height).toBe("");
+    expect(card.style.minHeight).toBe("76px");
+    expect(card.querySelector(".note-card-title")?.className).toContain("leading-normal");
+    expect(card.querySelector(".note-card-preview")?.className).toContain("leading-snug");
+    expect(card.querySelector(".note-card-metadata")?.className).toContain("leading-snug");
   });
   it("uses title-only preference without previews or metadata", () => {
     renderCard({ titleOnly: true });
     expect(document.querySelector(".note-card-preview")).toBeNull();
     expect(document.querySelector(".note-card-metadata")).toBeNull();
-    expect((document.querySelector("[data-note-list-card]") as HTMLElement).style.height).toBe("36px");
+    expect((document.querySelector("[data-note-list-card]") as HTMLElement).style.minHeight).toBe("36px");
   });
   it("retains sanitized search snippets even with title-only preference", () => {
     const snippetHtml = '<mark>mindmap</mark> root((主题)) <script>alert(1)</script>';
@@ -75,6 +89,7 @@ describe("NoteList compact cards and controls", () => {
     expect(document.querySelector(".note-card-preview")?.textContent).toContain("root((主题))");
     expect(document.querySelector(".note-card-preview script")).toBeNull();
     expect(document.querySelector(".note-card-preview")?.className).toContain("line-clamp-2");
+    expect(document.querySelector(".note-card-preview")?.className).toContain("leading-normal");
     expect(host.textContent).toContain("noteList.matchedContent");
   });
   it("preserves classic text and time visibility preferences", () => {
@@ -162,6 +177,25 @@ describe("NoteList compact cards and controls", () => {
     expect(document.querySelector('[role="menu"]')?.textContent).toContain("noteList.displaySettings");
     expect(document.querySelector('[role="menu"]')?.textContent).toContain("noteList.filters");
   });
+  it("updates virtual geometry when rendered text grows and shrinks", () => {
+    const notes = Array.from({ length: 200 }, (_, i) => ({ ...note, id: `note-${i}` }));
+    act(() => root.render(
+      <VirtualNoteList notes={notes} scrollScopeKey="font-size" activeNoteId={undefined}
+        menuState={{ isOpen: false, targetId: null }} sharedNoteIds={new Set()} selectedIds={new Set()}
+        onSelectNote={() => {}} onContextMenu={() => {}} sidebarTextStyle="readable" />,
+    ));
+    const viewport = document.querySelector<HTMLElement>('[data-note-list-scroll-viewport="virtual"]')!;
+    const measure = viewport.querySelector("span[aria-hidden='true']")!;
+    const resizeText = (height: number) => act(() => resize([
+      { target: measure, contentRect: { height } } as ResizeObserverEntry,
+    ], {} as ResizeObserver));
+    resizeText(42);
+    expect((viewport.firstElementChild as HTMLElement).style.height).toBe("32000px");
+    expect(viewport.querySelector<HTMLElement>("[data-note-list-card]")!.style.minHeight).toBe("156px");
+    resizeText(21);
+    expect((viewport.firstElementChild as HTMLElement).style.height).toBe("16000px");
+    expect(viewport.querySelector<HTMLElement>("[data-note-list-card]")!.style.minHeight).toBe("76px");
+  });
   it("shares row height in virtual lists and clamps scroll when switching to titles only", () => {
     const notes = Array.from({ length: 200 }, (_, i) => ({ ...note, id: `note-${i}`, title: `笔记 ${i}` }));
     const renderVirtual = (titleOnly: boolean, searchQuery?: string) => act(() => root.render(
@@ -177,9 +211,9 @@ describe("NoteList compact cards and controls", () => {
     expect((viewport.firstElementChild as HTMLElement).style.height).toBe("8000px");
     expect(viewport.scrollTop).toBeLessThanOrEqual(8000);
     expect(document.querySelectorAll("[data-note-list-card]").length).toBeGreaterThan(0);
-    expect((document.querySelector("[data-note-list-card]") as HTMLElement).style.height).toBe("36px");
+    expect((document.querySelector("[data-note-list-card]") as HTMLElement).style.minHeight).toBe("36px");
     renderVirtual(true, "笔记");
     expect((viewport.firstElementChild as HTMLElement).style.height).toBe("24800px");
-    expect((document.querySelector("[data-note-list-card]") as HTMLElement).style.height).toBe("120px");
+    expect((document.querySelector("[data-note-list-card]") as HTMLElement).style.minHeight).toBe("120px");
   });
 });

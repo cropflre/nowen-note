@@ -1,0 +1,4 @@
+FROM node:24.22.1-bookworm-slim AS node-runtime
+FROM cimg/android:2025.10.1
+COPY --from=node-runtime /usr/local/ /usr/local/
+ENV PATH="/usr/local/bin:${PATH}"

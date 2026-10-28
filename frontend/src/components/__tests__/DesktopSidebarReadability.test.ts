@@ -24,7 +24,8 @@ describe("desktop sidebar readability", () => {
     expect(notes).toContain('classicText ? "text-xs text-tx-tertiary" : "text-[13px] text-tx-secondary"');
     // Row sizes are shared by cards and the virtual viewport; numerical layout
     // cases are verified in noteListPresentation.test.ts.
-    expect(notes).toContain('height: noteListRowHeight(titleOnly, searchQuery)');
-    expect(notes).toContain('const itemHeight = noteListRowHeight(titleOnly, searchQuery)');
+    expect(notes).toContain('minHeight: (rowHeight ?? noteListRowHeight(titleOnly, searchQuery)) - 4');
+    expect(notes).toContain('rowHeight={itemHeight}');
+    expect(notes).toContain('const itemHeight = noteListRowHeight(titleOnly, searchQuery, textScale)');
   });
 });

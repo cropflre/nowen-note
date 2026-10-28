@@ -10,6 +10,8 @@ import {
 } from "./remote-image-import";
 import {
   activeJobs,
+  createInitialNoteResult,
+  scanOneNote,
   DEFAULT_MAX_ACTIVE_JOBS,
   ensureJobsDir,
   getLimits,
@@ -32,6 +34,7 @@ import {
   saveLocalizedAttachment,
   type CreatedAttachment,
 } from "./remote-image-localization-mutation";
+import { waitForImageHost, deferImageHost } from "./remote-image-localization-throttle";
 import { yFlush } from "./yjs";
 
 interface CachedDownload {
@@ -88,6 +91,42 @@ function finishSkipped(job: LocalizationJob, result: LocalizationNoteResult): vo
   persistJob(job);
 }
 
+async function* pendingNotes(job: LocalizationJob): AsyncGenerator<LocalizationNoteResult> {
+  if (!job.automaticBatching) {
+    yield* job.noteResults;
+    return;
+  }
+  const batchSize = getLimits().maxNotes;
+  const remoteUrls = new Set<string>();
+  for (let offset = 0; offset < job.noteIds.length && !job.cancelRequested; offset += batchSize) {
+    const batch = job.noteIds.slice(offset, offset + batchSize).map((id) => {
+      const scan = scanOneNote(job.userId, id, job.expectedVersions[id], true);
+      const result = createInitialNoteResult(scan);
+      job.summary.scannedNotes += 1;
+      job.summary.totalImageReferences += scan.scan.totalImageReferences;
+      job.summary.remoteReferenceCount += scan.scan.remoteReferenceCount;
+      job.summary.totalImageOperations += result.uniqueRemoteUrlCount;
+      if (scan.status === "ready") for (const url of scan.scan.remoteUrls) remoteUrls.add(url);
+      job.summary.uniqueRemoteUrlCount = remoteUrls.size;
+      job.noteResults.push(result);
+      job.failures.push(...result.failures);
+      if (result.status !== "queued") {
+        job.summary.processedNotes += 1;
+        job.summary.skippedNotes += 1;
+        job.summary.processedImageOperations += result.uniqueRemoteUrlCount;
+        job.summary.skippedImageOperations += result.uniqueRemoteUrlCount;
+        if (result.status === "conflict") job.summary.conflictNotes += 1;
+        if (result.failures.length) job.summary.notesWithFailures += 1;
+      }
+      return result;
+    });
+    persistJob(job);
+    yield* batch;
+    // Yield even for batches without remote images so cancellation can be received.
+    await new Promise<void>((resolve) => setImmediate(resolve));
+  }
+}
+
 async function runLocalizationJob(jobId: string): Promise<void> {
   scheduledJobs.delete(jobId);
   if (activeJobs.has(jobId)) return;
@@ -100,7 +139,14 @@ async function runLocalizationJob(jobId: string): Promise<void> {
   fs.rmSync(downloadDir, { recursive: true, force: true });
   fs.mkdirSync(downloadDir, { recursive: true, mode: 0o700 });
   const downloadCache = new Map<string, Promise<CachedDownload>>();
+  let cachedBytes = 0;
   const countedDownloads = new Set<string>();
+  const clearDownloads = () => {
+    downloadCache.clear();
+    cachedBytes = 0;
+    fs.rmSync(downloadDir, { recursive: true, force: true });
+    fs.mkdirSync(downloadDir, { recursive: true, mode: 0o700 });
+  };
 
   const getDownloaded = (url: string): Promise<CachedDownload> => {
     const existing = downloadCache.get(url);
@@ -108,20 +154,34 @@ async function runLocalizationJob(jobId: string): Promise<void> {
       job.summary.reusedDownloads += 1;
       return existing;
     }
-    const promise = downloadRemoteImage(url).then(async (downloaded) => {
-      const size = downloaded.buffer.byteLength;
-      if (job.summary.downloadedBytes + size > limits.maxTotalBytes) {
-        throw new LocalizationJobError(
-          `任务下载总量超过 ${Math.round(limits.maxTotalBytes / 1024 / 1024)}MB 限制`,
-          "TOTAL_SIZE_LIMIT_EXCEEDED",
-          413,
-        );
+    if (job.automaticBatching && downloadCache.size >= limits.maxImages) clearDownloads();
+    const promise = (async () => {
+      for (let attempt = 0; ; attempt += 1) {
+        try {
+          return await downloadRemoteImage(url, {
+            beforeRequest: (target) => waitForImageHost(target.hostname, () => job.cancelRequested),
+          });
+        } catch (error) {
+          if (!(error instanceof RemoteImageError) || error.code !== "REMOTE_IMAGE_RATE_LIMITED") throw error;
+          deferImageHost(error.hostname ?? new URL(url).hostname, error.retryAfterMs);
+          if (attempt >= 1 || job.cancelRequested) throw error;
+        }
       }
+    })().then(async (downloaded) => {
+      const size = downloaded.buffer.byteLength;
+      if (job.automaticBatching && cachedBytes + size > limits.maxTotalBytes) {
+        clearDownloads();
+        downloadCache.set(url, promise);
+      }
+      if ((job.automaticBatching ? size : job.summary.downloadedBytes + size) > limits.maxTotalBytes) {
+        throw new LocalizationJobError("图片下载量超过批次容量限制", "TOTAL_SIZE_LIMIT_EXCEEDED", 413);
+      }
+      cachedBytes += size;
       if (!countedDownloads.has(url)) {
         countedDownloads.add(url);
         job.summary.downloadedUniqueUrls += 1;
-        job.summary.downloadedBytes += size;
       }
+      job.summary.downloadedBytes += size;
       const tempPath = path.join(downloadDir, `${crypto.createHash("sha256").update(url).digest("hex")}.bin`);
       await fs.promises.writeFile(tempPath, downloaded.buffer, { mode: 0o600 });
       return {
@@ -141,7 +201,8 @@ async function runLocalizationJob(jobId: string): Promise<void> {
     job.startedAt = nowIso();
     persistJob(job);
 
-    for (const result of job.noteResults) {
+    for await (const result of pendingNotes(job)) {
+      if (job.cancelRequested) break;
       if (result.status !== "queued") continue;
       try { yFlush(result.noteId); } catch {}
       const current = readNote(result.noteId);
@@ -154,7 +215,8 @@ async function runLocalizationJob(jobId: string): Promise<void> {
       }
 
       const permission = resolveNotePermission(current.id, job.userId);
-      if (!hasPermission(permission.permission, "write")) {
+      if (!hasPermission(permission.permission, "write")
+        || (job.automaticBatching && (current.userId !== job.userId || current.workspaceId))) {
         result.status = "forbidden";
         result.skippedUrls = result.uniqueRemoteUrlCount;
         pushFailure(job, result, { noteId: current.id, code: "FORBIDDEN", message: "处理前写权限已失效" });
@@ -188,11 +250,9 @@ async function runLocalizationJob(jobId: string): Promise<void> {
       job.currentNoteTitle = current.title;
       const replacements = new Map<string, string>();
       const createdAttachments: CreatedAttachment[] = [];
-      let cancelledAfterCurrent = false;
 
       for (const url of scan.remoteUrls) {
         if (job.cancelRequested) {
-          cancelledAfterCurrent = true;
           const remaining = scan.remoteUrls.length - result.localizedUrls - result.failedUrls;
           result.skippedUrls += remaining;
           job.summary.processedImageOperations += remaining;
@@ -203,7 +263,7 @@ async function runLocalizationJob(jobId: string): Promise<void> {
         persistJob(job);
         try {
           const cached = await getDownloaded(url);
-          const state = currentWriteState(job.userId, current.id, result.scannedVersion, current.content);
+          const state = currentWriteState(job.userId, current.id, result.scannedVersion, current.content, job.automaticBatching);
           if (!state) throw new LocalizationJobError("下载期间笔记内容或权限已变化", "VERSION_CONFLICT", 409);
           const downloaded: DownloadedRemoteImage = {
             buffer: await fs.promises.readFile(cached.tempPath),
@@ -224,6 +284,13 @@ async function runLocalizationJob(jobId: string): Promise<void> {
           result.localizedUrls += 1;
           if (saved.imported.deduplicated) result.deduplicatedAttachments += 1;
         } catch (error) {
+          if (job.cancelRequested) {
+            const remaining = scan.remoteUrls.length - result.localizedUrls - result.failedUrls;
+            result.skippedUrls += remaining;
+            job.summary.processedImageOperations += remaining - 1;
+            job.summary.skippedImageOperations += remaining;
+            break;
+          }
           const details = errorDetails(error);
           result.failedUrls += 1;
           pushFailure(job, result, { noteId: current.id, url, code: details.code, message: details.message });
@@ -243,6 +310,7 @@ async function runLocalizationJob(jobId: string): Promise<void> {
             scannedContent: current.content,
             contentFormat: current.contentFormat,
             replacements,
+            personalOnly: job.automaticBatching,
           });
           if (applied.conflict) {
             await rollbackLocalizedAttachments(createdAttachments);
@@ -290,27 +358,19 @@ async function runLocalizationJob(jobId: string): Promise<void> {
       if (["skipped", "forbidden", "locked", "trashed", "conflict", "parse_error"].includes(result.status)) job.summary.skippedNotes += 1;
       job.currentUrl = null;
       persistJob(job);
-
-      if (cancelledAfterCurrent || job.cancelRequested) {
-        job.status = "cancelled";
-        job.completedAt = nowIso();
-        job.currentNoteId = null;
-        job.currentNoteTitle = null;
-        job.currentUrl = null;
-        for (const queued of job.noteResults.filter((entry) => entry.status === "queued")) {
-          queued.status = "skipped";
-          queued.skippedUrls = queued.uniqueRemoteUrlCount;
-          job.summary.processedImageOperations += queued.uniqueRemoteUrlCount;
-          job.summary.skippedImageOperations += queued.uniqueRemoteUrlCount;
-          job.summary.processedNotes += 1;
-          job.summary.skippedNotes += 1;
-        }
-        persistJob(job);
-        return;
-      }
     }
 
-    job.status = job.failures.length > 0 ? "completed_with_errors" : "completed";
+    if (job.cancelRequested) {
+      for (const queued of job.noteResults.filter((entry) => entry.status === "queued")) {
+        queued.status = "skipped";
+        queued.skippedUrls = queued.uniqueRemoteUrlCount;
+        job.summary.processedImageOperations += queued.uniqueRemoteUrlCount;
+        job.summary.skippedImageOperations += queued.uniqueRemoteUrlCount;
+        job.summary.processedNotes += 1;
+        job.summary.skippedNotes += 1;
+      }
+    }
+    job.status = job.cancelRequested ? "cancelled" : job.failures.length > 0 ? "completed_with_errors" : "completed";
     job.completedAt = nowIso();
     job.currentNoteId = null;
     job.currentNoteTitle = null;

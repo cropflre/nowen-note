@@ -35,6 +35,7 @@ test.before(async () => {
   const folders = await import("../src/routes/attachment-folders");
   const { wrapKnowledgeRoute } = await import("../src/runtime/knowledge-tree");
   app = new Hono();
+  app.get("/api/f/:key", attachmentModule.handleShortFileShareAttachment);
   app.get("/api/attachments/:id", attachmentModule.handleDownloadAttachment);
   app.route("/api/attachments", attachmentModule.default);
   app.route("/api/files", wrapKnowledgeRoute("/api/files", files.default));

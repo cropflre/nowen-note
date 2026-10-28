@@ -1,0 +1,221 @@
+{
+  "sourceEvidence": {
+    "schema": 1,
+    "purpose": "candidate-build-only",
+    "releaseEligible": false,
+    "signed": false,
+    "approved": false,
+    "source": {
+      "repository": "cropflre/nowen-note",
+      "sha": "6283de3791a4e02975a37b6c72b1f63c35d7a7e1",
+      "version": "1.5.3",
+      "requestId": "ea064266-0713-4795-8489-1c2811ad8810",
+      "runId": 39188437154,
+      "runAttempt": 1,
+      "platform": "windows"
+    },
+    "updaterVerification": [
+      "latest-lite.yml",
+      "latest.yml"
+    ],
+    "files": [
+      {
+        "name": "Nowen-Note-1.5.3-portable.exe",
+        "architecture": "x64",
+        "size": 159259767,
+        "sha256": "56c243a6c5d707bb805a2612500de663a40a235e3b1fe9485b979cf3e0b8ff98",
+        "updaterMetadata": false
+      },
+      {
+        "name": "Nowen-Note-1.5.3-setup.exe",
+        "architecture": "x64",
+        "size": 116102596,
+        "sha256": "49c511d92218387005a6afa95328a658ad5e72858159a0d2332d1b4029533807",
+        "updaterMetadata": false
+      },
+      {
+        "name": "Nowen-Note-1.5.3-setup.exe.blockmap",
+        "architecture": "x64",
+        "size": 121897,
+        "sha256": "e9fecc82d8df07dff662590bca4264c683a17ae6d3040e709882e206a425b87e",
+        "updaterMetadata": false
+      },
+      {
+        "name": "Nowen-Note-Lite-1.5.3-portable.exe",
+        "architecture": "x64",
+        "size": 81755597,
+        "sha256": "fade75c742e586196b86190261f9e383d8558a9fc0e6ca1ac90e467d947d69ad",
+        "updaterMetadata": false
+      },
+      {
+        "name": "Nowen-Note-Lite-1.5.3-setup.exe",
+        "architecture": "x64",
+        "size": 81968396,
+        "sha256": "0f3ad58d406ac0dd88e19fe0702c003e1da4d67613113e7cc6ac3907450fddce",
+        "updaterMetadata": false
+      },
+      {
+        "name": "Nowen-Note-Lite-1.5.3-setup.exe.blockmap",
+        "architecture": "x64",
+        "size": 86591,
+        "sha256": "097d5e80a366b63abbbd4705e21937128de716ae733bd17a4da799171aa2fe02",
+        "updaterMetadata": false
+      },
+      {
+        "name": "latest-lite.yml",
+        "architecture": "metadata",
+        "size": 358,
+        "sha256": "b1c396a35b093346818b099e9f402432db600e4f5a738018b896ab31d2dd1a1b",
+        "updaterMetadata": true
+      },
+      {
+        "name": "latest.yml",
+        "architecture": "metadata",
+        "size": 349,
+        "sha256": "e069209b7a03e958bb2869a3772e6debcc6151d86501c281e2d0d3fbf2303a36",
+        "updaterMetadata": true
+      }
+    ],
+    "filesDigest": "sha256:48c098003f5573e1e4ad6d7f8fb4e0b71f858ace0e8a36ac6ef4fe986fcf9974"
+  },
+  "archiveVerification": [
+    {
+      "id": 12159455981,
+      "name": "rc-candidate-ea064266-0713-4795-8489-1c2811ad8810-windows",
+      "digest": "sha256:0acdaf47c14248fee20b9bf00c35c24811aac22a8c8a040dd1c98678ba433ff1",
+      "size": 438908199
+    },
+    {
+      "id": 12159625228,
+      "name": "rc-candidate-evidence-ea064266-0713-4795-8489-1c2811ad8810-windows",
+      "digest": "sha256:7d3e2fd60cbb236190925b5cc8ced4228e9210d40af77a7a7931a63aaf3f3535",
+      "size": 1006
+    }
+  ],
+  "contentVerification": {
+    "platform": "windows",
+    "source": {
+      "repository": "cropflre/nowen-note",
+      "sha": "6283de3791a4e02975a37b6c72b1f63c35d7a7e1",
+      "version": "1.5.3",
+      "requestId": "ea064266-0713-4795-8489-1c2811ad8810",
+      "runId": 39188437154,
+      "runAttempt": 1,
+      "platform": "windows"
+    },
+    "files": [
+      {
+        "name": "Nowen-Note-1.5.3-portable.exe",
+        "size": 159259767,
+        "sha256": "56c243a6c5d707bb805a2612500de663a40a235e3b1fe9485b979cf3e0b8ff98",
+        "architecture": "x64",
+        "updaterMetadata": false
+      },
+      {
+        "name": "Nowen-Note-1.5.3-setup.exe",
+        "size": 116102596,
+        "sha256": "49c511d92218387005a6afa95328a658ad5e72858159a0d2332d1b4029533807",
+        "architecture": "x64",
+        "updaterMetadata": false
+      },
+      {
+        "name": "Nowen-Note-1.5.3-setup.exe.blockmap",
+        "size": 121897,
+        "sha256": "e9fecc82d8df07dff662590bca4264c683a17ae6d3040e709882e206a425b87e",
+        "architecture": "x64",
+        "updaterMetadata": false
+      },
+      {
+        "name": "Nowen-Note-Lite-1.5.3-portable.exe",
+        "size": 81755597,
+        "sha256": "fade75c742e586196b86190261f9e383d8558a9fc0e6ca1ac90e467d947d69ad",
+        "architecture": "x64",
+        "updaterMetadata": false
+      },
+      {
+        "name": "Nowen-Note-Lite-1.5.3-setup.exe",
+        "size": 81968396,
+        "sha256": "0f3ad58d406ac0dd88e19fe0702c003e1da4d67613113e7cc6ac3907450fddce",
+        "architecture": "x64",
+        "updaterMetadata": false
+      },
+      {
+        "name": "Nowen-Note-Lite-1.5.3-setup.exe.blockmap",
+        "size": 86591,
+        "sha256": "097d5e80a366b63abbbd4705e21937128de716ae733bd17a4da799171aa2fe02",
+        "architecture": "x64",
+        "updaterMetadata": false
+      },
+      {
+        "name": "latest-lite.yml",
+        "size": 358,
+        "sha256": "b1c396a35b093346818b099e9f402432db600e4f5a738018b896ab31d2dd1a1b",
+        "architecture": "metadata",
+        "updaterMetadata": true
+      },
+      {
+        "name": "latest.yml",
+        "size": 349,
+        "sha256": "e069209b7a03e958bb2869a3772e6debcc6151d86501c281e2d0d3fbf2303a36",
+        "architecture": "metadata",
+        "updaterMetadata": true
+      }
+    ],
+    "updaterVerification": [
+      "latest-lite.yml",
+      "latest.yml"
+    ],
+    "verified": true
+  },
+  "nativePackageInspection": [
+    {
+      "variant": "Full",
+      "architecture": "x64",
+      "version": "1.5.3",
+      "liteOnly": false,
+      "binaries": {
+        "electron": {
+          "path": "Nowen Note.exe",
+          "machine": "0x8664"
+        },
+        "sqlite": {
+          "path": "resources/backend/node_modules/better-sqlite3/build/Release/better_sqlite3.node",
+          "machine": "0x8664",
+          "sha256": "b66a0400ccfda4cc16479381d21f7426b82b9b88e0256061935a76cdaa766c03",
+          "electronAbi": [
+            130
+          ]
+        },
+        "sharp": {
+          "path": "resources/backend/node_modules/@img/sharp-win32-x64/lib/sharp-win32-x64.node",
+          "machine": "0x8664",
+          "sha256": "fe184de118aa33421af89c43c93131a3a80027413e98b466ca56cb773c617e92"
+        },
+        "libvips": {
+          "path": "resources/backend/node_modules/@img/sharp-win32-x64/lib/libvips-cpp.dll",
+          "machine": "0x8664",
+          "sha256": "f7b1d8dc48b836ce4a2bd1d50321625bd920245bf0fa4344db885fd45388f7b2"
+        },
+        "ffmpeg": {
+          "path": "resources/backend/node_modules/ffmpeg-static/ffmpeg.exe",
+          "machine": "0x8664",
+          "sha256": "04e1307997530f9cf2fe35cba2ca7e8875ca91da02f89d6c7243df819c94ad00"
+        }
+      },
+      "backendPresent": true
+    },
+    {
+      "variant": "Lite",
+      "architecture": "x64",
+      "version": "1.5.3",
+      "liteOnly": true,
+      "binaries": {
+        "electron": {
+          "path": "Nowen Note Lite.exe",
+          "machine": "0x8664"
+        }
+      },
+      "backendPresent": false
+    }
+  ]
+}

@@ -275,7 +275,7 @@ const VideoNodeView: React.FC<ReactNodeViewProps> = ({ node, selected, deleteNod
       {kind === "file" ? (
         <>
           <video
-            src={displaySrc}
+            src={displaySrc || undefined}
             controls
             playsInline
             preload="metadata"

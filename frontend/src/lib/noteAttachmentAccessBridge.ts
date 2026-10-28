@@ -153,7 +153,7 @@ export function extractAttachmentId(value: string | null | undefined): string | 
   if (!value || !/\/(?:api|publicapi)\/attachments\//i.test(value)) return null;
   const parsed = asAbsoluteUrl(value);
   if (!parsed) return null;
-  const match = parsed.pathname.match(/\/(?:api|publicapi)\/attachments\/([^/]+)$/i);
+  const match = parsed.pathname.match(/\/(?:api|publicapi)\/attachments\/([^/]+)(?:\/image\.(?:jpg|png|gif|webp|avif|bmp|svg|tiff|ico|heic|heif))?$/i);
   const id = match?.[1] || "";
   return ATTACHMENT_ID_RE.test(id) ? id : null;
 }

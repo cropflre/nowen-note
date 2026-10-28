@@ -436,9 +436,21 @@ function AboutPanel() {
       <div className="text-center py-4">
         <h2 className="text-2xl font-bold text-zinc-900 dark:text-zinc-100">{t('about.appName')}</h2>
         <p className="text-sm text-zinc-500 dark:text-zinc-400 mt-1">{t('about.slogan')}</p>
-        <span className="inline-block mt-2 px-3 py-0.5 rounded-full bg-accent-primary/10 text-accent-primary text-xs font-medium">
-          {t('about.version')} {__APP_VERSION__}
-        </span>
+        <div className="mt-2 flex flex-wrap items-center justify-center gap-3">
+          <span className="inline-block px-3 py-0.5 rounded-full bg-accent-primary/10 text-accent-primary text-xs font-medium">
+            {t('about.version')} {__APP_VERSION__}
+          </span>
+          <a
+            href="https://nowen.cn/"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1 text-xs text-zinc-500 hover:text-accent-primary dark:text-zinc-400 dark:hover:text-accent-primary transition-colors"
+          >
+            <Globe size={12} />
+            {t('about.website')}
+            <ExternalLink size={11} />
+          </a>
+        </div>
       </div>
 
       {/* 版本对比卡（客户端 / 服务端 / GitHub 最新 release） */}

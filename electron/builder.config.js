@@ -8,6 +8,7 @@ const path = require("path");
 const base = require("./builder.base.config.js");
 const { Arch } = require("builder-util");
 const { verifySharpRuntime } = require("../scripts/lib/sharp-runtime.cjs");
+const { verifyMacSqliteVec } = require("../scripts/lib/macos-sqlite-vec.cjs");
 const {
   assertLinuxNativeBinaryCompatible,
   formatCompatibilityReport,
@@ -49,6 +50,7 @@ async function beforeBuild(context) {
 
 module.exports = {
   ...base,
+  artifactBuildCompleted: require("../scripts/lib/macos-update-runtime.cjs"),
   beforeBuild,
   async beforePack(context) {
     if (typeof base.beforePack === "function") await base.beforePack(context);
@@ -56,6 +58,9 @@ module.exports = {
       platform: context.electronPlatformName,
       arch: Arch[context.arch],
     });
+    if (context.electronPlatformName === "darwin") {
+      verifyMacSqliteVec(path.resolve(__dirname, "../backend"), Arch[context.arch]);
+    }
   },
   async afterPack(context) {
     if (typeof base.afterPack === "function") await base.afterPack(context);
@@ -66,6 +71,9 @@ module.exports = {
       platform: context.electronPlatformName,
       arch: Arch[context.arch],
     });
+    if (context.electronPlatformName === "darwin") {
+      verifyMacSqliteVec(path.join(resources, "backend"), Arch[context.arch]);
+    }
   },
   files: [
     ...(Array.isArray(base.files) ? base.files : []),

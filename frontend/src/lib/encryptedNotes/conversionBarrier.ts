@@ -32,6 +32,17 @@ export function markConvertedNote(noteId: string, version: number, scope: string
   window.dispatchEvent(new CustomEvent(CONVERSION_INVALIDATED_EVENT, { detail: { noteId, scope } }));
 }
 
+/** Call only after the owner endpoint confirms the exact plaintext target, under its lease. */
+export function clearDecryptedNoteBarrier(noteId: string, version: number, scope: string): void {
+  if (scope !== getOfflineQueueStorageKey() || readPendingConversion(noteId, scope)) throw new ConversionCleanupError("scope_changed");
+  const previous = convertedNoteVersion(noteId, scope);
+  if (previous !== null && version <= previous) throw new ConversionCleanupError("not_committed");
+  try {
+    localStorage.removeItem(markerKey(scope, noteId));
+    if (convertedNoteVersion(noteId, scope) !== null) throw new Error();
+  } catch { throw new ConversionCleanupError("storage_failed"); }
+}
+
 type NoteCopy = { id: string; version?: number; contentFormat?: string; content?: string; contentText?: string };
 /** A list placeholder can contain no body; a detail must contain a valid note envelope. */
 export function assertConversionNote(note: NoteCopy, scope = getOfflineQueueStorageKey()): void {

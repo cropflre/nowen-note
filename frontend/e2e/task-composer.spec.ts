@@ -244,7 +244,7 @@ test("Electron renderer confirms a draft through the same task center", async ({
     expect(registered.ok()).toBe(true); const account = await registered.json();
     const headers = { Authorization: `Bearer ${account.token}` };
     await page.request.put(`${product.server}/api/ai/settings`, { headers, data: { ai_provider: "openai", ai_api_url: product.provider, ai_api_key: "test-key", ai_model: "test-composer" } });
-    await page.evaluate(() => { localStorage.setItem("i18nextLng", "en"); localStorage.setItem("nowen-seen-version", "1.5.1"); }); await page.reload();
+    await page.evaluate(version => { localStorage.setItem("i18nextLng", "en"); localStorage.setItem("nowen-seen-version", version); }, JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8")).version); await page.reload();
     await page.getByPlaceholder("admin", { exact: true }).fill("composer_electron");
     await page.locator("input[type=password]").fill("composer-electron-test-password"); await page.locator("button[type=submit]").click();
     await expect(page.getByRole("textbox", { name: "Note Title", exact: true })).toHaveValue("欢迎使用 Nowen Note");

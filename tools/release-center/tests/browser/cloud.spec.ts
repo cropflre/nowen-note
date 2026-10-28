@@ -1,0 +1,27 @@
+import { test, expect } from "@playwright/test";
+test("cloud form pins source, confirms a remote build, displays jobs and recovers after reload", async ({page}, testInfo) => {
+  const errors:string[]=[];page.on("pageerror",e=>errors.push(e.message));
+  await page.goto("/#new");
+  await page.getByLabel("源码分支").fill("release/v1.5.4");
+  await page.getByLabel("发布版本",{exact:true}).fill("1.5.3");
+  await page.getByLabel("Windows Full / Lite",{exact:true}).uncheck();
+  await page.getByLabel("macOS Intel / Apple Silicon",{exact:true}).uncheck();
+  await page.getByRole("button",{name:"检查远端版本"}).click();
+  await expect(page.getByText("a".repeat(40),{exact:true})).toBeVisible();
+  await expect(page.getByRole("button",{name:"开始 GitHub 构建"})).toBeDisabled();
+  await page.getByLabel("确认构建以上目标；本次不发布到任何渠道").check();
+  await page.getByRole("button",{name:"开始 GitHub 构建"}).click();
+  await expect(page.getByText("1.5.3 · 构建 · 已完成",{exact:true})).toBeVisible({timeout:15000});
+  await expect(page.getByRole("link",{name:"GitHub 日志与产物"})).toHaveAttribute("href",/actions\/runs\/501$/);
+  await expect(page.getByRole("button",{name:"使用此构建发布"})).toBeDisabled();
+  await page.getByText("Build Linux · success",{exact:true}).click();
+  await page.getByRole("button",{name:"读取 Job 日志"}).click();
+  await expect(page.getByLabel("远端 Job 日志")).toContainText("Build finished");
+  await expect(page.getByLabel("远端 Job 日志")).not.toContainText("ghp_fixture_secret");
+  await page.reload();await expect(page.getByText("1.5.3 · 构建 · 已完成",{exact:true})).toBeVisible();
+  await page.screenshot({path:testInfo.outputPath("cloud-desktop.png"),fullPage:true});
+  await page.setViewportSize({width:390,height:844});
+  await page.screenshot({path:testInfo.outputPath("cloud-mobile.png"),fullPage:true});
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+  expect(errors).toEqual([]);
+});

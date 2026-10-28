@@ -8,17 +8,20 @@ export const GUARDED_USER_AI_KEYS = [
   "ai_provider",
   "ai_api_url",
   "ai_api_key",
+  "ai_custom_headers",
   "ai_model",
   "ai_embedding_profile_id",
   "ai_embedding_url",
   "ai_embedding_key",
   "ai_embedding_model",
+  "ai_embedding_timeout_seconds",
 ] as const;
 
 const USER_AI_SETTING_KEYS = new Set([
   ...GUARDED_USER_AI_KEYS,
   "ai_profiles_v1",
   "ai_active_profile_id",
+  "ai_active_shared_profile_id",
   "ai_manual_enabled",
 ]);
 
@@ -26,11 +29,13 @@ const AI_DEFAULTS: AISettings = {
   ai_provider: "openai",
   ai_api_url: "https://api.openai.com/v1",
   ai_api_key: "",
+  ai_custom_headers: "{}",
   ai_model: "gpt-4o-mini",
   ai_embedding_profile_id: "",
   ai_embedding_url: "",
   ai_embedding_key: "",
   ai_embedding_model: "",
+  ai_embedding_timeout_seconds: "30",
 };
 
 const OLLAMA_DOCKER_URL = process.env.OLLAMA_URL || "";

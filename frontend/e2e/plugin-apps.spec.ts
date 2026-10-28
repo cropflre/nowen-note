@@ -48,6 +48,8 @@ test("1.5.3 host installs CLI package and runs an isolated, persistent app throu
     await page.getByRole("button", { name: "Checklist", exact: true }).click();
     await page.getByRole("button", { name: "Save app", exact: true }).click();
     await expect(page.getByRole("heading", { name: "我的待办清单", exact: true })).toBeVisible();
+    // The editor preview has the same heading; wait until the saved app runtime is ready.
+    await expect(page.getByRole("button", { name: "Edit app", exact: true })).toBeVisible();
     await page.getByLabel("事项", { exact: true }).fill("Studio smoke record");
     await page.getByRole("button", { name: "Add record", exact: true }).click();
     await expect(page.getByText("Studio smoke record", { exact: true })).toBeVisible();

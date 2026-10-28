@@ -80,5 +80,21 @@ else
   echo "[entrypoint] JWT_SECRET provided via environment (length=$(printf %s "$JWT_SECRET" | wc -c)), using as-is"
 fi
 
+# Only application startup uses the check; updater and custom maintenance commands bypass it.
+case "${1:-}:${2:-}" in
+  node:backend/dist/index.hardened.js|node:backend/dist/index.js|node:/app/backend/dist/index.hardened.js|node:/app/backend/dist/index.js)
+    if node /app/backend/dist/startup-check.js; then
+      :
+    else
+      STARTUP_STATUS=$?
+      if [ "$STARTUP_STATUS" -eq 78 ]; then
+        # Keep PID 1 signal forwarding intact while serving the upgrade prompt.
+        exec node /app/backend/dist/startup-check.js --serve
+      fi
+      exit "$STARTUP_STATUS"
+    fi
+    ;;
+esac
+
 # 交棒给原 CMD
 exec "$@"

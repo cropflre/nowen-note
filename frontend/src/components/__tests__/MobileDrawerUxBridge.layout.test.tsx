@@ -93,4 +93,12 @@ describe("MobileDrawerUxBridge layout ownership", () => {
     expect(actions.setMobileView).toHaveBeenCalledWith("list");
     expect(actions.setMobileSidebar).not.toHaveBeenCalled();
   });
+
+  it("allows opening an all-notes result in the phone editor", () => {
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 390 });
+    state.activeNote = { id: "note-1" };
+    state.mobileView = "editor";
+    act(() => root.render(<MobileDrawerUxBridge />));
+    expect(actions.setMobileView).not.toHaveBeenCalled();
+  });
 });

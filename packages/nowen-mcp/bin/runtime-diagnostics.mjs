@@ -90,14 +90,15 @@ export function parseHeartbeatMs(rawValue) {
 export function validateRuntimeConfig(options = {}) {
   const env = options.env ?? process.env;
   const nodeVersion = options.nodeVersion ?? process.versions.node;
-  const nodeMajor = Number.parseInt(String(nodeVersion).split(".")[0], 10);
-  if (!Number.isInteger(nodeMajor) || nodeMajor < 20) {
+  const version = /^(\d+)\.(\d+)\.(\d+)$/.exec(String(nodeVersion));
+  const [, major, minor, patch] = version?.map(Number) ?? [];
+  if (!version || major !== 24 || minor < 22 || (minor === 22 && patch < 1)) {
     throw new StartupDiagnosticError(
       "UNSUPPORTED_NODE_VERSION",
-      `nowen-mcp 需要 Node.js 20 或更高版本，当前为 ${nodeVersion}`,
+      `nowen-mcp 需要 Node.js 24.22.1 或更高的 24.x LTS 版本，当前为 ${nodeVersion}`,
       {
         exitCode: EXIT_CODES.CONFIG,
-        suggestion: "安装 Node.js 20、22 或 24 后重新启动 MCP 客户端",
+        suggestion: "安装 Node.js 24.22.1 或更新的 24.x LTS 版本后重新启动 MCP 客户端",
       },
     );
   }

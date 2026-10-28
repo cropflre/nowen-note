@@ -86,6 +86,9 @@ export interface AppInfo {
   arch: string;
   mode?: "full" | "lite";
   runtime?: "local" | "remote";
+  localRuntimeAvailable?: boolean;
+  localMigrationComplete?: boolean;
+  localServerUrl?: string | null;
   hideMenuBar?: boolean;
   // SEC-ELECTRON-01-C: 敏感字段可选，由 getDiagnosticsInfo 获取
   userData?: string;
@@ -317,7 +320,7 @@ export interface DesktopHttpAPI {
   }>;
 }
 
-interface NowenDesktopAPI {
+export interface NowenDesktopAPI {
   on: (channel: string, listener: (payload: unknown) => void) => () => void;
   checkForUpdates: () => Promise<{ ok: boolean; reason?: string; version?: string }>;
   openMicrosoftStoreUpdates?: () => Promise<{ ok: boolean; reason?: string }>;

@@ -1,5 +1,5 @@
 export const DOCX_IMPORT_LIMITS = {
-  maxFileBytes: 50 * 1024 * 1024,
+  maxFileBytes: 1024 * 1024 * 1024,
   maxEntries: 5_000,
   maxUncompressedBytes: 300 * 1024 * 1024,
   maxXmlBytes: 80 * 1024 * 1024,

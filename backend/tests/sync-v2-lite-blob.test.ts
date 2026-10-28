@@ -26,6 +26,7 @@ import {
 } from "../src/sync/attachments";
 import { countPendingMutations, enqueueMutation, markMutationSynced } from "../src/sync/outbox";
 import { SyncError } from "../src/sync/errors";
+import { applyRemoteChanges } from '../src/sync/applyLocal';
 import type { SyncEntityType } from "../src/sync/types";
 
 /**
@@ -201,6 +202,16 @@ test("Lite 迁移把远端数据完整搬到本地，绝不出现空知识库", 
   for (const id of noteIds) {
     assert.ok(db().prepare("SELECT 1 FROM notes WHERE id = ?").get(id), `笔记 ${id} 缺失`);
   }
+});
+
+test('DCC-005: migration does not acknowledge change-feed payloads it has not applied', async () => {
+  resetAll(); const remote=new FakeRemote(); seedRemote(remote,1);
+  const highWater=remote.serverSequence;
+  remote.changes=async () => ({serverSequence:highWater+5,nextSequence:highWater+5,hasMore:false,resetRequired:false,items:[]});
+  const progress=await runLiteMigration({db:db(),remoteUrl:REMOTE,userId:USER_ID,remoteUserId:'account-a',client:remote as never});
+  assert.equal(progress.stage,'complete');
+  assert.equal(getSyncState(db(),progress.profileId!)?.lastSequence,highWater);
+  await assert.rejects(runLiteMigration({db:db(),remoteUrl:REMOTE,userId:USER_ID,remoteUserId:'account-b',client:remote as never}),/账号已改变/);
 });
 
 test("迁移完成后建立 SyncProfile 且基线直接就绪，不再重复全量下载", async () => {
@@ -697,4 +708,20 @@ test("Lite 迁移不产生 Outbox 条目，避免把刚下载的数据又推回�
   // 迁移写入走 suppressed 上下文：这些数据本来就来自服务端，
   // 回推等于制造无意义流量，还可能触发版本冲突。
   assert.equal(countPendingMutations(db()), 0, "迁移不得产生上行 mutation");
+});
+
+test('DCC-003: initial NAS download automatically fetches attachment bytes without manually registering downloads', async () => {
+  resetAll();
+  const remote=new FakeRemote(), {noteIds}=seedRemote(remote,1), id=randomUUID();
+  const bytes=Buffer.from('automatically downloaded NAS attachment');
+  remote.entities.push({entityType:'attachment',entityId:id,payload:{id,noteId:noteIds[0],filename:'automatic.txt',mimeType:'text/plain',size:bytes.length,hash:crypto.createHash('sha256').update(bytes).digest('hex')}});
+  const blob=new FakeBlobRemote();blob.store.set(id,bytes);
+  const progress=await runLiteMigration({db:db(),remoteUrl:REMOTE,userId:USER_ID,client:remote as never,blobClient:blob as never});
+  assert.equal(progress.stage,'complete');
+  assert.deepEqual(blob.downloadCalls,[id],'metadata application must enqueue its missing bytes');
+  assert.equal(progress.attachmentsPending,0);
+  const row=db().prepare('SELECT path FROM attachments WHERE id=?').get(id) as {path:string};
+  assert.ok(!row.path.startsWith('pending-sync:'),'published local file must replace the placeholder');
+  applyRemoteChanges(db(),[{...remote.entities.at(-1)!,operation:'upsert'}],{userId:USER_ID});
+  assert.equal(listPendingDownloads(db(),10).length,0,'unchanged metadata replay retains the downloaded file');
 });

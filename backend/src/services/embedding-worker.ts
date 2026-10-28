@@ -147,7 +147,7 @@ async function processOne(
   const inputs = valid.map((c) => c.text);
 
   // 调 provider
-  const vectors = await callEmbeddings(cfg, inputs);
+  const vectors = await callEmbeddings(cfg, inputs, undefined, cfg.indexTimeoutMs);
   const dim = vectors[0]?.length || DEFAULT_DIM;
 
   // 事务写入：先删旧的，再插新的；同步收集新插入的 rowid 用于灌 vec 表
@@ -294,7 +294,7 @@ async function processAttachmentOne(
   }
 
   // 2. 调 embedding（可能抛错 → 外层 catch 按 retries 处理）
-  const vectors = await callEmbeddings(cfg, valid.map((c) => c.text));
+  const vectors = await callEmbeddings(cfg, valid.map((c) => c.text), undefined, cfg.indexTimeoutMs);
   const dim = vectors[0]?.length || DEFAULT_DIM;
 
   // 3. 事务写入：删旧 → 插新 note_embeddings + attachment_chunks

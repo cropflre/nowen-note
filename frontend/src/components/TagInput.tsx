@@ -35,7 +35,7 @@ export default function TagInput({ noteId, noteTags, onTagsChange, mobileCompact
     && window.matchMedia("(max-width: 639px)").matches
   ));
   const inputRef = useRef<HTMLInputElement>(null);
-  const blurTimerRef = useRef<ReturnType<typeof setTimeout>>();
+  const blurTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   useEffect(() => {
     if (!mobileCompact || typeof window === "undefined") {

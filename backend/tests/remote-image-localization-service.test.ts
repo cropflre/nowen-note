@@ -241,3 +241,174 @@ test("job ownership is isolated", async () => {
     (error: any) => error?.code === "JOB_NOT_FOUND",
   );
 });
+
+test("all-personal job scans automatically beyond the note and image batch limits", async () => {
+  await seed();
+  const { localization, getDb } = await modules();
+  const db = getDb();
+  const insert = db.prepare(`INSERT INTO notes
+    (id, userId, notebookId, title, content, contentFormat, version)
+    VALUES (?, ?, ?, 'Batch', ?, 'markdown', 1)`);
+  db.transaction(() => {
+    for (let i = 0; i < 105; i += 1) {
+      insert.run(`batch-${i}`, USER_ID, NOTEBOOK_ID,
+        Array.from({ length: 6 }, (_, j) => `![x](https://8.8.8.8/${i}-${j}.png)`).join("\n"));
+    }
+  })();
+  try {
+    const created = localization.createLocalizationJob(USER_ID, { allPersonal: true });
+    assert.equal(created.status, "queued");
+    assert.ok(created.summary.totalNotes > 100);
+    assert.equal(created.summary.scannedNotes, 0, "scan must run in the background");
+    localization.cancelLocalizationJob(USER_ID, created.id);
+    const cancelled = await waitForJob(USER_ID, created.id);
+    assert.equal(cancelled.status, "cancelled");
+    assert.equal(cancelled.summary.downloadedUniqueUrls, 0);
+    assert.equal(cancelled.summary.scannedNotes, 0);
+  } finally {
+    db.prepare("DELETE FROM notes WHERE id LIKE 'batch-%'").run();
+  }
+});
+
+test("automatic batches save images past all batch bounds and preserve failed links (DCC-006)", async (context) => {
+  await seed();
+  const { localization, getDb } = await modules();
+  const db = getDb();
+  // Keep this fixture offline: public IPs pass SSRF checks and fetch is mocked.
+  db.prepare("UPDATE notes SET content = '' WHERE userId = ? AND isLocked = 0 AND isTrashed = 0").run(USER_ID);
+  const insert = db.prepare(`INSERT INTO notes
+    (id, userId, notebookId, title, content, contentFormat, version)
+    VALUES (?, ?, ?, 'Automatic batch', ?, 'markdown', 1)`);
+  db.transaction(() => {
+    for (let i = 0; i < 105; i += 1) {
+      insert.run(`auto-${i}`, USER_ID, NOTEBOOK_ID, i < 2
+        ? `![good](https://1.1.1.${i + 1}/good.png)\n![bad](https://1.1.1.${i + 3}/bad.png)` : "plain text");
+    }
+  })();
+  const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", "base64");
+  const largePng = Buffer.concat([png, Buffer.alloc(600_000)]);
+  const fetchMock = context.mock.method(globalThis, "fetch", async (input: any) => {
+    return String(input).includes("/bad.png")
+      ? new Response("unavailable", { status: 503 })
+      : new Response(largePng, { headers: { "content-type": "image/png" } });
+  });
+  process.env.REMOTE_IMAGE_LOCALIZATION_MAX_NOTES = "2";
+  process.env.REMOTE_IMAGE_LOCALIZATION_MAX_IMAGES = "1";
+  process.env.REMOTE_IMAGE_LOCALIZATION_MAX_TOTAL_MB = "1";
+  try {
+    const created = localization.createLocalizationJob(USER_ID, { allPersonal: true });
+    const completed = await waitForJob(USER_ID, created.id);
+    assert.equal(completed.status, "completed_with_errors");
+    assert.ok(completed.summary.scannedNotes > 100);
+    assert.equal(completed.summary.processedNotes, completed.summary.totalNotes);
+    assert.equal(completed.summary.localizedUrls, 2);
+    assert.equal(completed.summary.failedUrls, 2);
+    assert.ok(completed.summary.downloadedBytes > 1024 * 1024, "capacity limit applies to cached batches, not the full library");
+    assert.equal(fetchMock.mock.callCount(), 4);
+    for (let i = 0; i < 2; i += 1) {
+      const note = db.prepare("SELECT content, version FROM notes WHERE id = ?").get(`auto-${i}`) as { content: string; version: number };
+      assert.match(note.content, /\/api\/attachments\//);
+      assert.match(note.content, /\/bad.png/);
+      assert.equal(note.version, 2);
+    }
+    assert.ok(!completed.noteResults.some((note) => note.noteId === OTHER_NOTE_ID || note.noteId === TRASHED_NOTE_ID));
+    // More retry notes than the configured batch size must still be admitted.
+    process.env.REMOTE_IMAGE_LOCALIZATION_MAX_NOTES = "1";
+    const retry = localization.retryLocalizationJob(USER_ID, completed.id);
+    assert.equal(retry.summary.totalNotes, 2);
+    localization.cancelLocalizationJob(USER_ID, retry.id);
+    assert.equal((await waitForJob(USER_ID, retry.id)).status, "cancelled");
+  } finally {
+    delete process.env.REMOTE_IMAGE_LOCALIZATION_MAX_NOTES;
+    delete process.env.REMOTE_IMAGE_LOCALIZATION_MAX_IMAGES;
+    delete process.env.REMOTE_IMAGE_LOCALIZATION_MAX_TOTAL_MB;
+    fetchMock.mock.restore();
+    db.prepare("DELETE FROM notes WHERE id LIKE 'auto-%'").run();
+  }
+});
+
+test("an interrupted automatic scan retries all unscanned notes beyond the batch limit", async (context) => {
+  await seed();
+  const { localization, getDb } = await modules();
+  const db = getDb();
+  const created = localization.createLocalizationJob(USER_ID, { allPersonal: true });
+  const originalPrepare = db.prepare;
+  const failure = context.mock.method(db, "prepare", function (sql: string) {
+    if (sql.includes("SELECT id, userId, notebookId")) throw new Error("Scan interrupted");
+    return originalPrepare.call(db, sql);
+  });
+  const interrupted = await waitForJob(USER_ID, created.id);
+  assert.equal(interrupted.status, "failed");
+  assert.equal(interrupted.summary.scannedNotes, 0);
+  failure.mock.restore();
+  process.env.REMOTE_IMAGE_LOCALIZATION_MAX_NOTES = "1";
+  try {
+    const retry = localization.retryLocalizationJob(USER_ID, created.id);
+    assert.equal(retry.summary.totalNotes, created.summary.totalNotes);
+    assert.equal(retry.summary.scannedNotes, 0);
+    localization.cancelLocalizationJob(USER_ID, retry.id);
+    assert.equal((await waitForJob(USER_ID, retry.id)).status, "cancelled");
+  } finally {
+    delete process.env.REMOTE_IMAGE_LOCALIZATION_MAX_NOTES;
+  }
+});
+
+test("automatic scan skips notes moved into a workspace after the job was created (DCC-006)", async () => {
+  await seed();
+  const { localization, getDb } = await modules();
+  const db = getDb();
+  db.prepare("UPDATE notes SET content = '' WHERE userId = ? AND isLocked = 0").run(USER_ID);
+  db.prepare("INSERT OR IGNORE INTO workspaces (id, ownerId) VALUES ('localization-workspace', ?)").run(USER_ID);
+  db.prepare("UPDATE notes SET content = '![x](https://8.8.4.4/workspace.png)' WHERE id = ?").run(NOTE_ID);
+  const created = localization.createLocalizationJob(USER_ID, { allPersonal: true });
+  db.prepare("UPDATE notes SET workspaceId = 'localization-workspace' WHERE id = ?").run(NOTE_ID);
+  try {
+    const completed = await waitForJob(USER_ID, created.id);
+    assert.equal(completed.summary.downloadedUniqueUrls, 0);
+    assert.equal(completed.noteResults.find((note) => note.noteId === NOTE_ID)?.status, "forbidden");
+  } finally {
+    db.prepare("UPDATE notes SET workspaceId = NULL WHERE id = ?").run(NOTE_ID);
+  }
+});
+
+test("an edit during automatic download retains the newer body and creates no attachment (DCC-004)", async (context) => {
+  await seed();
+  const { localization, getDb } = await modules();
+  const db = getDb();
+  db.prepare("UPDATE notes SET content = '' WHERE userId = ? AND isLocked = 0").run(USER_ID);
+  db.prepare("UPDATE notes SET content = '![x](https://4.2.2.1/edit.png)' WHERE id = ?").run(NOTE_ID);
+  const existing = db.prepare("SELECT COUNT(*) AS count FROM attachments WHERE noteId = ?").get(NOTE_ID) as { count: number };
+  context.mock.method(globalThis, "fetch", async () => {
+    db.prepare("UPDATE notes SET content = 'newer unsynced edit', version = version + 1 WHERE id = ?").run(NOTE_ID);
+    return new Response(Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", "base64"), { headers: { "content-type": "image/png" } });
+  });
+  const created = localization.createLocalizationJob(USER_ID, { allPersonal: true });
+  const completed = await waitForJob(USER_ID, created.id);
+  assert.equal(completed.summary.localizedUrls, 0);
+  assert.equal(completed.summary.failedUrls, 1);
+  const note = db.prepare("SELECT content, version FROM notes WHERE id = ?").get(NOTE_ID) as { content: string; version: number };
+  assert.equal(note.content, "newer unsynced edit");
+  assert.equal(note.version, 8);
+  assert.deepEqual(db.prepare("SELECT COUNT(*) AS count FROM attachments WHERE noteId = ?").get(NOTE_ID), existing);
+});
+
+test("stopping during a rate-limit cooldown does not download or fail remaining images", async (context) => {
+  await seed();
+  const { localization, getDb } = await modules();
+  const db = getDb();
+  db.prepare("UPDATE notes SET content = '' WHERE userId = ? AND isLocked = 0").run(USER_ID);
+  db.prepare("UPDATE notes SET content = '![x](https://9.9.9.9/one.png)\n![y](https://9.9.9.9/two.png)' WHERE id = ?").run(NOTE_ID);
+  let jobId = "";
+  const fetchMock = context.mock.method(globalThis, "fetch", async () => {
+    setTimeout(() => localization.cancelLocalizationJob(USER_ID, jobId), 20);
+    return new Response("limited", { status: 429, headers: { "retry-after": "60" } });
+  });
+  const created = localization.createLocalizationJob(USER_ID, { allPersonal: true });
+  jobId = created.id;
+  const completed = await waitForJob(USER_ID, created.id);
+  assert.equal(completed.status, "cancelled");
+  assert.equal(fetchMock.mock.callCount(), 1);
+  assert.equal(completed.summary.failedUrls, 0);
+  assert.equal(completed.summary.localizedUrls, 0);
+  assert.equal(completed.summary.processedImageOperations, completed.summary.totalImageOperations);
+});

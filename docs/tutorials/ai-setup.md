@@ -6,16 +6,19 @@
 
 ## 支持的 AI 服务商
 
-nowen-note 支持 6 个 AI 服务商：
+nowen-note 支持以下 AI 服务商和接口：
 
 | 服务商 | 模型示例 | 需要 API Key | 国内访问 |
 |---|---|---|---|
 | 通义千问 | qwen-plus / qwen-max | ✅ | ✅ 直连 |
 | OpenAI | GPT-4o / GPT-4 | ✅ | ⚠️ 需代理 |
-| Google Gemini | Gemini Pro | ✅ | ⚠️ 需代理 |
+| Anthropic Messages（原生协议） | 服务端提供的 Claude 模型 | ✅ 或自定义鉴权头 | 按部署网络配置 |
+| Google Gemini（OpenAI 兼容协议） | 服务端提供的 Gemini 模型 | ✅ | ⚠️ 需代理 |
 | DeepSeek | DeepSeek-V3 / R1 | ✅ | ✅ 直连 |
 | 豆包（火山引擎） | doubao-pro | ✅ | ✅ 直连 |
 | Ollama | 各种开源模型 | ❌ 本地运行 | ✅ 无需网络 |
+| LM Studio | 本地或局域网模型 | ❌ | 按部署网络配置 |
+| 自定义 API | OpenAI 兼容模型 | ✅ 或自定义鉴权头 | 按部署网络配置 |
 
 ---
 
@@ -39,7 +42,7 @@ nowen-note 支持 6 个 AI 服务商：
 
 1. 在对应服务商的控制台获取 API Key
 2. 将 API Key 粘贴到对应输入框
-3. API Key 保存在本地，不会上传到其他服务器
+3. API Key 按用户保存在 Nowen Note 服务端数据库中，调用时发送给所配置的 AI 服务；配置接口只返回掩码。
 
 [截图：API Key 输入框]
 
@@ -90,6 +93,36 @@ nowen-note 支持 6 个 AI 服务商：
 
 1. 访问 [Google AI Studio](https://aistudio.google.com/)
 2. 获取 API Key
+3. 地址可自定义，默认是 `https://generativelanguage.googleapis.com/v1beta/openai`。此选项使用 OpenAI 兼容协议，不支持直接填写 Gemini 原生 `models/*:generateContent` 地址。
+
+### Anthropic Messages 与自建网关
+
+1. 选择「Anthropic」，基础地址默认是 `https://api.anthropic.com/v1`，也可填写网关地址，例如 `https://gateway.example/anthropic/v1`。
+2. 系统自动追加 `/messages`；不要把完整 `/messages` 地址填入基础地址。OpenAI 兼容配置则自动追加 `/chat/completions`。
+3. 填写 API Key 和网关实际提供的模型名称。Anthropic 配置默认发送 `x-api-key` 与 `anthropic-version: 2023-06-01`；不同版本要求可在自定义请求头中覆盖。
+4. 展开「高级：自定义请求头」，逐项填写名称和值，例如 `x-session`。每份配置独立保存，切换配置时一并切换；仅使用自定义鉴权头的网关可将 API Key 留空。
+5. 点击「保存并测试」。网关未提供 `/models` 时，可手动输入模型名称后测试；模型列表加载失败不代表聊天接口不可用。
+
+自定义请求头应用于连接测试、模型发现、聊天、写作助手及文档处理。头名称不区分大小写，同名自定义头覆盖默认鉴权头；`Content-Type`、`Host`、`Content-Length` 等传输头由系统管理。最多 32 项，总长度不超过 16 KB，禁止换行。
+
+头值按凭据处理，保存后只显示掩码；修改配置时保留掩码可继续使用原值，重命名请求头后须重新输入值，删除行会移除该头。服务请求不跟随重定向，以免网关凭据被转发到其他地址。
+
+向量检索复用 OpenAI 兼容的聊天配置或绑定配置时，会使用该配置的请求头；单独填写的向量服务地址不会继承聊天配置的请求头。Anthropic Messages 不提供向量接口，需要另选 OpenAI 兼容的 Embedding 配置。AI Agent 的工具调用当前仍要求 OpenAI 兼容协议，支持使用该配置的自定义请求头；Anthropic 原生配置可用于文本功能，暂不支持 Agent 工具调用。本次不支持 Responses API 或 Gemini 原生协议，仅修改路径不能切换协议。
+
+### OpenCode Go：MissingSessionID / x-opencode-session
+
+如果自定义 API 返回 `400`、`MissingSessionID` 和 `Request is missing x-opencode-session`，表示上游要求会话请求头。仅填写 API Key、地址和模型还不够。
+
+[OpenCode Go 官方接入要求](https://opencode.ai/docs/go/#where-can-i-use-it)包括：编程 Agent 类型的请求、客户端自己的 User-Agent，以及每个对话独立且稳定的 `x-opencode-session`。
+
+在「AI 设置 → 高级：自定义请求头」可手动添加：
+
+| 名称 | 值 |
+|---|---|
+| `x-opencode-session` | 为当前对话生成的随机 UUID；同一对话内保持不变 |
+| `User-Agent` | 例如 `Nowen-Note/1.5.4`，版本按实际安装版本填写 |
+
+保存后重新测试连接。当前自定义请求头按 AI 配置保存，所有使用该配置的请求共享这些值，**不会自动随对话切换**。手动配置可用于排查缺少请求头的问题；固定一个值供多个对话共用不满足官方的会话要求，完整接入仍需按对话管理会话 ID。普通笔记问答、写作和总结是否适用于 Go 套餐，请向服务方确认；补齐请求头不代表服务方已认可这些用途。
 
 ### Ollama（本地部署，无需 API Key）
 
@@ -171,8 +204,8 @@ ollama pull qwen2.5:14b   # 更强，约 13GB
 
 ### Q：API Key 安全吗？
 
-API Key 保存在本地浏览器 localStorage 中，不上传到服务器。自托管部署数据完全在你的控制下。
+API Key 和自定义请求头按用户保存在 Nowen Note 服务端数据库中，调用时发送给所配置的 AI 服务，配置接口返回掩码。请只配置可信的服务地址，并保护服务器数据库及备份。
 
 ---
 
-> 本教程基于 nowen-note v1.1.18 编写。
+> Anthropic Messages 和自定义请求头的使用方式以包含 Issue #885 改动的版本为准。

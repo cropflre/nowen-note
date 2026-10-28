@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
+import { OfflineAvailability } from "./OfflineAvailability";
 import {
   AlertTriangle,
-  CheckCircle2,
   Cloud,
   HardDrive,
+  Info,
   Loader2,
   RefreshCw,
   Server,
@@ -21,22 +22,18 @@ import {
 } from "@/lib/syncLocalApi";
 
 /**
- * 同步设置（Phase 7）。
- *
- * 产品层只呈现两个选项：
- *   ● 不同步，仅此设备
- *   ○ 我的 Nowen Server
- *
- * 刻意**不**暴露 Full / Lite / SQLite / Server Mode。这些是实现细节，
- * 让用户理解它们除了增加困惑没有任何好处——底层数据模式永远是 Local，
- * 同步只是一项可选能力。
+ * 同步是可选能力：展示已确认的当前状态，通过明确的按钮连接或关闭。
+ * 本机始终优先保存数据；开启后台同步不代表全部数据已同步完成。
  */
 export function SyncSettingsPanel() {
   const [settings, setSettings] = useState<SyncSettingsResponse | null>(null);
   const [diagnostics, setDiagnostics] = useState<SyncDiagnostics | null>(null);
   const [unavailable, setUnavailable] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [busy, setBusy] = useState(false);
+  const [action, setAction] = useState<"login" | "bootstrap" | "resume" | "disable" | null>(null);
+  const busy = action !== null;
+  const [settingsError, setSettingsError] = useState<string | null>(null);
+  const [diagnosticsError, setDiagnosticsError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [serverUrl, setServerUrl] = useState("");
@@ -49,30 +46,53 @@ export function SyncSettingsPanel() {
     try {
       const next = await fetchSyncSettings();
       setSettings(next);
-      if (next.activeProfile?.serverUrl) {
-        setServerUrl((current) => current || next.activeProfile!.serverUrl);
+      setSettingsError(null);
+      const savedUrl = next.activeProfile?.serverUrl || next.profiles[0]?.serverUrl;
+      if (savedUrl) {
+        setServerUrl((current) => current || savedUrl);
       }
       setUnavailable(false);
-      if (next.mode === "server") {
-        setDiagnostics(await fetchSyncDiagnostics());
-      } else {
-        setDiagnostics(null);
+      setDiagnostics(null);
+      setDiagnosticsError(null);
+      if (next.profiles.length > 0) {
+        try {
+          setDiagnostics(await fetchSyncDiagnostics());
+        } catch (err) {
+          setDiagnosticsError(err instanceof Error ? err.message : String(err));
+        }
       }
     } catch (err) {
       if (err instanceof SyncV2DisabledError) {
         // 未启用是默认状态，不当作错误展示。
         setUnavailable(true);
       } else {
-        setError(err instanceof Error ? err.message : String(err));
+        setSettingsError(err instanceof Error ? err.message : String(err));
+        setDiagnostics(null);
       }
     } finally {
       setLoading(false);
     }
   }, []);
 
-  useEffect(() => { void reload(); }, [reload]);
+  useEffect(() => {
+    void reload();
+    const timer = window.setInterval(() => { void reload(); }, 5000);
+    return () => window.clearInterval(timer);
+  }, [reload]);
+
+  const bootstrap = async () => {
+    setAction("bootstrap");
+    const progress = await startSyncBootstrap();
+    if (progress.status === "failed") {
+      throw new Error(progress.error || "首次同步初始化失败，请重试。");
+    }
+    setNotice(progress.status === "ready" && progress.engineRunning
+      ? "同步初始化已完成，后续修改将在后台同步。"
+      : "后台同步尚未启动，请继续首次同步。未同步修改仍保留在本机。");
+  };
 
   const handleConnect = async () => {
+    if (busy) return;
     const trimmed = serverUrl.trim();
     if (!/^https?:\/\//i.test(trimmed)) {
       setError("服务器地址需要以 http:// 或 https:// 开头");
@@ -86,7 +106,7 @@ export function SyncSettingsPanel() {
       setError("请输入双重验证代码");
       return;
     }
-    setBusy(true);
+    setAction("login");
     setError(null);
     setNotice(null);
     try {
@@ -103,44 +123,40 @@ export function SyncSettingsPanel() {
       setTwoFactorTicket("");
       setTwoFactorCode("");
       if (result.bootstrapRequired) {
-        const progress = await startSyncBootstrap();
-        setNotice(progress.engineRunning
-          ? "登录授权成功，首次同步已完成并开始后台同步。"
-          : "登录授权成功，首次同步已完成。数据仍优先保存在本机。");
+        await bootstrap();
       } else {
-        setNotice(result.message);
+        setNotice("登录成功。笔记仍优先保存在本机。");
       }
       await reload();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
       await reload();
     } finally {
-      setBusy(false);
+      setAction(null);
     }
   };
 
   const handleBootstrap = async () => {
-    setBusy(true);
+    if (busy) return;
+    setAction("bootstrap");
     setError(null);
     setNotice(null);
     try {
-      const progress = await startSyncBootstrap();
-      setNotice(progress.engineRunning
-        ? "首次同步已完成，同步引擎正在运行。"
-        : "首次同步已完成。数据仍优先保存在本机。");
+      await bootstrap();
       await reload();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
       await reload();
     } finally {
-      setBusy(false);
+      setAction(null);
     }
   };
 
   const handleResume = async () => {
+    if (busy) return;
     const target = serverUrl.trim() || settings?.profiles[0]?.serverUrl || "";
     if (!target) return;
-    setBusy(true);
+    setAction("resume");
     setError(null);
     setNotice(null);
     try {
@@ -149,13 +165,15 @@ export function SyncSettingsPanel() {
       await reload();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
+      await reload();
     } finally {
-      setBusy(false);
+      setAction(null);
     }
   };
 
   const handleDisable = async () => {
-    setBusy(true);
+    if (busy) return;
+    setAction("disable");
     setError(null);
     setNotice(null);
     try {
@@ -165,8 +183,9 @@ export function SyncSettingsPanel() {
       await reload();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
+      await reload();
     } finally {
-      setBusy(false);
+      setAction(null);
     }
   };
 
@@ -187,175 +206,174 @@ export function SyncSettingsPanel() {
     );
   }
 
-  const mode = settings?.mode ?? "device-only";
-  const activeProfile = settings?.activeProfile;
-  const authorizationExpired = settings?.authorizationState === "expired";
-  const showLogin = !settings?.authorized;
-  const canResume = mode === "device-only" && settings?.authorized;
+  if (settingsError || !settings) {
+    return (
+      <div className="space-y-3 rounded-md border p-4 text-sm" role="alert">
+        <p className="flex items-center gap-2 font-medium">
+          <AlertTriangle className="h-4 w-4 text-destructive" />
+          暂时无法读取同步设置
+        </p>
+        <p className="break-words text-xs text-muted-foreground">{settingsError}</p>
+        <button type="button" onClick={() => { setLoading(true); void reload(); }} className="rounded border px-3 py-1.5 text-xs hover:bg-muted">
+          重试
+        </button>
+      </div>
+    );
+  }
+
+  const mode = settings.mode;
+  const activeProfile = settings.activeProfile;
+  const authorizationExpired = settings.authorizationState === "expired";
+  const showLogin = !settings.authorized;
+  const canResume = mode === "device-only" && settings.authorized;
+  const status = authorizationExpired ? "需要重新登录"
+    : canResume ? "已暂停"
+      : mode === "device-only" ? "未开启"
+        : showLogin ? "等待登录"
+          : settings.engineRunning ? "已开启" : "待完成首次同步";
+  const progressLabel = action === "login" ? "正在登录…"
+    : action === "bootstrap" ? "正在初始化同步…"
+      : action === "resume" ? "正在恢复同步…" : "正在关闭同步…";
 
   return (
     <div className="space-y-6">
-      <section className="space-y-3">
-        <h3 className="text-sm font-medium">同步</h3>
-
-        <label className="flex cursor-pointer items-start gap-3 rounded-md border p-3">
-          <input
-            type="radio"
-            name="nowen-sync-mode"
-            className="mt-1"
-            checked={mode === "device-only"}
-            onChange={() => { void handleDisable(); }}
-            disabled={busy}
-          />
-          <span className="flex-1">
-            <span className="flex items-center gap-2 text-sm font-medium">
-              <HardDrive className="h-4 w-4" />
-              不同步，仅此设备
-            </span>
-            <span className="mt-1 block text-xs text-muted-foreground">
-              数据完整保存在这台设备上。没有服务器、没有网络也能创建、编辑、搜索和导入导出。
-            </span>
-          </span>
-        </label>
-
-        <label className="flex cursor-pointer items-start gap-3 rounded-md border p-3">
-          <input
-            type="radio"
-            name="nowen-sync-mode"
-            className="mt-1"
-            checked={mode === "server"}
-            onChange={() => { /* 由下方按钮确认，避免误触即连接 */ }}
-            disabled={busy}
-          />
-          <span className="flex-1">
-            <span className="flex items-center gap-2 text-sm font-medium">
-              <Server className="h-4 w-4" />
-              我的 Nowen Server
-            </span>
-            <span className="mt-1 block text-xs text-muted-foreground">
-              依然优先保存到本机，随后在后台同步到你的服务器。断网时可继续编辑，恢复后自动补传。
-            </span>
-
-            {settings?.authorized && activeProfile ? (
-              <span className="mt-2 flex flex-col gap-2 text-xs">
-                <span className="flex items-center gap-2">
-                  <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
-                  {settings.engineRunning ? "已授权并正在同步" : "已授权，等待首次同步完成"} {activeProfile.serverUrl}
-                </span>
-                {!settings.engineRunning ? (
-                  <button
-                    type="button"
-                    onClick={() => { void handleBootstrap(); }}
-                    disabled={busy}
-                    className="w-fit rounded bg-primary px-3 py-1 text-xs text-primary-foreground disabled:opacity-50"
-                  >
-                    继续首次同步
-                  </button>
-                ) : null}
-              </span>
+      <section className="space-y-4" aria-label="多设备同步" aria-busy={busy}>
+        <h3 className="text-sm font-medium">多设备同步</h3>
+        <div className="space-y-3 rounded-md border p-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-2 text-sm font-medium">
+              {mode === "server" ? <Cloud className="h-4 w-4" /> : <HardDrive className="h-4 w-4" />}
+              当前状态
+              <span className="rounded bg-muted px-2 py-0.5 text-xs" role="status">{status}</span>
+            </div>
+            {mode === "server" ? (
+              <button type="button" onClick={() => { void handleDisable(); }} disabled={busy} className="rounded border px-3 py-1.5 text-xs hover:bg-muted disabled:opacity-50">
+                {action === "disable" ? progressLabel : "关闭同步"}
+              </button>
             ) : null}
+          </div>
+          <p className="text-xs leading-relaxed text-muted-foreground">
+            {authorizationExpired ? "同步授权已失效，请重新登录。未同步修改仍保留在本机。"
+              : mode === "device-only" ? "笔记保存在此设备上，没有服务器或网络也能继续使用。开启同步后，可在其他设备访问笔记。"
+                : showLogin ? "服务器已配置，登录后才能开启同步。未同步修改仍保留在本机。"
+                  : settings.engineRunning ? "后台同步已开启。笔记优先保存到本机，断网时可继续编辑，联网后自动重试。"
+                    : "账号已登录，请继续完成首次同步。未同步修改仍保留在本机。"}
+          </p>
+          {activeProfile ? <p className="break-all text-xs text-muted-foreground">服务器：{activeProfile.serverUrl}</p> : null}
+          {mode === "server" ? <p className="text-xs text-muted-foreground">关闭同步不会删除本机笔记和待同步修改，再次开启需要登录。</p> : null}
+          {settings.authorized && mode === "server" && !settings.engineRunning ? (
+            <button type="button" onClick={() => { void handleBootstrap(); }} disabled={busy} className="rounded bg-primary px-3 py-1.5 text-xs text-primary-foreground disabled:opacity-50">
+              {action === "bootstrap" ? progressLabel : "继续首次同步"}
+            </button>
+          ) : null}
+          {canResume ? (
+            <div className="space-y-2 text-xs">
+              <p className="break-all text-muted-foreground">恢复与 {settings.profiles[0]?.serverUrl || serverUrl} 的同步。</p>
+              <button type="button" onClick={() => { void handleResume(); }} disabled={busy} className="rounded bg-primary px-3 py-1.5 text-primary-foreground disabled:opacity-50">
+                {action === "resume" ? progressLabel : "恢复同步"}
+              </button>
+            </div>
+          ) : null}
+          {mode === "server" && !diagnostics ? (
+            <button type="button" onClick={() => { void reload(); }} disabled={busy} className="text-xs text-muted-foreground hover:text-foreground disabled:opacity-50">刷新状态</button>
+          ) : null}
+        </div>
 
-            {canResume ? (
-              <span className="mt-2 flex flex-col gap-2 text-xs">
-                <span>账号授权仍有效，可恢复与 {settings.profiles[0]?.serverUrl || serverUrl} 的同步。</span>
-                <button
-                  type="button"
-                  onClick={() => { void handleResume(); }}
-                  disabled={busy}
-                  className="w-fit rounded bg-primary px-3 py-1 text-xs text-primary-foreground disabled:opacity-50"
-                >
-                  恢复同步
-                </button>
-              </span>
-            ) : null}
-
-            {showLogin ? (
-              <span className="mt-2 flex flex-col gap-2">
-                {authorizationExpired ? (
-                  <span className="text-xs text-destructive">同步授权已失效，请重新登录。未同步修改仍保留在本机。</span>
-                ) : null}
+        {showLogin ? (
+          <form className="space-y-3 rounded-md border p-4" onSubmit={(event) => { event.preventDefault(); void handleConnect(); }}>
+            <h4 className="flex items-center gap-2 text-sm font-medium"><Server className="h-4 w-4" />连接我的 Nowen Server</h4>
+            <p className="text-xs leading-relaxed text-muted-foreground">填写你部署的服务器地址和账号，登录后开启同步。</p>
+            <label className="block space-y-1.5 text-xs">
+              <span>服务器地址</span>
+              <input
+                type="url"
+                value={serverUrl}
+                onChange={(event) => setServerUrl(event.target.value)}
+                placeholder="http://192.168.1.10:3000"
+                className="w-full rounded border bg-transparent px-3 py-2 text-sm"
+                disabled={busy || !!twoFactorTicket}
+                required
+              />
+            </label>
+            {twoFactorTicket ? (
+              <label className="block space-y-1.5 text-xs">
+                <span>双重验证代码或恢复码</span>
                 <input
-                  type="url"
-                  value={serverUrl}
-                  onChange={(event) => setServerUrl(event.target.value)}
-                  placeholder="http://192.168.1.10:3000"
-                  className="flex-1 rounded border px-2 py-1 text-xs"
+                  type="text"
+                  autoComplete="one-time-code"
+                  value={twoFactorCode}
+                  onChange={(event) => setTwoFactorCode(event.target.value)}
+                  className="w-full rounded border bg-transparent px-3 py-2 text-sm"
                   disabled={busy}
+                  required
                 />
-                {twoFactorTicket ? (
+              </label>
+            ) : (
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <label className="block space-y-1.5 text-xs">
+                  <span>账号</span>
                   <input
                     type="text"
-                    inputMode="numeric"
-                    autoComplete="one-time-code"
-                    value={twoFactorCode}
-                    onChange={(event) => setTwoFactorCode(event.target.value)}
-                    placeholder="双重验证代码或恢复码"
-                    className="rounded border px-2 py-1 text-xs"
+                    autoComplete="username"
+                    value={username}
+                    onChange={(event) => setUsername(event.target.value)}
+                    className="w-full rounded border bg-transparent px-3 py-2 text-sm"
                     disabled={busy}
+                    required
                   />
-                ) : (
-                  <>
-                    <input
-                      type="text"
-                      autoComplete="username"
-                      value={username}
-                      onChange={(event) => setUsername(event.target.value)}
-                      placeholder="账号"
-                      className="rounded border px-2 py-1 text-xs"
-                      disabled={busy}
-                    />
-                    <input
-                      type="password"
-                      autoComplete="current-password"
-                      value={password}
-                      onChange={(event) => setPassword(event.target.value)}
-                      placeholder="密码"
-                      className="rounded border px-2 py-1 text-xs"
-                      disabled={busy}
-                    />
-                  </>
-                )}
-                <span className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => { void handleConnect(); }}
+                </label>
+                <label className="block space-y-1.5 text-xs">
+                  <span>密码</span>
+                  <input
+                    type="password"
+                    autoComplete="current-password"
+                    value={password}
+                    onChange={(event) => setPassword(event.target.value)}
+                    className="w-full rounded border bg-transparent px-3 py-2 text-sm"
                     disabled={busy}
-                    className="rounded bg-primary px-3 py-1 text-xs text-primary-foreground disabled:opacity-50"
-                  >
-                    {twoFactorTicket ? "验证并开始同步" : "登录并开始同步"}
-                  </button>
-                  {twoFactorTicket ? (
-                    <button
-                      type="button"
-                      onClick={() => { setTwoFactorTicket(""); setTwoFactorCode(""); }}
-                      disabled={busy}
-                      className="rounded border px-3 py-1 text-xs disabled:opacity-50"
-                    >
-                      返回账号密码
-                    </button>
-                  ) : null}
-                </span>
-              </span>
-            ) : null}
-          </span>
-        </label>
+                    required
+                  />
+                </label>
+              </div>
+            )}
+            <div className="flex flex-wrap items-center gap-2">
+              <button type="submit" disabled={busy} className="inline-flex items-center gap-2 rounded bg-primary px-3 py-2 text-xs text-primary-foreground disabled:opacity-50">
+                {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+                {busy ? progressLabel : twoFactorTicket ? "验证并开启同步" : "登录并开启同步"}
+              </button>
+              {twoFactorTicket ? (
+                <button
+                  type="button"
+                  onClick={() => { setTwoFactorTicket(""); setTwoFactorCode(""); setNotice(null); setError(null); }}
+                  disabled={busy}
+                  className="rounded border px-3 py-2 text-xs disabled:opacity-50"
+                >
+                  返回账号密码
+                </button>
+              ) : null}
+            </div>
+          </form>
+        ) : null}
 
+        <p className="text-xs text-muted-foreground">连接后，本机已有笔记也将同步到该账号。请确认服务器与账号正确。</p>
+        <OfflineAvailability offline={diagnostics?.offline} />
         {notice ? (
-          <p className="flex items-start gap-2 text-xs text-emerald-700">
-            <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          <p role="status" className="flex items-start gap-2 text-xs text-muted-foreground">
+            <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
             {notice}
           </p>
         ) : null}
         {error ? (
-          <p className="flex items-start gap-2 text-xs text-destructive">
+          <p role="alert" className="flex items-start gap-2 break-words text-xs text-destructive">
             <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
             {error}
           </p>
         ) : null}
+        {diagnosticsError ? <p role="alert" className="break-words text-xs text-destructive">诊断信息暂时不可用：{diagnosticsError}</p> : null}
       </section>
 
       {mode === "server" && diagnostics ? (
-        <SyncDiagnosticsPanel diagnostics={diagnostics} onRefresh={reload} />
+        <SyncDiagnosticsPanel diagnostics={diagnostics} onRefresh={reload} disabled={busy} />
       ) : null}
     </div>
   );
@@ -370,9 +388,11 @@ export function SyncSettingsPanel() {
 function SyncDiagnosticsPanel({
   diagnostics,
   onRefresh,
+  disabled,
 }: {
   diagnostics: SyncDiagnostics;
   onRefresh: () => Promise<void> | void;
+  disabled: boolean;
 }) {
   const rows: Array<[string, string]> = [
     ["设备 ID", diagnostics.deviceId || "—"],
@@ -395,6 +415,7 @@ function SyncDiagnosticsPanel({
         <button
           type="button"
           onClick={() => { void onRefresh(); }}
+          disabled={disabled}
           className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
         >
           <RefreshCw className="h-3.5 w-3.5" />

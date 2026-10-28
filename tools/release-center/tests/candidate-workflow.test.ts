@@ -51,14 +51,18 @@ async function sources(dir: string, platform: string) {
   }
 }
 test("candidate workflow is dispatch-only, three-platform, unsigned and no release writes", () => {
-  assert.deepEqual(Object.keys(workflow.on), ["workflow_dispatch"]);
+  assert.deepEqual(Object.keys(workflow.on), ["workflow_call", "workflow_dispatch"]);
   assert.deepEqual(workflow.permissions, { contents: "read" });
   assert.equal(workflow.concurrency["cancel-in-progress"], false);
-  assert.deepEqual(workflow.jobs.build.strategy.matrix.include.map((x: any) => x.platform), ["windows", "macos", "linux"]);
+  assert.match(workflow.jobs.build.strategy.matrix.platform, /fromJSON/);
+  assert.match(workflow.jobs.build.strategy.matrix.platform, /windows.*macos.*linux/);
   assert.deepEqual(workflow.jobs.build.needs, ["validate", "contracts"]);
   const raw = JSON.stringify(workflow);
-  assert.doesNotMatch(raw, /secrets\.|gh release|git push|docker push|release-legacy|TestFlight|apple.*password|MAC_CSC|CSC_LINK/i);
+  assert.doesNotMatch(raw, /gh release|git push|docker push|release-legacy|TestFlight/i);
   assert.match(raw, /candidate-evidence/);
+  assert.equal(workflow.on.workflow_call.inputs.mac_signing.default, false);
+  assert.equal(workflow.on.workflow_dispatch.inputs.mac_signing, undefined);
+  for (const step of workflow.jobs.build.steps.filter((step: any) => step.env?.CSC_LINK)) assert.match(step.env.CSC_LINK, /inputs.mac_signing/);
   const steps = Object.values(workflow.jobs).flatMap((job: any) => job.steps) as any[];
   const builders = steps.filter((step) => step.run?.includes("electron-builder"));
   assert.equal(builders.length, 5);

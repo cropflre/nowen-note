@@ -10,7 +10,8 @@ import EncryptedNoteCreateDialog from "../../../components/EncryptedNoteCreateDi
 import type { Note } from "@/types";
 import i18n from "@/i18n";
 
-const mocks = vi.hoisted(() => ({ crypto: vi.fn(), save: vi.fn(), setNote: vi.fn(), close: vi.fn(), scope: "account-a" }));
+const mocks = vi.hoisted(() => ({ crypto: vi.fn(), save: vi.fn(), setNote: vi.fn(), close: vi.fn(), decrypt: vi.fn(), scope: "account-a" }));
+vi.mock("../decryptNote", async () => ({ ...await vi.importActual<typeof import("../decryptNote")>("../decryptNote"), decryptNotePermanently: mocks.decrypt }));
 vi.mock("../workerClient", () => ({ runEncryptedContentOperation: mocks.crypto }));
 vi.mock("../sessionClient", () => ({ EncryptedContentSession: class {
   open(envelope: unknown, passphrase: string, expected: unknown, signal: AbortSignal) { return mocks.crypto({ operation: "decrypt", input: { envelope, passphrase, expected } }, signal); }
@@ -48,12 +49,45 @@ function mayLeave() {
 beforeEach(async () => {
   await i18n.changeLanguage("zh-CN");
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
-  vi.useFakeTimers(); mocks.scope = "account-a"; mocks.crypto.mockReset(); mocks.save.mockReset(); mocks.setNote.mockReset(); mocks.close.mockReset();
+  vi.useFakeTimers(); mocks.scope = "account-a"; mocks.crypto.mockReset(); mocks.save.mockReset(); mocks.setNote.mockReset(); mocks.close.mockReset(); mocks.decrypt.mockReset();
   mocks.crypto.mockImplementation(async (request) => request.operation === "decrypt" ? "Private initial" : request.input.envelope || block);
   mocks.save.mockImplementation(async (base: Note, content: string) => ({ ...base, content, version: base.version + 1 }));
   container = document.createElement("div"); document.body.append(container); root = createRoot(container);
 });
 afterEach(() => { act(() => root.unmount()); container.remove(); vi.useRealTimers(); vi.restoreAllMocks(); });
+
+async function prepareDecryption() {
+  act(() => root.render(<EncryptedNotePane note={note} />)); await unlockNote();
+  await fill("确认当前加密密码", fixture.passphrase);
+  await act(async () => document.querySelector<HTMLInputElement>('input[type="checkbox"]')!.click());
+}
+it("permanent decryption requires explicit consent and replaces the active note only after confirmation", async () => {
+  const saved = { ...note, contentFormat: "markdown", content: "Private initial", version: 2 };
+  mocks.decrypt.mockResolvedValue(saved);
+  act(() => root.render(<EncryptedNotePane note={note} />)); await unlockNote();
+  await fill("确认当前加密密码", fixture.passphrase);
+  expect([...document.querySelectorAll("button")].find(button => button.textContent === "确认解除加密")!.disabled).toBe(true);
+  await act(async () => document.querySelector<HTMLInputElement>('input[type="checkbox"]')!.click());
+  await click("确认解除加密");
+  expect(mocks.decrypt).toHaveBeenCalledOnce(); expect(mocks.setNote).toHaveBeenCalledWith(saved);
+  expect(input("加密 Markdown 正文")).toBeNull();
+});
+it("failed permanent decryption keeps the unlocked body and encrypted note", async () => {
+  mocks.decrypt.mockRejectedValue(new Error("failed"));
+  await prepareDecryption(); await click("确认解除加密");
+  expect(input("加密 Markdown 正文").value).toBe("Private initial");
+  expect(mocks.setNote).not.toHaveBeenCalled(); expect(container.querySelector('[role="alert"]')).not.toBeNull();
+});
+it("background aborts permanent decryption and its late result cannot replace the note", async () => {
+  let resolve!: (value: Note) => void;
+  mocks.decrypt.mockImplementation(() => new Promise<Note>(done => { resolve = done; }));
+  await prepareDecryption(); await click("确认解除加密");
+  const signal = mocks.decrypt.mock.calls[0][2] as AbortSignal;
+  await act(async () => window.dispatchEvent(new Event("blur")));
+  expect(signal.aborted).toBe(true);
+  await act(async () => resolve({ ...note, contentFormat: "markdown", content: "Private initial", version: 2 }));
+  expect(input("加密 Markdown 正文")).toBeNull(); expect(mocks.setNote).not.toHaveBeenCalled();
+});
 
 it("a locked note shows only its title and a simple password prompt", () => {
   act(() => root.render(<EncryptedNotePane note={note} />));

@@ -76,7 +76,7 @@ function computeDelta(curr: number, prev: number) {
 // ===========================================================================
 // 主组件
 // ===========================================================================
-export default function TokenUsageStats({ refreshKey }: { refreshKey: string }): JSX.Element | null {
+export default function TokenUsageStats({ refreshKey }: { refreshKey: string }): React.JSX.Element | null {
   const { t } = useTranslation();
   const [days, setDays] = useState<RangeDays>(7);
   const [data, setData] = useState<UsageData | null>(null);
@@ -215,7 +215,7 @@ function DeltaBadge({
   kind: "up" | "down" | "flat";
   label: string;
   pct: number;
-}): JSX.Element {
+}): React.JSX.Element {
   const palette =
     kind === "up"
       ? "bg-emerald-100 dark:bg-emerald-500/15 text-emerald-700 dark:text-emerald-300"
@@ -242,7 +242,7 @@ function UsageBarChart({
   series,
 }: {
   series: Array<{ day: string; count: number }>;
-}): JSX.Element {
+}): React.JSX.Element {
   const { t } = useTranslation();
   const [hoverIdx, setHoverIdx] = useState<number | null>(null);
 
@@ -375,7 +375,7 @@ function TopTokensList({
 }: {
   byToken: Array<{ tokenId: string; name: string; count: number }>;
   total: number;
-}): JSX.Element {
+}): React.JSX.Element {
   const { t } = useTranslation();
   // 仅展示前 5
   const top = byToken.slice(0, 5);
@@ -418,7 +418,7 @@ function TopTokensList({
 // ===========================================================================
 // 子组件：空状态
 // ===========================================================================
-function EmptyUsage({ days }: { days: number }): JSX.Element {
+function EmptyUsage({ days }: { days: number }): React.JSX.Element {
   const { t } = useTranslation();
   return (
     <div className="py-6 flex flex-col items-center text-center">

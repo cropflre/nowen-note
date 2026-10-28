@@ -1,3 +1,5 @@
+﻿import { isolateHistory } from "@codemirror/commands";
+import { agentTextRanges } from "@/lib/agentEdits";
 import { commitMarkdownEncryptedRegion, prepareMarkdownEncryptedRegionEdit, prepareMarkdownSelectionEncryption } from "@/lib/encryptedNotes/blockAuthoring";
 /**
  * MarkdownEditor —— 基于 CodeMirror 6 的 Markdown 笔记编辑器
@@ -80,6 +82,7 @@ import {
   Bold,
   CheckSquare,
   FileCode,
+  FileLock2,
   Heading1,
   Heading2,
   Heading3,
@@ -133,6 +136,7 @@ import { toast } from "@/lib/toast";
 import { copyText } from "@/lib/clipboard";
 import { openTaskQuickCapture } from "@/lib/taskInboxApi";
 import { findTextAction, type TextAction } from "@/lib/textActions";
+import { resolveAttachmentAccessUrl } from "@/lib/noteAttachmentAccessBridge";
 import { resolveEditorBubblePosition } from "@/lib/editorBubbleSelection";
 import { cn } from "@/lib/utils";
 import { normalizeToMarkdown, markdownToPlainText } from "@/lib/contentFormat";
@@ -1021,14 +1025,13 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
 
   // ---------- ͼƬ�ϴ����㹤����/б��/��ק/ճ���� ----------
 
-  /** 上传图片文件到 /api/attachments 或图床，插入 Markdown 图片语法 */
+  /** 上传图片附件，插入带真实图片扩展名的完整 URL。 */
   const insertImageFromFile = useCallback((file: File) => {
     const view = viewRef.current;
     if (!view) return;
     const currentNote = noteRef.current;
     const alt = file.name.replace(/\.[^.]+$/, "");
     if (currentNote?.id) {
-      // 优先走图床，失败时回退本地附件
       uploadAndInsertImage(
         file,
         file.name,
@@ -1078,7 +1081,7 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
       if (!files.length || viewRef.current !== view || pasteNoteScopeRef.current !== scope) { releaseAnchor(); return; }
       if (!noteId) { toast.error("请先创建笔记，再上传照片"); releaseAnchor(); return; }
       toast.info(tr("tiptap.imageUploading"));
-      void uploadPhotoSelection(noteId, files)
+      void uploadPhotoSelection(noteId, files, "markdown")
         .then((photos) => {
           // 复用异步粘贴锚点映射，上传完成后恢复原选区；切换笔记则不插入。
           if (viewRef.current !== view || pasteNoteScopeRef.current !== scope) return;
@@ -1312,6 +1315,18 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
         };
       },
       isReady: () => !!viewRef.current,
+      getAgentSelection: () => { const view = viewRef.current; return view ? view.state.sliceDoc(view.state.selection.main.from, view.state.selection.main.to) : ""; },
+      applyAgentEdits: (original, edits) => {
+        const view = viewRef.current;
+        if (!view || !editable || view.state.doc.toString() !== original) return false;
+        try {
+          const changes = agentTextRanges([{ text: original, pos: 0 }], edits).map(({ from, to, insert }) => ({ from, to, insert }));
+          collabUndoManagerRef.current?.stopCapturing();
+          view.dispatch({ changes, userEvent: "input.agent", annotations: isolateHistory.of("full") });
+          collabUndoManagerRef.current?.stopCapturing();
+          return true;
+        } catch { return false; }
+      },
       applyCjkTypography: (action) => {
         const view = viewRef.current;
         if (!view || !editable || !view.state.facet(EditorView.editable)) return false;
@@ -2217,7 +2232,6 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
       data-markdown-mobile-editing-compact={compactMobileEditing ? "true" : "false"}
       className="relative flex flex-col h-full overflow-hidden"
     >
-      {editable && !isGuest && !note.isTrashed && <button type="button" className="border-b border-app-border px-3 py-1 text-left text-xs text-tx-secondary" onClick={openEncryptedRegion}>插入加密内容</button>}
       {encryptedRegion && <EncryptedBlockDialog source={encryptedRegion.source} initialContent={encryptedRegion.initialContent} onCommit={encryptedRegion.commit} onClose={() => setEncryptedRegion(null)} />}
       {noteLinkMenu.open && (
         <NoteLinkMenu
@@ -2444,6 +2458,11 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
           >
             <FileCode size={iconSize} />
           </ToolbarButton>
+          {!isGuest && !note.isTrashed && (
+            <ToolbarButton onClick={openEncryptedRegion} title={tr("encryptedBlock.insertTooltip")}>
+              <FileLock2 size={iconSize} />
+            </ToolbarButton>
+          )}
           <ToolbarButton
             onClick={() => withView((v) => insertHorizontalRule(v))}
             title={tr("tiptap.horizontalRule") || "�ָ���"}
@@ -2490,9 +2509,6 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
                 title={tr("tasks.quickCaptureToInbox", { defaultValue: "快速捕获到收集箱" })}
               >
                 <ClipboardPlus size={iconSize} className="text-blue-500" />
-              </ToolbarButton>
-              <ToolbarButton onClick={openAIAssistant} title={tr("tiptap.aiAssistant") || "AI 助手"}>
-                <Sparkles size={iconSize} className="text-violet-500" />
               </ToolbarButton>
             </>
           )}
@@ -2690,7 +2706,7 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
           >
             <ArrowUp size={14} />
           </ToolbarButton>
-          {!isGuest && !note.isTrashed && <ToolbarButton onClick={openEncryptedRegion} title="加密选中文字">加密</ToolbarButton>}
+          {!isGuest && !note.isTrashed && <ToolbarButton onClick={openEncryptedRegion} title={tr("encryptedBlock.selectedText")}>{tr("encryptedBlock.encrypt")}</ToolbarButton>}
           {selectedTextAction?.type === "phone" && (
             <ToolbarButton
               onClick={() => {
@@ -2705,7 +2721,7 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
           )}
           {selectedTextAction?.type === "url" && (
             <ToolbarButton
-              onClick={() => window.open(selectedTextAction.href, '_blank', 'noopener')}
+              onClick={() => window.open(resolveAttachmentAccessUrl(selectedTextAction.href), '_blank', 'noopener')}
               title={selectedTextAction.value}
             >
               <ExternalLink size={14} />
@@ -2746,7 +2762,7 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
               </ToolbarButton>
               <ToolbarButton
                 onClick={openAIAssistant}
-                title={tr("tiptap.aiAssistant") || "AI ����"}
+                title={tr("agent.quickRewrite")}
               >
                 <Sparkles size={14} className="text-violet-500" />
               </ToolbarButton>

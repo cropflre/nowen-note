@@ -1,3 +1,4 @@
+import { buildAIHeaders, normalizeAIHeaders, redactAICredentials } from "./ai-provider-config";
 import { aiOutboundFetch } from "./ai-outbound-fetch.js";
 import { getUserAISettings } from "./user-ai-settings";
 import {
@@ -21,6 +22,7 @@ export interface EmbeddingProbeConfig {
   provider: string;
   url: string;
   apiKey: string;
+  customHeaders?: Record<string, string>;
   model: string;
 }
 
@@ -102,6 +104,9 @@ export function resolveEmbeddingProbeConfig(
         400,
       );
     }
+    if (profile.provider === "anthropic") {
+      throw new EmbeddingDiscoveryError("EMBEDDING_PROTOCOL_UNSUPPORTED", "请选择独立的 OpenAI 兼容 Embedding 服务", 400);
+    }
     const url = normalizeServiceUrl(profile.provider, profile.apiUrl);
     if (!url) {
       throw new EmbeddingDiscoveryError(
@@ -117,6 +122,7 @@ export function resolveEmbeddingProbeConfig(
       provider: profile.provider,
       url,
       apiKey: profile.apiKey,
+      ...(profile.customHeaders ? { customHeaders: profile.customHeaders } : {}),
       model,
     };
   }
@@ -144,6 +150,10 @@ export function resolveEmbeddingProbeConfig(
   }
 
   const provider = settings.ai_provider.trim() || "openai";
+  if (provider === "anthropic") {
+    throw new EmbeddingDiscoveryError("EMBEDDING_PROTOCOL_UNSUPPORTED", "Anthropic Messages 不提供向量接口，请配置独立的 Embedding 服务", 400);
+  }
+  const customHeaders = normalizeAIHeaders(settings.ai_custom_headers);
   const url = normalizeServiceUrl(provider, settings.ai_api_url);
   if (!url) {
     throw new EmbeddingDiscoveryError("EMBEDDING_URL_MISSING", "当前对话配置没有可用的 API 地址", 400);
@@ -155,16 +165,15 @@ export function resolveEmbeddingProbeConfig(
     provider,
     url,
     apiKey: settings.ai_api_key.trim(),
+    ...(Object.keys(customHeaders).length ? { customHeaders } : {}),
     model,
   };
 }
 
 function requestHeaders(config: EmbeddingProbeConfig): Record<string, string> {
-  const headers: Record<string, string> = { Accept: "application/json" };
-  if (config.apiKey) {
-    headers.Authorization = `Bearer ${config.apiKey}`;
-    if (config.provider === "gemini") headers["x-goog-api-key"] = config.apiKey;
-  }
+  const headers = buildAIHeaders("openai", config.apiKey, config.customHeaders);
+  if (!headers.accept) headers.accept = "application/json";
+  if (config.provider === "gemini" && config.apiKey && !headers["x-goog-api-key"]) headers["x-goog-api-key"] = config.apiKey;
   return headers;
 }
 
@@ -285,9 +294,10 @@ export async function discoverEmbeddingModels(
       const response = await aiOutboundFetch(endpoint, {
         headers: requestHeaders(config),
         signal: AbortSignal.timeout(DISCOVERY_TIMEOUT_MS),
+        redirect: "error",
       });
       if (!response.ok) {
-        failures.push(upstreamError(response.status, await response.text().catch(() => ""), "discover"));
+        failures.push(upstreamError(response.status, redactAICredentials(await response.text().catch(() => ""), config.apiKey, config.customHeaders), "discover"));
         continue;
       }
       let data: unknown;
@@ -325,7 +335,7 @@ export async function discoverEmbeddingModels(
       } else {
         failures.push(new EmbeddingDiscoveryError(
           "EMBEDDING_MODEL_DISCOVERY_FAILED",
-          error instanceof Error ? error.message : "模型列表请求失败",
+          redactAICredentials(error instanceof Error ? error.message : "模型列表请求失败", config.apiKey, config.customHeaders),
           502,
         ));
       }
@@ -369,9 +379,10 @@ export async function testEmbeddingModel(
         input: ["Nowen Note embedding connectivity test."],
       }),
       signal: AbortSignal.timeout(TEST_TIMEOUT_MS),
+      redirect: "error",
     });
     if (!response.ok) {
-      throw upstreamError(response.status, await response.text().catch(() => ""), "test");
+      throw upstreamError(response.status, redactAICredentials(await response.text().catch(() => ""), config.apiKey, config.customHeaders), "test");
     }
     let data: unknown;
     try {
@@ -412,7 +423,7 @@ export async function testEmbeddingModel(
     }
     throw new EmbeddingDiscoveryError(
       "EMBEDDING_TEST_FAILED",
-      error instanceof Error ? error.message : "Embedding 连通性测试失败",
+      redactAICredentials(error instanceof Error ? error.message : "Embedding 连通性测试失败", config.apiKey, config.customHeaders),
       502,
     );
   }

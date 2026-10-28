@@ -1,0 +1,225 @@
+name: Unified Release Build
+run-name: Release build ${{ inputs.request_id }}
+on:
+  workflow_dispatch:
+    inputs:
+      request_id: { description: Unique request UUID, required: true, type: string }
+      commit_sha: { description: Exact HEAD SHA of the selected branch, required: true, type: string }
+      version: { description: Committed stable X.Y.Z version, required: true, type: string }
+      targets: { description: 'Comma-separated targets: pc,android,ios,store,docker,fpk,upk,clipper or all', required: true, default: pc, type: string }
+      notes: { description: Optional release notes, required: false, type: string }
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: release-build-${{ inputs.request_id }}
+  cancel-in-progress: false
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      targets: ${{ steps.plan.outputs.targets }}
+      platforms: ${{ steps.plan.outputs.platforms }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.22.1'
+      - id: plan
+        env:
+          RC_REQUEST_ID: ${{ inputs.request_id }}
+          RC_SHA: ${{ inputs.commit_sha }}
+          RC_VERSION: ${{ inputs.version }}
+          RC_TARGETS: ${{ inputs.targets }}
+          RC_NOTES: ${{ inputs.notes }}
+          RC_ANDROID_SIGNING_READY: ${{ secrets.NOWEN_ANDROID_KEYSTORE_B64 != '' && secrets.NOWEN_ANDROID_KEYSTORE_PASSWORD != '' && secrets.NOWEN_ANDROID_KEY_ALIAS != '' }}
+          RC_IOS_SIGNING_READY: ${{ secrets.IOS_CERTIFICATE_BASE64 != '' && secrets.IOS_CERTIFICATE_PASSWORD != '' && secrets.IOS_PROVISIONING_PROFILE_BASE64 != '' && secrets.IOS_KEYCHAIN_PASSWORD != '' }}
+          RC_MAC_SIGNING_ENABLED: ${{ vars.NOWEN_RELEASE_MAC_SIGNING == '1' }}
+          RC_MAC_SIGNING_READY: ${{ secrets.MAC_CSC_LINK != '' && secrets.MAC_CSC_KEY_PASSWORD != '' && secrets.APPLE_ID != '' && secrets.APPLE_APP_SPECIFIC_PASSWORD != '' && secrets.APPLE_TEAM_ID != '' }}
+          FNPACK_URL: ${{ vars.FNPACK_URL }}
+          FNPACK_SHA256: ${{ vars.FNPACK_SHA256 }}
+          NOWEN_OFFICIAL_REGISTRY_TRUST_ROOTS_JSON: ${{ vars.NOWEN_OFFICIAL_REGISTRY_TRUST_ROOTS_JSON }}
+        run: node scripts/release-cloud-ci.mjs plan
+      - run: npm ci
+      - run: npm run test:update-release && npm run test:microsoft-store
+      - run: node scripts/verify-extension-ecosystem-rc1.mjs
+  desktop:
+    needs: plan
+    if: needs.plan.outputs.platforms != '[]'
+    uses: ./.github/workflows/release-center-candidate.yml
+    with:
+      request_id: ${{ inputs.request_id }}
+      commit_sha: ${{ inputs.commit_sha }}
+      version: ${{ inputs.version }}
+      platforms: ${{ needs.plan.outputs.platforms }}
+      mac_signing: ${{ vars.NOWEN_RELEASE_MAC_SIGNING == '1' }}
+    secrets:
+      MAC_CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+      MAC_CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+  ios:
+    needs: plan
+    if: contains(fromJSON(needs.plan.outputs.targets), 'ios')
+    uses: ./.github/workflows/ios-release.yml
+    with:
+      commit_sha: ${{ inputs.commit_sha }}
+      version: ${{ inputs.version }}
+      artifact_name: release-ios
+    secrets:
+      IOS_CERTIFICATE_BASE64: ${{ secrets.IOS_CERTIFICATE_BASE64 }}
+      IOS_CERTIFICATE_PASSWORD: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
+      IOS_PROVISIONING_PROFILE_BASE64: ${{ secrets.IOS_PROVISIONING_PROFILE_BASE64 }}
+      IOS_KEYCHAIN_PASSWORD: ${{ secrets.IOS_KEYCHAIN_PASSWORD }}
+  store:
+    needs: plan
+    if: contains(fromJSON(needs.plan.outputs.targets), 'store')
+    uses: ./.github/workflows/microsoft-store-appx.yml
+    with:
+      commit_sha: ${{ inputs.commit_sha }}
+      artifact_name: release-store
+  android:
+    needs: plan
+    if: contains(fromJSON(needs.plan.outputs.targets), 'android')
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with: { ref: '${{ inputs.commit_sha }}', persist-credentials: false }
+      - uses: actions/setup-node@v4
+        with: { node-version: '24.22.1', cache: npm }
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: '21' }
+      - name: Prepare and build frontend
+        env:
+          NOWEN_OFFICIAL_REGISTRY_TRUST_ROOTS_JSON: ${{ vars.NOWEN_OFFICIAL_REGISTRY_TRUST_ROOTS_JSON }}
+        run: |
+          node scripts/release-cloud-ci.mjs prepare
+          npm ci
+          npm --prefix frontend ci
+          npm --prefix frontend run build
+          cd frontend && npx cap sync android
+      - name: Install the pinned Android SDK
+        run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-36" "build-tools;36.0.0"'
+      - name: Inject signing material
+        env:
+          NOWEN_ANDROID_KEYSTORE_B64: ${{ secrets.NOWEN_ANDROID_KEYSTORE_B64 }}
+          NOWEN_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.NOWEN_ANDROID_KEYSTORE_PASSWORD }}
+          NOWEN_ANDROID_KEY_ALIAS: ${{ secrets.NOWEN_ANDROID_KEY_ALIAS }}
+          NOWEN_ANDROID_KEY_PASSWORD: ${{ secrets.NOWEN_ANDROID_KEY_PASSWORD }}
+        run: node scripts/release-cloud-ci.mjs android-signing
+      - name: Build signed APK and AAB
+        working-directory: frontend/android
+        run: bash gradlew --no-daemon assembleRelease bundleRelease
+      - name: Verify Android package identity, version and signature
+        env:
+          RC_VERSION: ${{ inputs.version }}
+        run: node scripts/release-cloud-ci.mjs android-stage
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-android
+          path: release-android/*
+          if-no-files-found: error
+          retention-days: 7
+      - name: Remove signing material
+        if: always()
+        run: rm -f frontend/android/app/cloud-release.keystore frontend/android/keystore.properties
+  docker:
+    needs: plan
+    if: contains(fromJSON(needs.plan.outputs.targets), 'docker')
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, arm64]
+    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+        with: { ref: '${{ inputs.commit_sha }}', persist-credentials: false }
+      - uses: actions/setup-node@v4
+        with: { node-version: '24.22.1' }
+      - uses: docker/setup-buildx-action@v3
+      - name: Prepare source and build image without pushing
+        env:
+          RC_ARCH: ${{ matrix.arch }}
+          RC_VERSION: ${{ inputs.version }}
+          NOWEN_OFFICIAL_REGISTRY_TRUST_ROOTS_JSON: ${{ vars.NOWEN_OFFICIAL_REGISTRY_TRUST_ROOTS_JSON }}
+        run: |
+          node scripts/release-cloud-ci.mjs prepare
+          docker buildx build --platform "linux/$RC_ARCH" --load --tag "cropflre/nowen-note:v$RC_VERSION-$RC_ARCH" --build-arg "APP_VERSION=$RC_VERSION" --build-arg "VCS_REF=$GITHUB_SHA" .
+          node scripts/release-cloud-ci.mjs docker-stage
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-docker-${{ matrix.arch }}
+          path: release-docker/*
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 7
+  nas:
+    needs: [plan, docker]
+    if: contains(fromJSON(needs.plan.outputs.targets), 'fpk') || contains(fromJSON(needs.plan.outputs.targets), 'upk')
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with: { ref: '${{ inputs.commit_sha }}', persist-credentials: false }
+      - uses: actions/setup-node@v4
+        with: { node-version: '24.22.1', cache: npm }
+      - run: npm ci
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-docker-*
+          path: cloud-artifacts
+      - name: Build NAS packages from this run's images
+        env:
+          RC_VERSION: ${{ inputs.version }}
+          RC_TARGETS: ${{ needs.plan.outputs.targets }}
+          FNPACK_URL: ${{ vars.FNPACK_URL }}
+          FNPACK_SHA256: ${{ vars.FNPACK_SHA256 }}
+        run: node scripts/release-cloud-ci.mjs nas
+      - uses: actions/upload-artifact@v4
+        if: contains(fromJSON(needs.plan.outputs.targets), 'fpk')
+        with: { name: release-fpk, path: 'release-fpk/*', if-no-files-found: error, retention-days: 7 }
+      - uses: actions/upload-artifact@v4
+        if: contains(fromJSON(needs.plan.outputs.targets), 'upk')
+        with: { name: release-upk, path: 'release-upk/*', if-no-files-found: error, retention-days: 7 }
+  clipper:
+    needs: plan
+    if: contains(fromJSON(needs.plan.outputs.targets), 'clipper')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with: { ref: '${{ inputs.commit_sha }}', persist-credentials: false }
+      - uses: actions/setup-node@v4
+        with: { node-version: '24.22.1', cache: npm, cache-dependency-path: packages/nowen-clipper/package-lock.json }
+      - run: npm ci && npm run pack:all
+        working-directory: packages/nowen-clipper
+      - uses: actions/upload-artifact@v4
+        with: { name: release-clipper, path: 'packages/nowen-clipper/releases/*.zip', if-no-files-found: error, retention-days: 7 }
+  manifest:
+    needs: [plan, desktop, ios, store, android, docker, nas, clipper]
+    if: ${{ !cancelled() && needs.plan.result == 'success' && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with: { ref: '${{ inputs.commit_sha }}', persist-credentials: false }
+      - uses: actions/setup-node@v4
+        with: { node-version: '24.22.1' }
+      - uses: actions/download-artifact@v4
+        with: { pattern: 'release-*', path: cloud-artifacts }
+      - run: npm ci --ignore-scripts
+      - name: Verify selected targets and create immutable inventory
+        env:
+          RC_REQUEST_ID: ${{ inputs.request_id }}
+          RC_SHA: ${{ inputs.commit_sha }}
+          RC_VERSION: ${{ inputs.version }}
+          RC_TARGETS: ${{ inputs.targets }}
+          RC_NOTES: ${{ inputs.notes }}
+        run: node scripts/release-cloud-ci.mjs manifest
+      - uses: actions/upload-artifact@v4
+        with: { name: release-manifest, path: release-manifest.json, if-no-files-found: error, retention-days: 7 }

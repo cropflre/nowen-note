@@ -1,15 +1,12 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   AlertTriangle,
   CheckCircle2,
-  FileText,
-  Folder,
   Image,
   Loader2,
   Play,
   RefreshCw,
-  Search,
   Square,
   X,
 } from "lucide-react";
@@ -18,23 +15,11 @@ import { Button } from "@/components/ui/button";
 import { useApp, useAppActions } from "@/store/AppContext";
 import { api } from "@/lib/api";
 import { toast } from "@/lib/toast";
-import { cn } from "@/lib/utils";
 import {
   isRemoteImageLocalizationJobActive,
   remoteImageLocalizationApi,
   type RemoteImageLocalizationJob,
-  type RemoteImageLocalizationScope,
-  type RemoteImageLocalizationScan,
 } from "@/lib/remoteImageLocalizationApi";
-
-type ScopeMode = "current" | "selected" | "notebook" | "all_personal";
-
-function formatBytes(value: number): string {
-  if (!Number.isFinite(value) || value <= 0) return "0 B";
-  if (value < 1024) return `${value} B`;
-  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
-  return `${(value / 1024 / 1024).toFixed(1)} MB`;
-}
 
 function terminalStatus(status: RemoteImageLocalizationJob["status"]): boolean {
   return !["queued", "running"].includes(status);
@@ -51,72 +36,10 @@ export default function RemoteImageLocalizationPanel() {
   );
 
   const [open, setOpen] = useState(false);
-  const [mode, setMode] = useState<ScopeMode>("current");
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [notebookId, setNotebookId] = useState("");
-  const [query, setQuery] = useState("");
-  const [scan, setScan] = useState<RemoteImageLocalizationScan | null>(null);
   const [job, setJob] = useState<RemoteImageLocalizationJob | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const completedRefreshRef = useRef<Set<string>>(new Set());
-
-  useEffect(() => {
-    if (!notebookId && state.selectedNotebookId) setNotebookId(state.selectedNotebookId);
-  }, [notebookId, state.selectedNotebookId]);
-
-  const noteById = useMemo(
-    () => new Map(state.notes.map((note) => [note.id, note])),
-    [state.notes],
-  );
-
-  const visibleNotes = useMemo(() => {
-    const normalized = query.trim().toLowerCase();
-    if (!normalized) return state.notes;
-    return state.notes.filter((note) =>
-      note.title.toLowerCase().includes(normalized)
-      || note.contentText?.toLowerCase().includes(normalized),
-    );
-  }, [query, state.notes]);
-
-  const expectedVersions = useCallback((ids: string[]) => {
-    const versions: Record<string, number> = {};
-    for (const id of ids) {
-      const note = noteById.get(id);
-      if (note && Number.isInteger(note.version)) versions[id] = note.version;
-      if (state.activeNote?.id === id && Number.isInteger(state.activeNote.version)) {
-        versions[id] = state.activeNote.version;
-      }
-    }
-    return versions;
-  }, [noteById, state.activeNote]);
-
-  const buildScope = useCallback((): RemoteImageLocalizationScope | null => {
-    if (mode === "current") {
-      if (!state.activeNote) return null;
-      return {
-        noteIds: [state.activeNote.id],
-        expectedVersions: { [state.activeNote.id]: state.activeNote.version },
-      };
-    }
-    if (mode === "selected") {
-      const ids = [...selectedIds];
-      if (ids.length === 0) return null;
-      return { noteIds: ids, expectedVersions: expectedVersions(ids) };
-    }
-    if (mode === "all_personal") return { allPersonal: true };
-    if (!notebookId) return null;
-    return { notebookId };
-  }, [expectedVersions, mode, notebookId, selectedIds, state.activeNote]);
-
-  const resetPreview = useCallback(() => {
-    setScan(null);
-    setError("");
-  }, []);
-
-  useEffect(() => {
-    resetPreview();
-  }, [mode, notebookId, selectedIds, resetPreview]);
 
   const refreshChangedNotes = useCallback(async (completedJob: RemoteImageLocalizationJob) => {
     if (completedRefreshRef.current.has(completedJob.id)) return;
@@ -142,8 +65,7 @@ export default function RemoteImageLocalizationPanel() {
     void remoteImageLocalizationApi.listJobs(10).then(({ jobs }) => {
       if (disposed) return;
       const active = jobs.find(isRemoteImageLocalizationJobActive);
-      if (active) setJob(active);
-      else if (jobs[0]) setJob(jobs[0]);
+      setJob((current) => current ?? active ?? jobs[0] ?? null);
     }).catch(() => {});
     return () => { disposed = true; };
   }, [job]);
@@ -169,40 +91,19 @@ export default function RemoteImageLocalizationPanel() {
     };
   }, [job?.id, job?.status, refreshChangedNotes]);
 
-  const handleScan = useCallback(async () => {
-    const scope = buildScope();
-    if (!scope) {
-      setError(tr("remoteImageLocalization.scopeRequired", "请选择要处理的笔记或笔记本", "Select notes or a notebook first"));
-      return;
-    }
-    setBusy(true);
-    setError("");
-    try {
-      const result = await remoteImageLocalizationApi.scan(scope);
-      setScan(result);
-    } catch (scanError) {
-      setError(scanError instanceof Error ? scanError.message : String(scanError));
-    } finally {
-      setBusy(false);
-    }
-  }, [buildScope, tr]);
-
   const handleStart = useCallback(async () => {
-    const scope = buildScope();
-    if (!scope) return;
     setBusy(true);
     setError("");
     try {
-      const created = await remoteImageLocalizationApi.createJob(scope);
+      const created = await remoteImageLocalizationApi.createJob({ allPersonal: true });
       setJob(created);
-      setScan(null);
       toast.success(tr("remoteImageLocalization.started", "网络图片本地化任务已启动", "Image localization job started"));
     } catch (startError) {
       setError(startError instanceof Error ? startError.message : String(startError));
     } finally {
       setBusy(false);
     }
-  }, [buildScope, tr]);
+  }, [tr]);
 
   const handleCancel = useCallback(async () => {
     if (!job) return;
@@ -231,211 +132,55 @@ export default function RemoteImageLocalizationPanel() {
     }
   }, [job, tr]);
 
-  const toggleNote = useCallback((noteId: string) => {
-    setSelectedIds((current) => {
-      const next = new Set(current);
-      if (next.has(noteId)) next.delete(noteId);
-      else next.add(noteId);
-      return next;
-    });
-  }, []);
-
-  const selectAllVisible = useCallback(() => {
-    setSelectedIds((current) => {
-      const next = new Set(current);
-      const allSelected = visibleNotes.length > 0 && visibleNotes.every((note) => next.has(note.id));
-      for (const note of visibleNotes) {
-        if (allSelected) next.delete(note.id);
-        else next.add(note.id);
-      }
-      return next;
-    });
-  }, [visibleNotes]);
-
-  const imageTotal = job?.summary.totalImageOperations ?? job?.summary.uniqueRemoteUrlCount ?? 0;
-  const imageDone = job?.summary.processedImageOperations
-    ?? (job?.summary.localizedUrls ?? 0) + (job?.summary.failedUrls ?? 0);
-  const progress = imageTotal
-    ? Math.min(100, Math.round(imageDone / imageTotal * 100))
-    : job?.summary.totalNotes
-      ? Math.min(100, Math.round(job.summary.processedNotes / job.summary.totalNotes * 100))
-      : 0;
-  const noteProgress = job?.summary.totalNotes
-    ? Math.round(job.summary.processedNotes / job.summary.totalNotes * 100)
-    : 0;
-  const retryable = Boolean(job && terminalStatus(job.status) && job.noteResults.some(
+  const progress = job?.summary.totalNotes
+    ? Math.min(100, Math.round(job.summary.processedNotes / job.summary.totalNotes * 100))
+    : terminalStatus(job?.status ?? "queued") ? 100 : 0;
+  const retryable = Boolean(job && terminalStatus(job.status) && (job.status === "failed" || job.noteResults.some(
     (result) => ["failed", "partial", "conflict", "parse_error"].includes(result.status),
-  ));
+  )));
 
   const panel = open ? (
     <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/45 p-3 md:p-6" role="dialog" aria-modal="true">
-      <div className="flex max-h-[92vh] w-full max-w-4xl flex-col overflow-hidden rounded-xl border border-app-border bg-app-elevated shadow-2xl">
+      <div className="flex max-h-[92vh] w-full max-w-2xl flex-col overflow-hidden rounded-xl border border-app-border bg-app-elevated shadow-2xl">
         <div className="flex items-center justify-between border-b border-app-border px-4 py-3 md:px-5">
           <div className="flex items-center gap-2">
             <Image size={20} className="text-accent-primary" />
             <div>
               <h2 className="font-semibold text-tx-primary">
-                {tr("remoteImageLocalization.title", "外链图片安全转存", "Remote image protection")}
+                {tr("remoteImageLocalization.title", "网络图片转存", "Save remote images")}
               </h2>
               <p className="text-xs text-tx-tertiary">
                 {tr(
                   "remoteImageLocalization.subtitle",
-                  "将历史笔记中的网络图片保存为 Nowen 附件，失败时保留原链接",
-                  "Save remote images as Nowen attachments while preserving failed URLs",
+                  "将全部个人笔记中的网络图片保存为附件，失败时保留原链接",
+                  "Save remote images from all personal notes as attachments; failed URLs are preserved",
                 )}
               </p>
             </div>
           </div>
-          <button className="rounded-md p-1.5 text-tx-tertiary hover:bg-app-hover hover:text-tx-primary" onClick={() => setOpen(false)}>
+          <button aria-label={tr("common.close", "关闭", "Close")} className="rounded-md p-1.5 text-tx-tertiary hover:bg-app-hover hover:text-tx-primary" onClick={() => setOpen(false)}>
             <X size={18} />
           </button>
         </div>
 
         <div className="overflow-y-auto p-4 md:p-5">
-          <div className="mb-4 grid grid-cols-2 gap-2 rounded-lg bg-app-bg p-1 md:grid-cols-4">
-            {([
-              ["current", tr("remoteImageLocalization.current", "当前笔记", "Current note"), FileText],
-              ["selected", tr("remoteImageLocalization.multiple", "选择多篇", "Select notes"), CheckCircle2],
-              ["notebook", tr("remoteImageLocalization.notebook", "整个笔记本", "Notebook"), Folder],
-              ["all_personal", tr("remoteImageLocalization.allPersonal", "个人全部笔记", "All personal notes"), Image],
-            ] as const).map(([value, label, Icon]) => (
-              <button
-                key={value}
-                type="button"
-                onClick={() => setMode(value)}
-                className={cn(
-                  "flex items-center justify-center gap-1.5 rounded-md px-2 py-2 text-xs transition-colors md:text-sm",
-                  mode === value ? "bg-app-elevated text-accent-primary shadow-sm" : "text-tx-secondary hover:text-tx-primary",
-                )}
-              >
-                <Icon size={15} /> {label}
-              </button>
-            ))}
-          </div>
-
-          {mode === "current" && (
-            <div className="rounded-lg border border-app-border bg-app-bg p-3">
-              {state.activeNote ? (
-                <>
-                  <div className="font-medium text-tx-primary">{state.activeNote.title || tr("common.untitled", "无标题笔记", "Untitled")}</div>
-                  <div className="mt-1 text-xs text-tx-tertiary">ID: {state.activeNote.id} · v{state.activeNote.version}</div>
-                </>
-              ) : (
-                <div className="text-sm text-tx-tertiary">
-                  {tr("remoteImageLocalization.noActiveNote", "当前没有打开笔记", "No note is currently open")}
-                </div>
-              )}
-            </div>
-          )}
-
-          {mode === "all_personal" && (
-            <p className="rounded-lg border border-app-border bg-app-bg p-3 text-xs text-tx-secondary">
-              {tr("remoteImageLocalization.allPersonalHint", "扫描个人空间中所有未删除的笔记，不包含他人工作区内容；单次处理仍受服务器数量和容量上限保护。", "Scan your personal, non-trashed notes; server-side batch limits still apply.")}
-            </p>
-          )}
-
-          {mode === "selected" && (
-            <div className="rounded-lg border border-app-border bg-app-bg">
-              <div className="flex items-center gap-2 border-b border-app-border p-2">
-                <Search size={15} className="text-tx-tertiary" />
-                <input
-                  value={query}
-                  onChange={(event) => setQuery(event.target.value)}
-                  placeholder={tr("remoteImageLocalization.searchNotes", "搜索笔记", "Search notes")}
-                  className="min-w-0 flex-1 bg-transparent text-sm text-tx-primary outline-none placeholder:text-tx-tertiary"
-                />
-                <button type="button" onClick={selectAllVisible} className="text-xs text-accent-primary hover:underline">
-                  {visibleNotes.length > 0 && visibleNotes.every((note) => selectedIds.has(note.id))
-                    ? tr("remoteImageLocalization.deselectVisible", "取消当前结果", "Deselect visible")
-                    : tr("remoteImageLocalization.selectVisible", "选择当前结果", "Select visible")}
-                </button>
-              </div>
-              <div className="max-h-52 overflow-y-auto p-1">
-                {visibleNotes.map((note) => (
-                  <label key={note.id} className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 hover:bg-app-hover">
-                    <input type="checkbox" checked={selectedIds.has(note.id)} onChange={() => toggleNote(note.id)} />
-                    <span className="min-w-0 flex-1 truncate text-sm text-tx-primary">{note.title}</span>
-                    <span className="text-[11px] text-tx-tertiary">v{note.version}</span>
-                  </label>
-                ))}
-                {visibleNotes.length === 0 && (
-                  <div className="p-4 text-center text-sm text-tx-tertiary">
-                    {tr("remoteImageLocalization.noNotes", "没有可选择的笔记", "No notes available")}
-                  </div>
-                )}
-              </div>
-              <div className="border-t border-app-border px-3 py-2 text-xs text-tx-tertiary">
-                {tr("remoteImageLocalization.selectedCount", "已选择", "Selected")}: {selectedIds.size}
-              </div>
-            </div>
-          )}
-
-          {mode === "notebook" && (
-            <div className="rounded-lg border border-app-border bg-app-bg p-3">
-              <label className="mb-1 block text-xs text-tx-tertiary">
-                {tr("remoteImageLocalization.notebookScope", "包含该笔记本及全部子笔记本", "Includes this notebook and all descendants")}
-              </label>
-              <select
-                value={notebookId}
-                onChange={(event) => setNotebookId(event.target.value)}
-                className="w-full rounded-md border border-app-border bg-app-elevated px-3 py-2 text-sm text-tx-primary outline-none focus:border-accent-primary"
-              >
-                <option value="">{tr("remoteImageLocalization.chooseNotebook", "选择笔记本", "Choose a notebook")}</option>
-                {state.notebooks.map((notebook) => (
-                  <option key={notebook.id} value={notebook.id}>{notebook.name}</option>
-                ))}
-              </select>
-            </div>
-          )}
-
-          <div className="mt-4 flex flex-wrap items-center gap-2">
-            <Button onClick={handleScan} disabled={busy || isRemoteImageLocalizationJobActive(job)}>
-              {busy && !job ? <Loader2 size={15} className="mr-1 animate-spin" /> : <Search size={15} className="mr-1" />}
-              {tr("remoteImageLocalization.scan", "扫描网络图片", "Scan images")}
+          <p className="text-sm text-tx-secondary">
+            {tr("remoteImageLocalization.allPersonalHint", "自动分批处理全部个人笔记，不包含工作区和回收站中的笔记。", "Automatically process all personal notes in batches, excluding workspaces and trash.")}
+          </p>
+          <p className="mt-2 text-xs text-tx-tertiary">
+            {tr("remoteImageLocalization.backgroundHint", "图片较多时耗时较长，可关闭窗口，稍后查看进度。", "Large collections take longer. You can close this window and check progress later.")}
+          </p>
+          {!isRemoteImageLocalizationJobActive(job) && (
+            <Button className="mt-4" onClick={handleStart} disabled={busy}>
+              {busy ? <Loader2 size={15} className="mr-1 animate-spin" /> : <Play size={15} className="mr-1" />}
+              {tr("remoteImageLocalization.start", "开始转存全部笔记图片", "Save images from all personal notes")}
             </Button>
-            <span className="text-xs text-tx-tertiary">
-              {tr(
-                "remoteImageLocalization.riskHint",
-                "仅处理 HTTP/HTTPS 图片；写入前会重新检查权限和版本",
-                "Only HTTP/HTTPS images are processed; permission and version are rechecked before saving",
-              )}
-            </span>
-          </div>
+          )}
 
           {error && (
             <div className="mt-4 flex items-start gap-2 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-500">
               <AlertTriangle size={16} className="mt-0.5 shrink-0" />
               <span>{error}</span>
-            </div>
-          )}
-
-          {scan && (
-            <div className="mt-4 rounded-lg border border-app-border bg-app-bg p-4">
-              <div className="mb-3 flex items-center justify-between gap-3">
-                <div>
-                  <h3 className="font-medium text-tx-primary">
-                    {tr("remoteImageLocalization.scanResult", "扫描结果", "Scan result")}
-                  </h3>
-                  <p className="text-xs text-tx-tertiary">
-                    {scan.notesWithRemoteImages} / {scan.noteCount} {tr("remoteImageLocalization.notesContainImages", "篇笔记包含网络图片", "notes contain remote images")}
-                  </p>
-                </div>
-                <Button onClick={handleStart} disabled={busy || scan.uniqueRemoteUrlCount === 0}>
-                  {busy ? <Loader2 size={15} className="mr-1 animate-spin" /> : <Play size={15} className="mr-1" />}
-                  {tr("remoteImageLocalization.start", "开始本地化", "Start localization")}
-                </Button>
-              </div>
-              <div className="grid grid-cols-2 gap-2 text-sm md:grid-cols-4">
-                <Stat label={tr("remoteImageLocalization.notes", "笔记", "Notes")} value={scan.noteCount} />
-                <Stat label={tr("remoteImageLocalization.remoteRefs", "网络图片引用", "Remote references")} value={scan.remoteReferenceCount} />
-                <Stat label={tr("remoteImageLocalization.uniqueUrls", "唯一 URL", "Unique URLs")} value={scan.uniqueRemoteUrlCount} />
-                <Stat label={tr("remoteImageLocalization.skipped", "跳过笔记", "Skipped notes")} value={scan.skippedNoteCount} />
-              </div>
-              {scan.uniqueRemoteUrlCount === 0 && (
-                <div className="mt-3 text-sm text-tx-tertiary">
-                  {tr("remoteImageLocalization.nothingToDo", "没有需要本地化的网络图片", "No remote images need localization")}
-                </div>
-              )}
             </div>
           )}
 
@@ -458,7 +203,6 @@ export default function RemoteImageLocalizationPanel() {
                   </div>
                   <div className="mt-1 text-xs text-tx-tertiary">
                     {job.currentNoteTitle || tr("remoteImageLocalization.waiting", "等待处理", "Waiting")}
-                    {job.currentUrl ? ` · ${job.currentUrl}` : ""}
                   </div>
                 </div>
                 <div className="flex gap-2">
@@ -466,8 +210,8 @@ export default function RemoteImageLocalizationPanel() {
                     <Button variant="outline" onClick={handleCancel} disabled={busy || job.cancelRequested}>
                       <Square size={14} className="mr-1" />
                       {job.cancelRequested
-                        ? tr("remoteImageLocalization.cancelling", "正在取消", "Cancelling")
-                        : tr("remoteImageLocalization.cancel", "取消后续处理", "Cancel remaining")}
+                        ? tr("remoteImageLocalization.cancelling", "正在停止", "Stopping")
+                        : tr("remoteImageLocalization.cancel", "停止转存", "Stop")}
                     </Button>
                   )}
                   {retryable && (
@@ -483,25 +227,21 @@ export default function RemoteImageLocalizationPanel() {
                 <div className="h-full rounded-full bg-accent-primary transition-all" style={{ width: `${progress}%` }} />
               </div>
               <div className="mt-1 text-right text-xs text-tx-tertiary">
-                {imageDone} / {imageTotal} {tr("remoteImageLocalization.imagesDone", "张图片已处理", "image operations processed")} · {progress}%
+                {job.summary.processedNotes} / {job.summary.totalNotes} {tr("remoteImageLocalization.notes", "笔记", "Notes")} · {progress}%
               </div>
 
               <div className="mt-3 grid grid-cols-2 gap-2 md:grid-cols-4">
                 <Stat label={tr("remoteImageLocalization.successImages", "已保存图片", "Saved images")} value={job.summary.localizedUrls} />
                 <Stat label={tr("remoteImageLocalization.failures", "失败图片", "Failed images")} value={job.summary.failedUrls} />
                 <Stat label={tr("remoteImageLocalization.skippedImages", "跳过图片", "Skipped images")} value={job.summary.skippedImageOperations ?? 0} />
-                <Stat label={tr("remoteImageLocalization.deduplicated", "附件去重", "Deduplicated")} value={job.summary.deduplicatedAttachments} />
+                <Stat label={tr("remoteImageLocalization.scannedNotes", "已扫描笔记", "Notes scanned")} value={job.summary.scannedNotes} />
               </div>
-              <p className="mt-2 text-xs text-tx-tertiary">
-                {tr("remoteImageLocalization.noteProgress", "笔记处理进度", "Notes processed")}: {job.summary.processedNotes}/{job.summary.totalNotes} ({noteProgress}%) ·
-                {tr("remoteImageLocalization.references", "已替换引用", "Replaced references")}: {job.summary.localizedReferences} ·
-                {tr("remoteImageLocalization.savedHint", "仅成功写回笔记的图片计入已保存", "Only images committed to notes count as saved")}
-              </p>
-              <div className="mt-2 text-xs text-tx-tertiary">
-                {tr("remoteImageLocalization.downloaded", "已下载", "Downloaded")}: {formatBytes(job.summary.downloadedBytes)} ·
-                {tr("remoteImageLocalization.reusedDownloads", "任务内复用", "Task download reuse")}: {job.summary.reusedDownloads}
-              </div>
-
+              {job.error && <p className="mt-2 text-sm text-red-500">{job.error}</p>}
+              {job.status === "completed" && job.summary.remoteReferenceCount === 0 && (
+                <p className="mt-2 text-sm text-tx-tertiary">
+                  {tr("remoteImageLocalization.nothingToDo", "没有需要转存的网络图片", "No remote images need saving")}
+                </p>
+              )}
               {job.failures.length > 0 && (
                 <details className="mt-3 rounded-md border border-amber-500/25 bg-amber-500/5 p-3">
                   <summary className="cursor-pointer text-sm font-medium text-amber-600">
@@ -537,7 +277,7 @@ export default function RemoteImageLocalizationPanel() {
           </span>
           <div className="min-w-0">
             <div className="flex items-center gap-2 text-sm font-medium text-zinc-700 dark:text-zinc-300">
-              {tr("remoteImageLocalization.trigger", "外链图片安全转存", "Protect remote images")}
+              {tr("remoteImageLocalization.trigger", "网络图片转存", "Save remote images")}
               {job && isRemoteImageLocalizationJobActive(job) && (
                 <Loader2 size={13} className="animate-spin text-accent-primary" aria-label={tr("remoteImageLocalization.running", "任务进行中", "Job in progress")} />
               )}

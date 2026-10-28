@@ -1,0 +1,48 @@
+{
+  "provider": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+  "model": "deepseek-v4.1-flash-1017",
+  "format": "tiptap-json",
+  "status": "completed",
+  "usage": null,
+  "original": "{\"type\":\"doc\",\"content\":[{\"type\":\"heading\",\"attrs\":{\"textAlign\":null,\"indent\":0,\"lineHeight\":null,\"blockId\":\"blk_f4788cc1-f1db-4c88-a651-4f77e01ebdeb\",\"level\":1},\"content\":[{\"type\":\"text\",\"text\":\"保存说明\"}]},{\"type\":\"paragraph\",\"attrs\":{\"textAlign\":null,\"indent\":0,\"lineHeight\":null,\"blockId\":\"blk_c8058609-d56b-4185-9050-b522b98bdf31\",\"firstLineIndent\":0},\"content\":[{\"type\":\"text\",\"marks\":[{\"type\":\"bold\"}],\"text\":\"服务会每隔5分钟去进行一次笔记保存这个操作，这个操作的目的主要是为了把笔记内容保存下来。\"}]},{\"type\":\"paragraph\",\"attrs\":{\"textAlign\":null,\"indent\":0,\"lineHeight\":null,\"blockId\":\"blk_2fd17827-59ad-42d6-8c87-8dd56c6156fd\",\"firstLineIndent\":0},\"content\":[{\"type\":\"text\",\"text\":\"网络断开的时候修改会保留在本地的待发送队列里面，等网络恢复之后再把这些修改发送出去。\"}]},{\"type\":\"paragraph\",\"attrs\":{\"textAlign\":null,\"indent\":0,\"lineHeight\":null,\"blockId\":\"blk_3f99b024-daab-4792-9cfe-531a504c58bd\",\"firstLineIndent\":0},\"content\":[{\"type\":\"text\",\"marks\":[{\"type\":\"link\",\"attrs\":{\"href\":\"https://example.com/sync\",\"target\":\"_blank\",\"rel\":\"noopener noreferrer nofollow\",\"class\":null,\"title\":null}}],\"text\":\"技术说明\"}]}]}",
+  "result": "{\"type\":\"doc\",\"content\":[{\"type\":\"heading\",\"attrs\":{\"textAlign\":null,\"indent\":0,\"lineHeight\":null,\"blockId\":\"blk_f4788cc1-f1db-4c88-a651-4f77e01ebdeb\",\"level\":1},\"content\":[{\"type\":\"text\",\"text\":\"保存说明\"}]},{\"type\":\"paragraph\",\"attrs\":{\"textAlign\":null,\"indent\":0,\"lineHeight\":null,\"blockId\":\"blk_c8058609-d56b-4185-9050-b522b98bdf31\",\"firstLineIndent\":0},\"content\":[{\"type\":\"text\",\"marks\":[{\"type\":\"bold\"}],\"text\":\"服务每隔5分钟保存一次笔记内容。\"}]},{\"type\":\"paragraph\",\"attrs\":{\"textAlign\":null,\"indent\":0,\"lineHeight\":null,\"blockId\":\"blk_2fd17827-59ad-42d6-8c87-8dd56c6156fd\",\"firstLineIndent\":0},\"content\":[{\"type\":\"text\",\"text\":\"网络断开时，修改会保存在本地待发送队列中，网络恢复后再发送出去。\"}]},{\"type\":\"paragraph\",\"attrs\":{\"textAlign\":null,\"indent\":0,\"lineHeight\":null,\"blockId\":\"blk_3f99b024-daab-4792-9cfe-531a504c58bd\",\"firstLineIndent\":0},\"content\":[{\"type\":\"text\",\"marks\":[{\"type\":\"link\",\"attrs\":{\"href\":\"https://example.com/sync\",\"target\":\"_blank\",\"rel\":\"noopener noreferrer nofollow\",\"class\":null,\"title\":null}}],\"text\":\"技术说明\"}]}]}",
+  "tools": [
+    {
+      "tool": "run",
+      "status": "queued"
+    },
+    {
+      "tool": "run",
+      "status": "running"
+    },
+    {
+      "tool": "get_current_note_context",
+      "status": "running"
+    },
+    {
+      "tool": "get_current_note_context",
+      "status": "completed"
+    },
+    {
+      "tool": "propose_note_edit",
+      "status": "running"
+    },
+    {
+      "tool": "propose_note_edit",
+      "status": "completed"
+    },
+    {
+      "tool": "run",
+      "status": "waiting_approval"
+    },
+    {
+      "tool": "run",
+      "status": "applying"
+    },
+    {
+      "tool": "run",
+      "status": "completed"
+    }
+  ],
+  "persistedAfterProcessRestart": true
+}

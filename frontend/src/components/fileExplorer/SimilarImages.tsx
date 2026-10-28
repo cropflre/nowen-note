@@ -23,7 +23,7 @@ export default function SimilarImages({
   const [after, setAfter] = useState<string | null | undefined>(undefined);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const controller = useRef<AbortController>();
+  const controller = useRef<AbortController>(undefined);
   const dialog = useFileToolDialog(onClose);
   const load = async (cursor?: string) => {
     if (controller.current || !isCurrent()) return;

@@ -2,16 +2,20 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import LazyNoteListRuntime from "../LazyNoteListRuntime";
+import type { NoteListItem } from "@/types";
 
 const store = vi.hoisted(() => ({
   state: {
     viewMode: "notebook", selectedNotebookId: "folder", selectedKnowledgeTreeParentId: "folder",
-    isLoading: false, notes: [] as { id: string }[],
+    isLoading: false, notes: [] as Pick<NoteListItem, "id" | "title" | "contentText" | "notebookId">[],
   },
   actions: { setNotes: vi.fn(), refreshNotes: vi.fn() },
 }));
 vi.mock("@/store/AppContext", () => ({
   useApp: () => ({ state: store.state }), useAppActions: () => store.actions,
+}));
+vi.mock("react-i18next", () => ({
+  useTranslation: () => ({ t: (key: string) => key }),
 }));
 vi.mock("../NoteList", () => ({
   default: ({ directorySearchActive }: { directorySearchActive: boolean }) => (
@@ -31,6 +35,7 @@ describe("directory search in the list header", () => {
     { id: "two", title: "其他笔记", contentText: "notes", notebookId: "folder" },
   ];
   beforeEach(() => {
+    store.state.isLoading = false;
     store.state.viewMode = "notebook";
     store.state.selectedNotebookId = "folder";
     store.state.selectedKnowledgeTreeParentId = "folder";
@@ -47,7 +52,7 @@ describe("directory search in the list header", () => {
   });
   const render = () => act(async () => { root.render(<LazyNoteListRuntime />); });
   async function search(value: string) {
-    const input = host.querySelector<HTMLInputElement>('input[aria-label="搜索本目录文档"]')!;
+    const input = host.querySelector<HTMLInputElement>("input")!;
     await act(async () => {
       Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, value);
       input.dispatchEvent(new Event("input", { bubbles: true }));
@@ -94,5 +99,79 @@ describe("directory search in the list header", () => {
     store.state.viewMode = "search";
     await render();
     expect(host.querySelector("[data-note-directory-search]")).toBeNull();
+  });
+
+  it("searches favorite titles and previews across folders without changing the view", async () => {
+    store.state.viewMode = "favorites";
+    store.state.selectedNotebookId = "";
+    store.state.notes = [notes[0], { ...notes[1], notebookId: "another" }];
+    await render();
+    expect(host.querySelector('input[aria-label="noteList.searchFavorites"]')).not.toBeNull();
+    await search("REACT components");
+    expect(store.state.notes.map((note) => note.id)).toEqual(["one"]);
+    await search("notes");
+    expect(store.state.notes.map((note) => note.id)).toEqual(["two"]);
+    expect(store.state.viewMode).toBe("favorites");
+    expect(host.querySelector('[data-search-active="true"]')).not.toBeNull();
+    await act(async () => { host.querySelector<HTMLButtonElement>('[aria-label="noteList.clearFavoritesSearch"]')!.click(); });
+    expect(store.state.notes.map((note) => note.id)).toEqual(["one", "two"]);
+    expect(store.actions.refreshNotes).toHaveBeenCalledOnce();
+  });
+
+  it("clears a zero-match favorites search with Escape", async () => {
+    store.state.viewMode = "favorites";
+    await render();
+    await search("missing");
+    expect(store.state.notes).toHaveLength(0);
+    expect(host.querySelector('[data-search-active="true"]')).not.toBeNull();
+    await act(async () => {
+      host.querySelector("input")!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    });
+    expect(store.state.notes).toHaveLength(2);
+    expect(host.querySelector<HTMLInputElement>("input")!.value).toBe("");
+  });
+
+  it("clears the query between favorites and folders without restoring the previous scope", async () => {
+    store.state.viewMode = "favorites";
+    await render();
+    await search("React");
+    store.state.viewMode = "notebook";
+    store.state.notes = [notes[1]];
+    await render();
+    expect(host.querySelector<HTMLInputElement>("input")!.value).toBe("");
+    expect(store.state.notes.map((note) => note.id)).toEqual(["two"]);
+    await search("notes");
+    store.state.viewMode = "favorites";
+    store.state.notes = [notes[0]];
+    await render();
+    expect(host.querySelector<HTMLInputElement>("input")!.value).toBe("");
+    expect(store.state.notes.map((note) => note.id)).toEqual(["one"]);
+  });
+
+  it("reapplies favorites search after refresh and does not restore removed favorites", async () => {
+    store.state.viewMode = "favorites";
+    await render();
+    await search("React");
+    store.state.isLoading = true;
+    await render();
+    store.state.notes = [{ ...notes[1], title: "React 新收藏" }];
+    store.state.isLoading = false;
+    await render();
+    expect(store.state.notes.map((note) => note.id)).toEqual(["two"]);
+    await search("");
+    expect(store.state.notes.map((note) => note.id)).toEqual(["two"]);
+  });
+
+  it("prevents manual reordering of a filtered favorites subset", async () => {
+    store.state.viewMode = "favorites";
+    await render();
+    await search("React");
+    const drag = new Event("dragstart", { bubbles: true, cancelable: true });
+    host.querySelector("[data-note-list-desktop-header]")!.dispatchEvent(drag);
+    expect(drag.defaultPrevented).toBe(true);
+    await search("");
+    const unfilteredDrag = new Event("dragstart", { bubbles: true, cancelable: true });
+    host.querySelector("[data-note-list-desktop-header]")!.dispatchEvent(unfilteredDrag);
+    expect(unfilteredDrag.defaultPrevented).toBe(false);
   });
 });

@@ -8,6 +8,7 @@ import React, {
 } from "react";
 import { createPortal } from "react-dom";
 import { Search, X } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 import LazyWorkspaceFallback from "./LazyWorkspaceFallback";
 import {
@@ -27,8 +28,8 @@ function normalizeDirectorySearchQuery(query: string): string[] {
 }
 
 /**
- * 当前目录搜索只过滤 NoteList 已经加载的结果集，不切换全局 search view。
- * 因此它天然继承当前笔记本 / 知识树目录 / “当前层级或包含子文件夹” / 日期筛选范围。
+ * 列表搜索只过滤 NoteList 已经加载的结果集，不切换全局 search view。
+ * 因此它天然继承收藏 / 当前笔记本 / 知识树目录 / 子文件夹 / 日期筛选范围。
  */
 export function filterCurrentDirectoryNotes(
   notes: NoteListItem[],
@@ -73,6 +74,7 @@ function findDesktopNoteListHeader(shell: HTMLElement): HTMLElement | null {
 export default function LazyNoteListRuntime() {
   const { state } = useApp();
   const actions = useAppActions();
+  const { t } = useTranslation();
   const shellRef = useRef<HTMLDivElement>(null);
   const [directoryQuery, setDirectoryQuery] = useState("");
   const deferredDirectoryQuery = useDeferredValue(directoryQuery);
@@ -100,8 +102,11 @@ export default function LazyNoteListRuntime() {
       : state.selectedKnowledgeTreeParentId ?? "root"
   }`;
   const searchContextKeyRef = useRef(searchContextKey);
-  const showDirectorySearch = state.viewMode === "notebook" && !!state.selectedNotebookId;
+  const isFavorites = state.viewMode === "favorites";
+  const showDirectorySearch = isFavorites || (state.viewMode === "notebook" && !!state.selectedNotebookId);
   const searchActive = showDirectorySearch && deferredDirectoryQuery.trim().length > 0;
+  const searchLabel = isFavorites ? t("noteList.searchFavorites") : "搜索本目录文档";
+  const clearSearchLabel = isFavorites ? t("noteList.clearFavoritesSearch") : "清空本目录搜索";
 
   // 在子组件 passive effect 执行前抓取旧 scrollTop。这里只接受当前仍挂载的虚拟 viewport；
   // scope 变化时 NoteList 会 setNotes([]) 并卸载它，因此不会错误恢复上一目录的位置。
@@ -286,8 +291,8 @@ export default function LazyNoteListRuntime() {
           data-note-directory-search=""
           className="hidden min-w-0 w-full basis-full shrink-0 md:flex"
           title={directoryQuery.trim() && matchCount !== null
-            ? `当前目录匹配 ${matchCount} 篇文档`
-            : "搜索本目录文档"}
+            ? (isFavorites ? t("noteList.favoritesSearchMatchCount", { count: matchCount }) : `当前目录匹配 ${matchCount} 篇文档`)
+            : searchLabel}
         >
           <div className="relative w-full min-w-0">
             <Search
@@ -303,8 +308,8 @@ export default function LazyNoteListRuntime() {
                   setDirectoryQuery("");
                 }
               }}
-              placeholder="搜索本目录…"
-              aria-label="搜索本目录文档"
+              placeholder={isFavorites ? t("noteList.searchFavoritesPlaceholder") : "搜索本目录…"}
+              aria-label={searchLabel}
               className="h-7 w-full rounded-md border border-app-border bg-app-elevated/70 pl-7 pr-7 text-xs text-tx-primary outline-none transition-colors placeholder:text-tx-tertiary focus:border-accent-primary/50 focus:ring-1 focus:ring-accent-primary/20"
             />
             {directoryQuery && (
@@ -312,8 +317,8 @@ export default function LazyNoteListRuntime() {
                 type="button"
                 onClick={() => setDirectoryQuery("")}
                 className="absolute right-1 top-1/2 flex h-5 w-5 -translate-y-1/2 items-center justify-center rounded text-tx-tertiary transition-colors hover:bg-app-hover hover:text-tx-secondary"
-                title="清空本目录搜索"
-                aria-label="清空本目录搜索"
+                title={clearSearchLabel}
+                aria-label={clearSearchLabel}
               >
                 <X size={12} />
               </button>

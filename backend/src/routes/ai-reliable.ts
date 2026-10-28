@@ -1,3 +1,4 @@
+import { hasAIAuth, normalizeAIHeaders } from "../services/ai-provider-config";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { aiCustomPromptsRepository } from "../repositories";
@@ -24,6 +25,8 @@ import {
   setUserAISettings,
 } from "../services/user-ai-settings";
 import { resolveEmbeddingConfig } from "../services/embedding-config";
+import { resolveUserChatSettings } from "../services/user-chat-settings";
+import { AppError } from "../lib/app-error";
 
 const app = new Hono();
 app.use("*", async (c, next) => {
@@ -37,6 +40,7 @@ const GUARDED_AI_KEYS = [
   "ai_provider",
   "ai_api_url",
   "ai_api_key",
+  "ai_custom_headers",
   "ai_model",
   "ai_embedding_profile_id",
   "ai_embedding_url",
@@ -56,6 +60,7 @@ interface AskBody {
 
 interface Scope {
   userId: string;
+  authorizedNotebookScope?: boolean;
   workspaceId: string | null;
   notebookIds: string[] | null;
 }
@@ -108,6 +113,7 @@ function restoreActiveProfile(userId: string): void {
         { key: "ai_provider", value: String(active.provider || "openai") },
         { key: "ai_api_url", value: String(active.apiUrl || "") },
         { key: "ai_api_key", value: String(active.apiKey || "") },
+        { key: "ai_custom_headers", value: JSON.stringify(normalizeAIHeaders(active.customHeaders)) },
         { key: "ai_model", value: String(active.model || "") },
       ]);
       restored = true;
@@ -116,7 +122,7 @@ function restoreActiveProfile(userId: string): void {
     /* use backups below */
   }
   if (!restored) {
-    setUserAISettings(userId, ["ai_provider", "ai_api_url", "ai_api_key", "ai_model"].map((key) => ({
+    setUserAISettings(userId, ["ai_provider", "ai_api_url", "ai_api_key", "ai_custom_headers", "ai_model"].map((key) => ({
       key,
       value: getUserAISetting(userId, `ai_disabled_backup_${key}`),
     })));
@@ -201,8 +207,8 @@ function scopeSql(scope: Scope, alias = "n"): { sql: string; params: any[] } {
   const clauses = [`${alias}.isTrashed = 0`];
   const params: any[] = [];
   if (scope.workspaceId === null) {
-    clauses.push(`${alias}.userId = ?`, `${alias}.workspaceId IS NULL`);
-    params.push(scope.userId);
+    if (scope.authorizedNotebookScope && scope.notebookIds?.length) clauses.push(`${alias}.workspaceId IS NULL`);
+    else { clauses.push(`${alias}.userId = ?`, `${alias}.workspaceId IS NULL`); params.push(scope.userId); }
   } else {
     clauses.push(`${alias}.workspaceId = ?`);
     params.push(scope.workspaceId);
@@ -295,7 +301,7 @@ async function retrieveCandidates(scope: Scope, question: string): Promise<{
         if (hits.length) retrieval.push("vector");
       }
     } catch (error) {
-      console.warn("[ai-reliable] vector retrieval failed:", error);
+      console.warn("[ai-reliable] vector retrieval failed:", scope.authorizedNotebookScope ? "AGENT_RETRIEVAL_FAILED" : error);
     }
   }
 
@@ -335,7 +341,7 @@ async function retrieveCandidates(scope: Scope, question: string): Promise<{
         if (rows.length) retrieval.push("fts");
       }
     } catch (error) {
-      console.warn("[ai-reliable] FTS retrieval failed:", error);
+      console.warn("[ai-reliable] FTS retrieval failed:", scope.authorizedNotebookScope ? "AGENT_RETRIEVAL_FAILED" : error);
     }
 
     try {
@@ -362,7 +368,7 @@ async function retrieveCandidates(scope: Scope, question: string): Promise<{
       }
       if (rows.length) retrieval.push("like");
     } catch (error) {
-      console.warn("[ai-reliable] LIKE retrieval failed:", error);
+      console.warn("[ai-reliable] LIKE retrieval failed:", scope.authorizedNotebookScope ? "AGENT_RETRIEVAL_FAILED" : error);
     }
   }
 
@@ -401,6 +407,20 @@ async function retrieveCandidates(scope: Scope, question: string): Promise<{
     .sort((a, b) => priority[a.reason] - priority[b.reason] || (b.score || 0) - (a.score || 0))
     .slice(0, 10);
   return { candidates, retrieval: Array.from(new Set(retrieval)) };
+}
+
+/** Agent shares RAG ranking; filter protected notes before any body reaches context. */
+export async function retrieveAgentNotebookContext(scope: Scope, question: string) {
+  const { candidates, retrieval } = await retrieveCandidates(scope, question);
+  const safe = candidates.filter(candidate => {
+    if (candidate.kind !== "note") return false;
+    const note = getDb().prepare("SELECT * FROM notes WHERE id=?").get(candidate.noteId) as CollaborationNote & { isLocked: number } | undefined;
+    if (!note || note.isLocked || isEncryptedNoteFormat(note.contentFormat)
+      || !canViewNoteThroughFolderPasswords(getDb(), note.id, new Set())
+      || getDb().prepare("SELECT 1 FROM notebook_passwords WHERE notebookId=?").get(note.notebookId)) return false;
+    try { return !encryptedBlocksInContent(note.content, note.contentFormat).length; } catch { return false; }
+  });
+  return { ...buildKnowledgeContext(safe), retrieval };
 }
 
 function getIndexStatus(scope: Scope) {
@@ -445,14 +465,26 @@ function getIndexStatus(scope: Scope) {
 }
 
 function publicStatus(scope: Scope) {
-  const settings = getUserAISettings(scope.userId);
+  const personal = getUserAISettings(scope.userId);
+  const sharedId = getUserAISetting(scope.userId, "ai_active_shared_profile_id");
+  let settings = personal;
+  let configurationError: { code: string; error: string } | null = null;
+  if (isUserManualAIEnabled(scope.userId)) {
+    try { settings = resolveUserChatSettings(scope.userId); }
+    catch (error) {
+      if (!(error instanceof AppError)) throw error;
+      configurationError = { code: error.code, error: error.message };
+    }
+  }
   const embedding = resolveEmbeddingConfig(scope.userId);
   return {
     enabled: isUserManualAIEnabled(scope.userId),
-    provider: settings.ai_provider || null,
-    model: settings.ai_model || null,
-    apiHost: apiHost(settings.ai_api_url),
-    embeddingModel: settings.ai_embedding_model || null,
+    provider: configurationError ? null : settings.ai_provider || null,
+    model: configurationError ? null : settings.ai_model || null,
+    apiHost: sharedId ? null : apiHost(settings.ai_api_url),
+    source: sharedId ? "shared" : "personal",
+    configurationError,
+    embeddingModel: personal.ai_embedding_model || null,
     embedding: {
       source: embedding.source,
       profileId: embedding.profileId,
@@ -631,9 +663,9 @@ app.post("/ask", async (c) => {
   if (!isUserManualAIEnabled(userId)) {
     return c.json({ error: "AI 手动配置已关闭，请先在 AI 设置中开启", code: "AI_CONFIG_DISABLED" }, 409);
   }
-  const settings = getUserAISettings(userId);
+  const settings = resolveUserChatSettings(userId);
   if (!settings.ai_api_url) return c.json({ error: "未配置 AI 服务" }, 400);
-  if (!["ollama", "lmstudio"].includes(settings.ai_provider) && !settings.ai_api_key) {
+  if (!hasAIAuth(settings)) {
     return c.json({ error: "未配置 API Key" }, 400);
   }
 
@@ -862,8 +894,8 @@ app.post("/collaboration/compose", async (c) => {
     return c.json({ error: "Skill 不能为空且不能超过 64000 字" }, 400);
   }
   if (!isUserManualAIEnabled(scope.userId)) return c.json({ error: "请先在 AI 设置中启用 AI", code: "AI_CONFIG_DISABLED" }, 409);
-  const settings = getUserAISettings(scope.userId);
-  if (!settings.ai_api_url || (!["ollama", "lmstudio"].includes(settings.ai_provider) && !settings.ai_api_key)) {
+  const settings = resolveUserChatSettings(scope.userId);
+  if (!settings.ai_api_url || !hasAIAuth(settings)) {
     return c.json({ error: "请先配置 AI 服务", code: "AI_NOT_CONFIGURED" }, 400);
   }
   // A quick idea without a chosen project never searches the rest of the library.

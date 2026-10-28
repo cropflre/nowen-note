@@ -1,3 +1,7 @@
+import { agentP2Migration } from "./agentP2Migration.js";
+import { sharedAIProfilesMigration } from "./sharedAIProfilesMigration.js";
+import { agentWorkflowMigration } from "./agentWorkflowMigration.js";
+import { agentMigration } from "./agentMigration.js";
 import { noteDeletionLifecycleMigration } from "./noteDeletionLifecycleMigration.js";
 import { pluginRetainedStorageMigration } from "./pluginRetainedStorageMigration.js";
 import { nowenStudioMigration } from "./nowenStudioMigration.js";
@@ -12,6 +16,8 @@ import { wechatAssistantQueueColumnsMigration } from "./wechatAssistantQueueColu
 import { wechatAssistantMigration } from "./wechatAssistantMigration.js";
 import { pluginInboundMigration } from "./pluginInboundMigration.js";
 import { encryptedNoteConversionMigration } from "./encryptedNoteConversionMigration.js";
+import { encryptedNoteDecryptionMigration } from "./encryptedNoteDecryptionMigration.js";
+import { encryptedJsonEvaluationMigration } from "./encryptedJsonEvaluationMigration.js";
 import { encryptedContentV2Migration } from "./encryptedContentV2Migration.js";
 import { taskComposerMigration } from "./taskComposerMigration.js";
 /**
@@ -23,6 +29,7 @@ import { taskComposerMigration } from "./taskComposerMigration.js";
  * activity ledger used by records, trends and heatmaps.
  */
 import type Database from "better-sqlite3";
+import { assertSchemaCompatibility } from "./schema-compatibility.js";
 import { encryptedBlocksMigration } from "./encryptedBlocksMigration.js";
 import { encryptedNotesMigration } from "./encryptedNotesMigration.js";
 import { markSearchIndexRebuilt, rebuildNormalizedSearchFts, repairSearchContentText } from "../lib/searchIndex.js";
@@ -439,6 +446,12 @@ export const MIGRATIONS: Migration[] = [
   pluginRetainedStorageMigration,
   nowenStudioMigration,
   nowenStudioHistoryMigration,
+  encryptedNoteDecryptionMigration,
+  agentMigration,
+  agentWorkflowMigration,
+  agentP2Migration,
+  encryptedJsonEvaluationMigration,
+  sharedAIProfilesMigration,
 ].sort((a, b) => a.version - b.version);
 
 export const CURRENT_SCHEMA_VERSION: number = MIGRATIONS.reduce(
@@ -492,16 +505,9 @@ export function getCurrentSchemaVersion(db: Database.Database): number {
 }
 
 export function runMigrations(db: Database.Database): number {
+  assertSchemaCompatibility(db, CURRENT_SCHEMA_VERSION);
   ensureMigrationsTable(db);
   validateMigrationRegistry();
-
-  const current = getCurrentSchemaVersion(db);
-  if (current > CURRENT_SCHEMA_VERSION) {
-    throw new Error(
-      `[migrations] 数据库版本 ${current} 高于当前程序支持的 ${CURRENT_SCHEMA_VERSION}。\n` +
-      "请升级程序或从兼容版本备份恢复，禁止旧程序继续写入新版数据库。",
-    );
-  }
 
   // schema_migrations is an applied-migration ledger, not a single cursor.
   // Looking only at MAX(version) permanently skips a migration added later with

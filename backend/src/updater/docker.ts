@@ -242,7 +242,20 @@ export function normalizeArchitecture(raw: string | undefined): string {
 
 export function resolveDigest(image: DockerImageInspect): string | null {
   const prefix = `${OFFICIAL_IMAGE_REPOSITORY}@sha256:`;
-  return image.RepoDigests?.find((item) => item.startsWith(prefix)) || image.RepoDigests?.[0] || null;
+  return image.RepoDigests?.find((item) => item.startsWith(prefix)) || null;
+}
+
+export function validateImageVersion(image: DockerImageInspect, targetVersion: string): string {
+  const label = image.Config?.Labels?.["org.opencontainers.image.version"];
+  const version = envMap(image.Config?.Env).get("NOWEN_APP_VERSION");
+  if (typeof label !== "string" || label.replace(/^v/, "") !== targetVersion || version !== targetVersion) {
+    throw new Error(`目标镜像版本与 v${targetVersion} 不符或缺少版本信息，拒绝升级`);
+  }
+  const digest = resolveDigest(image);
+  if (!digest || !/^sha256:[a-f0-9]{64}$/.test(digest.slice(digest.lastIndexOf("@") + 1))) {
+    throw new Error("目标镜像缺少官方仓库的有效 Digest，拒绝使用未固定的镜像");
+  }
+  return digest;
 }
 
 export async function getDockerInfo(): Promise<DockerInfo> {
@@ -440,7 +453,11 @@ export function buildReplacementCreatePayload(
 }
 
 export async function stopContainer(id: string, timeoutSeconds = 30): Promise<void> {
-  await dockerRequest("POST", `/containers/${encodeURIComponent(id)}/stop?t=${timeoutSeconds}`, undefined, (timeoutSeconds + 10) * 1000);
+  try {
+    await dockerRequest("POST", `/containers/${encodeURIComponent(id)}/stop?t=${timeoutSeconds}`, undefined, (timeoutSeconds + 10) * 1000);
+  } catch (error) {
+    if (!(error instanceof DockerApiError) || error.statusCode !== 304) throw error;
+  }
 }
 
 export async function startContainer(id: string): Promise<void> {

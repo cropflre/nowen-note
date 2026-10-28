@@ -1,0 +1,4 @@
+{"event":"request","id":1,"host":"dashscope.aliyuncs.com","model":"deepseek-v4.1-flash-1017","tools":true,"enable_thinking":false,"priorTools":[],"messages":2}
+{"event":"headers","id":1,"status":200,"elapsedMs":4927,"contentType":"text/event-stream;charset=utf-8"}
+{"event":"request","id":2,"host":"dashscope.aliyuncs.com","model":"deepseek-v4.1-flash-1017","tools":true,"enable_thinking":false,"sourceCount":2,"contextChars":237,"priorTools":["search_notebook"],"messages":4}
+{"event":"headers","id":2,"status":200,"elapsedMs":5951,"contentType":"text/event-stream;charset=utf-8"}

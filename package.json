@@ -39,7 +39,7 @@
     "test:harmony:emulator": "node scripts/test-harmony-emulator.mjs",
     "build:backend": "cd backend && npm run build",
     "build:all": "npm run build:backend && npm run build:frontend",
-    "test:update-release": "node --test scripts/tests/update-metadata-validator.test.cjs scripts/tests/update-builder-config.test.cjs scripts/tests/updater-manual-download-policy.test.cjs scripts/tests/release-publisher-contract.test.mjs scripts/tests/release-ci-assets.test.mjs scripts/tests/release-ci-guard.test.mjs scripts/tests/release-version-sync.test.mjs scripts/tests/plugin-generator-line-endings.test.mjs",
+    "test:update-release": "node --test scripts/tests/fetch-node.test.mjs scripts/tests/update-metadata-validator.test.cjs scripts/tests/update-builder-config.test.cjs scripts/tests/updater-manual-download-policy.test.cjs scripts/tests/release-publisher-contract.test.mjs scripts/tests/release-ci-assets.test.mjs scripts/tests/release-ci-guard.test.mjs scripts/tests/release-version-sync.test.mjs scripts/tests/plugin-generator-line-endings.test.mjs",
     "verify:update-release": "node scripts/verify-release-update-assets.mjs",
     "migrate:attachments:object": "node scripts/migrate-attachments-to-object-storage.mjs",
     "test:object-storage": "node scripts/test-object-storage.mjs",
@@ -61,9 +61,9 @@
     "@capacitor/cli": "8.4.3",
     "@capacitor/core": "8.4.3",
     "@electron/notarize": "^2.5.0",
-    "@electron/rebuild": "^3.7.0",
+    "@electron/rebuild": "4.2.1",
     "archiver": "^7.0.1",
-    "electron": "^33.0.0",
+    "electron": "43.8.4",
     "electron-builder": "^25.1.8",
     "jszip": "^3.10.1",
     "sharp": "^0.34.5"
@@ -76,5 +76,6 @@
     "@capacitor/status-bar": "^8.0.1",
     "bonjour-service": "^1.2.1",
     "electron-updater": "^6.3.9"
-  }
+  },
+  "engines": { "node": ">=24.22.1 <25" }
 }
