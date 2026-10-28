@@ -313,6 +313,8 @@
       "title": "不完整备份不可直接覆盖线上数据，失败要回滚",
       "status": "covered",
       "checks": [
+        { "file": "backend/tests/encrypted-json-evaluation-migration.test.ts", "case": "existing encrypted guards reject malformed JSON with stable errors and retain rows after reopening" },
+        { "file": "frontend/src/lib/__tests__/nativeTreeSchemaMigration.test.ts", "case": "schema 12 guard repair failure rolls back triggers, version and pending data" },
         { "file": "backend/tests/database-startup-compatibility.test.ts", "case": "DCC-008: a newer database is rejected before baseline DDL or vacuum can modify it" },
         { "file": "backend/tests/database-startup-compatibility.test.ts", "case": "DCC-008: incompatible startup serves an upgrade prompt but never a healthy or writable app" },
         { "file": "backend/tests/docker-updater-jobs.test.ts", "case": "DCC-008: Docker upgrade lifecycle refuses unsafe rollback" },
@@ -494,6 +496,7 @@
         { "file": "frontend/src/lib/__tests__/mobileSyncEndpoint.test.ts", "case": "rejects a late push ACK when the account changes" },
         { "file": "backend/tests/sync-v2-mobile-multidevice.test.ts", "case": "workspace Snapshot pruning preserves pending descendants" },
         { "file": "backend/tests/sync-v2-mobile-multidevice.test.ts", "case": "create then permanent delete between Pulls" },
+        { "file": "frontend/src/lib/__tests__/nativeTreeSchemaMigration.test.ts", "case": "schema 12 guard repair retains encrypted notes and pending mutations" },
         { "file": "frontend/src/lib/encryptedNotes/__tests__/nativeDatabaseInitialization.test.ts", "case": "external UI reads wait for an in-progress Apply transaction" },
         { "file": "backend/tests/sync-v2-mobile-multidevice.test.ts", "case": "personal tree creates are readable offline, survive reopen" },
         { "file": "backend/tests/sync-v2-mobile-multidevice.test.ts", "case": "tree create rolls back body, root container and provenance" },

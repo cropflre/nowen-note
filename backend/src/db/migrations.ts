@@ -16,6 +16,7 @@ import { wechatAssistantMigration } from "./wechatAssistantMigration.js";
 import { pluginInboundMigration } from "./pluginInboundMigration.js";
 import { encryptedNoteConversionMigration } from "./encryptedNoteConversionMigration.js";
 import { encryptedNoteDecryptionMigration } from "./encryptedNoteDecryptionMigration.js";
+import { encryptedJsonEvaluationMigration } from "./encryptedJsonEvaluationMigration.js";
 import { encryptedContentV2Migration } from "./encryptedContentV2Migration.js";
 import { taskComposerMigration } from "./taskComposerMigration.js";
 /**
@@ -450,6 +451,7 @@ export const MIGRATIONS: Migration[] = [
   agentMigration,
   agentWorkflowMigration,
   agentP2Migration,
+  encryptedJsonEvaluationMigration,
 ].sort((a, b) => a.version - b.version);
 
 export const CURRENT_SCHEMA_VERSION: number = MIGRATIONS.reduce(

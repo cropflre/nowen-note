@@ -20,10 +20,13 @@ test("Native SQLite persistent guards reject invalid ciphertext and old-client d
     insert.run("protected", JSON.stringify(envelope), "", "encrypted-note-v1");
     insert.run("ordinary", "Public body", "Public body", "markdown");
     const original = db.prepare("SELECT * FROM notes WHERE id='protected'").get();
-    for (const [content, preview, format] of [["Plaintext", "", "encrypted-note-v1"], [JSON.stringify(envelope), "Private preview", "encrypted-note-v1"], [JSON.stringify(envelope), "", "encrypted-note-v99"]]) {
+    for (const [content, preview, format] of [["Plaintext", "", "encrypted-note-v1"], ["{", "", "encrypted-note-v1"], [JSON.stringify(envelope), "Private preview", "encrypted-note-v1"], [JSON.stringify(envelope), "", "encrypted-note-v99"]]) {
       assert.throws(() => insert.run("invalid", content, preview, format), /INVALID_ENCRYPTED_NOTE/);
     }
     const update = db.prepare("UPDATE notes SET content=?,contentText=?,contentFormat=? WHERE id=?");
+    for (const invalid of ["Plaintext", "{", "", null]) {
+      assert.throws(() => update.run(invalid, "", "encrypted-note-v1", "protected"), /INVALID_ENCRYPTED_NOTE/);
+    }
     assert.throws(() => update.run("Private downgrade", "Private downgrade", "markdown", "protected"), /INVALID_ENCRYPTED_NOTE/);
     assert.throws(() => update.run(JSON.stringify({ ...envelope, objectId: "00112233-4455-4677-8899-aabbccddee00" }), "", "encrypted-note-v1", "protected"), /INVALID_ENCRYPTED_NOTE/);
     assert.throws(() => update.run(JSON.stringify(envelope), "", "encrypted-note-v1", "ordinary"), /INVALID_ENCRYPTED_NOTE/);

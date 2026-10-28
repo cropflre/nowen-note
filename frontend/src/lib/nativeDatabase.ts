@@ -35,7 +35,7 @@ type NativeDatabaseGlobal = typeof globalThis & {
   __nowenNoteNativeDatabaseState?: NativeDatabaseGlobalState;
 };
 
-const SCHEMA_VERSION = 12;
+const SCHEMA_VERSION = 13;
 const DATABASE_PREFIX = "nowen_local_";
 
 const ENTITY_TYPE_CHECK = `
@@ -795,7 +795,7 @@ class NativeDatabaseImpl implements NativeDatabase {
         } else if (version === 2) {
           await upgradeSchemaV2ToV3(this.raw);
         }
-        if (version < 5) {
+        if (version < 13) {
           for (const statement of NATIVE_ENCRYPTED_NOTE_GUARDS) await this.raw.execute(statement, false);
         }
         if (version < 6) {

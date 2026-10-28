@@ -16,7 +16,7 @@ import { updateRepeatingTaskOnline } from "../taskComposerApi";
 vi.mock("../taskComposerApi", () => ({ registerTaskComposerCache: () => () => undefined, updateRepeatingTaskOnline: vi.fn(), getTaskComposerContext: () => ({}), isTaskComposerContextCurrent: () => true, TaskComposerApiError: class extends Error {} }));
 vi.mock("../mobileLocalMode", () => ({ isMobileLocalMode: () => false }));
 
-const fixture = vi.hoisted(() => ({ raw: undefined as unknown as DatabaseSync, fail: false, failTree: false }));
+const fixture = vi.hoisted(() => ({ raw: undefined as unknown as DatabaseSync, fail: false, failTree: false, failGuard: false }));
 const { DatabaseSync: SQLiteDatabase } = createRequire(import.meta.url)("node:sqlite") as typeof import("node:sqlite");
 vi.mock("@capacitor/core", () => ({ Capacitor: { isNativePlatform: () => true } }));
 vi.mock("@capacitor-community/sqlite", () => ({
@@ -27,6 +27,7 @@ vi.mock("@capacitor-community/sqlite", () => ({
     async createConnection() { return {
       isDBOpen: async () => ({result:true}), close: async () => {},
       execute: async (sql:string) => {
+        if (fixture.failGuard && sql.startsWith("CREATE TRIGGER native_encrypted_notes_update")) throw new Error("Guard migration interruption");
         if (fixture.fail && sql === "ALTER TABLE sync_conflicts_v2 RENAME TO sync_conflicts") throw new Error("Migration interruption");
         if (fixture.failTree && sql === "ALTER TABLE native_knowledge_tree_nodes_v12 RENAME TO native_knowledge_tree_nodes") throw new Error("Tree migration interruption");
         fixture.raw.exec(sql); return {};
@@ -39,7 +40,7 @@ vi.mock("@capacitor-community/sqlite", () => ({
 
 beforeEach(() => {
   Reflect.deleteProperty(globalThis,"__nowenNoteNativeDatabaseState");
-  fixture.failTree = false; fixture.fail = false; fixture.raw = new SQLiteDatabase(":memory:");
+  fixture.failTree = false; fixture.fail = false; fixture.failGuard = false; fixture.raw = new SQLiteDatabase(":memory:");
   fixture.raw.exec("PRAGMA foreign_keys=ON");
   const source = readFileSync(new NodeURL("../nativeDatabase.ts",import.meta.url),"utf8");
   const scope = source.match(/const SCOPE_CHECK = `([\s\S]*?)`;/)![1];
@@ -60,12 +61,45 @@ beforeEach(() => {
 });
 afterEach(() => { fixture.raw.close(); Reflect.deleteProperty(globalThis,"__nowenNoteNativeDatabaseState"); });
 
+async function verifySchema12GuardRepair(rollback: boolean) {
+  const { envelope } = JSON.parse(readFileSync(new NodeURL("../encryptedNotes/__tests__/fixtures/envelope-v2.json", import.meta.url), "utf8"));
+  const content = JSON.stringify(envelope);
+  fixture.raw.exec(`PRAGMA user_version=12;
+    INSERT INTO notebooks(id,userId,name,createdAt,updatedAt) VALUES ('book','u','Encrypted','now','now');
+    CREATE TRIGGER native_encrypted_notes_update BEFORE UPDATE ON notes
+      WHEN NEW.contentFormat LIKE 'encrypted-%' AND json_extract(NEW.content,'$.objectId') IS NOT json_extract(OLD.content,'$.objectId')
+      BEGIN SELECT RAISE(ABORT,'INVALID_ENCRYPTED_NOTE'); END;`);
+  fixture.raw.prepare("INSERT INTO notes(id,userId,notebookId,content,contentFormat,createdAt,updatedAt) VALUES ('n','u','book',?,'encrypted-note-v2','now','now')").run(content);
+  fixture.raw.prepare("UPDATE sync_outbox SET payload=?").run(JSON.stringify({ content, contentFormat: "encrypted-note-v2" }));
+  const notes = fixture.raw.prepare("SELECT * FROM notes").all();
+  const pending = fixture.raw.prepare("SELECT * FROM sync_outbox").all();
+  const originalGuard = fixture.raw.prepare("SELECT sql FROM sqlite_master WHERE name='native_encrypted_notes_update'").get();
+  fixture.failGuard = rollback;
+  if (rollback) {
+    await expect(openNativeDatabase("guard-repair-account")).rejects.toThrow("Guard migration interruption");
+    expect(fixture.raw.prepare("PRAGMA user_version").get()).toEqual({ user_version: 12 });
+    expect(fixture.raw.prepare("SELECT sql FROM sqlite_master WHERE name='native_encrypted_notes_update'").get()).toEqual(originalGuard);
+    expect(fixture.raw.prepare("SELECT * FROM notes").all()).toEqual(notes);
+    expect(fixture.raw.prepare("SELECT * FROM sync_outbox").all()).toEqual(pending);
+    return;
+  }
+  const db = await openNativeDatabase("guard-repair-account");
+  expect(fixture.raw.prepare("PRAGMA user_version").get()).toEqual({ user_version: 13 });
+  expect(() => fixture.raw.prepare("UPDATE notes SET content='plaintext' WHERE id='n'").run()).toThrow("INVALID_ENCRYPTED_NOTE");
+  expect(fixture.raw.prepare("SELECT * FROM notes").all()).toEqual(notes);
+  expect(fixture.raw.prepare("SELECT * FROM sync_outbox").all()).toEqual(pending);
+  await db.close();
+}
+
+it("DCC-012: schema 12 guard repair retains encrypted notes and pending mutations", () => verifySchema12GuardRepair(false));
+it("DCC-008: schema 12 guard repair failure rolls back triggers, version and pending data", () => verifySchema12GuardRepair(true));
+
 it("migrates schema 6 queues without losing mutation identity, retries, versions or resolved history", async () => {
   const before = fixture.raw.prepare("SELECT * FROM sync_outbox").all(), history = fixture.raw.prepare("SELECT * FROM sync_conflicts").all();
   const db = await openNativeDatabase("tree-migration-fixture");
   expect(fixture.raw.prepare("SELECT * FROM sync_outbox").all()).toEqual(before);
   expect(fixture.raw.prepare("SELECT * FROM sync_conflicts").all()).toEqual(history);
-  expect(fixture.raw.prepare("PRAGMA user_version").get()).toEqual({user_version: 12});
+  expect(fixture.raw.prepare("PRAGMA user_version").get()).toEqual({user_version: 13});
   await db.run(`INSERT INTO sync_outbox(id,mutationId,profileId,deviceId,scopeKey,entityType,entityId,operation,createdAt)
     VALUES ('tree','tree-mutation','p','d','personal','knowledge_tree_node','note:n','upsert','now')`);
   expect(fixture.raw.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
@@ -86,7 +120,7 @@ it("upgrades schema 7 task recurrence and caches confirmed batches without overw
   fixture.raw.exec("PRAGMA user_version=7; INSERT INTO tasks(id,userId,title,createdAt,updatedAt) VALUES ('old','local','Preserved','now','now')");
   const before = fixture.raw.prepare("SELECT * FROM sync_outbox").all();
   const db = await openNativeDatabase("task-composer-fixture");
-  expect(fixture.raw.prepare("PRAGMA user_version").get()).toEqual({ user_version: 12 });
+  expect(fixture.raw.prepare("PRAGMA user_version").get()).toEqual({ user_version: 13 });
   expect(fixture.raw.prepare("SELECT title,repeatRule FROM tasks WHERE id='old'").get()).toEqual({ title: "Preserved", repeatRule: "none" });
   const task = { id: "confirmed", workspaceId: null, userId: "remote", title: "Daily study", description: "Practice", priority: 2, isCompleted: 0, dueDate: "2026-12-31", dueAt: "2026-12-31T09:00", repeatRule: "daily", repeatInterval: 1, repeatEndCount: 7, createdAt: "now", updatedAt: "now" } as Task;
   await cacheConfirmedNativeTasks(db, "local", [task], [{ id: "remote-project", userId: "remote", workspaceId: null, name: "Server project", icon: "", color: "#123456", sortOrder: 0, createdAt: "now", updatedAt: "now" }]);
@@ -140,7 +174,7 @@ it("upgrades schema 7 task rows without inventing archives or losing pending mut
   const db=await openNativeDatabase("task-migration-fixture");
   expect(fixture.raw.prepare("SELECT * FROM tasks").get()).toEqual({...task,archivedAt:null,...Object.fromEntries(NATIVE_TASK_REPEAT_FIELDS.map((field,index) => [field,nativeTaskRepeatValues({})[index]]))});
   expect(fixture.raw.prepare("SELECT * FROM sync_outbox").all()).toEqual(outbox);
-  expect(fixture.raw.prepare("PRAGMA user_version").get()).toEqual({user_version: 12});
+  expect(fixture.raw.prepare("PRAGMA user_version").get()).toEqual({user_version: 13});
   await db.close();
 });
 
@@ -151,7 +185,7 @@ it("upgrades lifecycle schema 8 with recurrence while preserving archives and pe
     VALUES ('archived','local','Preserved archive',1,'done','archive-time','created','updated')`);
   const before = fixture.raw.prepare("SELECT * FROM sync_outbox").all();
   const db = await openNativeDatabase("lifecycle-v8-fixture");
-  expect(fixture.raw.prepare("PRAGMA user_version").get()).toEqual({ user_version: 12 });
+  expect(fixture.raw.prepare("PRAGMA user_version").get()).toEqual({ user_version: 13 });
   expect(fixture.raw.prepare("SELECT title,archivedAt,repeatRule,repeatInterval FROM tasks WHERE id='archived'").get()).toEqual({
     title: "Preserved archive", archivedAt: "archive-time", repeatRule: "none", repeatInterval: 1,
   });
@@ -227,7 +261,7 @@ it("upgrades schema 10 asset queues and preserves existing local folders before 
     INSERT INTO mobile_local_attachment_folders(id,userId,name,parentId,createdAt,updatedAt) VALUES ('preserved','u','Preserved folder',NULL,'now','now');`);
   const before=fixture.raw.prepare("SELECT * FROM sync_outbox").all();
   const db=await openNativeDatabase("asset-upgrade-account");
-  expect(fixture.raw.prepare("PRAGMA user_version").get()).toEqual({user_version:12});
+  expect(fixture.raw.prepare("PRAGMA user_version").get()).toEqual({user_version:13});
   expect(fixture.raw.prepare("SELECT * FROM sync_outbox").all()).toEqual(before);
   let active=true;const onCommitted=vi.fn();
   const restore=installMobileLocalAttachmentFolderBridge(db,"u",{onCommitted,assertActive:()=>{if(!active) throw new Error("Session changed");}});
@@ -260,7 +294,7 @@ it.each([false, true])("schema 11 signed-order migration preserves tree and queu
     expect(fixture.raw.prepare("SELECT sql FROM sqlite_master WHERE name='native_knowledge_tree_nodes'").get()?.sql).toContain("CHECK (sortOrder >= 0)");
   } else {
     const db = await openNativeDatabase("signed-order-migration");
-    expect(fixture.raw.prepare("PRAGMA user_version").get()).toEqual({user_version:12});
+    expect(fixture.raw.prepare("PRAGMA user_version").get()).toEqual({user_version:13});
     expect(fixture.raw.prepare("SELECT name FROM sqlite_master WHERE name='idx_native_tree_parent'").get()).toBeTruthy();
     await db.run("UPDATE native_knowledge_tree_nodes SET sortOrder=-2147483647 WHERE id='note:n'");
     expect(fixture.raw.prepare("SELECT sortOrder FROM native_knowledge_tree_nodes").get()).toEqual({sortOrder:-2147483647});

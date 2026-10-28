@@ -18,7 +18,9 @@ Electron 43 保留 macOS 12 支持，但[不再支持 macOS 11](https://www.elec
 
 源码开发或独立运行 CLI / MCP 的 macOS 用户还需注意：官方 Node 24 二进制要求 **macOS 13.5 或更高版本**，与 Electron 桌面安装包的系统要求不同，见 [Node 24 平台要求](https://github.com/nodejs/node/blob/v24.22.1/BUILDING.md#platform-list)。
 
-本次没有修改笔记、附件或同步的数据结构，也不要求用户清空数据。SQLite 驱动升级为 better-sqlite3 12.11.1，需要随目标运行时重建原生模块；不能把旧 `node_modules` 直接复制给新运行时。macOS 双架构构建会分别编译 SQLite，并准备和校验对应架构的向量扩展、图片和 FFmpeg 运行依赖。
+笔记、附件和同步的数据字段与密文格式保持不变，不要求用户清空数据。后续 CI 兼容修复通过服务端迁移 v139、原生 schema 13 更新已有数据库的加密防护触发器，详见 [CI 修复记录](./qa/node24-ci-followup-2026-10-28.md)。迁移后旧版程序不能直接打开更高版本数据库，回退需遵循备份恢复流程。
+
+SQLite 驱动升级为 better-sqlite3 12.11.1，需要随目标运行时重建原生模块；不能把旧 `node_modules` 直接复制给新运行时。macOS 双架构构建会分别编译 SQLite，并准备和校验对应架构的向量扩展、图片和 FFmpeg 运行依赖。
 
 ## 源码与开发环境
 

@@ -33,6 +33,14 @@ const validEnvelope = `CASE WHEN json_valid(NEW.content) THEN
     AND json_type(NEW.content,'$.encryptionEpoch') IS 'integer' AND json_extract(NEW.content,'$.encryptionEpoch') BETWEEN 1 AND 9007199254740991))
   ELSE 0 END`;
 
+// CASE guarantees that root comparisons never parse plaintext or damaged JSON.
+const sameRoot = `CASE WHEN json_valid(NEW.content) AND json_valid(OLD.content) THEN
+  json_extract(NEW.content,'$.objectId') IS json_extract(OLD.content,'$.objectId')
+  AND json_extract(NEW.content,'$.originalFormat') IS json_extract(OLD.content,'$.originalFormat')
+  AND json_extract(NEW.content,'$.keyEpoch') IS json_extract(OLD.content,'$.keyEpoch')
+  AND json_extract(NEW.content,'$.encryptionEpoch') IS json_extract(OLD.content,'$.encryptionEpoch')
+  ELSE 0 END`;
+
 export const NATIVE_ENCRYPTED_NOTE_GUARDS = [
   "DROP TRIGGER IF EXISTS native_encrypted_notes_insert",
   "DROP TRIGGER IF EXISTS native_encrypted_notes_update",
@@ -42,10 +50,7 @@ export const NATIVE_ENCRYPTED_NOTE_GUARDS = [
   `CREATE TRIGGER native_encrypted_notes_update BEFORE UPDATE ON notes
     WHEN (OLD.contentFormat LIKE 'encrypted-%' AND (
       NEW.contentFormat IS NOT OLD.contentFormat OR NOT (${validEnvelope})
-      OR json_extract(NEW.content,'$.objectId') IS NOT json_extract(OLD.content,'$.objectId')
-      OR json_extract(NEW.content,'$.originalFormat') IS NOT json_extract(OLD.content,'$.originalFormat')
-      OR json_extract(NEW.content,'$.keyEpoch') IS NOT json_extract(OLD.content,'$.keyEpoch')
-      OR json_extract(NEW.content,'$.encryptionEpoch') IS NOT json_extract(OLD.content,'$.encryptionEpoch')
+      OR NOT (${sameRoot})
     )) OR (OLD.contentFormat NOT LIKE 'encrypted-%' AND NEW.contentFormat LIKE 'encrypted-%')
     BEGIN SELECT RAISE(ABORT,'INVALID_ENCRYPTED_NOTE'); END`,
 ] as const;
