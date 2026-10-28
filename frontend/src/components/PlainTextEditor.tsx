@@ -19,7 +19,7 @@ const PlainTextEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function P
   const generation = useRef(0);
   const dirty = useRef(false);
   const pending = useRef<NoteEditorUpdatePayload | null>(null);
-  const timer = useRef<ReturnType<typeof setTimeout>>();
+  const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   function discardPending() {
     clearTimeout(timer.current);

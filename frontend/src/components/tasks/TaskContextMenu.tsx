@@ -7,7 +7,7 @@ import type { Task, TaskProject } from "@/types";
 
 export default function TaskContextMenu({ menu, menuRef, task, projects, canArchive, onAction }: {
   menu: ContextMenuState;
-  menuRef: React.RefObject<HTMLDivElement>;
+  menuRef: React.RefObject<HTMLDivElement | null>;
   task: Task;
   projects: TaskProject[];
   canArchive: boolean;

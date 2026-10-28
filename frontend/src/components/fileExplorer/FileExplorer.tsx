@@ -94,7 +94,7 @@ function FileExplorerContent({ scope }: { scope: string }) {
   const [saving, setSaving] = useState(false);
   const picker = useRef<HTMLInputElement>(null);
   const root = useRef<HTMLDivElement>(null);
-  const refreshTimer = useRef<ReturnType<typeof setTimeout>>();
+  const refreshTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const refresh = useCallback(() => setRevision((previous) => previous + 1), []);
   useEffect(() => {
     const applied = () => { if (isCurrent()) refresh(); };

@@ -18,7 +18,7 @@ let root: Root;
 let host: HTMLDivElement;
 const onUpdate = vi.fn();
 const onLocalUpdate = vi.fn();
-let handle: React.RefObject<NoteEditorHandle>;
+let handle: React.RefObject<NoteEditorHandle | null>;
 beforeEach(() => {
   vi.useFakeTimers(); vi.clearAllMocks(); localStorage.clear();
   host = document.createElement("div"); document.body.append(host); root = createRoot(host);

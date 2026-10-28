@@ -343,7 +343,7 @@ npm run cap:open:ios
 
 | Layer | Main technologies |
 | --- | --- |
-| **Frontend** | React 18, TypeScript, Vite 5, Tailwind CSS, Tiptap 3, CodeMirror 6, Yjs, IndexedDB |
+| **Frontend** | React 19, TypeScript, Vite 5, Tailwind CSS, Tiptap 3, CodeMirror 6, Yjs, IndexedDB |
 | **Backend** | Node.js 20, Hono 4, WebSocket, better-sqlite3, FTS5, sqlite-vec, sharp |
 | **Desktop** | Electron 33, electron-builder, electron-updater |
 | **Mobile** | Capacitor 8 for Android/iOS, ArkTS + ArkWeb for HarmonyOS |

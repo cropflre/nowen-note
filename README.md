@@ -345,7 +345,7 @@ npm run cap:open:ios
 
 | 层 | 主要技术 |
 | --- | --- |
-| **前端** | React 18、TypeScript、Vite 5、Tailwind CSS、Tiptap 3、CodeMirror 6、Yjs、IndexedDB |
+| **前端** | React 19、TypeScript、Vite 5、Tailwind CSS、Tiptap 3、CodeMirror 6、Yjs、IndexedDB |
 | **后端** | Node.js 20、Hono 4、WebSocket、better-sqlite3、FTS5、sqlite-vec、sharp |
 | **桌面端** | Electron 33、electron-builder、electron-updater |
 | **移动端** | Capacitor 8（Android / iOS）、ArkTS + ArkWeb（HarmonyOS） |
