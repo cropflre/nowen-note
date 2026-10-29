@@ -44,6 +44,7 @@ test.before(async () => {
   db.prepare("INSERT INTO ai_custom_prompts(id,userId,name,prompt) VALUES ('personal','collab-a','Plan skill','PERSONAL INSTRUCTION'),('foreign-personal','collab-b','Secret skill','PRIVATE PROMPT')").run();
   settings.setUserAISettings("collab-a", [{ key: "ai_api_url", value: "https://collaboration.example/v1" }, { key: "ai_api_key", value: "collab-key" }, { key: "ai_model", value: "collab-model" }]);
   app = new Hono(); app.route("/ai", (await import("../src/routes/ai-reliable")).default);
+  app.route("/legacy", (await import("../src/routes/ai")).default);
   originalFetch = globalThis.fetch;
 });
 test.beforeEach(() => {
@@ -57,6 +58,7 @@ test.afterEach(() => { globalThis.fetch = originalFetch; });
 test.after(() => { closeDb?.(); fs.rmSync(directory, { recursive: true, force: true }); });
 
 test("collaboration requires authentication before listing or generation", async () => {
+  assert.equal((await app.request("/ai/ask", { method: "POST", body: "{}" })).status, 401);
   assert.equal((await app.request("/ai/collaboration/skills?notebookId=skills")).status, 401);
   assert.equal((await app.request("/ai/collaboration/compose", { method: "POST", body: "{}" })).status, 401);
   assert.equal(calls.length, 0);
@@ -120,4 +122,70 @@ test("disabled AI cannot be bypassed by collaboration", async () => {
   db.prepare("INSERT INTO user_ai_settings(userId,key,value) VALUES ('collab-a','ai_manual_enabled','false') ON CONFLICT(userId,key) DO UPDATE SET value='false'").run();
   try { assert.equal((await compose()).status, 409); assert.equal(calls.length, 0); }
   finally { db.prepare("DELETE FROM user_ai_settings WHERE userId='collab-a' AND key='ai_manual_enabled'").run(); }
+});
+
+const ask = (patch: Record<string, unknown> = {}) => app.request("/ai/ask", {
+  method: "POST", headers,
+  body: JSON.stringify({ question: "Summarize this", mode: "selection", selectedText: "VERIFIED SOURCE", ...patch }),
+});
+
+test("chat applies only the selected personal Skill without changing source evidence", async () => {
+  const response = await ask({ skillId: "personal" });
+  assert.equal(response.status, 200); await response.text();
+  const messages = calls[0].body.messages;
+  assert.ok(messages[0].content.includes("VERIFIED SOURCE"));
+  assert.ok(!messages[0].content.includes("PERSONAL INSTRUCTION"));
+  assert.ok(messages.some(message => message.role === "user" && message.content.includes("PERSONAL INSTRUCTION")));
+  assert.equal(messages.at(-1)?.content, "Summarize this");
+  calls = [];
+  await (await ask()).text();
+  assert.ok(!JSON.stringify(calls).includes("PERSONAL INSTRUCTION"));
+});
+
+test("personal chat Skills work with knowledge and current-note scopes", async () => {
+  for (const mode of ["knowledge", "current-note"]) {
+    calls = [];
+    const response = await ask({ mode, currentNoteId: "current", notebookId: "project", skillId: "personal" });
+    assert.equal(response.status, 200); await response.text();
+    const sent = JSON.stringify(calls[0].body.messages);
+    assert.ok(sent.includes("PERSONAL INSTRUCTION"));
+    assert.ok(sent.includes("PROJECT VERIFIED STATE"));
+    assert.ok(!sent.includes("FOREIGN SECRET"));
+    assert.ok(!sent.includes("PRIVATE PROMPT"));
+  }
+});
+
+test("chat rejects foreign, deleted and malformed Skills before provider access (DCC-006)", async () => {
+  for (const skillId of ["foreign-personal", "deleted-skill"]) {
+    assert.equal((await ask({ skillId })).status, 403);
+  }
+  for (const skillId of ["", 3, {}, "x".repeat(201)]) {
+    assert.equal((await ask({ skillId })).status, 400);
+  }
+  assert.equal(calls.length, 0);
+});
+
+test("personal Skills persist through CRUD and changes apply to the next chat request", async () => {
+  const request = (method: string, suffix = "", body?: unknown, user = "collab-a") => app.request(`/legacy/prompts${suffix}`, {
+    method, headers: { ...headers, "X-User-Id": user }, ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+  });
+  const created = await request("POST", "", { name: "Custom review", prompt: "FIRST VERSION" });
+  assert.equal(created.status, 200);
+  const { id } = await created.json() as { id: string };
+  const list = await (await request("GET")).json() as { items: Array<{ id: string; prompt: string }> };
+  assert.ok(list.items.some(item => item.id === id && item.prompt === "FIRST VERSION"));
+  const foreignList = await (await request("GET", "", undefined, "collab-b")).json() as { items: Array<{ id: string }> };
+  assert.ok(!foreignList.items.some(item => item.id === id));
+  assert.equal((await request("PUT", `/${id}`, { name: "stolen", prompt: "stolen" }, "collab-b")).status, 404);
+  assert.equal((await request("DELETE", `/${id}`, undefined, "collab-b")).status, 404);
+  assert.equal((await request("PUT", `/${id}`, { name: "Custom review", prompt: "UPDATED VERSION" })).status, 200);
+  await (await ask({ skillId: id })).text();
+  assert.ok(JSON.stringify(calls).includes("UPDATED VERSION"));
+  assert.ok(!JSON.stringify(calls).includes("FIRST VERSION"));
+  assert.equal((await request("POST", "", { name: "Custom review", prompt: "duplicate" })).status, 400);
+  assert.equal((await request("POST", "", { name: "Large", prompt: "x".repeat(4001) })).status, 400);
+  assert.equal((await request("DELETE", `/${id}`)).status, 200);
+  calls = [];
+  assert.equal((await ask({ skillId: id })).status, 403);
+  assert.equal(calls.length, 0);
 });

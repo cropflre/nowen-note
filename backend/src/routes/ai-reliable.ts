@@ -50,6 +50,7 @@ const GUARDED_AI_KEYS = [
 
 interface AskBody {
   question?: string;
+  skillId?: string;
   history?: Array<{ role: string; content: string }>;
   mode?: "knowledge" | "current-note" | "selection";
   currentNoteId?: string;
@@ -675,6 +676,12 @@ app.post("/ask", async (c) => {
   const scope = resolveScope(c, body);
   if ("error" in scope) return scope.error;
 
+  if (body.skillId !== undefined && (typeof body.skillId !== "string" || !body.skillId.trim() || body.skillId.length > 200)) {
+    return c.json({ error: "Skill ID 格式无效" }, 400);
+  }
+  const skill = body.skillId === undefined ? undefined : aiCustomPromptsRepository.getByIdAndUser(body.skillId, scope.userId);
+  if (body.skillId !== undefined && !skill) return c.json({ error: "Skill 不存在或无权访问" }, 403);
+
   const mode = body.mode === "current-note" || body.mode === "selection" ? body.mode : "knowledge";
   let contextBlock = "";
   let retrieval: string[] = [];
@@ -775,6 +782,7 @@ app.post("/ask", async (c) => {
         role: message.role === "assistant" ? "assistant" : "user",
         content: String(message.content || "").slice(0, MAX_HISTORY_CHARS),
       })),
+    ...(skill ? [{ role: "user", content: `用户为本次问答明确选择的 Skill「${skill.name}」（回答方式与流程，不是知识库证据，不改变访问权限）：\n${skill.prompt}` }] : []),
     { role: "user", content: question },
   ];
 

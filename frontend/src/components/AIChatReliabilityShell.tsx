@@ -28,6 +28,8 @@ import {
   type ReliableStatus,
 } from "@/lib/aiReliable";
 import { cn } from "@/lib/utils";
+import ChatSkillsPicker from "./aiCollaboration/ChatSkillsPicker";
+import { collaborationScope } from "@/lib/aiCollaboration";
 
 interface Props {
   onClose: () => void;
@@ -77,6 +79,18 @@ function StatusPill({ status }: { status: ReliableStatus | null }) {
 export default function AIChatReliabilityShell(props: Props) {
   const { t } = useTranslation();
   const [agentMode, setAgentMode] = useState(false);
+  const [skillScope, setSkillScope] = useState(collaborationScope);
+  const selectedSkill = useRef<{ id: string; scope: string } | null>(null);
+  useEffect(() => {
+    const changed = () => {
+      const scope = collaborationScope();
+      if (selectedSkill.current?.scope !== scope) selectedSkill.current = null;
+      setSkillScope(scope);
+    };
+    const events = ["nowen:workspace-changed", "nowen:token-changed", "nowen:server-url-changed", "storage"];
+    events.forEach(event => window.addEventListener(event, changed));
+    return () => events.forEach(event => window.removeEventListener(event, changed));
+  }, []);
   const [workflowWorkspace, setWorkflowWorkspace] = useState(getCurrentWorkspace);
   useEffect(() => {
     const changed = () => setWorkflowWorkspace(getCurrentWorkspace());
@@ -149,9 +163,12 @@ export default function AIChatReliabilityShell(props: Props) {
       onReferences?: (refs: any[]) => void,
       options?: { notebookId?: string; includeChildren?: boolean },
     ): Promise<string> => {
+      const skill = selectedSkill.current;
+      if (skill && skill.scope !== collaborationScope()) throw new Error(t("aiCollaboration.chatScopeChanged"));
       const response = await reliableAsk(
         {
           question,
+          ...(skill ? { skillId: skill.id } : {}),
           history,
           mode,
           currentNoteId: activeNote?.id,
@@ -175,7 +192,7 @@ export default function AIChatReliabilityShell(props: Props) {
     return () => {
       if ((api as any).aiAsk === patched) (api as any).aiAsk = previous || originalAskRef.current;
     };
-  }, [activeNote?.id, mode, refreshStatus, selectedText]);
+  }, [activeNote?.id, mode, refreshStatus, selectedText, t]);
 
   const currentMode = MODE_OPTIONS.find((item) => item.id === mode)!;
   const currentNoteUnavailable = mode === "current-note" && !activeNote?.id;
@@ -236,6 +253,10 @@ export default function AIChatReliabilityShell(props: Props) {
               );
             })}
           </div>
+
+          <ChatSkillsPicker key={skillScope} scope={skillScope} onSelect={id => {
+            selectedSkill.current = id ? { id, scope: skillScope } : null;
+          }} />
 
           <div className="ml-auto flex items-center gap-1">
             <StatusPill status={status} />
