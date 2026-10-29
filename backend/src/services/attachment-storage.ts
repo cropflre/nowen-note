@@ -255,20 +255,22 @@ async function signedFetch(
   method: "GET" | "PUT" | "DELETE" | "HEAD",
   relPath: string,
   cfg: S3Config,
-  body?: Buffer,
+  body?: Buffer | { filePath: string; size: number; sha256: string },
   contentType?: string,
   extraHeaders?: Record<string, string>,
 ): Promise<Response> {
   const url = objectUrl(relPath, cfg);
   const now = new Date();
   const date = yyyymmdd(now);
-  const payloadHash = body ? await sha256Hex(body) : await sha256Hex("");
+  const fileBody = body && !Buffer.isBuffer(body) ? body : undefined;
+  const payloadHash = fileBody ? fileBody.sha256 : await sha256Hex(body as Buffer || "");
   const headers: Record<string, string> = {
     host: url.host,
     "x-amz-content-sha256": payloadHash,
     "x-amz-date": amzDate(now),
   };
   if (contentType) headers["content-type"] = contentType;
+  if (fileBody) headers["content-length"] = String(fileBody.size);
     if (extraHeaders) {
       for (const [k, v] of Object.entries(extraHeaders)) {
         headers[k.toLowerCase()] = v;
@@ -307,8 +309,9 @@ async function signedFetch(
         `AWS4-HMAC-SHA256 Credential=${cfg.accessKeyId}/${scope}, ` +
         `SignedHeaders=${signedHeaders}, Signature=${signature}`,
     },
-    body: body as BodyInit | undefined,
-  });
+    body: fileBody ? fs.createReadStream(fileBody.filePath) : body as BodyInit | undefined,
+    ...(fileBody ? { duplex: "half" } : {}),
+  } as RequestInit);
   return res;
 }
 
@@ -562,6 +565,37 @@ export async function writeAttachmentObject(
   if (!res.ok) {
     throw new Error(`S3 PUT failed: ${res.status} ${await res.text().catch(() => "")}`);
   }
+}
+
+/** Migration/large uploads reuse the same storage driver without retaining an asset Buffer. */
+export async function writeAttachmentObjectFromFile(
+  relPath: string,
+  filePath: string,
+  contentType?: string,
+): Promise<void> {
+  if (!relPath || path.isAbsolute(relPath) || relPath.split(/[\\/]/).some((part) => !part || part === "." || part === "..")) {
+    throw new Error("Invalid attachment storage key");
+  }
+  const issue = getAttachmentStorageConfigurationIssue();
+  if (issue) throw new AttachmentStorageError("ATTACHMENT_STORAGE_CONFIG_INVALID", issue);
+  const stat = await fs.promises.lstat(filePath);
+  if (!stat.isFile() || stat.isSymbolicLink()) throw new Error("Attachment source must be a regular file");
+  const cfg = getS3Config();
+  if (!cfg) {
+    ensureAttachmentsDir();
+    const destination = getLocalAttachmentPath(relPath);
+    await fs.promises.mkdir(path.dirname(destination), { recursive: true });
+    const temporary = `${destination}.${crypto.randomUUID()}.tmp`;
+    try {
+      await fs.promises.copyFile(filePath, temporary, fs.constants.COPYFILE_EXCL);
+      await fs.promises.rename(temporary, destination);
+    } finally { await fs.promises.rm(temporary, { force: true }); }
+    return;
+  }
+  const digest = crypto.createHash("sha256");
+  for await (const chunk of fs.createReadStream(filePath)) digest.update(chunk);
+  const response = await signedFetch("PUT", relPath, cfg, { filePath, size: stat.size, sha256: digest.digest("hex") }, contentType);
+  if (!response.ok) throw new Error(`S3 PUT failed: ${response.status}`);
 }
 
 export async function readAttachmentObject(relPath: string): Promise<Buffer | null> {

@@ -1,3 +1,4 @@
+import { enMigrationTranslations, zhCNMigrationTranslations } from "./migrationTranslations";
 import { enAssetAITranslations, zhCNAssetAITranslations } from "./assetAITranslations";
 import { enAICollaborationTranslations, zhCNAICollaborationTranslations } from "./aiCollaborationTranslations";
 import { enAssetReliabilityTranslations, zhCNAssetReliabilityTranslations } from "./assetReliabilityTranslations";
@@ -99,6 +100,7 @@ const zhCNWithReleaseTranslations = mergeTranslationPatches(
   zhCNTaskRemovalTranslations,
   zhCNPluginAppTranslations,
   zhCNAutomationTranslations,
+  zhCNMigrationTranslations,
 );
 
 const enWithReleaseTranslations = mergeTranslationPatches(
@@ -126,6 +128,7 @@ const enWithReleaseTranslations = mergeTranslationPatches(
   enTaskRemovalTranslations,
   enPluginAppTranslations,
   enAutomationTranslations,
+  enMigrationTranslations,
 );
 
 const zhCNWithRuntimeOverrides = mergeTranslations(

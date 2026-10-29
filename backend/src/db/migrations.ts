@@ -1,4 +1,5 @@
 import { agentP2Migration } from "./agentP2Migration.js";
+import { migrationHubMigration, migrationHubRecoveryLedgerMigration } from "./migrationHubMigration.js";
 import { sharedAIProfilesMigration } from "./sharedAIProfilesMigration.js";
 import { agentWorkflowMigration } from "./agentWorkflowMigration.js";
 import { agentMigration } from "./agentMigration.js";
@@ -359,6 +360,8 @@ const taskInboxCanonicalMigration: Migration = {
 };
 
 export const MIGRATIONS: Migration[] = [
+  migrationHubMigration,
+  migrationHubRecoveryLedgerMigration,
   ...BASE_MIGRATIONS.filter((migration) => migration.version !== 44),
   patchedV44,
   activityMigration,

@@ -11,6 +11,7 @@
  */
 
 import { NowenAuth } from "./auth.js";
+import type { CreateMigrationParams, MigrationCapabilities, MigrationJob, MigrationReport, NmfNote } from "./migrations.js";
 
 import type {
   NowenConfig, Notebook, CreateNotebookParams, UpdateNotebookParams,
@@ -411,6 +412,69 @@ export class NowenClient {
   /** 更新系统设置 */
   async updateSettings(settings: Record<string, string>): Promise<void> {
     return this.request("/api/settings", { method: "PUT", body: settings });
+  }
+
+  // ==================== 迁移中心 ====================
+
+  migrationCapabilities(): Promise<MigrationCapabilities> {
+    return this.request("/api/migrations/capabilities");
+  }
+
+  createMigration(params: CreateMigrationParams): Promise<MigrationJob> {
+    return this.request("/api/migrations", { method: "POST", body: params });
+  }
+
+  listMigrations(): Promise<{ items: MigrationJob[] }> {
+    return this.request("/api/migrations");
+  }
+
+  getMigration(id: string): Promise<MigrationJob> {
+    return this.request(`/api/migrations/${encodeURIComponent(id)}`);
+  }
+
+  stageMigrationItems(id: string, items: NmfNote[]): Promise<MigrationJob> {
+    return this.request(`/api/migrations/${encodeURIComponent(id)}/items`, { method: "POST", body: { items } });
+  }
+
+  /** Uploads bytes, never a path on the Nowen server. Blob uploads stream in supported runtimes. */
+  uploadMigrationFile(id: string, file: Blob, filename: string, options: { assetPath?: string; sha256?: string } = {}): Promise<MigrationJob> {
+    return this.request(`/api/migrations/${encodeURIComponent(id)}/uploads`, {
+      method: "POST", body: file, raw: true, query: { filename, ...options },
+    });
+  }
+
+  previewMigration(id: string): Promise<MigrationJob> {
+    return this.request(`/api/migrations/${encodeURIComponent(id)}/preview`, { method: "POST", body: {} });
+  }
+
+  /** Human UI only: API tokens are refused by the server. Digest must match the current preview. */
+  approveMigration(id: string, previewDigest: string): Promise<MigrationJob> {
+    return this.request(`/api/migrations/${encodeURIComponent(id)}/approve`, { method: "POST", body: { previewDigest } });
+  }
+
+  migrationReport(id: string, cursor?: string): Promise<MigrationReport> {
+    return this.request(`/api/migrations/${encodeURIComponent(id)}/report`, { query: { cursor } });
+  }
+
+  retryMigration(id: string): Promise<MigrationJob> {
+    return this.request(`/api/migrations/${encodeURIComponent(id)}/retry`, { method: "POST", body: {} });
+  }
+
+  cancelMigration(id: string): Promise<MigrationJob> {
+    return this.request(`/api/migrations/${encodeURIComponent(id)}/cancel`, { method: "POST", body: {} });
+  }
+
+  pauseMigration(id: string): Promise<MigrationJob> {
+    return this.request(`/api/migrations/${encodeURIComponent(id)}/pause`, { method: "POST", body: {} });
+  }
+
+  resumeMigration(id: string): Promise<MigrationJob> {
+    return this.request(`/api/migrations/${encodeURIComponent(id)}/resume`, { method: "POST", body: {} });
+  }
+
+  /** Human UI only; modified imported notes are protected by the server's receipt checks. */
+  undoMigration(id: string): Promise<MigrationJob> {
+    return this.request(`/api/migrations/${encodeURIComponent(id)}/undo`, { method: "POST", body: {} });
   }
 
   // ==================== 认证 ====================

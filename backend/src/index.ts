@@ -18,6 +18,8 @@ import { verifyLoginToken, getCachedAuthUser, setCachedAuthUser } from "./lib/au
 import knowledgeTreeRouter from "./routes/knowledge-tree";
 import notebooksRouter from "./routes/notebooks";
 import notesRouter from "./routes/notes";
+import migrationsRouter from "./routes/migrations";
+import { recoverMigrations } from "./services/migrationService";
 import trashRouter from "./routes/trash";
 import noteTemplatesRouter from "./routes/note-templates";
 import offlineSyncRouter from "./routes/offline-sync";
@@ -509,6 +511,10 @@ function touchSessionLastSeen(sessionId: string) {
 app.get("/api/plugin-ui-v3/:ticket", pluginAppDocumentResponse);
 
 app.use("/api/*", async (c, next) => {
+  // Identity context is server-owned, including when the verified token has no scopes.
+  for (const name of ["X-User-Id", "X-Session-Id", "X-Auth-Mode", "X-Api-Token-Id", "X-Api-Resource-Mode", "X-Api-Scopes", "X-Api-Allowed-Notebook-Ids"]) {
+    c.req.raw.headers.delete(name);
+  }
   const authHeader = c.req.header("Authorization");
 
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
@@ -590,6 +596,7 @@ app.use("/api/*", async (c, next) => {
       return c.json({ error: "登录已超过 30 天，请重新登录", code: "SESSION_EXPIRED" }, 401);
     }
     touchSessionLastSeen(payload.jti);
+    c.set("migrationApprovalSession" as never, { userId: payload.userId, sessionId: payload.jti } as never);
   }
 
   c.req.raw.headers.set("X-User-Id", payload.userId);
@@ -606,6 +613,7 @@ app.use("/api/*", automationEventCaptureMiddleware);
 app.route("/api/knowledge-tree/", knowledgeTreeRouter);
 app.route("/api/notebooks", notebooksRouter);
 app.route("/api/notes", notesRouter);
+app.route("/api/migrations", migrationsRouter);
 app.route("/api/trash", trashRouter);
 app.route("/api/note-templates", noteTemplatesRouter);
 app.route("/api/offline-sync", offlineSyncRouter);
@@ -964,6 +972,9 @@ try {
 } catch (e) {
   console.warn("[init] startEmbeddingWorker failed:", e);
 }
+
+try { recoverMigrations(); }
+catch { console.warn("[migration-hub] recovery deferred"); }
 
 try {
   automationRuntime.start();

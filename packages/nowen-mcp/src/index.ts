@@ -18,6 +18,7 @@ import { NowenApiClient } from "./api-client.js";
 import { stringifyTimedResult } from "./result-time.js";
 import { registerP1Tools } from "./p1-tools.js";
 import { registerP2Tools } from "./p2-tools.js";
+import { registerMigrationTools } from "./migration-tools.js";
 import { treeMutationRevision, treeMutationPreconditions, type TreeMutationNode } from "./tree-mutation.js";
 import {
   CONTENT_FORMAT_VALUES,
@@ -42,7 +43,8 @@ function requireDangerousToolOptIn(toolName: string): void {
 }
 
 // ===== 创建 MCP Server =====
-export function createNowenMcpServer(): McpServer {
+export function createNowenMcpServer(options: { transport?: "stdio" | "streamable-http" } = {}): McpServer {
+const allowLocalFiles = options.transport !== "streamable-http";
 const server = new McpServer({
   name: "nowen-note",
   version: "1.0.0",
@@ -447,6 +449,7 @@ server.tool(
   },
   async ({ filePath, noteId, filename, mimeType, workspaceId, folderId }) => {
     try {
+      if (!allowLocalFiles) throw new Error("HTTP MCP 不允许读取服务器本地路径，请使用 REST 文件上传");
       const result = await api.uploadAttachment({ filePath, noteId, filename, mimeType, workspaceId, folderId });
       return {
         content: [{
@@ -1302,6 +1305,7 @@ server.resource(
 // 注册 P1 安全网盘和任务成果转存工具。
 registerP1Tools(server, api);
 registerP2Tools(server, api);
+registerMigrationTools(server, api, { allowLocalFiles });
 return server;
 }
 

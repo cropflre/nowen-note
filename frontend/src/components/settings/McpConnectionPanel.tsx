@@ -17,7 +17,7 @@ function copyText(value: string) {
   );
 }
 
-export default function McpConnectionPanel() {
+export default function McpConnectionPanel({ purpose }: { purpose?: "migration" } = {}) {
   const [mode, setMode] = useState<"stdio" | "http">("stdio");
   const [remoteUrl, setRemoteUrl] = useState("https://your-domain.example/mcp");
   const [checked, setChecked] = useState<"idle" | "ok" | "error">("idle");
@@ -32,7 +32,7 @@ export default function McpConnectionPanel() {
           env: {
             NOWEN_URL: apiUrl,
             NOWEN_API_TOKEN: "<paste-personal-api-token>",
-            MCP_ACCESS_MODE: "read-only",
+            MCP_ACCESS_MODE: purpose === "migration" ? "read-write" : "read-only",
             ALLOWED_NOTEBOOK_IDS: "<authorized-notebook-id>",
           },
         },
@@ -47,7 +47,7 @@ export default function McpConnectionPanel() {
         },
       },
     }, null, 2),
-  [mode, remoteUrl, apiUrl]);
+  [mode, remoteUrl, apiUrl, purpose]);
 
   const checkBackend = async () => {
     setChecking(true);

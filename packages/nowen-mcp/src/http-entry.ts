@@ -98,7 +98,7 @@ export function createMcpHttpGateway(env: NodeJS.ProcessEnv = process.env) {
         sessionIdGenerator: undefined,
         enableJsonResponse: true,
       });
-      const mcp = createNowenMcpServer();
+      const mcp = createNowenMcpServer({ transport: "streamable-http" });
       try {
         await mcp.connect(transport);
         await transport.handleRequest(req, res, body);

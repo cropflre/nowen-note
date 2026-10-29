@@ -48,11 +48,12 @@ import type { User, Workspace } from "@/types";
 import { openTaskDataTransfer } from "@/lib/taskDataTransferBridge";
 import BackupCenter from "./dataManagement/BackupCenter";
 import DataTransferCenter from "./dataManagement/DataTransferCenter";
+import MigrationHub from "./MigrationHub";
 import { isMobileLocalMode } from "@/lib/mobileLocalMode";
 
 // Scope is selected only inside import/export workflows.
 type Scope = "personal" | "workspace";
-type SubTab = "export" | "import";
+type SubTab = "export" | "import" | "migration";
 type MobileMemoMethod = "xiaomi" | "oppo" | "iphone";
 
 const IMPORT_FORMAT_STORAGE = {
@@ -1009,7 +1010,7 @@ export default function DataManager() {
       {activeSubTab === null && !isMobileLocalMode() && <RemoteImageLocalizationPanel />}
       {activeSubTab === null ? (isAdmin && !isMobileLocalMode() ? (
         <BackupCenter
-          migration={<DataTransferCenter onImport={() => setActiveSubTab("import")} onExport={() => setActiveSubTab("export")} />}
+          migration={<DataTransferCenter onImport={() => setActiveSubTab("migration")} onExport={() => setActiveSubTab("export")} />}
           advanced={<><DesktopDataSafetyCard currentUser={currentUser} /><DataFileSection />        <section className="mt-8 pt-6 border-t-2 border-dashed border-red-300/50 dark:border-red-900/40">
           <div className="flex items-center gap-2 mb-2">
             <AlertTriangle size={18} className="text-red-500" />
@@ -1136,10 +1137,10 @@ export default function DataManager() {
           </AnimatePresence>
         </section></>}
         />
-      ) : <DataTransferCenter onImport={() => setActiveSubTab("import")} onExport={() => setActiveSubTab("export")} />) : (
+      ) : <DataTransferCenter onImport={() => setActiveSubTab("migration")} onExport={() => setActiveSubTab("export")} />) : (
         <div className="space-y-3">
           <button type="button" onClick={() => setActiveSubTab(null)} disabled={isExporting || isExportingNowen || isImporting} className="text-xs text-indigo-600 dark:text-indigo-400">{t("dataManager.overview.back")}</button>
-          {(activeSubTab === "export" || ["siyuan", "generic", "nowen", "yuque"].includes(activeImportMethod)) && <label className="flex flex-wrap items-center gap-2 text-xs text-zinc-600 dark:text-zinc-300">
+          {(activeSubTab === "export" || activeSubTab === "migration" || ["siyuan", "generic", "nowen", "yuque"].includes(activeImportMethod)) && <label className="flex flex-wrap items-center gap-2 text-xs text-zinc-600 dark:text-zinc-300">
             {t("dataManager.overview.scope")}
             <select aria-label={t("dataManager.overview.scope")} value={scope} onChange={(e) => setScope(e.target.value as Scope)} disabled={isExporting || isExportingNowen || isImporting} className="rounded-lg border border-zinc-300 bg-white px-2 py-1.5 dark:border-zinc-700 dark:bg-zinc-900">
               <option value="personal">{t("dataManager.scope.personal")}</option>
@@ -1150,7 +1151,7 @@ export default function DataManager() {
               {workspaces.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
             </select>}
           </label>}
-                  <section className="mb-4 flex flex-col gap-3 rounded-xl border border-zinc-200 bg-zinc-50/60 p-4 dark:border-zinc-800 dark:bg-zinc-800/30 sm:flex-row sm:items-center">
+                  {activeSubTab !== "migration" && <section className="mb-4 flex flex-col gap-3 rounded-xl border border-zinc-200 bg-zinc-50/60 p-4 dark:border-zinc-800 dark:bg-zinc-800/30 sm:flex-row sm:items-center">
           <div className="flex min-w-0 flex-1 items-start gap-3">
             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-indigo-500/10 text-indigo-600 dark:text-indigo-400">
               <ListTodo size={19} />
@@ -1170,10 +1171,40 @@ export default function DataManager() {
             {t("dataManager.overview.taskAction")}
             <ChevronRight size={14} />
           </button>
-        </section>
+        </section>}
 
         </div>
       )}
+
+      {activeSubTab === "migration" && <MigrationHub
+        key={`migration-${currentUser?.id}-${effectiveWorkspaceId}`}
+        workspaceId={effectiveWorkspaceId}
+        disabled={(scope === "personal" && personalImportLocked) || workspaceScopeNotReady}
+        localOnly={isMobileLocalMode()}
+        onLegacyImport={() => setActiveSubTab("import")}
+        onImported={(job) => {
+          if ((job.workspaceId || "personal") === (getCurrentWorkspace() || "personal")) {
+            void api.getNotebooks().then(actions.setNotebooks).catch(console.error);
+            actions.refreshNotes();
+            emitKnowledgeTreeRefresh("notes-imported-http");
+          }
+        }}
+        onView={async (job) => {
+          const workspace = job.workspaceId || "personal";
+          if (workspace !== (getCurrentWorkspace() || "personal")) {
+            setCurrentWorkspace(workspace);
+            window.dispatchEvent(new CustomEvent("nowen:workspace-changed", { detail: { workspaceId: workspace } }));
+          }
+          actions.setNotebooks(await api.getNotebooks(workspace));
+          actions.setSelectedNotebook(job.rootNotebookId);
+          actions.setActiveNote(null);
+          actions.setViewMode("notebook");
+          actions.setMobileView("list");
+          actions.refreshNotes();
+          emitKnowledgeTreeRefresh("notes-imported-http");
+          window.dispatchEvent(new CustomEvent("nowen:close-settings"));
+        }}
+      />}
 
       {/* ===== 导出区域 ===== */}
       {activeSubTab === "export" && (

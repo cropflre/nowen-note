@@ -317,6 +317,16 @@ npm run start:http
 
 CI 运行 HTTP 网关认证/Origin/Host/超大负载测试、后端 PAT 所有权/启停/并发版本测试，以及原有 P0/P1 MCP stdio 协议测试。真实多客户端并发、HTTPS 代理和全部桌面/移动端联调尚未执行，不应将专项 CI 通过误认为已经可以合并整个 v1.5.2。
 
+## v1.6.0：统一 AI 迁移中心
+
+`nowen_migration_capabilities/create/stage/upload/preview/status/retry/cancel/pause/resume/undo` 复用 `/api/migrations`。MCP 只准备和跟踪任务；**没有 approve 工具**。用户在 Nowen 的「设置 → 数据管理 → 导入与迁移」查看预览并确认，服务器将审批绑定到真实登录会话和当前预览。`undo` 工具仅查询撤销条件，实际撤销也在 Nowen 中确认。
+
+迁移工具必须使用个人 API Token；准备数据需要 `MCP_ACCESS_MODE=read-write`、`export:import`、笔记和笔记本写权限，带标签/附件时还需对应权限。受限 Token 和本地白名单需允许目标笔记本及其后代；只读模式可查询状态。`stage` 每次最多 50 条 NMF v1 笔记、512 KiB JSON，响应只返回摘要。大正文和附件使用文件包或字节上传；stdio 的 `upload` 用文件 Blob 流式读取用户授权的本地文件，HTTP MCP 拒绝所有本地路径（原附件上传工具同样受此限制）。
+
+复用 Skill 位于 [`.agents/skills/nowen-migration`](../../.agents/skills/nowen-migration/SKILL.md)，并在 `.claude/skills` 保持镜像。自动化使用真实 MCP SDK Client 验证 stdio 和受保护 Streamable HTTP，但后端是隔离测试服务；这不代表 WorkBuddy、Qoder/QoderWork、Claude Code、Codex 或豆包工作实际版本已经验收。没有可用 MCP 的客户端可以生成标准文件包，由用户上传。
+
+The migration tools share `/api/migrations` and require a personal API token. They prepare data and return compact progress summaries; they cannot approve an import or execute undo. Human approval happens in Nowen and is bound to a validated login session and the current preview. Staging is limited to 50 notes and 512 KiB JSON per call. Large bodies and assets use files: stdio uploads stream a user-authorized local file, while HTTP MCP never reads a caller-supplied server path. Real SDK transport tests do not certify third-party client versions; standard file packages remain the fallback.
+
 ## 发行说明
 
 当前仓库保证的是源码构建方式。除非 Nowen Note 的 Release 或官方文档明确宣布 npm / DXT 包，避免假设 `npx nowen-mcp` 或一键 DXT 已经可用。

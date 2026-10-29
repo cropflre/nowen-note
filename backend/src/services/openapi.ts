@@ -5,6 +5,8 @@
  * 提供 /api/openapi.json 端点供 Swagger UI 等工具消费。
  */
 
+import { migrationOpenApiPaths, migrationOpenApiSchemas } from "./migrationOpenapi";
+
 export function generateOpenAPISpec(): Record<string, any> {
   return {
     openapi: "3.0.3",
@@ -26,6 +28,7 @@ export function generateOpenAPISpec(): Record<string, any> {
         },
       },
       schemas: {
+        ...migrationOpenApiSchemas,
         Notebook: {
           type: "object",
           properties: {
@@ -244,6 +247,7 @@ export function generateOpenAPISpec(): Record<string, any> {
     },
     security: [{ BearerAuth: [] }],
     paths: {
+      ...migrationOpenApiPaths,
       // ===== 认证 =====
       "/api/auth/login": {
         post: {
@@ -630,6 +634,7 @@ export function generateOpenAPISpec(): Record<string, any> {
       },
     },
     tags: [
+      { name: "迁移", description: "NMF v1 migration preparation, human approval and recoverable background jobs" },
       { name: "认证", description: "用户认证管理" },
       { name: "笔记本", description: "笔记本 CRUD" },
       { name: "笔记", description: "笔记 CRUD（含收藏、置顶、回收站）" },

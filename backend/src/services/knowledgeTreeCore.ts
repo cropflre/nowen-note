@@ -258,6 +258,7 @@ export function createKnowledgeChild(input: {
   title: string;
   encryptedContent?: string;
   encryptedNoteId?: string;
+  noteId?: string;
   contentFormat?: "plaintext";
   sheetData?: unknown;
   db?: Database.Database;
@@ -312,7 +313,10 @@ export function createKnowledgeChild(input: {
       if (!notebookId) {
         throw new KnowledgeTreeError("KNOWLEDGE_TREE_NOTE_CONTAINER_REQUIRED", 400, "根级文档需要先创建文件夹");
       }
-      const noteId = input.encryptedContent && input.encryptedNoteId ? input.encryptedNoteId : uuid();
+      if (input.noteId && !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(input.noteId)) {
+        throw new KnowledgeTreeError("INVALID_PAYLOAD", 400, "笔记 ID 格式无效");
+      }
+      const noteId = input.encryptedContent && input.encryptedNoteId ? input.encryptedNoteId : input.noteId || uuid();
       const contentFormat = input.encryptedContent ? "encrypted-note-v1" : input.nodeType === "note" && input.contentFormat === "plaintext" ? "plaintext" : input.nodeType === "markdown" ? "markdown" : "tiptap-json";
       const noteType = input.nodeType === "word" ? "word" : input.nodeType === "sheet" ? "sheet" : "normal";
       const content = input.encryptedContent || (contentFormat === "plaintext" ? "" : contentFormat === "markdown" ? `# ${title}\n\n` : "{}");

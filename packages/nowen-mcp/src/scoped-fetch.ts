@@ -590,6 +590,46 @@ async function handleKnowledgeTreeRequest(request: Request, url: URL): Promise<R
   throw new ScopeDeniedError("不允许此知识树操作");
 }
 
+async function handleMigrationRequest(request: Request, url: URL): Promise<Response> {
+  await ensureDescendantsHydrated(request);
+  const pathname = url.pathname.replace(/\/$/, "");
+  const method = request.method.toUpperCase();
+  if (pathname === "/api/migrations/capabilities" && method === "GET") return originalFetch(request);
+  if (pathname === "/api/migrations") {
+    if (method === "GET") {
+      const response = await originalFetch(request);
+      if (!response.ok) return response;
+      const body = await readJsonResponse(response);
+      return replaceJsonResponse(response, { ...body,
+        items: Array.isArray(body?.items)
+          ? body.items.filter((job: any) => policy.isNotebookAllowed(job.targetNotebookId)) : [],
+      });
+    }
+    if (method !== "POST") throw new ScopeDeniedError("不允许此迁移操作");
+    const body = await readJson(request);
+    policy.assertNotebookAllowed(typeof body.targetNotebookId === "string" ? body.targetNotebookId : null, "准备迁移");
+    if (!policy.includeDescendants) throw new ScopeDeniedError("迁移创建新目录需要 MCP_INCLUDE_DESCENDANTS=true");
+    return originalFetch(request);
+  }
+  const match = /^\/api\/migrations\/([^/]+)(?:\/(items|uploads|preview|report|retry|cancel|pause|resume))?$/.exec(pathname);
+  if (!match || !((method === "GET" && (!match[2] || match[2] === "report"))
+      || (method === "POST" && match[2] && match[2] !== "report"))) {
+    throw new ScopeDeniedError("MCP 不允许迁移审批或直接撤销，请在 Nowen Note 中操作");
+  }
+  const jobResponse = await originalFetch(`${baseUrl}/api/migrations/${match[1]}`, { headers: requestAuthHeaders(request) });
+  if (!jobResponse.ok) throw new ScopeDeniedError("迁移任务不存在或未获授权");
+  const job = await readJsonResponse(jobResponse);
+  policy.assertNotebookAllowed(job?.targetNotebookId, "访问迁移任务");
+  // Imports create descendants in the backend worker, outside this client's
+  // createNotebook hook. Refresh after completion so the same scoped client
+  // can discover its authorized results without restarting.
+  if (job?.rootNotebookId && ["COMPLETED", "PARTIAL", "FAILED", "CANCELLED"].includes(job.status)) {
+    policy.hydrateDescendants(await fetchNotebookCatalog(request));
+  }
+  if (!match[2] && method === "GET") return jobResponse;
+  return originalFetch(request);
+}
+
 async function scopedFetch(input: string | URL | Request, init?: RequestInit): Promise<Response> {
   let request = new Request(input, init);
   const url = new URL(request.url);
@@ -619,6 +659,9 @@ async function scopedFetch(input: string | URL | Request, init?: RequestInit): P
 
     if (url.pathname === "/api/health" || url.pathname === "/api/me") {
       return originalFetch(request);
+    }
+    if (url.pathname === "/api/migrations" || url.pathname.startsWith("/api/migrations/")) {
+      return await handleMigrationRequest(request, url);
     }
     if (url.pathname === "/api/notebooks" || url.pathname.startsWith("/api/notebooks/")) {
       return await handleNotebookRequest(request, url);

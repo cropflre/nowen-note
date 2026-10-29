@@ -3,7 +3,8 @@
  * 封装对 Nowen Note 后端 REST API 的调用
  */
 
-import { readFile } from "node:fs/promises";
+import { lstat, readFile } from "node:fs/promises";
+import { openAsBlob } from "node:fs";
 import path from "node:path";
 
 export interface NowenApiConfig {
@@ -210,6 +211,42 @@ export class NowenApiClient {
       return `![${label}](/api/attachments/${id})`;
     }
     return `[${label}](/api/attachments/${id}?download=1)`;
+  }
+
+  // ==================== 迁移中心 ====================
+
+  migrationCapabilities(): Promise<any> {
+    return this.request("/api/migrations/capabilities");
+  }
+
+  createMigration(params: { operationId: string; source: { platform: string; exportId: string }; name?: string; workspaceId?: string | null; targetNotebookId?: string | null }): Promise<any> {
+    return this.request("/api/migrations", { method: "POST", body: params });
+  }
+
+  stageMigrationItems(id: string, items: unknown[]): Promise<any> {
+    return this.request(`/api/migrations/${encodeURIComponent(id)}/items`, { method: "POST", body: { items } });
+  }
+
+  migrationAction(id: string, action: "status" | "preview" | "retry" | "cancel" | "pause" | "resume"): Promise<any> {
+    const base = `/api/migrations/${encodeURIComponent(id)}`;
+    return action === "status" ? this.request(base) : this.request(`${base}/${action}`, { method: "POST", body: {} });
+  }
+
+  /** Caller must enforce stdio-only access before accepting a user-authorized local path. */
+  async uploadMigrationFile(id: string, params: { filePath: string; filename?: string; assetPath?: string; sha256?: string }): Promise<any> {
+    await this.ensureAuth();
+    const info = await lstat(params.filePath);
+    if (!info.isFile() || info.isSymbolicLink()) throw new Error("迁移上传需要普通文件，不接受目录或符号链接");
+    const capabilities = await this.migrationCapabilities();
+    const maxBytes = capabilities?.limits?.uploadBytes ?? capabilities?.limits?.maxUploadBytes;
+    if (typeof maxBytes === "number" && info.size > maxBytes) throw new Error("文件超过服务器迁移上传限额");
+    const filename = params.filename || path.basename(params.filePath);
+    const body = await openAsBlob(params.filePath);
+    const response = await fetch(this.buildUrl(`/api/migrations/${encodeURIComponent(id)}/uploads`, {
+      filename, assetPath: params.assetPath, sha256: params.sha256,
+    }), { method: "POST", headers: { Authorization: `Bearer ${this.token}`, "Content-Type": "application/octet-stream" }, body });
+    if (!response.ok) throw new Error(`迁移上传失败 (${response.status}): ${await response.text()}`);
+    return response.json();
   }
 
   // ==================== 笔记本 ====================
