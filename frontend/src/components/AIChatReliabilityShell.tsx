@@ -210,15 +210,17 @@ export default function AIChatReliabilityShell(props: Props) {
 
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-app-bg">
-      <div className="flex gap-2 px-3 py-2 border-b border-app-border">
-        <button aria-pressed={!agentMode} onClick={() => setAgentMode(false)}>{t("agent.question")}</button>
-        <button aria-pressed={agentMode} onClick={() => setAgentMode(true)}>{t("agent.mode")}</button>
-      </div>
-      {agentMode && <div className="p-4 space-y-3"><p>{t("agent.entryHint")}</p><button disabled={!activeNote} onClick={() => { if (activeNote) props.onNavigateToNote?.(activeNote.id); window.dispatchEvent(new Event("nowen:open-editor-agent")); props.onClose(); }}>{t("agent.open")}</button></div>}
-      <div hidden={!agentMode} className={cn("min-h-0", agentMode && "flex min-h-0 flex-1 flex-col overflow-hidden")}><NotebookAgentPanel key={workflowWorkspace} workspaceId={workflowWorkspace} onNavigateToNote={props.onNavigateToNote} /></div>
-      <section hidden={agentMode} className="max-md:max-h-[50dvh] shrink-0 max-md:overflow-y-auto border-b border-app-border bg-app-surface/95 px-3 py-2 backdrop-blur md:px-5">
+      <section className="max-md:max-h-[50dvh] shrink-0 max-md:overflow-y-auto border-b border-app-border bg-app-surface/95 px-3 py-2 backdrop-blur md:px-5">
         <div className="flex flex-wrap items-center gap-2.5">
-          <div className="mr-1 hidden min-w-0 items-center gap-2 md:flex">
+          <div className="inline-flex shrink-0 items-center rounded-lg bg-app-hover/70 p-0.5">
+            {([false, true] as const).map(isAgent => <button key={String(isAgent)} type="button" aria-pressed={agentMode === isAgent}
+              onClick={() => setAgentMode(isAgent)} className={cn("rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors",
+                agentMode === isAgent ? "bg-app-surface text-accent-primary shadow-sm ring-1 ring-app-border" : "text-tx-tertiary hover:text-tx-primary")}>
+              {t(isAgent ? "agent.mode" : "agent.question")}
+            </button>)}
+          </div>
+          <div className={agentMode ? "hidden" : "contents"}>
+          <div className="mr-1 hidden min-w-0 items-center gap-2 xl:flex">
             <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-accent-primary/10 text-accent-primary">
               <Activity size={14} />
             </div>
@@ -228,7 +230,7 @@ export default function AIChatReliabilityShell(props: Props) {
             </div>
           </div>
 
-          <div className="flex w-full min-w-0 items-center gap-1 rounded-xl bg-app-hover/70 p-1 md:w-auto">
+          <div className="order-2 flex w-full min-w-0 items-center gap-1 rounded-xl bg-app-hover/70 p-1 md:order-none md:w-auto">
             {MODE_OPTIONS.map((item) => {
               const Icon = item.icon;
               const disabled = item.id === "current-note" && !activeNote?.id;
@@ -254,11 +256,13 @@ export default function AIChatReliabilityShell(props: Props) {
             })}
           </div>
 
-          <ChatSkillsPicker key={skillScope} scope={skillScope} onSelect={id => {
-            selectedSkill.current = id ? { id, scope: skillScope } : null;
-          }} />
+          <div className="order-3 min-w-0 max-w-full md:order-none">
+            <ChatSkillsPicker key={skillScope} scope={skillScope} onSelect={id => {
+              selectedSkill.current = id ? { id, scope: skillScope } : null;
+            }} />
+          </div>
 
-          <div className="ml-auto flex items-center gap-1">
+          <div className="order-1 ml-auto flex items-center gap-1 md:order-none">
             <StatusPill status={status} />
             <button
               type="button"
@@ -279,9 +283,10 @@ export default function AIChatReliabilityShell(props: Props) {
               <RefreshCw size={14} className={loadingStatus ? "animate-spin" : ""} />
             </button>
           </div>
+          </div>
         </div>
 
-        {!contextCollapsed && (
+        {!agentMode && !contextCollapsed && (
           <>
             {mode === "selection" && (
               <textarea
@@ -380,6 +385,9 @@ export default function AIChatReliabilityShell(props: Props) {
           </>
         )}
       </section>
+
+      {agentMode && <div className="p-4 space-y-3"><p>{t("agent.entryHint")}</p><button disabled={!activeNote} onClick={() => { if (activeNote) props.onNavigateToNote?.(activeNote.id); window.dispatchEvent(new Event("nowen:open-editor-agent")); props.onClose(); }}>{t("agent.open")}</button></div>}
+      <div hidden={!agentMode} className={cn("min-h-0", agentMode && "flex min-h-0 flex-1 flex-col overflow-hidden")}><NotebookAgentPanel key={workflowWorkspace} workspaceId={workflowWorkspace} onNavigateToNote={props.onNavigateToNote} /></div>
 
       <div hidden={agentMode} className={cn("min-h-0 flex-1", (currentNoteUnavailable || selectionUnavailable) && "opacity-70")}>
         <div className="h-full" hidden={agentMode}><OriginalAIChatPanel {...props} /></div>
