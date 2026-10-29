@@ -56,6 +56,85 @@ const test = base.extend<{ server: string }>({
   },
 });
 
+for (const width of [1440, 390]) {
+  test.describe(`Markdown chapter folding at ${width}px`, () => {
+    test.use({ viewport: { width, height: 900 }, hasTouch: width < 640,
+      ...(width < 640 ? { isMobile: true, userAgent: devices["Pixel 7"].userAgent } : {}),
+    });
+
+    test("gutter folds chapters without changing content and search reveals hidden matches", async ({ page, server }) => {
+      const errors: string[] = [];
+      page.on("pageerror", error => errors.push(error.message));
+      const password = "folding-browser-test-password";
+      const registration = await page.request.post(`${server}/api/auth/register`, { data: { username: "folding_user", password } });
+      expect(registration.ok()).toBe(true);
+      const account = await registration.json(), headers = { Authorization: `Bearer ${account.token}` };
+      const notebooks = await (await page.request.get(`${server}/api/notebooks`, { headers })).json();
+      const content = "# Guide\nintro\n\n## First\nfirst body\n\n### Nested\nhidden target\n\n## Second\nsecond body\n\n# Next\nlast body";
+      const created = await page.request.post(`${server}/api/notes`, { headers, data: {
+        notebookId: notebooks[0].id, title: "Chapter folding", contentFormat: "markdown", content,
+      } });
+      expect(created.status()).toBe(201);
+      const note = await created.json();
+      await page.addInitScript(version => { localStorage.setItem("i18nextLng", "zh-CN"); localStorage.setItem("nowen-seen-version", version); }, version);
+      await page.goto(server);
+      await page.getByPlaceholder("admin", { exact: true }).fill("folding_user");
+      await page.locator("input[type=password]").fill(password);
+      await page.locator("button[type=submit]").click();
+      await expect(page.getByPlaceholder("admin", { exact: true })).not.toBeVisible({ timeout: 20000 });
+      await page.goto(`${server}/notes/${note.id}`);
+      const editor = page.locator(".cm-editor").filter({ visible: true });
+      const source = editor.locator(".cm-content");
+      await expect(source).toContainText("hidden target");
+      const before = await (await page.request.get(`${server}/api/notes/${note.id}`, { headers })).json();
+      const fold = editor.locator('.cm-foldGutter span[title="折叠章节或内容块"]').nth(1);
+      expect((await fold.boundingBox())!.width).toBeGreaterThanOrEqual(24);
+      if (width < 640) await fold.tap(); else await fold.click();
+      await expect(source).not.toContainText("hidden target");
+      await expect(source).toContainText("## First");
+      await expect(source).toContainText("## Second");
+      await expect(source).toContainText("# Next");
+      const unfold = editor.locator('.cm-foldGutter span[title="展开章节或内容块"]').filter({ visible: true });
+      if (width < 640) await unfold.tap(); else await unfold.click();
+      await expect(source).toContainText("hidden target");
+      if (width < 640) await fold.tap(); else await fold.click();
+
+      if (width >= 640) {
+        await page.getByRole("button", { name: "分屏", exact: true }).click();
+        await expect(source).not.toContainText("hidden target");
+        await expect(page.locator(".nowen-md-preview")).toContainText("hidden target");
+      }
+      await page.screenshot({ path: test.info().outputPath(`markdown-folding-${width}-light.png`), animations: "disabled" });
+      await page.evaluate(() => {
+        localStorage.setItem("nowen-note-theme", "dark");
+        window.dispatchEvent(new StorageEvent("storage", { key: "nowen-note-theme", newValue: "dark" }));
+      });
+      await expect(page.locator("html")).toHaveClass(/dark/);
+      await expect(source).not.toContainText("hidden target");
+      await page.screenshot({ path: test.info().outputPath(`markdown-folding-${width}-dark.png`), animations: "disabled" });
+      // Dispatch the same event as the app's search command, including the mobile entry.
+      await page.evaluate(() => window.dispatchEvent(new Event("nowen:open-search")));
+      const search = editor.locator('input[name="search"]');
+      await search.pressSequentially("hidden target");
+      await search.press("Enter");
+      await expect(source).toContainText("hidden target");
+      await expect(editor.locator(".cm-foldPlaceholder")).toHaveCount(0);
+      if (width >= 640) {
+        await search.press("Escape");
+        await source.locator(".cm-line").filter({ hasText: "## First" }).click();
+        await page.keyboard.press(process.platform === "darwin" ? "Meta+Alt+[" : "Control+Shift+[");
+        await expect(source).not.toContainText("hidden target");
+        await page.keyboard.press(process.platform === "darwin" ? "Meta+Alt+]" : "Control+Shift+]");
+        await expect(source).toContainText("hidden target");
+      }
+      const after = await (await page.request.get(`${server}/api/notes/${note.id}`, { headers })).json();
+      expect(after.content).toBe(before.content);
+      expect(after.version).toBe(before.version);
+      expect(errors).toEqual([]);
+    });
+  });
+}
+
 test("Markdown uploaded image suffix survives save/reopen and source copy opens anonymously", async ({ page, server }) => {
   const mediaRequests: string[] = [];
   page.on("response", response => { if (/\/attachments\//.test(response.url())) mediaRequests.push(`${response.status()} ${response.url().split("?")[0]}`); });
