@@ -46,3 +46,26 @@ test("server refusal of PAT approval remains a refusal and never falls back to l
   await assert.rejects(client.approveMigration("job-1", "a".repeat(64)), /403.*HUMAN_APPROVAL_REQUIRED/);
   assert.deepEqual(calls, ["https://nowen.example/api/migrations/job-1/approve"]);
 });
+
+test("SDK resumes upload sessions with raw chunk hashes and binds item choices to a preview", async () => {
+  const calls = [];
+  const client = new NowenClient({ baseUrl: "https://nowen.example", fetch: async (url, init) => {
+    calls.push({ url: String(url), init }); return Response.json({ id: "upload-1", offset: 4 });
+  } });
+  client.setToken("nkn_fixture");
+  await client.createMigrationUploadSession("job/1", { operationId: "same-operation", filename: "one.md", size: 4, sha256: "a".repeat(64) });
+  assert.ok(calls.at(-1).url.endsWith("/job%2F1/upload-sessions"));
+  const chunk = new Blob(["body"]);
+  await client.putMigrationUploadChunk("job/1", "upload-1", 0, chunk, "b".repeat(64));
+  assert.equal(calls.at(-1).init.body, chunk);
+  assert.equal(calls.at(-1).init.headers["X-Chunk-SHA256"], "b".repeat(64));
+  assert.ok(calls.at(-1).url.endsWith("/chunks?offset=0"));
+  await client.getMigrationUploadSession("job/1", "upload-1");
+  assert.equal(calls.at(-1).init.method, "GET");
+  await client.completeMigrationUpload("job/1", "upload-1");
+  assert.ok(calls.at(-1).url.endsWith("/upload-1/complete"));
+  await client.decideMigrationItem("job/1", "item/1", "c".repeat(64), "create-copy");
+  assert.deepEqual(JSON.parse(calls.at(-1).init.body), { previewDigest: "c".repeat(64), decision: "create-copy" });
+  await client.cancelMigrationUpload("job/1", "upload-1");
+  assert.equal(calls.at(-1).init.method, "DELETE");
+});

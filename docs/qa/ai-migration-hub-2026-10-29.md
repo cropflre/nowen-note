@@ -2,6 +2,8 @@
 
 日期：2026-10-29。开发分支：`codex/ai-migration-hub-v160`，派生自 `release/v1.6.0`。所有数据库、笔记与附件均为隔离的合成测试资料，未迁移用户私人资料。
 
+本文保留 P0 当时的结果与未完成项；后续适配器、断点上传、多端大包与 cgroup 实测见 [Phase 1 验证记录](ai-migration-hub-phase1-2026-10-29.md)。
+
 ## 本阶段结果
 
 已实现：NMF v1 与离线包 Schema、Markdown/HTML/TXT/附件 ZIP 适配、持久化 Job/Item/资产与对象意图、REST、预览与真实登录会话审批、后台分批写入、失败重试、暂停/继续/取消、重启恢复、轻量分页报告、安全软删除撤销、统一设置入口、MCP/SDK/OpenAPI、共用 AI Skill 和中英文使用文档。

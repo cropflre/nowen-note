@@ -9,7 +9,7 @@ import { z, ZodError } from "zod";
 import { MIGRATION_LIMITS, migrationRelativePathSchema, migrationStageSchema } from "../services/migrationFormat.js";
 import { migrationDirectoryBytes, sniffMigrationAsset } from "../services/migrationSourceAdapter.js";
 import {
-  MigrationError, approveMigration, beginMigrationUpload, controlMigration, createMigration,
+  MigrationError, approveMigration, beginMigrationUpload, controlMigration, createMigration, decideMigrationItem,
   failMigrationUpload, finishMigrationUpload, getMigration, listMigrations, migrationJobDirectory,
   migrationReport, previewMigration, registerMigrationAsset, stageMigrationItems, undoMigration,
   type MigrationActor,
@@ -32,6 +32,7 @@ app.use("*", async (c, next) => {
 });
 app.get("/capabilities", (c) => c.json({
   schemaVersion: 1, formats: ["markdown", "html", "txt", "zip", "nmf-v1"],
+  sourceAdapters: ["notion-markdown-html-csv", "siyuan-native-zip"], resumableUploads: true, uploadChunkBytes: 4 * 1024 * 1024,
   limits: MIGRATION_LIMITS, strategies: ["new-root", "skip-existing"],
   humanApprovalRequired: true, remoteFetch: false, overwrite: false,
   requiredScopes: ["export:import", "notes:read", "notes:write", "notebooks:read", "notebooks:write"],
@@ -47,6 +48,7 @@ app.post("/:id/items", async (c) => {
   return c.json(await stageMigrationItems(actor(c), c.req.param("id"), body.items));
 });
 app.post("/:id/preview", async (c) => c.json(await previewMigration(actor(c), c.req.param("id"))));
+app.post("/:id/items/:itemId/decision", async (c) => c.json(await decideMigrationItem(actor(c), c.req.param("id"), c.req.param("itemId"), await c.req.json())));
 function approvalSession(c: any): string {
   const session = c.get("migrationApprovalSession") as { userId: string; sessionId: string } | undefined;
   if (!session || session.userId !== actor(c).userId || actor(c).tokenId) throw new MigrationError("MIGRATION_HUMAN_APPROVAL_REQUIRED", "请在 Nowen Note 中登录并确认此操作", 403);

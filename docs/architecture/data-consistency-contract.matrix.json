@@ -100,6 +100,7 @@
       "title": "断网、服务端失败或停止调度不得静默丢弃待同步修改",
       "status": "covered",
       "checks": [
+        { "file": "backend/tests/migration-uploads.test.ts", "case": "DCC-003: acknowledged chunks survive database reopening and a pre-receipt file is reconciled" },
         { "file": "backend/tests/migration-service.test.ts", "case": "partial failures retry only failed items and persist successful mappings" },
         { "file": "backend/tests/application-v3-dashboard-data.test.ts", "case": "V3 collections isolate scopes, reject stale writes and restore migrations and retained uninstall data" },
         { "file": "frontend/src/lib/__tests__/desktopAutomaticDownloadGate.test.tsx", "case": "DCC-003: blocked legacy edits remain exportable and retry preserves unresolved conflicts" },
@@ -147,6 +148,9 @@
       "title": "冲突必须保留本机意图和服务端版本，不能静默覆盖",
       "status": "covered",
       "checks": [
+        { "file": "backend/tests/migration-service.test.ts", "case": "source title and tag changes require review without changing the existing note (DCC-004)" },
+        { "file": "backend/tests/migration-service.test.ts", "case": "stable Notion source IDs across exports require a new choice and copy keeps the original (DCC-004)" },
+        { "file": "backend/tests/migration-service.test.ts", "case": "skip and keep-existing choices are bound to the preview and never become overwrites" },
         { "file": "backend/tests/migration-service.test.ts", "case": "DCC-004: editing an imported note during the job preserves the newer body" },
         { "file": "backend/tests/agent.test.ts", "case": "expired editor snapshots and concurrent versions cannot approve (DCC-004)" },
         { "file": "backend/tests/remote-image-localization-service.test.ts", "case": "an edit during automatic download retains the newer body and creates no attachment (DCC-004)" },
@@ -502,6 +506,7 @@
       "title": "Native independent SQLite clients preserve durable edits across sync failures",
       "status": "covered",
       "checks": [
+        { "file": "backend/tests/sync-v2-mobile-multidevice.test.ts", "case": "DCC-012: Migration Hub 100MiB ZIP converges across three native SQLite clients with bytes, restart, conflict and exact ACK" },
         {"file": "backend/tests/sync-v2-mobile-multidevice.test.ts", "case": "native permanent deletion retains its recoverable body and attachment metadata in the durable Outbox"},
         { "file": "frontend/src/lib/__tests__/assetAITransport.test.ts", "case": "Native local mode refuses every new AI transport before making a network request" },
         { "file": "backend/tests/sync-v2-mobile-multidevice.test.ts", "case": "concurrent asset folder edits preserve both versions and explicit keep-local converges" },

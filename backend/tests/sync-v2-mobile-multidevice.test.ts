@@ -3,7 +3,10 @@ import test from "node:test";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { createHash, randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
+import { Readable, Transform } from "node:stream";
+import { pipeline } from "node:stream/promises";
+import archiver from "archiver";
 import { createRequire } from "node:module";
 import Database from "better-sqlite3";
 import { Hono } from "hono";
@@ -12,6 +15,7 @@ import { NativeLocalRepository } from "../../frontend/src/lib/nativeLocalReposit
 import { MobileSyncEngine } from "../../frontend/src/lib/mobileSyncEngine";
 import { NATIVE_TASK_REPEAT_COLUMNS } from "../../frontend/src/lib/nativeTaskFields";
 import type { NativeDatabase } from "../../frontend/src/lib/nativeDatabase";
+import type { NativeAttachmentStore } from "../../frontend/src/lib/nativeAttachmentStore";
 import { NATIVE_TASK_DELETION_STATEMENTS } from "../../frontend/src/lib/nativeTaskRecurrenceDeletion";
 import { nativeReceiptKey, readNativeNoteSyncReceipt } from "../../frontend/src/lib/mobileNoteSyncReceipt";
 import { applyNativePersonalTree } from "../../frontend/src/lib/nativeKnowledgeTreeSync";
@@ -86,16 +90,16 @@ interface Client {
   removedFiles: string[];
   sync(): Promise<void>;
 }
-async function client(name: string): Promise<Client> {
+async function client(name: string, attachmentStore?: NativeAttachmentStore): Promise<Client> {
   const file = path.join(tmpDir, `${name}.db`);
   const db = openClientDb(file);
   const profileId = `profile-${name}`;
   await db.run(`INSERT OR IGNORE INTO sync_profiles (id,name,serverUrl,remoteUserId,enabled,createdAt,updatedAt)
     VALUES (?,?,?, ?,1,'now','now')`, [profileId, name, serverUrl, USER]);
   await db.run("INSERT OR IGNORE INTO sync_devices (profileId,deviceId,platform,createdAt) VALUES (?,?,'android','now')", [profileId, name]);
-  const repository = new NativeLocalRepository({ db, attachments: {} as never, accountId: name, userId: USER, getScopeKey: () => "personal" });
+  const repository = new NativeLocalRepository({ db, attachments: attachmentStore || {} as never, accountId: name, userId: USER, getScopeKey: () => "personal" });
   const removedFiles: string[] = [];
-  const engine = new MobileSyncEngine({ db, attachments: { remove: async (id: string) => { removedFiles.push(id); } } as never, profileId, deviceId: name, serverUrl, token: USER, userId: USER });
+  const engine = new MobileSyncEngine({ db, attachments: attachmentStore || { remove: async (id: string) => { removedFiles.push(id); } } as never, profileId, deviceId: name, serverUrl, token: USER, userId: USER });
   const result = { db, file, repository, engine, profileId, removedFiles, async sync() {
     engine.start();
     try {
@@ -719,6 +723,7 @@ test.before(async () => {
       c.res=Response.json({items:payload.items.map(({taskRecurrenceLifecycle: _capability,...scope})=>scope)});
     }
   });
+  app.route("/api/sync/v2/blob", (await import("../src/routes/sync-v2-blob")).default);
   app.route("/api/sync/v2", routes.default);
   app.route("/api/knowledge-tree/", treeRoutes.default);
   app.route("/api/agent", (await import("../src/routes/agent")).default);
@@ -1571,4 +1576,105 @@ test("Agent approved edits survive offline restart and lost ACK before peer conv
     if (runId) await post(`/runs/${runId}/cancel`);
   }
   }
+});
+
+function migrationAttachmentStore(name: string): NativeAttachmentStore {
+  const directory = path.join(tmpDir, `migration-files-${name}`); fs.mkdirSync(directory, { recursive: true });
+  const filename = (id: string) => { assert.match(id, /^[A-Za-z0-9_-]+$/); return path.join(directory, id); };
+  const stat = async (id: string) => {
+    const target = filename(id); if (!fs.existsSync(target)) return null;
+    const hash = createHash("sha256"); for await (const chunk of fs.createReadStream(target)) hash.update(chunk);
+    return { attachmentId: id, path: target, size: fs.statSync(target).size, sha256: hash.digest("hex"), mtime: 0, uri: `fixture:${id}` };
+  };
+  return {
+    accountHash: createHash("sha256").update(name).digest("hex").slice(0, 16),
+    async save(input) {
+      const blob = input.data instanceof Blob ? input.data : new Blob([input.data as BlobPart]);
+      const target = filename(input.attachmentId), hash = createHash("sha256"); let size = 0;
+      const meter = new Transform({ transform(chunk, _encoding, callback) { size += chunk.length; hash.update(chunk); callback(null, chunk); } });
+      await pipeline(Readable.fromWeb(blob.stream() as never), meter, fs.createWriteStream(target));
+      const sha256 = hash.digest("hex");
+      if (input.expectedSize !== undefined) assert.equal(size, input.expectedSize);
+      if (input.expectedHash) assert.equal(sha256, input.expectedHash.replace(/^sha256:/, ""));
+      return { attachmentId: input.attachmentId, path: target, size, sha256, mtime: 0, uri: `fixture:${input.attachmentId}` };
+    },
+    read: (id) => fs.openAsBlob(filename(id)),
+    exists: async (id) => fs.existsSync(filename(id)), stat, resolveUrl: async () => null,
+    remove: async (id) => { fs.rmSync(filename(id), { force: true }); },
+  };
+}
+
+test("DCC-012: Migration Hub 100MiB ZIP converges across three native SQLite clients with bytes, restart, conflict and exact ACK", async () => {
+  const started = performance.now(), migration = await import("../src/services/migrationService");
+  (await import("../src/services/audit")).initAuditTables();
+  serverDb.prepare("INSERT INTO user_sessions(id,userId,expiresAt) VALUES ('migration-sync-session',?,?)").run(USER, new Date(Date.now() + 3_600_000).toISOString());
+  const actor = { userId: USER }, count = 100, assetCount = 13, assetSize = 8 * 1024 * 1024;
+  const job = migration.createMigration(actor, { operationId: randomUUID(), name: "Large migration sync", source: { platform: "files", exportId: "migration-multidevice-large" } });
+  const sourceDirectory = path.join(migration.migrationJobDirectory(job.id), "sources", "large-sync"); fs.mkdirSync(sourceDirectory, { recursive: true });
+  const zipPath = path.join(sourceDirectory, "source.zip"), archive = archiver("zip", { zlib: { level: 1 } });
+  const writing = pipeline(archive, fs.createWriteStream(zipPath));
+  for (let index = 0; index < count; index++) archive.append(`# Migration ${index}\nMigration body ${index}${index < assetCount ? `\n[PDF](../assets/${index}.pdf)` : ""}\n`, { name: `notes/${index}.md` });
+  for (let index = 0; index < assetCount; index++) {
+    async function* bytes() { yield Buffer.from("%PDF-1.7\n"); for (let left = assetSize - 9; left > 0;) { const chunk = randomBytes(Math.min(left, 64 * 1024)); left -= chunk.length; yield chunk; } }
+    archive.append(Readable.from(bytes()), { name: `assets/${index}.pdf` });
+  }
+  await archive.finalize(); await writing;
+  assert.ok(fs.statSync(zipPath).size > 100 * 1024 * 1024);
+  const wait = async (state: string) => {
+    const deadline = Date.now() + 30_000;
+    while (true) {
+      const current = migration.getMigration(actor, job.id); if (current.status === state) return current;
+      assert.ok(!["FAILED", "PARTIAL", "CANCELLED"].includes(current.status), JSON.stringify(current));
+      assert.ok(Date.now() < deadline, "large migration timed out"); await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+  };
+  migration.beginMigrationUpload(actor, job.id);
+  migration.finishMigrationUpload(actor, job.id, { filename: "source.zip", path: "sources/large-sync/source.zip" });
+  await wait("CREATED"); const preview = await migration.previewMigration(actor, job.id); assert.equal(preview.counts.total, count);
+  migration.approveMigration(actor, job.id, preview.previewDigest!, "migration-sync-session"); const completed = await wait("COMPLETED"); assert.equal(completed.counts.imported, count);
+  const imported = serverDb.prepare("SELECT targetNoteId FROM migration_items WHERE jobId=? ORDER BY id").all(job.id) as { targetNoteId: string }[];
+  const attachments = serverDb.prepare("SELECT a.id,a.hash,a.size FROM attachments a JOIN migration_items i ON i.targetNoteId=a.noteId WHERE i.jobId=? ORDER BY a.id").all(job.id) as { id: string; hash: string; size: number }[];
+  assert.equal(imported.length, count); assert.equal(attachments.length, assetCount);
+  const direct = await fetch(`${serverUrl}/api/sync/v2/blob/${attachments[0].id}?scopeKey=personal`, { headers: { Authorization: `Bearer ${USER}` } });
+  assert.equal(direct.status, 200); assert.equal(direct.headers.get("content-length"), String(attachments[0].size));
+  assert.equal(createHash("sha256").update(Buffer.from(await direct.arrayBuffer())).digest("hex"), attachments[0].hash);
+  const storeA = migrationAttachmentStore("large-a"), storeB = migrationAttachmentStore("large-b"), storeC = migrationAttachmentStore("large-c");
+  const a = await client("migration-large-a", storeA), b = await client("migration-large-b", storeB), c = await client("migration-large-c", storeC);
+  for (const [peer, store] of [[a, storeA], [b, storeB], [c, storeC]] as const) {
+    for (let attempt = 0; attempt < 12; attempt++) {
+      await peer.sync();
+      const available = await peer.db.query<{ n: number }>(`SELECT COUNT(*) AS n FROM attachments WHERE available=1 AND id IN (${attachments.map(() => "?").join(",")})`, attachments.map((asset) => asset.id));
+      if (available[0].n === assetCount) break;
+    }
+    for (const item of imported) {
+      const expected = serverDb.prepare("SELECT content,version FROM notes WHERE id=?").get(item.targetNoteId) as { content: string; version: number };
+      const actual = await peer.repository.notes.get(item.targetNoteId); assert.equal(actual?.content, expected.content); assert.equal(actual?.version, expected.version);
+    }
+    for (const asset of attachments) {
+      const actual = await store.stat(asset.id);
+      assert.ok(actual, JSON.stringify(await peer.db.query("SELECT id,available,transferStatus,transferError FROM attachments WHERE id=?", [asset.id])));
+      assert.equal(actual.sha256, asset.hash); assert.equal(actual.size, asset.size);
+      assert.equal((await peer.db.query<{ transferStatus: string }>("SELECT transferStatus FROM attachments WHERE id=?", [asset.id]))[0].transferStatus, "ready");
+    }
+    assert.equal((await pending(peer)).length, 0); assert.equal((await conflicts(peer)).length, 0);
+  }
+  const edited = imported[imported.length - 1].targetNoteId;
+  await b.repository.notes.update(edited, { content: "Offline migration edit B" }); const offline = await pending(b);
+  await a.repository.notes.update(edited, { content: "Online migration edit A" }); await a.sync();
+  await b.db.close(); const reopened = await client("migration-large-b", storeB); assert.deepEqual(await pending(reopened), offline);
+  await reopened.sync();
+  const conflict = (await reopened.db.query<{ id: string; localPayload: string; remotePayload: string }>("SELECT id,localPayload,remotePayload FROM sync_conflicts WHERE profileId=? AND entityId=? AND status='unresolved'", [reopened.profileId, edited]))[0];
+  assert.ok(conflict); assert.equal(JSON.parse(conflict.localPayload).content, "Offline migration edit B"); assert.equal(JSON.parse(conflict.remotePayload).content, "Online migration edit A");
+  await reopened.engine.resolveLocalConflict(conflict.id, "keep-local"); const intended = (await pending(reopened)).map((item) => item.mutationId);
+  afterPush = async (response) => { const result = await response.json(); for (const item of result.results) delete item.version; return Response.json(result); };
+  try { await assert.rejects((reopened.engine as unknown as { push(s: typeof scope): Promise<void> }).push(scope), /ACK/); }
+  finally { afterPush = undefined; }
+  const appliedVersion = (serverDb.prepare("SELECT version FROM notes WHERE id=?").get(edited) as { version: number }).version;
+  assert.deepEqual((await pending(reopened)).map((item) => item.mutationId), intended);
+  await reopened.db.close(); const final = await client("migration-large-b", storeB);
+  assert.deepEqual((await pending(final)).map((item) => item.mutationId), intended); await final.sync(); await a.sync(); await c.sync();
+  for (const peer of [a, final, c]) { assert.equal((await peer.repository.notes.get(edited))?.content, "Offline migration edit B"); assert.equal((await pending(peer)).length, 0); assert.equal((await conflicts(peer)).length, 0); }
+  assert.equal((await readNativeNoteSyncReceipt(final.db, final.profileId, edited)).phase, "confirmed");
+  assert.equal((serverDb.prepare("SELECT version FROM notes WHERE id=?").get(edited) as { version: number }).version, appliedVersion, "lost ACK retry must not apply the edit twice");
+  console.log("[migration-multidevice]", JSON.stringify({ notes: count, assetBytes: assetCount * assetSize, zipBytes: fs.statSync(zipPath).size, nativeClients: 3, downloadedBytes: 3 * assetCount * assetSize, seconds: +((performance.now() - started) / 1000).toFixed(2), conflictsResolved: 1, duplicateMutations: 0 }));
 });

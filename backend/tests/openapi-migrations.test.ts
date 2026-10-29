@@ -28,4 +28,8 @@ test("OpenAPI freezes NMF v1 limits and migration human approval boundaries", ()
   assert.ok(!("content" in manifest.properties.notes.items.properties));
   assert.ok(manifest.properties.notes.items.properties.contentFile);
   assert.ok(manifest.properties.notes.items.properties.sha256);
+  assert.equal(spec.components.schemas.MigrationUploadSession.properties.chunkBytes.enum[0], 4 * 1024 * 1024);
+  assert.equal(spec.paths["/api/migrations/{id}/upload-sessions/{uploadId}/chunks"].put.parameters.find((parameter: any) => parameter.name === "X-Chunk-SHA256").required, true);
+  assert.ok(spec.paths["/api/migrations/{id}/upload-sessions/{uploadId}/complete"].post.responses["202"]);
+  assert.ok(spec.paths["/api/migrations/{id}/items/{itemId}/decision"].post.requestBody.content["application/json"].schema.required.includes("previewDigest"));
 });

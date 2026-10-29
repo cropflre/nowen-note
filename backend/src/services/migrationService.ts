@@ -37,6 +37,7 @@ type ItemRow = {
   id: string; jobId: string; sourceKey: string; contentHash: string; payloadHash: string;
   metadataJson: string; contentPath: string; status: string; action: string;
   targetNoteId: string | null; error: string | null; warningsJson: string;
+  decision: "auto" | "skip" | "keep-existing" | "create-copy";
 };
 type Metadata = Omit<NmfNote, "content"> & { contentBytes: number };
 type UploadRow = { id: string; jobId: string; filename: string; path: string; status: string };
@@ -138,6 +139,12 @@ function checkAccess(actor: MigrationActor, job: JobRow, write = false): void {
 }
 function owned(actor: MigrationActor, id: string, write = false): JobRow {
   const job = readJob(id); checkAccess(actor, job, write); return job;
+}
+/** Upload transports share the same live caller/creator token and target ACL checks. */
+export function assertMigrationUploadAccess(actor: MigrationActor, id: string, states: MigrationStatus[], attachments = false): void {
+  const job = owned(actor, id, true);
+  assertState(job, states);
+  requireExtraScopes(job, { attachments: attachments ? [{}] as Metadata["attachments"] : [], tags: [] }, actor);
 }
 function assertState(job: JobRow, states: MigrationStatus[]): void {
   if (!states.includes(job.status)) throw new MigrationError("MIGRATION_STATE_CONFLICT", "任务状态已变化，请刷新后重试", 409);
@@ -286,13 +293,47 @@ async function stage(actor: MigrationActor, job: JobRow, input: unknown[], fromA
 export async function stageMigrationItems(actor: MigrationActor, id: string, input: unknown[]) {
   const job = owned(actor, id, true); await stage(actor, job, input); return getMigration(actor, id);
 }
+type MigrationDuplicate = { noteId: string; contentHash: string; metadataSignature: string };
+function duplicateSignature(note: Metadata): string {
+  const tags = [...new Set(note.tags)].sort((a, b) => Buffer.compare(Buffer.from(a), Buffer.from(b)));
+  return JSON.stringify([note.title, tags, note.attachments.map((asset) => [asset.originalPath || asset.path, asset.sha256])]);
+}
+function migrationDuplicate(job: JobRow, item: ItemRow, note: Metadata): MigrationDuplicate | undefined {
+  const scope = [job.userId, job.workspaceId || "personal", job.workspaceId, job.workspaceId, job.userId];
+  const signature = `json_array(json_extract(mapped.metadataJson,'$.title'),
+    json((SELECT json_group_array(value) FROM (SELECT DISTINCT value FROM json_each(mapped.metadataJson,'$.tags') ORDER BY value COLLATE BINARY))),
+    json((SELECT json_group_array(json_array(COALESCE(json_extract(ref.value,'$.originalPath'),json_extract(ref.value,'$.path')),json_extract(ref.value,'$.sha256'))) FROM json_each(mapped.metadataJson,'$.attachments') ref)))`;
+  const base = `SELECT o.noteId,o.contentHash,${signature} AS metadataSignature FROM note_import_origins o JOIN notes n ON n.id=o.noteId
+    LEFT JOIN migration_items mapped ON mapped.targetNoteId=o.noteId AND mapped.jobId=o.batchId AND mapped.status='IMPORTED'
+    WHERE o.userId=? AND o.workspaceScope=? AND n.isTrashed=0 AND n.workspaceId IS ? AND (? IS NOT NULL OR n.userId=?)`;
+  const exact = prepare(`${base} AND o.sourceType=? AND o.externalId=? LIMIT 1`)
+    .get(...scope, `migration:${note.source.platform}`, item.sourceKey) as MigrationDuplicate | undefined;
+  if (exact) return exact;
+  if (["notion", "siyuan"].includes(note.source.platform)) {
+    const stable = prepare(`${base} AND o.sourceType=? AND o.noteId IN (
+      SELECT targetNoteId FROM migration_items WHERE json_extract(metadataJson,'$.source.platform')=?
+        AND json_extract(metadataJson,'$.source.sourceId')=? AND status='IMPORTED')
+      ORDER BY CASE WHEN o.contentHash=? AND ${signature}=? THEN 0 ELSE 1 END,julianday(n.updatedAt) DESC LIMIT 1`)
+      .get(...scope, `migration:${note.source.platform}`, note.source.platform, note.source.sourceId, item.contentHash, duplicateSignature(note)) as MigrationDuplicate | undefined;
+    if (stable) return stable;
+  }
+  return prepare(`${base} AND o.sourceType LIKE 'migration:%' AND o.contentHash=? AND ${signature}=? LIMIT 1`)
+    .get(...scope, item.contentHash, duplicateSignature(note)) as MigrationDuplicate | undefined;
+}
+
+function assertMigrationSourcesComplete(id: string): void {
+  if (prepare("SELECT 1 FROM migration_upload_sessions WHERE jobId=? AND status NOT IN ('COMPLETE','CANCELLED') LIMIT 1").get(id)) {
+    throw new MigrationError("MIGRATION_UPLOAD_INCOMPLETE", "来源文件尚未完成上传与校验，请继续上传后再预览", 409);
+  }
+  if (prepare("SELECT 1 FROM migration_uploads WHERE jobId=? AND status!='DONE' LIMIT 1").get(id)) {
+    throw new MigrationError("MIGRATION_SOURCE_INCOMPLETE", "来源文件尚未完整解析，请重新上传到新任务，不可将部分解析视为完整迁移", 409);
+  }
+}
 export async function previewMigration(actor: MigrationActor, id: string) {
   const job = owned(actor, id, true);
   assertState(job, ["CREATED", "PREVIEW_READY", "PARTIAL", "FAILED"]);
   const db = getDb();
-  if (prepare("SELECT 1 FROM migration_uploads WHERE jobId=? AND status!='DONE' LIMIT 1").get(id)) {
-    throw new MigrationError("MIGRATION_SOURCE_INCOMPLETE", "来源文件尚未完整解析，请重新上传到新任务，不可将部分解析视为完整迁移", 409);
-  }
+  assertMigrationSourcesComplete(id);
   const count = (prepare("SELECT COUNT(*) AS count FROM migration_items WHERE jobId = ?").get(id) as { count: number }).count;
   if (!count) throw new MigrationError("MIGRATION_EMPTY", "请先添加要迁移的笔记");
   if (migrationSnapshot(job).counts.attachments) {
@@ -302,6 +343,7 @@ export async function previewMigration(actor: MigrationActor, id: string) {
   const digest = crypto.createHash("sha256").update(job.requestHash).update(job.sourceJson).update(crypto.randomBytes(32));
   db.transaction(() => {
     assertState(readJob(id), ["CREATED", "PREVIEW_READY", "PARTIAL", "FAILED"]);
+    assertMigrationSourcesComplete(id);
     let cursor = "";
     while (true) {
       const batch = prepare("SELECT * FROM migration_items WHERE jobId = ? AND id > ? ORDER BY id LIMIT 50").all(id, cursor) as ItemRow[];
@@ -310,11 +352,7 @@ export async function previewMigration(actor: MigrationActor, id: string) {
       const note = parse<Metadata>(item.metadataJson);
       requireExtraScopes(job, note, actor);
       if (item.status !== "IMPORTED") {
-        const duplicate = prepare(`SELECT o.noteId, o.contentHash FROM note_import_origins o JOIN notes n ON n.id = o.noteId
-          WHERE o.userId = ? AND o.workspaceScope = ? AND n.isTrashed = 0
-            AND ((o.sourceType = ? AND o.externalId = ?) OR (o.sourceType LIKE 'migration:%' AND o.contentHash = ?))
-          ORDER BY CASE WHEN o.externalId = ? THEN 0 ELSE 1 END LIMIT 1`)
-          .get(job.userId, job.workspaceId || "personal", `migration:${note.source.platform}`, item.sourceKey, item.contentHash, item.sourceKey) as { noteId: string; contentHash: string } | undefined;
+        const duplicate = migrationDuplicate(job, item, note);
         const accessible = duplicate && hasPermission(resolveNotebookPermission((prepare("SELECT notebookId FROM notes WHERE id = ?").get(duplicate.noteId) as { notebookId: string }).notebookId, actor.userId).permission, "read");
         // A restricted client must not learn or link to a duplicate outside its grant.
         let withinToken = true;
@@ -324,13 +362,18 @@ export async function previewMigration(actor: MigrationActor, id: string) {
             try { tokenAccess(tokenId, actor.userId, notebookId, false); } catch { withinToken = false; }
           }
         }
-        const existing = Boolean(accessible && withinToken);
-        const itemWarnings = existing && duplicate!.contentHash !== item.contentHash ? ["SOURCE_CHANGED_EXISTING_KEPT; 来源内容已变化，保留已有笔记并跳过，不会覆盖"] : [];
-        const targetNoteId = existing ? duplicate!.noteId : item.targetNoteId || crypto.randomUUID();
+        const existing = Boolean(accessible && withinToken && item.decision !== "create-copy" && item.decision !== "skip");
+        const sourceChanged = existing && (duplicate!.contentHash !== item.contentHash || duplicate!.metadataSignature !== duplicateSignature(note));
+        const itemWarnings = sourceChanged ? ["SOURCE_CHANGED_EXISTING_KEPT; 来源内容已变化，请确认本次处理方式；已有笔记不会被覆盖"] : [];
+        const missingExisting = item.decision === "keep-existing" && !existing;
+        if (missingExisting) itemWarnings.push("EXISTING_TARGET_UNAVAILABLE; 已有笔记不再可用，请选择新副本或跳过");
+        const targetNoteId = item.decision === "skip" || missingExisting ? null : existing ? duplicate!.noteId : item.action === "existing" ? crypto.randomUUID() : item.targetNoteId || crypto.randomUUID();
+        const itemStatus = item.decision === "skip" ? "SKIPPED" : missingExisting ? "ATTENTION" : existing ? sourceChanged && item.decision === "auto" ? "ATTENTION" : "EXISTING" : "READY";
+        const action = item.decision === "skip" ? "skip" : existing || missingExisting ? "existing" : "create";
         prepare("UPDATE migration_items SET status = ?, action = ?, targetNoteId = ?, error = NULL, warningsJson = ? WHERE id = ?")
-          .run(existing ? "EXISTING" : "READY", existing ? "existing" : "create", targetNoteId, JSON.stringify(itemWarnings), item.id);
+          .run(itemStatus, action, targetNoteId, JSON.stringify(itemWarnings), item.id);
         if (itemWarnings.length) warnings(readJob(id), itemWarnings);
-        digest.update(existing ? "existing" : "create").update(targetNoteId);
+        digest.update(action).update(itemStatus).update(item.decision).update(targetNoteId || "");
       }
       digest.update(item.id).update(item.payloadHash).update(item.status === "IMPORTED" ? item.targetNoteId || "" : "");
       }
@@ -352,6 +395,23 @@ export async function previewMigration(actor: MigrationActor, id: string) {
   })();
   return getMigration(actor, id);
 }
+export async function decideMigrationItem(actor: MigrationActor, id: string, itemId: string, input: unknown) {
+  const value = z.object({ previewDigest: z.string().regex(/^[a-f0-9]{64}$/), decision: z.enum(["auto", "skip", "keep-existing", "create-copy"]) }).strict().parse(input);
+  const job = owned(actor, id, true);
+  assertState(job, ["PREVIEW_READY"]);
+  if (job.previewDigest !== value.previewDigest) throw new MigrationError("MIGRATION_PREVIEW_EXPIRED", "预览已变化，请刷新后重新选择", 409);
+  const item = prepare("SELECT * FROM migration_items WHERE jobId=? AND id=?").get(id, itemId) as ItemRow | undefined;
+  if (!item) throw new MigrationError("MIGRATION_ITEM_NOT_FOUND", "迁移记录不存在", 404);
+  if (item.status === "IMPORTED") throw new MigrationError("MIGRATION_ITEM_COMMITTED", "已经导入的记录不能改变策略", 409);
+  if (value.decision === "keep-existing" && item.action !== "existing") throw new MigrationError("MIGRATION_DECISION_INVALID", "本条没有可保留的已有笔记", 409);
+  getDb().transaction(() => {
+    prepare("UPDATE migration_items SET decision=?,targetNoteId=? WHERE id=? AND jobId=?")
+      .run(value.decision, value.decision === "create-copy" ? crypto.randomUUID() : item.targetNoteId, itemId, id);
+    prepare("UPDATE migration_jobs SET status='CREATED',previewDigest=NULL,previewExpiresAt=NULL,approvedBySession=NULL WHERE id=?").run(id);
+  })();
+  return previewMigration(actor, id);
+}
+
 function assertSession(userId: string, sessionId: string): void {
   const session = prepare("SELECT revokedAt, expiresAt FROM user_sessions WHERE id = ? AND userId = ?").get(sessionId, userId) as { revokedAt: string | null; expiresAt: string | null } | undefined;
   if (!session || session.revokedAt || (session.expiresAt && Date.parse(session.expiresAt) <= Date.now())) throw new MigrationError("MIGRATION_HUMAN_APPROVAL_REQUIRED", "请在 Nowen Note 中重新登录并确认迁移预览", 403);
@@ -482,7 +542,7 @@ async function importItem(job: JobRow, item: ItemRow): Promise<void> {
       rebuildYjsSubdocumentsIfEnabled(db, created.resourceId, synced.content, format);
     }
     prepare("INSERT INTO note_import_origins(id,userId,workspaceId,workspaceScope,noteId,sourceType,externalId,contentHash,batchId) VALUES (?,?,?,?,?,?,?,?,?) ON CONFLICT(userId,workspaceScope,sourceType,externalId) DO UPDATE SET noteId=excluded.noteId,contentHash=excluded.contentHash,batchId=excluded.batchId")
-      .run(crypto.randomUUID(), job.userId, job.workspaceId, job.workspaceId || "personal", created.resourceId, `migration:${note.source.platform}`, item.sourceKey, item.contentHash, job.id);
+      .run(crypto.randomUUID(), job.userId, job.workspaceId, job.workspaceId || "personal", created.resourceId, `migration:${note.source.platform}`, item.decision === "create-copy" ? hash(JSON.stringify([item.sourceKey, job.id])) : item.sourceKey, item.contentHash, job.id);
     prepare("INSERT INTO migration_resources(jobId,resourceType,resourceId,fingerprint) VALUES (?,'note',?,?)").run(job.id, created.resourceId, resourceFingerprint("note", created.resourceId));
     prepare("UPDATE migration_items SET status='IMPORTED', error=NULL, warningsJson=? WHERE id=?").run(JSON.stringify(itemWarnings), item.id);
     prepare("UPDATE migration_objects SET status='COMMITTED' WHERE itemId=?").run(item.id);
@@ -645,12 +705,13 @@ export function controlMigration(actor: MigrationActor, id: string, action: "pau
 }
 export function beginMigrationUpload(actor: MigrationActor, id: string): void {
   stagingBytes.delete(id);
+  if (prepare("SELECT 1 FROM migration_upload_sessions WHERE jobId=? AND status='OPEN' LIMIT 1").get(id)) throw new MigrationError("MIGRATION_UPLOAD_INCOMPLETE", "请继续当前分块上传或取消上传会话", 409);
   const job = owned(actor, id, true); assertState(job, ["CREATED"]); status(id, "UPLOADING", ["CREATED"]);
 }
-export function finishMigrationUpload(actor: MigrationActor, id: string, upload: { filename: string; path: string }): void {
+export function finishMigrationUpload(actor: MigrationActor, id: string, upload: { filename: string; path: string; uploadId?: string }): void {
   const job = owned(actor, id, true); assertState(job, ["UPLOADING"]);
   fileFor(job, upload.path);
-  prepare("INSERT INTO migration_uploads(id,jobId,filename,path) VALUES (?,?,?,?)").run(crypto.randomUUID(), id, upload.filename, upload.path);
+  prepare("INSERT INTO migration_uploads(id,jobId,filename,path) VALUES (?,?,?,?)").run(upload.uploadId || crypto.randomUUID(), id, upload.filename, upload.path);
   status(id, "SCANNING", ["UPLOADING"]); queueMigration(id);
 }
 export function failMigrationUpload(actor: MigrationActor, id: string): void {
@@ -663,7 +724,7 @@ export function migrationReport(actor: MigrationActor, id: string, cursor = "", 
   const hasMore = rows.length > Math.min(Math.max(limit, 1), 100);
   const items = rows.slice(0, Math.min(Math.max(limit, 1), 100)).map((item) => {
     const note = parse<Metadata>(item.metadataJson);
-    return { id: item.id, sourceId: note.source.sourceId, title: note.title, path: note.path, status: item.status, action: item.action, targetNoteId: item.targetNoteId, error: item.error, warnings: parse<string[]>(item.warningsJson), unsupportedFields: Object.keys(note.metadata) };
+    return { id: item.id, sourceId: note.source.sourceId, title: note.title, path: note.path, status: item.status, action: item.action, decision: item.decision, targetNoteId: item.targetNoteId, error: item.error, warnings: parse<string[]>(item.warningsJson), unsupportedFields: Object.keys(note.metadata) };
   });
   return { job: migrationSnapshot(job), items, warnings: parse<string[]>(job.warningsJson), nextCursor: hasMore ? items[items.length - 1].id : null };
 }

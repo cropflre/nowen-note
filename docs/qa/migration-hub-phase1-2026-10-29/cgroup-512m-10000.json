@@ -1,0 +1,35 @@
+{
+  "platform": "linux/arm64",
+  "os": "6.12.76-linuxkit",
+  "node": "v24.22.1",
+  "cpus": 10,
+  "heapLimitMiB": 256,
+  "count": 10000,
+  "assetMiB": 0,
+  "zipBytes": 1586782,
+  "peakRssMiB": 174.8,
+  "peakHeapMiB": 71.4,
+  "previewSeconds": 10.48,
+  "totalSeconds": 189,
+  "actualNotes": 10000,
+  "actualAssets": 0,
+  "status": "COMPLETED",
+  "failed": 0,
+  "warnings": [],
+  "cgroup": {
+    "memoryMax": "536870912",
+    "memoryPeak": "355119104",
+    "memoryEvents": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0",
+    "cpuMax": "200000 100000",
+    "memoryPeakMiB": 338.7
+  },
+  "container": {
+    "image": "c1f30777991a",
+    "memoryMiB": 512,
+    "swapMiB": 0,
+    "cpuQuota": 2,
+    "network": "none",
+    "temporaryStorage": "tmpfs counted in cgroup",
+    "bundledSource": true
+  }
+}

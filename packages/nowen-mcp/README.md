@@ -321,11 +321,17 @@ CI 运行 HTTP 网关认证/Origin/Host/超大负载测试、后端 PAT 所有�
 
 `nowen_migration_capabilities/create/stage/upload/preview/status/retry/cancel/pause/resume/undo` 复用 `/api/migrations`。MCP 只准备和跟踪任务；**没有 approve 工具**。用户在 Nowen 的「设置 → 数据管理 → 导入与迁移」查看预览并确认，服务器将审批绑定到真实登录会话和当前预览。`undo` 工具仅查询撤销条件，实际撤销也在 Nowen 中确认。
 
-迁移工具必须使用个人 API Token；准备数据需要 `MCP_ACCESS_MODE=read-write`、`export:import`、笔记和笔记本写权限，带标签/附件时还需对应权限。受限 Token 和本地白名单需允许目标笔记本及其后代；只读模式可查询状态。`stage` 每次最多 50 条 NMF v1 笔记、512 KiB JSON，响应只返回摘要。大正文和附件使用文件包或字节上传；stdio 的 `upload` 用文件 Blob 流式读取用户授权的本地文件，HTTP MCP 拒绝所有本地路径（原附件上传工具同样受此限制）。
+迁移工具必须使用个人 API Token；准备数据需要 `MCP_ACCESS_MODE=read-write`、`export:import`、笔记和笔记本写权限，带标签/附件时还需对应权限。受限 Token 和本地白名单需允许目标笔记本及其后代；只读模式可查询状态。`stage` 每次最多 50 条 NMF v1 笔记、512 KiB JSON，响应只返回摘要。大正文和附件使用文件包或字节上传；stdio 的 `upload` 用文件 Blob 流式读取用户授权的本地普通文件，HTTP MCP 拒绝所有本地路径（原附件上传工具同样受此限制）。
+
+Phase 1 的 `capabilities` 包含 `sourceAdapters`、`resumableUploads`、`uploadChunkBytes`。服务器支持会话时，stdio `nowen_migration_upload` 增量计算完整文件哈希，按 4 MiB 分块及每块 SHA-256 上传。中断后对同一任务再次调用相同文件会使用服务端已确认偏移；同一上传标识不能改换文件。24 小时会话过期后，允许重新开始时从 0 上传。旧服务器仍可使用兼容的单次字节接口。会话完成只是文件交接，继续用 `status` 查询扫描和导入结果；文件校验失败不能视为部分成功。ZIP 上限仍为 512 MiB。
+
+Notion Markdown/HTML/CSV 和思源原生 ZIP 进入同一 NMF 写入链路。Notion CSV 仅暂存有界标量来源属性并报告未迁移字段名，不转换成笔记属性或数据库；思源输出 Markdown，嵌套块和包外引用保留思源链接，特殊组件降级并报告。预览中的来源变化必须处理，用户可在 Nowen 选择跳过、保留已有或创建副本，并重新批准；**MCP 没有逐项决策或覆盖工具**。这些适配不表示历史、评论、权限或平台组件已无损迁移。详见 [迁移教程](../../docs/tutorials/ai-migration.md)。
 
 复用 Skill 位于 [`.agents/skills/nowen-migration`](../../.agents/skills/nowen-migration/SKILL.md)，并在 `.claude/skills` 保持镜像。自动化使用真实 MCP SDK Client 验证 stdio 和受保护 Streamable HTTP，但后端是隔离测试服务；这不代表 WorkBuddy、Qoder/QoderWork、Claude Code、Codex 或豆包工作实际版本已经验收。没有可用 MCP 的客户端可以生成标准文件包，由用户上传。
 
 The migration tools share `/api/migrations` and require a personal API token. They prepare data and return compact progress summaries; they cannot approve an import or execute undo. Human approval happens in Nowen and is bound to a validated login session and the current preview. Staging is limited to 50 notes and 512 KiB JSON per call. Large bodies and assets use files: stdio uploads stream a user-authorized local file, while HTTP MCP never reads a caller-supplied server path. Real SDK transport tests do not certify third-party client versions; standard file packages remain the fallback.
+
+Phase 1 capabilities advertise source adapters and resumable uploads. When supported by the server, stdio upload hashes the file incrementally and sends 4 MiB chunks with individual SHA-256 checks. Repeating the same file upload for the same job resumes from the confirmed offset; expired 24-hour sessions restart at zero when allowed. Older servers retain the single-request fallback. A complete upload is only a verified file handoff: continue polling job status. The 512 MiB ZIP limit is unchanged. Notion CSV values are bounded staged source metadata with field-name reporting, not note properties or databases. Siyuan is converted to Markdown; nested block references retain source links and unsupported components are downgraded. Changed-source decisions and renewed approval happen in Nowen; MCP has no per-item decision or overwrite tool. These adapters do not promise lossless history, comments, permissions or platform components.
 
 ## 发行说明
 

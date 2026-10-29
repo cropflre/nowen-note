@@ -61,6 +61,32 @@ test("production HTTP auth rejects forged token scopes and machine approval, the
     assert.equal(current.body.status, "COMPLETED", JSON.stringify(current.body));
     assert.equal(current.body.counts.imported, 1);
     assert.ok(!JSON.stringify(current.body).includes("HTTP body"));
+
+    const resumed = await request("/migrations", token, { operationId: crypto.randomUUID(), source: { platform: "files", exportId: "http-chunks" }, name: "HTTP resumable" });
+    assert.equal(resumed.status, 201);
+    const jobPath = `/migrations/${resumed.body.id}`;
+    const bytes = Buffer.from("# Resumable HTTP source\n");
+    const sha256 = crypto.createHash("sha256").update(bytes).digest("hex");
+    const session = await request(`${jobPath}/upload-sessions`, token, { operationId: crypto.randomUUID(), filename: "source.md", size: bytes.length, sha256 });
+    assert.equal(session.status, 201); assert.equal(session.body.offset, 0);
+    const uploadPath = `${jobPath}/upload-sessions/${session.body.id}`;
+    assert.equal((await request(uploadPath, other)).status, 404);
+    const chunk = await fetch(`${base}${uploadPath}/chunks?offset=0`, { method: "PUT", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/octet-stream", "X-Chunk-SHA256": sha256 }, body: bytes });
+    assert.equal(chunk.status, 200); assert.equal((await chunk.json() as { offset: number }).offset, bytes.length);
+    assert.equal((await request(`${uploadPath}/complete`, token, {})).status, 202);
+    const scanEnd = Date.now() + 10_000;
+    do { current = await request(jobPath, owner); if (current.body.status === "CREATED") break; await new Promise((resolve) => setTimeout(resolve, 25)); } while (Date.now() < scanEnd);
+    assert.equal(current.body.status, "CREATED", JSON.stringify(current.body));
+    const beforeChoice = await request(`${jobPath}/preview`, token, {}); assert.equal(beforeChoice.status, 200);
+    const report = await request(`${jobPath}/report`, token);
+    const chosen = await request(`${jobPath}/items/${report.body.items[0].id}/decision`, token, { previewDigest: beforeChoice.body.previewDigest, decision: "create-copy" });
+    assert.equal(chosen.status, 200); assert.notEqual(chosen.body.previewDigest, beforeChoice.body.previewDigest);
+    assert.equal((await request(`${jobPath}/approve`, owner, { previewDigest: beforeChoice.body.previewDigest })).status, 409);
+    assert.equal((await request(`${jobPath}/approve`, token, { previewDigest: chosen.body.previewDigest })).status, 403);
+    assert.equal((await request(`${jobPath}/approve`, owner, { previewDigest: chosen.body.previewDigest })).status, 202);
+    const importEnd = Date.now() + 10_000;
+    do { current = await request(jobPath, owner); if (current.body.status === "COMPLETED") break; await new Promise((resolve) => setTimeout(resolve, 25)); } while (Date.now() < importEnd);
+    assert.equal(current.body.status, "COMPLETED", JSON.stringify(current.body)); assert.equal(current.body.counts.imported, 1);
   } finally {
     child.kill("SIGTERM");
     await new Promise((resolve) => { if (child.exitCode !== null) resolve(null); else child.once("close", resolve); });

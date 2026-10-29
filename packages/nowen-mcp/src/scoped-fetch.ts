@@ -611,9 +611,13 @@ async function handleMigrationRequest(request: Request, url: URL): Promise<Respo
     if (!policy.includeDescendants) throw new ScopeDeniedError("迁移创建新目录需要 MCP_INCLUDE_DESCENDANTS=true");
     return originalFetch(request);
   }
-  const match = /^\/api\/migrations\/([^/]+)(?:\/(items|uploads|preview|report|retry|cancel|pause|resume))?$/.exec(pathname);
-  if (!match || !((method === "GET" && (!match[2] || match[2] === "report"))
-      || (method === "POST" && match[2] && match[2] !== "report"))) {
+  const match = /^\/api\/migrations\/([^/]+)(?:\/(items|uploads|preview|report|retry|cancel|pause|resume|upload-sessions)(?:\/([^/]+)(?:\/(chunks|complete|decision))?)?)?$/.exec(pathname);
+  const sessionRequest = match?.[2] === "upload-sessions" && ((!match[3] && method === "POST")
+    || (match[3] && !match[4] && ["GET", "DELETE"].includes(method))
+    || (match[4] === "chunks" && method === "PUT") || (match[4] === "complete" && method === "POST"));
+  const decisionRequest = match?.[2] === "items" && match[3] && match[4] === "decision" && method === "POST";
+  if (!match || !(sessionRequest || decisionRequest || (!match[3] && ((method === "GET" && (!match[2] || match[2] === "report"))
+      || (method === "POST" && match[2] && match[2] !== "report"))))) {
     throw new ScopeDeniedError("MCP 不允许迁移审批或直接撤销，请在 Nowen Note 中操作");
   }
   const jobResponse = await originalFetch(`${baseUrl}/api/migrations/${match[1]}`, { headers: requestAuthHeaders(request) });

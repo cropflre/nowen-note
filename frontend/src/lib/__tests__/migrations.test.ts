@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { migrationApi } from "../migrations";
+import { createHash } from "node:crypto";
+import { File as NodeFile } from "node:buffer";
 
 const mocks = vi.hoisted(() => ({ request: vi.fn(), scope: "server:user-1" }));
 vi.mock("../api", () => ({ getBaseUrl: () => "https://nowen.test/api" }));
@@ -50,5 +52,45 @@ describe("migration REST client", () => {
     await expect(migrationApi.list()).rejects.toThrow("MIGRATION_INVALID_RESPONSE");
     mocks.request.mockResolvedValueOnce(json({ items: null }));
     await expect(migrationApi.list()).rejects.toThrow("MIGRATION_INVALID_RESPONSE");
+  });
+});
+
+describe("resumable migration uploads", () => {
+  it("hashes bounded slices, resumes confirmed offsets and reconciles a lost chunk response", async () => {
+    const chunkBytes = 4 * 1024 * 1024;
+    const bytes = new Uint8Array(chunkBytes + 3); bytes.fill(42);
+    const file = new NodeFile([bytes], "large.zip") as unknown as File;
+    const fullRead = vi.spyOn(file, "arrayBuffer").mockRejectedValue(new Error("Whole-file read forbidden"));
+    const hash = createHash("sha256").update(bytes).digest("hex");
+    let offset = 0;
+    const session = () => ({ id: "up-1", jobId: "job-1", sha256: hash, size: file.size, chunkBytes, offset, status: "OPEN" });
+    mocks.request.mockImplementation(async (url: string, init: RequestInit) => {
+      if (url.endsWith("/upload-sessions")) { expect(JSON.parse(init.body as string).sha256).toBe(hash); return json(session(), 201); }
+      if (url.includes("/chunks")) {
+        const chunk = init.body as Blob;
+        expect(chunk.size).toBeLessThanOrEqual(chunkBytes);
+        expect(init.headers).toMatchObject({ "X-Chunk-SHA256": createHash("sha256").update(new Uint8Array(await chunk.arrayBuffer())).digest("hex") });
+        if (offset === 0) { offset = chunkBytes; throw new TypeError("Lost response after commit"); }
+        expect(url).toContain(`offset=${chunkBytes}`); offset = file.size; return json(session());
+      }
+      if (url.endsWith("/up-1")) return json(session());
+      if (url.endsWith("/complete")) return json({ id: "job-1", status: "UPLOADING" }, 202);
+      throw new Error(url);
+    });
+    await expect(migrationApi.uploadResumable("job-1", file)).resolves.toMatchObject({ status: "UPLOADING" });
+    expect(fullRead).not.toHaveBeenCalled();
+    expect(mocks.request.mock.calls.filter(([url]) => url.includes("/chunks"))).toHaveLength(2);
+  });
+
+  it("does not send bytes after an account switch or a corrupt server offset", async () => {
+    const file = new NodeFile(["small file"], "small.md") as unknown as File;
+    mocks.request.mockImplementation(async () => { mocks.scope = "server:user-2"; return json({ id: "up-1" }); });
+    await expect(migrationApi.uploadResumable("job-1", file)).rejects.toThrow("MIGRATION_ACCOUNT_CHANGED");
+    expect(mocks.request).toHaveBeenCalledTimes(1);
+    mocks.scope = "server:user-1"; mocks.request.mockClear();
+    mocks.request.mockImplementation(async (_url: string, init: RequestInit) => json({ id: "up-1", jobId: "job-1", size: file.size,
+      sha256: JSON.parse(init.body as string).sha256, offset: file.size + 1, chunkBytes: 4 * 1024 * 1024, status: "OPEN" }));
+    await expect(migrationApi.uploadResumable("job-1", file)).rejects.toThrow("MIGRATION_INVALID_RESPONSE");
+    expect(mocks.request).toHaveBeenCalledTimes(1);
   });
 });

@@ -6,6 +6,7 @@
  */
 
 import { migrationOpenApiPaths, migrationOpenApiSchemas } from "./migrationOpenapi";
+import { migrationP1OpenApiPaths, migrationP1OpenApiSchemas } from "./migrationP1Openapi";
 
 export function generateOpenAPISpec(): Record<string, any> {
   return {
@@ -29,6 +30,7 @@ export function generateOpenAPISpec(): Record<string, any> {
       },
       schemas: {
         ...migrationOpenApiSchemas,
+        ...migrationP1OpenApiSchemas,
         Notebook: {
           type: "object",
           properties: {
@@ -248,6 +250,7 @@ export function generateOpenAPISpec(): Record<string, any> {
     security: [{ BearerAuth: [] }],
     paths: {
       ...migrationOpenApiPaths,
+      ...migrationP1OpenApiPaths,
       // ===== 认证 =====
       "/api/auth/login": {
         post: {

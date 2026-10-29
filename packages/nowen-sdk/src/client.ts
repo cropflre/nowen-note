@@ -11,7 +11,7 @@
  */
 
 import { NowenAuth } from "./auth.js";
-import type { CreateMigrationParams, MigrationCapabilities, MigrationJob, MigrationReport, NmfNote } from "./migrations.js";
+import type { CreateMigrationParams, CreateMigrationUploadParams, MigrationCapabilities, MigrationJob, MigrationReport, MigrationUploadSession, NmfNote } from "./migrations.js";
 
 import type {
   NowenConfig, Notebook, CreateNotebookParams, UpdateNotebookParams,
@@ -64,6 +64,7 @@ export class NowenClient {
       body?: any;
       query?: Record<string, string | undefined>;
       raw?: boolean;
+      headers?: Record<string, string>;
     } = {}
   ): Promise<T> {
     const token = await this.auth.ensureToken();
@@ -79,6 +80,7 @@ export class NowenClient {
     }
 
     const headers: Record<string, string> = {
+      ...options.headers,
       "Authorization": `Bearer ${token}`,
     };
     if (options.body && !options.raw) {
@@ -445,6 +447,28 @@ export class NowenClient {
 
   previewMigration(id: string): Promise<MigrationJob> {
     return this.request(`/api/migrations/${encodeURIComponent(id)}/preview`, { method: "POST", body: {} });
+  }
+
+  createMigrationUploadSession(id: string, params: CreateMigrationUploadParams): Promise<MigrationUploadSession> {
+    return this.request(`/api/migrations/${encodeURIComponent(id)}/upload-sessions`, { method: "POST", body: params });
+  }
+  getMigrationUploadSession(id: string, uploadId: string): Promise<MigrationUploadSession> {
+    return this.request(`/api/migrations/${encodeURIComponent(id)}/upload-sessions/${encodeURIComponent(uploadId)}`);
+  }
+  putMigrationUploadChunk(id: string, uploadId: string, offset: number, chunk: Blob, sha256: string): Promise<MigrationUploadSession> {
+    return this.request(`/api/migrations/${encodeURIComponent(id)}/upload-sessions/${encodeURIComponent(uploadId)}/chunks`, {
+      method: "PUT", query: { offset: String(offset) }, body: chunk, raw: true,
+      headers: { "Content-Type": "application/octet-stream", "X-Chunk-SHA256": sha256 },
+    });
+  }
+  completeMigrationUpload(id: string, uploadId: string): Promise<MigrationJob> {
+    return this.request(`/api/migrations/${encodeURIComponent(id)}/upload-sessions/${encodeURIComponent(uploadId)}/complete`, { method: "POST", body: {} });
+  }
+  cancelMigrationUpload(id: string, uploadId: string): Promise<MigrationUploadSession> {
+    return this.request(`/api/migrations/${encodeURIComponent(id)}/upload-sessions/${encodeURIComponent(uploadId)}`, { method: "DELETE" });
+  }
+  decideMigrationItem(id: string, itemId: string, previewDigest: string, decision: "auto" | "skip" | "keep-existing" | "create-copy"): Promise<MigrationJob> {
+    return this.request(`/api/migrations/${encodeURIComponent(id)}/items/${encodeURIComponent(itemId)}/decision`, { method: "POST", body: { previewDigest, decision } });
   }
 
   /** Human UI only: API tokens are refused by the server. Digest must match the current preview. */

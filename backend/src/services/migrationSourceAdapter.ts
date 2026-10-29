@@ -6,6 +6,8 @@ import { pipeline } from "node:stream/promises";
 import { setImmediate as yieldEventLoop } from "node:timers/promises";
 import { sanitizeForImport } from "../lib/sanitizeHtml";
 import { MIGRATION_LIMITS, migrationRelativePathSchema, nmfManifestSchema, nmfNoteSchema, type NmfNote } from "./migrationFormat";
+import { createNotionMigrationContext } from "./migrationNotionAdapter";
+import { isSiyuanMigration, stageSiyuanMigration } from "./migrationSiyuanAdapter";
 
 const unzipper = require("unzipper");
 type Source = Pick<NmfNote["source"], "platform" | "exportId">;
@@ -128,7 +130,7 @@ async function extractArchive(filePath: string, destination: string, budget: num
       || (entry.flags & 1) || ![0, 8].includes(entry.compressionMethod)) return fail("MIGRATION_UNSAFE_ARCHIVE_ENTRY");
     seen.add(key);
     if (!Number.isSafeInteger(entry.uncompressedSize) || entry.uncompressedSize < 0
-      || entry.uncompressedSize > (name === "manifest.json" ? MIGRATION_LIMITS.manifestBytes : noteExtension(name) ? MIGRATION_LIMITS.contentBytes : MIGRATION_LIMITS.assetBytes)
+      || entry.uncompressedSize > (name === "manifest.json" ? MIGRATION_LIMITS.manifestBytes : noteExtension(name) || /\.sy$/i.test(name) ? MIGRATION_LIMITS.contentBytes : MIGRATION_LIMITS.assetBytes)
       || entry.uncompressedSize / Math.max(1, entry.compressedSize) > 1000) return fail("MIGRATION_ARCHIVE_LIMIT");
     declaredTotal += entry.uncompressedSize;
     if (declaredTotal > MIGRATION_LIMITS.extractedBytes || declaredTotal > budget) return fail("MIGRATION_ARCHIVE_LIMIT");
@@ -243,9 +245,23 @@ export async function stageMigrationFile(input: {
       await emit(nmfNoteSchema.parse({ ...fields, schemaVersion: 1, source: { ...manifest.source, sourceId },
         content: note.contentFormat === "html" ? sanitizeMigrationHtml(rawContent) : rawContent, attachments }));
     }
+  } else if (isSiyuanMigration(files)) {
+    try {
+      const result = await stageSiyuanMigration({ files, source: input.source, readText: (name, maxBytes) => readText(files.get(name) || fail("MIGRATION_CONTENT_MISSING"), maxBytes),
+        managedPath: managed, sniffAsset: sniffMigrationAsset, onNote: emit, assertActive: input.assertActive });
+      result.warnings.forEach((warning) => warnings.add(warning));
+    } catch (error) {
+      const code = (error as { code?: string }).code;
+      if (typeof code === "string" && /^MIGRATION_|^SIYUAN_/.test(code)) throw new MigrationSourceError(code);
+      throw error;
+    }
   } else {
     const notes = [...files.keys()].filter(noteExtension).filter((name) => !/^(?:__MACOSX|assets|attachments)\//i.test(name)).sort();
     const noteNames = new Set(notes);
+    let notion: ReturnType<typeof createNotionMigrationContext>;
+    try { notion = createNotionMigrationContext({ notePaths: notes, csvPaths: [...files.keys()].filter((name) => /\.csv$/i.test(name)), source: input.source,
+      readText: (name, maxBytes) => readText(files.get(name) || fail("MIGRATION_CONTENT_MISSING"), maxBytes) }); }
+    catch (error) { if (typeof (error as { code?: string }).code === "string") throw new MigrationSourceError((error as { code: string }).code); throw error; }
     if (!notes.length || notes.length > MIGRATION_LIMITS.notes) return fail("MIGRATION_NOTE_COUNT_LIMIT");
     for (const name of files.keys()) {
       if (!noteExtension(name) && !supportedAssets[path.extname(name).toLowerCase()]) warnings.add("UNSUPPORTED_FILES_SKIPPED; scripts, macros, databases and unknown files are not imported");
@@ -270,11 +286,13 @@ export async function stageMigrationFile(input: {
           sha256: target.sha256, originalPath: href, mimeType: await sniffMigrationAsset(target.diskPath, resolved) });
       }
       const titleMatch = format === "html" ? /<title[^>]*>([^<]+)<\/title>/i.exec(rawContent) : /^#\s+(.+)$/m.exec(content);
-      await emit(nmfNoteSchema.parse({ schemaVersion: 1, source: { ...input.source, sourceId: name },
+      const note: NmfNote = { schemaVersion: 1, source: { ...input.source, sourceId: name },
         title: (titleMatch?.[1]?.trim() || path.posix.basename(name).replace(/\.[^.]+$/, "")).slice(0, 500),
         path: path.posix.dirname(name) === "." ? [] : path.posix.dirname(name).split("/"),
-        contentFormat: format, content, attachments, links }));
+        contentFormat: format, content, attachments, links, tags: [], metadata: {} };
+      await emit(nmfNoteSchema.parse(notion ? notion.decorate(name, note) : note));
     }
+    notion?.warnings.forEach((warning) => warnings.add(warning));
   }
   return { warnings: [...warnings] };
 }

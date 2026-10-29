@@ -1,0 +1,103 @@
+{
+  "date": "2026-10-29",
+  "branch": "codex/ai-migration-hub-v160",
+  "baseCommit": "fb93d4932639c3967b883e416b1233b8b65198b0",
+  "backend": {
+    "cwd": "backend",
+    "tests": 186,
+    "passed": 186,
+    "failed": 0,
+    "files": [
+      "tests/migration-service.test.ts",
+      "tests/migration-schema.test.ts",
+      "tests/migration-format-source.test.ts",
+      "tests/migration-notion-adapter.test.ts",
+      "tests/migration-siyuan-adapter.test.ts",
+      "tests/migration-uploads.test.ts",
+      "tests/migration-upload-security.test.ts",
+      "tests/migration-restart.test.ts",
+      "tests/migration-http.test.ts",
+      "tests/migration-attachment-stream.test.ts",
+      "tests/openapi-migrations.test.ts",
+      "tests/sync-v2-blob-http.test.ts",
+      "tests/sync-v2-mobile-multidevice.test.ts",
+      "tests/siyuan-package-import.test.ts",
+      "tests/siyuan-import-metadata.test.ts",
+      "tests/nowen-package-roundtrip.test.ts",
+      "tests/sync-v2-engine.test.ts"
+    ],
+    "command": "ELECTRON_RUN_AS_NODE=1 ../node_modules/.bin/electron --import tsx --test --test-concurrency=1 <files>",
+    "extendedProductionHttp": {
+      "tests": 1,
+      "passed": 1,
+      "failed": 0
+    },
+    "typecheck": "npx tsc --noEmit",
+    "build": "npm run build",
+    "status": "passed"
+  },
+  "frontend": {
+    "cwd": "frontend",
+    "command": "npm run test:run -- src/components/__tests__/MigrationHub.test.tsx src/lib/__tests__/migrations.test.ts",
+    "tests": 16,
+    "passed": 16,
+    "failed": 0,
+    "build": "npm run build (tsc -b, Vite, verify-sync-notification-ui)",
+    "status": "passed",
+    "warning": "Existing large-chunk warning"
+  },
+  "sdk": {
+    "cwd": "packages/nowen-sdk",
+    "command": "npm test",
+    "tests": 34,
+    "passed": 34,
+    "failed": 0
+  },
+  "mcp": {
+    "cwd": "packages/nowen-mcp",
+    "command": "npm test",
+    "tests": 35,
+    "passed": 35,
+    "failed": 0,
+    "transports": [
+      "stdio",
+      "protected Streamable HTTP"
+    ],
+    "realAiHostApplications": false
+  },
+  "lint": {
+    "command": "frontend: npm run lint:baseline",
+    "status": "failed-existing-generated-files",
+    "historicalSourceErrors": 1443,
+    "outsideSourceErrors": 96,
+    "outsideSourcePaths": [
+      "dist.bak/",
+      "ios/App/App/public/assets/pdf.worker-*.mjs"
+    ],
+    "sourceOnly": {
+      "status": "passed-against-existing-baseline",
+      "historical": 1443,
+      "added": 0
+    },
+    "baselineModified": false
+  },
+  "dcc": {
+    "command": "node scripts/data-consistency-contract.mjs --verify",
+    "invariants": 12,
+    "testReferences": 242,
+    "status": "passed"
+  },
+  "browser": "browser-validation.json",
+  "performance": [
+    "cgroup-512m-1000-104mib.json",
+    "cgroup-512m-10000.json"
+  ],
+  "multiDevice": "multidevice.json",
+  "unrun": [
+    "Physical Android and packaged Electron",
+    "Real NAS/proxy/S3",
+    "Production data",
+    "AI host applications and versions",
+    "Remote push, CI, merge and release"
+  ]
+}

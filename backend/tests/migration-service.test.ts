@@ -297,3 +297,116 @@ test("preview checks storage for every output attachment copy before approval", 
   assert.equal(service.getMigration(owner, job.id).status, "CREATED");
   service.controlMigration(owner, job.id, "cancel");
 });
+
+test("a resumable upload opened during async storage preflight invalidates the pending preview", async () => {
+  const job = create("Preview/upload race"), body = Buffer.from("%PDF-1.7\nrace");
+  const sha256 = crypto.createHash("sha256").update(body).digest("hex");
+  const relative = "assets/preflight.pdf";
+  fs.mkdirSync(path.join(service.migrationJobDirectory(job.id), "assets"));
+  fs.writeFileSync(path.join(service.migrationJobDirectory(job.id), relative), body);
+  service.registerMigrationAsset(owner, job.id, relative, sha256, body.length);
+  await service.stageMigrationItems(owner, job.id, [note("preview-upload-race", "[PDF](assets/preflight.pdf)", { attachments: [{ assetId: "pdf", path: relative, sha256 }] })]);
+  const uploads = await import("../src/services/migrationUploads");
+  const preview = service.previewMigration(owner, job.id);
+  uploads.createMigrationUploadSession(owner, job.id, { operationId: crypto.randomUUID(), filename: "more.md", size: 6, sha256: crypto.createHash("sha256").update("# more").digest("hex") });
+  try { await assert.rejects(preview, { code: "MIGRATION_UPLOAD_INCOMPLETE" }); }
+  finally { service.controlMigration(owner, job.id, "cancel"); }
+});
+
+test("stable Notion source IDs across exports require a new choice and copy keeps the original (DCC-004)", async () => {
+  const sourceId = "a".repeat(32), firstSource = { platform: "notion", exportId: "notion-first" };
+  const firstJob = create("First export", { source: firstSource });
+  await service.stageMigrationItems(owner, firstJob.id, [note(sourceId, "# Original source", { source: { ...firstSource, sourceId } })]);
+  const firstPreview = await service.previewMigration(owner, firstJob.id);
+  service.approveMigration(owner, firstJob.id, firstPreview.previewDigest!, "human-session"); await wait(firstJob.id);
+  const originalId = service.migrationReport(owner, firstJob.id).items[0].targetNoteId!;
+  const nextSource = { ...firstSource, exportId: "notion-next" };
+  const nextJob = create("Next export", { source: nextSource });
+  await service.stageMigrationItems(owner, nextJob.id, [note(sourceId, "# Updated source", { source: { ...nextSource, sourceId } })]);
+  const preview = await service.previewMigration(owner, nextJob.id);
+  assert.equal(preview.counts.needsAttention, 1); assert.equal(preview.counts.existing, 1);
+  assert.throws(() => service.approveMigration(owner, nextJob.id, preview.previewDigest!, "human-session"), { code: "MIGRATION_NEEDS_ATTENTION" });
+  const item = service.migrationReport(owner, nextJob.id).items[0];
+  await assert.rejects(service.decideMigrationItem(other, nextJob.id, item.id, { previewDigest: preview.previewDigest, decision: "create-copy" }), { code: "MIGRATION_NOT_FOUND" });
+  const copy = await service.decideMigrationItem(owner, nextJob.id, item.id, { previewDigest: preview.previewDigest, decision: "create-copy" });
+  assert.notEqual(copy.previewDigest, preview.previewDigest); assert.equal(copy.counts.needsAttention, 0); assert.equal(copy.counts.create, 1);
+  assert.throws(() => service.approveMigration(owner, nextJob.id, preview.previewDigest!, "human-session"), { code: "MIGRATION_PREVIEW_EXPIRED" });
+  service.approveMigration(owner, nextJob.id, copy.previewDigest!, "human-session"); assert.equal((await wait(nextJob.id)).status, "COMPLETED");
+  const copyId = service.migrationReport(owner, nextJob.id).items[0].targetNoteId!;
+  assert.notEqual(copyId, originalId);
+  assert.match((db.prepare("SELECT content FROM notes WHERE id=?").get(originalId) as any).content, /Original source/);
+  assert.match((db.prepare("SELECT content FROM notes WHERE id=?").get(copyId) as any).content, /Updated source/);
+  service.undoMigration(owner, nextJob.id, "human-session");
+  assert.equal((db.prepare("SELECT isTrashed FROM notes WHERE id=?").get(originalId) as any).isTrashed, 0);
+});
+
+test("skip and keep-existing choices are bound to the preview and never become overwrites", async () => {
+  const value = note("decision-existing", "# Kept source"); const completed = await run([value]);
+  const keptId = service.migrationReport(owner, completed.id).items[0].targetNoteId!;
+  const job = create("Decisions"); await service.stageMigrationItems(owner, job.id, [{ ...value, content: "# New source" }, note("decision-skipped")]);
+  let preview = await service.previewMigration(owner, job.id);
+  const existing = service.migrationReport(owner, job.id).items.find((item) => item.sourceId === "decision-existing")!;
+  const skipped = service.migrationReport(owner, job.id).items.find((item) => item.sourceId === "decision-skipped")!;
+  preview = await service.decideMigrationItem(owner, job.id, existing.id, { previewDigest: preview.previewDigest, decision: "keep-existing" });
+  preview = await service.decideMigrationItem(owner, job.id, skipped.id, { previewDigest: preview.previewDigest, decision: "skip" });
+  assert.equal(preview.counts.needsAttention, 0); assert.equal(preview.counts.skipped, 1);
+  service.approveMigration(owner, job.id, preview.previewDigest!, "human-session"); assert.equal((await wait(job.id)).status, "COMPLETED");
+  assert.match((db.prepare("SELECT content FROM notes WHERE id=?").get(keptId) as any).content, /Kept source/);
+  assert.equal(db.prepare("SELECT id FROM notes WHERE title='decision-skipped'").get(), undefined);
+});
+
+async function stagePdfVersion(jobId: string, sourceId: string, content: string, assetBody: Buffer) {
+  const relative = "assets/version.pdf", sha256 = crypto.createHash("sha256").update(assetBody).digest("hex");
+  fs.mkdirSync(path.join(service.migrationJobDirectory(jobId), "assets"));
+  fs.writeFileSync(path.join(service.migrationJobDirectory(jobId), relative), assetBody);
+  service.registerMigrationAsset(owner, jobId, relative, sha256, assetBody.length);
+  await service.stageMigrationItems(owner, jobId, [note(sourceId, content, { attachments: [{ assetId: "version-pdf", path: relative, sha256 }] })]);
+}
+
+test("attachment checksum changes for a mapped source require review even with identical Markdown", async () => {
+  const sourceId = `same-source-asset-${crypto.randomUUID()}`, content = `# ${sourceId}\n[PDF](assets/version.pdf)`;
+  const initial = create("Original attachment");
+  await stagePdfVersion(initial.id, sourceId, content, Buffer.from("%PDF-1.7\noriginal bytes"));
+  const first = await service.previewMigration(owner, initial.id); service.approveMigration(owner, initial.id, first.previewDigest!, "human-session"); await wait(initial.id);
+  const updated = create("Updated attachment");
+  await stagePdfVersion(updated.id, sourceId, content, Buffer.from("%PDF-1.7\nchanged bytes"));
+  try {
+    const preview = await service.previewMigration(owner, updated.id);
+    assert.equal(preview.counts.needsAttention, 1);
+    assert.equal(preview.counts.existing, 1);
+    assert.throws(() => service.approveMigration(owner, updated.id, preview.previewDigest!, "human-session"), { code: "MIGRATION_NEEDS_ATTENTION" });
+  } finally { service.controlMigration(owner, updated.id, "cancel"); }
+});
+
+test("equal Markdown referencing different attachment bytes cannot auto-skip a different source ID", async () => {
+  const sourceId = `different-source-asset-${crypto.randomUUID()}`, content = `# ${sourceId}\n[PDF](assets/version.pdf)`;
+  const initial = create("Original source and attachment");
+  await stagePdfVersion(initial.id, sourceId, content, Buffer.from("%PDF-1.7\noriginal bytes"));
+  const first = await service.previewMigration(owner, initial.id); service.approveMigration(owner, initial.id, first.previewDigest!, "human-session"); await wait(initial.id);
+  const independent = create("Independent source and attachment");
+  await stagePdfVersion(independent.id, `${sourceId}-different`, content, Buffer.from("%PDF-1.7\nindependent bytes"));
+  try {
+    const preview = await service.previewMigration(owner, independent.id);
+    assert.equal(preview.counts.existing, 0);
+    assert.equal(preview.counts.create, 1);
+  } finally { service.controlMigration(owner, independent.id, "cancel"); }
+});
+
+test("source title and tag changes require review without changing the existing note (DCC-004)", async () => {
+  const sourceId = `semantic-change-${crypto.randomUUID()}`, content = `# ${sourceId}\nStable body`;
+  const value = note(sourceId, content, { title: "Original title", tags: ["original-tag"] });
+  const original = await run([value], "Original semantic fields");
+  const originalId = service.migrationReport(owner, original.id).items[0].targetNoteId!;
+  for (const change of [{ title: "Renamed title", tags: ["original-tag"] }, { title: "Original title", tags: ["new-tag"] }]) {
+    const changed = create("Source semantic update");
+    await service.stageMigrationItems(owner, changed.id, [{ ...value, ...change }]);
+    try {
+      const preview = await service.previewMigration(owner, changed.id);
+      assert.equal(preview.counts.needsAttention, 1);
+      assert.equal(preview.counts.existing, 1);
+      assert.throws(() => service.approveMigration(owner, changed.id, preview.previewDigest!, "human-session"), { code: "MIGRATION_NEEDS_ATTENTION" });
+    } finally { service.controlMigration(owner, changed.id, "cancel"); }
+  }
+  assert.equal((db.prepare("SELECT title FROM notes WHERE id=?").get(originalId) as { title: string }).title, "Original title");
+  assert.deepEqual(db.prepare("SELECT t.name FROM note_tags nt JOIN tags t ON t.id=nt.tagId WHERE nt.noteId=? ORDER BY t.name").all(originalId), [{ name: "original-tag" }]);
+});

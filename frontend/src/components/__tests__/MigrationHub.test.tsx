@@ -7,9 +7,9 @@ import type { MigrationJob } from "@/lib/migrations";
 const mocks = vi.hoisted(() => ({
   list: vi.fn(), get: vi.fn(), create: vi.fn(), upload: vi.fn(), preview: vi.fn(), approve: vi.fn(),
   retry: vi.fn(), cancel: vi.fn(), pause: vi.fn(), resume: vi.fn(), undo: vi.fn(), report: vi.fn(),
-  imported: vi.fn(), view: vi.fn(), legacy: vi.fn(), confirm: vi.fn(), scope: "server:user-1",
+  imported: vi.fn(), view: vi.fn(), legacy: vi.fn(), confirm: vi.fn(), items: vi.fn(), decide: vi.fn(), scope: "server:user-1",
 }));
-vi.mock("@/lib/migrations", async (original) => ({ ...await original<typeof import("@/lib/migrations")>(), migrationApi: mocks }));
+vi.mock("@/lib/migrations", async (original) => ({ ...await original<typeof import("@/lib/migrations")>(), migrationApi: { ...mocks, uploadResumable: mocks.upload } }));
 vi.mock("@/lib/api", () => ({ api: { getNotebooks: async () => [{ id: "book-1", name: "Work" }] } }));
 vi.mock("@/lib/offlineScope", () => ({ getOfflineQueueStorageKey: () => mocks.scope }));
 vi.mock("@/lib/reliableExportDownloadBridge", () => ({ scheduleObjectUrlRevocation: vi.fn() }));
@@ -46,6 +46,8 @@ beforeEach(() => {
   mocks.create.mockResolvedValue({ ...baseJob, status: "CREATED", previewDigest: null });
   mocks.upload.mockResolvedValue({ ...baseJob, status: "CREATED", previewDigest: null });
   mocks.preview.mockResolvedValue(baseJob);
+  mocks.items.mockResolvedValue({ job: baseJob, items: [], nextCursor: null });
+  mocks.decide.mockResolvedValue({ ...baseJob, previewDigest: "digest-2" });
   mocks.approve.mockResolvedValue({ ...baseJob, status: "IMPORTING" });
   mocks.retry.mockResolvedValue({ ...baseJob, status: "IMPORTING" });
   mocks.undo.mockResolvedValue({ ...baseJob, status: "UNDONE" });
@@ -55,6 +57,19 @@ beforeEach(() => {
 afterEach(() => { act(() => root.unmount()); host.remove(); vi.useRealTimers(); });
 
 describe("Migration Hub review and job lifecycle", () => {
+  it("blocks unresolved source changes and requires another review after an item decision", async () => {
+    const attention = { ...baseJob, counts: { ...baseJob.counts, needsAttention: 1 } };
+    mocks.get.mockResolvedValue(attention);
+    mocks.items.mockResolvedValue({ job: attention, items: [{ id: "item-1", sourceId: "source-1", title: "Changed note", path: [], status: "ATTENTION", action: "existing", decision: "auto", warnings: [] }], nextCursor: null });
+    await render(); await openJob();
+    await click(host.querySelector<HTMLInputElement>('input[type="checkbox"]')!);
+    expect(button("approve").disabled).toBe(true);
+    const select = host.querySelector<HTMLSelectElement>('select[aria-label="migration.itemDecision"]')!;
+    await act(async () => { select.value = "create-copy"; select.dispatchEvent(new Event("change", { bubbles: true })); });
+    expect(mocks.decide).toHaveBeenCalledWith("job-1", "item-1", "digest-1", "create-copy");
+    expect(host.querySelector<HTMLInputElement>('input[type="checkbox"]')!.checked).toBe(false);
+    expect(mocks.approve).not.toHaveBeenCalled();
+  });
   it("loads AI-prepared jobs and requires a real review action before approval", async () => {
     await render();
     expect(host.textContent).toContain("migration.ai"); expect(host.textContent).toContain("migration.files");
@@ -78,6 +93,16 @@ describe("Migration Hub review and job lifecycle", () => {
     expect(mocks.preview).toHaveBeenCalledWith("job-1");
     expect(mocks.approve).not.toHaveBeenCalled();
     expect(button("approve").disabled).toBe(true);
+  });
+
+  it("clears a cancelled resume selection when the user chooses a new migration file", async () => {
+    mocks.get.mockResolvedValue({ ...baseJob, status: "CREATED", previewDigest: null });
+    await render(); await openJob(); await click(button("continueUpload"));
+    await click([...host.querySelectorAll<HTMLButtonElement>("button")].find((node) => node.textContent?.trim() === "migration.choose")!);
+    const field = host.querySelector<HTMLInputElement>('input[type="file"]')!;
+    Object.defineProperty(field, "files", { configurable: true, value: [new File(["A"], "a.md")] });
+    await act(async () => field.dispatchEvent(new Event("change", { bubbles: true })));
+    expect(mocks.create).toHaveBeenCalledTimes(1);
   });
 
   it("keeps a stale preview visible after rejection and makes the user review a refreshed digest", async () => {

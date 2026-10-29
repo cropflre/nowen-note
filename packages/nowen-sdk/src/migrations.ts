@@ -89,6 +89,17 @@ export interface MigrationReportItem {
   error: string | null;
   warnings: string[];
   unsupportedFields?: string[];
+  decision?: "auto" | "skip" | "keep-existing" | "create-copy";
+}
+
+export interface CreateMigrationUploadParams {
+  operationId: string; filename: string; size: number; sha256: string; assetPath?: string;
+}
+export interface MigrationUploadSession extends Omit<CreateMigrationUploadParams, "assetPath"> {
+  assetPath: string | null;
+  id: string; jobId: string; offset: number; chunkBytes: number; expiresAt: string;
+  status: "OPEN" | "FINALIZING" | "COMPLETE" | "CANCELLED" | "EXPIRED" | "FAILED";
+  error: string | null;
 }
 
 export interface MigrationReport {

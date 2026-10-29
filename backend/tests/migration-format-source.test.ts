@@ -137,3 +137,41 @@ test("the checked-in NMF example follows the frozen manifest and byte hashes", a
     assert.equal(notes[0].source.exportId, "nmf-v1-example");
   });
 });
+
+test("safe ZIP ingestion dispatches Notion fixtures into stable IDs and cleaned paths", async () => {
+  const root = path.join(__dirname, "fixtures/migration-notion");
+  const zip = new JSZip();
+  const add = (directory: string) => {
+    for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+      const filename = path.join(directory, entry.name);
+      if (entry.isDirectory()) add(filename);
+      else if (!filename.endsWith("README.md")) zip.file(path.relative(root, filename).split(path.sep).join("/"), fs.readFileSync(filename));
+    }
+  };
+  add(root);
+  await withArchive(zip, async (input, notes) => {
+    const result = await stageMigrationFile(input);
+    assert.equal(notes.length, 2);
+    assert.equal(notes[0].source.platform, "notion");
+    assert.ok(notes.every((note) => /^[a-f0-9]{32}$/.test(note.source.sourceId)));
+    assert.deepEqual(notes[0].path, ["Workspace", "Projects"]);
+    assert.ok(result.warnings.some((warning) => warning.includes("NOTION")));
+    assert.ok(notes.some((note) => note.links.some((link: any) => link.targetSourceId === "4".repeat(32))));
+  });
+});
+
+test("safe ZIP ingestion dispatches native Siyuan documents and local assets through the same NMF callback", async () => {
+  const zip = new JSZip().file("data/box/.siyuan/conf.json", JSON.stringify({ name: "Knowledge" }))
+    .file("data/box/one.sy", JSON.stringify({ ID: "one", Type: "NodeDocument", Properties: { title: "One" }, Children: [
+      { Type: "NodeParagraph", Children: [{ Type: "NodeText", Data: "Imported body" }] },
+      { Type: "NodeImage", Children: [{ Type: "NodeLinkDest", Data: "assets/image.png" }] },
+    ] })).file("data/assets/image.png", png);
+  await withArchive(zip, async (input, notes) => {
+    await stageMigrationFile(input);
+    assert.equal(notes.length, 1); assert.equal(notes[0].source.platform, "siyuan");
+    assert.equal(notes[0].source.sourceId, "one"); assert.deepEqual(notes[0].path, ["Knowledge"]);
+    assert.match(notes[0].content, /Imported body/); assert.equal(notes[0].attachments.length, 1);
+    assert.equal(notes[0].attachments[0].sha256, hash(png));
+    assert.match(notes[0].attachments[0].path, /^sources\/upload-1\/extracted\//);
+  });
+});

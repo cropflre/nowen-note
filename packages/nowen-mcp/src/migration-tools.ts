@@ -60,7 +60,7 @@ export function registerMigrationTools(server: McpServer, api: NowenApiClient, o
       requireMigrationToken();
       const value = await api.migrationCapabilities();
       return response(Object.fromEntries([
-        "schemaVersion", "formats", "limits", "strategies", "humanApprovalRequired", "remoteFetch", "overwrite", "approvalUrl", "permissions", "requiredScopes", "optionalScopes",
+        "schemaVersion", "formats", "limits", "strategies", "humanApprovalRequired", "remoteFetch", "overwrite", "approvalUrl", "permissions", "requiredScopes", "optionalScopes", "resumableUploads", "uploadChunkBytes", "sourceAdapters",
       ].filter(key => value?.[key] !== undefined).map(key => [key, value[key]])));
     }
     catch (error) { return failure(error); }

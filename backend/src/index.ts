@@ -19,6 +19,8 @@ import knowledgeTreeRouter from "./routes/knowledge-tree";
 import notebooksRouter from "./routes/notebooks";
 import notesRouter from "./routes/notes";
 import migrationsRouter from "./routes/migrations";
+import migrationUploadsRouter from "./routes/migration-uploads";
+import { recoverMigrationUploadSessions } from "./services/migrationUploads";
 import { recoverMigrations } from "./services/migrationService";
 import trashRouter from "./routes/trash";
 import noteTemplatesRouter from "./routes/note-templates";
@@ -613,6 +615,7 @@ app.use("/api/*", automationEventCaptureMiddleware);
 app.route("/api/knowledge-tree/", knowledgeTreeRouter);
 app.route("/api/notebooks", notebooksRouter);
 app.route("/api/notes", notesRouter);
+app.route("/api/migrations", migrationUploadsRouter);
 app.route("/api/migrations", migrationsRouter);
 app.route("/api/trash", trashRouter);
 app.route("/api/note-templates", noteTemplatesRouter);
@@ -975,6 +978,8 @@ try {
 
 try { recoverMigrations(); }
 catch { console.warn("[migration-hub] recovery deferred"); }
+try { recoverMigrationUploadSessions(); }
+catch { console.warn("[migration-hub] upload recovery deferred"); }
 
 try {
   automationRuntime.start();

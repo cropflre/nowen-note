@@ -4,7 +4,8 @@
  */
 
 import { lstat, readFile } from "node:fs/promises";
-import { openAsBlob } from "node:fs";
+import { openAsBlob, createReadStream } from "node:fs";
+import { createHash } from "node:crypto";
 import path from "node:path";
 
 export interface NowenApiConfig {
@@ -242,6 +243,28 @@ export class NowenApiClient {
     if (typeof maxBytes === "number" && info.size > maxBytes) throw new Error("文件超过服务器迁移上传限额");
     const filename = params.filename || path.basename(params.filePath);
     const body = await openAsBlob(params.filePath);
+    if (capabilities?.resumableUploads) {
+      const digest = createHash("sha256");
+      for await (const chunk of createReadStream(params.filePath)) digest.update(chunk);
+      const fileHash = digest.digest("hex");
+      if (params.sha256 && params.sha256.toLowerCase() !== fileHash) throw new Error("迁移文件 SHA-256 与预期不一致");
+      const base = `/api/migrations/${encodeURIComponent(id)}/upload-sessions`;
+      const operationId = createHash("sha256").update(JSON.stringify([filename, info.size, fileHash, params.assetPath || null])).digest("hex");
+      let session = await this.request<any>(base, { method: "POST", body: { operationId, filename, size: info.size, sha256: fileHash, ...(params.assetPath ? { assetPath: params.assetPath } : {}) } });
+      const sessionPath = `${base}/${encodeURIComponent(session.id)}`;
+      while (session.offset < info.size) {
+        if (session.jobId !== id || session.sha256 !== fileHash || !Number.isSafeInteger(session.offset) || session.offset < 0
+          || !Number.isSafeInteger(session.chunkBytes) || session.chunkBytes < 1 || session.chunkBytes > 4 * 1024 * 1024) throw new Error("迁移上传偏移无效");
+        const offset = session.offset;
+        const chunk = body.slice(offset, offset + session.chunkBytes);
+        const hash = createHash("sha256").update(new Uint8Array(await chunk.arrayBuffer())).digest("hex");
+        const response = await fetch(this.buildUrl(`${sessionPath}/chunks`, { offset }), { method: "PUT", headers: { Authorization: `Bearer ${this.token}`, "Content-Type": "application/octet-stream", "X-Chunk-SHA256": hash }, body: chunk });
+        if (!response.ok) throw new Error(`迁移分块上传失败 (${response.status})`);
+        session = await response.json();
+        if (session.offset <= offset || session.offset > info.size) throw new Error("迁移上传偏移无效");
+      }
+      return this.request(`${sessionPath}/complete`, { method: "POST", body: {} });
+    }
     const response = await fetch(this.buildUrl(`/api/migrations/${encodeURIComponent(id)}/uploads`, {
       filename, assetPath: params.assetPath, sha256: params.sha256,
     }), { method: "POST", headers: { Authorization: `Bearer ${this.token}`, "Content-Type": "application/octet-stream" }, body });

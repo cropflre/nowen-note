@@ -7,6 +7,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
+import { createHash } from "node:crypto";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
@@ -18,8 +19,9 @@ const source = { platform: "markdown", exportId: "export-1" };
 const note = { schemaVersion: 1, source: { ...source, sourceId: "note-1" }, title: "Example", contentFormat: "markdown", content: "# Body" };
 const resultText = (result: any): string => result.content?.map((entry: any) => entry.text || "").join("\n") || "";
 
-async function backendFixture() {
+async function backendFixture(resumable = false) {
   const writes: Array<{ path: string; raw: Buffer }> = [];
+  let upload: any;
   const job = { id: "job-1", status: "CREATED", source, targetNotebookId: "root", counts: { total: 1 },
     rootNotebookId: null as string | null, previewDigest: "a".repeat(64), undo: { available: true, reason: null }, content: "MUST_NOT_RETURN_BODY" };
   const server = createServer(async (req, res) => {
@@ -30,11 +32,21 @@ async function backendFixture() {
     res.setHeader("Content-Type", "application/json");
     const reply = (value: unknown, status = 200) => { res.statusCode = status; res.end(JSON.stringify(value)); };
     if (req.headers.authorization !== `Bearer ${pat}`) return reply({ error: "Unauthorized" }, 401);
-    if (req.method === "POST") writes.push({ path: url.pathname, raw });
+    if (["POST", "PUT"].includes(req.method || "")) writes.push({ path: url.pathname, raw });
     if (url.pathname === "/api/notebooks") return reply([{ id: "root", parentId: null },
       ...(job.status === "COMPLETED" ? [{ id: "import-root", parentId: "root" }, { id: "import-child", parentId: "import-root" }] : [])]);
     if (url.pathname === "/api/notebooks/shared-with-me") return reply([]);
-    if (url.pathname === "/api/migrations/capabilities") return reply({ schemaVersion: 1, formats: ["markdown", "html", "zip", "nmf-v1"], humanApprovalRequired: true, limits: { uploadBytes: 10_000_000 } });
+    if (url.pathname === "/api/migrations/capabilities") return reply({ schemaVersion: 1, resumableUploads: resumable, formats: ["markdown", "html", "zip", "nmf-v1"], humanApprovalRequired: true, limits: { uploadBytes: 10_000_000 } });
+    if (resumable && url.pathname.endsWith("/upload-sessions")) {
+      upload ||= { ...JSON.parse(raw.toString()), id: "upload-1", jobId: "job-1", offset: 0, chunkBytes: 4 * 1024 * 1024, status: "OPEN" };
+      return reply(upload, 201);
+    }
+    if (resumable && url.pathname.endsWith("/chunks")) {
+      assert.equal(Number(url.searchParams.get("offset")), upload.offset);
+      assert.equal(req.headers["x-chunk-sha256"], createHash("sha256").update(raw).digest("hex"));
+      upload.offset += raw.length; return reply(upload);
+    }
+    if (resumable && url.pathname.endsWith("/complete")) { upload.status = "COMPLETE"; return reply({ ...job, status: "UPLOADING" }, 202); }
     if (url.pathname === "/api/migrations/private") return reply({ ...job, id: "private", targetNotebookId: "private" });
     if (url.pathname.startsWith("/api/migrations")) return reply(job);
     return reply({ error: "Unexpected endpoint" }, 404);
@@ -109,6 +121,25 @@ test("read-only stdio migration tools cannot stage, preview, retry or cancel", a
     assert.ok(!status.isError, resultText(status));
     assert.equal(backend.writes.length, 0);
   } finally { await client.close(); await backend.close(); }
+});
+
+test("real SDK stdio migration upload uses bounded hash-verified resumable chunks", async () => {
+  const backend = await backendFixture(true);
+  const directory = await mkdtemp(path.join(os.tmpdir(), "nowen-mcp-chunks-"));
+  const filename = path.join(directory, "source.zip"); const bytes = Buffer.alloc(4 * 1024 * 1024 + 3, 42);
+  await writeFile(filename, bytes);
+  const client = new Client({ name: "migration-resumable", version: "1" });
+  try {
+    await client.connect(new StdioClientTransport({ command: process.execPath, args: [path.join(packageRoot, "dist/scoped-entry.js")], env: environment(backend.url) }));
+    for (let retry = 0; retry < 2; retry++) {
+      const result = await client.callTool({ name: "nowen_migration_upload", arguments: { jobId: "job-1", filePath: filename } });
+      assert.ok(!result.isError, resultText(result)); assert.equal(JSON.parse(resultText(result)).status, "UPLOADING");
+    }
+    const chunks = backend.writes.filter((write) => write.path.endsWith("/chunks"));
+    assert.deepEqual(chunks.map((chunk) => chunk.raw.length), [4 * 1024 * 1024, 3]);
+    assert.equal(createHash("sha256").update(Buffer.concat(chunks.map((chunk) => chunk.raw))).digest("hex"), createHash("sha256").update(bytes).digest("hex"));
+    assert.ok(!backend.writes.some((write) => write.path.endsWith("/uploads")));
+  } finally { await client.close(); await backend.close(); await rm(directory, { recursive: true, force: true }); }
 });
 
 test("migration MCP refuses password/JWT fallback before contacting the backend", async () => {
