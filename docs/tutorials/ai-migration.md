@@ -51,3 +51,5 @@ stdio 的 launcher 路径必须属于运行 AI 客户端的设备，目标笔记
 - 完成/取消任务的临时文件保留 1 天，准备/暂停/失败任务保留 7 天，启动或创建新任务时清理；历史报告保留。过期后重新上传到新任务。升级前签发、没有登录会话标识的旧凭证需重新登录后才能审批。
 
 更多协议细节见 [技术设计](../architecture/ai-migration-hub.md)，验证情况见 [P0 记录](../qa/ai-migration-hub-2026-10-29.md)、[Phase 1 记录](../qa/ai-migration-hub-phase1-2026-10-29.md) 和 [Phase 2 记录](../qa/ai-migration-hub-phase2-2026-10-29.md)。本地自动化不代表真实 NAS、物理设备或上述第三方 AI 客户端已验收。
+
+后续 [发布前隔离验收](../qa/ai-migration-hub-release-2026-10-29.md) 已补充 Claude Code CLI 双传输的基础接入、历史数据升级和 Linux 代理续传证据。Claude 使用本地合成模型，不代表真实模型或完整文件迁移；真实设备、NAS 和具备签名验证的对象存储仍需独立验收。

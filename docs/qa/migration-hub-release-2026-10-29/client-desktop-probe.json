@@ -1,0 +1,55 @@
+{
+  "date": "2026-10-29",
+  "scope": "Actual installed desktop binaries; fresh userdata/workspace; OS denies real home/keychain and non-loopback network; no model or login; synthetic MCP configurations staged in private config and project paths; only method names would be recorded",
+  "results": [
+    {
+      "application": "WorkBuddy",
+      "isolatedUserData": true,
+      "realHomeReadsDenied": true,
+      "keychainAccessDenied": true,
+      "outboundLoopbackOnly": true,
+      "debugEndpointReady": true,
+      "mcpHandshake": false,
+      "loginPerformed": false,
+      "existingProfileModified": false,
+      "blocker": "Isolated DevTools endpoint opened but host protocol initialization did not complete within 4 seconds",
+      "debugProtocolError": "TimeoutError",
+      "mcpConfigurationStaged": true,
+      "mcpMessages": [],
+      "exitCode": null,
+      "startupSignals": {
+        "permissionDenied": true,
+        "externalNetworkBlocked": false,
+        "loginMentioned": false
+      },
+      "cleanup": "Own process group terminated; temporary userdata/workspace/config and protocol-marker files removed"
+    },
+    {
+      "application": "Qoder CN",
+      "isolatedUserData": true,
+      "realHomeReadsDenied": true,
+      "keychainAccessDenied": true,
+      "outboundLoopbackOnly": true,
+      "debugEndpointReady": true,
+      "mcpHandshake": false,
+      "loginPerformed": false,
+      "existingProfileModified": false,
+      "pages": 0,
+      "mcpConfigurationStaged": true,
+      "mcpMessages": [],
+      "exitCode": null,
+      "startupSignals": {
+        "permissionDenied": true,
+        "externalNetworkBlocked": false,
+        "loginMentioned": false
+      },
+      "blocker": "Isolated DevTools endpoint opened but no renderer page was available under the OS sandbox",
+      "cleanup": "Own process group terminated; temporary userdata/workspace/config and protocol-marker files removed"
+    }
+  ],
+  "limitations": [
+    "This is an isolated startup/configuration feasibility probe, not MCP acceptance.",
+    "No model, login, existing profile interaction, or real credential was used.",
+    "OS sandbox startup/protocol constraints do not establish product incompatibility."
+  ]
+}

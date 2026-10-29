@@ -1,0 +1,45 @@
+{
+  "date": "2026-10-29T10:23:34.843Z",
+  "runtime": "v24.22.1",
+  "server": "S3rver 3.7.1; allowMismatchedSignatures=false; real loopback HTTP and disk storage",
+  "cryptographicSignatureValidation": "not-verified; daemon does not calculate SigV4 signatures",
+  "scope": "Production MigrationService and attachment storage over real HTTP; isolated synthetic data. Not cloud S3, MinIO or physical NAS acceptance.",
+  "outcomes": {
+    "import": {
+      "notes": 1,
+      "assetBytes": 8388608,
+      "hashVerified": true,
+      "localCacheAbsent": true,
+      "referenceCount": 1
+    },
+    "transactionFailure": {
+      "imported": 0,
+      "confirmedPutCompensated": true
+    },
+    "cancellation": {
+      "imported": 0,
+      "confirmedPutCompensated": true
+    },
+    "tokenRevocation": {
+      "imported": 0,
+      "confirmedPutCompensated": true,
+      "priorCommittedObjectPreserved": true
+    },
+    "unknownAccessKey": {
+      "preflightRejected": true,
+      "imported": 0
+    }
+  },
+  "requests": {
+    "total": 40,
+    "methods": {
+      "PUT": 9,
+      "HEAD": 9,
+      "GET": 14,
+      "DELETE": 8
+    },
+    "rangeGets": 8,
+    "rejectedAuthentication": 1
+  },
+  "secretsRecorded": false
+}

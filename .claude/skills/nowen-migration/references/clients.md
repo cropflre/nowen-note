@@ -20,12 +20,12 @@ Phase 1 通过能力查询协商 Notion／思源适配与断点上传。stdio up
 | --- | --- | --- |
 | WorkBuddy | [官方指南](https://www.codebuddy.cn/docs/workbuddy/From-Beginner-to-Expert-Guide/Function-Description/MCP-Guide)说明用户/项目 `.workbuddy/mcp.json`；stdio 使用 `mcpServers` 的 command/args/env 配置 | HTTP 仅给通用模板，不从 stdio 文档推断其原生 HTTP 格式；实际版本未验收 |
 | Qoder / QoderWork | [Qoder MCP 指南](https://docs.qoder.com/user-guide/chat/model-context-protocol)提供 stdio `mcpServers` 示例；[QoderWork 连接器](https://docs.qoder.com/qoderwork/connectors)说明 stdio/Streamable HTTP 表单连接 | 两种产品分别配置和验收；HTTP 通用模板须按具体宿主转换，不假定配置文件相同 |
-| Claude Code | [官方 MCP 指南](https://code.claude.com/docs/en/mcp)说明项目 `.mcp.json` 的 `mcpServers`；生成 JSON，HTTP 配置使用 `type: "http"` | 将 Skill 放入项目 `.claude/skills/nowen-migration`；本机文件访问须由宿主授权，实际应用未验收 |
+| Claude Code | [官方 MCP 指南](https://code.claude.com/docs/en/mcp)说明项目 `.mcp.json` 的 `mcpServers`；生成 JSON，HTTP 配置使用 `type: "http"` | CLI 2.1.187 已在隔离合成 provider 下验证双 transport 配置加载、列工具和能力调用；真实模型、文件迁移及 Desktop GUI 未验收。Skill 使用 `.claude/skills/nowen-migration` |
 | Codex | [官方 MCP 指南](https://developers.openai.com/codex/mcp/)说明 TOML 的 `mcp_servers`；HTTP 令牌通过 `bearer_token_env_var` 引用客户端环境变量 | 将 Skill 放入项目 `.agents/skills/nowen-migration`；不要把通用 JSON 直接当作 Codex TOML，实际应用未验收 |
 | 豆包工作 | 未取得可核验的官方 MCP 配置格式，页面只生成标明为通用模板的 JSON；如当前版本提供连接功能，按其实际设置填写 | 不编造配置文件位置或承诺本机路径、stdio/HTTP 支持；无法接入时交付标准 ZIP |
 | 其他 MCP 客户端 | 使用兼容的 stdio 或受保护 Streamable HTTP，先列工具再查询能力 | HTTP 不支持读取服务器本地路径；批准操作在 Nowen 完成 |
 
-以上官方资料核对日期为 2026-10-29，文档格式支持不等于实际宿主验收。每次宿主验收分别记录产品与版本、OS、transport、配置格式、列工具、能力查询、文件访问、预览及失败原因。当前所有上述宿主的真实应用验收均为**未执行**；仓库 SDK transport 自动化、配置生成测试和页面诊断不能替代这些记录。客户端未提供 MCP 时，标准文件包路径仍可使用。
+以上官方资料核对日期为 2026-10-29，文档格式支持不等于实际宿主验收。每次宿主验收分别记录产品与版本、OS、transport、配置格式、列工具、能力查询、文件访问、预览及失败原因。[发布前客户端记录](../../../../docs/qa/migration-hub-release-2026-10-29/client-acceptance.md)包含 Claude Code CLI 的隔离基础接入证据；其余宿主仍未完成实际接入。该 CLI 结果不证明真实模型或完整迁移流程；仓库 SDK transport、配置生成和页面诊断也不能替代宿主验收。客户端未提供 MCP 时，标准文件包路径仍可使用。
 
 通用任务指令（替换方括号部分）：
 

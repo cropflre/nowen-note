@@ -100,6 +100,7 @@
       "title": "断网、服务端失败或停止调度不得静默丢弃待同步修改",
       "status": "covered",
       "checks": [
+        { "file": "backend/tests/migration-release-upgrade.test.ts", "case": "database upgrades through the" },
         { "file": "backend/tests/migration-uploads.test.ts", "case": "DCC-003: acknowledged chunks survive database reopening and a pre-receipt file is reconciled" },
         { "file": "backend/tests/migration-service.test.ts", "case": "partial failures retry only failed items and persist successful mappings" },
         { "file": "backend/tests/application-v3-dashboard-data.test.ts", "case": "V3 collections isolate scopes, reject stale writes and restore migrations and retained uninstall data" },

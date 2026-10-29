@@ -1,0 +1,77 @@
+{
+  "date": "2026-10-29",
+  "platform": "macOS arm64",
+  "applications": [
+    {
+      "application": "Codex++.app",
+      "bundleId": "com.bigpizzav3.codexplusplus",
+      "version": "1.2.4",
+      "build": "1.2.4",
+      "acceptance": "not-executed-desktop-GUI"
+    },
+    {
+      "application": "WorkBuddy.app",
+      "bundleId": "com.tencent.workbuddy.mac",
+      "version": "5.9.0",
+      "build": "5.9.0",
+      "acceptance": "isolated-desktop-start-attempt; MCP handshake not reached; see client-desktop-probe.json"
+    },
+    {
+      "application": "Claude.app",
+      "bundleId": "com.anthropic.claudefordesktop",
+      "version": "1.46388.4",
+      "build": "1.46388.4",
+      "acceptance": "not-executed-desktop-GUI"
+    },
+    {
+      "application": "Qoder CN.app",
+      "bundleId": "com.qodercn.app",
+      "version": "0.4.8",
+      "build": "0.4.8",
+      "acceptance": "isolated-desktop-start-attempt; MCP handshake not reached; see client-desktop-probe.json"
+    },
+    {
+      "application": "Doubao.app",
+      "bundleId": "com.bot.pc.doubao",
+      "version": "2.33.3",
+      "build": "2.33.3",
+      "acceptance": "not-executed-desktop-GUI"
+    }
+  ],
+  "codexCli": {
+    "version": "0.165.0-alpha.1.2",
+    "binary": "ChatGPT.app bundled Codex CLI",
+    "configurationIsolationProbe": "OS sandbox refused real ~/.codex reads; CLI bootstrap failed as expected",
+    "mcpHandshake": "not-executed",
+    "chatOrThreadCreated": false,
+    "userConfigModified": false,
+    "realCredentialsRead": false
+  },
+  "claudeCode": {
+    "version": "2.1.187",
+    "resultFile": "client-claude.json",
+    "scope": "Actual installed CLI with synthetic model provider and Nowen API"
+  },
+  "notes": [
+    "Installed application inventory is not MCP acceptance.",
+    "No global client configuration was changed.",
+    "No paid or external model API was called."
+  ],
+  "desktopProbe": {
+    "evidence": "client-desktop-probe.json",
+    "workbuddy": {
+      "explicitIsolatedPaths": [
+        "WORKBUDDY_USER_DATA_DIR",
+        "WORKBUDDY_CONFIG_DIR",
+        "CODEBUDDY_CONFIG_DIR"
+      ],
+      "bundledCliWrapper": "bin/codebuddy failed with MODULE_NOT_FOUND for ../dist/codebuddy; direct codebuddy-lite-wb.mjs --help available",
+      "mcpHandshake": false
+    },
+    "qoderCn": {
+      "installedCliWrapperFound": false,
+      "userDataSwitch": "Attempted --user-data-dir/--extensions-dir in isolated process; no renderer became available",
+      "mcpHandshake": false
+    }
+  }
+}
