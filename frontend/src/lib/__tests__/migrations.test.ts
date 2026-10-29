@@ -12,6 +12,27 @@ const json = (payload: unknown, status = 200) => new Response(JSON.stringify(pay
 beforeEach(() => { vi.clearAllMocks(); mocks.scope = "server:user-1"; });
 
 describe("migration REST client", () => {
+  it("reads capabilities only from the current authenticated server and preserves the abort signal", async () => {
+    const controller = new AbortController();
+    const caps = { schemaVersion: 1, formats: ["nmf-v1"], humanApprovalRequired: true, adapterApiVersion: 1, adapters: [] };
+    mocks.request.mockResolvedValue(json(caps));
+    await expect(migrationApi.capabilities(controller.signal)).resolves.toEqual(caps);
+    expect(mocks.request.mock.calls[0][0]).toBe("https://nowen.test/api/migrations/capabilities");
+    expect(mocks.request.mock.calls[0][1]).toMatchObject({ signal: controller.signal, credentials: "include", headers: { Authorization: "Bearer login-token" } });
+    mocks.request.mockResolvedValue(json({ ...caps, adapters: [{}] }));
+    await expect(migrationApi.capabilities()).rejects.toThrow("MIGRATION_INVALID_RESPONSE");
+    mocks.request.mockImplementation(async () => { mocks.scope = "server:user-2"; return json(caps); });
+    await expect(migrationApi.capabilities()).rejects.toThrow("MIGRATION_ACCOUNT_CHANGED");
+  });
+  it("rejects a capability body parsed after an account change (DCC-006)", async () => {
+    const response = json({});
+    vi.spyOn(response, "json").mockImplementation(async () => {
+      mocks.scope = "server:user-2";
+      return { schemaVersion: 1, formats: ["nmf-v1"], humanApprovalRequired: true };
+    });
+    mocks.request.mockResolvedValue(response);
+    await expect(migrationApi.capabilities()).rejects.toThrow("MIGRATION_ACCOUNT_CHANGED");
+  });
   it("uploads the File body without loading its contents into JavaScript memory", async () => {
     const file = new File(["# body"], "笔记 name.md");
     mocks.request.mockResolvedValue(json({ id: "job/1", status: "SCANNING" }));

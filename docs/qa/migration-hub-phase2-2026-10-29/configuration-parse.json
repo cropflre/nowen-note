@@ -1,0 +1,10 @@
+{
+  "parsedConfigurations": 12,
+  "toml": 2,
+  "json": 10,
+  "parsers": [
+    "Python 3.12 tomllib",
+    "Python 3.12 json"
+  ],
+  "status": "passed"
+}

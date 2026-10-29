@@ -210,6 +210,7 @@
       "title": "跨账号跨服务端 Outbox 不得串用",
       "status": "covered",
       "checks": [
+        { "file": "frontend/src/lib/__tests__/migrations.test.ts", "case": "rejects a capability body parsed after an account change (DCC-006)" },
         { "file": "backend/tests/migration-service.test.ts", "case": "human preview preserves the creator token boundary for duplicate mappings (DCC-006)" },
         { "file": "backend/tests/shared-ai-profiles.test.ts", "case": "DCC-006: only granted members see and select shared metadata, without connection fields or copied secrets" },
         { "file": "backend/tests/shared-chat-selection.test.ts", "case": "DCC-006: revoked authorization rejects stale calls without falling back to personal credentials" },

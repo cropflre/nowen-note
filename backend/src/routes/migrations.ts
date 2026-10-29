@@ -8,6 +8,7 @@ import { bodyLimit } from "hono/body-limit";
 import { z, ZodError } from "zod";
 import { MIGRATION_LIMITS, migrationRelativePathSchema, migrationStageSchema } from "../services/migrationFormat.js";
 import { migrationDirectoryBytes, sniffMigrationAsset } from "../services/migrationSourceAdapter.js";
+import { MIGRATION_SOURCE_ADAPTERS, MIGRATION_SOURCE_ADAPTER_API_VERSION } from "../services/migrationSourceAdapters.js";
 import {
   MigrationError, approveMigration, beginMigrationUpload, controlMigration, createMigration, decideMigrationItem,
   failMigrationUpload, finishMigrationUpload, getMigration, listMigrations, migrationJobDirectory,
@@ -33,6 +34,7 @@ app.use("*", async (c, next) => {
 app.get("/capabilities", (c) => c.json({
   schemaVersion: 1, formats: ["markdown", "html", "txt", "zip", "nmf-v1"],
   sourceAdapters: ["notion-markdown-html-csv", "siyuan-native-zip"], resumableUploads: true, uploadChunkBytes: 4 * 1024 * 1024,
+  adapterApiVersion: MIGRATION_SOURCE_ADAPTER_API_VERSION, adapters: MIGRATION_SOURCE_ADAPTERS,
   limits: MIGRATION_LIMITS, strategies: ["new-root", "skip-existing"],
   humanApprovalRequired: true, remoteFetch: false, overwrite: false,
   requiredScopes: ["export:import", "notes:read", "notes:write", "notebooks:read", "notebooks:write"],

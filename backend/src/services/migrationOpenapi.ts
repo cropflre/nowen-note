@@ -86,6 +86,27 @@ const noteAndJobSchemas = {
 
 export const migrationOpenApiSchemas = {
   ...noteAndJobSchemas,
+  MigrationSourceAdapter: {
+    type: "object", additionalProperties: false,
+    required: ["id", "version", "platforms", "formats", "extensions", "autoDetect", "unsupported"],
+    properties: {
+      id: text(128), version: { type: "integer", enum: [1] }, autoDetect: { type: "boolean" },
+      ...Object.fromEntries(["platforms", "formats", "extensions", "unsupported"].map((key) => [key, { type: "array", maxItems: 100, items: text(2048) }])),
+    },
+  },
+  MigrationCapabilities: {
+    type: "object", required: ["schemaVersion", "formats", "humanApprovalRequired"],
+    properties: {
+      schemaVersion: { type: "integer", enum: [1] }, formats: { type: "array", items: text(64) },
+      humanApprovalRequired: { type: "boolean", enum: [true] }, adapterApiVersion: { type: "integer", enum: [1] },
+      adapters: { type: "array", maxItems: 50, items: reference("MigrationSourceAdapter") },
+      sourceAdapters: { type: "array", items: text(128), description: "Legacy P1 adapter IDs retained for existing clients" },
+      limits: { type: "object", additionalProperties: { type: "number" } },
+      resumableUploads: { type: "boolean" }, uploadChunkBytes: { type: "integer" },
+      remoteFetch: { type: "boolean", enum: [false] }, overwrite: { type: "boolean", enum: [false] },
+      permissions: { type: "object", properties: { canApprove: { type: "boolean" } }, description: "Current login/PAT only; not a proof of another AI token or destination access" },
+    },
+  },
   NmfManifest: {
     type: "object", additionalProperties: false, required: ["format", "schemaVersion", "source", "notes"],
     properties: {
@@ -107,7 +128,7 @@ export const migrationOpenApiSchemas = {
 export const migrationOpenApiPaths = {
   "/api/migrations/capabilities": { get: {
     tags: ["迁移"], summary: "Query NMF version, supported formats, quotas and permissions", "x-required-scopes": ["export:import"],
-    responses: { "200": { description: "Migration capabilities", content: json({ type: "object" }) }, ...errors },
+    responses: { "200": { description: "Migration capabilities and trusted built-in adapter catalog; read-only, no source connections", content: json(reference("MigrationCapabilities")) }, ...errors },
   } },
   "/api/migrations": {
     get: { tags: ["迁移"], summary: "List the current user's migration history", "x-required-scopes": ["export:import"],

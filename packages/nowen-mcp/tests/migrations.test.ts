@@ -11,12 +11,14 @@ import { createHash } from "node:crypto";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { buildMigrationClientConfig } from "../../../frontend/src/lib/migrationClientSetup.js";
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const pat = "nkn_migration_integration_test_1234567890";
 const gatewayToken = "migration-http-gateway-integration-token-1234567890";
 const source = { platform: "markdown", exportId: "export-1" };
 const note = { schemaVersion: 1, source: { ...source, sourceId: "note-1" }, title: "Example", contentFormat: "markdown", content: "# Body" };
+const adapter = { id: "generic-files", version: 1, platforms: ["files"], formats: ["markdown"], extensions: [".md"], autoDetect: false, unsupported: ["remote-fetch"] };
 const resultText = (result: any): string => result.content?.map((entry: any) => entry.text || "").join("\n") || "";
 
 async function backendFixture(resumable = false) {
@@ -36,7 +38,7 @@ async function backendFixture(resumable = false) {
     if (url.pathname === "/api/notebooks") return reply([{ id: "root", parentId: null },
       ...(job.status === "COMPLETED" ? [{ id: "import-root", parentId: "root" }, { id: "import-child", parentId: "import-root" }] : [])]);
     if (url.pathname === "/api/notebooks/shared-with-me") return reply([]);
-    if (url.pathname === "/api/migrations/capabilities") return reply({ schemaVersion: 1, resumableUploads: resumable, formats: ["markdown", "html", "zip", "nmf-v1"], humanApprovalRequired: true, limits: { uploadBytes: 10_000_000 } });
+    if (url.pathname === "/api/migrations/capabilities") return reply({ schemaVersion: 1, resumableUploads: resumable, formats: ["markdown", "html", "zip", "nmf-v1"], humanApprovalRequired: true, limits: { uploadBytes: 10_000_000 }, adapterApiVersion: 1, adapters: [adapter], content: "MUST_NOT_RETURN_BODY" });
     if (resumable && url.pathname.endsWith("/upload-sessions")) {
       upload ||= { ...JSON.parse(raw.toString()), id: "upload-1", jobId: "job-1", offset: 0, chunkBytes: 4 * 1024 * 1024, status: "OPEN" };
       return reply(upload, 201);
@@ -64,18 +66,26 @@ function environment(url: string, mode = "read-write"): Record<string, string> {
     MCP_INCLUDE_DESCENDANTS: "true", MCP_ACCESS_MODE: mode } as Record<string, string>;
 }
 
-test("real SDK stdio client prepares migration safely and cannot approve or execute undo", async () => {
+test("generated stdio configuration lets a real SDK client prepare safely without approval or undo", async () => {
   const backend = await backendFixture();
   const temp = await mkdtemp(path.join(os.tmpdir(), "nowen-migration-mcp-"));
   const filename = path.join(temp, "example.md");
   await writeFile(filename, "# Streamed upload");
   const client = new Client({ name: "migration-stdio-test", version: "1" });
   try {
-    await client.connect(new StdioClientTransport({ command: process.execPath,
-      args: [path.join(packageRoot, "dist/scoped-entry.js")], env: environment(backend.url) }));
+    const generated = JSON.parse(buildMigrationClientConfig({ client: "claude-code", transport: "stdio", apiUrl: backend.url,
+      launcherPath: path.join(packageRoot, "bin/nowen-mcp.mjs"), notebookId: "root" }).content).mcpServers["nowen-note"];
+    assert.equal(generated.env.NOWEN_API_TOKEN, "${NOWEN_API_TOKEN}");
+    await client.connect(new StdioClientTransport({ command: generated.command, args: generated.args,
+      env: { ...process.env, ...generated.env, NOWEN_API_TOKEN: pat } as Record<string, string> }));
     const names = (await client.listTools()).tools.map(tool => tool.name);
     assert.ok(names.includes("nowen_migration_create"));
     assert.ok(!names.includes("nowen_migration_approve"));
+    const capabilities = await client.callTool({ name: "nowen_migration_capabilities", arguments: {} });
+    assert.ok(!capabilities.isError, resultText(capabilities));
+    assert.deepEqual(JSON.parse(resultText(capabilities)).adapters, [adapter]);
+    assert.equal(JSON.parse(resultText(capabilities)).adapterApiVersion, 1);
+    assert.ok(!resultText(capabilities).includes("MUST_NOT_RETURN_BODY"));
     const created = await client.callTool({ name: "nowen_migration_create", arguments: { operationId: "operation-1", source, targetNotebookId: "root" } });
     assert.ok(!created.isError, resultText(created));
     assert.ok(!resultText(created).includes("MUST_NOT_RETURN_BODY"));

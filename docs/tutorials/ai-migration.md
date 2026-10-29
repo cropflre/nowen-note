@@ -28,10 +28,21 @@ Notion 和思源的稳定页面／文档 ID 可识别此前由迁移中心导入
 
 WorkBuddy、Qoder/QoderWork、Claude Code、Codex、豆包工作等客户端的 MCP 支持随版本和部署方式变化。本次提供共用 Skill 与接入指引；未列为实测通过的客户端不保证具备相同能力。客户端无法调用工具时，让 AI 生成标准 NMF ZIP，再手动导入。
 
+## 生成客户端配置与检查接入
+
+在“让 AI 帮我迁移”中选择实际客户端，展开接入引导，选择本机 stdio 或远程 Streamable HTTP，生成配置后复制到该客户端。示例凭据使用占位符或环境变量引用，不在 Nowen 页面输入或保存真实密钥。Codex/Claude Code 示例使用客户端环境中的 `NOWEN_API_TOKEN`（stdio）或 `NOWEN_MCP_HTTP_TOKEN`（HTTP）。Codex 与其他客户端可能使用不同配置格式；通用模板仍须按宿主的当前官方说明调整。
+
+stdio 的 launcher 路径必须属于运行 AI 客户端的设备，目标笔记本白名单需允许后代，迁移使用读写模式。远程 HTTP 需要单独部署受保护的 MCP gateway；它的 Bearer 与 Nowen API Token 不同。HTTP 模式不能上传一个服务器本地文件路径，改用 REST 字节上传或直接上传迁移 ZIP。
+
+运行只读接入检查后，按结果修正当前 Nowen 服务或配置问题。该检查校验配置，并以当前登录身份查询 Nowen 迁移能力（8 秒超时）；不替客户端启动 Node，不验证占位 Token、所选目标写权限或 MCP 握手，也不向用户填写的任意 gateway 地址发送登录凭据。最后在实际客户端确认能列出迁移工具，并查询能力，再用小样本准备预览。后端可访问不等于 MCP 客户端已连通；预览可用也不等于已批准导入。
+
+实例的适配器目录说明当前可处理的导出格式及边界，不会扫描平台账号或自动获得来源访问权。没有对应适配器时，让 AI 将已授权资料转换成通用格式或标准 NMF 包。扩展开发见 [Source Adapter 规范](../architecture/migration-source-adapters.md) 与 [离线 JSON → NMF 示例](../examples/migration-adapter/custom-json-to-nmf.ts)，客户端操作与验收记录方式见 [客户端指南](../../.agents/skills/nowen-migration/references/clients.md)。
+
 ## 支持边界
 
 - **Notion**：支持 Markdown/HTML 导出中的页面、目录、受支持的本地附件，以及已导出页面之间的相对链接和 Notion URL。能识别的页面 ID 后缀不显示在目录名中。数据库 CSV 只按限额读取、匹配并暂存标量来源属性，报告列出未迁移字段名；不会变成笔记属性、标签、日期、公式或数据库关系。歧义和超限会提示，请保留原 CSV。视图、公式、关系和专属组件不作无损承诺。
 - **思源**：原生 ZIP 中当前 `.sy` 文档转换为 Markdown，保留受支持的目录、文档 ID、标签、本地附件及文档间引用。嵌套块和包外引用保留思源链接；挂件、嵌入、数据库、查询和特殊样式降级并提示。历史与回收站不作为当前笔记导入。无时区的来源时间不猜测，自定义属性不写入笔记属性；这不是思源无损恢复。
+- **华为备忘录**：处理用户按[华为官方说明](https://consumer.huawei.com/cn/support/content/zh-cn16070761/)导出的 TXT/HTML 文件，或包含这些文件与本地附件的 ZIP；显式 API 来源 `huawei` 使用文件适配器，不自动识别手机厂商，手动 TXT/HTML 仍可通过通用入口导入。此能力不读取华为云、不执行手写 OCR，也不保证原时间、标签或专有组件可恢复。
 - 通用入口继续支持 Markdown/HTML/TXT、本地资源 ZIP 与 NMF v1。无法转换的内部锚点或包外链接保留来源链接并报告。
 - HTML 会去除危险脚本及不支持的样式/组件。远程图片不会被服务器主动下载；原链接保留并报告，后续显示仍取决于来源可访问性。
 - 加密笔记解密、历史版本、评论、协作成员、权限和平台数据库语义不在本阶段迁移范围。旧思源、Office 和其他平台入口仍在“其他导入方式”，旧任务历史不会自动合并到新中心。
@@ -39,4 +50,4 @@ WorkBuddy、Qoder/QoderWork、Claude Code、Codex、豆包工作等客户端的 
 - Web 和桌面通过当前后端执行；Android 需要连接具备迁移 API 的服务端。本机 Native 离线模式不运行服务器迁移任务。导入完成不代表其他设备已下载所有正文和附件。
 - 完成/取消任务的临时文件保留 1 天，准备/暂停/失败任务保留 7 天，启动或创建新任务时清理；历史报告保留。过期后重新上传到新任务。升级前签发、没有登录会话标识的旧凭证需重新登录后才能审批。
 
-更多协议细节见 [技术设计](../architecture/ai-migration-hub.md)，验证情况见 [P0 记录](../qa/ai-migration-hub-2026-10-29.md) 和 [Phase 1 记录](../qa/ai-migration-hub-phase1-2026-10-29.md)。Phase 1 的本地自动化不代表真实 NAS、物理设备或上述第三方 AI 客户端已验收。
+更多协议细节见 [技术设计](../architecture/ai-migration-hub.md)，验证情况见 [P0 记录](../qa/ai-migration-hub-2026-10-29.md)、[Phase 1 记录](../qa/ai-migration-hub-phase1-2026-10-29.md) 和 [Phase 2 记录](../qa/ai-migration-hub-phase2-2026-10-29.md)。本地自动化不代表真实 NAS、物理设备或上述第三方 AI 客户端已验收。

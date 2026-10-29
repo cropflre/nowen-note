@@ -114,5 +114,13 @@ export interface MigrationCapabilities {
   formats: string[];
   humanApprovalRequired: boolean;
   limits: Record<string, number>;
+  adapterApiVersion?: 1;
+  adapters?: MigrationSourceAdapter[];
+  sourceAdapters?: string[];
   [key: string]: unknown;
+}
+
+export interface MigrationSourceAdapter {
+  id: string; version: 1; platforms: string[]; formats: string[];
+  extensions: string[]; autoDetect: boolean; unsupported: string[];
 }

@@ -1,4 +1,23 @@
 export const zhCNMigrationTranslations = { migration: {
+  setup: {
+    title: "{{client}} 迁移接入", hostBoundary: "生成连接配置后，在你的 AI 客户端中完成设置。官方文档支持与实际客户端验收分开记录。",
+    transport: "连接方式", stdio: "本机文件迁移（stdio）", http: "远程连接（Streamable HTTP）",
+    launcher: "本机 MCP 启动文件的完整路径", target: "授权的目标笔记本", selectTarget: "选择本次迁移的目标笔记本", endpoint: "你的 HTTPS MCP 网关地址",
+    template: "通用模板，需在客户端核对", documented: "根据官方配置文档生成，宿主尚未实测",
+    copy: "复制连接配置", copied: "已复制配置", diagnose: "检查接入准备", documentation: "查看客户端官方文档", sources: "服务端可用来源与限制",
+    diagnosticBoundary: "此检查仅以当前登录身份读取 Nowen 迁移能力，并检查配置格式；不会访问上方远端网关，也不能证明 AI Token、目标权限、本机运行环境或 MCP 握手可用。",
+    status: { idle: "", checking: "正在读取当前 Nowen 服务的迁移能力…", ready: "当前登录身份可读取 NMF v1 迁移能力；准备数据后仍需回到此页面确认。", unsupported: "服务端尚未提供兼容的迁移能力，请检查地址和服务端版本。", timeout: "读取超时，请检查服务连接后重试。", unauthorized: "登录已过期，请重新登录 Nowen。", forbidden: "当前登录身份无权读取迁移能力，请检查授权。", failed: "无法读取迁移能力，请检查网络和服务地址后重试。" },
+    issues: {
+      "api-url-invalid": "当前 Nowen 服务地址无效；地址不能包含账号、密钥、查询参数或片段。", "api-url-insecure": "当前服务使用未加密 HTTP，请在可信环境使用并考虑 HTTPS。",
+      "target-required": "请选择已授权给 AI Token 的目标笔记本。", "target-invalid": "目标笔记本标识无效，请重新选择。",
+      "launcher-required": "请填写本机已安装 MCP 启动文件的完整路径。", "launcher-invalid": "启动文件需要完整绝对路径，不能包含控制字符。",
+      "endpoint-required": "请填写单独部署的 MCP 网关地址。", "endpoint-invalid": "网关地址须为 HTTP(S)，不能在地址中包含账号、密钥、查询参数或片段。", "endpoint-insecure": "远程网关需要 HTTPS；仅本机回环地址允许 HTTP。",
+      "client-template": "此客户端的所选连接方式仅提供通用模板，尚未验证原生配置支持；也可以直接导入迁移文件包。",
+      "stdio-runtime-unverified": "本页面无法验证本机 Node 与启动文件；请在客户端确认 Node 24.22.1 或以上的受支持 24.x 环境，并按模板设置个人 API Token。",
+      "http-gateway-unverified": "网关需独立部署并配置服务端的迁移 Token/笔记本范围；客户端使用独立网关凭据，请勿粘贴 Nowen 登录会话。",
+      "http-no-local-files": "远程连接不能读取你电脑上的文件路径；请上传迁移 ZIP，或用 REST 传输文件字节。",
+    },
+  },
   title: "导入与迁移", description: "把导出文件迁入新的笔记目录。先检查预览，再由你确认写入。",
   ai: "让 AI 帮我迁移", aiHint: "让熟悉的 AI 整理导出文件，在这里检查并确认。",
   files: "直接导入文件", filesHint: "选择 Markdown、HTML、TXT，或 Notion、思源及带本地附件的 ZIP，无需 AI。",
@@ -31,6 +50,25 @@ export const zhCNMigrationTranslations = { migration: {
 } };
 
 export const enMigrationTranslations = { migration: {
+  setup: {
+    title: "{{client}} migration setup", hostBoundary: "Generate a connection configuration, then finish setup in your AI client. Documented support and real client acceptance are recorded separately.",
+    transport: "Connection", stdio: "Local file migration (stdio)", http: "Remote connection (Streamable HTTP)",
+    launcher: "Absolute path to the local MCP launcher", target: "Authorized destination notebook", selectTarget: "Choose the destination for this migration", endpoint: "Your HTTPS MCP gateway URL",
+    template: "Generic template; check your client", documented: "Generated from official configuration documentation; host not yet tested",
+    copy: "Copy connection configuration", copied: "Configuration copied", diagnose: "Check setup readiness", documentation: "Client documentation", sources: "Server sources and limitations",
+    diagnosticBoundary: "This check reads Nowen capabilities with your current login and validates configuration syntax. It does not contact the remote gateway or verify the AI token, destination access, local runtime or MCP handshake.",
+    status: { idle: "", checking: "Reading migration capabilities from the current Nowen server…", ready: "Your current login can read NMF v1 migration capabilities. Return here to confirm after preparing the data.", unsupported: "Compatible migration capabilities are unavailable. Check the URL and server version.", timeout: "The request timed out. Check your connection and try again.", unauthorized: "Your login expired. Sign in to Nowen again.", forbidden: "Your current login cannot read migration capabilities. Check authorization.", failed: "Could not read migration capabilities. Check the network and server URL." },
+    issues: {
+      "api-url-invalid": "The current Nowen URL is invalid. Credentials, query parameters and fragments are not allowed.", "api-url-insecure": "The current server uses unencrypted HTTP. Use a trusted environment and consider HTTPS.",
+      "target-required": "Choose a destination granted to the AI token.", "target-invalid": "The destination identifier is invalid. Choose it again.",
+      "launcher-required": "Enter the absolute path to the installed MCP launcher.", "launcher-invalid": "The launcher requires an absolute path without control characters.",
+      "endpoint-required": "Enter the separately deployed MCP gateway URL.", "endpoint-invalid": "Use an HTTP(S) URL without credentials, query parameters or fragments.", "endpoint-insecure": "Remote gateways require HTTPS. HTTP is allowed only on loopback addresses.",
+      "client-template": "Only a generic template is available for this client and connection. Native configuration support is unverified; migration files remain an alternative.",
+      "stdio-runtime-unverified": "This page cannot check local Node or the launcher. Confirm a supported Node 24.x runtime at 24.22.1 or later and configure your personal API token as shown.",
+      "http-gateway-unverified": "Deploy the gateway separately with a server-side migration token and notebook scope. Use separate gateway credentials in the client, never your Nowen login session.",
+      "http-no-local-files": "Remote connections cannot read file paths on your computer. Upload a migration ZIP or send file bytes over REST.",
+    },
+  },
   title: "Import and migration", description: "Move exported files into a new note folder. Review the preview before confirming the import.",
   ai: "Let AI help me migrate", aiHint: "Ask your AI to prepare exported files, then review and confirm them here.",
   files: "Import files directly", filesHint: "Choose Markdown, HTML, TXT, a Notion or Siyuan export, or a ZIP with local assets.",

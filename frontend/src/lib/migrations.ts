@@ -41,6 +41,16 @@ interface MigrationReportPage {
   nextCursor: string | null;
 }
 
+export interface MigrationSourceAdapter {
+  id: string; version: number; platforms: string[]; formats: string[];
+  extensions: string[]; autoDetect: boolean; unsupported: string[];
+}
+export interface MigrationCapabilities {
+  schemaVersion: number; formats: string[]; humanApprovalRequired: boolean;
+  sourceAdapters?: string[]; adapterApiVersion?: number; adapters?: MigrationSourceAdapter[];
+  resumableUploads?: boolean;
+}
+
 export interface MigrationReportItem {
   id: string; sourceId: string; title: string; path: string[]; status: string;
   action: "create" | "existing" | "skip";
@@ -119,6 +129,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   // An old response must not update the newly signed-in account's UI or trigger another upload.
   if (scope !== getOfflineQueueStorageKey()) throw new Error("MIGRATION_ACCOUNT_CHANGED");
   const payload = await response.json().catch(() => null);
+  if (scope !== getOfflineQueueStorageKey()) throw new Error("MIGRATION_ACCOUNT_CHANGED");
   if (!response.ok) {
     throw Object.assign(new Error(payload?.error || `HTTP ${response.status}`), {
       status: response.status, code: payload?.code, conflicts: payload?.conflicts,
@@ -133,6 +144,16 @@ const action = (id: string, name: string, body?: unknown) => request<MigrationJo
 });
 
 export const migrationApi = {
+  capabilities: async (signal?: AbortSignal) => {
+    const value = await request<MigrationCapabilities>("/capabilities", { signal });
+    if (!Number.isInteger(value.schemaVersion) || !Array.isArray(value.formats) || !value.formats.every((entry) => typeof entry === "string")
+      || typeof value.humanApprovalRequired !== "boolean"
+      || (value.adapters !== undefined && (!Array.isArray(value.adapters) || value.adapters.length > 50 || value.adapters.some((adapter) =>
+        !adapter || typeof adapter.id !== "string" || !Number.isInteger(adapter.version)
+        || ![adapter.platforms, adapter.formats, adapter.extensions, adapter.unsupported].every((list) => Array.isArray(list) && list.every((entry) => typeof entry === "string"))
+        || typeof adapter.autoDetect !== "boolean")))) throw new Error("MIGRATION_INVALID_RESPONSE");
+    return value;
+  },
   uploadResumable,
   list: async () => {
     const payload = await request<{ items: MigrationJob[] }>("");

@@ -9,6 +9,7 @@ import { confirm } from "./ui/confirm";
 import McpConnectionPanel from "./settings/McpConnectionPanel";
 import MigrationReviewItems from "./MigrationReviewItems";
 import type { Notebook } from "@/types";
+import { MIGRATION_CLIENTS, type MigrationClientId } from "@/lib/migrationClientSetup";
 
 interface Props {
   workspaceId: string;
@@ -28,7 +29,7 @@ const terminal = new Set(["COMPLETED", "PARTIAL", "FAILED", "CANCELLED", "UNDONE
 export default function MigrationHub({ workspaceId, disabled, localOnly = false, onLegacyImport, onImported, onView }: Props) {
   const { t } = useTranslation();
   const [mode, setMode] = useState<"ai" | "files" | null>(null);
-  const [client, setClient] = useState("Codex");
+  const [client, setClient] = useState<MigrationClientId>("codex");
   const [copied, setCopied] = useState(false);
   const [name, setName] = useState("");
   const [target, setTarget] = useState("");
@@ -183,11 +184,11 @@ export default function MigrationHub({ workspaceId, disabled, localOnly = false,
         </button>)}
       </div>
       {mode === "ai" && <div className={`${surface} space-y-3`}>
-        <label className="block text-xs font-medium">{t("migration.client")}<select className={`${input} mt-1`} value={client} onChange={(event) => setClient(event.target.value)}>{["Codex", "Claude Code", "WorkBuddy", "Qoder / QoderWork", "豆包工作"].map((value) => <option key={value}>{value}</option>)}<option value="other">{t("migration.clientOther")}</option></select></label>
+        <label className="block text-xs font-medium">{t("migration.client")}<select className={`${input} mt-1`} value={client} onChange={(event) => setClient(event.target.value as MigrationClientId)}>{MIGRATION_CLIENTS.map((entry) => <option key={entry.id} value={entry.id}>{entry.id === "other" ? t("migration.clientOther") : entry.label}</option>)}</select></label>
         <p className="text-sm text-[var(--color-text-secondary)]">{t("migration.aiSteps")}</p>
         <button type="button" className={button} onClick={() => { void navigator.clipboard.writeText(t("migration.prompt")).then(() => setCopied(true), () => setError(t("migration.copyFailed"))); }}><ClipboardCopy size={15}/>{t(copied ? "migration.copied" : "migration.copy")}</button>
         <p className="text-xs leading-5 text-[var(--color-text-secondary)]">{t("migration.clientBoundary")}</p>
-        <details><summary className="cursor-pointer text-xs text-[var(--color-accent-primary)]">{t("migration.clientGuide")}</summary><div className="mt-3 space-y-3"><p className="text-xs leading-5 text-[var(--color-text-secondary)]">{t("migration.connectionScopes")}</p><McpConnectionPanel purpose="migration"/></div></details>
+        <details><summary className="cursor-pointer text-xs text-[var(--color-accent-primary)]">{t("migration.clientGuide")}</summary><div className="mt-3 space-y-3"><p className="text-xs leading-5 text-[var(--color-text-secondary)]">{t("migration.connectionScopes")}</p><McpConnectionPanel purpose="migration" client={client} notebooks={notebooks}/></div></details>
       </div>}
       {mode === "files" && <div className={`${surface} space-y-3`}>
         <label className="block text-xs font-medium">{t("migration.name")}<input className={`${input} mt-1`} value={name} maxLength={200} placeholder={t("migration.defaultName")} disabled={busy} onChange={(event) => setName(event.target.value)}/></label>

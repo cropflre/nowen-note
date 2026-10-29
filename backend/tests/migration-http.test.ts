@@ -46,6 +46,11 @@ test("production HTTP auth rejects forged token scopes and machine approval, the
     assert.equal((await request("/migrations")).status, 401);
     const denied = await request("/migrations", emptyToken, undefined, { "X-Api-Scopes": "export:import,notes:read,notes:write,notebooks:write", "X-User-Id": "http-other" });
     assert.equal(denied.status, 403); assert.equal(denied.body.code, "API_TOKEN_SCOPE_REQUIRED");
+    const capabilities = await request("/migrations/capabilities", token);
+    assert.equal(capabilities.status, 200); assert.equal(capabilities.body.adapterApiVersion, 1);
+    assert.deepEqual(capabilities.body.sourceAdapters, ["notion-markdown-html-csv", "siyuan-native-zip"]);
+    assert.ok(capabilities.body.adapters.some((adapter: { id: string }) => adapter.id === "huawei-notepad-files"));
+    assert.equal(capabilities.body.permissions.canApprove, false);
     const source = { platform: "markdown", exportId: "http-export" };
     const created = await request("/migrations", token, { operationId: crypto.randomUUID(), source, name: "HTTP migration" });
     assert.equal(created.status, 201);

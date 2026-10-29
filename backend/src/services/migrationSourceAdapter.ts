@@ -8,6 +8,7 @@ import { sanitizeForImport } from "../lib/sanitizeHtml";
 import { MIGRATION_LIMITS, migrationRelativePathSchema, nmfManifestSchema, nmfNoteSchema, type NmfNote } from "./migrationFormat";
 import { createNotionMigrationContext } from "./migrationNotionAdapter";
 import { isSiyuanMigration, stageSiyuanMigration } from "./migrationSiyuanAdapter";
+import { MIGRATION_SOURCE_ADAPTER_API_VERSION, normalizeMigrationSource, type MigrationSourceAdapterContext } from "./migrationSourceAdapters";
 
 const unzipper = require("unzipper");
 type Source = Pick<NmfNote["source"], "platform" | "exportId">;
@@ -212,9 +213,15 @@ export async function stageMigrationFile(input: {
     await input.onNote(note);
     if (++emitted % 20 === 0) await yieldEventLoop();
   };
-  if (manifestFile) {
+  const context: MigrationSourceAdapterContext = { files, source: input.source,
+    readText: (name, maxBytes) => {
+      if (!Number.isSafeInteger(maxBytes) || maxBytes < 1) return fail("MIGRATION_CONTENT_TOO_LARGE");
+      return readText(files.get(name) || fail("MIGRATION_CONTENT_MISSING"), Math.min(maxBytes, MIGRATION_LIMITS.manifestBytes));
+    },
+    managedPath: managed, sniffAsset: sniffMigrationAsset, onNote: emit, assertActive: input.assertActive };
+  const normalizeManifest = async (context: MigrationSourceAdapterContext) => {
     let raw: unknown;
-    try { raw = JSON.parse(readText(manifestFile, MIGRATION_LIMITS.manifestBytes)); } catch { return fail("MIGRATION_INVALID_MANIFEST"); }
+    try { raw = JSON.parse(context.readText("manifest.json", MIGRATION_LIMITS.manifestBytes)); } catch { return fail("MIGRATION_INVALID_MANIFEST"); }
     const result = nmfManifestSchema.safeParse(raw);
     if (!result.success) return fail("MIGRATION_INVALID_MANIFEST");
     const manifest = result.data;
@@ -242,27 +249,34 @@ export async function stageMigrationFile(input: {
         originalPath: attachment.originalPath || path.posix.relative(path.posix.dirname(contentFile), attachment.path),
         mimeType: await sniffMigrationAsset(files.get(attachment.path)!.diskPath, attachment.path),
       })));
-      await emit(nmfNoteSchema.parse({ ...fields, schemaVersion: 1, source: { ...manifest.source, sourceId },
+      await context.onNote(nmfNoteSchema.parse({ ...fields, schemaVersion: 1, source: { ...manifest.source, sourceId },
         content: note.contentFormat === "html" ? sanitizeMigrationHtml(rawContent) : rawContent, attachments }));
     }
-  } else if (isSiyuanMigration(files)) {
+    return { warnings: [...warnings] };
+  };
+  const normalizeSiyuan = async (context: MigrationSourceAdapterContext) => {
     try {
-      const result = await stageSiyuanMigration({ files, source: input.source, readText: (name, maxBytes) => readText(files.get(name) || fail("MIGRATION_CONTENT_MISSING"), maxBytes),
-        managedPath: managed, sniffAsset: sniffMigrationAsset, onNote: emit, assertActive: input.assertActive });
-      result.warnings.forEach((warning) => warnings.add(warning));
+      return await stageSiyuanMigration(context);
     } catch (error) {
       const code = (error as { code?: string }).code;
       if (typeof code === "string" && /^MIGRATION_|^SIYUAN_/.test(code)) throw new MigrationSourceError(code);
       throw error;
     }
-  } else {
-    const notes = [...files.keys()].filter(noteExtension).filter((name) => !/^(?:__MACOSX|assets|attachments)\//i.test(name)).sort();
-    const noteNames = new Set(notes);
-    let notion: ReturnType<typeof createNotionMigrationContext>;
-    try { notion = createNotionMigrationContext({ notePaths: notes, csvPaths: [...files.keys()].filter((name) => /\.csv$/i.test(name)), source: input.source,
-      readText: (name, maxBytes) => readText(files.get(name) || fail("MIGRATION_CONTENT_MISSING"), maxBytes) }); }
+  };
+  const notes = [...files.keys()].filter(noteExtension).filter((name) => !/^(?:__MACOSX|assets|attachments)\//i.test(name)).sort();
+  let notion: ReturnType<typeof createNotionMigrationContext> | undefined;
+  const matchesNotion = () => {
+    try { notion = createNotionMigrationContext({ notePaths: notes, csvPaths: [...files.keys()].filter((name) => /\.csv$/i.test(name)), source: input.source, readText: context.readText }); }
     catch (error) { if (typeof (error as { code?: string }).code === "string") throw new MigrationSourceError((error as { code: string }).code); throw error; }
+    return Boolean(notion);
+  };
+  const normalizeGeneric = async (context: MigrationSourceAdapterContext, notion: ReturnType<typeof createNotionMigrationContext>) => {
+    const noteNames = new Set(notes);
     if (!notes.length || notes.length > MIGRATION_LIMITS.notes) return fail("MIGRATION_NOTE_COUNT_LIMIT");
+    if (input.source.platform === "huawei") {
+      if (notes.some((name) => !/\.(?:txt|html?)$/i.test(name))) return fail("MIGRATION_HUAWEI_FORMAT_UNSUPPORTED");
+      warnings.add("HUAWEI_EXPORT_LIMITS; 仅导入已导出的 TXT/HTML 和本地资源；原始时间、标签、手写、语音结构及云端备份不恢复");
+    }
     for (const name of files.keys()) {
       if (!noteExtension(name) && !supportedAssets[path.extname(name).toLowerCase()]) warnings.add("UNSUPPORTED_FILES_SKIPPED; scripts, macros, databases and unknown files are not imported");
       if (/\.csv$/i.test(name)) warnings.add("CSV_DATABASE_NOT_CONVERTED; export database pages as Markdown or HTML");
@@ -290,9 +304,17 @@ export async function stageMigrationFile(input: {
         title: (titleMatch?.[1]?.trim() || path.posix.basename(name).replace(/\.[^.]+$/, "")).slice(0, 500),
         path: path.posix.dirname(name) === "." ? [] : path.posix.dirname(name).split("/"),
         contentFormat: format, content, attachments, links, tags: [], metadata: {} };
-      await emit(nmfNoteSchema.parse(notion ? notion.decorate(name, note) : note));
+      await context.onNote(nmfNoteSchema.parse(notion ? notion.decorate(name, note) : note));
     }
     notion?.warnings.forEach((warning) => warnings.add(warning));
-  }
-  return { warnings: [...warnings] };
+    return { warnings: [...warnings] };
+  };
+  const apiVersion = MIGRATION_SOURCE_ADAPTER_API_VERSION;
+  return normalizeMigrationSource([
+    { apiVersion, id: "nmf-v1", matches: () => Boolean(manifestFile), normalize: normalizeManifest },
+    { apiVersion, id: "siyuan-native-zip", matches: () => isSiyuanMigration(files), normalize: normalizeSiyuan },
+    { apiVersion, id: "notion-markdown-html-csv", matches: matchesNotion, normalize: (context) => normalizeGeneric(context, notion!) },
+    { apiVersion, id: "huawei-notepad-files", matches: () => input.source.platform === "huawei", normalize: (context) => normalizeGeneric(context, null) },
+    { apiVersion, id: "generic-files", matches: () => true, normalize: (context) => normalizeGeneric(context, null) },
+  ], context);
 }

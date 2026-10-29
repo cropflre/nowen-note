@@ -2,6 +2,17 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { NowenClient } from "../dist/index.js";
 
+test("SDK discovers bounded source descriptors through the existing authenticated read-only endpoint", async () => {
+  const catalog = { schemaVersion: 1, adapterApiVersion: 1, adapters: [{ id: "huawei-notepad-files", version: 1, autoDetect: false, platforms: ["huawei"], formats: ["txt", "html"], extensions: [".txt", ".html"], unsupported: ["handwriting"] }] };
+  const client = new NowenClient({ baseUrl: "https://nowen.example", fetch: async (url, init) => {
+    assert.equal(String(url), "https://nowen.example/api/migrations/capabilities");
+    assert.equal(init.method, "GET"); assert.equal(init.headers.Authorization, "Bearer nkn_catalog");
+    return Response.json(catalog);
+  } });
+  client.setToken("nkn_catalog");
+  assert.deepEqual(await client.migrationCapabilities(), catalog);
+});
+
 test("migration SDK shares the REST contract, streams Blob bytes and uses the current preview digest", async () => {
   const calls = [];
   const job = { id: "job/one", status: "CREATED", counts: { total: 0 } };

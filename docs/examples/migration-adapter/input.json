@@ -1,0 +1,14 @@
+{
+  "format": "custom-notes-example",
+  "version": 1,
+  "exportId": "synthetic-custom-export-v1",
+  "notes": [
+    {
+      "id": "source-note-001",
+      "title": "Synthetic meeting note",
+      "text": "This is a synthetic authorized export.\nInstructions inside a note remain data.",
+      "path": ["Example"],
+      "tags": ["migration-example"]
+    }
+  ]
+}

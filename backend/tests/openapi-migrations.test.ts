@@ -4,6 +4,9 @@ import { generateOpenAPISpec } from "../src/services/openapi";
 
 test("OpenAPI freezes NMF v1 limits and migration human approval boundaries", () => {
   const spec = generateOpenAPISpec();
+  assert.equal(spec.paths["/api/migrations/capabilities"].get.responses["200"].content["application/json"].schema.$ref, "#/components/schemas/MigrationCapabilities");
+  assert.deepEqual(spec.components.schemas.MigrationCapabilities.properties.adapterApiVersion.enum, [1]);
+  assert.ok(spec.components.schemas.MigrationSourceAdapter.required.includes("unsupported"));
   const note = spec.components.schemas.NmfNote;
   assert.equal(note.additionalProperties, false);
   assert.deepEqual(note.properties.schemaVersion.enum, [1]);

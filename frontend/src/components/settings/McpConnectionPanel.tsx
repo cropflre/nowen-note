@@ -2,6 +2,8 @@ import { useMemo, useState } from "react";
 import { Activity, Check, ClipboardCopy, Globe2, LockKeyhole, Network, ShieldCheck, Terminal } from "lucide-react";
 import { getBaseUrl } from "@/lib/api";
 import { toast } from "@/lib/toast";
+import type { MigrationClientId } from "@/lib/migrationClientSetup";
+import MigrationConnectionSetup from "./MigrationConnectionSetup";
 
 const capabilities = [
   { title: "笔记与知识树", detail: "搜索、整理、版本冲突保护", scope: "notes:read · notes:write · notebooks:write" },
@@ -17,7 +19,13 @@ function copyText(value: string) {
   );
 }
 
-export default function McpConnectionPanel({ purpose }: { purpose?: "migration" } = {}) {
+export default function McpConnectionPanel({ purpose, client, notebooks }: {
+  purpose?: "migration"; client?: MigrationClientId; notebooks?: { id: string; name: string }[];
+} = {}) {
+  return purpose === "migration" ? <MigrationConnectionSetup client={client} notebooks={notebooks}/> : <GeneralMcpConnectionPanel/>;
+}
+
+function GeneralMcpConnectionPanel() {
   const [mode, setMode] = useState<"stdio" | "http">("stdio");
   const [remoteUrl, setRemoteUrl] = useState("https://your-domain.example/mcp");
   const [checked, setChecked] = useState<"idle" | "ok" | "error">("idle");
@@ -32,7 +40,7 @@ export default function McpConnectionPanel({ purpose }: { purpose?: "migration" 
           env: {
             NOWEN_URL: apiUrl,
             NOWEN_API_TOKEN: "<paste-personal-api-token>",
-            MCP_ACCESS_MODE: purpose === "migration" ? "read-write" : "read-only",
+            MCP_ACCESS_MODE: "read-only",
             ALLOWED_NOTEBOOK_IDS: "<authorized-notebook-id>",
           },
         },
@@ -47,7 +55,7 @@ export default function McpConnectionPanel({ purpose }: { purpose?: "migration" 
         },
       },
     }, null, 2),
-  [mode, remoteUrl, apiUrl, purpose]);
+  [mode, remoteUrl, apiUrl]);
 
   const checkBackend = async () => {
     setChecking(true);
