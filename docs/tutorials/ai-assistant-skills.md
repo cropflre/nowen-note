@@ -11,7 +11,9 @@
 
 Skill 与写作助手、AI 快记的个人指令共用存储，归当前用户所有。保存到当前连接的后端数据库；连接同一服务端账号可读取，独立桌面后端之间不保证自动同步。重新打开助手后会重新加载已保存的 Skill，使用前重新选择；切换账号、服务端或工作空间会清除选择。
 
-这版 Skill 提供回答指令，不运行脚本或安装依赖，也不增加笔记访问权限。知识库检索仍使用问题和已选范围，Skill 内容不作为来源证据。Agent 模式及直接任务命令不应用此选项。导入前请检查文件内容；使用时指令会随问题发往当前配置的 AI 服务。
+笔记编辑器侧边的「AI 助手」也支持选择同一份个人 Skill，在输入修改需求前选择即可。Skill 与修改需求一起指导生成提案；仍需查看差异并确认才会修改笔记。每次生成读取 Skill 的最新内容，生成中的提案使用启动时的版本。
+
+这版 Skill 提供生成指令，不运行脚本或安装依赖，也不增加笔记访问权限。知识库检索仍使用问题和已选范围，Skill 内容不作为来源证据。文件夹 Agent 工作流及直接任务命令不应用此选项。导入前请检查文件内容；使用时指令会随需求发往当前配置的 AI 服务。
 
 ## English
 
@@ -21,4 +23,6 @@ Names allow 80 characters, instructions 4,000 characters, and imported files 20,
 
 Skills share the writing assistant and AI capture personal-instruction store. They are saved in the connected backend for the current account. Reopening reloads saved Skills but requires selecting one again. Account, server, or workspace changes clear the selection. Separate desktop backends do not automatically share these records.
 
-This version supplies instructions only. It does not execute scripts, install dependencies, expand access permissions, or treat the instructions as source evidence. It supports knowledge, current-note, and selection questions; Agent mode and direct task commands are unaffected. Selected instructions are sent to the configured AI provider with the question.
+The note editor's AI assistant also supports the same personal Skills. Select one before entering your editing request. The Skill guides the proposal together with your request; edits still require reviewing the diff and confirming. Each generation reads the latest Skill; an in-progress proposal uses the version captured when it started.
+
+This version supplies instructions only. It does not execute scripts, install dependencies, expand access permissions, or treat the instructions as source evidence. It supports knowledge, current-note, and selection questions and editor proposals; notebook Agent workflows and direct task commands are unaffected. Selected instructions are sent to the configured AI provider with your request.

@@ -83,6 +83,30 @@ test("cross user, restricted tokens, locked notes and disabled AI are denied bef
   db.prepare("UPDATE notes SET isLocked=0 WHERE id='note-a'").run();
   const settings = await import("../src/services/user-ai-settings.js"); settings.setUserAISetting("agent-a", "ai_manual_enabled", "false"); assert.equal((await create()).status, 403); settings.setUserAISetting("agent-a", "ai_manual_enabled", "true"); assert.equal(requests.length, 0);
 });
+test("editor Skills use owned latest instructions and remain approval-only", async () => {
+  db.prepare("INSERT INTO ai_custom_prompts(id,userId,name,prompt) VALUES ('editor-skill','agent-a','Review','SKILL FIRST VERSION')").run();
+  const run = await settled((await (await create({ skillId: "editor-skill" })).json()).id);
+  assert.equal(run.status, "waiting_approval");
+  assert.ok(requests[0].messages.some((message: any) => message.role === "user" && message.content.includes("SKILL FIRST VERSION")));
+  assert.ok(!requests[0].messages[0].content.includes("SKILL FIRST VERSION"));
+  assert.equal(db.prepare("SELECT content FROM notes WHERE id='note-a'").get().content, "Original text");
+  assert.ok(!JSON.stringify(db.prepare("SELECT * FROM agent_runs").all()).includes("SKILL FIRST VERSION"));
+  runtime.cancel(run.id, "agent-a"); requests = [];
+  db.prepare("UPDATE ai_custom_prompts SET prompt='SKILL UPDATED VERSION' WHERE id='editor-skill'").run();
+  await settled((await (await create({ skillId: "editor-skill" })).json()).id);
+  assert.ok(JSON.stringify(requests).includes("SKILL UPDATED VERSION"));
+  assert.ok(!JSON.stringify(requests).includes("SKILL FIRST VERSION"));
+});
+test("editor rejects foreign, deleted and malformed Skills before creating runs or calling models (DCC-006)", async () => {
+  db.prepare("INSERT INTO ai_custom_prompts(id,userId,name,prompt) VALUES ('foreign-editor-skill','agent-b','Private','PRIVATE INSTRUCTIONS')").run();
+  for (const skillId of ["foreign-editor-skill", "deleted-skill"]) {
+    const response = await create({ skillId }); assert.equal(response.status, 403);
+    assert.equal((await response.json()).code, "SKILL_UNAVAILABLE");
+  }
+  for (const skillId of ["", 1, "x".repeat(201)]) assert.equal((await create({ skillId })).status, 400);
+  assert.equal(requests.length, 0);
+  assert.equal((db.prepare("SELECT count(*) n FROM agent_runs").get() as any).n, 0);
+});
 test("stop aborts upstream and prevents a late proposal", async () => {
   model = async (_body, signal) => new Promise((_resolve, reject) => signal.addEventListener("abort", () => reject(new Error("aborted")), { once: true }));
   const id = (await (await create()).json()).id; assert.equal((await (await send(`/runs/${id}/cancel`)).json()).status, "cancelled");

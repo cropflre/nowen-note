@@ -201,6 +201,7 @@
       "status": "covered",
       "checks": [
         { "file": "backend/tests/ai-collaboration.test.ts", "case": "chat rejects foreign, deleted and malformed Skills before provider access (DCC-006)" },
+        { "file": "backend/tests/agent.test.ts", "case": "editor rejects foreign, deleted and malformed Skills before creating runs or calling models (DCC-006)" },
         { "file": "backend/tests/shared-ai-profiles.test.ts", "case": "DCC-006: only granted members see and select shared metadata, without connection fields or copied secrets" },
         { "file": "backend/tests/shared-chat-selection.test.ts", "case": "DCC-006: revoked authorization rejects stale calls without falling back to personal credentials" },
         { "file": "backend/tests/remote-shared-ai.test.ts", "case": "DCC-006: server/account changes discard late directory responses and reject old model handles" },

@@ -6,6 +6,8 @@ import type { NoteEditorHandle } from "@/components/editors/types";
 import type { Note } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Sparkles, X } from "lucide-react";
+import ChatSkillsPicker from "../aiCollaboration/ChatSkillsPicker";
+import { collaborationScope } from "@/lib/aiCollaboration";
 
 export default function EditorAgentPanel({ note, editor, onClose }: { note: Note; editor: () => NoteEditorHandle | null; onClose: () => void }) {
   const { t } = useTranslation();
@@ -15,6 +17,8 @@ export default function EditorAgentPanel({ note, editor, onClose }: { note: Note
   const [busy, setBusy] = useState(false);
   const [enabled, setEnabled] = useState(false);
   const [loaded, setLoaded] = useState(false);
+  const [skillScope, setSkillScope] = useState(collaborationScope);
+  const selectedSkill = useRef<{ id: string; scope: string } | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   function readContext() {
     const handle = editor(), snapshot = handle?.getSnapshot?.();
@@ -38,8 +42,20 @@ export default function EditorAgentPanel({ note, editor, onClose }: { note: Note
   const canStart = !run || ["completed", "failed", "cancelled", "interrupted"].includes(run.status);
   const errorText = useCallback((value: unknown) => {
     const code = (value as { code?: string; message?: string }).code || (value as Error).message || "AGENT_REQUEST_FAILED";
+    if (code === "SKILL_UNAVAILABLE") return t("aiCollaboration.skillUnavailable");
+    if (code === "SCOPE_CHANGED") return t("aiCollaboration.chatScopeChanged");
     return t(`agent.errors.${code}`, { defaultValue: t("agent.errors.AGENT_REQUEST_FAILED") });
   }, [t]);
+  useEffect(() => {
+    const changed = () => {
+      const scope = collaborationScope();
+      if (selectedSkill.current?.scope !== scope) selectedSkill.current = null;
+      setSkillScope(scope);
+    };
+    const events = ["nowen:workspace-changed", "nowen:token-changed", "nowen:server-url-changed", "storage"];
+    events.forEach(event => window.addEventListener(event, changed));
+    return () => events.forEach(event => window.removeEventListener(event, changed));
+  }, []);
   useEffect(() => {
     const opener = document.activeElement as HTMLElement | null;
     inputRef.current?.focus();
@@ -67,11 +83,14 @@ export default function EditorAgentPanel({ note, editor, onClose }: { note: Note
     if (lock.current) return;
     lock.current = true; setBusy(true); setError(""); cancelled.current = false;
     try {
+      const scope = collaborationScope(), skill = selectedSkill.current;
+      if (scope !== skillScope || (skill && skill.scope !== scope)) throw new Error("SCOPE_CHANGED");
       const persisted = await api.getNote(note.id);
       const handle = editor(), snapshot = handle?.getSnapshot?.();
       if (!alive.current || cancelled.current) return;
+      if (collaborationScope() !== scope) throw new Error("SCOPE_CHANGED");
       if (!snapshot || !handle?.applyAgentEdits || !["markdown", "tiptap-json"].includes(note.contentFormat || "")) throw new Error("UNSAFE_DOCUMENT");
-      const created = await api.agent.create({ noteId: note.id, instruction, selectedText: handle.getAgentSelection?.(), content: snapshot.content, format: note.contentFormat!, version: persisted.version });
+      const created = await api.agent.create({ noteId: note.id, ...(skill ? { skillId: skill.id } : {}), instruction, selectedText: handle.getAgentSelection?.(), content: snapshot.content, format: note.contentFormat!, version: persisted.version });
       runId.current = created.id;
       if (!alive.current || cancelled.current) { await api.agent.action(created.id, "cancel"); return; }
       const latest = await api.agent.get(created.id);
@@ -122,9 +141,10 @@ export default function EditorAgentPanel({ note, editor, onClose }: { note: Note
     finally { lock.current = false; if (alive.current) setBusy(false); }
   }
   return <aside id="editor-ai-assistant" aria-label={t("agent.title")} onKeyDown={event => {
+    if (!event.currentTarget.contains(event.target as Node)) return;
     if (event.key === "Escape") { event.stopPropagation(); onClose(); }
     if (event.key === "Tab" && window.matchMedia?.("(max-width: 767px)").matches) {
-      const controls = [...event.currentTarget.querySelectorAll<HTMLElement>('button:not(:disabled), textarea, summary')];
+      const controls = [...event.currentTarget.querySelectorAll<HTMLElement>('button:not(:disabled), textarea, select:not(:disabled), summary')];
       const first = controls[0], last = controls[controls.length - 1];
       if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
       else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
@@ -160,6 +180,9 @@ export default function EditorAgentPanel({ note, editor, onClose }: { note: Note
     </div>
     <div className="shrink-0 border-t border-app-border p-4">
     {run?.status === "waiting_approval" && <div className="flex gap-2 pb-3"><Button disabled={busy} onClick={() => void approve()}>{t("agent.accept")}</Button><Button variant="outline" disabled={busy} onClick={() => void stop("reject")}>{t("agent.reject")}</Button></div>}
+    <div className="mb-3"><ChatSkillsPicker key={skillScope} scope={skillScope} onSelect={id => {
+      selectedSkill.current = id ? { id, scope: skillScope } : null;
+    }} /></div>
     <label className="text-sm mt-2" htmlFor="agent-instruction">{t("agent.request")}</label>
     <textarea ref={inputRef} id="agent-instruction" className="mt-2 min-h-24 max-h-48 w-full resize-y rounded-lg border border-app-border bg-app-bg p-3 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent-primary" maxLength={4000} value={instruction} onFocus={() => { if (canStart) setContext(readContext()); }} onChange={e => setInstruction(e.target.value)} placeholder={t(`agent.guidance.${context.kind}.placeholder`)} />
     <div className="flex gap-2 pt-2"><Button disabled={!enabled || busy || !canStart || !instruction.trim()} onClick={() => void generate()}>{run ? t("agent.regenerate") : t("agent.generate")}</Button>{(!canStart || busy) && <Button variant="outline" onClick={() => void stop()}>{t("agent.stop")}</Button>}</div>
