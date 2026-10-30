@@ -27,36 +27,7 @@ import "./knowledge-tree-markdown-drop.css";
 import "./inline-comments.css";
 import "./loading-experience.css";
 import "./note-appearance.css";
-import { initCodeBlockTheme } from "./lib/codeBlockTheme";
-import { installAndroidNativeHttpBridge } from "./lib/androidNativeHttpBridge";
-import { installDesktopNativeHttpBridge } from "./lib/desktopNativeHttpBridge";
-import { installMobileStartupBridge } from "./lib/mobileStartupBridge";
-import { installMobileWebStartupBridge } from "./lib/mobileWebStartupBridge";
-import { installAttachmentUploadPolicyBridge } from "./lib/attachmentUploadPolicyBridge";
-import { captureAttachmentAccessUpstreamFetch } from "./lib/attachmentAccessUpstreamFetch";
-import { installNoteAttachmentAccessBridge } from "./lib/noteAttachmentAccessBridge";
-import { installNonBlockingNoteFetch } from "./lib/nonBlockingNoteFetch";
-import { installReliableExportDownloadBridge } from "./lib/reliableExportDownloadBridge";
-import { installNoteSyncSafety } from "./lib/noteSyncSafety";
-import { installNoteUpdateResponseGuard } from "./lib/noteUpdateResponseGuard";
-import { installNoteUpdateSerialQueue } from "./lib/noteUpdateSerialQueue";
-import { installKnowledgeTreeTitleSyncBridge } from "./lib/knowledgeTreeTitleSyncBridge";
-import { installKnowledgeTreeNoteLoadRecovery } from "./lib/knowledgeTreeNoteLoadRecovery";
-import { installTaskAttachmentExportFallback } from "./lib/taskAttachmentExportFallback";
-import { installTwoFactorLoginChallengeBridge } from "./lib/twoFactorLoginChallenge";
-import { installTaskUpdateSafetyBridge } from "./lib/taskUpdateSafetyBridge";
-import { installNodeViewMutationGuard } from "./lib/nodeViewMutationGuard";
-import { installEditorMediaScopeGuard } from "./lib/editorMediaScopeGuard";
-import { installRoundTripImportReviewBridge } from "./lib/roundTripImportReview";
-import { installRoundTripPermissionExportBridge } from "./lib/roundTripPermissionExport";
-import { installEditorPerformanceGlobal } from "./lib/editorPerformanceHarness";
-import { installIssue210SignoffRuntime } from "./lib/issue210Signoff";
-import { cleanupRemovedServerProfiles } from "./lib/removedServerProfileCleanup";
-import { installKnowledgeTreeScrollbarBridge } from "./lib/knowledgeTreeScrollbarBridge";
-import { installKnowledgeTreeMarkdownDrop } from "./lib/knowledgeTreeMarkdownDrop";
-import { installInlineCommentTooltipMount } from "./lib/inlineCommentTooltipMount";
 import { resolveCurrentAppPathname } from "./lib/appPathNavigation";
-import { installUgreenCredentialedFetch } from "./lib/ugreenRemoteAccess";
 import { observeBootSplashReadiness, reportBootStage } from "./lib/bootSplash";
 
 reportBootStage("runtime");
@@ -111,14 +82,6 @@ class ApplicationBootErrorBoundary extends React.Component<
   }
 }
 
-try {
-  void Promise.resolve(cleanupRemovedServerProfiles()).catch((error) => {
-    reportBootError("removed-server-profile-cleanup", error, false);
-  });
-} catch (error) {
-  reportBootError("removed-server-profile-cleanup", error, false);
-}
-installOptionalRuntime("ugreen-credentialed-fetch", installUgreenCredentialedFetch);
 
 /**
  * The HTML startup card stays above React while lazy modules, auth restoration and quick
@@ -138,38 +101,6 @@ function MainRouteFallback() {
   return null;
 }
 
-installOptionalRuntime("knowledge-tree-scrollbar", installKnowledgeTreeScrollbarBridge);
-installOptionalRuntime("knowledge-tree-markdown-drop", installKnowledgeTreeMarkdownDrop);
-installOptionalRuntime("node-view-mutation-guard", installNodeViewMutationGuard);
-installOptionalRuntime("editor-media-scope-guard", installEditorMediaScopeGuard);
-installOptionalRuntime("android-native-http", installAndroidNativeHttpBridge);
-installOptionalRuntime("desktop-native-http", installDesktopNativeHttpBridge);
-installOptionalRuntime("mobile-startup", installMobileStartupBridge);
-installOptionalRuntime("mobile-web-startup", installMobileWebStartupBridge);
-// Install the runtime upload contract before any editor starts sending attachments. The policy
-// endpoint is warmed in the background; every actual upload still re-checks it before POST.
-installOptionalRuntime("attachment-upload-policy", installAttachmentUploadPolicyBridge);
-// Keep every transport wrapper installed above, but capture the chain before the attachment
-// bridge adds its note-detail prerequisite wait. Canonical note text can then render first while
-// signed media access is prepared in the background.
-installOptionalRuntime("attachment-access-upstream", captureAttachmentAccessUpstreamFetch);
-installOptionalRuntime("note-attachment-access", installNoteAttachmentAccessBridge);
-installOptionalRuntime("non-blocking-note-fetch", installNonBlockingNoteFetch);
-installOptionalRuntime("two-factor-login-challenge", installTwoFactorLoginChallengeBridge);
-installOptionalRuntime("note-sync-safety", installNoteSyncSafety);
-installOptionalRuntime("note-update-response-guard", installNoteUpdateResponseGuard);
-installOptionalRuntime("note-update-serial-queue", installNoteUpdateSerialQueue);
-installOptionalRuntime("knowledge-tree-title-sync", installKnowledgeTreeTitleSyncBridge);
-installOptionalRuntime("knowledge-tree-note-load-recovery", installKnowledgeTreeNoteLoadRecovery);
-installOptionalRuntime("task-attachment-export-fallback", installTaskAttachmentExportFallback);
-installOptionalRuntime("task-update-safety", installTaskUpdateSafetyBridge);
-installOptionalRuntime("reliable-export-download", installReliableExportDownloadBridge);
-installOptionalRuntime("round-trip-import-review", installRoundTripImportReviewBridge);
-installOptionalRuntime("round-trip-permission-export", installRoundTripPermissionExportBridge);
-installOptionalRuntime("editor-performance-global", installEditorPerformanceGlobal);
-installOptionalRuntime("issue-210-signoff", installIssue210SignoffRuntime);
-installOptionalRuntime("inline-comment-tooltip", installInlineCommentTooltipMount);
-installOptionalRuntime("code-block-theme", initCodeBlockTheme);
 
 const THEME_KEY = "nowen-note-theme";
 try {
@@ -245,7 +176,13 @@ function renderApplication() {
   }
 }
 
+let coreRuntimeInstalled = false;
 Promise.resolve()
+  .then(() => import("./lib/coreRuntimeInstallers"))
+  .then(({ installCoreRuntime }) => {
+    installCoreRuntime(installOptionalRuntime, reportBootError);
+    coreRuntimeInstalled = true;
+  })
   .then(() => initializeDesktopLocalSession().catch(error => reportBootError('desktop-local-session',error,false)))
   .then(() => initializeMobileLocalFirstRuntime())
   .then(
@@ -253,6 +190,12 @@ Promise.resolve()
     (error) => {
       // Native local-first initialization is an enhancement. A rejected or unsupported
       // native bridge must never prevent Web/WKWebView users from reaching login/workspace.
+      if (!coreRuntimeInstalled) {
+        // Required network and persistence guards were not installed; never
+        // expose an editor that might write without those protections.
+        reportBootError("core-runtime-install", error, true);
+        return;
+      }
       reportBootError("mobile-local-first", error, false);
       renderApplication();
     },
