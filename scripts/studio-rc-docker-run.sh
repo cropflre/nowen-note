@@ -67,8 +67,8 @@ docker run --rm --entrypoint node --workdir /app/backend -v "$root/restore:/app/
   const db=new DB('/app/data/nowen-note.db',{readonly:true,fileMustExist:true});
   if(db.pragma('quick_check',{simple:true})!=='ok')process.exit(1);
   // One historical note and one new candidate note must both survive the backup.
-  if(db.prepare('SELECT COUNT(*) AS n FROM notes').get().n!==2)process.exit(1);
-  if(db.prepare('SELECT COUNT(*) AS n FROM notebooks').get().n!==2)process.exit(1);
+  if(db.prepare("SELECT COUNT(*) AS n FROM notes WHERE title IN ('Legacy retained note','RC updated note')").get().n!==2)process.exit(1);
+  if(db.prepare("SELECT COUNT(*) AS n FROM notebooks WHERE name IN ('Historical upgrade regression','RC persistence fixture')").get().n!==2)process.exit(1);
   db.close();
   console.log('STUDIO_BACKUP_CONTENT_PASS');
 "
