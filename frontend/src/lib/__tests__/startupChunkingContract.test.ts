@@ -32,8 +32,12 @@ describe("startup chunking contract", () => {
     const config = source("../../../vite.config.ts");
 
     expect(config).toContain("'vendor-ui'");
-    expect(config).toContain("'vendor-markdown'");
     expect(config).toContain("'vendor-archive'");
+    // Tiptap and Markdown dependencies are owned by lazy editor/workspace imports.
+    // Manual chunks for these vendors were hoisted into the login entry by Rollup.
+    expect(config).not.toContain("'vendor-markdown'");
+    expect(config).not.toContain("'vendor-tiptap'");
+    expect(config).not.toContain("'vendor-tiptap-emoji'");
     expect(config).not.toContain("'vendor-lib'");
   });
 
@@ -65,9 +69,16 @@ describe("startup chunking contract", () => {
     const deferredMount = source("../../components/DeferredGlobalFeatureCentersMount.tsx");
     const deferredCenters = source("../../components/DeferredGlobalFeatureCenters.tsx");
 
-    expect(main).toContain("<DeferredGlobalFeatureCentersMount />");
-    expect(main).toContain('React.lazy(() => import("./App"))');
-    expect(main).toContain('React.lazy(() => import("./components/PublicNotebookView"))');
+    const globalBridges = source("../../components/GlobalBridges.tsx");
+
+    expect(main).not.toContain("<DeferredGlobalFeatureCentersMount />");
+    expect(main).toContain('React.lazy(() => import("./components/GlobalBridges"))');
+    expect(main).toContain('const loadImageTransformBootstrap = () => import("./lib/imageNodeTransformBootstrap")');
+    expect(main).toContain("await loadImageTransformBootstrap()");
+    expect(main).toContain('return import("./App")');
+    expect(main).toContain('return import("./components/PublicNotebookView")');
+    expect(globalBridges).toContain("<DeferredGlobalFeatureCentersMount />");
+    expect(globalBridges).toContain("<InlineCommentBridge />");
     for (const staticImport of [
       'import AIProfileSwitcherBridge from "./components/AIProfileSwitcherBridge"',
       'import EmbeddingIndexTaskCopyBridge from "./components/EmbeddingIndexTaskCopyBridge"',
