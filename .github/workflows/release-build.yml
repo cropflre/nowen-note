@@ -114,9 +114,10 @@ jobs:
       - name: Build signed APK and AAB
         working-directory: frontend/android
         run: bash gradlew --no-daemon assembleRelease bundleRelease
-      - name: Verify Android package identity, version and signature
+      - name: Verify Android package identity, version and pinned signing certificate
         env:
           RC_VERSION: ${{ inputs.version }}
+          NOWEN_ANDROID_CERT_SHA256: ${{ vars.NOWEN_ANDROID_CERT_SHA256 }}
         run: node scripts/release-cloud-ci.mjs android-stage
       - uses: actions/upload-artifact@v4
         with:
