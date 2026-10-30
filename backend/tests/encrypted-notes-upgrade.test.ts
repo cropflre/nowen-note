@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
@@ -11,7 +12,11 @@ const baseline = "61a9427acdeb9bc565fe6f5be26ef4de7f66e4da";
 const run = promisify(execFile);
 const backend = fileURLToPath(new URL("../", import.meta.url));
 const worker = fileURLToPath(new URL("./encrypted-notes-upgrade-worker.ts", import.meta.url));
-const directory = path.join(path.dirname(process.env.DB_PATH!), "release-upgrade");
+// 该文件会连跑多个旧版本进程，必须自己准备隔离目录；依赖外部注入的 DB_PATH
+// 会让单文件运行和串行 runner 直接抛 ERR_INVALID_ARG_TYPE。
+const dbPath = process.env.DB_PATH
+  ?? path.join(fs.mkdtempSync(path.join(os.tmpdir(), "nowen-encrypted-upgrade-")), "test.db");
+const directory = path.join(path.dirname(dbPath), "release-upgrade");
 
 test("v1.5.0 copy upgrades, saves and syncs, and its pre-upgrade full backup restores on both versions", async (context) => {
   fs.mkdirSync(directory, { recursive: true });
@@ -19,7 +24,8 @@ test("v1.5.0 copy upgrades, saves and syncs, and its pre-upgrade full backup res
   fs.mkdirSync(oldSource);
   const archive = path.join(directory, "v1.5.0.tar");
   await run("git", ["archive", "--format=tar", "--output", archive, baseline, "backend/src", "backend/package.json"], { cwd: path.resolve(backend, "..") });
-  await run("tar", ["-xf", archive, "-C", oldSource]);
+  // GNU tar 会把 "C:\..." 里的盘符当成远端主机，这里用相对路径 + cwd 保持跨平台。
+  await run("tar", ["-xf", "v1.5.0.tar", "-C", "old-source"], { cwd: directory });
   fs.symlinkSync(path.join(backend, "node_modules"), path.join(oldSource, "backend", "node_modules"), process.platform === "win32" ? "junction" : "dir");
   const oldBackend = path.join(oldSource, "backend");
   const source = path.join(directory, "before-upgrade");
