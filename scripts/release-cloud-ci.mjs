@@ -79,7 +79,12 @@ async function androidStage() {
     throw Error('Android APK signing certificate fingerprint does not match NOWEN_ANDROID_CERT_SHA256');
   }
   const badging = run(join(dir, 'aapt'), ['dump', 'badging', apk]);
-  if (!badging.includes("name='com.nowen.note'") || !badging.includes(`versionName='${e.RC_VERSION}'`)) throw Error('Android APK 身份/版本不匹配');
+  const gradle = await readFile('frontend/android/app/build.gradle', 'utf8');
+  const expectedCode = Number(gradle.match(/versionCode\\s+(\\d+)/)?.[1]);
+  if (!Number.isSafeInteger(expectedCode) || !badging.includes("name='com.nowen.note'") ||
+      !badging.includes(`versionName='${e.RC_VERSION}'`) || !badging.includes(`versionCode='${expectedCode}'`)) {
+    throw Error('Android APK application ID / versionName / versionCode 不匹配');
+  }
   await mkdir('release-android', { recursive: true });
   await copyFile(apk, `release-android/Nowen-Note-${e.RC_VERSION}.apk`);
   const aab = 'frontend/android/app/build/outputs/bundle/release/app-release.aab';
