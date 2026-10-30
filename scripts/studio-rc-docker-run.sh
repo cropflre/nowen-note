@@ -45,10 +45,14 @@ start() {
 stop() { docker rm -f "$name" >/dev/null; }
 # Seed a real persistent database using the previous stable production image.
 start "$root/data" "$RC_OLD_IMAGE"
-node scripts/studio-rc-runtime-smoke.mjs seed
+node scripts/studio-rc-runtime-smoke.mjs legacy-seed
 stop
 # Upgrade only the image; keep the exact same bind-mounted data directory.
 start "$root/data" "$RC_IMAGE"
+node scripts/studio-rc-runtime-smoke.mjs legacy-verify
+# Studio was introduced after the published v1.5.3 baseline, so its
+# additional CAS/history fixture is created on the upgraded candidate.
+node scripts/studio-rc-runtime-smoke.mjs seed
 node scripts/studio-rc-runtime-smoke.mjs verify
 docker exec --workdir /app/backend "$name" node -e "
   const DB=require('better-sqlite3'),db=new DB('/app/data/nowen-note.db');
