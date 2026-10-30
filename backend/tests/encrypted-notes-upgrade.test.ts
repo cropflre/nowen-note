@@ -7,7 +7,7 @@ import { promisify } from "node:util";
 import test from "node:test";
 
 // The actual v1.5.0 release, rather than a current database with its ledger edited.
-const baseline = "19a801cba6bf5b4fc7752df09d553c2a8f3c7900";
+const baseline = "61a9427acdeb9bc565fe6f5be26ef4de7f66e4da";
 const run = promisify(execFile);
 const backend = fileURLToPath(new URL("../", import.meta.url));
 const worker = fileURLToPath(new URL("./encrypted-notes-upgrade-worker.ts", import.meta.url));
