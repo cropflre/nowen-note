@@ -43,6 +43,9 @@ async function plan() {
   const gradle = await readFile('frontend/android/app/build.gradle', 'utf8');
   if (gradle.match(/versionName\s+["']([^"']+)/)?.[1] !== input.version) throw Error('Android 版本不一致');
   if (input.targets.includes('android') && e.RC_ANDROID_SIGNING_READY !== 'true') throw Error('Android 签名 Secrets 不完整');
+  if (input.targets.includes('android') && !/^[a-f0-9]{64}$/.test((e.NOWEN_ANDROID_CERT_SHA256 || '').replace(/:/g, '').toLowerCase())) {
+    throw Error('Android 正式构建需要仓库变量 NOWEN_ANDROID_CERT_SHA256（原签名证书 SHA-256）');
+  }
   if (input.targets.includes('ios') && e.RC_IOS_SIGNING_READY !== 'true') throw Error('iOS 签名 Secrets 不完整');
   if (input.targets.includes('macos') && e.RC_MAC_SIGNING_ENABLED === 'true' && e.RC_MAC_SIGNING_READY !== 'true') throw Error('macOS 签名/公证 Secrets 不完整');
   if (input.targets.includes('fpk') && (!/^https:\/\//.test(e.FNPACK_URL || '') || !/^[a-f0-9]{64}$/.test(e.FNPACK_SHA256 || ''))) throw Error('FPK 构建需要 FNPACK_URL 与 FNPACK_SHA256 仓库变量');
