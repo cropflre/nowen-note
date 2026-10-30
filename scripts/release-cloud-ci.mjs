@@ -102,14 +102,28 @@ async function dockerStage() {
   await mkdir('release-docker', { recursive: true });
   run('docker', ['run', '--rm', '--entrypoint', 'node', ref, '-e', "const Database=require('./backend/node_modules/better-sqlite3'); const db=new Database(':memory:'); db.prepare('select 1').get(); db.close(); require('./backend/node_modules/sharp')({create:{width:1,height:1,channels:4,background:'#fff'}}).png().toBuffer().catch(()=>process.exit(1));"]);
   run('docker', ['save', '-o', 'release-docker/image.tar', ref]);
-  await writeFile('release-docker/image.json', JSON.stringify({ ref, id: image.Id, arch: image.Architecture, sha: e.GITHUB_SHA, version: e.RC_VERSION }));
+  // Docker's image ID may be represented differently across runner image stores;
+  // pin the exact transferred archive rather than trusting cross-runner Id equality.
+  const archive = await fileDigest('release-docker/image.tar');
+  await writeFile('release-docker/image.json', JSON.stringify({ ref, id: image.Id, archiveSha256: archive.sha256, arch: image.Architecture, sha: e.GITHUB_SHA, version: e.RC_VERSION }));
 }
 async function loadImage(directory, version, sha, arch) {
   const image = await json(join(directory, 'image.json'));
   if (image.arch !== arch || image.sha !== sha || image.version !== version || image.ref !== `${CLOUD_REPO}:v${version}-${arch}` || !/^sha256:[a-f0-9]{64}$/.test(image.id)) throw Error('Docker 镜像记录不匹配');
+  const archive = await fileDigest(join(directory, 'image.tar'));
+  if (!/^[a-f0-9]{64}$/.test(image.archiveSha256 || '') || archive.sha256 !== image.archiveSha256) {
+    throw Error('Docker 镜像归档 SHA-256 不匹配');
+  }
   run('docker', ['load', '-i', join(directory, 'image.tar')]);
   const loaded = JSON.parse(run('docker', ['image', 'inspect', image.ref]))[0];
-  if (loaded.Id !== image.id || loaded.Architecture !== arch) throw Error('加载后的 Docker 镜像不匹配');
+  const labels = loaded.Config?.Labels || {};
+  // Validate provenance and runtime platform after importing the verified archive.
+  // Image Id equality alone is not portable across OCI/containerd Docker stores.
+  if (loaded.Architecture !== arch || loaded.Os !== 'linux' ||
+      labels['org.opencontainers.image.revision'] !== sha ||
+      labels['org.opencontainers.image.version'] !== version) {
+    throw Error('加载后的 Docker 镜像来源、架构或版本不匹配');
+  }
   return image;
 }
 async function nas() {
