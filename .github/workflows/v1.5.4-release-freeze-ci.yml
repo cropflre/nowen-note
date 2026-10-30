@@ -26,8 +26,12 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: '24.22.1', cache: npm }
       - run: npm ci --ignore-scripts
-      - name: Version, Android code and single publisher contracts
-        run: node --test scripts/tests/release-freeze.test.mjs scripts/tests/release-cloud.test.mjs
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Version, Android signing, and single publisher contracts
+        run: node --test scripts/tests/release-freeze.test.mjs scripts/tests/release-cloud.test.mjs scripts/tests/release-cloud-android-signing.test.mjs
       - name: Legacy update contracts and Store compatibility
         run: npm run test:update-release && npm run test:microsoft-store
 
