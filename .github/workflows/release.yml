@@ -5,7 +5,7 @@
 #   - 旧版 release-assets Draft 收集入口默认关闭，需显式设置 NOWEN_LEGACY_RELEASE_ASSETS_ENABLED=1 才能临时使用；
 #   - 仅手动调试构建；不再由 Tag push 自动重复构建正式候选；
 #   - workflow_dispatch 默认仅调试；release-assets 模式在 GitHub 内汇总同 Tag 产物并校验；
-#   - scripts/release.sh 创建 Draft，校对 CI 回执后决定是否转正式；CI 不发布正式版本；
+#   - scripts/release.sh 只调度统一构建/发布工作流，不在本机创建 Draft、Tag 或上传产物；
 #   - electron-builder 始终 --publish never，避免多发布者并发写 Release。
 
 name: Build & Release
@@ -20,7 +20,7 @@ on:
         options: [debug, release-assets]
         default: debug
       source_run_id:
-        description: Existing release.yml tag-push build run ID (release-assets only)
+        description: Existing manual debug build run ID on the same tag (legacy release-assets only)
         type: string
       request_id:
         description: Unique local release request UUID (release-assets only)
