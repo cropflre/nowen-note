@@ -161,7 +161,7 @@ export const knowledgeTreeApi = {
 
   createForWorkspace(
     workspaceId: string,
-    input: { parentId: string | null; nodeType: "folder" | "note" | "markdown" | "word" | "mindmap" | "sheet"; title: string; contentFormat?: "plaintext" },
+    input: { parentId: string | null; nodeType: "folder" | "note" | "markdown" | "word" | "mindmap" | "sheet" | "excel"; title: string; contentFormat?: "plaintext" },
   ) {
     return request<KnowledgeTreeNode>(`/nodes?${workspaceQuery(false, workspaceId)}`, {
       method: "POST",
