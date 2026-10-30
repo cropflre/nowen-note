@@ -102,10 +102,20 @@ export async function getOrCreateHeifPreview(
     const input = await readSource();
     if (!input) throw new Error("HEIF 原文件不存在");
     const sharp = (await import("sharp")).default;
-    const image = await decodeHeif(input);
-    const buffer = await sharp(Buffer.from(image.data), {
-      raw: { width: image.width, height: image.height, channels: 4 },
-    }).webp({ quality: 90 }).toBuffer();
+    let buffer: Buffer;
+    try {
+      // Prefer the host-native HEIF loader (when libvips was built with HEVC).
+      // This path avoids an extra RGBA copy and accepts codecs unavailable to
+      // the bundled libheif.js decoder. The original HEIC is never modified.
+      buffer = await sharp(input, { limitInputPixels: 64_000_000 })
+        .webp({ quality: 90 }).toBuffer();
+    } catch {
+      // Portable decoder for hosts without native HEIC support (Docker/NAS).
+      const image = await decodeHeif(input);
+      buffer = await sharp(Buffer.from(image.data), {
+        raw: { width: image.width, height: image.height, channels: 4 },
+      }).webp({ quality: 90 }).toBuffer();
+    }
     try {
       fs.mkdirSync(path.dirname(cachePath), { recursive: true });
       fs.writeFileSync(cachePath, buffer);
