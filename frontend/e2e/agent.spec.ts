@@ -405,7 +405,7 @@ test("notebook Agent previews scoped sources, approves linked notes and tasks, a
   await page.getByRole("button", { name: "Agent", exact: true }).click();
   const panel = page.getByRole("region", { name: "Notebook Agent", exact: true });
   await panel.getByLabel("Notebook scope", { exact: true }).selectOption(books[0].id);
-  await panel.getByLabel("What would you like to change?").fill("Summarize workflowmarker sources, create a new note and extract two tasks.");
+  await panel.getByRole("textbox", { name: "What would you like to organize?", exact: true }).fill("Summarize workflowmarker sources, create a new note and extract two tasks.");
   await panel.getByRole("button", { name: "Generate proposal", exact: true }).click();
   await expect(panel.getByRole("button", { name: "Approve and create the displayed drafts", exact: true })).toBeVisible({ timeout: 15000 });
   for (const source of sources) await expect(panel.getByRole("button", { name: source.title, exact: true })).toBeVisible();
@@ -484,7 +484,7 @@ test("P2 template UI and signed webhook generate an approval-bound workflow", as
   await expect(library.getByRole("button", { name: "Use template", exact: true })).toBeVisible();
   const templates = await (await page.request.get(`${product.server}/api/agent/library/templates?workspaceId=personal`, { headers })).json();
   await library.getByRole("button", { name: "Use template", exact: true }).click();
-  await expect(panel.getByLabel("What would you like to change?")).toBeDisabled();
+  await expect(panel.getByRole("textbox", { name: "What would you like to organize?", exact: true })).toBeDisabled();
   await panel.getByRole("button", { name: "Generate proposal", exact: true }).click();
   await expect(panel.getByRole("button", { name: "Approve and create the displayed drafts", exact: true })).toBeVisible();
   await panel.getByRole("button", { name: "Reject", exact: true }).click();
