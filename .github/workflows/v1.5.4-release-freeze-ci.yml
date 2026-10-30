@@ -213,7 +213,13 @@ jobs:
           NOWEN_MAC_ARCH=arm64 TARGET_ARCH=arm64 npx electron-builder --config electron/builder.config.js --mac --publish never
       - name: Verify macOS update metadata and both architectures
         if: matrix.platform == 'mac'
-        run: node scripts/verify-release-update-assets.mjs local --dir dist-electron --version 1.5.4
+        run: |
+          for arch in x64 arm64; do
+            test -s "dist-electron/Nowen-Note-1.5.4-$arch.dmg"
+            test -s "dist-electron/Nowen-Note-1.5.4-$arch.zip"
+          done
+          test -s dist-electron/latest-mac.yml
+          node scripts/verify-release-update-assets.mjs local --dir dist-electron --version 1.5.4
       - name: Upload unsigned macOS QA candidates
         if: matrix.platform == 'mac'
         uses: actions/upload-artifact@v4
