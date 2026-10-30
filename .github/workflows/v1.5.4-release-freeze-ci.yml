@@ -1,0 +1,158 @@
+name: v1.5.4 Release Freeze CI
+
+# Tests and build-only smoke. Never creates tags, drafts, releases, or registry tags.
+on:
+  pull_request:
+    branches: [release/v1.5.4]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-freeze-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_OPTIONS: --max-old-space-size=4096
+  CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+
+jobs:
+  contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '24.22.1', cache: npm }
+      - run: npm ci --ignore-scripts
+      - name: Version, Android code and single publisher contracts
+        run: node --test scripts/tests/release-freeze.test.mjs scripts/tests/release-cloud.test.mjs
+      - name: Legacy update contracts and Store compatibility
+        run: npm run test:update-release && npm run test:microsoft-store
+
+  backend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.22.1'
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - run: npm ci --prefix backend
+      - run: npm --prefix backend run build:tsc
+      - run: npm --prefix backend run build
+      - name: Full backend regression suite
+        run: npm --prefix backend test
+
+  frontend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.22.1'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci --prefix frontend
+      - name: Full React 19 / editor / Skills regression suite
+        run: npm --prefix frontend run test:run
+      - name: Typecheck and Vite production build
+        run: npm --prefix frontend run build
+
+  android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.22.1'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: '21' }
+      - uses: android-actions/setup-android@v3
+      - run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0'
+      - run: npm ci --prefix frontend
+      - run: npm --prefix frontend run build
+      - run: cd frontend && npx cap sync android
+      - name: Unsigned QA APK; never uses production signing material
+        working-directory: frontend/android
+        run: bash gradlew --no-daemon assembleDebug
+      - name: Validate QA APK identity and monotonic version
+        run: |
+          apk=frontend/android/app/build/outputs/apk/debug/app-debug.apk
+          test "$(apkanalyzer manifest application-id "$apk")" = "com.nowen.note"
+          test "$(apkanalyzer manifest version-name "$apk")" = "1.5.4"
+          code=$(apkanalyzer manifest version-code "$apk")
+          test "$code" -gt 10509
+
+  docker:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { arch: amd64, os: ubuntu-24.04 }
+          - { arch: arm64, os: ubuntu-24.04-arm }
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build architecture-specific image (no push)
+        env:
+          ARCH: ${{ matrix.arch }}
+        run: |
+          docker buildx build --load --platform "linux/$ARCH" --tag "nowen-freeze:$GITHUB_SHA-$ARCH" --build-arg APP_VERSION=1.5.4 .
+          docker run --rm --entrypoint node "nowen-freeze:$GITHUB_SHA-$ARCH" backend/scripts/smoke-plugin-artifacts.cjs
+          docker run --rm --entrypoint node "nowen-freeze:$GITHUB_SHA-$ARCH" backend/scripts/smoke-sqlite-vec.cjs
+
+  desktop:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: windows-latest, platform: win }
+          - { os: macos-latest, platform: mac }
+          - { os: ubuntu-latest, platform: linux }
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 180
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '24.22.1', cache: npm }
+      - run: npm ci
+      - run: npm ci --prefix backend
+      - run: npm ci --prefix frontend
+      - run: npm run test:desktop-native
+      - run: npm run fetch:node
+      - run: npm run build:all
+      - name: Windows Full / Lite build-only packaging
+        if: matrix.platform == 'win'
+        run: |
+          npm run rebuild:native
+          npx electron-builder --config electron/builder.config.js --win --publish never
+          npx electron-builder --config electron/builder.lite.config.js --win --publish never
+      - name: macOS Intel + Apple Silicon build-only packaging
+        if: matrix.platform == 'mac'
+        run: |
+          npm run rebuild:native -- --target-platform=darwin --target-arch=x64
+          NOWEN_MAC_ARCH=x64 TARGET_ARCH=x64 npx electron-builder --config electron/builder.config.js --mac --publish never
+          npm run rebuild:native -- --target-platform=darwin --target-arch=arm64
+          NOWEN_MAC_ARCH=arm64 TARGET_ARCH=arm64 npx electron-builder --config electron/builder.config.js --mac --publish never
+      - name: Linux AppImage / deb build-only packaging
+        if: matrix.platform == 'linux'
+        run: |
+          npm run test:linux-desktop
+          npm run rebuild:native
+          npx electron-builder --config electron/builder.config.js --linux --publish never
+      - name: Verify Windows staged update metadata
+        if: matrix.platform == 'win'
+        run: node scripts/verify-release-update-assets.mjs local --dir dist-electron --version 1.5.4
