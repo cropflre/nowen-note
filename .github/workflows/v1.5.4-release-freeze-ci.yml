@@ -158,8 +158,8 @@ jobs:
           path: cloud-artifacts
       - name: Validate pinned fnpack source before NAS package build
         env:
-          FNPACK_URL: ${{ vars.FNPACK_URL }}
-          FNPACK_SHA256: ${{ vars.FNPACK_SHA256 }}
+          FNPACK_URL: ${{ vars.FNPACK_URL || 'https://static2.fnnas.com/fnpack/fnpack-1.2.1-linux-amd64' }}
+          FNPACK_SHA256: ${{ vars.FNPACK_SHA256 || '72d2a4095da676b64510b023731a227b369d80f8079bc45ff8a2f802ec0480c1' }}
         run: |
           test -n "$FNPACK_URL"
           [[ "$FNPACK_URL" == https://* ]]
@@ -168,8 +168,8 @@ jobs:
         env:
           RC_VERSION: 1.5.4
           RC_TARGETS: '["fpk","upk"]'
-          FNPACK_URL: ${{ vars.FNPACK_URL }}
-          FNPACK_SHA256: ${{ vars.FNPACK_SHA256 }}
+          FNPACK_URL: ${{ vars.FNPACK_URL || 'https://static2.fnnas.com/fnpack/fnpack-1.2.1-linux-amd64' }}
+          FNPACK_SHA256: ${{ vars.FNPACK_SHA256 || '72d2a4095da676b64510b023731a227b369d80f8079bc45ff8a2f802ec0480c1' }}
         run: node scripts/release-cloud-ci.mjs nas
       - uses: actions/upload-artifact@v4
         with:
