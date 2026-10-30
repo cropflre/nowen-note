@@ -187,7 +187,7 @@ test("损坏的 HEIC 返回明确预览错误，原件仍可下载", async () =>
   assert.deepEqual(Buffer.from(await original.arrayBuffer()), bytes);
 });
 
-test("删除附件会清理 HEIF 兼容副本和缩略图，不删除其他附件的缓存", async () => {
+test("回收站软删除保留 HEIF 缓存，永久清除才清理且不影响其他附件", async () => {
   const payload = await upload();
   const url = payload.accessUrls[payload.id];
   assert.equal((await app.request(url)).status, 200);
@@ -195,10 +195,19 @@ test("删除附件会清理 HEIF 兼容副本和缩略图，不删除其他附�
   const cache = path.join(attachmentsDir, ".thumbs");
   assert.equal(fs.existsSync(path.join(cache, `${payload.id}_preview.webp`)), true);
   fs.writeFileSync(path.join(cache, "other_preview.webp"), "other");
+  // DELETE 只把附件移入回收站，恢复后仍需直接命中预览缓存。
   const removed = await app.request(`/api/attachments/${payload.id}`, {
     method: "DELETE", headers: { "X-User-Id": owner },
   });
   assert.equal(removed.status, 200);
+  assert.equal(fs.existsSync(path.join(cache, `${payload.id}_preview.webp`)), true);
+  // 永久清除才清理 HEIF 兼容副本与缩略图，其他附件的缓存保持不动。
+  const purged = await app.request("/api/files/trash/purge", {
+    method: "POST",
+    headers: { "X-User-Id": owner, "Content-Type": "application/json" },
+    body: JSON.stringify({ ids: [payload.id], confirmation: "PERMANENTLY_DELETE" }),
+  });
+  assert.equal(purged.status, 200);
   assert.equal(fs.existsSync(path.join(cache, `${payload.id}_preview.webp`)), false);
   assert.equal(fs.existsSync(path.join(cache, `${payload.id}_w240.webp`)), false);
   assert.equal(fs.existsSync(path.join(cache, "other_preview.webp")), true);
