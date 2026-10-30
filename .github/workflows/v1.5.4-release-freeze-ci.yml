@@ -54,6 +54,9 @@ jobs:
   frontend:
     runs-on: ubuntu-latest
     timeout-minutes: 90
+    # The created-at UI contract is tested in the product's primary UTC+8 locale.
+    env:
+      TZ: Asia/Shanghai
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
