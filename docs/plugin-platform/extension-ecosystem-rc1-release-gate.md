@@ -6,7 +6,7 @@ Extension Ecosystem V2 的 Official Registry 使用随 Nowen 发布包编译的 
 
 `backend/src/plugins/official-registry-trust-roots.json` 在开发源码中可以保持 `[]`。此状态下 Official Registry 会 fail closed，Custom Registry 仍必须由管理员显式 pin Ed25519 公钥。
 
-正式发布标签不允许空根：`.github/workflows/extension-ecosystem-rc1-ci.yml` 与 `.github/workflows/release.yml` 都会在 Tag 构建时先注入生产 Root，再执行 RC1 release gate。根为空、格式无效、已过期或 Host API 生成物漂移都会失败。
+正式发布标签不允许空根：Tag 由唯一正式发布工作流 `release-publish.yml` 在人工批准后创建；`.github/workflows/extension-ecosystem-rc1-ci.yml` 随后注入生产 Root 并执行 RC1 release gate。旧 `release.yml` 已不再监听 Tag push。根为空、格式无效、已过期或 Host API 生成物漂移都会失败。
 
 ## 生产 Root 的 GitHub Actions 配置
 
