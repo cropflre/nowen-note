@@ -6,11 +6,26 @@ import { Worker } from "worker_threads";
 const DECODER_SCRIPT = `
 const { parentPort, workerData } = require("worker_threads");
 (async () => {
-  const libheif = await require(workerData.decoderPath);
-  const images = new libheif.HeifDecoder().decode(new Uint8Array(workerData.input));
+  const input = new Uint8Array(workerData.input);
+  const decoderErrors = [];
+  let images = [];
+  // Prefer the bundled WASM decoder. Some HEIC variants are not exposed by its codec
+  // build, while the package's maintained pure-JS decoder can still read them.
+  for (const decoderPath of [workerData.decoderPath, workerData.fallbackDecoderPath]) {
+    try {
+      const libheif = await require(decoderPath);
+      images = new libheif.HeifDecoder().decode(input);
+      if (images.length) break;
+    } catch (error) {
+      decoderErrors.push(error instanceof Error ? error.message : String(error));
+    }
+  }
   try {
     const image = images.find((item) => item.is_primary()) || images[0];
-    if (!image) throw new Error("HEIF 文件没有可解码的图片");
+    if (!image) {
+      const detail = decoderErrors.length ? `: ${decoderErrors.join("; ")}` : "";
+      throw new Error(`HEIF 文件没有可解码的图片${detail}`);
+    }
     const width = image.get_width();
     const height = image.get_height();
     if (width <= 0 || height <= 0 || width * height > 64000000) {
@@ -38,7 +53,11 @@ function decodeHeif(input: Buffer): Promise<DecodedImage> {
   return new Promise((resolve, reject) => {
     const worker = new Worker(DECODER_SCRIPT, {
       eval: true,
-      workerData: { input, decoderPath: require.resolve("libheif-js/wasm-bundle") },
+      workerData: {
+        input,
+        decoderPath: require.resolve("libheif-js/wasm-bundle"),
+        fallbackDecoderPath: require.resolve("libheif-js"),
+      },
       execArgv: [],
     });
     const timer = setTimeout(() => {
