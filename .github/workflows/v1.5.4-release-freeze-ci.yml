@@ -275,6 +275,12 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  store:
+    uses: ./.github/workflows/microsoft-store-appx.yml
+    with:
+      commit_sha: ${{ github.sha }}
+      artifact_name: release-freeze-store-appx
+
   agent-browser:
     runs-on: ubuntu-latest
     timeout-minutes: 60
