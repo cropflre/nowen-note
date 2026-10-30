@@ -39,6 +39,8 @@ jobs:
           node --check electron/storeIdentity.js
           node --check electron/updater.js
           node --check electron/preload.js
+      - name: Install root dependencies for Store/NSIS contract fixtures
+        run: npm ci
       - name: Store/NSIS packaging isolation and runtime tests
         run: npm run test:microsoft-store
       - name: Install frontend dependencies for Store UI type-check
