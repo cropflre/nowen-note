@@ -37,7 +37,7 @@ test('source Xcode build configurations carry v1.5.4 defaults', async () => {
   assert.ok(codes.every(value => value >= 10510));
   const workflow = await read('.github/workflows/ios-release.yml');
   assert.match(workflow, /CURRENT_PROJECT_VERSION/);
-  assert.doesNotMatch(workflow, /BUILD_NUMBER="\\$\\{GITHUB_RUN_NUMBER\\}"/);
+  assert.equal(workflow.includes('BUILD_NUMBER="${GITHUB_RUN_NUMBER}"'), false);
 });
 
 test('Node 24 is used by the canonical GitHub-hosted build and publishing workflows', async () => {
