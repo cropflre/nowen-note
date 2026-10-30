@@ -99,6 +99,29 @@ test('Docker freeze gate builds and upgrades the real v1.5.3 production image on
   assert.match(runner, /WAL backup, independent recovery/);
 });
 
+test('NAS transfer validates immutable image tar digest and OCI source labels', async () => {
+  const cli = await read('scripts/release-cloud-ci.mjs');
+  assert.match(cli, /archiveSha256:\s*archive\.sha256/);
+  assert.match(cli, /archive\.sha256 !== image\.archiveSha256/);
+  assert.match(cli, /loaded\.Architecture !== arch/);
+  assert.match(cli, /loaded\.Os !== 'linux'/);
+  assert.match(cli, /labels\['org\.opencontainers\.image\.revision'\] !== sha/);
+  assert.match(cli, /labels\['org\.opencontainers\.image\.version'\] !== version/);
+});
+
+test('v1.5.4 production upgrade checks published note APIs and WAL snapshot, not deferred Studio routes', async () => {
+  const smoke = await read('scripts/studio-rc-runtime-smoke.mjs');
+  const runner = await read('scripts/studio-rc-docker-run.sh');
+  assert.match(smoke, /candidate update note/);
+  assert.match(smoke, /stale note write rejected/);
+  assert.match(smoke, /cross-user note read denied/);
+  assert.match(smoke, /candidate notes CRUD, optimistic concurrency and ownership/);
+  assert.doesNotMatch(smoke, /request\("\"?\/api\/plugins\/personal-apps/);
+  assert.match(runner, /SELECT COUNT\(\*\) AS n FROM notes/);
+  assert.match(runner, /STUDIO_WAL_BACKUP_PASS/);
+  assert.match(runner, /STUDIO_PRODUCTION_DOCKER_RC_PASS/);
+});
+
 test('independently versioned frontend workspace remains unchanged', async () => {
   const frontend = await json('frontend/package.json');
   assert.equal(frontend.version, '0.0.0');
