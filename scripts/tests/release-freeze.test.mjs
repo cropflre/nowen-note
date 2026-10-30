@@ -95,7 +95,8 @@ test('Docker freeze gate builds and upgrades the real v1.5.3 production image on
   assert.match(runner, /start "\$root\/data" "\$RC_OLD_IMAGE"/);
   assert.match(runner, /start "\$root\/data" "\$RC_IMAGE"/);
   assert.match(runner, /start "\$root\/restore" "\$RC_IMAGE"/);
-  assert.match(runner, /STUDIO_WAL_BACKUP_PASS/);
+  assert.match(runner, /STUDIO_PRODUCTION_DOCKER_RC_PASS/);
+  assert.match(runner, /WAL backup, independent recovery/);
 });
 
 test('independently versioned frontend workspace remains unchanged', async () => {
