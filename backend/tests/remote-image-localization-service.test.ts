@@ -240,10 +240,14 @@ test("job ownership is isolated", async () => {
     async () => localization.getLocalizationJob(OTHER_USER_ID, created.id),
     (error: any) => error?.code === "JOB_NOT_FOUND",
   );
-  // This fixture owns a real queued job. Clean it up before the next test for the same
-  // user; otherwise the active-job guard correctly rejects the next scenario.
-  localization.cancelLocalizationJob(USER_ID, created.id);
-  assert.equal((await waitForJob(USER_ID, created.id)).status, "cancelled");
+  // This fixture owns a real job. Settle it before the next scenario for the same user;
+  // the runner may have started (or even completed) before this async ownership check returns.
+  const owned = localization.getLocalizationJob(USER_ID, created.id);
+  if (owned.status === "queued" || owned.status === "running") {
+    localization.cancelLocalizationJob(USER_ID, created.id);
+  }
+  const settled = await waitForJob(USER_ID, created.id);
+  assert.ok(!["queued", "running"].includes(settled.status));
 });
 
 test("all-personal job scans automatically beyond the note and image batch limits", async () => {
