@@ -7,10 +7,11 @@ import { collaborationScope } from "@/lib/aiCollaboration";
 import { registerMobileBackHandler } from "@/lib/mobileBackNavigation";
 import PersonalSkillsEditor, { type PersonalSkill } from "./PersonalSkillsEditor";
 
-export default function ChatSkillsPicker({ scope, onSelect }: { scope: string; onSelect: (id: string) => void }) {
+export default function ChatSkillsPicker({ scope, onSelect, value }: { scope: string; onSelect: (id: string) => void; value?: string }) {
   const { t } = useTranslation();
   const [items, setItems] = useState<PersonalSkill[]>([]);
-  const [selected, setSelected] = useState("");
+  const [localSelected, setSelected] = useState("");
+  const selected = value ?? localSelected;
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [open, setOpen] = useState(false);

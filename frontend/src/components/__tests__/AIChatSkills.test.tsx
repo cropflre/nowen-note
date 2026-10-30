@@ -20,7 +20,7 @@ import Shell from "../AIChatReliabilityShell";
 let host: HTMLDivElement; let root: Root;
 const flush = async () => { await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)); }); };
 async function choose(value: string) {
-  const select = host.querySelector('[aria-label="自定义 Skill"]') as HTMLSelectElement;
+  const select = document.querySelector('[aria-label="自定义 Skill"]') as HTMLSelectElement;
   await act(async () => { select.value = value; select.dispatchEvent(new Event("change", { bubbles: true })); });
 }
 async function ask() {
@@ -33,7 +33,7 @@ beforeEach(async () => {
   await i18n.changeLanguage("zh-CN"); host = document.createElement("div"); document.body.append(host); root = createRoot(host);
   await act(async () => root.render(<Shell onClose={() => {}} />)); await flush();
 });
-afterEach(async () => { await act(async () => root.unmount()); host.remove(); });
+afterEach(async () => { await act(async () => root.unmount()); host.remove(); window.innerWidth = 1024; });
 
 it("passes the chosen Skill ID with history and knowledge scope, and omits it when disabled", async () => {
   await choose("review"); await ask();
@@ -49,4 +49,24 @@ it("clears selected Skills when account changes and blocks stale scope before ev
   await act(async () => window.dispatchEvent(new Event("nowen:token-changed"))); await flush();
   await ask(); expect(mocks.ask.mock.calls[0][0].skillId).toBeUndefined();
   expect(host.textContent).not.toContain("Review");
+});
+
+it("keeps mobile settings out of the chat and preserves the chosen Skill after closing nested dialogs", async () => {
+  await act(async () => root.render(null)); window.innerWidth = 375;
+  await act(async () => root.render(<Shell onClose={() => {}} />)); await flush();
+  expect(host.querySelector("select")).toBeNull();
+  const settings = () => document.querySelector('[role="dialog"][aria-label="问答设置"]') as HTMLElement;
+  expect(settings().closest("[hidden]")).not.toBeNull();
+  const trigger = host.querySelector('[aria-label="问答设置"]') as HTMLButtonElement;
+  await act(async () => trigger.click());
+  expect(settings().closest("[hidden]")).toBeNull();
+  await choose("review");
+  await act(async () => Array.from(settings().querySelectorAll("button")).find(button => button.textContent === "管理 Skill")!.click());
+  const manager = document.querySelector('[role="dialog"][aria-label="管理个人 Skill / 导入提示词"]')!;
+  await act(async () => manager.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+  expect(settings().closest("[hidden]")).toBeNull();
+  await act(async () => settings().dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+  expect(settings().closest("[hidden]")).not.toBeNull();
+  expect(document.activeElement).toBe(trigger);
+  await ask(); expect(mocks.ask.mock.calls[0][0].skillId).toBe("review");
 });
