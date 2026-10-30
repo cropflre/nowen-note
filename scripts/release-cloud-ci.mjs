@@ -73,7 +73,7 @@ async function androidStage() {
   const apk = 'frontend/android/app/build/outputs/apk/release/app-release.apk';
   run(join(dir, 'apksigner'), ['verify', '--verbose', apk]);
   const certificateOutput = run(join(dir, 'apksigner'), ['verify', '--print-certs', apk]);
-  const certificate = certificateOutput.match(/Signer #1 certificate SHA-256 digest:\\s*([a-f0-9:]+)/i)?.[1]?.replace(/:/g, '').toLowerCase();
+  const certificate = certificateOutput.match(/Signer #1 certificate SHA-256 digest:\s*([a-f0-9:]+)/i)?.[1]?.replace(/:/g, '').toLowerCase();
   const expectedCertificate = (e.NOWEN_ANDROID_CERT_SHA256 || '').replace(/:/g, '').toLowerCase();
   if (!/^[a-f0-9]{64}$/.test(expectedCertificate) || certificate !== expectedCertificate) {
     throw Error('Android APK signing certificate fingerprint does not match NOWEN_ANDROID_CERT_SHA256');
